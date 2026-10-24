@@ -77,7 +77,7 @@ process-gpt-lite/
 ├── android/             Android wrapper app (Kotlin)
 ├── skills/              기본 스킬 / bundled skills
 ├── artcraft/            ArtCraft 업스트림 패치·빌드 스크립트 (바이너리 없음 / no binaries)
-├── install/             설치 번들 (곧 추가 / coming soon)
+├── install/             설치 번들 (Docker Compose) / installer
 └── backends/            git submodules
     ├── process-gpt/     uengine-oss/process-gpt  (branch feat/pgpt-lite)
     └── office-host/     uengine-oss/process-gpt-office-host  (main)
@@ -111,10 +111,18 @@ git submodule update --init backends/process-gpt backends/office-host
 > ⚠️ `process-gpt-deepagents` 저장소는 현재 비공개입니다. 접근 권한이 없으면 이 서브모듈은 받을 수 없습니다.
 > The `process-gpt-deepagents` repository is currently private; you need access to fetch it.
 
+## 설치 (Docker Compose) / Install
+
+Docker 만 있으면 한 줄로 설치합니다. 자세한 내용은 [install/README.md](install/README.md).
+One line with Docker installed — see [install/README.md](install/README.md).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/uengine-oss/process-gpt-lite/main/install/get.sh | bash
+```
+
 ## 빠른 시작 (개발자용) / Quick start (developers)
 
-설치 번들은 [install/](install/README.md)에 곧 추가됩니다. 지금은 아래처럼 직접 실행합니다.
-An installer bundle is coming to [install/](install/README.md). Until then, run it by hand:
+소스에서 직접 실행하려면 / To run from source by hand:
 
 ```bash
 # 0) Process GPT 백엔드 실행 (backends/process-gpt/README.md 참고)

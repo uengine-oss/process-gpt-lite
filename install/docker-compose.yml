@@ -1,0 +1,429 @@
+# Process GPT Lite — single-machine bundle
+#
+#   ./install.sh                 # generates .env, builds, starts the `lite` profile
+#   docker compose --profile lite up -d
+#   docker compose --profile full up -d      # lite + process engine (completion, polling) + mcp-hub (experimental)
+#
+# Source locations follow the process-gpt-lite repository layout (this folder is `install/`):
+#   ..                         pgpt-pro (web + BFF)
+#   ../backends/process-gpt    process-gpt monorepo (docker-infra SQL, deepagents, office-mcp, …)
+#   ../backends/office-host    IeumOffice web host (process-gpt-office-host)
+# Each can be overridden in .env (PGPT_SRC, PROCESS_GPT_SRC, OFFICE_HOST_SRC).
+# Prebuilt images: set LITE_IMAGE_PREFIX/LITE_TAG and run `docker compose pull` instead of build.
+
+name: ${COMPOSE_PROJECT_NAME:-pgpt-lite}
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-supabase-env: &supabase-env
+  SUPABASE_URL: http://kong:8000
+  SUPABASE_ANON_KEY: ${ANON_KEY}
+  SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+  SUPABASE_JWT_SECRET: ${JWT_SECRET}
+
+services:
+  # ───────────────────────── Supabase (minimal set) ─────────────────────────
+  db:
+    <<: *restart
+    image: supabase/postgres:15.8.1.060
+    profiles: [lite, full]
+    command: [postgres, -c, config_file=/etc/postgresql/postgresql.conf, -c, log_min_messages=fatal]
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: 5432
+      POSTGRES_PORT: 5432
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY:-3600}
+    volumes:
+      # Supabase role passwords / JWT settings from process-gpt docker-infra (unchanged). The
+      # process-gpt schema itself (init.sql + migration.sql) is applied by `migrate`.
+      - ${PROCESS_GPT_SRC:-../backends/process-gpt}/docker-infra/volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:ro
+      - ${PROCESS_GPT_SRC:-../backends/process-gpt}/docker-infra/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ${PROCESS_GPT_SRC:-../backends/process-gpt}/docker-infra/volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+      - db-data:/var/lib/postgresql/data
+      - db-config:/etc/postgresql-custom
+    healthcheck:
+      test: pg_isready -U postgres -h localhost
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  auth:
+    <<: *restart
+    image: supabase/gotrue:v2.177.0
+    profiles: [lite, full]
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${PUBLIC_URL}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_SITE_URL: ${PUBLIC_URL}
+      GOTRUE_URI_ALLOW_LIST: ${PUBLIC_URL}/**
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY:-3600}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+      GOTRUE_MAILER_OTP_EXP: 600
+      GOTRUE_SMTP_MAX_FREQUENCY: 10s
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: 100
+      # sign-in codes: the bundled mailbox (mailpit) unless real SMTP is configured
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-mailpit}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-1025}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-noreply@pgpt-lite.local}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-Process GPT Lite}
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: "[Process GPT] 로그인 코드"
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: "[Process GPT] 로그인 코드"
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: http://web/_lite/email/code.html
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: http://web/_lite/email/code.html
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+    healthcheck:
+      test: [CMD, wget, --no-verbose, --tries=1, --spider, http://localhost:9999/health]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rest:
+    <<: *restart
+    image: postgrest/postgrest:v12.2.12
+    profiles: [lite, full]
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public,storage,graphql_public,panel_data
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY:-3600}
+    command: postgrest
+
+  storage:
+    <<: *restart
+    image: supabase/storage-api:v1.25.7
+    profiles: [lite, full]
+    depends_on:
+      db: { condition: service_healthy }
+      rest: { condition: service_started }
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      FILE_SIZE_LIMIT: 104857600
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - storage-data:/var/lib/storage
+    healthcheck:
+      test: [CMD, wget, --no-verbose, --tries=1, --spider, http://127.0.0.1:5000/status]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kong:
+    <<: *restart
+    image: kong:2.8.1
+    profiles: [lite, full]
+    depends_on: [auth, rest, storage]
+    volumes:
+      - ./supabase/kong.yml:/home/kong/temp.yml:ro
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      # one worker per CPU (the default) costs ~80MB each; two are plenty here
+      KONG_NGINX_WORKER_PROCESSES: 2
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+    entrypoint: bash -c 'eval "echo \"$$(cat ~/temp.yml)\"" > ~/kong.yml && /docker-entrypoint.sh kong docker-start'
+
+  # sign-in codes land here (web UI on 127.0.0.1 only) until real SMTP is configured
+  mailpit:
+    <<: *restart
+    image: axllent/mailpit:v1.27
+    profiles: [lite, full]
+    environment:
+      MP_MAX_MESSAGES: 500
+    ports:
+      - "127.0.0.1:${LITE_MAIL_PORT:-18025}:8025"
+
+  # one-shot: process-gpt schema is applied by db init; this applies pgpt-pro's server/sql in
+  # order (tracked), storage buckets, PostgREST schemas, the tenant and its MCP servers.
+  migrate:
+    image: supabase/postgres:15.8.1.060
+    profiles: [lite, full]
+    depends_on:
+      db: { condition: service_healthy }
+      storage: { condition: service_healthy }
+    entrypoint: [bash, /lite/db/migrate.sh]
+    environment:
+      PGHOST: db
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: postgres
+      LITE_TENANT: ${LITE_TENANT:-lite}
+      LITE_PROFILE: ${LITE_PROFILE:-lite}
+      PGOPTIONS: -c client_min_messages=warning
+    volumes:
+      - ./db:/lite/db:ro
+      - ${PROCESS_GPT_SRC:-../backends/process-gpt}/docker-infra/volumes/db:/lite/process-gpt-db:ro
+      - ${PGPT_SRC:-..}/server/sql:/lite/pgpt-sql:ro
+    restart: "no"
+
+  # ───────────────────────── agents & documents ─────────────────────────
+  deepagents:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/deepagents:${LITE_TAG:-local}
+    build:
+      context: ${PROCESS_GPT_SRC:-../backends/process-gpt}/services/deepagents
+      dockerfile: ${LITE_INSTALL_DIR:?run ./install.sh first}/docker/deepagents.Dockerfile
+      additional_contexts:
+        system-skills: ${PROCESS_GPT_SRC:-../backends/process-gpt}/skills
+        install-docker: ./docker
+    profiles: [lite, full]
+    depends_on:
+      kong: { condition: service_started }
+      migrate: { condition: service_completed_successfully }
+    environment:
+      <<: *supabase-env
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      # the sandbox containers are siblings on the host daemon: workspace/skills must have the same
+      # absolute path inside this container as on the host (see docker/deepagents-entrypoint.sh)
+      DEEPAGENTS_HOME: ${LITE_DATA_DIR}/deepagents
+      SANDBOX_NETWORK_NAME: ${COMPOSE_PROJECT_NAME:-pgpt-lite}-sandbox
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-python:3.13-slim}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_PROXY_URL: ${LLM_BASE_URL}
+      LLM_PROXY_API_KEY: ${LLM_API_KEY}
+      OPENAI_API_KEY: ${LLM_API_KEY}
+      LLM_EMBEDDING_MODEL: ${LLM_EMBEDDING_MODEL:-text-embedding-3-small}
+      SELF_BASE_URL: http://deepagents:8888
+      PROCESS_GPT_OFFICE_MCP_URL: http://office-mcp:1192/mcp/
+      MEMENTO_BASE_URL: ${MEMENTO_URL:-}
+      COMPLETION_ENGINE_URL: ${COMPLETION_URL:-}
+      COMPLETION_SERVICE_URL: ${COMPLETION_URL:-http://completion:8000}
+      MCP_HUB_URL: http://mcp-hub:8500
+      MCP_HUB_ENABLED: ${MCP_HUB_ENABLED:-false}
+      MCP_TRACE_ENABLED: ${MCP_HUB_ENABLED:-false}
+      DEEPAGENTS_PROCESS_POLLING: ${DEEPAGENTS_PROCESS_POLLING:-false}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${LITE_DATA_DIR}/deepagents/workspace:${LITE_DATA_DIR}/deepagents/workspace
+      - ${LITE_DATA_DIR}/deepagents/skills:${LITE_DATA_DIR}/deepagents/skills
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:8888/health]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  office-mcp:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/office-mcp:${LITE_TAG:-local}
+    build:
+      context: ${PROCESS_GPT_SRC:-../backends/process-gpt}/services/office-mcp
+      dockerfile: ${LITE_INSTALL_DIR:?run ./install.sh first}/docker/office-mcp.Dockerfile
+      additional_contexts:
+        install-docker: ./docker
+    profiles: [lite, full]
+    depends_on: [kong]
+    environment:
+      # office-mcp builds browser-facing storage URLs from SUPABASE_URL: give it the public origin
+      # and forward that origin's loopback port to the web gateway inside the container
+      SUPABASE_URL: ${PUBLIC_URL}
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      LOOPBACK_FORWARD: ${LOOPBACK_FORWARD:-}
+      OFFICE_MCP_LLM_PROVIDER: custom
+      CUSTOM_LLM_BASE_URL: ${LLM_BASE_URL}
+      CUSTOM_LLM_API_KEY: ${LLM_API_KEY}
+      CUSTOM_LLM_MODEL: ${LLM_MODEL}
+      OPENAI_API_KEY: ${LLM_API_KEY}
+      MEMENTO_SERVICE_URL: ${MEMENTO_URL:-http://memento:8005}
+
+  office-host:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/office-host:${LITE_TAG:-local}
+    build:
+      # upstream Dockerfile, unchanged (needs the ieumoffice submodule checked out)
+      context: ${OFFICE_HOST_SRC:-../backends/office-host}
+    profiles: [lite, full]
+    depends_on: [kong]
+    environment:
+      <<: *supabase-env
+      SUPABASE_PUBLIC_URL: ${PUBLIC_URL}
+      IEUM_ALLOWED_SOURCES: ${PUBLIC_URL}
+      IEUM_PUBLIC_URL: ${PUBLIC_URL}
+      CUSTOM_LLM_BASE_URL: ${LLM_BASE_URL}
+      CUSTOM_LLM_API_KEY: ${LLM_API_KEY}
+      CUSTOM_LLM_MODEL: ${LLM_MODEL}
+      CUSTOM_LLM_NAME: ${LLM_DISPLAY_NAME:-AI}
+      IEUM_LANG: ko
+      # the editor downloads `src` as given (the public URL): forward its loopback port to web
+      LOOPBACK_FORWARD: ${LOOPBACK_FORWARD:-}
+    command: [node, --import, /lite/loopback.mjs, dist/office-host.mjs]
+    volumes:
+      - office-data:/data
+      - ./docker/loopback.mjs:/lite/loopback.mjs:ro
+
+  # ───────────────────────── Process GPT Lite (pgpt-pro) ─────────────────────────
+  server:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/server:${LITE_TAG:-local}
+    build:
+      context: ${PGPT_SRC:-..}
+      dockerfile: ${LITE_INSTALL_DIR:?run ./install.sh first}/docker/pgpt.Dockerfile
+      target: server
+      additional_contexts:
+        install-docker: ./docker
+      args:
+        WITH_BROWSER: ${WITH_BROWSER:-1}
+    profiles: [lite, full]
+    depends_on:
+      kong: { condition: service_started }
+      migrate: { condition: service_completed_successfully }
+    environment:
+      PRO_PORT: 8787
+      PRO_PUBLIC_URL: ${PUBLIC_URL}
+      PRO_TENANT_ID: ${LITE_TENANT:-lite}
+      # one URL for the server and the browser (storage links are handed to both)
+      PRO_SUPABASE_URL: ${PUBLIC_URL}
+      LOOPBACK_FORWARD: ${LOOPBACK_FORWARD:-}
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PRO_DB_HOST: db
+      PRO_DB_PORT: 5432
+      PRO_DEEPAGENTS_URL: http://deepagents:8888
+      PRO_COMPLETION_URL: http://completion:8000
+      PRO_CLI_AGENT_URL: http://cli-agent:8890
+      PRO_CONTEXT_ROUTER_URL: ${CONTEXT_ROUTER_URL:-}
+      PRO_BROWSER_GATES: ${BROWSER_GATES:-off}
+      PRO_MCP_HUB_URL: http://mcp-hub:8500
+      PRO_MCP_VALIDATE_BASE: http://server:8787
+      PRO_MCP_RUNTIME_BASE: http://server:8787
+      PRO_LLM_BASE_URL: ${LLM_BASE_URL}
+      PRO_LLM_API_KEY: ${LLM_API_KEY}
+      PRO_LLM_MODEL: ${LLM_MODEL}
+      PRO_LLM_FAST_MODEL: ${LLM_FAST_MODEL:-${LLM_MODEL}}
+      PRO_VAULT_KEK: ${VAULT_KEK}
+      PRO_CRON_CALLBACK: http://server:8787
+      PRO_CRON_SECRET: ${CRON_SECRET}
+      PRO_DEMO_LOGIN: ${DEMO_LOGIN:-0}
+      PRO_FOLDERS_ROOT: /data/folders
+      PRO_CRAFT_WEB_ROOT: /data/craft
+      PRO_HWPX_TEMPLATE_URL: ${HWPX_TEMPLATE_URL:-}
+      PRO_MEMENTO_URL: ${MEMENTO_URL:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # pgpt-pro shares deepagents' workspace and skill folders by path
+      PGPT_ROOT: /pgpt
+    volumes:
+      - server-data:/data
+      - ${LITE_DATA_DIR}/deepagents/workspace:/pgpt/services/deepagents/workspace
+      - ${LITE_DATA_DIR}/deepagents/skills:/pgpt/services/deepagents/skills
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:8787/api/config').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  web:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/web:${LITE_TAG:-local}
+    build:
+      context: ${PGPT_SRC:-..}
+      dockerfile: ${LITE_INSTALL_DIR:?run ./install.sh first}/docker/pgpt.Dockerfile
+      target: web
+      additional_contexts:
+        install-docker: ./docker
+    profiles: [lite, full]
+    depends_on: [server, kong]
+    volumes:
+      - ./supabase/email:/usr/share/nginx/html/_lite/email:ro
+    ports:
+      - "${LITE_BIND:-127.0.0.1}:${LITE_HTTP_PORT:-18080}:80"
+
+  # ───────────────────────── full profile ─────────────────────────
+  # process engine: start/submit (completion) and moving instances forward (polling-service)
+  completion:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/completion:${LITE_TAG:-local}
+    build:
+      # upstream Dockerfile and .dockerignore (services/completion)
+      context: ${PROCESS_GPT_SRC:-../backends/process-gpt}/services/completion
+    profiles: [full]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment: &engine-env
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_JWT_SECRET: ${JWT_SECRET}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_PROXY_URL: ${LLM_BASE_URL}
+      LLM_PROXY_API_KEY: ${LLM_API_KEY}
+      OPENAI_API_KEY: ${LLM_API_KEY}
+      ENV: production
+
+  # moves instances forward; imports completion's modules, so it runs from the same image
+  polling:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/completion:${LITE_TAG:-local}
+    profiles: [full]
+    depends_on: [completion]
+    environment:
+      <<: *engine-env
+      PYTHONPATH: /usr/src/app
+    working_dir: /usr/src/app/polling_service
+    command: [sh, -c, "pip install --no-cache-dir -q -r requirements.txt && exec python main.py"]
+
+  mcp-hub:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/mcp-hub:${LITE_TAG:-local}
+    build:
+      context: ${PROCESS_GPT_SRC:-../backends/process-gpt}/services/mcp-hub
+    profiles: [full]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      PROCESSGPT_DB_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      MCP_HEALTH_INTERVAL_SEC: 300
+      # api.py imports `mcp_hub.*` (upstream Dockerfile only puts /app on the path)
+      PYTHONPATH: /app/src:/app
+
+volumes:
+  db-data:
+  db-config:
+  storage-data:
+  office-data:
+  server-data:

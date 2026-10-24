@@ -1,0 +1,24 @@
+# whitelist: only what the two images need from the pgpt-pro tree
+*
+!package.json
+!package-lock.json
+!index.html
+!vite.config.js
+!public/**
+!src/**
+!skills/**
+!server/**
+# never: secrets, local state, tests, recordings
+server/.env
+server/.env.*
+server/.vault-kek
+server/.vault-keyring.json*
+server/.public-access
+server/.browser-profiles
+server/node_modules
+server/shots
+server/test
+server/fixtures
+**/*.log
+**/.DS_Store
+**/node_modules

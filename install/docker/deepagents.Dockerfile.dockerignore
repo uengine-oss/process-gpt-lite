@@ -1,0 +1,23 @@
+.git
+.github
+.agent
+.claude
+.codex
+.vscode
+.venv
+.pytest_cache
+**/__pycache__
+**/*.pyc
+**/*.log
+**/.DS_Store
+.env
+.env.*
+*.pem
+*.key
+workspace
+{ws}
+openspec
+tests
+# tenant skills are user data: only the bundled, licensed collection goes in the image
+skills/*
+!skills/anthropics-skills
