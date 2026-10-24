@@ -1,0 +1,28 @@
+{
+  "name": "process-gpt-lite-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@supabase/supabase-js": "^2.118.0",
+    "dotenv": "^18.0.8",
+    "exceljs": "^4.4.0",
+    "express": "^5.3.0",
+    "imapflow": "^2.8.0",
+    "mailparser": "^3.12.2",
+    "pg": "^8.23.1",
+    "playwright": "^1.64.1",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
+  }
+}

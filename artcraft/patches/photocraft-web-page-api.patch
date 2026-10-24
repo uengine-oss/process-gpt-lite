@@ -1,0 +1,219 @@
+diff --git a/apps/photocraft-web/Cargo.toml b/apps/photocraft-web/Cargo.toml
+index 279d13b..14b5bd5 100644
+--- a/apps/photocraft-web/Cargo.toml
++++ b/apps/photocraft-web/Cargo.toml
+@@ -32,6 +32,8 @@ log = { workspace = true }
+ eframe = { workspace = true, features = ["wgpu", "accesskit"] }
+ rfd = { workspace = true }
+ wasm-bindgen = "0.2"
++serde_json = { workspace = true }
++base64 = "0.22"
+ wasm-bindgen-futures = "0.4"
+ js-sys = "0.3"
+ web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "DomRect", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Location", "CssStyleDeclaration", "Storage", "Event", "EventTarget", "MouseEvent", "PointerEvent", "BeforeUnloadEvent", "AbortController", "AbortSignal", "DomException", "Response", "IdbFactory", "IdbOpenDbRequest", "IdbDatabase", "IdbRequest", "IdbTransaction", "IdbTransactionMode", "IdbObjectStore", "IdbCursor", "IdbCursorWithValue", "RequestInit", "RequestMode", "Navigator"] }
+diff --git a/apps/photocraft-web/src/api.rs b/apps/photocraft-web/src/api.rs
+new file mode 100644
+index 0000000..9938b3a
+--- /dev/null
++++ b/apps/photocraft-web/src/api.rs
+@@ -0,0 +1,153 @@
++//! `window.photocraft`: the control channel for the page, as promises (pgpt-pro local patch).
++//!
++//! The same JSON methods as the desktop control server (`docs/control-protocol.md`), so a host
++//! page showing PhotoCraft in an `<iframe>` (or an agent bridged to it) drives the open document
++//! with the commands it would send to `photocraft --control`:
++//!
++//! ```js
++//! await photocraft.request("engine.execute", {command: "layer.new", params: {}})
++//! await photocraft.execute("document.inspect")
++//! await photocraft.inspect()
++//! ```
++//!
++//! Results resolve with the method's `result`; errors reject with an `Error`. Requests run on the
++//! app's next frame (no deadline: the browser has no `Instant`). The browser can't capture the
++//! window (`ui.screenshot` never answers there), so here it renders the active document as PNG
++//! instead: `{base64, mime, width, height}`, as the desktop's capture replies.
++
++use std::cell::RefCell;
++use std::sync::mpsc::{Receiver, Sender, TryRecvError};
++
++use photocraft_ui_egui::ControlRequest;
++use serde_json::{Value, json};
++use wasm_bindgen::prelude::*;
++
++type Waiting = (Receiver<Value>, js_sys::Function, js_sys::Function);
++
++thread_local! {
++    static TX: RefCell<Option<Sender<ControlRequest>>> = const { RefCell::new(None) };
++    static WAITING: RefCell<Vec<Waiting>> = const { RefCell::new(Vec::new()) };
++    static CTX: RefCell<Option<egui::Context>> = const { RefCell::new(None) };
++    static PREVIEWS: RefCell<Vec<(js_sys::Function, js_sys::Function)>> = const { RefCell::new(Vec::new()) };
++}
++
++/// Answer the waiting `ui.screenshot` requests with `render()`: the active document as PNG bytes and its size.
++pub fn serve_previews(render: impl Fn() -> Result<(Vec<u8>, u32, u32), String>) {
++    let waiting = PREVIEWS.with(|p| std::mem::take(&mut *p.borrow_mut()));
++    if waiting.is_empty() {
++        return;
++    }
++    let result = render();
++    for (resolve, reject) in waiting {
++        match &result {
++            Ok((png, w, h)) => {
++                use base64::Engine as _;
++                let v = json!({"base64": base64::engine::general_purpose::STANDARD.encode(png), "mime": "image/png", "width": w, "height": h});
++                let _ = resolve.call1(&JsValue::NULL, &to_js(&v));
++            }
++            Err(e) => {
++                let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new(e));
++            }
++        }
++    }
++}
++
++/// Wire the page's requests to the app's control channel.
++pub fn connect(tx: Sender<ControlRequest>, ctx: egui::Context) {
++    TX.with(|t| *t.borrow_mut() = Some(tx));
++    CTX.with(|c| *c.borrow_mut() = Some(ctx));
++}
++
++fn repaint() {
++    CTX.with(|c| {
++        if let Some(ctx) = c.borrow().as_ref() {
++            ctx.request_repaint();
++        }
++    });
++}
++
++fn to_js(v: &Value) -> JsValue {
++    js_sys::JSON::parse(&v.to_string()).unwrap_or(JsValue::NULL)
++}
++
++fn from_js(v: &JsValue) -> Value {
++    if v.is_undefined() || v.is_null() {
++        return json!({});
++    }
++    js_sys::JSON::stringify(v).ok().and_then(|s| s.as_string()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}))
++}
++
++/// Settle the promises of answered requests (called every frame); keeps frames coming while some wait.
++pub fn poll_replies() {
++    let waiting = WAITING.with(|w| {
++        let mut w = w.borrow_mut();
++        w.retain(|(rx, resolve, reject)| match rx.try_recv() {
++            Ok(v) => {
++                if v.get("ok").and_then(Value::as_bool) == Some(true) {
++                    let _ = resolve.call1(&JsValue::NULL, &to_js(v.get("result").unwrap_or(&Value::Null)));
++                } else {
++                    let msg = v.get("error").and_then(Value::as_str).unwrap_or("error").to_string();
++                    let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new(&msg));
++                }
++                false
++            }
++            Err(TryRecvError::Empty) => true,
++            Err(TryRecvError::Disconnected) => {
++                let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new("request dropped"));
++                false
++            }
++        });
++        !w.is_empty()
++    });
++    if waiting {
++        repaint();
++    }
++}
++
++fn request(method: &str, params: Value) -> js_sys::Promise {
++    let method = method.to_string();
++    if method == "ui.screenshot" {
++        let p = js_sys::Promise::new(&mut |resolve, reject| PREVIEWS.with(|p| p.borrow_mut().push((resolve, reject))));
++        repaint();
++        return p;
++    }
++    let p = js_sys::Promise::new(&mut |resolve, reject| {
++        let (req, rx) = ControlRequest::new(method.clone(), params.clone());
++        let sent = TX.with(|t| t.borrow().as_ref().is_some_and(|tx| tx.send(req).is_ok()));
++        if sent {
++            WAITING.with(|w| w.borrow_mut().push((rx, resolve, reject)));
++        } else {
++            let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new("PhotoCraft is not running yet"));
++        }
++    });
++    repaint();
++    p
++}
++
++fn set_fn(obj: &js_sys::Object, name: &str, f: JsValue) -> Result<(), JsValue> {
++    js_sys::Reflect::set(obj, &name.into(), &f).map(|_| ())
++}
++
++/// Install `window.photocraft`.
++pub fn install() -> Result<(), JsValue> {
++    let obj = js_sys::Object::new();
++    set_fn(
++        &obj,
++        "request",
++        Closure::<dyn Fn(String, JsValue) -> js_sys::Promise>::new(|method: String, params: JsValue| request(&method, from_js(&params)))
++            .into_js_value(),
++    )?;
++    set_fn(
++        &obj,
++        "execute",
++        Closure::<dyn Fn(String, JsValue) -> js_sys::Promise>::new(|command: String, params: JsValue| {
++            request("engine.execute", json!({"command": command, "params": from_js(&params)}))
++        })
++        .into_js_value(),
++    )?;
++    set_fn(&obj, "commands", Closure::<dyn Fn() -> js_sys::Promise>::new(|| request("engine.commands", json!({}))).into_js_value())?;
++    set_fn(&obj, "inspect", Closure::<dyn Fn() -> js_sys::Promise>::new(|| request("ui.inspect", json!({}))).into_js_value())?;
++    let w = web_sys::window().ok_or("no window")?;
++    js_sys::Reflect::set(&w, &"photocraft".into(), &obj)?;
++    Ok(())
++}
+diff --git a/apps/photocraft-web/src/main.rs b/apps/photocraft-web/src/main.rs
+index 0802a02..495638b 100644
+--- a/apps/photocraft-web/src/main.rs
++++ b/apps/photocraft-web/src/main.rs
+@@ -22,6 +22,9 @@ mod preset_bridge;
+ #[cfg(target_arch = "wasm32")]
+ mod indexed_presets;
+ 
++#[cfg(target_arch = "wasm32")]
++mod api;
++
+ #[cfg(target_arch = "wasm32")]
+ mod web;
+ 
+diff --git a/apps/photocraft-web/src/web.rs b/apps/photocraft-web/src/web.rs
+index 20e64fa..b4c2517 100644
+--- a/apps/photocraft-web/src/web.rs
++++ b/apps/photocraft-web/src/web.rs
+@@ -88,7 +88,14 @@ pub fn start() {
+                     let (session, warnings) = crate::preset_bridge::session(presets.clone());
+                     preset_warnings.extend(warnings);
+                     let drag = listen_drag(&pen_target);
+-                    let mut app = PhotocraftApp::new(session, services(inbox.clone(), place_inbox.clone(), drag_pos_service(pen_target.clone(), drag)));
++                    // pgpt-pro local patch: the page drives the app through `window.photocraft` (api.rs)
++                    let (control_tx, control_rx) = std::sync::mpsc::channel();
++                    crate::api::connect(control_tx, cc.egui_ctx.clone());
++                    if let Err(e) = crate::api::install() {
++                        log::error!("couldn't install window.photocraft: {e:?}");
++                    }
++                    let mut app = PhotocraftApp::new(session, services(inbox.clone(), place_inbox.clone(), drag_pos_service(pen_target.clone(), drag)))
++                        .with_control(control_rx);
+                     if !preset_warnings.is_empty() {
+                         photocraft_ui_egui::notices::post(&mut app, i18n::t("Some brush presets could not be loaded"), preset_warnings, true, None);
+                     }
+@@ -357,6 +364,12 @@ impl eframe::App for WebShell {
+         }
+         self.serve_fonts(ctx);
+         self.app.logic(ctx, frame);
++        crate::api::poll_replies();
++        crate::api::serve_previews(|| {
++            let state = self.app.session.active().ok_or("no document")?;
++            let r = photocraft_io::export(&state.doc, "png", &photocraft_io::ExportOptions::default()).map_err(|e| e.to_string())?;
++            Ok((r.bytes, state.doc.size.width as u32, state.doc.size.height as u32))
++        });
+         self.save_presets(ctx);
+     }
+ 

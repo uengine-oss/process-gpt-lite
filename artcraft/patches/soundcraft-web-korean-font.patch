@@ -1,0 +1,23 @@
+diff --git a/crates/ui-egui/src/fonts.rs b/crates/ui-egui/src/fonts.rs
+index ae18583..fa00aca 100644
+--- a/crates/ui-egui/src/fonts.rs
++++ b/crates/ui-egui/src/fonts.rs
+@@ -135,7 +135,17 @@ pub fn definitions() -> FontDefinitions {
+ }
+ 
+ pub fn install(ctx: &egui::Context) {
+-    ctx.set_fonts(definitions());
++    #[allow(unused_mut)]
++    let mut pgpt_fonts = definitions();
++    // pgpt-pro local build: a Hangul fallback in every family on the web (Korean file, layer, clip names)
++    #[cfg(target_arch = "wasm32")]
++    {
++        pgpt_fonts.font_data.insert("pgpt-ko".to_owned(), std::sync::Arc::new(egui::FontData::from_static(include_bytes!(env!("PGPT_KO_FONT")))));
++        for stack in pgpt_fonts.families.values_mut() {
++            stack.push("pgpt-ko".to_owned());
++        }
++    }
++    ctx.set_fonts(pgpt_fonts);
+ }
+ 
+ #[cfg(test)]

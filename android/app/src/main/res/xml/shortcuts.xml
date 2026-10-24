@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- long-press the app icon: change the server -->
+    <shortcut
+        android:shortcutId="server"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/change_server">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="org.uengine.pgptpro"
+            android:targetClass="org.uengine.pgptpro.SetupActivity" />
+    </shortcut>
+</shortcuts>

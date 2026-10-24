@@ -1,0 +1,36 @@
+diff --git a/crates/text/build.rs b/crates/text/build.rs
+index 25544a3..8851bc9 100644
+--- a/crates/text/build.rs
++++ b/crates/text/build.rs
+@@ -87,7 +87,9 @@ fn craft_fonts(dir: &Path) -> Result<String, String> {
+         let [family, style, file, scripts, ..] = f.as_slice() else {
+             return Err(format!("malformed manifest line: {line}"));
+         };
+-        if wasm && !(*family == WEB_FONT.0 && *style == WEB_FONT.1) {
++        // pgpt-pro local build: Korean faces too, so Hangul isn't tofu in the web interface and art
++        let korean = scripts.split(',').any(|s| matches!(s.trim(), "Kore" | "Hang"));
++        if wasm && !(*family == WEB_FONT.0 && *style == WEB_FONT.1) && !korean {
+             continue;
+         }
+         let path = dir.join(file).canonicalize().map_err(|e| format!("{file}: {e}"))?;
+diff --git a/crates/ui-egui/src/theme.rs b/crates/ui-egui/src/theme.rs
+index f355979..f1a955d 100644
+--- a/crates/ui-egui/src/theme.rs
++++ b/crates/ui-egui/src/theme.rs
+@@ -559,13 +559,15 @@ pub(crate) fn craft_font_name(f: &vectorcraft_text::CraftFont) -> String {
+ /// adds: BIZ UDPGothic first (bold first in the semibold family), then the Mincho faces, then Noto
+ /// Sans Georgian.
+ fn add_craft_fonts(fonts: &mut FontDefinitions) {
+-    for f in vectorcraft_text::CRAFT_FONTS.iter().filter(|f| f.is_japanese() || f.is_georgian()) {
++    let korean = |f: &&vectorcraft_text::CraftFont| f.scripts.iter().any(|s| matches!(*s, "Kore" | "Hang"));
++    for f in vectorcraft_text::CRAFT_FONTS.iter().filter(|f| f.is_japanese() || f.is_georgian() || korean(f)) {
+         fonts.font_data.insert(craft_font_name(f), Arc::new(FontData::from_static(f.bytes)));
+     }
+     for (family, stack) in fonts.families.iter_mut() {
+         let bold = *family == FontFamily::Name(FONT_UI_SEMIBOLD.into());
+         stack.extend(vectorcraft_text::craft_fonts::japanese_ui_fonts(bold).into_iter().map(craft_font_name));
+         stack.extend(vectorcraft_text::craft_fonts::georgian_ui_fonts().into_iter().map(craft_font_name));
++        stack.extend(vectorcraft_text::CRAFT_FONTS.iter().filter(korean).map(craft_font_name));
+     }
+ }
+ 

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SNS 피드 사본 (데모)</title>
+<style>
+  :root { --bg: #f3f4f7; --card: #fff; --ink: #1d2129; --sub: #6b7280; --line: #e5e7eb; --accent: #3b5bdb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: #fff; border-bottom: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 12px; }
+  header b { font-size: 18px; }
+  .demo { font-size: 12.5px; color: #92400e; background: #fef3c7; border-radius: 999px; padding: 3px 10px; }
+  main { max-width: 680px; margin: 18px auto 60px; padding: 0 16px; display: flex; flex-direction: column; gap: 14px; }
+  article { background: var(--card); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .who { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .av { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; }
+  .who small { display: block; color: var(--sub); font-size: 12.5px; }
+  .body p { margin: 0 0 .7em; }
+  .slides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+  .slide { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff; border-radius: 10px; padding: 14px; font-size: 13px; min-height: 96px; }
+  .slide b { display: block; font-size: 14.5px; margin-bottom: 4px; }
+  .tags { color: var(--accent); font-size: 13.5px; }
+  .stats { display: flex; gap: 16px; color: var(--sub); font-size: 13.5px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 8px; }
+  .comments { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .c { background: #f5f6f8; border-radius: 12px; padding: 8px 12px; font-size: 14px; }
+  .c b { font-size: 13px; margin-right: 6px; }
+  footer { text-align: center; color: var(--sub); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header><b>피드</b><span class="demo">데모용 재구성 · Facebook 피드에 아래 게시물이 떴다고 가정</span></header>
+<main>
+
+<article id="post-crewon">
+  <div class="who"><div class="av" style="background:#2563eb">C</div><div><b>크루온에이아이(Crewon AI) 발표 후기</b><small>2026 AI × RMF 워크숍 · 한국정보보호학회</small></div></div>
+  <div class="body">
+    <p>한국정보보호학회에서 개최한 2026 AI × RMF 워크숍에서 <b>온톨로지 기반 Semantic AI Agent로 NIST RMF를 실행하는 방법</b>이라는 주제로 보안 AI Agent의 가능성을 발표했습니다.</p>
+    <p>이번 발표에서는 크루온에이아이(Crewon AI)의 기술 아키텍처를 소개하고, NIST RMF(Risk Management Framework)의 전 과정을 AI Agent가 지원하고 실행할 수 있도록 설계한 <b>RMF Coordinator AI Crew</b>의 개념과 적용 시나리오를 공유했습니다.</p>
+    <p>최근 사이버 공격은 AI 기술과 결합하면서 더욱 지능화되고 있으며, 공격의 속도 또한 사람이 일일이 분석하고 대응하기 어려운 수준으로 발전하고 있습니다. AI를 활용한 공격에 대응하기 위해서는 방어 역시 AI 중심으로 진화해야 합니다.</p>
+    <p>크루온에이아이는 이러한 변화에 대응하기 위해 온톨로지 기반의 Semantic AI Agent Runtime을 개발하고 있습니다. 기업의 시스템과 데이터, 조직, 담당자, 업무 프로세스, 규정과 정책을 온톨로지로 연결하고, AI Agent가 기업의 업무 맥락을 이해해 스스로 계획하고 추론하며 실제 업무를 수행할 수 있도록 하는 플랫폼입니다.</p>
+    <p>RMF Coordinator AI Crew는 NIST RMF의 7단계인 Prepare, Categorize, Select, Implement, Assess, Authorize, Monitor를 하나의 업무 흐름으로 연결하고, 각 단계의 전문 AI Crew와 사람, 보안 시스템을 조율하는 역할을 합니다. 기존 SIEM, EDR, 보안장비 등이 탐지한 이벤트를 기업의 자산, 업무, 보안 통제, 승인 이력과 연결해 의미적으로 해석하고, 위험을 평가하고, 필요한 조치를 계획하고 실행하며, 그 결과를 다시 검증하고 증적으로 관리하는 구조입니다.</p>
+    <p>여기에 crewai.work의 ITSM, 전자결재, 업무관리, 협업 기능을 결합하면 AI와 사람이 함께 보안 업무를 수행하는 새로운 운영 모델을 구현할 수 있습니다. 물론 중요한 의사결정과 위험 수용의 책임은 사람에게 있습니다. AI의 모든 실행은 정책과 권한에 따라 통제되고, 그 과정은 추적하고 감사할 수 있어야 합니다.</p>
+    <p>“AI가 도구에서 동료로.” — AI-Native Workplace를 만들어 가고자 합니다.</p>
+    <div class="slides">
+      <div class="slide"><b>Traditional RMF Operating Model (AS-IS)</b>RMF 단계가 바뀔 때마다 담당 조직이 달라지고, 문서·메일·회의를 통한 인수인계가 반복된다.</div>
+      <div class="slide"><b>Assess: Evidence-Based Validation</b>AI Crew가 통제별 증적과 미비점을 정리하고, 최종 충족 여부는 독립 평가자가 판단한다(AC-2, AC-3, AU-2, SC-7, SI-2).</div>
+    </div>
+    <p class="tags">#AIxRMF #RMFCoordinator #AIAgent #SemanticAI #Ontology #NISTRMF #CyberSecurity #AI보안 #AINativeWorkplace</p>
+  </div>
+  <div class="stats"><span>좋아요 412</span><span>댓글 57</span><span>공유 96</span></div>
+  <div class="comments">
+    <div class="c"><b>보안컨설턴트 K</b>통제별 증적을 크루가 모아 주고 판정은 독립 평가자가 하는 분리가 현실적이네요. 감사 대응에서 제일 시간 드는 부분입니다.</div>
+    <div class="c"><b>CISO L</b>SIEM 이벤트를 자산·업무·승인 이력과 온톨로지로 묶는 부분이 핵심 같습니다. 기존 GRC 도구와는 어떻게 연동하나요?</div>
+    <div class="c"><b>AI 엔지니어 P</b>RMF 7단계를 하나의 흐름으로 잇고 단계별 크루를 둔 구조가 인상적입니다. 사람 승인 지점은 어디에 두셨는지 궁금합니다.</div>
+    <div class="c"><b>공공 보안담당 J</b>위험 수용 책임은 사람에게 있다는 원칙에 공감합니다. 공공기관 적용 사례도 기대합니다.</div>
+  </div>
+</article>
+
+<article>
+  <div class="who"><div class="av" style="background:#059669">D</div><div><b>데브옵스 모임</b><small>어제</small></div></div>
+  <div class="body"><p>이번 달 밋업 장소 공지입니다. 발표 신청은 댓글로 받아요.</p></div>
+  <div class="stats"><span>좋아요 23</span><span>댓글 4</span><span>공유 1</span></div>
+</article>
+
+<article>
+  <div class="who"><div class="av" style="background:#d97706">M</div><div><b>마케팅 자동화 툴 공식</b><small>광고</small></div></div>
+  <div class="body"><p>가을 할인 이벤트! 연간 결제 시 30% 할인.</p></div>
+  <div class="stats"><span>좋아요 8</span><span>댓글 0</span><span>공유 0</span></div>
+</article>
+
+<article>
+  <div class="who"><div class="av" style="background:#7c3aed">L</div><div><b>LLM 벤치마크 스터디</b><small>2일 전</small></div></div>
+  <div class="body"><p>사내 문서 질의응답 벤치마크를 다시 돌려 봤습니다. 긴 문맥에서 표 해석 정확도가 여전히 아쉽네요.</p></div>
+  <div class="stats"><span>좋아요 61</span><span>댓글 12</span><span>공유 5</span></div>
+</article>
+
+<footer>시연용 피드 사본입니다. 첫 게시물 본문은 공개 게시물에서 옮겼고, 반응 수와 댓글은 시연을 위한 가상 값입니다.</footer>
+</main>
+</body>
+</html>

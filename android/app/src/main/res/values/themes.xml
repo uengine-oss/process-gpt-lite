@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.PgptPro" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">#1D1D1B</item>
+        <item name="colorAccent">#FF4D00</item>
+        <item name="android:statusBarColor">#4F7BC4</item>
+        <item name="android:navigationBarColor">#F4F4F1</item>
+        <item name="android:windowBackground">#E9EEF6</item>
+    </style>
+</resources>

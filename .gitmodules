@@ -1,0 +1,8 @@
+[submodule "backends/process-gpt"]
+	path = backends/process-gpt
+	url = https://github.com/uengine-oss/process-gpt.git
+	branch = feat/pgpt-lite
+[submodule "backends/office-host"]
+	path = backends/office-host
+	url = https://github.com/uengine-oss/process-gpt-office-host.git
+	branch = main

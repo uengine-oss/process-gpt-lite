@@ -1,0 +1,38 @@
+diff --git a/crates/ui-egui/src/rtl.rs b/crates/ui-egui/src/rtl.rs
+index 7b71769..817ea30 100644
+--- a/crates/ui-egui/src/rtl.rs
++++ b/crates/ui-egui/src/rtl.rs
+@@ -374,6 +374,14 @@ mod tests {
+             eprintln!("SKIPPED: no craft-fonts or installed Arabic font");
+             return;
+         }
++        // pgpt-pro local build: a Hangul fallback in every family on the web (Korean file, layer, clip names)
++        #[cfg(target_arch = "wasm32")]
++        {
++            fonts.font_data.insert("pgpt-ko".to_owned(), std::sync::Arc::new(egui::FontData::from_static(include_bytes!(env!("PGPT_KO_FONT")))));
++            for stack in fonts.families.values_mut() {
++                stack.push("pgpt-ko".to_owned());
++            }
++        }
+         ctx.set_fonts(fonts);
+         ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+         let painter = Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
+diff --git a/crates/ui-egui/src/theme.rs b/crates/ui-egui/src/theme.rs
+index 36b5716..f32add6 100644
+--- a/crates/ui-egui/src/theme.rs
++++ b/crates/ui-egui/src/theme.rs
+@@ -432,6 +432,14 @@ pub fn install(ctx: &egui::Context, t: &Tokens) {
+     add_craft_fonts(&mut fonts);
+     crate::cjk::install(&mut fonts);
+     crate::rtl::install(&mut fonts);
++    // pgpt-pro local build: a Hangul fallback in every family on the web (Korean file, layer, clip names)
++    #[cfg(target_arch = "wasm32")]
++    {
++        fonts.font_data.insert("pgpt-ko".to_owned(), std::sync::Arc::new(egui::FontData::from_static(include_bytes!(env!("PGPT_KO_FONT")))));
++        for stack in fonts.families.values_mut() {
++            stack.push("pgpt-ko".to_owned());
++        }
++    }
+     ctx.set_fonts(fonts);
+     apply_visuals(ctx, t);
+ }

@@ -1,0 +1,4 @@
+# Copy to server/.public-access to allow access through a public tunnel (ngrok / Cloudflare).
+# Requests that do not come from localhost must pass this basic-auth pair. No file = no public access.
+NGROK_BASIC_USER=
+NGROK_BASIC_PASS=

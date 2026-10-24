@@ -1,0 +1,28 @@
+diff --git a/crates/fonts/build.rs b/crates/fonts/build.rs
+index 6df86f7..7ab010e 100644
+--- a/crates/fonts/build.rs
++++ b/crates/fonts/build.rs
+@@ -55,7 +55,9 @@ fn craft_fonts(dir: &std::path::Path) -> Result<String, String> {
+             continue;
+         }
+         let arabic = scripts.split(',').any(|s| s.trim() == "Arab");
+-        let web_face = (*family == "BIZ UDPGothic" && *style == "Regular") || arabic;
++        // pgpt-pro local build: a Korean face too, so Hangul names and texts are not tofu on the web
++        let korean = scripts.split(',').any(|s| matches!(s.trim(), "Kore" | "Hang"));
++        let web_face = (*family == "BIZ UDPGothic" && *style == "Regular") || arabic || korean;
+         if wasm && !web_face {
+             continue;
+         }
+diff --git a/crates/ui-egui/src/theme.rs b/crates/ui-egui/src/theme.rs
+index fe1fd43..af97e91 100644
+--- a/crates/ui-egui/src/theme.rs
++++ b/crates/ui-egui/src/theme.rs
+@@ -398,7 +398,7 @@ pub fn install_fonts(ctx: &egui::Context, language: &str) {
+ /// shares most ideographs but lacks the simplified-only ones (图 园 测), which would be tofu.
+ /// العربية adds its Arabic face after those, egui's bundled faces carrying no Arabic glyphs.
+ fn embedded_ui_faces<'a>(faces: &[&'a cadcraft_fonts::CraftFont], language: &str) -> Vec<&'a cadcraft_fonts::CraftFont> {
+-    let cjk = |f: &&cadcraft_fonts::CraftFont| f.style == "Regular" && f.scripts.iter().any(|s| matches!(*s, "Jpan" | "Hans" | "Hant"));
++    let cjk = |f: &&cadcraft_fonts::CraftFont| f.style == "Regular" && f.scripts.iter().any(|s| matches!(*s, "Jpan" | "Hans" | "Hant" | "Kore"));
+     let mut out: Vec<_> = faces.iter().copied().filter(cjk).collect();
+     out.sort_by_key(|f| !f.family.contains("Gothic") && !f.family.contains("Sans"));
+     if language.starts_with("zh") {

@@ -1,0 +1,140 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,300;1,6..72,400&family=Noto+Serif+KR:wght@300;400;500&display=swap');
+
+/* ---------- tokens (dark is the base; light overrides) ---------- */
+:root {
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif;
+  --font-serif: 'Newsreader', 'Noto Serif KR', serif;
+  --mode-ease: cubic-bezier(.45, 0, .55, 1);
+  --mode-dur: .8s;
+  --spring: cubic-bezier(.2, .9, .25, 1.05);
+
+  --text: #fff;
+  --text-primary: rgb(245 245 247);
+  --text-secondary: rgba(245 245 247 / .5);
+  --text-tertiary: rgba(245 245 247 / .3);
+  --text-primary-on: rgb(29 29 31);
+  --ink: rgb(245 245 247);
+  --ink-inverse: rgb(29 29 31);
+  --hairline: rgba(255 255 255 / .1);
+
+  --bubble-user-bg: rgba(29 29 31 / .3);
+  --bubble-agent-bg: rgba(29 29 31 / .7);
+  --composer-bg: rgba(29 29 31 / .618);
+  --thin-bg: rgba(29 29 31 / .615);
+  --cell-bg: rgba(255 255 255 / .05);
+  --regular-bg: rgba(29 29 31 / .618);
+  --regular-solid-bg: rgba(29 29 31 / .96);
+  --button-bg: rgba(255 255 255 / .08);
+  --field-bg: rgba(255 255 255 / .08);
+  --chip-bg: rgba(255 255 255 / .12);
+  --surface-secondary: #1c1c1e;
+  --shadow-card: 0 8px 40px rgba(0 0 0 / .25);
+
+  --color-info: #A1D0FF;
+  --color-success: #96F0B0;
+  --color-error: rgba(255 100 100 / .9);
+  --color-attention: #FF4D00;
+}
+:root[data-theme="light"] {
+  --text: #000;
+  --text-primary: rgb(29 29 31);
+  --text-secondary: rgba(29 29 31 / .5);
+  --text-tertiary: rgba(29 29 31 / .3);
+  --text-primary-on: rgb(249 249 250);
+  --ink: rgb(29 29 31);
+  --ink-inverse: rgb(249 249 250);
+  --hairline: rgba(0 0 0 / .08);
+
+  --bubble-user-bg: rgba(255 255 255 / .3);
+  --bubble-agent-bg: rgba(255 255 255 / .98);
+  --composer-bg: rgba(255 255 255 / .55);
+  --thin-bg: rgba(255 255 255 / .55);
+  --cell-bg: rgba(255 255 255 / .6);
+  --regular-bg: rgba(255 255 255 / .668);
+  --regular-solid-bg: rgba(255 255 255 / .96);
+  --button-bg: rgba(29 29 31 / .05);
+  --field-bg: rgba(29 29 31 / .055);
+  --chip-bg: rgba(255 255 255 / .9);
+  --surface-secondary: #f3f5fa;
+  --shadow-card: 0 8px 40px rgba(29 29 31 / .12);
+
+  --color-info: #005AD7;
+  --color-success: #0F9D58;
+  --color-error: #D64545;
+}
+
+/* ---------- base ---------- */
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  color: var(--text-primary);
+  background: #0a0f24;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  transition: color 1s;
+  letter-spacing: -0.005em;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; }
+input, textarea, select { font: inherit; color: inherit; }
+::selection { background: rgba(120 160 255 / .35); }
+.serif { font-family: var(--font-serif); font-weight: 300; }
+
+/* ---------- glass ---------- */
+.glass {
+  background: var(--regular-bg);
+  -webkit-backdrop-filter: blur(50px);
+  backdrop-filter: blur(50px);
+  transition: background-color var(--mode-dur) var(--mode-ease), backdrop-filter var(--mode-dur) var(--mode-ease), scale .12s ease-out;
+}
+.glass-thin { background: var(--thin-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); transition: background-color 1s; }
+
+.pill-btn {
+  height: 48px; padding: 0 20px; border-radius: 9999px;
+  font-size: 15px; font-weight: 500; color: var(--text-secondary);
+  background: var(--thin-bg); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  transition: background-color .15s, color .15s, box-shadow .15s, scale .12s ease-out;
+}
+.pill-btn:hover { color: var(--text-primary); }
+.press:active, .pill-btn:active { scale: .96; }
+.dark-btn {
+  height: 48px; padding: 0 22px; border-radius: 9999px;
+  background: #1d1d1f; color: #f5f5f7; font-size: 15px; font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  transition: scale .12s ease-out, opacity .2s;
+}
+.dark-btn:active { scale: .97; }
+.dark-btn:disabled { opacity: .35; cursor: default; }
+
+/* ---------- motion ---------- */
+@keyframes blur-in { from { opacity: 0; filter: blur(4px); transform: translateY(6px); } to { opacity: 1; filter: blur(0); transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(.95); filter: blur(4px); } to { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes pop-out { to { opacity: 0; transform: scale(.95); filter: blur(8px); } }
+@keyframes shimmer { from { background-position: -150% 0; } to { background-position: 250% 0; } }
+@keyframes pulse { 0%, 100% { opacity: .45; } 50% { opacity: .85; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+.blur-in { animation: blur-in .5s var(--spring) both; }
+.shimmer-text {
+  color: transparent;
+  background: linear-gradient(90deg, var(--text-tertiary) 0%, var(--text-tertiary) 35%, var(--text-primary) 50%, var(--text-tertiary) 65%, var(--text-tertiary) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  animation: shimmer 2.2s linear infinite;
+}
+.pulse { animation: pulse 1.6s ease-in-out infinite; }
+
+/* list transitions used by <TransitionGroup name="arc"> */
+.arc-enter-active { animation: pop-in .55s var(--spring) both; }
+.arc-leave-active { animation: pop-out .35s ease-in both; position: absolute; }
+.arc-move { transition: transform .6s var(--spring); }
+.fade-enter-active, .fade-leave-active { transition: opacity .4s, filter .4s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; filter: blur(6px); }
+
+/* scrollbars stay out of the way */
+.scroll { overflow-y: auto; scrollbar-width: none; }
+.scroll::-webkit-scrollbar { display: none; }

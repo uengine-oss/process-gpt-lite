@@ -1,0 +1,48 @@
+# dependencies / build output
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# local secrets — never commit
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+server/.vault-kek
+server/.vault-keyring.json
+server/.vault-keyring.json.tmp
+server/.public-access
+server/.browser-profiles/
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
+*.aab
+
+# large media (demo videos are on YouTube)
+*.mp4
+*.mov
+*.webm
+
+# ArtCraft upstream sources / builds (see artcraft/README.md)
+artcraft/src/
+artcraft/web/
+artcraft/bin/
+artcraft/fonts-ko/fonts/*.ttf
+
+# editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
