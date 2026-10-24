@@ -9,6 +9,9 @@ export const admin = createClient(config.supabaseUrl, config.serviceKey, {
 })
 
 export const pool = new pg.Pool(config.db)
+// an idle client dropped by the DB (restart, recovery mode) is discarded by the pool; without a
+// listener the 'error' event would take the whole server down
+pool.on('error', (e) => console.warn('[db] idle client error:', e.message))
 export const q = (text, params) => pool.query(text, params).then((r) => r.rows)
 
 // The auth user and its public.users row, created on first sight (sign-in, or a teammate added
