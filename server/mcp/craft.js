@@ -136,6 +136,18 @@ async function toHost(value, root) {
   return value
 }
 
+// the same tools, called by this server for work it starts on its own (lib/mail.js draws a floor
+// plan a customer mail asks for): the user's own session, the same /workspace path rules
+export async function callCraft(userId, app, name, args = {}) {
+  const root = await workspaceHostPath('/workspace')
+  name = name.startsWith(`${app}_`) ? name.slice(app.length + 1) : name
+  console.log(`[mcp] ${app}.${name} user=${userId.slice(0, 8)} (server)`)
+  const out = await (await sessionFor(app, userId)).callTool({ name, arguments: await toHost(args, root) })
+  const text = (out.content || []).filter((c) => c.type === 'text').map((c) => c.text.split(root).join('/workspace')).join('\n')
+  if (out.isError) throw new Error(`${app}.${name}: ${text.slice(0, 300)}`)
+  return text
+}
+
 function buildServer(app, user) {
   const server = new Server({ name: `pgpt-${app}`, version: '1.0.0' }, { capabilities: { tools: {} } })
   // anonymous (mcp-hub's catalog, health checks): everything; a user: per activation

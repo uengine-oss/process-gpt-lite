@@ -25,8 +25,10 @@ const props = defineProps({
   fileUrl: { type: String, default: '' },
   name: { type: String, default: '' },
   maximized: { type: Boolean, default: false },
+  // opened from a document to edit one of its pictures (OfficeSheet): a button hands the result back
+  returnLabel: { type: String, default: '' },
 })
-const emit = defineEmits(['saved', 'error', 'update:maximized', 'close', 'live'])
+const emit = defineEmits(['saved', 'error', 'update:maximized', 'close', 'live', 'return'])
 
 function drop(w, file) {
   const canvas = w.document.querySelector('canvas')
@@ -151,6 +153,17 @@ function startLive() {
     },
   })
 }
+// the open document as PNG (PhotoCraft renders it for ui.screenshot on the web: api.rs)
+async function snapshot() {
+  const w = frame.value?.contentWindow
+  const name = appName()
+  if (!w?.[name]?.request) throw new Error('앱이 아직 열리지 않았어요')
+  const r = await w[name].request('ui.screenshot', {})
+  const b64 = r?.base64 || r?.png_base64 || r?.pngBase64
+  if (!b64) throw new Error('이미지를 받지 못했어요')
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+}
+defineExpose({ snapshot })
 function stopLive() {
   link?.close()
   link = null
@@ -208,8 +221,9 @@ onBeforeUnmount(() => {
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 화면에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
       <span v-if="dirty" class="badge warn">저장 안 됨 · {{ app?.save || 'SAVE 로 저장' }}</span>
       <span class="sp" />
-      <ShareButton :for-name="name" plain class="tb" />
-      <button v-if="!fullscreen" class="tb press" @click="emit('update:maximized', !maximized)">
+      <ShareButton v-if="!returnLabel" :for-name="name" plain class="tb" />
+      <button v-if="returnLabel" class="tb press primary" :disabled="!live" @click="emit('return')">{{ returnLabel }}</button>
+      <button v-if="!fullscreen && !returnLabel" class="tb press" @click="emit('update:maximized', !maximized)">
         <Icon :name="maximized ? 'shrink' : 'expand'" :size="15" /> {{ maximized ? '원래 크기' : '최대화' }}
       </button>
       <button class="tb press" @click="toggleFullscreen">{{ fullscreen ? '전체 화면 끝내기' : '전체 화면' }}</button>
@@ -248,6 +262,9 @@ onBeforeUnmount(() => {
 .name { min-width: 40px; }
 .tb:hover { background: rgba(255, 255, 255, .08); }
 .tb.ic { width: 30px; padding: 0; justify-content: center; }
+.tb.primary { background: #6e5ae6; color: #fff; font-weight: 600; }
+.tb.primary:hover { background: #7d6af0; }
+.tb.primary:disabled { opacity: .5; }
 .frm { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; }
 .empty { margin: auto; color: #b8b8b8; font-size: 14px; }
 .notice { position: absolute; right: 16px; bottom: 32px; padding: 8px 14px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); }

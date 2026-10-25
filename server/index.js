@@ -209,6 +209,11 @@ app.post('/api/mail/connect', auth, async (req, res) => {
   setTimeout(() => mail.pollUser(req.user.id, { announce: true }).catch((e) => console.warn('[mail]', e.message)), 6000)
 })
 app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUser(req.user.id, { announce: true })))
+// a demo mailbox only: a fictional message arrives (demos, tests) — never real mail
+setTimeout(() => mail.resumeDrafts().catch((e) => console.warn('[mail] resume', e.message)), 5000)
+app.post('/api/mail/demo-arrive', auth, async (req, res) => {
+  try { res.json(await mail.demoArrive(req.user.id, req.body || {})) } catch (e) { res.status(400).json({ error: e.message }) }
+})
 
 app.use('/api', processRoutes(auth))
 app.use('/api', folderRoutes(auth))

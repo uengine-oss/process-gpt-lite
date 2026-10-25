@@ -203,7 +203,8 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
   // (only plain schedule words count here: "처음 3초에 자막" is a time inside the video, not a schedule)
   // (an app open in the page — lib/craftLive.js — is the document a message like "제목을 노랗게" is about)
   if ((craftAppsFor(text).length || liveOpen(userId)) && !/매일|매주|매달|마다|정기|반복|every|daily|weekly/i.test(text)) {
-    return delegate({ user, session, threadId, text, onDelta })
+    // (the context carries what the person pointed at in the open document: @표 2, @이미지 1 …)
+    return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
   const skillList = await listSkills(session.access_token)
   const skillHint = skillList.length ? `\n사용 가능한 스킬(주기 작업에 쓸 수 있음): ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
@@ -364,7 +365,7 @@ export const toolPhase = (tool) => (PHASES.find(([re]) => re.test(String(tool ||
 const hubBound = new Set()
 // long tool calls (skill-creator, CAD drawing) stream nothing for minutes, so this is generous
 const STREAM_IDLE_MS = Number(process.env.PRO_STREAM_IDLE_MS) || 15 * 60_000
-export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged }) {
+export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl }) {
   const thread = await getThread(user.id, threadId)
   const uploads = attached.get(threadId) || []
   attached.delete(threadId)
@@ -404,7 +405,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
     body: JSON.stringify({
-      message: text + connectorHint(text) + officeHint(text, config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(uploads), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+      message: text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(uploads), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       // process-gpt's chat contract for uploads (same shape its frontend sends)
       files: uploads.map((f) => ({ fileName: f.name, fileUrl: f.url, filePath: f.path, fileType: f.type, fileSize: f.size })),
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,

@@ -36,6 +36,12 @@ export const config = {
   contextRouterUrl: get('PRO_CONTEXT_ROUTER_URL', ''),
   // template office-mcp generate_hwpx fills when someone asks for a 한글 document
   hwpxTemplateUrl: get('PRO_HWPX_TEMPLATE_URL', ''),
+  // the template office-mcp fills for a proposal (제안서) a customer mail asks for (lib/mail.js drafts)
+  proposalTemplateUrl: get('PRO_PROPOSAL_TEMPLATE_URL', ''),
+  // process-gpt office-mcp (template filling: generate_hwpx), called directly for those drafts
+  officeMcpUrl: get('PRO_OFFICE_MCP_URL', 'http://127.0.0.1:1192'),
+  // a design proposal's 한글 template: its picture (3:2) takes the floor plan CADCraft drew (lib/mail.js)
+  designTemplatePath: get('PRO_DESIGN_TEMPLATE_PATH', path.join(here, 'fixtures', 'interior-proposal-template.hwpx')),
   // agent workroom: where cli-agent keeps per-run workspaces, the key a terminal needs on top of
   // sign-in (no key → no terminals), and the Claude Code binary resumed in a run's folder
   cliWorkspaceRoot: get('PRO_CLI_WORKSPACE_ROOT', '/tmp/cli-agent-ws'),

@@ -239,7 +239,9 @@ export function attachCraftLive(server) {
 
 // what the agent is told while an app is open in the page (lib/agent.js delegate)
 const LIVE_TOOLS = {
-  photocraft: 'photocraft_doc_inspect 로 레이어를 확인하고, photocraft_command_run(예: 글자 레이어 색·내용 바꾸기, 새 글자 레이어)으로 고치세요',
+  photocraft: 'photocraft_doc_inspect 로 레이어를 확인하고, photocraft_command_run(예: 글자 레이어 색·내용 바꾸기, 새 글자 레이어)으로 고치세요. ' +
+    '그림 전체의 색을 문서 색조에 맞출 때(예: 어두운 CAD 도면을 남색·하늘색 톤으로)는 photocraft_command_run image.adjustments.gradientMap {"stops":[[0,"#ffffff"],[0.18,"#eef5fc"],[0.45,"#5f93d3"],[1,"#1f3a6e"]]} 처럼 어두운 값→밝은 바탕색, 밝은 값→선 색으로 한 번에 바꾸고, ' +
+    '다시 조정하라고 하면 edit.undo 로 되돌린 뒤 새 stops 로 한 번 더 적용하세요(겹쳐 적용하지 마세요)',
   vectorcraft: 'vectorcraft_inspect 계열로 객체를 확인하고, vectorcraft_add_text·vectorcraft_set_paint·vectorcraft_command_run 으로 고치세요',
   filmcraft: 'filmcraft_project_inspect·filmcraft_sequence_inspect 로 확인하고 filmcraft_command_run 으로 고치세요(file.newProject·가져오기 금지, 자막 글꼴은 웹에도 있는 NanumGothic)',
   cadcraft: 'cadcraft_inspect_drawing·cadcraft_find_text·cadcraft_query_entities 로 확인하고, cadcraft_command_line·cadcraft_script·cadcraft_execute 로 고친 뒤 cadcraft_render 로 직접 보세요(cadcraft_new_drawing·cadcraft_open 금지)',
@@ -249,11 +251,14 @@ export function liveHint(open) {
   if (!open) return ''
   if (open.app === 'ieumoffice') {
     const kind = OFFICE_KIND[open.editor] || '문서'
-    const editable = open.editor === 'docs' || open.editor === 'sheets'
+    const editable = open.editor === 'docs' || open.editor === 'sheets' || open.editor === 'hwp'
+    const mention = '사용자가 문서에서 가리킨 대상(@표 N, @이미지 N, @문단, @범위)이 메시지 끝에 붙어 오면 바로 그 대상만 고치세요(표 번호·행·열·범위가 적혀 있어요). '
     return `\n\n(사용자가 지금 이음오피스 ${kind} 편집기에서 '${open.file || '문서'}' 을 열어 두었어요. 이 메시지는 그 열린 문서에 대한 것이에요. ` +
       (editable
         ? `office_live_documents 로 그 문서의 session_id 를 찾고 office_live_read 로 지금 내용을 읽은 뒤, 사람이 보는 화면에서 바로 고치세요: ` +
-          (open.editor === 'docs'
+          mention + (open.editor === 'hwp'
+            ? `한글은 표를 office_live_hwp_table(action read·fill·add_rows·remove_rows, 표·행·열 번호는 1부터, add_rows 뒤에는 새 줄을 fill 로 채우기), 글은 office_live_hwp_text(replace·insert)로 고치세요. 합계·소계 칸이 있으면 숫자를 다시 계산해 함께 고치세요. 그림은 이 도구로 고치지 않아요(그림 편집은 포토크래프트가 맡아요). `
+            : open.editor === 'docs'
             ? `글 일부(표 칸 안의 글 포함)를 바꿀 때는 서식이 그대로 남는 office_live_apply_ops 의 findReplace 연산([{"op":"findReplace","find":"…","replace":"…"}])을 먼저 쓰세요. ` +
               `문단 하나를 통째로 바꿀 때만 office_live_replace 에 match_text(바꿀 블록에 든 글)를 주세요(블록 번호는 앞 변경에 밀려요, 표 블록은 통째로 바꾸지 마세요). ` +
               `새 문단은 office_live_write(after_block_index 로 위치 지정), 그 밖의 서식은 office_live_apply_ops(연산은 office_guide). `

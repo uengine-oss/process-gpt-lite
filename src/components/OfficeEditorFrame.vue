@@ -9,7 +9,7 @@
 // (emit 'assistant'); while the document is open the page tells the server (src/liveLink.js, app
 // 'ieumoffice'), so a chat message is about this document and the agent edits it in front of the
 // person through office-host's office_live_* tools (server/mcp/office.js).
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
 import { isOfficeEditorMessage, officeEditorUrl } from '../officeEditor.js'
@@ -24,7 +24,7 @@ const props = defineProps({
   maximized: { type: Boolean, default: false },
   assistant: { type: Boolean, default: false },
 })
-const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'assistant'])
+const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'assistant', 'mention'])
 
 const root = ref(null)
 const frame = ref(null)
@@ -73,6 +73,32 @@ function startLive() {
 }
 function stopLive() { link?.close(); link = null; live.value = false; busy.value = false }
 
+// Click to mention (office-host page-live.mjs): with "@ 가리키기" on (or ⌥ held), a click on a table,
+// an image, a paragraph or a cell range comes back as a mention for the chat input.
+const MENTIONS = new Set(['docs', 'sheets', 'hwp'])
+const canMention = computed(() => props.assistant && !props.readOnly && MENTIONS.has(editor()))
+const mentionMode = ref(false)
+function post(msg) {
+  const w = frame.value?.contentWindow
+  if (w) w.postMessage({ source: 'process-gpt', ...msg }, new URL(frameSrc.value, location.href).origin)
+}
+watch(mentionMode, (on) => post({ type: 'mention-mode', on }))
+// requests the page answers ({type:'reply', requestId}): a 한글 picture's bytes, or new ones for it
+const waiting = new Map()
+function ask(type, data = {}, timeoutMs = 60000) {
+  const requestId = Math.random().toString(36).slice(2)
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => { waiting.delete(requestId); reject(new Error('편집기가 답하지 않았어요')) }, timeoutMs)
+    waiting.set(requestId, { resolve, reject, t })
+    post({ type, requestId, ...data })
+  })
+}
+defineExpose({
+  editor,
+  picture: (n) => ask('hwp-picture', { n }),
+  replacePicture: (n, bytes, name) => ask('hwp-replace-picture', { n, bytes, name: name || props.name }, 120000),
+})
+
 async function load() {
   stopLive()
   ready = false
@@ -111,6 +137,13 @@ function onMessage(event) {
   const m = event.data
   if (m.type === 'ready') { ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly) hideAiDock(); startLive() }
   else if (m.type === 'assistant') emit('assistant', { label: m.label || '', prompt: m.prompt || null, selection: m.selection || '' })
+  else if (m.type === 'mention' && m.mention) emit('mention', { ...m.mention, file: props.name })
+  else if (m.type === 'reply') {
+    const w = waiting.get(m.requestId)
+    if (!w) return
+    waiting.delete(m.requestId); clearTimeout(w.t)
+    m.ok ? w.resolve(m.result) : w.reject(new Error(m.error || '편집기가 거절했어요'))
+  }
   else if (m.type === 'saved') {
     if (m.url) savedUrls.add(m.url)
     if (m.name) link?.rename(m.name)
@@ -148,6 +181,9 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
       <span class="sp" />
       <ShareButton v-if="!readOnly" :for-name="name" plain class="tb" />
+      <button v-if="canMention" class="tb press" :class="{ on: mentionMode }" title="켜고 문서의 표·그림·문단(엑셀은 셀 범위)을 누르면 대화 입력창에 @멘션으로 들어가요 (⌥ 누른 채 클릭도 돼요)" @click="mentionMode = !mentionMode">
+        @ {{ mentionMode ? '가리키는 중' : '가리키기' }}
+      </button>
       <button class="tb press" :title="ribbonOpen ? '리본 접기 (Ctrl+F1)' : '리본 펴기 (Ctrl+F1)'" @click="toggleRibbon">
         <Icon :name="ribbonOpen ? 'up' : 'chevron'" :size="14" /> {{ ribbonOpen ? '리본 접기' : '리본 펴기' }}
       </button>
@@ -186,6 +222,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 .tb { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 15px; font-size: 13px; color: #5f6368; }
 .tb:hover { background: rgba(0, 0, 0, .05); }
 .tb.ic { width: 30px; padding: 0; justify-content: center; }
+.tb.on { background: rgba(110, 90, 230, .14); color: #5b47d6; font-weight: 600; }
 .frm { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; }
 .empty { margin: auto; color: var(--text-secondary); font-size: 14px; }
 .notice { position: absolute; right: 16px; bottom: 32px; padding: 8px 14px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); }

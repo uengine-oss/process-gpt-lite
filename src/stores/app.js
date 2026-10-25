@@ -26,6 +26,8 @@ export const useApp = defineStore('app', {
     searchOpen: false,
     prefill: '',
     focusTick: 0,              // bumps: the chat composer takes the focus (an open document's AI 도우미 button)
+    mentions: [],              // objects pointed at in an open document (@표 2, @이미지 1, @B3:D6) for the next message
+    beforeSend: null,          // (text, mentions) => true when it took the message (OfficeSheet: an image goes to PhotoCraft)
     instances: [],
     todos: [],
     notifications: [],         // process-gpt notifications addressed to me (Home "needs action")
@@ -166,7 +168,20 @@ export const useApp = defineStore('app', {
       }
     },
     removeAttachment(id) { this.attachments = this.attachments.filter((a) => a.id !== id) },
+    addMention(m) {
+      if (!m?.label) return
+      this.mentions = [...this.mentions.filter((x) => !(x.label === m.label && x.file === m.file)), m].slice(-4)
+    },
+    removeMention(i) { this.mentions = this.mentions.filter((_, k) => k !== i) },
     async send(text, threadId = this.activeId, context) {
+      // mentions: the chips read first in the message; where each one is goes to the agent
+      const mentions = this.mentions
+      if (mentions.length) {
+        this.mentions = []
+        if (this.beforeSend && (await this.beforeSend(text, mentions, threadId))) return
+        text = `${mentions.map((m) => `@${m.label}`).join(' ')} ${text}`
+        context = [context, `(사용자가 열린 문서에서 가리킨 대상: ${mentions.map((m) => `@${m.label} = ${JSON.stringify(m)}`).join(' ; ')})`].filter(Boolean).join('\n\n')
+      }
       const pending = this.attachments
       this.attachments = []
       await Promise.all(pending.map((a) => a.job))

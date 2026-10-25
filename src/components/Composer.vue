@@ -110,6 +110,12 @@ defineExpose({ focus: () => ta.value?.focus() })
       <button v-if="app.panelMode" class="undo press" aria-label="취소" @click="app.panelMode = false"><Icon name="undo" :size="20" /></button>
     </Transition>
     <ComposerTeam v-if="!overlay" :tm="tm" />
+    <div v-if="app.mentions.length" class="mentions">
+      <span v-for="(m, i) in app.mentions" :key="i + m.label" class="mention" :title="m.file || ''">
+        <b>@{{ m.label }}</b>
+        <button class="x" aria-label="빼기" @click="app.removeMention(i)">×</button>
+      </span>
+    </div>
     <div v-if="app.attachments.length" class="atts">
       <span v-for="a in app.attachments" :key="a.id" class="att glass-thin" :class="a.state">
         <Icon name="doc" :size="14" /> <b>{{ a.name }}</b>
@@ -135,6 +141,13 @@ defineExpose({ focus: () => ta.value?.focus() })
 </template>
 
 <style scoped>
+/* objects pointed at in an open document (OfficeEditorFrame "@ 가리키기") */
+.mentions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
+.mention { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 0 10px; border-radius: 13px; font-size: 13px;
+  background: rgba(124, 104, 255, .2); color: #d9d2ff; border: 1px solid rgba(160, 140, 255, .45); animation: pop-in .3s var(--spring); }
+.mention b { font-weight: 600; }
+.mention .x { width: 20px; height: 20px; border-radius: 10px; color: inherit; opacity: .7; }
+.mention .x:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
 .composer { position: relative; width: 100%; }
 .box { display: flex; align-items: flex-end; min-height: 48px; border-radius: 24px; padding-right: 6px; --thin-bg: var(--composer-bg); transition: background-color 1s, margin .4s var(--spring); }
 .panel .box { margin-left: 60px; }

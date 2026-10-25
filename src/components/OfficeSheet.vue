@@ -6,7 +6,7 @@ import OfficeEditorFrame from './OfficeEditorFrame.vue'
 import CraftEditorFrame from './CraftEditorFrame.vue'
 import CraftLiveOverlay from './CraftLiveOverlay.vue'
 import { CRAFT_APPS, officeEditorFor } from '../officeEditor.js'
-import { api } from '../api.js'
+import { api, uploadAttachment } from '../api.js'
 import { useApp } from '../stores/app.js'
 
 const app = useApp()
@@ -35,6 +35,58 @@ function assistant({ prompt, selection }) {
   if (selection) app.prefill = `선택한 부분 "${selection.slice(0, 120)}"을 `
   else app.focusTick++
 }
+// Click to mention: the editor tells what was pointed at; it waits in the input as a chip
+function mention(m) {
+  app.addMention(m)
+  if (maximized.value) overlay.value?.expand()
+  else app.focusTick++
+}
+
+// One assistant across apps: a request about a 한글 picture that changes the picture itself goes to
+// PhotoCraft — the picture is taken out of the open document, opened live in PhotoCraft over the
+// document (the agent and the dial edit it there), and "한글 문서에 넣기" (or ⌘S) puts it back in
+// place of the same picture. Requests that move or delete the picture stay with the document.
+const officeFrame = ref(null)
+const picFrame = ref(null)
+const pic = ref(null) // { url, name, n, docName, pending }
+const picLive = ref(false)
+const NOT_IMAGE_EDIT = /(지워|삭제|빼\s*줘|없애|옮겨|위치|캡션|크기를\s*줄|문단|표\b)/
+function flash(kind, text, ms = 6000) { note.value = { kind, text }; setTimeout(() => { if (note.value?.text === text) note.value = null }, ms) }
+async function openPicture(m, text) {
+  const d = app.officeDoc
+  flash('ok', `그림 ${m.image || 1}을 포토크래프트로 여는 중…`, 4000)
+  const r = await officeFrame.value.picture(m.image || 1)
+  const ext = /png/.test(r.media || r.name) ? 'png' : 'jpg'
+  const base = String(d.name || '문서').replace(/\.[^.]+$/, '')
+  const f = await uploadAttachment(new File([r.bytes], `${base} 그림 ${r.n}.${ext}`, { type: r.media || `image/${ext}` }))
+  pic.value = { url: f.url, name: f.name, n: r.n, docName: d.name, label: m.label, pending: text }
+}
+app.beforeSend = async (text, mentions) => {
+  const m = mentions.find((x) => x.kind === 'image' && x.editor === 'hwp')
+  if (!m || !office.value || pic.value || NOT_IMAGE_EDIT.test(text)) return false
+  try { await openPicture(m, text); return true } catch (e) { flash('err', `그림을 꺼내지 못했어요: ${e.message}`); return false }
+}
+// PhotoCraft joined the chat: now the request goes, about the picture open there
+watch(picLive, (on) => {
+  const p = pic.value
+  if (!on || !p?.pending) return
+  const text = p.pending
+  p.pending = null
+  app.send(`@${p.label} ${text}`, undefined, `(이 요청은 한글 문서 '${p.docName}' 의 그림 ${p.n} 에 대한 것이에요. 그 그림을 지금 포토크래프트에 '${p.name}' 으로 열어 두었으니 열린 포토크래프트에서 고치세요. 다 고치면 사용자가 '한글 문서에 넣기' 로 문서에 다시 넣어요.)`)
+})
+async function putBack() {
+  const p = pic.value
+  if (!p || p.putting) return
+  p.putting = true
+  try {
+    const bytes = await picFrame.value.snapshot()
+    await officeFrame.value.replacePicture(p.n, bytes, p.docName)
+    pic.value = null
+    flash('ok', `고친 그림을 한글 문서의 그림 ${p.n} 자리에 넣었어요 · ⌘S 로 저장하세요`, 7000)
+  } catch (e) { p.putting = false; flash('err', `그림을 문서에 넣지 못했어요: ${e.message}`) }
+}
+onBeforeUnmount(() => { if (app.beforeSend) app.beforeSend = null })
+
 const dockWas = app.dockOpen
 watch([side, office], ([on, doc]) => {
   document.body.classList.toggle('craft-side', on)
@@ -70,9 +122,17 @@ async function saved({ url, name }) {
     <div class="sheet glass" :class="{ max: maximized }">
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
-      <OfficeEditorFrame v-else :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        :assistant="office" v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" @assistant="assistant" />
-      <CraftLiveOverlay v-if="(craft || office) && maximized" ref="overlay" :title="craftTitle" :live="live" />
+      <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
+        :assistant="office" v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" @assistant="assistant" @mention="mention" />
+      <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
+      <Transition name="pic">
+        <div v-if="pic" class="pic">
+          <div class="pic-tag">한글 문서 · 그림 {{ pic.n }}</div>
+          <CraftEditorFrame ref="picFrame" :file-url="pic.url" :name="pic.name" return-label="한글 문서에 넣기"
+            @return="putBack" @saved="putBack" @close="pic = null" @live="(v) => (picLive = v)" />
+        </div>
+      </Transition>
+      <CraftLiveOverlay v-if="(craft || office) && maximized" ref="overlay" :title="pic ? 'PhotoCraft' : craftTitle" :live="pic ? picLive : live" />
       <Transition name="fade"><div v-if="note" class="pnote" :class="note.kind">{{ note.text }}</div></Transition>
     </div>
   </div>
@@ -86,6 +146,13 @@ async function saved({ url, name }) {
 .sheet { position: relative; }
 .pnote { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 9px 16px; border-radius: 10px; font-size: 14px; color: #fff; background: #1d1d1f; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); white-space: nowrap; }
 .pnote.err { background: #c62828; }
+.pnote { z-index: 6; }
+/* PhotoCraft over the 한글 document: the document's left edge stays in sight, dimmed */
+.pic { position: absolute; inset: 44px 0 0 16%; z-index: 4; display: flex; border-radius: 16px 0 0 0; overflow: hidden; box-shadow: -18px 0 50px rgba(0, 0, 0, .35); }
+.pic::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.pic-tag { position: absolute; left: 12px; bottom: 12px; z-index: 3; padding: 4px 10px; border-radius: 10px; font-size: 12px; color: #fff; background: rgba(110, 90, 230, .85); pointer-events: none; }
+.pic-enter-active, .pic-leave-active { transition: transform .45s var(--spring), opacity .3s; }
+.pic-enter-from, .pic-leave-to { transform: translateX(40%); opacity: 0; }
 .sheet.max { width: 100%; border-radius: 0; box-shadow: none; }
 /* an ArtCraft app beside the chat: clicks reach the chat column; the chat dims a little */
 .veil.side { pointer-events: none; background: linear-gradient(to right, rgba(20, 24, 32, .07), rgba(20, 24, 32, .07) calc(100% - var(--craft-side-w)), transparent 0); }
