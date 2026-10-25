@@ -277,8 +277,15 @@ async function designTemplate(userId, dxfUrl) {
     const dxf = path.join(dir, 'plan.dxf'), png = path.join(dir, 'plan.png')
     await fs.promises.writeFile(dxf, Buffer.from(await (await fetch(dxfUrl)).arrayBuffer()))
     await new Promise((res, rej) => execFile(config.craftCli.cadcraft, ['convert', dxf, png], { timeout: 120_000 }, (e) => (e ? rej(e) : res())))
+    // CADCraft renders on its dark canvas in layer colours; a document wants ink on paper: every stroke
+    // charcoal on white, by distance from the background (not brightness — red lines are as dark as the ground)
+    const light = path.join(dir, 'plan-light.png')
+    const steps = [['select.magicWand', { x: 3, y: 3, tolerance: 14, contiguous: false, antiAlias: false }], ['edit.fill', { contents: 'color', color: '#ffffff' }],
+      ['select.inverse'], ['select.modify.expand', { radius: 1 }], ['edit.fill', { contents: 'color', color: '#2b2f36' }], ['select.deselect']]
+    const args = ['run', png, ...steps.flatMap(([id, params]) => ['--cmd', id, ...(params ? ['--params', JSON.stringify(params)] : [])]), '--out', light]
+    const lit = await new Promise((res) => execFile(config.craftCli.photocraft, args, { timeout: 120_000 }, (e) => res(!e)))
     const zip = await JSZip.loadAsync(await fs.promises.readFile(config.designTemplatePath))
-    zip.file('BinData/image1.png', await fs.promises.readFile(png))
+    zip.file('BinData/image1.png', await fs.promises.readFile(lit ? light : png))
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', mimeType: 'application/hwp+zip' })
     const { admin } = await import('./supa.js')
     const key = `pgpt-pro/${userId}/${crypto.randomUUID()}.hwpx`

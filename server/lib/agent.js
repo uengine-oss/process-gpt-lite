@@ -20,6 +20,7 @@ import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, offi
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
 import { liveOpen, liveHint } from './craftLive.js'
+import { capture, reviewTurn } from './review.js'
 import { attachmentHint } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
 import { folderFor, startChatWork, finishChatWork } from './folders/work.js'
@@ -388,8 +389,17 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const idle = new AbortController()
   let idleTimer = setTimeout(() => idle.abort(), STREAM_IDLE_MS)
   const alive = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => idle.abort(), STREAM_IDLE_MS) }
+  // 검수 (lib/review.js): what is open now, as it is before the agent's edits
+  const before = live ? await capture({ userId: user.id, jwt: session.access_token, open: live }) : null
+  const usedTools = new Set()
   try {
-    return await streamTurn()
+    const msg = await streamTurn()
+    // an edit tool of the open app or document ran: check the result against the request
+    const prefix = live?.app === 'ieumoffice' ? /^office_live_(write|replace|apply_ops|hwp_)/ : new RegExp(`^${live?.app}_`)
+    if (before && [...usedTools].some((t) => prefix.test(t) && !/(inspect|read|list|render|preview|find|query|guide|documents)/.test(t))) {
+      await reviewTurn({ user, session, threadId, request: text.split('\n\n(')[0], open: live, before })
+    }
+    return msg
   } catch (e) {
     if (!idle.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
     console.warn('[delegate]', idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
@@ -463,6 +473,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (j.type === 'process_result' && j.data?.processDefinition) processResult = j.data
       if (j.type === 'tool_start') {
         const tool = j.tool || j.tool_name || j.name || ''
+        usedTools.add(tool)
         steps += 1
         emit(user.id, 'status', { threadId, text: mode === 'skill' ? `스킬 만드는 중 · ${SKILL_STEPS[tool] || '작업'} (${steps}단계)` : toolPhase(tool) })
       }

@@ -10,6 +10,7 @@ const SUITES = [
   ['F-UT-02 패널 앱: 정의·규칙 컴파일·이벤트 재계산 (panelApps/panelRules/panelEvents)', ['test/panelApps.test.js', 'test/panelRules.test.js', 'test/panelEvents.test.js']],
   ['F-UT-03 브라우저 에이전트↔보관함: 로그인·OTP·결제에서 모델 요청에 비밀 0건 (browser-vault.test.js)', ['test/browser-vault.test.js']],
   ['F-UT-04 Google 로그인 토큰 검증 (google.test.js)', ['test/google.test.js']],
+  ['F-UT-05 검수: 도면 선 비율·밝기 매핑이 지운 선·개수 손실 판정 (review.test.js)', ['test/review.test.js']],
 ]
 for (const [name, files] of SUITES) {
   // the browser one drives a real Chromium against a local shop: on a busy machine give it a second go

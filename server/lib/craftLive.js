@@ -127,7 +127,7 @@ function startLive(userId, app, file, ws) {
     if (live.closed) return
     live.closed = true
     if (lives.get(`${app}:${userId}`) === live) lives.delete(`${app}:${userId}`)
-    for (const p of live.pending.values()) { clearTimeout(p.timer); reply(p.sock, { id: p.id, ok: false, error: 'the app was closed in the page' }) }
+    for (const p of live.pending.values()) { clearTimeout(p.timer); if (p.sock) reply(p.sock, { id: p.id, ok: false, error: 'the app was closed in the page' }); else p.resolve?.({ error: 'the app was closed in the page' }) }
     live.pending.clear()
     for (const s of live.conns) s.destroy()
     live.server.close()
@@ -194,6 +194,18 @@ function forward(live, sock, m) {
   live.ws.send(JSON.stringify({ type: 'call', id: seq, method: m.method, params: m.params ?? {} }))
 }
 
+// a request from this server itself to the app open in the page (lib/review.js: before/after captures,
+// a corrective recolour) — the same channel the CLI bridge uses, answered by the page
+export function pageCall(live, method, params = {}, timeoutMs = 30_000) {
+  if (!live?.ws || live.ws.readyState !== 1 || LIVE_APPS[live.app]?.presence) return Promise.reject(new Error('no live app'))
+  const seq = ++live.seq
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { live.pending.delete(seq); reject(new Error(`${method}: no reply`)) }, timeoutMs)
+    live.pending.set(seq, { timer, method, resolve: (m) => (m.error != null ? reject(new Error(String(m.error))) : resolve(m.result ?? null)) })
+    live.ws.send(JSON.stringify({ type: 'call', id: seq, method, params }))
+  })
+}
+
 export function attachCraftLive(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 })
   server.on('upgrade', (req, socket, head) => {
@@ -225,6 +237,7 @@ export function attachCraftLive(server) {
           if (!p) return
           live.pending.delete(m.id)
           clearTimeout(p.timer)
+          if (p.resolve) return p.resolve(m)
           reply(p.sock, m.error != null ? { id: p.id, ok: false, error: String(m.error) } : { id: p.id, ok: true, result: m.result ?? null })
         }
       })
@@ -240,8 +253,11 @@ export function attachCraftLive(server) {
 // what the agent is told while an app is open in the page (lib/agent.js delegate)
 const LIVE_TOOLS = {
   photocraft: 'photocraft_doc_inspect 로 레이어를 확인하고, photocraft_command_run(예: 글자 레이어 색·내용 바꾸기, 새 글자 레이어)으로 고치세요. ' +
-    '그림 전체의 색을 문서 색조에 맞출 때(예: 어두운 CAD 도면을 남색·하늘색 톤으로)는 photocraft_command_run image.adjustments.gradientMap {"stops":[[0,"#ffffff"],[0.18,"#eef5fc"],[0.45,"#5f93d3"],[1,"#1f3a6e"]]} 처럼 어두운 값→밝은 바탕색, 밝은 값→선 색으로 한 번에 바꾸고, ' +
-    '다시 조정하라고 하면 edit.undo 로 되돌린 뒤 새 stops 로 한 번 더 적용하세요(겹쳐 적용하지 마세요)',
+    // line art (a CAD render, a diagram): a luminance map (gradientMap) sends strokes as dark as the background
+    // into the background — the plan's red furniture vanished. Colour by distance from the background instead.
+    '선 그림·도면처럼 바탕 위에 선이 그려진 그림의 색을 문서 색조에 맞출 때는 밝기로 바꾸는 gradientMap·hueSaturation 을 쓰지 말고(바탕과 밝기가 비슷한 선이 사라져요) 바탕색을 기준으로 칠하세요: ' +
+    'photocraft_command_batch steps=[{"id":"select.magicWand","params":{"x":3,"y":3,"tolerance":14,"contiguous":false,"antiAlias":false}},{"id":"edit.fill","params":{"contents":"color","color":"<바탕색, 예 #eef5fc>"}},{"id":"select.inverse"},{"id":"select.modify.expand","params":{"radius":1}},{"id":"edit.fill","params":{"contents":"color","color":"<선 색, 예 #1f3a6e>"}},{"id":"select.deselect"}]. ' +
+    '다시 조정하라고 하면 먼저 select.all → edit.fillHistory 로 원래 그림으로 되돌린 뒤 select.deselect 하고 같은 순서로 새 색을 칠하세요',
   vectorcraft: 'vectorcraft_inspect 계열로 객체를 확인하고, vectorcraft_add_text·vectorcraft_set_paint·vectorcraft_command_run 으로 고치세요',
   filmcraft: 'filmcraft_project_inspect·filmcraft_sequence_inspect 로 확인하고 filmcraft_command_run 으로 고치세요(file.newProject·가져오기 금지, 자막 글꼴은 웹에도 있는 NanumGothic)',
   cadcraft: 'cadcraft_inspect_drawing·cadcraft_find_text·cadcraft_query_entities 로 확인하고, cadcraft_command_line·cadcraft_script·cadcraft_execute 로 고친 뒤 cadcraft_render 로 직접 보세요(cadcraft_new_drawing·cadcraft_open 금지)',

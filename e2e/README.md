@@ -175,6 +175,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 열린 앱을 에이전트와 함께 고친다(라이브) | F-CR-10 (도구로 레이어 추가), A-06 (대화로) | feature/agent | ✅ |
 | 라이브 제어 포트는 그 사용자의 CLI 만(pid·토큰) | S-25 ×5앱, S-24 | smoke | ✅ |
 | 열린 앱이 에이전트 맥락이 된다 | F-CR-<앱> (열린 동안 도구가 열린 화면을 읽음), A-06 | feature/agent | ✅ |
+| 편집 뒤 검수: 요청대로 됐는지·빠진 게 없는지(그림 선 비율·사내 모델 비교, CAD 객체 수, 문서 표·행·수식), 실패면 한 번 고쳐 다시, 그래도면 되돌리고 알림, 편집본 카드에 "검수됨" | F-UT-05 (선 비율·손실 판정), A-11 (도면 색 바꾸기 → 선 70% 이상 + 검수 메모) | feature/agent | ◐ (문서·CAD 검수는 대화로만 확인) |
 | 옆 시트와 최대화 다이얼 | F-ED-04 (SVG) | feature | ✅ |
 | CADCraft·SoundCraft 웹 페이지 API | F-CR-cadcraft, F-CR-soundcraft (열린 화면 읽기) | feature | ◐ (대화로 고치기·다이얼 ✗) |
 | PhotoCraft 웹 페이지 API | F-CR-photocraft, F-CR-10 | feature | ◐ (미리보기 요청 ✗) |

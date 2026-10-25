@@ -59,8 +59,54 @@ async function openPicture(m, text) {
   const ext = /png/.test(r.media || r.name) ? 'png' : 'jpg'
   const base = String(d.name || '문서').replace(/\.[^.]+$/, '')
   const f = await uploadAttachment(new File([r.bytes], `${base} 그림 ${r.n}.${ext}`, { type: r.media || `image/${ext}` }))
-  pic.value = { url: f.url, name: f.name, n: r.n, docName: d.name, label: m.label, pending: text }
+  pic.value = { url: f.url, name: f.name, n: r.n, docName: d.name, label: m.label, pending: text, strokes: await strokeCount(r.bytes).catch(() => 0) }
 }
+// How much of a picture is drawn: pixels away from its background (the corner colour), every
+// second pixel. A recolour that maps by brightness can drop strokes as dark as the background
+// (a CAD plan's red furniture on its dark ground): fewer than 70% of the strokes left means redo.
+async function strokeCount(bytes) {
+  const bmp = await createImageBitmap(new Blob([bytes]))
+  const c = new OffscreenCanvas(bmp.width, bmp.height)
+  const g = c.getContext('2d')
+  g.drawImage(bmp, 0, 0)
+  const { data } = g.getImageData(0, 0, bmp.width, bmp.height)
+  const at = (x, y) => (y * bmp.width + x) * 4
+  const b0 = at(3, 3)
+  let n = 0
+  for (let y = 0; y < bmp.height; y += 2) {
+    for (let x = 0; x < bmp.width; x += 2) {
+      const i = at(x, y)
+      if (Math.abs(data[i] - data[b0]) + Math.abs(data[i + 1] - data[b0 + 1]) + Math.abs(data[i + 2] - data[b0 + 2]) > 60) n++
+    }
+  }
+  return n
+}
+const MASK_RECOLOR = (ground, ink) => [
+  ['select.all'], ['edit.fillHistory'], ['select.deselect'],
+  ['select.magicWand', { x: 3, y: 3, tolerance: 14, contiguous: false, antiAlias: false }],
+  ['edit.fill', { contents: 'color', color: ground }], ['select.inverse'], ['select.modify.expand', { radius: 1 }],
+  ['edit.fill', { contents: 'color', color: ink }], ['select.deselect'],
+]
+let guarding = false
+async function guardStrokes() {
+  const p = pic.value
+  if (!p?.strokes || guarding || !picFrame.value) return true
+  guarding = true
+  try {
+    const now = await strokeCount(await picFrame.value.snapshot())
+    const kept = now / p.strokes
+    if (kept >= 0.7) return true
+    // back to the picture as it came out of the document, then colour by distance from the background
+    for (const [command, params] of MASK_RECOLOR('#eef5fc', '#1f3a6e')) await picFrame.value.request('engine.execute', { command, params: params || {} })
+    const fixed = await strokeCount(await picFrame.value.snapshot())
+    const text = `색을 바꾸면서 그림의 선이 ${Math.round(kept * 100)}%만 남아(바탕과 밝기가 비슷한 테이블 같은 선이 바탕에 묻혔어요) 되돌린 뒤 바탕색 기준으로 다시 칠했어요 — 선은 남색, 바탕은 하늘색이고 선이 원래의 ${Math.round((fixed / p.strokes) * 100)}%로 남았어요.`
+    flash('ok', '선이 사라져서 바탕색 기준으로 다시 칠했어요', 6000)
+    if (app.activeId) await api(`/threads/${app.activeId}/note`, { method: 'POST', body: { text } }).catch(() => {})
+    return true
+  } catch (e) { console.warn('[pic guard]', e.message); return true } finally { guarding = false }
+}
+// after each of the agent's answers while the picture is out, and before it goes back
+watch(() => [...(app.thread || [])].reverse().find((m) => m.role === 'agent')?.id, (id, was) => { if (pic.value && id && was && id !== was) setTimeout(guardStrokes, 800) })
 app.beforeSend = async (text, mentions) => {
   const m = mentions.find((x) => x.kind === 'image' && x.editor === 'hwp')
   if (!m || !office.value || pic.value || NOT_IMAGE_EDIT.test(text)) return false
@@ -79,8 +125,12 @@ async function putBack() {
   if (!p || p.putting) return
   p.putting = true
   try {
+    await guardStrokes()
     const bytes = await picFrame.value.snapshot()
     await officeFrame.value.replacePicture(p.n, bytes, p.docName)
+    // 검수 of the round trip, kept for the document's edited-copy card
+    const kept = p.strokes ? Math.round(((await strokeCount(bytes).catch(() => 0)) / p.strokes) * 100) : null
+    api('/reviews', { method: 'POST', body: { file: p.docName, ok: kept == null || kept >= 70, summary: `검수: 그림 ${p.n}을 포토크래프트에서 고쳐 같은 자리에 넣음${kept != null ? ` · 선 ${kept}% 유지` : ''}${kept == null || kept >= 70 ? ' ✓' : ' ⚠'}` } }).catch(() => {})
     pic.value = null
     flash('ok', `고친 그림을 한글 문서의 그림 ${p.n} 자리에 넣었어요 · ⌘S 로 저장하세요`, 7000)
   } catch (e) { p.putting = false; flash('err', `그림을 문서에 넣지 못했어요: ${e.message}`) }

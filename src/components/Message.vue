@@ -111,7 +111,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <div v-else-if="msg.kind === 'file'" class="filerow">
       <button class="file press" @click="openFile">
         <span class="fic" :class="kindOf(c.name)">{{ kindLabel[kindOf(c.name)] || 'FILE' }}</span>
-        <span class="fmeta"><b>{{ c.name }}</b><small><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : c.url ? '열기' : '작업실에서 열기' }}</small></span>
+        <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : c.url ? '열기' : '작업실에서 열기' }}</small></span>
       </button>
       <!-- 팀원에게 공유 (components/team) -->
       <ShareButton :msg="msg" compact />
@@ -139,6 +139,9 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 </template>
 
 <style scoped>
+/* the last 검수 of an edited copy (lib/review.js) */
+.reviewed { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; background: rgba(60, 190, 120, .22); color: #8fe0a8; }
+.reviewed.warn { background: rgba(240, 160, 40, .22); color: #ffc46b; }
 .row { position: relative; display: flex; flex-direction: column; align-items: flex-start; animation: blur-in .5s var(--spring) both; }
 .row.r-user { align-items: flex-end; }
 /* a running browser task stays in view while the conversation scrolls under it */

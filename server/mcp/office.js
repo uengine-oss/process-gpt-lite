@@ -32,7 +32,7 @@ const idleTool = {
   inputSchema: { type: 'object', properties: {} },
 }
 
-async function withClient(jwt, fn) {
+export async function withClient(jwt, fn) {
   const client = new Client({ name: 'pgpt-pro', version: '1.0.0' })
   await client.connect(new StreamableHTTPClientTransport(new URL('/office/mcp', config.officeHostUrl), { requestInit: { headers: { Authorization: `Bearer ${jwt}` } } }))
   try { return await fn(client) } finally { client.close().catch(() => {}) }

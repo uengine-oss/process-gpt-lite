@@ -14,6 +14,7 @@ import { listSchedules, deleteSchedule } from './lib/scheduler.js'
 import { generatePanel, revisePanel, savePanelData, proxyFetch } from './lib/panels.js'
 import { chat } from './lib/llm.js'
 import * as mail from './lib/mail.js'
+import { reviewFor, recordReview } from './lib/review.js'
 import { processRoutes } from './routes/process.js'
 import { startBrowserWorker } from './lib/browserWorker.js'
 import { mountConnectors, connectorStatus, ensureHubBinding } from './mcp/connectors.js'
@@ -286,6 +287,21 @@ app.post('/api/attachments', express.raw({ type: () => true, limit: '50mb' }), a
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 
+// the page's own 검수 of a step it did (OfficeSheet: a picture put back into the 한글 document)
+app.post('/api/reviews', auth, async (req, res) => {
+  const file = String(req.body?.file || '').slice(0, 200), summary = String(req.body?.summary || '').slice(0, 400)
+  if (!file || !summary) return res.status(400).end()
+  recordReview(req.user.id, file, { ok: req.body.ok !== false, summary })
+  res.json({ ok: true })
+})
+// a short note from the page into the person's own thread (e.g. "the recolour lost strokes, redone")
+app.post('/api/threads/:id/note', auth, async (req, res) => {
+  const t = await getThread(req.user.id, req.params.id)
+  if (!t) return res.status(404).end()
+  const text = String(req.body?.text || '').trim().slice(0, 600)
+  if (!text) return res.status(400).end()
+  res.json(await addMessage(req.user.id, t.id, 'agent', 'text', { text, note: true }))
+})
 app.post('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
@@ -371,6 +387,13 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
                        from pro_threads t where m.id=$1 and t.id=m.thread_id and t.user_id=$2 and m.kind='file' returning m.*`,
   [req.params.id, req.user.id, url, name])
   if (!m) return res.status(404).end()
+  // the last 검수 of this document travels with its edited copy (lib/review.js)
+  const rv = reviewFor(req.user.id, m.content.name) || reviewFor(req.user.id, name)
+  if (rv && Date.now() - rv.at < 2 * 3600_000) {
+    const [m2] = await q(`update pro_messages set content = content || jsonb_build_object('review', $2::jsonb) where id=$1 returning *`, [m.id, { ok: rv.ok, summary: rv.summary }])
+    emit(req.user.id, 'message', m2)
+    return res.json(m2)
+  }
   emit(req.user.id, 'message', m)
   res.json(m)
 })

@@ -163,7 +163,16 @@ async function snapshot() {
   if (!b64) throw new Error('이미지를 받지 못했어요')
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
 }
-defineExpose({ snapshot })
+// a control request on the open app (OfficeSheet's recolour guard)
+async function request(method, params = {}) {
+  const w = frame.value?.contentWindow
+  const name = appName()
+  if (!w?.[name]?.request) throw new Error('앱이 아직 열리지 않았어요')
+  const r = await w[name].request(method, params)
+  if (!READS.test(method) && !READS.test(params?.command || '')) dirty.value = true
+  return r
+}
+defineExpose({ snapshot, request })
 function stopLive() {
   link?.close()
   link = null
