@@ -1,4 +1,5 @@
 <script setup>
+import StepOutputs from './mining/StepOutputs.vue'
 import { ref, onMounted } from 'vue'
 import FormCard from './FormCard.vue'
 import Icon from './Icon.vue'
@@ -31,6 +32,7 @@ async function submit(values) {
   <div v-if="!data" class="loading shimmer-text">불러오는 중</div>
   <div v-else-if="sent" class="sent blur-in"><Icon name="check" :size="16" /> {{ data.todo.activity_name }} 제출됨</div>
   <div v-else class="todo">
+    <StepOutputs :todo-id="data.todo.id" class="outs-top" />
     <FormCard v-if="data.form?.fields?.length" :title="data.todo.activity_name" :subtitle="data.instName" :fields="data.form.fields" :values="data.values" :busy="busy" @submit="submit" />
     <div v-else class="plain glass">
       <b class="serif">{{ data.todo.activity_name }}</b>

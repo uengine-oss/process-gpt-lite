@@ -5,6 +5,7 @@ import { ref, computed } from 'vue'
 import { useApp } from '../stores/app.js'
 import { useRouter } from 'vue-router'
 import { useTeam } from '../stores/team.js'
+import StepOutputs from './mining/StepOutputs.vue'
 
 const props = defineProps({ n: Object })
 const app = useApp()
@@ -46,6 +47,8 @@ async function act(choice) {
     <p v-else-if="n.type !== 'workitem'" class="who">{{ kinds[n.type] || 'process-gpt' }} · {{ when }}</p>
     <p v-else class="who">{{ n.process }}<template v-if="n.role"> · {{ n.role }}</template> · {{ when }}</p>
     <p v-if="n.context || n.text" class="ctx">{{ n.context || n.text }}</p>
+    <!-- a step to decide: the earlier steps' outputs open right here (IeumOffice · ArtCraft) -->
+    <StepOutputs v-if="n.type === 'workitem' && n.todoId" :todo-id="n.todoId" />
     <div class="btns">
       <template v-if="n.choices">
         <button v-for="o in n.choices.options" :key="o.key" class="b press" :class="{ main: o === n.choices.options[0] }"

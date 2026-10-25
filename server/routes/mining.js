@@ -1,6 +1,21 @@
 // HTTP routes for process mining: recommendations from repeated ad-hoc work and the admin's decision.
 import express from 'express'
 import * as M from '../lib/mining/service.js'
+import { q } from '../lib/supa.js'
+import { canSeeInstance, getInstance } from '../lib/processes.js'
+import { mainThread, addMessage } from '../lib/store.js'
+
+// The outputs of a work item's instance (files the earlier steps produced), for whoever reviews it.
+// Only a participant or work-item holder of that instance may see or open them (canSeeInstance).
+async function outputsOf(me, todoId) {
+  const [t] = await q('select proc_inst_id from todolist where id=$1', [todoId])
+  if (!t?.proc_inst_id) throw Object.assign(new Error('작업을 찾지 못했어요.'), { status: 404 })
+  if (!(await canSeeInstance(t.proc_inst_id, me))) throw Object.assign(new Error('이 프로세스를 볼 권한이 없어요.'), { status: 403 })
+  const d = await getInstance(t.proc_inst_id, me)
+  const seen = new Set()
+  return { instId: t.proc_inst_id, files: (d?.artifacts || []).filter((a) => a.kind === 'file' && a.url && !seen.has(a.url) && seen.add(a.url))
+    .map((a) => ({ name: a.name, url: a.url, step: a.activity })) }
+}
 
 export function miningRoutes(auth) {
   const r = express.Router()
@@ -12,6 +27,16 @@ export function miningRoutes(auth) {
   }
   const admin = async (req) => { if (!(await M.isAdmin(req.user))) throw Object.assign(new Error('관리자만 볼 수 있어요.'), { status: 403 }) }
 
+  r.get('/todos/:id/outputs', auth, h((req) => outputsOf(req.user, req.params.id)))
+  // open one output: the reviewer gets their own file card (edits save to their card, never the step's file)
+  r.post('/todos/:id/outputs/open', auth, h(async (req) => {
+    const { files } = await outputsOf(req.user, req.params.id)
+    const f = files.find((x) => x.url === req.body?.url)
+    if (!f) throw Object.assign(new Error('산출물을 찾지 못했어요.'), { status: 404 })
+    const t = await mainThread(req.user.id)
+    const [have] = await q(`select * from pro_messages where thread_id=$1 and kind='file' and content->>'source_url'=$2 order by created_at desc limit 1`, [t.id, f.url])
+    return have || addMessage(req.user.id, t.id, 'agent', 'file', { name: f.name, url: f.url, source_url: f.url, step: f.step })
+  }))
   r.get('/mining/me', auth, h(async (req) => ({ admin: await M.isAdmin(req.user) })))
   r.get('/mining/suggestions', auth, h(async (req) => { await admin(req); return M.list() }))
   r.post('/mining/scan', auth, h(async (req) => { await admin(req); return { made: (await M.scan()).map((s) => s.id) } }))
