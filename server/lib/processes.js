@@ -79,13 +79,23 @@ export async function getDefinition(id) {
   }
 }
 
+// An agent step is only "running" while a worker holds it (polling/cli-agent claim it: consumer,
+// lease, draft STARTED). A queued agent step or a step waiting on a person is not.
+const AGENT_RUNNING = `t.agent_orch is not null and t.status not in ('DONE','CANCELLED')
+  and (t.draft_status::text = 'STARTED' or t.consumer is not null or t.lease_until > now())`
+const agentRunning = (t) => !!t?.agent_orch && !['DONE', 'CANCELLED'].includes(t.status) &&
+  (t.draft_status === 'STARTED' || !!t.consumer || (t.lease_until && new Date(t.lease_until) > new Date()))
+
 export async function listInstances({ userEmail, userId, status, limit = 30 }) {
   return q(
     `select i.proc_inst_id, i.proc_inst_name, i.proc_def_id, i.status, i.current_activity_ids, i.start_date, i.end_date, i.updated_at,
             d.name as def_name,
             exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id
                     and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))
-                    and (t.user_id like '%'||$2||'%' or t.user_id like '%'||$3||'%')) as needs_me
+                    and (t.user_id like '%'||$2||'%' or t.user_id like '%'||$3||'%')) as needs_me,
+            exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id and ${AGENT_RUNNING}) as agent_running,
+            exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id and t.agent_orch is null
+                    and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))) as human_waiting
      from bpm_proc_inst i left join proc_def d on d.id=i.proc_def_id and d.tenant_id=i.tenant_id
      where i.tenant_id=$1 and not coalesce(i.is_deleted,false) and ($4::text is null or i.status::text=$4)
      order by coalesce(i.updated_at, i.start_date::timestamptz) desc nulls last limit $5`,
@@ -99,7 +109,7 @@ export async function getInstance(instId, me) {
   const def = await getDefinition(inst.proc_def_id)
   const todos = await q(
     `select id, activity_id, activity_name, status, user_id, username, start_date, end_date, updated_at, output, draft,
-            output_url, agent_mode, agent_orch, log, description
+            output_url, agent_mode, agent_orch, log, description, draft_status::text as draft_status, consumer, lease_until
      from todolist where proc_inst_id=$1 order by coalesce(start_date, updated_at::timestamp) asc`, [instId])
   const byAct = new Map()
   for (const t of todos) byAct.set(t.activity_id, t) // latest wins
@@ -116,7 +126,8 @@ export async function getInstance(instId, me) {
     if (s.kind === 'end') state = inst.status === 'COMPLETED' ? 'done' : 'pending'
     const mine = t && reached && ['TODO', 'IN_PROGRESS', 'NEW'].includes(t.status) &&
       (String(t.user_id || '').includes(me.email) || String(t.user_id || '').includes(me.id))
-    return { ...s, state, todoId: t?.id || null, todoStatus: t?.status || null, mine: !!mine, assignee: t?.username || t?.user_id || null }
+    return { ...s, state, todoId: t?.id || null, todoStatus: t?.status || null, mine: !!mine, assignee: t?.username || t?.user_id || null,
+      running: state === 'active' && agentRunning(t) }
   })
   // gateways have no work item: done once anything after them is done
   steps.forEach((s, i) => { if (s.kind === 'gateway' && steps.slice(i + 1).some((n) => n.state === 'done')) s.state = 'done' })

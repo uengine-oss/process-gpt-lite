@@ -11,12 +11,13 @@ const kindIcon = { human: 'hand', agent: 'panel', gateway: 'plan', start: 'clock
 
 <template>
   <ol class="tl" :class="{ compact }">
-    <li v-for="(s, i) in steps" :key="s.id" :class="[s.kind, s.state || 'plain', { mine: s.mine }]" :style="{ '--i': i }">
+    <li v-for="(s, i) in steps" :key="s.id" :class="[s.kind, s.state || 'plain', { mine: s.mine, running: s.running }]" :style="{ '--i': i }">
       <span class="dot"><Icon v-if="s.state === 'done'" name="check" :size="12" /></span>
       <div class="body" :class="{ click: s.mine }" @click="s.mine && emit('open', s)">
         <div class="name">
-          <span :class="{ 'shimmer-text': s.state === 'active' && !s.mine }">{{ s.name }}</span>
+          <span :class="{ 'shimmer-text': s.running }">{{ s.name }}</span>
           <span v-if="s.mine" class="attn"><Icon name="alert" :size="12" /> 입력 필요</span>
+          <span v-else-if="s.state === 'active' && s.kind === 'human'" class="wait">확인 대기</span>
         </div>
         <div v-if="!compact && (s.role || s.assignee)" class="role">
           <Icon :name="kindIcon[s.kind] || 'panel'" :size="12" /> {{ s.role || s.assignee }}
@@ -34,7 +35,9 @@ const kindIcon = { human: 'hand', agent: 'panel', gateway: 'plan', start: 'clock
 .tl li.done:not(:last-child)::before { background: color-mix(in srgb, var(--color-success) 55%, transparent); }
 .dot { width: 24px; height: 24px; border-radius: 9999px; display: grid; place-items: center; background: var(--cell-bg); color: #fff; box-shadow: inset 0 0 0 2px var(--hairline); z-index: 1; }
 .done .dot { background: var(--color-success); box-shadow: none; }
-.active .dot { box-shadow: inset 0 0 0 2px var(--text-primary); animation: pulse 1.6s ease-in-out infinite; }
+/* an active step is ringed; only an agent actually at work pulses (a step waiting on a person stays still) */
+.active .dot { box-shadow: inset 0 0 0 2px var(--text-primary); }
+.running .dot { animation: pulse 1.6s ease-in-out infinite; }
 .mine .dot { background: var(--color-attention); box-shadow: none; animation: none; }
 .gateway .dot { border-radius: 6px; rotate: 45deg; scale: .78; }
 .skipped, .cancelled { opacity: .38; }
@@ -44,6 +47,7 @@ const kindIcon = { human: 'hand', agent: 'panel', gateway: 'plan', start: 'clock
 .pending .name, .plain.end .name { color: var(--text-secondary); }
 .role { font-size: 12.5px; color: var(--text-secondary); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
 .attn { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px; border-radius: 9999px; background: var(--color-attention); color: #fff; font-size: 12px; font-weight: 500; }
+.wait { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 9999px; background: var(--cell-bg); color: var(--text-secondary); font-size: 12px; }
 .act { margin-left: 6px; font-size: 12px; padding: 1px 9px; border-radius: 9999px; background: var(--field-bg); color: var(--text-primary); }
 .compact li { padding-bottom: 8px; }
 .compact .name { font-size: 14px; }

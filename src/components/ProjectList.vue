@@ -34,7 +34,11 @@ const hiddenDone = computed(() => Math.max(0, app.instances.filter((i) => i.stat
           @click="router.push(`/projects/p/${encodeURIComponent(i.proc_inst_id)}`)">
           {{ i.proc_inst_name || i.def_name }}
           <span v-if="i.needs_me" class="badge attn"><Icon name="alert" :size="14" /> 입력 필요</span>
-          <span v-else-if="i.status === 'RUNNING'" class="badge"><span class="spin" /> 진행 중</span>
+          <!-- the spinner is for an agent actually at work; a step waiting on a person (HITL) or a
+               long-running process at rest gets a still badge -->
+          <span v-else-if="i.status === 'RUNNING' && i.agent_running" class="badge"><span class="spin" /> 에이전트 작업 중</span>
+          <span v-else-if="i.status === 'RUNNING' && i.human_waiting" class="badge still"><Icon name="hand" :size="13" /> 담당자 확인 대기</span>
+          <span v-else-if="i.status === 'RUNNING'" class="badge still"><span class="dot" /> 진행 중</span>
         </button>
       </TransitionGroup>
       <button v-if="hiddenDone && !showDone" class="more" @click="showDone = true">완료된 프로세스 {{ hiddenDone }}개 더 보기</button>
@@ -57,5 +61,7 @@ const hiddenDone = computed(() => Math.max(0, app.instances.filter((i) => i.stat
 .more { font-size: 14px; color: var(--text-secondary); padding: 10px 0; }
 .badge { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 9999px; font-size: 13px; font-weight: 500; letter-spacing: 0; background: var(--bubble-user-bg); color: var(--text-primary); }
 .badge.attn { background: #e0613f; color: #fff; }
+.badge.still { color: var(--text-secondary); }
+.badge .dot { width: 7px; height: 7px; border-radius: 9999px; background: currentColor; opacity: .7; }
 .spin { width: 12px; height: 12px; border-radius: 9999px; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
 </style>
