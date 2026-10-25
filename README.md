@@ -20,7 +20,7 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 - **역할 기반 알림 · 팀 협업** — 역할 담당자에게 단계 배정, 대화 중 동료 지목 / role-based notifications
 - **팀 공유 · 메신저** — 산출물 카드·스택·편집기에서 바로 공유(받는 사람만 여는 서버 확인 허가, 받은 사람의 사본으로 편집), 채팅 입력의 @팀원(자주 넘긴 순 → 판단 모델이 고른 관계자 → 역할), 받은 편지함에서 '이어서 작업'으로 내 에이전트가 이어받기, 팀원 1:1·그룹 메신저 / team sharing, @mentions and messenger
 - **에이전트 작업실** — cli-agent(Claude Code) 작업 폴더와 터미널 / agent workroom
-- **문서 편집** — 이음오피스(HWP·Word·Excel·PowerPoint·PDF 원본 형식). 열린 워드·엑셀은 채팅·최대화 다이얼로 바로 고치고, 편집기의 AI 버튼도 같은 대화로 / IeumOffice editor via office-host, live-edited from the chat
+- **문서 편집** — 이음오피스(HWP·Word·Excel·PowerPoint·PDF 원본 형식). 열린 워드·엑셀·한글은 채팅·최대화 다이얼로 바로 고치고, 표·그림·셀 범위를 가리켜(@) 말하며, 한글 속 그림은 포토크래프트로 고쳐 제자리에. 고객 메일이 요청한 평면도·제안서·견적서는 묻지 않고 초안으로 / IeumOffice editor via office-host, live-edited from the chat
 - **ArtCraft** — CAD·벡터·이미지·소리·영상 편집기와 MCP, 다섯 앱 모두 열린 화면을 대화로 라이브 편집 / ArtCraft editors with live co-editing (see [artcraft/](artcraft/README.md))
 - **공유 폴더 · 스킬 공유 · 패널 앱** — git 기반 폴더, 스킬 개선 제안·비교, 이벤트 소싱 패널과 행 단위 보안 / shared folders, skill sharing, panel apps with RLS
 - **Android 앱** — 서버 주소만 넣으면 쓰는 래퍼 앱([android/](android/)) / Android wrapper app
@@ -38,7 +38,7 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 | [에이전트 작업실: Claude Code 가 주화면, 산출물은 옆에서 / Agent workroom](https://youtu.be/jDbjGIMrc5o) |
 | [보관함 / Credential vault](https://youtu.be/n5SBj_iRbig) |
 | [Android 앱 / Android app](https://youtu.be/TYg7S1WJ0YQ) |
-| [이음오피스 문서를 대화로 바로 편집 (라이브·다이얼·하나의 AI 도우미) / Live-edit IeumOffice documents by chat](https://youtu.be/39F2rgTL5B0) |
+| [메일 한 통에서 설계·제안·견적까지 — 캐드·한글·포토크래프트·엑셀, 도우미는 하나 / From one email to drawing, proposal and quote](https://youtu.be/a32HG8vzlro) |
 | [CADCraft 도면 / CAD drawings](https://youtu.be/QyfrjwhBSsw) |
 | [VectorCraft 벡터 그림 / Vector art](https://youtu.be/Wu4qx_VWY2A) |
 | [PhotoCraft 레이어 이미지 / Layered images](https://youtu.be/qVRwjYTMISI) |
