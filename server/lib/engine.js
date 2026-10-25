@@ -33,11 +33,15 @@ export async function startProcess({ me, defId, values, messageId }) {
   // process-gpt's todolist trigger then notifies exactly that person when their step comes up.
   const roles = JSON.parse(JSON.stringify(row.definition.roles || []))
   const assigned = await roleMap(defId)
+  // a role whose endpoint is an agent keeps it; a person written into the definition (often the
+  // modeller's own account, e.g. demo@localhost) is not a team assignment and does not count
+  const ids = roles.flatMap((x) => [].concat(x.endpoint || [])).map(String).filter(Boolean)
+  const agents = new Set(ids.length ? (await q('select id::text from users where is_agent and id::text = any($1)', [ids])).map((r) => r.id) : [])
   for (const x of roles) {
-    const empty = !x.endpoint || (Array.isArray(x.endpoint) && !x.endpoint.length)
-    if (x.origin === 'used' && !empty) continue // agents keep their own endpoint
-    const who = assigned[x.name] || (empty || x.name === first.role ? me.id : null)
-    if (who) { x.endpoint = [who]; x.default = [who] }
+    const eps = [].concat(x.endpoint || []).map(String).filter(Boolean)
+    if (eps.length && eps.every((e) => agents.has(e))) continue // agents keep their own endpoint
+    const who = assigned[x.name] || me.id
+    x.endpoint = [who]; x.default = [who]
   }
 
   const instId = `${defId.toLowerCase()}.${crypto.randomUUID()}`

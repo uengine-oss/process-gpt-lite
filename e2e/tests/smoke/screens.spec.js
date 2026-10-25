@@ -15,15 +15,16 @@ test.describe('화면', () => {
     noErrors(page)
   })
 
-  test('S-11 로봇 홈 버튼: 둥근 사각형, 그림이 실리고 누르면 Home 이 접힌다', async ({ pageAs }) => {
+  test('S-11 홈 버튼: 원형 집 아이콘, 누르면 Home 이 접힌다', async ({ pageAs }) => {
+    // the Process GPT robot was tried and reverted at the user's request (2026-10-25)
     const page = await pageAs('smoke')
     await page.goto('/chat')
-    const btn = page.locator('header.top button.robot-home')
+    const btn = page.locator('header.top button.home').last()
     await expect(btn).toBeVisible()
+    await expect(btn.locator('img.robot')).toHaveCount(0)
+    await expect(btn.locator('svg')).toHaveCount(1)
     const radius = await btn.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)
-    expect(parseFloat(radius)).toBeGreaterThan(4)
-    expect(parseFloat(radius)).toBeLessThan(24) // not the round 9999px pill
-    await expect.poll(() => btn.locator('img.robot').evaluate((i) => i.complete && i.naturalWidth)).toBeGreaterThan(0)
+    expect(parseFloat(radius)).toBeGreaterThanOrEqual(24) // the round pill
     await expect(btn).toHaveAttribute('aria-label', 'Home 접기')
     await btn.click()
     await expect(btn).toHaveAttribute('aria-label', 'Home 펼치기')

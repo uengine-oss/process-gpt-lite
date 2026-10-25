@@ -69,7 +69,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 세션 갱신(refresh) | — | S-05 | smoke | ✅ |
 | 실시간 이벤트 SSE hello · 롱폴링 | agent-workroom: SSE 를 막는 프록시 뒤에서도 실시간 | S-06, S-07, F-RS-02 | smoke/feature | ✅ |
 | 채팅·홈(Dock)·프로젝트·폴더·설정 8개 탭·작업실·로그인 화면이 오류 없이 | — | S-10…S-17 | smoke | ✅ |
-| 로봇 홈 버튼: 둥근 사각형, 그림 로드, 누르면 Home 접기/펴기 | — | S-11 | smoke | ✅ |
+| 홈 버튼: 원형 집 아이콘(로봇 아이콘은 되돌림), 누르면 Home 접기/펴기 | — | S-11 | smoke | ✅ |
 | 모바일 폭(≤760px): 홈·채팅·프로젝트 탭 | 영상 `yVHodTrDwHg` 140s | S-17 | smoke | ✅ |
 | 온보딩(생년월일→세리프 인사), 실시간 하늘·밤 테마, 메일 연결·할일 버튼 | 영상 `wrPlOhwYPcw` 0–48s | — | — | ✗ |
 
@@ -149,7 +149,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 만든 사람이 보안 기본값을 확인한다(낮추면 확인·감사) | F-PA-08 | feature | ✅ |
 | 모든 통로에서 같은 규칙(API·MCP) | S-41, F-PA-03 | smoke/feature | ◐ (스냅샷·검색 ✗) |
 | Home 패널 카드 | F-PA-07 | feature | ✅ |
-| Home 패널 카드에서 db 단계 앱의 내 행 지우기 | F-PA-09 | feature | ✅ (현재 실패 — 결함 B2) |
+| Home 패널 카드에서 db 단계 앱의 내 행 지우기 | F-PA-09 | feature | ✅ (B2 고침) |
 
 ### 7. 이음오피스 편집기 (spec `pgpt-pro_office-editor`, 영상 `5J0w5A9ylN0` · `39F2rgTL5B0`)
 
@@ -218,7 +218,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
-| 역할 담당자에게 단계를 배정 · 아무도 맡지 않은 역할은 시작한 사람 | F-PR-02 | feature | ✅ (현재 실패 — 결함 B3) |
+| 역할 담당자에게 단계를 배정 · 아무도 맡지 않은 역할은 시작한 사람 | F-PR-02 | feature | ✅ (B3 고침) |
 | 알림은 process-gpt 의 notifications 를 그대로 | F-PR-02, F-TM-03 | feature | ✅ |
 | 홈의 "조치 필요" 카드와 바로 결정 | F-PR-02 (카드), — (선택지 버튼 제출) | feature | ◐ |
 | 대화 중 팀원·역할에게 요청 | F-TM-03 | feature | ◐ (없는 팀원 ✗) |
@@ -226,7 +226,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬과 프로세스의 알림 범위(예약 스킬 결과) | — | — | ✗ |
 | 프로세스 정의·BPMN·시작·진행·완료 | F-PR-01, F-PR-02 | feature | ✅ |
 | 채팅으로 프로세스 찾기 → 프로세스 카드 | A-07 | agent | ✅ |
-| 남의 인스턴스 열람 범위 | S-33 | smoke | ✅ (현재 실패 — 결함 B1) |
+| 남의 인스턴스 열람 범위 | S-33 | smoke | ✅ (B1 고침) |
 
 ### 12. 예약·미션·연동 (영상 `yVHodTrDwHg`)
 
@@ -271,9 +271,9 @@ openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 1
 
 | id | 시험 | 내용 |
 |---|---|---|
-| B1 | S-33 | `GET /api/instances` 와 `GET /api/instances/:id` 가 참여하지 않은 사용자에게도 테넌트의 모든 인스턴스와 산출물(보고서·파일 URL)을 돌려준다. 같은 단계의 작업실은 `canAccess` 로 막혀 있다. |
-| B2 | F-PA-05, F-PA-09 | db 단계 패널 앱에서 자기 행을 지우면 409 "다른 사람이 먼저 고쳤어요". `PanelAppCard.vue` 가 `?_v=` 에 타임스탬프(`…+00`)를 인코딩하지 않고 보내 `+` 가 공백이 된다. |
-| B3 | F-PR-02 | 팀·역할에서 아무도 맡지 않은 역할이 시작한 사람이 아니라 정의에 들어 있던 기본 담당자(`demo@localhost`)에게 간다. 명세: "담당자가 없는 역할 … 은 일을 시작한 사람이 SHALL 맡는다". `engine.startProcess` 가 비어 있지 않은 `endpoint` 를 그대로 둔다. |
+| B1 (고침) | S-33 | `GET /api/instances` 와 `GET /api/instances/:id` 가 참여하지 않은 사용자에게도 테넌트의 모든 인스턴스와 산출물(보고서·파일 URL)을 돌려준다. 같은 단계의 작업실은 `canAccess` 로 막혀 있다. |
+| B2 (고침) | F-PA-05, F-PA-09 | db 단계 패널 앱에서 자기 행을 지우면 409 "다른 사람이 먼저 고쳤어요". `PanelAppCard.vue` 가 `?_v=` 에 타임스탬프(`…+00`)를 인코딩하지 않고 보내 `+` 가 공백이 된다. |
+| B3 (고침) | F-PR-02 | 팀·역할에서 아무도 맡지 않은 역할이 시작한 사람이 아니라 정의에 들어 있던 기본 담당자(`demo@localhost`)에게 간다. 명세: "담당자가 없는 역할 … 은 일을 시작한 사람이 SHALL 맡는다". `engine.startProcess` 가 비어 있지 않은 `endpoint` 를 그대로 둔다. |
 | B4 | A-01 | 대화 맥락 라우터가 전혀 다른 주제("부산 출장 숙소" 다음 "회사 유튜브 채널 새 이름")를 판단 모델(Qwen3-4B, `strategy: judge`, `confidence: 1`)로 같은 대화에 이어 붙인다. 새 사용자에서 3번 모두 재현. |
 | B5 | A-08 | 채팅으로 스킬을 만들면 초안이 대화 폴더가 아니라 테넌트 공용 `/workspace/.bpmn/skills/<이름>` 에 써지고, 초안 카드는 그 턴에 지나간 마지막 `SKILL.md` 를 집어 다른 스킬(`slack-weekly-summary`)을 보여 준다. 요청한 스킬은 따로 만들어져 있는데 카드가 엉뚱한 스킬을 가리킴(2회 재현). 같은 요청을 다시 하면 기존 폴더만 "확인"하고 카드가 아예 안 나오기도 한다. |
 
@@ -281,8 +281,8 @@ openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 1
 
 | 단계 | 결과 | 시간 |
 |---|---|---|
-| smoke | 57 중 55 통과 · 2 실패(S-33 결함 B1, S-11 로봇 홈 버튼이 실행 중 앱 소스에서 사라짐) | 30초 |
-| feature | 65 중 61 통과(F-UT-03 은 재시도로 통과) · 3 실패(F-PA-05·F-PA-09 결함 B2, F-PR-02 결함 B3) | 5분 |
+| smoke | 57 중 57 통과 (B1 고침, S-11 은 홈 버튼을 원래 집 아이콘으로 되돌린 데 맞춤) | 30초 |
+| feature | 65 중 65 통과 (B2·B3 고침, 역할 목록 상한 40→300, F-PR-02 의 결재 단계 대기 경합 수정) | 2분 |
 | agent | 10 중 8 통과(A-03 은 재시도로 통과) · 2 실패(A-01 결함 B4, A-08 결함 B5) | 10.5분 |
 
 agent 단계는 같은 PC 에서 다른 작업이 BFF 를 자주 재시작해 몇 번 끊겼습니다("fetch failed" / "other side closed"). 각 여정은 시작 전에 서버가 살아 있을 때까지 기다리고 한 번 더 시도합니다.

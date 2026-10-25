@@ -115,7 +115,7 @@ async function save() {
 async function removeRow() {
   if (!confirm('이 행을 지울까요? 시트에서도 지워져요.')) return
   try {
-    const r = await api(`/panel-apps/${props.app.id}/rows/${encodeURIComponent(editing.value._id)}?_v=${editing.value._v}`, { method: 'DELETE' })
+    const r = await api(`/panel-apps/${props.app.id}/rows/${encodeURIComponent(editing.value._id)}?_v=${encodeURIComponent(editing.value._v)}`, { method: 'DELETE' })
     rows.value = isDb.value ? (await api(`/panel-apps/${props.app.id}/rows`)).rows : r.rows
     editing.value = null
   } catch (e) { problems.value = e.message }

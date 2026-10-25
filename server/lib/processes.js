@@ -86,6 +86,19 @@ const AGENT_RUNNING = `t.agent_orch is not null and t.status not in ('DONE','CAN
 const agentRunning = (t) => !!t?.agent_orch && !['DONE', 'CANCELLED'].includes(t.status) &&
   (t.draft_status === 'STARTED' || !!t.consumer || (t.lease_until && new Date(t.lease_until) > new Date()))
 
+// Who may see an instance: a tenant admin, a participant, or anyone holding one of its work items
+// ($2 = email, $3 = user id — the same parameters listInstances already binds)
+const INVOLVED = `(exists (select 1 from users u where u.id::text = $3 and u.is_admin)
+       or $3 = any(i.participants::text[])
+       or exists (select 1 from todolist w where w.proc_inst_id = i.proc_inst_id
+                  and (w.user_id like '%'||$2||'%' or w.user_id like '%'||$3||'%')))`
+
+export async function canSeeInstance(instId, me) {
+  const [hit] = await q(`select 1 from bpm_proc_inst i where i.proc_inst_id=$1 and i.tenant_id=$4 and ${INVOLVED}`,
+    [instId, me.email || '(no-email)', String(me.id), T()])
+  return !!hit
+}
+
 export async function listInstances({ userEmail, userId, status, limit = 30 }) {
   return q(
     `select i.proc_inst_id, i.proc_inst_name, i.proc_def_id, i.status, i.current_activity_ids, i.start_date, i.end_date, i.updated_at,
@@ -98,6 +111,7 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
                     and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))) as human_waiting
      from bpm_proc_inst i left join proc_def d on d.id=i.proc_def_id and d.tenant_id=i.tenant_id
      where i.tenant_id=$1 and not coalesce(i.is_deleted,false) and ($4::text is null or i.status::text=$4)
+       and ${INVOLVED}
      order by coalesce(i.updated_at, i.start_date::timestamptz) desc nulls last limit $5`,
     [T(), userEmail, userId, status || null, limit])
 }

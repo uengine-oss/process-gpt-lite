@@ -80,5 +80,5 @@ export async function roleCatalog() {
   const by = {}
   for (const r of rows) if (r.role) (by[r.role] ||= []).push(r.name || r.id)
   return Object.entries(by).map(([role, processes]) => ({ role, processes: [...new Set(processes)].slice(0, 6) }))
-    .sort((a, b) => b.processes.length - a.processes.length).slice(0, 40)
+    .sort((a, b) => b.processes.length - a.processes.length || a.role.localeCompare(b.role, 'ko')).slice(0, 300)
 }

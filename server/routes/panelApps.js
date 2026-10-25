@@ -3,6 +3,9 @@ import express from 'express'
 import * as P from '../lib/panelApps/service.js'
 import { generatePanel } from '../lib/panels.js'
 
+// a db row's version is a timestamp ("…12.700084+00"); sent unencoded, its "+" arrives as a space
+const rowVersion = (v) => (typeof v === 'string' ? v.replace(/ (\d{2}(?::?\d{2})?)$/, '+$1') : v)
+
 export function panelAppRoutes(auth) {
   const r = express.Router()
   const h = (fn) => async (req, res) => {
@@ -24,7 +27,7 @@ export function panelAppRoutes(auth) {
   r.get('/panel-apps/:id/rows', auth, h((req) => P.rows(me(req), req.params.id)))
   r.post('/panel-apps/:id/rows', auth, h((req) => P.write(me(req), req.params.id, { add: req.body.values || {} })))
   r.put('/panel-apps/:id/rows/:rid', auth, h((req) => P.write(me(req), req.params.id, { update: { id: req.params.rid, v: req.body._v, vals: req.body.values || {} } })))
-  r.delete('/panel-apps/:id/rows/:rid', auth, h((req) => P.write(me(req), req.params.id, { remove: { id: req.params.rid, v: req.query._v } })))
+  r.delete('/panel-apps/:id/rows/:rid', auth, h((req) => P.write(me(req), req.params.id, { remove: { id: req.params.rid, v: rowVersion(req.query._v) } })))
   r.post('/panel-apps/:id/sheet', auth, h((req) => P.sheetCopy(me(req), req.params.id)))
   r.post('/panel-apps/:id/sheet-saved', auth, h((req) => P.sheetSaved(me(req), req.params.id, req.body || {})))
   r.post('/panel-apps/:id/hide', auth, h((req) => P.hide(me(req), req.params.id, req.body?.hidden !== false)))

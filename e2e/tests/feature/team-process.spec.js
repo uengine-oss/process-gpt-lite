@@ -81,7 +81,15 @@ test.describe('프로세스 (process-gpt 엔진)', () => {
     // 결재: nobody holds the role in 팀·역할 → the spec: the one who started it takes it
     // (this definition also names a default endpoint for 결재자 — the spec says the starter)
     let next
-    await expect.poll(async () => { [next] = await db.q(`select id, user_id from todolist where proc_inst_id=$1 and activity_id='approve_draft'`, [inst]); return !!next }, { timeout: 120_000, intervals: [3000] }).toBe(true)
+    // process-gpt pre-creates the next work item as TODO; wait until the engine has finished 기안 작성
+    // and moved on, or the approval is submitted while the draft step is still being processed
+    await expect.poll(async () => {
+      [next] = await db.q(`select t.id, t.user_id from todolist t join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id
+                           where t.proc_inst_id=$1 and t.activity_id='approve_draft'
+                             and (t.status = 'IN_PROGRESS' or 'approve_draft' = any(i.current_activity_ids))
+                             and exists (select 1 from todolist d where d.id=$2 and d.status='DONE')`, [inst, todo.id])
+      return !!next
+    }, { timeout: 120_000, intervals: [3000] }).toBe(true)
     expect(next.user_id, '결재 단계 담당자 (todolist.user_id)').toContain(a.id)
     expect((await a.post(`/todos/${next.id}/submit`, { values: {} }, { timeout: 180_000 })).status).toBe(200)
     await expect.poll(async () => (await a.get(`/instances/${encodeURIComponent(inst)}`)).body.inst?.status, { timeout: 120_000, intervals: [3000] }).toMatch(/COMPLETED|DONE/i)

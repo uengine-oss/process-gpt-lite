@@ -27,6 +27,7 @@ export function processRoutes(auth) {
 
   r.get('/instances', auth, async (req, res) => res.json(await proc.listInstances({ userEmail: req.user.email, userId: req.user.id, status: req.query.status })))
   r.get('/instances/:id', auth, async (req, res) => {
+    if (!(await proc.canSeeInstance(req.params.id, req.user))) return res.status(403).json({ error: '이 프로세스를 볼 권한이 없어요.' })
     const d = await proc.getInstance(req.params.id, req.user)
     if (!d) return res.status(404).end()
     // one conversation per instance, created on first view
