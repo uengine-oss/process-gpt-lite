@@ -23,6 +23,8 @@ const kindIcon = { human: 'hand', agent: 'panel', gateway: 'plan', start: 'clock
           <Icon :name="kindIcon[s.kind] || 'panel'" :size="12" /> {{ s.role || s.assignee }}
           <button v-if="s.todoId && s.orchestration && ['done', 'active'].includes(s.state)" class="act press" @click.stop="emit('detail', s)">동작 보기</button>
         </div>
+        <!-- the skills the definition binds to this step -->
+        <div v-if="!compact && s.skills?.length" class="sk"><code v-for="k in s.skills" :key="k">{{ k }}</code></div>
       </div>
     </li>
   </ol>
@@ -49,6 +51,8 @@ const kindIcon = { human: 'hand', agent: 'panel', gateway: 'plan', start: 'clock
 .attn { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px; border-radius: 9999px; background: var(--color-attention); color: #fff; font-size: 12px; font-weight: 500; }
 .wait { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 9999px; background: var(--cell-bg); color: var(--text-secondary); font-size: 12px; }
 .act { margin-left: 6px; font-size: 12px; padding: 1px 9px; border-radius: 9999px; background: var(--field-bg); color: var(--text-primary); }
+.sk { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.sk code { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: rgba(150 240 176 / .14); color: var(--color-success); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .compact li { padding-bottom: 8px; }
 .compact .name { font-size: 14px; }
 </style>

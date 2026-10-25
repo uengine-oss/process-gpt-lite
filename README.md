@@ -35,6 +35,7 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 | [대화로 프로세스 만들기 / Create a process by chat](https://youtu.be/19Ap3J_XLHs) |
 | [외부 연동 · 스킬 · 예약 미션 / Connectors, skills, scheduled missions](https://youtu.be/yVHodTrDwHg) |
 | [SNS 트렌드 데일리 대응 / Daily SNS trend response](https://youtu.be/YkwYQHiRwFs) |
+| [반복 업무를 프로세스로 — 프로세스 마이닝 / From repeated ad-hoc work to a managed process (process mining)](https://youtu.be/OYWAq7nQD4k) |
 | [에이전트 작업실: Claude Code 가 주화면, 산출물은 옆에서 / Agent workroom](https://youtu.be/jDbjGIMrc5o) |
 | [보관함 / Credential vault](https://youtu.be/n5SBj_iRbig) |
 | [Android 앱 / Android app](https://youtu.be/TYg7S1WJ0YQ) |

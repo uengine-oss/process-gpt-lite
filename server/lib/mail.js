@@ -163,7 +163,9 @@ export async function pollUser(userId, { announce } = {}) {
   // documents the mail asks for: drafts are made right away, before anyone asks (the person reviews them)
   for (const d of r.drafts || []) {
     const src = fresh.find((m) => m.id === d.mail_id)
-    if (src && !src.fixture && d.items?.length) draftFromMail(userId, src, d).catch((e) => console.warn('[mail] drafts', e.message))
+    // a process registered from mining takes the mail when it matches (lib/mining); else the ad-hoc drafts
+    if (src && !src.fixture && d.items?.length) import('./mining/service.js').then((m) => m.routeMail(userId, src, d)).catch((e) => { console.warn('[mail] route', e.message); return false })
+      .then((routed) => routed || draftFromMail(userId, src, d)).catch((e) => console.warn('[mail] drafts', e.message))
   }
   return { fresh: fresh.length, actions: (r.actions || []).length }
 }
@@ -184,7 +186,7 @@ const SKILL_RULES = {
   docx: (name) => `워드(docx) 스킬로 /workspace/${name} 를 만드세요.`,
   pptx: (name) => `파워포인트(pptx) 스킬로 /workspace/${name} 를 만드세요.`,
 }
-async function hwpxDraft(userId, threadId, mail, item, customer, { templateUrl, extra } = {}) {
+export async function hwpxDraft(userId, threadId, mail, item, customer, { templateUrl, extra } = {}) {
   const args = {
     template_url: templateUrl || config.proposalTemplateUrl || config.hwpxTemplateUrl,
     report_topic: item.name.replace(/\.hwpx$/i, ''),
@@ -268,7 +270,7 @@ async function designDrafts(userId, t, mail, d, items) {
 }
 
 // the proposal template with the drawing in its picture (a 3:2 slot), as a URL office-mcp can fill
-async function designTemplate(userId, dxfUrl) {
+export async function designTemplate(userId, dxfUrl) {
   const os = await import('node:os')
   const { execFile } = await import('node:child_process')
   const { default: JSZip } = await import('jszip')
@@ -315,7 +317,11 @@ async function draftFromMail(userId, mail, d) {
     `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,'Review',$2,null,null,$3,$4) returning *`,
     [userId, `${customer} ${what} 초안 검토하고 회신하기`, `${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name) }])
   emit(userId, 'action', row)
-  if (items.some((i) => i.format === 'dxf')) return designDrafts(userId, t, mail, d, items)
+  // the mail is one case of ad-hoc work: its steps leave handover records process mining reads (lib/mining)
+  const mining = await import('./mining/recorder.js')
+  const caseId = await mining.openCase({ userId, mail, customer, files: items.map((i) => i.name) }).catch((e) => console.warn('[mining] case', e.message))
+  if (caseId) await mining.recordStep(caseId, '요청 메일 접수', { to: { id: userId, name: p.name } }).catch((e) => console.warn('[mining] step', e.message))
+  if (items.some((i) => i.format === 'dxf')) return designDrafts(userId, t, mail, d, items).finally(() => mining.recordDrafts(t.id, mail.id).catch((e) => console.warn('[mining] drafts', e.message)))
   const jobs = items.filter((i) => i.format === 'hwpx').map((i) => hwpxDraft(userId, t.id, mail, i, customer)
     .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: `${i.name} 초안을 만들지 못했어요: ${e.message}` }) }))
   const others = items.filter((i) => SKILL_RULES[i.format])

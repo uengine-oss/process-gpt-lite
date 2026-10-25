@@ -25,6 +25,8 @@ import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
+import { miningRoutes, startMiningScan } from './routes/mining.js'
+import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
 import { startFolderSteps } from './lib/folders/work.js'
 import * as skills from './lib/folders/skills.js'
@@ -221,6 +223,8 @@ app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
 // team sharing and messenger (routes/team.js)
 app.use('/api', teamRoutes(auth))
+// process mining over ad-hoc work → recommended processes (routes/mining.js)
+app.use('/api', miningRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
@@ -329,6 +333,7 @@ app.post('/api/actions/:id/run', auth, async (req, res) => {
   runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}` })
     .then(async () => {
       const [d] = await q(`update pro_actions set status='done' where id=$1 returning *`, [a.id])
+      if (a.verb === 'Review') import('./lib/mining/recorder.js').then((m) => m.recordReply(req.user, a)).catch((e) => console.warn('[mining] reply', e.message))
       emit(req.user.id, 'action', d)
     })
     .catch((e) => console.warn('[action]', e.message))
@@ -683,6 +688,8 @@ const server = app.listen(config.port, async () => {
   await q(`update pro_threads set status=null where status is not null`)
   mail.startPoller()
   startBrowserWorker()
+  startSkillWorker()
+  startMiningScan()
   startSystemRegistry()
   notify.startNotificationFeed()
 startFolderSteps()

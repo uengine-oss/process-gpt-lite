@@ -68,6 +68,7 @@ export async function getDefinition(id) {
   const steps = orderSteps(def).map((n) => ({
     id: n.id, name: n.name || n.id, role: n.role || '', kind: n.kind, description: n.description || '',
     formId: formIdOf(n) || byAct[n.id] || null, agentMode: n.agentMode || null, orchestration: n.orchestration || null,
+    skills: Array.isArray(n.skills) ? n.skills : [],
   }))
   const first = steps.find((s) => s.kind === 'human' || s.kind === 'agent')
   return {

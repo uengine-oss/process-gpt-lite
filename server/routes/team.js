@@ -40,6 +40,8 @@ export function teamRoutes(auth) {
       const m = await M.post(req.user, t.id, { kind: 'share', body: note, attach: (rs, mid) => S.grant(req.user, rs, files, { note, dmMessageId: mid }) })
       sent.push({ to: { id: p.id, name: p.name, via: p.via }, threadId: t.id, messageId: m.id })
     }
+    // a share of a mail case's drafts is that case's next handover (process mining, lib/mining)
+    import('../lib/mining/recorder.js').then((m) => m.recordShare(req.user, files, recipients, note)).catch((e) => console.warn('[mining] share', e.message))
     return { sent }
   }))
   r.get('/team/shares/:id/raw', async (req, res, next) => {

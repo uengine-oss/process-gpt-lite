@@ -21,6 +21,8 @@ const routes = [
   { path: '/folders', component: () => import('./views/FoldersView.vue') },
   { path: '/folders/:slug', component: () => import('./views/FoldersView.vue') },
   { path: '/folders/:slug/v/:variation', component: () => import('./views/FoldersView.vue') },
+  // 프로세스 마이닝 추천 (관리자): 반복되는 흐름 → 정식 등록
+  { path: '/mining/:id?', component: () => import('./views/MiningView.vue') },
   { path: '/', redirect: '/chat' },
 ]
 
