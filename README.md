@@ -28,6 +28,7 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 
 | 영상 / Video |
 |---|
+| [Process GPT Lite 전체 소개 (5분) / Full introduction](https://youtu.be/ZcvPM4yh2GE) |
 | [Process GPT Lite 둘러보기 / Overview](https://youtu.be/wrPlOhwYPcw) |
 | [대화 맥락 라우터 / Context router](https://youtu.be/oL_mfiQBCPU) |
 | [대화로 프로세스 만들기 / Create a process by chat](https://youtu.be/19Ap3J_XLHs) |
