@@ -2,6 +2,8 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
+import ComposerTeam from './team/ComposerTeam.vue'
+import { useTeammateMention } from './team/useTeammateMention.js'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
 const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean })
@@ -11,6 +13,8 @@ const text = ref('')
 const ta = ref(null)
 const listening = ref(false)
 let rec
+// "@" → teammates (team/useTeammateMention.js); a message with person chips goes to them, not the agent
+const tm = useTeammateMention(text, ta, !props.overlay)
 
 const suggestions = [
   { t: '내 주식을 추적해 줘', icons: ['📈', '💹'] },
@@ -73,10 +77,12 @@ const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1
 function submit() {
   const v = text.value.trim() || (app.panelMode ? suggestions[si.value].t : '')
   if (!v && !app.attachments.length) return
+  if (tm.chips.value.length) { if (v) tm.send(v).then((ok) => { if (!ok) text.value = v }); text.value = v ? '' : text.value; return }
   emit('send', v)
   text.value = ''
 }
 function onKey(e) {
+  if (tm.onKey(e)) return
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit() }
   if (e.key === 'Escape' && app.panelMode) app.panelMode = false
   if (e.key === 'Escape') emit('escape')
@@ -103,6 +109,7 @@ defineExpose({ focus: () => ta.value?.focus() })
     <Transition name="fade">
       <button v-if="app.panelMode" class="undo press" aria-label="취소" @click="app.panelMode = false"><Icon name="undo" :size="20" /></button>
     </Transition>
+    <ComposerTeam v-if="!overlay" :tm="tm" />
     <div v-if="app.attachments.length" class="atts">
       <span v-for="a in app.attachments" :key="a.id" class="att glass-thin" :class="a.state">
         <Icon name="doc" :size="14" /> <b>{{ a.name }}</b>

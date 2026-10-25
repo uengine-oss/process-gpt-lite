@@ -16,6 +16,7 @@
 // so the person watches the agent's edits land here.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
+import ShareButton from './team/ShareButton.vue'
 import { uploadAttachment } from '../api.js'
 import { openLiveLink } from '../liveLink.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -207,6 +208,7 @@ onBeforeUnmount(() => {
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 화면에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
       <span v-if="dirty" class="badge warn">저장 안 됨 · {{ app?.save || 'SAVE 로 저장' }}</span>
       <span class="sp" />
+      <ShareButton :for-name="name" plain class="tb" />
       <button v-if="!fullscreen" class="tb press" @click="emit('update:maximized', !maximized)">
         <Icon :name="maximized ? 'shrink' : 'expand'" :size="15" /> {{ maximized ? '원래 크기' : '최대화' }}
       </button>

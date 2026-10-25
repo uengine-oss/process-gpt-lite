@@ -323,6 +323,7 @@ services:
       PRO_COMPLETION_URL: http://completion:8000
       PRO_CLI_AGENT_URL: http://cli-agent:8890
       PRO_CONTEXT_ROUTER_URL: ${CONTEXT_ROUTER_URL:-}
+      PRO_JUDGE_URL: ${JUDGE_URL:-}
       PRO_BROWSER_GATES: ${BROWSER_GATES:-off}
       PRO_MCP_HUB_URL: http://mcp-hub:8500
       PRO_MCP_VALIDATE_BASE: http://server:8787

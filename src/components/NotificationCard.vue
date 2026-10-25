@@ -4,13 +4,15 @@
 import { ref, computed } from 'vue'
 import { useApp } from '../stores/app.js'
 import { useRouter } from 'vue-router'
+import { useTeam } from '../stores/team.js'
 
 const props = defineProps({ n: Object })
 const app = useApp()
 const router = useRouter()
+const team = useTeam()
 const busy = ref('')
 
-const verb = computed(() => (props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+const verb = computed(() => (props.n.type === 'team' ? (/공유했어요/.test(props.n.title) ? '공유' : '멘션') : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
 const kinds = { mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청' }
 const when = computed(() => {
@@ -20,6 +22,9 @@ const when = computed(() => {
 })
 
 async function act(choice) {
+  // a teammate's share or mention (components/team): opens our thread at that message
+  const m = /^\/pro\/team\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(String(props.n.url || ''))
+  if (!choice && m) { app.dismissNotification(props.n); return team.openMessenger(m[1], m[2]) }
   // a shared-folder notice (반영 요청, 인계) opens the variation to review
   if (!choice && String(props.n.url || '').startsWith('/folders/')) { app.dismissNotification(props.n); return router.push(props.n.url) }
   busy.value = choice || 'open'
@@ -34,7 +39,8 @@ async function act(choice) {
       <span class="title">{{ n.title }}</span>
       <button class="x press" title="닫기" @click="app.dismissNotification(n)">×</button>
     </div>
-    <p v-if="n.type === 'mention'" class="who">{{ n.from }}님 · {{ when }}</p>
+    <p v-if="n.type === 'team'" class="who">{{ n.from }}님 · {{ when }}</p>
+    <p v-else-if="n.type === 'mention'" class="who">{{ n.from }}님 · {{ when }}</p>
     <p v-else-if="n.type !== 'workitem'" class="who">{{ kinds[n.type] || 'process-gpt' }} · {{ when }}</p>
     <p v-else class="who">{{ n.process }}<template v-if="n.role"> · {{ n.role }}</template> · {{ when }}</p>
     <p v-if="n.context || n.text" class="ctx">{{ n.context || n.text }}</p>
@@ -52,7 +58,7 @@ async function act(choice) {
 .nc { border-radius: 24px; padding: 16px 16px 14px 20px; color: var(--text-primary); }
 .head { display: flex; align-items: flex-start; gap: 8px; }
 .verb { flex: none; height: 30px; line-height: 30px; padding: 0 9px; border-radius: 8px; background: var(--color-attention); color: #fff; font-size: 15px; font-weight: 500; }
-.mention .verb { background: #2a78d6; }
+.mention .verb, .team .verb { background: #2a78d6; }
 .mission .verb { background: #3d3d3a; }
 .title { flex: 1; font-size: 16px; line-height: 30px; font-weight: 500; }
 .x { flex: none; width: 28px; height: 28px; border-radius: 14px; color: var(--text-tertiary); font-size: 20px; line-height: 26px; }

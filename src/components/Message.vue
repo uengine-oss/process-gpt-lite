@@ -10,6 +10,7 @@ import TodoCard from './TodoCard.vue'
 import ProcessDraftCard from './ProcessDraftCard.vue'
 import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
+import ShareButton from './team/ShareButton.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -107,10 +108,14 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       <p v-if="!c.items.length" class="empty">진행 중인 프로세스가 없어요.</p>
     </div>
 
-    <button v-else-if="msg.kind === 'file'" class="file press" @click="openFile">
-      <span class="fic" :class="kindOf(c.name)">{{ kindLabel[kindOf(c.name)] || 'FILE' }}</span>
-      <span class="fmeta"><b>{{ c.name }}</b><small>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : c.url ? '열기' : '작업실에서 열기' }}</small></span>
-    </button>
+    <div v-else-if="msg.kind === 'file'" class="filerow">
+      <button class="file press" @click="openFile">
+        <span class="fic" :class="kindOf(c.name)">{{ kindLabel[kindOf(c.name)] || 'FILE' }}</span>
+        <span class="fmeta"><b>{{ c.name }}</b><small><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : c.url ? '열기' : '작업실에서 열기' }}</small></span>
+      </button>
+      <!-- 팀원에게 공유 (components/team) -->
+      <ShareButton :msg="msg" compact />
+    </div>
 
     <!-- an agent's change in a shared folder: a variation to review and merge (lib/folders/work.js) -->
     <button v-else-if="msg.kind === 'folder_variation'" class="fvar press" @click="router.push(c.url)">
@@ -161,6 +166,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 .doc .more svg { transition: rotate .3s; }
 .file { display: inline-flex; align-items: center; gap: 12px; height: 64px; padding: 0 22px; border-radius: 22px; background: #1d1d1f; color: #f5f5f7; font-size: 16px; font-weight: 500; }
 .file { text-align: left; }
+.filerow { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
+.filerow .file { min-width: 0; }
 .fvar { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 424px; max-width: 100%; padding: 14px 18px; border-radius: 22px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); text-align: left; }
 .fvh { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
 .fvar b { font-size: 16px; font-weight: 500; line-height: 1.35; }

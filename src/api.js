@@ -84,10 +84,13 @@ export async function stream(path, body, onEvent) {
   }
 }
 
-const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'process', 'mission', 'notifications']
+const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'process', 'mission', 'notifications', 'team']
 // Live events over SSE; if the stream never says hello (a proxy in front holding it back, as
 // Cloudflare quick tunnels do), the same events come by long polling instead.
-export function events(onEvent) {
+export function events(handler) {
+  // every event is also re-broadcast on the window, so a store that is not app.js (stores/team.js)
+  // can listen without a second stream
+  const onEvent = (t, d) => { handler(t, d); try { window.dispatchEvent(new CustomEvent('pgpt:event', { detail: { type: t, data: d } })) } catch { /* old browser */ } }
   let es, stopped = false, polling = false
   const tok = () => encodeURIComponent(auth.get()?.session?.access_token || '')
   async function pollLoop(after) {

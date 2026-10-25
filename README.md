@@ -18,6 +18,7 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 - **보관함** — KEK/DEK 봉투 암호화(AES-256-GCM), 비밀값은 모델에게 가지 않음 / credential vault; secrets never reach the model
 - **외부 연동 · 스킬 · 예약 미션** — Google·YouTube·Slack·GitHub·Notion 커넥터 MCP, mcp-hub 등록, pg_cron 미션 / connectors, skills, missions
 - **역할 기반 알림 · 팀 협업** — 역할 담당자에게 단계 배정, 대화 중 동료 지목 / role-based notifications
+- **팀 공유 · 메신저** — 산출물 카드·스택·편집기에서 바로 공유(받는 사람만 여는 서버 확인 허가, 받은 사람의 사본으로 편집), 채팅 입력의 @팀원(자주 넘긴 순 → 판단 모델이 고른 관계자 → 역할), 받은 편지함에서 '이어서 작업'으로 내 에이전트가 이어받기, 팀원 1:1·그룹 메신저 / team sharing, @mentions and messenger
 - **에이전트 작업실** — cli-agent(Claude Code) 작업 폴더와 터미널 / agent workroom
 - **문서 편집** — 이음오피스(HWP·Word·Excel·PowerPoint·PDF 원본 형식). 열린 워드·엑셀은 채팅·최대화 다이얼로 바로 고치고, 편집기의 AI 버튼도 같은 대화로 / IeumOffice editor via office-host, live-edited from the chat
 - **ArtCraft** — CAD·벡터·이미지·소리·영상 편집기와 MCP, 다섯 앱 모두 열린 화면을 대화로 라이브 편집 / ArtCraft editors with live co-editing (see [artcraft/](artcraft/README.md))

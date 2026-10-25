@@ -73,7 +73,7 @@ export async function listFor(me) {
     } else if (n.type === 'mention') {
       out.push({ id: n.id, type: 'mention', title: n.title, text: n.description, at: n.time_stamp, from: n.from_name || n.from_user_id })
     } else {
-      out.push({ id: n.id, type: n.type, title: n.title, text: n.description, at: n.time_stamp, url: n.url })
+      out.push({ id: n.id, type: n.type, title: n.title, text: n.description, at: n.time_stamp, url: n.url, ...(n.from_user_id ? { from: n.from_name || n.from_user_id } : {}) })
     }
   }
   return out

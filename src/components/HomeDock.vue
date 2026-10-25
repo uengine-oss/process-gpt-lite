@@ -7,8 +7,11 @@ import PanelAppCard from './panelApps/PanelAppCard.vue'
 import Icon from './Icon.vue'
 import { computed } from 'vue'
 import { useApp } from '../stores/app.js'
+import { useTeam } from '../stores/team.js'
+import { narrow } from '../viewport.js'
 
 const app = useApp()
+const team = useTeam()
 // a work item that already has a notification card is not listed twice
 const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id) && !app.notifications.some((n) => n.todoId === t.id)).slice(0, 3))
 </script>
@@ -16,6 +19,10 @@ const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id)
 <template>
   <aside class="dock scroll">
     <TransitionGroup name="arc" tag="div" class="stack">
+      <!-- phone: the team messenger's entry (the top bar has no room for it) -->
+      <button v-if="narrow" key="team" class="msgs glass press" @click="team.openMessenger()">
+        <Icon name="team" :size="20" /> 팀 메시지<i v-if="team.unread.total">{{ team.unread.total }}</i>
+      </button>
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
       <button v-for="t in todos" :key="'t' + t.id" class="act glass press" @click="app.openTodo(t)">
         <span class="verb">{{ /결정|승인|검토|심사|판단/.test(t.activity_name) ? 'Review' : 'Submit' }}</span>
@@ -43,6 +50,8 @@ const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id)
 .act .verb { display: inline-block; height: 34px; line-height: 34px; padding: 0 8px; border-radius: 8px; background: var(--color-attention); color: #fff; margin-right: 8px; font-weight: 450; vertical-align: top; }
 .act .txt { line-height: 1.75; }
 .act .due { display: block; color: var(--text-secondary); line-height: 1.6; }
+.msgs { height: 56px; border-radius: 22px; display: flex; align-items: center; gap: 8px; padding: 0 20px; font-size: 16px; color: var(--text-primary); }
+.msgs i { margin-left: auto; font-style: normal; min-width: 22px; height: 22px; line-height: 22px; padding: 0 6px; border-radius: 11px; background: #e5484d; color: #fff; font-size: 12px; text-align: center; }
 .new { height: 64px; border-radius: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 17px; color: var(--text-primary); }
 .new.on { color: var(--text-tertiary); }
 </style>

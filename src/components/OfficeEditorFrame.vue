@@ -11,6 +11,7 @@
 // person through office-host's office_live_* tools (server/mcp/office.js).
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
+import ShareButton from './team/ShareButton.vue'
 import { isOfficeEditorMessage, officeEditorUrl } from '../officeEditor.js'
 import { freshToken } from '../api.js'
 import { openLiveLink } from '../liveLink.js'
@@ -146,6 +147,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <span v-if="readOnly" class="badge">미리보기</span>
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
       <span class="sp" />
+      <ShareButton v-if="!readOnly" :for-name="name" plain class="tb" />
       <button class="tb press" :title="ribbonOpen ? '리본 접기 (Ctrl+F1)' : '리본 펴기 (Ctrl+F1)'" @click="toggleRibbon">
         <Icon :name="ribbonOpen ? 'up' : 'chevron'" :size="14" /> {{ ribbonOpen ? '리본 접기' : '리본 펴기' }}
       </button>

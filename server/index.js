@@ -23,6 +23,7 @@ import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
+import { teamRoutes } from './routes/team.js'
 import { mountPanelApps } from './mcp/panelapps.js'
 import { startFolderSteps } from './lib/folders/work.js'
 import * as skills from './lib/folders/skills.js'
@@ -212,6 +213,8 @@ app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUse
 app.use('/api', processRoutes(auth))
 app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
+// team sharing and messenger (routes/team.js)
+app.use('/api', teamRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))

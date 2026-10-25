@@ -2,10 +2,13 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Icon from './Icon.vue'
+import TeamLayer from './team/TeamLayer.vue'
+import { useTeam } from '../stores/team.js'
 import { useApp } from '../stores/app.js'
 import { narrow } from '../viewport.js'
 
 const app = useApp()
+const team = useTeam()
 const router = useRouter()
 const route = useRoute()
 const initial = () => (app.me?.user?.name || '?').slice(0, 1)
@@ -48,10 +51,12 @@ watch([tab, narrow], place)
 
     <nav ref="seg" class="seg glass-thin">
       <span class="thumb" :style="thumb" />
-      <button v-for="t in tabs" :key="t.id" :data-tab="t.id" :class="{ on: tab === t.id }" @click="go(t.id)">{{ t.label }}</button>
+      <button v-for="t in tabs" :key="t.id" :data-tab="t.id" :class="{ on: tab === t.id }" @click="go(t.id)">{{ t.label }}<i v-if="t.id === 'home' && team.unread.total" class="tdot" /></button>
     </nav>
 
     <div class="right">
+      <!-- team messenger: unread badge, inbox, shares (components/team) -->
+      <TeamLayer :narrow="narrow" :button="!narrow" />
       <button v-if="!narrow" class="pill-btn" aria-label="페이지와 메일 검색" @click="app.searchOpen = true">검색</button>
       <button class="avatar press" aria-label="설정" @click="router.push(route.path.startsWith('/settings') ? '/chat' : '/settings')">{{ initial() }}</button>
     </div>
@@ -71,6 +76,7 @@ watch([tab, narrow], place)
   color: var(--text-secondary); transition: color .3s; white-space: nowrap; }
 .narrow .seg button { padding: 0 16px; }
 .seg button.on { color: var(--text-primary-on); }
+.tdot { position: absolute; top: 8px; right: 7px; width: 8px; height: 8px; border-radius: 4px; background: #e5484d; }
 .thumb { position: absolute; top: 2px; bottom: 2px; border-radius: 9999px; background: var(--ink); transition: left .45s var(--spring), width .45s var(--spring); }
 .right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 .avatar { width: 48px; height: 48px; border-radius: 9999px; background: linear-gradient(135deg, #8aa6d8, #4a5f9a); color: #fff; font-weight: 600; font-size: 18px; }

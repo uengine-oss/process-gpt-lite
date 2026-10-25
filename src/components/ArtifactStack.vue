@@ -6,8 +6,11 @@ import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { kindOf, kindLabel, openArtifact } from '../artifacts.js'
+import ShareButton from './team/ShareButton.vue'
+import { useTeam } from '../stores/team.js'
 
 const app = useApp()
+const team = useTeam()
 const router = useRouter()
 const open = ref(false)
 // the fan rises from the pile toward the top bar; past what fits (or 8) it becomes a grid
@@ -46,20 +49,26 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 
     <!-- fan: the newest sits closest to the pile -->
     <TransitionGroup v-if="!grid" name="fan" tag="div" class="fan">
-      <button v-for="(m, i) in open ? items : []" :key="m.id" class="fitem press" :style="fanStyle(i)" @click="pick(m)">
-        <span class="label">{{ m.content.name }}<em v-if="m.content.edited">편집본</em></span>
-        <span class="tile" :class="kindOf(m.content.name)">{{ kindLabel[kindOf(m.content.name)] || 'FILE' }}</span>
-      </button>
+      <div v-for="(m, i) in open ? items : []" :key="m.id" class="fitem" :style="fanStyle(i)">
+        <ShareButton :msg="m" compact class="fshare" />
+        <button class="fopen press" @click="pick(m)">
+          <span class="label">{{ m.content.name }}<em v-if="m.content.edited">편집본</em></span>
+          <span class="tile" :class="kindOf(m.content.name)">{{ kindLabel[kindOf(m.content.name)] || 'FILE' }}</span>
+        </button>
+      </div>
     </TransitionGroup>
 
     <Transition name="pop">
       <div v-if="open && grid" class="grid glass">
-        <p class="cap">이 대화의 산출물 {{ items.length }}개</p>
+        <p class="cap">이 대화의 산출물 {{ items.length }}개<button class="allshare press" @click="open = false; team.startShare(items)">모두 공유</button></p>
         <div class="cells">
-          <button v-for="m in items" :key="m.id" class="cell press" @click="pick(m)">
-            <span class="tile" :class="kindOf(m.content.name)">{{ kindLabel[kindOf(m.content.name)] || 'FILE' }}</span>
-            <small>{{ m.content.name }}</small>
-          </button>
+          <div v-for="m in items" :key="m.id" class="cellw">
+            <button class="cell press" @click="pick(m)">
+              <span class="tile" :class="kindOf(m.content.name)">{{ kindLabel[kindOf(m.content.name)] || 'FILE' }}</span>
+              <small>{{ m.content.name }}</small>
+            </button>
+            <ShareButton :msg="m" compact class="cshare" />
+          </div>
         </div>
       </div>
     </Transition>
@@ -93,6 +102,15 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 .fitem { position: absolute; right: -10px; bottom: 0; display: flex; align-items: center; gap: 10px; transition: transform .38s var(--spring), opacity .25s; }
 .fitem .tile { animation: bob 3.2s ease-in-out infinite alternate; animation-delay: inherit; }
 .fitem:hover .tile { transform: scale(1.12); }
+.fopen { display: flex; align-items: center; gap: 10px; }
+/* 공유 (components/team): beside each artifact in the fan and the grid */
+.fshare { flex: none; background: rgba(29, 29, 31, .7); color: #fff; }
+.cellw { position: relative; }
+.cellw .cell { width: 100%; }
+.cshare { position: absolute; top: 0; right: 2px; width: 24px !important; height: 24px; opacity: 0; transition: opacity .15s; background: rgba(29, 29, 31, .72); color: #fff; }
+.cellw:hover .cshare, .cshare:focus-visible { opacity: 1; }
+@media (hover: none) { .cshare { opacity: 1; } }
+.allshare { float: right; font-size: 12px; padding: 2px 10px; border-radius: 10px; background: rgba(127, 127, 127, .14); color: var(--text-primary); }
 .label { max-width: 260px; padding: 5px 12px; border-radius: 9px; background: rgba(29, 29, 31, .78); color: #fff; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 .label em { font-style: normal; margin-left: 6px; font-size: 11px; color: #9fd0ff; }
