@@ -13,6 +13,7 @@ import SettingsSheet from '../components/SettingsSheet.vue'
 import Typewriter from '../components/Typewriter.vue'
 import InstanceHeader from '../components/InstanceHeader.vue'
 import ConversationBar from '../components/ConversationBar.vue'
+import ArtifactStack from '../components/ArtifactStack.vue'
 import Composer from '../components/Composer.vue'
 import { narrow } from '../viewport.js'
 import { api } from '../api.js'
@@ -124,6 +125,8 @@ function onConnect() {
           <template v-if="instMode && app.instance" #header><InstanceHeader :data="app.instance" @refresh="app.refreshInstance()" /></template>
           <template v-else-if="app.mode === 'chat' && app.activeId === app.mainThread?.id" #header><ConversationBar /></template>
         </ChatColumn>
+        <!-- inside one conversation, the files it produced float in a stack (Dock-style) -->
+        <ArtifactStack v-if="ready && app.mode === 'chat' && app.convFilter && !mobileHome && !app.officeDoc" />
         <div v-if="newProject && !narrow" class="np serif">
           <Typewriter text="프로젝트는 장기적인 작업과 경험을 정리하기 위한 공간입니다." :cps="18" />
         </div>
