@@ -4,7 +4,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import zlib from 'node:zlib'
-import { decodePng, strokeCoverage, losses } from '../lib/review.js'
+// the module pulls in the DB client through its imports; a checkout without server/.env still runs these
+process.env.SERVICE_ROLE_KEY ||= 'unit-test'
+const { decodePng, strokeCoverage, losses } = await import('../lib/review.js')
 
 const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
 const crc = (b) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
