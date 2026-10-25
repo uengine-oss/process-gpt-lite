@@ -360,6 +360,8 @@ const PHASES = [
 export const toolPhase = (tool) => (PHASES.find(([re]) => re.test(String(tool || ''))) || [null, '작업하는 중'])[1]
 
 const hubBound = new Set()
+// long tool calls (skill-creator, CAD drawing) stream nothing for minutes, so this is generous
+const STREAM_IDLE_MS = Number(process.env.PRO_STREAM_IDLE_MS) || 15 * 60_000
 export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged }) {
   const thread = await getThread(user.id, threadId)
   const uploads = attached.get(threadId) || []
@@ -378,7 +380,24 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // conversation this message continues. Projects, instances, skill authoring and scheduled
   // runs already know their conversation and go straight to the agent.
   const routed = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider
+  // a stalled agent (no byte for STREAM_IDLE_MS) is cut off, so the chat never sits on "생각하는 중" for good
+  const idle = new AbortController()
+  let idleTimer = setTimeout(() => idle.abort(), STREAM_IDLE_MS)
+  const alive = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => idle.abort(), STREAM_IDLE_MS) }
+  try {
+    return await streamTurn()
+  } catch (e) {
+    if (!idle.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
+    console.warn('[delegate]', idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
+    await setThreadStatus(user.id, threadId, null)
+    return addMessage(user.id, threadId, 'agent', 'text', { text: idle.signal.aborted
+      ? '에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.'
+      : '에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요.' })
+  } finally { clearTimeout(idleTimer) }
+
+  async function streamTurn() {
   const res = await fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
+    signal: idle.signal,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
     body: JSON.stringify({
@@ -406,6 +425,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
+    alive()
     buf += dec.decode(value, { stream: true })
     const lines = buf.split('\n')
     buf = lines.pop()
@@ -499,6 +519,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     await addMessage(user.id, threadId, 'agent', 'process_draft', { contract: processResult, workDir, state: 'draft' })
   }
   return msg
+  }
 }
 
 // Find the definition the user means; the catalogue is small enough to let the model pick.

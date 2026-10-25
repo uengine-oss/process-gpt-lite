@@ -174,10 +174,16 @@ export const useApp = defineStore('app', {
       const conv = this.convFilter && threadId === this.mainThread?.id ? this.convList.find((c) => c.id === this.convFilter) : null
       const conversation = conv ? { id: conv.id, title: conv.title } : this.convFilter && threadId === this.mainThread?.id ? { id: this.convFilter } : undefined
       this.drafts[threadId] = ''
-      await stream(`/threads/${threadId}/messages`, { text, context, files, conversation }, (ev, data) => {
-        if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
-        if (ev === 'done' || ev === 'error') this.drafts[threadId] = null
-      })
+      let ended = false
+      try {
+        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation }, (ev, data) => {
+          if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
+          if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
+        })
+      } catch (e) { console.warn('[send]', e.message) }
+      // the connection dropped before the answer (a proxy cutting a long request, a server restart):
+      // stop showing "생각하는 중"; the answer, if it comes, arrives as a live event
+      if (!ended) { this.drafts[threadId] = null; this.load(threadId).catch(() => {}) }
       if (threadId === this.mainThread?.id) this.loadConversations()
     },
     async newProject(text) {
