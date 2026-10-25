@@ -81,6 +81,7 @@ process-gpt-lite/
 ├── skills/              기본 스킬 / bundled skills
 ├── artcraft/            ArtCraft 업스트림 패치·빌드 스크립트 (바이너리 없음 / no binaries)
 ├── install/             설치 번들 (Docker Compose) / installer
+├── e2e/                 회귀 테스트 (Playwright) / regression suite
 └── backends/            git submodules
     ├── process-gpt/     uengine-oss/process-gpt  (branch feat/pgpt-lite)
     └── office-host/     uengine-oss/process-gpt-office-host  (main)
@@ -148,6 +149,19 @@ npm ci && npx vite                                                       # http:
 - 공개 터널로 열 때는 `server/.public-access.example`을 참고해 basic-auth 쌍을 두세요. / For public tunnels see `server/.public-access.example`.
 
 검증 / checks: `cd server && npm test`, `npm run build`.
+
+## 회귀 테스트 / Regression suite
+
+[e2e/](e2e/README.md) — 시연 영상의 흐름과 openspec 명세의 시나리오를 그대로 옮긴 Playwright 회귀 테스트(132개). 기능 요건 → 명세 요구사항 → 시연 영상 → 시험 → 단계를 잇는 카탈로그가 [e2e/README.md](e2e/README.md)에 있습니다.
+Playwright regression suite built from the demo-video flows and the openspec scenarios; the catalog maps each requirement to its video and test.
+
+| 단계 / Tier | 내용 / What | 명령 / Command |
+|---|---|---|
+| smoke | 모델 없이 3분 안: 기동·인증·모든 화면·보안 울타리·정적 경로·설치 번들 / no model, < 3 min | `cd e2e && npm run test:smoke` |
+| feature | 고정 데이터로 API·MCP·화면 동작 / fixed data through APIs, MCP and the UI | `npm run test:feature` |
+| agent | 실제 에이전트로 영상의 사용자 여정 / the video journeys with the real agents | `npm run test:agent` |
+
+설치 스택에 대고 / against the Docker Compose install: `PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:smoke`. 보고서 / reports: `e2e/reports/<tier>/html`, `junit.xml`.
 
 ## 상세 / Details (한국어)
 
