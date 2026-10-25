@@ -257,7 +257,7 @@ export function liveHint(open) {
             ? `글 일부(표 칸 안의 글 포함)를 바꿀 때는 서식이 그대로 남는 office_live_apply_ops 의 findReplace 연산([{"op":"findReplace","find":"…","replace":"…"}])을 먼저 쓰세요. ` +
               `문단 하나를 통째로 바꿀 때만 office_live_replace 에 match_text(바꿀 블록에 든 글)를 주세요(블록 번호는 앞 변경에 밀려요, 표 블록은 통째로 바꾸지 마세요). ` +
               `새 문단은 office_live_write(after_block_index 로 위치 지정), 그 밖의 서식은 office_live_apply_ops(연산은 office_guide). `
-            : `셀 값·서식은 office_live_apply_ops(연산은 office_guide 참고)로 바꾸세요. `)
+            : `셀 값은 office_live_apply_ops 의 set_cell, 수식은 set_formula(수식을 type:"text" 로 쓰지 마세요), 행을 더할 때는 insert_rows 로 끼운 뒤(뒤 주소가 밀려요) 값·수식을 넣고 합계 범위를 넓히세요. 이미 있는 표 서식은 바꾸지 마세요(연산은 office_guide xlsx 참고). `)
         : `이 형식은 열린 화면을 직접 고치는 도구가 없어요: 내용을 읽어(office_read_document) 답하고, 고쳐야 하면 무엇을 바꿀지 알려 주세요. `) +
       `새 문서를 만들거나 파일로 내려받지 말고, 저장은 사용자가 해요(office_live_save 를 부르지 마세요). 다 고치면 무엇을 바꿨는지 짧게 답하세요.)`
   }

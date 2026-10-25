@@ -19,8 +19,8 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 - **외부 연동 · 스킬 · 예약 미션** — Google·YouTube·Slack·GitHub·Notion 커넥터 MCP, mcp-hub 등록, pg_cron 미션 / connectors, skills, missions
 - **역할 기반 알림 · 팀 협업** — 역할 담당자에게 단계 배정, 대화 중 동료 지목 / role-based notifications
 - **에이전트 작업실** — cli-agent(Claude Code) 작업 폴더와 터미널 / agent workroom
-- **문서 편집** — 이음오피스(HWP·Word·Excel·PowerPoint·PDF 원본 형식) / IeumOffice editor via office-host
-- **ArtCraft** — CAD·벡터·이미지·소리·영상 편집기와 MCP / ArtCraft editors (see [artcraft/](artcraft/README.md))
+- **문서 편집** — 이음오피스(HWP·Word·Excel·PowerPoint·PDF 원본 형식). 열린 워드·엑셀은 채팅·최대화 다이얼로 바로 고치고, 편집기의 AI 버튼도 같은 대화로 / IeumOffice editor via office-host, live-edited from the chat
+- **ArtCraft** — CAD·벡터·이미지·소리·영상 편집기와 MCP, 다섯 앱 모두 열린 화면을 대화로 라이브 편집 / ArtCraft editors with live co-editing (see [artcraft/](artcraft/README.md))
 - **공유 폴더 · 스킬 공유 · 패널 앱** — git 기반 폴더, 스킬 개선 제안·비교, 이벤트 소싱 패널과 행 단위 보안 / shared folders, skill sharing, panel apps with RLS
 - **Android 앱** — 서버 주소만 넣으면 쓰는 래퍼 앱([android/](android/)) / Android wrapper app
 
@@ -37,7 +37,7 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 | [에이전트 작업실: Claude Code 가 주화면, 산출물은 옆에서 / Agent workroom](https://youtu.be/jDbjGIMrc5o) |
 | [보관함 / Credential vault](https://youtu.be/n5SBj_iRbig) |
 | [Android 앱 / Android app](https://youtu.be/TYg7S1WJ0YQ) |
-| [이음오피스로 문서 바로 편집 / Edit documents in IeumOffice](https://youtu.be/5J0w5A9ylN0) |
+| [이음오피스 문서를 대화로 바로 편집 (라이브·다이얼·하나의 AI 도우미) / Live-edit IeumOffice documents by chat](https://youtu.be/39F2rgTL5B0) |
 | [CADCraft 도면 / CAD drawings](https://youtu.be/QyfrjwhBSsw) |
 | [VectorCraft 벡터 그림 / Vector art](https://youtu.be/Wu4qx_VWY2A) |
 | [PhotoCraft 레이어 이미지 / Layered images](https://youtu.be/qVRwjYTMISI) |
