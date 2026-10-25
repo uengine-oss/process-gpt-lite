@@ -14,6 +14,7 @@ import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
 import { isOfficeEditorMessage, officeEditorUrl } from '../officeEditor.js'
 import { freshToken } from '../api.js'
+import { kindOf, kindLabel } from '../artifacts.js'
 import { openLiveLink } from '../liveLink.js'
 
 const props = defineProps({
@@ -175,11 +176,13 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 <template>
   <div ref="root" class="oef" :class="{ fs: fullscreen }">
     <div class="bar">
-      <Icon name="doc" :size="16" />
+      <span class="fmt" :class="kindOf(name)">{{ kindLabel[kindOf(name)] || 'DOC' }}</span>
       <span class="name">{{ name || '문서' }}</span>
       <span v-if="readOnly" class="badge">미리보기</span>
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
       <span class="sp" />
+      <!-- the editor is IeumOffice (Apache-2.0); its lockup marks whose editor this is -->
+      <img class="ieum" src="/brand/ieumoffice-logo.svg" alt="IeumOffice" title="이음오피스 편집기" width="66" height="15" />
       <ShareButton v-if="!readOnly" :for-name="name" plain class="tb" />
       <button v-if="canMention" class="tb press" :class="{ on: mentionMode }" title="켜고 문서의 표·그림·문단(엑셀은 셀 범위)을 누르면 대화 입력창에 @멘션으로 들어가요 (⌥ 누른 채 클릭도 돼요)" @click="mentionMode = !mentionMode">
         @ {{ mentionMode ? '가리키는 중' : '가리키기' }}
@@ -205,10 +208,17 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 <style scoped>
 /* the iframe takes the height left in the column (an explicit 100% falls back to 150px when the
    parent height is not definite) */
-.oef { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; background: #fff; border-radius: inherit; overflow: hidden; }
+.oef { container-type: inline-size; position: relative; display: flex; flex-direction: column; flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; background: #fff; border-radius: inherit; overflow: hidden; }
 .oef.fs { min-height: 100vh; border-radius: 0; }
 .bar { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; height: 44px; padding: 0 8px 0 14px; border-bottom: 1px solid rgba(0, 0, 0, .08); color: #1d1d1f; }
-.name { overflow: hidden; font-size: 14px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.name { min-width: 0; flex: 0 1 auto; overflow: hidden; font-size: 14px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+/* the file's format tile (same colours as the chat card) and the IeumOffice lockup */
+.fmt { flex: none; min-width: 26px; height: 22px; padding: 0 5px; border-radius: 6px; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; background: #6b6b66; }
+.fmt.hwp { background: #1f6fd1; } .fmt.doc { background: #2b579a; } .fmt.xls { background: #217346; } .fmt.ppt { background: #c43e1c; } .fmt.pdf { background: #d93025; }
+.ieum { flex: none; height: 15px; width: auto; margin: 0 6px; opacity: .72; }
+/* a narrow side sheet keeps the buttons on one line; the logo goes first */
+@container (max-width: 640px) { .ieum { display: none; } }
+@media (max-width: 700px) { .ieum { display: none; } }
 .badge { padding: 1px 8px; border-radius: 10px; background: rgba(42, 120, 214, .12); color: #2a78d6; font-size: 11px; white-space: nowrap; flex: 0 0 auto; }
 .badge.live { display: inline-flex; align-items: center; gap: 6px; background: rgba(40, 160, 90, .12); color: #1e8a4c; }
 .badge.live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -219,7 +229,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 .glow { position: absolute; inset: 44px 0 0; z-index: 2; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(120, 100, 240, .7), inset 0 0 26px rgba(120, 100, 240, .28); animation: glowin .3s ease both; }
 @keyframes glowin { from { opacity: 0; } }
 .sp { flex: 1; }
-.tb { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 15px; font-size: 13px; color: #5f6368; }
+.tb { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 15px; font-size: 13px; color: #5f6368; white-space: nowrap; }
 .tb:hover { background: rgba(0, 0, 0, .05); }
 .tb.ic { width: 30px; padding: 0; justify-content: center; }
 .tb.on { background: rgba(110, 90, 230, .14); color: #5b47d6; font-weight: 600; }
