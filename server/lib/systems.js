@@ -8,6 +8,7 @@ import { config } from '../config.js'
 import { q } from './supa.js'
 import { CONNECTORS, hubServerName } from '../mcp/connectors.js'
 import { CRAFT_APPS } from '../mcp/craft.js'
+import { OFFICE_MCP } from '../mcp/office.js'
 
 const HUB = process.env.PRO_MCP_HUB_URL || 'http://127.0.0.1:8500'
 // mcp-hub validates from inside its container; the engines (deepagents) may run on the host.
@@ -26,10 +27,11 @@ const META = {
   filmcraft: { name: 'FilmCraft', category: '영상', link: 'https://getartcraft.com/apps/filmcraft', desc: '영상 편집 프로젝트·클립 가져오기·자르기·프레임 렌더(FilmCraft 오픈소스, 계정 불필요). 편집은 채팅 카드에서 웹 FilmCraft로.' },
   folders: { name: '공유 폴더', category: '협업·문서', link: 'http://localhost:5180/folders', desc: '여럿이 함께 쓰는 공유 폴더(드라이브)와 그 색인. 폴더·파일·문서 카드 요약 찾기(folder_catalog, folder_files). 사용자가 구성원인 폴더만 보임.' },
   panelapps: { name: '패널 앱', category: '협업·문서', link: 'http://localhost:5180/', desc: '공유 폴더의 스프레드시트를 데이터 원본으로 쓰는 Home 패널 앱(리드 관리·휴가 일수 관리 등). 앱 목록·만들기·행 조회·추가·수정(panel_app_list, panel_app_create, panel_app_rows, panel_app_add_row, panel_app_update_row). 폴더 구성원 권한을 따름.' },
+  'ieumoffice-live-editor': { name: '이음오피스', category: '협업·문서', link: 'http://localhost:5180/', desc: '채팅 옆 이음오피스 편집기에 열린 워드·엑셀 문서를 사람이 보는 앞에서 읽고 고치기(office_live_*). 문서가 열려 있을 때만 도구가 보임. 새 문서 만들기는 office-mcp.' },
   cadcraft: { name: 'CADCraft', category: '설계·도면', link: 'https://getartcraft.com/apps/cadcraft', desc: 'DXF·DWG 도면 그리기·조회·렌더링(CADCraft 오픈소스 CAD, 계정 불필요). 편집은 채팅의 도면 카드에서 웹 CADCraft로.' },
 }
 // servers that are not account connectors (mcp/craft.js), registered the same way
-const REGISTERED = [...CONNECTORS, ...Object.keys(CRAFT_APPS).map((name) => ({ name, title: name })), { name: 'folders', title: '공유 폴더' }, { name: 'panelapps', title: '패널 앱' }]
+const REGISTERED = [...CONNECTORS, ...Object.keys(CRAFT_APPS).map((name) => ({ name, title: name })), { name: 'folders', title: '공유 폴더' }, { name: 'panelapps', title: '패널 앱' }, { name: OFFICE_MCP, title: '이음오피스' }]
 
 const hub = (path, opts = {}) => fetch(`${HUB}${path}`, {
   ...opts, headers: { 'X-Tenant-Id': config.tenantId, 'Content-Type': 'application/json', ...(opts.headers || {}) },

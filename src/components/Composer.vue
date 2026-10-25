@@ -32,6 +32,8 @@ watch(() => app.prefill, async (v) => {
   await nextTick()
   ta.value?.focus()
 })
+// an open document's own AI 도우미 button lands here (OfficeSheet): the chat composer, not the overlay's
+watch(() => app.focusTick, () => { if (!props.overlay) ta.value?.focus() })
 watch(text, async () => {
   await nextTick()
   if (!ta.value) return

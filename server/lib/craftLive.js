@@ -11,6 +11,9 @@
 // PhotoCraft/FilmCraft also get a per-session random token (in the CLI's environment, never argv).
 import net from 'node:net'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import express from 'express'
@@ -23,7 +26,17 @@ export const LIVE_APPS = {
   vectorcraft: { title: 'VectorCraft', args: (port) => ['--connect', `127.0.0.1:${port}`], auth: 'none' },
   // filmcraft-cli 0.12 sends no token yet (newer ones put it on every line): a token, when sent, must match
   filmcraft: { title: 'FilmCraft', args: (port) => ['--bridge', `127.0.0.1:${port}`], env: 'FILMCRAFT_CONTROL_TOKEN', auth: 'each-if-sent' },
+  // newer cadcraft-cli reads the token from `cadcraft-control-<port>.token` in $XDG_RUNTIME_DIR and sends it on
+  // every line: each session gets its own owner-only folder with that file (never the person's ~/.cache).
+  // cadcraft-cli 0.8.0 sends none yet, so (as for FilmCraft) a token, when sent, must match
+  cadcraft: { title: 'CADCraft', args: (port) => ['--connect', `127.0.0.1:${port}`], tokenFile: (port) => `cadcraft-control-${port}.token`, auth: 'each-if-sent' },
+  // soundcraft-cli 0.12 sends no token: the pid check alone guards the port
+  soundcraft: { title: 'SoundCraft', args: (port) => ['--connect', String(port)], auth: 'none' },
+  // IeumOffice (office-host) has its own live sessions and MCP (office_live_*, mcp/office.js): here it is
+  // only "what is open" for the agent's context, no control port
+  ieumoffice: { title: '이음오피스', presence: true },
 }
+const OFFICE_KIND = { docs: '워드', sheets: '엑셀', slides: '파워포인트', pdf: 'PDF', hwp: '한글', markdown: '마크다운', html: 'HTML', mindmap: '마인드맵' }
 const CALL_MS = 58_000 // under the CLIs' own 55–60 s waits, so their error is the one the agent sees
 const MAX_LINE = 4 * 1024 * 1024
 const MAX_CONN = 4
@@ -36,7 +49,7 @@ export function liveFor(userId, app) { return lives.get(`${app}:${userId}`) || n
 export function liveOpen(userId) {
   let best = null
   for (const l of lives.values()) if (l.userId === userId && (!best || l.since > best.since)) best = l
-  return best ? { app: best.app, title: LIVE_APPS[best.app].title, file: best.file } : null
+  return best ? { app: best.app, title: LIVE_APPS[best.app].title, file: best.file, editor: best.editor || null } : null
 }
 
 // ---- tickets (spent on use, a minute to live) ----
@@ -80,8 +93,29 @@ function startLive(userId, app, file, ws) {
   }
   // craft.js registers the pid of the CLI it started for this session
   live.allowPid = (pid) => { if (pid) live.pids.add(pid) }
-  live.cliEnv = () => (LIVE_APPS[app].env ? { [LIVE_APPS[app].env]: live.token } : {})
+  live.cliEnv = () => {
+    const a = LIVE_APPS[app]
+    if (a.tokenFile) {
+      if (!live.dir) {
+        live.dir = fs.mkdtempSync(path.join(os.tmpdir(), `pgpt-${app}-live-`))
+        fs.chmodSync(live.dir, 0o700)
+        fs.writeFileSync(path.join(live.dir, a.tokenFile(live.port)), live.token, { mode: 0o600 })
+      }
+      return { XDG_RUNTIME_DIR: live.dir }
+    }
+    return a.env ? { [a.env]: live.token } : {}
+  }
   live.cliArgs = () => LIVE_APPS[app].args(live.port)
+  if (LIVE_APPS[app].presence) {
+    live.ready = Promise.resolve()
+    live.close = () => {
+      if (live.closed) return
+      live.closed = true
+      if (lives.get(`${app}:${userId}`) === live) lives.delete(`${app}:${userId}`)
+      try { liveEvents.emit('closed', live) } catch (e) { console.warn('[craft-live]', e.message) }
+    }
+    return live
+  }
 
   live.server = net.createServer((sock) => serve(live, sock))
   live.server.maxConnections = MAX_CONN
@@ -97,6 +131,7 @@ function startLive(userId, app, file, ws) {
     live.pending.clear()
     for (const s of live.conns) s.destroy()
     live.server.close()
+    if (live.dir) fs.rm(live.dir, { recursive: true, force: true }, () => {})
     try { liveEvents.emit('closed', live) } catch (e) { console.warn('[craft-live]', e.message) }
   }
   return live
@@ -178,6 +213,7 @@ export function attachCraftLive(server) {
           // the newest page wins: a second tab with the same app takes the session over
           liveFor(ticket.userId, m.app)?.close()
           live = startLive(ticket.userId, m.app, String(m.file || '').slice(0, 200), ws)
+          if (m.editor && OFFICE_KIND[m.editor]) live.editor = m.editor
           lives.set(`${m.app}:${ticket.userId}`, live)
           try { await live.ready } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close() }
           ws.send(JSON.stringify({ type: 'live', app: m.app }))
@@ -205,10 +241,26 @@ export function attachCraftLive(server) {
 const LIVE_TOOLS = {
   photocraft: 'photocraft_doc_inspect 로 레이어를 확인하고, photocraft_command_run(예: 글자 레이어 색·내용 바꾸기, 새 글자 레이어)으로 고치세요',
   vectorcraft: 'vectorcraft_inspect 계열로 객체를 확인하고, vectorcraft_add_text·vectorcraft_set_paint·vectorcraft_command_run 으로 고치세요',
-  filmcraft: 'filmcraft_project_inspect·filmcraft_sequence_inspect 로 확인하고 filmcraft_command_run 으로 고치세요',
+  filmcraft: 'filmcraft_project_inspect·filmcraft_sequence_inspect 로 확인하고 filmcraft_command_run 으로 고치세요(file.newProject·가져오기 금지, 자막 글꼴은 웹에도 있는 NanumGothic)',
+  cadcraft: 'cadcraft_inspect_drawing·cadcraft_find_text·cadcraft_query_entities 로 확인하고, cadcraft_command_line·cadcraft_script·cadcraft_execute 로 고친 뒤 cadcraft_render 로 직접 보세요(cadcraft_new_drawing·cadcraft_open 금지)',
+  soundcraft: 'soundcraft_inspect_session 으로 트랙·클립을 확인하고, soundcraft_execute·soundcraft_batch(soundcraft_list_commands 의 명령: mix.volume·mix.pan·track.rename·track.new 등)로 고치세요(soundcraft_new_session·soundcraft_open_session 금지)',
 }
 export function liveHint(open) {
   if (!open) return ''
+  if (open.app === 'ieumoffice') {
+    const kind = OFFICE_KIND[open.editor] || '문서'
+    const editable = open.editor === 'docs' || open.editor === 'sheets'
+    return `\n\n(사용자가 지금 이음오피스 ${kind} 편집기에서 '${open.file || '문서'}' 을 열어 두었어요. 이 메시지는 그 열린 문서에 대한 것이에요. ` +
+      (editable
+        ? `office_live_documents 로 그 문서의 session_id 를 찾고 office_live_read 로 지금 내용을 읽은 뒤, 사람이 보는 화면에서 바로 고치세요: ` +
+          (open.editor === 'docs'
+            ? `글 일부(표 칸 안의 글 포함)를 바꿀 때는 서식이 그대로 남는 office_live_apply_ops 의 findReplace 연산([{"op":"findReplace","find":"…","replace":"…"}])을 먼저 쓰세요. ` +
+              `문단 하나를 통째로 바꿀 때만 office_live_replace 에 match_text(바꿀 블록에 든 글)를 주세요(블록 번호는 앞 변경에 밀려요, 표 블록은 통째로 바꾸지 마세요). ` +
+              `새 문단은 office_live_write(after_block_index 로 위치 지정), 그 밖의 서식은 office_live_apply_ops(연산은 office_guide). `
+            : `셀 값·서식은 office_live_apply_ops(연산은 office_guide 참고)로 바꾸세요. `)
+        : `이 형식은 열린 화면을 직접 고치는 도구가 없어요: 내용을 읽어(office_read_document) 답하고, 고쳐야 하면 무엇을 바꿀지 알려 주세요. `) +
+      `새 문서를 만들거나 파일로 내려받지 말고, 저장은 사용자가 해요(office_live_save 를 부르지 마세요). 다 고치면 무엇을 바꿨는지 짧게 답하세요.)`
+  }
   return `\n\n(사용자가 지금 ${open.title} 에서 '${open.file || '문서'}' 을 열어 두었어요. ${open.app}_ 도구는 그 화면에 바로 적용돼요. ` +
     `새 문서를 만들거나 다른 파일을 열지 말고 열린 문서를 그대로 고치세요: ${LIVE_TOOLS[open.app]}. 저장은 사용자가 해요(doc_save·save_file·export 를 부르지 마세요). 다 고치면 무엇을 바꿨는지 짧게 답하세요.)`
 }

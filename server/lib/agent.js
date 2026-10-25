@@ -18,6 +18,7 @@ import { listTeam, listAssignments, resolveMember } from './team.js'
 import { notifyMember } from './notify.js'
 import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, publish } from './office.js'
 import { activateCraft } from '../mcp/craft.js'
+import { activateOffice } from '../mcp/office.js'
 import { liveOpen, liveHint } from './craftLive.js'
 import { attachmentHint } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
@@ -350,6 +351,7 @@ const SKILL_STEPS = {
 const PHASES = [
   [/^cadcraft_/, '도면 그리는 중'], [/^vectorcraft_/, '그림 만드는 중'], [/^photocraft_/, '이미지 편집하는 중'],
   [/^soundcraft_/, '소리 만드는 중'], [/^filmcraft_/, '영상 편집하는 중'], [/^folder_/, '폴더 살펴보는 중'],
+  [/^office_live_(read|documents)|^office_guide/, '문서 읽는 중'], [/^office_live_/, '문서 고치는 중'],
   [/hwpx|docx|pptx|xlsx|office|document|render_hwp/i, '문서 만드는 중'], [/panel/i, '패널 만드는 중'],
   [/gmail|mail/i, '메일 확인하는 중'], [/calendar/i, '일정 확인하는 중'], [/youtube/i, '영상 정보 찾는 중'],
   [/slack|notion|github|drive/i, '연결된 서비스 확인하는 중'], [/search|web|fetch|browse|tavily/i, '찾아보는 중'],
@@ -376,6 +378,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // the ArtCraft apps this message asks for list their tools to the agent (mcp/craft.js)
   const live = !silent && !divider ? liveOpen(user.id) : null
   activateCraft(user.id, [...craftAppsFor(text), ...(live ? [live.app] : [])])
+  if (live?.app === 'ieumoffice') activateOffice(user.id)
   // In the main chat, several things run side by side (hark): the context-router decides which
   // conversation this message continues. Projects, instances, skill authoring and scheduled
   // runs already know their conversation and go straight to the agent.

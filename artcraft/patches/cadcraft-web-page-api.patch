@@ -1,0 +1,185 @@
+diff --git a/apps/cadcraft-web/src/main.rs b/apps/cadcraft-web/src/main.rs
+index 035e1d6..14d6fee 100644
+--- a/apps/cadcraft-web/src/main.rs
++++ b/apps/cadcraft-web/src/main.rs
+@@ -13,6 +13,8 @@
+ pub mod download;
+ #[cfg(target_arch = "wasm32")]
+ mod host;
++#[cfg(target_arch = "wasm32")]
++mod api;
+ 
+ #[cfg(target_arch = "wasm32")]
+ mod web {
+@@ -45,6 +47,7 @@ mod web {
+             self.1.drain(&mut self.0);
+             self.0.system_animations = self.3.as_ref().map(|reduced| !reduced.matches());
+             self.0.logic(ctx);
++            crate::api::poll_replies();
+             let drawing = self.0.session.state().ok();
+             crate::push_title(&mut self.4, drawing.map(|d| d.title.as_str()), drawing.is_some_and(|d| d.is_dirty()), set_page_title);
+             if let Some((bridge, reported)) = &self.2 {
+@@ -143,7 +146,13 @@ mod web {
+                     Box::new(move |cc| {
+                         // Embedded, the parent sends the drawing: start on the Start tab, not Drawing1.
+                         let session = if app_bridge.is_some() { Session::empty() } else { Session::new() };
+-                        let mut app = CadApp::new(session, services());
++                        // pgpt-pro local patch: the page drives the app through `window.cadcraft` (api.rs)
++                        let (control_tx, control_rx) = std::sync::mpsc::channel();
++                        crate::api::connect(control_tx, cc.egui_ctx.clone());
++                        if let Err(e) = crate::api::install() {
++                            log::error!("couldn't install window.cadcraft: {e:?}");
++                        }
++                        let mut app = CadApp::new(session, services()).with_control(control_rx);
+                         app.system_languages =
+                             web_sys::window().map(|w| w.navigator().languages().iter().filter_map(|v| v.as_string()).collect()).unwrap_or_default();
+                         if let Some(profile) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::options::PROFILE_KEY)) {
+diff --git a/crates/ui-egui/src/control.rs b/crates/ui-egui/src/control.rs
+index bc6d23e..1b62814 100644
+--- a/crates/ui-egui/src/control.rs
++++ b/crates/ui-egui/src/control.rs
+@@ -67,6 +67,15 @@ pub struct PendingReply {
+ }
+ 
+ impl PendingReply {
++    /// The reply if it has arrived (non-blocking; the browser can't wait on a channel). pgpt-pro local patch.
++    pub fn try_reply(&self) -> Option<Result<ControlResponse, ()>> {
++        match self.rx.try_recv() {
++            Ok(v) => Some(Ok(v)),
++            Err(std::sync::mpsc::TryRecvError::Empty) => None,
++            Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err(())),
++        }
++    }
++
+     /// The reply, or after `timeout` an error that says whether the request can still have
+     /// changed anything:
+     /// - `{"ok": false, "error": "timeout", "state": "not-run"}`: the app had not started it, and
+diff --git a/apps/cadcraft-web/src/api.rs b/apps/cadcraft-web/src/api.rs
+new file mode 100644
+index 0000000..b68d478
+--- /dev/null
++++ b/apps/cadcraft-web/src/api.rs
+@@ -0,0 +1,123 @@
++//! `window.cadcraft`: the control channel for the page, as promises (pgpt-pro local patch).
++//!
++//! The same JSON methods as the desktop control server (`docs/control-protocol.md`), so a host
++//! page showing CADCraft in an `<iframe>` (or an agent bridged to it) drives the open drawing with
++//! the requests it would send to `cadcraft --control`:
++//!
++//! ```js
++//! await cadcraft.request("cmdline.input", {text: "circle 4,3 0.3"})
++//! await cadcraft.execute("drawing.inspect", {})
++//! ```
++//!
++//! Results resolve with the method's `result`; errors reject with an `Error`. Requests run on the
++//! app's next frame, without a deadline (the browser has no blocking wait).
++
++use std::cell::RefCell;
++use std::sync::mpsc::Sender;
++
++use cadcraft_ui_egui::{ControlRequest, PendingReply};
++use serde_json::{Value, json};
++use wasm_bindgen::prelude::*;
++use web_sys::js_sys;
++
++type Waiting = (PendingReply, js_sys::Function, js_sys::Function);
++
++thread_local! {
++    static TX: RefCell<Option<Sender<ControlRequest>>> = const { RefCell::new(None) };
++    static WAITING: RefCell<Vec<Waiting>> = const { RefCell::new(Vec::new()) };
++    static CTX: RefCell<Option<egui::Context>> = const { RefCell::new(None) };
++}
++
++/// Wire the page's requests to the app's control channel.
++pub fn connect(tx: Sender<ControlRequest>, ctx: egui::Context) {
++    TX.with(|t| *t.borrow_mut() = Some(tx));
++    CTX.with(|c| *c.borrow_mut() = Some(ctx));
++}
++
++fn repaint() {
++    CTX.with(|c| {
++        if let Some(ctx) = c.borrow().as_ref() {
++            ctx.request_repaint();
++        }
++    });
++}
++
++fn to_js(v: &Value) -> JsValue {
++    js_sys::JSON::parse(&v.to_string()).unwrap_or(JsValue::NULL)
++}
++
++fn from_js(v: &JsValue) -> Value {
++    if v.is_undefined() || v.is_null() {
++        return json!({});
++    }
++    js_sys::JSON::stringify(v).ok().and_then(|s| s.as_string()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}))
++}
++
++/// Settle the promises of answered requests (called every frame); keeps frames coming while some wait.
++pub fn poll_replies() {
++    let waiting = WAITING.with(|w| {
++        let mut w = w.borrow_mut();
++        w.retain(|(pending, resolve, reject)| match pending.try_reply() {
++            Some(Ok(v)) => {
++                if v.get("ok").and_then(Value::as_bool) == Some(true) {
++                    let _ = resolve.call1(&JsValue::NULL, &to_js(v.get("result").unwrap_or(&Value::Null)));
++                } else {
++                    let msg = v.get("error").and_then(Value::as_str).unwrap_or("error").to_string();
++                    let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new(&msg));
++                }
++                false
++            }
++            None => true,
++            Some(Err(())) => {
++                let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new("request dropped"));
++                false
++            }
++        });
++        !w.is_empty()
++    });
++    if waiting {
++        repaint();
++    }
++}
++
++fn request(method: &str, params: Value) -> js_sys::Promise {
++    let method = method.to_string();
++    let p = js_sys::Promise::new(&mut |resolve, reject| {
++        let (req, pending) = ControlRequest::new(method.clone(), params.clone());
++        let sent = TX.with(|t| t.borrow().as_ref().is_some_and(|tx| tx.send(req).is_ok()));
++        if sent {
++            WAITING.with(|w| w.borrow_mut().push((pending, resolve, reject)));
++        } else {
++            let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new("CADCraft is not running yet"));
++        }
++    });
++    repaint();
++    p
++}
++
++fn set_fn(obj: &js_sys::Object, name: &str, f: JsValue) -> Result<(), JsValue> {
++    js_sys::Reflect::set(obj, &name.into(), &f).map(|_| ())
++}
++
++/// Install `window.cadcraft`.
++pub fn install() -> Result<(), JsValue> {
++    let obj = js_sys::Object::new();
++    set_fn(
++        &obj,
++        "request",
++        Closure::<dyn Fn(String, JsValue) -> js_sys::Promise>::new(|method: String, params: JsValue| request(&method, from_js(&params)))
++            .into_js_value(),
++    )?;
++    set_fn(
++        &obj,
++        "execute",
++        Closure::<dyn Fn(String, JsValue) -> js_sys::Promise>::new(|command: String, params: JsValue| {
++            request("engine.execute", json!({"command": command, "params": from_js(&params)}))
++        })
++        .into_js_value(),
++    )?;
++    set_fn(&obj, "inspect", Closure::<dyn Fn() -> js_sys::Promise>::new(|| request("drawing.inspect", json!({}))).into_js_value())?;
++    let w = web_sys::window().ok_or("no window")?;
++    js_sys::Reflect::set(&w, &"cadcraft".into(), &obj)?;
++    Ok(())
++}

@@ -12,19 +12,36 @@ import { useApp } from '../stores/app.js'
 const app = useApp()
 const maximized = ref(false)
 const note = ref(null) // {kind, text} — what happened to a panel app's sheet after saving
-// An ArtCraft app opens beside the chat, not over it: the chat and its composer stay usable on the
-// left (what is typed there edits the open app live, server/lib/craftLive.js); maximized, the chat
-// folds into CraftLiveOverlay's dial.
+// An ArtCraft app — and an editable IeumOffice document — opens beside the chat, not over it: the
+// chat and its composer stay usable on the left (what is typed there edits the open app or document
+// live, server/lib/craftLive.js · mcp/office.js); maximized, the chat folds into CraftLiveOverlay's dial.
 const craft = computed(() => !!app.officeDoc && CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url)))
-const craftTitle = computed(() => ({ cadcraft: 'CADCraft', vectorcraft: 'VectorCraft', photocraft: 'PhotoCraft', soundcraft: 'SoundCraft', filmcraft: 'FilmCraft' })[officeEditorFor(app.officeDoc?.name || app.officeDoc?.url || '')] || '')
+// a read-only preview stays a plain overlay (nothing to edit)
+const office = computed(() => !!app.officeDoc && !craft.value && !app.officeDoc.readOnly)
+const craftTitle = computed(() => office.value ? '문서' : ({ cadcraft: 'CADCraft', vectorcraft: 'VectorCraft', photocraft: 'PhotoCraft', soundcraft: 'SoundCraft', filmcraft: 'FilmCraft' })[officeEditorFor(app.officeDoc?.name || app.officeDoc?.url || '')] || '')
 const live = ref(false)
-const side = computed(() => craft.value && !maximized.value)
+const side = computed(() => (craft.value || office.value) && !maximized.value)
+const overlay = ref(null)
+// The editor's own AI 도우미 (one assistant): its buttons come here. A preset (요약·다듬기…) is sent as
+// a chat message about the open document; the 도우미 entry opens the same input — the dial's band
+// when maximized, the chat composer beside it otherwise.
+function assistant({ prompt, selection }) {
+  if (prompt) {
+    const sel = selection && !/선택/.test(prompt) ? selection : ''
+    app.send(sel ? `${prompt}\n\n(선택한 부분: "${sel.slice(0, 600)}")` : prompt)
+    return
+  }
+  if (maximized.value) return overlay.value?.expand()
+  if (selection) app.prefill = `선택한 부분 "${selection.slice(0, 120)}"을 `
+  else app.focusTick++
+}
 const dockWas = app.dockOpen
-watch(side, (on) => {
+watch([side, office], ([on, doc]) => {
   document.body.classList.toggle('craft-side', on)
+  document.body.classList.toggle('doc-side', on && doc)
   if (on) app.dockOpen = false
 }, { immediate: true })
-onBeforeUnmount(() => { document.body.classList.remove('craft-side'); if (craft.value) app.dockOpen = dockWas })
+onBeforeUnmount(() => { document.body.classList.remove('craft-side', 'doc-side'); if (craft.value || office.value) app.dockOpen = dockWas })
 
 // a panel app's spreadsheet (lib/panelApps): the saved copy becomes the folder's file
 async function savedPanelSheet(url) {
@@ -49,13 +66,13 @@ async function saved({ url, name }) {
 </script>
 
 <template>
-  <div class="veil" :class="{ max: maximized, side }" @click.self="!craft && (app.officeDoc = null)">
+  <div class="veil" :class="{ max: maximized, side }" @click.self="!side && !maximized && (app.officeDoc = null)">
     <div class="sheet glass" :class="{ max: maximized }">
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" />
-      <CraftLiveOverlay v-if="craft && maximized" :title="craftTitle" :live="live" />
+        :assistant="office" v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" @assistant="assistant" />
+      <CraftLiveOverlay v-if="(craft || office) && maximized" ref="overlay" :title="craftTitle" :live="live" />
       <Transition name="fade"><div v-if="note" class="pnote" :class="note.kind">{{ note.text }}</div></Transition>
     </div>
   </div>
@@ -79,6 +96,8 @@ async function saved({ url, name }) {
 <style>
 /* the chat column shares the window with an ArtCraft app open beside it (OfficeSheet .side) */
 :root { --craft-side-w: min(840px, 64vw); }
+/* a page of a document wants a little more width than an app's canvas */
+body.doc-side { --craft-side-w: min(960px, 70vw); }
 body.craft-side .main .center { right: var(--craft-side-w); left: 0; transition: right .4s var(--spring), left .4s var(--spring); }
 body.craft-side .main .clock { display: none; }
 @media (max-width: 760px) { body.craft-side .main .center { right: 0; } }

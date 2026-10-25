@@ -18,6 +18,7 @@ import { processRoutes } from './routes/process.js'
 import { startBrowserWorker } from './lib/browserWorker.js'
 import { mountConnectors, connectorStatus, ensureHubBinding } from './mcp/connectors.js'
 import { mountCraft } from './mcp/craft.js'
+import { mountOffice } from './mcp/office.js'
 import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
@@ -212,6 +213,7 @@ app.use('/api', processRoutes(auth))
 app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
 mountCraft(app)
+mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
 mountFolders(app)
 mountPanelApps(app)

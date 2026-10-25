@@ -1,5 +1,5 @@
 <script setup>
-// Over a maximized ArtCraft app: pgpt-pro's chat folded into a round dial in the corner. Pressed,
+// Over a maximized ArtCraft app or IeumOffice document: pgpt-pro's chat folded into a round dial in the corner. Pressed,
 // it opens as a thin composer at the bottom (the app's lower part blurs behind it), with the
 // status pill above — the same input as the chat. What is sent goes to the chat thread with the
 // open app as its context (server/lib/craftLive.js), so the agent's edits land in the app below.
@@ -41,6 +41,7 @@ function send(text) {
   clearTimeout(foldTimer)
   foldTimer = setTimeout(() => (open.value = false), 1600)
 }
+defineExpose({ expand })
 const onKey = (e) => { if (e.key === 'Escape' && open.value) open.value = false }
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeout(answerTimer); clearTimeout(foldTimer) })
@@ -70,7 +71,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeo
 </template>
 
 <style scoped>
-/* over the app (dark in every ArtCraft app): dark glass, the composer in the page's own theme */
+/* over the app (dark in every ArtCraft app; IeumOffice is light, the glass reads on both): dark glass, the composer in the page's own theme */
 .clo { position: absolute; inset: 44px 0 0; z-index: 5; pointer-events: none; }
 .clo > * { pointer-events: auto; }
 .dial { position: absolute; right: 22px; bottom: 44px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; color: #1d1d1f;

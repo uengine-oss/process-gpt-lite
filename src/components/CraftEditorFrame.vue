@@ -9,13 +9,15 @@
 //   which we catch inside the frame (the blob behind the download link) instead of letting them go.
 // A save in the app's own formats becomes the card's edited copy; anything else (exports) is
 // uploaded and offered as a link.
-// Live co-editing (server/lib/craftLive.js): once the file is open, apps with a page API
-// (window.photocraft · window.vectorcraft · window.filmcraft .request(method, params)) are joined to
-// the server over a websocket; the agent's tool calls arrive as control requests, run on this
-// window, and the replies go back — so the person watches the agent's edits land here.
+// Live co-editing (server/lib/craftLive.js, src/liveLink.js): once the file is open, every app's page
+// API (window.<app>.request(method, params): PhotoCraft · CADCraft · SoundCraft through local patches
+// in artcraft/patches, VectorCraft · FilmCraft built in) is joined to the server over a websocket;
+// the agent's tool calls arrive as control requests, run on this window, and the replies go back —
+// so the person watches the agent's edits land here.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
-import { api, uploadAttachment } from '../api.js'
+import { uploadAttachment } from '../api.js'
+import { openLiveLink } from '../liveLink.js'
 import { officeEditorFor } from '../officeEditor.js'
 
 const props = defineProps({
@@ -42,7 +44,7 @@ const APPS = {
     open: (w, file, bytes) => w.vectorcraft.openFile(file.name, new Uint8Array(bytes)),
   },
   photocraft: { title: 'PhotoCraft', query: '', ready: (w) => !w.document.getElementById('photocraft_loading'), open: (w, file) => drop(w, file) },
-  soundcraft: { title: 'SoundCraft', query: '?empty', ready: (w) => !w.document.getElementById('soundcraft_loading'), open: (w, file) => drop(w, file) },
+  soundcraft: { title: 'SoundCraft', query: '?empty', save: '⌘⌥B 로 내보내기', ready: (w) => !w.document.getElementById('soundcraft_loading'), open: (w, file) => drop(w, file) },
   filmcraft: {
     title: 'FilmCraft', query: '?empty&fresh', ready: (w) => !!w.filmcraft,
     // imported clips only land in the bin: put them on a timeline of their own, ready to cut
@@ -63,12 +65,11 @@ let timer = null
 let wait = null
 const savedUrls = new Set()
 // live co-editing
-const LIVE = new Set(['photocraft', 'vectorcraft', 'filmcraft'])
-const READS = /^(ui\.inspect|engine\.commands|ui\.screenshot|jobs\.list|ui\.menu\.list)$|inspect/i
+const LIVE = new Set(['photocraft', 'vectorcraft', 'filmcraft', 'cadcraft', 'soundcraft'])
+const READS = /^(ui\.inspect|ui\.elements|ui\.render|engine\.commands|ui\.screenshot|jobs\.list|ui\.menu\.list|cmdline\.state|control\.methods|ping)$|inspect|render|find_text|query/i
 const live = ref(false)
 const busy = ref(0)
-let ws = null
-let liveRetry = null
+let link = null
 let alive = true
 const appName = () => officeEditorFor(props.name || props.fileUrl)
 const app = computed(() => APPS[appName()] || null)
@@ -130,53 +131,40 @@ function catchDownloads(w) {
     blob.arrayBuffer().then((bytes) => onSave({ name: this.download, bytes }))
   }
 }
-async function startLive() {
+function startLive() {
   const name = appName()
   const w = frame.value?.contentWindow
-  if (!alive || !LIVE.has(name) || ws || !w?.[name]?.request) return
-  clearTimeout(liveRetry)
-  let ticket
-  try { ticket = (await api('/craft/live/ticket', { method: 'POST' })).ticket } catch { liveRetry = setTimeout(startLive, 5000); return }
-  const sock = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/craft/live?ticket=${encodeURIComponent(ticket)}`)
-  ws = sock
-  sock.onopen = () => sock.send(JSON.stringify({ type: 'open', app: name, file: props.name }))
-  sock.onmessage = async (e) => {
-    let m
-    try { m = JSON.parse(e.data) } catch { return }
-    if (m.type === 'live') { live.value = true; emit('live', true) }
-    if (m.type !== 'call') return
-    busy.value++
-    try {
-      const fw = frame.value?.contentWindow
-      if (!fw?.[name]?.request) throw new Error('the app is not running in the page')
-      const result = await fw[name].request(m.method, m.params || {})
-      if (!READS.test(m.method) && !READS.test(m.params?.command || '')) dirty.value = true
-      sock.readyState === 1 && sock.send(JSON.stringify({ type: 'reply', id: m.id, result: result ?? null }))
-    } catch (err) {
-      sock.readyState === 1 && sock.send(JSON.stringify({ type: 'reply', id: m.id, error: String(err?.message || err) }))
-    } finally { busy.value-- }
-  }
-  sock.onclose = () => {
-    if (ws === sock) ws = null
-    live.value = false; busy.value = 0; emit('live', false)
-    if (alive && frame.value) liveRetry = setTimeout(startLive, 3000)
-  }
+  if (!alive || !LIVE.has(name) || link || !w?.[name]?.request) return
+  link = openLiveLink({
+    app: name, file: props.name, alive: () => alive && !!frame.value,
+    onState: (on) => { live.value = on; if (!on) busy.value = 0; emit('live', on) },
+    onCall: async (method, params) => {
+      busy.value++
+      try {
+        const fw = frame.value?.contentWindow
+        if (!fw?.[name]?.request) throw new Error('the app is not running in the page')
+        const result = await fw[name].request(method, params)
+        if (!READS.test(method) && !READS.test(params?.command || '')) dirty.value = true
+        return result
+      } finally { busy.value-- }
+    },
+  })
 }
 function stopLive() {
-  clearTimeout(liveRetry)
-  const s = ws
-  ws = null
+  link?.close()
+  link = null
   live.value = false
-  s?.close()
 }
 async function onSave({ name, bytes }) {
   // FilmCraft's export adds the extension to a name that already has it ("a.mp4.mp4")
   name = String(name || '').replace(/(\.[a-z0-9]+)\1$/i, '$1')
+  // SoundCraft bounces a session it opened from a dropped file as "Untitled Bounce.wav": keep the card's name
+  if (/^Untitled\b/i.test(name) && props.name && name.includes('.')) name = props.name.replace(/\.[^.]+$/, '') + name.slice(name.lastIndexOf('.'))
   const own = officeEditorFor(name) === appName()
   show('agent', own ? '저장하는 중…' : `${name} 내보내는 중…`)
   try {
     const f = await uploadAttachment(new File([bytes], name || props.name))
-    if (own) { savedUrls.add(f.url); dirty.value = false; ws?.readyState === 1 && ws.send(JSON.stringify({ type: 'file', file: f.name })); show('success', '저장했어요. 편집본이 원본 옆에 올라갔어요.'); emit('saved', { url: f.url, name: f.name }) }
+    if (own) { savedUrls.add(f.url); dirty.value = false; link?.rename(f.name); show('success', '저장했어요. 편집본이 원본 옆에 올라갔어요.'); emit('saved', { url: f.url, name: f.name }) }
     else show('success', `${f.name} 을(를) 만들었어요.`, f.url)
   } catch (e) { show('error', `저장하지 못했어요: ${e.message}`); emit('error', e.message) }
 }
@@ -185,7 +173,7 @@ function onMessage(event) {
   const m = event.data || {}
   const kind = String(m.type || '').split(':')[1]
   if (!kind || m.type !== `${appName()}:${kind}`) return
-  if (kind === 'ready') sendDocument()
+  if (kind === 'ready') sendDocument().then(startLive)
   else if (kind === 'save') onSave(m)
   else if (kind === 'dirty') dirty.value = !!m.dirty
   else if (kind === 'failed') { show('error', `편집기를 시작하지 못했어요: ${m.error || ''}`); emit('error', m.error) }
@@ -217,7 +205,7 @@ onBeforeUnmount(() => {
       <span class="name">{{ name || '파일' }}</span>
       <span v-if="app" class="badge">{{ app.title }}</span>
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 화면에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
-      <span v-if="dirty" class="badge warn">저장 안 됨 · SAVE 로 저장</span>
+      <span v-if="dirty" class="badge warn">저장 안 됨 · {{ app?.save || 'SAVE 로 저장' }}</span>
       <span class="sp" />
       <button v-if="!fullscreen" class="tb press" @click="emit('update:maximized', !maximized)">
         <Icon :name="maximized ? 'shrink' : 'expand'" :size="15" /> {{ maximized ? '원래 크기' : '최대화' }}

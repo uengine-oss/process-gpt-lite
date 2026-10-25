@@ -21,6 +21,7 @@ The upstreams are dual-licensed MIT/Apache-2.0, so distributing these patches is
 |---|---|
 | `patches/<app>-web-korean-font.patch` | 웹 빌드에 한글 글꼴(NanumGothic)을 대체 글꼴로 넣어 한글 이름·텍스트가 □로 깨지지 않게 함 / Adds a Hangul fallback face to the web build |
 | `patches/photocraft-web-page-api.patch` | PhotoCraft 웹에 페이지 API를 열어 Lite의 라이브 공동 편집(에이전트 변경을 열린 화면에 반영)을 지원 / Exposes a page API used for live co-editing |
+| `patches/cadcraft-web-page-api.patch`, `patches/soundcraft-web-page-api.patch` | CADCraft·SoundCraft 웹에도 같은 페이지 API(`window.cadcraft`·`window.soundcraft`)를 열어 라이브 공동 편집을 지원 / The same page API for CADCraft and SoundCraft (VectorCraft and FilmCraft ship one upstream) |
 
 ## 준비 / Setup
 

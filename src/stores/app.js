@@ -25,6 +25,7 @@ export const useApp = defineStore('app', {
     convFilter: null,          // conversation id the main chat is narrowed to (/chat/c/:cid)
     searchOpen: false,
     prefill: '',
+    focusTick: 0,              // bumps: the chat composer takes the focus (an open document's AI 도우미 button)
     instances: [],
     todos: [],
     notifications: [],         // process-gpt notifications addressed to me (Home "needs action")

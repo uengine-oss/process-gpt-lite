@@ -3,11 +3,17 @@
 // message protocol, without Vuetify). Documents open in their own format (docx·xlsx·pptx·pdf·hwp…);
 // saving inside the editor uploads an `edited-…` copy next to the original and reports its URL.
 // in:  ready → saved{url,name} | agent{action,text} | save-failed{error} | error{error}
+//      | assistant{label, prompt, selection} — the editor's AI 도우미 buttons (with `assistant`)
 // out: context{context} — the work around the document, which the editor's AI reads.
+// One assistant (`assistant` prop): the editor's AI dock stays hidden and its AI buttons come here
+// (emit 'assistant'); while the document is open the page tells the server (src/liveLink.js, app
+// 'ieumoffice'), so a chat message is about this document and the agent edits it in front of the
+// person through office-host's office_live_* tools (server/mcp/office.js).
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import { isOfficeEditorMessage, officeEditorUrl } from '../officeEditor.js'
 import { freshToken } from '../api.js'
+import { openLiveLink } from '../liveLink.js'
 
 const props = defineProps({
   fileUrl: { type: String, default: '' },
@@ -15,8 +21,9 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
   context: { type: Object, default: null },
   maximized: { type: Boolean, default: false },
+  assistant: { type: Boolean, default: false },
 })
-const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close'])
+const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'assistant'])
 
 const root = ref(null)
 const frame = ref(null)
@@ -26,6 +33,12 @@ const notice = ref(null)
 const fullscreen = ref(false)
 let ready = false
 let timer = null
+// live: the chat is joined to this document; busy: the agent's edits are landing
+const live = ref(false)
+const busy = ref(false)
+let link = null
+let busyTimer = null
+let alive = true
 // the parent swapping fileUrl to the copy the editor just saved must not reload it (keeps undo)
 const savedUrls = new Set()
 
@@ -53,12 +66,19 @@ function toggleRibbon() {
   ribbonOpen.value = !ribbonOpen.value
 }
 
+function startLive() {
+  if (link || props.readOnly || !props.assistant) return
+  link = openLiveLink({ app: 'ieumoffice', file: props.name, editor: editor(), alive: () => alive && !!frameSrc.value, onState: (on) => { live.value = on; emit('live', on) } })
+}
+function stopLive() { link?.close(); link = null; live.value = false; busy.value = false }
+
 async function load() {
+  stopLive()
   ready = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
   // fall back to the editor's built-in default (Chinese)
   const token = await freshToken()
-  frameSrc.value = officeEditorUrl({ fileUrl: props.fileUrl, name: props.name, readOnly: props.readOnly, token })
+  frameSrc.value = officeEditorUrl({ fileUrl: props.fileUrl, name: props.name, readOnly: props.readOnly, assistant: props.assistant ? 'parent' : '', token })
   if (!frameSrc.value) { emptyText.value = '이 문서는 편집기로 열 수 없어요.'; return }
   const key = RIBBON_KEYS[editor()]
   if (key) try { localStorage.setItem(key, '1') } catch { /* private mode: the editor opens unfolded */ }
@@ -88,14 +108,19 @@ function hideAiDock(tries = 20) {
 function onMessage(event) {
   if (!isOfficeEditorMessage(event, frame.value?.contentWindow)) return
   const m = event.data
-  if (m.type === 'ready') { ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly) hideAiDock() }
+  if (m.type === 'ready') { ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly) hideAiDock(); startLive() }
+  else if (m.type === 'assistant') emit('assistant', { label: m.label || '', prompt: m.prompt || null, selection: m.selection || '' })
   else if (m.type === 'saved') {
     if (m.url) savedUrls.add(m.url)
+    if (m.name) link?.rename(m.name)
     show('success', m.url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.')
     emit('saved', { url: m.url || '', name: m.name || props.name })
   } else if (m.type === 'agent') {
     const label = { write: '내용을 쓰는 중', replace: '내용을 바꾸는 중', ops: '서식·구조를 고치는 중', save: '저장했어요' }[m.action]
     show('agent', `에이전트가 ${label || '작업하는 중'}${m.text ? ` · ${m.text}` : ''}`)
+    busy.value = m.action !== 'save'
+    clearTimeout(busyTimer)
+    busyTimer = setTimeout(() => (busy.value = false), 4000)
     emit('agent', m)
   } else if (m.type === 'save-failed') { show('error', `저장한 문서를 올리지 못했어요: ${m.error || ''}`); emit('error', m.error) }
   else if (m.type === 'error') { show('error', `문서를 열지 못했어요: ${m.error || ''}`); emit('error', m.error) }
@@ -110,7 +135,7 @@ watch(() => props.fileUrl, (u) => { if (u && !savedUrls.has(u)) load() })
 watch(() => props.readOnly, load)
 watch(() => props.context, sendContext, { deep: true })
 onMounted(() => { window.addEventListener('message', onMessage); document.addEventListener('fullscreenchange', onFs); load() })
-onBeforeUnmount(() => { window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer) })
+onBeforeUnmount(() => { window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive() })
 </script>
 
 <template>
@@ -119,6 +144,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <Icon name="doc" :size="16" />
       <span class="name">{{ name || '문서' }}</span>
       <span v-if="readOnly" class="badge">미리보기</span>
+      <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
       <span class="sp" />
       <button class="tb press" :title="ribbonOpen ? '리본 접기 (Ctrl+F1)' : '리본 펴기 (Ctrl+F1)'" @click="toggleRibbon">
         <Icon :name="ribbonOpen ? 'up' : 'chevron'" :size="14" /> {{ ribbonOpen ? '리본 접기' : '리본 펴기' }}
@@ -129,6 +155,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <button class="tb press" @click="toggleFullscreen">{{ fullscreen ? '전체 화면 끝내기' : '전체 화면' }}</button>
       <button class="tb ic press" title="닫기" @click="emit('close')"><Icon name="close" :size="16" /></button>
     </div>
+    <div v-if="busy" class="glow" />
     <iframe v-if="frameSrc" ref="frame" :src="frameSrc" :title="name || '문서 편집기'" class="frm" allow="clipboard-read; clipboard-write; fullscreen" />
     <div v-else class="empty">{{ emptyText }}</div>
     <Transition name="fade">
@@ -144,7 +171,15 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 .oef.fs { min-height: 100vh; border-radius: 0; }
 .bar { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; height: 44px; padding: 0 8px 0 14px; border-bottom: 1px solid rgba(0, 0, 0, .08); color: #1d1d1f; }
 .name { overflow: hidden; font-size: 14px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
-.badge { padding: 1px 8px; border-radius: 10px; background: rgba(42, 120, 214, .12); color: #2a78d6; font-size: 11px; }
+.badge { padding: 1px 8px; border-radius: 10px; background: rgba(42, 120, 214, .12); color: #2a78d6; font-size: 11px; white-space: nowrap; flex: 0 0 auto; }
+.badge.live { display: inline-flex; align-items: center; gap: 6px; background: rgba(40, 160, 90, .12); color: #1e8a4c; }
+.badge.live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.live.busy { background: rgba(110, 90, 230, .13); color: #5b47d6; }
+.badge.live.busy i { animation: livepulse 1s ease-in-out infinite; }
+@keyframes livepulse { 50% { opacity: .25; transform: scale(.7); } }
+/* while the agent's edits land: a soft rim around the document */
+.glow { position: absolute; inset: 44px 0 0; z-index: 2; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(120, 100, 240, .7), inset 0 0 26px rgba(120, 100, 240, .28); animation: glowin .3s ease both; }
+@keyframes glowin { from { opacity: 0; } }
 .sp { flex: 1; }
 .tb { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 15px; font-size: 13px; color: #5f6368; }
 .tb:hover { background: rgba(0, 0, 0, .05); }

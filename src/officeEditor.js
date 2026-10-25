@@ -25,12 +25,15 @@ function extOf(nameOrUrl) {
 export function officeEditorFor(nameOrUrl) { return EDITOR_BY_EXT[extOf(nameOrUrl)] || null }
 
 /** editor iframe address; the host checks the login token when the editor connects */
-export function officeEditorUrl({ fileUrl, name, readOnly = false, token = auth.get()?.session?.access_token }) {
+// assistant: 'parent' — the editor's own AI dock stays hidden and its AI buttons ask this page (one
+// assistant: pgpt's chat edits the open document through office_live_*)
+export function officeEditorUrl({ fileUrl, name, readOnly = false, assistant = '', token = auth.get()?.session?.access_token }) {
   const editor = officeEditorFor(name || fileUrl)
   if (!editor || CRAFT_APPS.has(editor) || !/^https?:\/\//i.test(fileUrl || '')) return ''
   const params = new URLSearchParams({ src: fileUrl })
   if (name) params.set('name', name)
   if (readOnly) params.set('readonly', '1')
+  if (assistant && !readOnly) params.set('assistant', assistant)
   if (token) params.set('token', token)
   return `/office/${editor}/?${params.toString()}`
 }

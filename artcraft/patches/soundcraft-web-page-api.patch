@@ -1,0 +1,169 @@
+diff --git a/apps/soundcraft-web/src/main.rs b/apps/soundcraft-web/src/main.rs
+index 6e52278..4628a7c 100644
+--- a/apps/soundcraft-web/src/main.rs
++++ b/apps/soundcraft-web/src/main.rs
+@@ -18,6 +18,9 @@
+ //! empty session instead of the demo.
+ #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+ 
++#[cfg(target_arch = "wasm32")]
++mod api;
++
+ #[cfg(target_arch = "wasm32")]
+ mod web;
+ 
+diff --git a/apps/soundcraft-web/src/web.rs b/apps/soundcraft-web/src/web.rs
+index 0d9b648..830cc46 100644
+--- a/apps/soundcraft-web/src/web.rs
++++ b/apps/soundcraft-web/src/web.rs
+@@ -40,7 +40,13 @@ pub fn start() {
+                     }
+                     let engine = if query().contains("empty") { Engine::default() } else { soundcraft_engine::demo::demo_engine() };
+                     let player = soundcraft_playback::Player::new(Arc::new(engine.session().clone()));
+-                    let app = SoundApp::new(engine, Some(player), Services::default());
++                    // pgpt-pro local patch: the page drives the app through `window.soundcraft` (api.rs)
++                    let (control_tx, control_rx) = std::sync::mpsc::channel();
++                    crate::api::connect(control_tx, cc.egui_ctx.clone());
++                    if let Err(e) = crate::api::install() {
++                        log::error!("couldn't install window.soundcraft: {e:?}");
++                    }
++                    let app = SoundApp::new(engine, Some(player), Services::default()).with_control(control_rx);
+                     Ok(Box::new(WebShell { app, inbox: Rc::default(), samples: Rc::default() }))
+                 }),
+             )
+@@ -204,6 +210,7 @@ impl eframe::App for WebShell {
+             self.app.load_sample_bytes(&read, bytes);
+         }
+         self.app.logic(ctx);
++        crate::api::poll_replies();
+         // A prompt opened during this frame becomes a picker on the next one.
+         self.take_path_prompt(ctx);
+     }
+diff --git a/apps/soundcraft-web/src/api.rs b/apps/soundcraft-web/src/api.rs
+new file mode 100644
+index 0000000..c333c30
+--- /dev/null
++++ b/apps/soundcraft-web/src/api.rs
+@@ -0,0 +1,122 @@
++//! `window.soundcraft`: the control channel for the page, as promises (pgpt-pro local patch).
++//!
++//! The same JSON methods as the desktop control server (`docs/control-protocol.md`), so a host
++//! page showing SoundCraft in an `<iframe>` (or an agent bridged to it) drives the open drawing with
++//! the requests it would send to `soundcraft --control`:
++//!
++//! ```js
++//! await soundcraft.request("session.inspect", {})
++//! await soundcraft.execute("mix.volume", {track: "Kick", db: -6})
++//! ```
++//!
++//! Results resolve with the method's `result`; errors reject with an `Error`. Requests run on the
++//! app's next frame, without a deadline (the browser has no blocking wait).
++
++use std::cell::RefCell;
++use std::sync::mpsc::{Receiver, Sender, TryRecvError};
++
++use soundcraft_ui_egui::ControlRequest;
++use serde_json::{Value, json};
++use wasm_bindgen::prelude::*;
++
++type Waiting = (Receiver<Value>, js_sys::Function, js_sys::Function);
++
++thread_local! {
++    static TX: RefCell<Option<Sender<ControlRequest>>> = const { RefCell::new(None) };
++    static WAITING: RefCell<Vec<Waiting>> = const { RefCell::new(Vec::new()) };
++    static CTX: RefCell<Option<egui::Context>> = const { RefCell::new(None) };
++}
++
++/// Wire the page's requests to the app's control channel.
++pub fn connect(tx: Sender<ControlRequest>, ctx: egui::Context) {
++    TX.with(|t| *t.borrow_mut() = Some(tx));
++    CTX.with(|c| *c.borrow_mut() = Some(ctx));
++}
++
++fn repaint() {
++    CTX.with(|c| {
++        if let Some(ctx) = c.borrow().as_ref() {
++            ctx.request_repaint();
++        }
++    });
++}
++
++fn to_js(v: &Value) -> JsValue {
++    js_sys::JSON::parse(&v.to_string()).unwrap_or(JsValue::NULL)
++}
++
++fn from_js(v: &JsValue) -> Value {
++    if v.is_undefined() || v.is_null() {
++        return json!({});
++    }
++    js_sys::JSON::stringify(v).ok().and_then(|s| s.as_string()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}))
++}
++
++/// Settle the promises of answered requests (called every frame); keeps frames coming while some wait.
++pub fn poll_replies() {
++    let waiting = WAITING.with(|w| {
++        let mut w = w.borrow_mut();
++        w.retain(|(rx, resolve, reject)| match rx.try_recv() {
++            Ok(v) => {
++                if v.get("ok").and_then(Value::as_bool) == Some(true) {
++                    let _ = resolve.call1(&JsValue::NULL, &to_js(v.get("result").unwrap_or(&Value::Null)));
++                } else {
++                    let msg = v.get("error").and_then(Value::as_str).unwrap_or("error").to_string();
++                    let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new(&msg));
++                }
++                false
++            }
++            Err(TryRecvError::Empty) => true,
++            Err(TryRecvError::Disconnected) => {
++                let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new("request dropped"));
++                false
++            }
++        });
++        !w.is_empty()
++    });
++    if waiting {
++        repaint();
++    }
++}
++
++fn request(method: &str, params: Value) -> js_sys::Promise {
++    let method = method.to_string();
++    let p = js_sys::Promise::new(&mut |resolve, reject| {
++        let (req, pending) = ControlRequest::new(method.clone(), params.clone());
++        let sent = TX.with(|t| t.borrow().as_ref().is_some_and(|tx| tx.send(req).is_ok()));
++        if sent {
++            WAITING.with(|w| w.borrow_mut().push((pending, resolve, reject)));
++        } else {
++            let _ = reject.call1(&JsValue::NULL, &js_sys::Error::new("SoundCraft is not running yet"));
++        }
++    });
++    repaint();
++    p
++}
++
++fn set_fn(obj: &js_sys::Object, name: &str, f: JsValue) -> Result<(), JsValue> {
++    js_sys::Reflect::set(obj, &name.into(), &f).map(|_| ())
++}
++
++/// Install `window.soundcraft`.
++pub fn install() -> Result<(), JsValue> {
++    let obj = js_sys::Object::new();
++    set_fn(
++        &obj,
++        "request",
++        Closure::<dyn Fn(String, JsValue) -> js_sys::Promise>::new(|method: String, params: JsValue| request(&method, from_js(&params)))
++            .into_js_value(),
++    )?;
++    set_fn(
++        &obj,
++        "execute",
++        Closure::<dyn Fn(String, JsValue) -> js_sys::Promise>::new(|command: String, params: JsValue| {
++            request("engine.execute", json!({"command": command, "params": from_js(&params)}))
++        })
++        .into_js_value(),
++    )?;
++    set_fn(&obj, "inspect", Closure::<dyn Fn() -> js_sys::Promise>::new(|| request("session.inspect", json!({}))).into_js_value())?;
++    let w = web_sys::window().ok_or("no window")?;
++    js_sys::Reflect::set(&w, &"soundcraft".into(), &obj)?;
++    Ok(())
++}
