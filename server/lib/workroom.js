@@ -4,7 +4,7 @@
 // Modelled on agent-share (PTY + xterm.js over one JSON websocket, scrollback replay, several
 // viewers per session), inside pgpt-pro's auth.
 import fs from 'node:fs/promises'
-import { realpathSync } from 'node:fs'
+import { realpathSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import pty from 'node-pty'
@@ -176,7 +176,8 @@ function spawn(room, mode) {
   // (GIT_CONFIG_* travel as a numbered set — dropping only the *_KEY_n ones breaks every git call)
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE') && !k.startsWith('PRO_') && !k.startsWith('GIT_CONFIG_') && !/KEY|SECRET|TOKEN|PASSWORD/.test(k)))
   Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: process.env.LANG || 'ko_KR.UTF-8' })
-  const shell = process.env.SHELL || '/bin/zsh'
+  // the login shell, else the first one this machine has (the Docker image has bash, not zsh)
+  const shell = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'].find((x) => x && existsSync(x)) || '/bin/sh'
   let file = shell, args = ['-i']
   if (mode === 'claude') {
     file = config.claudeBin

@@ -3,6 +3,7 @@
 // process-gpt 정의(save_contract)가 되고 다음 비슷한 메일이 그 프로세스로 간다. 검토자는 앞 단계 산출물을 연다.
 // (server/lib/mining/*, routes/mining.js, MiningView.vue, StepOutputs.vue · process-miner :8014 필요한 시험은 없으면 건너뜀)
 import { test, expect, api, RUN } from '../../lib/fixtures.js'
+import { lock as lockDb } from '../../lib/db.js'
 import { retireInstance, XLSX, MIME } from '../../lib/seed.js'
 import { LOCAL_API } from '../../lib/env.js'
 
@@ -76,7 +77,10 @@ test.describe('검토 카드의 앞 단계 산출물 (StepOutputs · GET /todos/
   test('F-PR-03 담당자는 앞 단계 산출물을 보고 자기 카드로 연다, 참여하지 않은 사람은 403', async ({ as, db, cleanup }) => {
     test.setTimeout(300_000)
     const a = await as('so-owner'), mate = await as('so-mate'), out = await as('so-outsider')
+    test.skip((await a.get(`/processes/${DEF}`)).status !== 200, `프로세스 정의 ${DEF} 가 없음 — lite 프로필에는 프로세스 엔진과 예제 정의가 없음 (full 프로필에서 확인)`)
     await a.get('/team'); await mate.get('/team')
+    const release = await lockDb('role:doc_ai_draft_approval:기안자')
+    cleanup(release)
     cleanup(() => a.put('/roles', { defId: DEF, role: '기안자', userId: null }))
     expect((await a.put('/roles', { defId: DEF, role: '기안자', userId: mate.id })).status).toBe(200)
     const st = await a.post(`/processes/${DEF}/start`, { values: {} }, { timeout: 180_000 })

@@ -8,10 +8,12 @@ const patient = new Agent({ headersTimeout: 0, bodyTimeout: 0 })
 
 const sessions = new Map()
 
-async function readMailpitCode(addr) {
-  for (let i = 0; i < 20; i++) {
+// the newest code mailed to addr after `since` (a code mailed earlier may already be used by another
+// worker signing in as the same test account)
+async function readMailpitCode(addr, since) {
+  for (let i = 0; i < 30; i++) {
     const list = await fetch(`${MAILPIT_URL}/api/v1/search?query=${encodeURIComponent(`to:${addr}`)}`).then((r) => r.json()).catch(() => null)
-    const m = list?.messages?.[0]
+    const m = (list?.messages || []).find((x) => new Date(x.Created).getTime() >= since - 2000)
     if (m) {
       const msg = await fetch(`${MAILPIT_URL}/api/v1/message/${m.ID}`).then((r) => r.json())
       const code = /\b(\d{6})\b/.exec(`${msg.Subject} ${msg.Text}`)?.[1]
@@ -19,25 +21,36 @@ async function readMailpitCode(addr) {
     }
     await new Promise((r) => setTimeout(r, 1000))
   }
-  throw new Error(`no login code for ${addr} in mailpit`)
+  return null
 }
 
 // Sign in a test account (demo code, or the code mailpit received). Returns {user, session}.
+// With mailpit, parallel workers signing in as one account race (each new code replaces the last, and
+// the auth server spaces codes ~10s apart): retry with a fresh code.
 export async function login(areaOrEmail, { fresh = false } = {}) {
   const addr = areaOrEmail.includes('@') ? areaOrEmail : areaEmail(areaOrEmail)
   if (!isTestEmail(addr)) throw new Error(`refusing to sign in as a non-test account: ${addr}`)
   const hit = sessions.get(addr)
   if (hit && !fresh && hit.session.expires_at * 1000 > Date.now() + 120_000) return hit
-  let code = LOGIN_CODE
-  if (MAILPIT_URL) {
-    await fetch(`${API_URL}/api/auth/email/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: addr }) })
-    code = await readMailpitCode(addr)
+  let last = ''
+  for (let attempt = 0; attempt < (MAILPIT_URL ? 6 : 1); attempt++) {
+    let code = LOGIN_CODE
+    if (MAILPIT_URL) {
+      if (attempt) await new Promise((r) => setTimeout(r, 4000 + Math.random() * 8000))
+      const since = Date.now()
+      await fetch(`${API_URL}/api/auth/email/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: addr }) })
+      code = await readMailpitCode(addr, since)
+      if (!code) { last = 'no login code in mailpit'; continue }
+    }
+    const r = await fetch(`${API_URL}/api/auth/email/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: addr, code }) })
+    if (r.ok) {
+      const s = await r.json()
+      sessions.set(addr, s)
+      return s
+    }
+    last = `${r.status} ${await r.text()}`
   }
-  const r = await fetch(`${API_URL}/api/auth/email/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: addr, code }) })
-  if (!r.ok) throw new Error(`login ${addr}: ${r.status} ${await r.text()}`)
-  const s = await r.json()
-  sessions.set(addr, s)
-  return s
+  throw new Error(`login ${addr}: ${last}`)
 }
 
 // JSON call; never throws on HTTP status — returns {status, body, headers}

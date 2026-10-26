@@ -49,3 +49,14 @@ export async function addConversation(userId, id, title, { summary = '', gist = 
   await q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,turns,updated_at) values ($1,$2,$3,$4,$5,$6,1,now())
            on conflict (tenant_id,user_id,conversation_id) do update set title=excluded.title, updated_at=now()`, [TENANT, userId, id, title, summary, gist])
 }
+
+// A lock shared by every worker (a Postgres advisory lock on its own connection): tests that change
+// the same tenant-wide setting (the 기안자 role of one example definition) take turns. Returns release().
+export async function lock(name) {
+  if (!(await available())) return async () => {}
+  const c = await pool.connect()
+  const key = [...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7)
+  await c.query('select pg_advisory_lock($1)', [key])
+  let done = false
+  return async () => { if (done) return; done = true; await c.query('select pg_advisory_unlock($1)', [key]).catch(() => {}); c.release() }
+}

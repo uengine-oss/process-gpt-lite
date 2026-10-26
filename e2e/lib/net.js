@@ -25,7 +25,12 @@ export function nextMessage(ws, pred = () => true, ms = 15_000) {
 // the BFF process (listening on API_URL's port) and its loopback listening ports
 export function serverPid() {
   const port = new URL(API_URL).port || '80'
-  try { return execFileSync('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).trim().split('\n')[0] || null } catch { return null }
+  // only a BFF running on this machine (node): in the Docker bundle the port belongs to Docker's proxy
+  try {
+    const pid = execFileSync('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).trim().split('\n')[0] || null
+    if (!pid) return null
+    return /node/.test(execFileSync('/bin/ps', ['-p', pid, '-o', 'comm='], { encoding: 'utf8' })) ? pid : null
+  } catch { return null }
 }
 export function listeningPorts(pid) {
   try {

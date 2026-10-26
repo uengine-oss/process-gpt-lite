@@ -63,6 +63,9 @@ app.use('/craft', express.static(config.craftWebRoot, {
 app.use(express.json({ limit: '2mb' }))
 
 // ---------- auth ----------
+// A stray rejected promise (a background job or feed reconnecting while the database restarts or
+// is in recovery mode) is logged, not fatal: the server keeps answering and the job retries later.
+process.on('unhandledRejection', (e) => console.warn('[unhandled]', e?.message || e))
 const demoLogin = process.env.PRO_DEMO_LOGIN !== '0'
 const oauthStates = new Map()
 

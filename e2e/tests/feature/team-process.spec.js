@@ -2,9 +2,13 @@
 // 대화 중 팀원에게 요청(mention). 프로세스 정의·BPMN·시작·진행은 process-gpt 엔진(completion)으로.
 // (spec pgpt-pro_role-based-notifications · 영상 개요 youtu.be/wrPlOhwYPcw, 프로세스 youtu.be/19Ap3J_XLHs)
 import { test, expect, uniq } from '../../lib/fixtures.js'
+import { lock as lockDb } from '../../lib/db.js'
 import { retireInstance } from '../../lib/seed.js'
 
 const DEF = 'doc_ai_draft_approval' // 기안 요청(요청자) → 기안 작성(기안자) → 결재(결재자), all human steps
+// the example definition and the engine that runs it are the dev stack's / the install's full profile
+const needDef = async (c) => test.skip((await c.get(`/processes/${DEF}`)).status !== 200,
+  `프로세스 정의 ${DEF} 가 없음 — lite 프로필에는 프로세스 엔진(completion·polling)과 예제 정의가 없음 (full 프로필에서 확인)`)
 
 test.describe('팀과 역할', () => {
   test('F-TM-01 팀원 추가·목록·빼기, 잘못된 이메일 400, 자기 자신은 못 뺌', async ({ as }) => {
@@ -22,10 +26,13 @@ test.describe('팀과 역할', () => {
   test('F-TM-02 역할 목록(프로세스 정의의 사람 역할)과 프로세스별 담당자 지정·해제', async ({ as, cleanup }) => {
     const a = await as('tm-owner'), mate = await as('tm-mate')
     const cat = (await a.get('/roles/catalog')).body
-    expect(cat.find((r) => r.role === '기안자')?.processes.length).toBeGreaterThan(0)
     // the catalog is capped (most-used roles first) so a tenant with many definitions still answers
     expect(cat.length).toBeLessThanOrEqual(300)
     for (let i = 1; i < cat.length; i++) expect(cat[i - 1].processes.length).toBeGreaterThanOrEqual(cat[i].processes.length)
+    await needDef(a)
+    expect(cat.find((r) => r.role === '기안자')?.processes.length).toBeGreaterThan(0)
+    const release = await lockDb('role:doc_ai_draft_approval:기안자')
+    cleanup(release)
     cleanup(() => a.put('/roles', { defId: DEF, role: '기안자', userId: null }))
     expect((await a.put('/roles', { defId: DEF, role: '기안자', userId: mate.id })).status).toBe(200)
     const list = (await a.get(`/roles?defId=${DEF}`)).body
@@ -53,6 +60,7 @@ test.describe('팀과 역할', () => {
 test.describe('프로세스 (process-gpt 엔진)', () => {
   test('F-PR-01 정의 목록·상세(단계·폼)·BPMN XML', async ({ as }) => {
     const a = await as('tm-owner')
+    await needDef(a)
     const defs = (await a.get('/processes')).body
     expect(defs.some((d) => d.id === DEF)).toBe(true)
     const d = (await a.get(`/processes/${DEF}`)).body
@@ -66,6 +74,9 @@ test.describe('프로세스 (process-gpt 엔진)', () => {
   test('F-PR-02 역할 담당자에게만 단계가 가고(Home 카드), 담당자가 없는 역할은 시작한 사람에게 — 끝까지 진행', async ({ as, db, cleanup }) => {
     test.setTimeout(300_000)
     const a = await as('tm-owner'), mate = await as('tm-mate')
+    await needDef(a)
+    const release = await lockDb('role:doc_ai_draft_approval:기안자')
+    cleanup(release)
     cleanup(() => a.put('/roles', { defId: DEF, role: '기안자', userId: null }))
     expect((await a.put('/roles', { defId: DEF, role: '기안자', userId: mate.id })).status).toBe(200)
     const st = await a.post(`/processes/${DEF}/start`, { values: {} }, { timeout: 180_000 })
@@ -104,7 +115,10 @@ test.describe('프로세스 스피너 (에이전트가 실제로 일할 때만)'
     test.setTimeout(300_000)
     const page = await pageAs('sp-owner')
     const a = page.user, mate = await as('sp-mate')
+    await needDef(a)
     await a.get('/team'); await mate.get('/team')
+    const release = await lockDb('role:doc_ai_draft_approval:기안자')
+    cleanup(release)
     cleanup(() => a.put('/roles', { defId: DEF, role: '기안자', userId: null }))
     expect((await a.put('/roles', { defId: DEF, role: '기안자', userId: mate.id })).status).toBe(200)
     const st = await a.post(`/processes/${DEF}/start`, { values: {} }, { timeout: 180_000 })

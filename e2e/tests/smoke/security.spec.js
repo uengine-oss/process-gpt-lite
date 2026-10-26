@@ -70,7 +70,7 @@ test.describe('라이브 공동 편집 울타리 (spec craft-apps: 라이브 제
     test(`S-25 ${app} 라이브 제어 포트: CLI 가 아닌 프로세스의 접속은 끊긴다`, async ({ as }) => {
       test.skip(!LOCAL_API, '로컬 서버에서만 (lsof)')
       const pid = serverPid()
-      test.skip(!pid, 'BFF pid 를 못 찾음')
+      test.skip(!pid, 'BFF(node) pid 를 못 찾음 — 컨테이너로 도는 설치 스택은 호스트에서 라이브 제어 포트를 볼 수 없음')
       const u = await as('sec-owner')
       const before = listeningPorts(pid)
       const t = (await u.post('/craft/live/ticket')).body.ticket

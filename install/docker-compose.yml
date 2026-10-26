@@ -321,6 +321,10 @@ services:
       PRO_DB_HOST: db
       PRO_DB_PORT: 5432
       PRO_DEEPAGENTS_URL: http://deepagents:8888
+      # IeumOffice's MCP (/office/mcp): the documents open in the page are edited through it
+      PRO_OFFICE_HOST_URL: http://office-host:5390
+      # office-mcp (generate_hwpx …) for work the server starts itself (mail drafts)
+      PRO_OFFICE_MCP_URL: http://office-mcp:1192
       PRO_COMPLETION_URL: http://completion:8000
       PRO_CLI_AGENT_URL: http://cli-agent:8890
       PRO_CONTEXT_ROUTER_URL: ${CONTEXT_ROUTER_URL:-}
