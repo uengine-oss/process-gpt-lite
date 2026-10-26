@@ -291,6 +291,17 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
+### 설치 번들에 대고 돌리기 (Docker Compose)
+
+```bash
+cd install && PW=$(grep ^POSTGRES_PASSWORD= .env | cut -d= -f2-); D=$(grep ^LITE_DATA_DIR= .env | cut -d= -f2-); cd ../e2e
+PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 PGPT_TENANT=lite \
+PGPT_WORKSPACE=$D/deepagents/workspace/lite PGPT_SKILLS_DIR=$D/deepagents/skills/lite/local \
+npm run test:smoke   # DB·MCP·miner 를 직접 여는 시험은 PGPT_DB_URL·MCP_URL·MINER_URL 을 열어 줘야(compose override 의 ports) 돈다
+```
+
+작업 공간 폴더(`$D/deepagents/workspace/<테넌트>`)는 첫 에이전트 실행 때 생기므로 스킬 공유 시험 전에 없으면 만들어 둡니다.
+
 ### Docker lite 에서 건너뛰는 시험
 
 설치 번들의 lite 프로필에는 ArtCraft 앱, 개발 PC 의 BFF 소스, process-miner 가 없습니다. 그 시험은 실패가 아니라 이유를 단 건너뜀으로 끝납니다:

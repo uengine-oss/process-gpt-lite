@@ -3,6 +3,31 @@
 이 저장소의 모든 눈에 띄는 변경을 적습니다. 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/),
 버전은 [유의적 버전](https://semver.org/lang/ko/)을 따릅니다. 1.0 전까지는 부 버전(0.x)이 바뀔 때 호환되지 않는 변경이 있을 수 있습니다.
 
+## [0.1.1] — 2026-10-26
+
+v0.1.0 설치 번들을 공개 저장소에서 익명으로 새로 받아 Docker Compose(lite + mining)로 다시 시험해 찾은 결함을 고쳤습니다.
+
+### 고침
+
+- **팀 메신저·공유·@멘션이 모두 500**: `migrate.sh` 가 process-gpt 스키마를 init → migration → init 순서로 만들면서 마지막
+  init.sql 이 `public.tenant_id()` 를 예전 정의(JWT 없는 연결에서 오류)로 덮어써, 대화방 메시지를 넣을 때 process-gpt 트리거가
+  실패했습니다. `install/db/compat/04_tenant_id.sql` 이 migration.sql 의 정의로 되돌립니다(새 설치·업그레이드 모두).
+- **이음오피스 편집기 구버전**: `backends/office-host` 를 `e17a9bc` 로 — 편집기 AI 버튼을 대화로(`assistant=parent`),
+  가리켜서 말하기, 한글 실시간 편집, 한글 그림 왕복이 번들에 빠져 있었습니다.
+- **데모 메일함·설계 제안서 양식 없음**: 서버 이미지에서 `server/fixtures` 를 빼고 있어 `/api/mail/demo-arrive` 가 실패했습니다.
+- **`--upgrade` 의 migrate 가 멈춤**: process-miner 가 읽은 뒤 트랜잭션을 열어 둔 채(idle in transaction) 잠금을 쥐고 있어 인계 기록 표의
+  트리거 재생성이 끝없이 기다렸습니다. 마이너 쪽(process-gpt `feat/pgpt-lite-mining` `8ecf952`)과 번들 쪽(compat 03 은 이미 있으면
+  건너뜀, migrate `lock_timeout=120s`)을 모두 고쳤습니다.
+- 판단 모델이 없는 설치(번들 기본)에서 대화 속 에이전트 제안이 메시지마다 실패하는 judge 호출을 하지 않음. `/team/assist/stats`·
+  `/api/config` 가 judge·대화 맥락 라우터 유무를 알림.
+
+### 시험
+
+- 공개 저장소·서브모듈(process-gpt, process-gpt-deepagents, office-host, ieumoffice)과 process-miner 소스를 자격 증명 없이 받아 설치.
+- Docker Compose(lite + mining, 고친 main 새 설치): smoke 43 통과·14 건너뜀, feature 40 통과·46 건너뜀(+ 스킬 공유 6개는
+  설치 데이터 폴더를 지정해 6 통과), agent 6 통과(3개는 재시도로)·7 건너뜀, 실패 0. 건너뜀은 lite 에 없는 것(ArtCraft·
+  프로세스 엔진·예제 정의·대화 맥락 라우터·judge)과 서버 소스가 필요한 단위 시험.
+
 ## [0.1.0] — 2026-10-26
 
 첫 공개(2026-10-24, `9118671`) 뒤 처음 내는 릴리스입니다.
@@ -64,4 +89,5 @@
 - Docker 번들에서는 마이닝 추천의 **정식 등록**과 채팅의 프로세스 초안 저장이 아직 안 됨(process-gpt 의 Python 저장 코드가 server 이미지에 없음).
 - Docker Compose 회귀: lite+mining 첫 설치에서 smoke 41 통과·14 건너뜀, feature 30 통과·39 건너뜀까지 확인했고, 그 실행에서 찾은 번들 결함(문서 라이브 편집 주소·작업실 셸·BFF 크래시)은 고쳤지만 고친 번들의 기능 재시험과 agent 단계는 이 릴리스에서 돌리지 못함(시험 PC 메모리 부족). 개발 스택에서는 smoke 57/57, feature 86/86, agent 13 중 11(B4·B5 제외) 통과.
 
+[0.1.1]: https://github.com/uengine-oss/process-gpt-lite/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/uengine-oss/process-gpt-lite/compare/9118671...v0.1.0
