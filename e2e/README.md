@@ -161,8 +161,11 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 열린 문서를 대화로 바로 고친다(라이브) | F-ED-02 (도구로 셀 고침 → 화면) | feature | ◐ (대화→모델 ✗) |
 | 이음오피스 MCP 는 pgpt-pro 를 거쳐, 문서가 열린 동안만 | F-ED-01 | feature | ✅ |
 | 도우미는 하나 — 편집기의 AI 버튼은 대화로 | F-ED-04 (`assistant=parent`) | feature | ◐ |
-| 최대화 다이얼 | F-ED-04 | feature | ✅ |
-| 누르면 멘션(click-to-mention, 개발 중) | F-ED-05 | feature | ✅ |
+| 최대화 다이얼 | F-ED-04 (엑셀 + ArtCraft 5종) | feature | ✅ |
+| 누르면 멘션(click-to-mention) | F-ED-05 (셀 범위), F-ED-08 (한글 그림) | feature | ✅ |
+| 편집기 머리줄: 왼쪽 형식 타일(카드와 같은 색)·오른쪽 이음오피스 로고, 좁으면 로고 숨김 | F-ED-06 | feature | ✅ |
+| 한글 실시간 편집(표 읽기·칸 채우기 `office_live_hwp_table`, 글 바꾸기 `office_live_hwp_text`) | F-ED-07 | feature | ✅ (대화→모델은 ✗) |
+| 한글 그림 ↔ 포토크래프트 왕복(@이미지 → 포토크래프트로 꺼내 라이브 → "한글 문서에 넣기", 검수 기록) | F-ED-08 | feature | ✅ (모델이 그림을 고치는 부분은 A-11 과 같은 경로) |
 
 ### 8. ArtCraft 앱 (spec `pgpt-pro_craft-apps`, 영상 CAD `QyfrjwhBSsw` · Vector `Wu4qx_VWY2A` · Photo `qVRwjYTMISI` · Sound `HizUJkrQowk` · Film `rjLw7C5ZN5k` · 라이브 `izcVNcW37J0`)
 
@@ -176,8 +179,8 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 라이브 제어 포트는 그 사용자의 CLI 만(pid·토큰) | S-25 ×5앱, S-24 | smoke | ✅ |
 | 열린 앱이 에이전트 맥락이 된다 | F-CR-<앱> (열린 동안 도구가 열린 화면을 읽음), A-06 | feature/agent | ✅ |
 | 편집 뒤 검수: 요청대로 됐는지·빠진 게 없는지(그림 선 비율·사내 모델 비교, CAD 객체 수, 문서 표·행·수식), 실패면 한 번 고쳐 다시, 그래도면 되돌리고 알림, 편집본 카드에 "검수됨" | F-UT-05 (선 비율·손실 판정), A-11 (도면 색 바꾸기 → 선 70% 이상 + 검수 메모) | feature/agent | ◐ (문서·CAD 검수는 대화로만 확인) |
-| 옆 시트와 최대화 다이얼 | F-ED-04 (SVG) | feature | ✅ |
-| CADCraft·SoundCraft 웹 페이지 API | F-CR-cadcraft, F-CR-soundcraft (열린 화면 읽기) | feature | ◐ (대화로 고치기·다이얼 ✗) |
+| 옆 시트와 최대화 다이얼 | F-ED-04 (SVG·PNG·DXF·WAV·MP4) | feature | ✅ |
+| CADCraft·SoundCraft 웹 페이지 API | F-CR-cadcraft, F-CR-soundcraft (열린 화면 읽기), F-ED-04 (다이얼) | feature | ◐ (대화로 고치기 ✗) |
 | PhotoCraft 웹 페이지 API | F-CR-photocraft, F-CR-10 | feature | ◐ (미리보기 요청 ✗) |
 | 앱이 저장하면 편집본이 올라가고 카드가 편집본을 가리킨다 | F-CR-11 | feature | ✅ |
 
@@ -228,6 +231,9 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 프로세스 정의·BPMN·시작·진행·완료 | F-PR-01, F-PR-02 | feature | ✅ |
 | 채팅으로 프로세스 찾기 → 프로세스 카드 | A-07 | agent | ✅ |
 | 남의 인스턴스 열람 범위 | S-33 | smoke | ✅ (B1 고침) |
+| 역할 목록 상한(많이 쓰는 역할부터 300개) | F-TM-02 | feature | ✅ |
+| 프로세스 스피너는 에이전트가 실제로 일할 때만, 사람 단계는 "담당자 확인 대기" | F-PR-04 | feature | ✅ |
+| 검토 카드의 앞 단계 산출물 칩: 참여자·담당자만(아니면 403), 열면 검토자 자신의 카드 | F-PR-03 | feature | ✅ |
 
 ### 12. 예약·미션·연동 (영상 `yVHodTrDwHg`)
 
@@ -239,13 +245,36 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 채팅으로 예약 → 예약 칩 | A-09 | agent | ✅ |
 | 바뀐 게 없으면 채팅에 아무것도 남기지 않음, 앞 실행이 돌면 다음 회차 건너뜀 | — | — | ✗ |
 
+### 13a. 팀 공유·받은 편지함·@팀원·메신저 (설계 `process-gpt/openspec/changes/pgpt-pro-team-sharing`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 산출물을 팀원에게 공유: 받는 사람마다 허가, 원본 저장 주소는 내려가지 않음, 받은 편지함·알림, 열면 자기 사본 카드, 보낸 사람만 취소 | F-TS-01 | feature | ✅ |
+| 팀원이 아니면 보내지도 받지도 못함(403), 남의 카드 404, 자신·빈 수신자·없는 역할 400 | F-TS-02 | feature | ✅ |
+| "@" 제안: 자주 주고받은 팀원 먼저, 팀 밖·나는 없음, 판단 모델(`PRO_JUDGE_URL`)이 없어도 빈도 순 | F-TS-03 | feature | ✅ (판단 모델이 고른 "관계된 팀원" 순위 ✗) |
+| 메신저: 1:1 하나, 그룹, 안 읽은 수·읽음, 남의 대화 404, 팀에서 빠진 사람이 있으면 403 | F-TS-04 | feature | ✅ |
+| 채팅에서 @팀원에게 요청: 대화 발췌와 함께, 내 대화엔 "보냈어요" 칩, "이어서 작업"은 받은 사람만 | F-TS-05 | feature | ◐ ("이어서 작업"의 에이전트 실행 ✗) |
+
+### 13b. 메일 → 초안 · 프로세스 마이닝 → 정식 등록 → 자동 라우팅 (`lib/mail.js` · `lib/mining/*`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 고객 메일이 문서를 요청하면 묻지 않고 초안(홈 "초안 검토" 카드 + 파일 카드), 메일 한 통이 마이닝 케이스로 | A-12 | agent | ✅ (평면도·한글 제안서까지 가는 설계 요청은 ✗ — 수십 분) |
+| 데모 메일함에서만 도착(`/api/mail/demo-arrive`, 아니면 400) | A-12 | agent | ✅ |
+| CADCraft 가 없는 설치는 평면도 없이 나머지 초안만 | — | — | ✗ (Docker lite 에서 수동 확인) |
+| 추천·등록·보류는 관리자만 | F-MN-01 | feature | ✅ |
+| 인계 기록 → process-miner 가 패턴으로 묶고 순서대로 도출 → 정식 등록 계약(단계·폼·시작/끝) | F-MN-02 | feature | ✅ (miner :8014 없으면 건너뜀) |
+| 다음 메일 라우팅 기준(형식 2개·낱말 2개) | F-MN-03 | feature | ✅ |
+| 등록된 프로세스와 맞는 메일 → 그 프로세스로 시작(프로세스 카드·`pro_mining_runs`) | A-13 | agent | ✅ (등록된 추천이 없으면 건너뜀) |
+| 관리자 화면(MiningView)에서 흐름 보기·정식 등록 | — | — | ✗ (관리자 계정이 필요 — 시험 계정은 관리자가 아님) |
+
 ### 13. SNS 트렌드 대응·Android·설치
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
 |---|---|---|---|---|
 | SNS 트렌드 데일리 대응(알림·worktree 구현·승인·재시작 재개) | spec `pgpt-pro_sns-trend-response`, 영상 `YkwYQHiRwFs` | — | — | ✗ (수십 분짜리 cli-agent·브라우저 실행) |
 | Android 앱(서버 주소 설정·다른 사이트 링크) | spec `pgpt-pro_android-app`, 영상 `TYg7S1WJ0YQ` | — | — | ✗ (에뮬레이터 필요) |
-| 설치 번들: 스크립트 문법·compose(lite/full)·nginx 경로 | `install/` | S-50…S-52 | smoke | ✅ |
+| 설치 번들: 스크립트 문법·compose(lite/full/mining)·인계 기록 스키마·nginx 경로 | `install/` | S-50…S-52 | smoke | ✅ |
 | 설치 스택에 대고 전체 스위트 | `PGPT_URL=http://localhost:18080` | (전체) | 모두 | ◐ |
 
 ## 단계별 시험 수
@@ -253,11 +282,18 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (11개) | 65 (서버 단위 시험 4묶음 포함) |
-| agent | `tests/agent/journeys.spec.js` | 10 |
-| 합계 | | 132 |
+| feature | `tests/feature/*.spec.js` (13개) | 83 (서버 단위 시험 4묶음 포함) |
+| agent | `tests/agent/*.spec.js` (3개) | 13 |
+| 합계 | | 153 |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
+
+### Docker lite 에서 건너뛰는 시험
+
+설치 번들의 lite 프로필에는 ArtCraft 앱, 개발 PC 의 BFF 소스, process-miner 가 없습니다. 그 시험은 실패가 아니라 이유를 단 건너뜀으로 끝납니다:
+`/api/config` 의 `craft` 가 없다고 하면 S-30·F-CR-*·F-ED-04(ArtCraft)·F-ED-08·F-CV-04(SVG 부분)·A-05·A-06·A-11,
+DB 를 직접 열 수 없으면(`PGPT_DB_URL` 없음) 시드가 필요한 시험, 서버 소스가 없으면(`lib` 픽스처) 단위·모듈 시험, 로컬 서버가 아니면 S-25(lsof),
+miner 가 없으면 F-MN-02.
 
 ## 남은 공백(다음에 채울 것)
 

@@ -18,7 +18,7 @@ import { reviewFor, recordReview } from './lib/review.js'
 import { processRoutes } from './routes/process.js'
 import { startBrowserWorker } from './lib/browserWorker.js'
 import { mountConnectors, connectorStatus, ensureHubBinding } from './mcp/connectors.js'
-import { mountCraft } from './mcp/craft.js'
+import { mountCraft, craftStatus } from './mcp/craft.js'
 import { mountOffice } from './mcp/office.js'
 import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
@@ -82,7 +82,8 @@ async function finishLogin(email, name) {
   return { user, session: { access_token: session.access_token, refresh_token: session.refresh_token, expires_at: session.expires_at } }
 }
 
-app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo() }))
+// craft: which ArtCraft apps this install has ({web, cli} flags only)
+app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus() }))
 
 app.get('/api/auth/google/start', (req, res) => {
   if (!mail.googleEnabled()) return res.status(400).send('Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).')

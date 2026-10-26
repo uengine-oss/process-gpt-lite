@@ -23,6 +23,9 @@ test.describe('팀과 역할', () => {
     const a = await as('tm-owner'), mate = await as('tm-mate')
     const cat = (await a.get('/roles/catalog')).body
     expect(cat.find((r) => r.role === '기안자')?.processes.length).toBeGreaterThan(0)
+    // the catalog is capped (most-used roles first) so a tenant with many definitions still answers
+    expect(cat.length).toBeLessThanOrEqual(300)
+    for (let i = 1; i < cat.length; i++) expect(cat[i - 1].processes.length).toBeGreaterThanOrEqual(cat[i].processes.length)
     cleanup(() => a.put('/roles', { defId: DEF, role: '기안자', userId: null }))
     expect((await a.put('/roles', { defId: DEF, role: '기안자', userId: mate.id })).status).toBe(200)
     const list = (await a.get(`/roles?defId=${DEF}`)).body
@@ -93,5 +96,38 @@ test.describe('프로세스 (process-gpt 엔진)', () => {
     expect(next.user_id, '결재 단계 담당자 (todolist.user_id)').toContain(a.id)
     expect((await a.post(`/todos/${next.id}/submit`, { values: {} }, { timeout: 180_000 })).status).toBe(200)
     await expect.poll(async () => (await a.get(`/instances/${encodeURIComponent(inst)}`)).body.inst?.status, { timeout: 120_000, intervals: [3000] }).toMatch(/COMPLETED|DONE/i)
+  })
+})
+
+test.describe('프로세스 스피너 (에이전트가 실제로 일할 때만)', () => {
+  test('F-PR-04 사람 단계를 기다리는 인스턴스는 "담당자 확인 대기"(스피너 없음), 에이전트가 잡고 있을 때만 "에이전트 작업 중" 스피너', async ({ as, pageAs, cleanup }) => {
+    test.setTimeout(300_000)
+    const page = await pageAs('sp-owner')
+    const a = page.user, mate = await as('sp-mate')
+    await a.get('/team'); await mate.get('/team')
+    cleanup(() => a.put('/roles', { defId: DEF, role: '기안자', userId: null }))
+    expect((await a.put('/roles', { defId: DEF, role: '기안자', userId: mate.id })).status).toBe(200)
+    const st = await a.post(`/processes/${DEF}/start`, { values: {} }, { timeout: 180_000 })
+    expect(st.status, st.text).toBe(200)
+    const inst = st.body.instId
+    cleanup(() => retireInstance(inst))
+    let row
+    await expect.poll(async () => { row = (await a.get('/instances')).body.find((i) => i.proc_inst_id === inst); return !!row?.human_waiting }, { timeout: 120_000, intervals: [3000] }).toBe(true)
+    expect(row).toMatchObject({ status: 'RUNNING', agent_running: false, needs_me: false })
+    expect((await a.get(`/instances/${encodeURIComponent(inst)}`)).body.steps.some((s) => s.running)).toBe(false)
+    await page.goto('/projects')
+    const item = page.locator('.plist .item.proc', { hasText: row.proc_inst_name || row.def_name }).first()
+    await expect(item.locator('.badge.still')).toContainText('담당자 확인 대기')
+    await expect(item.locator('.spin')).toHaveCount(0)
+    // the same instance while a worker holds an agent step (what polling/cli-agent claim looks like)
+    await page.route('**/api/instances', async (route) => {
+      const r = await route.fetch()
+      const list = (await r.json()).map((i) => (i.proc_inst_id === inst ? { ...i, agent_running: true } : i))
+      await route.fulfill({ response: r, json: list })
+    })
+    await page.reload()
+    await expect(item.locator('.spin')).toHaveCount(1)
+    await expect(item).toContainText('에이전트 작업 중')
+    expect(page.errors).toEqual([])
   })
 })

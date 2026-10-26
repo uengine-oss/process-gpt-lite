@@ -1,7 +1,7 @@
 // 대화 맥락 — 라우터가 나눈 대화 목록(/api/conversations), ConversationBar(/chat/c/:cid), 대화별 산출물
 // 스택(ArtifactStack: 더미 → 펼침, 많으면 격자 → 누르면 편집기). 모델 없이 고정 데이터로.
 // (영상 대화 맥락 라우터 youtu.be/oL_mfiQBCPU)
-import { test, expect } from '../../lib/fixtures.js'
+import { test, expect, api } from '../../lib/fixtures.js'
 import { seedConversations } from '../../lib/chatseed.js'
 
 test.describe.configure({ mode: 'serial' })
@@ -38,14 +38,14 @@ test('F-CV-03 산출물 스택: 3개는 부채꼴로 펼치고, 10개는 격자'
   const page = await pageAs('cv-user')
   await seedConversations(db, page.user)
   await page.goto('/chat/c/rt-conv-trip')
-  await expect(page.locator('.astack .count')).toHaveText('3')
+  await expect(page.locator('.astack .count')).toHaveText('3', { timeout: 20_000 })
   await page.locator('.astack .pile').click({ force: true })
   await expect(page.locator('.astack .fitem')).toHaveCount(3)
   await expect(page.locator('.astack .grid')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(page.locator('.astack .fitem')).toHaveCount(0)
   await page.goto('/chat/c/rt-conv-yt')
-  await expect(page.locator('.astack .count')).toHaveText('10')
+  await expect(page.locator('.astack .count')).toHaveText('10', { timeout: 20_000 })
   await page.locator('.astack .pile').click({ force: true })
   await expect(page.locator('.astack .grid .cap')).toContainText('이 대화의 산출물 10개')
   await expect(page.locator('.astack .grid .cell')).toHaveCount(10)
@@ -73,6 +73,8 @@ test('F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG �
     if (!(await page.locator('.astack .fitem').count())) await page.locator('.astack .pile').click({ force: true })
     await expect(page.locator('.astack .fitem')).toHaveCount(3, { timeout: 1500 })
   }).toPass({ timeout: 15_000 })
+  // without VectorCraft (Docker lite) the SVG is a plain link instead
+  if (!(await api.craftHas('vectorcraft'))) { test.info().annotations.push({ type: 'skip-part', description: api.craftSkip('vectorcraft') }); expect(page.errors).toEqual([]); return }
   await page.waitForTimeout(800)
   await page.locator('.astack .fitem', { hasText: '숙소 3.svg' }).click({ force: true })
   await expect(page.locator('.cef iframe.frm')).toHaveAttribute('src', /\/craft\/vectorcraft\//, { timeout: 20_000 })

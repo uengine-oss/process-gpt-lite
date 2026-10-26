@@ -4,6 +4,7 @@
 // keeps one CLI process per app (one open document) until it sits idle. Tools and schemas pass
 // through untouched; `/workspace/…` strings in the arguments map to the deepagents workspace on
 // this host (and back in the results), so a saved file shows up as a card in chat.
+import fs from 'node:fs'
 import path from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -24,6 +25,23 @@ export const CRAFT_APPS = {
   soundcraft: { args: [], roots: true },
   filmcraft: { args: [] },
 }
+// What this install has of each app: the web build under craftWebRoot/<app>/ and its CLI (an
+// absolute path, or a name on PATH). An install without ArtCraft (the Docker lite profile) opens
+// those files as plain downloads and draws no floor plans; nothing else changes.
+function onPath(cmd) {
+  if (!cmd) return false
+  if (cmd.includes('/')) { try { fs.accessSync(cmd, fs.constants.X_OK); return true } catch { return false } }
+  return (process.env.PATH || '').split(path.delimiter).some((d) => { try { fs.accessSync(path.join(d, cmd), fs.constants.X_OK); return true } catch { return false } })
+}
+let status = null
+export function craftStatus() {
+  if (status && Date.now() - status.at < 60_000) return status.apps
+  const apps = Object.fromEntries(Object.keys(CRAFT_APPS).map((app) => [app, {
+    web: fs.existsSync(path.join(config.craftWebRoot || '', app, 'index.html')), cli: onPath(config.craftCli[app]) }]))
+  status = { at: Date.now(), apps }
+  return apps
+}
+export const craftAvailable = (app) => !!craftStatus()[app]?.cli
 const sessions = new Map() // `${app}:${userId}` → { client, timer }
 const catalogs = new Map()
 

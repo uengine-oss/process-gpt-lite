@@ -133,3 +133,13 @@ export async function until(fn, { timeout = 60_000, every = 1000 } = {}) {
     await sleep(every)
   }
 }
+
+// which ArtCraft apps the stack under test has (/api/config craft: {app: {web, cli}}). A server that
+// does not report it (older build) is taken to have them all. The Docker lite profile has none.
+let craftCfg
+export async function craftHas(app, need = ['web']) {
+  if (craftCfg === undefined) craftCfg = (await call(null, 'GET', '/config').catch(() => null))?.body?.craft || null
+  if (!craftCfg) return true
+  return need.every((k) => craftCfg[app]?.[k])
+}
+export const craftSkip = (app, need = ['web']) => `${app} ${need.join('·')} 이(가) 이 설치에 없음 (Docker lite 프로필엔 ArtCraft 앱이 없음 — artcraft/README.md)`

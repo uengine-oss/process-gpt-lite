@@ -307,12 +307,21 @@ async function draftFromMail(userId, mail, d) {
   if (!items.some((i) => i.format === 'dxf') && /평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(`${mail.subject} ${mail.text}`)) {
     items.unshift({ kind: '평면도', format: 'dxf', name: `${(d.customer || '고객').trim()} 평면도.dxf` })
   }
+  // an install without CADCraft (Docker lite): the other drafts still come, the drawing is left to a person
+  const { craftAvailable } = await import('../mcp/craft.js')
+  let noPlan = false
+  if (items.some((i) => i.format === 'dxf') && !craftAvailable('cadcraft')) {
+    noPlan = true
+    items.splice(0, items.length, ...items.filter((i) => i.format !== 'dxf'))
+    if (!items.length) return
+  }
   const rank = { dxf: 0, hwpx: 1, xlsx: 2 }
   items.sort((a, b) => (rank[a.format] ?? 3) - (rank[b.format] ?? 3))
   const what = items.map((i) => i.kind).join('·')
   const customer = d.customer || '고객'
   await addMessage(userId, t.id, 'system', 'divider', { text: `메일 · ${customer} ${what} 요청` })
   await addMessage(userId, t.id, 'agent', 'text', { text: `${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, mail: { from: mail.from, subject: mail.subject } })
+  if (noPlan) await addMessage(userId, t.id, 'agent', 'text', { text: '이 설치에는 캐드크래프트가 없어서 평면도는 그리지 않았어요. 제안서·견적서 초안만 만들게요.' })
   const [row] = await q(
     `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,'Review',$2,null,null,$3,$4) returning *`,
     [userId, `${customer} ${what} 초안 검토하고 회신하기`, `${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name) }])

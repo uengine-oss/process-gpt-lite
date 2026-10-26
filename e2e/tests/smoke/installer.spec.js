@@ -21,7 +21,7 @@ test.describe('설치 번들', () => {
     expect(fs.readFileSync(path.join(DIR, 'get.sh'), 'utf8')).toContain('process-gpt-lite')
   })
 
-  test('S-51 docker compose 해석: lite·full 프로필의 서비스', async () => {
+  test('S-51 docker compose 해석: lite·full·mining 프로필의 서비스', async () => {
     test.skip(spawnSync('docker', ['compose', 'version']).status !== 0, 'docker compose 없음')
     const lite = compose('config', '--quiet')
     expect(lite.status, lite.stderr).toBe(0)
@@ -29,6 +29,13 @@ test.describe('설치 번들', () => {
     expect(full.status, full.stderr).toBe(0)
     const services = full.stdout.split('\n').filter(Boolean)
     expect(services).toEqual(expect.arrayContaining(['db', 'auth', 'rest', 'storage', 'kong', 'server', 'web', 'deepagents', 'office-host', 'office-mcp', 'migrate', 'completion', 'polling', 'mcp-hub']))
+    // the optional mining profile adds process-miner and nothing else; lite alone has no miner
+    const mining = compose('--profile', 'lite', '--profile', 'mining', 'config', '--services')
+    expect(mining.status, mining.stderr).toBe(0)
+    expect(mining.stdout.split('\n')).toContain('process-miner')
+    expect(compose('--profile', 'lite', 'config', '--services').stdout.split('\n')).not.toContain('process-miner')
+    // the handover log the miner reads is created by the bundle's migration (db/compat)
+    expect(fs.readFileSync(path.join(DIR, 'db/compat/03_handover_events.sql'), 'utf8')).toContain('create table if not exists public.handover_events')
   })
 
   test('S-52 web(nginx) 이 /api·/office·/craft·/auth|rest|storage 를 넘긴다', async () => {

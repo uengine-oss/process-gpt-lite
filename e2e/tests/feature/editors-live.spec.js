@@ -109,13 +109,17 @@ test.describe('누르면 멘션 (click-to-mention · 개발 중 기능)', () => 
 })
 
 test.describe('최대화 다이얼 (spec office-editor · craft-apps: 최대화 다이얼)', () => {
-  for (const [file, cls] of [['예산표.xlsx', '.oef'], ['배너.svg', '.cef']]) {
+  // IeumOffice and every Craft app: the same dial
+  for (const [file, cls] of [['예산표.xlsx', '.oef'], ['배너.svg', '.cef'], ['썸네일.png', '.cef'], ['평면도.dxf', '.cef'], ['알림음.wav', '.cef'], ['티저.mp4', '.cef']]) {
     test(`F-ED-04 ${file}: 최대화하면 대화창은 다이얼로 접히고, 누르면 같은 입력창(보내면 이 문서로)`, async ({ pageAs, db }) => {
-      const page = await pageAs('ed-office')
-      await seedFiles(db, page.user)
+      const page = await pageAs(cls === '.oef' ? 'ed-office' : `dial-${file.split('.').pop()}`)
+      const { files } = await seedFiles(db, page.user)
+      test.skip(!files[file], `${file} 를 만들 수 없음 (ffmpeg)`)
+      const craftApp = { svg: 'vectorcraft', png: 'photocraft', dxf: 'cadcraft', wav: 'soundcraft', mp4: 'filmcraft' }[file.split('.').pop()]
+      if (craftApp) test.skip(!(await api.craftHas(craftApp)), api.craftSkip(craftApp))
       await page.goto('/chat')
       await openCard(page, file)
-      await expect(page.locator(`${cls} .badge.live`)).toBeVisible({ timeout: 60_000 })
+      await expect(page.locator(`${cls} .badge.live`)).toBeVisible({ timeout: 90_000 })
       if (cls === '.oef') {
         expect(await page.locator('.oef iframe.frm').getAttribute('src')).toContain('assistant=parent') // one assistant: the chat
         // the sheet takes the keyboard focus when it finishes loading: wait for that first
@@ -155,6 +159,7 @@ test.describe('ArtCraft 편집기와 라이브 (spec craft-apps)', () => {
   ]
   for (const [file, app, inspect, args] of APPS) {
     test(`F-CR-${app} 카드 → 웹 ${app} 가 같은 출처에서 열리고, 대화와 연결된 동안 도구가 열린 화면을 읽는다`, async ({ pageAs, db }) => {
+      test.skip(!(await api.craftHas(app, ['web', 'cli'])), api.craftSkip(app, ['web', 'cli']))
       const page = await pageAs(`cr-${app}`)
       const tok = page.user.token()
       const { files } = await seedFiles(db, page.user)
@@ -178,6 +183,7 @@ test.describe('ArtCraft 편집기와 라이브 (spec craft-apps)', () => {
   }
 
   test('F-CR-10 PhotoCraft 라이브: 도구로 레이어를 더하면 열린 문서의 레이어가 는다', async ({ pageAs, db }) => {
+    test.skip(!(await api.craftHas('photocraft', ['web', 'cli'])), api.craftSkip('photocraft', ['web', 'cli']))
     const page = await pageAs('cr-photocraft')
     const tok = page.user.token()
     await seedFiles(db, page.user)
@@ -201,6 +207,7 @@ test.describe('ArtCraft 편집기와 라이브 (spec craft-apps)', () => {
   })
 
   test('F-CR-11 앱이 저장하면 편집본이 올라가고 채팅 카드가 편집본을 가리킨다', async ({ pageAs, db }) => {
+    test.skip(!(await api.craftHas('photocraft')), api.craftSkip('photocraft'))
     const page = await pageAs('cr-photocraft')
     const { th, files } = await seedFiles(db, page.user)
     await page.goto('/chat')
@@ -217,5 +224,103 @@ test.describe('ArtCraft 편집기와 라이브 (spec craft-apps)', () => {
     await expect.poll(async () => (await page.user.get(`/threads/${th}/messages`)).body.find((m) => m.id === files['썸네일.png'].msg.id).content.edited, { timeout: 15_000 }).toBe(true)
     await page.locator('.cef .tb.ic[title="닫기"]').click()
     await expect(page.locator('button.file', { hasText: '썸네일.png' })).toContainText('편집본')
+  })
+})
+
+// 한글(hwpx): 라이브 편집(표·글)과 그림 ↔ 포토크래프트 왕복. 양식은 서버의 설계 제안서 템플릿(표·그림 포함).
+async function seedHwpx(db, u) {
+  const fs = await import('node:fs/promises')
+  const path = await import('node:path')
+  const { SERVER_DIR } = await import('../../lib/env.js')
+  const buf = await fs.readFile(path.join(SERVER_DIR, 'fixtures', 'interior-proposal-template.hwpx')).catch(() => null)
+  if (!buf) return null
+  const th = await db.clearMain(u.id)
+  const up = await api.upload(u.token(), '설계 제안서.hwpx', 'application/hwp+zip', buf)
+  const [m] = await db.addMessages(th, [{ role: 'agent', kind: 'file', content: { name: '설계 제안서.hwpx', url: up.url } }])
+  return { th, msg: m, url: up.url }
+}
+const liveDoc = async (tok, name) => {
+  const r = await api.mcp('/mcp/office', 'tools/call', { name: 'office_live_documents', arguments: {} }, tok)
+  return (JSON.parse(api.toolText(r) || '{}').documents || []).find((d) => d.file_name === name && d.ready) || null
+}
+
+test.describe('한글 문서 (spec office-editor: 한글 실시간 편집 · 그림 왕복)', () => {
+  test('F-ED-06 편집기 머리줄: 왼쪽 파일 형식 타일(채팅 카드와 같은 색), 오른쪽 이음오피스 로고 — 좁으면 로고를 숨김', async ({ pageAs, db }) => {
+    const page = await pageAs('ed-header')
+    await seedFiles(db, page.user)
+    await page.goto('/chat')
+    await openCard(page, '예산표.xlsx')
+    await expect(page.locator('.oef .bar .fmt.xls')).toHaveText('XLS')
+    const logo = page.locator('.oef .bar img.ieum')
+    await expect(logo).toBeVisible()
+    await expect.poll(() => logo.evaluate((i) => i.complete && i.naturalWidth > 0), { message: '로고 그림이 실제로 내려옴', timeout: 10_000 }).toBe(true)
+    await page.setViewportSize({ width: 680, height: 720 })
+    await expect(logo).toBeHidden()
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-ED-07 한글 실시간 편집: 열린 hwpx 의 표를 읽고 칸을 채우면 화면의 문서가 바뀐다 (office_live_hwp_table · hwp_text)', async ({ pageAs, db }) => {
+    const page = await pageAs('ed-hwp')
+    const tok = page.user.token()
+    const seeded = await seedHwpx(db, page.user)
+    test.skip(!seeded, '한글 양식(server/fixtures) 없음')
+    await page.goto('/chat')
+    await openCard(page, '설계 제안서.hwpx')
+    await expect(page.locator('.oef iframe.frm')).toHaveAttribute('src', /^\/office\/hwp\/\?src=/)
+    await expect(page.locator('.oef .badge.live')).toContainText('대화와 연결됨', { timeout: 60_000 })
+    await expect(page.locator('.oef .bar .fmt.hwp')).toBeVisible()
+    let doc
+    await expect.poll(async () => (doc = await liveDoc(tok, '설계 제안서.hwpx')) != null, { timeout: 60_000, intervals: [2000] }).toBe(true)
+    const tools = (await api.mcp('/mcp/office', 'tools/list', {}, tok)).body.result.tools.map((t) => t.name)
+    expect(tools).toEqual(expect.arrayContaining(['office_live_hwp_table', 'office_live_hwp_text']))
+    const call = async (name, args) => { const r = await api.mcp('/mcp/office', 'tools/call', { name, arguments: { session_id: doc.session_id, ...args } }, tok); expect(r.body.result.isError, api.toolText(r)).toBeFalsy(); return api.toolText(r) }
+    const before = await call('office_live_hwp_table', { action: 'read', table: 1 })
+    expect(before.length).toBeGreaterThan(10)
+    const mark = `회귀${Date.now() % 100000}`
+    await call('office_live_hwp_table', { action: 'fill', table: 1, cells: [{ row: 1, col: 1, text: mark }] })
+    await expect.poll(async () => call('office_live_hwp_table', { action: 'read', table: 1 }), { timeout: 20_000 }).toContain(mark)
+    // (the hwp editor paints on a canvas: the read above is of the document in that page, not a copy)
+    // text: find → replace on the same page
+    const mark2 = `${mark}-글`
+    await call('office_live_hwp_text', { action: 'replace', find: mark, replace: mark2 })
+    await expect.poll(async () => call('office_live_hwp_table', { action: 'read', table: 1 }), { timeout: 20_000 }).toContain(mark2)
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-ED-08 한글 그림 ↔ 포토크래프트: @이미지 를 가리키고 그림을 고치라고 하면 그 그림이 포토크래프트로 열리고, "한글 문서에 넣기" 로 같은 자리에', async ({ pageAs, db }) => {
+    const page = await pageAs('ed-hwp')
+    const seeded = await seedHwpx(db, page.user)
+    test.skip(!seeded, '한글 양식(server/fixtures) 없음')
+    test.skip(!(await api.craftHas('photocraft')), api.craftSkip('photocraft'))
+    await page.goto('/chat')
+    await openCard(page, '설계 제안서.hwpx')
+    await expect(page.locator('.oef .badge.live')).toContainText('대화와 연결됨', { timeout: 60_000 })
+    await expect.poll(async () => (await liveDoc(page.user.token(), '설계 제안서.hwpx')) != null, { timeout: 60_000, intervals: [2000] }).toBe(true)
+    // what office-host's page-live sends for a clicked picture (with "@ 가리키기" on)
+    const ed = page.frames().find((f) => f.url().includes('/office/hwp/'))
+    await ed.evaluate(() => parent.postMessage({ source: 'ieum-office', type: 'mention', mention: { editor: 'hwp', kind: 'image', image: 1, label: '이미지 1' } }, '*'))
+    await expect(page.locator('.composer .mentions .mention').first()).toContainText('이미지 1')
+    const sent = []
+    await page.route('**/api/threads/*/messages', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      sent.push(route.request().postDataJSON())
+      await route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: 'event: done\ndata: {}\n\n' })
+    })
+    await page.locator('.foot .composer textarea').click()
+    await page.keyboard.type('그림을 남색 톤으로 바꿔줘')
+    await page.keyboard.press('Enter')
+    // the picture comes out of the document into PhotoCraft (over the document); once PhotoCraft is live
+    // the request goes to the chat, about that picture
+    await expect(page.locator('.pic .pic-tag')).toContainText('그림 1', { timeout: 60_000 })
+    await expect(page.locator('.pic .cef iframe.frm')).toHaveAttribute('src', /^\/craft\/photocraft\//)
+    await expect.poll(() => sent.at(-1)?.text || '', { timeout: 90_000 }).toBe('@이미지 1 그림을 남색 톤으로 바꿔줘')
+    expect(sent.at(-1).context).toContain('포토크래프트')
+    const reviews = []
+    page.on('request', (r) => { if (r.url().endsWith('/api/reviews') && r.method() === 'POST') reviews.push(r.postDataJSON()) })
+    await page.locator('.pic .tb', { hasText: '한글 문서에 넣기' }).click()
+    await expect(page.locator('.pnote')).toContainText('그림 1 자리에 넣었어요', { timeout: 60_000 })
+    await expect(page.locator('.pic')).toHaveCount(0)
+    await expect.poll(() => reviews.length, { timeout: 10_000 }).toBeGreaterThan(0)
+    expect(reviews[0]).toMatchObject({ file: '설계 제안서.hwpx', ok: true })
   })
 })

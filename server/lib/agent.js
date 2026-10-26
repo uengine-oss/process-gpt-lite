@@ -193,7 +193,7 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
   // A one-off question about a connected service (YouTube, Calendar, Slack…) goes straight to
   // deepagents, which holds the connector tools; small router models tend to pick browser_task.
   // (a request about one of the user's panel apps — "팀 공유 캘린더에서 …" — is not a Google Calendar question)
-  if (!namedApp && connectorHint(text) && !RECURRING.test(text) && !/브라우저|사이트에\s*접속/.test(text) && !generationPending(threadId)) {
+  if (!namedApp && await connectorFirst(user, text) && !RECURRING.test(text) && !/브라우저|사이트에\s*접속/.test(text) && !generationPending(threadId)) {
     return delegate({ user, session, threadId, text, onDelta })
   }
   if (generationPending(threadId)) {
@@ -336,6 +336,16 @@ async function processCatalogHint() {
   return catalogCache.text
 }
 
+// The one-off connector shortcut. Someone who keeps records in panel apps ("할 일", "팀 일정") may
+// mean one of those by "일정 추가": then only a connector they actually connected takes the
+// message; otherwise the router sees their apps (panel_record) and decides.
+async function connectorFirst(user, text) {
+  const hinted = CONNECTOR_HINTS.filter(([re]) => re.test(text)).flatMap(([, t]) => t.split(', '))
+  if (!hinted.length) return false
+  if (!(await PanelApps.listApps(user).catch(() => [])).length) return true
+  const { connectorStatus } = await import('../mcp/connectors.js')
+  return (await connectorStatus(user.id).catch(() => [])).some((c) => c.connected && c.tools.some((t) => hinted.includes(t)))
+}
 function connectorHint(text) {
   const tools = CONNECTOR_HINTS.filter(([re]) => re.test(text)).map(([, t]) => t)
   return tools.length ? `\n\n(연결된 커넥터 도구를 웹 조회보다 먼저 쓰세요: ${tools.join(', ')})` : ''

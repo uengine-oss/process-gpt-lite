@@ -14,10 +14,14 @@ import { mainThread, addMessage } from '../store.js'
 import { AGENTS, ORCH, STEPS, TOOL_FORMAT, stepOf } from './catalog.js'
 
 const T = () => config.tenantId
-const MINER = process.env.PRO_MINER_URL || 'http://127.0.0.1:8014'
+// unset: the local miner; set but empty (an install without the mining profile): no scans, no new
+// recommendations (registered processes still take matching mail)
+const MINER = (process.env.PRO_MINER_URL ?? 'http://127.0.0.1:8014').replace(/\/$/, '')
+export const minerEnabled = () => !!MINER
 const err = (status, message) => Object.assign(new Error(message), { status })
 
 async function miner(path, body) {
+  if (!MINER) throw new Error('process-miner is not configured (PRO_MINER_URL)')
   const r = await fetch(`${MINER}${path}`, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {})
   const t = await r.text()
   if (!r.ok) throw new Error(`process-miner ${r.status}: ${t.slice(0, 200)}`)
@@ -48,6 +52,7 @@ let scanning = null
 export function scan() { return (scanning ||= doScan().finally(() => { scanning = null })) }
 
 async function doScan() {
+  if (!MINER) return []
   const { patterns } = await miner(`/patterns?tenant_id=${encodeURIComponent(T())}&min_cases=${Number(process.env.PRO_MINING_MIN_CASES || 4)}`)
   const made = []
   for (const p of patterns) {
@@ -228,7 +233,7 @@ export async function hold(me, id) {
 }
 
 // ---------- 다음 메일: 등록된 프로세스로 ----------
-function matches(m, mail, d) {
+export function matches(m, mail, d) {
   const formats = new Set((d?.items || []).map((i) => i.format))
   if (/평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(`${mail.subject} ${mail.text}`)) formats.add('dxf')
   const hit = (m?.formats || []).filter((f) => formats.has(f)).length

@@ -14,6 +14,11 @@ const EDITOR_BY_EXT = {
   mp4: 'filmcraft', mov: 'filmcraft', webm: 'filmcraft', fcproj: 'filmcraft', filmcraft: 'filmcraft',
 }
 export const CRAFT_APPS = new Set(['cadcraft', 'vectorcraft', 'photocraft', 'soundcraft', 'filmcraft'])
+// which ArtCraft web apps this install serves (/api/config craft; the Docker lite profile has none):
+// a file whose app is missing opens as a plain link. Unknown yet = assume it is there.
+let craftHave = null
+if (typeof fetch === 'function') fetch('/api/config').then((r) => (r.ok ? r.json() : null)).then((c) => { if (c?.craft) craftHave = c.craft }).catch(() => {})
+export const craftMissing = (editor) => !!craftHave && CRAFT_APPS.has(editor) && craftHave[editor]?.web === false
 
 function extOf(nameOrUrl) {
   const clean = String(nameOrUrl || '').split('?')[0].split('#')[0]

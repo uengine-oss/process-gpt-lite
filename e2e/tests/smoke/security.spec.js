@@ -149,6 +149,7 @@ test.describe('보관함 (spec credential-vault: 비밀 값을 돌려주지 않�
 test.describe('정적 경로', () => {
   for (const app of ['cadcraft', 'vectorcraft', 'photocraft', 'soundcraft', 'filmcraft']) {
     test(`S-30 /craft/${app}/ 가 뜨고 wasm·js 는 gzip 으로 온다`, async ({ request }) => {
+      test.skip(!(await api.craftHas(app)), api.craftSkip(app))
       const r = await request.get(`/craft/${app}/`)
       expect(r.status()).toBe(200)
       const html = await r.text()

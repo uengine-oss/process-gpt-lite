@@ -3,6 +3,7 @@
 #   ./install.sh                 # generates .env, builds, starts the `lite` profile
 #   docker compose --profile lite up -d
 #   docker compose --profile full up -d      # lite + process engine (completion, polling) + mcp-hub (experimental)
+#   ... --profile mining                       # + process-miner (repeated mail work → process recommendations)
 #
 # Source locations follow the process-gpt-lite repository layout (this folder is `install/`):
 #   ..                         pgpt-pro (web + BFF)
@@ -324,6 +325,8 @@ services:
       PRO_CLI_AGENT_URL: http://cli-agent:8890
       PRO_CONTEXT_ROUTER_URL: ${CONTEXT_ROUTER_URL:-}
       PRO_JUDGE_URL: ${JUDGE_URL:-}
+      # process mining recommendations (mining profile: http://process-miner:8014); empty = off
+      PRO_MINER_URL: ${MINER_URL:-}
       PRO_BROWSER_GATES: ${BROWSER_GATES:-off}
       PRO_MCP_HUB_URL: http://mcp-hub:8500
       PRO_MCP_VALIDATE_BASE: http://server:8787
@@ -421,6 +424,28 @@ services:
       MCP_HEALTH_INTERVAL_SEC: 300
       # api.py imports `mcp_hub.*` (upstream Dockerfile only puts /app on the path)
       PYTHONPATH: /app/src:/app
+
+  # ───────────────────────── mining profile (optional) ─────────────────────────
+  # process-gpt's process-miner: finds the repeated flow in the handover records (handover_events)
+  # the mail drafts and team shares leave, for the admin's 정식 등록. install.sh --with-mining checks
+  # out process-gpt's feat/pgpt-lite-mining services/process-miner (sparse, no submodules) into
+  # .src/; PROCESS_MINER_SRC may point at another checkout.
+  process-miner:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/process-miner:${LITE_TAG:-local}
+    build:
+      context: ${PROCESS_MINER_SRC:-./.src/process-gpt-mining/services/process-miner}
+    profiles: [mining]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      HOST: 0.0.0.0
+      PORT: 8014
 
 volumes:
   db-data:

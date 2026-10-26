@@ -85,6 +85,7 @@ test('A-04 문서 요청 → 문서 카드 → 누르면 이음오피스 편집�
 
 test('A-05 CAD 도면 요청 → CADCraft MCP 로 그린 .dxf 카드 → 웹 CADCraft 로 열림 (youtu.be/QyfrjwhBSsw)', async ({ pageAs, db }) => {
   test.setTimeout(30 * 60_000)
+  test.skip(!(await api.craftHas('cadcraft', ['web', 'cli'])), api.craftSkip('cadcraft', ['web', 'cli']))
   const page = await pageAs('ag-cad')
   const u = page.user
   await db.clearMain(u.id)
@@ -98,6 +99,7 @@ test('A-05 CAD 도면 요청 → CADCraft MCP 로 그린 .dxf 카드 → 웹 CAD
 })
 
 test('A-06 [flaky] 열린 PhotoCraft 를 대화로 고친다: 글자 레이어 추가 (youtu.be/izcVNcW37J0)', async ({ pageAs, db }) => {
+  test.skip(!(await api.craftHas('photocraft', ['web', 'cli'])), api.craftSkip('photocraft', ['web', 'cli']))
   const page = await pageAs('ag-live')
   const u = page.user
   const th = await db.clearMain(u.id)

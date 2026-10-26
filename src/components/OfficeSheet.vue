@@ -5,7 +5,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import OfficeEditorFrame from './OfficeEditorFrame.vue'
 import CraftEditorFrame from './CraftEditorFrame.vue'
 import CraftLiveOverlay from './CraftLiveOverlay.vue'
-import { CRAFT_APPS, officeEditorFor } from '../officeEditor.js'
+import { CRAFT_APPS, officeEditorFor, craftMissing } from '../officeEditor.js'
 import { api, uploadAttachment } from '../api.js'
 import { useApp } from '../stores/app.js'
 
@@ -109,7 +109,8 @@ async function guardStrokes() {
 watch(() => [...(app.thread || [])].reverse().find((m) => m.role === 'agent')?.id, (id, was) => { if (pic.value && id && was && id !== was) setTimeout(guardStrokes, 800) })
 app.beforeSend = async (text, mentions) => {
   const m = mentions.find((x) => x.kind === 'image' && x.editor === 'hwp')
-  if (!m || !office.value || pic.value || NOT_IMAGE_EDIT.test(text)) return false
+  // no PhotoCraft in this install: the request stays with the document
+  if (!m || !office.value || pic.value || NOT_IMAGE_EDIT.test(text) || craftMissing('photocraft')) return false
   try { await openPicture(m, text); return true } catch (e) { flash('err', `그림을 꺼내지 못했어요: ${e.message}`); return false }
 }
 // PhotoCraft joined the chat: now the request goes, about the picture open there

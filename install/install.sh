@@ -3,6 +3,7 @@
 #
 #   ./install.sh                  install or start (idempotent: keeps .env, data and secrets)
 #   ./install.sh --profile full   lite + process engine (completion/polling) + mcp-hub
+#   ./install.sh --with-mining    also process-miner (repeated work → process recommendations)
 #   ./install.sh --upgrade        update sources (git), rebuild/pull images, migrate, restart
 #   ./install.sh --uninstall      stop and remove containers (data kept)
 #   ./install.sh --uninstall --purge   also delete volumes, data folder and built images
@@ -14,7 +15,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-ACTION=install PROFILE="" YES=0 PURGE=0 NO_GIT=0
+ACTION=install PROFILE="" YES=0 PURGE=0 NO_GIT=0 MINING=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --upgrade) ACTION=upgrade ;;
@@ -23,9 +24,11 @@ while [ $# -gt 0 ]; do
     --profile) PROFILE="$2"; shift ;;
     --profile=*) PROFILE="${1#*=}" ;;
     --port) PORT_ARG="$2"; shift ;;
+    --with-mining) MINING=1 ;;
+    --without-mining) MINING=0 ;;
     -y|--yes) YES=1 ;;
     --no-git) NO_GIT=1 ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "알 수 없는 옵션: $1" >&2; exit 2 ;;
   esac
   shift
@@ -55,16 +58,20 @@ setenv() { # setenv KEY VALUE  (value never echoed)
   fi
   chmod 600 "$tmp"; mv "$tmp" "$ENVF"
 }
-compose() { docker compose --env-file "$ENVF" --profile "$(getenv LITE_PROFILE)" "$@"; }
+compose() {
+  local extra=()
+  [ "$(getenv LITE_MINING)" = 1 ] && extra=(--profile mining)
+  docker compose --env-file "$ENVF" --profile "$(getenv LITE_PROFILE)" ${extra[@]+"${extra[@]}"} "$@"
+}
 
 # ── uninstall ────────────────────────────────────────────────
 if [ "$ACTION" = uninstall ]; then
   [ -f "$ENVF" ] || die ".env가 없습니다(설치된 적이 없음)."
   say "컨테이너를 내립니다"
   if [ "$PURGE" = 1 ]; then
-    docker compose --env-file "$ENVF" --profile lite --profile full down -v --rmi local --remove-orphans
+    docker compose --env-file "$ENVF" --profile lite --profile full --profile mining down -v --rmi local --remove-orphans
   else
-    docker compose --env-file "$ENVF" --profile lite --profile full down --remove-orphans
+    docker compose --env-file "$ENVF" --profile lite --profile full --profile mining down --remove-orphans
   fi
   docker rm -f "deepagent-sandbox-$(getenv LITE_TENANT)" >/dev/null 2>&1 || true
   docker network rm "$(getenv COMPOSE_PROJECT_NAME)-sandbox" >/dev/null 2>&1 || true
@@ -100,6 +107,20 @@ ensure_sources() {
       fi
       [ -d "$root/backends/office-host" ] && git -C "$root/backends/office-host" submodule update --init ieumoffice 2>/dev/null || true
     fi
+  fi
+  # process-miner (mining profile): process-gpt's feat/pgpt-lite-mining, only services/process-miner
+  if [ "$(getenv LITE_MINING)" = 1 ] && [ -z "$(getenv PROCESS_MINER_SRC)" ]; then
+    local mr="$HERE/.src/process-gpt-mining"
+    if [ ! -d "$mr/.git" ]; then
+      say "process-miner 소스를 받습니다(process-gpt feat/pgpt-lite-mining, services/process-miner 만)"
+      mkdir -p "$HERE/.src"
+      git clone -q --depth 1 --branch "${MINER_BRANCH:-feat/pgpt-lite-mining}" --filter=blob:none --sparse \
+        https://github.com/uengine-oss/process-gpt.git "$mr" || die "process-miner 소스를 받지 못했습니다."
+      git -C "$mr" sparse-checkout set services/process-miner
+    elif [ "$ACTION" = upgrade ] && [ "$NO_GIT" = 0 ]; then
+      git -C "$mr" pull -q --ff-only || warn "process-miner 소스 git pull 실패 — 지금 소스로 계속합니다."
+    fi
+    [ -f "$mr/services/process-miner/Dockerfile" ] || die "process-miner 소스가 없습니다($mr)."
   fi
   local pg oh pp
   pp="$(abspath "$(src_of PGPT_SRC ..)")"
@@ -142,6 +163,8 @@ prepare_env() {
   [ -n "${PORT_ARG:-}" ] && { setenv LITE_HTTP_PORT "$PORT_ARG"; setenv PUBLIC_URL "http://localhost:$PORT_ARG"; }
   case "$(getenv LITE_PROFILE)" in lite|full) ;; *) die "--profile 은 lite 또는 full 입니다." ;; esac
   [ "$(getenv LITE_PROFILE)" = full ] && setenv DEEPAGENTS_PROCESS_POLLING true
+  if [ "$MINING" = 1 ]; then setenv LITE_MINING 1; setenv MINER_URL http://process-miner:8014
+  elif [ "$MINING" = 0 ]; then setenv LITE_MINING 0; setenv MINER_URL ""; fi
 
   ask LLM_BASE_URL "LLM 주소(OpenAI 호환)" "https://api.openai.com/v1"
   ask LLM_API_KEY "LLM API 키(입력은 화면에 보이지 않습니다)" "" secret

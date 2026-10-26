@@ -31,6 +31,7 @@ const COVERAGE = `async (src) => { const im = new Image(); im.src = src; await i
 
 test('A-11 [flaky] 도면 색을 바꾼 뒤 검수: 테이블 선이 남고(70% 이상) 검수 메모가 남는다', async ({ pageAs, db }) => {
   test.setTimeout(15 * 60_000)
+  test.skip(!(await api.craftHas('photocraft', ['web', 'cli'])), api.craftSkip('photocraft', ['web', 'cli']))
   const page = await pageAs('ag-review')
   const tok = page.user.token()
   const th = await db.clearMain(page.user.id)
