@@ -18,7 +18,6 @@ server/.browser-profiles
 server/node_modules
 server/shots
 server/test
-server/fixtures
 **/*.log
 **/.DS_Store
 **/node_modules

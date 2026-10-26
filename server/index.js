@@ -85,8 +85,9 @@ async function finishLogin(email, name) {
   return { user, session: { access_token: session.access_token, refresh_token: session.refresh_token, expires_at: session.expires_at } }
 }
 
-// craft: which ArtCraft apps this install has ({web, cli} flags only)
-app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus() }))
+// craft: which ArtCraft apps this install has ({web, cli} flags only); contextRouter: whether messages are routed
+// to conversations (services/context-router) — flags only
+app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
 
 app.get('/api/auth/google/start', (req, res) => {
   if (!mail.googleEnabled()) return res.status(400).send('Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).')

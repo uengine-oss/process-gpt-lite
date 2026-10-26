@@ -17,6 +17,7 @@ test.beforeEach(async () => {
 })
 
 test('A-01 [flaky] 대화 맥락 라우터: 주제가 다르면 새 대화, 후속은 원래 대화로 (youtu.be/oL_mfiQBCPU)', async ({ as, db }) => {
+  test.skip((await api.call(null, 'GET', '/config')).body?.contextRouter === false, '대화 맥락 라우터(context-router)가 없는 설치 — Docker lite 는 CONTEXT_ROUTER_URL 을 따로 연결해야 함')
   const u = await as('ag-router')
   await db.clearMain(u.id)
   const a = await ask(u, db, '다음 주 부산 출장 가는데 해운대 근처 숙소 3곳만 짧게 추천해줘')
@@ -121,6 +122,7 @@ test('A-06 [flaky] 열린 PhotoCraft 를 대화로 고친다: 글자 레이어 �
 test('A-07 채팅으로 프로세스 찾기 → 프로세스 카드(단계·시작 폼) (youtu.be/wrPlOhwYPcw)', async ({ pageAs, db }) => {
   const page = await pageAs('ag-proc')
   const u = page.user
+  test.skip((await u.get('/processes/pro_expense_claim')).status !== 200, '예제 프로세스 정의 pro_expense_claim 이 없음 — lite 프로필에는 예제 정의가 없음')
   await db.clearMain(u.id)
   const r = await ask(u, db, '출장비 정산 프로세스 시작하고 싶어. 시작 양식 보여줘')
   expect(r.error).toBeNull()
