@@ -26,7 +26,7 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     const r = await a.post('/team/share', { to: [{ type: 'user', id: b.id }], messageIds: [card.id], note })
     expect(r.status, r.text).toBe(200)
     expect(r.body.sent[0].to.id).toBe(b.id)
-    cleanup(() => db.q('delete from pro_dm_threads where id=$1', [r.body.sent[0].threadId]))
+    cleanup(() => db.q('delete from chat_rooms where id=$1', [r.body.sent[0].threadId]))
     // the recipient's inbox: the share, unread, with their own share id — never the storage key
     let item
     await expect.poll(async () => { item = (await b.get('/team/inbox')).body.find((m) => m.body === note); return !!item }).toBe(true)
@@ -72,7 +72,7 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     const out = await outsider(as, db)
     const t = await a.post('/team/threads', { members: [b.id] })
     expect(t.status, t.text).toBe(200)
-    cleanup(() => db.q('delete from pro_dm_threads where id=$1', [t.body.id]))
+    cleanup(() => db.q('delete from chat_rooms where id=$1', [t.body.id]))
     expect((await a.post(`/team/threads/${t.body.id}/messages`, { text: uniq('안녕하세요') })).status).toBe(200)
     const s = await a.post('/team/suggest', { mode: 'fast' })
     expect(s.status, s.text).toBe(200)
@@ -92,7 +92,7 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     expect((await b.post('/team/threads', { members: [a.id] })).body.id, '같은 1:1 대화').toBe(t1)
     const g = await a.post('/team/threads', { members: [b.id, c.id], title: uniq('회귀 그룹') })
     expect(g.status).toBe(200)
-    cleanup(() => db.q('delete from pro_dm_threads where id = any($1::uuid[])', [[t1, g.body.id]]))
+    cleanup(() => db.q('delete from chat_rooms where id = any($1::text[])', [[t1, g.body.id]]))
     expect((await a.post('/team/threads', { members: [] })).status).toBe(400)
     expect((await a.post(`/team/threads/${t1}/messages`, { text: '' })).status).toBe(400)
     const text = uniq('점심 같이')
@@ -120,11 +120,33 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     let m
     await expect.poll(async () => { m = (await b.get('/team/inbox')).body.find((x) => x.body === body); return !!m }).toBe(true)
     expect(m).toMatchObject({ kind: 'mention', context: { title: '카페 견적' } })
-    cleanup(() => db.q('delete from pro_dm_threads where id=$1', [m.threadId]))
+    cleanup(() => db.q('delete from chat_rooms where id=$1', [m.threadId]))
     const mine = (await a.get(`/threads/${th}/messages`)).body
     expect(mine.some((x) => x.kind === 'chip' && /보냈어요/.test(x.content.text))).toBe(true)
     expect((await a.post('/team/mention', { to: [{ type: 'user', id: b.id }], text: '' })).status).toBe(400)
     // "이어서 작업" only for a message someone else sent me
     expect((await a.post(`/team/messages/${m.id}/continue`)).status).toBe(404)
+  })
+  test('F-TS-06 메신저 대화방은 process-gpt chat_rooms/chats 그 자체: 양쪽 화면이 같은 방, 같은 메시지 모양', async ({ as, db, cleanup }) => {
+    const a = await member(await as('ts-sender')), b = await member(await as('ts-mate'))
+    const t = (await a.post('/team/threads', { members: [b.id] })).body
+    cleanup(() => db.q('delete from chat_rooms where id=$1', [t.id]))
+    const text = uniq('상호 운용')
+    const sent = (await a.post(`/team/threads/${t.id}/messages`, { text })).body
+    // what process-gpt's frontend reads: the room with its participants, the chats row, the chat_room_chats view
+    const [room] = await db.q('select participants, message, context from chat_rooms where id=$1', [t.id])
+    expect(room.participants.map((p) => p.id).sort()).toEqual([a.id, b.id].sort())
+    expect(room.participants[0]).toMatchObject({ is_agent: false })
+    expect(room.message).toMatchObject({ msg: text, type: 'text' })
+    expect(room.context.pgpt.kind).toBe('direct')
+    const [row] = await db.q('select messages from chats where uuid=$1 and id=$2', [sent.id, t.id])
+    expect(row.messages).toMatchObject({ role: 'user', content: text, email: a.email })
+    expect((await db.q('select 1 from chat_room_chats where id=$1 and uuid=$2', [t.id, sent.id])).length).toBe(1)
+    // a message written the way process-gpt's ChatRoomPage writes it shows in pgpt-pro, unread for the other side
+    const uuid = crypto.randomUUID(), back = uniq('process-gpt 에서')
+    await db.q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4)', [uuid, t.id, { uuid, role: 'user', content: back, timeStamp: new Date().toISOString(), email: b.email, name: '회귀 동료', userName: '회귀 동료', mentionedUsers: [] }, db.tenant])
+    const list = (await a.get(`/team/threads/${t.id}/messages`)).body.messages
+    expect(list.find((m) => m.id === uuid)).toMatchObject({ body: back, mine: false, sender: { id: b.id } })
+    expect((await a.get('/team/unread')).body.byThread[t.id]).toBeGreaterThanOrEqual(1)
   })
 })

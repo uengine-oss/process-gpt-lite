@@ -43,14 +43,15 @@ export async function myFiles(me, ids, { lenient = false } = {}) {
 }
 
 // grants for every (recipient × file); returns the artifacts list stored on the dm message
-export async function grant(me, recipients, files, { note, dmMessageId }) {
+// dmMessageId: the chats row (uuid) the artifacts travel in; roomId: its chat_rooms id
+export async function grant(me, recipients, files, { note, dmMessageId, roomId }) {
   const artifacts = files.map((f) => ({ name: f.name, kind: KIND(f.name), sourceId: f.sourceId, shares: {} }))
   for (const r of recipients) {
     for (let i = 0; i < files.length; i++) {
       const f = files[i]
-      const [s] = await q(`insert into pro_shares(tenant_id,owner_id,recipient_id,dm_message_id,source_message_id,name,bucket,object_key,note)
-                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
-      [T(), me.id, r.id, dmMessageId || null, f.sourceId, f.name, f.bucket, f.key, note ? String(note).slice(0, 1000) : null])
+      const [s] = await q(`insert into pro_shares(tenant_id,owner_id,recipient_id,chat_uuid,room_id,source_message_id,name,bucket,object_key,note)
+                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,
+      [T(), me.id, r.id, dmMessageId || null, roomId || null, f.sourceId, f.name, f.bucket, f.key, note ? String(note).slice(0, 1000) : null])
       artifacts[i].shares[r.id] = s.id
     }
   }

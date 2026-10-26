@@ -8,6 +8,7 @@ import Icon from '../Icon.vue'
 import { useApp } from '../../stores/app.js'
 import { useTeam, shareable } from '../../stores/team.js'
 import { kindOf, kindLabel } from '../../artifacts.js'
+import AssistSuggestion from './AssistSuggestion.vue'
 
 const app = useApp()
 const team = useTeam()
@@ -31,7 +32,9 @@ const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-const kindWord = { share: '공유', mention: '멘션', text: '메시지' }
+const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과' }
+// team assist: the suggestion cards under the message that prompted them (lib/team/assist.js)
+const sugOf = (id) => (team.suggestions[team.active] || []).filter((x) => x.messageId === id)
 
 async function toBottom() {
   await nextTick()
@@ -40,7 +43,7 @@ async function toBottom() {
   const f = team.focus && el.querySelector(`[data-id="${team.focus}"]`)
   if (f) { f.scrollIntoView({ block: 'center' }); f.classList.add('flash'); team.focus = null } else el.scrollTop = el.scrollHeight
 }
-watch(() => [team.active, list.value.length], toBottom)
+watch(() => [team.active, list.value.length, (team.suggestions[team.active] || []).length], toBottom)
 
 async function run(key, fn) {
   busy.value = key; err.value = ''
@@ -133,13 +136,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <header class="thd">
             <button class="back press" aria-label="목록" @click="team.active = null"><Icon name="back" :size="18" /></button>
             <b>{{ thread.title }}</b><small>{{ thread.members.map((m) => m.name).join(', ') }}</small>
+            <button class="aitog press" :class="{ on: team.assistOn[thread.id] }" :title="team.assistOn[thread.id] ? '대화 중 에이전트가 도울 일을 찾으면 제안해요 (끄기)' : 'AI 제안이 꺼져 있어요 (켜기)'" @click="team.toggleAssist(thread.id)">AI 제안 {{ team.assistOn[thread.id] ? '켬' : '끔' }}</button>
           </header>
           <div ref="scroller" class="msgs scroll">
-            <div v-for="m in list" :key="m.id" :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text' }">
+            <template v-for="m in list" :key="m.id">
+            <div :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent' }">
               <span v-if="!m.mine" class="av sm">{{ initial(m.sender.name) }}</span>
               <div class="bub">
                 <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ m.sender.name }}</p>
-                <p v-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : m.sender.name }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
+                <p v-if="m.kind === 'agent'" class="kind">✦ {{ m.sender.name }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
+                <p v-else-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : m.sender.name }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
                 <p v-if="m.body" class="txt">{{ m.body }}</p>
                 <details v-if="m.context?.excerpt?.length" class="ex"><summary>대화 발췌</summary><p v-for="(l, i) in m.context.excerpt" :key="i">{{ l }}</p></details>
                 <div v-if="m.artifacts.length" class="arts">
@@ -147,10 +153,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                     <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span>{{ a.name }}
                   </button>
                 </div>
-                <button v-if="!m.mine && m.kind !== 'text'" class="b main press cont" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
+                <button v-if="!m.mine && (m.kind === 'share' || m.kind === 'mention')" class="b main press cont" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
                 <small class="t">{{ when(m.at) }}</small>
               </div>
             </div>
+            <AssistSuggestion v-for="sg in sugOf(m.id)" :key="sg.id" :s="sg" />
+            </template>
           </div>
           <footer class="cmp">
             <div v-if="attach.length" class="chips"><span v-for="m in attach" :key="m.id" class="chip">{{ m.content.name }}<button @click="toggleAttach(m)">×</button></span></div>
@@ -236,6 +244,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .card .bub { background: var(--bubble-agent-bg, rgba(255, 255, 255, .7)); color: var(--text-primary); border: 1px solid rgba(127, 127, 127, .2); }
 .msg.flash .bub { animation: flash 1.6s; }
 @keyframes flash { 0%, 60% { box-shadow: 0 0 0 3px rgba(42, 120, 214, .55); } 100% { box-shadow: none; } }
+.aitog { margin-left: auto; flex: none; align-self: center; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; color: var(--text-secondary); background: rgba(127, 127, 127, .12); }
+.aitog.on { color: #7a5af5; background: rgba(122, 90, 245, .14); }
+.msg.agent .bub { border-color: rgba(122, 90, 245, .45); }
 .kind { margin: 0 0 4px; font-size: 12px; color: var(--text-secondary); }
 .txt { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .ex { margin-top: 6px; font-size: 12.5px; color: var(--text-secondary); }

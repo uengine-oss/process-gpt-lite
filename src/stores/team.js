@@ -23,6 +23,9 @@ export const useTeam = defineStore('team', {
     sharing: null,            // {messageIds, names} → SharePicker
     toast: null,
     people: null,             // last fast suggestion {frequent, related, roles, rest, at}
+    suggestions: {},          // threadId -> [assist suggestion] (lib/team/assist.js)
+    assistOn: {},             // threadId -> the thread's AI 제안 switch
+    assistStatus: {},         // suggestion id -> live status text while it runs
   }),
   actions: {
     async boot() {
@@ -39,7 +42,10 @@ export const useTeam = defineStore('team', {
       if (data.type === 'message') {
         const m = data.message
         const list = this.msgs[data.threadId]
-        if (list && !list.some((x) => x.id === m.id)) list.push(m)
+        // an agent's reply arrives twice: inserted, then updated with its shared files — replace in place
+        const at = list ? list.findIndex((x) => x.id === m.id) : -1
+        if (list && at >= 0) list[at] = m
+        else if (list) list.push(m)
         const looking = this.open && this.active === data.threadId && document.visibilityState === 'visible'
         if (!m.mine) {
           if (looking) this.markRead(data.threadId)
@@ -51,6 +57,13 @@ export const useTeam = defineStore('team', {
         }
         this.loadThreads()
       } else if (data.type === 'read') this.loadUnread()
+      else if (data.type === 'assist') {
+        const list = (this.suggestions[data.threadId] ||= [])
+        const i = list.findIndex((x) => x.id === data.suggestion.id)
+        if (data.suggestion.hidden) { if (i >= 0) list.splice(i, 1) } else if (i >= 0) list[i] = data.suggestion
+        else list.unshift(data.suggestion)
+      } else if (data.type === 'assist-status') this.assistStatus[data.id] = data.text
+      else if (data.type === 'assist-toggle') this.assistOn[data.threadId] = data.on
     },
     say(text, go) {
       clearTimeout(this._t)
@@ -67,8 +80,9 @@ export const useTeam = defineStore('team', {
     async openThread(id, messageId) {
       this.active = id
       this.focus = messageId || null
-      const r = await api(`/team/threads/${id}/messages`)
+      const [r, a] = await Promise.all([api(`/team/threads/${id}/messages`), api(`/team/threads/${id}/suggestions`).catch(() => null)])
       this.msgs[id] = r.messages
+      if (a) { this.suggestions[id] = a.suggestions; this.assistOn[id] = a.assist && a.enabled }
       this.markRead(id)
     },
     async markRead(id) {
@@ -132,5 +146,20 @@ export const useTeam = defineStore('team', {
       return r
     },
     mention(body) { return api('/team/mention', { method: 'POST', body }) },
+    // team assist: 시작 runs it as me; 아니요 hides it for me only
+    async startSuggestion(sg) {
+      const v = await api(`/team/suggestions/${sg.id}/start`, { method: 'POST' })
+      this.onEvent({ type: 'team', data: { type: 'assist', threadId: sg.threadId, suggestion: v } })
+    },
+    async dismissSuggestion(sg) {
+      const list = this.suggestions[sg.threadId] || []
+      this.suggestions[sg.threadId] = list.filter((x) => x.id !== sg.id)
+      await api(`/team/suggestions/${sg.id}/dismiss`, { method: 'POST' }).catch(() => {})
+    },
+    async toggleAssist(threadId) {
+      const on = !this.assistOn[threadId]
+      this.assistOn[threadId] = on
+      await api(`/team/threads/${threadId}/assist`, { method: 'PUT', body: { on } })
+    },
   },
 })

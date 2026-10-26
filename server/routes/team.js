@@ -8,9 +8,15 @@ import { TeamError, requireMember, resolveRecipients, rateLimit, isMember } from
 import * as S from '../lib/team/shares.js'
 import * as M from '../lib/team/messenger.js'
 import { suggest, workState } from '../lib/team/suggest.js'
+import { watchRooms } from '../lib/team/assist.js'
+import { assistRoutes } from './teamAssist.js'
 
 export function teamRoutes(auth) {
   const r = express.Router()
+  // messages written anywhere (process-gpt's UI, agents, here) reach pgpt-pro clients live
+  M.startRoomFeed()
+  // team assist watches every new person-written message in a room (lib/team/assist.js)
+  watchRooms()
   const h = (fn) => async (req, res) => {
     try {
       await requireMember(req.user)
@@ -37,7 +43,7 @@ export function teamRoutes(auth) {
     const sent = []
     for (const p of recipients) {
       const t = await M.directThread(req.user, p.id)
-      const m = await M.post(req.user, t.id, { kind: 'share', body: note, attach: (rs, mid) => S.grant(req.user, rs, files, { note, dmMessageId: mid }) })
+      const m = await M.post(req.user, t.id, { kind: 'share', body: note, attach: (rs, mid, rid) => S.grant(req.user, rs, files, { note, dmMessageId: mid, roomId: rid }) })
       sent.push({ to: { id: p.id, name: p.name, via: p.via }, threadId: t.id, messageId: m.id })
     }
     // a share of a mail case's drafts is that case's next handover (process mining, lib/mining)
@@ -78,7 +84,7 @@ export function teamRoutes(auth) {
     const context = { title: title || null, conversationId: req.body.conversation?.id ? text(req.body.conversation.id, 80) : null, excerpt }
     for (const p of recipients) {
       const t = await M.directThread(req.user, p.id)
-      await M.post(req.user, t.id, { kind: 'mention', body, context, attach: files.length ? (rs, mid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid }) : null })
+      await M.post(req.user, t.id, { kind: 'mention', body, context, attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
     }
     const names = recipients.map((p) => (p.via ? `${p.name}(${p.via})` : p.name)).join(', ')
     if (own) {
@@ -103,8 +109,10 @@ export function teamRoutes(auth) {
     const files = await S.myFiles(req.user, req.body.artifactIds || [])
     if (!body && !files.length) throw new TeamError(400, '보낼 말을 적어 주세요.')
     rateLimit(req.user.id)
-    return M.post(req.user, req.params.id, { kind: files.length ? 'share' : 'text', body, attach: files.length ? (rs, mid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid }) : null })
+    const m = await M.post(req.user, req.params.id, { kind: files.length ? 'share' : 'text', body, attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
+    return m
   }))
+  assistRoutes(r, auth, h)
   r.post('/team/threads/:id/read', auth, h((req) => M.markRead(req.user, req.params.id)))
   r.get('/team/unread', auth, h((req) => M.unread(req.user)))
   r.get('/team/inbox', auth, h((req) => M.inbox(req.user)))

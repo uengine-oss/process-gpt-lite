@@ -23,11 +23,15 @@ async function team(me) {
 // and my chat requests to a teammate (notifications type 'mention' from me), each weighted exp(-days/14)
 export async function frequency(me) {
   const rows = await q(`
-    with dm as (
-      select mb.user_id as other, m.created_at as at,
-             1.0 / greatest(1, (select count(*) from pro_dm_members z where z.thread_id=m.thread_id) - 1) as w
-      from pro_dm_messages m join pro_dm_members mb on mb.thread_id=m.thread_id and mb.user_id <> m.sender_id
-      where m.tenant_id=$1 and m.sender_id=$2 and m.created_at > now() - interval '90 days'
+    with mine as (
+      select c.id as room, public.pro_chat_ts(c.messages) as at from chats c
+      where c.tenant_id=$1 and c.messages->>'email'=$3 and public.pro_chat_ts(c.messages) > now() - interval '90 days'
+    ), dm as (
+      -- my messages in process-gpt chat rooms (the messenger), each person in the room; a group counts 1/(n-1)
+      select (p->>'id')::uuid as other, m.at,
+             1.0 / greatest(1, (select count(*) from jsonb_array_elements(r.participants) z where coalesce((z->>'is_agent')::boolean,false)=false and z->>'id' ~ '^[0-9a-f-]{36}$') - 1) as w
+      from mine m join chat_rooms r on r.id=m.room, jsonb_array_elements(r.participants) p
+      where coalesce((p->>'is_agent')::boolean,false)=false and p->>'id' ~ '^[0-9a-f-]{36}$' and p->>'id' <> $2::text
     ), req as (
       select u.id as other, n.time_stamp as at, 1.0 as w from notifications n
       join users u on (u.id::text = n.user_id or u.email = n.user_id) and u.tenant_id = n.tenant_id
@@ -55,10 +59,11 @@ export async function judgeRelated(me, state, candidates) {
   const key = crypto.createHash('sha1').update(me.id + state + candidates.map((c) => c.id).join()).digest('hex')
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < 120000) return hit.out
-  const recent = await q(`select mb.user_id as other, string_agg(distinct coalesce(m.context->>'title', a->>'name'), ', ') as what
-                          from pro_dm_messages m join pro_dm_members mb on mb.thread_id=m.thread_id and mb.user_id <> $2
-                          left join lateral jsonb_array_elements(m.artifacts) a on true
-                          where m.tenant_id=$1 and m.sender_id=$2 and m.created_at > now() - interval '30 days' group by 1`, [T(), me.id]).catch(() => [])
+  const recent = await q(`select p->>'id' as other, string_agg(distinct coalesce(c.messages->'pgpt'->'context'->>'title', a->>'name'), ', ') as what
+                          from chats c join chat_rooms r on r.id=c.id, jsonb_array_elements(r.participants) p
+                          left join lateral jsonb_array_elements(coalesce(c.messages->'pgpt'->'artifacts','[]'::jsonb)) a on true
+                          where c.tenant_id=$1 and c.messages->>'email'=$3 and c.messages ? 'pgpt' and p->>'id' <> $2::text
+                            and public.pro_chat_ts(c.messages) > now() - interval '30 days' group by 1`, [T(), me.id, me.email]).catch(() => [])
   const what = Object.fromEntries(recent.map((r) => [r.other, (r.what || '').slice(0, 80)]))
   const options = candidates.slice(0, 12).map((c) => ({
     key: c.id, label: `${c.name}${c.roles.length ? ` (${c.roles.join(', ')})` : ''}${what[c.id] ? ` — 최근 함께한 일: ${what[c.id]}` : ''}`,
