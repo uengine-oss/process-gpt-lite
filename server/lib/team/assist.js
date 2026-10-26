@@ -57,6 +57,7 @@ export function prefilter(body) {
 }
 
 // ---- counters (GET /api/team/assist/stats) ----
+export const judgeConfigured = () => !!JUDGE_URL
 export const stats = { messages: 0, prefiltered: {}, judged: 0, suggested: 0, judgeMs: [], detectMs: [], judgeErrors: 0, bigModelCalls: 0, started: 0 }
 const count = (why) => { stats.prefiltered[why] = (stats.prefiltered[why] || 0) + 1 }
 const keep = (list, v) => { list.push(v); if (list.length > 200) list.shift() }
@@ -121,6 +122,8 @@ export function watchRooms() {
     if (!ON()) return count('tenant-off')
     const pf = prefilter(m.content)
     if (!pf.pass) return count(pf.why)
+    // an install without a judge server (PRO_JUDGE_URL empty, e.g. the Docker bundle): rules only, no suggestions
+    if (!JUDGE_URL) return count('no-judge')
     clearTimeout(timers.get(row.id))
     // the latest message of a burst is judged with the ones before it
     timers.set(row.id, setTimeout(() => {

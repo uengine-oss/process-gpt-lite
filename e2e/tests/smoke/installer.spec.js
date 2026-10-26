@@ -36,6 +36,9 @@ test.describe('설치 번들', () => {
     expect(compose('--profile', 'lite', 'config', '--services').stdout.split('\n')).not.toContain('process-miner')
     // the handover log the miner reads is created by the bundle's migration (db/compat)
     expect(fs.readFileSync(path.join(DIR, 'db/compat/03_handover_events.sql'), 'utf8')).toContain('create table if not exists public.handover_events')
+    // tenant_id() must tolerate connections without a PostgREST JWT (the BFF's own pool): init.sql's second pass
+    // in migrate.sh would otherwise leave the strict definition and every chats insert fails (team messenger 500)
+    expect(fs.readFileSync(path.join(DIR, 'db/compat/04_tenant_id.sql'), 'utf8')).toContain("current_setting('request.jwt.claims', true)")
   })
 
   test('S-52 web(nginx) 이 /api·/office·/craft·/auth|rest|storage 를 넘긴다', async () => {

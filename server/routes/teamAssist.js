@@ -77,7 +77,7 @@ export function assistRoutes(r, auth, h) {
   r.post('/team/suggestions/:id/start', auth, h((req) => A.start(req.user, req.params.id, runAs(req.user, req.session))))
   r.get('/team/assist/stats', auth, h(() => {
     const pct = (list, p) => { const ms = [...list].sort((a, b) => a - b); return ms.length ? ms[Math.min(ms.length - 1, Math.floor(ms.length * p))] : null }
-    return { ...A.stats, judgeMs: undefined, detectMs: undefined,
+    return { ...A.stats, judge: A.judgeConfigured(), judgeMs: undefined, detectMs: undefined,
       judgeLatency: { n: A.stats.judgeMs.length, p50: pct(A.stats.judgeMs, 0.5), p90: pct(A.stats.judgeMs, 0.9) },
       detectLatency: { n: A.stats.detectMs.length, p50: pct(A.stats.detectMs, 0.5), p90: pct(A.stats.detectMs, 0.9) },
       enabled: process.env.PRO_TEAM_ASSIST !== '0' }
