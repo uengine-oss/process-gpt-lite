@@ -372,4 +372,5 @@ async function draftFromMail(userId, mail, d) {
     jobs.push(delegate({ user, session, threadId: t.id, text, silent: true }).catch((e) => console.warn('[mail] drafts', e.message)))
   }
   await Promise.all(jobs)
+  await mining.recordDrafts(t.id, mail.id).catch((e) => console.warn('[mining] drafts', e.message))
 }
