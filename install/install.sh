@@ -15,7 +15,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-ACTION=install PROFILE="" YES=0 PURGE=0 NO_GIT=0 MINING=""
+ACTION=install PROFILE="" YES=0 PURGE=0 NO_GIT=0 MINING="" FRESH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --upgrade) ACTION=upgrade ;;
@@ -147,16 +147,19 @@ ask() { # ask KEY PROMPT DEFAULT [secret]
   local cur; cur="$(getenv "$1")"
   local fromenv="${!1:-}"
   if [ -n "$fromenv" ]; then setenv "$1" "$fromenv"; return; fi
-  if [ -n "$cur" ]; then return; fi
-  if [ "$YES" = 1 ] || [ ! -t 0 ]; then [ -n "$3" ] && setenv "$1" "$3"; return; fi
+  # a new .env carries .env.example's values: offer them as defaults on the first install only
+  if [ -n "$cur" ] && [ "$FRESH" = 0 ]; then return; fi
+  local def="${cur:-$3}"
+  if [ "$YES" = 1 ] || [ ! -t 0 ]; then [ -z "$def" ] || setenv "$1" "$def"; return 0; fi
   local v
-  if [ "${4:-}" = secret ]; then read -r -s -p "$2: " v; echo; else read -r -p "$2 [${3}]: " v; fi
-  setenv "$1" "${v:-$3}"
+  if [ "${4:-}" = secret ]; then read -r -s -p "$2: " v; echo; else read -r -p "$2 [${def}]: " v; fi
+  setenv "$1" "${v:-$def}"
 }
 prepare_env() {
   if [ ! -f "$ENVF" ]; then
     say ".env를 만듭니다"
     (umask 077; cp "$HERE/.env.example" "$ENVF")
+    FRESH=1
   fi
   chmod 600 "$ENVF"
   [ -n "$PROFILE" ] && setenv LITE_PROFILE "$PROFILE"
@@ -195,6 +198,12 @@ prepare_env() {
   mkdir -p "$(getenv LITE_DATA_DIR)/deepagents/workspace" "$(getenv LITE_DATA_DIR)/deepagents/skills"
 }
 
+# WSL mirrored networking drops SYNs to closed ports instead of refusing them: bound the probe
+port_open() {
+  if command -v timeout >/dev/null; then timeout 3 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null
+  else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; fi
+}
+
 preflight() {
   local mem cpus port mport
   mem=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
@@ -203,7 +212,7 @@ preflight() {
   [ "$cpus" -ge 4 ] || warn "Docker CPU가 4개 미만입니다."
   port="$(getenv LITE_HTTP_PORT)"; mport="$(getenv LITE_MAIL_PORT)"
   for p in "$port" "$mport"; do
-    if (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then
+    if port_open "$p"; then
       if ! docker ps --filter "label=com.docker.compose.project=$(getenv COMPOSE_PROJECT_NAME)" --format '{{.Ports}}' | grep -q ":$p->"; then
         die "포트 $p 를 다른 프로그램이 쓰고 있습니다. ./install.sh --port <다른 포트> 로 바꾸세요."
       fi
@@ -235,7 +244,7 @@ wait_ready() {
     sleep 5
   done
   compose ps >&2
-  die "10분 안에 준비되지 않았습니다. 'docker compose logs <서비스>' 로 원인을 확인하세요."
+  die "15분 안에 준비되지 않았습니다. 'docker compose logs <서비스>' 로 원인을 확인하세요."
 }
 
 create_admin() {
