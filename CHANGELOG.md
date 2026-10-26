@@ -62,6 +62,6 @@
 - B4: 대화 맥락 라우터가 전혀 다른 주제를 같은 대화에 이어 붙이는 경우가 있음(A-01).
 - B5: 채팅으로 스킬을 만들면 초안 카드가 다른 스킬을 보여 주는 경우가 있음(A-08).
 - Docker 번들에서는 마이닝 추천의 **정식 등록**과 채팅의 프로세스 초안 저장이 아직 안 됨(process-gpt 의 Python 저장 코드가 server 이미지에 없음).
-- `backends/process-gpt` 안의 `process-gpt-deepagents` 서브모듈이 아직 비공개라 외부에서는 `install.sh` 빌드가 그 단계에서 막힘.
+- Docker Compose 회귀: lite+mining 첫 설치에서 smoke 41 통과·14 건너뜀, feature 30 통과·39 건너뜀까지 확인했고, 그 실행에서 찾은 번들 결함(문서 라이브 편집 주소·작업실 셸·BFF 크래시)은 고쳤지만 고친 번들의 기능 재시험과 agent 단계는 이 릴리스에서 돌리지 못함(시험 PC 메모리 부족). 개발 스택에서는 smoke 57/57, feature 86/86, agent 13 중 11(B4·B5 제외) 통과.
 
 [0.1.0]: https://github.com/uengine-oss/process-gpt-lite/compare/9118671...v0.1.0
