@@ -98,7 +98,7 @@ const ROUTER_TOOLS = [
     type: 'function',
     function: {
       name: 'create_panel',
-      description: 'User wants a NEW panel / widget / mini-app on Home: a live widget (주식 추적, 날씨, 환율) or a small data app people register and manage records in, kept in a spreadsheet and shareable with the team (리드 관리, 휴가 일수 관리, 비품 대장, 할일 목록, 고객 명단…). Not for adding a record to an app that already exists (panel_record).',
+      description: 'User wants a NEW panel / widget / mini-app on Home: a live widget (주식 추적, 날씨, 환율) or a small data app people register and manage records in, kept in a spreadsheet and shareable with the team (리드 관리, 휴가 일수 관리, 비품 대장, 할일 목록, 고객 명단…). Not for adding a record to an app that already exists (panel_record). NOT for writing a document or file (안내문·보고서·제안서, docx/hwpx/xlsx/pptx) — answer those without tools.',
       parameters: { type: 'object', properties: { description: { type: 'string', description: 'what the panel is for, with any fields, rules and first records the user mentioned' }, ack: { type: 'string', description: '만들기 시작했다는 해요체 한 문장(완료됐다고 말하지 말 것)' } }, required: ['description', 'ack'] },
     },
   },
@@ -207,6 +207,10 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
     // (the context carries what the person pointed at in the open document: @표 2, @이미지 1 …)
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
+  // Writing a document is the agent's job (office-mcp); a router model reads "안내문을 … 만들어줘" as a panel app.
+  if (!namedApp && DOC_REQUEST.test(text) && !/패널|위젯|앱/.test(text) && !RECURRING.test(text)) {
+    return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
+  }
   const skillList = await listSkills(session.access_token)
   const skillHint = skillList.length ? `\n사용 가능한 스킬(주기 작업에 쓸 수 있음): ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
   const processHint = await processCatalogHint()
@@ -215,14 +219,17 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
   const route = await chat({
     model: config.llm.fastModel,
     temperature: 0,
-    tools: ROUTER_TOOLS,
+    // with no apps to name, a small router model still reaches for panel_record ("'문서 작성' 패널을 찾지 못했어요")
+    tools: appHint ? ROUTER_TOOLS : ROUTER_TOOLS.filter((t) => t.function.name !== 'panel_record'),
     messages: [
       { role: 'system', content: PERSONA.replace('{now}', now) + skillHint + processHint + teamHint + appHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
       ...hist.slice(-8),
     ],
   })
   const call = route.tool_calls?.[0]
-  if (!call) return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
+  // a panel only when the words ask for one; the router otherwise turns "안내문 … 만들어줘" follow-ups into apps
+  const strayPanel = call?.function.name === 'create_panel' && !PANEL_WORDS.test(text)
+  if (!call || strayPanel) return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
 
   const args = JSON.parse(call.function.arguments || '{}')
   const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack })
@@ -312,6 +319,10 @@ const CONNECTOR_HINTS = [
 ]
 // Anything that sounds recurring is the router's call (schedule_task), never a one-off delegate.
 const RECURRING = /매일|매주|매달|매시|마다|주기|정기|반복|한\s*번씩|한번씩|\d+\s*(초|분|시간|일)\s*(에|간격|마다)|every|hourly|daily|weekly/i
+// A document or file to write: a kind of document (or a file format) followed closely by a verb of making.
+const DOC_REQUEST = /(docx|hwpx|pptx|xlsx|워드|한글\s*(파일|문서)|파워포인트|문서|보고서|안내문|제안서|기획서|공문|견적서|회의록)[^.?!\n]{0,20}(작성|만들|써\s*줘|뽑아)/i
+// What a request for a Home panel / data app says (create_panel's own examples)
+const PANEL_WORDS = /패널|위젯|앱|홈에|대시보드|관리|대장|목록|명단|추적|트래커|현황판|날씨|환율|주가|주식/
 // Teammates and who holds which role, so "제품 책임자한테 알려줘" can name someone.
 async function teamCatalogHint(userId) {
   const team = (await listTeam()).filter((m) => m.id !== userId)
