@@ -1,6 +1,16 @@
 -- 인계 기록(handover_events)과 역량 모델 — 프로세스 마이닝(server/lib/mining, process-miner)이 쓰는 표.
 -- process-gpt feat/pgpt-lite-mining 의 docker-infra/volumes/db/migration.sql 추가분과 같다(멱등).
 -- 서브모듈(feat/pgpt-lite)의 스키마에 아직 없어서 설치 번들이 보정한다.
+-- 이미 만들어졌으면 건너뛴다: 다시 실행할 때마다 트리거·정책을 지우고 만들면(배타 잠금) 그 표를 읽고 있는
+-- 연결(process-miner 등) 때문에 migrate 가 기다릴 수 있다.
+select (to_regclass('public.handover_events') is not null
+        and to_regclass('public.activity_eligibility') is not null
+        and exists (select 1 from pg_trigger where tgname = 'handover_events_updated_at')
+        and exists (select 1 from pg_trigger where tgname = 'user_capabilities_updated_at')
+        and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'handover_events' and column_name = 'origin_room_id')
+       ) as lite_handover_ready \gset
+\if :lite_handover_ready
+\else
 
 
 -- ============================================================================
@@ -273,3 +283,4 @@ END $$;
 comment on table public.org_capabilities is '역량 사전. 프로세스 단계가 요구하는 능력을 이름으로 다룬다.';
 comment on table public.user_capabilities is '누가 어떤 역량을 가졌나. observed 는 인계 기록에서 도출된 것이며 evidence_count 가 근거 건수다.';
 comment on table public.activity_eligibility is '활동 수행 자격. 담당자를 이름이 아니라 역량/역할/부서로 풀 수 있게 한다.';
+\endif

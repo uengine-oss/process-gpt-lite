@@ -189,7 +189,8 @@ services:
       PGDATABASE: postgres
       LITE_TENANT: ${LITE_TENANT:-lite}
       LITE_PROFILE: ${LITE_PROFILE:-lite}
-      PGOPTIONS: -c client_min_messages=warning
+      # a lock held by another session fails the step with a message instead of waiting forever
+      PGOPTIONS: -c client_min_messages=warning -c lock_timeout=120s
     volumes:
       - ./db:/lite/db:ro
       - ${PROCESS_GPT_SRC:-../backends/process-gpt}/docker-infra/volumes/db:/lite/process-gpt-db:ro
