@@ -11,8 +11,9 @@ import { useRouter, useRoute } from 'vue-router'
 const app = useApp()
 const router = useRouter()
 const route = useRoute()
-// a task runs a skill (mission), starts a process, or sends a prompt
-const managed = (s) => !!(s.skill || s.process_id)
+// a task runs a skill (mission), starts a process, or sends a prompt — all three keep a run history
+// (failures included), can run now and pause
+const managed = () => true
 const kindOf = (s) => (s.skill ? `스킬 ${s.skill}` : s.process_id ? `프로세스 ${s.process_id}` : '프롬프트')
 const items = ref([])
 const open = ref(null)
@@ -111,7 +112,7 @@ async function remove() {
       <p class="cap">이전 실행</p>
       <div class="runs">
         <div v-for="r in runs" :key="r.id" class="run glass">
-          <div class="rh"><b :class="r.status">{{ statusText[r.status] }}</b> – {{ when(r.started_at) }}<span v-if="r.result?.agent" class="tag">{{ agents.find((a) => a.id === r.result.agent)?.label || r.result.agent }}</span><span v-if="r.trigger === 'manual'" class="tag">수동</span><span v-if="r.changed" class="tag hi">변경 있음</span></div>
+          <div class="rh"><b :class="r.status">{{ statusText[r.status] }}</b> – {{ when(r.started_at) }}<span v-if="r.result?.agent" class="tag">{{ agents.find((a) => a.id === r.result.agent)?.label || r.result.agent }}</span><span v-if="r.trigger === 'manual'" class="tag">수동</span><span v-if="r.changed" class="tag hi">변경 있음</span><span v-else-if="r.status === 'done' && r.changed === null && !open.process_id" class="tag" title="스킬이 결과 줄(MISSION_RESULT)을 남기지 않아 바뀐 게 있는지 알 수 없어요">변동 여부 모름</span><span v-else-if="r.status === 'done' && r.changed === false" class="tag">변동 없음</span></div>
           <div class="md" v-html="md(r.summary)" />
           <button v-if="r.result?.instId" class="inst" @click="router.push(`/projects/p/${encodeURIComponent(r.result.instId)}`)">인스턴스 보기 <Icon name="chevron" :size="13" /></button>
           <div v-if="r.result?.created?.length" class="created">

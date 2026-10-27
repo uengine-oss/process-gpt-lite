@@ -4,7 +4,7 @@
 // draft and share that answers one customer mail is one case. process-miner reads these rows.
 import { config } from '../../config.js'
 import { q } from '../supa.js'
-import { AGENTS, stepOf } from './catalog.js'
+import { AGENTS, REVIEWS, stepOf } from './catalog.js'
 
 const T = () => config.tenantId
 export const caseOf = (mailId) => `mail:${mailId}`
@@ -24,13 +24,23 @@ async function last(caseId) {
   return r || null
 }
 
-// to: {id, name, isAgent} — or omitted for an agent step (the catalog names the agent)
-export async function recordStep(caseId, label, { to, artifacts = [], note = '', at, demo = false } = {}) {
+const REPLY = '고객 회신'
+// replying to the customer ends the case: nothing recorded after it belongs to it (a later share
+// would otherwise become an extra branch after the reply in the mined definition)
+export async function caseClosed(caseId) {
+  const [r] = await q('select 1 from handover_events where tenant_id=$1 and case_id=$2 and norm_activity_label=$3 limit 1', [T(), caseId, REPLY])
+  return !!r
+}
+
+// to: {id, name, isAgent} — or omitted for an agent step (the catalog names the agent);
+// role: the recipient's role when the step's kind does not fix one (a '<역할> 검토')
+export async function recordStep(caseId, label, { to, role, artifacts = [], note = '', at, demo = false } = {}) {
   const st = stepOf(label)
   if (!st) return null
   const agent = st.kind === 'agent' ? AGENTS[st.agent] : null
   const who = agent ? { id: agent.id, name: agent.name, isAgent: true } : to
   if (!who?.id) return null
+  if (await caseClosed(caseId)) return null
   const prev = await last(caseId)
   const when = at ? new Date(at) : new Date()
   const latency = prev ? Math.max(0, Math.round((when - new Date(prev.occurred_at)) / 1000)) : null
@@ -41,7 +51,7 @@ export async function recordStep(caseId, label, { to, artifacts = [], note = '',
            values ($1,$2,$2,$3,$4,$2,$2,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13,$14,$15,$16,$17,$17,$18) returning id`, [
     T(), caseId, agent ? 'agent_delegation' : 'chat_handover', !agent,
     prev?.to_user_id || null, prev?.to_user_name || null, !!prev?.to_is_agent,
-    String(who.id), who.name, st.role, !!who.isAgent, agent ? 'deepagents' : null,
+    String(who.id), who.name, role || st.role || null, !!who.isAgent, agent ? 'deepagents' : null,
     label, note || st.description, demo ? 'pgpt-pro 시연용 과거 사례' : 'pgpt-pro 메일 업무',
     JSON.stringify(refs), when.toISOString(), latency])
   return row?.id
@@ -64,15 +74,34 @@ export async function recordDrafts(threadId, mailId) {
   }
 }
 
-// a team share of a case's drafts is the case's next handover: the recipient reviews them
+// What a recipient's review is: the kind their role says (재무 담당 → 재무 검토, 디자이너 → 디자인 검토),
+// else the kind the share note asks for ("도면 확인 부탁해요"), else '<their role> 검토', else '팀원 검토'.
+export async function shareStep(recipient, note = '') {
+  const roles = (await q(`select distinct role from pro_role_assignments where tenant_id=$1 and user_id::text=$2 order by role`, [T(), String(recipient.id)])).map((r) => r.role)
+  for (const r of roles) {
+    const k = REVIEWS.find((x) => x.re.test(r))
+    if (k) return { label: k.label, role: r }
+  }
+  const k = REVIEWS.find((x) => x.re.test(note || ''))
+  if (k) return { label: k.label, role: roles[0] || k.role }
+  if (roles[0]) return { label: `${roles[0].replace(/\s*(담당자|담당|팀장|팀)$/u, '').trim() || roles[0]} 검토`, role: roles[0] }
+  return { label: '팀원 검토', role: '검토 담당' }
+}
+
+// a team share of a case's drafts is the case's next handover: the recipient reviews them. Only a
+// case still open takes it — once the customer was answered, a later share is new work, not a step
+// of that case (it is not recorded).
 export async function recordShare(me, files, recipients, note) {
   const names = files.map((f) => f.name).filter(Boolean)
   if (!names.length) return
-  const [c] = await q(`select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and files && $3::text[]
-                       order by created_at desc limit 1`, [T(), me.id, names])
-  if (!c) return
+  const cases = await q(`select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and files && $3::text[]
+                         order by created_at desc limit 5`, [T(), me.id, names])
+  let open = null
+  for (const c of cases) if (!(await caseClosed(c.case_id))) { open = c; break }
+  if (!open) return
   for (const p of recipients) {
-    await recordStep(c.case_id, '재무 검토', { to: { id: p.id, name: p.name }, artifacts: names.map((name) => ({ name })), note: note || '' })
+    const { label, role } = await shareStep(p, note)
+    await recordStep(open.case_id, label, { to: { id: p.id, name: p.name }, role, artifacts: names.map((name) => ({ name })), note: note || '' })
   }
 }
 
@@ -84,5 +113,5 @@ export async function recordReply(me, action) {
   const [c] = await q('select 1 from pro_mining_cases where case_id=$1', [caseId])
   if (!c) return
   const [p] = await q('select name from pro_profile where user_id=$1', [me.id])
-  await recordStep(caseId, '고객 회신', { to: { id: me.id, name: p?.name || me.email } })
+  await recordStep(caseId, REPLY, { to: { id: me.id, name: p?.name || me.email } })
 }

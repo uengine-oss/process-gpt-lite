@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { marked } from 'marked'
 import StepTimeline from './StepTimeline.vue'
 import AgentActivity from './AgentActivity.vue'
-import { auth } from '../api.js'
+import { auth, api } from '../api.js'
 import TodoCard from './TodoCard.vue'
 import BpmnView from './BpmnView.vue'
 import Icon from './Icon.vue'
@@ -23,6 +23,13 @@ const progress = computed(() => {
   const real = props.data.steps.filter((s) => s.kind === 'human' || s.kind === 'agent')
   return { done: real.filter((s) => s.state === 'done').length, all: real.length }
 })
+const retryErr = ref('')
+// 「다시 시도」 on a failed agent step: back in the agent queue (server lib/stepRetry.js)
+async function retry(s) {
+  retryErr.value = ''
+  try { await api(`/todos/${encodeURIComponent(s.todoId)}/retry`, { method: 'POST' }); emit('refresh') }
+  catch (e) { retryErr.value = `다시 시도하지 못했어요. ${e.message.slice(0, 120)}` }
+}
 const md = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { breaks: true })
 const fieldLabel = (a) => a.label || a.field?.replace(/_/g, ' ')
 const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')
@@ -42,7 +49,8 @@ const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', da
       <div class="ch row">진행 상황
         <span class="seg"><button :class="{ on: view === 'list' }" @click="view = 'list'">목록</button><button :class="{ on: view === 'bpmn' }" @click="view = 'bpmn'">다이어그램</button></span>
       </div>
-      <StepTimeline v-if="view === 'list'" :steps="data.steps.filter((s) => s.kind !== 'event')" @detail="(s) => (detail = s)" />
+      <StepTimeline v-if="view === 'list'" :steps="data.steps.filter((s) => s.kind !== 'event')" @detail="(s) => (detail = s)" @retry="retry" />
+      <p v-if="retryErr" class="rerr">{{ retryErr }}</p>
       <BpmnView v-else class="diagram" :def-id="data.inst.proc_def_id" :steps="data.steps" :height="380" />
     </div>
 
@@ -92,6 +100,7 @@ h2 { font-size: 30px; font-weight: 300; line-height: 1.25; margin: 10px 0 6px; l
 .sub { margin: 0 0 12px; font-size: 14px; color: var(--text-secondary); }
 .bar { height: 4px; border-radius: 4px; background: var(--hairline); overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--text-primary); border-radius: 4px; transition: width .8s var(--spring); }
+.rerr { color: var(--color-error); font-size: 13px; margin: 0 0 10px; }
 .card { border-radius: 24px; padding: 16px 18px 6px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
 .ch { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px 2px; display: flex; align-items: center; gap: 6px; }
 .ch.row { justify-content: space-between; }

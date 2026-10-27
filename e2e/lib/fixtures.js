@@ -34,7 +34,7 @@ export const test = base.extend({
       contexts.push(ctx)
       const page = await ctx.newPage()
       page.errors = []
-      page.on('pageerror', (e) => page.errors.push(String(e?.message || e)))
+      page.on('pageerror', (e) => { page.errors.push(String(e?.message || e)); if (process.env.RT_DEBUG_ERRORS) console.log('[pageerror]', e?.stack || e) })
       page.user = c
       return page
     })

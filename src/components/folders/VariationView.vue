@@ -27,17 +27,26 @@ const review = ref(null)          // skill: {pr, verification, canMerge}
 const asking = ref(false)
 const say = (t) => { toast.value = t; setTimeout(() => { if (toast.value === t) toast.value = '' }, 3200) }
 
-async function load() {
+// a poll that fails (the server restarting, a proxy 502) keeps what is on screen and says so,
+// instead of replacing the page with the error
+const stale = ref(false)
+async function load({ quiet = false } = {}) {
   try {
     const [d, f] = await Promise.all([F.variation(props.slug, props.vid), F.get(props.slug)])
     v.value = d; folder.value = f
     if (f.kind === 'skill') review.value = await F.review(props.slug, props.vid).catch(() => null)
     if (!sel.value || !d.changes.some((c) => c.path === sel.value)) sel.value = d.changes[0]?.path || ''
-  } catch (e) { err.value = e.message }
+    stale.value = false
+  } catch (e) { if (quiet && v.value) stale.value = true; else err.value = e.message }
 }
 onMounted(load)
 watch(() => props.vid, () => { sel.value = ''; load() })
-let poll = setInterval(() => { if ((v.value?.status === 'open' || review.value?.verification?.status === 'running') && !handing.value && !merging.value) load() }, 4000)
+let poll = setInterval(() => { if ((v.value?.status === 'open' || review.value?.verification?.status === 'running') && !handing.value && !merging.value) load({ quiet: true }) }, 4000)
+// how long a running verification has been at it (it stops by itself after 20 minutes)
+const tick = ref(Date.now())
+const clock = setInterval(() => { tick.value = Date.now() }, 30000)
+onBeforeUnmount(() => clearInterval(clock))
+const verMin = computed(() => (review.value?.verification?.created_at ? Math.max(0, Math.round((tick.value - new Date(review.value.verification.created_at)) / 60000)) : 0))
 onBeforeUnmount(() => clearInterval(poll))
 
 const change = computed(() => v.value?.changes.find((c) => c.path === sel.value))
@@ -129,7 +138,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
           <span v-else class="muted">아직 보내지 않았어요</span>
           <span class="sp" />
           <b>병합 전 검증</b>
-          <span v-if="ver?.status === 'running'" class="muted"><span class="spin" /> 변경 전·후로 돌려 보는 중…</span>
+          <span v-if="ver?.status === 'running'" class="muted"><span class="spin" /> 변경 전·후로 돌려 보는 중…<template v-if="verMin"> {{ verMin }}분째(최대 20분)</template><template v-if="stale"> · 서버에 다시 연결하는 중</template></span>
           <span v-else-if="ver?.status === 'succeeded'" class="muted">시나리오 {{ ver.summary?.cases }}개 · 변경 전 통과 {{ ver.summary?.base_pass }} · 변경 후 통과 {{ ver.summary?.head_pass }}{{ ver.summary?.broken ? ` · 깨진 것 ${ver.summary.broken}` : '' }}</span>
           <span v-else-if="ver?.status === 'failed'" class="bad">검증 실패: {{ ver.error }}</span>
           <button v-if="live && ver?.status !== 'running'" class="tb press" @click="runVerify">{{ ver ? '다시 검증' : '검증 실행' }}</button>

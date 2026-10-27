@@ -64,4 +64,30 @@ export const STEPS = {
 // tool → what a document of that tool is (mail triage formats), for matching the next mail
 export const TOOL_FORMAT = { 캐드크래프트: 'dxf', 아래아한글: 'hwpx', 엑셀: 'xlsx' }
 
-export const stepOf = (label) => STEPS[label] || null
+// A teammate's review of shared drafts is named for what the review is for, so the mined roles are
+// right (a designer checking the floor plan is not '재무 검토'). The recipient's role decides first,
+// then the share note; a role outside these kinds names its own '<역할> 검토'.
+const REVIEW_FIELDS = [
+  { key: 'decision', text: '검토 결과', type: 'radio', items: [{ 승인: '승인 — 이대로 회신' }, { '수정 요청': '수정 요청' }] },
+  { key: 'comment', text: '검토 의견', type: 'textarea' },
+]
+export const REVIEWS = [
+  { label: '재무 검토', role: '재무 담당', key: 'finance', re: /재무|회계|경리|금액|단가|부가세|예산|비용|원가|세금|정산/ },
+  { label: '디자인 검토', role: '디자인 담당', key: 'design', re: /디자인|디자이너|도면|평면도|설계|배치|인테리어|레이아웃/ },
+  { label: '계약 검토', role: '법무 담당', key: 'contract', re: /계약|법무|약관|조항/ },
+  { label: '제안서 검토', role: '제안 담당', key: 'proposal_review', re: /제안서|문안|문구|오탈자/ },
+]
+for (const r of REVIEWS) {
+  STEPS[r.label] ||= { kind: 'human', role: r.role, tool: '팀 공유', skill: 'team-share-review', key: r.key,
+    description: `공유받은 초안을 확인하고 승인하거나 수정을 요청해요(${r.label}).`, fields: REVIEW_FIELDS }
+}
+
+// '<역할> 검토' for a recipient whose role is none of the kinds above (role from the record)
+function reviewOf(label) {
+  const m = /^(.+?)\s*검토$/.exec(String(label || ''))
+  if (!m) return null
+  return { kind: 'human', role: null, tool: '팀 공유', skill: 'team-share-review', key: null,
+    description: `공유받은 초안을 ${m[1]} 입장에서 확인하고 승인하거나 수정을 요청해요.`, fields: REVIEW_FIELDS }
+}
+
+export const stepOf = (label) => STEPS[label] || reviewOf(label)

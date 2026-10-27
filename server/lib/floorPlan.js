@@ -102,7 +102,7 @@ export async function drawFloorPlan(userId, layout, fileName, onStep = () => {})
     const cx = r2(r.x + r.w / 2), cy = r2(r.y + r.h / 2)
     const big = r.w * r.h >= W * D * 0.45
     await run('text', { at: [cx, big ? r2(r.y + r.h - 0.8) : cy + 0.2], text: r.name, height: big ? 0.45 : 0.32, justify: 'MC' })
-    await run('text', { at: [cx, big ? r2(r.y + r.h - 1.4) : cy - 0.35], text: `${r2(r.w * r.h)}㎡`, height: 0.24, justify: 'MC' })
+    await run('text', { at: [cx, big ? r2(r.y + r.h - 1.4) : cy - 0.35], text: `${r2(r.w * r.h)}m²`, height: 0.24, justify: 'MC' })
   }
   await run('text', { at: [r2(door.x + door.w / 2), -0.45], text: '출입문', height: 0.25, justify: 'MC' })
   onStep('치수')

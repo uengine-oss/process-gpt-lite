@@ -71,8 +71,44 @@ kind 가 events 이면 fields/computed/views/form/rows 대신 이 모양으로 �
 - 요청에 처음 넣을 데이터가 있으면 rows 에 넣고, 없으면 rows 는 빈 배열. 데이터를 지어내지 않는다.
 - 요청이 주가·날씨·환율·뉴스처럼 외부의 실시간 데이터를 보여 주는 위젯이면 {"kind":"live"} 만 답한다.`
 
+// The one-call design is the biggest answer asked of the model (a record-keeping app especially). On a
+// slow or stuck model it is cut off and done again in smaller steps: which kind of app, then only that
+// kind's shape with the short prompt for it. Each call has its own limit and a token cap, so a model
+// that runs on (JSON mode can pad with whitespace) cannot hold the request for minutes.
+const DESIGN_MS = () => Number(process.env.PRO_PANEL_DESIGN_MS || 120000)
+const KIND = `패널 앱 요청을 분류한다. JSON 으로만: {"kind":"live|events|data"}
+- live: 주가·날씨·환율·뉴스처럼 외부 실시간 데이터를 보여 주는 위젯
+- events: 잔액·수량·포인트·예산·장부·재고·휴가처럼 기록을 쌓아(배정·사용·취소) 계산하는 앱(이벤트 소싱)
+- data: 그 밖의 목록·표(리드, 할 일, 일정, 신청서 …)`
+const EVENTS_START = DESIGN.indexOf('kind 고르기:')
+const EVENTS_PART = DESIGN.slice(DESIGN.indexOf('kind 가 events 이면'), DESIGN.indexOf('규칙:\n- 사용자가'))
+const EVENTS_DESIGN = `너는 팀이 함께 쓰는 기록형(이벤트 소싱) 업무 앱을 설계한다. 모든 변경은 기록으로 쌓이고 잔액·현황은 기록에서 계산한다. JSON 으로만 답한다.
+${EVENTS_PART.replace('kind 가 events 이면 fields/computed/views/form/rows 대신 이 모양으로 답한다:', '이 모양으로 답한다:')}
+보안 기본값: 모든 필드에 "sensitivity":"public|internal|personal|sensitive" 를 붙인다(금액·수량은 internal, 사유·개인 정보는 personal 이상).
+- 사용자가 앱 이름을 말했으면 title 은 그 이름 그대로. 필드는 3~7개, 이벤트는 2~4개, 프로젝션은 1~2개로 짧게.`
+const LIST_DESIGN = DESIGN.slice(0, EVENTS_START) + DESIGN.slice(DESIGN.indexOf('규칙:\n- 사용자가'))
+const looksEvents = (t) => /쌓|잔액|재고|포인트|예산|장부|부여|배정|지출|입출|대여|적립|차감|취소.*기록|기록.*취소/.test(t)
+
+async function designInSteps(text) {
+  const k = await chatJson(KIND, text, { temperature: 0, timeoutMs: 45000, maxTokens: 60 }).catch(() => null)
+  const kind = ['live', 'events', 'data'].includes(k?.kind) ? k.kind : looksEvents(text) ? 'events' : 'data'
+  if (kind === 'live') return { kind: 'live' }
+  const out = await chatJson(kind === 'events' ? EVENTS_DESIGN : LIST_DESIGN, text, { temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 2500 })
+  return kind === 'events' ? { ...out, kind: 'events' } : { ...out, kind: 'list' }
+}
+
 export async function design(description) {
-  const out = await chatJson(DESIGN, String(description || '').slice(0, 2000), { temperature: 0.2 })
+  const text = String(description || '').slice(0, 2000)
+  let out
+  try {
+    out = await chatJson(DESIGN, text, { temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 4000 })
+  } catch (e) {
+    console.warn('[panelApps] design:', e.message, '— trying the smaller design steps')
+    try { out = await designInSteps(text) } catch (e2) {
+      const slow = /abort|timeout|timed out/i.test(`${e.message} ${e2.message}`)
+      throw err(503, slow ? '모델 응답이 늦어 패널 설계를 마치지 못했어요(시간 초과). 잠시 뒤 다시 요청해 주세요.' : `패널을 설계하지 못했어요: ${e2.message}`)
+    }
+  }
   if (out?.kind === 'live') return { kind: 'live' }
   // secure by default: sensitivity floor, database tier when something must stay hidden
   if (out?.kind === 'events') return { kind: 'data', def: E.normalizeEventsDef(out, { secure: true }), rows: [] }

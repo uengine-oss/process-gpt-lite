@@ -290,9 +290,10 @@ async function removeApp() {
 .danger { color: var(--color-error); }
 
 .sum { display: flex; gap: 6px; margin-bottom: 10px; }
-.cell { flex: 1; min-width: 0; background: var(--cell-bg); border-radius: 12px; padding: 9px 12px; display: flex; flex-direction: column; }
+.cell { flex: 1; min-width: 0; background: var(--cell-bg); border-radius: 12px; padding: 9px 12px; display: flex; flex-direction: column; container-type: inline-size; }
 .cell .k { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cell .v { font-size: 22px; letter-spacing: -.02em; }
+/* a big amount (105,756,000원) shrinks with its tile and wraps rather than running into the next one */
+.cell .v { font-size: clamp(13px, 12.5cqi, 22px); line-height: 1.2; letter-spacing: -.02em; overflow-wrap: anywhere; min-width: 0; }
 .cell small, .val small { font-size: 13px; color: var(--text-secondary); margin-left: 2px; }
 
 .list { display: flex; flex-direction: column; gap: 6px; }

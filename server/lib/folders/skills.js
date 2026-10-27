@@ -286,6 +286,10 @@ async function grade(c, output) {
   return { pass: !!j.pass, note: String(j.note || '') }
 }
 
+// A verification runs in this server's memory: it has a deadline, and a row still 'running' long past
+// it (the server restarted mid-run, or the agent never answered) is closed as failed when read.
+const VERIFY_MS = () => Number(process.env.PRO_VERIFY_MS || 20 * 60000)
+
 export async function verify(folder, v, user, jwt) {
   if (await providerConfigured()) {
     const pr = await prOf(v)
@@ -297,6 +301,7 @@ export async function verify(folder, v, user, jwt) {
   const pr = await prOf(v)
   const [row] = await q(`insert into pro_skill_verifications (folder_id, variation_id, pr_id, mode, status, created_by) values ($1,$2,$3,'local','running',$4) returning *`,
     [folder.id, v.id, pr?.id || null, user.id])
+  const stop = AbortSignal.timeout(VERIFY_MS())
   ;(async () => {
     try {
       const cases = await writeCases(folder, v)
@@ -304,7 +309,8 @@ export async function verify(folder, v, user, jwt) {
       const one = async (c, i, side) => {
         const room = `fold-verify-${row.id.slice(0, 8)}-${side}-${i}`
         const base = await versionDir(folder, side === 'base' ? folder.default_branch : v.branch, room)
-        const out = await runAgent({ jwt, user, conversationId: room, message: `아래 요청을 이 스킬 문서의 절차대로 처리하세요: ${base}/SKILL.md (같은 폴더의 파일도 참고). 설치된 다른 스킬은 쓰지 마세요. 사람에게 되묻지 말고 필요한 값은 합리적으로 정해 끝까지 처리하세요.\n\n요청: ${c.prompt}` })
+        const out = await runAgent({ jwt, user, conversationId: room, signal: stop, message: `아래 요청을 이 스킬 문서의 절차대로 처리하세요: ${base}/SKILL.md (같은 폴더의 파일도 참고). 설치된 다른 스킬은 쓰지 마세요. 사람에게 되묻지 말고 필요한 값은 합리적으로 정해 끝까지 처리하세요.\n\n요청: ${c.prompt}` })
+        if (stop.aborted) throw stop.reason
         return { ...(await grade(c, out)), output: out.slice(0, 1500) }
       }
       const results = await Promise.all(cases.map(async (c, i) => {
@@ -314,7 +320,10 @@ export async function verify(folder, v, user, jwt) {
       const summary = { cases: results.length, base_pass: results.filter((r) => r.base.pass).length, head_pass: results.filter((r) => r.head.pass).length, broken: results.filter((r) => r.base.pass && !r.head.pass).length }
       await q(`update pro_skill_verifications set status='succeeded', results=$2, summary=$3, updated_at=now() where id=$1`, [row.id, JSON.stringify(results), summary])
     } catch (e) {
-      await q(`update pro_skill_verifications set status='failed', error=$2, updated_at=now() where id=$1`, [row.id, e.message.slice(0, 400)])
+      const why = stop.aborted || e?.name === 'TimeoutError' || e?.name === 'AbortError'
+        ? `시간 초과 — ${Math.round(VERIFY_MS() / 60000)}분 안에 끝나지 않아 멈췄어요. 시나리오가 너무 크거나 에이전트가 응답하지 않았어요.`
+        : String(e?.message || e)
+      await q(`update pro_skill_verifications set status='failed', error=$2, updated_at=now() where id=$1 and status='running'`, [row.id, why.slice(0, 400)])
     }
     emit(user.id, 'folders', { slug: folder.slug, variation: v.id })
   })()
@@ -322,6 +331,11 @@ export async function verify(folder, v, user, jwt) {
 }
 export async function latestVerification(v) {
   const [r] = await q('select * from pro_skill_verifications where variation_id=$1 order by created_at desc limit 1', [v.id])
+  if (r?.status === 'running' && Date.now() - new Date(r.created_at).getTime() > VERIFY_MS() + 2 * 60000) {
+    const [x] = await q(`update pro_skill_verifications set status='failed', error=$2, updated_at=now() where id=$1 and status='running' returning *`,
+      [r.id, '검증이 중단됐어요(서버가 다시 시작됐거나 시간 안에 끝나지 않았어요). 다시 검증해 주세요.'])
+    return x || r
+  }
   return r || null
 }
 

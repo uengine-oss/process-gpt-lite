@@ -409,7 +409,7 @@ const stageIcon = { identify: '1', exploit: '2', subordinate: '3', elevate: '4',
                 <div class="decide glass">
                   <div class="dt">
                     <b>{{ definitionChange ? `이 개선안으로 새 버전 v${nextVersion}을 만들까요?` : '고른 안은 프로세스 정의를 바꾸지 않아요' }}</b>
-                    <small>{{ definitionChange ? '적용하면 BPMN·단계 설정이 바뀐 새 버전이 저장되고 새로 시작하는 건부터 새 버전으로 돌아요. 이미 진행 중인 건도 엔진이 다음 단계부터 새 정의를 따를 수 있어요(비교는 시작한 때의 버전으로 묶어요).' : '인원 추가는 설정 → 팀·역할에서, 보완 줄이기는 앞 단계 지시를 고쳐서 해요.' }}</small>
+                    <small>{{ definitionChange ? '적용하면 BPMN·단계 설정이 바뀐 새 버전이 저장되고 새로 시작하는 건부터 새 버전으로 돌아요. 이미 진행 중인 건은 시작한 버전으로 끝까지 진행해요(비교도 시작한 때의 버전으로 묶어요).' : '인원 추가는 설정 → 팀·역할에서, 보완 줄이기는 앞 단계 지시를 고쳐서 해요.' }}</small>
                   </div>
                   <button v-if="o.canApply" class="go press" :disabled="!definitionChange || applying" @click="applyOpen = true">개선안 적용</button>
                   <small v-else class="muted">적용은 프로세스 담당자·관리자만 할 수 있어요.</small>

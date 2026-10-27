@@ -1,6 +1,7 @@
 // Read side of process-gpt BPM: definitions, forms, instances, work items, artifacts.
 import { q } from './supa.js'
 import { config } from '../config.js'
+import { failures } from './stepRetry.js'
 
 const T = () => config.tenantId
 
@@ -109,7 +110,9 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
                     and (t.user_id like '%'||$2||'%' or t.user_id like '%'||$3||'%')) as needs_me,
             exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id and ${AGENT_RUNNING}) as agent_running,
             exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id and t.agent_orch is null
-                    and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))) as human_waiting
+                    and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))) as human_waiting,
+            exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id and t.agent_orch is not null
+                    and t.status = 'IN_PROGRESS' and t.draft_status::text = 'FAILED') as agent_failed
      from bpm_proc_inst i left join proc_def d on d.id=i.proc_def_id and d.tenant_id=i.tenant_id
      where i.tenant_id=$1 and not coalesce(i.is_deleted,false) and ($4::text is null or i.status::text=$4)
        and ${INVOLVED}
@@ -142,8 +145,12 @@ export async function getInstance(instId, me) {
     const mine = t && reached && ['TODO', 'IN_PROGRESS', 'NEW'].includes(t.status) &&
       (String(t.user_id || '').includes(me.email) || String(t.user_id || '').includes(me.id))
     return { ...s, state, todoId: t?.id || null, todoStatus: t?.status || null, mine: !!mine, assignee: t?.username || t?.user_id || null,
-      running: state === 'active' && agentRunning(t) }
+      running: state === 'active' && agentRunning(t),
+      // an agent step that stopped on an error (lib/stepRetry.js): shown with 「다시 시도」
+      failed: !!t?.agent_orch && t.status === 'IN_PROGRESS' && t.draft_status === 'FAILED' }
   })
+  const fail = await failures(steps.filter((s) => s.failed).map((s) => s.todoId)).catch(() => ({}))
+  for (const s of steps) if (s.failed) s.failure = fail[s.todoId] || null
   // gateways have no work item: done once anything after them is done
   steps.forEach((s, i) => { if (s.kind === 'gateway' && steps.slice(i + 1).some((n) => n.state === 'done')) s.state = 'done' })
   // a finished instance did not take the other branches

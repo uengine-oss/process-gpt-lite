@@ -13,9 +13,9 @@ const router = useRouter()
 const team = useTeam()
 const busy = ref('')
 
-const verb = computed(() => props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? (/공유했어요/.test(props.n.title) ? '공유' : '멘션') : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+const verb = computed(() => props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? (/공유했어요/.test(props.n.title) ? '공유' : '멘션') : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
-const kinds = { mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선' }
+const kinds = { agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선' }
 const when = computed(() => {
   const d = new Date(props.n.at)
   const mins = Math.round((Date.now() - d) / 60000)
@@ -32,6 +32,9 @@ async function act(choice) {
   if (!choice && String(props.n.url || '').startsWith('/mining/')) return router.push(props.n.url)
   // a new constraint in a process (lib/improve/service.js checkConstraint) opens its 개선 view
   if (!choice && String(props.n.url || '').startsWith('/improve/')) return router.push(props.n.url)
+  // a failed agent step (lib/stepRetry.js) opens its instance, where 「다시 시도」 is; a failed scheduled
+  // run opens its task's run history (lib/missions.js)
+  if (!choice && /^\/(projects|settings)\//.test(String(props.n.url || ''))) { app.dismissNotification(props.n); return router.push(props.n.url) }
   busy.value = choice || 'open'
   try { await app.actNotification(props.n, choice) } finally { busy.value = '' }
 }
@@ -56,7 +59,7 @@ async function act(choice) {
         <button v-for="o in n.choices.options" :key="o.key" class="b press" :class="{ main: o === n.choices.options[0] }"
           :disabled="!!busy" :title="o.label" @click="act(o.key)">{{ busy === o.key ? '처리 중…' : o.key }}</button>
       </template>
-      <button class="b ghost press" :disabled="!!busy" @click="act()">{{ n.type === 'mention' ? '채팅에서 보기' : n.choices ? '자세히' : n.type === 'merge_request' || n.type === 'mining' ? '검토하기' : n.type === 'improve' ? '개선 보기' : '열기' }}</button>
+      <button class="b ghost press" :disabled="!!busy" @click="act()">{{ n.type === 'mention' ? '채팅에서 보기' : n.choices ? '자세히' : n.type === 'merge_request' || n.type === 'mining' ? '검토하기' : n.type === 'improve' ? '개선 보기' : n.type === 'agent_failed' ? '인스턴스 보기' : n.type === 'mission_failed' ? '실행 기록 보기' : '열기' }}</button>
     </div>
   </div>
 </template>
@@ -67,6 +70,7 @@ async function act(choice) {
 .verb { flex: none; height: 30px; line-height: 30px; padding: 0 9px; border-radius: 8px; background: var(--color-attention); color: #fff; font-size: 15px; font-weight: 500; }
 .mention .verb, .team .verb { background: #2a78d6; }
 .mission .verb { background: #3d3d3a; }
+.agent_failed .verb, .mission_failed .verb { background: var(--color-error); }
 .title { flex: 1; font-size: 16px; line-height: 30px; font-weight: 500; }
 .x { flex: none; width: 28px; height: 28px; border-radius: 14px; color: var(--text-tertiary); font-size: 20px; line-height: 26px; }
 .who { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }

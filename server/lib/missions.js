@@ -1,7 +1,10 @@
 // Missions: scheduled runs of a deepagents tenant skill, fired by pg_cron (see scheduler.js).
 // Each run is a fresh deepagents conversation as the user (real JWT, so per-user connectors work).
-// The skill ends with `MISSION_RESULT: {...}`; state carried between runs (e.g. seen video ids)
-// lives in pro_schedules.state, and the chat only hears about a run when something changed.
+// The run is asked to end with `MISSION_RESULT: {...}`; state carried between runs (e.g. seen video
+// ids) lives in pro_schedules.state. A run that finished without that line still succeeded (whether
+// anything changed is then unknown, so the person hears about it); the chat stays quiet only for a
+// successful run that found nothing new. A failed run — a skill, a process or a plain prompt — is
+// recorded in the task's run history and announced in chat and on Home.
 import { config } from '../config.js'
 import { q, sessionFor } from './supa.js'
 import { emit } from './bus.js'
@@ -21,6 +24,9 @@ const PGPT = PGPT_ROOT
 // The sandbox sees /workspace; on the host that is deepagents/workspace/<tenant> (per-tenant since
 // the 2026-10 deepagents), or deepagents/workspace on older builds.
 export async function workspaceHostPath(dir) {
+  // deepagents reports some files relative to the workspace root (/.bpmn/<room>/process-…/ for a
+  // process generation folder): those live under /workspace too
+  if (/^\/\.bpmn\//.test(dir)) dir = `/workspace${dir}`
   if (!dir.startsWith('/workspace')) return dir
   const rest = dir.slice('/workspace'.length)
   for (const base of [`${PGPT}/services/deepagents/workspace/${config.tenantId}`, `${PGPT}/services/deepagents/workspace`]) {
@@ -50,10 +56,36 @@ export async function saveSkillDraft({ dir, name, jwt, ownerId }) {
 
 const now = () => new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'full', timeStyle: 'short' })
 
-function parseResult(text) {
+export function parseResult(text) {
   const line = [...String(text).matchAll(/MISSION_RESULT:\s*(\{[\s\S]*?\})\s*$/gm)].pop()
   if (!line) return null
   try { return JSON.parse(line[1]) } catch { return null }
+}
+
+// the line every mission run is asked to end with (skill-creator's drafts do not add it on their own)
+export const RESULT_LINE = '끝나면 맨 마지막 줄에 결과를 한 줄로 적으세요: MISSION_RESULT: {"changed": true|false, "summary": "결과 한 문장(해요체)"} — changed 는 직전 실행 뒤로 새로 생기거나 바뀐 것이 있으면 true. 스킬 문서에 결과 줄 형식이 따로 있으면 그 형식을 따르세요.'
+
+// A skill saved to run on a schedule gets the result step when its SKILL.md has none (skill-creator
+// does not add it): missions then know whether anything changed.
+export async function ensureResultLine(hostDir) {
+  const file = path.join(hostDir, 'SKILL.md')
+  const md = await fs.readFile(file, 'utf8').catch(() => null)
+  if (md === null || /MISSION_RESULT/.test(md)) return false
+  await fs.writeFile(file, `${md.replace(/\s*$/, '')}\n\n## 예약 실행 결과\n\n예약 실행(미션)으로 돌 때는 모든 단계를 마친 뒤 맨 마지막 줄에 결과를 한 줄로 출력한다:\n\n\`\`\`\nMISSION_RESULT: {"changed": true, "summary": "결과 한 문장"}\n\`\`\`\n\n- changed: 직전 실행 뒤로 새로 생기거나 바뀐 것이 있으면 true, 없으면 false\n- summary: 사용자에게 알릴 결과 한 문장(해요체)\n`)
+  return true
+}
+
+// An agent's answer without a result line, read as a run's outcome: an error or nothing at all is a
+// failure; any other answer finished the job (changed unknown). Summary: the last sentence that says
+// something (not a bare path, link or code line).
+export function outcomeOf(text) {
+  const t = String(text || '').trim()
+  if (!t) return { ok: false, summary: '에이전트가 아무 답도 남기지 않고 끝났어요.' }
+  const err = /\(오류:\s*([^)]*)\)/.exec(t)
+  if (err && t.replace(err[0], '').trim().length < 40) return { ok: false, summary: `실행 중 오류: ${err[1].trim() || '원인 미상'}`.slice(0, 300) }
+  const lines = t.replace(/```[\s\S]*?```/g, '').split('\n').map((l) => l.replace(/^[\s#>*\-•\d.]+/, '').replace(/\*\*|`/g, '').trim())
+    .filter((l) => l.length >= 6 && !/^(\/|~\/|https?:\/\/)\S*$/.test(l) && !/^[\w./-]+\.\w{1,5}$/.test(l) && /[가-힣a-zA-Z]{2}/.test(l))
+  return { ok: true, summary: (lines.at(-1) || t.split('\n').filter(Boolean).at(-1) || '').slice(0, 300) }
 }
 
 // deepagents' skills API is tenant-guarded: call it with the user's JWT.
@@ -138,17 +170,61 @@ async function streamAgent({ user, session, message, agent }) {
   return { text: final || text, conversationId, tools }
 }
 
+// A plain prompt on a schedule ("매일 아침 8시에 …"): the answer goes to the chat as an agent turn; a run
+// that found nothing new posts nothing, but every run — and every failure — is in the run history.
+async function runPromptSchedule(s, run) {
+  const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
+  const { user, session } = await sessionFor(p.email, p.name)
+  const threadId = s.thread_id || (await mainThread(s.user_id)).id
+  const text = `${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`
+  const { delegate } = await import('./agent.js')
+  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, quietIfUnchanged: true })
+  const body = String(msg?.content?.text || '')
+  const out = msg ? outcomeOf(body) : { ok: true, summary: '변동 없음' }
+  // the answer is already in the chat: a failure is announced by the caller, not repeated here
+  const [done] = await q(`update pro_mission_runs set finished_at=now(), status=$2, changed=$3, summary=$4, result=$5 where id=$1 returning *`,
+    [run.id, out.ok ? 'done' : 'failed', out.ok ? !!msg : null, out.summary, { agent: 'deepagents', posted: !!msg }])
+  emit(s.user_id, 'mission', { scheduleId: s.id, run: done })
+  if (!out.ok) await announceFailure(s, done, { posted: !!msg })
+  return done
+}
+
+// a failed run is never silent: a line in the task's chat and a Home card (the run history has it too)
+async function announceFailure(s, run, { posted = false } = {}) {
+  if (s.notify === 'never') return
+  const reason = String(run?.summary || '원인을 알 수 없어요.').slice(0, 200)
+  if (!posted) {
+    const t = s.thread_id || (await mainThread(s.user_id)).id
+    await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id })
+    await addMessage(s.user_id, t, 'agent', 'text', { text: `예약 실행이 실패했어요: ${reason}\n다음 예약 시각에 다시 실행해요. 「${s.name} 관리」에서 실행 기록을 보거나 지금 다시 실행할 수 있어요.` })
+  }
+  await notifyUser(s.user_id, { type: 'mission_failed', title: `예약 실행 실패: ${s.name}`, text: reason, url: `/settings/schedules?open=${s.id}` })
+}
+
+// pg_cron's tick (POST /api/cron/fire). When the database cannot even record the run (recovery mode,
+// a restart), the tick is tried again a little later instead of being lost without a trace.
+export async function fireSchedule(scheduleId, attempt = 0) {
+  try { return await runMission(scheduleId, attempt ? 'retry' : 'cron') } catch (e) {
+    if (attempt >= 3) { console.warn(`[cron] ${scheduleId.slice(0, 8)} gave up: ${e.message}`); return null }
+    const min = 2 ** attempt
+    console.warn(`[cron] ${scheduleId.slice(0, 8)} could not start (${e.message}) — again in ${min} min`)
+    await new Promise((r) => setTimeout(r, min * 60000))
+    return fireSchedule(scheduleId, attempt + 1)
+  }
+}
+
 export async function runMission(scheduleId, trigger = 'cron') {
   const [s] = await q('update pro_schedules set last_run=now() where id=$1 returning *', [scheduleId])
-  if (!s || (s.paused && trigger === 'cron')) return null
+  if (!s || (s.paused && trigger !== 'manual')) return null
   const [run] = await q(`insert into pro_mission_runs(schedule_id, trigger) values ($1,$2) returning *`, [s.id, trigger])
   emit(s.user_id, 'mission', { scheduleId: s.id, run })
   try {
     if (s.process_id) return await runProcessSchedule(s, run)
+    if (!s.skill) return await runPromptSchedule(s, run)
     const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
     const { user, session } = await sessionFor(p.email, p.name)
     const input = { ...s.params, seen: s.state?.seen || [], now: now() }
-    const ask = `사용자에게 되묻지 말고 이 스킬의 절차대로 끝까지 실행해 주세요.\n입력:\n${JSON.stringify(input, null, 1)}`
+    const ask = `사용자에게 되묻지 말고 이 스킬의 절차대로 끝까지 실행해 주세요.\n입력:\n${JSON.stringify(input, null, 1)}\n${RESULT_LINE}`
     // deepagents pins a skill from a leading '/skill-name'; cli-agent installs the tenant skills
     // into the run's project (.claude/skills, .agents/skills), so it is named instead.
     // a private skill (lib/folders/skills.js) is not installed: the owner's run reads its copy
@@ -159,17 +235,21 @@ export async function runMission(scheduleId, trigger = 'cron') {
       : `/${s.skill} ${ask}`
     const out = await streamAgent({ user, session, message, agent: s.agent })
     const result = parseResult(out.text)
-    const changed = !!result?.changed
-    const summary = result?.summary || out.text.trim().split('\n').filter(Boolean).slice(-1)[0] || '결과를 확인하지 못했어요.'
+    // no result line: the run still finished (or not) — read the answer itself
+    const plain = result ? null : outcomeOf(out.text)
+    const ok = !!result || plain.ok
+    const changed = result ? !!result.changed : null // null: unknown
+    const summary = result?.summary || plain?.summary || '결과를 확인하지 못했어요.'
     if (result?.seen_add?.length) {
       const seen = [...new Set([...(s.state?.seen || []), ...result.seen_add])].slice(-300)
       await q(`update pro_schedules set state = coalesce(state,'{}'::jsonb) || $2::jsonb where id=$1`, [s.id, JSON.stringify({ seen })])
     }
     const [done] = await q(`update pro_mission_runs set finished_at=now(), status=$2, changed=$3, summary=$4, result=$5, conversation_id=$6 where id=$1 returning *`,
-      [run.id, result ? 'done' : 'failed', changed, summary, { ...(result || {}), tools: out.tools, agent: s.agent?.orch === 'cliagents' ? s.agent.cli || 'claude-code' : 'deepagents' }, out.conversationId])
+      [run.id, ok ? 'done' : 'failed', changed, summary, { ...(result || {}), ...(result ? {} : { result_line: false }), tools: out.tools, agent: s.agent?.orch === 'cliagents' ? s.agent.cli || 'claude-code' : 'deepagents' }, out.conversationId])
     emit(s.user_id, 'mission', { scheduleId: s.id, run: done })
-    // hark-style: stay quiet unless the run produced something new
-    if (s.notify === 'always' || (s.notify !== 'never' && changed)) {
+    if (!ok) { await announceFailure(s, done); return done }
+    // hark-style: stay quiet only when the run says nothing changed (unknown → the person hears about it)
+    if (s.notify === 'always' || (s.notify !== 'never' && changed !== false)) {
       const t = s.thread_id || (await mainThread(s.user_id)).id
       await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id })
       const created = (result?.created || []).map((c) => `- ${c.date} ${c.summary}`).join('\n')
@@ -181,6 +261,7 @@ export async function runMission(scheduleId, trigger = 'cron') {
   } catch (e) {
     const [failed] = await q(`update pro_mission_runs set finished_at=now(), status='failed', summary=$2 where id=$1 returning *`, [run.id, e.message.slice(0, 300)])
     emit(s.user_id, 'mission', { scheduleId: s.id, run: failed })
+    await announceFailure(s, failed).catch((x) => console.warn('[mission] announce', x.message))
     return failed
   }
 }

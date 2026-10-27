@@ -148,12 +148,36 @@ export function normalizeDef(raw, opts = {}) {
 }
 
 // ---------- values ----------
+// "3,800만 원", "1억 2천만원", "3천8백만", "1.5억", "약 5천 원", "38,000,000원", "15일", "12%" → a number
+// (Korean numeric units 조·억·만 and 천·백·십 on top of digits); anything else → NaN
+const BIG = { 조: 1e12, 억: 1e8, 만: 1e4 }
+const SMALL = { 천: 1e3, 백: 1e2, 십: 10 }
+export function parseKoNumber(raw) {
+  let s = String(raw ?? '').replace(/[\s,₩]/g, '').replace(/^(약|대략|총|금)/u, '')
+    .replace(/(원정?|원|일|개|명|건|회|대|권|시간|%|퍼센트)$/u, '')
+  if (!s) return NaN
+  if (/^[-+]?\d+(\.\d+)?$/.test(s)) return Number(s)
+  let sign = 1
+  if (/^[-+]/.test(s)) { if (s[0] === '-') sign = -1; s = s.slice(1) }
+  let total = 0, block = 0, num = null, seen = false
+  for (const m of s.matchAll(/(\d+(?:\.\d+)?)|([조억만천백십])|(.)/gu)) {
+    if (m[3]) return NaN
+    if (m[1]) { if (num !== null) return NaN; num = Number(m[1]); continue }
+    seen = true
+    const u = m[2]
+    if (SMALL[u]) { block += (num ?? 1) * SMALL[u]; num = null } else { block += num ?? 0; total += (block || 1) * BIG[u]; block = 0; num = null }
+  }
+  if (!seen) return NaN
+  return sign * Math.round((total + block + (num ?? 0)) * 100) / 100
+}
+
 export function coerce(f, v) {
   if (v === undefined || v === null) return ''
   if (typeof v === 'object' && !(v instanceof Date)) v = v.text ?? v.result ?? ''
   if (f.type === 'number') {
     if (v === '') return ''
-    const n = Number(String(v).replace(/[,\s원일개명%]/g, ''))
+    if (typeof v === 'number') return v
+    const n = parseKoNumber(v)
     return Number.isFinite(n) ? n : String(v)
   }
   if (f.type === 'checkbox') return v === true || /^(true|1|y|yes|예|o|✓|☑)$/i.test(String(v).trim())
@@ -177,9 +201,11 @@ export function validate(def, input, { partial = false } = {}) {
   const out = {}
   const problems = []
   for (const f of def.fields) {
-    const has = Object.prototype.hasOwnProperty.call(input || {}, f.key) || Object.prototype.hasOwnProperty.call(input || {}, f.label)
+    // a model or a person may write the label without its spaces ("견적금액" for "견적 금액")
+    const loose = Object.keys(input || {}).find((k) => k.replace(/\s/g, '') === String(f.label).replace(/\s/g, ''))
+    const has = Object.prototype.hasOwnProperty.call(input || {}, f.key) || Object.prototype.hasOwnProperty.call(input || {}, f.label) || !!loose
     if (partial && !has) continue
-    let v = input?.[f.key] ?? input?.[f.label]
+    let v = input?.[f.key] ?? input?.[f.label] ?? (loose ? input[loose] : undefined)
     if ((v === undefined || v === '') && !partial && f.default !== undefined) v = f.default
     v = coerce(f, v)
     if (f.required && (v === '' || v === false && f.type !== 'checkbox')) { problems.push(`'${f.label}' 을(를) 적어 주세요.`); continue }

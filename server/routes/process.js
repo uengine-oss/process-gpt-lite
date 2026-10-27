@@ -6,8 +6,9 @@ import { q, admin } from '../lib/supa.js'
 import * as proc from '../lib/processes.js'
 import * as engine from '../lib/engine.js'
 import { mainThread, addMessage, updateMessage } from '../lib/store.js'
-import { saveGenerated } from '../lib/generated.js'
+import { saveGenerated, installGeneratedSkills } from '../lib/generated.js'
 import { markOpened } from '../lib/improve/signal.js'
+import { retryNow } from '../lib/stepRetry.js'
 
 export function processRoutes(auth) {
   const r = express.Router()
@@ -51,6 +52,8 @@ export function processRoutes(auth) {
     if (!m) return res.status(404).end()
     try {
       const saved = await saveGenerated(m.content.contract, m.content.workDir)
+      // the generation's own skills, so its agent steps find them (lib/generated.js)
+      saved.skills_installed = await installGeneratedSkills(m.content.workDir, { jwt: req.session?.access_token, ownerId: req.user.id }).catch((e) => { console.warn('[save-generated] skills', e.message); return [] })
       await updateMessage(req.user.id, m.id, { state: 'saved', defId: saved.proc_def_id, saved })
       res.json(saved)
     } catch (e) {
@@ -71,6 +74,12 @@ export function processRoutes(auth) {
   r.get('/todos/:id/events', auth, async (req, res) => {
     const rows = await q(`select timestamp, event_type, crew_type, data from events where todo_id=$1 order by timestamp asc, id asc limit 800`, [req.params.id])
     res.json(rows)
+  })
+
+  // 「다시 시도」 on an agent step that stopped on an error (lib/stepRetry.js)
+  r.post('/todos/:id/retry', auth, async (req, res) => {
+    try { res.json(await retryNow(req.user, req.params.id, proc.canSeeInstance)) }
+    catch (e) { res.status(e.status || 500).json({ error: e.message }) }
   })
 
   r.post('/todos/:id/submit', auth, async (req, res) => {

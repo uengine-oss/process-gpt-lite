@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import StepTimeline from './StepTimeline.vue'
 import FormCard from './FormCard.vue'
@@ -21,6 +21,16 @@ const agentCount = computed(() => def.value?.steps.filter((s) => s.kind === 'age
 
 onMounted(async () => { def.value = await api(`/processes/${encodeURIComponent(c.value.defId)}`) })
 
+// the card often sits at the bottom of the chat, under the composer: an opened flow is brought into
+// view, or the button seems to do nothing
+const flowEl = ref(null)
+async function toggleFlow() {
+  showFlow.value = !showFlow.value
+  if (!showFlow.value) return
+  await nextTick()
+  flowEl.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+
 async function start(values = {}) {
   busy.value = true
   err.value = ''
@@ -40,10 +50,10 @@ async function start(values = {}) {
         <span>{{ def.steps.filter((s) => !['start', 'end', 'event'].includes(s.kind)).length }}단계</span>
         <span v-if="humanCount">· 사람 {{ humanCount }}</span>
         <span v-if="agentCount">· 에이전트 {{ agentCount }}</span>
-        <button class="flow-btn" @click="showFlow = !showFlow">{{ showFlow ? '흐름 접기' : '흐름 보기' }}</button>
+        <button class="flow-btn" :aria-expanded="showFlow" @click="toggleFlow">{{ showFlow ? '흐름 접기' : '흐름 보기' }}</button>
       </div>
     </div>
-    <div v-if="def && showFlow" class="flow inner">
+    <div v-if="def && showFlow" ref="flowEl" class="flow inner">
       <span class="seg"><button :class="{ on: view === 'list' }" @click="view = 'list'">목록</button><button :class="{ on: view === 'bpmn' }" @click="view = 'bpmn'">다이어그램</button></span>
       <StepTimeline v-if="view === 'list'" :steps="def.steps" />
       <BpmnView v-else :def-id="def.id" :height="300" class="dg" />
@@ -71,6 +81,8 @@ h3 { margin: 4px 0 6px; font-size: 23px; line-height: 1.3; font-weight: 400; let
 .meta { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--text-secondary); }
 .flow-btn { margin-left: auto; font-size: 13px; color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; }
 .inner { background: var(--field-bg); border-radius: 16px; padding: 14px 14px 2px; }
+/* the composer floats over the chat's bottom edge */
+.flow { scroll-margin-bottom: 140px; }
 .start-form { box-shadow: none; --bubble-agent-bg: transparent; max-width: none; padding: 6px 10px 10px; }
 .start { margin: 4px 6px 6px; }
 :root[data-theme="dark"] .start { background: #f5f5f7; color: #1d1d1f; }

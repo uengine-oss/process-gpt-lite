@@ -38,9 +38,9 @@ export async function access(me, defId) {
   return { def: d, admin, owner, canApply: admin || owner }
 }
 
-// process-gpt's engine stamps an instance with the *latest* version every time it saves it
-// (completion database.upsert_process_instance), so proc_def_version is not the version a run started
-// on. A run belongs to the version in force when it started (its first status change).
+// A run belongs to the version in force when it started (its first status change). The completion
+// engine now stamps proc_def_version once at start and keeps it (feat/pin-instance-version), but
+// instances saved by older engines carry the latest version instead — the start time decides.
 async function instancesWithVersion(defId) {
   const vs = await q(`select version, arcv_id, ("timeStamp" at time zone 'UTC') as at from proc_def_version
                       where lower(proc_def_id)=lower($1) and tenant_id=$2 and not coalesce(is_draft,false) order by "timeStamp" asc nulls first`, [defId, T()])

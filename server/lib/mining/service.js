@@ -4,6 +4,18 @@
 // 정식 등록 the definition is generated from the mined model (steps, order, roles, agents) plus the
 // catalog (forms, skills) and saved with process-gpt's own save path (save_contract + BPMN XML);
 // the next similar mail starts it (routeMail).
+//
+// How cases become one recommendation (the matching rule):
+//   - one case = one customer mail (pro_mining_cases); its steps are the handover records up to the
+//     customer reply — anything after the reply is not part of it (recorder.js caseClosed)
+//   - the miner groups cases whose sets of activity names are similar (Jaccard ≥ 0.6, at least
+//     PRO_MINING_MIN_CASES cases); a group's key is a hash of its core activities (in half its cases)
+//   - a group is the same recommendation as an existing one when the key is the same OR most of its
+//     cases already belong to that recommendation (sameSuggestion): the evidence grows there, the
+//     decision (등록·보류) stays, and no second recommendation with the same cases appears
+//   - so new cases whose activities match an already registered flow add evidence to it rather than
+//     making a new recommendation; a different flow needs different activities (e.g. its own review
+//     steps — recorder.js names a review after the recipient's role)
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
@@ -59,7 +71,7 @@ async function doScan() {
     // only work pgpt-pro recorded (one case = one mail); other tenants' demos are not ours to suggest
     const cases = await q('select * from pro_mining_cases where tenant_id=$1 and case_id = any($2) order by created_at', [T(), p.case_ids])
     if (cases.length * 2 < p.case_ids.length) continue
-    const [have] = await q('select id, status from pro_mining_suggestions where tenant_id=$1 and pattern_key=$2', [T(), p.key])
+    const have = await sameSuggestion(p)
     if (have) {
       // more cases of a pattern already suggested: the evidence grows, the decision stays
       // (still undecided: the mined model is drawn again from all the cases)
@@ -76,6 +88,7 @@ async function doScan() {
     [T(), p.case_ids, last, Number(process.env.PRO_MINING_SETTLE_SEC || 20), Number(process.env.PRO_MINING_IDLE_SEC || 1800)])
     if (open) continue
     const named = await nameOf(p, cases)
+    named.name = await uniqueName(named.name)
     // the miner proposes it as process-gpt does: a draft version + an open PR (live proc_def untouched)
     const mined = await miner('/mine', { tenant_id: T(), process_id: p.process_id, name: named.name, case_ids: p.case_ids })
     const formats = [...new Set(p.steps.flatMap((s) => s.tools.map((t) => TOOL_FORMAT[t]).filter(Boolean)))]
@@ -88,6 +101,32 @@ async function doScan() {
     await notifyAdmins(s)
   }
   return made
+}
+
+// the recommendation a found group already is: the same key, or most of its cases (≥ half of the
+// smaller side) already counted there — the miner's groups grow and merge as cases pile up
+export async function sameSuggestion(p) {
+  const [byKey] = await q('select id, status from pro_mining_suggestions where tenant_id=$1 and pattern_key=$2', [T(), p.key])
+  if (byKey) return byKey
+  const rows = await q(`select id, status, pattern->'case_ids' as cases from pro_mining_suggestions where tenant_id=$1`, [T()])
+  const mine = new Set(p.case_ids || [])
+  let best = null
+  for (const r of rows) {
+    const theirs = Array.isArray(r.cases) ? r.cases : []
+    const shared = theirs.filter((c) => mine.has(c)).length
+    const share = shared / Math.max(1, Math.min(theirs.length, mine.size))
+    if (shared && share >= 0.5 && (!best || share > best.share)) best = { id: r.id, status: r.status, share }
+  }
+  return best
+}
+
+// two different flows the model happens to name alike stay apart in the admin's list
+async function uniqueName(name) {
+  const taken = new Set((await q('select name from pro_mining_suggestions where tenant_id=$1', [T()])).map((r) => r.name))
+  if (!taken.has(name)) return name
+  let n = 2
+  while (taken.has(`${name} ${n}`)) n++
+  return `${name} ${n}`
 }
 
 async function notifyAdmins(s) {
@@ -162,7 +201,12 @@ export function buildContract(s) {
       agentSkills.set(agent.id, [...new Set([...(agentSkills.get(agent.id) || []), ...skills])])
     } else elements.push({ ...base, agentMode: 'none' })
   }
-  for (const g of d.gateways) elements.push({ elementType: 'Gateway', id: g.id, name: g.name || '', type: g.type === 'parallelGateway' ? 'ParallelGateway' : 'ExclusiveGateway' })
+  // process-gpt's BPMN generator (bpmn_xml_generator.createGateway) draws elements[] gateways from
+  // gateWayType only — without it every gateway, parallel ones too, is drawn as exclusive (X)
+  for (const g of d.gateways) {
+    const parallel = /parallel/i.test(g.type || '')
+    elements.push({ elementType: 'Gateway', id: g.id, name: g.name || '', type: parallel ? 'ParallelGateway' : 'ExclusiveGateway', gateWayType: parallel ? 'bpmn:parallelGateway' : 'bpmn:exclusiveGateway' })
+  }
   for (const x of d.sequences) elements.push({ elementType: 'Sequence', id: x.id, source: x.source, target: x.target, condition: x.condition || '', ...(x.condition ? { name: x.condition } : {}) })
   const cases = s.pattern.case_count
   return {

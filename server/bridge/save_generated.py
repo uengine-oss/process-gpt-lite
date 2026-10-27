@@ -13,7 +13,9 @@ Env: PGPT_ROOT, TENANT_ID, SUPABASE_URL, SERVICE_ROLE_KEY
 import importlib.util
 import json
 import os
+import re
 import sys
+import uuid
 
 root = os.environ.get("PGPT_ROOT") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "backends", "process-gpt")
 # deepagents' copy of the skill no longer writes to the database (the frontend saves with the
@@ -41,6 +43,8 @@ contract = json.load(sys.stdin)
 # The streamed contract can predate the forms; when the generation folder is known, assemble
 # the final contract again with deepagents' own complete_process_generation helper.
 work = os.environ.get("WORK_DIR")
+if work and not os.path.isdir(work):
+    print(f"generation folder not found, saving the streamed contract as is: {work}", file=sys.stderr)
 if work and os.path.isdir(work):
     sys.path.insert(0, f"{root}/services/deepagents")
     from pathlib import Path
@@ -53,7 +57,78 @@ seen = set()
 contract["forms"] = [f for f in (contract.get("forms") or []) if not (f.get("activity_id") in seen or seen.add(f.get("activity_id")))]
 tenant = os.environ.get("TENANT_ID", "localhost")
 sb = get_client()
+
+
+def _is_uuid(s):
+    try:
+        uuid.UUID(str(s))
+        return True
+    except ValueError:
+        return False
+
+
+def ensure_agents(contract):
+    """The generation's agents (agents/<slug>.json) become agent users, the way the process-gpt UI saves
+    a generated process (ProcessGPTBackend.saveGeneratedProcessArtifacts → putAgent): an agent with the
+    same name is reused, otherwise a new one is made. save_contract only maps skills onto agent users
+    that already exist, so without this nothing of the agents was saved. The definition names agents by
+    slug (roles' endpoint/default, activities' agent): those point at the user ids afterwards."""
+    agents = contract.get("agents") or []
+    if not agents:
+        return []
+    norm = lambda v: re.sub(r"\s+", "", str(v or "")).lower()
+    existing = sb.table("users").select("id,username").eq("tenant_id", tenant).eq("is_agent", True).execute().data or []
+    ids, made = {}, []
+    for a in agents:
+        slug = str(a.get("id") or "").strip()
+        name = str(a.get("name") or a.get("username") or "").strip()
+        # an agent named only by an existing user id (e.g. a mined process's catalog agents) is already saved
+        dup = next((u for u in existing if slug and str(u.get("id")) == slug), None) or \
+            next((u for u in existing if name and norm(u.get("username")) == norm(name)), None)
+        if not dup and not name:
+            continue
+        if dup:
+            uid = str(dup["id"])
+        else:
+            uid = slug if _is_uuid(slug) else str(uuid.uuid4())
+            skills = a.get("skills") or []
+            row = {"id": uid, "username": name, "email": f"{slug or 'agent'}-{uid[:6]}@{tenant}", "tenant_id": tenant,
+                   "is_agent": True, "is_admin": False, "agent_type": "agent", "alias": slug or None,
+                   "role": a.get("role"), "goal": a.get("goal"), "persona": a.get("persona"), "description": a.get("description"),
+                   "tools": a.get("tools") if isinstance(a.get("tools"), str) else None,
+                   "skills": ",".join(skills) if isinstance(skills, list) and skills else None}
+            sb.table("users").insert({k: v for k, v in row.items() if v is not None}).execute()
+            existing.append({"id": uid, "username": name})
+            made.append(uid)
+        if slug and slug != uid:
+            ids[slug] = uid
+        a["id"] = uid
+
+    def sub(v):
+        if isinstance(v, str):
+            return ids.get(v, v)
+        if isinstance(v, list):
+            return [sub(x) for x in v]
+        return v
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in list(o.items()):
+                if k in ("agent", "endpoint", "default"):
+                    o[k] = sub(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for x in o:
+                walk(x)
+
+    walk(contract.get("processDefinition"))
+    return made
+
+
+agents_created = ensure_agents(contract)
 result = save_contract(contract, tenant_id=tenant, sb=sb)
+result["agents_created"] = agents_created
 
 xml = None
 try:

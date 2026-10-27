@@ -81,6 +81,13 @@ onMounted(async () => {
             <small>{{ (x.steps || []).join(' → ') }}</small>
             <span class="n">{{ x.case_count }}건</span>
           </button>
+          <details class="rule">
+            <summary>사례는 어떻게 묶이나요?</summary>
+            <p>메일 한 통이 사례 하나예요. 고객에게 회신하면 그 사례는 끝나고, 그 뒤의 공유는 사례에 넣지 않아요.
+              단계 이름이 비슷한 사례(겹치는 비율 60% 이상)가 여러 건(기본 4건 이상) 모이면 추천이 되고, 이미 있는 추천과 사례가 절반 넘게 겹치면
+              새 추천 대신 그 추천의 근거로 더해져요(등록·보류 결정은 그대로). 그래서 정식 등록된 흐름과 같은 단계로 일한 사례는 새 추천을 만들지 않아요.
+              팀 공유는 받는 사람의 역할(재무 담당 → 재무 검토, 디자이너 → 디자인 검토)이나 공유 메모로 단계 이름이 정해져요.</p>
+          </details>
         </template>
 
         <!-- 한 추천 -->
@@ -183,6 +190,9 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 .sub, .muted { color: var(--text-secondary); font-size: 14.5px; }
 .sp { flex: 1; }
 .hbtn { height: 40px; padding: 0 16px; border-radius: 20px; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; align-self: center; }
+.rule { margin: 14px 4px 0; font-size: 13px; color: var(--text-secondary); }
+.rule summary { cursor: pointer; }
+.rule p { margin: 8px 0 0; line-height: 1.6; }
 .first { border-radius: 22px; padding: 36px; text-align: center; color: var(--text-secondary); }
 .row { width: 100%; display: grid; grid-template-columns: 96px 220px 1fr 60px; gap: 14px; align-items: center; text-align: left; padding: 14px 18px; border-radius: 20px; margin-bottom: 8px; }
 .row small { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

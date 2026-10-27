@@ -4,7 +4,8 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config } from '../config.js'
-import { workspaceHostPath } from './missions.js'
+import fs from 'node:fs/promises'
+import { workspaceHostPath, saveSkillDraft } from './missions.js'
 import { PGPT_ROOT } from './paths.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -26,4 +27,23 @@ export async function saveGenerated(contract, workDir) {
     })
     py.stdin.end(JSON.stringify(contract))
   })
+}
+
+// The skills a process generation wrote (<work>/skills/<name>/SKILL.md) are installed for the tenant
+// through deepagents' own upload (the process-gpt UI's skill save), so the agent steps that name them
+// find them. A skill that already exists is left as it is.
+export async function installGeneratedSkills(workDir, { jwt, ownerId }) {
+  if (!workDir) return []
+  const host = await workspaceHostPath(workDir).catch(() => '')
+  if (!host) return []
+  const names = await fs.readdir(path.join(host, 'skills')).catch(() => [])
+  const out = []
+  for (const name of names) {
+    if (!(await fs.access(path.join(host, 'skills', name, 'SKILL.md')).then(() => true, () => false))) continue
+    const dir = `${workDir.replace(/\/$/, '')}/skills/${name}`
+    try { await saveSkillDraft({ dir, name, jwt, ownerId }); out.push({ name, installed: true }) } catch (e) {
+      out.push({ name, installed: false, ...(/already exists|이미/.test(e.message) ? { exists: true } : { error: e.message.slice(0, 160) }) })
+    }
+  }
+  return out
 }

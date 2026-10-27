@@ -14,17 +14,19 @@ function trace(messages) {
   fs.appendFileSync(config.llmTrace, JSON.stringify({ at: new Date().toISOString(), messages: text }) + '\n')
 }
 
-export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal }) {
+// timeoutMs: a shorter limit for a call that has a smaller fallback; maxTokens: caps a runaway answer
+export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal, timeoutMs = CALL_TIMEOUT_MS, maxTokens }) {
   trace(messages)
   const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
     method: 'POST',
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]) : AbortSignal.timeout(CALL_TIMEOUT_MS),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     headers: { Authorization: `Bearer ${config.llm.apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: model || config.llm.model,
       messages, temperature,
       ...(tools?.length ? { tools, tool_choice: toolChoice || 'auto', parallel_tool_calls: false } : {}),
       ...(json ? { response_format: { type: 'json_object' } } : {}),
+      ...(maxTokens ? { max_tokens: maxTokens } : {}),
     }),
   })
   if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`)

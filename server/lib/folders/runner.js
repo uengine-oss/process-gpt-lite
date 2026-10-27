@@ -6,9 +6,11 @@ import { config } from '../../config.js'
 
 export const RULES = '이 폴더 안의 파일만 읽고 고치세요. git 명령(commit, checkout, merge 등)은 쓰지 마세요 — 바뀐 내용은 시스템이 변형에 커밋합니다. 새 파일을 만들 때도 이 폴더 안에 두세요.'
 
-export async function runAgent({ jwt, user, conversationId, message, onText }) {
+// signal: stops waiting (a verification's deadline); the agent's own turn is left to deepagents
+export async function runAgent({ jwt, user, conversationId, message, onText, signal }) {
   const res = await fetch(`${config.deepagentsUrl}/chat/stream`, {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}`, 'X-Tenant-Id': config.tenantId },
     body: JSON.stringify({
       message, message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
