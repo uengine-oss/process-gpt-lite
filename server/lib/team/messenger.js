@@ -83,8 +83,10 @@ export function view(viewerId, row, byEmail = {}) {
   const g = m.pgpt || {}
   const agent = m.role === 'assistant' || String(m.email || '').startsWith('agent:')
   const senderId = m.userId || byEmail[m.email]?.id || null
-  const kind = agent ? 'agent' : g.kind && g.kind !== 'assist' ? g.kind : 'text'
+  // a meeting's record in the room (lib/meetings/record.js) is written by the meeting assistant
+  const kind = agent ? (String(g.kind || '').startsWith('meeting') ? g.kind : 'agent') : g.kind && g.kind !== 'assist' ? g.kind : 'text'
   return {
+    ...(g.meeting ? { meeting: g.meeting } : {}),
     id: row.uuid, threadId: row.id, kind, body: String(m.content || ''), at: m.timeStamp ? iso(typeof m.timeStamp === 'number' || /^\d+$/.test(m.timeStamp) ? Number(m.timeStamp) : m.timeStamp) : null,
     sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.byName || m.userName || m.name || '에이전트') : (m.userName || m.name || byEmail[m.email]?.name || '팀원'), agent },
     mine: !agent && senderId === viewerId, byMe: agent && g.by === viewerId,

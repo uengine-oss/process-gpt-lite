@@ -330,6 +330,10 @@ services:
       PRO_CLI_AGENT_URL: http://cli-agent:8890
       PRO_CONTEXT_ROUTER_URL: ${CONTEXT_ROUTER_URL:-}
       PRO_JUDGE_URL: ${JUDGE_URL:-}
+      # meetings (server/lib/meetings): transcription key, STUN/TURN, the assistant switch
+      PRO_TRANSCRIBE_API_KEY: ${TRANSCRIBE_API_KEY:-}
+      PRO_MEETING_ICE: ${MEETING_ICE:-}
+      PRO_MEETING_AGENT: ${MEETING_AGENT:-1}
       # process mining recommendations (mining profile: http://process-miner:8014); empty = off
       PRO_MINER_URL: ${MINER_URL:-}
       PRO_BROWSER_GATES: ${BROWSER_GATES:-off}

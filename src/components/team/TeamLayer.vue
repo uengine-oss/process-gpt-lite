@@ -6,11 +6,14 @@ import Icon from '../Icon.vue'
 import Messenger from './Messenger.vue'
 import SharePicker from './SharePicker.vue'
 import { useTeam } from '../../stores/team.js'
+import MeetingView from '../meetings/MeetingView.vue'
+import { useMeetings } from '../../stores/meetings.js'
 
 // button: the top-bar entry (on a phone the entry is a Home card instead — the bar has no room)
 defineProps({ narrow: Boolean, button: { type: Boolean, default: true } })
 const team = useTeam()
-onMounted(() => team.boot())
+const meetings = useMeetings()
+onMounted(() => { team.boot(); meetings.boot() })
 function go() {
   const g = team.toast?.go
   team.toast = null
@@ -26,6 +29,8 @@ function go() {
   <Teleport to="body">
     <Transition name="fade"><Messenger v-if="team.open" /></Transition>
     <SharePicker v-if="team.sharing" />
+    <!-- a meeting in a team room (components/meetings/MeetingView.vue) -->
+    <MeetingView v-if="meetings.lobby || meetings.m" />
     <Transition name="toast">
       <button v-if="team.toast" class="team-toast glass press" @click="go">
         <Icon name="team" :size="16" /> {{ team.toast.text }}<span v-if="team.toast.go?.threadId" class="go">열기 →</span>

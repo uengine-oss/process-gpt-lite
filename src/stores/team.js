@@ -148,7 +148,8 @@ export const useTeam = defineStore('team', {
     mention(body) { return api('/team/mention', { method: 'POST', body }) },
     // team assist: 시작 runs it as me; 아니요 hides it for me only
     async startSuggestion(sg) {
-      const v = await api(`/team/suggestions/${sg.id}/start`, { method: 'POST' })
+      // a meeting's request goes through the meeting (its result joins the meeting's 자료 panel)
+      const v = await api(sg.meetingId ? `/meetings/${sg.meetingId}/suggestions/${sg.id}/start` : `/team/suggestions/${sg.id}/start`, { method: 'POST' })
       this.onEvent({ type: 'team', data: { type: 'assist', threadId: sg.threadId, suggestion: v } })
     },
     async dismissSuggestion(sg) {

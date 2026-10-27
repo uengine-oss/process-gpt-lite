@@ -25,6 +25,7 @@ import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
+import { meetingRoutes } from './routes/meetings.js'
 import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
@@ -228,6 +229,8 @@ app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
 // team sharing and messenger (routes/team.js)
 app.use('/api', teamRoutes(auth))
+// meetings in a team room: mesh WebRTC signalling, transcription, materials, minutes (routes/meetings.js)
+app.use('/api', meetingRoutes(auth))
 // process mining over ad-hoc work → recommended processes (routes/mining.js)
 app.use('/api', miningRoutes(auth))
 mountCraft(app)

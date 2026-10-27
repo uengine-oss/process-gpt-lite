@@ -26,7 +26,8 @@ async function agentRow(me, roomId, content, pgpt, uuid = crypto.randomUUID()) {
   return uuid
 }
 
-function runAs(me, session) {
+// also the runner for a meeting's suggestions (routes/meetings.js)
+export function runAs(me, session) {
   return async (s) => {
     const members = await M.membersOf(s.room_id)
     const others = members.filter((m) => m.id !== me.id)

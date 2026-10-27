@@ -9,9 +9,15 @@ import { useApp } from '../../stores/app.js'
 import { useTeam, shareable } from '../../stores/team.js'
 import { kindOf, kindLabel } from '../../artifacts.js'
 import AssistSuggestion from './AssistSuggestion.vue'
+import MeetingRoomCard from '../meetings/MeetingRoomCard.vue'
+import { useMeetings } from '../../stores/meetings.js'
 
 const app = useApp()
 const team = useTeam()
+// meetings in the room (stores/meetings.js): the header's 회의 시작 / 참여, and the meeting's record cards
+const mt = useMeetings()
+watch(() => team.active, (id) => { if (id) mt.loadRoom(id) }, { immediate: true })
+const roomMeeting = computed(() => mt.roomOf(team.active))
 const router = useRouter()
 const draft = ref('')
 const attach = ref([])         // my file cards to send along
@@ -137,10 +143,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <button class="back press" aria-label="목록" @click="team.active = null"><Icon name="back" :size="18" /></button>
             <b>{{ thread.title }}</b><small>{{ thread.members.map((m) => m.name).join(', ') }}</small>
             <button class="aitog press" :class="{ on: team.assistOn[thread.id] }" :title="team.assistOn[thread.id] ? '대화 중 에이전트가 도울 일을 찾으면 제안해요 (끄기)' : 'AI 제안이 꺼져 있어요 (켜기)'" @click="team.toggleAssist(thread.id)">AI 제안 {{ team.assistOn[thread.id] ? '켬' : '끔' }}</button>
+            <button class="aitog meet press" :class="{ on: !!roomMeeting }" data-test="meeting-start" :disabled="mt.m?.roomId === thread.id" @click="mt.openLobby(thread.id, thread.title)">{{ roomMeeting ? `회의 참여 · ${roomMeeting.count}명` : '회의 시작' }}</button>
           </header>
           <div ref="scroller" class="msgs scroll">
             <template v-for="m in list" :key="m.id">
-            <div :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent' }">
+            <MeetingRoomCard v-if="String(m.kind).startsWith('meeting')" :m="m" :title="thread.title" />
+            <div v-else :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent' }">
               <span v-if="!m.mine" class="av sm">{{ initial(m.sender.name) }}</span>
               <div class="bub">
                 <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ m.sender.name }}</p>
@@ -246,6 +254,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 @keyframes flash { 0%, 60% { box-shadow: 0 0 0 3px rgba(42, 120, 214, .55); } 100% { box-shadow: none; } }
 .aitog { margin-left: auto; flex: none; align-self: center; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; color: var(--text-secondary); background: rgba(127, 127, 127, .12); }
 .aitog.on { color: #7a5af5; background: rgba(122, 90, 245, .14); }
+.aitog.meet { margin-left: 6px; color: #fff; background: #7a5af5; font-weight: 500; }
+.aitog.meet.on { background: #e5484d; color: #fff; }
+.aitog.meet:disabled { opacity: .5; }
 .msg.agent .bub { border-color: rgba(122, 90, 245, .45); }
 .kind { margin: 0 0 4px; font-size: 12px; color: var(--text-secondary); }
 .txt { margin: 0; white-space: pre-wrap; word-break: break-word; }

@@ -50,6 +50,7 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 | [공유 폴더 / Shared folders](https://youtu.be/uam0ffMMu7U) |
 | [스킬 공유 / Skill sharing](https://youtu.be/KKsUf4BGf7I) |
 | [팀 공유 · 메신저 / Team sharing, @mentions & messenger](https://youtu.be/4mzgdTay_GQ) |
+| [대화방 원격 회의 — 도우미가 자료를 띄우고 회의록을 남겨요 / Meetings in a team room: the assistant puts up materials and leaves the minutes](https://youtu.be/4oOsqX72vII) |
 | [패널 앱 만들기 / Panel apps](https://youtu.be/sXCp1JerNYQ) |
 | [이벤트 소싱 휴가 관리 / Event-sourced leave tracking](https://youtu.be/YAlt_TRWhaE) |
 | [공유 캘린더와 행 단위 보안 / Shared calendar & row-level security](https://youtu.be/5U4pDgw2kiU) |

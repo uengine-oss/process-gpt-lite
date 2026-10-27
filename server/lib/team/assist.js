@@ -190,8 +190,10 @@ async function detect(row, humans0, author) {
 // ones (who started it, the result) to everyone in the room
 export function view(viewerId, s) {
   const offered = s.audience.includes(viewerId) && !s.dismissed.includes(viewerId)
-  if (s.state === 'open' && !offered) return { id: s.id, threadId: s.room_id, messageId: s.chat_uuid, hidden: true }
-  return { id: s.id, threadId: s.room_id, messageId: s.chat_uuid, work: s.work, kind: WORKS[s.work]?.badge || '도움', title: s.title, reason: s.reason, state: s.state,
+  // a meeting's suggestions hang under the room row they came from (회의록 block / minutes: anchor_uuid)
+  const messageId = s.anchor_uuid || s.chat_uuid
+  if (s.state === 'open' && !offered) return { id: s.id, threadId: s.room_id, messageId, hidden: true }
+  return { id: s.id, threadId: s.room_id, messageId, meetingId: s.meeting_id || null, work: s.work, kind: WORKS[s.work]?.badge || '도움', title: s.title, reason: s.reason, state: s.state,
     startedBy: s.started_by, resultMessageId: s.result_uuid, mine: s.started_by === viewerId, canStart: offered && s.state === 'open', judge: s.judge }
 }
 
@@ -251,6 +253,8 @@ export async function start(me, id, run) {
 
 // the work order for the person's agent: the room excerpt and the files in it they may open
 export async function workOrder(me, s) {
+  // from a meeting (lib/meetings): its transcript and the files shown there, not the room's messages
+  if (s.meeting_id) return (await import('../meetings/order.js')).meetingOrder(me, s)
   const lines = await excerpt(s.room_id, s.chat_uuid)
   const rows = await q(`select messages from chats where id=$1 and messages ? 'pgpt' order by coalesce(public.pro_chat_ts(messages), now()) desc limit 6`, [s.room_id])
   const shareIds = rows.flatMap(({ messages: m }) => S.viewArtifacts(me.id, m.pgpt?.by || m.userId, m.pgpt?.artifacts).map((a) => a.shareId)).filter(Boolean)
