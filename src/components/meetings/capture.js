@@ -33,6 +33,8 @@ export function startCapture(stream, { onPiece, onLevel = () => {} }) {
   if (!track) return () => {}
   const ctx = new (window.AudioContext || window.webkitAudioContext)()
   ctx.resume?.().catch(() => {})
+  // a context the browser suspends (autoplay rules, the tab in the background) would stop the pieces silently
+  ctx.onstatechange = () => { if (ctx.state === 'suspended') ctx.resume().catch(() => {}) }
   const src = ctx.createMediaStreamSource(new MediaStream([track]))
   const node = ctx.createScriptProcessor(4096, 1, 1)
   const mute = ctx.createGain(); mute.gain.value = 0

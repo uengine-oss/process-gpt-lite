@@ -25,7 +25,9 @@ const CUE = /(견적|평면도|도면|설계|정산|출장|휴가|연차|일정|
 export function cue(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim()
   if (t.length < 5) return { material: false, request: false, why: 'short' }
-  const req = requestPrefilter(t).pass && /(만들어|다시\s*만들|고쳐|바꿔|수정해|낮춰|올려|정리해|작성해|뽑아|계산해)/.test(t)
+  // assist's request rules, or a figure to change ("금액 5% 낮춰서") — speech is looser than typed chat
+  const shaped = requestPrefilter(t).pass || (/(금액|가격|단가|할인|수량|비용)/.test(t) && /(줘|주세요|주실|부탁)/.test(t))
+  const req = shaped && /(만들어|다시\s*만들|고쳐|바꿔|수정해|낮춰|올려|정리해|작성해|뽑아|계산해)/.test(t)
   const mat = CUE.test(t)
   return { material: mat, request: req, why: !mat && !req ? 'no-cue' : null }
 }

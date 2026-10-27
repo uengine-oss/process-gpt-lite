@@ -42,6 +42,7 @@ test.describe('대화방 원격 회의 여정 (spec pgpt-pro-meetings)', () => {
     const a = await member(await as('mt-a14-owner')), b = await member(await as('mt-a14-mate'))
     const nameOf = async (c) => (await db.q('select name from pro_profile where user_id=$1', [c.id]))[0].name
     const [na, nb] = [await nameOf(a), await nameOf(b)]
+    // a two-person room is the 1:1 room (listed under the other person's name)
     const g = (await a.post('/team/threads', { members: [b.id], title: '회귀 회의 여정' })).body
     cleanup(() => db.q('delete from chat_rooms where id=$1', [g.id]))
     const th = await db.mainThreadId(a.id)
@@ -55,19 +56,26 @@ test.describe('대화방 원격 회의 여정 (spec pgpt-pro-meetings)', () => {
     const s2 = await speech('그 견적서 금액을 5퍼센트 낮춰서 다시 만들어 주세요.', 'onyx')
     timelineWav(path.join(dir, 'b.wav'), [{ at: 14, samples: s1 }], 40)
     timelineWav(path.join(dir, 'a.wav'), [{ at: 28, samples: s2 }], 40)
-    const open = async (c, mic) => {
+    const open = async (c, mic, other) => {
       const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${mic}%noloop`, '--autoplay-policy=no-user-gesture-required'] })
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: 'ko-KR', permissions: ['camera', 'microphone'], baseURL: PGPT_URL })
       await ctx.addInitScript((s) => { if (window.top === window) localStorage.setItem('pgpt-pro-session', s) }, JSON.stringify(c.s))
       const page = await ctx.newPage()
+      if (process.env.RT_DEBUG) {
+        const t0 = Date.now()
+        page.on('request', (r) => { if (r.url().includes('/audio')) console.log(c.email, ((Date.now() - t0) / 1000).toFixed(1), 'audio upload') })
+        page.on('response', async (r) => { if (r.url().includes('/audio')) console.log(c.email, ((Date.now() - t0) / 1000).toFixed(1), r.status(), (await r.text()).slice(0, 120)) })
+        page.on('console', (m) => console.log(c.email, 'console', m.type(), m.text().slice(0, 160)))
+        page.on('pageerror', (e) => console.log(c.email, 'pageerror', e.message.slice(0, 160)))
+      }
       cleanup(() => browser.close())
       await page.goto('/chat')
       await page.locator('button.msg-btn').click()
       await page.locator('.tabs button', { hasText: '대화' }).click()
-      await page.locator('button.th', { hasText: '회귀 회의 여정' }).first().click()
+      await page.locator('button.th', { hasText: other }).first().click()
       return page
     }
-    const [pa, pb] = await Promise.all([open(a, path.join(dir, 'a.wav')), open(b, path.join(dir, 'b.wav'))])
+    const [pa, pb] = await Promise.all([open(a, path.join(dir, 'a.wav'), nb), open(b, path.join(dir, 'b.wav'), na)])
     // both open the lobby together (their microphones start here), agree to transcription, join
     await Promise.all([pa, pb].map((p) => p.locator('[data-test=meeting-start]').click()))
     for (const p of [pa, pb]) await p.locator('[data-test=consent]').check()
