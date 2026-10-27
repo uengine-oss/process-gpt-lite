@@ -12,6 +12,9 @@ const frame = computed(() => app.frames[props.msg.id] || (c.value.shot ? { data:
 const done = computed(() => c.value.steps?.filter((s) => s.done).length || 0)
 const running = computed(() => c.value.state === 'running')
 const needs = computed(() => c.value.state === 'needs_input')
+// waiting for the browser (another task holds it) · ended without doing anything (lib/browser.js honest)
+const queued = computed(() => c.value.state === 'queued')
+const review = computed(() => c.value.state === 'needs_review')
 const takeover = ref(false)
 
 function onClick(e) {
@@ -29,14 +32,15 @@ function finishTakeover() {
   takeover.value = false
   api('/browser/resume', { method: 'POST', body: { text: 'The user took over and finished the manual part. Re-check the page and continue.' } })
 }
-const cancel = () => api('/browser/cancel', { method: 'POST' })
+// this card's task, whether it holds the browser or waits in line
+const cancel = () => api('/browser/cancel', { method: 'POST', body: { taskId: props.msg.id } })
 </script>
 
 <template>
   <div class="task" :class="{ full }">
     <div class="screen" :class="{ live: running, takeover }" tabindex="0" @click="onClick" @keydown="onKey">
       <img v-if="frame?.data" :src="`data:image/jpeg;base64,${frame.data}`" alt="" />
-      <div v-else class="blank"><span class="shimmer-text">{{ running ? '브라우저 여는 중' : c.title }}</span></div>
+      <div v-else class="blank"><span class="shimmer-text">{{ running ? '브라우저 여는 중' : queued ? (c.reason || '앞 작업이 끝나면 시작해요') : c.title }}</span></div>
       <Transition name="fade">
         <div v-if="showPlan" class="plan glass" @click.stop>
           <div class="ph">작업 진행 상황 <button aria-label="닫기" @click="showPlan = false"><Icon name="close" :size="18" /></button></div>
@@ -48,19 +52,21 @@ const cancel = () => api('/browser/cancel', { method: 'POST' })
       <!-- hark: the task rides on the live screen — title pill (tap for the plan), expand, stop -->
       <div v-if="!full" class="ctl">
         <button v-if="needs" class="attn press" @click.stop="app.handoff = msg.id"><Icon name="alert" :size="16" /> 조치 필요</button>
+        <span v-else-if="queued" class="title wait" :title="c.reason"><Icon name="clock" :size="14" /><span class="tt">대기 · {{ c.title }}</span></span>
+        <button v-else-if="review" class="title review press" :title="c.summary" @click.stop="showPlan = !showPlan"><Icon name="alert" :size="14" /><span class="tt">확인 필요 · {{ c.title }}</span></button>
         <button v-else class="title press" :aria-label="`${c.title}, 계획 ${done}/${c.steps?.length}`" @click.stop="showPlan = !showPlan">
           <span v-if="running" class="dots"><i /><i /><i /></span><Icon v-else name="check" :size="14" />
           <span class="tt">{{ c.title }}</span>
         </button>
         <button class="round press" aria-label="확장" @click.stop="app.handoff = msg.id"><Icon name="expand" :size="16" /></button>
-        <button v-if="running || needs" class="round press" aria-label="작업 취소" @click.stop="cancel"><Icon name="close" :size="16" /></button>
+        <button v-if="running || needs || queued" class="round press" aria-label="작업 취소" @click.stop="cancel"><Icon name="close" :size="16" /></button>
       </div>
     </div>
     <div v-if="full" class="bar">
       <button class="pill press" :aria-label="`계획, ${c.steps?.length}단계 중 ${done} 완료`" @click="showPlan = !showPlan"><Icon name="plan" :size="16" /> 계획 {{ done }}/{{ c.steps?.length }}</button>
       <button v-if="!takeover" class="pill press" @click="takeover = true"><Icon name="hand" :size="16" /> 직접 제어</button>
       <button v-else class="pill press on" @click="finishTakeover"><Icon name="check" :size="16" /> 제어 돌려주기</button>
-      <button v-if="running || needs" class="pill press" @click="cancel">작업 취소</button>
+      <button v-if="running || needs || queued" class="pill press" @click="cancel">작업 취소</button>
     </div>
 
   </div>
@@ -75,6 +81,8 @@ const cancel = () => api('/browser/cancel', { method: 'POST' })
 .ctl { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 8px; justify-content: flex-end; }
 .title { margin-right: auto; min-width: 0; max-width: 72%; height: 40px; padding: 0 16px 0 14px; border-radius: 9999px; display: flex; align-items: center; gap: 10px; background: rgba(255 255 255 / .94); color: #1d1d1f; font-size: 14px; box-shadow: 0 2px 12px rgba(0 0 0 / .12); }
 .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title.wait { color: rgba(29 29 31 / .65); }
+.title.review { color: #b25000; }
 .dots { position: relative; width: 14px; height: 14px; flex: none; animation: spin 1.4s linear infinite; }
 .dots i { position: absolute; width: 4.5px; height: 4.5px; border-radius: 50%; background: #1d1d1f; }
 .dots i:nth-child(1) { left: 5px; top: 0; } .dots i:nth-child(2) { left: 0; bottom: 1px; opacity: .7; } .dots i:nth-child(3) { right: 0; bottom: 1px; opacity: .45; }

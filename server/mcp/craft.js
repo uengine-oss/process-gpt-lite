@@ -143,6 +143,9 @@ async function toHost(value, root) {
     if (!value.startsWith('/workspace')) return value
     const host = path.resolve(root, '.' + value.slice('/workspace'.length))
     if (host !== root && !host.startsWith(root + path.sep)) throw new Error(`path outside /workspace: ${value}`)
+    // a file saved into a conversation's own folder (/workspace/.bpmn/<conversation>/…, where the
+    // agent is told to keep its output) may be the first thing there: the folder is made for it
+    if (/^\/workspace\/\.bpmn\/[^/]+\/.+\.[A-Za-z0-9]{2,6}$/.test(value)) await fs.promises.mkdir(path.dirname(host), { recursive: true }).catch(() => {})
     return host
   }
   if (Array.isArray(value)) return Promise.all(value.map((v) => toHost(v, root)))
@@ -154,13 +157,24 @@ async function toHost(value, root) {
   return value
 }
 
+// CADCraft's web build has no face with the CJK unit signs (NanumGothic lacks ㎡ ㎥ …), so "12㎡" in a
+// drawing shows as "12□" in the editor; drawings get the plain-letter form (m², m³), which every face has
+const UNIT_SIGNS = { '㎡': 'm²', '㎥': 'm³', '㎠': 'cm²', '㎟': 'mm²', '㎢': 'km²', '㎝': 'cm', '㎜': 'mm', '㎞': 'km', '㎏': 'kg' }
+export function plainUnits(value) {
+  if (typeof value === 'string') return value.replace(/[㎡㎥㎠㎟㎢㎝㎜㎞㎏]/g, (c) => UNIT_SIGNS[c])
+  if (Array.isArray(value)) return value.map(plainUnits)
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plainUnits(v)]))
+  return value
+}
+const forApp = (app, args) => (app === 'cadcraft' ? plainUnits(args) : args)
+
 // the same tools, called by this server for work it starts on its own (lib/mail.js draws a floor
 // plan a customer mail asks for): the user's own session, the same /workspace path rules
 export async function callCraft(userId, app, name, args = {}) {
   const root = await workspaceHostPath('/workspace')
   name = name.startsWith(`${app}_`) ? name.slice(app.length + 1) : name
   console.log(`[mcp] ${app}.${name} user=${userId.slice(0, 8)} (server)`)
-  const out = await (await sessionFor(app, userId)).callTool({ name, arguments: await toHost(args, root) })
+  const out = await (await sessionFor(app, userId)).callTool({ name, arguments: forApp(app, await toHost(args, root)) })
   const text = (out.content || []).filter((c) => c.type === 'text').map((c) => c.text.split(root).join('/workspace')).join('\n')
   if (out.isError) throw new Error(`${app}.${name}: ${text.slice(0, 300)}`)
   return text
@@ -178,7 +192,7 @@ function buildServer(app, user) {
     }
     try {
       const root = await workspaceHostPath('/workspace')
-      const args = await toHost(params.arguments || {}, root)
+      const args = forApp(app, await toHost(params.arguments || {}, root))
       const name = params.name.startsWith(`${app}_`) ? params.name.slice(app.length + 1) : params.name
       console.log(`[mcp] ${app}.${name} user=${user.id.slice(0, 8)}${liveFor(user.id, app) ? ' (live)' : ''}`)
       const out = await (await sessionFor(app, user.id)).callTool({ name, arguments: args })

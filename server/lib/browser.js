@@ -76,7 +76,7 @@ async function sessionOf(userId) {
     headless: true, viewport: { width: 1280, height: 800 }, locale: 'ko-KR',
   })
   ctx.on('close', () => { ctx._closed = true })
-  s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map() }
+  s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [] }
   await ctx.addInitScript(PAGE_GUARD)
   await ctx.exposeBinding('__proVaultCapture', (_src, payload) => onCapture(userId, s, payload).catch((e) => console.warn('[vault capture]', e.message)))
   s.page = ctx.pages()[0] || await ctx.newPage()
@@ -182,20 +182,35 @@ async function plan(goal) {
   return JSON.parse(msg.content)
 }
 
+// The browser is one per person, so its tasks run one at a time: a task asked for while another one
+// is still running (or waiting for the person) waits in line — its card says so, and the person can
+// still answer or cancel the one in front (cards and 작업 취소 reach the task that holds the page).
 // Runs a browser task; posts a task card into the thread and keeps it updated.
 export async function runBrowserTask({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates }) {
   const s = await sessionOf(userId)
   const t0 = Date.now()
   const p = await plan(goal)
+  const ahead = s.task || s.queue.length ? (s.queue.at(-1)?.task || s.task) : null
   const card = await addMessage(userId, threadId, 'agent', 'task', {
-    title: p.title, goal, steps: p.steps.map((t) => ({ text: t, done: false })), state: 'running', url: startUrl || '',
+    title: p.title, goal, steps: p.steps.map((t) => ({ text: t, done: false })), state: ahead ? 'queued' : 'running', url: startUrl || '',
+    ...(ahead ? { reason: `앞 작업 '${ahead.title}'이(가) 끝나면 시작해요` } : {}),
   })
-  const task = { id: card.id, userId, threadId, goal, steps: p.steps, cancelled: false, waiting: null, notes: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
+  const task = { id: card.id, userId, threadId, goal, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     gates, gatedUrl: null, stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, early_finish: false, decisions: [] } }
+  if (ahead) {
+    await addMessage(userId, threadId, 'agent', 'text', { text: `브라우저는 한 번에 한 작업만 해요. 앞 작업 '${ahead.title}'이(가) 끝나거나 취소되면 '${p.title}' 작업을 이어서 시작할게요.${s.task?.waiting ? ' 앞 작업은 지금 입력을 기다리고 있어요 — 그 카드에 답하거나 작업을 취소해 주세요.' : ''}` })
+    await new Promise((go) => s.queue.push({ task, go }))
+    if (task.cancelled) {
+      await updateMessage(userId, card.id, { state: 'cancelled', reason: '', summary: '시작하기 전에 취소했어요.' })
+      return { state: 'cancelled', summary: '', notes: [], stats: task.stats }
+    }
+    await updateMessage(userId, card.id, { state: 'running', reason: '' })
+  }
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
   if (startUrl) await s.page.goto(startUrl, { waitUntil: 'domcontentloaded' }).catch(() => {})
+  const startedAt = s.page.url()
   await pushFrame(userId, s)
 
   const messages = [{
@@ -206,8 +221,11 @@ Each turn you get a page snapshot with numbered elements. Call exactly one tool 
 For any login field (username, email, password) and any card field ALWAYS use fill_secret, even if credentials are printed on the page or you could guess them. The server asks the user for missing credentials (and which account or card to use) automatically.
 Secret fields appear in the snapshot as secret:true with no value. If the site rejects a login you filled, call login_failed. For a one-time code (SMS, e-mail, OTP, 2FA) call need_secret with the input's index; never ask for it in text.
 Before submitting a payment, sending a message or deleting anything, call approve and act only if the user approves.
-Mark steps with step_done as you complete them. Use note to record every fact you will need in the final answer before navigating away. Finish with a Korean summary that contains all collected facts.`,
+Mark steps with step_done as you complete them. Use note to record every fact you will need in the final answer before navigating away. Finish with a Korean summary that contains all collected facts.
+Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.`,
   }]
+  // the first answer without a single browser action is sent back once: do the steps first
+  const NUDGE = 'You have not performed any browser action yet (no goto/click/type/fill_secret/note). Do the plan steps with the tools now. Call finish only after you have actually done them; if the page already shows what the goal asks, record it with note first.'
 
   let result = { state: 'done', summary: '' }
   try {
@@ -225,8 +243,10 @@ Mark steps with step_done as you complete them. Use note to record every fact yo
     messages.splice(messages.length - (shot ? 2 : 1), shot ? 2 : 1, { role: 'user', content: `[page ${snap.url}] ${snap.title || ''}` })
     messages.push(msg)
     const call = msg.tool_calls?.[0]
+    if (!call && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); continue }
     if (!call) { result = { state: 'done', summary: msg.content || '' }; break }
     const args = JSON.parse(call.function.arguments || '{}')
+    task.lastSnap = snap
     let out = 'ok'
     try {
       out = await act(s, task, call.function.name, args)
@@ -236,6 +256,7 @@ Mark steps with step_done as you complete them. Use note to record every fact yo
     await pushFrame(userId, s)
     // one action per turn; any extra calls get an explicit skip so the transcript stays valid
     for (const extra of msg.tool_calls.slice(1)) messages.push({ role: 'tool', tool_call_id: extra.id, content: 'skipped: one action per turn' })
+    if (out === '__finish__' && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); continue }
     if (out === '__finish__') { result = { state: 'done', summary: args.summary }; break }
     if (task.gates && call.function.name === 'note' && await goalMet(task)) {
       // the notes already answer the goal: one closing call instead of more browsing turns
@@ -253,17 +274,26 @@ Mark steps with step_done as you complete them. Use note to record every fact yo
     result = { state: 'failed', summary: '브라우저 작업을 끝내지 못했어요. 잠시 후 다시 시도해 주세요.' }
   }
   if (task.cancelled) result = { state: 'cancelled', summary: '작업을 취소했어요.' }
-  const shot = await pushFrame(userId, s)
-  s.task = null
-  // keep the last screen on the card so it survives reloads
-  await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url(), shot })
-  say(task, null)
-  await setThreadStatus(userId, threadId, null)
-  result.url = s.page.url()
-  result.notes = task.notes
-  result.stats = { ...task.stats, ms: Date.now() - t0 }
-  result.pageText = hide(task, await s.page.evaluate(() => document.body.innerText.slice(0, 6000)).catch(() => ''))
-  return result
+  // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
+  // the person to check, and what they read is what the action log shows
+  try {
+    result = honest(result, task, { moved: s.page.url() !== startedAt })
+    const shot = await pushFrame(userId, s)
+    s.task = null
+    // keep the last screen on the card so it survives reloads
+    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url(), shot })
+    say(task, null)
+    await setThreadStatus(userId, threadId, null)
+    result.url = s.page.url()
+    result.notes = task.notes
+    result.stats = { ...task.stats, ms: Date.now() - t0 }
+    result.pageText = hide(task, await s.page.evaluate(() => document.body.innerText.slice(0, 6000)).catch(() => ''))
+    return result
+  } finally {
+    if (s.task === task) s.task = null
+    // the next task in line gets the browser
+    s.queue.shift()?.go()
+  }
 }
 
 // Fast checks before spending an agent turn, answered by the router's typed decision (judge model
@@ -318,7 +348,55 @@ async function goalMet(task) {
   return sure(d, 'done', 0.9)
 }
 
+// What the agent actually did, in the person's words (the summary lists these, not the model's claims).
+// Never a value typed into a field: only which field.
+function logAction(task, name, a, out) {
+  const els = task.lastSnap?.els || []
+  const label = (i) => { const e = els.find((x) => x.i === i); return e ? (e.text || e.name || e.tag || `#${i}`).slice(0, 40) : `#${i}` }
+  // a refused or impossible step is not an action taken; asking the person always is
+  const ok = ['approve', 'need_user', 'need_login', 'login_failed', 'need_secret'].includes(name) || !/^(error|refused|no (card|credential)|the saved)/.test(String(out))
+  const line = {
+    goto: () => `${hostOf(a.url)} 열기`,
+    click: () => `'${label(a.i)}' 누르기`,
+    type: () => `'${label(a.i)}'에 입력`,
+    fill_secret: () => `보관함의 ${{ username: '아이디', password: '비밀번호', card_number: '카드 번호', card_exp: '카드 만료일', card_cvv: 'CVC', card_name: '카드 소유자' }[a.field] || a.field} 입력`,
+    need_secret: () => `${a.label || '인증 코드'}를 받아 입력`,
+    approve: () => `승인 요청: ${String(a.summary || '').slice(0, 80)} → ${/approved/.test(String(out)) ? '승인됨' : '승인 안 됨'}`,
+    login_failed: () => '로그인 거부 확인',
+    scroll: () => '화면 내리기',
+    need_login: () => `${a.site || ''} 로그인 정보 요청`,
+    need_user: () => `확인 요청: ${String(a.reason || '').slice(0, 60)}`,
+    note: () => null,
+    step_done: () => null,
+  }[name]?.()
+  if (line) task.log.push({ kind: name, text: line, ok })
+}
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, '') } catch { return String(u || '').slice(0, 60) } }
+const ACTIONS = new Set(['goto', 'click', 'type', 'fill_secret', 'need_secret', 'approve', 'scroll'])
+
+// The summary the person reads: the model's account only when the task actually did something, and
+// always the list of actions taken. Nothing done (no browser action, no fact noted, page unmoved) →
+// 확인 필요, saying so plainly.
+export function honest(result, task, { moved = false } = {}) {
+  const acted = task.log.some((e) => ACTIONS.has(e.kind) && e.ok)
+  const done = task.log.filter((e) => e.ok).map((e) => `• ${e.text}`)
+  const facts = task.notes.length
+  if (result.state === 'done' && !acted && !facts && !moved) {
+    const planned = (task.steps || []).map((x, i) => `${i + 1}. ${x}`).join('\n')
+    return { ...result, state: 'needs_review', summary: `브라우저에서 아무 동작도 하지 못한 채 작업이 끝났어요. 계획한 단계는 하나도 진행되지 않았어요.${planned ? `\n\n계획했던 단계\n${planned}` : ''}\n\n다시 시키거나, 작업 카드에서 직접 제어로 확인해 주세요.` }
+  }
+  if (result.state !== 'done' && result.state !== 'needs_review') return result
+  const said = String(result.summary || '').trim()
+  return { ...result, summary: [said || (facts ? task.notes.join('\n') : ''), done.length ? `실제로 한 일\n${done.slice(-12).join('\n')}` : ''].filter(Boolean).join('\n\n') }
+}
+
 async function act(s, task, name, a) {
+  const out = await doAct(s, task, name, a)
+  logAction(task, name, a, out)
+  return out
+}
+
+async function doAct(s, task, name, a) {
   const el = (i) => s.page.locator(`[data-pro-idx="${i}"]`).first()
   const host = (() => { try { return new URL(name === 'goto' ? a.url : s.page.url()).hostname.replace(/^www\./, '') } catch { return '' } })()
   const live = { goto: `${host} 여는 중`, click: `${host}에서 클릭 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로' }[name]
@@ -517,10 +595,16 @@ function say(task, text) {
 export function resume(userId, text = 'user resolved it, continue') {
   sessions.get(userId)?.task?.waiting?.(text)
 }
-export function cancel(userId) {
-  const t = sessions.get(userId)?.task
-  if (t) { t.cancelled = true; t.waiting?.('cancelled') }
+// 작업 취소: the task holding the browser, or (by its card id) one waiting in line
+export function cancel(userId, taskId) {
+  const s = sessions.get(userId)
+  const inLine = taskId && s?.queue.find((x) => x.task.id === taskId)
+  if (inLine) { s.queue.splice(s.queue.indexOf(inLine), 1); inLine.task.cancelled = true; inLine.go(); return true }
+  const t = s?.task
+  if (t && (!taskId || t.id === taskId)) { t.cancelled = true; t.waiting?.('cancelled'); return true }
+  return false
 }
+export const runningIn = (userId, threadId) => sessions.get(userId)?.task?.threadId === threadId
 
 // Takeover: raw input forwarded from the live view (coords are 0..1 of the viewport).
 export async function input(userId, ev) {

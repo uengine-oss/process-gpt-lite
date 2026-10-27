@@ -202,6 +202,13 @@ export const useApp = defineStore('app', {
       if (!ended) { this.drafts[threadId] = null; this.load(threadId).catch(() => {}) }
       if (threadId === this.mainThread?.id) this.loadConversations()
     },
+    // 멈추기: the answer being written in this thread (in a conversation view, only that conversation's)
+    async stopTurn(threadId = this.activeId) {
+      const conversation = this.convFilter && threadId === this.mainThread?.id ? this.convFilter : undefined
+      const r = await api(`/threads/${threadId}/stop`, { method: 'POST', body: { conversation } }).catch(() => null)
+      if (r && !r.waiting) { this.status[threadId] = null }
+      return r
+    },
     async newProject(text) {
       const t = await api('/threads', { method: 'POST', body: { text } })
       this.messages[t.id] = []

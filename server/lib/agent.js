@@ -16,7 +16,10 @@ import { listDefinitions, listInstances, myTodos, getDefinition } from './proces
 import { systemGuide } from './systems.js'
 import { listTeam, listAssignments, resolveMember } from './team.js'
 import { notifyMember } from './notify.js'
-import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, publish } from './office.js'
+import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, parseToolOutput, publish } from './office.js'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import * as turns from './turns.js'
+import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
 import { liveOpen, liveHint } from './craftLive.js'
@@ -146,12 +149,25 @@ function toLlmHistory(rows) {
   }))
 }
 
-export async function runTurn({ user, session, threadId, text, context, onDelta, files, conversation }) {
+// A message's place in line, from the moment it comes in (lib/turns.js): the agent turn it leads to
+// (delegate) takes this place, so turns on the same conversation run in the order they were sent.
+const turnCtx = new AsyncLocalStorage()
+export function runTurn(args) {
+  const turn = turns.enqueue({ userId: args.user.id, threadId: args.threadId })
+  return turnCtx.run({ turn, userMsgId: null, adopted: false }, () => handleTurn(args)).finally(() => turn.finish())
+}
+
+// This message is answered here, not by an agent turn: a message after it need not wait for it.
+const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
+
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   files = (files || []).filter((f) => f?.path && f?.url).slice(0, 10)
   if (!text?.trim() && files.length) text = '첨부한 파일을 확인해 줘'
-  await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
+  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
+  const store = turnCtx.getStore()
+  if (store) store.userMsgId = said.id
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
   if (files.length) {
     attached.set(threadId, files)
@@ -166,7 +182,8 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
   // there); pass such requests through untouched instead of classifying them here.
   if (/(스킬|skill)\s*(을|를)?\s*(새로\s*)?(만들|생성|작성)/i.test(text)) {
     generationDone(threadId)
-    return delegate({ user, session, threadId, text, onDelta, mode: 'skill' })
+    // a skill meant to run on a schedule reports its outcome the way missions read it (lib/missions.js)
+    return delegate({ user, session, threadId, text: RECURRING.test(text) || /예약|미션/.test(text) ? `${text}\n\n(이 스킬은 예약 실행(미션)으로도 돌아요: SKILL.md 절차의 마지막 단계로 "${MISSION_LINE}" 을 넣어 주세요.)` : text, onDelta, mode: 'skill' })
   }
   // A change asked for in a shared folder ("11월 세미나 폴더의 안내문 고쳐줘") runs on a new
   // variation of that folder (lib/folders/work.js); the person reviews and merges it.
@@ -174,6 +191,7 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
   // so does a plain "…패널 만들어줘" (a router model sometimes hands it to the general agent)
   if ((/^새 패널 만들기\s*[:：]/.test(text) || /패널\s*(을|를|하나|좀)?\s*(새로\s*)?(만들어|만들자|생성해|추가해\s*줘)/.test(text)) && !files.length) {
     const description = text.replace(/^새 패널 만들기\s*[:：]\s*/, '')
+    noAgentTurn()
     const ack = await addMessage(userId, threadId, 'agent', 'text', { text: '패널을 설계하고 있어요.' })
     onDelta?.('패널을 설계하고 있어요.')
     await makePanel({ user: { ...user, jwt: session?.access_token }, threadId, description })
@@ -185,10 +203,11 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
   if (sharedFolder) return folderTurn({ user, session, threadId, text, onDelta, folder: sharedFolder })
   // the author's own private skill is not installed: their run is pointed at its copy, and after the
   // first good run the chat asks once more whether to share it
-  const ownSkill = !files.length && !generationPending(threadId) ? await privateSkillFor(user, text).catch(() => null) : null
+  // (attached files go along: the skill's run reads them like any other turn's attachments)
+  const ownSkill = !generationPending(threadId) ? await privateSkillFor(user, text).catch(() => null) : null
   if (ownSkill) {
     const msg = await delegate({ user, session, threadId, onDelta, text: `${text.replace(`/${ownSkill.name}`, '').trim() || text}\n\n(내 스킬 '${ownSkill.name}' 로 처리하세요. 아직 공유하지 않은 개인 스킬이라 설치 목록에는 없어요 — 이 문서를 읽고 그 절차대로 하세요: ${ownSkill.path}, 같은 폴더의 파일도 참고)` })
-    if (msg && !/오류|실패/.test(msg.content?.text || '')) await askShareAfterUse(user, threadId, ownSkill.name).catch(() => {})
+    if (msg && !msg.content?.stopped && msg.content?.text !== EMPTY_TEXT && !/오류|실패/.test(msg.content?.text || '')) await askShareAfterUse(user, threadId, ownSkill.name).catch(() => {})
     return msg
   }
   // A one-off question about a connected service (YouTube, Calendar, Slack…) goes straight to
@@ -212,7 +231,7 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
   // the numbers come from the deterministic analysis (lib/improve), the model only explains them
   if (!files.length && IMPROVE_Q.test(text) && !generationPending(threadId)) {
     const proc = await resolveProcess(text).catch(() => null)
-    if (proc) return improveTurn({ user, threadId, text, onDelta, proc })
+    if (proc) { noAgentTurn(); return improveTurn({ user, threadId, text, onDelta, proc }) }
   }
   // Writing a document is the agent's job (office-mcp); a router model reads "안내문을 … 만들어줘" as a panel app.
   if (!namedApp && DOC_REQUEST.test(text) && !/패널|위젯|앱/.test(text) && !RECURRING.test(text)) {
@@ -239,6 +258,8 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
   if (!call || strayPanel) return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
 
   const args = JSON.parse(call.function.arguments || '{}')
+  // only designing a new process goes on to the agent; the other tools answer here
+  if (!(call.function.name === 'process' && args.intent === 'create')) noAgentTurn()
   const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack })
   onDelta?.(args.ack)
 
@@ -325,6 +346,8 @@ const CONNECTOR_HINTS = [
   [/notion|노션/i, 'notion_search, notion_read_page, notion_create_page'],
 ]
 // Anything that sounds recurring is the router's call (schedule_task), never a one-off delegate.
+// the last line a scheduled skill run prints (lib/missions.js parseResult)
+const MISSION_LINE = '맨 마지막 줄에 MISSION_RESULT: {"changed": true|false, "summary": "결과 한 문장"} 를 한 줄로 출력'
 const RECURRING = /매일|매주|매달|매시|마다|주기|정기|반복|한\s*번씩|한번씩|\d+\s*(초|분|시간|일)\s*(에|간격|마다)|every|hourly|daily|weekly/i
 // A document or file to write: a kind of document (or a file format) followed closely by a verb of making.
 const DOC_REQUEST = /(docx|hwpx|pptx|xlsx|워드|한글\s*(파일|문서)|파워포인트|문서|보고서|안내문|제안서|기획서|공문|견적서|회의록)[^.?!\n]{0,20}(작성|만들|써\s*줘|뽑아)/i
@@ -438,14 +461,128 @@ export const toolPhase = (tool) => (PHASES.find(([re]) => re.test(String(tool ||
 const hubBound = new Set()
 // long tool calls (skill-creator, CAD drawing) stream nothing for minutes, so this is generous
 const STREAM_IDLE_MS = Number(process.env.PRO_STREAM_IDLE_MS) || 15 * 60_000
+// what the person reads when a turn ended without an answer of its own
+export const STOPPED_TEXT = '답을 멈췄어요.'
+export const SUPERSEDED_TEXT = '같은 대화에서 다른 요청이 시작되어 이 답이 중간에 멈췄어요. 필요하면 다시 보내 주세요.'
+export const EMPTY_TEXT = '에이전트가 아무 내용 없이 답을 끝냈어요. 같은 요청을 다시 보내 주세요.'
+
+// The router's decision alone (context-router POST /route), for a message sent while another turn
+// of the same thread is still running: it tells whether this one has to wait for that one.
+async function routeFirst({ user, thread, text, ahead = [] }) {
+  try {
+    // the requests still being answered are offered as conversations in progress (their context
+    // rows are written only when they finish)
+    const contexts = ahead.map((x) => ({ conversation_id: x.conv, title: x.title || '진행 중인 요청', summary: `진행 중인 요청: ${x.title || ''}`, kind: 'conversation', active: true }))
+    const r = await fetch(`${config.contextRouterUrl}/route`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify({ message: text, tenant_id: config.tenantId, user_uid: user.id, conversation_id: thread?.conversation_id || null, metadata: { contexts } }),
+    })
+    const j = r.ok ? await r.json() : null
+    return j?.conversation_id ? j : null
+  } catch (e) { console.warn('[delegate] route', e.message); return null }
+}
+// the router records each answered turn of a conversation it routed (context_threads); a turn routed
+// ahead of time goes straight to the agent, so the same row is written here (router/store.py touch)
+async function touchContext(user, routing, text, answer) {
+  const prev = routing.context || {}
+  const title = prev.title || text.trim().split('\n')[0].slice(0, 60)
+  await q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at) values ($1,$2,$3,$4,$5,$6,$7,1,now())
+           on conflict (tenant_id,user_id,conversation_id) do update set title=excluded.title, summary=excluded.summary, updated_at=now()`,
+  [config.tenantId, user.id, routing.conversation_id, title.slice(0, 120), `최근 요청: ${text.trim().slice(0, 200)}\n최근 답: ${String(answer || '').trim().slice(0, 300)}`.slice(0, 600), String(prev.gist || '').slice(0, 200), prev.kind || 'conversation'])
+    .catch((e) => console.warn('[delegate] context', e.message))
+}
+
+// 멈추기 (POST /api/threads/:id/stop): the running agent turns of a thread are stopped through
+// deepagents' own /chat/stop (the SDK cancels the turn on the server, not only the stream); a turn
+// it does not know (already over, or held elsewhere) is cut off here. With no turn in flight here
+// (e.g. after a restart of this server) the thread's conversation is still asked to stop, so a
+// turn left running in deepagents cannot keep the conversation busy.
+export async function stopTurns({ user, session, threadId, conversation }) {
+  const list = turns.running({ userId: user.id, threadId, conv: conversation || null })
+  const ask = async (conv) => {
+    if (!conv) return false
+    const r = await fetch(`${config.deepagentsUrl}/chat/stop`, {
+      method: 'POST', signal: AbortSignal.timeout(20_000),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
+      body: JSON.stringify({ conversation_id: conv, tenant_id: config.tenantId }),
+    }).then((x) => x.json()).catch((e) => ({ stopped: false, error: e.message }))
+    return !!r.stopped
+  }
+  for (const t of list) {
+    t.stopped = true
+    // the stream ends with "turn cancelled" once deepagents stops it; if it does not, stop waiting
+    const ok = await ask(t.conv)
+    if (!ok) t.abort.abort()
+    else setTimeout(() => { if (!t.finished) t.abort.abort() }, 8000).unref?.()
+  }
+  if (!list.length) {
+    const thread = await getThread(user.id, threadId)
+    const conv = conversation || thread?.conversation_id
+    const ok = await ask(conv)
+    await setThreadStatus(user.id, threadId, null)
+    return { stopped: ok ? 1 : 0, waiting: turns.waiting({ userId: user.id, threadId }).length }
+  }
+  return { stopped: list.length, waiting: turns.waiting({ userId: user.id, threadId }).length }
+}
+
 export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl }) {
-  const thread = await getThread(user.id, threadId)
+  let thread = await getThread(user.id, threadId)
   const uploads = attached.get(threadId) || []
   attached.delete(threadId)
   const pin = pinned.get(threadId)
   pinned.delete(threadId)
+  // In the main chat, several things run side by side (hark): the context-router decides which
+  // conversation this message continues. Projects, instances, skill authoring and scheduled
+  // runs already know their conversation and go straight to the agent.
+  let routed = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider
+  const conv0 = pin?.conversationId || (!routed ? thread?.conversation_id : null)
+  // the place in line runTurn took when the message came in (so turns keep the order they were
+  // sent in), or a new one for work started elsewhere (schedules, team assist, missions)
+  const store = turnCtx.getStore()
+  const adopted = store?.turn && !store.adopted && store.turn.threadId === threadId
+  if (adopted) store.adopted = true
+  const turn = adopted ? store.turn : turns.enqueue({ userId: user.id, threadId, conv: conv0 })
+  turn.setConv(conv0)
+  turn.title = String(text || '').trim().split('\n')[0].slice(0, 60)
+  // the user's message this turn answers (runTurn), marked 대기 while it waits
+  const userMsgId = adopted ? store.userMsgId : null
+  let routing = null
+  let preRouted = false
+  try {
+    let marked = false
+    const queued = async () => {
+      if (!userMsgId || marked) return
+      marked = true
+      const [m] = await q(`update pro_messages set content = content || '{"queued":true}'::jsonb where id=$1 returning *`, [userMsgId])
+      if (m) emit(user.id, 'message', m)
+    }
+    // another answer of this thread is still coming: which conversation is this one for? (a
+    // second request on the same conversation would make deepagents cancel the first)
+    if (routed && turns.busyThread(turn)) {
+      await queued()
+      const ahead = await turns.aheadInThread(turn)
+      thread = await getThread(user.id, threadId)
+      const r = await routeFirst({ user, thread, text, ahead })
+      if (r) { routing = r; preRouted = true; routed = false; turn.setConv(r.conversation_id) }
+    }
+    let waited = (await turns.waitTurn(turn, queued)) || marked
+    // a thread that had no conversation yet may have one now (the turn that went first started it)
+    if (waited && !routed && !turn.conv) {
+      thread = await getThread(user.id, threadId)
+      if (thread?.conversation_id) { turn.setConv(thread.conversation_id); waited = (await turns.waitTurn(turn, queued)) || waited }
+    }
+    if (waited && userMsgId) {
+      const [m] = await q(`update pro_messages set content = (content - 'queued') || '{"dequeued":true}'::jsonb where id=$1 returning *`, [userMsgId])
+      if (m) emit(user.id, 'message', m)
+      thread = await getThread(user.id, threadId)
+    }
+    return await runDelegated()
+  } finally { turn.finish() }
+
+  async function runDelegated() {
   // the main chat now stands in that conversation, so an unsure next message stays there too
   if (pin) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, pin.conversationId])
+  if (preRouted) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, routing.conversation_id])
   await setThreadStatus(user.id, threadId, 'working')
   // tools that need no account (CADCraft) are bound once per user per server start
   if (!hubBound.has(user.id)) { hubBound.add(user.id); await ensureHubBinding(user.id, config.tenantId).catch(() => {}) }
@@ -453,10 +590,6 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const live = !silent && !divider ? liveOpen(user.id) : null
   activateCraft(user.id, [...craftAppsFor(text), ...(live ? [live.app] : [])])
   if (live?.app === 'ieumoffice') activateOffice(user.id)
-  // In the main chat, several things run side by side (hark): the context-router decides which
-  // conversation this message continues. Projects, instances, skill authoring and scheduled
-  // runs already know their conversation and go straight to the agent.
-  const routed = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider
   // a stalled agent (no byte for STREAM_IDLE_MS) is cut off, so the chat never sits on "생각하는 중" for good
   const idle = new AbortController()
   let idleTimer = setTimeout(() => idle.abort(), STREAM_IDLE_MS)
@@ -464,18 +597,20 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // 검수 (lib/review.js): what is open now, as it is before the agent's edits
   const before = live ? await capture({ userId: user.id, jwt: session.access_token, open: live }) : null
   const usedTools = new Set()
+  let partial = ''
   try {
     const msg = await streamTurn()
     // an edit tool of the open app or document ran: check the result against the request
     const prefix = live?.app === 'ieumoffice' ? /^office_live_(write|replace|apply_ops|hwp_)/ : new RegExp(`^${live?.app}_`)
-    if (before && [...usedTools].some((t) => prefix.test(t) && !/(inspect|read|list|render|preview|find|query|guide|documents)/.test(t))) {
+    if (before && !turn.stopped && [...usedTools].some((t) => prefix.test(t) && !/(inspect|read|list|render|preview|find|query|guide|documents)/.test(t))) {
       await reviewTurn({ user, session, threadId, request: text.split('\n\n(')[0], open: live, before })
     }
     return msg
   } catch (e) {
-    if (!idle.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
-    console.warn('[delegate]', idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
+    if (!idle.signal.aborted && !turn.abort.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
+    console.warn('[delegate]', turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
     await setThreadStatus(user.id, threadId, null)
+    if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${STOPPED_TEXT})`].filter(Boolean).join('\n\n'), stopped: true, silent })
     return addMessage(user.id, threadId, 'agent', 'text', { text: idle.signal.aborted
       ? '에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.'
       : '에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요.' })
@@ -483,15 +618,15 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
 
   async function streamTurn() {
   const res = await fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
-    signal: idle.signal,
+    signal: AbortSignal.any([idle.signal, turn.abort.signal]),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
     body: JSON.stringify({
-      message: text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(uploads), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+      message: text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(uploads) + workspaceHint(user, turn.conv), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       // process-gpt's chat contract for uploads (same shape its frontend sends)
       files: uploads.map((f) => ({ fileName: f.name, fileUrl: f.url, filePath: f.path, fileType: f.type, fileSize: f.size })),
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
-      conversation_id: pin?.conversationId || thread?.conversation_id || null, stream: true,
+      conversation_id: turn.conv || pin?.conversationId || thread?.conversation_id || null, stream: true,
       metadata: { client: 'pgpt-pro', style: 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
         ...(routed ? { auto_route: true, route_text: text, agent: 'deepagents' } : {}) },
     }),
@@ -507,7 +642,13 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   let workDir = null
   let skillDraft = null
   let steps = 0
-  let routing = null
+  let cancelled = false
+  // provenance (lib/provenance.js): what this turn wrote, every workspace path it touched, and the
+  // documents tool results carried, kept apart until the end
+  const written = new Set()
+  const seen = new Set()
+  const toolDocs = []
+  const inputs = new Map() // tool -> arguments of its last call
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -522,39 +663,54 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       try { j = JSON.parse(line.slice(5)) } catch { continue }
       if (event === 'metadata' && j.routing) {
         routing = j.routing
+        turn.setConv(j.conversation_id)
         // the thread follows the context the user is in now, so an unsure next message stays there
         await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
-      } else if (event === 'metadata' && j.conversation_id && !thread?.conversation_id) {
-        await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
+      } else if (event === 'metadata' && j.conversation_id) {
+        turn.setConv(j.conversation_id)
+        if (!thread?.conversation_id) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
       }
-      if (j.type === 'token' && j.content) { out += j.content; if (mode !== 'skill') onDelta?.(j.content) }
+      if (j.type === 'token' && j.content) { out += j.content; partial = out; if (mode !== 'skill') onDelta?.(j.content) }
       const genDir = j.type === 'file_artifact' && /\/\.bpmn\/[^/]+\/process-[^/]+\//.exec(j.path || '')
       // skill-creator writes <conversation base>/skills/<name>/SKILL.md (+ scripts/, references/)
       const skillDir = j.type === 'file_artifact' && /^(.*\/skills\/([^/]+))\/SKILL\.md$/.exec(j.path || '')
       if (skillDir) skillDraft = { dir: skillDir[1], name: skillDir[2] }
       const room = j.type === 'file_artifact' && /^\/workspace\/\.bpmn\/[^/]+\//.exec(j.path || '')
       if (room) runDirs.add(room[0])
+      if (j.type === 'file_artifact' && j.path) { written.add(j.path); seen.add(j.path) }
       if (genDir) workDir = genDir[0]
       else if (j.type === 'file_artifact' && /\/skills\/[^/]+\//.test(j.path || '')) { /* part of a skill draft */ }
       else if (j.type === 'file_artifact' && j.name && !/\.(form|json|md)$/.test(j.name)) files.push({ name: j.name, path: j.path, ext: j.ext })
-      // office-mcp / IeumOffice MCP results carry a storage URL: those open straight in the editor
+      // office-mcp / IeumOffice MCP results carry a storage URL: those open straight in the editor —
+      // when they are this turn's output, not a document the agent only opened (checked at the end)
       if (j.type === 'tool_end' || j.type === 'tool_result') {
-        const doc = documentFrom(j.output ?? j.result ?? j.content)
-        if (doc && !files.some((f) => f.url === doc.url)) files.push(doc)
+        const raw = j.output ?? j.result ?? j.content
+        for (const p of workspacePaths(raw)) seen.add(p)
+        const doc = documentFrom(raw)
+        const tool = j.tool || j.tool_name || ''
+        if (doc && !toolDocs.some((d) => d.doc.url === doc.url)) toolDocs.push({ doc, tool, input: inputs.get(tool) ?? null, raw: parseToolOutput(raw)?.file_name || parseToolOutput(raw)?.fileName || doc.name })
       }
       if (j.type === 'process_result' && j.data?.processDefinition) processResult = j.data
       if (j.type === 'tool_start') {
         const tool = j.tool || j.tool_name || j.name || ''
         usedTools.add(tool)
+        inputs.set(tool, j.input ?? null)
+        for (const p of workspacePaths(j.input)) seen.add(p)
         steps += 1
         emit(user.id, 'status', { threadId, text: mode === 'skill' ? `스킬 만드는 중 · ${SKILL_STEPS[tool] || '작업'} (${steps}단계)` : toolPhase(tool) })
       }
-      if (j.type === 'error') out += `\n\n(오류: ${j.message || j.error || ''})`
+      if (j.type === 'error') {
+        const why = String(j.message || j.error || '')
+        // the SDK ended the turn: our own 멈추기, or another request on this conversation
+        if (/turn cancelled/i.test(why)) cancelled = true
+        else out += `\n\n(오류: ${why})`
+      }
     }
   }
   await setThreadStatus(user.id, threadId, null)
   let body = out.trim()
-  if (skillDraft) {
+  const ended = cancelled || turn.stopped
+  if (skillDraft && !ended) {
     // The card carries the skill itself; the agent's long write-up stays folded inside it.
     const host = await workspaceHostPath(skillDraft.dir).catch(() => null)
     const markdown = host ? await fs.readFile(`${host}/SKILL.md`, 'utf8').catch(() => '') : ''
@@ -565,11 +721,12 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     })
     return draft
   }
-  if (quietIfUnchanged && /^변동\s*없음[.!]?$/.test(body.replace(/[*_`"]/g, '').trim())) return null
+  if (quietIfUnchanged && !ended && /^변동\s*없음[.!]?$/.test(body.replace(/[*_`"]/g, '').trim())) return null
   if (divider) await addMessage(user.id, threadId, 'system', 'divider', typeof divider === 'string' ? { text: divider } : divider)
+  if (ended) body = [body, `(${turn.stopped ? STOPPED_TEXT : SUPERSEDED_TEXT})`].filter(Boolean).join('\n\n')
   let kind = /^#\s/.test(body) ? 'doc' : 'text'
   const structured = (body.match(/^\s*([-*]|\d+\.)\s/gm) || []).length >= 4
-  if (kind === 'text' && body.length > 600 && structured) {
+  if (kind === 'text' && !ended && body.length > 600 && structured) {
     // hark-style document card: short serif title over the body
     const t = await chat({ model: config.llm.fastModel, temperature: 0, messages: [
       { role: 'system', content: '다음 문서의 제목을 8~20자 한국어로. 제목만.' }, { role: 'user', content: body.slice(0, 1500) }] })
@@ -586,26 +743,43 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     // the judge chose a context nothing in the message pointed to, so the router asked again
     rechecked: (routing.decision?.notes || []).some((n) => n.includes('re-decided')),
   } : routing ? { title: routing.context?.title, action: 'stay', confidence: routing.decision?.confidence, strategy: routing.decision?.strategy } : null
-  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(context ? { context } : {}) })
+  // only this turn's output becomes a file card: written now, in this conversation's folder, or
+  // changed on disk since it started — never a document the agent opened for reference
+  const rooms = [roomOf(turn.conv), ...runDirs].filter(Boolean)
+  const ctx = { rooms, written, since: started - 2000 }
+  for (const t of toolDocs) {
+    const { keep, src } = await keepToolDoc({ name: t.raw, tool: t.tool, input: t.input }, seen, ctx)
+    if (!keep) { console.log(`[delegate] not attached (not this turn's output): ${src || t.doc.name}`); continue }
+    if (files.some((f) => f.url === t.doc.url)) continue
+    // a republished copy keeps the name of the file it came from
+    files.push(src ? { ...t.doc, name: src.split('/').pop(), path: src } : t.doc)
+  }
+  if (!body && !files.length && !processResult) body = EMPTY_TEXT
+  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
+  if (preRouted) touchContext(user, routing, text, body)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
-  for (const f of files) if (f.url) f.name = displayName(f, body)
-  for (const p of await documentsOfRun({ text: body, dirs: [...runDirs], since: started - 2000 }).catch(() => [])) {
+  for (const f of files) if (f.url && !f.path) f.name = displayName(f, body)
+  for (const p of await documentsOfRun({ text: body, dirs: rooms, since: started - 2000 }).catch(() => [])) {
     // office-mcp already published this one (store_and_render): one card per document
     const name = p.split('/').pop()
-    if (!files.some((f) => f.path === p || (f.url && f.name === name))) files.push({ name, path: p })
+    if (files.some((f) => f.path === p || (f.url && f.name === name))) continue
+    if (!(await isOutput(p, ctx))) { console.log(`[delegate] not attached (not this turn's output): ${p}`); continue }
+    files.push({ name, path: p })
   }
-  // the script that built a document is scaffolding; the document is what the user asked for
-  if (files.some((f) => editable(f.name))) files.splice(0, files.length, ...files.filter((f) => !/\.(py|js|mjs|ts|sh)$/.test(f.name)))
+  // the script that built a document is scaffolding; the document is what the user asked for (and
+  // a turn that was stopped leaves no half-run scripts behind as results)
+  if (ended || files.some((f) => editable(f.name))) files.splice(0, files.length, ...files.filter((f) => !/\.(py|js|mjs|ts|sh)$/.test(f.name)))
   for (const f of files) {
     // a document the agent wrote in its sandbox is published so the editor can load it
     if (!f.url && f.path && editable(f.name)) Object.assign(f, await publish(user.id, f.path).catch((e) => { console.warn('[office publish]', e.message); return {} }))
     await addMessage(user.id, threadId, 'agent', 'file', f)
   }
-  if (processResult) {
+  if (processResult && !ended) {
     generationDone(threadId)
     await addMessage(user.id, threadId, 'agent', 'process_draft', { contract: processResult, workDir, state: 'draft' })
   }
   return msg
+  }
   }
 }
 
@@ -710,7 +884,8 @@ async function panelRecord({ user, threadId, args, text }) {
   if (!app) return say(`'${args.app}' 패널을 찾지 못했어요.`)
   const def = app.def
   if (app.kind === 'events') return panelEvent({ user, threadId, args, app, say })
-  const fmt = (r) => [def.views.list.title, ...def.views.list.subtitle, def.views.list.value].filter(Boolean).map((k) => [...def.fields, ...def.computed].find((f) => f.key === k)).filter(Boolean).map((f) => `${f.label} ${r[f.key] === '' ? '-' : typeof r[f.key] === 'number' ? r[f.key].toLocaleString('ko-KR') : r[f.key]}`).join(' · ')
+  // each column once (a list whose title is also a subtitle would name the customer twice)
+  const fmt = (r) => [...new Set([def.views.list.title, ...def.views.list.subtitle, def.views.list.value].filter(Boolean))].map((k) => [...def.fields, ...def.computed].find((f) => f.key === k)).filter(Boolean).map((f) => `${f.label} ${r[f.key] === '' ? '-' : typeof r[f.key] === 'number' ? r[f.key].toLocaleString('ko-KR') : r[f.key]}`).join(' · ')
   emit(userId, 'status', { threadId, text: '시트 고치는 중' })
   try {
     if (args.action === 'list') {

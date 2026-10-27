@@ -7,6 +7,8 @@ import ConnectorCards from './ConnectorCards.vue'
 import MissionList from './MissionList.vue'
 import SkillList from './SkillList.vue'
 import TeamRoles from './TeamRoles.vue'
+import MailConnect from './MailConnect.vue'
+import DemoMailPractice from './DemoMailPractice.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
@@ -98,6 +100,25 @@ const saveEdit = () => save(async () => {
 const fmtCard = (e) => { card.value.number = e.target.value.replace(/\D/g, '').slice(0, 16).replace(/(\d{4})(?=\d)/g, '$1 ') }
 const fmtExp = (e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 4); card.value.exp = v.length > 2 ? `${v.slice(0, 2)}/${v.slice(2)}` : v }
 async function pollMail() { await api('/mail/poll', { method: 'POST' }) }
+// 계정 › 내 정보: the name teammates and the greeting use (an e-mail sign-in starts with the address's local part)
+const myName = ref('')
+const nameSaved = ref('')
+watch(() => app.me?.user?.name, (n) => { myName.value = n || '' }, { immediate: true })
+async function saveName() {
+  const name = myName.value.trim()
+  if (!name) return
+  await api('/profile', { method: 'POST', body: { name } })
+  app.me = await api('/me')
+  nameSaved.value = '저장했어요'
+  setTimeout(() => { nameSaved.value = '' }, 2000)
+}
+// 계정 › 연결 › 메일: switch Gmail ↔ IMAP ↔ 데모 메일함 with the onboarding sheet (MailConnect)
+const mailSheet = ref(false)
+const mailLabel = { gmail: 'Gmail', imap: 'IMAP', demo: '데모 메일함' }
+async function mailClosed() {
+  mailSheet.value = false
+  app.me = await api('/me')
+}
 const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.floor(sky.simHour)}:${String(Math.round((sky.simHour % 1) * 60)).padStart(2, '0')}`))
 </script>
 
@@ -133,14 +154,29 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
 
       <!-- accounts (vault) -->
       <template v-if="page === 'accounts' && !sub">
+        <p class="cap">내 정보</p>
+        <form class="list glass" @submit.prevent="saveName">
+          <div class="li">
+            <div class="main"><b>이름</b><small>팀원 목록과 인사에 보이는 이름이에요</small></div>
+            <input v-model="myName" class="nm" aria-label="이름" maxlength="40" placeholder="이름" />
+            <button class="pill-btn sm" :disabled="!myName.trim() || myName.trim() === app.me?.user?.name">{{ nameSaved || '저장' }}</button>
+          </div>
+        </form>
         <p class="cap">연결</p>
+        <div class="list glass">
+          <div class="li">
+            <span class="fav mailic"><Icon name="doc" :size="18" /></span>
+            <div class="main"><b>메일 · {{ app.me?.mail ? mailLabel[app.me.mail.provider] || app.me.mail.provider : '연결 안 됨' }}</b><small>{{ app.me?.mail?.address || 'Gmail·IMAP·데모 메일함 중 하나로 연결해요' }}</small></div>
+            <button class="pill-btn sm" @click="mailSheet = true">{{ app.me?.mail ? '연결 바꾸기' : '연결하기' }}</button>
+          </div>
+          <div v-if="app.me?.mail?.provider === 'demo'" class="li col">
+            <div class="main"><b>연습 메일 받기</b><small>가상의 거래처 메일을 데모 메일함으로 보내요</small></div>
+            <DemoMailPractice />
+          </div>
+        </div>
         <ConnectorCards />
         <p class="cap">로그인 · API 키</p>
         <div class="list glass">
-          <div v-if="app.me?.mail" class="li">
-            <img class="fav" :src="`https://www.google.com/s2/favicons?domain=${app.me.mail.provider === 'gmail' ? 'google.com' : 'mail.com'}&sz=64`" alt="" />
-            <div class="main"><b>메일 · {{ app.me.mail.provider }}</b><small>{{ app.me.mail.address }}</small></div>
-          </div>
           <div v-for="v in shown" :key="v.id" class="li">
             <img class="fav" :src="`https://www.google.com/s2/favicons?domain=${v.site}&sz=64`" alt="" />
             <button class="main" :disabled="v.kind !== 'login'" @click="router.push(`/settings/accounts/${v.id}`)">
@@ -223,6 +259,10 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
             <button class="pill-btn" @click="sky.setSim(null)">실시간으로</button>
           </div>
           <div class="li"><div class="main"><b>메일 확인</b><small>새 메일을 주기적으로 읽고 할 일을 제안해요</small></div><button class="pill-btn" @click="pollMail">지금 확인</button></div>
+          <div v-if="app.me?.mail?.provider === 'demo'" class="li col">
+            <div class="main"><b>연습 메일 받기</b><small>데모 메일함에 가상의 거래처 메일이 도착해요</small></div>
+            <DemoMailPractice />
+          </div>
         </div>
       </template>
 
@@ -261,9 +301,11 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
         </div>
       </template>
 
+      <Teleport to="body"><MailConnect v-if="mailSheet" @close="mailClosed" /></Teleport>
+
       <template v-if="page === 'profile'">
         <div class="list glass">
-          <div class="li"><div class="main"><b>이름</b><small>{{ app.me?.user?.name }}</small></div></div>
+          <div class="li"><div class="main"><b>이름</b><small>{{ app.me?.user?.name }}</small></div><button class="pill-btn sm" @click="router.push('/settings/accounts')">바꾸기</button></div>
           <div class="li"><div class="main"><b>이메일</b><small>{{ app.me?.user?.email }}</small></div></div>
           <div class="li"><div class="main"><b>생년월일</b><small>{{ app.me?.profile?.birth?.slice(0, 10) || '—' }}</small></div></div>
         </div>
@@ -308,6 +350,8 @@ b.sm { font-size: 15px; }
 .ferr { margin: 0; color: var(--color-error); font-size: 14px; }
 .hint { margin: 0; color: var(--text-secondary); font-size: 13px; }
 .fav { width: 22px; height: 22px; border-radius: 6px; }
+.fav.mailic { display: grid; place-items: center; color: var(--text-secondary); }
+.nm { width: 40%; min-width: 110px; height: 36px; border-radius: 10px; padding: 0 10px; border: 1px solid var(--hairline); background: var(--cell-bg); color: var(--text-primary); font-size: 15px; }
 .tag { font-size: 12px; color: var(--text-secondary); background: var(--cell-bg); padding: 3px 8px; border-radius: 9999px; }
 .tabs { display: flex; gap: 6px; margin: 4px 0 14px; }
 .tabs button { height: 34px; padding: 0 14px; border-radius: 9999px; font-size: 14px; color: var(--text-secondary); background: var(--thin-bg); }

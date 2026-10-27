@@ -21,6 +21,13 @@ const lastUser = computed(() => [...list.value].reverse().find((m) => m.role ===
 const seen = (m) => m.id === lastUser.value && (status.value || draft.value != null || list.value[list.value.length - 1]?.id !== m.id)
 const needsInput = computed(() => app.active?.status === 'needs_input')
 const working = computed(() => status.value || (draft.value === '' ? '생각하는 중' : null))
+// 멈추기: an answer is being written (streaming here, or the thread is working) — not while it only waits for input
+const stoppable = computed(() => !needsInput.value && (draft.value != null || app.active?.status === 'working'))
+const stopping = ref(false)
+async function stop() {
+  stopping.value = true
+  try { await app.stopTurn(app.activeId) } finally { setTimeout(() => { stopping.value = false }, 1500) }
+}
 function toPending() {
   const el = scroller.value?.querySelector('.k-vault, .k-choice, .needs')
   el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -59,6 +66,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
     <div class="foot">
       <!-- what the agent is doing right now, above the composer (hark's "패널 만드는 중") -->
       <Transition name="pill"><div v-if="working" :key="working" class="working"><span class="shimmer-text">{{ working }}</span></div></Transition>
+      <button v-if="stoppable" class="stop press" :disabled="stopping" aria-label="답 멈추기" title="답 멈추기" @click="stop"><span class="sq" />{{ stopping ? '멈추는 중' : '멈추기' }}</button>
       <button v-if="needsInput" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
       <Composer :placeholder="placeholder" @send="(t) => emit('send', t)" />
     </div>
@@ -81,6 +89,10 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 @media (max-width: 760px) { .foot:has(.attn) { padding-left: 56px; } .attn { right: auto; left: 0; } }
 .working { position: absolute; left: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 18px; border-radius: 19px; display: inline-flex; align-items: center;
   border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: rgba(127, 127, 127, .06); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14.5px; color: var(--text-tertiary); white-space: nowrap; }
+.stop { position: absolute; right: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 16px 0 14px; border-radius: 19px; display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: var(--thin-bg, rgba(127, 127, 127, .06)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14px; color: var(--text-primary); }
+.stop .sq { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
+.stop:disabled { opacity: .55; }
 .pill-enter-active, .pill-leave-active { transition: opacity .25s, translate .25s; }
 .pill-enter-from, .pill-leave-to { opacity: 0; translate: 0 6px; }
 .foot { position: absolute; z-index: 6; left: 50%; bottom: 32px; translate: -50% 0; width: 512px; max-width: calc(100% - 32px); }

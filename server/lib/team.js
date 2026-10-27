@@ -11,23 +11,63 @@ export async function listTeam() {
             where m.tenant_id=$1 order by m.created_at`, [T()])
 }
 
+// Who may change the team and the tenant-wide role holders: process-gpt's tenant administrators —
+// users.is_admin, or the tenant's owner (tenants.owner, process-gpt checkTenantOwner).
+export async function isAdmin(me) {
+  const [r] = await q(`select (select coalesce(bool_or(u.is_admin), false) from users u where u.id::text=$1 and u.tenant_id=$2)
+                         or exists (select 1 from tenants t where t.id=$2 and t.owner::text=$1) as admin`, [String(me.id), T()]).catch(() => [])
+  return !!r?.admin
+}
+
+// A process's own role holders: an administrator, or that process's owner (proc_def.owner, the
+// 담당자 process-gpt's definition dialog edits). A process nobody owns is anyone's to set, as in
+// process-gpt (ProcessDefinitionVersionDialog: isOwnerUser = !owner || owner === me). The
+// tenant-wide holder ('*', every process using the role name) is the administrators' only.
+export async function canAssign(me, defId) {
+  if (await isAdmin(me)) return true
+  const def = String(defId || '*').toLowerCase()
+  if (def === '*') return false
+  const [d] = await q('select owner from proc_def where lower(id)=$1 and tenant_id=$2', [def, T()]).catch(() => [])
+  if (!d) return false
+  return !d.owner || String(d.owner) === String(me.id)
+}
+
+// A fresh install has its administrator from install.sh (ADMIN_EMAIL, users.is_admin + tenants.owner).
+// Anywhere else nothing would make one: then the first person to sign in becomes the administrator.
+export async function claimFirstAdmin(userId) {
+  const [r] = await q(`select exists (select 1 from users where tenant_id=$1 and is_admin and not coalesce(is_agent,false))
+                         or exists (select 1 from tenants where id=$1 and owner is not null) as has`, [T()]).catch(() => [{ has: true }])
+  if (r?.has) return false
+  await q(`update users set is_admin=true, role='admin' where id=$1 and tenant_id=$2`, [userId, T()])
+  await q(`update tenants set owner=$1 where id=$2 and owner is null`, [userId, T()]).catch(() => {})
+  console.log(`[team] ${String(userId).slice(0, 8)} is the first administrator of ${T()}`)
+  return true
+}
+
 // Adding someone who never signed in creates their account, so work can be routed to them
 // before their first visit.
 export async function addMember(me, email, name) {
   const u = await ensureUser(String(email).trim().toLowerCase(), name)
   if (name) await q('update users set username=$1 where id=$2 and tenant_id=$3', [name, u.id, T()])
+  await q('delete from pro_team_removed where tenant_id=$1 and user_id=$2', [T(), u.id])
   await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ($1,$2,$3) on conflict do nothing`, [T(), u.id, me.id])
   return { id: u.id, email: u.email, name: name || u.email.split('@')[0] }
 }
 
-export async function removeMember(userId) {
+export async function removeMember(userId, by) {
   await q('delete from pro_team_members where tenant_id=$1 and user_id=$2', [T(), userId])
   await q('delete from pro_role_assignments where tenant_id=$1 and user_id=$2', [T(), userId])
+  // remembered, so their next visit does not put them back (ensureMember)
+  await q(`insert into pro_team_removed(tenant_id,user_id,removed_by) values ($1,$2,$3) on conflict (tenant_id,user_id) do update set removed_by=excluded.removed_by, removed_at=now()`, [T(), userId, by || null])
 }
 
-// The signed-in user is always on the team (the first one to look creates it).
+// The signed-in user joins the team on first sight. In Lite the team is the people of this tenant:
+// teammate chat, sharing, meetings and role routing only work between team members, and nobody would
+// otherwise be able to add the very first one — so signing in is the admission. Someone an
+// administrator removed stays removed.
 export async function ensureMember(me) {
-  await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ($1,$2,$2) on conflict do nothing`, [T(), me.id])
+  await q(`insert into pro_team_members(tenant_id,user_id,added_by) select $1,$2,$2
+           where not exists (select 1 from pro_team_removed where tenant_id=$1 and user_id=$2) on conflict do nothing`, [T(), me.id])
 }
 
 export async function listAssignments(defId) {

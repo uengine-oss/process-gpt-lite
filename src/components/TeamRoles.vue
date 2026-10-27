@@ -7,6 +7,8 @@ import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 
 const app = useApp()
+// the team and the tenant-wide role holders are changed by administrators (server: 403 otherwise)
+const admin = computed(() => !!app.me?.admin)
 const team = ref([])
 const roles = ref([])
 const held = ref({})
@@ -34,12 +36,18 @@ async function addMember() {
     await api('/team', { method: 'POST', body: add.value })
     add.value = { name: '', email: '' }
     await load()
-  } catch { err.value = '이메일을 확인해 주세요.' }
+  } catch (e) { err.value = e.status === 403 ? e.message : '이메일을 확인해 주세요.' }
 }
-async function remove(m) { await api(`/team/${m.id}`, { method: 'DELETE' }); await load() }
+async function remove(m) {
+  err.value = ''
+  try { await api(`/team/${m.id}`, { method: 'DELETE' }) } catch (e) { err.value = e.message }
+  await load()
+}
 async function setRole(role, userId) {
+  err.value = ''
+  const was = held.value[role]
   held.value[role] = userId
-  await api('/roles', { method: 'PUT', body: { role, userId: userId || null } })
+  try { await api('/roles', { method: 'PUT', body: { role, userId: userId || null } }) } catch (e) { held.value[role] = was; err.value = e.message }
 }
 </script>
 
@@ -50,14 +58,15 @@ async function setRole(role, userId) {
       <div v-for="m in team" :key="m.id" class="li">
         <div class="av">{{ (m.name || m.email).slice(0, 1) }}</div>
         <div class="main"><b>{{ m.name }}<span v-if="m.id === app.me?.user?.id" class="me"> · 나</span></b><small>{{ m.email }}</small></div>
-        <button v-if="m.id !== app.me?.user?.id" class="rm" @click="remove(m)">빼기</button>
+        <button v-if="admin && m.id !== app.me?.user?.id" class="rm" @click="remove(m)">빼기</button>
       </div>
     </div>
-    <form class="add" @submit.prevent="addMember">
+    <form v-if="admin" class="add" @submit.prevent="addMember">
       <input v-model="add.name" placeholder="이름" />
       <input v-model="add.email" placeholder="이메일" type="email" required />
       <button class="pill-btn">+ 팀원 추가</button>
     </form>
+    <p v-else class="hint ro">팀원 추가·빼기와 역할 담당 지정은 관리자만 할 수 있어요. 바꿀 일이 있으면 관리자에게 알려 주세요.</p>
     <p v-if="err" class="err">{{ err }}</p>
 
     <p class="cap">역할 담당</p>
@@ -66,7 +75,7 @@ async function setRole(role, userId) {
     <div class="list glass">
       <div v-for="r in shown" :key="r.role" class="li">
         <div class="main"><b>{{ r.role }}</b><small>{{ r.processes.join(' · ') }}</small></div>
-        <select :value="held[r.role] || ''" @change="setRole(r.role, $event.target.value)">
+        <select :value="held[r.role] || ''" :disabled="!admin" :title="admin ? '' : '관리자만 바꿀 수 있어요'" @change="setRole(r.role, $event.target.value)">
           <option value="">시작한 사람</option>
           <option v-for="m in team" :key="m.id" :value="m.id">{{ m.name }}</option>
         </select>
@@ -92,4 +101,6 @@ select { max-width: 46%; height: 34px; border-radius: 10px; padding: 0 8px; back
 .add input { flex: 1; min-width: 120px; height: 38px; border-radius: 12px; padding: 0 12px; border: 1px solid rgba(0, 0, 0, .12); background: rgba(255, 255, 255, .7); }
 .find { width: 100%; height: 38px; border-radius: 12px; padding: 0 12px; margin-bottom: 8px; border: 1px solid rgba(0, 0, 0, .12); background: rgba(255, 255, 255, .7); }
 .err { color: #c62828; font-size: 13px; margin: 6px 4px; }
+.hint.ro { margin-top: 10px; }
+select:disabled { opacity: .7; }
 </style>

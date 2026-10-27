@@ -15,7 +15,8 @@ import ImproveCard from './improve/ImproveCard.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor } from '../officeEditor.js'
-import { kindOf, kindLabel, openArtifact } from '../artifacts.js'
+import { kindOf, kindLabel, openArtifact, openHint } from '../artifacts.js'
+import { parseReplies } from '../replies.js'
 
 const props = defineProps({ msg: Object })
 const emit = defineEmits(['connect'])
@@ -34,19 +35,9 @@ const doc = computed(() => {
 })
 const time = computed(() => new Date(props.msg.created_at).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }))
 const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text || '') ? c.value.text.replace(/^새 패널 만들기:\s*/, '') : null))
-// "- 네, 이대로 진행 (설명)" style options at the end of an agent question become tappable replies
-const replies = computed(() => {
-  if (props.msg.role !== 'agent' || props.msg.kind !== 'text') return null
-  const lines = String(c.value.text || '').trim().split('\n')
-  let end = lines.length
-  while (end > 0 && !lines[end - 1].trim().startsWith('- ')) end--
-  let start = end
-  while (start > 0 && lines[start - 1].trim().startsWith('- ')) start--
-  const opts = lines.slice(start, end).map((l) => l.trim().slice(2))
-  if (opts.length < 2 || opts.length > 4 || !/[?？]|선택|골라/.test(lines.join(' '))) return null
-  const options = opts.map((o) => { const m = /^(.+?)\s*\((.+)\)\s*$/.exec(o); return { label: (m ? m[1] : o).replace(/\*\*/g, ''), hint: m?.[2] } })
-  return { body: [...lines.slice(0, start), ...lines.slice(end)].join('\n').trim(), options }
-})
+// "- 네, 이대로 진행 (설명)" style options closing an agent question become tappable replies
+// (src/replies.js: only a real choice list — a report's bullet lines stay text)
+const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
 const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell' }
 const ctx = computed(() => (c.value.context && c.value.context.action !== 'stay' && c.value.context.title ? c.value.context : null))
 const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinned: '대화에서 직접', trivial: '', none: '' }
@@ -70,6 +61,9 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <template v-else-if="msg.kind === 'text' && msg.role === 'user'">
       <span v-if="panelReq" class="req">새 패널 만들기</span>
       <div class="bubble user">{{ panelReq ?? c.text }}</div>
+      <!-- sent while an answer of the same conversation was still coming: it waits its turn (lib/turns.js) -->
+      <small v-if="c.queued" class="queue">대기 · 앞 답이 끝나면 이어서 답해요</small>
+      <small v-else-if="c.dropped" class="queue">서버가 다시 시작되어 이 요청은 답하지 못했어요 · 다시 보내 주세요</small>
     </template>
     <template v-else-if="msg.kind === 'text'">
       <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
@@ -112,7 +106,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <div v-else-if="msg.kind === 'file'" class="filerow">
       <button class="file press" @click="openFile">
         <span class="fic" :class="kindOf(c.name)">{{ kindLabel[kindOf(c.name)] || 'FILE' }}</span>
-        <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : c.url ? '열기' : '작업실에서 열기' }}</small></span>
+        <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c) }}</small></span>
       </button>
       <!-- 팀원에게 공유 (components/team) -->
       <ShareButton :msg="msg" compact />
@@ -154,6 +148,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 .row.r-user .ts { right: auto; left: -160px; }
 .row:hover .ts { opacity: 1; }
 .req { font-size: 14px; color: var(--text-secondary); margin: 0 6px 6px 0; }
+.queue { display: block; text-align: right; font-size: 12.5px; color: var(--text-tertiary); margin: 4px 8px 0 0; }
 .bubble { max-width: 424px; border-radius: 24px; padding: 13px 18px; font-size: 16px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; transition: background-color 1s; }
 .bubble.agent { background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
 .bubble.user { background: var(--bubble-user-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); max-width: 512px; white-space: pre-wrap; }

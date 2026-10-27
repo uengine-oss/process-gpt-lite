@@ -12,6 +12,8 @@ const SUITES = [
   ['F-UT-04 Google 로그인 토큰 검증 (google.test.js)', ['test/google.test.js']],
   ['F-UT-05 검수: 도면 선 비율·밝기 매핑이 지운 선·개수 손실 판정 (review.test.js)', ['test/review.test.js']],
   ['F-UT-06 프로세스 개선: 리드타임 분해(process-gpt 원본 시험 이식 + 확장)·CPM(병렬·배타·루프)·가치 흐름·제약·what-if (improve-*.test.js)', ['test/improve-leadtime.test.js', 'test/improve-cpm.test.js']],
+  ['F-UT-07 튜토리얼 결함 수정 2: 한국어 금액·미션 결과 줄 없는 성공·에이전트 단계 재시도 분류·패널 설계 작은 단계·도면 ㎡→m² (fixes2.test.js)', ['test/fixes2.test.js']],
+  ['F-UT-08 채팅 턴: 같은 대화는 대기 후 이어서·멈추기(/chat/stop)·남의 문서는 카드 안 됨·내 스킬+첨부·빈 답 안내, 보고문 글머리≠빠른 답, 브라우저: 두 번째 작업은 대기·"아무것도 안 함"=확인 필요 (agentTurn·turns·provenance·replies·browserHonest·browser-tasks)', ['test/agentTurn.integration.test.js', 'test/turns.test.js', 'test/provenance.test.js', 'test/replies.test.js', 'test/browserHonest.test.js', 'test/browser-tasks.test.js']],
 ]
 for (const [name, files] of SUITES) {
   // the browser one drives a real Chromium against a local shop: on a busy machine give it a second go

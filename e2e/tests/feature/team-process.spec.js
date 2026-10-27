@@ -11,9 +11,12 @@ const needDef = async (c) => test.skip((await c.get(`/processes/${DEF}`)).status
   `프로세스 정의 ${DEF} 가 없음 — lite 프로필에는 프로세스 엔진(completion·polling)과 예제 정의가 없음 (full 프로필에서 확인)`)
 
 test.describe('팀과 역할', () => {
-  test('F-TM-01 팀원 추가·목록·빼기, 잘못된 이메일 400, 자기 자신은 못 뺌', async ({ as }) => {
+  test('F-TM-01 팀원 추가·목록·빼기(관리자), 잘못된 이메일 400, 자기 자신은 못 뺌', async ({ as, db, cleanup }) => {
     const a = await as('tm-owner')
     const mate = await as('tm-mate')
+    // changing the team is an administrator's (F-FX-A01 covers a member's 403)
+    await db.q('update users set is_admin=true where id=$1', [a.id])
+    cleanup(async () => { await db.q('update users set is_admin=false where id=$1', [a.id]); await db.q('delete from pro_team_removed where tenant_id=$1 and user_id=$2', [db.tenant, mate.id]); await mate.get('/team') })
     expect((await a.post('/team', { email: 'not-an-email' })).status).toBe(400)
     const add = await a.post('/team', { email: mate.email, name: '회귀 동료' })
     expect(add.status).toBe(200)

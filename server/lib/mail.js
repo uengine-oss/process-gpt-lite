@@ -108,10 +108,25 @@ async function fetchDemo(userId) {
     ...arrived.map((m) => ({ id: m.mail_id, from: m.sender, subject: m.subject, date: m.created_at.toISOString(), text: m.body }))]
 }
 
+// 연습 메일 (Settings): fictional mails a demo mailbox can receive, so a tutorial reader gets one
+// without the developer console. Senders use reserved example domains (RFC 2606), never a company's.
+export function demoTemplates() {
+  const file = path.join(here, '..', 'fixtures', 'demo-practice-mail.json')
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return [] }
+}
+
 // A demo mailbox gets a (fictional) message, then is polled as a real inbox would be
-export async function demoArrive(userId, { from, subject, text }) {
+// ({template} picks one of demoTemplates(); otherwise from/subject/text as given)
+export async function demoArrive(userId, body) {
   const [acc] = await q('select provider from pro_mail_accounts where user_id=$1', [userId])
   if (acc?.provider !== 'demo') throw new Error('데모 메일함에서만 쓸 수 있어요')
+  let { from, subject, text } = body || {}
+  if (body?.template) {
+    const t = demoTemplates().find((x) => x.id === body.template)
+    if (!t) throw new Error('없는 연습 메일이에요')
+    ;({ from, subject, text } = t)
+  }
+  if (!String(from || '').trim() || !String(subject || '').trim()) throw new Error('보낸 사람과 제목을 적어 주세요')
   const id = `demo-${crypto.randomBytes(6).toString('hex')}`
   await q('insert into pro_demo_mail(user_id, mail_id, sender, subject, body) values ($1,$2,$3,$4,$5)', [userId, id, String(from).slice(0, 200), String(subject).slice(0, 300), String(text).slice(0, 4000)])
   return pollUser(userId)
@@ -148,7 +163,7 @@ export async function pollUser(userId, { announce } = {}) {
     const src = fresh.find((m) => m.id === a.mail_id)
     const [row] = await q(
       `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
-      [userId, a.verb, a.text, a.icon_domain || null, a.due || null, a.prompt, src ? { mail_id: src.id, from: src.from, subject: src.subject } : null])
+      [userId, a.verb, a.text, iconDomain(acc.provider, src, a.icon_domain), a.due || null, a.prompt, src ? { mail_id: src.id, from: src.from, subject: src.subject } : null])
     emit(userId, 'action', row)
   }
   if (r.brief) {
@@ -168,6 +183,18 @@ export async function pollUser(userId, { announce } = {}) {
       .then((routed) => routed || draftFromMail(userId, src, d)).catch((e) => console.warn('[mail] drafts', e.message))
   }
   return { fresh: fresh.length, actions: (r.actions || []).length }
+}
+
+// The logo domain on a Home card. The model guesses a company domain from the sender ("aurora-mfg.com"),
+// which for a demo mailbox's fictional senders can be a real company: a demo mailbox only ever gets
+// the sender's own (reserved example) domain, which the card shows as a letter tile. A real mailbox
+// keeps the model's domain only when it is the sender's, so a card never shows someone else's logo.
+export function iconDomain(provider, src, guess) {
+  const sender = /@([^>\s]+)>?\s*$/.exec(String(src?.from || ''))?.[1]?.toLowerCase() || ''
+  if (provider === 'demo') return sender || null
+  const g = String(guess || '').toLowerCase().replace(/^www\./, '')
+  if (!g) return null
+  return !sender || sender === g || sender.endsWith(`.${g}`) || g.endsWith(`.${sender}`) ? g : sender
 }
 
 export function startPoller() {

@@ -6,8 +6,8 @@ import crypto from 'node:crypto'
 import { config } from './config.js'
 import { q, sessionFor, refresh, userFromJwt } from './lib/supa.js'
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
-import { mainThread, getThread, addMessage } from './lib/store.js'
-import { runTurn, delegate } from './lib/agent.js'
+import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
+import { runTurn, delegate, stopTurns } from './lib/agent.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
 import { listSchedules, deleteSchedule } from './lib/scheduler.js'
@@ -30,11 +30,13 @@ import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { improveRoutes } from './routes/improve.js'
 import { mountImprove } from './mcp/improve.js'
 import { startConstraintSweep } from './lib/improve/service.js'
+import { startStepRetry } from './lib/stepRetry.js'
+import { openFileCard } from './lib/fileCards.js'
 import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
 import { startFolderSteps } from './lib/folders/work.js'
 import * as skills from './lib/folders/skills.js'
-import { runMission, listMissionRuns, createMission, listSkills, saveSkillDraft, workspaceHostPath } from './lib/missions.js'
+import { ensureResultLine, fireSchedule, runMission, listMissionRuns, createMission, listSkills, saveSkillDraft, workspaceHostPath } from './lib/missions.js'
 import { getSkill, deleteSkill } from './lib/skills.js'
 import { startSystemRegistry, syncSystemRegistry } from './lib/systems.js'
 import * as notify from './lib/notify.js'
@@ -86,6 +88,8 @@ async function auth(req, res, next) {
 async function finishLogin(email, name) {
   const { user, session } = await sessionFor(email, name)
   await q(`insert into pro_profile(user_id,name,email) values ($1,$2,$3) on conflict (user_id) do nothing`, [user.id, name, email])
+  // no administrator yet (an install without install.sh's ADMIN_EMAIL): the first one in becomes it
+  await team.claimFirstAdmin(user.id).catch((e) => console.warn('[team] first admin', e.message))
   return { user, session: { access_token: session.access_token, refresh_token: session.refresh_token, expires_at: session.expires_at } }
 }
 
@@ -164,7 +168,8 @@ app.post('/api/auth/refresh', async (req, res) => res.json(await refresh(req.bod
 app.get('/api/me', auth, async (req, res) => {
   const [p] = await q('select * from pro_profile where user_id=$1', [req.user.id])
   const [m] = await q('select provider, address, last_poll from pro_mail_accounts where user_id=$1', [req.user.id])
-  res.json({ user: req.user, profile: p, mail: m || null })
+  // admin: the team and tenant-wide role controls are editable (TeamRoles); otherwise read-only
+  res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user) })
 })
 app.post('/api/profile', auth, async (req, res) => {
   const { name, birth, lat, lon, place, onboarded } = req.body
@@ -226,6 +231,8 @@ app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUse
 // workers and registries the main one already runs (mail, cron callbacks, agent workers, mcp-hub sync)
 const background = process.env.PRO_BACKGROUND !== '0'
 if (background) setTimeout(() => mail.resumeDrafts().catch((e) => console.warn('[mail] resume', e.message)), 5000)
+// 연습 메일 받기 (Settings): the fictional mails a demo mailbox can be sent ({template: id} below)
+app.get('/api/mail/demo-templates', auth, (req, res) => res.json(mail.demoTemplates().map(({ id, label, hint, from, subject }) => ({ id, label, hint, from, subject }))))
 app.post('/api/mail/demo-arrive', auth, async (req, res) => {
   try { res.json(await mail.demoArrive(req.user.id, req.body || {})) } catch (e) { res.status(400).json({ error: e.message }) }
 })
@@ -316,6 +323,10 @@ app.post('/api/reviews', auth, async (req, res) => {
   res.json({ ok: true })
 })
 // a short note from the page into the person's own thread (e.g. "the recolour lost strokes, redone")
+// a file card whose file sits in the workspace outside any conversation folder: publish and open it
+app.post('/api/messages/:id/open-file', auth, async (req, res) => {
+  try { res.json(await openFileCard(req.user, req.params.id)) } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
 app.post('/api/threads/:id/note', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
@@ -333,9 +344,21 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     send('done', final)
   } catch (e) {
     console.error(e)
+    // a message never goes unanswered: the failure is said in the chat, not only in this stream
+    await setThreadStatus(req.user.id, t.id, null).catch(() => {})
+    await addMessage(req.user.id, t.id, 'agent', 'text', { text: '이 요청을 처리하지 못했어요. 잠시 후 다시 보내 주세요.', failed: true }).catch(() => {})
     send('error', { message: e.message })
   }
   res.end()
+})
+// 멈추기: the answer being written in this thread (deepagents /chat/stop), or its browser task.
+// Messages waiting their turn (대기) then go ahead.
+app.post('/api/threads/:id/stop', auth, async (req, res) => {
+  const t = await getThread(req.user.id, req.params.id)
+  if (!t) return res.status(404).end()
+  const r = await stopTurns({ user: req.user, session: req.session, threadId: t.id, conversation: req.body?.conversation ? String(req.body.conversation) : null })
+  if (!r.stopped && browser.runningIn(req.user.id, t.id)) { browser.cancel(req.user.id); r.stopped = 1; r.browser = true }
+  res.json(r)
 })
 
 // ---------- actions ----------
@@ -376,17 +399,23 @@ app.post('/api/notifications/:id/dismiss', auth, async (req, res) => {
   emit(req.user.id, 'notifications', {})
   res.status(ok ? 200 : 404).json({ ok })
 })
+// Listing the team also admits the signed-in person (lib/team.js ensureMember: in Lite the team is
+// the tenant's people, and teammate features only work between members). Changing who is on it,
+// and who holds a role for every process, is for administrators (users.is_admin / tenants.owner).
+const ADMIN_ONLY = '관리자만 바꿀 수 있어요.'
 app.get('/api/team', auth, async (req, res) => {
   await team.ensureMember(req.user)
   res.json(await team.listTeam())
 })
 app.post('/api/team', auth, async (req, res) => {
+  if (!(await team.isAdmin(req.user))) return res.status(403).json({ error: ADMIN_ONLY })
   if (!/^[^@\s]+@[^@\s]+$/.test(String(req.body.email || ''))) return res.status(400).json({ error: 'email' })
   res.json(await team.addMember(req.user, req.body.email, req.body.name))
 })
 app.delete('/api/team/:id', auth, async (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: 'self' })
-  await team.removeMember(req.params.id)
+  if (!(await team.isAdmin(req.user))) return res.status(403).json({ error: ADMIN_ONLY })
+  await team.removeMember(req.params.id, req.user.id)
   res.json({ ok: true })
 })
 app.get('/api/roles/catalog', auth, async (req, res) => res.json(await team.roleCatalog()))
@@ -394,6 +423,7 @@ app.get('/api/roles', auth, async (req, res) => res.json(await team.listAssignme
 app.put('/api/roles', auth, async (req, res) => {
   const { defId, role, userId } = req.body
   if (!role) return res.status(400).json({ error: 'role' })
+  if (!(await team.canAssign(req.user, defId))) return res.status(403).json({ error: defId ? '이 프로세스의 담당자나 관리자만 역할을 정할 수 있어요.' : '모든 프로세스에 걸리는 역할 담당은 관리자만 정할 수 있어요.' })
   res.json(await team.assign(req.user, { defId, role, userId }))
 })
 
@@ -498,21 +528,11 @@ app.post('/api/cron/fire', async (req, res) => {
   res.json({ ok: true })
   const id = req.body.id
   if (firing.has(id)) return console.log(`[cron] ${id.slice(0, 8)} still running, tick skipped`)
-  const [m] = await q('select skill, process_id, paused from pro_schedules where id=$1', [id])
-  if (m?.paused) return
   firing.add(id)
-  const release = () => firing.delete(id)
-  if (m?.skill || m?.process_id) return runMission(id, 'cron').catch((e) => console.warn('[mission]', e.message)).finally(release)
-  try {
-    const [s] = await q('update pro_schedules set last_run=now() where id=$1 returning *', [id])
-    if (!s) return release()
-    const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
-    const { user, session } = await sessionFor(p.email, p.name)
-    const threadId = s.thread_id || (await mainThread(s.user_id)).id
-    // Same rule as missions: a run that found nothing new posts nothing (no divider either).
-    const text = `${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`
-    delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, quietIfUnchanged: true }).catch((e) => console.warn('[cron]', e.message)).finally(release)
-  } catch (e) { release(); console.warn('[cron]', e.message) }
+  // skills, processes and plain prompts alike (lib/missions.js): every run is in the task's run history,
+  // a failure is announced in chat and on Home, a run that found nothing new posts nothing, and a tick
+  // the database could not even record is tried again a little later
+  fireSchedule(id).catch((e) => console.warn('[cron]', e.message)).finally(() => firing.delete(id))
 })
 
 // ---------- missions (scheduled skills) ----------
@@ -523,7 +543,10 @@ app.post('/api/skill-drafts/:msgId/save', auth, async (req, res) => {
   try {
     // a new skill starts private (내 스킬): kept as a skill folder, not installed for the tenant —
     // the card then asks whether to share it (lib/folders/skills.js)
-    const folder = await skills.saveDraftPrivate(req.user, await workspaceHostPath(m.content.dir), m.content.name)
+    const host = await workspaceHostPath(m.content.dir)
+    // saved to run on a schedule: the skill reports its outcome the way missions read it
+    if (req.body.cron) await ensureResultLine(host).catch((e) => console.warn('[mission] result line', e.message))
+    const folder = await skills.saveDraftPrivate(req.user, host, m.content.name)
     const saved = { skill_name: m.content.name, folder: folder.slug }
     let mission = null
     if (req.body.cron) {
@@ -686,7 +709,8 @@ app.post('/api/choices/:msgId', auth, async (req, res) => {
   res.json({ ok: true })
 })
 app.post('/api/browser/resume', auth, (req, res) => { browser.resume(req.user.id, req.body.text); res.json({ ok: true }) })
-app.post('/api/browser/cancel', auth, (req, res) => { browser.cancel(req.user.id); res.json({ ok: true }) })
+// the task holding the browser, or (taskId = its card) one waiting in line behind it
+app.post('/api/browser/cancel', auth, (req, res) => { res.json({ ok: browser.cancel(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined) }) })
 
 // ---------- search ----------
 app.get('/api/search', auth, async (req, res) => {
@@ -702,9 +726,11 @@ const server = app.listen(config.port, async () => {
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb
-           where kind='task' and content->>'state' in ('running','needs_input')`)
+           where kind='task' and content->>'state' in ('running','needs_input','queued')`)
   await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where kind='vault' and content->>'state'='pending'`)
   await q(`update pro_threads set status=null where status is not null`)
+  // turns wait their turn in memory (lib/turns.js): a message still marked 대기 will not be answered now
+  await q(`update pro_messages set content = (content - 'queued') || '{"dropped":true}'::jsonb where role='user' and content ? 'queued'`)
   mail.startPoller()
   startBrowserWorker()
   startSkillWorker()
@@ -713,6 +739,8 @@ const server = app.listen(config.port, async () => {
   notify.startNotificationFeed()
   startFolderSteps()
   startConstraintSweep()
+  // agent steps stopped by a passing error are queued again (lib/stepRetry.js)
+  startStepRetry()
 })
 
 // terminals in the agent workroom (websocket upgrade on /api/workroom/term)

@@ -310,6 +310,41 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 설치 번들: 스크립트 문법·compose(lite/full/mining)·인계 기록 스키마·nginx 경로 | `install/` | S-50…S-52 | smoke | ✅ |
 | 설치 스택에 대고 전체 스위트 | `PGPT_URL=http://localhost:18080` | (전체) | 모두 | ◐ |
 
+### 14. 튜토리얼 결함 고침 — 개인정보·채팅·브라우저·메일·프로필 (`docs/tutorial-findings.md`)
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 다른 사람 문서는 내 대화에 파일 카드로 붙지 않음: 이번 턴에 쓴 파일·이 대화 폴더(`.bpmn/<대화>`)·턴 중에 바뀐 파일만, deepagents 가 끝에 다시 올린 hwpx 는 원본 경로로 판단 | 결함 #6·#39 (`lib/provenance.js`) | F-UT-08 | feature | ✅ |
+| 에이전트에게 새 파일은 이 대화 폴더에, 참고는 내 첨부·받은 공유(`uploads/<나>`)·공유 폴더에서만 쓰라고 알림 | 결함 #6·#39 | F-UT-08 | feature | ✅ |
+| 답을 기다리는 중 같은 대화에 보낸 메시지는 "대기" 후 이어서 답(앞 턴이 취소되지 않음), 다른 대화는 나란히 | 결함 #31·#32 (`lib/turns.js`) | F-UT-08, F-FX-A07 | feature | ✅ |
+| 채팅 멈추기 버튼 → deepagents `/chat/stop`, "답을 멈췄어요", 멈춘 턴의 스크립트는 카드가 안 됨 | 결함 #25 | F-UT-08, F-FX-A07 | feature | ✅ |
+| 공유하지 않은 내 스킬을 파일과 함께 부르면 스킬 위치·첨부가 함께 감, 빈 답은 안내 문장 | 결함 #18 | F-UT-08 | feature | ✅ |
+| 빠른 답 버튼은 질문으로 끝나는 짧은 선택지에만(보고문의 글머리 목록은 그대로) | 결함 #30 (`src/replies.js`) | F-UT-08, F-FX-A06 | feature | ✅ |
+| 브라우저 두 번째 작업은 대기(카드 "대기", 따로 취소), 앞 작업이 끝나면 시작 | 결함 #29 | F-UT-08, F-FX-A08 | feature | ✅ |
+| 브라우저 동작이 하나도 없으면 "완료" 대신 "확인 필요", 요약에는 실제로 한 동작만 | 결함 #28 | F-UT-08, F-FX-A08 | feature | ✅ |
+| 팀원 추가·빼기·전체 역할 지정은 관리자(users.is_admin·tenants.owner)만, 뺀 사람은 다시 들어오지 않음, 화면은 읽기 전용 | 결함 #1 | F-FX-A01, F-TM-01 | feature | ✅ |
+| 데모 메일함 발신 도메인은 `.example`, 홈 카드는 데모 메일함이면 로고(favicon)를 부르지 않음 | 결함 #24 | F-FX-A02 | feature | ✅ |
+| 연습 메일 받기(달빛커피 2호점 제안·견적 요청 등 고정 메일) — 설정 › 시스템·계정 | 결함 #26 | F-FX-A03 | feature | ✅ |
+| 설정 › 계정 › 연결에서 메일 연결(Gmail·IMAP·데모) 바꾸기 | 결함 #27 | F-FX-A04 | feature | ✅ |
+| 표시 이름: 설정 › 계정에서 바꾸고, 온보딩에서 한 번 물음 | 결함 #23 | F-FX-A05 | feature | ✅ |
+
+### 15. 튜토리얼 결함 고침 2 — 프로세스 엔진·정의·마이닝·미션·패널·작업실 (`docs/tutorial-findings.md`)
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 진행 중인 인스턴스는 시작한 정의 버전으로 끝까지(새 버전 저장 뒤에도), 새 인스턴스는 새 버전 — completion `upsert_process_instance` 가 버전을 시작 때 한 번만 찍음 | 결함 #41 (process-gpt-completion `feat/pin-instance-version`) | F-FX2-01 | feature | ✅ |
+| 대화로 만든 프로세스 저장: 작업 폴더(`/.bpmn/…`)를 찾아 폼·에이전트(에이전트 사용자 생성·정의의 id 연결)·스킬까지 저장, 저장된 카드의 「흐름 보기」가 펼쳐져 화면에 들어옴 | 결함 #40 (`bridge/save_generated.py`, `lib/missions.js workspaceHostPath`, `ProcessCard.vue`) | F-FX2-02 | feature | ✅ |
+| 마이닝 정식 등록: 병렬 게이트웨이는 `gateWayType` 까지 넘겨 BPMN 에 parallelGateway 로 그림 | 결함 #33 (`lib/mining/service.js buildContract`) | F-FX2-03 | feature | ✅ |
+| 에이전트 단계가 잠깐의 오류(DB 복구 모드·연결 끊김·시간 초과)로 실패하면 간격을 늘려 최대 3번 다시 줄 세움, 그 밖·한도 초과는 시작한 사람에게 Home 알림, 인스턴스 화면에 실패 이유와 「다시 시도」 | 결함 #42 (`lib/stepRetry.js`) | F-UT-07, F-FX2-04 | feature | ✅ |
+| 팀 공유는 받는 사람의 역할(재무 담당→재무 검토, 디자이너→디자인 검토)·공유 메모로 단계 이름, 고객 회신 뒤의 공유는 사례에 넣지 않음, 사례가 절반 넘게 겹치는 묶음은 같은 추천(이름도 겹치지 않게), 묶는 규칙은 마이닝 화면에 안내 | 결함 #22·#43·#21 (`lib/mining/recorder.js`, `service.js sameSuggestion`) | F-FX2-05 | feature | ✅ |
+| 예약 실행 실패(스킬·프로세스·프롬프트 모두)는 실행 기록·채팅·Home 알림에, DB 가 실행을 기록조차 못 하면 몇 분 뒤 다시, 결과 줄(MISSION_RESULT) 없는 정상 실행은 성공(변동 여부 모름)으로 알림, 미션용 스킬에는 결과 줄 단계를 넣음 | 결함 #15·#17 (`lib/missions.js`) | F-UT-07, F-FX2-06 | feature | ✅ |
+| 패널 숫자 칸: "3,800만 원"·"1억 2천만 원" 같은 한국어 금액, 띄어쓰기 없는 머리글, 답 문구의 같은 칸 반복 없음 | 결함 #12 (`lib/panelApps/sheet.js parseKoNumber`) | F-UT-07, F-FX2-07 | feature | ✅ |
+| 요약 타일의 큰 금액은 타일 폭에 맞춰 줄어들고 줄바꿈(옆 타일로 넘치지 않음, 폭 1280) | 결함 #13 (`PanelAppCard.vue`·`PanelEventsBody.vue`) | F-FX2-07 | feature | ✅ |
+| 기록형 패널 설계가 시간 초과면 작은 단계(종류 → 그 종류의 모양)로 다시, 모든 설계 호출에 토큰 상한, 끝내 안 되면 알아듣는 말 | 결함 #11 (`lib/panelApps/service.js design`) | F-UT-07 | feature | ✅ |
+| 대화 폴더 밖 `/workspace/<이름>` 파일 카드는 "눌러서 열기" → 저장소 사본(문서는 편집기, 글은 text/plain), 남의 카드 404·작업 공간 밖 400 | 결함 #14 (`lib/fileCards.js`, `src/artifacts.js`) | F-FX2-08 | feature | ✅ |
+| 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
+| CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |

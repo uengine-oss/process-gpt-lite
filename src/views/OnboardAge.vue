@@ -9,15 +9,20 @@ const now = new Date().getFullYear()
 const years = Array.from({ length: 90 }, (_, i) => now - 14 - i)
 const y = ref(''), m = ref(''), d = ref('')
 const days = computed(() => (y.value && m.value ? new Date(y.value, m.value, 0).getDate() : 31))
-const ok = computed(() => y.value && m.value && d.value)
+// an e-mail sign-in names the person after the address ("pro-tut-a-jang"): asked once, here
+const askName = ref(false)
+const name = ref('')
+const ok = computed(() => y.value && m.value && d.value && (!askName.value || name.value.trim()))
 
 onMounted(async () => {
   const me = await api('/me')
-  if (me.profile?.onboarded_at) router.replace('/chat')
+  if (me.profile?.onboarded_at) return router.replace('/chat')
+  const local = String(me.user?.email || '').split('@')[0]
+  askName.value = !me.user?.name || me.user.name === local
 })
 
 async function next() {
-  await api('/profile', { method: 'POST', body: { birth: `${y.value}-${String(m.value).padStart(2, '0')}-${String(d.value).padStart(2, '0')}` } })
+  await api('/profile', { method: 'POST', body: { birth: `${y.value}-${String(m.value).padStart(2, '0')}-${String(d.value).padStart(2, '0')}`, ...(askName.value ? { name: name.value.trim() } : {}) } })
   router.push('/welcome/intro')
 }
 </script>
@@ -26,6 +31,11 @@ async function next() {
   <div class="age">
     <div class="card blur-in">
       <Wordmark :size="40" />
+      <template v-if="askName">
+        <h2>어떻게 불러 드릴까요?</h2>
+        <p>팀원 목록과 인사에 보이는 이름이에요. 나중에 설정 › 계정에서 바꿀 수 있어요.</p>
+        <input v-model="name" class="sel name" maxlength="40" placeholder="이름" aria-label="이름" />
+      </template>
       <h2>생년월일이 언제인가요?</h2>
       <p>이 정보는 연령에 맞는 서비스 제공을 위해 확인하는 것이며, 다른 사람에게 공개되지 않아요.</p>
       <div class="row">
@@ -47,5 +57,6 @@ p { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0 0
 .sel { height: 48px; border-radius: 9999px; border: 0; padding: 0 16px; outline: 0; appearance: none; text-align: center;
   background: var(--thin-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); color: var(--text-primary); font-size: 15px; }
 .wide { width: 100%; }
+.name { width: 100%; margin-bottom: 4px; text-align: left; appearance: auto; }
 :root[data-theme="dark"] .dark-btn { background: #f5f5f7; color: #1d1d1f; }
 </style>

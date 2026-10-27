@@ -5,7 +5,15 @@ import { useApp } from '../stores/app.js'
 const props = defineProps({ action: Object })
 const app = useApp()
 const verbs = { Reply: '답장', Pay: '납부', Release: '처리', Remind: '알림', Add: '추가', Review: '검토', Call: '전화', Book: '예약', Sign: '서명' }
-const icon = computed(() => (props.action.icon ? `https://www.google.com/s2/favicons?domain=${props.action.icon}&sz=64` : null))
+// a sender's logo through the favicon service — never for a demo mailbox (its senders are fictional,
+// and a made-up domain can belong to a real company) nor a reserved example domain: a letter tile then
+const RESERVED = /(^|\.)(example|test|invalid|localhost)$|(^|\.)example\.(com|net|org)$/i
+const icon = computed(() => {
+  const d = String(props.action.icon || '').toLowerCase()
+  if (!d || app.me?.mail?.provider === 'demo' || RESERVED.test(d)) return null
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(d)}&sz=64`
+})
+const tile = computed(() => !!(props.action.icon || props.action.source?.from))
 const iconFailed = ref(false)
 const letter = computed(() => (props.action.icon || props.action.source?.from || '?').replace(/^www\./, '').charAt(0).toUpperCase())
 // the model may return ISO timestamps or free text; show dates the way people say them
@@ -21,7 +29,7 @@ const due = computed(() => {
   <button class="act glass press" :class="{ running: action.status === 'running' }" @click="action.status === 'open' && app.runAction(action)">
     <span class="verb" :title="verbs[action.verb] || ''">{{ action.verb }}</span>
     <img v-if="icon && !iconFailed" :src="icon" class="ico" alt="" @error="iconFailed = true" />
-    <span v-else-if="icon" class="ico letter">{{ letter }}</span>
+    <span v-else-if="tile" class="ico letter">{{ letter }}</span>
     <span class="txt" :class="{ 'shimmer-text': action.status === 'running' }">{{ action.text }}</span>
     <span v-if="due" class="due">{{ due }}</span>
     <span class="x" role="button" aria-label="닫기" @click.stop="app.dismissAction(action)">×</span>

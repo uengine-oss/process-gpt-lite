@@ -72,7 +72,12 @@ export async function getSkill(jwt, name) {
   return { ...summarizeSkill(markdown), name, markdown, files }
 }
 
+// deepagents requires a JSON body naming the mode; 'local' removes the tenant's copy only
 export async function deleteSkill(jwt, name) {
-  const r = await fetch(da(`/skills/${encodeURIComponent(name)}`), { method: 'DELETE', headers: { Authorization: `Bearer ${jwt}` } })
+  const r = await fetch(da(`/skills/${encodeURIComponent(name)}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'local' }),
+  })
   if (!r.ok) throw new Error(`delete ${name}: ${r.status} ${(await r.text()).slice(0, 200)}`)
 }
