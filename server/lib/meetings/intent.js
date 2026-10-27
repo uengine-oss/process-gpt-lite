@@ -96,6 +96,9 @@ export async function detect(seg, ctx) {
   if (!pool.length) { count('no-candidate'); return null }
   let pick = pool[0], pc = 1
   const tied = pool.filter((x) => x.score === pool[0].score).slice(0, 6)
+  // the same words as something already on the panel: they mean that one
+  const onPanel = pool.find((x) => x.score >= pool[0].score - 0.5 && ctx.shown?.has(`${x.kind}:${x.id}`))
+  if (onPanel) { stats.repeats++; count('already-shown'); return { repeat: `${onPanel.kind}:${onPanel.id}` } }
   if (tied.length > 1) {
     const w = await judge(line(seg), '방금 한 말이 가리키는 자료는?', tied.map((x, i) => ({ key: `c${i}`, label: x.title.slice(0, 80) })))
     ms += w.ms

@@ -24,13 +24,15 @@ export const nameTokens = (name) => String(name || '').replace(/\.[a-z0-9]{2,5}$
 const EXT_CUE = [[/견적|정산표|예산/, /\.(xlsx|xls|csv)$/i], [/평면도|도면|설계도/, /\.(dxf|dwg)$/i], [/안내문|공문|제안서|보고서/, /\.(hwpx|hwp|docx)$/i]]
 export function score(utter, name) {
   const u = String(utter || '').replace(/\s+/g, '')
-  let s = 0
+  let s = 0, missed = 0
   for (const t of nameTokens(name)) {
     if (u.includes(t)) { s += t.length >= 3 ? 2 : 1; continue }
-    for (const [k, alts] of Object.entries(SYN)) if (t.includes(k) && alts.some((a) => u.includes(a))) { s += 1; break }
+    if (Object.entries(SYN).some(([k, alts]) => t.includes(k) && alts.some((a) => u.includes(a)))) { s += 1; continue }
+    missed++
   }
   if (s) for (const [cue, ext] of EXT_CUE) if (cue.test(u) && ext.test(String(name))) s += 1
-  return s
+  // of two names that match the same words, the one with fewer words nobody said ("견적서" → 견적서, not 견적서_수정)
+  return s ? s - missed * 0.25 : 0
 }
 
 // ---- candidates, in the speaker's access ----
