@@ -7,6 +7,7 @@ import * as proc from '../lib/processes.js'
 import * as engine from '../lib/engine.js'
 import { mainThread, addMessage, updateMessage } from '../lib/store.js'
 import { saveGenerated } from '../lib/generated.js'
+import { markOpened } from '../lib/improve/signal.js'
 
 export function processRoutes(auth) {
   const r = express.Router()
@@ -39,7 +40,10 @@ export function processRoutes(auth) {
   r.get('/todos', auth, async (req, res) => res.json(await proc.myTodos(req.user)))
   r.get('/todos/:id', auth, async (req, res) => {
     const d = await proc.getTodo(req.params.id)
-    return d ? res.json(d) : res.status(404).end()
+    if (!d) return res.status(404).end()
+    // the assignee opening the item is when the person started on it (lib/improve/signal.js)
+    markOpened(d.todo, req.user).catch((e) => console.warn('[improve] opened', e.message))
+    res.json(d)
   })
   // save a generated definition (deepagents process_result) the way the process-gpt UI's save button does
   r.post('/drafts/:msgId/save', auth, async (req, res) => {

@@ -23,6 +23,8 @@ const routes = [
   { path: '/folders/:slug/v/:variation', component: () => import('./views/FoldersView.vue') },
   // 프로세스 마이닝 추천 (관리자): 반복되는 흐름 → 정식 등록
   { path: '/mining/:id?', component: () => import('./views/MiningView.vue') },
+  // 프로세스 개선: 병목 · 가치 흐름 · 제약 · 크리티컬 패스 · 개선 실행(what-if → 새 버전)
+  { path: '/improve/:defId?', component: () => import('./views/ImproveView.vue') },
   { path: '/', redirect: '/chat' },
 ]
 

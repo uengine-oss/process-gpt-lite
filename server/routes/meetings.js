@@ -8,7 +8,7 @@ import { runAs } from './teamAssist.js'
 
 export function meetingRoutes(auth) {
   const r = express.Router()
-  S.startSweeper()
+  if (process.env.PRO_BACKGROUND !== '0') S.startSweeper()
   const h = (fn) => async (req, res) => {
     try {
       if (!S.enabled()) throw new TeamError(404, '회의 기능이 꺼져 있어요.')

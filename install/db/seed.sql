@@ -24,6 +24,8 @@ update public.tenants
            'pgpt-folders', jsonb_build_object('url', 'http://server:8787/mcp/folders', 'type', 'streamable-http', 'enabled', true,
                'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}')),
            'pgpt-panelapps', jsonb_build_object('url', 'http://server:8787/mcp/panelapps', 'type', 'streamable-http', 'enabled', true,
+               'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}')),
+           'pgpt-improve', jsonb_build_object('url', 'http://server:8787/mcp/improve', 'type', 'streamable-http', 'enabled', true,
                'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}'))
          ), true)
  where id = :'tenant';

@@ -13,9 +13,9 @@ const router = useRouter()
 const team = useTeam()
 const busy = ref('')
 
-const verb = computed(() => props.n.type === 'mining' ? '추천' : (props.n.type === 'team' ? (/공유했어요/.test(props.n.title) ? '공유' : '멘션') : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+const verb = computed(() => props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? (/공유했어요/.test(props.n.title) ? '공유' : '멘션') : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
-const kinds = { mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝' }
+const kinds = { mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선' }
 const when = computed(() => {
   const d = new Date(props.n.at)
   const mins = Math.round((Date.now() - d) / 60000)
@@ -30,6 +30,8 @@ async function act(choice) {
   if (!choice && String(props.n.url || '').startsWith('/folders/')) { app.dismissNotification(props.n); return router.push(props.n.url) }
   // a process-mining recommendation opens the mined flow (views/MiningView.vue); it stays until decided
   if (!choice && String(props.n.url || '').startsWith('/mining/')) return router.push(props.n.url)
+  // a new constraint in a process (lib/improve/service.js checkConstraint) opens its 개선 view
+  if (!choice && String(props.n.url || '').startsWith('/improve/')) return router.push(props.n.url)
   busy.value = choice || 'open'
   try { await app.actNotification(props.n, choice) } finally { busy.value = '' }
 }
@@ -54,7 +56,7 @@ async function act(choice) {
         <button v-for="o in n.choices.options" :key="o.key" class="b press" :class="{ main: o === n.choices.options[0] }"
           :disabled="!!busy" :title="o.label" @click="act(o.key)">{{ busy === o.key ? '처리 중…' : o.key }}</button>
       </template>
-      <button class="b ghost press" :disabled="!!busy" @click="act()">{{ n.type === 'mention' ? '채팅에서 보기' : n.choices ? '자세히' : n.type === 'merge_request' || n.type === 'mining' ? '검토하기' : '열기' }}</button>
+      <button class="b ghost press" :disabled="!!busy" @click="act()">{{ n.type === 'mention' ? '채팅에서 보기' : n.choices ? '자세히' : n.type === 'merge_request' || n.type === 'mining' ? '검토하기' : n.type === 'improve' ? '개선 보기' : '열기' }}</button>
     </div>
   </div>
 </template>

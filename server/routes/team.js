@@ -14,9 +14,12 @@ import { assistRoutes } from './teamAssist.js'
 export function teamRoutes(auth) {
   const r = express.Router()
   // messages written anywhere (process-gpt's UI, agents, here) reach pgpt-pro clients live
-  M.startRoomFeed()
-  // team assist watches every new person-written message in a room (lib/team/assist.js)
-  watchRooms()
+  // (not on a PRO_BACKGROUND=0 development server: the main server already listens and assists)
+  if (process.env.PRO_BACKGROUND !== '0') {
+    M.startRoomFeed()
+    // team assist watches every new person-written message in a room (lib/team/assist.js)
+    watchRooms()
+  }
   const h = (fn) => async (req, res) => {
     try {
       await requireMember(req.user)

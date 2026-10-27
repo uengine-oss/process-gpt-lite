@@ -11,6 +11,7 @@ import ProcessDraftCard from './ProcessDraftCard.vue'
 import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
 import ShareButton from './team/ShareButton.vue'
+import ImproveCard from './improve/ImproveCard.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -126,6 +127,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       <span class="fvf">{{ (c.files || []).map((f) => f.path.split('/').pop()).join(', ') }}</span>
       <span class="fvgo">{{ c.requested ? `반영 요청을 보냈어요 · ${c.requested.to} 님 검토 대기 →` : '검토하고 반영하기 →' }}</span>
     </button>
+    <!-- process improvement numbers the assistant explained (lib/agent.js improveTurn) -->
+    <ImproveCard v-else-if="msg.kind === 'improve'" :c="c" />
     <SkillShareCard v-else-if="msg.kind === 'skill_share'" class="sharecard" :skill="c.skill" :folder="c.folder" :after="c.after" />
 
     <button v-else-if="msg.kind === 'connect'" class="connect press" :class="{ done: c.state === 'done' }" :disabled="c.state === 'done'" @click="emit('connect')">

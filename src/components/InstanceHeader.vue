@@ -35,6 +35,7 @@ const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', da
       <h2 class="serif">{{ i.proc_inst_name || data.def?.name }}</h2>
       <p class="sub">{{ data.def?.name }} · {{ when(i.start_date) }} 시작 · {{ progress.done }}/{{ progress.all }} 단계</p>
       <div class="bar"><span :style="{ width: (progress.all ? progress.done / progress.all * 100 : 0) + '%' }" /></div>
+      <router-link class="imp" :to="`/improve/${encodeURIComponent(i.proc_def_id)}?tab=path`">이 프로세스의 병목·크리티컬 패스 보기 →</router-link>
     </div>
 
     <div class="card">
@@ -118,4 +119,6 @@ h2 { font-size: 30px; font-weight: 300; line-height: 1.25; margin: 10px 0 6px; l
 .branch ul { margin: 8px 0 0; padding-left: 1.1em; } .branch code { font-size: 12px; }
 .video { border-radius: 20px; padding: 14px 16px; background: var(--bubble-agent-bg); box-shadow: var(--shadow-card); }
 .video video { width: 100%; margin-top: 8px; border-radius: 12px; background: #000; aspect-ratio: 16 / 9; }
+.imp { display: inline-block; margin-top: 8px; font-size: 13px; color: var(--text-secondary); }
+.imp:hover { color: var(--text-primary); }
 </style>

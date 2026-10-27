@@ -27,6 +27,9 @@ import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
 import { meetingRoutes } from './routes/meetings.js'
 import { miningRoutes, startMiningScan } from './routes/mining.js'
+import { improveRoutes } from './routes/improve.js'
+import { mountImprove } from './mcp/improve.js'
+import { startConstraintSweep } from './lib/improve/service.js'
 import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
 import { startFolderSteps } from './lib/folders/work.js'
@@ -219,7 +222,10 @@ app.post('/api/mail/connect', auth, async (req, res) => {
 })
 app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUser(req.user.id, { announce: true })))
 // a demo mailbox only: a fictional message arrives (demos, tests) — never real mail
-setTimeout(() => mail.resumeDrafts().catch((e) => console.warn('[mail] resume', e.message)), 5000)
+// PRO_BACKGROUND=0: a second server for development (another port) that must not run the pollers,
+// workers and registries the main one already runs (mail, cron callbacks, agent workers, mcp-hub sync)
+const background = process.env.PRO_BACKGROUND !== '0'
+if (background) setTimeout(() => mail.resumeDrafts().catch((e) => console.warn('[mail] resume', e.message)), 5000)
 app.post('/api/mail/demo-arrive', auth, async (req, res) => {
   try { res.json(await mail.demoArrive(req.user.id, req.body || {})) } catch (e) { res.status(400).json({ error: e.message }) }
 })
@@ -233,10 +239,13 @@ app.use('/api', teamRoutes(auth))
 app.use('/api', meetingRoutes(auth))
 // process mining over ad-hoc work → recommended processes (routes/mining.js)
 app.use('/api', miningRoutes(auth))
+// 프로세스 개선: 병목·가치 흐름·제약·크리티컬 패스·what-if·개선 적용 (lib/improve)
+app.use('/api', improveRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
 mountFolders(app)
+mountImprove(app)
 mountPanelApps(app)
 mountConnectors(app)
 app.get('/api/connectors', auth, async (req, res) => {
@@ -689,6 +698,8 @@ app.get('/api/search', auth, async (req, res) => {
 
 const server = app.listen(config.port, async () => {
   console.log(`pgpt-pro server on :${config.port}`)
+  // a second development server shares the database: it must not reset the main server's tasks either
+  if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb
            where kind='task' and content->>'state' in ('running','needs_input')`)
@@ -700,7 +711,8 @@ const server = app.listen(config.port, async () => {
   startMiningScan()
   startSystemRegistry()
   notify.startNotificationFeed()
-startFolderSteps()
+  startFolderSteps()
+  startConstraintSweep()
 })
 
 // terminals in the agent workroom (websocket upgrade on /api/workroom/term)

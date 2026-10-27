@@ -285,6 +285,22 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 등록된 프로세스와 맞는 메일 → 그 프로세스로 시작(프로세스 카드·`pro_mining_runs`) | A-13 | agent | ✅ (등록된 추천이 없으면 건너뜀) |
 | 관리자 화면(MiningView)에서 흐름 보기·정식 등록 | — | — | ✗ (관리자 계정이 필요 — 시험 계정은 관리자가 아님) |
 
+### 13d. 프로세스 개선 — 병목·가치 흐름·제약 이론·크리티컬 패스·개선 실행 (`lib/improve/*`, 설계 `process-gpt/openspec/changes/pgpt-pro-process-improvement`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 리드타임 분해: process-gpt `leadtime.py` 원본 시험 17개 이식(사람 0초 회귀·겹침·불변식) + 확장(미리 만든 TODO·사람 착수·검토 대기·재작업) | F-UT-06 (`server/test/improve-leadtime.test.js`) | feature | ✅ |
+| CPM: 순차·병렬(ES/EF/LS/LF/여유)·배타 게이트웨이 시나리오·루프 기대 반복·진행 중 건의 남은 경로, VSM 흐름 효율, 제약, what-if 6종 | F-UT-06 (`server/test/improve-cpm.test.js`) | feature | ✅ |
+| 분석 API: 참여하지 않은 사람 403, 병목 점수 합 100, 인스턴스 분해 합 = 리드타임, 제약 = 재무 검토 담당, 5단계, 크리티컬 패스·여유, p80 > 중앙값 | F-IM-01 | feature | ✅ |
+| what-if: 사전 초안·기준 미만 건너뛰기·인원 추가로 리드타임 감소, 건너뛰기 비율은 기록에서, 불가능한 변경은 400 | F-IM-02 | feature | ✅ |
+| 새 제약 알림은 소유자에게 한 번(같은 제약이면 다시 안 보냄) | F-IM-03 | feature | ✅ |
+| MCP `/mcp/improve` 도구 6개, JWT 없으면 거부, 숫자는 결정적 계산 | F-IM-04 | feature | ✅ |
+| 개선 적용: 확인 필수·소유자/관리자만, process-gpt 저장 경로로 새 버전(`proc_def_version` major, parent, BPMN snapshot), PI Flag, 적용 기록, 버전 비교 | F-IM-05 | feature | ✅ |
+| 개선 화면 다섯 탭이 오류 없이(열지도·VSM·5단계·간트·what-if) | F-IM-06 | feature | ✅ |
+| 담당자가 작업 항목을 처음 열면 `events.human_checked` 한 번(사람 착수 신호) | F-IM-07 | feature | ✅ |
+| 채팅 "○○ 프로세스 어디가 병목이야? 어떻게 줄여?" → 계산 결과 + 모델 설명 + 개선 카드 | — | — | ✗ (모델 문장이 매번 달라 수동 확인 — 튜토리얼 20장) |
+| 개선 적용 뒤 실제 엔진으로 새 버전 인스턴스 실행·버전 비교 | — | — | ◐ (튜토리얼 시드 `scripts/seed-improve-demo.mjs --run` 으로 수동) |
+
 ### 13. SNS 트렌드 대응·Android·설치
 
 | 기능 요건 | 근거 | 시험 | 단계 | |

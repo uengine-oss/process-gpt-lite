@@ -15,7 +15,7 @@ const initial = () => (app.me?.user?.name || '?').slice(0, 1)
 
 // On a phone Home is a tab of its own (hark's 홈 / 채팅 / 프로젝트); on a wide screen it is the
 // dock beside the chat, toggled by the round button.
-const tab = computed(() => (route.path.startsWith('/folders') ? 'folders' : app.mode === 'project' ? 'project' : narrow.value && app.dockOpen ? 'home' : 'chat'))
+const tab = computed(() => (route.path.startsWith('/folders') ? 'folders' : app.mode === 'project' || route.path.startsWith('/improve') ? 'project' : narrow.value && app.dockOpen ? 'home' : 'chat'))
 const tabs = computed(() => [...(narrow.value ? [{ id: 'home', label: '홈' }] : []), { id: 'chat', label: '채팅' }, { id: 'project', label: '프로젝트' }, { id: 'folders', label: '폴더' }])
 function go(id) {
   if (id === 'project') return router.push('/projects')

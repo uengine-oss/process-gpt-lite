@@ -25,6 +25,7 @@ import { attachmentHint } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
 import { folderFor, startChatWork, finishChatWork } from './folders/work.js'
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
+import { resolveProcess, brief as improveBrief } from './improve/service.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
 const attached = new Map() // threadId -> [{name, path, url, type, size}]
@@ -207,6 +208,12 @@ export async function runTurn({ user, session, threadId, text, context, onDelta,
     // (the context carries what the person pointed at in the open document: @표 2, @이미지 1 …)
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
+  // "달빛커피 제안 프로세스 어디가 병목이야? 어떻게 줄여?" — a process with a history, asked about its speed:
+  // the numbers come from the deterministic analysis (lib/improve), the model only explains them
+  if (!files.length && IMPROVE_Q.test(text) && !generationPending(threadId)) {
+    const proc = await resolveProcess(text).catch(() => null)
+    if (proc) return improveTurn({ user, threadId, text, onDelta, proc })
+  }
   // Writing a document is the agent's job (office-mcp); a router model reads "안내문을 … 만들어줘" as a panel app.
   if (!namedApp && DOC_REQUEST.test(text) && !/패널|위젯|앱/.test(text) && !RECURRING.test(text)) {
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
@@ -322,6 +329,50 @@ const RECURRING = /매일|매주|매달|매시|마다|주기|정기|반복|한\s
 // A document or file to write: a kind of document (or a file format) followed closely by a verb of making.
 const DOC_REQUEST = /(docx|hwpx|pptx|xlsx|워드|한글\s*(파일|문서)|파워포인트|문서|보고서|안내문|제안서|기획서|공문|견적서|회의록)[^.?!\n]{0,20}(작성|만들|써\s*줘|뽑아)/i
 // What a request for a Home panel / data app says (create_panel's own examples)
+const IMPROVE_Q = /병목|크리티컬\s*패스|임계\s*경로|리드\s*타임|흐름\s*효율|가치\s*흐름|제약|오래\s*걸|느려|밀려|지연|단축|줄이|줄여|줄일|개선/
+
+const IMPROVE_PROMPT = `너는 업무 프로세스 개선 컨설턴트야. 사용자의 질문에 아래 '계산 결과(JSON)'만 근거로 한국어 해요체로 답해.
+규칙:
+- 숫자는 JSON 에 있는 값을 그대로 옮겨 써. 새로 계산하거나 지어내지 마. JSON 에 없는 숫자는 말하지 마.
+- 순서: ① 병목·제약이 어디인지(단계·담당·가동률·리드타임 중 대기 비중) ② 왜 그런지(하루 도착 건수 vs 처리 능력, 대기 건수 추세) ③ 어떻게 줄일지 — five_focusing_steps 의 행동 중 리드타임을 가장 많이 줄이는 2~3개를 전→후 숫자와 함께 ④ 마지막 한 줄: 개선 화면에서 바꿔 보며 미리 계산하고 「개선안 적용」으로 새 버전을 만들 수 있다고 안내.
+- 8~12줄. 목록은 '- ' 로. 사람을 탓하지 말고 일의 흐름으로 설명해.`
+
+// the explanation without a model (the model is down or slow): the same facts, in a fixed shape
+function improveTemplate(b) {
+  const c = b.constraint
+  const acts = b.five_focusing_steps.flatMap((s) => s.actions || []).filter((x) => x.lead_time).slice(0, 3)
+  return [
+    `${b.process} 프로세스(완료 ${b.completed}건)의 리드타임 중앙값은 ${b.lead_time.median}, 흐름 효율은 ${b.flow_efficiency}예요.`,
+    c ? `병목은 ${c.step}(${c.who}) 단계예요. 가동률 ${c.utilization}(하루 ${c.arrivals_per_day}건 도착, 처리 능력 ${c.capacity_per_day ?? '-'}건)이고, 이 단계 앞 대기가 리드타임의 ${c.wait_share_of_lead_time}를 차지해요.` : '',
+    ...acts.map((x) => `- ${x.title}: 리드타임 ${x.lead_time}`),
+    '',
+    '개선 화면에서 바꿔 보며 미리 계산하고, 「개선안 적용」으로 새 버전을 만들 수 있어요.',
+  ].filter((x) => x != null).join('\n')
+}
+
+async function improveTurn({ user, threadId, text, onDelta, proc }) {
+  let b
+  try { b = await improveBrief(user, proc.id) } catch (e) {
+    const say = e.status === 403 ? `${proc.name} 프로세스는 참여한 사람과 관리자만 분석을 볼 수 있어요.` : `${proc.name} 프로세스를 분석하지 못했어요: ${e.message}`
+    onDelta?.(say)
+    return addMessage(user.id, threadId, 'agent', 'text', { text: say })
+  }
+  let say = ''
+  try {
+    // a slow or absent model must not hold the answer: after 25 s the same facts go out in a fixed shape
+    const r = await chat({ model: config.llm.fastModel, temperature: 0.2, signal: AbortSignal.timeout(Number(process.env.PRO_IMPROVE_EXPLAIN_MS || 25000)),
+      messages: [{ role: 'system', content: IMPROVE_PROMPT }, { role: 'user', content: `질문: ${text}\n\n계산 결과(JSON):\n${JSON.stringify(b)}` }] })
+    say = String(r.content || '').trim()
+  } catch (e) { console.warn('[improve] explain', e.message) }
+  if (!say) say = improveTemplate(b)
+  onDelta?.(say)
+  const m = await addMessage(user.id, threadId, 'agent', 'text', { text: say })
+  const acts = b.five_focusing_steps.flatMap((s) => (s.actions || []).map((x) => ({ ...x, stage: s.stage }))).filter((x) => x.lead_time).slice(0, 3)
+  await addMessage(user.id, threadId, 'agent', 'improve', { defId: b.id, name: b.process, url: b.link, completed: b.completed, lead: b.lead_time, flow: b.flow_efficiency, constraint: b.constraint,
+    path: b.critical_path.path, actions: acts.map((x) => ({ title: x.title, lead: x.lead_time, flow: x.flow_efficiency })) })
+  return m
+}
+
 const PANEL_WORDS = /패널|위젯|앱|홈에|대시보드|관리|대장|목록|명단|추적|트래커|현황판|날씨|환율|주가|주식/
 // Teammates and who holds which role, so "제품 책임자한테 알려줘" can name someone.
 async function teamCatalogHint(userId) {

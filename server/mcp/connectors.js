@@ -14,7 +14,7 @@ export const CONNECTORS = [google, youtube, slackConnector, githubConnector, not
 const HUB = process.env.PRO_MCP_HUB_URL || 'http://127.0.0.1:8500'
 export const hubServerName = (connector) => `pgpt-${connector}`
 // tools that need no account (ArtCraft apps, mcp/craft.js): bound for everyone
-const ALWAYS = ['pgpt-folders', 'pgpt-panelapps', 'pgpt-cadcraft', 'pgpt-vectorcraft', 'pgpt-photocraft', 'pgpt-soundcraft', 'pgpt-filmcraft', 'pgpt-ieumoffice-live-editor']
+const ALWAYS = ['pgpt-folders', 'pgpt-panelapps', 'pgpt-improve', 'pgpt-cadcraft', 'pgpt-vectorcraft', 'pgpt-photocraft', 'pgpt-soundcraft', 'pgpt-filmcraft', 'pgpt-ieumoffice-live-editor']
 
 // process-gpt's mcp-hub lets an agent (in chat: the chatting user) use only the servers bound to
 // it. Bind the hub server of every connector the user has connected; keep unrelated bindings.

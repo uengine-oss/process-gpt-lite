@@ -11,6 +11,7 @@ const SUITES = [
   ['F-UT-03 브라우저 에이전트↔보관함: 로그인·OTP·결제에서 모델 요청에 비밀 0건 (browser-vault.test.js)', ['test/browser-vault.test.js']],
   ['F-UT-04 Google 로그인 토큰 검증 (google.test.js)', ['test/google.test.js']],
   ['F-UT-05 검수: 도면 선 비율·밝기 매핑이 지운 선·개수 손실 판정 (review.test.js)', ['test/review.test.js']],
+  ['F-UT-06 프로세스 개선: 리드타임 분해(process-gpt 원본 시험 이식 + 확장)·CPM(병렬·배타·루프)·가치 흐름·제약·what-if (improve-*.test.js)', ['test/improve-leadtime.test.js', 'test/improve-cpm.test.js']],
 ]
 for (const [name, files] of SUITES) {
   // the browser one drives a real Chromium against a local shop: on a busy machine give it a second go
