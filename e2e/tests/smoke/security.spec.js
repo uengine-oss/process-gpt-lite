@@ -197,7 +197,9 @@ test.describe('공개 접속 (spec agent-workroom: 공개 접속)', () => {
     const { PGPT_URL } = await import('../../lib/env.js')
     const u = new URL(PGPT_URL)
     const get = (host, auth) => new Promise((resolve) => {
-      const r = http.request({ host: u.hostname === 'localhost' ? '::1' : u.hostname, port: u.port, path: '/chat', headers: { Host: host, ...(auth ? { Authorization: auth } : {}) } }, (res) => { res.resume(); resolve(res.statusCode) })
+      // the configured host as it resolves here: Vite may listen on 127.0.0.1 only (not ::1), so every
+      // address of "localhost" is tried in turn rather than assuming one family
+      const r = http.request({ host: u.hostname.replace(/^\[|\]$/g, ''), port: u.port, autoSelectFamily: true, path: '/chat', headers: { Host: host, ...(auth ? { Authorization: auth } : {}) } }, (res) => { res.resume(); resolve(res.statusCode) })
       r.on('error', () => resolve(0)); r.end()
     })
     expect(await get('rt-test.trycloudflare.com')).toBe(401)

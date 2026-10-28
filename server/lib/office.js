@@ -121,12 +121,22 @@ const CRAFT_ASKS_EN = {
   soundcraft: '\\b(audio|music|track|sound effect|background music|jingle|melody|bgm|sound|wav|mp3|ringtone|chime)\\b',
   filmcraft: '\\b(video|clip|mp4|footage|short-form|shorts|reel)\\b',
 }
+// naming the app is enough ("open it in PhotoCraft", "CADCraft로 그려 줘"): the names say what is wanted
+// in either language, without a verb from MAKE — VectorCraft already worked that way by its "vector"
+const CRAFT_NAMES = {
+  cadcraft: /cad\s*-?craft|캐드\s*크래프트/i,
+  vectorcraft: /vector\s*-?craft|벡터\s*크래프트/i,
+  photocraft: /photo\s*-?craft|포토\s*크래프트/i,
+  soundcraft: /sound\s*-?craft|사운드\s*크래프트/i,
+  filmcraft: /film\s*-?craft|필름\s*크래프트/i,
+}
 export function craftAppsFor(text) {
   const t = String(text || '')
   const asks = (table, make) => Object.entries(table).filter(([, what]) => what instanceof RegExp
     ? what.test(t)
     : new RegExp(`${what}[^.?!\n]{0,40}${make}|${make}[^.?!\n]{0,40}${what}`, 'i').test(t)).map(([app]) => app)
-  return [...new Set([...asks(CRAFT_ASKS, MAKE), ...asks(CRAFT_ASKS_EN, MAKE_EN)])]
+  const named = Object.entries(CRAFT_NAMES).filter(([, re]) => re.test(t)).map(([app]) => app)
+  return [...new Set([...named, ...asks(CRAFT_ASKS, MAKE), ...asks(CRAFT_ASKS_EN, MAKE_EN)])]
 }
 const CRAFT_HINTS = {
   cadcraft: '도면(CAD)은 CADCraft 도구(cadcraft_command_line·cadcraft_script·cadcraft_execute·cadcraft_inspect_drawing·cadcraft_render·cadcraft_save)로 그리세요. 단위는 미터(1 = 1m)로 하고, 치수를 넣기 전에 반드시 cadcraft_execute {"command":"dimstyle","params":{"name":"M","current":true,"DIMTXT":0.2,"DIMASZ":0.15,"DIMEXO":0.1,"DIMEXE":0.1,"DIMGAP":0.05,"DIMSCALE":1,"DIMDEC":2}} 로 치수 스타일을 만드세요(기본 스타일은 미터 도면에 글자가 너무 큽니다). 방 이름 글자 높이는 0.3, 문·창 표시는 0.2, 치수선은 벽에서 0.8m 바깥에 두세요. 그린 뒤 cadcraft_render 로 직접 보고 겹치는 글자·치수가 있으면 고친 다음, cadcraft_save 로 이 대화 전용 산출물 폴더(📁 섹션의 base, /workspace/.bpmn/<대화>/) 아래 .dxf 파일(예: <base>/평면도.dxf)에 저장하고 답에 그 경로를 적으세요.',

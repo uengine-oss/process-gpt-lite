@@ -11,6 +11,7 @@ import { summarizeSkill, listFolder } from './skills.js'
 import fs from 'node:fs/promises'
 import { generatePanel } from './panels.js'
 import * as PanelApps from './panelApps/service.js'
+import { valuesFromText } from './panelApps/sheet.js'
 import { emit } from './bus.js'
 import { listDefinitions, listInstances, myTodos, getDefinition } from './processes.js'
 import { systemGuide } from './systems.js'
@@ -981,8 +982,11 @@ async function panelRecord({ user, threadId, args, text }) {
       const { rows } = await PanelApps.rows(user, app.id)
       return say(rows.length ? L(`${app.title} — ${rows.length}건\n${rows.slice(0, 20).map((r) => `• ${fmt(r)}`).join('\n')}`, `${app.title} — ${rows.length}\n${rows.slice(0, 20).map((r) => `• ${fmt(r)}`).join('\n')}`) : L(`${app.title}에 아직 행이 없어요.`, `${app.title} has no rows yet.`))
     }
+    // a number or date the model left out of its arguments ("견적 금액 2,450만 원" with the key
+    // "견적 금액(숫자)" or none at all) is read from the request itself
+    const fromText = () => { const given = args.values || {}; const t = valuesFromText(def, text); for (const f of def.fields) if (Object.keys(given).some((k) => k === f.key || k.replace(/\s|\*|\([^)]*\)/g, '').toLowerCase() === String(f.label).replace(/\s/g, '').toLowerCase())) delete t[f.key]; return { ...t, ...given } }
     if (args.action === 'add') {
-      const r = await PanelApps.write(user, app.id, { add: args.values || {} })
+      const r = await PanelApps.write(user, app.id, { add: fromText() })
       return say(L(`${app.title}에 넣었어요: ${fmt(r.row)} (모두 ${r.rows.length}건)`, `Added to ${app.title}: ${fmt(r.row)} (${r.rows.length} in all)`))
     }
     const { rows } = await PanelApps.rows(user, app.id)

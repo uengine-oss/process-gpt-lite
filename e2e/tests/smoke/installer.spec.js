@@ -2,6 +2,7 @@
 // nginx 가 /api·/office·/craft 를 넘기는지. 실제 설치 스택에 대고는 PGPT_URL=http://localhost:18080 으로 이 스위트 전체를 돌린다.
 import { test, expect } from '../../lib/fixtures.js'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -46,5 +47,24 @@ test.describe('설치 번들', () => {
     for (const loc of ['location /api/', 'location /office/', 'location /craft/', '(auth|rest|storage)/v1/']) expect(nginx).toContain(loc)
     // SSE needs buffering off on /api
     expect(nginx).toMatch(/proxy_buffering\s+off/)
+  })
+
+  test('S-53 install.sh 의 질문·안내는 --lang · LITE_LANG · 로캘을 따른다 (한국어 로캘이 아니면 영어)', async () => {
+    // a copy without .env: --uninstall stops at its first message (or at the Docker check without Docker) in that language
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-install-'))
+    fs.copyFileSync(path.join(DIR, 'install.sh'), path.join(tmp, 'install.sh'))
+    const last = (env, args = []) => {
+      const r = spawnSync('bash', ['install.sh', ...args, '--uninstall'], { cwd: tmp, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env } })
+      return `${r.stderr}${r.stdout}`.replace(/\x1b\[[0-9;]*m/g, '').trim().split('\n').pop()
+    }
+    const ko = /[가-힣]/
+    expect(last({ LANG: 'ko_KR.UTF-8' })).toMatch(ko)
+    for (const [env, args] of [[{ LANG: 'en_US.UTF-8' }, []], [{ LANG: 'C' }, []], [{}, []], [{ LANG: 'ko_KR.UTF-8' }, ['--lang', 'en']], [{ LANG: 'ko_KR.UTF-8' }, ['--lang=en']], [{ LANG: 'ko_KR.UTF-8', LITE_LANG: 'en' }, []]]) {
+      const line = last(env, args)
+      expect(line, JSON.stringify({ env, args })).not.toMatch(ko)
+      expect(line).toMatch(/\[error\]|Unknown option/)
+    }
+    expect(last({ LANG: 'en_US.UTF-8' }, ['--lang', 'ko'])).toMatch(ko)
+    fs.rmSync(tmp, { recursive: true, force: true })
   })
 })

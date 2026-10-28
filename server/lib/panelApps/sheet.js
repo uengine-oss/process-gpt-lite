@@ -158,11 +158,14 @@ export function parseKoNumber(raw) {
   return Number.isFinite(n) ? n : parseEnNumber(raw)
 }
 // "15 days", "₩30,000", "30K", "1.2M", "$1,200" (English mode's own way of writing amounts)
+// also "KRW 24,500,000", "24.5 million won", "₩24.5M", "about 1.2 bn"
+const EN_MULT = { k: 1e3, thousand: 1e3, m: 1e6, mn: 1e6, mil: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 }
 function parseEnNumber(raw) {
-  const m = String(raw ?? '').replace(/[\s,₩$]/g, '').replace(/^(about|approx\.?|total|~)/i, '')
-    .replace(/(won|krw|usd|days?|pcs|items?|people|persons?|hours?|hrs?|times|%|percent)$/i, '').match(/^([-+]?\d+(?:\.\d+)?)([kmb])?$/i)
+  let s = String(raw ?? '').replace(/[\s,₩$]/g, '').toLowerCase()
+  for (let i = 0; i < 3; i++) s = s.replace(/^(about|approx\.?|around|roughly|total|~|krw|usd)/, '').replace(/(won|krw|usd|days?|pcs|items?|people|persons?|hours?|hrs?|times|%|percent)$/, '')
+  const m = s.match(/^([-+]?\d+(?:\.\d+)?)(k|thousand|mn|mil|million|m|bn|billion|b)?$/)
   if (!m) return NaN
-  const x = Number(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[String(m[2] || '').toLowerCase()] || 1)
+  const x = Number(m[1]) * (EN_MULT[m[2] || ''] || 1)
   return Math.round(x * 100) / 100
 }
 function parseKoOnly(raw) {
@@ -216,13 +219,35 @@ export function coerce(f, v) {
   return String(v).trim()
 }
 
+// a field name as describe() lists it, reduced to what names it: no spaces, case, "*" or "(…)" hint
+const looseKey = (k) => String(k ?? '').replace(/\*+$/, '').replace(/\s*\([^)]*\)\s*$/, '').replace(/[\s_]/g, '').toLowerCase()
+
+// Values the request itself gives after a field's label ("견적 금액 2,450만 원", "Quote amount ₩24.5M"),
+// for the number and date fields the model's arguments left out
+export function valuesFromText(def, text) {
+  const t = String(text || '')
+  const out = {}
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  for (const f of def.fields || []) {
+    if (!['number', 'date'].includes(f.type) || !f.label) continue
+    const label = esc(String(f.label)).replace(/\\? /g, '\\s*')
+    const m = new RegExp(`${label}\\s*(?:은|는|이|가|을|를|:|：|=|is|of)?\\s*((?:[^,，;\\n]|,(?=\\d{3})|,\\s(?=\\d{4}\\b))+)`, 'i').exec(t)
+    if (!m) continue
+    const raw = m[1].trim().replace(/[.。]$/, '')
+    const v = coerce(f, raw)
+    if (f.type === 'number' ? typeof v === 'number' : /^\d{4}-\d{2}-\d{2}$/.test(v)) out[f.key] = v
+  }
+  return out
+}
+
 // what a person (or the model) typed, checked against the definition; returns the clean values
 export function validate(def, input, { partial = false } = {}) {
   const out = {}
   const problems = []
   for (const f of def.fields) {
-    // a model or a person may write the label without its spaces ("견적금액" for "견적 금액")
-    const loose = Object.keys(input || {}).find((k) => k.replace(/\s/g, '') === String(f.label).replace(/\s/g, ''))
+    // a model or a person may write the label without its spaces ("견적금액" for "견적 금액"), in
+    // another case, or with the hint the field list shows ("견적 금액(숫자)*", "Amount (number)")
+    const loose = Object.keys(input || {}).find((k) => looseKey(k) === looseKey(f.label) || looseKey(k) === looseKey(f.key))
     const has = Object.prototype.hasOwnProperty.call(input || {}, f.key) || Object.prototype.hasOwnProperty.call(input || {}, f.label) || !!loose
     if (partial && !has) continue
     let v = input?.[f.key] ?? input?.[f.label] ?? (loose ? input[loose] : undefined)

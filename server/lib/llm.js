@@ -83,12 +83,20 @@ export async function chat({ messages, tools, toolChoice, model, json, temperatu
     ...(effort ? { reasoning_effort: effort } : {}),
   }, signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs))
   const data = await res.json()
-  return data.choices[0].message
+  const msg = data.choices[0].message
+  // why the answer ended ("length" = cut off at max_tokens — a reasoning model counts its thinking in
+  // it), for callers that parse it
+  Object.defineProperty(msg, 'finish', { value: data.choices[0].finish_reason || null, enumerable: false })
+  return msg
 }
 
 export async function chatJson(system, user, opts = {}) {
   const msg = await chat({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], json: true, ...opts })
-  return JSON.parse(msg.content)
+  // a cut-off or empty answer says so, instead of JSON.parse's "Unexpected end of JSON input"
+  if (!String(msg.content || '').trim()) throw new Error(msg.finish === 'length' ? 'the model used up its token limit before answering' : 'the model gave an empty answer')
+  try { return JSON.parse(msg.content) } catch (e) {
+    throw new Error(msg.finish === 'length' ? 'the model\'s answer was cut off at its token limit' : `the model's answer is not JSON (${e.message})`)
+  }
 }
 
 // Streams text deltas; resolves with {content, tool_calls}.

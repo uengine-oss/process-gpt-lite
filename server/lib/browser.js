@@ -172,11 +172,23 @@ const TOOLS = [
   },
 }))
 
+// Only what was asked: a look-up task gets no ordering or paying step (a run once pressed 「다시 주문하기」
+// on the account page it was only reading). The click gate below holds the line when a model still tries.
+const PLAN_SCOPE = ' Plan only what the task asks for. Unless the task itself asks to buy, order, pay, subscribe or book, no step may add to a cart, order, reorder, buy, pay, check out, subscribe or book — a look-up task only reads. The last step states the result the task asks for.'
+// Controls that start or complete a purchase (not "주문 내역" / "My orders", which only show them)
+const PURCHASE_CONTROL = /(다시\s*주문|재주문|주문\s*하기|바로\s*구매|구매\s*하기|장바구니\s*(에\s*)?담기|결제\s*(하기|진행)|원\s*결제|구독\s*하기|예약\s*(하기|확정)|주문\s*확정|구매\s*확정)|\b(re-?order|order\s+(again|now)|buy\s+(again|now|it)|add\s+to\s+(cart|bag|basket)|check\s*out|pay(\s+now|\s+₩|\s+\$|\s+\d)|place\s+(your\s+|the\s+)?order|confirm\s+(order|purchase|payment|booking)|complete\s+(purchase|order|payment)|subscribe|purchase)\b|^\s*(buy|pay|order|결제|구매|주문)\s*$/i
+// the controls that commit money (approval first, always)
+const PAYMENT_CONTROL = /(결제\s*(하기|진행)|원\s*결제|주문\s*확정|구매\s*확정)|\b(pay(\s+now|\s+₩|\s+\$|\s+\d)|place\s+(your\s+|the\s+)?order|confirm\s+(order|purchase|payment)|complete\s+(purchase|order|payment))\b|^\s*(pay|결제)\s*$/i
+// a task that asks to buy ("결제해 줘", "주문해 줘", "buy", "order it", "reorder"); "최근 주문 알려 줘" does not
+export const asksToBuy = (goal) => /(구매|구입|주문\s*(해|하|을\s*넣|넣어)|재주문|결제\s*(해|하|까지)|사\s*(줘|주세요|와|올래)|구독\s*(해|하)|예약\s*(해|하))|\b(buy|purchase|pay(\s+for)?|check\s*out|subscribe|book|re-?order|place\s+(an|the)\s+order|order\s+(it|this|that|one|two|a|an|the|again|more))\b/i.test(String(goal || ''))
+export const isPurchaseControl = (text) => PURCHASE_CONTROL.test(String(text || ''))
+export const isPaymentControl = (text) => PAYMENT_CONTROL.test(String(text || ''))
+
 async function plan(goal) {
   const msg = await chat({
     model: undefined, json: true,
     messages: [
-      { role: 'system', content: isEn() ? 'Break a web task into 3-6 short English steps. Reply JSON {"title": "short task name in English", "steps": ["..."]}' : 'Break a web task into 3-6 short Korean steps. Reply JSON {"title": "짧은 작업명", "steps": ["..."]}' },
+      { role: 'system', content: (isEn() ? 'Break a web task into 3-6 short English steps. Reply JSON {"title": "short task name in English", "steps": ["..."]}' : 'Break a web task into 3-6 short Korean steps. Reply JSON {"title": "짧은 작업명", "steps": ["..."]}') + PLAN_SCOPE },
       { role: 'user', content: goal },
     ],
   })
@@ -223,15 +235,17 @@ Each turn you get a page snapshot with numbered elements. Call exactly one tool 
 For any login field (username, email, password) and any card field ALWAYS use fill_secret, even if credentials are printed on the page or you could guess them. The server asks the user for missing credentials (and which account or card to use) automatically.
 Secret fields appear in the snapshot as secret:true with no value. If the site rejects a login you filled, call login_failed. For a one-time code (SMS, e-mail, OTP, 2FA) call need_secret with the input's index; never ask for it in text.
 Before submitting a payment, sending a message or deleting anything, call approve and act only if the user approves.
-Mark steps with step_done as you complete them. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that contains all collected facts.
+Do only what the goal asks. ${asksToBuy(goal) ? 'Buy or order only what the goal names, and only after approve.' : 'The goal does not ask to buy anything: never click reorder, buy, add-to-cart, checkout, pay, subscribe or booking controls — the server refuses them.'}
+Mark steps with step_done as you complete them. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for (one or two sentences) and contains all collected facts.
 Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.`,
   }]
   // the first answer without a single browser action is sent back once: do the steps first
   const NUDGE = 'You have not performed any browser action yet (no goto/click/type/fill_secret/note). Do the plan steps with the tools now. Call finish only after you have actually done them; if the page already shows what the goal asks, record it with note first.'
 
   let result = { state: 'done', summary: '' }
+  let ended = false
   try {
-  for (let turn = 0; turn < 40 && !task.cancelled; turn++) {
+  for (let turn = 0; turn < MAX_TURNS && !task.cancelled; turn++) {
     say(task, L('페이지 읽는 중', 'Reading the page'))
     task.stats.turns++
     let snap = await s.page.evaluate(SNAPSHOT_JS).catch(() => ({ url: s.page.url(), els: [], text: '' }))
@@ -246,7 +260,7 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
     messages.push(msg)
     const call = msg.tool_calls?.[0]
     if (!call && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); continue }
-    if (!call) { result = { state: 'done', summary: msg.content || '' }; break }
+    if (!call) { result = { state: 'done', summary: msg.content || '' }; ended = true; break }
     const args = JSON.parse(call.function.arguments || '{}')
     task.lastSnap = snap
     let out = 'ok'
@@ -259,7 +273,7 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
     // one action per turn; any extra calls get an explicit skip so the transcript stays valid
     for (const extra of msg.tool_calls.slice(1)) messages.push({ role: 'tool', tool_call_id: extra.id, content: 'skipped: one action per turn' })
     if (out === '__finish__' && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); continue }
-    if (out === '__finish__') { result = { state: 'done', summary: args.summary }; break }
+    if (out === '__finish__') { result = { state: 'done', summary: args.summary }; ended = true; break }
     if (task.gates && call.function.name === 'note' && await goalMet(task)) {
       // the notes already answer the goal: one closing call instead of more browsing turns
       task.stats.early_finish = true
@@ -268,6 +282,7 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
       task.stats.llm++
       const fa = JSON.parse(fin.tool_calls?.[0]?.function?.arguments || '{}')
       result = { state: 'done', summary: fa.summary || fin.content || task.notes.join('\n') }
+      ended = true
       break
     }
   }
@@ -276,6 +291,11 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
     result = { state: 'failed', summary: L('브라우저 작업을 끝내지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't finish the browser task. Please try again in a moment.") }
   }
   if (task.cancelled) result = { state: 'cancelled', summary: L('작업을 취소했어요.', 'I canceled the task.') }
+  else if (result.state === 'done' && !ended) result = { state: 'needs_review', summary: L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래 한 일을 확인해 주세요.`, `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below.`) }
+  // finished without saying the result: one closing call for it (the person reads the result first)
+  if (result.state === 'done' && !String(result.summary || '').trim() && task.log.some((e) => e.ok)) {
+    result.summary = await closingSummary(messages, task).catch((e) => { console.warn('[browser] closing summary', e.message); return '' })
+  }
   // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
   // the person to check, and what they read is what the action log shows
   try {
@@ -362,13 +382,21 @@ async function goalMet(task) {
   return sure(d, 'done', 0.9)
 }
 
+const MAX_TURNS = 40
+async function closingSummary(messages, task) {
+  const fin = await chat({ messages: [...messages, { role: 'user', content: `You finished without saying the result. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for in one or two sentences and contains every fact you recorded. Say plainly what you could not do; do not claim anything you did not do with a tool.` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } } })
+  task.stats.llm++
+  const fa = JSON.parse(fin.tool_calls?.[0]?.function?.arguments || '{}')
+  return String(fa.summary || fin.content || '').trim()
+}
+
 // What the agent actually did, in the person's words (the summary lists these, not the model's claims).
 // Never a value typed into a field: only which field.
 function logAction(task, name, a, out) {
   const els = task.lastSnap?.els || []
   const label = (i) => { const e = els.find((x) => x.i === i); return e ? (e.text || e.name || e.tag || `#${i}`).slice(0, 40) : `#${i}` }
   // a refused or impossible step is not an action taken; asking the person always is
-  const ok = ['approve', 'need_user', 'need_login', 'login_failed', 'need_secret'].includes(name) || !/^(error|refused|no (card|credential)|the saved)/.test(String(out))
+  const ok = ['approve', 'need_user', 'need_login', 'login_failed', 'need_secret'].includes(name) || !/^(error|refused|not pressed|no (card|credential)|the saved)/.test(String(out))
   const line = {
     goto: () => L(`${hostOf(a.url)} 열기`, `Open ${hostOf(a.url)}`),
     click: () => L(`'${label(a.i)}' 누르기`, `Click '${label(a.i)}'`),
@@ -384,10 +412,11 @@ function logAction(task, name, a, out) {
     note: () => null,
     step_done: () => null,
   }[name]?.()
-  if (line) task.log.push({ kind: name, text: line, ok })
+  if (line) task.log.push({ kind: name, text: line, ok, ...(String(out).startsWith(REFUSED_PURCHASE) ? { refusedPurchase: true } : {}) })
 }
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, '') } catch { return String(u || '').slice(0, 60) } }
 const ACTIONS = new Set(['goto', 'click', 'type', 'fill_secret', 'need_secret', 'approve', 'scroll'])
+const REFUSED_PURCHASE = 'refused: purchase gate —'
 
 // The summary the person reads: the model's account only when the task actually did something, and
 // always the list of actions taken. Nothing done (no browser action, no fact noted, page unmoved) →
@@ -403,7 +432,11 @@ export function honest(result, task, { moved = false } = {}) {
   }
   if (result.state !== 'done' && result.state !== 'needs_review') return result
   const said = String(result.summary || '').trim()
-  return { ...result, summary: [said || (facts ? task.notes.join('\n') : ''), done.length ? `${L('실제로 한 일', 'What I actually did')}\n${done.slice(-12).join('\n')}` : ''].filter(Boolean).join('\n\n') }
+  // the result comes first, always: the model's account, else the facts noted, else a plain sentence
+  const head = said || (facts ? task.notes.join('\n') : L('작업을 마쳤지만 결과를 따로 알려 드릴 내용은 기록하지 못했어요. 마지막 화면과 아래 한 일을 확인해 주세요.', "I finished, but I didn't record a result to report. Check the last screen and what I did below."))
+  const refused = task.log.filter((e) => e.kind === 'click' && e.refusedPurchase).map((e) => `• ${e.text}`)
+  return { ...result, summary: [head, done.length ? `${L('실제로 한 일', 'What I actually did')}\n${done.slice(-12).join('\n')}` : '',
+    refused.length ? `${L('요청하지 않은 구매라 누르지 않은 것', "Not pressed — a purchase you didn't ask for")}\n${refused.slice(-4).join('\n')}` : ''].filter(Boolean).join('\n\n') }
 }
 
 async function act(s, task, name, a) {
@@ -420,7 +453,19 @@ async function doAct(s, task, name, a) {
   if (live) say(task, live)
   switch (name) {
     case 'goto': await s.page.goto(a.url, { waitUntil: 'domcontentloaded' }); return 'ok'
-    case 'click': await el(a.i).click({ timeout: 8000 }); await s.page.waitForTimeout(800); return 'ok'
+    case 'click': {
+      // the purchase gate: a control that orders or pays is pressed only when the goal asks to buy, and
+      // one that commits money only after the person approved (the approve card) — whatever the model says
+      const what = await el(a.i).evaluate((e) => [e.innerText, e.value, e.getAttribute('aria-label'), e.getAttribute('title')].filter(Boolean).join(' ').trim().slice(0, 80)).catch(() => '')
+      if (isPurchaseControl(what)) {
+        if (!asksToBuy(task.goal)) return `${REFUSED_PURCHASE} '${what}' starts a purchase or order, and the goal does not ask to buy anything. Do not press it; do what the goal asks and finish.`
+        if (isPaymentControl(what) && !task.approved) {
+          const ok = await act(s, task, 'approve', { summary: L(`'${what}'을(를) 눌러 결제·주문을 진행할까요?`, `Press '${what}' to go ahead with the payment or order?`) })
+          if (!/approved: do it now/.test(String(ok))) return `not pressed: ${ok}`
+        }
+      }
+      await el(a.i).click({ timeout: 8000 }); await s.page.waitForTimeout(800); return 'ok'
+    }
     case 'type': {
       // the model never types into a secret field, even text it found on the page
       if (await el(a.i).evaluate((e, sel) => e.matches(sel) || /card.?(no|num)|cardnumber|cvc|cvv|csc|otp/i.test(`${e.name} ${e.id}`), SECRET_SELECTOR)) {
@@ -486,7 +531,9 @@ async function doAct(s, task, name, a) {
         reason: a.summary || L('승인이 필요해요', 'Approval is needed'), site,
         message: ['choice', { site, approval: true, question: `${a.summary || ''}${card ? L(`\n결제 카드: ${card.label}`, `\nPayment card: ${card.label}`) : ''}`.trim(), options: L(['승인', '취소'], ['Approve', 'Cancel']) }],
       })
-      return /chose: (승인|Approve)\./.test(String(answer)) ? 'the user approved: do it now' : 'the user declined: do not do it; finish and say it was not done'
+      const yes = /chose: (승인|Approve)\./.test(String(answer))
+      if (yes) task.approved = true
+      return yes ? 'the user approved: do it now' : 'the user declined: do not do it; finish and say it was not done'
     }
     case 'step_done': {
       task.steps[a.step - 1] && await updateMessage(task.userId, task.id, {

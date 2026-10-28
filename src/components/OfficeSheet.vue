@@ -8,6 +8,7 @@ import CraftLiveOverlay from './CraftLiveOverlay.vue'
 import { CRAFT_APPS, officeEditorFor, craftMissing } from '../officeEditor.js'
 import { api, uploadAttachment } from '../api.js'
 import { useApp } from '../stores/app.js'
+import { isEnglish } from '../i18n/lang.js'
 
 const app = useApp()
 const maximized = ref(false)
@@ -42,24 +43,29 @@ function mention(m) {
   else app.focusTick++
 }
 
-// One assistant across apps: a request about a 한글 picture that changes the picture itself goes to
-// PhotoCraft — the picture is taken out of the open document, opened live in PhotoCraft over the
-// document (the agent and the dial edit it there), and "한글 문서에 넣기" (or ⌘S) puts it back in
-// place of the same picture. Requests that move or delete the picture stay with the document.
+// One assistant across apps: a request about a picture in a 한글 or Word document that changes the
+// picture itself goes to PhotoCraft — the picture is taken out of the open document, opened live in
+// PhotoCraft over the document (the agent and the dial edit it there), and "한글/워드 문서에 넣기" (or ⌘S)
+// puts it back in place of the same picture. Requests that move or delete the picture stay with the
+// document. Word pictures need an office host that answers for them (page-live.mjs 'pictures').
+// Screen words stay Korean here (the English mode translates them, src/i18n); what the agent and the
+// file names get is written in the screen's language.
 const officeFrame = ref(null)
 const picFrame = ref(null)
-const pic = ref(null) // { url, name, n, docName, pending }
+const pic = ref(null) // { url, name, n, docName, editor, pending }
 const picLive = ref(false)
-const NOT_IMAGE_EDIT = /(지워|삭제|빼\s*줘|없애|옮겨|위치|캡션|크기를\s*줄|문단|표\b)/
+const NOT_IMAGE_EDIT = /(지워|삭제|빼\s*줘|없애|옮겨|위치|캡션|크기를\s*줄|문단|표\b)|\b(delete|remove|take (it )?out|move|position|caption|smaller|resize|paragraph|table)\b/i
+const PIC_EDITORS = new Set(['hwp', 'docs'])
+const docWord = (editor) => (editor === 'docs' ? '워드' : '한글')
 function flash(kind, text, ms = 6000) { note.value = { kind, text }; setTimeout(() => { if (note.value?.text === text) note.value = null }, ms) }
 async function openPicture(m, text) {
   const d = app.officeDoc
   flash('ok', `그림 ${m.image || 1}을 포토크래프트로 여는 중…`, 4000)
   const r = await officeFrame.value.picture(m.image || 1)
-  const ext = /png/.test(r.media || r.name) ? 'png' : 'jpg'
-  const base = String(d.name || '문서').replace(/\.[^.]+$/, '')
-  const f = await uploadAttachment(new File([r.bytes], `${base} 그림 ${r.n}.${ext}`, { type: r.media || `image/${ext}` }))
-  pic.value = { url: f.url, name: f.name, n: r.n, docName: d.name, label: m.label, pending: text, strokes: await strokeCount(r.bytes).catch(() => 0) }
+  const ext = /png/.test(r.media || r.name) ? 'png' : /gif/.test(r.media || r.name) ? 'gif' : 'jpg'
+  const base = String(d.name || (isEnglish ? 'Document' : '문서')).replace(/\.[^.]+$/, '')
+  const f = await uploadAttachment(new File([r.bytes], isEnglish ? `${base} picture ${r.n}.${ext}` : `${base} 그림 ${r.n}.${ext}`, { type: r.media || `image/${ext}` }))
+  pic.value = { url: f.url, name: f.name, n: r.n, docName: d.name, editor: m.editor, label: m.label, pending: text, strokes: await strokeCount(r.bytes).catch(() => 0) }
 }
 // How much of a picture is drawn: pixels away from its background (the corner colour), every
 // second pixel. A recolour that maps by brightness can drop strokes as dark as the background
@@ -108,9 +114,9 @@ async function guardStrokes() {
 // after each of the agent's answers while the picture is out, and before it goes back
 watch(() => [...(app.thread || [])].reverse().find((m) => m.role === 'agent')?.id, (id, was) => { if (pic.value && id && was && id !== was) setTimeout(guardStrokes, 800) })
 app.beforeSend = async (text, mentions) => {
-  const m = mentions.find((x) => x.kind === 'image' && x.editor === 'hwp')
-  // no PhotoCraft in this install: the request stays with the document
-  if (!m || !office.value || pic.value || NOT_IMAGE_EDIT.test(text) || craftMissing('photocraft')) return false
+  const m = mentions.find((x) => x.kind === 'image' && PIC_EDITORS.has(x.editor))
+  // no PhotoCraft in this install, or an office host that cannot hand out Word pictures: the request stays with the document
+  if (!m || !office.value || pic.value || NOT_IMAGE_EDIT.test(text) || craftMissing('photocraft') || !officeFrame.value?.canPictures(m.editor)) return false
   try { await openPicture(m, text); return true } catch (e) { flash('err', `그림을 꺼내지 못했어요: ${e.message}`); return false }
 }
 // PhotoCraft joined the chat: now the request goes, about the picture open there
@@ -119,7 +125,10 @@ watch(picLive, (on) => {
   if (!on || !p?.pending) return
   const text = p.pending
   p.pending = null
-  app.send(`@${p.label} ${text}`, undefined, `(이 요청은 한글 문서 '${p.docName}' 의 그림 ${p.n} 에 대한 것이에요. 그 그림을 지금 포토크래프트에 '${p.name}' 으로 열어 두었으니 열린 포토크래프트에서 고치세요. 다 고치면 사용자가 '한글 문서에 넣기' 로 문서에 다시 넣어요.)`)
+  const kind = p.editor === 'docs' ? 'Word' : 'Hangul'
+  app.send(`@${p.label} ${text}`, undefined, isEnglish
+    ? `(This request is about picture ${p.n} of the ${kind} document '${p.docName}'. That picture is open in PhotoCraft now as '${p.name}': edit it in the open PhotoCraft. When it is done, the user puts it back in the document with 'Put in ${kind} document'.)`
+    : `(이 요청은 ${docWord(p.editor)} 문서 '${p.docName}' 의 그림 ${p.n} 에 대한 것이에요. 그 그림을 지금 포토크래프트에 '${p.name}' 으로 열어 두었으니 열린 포토크래프트에서 고치세요. 다 고치면 사용자가 '${docWord(p.editor)} 문서에 넣기' 로 문서에 다시 넣어요.)`)
 })
 async function putBack() {
   const p = pic.value
@@ -133,7 +142,7 @@ async function putBack() {
     const kept = p.strokes ? Math.round(((await strokeCount(bytes).catch(() => 0)) / p.strokes) * 100) : null
     api('/reviews', { method: 'POST', body: { file: p.docName, ok: kept == null || kept >= 70, summary: `검수: 그림 ${p.n}을 포토크래프트에서 고쳐 같은 자리에 넣음${kept != null ? ` · 선 ${kept}% 유지` : ''}${kept == null || kept >= 70 ? ' ✓' : ' ⚠'}` } }).catch(() => {})
     pic.value = null
-    flash('ok', `고친 그림을 한글 문서의 그림 ${p.n} 자리에 넣었어요 · ⌘S 로 저장하세요`, 7000)
+    flash('ok', `고친 그림을 ${docWord(p.editor)} 문서의 그림 ${p.n} 자리에 넣었어요 · ⌘S 로 저장하세요`, 7000)
   } catch (e) { p.putting = false; flash('err', `그림을 문서에 넣지 못했어요: ${e.message}`) }
 }
 onBeforeUnmount(() => { if (app.beforeSend) app.beforeSend = null })
@@ -178,8 +187,8 @@ async function saved({ url, name }) {
       <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
       <Transition name="pic">
         <div v-if="pic" class="pic">
-          <div class="pic-tag">한글 문서 · 그림 {{ pic.n }}</div>
-          <CraftEditorFrame ref="picFrame" :file-url="pic.url" :name="pic.name" return-label="한글 문서에 넣기"
+          <div class="pic-tag">{{ docWord(pic.editor) }} 문서 · 그림 {{ pic.n }}</div>
+          <CraftEditorFrame ref="picFrame" :file-url="pic.url" :name="pic.name" :return-label="`${docWord(pic.editor)} 문서에 넣기`"
             @return="putBack" @saved="putBack" @close="pic = null" @live="(v) => (picLive = v)" />
         </div>
       </Transition>
@@ -198,7 +207,7 @@ async function saved({ url, name }) {
 .pnote { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 9px 16px; border-radius: 10px; font-size: 14px; color: #fff; background: #1d1d1f; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); white-space: nowrap; }
 .pnote.err { background: #c62828; }
 .pnote { z-index: 6; }
-/* PhotoCraft over the 한글 document: the document's left edge stays in sight, dimmed */
+/* PhotoCraft over the 한글/Word document: the document's left edge stays in sight, dimmed */
 .pic { position: absolute; inset: 44px 0 0 16%; z-index: 4; display: flex; border-radius: 16px 0 0 0; overflow: hidden; box-shadow: -18px 0 50px rgba(0, 0, 0, .35); }
 .pic::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
 .pic-tag { position: absolute; left: 12px; bottom: 12px; z-index: 3; padding: 4px 10px; border-radius: 10px; font-size: 12px; color: #fff; background: rgba(110, 90, 230, .85); pointer-events: none; }

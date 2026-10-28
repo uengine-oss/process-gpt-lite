@@ -8,6 +8,8 @@
 #   ./install.sh --upgrade       update sources (git), rebuild/pull images, migrate, restart
 #   ./install.sh --uninstall      stop and remove containers (data kept)
 #   ./install.sh --uninstall --purge   also delete volumes, data folder and built images
+#   ./install.sh --lang en|ko     language of the questions and messages (default: Korean when the
+#                                 locale — LC_ALL / LC_MESSAGES / LANG — is Korean, otherwise English)
 #
 # Non-interactive: LLM_API_KEY=... LLM_BASE_URL=... LLM_MODEL=... ADMIN_EMAIL=... ./install.sh --yes
 # Secrets are written only to .env (mode 0600) and never printed.
@@ -16,7 +18,20 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-ACTION=install PROFILE="" YES=0 PURGE=0 NO_GIT=0 MINING="" CRAFT="" FRESH=0
+ACTION=install PROFILE="" YES=0 PURGE=0 NO_GIT=0 MINING="" CRAFT="" FRESH=0 UI_LANG="${LITE_LANG:-}"
+# the language of what this script says: --lang, else LITE_LANG, else the locale (Korean only when it is ko*)
+prev=""
+for a in "$@"; do
+  case "$a" in --lang=*) UI_LANG="${a#*=}" ;; esac
+  [ "$prev" = --lang ] && UI_LANG="$a"
+  prev="$a"
+done
+if [ -z "$UI_LANG" ]; then
+  case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in ko*|KO*) UI_LANG=ko ;; *) UI_LANG=en ;; esac
+fi
+case "$UI_LANG" in ko|en) ;; *) UI_LANG=en ;; esac
+t() { if [ "$UI_LANG" = ko ]; then printf '%s' "$1"; else printf '%s' "$2"; fi; } # t KOREAN ENGLISH
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --upgrade) ACTION=upgrade ;;
@@ -31,23 +46,25 @@ while [ $# -gt 0 ]; do
     --without-craft) CRAFT=0 ;;
     -y|--yes) YES=1 ;;
     --no-git) NO_GIT=1 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
-    *) echo "알 수 없는 옵션: $1" >&2; exit 2 ;;
+    --lang) shift ;;
+    --lang=*) ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    *) echo "$(t '알 수 없는 옵션' 'Unknown option'): $1" >&2; exit 2 ;;
   esac
   shift
 done
 
 say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[주의]\033[0m %s\n' "$*" >&2; }
-die()  { printf '\033[1;31m[오류]\033[0m %s\n' "$*" >&2; exit 1; }
+warn() { printf '\033[1;33m[%s]\033[0m %s\n' "$(t 주의 warning)" "$*" >&2; }
+die()  { printf '\033[1;31m[%s]\033[0m %s\n' "$(t 오류 error)" "$*" >&2; exit 1; }
 T0=$(date +%s)
 
 # ── prerequisites ────────────────────────────────────────────
-command -v docker >/dev/null || die "Docker가 없습니다. https://docs.docker.com/get-docker/ 에서 설치하세요."
-docker compose version >/dev/null 2>&1 || die "Docker Compose v2(docker compose)가 필요합니다."
-docker info >/dev/null 2>&1 || die "Docker 데몬에 연결할 수 없습니다. Docker Desktop/엔진을 켜세요."
-command -v openssl >/dev/null || die "openssl이 필요합니다."
-command -v curl >/dev/null || die "curl이 필요합니다."
+command -v docker >/dev/null || die "$(t 'Docker가 없습니다. https://docs.docker.com/get-docker/ 에서 설치하세요.' 'Docker is not installed. Install it from https://docs.docker.com/get-docker/.')"
+docker compose version >/dev/null 2>&1 || die "$(t 'Docker Compose v2(docker compose)가 필요합니다.' 'Docker Compose v2 (docker compose) is required.')"
+docker info >/dev/null 2>&1 || die "$(t 'Docker 데몬에 연결할 수 없습니다. Docker Desktop/엔진을 켜세요.' 'Cannot reach the Docker daemon. Start Docker Desktop or the Docker engine.')"
+command -v openssl >/dev/null || die "$(t 'openssl이 필요합니다.' 'openssl is required.')"
+command -v curl >/dev/null || die "$(t 'curl이 필요합니다.' 'curl is required.')"
 
 ENVF="$HERE/.env"
 getenv() { [ -f "$ENVF" ] && grep -E "^$1=" "$ENVF" | tail -1 | cut -d= -f2- || true; }
@@ -70,8 +87,8 @@ compose() {
 
 # ── uninstall ────────────────────────────────────────────────
 if [ "$ACTION" = uninstall ]; then
-  [ -f "$ENVF" ] || die ".env가 없습니다(설치된 적이 없음)."
-  say "컨테이너를 내립니다"
+  [ -f "$ENVF" ] || die "$(t '.env가 없습니다(설치된 적이 없음).' 'There is no .env (it was never installed).')"
+  say "$(t '컨테이너를 내립니다' 'Stopping the containers')"
   if [ "$PURGE" = 1 ]; then
     docker compose --env-file "$ENVF" --profile lite --profile full --profile mining --profile craft down -v --rmi local --remove-orphans
   else
@@ -87,9 +104,9 @@ if [ "$ACTION" = uninstall ]; then
       rmdir "$d" 2>/dev/null || true
     fi
     rm -f "$ENVF"
-    say "데이터·볼륨·이미지·.env를 모두 지웠습니다."
+    say "$(t '데이터·볼륨·이미지·.env를 모두 지웠습니다.' 'Deleted the data, volumes, images and .env.')"
   else
-    say "멈췄습니다. 데이터는 남아 있습니다(다시 시작: ./install.sh, 완전 삭제: --uninstall --purge)."
+    say "$(t '멈췄습니다. 데이터는 남아 있습니다(다시 시작: ./install.sh, 완전 삭제: --uninstall --purge).' 'Stopped. Your data is kept (start again: ./install.sh, delete everything: --uninstall --purge).')"
   fi
   exit 0
 fi
@@ -101,7 +118,7 @@ ensure_sources() {
   local root; root="$(abspath ..)"
   if [ "$NO_GIT" = 0 ] && command -v git >/dev/null && git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
     if [ -f "$root/.gitmodules" ]; then
-      say "백엔드 서브모듈을 받습니다(필요한 것만)"
+      say "$(t '백엔드 서브모듈을 받습니다(필요한 것만)' 'Fetching the backend submodules (only what is needed)')"
       git -C "$root" submodule update --init backends/process-gpt backends/office-host 2>/dev/null || true
       local pg="$root/backends/process-gpt"
       if [ -d "$pg" ]; then
@@ -117,25 +134,25 @@ ensure_sources() {
   if [ "$(getenv LITE_MINING)" = 1 ] && [ -z "$(getenv PROCESS_MINER_SRC)" ]; then
     local mr="$HERE/.src/process-gpt-mining"
     if [ ! -d "$mr/.git" ]; then
-      say "process-miner 소스를 받습니다(process-gpt feat/pgpt-lite-mining, services/process-miner 만)"
+      say "$(t 'process-miner 소스를 받습니다(process-gpt feat/pgpt-lite-mining, services/process-miner 만)' 'Fetching the process-miner source (process-gpt feat/pgpt-lite-mining, services/process-miner only)')"
       mkdir -p "$HERE/.src"
       git clone -q --depth 1 --branch "${MINER_BRANCH:-feat/pgpt-lite-mining}" --filter=blob:none --sparse \
-        https://github.com/uengine-oss/process-gpt.git "$mr" || die "process-miner 소스를 받지 못했습니다."
+        https://github.com/uengine-oss/process-gpt.git "$mr" || die "$(t 'process-miner 소스를 받지 못했습니다.' 'Could not fetch the process-miner source.')"
       git -C "$mr" sparse-checkout set services/process-miner
     elif [ "$ACTION" = upgrade ] && [ "$NO_GIT" = 0 ]; then
-      git -C "$mr" pull -q --ff-only || warn "process-miner 소스 git pull 실패 — 지금 소스로 계속합니다."
+      git -C "$mr" pull -q --ff-only || warn "$(t 'process-miner 소스 git pull 실패 — 지금 소스로 계속합니다.' 'git pull of the process-miner source failed — continuing with the current source.')"
     fi
-    [ -f "$mr/services/process-miner/Dockerfile" ] || die "process-miner 소스가 없습니다($mr)."
+    [ -f "$mr/services/process-miner/Dockerfile" ] || die "$(t 'process-miner 소스가 없습니다' 'The process-miner source is missing') ($mr)."
   fi
   local pg oh pp
   pp="$(abspath "$(src_of PGPT_SRC ..)")"
   pg="$(abspath "$(src_of PROCESS_GPT_SRC ../backends/process-gpt)")"
   oh="$(abspath "$(src_of OFFICE_HOST_SRC ../backends/office-host)")"
-  [ -f "$pp/server/index.js" ] || die "pgpt-pro 소스를 찾을 수 없습니다(PGPT_SRC)."
-  [ -f "$pg/docker-infra/volumes/db/init.sql" ] || die "process-gpt 소스를 찾을 수 없습니다(PROCESS_GPT_SRC). git clone --recurse-submodules 로 받았는지 확인하세요."
-  [ -f "$pg/services/deepagents/server.py" ] || die "deepagents 소스가 없습니다($pg/services/deepagents)."
-  [ -f "$pg/services/office-mcp/main.py" ] || die "office-mcp 소스가 없습니다($pg/services/office-mcp)."
-  [ -d "$oh/ieumoffice/apps" ] || die "이음오피스 소스가 없습니다($oh/ieumoffice). office-host 저장소의 서브모듈을 받으세요."
+  [ -f "$pp/server/index.js" ] || die "$(t 'pgpt-pro 소스를 찾을 수 없습니다(PGPT_SRC).' 'Cannot find the pgpt-pro source (PGPT_SRC).')"
+  [ -f "$pg/docker-infra/volumes/db/init.sql" ] || die "$(t 'process-gpt 소스를 찾을 수 없습니다(PROCESS_GPT_SRC). git clone --recurse-submodules 로 받았는지 확인하세요.' 'Cannot find the process-gpt source (PROCESS_GPT_SRC). Check that you cloned with git clone --recurse-submodules.')"
+  [ -f "$pg/services/deepagents/server.py" ] || die "$(t 'deepagents 소스가 없습니다' 'The deepagents source is missing') ($pg/services/deepagents)."
+  [ -f "$pg/services/office-mcp/main.py" ] || die "$(t 'office-mcp 소스가 없습니다' 'The office-mcp source is missing') ($pg/services/office-mcp)."
+  [ -d "$oh/ieumoffice/apps" ] || die "$(t '이음오피스 소스가 없습니다' 'The IeumOffice source is missing') ($oh/ieumoffice). $(t 'office-host 저장소의 서브모듈을 받으세요.' 'Fetch the submodule of the office-host repository.')"
 }
 
 # ── .env: create once, fill what is missing (idempotent) ─────
@@ -162,25 +179,25 @@ ask() { # ask KEY PROMPT DEFAULT [secret]
 }
 prepare_env() {
   if [ ! -f "$ENVF" ]; then
-    say ".env를 만듭니다"
+    say "$(t '.env를 만듭니다' 'Creating .env')"
     (umask 077; cp "$HERE/.env.example" "$ENVF")
     FRESH=1
   fi
   chmod 600 "$ENVF"
   [ -n "$PROFILE" ] && setenv LITE_PROFILE "$PROFILE"
   [ -n "${PORT_ARG:-}" ] && { setenv LITE_HTTP_PORT "$PORT_ARG"; setenv PUBLIC_URL "http://localhost:$PORT_ARG"; }
-  case "$(getenv LITE_PROFILE)" in lite|full) ;; *) die "--profile 은 lite 또는 full 입니다." ;; esac
+  case "$(getenv LITE_PROFILE)" in lite|full) ;; *) die "$(t '--profile 은 lite 또는 full 입니다.' '--profile is lite or full.')" ;; esac
   [ "$(getenv LITE_PROFILE)" = full ] && setenv DEEPAGENTS_PROCESS_POLLING true
   if [ "$MINING" = 1 ]; then setenv LITE_MINING 1; setenv MINER_URL http://process-miner:8014
   elif [ "$MINING" = 0 ]; then setenv LITE_MINING 0; setenv MINER_URL ""; fi
   [ -n "$CRAFT" ] && setenv LITE_CRAFT "$CRAFT"
 
-  ask LLM_BASE_URL "LLM 주소(OpenAI 호환)" "https://api.openai.com/v1"
-  ask LLM_API_KEY "LLM API 키(입력은 화면에 보이지 않습니다)" "" secret
-  ask LLM_MODEL "기본 모델" "gpt-4.1"
-  ask LLM_FAST_MODEL "빠른 모델(라우팅·분류)" "$(getenv LLM_MODEL)"
-  ask ADMIN_EMAIL "첫 관리자 이메일" "admin@pgpt-lite.local"
-  [ -n "$(getenv LLM_API_KEY)" ] || warn "LLM_API_KEY가 비어 있습니다. 채팅이 응답하지 않습니다(.env에 넣고 ./install.sh 다시 실행)."
+  ask LLM_BASE_URL "$(t 'LLM 주소(OpenAI 호환)' 'LLM address (OpenAI-compatible)')" "https://api.openai.com/v1"
+  ask LLM_API_KEY "$(t 'LLM API 키(입력은 화면에 보이지 않습니다)' 'LLM API key (not shown as you type)')" "" secret
+  ask LLM_MODEL "$(t '기본 모델' 'Default model')" "gpt-4.1"
+  ask LLM_FAST_MODEL "$(t '빠른 모델(라우팅·분류)' 'Fast model (routing and classification)')" "$(getenv LLM_MODEL)"
+  ask ADMIN_EMAIL "$(t '첫 관리자 이메일' 'First admin email')" "admin@pgpt-lite.local"
+  [ -n "$(getenv LLM_API_KEY)" ] || warn "$(t 'LLM_API_KEY가 비어 있습니다. 채팅이 응답하지 않습니다(.env에 넣고 ./install.sh 다시 실행).' 'LLM_API_KEY is empty, so chat will not answer (put it in .env and run ./install.sh again).')"
 
   # secrets: generated once, kept across upgrades
   [ -n "$(getenv POSTGRES_PASSWORD)" ] || setenv POSTGRES_PASSWORD "$(openssl rand -hex 24)"
@@ -214,13 +231,13 @@ preflight() {
   local mem cpus port mport
   mem=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
   cpus=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)
-  [ "$mem" -ge $((7 * 1024 * 1024 * 1024)) ] || warn "Docker에 할당된 메모리가 8GB 미만입니다($((mem / 1024 / 1024))MB). 이음오피스 빌드·실행이 느리거나 실패할 수 있습니다."
-  [ "$cpus" -ge 4 ] || warn "Docker CPU가 4개 미만입니다."
+  [ "$mem" -ge $((7 * 1024 * 1024 * 1024)) ] || warn "$(t "Docker에 할당된 메모리가 8GB 미만입니다($((mem / 1024 / 1024))MB). 이음오피스 빌드·실행이 느리거나 실패할 수 있습니다." "Docker has less than 8 GB of memory ($((mem / 1024 / 1024)) MB). Building and running IeumOffice may be slow or fail.")"
+  [ "$cpus" -ge 4 ] || warn "$(t 'Docker CPU가 4개 미만입니다.' 'Docker has fewer than 4 CPUs.')"
   port="$(getenv LITE_HTTP_PORT)"; mport="$(getenv LITE_MAIL_PORT)"
   for p in "$port" "$mport"; do
     if port_open "$p"; then
       if ! docker ps --filter "label=com.docker.compose.project=$(getenv COMPOSE_PROJECT_NAME)" --format '{{.Ports}}' | grep -q ":$p->"; then
-        die "포트 $p 를 다른 프로그램이 쓰고 있습니다. ./install.sh --port <다른 포트> 로 바꾸세요."
+        die "$(t "포트 $p 를 다른 프로그램이 쓰고 있습니다. ./install.sh --port <다른 포트> 로 바꾸세요." "Port $p is used by another program. Choose another one with ./install.sh --port <port>.")"
       fi
     fi
   done
@@ -228,51 +245,52 @@ preflight() {
 
 build_or_pull() {
   if [ "$(getenv LITE_IMAGE_PREFIX)" != pgpt-lite ]; then
-    say "이미지를 받습니다($(getenv LITE_IMAGE_PREFIX):$(getenv LITE_TAG))"
+    say "$(t '이미지를 받습니다' 'Pulling the images') ($(getenv LITE_IMAGE_PREFIX):$(getenv LITE_TAG))"
     compose pull
   else
-    say "이미지를 빌드합니다(처음에는 20~40분, 이음오피스가 가장 오래 걸립니다)"
-    [ "$(getenv LITE_CRAFT)" = 1 ] && say "ArtCraft 앱 다섯 개도 소스에서 빌드합니다(처음 한 번 30분 이상, 이후 캐시)"
+    say "$(t '이미지를 빌드합니다(처음에는 20~40분, 이음오피스가 가장 오래 걸립니다)' 'Building the images (20–40 minutes the first time; IeumOffice takes longest)')"
+    [ "$(getenv LITE_CRAFT)" = 1 ] && say "$(t 'ArtCraft 앱 다섯 개도 소스에서 빌드합니다(처음 한 번 30분 이상, 이후 캐시)' 'Also building the five ArtCraft apps from source (30+ minutes once, cached afterwards)')"
     compose build ${1:-}
   fi
 }
 
 wait_ready() {
   local url="http://127.0.0.1:$(getenv LITE_HTTP_PORT)" i
-  say "서비스가 준비되기를 기다립니다"
+  say "$(t '서비스가 준비되기를 기다립니다' 'Waiting for the services to be ready')"
   for i in $(seq 1 180); do
     if curl -fsS "$url/api/config" >/dev/null 2>&1 \
        && [ "$(docker inspect -f '{{.State.Health.Status}}' "$(compose ps -q deepagents)" 2>/dev/null)" = healthy ]; then
       return 0
     fi
     if [ -n "$(compose ps -a --format '{{.Service}} {{.State}} {{.ExitCode}}' migrate 2>/dev/null | awk '$2=="exited" && $3!="0"')" ]; then
-      compose logs --no-color --tail 40 migrate >&2; die "DB 마이그레이션이 실패했습니다."
+      compose logs --no-color --tail 40 migrate >&2; die "$(t 'DB 마이그레이션이 실패했습니다.' 'The database migration failed.')"
     fi
     sleep 5
   done
   compose ps >&2
-  die "15분 안에 준비되지 않았습니다. 'docker compose logs <서비스>' 로 원인을 확인하세요."
+  die "$(t "15분 안에 준비되지 않았습니다. 'docker compose logs <서비스>' 로 원인을 확인하세요." "Not ready within 15 minutes. Check the cause with 'docker compose logs <service>'.")"
 }
 
 create_admin() {
-  local email url anon svc uid
+  local email url anon svc uid admin
   email="$(getenv ADMIN_EMAIL)"; url="http://127.0.0.1:$(getenv LITE_HTTP_PORT)"
+  admin="$(t 관리자 Admin)"
   anon="$(getenv ANON_KEY)"; svc="$(getenv SERVICE_ROLE_KEY)"
   # GoTrue admin API (service key from .env, sent in headers only). 422 = already exists.
   local code i
   for i in $(seq 1 12); do
     code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$url/auth/v1/admin/users" \
       -H "apikey: $svc" -H "Authorization: Bearer $svc" -H 'Content-Type: application/json' \
-      -d "{\"email\":\"$email\",\"email_confirm\":true,\"user_metadata\":{\"name\":\"관리자\",\"tenant_id\":\"$(getenv LITE_TENANT)\"}}" || true)"
+      -d "{\"email\":\"$email\",\"email_confirm\":true,\"user_metadata\":{\"name\":\"$admin\",\"tenant_id\":\"$(getenv LITE_TENANT)\"}}" || true)"
     case "$code" in 200|201|422) break ;; esac
     sleep 5
   done
   uid="$(compose exec -T db psql -U postgres -d postgres -tAc "select id from auth.users where email='$email'" | tr -d '[:space:]')"
-  [ -n "$uid" ] || die "관리자 계정을 만들지 못했습니다(auth 로그 확인: docker compose logs auth)."
+  [ -n "$uid" ] || die "$(t '관리자 계정을 만들지 못했습니다(auth 로그 확인: docker compose logs auth).' 'Could not create the admin account (check the auth log: docker compose logs auth).')"
   compose exec -T db psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 \
-    -v uid="$uid" -v email="$email" -v tenant="$(getenv LITE_TENANT)" >/dev/null <<'SQL'
+    -v uid="$uid" -v email="$email" -v tenant="$(getenv LITE_TENANT)" -v admin="$admin" >/dev/null <<'SQL'
 insert into public.users (id, username, email, tenant_id, role, is_admin, is_agent, is_draft, permission_ids)
-values (:'uid', '관리자', :'email', :'tenant', 'admin', true, false, false, '{}')
+values (:'uid', :'admin', :'email', :'tenant', 'admin', true, false, false, '{}')
 on conflict (id, tenant_id) do update set is_admin = true, role = 'admin';
 update public.tenants set owner = :'uid' where id = :'tenant' and owner is null;
 SQL
@@ -280,7 +298,7 @@ SQL
 }
 
 up() {
-  say "시작합니다(프로필: $(getenv LITE_PROFILE))"
+  say "$(t '시작합니다(프로필' 'Starting (profile'): $(getenv LITE_PROFILE))"
   compose up -d --remove-orphans
   wait_ready
   create_admin
@@ -289,7 +307,8 @@ up() {
 summary() {
   local url mail
   url="$(getenv PUBLIC_URL)"; mail="http://localhost:$(getenv LITE_MAIL_PORT)"
-  cat <<EOF
+  if [ "$UI_LANG" = ko ]; then
+    cat <<EOF
 
   Process GPT Lite 가 준비됐습니다  ($(( $(date +%s) - T0 ))초)
 
@@ -304,6 +323,23 @@ summary() {
     멈추기      ./install.sh --uninstall   (데이터 유지, --purge 는 모두 삭제)
 
 EOF
+  else
+    cat <<EOF
+
+  Process GPT Lite is ready  ($(( $(date +%s) - T0 )) s)
+
+    Address      $url
+    Admin        $(getenv ADMIN_EMAIL)
+    Login code   enter your email and the code goes to the mailbox → $mail
+                 (set SMTP in .env to send real mail)
+
+    Status       docker compose ps
+    Logs         docker compose logs -f server deepagents
+    Upgrade      ./install.sh --upgrade
+    Stop         ./install.sh --uninstall   (keeps data; --purge deletes everything)
+
+EOF
+  fi
 }
 
 case "$ACTION" in
@@ -312,11 +348,11 @@ case "$ACTION" in
     build_or_pull
     up; summary ;;
   upgrade)
-    [ -f "$ENVF" ] || die "먼저 ./install.sh 로 설치하세요."
+    [ -f "$ENVF" ] || die "$(t '먼저 ./install.sh 로 설치하세요.' 'Install first with ./install.sh.')"
     prepare_env
     if [ "$NO_GIT" = 0 ] && command -v git >/dev/null && git -C .. rev-parse --git-dir >/dev/null 2>&1; then
-      say "소스를 업데이트합니다(git pull)"
-      git -C .. pull --ff-only || warn "git pull 실패 — 로컬 변경을 확인하세요. 지금 소스로 계속합니다."
+      say "$(t '소스를 업데이트합니다(git pull)' 'Updating the sources (git pull)')"
+      git -C .. pull --ff-only || warn "$(t 'git pull 실패 — 로컬 변경을 확인하세요. 지금 소스로 계속합니다.' 'git pull failed — check your local changes. Continuing with the current sources.')"
     fi
     ensure_sources; preflight
     build_or_pull --pull

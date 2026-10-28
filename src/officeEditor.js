@@ -22,7 +22,9 @@ if (typeof fetch === 'function') fetch(BASE + '/api/config').then((r) => (r.ok ?
 export const craftMissing = (editor) => !!craftHave && CRAFT_APPS.has(editor) && craftHave[editor]?.web === false
 
 function extOf(nameOrUrl) {
-  const clean = String(nameOrUrl || '').split('?')[0].split('#')[0]
+  // a URL loses its query and fragment; a file name keeps "#" ("Moonlight Coffee Store #2 proposal.docx")
+  const s = String(nameOrUrl || '')
+  const clean = /^[a-z][a-z0-9+.-]*:|^\//i.test(s) ? s.split('?')[0].split('#')[0] : s
   const dot = clean.lastIndexOf('.')
   return dot >= 0 ? clean.slice(dot + 1).toLowerCase() : ''
 }

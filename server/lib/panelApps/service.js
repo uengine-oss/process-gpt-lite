@@ -77,6 +77,11 @@ kind 가 events 이면 fields/computed/views/form/rows 대신 이 모양으로 �
 // kind's shape with the short prompt for it. Each call has its own limit and a token cap, so a model
 // that runs on (JSON mode can pad with whitespace) cannot hold the request for minutes.
 const DESIGN_MS = () => Number(process.env.PRO_PANEL_DESIGN_MS || 120000)
+// The model reasons before it answers, and max_tokens counts that thinking too: 4000 was spent on
+// thinking alone for a plain sheet app (empty answer → "Unexpected end of JSON input"), and 60 for
+// the kind never reached an answer. Low effort keeps the thinking to ~1–3k tokens; the caps leave room
+// for it on top of the JSON (still a cap: JSON mode can pad with whitespace).
+const DESIGN_OPTS = { effort: 'low' }
 const KIND = `패널 앱 요청을 분류한다. JSON 으로만: {"kind":"live|events|data"}
 - live: 주가·날씨·환율·뉴스처럼 외부 실시간 데이터를 보여 주는 위젯
 - events: 잔액·수량·포인트·예산·장부·재고·휴가처럼 기록을 쌓아(배정·사용·취소) 계산하는 앱(이벤트 소싱)
@@ -119,10 +124,10 @@ const inLang = (p) => (isEn() ? EN_SWAP.reduce((s, [a, b]) => s.split(a).join(b)
 export const designPrompts = () => ({ design: inLang(DESIGN), list: inLang(LIST_DESIGN), events: inLang(EVENTS_DESIGN) })
 
 async function designInSteps(text) {
-  const k = await chatJson(KIND, text, { temperature: 0, timeoutMs: 45000, maxTokens: 60 }).catch(() => null)
+  const k = await chatJson(KIND, text, { ...DESIGN_OPTS, temperature: 0, timeoutMs: 45000, maxTokens: 2000 }).catch(() => null)
   const kind = ['live', 'events', 'data'].includes(k?.kind) ? k.kind : looksEvents(text) ? 'events' : 'data'
   if (kind === 'live') return { kind: 'live' }
-  const out = await chatJson(inLang(kind === 'events' ? EVENTS_DESIGN : LIST_DESIGN), text, { temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 2500 })
+  const out = await chatJson(inLang(kind === 'events' ? EVENTS_DESIGN : LIST_DESIGN), text, { ...DESIGN_OPTS, temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 10000 })
   return kind === 'events' ? { ...out, kind: 'events' } : { ...out, kind: 'list' }
 }
 
@@ -130,7 +135,7 @@ export async function design(description) {
   const text = String(description || '').slice(0, 2000)
   let out
   try {
-    out = await chatJson(inLang(DESIGN), text, { temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 4000 })
+    out = await chatJson(inLang(DESIGN), text, { ...DESIGN_OPTS, temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 12000 })
   } catch (e) {
     console.warn('[panelApps] design:', e.message, '— trying the smaller design steps')
     try { out = await designInSteps(text) } catch (e2) {

@@ -1,6 +1,10 @@
 // English mode (src/i18n): every top-level screen, opened with ?lang=en on a fresh account, shows no
 // Korean outside user content and tenant data (e2e/lib/hangul.js). The language switch is on the
 // login screen and in 설정 › 계정, and every /api call says the screen language (X-PGL-Lang).
+// Tenant data: on the shared dev tenant, teammates' names are whatever other accounts chose — the
+// Korean e2e accounts ("회귀-smoke") join while this file runs, so the data is read again before a
+// screen is judged. Against the English demo tenant (i18n/EN-DEMO.md) there is no Korean data at all:
+//   PGPT_URL=http://en.localhost:5180 npx playwright test --project=smoke tests/smoke/english.spec.js
 import { test, expect } from '@playwright/test'
 import * as api from '../../lib/api.js'
 import { RUN } from '../../lib/env.js'
@@ -30,8 +34,13 @@ async function noKorean(page) {
   await page.waitForTimeout(1200)
   const r = await visibleHangul(page)
   expect(r.lang).toBe('en')
-  const left = r.left.filter((l) => !isData(l.text, data)).map((l) => `${l.text} ‹${l.where}›`)
-  expect(left, 'Korean left on screen').toEqual([])
+  let left = r.left.filter((l) => !isData(l.text, data))
+  // someone may have joined the tenant (a teammate, a role) since the data was read: read it again
+  if (left.length) {
+    data = await dataOf(async (p) => (await user.get(p)).body)
+    left = left.filter((l) => !isData(l.text, data))
+  }
+  expect(left.map((l) => `${l.text} ‹${l.where}›`), 'Korean left on screen').toEqual([])
 }
 
 test.describe('English mode', () => {

@@ -113,3 +113,25 @@ test('앞 작업이 사람을 기다리는 동안 새 작업은 대기 — 대�
   const states = Object.fromEntries((await tasks()).filter((t) => [A, B, C].includes(t.content.goal)).map((t) => [t.content.goal, t.content.state]))
   assert.deepEqual(states, { [A]: 'done', [B]: 'cancelled', [C]: 'done' })
 })
+
+// English-mode polish: a look-up task never presses an order or pay control (a run once pressed
+// 「다시 주문하기」 on the account page it was reading), and the summary starts with the result
+test('구매를 부탁하지 않은 작업은 결제 버튼을 누르지 않음 — 요약 맨 앞은 결과, 누르지 않은 구매는 따로', async () => {
+  const goal = '결제 화면의 상품 이름만 알려줘'
+  const before = shop.state.payments.length
+  scripts[goal] = { i: 0, moves: [['goto', { url: `${shop.url}/checkout` }], ['click', { i: 4 }], ['note', { text: '상품: 무선 이어폰 1개' }], ['finish', { summary: '결제 화면의 상품은 무선 이어폰 1개예요.' }]] }
+  const r = await browser.runBrowserTask({ userId: user, threadId, goal, gates: false })
+  assert.equal(r.state, 'done')
+  assert.equal(shop.state.payments.length, before, '결제 폼이 제출되지 않음')
+  assert.match(r.summary, /^결제 화면의 상품은 무선 이어폰 1개예요\./)
+  assert.match(r.summary, /요청하지 않은 구매라 누르지 않은 것\n• '89,000원 결제하기' 누르기/)
+})
+
+test('결과를 말하지 않고 끝낸 작업: 한 번 더 물어 결과 문장을 요약 맨 앞에', async () => {
+  const goal = '상점 열고 결과 없이 끝내기'
+  scripts[goal] = { i: 0, moves: [['goto', { url: `${shop.url}/login` }], ['finish', { summary: '' }], ['finish', { summary: '상점 로그인 화면을 열었어요.' }]] }
+  const r = await browser.runBrowserTask({ userId: user, threadId, goal, gates: false })
+  assert.equal(r.state, 'done')
+  assert.equal(scripts[goal].i, 3, '마무리 질문 한 번')
+  assert.match(r.summary, /^상점 로그인 화면을 열었어요\.\n\n실제로 한 일\n• 127\.0\.0\.1 열기/)
+})

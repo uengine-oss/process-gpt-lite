@@ -130,8 +130,30 @@ function titleFor(work, body) {
 // who is offered it: the people asked — members named in the message, else everyone in the room but its author
 function audienceOf(humans, authorId, body) {
   const others = humans.filter((m) => m.id !== authorId)
-  const named = others.filter((m) => m.name && m.name.length >= 2 && (body.includes(m.name) || body.includes(m.name.slice(1))))
+  const named = namedIn(others, body)
   return (named.length ? named : others).map((m) => m.id)
+}
+// The members a message names. A Korean name: in full or by its given name (김민지 → 민지), as before.
+// A name in Latin letters ("Minji Kim"): in full in any case, or by one of its parts as a word of its
+// own — the given name ("Minji", "minji님") or the family name ("Kim"). A full name that was found
+// is taken out first, so "Minji Kim" does not also name Jiho Kim by "Kim".
+const LATIN = /[A-Za-z]/
+const word = (part) => new RegExp(`(?<![A-Za-z0-9])${part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'i')
+export function namedIn(members, body) {
+  const text = String(body || '')
+  const found = new Set()
+  let rest = text
+  for (const m of [...members].filter((x) => x.name && LATIN.test(x.name)).sort((a, b) => b.name.length - a.name.length)) {
+    const full = word(m.name.trim().replace(/\s+/g, ' ')).source.replace(/ /g, '\\s+')
+    const re = new RegExp(full, 'gi')
+    if (re.test(rest)) { found.add(m); rest = rest.replace(re, ' ') }
+  }
+  return members.filter((m) => {
+    if (!m.name || m.name.length < 2) return false
+    if (!LATIN.test(m.name)) return text.includes(m.name) || text.includes(m.name.slice(1))
+    if (found.has(m)) return true
+    return m.name.trim().split(/[\s.·-]+/).filter((p) => p.length >= 2).some((p) => word(p).test(rest))
+  })
 }
 
 // registered processes whose names share a word with the request, for the judge to pick from (stage 2c)

@@ -85,8 +85,11 @@ function post(msg) {
   if (w) w.postMessage({ source: 'process-gpt', ...msg }, new URL(frameSrc.value, location.href).origin)
 }
 watch(mentionMode, (on) => post({ type: 'mention-mode', on }))
-// requests the page answers ({type:'reply', requestId}): a 한글 picture's bytes, or new ones for it
+// requests the page answers ({type:'reply', requestId}): a picture's bytes, or new ones for it.
+// 한글 pictures: every office host since the round trip ('hwp-*'); Word pictures: a host whose page
+// says so at load ({type:'page-live', pictures:true}, office-host page-live.mjs)
 const waiting = new Map()
+const pagePictures = ref(false)
 function ask(type, data = {}, timeoutMs = 60000) {
   const requestId = Math.random().toString(36).slice(2)
   return new Promise((resolve, reject) => {
@@ -97,13 +100,15 @@ function ask(type, data = {}, timeoutMs = 60000) {
 }
 defineExpose({
   editor,
-  picture: (n) => ask('hwp-picture', { n }),
-  replacePicture: (n, bytes, name) => ask('hwp-replace-picture', { n, bytes, name: name || props.name }, 120000),
+  canPictures: (ed = editor()) => ed === 'hwp' || (ed === 'docs' && editor() === 'docs' && pagePictures.value),
+  picture: (n) => (editor() === 'docs' ? ask('picture', { n }, 20000) : ask('hwp-picture', { n })),
+  replacePicture: (n, bytes, name) => ask(editor() === 'docs' ? 'replace-picture' : 'hwp-replace-picture', { n, bytes, name: name || props.name }, 120000),
 })
 
 async function load() {
   stopLive()
   ready = false
+  pagePictures.value = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
   // fall back to the editor's built-in default (Chinese)
   const token = await freshToken()
@@ -140,6 +145,7 @@ function onMessage(event) {
   if (m.type === 'ready') { ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly) hideAiDock(); startLive() }
   else if (m.type === 'assistant') emit('assistant', { label: m.label || '', prompt: m.prompt || null, selection: m.selection || '' })
   else if (m.type === 'mention' && m.mention) emit('mention', { ...m.mention, file: props.name })
+  else if (m.type === 'page-live') pagePictures.value = !!m.pictures
   else if (m.type === 'reply') {
     const w = waiting.get(m.requestId)
     if (!w) return

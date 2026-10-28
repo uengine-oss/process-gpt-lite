@@ -1640,9 +1640,14 @@
   "최대 활용 — 제약의 시간을 낭비하지 않기": "Exploit — don't waste the constraint's time",
   "종속 — 나머지를 제약의 속도에 맞추기": "Subordinate — pace everything else to the constraint",
   "강화 — 제약의 능력을 늘리거나 일을 덜어 주기": "Elevate — add capacity at the constraint or take work off it",
-  "반복 — 제약이 옮겨 가면 다시 1단계로": "Repeat — when the constraint moves, start again at step 1"
+  "반복 — 제약이 옮겨 가면 다시 1단계로": "Repeat — when the constraint moves, start again at step 1",
+  "워드 문서에 넣기": "Put in Word document"
  },
  "patterns": [
+  [
+   "고친 그림을 워드 문서의 그림 {0} 자리에 넣었어요 · ⌘S 로 저장하세요",
+   "I put the edited image in place of image {0} in the Word document · save with ⌘S"
+  ],
   [
    "홀 | {0}㎡\n바·주방 | {1}㎡\n창고 | {2}㎡\n화장실 | {3}㎡\n직원실 | {4}㎡",
    "Hall | {0}㎡\nBar & kitchen | {1}㎡\nStorage | {2}㎡\nRestroom | {3}㎡\nStaff room | {4}㎡"
@@ -1666,6 +1671,14 @@
   [
    "에이전트가 저장했어요 · {0}",
    "Agent saved it · {0}"
+  ],
+  [
+   "워드 문서 · 그림 {0}",
+   "Word document · image {0}"
+  ],
+  [
+   "새 주제 · {0}",
+   "New topic · {0}"
   ],
   [
    "유휴 {0} ({1})",
@@ -1704,6 +1717,10 @@
    "I couldn't open the file. {0}"
   ],
   [
+   "표 {0} ({1})",
+   "Table {0} ({1})"
+  ],
+  [
    "{0}(소유)",
    "{0} (owner)"
   ],
@@ -1722,6 +1739,10 @@
   [
    "편집 {0}건",
    "edits: {0}"
+  ],
+  [
+   "이미지 {0}",
+   "Image {0}"
   ],
   [
    "시작{0}",
