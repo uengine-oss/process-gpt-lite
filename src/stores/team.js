@@ -8,7 +8,8 @@ import { openArtifact } from '../artifacts.js'
 import { maybeOther } from '../i18n/mainLangs.js'
 
 // file cards that can be shared: the ones with a storage object behind them (not workroom-only files)
-export const shareable = (m) => m?.kind === 'file' && /\/storage\/v1\/object\/public\//.test(m.content?.url || '')
+// a stored file, or one the agent left in its work folder (shared through the branch commit)
+export const shareable = (m) => m?.kind === 'file' && (/\/storage\/v1\/object\/public\//.test(m.content?.url || '') || /^\/workspace\//.test(m.content?.path || ''))
 
 export const useTeam = defineStore('team', {
   state: () => ({
@@ -186,13 +187,27 @@ export const useTeam = defineStore('team', {
       openArtifact(app, router, message)
       return message
     },
-    async continueWork(messageId, router) {
-      const r = await api(`/team/messages/${messageId}/continue`, { method: 'POST' })
+    // a received share continues in its own work conversation; my own share gathers the branches first
+    // (choices: conflict picks, {path: side}; a 409 carries the conflicts to pick from)
+    async continueWork(messageId, router, choices) {
+      const r = await api(`/team/messages/${messageId}/continue`, { method: 'POST', body: { choices } })
       this.open = false
       const app = useApp()
       app.dockOpen = false
-      if (router) await router.push('/chat')
+      if (r.branch) { await app.loadProjects(); if (router) await router.push(`/projects/${r.threadId}`) }
+      else if (router) await router.push('/chat')
       return r
+    },
+    // what each recipient's branch of my share did
+    async branches(messageId) {
+      return (await api(`/team/messages/${messageId}/branches`)).branches
+    },
+    // a file of a branch, read-only unless the branch is mine
+    async openBranchFile(room, path) {
+      const f = await api(`/team/branches/file?room=${encodeURIComponent(room)}&path=${encodeURIComponent(path)}`)
+      const app = useApp()
+      this.open = false
+      app.officeDoc = { url: f.url, name: f.name, readOnly: f.readOnly }
     },
 
     startShare(messages) {
@@ -200,9 +215,9 @@ export const useTeam = defineStore('team', {
       if (!list.length) return this.say('이 파일은 아직 공유할 수 없어요(작업실 파일).')
       this.sharing = { messageIds: list.map((m) => m.id), names: list.map((m) => m.content.name) }
     },
-    async share(to, note) {
+    async share(to, note, choices) {
       const s = this.sharing
-      const r = await api('/team/share', { method: 'POST', body: { to, messageIds: s.messageIds, note } })
+      const r = await api('/team/share', { method: 'POST', body: { to, messageIds: s.messageIds, note, choices } })
       this.sharing = null
       this.say(`${r.sent.map((x) => x.to.name).join(', ')}님께 공유했어요`, r.sent[0] && { threadId: r.sent[0].threadId })
       this.loadThreads()

@@ -50,7 +50,7 @@ export async function caseLang(caseId, userId) {
 
 // to: {id, name, isAgent} — or omitted for an agent step (the catalog names the agent);
 // role: the recipient's role when the step's kind does not fix one (a '<역할> 검토')
-export async function recordStep(caseId, label, { to, role, artifacts = [], note = '', at, demo = false } = {}) {
+export async function recordStep(caseId, label, { to, role, artifacts = [], note = '', at, demo = false, groupId = null, baseCommitId = null } = {}) {
   // the code names steps by their Korean label; an English case records the English one
   const cl = await caseLang(caseId)
   label = labelIn(label, cl)
@@ -66,13 +66,14 @@ export async function recordStep(caseId, label, { to, role, artifacts = [], note
   const refs = (artifacts.length ? artifacts : [{}]).map((a) => ({ type: 'file', ...a, tool: st.tool, skill: st.skill }))
   const [row] = await q(`insert into handover_events (tenant_id, case_id, origin_room_id, source, is_explicit,
              from_room_id, to_room_id, from_user_id, from_user_name, from_is_agent, to_user_id, to_user_name, to_role, to_is_agent, agent_orch,
-             activity_label, next_activity_label, norm_activity_label, instruction, reason, artifact_refs, occurred_at, returned_at, handover_latency_sec)
-           values ($1,$2,$2,$3,$4,$2,$2,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13,$14,$15,$16,$17,$17,$18) returning id`, [
+             activity_label, next_activity_label, norm_activity_label, instruction, reason, artifact_refs, occurred_at, returned_at, handover_latency_sec,
+             group_id, base_commit_id)
+           values ($1,$2,$2,$3,$4,$2,$2,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13,$14,$15,$16,$17,$17,$18,$19,$20) returning id`, [
     T(), caseId, agent ? 'agent_delegation' : 'chat_handover', !agent,
     prev?.to_user_id || null, prev?.to_user_name || null, !!prev?.to_is_agent,
     String(who.id), who.name, role || st.role || null, !!who.isAgent, agent ? 'deepagents' : null,
     label, note || st.description, cl === 'en' ? (demo ? 'pgpt-pro demo past case' : 'pgpt-pro mail work') : demo ? 'pgpt-pro 시연용 과거 사례' : 'pgpt-pro 메일 업무',
-    JSON.stringify(refs), when.toISOString(), latency])
+    JSON.stringify(refs), when.toISOString(), latency, groupId, baseCommitId])
   return row?.id
 }
 
@@ -115,10 +116,20 @@ export async function shareStep(recipient, note = '', l = lang()) {
   return { label: '팀원 검토', role: '검토 담당' }
 }
 
+// the mail case whose drafts these are (the newest of mine that made a file of that name)
+export async function caseOfFiles(me, names) {
+  names = names.filter(Boolean)
+  if (!names.length) return null
+  const [c] = await q(`select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and files && $3::text[]
+                       order by created_at desc limit 1`, [T(), me.id, names])
+  return c?.case_id || null
+}
+
 // a team share of a case's drafts is the case's next handover: the recipient reviews them. Only a
 // case still open takes it — once the customer was answered, a later share is new work, not a step
 // of that case (it is not recorded).
-export async function recordShare(me, files, recipients, note) {
+// fork: the share's batch (group_id) and the commit every recipient's branch started from.
+export async function recordShare(me, files, recipients, note, fork = null) {
   const names = files.map((f) => f.name).filter(Boolean)
   if (!names.length) return
   const cases = await q(`select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and files && $3::text[]
@@ -129,7 +140,8 @@ export async function recordShare(me, files, recipients, note) {
   const cl = await caseLang(open.case_id, me.id)
   for (const p of recipients) {
     const { label, role } = await shareStep(p, note, cl)
-    await recordStep(open.case_id, label, { to: { id: p.id, name: p.name }, role, artifacts: names.map((name) => ({ name })), note: note || '' })
+    await recordStep(open.case_id, label, { to: { id: p.id, name: p.name }, role, artifacts: names.map((name) => ({ name })), note: note || '',
+      groupId: fork?.batchId, baseCommitId: fork?.baseCommitId })
   }
 }
 

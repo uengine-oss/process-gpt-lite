@@ -3,6 +3,7 @@
 // grant only they can open (server/lib/team/shares.js).
 import { ref, computed, onMounted } from 'vue'
 import { useTeam } from '../../stores/team.js'
+import ConflictChoice from './ConflictChoice.vue'
 
 const team = useTeam()
 const data = ref(null)
@@ -11,6 +12,7 @@ const note = ref('')
 const find = ref('')
 const busy = ref(false)
 const err = ref('')
+const conflicts = ref(null) // returned branches that changed the same file differently: pick, then send
 
 onMounted(async () => { data.value = await team.suggest('fast').catch(() => ({ frequent: [], related: [], roles: [], rest: [] })) })
 const rows = computed(() => {
@@ -27,10 +29,16 @@ const rows = computed(() => {
 const keyOf = (it) => (it.type === 'role' ? `role:${it.role}` : it.id)
 const on = (it) => picked.value.some((p) => keyOf(p) === keyOf(it))
 const toggle = (it) => { picked.value = on(it) ? picked.value.filter((p) => keyOf(p) !== keyOf(it)) : [...picked.value, it] }
-async function send() {
+async function send(choices) {
   if (!picked.value.length || busy.value) return
   busy.value = true; err.value = ''
-  try { await team.share(picked.value.map((p) => (p.type === 'role' ? { type: 'role', role: p.role } : { type: 'user', id: p.id })), note.value.trim()) } catch (e) { err.value = e.message } finally { busy.value = false }
+  try {
+    await team.share(picked.value.map((p) => (p.type === 'role' ? { type: 'role', role: p.role } : { type: 'user', id: p.id })), note.value.trim(), choices)
+    conflicts.value = null
+  } catch (e) {
+    if (e.conflicts) conflicts.value = e.conflicts
+    else err.value = e.message
+  } finally { busy.value = false }
 }
 const initial = (s) => String(s || '?').slice(0, 1)
 </script>
@@ -57,10 +65,11 @@ const initial = (s) => String(s || '?').slice(0, 1)
         <p v-if="data && !rows.length" class="none">공유할 팀원이 없어요. 설정 → 팀·역할에서 팀원을 추가해 주세요.</p>
       </div>
       <textarea v-model="note" class="note" rows="2" maxlength="1000" placeholder="메모 (예: 숫자 맞는지 봐 주세요)" />
+      <ConflictChoice v-if="conflicts" :conflicts="conflicts" :busy="busy" @pick="send" @cancel="conflicts = null" />
       <p v-if="err" class="err">{{ err }}</p>
       <footer>
-        <small>받는 분만 열 수 있어요 · 받는 분의 사본으로 열려요</small>
-        <button class="send press" :disabled="!picked.length || busy" @click="send">{{ busy ? '보내는 중…' : picked.length ? `${picked.length}명에게 보내기` : '받을 사람 고르기' }}</button>
+        <small>받는 분만 열 수 있어요 · 받는 분의 작업 대화로 가요</small>
+        <button class="send press" :disabled="!picked.length || busy || !!conflicts" @click="send()">{{ busy ? '보내는 중…' : picked.length ? `${picked.length}명에게 보내기` : '받을 사람 고르기' }}</button>
       </footer>
     </div>
   </div>

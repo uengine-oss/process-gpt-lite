@@ -20,6 +20,7 @@ import { startBrowserWorker } from './lib/browserWorker.js'
 import { mountConnectors, connectorStatus, ensureHubBinding } from './mcp/connectors.js'
 import { mountCraft, craftStatus } from './mcp/craft.js'
 import { mountOffice } from './mcp/office.js'
+import { commitEdit } from './lib/team/worktree.js'
 import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
@@ -505,6 +506,8 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
                        from pro_threads t where m.id=$1 and t.id=m.thread_id and t.user_id=$2 and m.kind='file' returning m.*`,
   [req.params.id, req.user.id, url, name])
   if (!m) return res.status(404).end()
+  // a file of a received share: the save is a commit on this conversation's branch (lib/team/worktree.js)
+  if (m.content.branch) await commitEdit(req.user, m).catch((e) => console.warn('[worktree] edit', e.message))
   // the last 검수 of this document travels with its edited copy (lib/review.js)
   const rv = reviewFor(req.user.id, m.content.name) || reviewFor(req.user.id, name)
   if (rv && Date.now() - rv.at < 2 * 3600_000) {
