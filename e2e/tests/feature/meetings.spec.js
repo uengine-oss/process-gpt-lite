@@ -67,7 +67,9 @@ test.describe('대화방 원격 회의 (spec pgpt-pro-meetings)', () => {
     const sdp = { type: 'offer', sdp: 'v=0 회귀' }
     expect((await a.post(`/meetings/${id}/signal`, { to: b.id, kind: 'offer', data: sdp })).status).toBe(200)
     const got = await api.call(b.token(), 'GET', `/events/poll?after=${after}&token=${b.token()}`)
-    const sig = got.body.events.find((e) => e.type === 'meeting' && e.data.type === 'signal')
+    // pollFrom's cursor can fall back to 0 (its 2 s call outlasts no event): the buffer may still hold an
+    // earlier run's signal between the same test accounts, so this meeting's is the one looked at
+    const sig = got.body.events.find((e) => e.type === 'meeting' && e.data.type === 'signal' && e.data.meetingId === id)
     expect(sig.data).toMatchObject({ meetingId: id, from: a.id, kind: 'offer', data: sdp })
     // c is in the room but not in the meeting: no signal to or from c
     expect((await a.post(`/meetings/${id}/signal`, { to: c.id, kind: 'offer', data: sdp })).status).toBe(404)
