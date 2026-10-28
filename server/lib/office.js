@@ -75,7 +75,9 @@ const QUOTED_RE = new RegExp(`[\`*"'](\\/workspace\\/[^\`*"'\\n]+?\\.${EXT})[\`*
 const BARE_RE = new RegExp(`\\/workspace\\/[^\\s"'\`)\\]]+?\\.${EXT}\\b`, 'g')
 export async function documentsOfRun({ text, dirs, since }) {
   const t = String(text || '')
-  const found = new Set([...[...t.matchAll(QUOTED_RE)].map((m) => m[1]), ...(t.match(BARE_RE) || [])])
+  // a markdown link carries the path URL-encoded ("견적서%20초안.xlsx"); the file on disk is not
+  const decode = (p) => { try { return decodeURIComponent(p) } catch { return p } }
+  const found = new Set([...[...t.matchAll(QUOTED_RE)].map((m) => m[1]), ...(t.match(BARE_RE) || [])].map(decode))
   // the top of the tenant workspace, where an agent sometimes saves without a run folder. Every
   // user's runs share it, so a new file there counts only when this answer names it (by file
   // name); otherwise another person's document saved meanwhile would turn up in this chat.
