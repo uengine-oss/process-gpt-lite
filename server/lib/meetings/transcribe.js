@@ -33,7 +33,8 @@ export async function transcribe(buf, { prompt = '', type = 'audio/wav' } = {}) 
   form.append('response_format', 'json')
   if (prompt) form.append('prompt', prompt.slice(0, 600))
   const r = await fetch(`${BASE()}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey()}` }, body: form, signal: AbortSignal.timeout(30000) })
-  if (!r.ok) throw Object.assign(new Error(`transcription ${r.status}: ${(await r.text()).slice(0, 200)}`), { status: 502 })
+  // 503, not 502: a proxy in front (Cloudflare) replaces a 502 with its own page and the reason is lost
+  if (!r.ok) throw Object.assign(new Error(`transcription ${r.status}: ${(await r.text()).slice(0, 200)}`), { status: 503 })
   const j = await r.json()
   const text = String(j.text || '').replace(/\s+/g, ' ').trim()
   return { text: HALLUCINATED.test(text) || text.length < 2 ? '' : text, ms: Date.now() - t0, model: MODEL() }

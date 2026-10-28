@@ -69,14 +69,19 @@ export const useMeetings = defineStore('meetings', {
       this.boot()
       this.lobby = { roomId, title }
       this.error = ''
-      try {
-        this.local = markRaw(await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: { width: 640, height: 360 } }))
-      } catch {
-        try { this.local = markRaw(await navigator.mediaDevices.getUserMedia({ audio: true })); this.cam = false } catch { this.error = '카메라·마이크를 열 수 없어요. 브라우저 권한을 확인해 주세요.' }
-      }
+      // join waits for this: entering before the microphone is open offers a connection with no media
+      this.opening = (async () => {
+        try {
+          this.local = markRaw(await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: { width: 640, height: 360 } }))
+        } catch {
+          try { this.local = markRaw(await navigator.mediaDevices.getUserMedia({ audio: true })); this.cam = false } catch { this.error = '카메라·마이크를 열 수 없어요. 브라우저 권한을 확인해 주세요.' }
+        }
+      })()
+      await this.opening
     },
     cancelLobby() { this.stopLocal(); this.lobby = null },
     async join() {
+      await this.opening
       const roomId = this.lobby.roomId
       const s = await api(`/meetings/room/${roomId}/start`, { method: 'POST', body: { consent: this.consent } })
       this.lobby = null
