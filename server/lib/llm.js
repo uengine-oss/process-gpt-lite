@@ -14,22 +14,57 @@ function trace(messages) {
   fs.appendFileSync(config.llmTrace, JSON.stringify({ at: new Date().toISOString(), messages: text }) + '\n')
 }
 
-// timeoutMs: a shorter limit for a call that has a smaller fallback; maxTokens: caps a runaway answer
-export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal, timeoutMs = CALL_TIMEOUT_MS, maxTokens }) {
+// Reasoning models refuse some chat/completions parameters (temperature other than 1, max_tokens,
+// tools while reasoning). What a model refused is learned from its 400 and left out from then on.
+const quirks = new Map() // model → { noTemperature, completionTokens, noReasoning, noEffort }
+function adapt(payload) {
+  const q = quirks.get(payload.model) || {}
+  const b = { ...payload }
+  if (q.noTemperature) delete b.temperature
+  if (q.completionTokens && b.max_tokens) { b.max_completion_tokens = b.max_tokens; delete b.max_tokens }
+  if (q.noReasoning && b.tools) b.reasoning_effort = 'none'
+  if (q.noEffort) delete b.reasoning_effort
+  return b
+}
+function learn(model, status, text) {
+  if (status !== 400) return false
+  const q = { ...(quirks.get(model) || {}) }
+  const before = JSON.stringify(q)
+  if (/temperature/.test(text) && /unsupported|not support/i.test(text)) q.noTemperature = true
+  if (/max_tokens/.test(text) && /max_completion_tokens/.test(text)) q.completionTokens = true
+  if (/reasoning_effort/.test(text) && /tools/i.test(text)) q.noReasoning = true
+  // non-reasoning models (gpt-4.1) reject the argument itself
+  if (/Unrecognized request argument supplied: reasoning_effort/.test(text)) q.noEffort = true
+  quirks.set(model, q)
+  return JSON.stringify(q) !== before
+}
+async function post(payload, signal) {
+  for (let tries = 0; ; tries++) {
+    const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
+      method: 'POST',
+      signal,
+      headers: { Authorization: `Bearer ${config.llm.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(adapt(payload)),
+    })
+    if (res.ok) return res
+    const text = await res.text()
+    if (tries < 3 && learn(payload.model, res.status, text)) continue
+    throw new Error(`LLM ${res.status}: ${text.slice(0, 300)}`)
+  }
+}
+
+// timeoutMs: a shorter limit for a call that has a smaller fallback; maxTokens: caps a runaway answer;
+// effort: reasoning_effort for models that reason (dropped for those that don't)
+export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal, timeoutMs = CALL_TIMEOUT_MS, maxTokens, effort }) {
   trace(messages)
-  const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
-    method: 'POST',
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
-    headers: { Authorization: `Bearer ${config.llm.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: model || config.llm.model,
-      messages, temperature,
-      ...(tools?.length ? { tools, tool_choice: toolChoice || 'auto', parallel_tool_calls: false } : {}),
-      ...(json ? { response_format: { type: 'json_object' } } : {}),
-      ...(maxTokens ? { max_tokens: maxTokens } : {}),
-    }),
-  })
-  if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  const res = await post({
+    model: model || config.llm.model,
+    messages, temperature,
+    ...(tools?.length ? { tools, tool_choice: toolChoice || 'auto', parallel_tool_calls: false } : {}),
+    ...(json ? { response_format: { type: 'json_object' } } : {}),
+    ...(maxTokens ? { max_tokens: maxTokens } : {}),
+    ...(effort ? { reasoning_effort: effort } : {}),
+  }, signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs))
   const data = await res.json()
   return data.choices[0].message
 }
@@ -42,16 +77,10 @@ export async function chatJson(system, user, opts = {}) {
 // Streams text deltas; resolves with {content, tool_calls}.
 export async function chatStream({ messages, tools, model, onDelta, signal }) {
   trace(messages)
-  const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
-    method: 'POST',
-    signal,
-    headers: { Authorization: `Bearer ${config.llm.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: model || config.llm.model, messages, stream: true, temperature: 0.5,
-      ...(tools?.length ? { tools, tool_choice: 'auto' } : {}),
-    }),
-  })
-  if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  const res = await post({
+    model: model || config.llm.model, messages, stream: true, temperature: 0.5,
+    ...(tools?.length ? { tools, tool_choice: 'auto' } : {}),
+  }, signal)
   const reader = res.body.getReader()
   const dec = new TextDecoder()
   let buf = '', content = ''

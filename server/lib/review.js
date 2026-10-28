@@ -15,6 +15,7 @@
 // put back as it was. The outcome is a short note in the chat (and the dial), kept for the card.
 import zlib from 'node:zlib'
 import { config } from '../config.js'
+import { chat } from './llm.js'
 import { liveFor, pageCall } from './craftLive.js'
 import { withClient } from '../mcp/office.js'
 import { addMessage } from './store.js'
@@ -135,13 +136,9 @@ export async function capture({ userId, jwt, open }) {
 
 // ---- the model's look (it reads images): did the edit do what was asked, is anything missing?
 async function askModel(content) {
-  const r = await fetch(`${config.llm.baseUrl}/chat/completions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.llm.apiKey}` },
-    body: JSON.stringify({ model: config.llm.model, max_tokens: 1500, reasoning_effort: 'low', temperature: 0, messages: [{ role: 'user', content }] }),
-    signal: AbortSignal.timeout(90_000),
-  })
-  const j = await r.json()
-  const text = j.choices?.[0]?.message?.content || ''
+  // through chat(): the arguments each model refuses (reasoning_effort, temperature, max_tokens) are dropped
+  const msg = await chat({ messages: [{ role: 'user', content }], maxTokens: 1500, effort: 'low', temperature: 0, timeoutMs: 90_000 })
+  const text = msg?.content || ''
   const m = text.match(/\{[\s\S]*\}/)
   return m ? JSON.parse(m[0]) : null
 }
