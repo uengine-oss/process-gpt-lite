@@ -28,6 +28,7 @@ import { attachmentHint } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
 import { folderFor, startChatWork, finishChatWork } from './folders/work.js'
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
+import { assembleGenerated } from './generated.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
@@ -234,7 +235,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     if (proc) { noAgentTurn(); return improveTurn({ user, threadId, text, onDelta, proc }) }
   }
   // Writing a document is the agent's job (office-mcp); a router model reads "안내문을 … 만들어줘" as a panel app.
-  if (!namedApp && DOC_REQUEST.test(text) && !/패널|위젯|앱/.test(text) && !RECURRING.test(text)) {
+  // (a process that names documents among its steps — "…제안서를 만들어" — is still the router's create)
+  if (!namedApp && DOC_REQUEST.test(text) && !/패널|위젯|앱|프로세스/.test(text) && !RECURRING.test(text)) {
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
   const skillList = await listSkills(session.access_token)
@@ -774,9 +776,13 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (!f.url && f.path && editable(f.name)) Object.assign(f, await publish(user.id, f.path).catch((e) => { console.warn('[office publish]', e.message); return {} }))
     await addMessage(user.id, threadId, 'agent', 'file', f)
   }
-  if (processResult && !ended) {
+  // with the bridge, a draft needs this turn's generation folder: a contract streamed without one is
+  // something the agent only quoted (the skill's leave-request example) while still asking a question
+  if (processResult && !ended && config.bridgeUrl && !workDir) console.warn('[process] process_result without a generation folder this turn: no draft card')
+  else if (processResult && !ended) {
     generationDone(threadId)
-    await addMessage(user.id, threadId, 'agent', 'process_draft', { contract: processResult, workDir, state: 'draft' })
+    const contract = await assembleGenerated(processResult, workDir).catch((e) => { console.warn('[process] assemble', e.message); return processResult })
+    await addMessage(user.id, threadId, 'agent', 'process_draft', { contract, workDir, state: 'draft' })
   }
   return msg
   }
@@ -802,7 +808,9 @@ async function pickDefinition(query) {
 // The skill pauses for a draft review; when the user agrees we restate the requirement and the
 // remaining steps, since gpt-4.1 otherwise tends to stop or skip writing the definition file.
 const generating = new Map() // threadId -> requirement
-const GEN_STEPS = 'bpmn-process-generation-skill 절차대로 진행해 주세요: 합의된 흐름으로 references 의 02-generate-definition 규격을 read_file 로 읽고 process-definition.json 을 write_file 로 작성 → validate_process_definition 으로 검증 → 사용자 활동마다 forms/<activity_id>.form 파일 작성(process-gpt 폼 태그 형식, .html 아님) → complete_process_generation 호출까지 이번 턴에 끝냅니다. 후보 선택이 필요하면 추천안으로 정합니다.'
+// deepagents (feat/pgpt-lite) validates and assembles the folder itself when the turn ends; it has no
+// validate/complete tools any more, so asking for them only makes the agent stop and explain
+const GEN_STEPS = 'bpmn-process-generation-skill 절차대로 진행해 주세요: 합의된 흐름으로 references 의 02-generate-definition 규격을 read_file 로 읽고 process-definition.json 을 write_file 로 작성 → 사용자 활동마다 forms/<activity_id>.form 파일 작성(process-gpt 폼 태그 형식, .html 아님) → 에이전트·스킬·manifest 파일까지 이번 턴에 모두 씁니다. 검증과 통합은 턴이 끝나면 시스템이 자동으로 하니 다시 확인을 묻지 말고 끝까지 진행합니다. 후보 선택이 필요하면 추천안으로 정합니다.'
 
 export function generationPending(threadId) { return generating.get(threadId) }
 export function generationDone(threadId) { generating.delete(threadId) }

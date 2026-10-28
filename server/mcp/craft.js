@@ -126,7 +126,12 @@ async function tools(app) {
 const ACTIVE_MS = 30 * 60 * 1000
 const active = new Map() // `${app}:${userId}` → until
 export function activateCraft(userId, apps) {
-  for (const app of apps) if (CRAFT_APPS[app]) active.set(`${app}:${userId}`, Date.now() + ACTIVE_MS)
+  const want = apps.filter((app) => CRAFT_APPS[app])
+  if (!want.length) return
+  // one app's full set at a time: several (~30 tools each) push the agent past its tool limit, and
+  // deepagents then drops MCP tools from the front — office-mcp's generate_hwpx/docx first
+  for (const app of Object.keys(CRAFT_APPS)) if (!want.includes(app)) active.delete(`${app}:${userId}`)
+  for (const app of want) active.set(`${app}:${userId}`, Date.now() + ACTIVE_MS)
 }
 const isActive = (app, userId) => (active.get(`${app}:${userId}`) || 0) > Date.now()
 const switchTool = (app) => ({

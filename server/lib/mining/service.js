@@ -174,9 +174,32 @@ const html = (id, alias, fs) => `<section>\n${fs.map((f) => {
   return `  <row-layout name="${id}" alias="${alias}" is_multidata_mode="false" v-model="formValues" v-slot="slotProps"><div class="row"><div class="col-sm-12"><${t} name='${f.key}' alias='${f.text}'${type}${items} disabled='false' readonly='false' v-model="slotProps.modelValue['${f.key}']"></${t}></div></div></row-layout>`
 }).join('\n')}\n</section>`
 
+// The miner leaves "조건N" on an optional step's XOR split for an LLM pass Lite does not run, and the
+// engine cannot decide such a branch (the instance stops there): keep the step on the main path instead.
+export function dropSkips(d) {
+  const placeholder = (c) => /^조건\s*\d+$/.test(String(c || '').trim())
+  let gateways = [...(d.gateways || [])]
+  let sequences = [...(d.sequences || [])]
+  const isGateway = (id) => gateways.some((g) => g.id === id)
+  for (const s of sequences.filter((x) => placeholder(x.condition) && isGateway(x.target))) {
+    const ins = sequences.filter((x) => x.target === s.target), outs = sequences.filter((x) => x.source === s.target)
+    if (ins.length !== 1 || outs.length !== 1) continue
+    sequences = sequences.filter((x) => x !== s && x !== outs[0])
+    gateways = gateways.filter((g) => g.id !== s.target)
+  }
+  sequences = sequences.map((x) => (placeholder(x.condition) ? { ...x, condition: '' } : x))
+  for (const g of [...gateways]) {
+    const ins = sequences.filter((x) => x.target === g.id), outs = sequences.filter((x) => x.source === g.id)
+    if (ins.length !== 1 || outs.length !== 1) continue
+    sequences = sequences.filter((x) => x !== outs[0]).map((x) => (x === ins[0] ? { ...x, target: outs[0].target } : x))
+    gateways = gateways.filter((y) => y !== g)
+  }
+  return { ...d, gateways, sequences }
+}
+
 // mined definition (flattened) → process-gpt generation contract (elements[] + forms + agents + skills)
 export function buildContract(s) {
-  const d = s.definition
+  const d = dropSkips(s.definition)
   const PID = s.process_id
   const formId = (a) => `${PID}_${(stepOf(a.name)?.key || a.id)}_form`
   const roles = new Map()

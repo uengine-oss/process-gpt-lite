@@ -12,7 +12,8 @@ import { roleMap } from './team.js'
 async function complete(input) {
   const res = await fetch(`${config.completionUrl}/complete`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // completion takes the tenant from the first label of X-Forwarded-Host, not from input.tenant_id
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-Host': `${config.tenantId}.process-gpt.local` },
     body: JSON.stringify({ input: { ...input, tenant_id: config.tenantId } }),
   })
   const text = await res.text()
