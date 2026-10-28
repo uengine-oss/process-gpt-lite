@@ -2,6 +2,7 @@
 // src/utils/officeEditor.js. The host is proxied at /office on this origin (vite.config.js), so the
 // editor page, its __ipc socket and document bytes all come from here.
 import { auth } from './api.js'
+import { BASE } from './base.js'
 
 const EDITOR_BY_EXT = {
   docx: 'docs', odt: 'docs', xlsx: 'sheets', xlsm: 'sheets', xls: 'sheets', csv: 'sheets', pptx: 'slides',
@@ -17,7 +18,7 @@ export const CRAFT_APPS = new Set(['cadcraft', 'vectorcraft', 'photocraft', 'sou
 // which ArtCraft web apps this install serves (/api/config craft; the Docker lite profile has none):
 // a file whose app is missing opens as a plain link. Unknown yet = assume it is there.
 let craftHave = null
-if (typeof fetch === 'function') fetch('/api/config').then((r) => (r.ok ? r.json() : null)).then((c) => { if (c?.craft) craftHave = c.craft }).catch(() => {})
+if (typeof fetch === 'function') fetch(BASE + '/api/config').then((r) => (r.ok ? r.json() : null)).then((c) => { if (c?.craft) craftHave = c.craft }).catch(() => {})
 export const craftMissing = (editor) => !!craftHave && CRAFT_APPS.has(editor) && craftHave[editor]?.web === false
 
 function extOf(nameOrUrl) {
@@ -40,7 +41,7 @@ export function officeEditorUrl({ fileUrl, name, readOnly = false, assistant = '
   if (readOnly) params.set('readonly', '1')
   if (assistant && !readOnly) params.set('assistant', assistant)
   if (token) params.set('token', token)
-  return `/office/${editor}/?${params.toString()}`
+  return `${BASE}/office/${editor}/?${params.toString()}`
 }
 
 /** a message from the editor iframe */

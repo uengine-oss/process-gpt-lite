@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './styles/base.css'
-import { auth } from './api.js'
+import { auth, adoptHostSession } from './api.js'
 
 const routes = [
   { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
@@ -28,7 +28,8 @@ const routes = [
   { path: '/', redirect: '/chat' },
 ]
 
-const router = createRouter({ history: createWebHistory(), routes })
+const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL), routes })
+adoptHostSession()
 router.beforeEach((to) => {
   if (!to.meta.public && !auth.get()?.session) return '/login'
 })

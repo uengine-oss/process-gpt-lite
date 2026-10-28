@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import pg from 'pg'
 import { config } from '../config.js'
+import { withTenant } from './tenant.js'
 
 export const admin = createClient(config.supabaseUrl, config.serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -63,4 +64,26 @@ export async function userFromJwt(jwt) {
   const { data, error } = await admin.auth.getUser(jwt)
   if (error) return null
   return data.user
+}
+
+// whether a user belongs to a tenant (public.users has one row per tenant a person joined)
+const members = new Map()
+export async function isMember(userId, tenantId) {
+  const k = `${userId}|${tenantId}`, hit = members.get(k)
+  if (hit && hit.at > Date.now() - 60000) return hit.ok
+  const ok = (await q('select 1 from users where id=$1 and tenant_id=$2', [userId, tenantId])).length > 0
+  members.set(k, { ok, at: Date.now() })
+  return ok
+}
+
+// Runs a background job's tick for each tenant it serves: this install's one, or behind the
+// ProcessGPT gateway every tenant with someone who has used Lite (the list is refreshed each minute).
+let liteTenants = { at: 0, ids: [] }
+export async function eachTenant(fn) {
+  if (!config.tenantFromHeader) return fn()
+  if (liteTenants.at < Date.now() - 60000) {
+    const rows = await q('select distinct u.tenant_id from users u where exists (select 1 from pro_threads t where t.user_id = u.id)')
+    liteTenants = { at: Date.now(), ids: rows.map((r) => r.tenant_id) }
+  }
+  for (const t of liteTenants.ids) await withTenant(t, fn)
 }

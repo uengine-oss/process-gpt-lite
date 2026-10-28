@@ -4,7 +4,8 @@ import nodePath from 'node:path'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from './config.js'
-import { q, sessionFor, refresh, userFromJwt } from './lib/supa.js'
+import { q, sessionFor, refresh, userFromJwt, isMember } from './lib/supa.js'
+import { withTenant } from './lib/tenant.js'
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
@@ -68,6 +69,21 @@ app.use('/craft', express.static(config.craftWebRoot, {
 }))
 app.use(express.json({ limit: '2mb' }))
 
+// whose request this is (lib/tenant.js), behind the ProcessGPT gateway: the X-Tenant-Id it sets from
+// the address; the agents' MCP calls come straight from deepagents, so there the tenant in the
+// caller's JWT (the token itself is verified where the call is served)
+const jwtTenant = (req) => {
+  const jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || String(req.query.token || '')
+  try { return JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url')).app_metadata?.tenant_id || '' } catch { return '' }
+}
+app.use((req, res, next) => {
+  if (!config.tenantFromHeader) return next()
+  const t = (req.path.startsWith('/mcp') ? '' : String(req.headers['x-tenant-id'] || '').trim()) || jwtTenant(req)
+  if (!t) return next()
+  req.tenantId = t
+  withTenant(t, next)
+})
+
 // ---------- auth ----------
 // A stray rejected promise (a background job or feed reconnecting while the database restarts or
 // is in recovery mode) is logged, not fatal: the server keeps answering and the job retries later.
@@ -79,10 +95,13 @@ async function auth(req, res, next) {
   const jwt = (req.headers.authorization || '').replace(/^Bearer /, '') || req.query.token
   const u = jwt && await userFromJwt(jwt)
   if (!u) return res.status(401).json({ error: 'unauthorized' })
+  // a ProcessGPT account works only at its own tenant's address
+  if (config.tenantFromHeader && !(await isMember(u.id, config.tenantId))) return res.status(403).json({ error: 'not a member of this tenant' })
   const [p] = await q('select name from pro_profile where user_id=$1', [u.id])
   req.user = { id: u.id, email: u.email, name: p?.name || u.user_metadata?.name || u.email.split('@')[0] }
   req.session = { access_token: jwt }
-  next()
+  // entered again: a body parser in the route's own chain runs outside the request's async context
+  req.tenantId ? withTenant(req.tenantId, next) : next()
 }
 
 async function finishLogin(email, name) {
@@ -95,7 +114,7 @@ async function finishLogin(email, name) {
 
 // craft: which ArtCraft apps this install has ({web, cli} flags only); contextRouter: whether messages are routed
 // to conversations (services/context-router) — flags only
-app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
+app.get('/api/config', (req, res) => res.json({ hostLogin: config.tenantFromHeader, google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
 
 app.get('/api/auth/google/start', (req, res) => {
   if (!mail.googleEnabled()) return res.status(400).send('Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).')
@@ -735,7 +754,9 @@ const server = app.listen(config.port, async () => {
   startBrowserWorker()
   startSkillWorker()
   startMiningScan()
-  startSystemRegistry()
+  // registering Lite's connectors in the tenant's system list changes what ProcessGPT shows: not
+  // behind the ProcessGPT gateway, where the tenants are ProcessGPT's own
+  if (!config.tenantFromHeader) startSystemRegistry()
   notify.startNotificationFeed()
   startFolderSteps()
   startConstraintSweep()

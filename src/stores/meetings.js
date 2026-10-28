@@ -8,9 +8,10 @@ import { api, auth } from '../api.js'
 import { Mesh } from '../components/meetings/rtc.js'
 import { startCapture } from '../components/meetings/capture.js'
 import { useTeam } from './team.js'
+import { BASE } from '../base.js'
 
 async function postAudio(id, blob) {
-  const go = () => fetch(`/api/meetings/${id}/audio`, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/wav', Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` } })
+  const go = () => fetch(`${BASE}/api/meetings/${id}/audio`, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/wav', Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` } })
   const r = await go()
   if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).error || '받아쓰지 못했어요.'), { status: r.status })
   return r.json()
@@ -54,7 +55,7 @@ export const useMeetings = defineStore('meetings', {
         // team assist moves a meeting's suggestion along too (running → done / failed)
         else if (e.detail?.type === 'team' && e.detail.data?.type === 'assist' && e.detail.data.suggestion?.meetingId) this.syncSuggestion(e.detail.data.suggestion)
       })
-      window.addEventListener('beforeunload', () => { if (this.m) navigator.sendBeacon?.(`/api/meetings/${this.m.id}/leave?token=${encodeURIComponent(auth.get()?.session?.access_token || '')}`) })
+      window.addEventListener('beforeunload', () => { if (this.m) navigator.sendBeacon?.(`${BASE}/api/meetings/${this.m.id}/leave?token=${encodeURIComponent(auth.get()?.session?.access_token || '')}`) })
     },
     async loadRoom(roomId) {
       this.boot()

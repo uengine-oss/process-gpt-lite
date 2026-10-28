@@ -7,6 +7,7 @@ import { auth, api } from '../api.js'
 import TodoCard from './TodoCard.vue'
 import BpmnView from './BpmnView.vue'
 import Icon from './Icon.vue'
+import { BASE } from '../base.js'
 
 // Top of an instance page: title, live flow, my pending inputs, and produced artifacts.
 const props = defineProps({ data: Object })
@@ -15,7 +16,7 @@ const openDoc = ref(null)
 const view = ref('list')
 const detail = ref(null)
 // a <video> cannot send the bearer header, so the agent-file URL carries the token
-const fileUrl = (a) => `/api/agent-files/${encodeURIComponent(a.runId)}?path=${encodeURIComponent(a.path)}&token=${encodeURIComponent(auth.get()?.session?.access_token || '')}`
+const fileUrl = (a) => `${BASE}/api/agent-files/${encodeURIComponent(a.runId)}?path=${encodeURIComponent(a.path)}&token=${encodeURIComponent(auth.get()?.session?.access_token || '')}`
 const i = computed(() => props.data.inst)
 const mine = computed(() => props.data.steps.filter((s) => s.mine && s.todoId))
 const status = computed(() => ({ RUNNING: '진행 중', COMPLETED: '완료', NEW: '시작 전' }[i.value.status] || i.value.status))

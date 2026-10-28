@@ -5,6 +5,7 @@ import SkyCanvas from '../sky/SkyCanvas.vue'
 import Wordmark from '../components/Wordmark.vue'
 import Typewriter from '../components/Typewriter.vue'
 import { auth } from '../api.js'
+import { BASE } from '../base.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -27,7 +28,9 @@ const sampleIdx = ref(0)
 const nextSample = () => setTimeout(() => { sampleIdx.value = (sampleIdx.value + 1) % samples.length }, 2600)
 
 onMounted(async () => {
-  cfg.value = await (await fetch('/api/config')).json()
+  cfg.value = await (await fetch(BASE + '/api/config')).json()
+  // behind the ProcessGPT gateway sign-in is ProcessGPT's own (its cookies are taken in main.js)
+  if (cfg.value.hostLogin) location.href = '/'
 })
 
 function google() {
@@ -35,13 +38,13 @@ function google() {
     error.value = 'Google OAuth가 아직 설정되지 않았어요. 이메일로 계속해 주세요.'
     return
   }
-  location.href = '/api/auth/google/start'
+  location.href = BASE + '/api/auth/google/start'
 }
 
 async function startEmail() {
   busy.value = true
   error.value = ''
-  const r = await fetch('/api/auth/email/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value }) })
+  const r = await fetch(BASE + '/api/auth/email/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value }) })
   busy.value = false
   const j = await r.json()
   if (!r.ok && !j.demo) { error.value = '코드를 보내지 못했어요.'; return }
@@ -61,7 +64,7 @@ function onKey(i, e) { if (e.key === 'Backspace' && !code.value[i] && i > 0) cod
 
 async function verify() {
   busy.value = true
-  const r = await fetch('/api/auth/email/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value, code: code.value.join('') }) })
+  const r = await fetch(BASE + '/api/auth/email/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value, code: code.value.join('') }) })
   busy.value = false
   if (!r.ok) { error.value = '코드가 맞지 않아요.'; code.value = ['', '', '', '', '', '']; codeEls.value[0]?.focus(); return }
   auth.set(await r.json())

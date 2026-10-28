@@ -1,5 +1,6 @@
 // Client for the shared-folder API (server/routes/folders.js).
 import { api, auth, freshToken } from './api.js'
+import { BASE } from './base.js'
 
 async function call(path, opts) {
   const r = await api(path, { ...opts, raw: true })
@@ -51,7 +52,7 @@ export const folders = {
   // IeumOffice / ArtCraft load from storage: a published copy of this version
   publish: async (slug, path, ref = 'main') => (await call(`/folders/${enc(slug)}/publish`, { method: 'POST', body: { path, ref } })).url,
   async upload(slug, path, file) {
-    const go = async () => fetch(`/api/folders/${enc(slug)}/files?path=${enc(path)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${await freshToken()}` } })
+    const go = async () => fetch(`${BASE}/api/folders/${enc(slug)}/files?path=${enc(path)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${await freshToken()}` } })
     const r = await go()
     const j = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(j.error || '올리지 못했어요.')
@@ -64,7 +65,7 @@ export const folders = {
   },
 }
 export const rawUrl = (slug, path, ref = 'main', download = false) =>
-  `/api/folders/${enc(slug)}/raw?ref=${enc(ref)}&path=${enc(path)}&token=${enc(auth.get()?.session?.access_token || '')}${download ? '&download=1' : ''}`
+  `${BASE}/api/folders/${enc(slug)}/raw?ref=${enc(ref)}&path=${enc(path)}&token=${enc(auth.get()?.session?.access_token || '')}${download ? '&download=1' : ''}`
 
 // avatar colour from an id, so a person keeps theirs everywhere
 const COLORS = ['#4a5f9a', '#b0567a', '#3f8a6b', '#7b5cd6', '#d97757', '#c2570c', '#0b6f88', '#8a6d3b']

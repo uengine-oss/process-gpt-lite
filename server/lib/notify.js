@@ -4,7 +4,7 @@
 // choices as buttons, so a decision is made without opening the form — and a way to ask a
 // teammate to look at something from chat.
 import { config } from '../config.js'
-import { q } from './supa.js'
+import { q, eachTenant } from './supa.js'
 import { emit } from './bus.js'
 import { getTodo } from './processes.js'
 import { submitTodo } from './engine.js'
@@ -143,9 +143,10 @@ export async function notifyUser(userId, { type, title, text, url }) {
 
 // New rows reach open clients without a reload: one tenant-wide check every few seconds,
 // fanned out to the users the rows are for (rows may name a user by id or by email).
-let last = new Date()
+const lastByTenant = new Map() // tenant -> time of the newest row seen
 export function startNotificationFeed() {
-  setInterval(async () => {
+  setInterval(() => eachTenant(async () => {
+    let last = lastByTenant.get(T()) || new Date()
     try {
       const rows = await q(`select n.user_id, n.time_stamp, u.id as uid from notifications n
                             left join users u on (u.id::text = n.user_id or u.email = n.user_id) and u.tenant_id = n.tenant_id
@@ -154,6 +155,7 @@ export function startNotificationFeed() {
         if (r.time_stamp > last) last = r.time_stamp
         if (r.uid) emit(r.uid, 'notifications', {})
       }
+      lastByTenant.set(T(), last)
     } catch (e) { console.warn('[notify feed]', e.message) }
-  }, 4000)
+  }), 4000)
 }

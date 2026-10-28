@@ -7,6 +7,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '../api.js'
+import { BASE } from '../base.js'
 
 const props = defineProps({ kind: String, id: String, mode: String, active: Boolean })
 const emit = defineEmits(['state'])
@@ -21,7 +22,7 @@ async function connect() {
   try { ticket = (await api(`/workroom/${props.kind}/${encodeURIComponent(props.id)}/ticket`, { method: 'POST', body: { mode: props.mode } })).ticket }
   catch { emit('state', everLive ? 'closed' : 'denied'); if (!closed) timer = setTimeout(connect, Math.min(15000, 800 * 2 ** retry++)); return }
   if (closed) return
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/workroom/term?ticket=${encodeURIComponent(ticket)}`)
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${BASE}/api/workroom/term?ticket=${encodeURIComponent(ticket)}`)
   ws.onopen = () => { retry = 0; everLive = true; emit('state', 'live'); fitNow() }
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data)

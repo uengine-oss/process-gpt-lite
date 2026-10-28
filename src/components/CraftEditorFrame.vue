@@ -20,6 +20,7 @@ import ShareButton from './team/ShareButton.vue'
 import { uploadAttachment } from '../api.js'
 import { openLiveLink } from '../liveLink.js'
 import { officeEditorFor } from '../officeEditor.js'
+import { BASE } from '../base.js'
 
 const props = defineProps({
   fileUrl: { type: String, default: '' },
@@ -81,7 +82,7 @@ function load() {
   stopLive()
   dirty.value = false
   clearTimeout(wait)
-  frameSrc.value = app.value ? `/craft/${appName()}/${app.value.query}` : ''
+  frameSrc.value = app.value ? `${BASE}/craft/${appName()}/${app.value.query}` : ''
 }
 function show(kind, text, link) {
   clearTimeout(timer)

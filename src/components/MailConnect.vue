@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
+import { BASE } from '../base.js'
 
 const emit = defineEmits(['close'])
 const cfg = ref({ google: false })
@@ -10,8 +11,8 @@ const host = ref('imap.gmail.com')
 const username = ref('')
 const password = ref('')
 const busy = ref(false)
-onMounted(async () => { cfg.value = await (await fetch('/api/config')).json() })
-const google = () => { window.location.href = '/api/auth/google/start?mail=1' }
+onMounted(async () => { cfg.value = await (await fetch(BASE + '/api/config')).json() })
+const google = () => { window.location.href = BASE + '/api/auth/google/start?mail=1' }
 
 async function connect(provider) {
   busy.value = true

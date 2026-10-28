@@ -38,5 +38,7 @@ export default defineConfig({
     { name: 'feature', testDir: './tests/feature', timeout: 240_000, retries: 0 },
     // model answers vary: one retry; assertions are on durable outcomes (rows, files, cards)
     { name: 'agent', testDir: './tests/agent', timeout: 30 * 60_000, retries: 1, use: { actionTimeout: 60_000 } },
+    // Lite behind the ProcessGPT gateway (<tenant>.process-gpt.io/lite): signs in through ProcessGPT itself
+    { name: 'deploy', testDir: './tests/deploy', timeout: 15 * 60_000, retries: 0, use: { actionTimeout: 30_000 } },
   ],
 })

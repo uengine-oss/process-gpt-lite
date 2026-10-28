@@ -9,6 +9,7 @@
 import crypto from 'node:crypto'
 import { admin, q } from './supa.js'
 import { config } from '../config.js'
+import { withTenant } from './tenant.js'
 import { chatJson } from './llm.js'
 import { runBrowserTask } from './browser.js'
 import { addMessage } from './store.js'
@@ -98,14 +99,15 @@ async function tick() {
     if (error) throw new Error(error.message)
     const row = data?.[0]
     if (!row) return
-    if (row.tenant_id !== config.tenantId) {
+    // one install serves one tenant; behind the ProcessGPT gateway a step runs as the tenant it belongs to
+    if (!config.tenantFromHeader && row.tenant_id !== config.tenantId) {
       // not ours: hand it back untouched for the worker of that tenant
       await admin.from('todolist').update({ draft_status: null, consumer: null }).eq('id', row.id)
       return
     }
     console.log('[browser-worker] claimed', row.id, row.activity_name)
     try {
-      await handle(row)
+      await withTenant(row.tenant_id, () => handle(row))
     } catch (e) {
       console.warn('[browser-worker] failed', e.message)
       await admin.from('todolist').update({ draft_status: 'FAILED', consumer: null }).eq('id', row.id)

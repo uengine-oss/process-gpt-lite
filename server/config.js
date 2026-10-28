@@ -5,6 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { PGPT_ROOT, ARTCRAFT_ROOT } from './lib/paths.js'
+import { currentTenant } from './lib/tenant.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -17,7 +18,12 @@ const get = (k, d) => process.env[k] ?? local[k] ?? pgpt[k] ?? d
 export const config = {
   port: Number(get('PRO_PORT', 8787)),
   publicUrl: get('PRO_PUBLIC_URL', 'http://localhost:5180'),
-  tenantId: get('PRO_TENANT_ID', 'localhost'),
+  // the request's or job's tenant (lib/tenant.js), else this install's one
+  get tenantId() { return currentTenant() || this.defaultTenantId },
+  defaultTenantId: get('PRO_TENANT_ID', 'localhost'),
+  // behind the ProcessGPT gateway: the tenant is the address's subdomain, which the gateway always
+  // sets as X-Tenant-Id (ForwardHostHeaderFilter); sign-in is ProcessGPT's own
+  tenantFromHeader: get('PRO_TENANT_FROM_HEADER', '0') === '1',
 
   supabaseUrl: get('PRO_SUPABASE_URL', 'http://127.0.0.1:54321'),
   anonKey: get('ANON_KEY'),
@@ -25,9 +31,9 @@ export const config = {
   db: {
     host: get('PRO_DB_HOST', '127.0.0.1'),
     port: Number(get('PRO_DB_PORT', 54322)),
-    user: 'postgres',
+    user: get('PRO_DB_USER', 'postgres'),
     password: get('POSTGRES_PASSWORD'),
-    database: 'postgres',
+    database: get('PRO_DB_NAME', 'postgres'),
   },
 
   deepagentsUrl: get('PRO_DEEPAGENTS_URL', 'http://127.0.0.1:8888'),

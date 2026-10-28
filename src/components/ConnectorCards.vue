@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
+import { BASE } from '../base.js'
 
 // hark-style "연결" cards. Each connector is also a process-gpt system (systems registry) reached
 // through its own mcp-hub server, so connecting here makes its tools usable by agents and skills.
@@ -27,7 +28,7 @@ async function load() {
 onMounted(load)
 
 function connect(c) {
-  if (how[c.name].kind === 'oauth') { window.location.href = '/api/auth/google/start?mail=1'; return }
+  if (how[c.name].kind === 'oauth') { window.location.href = BASE + '/api/auth/google/start?mail=1'; return }
   editing.value = c.name
   token.value = ''
 }

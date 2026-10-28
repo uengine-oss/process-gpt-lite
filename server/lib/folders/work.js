@@ -9,7 +9,7 @@
 //    Steps of one instance chain on the instance line (inst/<id>), which `@previous` follows.
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, eachTenant } from '../supa.js'
 import { addMessage } from '../store.js'
 import { emit } from '../bus.js'
 import * as G from './git.js'
@@ -198,6 +198,6 @@ let timer
 export function startFolderSteps() {
   if (timer) return
   setTimeout(() => recoverChatRuns().catch((e) => console.warn('[folders] recover', e.message)), 90000)
-  const tick = () => stepTick().catch((e) => console.warn('[folders] steps', e.message)).finally(() => { timer = setTimeout(tick, 4000) })
+  const tick = () => eachTenant(stepTick).catch((e) => console.warn('[folders] steps', e.message)).finally(() => { timer = setTimeout(tick, 4000) })
   timer = setTimeout(tick, 5000)
 }

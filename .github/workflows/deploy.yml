@@ -1,0 +1,105 @@
+name: process-gpt-lite-build-and-deploy
+
+# main → the two images behind <tenant>.process-gpt.io/lite (process-gpt-vue3 gateway route /lite/**)
+# → their tags in process-gpt-k8s, which Argo CD applies. Database changes are not applied here:
+# install/db/prod-sql.sh writes the SQL for the operator to run.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Compute image tags
+        run: |
+          IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "WEB_IMAGE=ghcr.io/uengine-oss/process-gpt-lite-web:$IMAGE_TAG" >> $GITHUB_ENV
+          echo "SERVER_IMAGE=ghcr.io/uengine-oss/process-gpt-lite-server:$IMAGE_TAG" >> $GITHUB_ENV
+
+      # the SPA served under /lite/ (src/base.js); nginx gets its upstreams from the Deployment
+      - name: Build and push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: install/docker/pgpt.Dockerfile
+          target: web
+          build-contexts: install-docker=install/docker
+          build-args: VITE_BASE_PATH=/lite/
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.WEB_IMAGE }}
+            ghcr.io/uengine-oss/process-gpt-lite-web:latest
+
+      - name: Build and push server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: install/docker/pgpt.Dockerfile
+          target: server
+          build-contexts: install-docker=install/docker
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.SERVER_IMAGE }}
+            ghcr.io/uengine-oss/process-gpt-lite-server:latest
+
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: uengine-oss/process-gpt-k8s
+          token: ${{ secrets.GITOPS_PAT }}
+          path: gitops-repo
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Update image tags in GitOps repository
+        run: |
+          cd gitops-repo
+          yq eval -i '
+            (select(.kind == "Deployment" and .metadata.name == "process-gpt-lite-web") | .spec.template.spec.containers[0].image) = "'$WEB_IMAGE'" |
+            (select(.kind == "Deployment" and .metadata.name == "process-gpt-lite-server") | .spec.template.spec.containers[0].image) = "'$SERVER_IMAGE'"
+          ' deployments/process-gpt-lite.yaml
+          grep -n "image:" deployments/process-gpt-lite.yaml
+
+      - name: Commit and push changes
+        run: |
+          cd gitops-repo
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "Update process-gpt-lite images to $IMAGE_TAG" || exit 0
+          git push
+
+      - name: Create deployment summary
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Web** | \`${{ env.WEB_IMAGE }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Server** | \`${{ env.SERVER_IMAGE }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **GitOps Repo** | [process-gpt-k8s](https://github.com/uengine-oss/process-gpt-k8s) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ ArgoCD will sync the changes. New server/sql files: run install/db/prod-sql.sh and hand the SQL to the operator." >> $GITHUB_STEP_SUMMARY

@@ -14,6 +14,7 @@ import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
 import { isOfficeEditorMessage, officeEditorUrl } from '../officeEditor.js'
 import { freshToken } from '../api.js'
+import { BASE } from '../base.js'
 import { kindOf, kindLabel } from '../artifacts.js'
 import { openLiveLink } from '../liveLink.js'
 
@@ -182,7 +183,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
       <span class="sp" />
       <!-- the editor is IeumOffice (Apache-2.0); its lockup marks whose editor this is -->
-      <img class="ieum" src="/brand/ieumoffice-logo.svg" alt="IeumOffice" title="이음오피스 편집기" width="66" height="15" />
+      <img class="ieum" :src="`${BASE}/brand/ieumoffice-logo.svg`" alt="IeumOffice" title="이음오피스 편집기" width="66" height="15" />
       <ShareButton v-if="!readOnly" :for-name="name" plain class="tb" />
       <button v-if="canMention" class="tb press" :class="{ on: mentionMode }" title="켜고 문서의 표·그림·문단(엑셀은 셀 범위)을 누르면 대화 입력창에 @멘션으로 들어가요 (⌥ 누른 채 클릭도 돼요)" @click="mentionMode = !mentionMode">
         @ {{ mentionMode ? '가리키는 중' : '가리키기' }}

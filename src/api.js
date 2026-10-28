@@ -1,4 +1,6 @@
 // Thin client for the pgpt-pro server (proxied at /api by Vite).
+import { BASE } from './base.js'
+
 const KEY = 'pgpt-pro-session'
 
 export const auth = {
@@ -7,10 +9,36 @@ export const auth = {
   clear() { try { localStorage.removeItem(KEY) } catch { /* ignore */ } },
 }
 
+// Behind the ProcessGPT gateway (<tenant>.process-gpt.io/lite) the person is already signed in to
+// ProcessGPT, which keeps its Supabase tokens in access_token/refresh_token cookies on .process-gpt.io
+// (the same handoff the /wms app uses). Take them when there is no session here or it belongs to
+// someone else; a pair that was already refused is not taken again (no sign-in loop).
+const HOST_FAILED = 'pgpt-pro-host-session-failed'
+const cookie = (k) => decodeURIComponent((document.cookie.match(new RegExp(`(?:^|; )${k}=([^;]*)`)) || [])[1] || '')
+const sub = (jwt) => { try { return JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub } catch { return null } }
+export function adoptHostSession() {
+  const access_token = cookie('access_token'), refresh_token = cookie('refresh_token')
+  if (!access_token || !refresh_token) return false
+  try { if (sessionStorage.getItem(HOST_FAILED) === refresh_token) return false } catch { /* ignore */ }
+  const mine = auth.get()?.session?.access_token
+  if (mine && sub(mine) === sub(access_token)) return false
+  auth.set({ session: { access_token, refresh_token }, host: true })
+  return true
+}
+
 async function refreshToken() {
+  // a token taken from ProcessGPT is kept fresh by ProcessGPT: take its newer pair rather than
+  // spending the shared refresh token here (rotation would sign the other tab out)
+  if (auth.get()?.host) {
+    const access_token = cookie('access_token'), refresh_token = cookie('refresh_token')
+    if (access_token && access_token !== auth.get().session.access_token) {
+      auth.set({ session: { access_token, refresh_token }, host: true })
+      return true
+    }
+  }
   const s = auth.get()
   if (!s?.session?.refresh_token) return false
-  const r = await fetch('/api/auth/refresh', {
+  const r = await fetch(BASE + '/api/auth/refresh', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: s.session.refresh_token }),
   })
@@ -34,7 +62,7 @@ export async function freshToken() {
 // A file attached in chat, sent as-is (no JSON, no base64) — the server keeps it where the agent
 // can read it and returns {name, size, type, path, url}.
 export async function uploadAttachment(file) {
-  const go = () => fetch('/api/attachments', {
+  const go = () => fetch(BASE + '/api/attachments', {
     method: 'POST', body: file,
     headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` },
   })
@@ -45,14 +73,17 @@ export async function uploadAttachment(file) {
 }
 
 export async function api(path, { method = 'GET', body, raw } = {}) {
-  const go = () => fetch(`/api${path}`, {
+  const go = () => fetch(`${BASE}/api${path}`, {
     method,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` },
     body: body ? JSON.stringify(body) : undefined,
   })
   let r = await go()
   if (r.status === 401 && await refreshToken()) r = await go()
-  if (r.status === 401) { auth.clear(); location.href = '/login'; throw new Error('unauthorized') }
+  if (r.status === 401) {
+    if (auth.get()?.host) try { sessionStorage.setItem(HOST_FAILED, auth.get().session.refresh_token) } catch { /* ignore */ }
+    auth.clear(); location.href = BASE + '/login'; throw new Error('unauthorized')
+  }
   if (raw) return r
   if (!r.ok) {
     // a JSON error body ({error}) shows its message, not the raw JSON
@@ -98,7 +129,7 @@ export function events(handler) {
     while (!stopped) {
       try {
         // the first call has no position: the server starts from now
-        const r = await fetch(`/api/events/poll?${after == null ? '' : `after=${after}&`}token=${tok()}`)
+        const r = await fetch(`${BASE}/api/events/poll?${after == null ? '' : `after=${after}&`}token=${tok()}`)
         if (r.status === 401) { await refreshToken(); continue }
         const j = await r.json()
         for (const e of j.events) if (EVENT_TYPES.includes(e.type)) onEvent(e.type, e.data)
@@ -107,7 +138,7 @@ export function events(handler) {
     }
   }
   const open = () => {
-    es = new EventSource(`/api/events?token=${tok()}`)
+    es = new EventSource(`${BASE}/api/events?token=${tok()}`)
     let hello = false
     const fallback = setTimeout(() => {
       if (hello || stopped) return

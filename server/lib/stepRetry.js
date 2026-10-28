@@ -6,7 +6,7 @@
 // further apart each time. After that, or for an error that is not passing, the person who started
 // the instance hears about it (Home card) and the instance page offers 「다시 시도」.
 import { config } from '../config.js'
-import { q } from './supa.js'
+import { q, eachTenant } from './supa.js'
 import { emit } from './bus.js'
 
 const T = () => config.tenantId
@@ -123,7 +123,7 @@ export async function failures(todoIds) {
 let timer = null
 export function startStepRetry() {
   if (timer) return
-  const tick = () => sweep().catch((e) => console.warn('[step-retry]', e.message))
+  const tick = () => eachTenant(() => sweep()).catch((e) => console.warn('[step-retry]', e.message))
   timer = setInterval(tick, Number(process.env.PRO_STEP_RETRY_TICK_MS || 30000))
   setTimeout(tick, 15000)
 }

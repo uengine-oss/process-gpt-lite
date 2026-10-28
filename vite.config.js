@@ -45,6 +45,9 @@ function publicGate() {
 }
 
 export default defineConfig({
+  // '/' for local and the Docker install; '/lite/' for the image behind the ProcessGPT gateway
+  // (<tenant>.process-gpt.io/lite, which strips the prefix like its /wms route) — see src/base.js
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [vue(), publicGate()],
   server: {
     port: 5180,

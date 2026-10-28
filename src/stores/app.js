@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
+import { BASE } from '../base.js'
 
 export const useApp = defineStore('app', {
   state: () => ({
@@ -238,6 +239,6 @@ export const useApp = defineStore('app', {
       this.panelMode = false
       await this.send(`새 패널 만들기: ${description}`, this.mainThread.id)
     },
-    logout() { auth.clear(); location.href = '/login' },
+    logout() { auth.clear(); location.href = BASE + '/login' },
   },
 })

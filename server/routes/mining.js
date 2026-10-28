@@ -1,7 +1,7 @@
 // HTTP routes for process mining: recommendations from repeated ad-hoc work and the admin's decision.
 import express from 'express'
 import * as M from '../lib/mining/service.js'
-import { q } from '../lib/supa.js'
+import { q, eachTenant } from '../lib/supa.js'
 import { canSeeInstance, getInstance } from '../lib/processes.js'
 import { mainThread, addMessage } from '../lib/store.js'
 
@@ -53,6 +53,6 @@ export function miningRoutes(auth) {
 
 // the miner looks again now and then: a pattern appears once enough cases have piled up
 export function startMiningScan() {
-  setInterval(() => M.scan().catch((e) => console.warn('[mining] scan', e.message)), 60_000)
-  setTimeout(() => M.scan().catch((e) => console.warn('[mining] scan', e.message)), 8000)
+  setInterval(() => eachTenant(() => M.scan()).catch((e) => console.warn('[mining] scan', e.message)), 60_000)
+  setTimeout(() => eachTenant(() => M.scan()).catch((e) => console.warn('[mining] scan', e.message)), 8000)
 }

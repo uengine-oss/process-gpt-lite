@@ -12,6 +12,7 @@ import DemoMailPractice from './DemoMailPractice.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
+import { BASE } from '../base.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,7 +40,7 @@ async function load() {
   if (page.value === 'schedules') schedules.value = await api('/schedules')
   if (['accounts', 'wallet'].includes(page.value)) vault.value = await api('/vault')
   if (page.value === 'security') {
-    cfg.value = await (await fetch('/api/config')).json()
+    cfg.value = await (await fetch(BASE + '/api/config')).json()
     audit.value = await api('/vault/audit?limit=30')
   }
 }

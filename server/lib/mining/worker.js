@@ -5,6 +5,7 @@
 import crypto from 'node:crypto'
 import { admin, q, sessionFor } from '../supa.js'
 import { config } from '../../config.js'
+import { withTenant } from '../tenant.js'
 import { addMessage } from '../store.js'
 import { emit } from '../bus.js'
 import { ORCH, stepOf } from './catalog.js'
@@ -153,12 +154,13 @@ async function tick() {
     if (error) throw new Error(error.message)
     const row = data?.[0]
     if (!row) return
-    if (row.tenant_id !== config.tenantId) {
+    // one install serves one tenant; behind the ProcessGPT gateway a step runs as the tenant it belongs to
+    if (!config.tenantFromHeader && row.tenant_id !== config.tenantId) {
       await admin.from('todolist').update({ draft_status: null, consumer: null }).eq('id', row.id)
       return
     }
     console.log('[skill-worker] claimed', row.id, row.activity_name)
-    try { await handle(row) } catch (e) {
+    try { await withTenant(row.tenant_id, () => handle(row)) } catch (e) {
       console.warn('[skill-worker] failed', e.message)
       await admin.from('todolist').update({ draft_status: 'FAILED', consumer: null }).eq('id', row.id)
       await events([{ job_id: crypto.randomUUID(), todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH, event_type: 'error', data: { message: e.message } }])

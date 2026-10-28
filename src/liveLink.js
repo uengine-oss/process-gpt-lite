@@ -4,6 +4,7 @@
 // IeumOffice it only says what is open (office-host has its own live sessions). Reconnects while
 // `alive()`; `close()` ends it for good.
 import { api } from './api.js'
+import { BASE } from './base.js'
 
 export function openLiveLink({ app, file, editor, onCall, onState, alive = () => true }) {
   let ws = null
@@ -16,7 +17,7 @@ export function openLiveLink({ app, file, editor, onCall, onState, alive = () =>
     let ticket
     try { ticket = (await api('/craft/live/ticket', { method: 'POST' })).ticket } catch { retry = setTimeout(connect, 5000); return }
     if (closed) return
-    const sock = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/craft/live?ticket=${encodeURIComponent(ticket)}`)
+    const sock = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${BASE}/api/craft/live?ticket=${encodeURIComponent(ticket)}`)
     ws = sock
     sock.onopen = () => sock.send(JSON.stringify({ type: 'open', app, file: name, editor }))
     sock.onmessage = async (e) => {

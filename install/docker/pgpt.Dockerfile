@@ -18,11 +18,17 @@ RUN npm ci --no-audit --no-fund --ignore-scripts
 COPY index.html vite.config.js ./
 COPY public ./public
 COPY src ./src
-RUN npx vite build
+# '/lite/' for the image behind the ProcessGPT gateway (<tenant>.process-gpt.io/lite); see src/base.js
+ARG VITE_BASE_PATH=/
+RUN VITE_BASE_PATH=$VITE_BASE_PATH npx vite build
 
 FROM nginx:1.27-alpine AS web
 COPY --from=web-build /src/dist /usr/share/nginx/html
-COPY --from=install-docker nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=install-docker nginx.conf /etc/nginx/templates/default.conf.template
+ENV LITE_RESOLVER=127.0.0.11 \
+    LITE_SERVER=server:8787 \
+    LITE_OFFICE_HOST=office-host:5390 \
+    LITE_KONG=kong:8000
 EXPOSE 80
 
 # ---------- BFF dependencies (native modules need a toolchain) ----------

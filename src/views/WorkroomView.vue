@@ -11,6 +11,7 @@ import WorkroomTerminal from '../components/WorkroomTerminal.vue'
 import FileView from '../components/files/FileView.vue'
 import { viewOf, fmtSize } from '../components/folders/fileKind.js'
 import { api, auth } from '../api.js'
+import { BASE } from '../base.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -56,7 +57,7 @@ const shown = computed(() => {
 })
 function toggle(d) { const s = new Set(openDirs.value); s.has(d.path) ? s.delete(d.path) : s.add(d.path); openDirs.value = s }
 
-const rawUrl = (p) => `/api${base.value}/raw?path=${encodeURIComponent(p)}&token=${encodeURIComponent(auth.get()?.session?.access_token || '')}`
+const rawUrl = (p) => `${BASE}/api${base.value}/raw?path=${encodeURIComponent(p)}&token=${encodeURIComponent(auth.get()?.session?.access_token || '')}`
 const isTextView = (p) => ['markdown', 'code', 'text', 'csv'].includes(viewOf(p)) || viewOf(p) === 'none'
 
 async function openFile(p) {

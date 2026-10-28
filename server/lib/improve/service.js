@@ -1,6 +1,6 @@
 // 프로세스 개선 — DB 에서 정의·인스턴스·작업 항목·상태 전이 이력·이벤트를 읽어 결정적 분석을 돌린다.
 // (process-gpt analytic 서비스의 ETL/dw 를 거치지 않고 같은 원천 테이블을 바로 읽는다 — design.md)
-import { q } from '../supa.js'
+import { q, eachTenant } from '../supa.js'
 import { config } from '../../config.js'
 import { emit } from '../bus.js'
 import { analyze, valueStream, instanceProfile, percentile } from './analyze.js'
@@ -260,8 +260,10 @@ export function startConstraintSweep() {
     if (sweeping) return
     sweeping = true
     try {
-      const defs = await q(`select distinct lower(i.proc_def_id) as id from bpm_proc_inst i where i.tenant_id=$1 and i.status='COMPLETED' and i.updated_at > now() - interval '1 day'`, [T()])
-      for (const x of defs) await checkConstraint(x.id).catch(() => {})
+      await eachTenant(async () => {
+        const defs = await q(`select distinct lower(i.proc_def_id) as id from bpm_proc_inst i where i.tenant_id=$1 and i.status='COMPLETED' and i.updated_at > now() - interval '1 day'`, [T()])
+        for (const x of defs) await checkConstraint(x.id).catch(() => {})
+      })
     } finally { sweeping = false }
   }
   setTimeout(run, 20000)
