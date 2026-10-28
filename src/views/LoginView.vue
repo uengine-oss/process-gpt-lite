@@ -29,8 +29,6 @@ const nextSample = () => setTimeout(() => { sampleIdx.value = (sampleIdx.value +
 
 onMounted(async () => {
   cfg.value = await (await fetch(BASE + '/api/config')).json()
-  // behind the ProcessGPT gateway sign-in is ProcessGPT's own (its cookies are taken in main.js)
-  if (cfg.value.hostLogin) location.href = '/'
 })
 
 function google() {

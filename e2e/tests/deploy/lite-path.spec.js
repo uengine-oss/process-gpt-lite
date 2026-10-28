@@ -100,6 +100,56 @@ test('4 채팅으로 일을 맡기면 에이전트 답이 화면에 오고 새�
   await expect(page.locator('body')).toContainText(snippet.split(' ')[0])
 })
 
+// Lite keeps its own sign-in page: not signed in to ProcessGPT, /lite stays on it (no trip to ProcessGPT's
+// main page). The tenant's accounts sign in with a mailed code; any other email gets no code and no account.
+const MAILPIT = (process.env.MAILPIT_URL || '').replace(/\/$/, '')
+async function mailedCode(addr, since) {
+  for (let i = 0; i < 30; i++) {
+    const list = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${addr}`)}`).then((r) => r.json()).catch(() => null)
+    const m = (list?.messages || []).find((x) => new Date(x.Created).getTime() >= since - 2000)
+    if (m) {
+      const msg = await fetch(`${MAILPIT}/api/v1/message/${m.ID}`).then((r) => r.json())
+      const code = /\b(\d{6})\b/.exec(`${msg.Subject} ${msg.Text}`)?.[1]
+      if (code) return code
+    }
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  return null
+}
+async function codeSignIn(page, addr) {
+  await page.locator('input.field[type=email]').fill(addr)
+  const since = Date.now()
+  await page.locator('input.field[type=email] + button.dark-btn').click()
+  await page.locator('.code input').first().waitFor()
+  return since
+}
+
+test('0 ProcessGPT 로그인 없이 /lite → Lite 로그인 화면, 테넌트 계정은 메일 코드로 로그인, 다른 이메일은 계정이 안 생김', async ({ page }) => {
+  test.skip(!B.email || !MAILPIT || !db, 'LITE_B_EMAIL / MAILPIT_URL / PGPT_DB_URL 이 없음')
+  await page.goto(`${LITE}/chat`)
+  await page.waitForURL(/\/lite\/login/, { timeout: 30_000 })
+  await page.waitForTimeout(2000)
+  expect(new URL(page.url()).pathname, 'ProcessGPT 메인으로 가지 않음').toBe('/lite/login')
+
+  // someone outside the tenant: same answer, no code, no account
+  const stranger = `lite-path-stranger-${Date.now().toString(36)}@pgpt.test`
+  const s0 = await codeSignIn(page, stranger)
+  await page.waitForTimeout(3000)
+  expect(await mailedCode(stranger, s0).catch(() => null)).toBeNull()
+  expect((await q('select count(*)::int n from auth.users where email = $1', [stranger]))[0].n).toBe(0)
+  await page.locator('button.pill-btn', { hasText: '다른 이메일 사용' }).click()
+
+  // a member of the tenant: the mailed code signs in
+  const since = await codeSignIn(page, B.email)
+  const code = await mailedCode(B.email, since)
+  expect(code, '메일로 온 코드').toBeTruthy()
+  await page.locator('.code input').first().fill(code)
+  await page.waitForURL(/\/lite\/(welcome|chat)/, { timeout: 30_000 })
+  const me = await liteMe(page)
+  expect(me.status).toBe(200)
+  expect(me.body.user.email).toBe(B.email)
+})
+
 // --- 5: a meeting between two accounts in their 1:1 room ---
 const RATE = 24000
 async function speech(text, voice) {
@@ -154,7 +204,7 @@ test('5 두 계정이 같은 대화방 회의에서 서로 들리고, 마치면 
     if (await page.waitForURL(/\/lite\/welcome\/age/, { timeout: 5000 }).then(() => true, () => false)) {
       const sel = page.locator('select.sel')
       for (const [i, v] of [[0, 1], [1, 1], [2, 1]]) await sel.nth(i).selectOption({ index: v })
-      await page.locator('button.dark-btn', { hasText: '계속' }).click()
+      await page.locator('input.field[type=email] + button.dark-btn').click()
       await page.waitForURL(/\/lite\/chat/, { timeout: 30_000 })
     }
     await expect(page.locator('.composer textarea').first()).toBeVisible({ timeout: 30_000 })

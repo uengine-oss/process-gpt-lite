@@ -87,3 +87,8 @@ export async function eachTenant(fn) {
   }
   for (const t of liteTenants.ids) await withTenant(t, fn)
 }
+
+// whether an email already has an account in a tenant
+export async function isMemberEmail(email, tenantId) {
+  return (await q('select 1 from users where lower(email) = lower($1) and tenant_id = $2', [String(email || ''), tenantId])).length > 0
+}

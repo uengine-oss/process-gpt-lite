@@ -4,7 +4,7 @@ import nodePath from 'node:path'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from './config.js'
-import { q, sessionFor, refresh, userFromJwt, isMember } from './lib/supa.js'
+import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail } from './lib/supa.js'
 import { withTenant } from './lib/tenant.js'
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
@@ -114,7 +114,7 @@ async function finishLogin(email, name) {
 
 // craft: which ArtCraft apps this install has ({web, cli} flags only); contextRouter: whether messages are routed
 // to conversations (services/context-router) — flags only
-app.get('/api/config', (req, res) => res.json({ hostLogin: config.tenantFromHeader, google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
+app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
 
 app.get('/api/auth/google/start', (req, res) => {
   if (!mail.googleEnabled()) return res.status(400).send('Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).')
@@ -164,15 +164,20 @@ app.get('/api/auth/google/callback', async (req, res) => {
 })
 
 // Email OTP through Supabase GoTrue (needs SMTP on the auth service).
+// Behind the ProcessGPT gateway the accounts are ProcessGPT's: a code goes only to someone already in
+// this address's tenant, and no account is made (the answer is the same either way)
+const tenantEmail = async (email) => !config.tenantFromHeader || isMemberEmail(email, config.tenantId)
 app.post('/api/auth/email/start', async (req, res) => {
+  if (!(await tenantEmail(req.body.email))) return res.json({ sent: true, demo: demoLogin })
   const r = await fetch(`${config.supabaseUrl}/auth/v1/otp`, {
     method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: req.body.email, create_user: true }),
+    body: JSON.stringify({ email: req.body.email, create_user: !config.tenantFromHeader }),
   })
   res.status(r.ok ? 200 : 400).json(r.ok ? { sent: true, demo: demoLogin } : { error: (await r.text()).slice(0, 200), demo: demoLogin })
 })
 app.post('/api/auth/email/verify', async (req, res) => {
   const { email, code } = req.body
+  if (!(await tenantEmail(email))) return res.status(400).json({ error: '코드가 맞지 않아요' })
   if (demoLogin && code === '000000') return res.json(await finishLogin(email, email.split('@')[0]))
   const r = await fetch(`${config.supabaseUrl}/auth/v1/verify`, {
     method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
