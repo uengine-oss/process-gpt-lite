@@ -83,7 +83,8 @@ export async function getDefinition(id) {
 
 // An agent step is only "running" while a worker holds it (polling/cli-agent claim it: consumer,
 // lease, draft STARTED). A queued agent step or a step waiting on a person is not.
-const AGENT_RUNNING = `t.agent_orch is not null and t.status not in ('DONE','CANCELLED')
+// compared as text: some databases' todo_status has no CANCELLED (an unknown enum literal fails the query)
+const AGENT_RUNNING = `t.agent_orch is not null and t.status::text not in ('DONE','CANCELLED')
   and (t.draft_status::text = 'STARTED' or t.consumer is not null or t.lease_until > now())`
 const agentRunning = (t) => !!t?.agent_orch && !['DONE', 'CANCELLED'].includes(t.status) &&
   (t.draft_status === 'STARTED' || !!t.consumer || (t.lease_until && new Date(t.lease_until) > new Date()))
