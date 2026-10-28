@@ -1,5 +1,6 @@
 // HTTP routes for shared folders (공유 폴더). Every route checks the caller's role in the folder.
 import express from 'express'
+import { L } from '../lib/lang.js'
 import path from 'node:path'
 import { config } from '../config.js'
 import { q, admin } from '../lib/supa.js'
@@ -56,7 +57,7 @@ export function folderRoutes(auth) {
   r.post('/folders/skills/:name/open', auth, h(async (req) => {
     const name = req.params.name
     const vis = await SK.visibility(name)
-    if (!vis || (vis.visibility === 'private' && String(vis.author_id) !== String(req.user.id))) throw Object.assign(new Error('이 스킬을 볼 수 없어요.'), { status: 404 })
+    if (!vis || (vis.visibility === 'private' && String(vis.author_id) !== String(req.user.id))) throw Object.assign(new Error(L('이 스킬을 볼 수 없어요.', "You can't see this skill.")), { status: 404 })
     return { slug: (await SK.ensureSkillFolder(name)).slug }
   }))
   r.post('/folders/agents/:agentId/boss', auth, h(async (req) => {
@@ -142,7 +143,7 @@ export function folderRoutes(auth) {
     const v = req.body.ref && req.body.ref !== 'main' ? await S.variation(folder, req.body.ref) : null
     const ref = v ? v.branch : folder.default_branch
     const sha = (await G.git(folder.repo_path, ['rev-parse', `${ref}:${p}`], { check: false })).trim()
-    if (!sha) throw Object.assign(new Error('파일이 없어요.'), { status: 404 })
+    if (!sha) throw Object.assign(new Error(L('파일이 없어요.', "That file isn't there.")), { status: 404 })
     const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
     const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
     const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })
@@ -179,7 +180,7 @@ export function folderRoutes(auth) {
   // ---------- variations ----------
   r.post('/folders/:slug/variations', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    return S.createVariation(folder, { title: req.body.title, kind: 'person', base: req.body.base, holder: { type: 'user', id: req.user.id, name: req.user.name }, source: { label: `${req.user.name} 님이 직접 만든 변형` }, createdBy: req.user.id })
+    return S.createVariation(folder, { title: req.body.title, kind: 'person', base: req.body.base, holder: { type: 'user', id: req.user.id, name: req.user.name }, source: { label: L(`${req.user.name} 님이 직접 만든 변형`, `Variation made by ${req.user.name}`) }, createdBy: req.user.id })
   }))
   r.get('/folders/:slug/variations/:vid', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
@@ -194,7 +195,7 @@ export function folderRoutes(auth) {
   r.post('/folders/:slug/variations/:vid/checkout', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
     const v = await S.variation(folder, req.params.vid)
-    if (['merged', 'discarded'].includes(v.status)) throw Object.assign(new Error('반영했거나 버린 변형은 열 수 없어요.'), { status: 409 })
+    if (['merged', 'discarded'].includes(v.status)) throw Object.assign(new Error(L('반영했거나 버린 변형은 열 수 없어요.', "A merged or discarded variation can't be opened.")), { status: 409 })
     await S.checkout(folder, v, S.personCheckoutDir(req.user, v))
     await q(`update pro_folder_variations set status='open' where id=$1 and status='ready'`, [v.id])
     return { ok: true, workroom: `/workroom/variation/${v.id}` }
@@ -220,9 +221,9 @@ export function folderRoutes(auth) {
   // 반영 요청 (a skill change: resource_pull_requests row; the author and bosses are notified)
   r.post('/folders/:slug/variations/:vid/request', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    if (folder.kind !== 'skill') throw Object.assign(new Error('반영 요청은 스킬 폴더에서만 써요.'), { status: 400 })
+    if (folder.kind !== 'skill') throw Object.assign(new Error(L('반영 요청은 스킬 폴더에서만 써요.', 'Merge requests are for skill folders only.')), { status: 400 })
     const v = await S.variation(folder, req.params.vid)
-    if (v.status !== 'ready') throw Object.assign(new Error('실행이 끝난 변형만 반영을 요청할 수 있어요.'), { status: 409 })
+    if (v.status !== 'ready') throw Object.assign(new Error(L('실행이 끝난 변형만 반영을 요청할 수 있어요.', 'Only a variation whose run has finished can be put up for merge.')), { status: 409 })
     return SK.requestMerge(folder, v, user(req), req.body || {})
   }))
   r.get('/folders/:slug/variations/:vid/review', auth, h(async (req) => {
@@ -233,7 +234,7 @@ export function folderRoutes(auth) {
   }))
   r.post('/folders/:slug/variations/:vid/verify', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    if (folder.kind !== 'skill') throw Object.assign(new Error('검증은 스킬 폴더에서만 써요.'), { status: 400 })
+    if (folder.kind !== 'skill') throw Object.assign(new Error(L('검증은 스킬 폴더에서만 써요.', 'Verification is for skill folders only.')), { status: 400 })
     return SK.verify(folder, await S.variation(folder, req.params.vid), user(req), req.session.access_token)
   }))
   r.post('/folders/:slug/variations/:vid/handover', auth, h(async (req) => {
@@ -245,10 +246,10 @@ export function folderRoutes(auth) {
   // ---------- 일괄 반영 ----------
   r.post('/folders/:slug/merge', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
-    if (folder.kind !== 'skill' && S.RANK[role] < S.RANK.editor) throw Object.assign(new Error("이 작업에는 'editor' 권한이 필요해요."), { status: 403 })
+    if (folder.kind !== 'skill' && S.RANK[role] < S.RANK.editor) throw Object.assign(new Error(L("이 작업에는 'editor' 권한이 필요해요.", "This needs the 'editor' role.")), { status: 403 })
     // a skill is merged only by its author or the boss of an agent that uses it — checked here,
     // not trusted to the screen
-    if (folder.kind === 'skill' && !(await SK.canMerge(folder, req.user))) throw Object.assign(new Error('이 스킬을 반영할 수 있는 사람은 작성자와 이 스킬을 쓰는 에이전트의 담당자예요.'), { status: 403 })
+    if (folder.kind === 'skill' && !(await SK.canMerge(folder, req.user))) throw Object.assign(new Error(L('이 스킬을 반영할 수 있는 사람은 작성자와 이 스킬을 쓰는 에이전트의 담당자예요.', 'This skill can be merged by its author and by the owners of the agents that use it.')), { status: 403 })
     M.pendingJwt.set(req.user.id, req.session.access_token)
     return M.start(folder, user(req), req.body.ids, req.body.policy || 'stop')
   }))
@@ -262,12 +263,12 @@ export function folderRoutes(auth) {
   }))
   r.post('/folders/:slug/merge/:iid/choose', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')
-    if (folder.kind === 'skill' && !(await SK.canMerge(folder, req.user))) throw Object.assign(new Error('이 스킬을 반영할 권한이 없어요.'), { status: 403 })
+    if (folder.kind === 'skill' && !(await SK.canMerge(folder, req.user))) throw Object.assign(new Error(L('이 스킬을 반영할 권한이 없어요.', 'You may not merge this skill.')), { status: 403 })
     return M.choose(folder, await M.get(folder, req.params.iid), user(req), req.body.choices)
   }))
   r.post('/folders/:slug/merge/:iid/agent', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')
-    if (folder.kind === 'skill' && !(await SK.canMerge(folder, req.user))) throw Object.assign(new Error('이 스킬을 반영할 권한이 없어요.'), { status: 403 })
+    if (folder.kind === 'skill' && !(await SK.canMerge(folder, req.user))) throw Object.assign(new Error(L('이 스킬을 반영할 권한이 없어요.', 'You may not merge this skill.')), { status: 403 })
     return M.resolveWithAgent(folder, await M.get(folder, req.params.iid), user(req), req.session.access_token)
   }))
   r.post('/folders/:slug/merge/:iid/abort', auth, h(async (req) => {

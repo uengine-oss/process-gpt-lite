@@ -5,19 +5,20 @@ import express from 'express'
 import { TeamError, requireMember } from '../lib/team/access.js'
 import * as S from '../lib/meetings/service.js'
 import { runAs } from './teamAssist.js'
+import { L } from '../lib/lang.js'
 
 export function meetingRoutes(auth) {
   const r = express.Router()
   if (process.env.PRO_BACKGROUND !== '0') S.startSweeper()
   const h = (fn) => async (req, res) => {
     try {
-      if (!S.enabled()) throw new TeamError(404, '회의 기능이 꺼져 있어요.')
+      if (!S.enabled()) throw new TeamError(404, L('회의 기능이 꺼져 있어요.', 'Meetings are turned off.'))
       await requireMember(req.user)
       const out = await fn(req, res)
       if (out !== undefined && !res.headersSent) res.json(out)
     } catch (e) {
       if (!(e instanceof TeamError) && !e.status) console.warn('[meetings]', req.method, req.path, e.message)
-      if (!res.headersSent) res.status(e.status || 500).json({ error: e instanceof TeamError || e.status ? e.message : '처리하지 못했어요.' })
+      if (!res.headersSent) res.status(e.status || 500).json({ error: e instanceof TeamError || e.status ? e.message : L('처리하지 못했어요.', "I couldn't do that.") })
     }
   }
   const id = (req) => String(req.params.id || '')

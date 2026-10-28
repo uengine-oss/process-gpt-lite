@@ -8,6 +8,7 @@
 import { config } from '../config.js'
 import { q, eachTenant } from './supa.js'
 import { emit } from './bus.js'
+import { L, langOf } from './lang.js'
 
 const T = () => config.tenantId
 export const MAX_AUTO = Number(process.env.PRO_STEP_RETRY_MAX || 3)
@@ -52,9 +53,12 @@ async function giveUp(t, err, transient) {
   const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [t.proc_inst_id])
   const url = `/projects/p/${encodeURIComponent(t.proc_inst_id)}`
   await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and type=$3', [T(), url, 'agent_failed'])
+  // in the starter's language (they read it on Home)
+  const en = (await langOf(who)) === 'en'
   await q(`insert into notifications (id, user_id, title, type, description, url, tenant_id) values (gen_random_uuid(),$1,$2,'agent_failed',$3,$4,$5)`,
-    [who, `에이전트 단계가 멈췄어요: ${t.activity_name}`,
-      `${i?.proc_inst_name || t.proc_inst_id} — ${(err?.friendly || err?.raw || '오류 기록 없이 실패했어요').slice(0, 160)}${transient ? ` (자동으로 ${MAX_AUTO}번 다시 시도했어요)` : ''}. 인스턴스 화면에서 「다시 시도」를 누르면 이어서 진행해요.`,
+    [who, en ? `An agent step stopped: ${t.activity_name}` : `에이전트 단계가 멈췄어요: ${t.activity_name}`,
+      en ? `${i?.proc_inst_name || t.proc_inst_id} — ${(err?.friendly || err?.raw || 'It failed without an error record').slice(0, 160)}${transient ? ` (I retried it automatically ${MAX_AUTO} times)` : ''}. Press "Retry" on the instance screen to continue.`
+        : `${i?.proc_inst_name || t.proc_inst_id} — ${(err?.friendly || err?.raw || '오류 기록 없이 실패했어요').slice(0, 160)}${transient ? ` (자동으로 ${MAX_AUTO}번 다시 시도했어요)` : ''}. 인스턴스 화면에서 「다시 시도」를 누르면 이어서 진행해요.`,
       url, T()])
   emit(who, 'notifications', {})
   emit(who, 'process', { instId: t.proc_inst_id, type: 'changed' })
@@ -92,9 +96,9 @@ export async function sweep({ now = new Date(), instId = null } = {}) {
 // 「다시 시도」 by a person who can see the instance: queue it now, with a fresh automatic budget
 export async function retryNow(me, todoId, canSee) {
   const [t] = await q(`select id::text as id, proc_inst_id, draft_status::text as draft_status, status::text as status, agent_orch from todolist where id::text=$1 and tenant_id=$2`, [String(todoId), T()])
-  if (!t) throw Object.assign(new Error('작업 항목을 찾지 못했어요.'), { status: 404 })
-  if (!(await canSee(t.proc_inst_id, me))) throw Object.assign(new Error('이 프로세스를 볼 권한이 없어요.'), { status: 403 })
-  if (!t.agent_orch || t.draft_status !== 'FAILED' || t.status !== 'IN_PROGRESS') throw Object.assign(new Error('실패한 에이전트 단계만 다시 시도할 수 있어요.'), { status: 409 })
+  if (!t) throw Object.assign(new Error(L('작업 항목을 찾지 못했어요.', "I couldn't find the work item.")), { status: 404 })
+  if (!(await canSee(t.proc_inst_id, me))) throw Object.assign(new Error(L('이 프로세스를 볼 권한이 없어요.', "You don't have access to this process.")), { status: 403 })
+  if (!t.agent_orch || t.draft_status !== 'FAILED' || t.status !== 'IN_PROGRESS') throw Object.assign(new Error(L('실패한 에이전트 단계만 다시 시도할 수 있어요.', 'Only a failed agent step can be retried.')), { status: 409 })
   await requeue(t.id)
   await q(`insert into pro_step_retries (todo_id, tenant_id, proc_inst_id, manual, retried_at, updated_at) values ($1,$2,$3,1,now(),now())
            on conflict (todo_id) do update set manual=pro_step_retries.manual+1, attempts=0, gave_up_at=null, retried_at=now(), updated_at=now()`, [t.id, T(), t.proc_inst_id])
@@ -111,7 +115,7 @@ export async function failures(todoIds) {
     const [r] = await q('select attempts, manual, gave_up_at, retried_at from pro_step_retries where todo_id=$1', [String(id)])
     const transient = isTransient(err?.raw)
     out[id] = {
-      error: (err?.friendly || err?.raw || '오류 기록 없이 실패했어요').slice(0, 300),
+      error: (err?.friendly || err?.raw || L('오류 기록 없이 실패했어요', 'It failed without an error record')).slice(0, 300),
       transient, attempts: r?.attempts || 0, max: MAX_AUTO,
       // still in the automatic budget: the sweep queues it again on its own
       autoRetry: transient && !r?.gave_up_at && (r?.attempts || 0) < MAX_AUTO,

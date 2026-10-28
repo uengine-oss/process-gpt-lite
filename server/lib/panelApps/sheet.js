@@ -7,6 +7,7 @@ import crypto from 'node:crypto'
 import ExcelJS from 'exceljs'
 import { validateAccess } from './rules.js'
 import { classify, needsDb, defaultAccess, LEVELS } from './privacy.js'
+import { L } from '../lang.js'
 
 export const TYPES = ['text', 'longtext', 'number', 'date', 'time', 'choice', 'checkbox', 'email', 'phone', 'person']
 const ID_HEADER = 'ID'
@@ -23,7 +24,7 @@ function tokenize(expr) {
     if (/[0-9.]/.test(c)) { let j = i; while (j < s.length && /[0-9.]/.test(s[j])) j++; out.push({ t: 'num', v: Number(s.slice(i, j)) }); i = j; continue }
     if (/[A-Za-z_]/.test(c)) { let j = i; while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++; out.push({ t: 'id', v: s.slice(i, j) }); i = j; continue }
     if ('+-*/()'.includes(c)) { out.push({ t: 'op', v: c }); i++; continue }
-    throw err(400, `계산 식에 쓸 수 없는 글자가 있어요: ${c}`)
+    throw err(400, L(`계산 식에 쓸 수 없는 글자가 있어요: ${c}`, `The formula has a character it cannot use: ${c}`))
   }
   return out
 }
@@ -34,17 +35,17 @@ export function parseExpr(expr) {
   const peek = () => toks[p]
   const primary = () => {
     const t = toks[p++]
-    if (!t) throw err(400, '계산 식이 끝나지 않았어요.')
+    if (!t) throw err(400, L('계산 식이 끝나지 않았어요.', 'The formula is incomplete.'))
     if (t.t === 'num') return { n: t.v }
     if (t.t === 'id') return { id: t.v }
-    if (t.v === '(') { const e = sum(); if (toks[p++]?.v !== ')') throw err(400, '괄호가 맞지 않아요.'); return e }
+    if (t.v === '(') { const e = sum(); if (toks[p++]?.v !== ')') throw err(400, L('괄호가 맞지 않아요.', "The brackets don't match.")); return e }
     if (t.v === '-') return { op: '-', a: { n: 0 }, b: primary() }
-    throw err(400, '계산 식을 읽지 못했어요.')
+    throw err(400, L('계산 식을 읽지 못했어요.', "I couldn't read the formula."))
   }
   const prod = () => { let a = primary(); while (peek()?.t === 'op' && '*/'.includes(peek().v)) { const op = toks[p++].v; a = { op, a, b: primary() } } return a }
   const sum = () => { let a = prod(); while (peek()?.t === 'op' && '+-'.includes(peek().v)) { const op = toks[p++].v; a = { op, a, b: prod() } } return a }
   const ast = sum()
-  if (p !== toks.length) throw err(400, '계산 식을 읽지 못했어요.')
+  if (p !== toks.length) throw err(400, L('계산 식을 읽지 못했어요.', "I couldn't read the formula."))
   return ast
 }
 export const exprIds = (ast, out = new Set()) => { if (ast.id) out.add(ast.id); if (ast.a) exprIds(ast.a, out); if (ast.b) exprIds(ast.b, out); return out }
@@ -65,7 +66,7 @@ const keyOf = (s, i) => (String(s || '').toLowerCase().replace(/[^a-z0-9_]+/g, '
 export function normalizeDef(raw, opts = {}) {
   let d = raw || {}
   const title = String(d.title || '').trim().slice(0, 40)
-  if (!title) throw err(400, '앱 이름이 없어요.')
+  if (!title) throw err(400, L('앱 이름이 없어요.', 'The app has no name.'))
   const seenK = new Set(), seenL = new Set([ID_HEADER])
   const fields = []
   for (const [i, f] of (Array.isArray(d.fields) ? d.fields : []).entries()) {
@@ -86,7 +87,7 @@ export function normalizeDef(raw, opts = {}) {
     seenK.add(key); seenL.add(label); fields.push(out)
     if (fields.length >= 14) break
   }
-  if (fields.length < 1) throw err(400, '항목이 하나도 없어요.')
+  if (fields.length < 1) throw err(400, L('항목이 하나도 없어요.', 'The app has no fields.'))
   if (!fields.some((f) => f.required)) fields[0].required = true
   const numeric = new Set(fields.filter((f) => f.type === 'number').map((f) => f.key))
   const computed = []
@@ -117,18 +118,18 @@ export function normalizeDef(raw, opts = {}) {
   const summary = (Array.isArray(d.views?.summary) ? d.views.summary : []).map((s) => {
     const agg = ['count', 'sum', 'avg', 'count_where'].includes(s.agg) ? s.agg : 'count'
     if (agg !== 'count' && !has(s.field)) return null
-    const out = { label: String(s.label || '').slice(0, 20) || '개수', agg }
+    const out = { label: String(s.label || '').slice(0, 20) || L('개수', 'Count'), agg }
     if (agg !== 'count') out.field = s.field
     if (agg === 'count_where') out.eq = String(s.eq ?? '')
     if (s.suffix) out.suffix = String(s.suffix).slice(0, 6)
     return out
   }).filter(Boolean).slice(0, 3)
-  if (!summary.length) summary.push({ label: '전체', agg: 'count', suffix: '건' })
+  if (!summary.length) summary.push(L({ label: '전체', agg: 'count', suffix: '건' }, { label: 'Total', agg: 'count' }))
   const form = (Array.isArray(d.form) ? d.form : []).filter((k) => fields.some((f) => f.key === k))
   for (const f of fields) if (!form.includes(f.key)) form.push(f.key)
   const out = {
-    version: 1, title, icon: String(d.icon || '📋').slice(0, 4), description: String(d.description || '').slice(0, 200),
-    sheet: String(d.sheet || '데이터').replace(/[\\/?*[\]:]/g, '').slice(0, 28) || '데이터',
+    version: 1, title, icon: String((d.icon && !/^[\p{L}\p{N}\s]+$/u.test(d.icon) && d.icon) || '📋').slice(0, 4), description: String(d.description || '').slice(0, 200),
+    sheet: String(d.sheet || L('데이터', 'Data')).replace(/[\\/?*[\]:]/g, '').slice(0, 28) || L('데이터', 'Data'),
     fields, computed, views: { list, summary }, form,
     tier: d.tier === 'db' || d.access || d.fieldRules ? 'db' : 'sheet',
   }
@@ -153,6 +154,18 @@ export function normalizeDef(raw, opts = {}) {
 const BIG = { 조: 1e12, 억: 1e8, 만: 1e4 }
 const SMALL = { 천: 1e3, 백: 1e2, 십: 10 }
 export function parseKoNumber(raw) {
+  const n = parseKoOnly(raw)
+  return Number.isFinite(n) ? n : parseEnNumber(raw)
+}
+// "15 days", "₩30,000", "30K", "1.2M", "$1,200" (English mode's own way of writing amounts)
+function parseEnNumber(raw) {
+  const m = String(raw ?? '').replace(/[\s,₩$]/g, '').replace(/^(about|approx\.?|total|~)/i, '')
+    .replace(/(won|krw|usd|days?|pcs|items?|people|persons?|hours?|hrs?|times|%|percent)$/i, '').match(/^([-+]?\d+(?:\.\d+)?)([kmb])?$/i)
+  if (!m) return NaN
+  const x = Number(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[String(m[2] || '').toLowerCase()] || 1)
+  return Math.round(x * 100) / 100
+}
+function parseKoOnly(raw) {
   let s = String(raw ?? '').replace(/[\s,₩]/g, '').replace(/^(약|대략|총|금)/u, '')
     .replace(/(원정?|원|일|개|명|건|회|대|권|시간|%|퍼센트)$/u, '')
   if (!s) return NaN
@@ -191,7 +204,14 @@ export function coerce(f, v) {
     if (v instanceof Date) return v.toISOString().slice(0, 10)
     if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10)
     const m = String(v).trim().match(/^(\d{4})[-./년\s]+(\d{1,2})[-./월\s]+(\d{1,2})/)
-    return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : String(v).trim()
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+    // English dates ("Nov 3, 2026", "3 November 2026"): the calendar day as written
+    const s = String(v).trim()
+    if (/[a-z]/i.test(s) && /\d{4}/.test(s) && !/[가-힣]/.test(s)) {
+      const t = new Date(s)
+      if (!Number.isNaN(t.getTime())) return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+    }
+    return s
   }
   return String(v).trim()
 }
@@ -208,15 +228,15 @@ export function validate(def, input, { partial = false } = {}) {
     let v = input?.[f.key] ?? input?.[f.label] ?? (loose ? input[loose] : undefined)
     if ((v === undefined || v === '') && !partial && f.default !== undefined) v = f.default
     v = coerce(f, v)
-    if (f.required && (v === '' || v === false && f.type !== 'checkbox')) { problems.push(`'${f.label}' 을(를) 적어 주세요.`); continue }
-    if (v !== '' && f.type === 'number' && typeof v !== 'number') problems.push(`'${f.label}' 은(는) 숫자로 적어 주세요.`)
-    if (v !== '' && f.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) problems.push(`'${f.label}' 은(는) 2026-10-24 처럼 날짜로 적어 주세요.`)
+    if (f.required && (v === '' || v === false && f.type !== 'checkbox')) { problems.push(L(`'${f.label}' 을(를) 적어 주세요.`, `Please fill in '${f.label}'.`)); continue }
+    if (v !== '' && f.type === 'number' && typeof v !== 'number') problems.push(L(`'${f.label}' 은(는) 숫자로 적어 주세요.`, `'${f.label}' must be a number.`))
+    if (v !== '' && f.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) problems.push(L(`'${f.label}' 은(는) 2026-10-24 처럼 날짜로 적어 주세요.`, `'${f.label}' must be a date like 2026-10-24.`))
     if (v !== '' && f.type === 'choice' && !f.choices.includes(v)) {
       const hit = f.choices.find((c) => c.replace(/\s/g, '') === String(v).replace(/\s/g, ''))
-      if (hit) v = hit; else problems.push(`'${f.label}' 은(는) ${f.choices.join(', ')} 중 하나예요.`)
+      if (hit) v = hit; else problems.push(L(`'${f.label}' 은(는) ${f.choices.join(', ')} 중 하나예요.`, `'${f.label}' is one of ${f.choices.join(', ')}.`))
     }
-    if (v !== '' && f.type === 'time') { const m = String(v).match(/^(\d{1,2}):(\d{2})/); if (m && +m[1] < 24 && +m[2] < 60) v = `${m[1].padStart(2, '0')}:${m[2]}`; else problems.push(`'${f.label}' 은(는) 14:30 처럼 시각으로 적어 주세요.`) }
-    if (v !== '' && f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) problems.push(`'${f.label}' 이메일 형식이 아니에요.`)
+    if (v !== '' && f.type === 'time') { const m = String(v).match(/^(\d{1,2}):(\d{2})/); if (m && +m[1] < 24 && +m[2] < 60) v = `${m[1].padStart(2, '0')}:${m[2]}`; else problems.push(L(`'${f.label}' 은(는) 14:30 처럼 시각으로 적어 주세요.`, `'${f.label}' must be a time like 14:30.`)) }
+    if (v !== '' && f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) problems.push(L(`'${f.label}' 이메일 형식이 아니에요.`, `'${f.label}' is not an e-mail address.`))
     out[f.key] = v
   }
   if (problems.length) throw Object.assign(err(422, problems.join(' ')), { problems })
@@ -276,7 +296,7 @@ const lastDataRow = (ws) => { for (let r = ws.rowCount; r >= 2; r--) if (ws.getR
 
 export async function readBook(buf) {
   const wb = new ExcelJS.Workbook()
-  try { await wb.xlsx.load(buf) } catch (e) { throw err(422, `스프레드시트를 읽지 못했어요: ${e.message}`) }
+  try { await wb.xlsx.load(buf) } catch (e) { throw err(422, L(`스프레드시트를 읽지 못했어요: ${e.message}`, `I couldn't read the spreadsheet: ${e.message}`)) }
   return wb
 }
 export const bookBuffer = async (wb) => Buffer.from(await wb.xlsx.writeBuffer())
@@ -325,7 +345,7 @@ function writeCells(ws, def, layout, r, id, vals) {
 // a new workbook for a new app (with the first rows, if the request had any)
 export async function newBook(def, rows = []) {
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'process gpt 패널 앱'
+  wb.creator = L('process gpt 패널 앱', 'Process GPT Lite panel app')
   const ws = wb.addWorksheet(def.sheet, { views: [{ state: 'frozen', ySplit: 1 }] })
   const heads = [ID_HEADER, ...def.fields.map((f) => f.label), ...def.computed.map((c) => c.label)]
   ws.addRow(heads)
@@ -346,7 +366,7 @@ export async function newBook(def, rows = []) {
 // returns {id} of the row written; missing IDs of rows people added in the sheet are filled in
 export function applyOp(wb, def, op) {
   const ws = sheetOf(wb, def)
-  if (!ws) throw err(409, `'${def.sheet}' 시트를 찾지 못했어요.`)
+  if (!ws) throw err(409, L(`'${def.sheet}' 시트를 찾지 못했어요.`, `I couldn't find the '${def.sheet}' sheet.`))
   const layout = columns(ws, def)
   if (!layout.idCol) {
     // the ID column was removed in the sheet editor: put it back in front
@@ -364,8 +384,8 @@ export function applyOp(wb, def, op) {
   }
   const target = op.update || op.remove
   const row = rows.find((x) => x._id === target.id || (target.id?.startsWith('row:') && x._row === Number(target.id.slice(4))))
-  if (!row) throw err(409, '그 행이 없어요. 다른 사람이 지웠을 수 있어요.')
-  if (target.v && target.v !== row._v) throw err(409, '다른 사람이 먼저 고쳤어요. 새로 불러온 값을 확인해 주세요.')
+  if (!row) throw err(409, L('그 행이 없어요. 다른 사람이 지웠을 수 있어요.', "That row isn't there. Someone may have deleted it."))
+  if (target.v && target.v !== row._v) throw err(409, L('다른 사람이 먼저 고쳤어요. 새로 불러온 값을 확인해 주세요.', 'Someone else changed it first. Please check the values just loaded.'))
   if (op.update) {
     const cur = Object.fromEntries(def.fields.map((f) => [f.key, row[f.key]]))
     writeCells(ws, def, layout, row._row, row._id, { ...cur, ...op.update.vals })

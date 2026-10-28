@@ -12,6 +12,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { config } from '../config.js'
 import { q, pool } from './supa.js'
+import { L } from './lang.js'
 
 export const KINDS = ['login', 'card', 'apikey', 'oauth']
 // fields that must never appear outside the ciphertext (usernames are labels, not secrets)
@@ -146,21 +147,21 @@ function luhn(n) {
 }
 
 function validate(kind, site, data) {
-  if (!KINDS.includes(kind)) throw new VaultError('지원하지 않는 보관함 항목이에요.')
-  if (!data || typeof data !== 'object') throw new VaultError('저장할 내용이 없어요.')
+  if (!KINDS.includes(kind)) throw new VaultError(L('지원하지 않는 보관함 항목이에요.', "That kind of Vault item isn't supported."))
+  if (!data || typeof data !== 'object') throw new VaultError(L('저장할 내용이 없어요.', 'There is nothing to save.'))
   if (kind === 'login') {
-    if (!site) throw new VaultError('사이트를 입력해 주세요.')
-    if (!data.password) throw new VaultError('비밀번호를 입력해 주세요.')
+    if (!site) throw new VaultError(L('사이트를 입력해 주세요.', 'Please enter the site.'))
+    if (!data.password) throw new VaultError(L('비밀번호를 입력해 주세요.', 'Please enter the password.'))
   }
   if (kind === 'card') {
     const n = digits(data.number)
-    if (n.length < 13 || n.length > 19 || !luhn(n)) throw new VaultError('카드 번호를 확인해 주세요.')
+    if (n.length < 13 || n.length > 19 || !luhn(n)) throw new VaultError(L('카드 번호를 확인해 주세요.', 'Please check the card number.'))
     const m = /^(\d{2})\/(\d{2})$/.exec(String(data.exp || ''))
-    if (!m || +m[1] < 1 || +m[1] > 12) throw new VaultError('만료일을 MM/YY 형식으로 입력해 주세요.')
-    if (new Date(2000 + +m[2], +m[1], 1) <= new Date()) throw new VaultError('만료된 카드예요.')
-    if (!/^\d{3,4}$/.test(String(data.cvv || ''))) throw new VaultError('CVV를 확인해 주세요.')
+    if (!m || +m[1] < 1 || +m[1] > 12) throw new VaultError(L('만료일을 MM/YY 형식으로 입력해 주세요.', 'Please enter the expiry date as MM/YY.'))
+    if (new Date(2000 + +m[2], +m[1], 1) <= new Date()) throw new VaultError(L('만료된 카드예요.', 'This card has expired.'))
+    if (!/^\d{3,4}$/.test(String(data.cvv || ''))) throw new VaultError(L('CVV를 확인해 주세요.', 'Please check the CVV.'))
   }
-  if (kind === 'apikey' && !data.key) throw new VaultError('API 키를 입력해 주세요.')
+  if (kind === 'apikey' && !data.key) throw new VaultError(L('API 키를 입력해 주세요.', 'Please enter the API key.'))
 }
 
 function displayOf(kind, data) {
@@ -214,7 +215,7 @@ export async function putItem(userId, kind, site, data, { actor = 'user', taskId
 
 async function rowOf(userId, id) {
   const [row] = await q('select * from pro_vault_items where id=$1 and user_id=$2', [id, userId])
-  if (!row) throw new VaultError('보관함 항목을 찾을 수 없어요.', 404)
+  if (!row) throw new VaultError(L('보관함 항목을 찾을 수 없어요.', "I can't find that Vault item."), 404)
   return row
 }
 async function decrypt(userId, row) {
@@ -230,7 +231,7 @@ export async function updateItem(userId, id, patch, { actor = 'user', taskId } =
   const { dek, version } = await dekFor(userId)
   const fp = fingerprintOf(dek, row.kind, data)
   const [clash] = await q('select id from pro_vault_items where user_id=$1 and kind=$2 and site=$3 and fingerprint=$4 and id<>$5', [userId, row.kind, row.site, fp, id])
-  if (clash) throw new VaultError('같은 계정이 이미 저장돼 있어요.', 409)
+  if (clash) throw new VaultError(L('같은 계정이 이미 저장돼 있어요.', 'The same account is already saved.'), 409)
   const { label, meta } = displayOf(row.kind, data)
   await q(`update pro_vault_items set secret=$1,label=$2,meta=$3,fingerprint=$4,status=null,dek_version=$5,updated_at=now() where id=$6`,
     [seal(dek, Buffer.from(JSON.stringify(data)), aadOf(userId, row.kind, row.site)), label, meta, fp, version, id])

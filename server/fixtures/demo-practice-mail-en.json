@@ -1,0 +1,34 @@
+[
+  {
+    "id": "dalbit-2-proposal",
+    "label": "Moonlight Coffee Store #2 proposal & quote request",
+    "hint": "Drafts of a floor plan, a design proposal (Word) and a quote (Excel) are made",
+    "from": "Soyul Han <soyul.han@dalbit-coffee.example>",
+    "subject": "Moonlight Coffee Store #2 design proposal and quote request",
+    "text": "Hello, this is Soyul Han from the Moonlight Coffee operations team.\nWe're opening Store #2 in Seongsu-dong, Seoul next March. The store is 12 m wide × 9 m deep (about 108 ㎡), and we need a hall with about 40 seats, an order and coffee bar, a bean storage room, a staff lounge and one restroom. We'd like the same warm wood tone as Store #1.\nCould you send us a floor plan, a design proposal (Word) and a quote (Excel) by next Friday?\nThank you.\nBest regards,\nSoyul Han"
+  },
+  {
+    "id": "dalbit-site-visit",
+    "label": "Moonlight Coffee site measurement scheduling",
+    "hint": "A reply to-do card appears on Home",
+    "from": "Moonlight Coffee Operations <ops@dalbit-coffee.example>",
+    "subject": "[Moonlight Coffee] Scheduling the on-site measurement for Store #2",
+    "text": "Hello, this is the Moonlight Coffee operations team, writing about Store #2 in Seongsu-dong. Would an on-site measurement meeting at the store on November 3 at 2 PM work for you? If that time doesn't work, please suggest two or three times that do. We'll send the site address separately once you reply. Thank you."
+  },
+  {
+    "id": "hanbit-events-quote",
+    "label": "Hanbit Events year-end party refreshments cost sheet",
+    "hint": "A draft Excel quote is made",
+    "from": "Daeun Kim <daeun@hanbit-events.example>",
+    "subject": "Refreshments cost sheet for the year-end party",
+    "text": "Hello, this is Daeun Kim from Hanbit Events. Could you send us an Excel file with the cost of snacks and drinks for our December year-end party (80 people), showing quantity, unit price and total for each item? We'd like to have it by this Friday."
+  },
+  {
+    "id": "northwind-invoice",
+    "label": "Northwind tax invoice request",
+    "hint": "A to-do card appears on Home",
+    "from": "Haneul Kim <haneul.kim@northwind.example>",
+    "subject": "[Northwind] Please issue the October maintenance tax invoice",
+    "text": "Hello, this is Haneul Kim from Northwind Systems. If you issue the tax invoice for the October maintenance fee of ₩3,300,000 (VAT included) within this week, we'll pay it on the 5th of next month."
+  }
+]

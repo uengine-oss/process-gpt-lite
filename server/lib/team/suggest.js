@@ -3,6 +3,7 @@
 // The judge (context-router's typed-decision server: softmax over the options' letters, nothing
 // generated) is cheap, but optional: slow or down, the list is the frequency order alone.
 import crypto from 'node:crypto'
+import { L } from '../lang.js'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 
@@ -48,9 +49,9 @@ export async function workState(me, { messageIds = [], title = '' } = {}) {
   const rows = ids.length ? await q(`select m.role, m.kind, m.content, m.created_at from pro_messages m join pro_threads t on t.id=m.thread_id
                                       where m.id = any($1::uuid[]) and t.user_id=$2 order by m.created_at`, [ids, me.id]) : []
   const lines = rows.filter((r) => ['text', 'doc'].includes(r.kind) && r.content?.text)
-    .slice(-4).map((r) => `${r.role === 'user' ? '나' : '비서'}: ${r.content.text.replace(/\s+/g, ' ').slice(0, 220)}`)
+    .slice(-4).map((r) => `${r.role === 'user' ? L('나', 'Me') : L('비서', 'Assistant')}: ${r.content.text.replace(/\s+/g, ' ').slice(0, 220)}`)
   const files = rows.filter((r) => r.kind === 'file').map((r) => r.content?.name).filter(Boolean)
-  return [title && `대화: ${title}`, ...lines, files.length && `산출물: ${files.join(', ')}`].filter(Boolean).join('\n')
+  return [title && L(`대화: ${title}`, `Conversation: ${title}`), ...lines, files.length && L(`산출물: ${files.join(', ')}`, `Outputs: ${files.join(', ')}`)].filter(Boolean).join('\n')
 }
 
 const cache = new Map() // hash -> {at, out}
@@ -66,12 +67,12 @@ export async function judgeRelated(me, state, candidates) {
                             and public.pro_chat_ts(c.messages) > now() - interval '30 days' group by 1`, [T(), me.id, me.email]).catch(() => [])
   const what = Object.fromEntries(recent.map((r) => [r.other, (r.what || '').slice(0, 80)]))
   const options = candidates.slice(0, 12).map((c) => ({
-    key: c.id, label: `${c.name}${c.roles.length ? ` (${c.roles.join(', ')})` : ''}${what[c.id] ? ` — 최근 함께한 일: ${what[c.id]}` : ''}`,
+    key: c.id, label: `${c.name}${c.roles.length ? ` (${c.roles.join(', ')})` : ''}${what[c.id] ? L(` — 최근 함께한 일: ${what[c.id]}`, ` — recent work together: ${what[c.id]}`) : ''}`,
   }))
   try {
     const r = await fetch(JUDGE_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(JUDGE_MS),
-      body: JSON.stringify({ state: state.slice(0, 1500), question: '이 일을 이어받거나 확인해야 할, 가장 관계된 팀원은 누구인가요?', options }),
+      body: JSON.stringify({ state: state.slice(0, 1500), question: L('이 일을 이어받거나 확인해야 할, 가장 관계된 팀원은 누구인가요?', 'Which teammate is most related to this work, someone who should pick it up or check it?'), options }),
     })
     if (!r.ok) throw new Error(`judge ${r.status}`)
     const j = await r.json()

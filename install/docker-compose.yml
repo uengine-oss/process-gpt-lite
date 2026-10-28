@@ -88,8 +88,8 @@ services:
       GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-noreply@pgpt-lite.local}
       GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-Process GPT Lite}
-      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: "[Process GPT] 로그인 코드"
-      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: "[Process GPT] 로그인 코드"
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: "[Process GPT] 로그인 코드 · Sign-in code"
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: "[Process GPT] 로그인 코드 · Sign-in code"
       GOTRUE_MAILER_TEMPLATES_CONFIRMATION: http://web/_lite/email/code.html
       GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: http://web/_lite/email/code.html
       GOTRUE_EXTERNAL_PHONE_ENABLED: "false"

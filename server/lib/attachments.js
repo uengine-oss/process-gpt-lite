@@ -7,6 +7,7 @@ import path from 'node:path'
 import { config } from '../config.js'
 import { admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
+import { L } from './lang.js'
 
 const MAX = 50 * 1024 * 1024
 
@@ -37,5 +38,6 @@ export async function saveAttachment(user, rawName, type, buf) {
 // What the agent is told about the attachments (it reads them in its sandbox).
 export function attachmentHint(files) {
   if (!files?.length) return ''
-  return `\n\n(첨부 파일 — 샌드박스에서 바로 읽을 수 있음: ${files.map((f) => `${f.path} (${f.name})`).join(', ')})`
+  const list = files.map((f) => `${f.path} (${f.name})`).join(', ')
+  return L(`\n\n(첨부 파일 — 샌드박스에서 바로 읽을 수 있음: ${list})`, `\n\n(Attached files — readable right away in the sandbox: ${list})`)
 }

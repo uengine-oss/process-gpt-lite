@@ -1,0 +1,37 @@
+[
+  {
+    "id": "demo-001",
+    "from": "Haneul Kim <haneul.kim@northwind.example>",
+    "subject": "[Northwind] Request for a 2027 maintenance quote",
+    "date": "2026-10-22T09:12:00+09:00",
+    "text": "Hello, this is Haneul Kim from Northwind Systems. To renew our BPM maintenance contract for 2027, could you send us a quote by this Friday? If the terms are the same as last year, you can just fill in the amount on the attached form."
+  },
+  {
+    "id": "demo-002",
+    "from": "Hanbit Tax & Accounting <tax@hanbit-cpa.example>",
+    "subject": "October VAT prepayment notice (due Oct 26)",
+    "date": "2026-10-21T15:40:00+09:00",
+    "text": "Your October VAT prepayment is ₩12,480,000, due on Monday, October 26. You can find the virtual account details on Hometax."
+  },
+  {
+    "id": "demo-003",
+    "from": "Partner Portal <noreply@partners.contoso.example>",
+    "subject": "Payment on hold: tax invoice not issued",
+    "date": "2026-10-22T07:58:00+09:00",
+    "text": "The ₩8,800,000 payment for project RFx-2026-0917 is on hold because the tax invoice has not been issued. Once you issue the tax invoice on the Partner Portal, it will be paid as usual on the 24th."
+  },
+  {
+    "id": "demo-004",
+    "from": "Seojun Park <seojun.park@aurora-mfg.example>",
+    "subject": "About the slides for next week's smart factory seminar",
+    "date": "2026-10-21T18:05:00+09:00",
+    "text": "Could you give a talk on process automation cases at the seminar on the 26th? It's about 20 minutes, and a demo video would be great. Please let me know first whether you can make it."
+  },
+  {
+    "id": "demo-005",
+    "from": "WeeklyTech <news@weeklytech.example>",
+    "subject": "This week's AI news roundup",
+    "date": "2026-10-22T06:00:00+09:00",
+    "text": "Here is this week's news from the AI industry. To unsubscribe, use the link at the bottom."
+  }
+]

@@ -24,6 +24,7 @@ import { reindex } from './indexer.js'
 import { runAgent } from './runner.js'
 import { addMessage } from '../store.js'
 import { PGPT_ROOT } from '../paths.js'
+import { L, isEn, langOf } from '../lang.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -72,7 +73,7 @@ export async function ensureSkillFolder(name, { fromDir, author } = {}) {
   if (found) return found
   const vis = await visibility(name)
   const src = fromDir || (vis?.visibility === 'private' && vis.author_id ? privateDir(vis.author_id, name) : installedDir(name))
-  if (!(await exists(src))) throw err(404, `'${name}' 스킬의 파일을 찾지 못했어요.`)
+  if (!(await exists(src))) throw err(404, L(`'${name}' 스킬의 파일을 찾지 못했어요.`, `I couldn't find the files of the skill '${name}'.`))
   let slug = slugFor(name)
   for (let i = 2; await S.folderBySlug(slug); i++) slug = `${slugFor(name)}-${i}`
   const dir = path.join(S.FOLDERS_ROOT, slug)
@@ -81,11 +82,11 @@ export async function ensureSkillFolder(name, { fromDir, author } = {}) {
   await fs.cp(src, dir, { recursive: true, filter: (p) => !/(^|\/)(\.git|__pycache__|\.DS_Store)(\/|$)/.test(p) })
   const authorId = author?.id || vis?.author_id || null
   const [u] = authorId ? await q('select username, email from users where id=$1 and tenant_id=$2', [authorId, T()]) : []
-  await G.commitAll(dir, `스킬 '${name}' 가져오기`, { name: author?.name || u?.username || '스킬 작성자', email: author?.email || u?.email })
+  await G.commitAll(dir, L(`스킬 '${name}' 가져오기`, `Import skill '${name}'`), { name: author?.name || u?.username || L('스킬 작성자', 'Skill author'), email: author?.email || u?.email })
   const md = await fs.readFile(path.join(dir, 'SKILL.md'), 'utf8').catch(() => '')
   const desc = (/^description:\s*(.+)$/m.exec(md)?.[1] || '').replace(/^["']|["']$/g, '').slice(0, 160)
   const [f] = await q(`insert into pro_folders (tenant_id, slug, name, description, kind, repo_path, settings, created_by)
-                       values ($1,$2,$3,$4,'skill',$5,$6,$7) returning *`, [T(), slug, name, desc || '스킬', dir, { skill_name: name }, authorId])
+                       values ($1,$2,$3,$4,'skill',$5,$6,$7) returning *`, [T(), slug, name, desc || L('스킬', 'Skill'), dir, { skill_name: name }, authorId])
   if (authorId) await q(`insert into pro_folder_members (folder_id, principal_type, principal_id, role, added_by) values ($1,'user',$2,'owner',$3) on conflict do nothing`, [f.id, String(authorId), authorId])
   if (vis && !vis.legacy) await q('update pro_skill_visibility set folder_id=$3 where tenant_id=$1 and skill_name=$2', [T(), name, f.id])
   await reindex(f).catch(() => {})
@@ -116,7 +117,7 @@ export async function listSkills(user) {
 
 // ---------- a new skill (from skill-creator's draft) starts private ----------
 export async function saveDraftPrivate(user, hostDir, name) {
-  if (await visibility(name)) throw err(409, `'${name}' 이름의 스킬이 이미 있어요.`)
+  if (await visibility(name)) throw err(409, L(`'${name}' 이름의 스킬이 이미 있어요.`, `A skill named '${name}' already exists.`))
   await q(`insert into pro_skill_visibility (tenant_id, skill_name, visibility, author_id) values ($1,$2,'private',$3)`, [T(), name, user.id])
   const f = await ensureSkillFolder(name, { fromDir: hostDir, author: user })
   await materialize(f)
@@ -142,7 +143,7 @@ export async function materialize(folder) {
 export async function share(folder, user, jwt) {
   const name = folder.settings.skill_name
   const v = await visibility(name)
-  if (!v || String(v.author_id) !== String(user.id)) throw err(403, '스킬을 공유할 수 있는 사람은 작성자예요.')
+  if (!v || String(v.author_id) !== String(user.id)) throw err(403, L('스킬을 공유할 수 있는 사람은 작성자예요.', 'Only the author can share the skill.'))
   if (v.visibility === 'tenant') return { shared: true }
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'pro-skill-'))
   try {
@@ -156,7 +157,7 @@ export async function share(folder, user, jwt) {
     form.set('file', new Blob([await fs.readFile(path.join(tmp, `${name}.zip`))]), `${name}.zip`)
     const r = await fetch(`${config.deepagentsUrl}/skills/upload`, { method: 'POST', headers: { Authorization: `Bearer ${jwt}` }, body: form })
     const j = await r.json().catch(() => ({}))
-    if (!r.ok) throw err(r.status, j.error || `스킬을 설치하지 못했어요 (${r.status})`)
+    if (!r.ok) throw err(r.status, j.error || L(`스킬을 설치하지 못했어요 (${r.status})`, `I couldn't install the skill (${r.status})`))
   } finally { fs.rm(tmp, { recursive: true, force: true }).catch(() => {}) }
   await q(`update pro_skill_visibility set visibility='tenant', shared_at=now(), shared_by=$3 where tenant_id=$1 and skill_name=$2`, [T(), name, user.id])
   await fs.rm(privateDir(user.id, name), { recursive: true, force: true }).catch(() => {})
@@ -207,7 +208,10 @@ export async function requestMerge(folder, v, user, { title, description } = {})
   for (const id of to) {
     await q(`insert into notifications (id, user_id, type, title, description, url, is_checked, time_stamp, from_user_id, tenant_id)
              values (gen_random_uuid(),$1,'merge_request',$2,$3,$4,false,now(),$5,$6)`,
-    [id, `[스킬] 반영 요청 — ${name}`, `${user.name} 님이 '${name}' 스킬에 바꾼 점을 반영해 달라고 요청했어요: ${pr.title}`, `/folders/${folder.slug}/v/${v.id}`, user.email || user.id, T()])
+    // in the recipient's saved language
+    (await langOf(id)) === 'en'
+      ? [id, `[Skill] Merge request — ${name}`, `${user.name} asked you to merge their changes to the '${name}' skill: ${pr.title}`, `/folders/${folder.slug}/v/${v.id}`, user.email || user.id, T()]
+      : [id, `[스킬] 반영 요청 — ${name}`, `${user.name} 님이 '${name}' 스킬에 바꾼 점을 반영해 달라고 요청했어요: ${pr.title}`, `/folders/${folder.slug}/v/${v.id}`, user.email || user.id, T()])
     emit(id, 'notifications', {})
   }
   return pr
@@ -227,7 +231,7 @@ export async function afterMerge(folder, variationIds, user) {
     await q(`update notifications set is_checked=true where tenant_id=$1 and url=$2`, [T(), `/folders/${folder.slug}/v/${v.id}`])
     if (pr) {
       await q(`update resource_pull_requests set status='MERGED', merged_at=now() where id=$1`, [pr.id])
-      await q(`insert into resource_pr_reviews (pr_id, tenant_id, reviewer_id, action, comment) values ($1,$2,$3,'APPROVED',$4)`, [pr.id, T(), user.id, '병합'])
+      await q(`insert into resource_pr_reviews (pr_id, tenant_id, reviewer_id, action, comment) values ($1,$2,$3,'APPROVED',$4)`, [pr.id, T(), user.id, L('병합', 'Merged')])
     }
     if (requester) {
       const [u] = await q('select username from users where id::text=$1 and tenant_id=$2', [String(requester), T()])
@@ -254,7 +258,7 @@ export async function agentsUsing(name) {
 export async function setBoss(me, agentId, ownerId) {
   const [cur] = await q('select owner_user_id from pro_agent_owners where tenant_id=$1 and agent_user_id=$2', [T(), agentId])
   // the current boss hands it over; an agent without a boss can be claimed by anyone in the tenant
-  if (cur && String(cur.owner_user_id) !== String(me.id)) throw err(403, '이 에이전트의 담당자만 바꿀 수 있어요.')
+  if (cur && String(cur.owner_user_id) !== String(me.id)) throw err(403, L('이 에이전트의 담당자만 바꿀 수 있어요.', "Only this agent's owner can change it."))
   await q(`insert into pro_agent_owners (tenant_id, agent_user_id, owner_user_id, set_by) values ($1,$2,$3,$4)
            on conflict (tenant_id, agent_user_id) do update set owner_user_id=$3, set_by=$4, updated_at=now()`, [T(), agentId, ownerId, me.id])
 }
@@ -293,7 +297,7 @@ const VERIFY_MS = () => Number(process.env.PRO_VERIFY_MS || 20 * 60000)
 export async function verify(folder, v, user, jwt) {
   if (await providerConfigured()) {
     const pr = await prOf(v)
-    if (!pr?.git_pr_number) throw err(409, 'git 공급자 모드에서는 process-gpt 의 병합 요청 번호가 있어야 검증할 수 있어요.')
+    if (!pr?.git_pr_number) throw err(409, L('git 공급자 모드에서는 process-gpt 의 병합 요청 번호가 있어야 검증할 수 있어요.', "In git provider mode a process-gpt merge request number is needed to verify."))
     const r = await fetch(`${config.deepagentsUrl}/skills/${encodeURIComponent(folder.settings.skill_name)}/pull-requests/${pr.git_pr_number}/verification?tenant_id=${config.tenantId}`,
       { method: 'POST', headers: { Authorization: `Bearer ${jwt}` } })
     return { mode: 'provider', ...(await r.json().catch(() => ({}))) }
@@ -309,7 +313,7 @@ export async function verify(folder, v, user, jwt) {
       const one = async (c, i, side) => {
         const room = `fold-verify-${row.id.slice(0, 8)}-${side}-${i}`
         const base = await versionDir(folder, side === 'base' ? folder.default_branch : v.branch, room)
-        const out = await runAgent({ jwt, user, conversationId: room, signal: stop, message: `아래 요청을 이 스킬 문서의 절차대로 처리하세요: ${base}/SKILL.md (같은 폴더의 파일도 참고). 설치된 다른 스킬은 쓰지 마세요. 사람에게 되묻지 말고 필요한 값은 합리적으로 정해 끝까지 처리하세요.\n\n요청: ${c.prompt}` })
+        const out = await runAgent({ jwt, user, conversationId: room, signal: stop, message: L(`아래 요청을 이 스킬 문서의 절차대로 처리하세요: ${base}/SKILL.md (같은 폴더의 파일도 참고). 설치된 다른 스킬은 쓰지 마세요. 사람에게 되묻지 말고 필요한 값은 합리적으로 정해 끝까지 처리하세요.\n\n요청: ${c.prompt}`, `Handle the request below by following this skill document: ${base}/SKILL.md (see the files in the same folder too). Do not use other installed skills. Do not ask anyone back; choose any value you need sensibly and finish.\n\nRequest: ${c.prompt}`) })
         if (stop.aborted) throw stop.reason
         return { ...(await grade(c, out)), output: out.slice(0, 1500) }
       }
@@ -321,7 +325,7 @@ export async function verify(folder, v, user, jwt) {
       await q(`update pro_skill_verifications set status='succeeded', results=$2, summary=$3, updated_at=now() where id=$1`, [row.id, JSON.stringify(results), summary])
     } catch (e) {
       const why = stop.aborted || e?.name === 'TimeoutError' || e?.name === 'AbortError'
-        ? `시간 초과 — ${Math.round(VERIFY_MS() / 60000)}분 안에 끝나지 않아 멈췄어요. 시나리오가 너무 크거나 에이전트가 응답하지 않았어요.`
+        ? L(`시간 초과 — ${Math.round(VERIFY_MS() / 60000)}분 안에 끝나지 않아 멈췄어요. 시나리오가 너무 크거나 에이전트가 응답하지 않았어요.`, `Timed out — stopped after ${Math.round(VERIFY_MS() / 60000)} min. The scenario was too big or the agent did not answer.`)
         : String(e?.message || e)
       await q(`update pro_skill_verifications set status='failed', error=$2, updated_at=now() where id=$1 and status='running'`, [row.id, why.slice(0, 400)])
     }
@@ -333,7 +337,7 @@ export async function latestVerification(v) {
   const [r] = await q('select * from pro_skill_verifications where variation_id=$1 order by created_at desc limit 1', [v.id])
   if (r?.status === 'running' && Date.now() - new Date(r.created_at).getTime() > VERIFY_MS() + 2 * 60000) {
     const [x] = await q(`update pro_skill_verifications set status='failed', error=$2, updated_at=now() where id=$1 and status='running' returning *`,
-      [r.id, '검증이 중단됐어요(서버가 다시 시작됐거나 시간 안에 끝나지 않았어요). 다시 검증해 주세요.'])
+      [r.id, L('검증이 중단됐어요(서버가 다시 시작됐거나 시간 안에 끝나지 않았어요). 다시 검증해 주세요.', 'The verification stopped (the server restarted or it ran out of time). Please verify again.')])
     return x || r
   }
   return r || null

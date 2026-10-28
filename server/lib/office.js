@@ -9,6 +9,7 @@ import path from 'node:path'
 import { config } from '../config.js'
 import { admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
+import { isEn } from './lang.js'
 
 // same table as process-gpt's src/utils/officeEditor.js EDITOR_BY_EXT
 export const EDITOR_BY_EXT = {
@@ -110,11 +111,22 @@ const CRAFT_ASKS = {
   soundcraft: '(오디오|음악|음원|효과음|배경음|알림음|멜로디|징글|bgm|사운드|녹음|wav|mp3|믹스)',
   filmcraft: '(영상|동영상|비디오|클립|mp4|숏폼|쇼츠)',
 }
+// the same asks in English ("draw a floor plan", "make a logo", "trim the video") — whatever the mode,
+// since a person may write either way
+const MAKE_EN = '\\b(make|draw|create|design|edit|cut|trim|crop|merge|combine|join|mix|retouch|change|put|add|fix|export|compose|record|render|turn)'
+const CRAFT_ASKS_EN = {
+  cadcraft: /floor\s*plan|\bcad\b|\bdxf\b|\bdwg\b|blueprint|layout drawing|site plan|technical drawing/i,
+  vectorcraft: '\\b(vector|logo|icon|banner|illustration|svg|poster design)',
+  photocraft: '\\b(photo|image|picture|psd|photoshop|thumbnail|layers?)\\b',
+  soundcraft: '\\b(audio|music|track|sound effect|background music|jingle|melody|bgm|sound|wav|mp3|ringtone|chime)\\b',
+  filmcraft: '\\b(video|clip|mp4|footage|short-form|shorts|reel)\\b',
+}
 export function craftAppsFor(text) {
   const t = String(text || '')
-  return Object.entries(CRAFT_ASKS).filter(([, what]) => what instanceof RegExp
+  const asks = (table, make) => Object.entries(table).filter(([, what]) => what instanceof RegExp
     ? what.test(t)
-    : new RegExp(`${what}[^.?!\n]{0,40}${MAKE}|${MAKE}[^.?!\n]{0,40}${what}`, 'i').test(t)).map(([app]) => app)
+    : new RegExp(`${what}[^.?!\n]{0,40}${make}|${make}[^.?!\n]{0,40}${what}`, 'i').test(t)).map(([app]) => app)
+  return [...new Set([...asks(CRAFT_ASKS, MAKE), ...asks(CRAFT_ASKS_EN, MAKE_EN)])]
 }
 const CRAFT_HINTS = {
   cadcraft: '도면(CAD)은 CADCraft 도구(cadcraft_command_line·cadcraft_script·cadcraft_execute·cadcraft_inspect_drawing·cadcraft_render·cadcraft_save)로 그리세요. 단위는 미터(1 = 1m)로 하고, 치수를 넣기 전에 반드시 cadcraft_execute {"command":"dimstyle","params":{"name":"M","current":true,"DIMTXT":0.2,"DIMASZ":0.15,"DIMEXO":0.1,"DIMEXE":0.1,"DIMGAP":0.05,"DIMSCALE":1,"DIMDEC":2}} 로 치수 스타일을 만드세요(기본 스타일은 미터 도면에 글자가 너무 큽니다). 방 이름 글자 높이는 0.3, 문·창 표시는 0.2, 치수선은 벽에서 0.8m 바깥에 두세요. 그린 뒤 cadcraft_render 로 직접 보고 겹치는 글자·치수가 있으면 고친 다음, cadcraft_save 로 이 대화 전용 산출물 폴더(📁 섹션의 base, /workspace/.bpmn/<대화>/) 아래 .dxf 파일(예: <base>/평면도.dxf)에 저장하고 답에 그 경로를 적으세요.',
@@ -124,8 +136,18 @@ const CRAFT_HINTS = {
   filmcraft: '영상 편집은 FilmCraft 도구(filmcraft_command_run·filmcraft_media_import·filmcraft_project_inspect·filmcraft_sequence_inspect·filmcraft_render_frame)로 하세요: file.newProject → 소재 가져오기(사용자 파일은 /workspace 경로로 filmcraft_media_import, 풍경 데모 영상은 filmcraft_command_run file.importDemoFootage {scene: OceanSunset|Aurora|CityNight|Dunes|Plasma|Forest}) → file.newSequenceFromClip(1920x1080 데모 클립이면 그대로 꽉 참), 자르기·자막·효과는 filmcraft_command_list 의 명령으로. filmcraft_render_frame 으로 장면을 확인한 뒤 filmcraft_command_run file.exportMedia {path:<base>/<이름>.mp4, format:"h264"}(<base> = 이 대화 전용 산출물 폴더(📁 섹션의 base, /workspace/.bpmn/<대화>/)) 로 내보내고 답에 그 경로를 적으세요.',
 }
 
+// English mode: the same instructions, with English example file names (the agent names its files after them)
+const CRAFT_HINTS_EN = {
+  cadcraft: 'Draw drawings (CAD) with the CADCraft tools (cadcraft_command_line · cadcraft_script · cadcraft_execute · cadcraft_inspect_drawing · cadcraft_render · cadcraft_save). Use metres (1 = 1 m), and before adding dimensions always create a dimension style with cadcraft_execute {"command":"dimstyle","params":{"name":"M","current":true,"DIMTXT":0.2,"DIMASZ":0.15,"DIMEXO":0.1,"DIMEXE":0.1,"DIMGAP":0.05,"DIMSCALE":1,"DIMDEC":2}} (the default style makes text far too large in a metre drawing). Room name text height 0.3, door/window marks 0.2, dimension lines 0.8 m outside the walls. Write room names and labels in English. After drawing, look at it with cadcraft_render, fix overlapping text or dimensions, then save it with cadcraft_save as a .dxf file under this conversation\'s own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), e.g. <base>/floor-plan.dxf, and give that path in your answer.',
+  vectorcraft: 'Make vector pictures (logos, banners, icons, SVG) with the VectorCraft tools (vectorcraft_draw_shape · vectorcraft_add_text · vectorcraft_set_paint · vectorcraft_transform · vectorcraft_command_run · vectorcraft_render_preview · vectorcraft_save_file). Use the NanumGothic font, which the web editor also has; set the artboard size first with vectorcraft_command_run if needed, look at it with vectorcraft_render_preview, then save it with vectorcraft_save_file as .svg under this conversation\'s own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), e.g. <base>/banner.svg, and give that path in your answer.',
+  photocraft: 'Edit photos and images (layers, adjustments, compositing, text) with the PhotoCraft tools (photocraft_doc_new · photocraft_doc_open · photocraft_doc_place · photocraft_command_run · photocraft_doc_render_preview · photocraft_doc_save) — not with VectorCraft. Use the NanumGothic font, which the web editor also has. Open attached images with photocraft_doc_open, and save the result with photocraft_doc_save as .psd (keeps the layers) under this conversation\'s own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), e.g. <base>/thumbnail.psd, then give that path in your answer.',
+  soundcraft: 'Work on audio (placing tracks, trimming, mixdown) with the SoundCraft tools (soundcraft_new_session · soundcraft_import_audio · soundcraft_execute · soundcraft_batch · soundcraft_inspect_session · soundcraft_bounce_mix). Export the result with soundcraft_bounce_mix as .wav under this conversation\'s own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), e.g. <base>/background-music.wav, and give that path in your answer.',
+  filmcraft: 'Edit video with the FilmCraft tools (filmcraft_command_run · filmcraft_media_import · filmcraft_project_inspect · filmcraft_sequence_inspect · filmcraft_render_frame): file.newProject → bring in footage (the user\'s files by their /workspace path with filmcraft_media_import, scenic demo footage with filmcraft_command_run file.importDemoFootage {scene: OceanSunset|Aurora|CityNight|Dunes|Plasma|Forest}) → file.newSequenceFromClip (a 1920x1080 demo clip fills it as it is); trimming, captions and effects with the commands in filmcraft_command_list. Check scenes with filmcraft_render_frame, then export with filmcraft_command_run file.exportMedia {path:<base>/<name>.mp4, format:"h264"} (<base> = this conversation\'s own output folder, the base in the 📁 section, /workspace/.bpmn/<conversation>/), with an English file name, and give that path in your answer.',
+}
+
 // A hint for requests that ask for a document, so the agent reaches for the office tools.
 export function officeHint(text, templateUrl) {
+  if (isEn()) return officeHintEn(text, templateUrl)
   const hints = []
   if (/한글|hwpx|\bhwp\b|아래아/i.test(text) && templateUrl) {
     const inSandbox = templateUrl.replace(/\/\/(127\.0\.0\.1|localhost)(?=[:/])/, '//host.docker.internal')
@@ -135,6 +157,18 @@ export function officeHint(text, templateUrl) {
     hints.push('Word·PowerPoint·Excel·PDF 문서는 해당 스킬(docx/pptx/xlsx/pdf)로 이 대화 전용 산출물 폴더(📁 섹션의 base, /workspace/.bpmn/<대화>/)에 파일을 만들고, 답에 그 파일 경로를 적으세요.')
   }
   for (const app of craftAppsFor(text)) hints.push(CRAFT_HINTS[app])
+  return hints.length ? `\n\n(${hints.join(' ')})` : ''
+}
+function officeHintEn(text, templateUrl) {
+  const hints = []
+  if (/한글|hwpx|\bhwp\b|아래아|hangul/i.test(text) && templateUrl) {
+    const inSandbox = templateUrl.replace(/\/\/(127\.0\.0\.1|localhost)(?=[:/])/, '//host.docker.internal')
+    hints.push(`Hangul (hwpx) is the Korean standard document format. If generate_hwpx is in your tool list, call it (template_url="${templateUrl}", report_topic = the document title, report_description = everything that goes in it, and say it must be written in English); otherwise download the template in the sandbox from ${inSandbox} and make a .hwpx file in this conversation's own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), then give its path in your answer. Don't mention in your answer whether the tool was there.`)
+  }
+  if (/워드|word|docx|파워\s*포인트|power\s*point|ppt|발표\s*자료|presentation|slides?|deck|슬라이드|엑셀|excel|xlsx|spreadsheet|스프레드시트|pdf|proposal|quote|quotation|estimate|report|document/i.test(text)) {
+    hints.push('Make Word, PowerPoint, Excel and PDF documents with the matching skill (docx/pptx/xlsx/pdf) in this conversation\'s own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), with English file names and English text inside, and give the file path in your answer.')
+  }
+  for (const app of craftAppsFor(text)) hints.push(CRAFT_HINTS_EN[app])
   return hints.length ? `\n\n(${hints.join(' ')})` : ''
 }
 

@@ -7,6 +7,7 @@ import { criticalPath } from './cpm.js'
 import { percentile, mean } from './analyze.js'
 import { resourceKey, workdaysBetween } from './toc.js'
 import { transformDefinition, describeChange } from './transform.js'
+import { L } from '../lang.js'
 
 const RHO_MAX = 0.97
 
@@ -129,7 +130,7 @@ export function whatIf(a, res, changes = [], { basis = 'median', share = {}, age
       x.kind = 'agent'; x.work = c.minutes ? c.minutes * 60 : m.agentWork; x.wait = m.agentWait
       if (x.reWork != null) { x.reWork = x.work; x.reWait = x.wait }
       x.resource = `agent:auto-${c.step}`
-      m.R[x.resource] = { key: x.resource, kind: 'agent', name: `${x.name} 에이전트`, lambda: stepRate(c.step), mu: null, c: 1, rho: 0 }
+      m.R[x.resource] = { key: x.resource, kind: 'agent', name: L(`${x.name} 에이전트`, `${x.name} agent`), lambda: stepRate(c.step), mu: null, c: 1, rho: 0 }
     } else if (c.type === 'predraft') {
       const saving = Math.min(Math.max(c.saving ?? 0.5, 0), 0.9)
       if (R && R.mu) { const shareOfR = stepRate(c.step) / (R.lambda || 1); R.mu = R.mu / (1 - saving * Math.min(shareOfR, 1)); touched.add(R.key) }

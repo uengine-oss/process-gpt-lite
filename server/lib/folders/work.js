@@ -15,16 +15,19 @@ import { emit } from '../bus.js'
 import * as G from './git.js'
 import * as S from './service.js'
 import { changeCard, catalog } from './indexer.js'
-import { RULES } from './runner.js'
+import { RULES, rules } from './runner.js'
 import * as SK from './skills.js'
+import { L, asUser, withLang, langOf } from '../lang.js'
 
 const T = () => config.tenantId
 const EDIT = /고쳐|고치|수정|다듬|바꿔|바꾸|변경|추가|넣어|빼|삭제|작성|만들어|정리|업데이트|반영해|번역|채워|보완|손봐/
+// the same request in English ("fix the notice in the November seminar folder")
+const EDIT_EN = /\b(fix|edit|revise|update|change|add|insert|remove|delete|write|rewrite|correct|translate|fill( in)?|polish|improve|tidy|clean up|amend|draft)\b/i
 const words = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter((w) => w.length >= 2)
 
 // the folder a chat request is about, if it asks for a change in one
 export async function folderFor(user, text) {
-  if (!EDIT.test(text)) return null
+  if (!EDIT.test(text) && !EDIT_EN.test(text)) return null
   // "○○ 스킬 이렇게 고쳐줘": the skill's folder (made from its files the first time)
   if (/스킬|skill/i.test(text)) {
     const norm = (x) => String(x).toLowerCase().replace(/[-_\s]+/g, '')
@@ -46,7 +49,7 @@ export async function folderFor(user, text) {
     const hit = name.filter((w) => said.some((s) => s === w || (w.length >= 3 && s.startsWith(w)) || (s.length >= 3 && w.startsWith(s)))).length
     const full = text.includes(f.name) || text.includes(f.slug)
     const score = full ? 99 : hit / Math.max(1, name.length)
-    if ((full || (hit >= 2 && score >= 0.5) || (name.length === 1 && hit === 1 && /폴더/.test(text))) && (!best || score > best.score)) best = { f, score }
+    if ((full || (hit >= 2 && score >= 0.5) || (name.length === 1 && hit === 1 && /폴더|\bfolder\b/i.test(text))) && (!best || score > best.score)) best = { f, score }
   }
   return best?.f || null
 }
@@ -56,29 +59,34 @@ export async function startChatWork({ user, folder, text, threadId }) {
   const room = crypto.randomUUID()
   const v = await S.createVariation(folder, {
     title: text.replace(/\s+/g, ' ').slice(0, 40), kind: 'chat', holder: { type: 'user', id: user.id, name: user.name },
-    source: { label: `${user.name} 님의 채팅 요청`, room_id: room, thread_id: threadId, engine: 'deepagents', request: text.slice(0, 500) }, createdBy: user.id,
+    source: { label: L(`${user.name} 님의 채팅 요청`, `Chat request from ${user.name}`), room_id: room, thread_id: threadId, engine: 'deepagents', request: text.slice(0, 500) }, createdBy: user.id,
   })
   await S.checkout(folder, v, S.runCheckoutDir(room, folder))
   const [cat] = await catalog(user.id).then((c) => c.filter((x) => x.slug === folder.slug))
   const listing = (cat?.files || []).map((f) => `- ${f.path}${f.summary ? ` — ${f.summary}` : ''}`).join('\n')
-  const message = `${text}
+  const message = L(`${text}
 
 (공유 폴더 '${folder.name}' 의 새 변형 '${v.branch}' 에서 작업합니다. 작업 폴더: ${S.runCheckoutContainer(room, folder)}
 이 폴더의 파일:
 ${listing || '(아직 파일 없음)'}
-${RULES} 고친 뒤 무엇을 바꿨는지 해요체로 짧게 알려 주세요. 기준본(main)에는 사람이 검토하고 반영합니다.)`
+${RULES} 고친 뒤 무엇을 바꿨는지 해요체로 짧게 알려 주세요. 기준본(main)에는 사람이 검토하고 반영합니다.)`, `${text}
+
+(You are working on a new variation '${v.branch}' of the shared folder '${folder.name}'. Working folder: ${S.runCheckoutContainer(room, folder)}
+Files in this folder:
+${listing || '(no files yet)'}
+${rules()} When you are done, say briefly in English what you changed. A person reviews it and merges it into main.)`)
   return { room, v, message }
 }
 
 export async function finishChatWork({ user, folder, v, threadId }) {
   const cur = await S.variationById(v.id)
-  await S.commitVariation(folder, cur, { name: user.name, email: user.email }, `채팅 요청: ${cur.title}`)
+  await S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`채팅 요청: ${cur.title}`, `Chat request: ${cur.title}`))
   await S.release(folder, cur)
   const after = await S.variationById(v.id)
   const changed = await G.changes(folder.repo_path, folder.default_branch, after.branch)
   if (!changed.length) {
     await S.discard(folder, after)
-    return addMessage(user.id, threadId, 'agent', 'chip', { icon: 'check', text: `'${folder.name}' 폴더에서 바뀐 파일이 없어 변형을 남기지 않았어요` })
+    return addMessage(user.id, threadId, 'agent', 'chip', { icon: 'check', text: L(`'${folder.name}' 폴더에서 바뀐 파일이 없어 변형을 남기지 않았어요`, `No files changed in the '${folder.name}' folder, so no variation was kept`) })
   }
   const card = await changeCard(folder, after).catch(() => null)
   // the change itself names the variation better than the request did
@@ -90,7 +98,7 @@ export async function finishChatWork({ user, folder, v, threadId }) {
     const pr = await SK.requestMerge(folder, await S.variationById(after.id), user).catch((e) => { console.warn('[skills] request', e.message); return null })
     const vis = await SK.visibility(folder.settings.skill_name)
     const [a] = vis?.author_id ? await q('select username from users where id=$1 and tenant_id=$2', [vis.author_id, T()]) : []
-    if (pr) requested = { pr: pr.id, to: a?.username || '작성자' }
+    if (pr) requested = { pr: pr.id, to: a?.username || L('작성자', 'author') }
   }
   const msg = await addMessage(user.id, threadId, 'agent', 'folder_variation', {
     skill: folder.kind === 'skill' ? folder.settings.skill_name : undefined, requested,
@@ -120,9 +128,9 @@ async function instanceLine(folder, row, head) {
   await G.git(folder.repo_path, ['branch', '-f', line, head])
   const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [inst])
   await q(`insert into pro_folder_variations (folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source)
-           values ($1,$2,$3,'instance','ready',$4,$5,'user',null,'프로세스',$6)
+           values ($1,$2,$3,'instance','ready',$4,$5,'user',null,$7,$6)
            on conflict (folder_id, branch) do update set head_commit=$5, status='ready', updated_at=now()`,
-  [folder.id, line, `${i?.proc_inst_name || inst} — 인스턴스 라인`, await G.mergeBase(folder.repo_path, folder.default_branch, head), head, { label: i?.proc_inst_name || inst, proc_inst_id: inst }])
+  [folder.id, line, L(`${i?.proc_inst_name || inst} — 인스턴스 라인`, `${i?.proc_inst_name || inst} — instance line`), await G.mergeBase(folder.repo_path, folder.default_branch, head), head, { label: i?.proc_inst_name || inst, proc_inst_id: inst }, L('프로세스', 'Process')])
 }
 
 async function stepTick() {
@@ -131,10 +139,24 @@ async function stepTick() {
                         and agent_orch is not null and agent_orch <> 'pgpt-pro-folders'
                         and updated_at > now() - interval '2 days'`, [T()])
   for (const row of rows) {
+    // a step runs in the saved language of the person it is for (its assignee)
+    await withLang(await stepLang(row), () => stepOne(row))
+  }
+}
+// todolist.user_id: a user id, or e-mail(s) — the first one names the person
+async function stepLang(row) {
+  const who = String(row.user_id || '').split(',')[0].trim()
+  if (!who) return 'ko'
+  if (/^[0-9a-f-]{36}$/.test(who)) return langOf(who)
+  const [p] = await q('select user_id from pro_profile where email=$1', [who]).catch(() => [])
+  return p ? langOf(p.user_id) : 'ko'
+}
+async function stepOne(row) {
+  {
     try {
       const key = String(row.agent_config.folder)
       const folder = /^[0-9a-f-]{36}$/.test(key) ? await S.folderById(key) : await S.folderBySlug(key)
-      if (!folder) continue
+      if (!folder) return
       const [v] = await q(`select * from pro_folder_variations where folder_id=$1 and source->>'todo_id'=$2`, [folder.id, row.id])
       const done = ['DONE', 'SUBMITTED', 'COMPLETED'].includes(row.status)
       if (row.agent_orch === 'cliagents') {
@@ -147,25 +169,26 @@ async function stepTick() {
         if (done && wt?.branch && !v) {
           const [nv] = await q(`insert into pro_folder_variations (folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source)
                                 values ($1,$2,$3,'run','ready',$4,$5,'agent','cliagents','Claude Code',$6) on conflict (folder_id, branch) do update set head_commit=$5 returning *`,
-          [folder.id, wt.branch, row.activity_name || '프로세스 단계', await G.mergeBase(folder.repo_path, folder.default_branch, wt.branch), await G.head(folder.repo_path, `refs/heads/${wt.branch}`),
+          [folder.id, wt.branch, row.activity_name || L('프로세스 단계', 'Process step'), await G.mergeBase(folder.repo_path, folder.default_branch, wt.branch), await G.head(folder.repo_path, `refs/heads/${wt.branch}`),
             { label: row.activity_name, todo_id: row.id, proc_inst_id: row.proc_inst_id, engine: 'cliagents' }])
           await instanceLine(folder, row, nv.head_commit)
           changeCard(folder, nv).catch(() => {})
         }
-        continue
+        return
       }
       // deepagents (and other in-process engines): a checkout in the instance's run folder
       const room = row.root_proc_inst_id || row.proc_inst_id || row.id
       if (!v && !done) {
-        const nv = await S.createVariation(folder, { title: row.activity_name || '프로세스 단계', kind: 'run', base: await baseOf(folder, row),
-          holder: { type: 'agent', id: row.agent_orch || 'deepagents', name: row.activity_name || '에이전트' },
+        const nv = await S.createVariation(folder, { title: row.activity_name || L('프로세스 단계', 'Process step'), kind: 'run', base: await baseOf(folder, row),
+          holder: { type: 'agent', id: row.agent_orch || 'deepagents', name: row.activity_name || L('에이전트', 'Agent') },
           source: { label: row.activity_name, todo_id: row.id, proc_inst_id: row.proc_inst_id, room_id: room, engine: row.agent_orch || 'deepagents' } })
         await S.checkout(folder, nv, S.runCheckoutDir(room, folder))
-        const note = `\n\n[Folder] 공유 폴더 '${folder.name}' 의 변형 ${nv.branch} 에서 작업하세요. 작업 폴더: ${S.runCheckoutContainer(room, folder)}\n${RULES}`
+        const note = L(`\n\n[Folder] 공유 폴더 '${folder.name}' 의 변형 ${nv.branch} 에서 작업하세요. 작업 폴더: ${S.runCheckoutContainer(room, folder)}\n${RULES}`,
+          `\n\n[Folder] Work on variation ${nv.branch} of the shared folder '${folder.name}'. Working folder: ${S.runCheckoutContainer(room, folder)}\n${rules()}\n[Instruction] Write your answer, and the text of any file you create or change, in English.`)
         if (!String(row.query || '').includes('[Folder]')) await q('update todolist set query = coalesce(query,\'\') || $2 where id=$1', [row.id, note])
         handled.set(row.id, 'prepared')
       } else if (v && done && v.status === 'open') {
-        await S.commitVariation(folder, v, { name: v.holder_name || 'agent', email: 'agent@pgpt-pro.local' }, `${row.activity_name || '단계'} 결과`)
+        await S.commitVariation(folder, v, { name: v.holder_name || 'agent', email: 'agent@pgpt-pro.local' }, L(`${row.activity_name || '단계'} 결과`, `${row.activity_name || 'Step'} result`))
         const cur = await S.variationById(v.id)
         await S.release(folder, cur)
         await instanceLine(folder, row, (await S.variationById(v.id)).head_commit)
@@ -187,8 +210,11 @@ async function recoverChatRuns() {
     try {
       const folder = await S.folderById(v.folder_id)
       const user = { id: v.holder_id, name: v.holder_name, email: null }
-      if (!v.source?.thread_id) { await S.commitVariation(folder, v, user, `채팅 요청(중단 후 저장): ${v.title}`); await S.release(folder, await S.variationById(v.id)); continue }
-      await finishChatWork({ user, folder, v, threadId: v.source.thread_id })
+      // the chat's person gets the card in their saved language
+      await asUser(v.holder_id, async () => {
+        if (!v.source?.thread_id) { await S.commitVariation(folder, v, user, L(`채팅 요청(중단 후 저장): ${v.title}`, `Chat request (saved after a stop): ${v.title}`)); await S.release(folder, await S.variationById(v.id)); return }
+        await finishChatWork({ user, folder, v, threadId: v.source.thread_id })
+      })
       console.log('[folders] recovered chat run', v.id)
     } catch (e) { console.warn('[folders] recover', v.id, e.message) }
   }

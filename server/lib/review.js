@@ -20,9 +20,10 @@ import { liveFor, pageCall } from './craftLive.js'
 import { withClient } from '../mcp/office.js'
 import { addMessage } from './store.js'
 import { emit } from './bus.js'
+import { L, isEn } from './lang.js'
 
 const clip = (t, n = 70) => { const s = String(t).replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n)}…` : s }
-const REMOVE = /(지워|삭제|빼\s*줘|없애|제거|줄여|합쳐)/
+const REMOVE = /(지워|삭제|빼\s*줘|없애|제거|줄여|합쳐)|\b(delete|remove|erase|drop|take out|get rid of|shorten|merge|combine)\b/i
 const lastReview = new Map() // `${userId}:${file}` → { ok, summary, at }
 export const reviewFor = (userId, file) => lastReview.get(`${userId}:${file}`) || null
 export function recordReview(userId, file, r) { if (file) lastReview.set(`${userId}:${file}`, { ...r, at: Date.now() }) }
@@ -144,15 +145,19 @@ async function askModel(content) {
 }
 const ASK = (request, what) => `너는 편집 결과를 검수한다. 사용자 요청: "${request}". ${what}
 JSON 하나만 답하라: {"met": true|false, "missing": ["원본에 있었는데 결과에서 사라지거나 알아볼 수 없게 된 요소(예: 테이블, 의자, 벽, 문, 실 이름, 치수)"], "changes": "무엇이 바뀌었는지 한 줄", "kept": "그대로 남은 주요 요소 한 줄"}. 한국어로.`
+// English mode: the same check, answered in English (the note goes into the person's chat)
+const ASK_EN = (request, what) => `You review the result of an edit. The user's request: "${request}". ${what}
+Answer with one JSON only: {"met": true|false, "missing": ["elements that were in the original but disappeared or became unrecognizable in the result (e.g. tables, chairs, walls, doors, room names, dimensions)"], "changes": "one line on what changed", "kept": "one line on the main elements that stayed"}. In English.`
+const ask = (request, what) => (isEn() ? ASK_EN : ASK)(request, what)
 async function visionCheck(request, before, after) {
   return askModel([
-    { type: 'text', text: ASK(request, '첫 그림이 편집 전, 둘째 그림이 편집 후다.') },
+    { type: 'text', text: ask(request, L('첫 그림이 편집 전, 둘째 그림이 편집 후다.', 'The first picture is before the edit, the second after it.')) },
     { type: 'image_url', image_url: { url: `data:image/png;base64,${before.png.toString('base64')}` } },
     { type: 'image_url', image_url: { url: `data:image/png;base64,${after.png.toString('base64')}` } },
   ])
 }
 async function textCheck(request, before, after) {
-  return askModel(ASK(request, `편집 전 내용:\n${String(before.text).slice(0, 3000)}\n\n편집 후 내용:\n${String(after.text).slice(0, 3000)}`))
+  return askModel(ask(request, L(`편집 전 내용:\n${String(before.text).slice(0, 3000)}\n\n편집 후 내용:\n${String(after.text).slice(0, 3000)}`, `Content before the edit:\n${String(before.text).slice(0, 3000)}\n\nContent after the edit:\n${String(after.text).slice(0, 3000)}`)))
 }
 
 // ---- deterministic comparison
@@ -161,31 +166,31 @@ export function losses(request, b, a) {
   const removing = REMOVE.test(request)
   if (b.kind === 'image') {
     const kept = b.strokes ? a.strokes / b.strokes : 1
-    ;(kept < 0.7 ? out : ok).push(`선 ${Math.round(kept * 100)}% 유지`)
+    ;(kept < 0.7 ? out : ok).push(L(`선 ${Math.round(kept * 100)}% 유지`, `${Math.round(kept * 100)}% of lines kept`))
   } else if (b.kind === 'cad') {
     for (const [t, n] of Object.entries(b.counts)) if ((a.counts[t] || 0) < n && !removing) out.push(`${t} ${n}→${a.counts[t] || 0}`)
-    ok.push(`객체 ${b.total}→${a.total}`)
+    ok.push(L(`객체 ${b.total}→${a.total}`, `objects ${b.total}→${a.total}`))
   } else if (b.kind === 'session' || b.kind === 'sequence') {
-    if (!removing && (a.clips < b.clips || (a.tracks ?? 0) < (b.tracks ?? 0))) out.push(`클립 ${b.clips}→${a.clips}`)
-    else ok.push(`클립 ${b.clips}→${a.clips}`)
+    if (!removing && (a.clips < b.clips || (a.tracks ?? 0) < (b.tracks ?? 0))) out.push(L(`클립 ${b.clips}→${a.clips}`, `clips ${b.clips}→${a.clips}`))
+    else ok.push(L(`클립 ${b.clips}→${a.clips}`, `clips ${b.clips}→${a.clips}`))
   } else if (b.kind === 'sheet') {
-    if (a.formulas < b.formulas && !removing) out.push(`수식 ${b.formulas}→${a.formulas}`)
-    else ok.push(`수식 ${a.formulas}개 유지`)
-    if (a.filled < b.filled * 0.8 && !removing) out.push(`채운 칸 ${b.filled}→${a.filled}`)
+    if (a.formulas < b.formulas && !removing) out.push(L(`수식 ${b.formulas}→${a.formulas}`, `formulas ${b.formulas}→${a.formulas}`))
+    else ok.push(L(`수식 ${a.formulas}개 유지`, `${a.formulas} formulas kept`))
+    if (a.filled < b.filled * 0.8 && !removing) out.push(L(`채운 칸 ${b.filled}→${a.filled}`, `filled cells ${b.filled}→${a.filled}`))
   } else if (b.kind === 'doc') {
-    if (a.tables < b.tables && !removing) out.push(`표 ${b.tables}→${a.tables}`)
-    for (const [t, n] of Object.entries(b.rows || {})) if ((a.rows?.[t] || 0) < n && !removing) out.push(`표 ${t} 행 ${n}→${a.rows?.[t] || 0}`)
-    if (b.pictures && (a.pictures || 0) < b.pictures && !removing) out.push(`그림 ${b.pictures}→${a.pictures}`)
-    if (a.length < b.length * 0.6 && !removing) out.push(`글 ${b.length}→${a.length}자`)
-    if (!out.length) ok.push(`표 ${a.tables}개${b.rows ? '·행' : ''} 유지`)
+    if (a.tables < b.tables && !removing) out.push(L(`표 ${b.tables}→${a.tables}`, `tables ${b.tables}→${a.tables}`))
+    for (const [t, n] of Object.entries(b.rows || {})) if ((a.rows?.[t] || 0) < n && !removing) out.push(L(`표 ${t} 행 ${n}→${a.rows?.[t] || 0}`, `table ${t} rows ${n}→${a.rows?.[t] || 0}`))
+    if (b.pictures && (a.pictures || 0) < b.pictures && !removing) out.push(L(`그림 ${b.pictures}→${a.pictures}`, `pictures ${b.pictures}→${a.pictures}`))
+    if (a.length < b.length * 0.6 && !removing) out.push(L(`글 ${b.length}→${a.length}자`, `text ${b.length}→${a.length} characters`))
+    if (!out.length) ok.push(L(`표 ${a.tables}개${b.rows ? '·행' : ''} 유지`, `${a.tables} tables${b.rows ? ' and rows' : ''} kept`))
   }
   return { out, ok }
 }
 
 // colour by distance from the background (gradientMap-style recolours drop strokes as dark as the ground)
-const RECOLOR = /(색|톤|컬러|color|색상|칠)/i
+const RECOLOR = /(색|톤|컬러|color|색상|칠)|\b(colou?r|tone|tint|paint)\b/i
 async function maskRecolor(live, request) {
-  const navy = /검정|검은/.test(request) ? '#222222' : '#1f3a6e'
+  const navy = /검정|검은|\bblack\b/i.test(request) ? '#222222' : '#1f3a6e'
   const ground = /흰|하얀|white/i.test(request) ? '#ffffff' : '#eef5fc'
   for (const [command, params] of [['select.all'], ['edit.fillHistory'], ['select.deselect'],
     ['select.magicWand', { x: 3, y: 3, tolerance: 14, contiguous: false, antiAlias: false }], ['edit.fill', { contents: 'color', color: ground }],
@@ -201,34 +206,35 @@ async function restore(live) {
 export async function reviewTurn({ user, session, threadId, request, open, before }) {
   if (!open || !before) return null
   const status = (t) => emit(user.id, 'status', { threadId, text: t })
-  status('결과 검수하는 중')
+  status(L('결과 검수하는 중', 'Reviewing the result'))
   try {
     let after = await capture({ userId: user.id, jwt: session.access_token, open })
     if (!after) return null
     const det = () => losses(request, before, after)
     let { out, ok } = det()
-    let look = null, how = '픽셀·개수 검사'
-    if (after.kind === 'image') { look = await visionCheck(request, before, after).catch(() => null); if (look) how = '그림 비교(사내 모델)·픽셀 검사' }
-    else if (after.kind === 'doc' || after.kind === 'sheet') { look = await textCheck(request, before, after).catch(() => null); if (look) how = '내용 비교(사내 모델)·개수 검사' }
-    const missing = () => [...out, ...(look?.missing || []).filter(Boolean).map((x) => `${x} 사라짐`)]
+    let look = null, how = L('픽셀·개수 검사', 'pixel and count check')
+    if (after.kind === 'image') { look = await visionCheck(request, before, after).catch(() => null); if (look) how = L('그림 비교(사내 모델)·픽셀 검사', 'picture comparison (in-house model) and pixel check') }
+    else if (after.kind === 'doc' || after.kind === 'sheet') { look = await textCheck(request, before, after).catch(() => null); if (look) how = L('내용 비교(사내 모델)·개수 검사', 'content comparison (in-house model) and count check') }
+    const missing = () => [...out, ...(look?.missing || []).filter(Boolean).map((x) => L(`${x} 사라짐`, `${x} disappeared`))]
     let fixed = ''
     if (missing().length && after.kind === 'image' && open.app === 'photocraft' && RECOLOR.test(request)) {
       // once more, by the background mask, then look again
       const live = liveFor(user.id, open.app)
-      status('검수: 다시 칠하는 중')
+      status(L('검수: 다시 칠하는 중', 'Review: repainting'))
       await maskRecolor(live, request)
       after = await capture({ userId: user.id, jwt: session.access_token, open })
       ;({ out, ok } = det())
       look = await visionCheck(request, before, after).catch(() => null)
-      fixed = missing().length ? '' : '바탕색 기준으로 다시 칠함'
-      if (missing().length) { await restore(live); fixed = '원래 그림으로 되돌림' }
+      fixed = missing().length ? '' : L('바탕색 기준으로 다시 칠함', 'repainted by the background colour')
+      if (missing().length) { await restore(live); fixed = L('원래 그림으로 되돌림', 'restored the original picture') }
     }
     const miss = missing()
     const okNow = !miss.length && look?.met !== false
     const parts = okNow
-      ? [...ok, look?.kept && `유지: ${clip(look.kept)}`, look?.changes && `바뀜: ${clip(look.changes)}`].filter(Boolean)
-      : [`빠진 것: ${miss.join(', ') || '요청이 반영되지 않음'}`, fixed].filter(Boolean)
-    const summary = `검수(${how}): ${parts.join(' · ')}${okNow ? ' ✓' : ' ⚠'}${okNow && fixed ? ` (처음 결과는 선이 사라져 ${fixed})` : ''}`
+      ? [...ok, look?.kept && L(`유지: ${clip(look.kept)}`, `kept: ${clip(look.kept)}`), look?.changes && L(`바뀜: ${clip(look.changes)}`, `changed: ${clip(look.changes)}`)].filter(Boolean)
+      : [L(`빠진 것: ${miss.join(', ') || '요청이 반영되지 않음'}`, `missing: ${miss.join(', ') || 'the request was not applied'}`), fixed].filter(Boolean)
+    const summary = L(`검수(${how}): ${parts.join(' · ')}${okNow ? ' ✓' : ' ⚠'}${okNow && fixed ? ` (처음 결과는 선이 사라져 ${fixed})` : ''}`,
+      `Review (${how}): ${parts.join(' · ')}${okNow ? ' ✓' : ' ⚠'}${okNow && fixed ? ` (the first result lost lines, so I ${fixed})` : ''}`)
     await addMessage(user.id, threadId, 'agent', 'text', { text: summary, review: { ok: okNow, app: open.app, file: open.file } })
     recordReview(user.id, open.file, { ok: okNow, summary })
     return { ok: okNow, summary }

@@ -8,6 +8,7 @@ import { emit } from './bus.js'
 import { updateMessage, mainThread, addMessage } from './store.js'
 import { getDefinition, getTodo } from './processes.js'
 import { roleMap } from './team.js'
+import { L } from './lang.js'
 
 async function complete(input) {
   const res = await fetch(`${config.completionUrl}/complete`, {
@@ -119,7 +120,7 @@ export function watchInstance(me, instId) {
         if (i?.status === 'COMPLETED') {
           const th = await mainThread(me.id)
           const [n] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
-          await addMessage(me.id, th.id, 'agent', 'chip', { icon: 'check', text: `완료 · ${n?.proc_inst_name || instId}`, instId })
+          await addMessage(me.id, th.id, 'agent', 'chip', { icon: 'check', text: L(`완료 · ${n?.proc_inst_name || instId}`, `Done · ${n?.proc_inst_name || instId}`), instId })
         }
       } else idle++
       if (i?.status === 'COMPLETED' || idle > 360) return stop()

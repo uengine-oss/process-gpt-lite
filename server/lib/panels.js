@@ -9,6 +9,7 @@
 import { chatJson } from './llm.js'
 import { q } from './supa.js'
 import { emit } from './bus.js'
+import { isEn } from './lang.js'
 
 const SYSTEM = `You build small Home "panels" (mini-apps) for a personal work assistant UI.
 Return JSON: {"title": "짧은 한국어 제목", "icon": "single emoji", "html": "...", "script": "...", "data": {...}}
@@ -35,8 +36,14 @@ const r=j.chart.result[0],c=r.indicators.quote[0].close,v=c.filter(x=>x!=null);$
 const d=v.at(-1)-v[0];$('#chg').textContent=(d>=0?'+':'')+d.toFixed(2)+' in the last 7 days';$('#chart').innerHTML=ui.spark(v,{labels:ui.days(r.timestamp)})}
 $('#prev').onclick=()=>{i=(i+list.length-1)%list.length;panel.save({i});show()};$('#next').onclick=()=>{i=(i+1)%list.length;panel.save({i});show()};show()`
 
+// English mode (lib/lang.js): the same prompt asking for an English title and English UI text
+const system = () => (isEn()
+  ? SYSTEM.replace('"title": "짧은 한국어 제목"', '"title": "short English title"').replace('- Korean UI text.', '- English UI text (labels, buttons, messages, dates in en-US).')
+    .replace("const list=[{s:'^KS11',n:'코스피'},{s:'TSLA',n:'테슬라'}]", "const list=[{s:'^KS11',n:'KOSPI'},{s:'TSLA',n:'Tesla'}]")
+  : SYSTEM)
+
 export async function generatePanel({ userId, description }) {
-  const spec = await chatJson(SYSTEM, description)
+  const spec = await chatJson(system(), description)
   const [p] = await q(
     `insert into pro_panels(user_id,title,icon,spec,data) values ($1,$2,$3,$4,$5) returning *`,
     [userId, spec.title, spec.icon, { html: spec.html, script: spec.script, description }, spec.data || {}])
@@ -47,7 +54,7 @@ export async function generatePanel({ userId, description }) {
 export async function revisePanel({ userId, id, instruction }) {
   const [p] = await q('select * from pro_panels where id=$1 and user_id=$2', [id, userId])
   if (!p) throw new Error('panel not found')
-  const spec = await chatJson(SYSTEM, `Current panel JSON:\n${JSON.stringify({ title: p.title, icon: p.icon, html: p.spec.html, script: p.spec.script, data: p.data })}\n\nChange request: ${instruction}`)
+  const spec = await chatJson(system(), `Current panel JSON:\n${JSON.stringify({ title: p.title, icon: p.icon, html: p.spec.html, script: p.spec.script, data: p.data })}\n\nChange request: ${instruction}`)
   const [n] = await q(`update pro_panels set title=$3, icon=$4, spec=$5, updated_at=now() where id=$1 and user_id=$2 returning *`,
     [id, userId, spec.title, spec.icon, { ...p.spec, html: spec.html, script: spec.script }])
   emit(userId, 'panel', n)

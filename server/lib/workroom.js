@@ -13,6 +13,7 @@ import { config } from '../config.js'
 import { q, admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
 import { folderRoom, folderRoomAccess } from './folders/rooms.js'
+import { L, isEn, ENGLISH_NOTE } from './lang.js'
 
 const T = () => config.tenantId
 const TEXT_MAX = 2 * 1024 * 1024
@@ -38,11 +39,11 @@ export async function resolveRoom(kind, id) {
   }
   if (kind === 'run') {
     const root = path.join(config.cliWorkspaceRoot, T(), id)
-    return { kind, id, title: 'Claude Code 실행', agent: 'claude-code', root, cwd: root, session: null }
+    return { kind, id, title: L('Claude Code 실행', 'Claude Code run'), agent: 'claude-code', root, cwd: root, session: null }
   }
   if (kind === 'chat') {
     const root = await workspaceHostPath(`/workspace/.bpmn/${id}`).catch(() => null)
-    return root && { kind, id, title: '대화 작업 폴더', agent: 'deepagents', root, cwd: root, conversation: id }
+    return root && { kind, id, title: L('대화 작업 폴더', 'Conversation work folder'), agent: 'deepagents', root, cwd: root, conversation: id }
   }
   // shared folders (lib/folders): 'folder' = a folder's main (id = slug), 'variation' = a person's
   // checkout of a variation (id = variation id, checked out by POST …/variations/:vid/checkout)
@@ -75,7 +76,8 @@ const tickets = new Map() // ticket -> { userId, kind, id, mode, until }
 export function issueTicket(user, room, mode) {
   for (const [k, v] of tickets) if (v.until < Date.now()) tickets.delete(k)
   const t = crypto.randomBytes(24).toString('base64url')
-  tickets.set(t, { userId: user.id, kind: room.kind, id: room.id, mode: mode === 'claude' ? 'claude' : 'shell', until: Date.now() + 60_000 })
+  // lang: the language of the person opening it (English mode: Claude Code is told to answer in English)
+  tickets.set(t, { userId: user.id, kind: room.kind, id: room.id, mode: mode === 'claude' ? 'claude' : 'shell', lang: isEn() ? 'en' : 'ko', until: Date.now() + 60_000 })
   return t
 }
 function spendTicket(t) {
@@ -170,27 +172,29 @@ const sessions = new Map()
 const SCROLLBACK = 400 * 1024
 const GRACE_MS = 15 * 60 * 1000
 
-function spawn(room, mode) {
+function spawn(room, mode, lang = 'ko') {
   // nothing of the server's own context leaks in: no secrets, and no CLAUDE* markers (a resumed
   // Claude Code would otherwise think it is a child session and stop saving its transcript)
   // (GIT_CONFIG_* travel as a numbered set — dropping only the *_KEY_n ones breaks every git call)
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE') && !k.startsWith('PRO_') && !k.startsWith('GIT_CONFIG_') && !/KEY|SECRET|TOKEN|PASSWORD/.test(k)))
-  Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: process.env.LANG || 'ko_KR.UTF-8' })
+  Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: lang === 'en' ? 'en_US.UTF-8' : process.env.LANG || 'ko_KR.UTF-8' })
   // the login shell, else the first one this machine has (the Docker image has bash, not zsh)
   const shell = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'].find((x) => x && existsSync(x)) || '/bin/sh'
   let file = shell, args = ['-i']
   if (mode === 'claude') {
     file = config.claudeBin
     args = room.session ? ['--resume', room.session] : []
+    // English mode: the run's own prompts are Korean; the person reads English
+    if (lang === 'en') args.push('--append-system-prompt', ENGLISH_NOTE)
   }
   return pty.spawn(file, args, { name: 'xterm-256color', cols: 120, rows: 32, cwd: room.cwd, env })
 }
 
-function sessionFor(room, mode) {
+function sessionFor(room, mode, lang = 'ko') {
   const key = `${room.kind}:${room.id}:${mode}`
   let s = sessions.get(key)
   if (s && !s.exited) return s
-  const p = spawn(room, mode)
+  const p = spawn(room, mode, lang)
   s = { key, pty: p, buf: '', viewers: new Set(), exited: false, timer: null, mode }
   p.onData((d) => {
     s.buf = (s.buf + d).slice(-SCROLLBACK)
@@ -233,7 +237,7 @@ export function attachTerminal(server) {
     const mode = ticket.mode
     wss.handleUpgrade(req, socket, head, (ws) => {
       let s
-      try { s = sessionFor(room, mode) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close() }
+      try { s = sessionFor(room, mode, ticket.lang) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close() }
       clearTimeout(s.timer)
       s.viewers.add(ws)
       ws.send(JSON.stringify({ type: 'session', mode, cwd: room.cwd, session: room.session || null }))

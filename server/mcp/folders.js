@@ -8,6 +8,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { userFromJwt } from '../lib/supa.js'
 import { catalog } from '../lib/folders/indexer.js'
 import * as S from '../lib/folders/service.js'
+import { L, asUser } from '../lib/lang.js'
 
 const TOOLS = [
   {
@@ -27,14 +28,14 @@ const text = (o) => ({ content: [{ type: 'text', text: typeof o === 'string' ? o
 async function callTool(user, name, args = {}) {
   if (name === 'folder_catalog') {
     const out = await catalog(user.id, args.query ? String(args.query) : '')
-    return text(out.length ? out : (args.query ? `'${args.query}' 와(과) 맞는 폴더·문서가 없어요.` : '쓸 수 있는 공유 폴더가 없어요.'))
+    return text(out.length ? out : (args.query ? L(`'${args.query}' 와(과) 맞는 폴더·문서가 없어요.`, `No folder or document matches '${args.query}'.`) : L('쓸 수 있는 공유 폴더가 없어요.', 'There are no shared folders you can use.')))
   }
   if (name === 'folder_files') {
     const ids = await S.readableFolderIds(user.id)
     const all = await catalog(user.id, '')
     const key = String(args.folder || '').trim()
     const f = all.find((x) => x.slug === key || x.name === key) || all.find((x) => x.name.includes(key) || key.includes(x.name))
-    if (!f || !ids.length) return text(`'${key}' 폴더를 찾지 못했어요(구성원인 폴더만 보여요).`)
+    if (!f || !ids.length) return text(L(`'${key}' 폴더를 찾지 못했어요(구성원인 폴더만 보여요).`, `I couldn't find the folder '${key}' (only folders you are a member of are shown).`))
     const prefix = String(args.path || '').replace(/^\/+/, '')
     return text({ folder: f.name, slug: f.slug, files: f.files.filter((x) => !prefix || x.path.startsWith(prefix)) })
   }
@@ -48,7 +49,8 @@ function buildServer(user) {
     if (!user) return { isError: true, ...text('unauthorized: call with the user JWT (Authorization: Bearer {{user_jwt}})') }
     try {
       console.log(`[mcp] folders.${params.name} user=${user.id.slice(0, 8)}`)
-      return await callTool(user, params.name, params.arguments || {})
+      // an agent's call carries no language header: the caller's saved language (lib/lang.js)
+      return await asUser(user.id, () => callTool(user, params.name, params.arguments || {}))
     } catch (e) { return { isError: true, ...text(e.message) } }
   })
   return server

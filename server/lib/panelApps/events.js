@@ -23,20 +23,30 @@ import ExcelJS from 'exceljs'
 import { coerce, validate as validateValues, parseExpr, exprIds, evalExpr } from './sheet.js'
 import { classify, needsDb, LEVELS, restricted, K_ANON } from './privacy.js'
 import * as R from './rules.js'
+import { L } from '../lang.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
 const keyOf = (s, i) => (String(s || '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 'f$1').slice(0, 24) || `f${i + 1}`)
 export const LOG_SHEET = '이벤트'
+// English mode (lib/lang.js): the log tab and its envelope columns get English names; a workbook is
+// read in either language (members of one folder may use different languages)
+export const LOG_SHEET_EN = 'Events'
+const logSheet = () => L(LOG_SHEET, LOG_SHEET_EN)
+const HEAD = { at: ['시각', 'Time'], by: ['기록한 사람', 'Recorded by'], type: ['종류', 'Type'], ref: ['대상 기록', 'Target record'] }
+const head = (k) => L(HEAD[k][0], HEAD[k][1])
+// the value a reader who may not see a field gets, in the sheet and in replies
+export const MASKED = ['비공개', 'Private']
+export const masked = () => L(MASKED[0], MASKED[1])
 const TYPES = ['text', 'longtext', 'number', 'date', 'time', 'choice', 'checkbox', 'email', 'phone', 'person']
 
 // ---------- definition ----------
 export function normalizeEventsDef(raw, opts = {}) {
   const d = raw || {}
   const title = String(d.title || '').trim().slice(0, 40)
-  if (!title) throw err(400, '앱 이름이 없어요.')
+  if (!title) throw err(400, L('앱 이름이 없어요.', 'The app has no name.'))
   const entity = {
     key: keyOf(d.entity?.key || d.entity?.label || 'subject', 0),
-    label: String(d.entity?.label || '대상').slice(0, 20),
+    label: String(d.entity?.label || L('대상', 'Subject')).slice(0, 20),
     type: d.entity?.type === 'text' ? 'text' : 'person',
   }
   const seen = new Set([entity.key, 'id', 'at', 'by', 'type', 'entity', 'ref', 'seq'])
@@ -68,7 +78,7 @@ export function normalizeEventsDef(raw, opts = {}) {
     types.add(type); events.push(out)
     if (events.length >= 8) break
   }
-  if (!events.length) throw err(400, '이벤트 종류가 하나도 없어요.')
+  if (!events.length) throw err(400, L('이벤트 종류가 하나도 없어요.', 'The app has no record types.'))
   // references only to known, non-referencing types (no cancel of a cancel)
   for (const e of events) if (e.ref) {
     e.ref.types = e.ref.types.filter((t) => types.has(t) && !events.find((x) => x.type === t)?.ref)
@@ -79,7 +89,7 @@ export function normalizeEventsDef(raw, opts = {}) {
   for (const [i, p] of (Array.isArray(d.projections) ? d.projections : []).entries()) {
     const key = keyOf(p.key || p.label, i)
     const label = String(p.label || key).replace(/[\\/?*[\]:]/g, '').slice(0, 24)
-    if (label === LOG_SHEET || projections.some((x) => x.label === label || x.key === key)) continue
+    if (label === LOG_SHEET || label === LOG_SHEET_EN || projections.some((x) => x.label === label || x.key === key)) continue
     if (p.kind === 'balance') {
       const columns = []
       for (const [j, c] of (p.columns || []).entries()) {
@@ -106,7 +116,7 @@ export function normalizeEventsDef(raw, opts = {}) {
   const main = projections.find((p) => p.key === d.views?.main && p.kind === 'balance') || projections.find((p) => p.kind === 'balance')
   const mainCols = main ? [...main.columns, ...main.computed].map((c) => c.key) : []
   let out = {
-    kind: 'events', version: 1, title, icon: String(d.icon || '🗂️').slice(0, 4), description: String(d.description || '').slice(0, 200),
+    kind: 'events', version: 1, title, icon: String((d.icon && !/^[\p{L}\p{N}\s]+$/u.test(d.icon) && d.icon) || '🗂️').slice(0, 4), description: String(d.description || '').slice(0, 200),
     entity, fields, events, projections,
     views: { main: main?.key || null, value: mainCols.includes(d.views?.value) ? d.views.value : mainCols.at(-1) || null, valueSuffix: String(d.views?.valueSuffix || '').slice(0, 6) },
     tier: d.tier === 'db' ? 'db' : 'sheet',
@@ -132,18 +142,18 @@ export const newEventId = () => crypto.randomUUID()
 // what a person (or the model, or a new sheet row) asked to append, checked against the definition
 export function validateEvent(def, input, { refEvent } = {}) {
   const e = def.events.find((x) => x.type === input.type || x.label === input.type)
-  if (!e) throw err(422, `알 수 없는 기록 종류예요: ${input.type}`)
+  if (!e) throw err(422, L(`알 수 없는 기록 종류예요: ${input.type}`, `Unknown record type: ${input.type}`))
   const out = { type: e.type, ref: null, entity: null }
   if (e.ref) {
-    if (!input.ref) throw err(422, `'${e.label}'은(는) 대상 기록을 골라야 해요.`)
+    if (!input.ref) throw err(422, L(`'${e.label}'은(는) 대상 기록을 골라야 해요.`, `'${e.label}' needs the record it applies to.`))
     if (refEvent) {
-      if (!e.ref.types.includes(refEvent.type)) throw err(422, `'${e.label}'은(는) ${e.ref.types.map((t) => def.events.find((x) => x.type === t)?.label).join('·')} 기록에만 쓸 수 있어요.`)
+      if (!e.ref.types.includes(refEvent.type)) throw err(422, L(`'${e.label}'은(는) ${e.ref.types.map((t) => def.events.find((x) => x.type === t)?.label).join('·')} 기록에만 쓸 수 있어요.`, `'${e.label}' applies only to ${e.ref.types.map((t) => def.events.find((x) => x.type === t)?.label).join(' / ')} records.`))
       out.entity = refEvent.entity
     }
     out.ref = String(input.ref)
   } else {
     const ent = coerce({ type: def.entity.type === 'person' ? 'text' : 'text' }, input.entity ?? input[def.entity.key] ?? input[def.entity.label])
-    if (!ent) throw err(422, `'${def.entity.label}'을(를) 적어 주세요.`)
+    if (!ent) throw err(422, L(`'${def.entity.label}'을(를) 적어 주세요.`, `Please fill in '${def.entity.label}'.`))
     out.entity = ent
   }
   // payload: only this type's fields; required ones present
@@ -226,14 +236,15 @@ export function maskBalances(def, projections, fullProjections, me) {
 // ---------- workbook: 이벤트 tab (append-only log) + one tab per projection ----------
 const colLetter = (n) => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26) } return s }
 const ENVELOPE = ['ID', '시각', '기록한 사람', '종류']
-export function logHeaders(def) { return [...ENVELOPE, def.entity.label, '대상 기록', ...def.fields.map((f) => f.label)] }
+export function logHeaders(def) { return L([...ENVELOPE, def.entity.label, '대상 기록', ...def.fields.map((f) => f.label)], ['ID', head('at'), head('by'), head('type'), def.entity.label, head('ref'), ...def.fields.map((f) => f.label)]) }
 const q = (s) => `"${String(s).replace(/"/g, '""')}"`
 
 // names: id -> display name (people), so the sheet shows names, not user ids
 export async function eventsBook(def, events, { names = (x) => x, hidden = new Set() } = {}) {
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'process gpt 패널 앱'
-  const ws = wb.addWorksheet(LOG_SHEET, { views: [{ state: 'frozen', ySplit: 1 }] })
+  wb.creator = L('process gpt 패널 앱', 'Process GPT Lite panel app')
+  const SHEET = logSheet()
+  const ws = wb.addWorksheet(SHEET, { views: [{ state: 'frozen', ySplit: 1 }] })
   const heads = logHeaders(def)
   ws.addRow(heads)
   ws.getRow(1).font = { bold: true }
@@ -242,10 +253,10 @@ export async function eventsBook(def, events, { names = (x) => x, hidden = new S
   for (const e of log) {
     const label = def.events.find((x) => x.type === e.type)?.label || e.type
     ws.addRow([e.id, String(e.at || '').slice(0, 19).replace('T', ' '), names(e.by), label, def.entity.type === 'person' ? names(e.entity) : e.entity, e.ref || '',
-      ...def.fields.map((f) => (hidden.has(`${e.id}:${f.key}`) || (e._hidden || []).includes(f.key) ? '비공개' : e[f.key] === '' || e[f.key] == null ? null : e[f.key]))])
+      ...def.fields.map((f) => (hidden.has(`${e.id}:${f.key}`) || (e._hidden || []).includes(f.key) ? masked() : e[f.key] === '' || e[f.key] == null ? null : e[f.key]))])
   }
   const { projections } = replay(def, events)
-  const L = (i) => `${q(LOG_SHEET).replace(/"/g, "'")}!$${colLetter(i)}:$${colLetter(i)}`
+  const col = (i) => `${q(SHEET).replace(/"/g, "'")}!$${colLetter(i)}:$${colLetter(i)}`
   const typeCol = 4, entCol = 5
   for (const p of def.projections) {
     const pw = wb.addWorksheet(p.label)
@@ -259,8 +270,8 @@ export async function eventsBook(def, events, { names = (x) => x, hidden = new S
         // SUMIFS / COUNTIFS over the log: still right when a row is appended in the sheet editor
         for (const c of p.columns) {
           const parts = c.terms.map((t) => {
-            const crit = `${L(typeCol)},${q(def.events.find((e) => e.type === t.event).label)},${L(entCol)},$A${r}`
-            const body = t.op === 'count' ? `COUNTIFS(${crit})` : t.op === 'sum' ? `SUMIFS(${L(7 + def.fields.findIndex((f) => f.key === t.field))},${crit})` : null
+            const crit = `${col(typeCol)},${q(def.events.find((e) => e.type === t.event).label)},${col(entCol)},$A${r}`
+            const body = t.op === 'count' ? `COUNTIFS(${crit})` : t.op === 'sum' ? `SUMIFS(${col(7 + def.fields.findIndex((f) => f.key === t.field))},${crit})` : null
             return body ? `${t.sign < 0 ? '-' : '+'}${body}` : null
           })
           cells.push(parts.every(Boolean) ? { formula: parts.join('').replace(/^\+/, ''), result: row[c.key] } : row[c.key])
@@ -274,25 +285,27 @@ export async function eventsBook(def, events, { names = (x) => x, hidden = new S
     } else if (p.kind === 'open') {
       const ev = def.events.find((e) => e.type === p.event)
       const fs = def.fields.filter((f) => ev.fields.includes(f.key))
-      pw.addRow(['ID', '시각', def.entity.label, ...fs.map((f) => f.label)]); pw.getRow(1).font = { bold: true }
-      for (const e of projections[p.key]) pw.addRow([e.id, String(e.at || '').slice(0, 19).replace('T', ' '), def.entity.type === 'person' ? names(e.entity) : e.entity, ...fs.map((f) => ((e._hidden || []).includes(f.key) ? '비공개' : e[f.key] ?? ''))])
+      pw.addRow(['ID', head('at'), def.entity.label, ...fs.map((f) => f.label)]); pw.getRow(1).font = { bold: true }
+      for (const e of projections[p.key]) pw.addRow([e.id, String(e.at || '').slice(0, 19).replace('T', ' '), def.entity.type === 'person' ? names(e.entity) : e.entity, ...fs.map((f) => ((e._hidden || []).includes(f.key) ? masked() : e[f.key] ?? ''))])
     } else if (p.kind === 'latest') {
       pw.addRow([def.entity.label, ...p.columns.map((c) => c.label)]); pw.getRow(1).font = { bold: true }
       for (const row of projections[p.key]) pw.addRow([def.entity.type === 'person' ? names(row.entity) : row.entity, ...p.columns.map((c) => row[c.key])])
     }
     pw.addRow([])
-    pw.addRow([`이 탭은 '${LOG_SHEET}' 탭을 다시 계산(replay)한 결과예요. 고치려면 '${LOG_SHEET}' 탭 맨 아래에 기록을 더하세요.`]).font = { italic: true, color: { argb: 'FF888888' } }
+    pw.addRow([L(`이 탭은 '${LOG_SHEET}' 탭을 다시 계산(replay)한 결과예요. 고치려면 '${LOG_SHEET}' 탭 맨 아래에 기록을 더하세요.`, `This tab is replayed from the '${SHEET}' tab. To change it, add a record at the bottom of '${SHEET}'.`)]).font = { italic: true, color: { argb: 'FF888888' } }
   }
   return wb
 }
 
 // the log as it is in a (possibly edited) workbook; unknown ids → new rows
 export function readLog(wb, def, { ids = (x) => x } = {}) {
-  const ws = wb.getWorksheet(LOG_SHEET)
-  if (!ws) throw err(422, `'${LOG_SHEET}' 탭이 없어요.`)
+  const ws = wb.getWorksheet(LOG_SHEET) || wb.getWorksheet(LOG_SHEET_EN)
+  if (!ws) throw err(422, L(`'${LOG_SHEET}' 탭이 없어요.`, `The '${LOG_SHEET_EN}' tab is missing.`))
   const head = new Map()
   ws.getRow(1).eachCell((c, i) => head.set(String(c.value ?? '').trim(), i))
-  const at = (row, label) => { const i = head.get(label); if (!i) return ''; const v = row.getCell(i).value; return v && typeof v === 'object' && !(v instanceof Date) ? (v.result ?? v.text ?? (v.richText ? v.richText.map((x) => x.text).join('') : '')) : v ?? '' }
+  // envelope columns by their Korean or English name
+  const alias = Object.fromEntries(Object.values(HEAD).map(([ko, en]) => [ko, en]))
+  const at = (row, label) => { const i = head.get(label) || head.get(alias[label]); if (!i) return ''; const v = row.getCell(i).value; return v && typeof v === 'object' && !(v instanceof Date) ? (v.result ?? v.text ?? (v.richText ? v.richText.map((x) => x.text).join('') : '')) : v ?? '' }
   const out = []
   for (let r = 2; r <= ws.rowCount; r++) {
     const row = ws.getRow(r)
@@ -312,15 +325,15 @@ export function readLog(wb, def, { ids = (x) => x } = {}) {
 export function diffLog(def, current, saved, { names = (x) => x } = {}) {
   const byId = new Map(current.map((e) => [e.id, e]))
   const same = (a, b) => a.type === b.type && String(a.entity ?? '') === String(b.entity ?? '') && String(a.ref ?? '') === String(b.ref ?? '') &&
-    def.fields.every((f) => String(b[f.key] ?? '') === '비공개' || String(a[f.key] ?? '') === String(b[f.key] ?? ''))
+    def.fields.every((f) => MASKED.includes(String(b[f.key] ?? '')) || String(a[f.key] ?? '') === String(b[f.key] ?? ''))
   const rejected = [], added = []
   const kept = new Set()
   for (const s of saved) {
     const cur = s.id && byId.get(s.id)
-    if (cur) { kept.add(s.id); if (!same(cur, s)) rejected.push({ id: s.id, reason: '이미 있는 기록은 고칠 수 없어요(정정·취소 기록을 더해 주세요).', row: labelOf(def, cur, names) }) }
+    if (cur) { kept.add(s.id); if (!same(cur, s)) rejected.push({ id: s.id, reason: L('이미 있는 기록은 고칠 수 없어요(정정·취소 기록을 더해 주세요).', "A record can't be changed once it is there (add a correction or cancellation instead)."), row: labelOf(def, cur, names) }) }
     else added.push(s)
   }
-  for (const c of current) if (!kept.has(c.id)) rejected.push({ id: c.id, reason: '기록은 지울 수 없어요(취소 기록을 더해 주세요).', row: labelOf(def, c, names) })
+  for (const c of current) if (!kept.has(c.id)) rejected.push({ id: c.id, reason: L('기록은 지울 수 없어요(취소 기록을 더해 주세요).', "Records can't be deleted (add a cancellation instead)."), row: labelOf(def, c, names) })
   return { added, rejected }
 }
 const labelOf = (def, e, names = (x) => x) => `${def.events.find((x) => x.type === e.type)?.label || e.type} · ${names(e.entity) || ''}`.slice(0, 40)
@@ -417,6 +430,7 @@ export { readersFor }
 export function describeEvents(def, names = (x) => x) {
   return def.events.map((e) => ({
     type: e.type, label: e.label,
-    who: e.who.map((t) => ({ member: '구성원 모두', owner_of_row: '기록한 사람', subject_is_me: `본인(${def.entity.label})`, owner_of_ref: '원래 기록을 한 사람', 'role>=editor': '편집 권한 이상', 'role>=owner': '폴더 소유자', 'role>=runner': '실행 권한 이상', 'role>=viewer': '보기 권한 이상', nobody: '아무도' }[t] || '조건')).join(' 또는 '),
+    who: L(e.who.map((t) => ({ member: '구성원 모두', owner_of_row: '기록한 사람', subject_is_me: `본인(${def.entity.label})`, owner_of_ref: '원래 기록을 한 사람', 'role>=editor': '편집 권한 이상', 'role>=owner': '폴더 소유자', 'role>=runner': '실행 권한 이상', 'role>=viewer': '보기 권한 이상', nobody: '아무도' }[t] || '조건')).join(' 또는 '),
+      e.who.map((t) => ({ member: 'every member', owner_of_row: 'whoever recorded it', subject_is_me: `the person themselves (${def.entity.label})`, owner_of_ref: 'whoever made the original record', 'role>=editor': 'editors and up', 'role>=owner': 'the folder owner', 'role>=runner': 'runners and up', 'role>=viewer': 'viewers and up', nobody: 'nobody' }[t] || 'a condition')).join(' or ')),
   }))
 }

@@ -16,6 +16,7 @@ import { emit } from '../bus.js'
 import { TeamError } from './access.js'
 import * as S from './shares.js'
 import * as M from './messenger.js'
+import { L, isEn, withLang, langOf } from '../lang.js'
 
 const T = () => config.tenantId
 const ON = () => process.env.PRO_TEAM_ASSIST !== '0'
@@ -38,6 +39,19 @@ export const WORKS = {
   CreateProcessDefinition: { label: '새 업무 프로세스(절차) 정의를 만들기', noun: '프로세스 정의', verb: '만들기', badge: '프로세스' },
 }
 const NOUNS = ['견적서', '정산표', '예산표', '보고서', '계획서', '안내문', '제안서', '일정표', '회의록', '체크리스트', '발표 자료', '공지', '초대장', '명단', '비교표']
+// English mode (lib/lang.js): the same works in English — the judge's options, the card's badge and title
+export const WORKS_EN = {
+  CreateSpreadsheet: { label: 'Make a table or Excel file such as a quote, budget or expense sheet', noun: 'spreadsheet', badge: 'Table' },
+  CreateDocument: { label: 'Write or revise a document such as a report, notice, plan or proposal', noun: 'document', badge: 'Document' },
+  SummarizeChat: { label: 'Summarize or organize this conversation or material', noun: 'conversation', badge: 'Summary' },
+  ScheduleRegistration: { label: 'Set up a meeting or event and put it on the calendar', noun: 'meeting', badge: 'Schedule' },
+  CompanyQuery: { label: "Find and answer with the company's processes, work in progress, organization or materials", noun: 'information', badge: 'Lookup' },
+  DraftReply: { label: 'Draft an e-mail, reply or announcement', noun: 'reply', badge: 'Reply' },
+  StartProcessInstance: { label: 'Start a registered business process (request, approval, intake)', noun: 'process', badge: 'Process' },
+  CreateProcessDefinition: { label: 'Create a new business process definition', noun: 'process definition', badge: 'Process' },
+}
+const NOUNS_EN = ['quote', 'estimate', 'expense sheet', 'budget', 'report', 'plan', 'notice', 'proposal', 'schedule', 'minutes', 'checklist', 'presentation', 'slides', 'announcement', 'invitation', 'list', 'comparison']
+const worksOf = () => (isEn() ? WORKS_EN : WORKS)
 
 // ---- stage 1: rules ----
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{P}\p{S}\s]*$/u
@@ -45,10 +59,22 @@ const CHAT = /^(ㅋ|ㅎ|ㅠ|ㅜ|넵|네|넹|예|응|ㅇㅇ|오케이|ok|굿|좋�
 const SMALLTALK = /(점심|저녁|커피|날씨|퇴근|주말|ㅋㅋ|ㅎㅎ)/
 const ASK = /(줘|주세요|주실|주시|줄\s*수|줄래|부탁|할까요|있을까요|될까요|가능할까|가능한가|해\s*봐|뽑아|만들어|정리해|\?|？)/
 const WORK = /(견적|정산|예산|엑셀|표|시트|보고서|문서|계획서|안내문|제안서|초안|요약|정리|회의록|일정|미팅|회의|예약|캘린더|조사|찾아|알아봐|비교|분석|답장|회신|메일|공지|번역|발표|자료|ppt|피피티|신청|결재|접수|프로세스|절차|계산|현황|진행)/i
+// a message with no Hangul is read with the English words (Korean messages exactly as before)
+const CHAT_EN = /^(ok|okay|k|thanks|thank you|thx|ty|lol|haha|hi|hello|hey|yes|yep|yeah|sure|great|cool|nice|good|got it|sounds good|see you|bye)\b/i
+const SMALLTALK_EN = /\b(lunch|dinner|coffee|weather|weekend|lol|haha)\b/i
+const ASK_EN = /\b(can you|could you|would you|will you|please|pls|let's|lets|i need|we need|need (a|an|the)|make|draft|prepare|put together|send|write|create|set up|book|summari[sz]e|find|look up|check)\b|\?/i
+const WORK_EN = /\b(quote|quotation|estimate|expense|budget|spreadsheet|excel|xlsx|sheet|table|report|document|doc|docx|plan|notice|proposal|draft|summary|summari[sz]e|minutes|schedule|meeting|book(ing)?|calendar|research|look up|find|compare|comparison|analy[sz]e|analysis|reply|respond|e-?mail|mail|announcement|translate|presentation|slides|deck|ppt|request|approval|process|procedure|calculate|status|progress)\b/i
 
 export function prefilter(body) {
   const t = String(body || '').replace(/\s+/g, ' ').trim()
   if (t.length < 8) return { pass: false, why: 'short' }
+  if (!/[가-힣]/.test(t)) {
+    if (EMOJI_ONLY.test(t)) return { pass: false, why: 'emoji' }
+    if (CHAT_EN.test(t) && t.length < 24) return { pass: false, why: 'chat' }
+    if (!WORK_EN.test(t)) return { pass: false, why: SMALLTALK_EN.test(t) ? 'smalltalk' : 'no-work' }
+    if (!ASK_EN.test(t)) return { pass: false, why: 'not-a-request' }
+    return { pass: true }
+  }
   if (EMOJI_ONLY.test(t)) return { pass: false, why: 'emoji' }
   if (CHAT.test(t) && t.length < 20) return { pass: false, why: 'chat' }
   if (!WORK.test(t)) return { pass: false, why: SMALLTALK.test(t) ? 'smalltalk' : 'no-work' }
@@ -80,10 +106,21 @@ async function excerpt(roomId, uuid) {
   const rows = await q(`select messages from chats where id=$1 and coalesce(public.pro_chat_ts(messages), now()) <=
                           coalesce((select public.pro_chat_ts(messages) from chats where uuid=$2), now())
                         order by coalesce(public.pro_chat_ts(messages), now()) desc limit 4`, [roomId, uuid])
-  return rows.reverse().map(({ messages: m }) => `${m.userName || m.name || '팀원'}: ${(m.role === 'assistant' ? '(에이전트) ' : '') + String(m.content || '').replace(/\s+/g, ' ').slice(0, 200)}${(m.pgpt?.artifacts || []).length ? ` [첨부: ${m.pgpt.artifacts.map((a) => a.name).join(', ')}]` : ''}`)
+  return rows.reverse().map(({ messages: m }) => `${m.userName || m.name || L('팀원', 'Teammate')}: ${(m.role === 'assistant' ? L('(에이전트) ', '(agent) ') : '') + String(m.content || '').replace(/\s+/g, ' ').slice(0, 200)}${(m.pgpt?.artifacts || []).length ? L(` [첨부: ${m.pgpt.artifacts.map((a) => a.name).join(', ')}]`, ` [attached: ${m.pgpt.artifacts.map((a) => a.name).join(', ')}]`) : ''}`)
 }
 
+function titleForEn(work, body) {
+  const w = WORKS_EN[work]
+  const noun = NOUNS_EN.find((n) => new RegExp(`\\b${n}`, 'i').test(body))
+  const doc = noun && ['CreateSpreadsheet', 'CreateDocument', 'DraftReply'].includes(work) ? noun : w.noun
+  return {
+    CreateSpreadsheet: `Draft the ${doc}`, CreateDocument: `Draft the ${doc}`, DraftReply: `Draft the ${doc}`,
+    SummarizeChat: 'Summarize this conversation', ScheduleRegistration: 'Schedule the meeting', CompanyQuery: 'Look up the information',
+    StartProcessInstance: 'Start the process', CreateProcessDefinition: 'Create the process definition',
+  }[work] || `Help with the ${w.noun}`
+}
 function titleFor(work, body) {
+  if (isEn()) return titleForEn(work, body)
   const w = WORKS[work]
   const noun = NOUNS.find((n) => body.replace(/\s/g, '').includes(n.replace(/\s/g, '')))
   if (work === 'SummarizeChat') return '이 대화 요약하기'
@@ -133,7 +170,11 @@ export function watchRooms() {
   })
 }
 
+// the card is written in the language of the person whose message it answers (lib/lang.js)
 async function detect(row, humans0, author) {
+  return withLang(await langOf(author.id), () => detectIn(row, humans0, author))
+}
+async function detectIn(row, humans0, author) {
   const t0 = Date.now()
   const roomId = row.id, body = String(row.messages.content || '')
   const [room] = await q('select context from chat_rooms where id=$1 and tenant_id=$2', [roomId, T()])
@@ -147,15 +188,18 @@ async function detect(row, humans0, author) {
   const lines = await excerpt(roomId, row.uuid)
   // the new message stands apart from what came before (mixed in, earlier chit-chat pulls "yes" down)
   const prev = lines.slice(0, -1)
-  const state = `${prev.length ? `앞선 대화:\n${prev.join('\n')}\n\n` : ''}방금 온 메시지:\n${lines[lines.length - 1]}`
+  const state = L(`${prev.length ? `앞선 대화:\n${prev.join('\n')}\n\n` : ''}방금 온 메시지:\n${lines[lines.length - 1]}`,
+    `${prev.length ? `Earlier messages:\n${prev.join('\n')}\n\n` : ''}New message:\n${lines[lines.length - 1]}`)
   // 2a. a request for work at all? (a separate yes/no: with the works beside it the judge almost never says no)
-  const y = await judge(state, '방금 온 메시지는 어떤 말인가요?', [
+  const y = await judge(state, L('방금 온 메시지는 어떤 말인가요?', 'What is the new message?'), L([
     { key: 'no', label: '사람에게 의견이나 사정을 묻거나 잡담하는 말' },
-    { key: 'yes', label: '자료·문서·표·일정·조사 같은 결과물을 만들어 달라는 부탁' }])
+    { key: 'yes', label: '자료·문서·표·일정·조사 같은 결과물을 만들어 달라는 부탁' }], [
+    { key: 'no', label: 'Asking a person for an opinion or how things are, or small talk' },
+    { key: 'yes', label: 'Asking for something to be made: material, a document, a table, a schedule or research' }]))
   const yes = y.probabilities?.yes ?? 0
   if (yes < MIN_YES) { console.log(`[assist] judge ${y.ms}ms yes=${yes.toFixed(2)} → no · ${body.slice(0, 40)}`); return count('judge-no') }
   // 2b. which work
-  const j = await judge(state, '방금 온 메시지가 AI 비서에게 부탁하는 일은 어떤 종류인가요?', Object.entries(WORKS).map(([key, w]) => ({ key, label: w.label })))
+  const j = await judge(state, L('방금 온 메시지가 AI 비서에게 부탁하는 일은 어떤 종류인가요?', 'What kind of work does the new message ask the AI assistant for?'), Object.entries(worksOf()).map(([key, w]) => ({ key, label: w.label })))
   let [work, p] = Object.entries(j.probabilities || {}).sort((a, b) => b[1] - a[1])[0] || []
   let ms = y.ms + j.ms
   if (!work || p < MIN_P) { console.log(`[assist] judge ${ms}ms yes=${yes.toFixed(2)} ${work}=${(p || 0).toFixed(2)} → unsure`); return count('judge-work') }
@@ -164,7 +208,7 @@ async function detect(row, humans0, author) {
   let proc = null
   const cands = ['StartProcessInstance', 'CreateSpreadsheet', 'CreateDocument'].includes(work) ? await processCandidates(body) : []
   if (cands.length) {
-    const pj = await judge(lines[lines.length - 1], '이 요청에 맞는 등록된 업무 프로세스는?', [{ key: 'none', label: '맞는 프로세스 없음' }, ...cands.map((d) => ({ key: d.id, label: d.name }))]).catch(() => null)
+    const pj = await judge(lines[lines.length - 1], L('이 요청에 맞는 등록된 업무 프로세스는?', 'Which registered business process fits this request?'), [{ key: 'none', label: L('맞는 프로세스 없음', 'No process fits') }, ...cands.map((d) => ({ key: d.id, label: d.name }))]).catch(() => null)
     if (pj) ms += pj.ms
     const best = pj && Object.entries(pj.probabilities || {}).sort((a, b) => b[1] - a[1])[0]
     if (best && best[0] !== 'none' && best[1] >= 0.6) { proc = cands.find((d) => d.id === best[0]); work = 'StartProcessInstance' }
@@ -173,9 +217,10 @@ async function detect(row, humans0, author) {
   const humans = humans0.map((h) => ({ id: h.id, name: h.username || h.name, email: h.email }))
   const audience = audienceOf(humans, author.id, body)
   if (!audience.length) return count('no-audience')
-  const title = proc ? `${proc.name} 시작하기` : titleFor(work, body)
-  const who = author.username || author.name || '팀원'
-  const reason = `${who}님의 요청 "${body.replace(/\s+/g, ' ').slice(0, 60)}${body.length > 60 ? '…' : ''}" · 판단 모델 ${Math.round(p * 100)}%`
+  const title = proc ? L(`${proc.name} 시작하기`, `Start ${proc.name}`) : titleFor(work, body)
+  const who = author.username || author.name || L('팀원', 'Teammate')
+  const reason = L(`${who}님의 요청 "${body.replace(/\s+/g, ' ').slice(0, 60)}${body.length > 60 ? '…' : ''}" · 판단 모델 ${Math.round(p * 100)}%`,
+    `${who}'s request "${body.replace(/\s+/g, ' ').slice(0, 60)}${body.length > 60 ? '…' : ''}" · routing model ${Math.round(p * 100)}%`)
   const [s] = await q(`insert into pro_room_suggestions(tenant_id,room_id,chat_uuid,work,title,reason,process_id,audience,judge)
                        values ($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict (chat_uuid) do nothing returning *`,
   [T(), roomId, row.uuid, work, title, reason, proc?.id || null, audience, { yes: Math.round(yes * 100) / 100, p: Math.round(p * 100) / 100, ms, model: j.model }])
@@ -193,13 +238,13 @@ export function view(viewerId, s) {
   // a meeting's suggestions hang under the room row they came from (회의록 block / minutes: anchor_uuid)
   const messageId = s.anchor_uuid || s.chat_uuid
   if (s.state === 'open' && !offered) return { id: s.id, threadId: s.room_id, messageId, hidden: true }
-  return { id: s.id, threadId: s.room_id, messageId, meetingId: s.meeting_id || null, work: s.work, kind: WORKS[s.work]?.badge || '도움', title: s.title, reason: s.reason, state: s.state,
+  return { id: s.id, threadId: s.room_id, messageId, meetingId: s.meeting_id || null, work: s.work, kind: L(WORKS[s.work]?.badge || '도움', WORKS_EN[s.work]?.badge || 'Help'), title: s.title, reason: s.reason, state: s.state,
     startedBy: s.started_by, resultMessageId: s.result_uuid, mine: s.started_by === viewerId, canStart: offered && s.state === 'open', judge: s.judge }
 }
 
 export async function list(me, roomId) {
   const t = await M.memberThread(me, roomId)
-  if (!t) throw new TeamError(404, '대화를 찾지 못했어요.')
+  if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const rows = await q('select * from pro_room_suggestions where room_id=$1 order by created_at desc limit 50', [t.id])
   return { assist: t.assist, enabled: ON(), suggestions: rows.map((s) => view(me.id, s)).filter((v) => !v.hidden) }
 }
@@ -207,7 +252,7 @@ export async function list(me, roomId) {
 // the room's switch lives with the room (chat_rooms.context.pgpt.assist), like process-gpt's ProcessGPT-active
 export async function setThreadAssist(me, roomId, on) {
   const t = await M.memberThread(me, roomId)
-  if (!t) throw new TeamError(404, '대화를 찾지 못했어요.')
+  if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   await q(`update chat_rooms set context = jsonb_set(coalesce(context,'{}'::jsonb), '{pgpt}', coalesce(context->'pgpt','{}'::jsonb) || jsonb_build_object('assist', $2::boolean)) where id=$1`, [t.id, !!on])
   for (const m of await M.membersOf(t.id)) emit(m.id, 'team', { type: 'assist-toggle', threadId: t.id, on: !!on, by: me.name })
   return { assist: !!on }
@@ -222,7 +267,7 @@ async function own(me, id) {
 
 export async function dismiss(me, id) {
   const s = await own(me, id)
-  if (!s) throw new TeamError(404, '제안을 찾지 못했어요.')
+  if (!s) throw new TeamError(404, L('제안을 찾지 못했어요.', "I couldn't find that suggestion."))
   await q(`update pro_room_suggestions set dismissed = array(select distinct unnest(dismissed || $2::uuid)), updated_at=now() where id=$1`, [s.id, me.id])
   return { ok: true }
 }
@@ -234,10 +279,10 @@ async function broadcast(s) {
 // 시작: claim it (first click wins), then run as this person in the background
 export async function start(me, id, run) {
   const s = await own(me, id)
-  if (!s) throw new TeamError(404, '제안을 찾지 못했어요.')
-  if (!s.audience.includes(me.id)) throw new TeamError(403, '이 제안은 요청받은 분이 시작할 수 있어요.')
+  if (!s) throw new TeamError(404, L('제안을 찾지 못했어요.', "I couldn't find that suggestion."))
+  if (!s.audience.includes(me.id)) throw new TeamError(403, L('이 제안은 요청받은 분이 시작할 수 있어요.', 'Only the people asked can start this suggestion.'))
   const [c] = await q(`update pro_room_suggestions set state='running', started_by=$2, updated_at=now() where id=$1 and state='open' returning *`, [s.id, me.id])
-  if (!c) throw new TeamError(409, '이미 시작된 제안이에요.')
+  if (!c) throw new TeamError(409, L('이미 시작된 제안이에요.', 'This suggestion has already been started.'))
   stats.started++
   await broadcast(c)
   run(c).then(async (resultUuid) => {

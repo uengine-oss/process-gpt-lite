@@ -12,6 +12,7 @@ import { chatJson } from './llm.js'
 import { getSecret, putItem } from './vault.js'
 import { emit } from './bus.js'
 import { mainThread, addMessage } from './store.js'
+import { L, isEn, asUser, langInstruction } from './lang.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -100,8 +101,11 @@ async function fetchImap(userId, acc) {
   return out.slice(-20)
 }
 
+// English mode: the same mails (same ids, senders' addresses, amounts and dates) written in English
+const fixture = (name) => path.join(here, '..', 'fixtures', isEn() ? name.replace(/\.json$/, '-en.json') : name)
+
 async function fetchDemo(userId) {
-  const file = path.join(here, '..', 'fixtures', 'demo-mail.json')
+  const file = fixture('demo-mail.json')
   const arrived = await q('select mail_id, sender, subject, body, created_at from pro_demo_mail where user_id=$1 order by created_at', [userId])
   // the fixture's sample mails only make cards; drafts are for mail that arrives
   return [...JSON.parse(fs.readFileSync(file, 'utf8')).map((m) => ({ ...m, fixture: true })),
@@ -111,7 +115,7 @@ async function fetchDemo(userId) {
 // 연습 메일 (Settings): fictional mails a demo mailbox can receive, so a tutorial reader gets one
 // without the developer console. Senders use reserved example domains (RFC 2606), never a company's.
 export function demoTemplates() {
-  const file = path.join(here, '..', 'fixtures', 'demo-practice-mail.json')
+  const file = fixture('demo-practice-mail.json')
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return [] }
 }
 
@@ -119,14 +123,14 @@ export function demoTemplates() {
 // ({template} picks one of demoTemplates(); otherwise from/subject/text as given)
 export async function demoArrive(userId, body) {
   const [acc] = await q('select provider from pro_mail_accounts where user_id=$1', [userId])
-  if (acc?.provider !== 'demo') throw new Error('데모 메일함에서만 쓸 수 있어요')
+  if (acc?.provider !== 'demo') throw new Error(L('데모 메일함에서만 쓸 수 있어요', 'This only works with the demo mailbox'))
   let { from, subject, text } = body || {}
   if (body?.template) {
     const t = demoTemplates().find((x) => x.id === body.template)
-    if (!t) throw new Error('없는 연습 메일이에요')
+    if (!t) throw new Error(L('없는 연습 메일이에요', "There's no such practice mail"))
     ;({ from, subject, text } = t)
   }
-  if (!String(from || '').trim() || !String(subject || '').trim()) throw new Error('보낸 사람과 제목을 적어 주세요')
+  if (!String(from || '').trim() || !String(subject || '').trim()) throw new Error(L('보낸 사람과 제목을 적어 주세요', 'Please fill in the sender and the subject'))
   const id = `demo-${crypto.randomBytes(6).toString('hex')}`
   await q('insert into pro_demo_mail(user_id, mail_id, sender, subject, body) values ($1,$2,$3,$4,$5)', [userId, id, String(from).slice(0, 200), String(subject).slice(0, 300), String(text).slice(0, 4000)])
   return pollUser(userId)
@@ -147,6 +151,24 @@ send documents back (견적서·제안서·계획서·보고서·설계도 …):
 also when a design proposal needs a drawing the mail does not name), name a file name like
 "<customer> 견적서.xlsx", customer the sender's company in Korean, summary one Korean line of what they need. [] when none.`
 
+// English mode: the same contract, every text a person reads in English, and a proposal as a Word file
+// (Hangul hwpx is the Korean standard format; an English reader gets docx unless the mail names hwpx)
+const TRIAGE_EN = `You read a user's newest emails and decide what their assistant should do.
+Return JSON {"actions":[{"mail_id","verb","text","icon_domain","due","prompt"}],"brief":"..."}.
+- verb: one English word that reads as a button: Reply, Pay, Release, Remind, Add, Review, Call, Book, Sign.
+- text: English, one line, specific (who/what/amount/date). Continue naturally after the verb.
+- icon_domain: sender's company domain for a logo (e.g. lgcns.com), or "".
+- prompt: the full instruction the assistant will execute when the user taps the button, in English.
+- Skip newsletters, ads and anything not needing action. 0-4 actions.
+- brief: 1-3 friendly English sentences on what matters most, or "" when nothing does.
+Also return "drafts":[{"mail_id","customer","items":[{"kind","format","name"}],"summary"}] for mails that ask the user to
+send documents back (quote, proposal, plan, report, drawing …): kind is the English document word in lower case
+(quote, proposal, floor plan …), format one of xlsx|docx|pptx|hwpx|dxf (quote, budget, price list → xlsx; proposal,
+plan, letter → docx unless the mail names another format; drawing, floor plan, layout, blueprint → dxf, also when a
+design proposal needs a drawing the mail does not name), name an English file name like "<customer> quote.xlsx",
+customer the sender's company in English, summary one English line of what they need. [] when none.
+Write every text in English even when a mail is written in Korean.`
+
 export async function pollUser(userId, { announce } = {}) {
   const [acc] = await q('select * from pro_mail_accounts where user_id=$1', [userId])
   if (!acc) return { skipped: 'no account' }
@@ -158,7 +180,7 @@ export async function pollUser(userId, { announce } = {}) {
   await q('update pro_mail_accounts set last_poll=now() where user_id=$1', [userId])
   if (!fresh.length) return { fresh: 0 }
 
-  const r = await chatJson(TRIAGE, JSON.stringify(fresh.map(({ id, from, subject, date, text }) => ({ id, from, subject, date, text: (text || '').slice(0, 800) }))))
+  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(fresh.map(({ id, from, subject, date, text }) => ({ id, from, subject, date, text: (text || '').slice(0, 800) }))))
   for (const a of r.actions || []) {
     const src = fresh.find((m) => m.id === a.mail_id)
     const [row] = await q(
@@ -169,11 +191,11 @@ export async function pollUser(userId, { announce } = {}) {
   if (r.brief) {
     const t = await mainThread(userId)
     const h = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hour12: false }))
-    await addMessage(userId, t.id, 'system', 'divider', { text: h < 12 ? '모닝 브리프' : h < 18 ? '오후 브리프' : '이브닝 브리프' })
+    await addMessage(userId, t.id, 'system', 'divider', { text: h < 12 ? L('모닝 브리프', 'Morning brief') : h < 18 ? L('오후 브리프', 'Afternoon brief') : L('이브닝 브리프', 'Evening brief') })
     await addMessage(userId, t.id, 'agent', 'text', { text: r.brief })
   } else if (announce) {
     const t = await mainThread(userId)
-    await addMessage(userId, t.id, 'agent', 'text', { text: '메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.' })
+    await addMessage(userId, t.id, 'agent', 'text', { text: L('메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.', "I looked through your inbox and nothing is urgent right now. I'll check again when new mail comes in.") })
   }
   // documents the mail asks for: drafts are made right away, before anyone asks (the person reviews them)
   for (const d of r.drafts || []) {
@@ -199,8 +221,9 @@ export function iconDomain(provider, src, guess) {
 
 export function startPoller() {
   setInterval(async () => {
+    // each mailbox in its owner's saved language (cards, brief, drafts)
     for (const { user_id } of await q('select user_id from pro_mail_accounts')) {
-      await pollUser(user_id).catch((e) => console.warn('[mail]', user_id, e.message))
+      await asUser(user_id, () => pollUser(user_id)).catch((e) => console.warn('[mail]', user_id, e.message))
     }
   }, config.mailPollSeconds * 1000)
 }
@@ -208,6 +231,12 @@ export function startPoller() {
 // ---------- drafts a mail asks for ----------
 // Made right away, before anyone asks: 한글 documents by filling a template with office-mcp
 // (generate_hwpx, called from here), the others by the agent with its document skills.
+const SKILL_RULES_EN = {
+  xlsx: (name) => `With the Excel (xlsx) skill, create /workspace/${name}: at the top the title, to, from, quote date and validity; an item table (item, specification, quantity, unit price, amount — amount as the formula =quantity*unit price); below it subtotal, VAT (10%) and total rows (all formulas); thousands separators; a colored header row. Use the quantities and terms in the mail as they are, and fill the unit prices with reasonable assumed values in KRW (₩). Write every text in the sheet in English.`,
+  docx: (name) => `With the Word (docx) skill, create /workspace/${name}, written in English.`,
+  pptx: (name) => `With the PowerPoint (pptx) skill, create /workspace/${name}, written in English.`,
+}
+const skillRule = (format) => (isEn() ? SKILL_RULES_EN : SKILL_RULES)[format]
 const SKILL_RULES = {
   xlsx: (name) => `엑셀(xlsx) 스킬로 /workspace/${name} 를 만드세요: 위에 제목·수신·발신·견적일·유효기간, 품목 표(품목·규격·수량·단가·금액 열, 금액은 =수량*단가 수식), 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 숫자는 천 단위 쉼표 서식, 머리글은 색으로 구분. 메일의 수량·조건을 그대로 쓰고, 단가는 합리적인 가정값으로 채우세요.`,
   docx: (name) => `워드(docx) 스킬로 /workspace/${name} 를 만드세요.`,
@@ -217,11 +246,13 @@ export async function hwpxDraft(userId, threadId, mail, item, customer, { templa
   const args = {
     template_url: templateUrl || config.proposalTemplateUrl || config.hwpxTemplateUrl,
     report_topic: item.name.replace(/\.hwpx$/i, ''),
-    report_description: `${customer || '고객'}에게 보내는 ${item.kind}. 메일 요구사항을 모두 반영: ${String(mail.text || '').slice(0, 1500)}. 표의 행 수는 템플릿 그대로 두고 칸을 이 고객에 맞게 채우세요. 그림은 그대로 둡니다.${extra ? ` ${extra}` : ''}`,
-    reference_text: `보낸 사람: ${mail.from}\n제목: ${mail.subject}\n${String(mail.text || '').slice(0, 2500)}`,
+    report_description: isEn()
+      ? `A ${item.kind} for ${customer || 'the customer'}, written entirely in English (every heading, table cell and sentence you fill in). Cover everything the mail asks for: ${String(mail.text || '').slice(0, 1500)}. Keep the number of table rows as in the template and fill the cells for this customer. Leave the picture as it is.${extra ? ` ${extra}` : ''}`
+      : `${customer || '고객'}에게 보내는 ${item.kind}. 메일 요구사항을 모두 반영: ${String(mail.text || '').slice(0, 1500)}. 표의 행 수는 템플릿 그대로 두고 칸을 이 고객에 맞게 채우세요. 그림은 그대로 둡니다.${extra ? ` ${extra}` : ''}`,
+    reference_text: L(`보낸 사람: ${mail.from}\n제목: ${mail.subject}\n${String(mail.text || '').slice(0, 2500)}`, `From: ${mail.from}\nSubject: ${mail.subject}\n${String(mail.text || '').slice(0, 2500)}`),
     image_generation_enabled: false, image_reference_enabled: false, tenant_id: config.tenantId,
   }
-  const [job] = await q('insert into pro_draft_jobs(user_id, thread_id, args) values ($1,$2,$3) returning id', [userId, threadId, { tool: args, name: item.name }])
+  const [job] = await q('insert into pro_draft_jobs(user_id, thread_id, args) values ($1,$2,$3) returning id', [userId, threadId, { tool: args, name: item.name, ...(isEn() ? { lang: 'en' } : {}) }])
   return runHwpxJob(job.id, userId, threadId, args, item.name)
 }
 async function runHwpxJob(id, userId, threadId, args, name) {
@@ -241,10 +272,10 @@ async function runHwpxJob(id, userId, threadId, args, name) {
 export async function resumeDrafts() {
   for (const j of await q(`update pro_draft_jobs set status='running' where status='running' and created_at > now() - interval '1 hour' returning *`)) {
     console.log(`[mail] resuming draft ${j.args.name}`)
-    runHwpxJob(j.id, j.user_id, j.thread_id, j.args.tool, j.args.name).catch(async (e) => {
+    asUser(j.user_id, () => runHwpxJob(j.id, j.user_id, j.thread_id, j.args.tool, j.args.name).catch(async (e) => {
       console.warn('[mail] resumed draft', e.message)
-      await addMessage(j.user_id, j.thread_id, 'agent', 'text', { text: `${j.args.name} 초안을 만들지 못했어요: ${e.message}` })
-    })
+      await addMessage(j.user_id, j.thread_id, 'agent', 'text', { text: L(`${j.args.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${j.args.name}: ${e.message}`) })
+    }))
   }
 }
 // A design request (a floor plan with the proposal): CADCraft draws it first (the agent, through
@@ -255,36 +286,51 @@ async function designDrafts(userId, t, mail, d, items) {
   const { delegate } = await import('./agent.js')
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
   const { user, session } = await sessionFor(p.email, p.name)
-  const customer = d.customer || '고객'
+  const customer = d.customer || L('고객', 'Customer')
   const plan = items.find((i) => i.format === 'dxf')
   const body = String(mail.text || '').slice(0, 2500)
   // 1) the floor plan, drawn in CADCraft through its MCP (lib/floorPlan.js)
   const status = (text) => emit(userId, 'status', { threadId: t.id, text })
-  status('도면 배치 정하는 중')
+  status(L('도면 배치 정하는 중', 'Laying out the floor plan'))
   const { layoutFromMail, drawFloorPlan } = await import('./floorPlan.js')
   const { publish } = await import('./office.js')
   const layout = await layoutFromMail(mail)
   let drawn = null
   try {
-    drawn = await drawFloorPlan(userId, layout, plan.name, (step) => status(`캐드크래프트로 도면 그리는 중 · ${step}`))
+    drawn = await drawFloorPlan(userId, layout, plan.name, (step) => status(L(`캐드크래프트로 도면 그리는 중 · ${step}`, `Drawing in CADCraft · ${step}`)))
   } finally { status(null) }
   const doc = await publish(userId, drawn.path)
   const card = { content: { ...doc, path: drawn.path } }
   await addMessage(userId, t.id, 'agent', 'file', { ...doc, path: drawn.path, draft: true })
   const rooms = drawn.rooms.map((r) => `${r.name} | ${r.area}㎡ | ${r.use}`).join(' / ')
-  await addMessage(userId, t.id, 'agent', 'text', { text: `캐드크래프트로 평면도(${drawn.width}m × ${drawn.depth}m)를 그렸어요. 실별 면적은 ${drawn.rooms.map((r) => `${r.name} ${r.area}㎡`).join(', ')}이에요. 이 도면으로 제안서와 견적서를 만들게요.` })
+  await addMessage(userId, t.id, 'agent', 'text', { text: L(`캐드크래프트로 평면도(${drawn.width}m × ${drawn.depth}m)를 그렸어요. 실별 면적은 ${drawn.rooms.map((r) => `${r.name} ${r.area}㎡`).join(', ')}이에요. 이 도면으로 제안서와 견적서를 만들게요.`,
+    `I drew the floor plan (${drawn.width} m × ${drawn.depth} m) in CADCraft. Room areas: ${drawn.rooms.map((r) => `${r.name} ${r.area} ㎡`).join(', ')}. I'll make the proposal and the quote from this drawing.`) })
   let templateUrl = config.proposalTemplateUrl || config.hwpxTemplateUrl
-  if (card?.content?.url) {
+  // (English mode makes a Word proposal instead, unless the mail named a Hangul one)
+  if (card?.content?.url && (!isEn() || items.some((x) => x.format === 'hwpx'))) {
     try { templateUrl = await designTemplate(userId, card.content.url) } catch (e) { console.warn('[mail] design template', e.message) }
   }
   const jobs = []
   for (const i of items.filter((x) => x.format === 'hwpx')) {
     jobs.push(hwpxDraft(userId, t.id, mail, i, customer, { templateUrl,
-      extra: `평면도(${plan.name})를 2번 '설계 평면도' 그림으로 그대로 두고, '공간 구성' 표는 평면도의 실별 면적으로 채우세요: ${rooms}` })
-      .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: `${i.name} 초안을 만들지 못했어요: ${e.message}` }) }))
+      extra: L(`평면도(${plan.name})를 2번 '설계 평면도' 그림으로 그대로 두고, '공간 구성' 표는 평면도의 실별 면적으로 채우세요: ${rooms}`,
+        `Keep the floor plan (${plan.name}) as picture 2 (the design floor plan) and fill the space plan table with the room areas from the floor plan: ${rooms}`) })
+      .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: L(`${i.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${i.name}: ${e.message}`) }) }))
   }
-  const others = items.filter((x) => SKILL_RULES[x.format])
-  if (others.length) {
+  const others = items.filter((x) => skillRule(x.format))
+  if (others.length && isEn()) {
+    // English: the proposal is a Word document the agent writes with the floor plan picture in it
+    const picture = card?.content?.url && others.some((i) => i.format === 'docx') ? await planPicture(card.content.url).catch((e) => { console.warn('[mail] plan picture', e.message); return null }) : null
+    jobs.push(delegate({ user, session, threadId: t.id, silent: true,
+      text: `Make draft documents in advance to answer the same customer mail (${mail.subject}). Room areas from the floor plan just drawn: ${rooms}\nMail body: ${body}\n\n` +
+        others.map((i, k) => `${k + 1}) ${i.kind} — file name "${i.name}". ${i.format === 'xlsx'
+          ? `With the Excel (xlsx) skill, create /workspace/${i.name}: at the top the title, to, from, quote date and validity; an item table (category, item, quantity, unit, unit price, amount — amount as the formula =quantity*unit price) with the design fee (floor plan and finishing design, 1 lot), interior work per room (area in ㎡ × price per ㎡, one row per room), furniture and fixtures (by the number of seats), and electrical and equipment (1 lot); below it subtotal, VAT (10%) and total rows (all formulas), thousands separators, colored header row. Use reasonable assumed unit prices in KRW (₩).`
+          : i.format === 'docx'
+          ? `With the Word (docx) skill, create the store design proposal at /workspace/${i.name}: a cover (customer, title, date), the design concept (mood and materials the mail asks for), a space plan table (room, area, use: ${rooms}), ${picture ? `the floor plan picture (${picture}, fitted to the page width, with a caption), ` : ''}the schedule and next steps, in that order.`
+          : skillRule(i.format)(i.name)}`).join('\n') +
+        `\n\n(The floor plan is already made — do not draw it again.) When they are done, give the file names and the unit prices you assumed in two or three lines. Write the progress notes, the answer and every text inside the files in English.` })
+      .catch((e) => console.warn('[mail] drafts', e.message)))
+  } else if (others.length) {
     jobs.push(delegate({ user, session, threadId: t.id, silent: true,
       text: `같은 고객 메일(${mail.subject})에 회신할 문서 초안을 미리 만드세요. 방금 그린 평면도의 실별 면적: ${rooms}\n메일 본문: ${body}\n\n` +
         others.map((i, k) => `${k + 1}) ${i.kind} — 파일 이름 "${i.name}". ${i.format === 'xlsx'
@@ -296,25 +342,48 @@ async function designDrafts(userId, t, mail, d, items) {
   await Promise.all(jobs)
 }
 
+// the drawing as a picture for a document: CADCraft renders the DXF on its dark canvas, PhotoCraft
+// turns it into ink on paper. Resolves with the PNG's path (in `dir`).
+async function renderPlan(dxfUrl, dir) {
+  const { execFile } = await import('node:child_process')
+  const dxf = path.join(dir, 'plan.dxf'), png = path.join(dir, 'plan.png')
+  await fs.promises.writeFile(dxf, Buffer.from(await (await fetch(dxfUrl)).arrayBuffer()))
+  await new Promise((res, rej) => execFile(config.craftCli.cadcraft, ['convert', dxf, png], { timeout: 120_000 }, (e) => (e ? rej(e) : res())))
+  // CADCraft renders on its dark canvas in layer colours; a document wants ink on paper: every stroke
+  // charcoal on white, by distance from the background (not brightness — red lines are as dark as the ground)
+  const light = path.join(dir, 'plan-light.png')
+  const steps = [['select.magicWand', { x: 3, y: 3, tolerance: 14, contiguous: false, antiAlias: false }], ['edit.fill', { contents: 'color', color: '#ffffff' }],
+    ['select.inverse'], ['select.modify.expand', { radius: 1 }], ['edit.fill', { contents: 'color', color: '#2b2f36' }], ['select.deselect']]
+  const args = ['run', png, ...steps.flatMap(([id, params]) => ['--cmd', id, ...(params ? ['--params', JSON.stringify(params)] : [])]), '--out', light]
+  const lit = await new Promise((res) => execFile(config.craftCli.photocraft, args, { timeout: 120_000 }, (e) => res(!e)))
+  return lit ? light : png
+}
+
+// the floor plan as a picture an agent can put in a Word document (English mode's proposal): saved
+// where the agent's sandbox sees it; resolves with its sandbox path
+export async function planPicture(dxfUrl) {
+  const os = await import('node:os')
+  const { workspaceHostPath } = await import('./missions.js')
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pgpt-plan-'))
+  try {
+    const png = await renderPlan(dxfUrl, dir)
+    const rel = `/workspace/pgpt-drafts/${crypto.randomUUID()}/floor-plan.png`
+    const host = path.join(await workspaceHostPath('/workspace'), rel.slice('/workspace/'.length))
+    await fs.promises.mkdir(path.dirname(host), { recursive: true })
+    await fs.promises.copyFile(png, host)
+    return rel
+  } finally { fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}) }
+}
+
 // the proposal template with the drawing in its picture (a 3:2 slot), as a URL office-mcp can fill
 export async function designTemplate(userId, dxfUrl) {
   const os = await import('node:os')
-  const { execFile } = await import('node:child_process')
   const { default: JSZip } = await import('jszip')
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pgpt-plan-'))
   try {
-    const dxf = path.join(dir, 'plan.dxf'), png = path.join(dir, 'plan.png')
-    await fs.promises.writeFile(dxf, Buffer.from(await (await fetch(dxfUrl)).arrayBuffer()))
-    await new Promise((res, rej) => execFile(config.craftCli.cadcraft, ['convert', dxf, png], { timeout: 120_000 }, (e) => (e ? rej(e) : res())))
-    // CADCraft renders on its dark canvas in layer colours; a document wants ink on paper: every stroke
-    // charcoal on white, by distance from the background (not brightness — red lines are as dark as the ground)
-    const light = path.join(dir, 'plan-light.png')
-    const steps = [['select.magicWand', { x: 3, y: 3, tolerance: 14, contiguous: false, antiAlias: false }], ['edit.fill', { contents: 'color', color: '#ffffff' }],
-      ['select.inverse'], ['select.modify.expand', { radius: 1 }], ['edit.fill', { contents: 'color', color: '#2b2f36' }], ['select.deselect']]
-    const args = ['run', png, ...steps.flatMap(([id, params]) => ['--cmd', id, ...(params ? ['--params', JSON.stringify(params)] : [])]), '--out', light]
-    const lit = await new Promise((res) => execFile(config.craftCli.photocraft, args, { timeout: 120_000 }, (e) => res(!e)))
+    const picture = await renderPlan(dxfUrl, dir)
     const zip = await JSZip.loadAsync(await fs.promises.readFile(config.designTemplatePath))
-    zip.file('BinData/image1.png', await fs.promises.readFile(lit ? light : png))
+    zip.file('BinData/image1.png', await fs.promises.readFile(picture))
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', mimeType: 'application/hwp+zip' })
     const { admin } = await import('./supa.js')
     const key = `pgpt-pro/${userId}/${crypto.randomUUID()}.hwpx`
@@ -328,11 +397,11 @@ async function draftFromMail(userId, mail, d) {
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
   if (!p?.email) return
   const t = await mainThread(userId)
-  const items = d.items.filter((i) => i.format === 'hwpx' || i.format === 'dxf' || SKILL_RULES[i.format]).slice(0, 4)
+  const items = d.items.filter((i) => i.format === 'hwpx' || i.format === 'dxf' || skillRule(i.format)).slice(0, 4)
   if (!items.length) return
   // a design proposal needs its drawing, whether or not the mail lists one
-  if (!items.some((i) => i.format === 'dxf') && /평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(`${mail.subject} ${mail.text}`)) {
-    items.unshift({ kind: '평면도', format: 'dxf', name: `${(d.customer || '고객').trim()} 평면도.dxf` })
+  if (!items.some((i) => i.format === 'dxf') && (/평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(`${mail.subject} ${mail.text}`) || /floor\s*plan|blueprint|layout drawing|interior|design proposal|store design/i.test(`${mail.subject} ${mail.text}`))) {
+    items.unshift(L({ kind: '평면도', format: 'dxf', name: `${(d.customer || '고객').trim()} 평면도.dxf` }, { kind: 'floor plan', format: 'dxf', name: `${(d.customer || 'Customer').trim()} floor plan.dxf` }))
   }
   // an install without CADCraft (Docker lite): the other drafts still come, the drawing is left to a person
   const { craftAvailable } = await import('../mcp/craft.js')
@@ -342,30 +411,35 @@ async function draftFromMail(userId, mail, d) {
     items.splice(0, items.length, ...items.filter((i) => i.format !== 'dxf'))
     if (!items.length) return
   }
-  const rank = { dxf: 0, hwpx: 1, xlsx: 2 }
+  const rank = { dxf: 0, hwpx: 1, docx: 1, xlsx: 2 }
   items.sort((a, b) => (rank[a.format] ?? 3) - (rank[b.format] ?? 3))
-  const what = items.map((i) => i.kind).join('·')
-  const customer = d.customer || '고객'
-  await addMessage(userId, t.id, 'system', 'divider', { text: `메일 · ${customer} ${what} 요청` })
-  await addMessage(userId, t.id, 'agent', 'text', { text: `${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, mail: { from: mail.from, subject: mail.subject } })
-  if (noPlan) await addMessage(userId, t.id, 'agent', 'text', { text: '이 설치에는 캐드크래프트가 없어서 평면도는 그리지 않았어요. 제안서·견적서 초안만 만들게요.' })
+  const what = items.map((i) => i.kind).join(L('·', ', '))
+  const customer = d.customer || L('고객', 'Customer')
+  await addMessage(userId, t.id, 'system', 'divider', { text: L(`메일 · ${customer} ${what} 요청`, `Mail · ${customer} ${what} request`) })
+  await addMessage(userId, t.id, 'agent', 'text', { text: L(`${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. I'll make drafts for the reply first.`), mail: { from: mail.from, subject: mail.subject } })
+  if (noPlan) await addMessage(userId, t.id, 'agent', 'text', { text: L('이 설치에는 캐드크래프트가 없어서 평면도는 그리지 않았어요. 제안서·견적서 초안만 만들게요.', "This install has no CADCraft, so I didn't draw the floor plan. I'll make only the proposal and quote drafts.") })
   const [row] = await q(
     `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,'Review',$2,null,null,$3,$4) returning *`,
-    [userId, `${customer} ${what} 초안 검토하고 회신하기`, `${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name) }])
+    [userId, L(`${customer} ${what} 초안 검토하고 회신하기`, `the ${what} drafts for ${customer} and reply`), L(`${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, `I've reviewed the ${what} drafts for ${customer}. Please write a draft reply mail.`), { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name) }])
   emit(userId, 'action', row)
   // the mail is one case of ad-hoc work: its steps leave handover records process mining reads (lib/mining)
   const mining = await import('./mining/recorder.js')
   const caseId = await mining.openCase({ userId, mail, customer, files: items.map((i) => i.name) }).catch((e) => console.warn('[mining] case', e.message))
-  if (caseId) await mining.recordStep(caseId, '요청 메일 접수', { to: { id: userId, name: p.name } }).catch((e) => console.warn('[mining] step', e.message))
+  if (caseId) await mining.recordStep(caseId, '요청 메일 접수', { to: { id: userId, name: p.name } }).catch((e) => console.warn('[mining] step', e.message)) // (the case's own language: lib/mining/recorder.js)
   if (items.some((i) => i.format === 'dxf')) return designDrafts(userId, t, mail, d, items).finally(() => mining.recordDrafts(t.id, mail.id).catch((e) => console.warn('[mining] drafts', e.message)))
   const jobs = items.filter((i) => i.format === 'hwpx').map((i) => hwpxDraft(userId, t.id, mail, i, customer)
-    .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: `${i.name} 초안을 만들지 못했어요: ${e.message}` }) }))
-  const others = items.filter((i) => SKILL_RULES[i.format])
+    .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: L(`${i.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${i.name}: ${e.message}`) }) }))
+  const others = items.filter((i) => skillRule(i.format))
   if (others.length) {
     const { sessionFor } = await import('./supa.js')
     const { delegate } = await import('./agent.js')
     const { user, session } = await sessionFor(p.email, p.name)
-    const text = `아래 고객 메일이 요청한 문서의 초안을, 사람이 따로 요청하기 전에 미리 만들어 두세요. 담당자가 열어서 검토하고 고칠 초안입니다.\n\n` +
+    const text = isEn()
+      ? `Make drafts of the documents the customer mail below asks for, before anyone asks. They are drafts the person in charge will open, review and correct.\n\n` +
+        `Mail — from: ${mail.from}\nSubject: ${mail.subject}\nBody: ${String(mail.text || '').slice(0, 2500)}\n\n` +
+        others.map((i, k) => `${k + 1}) ${i.kind} — file name "${i.name}". ${skillRule(i.format)(i.name)}`).join('\n') +
+        `\n\n(Hangul documents are being made separately — do not make them.) When they are done, just give the file names briefly and two or three lines on what to check (assumed unit prices etc.). Write the progress notes, the answer and every text inside the files in English.`
+      : `아래 고객 메일이 요청한 문서의 초안을, 사람이 따로 요청하기 전에 미리 만들어 두세요. 담당자가 열어서 검토하고 고칠 초안입니다.\n\n` +
       `메일 — 보낸 사람: ${mail.from}\n제목: ${mail.subject}\n본문: ${String(mail.text || '').slice(0, 2500)}\n\n` +
       others.map((i, k) => `${k + 1}) ${i.kind} — 파일 이름 "${i.name}". ${SKILL_RULES[i.format](i.name)}`).join('\n') +
       `\n\n(한글 문서는 따로 만들고 있으니 만들지 마세요.) 다 만들면 파일 이름만 짧게 알리고, 검토할 점(가정한 단가 등)을 두세 줄로 적으세요. 진행 설명과 답은 모두 한국어(해요체)로 쓰세요.`

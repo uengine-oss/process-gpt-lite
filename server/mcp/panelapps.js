@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { userFromJwt, q } from '../lib/supa.js'
 import * as P from '../lib/panelApps/service.js'
+import { L, asUser } from '../lib/lang.js'
 
 const TOOLS = [
   {
@@ -47,20 +48,20 @@ async function resolve(user, key) {
   const apps = await P.listApps(user, { all: true })
   const k = String(key || '').trim()
   const a = apps.find((x) => x.id === k || x.title === k) || apps.find((x) => x.title.includes(k) || k.includes(x.title))
-  if (!a) throw new Error(`'${k}' 패널 앱을 찾지 못했어요(구성원인 폴더의 앱만 보여요).`)
+  if (!a) throw new Error(L(`'${k}' 패널 앱을 찾지 못했어요(구성원인 폴더의 앱만 보여요).`, `I couldn't find the panel app '${k}' (only apps of folders you are a member of are shown).`))
   return a
 }
 
 async function callTool(user, name, args = {}) {
   if (name === 'panel_app_list') {
     const apps = await P.listApps(user, { all: true })
-    return text(apps.length ? apps.map((a) => ({ id: a.id, title: a.title, folder: a.folder.name, role: a.role, fields: P.describe(a.def) })) : '쓸 수 있는 패널 앱이 없어요.')
+    return text(apps.length ? apps.map((a) => ({ id: a.id, title: a.title, folder: a.folder.name, role: a.role, fields: P.describe(a.def) })) : L('쓸 수 있는 패널 앱이 없어요.', 'There are no panel apps you can use.'))
   }
   if (name === 'panel_app_create') {
     const d = await P.design(args.description)
-    if (d.kind === 'live') return text('실시간 외부 데이터 위젯이라 데이터 앱이 아니에요. 채팅에서 "패널 만들어줘" 로 요청해 주세요.')
-    const app = await P.createApp(user, { description: args.description, def: d.def, rows: d.rows, folderHint: args.folder ? `${args.folder} 폴더` : '' })
-    return text({ created: app.title, id: app.id, folder: app.folder.name, storage: app.tier === 'db' ? '데이터베이스(행 단위 권한·개인정보 가림). 시트는 보는 사람마다 볼 수 있는 것만 담긴 사본' : `공유 폴더의 ${app.sheetPath}`, kind: app.kind === 'events' ? '기록(이벤트)을 쌓고 요약은 다시 계산' : '목록', fields: P.describe(app.def), privacy: app.privacy.map((l) => l.text), rules: app.rules || app.eventRules })
+    if (d.kind === 'live') return text(L('실시간 외부 데이터 위젯이라 데이터 앱이 아니에요. 채팅에서 "패널 만들어줘" 로 요청해 주세요.', 'That is a live external-data widget, not a data app. Ask for it in the chat with "make a panel".'))
+    const app = await P.createApp(user, { description: args.description, def: d.def, rows: d.rows, folderHint: args.folder ? L(`${args.folder} 폴더`, `${args.folder} folder`) : '' })
+    return text({ created: app.title, id: app.id, folder: app.folder.name, storage: app.tier === 'db' ? L('데이터베이스(행 단위 권한·개인정보 가림). 시트는 보는 사람마다 볼 수 있는 것만 담긴 사본', "database (row-level access, personal data masked); a sheet opens as a copy with only what that person may see") : L(`공유 폴더의 ${app.sheetPath}`, `${app.sheetPath} in the shared folder`), kind: app.kind === 'events' ? L('기록(이벤트)을 쌓고 요약은 다시 계산', 'keeps records (events) and replays the summaries') : L('목록', 'list'), fields: P.describe(app.def), privacy: app.privacy.map((l) => l.text), rules: app.rules || app.eventRules })
   }
   const a = await resolve(user, args.app)
   // everything below runs with the caller's own permissions (masked fields come back empty)
@@ -69,9 +70,9 @@ async function callTool(user, name, args = {}) {
     if (r.kind === 'events') {
       const label = (t) => a.def.events.find((e) => e.type === t)?.label || t
       const nm = (id) => r.people.find((p) => p.id === id)?.name || id
-      return text({ app: a.title, projections: r.projections, events: r.events.map((e) => ({ id: e.id, at: e.at, by: nm(e.by), type: label(e.type), entity: nm(e.entity), ref: e.ref, ...Object.fromEntries(a.def.fields.map((f) => [f.label, (e._hidden || []).includes(f.key) ? '(비공개)' : e[f.key]])), cancelled: !!e.closedBy })) })
+      return text({ app: a.title, projections: r.projections, events: r.events.map((e) => ({ id: e.id, at: e.at, by: nm(e.by), type: label(e.type), entity: nm(e.entity), ref: e.ref, ...Object.fromEntries(a.def.fields.map((f) => [f.label, (e._hidden || []).includes(f.key) ? L('(비공개)', '(private)') : e[f.key]])), cancelled: !!e.closedBy })) })
     }
-    return text({ app: a.title, rows: r.rows.map(({ _hidden, ...x }) => { const o = strip(x); for (const k of _hidden || []) o[k] = '(비공개)'; return o }) })
+    return text({ app: a.title, rows: r.rows.map(({ _hidden, ...x }) => { const o = strip(x); for (const k of _hidden || []) o[k] = L('(비공개)', '(private)'); return o }) })
   }
   if (name === 'panel_app_append_event') {
     const r = await P.appendEvent(user, a.id, { type: args.type, entity: args.entity, ref: args.ref, values: args.values || {} })
@@ -95,7 +96,8 @@ function buildServer(user) {
     if (!user) return { isError: true, ...text('unauthorized: call with the user JWT (Authorization: Bearer {{user_jwt}})') }
     try {
       console.log(`[mcp] panelapps.${params.name} user=${user.id.slice(0, 8)}`)
-      return await callTool(user, params.name, params.arguments || {})
+      // an agent's call carries no language header: the caller's saved language (lib/lang.js)
+      return await asUser(user.id, () => callTool(user, params.name, params.arguments || {}))
     } catch (e) { return { isError: true, ...text(e.message) } }
   })
   return server

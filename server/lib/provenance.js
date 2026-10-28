@@ -12,6 +12,7 @@
 // else the agent only looked at.
 import fs from 'node:fs/promises'
 import { workspaceHostPath } from './missions.js'
+import { isEn } from './lang.js'
 
 // deepagents core/skills/tools.py _conv_slug / bpmn_container_base
 export const slug = (conv) => String(conv || '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '')
@@ -74,5 +75,6 @@ export async function keepToolDoc({ name, tool, input }, paths, ctx) {
 // What the agent is told about where files go and what it may read.
 export function workspaceHint(user, conv) {
   const room = roomOf(conv)
+  if (isEn()) return `\n\n(File location rules: save every new file under this conversation's own output folder${room ? ` (${room}/)` : ' (the base folder in the 📁 section)'}. Look for reference material only in files the user attached or was shared (under /workspace/uploads/${user.id}/), in this conversation's folder, and in folders shared with the user (folder_ tools). Files at the top of /workspace, in other conversations' folders or in other people's uploads belong to other people in the same company: don't open them, use them as evidence, or even list them.)`
   return `\n\n(파일 위치 규칙: 새로 만드는 파일은 이 대화 전용 산출물 폴더${room ? `(${room}/)` : '(📁 섹션의 base 폴더)'} 아래에 저장하세요. 참고 자료는 사용자가 첨부했거나 공유받은 파일(/workspace/uploads/${user.id}/ 아래), 이 대화 폴더, 사용자에게 공유된 폴더(folder_ 도구)에서만 찾으세요. /workspace 최상위·다른 대화 폴더·다른 사람의 uploads 에 있는 파일은 같은 회사 다른 사람의 것이니 열거나 근거로 쓰지 말고, 목록을 훑지도 마세요.)`
 }

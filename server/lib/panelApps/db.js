@@ -9,6 +9,7 @@ import * as R from './rules.js'
 import { withComputed } from './sheet.js'
 import { subjectOf } from './privacy.js'
 import * as E from './events.js'
+import { L } from '../lang.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
 
@@ -16,7 +17,7 @@ function claimsOf(user) {
   // the JWT was verified by Supabase auth before it got here (auth middleware / MCP gateway)
   let c = {}
   try { c = JSON.parse(Buffer.from(String(user.jwt || '').split('.')[1] || '', 'base64url').toString('utf8')) } catch { c = {} }
-  if (c.sub && c.sub !== user.id) throw err(401, 'JWT 와 사용자가 맞지 않아요.')
+  if (c.sub && c.sub !== user.id) throw err(401, L('JWT 와 사용자가 맞지 않아요.', "The JWT doesn't match the user."))
   return { ...c, sub: user.id, role: 'authenticated', email: user.email }
 }
 
@@ -50,15 +51,15 @@ function mapError(e, labels) {
   if (e.status) return e
   const m = String(e.message || '')
   const denied = m.match(/panel_field_denied:([a-z0-9_]+)/)
-  if (denied) return err(403, `'${labels?.[denied[1]] || denied[1]}' 항목은 바꿀 권한이 없어요(데이터베이스가 거절했어요).`)
-  if (/panel_append_only/.test(m)) return err(403, '기록은 고치거나 지울 수 없어요. 취소·정정 기록을 더해 주세요.')
-  if (/panel_ref_closed/.test(m)) return err(409, '이미 취소(또는 처리)된 기록이에요.')
-  if (/panel_ref_invalid/.test(m)) return err(422, '대상 기록을 찾지 못했어요(볼 수 없거나 종류가 맞지 않아요).')
-  if (/panel_entity_required/.test(m)) return err(422, '누구(무엇)에 관한 기록인지 적어 주세요.')
-  if (e.code === '42501' && /permission denied/.test(m)) return err(403, '이 항목을 볼 권한이 없어요(데이터베이스가 거절했어요).')
-  if (e.code === '42501' || /row-level security/.test(m)) return err(403, '이 작업을 할 권한이 없어요(데이터베이스가 거절했어요).')
-  if (e.code === '23514') return err(422, '값이 항목 조건(선택지·형식)에 맞지 않아요.')
-  if (e.code === '22P02' || e.code === '22007' || e.code === '22008') return err(422, '값의 형식이 맞지 않아요.')
+  if (denied) return err(403, L(`'${labels?.[denied[1]] || denied[1]}' 항목은 바꿀 권한이 없어요(데이터베이스가 거절했어요).`, `You may not change '${labels?.[denied[1]] || denied[1]}' (the database refused).`))
+  if (/panel_append_only/.test(m)) return err(403, L('기록은 고치거나 지울 수 없어요. 취소·정정 기록을 더해 주세요.', "Records can't be changed or deleted. Add a cancellation or correction instead."))
+  if (/panel_ref_closed/.test(m)) return err(409, L('이미 취소(또는 처리)된 기록이에요.', 'That record has already been canceled (or handled).'))
+  if (/panel_ref_invalid/.test(m)) return err(422, L('대상 기록을 찾지 못했어요(볼 수 없거나 종류가 맞지 않아요).', "I couldn't find the record it applies to (you can't see it, or it's the wrong type)."))
+  if (/panel_entity_required/.test(m)) return err(422, L('누구(무엇)에 관한 기록인지 적어 주세요.', 'Please say who (or what) the record is about.'))
+  if (e.code === '42501' && /permission denied/.test(m)) return err(403, L('이 항목을 볼 권한이 없어요(데이터베이스가 거절했어요).', 'You may not see this field (the database refused).'))
+  if (e.code === '42501' || /row-level security/.test(m)) return err(403, L('이 작업을 할 권한이 없어요(데이터베이스가 거절했어요).', 'You may not do this (the database refused).'))
+  if (e.code === '23514') return err(422, L('값이 항목 조건(선택지·형식)에 맞지 않아요.', "The value doesn't fit the field (its choices or format)."))
+  if (e.code === '22P02' || e.code === '22007' || e.code === '22008') return err(422, L('값의 형식이 맞지 않아요.', 'The value is in the wrong format.'))
   return e
 }
 
@@ -97,7 +98,7 @@ export async function insert(user, app, vals) {
 // v = the row's updated_at as the client read it; nothing is written when it moved on
 export async function update(user, app, id, v, vals) {
   const keys = app.def.fields.filter((f) => f.key in vals).map((f) => f.key)
-  if (!keys.length) throw err(400, '바꿀 항목이 없어요.')
+  if (!keys.length) throw err(400, L('바꿀 항목이 없어요.', 'Nothing to change.'))
   return asUser(user, async (c) => {
     const params = keys.map((k) => dbValue(app.def.fields.find((f) => f.key === k), vals[k]))
     params.push(id)
@@ -105,7 +106,7 @@ export async function update(user, app, id, v, vals) {
     if (v) { params.push(v); where += ` and updated_at::text = $${params.length}` }
     const r = await c.query(`update ${R.qualified(app.id)} set ${keys.map((k, i) => `${R.col(k)} = $${i + 1}`).join(', ')} where ${where} returning id`, params)
     if (r.rows.length) { const back = await c.query(`select ${selectList(app.def)} from ${V(app)} where id = $1`, [id]); return back.rows[0] ? toRow(app.def, back.rows[0]) : { _id: id } }
-    return explain(c, app, id, v, '고칠')
+    return explain(c, app, id, v, L('고칠', 'edit'))
   }, labelsOf(app))
 }
 
@@ -116,16 +117,16 @@ export async function remove(user, app, id, v) {
     if (v) { params.push(v); where += ' and updated_at::text = $2' }
     const r = await c.query(`delete from ${R.qualified(app.id)} where ${where} returning id`, params)
     if (r.rows.length) return { id }
-    return explain(c, app, id, v, '지울')
+    return explain(c, app, id, v, L('지울', 'delete'))
   })
 }
 
 // nothing matched: the row is gone or hidden, it changed since it was read, or RLS said no
 async function explain(c, app, id, v, verb) {
   const seen = await c.query(`select updated_at::text as _v from ${R.qualified(app.id)} where id = $1::uuid`, [id])
-  if (!seen.rows.length) throw err(404, '그 행이 없거나 볼 수 없어요.')
-  if (v && seen.rows[0]._v !== v) throw err(409, '다른 사람이 먼저 고쳤어요. 새로 불러온 값을 확인해 주세요.')
-  throw err(403, `이 행을 ${verb} 권한이 없어요(데이터베이스가 거절했어요).`)
+  if (!seen.rows.length) throw err(404, L('그 행이 없거나 볼 수 없어요.', "That row isn't there, or you can't see it."))
+  if (v && seen.rows[0]._v !== v) throw err(409, L('다른 사람이 먼저 고쳤어요. 새로 불러온 값을 확인해 주세요.', 'Someone else changed it first. Please check the values just loaded.'))
+  throw err(403, L(`이 행을 ${verb} 권한이 없어요(데이터베이스가 거절했어요).`, `You may not ${verb} this row (the database refused).`))
 }
 
 // ---------- schema ----------

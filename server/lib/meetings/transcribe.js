@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import dotenv from 'dotenv'
 import { PGPT_ROOT } from '../paths.js'
+import { lang, L } from '../lang.js'
 
 let key = null
 function apiKey() {
@@ -22,14 +23,18 @@ export const transcribeConfigured = () => !!apiKey()
 
 // what transcription models make up from noise or silence (they were trained on subtitled video)
 const HALLUCINATED = /^(감사합니다|고맙습니다|시청해\s*주셔서\s*감사합니다|구독과\s*좋아요|좋아요와\s*구독|MBC\s*뉴스|자막\s*제공|다음\s*영상에서\s*만나요|안녕하세요)[.!\s]*$/
+// the same in an English meeting
+const HALLUCINATED_EN = /^(thank\s*you|thanks|thanks\s*for\s*watching|thank\s*you\s*for\s*watching|please\s*subscribe|like\s*and\s*subscribe|see\s*you\s*(next\s*time|in\s*the\s*next\s*video)|subtitles\s*by.*|you|bye|hello)[.!\s]*$/i
 
-export async function transcribe(buf, { prompt = '', type = 'audio/wav' } = {}) {
-  if (!apiKey()) throw Object.assign(new Error('받아쓰기 키가 설정되지 않았어요.'), { status: 503 })
+// the spoken language: the meeting's (lib/meetings/service.js runs a meeting's work in its language)
+export async function transcribe(buf, { prompt = '', type = 'audio/wav', language = lang() } = {}) {
+  if (!apiKey()) throw Object.assign(new Error(L('받아쓰기 키가 설정되지 않았어요.', 'No transcription key is set up.')), { status: 503 })
+  const en = language === 'en'
   const t0 = Date.now()
   const form = new FormData()
   form.append('file', new Blob([buf], { type }), type.includes('webm') ? 'speech.webm' : 'speech.wav')
   form.append('model', MODEL())
-  form.append('language', 'ko')
+  form.append('language', en ? 'en' : 'ko')
   form.append('response_format', 'json')
   if (prompt) form.append('prompt', prompt.slice(0, 600))
   const r = await fetch(`${BASE()}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey()}` }, body: form, signal: AbortSignal.timeout(30000) })
@@ -37,7 +42,7 @@ export async function transcribe(buf, { prompt = '', type = 'audio/wav' } = {}) 
   if (!r.ok) throw Object.assign(new Error(`transcription ${r.status}: ${(await r.text()).slice(0, 200)}`), { status: 503 })
   const j = await r.json()
   const text = String(j.text || '').replace(/\s+/g, ' ').trim()
-  return { text: HALLUCINATED.test(text) || text.length < 2 ? '' : text, ms: Date.now() - t0, model: MODEL() }
+  return { text: (en ? HALLUCINATED_EN : HALLUCINATED).test(text) || text.length < 2 ? '' : text, ms: Date.now() - t0, model: MODEL(), language: en ? 'en' : 'ko' }
 }
 
 // length of a PCM WAV in ms (the browser sends 16-bit mono); 0 if it is not one

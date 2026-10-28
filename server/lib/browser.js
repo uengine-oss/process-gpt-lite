@@ -14,6 +14,7 @@ import { addMessage, updateMessage, setThreadStatus } from './store.js'
 import { q } from './supa.js'
 import { decide, sure } from './decide.js'
 import { config } from '../config.js'
+import { L, isEn } from './lang.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const PROFILES = path.join(here, '..', '.browser-profiles')
@@ -175,7 +176,7 @@ async function plan(goal) {
   const msg = await chat({
     model: undefined, json: true,
     messages: [
-      { role: 'system', content: 'Break a web task into 3-6 short Korean steps. Reply JSON {"title": "짧은 작업명", "steps": ["..."]}' },
+      { role: 'system', content: isEn() ? 'Break a web task into 3-6 short English steps. Reply JSON {"title": "short task name in English", "steps": ["..."]}' : 'Break a web task into 3-6 short Korean steps. Reply JSON {"title": "짧은 작업명", "steps": ["..."]}' },
       { role: 'user', content: goal },
     ],
   })
@@ -193,15 +194,16 @@ export async function runBrowserTask({ userId, threadId, goal, startUrl, onActio
   const ahead = s.task || s.queue.length ? (s.queue.at(-1)?.task || s.task) : null
   const card = await addMessage(userId, threadId, 'agent', 'task', {
     title: p.title, goal, steps: p.steps.map((t) => ({ text: t, done: false })), state: ahead ? 'queued' : 'running', url: startUrl || '',
-    ...(ahead ? { reason: `앞 작업 '${ahead.title}'이(가) 끝나면 시작해요` } : {}),
+    ...(ahead ? { reason: L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`) } : {}),
   })
   const task = { id: card.id, userId, threadId, goal, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     gates, gatedUrl: null, stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, early_finish: false, decisions: [] } }
   if (ahead) {
-    await addMessage(userId, threadId, 'agent', 'text', { text: `브라우저는 한 번에 한 작업만 해요. 앞 작업 '${ahead.title}'이(가) 끝나거나 취소되면 '${p.title}' 작업을 이어서 시작할게요.${s.task?.waiting ? ' 앞 작업은 지금 입력을 기다리고 있어요 — 그 카드에 답하거나 작업을 취소해 주세요.' : ''}` })
+    await addMessage(userId, threadId, 'agent', 'text', { text: L(`브라우저는 한 번에 한 작업만 해요. 앞 작업 '${ahead.title}'이(가) 끝나거나 취소되면 '${p.title}' 작업을 이어서 시작할게요.${s.task?.waiting ? ' 앞 작업은 지금 입력을 기다리고 있어요 — 그 카드에 답하거나 작업을 취소해 주세요.' : ''}`,
+      `The browser does one task at a time. When the task ahead, '${ahead.title}', is done or canceled, I'll start '${p.title}'.${s.task?.waiting ? ' The task ahead is waiting for your input right now — answer its card or cancel the task.' : ''}`) })
     await new Promise((go) => s.queue.push({ task, go }))
     if (task.cancelled) {
-      await updateMessage(userId, card.id, { state: 'cancelled', reason: '', summary: '시작하기 전에 취소했어요.' })
+      await updateMessage(userId, card.id, { state: 'cancelled', reason: '', summary: L('시작하기 전에 취소했어요.', 'Canceled before it started.') })
       return { state: 'cancelled', summary: '', notes: [], stats: task.stats }
     }
     await updateMessage(userId, card.id, { state: 'running', reason: '' })
@@ -221,7 +223,7 @@ Each turn you get a page snapshot with numbered elements. Call exactly one tool 
 For any login field (username, email, password) and any card field ALWAYS use fill_secret, even if credentials are printed on the page or you could guess them. The server asks the user for missing credentials (and which account or card to use) automatically.
 Secret fields appear in the snapshot as secret:true with no value. If the site rejects a login you filled, call login_failed. For a one-time code (SMS, e-mail, OTP, 2FA) call need_secret with the input's index; never ask for it in text.
 Before submitting a payment, sending a message or deleting anything, call approve and act only if the user approves.
-Mark steps with step_done as you complete them. Use note to record every fact you will need in the final answer before navigating away. Finish with a Korean summary that contains all collected facts.
+Mark steps with step_done as you complete them. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that contains all collected facts.
 Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.`,
   }]
   // the first answer without a single browser action is sent back once: do the steps first
@@ -230,7 +232,7 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
   let result = { state: 'done', summary: '' }
   try {
   for (let turn = 0; turn < 40 && !task.cancelled; turn++) {
-    say(task, '페이지 읽는 중')
+    say(task, L('페이지 읽는 중', 'Reading the page'))
     task.stats.turns++
     let snap = await s.page.evaluate(SNAPSHOT_JS).catch(() => ({ url: s.page.url(), els: [], text: '' }))
     let hint = ''
@@ -261,8 +263,8 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
     if (task.gates && call.function.name === 'note' && await goalMet(task)) {
       // the notes already answer the goal: one closing call instead of more browsing turns
       task.stats.early_finish = true
-      say(task, '정리하는 중')
-      const fin = await chat({ messages: [...messages, { role: 'user', content: 'The recorded notes already answer the goal. Call finish now with a Korean summary containing all collected facts.' }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } } })
+      say(task, L('정리하는 중', 'Wrapping up'))
+      const fin = await chat({ messages: [...messages, { role: 'user', content: `The recorded notes already answer the goal. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary containing all collected facts.` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } } })
       task.stats.llm++
       const fa = JSON.parse(fin.tool_calls?.[0]?.function?.arguments || '{}')
       result = { state: 'done', summary: fa.summary || fin.content || task.notes.join('\n') }
@@ -271,9 +273,9 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
   }
   } catch (e) {
     console.warn('[browser]', e.message)
-    result = { state: 'failed', summary: '브라우저 작업을 끝내지 못했어요. 잠시 후 다시 시도해 주세요.' }
+    result = { state: 'failed', summary: L('브라우저 작업을 끝내지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't finish the browser task. Please try again in a moment.") }
   }
-  if (task.cancelled) result = { state: 'cancelled', summary: '작업을 취소했어요.' }
+  if (task.cancelled) result = { state: 'cancelled', summary: L('작업을 취소했어요.', 'I canceled the task.') }
   // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
   // the person to check, and what they read is what the action log shows
   try {
@@ -298,6 +300,12 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
 
 // Fast checks before spending an agent turn, answered by the router's typed decision (judge model
 // → logprob → JSON) and acted on only when the answer is measured and sure.
+const PAGE_STATES_EN = [
+  { key: 'loading', label: 'Still loading, or the body is almost empty', hint: 'a spinner, a blank screen, only a skeleton' },
+  { key: 'login_wall', label: 'Asks to log in or sign up; the content is hidden' },
+  { key: 'captcha', label: 'Bot check (captcha, are you human)' },
+  { key: 'content', label: 'Readable content is visible' },
+]
 const PAGE_STATES = [
   { key: 'loading', label: '아직 불러오는 중이거나 본문이 거의 비어 있음', hint: '스피너, 빈 화면, 뼈대만 보임' },
   { key: 'login_wall', label: '로그인이나 가입을 요구해 내용이 가려짐' },
@@ -321,11 +329,13 @@ async function gate(task, state, question, options) {
 // and tell an unattended agent up front that a login wall or bot check cannot be passed.
 async function pageGate(s, task, snap) {
   for (let i = 0; ; i++) {
-    const d = await gate(task, `${snap.title || ''}\n${snap.url}\n요소 ${snap.els.length}개\n${(snap.text || '').slice(0, 1500)}`,
+    const d = isEn()
+      ? await gate(task, `${snap.title || ''}\n${snap.url}\n${snap.els.length} elements\n${(snap.text || '').slice(0, 1500)}`, 'What state is this web page in right now?', PAGE_STATES_EN)
+      : await gate(task, `${snap.title || ''}\n${snap.url}\n요소 ${snap.els.length}개\n${(snap.text || '').slice(0, 1500)}`,
       '이 웹 페이지의 지금 상태는?', PAGE_STATES)
     if (sure(d, 'loading') && i < 2) {
       task.stats.waits++
-      say(task, '페이지 기다리는 중')
+      say(task, L('페이지 기다리는 중', 'Waiting for the page'))
       await s.page.waitForTimeout(1500)
       snap = await s.page.evaluate(SNAPSHOT_JS).catch(() => snap)
       continue
@@ -340,7 +350,11 @@ async function pageGate(s, task, snap) {
 }
 
 async function goalMet(task) {
-  const d = await gate(task, `목표: ${task.goal}\n\n기록한 사실:\n${task.notes.map((n) => `- ${n}`).join('\n')}`,
+  const d = isEn() ? await gate(task, `Goal: ${task.goal}\n\nRecorded facts:\n${task.notes.map((n) => `- ${n}`).join('\n')}`,
+    'Can the recorded facts alone fully answer what the goal asks for?', [
+      { key: 'done', label: 'Yes, everything the goal asks for is recorded' },
+      { key: 'more', label: 'No, there is still information to find' },
+    ]) : await gate(task, `목표: ${task.goal}\n\n기록한 사실:\n${task.notes.map((n) => `- ${n}`).join('\n')}`,
     '기록한 사실만으로 목표가 요구한 것을 빠짐없이 답할 수 있나?', [
       { key: 'done', label: '예, 목표가 요구한 정보가 모두 기록돼 있다' },
       { key: 'more', label: '아니오, 아직 더 찾아야 할 정보가 있다' },
@@ -356,16 +370,17 @@ function logAction(task, name, a, out) {
   // a refused or impossible step is not an action taken; asking the person always is
   const ok = ['approve', 'need_user', 'need_login', 'login_failed', 'need_secret'].includes(name) || !/^(error|refused|no (card|credential)|the saved)/.test(String(out))
   const line = {
-    goto: () => `${hostOf(a.url)} 열기`,
-    click: () => `'${label(a.i)}' 누르기`,
-    type: () => `'${label(a.i)}'에 입력`,
-    fill_secret: () => `보관함의 ${{ username: '아이디', password: '비밀번호', card_number: '카드 번호', card_exp: '카드 만료일', card_cvv: 'CVC', card_name: '카드 소유자' }[a.field] || a.field} 입력`,
-    need_secret: () => `${a.label || '인증 코드'}를 받아 입력`,
-    approve: () => `승인 요청: ${String(a.summary || '').slice(0, 80)} → ${/approved/.test(String(out)) ? '승인됨' : '승인 안 됨'}`,
-    login_failed: () => '로그인 거부 확인',
-    scroll: () => '화면 내리기',
-    need_login: () => `${a.site || ''} 로그인 정보 요청`,
-    need_user: () => `확인 요청: ${String(a.reason || '').slice(0, 60)}`,
+    goto: () => L(`${hostOf(a.url)} 열기`, `Open ${hostOf(a.url)}`),
+    click: () => L(`'${label(a.i)}' 누르기`, `Click '${label(a.i)}'`),
+    type: () => L(`'${label(a.i)}'에 입력`, `Type into '${label(a.i)}'`),
+    fill_secret: () => L(`보관함의 ${{ username: '아이디', password: '비밀번호', card_number: '카드 번호', card_exp: '카드 만료일', card_cvv: 'CVC', card_name: '카드 소유자' }[a.field] || a.field} 입력`,
+      `Fill in the ${{ username: 'username', password: 'password', card_number: 'card number', card_exp: 'card expiry', card_cvv: 'CVC', card_name: 'cardholder name' }[a.field] || a.field} from the Vault`),
+    need_secret: () => L(`${a.label || '인증 코드'}를 받아 입력`, `Get and enter the ${a.label || 'verification code'}`),
+    approve: () => L(`승인 요청: ${String(a.summary || '').slice(0, 80)} → ${/approved/.test(String(out)) ? '승인됨' : '승인 안 됨'}`, `Approval request: ${String(a.summary || '').slice(0, 80)} → ${/approved/.test(String(out)) ? 'approved' : 'not approved'}`),
+    login_failed: () => L('로그인 거부 확인', 'Login rejected'),
+    scroll: () => L('화면 내리기', 'Scroll down'),
+    need_login: () => L(`${a.site || ''} 로그인 정보 요청`, `Ask for the ${a.site || ''} login`),
+    need_user: () => L(`확인 요청: ${String(a.reason || '').slice(0, 60)}`, `Ask to check: ${String(a.reason || '').slice(0, 60)}`),
     note: () => null,
     step_done: () => null,
   }[name]?.()
@@ -383,11 +398,12 @@ export function honest(result, task, { moved = false } = {}) {
   const facts = task.notes.length
   if (result.state === 'done' && !acted && !facts && !moved) {
     const planned = (task.steps || []).map((x, i) => `${i + 1}. ${x}`).join('\n')
-    return { ...result, state: 'needs_review', summary: `브라우저에서 아무 동작도 하지 못한 채 작업이 끝났어요. 계획한 단계는 하나도 진행되지 않았어요.${planned ? `\n\n계획했던 단계\n${planned}` : ''}\n\n다시 시키거나, 작업 카드에서 직접 제어로 확인해 주세요.` }
+    return { ...result, state: 'needs_review', summary: L(`브라우저에서 아무 동작도 하지 못한 채 작업이 끝났어요. 계획한 단계는 하나도 진행되지 않았어요.${planned ? `\n\n계획했던 단계\n${planned}` : ''}\n\n다시 시키거나, 작업 카드에서 직접 제어로 확인해 주세요.`,
+      `The task ended without any action in the browser. None of the planned steps was done.${planned ? `\n\nPlanned steps\n${planned}` : ''}\n\nAsk again, or check it yourself with Take control on the task card.`) }
   }
   if (result.state !== 'done' && result.state !== 'needs_review') return result
   const said = String(result.summary || '').trim()
-  return { ...result, summary: [said || (facts ? task.notes.join('\n') : ''), done.length ? `실제로 한 일\n${done.slice(-12).join('\n')}` : ''].filter(Boolean).join('\n\n') }
+  return { ...result, summary: [said || (facts ? task.notes.join('\n') : ''), done.length ? `${L('실제로 한 일', 'What I actually did')}\n${done.slice(-12).join('\n')}` : ''].filter(Boolean).join('\n\n') }
 }
 
 async function act(s, task, name, a) {
@@ -399,7 +415,8 @@ async function act(s, task, name, a) {
 async function doAct(s, task, name, a) {
   const el = (i) => s.page.locator(`[data-pro-idx="${i}"]`).first()
   const host = (() => { try { return new URL(name === 'goto' ? a.url : s.page.url()).hostname.replace(/^www\./, '') } catch { return '' } })()
-  const live = { goto: `${host} 여는 중`, click: `${host}에서 클릭 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로' }[name]
+  const live = (isEn() ? { goto: `Opening ${host}`, click: `Clicking on ${host}`, type: `Typing on ${host}`, fill_secret: `Typing on ${host}`, scroll: 'Looking at the page', note: 'Taking notes', step_done: 'On to the next step' }
+    : { goto: `${host} 여는 중`, click: `${host}에서 클릭 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로' })[name]
   if (live) say(task, live)
   switch (name) {
     case 'goto': await s.page.goto(a.url, { waitUntil: 'domcontentloaded' }); return 'ok'
@@ -431,12 +448,12 @@ async function doAct(s, task, name, a) {
       if (!id) return 'no saved login was filled on this site; use fill_secret first'
       await setStatus(task.userId, id, 'rejected', { taskId: task.id, detail: { reason: a.reason || '' } })
       if (task.unattended) {
-        task.notes.push(`${site}: 저장된 로그인이 거부됨`)
+        task.notes.push(L(`${site}: 저장된 로그인이 거부됨`, `${site}: the saved login was rejected`))
         return 'the saved login was rejected and nobody can fix it now; do not retry, use the alternative in the goal or finish'
       }
       const [row] = (await candidates(task.userId, 'login', site)).filter((r) => r.id === id)
       await waitForUser(s, task, {
-        reason: `${site}에서 저장된 비밀번호를 받아들이지 않았어요`, site,
+        reason: L(`${site}에서 저장된 비밀번호를 받아들이지 않았어요`, `${site} didn't accept the saved password`), site,
         message: ['vault', { kind: 'login', site, mode: 'update', itemId: id, label: row?.label || '', reason: a.reason || '' }],
       })
       const [now] = (await candidates(task.userId, 'login', site)).filter((r) => r.id === id)
@@ -447,13 +464,13 @@ async function doAct(s, task, name, a) {
     case 'need_secret': {
       const site = normSite(host)
       if (task.unattended) {
-        task.notes.push(`${site}: 일회용 값(${a.label || '인증 코드'})이 필요해 진행하지 못함`)
+        task.notes.push(L(`${site}: 일회용 값(${a.label || '인증 코드'})이 필요해 진행하지 못함`, `${site}: couldn't continue, a one-time value (${a.label || 'verification code'}) is needed`))
         return 'nobody is available to provide a one-time code; do not continue this login, record it in a note'
       }
-      task.secretSlot = { i: a.i, label: a.label || '인증 코드' }
+      task.secretSlot = { i: a.i, label: a.label || L('인증 코드', 'verification code') }
       const answer = await waitForUser(s, task, {
-        reason: `${a.label || '인증 코드'} 입력이 필요해요`, site,
-        message: ['vault', { kind: 'secret', site, mode: 'request', label: a.label || '인증 코드' }],
+        reason: L(`${a.label || '인증 코드'} 입력이 필요해요`, `The ${a.label || 'verification code'} is needed`), site,
+        message: ['vault', { kind: 'secret', site, mode: 'request', label: a.label || L('인증 코드', 'verification code') }],
       })
       task.secretSlot = null
       return answer
@@ -461,15 +478,15 @@ async function doAct(s, task, name, a) {
     case 'approve': {
       const site = normSite(host)
       if (task.unattended) {
-        task.notes.push(`${site}: 승인이 필요해 하지 않음 (${a.summary || ''})`)
+        task.notes.push(L(`${site}: 승인이 필요해 하지 않음 (${a.summary || ''})`, `${site}: not done, it needs approval (${a.summary || ''})`))
         return 'nobody is available to approve this; do not do it, record it in a note and continue'
       }
       const card = task.picked.wallet && (await candidates(task.userId, 'card', 'wallet')).find((r) => r.id === task.picked.wallet)
       const answer = await waitForUser(s, task, {
-        reason: a.summary || '승인이 필요해요', site,
-        message: ['choice', { site, approval: true, question: `${a.summary || ''}${card ? `\n결제 카드: ${card.label}` : ''}`.trim(), options: ['승인', '취소'] }],
+        reason: a.summary || L('승인이 필요해요', 'Approval is needed'), site,
+        message: ['choice', { site, approval: true, question: `${a.summary || ''}${card ? L(`\n결제 카드: ${card.label}`, `\nPayment card: ${card.label}`) : ''}`.trim(), options: L(['승인', '취소'], ['Approve', 'Cancel']) }],
       })
-      return /chose: 승인\./.test(String(answer)) ? 'the user approved: do it now' : 'the user declined: do not do it; finish and say it was not done'
+      return /chose: (승인|Approve)\./.test(String(answer)) ? 'the user approved: do it now' : 'the user declined: do not do it; finish and say it was not done'
     }
     case 'step_done': {
       task.steps[a.step - 1] && await updateMessage(task.userId, task.id, {
@@ -483,7 +500,7 @@ async function doAct(s, task, name, a) {
       // A process step runs with nobody watching: waiting for a login or an approval would hold
       // the step (and the one-at-a-time worker) forever, so the agent is told to go around it.
       if (task.unattended) {
-        task.notes.push(`${site}: ${name === 'need_login' ? '로그인 정보가 없어 건너뜀' : `사람 확인이 필요해 하지 않음 (${a.reason || ''})`}`)
+        task.notes.push(`${site}: ${name === 'need_login' ? L('로그인 정보가 없어 건너뜀', 'skipped, no login saved') : L(`사람 확인이 필요해 하지 않음 (${a.reason || ''})`, `not done, a person needs to check (${a.reason || ''})`)}`)
         return name === 'need_login'
           ? `no saved login for ${site} and nobody is available to sign in; do not log in, use the alternative source in the goal instead`
           : 'nobody is available to approve this; do not do it, record it in a note and continue'
@@ -549,9 +566,9 @@ async function pickItem(s, task, kind, site) {
   if (task.declined.has(key)) return null // the user closed this request once: never ask again in this task
   let list = await candidates(task.userId, kind, site)
   if (!list.length) {
-    if (task.unattended) { task.notes.push(`${site}: 저장된 ${kind === 'card' ? '카드' : '로그인'}가 없어 건너뜀`); return null }
+    if (task.unattended) { task.notes.push(L(`${site}: 저장된 ${kind === 'card' ? '카드' : '로그인'}가 없어 건너뜀`, `${site}: skipped, no saved ${kind === 'card' ? 'card' : 'login'}`)); return null }
     await waitForUser(s, task, {
-      reason: kind === 'card' ? '결제에 사용할 카드가 필요해요' : `${site} 로그인이 필요해요`, site,
+      reason: kind === 'card' ? L('결제에 사용할 카드가 필요해요', 'A card to pay with is needed') : L(`${site} 로그인이 필요해요`, `A ${site} login is needed`), site,
       message: ['vault', { kind, site, mode: 'request' }],
     })
     list = await candidates(task.userId, kind, site)
@@ -560,10 +577,10 @@ async function pickItem(s, task, kind, site) {
   let chosen = list[0]
   if (list.length > 1 && !task.unattended) {
     const answer = await waitForUser(s, task, {
-      reason: kind === 'card' ? '어떤 카드를 쓸지 골라 주세요' : '어떤 계정을 쓸지 골라 주세요', site,
+      reason: kind === 'card' ? L('어떤 카드를 쓸지 골라 주세요', 'Choose which card to use') : L('어떤 계정을 쓸지 골라 주세요', 'Choose which account to use'), site,
       message: ['choice', {
         site, vault: true,
-        question: kind === 'card' ? '저장된 카드가 여러 장이에요. 어떤 카드로 결제할까요?' : `${site}에 저장된 계정이 여러 개예요. 어떤 계정으로 로그인할까요?`,
+        question: kind === 'card' ? L('저장된 카드가 여러 장이에요. 어떤 카드로 결제할까요?', 'There are several saved cards. Which card should I pay with?') : L(`${site}에 저장된 계정이 여러 개예요. 어떤 계정으로 로그인할까요?`, `There are several saved accounts for ${site}. Which one should I log in with?`),
         options: list.slice(0, 6).map((r) => r.label),
       }],
     })

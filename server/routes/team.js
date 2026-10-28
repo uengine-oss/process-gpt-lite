@@ -2,6 +2,7 @@
 // caller is on the team; every recipient is checked too (lib/team/access.js).
 // Design: process-gpt/openspec/changes/pgpt-pro-team-sharing/design.md
 import express from 'express'
+import { L } from '../lib/lang.js'
 import { getThread, mainThread, addMessage } from '../lib/store.js'
 import { runTurn } from '../lib/agent.js'
 import { TeamError, requireMember, resolveRecipients, rateLimit, isMember } from '../lib/team/access.js'
@@ -27,7 +28,7 @@ export function teamRoutes(auth) {
       if (out !== undefined && !res.headersSent) res.json(out)
     } catch (e) {
       if (!(e instanceof TeamError)) console.warn('[team]', req.method, req.path, e.message)
-      if (!res.headersSent) res.status(e.status || 500).json({ error: e instanceof TeamError ? e.message : '처리하지 못했어요.' })
+      if (!res.headersSent) res.status(e.status || 500).json({ error: e instanceof TeamError ? e.message : L('처리하지 못했어요.', "I couldn't do that.") })
     }
   }
   const text = (v, n = 4000) => String(v ?? '').trim().slice(0, n)
@@ -40,7 +41,7 @@ export function teamRoutes(auth) {
   r.post('/team/share', auth, h(async (req) => {
     const recipients = await resolveRecipients(req.user, req.body.to)
     const files = await S.myFiles(req.user, req.body.messageIds)
-    if (!files.length) throw new TeamError(400, '공유할 산출물을 골라 주세요.')
+    if (!files.length) throw new TeamError(400, L('공유할 산출물을 골라 주세요.', 'Please choose the outputs to share.'))
     rateLimit(req.user.id, recipients.length)
     const note = text(req.body.note, 1000)
     const sent = []
@@ -68,7 +69,7 @@ export function teamRoutes(auth) {
   // the file card to open in the editor: my original (sender) or my own copy (recipient)
   r.post('/team/shares/:id/open', auth, h(async (req) => ({ message: await S.openCopy(req.user, req.params.id) })))
   r.delete('/team/shares/:id', auth, h(async (req) => {
-    if (!(await S.revoke(req.user, req.params.id))) throw new TeamError(404, '취소할 공유를 찾지 못했어요.')
+    if (!(await S.revoke(req.user, req.params.id))) throw new TeamError(404, L('취소할 공유를 찾지 못했어요.', "I couldn't find the share to cancel."))
     return { ok: true }
   }))
 
@@ -76,13 +77,13 @@ export function teamRoutes(auth) {
   r.post('/team/mention', auth, h(async (req) => {
     const recipients = await resolveRecipients(req.user, req.body.to)
     const body = text(req.body.text)
-    if (!body) throw new TeamError(400, '보낼 말을 적어 주세요.')
+    if (!body) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
     const own = req.body.threadId ? await getThread(req.user.id, String(req.body.threadId)).catch(() => null) : null
-    if (req.body.threadId && !own) throw new TeamError(404, '대화를 찾지 못했어요.')
+    if (req.body.threadId && !own) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
     rateLimit(req.user.id, recipients.length)
     const title = text(req.body.conversation?.title, 120)
     const state = await workState(req.user, { messageIds: req.body.contextIds || [] })
-    const excerpt = state.split('\n').filter((l) => !l.startsWith('산출물:')).slice(-4)
+    const excerpt = state.split('\n').filter((l) => !l.startsWith('산출물:') && !l.startsWith('Outputs:')).slice(-4)
     const files = await S.myFiles(req.user, (req.body.artifactIds || []).slice(-3), { lenient: true })
     const context = { title: title || null, conversationId: req.body.conversation?.id ? text(req.body.conversation.id, 80) : null, excerpt }
     for (const p of recipients) {
@@ -92,7 +93,7 @@ export function teamRoutes(auth) {
     const names = recipients.map((p) => (p.via ? `${p.name}(${p.via})` : p.name)).join(', ')
     if (own) {
       await addMessage(req.user.id, own.id, 'user', 'text', { text: `${recipients.map((p) => `@${p.via || p.name}`).join(' ')} ${body}`, team: true })
-      await addMessage(req.user.id, own.id, 'agent', 'chip', { icon: 'bell', text: `${names}님께 보냈어요${files.length ? ` · 산출물 ${files.length}개` : ''}` })
+      await addMessage(req.user.id, own.id, 'agent', 'chip', { icon: 'bell', text: L(`${names}님께 보냈어요${files.length ? ` · 산출물 ${files.length}개` : ''}`, `Sent to ${names}${files.length ? ` · ${files.length} output${files.length > 1 ? 's' : ''}` : ''}`) })
     }
     return { sent: recipients.map((p) => ({ id: p.id, name: p.name, via: p.via })), files: files.length }
   }))
@@ -101,8 +102,8 @@ export function teamRoutes(auth) {
   r.get('/team/threads', auth, h((req) => M.listThreads(req.user)))
   r.post('/team/threads', auth, h(async (req) => {
     const ids = [...new Set((req.body.members || []).map(String))].filter((id) => id !== req.user.id)
-    if (!ids.length) throw new TeamError(400, '대화할 팀원을 골라 주세요.')
-    for (const id of ids) if (!(await isMember(id))) throw new TeamError(403, '팀원과만 대화할 수 있어요.')
+    if (!ids.length) throw new TeamError(400, L('대화할 팀원을 골라 주세요.', 'Please choose the teammates to talk with.'))
+    for (const id of ids) if (!(await isMember(id))) throw new TeamError(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
     const t = ids.length === 1 ? await M.directThread(req.user, ids[0]) : await M.groupThread(req.user, ids, text(req.body.title, 60))
     return { id: t.id }
   }))
@@ -110,7 +111,7 @@ export function teamRoutes(auth) {
   r.post('/team/threads/:id/messages', auth, h(async (req) => {
     const body = text(req.body.text)
     const files = await S.myFiles(req.user, req.body.artifactIds || [])
-    if (!body && !files.length) throw new TeamError(400, '보낼 말을 적어 주세요.')
+    if (!body && !files.length) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
     rateLimit(req.user.id)
     const m = await M.post(req.user, req.params.id, { kind: files.length ? 'share' : 'text', body, attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
     return m
@@ -123,13 +124,15 @@ export function teamRoutes(auth) {
   // "이어서 작업": my agent picks up what a teammate sent — their note, the gist and my copies
   r.post('/team/messages/:id/continue', auth, h(async (req) => {
     const m = await M.message(req.user, req.params.id)
-    if (!m || m.mine) throw new TeamError(404, '이어서 할 메시지를 찾지 못했어요.')
+    if (!m || m.mine) throw new TeamError(404, L('이어서 할 메시지를 찾지 못했어요.', "I couldn't find the message to continue."))
     const files = await S.copiesFor(req.user, m.artifacts.map((a) => a.shareId).filter(Boolean))
     const t = await mainThread(req.user.id)
-    const shown = `${m.sender.name}님이 보낸 일을 이어서 할게요${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`
-    const context = [`(팀원 ${m.sender.name}님이 ${m.kind === 'share' ? '산출물을 공유했어요' : '이 일로 저를 언급했어요'}. 그 맥락에서 이어서 작업해 주세요.)`,
+    const shown = L(`${m.sender.name}님이 보낸 일을 이어서 할게요${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`, `Continuing the work ${m.sender.name} sent${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`)
+    const context = L([`(팀원 ${m.sender.name}님이 ${m.kind === 'share' ? '산출물을 공유했어요' : '이 일로 저를 언급했어요'}. 그 맥락에서 이어서 작업해 주세요.)`,
       m.context?.title ? `대화: ${m.context.title}` : '', ...(m.context?.excerpt?.length ? ['— 대화 발췌 —', ...m.context.excerpt] : []),
-    ].filter(Boolean).join('\n')
+    ], [`(My teammate ${m.sender.name} ${m.kind === 'share' ? 'shared outputs with me' : 'mentioned me about this work'}. Please continue the work in that context.)`,
+      m.context?.title ? `Conversation: ${m.context.title}` : '', ...(m.context?.excerpt?.length ? ['— conversation excerpt —', ...m.context.excerpt] : []),
+    ]).filter(Boolean).join('\n')
     runTurn({ user: req.user, session: req.session, threadId: t.id, text: shown, context, files })
       .catch((e) => console.warn('[team continue]', e.message))
     M.markRead(req.user, m.threadId).catch(() => {})

@@ -44,6 +44,7 @@ import * as notify from './lib/notify.js'
 import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { saveAttachment } from './lib/attachments.js'
+import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
 
 const app = express()
 // ArtCraft web apps (static WebAssembly builds) on this origin: their postMessage bridge only
@@ -68,6 +69,11 @@ app.use('/craft', express.static(config.craftWebRoot, {
   },
 }))
 app.use(express.json({ limit: '2mb' }))
+// English mode (lib/lang.js): a request is in the language its X-PGL-Lang header names (the page sends
+// it on every /api call); auth() below adds the signed-in person's saved language when it is absent.
+// (EventSource cannot send headers: /api/events?lang=en carries it as a query parameter)
+const langAsked = (req) => req.headers['x-pgl-lang'] || (typeof req.query?.lang === 'string' ? req.query.lang : undefined)
+app.use((req, res, next) => withLang(resolveLang({ header: langAsked(req) }), next))
 
 // whose request this is (lib/tenant.js), behind the ProcessGPT gateway: the X-Tenant-Id it sets from
 // the address; the agents' MCP calls come straight from deepagents, so there the tenant in the
@@ -97,11 +103,15 @@ async function auth(req, res, next) {
   if (!u) return res.status(401).json({ error: 'unauthorized' })
   // a ProcessGPT account works only at its own tenant's address
   if (config.tenantFromHeader && !(await isMember(u.id, config.tenantId))) return res.status(403).json({ error: 'not a member of this tenant' })
-  const [p] = await q('select name from pro_profile where user_id=$1', [u.id])
+  // to_jsonb(p)->>'lang': still answers on a database the lang migration (sql/019) has not reached
+  const [p] = await q(`select name, to_jsonb(p)->>'lang' as lang from pro_profile p where user_id=$1`, [u.id])
   req.user = { id: u.id, email: u.email, name: p?.name || u.user_metadata?.name || u.email.split('@')[0] }
   req.session = { access_token: jwt }
+  if (p) rememberLang(u.id, p.lang)
+  // header > saved > ko; everything this request starts (agent turns, drafts, timers) keeps it
+  req.lang = resolveLang({ header: langAsked(req), saved: p?.lang })
   // entered again: a body parser in the route's own chain runs outside the request's async context
-  req.tenantId ? withTenant(req.tenantId, next) : next()
+  withLang(req.lang, () => (req.tenantId ? withTenant(req.tenantId, next) : next()))
 }
 
 async function finishLogin(email, name) {
@@ -133,16 +143,16 @@ app.get('/api/auth/google/callback', async (req, res) => {
   try {
     const st = oauthStates.get(req.query.state)
     const cookieState = (req.headers.cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith('pgpt-oauth-state='))?.slice('pgpt-oauth-state='.length)
-    if (!st || cookieState !== req.query.state || Date.now() - st.at > 10 * 60 * 1000) throw new Error('로그인 요청이 만료됐어요. 다시 시도해 주세요.')
+    if (!st || cookieState !== req.query.state || Date.now() - st.at > 10 * 60 * 1000) throw new Error(L('로그인 요청이 만료됐어요. 다시 시도해 주세요.', 'The sign-in request expired. Please try again.'))
     oauthStates.delete(req.query.state)
     res.clearCookie('pgpt-oauth-state', { path: '/api/auth/google' })
-    if (req.query.error) throw new Error(req.query.error === 'access_denied' ? 'Google 로그인이 취소됐어요.' : 'Google 로그인에 실패했어요.')
-    if (typeof req.query.code !== 'string') throw new Error('Google 인증 코드가 없어요.')
+    if (req.query.error) throw new Error(req.query.error === 'access_denied' ? L('Google 로그인이 취소됐어요.', 'Google sign-in was canceled.') : L('Google 로그인에 실패했어요.', 'Google sign-in failed.'))
+    if (typeof req.query.code !== 'string') throw new Error(L('Google 인증 코드가 없어요.', 'There is no Google authorization code.'))
     const { tok, me } = await mail.googleExchange(req.query.code, st.verifier)
     const login = await finishLogin(me.email, me.name)
     if (st.connectMail) {
       const granted = new Set((tok.scope || '').split(' '))
-      if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error('메일 연결에 Gmail 읽기 권한이 필요해요. 다시 연결해 주세요.')
+      if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error(L('메일 연결에 Gmail 읽기 권한이 필요해요. 다시 연결해 주세요.', 'Connecting mail needs permission to read Gmail. Please connect again.'))
       const previous = await vault.getSecret(login.user.id, 'oauth', 'google')
       await vault.putItem(login.user.id, 'oauth', 'google', {
         username: me.email, access_token: tok.access_token, refresh_token: tok.refresh_token || previous?.refresh_token,
@@ -151,7 +161,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
       ensureHubBinding(login.user.id, config.tenantId).catch(() => {})
       await q(`insert into pro_mail_accounts(user_id,provider,address) values ($1,'gmail',$2)
                on conflict (user_id) do update set provider='gmail', address=$2`, [login.user.id, me.email])
-      onboardConnected(login.user.id, 'Google에 로그인됨').catch(() => {})
+      onboardConnected(login.user.id, L('Google에 로그인됨', 'Signed in with Google')).catch(() => {})
       setTimeout(() => mail.pollUser(login.user.id, { announce: true }).catch((e) => console.warn('[mail]', e.message)), 6000)
     }
     res.set('Cache-Control', 'no-store')
@@ -183,7 +193,7 @@ app.post('/api/auth/email/verify', async (req, res) => {
     method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'email', email, token: code }),
   })
-  if (!r.ok) return res.status(400).json({ error: '코드가 맞지 않아요' })
+  if (!r.ok) return res.status(400).json({ error: L('코드가 맞지 않아요', "That code doesn't match") })
   res.json(await finishLogin(email, email.split('@')[0]))
 })
 app.post('/api/auth/refresh', async (req, res) => res.json(await refresh(req.body.refresh_token)))
@@ -193,7 +203,15 @@ app.get('/api/me', auth, async (req, res) => {
   const [p] = await q('select * from pro_profile where user_id=$1', [req.user.id])
   const [m] = await q('select provider, address, last_poll from pro_mail_accounts where user_id=$1', [req.user.id])
   // admin: the team and tenant-wide role controls are editable (TeamRoles); otherwise read-only
-  res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user) })
+  // lang: the saved language (null = never chosen); reqLang: the one this request ran in
+  res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang })
+})
+// the person's language (Settings › Accounts › Language): background work for them uses it too
+app.put('/api/me/lang', auth, async (req, res) => {
+  try {
+    await q(`insert into pro_profile(user_id,email) values ($1,$2) on conflict (user_id) do nothing`, [req.user.id, req.user.email])
+    res.json({ lang: await saveLang(req.user.id, req.body?.lang) })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 app.post('/api/profile', auth, async (req, res) => {
   const { name, birth, lat, lon, place, onboarded } = req.body
@@ -211,16 +229,20 @@ app.post('/api/onboard/intro', auth, async (req, res) => {
   const t = await mainThread(req.user.id)
   const [{ n }] = await q('select count(*)::int n from pro_messages where thread_id=$1', [t.id])
   if (n > 0) return res.json({ skipped: true })
-  const lines = [
+  const lines = L([
     `안녕하세요 ${req.user.name}님, 저는 process gpt예요.`,
     '메일과 일정, 결재와 거래처 업무까지 챙기고, 필요한 사이트에는 보관함에 저장한 정보로 안전하게 대신 로그인해서 처리할게요.',
     '허락해 주시면 이메일과 캘린더를 연결해 최근 상황을 파악하고, 제가 어떻게 도울 수 있을지 알아볼게요.',
-  ]
+  ], [
+    `Hi ${req.user.name}, I'm Process GPT Lite.`,
+    "I'll keep track of your mail and calendar, approvals and client work, and where a site needs it, I'll sign in for you safely with what you've saved in the Vault.",
+    "If you let me, I'll connect your email and calendar to get a picture of what's going on lately and see how I can help.",
+  ])
   for (const text of lines) {
     await addMessage(req.user.id, t.id, 'agent', 'text', { text })
     await new Promise((r) => setTimeout(r, 900))
   }
-  await addMessage(req.user.id, t.id, 'agent', 'connect', { text: mail.googleEnabled() ? 'Google에 로그인' : '메일 연결하기', state: 'pending' })
+  await addMessage(req.user.id, t.id, 'agent', 'connect', { text: mail.googleEnabled() ? L('Google에 로그인', 'Sign in with Google') : L('메일 연결하기', 'Connect mail'), state: 'pending' })
   res.json({ ok: true })
 })
 
@@ -233,9 +255,9 @@ async function onboardConnected(userId, label) {
     const [m] = await q(`update pro_messages set content=content || $2::jsonb where id=$1 returning *`, [chip.id, JSON.stringify({ state: 'done', doneText: label })])
     emit(userId, 'message', m)
   }
-  await addMessage(userId, t.id, 'agent', 'text', { text: '감사합니다. 자세히 살펴볼게요. 몇 분 뒤에 아이디어를 가지고 돌아올게요.' })
+  await addMessage(userId, t.id, 'agent', 'text', { text: L('감사합니다. 자세히 살펴볼게요. 몇 분 뒤에 아이디어를 가지고 돌아올게요.', "Thank you. I'll take a close look and come back with ideas in a few minutes.") })
   await new Promise((r) => setTimeout(r, 1200))
-  await addMessage(userId, t.id, 'agent', 'text', { text: '그동안 오늘 하루는 어떠세요?' })
+  await addMessage(userId, t.id, 'agent', 'text', { text: L('그동안 오늘 하루는 어떠세요?', "Meanwhile, how's your day going?") })
   await q('update pro_profile set onboarded_at=coalesce(onboarded_at, now()) where user_id=$1', [userId])
 }
 
@@ -246,7 +268,7 @@ app.post('/api/mail/connect', auth, async (req, res) => {
            on conflict (user_id) do update set provider=$2, address=$3`, [req.user.id, provider, username || req.user.email])
   await q('delete from pro_mail_seen where user_id=$1', [req.user.id])
   res.json({ ok: true })
-  await onboardConnected(req.user.id, provider === 'demo' ? '데모 메일함 연결됨' : `${username} 연결됨`)
+  await onboardConnected(req.user.id, provider === 'demo' ? L('데모 메일함 연결됨', 'Demo mailbox connected') : L(`${username} 연결됨`, `${username} connected`))
   setTimeout(() => mail.pollUser(req.user.id, { announce: true }).catch((e) => console.warn('[mail]', e.message)), 6000)
 })
 app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUser(req.user.id, { announce: true })))
@@ -310,9 +332,12 @@ app.get('/api/events/poll', auth, async (req, res) => {
 })
 
 // The conversations the context router told apart in this user's main chat (its context_threads).
+// (context-router writes the summary's labels in Korean: English mode reads them in English)
+const enSummary = (t) => String(t || '').replace(/^최근 요청:/gm, 'Latest request:').replace(/^최근 답:/gm, 'Latest answer:').replace(/진행 중인 요청/g, 'Request in progress')
 app.get('/api/conversations', auth, async (req, res) => {
-  res.json(await q(`select conversation_id as id, title, summary, gist, kind, turns, updated_at from context_threads
-                    where tenant_id=$1 and user_id=$2 order by updated_at desc limit 200`, [config.tenantId, req.user.id]).catch(() => []))
+  const rows = await q(`select conversation_id as id, title, summary, gist, kind, turns, updated_at from context_threads
+                    where tenant_id=$1 and user_id=$2 order by updated_at desc limit 200`, [config.tenantId, req.user.id]).catch(() => [])
+  res.json(req.lang === 'en' ? rows.map((r) => ({ ...r, summary: enSummary(r.summary), title: r.title === '진행 중인 요청' ? 'Request in progress' : r.title })) : rows)
 })
 
 // ---------- threads ----------
@@ -321,7 +346,7 @@ app.get('/api/threads', auth, async (req, res) => {
   res.json(await q(`select * from pro_threads where user_id=$1 and kind='project' order by updated_at desc`, [req.user.id]))
 })
 app.post('/api/threads', auth, async (req, res) => {
-  const t = await chat({ messages: [{ role: 'system', content: '요청을 5~12자 한국어 프로젝트 제목으로. 제목만.' }, { role: 'user', content: req.body.text }], temperature: 0.2 })
+  const t = await chat({ messages: [{ role: 'system', content: L('요청을 5~12자 한국어 프로젝트 제목으로. 제목만.', 'Turn the request into a 2-5 word English project title. Only the title.') }, { role: 'user', content: req.body.text }], temperature: 0.2 })
   const [row] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project',$2) returning *`, [req.user.id, t.content.replace(/["'.]/g, '').trim()])
   emit(req.user.id, 'thread', row)
   res.json(row)
@@ -370,7 +395,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     console.error(e)
     // a message never goes unanswered: the failure is said in the chat, not only in this stream
     await setThreadStatus(req.user.id, t.id, null).catch(() => {})
-    await addMessage(req.user.id, t.id, 'agent', 'text', { text: '이 요청을 처리하지 못했어요. 잠시 후 다시 보내 주세요.', failed: true }).catch(() => {})
+    await addMessage(req.user.id, t.id, 'agent', 'text', { text: L('이 요청을 처리하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't handle this request. Please send it again in a moment."), failed: true }).catch(() => {})
     send('error', { message: e.message })
   }
   res.end()
@@ -426,19 +451,19 @@ app.post('/api/notifications/:id/dismiss', auth, async (req, res) => {
 // Listing the team also admits the signed-in person (lib/team.js ensureMember: in Lite the team is
 // the tenant's people, and teammate features only work between members). Changing who is on it,
 // and who holds a role for every process, is for administrators (users.is_admin / tenants.owner).
-const ADMIN_ONLY = '관리자만 바꿀 수 있어요.'
+const ADMIN_ONLY = () => L('관리자만 바꿀 수 있어요.', 'Only administrators can change this.')
 app.get('/api/team', auth, async (req, res) => {
   await team.ensureMember(req.user)
   res.json(await team.listTeam())
 })
 app.post('/api/team', auth, async (req, res) => {
-  if (!(await team.isAdmin(req.user))) return res.status(403).json({ error: ADMIN_ONLY })
+  if (!(await team.isAdmin(req.user))) return res.status(403).json({ error: ADMIN_ONLY() })
   if (!/^[^@\s]+@[^@\s]+$/.test(String(req.body.email || ''))) return res.status(400).json({ error: 'email' })
   res.json(await team.addMember(req.user, req.body.email, req.body.name))
 })
 app.delete('/api/team/:id', auth, async (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: 'self' })
-  if (!(await team.isAdmin(req.user))) return res.status(403).json({ error: ADMIN_ONLY })
+  if (!(await team.isAdmin(req.user))) return res.status(403).json({ error: ADMIN_ONLY() })
   await team.removeMember(req.params.id, req.user.id)
   res.json({ ok: true })
 })
@@ -447,7 +472,7 @@ app.get('/api/roles', auth, async (req, res) => res.json(await team.listAssignme
 app.put('/api/roles', auth, async (req, res) => {
   const { defId, role, userId } = req.body
   if (!role) return res.status(400).json({ error: 'role' })
-  if (!(await team.canAssign(req.user, defId))) return res.status(403).json({ error: defId ? '이 프로세스의 담당자나 관리자만 역할을 정할 수 있어요.' : '모든 프로세스에 걸리는 역할 담당은 관리자만 정할 수 있어요.' })
+  if (!(await team.canAssign(req.user, defId))) return res.status(403).json({ error: defId ? L('이 프로세스의 담당자나 관리자만 역할을 정할 수 있어요.', "Only this process's owner or an administrator can assign its roles.") : L('모든 프로세스에 걸리는 역할 담당은 관리자만 정할 수 있어요.', 'Only administrators can assign roles that apply to every process.') })
   res.json(await team.assign(req.user, { defId, role, userId }))
 })
 
@@ -478,7 +503,7 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
 async function room(req, res) {
   const r = await workroom.resolveRoom(req.params.kind, req.params.id).catch(() => null)
   if (!r) { res.status(404).json({ error: 'no workroom' }); return null }
-  if (!(await workroom.canAccess(req.user, r).catch(() => false))) { res.status(403).json({ error: '이 작업실을 볼 권한이 없어요' }); return null }
+  if (!(await workroom.canAccess(req.user, r).catch(() => false))) { res.status(403).json({ error: L('이 작업실을 볼 권한이 없어요', "You don't have access to this workroom") }); return null }
   return r
 }
 const fail = (res, e) => res.status(e.status || 500).json({ error: e.message, mtime: e.mtime })
@@ -537,7 +562,7 @@ app.get('/api/panel-proxy', auth, async (req, res) => {
   try { res.json(await proxyFetch(req.query.url)) } catch (e) { res.status(400).json({ error: e.message }) }
 })
 app.post('/api/panel-ask', auth, async (req, res) => {
-  const m = await chat({ model: config.llm.fastModel, messages: [{ role: 'system', content: '짧게 한국어로 답해.' }, { role: 'user', content: req.body.prompt }] })
+  const m = await chat({ model: config.llm.fastModel, messages: [{ role: 'system', content: L('짧게 한국어로 답해.', 'Answer briefly in English.') }, { role: 'user', content: req.body.prompt }] })
   res.json({ text: m.content })
 })
 
@@ -649,7 +674,7 @@ const vaultRoute = (fn) => async (req, res) => {
   try { await fn(req, res) } catch (e) {
     if (e instanceof vault.VaultError) return res.status(e.status).json({ error: e.message })
     console.warn('[vault]', e.message)
-    res.status(500).json({ error: '보관함 처리 중 오류가 났어요.' })
+    res.status(500).json({ error: L('보관함 처리 중 오류가 났어요.', 'Something went wrong in the Vault.') })
   }
 }
 // a vault card in chat (request / update / capture) owned by this user
@@ -667,7 +692,7 @@ app.get('/api/vault', auth, vaultRoute(async (req, res) => res.json(await vault.
 app.post('/api/vault', auth, vaultRoute(async (req, res) => {
   const { kind, site, data, messageId } = req.body
   const card = messageId && await vaultCard(req.user.id, messageId)
-  if (card && card.content.state !== 'pending') return res.status(409).json({ error: '이 요청은 만료됐어요.' })
+  if (card && card.content.state !== 'pending') return res.status(409).json({ error: L('이 요청은 만료됐어요.', 'This request has expired.') })
   const item = await vault.putItem(req.user.id, kind, site, data, { taskId: card?.content?.taskId })
   if (card) {
     await settleCard(req.user.id, card.id, { state: 'saved', label: item.label })
@@ -678,7 +703,7 @@ app.post('/api/vault', auth, vaultRoute(async (req, res) => {
 // change fields of a saved item (e.g. the password a site rejected)
 app.patch('/api/vault/:id', auth, vaultRoute(async (req, res) => {
   const card = req.body.messageId && await vaultCard(req.user.id, req.body.messageId)
-  if (card && card.content.state !== 'pending') return res.status(409).json({ error: '이 요청은 만료됐어요.' })
+  if (card && card.content.state !== 'pending') return res.status(409).json({ error: L('이 요청은 만료됐어요.', 'This request has expired.') })
   const item = await vault.updateItem(req.user.id, req.params.id, req.body.data, { taskId: card?.content?.taskId })
   if (card) {
     await settleCard(req.user.id, card.id, { state: 'saved', label: item.label })
@@ -710,8 +735,8 @@ app.post('/api/vault/requests/:msgId/dismiss', auth, vaultRoute(async (req, res)
 app.post('/api/vault/requests/:msgId/secret', auth, vaultRoute(async (req, res) => {
   const card = await vaultCard(req.user.id, req.params.msgId)
   if (!card || card.content.kind !== 'secret' || card.content.state !== 'pending') return res.status(404).end()
-  if (!String(req.body.value || '')) return res.status(400).json({ error: '값을 입력해 주세요.' })
-  if (!await browser.provideSecret(req.user.id, String(req.body.value))) return res.status(409).json({ error: '이 요청은 더 이상 기다리고 있지 않아요.' })
+  if (!String(req.body.value || '')) return res.status(400).json({ error: L('값을 입력해 주세요.', 'Please enter a value.') })
+  if (!await browser.provideSecret(req.user.id, String(req.body.value))) return res.status(409).json({ error: L('이 요청은 더 이상 기다리고 있지 않아요.', 'This request is no longer waiting.') })
   await settleCard(req.user.id, card.id, { state: 'used' })
   res.json({ ok: true })
 }))
@@ -750,7 +775,11 @@ const server = app.listen(config.port, async () => {
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb
-           where kind='task' and content->>'state' in ('running','needs_input','queued')`)
+           where kind='task' and content->>'state' in ('running','needs_input','queued')
+             and not exists (select 1 from pro_threads t join pro_profile p on p.user_id=t.user_id where t.id=pro_messages.thread_id and to_jsonb(p)->>'lang'='en')`)
+  // (English-mode people read it in English)
+  await q(`update pro_messages set content = content || '{"state":"failed","summary":"The server restarted, so the task was stopped."}'::jsonb
+           where kind='task' and content->>'state' in ('running','needs_input','queued')`).catch(() => {})
   await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where kind='vault' and content->>'state'='pending'`)
   await q(`update pro_threads set status=null where status is not null`)
   // turns wait their turn in memory (lib/turns.js): a message still marked 대기 will not be answered now

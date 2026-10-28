@@ -15,6 +15,7 @@ import { runBrowserTask } from './browser.js'
 import { addMessage } from './store.js'
 import { getForm } from './processes.js'
 import { emit } from './bus.js'
+import { L, isEn, asUser } from './lang.js'
 
 const ORCH = 'browser-automation-agent'
 const CONSUMER = `pgpt-pro-browser-${process.pid}`
@@ -48,13 +49,18 @@ async function formFor(row) {
   return f ? getForm(f.id) : null
 }
 
+// the step runs in the language of the person the browser acts for (their saved language)
 async function handle(row) {
-  const job = crypto.randomUUID()
-  const base = { job_id: job, todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH }
   const owner = await ownerOf(row)
   if (!owner) throw new Error('no human participant to act for')
+  const [u] = await q('select id::text as id from users where (id::text=$1 or email=$1) limit 1', [owner]).catch(() => [])
+  return asUser(u?.id || owner, () => handleAs(row, owner))
+}
+async function handleAs(row, owner) {
+  const job = crypto.randomUUID()
+  const base = { job_id: job, todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH }
   const threadId = owner ? await instanceThread(owner, row.proc_inst_id) : null
-  await events([{ ...base, event_type: 'task_started', data: { goal: `${row.activity_name} 작업을 시작합니다.`, name: '브라우저 에이전트', role: row.activity_name } }])
+  await events([{ ...base, event_type: 'task_started', data: { goal: L(`${row.activity_name} 작업을 시작합니다.`, `Starting the ${row.activity_name} task.`), name: L('브라우저 에이전트', 'Browser agent'), role: row.activity_name } }])
 
   // the activity's full instruction lives in the definition; the work item carries only its summary
   const [d] = await q(`select a->>'instruction' as instruction from proc_def, jsonb_array_elements(definition->'activities') a
@@ -75,7 +81,7 @@ async function handle(row) {
   if (form?.fields?.length) {
     const values = await chatJson(
       `Fill a work form from a browser agent's findings. Return JSON {"<field key>": value} for exactly these fields: ${JSON.stringify(form.fields.map((f) => ({ key: f.key, label: f.text, type: f.type, items: f.items })))}.
-Use only facts present in the findings. For report/textarea fields write a Korean markdown report (tables welcome). For select/radio use one of the item keys.`,
+Use only facts present in the findings. For report/textarea fields write a${isEn() ? 'n English' : ' Korean'} markdown report (tables welcome). For select/radio use one of the item keys.`,
       `Findings:\n${(result.notes || []).join('\n')}\n\nSummary:\n${result.summary}\n\nLast page (${result.url}):\n${result.pageText}`)
     payload = { [form.id]: values }
   } else {
@@ -87,7 +93,7 @@ Use only facts present in the findings. For report/textarea fields write a Korea
     { ...base, crew_type: 'result', event_type: 'task_completed', data: payload },
     { job_id: 'CREW_FINISHED', todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: 'crew', event_type: 'crew_completed', data: 'Task completed successfully' },
   ])
-  if (owner && threadId) await addMessage(owner, threadId, 'agent', 'text', { text: `브라우저 에이전트가 '${row.activity_name}'을 마쳤어요. ${result.summary}` })
+  if (owner && threadId) await addMessage(owner, threadId, 'agent', 'text', { text: L(`브라우저 에이전트가 '${row.activity_name}'을 마쳤어요. ${result.summary}`, `The browser agent finished '${row.activity_name}'. ${result.summary}`) })
   if (owner) emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
 }
 

@@ -3,16 +3,22 @@
 // file materials the person who pressed 시작 can open — their own cards or their copies.
 import { q } from '../supa.js'
 import * as MAT from './materials.js'
+import { L, withLang } from '../lang.js'
+import { meetingLang } from './record.js'
 
+// in the meeting's language (the work order is what the agent reads; its result goes back to the room)
 export async function meetingOrder(me, s) {
+  const [mt] = await q('select summary from pro_meetings where id=$1', [s.meeting_id])
+  return withLang(meetingLang(mt), () => orderOf(me, s, mt))
+}
+async function orderOf(me, s, m) {
   let lines = []
   const seg = /^meeting:(\d+)$/.exec(s.chat_uuid || '')
   if (seg) {
     const rows = await q('select speaker, text from pro_meeting_segments where meeting_id=$1 and id <= $2 order by id desc limit 4', [s.meeting_id, Number(seg[1])])
     lines = rows.reverse().map((r) => `${r.speaker}: ${String(r.text).slice(0, 300)}`)
   } else {
-    const [m] = await q('select summary from pro_meetings where id=$1', [s.meeting_id])
-    lines = [m?.summary?.summary ? `회의 요약: ${m.summary.summary}` : '', ...(m?.summary?.decisions || []).map((d) => `결정: ${d}`), `할 일: ${s.title}`].filter(Boolean)
+    lines = [m?.summary?.summary ? `${L('회의 요약', 'Meeting summary')}: ${m.summary.summary}` : '', ...(m?.summary?.decisions || []).map((d) => `${L('결정', 'Decision')}: ${d}`), `${L('할 일', 'Action item')}: ${s.title}`].filter(Boolean)
   }
   // only the files the request is about (named in it), else the one on the stage: other materials shown
   // in the meeting would pull the agent into work nobody asked for

@@ -4,6 +4,11 @@
 //   node scripts/seed-improve-demo.mjs --run 3 [--api http://localhost:8788] [--leave 1]
 //                                                       실제 엔진으로 인스턴스 N건 실행(마지막 --leave 건은 재무 검토에서 멈춤)
 //   node scripts/seed-improve-demo.mjs --remove [--accounts]   시드·실행한 것 모두 지움(--accounts: 계정까지)
+//   … --lang en    영문판(English edition): 같은 정의 id·이력·숫자, 이름과 글만 영어(Moonlight Coffee proposal,
+//                   Jinyoung Jang · Minji Kim · Seoyeon Park). 계정은 pro-en-srv-d-{jang,minji,seoyeon}@uengine.org 이고
+//                   그 계정의 언어(pro_profile.lang)를 en 으로 둔다. 정의 id 가 같으므로 한국어판을 쓰는 데이터베이스에서
+//                   돌리면 한국어판 정의·이력을 바꿔 쓴다(한국어판은 --lang 없이 다시 돌리면 돌아옴).
+//   … --dry-run   데이터베이스에 쓰지 않고 정의·이력의 이름과 글만 보여 준다(--lang en 과 함께)
 // 계정은 튜토리얼용 pro-tut-d-{jang,minji,seoyeon}@uengine.org(장진영·김민지·박서연) 뿐이다.
 // 과거 이력은 process-gpt 엔진이 남기는 모양 그대로(lib/improve/shape.js): todolist + todolist_status_history + events.
 process.env.DOTENV_CONFIG_QUIET = 'true'
@@ -11,14 +16,36 @@ import crypto from 'node:crypto'
 const { q, pool, ensureUser } = await import('../lib/supa.js')
 const { config } = await import('../config.js')
 const { saveGenerated } = await import('../lib/generated.js')
-const { DEF_ID, DEF_NAME, VERSION, AGENTS, contract, simulate } = await import('../lib/improve/demoProcess.js')
+const { DEF_ID, VERSION, agentsIn, contract, simulate } = await import('../lib/improve/demoProcess.js')
 const { writeInstance } = await import('../lib/improve/shape.js')
+const { withLang } = await import('../lib/lang.js')
 
 const T = config.tenantId
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? (process.argv[i + 1] ?? true) : d }
 const has = (k) => process.argv.includes(k)
-const PEOPLE = { jang: ['pro-tut-d-jang@uengine.org', '장진영'], minji: ['pro-tut-d-minji@uengine.org', '김민지'], seoyeon: ['pro-tut-d-seoyeon@uengine.org', '박서연'] }
+const LANG = String(process.argv.find((a) => a.startsWith('--lang='))?.slice(7) || arg('--lang', 'ko')).toLowerCase().startsWith('en') ? 'en' : 'ko'
+const EN = LANG === 'en'
+const AGENTS = agentsIn(LANG)
+const PEOPLE = EN
+  ? { jang: ['pro-en-srv-d-jang@uengine.org', 'Jinyoung Jang'], minji: ['pro-en-srv-d-minji@uengine.org', 'Minji Kim'], seoyeon: ['pro-en-srv-d-seoyeon@uengine.org', 'Seoyeon Park'] }
+  : { jang: ['pro-tut-d-jang@uengine.org', '장진영'], minji: ['pro-tut-d-minji@uengine.org', '김민지'], seoyeon: ['pro-tut-d-seoyeon@uengine.org', '박서연'] }
 const SEED_MARK = { seed: 'improve-demo' }
+// the words the seed itself writes (the definition's own are in lib/improve/demoProcess.js)
+const TX = EN ? {
+  versionMessage: 'Registered (process mining)', roles: ['Sales', 'Designer', 'Finance'],
+  stores: ['Seoul Forest Store #52', 'Gwanghwamun Store #53', 'Songnidan-gil Store #54', 'Ikseon-dong Store #55'], customer: 'Moonlight Coffee',
+  body: (store, area) => `Please send us a design proposal and a quote for Moonlight Coffee ${store} (${area} ㎡).`,
+  rooms: (area) => `Hall | ${Math.round(area * 0.55)} ㎡\nBar & kitchen | ${Math.round(area * 0.22)} ㎡\nStorage | ${Math.round(area * 0.08)} ㎡\nRestroom | ${Math.round(area * 0.07)} ㎡\nStaff room | ${Math.round(area * 0.08)} ㎡`,
+  planNote: 'Entrance on the south side, window seats first', approve: { decision: 'Approve', comment: 'Unit prices look right. Approved.' },
+  reply: (store) => `Hello. Please find attached the design proposal and the quote for Moonlight Coffee ${store}.`,
+} : {
+  versionMessage: '정식 등록 (프로세스 마이닝)', roles: ['영업 담당', '디자이너', '재무 담당'],
+  stores: ['서울숲 52호점', '광화문 53호점', '송리단길 54호점', '익선동 55호점'], customer: '달빛커피',
+  body: (store, area) => `달빛커피 ${store} 매장(${area}㎡) 설계 제안과 견적을 부탁드립니다.`,
+  rooms: (area) => `홀 | ${Math.round(area * 0.55)}㎡\n바·주방 | ${Math.round(area * 0.22)}㎡\n창고 | ${Math.round(area * 0.08)}㎡\n화장실 | ${Math.round(area * 0.07)}㎡\n직원실 | ${Math.round(area * 0.08)}㎡`,
+  planNote: '출입구 남측, 창가 좌석 우선', approve: { decision: '승인', comment: '단가 적정, 승인합니다.' },
+  reply: (store) => `안녕하세요. 달빛커피 ${store} 설계 제안서와 견적서를 보내 드립니다.`,
+}
 
 async function accounts() {
   const ids = {}, names = {}
@@ -29,6 +56,8 @@ async function accounts() {
     await q(`insert into pro_profile(user_id,name,email,birth,onboarded_at) values ($1,$2,$3,'1988-01-01',now())
              on conflict (user_id) do update set name=$2, onboarded_at=coalesce(pro_profile.onboarded_at, now()), birth=coalesce(pro_profile.birth, '1988-01-01')`, [u.id, name, email])
     await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ($1,$2,$3) on conflict do nothing`, [T, u.id, u.id])
+    // the English edition's accounts work in English (lib/lang.js; needs sql/019_lang.sql)
+    if (EN) await q(`update pro_profile set lang='en' where user_id=$1`, [u.id]).catch((e) => console.warn('lang', e.message))
   }
   for (const a of Object.values(AGENTS)) {
     await q(`insert into users (id, username, email, tenant_id, is_agent, is_admin, is_draft, agent_type, alias, goal, persona, permission_ids)
@@ -39,15 +68,17 @@ async function accounts() {
 }
 
 async function definition(ids) {
-  const c = contract(ids)
+  const c = contract(ids, { lang: LANG })
   const saved = await saveGenerated(c)
   await q(`update proc_def set owner=$2 where id=$1 and tenant_id=$3`, [DEF_ID, ids.jang, T])
   const [d] = await q('select bpmn, definition from proc_def where id=$1 and tenant_id=$2', [DEF_ID, T])
   const arcv = `${DEF_ID}_${VERSION}`
   await q(`delete from proc_def_version where proc_def_id=$1 and tenant_id=$2 and arcv_id=$3`, [DEF_ID, T, arcv])
   await q(`insert into proc_def_version (arcv_id, proc_def_id, version, version_tag, "timeStamp", snapshot, definition, message, tenant_id, is_draft, owner)
-           values ($1,$2,$3,'major',$4,$5,$6,$7,$8,false,$9)`, [arcv, DEF_ID, VERSION, '2026-07-31T09:00:00Z', d.bpmn, d.definition, '정식 등록 (프로세스 마이닝)', T, ids.jang])
-  for (const [role, who] of [['영업 담당', ids.jang], ['디자이너', ids.minji], ['재무 담당', ids.seoyeon]]) {
+           values ($1,$2,$3,'major',$4,$5,$6,$7,$8,false,$9)`, [arcv, DEF_ID, VERSION, '2026-07-31T09:00:00Z', d.bpmn, d.definition, TX.versionMessage, T, ids.jang])
+  // (the other language's role names of this definition are cleared, so one set of roles holds)
+  await q(`delete from pro_role_assignments where tenant_id=$1 and proc_def_id=$2 and role = any($3)`, [T, DEF_ID, EN ? ['영업 담당', '디자이너', '재무 담당'] : ['Sales', 'Designer', 'Finance']])
+  for (const [role, who] of [[TX.roles[0], ids.jang], [TX.roles[1], ids.minji], [TX.roles[2], ids.seoyeon]]) {
     await q(`insert into pro_role_assignments(tenant_id,proc_def_id,role,user_id,updated_by) values ($1,$2,$3,$4,$4)
              on conflict (tenant_id,proc_def_id,role) do update set user_id=excluded.user_id, updated_at=now()`, [T, DEF_ID, role, who])
   }
@@ -75,7 +106,7 @@ async function removeInstances(insts) {
 async function seedHistory(ids, names, { arcv, roles }) {
   const removed = await removeSeeded()
   const now = Date.now()
-  const sims = simulate({ people: ids, names, from: Date.UTC(2026, 7, 3), to: now - 2 * 3600000 })
+  const sims = simulate({ people: ids, names, from: Date.UTC(2026, 7, 3), to: now - 2 * 3600000, lang: LANG })
   let rows = 0
   for (const sim of sims) rows += await writeInstance(q, { tenant: T, defId: DEF_ID, sim, arcv, version: VERSION, roles, mark: SEED_MARK })
   console.log(`history: ${sims.length} instances, ${rows} work items (replaced ${removed} seeded before) — ${new Date(sims[0].start).toISOString().slice(0, 10)} … ${new Date(sims.at(-1).end).toISOString().slice(0, 10)}`)
@@ -88,7 +119,7 @@ async function login(api, email) {
   return (await r.json()).session.access_token
 }
 const call = async (api, tok, method, path, body) => {
-  const r = await fetch(`${api}/api${path}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: body ? JSON.stringify(body) : undefined })
+  const r = await fetch(`${api}/api${path}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}`, ...(EN ? { 'X-PGL-Lang': 'en' } : {}) }, body: body ? JSON.stringify(body) : undefined })
   const t = await r.text()
   if (!r.ok) throw new Error(`${method} ${path}: ${r.status} ${t.slice(0, 200)}`)
   return t ? JSON.parse(t) : null
@@ -108,13 +139,14 @@ async function waitFor(fn, what, ms = 45 * 60000) {
 export async function runReal({ api, n, leave, pause = 30000, stores, areas, cont }) {
   const tok = {}
   for (const [k, [email]] of Object.entries(PEOPLE)) tok[k] = await login(api, email)
+  // (the page sends X-PGL-Lang on every call; so does this script)
   const out = []
   for (let i = 0; i < n; i++) {
-    const store = stores?.[i] || ['서울숲 52호점', '광화문 53호점', '송리단길 54호점', '익선동 55호점'][i % 4]
+    const store = stores?.[i] || TX.stores[i % 4]
     const area = areas?.[i] || [72, 118, 64, 96][i % 4]
     let instId = cont
     if (!instId) {
-      const values = { customer: '달빛커피', store, area: String(area), budget: String(area * 500000), body: `달빛커피 ${store} 매장(${area}㎡) 설계 제안과 견적을 부탁드립니다.` }
+      const values = { customer: TX.customer, store, area: String(area), budget: String(area * 500000), body: TX.body(store, area) }
       instId = (await call(api, tok.jang, 'POST', `/processes/${DEF_ID}/start`, { values })).instId
       console.log(`started ${instId} (${store})`)
     }
@@ -148,10 +180,10 @@ async function drive({ api, tok, instId, area, store, pause, leave }) {
     console.log(`  ${act} submitted by ${who}`)
     return todo.id
   }
-  await step('minji', 'floor_plan', { rooms: `홀 | ${Math.round(area * 0.55)}㎡\n바·주방 | ${Math.round(area * 0.22)}㎡\n창고 | ${Math.round(area * 0.08)}㎡\n화장실 | ${Math.round(area * 0.07)}㎡\n직원실 | ${Math.round(area * 0.08)}㎡`, plan_note: '출입구 남측, 창가 좌석 우선' })
+  await step('minji', 'floor_plan', { rooms: TX.rooms(area), plan_note: TX.planNote })
   // the agents (견적 초안, 제안서 작성) run in deepagents; 재무 검토 comes up when the proposal is done
-  const fin = await step('seoyeon', 'finance_review', { decision: '승인', comment: '단가 적정, 승인합니다.' }, { stop: leave, skipTo: 'reply' })
-  if (fin) await step('jang', 'reply', { reply: `안녕하세요. 달빛커피 ${store} 설계 제안서와 견적서를 보내 드립니다.` })
+  const fin = await step('seoyeon', 'finance_review', TX.approve, { stop: leave, skipTo: 'reply' })
+  if (fin) await step('jang', 'reply', { reply: TX.reply(store) })
 }
 
 async function removeAll() {
@@ -186,17 +218,32 @@ async function removeAll() {
   }
 }
 
+// --dry-run: the names and texts this would write, nothing written
+async function dryRun() {
+  const ids = { jang: 'jang', minji: 'minji', seoyeon: 'seoyeon' }
+  const names = Object.fromEntries(Object.entries(PEOPLE).map(([k, [, n]]) => [k, n]))
+  const c = contract(ids, { lang: LANG })
+  const sims = simulate({ people: ids, names, from: Date.UTC(2026, 7, 3), to: Date.now() - 2 * 3600000, lang: LANG })
+  const els = c.processDefinition.elements.filter((e) => e.elementType !== 'Sequence')
+  console.log(JSON.stringify({ lang: LANG, accounts: PEOPLE, agents: Object.values(AGENTS).map((a) => a.name), process: c.processDefinition.processDefinitionName,
+    description: c.processDefinition.description, roles: c.processDefinition.roles.map((r) => r.name), steps: els.map((e) => `${e.id}: ${e.name}`),
+    conditions: c.processDefinition.elements.filter((e) => e.condition).map((e) => e.condition), instances: sims.length, first: sims[0] && { name: sims[0].name, steps: sims[0].steps.map((x) => ({ step: x.activityName, who: x.username, output: x.output })) } }, null, 1))
+}
+
 try {
-  if (has('--remove')) await removeAll()
+  if (has('--dry-run')) await dryRun()
+  else if (has('--remove')) await removeAll()
   else if (has('--run')) {
     const res = await runReal({ api: arg('--api', 'http://localhost:8788'), n: Number(arg('--run', 3)), leave: Number(arg('--leave', 1)), pause: Number(arg('--pause', 30000)), cont: arg('--continue', null),
       stores: arg('--stores', null)?.split(','), areas: arg('--areas', null)?.split(',').map(Number) })
     console.log(JSON.stringify(res, null, 1))
   } else {
-    const { ids, names } = await accounts()
-    const def = await definition(ids)
-    await seedHistory(ids, names, def)
-    const { checkConstraint } = await import('../lib/improve/service.js')
-    console.log('constraint notice:', JSON.stringify(await checkConstraint(DEF_ID)))
+    await withLang(LANG, async () => {
+      const { ids, names } = await accounts()
+      const def = await definition(ids)
+      await seedHistory(ids, names, def)
+      const { checkConstraint } = await import('../lib/improve/service.js')
+      console.log('constraint notice:', JSON.stringify(await checkConstraint(DEF_ID)))
+    })
   }
 } finally { await pool.end() }

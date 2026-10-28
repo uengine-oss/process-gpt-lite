@@ -8,6 +8,7 @@
 ### 추가
 
 - **영어 모드(English mode) 화면**: 「언어 / Language」 전환(로그인 화면·설정 › 계정), `?lang=en|ko` > 저장한 설정(`pgl-lang`, `PUT /api/me/lang`) > 브라우저 언어 순으로 고르고, 모든 `/api` 호출에 `X-PGL-Lang` 을 보냅니다. 컴포넌트는 그대로 두고 런타임 번역기(`src/i18n/translate.js`)가 사전(`src/i18n/ko-en.json`, 약 1,700개 · 패턴 · 날짜/상대 시간/만·억·원/단위 규칙)으로 화면 글자를 영어로 바꿉니다(한국어 모드에서는 번역기를 싣지 않음). 추출기·검사기·사전 추가·서버 `L(ko, en)` 쌍 반영(`scripts/i18n-{extract.py,check.mjs,add.py,handoff.py,server-pairs.mjs}`), 용어집 `i18n/GLOSSARY.md`, 서버 쪽 인계 `i18n/HANDOFF.md`, 영어 스모크 시험 `e2e/tests/smoke/english.spec.js`(e2e 는 `PGL_LANG=ko|en` 으로 언어 고정).
+- **영어 모드 — 서버·에이전트·예제 데이터**: 요청마다 `X-PGL-Lang`(이벤트 스트림은 `?lang=`) > 저장한 언어 > ko, `PUT /api/me/lang`·`GET /api/me` 의 `lang`(`server/sql/019_lang.sql`, `server/lib/lang.js`). 배경 작업(메일 폴러·미션·마이닝·회의·프로세스 단계·알림)은 그 일의 주인·받는 사람이 저장한 언어로. 영어일 때 모든 모델 호출(메일 분석·검수·회의록·마이닝 이름·패널 앱·브라우저 계획·개선 설명·제목)과 에이전트(deepagents·cli-agent·작업실 Claude Code·skill-creator·프로세스 생성)가 영어로 답하고 파일 이름·문서 내용도 영어로 — 영어 설계 제안서는 평면도 그림을 넣은 워드 문서. 서버가 쓰는 고정 문장·알림·오류, 데모 메일함·연습 메일(`server/fixtures/*-en.json`), 시드 `--lang en`(개선·마이닝·출장비 정산·카탈로그 단가 조사·SNS), 회의 받아쓰기(영어 회의는 `language=en`), 로그인 코드 메일(한·영 병기)에 영어판. 한국어 모드는 그대로. 시험: `server/test/lang*.test.js`, `e2e/tests/agent/english.spec.js`.
 - **프로세스 개선 — 병목 · 가치 흐름 · 제약 이론 · 크리티컬 패스 · 개선 실행** (설계 process-gpt `openspec/changes/pgpt-pro-process-improvement`, 튜토리얼 20~22장):
   - process-gpt analytic 서비스의 리드타임 분해(`leadtime.py`: 큐 대기·검토 대기·사람 판단·에이전트 수행·재작업, 상태 전이 이력·이벤트 시각만 신뢰)를
     그대로 옮기고(원본 시험 17개 포함), 원본이 선언만 하던 검토 대기·재작업을 실제로 계산합니다. 엔진이 미리 만드는 TODO 와 도달 즉시 IN_PROGRESS 를

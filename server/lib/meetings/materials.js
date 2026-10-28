@@ -13,6 +13,7 @@ import * as PA from '../panelApps/service.js'
 import * as F from '../folders/service.js'
 import * as S from '../team/shares.js'
 import { view as messageView } from '../team/messenger.js'
+import { isEn } from '../lang.js'
 
 const T = () => config.tenantId
 const UUID = /^[0-9a-f-]{36}$/i
@@ -22,7 +23,31 @@ const STOP = new Set(['xlsx', 'xls', 'dxf', 'hwpx', 'hwp', 'docx', 'pdf', 'svg',
 const SYN = { 평면도: ['도면', '평면'], 견적서: ['견적'], 안내문: ['안내'], 정산: ['정산서'], 휴가: ['연차', '휴가'], 출장비: ['출장'], 제안서: ['제안'] }
 export const nameTokens = (name) => String(name || '').replace(/\.[a-z0-9]{2,5}$/i, '').split(/[\s_\-·.,()[\]/]+/).filter((t) => t.length >= 2 && !STOP.has(t.toLowerCase()))
 const EXT_CUE = [[/견적|정산표|예산/, /\.(xlsx|xls|csv)$/i], [/평면도|도면|설계도/, /\.(dxf|dwg)$/i], [/안내문|공문|제안서|보고서/, /\.(hwpx|hwp|docx)$/i]]
+// English meetings: names and speech are compared without case ("the Quote" → "Moonlight Coffee quote.xlsx"),
+// with English filler words and synonyms
+const STOP_EN = new Set(['the', 'and', 'for', 'final', 'draft', 'file', 'process', 'request', 'copy', 'new', 'of', 'to'])
+const SYN_EN = { quote: ['estimate', 'quotation', 'pricing'], floor: ['drawing', 'layout'], plan: ['drawing', 'layout'], notice: ['announcement'],
+  expense: ['expenses', 'settlement'], leave: ['vacation', 'time off'], travel: ['trip'], proposal: ['pitch'] }
+const EXT_CUE_EN = [[/quote|estimate|budget|expense|pricing/, /\.(xlsx|xls|csv)$/i], [/floor\s*plan|drawing|layout/, /\.(dxf|dwg)$/i], [/notice|letter|proposal|report/, /\.(hwpx|hwp|docx)$/i]]
+function scoreEn(utter, name) {
+  const said = String(utter || '').toLowerCase()
+  const u = said.replace(/\s+/g, '')
+  let s = 0, missed = 0
+  for (const t0 of nameTokens(name)) {
+    const t = t0.toLowerCase()
+    if (STOP_EN.has(t)) continue
+    if (u.includes(t)) { s += t.length >= 3 ? 2 : 1; continue }
+    if (Object.entries(SYN_EN).some(([k, alts]) => t.includes(k) && alts.some((a) => said.includes(a)))) { s += 1; continue }
+    // Korean names in an English meeting still match the Korean way
+    if (Object.entries(SYN).some(([k, alts]) => t.includes(k) && alts.some((a) => u.includes(a)))) { s += 1; continue }
+    missed++
+  }
+  if (s) for (const [cue, ext] of [...EXT_CUE_EN, ...EXT_CUE]) if (cue.test(said) && ext.test(String(name))) { s += 1; break }
+  return s ? s - missed * 0.25 : 0
+}
+
 export function score(utter, name) {
+  if (isEn()) return scoreEn(utter, name)
   const u = String(utter || '').replace(/\s+/g, '')
   let s = 0, missed = 0
   for (const t of nameTokens(name)) {

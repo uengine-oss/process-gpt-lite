@@ -3,6 +3,7 @@
 // through the grant, or opens their own copy (a file card in their chat) to edit or hand to their
 // agent — their edits never touch the sender's original.
 import { config } from '../../config.js'
+import { L } from '../lang.js'
 import { q, admin } from '../supa.js'
 import { mainThread, addMessage } from '../store.js'
 import { saveAttachment } from '../attachments.js'
@@ -33,11 +34,11 @@ export async function myFiles(me, ids, { lenient = false } = {}) {
   if (!list.length) return []
   const rows = await q(`select m.id, m.content from pro_messages m join pro_threads t on t.id=m.thread_id
                         where m.id = any($1::uuid[]) and t.user_id=$2 and m.kind='file'`, [list, me.id])
-  if (rows.length !== list.length) throw new TeamError(404, '공유할 산출물을 찾지 못했어요.')
+  if (rows.length !== list.length) throw new TeamError(404, L('공유할 산출물을 찾지 못했어요.', "I couldn't find the outputs to share."))
   return rows.flatMap((r) => {
     const o = objectOf(r.content.url)
     if (!o && lenient) return []
-    if (!o) throw new TeamError(400, `'${r.content.name}' 은(는) 아직 공유할 수 없는 파일이에요(작업실 파일).`)
+    if (!o) throw new TeamError(400, L(`'${r.content.name}' 은(는) 아직 공유할 수 없는 파일이에요(작업실 파일).`, `'${r.content.name}' can't be shared yet (a workroom file).`))
     return [{ sourceId: r.id, name: String(r.content.name || 'file').slice(0, 200), ...o }]
   })
 }
@@ -69,19 +70,19 @@ async function shareFor(user, id) {
 
 export async function bytes(user, id) {
   const s = await shareFor(user, id)
-  if (!s) throw new TeamError(404, '공유를 찾지 못했어요.')
+  if (!s) throw new TeamError(404, L('공유를 찾지 못했어요.', "I couldn't find that share."))
   const { data, error } = await admin.storage.from(s.bucket).download(s.object_key)
-  if (error || !data) throw new TeamError(410, '원본 파일이 더 이상 없어요.')
+  if (error || !data) throw new TeamError(410, L('원본 파일이 더 이상 없어요.', 'The original file is no longer there.'))
   return { name: s.name, type: data.type || 'application/octet-stream', buf: Buffer.from(await data.arrayBuffer()), share: s }
 }
 
 // The file card to open in the editor: the owner's own original, or the recipient's copy (made once).
 export async function openCopy(user, id) {
   const s = await shareFor(user, id)
-  if (!s) throw new TeamError(404, '공유를 찾지 못했어요.')
+  if (!s) throw new TeamError(404, L('공유를 찾지 못했어요.', "I couldn't find that share."))
   if (s.role === 'owner') {
     const [m] = await q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where m.id=$1 and t.user_id=$2`, [s.source_message_id, user.id])
-    if (!m) throw new TeamError(404, '원본 카드를 찾지 못했어요.')
+    if (!m) throw new TeamError(404, L('원본 카드를 찾지 못했어요.', "I couldn't find the original card."))
     return m
   }
   if (s.copy_message_id) {
@@ -92,7 +93,7 @@ export async function openCopy(user, id) {
   const saved = await saveAttachment(user, name, type, buf)
   const [owner] = await q('select username as name from users where id=$1 and tenant_id=$2', [s.owner_id, T()])
   const t = await mainThread(user.id)
-  const m = await addMessage(user.id, t.id, 'agent', 'file', { name: saved.name, url: saved.url, path: saved.path, shared: { by: owner?.name || '팀원', shareId: s.id } })
+  const m = await addMessage(user.id, t.id, 'agent', 'file', { name: saved.name, url: saved.url, path: saved.path, shared: { by: owner?.name || L('팀원', 'Teammate'), shareId: s.id } })
   await q('update pro_shares set copy_message_id=$2, opened_at=coalesce(opened_at, now()) where id=$1', [s.id, m.id])
   return m
 }

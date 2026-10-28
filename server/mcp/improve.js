@@ -9,6 +9,7 @@ import { userFromJwt, q } from '../lib/supa.js'
 import { config } from '../config.js'
 import * as S from '../lib/improve/service.js'
 import { dur } from '../lib/improve/focus.js'
+import { L, isEn, langOf, withLang } from '../lib/lang.js'
 
 const P = { process: { type: 'string', description: '프로세스 이름 또는 id (예: 달빛커피 제안)' } }
 const CHANGE = {
@@ -24,11 +25,26 @@ const TOOLS = [
   { name: 'improve_what_if', description: '[프로세스 개선] 개선안을 미리 계산: 바꾸기 전/후 기대 리드타임, 크리티컬 패스, 흐름 효율, 제약 가동률. 적용(새 버전)은 사람이 개선 화면에서 확인한 뒤에만 합니다.', inputSchema: { type: 'object', properties: { ...P, changes: CHANGE, basis: { type: 'string', enum: ['median', 'p80'] } }, required: ['process', 'changes'] } },
 ]
 
+// English mode: the same tools described in English (the caller's saved language, lib/lang.js)
+const P_EN = { process: { type: 'string', description: 'Process name or id (e.g. Moonlight Coffee proposal)' } }
+const CHANGE_EN = {
+  type: 'array', description: 'What to change. type: automate (automate with an agent) | predraft (agent pre-draft, saving 0–0.9) | skip (skip when the field value is under threshold) | parallel (at the same time as the step before) | capacity (add `add` people) | rework (change-request rate × factor)',
+  items: { type: 'object', properties: { type: { type: 'string' }, step: { type: 'string', description: 'step id or name' }, field: { type: 'string' }, threshold: { type: 'number' }, saving: { type: 'number' }, add: { type: 'number' }, factor: { type: 'number' } }, required: ['type', 'step'] },
+}
+const TOOLS_EN = [
+  { name: 'improve_processes', description: '[Process improvement] Processes with a run history that can be analysed for bottlenecks and constraints (completed runs, the constraint found last).', inputSchema: { type: 'object', properties: {} } },
+  { name: 'improve_bottlenecks', description: '[Process improvement] Bottlenecks per step of one process: runs, duration (median, p80), wait vs work, total review and queue wait, rework rate, bottleneck score; also the median lead time and flow efficiency. Use it first for "where is the bottleneck?".', inputSchema: { type: 'object', properties: P_EN, required: ['process'] } },
+  { name: 'improve_value_stream', description: '[Process improvement] Value stream map: work time vs wait time per step in order, step lead time, first-pass yield and rework rate, owner (role, person, agent), flow efficiency = Σ work / lead time.', inputSchema: { type: 'object', properties: P_EN, required: ['process'] } },
+  { name: 'improve_constraint', description: '[Process improvement] Theory of constraints: the constraint found from arrivals (demand), capacity, utilization and items waiting (WIP) per resource and their trend, and the five focusing steps (identify → exploit → subordinate → elevate → repeat) with their actions and the effect computed by what-if. Use it for "how do we cut it?".', inputSchema: { type: 'object', properties: P_EN, required: ['process'] } },
+  { name: 'improve_critical_path', description: '[Process improvement] Critical path (CPM) from the measured step times (wait included, median or p80): ES/EF/LS/LF/slack, the main path and its probability, and for running instances the remaining critical path and expected finish.', inputSchema: { type: 'object', properties: { ...P_EN, basis: { type: 'string', enum: ['median', 'p80'] } }, required: ['process'] } },
+  { name: 'improve_what_if', description: '[Process improvement] Compute an improvement proposal in advance: expected lead time, critical path, flow efficiency and constraint utilization before and after. Applying it (a new version) is done only by a person on the Improve screen.', inputSchema: { type: 'object', properties: { ...P_EN, changes: CHANGE_EN, basis: { type: 'string', enum: ['median', 'p80'] } }, required: ['process', 'changes'] } },
+]
+
 const text = (o) => ({ content: [{ type: 'text', text: typeof o === 'string' ? o : JSON.stringify(o, null, 1) }] })
 
 async function processOf(args) {
   const p = await S.resolveProcess(args.process)
-  if (!p) throw new Error(`'${args.process}' 프로세스를 찾지 못했어요(실행 기록이 있는 프로세스만 분석할 수 있어요).`)
+  if (!p) throw new Error(L(`'${args.process}' 프로세스를 찾지 못했어요(실행 기록이 있는 프로세스만 분석할 수 있어요).`, `I couldn't find the process '${args.process}' (only processes with a run history can be analysed).`))
   return p
 }
 
@@ -40,7 +56,7 @@ async function callTool(user, name, args = {}) {
                           left join pro_improve_state s on s.tenant_id=d.tenant_id and s.proc_def_id=d.id
                           where d.tenant_id=$1 and ($2 or d.owner=$3 or exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id and (t.user_id like '%'||$3||'%' or t.user_id like '%'||$4||'%')))
                           group by d.id, d.name, s.step_name, s.resource_name, s.rho order by 3 desc limit 30`, [config.tenantId, admin, String(user.id), user.email || '(none)'])
-    return text(rows.map((r) => ({ id: r.id, name: r.name, completed: r.completed, constraint: r.step_name ? `${r.step_name}(${r.resource_name}, 가동률 ${Math.round(r.rho * 100)}%)` : null })))
+    return text(rows.map((r) => ({ id: r.id, name: r.name, completed: r.completed, constraint: r.step_name ? L(`${r.step_name}(${r.resource_name}, 가동률 ${Math.round(r.rho * 100)}%)`, `${r.step_name} (${r.resource_name}, utilization ${Math.round(r.rho * 100)}%)`) : null })))
   }
   const p = await processOf(args)
   const b = await S.brief(user, p.id, { basis: args.basis || 'median' })
@@ -48,7 +64,7 @@ async function callTool(user, name, args = {}) {
   if (name === 'improve_value_stream') {
     const o = await S.overview(user, p.id)
     return text({ process: o.def.name, lead_time_mean: dur(o.vsm.leadMean), work_mean: dur(o.vsm.workMean), wait_mean: dur(o.vsm.waitMean), flow_efficiency: b.flow_efficiency, rolled_yield: `${Math.round(o.vsm.rolledYield * 100)}%`,
-      steps: o.vsm.steps.map((s) => ({ step: s.name, who: s.people.map((x) => x.name).join(', ') || s.role, kind: s.kind === 'human' ? '사람' : '에이전트', work: dur(s.work), wait: dur(s.wait), lead: dur(s.lead), first_pass_yield: s.fpy != null ? `${Math.round(s.fpy * 100)}%` : null, rework_rate: `${s.reworkRate.toFixed(1)}%` })), link: b.link })
+      steps: o.vsm.steps.map((s) => ({ step: s.name, who: s.people.map((x) => x.name).join(', ') || s.role, kind: s.kind === 'human' ? L('사람', 'person') : L('에이전트', 'agent'), work: dur(s.work), wait: dur(s.wait), lead: dur(s.lead), first_pass_yield: s.fpy != null ? `${Math.round(s.fpy * 100)}%` : null, rework_rate: `${s.reworkRate.toFixed(1)}%` })), link: b.link })
   }
   if (name === 'improve_constraint') return text({ process: b.process, constraint: b.constraint, five_focusing_steps: b.five_focusing_steps, link: b.link })
   if (name === 'improve_critical_path') return text({ process: b.process, critical_path: b.critical_path, running_instances: b.running_instances, link: b.link })
@@ -65,7 +81,7 @@ async function callTool(user, name, args = {}) {
 
 function buildServer(user) {
   const server = new Server({ name: 'pgpt-improve', version: '1.0.0' }, { capabilities: { tools: {} } })
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: isEn() ? TOOLS_EN : TOOLS }))
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     if (!user) return { isError: true, ...text('unauthorized: call with the user JWT (Authorization: Bearer {{user_jwt}})') }
     try {
@@ -91,10 +107,13 @@ export function mountImprove(app) {
       const [p] = await q('select name from pro_profile where user_id=$1', [u.id])
       user = { id: u.id, email: u.email, name: p?.name || u.user_metadata?.name || u.email.split('@')[0] }
     }
-    const server = buildServer(user)
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
-    res.on('close', () => { transport.close(); server.close() })
-    await server.connect(transport)
-    await transport.handleRequest(req, res, req.body)
+    // an agent calls this without the page's X-PGL-Lang: the caller's saved language decides
+    await withLang(isEn() ? 'en' : user ? await langOf(user.id) : 'ko', async () => {
+      const server = buildServer(user)
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+      res.on('close', () => { transport.close(); server.close() })
+      await server.connect(transport)
+      await transport.handleRequest(req, res, req.body)
+    })
   })
 }

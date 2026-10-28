@@ -19,6 +19,7 @@
 //   {all: [terms]}                        every term holds (one level deep)
 // access = {read, create, update, delete: [terms]}, fieldRules = {key: {update: [terms]}}
 import { readersOf, restricted, subjectOf } from './privacy.js'
+import { L, isEn } from '../lang.js'
 const err = (status, message) => Object.assign(new Error(message), { status })
 
 export const ROLE_RANK = { viewer: 1, runner: 2, editor: 3, owner: 4 }
@@ -29,15 +30,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // ---------- SQL quoting (only used on values that already passed validation) ----------
 export const ident = (s) => {
-  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(s)) throw err(400, `잘못된 이름: ${s}`)
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(s)) throw err(400, L(`잘못된 이름: ${s}`, `Invalid name: ${s}`))
   return `"${s}"`
 }
 export function literal(v) {
   const s = String(v)
-  if (s.includes('\0')) throw err(400, '값에 쓸 수 없는 글자가 있어요.')
+  if (s.includes('\0')) throw err(400, L('값에 쓸 수 없는 글자가 있어요.', 'The value has a character that cannot be used.'))
   return `'${s.replace(/'/g, "''")}'` // standard_conforming_strings = on: backslashes are plain
 }
-export const col = (key) => { if (!KEY.test(key)) throw err(400, `항목 key 가 올바르지 않아요: ${String(key).slice(0, 40)}`); return ident(`c_${key}`) }
+export const col = (key) => { if (!KEY.test(key)) throw err(400, L(`항목 key 가 올바르지 않아요: ${String(key).slice(0, 40)}`, `Invalid field key: ${String(key).slice(0, 40)}`)); return ident(`c_${key}`) }
 export const tableName = (appId) => { if (!UUID.test(appId)) throw err(400, 'app id'); return `app_${appId.replace(/-/g, '').slice(0, 16)}` }
 export const qualified = (appId) => `panel_data.${ident(tableName(appId))}`
 
@@ -46,11 +47,11 @@ export const SQL_TYPE = { text: 'text', longtext: 'text', email: 'text', phone: 
 // a constant for a field, checked against its type and rendered as a typed literal
 export function constant(field, value) {
   const t = field.type
-  if (t === 'number') { const n = Number(value); if (value === '' || value === null || !Number.isFinite(n)) throw err(400, `'${field.label}' 비교 값은 숫자여야 해요.`); return `${n}::numeric` }
-  if (t === 'checkbox') { if (typeof value !== 'boolean' && !/^(true|false)$/.test(String(value))) throw err(400, `'${field.label}' 비교 값은 true/false 예요.`); return String(value) === 'true' ? 'true' : 'false' }
-  if (t === 'date') { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) throw err(400, `'${field.label}' 비교 값은 날짜예요.`); return `${literal(value)}::date` }
-  if (t === 'choice' && !field.choices.includes(String(value))) throw err(400, `'${field.label}' 비교 값은 ${field.choices.join(', ')} 중 하나예요.`)
-  if (String(value).length > 200) throw err(400, '비교 값이 너무 길어요.')
+  if (t === 'number') { const n = Number(value); if (value === '' || value === null || !Number.isFinite(n)) throw err(400, L(`'${field.label}' 비교 값은 숫자여야 해요.`, `The value compared with '${field.label}' must be a number.`)); return `${n}::numeric` }
+  if (t === 'checkbox') { if (typeof value !== 'boolean' && !/^(true|false)$/.test(String(value))) throw err(400, L(`'${field.label}' 비교 값은 true/false 예요.`, `The value compared with '${field.label}' is true or false.`)); return String(value) === 'true' ? 'true' : 'false' }
+  if (t === 'date') { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) throw err(400, L(`'${field.label}' 비교 값은 날짜예요.`, `The value compared with '${field.label}' is a date.`)); return `${literal(value)}::date` }
+  if (t === 'choice' && !field.choices.includes(String(value))) throw err(400, L(`'${field.label}' 비교 값은 ${field.choices.join(', ')} 중 하나예요.`, `The value compared with '${field.label}' is one of ${field.choices.join(', ')}.`))
+  if (String(value).length > 200) throw err(400, L('비교 값이 너무 길어요.', 'The compared value is too long.'))
   return `${literal(value)}::text`
 }
 
@@ -58,19 +59,19 @@ export function constant(field, value) {
 function checkTerm(def, t, depth = 0) {
   if (typeof t === 'string') {
     if (['member', 'owner_of_row', 'nobody'].includes(t)) return t
-    if (t === 'subject_is_me') { if (!subjectOf(def)) throw err(400, "'본인' 규칙에는 사람 항목(기록의 대상)이 필요해요."); return t }
-    if (t === 'owner_of_ref') { if (def.kind !== 'events') throw err(400, "'참조한 기록의 주인' 규칙은 이벤트 앱에서만 써요."); return t }
+    if (t === 'subject_is_me') { if (!subjectOf(def)) throw err(400, L("'본인' 규칙에는 사람 항목(기록의 대상)이 필요해요.", "The 'the person themselves' rule needs a person field (the record's subject).")); return t }
+    if (t === 'owner_of_ref') { if (def.kind !== 'events') throw err(400, L("'참조한 기록의 주인' 규칙은 이벤트 앱에서만 써요.", "The 'owner of the referenced record' rule is for record-keeping apps only.")); return t }
     const m = t.match(/^role>=(viewer|runner|editor|owner)$/)
     if (m) return t
-    throw err(400, `알 수 없는 규칙: ${t.slice(0, 40)}`)
+    throw err(400, L(`알 수 없는 규칙: ${t.slice(0, 40)}`, `Unknown rule: ${t.slice(0, 40)}`))
   }
-  if (!t || typeof t !== 'object' || Array.isArray(t)) throw err(400, '규칙 형식이 올바르지 않아요.')
+  if (!t || typeof t !== 'object' || Array.isArray(t)) throw err(400, L('규칙 형식이 올바르지 않아요.', 'The rule is not in a valid form.'))
   const keys = Object.keys(t)
-  if (keys.length !== 1) throw err(400, '규칙 하나에는 종류 하나만 써요.')
-  const field = (k) => def.fields.find((f) => f.key === k) || (() => { throw err(400, `규칙이 없는 항목을 가리켜요: ${String(k).slice(0, 40)}`) })()
+  if (keys.length !== 1) throw err(400, L('규칙 하나에는 종류 하나만 써요.', 'A rule has exactly one kind.'))
+  const field = (k) => def.fields.find((f) => f.key === k) || (() => { throw err(400, L(`규칙이 없는 항목을 가리켜요: ${String(k).slice(0, 40)}`, `The rule names a field that does not exist: ${String(k).slice(0, 40)}`)) })()
   if (t.field_is_me !== undefined) {
     const f = field(t.field_is_me)
-    if (!['person', 'text'].includes(f.type)) throw err(400, `'${f.label}' 은(는) 사람 항목이 아니에요.`)
+    if (!['person', 'text'].includes(f.type)) throw err(400, L(`'${f.label}' 은(는) 사람 항목이 아니에요.`, `'${f.label}' is not a person field.`))
     return { field_is_me: f.key }
   }
   if (t.field_equals !== undefined) {
@@ -79,21 +80,21 @@ function checkTerm(def, t, depth = 0) {
     return { field_equals: { field: f.key, value: f.type === 'number' ? Number(t.field_equals.value) : f.type === 'checkbox' ? String(t.field_equals.value) === 'true' : String(t.field_equals.value) } }
   }
   if (t.all !== undefined) {
-    if (depth > 0 || !Array.isArray(t.all) || !t.all.length || t.all.length > 4) throw err(400, "'모두' 규칙은 한 단계, 1~4개까지예요.")
+    if (depth > 0 || !Array.isArray(t.all) || !t.all.length || t.all.length > 4) throw err(400, L("'모두' 규칙은 한 단계, 1~4개까지예요.", "An 'all' rule is one level deep with 1 to 4 terms."))
     return { all: t.all.map((x) => checkTerm(def, x, depth + 1)) }
   }
-  throw err(400, `알 수 없는 규칙: ${keys[0].slice(0, 40)}`)
+  throw err(400, L(`알 수 없는 규칙: ${keys[0].slice(0, 40)}`, `Unknown rule: ${keys[0].slice(0, 40)}`))
 }
 const checkList = (def, list, name) => {
-  if (!Array.isArray(list) || !list.length) throw err(400, `'${name}' 규칙이 비어 있어요.`)
-  if (list.length > 6) throw err(400, `'${name}' 규칙이 너무 많아요.`)
+  if (!Array.isArray(list) || !list.length) throw err(400, L(`'${name}' 규칙이 비어 있어요.`, `The '${name}' rule is empty.`))
+  if (list.length > 6) throw err(400, L(`'${name}' 규칙이 너무 많아요.`, `The '${name}' rule has too many terms.`))
   return list.map((t) => checkTerm(def, t))
 }
 
 // strict: the owner's edit is refused on any problem. lenient (model output): a bad list falls back
 // to the default for that action, a bad field rule is dropped.
 export function validateAccess(def, raw = {}, { strict = true } = {}) {
-  for (const f of def.fields) if (!KEY.test(f.key)) throw err(400, `항목 key 가 올바르지 않아요: ${f.key}`)
+  for (const f of def.fields) if (!KEY.test(f.key)) throw err(400, L(`항목 key 가 올바르지 않아요: ${f.key}`, `Invalid field key: ${f.key}`))
   const access = {}
   for (const a of ACTIONS) {
     const list = raw.access?.[a] ?? DEFAULT_ACCESS[a]
@@ -102,7 +103,7 @@ export function validateAccess(def, raw = {}, { strict = true } = {}) {
   const fieldRules = {}
   for (const [k, r] of Object.entries(raw.fieldRules || {})) {
     try {
-      if (!def.fields.some((f) => f.key === k)) throw err(400, `규칙이 없는 항목을 가리켜요: ${String(k).slice(0, 40)}`)
+      if (!def.fields.some((f) => f.key === k)) throw err(400, L(`규칙이 없는 항목을 가리켜요: ${String(k).slice(0, 40)}`, `The rule names a field that does not exist: ${String(k).slice(0, 40)}`))
       fieldRules[k] = { update: checkList(def, r?.update, `${k}.update`) }
     } catch (e) { if (strict) throw e }
   }
@@ -278,7 +279,23 @@ export function rowCan(def, row, me) {
 
 // ---------- words ----------
 const ROLE_KO = { viewer: '보기 권한 이상', runner: '실행 권한 이상', editor: '편집 권한 이상', owner: '폴더 소유자' }
+const ROLE_EN = { viewer: 'viewers and up', runner: 'runners and up', editor: 'editors and up', owner: 'the folder owner' }
+// English mode: the same rules in English words (Settings and the Home card show them)
+function termEn(def, t) {
+  const label = (k) => def.fields.find((f) => f.key === k)?.label || k
+  if (t === 'member') return 'every member'
+  if (t === 'nobody') return 'nobody'
+  if (t === 'owner_of_row') return def.kind === 'events' ? 'whoever recorded it' : 'whoever created it'
+  if (t === 'subject_is_me') return 'the person themselves (the subject)'
+  if (t === 'owner_of_ref') return 'whoever made the original record'
+  if (typeof t === 'string') return ROLE_EN[t.slice(6)]
+  if (t.field_is_me) return `when '${label(t.field_is_me)}' is me`
+  if (t.field_equals) return `when '${label(t.field_equals.field)}' is '${t.field_equals.value === true ? 'yes' : t.field_equals.value === false ? 'no' : t.field_equals.value}'`
+  if (t.all) return t.all.map((x) => termEn(def, x)).join(' and ')
+  return '?'
+}
 function termKo(def, t) {
+  if (isEn()) return termEn(def, t)
   const label = (k) => def.fields.find((f) => f.key === k)?.label || k
   if (t === 'member') return '구성원 모두'
   if (t === 'nobody') return '아무도 못 함'
@@ -293,8 +310,9 @@ function termKo(def, t) {
 }
 export function describeRules(def) {
   const r = validateAccess(def, def, { strict: false })
-  const A = { read: '보기', create: '만들기', update: '고치기', delete: '지우기' }
-  const lines = ACTIONS.map((a) => ({ action: a, label: A[a], text: r.access[a].map((t) => termKo(def, t)).join(' 또는 ') }))
-  for (const [k, fr] of Object.entries(r.fieldRules)) lines.push({ action: `field:${k}`, label: `'${def.fields.find((f) => f.key === k)?.label}' 바꾸기`, text: fr.update.map((t) => termKo(def, t)).join(' 또는 ') })
+  const A = L({ read: '보기', create: '만들기', update: '고치기', delete: '지우기' }, { read: 'View', create: 'Create', update: 'Edit', delete: 'Delete' })
+  const or = L(' 또는 ', ' or ')
+  const lines = ACTIONS.map((a) => ({ action: a, label: A[a], text: r.access[a].map((t) => termKo(def, t)).join(or) }))
+  for (const [k, fr] of Object.entries(r.fieldRules)) lines.push({ action: `field:${k}`, label: L(`'${def.fields.find((f) => f.key === k)?.label}' 바꾸기`, `Change '${def.fields.find((f) => f.key === k)?.label}'`), text: fr.update.map((t) => termKo(def, t)).join(or) })
   return lines
 }

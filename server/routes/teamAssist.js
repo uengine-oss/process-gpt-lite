@@ -13,6 +13,7 @@ import { attachmentHint } from '../lib/attachments.js'
 import * as A from '../lib/team/assist.js'
 import * as S from '../lib/team/shares.js'
 import * as M from '../lib/team/messenger.js'
+import { L } from '../lib/lang.js'
 
 const T = () => config.tenantId
 // storage links in an agent's text are not how people in the room get files: the grants are
@@ -32,26 +33,27 @@ export function runAs(me, session) {
     const members = await M.membersOf(s.room_id)
     const others = members.filter((m) => m.id !== me.id)
     const tick = (text) => { for (const m of members) emit(m.id, 'team', { type: 'assist-status', threadId: s.room_id, id: s.id, text }) }
-    const by = { by: me.id, byName: `${me.name}님의 에이전트` }
-    tick(`${me.name}님의 에이전트가 맥락을 읽는 중`)
+    const by = { by: me.id, byName: L(`${me.name}님의 에이전트`, `${me.name}'s agent`) }
+    tick(L(`${me.name}님의 에이전트가 맥락을 읽는 중`, `${me.name}'s agent is reading the context`))
     // the hand-off is a room message too, so process-gpt's UI shows who set the agent to work
-    await M.post(me, s.room_id, { kind: 'assist', body: `에이전트에게 맡겼어요 · ${s.title}`, context: { assist: s.id, work: s.work } })
+    await M.post(me, s.room_id, { kind: 'assist', body: L(`에이전트에게 맡겼어요 · ${s.title}`, `Handed to the agent · ${s.title}`), context: { assist: s.id, work: s.work } })
     if (s.work === 'StartProcessInstance' && s.process_id) {
       const [d] = await q('select name from proc_def where id=$1 and tenant_id=$2', [s.process_id, T()])
       const r = await startProcess({ me, defId: s.process_id, values: {} })
       const inst = r?.instId || r?.proc_inst_id || r?.instance_id || ''
-      return agentRow(me, s.room_id, `'${d?.name || s.process_id}' 프로세스를 시작했어요.${inst ? ` (인스턴스 ${inst})` : ''} 첫 단계는 담당자에게 배정됐어요.`,
+      return agentRow(me, s.room_id, L(`'${d?.name || s.process_id}' 프로세스를 시작했어요.${inst ? ` (인스턴스 ${inst})` : ''} 첫 단계는 담당자에게 배정됐어요.`, `I started the '${d?.name || s.process_id}' process.${inst ? ` (instance ${inst})` : ''} Its first step went to its assignee.`),
         { kind: 'agent', ...by, context: { assist: s.id, title: s.title, process: s.process_id, instance: inst || null } })
     }
     const { lines, files } = await A.workOrder(me, s)
     // the person's own work room for this run, tied to the chat room: conversation_id = room id
-    const [t] = await q(`insert into pro_threads(user_id,kind,title,ref,conversation_id) values ($1,'team',$2,$3,$4) returning *`, [me.id, `팀 대화 · ${s.title}`, `assist:${s.id}`, s.room_id])
+    const [t] = await q(`insert into pro_threads(user_id,kind,title,ref,conversation_id) values ($1,'team',$2,$3,$4) returning *`, [me.id, L(`팀 대화 · ${s.title}`, `Team conversation · ${s.title}`), `assist:${s.id}`, s.room_id])
     const started = new Date()
-    tick(`${me.name}님의 에이전트가 ${s.title.replace(/하기$/, '')} 중`)
-    const task = `팀원 대화방에서 요청받은 일을 해 주세요: ${s.title}\n\n— 대화 (마지막 줄이 요청) —\n${lines.join('\n')}\n\n결과는 대화방 사람들이 바로 읽을 수 있게 핵심만 짧게 정리하고, 표나 문서를 만들면 파일로 남겨 주세요.${attachmentHint(files)}`
+    tick(L(`${me.name}님의 에이전트가 ${s.title.replace(/하기$/, '')} 중`, `${me.name}'s agent is working on: ${s.title}`))
+    const task = L(`팀원 대화방에서 요청받은 일을 해 주세요: ${s.title}\n\n— 대화 (마지막 줄이 요청) —\n${lines.join('\n')}\n\n결과는 대화방 사람들이 바로 읽을 수 있게 핵심만 짧게 정리하고, 표나 문서를 만들면 파일로 남겨 주세요.${attachmentHint(files)}`,
+      `Please do what was asked in a team room: ${s.title}\n\n— conversation (the last line is the request) —\n${lines.join('\n')}\n\nKeep the result short and to the point so the people in the room can read it at once, and leave any table or document you make as a file.${attachmentHint(files)}`)
     await delegate({ user: me, session, threadId: t.id, text: task, silent: true })
     const out = await q(`select id, kind, content from pro_messages where thread_id=$1 and created_at >= $2 and role='agent' order by created_at`, [t.id, started])
-    const answer = noLinks(out.filter((m) => ['text', 'doc'].includes(m.kind)).map((m) => m.content.text).pop() || '작업을 마쳤어요.')
+    const answer = noLinks(out.filter((m) => ['text', 'doc'].includes(m.kind)).map((m) => m.content.text).pop() || L('작업을 마쳤어요.', 'Done.'))
     const made = await S.myFiles(me, out.filter((m) => m.kind === 'file').map((m) => m.id), { lenient: true })
     // the agent's reply process-gpt persisted into the room (SDK: role assistant, thread_id = room)
     const [persisted] = await q(`select uuid from chats where id=$1 and messages->>'role'='assistant' and coalesce(public.pro_chat_ts(messages), now()) >= $2

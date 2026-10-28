@@ -11,6 +11,7 @@ import { config } from '../../config.js'
 import { q } from '../supa.js'
 import * as G from './git.js'
 import { PGPT_ROOT } from '../paths.js'
+import { L } from '../lang.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -50,10 +51,10 @@ export async function roleOf(folder, user) {
 // the folder, refused unless the user holds at least `need`
 export async function access(slug, user, need = 'viewer') {
   const folder = await folderBySlug(slug)
-  if (!folder) throw err(404, '폴더를 찾지 못했어요.')
+  if (!folder) throw err(404, L('폴더를 찾지 못했어요.', "I couldn't find that folder."))
   const role = await roleOf(folder, user)
-  if (!role) throw err(403, '이 폴더의 구성원이 아니에요.')
-  if (RANK[role] < RANK[need]) throw err(403, `이 작업에는 '${need}' 권한이 필요해요.`)
+  if (!role) throw err(403, L('이 폴더의 구성원이 아니에요.', "You aren't a member of this folder."))
+  if (RANK[role] < RANK[need]) throw err(403, L(`이 작업에는 '${need}' 권한이 필요해요.`, `This needs the '${need}' role.`))
   return { folder, role }
 }
 export async function readableFolderIds(userId) {
@@ -87,14 +88,14 @@ const GITATTRIBUTES = `# documents and media cannot be merged line by line: a co
 
 export async function createFolder(user, { name, description = '', slug }) {
   name = String(name || '').trim()
-  if (!name) throw err(400, '폴더 이름을 적어 주세요.')
-  if ((await q('select 1 from pro_folders where tenant_id=$1 and name=$2', [T(), name])).length) throw err(409, '같은 이름의 폴더가 이미 있어요.')
+  if (!name) throw err(400, L('폴더 이름을 적어 주세요.', 'Please enter a folder name.'))
+  if ((await q('select 1 from pro_folders where tenant_id=$1 and name=$2', [T(), name])).length) throw err(409, L('같은 이름의 폴더가 이미 있어요.', 'A folder with that name already exists.'))
   slug = await freeSlug(slugify(slug) || slugify(name))
   const dir = path.join(FOLDERS_ROOT, slug)
   await fs.mkdir(dir, { recursive: true })
   await G.git(dir, ['init', '-q', '-b', 'main'])
   await fs.writeFile(path.join(dir, '.gitattributes'), GITATTRIBUTES)
-  await G.commitAll(dir, '폴더 만들기', { name: user.name, email: user.email })
+  await G.commitAll(dir, L('폴더 만들기', 'Create folder'), { name: user.name, email: user.email })
   const [f] = await q(`insert into pro_folders (tenant_id, slug, name, description, kind, repo_path, created_by)
                        values ($1,$2,$3,$4,'managed',$5,$6) returning *`, [T(), slug, name, description, dir, user.id])
   await q(`insert into pro_folder_members (folder_id, principal_type, principal_id, role, added_by) values ($1,'user',$2,'owner',$3)`, [f.id, String(user.id), user.id])
@@ -105,14 +106,14 @@ export async function createFolder(user, { name, description = '', slug }) {
 // worktrees are only listed), its current branch stands for main.
 export async function linkRepo(user, { repoPath, name, description = '' }) {
   const dir = path.resolve(String(repoPath || ''))
-  if (!(await G.isRepo(dir))) throw err(400, 'git 저장소가 아니에요.')
+  if (!(await G.isRepo(dir))) throw err(400, L('git 저장소가 아니에요.', "That isn't a git repository."))
   const existing = (await q('select * from pro_folders where tenant_id=$1 and repo_path=$2', [T(), dir]))[0]
   if (existing) return existing
   const branch = (await G.git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
   const main = (await G.branchExists(dir, 'main')) ? 'main' : branch
   const slug = await freeSlug(slugify(name || path.basename(dir)))
   const [f] = await q(`insert into pro_folders (tenant_id, slug, name, description, kind, repo_path, default_branch, created_by)
-                       values ($1,$2,$3,$4,'linked',$5,$6,$7) returning *`, [T(), slug, name || path.basename(dir), description || `연결형 · ${dir}`, dir, main, user.id])
+                       values ($1,$2,$3,$4,'linked',$5,$6,$7) returning *`, [T(), slug, name || path.basename(dir), description || L(`연결형 · ${dir}`, `Linked · ${dir}`), dir, main, user.id])
   await q(`insert into pro_folder_members (folder_id, principal_type, principal_id, role, added_by) values ($1,'user',$2,'owner',$3)`, [f.id, String(user.id), user.id])
   return f
 }
@@ -148,20 +149,22 @@ async function lastActivity(f) {
   const [c] = (await G.log(f.repo_path, f.default_branch, 1)) || []
   const vAt = v ? new Date(v.updated_at) : null
   const cAt = c ? new Date(c.at) : null
-  if (vAt && (!cAt || vAt > cAt)) return { at: vAt, text: `${v.holder_name || ''} · ${v.title} (${STATUS[v.status]})` }
+  if (vAt && (!cAt || vAt > cAt)) return { at: vAt, text: `${v.holder_name || ''} · ${v.title} (${statusText(v.status)})` }
   if (cAt) return { at: cAt, text: `${c.name} · ${c.msg}` }
   return null
 }
 export const STATUS = { open: '작업 중', ready: '반영 대기', conflicted: '충돌', merged: '반영됨', discarded: '버림' }
+export const STATUS_EN = { open: 'in progress', ready: 'ready to merge', conflicted: 'conflict', merged: 'merged', discarded: 'discarded' }
+export const statusText = (s) => L(STATUS, STATUS_EN)[s]
 
 export async function setMember(folder, me, { type = 'user', id, role }) {
-  if (!RANK[role]) throw err(400, '권한은 owner·editor·runner·viewer 중 하나예요.')
+  if (!RANK[role]) throw err(400, L('권한은 owner·editor·runner·viewer 중 하나예요.', 'The role is one of owner, editor, runner, viewer.'))
   await q(`insert into pro_folder_members (folder_id, principal_type, principal_id, role, added_by) values ($1,$2,$3,$4,$5)
            on conflict (folder_id, principal_type, principal_id) do update set role=$4`, [folder.id, type, String(id), role, me.id])
 }
 export async function removeMember(folder, { type = 'user', id }) {
   const owners = await q(`select principal_id from pro_folder_members where folder_id=$1 and role='owner' and principal_type='user'`, [folder.id])
-  if (owners.length === 1 && owners[0].principal_id === String(id)) throw err(400, '마지막 소유자는 뺄 수 없어요.')
+  if (owners.length === 1 && owners[0].principal_id === String(id)) throw err(400, L('마지막 소유자는 뺄 수 없어요.', "The last owner can't be removed."))
   await q('delete from pro_folder_members where folder_id=$1 and principal_type=$2 and principal_id=$3', [folder.id, type, String(id)])
 }
 
@@ -169,7 +172,7 @@ export async function removeMember(folder, { type = 'user', id }) {
 // a person's edit in main (upload, workroom, terminal) becomes a commit with its author
 export async function commitMain(folder, author, message) {
   if (folder.kind === 'linked') return null
-  const sha = await G.commitAll(folder.repo_path, message || '파일 고침', author)
+  const sha = await G.commitAll(folder.repo_path, message || L('파일 고침', 'Edit files'), author)
   if (sha) await touch(folder)
   return sha
 }
@@ -177,23 +180,23 @@ export const touch = (folder) => q('update pro_folders set updated_at=now() wher
 
 export function safeRel(rel) {
   const p = path.posix.normalize(String(rel || '').replace(/\\/g, '/').replace(/^\/+/, ''))
-  if (!p || p === '.' || p.startsWith('..') || p.split('/').some((s) => s === '.git' || s === '..')) throw err(400, '올바르지 않은 경로예요.')
+  if (!p || p === '.' || p.startsWith('..') || p.split('/').some((s) => s === '.git' || s === '..')) throw err(400, L('올바르지 않은 경로예요.', 'That path is not valid.'))
   return p
 }
 
 export async function upload(folder, user, rel, buf) {
-  if (folder.kind === 'linked') throw err(400, '연결형 폴더에는 아직 올릴 수 없어요.')
+  if (folder.kind === 'linked') throw err(400, L('연결형 폴더에는 아직 올릴 수 없어요.', "You can't upload to a linked folder yet."))
   const p = safeRel(rel)
   const host = path.join(folder.repo_path, p)
   await fs.mkdir(path.dirname(host), { recursive: true })
   await fs.writeFile(host, buf)
-  return commitMain(folder, { name: user.name, email: user.email }, `올리기: ${p}`)
+  return commitMain(folder, { name: user.name, email: user.email }, L(`올리기: ${p}`, `Upload: ${p}`))
 }
 export async function removeFile(folder, user, rel) {
-  if (folder.kind === 'linked') throw err(400, '연결형 폴더의 파일은 지울 수 없어요.')
+  if (folder.kind === 'linked') throw err(400, L('연결형 폴더의 파일은 지울 수 없어요.', "Files of a linked folder can't be deleted."))
   const p = safeRel(rel)
   await fs.rm(path.join(folder.repo_path, p), { force: true })
-  return commitMain(folder, { name: user.name, email: user.email }, `지우기: ${p}`)
+  return commitMain(folder, { name: user.name, email: user.email }, L(`지우기: ${p}`, `Delete: ${p}`))
 }
 
 // files of main (from the index) or of a variation (from git)
@@ -211,7 +214,7 @@ export async function tree(folder, ref) {
 export async function readBlob(folder, ref, rel) {
   const p = safeRel(rel)
   const v = ref && ref !== 'main' ? await variation(folder, ref) : null
-  return G.show(folder.repo_path, v ? v.branch : folder.default_branch, p).catch(() => { throw err(404, '파일이 없어요.') })
+  return G.show(folder.repo_path, v ? v.branch : folder.default_branch, p).catch(() => { throw err(404, L('파일이 없어요.', "That file isn't there.")) })
 }
 export async function history(folder, limit = 40) {
   return G.log(folder.repo_path, folder.default_branch, limit)
@@ -219,9 +222,9 @@ export async function history(folder, limit = 40) {
 
 // ---------- variations ----------
 export async function variation(folder, id) {
-  if (!/^[0-9a-f-]{36}$/.test(String(id))) throw err(404, '변형을 찾지 못했어요.')
+  if (!/^[0-9a-f-]{36}$/.test(String(id))) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
   const [v] = await q('select * from pro_folder_variations where id=$1 and folder_id=$2', [id, folder.id])
-  if (!v) throw err(404, '변형을 찾지 못했어요.')
+  if (!v) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
   return v
 }
 export async function variationById(id) {
@@ -244,12 +247,12 @@ export async function createVariation(folder, { title, kind = 'person', base, ho
       : `var/run/${(source.todo_id || id).replace(/-/g, '').slice(0, 12)}`
   }
   const baseSha = await G.head(folder.repo_path, baseRef)
-  if (!baseSha) throw err(400, `기준을 찾지 못했어요: ${baseRef}`)
+  if (!baseSha) throw err(400, L(`기준을 찾지 못했어요: ${baseRef}`, `I couldn't find the base: ${baseRef}`))
   if (!(await G.branchExists(folder.repo_path, branch))) await G.git(folder.repo_path, ['branch', branch, baseSha])
   const [v] = await q(`insert into pro_folder_variations (id, folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source, created_by)
                        values ($1,$2,$3,$4,$5,'open',$6,$6,$7,$8,$9,$10,$11)
                        on conflict (folder_id, branch) do update set updated_at=now() returning *`,
-  [id, folder.id, branch, title || '새 변형', kind, baseSha, holder?.type || 'user', holder?.id ? String(holder.id) : null, holder?.name || null, source, createdBy || null])
+  [id, folder.id, branch, title || L('새 변형', 'New variation'), kind, baseSha, holder?.type || 'user', holder?.id ? String(holder.id) : null, holder?.name || null, source, createdBy || null])
   await touch(folder)
   return v
 }
@@ -356,8 +359,8 @@ export async function importBranches(folder, user, names) {
     const [v] = await q(`insert into pro_folder_variations (folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source, created_by)
                          values ($1,$2,$3,'imported','ready',$4,$5,'agent','cliagents','Claude Code',$6,$7)
                          on conflict (folder_id, branch) do nothing returning *`,
-    [folder.id, name, t ? `${t.activity_name} (가져온 변형)` : `${name} (가져온 변형)`, base, head,
-      { label: t ? `${t.proc_inst_name || t.proc_inst_id} · ${t.activity_name}` : '이전 cli-agent 실행', todo_id: t?.id, proc_inst_id: t?.proc_inst_id, engine: 'cliagents' }, user.id])
+    [folder.id, name, t ? `${t.activity_name} ${L('(가져온 변형)', '(imported variation)')}` : `${name} ${L('(가져온 변형)', '(imported variation)')}`, base, head,
+      { label: t ? `${t.proc_inst_name || t.proc_inst_id} · ${t.activity_name}` : L('이전 cli-agent 실행', 'Earlier cli-agent run'), todo_id: t?.id, proc_inst_id: t?.proc_inst_id, engine: 'cliagents' }, user.id])
     if (v) out.push(v)
   }
   return out

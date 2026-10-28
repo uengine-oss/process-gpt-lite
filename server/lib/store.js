@@ -1,10 +1,11 @@
 import { q } from './supa.js'
 import { emit } from './bus.js'
+import { L } from './lang.js'
 
 export async function mainThread(userId) {
   const [t] = await q(`select * from pro_threads where user_id=$1 and kind='chat' order by created_at limit 1`, [userId])
   if (t) return t
-  const [n] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat','채팅') returning *`, [userId])
+  const [n] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat',$2) returning *`, [userId, L('채팅', 'Chat')])
   return n
 }
 

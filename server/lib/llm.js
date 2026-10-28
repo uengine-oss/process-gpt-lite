@@ -1,6 +1,7 @@
 // OpenAI-compatible chat client (works against OpenAI or the LiteLLM proxy).
 import fs from 'node:fs'
 import { config } from '../config.js'
+import { isEn, ENGLISH_NOTE } from './lang.js'
 
 // A model call that never answers would hold its caller forever (the browser worker runs one job
 // at a time), so every non-streaming call gives up after a few minutes.
@@ -53,9 +54,25 @@ async function post(payload, signal) {
   }
 }
 
+// English mode (lib/lang.js): the prompts are written in Korean and many ask for Korean answers, so
+// every call made for an English-mode person carries the English note at the end of its system
+// prompt, where it wins over it. Some endpoints take one system message only, at the very start: the
+// note joins the first one (or becomes it). Korean mode: the messages go exactly as they are.
+export function inLanguageMessages(messages) {
+  if (!isEn() || !Array.isArray(messages) || !messages.length) return messages
+  const first = messages[0]
+  const text = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.filter((p) => p.type === 'text').map((p) => p.text).join('\n') : '')
+  if (first.role === 'system' && text(first.content).includes('LANGUAGE: English')) return messages
+  if (first.role !== 'system') return [{ role: 'system', content: ENGLISH_NOTE }, ...messages]
+  const content = typeof first.content === 'string' ? `${first.content}\n\n${ENGLISH_NOTE}`
+    : Array.isArray(first.content) ? [...first.content, { type: 'text', text: ENGLISH_NOTE }] : ENGLISH_NOTE
+  return [{ ...first, content }, ...messages.slice(1)]
+}
+
 // timeoutMs: a shorter limit for a call that has a smaller fallback; maxTokens: caps a runaway answer;
 // effort: reasoning_effort for models that reason (dropped for those that don't)
 export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal, timeoutMs = CALL_TIMEOUT_MS, maxTokens, effort }) {
+  messages = inLanguageMessages(messages)
   trace(messages)
   const res = await post({
     model: model || config.llm.model,
@@ -76,6 +93,7 @@ export async function chatJson(system, user, opts = {}) {
 
 // Streams text deltas; resolves with {content, tool_calls}.
 export async function chatStream({ messages, tools, model, onDelta, signal }) {
+  messages = inLanguageMessages(messages)
   trace(messages)
   const res = await post({
     model: model || config.llm.model, messages, stream: true, temperature: 0.5,

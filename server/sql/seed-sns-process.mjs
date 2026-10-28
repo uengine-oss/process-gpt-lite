@@ -6,7 +6,11 @@
 //     ─ 보류 ──────────────────────────────────────────────────────────────────────────────┴→ SNS 반응 확인 → 마케팅 초안 → 마케터 승인
 // Code lands on an agent branch only after a person decides to act on it; merging stays with people.
 // Outbound actions stay drafts: expert messages and posts go out only after a person approves.
-// Run: node sql/seed-sns-process.mjs
+// Run: node sql/seed-sns-process.mjs [--lang en] [--dry-run]
+//   --lang en   the English edition ("Daily SNS trend response"): same id, steps, form keys, agents and
+//               agent settings; English names, labels, choice values (conditions follow them) and
+//               instructions (the agents answer in English); replaces the Korean one in this database
+//   --dry-run   print the contract, write nothing
 import { q, pool } from '../lib/supa.js'
 import { config } from '../config.js'
 import { saveGenerated } from '../lib/generated.js'
@@ -20,6 +24,10 @@ const BUILDER = '8d2f3e4a-5b6c-4d7e-8f90-1b2c3d4e5f60'
 const form = (key) => `${PID}_${key}_form`
 const REPO = PGPT_ROOT
 const PRODUCT = 'Process GPT — 대화로 업무 프로세스를 만들고 AI 에이전트가 실행하는 에이전틱 BPM 플랫폼(pgpt pro 업무 비서 포함)'
+const argv = process.argv.slice(2)
+const EN = /^en/i.test(argv.find((a) => a.startsWith('--lang='))?.slice(7) || (argv.includes('--lang') ? argv[argv.indexOf('--lang') + 1] || '' : ''))
+const DRY = argv.includes('--dry-run')
+const PRODUCT_EN = 'Process GPT — an agentic BPM platform where you build business processes in conversation and AI agents run them (including the Process GPT Lite assistant)'
 
 const fields = {
   setup: [
@@ -127,6 +135,98 @@ const elements = [
   seq('gw_done', 'monitor_reaction'), seq('monitor_reaction', 'marketing_content'), seq('marketing_content', 'marketing_approval'), seq('marketing_approval', 'end_event'),
 ]
 
+// ---------- English edition ----------
+const fieldsEn = {
+  setup: [
+    { key: 'sources', text: 'SNS and communities to watch', type: 'textarea' },
+    { key: 'topics', text: 'Topics of interest', type: 'textarea' },
+    { key: 'our_product', text: 'Our product', type: 'textarea' },
+  ],
+  scan: [
+    { key: 'feed_report', text: 'Feed scan report', type: 'report' },
+    { key: 'top_item_title', text: 'Most notable post', type: 'text' },
+    { key: 'top_item_url', text: 'Post URL', type: 'text' },
+  ],
+  classify: [
+    { key: 'fit', text: 'Fits Process GPT?', type: 'select', items: [{ Fits: 'Fits — something to build into or answer with our product' }, { Unrelated: 'Unrelated — no need to tell anyone' }] },
+    { key: 'fit_reason', text: 'How it fits', type: 'textarea' },
+    { key: 'signal_type', text: 'Signal type', type: 'select', items: [{ Benchmark: 'Benchmark — a fresh solution people praise' }, { 'Issue response': "Issue response — a problem such as security, and the experts' fixes" }] },
+    { key: 'rationale', text: 'Rationale', type: 'textarea' },
+  ],
+  benchmark: [
+    { key: 'benchmark_report', text: 'Benchmark analysis', type: 'report' },
+    { key: 'recommendation', text: 'Recommendation', type: 'select', items: [{ Improve: 'Improve the current product' }, { Pivot: 'Consider a pivot' }, { Watch: 'Watch' }] },
+  ],
+  review: [
+    { key: 'decision', text: 'Decision', type: 'radio', items: [{ Adopt: 'Build it into the product — try implementing it' }, { Hold: 'Hold' }] },
+    { key: 'scope', text: 'Scope of the improvement to build', type: 'textarea' },
+  ],
+  brief: [
+    { key: 'issue_brief', text: 'Issue & expert fixes', type: 'report' },
+    { key: 'experts', text: 'Experts to contact', type: 'textarea' },
+  ],
+  implement: [
+    { key: 'implementation_report', text: 'Implementation report', type: 'report' },
+    { key: 'files', text: 'Files made', type: 'textarea' },
+  ],
+  demo: [
+    { key: 'demo_report', text: 'Demo video report', type: 'report' },
+  ],
+  outreach: [
+    { key: 'outreach_drafts', text: 'Expert outreach drafts', type: 'report' },
+  ],
+  reaction: [
+    { key: 'reaction_report', text: 'SNS reaction report', type: 'report' },
+    { key: 'sentiment', text: 'Overall reaction', type: 'select', items: [{ Positive: 'Positive' }, { Neutral: 'Neutral' }, { Negative: 'Negative' }] },
+  ],
+  marketing: [
+    { key: 'marketing_copy', text: 'Marketing content draft', type: 'report' },
+  ],
+  approve: [
+    { key: 'approval', text: 'Publishing approval', type: 'radio', items: [{ Approve: 'Approve' }, { Revise: 'Request changes' }] },
+    { key: 'comment', text: 'Comment', type: 'textarea' },
+  ],
+}
+const elementsEn = [
+  { elementType: 'Event', id: 'start_event', name: 'Daily watch starts', role: 'Marketing', type: 'StartEvent' },
+  act('watch_setup', 'Watch settings', 'Marketing', 'setup', { description: 'Choose the SNS, topics and our product to watch (a scheduled run fills them from the saved values).' }),
+  agentAct('scan_feed', 'SNS feed scan', 'SNS research agent', 'scan', BROWSER, 'browser-automation-agent',
+    "Go through the SNS in the watch settings and find the posts getting attention today. Sign in to facebook.com only when the vault has a login for it and read the feed there; otherwise read the Facebook feed copy http://localhost:5180/demo-feed/index.html as the Facebook feed. Note the posts related to the topics of interest that get the most reactions (likes, comments, shares) with title, author, URL, reaction count and a one-line gist, then pick the single most notable post and record the gist of its text in detail. Record only what the site shows. Write in English."),
+  agentAct('classify_signal', 'Signal classification', 'Analysis agent', 'classify', ANALYST, 'deepagents',
+    `Judge the most notable post in the feed scan report. First decide whether it fits our product (${PRODUCT_EN}) — if there is something to build into our product as a feature, template or skill, or to answer with it, write fit as "Fits"; if it is a topic unrelated to our product, write "Unrelated". If it is "Fits", write in fit_reason in one or two sentences where and how it fits into Process GPT (the product owner decides from this line). Then, if a new product, feature or UI/UX is being shared with praise, write signal_type exactly as "Benchmark"; if a problem such as a security incident, an outage or a regulation came up and experts are offering fixes, write exactly "Issue response", and give the rationale in two or three sentences. Write in English.`),
+  { elementType: 'Gateway', id: 'gw_fit', name: 'Fit', type: 'ExclusiveGateway', conditionData: [`${form('classify')}.fit`] },
+  { elementType: 'Event', id: 'end_quiet', name: 'Nothing to build on', role: 'Marketing', type: 'EndEvent' },
+  { elementType: 'Gateway', id: 'gw_signal', name: 'Signal type', type: 'ExclusiveGateway', conditionData: [`${form('classify')}.signal_type`] },
+  agentAct('benchmark_analysis', 'Benchmark analysis', 'Analysis agent', 'benchmark', ANALYST, 'deepagents',
+    `Benchmark the solution people are praising. From the post and its source, sum up the UI/UX, the core features, what sets it apart and what users react to, compare it with our product in the watch settings (if empty, ${PRODUCT_EN}), and decide what to improve (concrete features and screens) and whether a pivot is needed. Do not make anything up and cite source URLs. recommendation is one of Improve, Pivot or Watch. Write in English.`),
+  agentAct('solution_brief', 'Issue & fix summary', 'Analysis agent', 'brief', ANALYST, 'deepagents',
+    `Sum up the issue that came up and the fixes experts have offered. Put in a table what the problem is, how far it reaches, and each expert's fix (name, affiliation, source URL), and separate what our product in the watch settings (if empty, ${PRODUCT_EN}) already prevents from what it does not. In experts, list only the experts to contact and their public contact routes. Write in English.`),
+  agentAct('implement_cover', 'Product improvement build', 'Build agent', 'implement', BUILDER, 'cliagents',
+    "Build the improvement the product owner decided to adopt in the Process GPT repository of our product. If the decision leaves the scope empty (decided with Adopt alone on the Home card), pick the one item among the signal classification's fit and the benchmark analysis or issue summary's suggestions that can be finished smallest in this repository, build it, and say what you picked in the first line of the report. The working directory is a worktree branch of that repository. Read the README and the directory layout first and choose the best place. For step-by-step work (e.g. a security framework procedure), add it in the format of the existing skills and process templates; for a feature, change the service's code as little as possible. Document why you changed it and how to use it. Never deploy to a real system or send anything outside. Put the change summary, design and remaining work in implementation_report and the paths of the files you changed in files. Write in English."),
+  agentAct('demo_video', 'Build demo video', 'Build agent', 'demo', BUILDER, 'cliagents',
+    "The branch the previous product improvement build made is checked out in the working directory. Read ../.claude/skills/demo-video-maker/SKILL.md and, following it, make a 1–2 minute narrated demo video of the result as .pgpt-demo/demo.mp4 (scripts in ../.claude/skills/demo-video-maker/scripts/). Actually run the repository's check and test scripts and put their output in the scenes. Run shell commands one at a time from the working directory, without cd or chaining with &&. Do not change the repository's code. Put the video length, the list of scenes and the check results in demo_report. Write the narration and the report in English."),
+  agentAct('expert_outreach', 'Expert outreach drafts', 'Analysis agent', 'outreach', ANALYST, 'deepagents',
+    'Write outreach drafts to the author of the post and the experts named in the analysis. For each, write a polite English message (a summary of our product improvement and its branch, a request for their opinion, a proposal to work together), but keep them as drafts and do not send them. Sending happens after a person approves.'),
+  { elementType: 'Gateway', id: 'gw_join', name: 'Analysis merge', type: 'ExclusiveGateway' },
+  act('product_review', 'Product owner decision', 'Product owner', 'review', { description: 'An SNS issue that could fit Process GPT came up. Read how it fits and the analysis, and decide whether to build it into our product and the scope of the improvement (the product owner role holder is notified).' }),
+  { elementType: 'Gateway', id: 'gw_review', name: 'Adopt or hold', type: 'ExclusiveGateway', conditionData: [`${form('review')}.decision`] },
+  { elementType: 'Gateway', id: 'gw_done', name: 'Response merge', type: 'ExclusiveGateway' },
+  agentAct('monitor_reaction', 'SNS reaction check', 'SNS research agent', 'reaction', BROWSER, 'browser-automation-agent',
+    'Open the post URL picked in the feed scan again and look at the comments and reactions. Note what people praise or worry about and whether there are questions our product could step into, and set the overall reaction to one of Positive, Neutral or Negative. Record only what you see. Write in English.'),
+  agentAct('marketing_content', 'Marketing content draft', 'Analysis agent', 'marketing', ANALYST, 'deepagents',
+    'From the analysis, build and reactions so far, write a marketing content draft for our product: one LinkedIn/Facebook post (about 300 characters), one X post (140 characters), a three-paragraph blog summary and 5 hashtags. Do not write claims that are not true or put down competitors. A person publishes it after the marketer approves. Write in English.'),
+  act('marketing_approval', 'Marketer approval', 'Marketing', 'approve', { description: 'Read the content draft and approve publishing it or ask for changes.' }),
+  { elementType: 'Event', id: 'end_event', name: "Today's response done", role: 'Marketing', type: 'EndEvent' },
+  seq('start_event', 'watch_setup'), seq('watch_setup', 'scan_feed'), seq('scan_feed', 'classify_signal'), seq('classify_signal', 'gw_fit'),
+  seq('gw_fit', 'gw_signal', 'Fits', 'fit'), seq('gw_fit', 'end_quiet', 'Unrelated', 'fit'),
+  seq('gw_signal', 'benchmark_analysis', 'Benchmark'), seq('benchmark_analysis', 'gw_join'),
+  seq('gw_signal', 'solution_brief', 'Issue response'), seq('solution_brief', 'gw_join'),
+  seq('gw_join', 'product_review'), seq('product_review', 'gw_review'),
+  seq('gw_review', 'implement_cover', 'Adopt', 'decision'), seq('implement_cover', 'demo_video'), seq('demo_video', 'expert_outreach'), seq('expert_outreach', 'gw_done'),
+  seq('gw_review', 'gw_done', 'Hold', 'decision'),
+  seq('gw_done', 'monitor_reaction'), seq('monitor_reaction', 'marketing_content'), seq('marketing_content', 'marketing_approval'), seq('marketing_approval', 'end_event'),
+]
+
 const keyOf = { watch_setup: 'setup', scan_feed: 'scan', classify_signal: 'classify', benchmark_analysis: 'benchmark', product_review: 'review', solution_brief: 'brief', implement_cover: 'implement', demo_video: 'demo', expert_outreach: 'outreach', monitor_reaction: 'reaction', marketing_content: 'marketing', marketing_approval: 'approve' }
 const contract = {
   type: 'process-definition-result',
@@ -150,19 +250,51 @@ const contract = {
   skills: [],
 }
 
+const contractEn = {
+  type: 'process-definition-result',
+  processDefinition: {
+    processDefinitionId: PID,
+    processDefinitionName: 'Daily SNS trend response',
+    description: "Every day it looks through social media: solutions people praise are benchmarked into product improvements or a pivot, and issues such as security get the experts' fixes summed up, a response built into our product and outreach drafts to the experts. Then it checks the SNS reaction, drafts marketing content, and a person approves it.",
+    isHorizontal: true,
+    roles: [
+      { name: 'Marketing', endpoint: '', default: '', resolutionRule: '', origin: 'created' },
+      { name: 'Product owner', endpoint: '', default: '', resolutionRule: '', origin: 'created' },
+      { name: 'SNS research agent', endpoint: BROWSER, default: BROWSER, resolutionRule: '', origin: 'used' },
+      { name: 'Analysis agent', endpoint: ANALYST, default: ANALYST, resolutionRule: '', origin: 'used' },
+      { name: 'Build agent', endpoint: BUILDER, default: BUILDER, resolutionRule: '', origin: 'used' },
+    ],
+    data: [],
+    elements: elementsEn,
+  },
+  forms: Object.entries(keyOf).map(([aid, key]) => ({ activity_id: aid, form_id: form(key), html: html(form(key), elementsEn.find((e) => e.id === aid).name, fieldsEn[key]) })),
+  agents: [{ id: BROWSER, skills: [] }, { id: ANALYST, skills: [] }, { id: BUILDER, skills: [] }],
+  skills: [],
+}
+const agentsEn = [
+  [BROWSER, 'Browser agent', 'browser-automation-agent', 'agent', 'Opens outside sites in a web browser to find information and work their screens.', 'Records only what the site shows, and asks a person to approve before paying or sending anything. It writes in English.'],
+  [ANALYST, 'SNS analysis agent', 'sns-analyst', 'deepagents', 'Analyses SNS signals into benchmarks, issue responses and marketing content.', 'Cites its sources and makes nothing up. Anything going outside stays a draft. It writes in English.'],
+  [BUILDER, 'Response build agent', 'cover-builder', 'cliagents', 'Builds the smallest implementation that covers the issue (code, README, tests) with Claude Code.', 'Works only inside the working directory and never deploys or sends anything. It writes in English.'],
+]
+if (DRY) {
+  console.log(JSON.stringify(EN ? contractEn : contract, null, 1))
+  await pool.end()
+  process.exit(0)
+}
+
 const agents = [
   [BROWSER, '브라우저 에이전트', 'browser-automation-agent', 'agent', '웹 브라우저로 외부 사이트에 접속해 정보를 찾고 업무 화면을 조작한다.', '사이트에 보이는 사실만 기록하고, 결제·전송 전에는 사람의 승인을 받는다.'],
   [ANALYST, 'SNS 분석 에이전트', 'sns-analyst', 'deepagents', 'SNS 신호를 분석해 벤치마킹·이슈 대응·마케팅 콘텐츠를 만든다.', '출처를 달고 지어내지 않는다. 외부로 보내는 일은 초안까지만 한다.'],
   [BUILDER, '대응 구현 에이전트', 'cover-builder', 'cliagents', 'Claude Code 로 이슈를 커버하는 최소 구현체(코드·README·테스트)를 만든다.', '작업 디렉터리 안에서만 만들고 배포·전송하지 않는다.'],
 ]
-for (const [id, name, alias, type, goal, persona] of agents) {
+for (const [id, name, alias, type, goal, persona] of EN ? agentsEn : agents) {
   await q(`insert into users (id, username, email, tenant_id, is_agent, is_admin, is_draft, agent_type, alias, goal, persona, permission_ids)
            values ($1,$2,$3,$4,true,false,false,$5,$6,$7,$8,'{}')
            on conflict (id, tenant_id) do update set username=$2, agent_type=$5, alias=$6, goal=$7, persona=$8`,
   [id, name, `${alias}@${T}`, T, type, alias, goal, persona])
 }
 
-console.log(await saveGenerated(contract))
+console.log(await saveGenerated(EN ? contractEn : contract))
 // cli-agent reads these from the work item: run Claude Code on a worktree branch of our product repository
 await q(`update proc_def set definition = jsonb_set(definition, '{activities}', (
           select jsonb_agg(case when a->>'id' = 'implement_cover'

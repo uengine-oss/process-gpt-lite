@@ -19,6 +19,7 @@ import * as R from './rules.js'
 import * as D from './db.js'
 import * as E from './events.js'
 import * as PV from './privacy.js'
+import { L, isEn } from '../lang.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
 const sha1 = (buf) => crypto.createHash('sha1').update(buf).digest('hex')
@@ -88,12 +89,40 @@ ${EVENTS_PART.replace('kind 가 events 이면 fields/computed/views/form/rows �
 - 사용자가 앱 이름을 말했으면 title 은 그 이름 그대로. 필드는 3~7개, 이벤트는 2~4개, 프로젝션은 1~2개로 짧게.`
 const LIST_DESIGN = DESIGN.slice(0, EVENTS_START) + DESIGN.slice(DESIGN.indexOf('규칙:\n- 사용자가'))
 const looksEvents = (t) => /쌓|잔액|재고|포인트|예산|장부|부여|배정|지출|입출|대여|적립|차감|취소.*기록|기록.*취소/.test(t)
+  || /\b(balance|stock|inventory|points?|budget|ledger|grant(ed)?|allocat\w*|spend\w*|expens\w*|rent\w*|lend\w*|borrow\w*|accru\w*|deduct\w*)\b|cancel\w*.*record|record.*cancel/i.test(t)
+
+// English mode (lib/lang.js): the same prompts with their Korean examples in English, so the app's
+// title, labels, choices, record and view names come out in English (llm.js adds the English note)
+const EN_SWAP = [
+  ['"짧은 한국어 앱 이름(예: 리드 관리, 휴가 일수 관리)"', '"short English app name (e.g. Lead tracker, Leave days)"'],
+  ['"시트 이름(짧게)"', '"short English sheet name"'],
+  ['"한국어 머리글"', '"English column header"'],
+  ['"label":"한국어"', '"label":"English"'],
+  ['"valueSuffix":"단위(선택, 예: 일, 원)"', '"valueSuffix":"unit (optional, e.g. days, won)"'],
+  ['"label":"요약 이름"', '"label":"English summary name"'],
+  ['["공개","비공개"] default "공개"', '["Public","Private"] default "Public"'],
+  ['"value":"공개"', '"value":"Public"'],
+  ['"label":"팀원"', '"label":"Teammate"'],
+  ['"label":"휴가 부여"', '"label":"Grant leave"'],
+  ['"label":"휴가 신청"', '"label":"Request leave"'],
+  ['"label":"휴가 취소"', '"label":"Cancel leave"'],
+  ['"label":"요약"', '"label":"Summary"'],
+  ['"label":"부여"', '"label":"Granted"'],
+  ['"label":"사용"', '"label":"Used"'],
+  ['"label":"남은 일수"', '"label":"Days left"'],
+  ['"label":"신청 현황"', '"label":"Open requests"'],
+  ['"valueSuffix":"일"', '"valueSuffix":"days"'],
+]
+const EN_RULE = '\nEnglish: title, description, sheet, every label, choice, record (event) label, view and summary label and suffix are English (e.g. choices ["New","Contacted","Proposal","Won","Lost"]). Keys stay snake_case. icon is one emoji character. A title the user named is kept as said, without words like "panel", "app" or "make".'
+const inLang = (p) => (isEn() ? EN_SWAP.reduce((s, [a, b]) => s.split(a).join(b), p) + EN_RULE : p)
+// the design prompts as a call in the current language would send them (tests)
+export const designPrompts = () => ({ design: inLang(DESIGN), list: inLang(LIST_DESIGN), events: inLang(EVENTS_DESIGN) })
 
 async function designInSteps(text) {
   const k = await chatJson(KIND, text, { temperature: 0, timeoutMs: 45000, maxTokens: 60 }).catch(() => null)
   const kind = ['live', 'events', 'data'].includes(k?.kind) ? k.kind : looksEvents(text) ? 'events' : 'data'
   if (kind === 'live') return { kind: 'live' }
-  const out = await chatJson(kind === 'events' ? EVENTS_DESIGN : LIST_DESIGN, text, { temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 2500 })
+  const out = await chatJson(inLang(kind === 'events' ? EVENTS_DESIGN : LIST_DESIGN), text, { temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 2500 })
   return kind === 'events' ? { ...out, kind: 'events' } : { ...out, kind: 'list' }
 }
 
@@ -101,12 +130,12 @@ export async function design(description) {
   const text = String(description || '').slice(0, 2000)
   let out
   try {
-    out = await chatJson(DESIGN, text, { temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 4000 })
+    out = await chatJson(inLang(DESIGN), text, { temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 4000 })
   } catch (e) {
     console.warn('[panelApps] design:', e.message, '— trying the smaller design steps')
     try { out = await designInSteps(text) } catch (e2) {
       const slow = /abort|timeout|timed out/i.test(`${e.message} ${e2.message}`)
-      throw err(503, slow ? '모델 응답이 늦어 패널 설계를 마치지 못했어요(시간 초과). 잠시 뒤 다시 요청해 주세요.' : `패널을 설계하지 못했어요: ${e2.message}`)
+      throw err(503, slow ? L('모델 응답이 늦어 패널 설계를 마치지 못했어요(시간 초과). 잠시 뒤 다시 요청해 주세요.', "The model was too slow to finish designing the panel (timed out). Please ask again in a moment.") : L(`패널을 설계하지 못했어요: ${e2.message}`, `I couldn't design the panel: ${e2.message}`))
     }
   }
   if (out?.kind === 'live') return { kind: 'live' }
@@ -121,20 +150,20 @@ export async function design(description) {
 }
 
 // ---------- registry ----------
-const fileSafe = (s) => String(s).replace(/[\\/:*?"<>|\n\r\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || '패널 앱'
+const fileSafe = (s) => String(s).replace(/[\\/:*?"<>|\n\r\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || L('패널 앱', 'Panel app')
 
 async function pickFolder(user, text, title) {
   // a folder the request names and the person may edit
   const rows = await q(`select f.* from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
                         where f.tenant_id=$1 and f.kind='managed' and m.role in ('owner','editor') order by length(f.name) desc`, [config.tenantId, String(user.id)])
-  const named = rows.find((f) => text && f.name.length >= 2 && f.name !== title && (text.includes(`${f.name} 폴더`) || text.includes(`'${f.name}'`)))
+  const named = rows.find((f) => text && f.name.length >= 2 && f.name !== title && (text.includes(`${f.name} 폴더`) || text.includes(`'${f.name}'`) || text.toLowerCase().includes(`${f.name.toLowerCase()} folder`)))
   if (named) return named
   // folder names are unique in the tenant: someone else's '휴가 일수 관리' → '휴가 일수 관리 (박지수)'
   const taken = async (x) => (await q('select 1 from pro_folders where tenant_id=$1 and name=$2', [config.tenantId, x])).length
   let name = title
   if (await taken(name)) name = `${title} (${user.name})`
   for (let i = 2; await taken(name); i++) name = `${title} (${user.name}) ${i}`
-  return S.createFolder(user, { name, description: `'${title}' 패널 앱의 데이터 폴더` })
+  return S.createFolder(user, { name, description: L(`'${title}' 패널 앱의 데이터 폴더`, `Data folder of the '${title}' panel app`) })
 }
 
 export async function createApp(user, { description, def, rows = [], folderHint = '' }) {
@@ -147,7 +176,7 @@ export async function createApp(user, { description, def, rows = [], folderHint 
   await fs.writeFile(path.join(folder.repo_path, defPath), defText)
   // tier db: the data lives in the database; the folder keeps the definition (and later snapshots)
   if (def.tier !== 'db') await fs.writeFile(path.join(folder.repo_path, sheetPath), await X.bookBuffer(def.kind === 'events' ? await E.eventsBook(def, []) : await X.newBook(def, rows)))
-  await S.commitMain(folder, { name: user.name, email: user.email }, `패널 앱 만들기: ${def.title}${def.tier === 'db' ? ' (데이터베이스·행 단위 권한)' : ''}`)
+  await S.commitMain(folder, { name: user.name, email: user.email }, L(`패널 앱 만들기: ${def.title}${def.tier === 'db' ? ' (데이터베이스·행 단위 권한)' : ''}`, `Panel app created: ${def.title}${def.tier === 'db' ? ' (database, row-level access)' : ''}`))
   await reindex(folder, { cards: false }).catch((e) => console.warn('[panelApps] index', e.message))
   // privacy_ack false: the creator reviews the 보안·개인정보 기본값 card before sharing
   let [app] = await q(`insert into pro_panel_apps (folder_id, title, icon, def_path, sheet_path, def, def_sha, created_by, tier, kind, privacy_ack)
@@ -203,9 +232,9 @@ async function refreshDef(app, folder) {
 
 // the app, refused unless the person holds `need` in its folder
 export async function appFor(user, id, need = 'viewer') {
-  if (!/^[0-9a-f-]{36}$/.test(String(id))) throw err(404, '패널 앱을 찾지 못했어요.')
+  if (!/^[0-9a-f-]{36}$/.test(String(id))) throw err(404, L('패널 앱을 찾지 못했어요.', "I couldn't find that panel app."))
   const [app] = await q('select * from pro_panel_apps where id=$1', [id])
-  if (!app) throw err(404, '패널 앱을 찾지 못했어요.')
+  if (!app) throw err(404, L('패널 앱을 찾지 못했어요.', "I couldn't find that panel app."))
   const f = await S.folderById(app.folder_id)
   const { folder, role } = await S.access(f.slug, user, need)
   await refreshDef(app, folder)
@@ -222,7 +251,7 @@ export async function appNamed(user, text) {
 // ---------- rows ----------
 const sheetFile = (folder, app) => path.join(folder.repo_path, app.sheet_path)
 async function readSheet(folder, app) {
-  const buf = await fs.readFile(sheetFile(folder, app)).catch(() => { throw err(404, '데이터 시트가 폴더에 없어요.') })
+  const buf = await fs.readFile(sheetFile(folder, app)).catch(() => { throw err(404, L('데이터 시트가 폴더에 없어요.', "The data sheet isn't in the folder.")) })
   return { buf, sha: sha1(buf), wb: await X.readBook(buf) }
 }
 
@@ -260,17 +289,17 @@ const titleOf = (def, vals) => String(vals?.[def.views.list.title] ?? '').slice(
 
 export async function write(user, id, op) {
   const { app: a0 } = await appFor(user, id, 'viewer')
-  if (a0.kind === 'events') throw err(400, "이 앱은 기록을 쌓는 앱이에요. '기록 더하기'로 부여·신청·취소 같은 기록을 더해 주세요.")
+  if (a0.kind === 'events') throw err(400, L("이 앱은 기록을 쌓는 앱이에요. '기록 더하기'로 부여·신청·취소 같은 기록을 더해 주세요.", "This app keeps records. Use 'Add record' to add records such as grants, requests and cancellations."))
   if (a0.tier === 'db') return writeDb(user, id, op)
   const { app, folder } = await appFor(user, id, 'editor')
   return serial(app.id, async () => {
     const { wb } = await readSheet(folder, app)
     let message
-    if (op.add) { op = { add: X.validate(app.def, op.add) }; message = `패널: ${app.title} 행 추가 — ${titleOf(app.def, op.add)}` }
+    if (op.add) { op = { add: X.validate(app.def, op.add) }; message = L(`패널: ${app.title} 행 추가 — ${titleOf(app.def, op.add)}`, `Panel: ${app.title} row added — ${titleOf(app.def, op.add)}`) }
     else if (op.update) {
       op = { update: { ...op.update, vals: X.validate(app.def, op.update.vals, { partial: true }) } }
-      message = `패널: ${app.title} 행 고침`
-    } else if (op.remove) message = `패널: ${app.title} 행 지움`
+      message = L(`패널: ${app.title} 행 고침`, `Panel: ${app.title} row edited`)
+    } else if (op.remove) message = L(`패널: ${app.title} 행 지움`, `Panel: ${app.title} row deleted`)
     const res = X.applyOp(wb, app.def, op)
     await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(wb))
     const after = X.readRows(wb, app.def)
@@ -293,7 +322,7 @@ export async function sheetCopy(user, id) {
   const { buf, sha } = await readSheet(folder, app)
   const key = `pgpt-pro/panel-apps/${app.id}/${sha}.xlsx`
   const { error } = await admin.storage.from('files').upload(key, buf, { contentType: XLSX_MIME, upsert: true })
-  if (error) throw err(500, `시트를 열 준비를 못 했어요: ${error.message}`)
+  if (error) throw err(500, L(`시트를 열 준비를 못 했어요: ${error.message}`, `I couldn't get the sheet ready to open: ${error.message}`))
   return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: path.posix.basename(app.sheet_path), sha, readOnly: S.RANK[role] < S.RANK.editor }
 }
 
@@ -302,10 +331,10 @@ export async function sheetCopy(user, id) {
 async function fetchSaved(url) {
   const u = new URL(String(url || ''))
   const base = new URL(config.supabaseUrl)
-  if (!u.pathname.startsWith('/storage/v1/object/') || (u.host !== base.host && !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.host))) throw err(400, '저장한 시트 주소가 올바르지 않아요.')
+  if (!u.pathname.startsWith('/storage/v1/object/') || (u.host !== base.host && !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.host))) throw err(400, L('저장한 시트 주소가 올바르지 않아요.', 'The saved sheet address is not valid.'))
   const fetchFrom = u.host === base.host ? u : new URL(u.pathname + u.search, base)
   const res = await fetch(fetchFrom)
-  if (!res.ok) throw err(502, `저장한 시트를 받지 못했어요(${res.status}).`)
+  if (!res.ok) throw err(502, L(`저장한 시트를 받지 못했어요(${res.status}).`, `I couldn't fetch the saved sheet (${res.status}).`))
   return Buffer.from(await res.arrayBuffer())
 }
 
@@ -317,12 +346,12 @@ export async function sheetSaved(user, id, { url, sha }) {
   const buf = await fetchSaved(url)
   return serial(app.id, async () => {
     const cur = await readSheet(folder, app)
-    if (sha && cur.sha !== sha && cur.sha !== sha1(buf)) throw err(409, '시트를 연 뒤 패널에서 데이터가 바뀌었어요. 시트를 다시 열어 고쳐 주세요.')
+    if (sha && cur.sha !== sha && cur.sha !== sha1(buf)) throw err(409, L('시트를 연 뒤 패널에서 데이터가 바뀌었어요. 시트를 다시 열어 고쳐 주세요.', 'The data changed in the panel after you opened the sheet. Please open the sheet again and make your changes.'))
     const wb = await X.readBook(buf)
     const before = X.readRows(cur.wb, app.def)
     const after = X.readRows(wb, app.def)
     await fs.writeFile(sheetFile(folder, app), buf)
-    const commit = await S.commitMain(folder, { name: user.name, email: user.email }, `시트에서 고침: ${app.title}`)
+    const commit = await S.commitMain(folder, { name: user.name, email: user.email }, L(`시트에서 고침: ${app.title}`, `Edited in the sheet: ${app.title}`))
     await q('update pro_panel_apps set updated_at=now() where id=$1', [app.id])
     reindex(folder, { cards: false }).catch(() => {})
     await broadcast(app, folder, user)
@@ -347,7 +376,7 @@ export async function remove(user, id) {
   const ids = await members(folder)
   await fs.rm(path.join(folder.repo_path, app.def_path), { force: true })
   await fs.rm(path.join(folder.repo_path, app.sheet_path), { force: true })
-  await S.commitMain(folder, { name: user.name, email: user.email }, `패널 앱 지우기: ${app.title}`)
+  await S.commitMain(folder, { name: user.name, email: user.email }, L(`패널 앱 지우기: ${app.title}`, `Panel app deleted: ${app.title}`))
   if (app.tier === 'db') await D.logMigration(app, 'drop', await D.dropTable(app), { destructive: true, user })
   await q('delete from pro_panel_apps where id=$1', [app.id])
   reindex(folder, { cards: false }).catch(() => {})
@@ -364,10 +393,18 @@ export async function announce(folderSlug) {
 
 // chat-facing text: the app's fields in words, for the router and answers
 export function describe(def) {
+  if (isEn()) return describeEn(def)
   if (def.kind === 'events') return `기록 종류: ${def.events.map((e) => e.label).join(', ')} · 대상: ${def.entity.label} · 보기: ${def.projections.map((p) => p.label).join(', ')}`
   const f = def.fields.map((x) => `${x.label}${x.type === 'choice' ? `(${x.choices.join('/')})` : x.type === 'number' ? '(숫자)' : x.type === 'date' ? '(날짜)' : ''}${x.required ? '*' : ''}`)
   const c = def.computed.map((x) => `${x.label}=${x.expr.replace(/[a-z_][a-z0-9_]*/g, (k) => def.fields.find((y) => y.key === k)?.label || k)}`)
   return `${f.join(', ')}${c.length ? ` · 계산: ${c.join(', ')}` : ''}`
+}
+
+function describeEn(def) {
+  if (def.kind === 'events') return `record types: ${def.events.map((e) => e.label).join(', ')} · about: ${def.entity.label} · views: ${def.projections.map((p) => p.label).join(', ')}`
+  const f = def.fields.map((x) => `${x.label}${x.type === 'choice' ? `(${x.choices.join('/')})` : x.type === 'number' ? '(number)' : x.type === 'date' ? '(date)' : ''}${x.required ? '*' : ''}`)
+  const c = def.computed.map((x) => `${x.label}=${x.expr.replace(/[a-z_][a-z0-9_]*/g, (k) => def.fields.find((y) => y.key === k)?.label || k)}`)
+  return `${f.join(', ')}${c.length ? ` · computed: ${c.join(', ')}` : ''}`
 }
 
 // ---------- tier db ----------
@@ -388,7 +425,7 @@ async function personIds(folder, def, vals) {
   for (const f of pf) {
     const v = String(vals[f.key]).trim()
     const p = people.find((x) => x.id === v || x.name === v || x.name?.replace(/\s/g, '') === v.replace(/\s/g, ''))
-    if (!p) throw Object.assign(err(422, `'${f.label}'에는 이 폴더 구성원만 넣을 수 있어요: ${v}`), { problems: [] })
+    if (!p) throw Object.assign(err(422, L(`'${f.label}'에는 이 폴더 구성원만 넣을 수 있어요: ${v}`, `'${f.label}' can only hold a member of this folder: ${v}`)), { problems: [] })
     out[f.key] = p.id
   }
   return out
@@ -420,20 +457,20 @@ async function sheetSnapshotCopy(user, app, folder, role) {
   for (const [k, v] of snapshots) if (Date.now() - v.at > 6 * 3600e3) snapshots.delete(k)
   const key = `pgpt-pro/panel-apps/${app.id}/v/${token}.xlsx`
   const { error } = await admin.storage.from('files').upload(key, buf, { contentType: XLSX_MIME, upsert: true })
-  if (error) throw err(500, `시트를 열 준비를 못 했어요: ${error.message}`)
-  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: `${fileSafe(app.title)} (보기).xlsx`, sha: token, readOnly: false, snapshot: true, count: rows.length }
+  if (error) throw err(500, L(`시트를 열 준비를 못 했어요: ${error.message}`, `I couldn't get the sheet ready to open: ${error.message}`))
+  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: `${fileSafe(app.title)} ${L('(보기)', '(view)')}.xlsx`, sha: token, readOnly: false, snapshot: true, count: rows.length }
 }
 
 async function sheetSavedDb(user, id, { url, sha }) {
   const { app, folder } = await appFor(user, id, 'viewer')
   const snap = snapshots.get(String(sha || ''))
-  if (!snap || snap.appId !== app.id || snap.userId !== user.id) throw err(409, '이 시트 보기는 만료됐어요. "시트 열기"로 다시 열어 고쳐 주세요.')
+  if (!snap || snap.appId !== app.id || snap.userId !== user.id) throw err(409, L('이 시트 보기는 만료됐어요. "시트 열기"로 다시 열어 고쳐 주세요.', 'This sheet view has expired. Open it again with "Open sheet" to make changes.'))
   const wb = await X.readBook(await fetchSaved(url))
   const saved = X.readRows(wb, app.def)
   const before = new Map(snap.rows.map((r) => [r._id, r]))
   const people = await peopleOf(folder)
   const norm = (f, v) => (f.type === 'person' ? (people.find((p) => p.name === v || p.id === v)?.id || v) : v)
-  const titleOfRow = (r) => String(r?.[app.def.views.list.title] ?? '').slice(0, 30) || '(이름 없음)'
+  const titleOfRow = (r) => String(r?.[app.def.views.list.title] ?? '').slice(0, 30) || L('(이름 없음)', '(no name)')
   const result = { applied: 0, rejected: [] }
   const seen = new Set()
   for (const r of saved) {
@@ -450,7 +487,7 @@ async function sheetSavedDb(user, id, { url, sha }) {
   }
   for (const old of snap.rows) {
     if (seen.has(old._id)) continue
-    try { await D.remove(user, app, old._id, old._v); result.applied++ } catch (e) { result.rejected.push({ row: titleOfRow(old), reason: `지우기: ${e.message}` }) }
+    try { await D.remove(user, app, old._id, old._v); result.applied++ } catch (e) { result.rejected.push({ row: titleOfRow(old), reason: L(`지우기: ${e.message}`, `delete: ${e.message}`) }) }
   }
   // the editor stays open: the next save is compared with what this person sees now
   snapshots.set(String(sha), { ...snap, rows: await D.rows(user, app), at: Date.now() })
@@ -471,13 +508,13 @@ export async function setRules(user, id, { access, fieldRules }) {
     const next = { ...app, def }
     await D.createTable(next, folder.id, user)
     const st = await D.importRows(next, rowsNow.map((r) => ({ ...r, _author: authors.get(r._id) || app.created_by })), app.created_by)
-    await D.logMigration(next, 'upgrade', st, { user, note: `시트 ${rowsNow.length}행을 데이터베이스로 옮김` })
-    await saveDefFile(user, folder, next, def, `패널 앱 권한 규칙: ${app.title} — 시트에서 데이터베이스로 옮김(행 ${rowsNow.length}개)`)
+    await D.logMigration(next, 'upgrade', st, { user, note: L(`시트 ${rowsNow.length}행을 데이터베이스로 옮김`, `Moved ${rowsNow.length} sheet rows to the database`) })
+    await saveDefFile(user, folder, next, def, L(`패널 앱 권한 규칙: ${app.title} — 시트에서 데이터베이스로 옮김(행 ${rowsNow.length}개)`, `Panel app access rules: ${app.title} — moved from the sheet to the database (${rowsNow.length} rows)`))
   } else {
     const st = R.rulesSql(def, app.id, folder.id)
     await D.asOwner(st)
     await D.logMigration(app, 'rules', st, { user })
-    await saveDefFile(user, folder, app, def, `패널 앱 권한 규칙: ${app.title}`)
+    await saveDefFile(user, folder, app, def, L(`패널 앱 권한 규칙: ${app.title}`, `Panel app access rules: ${app.title}`))
   }
   await audit(app, user, 'rules', { access: def.access, fieldRules: def.fieldRules })
   await announce(folder.slug)
@@ -487,17 +524,17 @@ export async function setRules(user, id, { access, fieldRules }) {
 // owner: add / change / remove fields of a db app. Dropping a column needs confirmDrop.
 export async function changeFields(user, id, { fields, confirmDrop = false }) {
   const { app, folder } = await appFor(user, id, 'owner')
-  if (app.tier !== 'db') throw err(400, '시트 앱의 항목은 시트에서 열을 고쳐 주세요.')
+  if (app.tier !== 'db') throw err(400, L('시트 앱의 항목은 시트에서 열을 고쳐 주세요.', "A sheet app's fields are changed in the sheet: edit its columns there."))
   const def = X.normalizeDef({ ...app.def, fields, form: undefined, tier: 'db' }, { strict: true })
   const { statements, destructive } = R.alterSql(app.def, def, app.id, folder.id)
   if (destructive.length && !confirmDrop) {
     const gone = app.def.fields.filter((f) => !def.fields.some((x) => x.key === f.key)).map((f) => f.label)
-    throw Object.assign(err(409, `항목을 지우면 그 열의 데이터가 사라져요: ${gone.join(', ')}. 확인 후 다시 저장해 주세요.`), { problems: gone, needConfirm: true })
+    throw Object.assign(err(409, L(`항목을 지우면 그 열의 데이터가 사라져요: ${gone.join(', ')}. 확인 후 다시 저장해 주세요.`, `Removing a field deletes the data in its column: ${gone.join(', ')}. Confirm and save again.`)), { problems: gone, needConfirm: true })
   }
   const all = [...destructive, ...statements]
   await D.asOwner(all)
   await D.logMigration(app, 'alter', all, { destructive: destructive.length > 0, user })
-  await saveDefFile(user, folder, app, def, `패널 앱 항목 변경: ${app.title}`)
+  await saveDefFile(user, folder, app, def, L(`패널 앱 항목 변경: ${app.title}`, `Panel app fields changed: ${app.title}`))
   await announce(folder.slug)
   return rows(user, id)
 }
@@ -519,7 +556,7 @@ async function rowAuthors(folder, app, rowsNow) {
   const log = await S.history(folder, 400)
   for (const r of rowsNow) {
     const t = String(r[app.def.views.list.title] ?? '')
-    const c = t && log.find((x) => x.msg.startsWith(`패널: ${app.title} 행 추가 — ${t}`))
+    const c = t && log.find((x) => x.msg.startsWith(`패널: ${app.title} 행 추가 — ${t}`) || x.msg.startsWith(`Panel: ${app.title} row added — ${t}`))
     const p = c && people.find((x) => x.name === c.name)
     if (p) out.set(r._id, p.id)
   }
@@ -530,7 +567,7 @@ async function rowAuthors(folder, app, rowsNow) {
 // rows) to the folder as <앱>.xlsx — a backup that never carries a private row
 export async function snapshot(user, id) {
   const { app, folder } = await appFor(user, id, 'editor')
-  if (app.tier !== 'db') throw err(400, '시트 앱은 폴더의 시트가 곧 원본이에요.')
+  if (app.tier !== 'db') throw err(400, L('시트 앱은 폴더의 시트가 곧 원본이에요.', "A sheet app's original is the sheet in its folder."))
   if (app.kind === 'events') return eventsSnapshot(user, app, folder)
   const access = R.validateAccess(app.def, app.def, { strict: false }).access
   const everyone = { id: '00000000-0000-0000-0000-000000000000', rank: 1 }
@@ -538,9 +575,9 @@ export async function snapshot(user, id) {
   const visible = all.filter((r) => R.allows(access.read, r, everyone))
   const people = await peopleOf(folder)
   // personal / sensitive values never go into the folder (a member can open the file; the index reads it)
-  const shown = visible.map((r) => { const o = { ...r }; for (const f of app.def.fields) { if (PV.restricted(f)) o[f.key] = '비공개'; else if (f.type === 'person' && o[f.key]) o[f.key] = people.find((p) => p.id === o[f.key])?.name || o[f.key] } return o })
+  const shown = visible.map((r) => { const o = { ...r }; for (const f of app.def.fields) { if (PV.restricted(f)) o[f.key] = E.masked(); else if (f.type === 'person' && o[f.key]) o[f.key] = people.find((p) => p.id === o[f.key])?.name || o[f.key] } return o })
   await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await X.newBook(app.def, shown)))
-  const commit = await S.commitMain(folder, { name: user.name, email: user.email }, `스냅샷: ${app.title} (${visible.length}/${all.length}행, 구성원 모두가 볼 수 있는 행만)`)
+  const commit = await S.commitMain(folder, { name: user.name, email: user.email }, L(`스냅샷: ${app.title} (${visible.length}/${all.length}행, 구성원 모두가 볼 수 있는 행만)`, `Snapshot: ${app.title} (${visible.length}/${all.length} rows, only rows every member can see)`))
   reindex(folder, { cards: false }).catch(() => {})
   return { ok: true, commit, rows: visible.length, hidden: all.length - visible.length, path: app.sheet_path }
 }
@@ -558,7 +595,7 @@ function facts(app) {
     tier: app.tier || 'sheet', kind: app.kind || def.kind || 'list',
     rules: db && def.kind !== 'events' ? R.describeRules(def) : null,
     eventRules: def.kind === 'events' ? E.describeEvents(def) : null,
-    privacy: db || def.kind === 'events' ? PV.describePrivacy(def) : [{ kind: 'who', text: '폴더 구성원만 볼 수 있어요. 구성원은 모든 항목을 봐요(숨길 항목이 없는 시트 앱).' }],
+    privacy: db || def.kind === 'events' ? PV.describePrivacy(def) : [{ kind: 'who', text: L('폴더 구성원만 볼 수 있어요. 구성원은 모든 항목을 봐요(숨길 항목이 없는 시트 앱).', 'Only folder members can see it. Members see every field (a sheet app with nothing to hide).') }],
     privacyAck: app.privacy_ack !== false,
   }
 }
@@ -616,29 +653,29 @@ async function eventRows(user, app, folder, role) {
 
 export async function appendEvent(user, id, input) {
   const { app, folder, role } = await appFor(user, id, 'viewer')
-  if (app.kind !== 'events') throw err(400, '기록을 쌓는 앱이 아니에요.')
+  if (app.kind !== 'events') throw err(400, L('기록을 쌓는 앱이 아니에요.', "This app doesn't keep records."))
   const def = app.def
   const people = await peopleOf(folder)
   const toId = idOf(people)
   const log = await eventLog(user, app, folder, people)
   const refEvent = input.ref ? log.find((e) => e.id === input.ref) : null
-  if (input.ref && !refEvent) throw err(404, '대상 기록이 없거나 볼 수 없어요.')
+  if (input.ref && !refEvent) throw err(404, L('대상 기록이 없거나 볼 수 없어요.', "The record it applies to isn't there, or you can't see it."))
   const entityIn = input.entity ?? input.values?.[def.entity.key] ?? input.values?.[def.entity.label]
   const ev = E.validateEvent(def, { ...input, entity: def.entity.type === 'person' && entityIn ? toId(String(entityIn)) : entityIn }, { refEvent })
-  if (def.entity.type === 'person' && !refEvent && !people.some((p) => p.id === ev.entity)) throw err(422, `'${def.entity.label}'에는 이 폴더 구성원만 넣을 수 있어요.`)
+  if (def.entity.type === 'person' && !refEvent && !people.some((p) => p.id === ev.entity)) throw err(422, L(`'${def.entity.label}'에는 이 폴더 구성원만 넣을 수 있어요.`, `'${def.entity.label}' can only be a member of this folder.`))
   const t = def.events.find((x) => x.type === ev.type)
   let made
   if (app.tier === 'db') made = await D.append(user, app, ev)
   else {
     // sheet tier: the server is the only writer; the same rule terms are checked here
     const me = { id: user.id, rank: S.RANK[role] }
-    if (!R.allows(t.who, { _subject: ev.entity, _created_by: user.id, _ref_by: refEvent?.by }, me)) throw err(403, `'${t.label}'을(를) 기록할 권한이 없어요.`)
+    if (!R.allows(t.who, { _subject: ev.entity, _created_by: user.id, _ref_by: refEvent?.by }, me)) throw err(403, L(`'${t.label}'을(를) 기록할 권한이 없어요.`, `You may not record '${t.label}'.`))
     made = await serial(app.id, async () => {
       const cur = await sheetLog(folder, app, people)
-      if (ev.ref && E.replay(def, cur).closedBy[ev.ref]) throw err(409, '이미 취소(또는 처리)된 기록이에요.')
+      if (ev.ref && E.replay(def, cur).closedBy[ev.ref]) throw err(409, L('이미 취소(또는 처리)된 기록이에요.', 'That record has already been canceled (or handled).'))
       const e = { seq: (cur.at(-1)?.seq || 1) + 1, id: E.newEventId(), at: new Date().toISOString(), by: user.id, type: ev.type, entity: ev.entity, ref: ev.ref, ...ev.values }
       await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await E.eventsBook(def, [...cur, e], { names: nameOf(people) })))
-      await S.commitMain(folder, { name: user.name, email: user.email }, `기록: ${t.label} — ${def.entity.type === 'person' ? nameOf(people)(ev.entity) : ev.entity}`)
+      await S.commitMain(folder, { name: user.name, email: user.email }, L(`기록: ${t.label} — ${def.entity.type === 'person' ? nameOf(people)(ev.entity) : ev.entity}`, `Record: ${t.label} — ${def.entity.type === 'person' ? nameOf(people)(ev.entity) : ev.entity}`))
       reindex(folder, { cards: false }).catch(() => {})
       return e
     })
@@ -659,14 +696,14 @@ async function eventsSheetCopy(user, app, folder, role) {
   snapshots.set(token, { appId: app.id, userId: user.id, log, at: Date.now() })
   const key = `pgpt-pro/panel-apps/${app.id}/v/${token}.xlsx`
   const { error } = await admin.storage.from('files').upload(key, buf, { contentType: XLSX_MIME, upsert: true })
-  if (error) throw err(500, `시트를 열 준비를 못 했어요: ${error.message}`)
-  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: `${fileSafe(app.title)}${app.tier === 'db' ? ' (보기)' : ''}.xlsx`, sha: token, readOnly: false, snapshot: true, count: log.length }
+  if (error) throw err(500, L(`시트를 열 준비를 못 했어요: ${error.message}`, `I couldn't get the sheet ready to open: ${error.message}`))
+  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: `${fileSafe(app.title)}${app.tier === 'db' ? L(' (보기)', ' (view)') : ''}.xlsx`, sha: token, readOnly: false, snapshot: true, count: log.length }
 }
 
 async function eventsSheetSaved(user, id, { url, sha }) {
   const { app, folder } = await appFor(user, id, 'viewer')
   const snap = snapshots.get(String(sha || ''))
-  if (!snap || snap.appId !== app.id || snap.userId !== user.id) throw err(409, '이 시트 보기는 만료됐어요. "시트 열기"로 다시 열어 주세요.')
+  if (!snap || snap.appId !== app.id || snap.userId !== user.id) throw err(409, L('이 시트 보기는 만료됐어요. "시트 열기"로 다시 열어 주세요.', 'This sheet view has expired. Open it again with "Open sheet".'))
   const people = await peopleOf(folder)
   const saved = E.readLog(await X.readBook(await fetchSaved(url)), app.def, { ids: idOf(people) })
   const { added, rejected } = E.diffLog(app.def, snap.log, saved, { names: nameOf(people) })
@@ -698,26 +735,26 @@ export async function privacyAck(user, id) {
 // owner: change a field's sensitivity. Lowering personal/sensitive needs confirm and is logged.
 export async function setSensitivity(user, id, { field, level, confirm = false }) {
   const { app, folder } = await appFor(user, id, 'owner')
-  if (app.tier !== 'db') throw err(400, '시트 앱은 모든 구성원이 모든 항목을 봐요. 숨기려면 행 단위 권한을 켜 주세요.')
+  if (app.tier !== 'db') throw err(400, L('시트 앱은 모든 구성원이 모든 항목을 봐요. 숨기려면 행 단위 권한을 켜 주세요.', 'In a sheet app every member sees every field. Turn on row-level access to hide one.'))
   const f = app.def.fields.find((x) => x.key === field)
-  if (!f || !PV.LEVELS.includes(level)) throw err(400, '항목이나 수준이 올바르지 않아요.')
+  if (!f || !PV.LEVELS.includes(level)) throw err(400, L('항목이나 수준이 올바르지 않아요.', 'The field or level is not valid.'))
   const RANKL = Object.fromEntries(PV.LEVELS.map((l, i) => [l, i]))
   const before = PV.levelOf(f)
   const loosen = RANKL[level] < RANKL[before] && RANKL[before] >= RANKL.personal
-  if (loosen && !confirm) throw Object.assign(err(409, `'${f.label}'을(를) ${before === 'sensitive' ? '민감 정보' : '개인정보'}에서 낮추면 더 많은 구성원이 보게 돼요. 확인 후 다시 저장해 주세요.`), { needConfirm: true })
+  if (loosen && !confirm) throw Object.assign(err(409, L(`'${f.label}'을(를) ${before === 'sensitive' ? '민감 정보' : '개인정보'}에서 낮추면 더 많은 구성원이 보게 돼요. 확인 후 다시 저장해 주세요.`, `Lowering '${f.label}' from ${before === 'sensitive' ? 'sensitive' : 'personal'} information lets more members see it. Confirm and save again.`)), { needConfirm: true })
   const def = { ...app.def, fields: app.def.fields.map((x) => (x.key === field ? { ...x, sensitivity: level } : x)) }
   const st = def.kind === 'events' ? E.eventsPolicySql(def, app.id, folder.id) : R.rulesSql(def, app.id, folder.id)
   await D.asOwner(st)
   await D.logMigration(app, 'rules', st, { user, note: `${f.label}: ${before} → ${level}` })
   await audit(app, user, loosen ? 'loosen' : 'sensitivity', { field, from: before, to: level })
-  await saveDefFile(user, folder, app, def, `패널 앱 보안 수준: ${app.title} — ${f.label} ${before} → ${level}`)
+  await saveDefFile(user, folder, app, def, L(`패널 앱 보안 수준: ${app.title} — ${f.label} ${before} → ${level}`, `Panel app security level: ${app.title} — ${f.label} ${before} → ${level}`))
   return rows(user, id)
 }
 
 // owner: who may append each event type / read the log (event apps)
 export async function setEventRules(user, id, { events = {}, read }) {
   const { app, folder } = await appFor(user, id, 'owner')
-  if (app.kind !== 'events') throw err(400, '이벤트 앱이 아니에요.')
+  if (app.kind !== 'events') throw err(400, L('이벤트 앱이 아니에요.', "This isn't a record-keeping app."))
   const def = E.normalizeEventsDef({ ...app.def, tier: app.tier, events: app.def.events.map((e) => ({ ...e, who: events[e.type] ?? e.who })), access: { read: read ?? app.def.access.read } }, { strict: true })
   if (app.tier === 'db') {
     const st = E.eventsPolicySql(def, app.id, folder.id)
@@ -725,7 +762,7 @@ export async function setEventRules(user, id, { events = {}, read }) {
     await D.logMigration(app, 'rules', st, { user })
   }
   await audit(app, user, 'rules', { events: Object.fromEntries(def.events.map((e) => [e.type, e.who])), read: def.access.read })
-  await saveDefFile(user, folder, app, def, `패널 앱 권한 규칙: ${app.title}`)
+  await saveDefFile(user, folder, app, def, L(`패널 앱 권한 규칙: ${app.title}`, `Panel app access rules: ${app.title}`))
   await announce(folder.slug)
   return rows(user, id)
 }
@@ -735,7 +772,7 @@ export async function setEventRules(user, id, { events = {}, read }) {
 // one event per mapping entry whose numbers are non-zero; they are marked as migrated in history.
 export async function convertToEvents(user, id, { def: rawDef, mapping }) {
   const { app, folder } = await appFor(user, id, 'owner')
-  if (app.kind === 'events') throw err(400, '이미 기록을 쌓는 앱이에요.')
+  if (app.kind === 'events') throw err(400, L('이미 기록을 쌓는 앱이에요.', 'This app already keeps records.'))
   const def = E.normalizeEventsDef({ ...rawDef, title: app.title, icon: app.icon }, { secure: true, strict: true })
   const people = await peopleOf(folder)
   const old = app.tier === 'db' ? await D.allRowsAsOwner(app) : X.readRows((await readSheet(folder, app)).wb, app.def)
@@ -751,7 +788,7 @@ export async function convertToEvents(user, id, { def: rawDef, mapping }) {
     await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await E.eventsBook(def, evs, { names: nameOf(people) })))
   }
   await q('update pro_panel_apps set kind=$2, tier=$3 where id=$1', [app.id, 'events', def.tier])
-  await saveDefFile(user, folder, { ...app }, def, `패널 앱을 기록(이벤트) 방식으로 바꿈: ${app.title} — 행 ${old.length}개 → 기록 ${evs.length}개`)
+  await saveDefFile(user, folder, { ...app }, def, L(`패널 앱을 기록(이벤트) 방식으로 바꿈: ${app.title} — 행 ${old.length}개 → 기록 ${evs.length}개`, `Panel app now keeps records (events): ${app.title} — ${old.length} rows → ${evs.length} records`))
   await audit(app, user, 'convert', { rows: old.length, events: evs.length })
   await announce(folder.slug)
   return rows(user, id)
@@ -778,10 +815,10 @@ async function eventsSnapshot(user, app, folder) {
   const everyone = { id: '00000000-0000-0000-0000-000000000000', rank: 1 }
   const all = await D.eventsAsOwner(app)
   const visible = all.filter((e) => R.allows(app.def.access.read, { _created_by: e.by, _by: e.by, _subject: e.entity }, everyone))
-    .map((e) => { const o = { ...e }; for (const f of app.def.fields) if (PV.restricted(f)) o[f.key] = '비공개'; return o })
+    .map((e) => { const o = { ...e }; for (const f of app.def.fields) if (PV.restricted(f)) o[f.key] = E.masked(); return o })
   // replayed tabs only from what may be shown: restricted numbers are blanked above
   await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await E.eventsBook(app.def, visible, { names: nameOf(people) })))
-  const commit = await S.commitMain(folder, { name: user.name, email: user.email }, `스냅샷: ${app.title} (기록 ${visible.length}/${all.length}개, 개인정보·민감 항목은 비공개)`)
+  const commit = await S.commitMain(folder, { name: user.name, email: user.email }, L(`스냅샷: ${app.title} (기록 ${visible.length}/${all.length}개, 개인정보·민감 항목은 비공개)`, `Snapshot: ${app.title} (${visible.length}/${all.length} records, personal and sensitive fields private)`))
   reindex(folder, { cards: false }).catch(() => {})
   await audit(app, user, 'snapshot', { events: visible.length })
   return { ok: true, commit, rows: visible.length, hidden: all.length - visible.length, path: app.sheet_path }

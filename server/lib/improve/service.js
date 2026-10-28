@@ -8,7 +8,8 @@ import { resources, constraintOf } from './toc.js'
 import { focusingSteps, skipShare, pickThreshold, dur } from './focus.js'
 import { buildModel, evaluate, whatIf } from './whatif.js'
 import { remainingPath } from './cpm.js'
-import { CHANGE_TYPES } from './transform.js'
+import { changeTypes } from './transform.js'
+import { L, langOf, withLang } from '../lang.js'
 
 const T = () => config.tenantId
 export const err = (status, message) => Object.assign(new Error(message), { status })
@@ -26,7 +27,7 @@ async function defRow(defId) {
 // who may look: an admin, the owner, or anyone who held a work item of this process; apply: admin or owner
 export async function access(me, defId) {
   const d = await defRow(defId)
-  if (!d) throw err(404, '프로세스를 찾지 못했어요.')
+  if (!d) throw err(404, L('프로세스를 찾지 못했어요.', "I couldn't find that process."))
   const admin = await isAdmin(me)
   const owner = d.owner && String(d.owner) === String(me.id)
   let member = admin || owner
@@ -34,7 +35,7 @@ export async function access(me, defId) {
     const [hit] = await q(`select 1 from todolist t where lower(t.proc_def_id)=lower($1) and t.tenant_id=$2 and (t.user_id like '%'||$3||'%' or t.user_id like '%'||$4||'%') limit 1`, [defId, T(), String(me.id), me.email || '(none)'])
     member = !!hit
   }
-  if (!member) throw err(403, '이 프로세스에 참여한 사람과 관리자만 개선 분석을 볼 수 있어요.')
+  if (!member) throw err(403, L('이 프로세스에 참여한 사람과 관리자만 개선 분석을 볼 수 있어요.', 'Only people who took part in this process and administrators can see its improvement analysis.'))
   return { def: d, admin, owner, canApply: admin || owner }
 }
 
@@ -68,12 +69,12 @@ export async function versions(defId) {
 /** load and analyse; version = a proc_def_version.version (only its instances, its own definition) or 'all' */
 export async function load(defId, { version = 'all', now = Date.now() } = {}) {
   const d = await defRow(defId)
-  if (!d) throw err(404, '프로세스를 찾지 못했어요.')
+  if (!d) throw err(404, L('프로세스를 찾지 못했어요.', "I couldn't find that process."))
   let def = d.definition || {}
   let arcv = null
   if (version && version !== 'all') {
     const [v] = await q(`select arcv_id, definition from proc_def_version where lower(proc_def_id)=lower($1) and tenant_id=$2 and version=$3 order by "timeStamp" desc limit 1`, [defId, T(), String(version)])
-    if (!v) throw err(404, `버전 ${version} 을 찾지 못했어요.`)
+    if (!v) throw err(404, L(`버전 ${version} 을 찾지 못했어요.`, `I couldn't find version ${version}.`))
     arcv = v.arcv_id
     if (v.definition?.activities?.length) def = v.definition
   }
@@ -110,7 +111,7 @@ function cpmView(a, res, basis) {
   // gateways carrying expected rework time show up as their own bar
   for (const l of e.loops) {
     const n = nodes[l.from]
-    if (n) rows.push({ id: l.from, name: `보완 재작업 ${Math.round(l.share * 100)}%`, es: secs(n.es), ef: secs(n.ef), ls: secs(n.ls), lf: secs(n.lf), slack: secs(n.slack), d: secs(n.d), wait: 0, work: secs(n.d), critical: n.critical, criticality: e.criticality[l.from] || 0, p: 1, kind: 'loop', loop: true })
+    if (n) rows.push({ id: l.from, name: L(`보완 재작업 ${Math.round(l.share * 100)}%`, `Rework ${Math.round(l.share * 100)}%`), es: secs(n.es), ef: secs(n.ef), ls: secs(n.ls), lf: secs(n.lf), slack: secs(n.slack), d: secs(n.d), wait: 0, work: secs(n.d), critical: n.critical, criticality: e.criticality[l.from] || 0, p: 1, kind: 'loop', loop: true })
   }
   rows.sort((p, r) => p.es - r.es)
   return { basis, expectedSec: e.leadSec, mainSec: e.mainSec, path: e.path, pathProb: e.pathProb, flowEfficiency: e.flowEfficiency, workSec: e.workSec, rows,
@@ -155,7 +156,7 @@ export async function overview(me, defId, { version, basis = 'median' } = {}) {
     instances: a.instances.slice().sort((x, y) => y.start - x.start).slice(0, 80).map((i) => ({ id: i.id, name: i.name, status: i.status, version: i.version, start: i.start, end: i.end, leadSec: i.leadSec, elapsedSec: i.elapsedSec, flowEff: i.flowEff, totals: i.totals })),
     numeric: a.numeric.map((f) => ({ activityId: f.activityId, field: f.field, label: labels[f.field] || f.field, n: f.n, min: f.min, max: f.max, median: f.median })),
     suggestedThreshold: threshold ? { ...threshold, label: labels[threshold.field] || threshold.field } : null,
-    labels, changeTypes: CHANGE_TYPES,
+    labels, changeTypes: changeTypes(),
   }
 }
 
@@ -163,11 +164,11 @@ export async function instance(me, defId, instId) {
   await access(me, defId)
   const vs = await versions(defId)
   const i = (await instancesWithVersion(defId)).insts.find((x) => x.id === instId)
-  if (!i) throw err(404, '인스턴스를 찾지 못했어요.')
+  if (!i) throw err(404, L('인스턴스를 찾지 못했어요.', "I couldn't find that instance."))
   const ver = vs.find((v) => v.version === i.version)?.version || 'all'
   const { a } = await load(defId, { version: ver })
   const prof = instanceProfile(a, instId)
-  if (!prof) throw err(404, '이 인스턴스에는 분해할 상태 전이 이력이 없어요.')
+  if (!prof) throw err(404, L('이 인스턴스에는 분해할 상태 전이 이력이 없어요.', 'This instance has no status history to break down.'))
   let remaining = null
   if (prof.status !== 'COMPLETED') {
     const res = resources(a)
@@ -241,13 +242,16 @@ export async function checkConstraint(defId, pre = null) {
   if (d.owner) to.add(String(d.owner))
   else for (const u of await q(`select u.id::text as id from users u join pro_team_members m on m.user_id=u.id and m.tenant_id=u.tenant_id where u.tenant_id=$1 and u.is_admin and not coalesce(u.is_agent,false)`, [T()])) to.add(u.id)
   const url = `/improve/${encodeURIComponent(d.id)}`
-  const text = c.capacityBound
-    ? `${step}(${c.name}) 단계의 가동률이 ${Math.round(c.rho * 100)}%예요(하루 ${c.lambdaPerDay.toFixed(1)}건 도착, 처리 능력 ${c.muPerDay.toFixed(1)}건). 이 단계 앞 대기가 리드타임의 ${Math.round(c.waitShare * 100)}%(중앙값 ${dur(c.waitMedian)})를 차지해요.`
-    : `${step}(${c.name}) 앞 대기가 리드타임의 ${Math.round(c.waitShare * 100)}%(중앙값 ${dur(c.waitMedian)})를 차지해요.`
+  const text = () => (c.capacityBound
+    ? L(`${step}(${c.name}) 단계의 가동률이 ${Math.round(c.rho * 100)}%예요(하루 ${c.lambdaPerDay.toFixed(1)}건 도착, 처리 능력 ${c.muPerDay.toFixed(1)}건). 이 단계 앞 대기가 리드타임의 ${Math.round(c.waitShare * 100)}%(중앙값 ${dur(c.waitMedian)})를 차지해요.`,
+      `The ${step} step (${c.name}) is at ${Math.round(c.rho * 100)}% utilization (${c.lambdaPerDay.toFixed(1)} arrivals a day, capacity ${c.muPerDay.toFixed(1)}). Waiting in front of it takes ${Math.round(c.waitShare * 100)}% of the lead time (median ${dur(c.waitMedian)}).`)
+    : L(`${step}(${c.name}) 앞 대기가 리드타임의 ${Math.round(c.waitShare * 100)}%(중앙값 ${dur(c.waitMedian)})를 차지해요.`,
+      `Waiting in front of ${step} (${c.name}) takes ${Math.round(c.waitShare * 100)}% of the lead time (median ${dur(c.waitMedian)}).`))
   for (const id of to) {
     await q(`update notifications set is_checked=true where tenant_id=$1 and user_id=$2 and url=$3 and type='improve' and not coalesce(is_checked,false)`, [T(), id, url])
-    await q(`insert into notifications (id, user_id, title, type, description, url, tenant_id) values (gen_random_uuid(),$1,$2,'improve',$3,$4,$5)`,
-      [id, `${d.name}: 새 제약이 나타났어요 — ${step}`, text, url, T()])
+    // in the recipient's saved language (lib/lang.js), whoever's request found it
+    await withLang(await langOf(id), () => q(`insert into notifications (id, user_id, title, type, description, url, tenant_id) values (gen_random_uuid(),$1,$2,'improve',$3,$4,$5)`,
+      [id, L(`${d.name}: 새 제약이 나타났어요 — ${step}`, `${d.name}: a new constraint appeared — ${step}`), text(), url, T()]))
     emit(id, 'notifications', {})
   }
   return { key, notified: [...to] }
@@ -293,7 +297,7 @@ export async function brief(me, defId, { basis = 'median' } = {}) {
     lead_time: { median: dur(o.observed.leadMedian), p80: dur(o.observed.leadP80) },
     flow_efficiency: o.vsm.flowEfficiency != null ? `${(o.vsm.flowEfficiency * 100).toFixed(1)}%` : null,
     bottlenecks: [...o.steps].sort((x, y) => y.normalizedBottleneck - x.normalizedBottleneck).slice(0, 4).map((s) => ({
-      step: s.name, who: s.people[0]?.name || s.role, kind: s.kind === 'human' ? '사람' : '에이전트', runs: s.frequency,
+      step: s.name, who: s.people[0]?.name || s.role, kind: s.kind === 'human' ? L('사람', 'person') : L('에이전트', 'agent'), runs: s.frequency,
       median: dur(s.medianDuration), p80: dur(s.p80Duration), wait_median: dur(s.medianWait), work_median: dur(s.medianWork),
       review_wait_total: dur(s.sums.review_wait), queue_wait_total: dur(s.sums.queue_wait), rework_rate: `${s.reworkRate.toFixed(1)}%`,
       bottleneck_score: `${s.normalizedBottleneck.toFixed(0)}%`,

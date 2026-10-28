@@ -11,17 +11,24 @@
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
+import { L, isEn } from '../lang.js'
 
 const T = () => config.tenantId
 export const AGENT = { id: 'pgpt-meeting-assistant', name: '프로세스 GPT 라이트 도우미' }
+// A meeting has one language: the one its starter was using when it began (stored as summary.lang,
+// which the final minutes keep). Everything done for the meeting runs in it (service.js inMeeting).
+export const meetingLang = (m) => (m?.summary?.lang === 'en' ? 'en' : 'ko')
+// the helper's name in the meeting's language (English mode: the glossary's "Process GPT Lite helper")
+const agentName = () => L(AGENT.name, 'Process GPT Lite helper')
 export const BLOCK_MS = Number(process.env.PRO_MEETING_BLOCK_MS || 120000)
 export const BLOCK_LINES = 24
 const TURN_GAP_MS = 8000 // one speaker's lines this close together are one turn
-const hhmm = (d) => new Date(d).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul' })
+const hhmm = (d) => new Date(d).toLocaleTimeString(isEn() ? 'en-US' : 'ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul' })
 
 // the assistant's row, in the shape process-gpt persists an agent reply
 function row(content, pgpt, uuid = crypto.randomUUID(), at = new Date()) {
-  return { uuid, id: AGENT.id, name: AGENT.name, role: 'assistant', email: `agent:${AGENT.id}`, agentId: AGENT.id, userName: AGENT.name,
+  const name = agentName()
+  return { uuid, id: AGENT.id, name, role: 'assistant', email: `agent:${AGENT.id}`, agentId: AGENT.id, userName: name,
     profile: '/images/chat-icon.png', content, timeStamp: new Date(at).toISOString(), pgpt }
 }
 
@@ -46,7 +53,11 @@ const minutesOf = (a, b) => Math.max(1, Math.round((new Date(b) - new Date(a)) /
 export function cardOf(m, people, { ended = false } = {}) {
   const live = people.filter((p) => !p.left_at)
   const all = names(people)
-  const content = ended
+  const content = isEn()
+    ? ended
+      ? `📹 The meeting ended · ${minutesOf(m.started_at, m.ended_at || new Date())} min · ${all.length} joined (${all.join(', ')})`
+      : `📹 Meeting in progress · ${live.length} in the meeting (${names(live).join(', ')}) — join it from Process GPT Lite Team messages`
+    : ended
     ? `📹 회의가 끝났어요 · ${minutesOf(m.started_at, m.ended_at || new Date())}분 · 참여 ${all.length}명 (${all.join(', ')})`
     : `📹 회의 중 · ${live.length}명 참여 (${names(live).join(', ')}) — 프로세스 GPT 라이트 메시지에서 참여할 수 있어요`
   return { content, pgpt: { kind: 'meeting', meeting: { id: m.id, state: ended ? 'ended' : 'live', count: live.length, people: all, live: names(live),
@@ -76,7 +87,7 @@ function serial(id, fn) {
 function blockText(b) {
   const span = b.lines.length ? `${hhmm(b.lines[0].at)}–${hhmm(b.lines[b.lines.length - 1].at)}` : ''
   // plain "이름: 말" lines: process-gpt's chat room shows content as text (no markdown there)
-  return `🎙 회의록 ${b.n}${span ? ` (${span})` : ''}\n${b.lines.map((l) => `${l.speaker}: ${l.text}`).join('\n')}`
+  return `🎙 ${L('회의록', 'Transcript')} ${b.n}${span ? ` (${span})` : ''}\n${b.lines.map((l) => `${l.speaker}: ${l.text}`).join('\n')}`
 }
 const blockPgpt = (m, b) => ({ kind: 'meeting-transcript', meeting: { id: m.id, block: b.n, lines: b.lines } })
 
@@ -109,6 +120,8 @@ export const closeBlocks = (meetingId) => serial(meetingId, async () => { blocks
 
 // ---- materials and results ----
 const KIND_WORD = { file: '파일', process: '진행 상황', panel: '앱 데이터', folder: '폴더 문서', result: '에이전트 결과' }
+export const KIND_WORD_EN = { file: 'File', process: 'Progress', panel: 'App data', folder: 'Folder document', result: 'Agent result' }
+export const kindWord = (kind) => (isEn() ? KIND_WORD_EN[kind] || 'Material' : KIND_WORD[kind] || '자료')
 export async function materialCard(m, mat, { presentedBy, quiet } = {}) {
   if (mat.chat_uuid) {
     // already in the room: a presentation updates its line
@@ -121,6 +134,10 @@ export async function materialCard(m, mat, { presentedBy, quiet } = {}) {
   return uuid
 }
 function materialText(mat, presentedBy) {
+  if (isEn()) {
+    const who = presentedBy ? `${presentedBy} showed it to everyone` : 'The helper found it and put it up'
+    return `📎 Meeting material · ${kindWord(mat.kind)} · ${mat.title}\n${who}${mat.reason ? ` — ${mat.reason}` : ''}`
+  }
   const who = presentedBy ? `${presentedBy}님이 모두에게 띄웠어요` : '도우미가 찾아 띄웠어요'
   return `📎 회의 자료 · ${KIND_WORD[mat.kind] || '자료'} · ${mat.title}\n${who}${mat.reason ? ` — ${mat.reason}` : ''}`
 }
@@ -150,6 +167,6 @@ export async function handover(m, { from, to, label, artifacts = [], note = '', 
            values ($1,$2,$3,$4,$5,$3,$3,$6,$7,false,$8,$9,null,$10,$11,$12,$12,$12,$13,$14,$15,$16,$16,$17)`, [
     T(), caseId, m.room_id, isAgent ? 'agent_delegation' : 'chat_handover', !isAgent,
     String(from.id), from.name, String(to.id), to.name, isAgent, isAgent ? 'deepagents' : null,
-    label, note || label, 'pgpt-pro 회의', JSON.stringify((artifacts.length ? artifacts : [{}]).map((a) => ({ type: 'file', ...a }))), when.toISOString(), latency])
+    label, note || label, L('pgpt-pro 회의', 'pgpt-pro meeting'), JSON.stringify((artifacts.length ? artifacts : [{}]).map((a) => ({ type: 'file', ...a }))), when.toISOString(), latency])
     .catch((e) => console.warn('[meetings] handover', e.message))
 }

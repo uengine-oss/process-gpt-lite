@@ -10,6 +10,7 @@ import { execFile } from 'node:child_process'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { chat } from '../llm.js'
+import { L, isEn } from '../lang.js'
 import * as G from './git.js'
 import { readableFolderIds } from './service.js'
 
@@ -105,20 +106,26 @@ function cardQueue(folder, { only } = {}) {
 const CARD_PROMPT = `다음은 어떤 문서의 앞부분과 마지막 부분이다. JSON 으로만 답하라:
 {"abstract": "이 문서가 무엇인지 1~2문장 한국어 평문(해요체). 여기에 없는 사실은 추가하지 마라", "keywords": ["문서를 찾을 때 쓸 핵심 낱말 3~6개"]}`
 
+// English mode: the card in English (the same prompt otherwise)
+const CARD_PROMPT_EN = `Below are the start and the end of a document. Answer with JSON only:
+{"abstract": "what this document is, in 1-2 plain English sentences. Add no fact that is not here", "keywords": ["3-6 key words to find the document by"]}`
+const CHANGE_PROMPT = '공유 폴더의 변형이 기준본(main)에서 무엇을 바꿨는지 알려 준다. JSON 으로만: {"title": "무엇을 바꿨는지 8~24자 명사구(예: 안내문 사전 신청 문구 추가)", "summary": "전체 한 문장(해요체)", "files": {"<경로>": "그 파일에서 바뀐 점 한 문장(해요체)"}}. 차이에 없는 내용은 지어내지 마라.'
+const CHANGE_PROMPT_EN = 'Say what a variation of a shared folder changed compared with main. JSON only: {"title": "what changed, a 3-8 word English noun phrase (e.g. Pre-registration line added to the notice)", "summary": "one English sentence for the whole change", "files": {"<path>": "one English sentence on what changed in that file"}}. Make up nothing that is not in the diff.'
+
 async function makeCard(folder, row) {
   const buf = await G.git(folder.repo_path, ['cat-file', 'blob', row.sha], { buffer: true })
   const { text, pages } = await extract(row.path, buf)
   const [{ index_state }] = await q('select index_state from pro_folders where id=$1', [folder.id])
   const body = index_state?.fulltext ? text : null
   if (!text.trim()) {
-    await q('update pro_folder_files set card=null, card_sha=$3, card_error=$4, body=$5 where folder_id=$1 and path=$2', [folder.id, row.path, row.sha, '본문을 읽지 못했어요', body])
+    await q('update pro_folder_files set card=null, card_sha=$3, card_error=$4, body=$5 where folder_id=$1 and path=$2', [folder.id, row.path, row.sha, L('본문을 읽지 못했어요', "Couldn't read the text"), body])
     return
   }
   const head = text.slice(0, 3500), tail = text.length > 5000 ? text.slice(-1200) : ''
   try {
     const m = await chat({ model: config.llm.fastModel, temperature: 0, json: true, messages: [
-      { role: 'system', content: CARD_PROMPT },
-      { role: 'user', content: `파일: ${row.path}\n\n[앞부분]\n${head}${tail ? `\n\n[마지막 부분]\n${tail}` : ''}` }] })
+      { role: 'system', content: isEn() ? CARD_PROMPT_EN : CARD_PROMPT },
+      { role: 'user', content: L(`파일: ${row.path}\n\n[앞부분]\n${head}${tail ? `\n\n[마지막 부분]\n${tail}` : ''}`, `File: ${row.path}\n\n[Start]\n${head}${tail ? `\n\n[End]\n${tail}` : ''}`) }] })
     const j = JSON.parse(m.content)
     const card = { abstract: String(j.abstract || '').trim() || null, keywords: (Array.isArray(j.keywords) ? j.keywords : []).map(String).slice(0, 8), n_pages: pages, generated_at: new Date().toISOString(), generation_model: config.llm.fastModel }
     await q('update pro_folder_files set card=$3, card_sha=$4, card_error=null, body=$5 where folder_id=$1 and path=$2', [folder.id, row.path, card, row.sha, body])
@@ -150,11 +157,12 @@ export async function changeCard(folder, v) {
     const b = c.change !== 'D' ? await G.show(folder.repo_path, v.branch, c.path).catch(() => null) : null
     const ta = a && isDoc(c.path) ? (await extract(c.path, a)).text : ''
     const tb = b && isDoc(c.path) ? (await extract(c.path, b)).text : ''
-    parts.push(`### ${c.path} (${{ A: '추가', M: '수정', D: '삭제' }[c.change] || c.change})\n${isDoc(c.path) ? textDiff(ta, tb).slice(0, 2500) : '(문서가 아닌 파일)'}`)
+    parts.push(L(`### ${c.path} (${{ A: '추가', M: '수정', D: '삭제' }[c.change] || c.change})\n${isDoc(c.path) ? textDiff(ta, tb).slice(0, 2500) : '(문서가 아닌 파일)'}`,
+      `### ${c.path} (${{ A: 'added', M: 'modified', D: 'deleted' }[c.change] || c.change})\n${isDoc(c.path) ? textDiff(ta, tb).slice(0, 2500) : '(not a document)'}`))
   }
   try {
     const m = await chat({ model: config.llm.fastModel, temperature: 0, json: true, messages: [
-      { role: 'system', content: '공유 폴더의 변형이 기준본(main)에서 무엇을 바꿨는지 알려 준다. JSON 으로만: {"title": "무엇을 바꿨는지 8~24자 명사구(예: 안내문 사전 신청 문구 추가)", "summary": "전체 한 문장(해요체)", "files": {"<경로>": "그 파일에서 바뀐 점 한 문장(해요체)"}}. 차이에 없는 내용은 지어내지 마라.' },
+      { role: 'system', content: isEn() ? CHANGE_PROMPT_EN : CHANGE_PROMPT },
       { role: 'user', content: parts.join('\n\n') }] })
     const j = JSON.parse(m.content)
     const card = { title: String(j.title || '').slice(0, 40), summary: String(j.summary || ''), files: j.files && typeof j.files === 'object' ? j.files : {}, generated_at: new Date().toISOString(), head: v.head_commit }

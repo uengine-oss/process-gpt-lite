@@ -12,6 +12,7 @@ import { resources } from './toc.js'
 import { skipShare } from './focus.js'
 import { whatIf } from './whatif.js'
 import { changesDefinition, describeChange } from './transform.js'
+import { L } from '../lang.js'
 
 const T = () => config.tenantId
 
@@ -21,10 +22,11 @@ async function agentFor(defId, act, kind) {
   const [have] = await q('select id::text as id, username from users where tenant_id=$1 and alias=$2 and is_agent', [T(), alias])
   if (have) return { id: have.id, name: have.username }
   const id = crypto.randomUUID()
-  const name = kind === 'draft' ? `${act.name} 보조 에이전트` : `${act.name} 에이전트`
-  const goal = kind === 'draft' ? `'${act.name}' 담당자가 확인만 하면 되도록 앞 단계 산출물을 점검해 초안을 채워요.` : `앞 단계 산출물로 '${act.name}' 을(를) 처리해요.`
+  const name = kind === 'draft' ? L(`${act.name} 보조 에이전트`, `${act.name} assistant agent`) : L(`${act.name} 에이전트`, `${act.name} agent`)
+  const goal = kind === 'draft' ? L(`'${act.name}' 담당자가 확인만 하면 되도록 앞 단계 산출물을 점검해 초안을 채워요.`, `Checks the earlier steps' outputs and fills in the draft so the '${act.name}' assignee only has to check it.`)
+    : L(`앞 단계 산출물로 '${act.name}' 을(를) 처리해요.`, `Handles '${act.name}' from the earlier steps' outputs.`)
   await q(`insert into users (id, username, email, tenant_id, is_agent, is_admin, is_draft, agent_type, alias, goal, persona, permission_ids)
-           values ($1,$2,$3,$4,true,false,false,'agent',$5,$6,$7,'{}')`, [id, name, `${alias}@${T()}`, T(), alias, goal, '숫자와 조건이 맞지 않는 곳만 짚어요.'])
+           values ($1,$2,$3,$4,true,false,false,'agent',$5,$6,$7,'{}')`, [id, name, `${alias}@${T()}`, T(), alias, goal, L('숫자와 조건이 맞지 않는 곳만 짚어요.', "Points out only where the numbers and terms don't add up.")])
   return { id, name }
 }
 
@@ -32,10 +34,10 @@ const props = (s) => { try { return typeof s === 'string' ? JSON.parse(s || '{}'
 
 export async function applyImprovement(me, defId, { changes = [], confirm = false, message = '', basis = 'median' } = {}) {
   const acc = await access(me, defId)
-  if (!acc.canApply) throw err(403, '프로세스 담당자(소유자)나 관리자만 개선안을 적용할 수 있어요.')
-  if (!confirm) throw err(400, '적용 전에 확인이 필요해요(confirm: true).')
-  if (!changes.length) throw err(400, '적용할 개선안이 없어요.')
-  if (!changesDefinition(changes)) throw err(400, '고른 개선안은 프로세스 정의를 바꾸지 않아요(인원 추가·보완 줄이기는 팀·역할과 앞 단계 지시에서).')
+  if (!acc.canApply) throw err(403, L('프로세스 담당자(소유자)나 관리자만 개선안을 적용할 수 있어요.', "Only the process owner or an administrator can apply an improvement proposal."))
+  if (!confirm) throw err(400, L('적용 전에 확인이 필요해요(confirm: true).', 'Confirm before applying (confirm: true).'))
+  if (!changes.length) throw err(400, L('적용할 개선안이 없어요.', 'There is no improvement proposal to apply.'))
+  if (!changesDefinition(changes)) throw err(400, L('고른 개선안은 프로세스 정의를 바꾸지 않아요(인원 추가·보완 줄이기는 팀·역할과 앞 단계 지시에서).', "The chosen proposals don't change the process definition (adding people and fewer change requests are done in Team & roles and the earlier steps' instructions)."))
   const vs = await versions(defId)
   const { d, a, labels } = await load(defId, { version: [...vs].reverse().find((v) => v.completed >= 10)?.version || 'all' })
   const res = resources(a)
@@ -63,7 +65,7 @@ export async function applyImprovement(me, defId, { changes = [], confirm = fals
     const x = def.activities.find((y) => y.id === c.step)
     if (!x) continue
     const p = props(x.properties)
-    p.comments = [...(p.comments || []), { id: crypto.randomUUID(), groupId, status: 'resolved', type: '개선 적용', description: `v${version}: ${describeChange(c, a.g.def)} — 예상 리드타임 ${Math.round(r.before.leadSec / 360) / 10}시간 → ${Math.round(r.after.leadSec / 360) / 10}시간`, authorName: me.name || me.email, createdAt: now }]
+    p.comments = [...(p.comments || []), { id: crypto.randomUUID(), groupId, status: 'resolved', type: L('개선 적용', 'Improvement applied'), description: L(`v${version}: ${describeChange(c, a.g.def)} — 예상 리드타임 ${Math.round(r.before.leadSec / 360) / 10}시간 → ${Math.round(r.after.leadSec / 360) / 10}시간`, `v${version}: ${describeChange(c, a.g.def)} — expected lead time ${Math.round(r.before.leadSec / 360) / 10} h → ${Math.round(r.after.leadSec / 360) / 10} h`), authorName: me.name || me.email, createdAt: now }]
     x.properties = JSON.stringify(p)
   }
   const forms = await q('select id, activity_id, html from form_def where lower(proc_def_id)=lower($1) and tenant_id=$2', [d.id, T()])
@@ -77,7 +79,7 @@ export async function applyImprovement(me, defId, { changes = [], confirm = fals
   const saved = await saveGenerated(contract)
   const [row] = await q('select bpmn, definition from proc_def where id=$1 and tenant_id=$2', [d.id, T()])
   const arcv = `${d.id}_${version}`
-  const msg = message || `[개선] ${changes.map((c) => describeChange(c, a.g.def)).join(' / ')}`
+  const msg = message || `${L('[개선]', '[Improvement]')} ${changes.map((c) => describeChange(c, a.g.def)).join(' / ')}`
   await q(`insert into proc_def_version (arcv_id, proc_def_id, version, version_tag, "timeStamp", snapshot, definition, diff, message, tenant_id, parent_version, is_draft, owner)
            values ($1,$2,$3,'major',now(),$4,$5,$6,$7,$8,$9,false,$10)`,
   [arcv, d.id, version, row?.bpmn || null, row?.definition || def, JSON.stringify(changes), msg, T(), prev?.arcv_id || null, String(me.id)])

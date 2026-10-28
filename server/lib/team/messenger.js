@@ -14,12 +14,13 @@ import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { TeamError, isMember, people } from './access.js'
 import { viewArtifacts } from './shares.js'
+import { L, langOf } from '../lang.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
 export const MAX_GROUP = 8
 const iso = (d = new Date()) => new Date(d).toISOString()
-const nameOf = (p) => p?.name || p?.username || p?.email?.split('@')[0] || '팀원'
+const nameOf = (p) => p?.name || p?.username || p?.email?.split('@')[0] || L('팀원', 'Teammate')
 
 // participants → people and agents (process-gpt's System participant is neither)
 export function split(participants) {
@@ -48,7 +49,7 @@ export async function directThread(me, otherId) {
 
 export async function groupThread(me, ids, title) {
   const members = [...new Set([me.id, ...ids])]
-  if (members.length > MAX_GROUP) throw new TeamError(400, `그룹 대화는 ${MAX_GROUP}명까지예요.`)
+  if (members.length > MAX_GROUP) throw new TeamError(400, L(`그룹 대화는 ${MAX_GROUP}명까지예요.`, `A group conversation has at most ${MAX_GROUP} people.`))
   const ps = await users(members)
   const [r] = await q(`insert into chat_rooms(id, participants, message, name, primary_agent_id, tenant_id, context)
                        values ($1,$2,$3,$4,null,$5,$6) returning *`,
@@ -88,7 +89,7 @@ export function view(viewerId, row, byEmail = {}) {
   return {
     ...(g.meeting ? { meeting: g.meeting } : {}),
     id: row.uuid, threadId: row.id, kind, body: String(m.content || ''), at: m.timeStamp ? iso(typeof m.timeStamp === 'number' || /^\d+$/.test(m.timeStamp) ? Number(m.timeStamp) : m.timeStamp) : null,
-    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.byName || m.userName || m.name || '에이전트') : (m.userName || m.name || byEmail[m.email]?.name || '팀원'), agent },
+    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (m.userName || m.name || byEmail[m.email]?.name || L('팀원', 'Teammate')), agent },
     mine: !agent && senderId === viewerId, byMe: agent && g.by === viewerId,
     artifacts: viewArtifacts(viewerId, agent ? g.by : senderId, g.artifacts), context: g.context || null,
   }
@@ -112,7 +113,7 @@ export async function listThreads(me) {
     const lm = last?.messages
     const at = lm ? (view(me.id, last).at) : r.message?.createdAt ? iso(typeof r.message.createdAt === 'number' ? r.message.createdAt : r.message.createdAt) : null
     out.push({
-      id: r.id, kind: r.kind, title: r.name || others.map(nameOf).join(', ') || '나', members: humans.map((p) => ({ id: p.id, name: nameOf(p) })),
+      id: r.id, kind: r.kind, title: r.name || others.map(nameOf).join(', ') || L('나', 'Me'), members: humans.map((p) => ({ id: p.id, name: nameOf(p) })),
       agents: split(r.participants).agents.map((a) => ({ id: a.id, name: a.username })), unread: n, updatedAt: at,
       last: lm ? { kind: lm.pgpt?.kind || (lm.role === 'assistant' ? 'agent' : 'text'), body: String(lm.content || '').slice(0, 80), mine: lm.email === me.email, at, files: (lm.pgpt?.artifacts || []).length } : null,
     })
@@ -127,7 +128,7 @@ async function emailMap(roomId) {
 
 export async function messages(me, roomId, { before, limit = 80 } = {}) {
   const t = await memberThread(me, roomId)
-  if (!t) throw new TeamError(404, '대화를 찾지 못했어요.')
+  if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const rows = await q(`select uuid, id, messages from chats where id=$1 and coalesce(messages->>'__hidden','false') <> 'true'
                         and ($2::timestamptz is null or ${ORDER} < $2) order by ${ORDER} desc limit $3`, [t.id, before || null, Math.min(Number(limit) || 80, 200)])
   const members = await membersOf(t.id)
@@ -140,9 +141,9 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
 // on the team. attach(recipients, chatUuid) makes the share grants once the row's id is known.
 export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null } = {}) {
   const t = await memberThread(me, roomId)
-  if (!t) throw new TeamError(404, '대화를 찾지 못했어요.')
+  if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const members = await membersOf(t.id)
-  for (const m of members) if (!(await isMember(m.id))) throw new TeamError(403, `${m.name}님은 더 이상 팀원이 아니에요.`)
+  for (const m of members) if (!(await isMember(m.id))) throw new TeamError(403, L(`${m.name}님은 더 이상 팀원이 아니에요.`, `${m.name} is no longer a teammate.`))
   const uuid = crypto.randomUUID()
   const artifacts = attach ? await attach(members.filter((m) => m.id !== me.id), uuid, t.id) : []
   const files = artifacts.map((a) => a.name)
@@ -160,11 +161,16 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
 }
 
 async function notifyMembers(me, t, row, kind, files, context, recipients) {
-  const title = kind === 'share'
-    ? `${me.name}님이 ${files[0] || '산출물'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 공유했어요`
-    : `${me.name}님이 나를 언급했어요${context?.title ? ` · ${context.title.slice(0, 30)}${context.title.length > 30 ? '…' : ''}` : ''}`
-  const text = [row.messages.content, files.length && kind !== 'share' ? `산출물: ${files.join(', ')}` : ''].filter(Boolean).join('\n').slice(0, 600)
+  const ctx = context?.title ? ` · ${context.title.slice(0, 30)}${context.title.length > 30 ? '…' : ''}` : ''
+  // each notice in its recipient's saved language (lib/lang.js)
+  const words = (en) => ({
+    title: kind === 'share'
+      ? (en ? `${me.name} shared ${files[0] || 'an output'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '산출물'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 공유했어요`)
+      : (en ? `${me.name} mentioned you${ctx}` : `${me.name}님이 나를 언급했어요${ctx}`),
+    text: [row.messages.content, files.length && kind !== 'share' ? `${en ? 'Outputs' : '산출물'}: ${files.join(', ')}` : ''].filter(Boolean).join('\n').slice(0, 600),
+  })
   for (const r of recipients) {
+    const { title, text } = words((await langOf(r.id)) === 'en')
     // process-gpt's chat trigger already made a plain 'chat' notice for this row: the 'team' one replaces it
     await q(`update notifications set is_checked=true where tenant_id=$1 and type='chat' and url=$2 and user_id = any($3) and title=$4 and coalesce(is_checked,false)=false`,
       [T(), `/chats?id=${t.id}`, [r.email, r.id], row.messages.content])
@@ -176,7 +182,7 @@ async function notifyMembers(me, t, row, kind, files, context, recipients) {
 
 export async function markRead(me, roomId) {
   const t = await memberThread(me, roomId)
-  if (!t) throw new TeamError(404, '대화를 찾지 못했어요.')
+  if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   // read up to the newest message (its timeStamp comes from whoever wrote it, whose clock may run ahead of the DB's)
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at)
            values ($1,$2,greatest(now(), (select max(public.pro_chat_ts(messages)) from chats where id=$1)))

@@ -13,7 +13,8 @@ import { q, pool } from '../supa.js'
 import { emit } from '../bus.js'
 import * as S from './service.js'
 import { changeCard } from './indexer.js'
-import { runAgent, RULES } from './runner.js'
+import { runAgent, RULES, rules } from './runner.js'
+import { L, lang, langOf } from '../lang.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -35,21 +36,25 @@ async function latency(caseId) {
 
 // to: {id, name, email, isAgent, description}
 export async function handover(folder, v, from, { to, mode = 'continue', done = '', next, grant = false, jwt }) {
-  if (!to?.id) throw err(400, '받을 사람을 골라 주세요.')
-  if (!String(next || '').trim()) throw err(400, '다음에 할 일을 적어 주세요.')
-  if (['merged', 'discarded'].includes(v.status)) throw err(409, '이미 반영했거나 버린 변형이에요.')
-  if (v.status === 'open' && v.worktree_path && v.kind !== 'person') throw err(409, '아직 실행 중인 변형이에요. 끝난 뒤 넘겨 주세요.')
+  if (!to?.id) throw err(400, L('받을 사람을 골라 주세요.', 'Please choose who receives it.'))
+  if (!String(next || '').trim()) throw err(400, L('다음에 할 일을 적어 주세요.', 'Please write what to do next.'))
+  if (['merged', 'discarded'].includes(v.status)) throw err(409, L('이미 반영했거나 버린 변형이에요.', 'This variation was already merged or discarded.'))
+  if (v.status === 'open' && v.worktree_path && v.kind !== 'person') throw err(409, L('아직 실행 중인 변형이에요. 끝난 뒤 넘겨 주세요.', 'This variation is still running. Hand it over when it is done.'))
   const principalType = to.isAgent ? 'agent' : 'user'
   const [member] = await q('select role from pro_folder_members where folder_id=$1 and principal_type=$2 and principal_id=$3', [folder.id, principalType, String(to.id)])
   if (!member) {
-    if (!grant) throw err(403, `${to.name} 님은 이 폴더 구성원이 아니에요. 실행 권한을 함께 주어야 넘길 수 있어요.`)
+    if (!grant) throw err(403, L(`${to.name} 님은 이 폴더 구성원이 아니에요. 실행 권한을 함께 주어야 넘길 수 있어요.`, `${to.name} is not a member of this folder. Give them the runner role as well to hand it over.`))
     await S.setMember(folder, from, { type: principalType, id: to.id, role: 'runner' })
   }
 
   const holder = { type: principalType, id: to.id, name: to.name }
+  // what the receiver reads (briefing, to-do, notification) is in the receiver's saved language; an
+  // agent receiver works in the sender's (lib/lang.js)
+  const rl = to.isAgent ? lang() : await langOf(to.id)
+  const R = (ko, en) => (rl === 'en' ? en : ko)
   let target = v
   if (mode === 'fork') {
-    target = await S.createVariation(folder, { title: `${v.title} — ${to.name}`, kind: 'handover', base: v.id, holder, source: { label: `${from.name} 님이 넘긴 갈래`, from_variation: v.id, room_id: null }, createdBy: from.id })
+    target = await S.createVariation(folder, { title: `${v.title} — ${to.name}`, kind: 'handover', base: v.id, holder, source: { label: L(`${from.name} 님이 넘긴 갈래`, `Fork handed over by ${from.name}`), from_variation: v.id, room_id: null }, createdBy: from.id })
     await S.setStatus(target, 'ready')
   } else if (v.worktree_path) await S.release(folder, v)
 
@@ -70,12 +75,14 @@ export async function handover(folder, v, from, { to, mode = 'continue', done = 
       { msg: 'NEW', type: 'handover', createdAt: new Date().toISOString() },
       { handover: { origin_room_id: originRoomId, case_id: caseId, from_room_id: v.source?.room_id || null, from_user_id: from.id, from_user_name: from.name, artifact_refs: [ref] } },
     ])
-    const briefing = [`**${from.name}** 님이 공유 폴더 변형을 넘겼어요.`, done ? `- 지금까지 한 일: ${done}` : '', `- 다음에 할 일: ${next}`,
-      `- 변형: ${folder.name} / ${target.title} (\`${target.branch}\`, ${mode === 'fork' ? '갈래 만들기' : '이어받기'})`].filter(Boolean).join('\n')
+    const briefing = R([`**${from.name}** 님이 공유 폴더 변형을 넘겼어요.`, done ? `- 지금까지 한 일: ${done}` : '', `- 다음에 할 일: ${next}`,
+      `- 변형: ${folder.name} / ${target.title} (\`${target.branch}\`, ${mode === 'fork' ? '갈래 만들기' : '이어받기'})`].filter(Boolean).join('\n'),
+    [`**${from.name}** handed over a shared folder variation.`, done ? `- Done so far: ${done}` : '', `- Next: ${next}`,
+      `- Variation: ${folder.name} / ${target.title} (\`${target.branch}\`, ${mode === 'fork' ? 'fork' : 'continue'})`].filter(Boolean).join('\n'))
     await tq(`insert into chats (uuid, id, tenant_id, messages) values ($1,$2,$3,$4)`, [crypto.randomUUID(), toRoomId, T(),
       { role: 'system', name: from.name, email: from.email, content: briefing, timeStamp: new Date().toISOString(), handover: { origin_room_id: originRoomId, case_id: caseId, from_room_id: v.source?.room_id || null } }])
 
-    const query = [`[Handover] ${from.name} 님이 넘긴 업무`, done ? `[Done] ${done}` : '', `[Instruction]\n${next}`, `[InputData]\n${JSON.stringify([ref])}`, `[ChatRoom] ${toRoomId}`].filter(Boolean).join('\n\n')
+    const query = [R(`[Handover] ${from.name} 님이 넘긴 업무`, `[Handover] Work handed over by ${from.name}`), done ? `[Done] ${done}` : '', `[Instruction]\n${next}`, `[InputData]\n${JSON.stringify([ref])}`, `[ChatRoom] ${toRoomId}`].filter(Boolean).join('\n\n')
     // an ad-hoc item has no process instance, but the todolist trigger (task_execution_properties)
     // needs one: the handover chain stands in for it, so one case's items stay together
     await tq(`insert into todolist (id, user_id, username, activity_id, activity_name, status, description, tenant_id, adhoc, reference_ids, query, start_date, agent_config, agent_orch, proc_inst_id, tool)
@@ -98,7 +105,7 @@ export async function handover(folder, v, from, { to, mode = 'continue', done = 
 
   if (!to.isAgent) {
     await q(`insert into notifications (id, user_id, title, type, description, url, from_user_id, tenant_id) values (gen_random_uuid(),$1,$2,'handover',$3,$4,$5,$6)`,
-      [String(to.id), `[업무 인계] ${next}`, `${from.name} 님이 '${folder.name}' 폴더의 변형 '${target.title}' 을(를) 넘겼어요.`, ref.url, from.email, T()])
+      [String(to.id), R(`[업무 인계] ${next}`, `[Handover] ${next}`), R(`${from.name} 님이 '${folder.name}' 폴더의 변형 '${target.title}' 을(를) 넘겼어요.`, `${from.name} handed over the variation '${target.title}' of the '${folder.name}' folder.`), ref.url, from.email, T()])
     emit(to.id, 'notifications', {})
   } else {
     // the agent starts right away, on the variation, in the room the handover made
@@ -112,13 +119,17 @@ async function runReceiver({ folder, v, from, to, next, done, toRoomId, toTaskId
   await S.checkout(folder, v, dir)
   await q(`update pro_folder_variations set status='open', source = source || $2, updated_at=now() where id=$1`, [v.id, { room_id: toRoomId, todo_id: toTaskId }])
   await q(`update todolist set status='IN_PROGRESS' where id=$1`, [toTaskId])
-  const msg = `${to.description ? `너는 '${to.name}' 이야 — ${to.description}\n` : ''}${from.name} 님이 공유 폴더 '${folder.name}' 의 변형 '${v.title}' 을(를) 넘겼어요.
+  const msg = L(`${to.description ? `너는 '${to.name}' 이야 — ${to.description}\n` : ''}${from.name} 님이 공유 폴더 '${folder.name}' 의 변형 '${v.title}' 을(를) 넘겼어요.
 작업 폴더: ${S.runCheckoutContainer(toRoomId, folder)}
 ${done ? `지금까지 한 일: ${done}\n` : ''}할 일: ${next}
 ${RULES}
-끝나면 무엇을 바꿨는지 해요체로 짧게 알려 주세요.`
+끝나면 무엇을 바꿨는지 해요체로 짧게 알려 주세요.`, `${to.description ? `You are '${to.name}' — ${to.description}\n` : ''}${from.name} handed over the variation '${v.title}' of the shared folder '${folder.name}'.
+Working folder: ${S.runCheckoutContainer(toRoomId, folder)}
+${done ? `Done so far: ${done}\n` : ''}To do: ${next}
+${rules()}
+When you are done, say briefly what you changed.`)
   let note = ''
-  try { note = await runAgent({ jwt, user: from, conversationId: toRoomId, message: msg }) } catch (e) { note = `실행 실패: ${e.message}` }
+  try { note = await runAgent({ jwt, user: from, conversationId: toRoomId, message: msg }) } catch (e) { note = L(`실행 실패: ${e.message}`, `Run failed: ${e.message}`) }
   const cur = await S.variationById(v.id)
   await S.commitVariation(folder, cur, { name: to.name, email: `${String(to.id).slice(0, 8)}@agents.pgpt-pro.local` }, `${to.name}: ${next}`)
   await S.release(folder, cur)

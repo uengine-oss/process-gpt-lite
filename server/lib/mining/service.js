@@ -23,7 +23,8 @@ import { emit } from '../bus.js'
 import { chatJson } from '../llm.js'
 import { saveGenerated } from '../generated.js'
 import { mainThread, addMessage } from '../store.js'
-import { AGENTS, ORCH, STEPS, TOOL_FORMAT, stepOf } from './catalog.js'
+import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
+import { L, isEn, langOf, withLang } from '../lang.js'
 
 const T = () => config.tenantId
 // unset: the local miner; set but empty (an install without the mining profile): no scans, no new
@@ -51,13 +52,25 @@ JSON {"name","summary","keywords"} 로 답하세요.
 - name: 한국어 명사구 14자 이내, 가운뎃점(·)으로 두 일을 잇는 형식. 예: "설계 제안·견적 대응", "입사 서류·계정 발급"
 - summary: 이 흐름이 무엇인지 해요체 한 문장
 - keywords: 다음에 같은 일을 요청하는 메일에 나올 한국어 낱말 3~6개`
+// English mode: an English flow (its steps were recorded in English) gets an English name, and English
+// keywords, so the next English mail asking for the same work matches them (matches below)
+const NAME_EN = `Process mining found a work flow that repeats in the handover records of people and agents. Give this flow a name.
+Answer with JSON {"name","summary","keywords"}.
+- name: an English noun phrase of at most 32 characters joining two jobs with " & ", e.g. "Design proposal & quote", "Onboarding papers & accounts"
+- summary: one plain sentence on what this flow is
+- keywords: 3–6 English words that a mail asking for the same work next time would contain (lowercase, single words)`
+
+// the language a mined flow is in: the language its steps were recorded in (lib/mining/recorder.js)
+export const patternLang = (p) => labelLang((p?.main_variant || []).join(' '))
 
 async function nameOf(p, cases) {
-  try {
-    const r = await chatJson(NAME, JSON.stringify({ steps: p.main_variant, examples: cases.map((c) => c.subject).filter(Boolean).slice(0, 5) }))
-    if (r?.name) return { name: String(r.name).slice(0, 30), summary: String(r.summary || ''), keywords: (r.keywords || []).map(String).slice(0, 6) }
-  } catch (e) { console.warn('[mining] name', e.message) }
-  return { name: `${p.main_variant[0]} 이후 반복 흐름`, summary: '', keywords: [] }
+  return withLang(patternLang(p), async () => {
+    try {
+      const r = await chatJson(L(NAME, NAME_EN), JSON.stringify({ steps: p.main_variant, examples: cases.map((c) => c.subject).filter(Boolean).slice(0, 5) }))
+      if (r?.name) return { name: String(r.name).slice(0, L(30, 40)), summary: String(r.summary || ''), keywords: (r.keywords || []).map(String).slice(0, 6) }
+    } catch (e) { console.warn('[mining] name', e.message) }
+    return { name: L(`${p.main_variant[0]} 이후 반복 흐름`, `Recurring flow after ${p.main_variant[0]}`), summary: '', keywords: [] }
+  })
 }
 
 let scanning = null
@@ -134,8 +147,12 @@ async function notifyAdmins(s) {
                           where u.tenant_id=$1 and u.is_admin and not coalesce(u.is_agent,false)`, [T()])
   const n = s.pattern.case_count
   for (const a of admins) {
+    // each admin reads it in their own saved language (lib/lang.js)
+    const en = (await langOf(a.id)) === 'en'
     await q(`insert into notifications (id, user_id, title, type, description, url, tenant_id) values (gen_random_uuid(),$1,$2,'mining',$3,$4,$5)`,
-      [a.id, `반복되는 흐름을 찾았어요: ${s.name}`, `최근 ${n}건의 메일 업무가 같은 순서(${s.pattern.main_variant.join(' → ')})로 처리됐어요. 정식 프로세스로 등록할지 정해 주세요.`, `/mining/${s.id}`, T()])
+      [a.id, en ? `I found a recurring flow: ${s.name}` : `반복되는 흐름을 찾았어요: ${s.name}`,
+        en ? `The last ${n} mail jobs were handled in the same order (${s.pattern.main_variant.join(' → ')}). Decide whether to register it as a process.`
+          : `최근 ${n}건의 메일 업무가 같은 순서(${s.pattern.main_variant.join(' → ')})로 처리됐어요. 정식 프로세스로 등록할지 정해 주세요.`, `/mining/${s.id}`, T()])
     emit(a.id, 'notifications', {})
     emit(a.id, 'mining', { id: s.id })
   }
@@ -206,15 +223,15 @@ export function buildContract(s) {
   const elements = []
   const forms = []
   const agentSkills = new Map()
-  const firstHumanRole = d.activities.map((a) => stepOf(a.name)).find((c) => c?.kind === 'human')?.role || d.roles[0]?.name || '담당자'
-  for (const e of d.events) elements.push({ elementType: 'Event', id: e.id, name: e.type === 'startEvent' ? '요청 메일 도착' : '회신 완료', role: firstHumanRole, type: e.type === 'startEvent' ? 'StartEvent' : 'EndEvent' })
+  const firstHumanRole = d.activities.map((a) => stepOf(a.name)).find((c) => c?.kind === 'human')?.role || d.roles[0]?.name || L('담당자', 'Assignee')
+  for (const e of d.events) elements.push({ elementType: 'Event', id: e.id, name: e.type === 'startEvent' ? L('요청 메일 도착', 'Request mail arrives') : L('회신 완료', 'Reply sent'), role: firstHumanRole, type: e.type === 'startEvent' ? 'StartEvent' : 'EndEvent' })
   for (const a of d.activities) {
     const c = stepOf(a.name)
-    const role = c?.role || a.role || '담당자'
-    const agent = c?.kind === 'agent' ? AGENTS[c.agent] : (a.agent ? { id: a.agent } : null)
-    if (!roles.has(role)) roles.set(role, { name: role, endpoint: agent?.id || '', default: agent?.id || '', resolutionRule: agent ? '' : '프로세스 마이닝: 인계 기록에서 이 일을 맡아 온 역할', origin: agent ? 'used' : 'created' })
+    const role = c?.role || a.role || L('담당자', 'Assignee')
+    const agent = c?.kind === 'agent' ? agentsIn()[c.agent] : (a.agent ? { id: a.agent } : null)
+    if (!roles.has(role)) roles.set(role, { name: role, endpoint: agent?.id || '', default: agent?.id || '', resolutionRule: agent ? '' : L('프로세스 마이닝: 인계 기록에서 이 일을 맡아 온 역할', 'Process mining: the role that has done this work in the handover records'), origin: agent ? 'used' : 'created' })
     const skills = [...new Set([...(c ? [c.skill] : []), ...(a.skills || [])])]
-    const fields = c?.fields || [{ key: 'result', text: `${a.name} 결과`, type: 'textarea' }]
+    const fields = c?.fields || [{ key: 'result', text: L(`${a.name} 결과`, `${a.name} result`), type: 'textarea' }]
     const fid = formId(a)
     forms.push({ activity_id: a.id, form_id: fid, html: html(fid, a.name, fields) })
     const base = { elementType: 'Activity', id: a.id, name: a.name, role, type: 'UserActivity', tool: `formHandler:${fid}`, duration: 1, inputData: [], outputData: [a.name],
@@ -236,7 +253,8 @@ export function buildContract(s) {
     type: 'process-definition-result',
     processDefinition: {
       processDefinitionId: PID, processDefinitionName: s.name, isHorizontal: true, data: [],
-      description: `${s.summary ? `${s.summary} ` : ''}프로세스 마이닝이 인계 기록 ${s.pattern.event_count}건(케이스 ${cases}건)에서 찾은 흐름을 정식 등록했어요.`,
+      description: L(`${s.summary ? `${s.summary} ` : ''}프로세스 마이닝이 인계 기록 ${s.pattern.event_count}건(케이스 ${cases}건)에서 찾은 흐름을 정식 등록했어요.`,
+        `${s.summary ? `${s.summary} ` : ''}Registered from the flow process mining found in ${s.pattern.event_count} handover records (${cases} cases).`),
       roles: [...roles.values()], elements,
     },
     forms,
@@ -245,8 +263,9 @@ export function buildContract(s) {
   }
 }
 
+// the agents' user rows, named in the language of the work (same ids in both languages)
 export async function ensureAgents() {
-  for (const a of Object.values(AGENTS)) {
+  for (const a of Object.values(agentsIn())) {
     await q(`insert into users (id, username, email, tenant_id, is_agent, is_admin, is_draft, agent_type, alias, goal, persona, permission_ids)
              values ($1,$2,$3,$4,true,false,false,'agent',$5,$6,$7,'{}')
              on conflict (id, tenant_id) do update set username=$2, alias=$5, goal=$6, persona=$7`,
@@ -255,10 +274,14 @@ export async function ensureAgents() {
 }
 
 export async function register(me, id) {
-  if (!(await isAdmin(me))) throw err(403, '관리자만 정식 등록할 수 있어요.')
+  if (!(await isAdmin(me))) throw err(403, L('관리자만 정식 등록할 수 있어요.', 'Only an administrator can register a process.'))
   const [s] = await q('select * from pro_mining_suggestions where id=$1 and tenant_id=$2', [id, T()])
-  if (!s) throw err(404, '추천을 찾지 못했어요.')
+  if (!s) throw err(404, L('추천을 찾지 못했어요.', "I couldn't find that recommendation."))
   if (s.status === 'registered') return get(id)
+  // the process is written in the language its flow was recorded in (English steps → English process)
+  return withLang(patternLang(s.pattern), () => registerIn(me, id, s))
+}
+async function registerIn(me, id, s) {
   await ensureAgents()
   // the evidence may have grown since the recommendation: draw the model again from the cases as they are now
   const again = await miner('/discover', { tenant_id: T(), process_id: s.process_id, name: s.name, case_ids: s.pattern.case_ids }).catch((e) => { console.warn('[mining] rediscover', e.message); return null })
@@ -275,7 +298,7 @@ export async function register(me, id) {
   }
   // people roles go to whoever did that step before (when they are on the team)
   for (const r of s.definition.roles || []) {
-    const c = Object.values(STEPS).find((x) => x.role === r.name) || null
+    const c = Object.values(STEPS).find((x) => x.role === r.name) || Object.values(STEPS_EN).find((x) => x.role === r.name) || null
     const roleName = c?.role || r.name
     if (!r.endpoint || c?.kind === 'agent') continue
     const [m] = await q('select 1 from pro_team_members where tenant_id=$1 and user_id::text=$2', [T(), String(r.endpoint)])
@@ -291,9 +314,9 @@ export async function register(me, id) {
 }
 
 export async function hold(me, id) {
-  if (!(await isAdmin(me))) throw err(403, '관리자만 정할 수 있어요.')
+  if (!(await isAdmin(me))) throw err(403, L('관리자만 정할 수 있어요.', 'Only an administrator can decide this.'))
   const [s] = await q(`update pro_mining_suggestions set status='held', decided_by=$2, decided_at=now(), updated_at=now() where id=$1 and tenant_id=$3 and status='suggested' returning *`, [id, me.id, T()])
-  if (!s) throw err(409, '이미 정한 추천이에요.')
+  if (!s) throw err(409, L('이미 정한 추천이에요.', 'This recommendation has already been decided.'))
   if (s.pr_id) await q(`update resource_pull_requests set status='CLOSED', updated_at=now() where id=$1`, [s.pr_id]).catch(() => {})
   await q(`update notifications set is_checked=true where tenant_id=$1 and url=$2`, [T(), `/mining/${id}`])
   return get(id)
@@ -302,28 +325,45 @@ export async function hold(me, id) {
 // ---------- 다음 메일: 등록된 프로세스로 ----------
 export function matches(m, mail, d) {
   const formats = new Set((d?.items || []).map((i) => i.format))
-  if (/평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(`${mail.subject} ${mail.text}`)) formats.add('dxf')
+  const said = `${mail.subject} ${mail.text}`
+  // (English mail too: "floor plan", "store design proposal")
+  if (/평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(said) || /floor\s*plan|layout|interior|design\s+proposal|drawing/i.test(said)) formats.add('dxf')
+  // a Word proposal answers what a 한글 one does
+  if (formats.has('docx') && (m?.formats || []).includes('hwpx') && !(m?.formats || []).includes('docx')) formats.add('hwpx')
+  if (formats.has('hwpx') && (m?.formats || []).includes('docx') && !(m?.formats || []).includes('hwpx')) formats.add('docx')
   const hit = (m?.formats || []).filter((f) => formats.has(f)).length
-  const words = (m?.keywords || []).filter((k) => k && `${mail.subject} ${mail.text}`.includes(k)).length
+  // English keywords are matched without regard to case ("Proposal" in a subject)
+  const low = said.toLowerCase()
+  const words = (m?.keywords || []).filter((k) => k && (said.includes(k) || (!/[가-힣]/.test(k) && low.includes(String(k).toLowerCase())))).length
   return (m?.formats?.length >= 2 && hit >= 2) || words >= 2
 }
 
 // called by lib/mail.js for a mail asking for documents: true when a registered process took it
+// (in the owner's language: this request's English, else their saved language)
 export async function routeMail(userId, mail, d) {
+  return withLang(isEn() ? 'en' : await langOf(userId), () => routeMailIn(userId, mail, d))
+}
+async function routeMailIn(userId, mail, d) {
   const regs = await q(`select * from pro_mining_suggestions where tenant_id=$1 and status='registered' and proc_def_id is not null order by decided_at desc`, [T()])
-  const s = regs.find((r) => matches(r.match, mail, d))
+  // English mode: only a process registered in English takes the mail — its step, form and agent texts
+  // are written in its language, so a Korean-named one would put Korean on an English person's screens;
+  // without an English one the mail gets the ad-hoc drafts, in English
+  // (Korean mode: as before, any registered process)
+  const sameLang = (r) => !isEn() || !/[가-힣]/.test(String(r.name || ''))
+  const s = regs.find((r) => sameLang(r) && matches(r.match, mail, d))
   if (!s) return false
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
   if (!p?.email) return false
   const { startProcess } = await import('../engine.js')
-  const customer = d?.customer || (String(mail.from || '').split('<')[0].trim()) || '고객'
-  const values = { customer, sender: mail.from || '', subject: mail.subject || '', body: String(mail.text || '').slice(0, 3000), requested: (d?.items || []).map((i) => i.kind).join('·') }
+  const customer = d?.customer || (String(mail.from || '').split('<')[0].trim()) || L('고객', 'Customer')
+  const values = { customer, sender: mail.from || '', subject: mail.subject || '', body: String(mail.text || '').slice(0, 3000), requested: (d?.items || []).map((i) => i.kind).join(L('·', ', ')) }
   const t = await mainThread(userId)
-  await addMessage(userId, t.id, 'system', 'divider', { text: `메일 · ${customer} ${values.requested || '요청'}` })
+  await addMessage(userId, t.id, 'system', 'divider', { text: L(`메일 · ${customer} ${values.requested || '요청'}`, `Mail · ${customer} ${values.requested || 'request'}`) })
   const { instId, instName } = await startProcess({ me: { id: userId, email: p.email }, defId: s.proc_def_id, values })
   await q(`insert into pro_mining_runs (proc_inst_id, tenant_id, suggestion_id, user_id, mail) values ($1,$2,$3,$4,$5) on conflict do nothing`,
     [instId, T(), s.id, userId, { id: mail.id, from: mail.from, subject: mail.subject, text: String(mail.text || '').slice(0, 3000), customer, items: d?.items || [] }])
-  await addMessage(userId, t.id, 'agent', 'text', { text: `${customer} 메일은 정식 등록된 '${s.name}' 프로세스로 처리할게요. 평면도·제안서·견적서는 단계별 에이전트가 만들고, 재무 검토는 재무 담당에게 넘어가요.`, mail: { from: mail.from, subject: mail.subject } })
+  await addMessage(userId, t.id, 'agent', 'text', { text: L(`${customer} 메일은 정식 등록된 '${s.name}' 프로세스로 처리할게요. 평면도·제안서·견적서는 단계별 에이전트가 만들고, 재무 검토는 재무 담당에게 넘어가요.`,
+    `I'll handle the ${customer} mail with the registered '${s.name}' process. The step agents make the floor plan, proposal and quote, and the finance review goes to Finance.`), mail: { from: mail.from, subject: mail.subject } })
   await addMessage(userId, t.id, 'agent', 'process', { defId: s.proc_def_id, name: s.name, state: 'started', instId, instName })
   console.log(`[mining] mail ${mail.id} → ${s.proc_def_id} ${instId}`)
   return { instId, suggestion: s.id }
