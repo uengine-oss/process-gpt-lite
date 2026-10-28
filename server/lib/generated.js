@@ -11,8 +11,34 @@ import { PGPT_ROOT } from './paths.js'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const PGPT = PGPT_ROOT
 
+// Docker bundle: the server image has no Python, so the bridge service (deepagents image) runs it.
+// The bridge mounts the workspace elsewhere: it gets the folder relative to the workspace root.
+async function viaBridge(action, contract, workHost) {
+  const root = `${PGPT}/services/deepagents/workspace`
+  const workRel = workHost.startsWith(`${root}/`) ? workHost.slice(root.length) : ''
+  const r = await fetch(`${config.bridgeUrl}/${action}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contract, work_rel: workRel }), signal: AbortSignal.timeout(620_000),
+  })
+  const out = await r.json().catch(() => ({ error: `bridge ${r.status}` }))
+  if (!r.ok) throw new Error(out.error || `bridge ${r.status}`)
+  return out
+}
+
+// The draft card shows the definition assembled from the generation folder, as saving will:
+// the streamed process_result can be another contract the agent only quoted (a skill example).
+// Without the bridge (local dev) the streamed one stays.
+export async function assembleGenerated(contract, workDir) {
+  if (!config.bridgeUrl || !workDir) return contract
+  const workHost = await workspaceHostPath(workDir).catch(() => '')
+  if (!workHost) return contract
+  const { warn, ...out } = await viaBridge('assemble', contract, workHost)
+  return out.processDefinition ? out : contract
+}
+
 export async function saveGenerated(contract, workDir) {
   const workHost = workDir ? await workspaceHostPath(workDir).catch(() => '') : ''
+  if (config.bridgeUrl) return viaBridge('save', contract, workHost)
   return new Promise((resolve, reject) => {
     const py = spawn(`${PGPT}/services/deepagents/.venv/bin/python`, [path.join(here, '..', 'bridge', 'save_generated.py')], {
       env: { ...process.env, PGPT_ROOT: PGPT, TENANT_ID: config.tenantId, SUPABASE_URL: config.supabaseUrl, SERVICE_ROLE_KEY: config.serviceKey,

@@ -6,11 +6,19 @@ Process GPT Lite lets agents create drawings, vectors, images, sound and video o
 
 | 앱 / App | 업스트림 / Upstream | 검증한 커밋 / Tested commit | 라이선스 / License |
 |---|---|---|---|
-| CADCraft | https://github.com/storytold/cadcraft | `b9f96d3` (CLI 0.8.0) | MIT OR Apache-2.0 |
-| VectorCraft | https://github.com/storytold/vectorcraft | `75dacb4` (CLI 0.16.0) | MIT OR Apache-2.0 |
-| PhotoCraft | https://github.com/storytold/photocraft | `1c3db2e` (CLI 0.15.1) | MIT OR Apache-2.0 |
-| SoundCraft | https://github.com/storytold/soundcraft | `93800e0` (CLI 0.12.1) | MIT OR Apache-2.0 |
-| FilmCraft | https://github.com/storytold/filmcraft | `057f460` (CLI 0.12.0) | MIT OR Apache-2.0 |
+| CADCraft | https://github.com/storytold/cadcraft | `b9f96d3` | MIT OR Apache-2.0 |
+| VectorCraft | https://github.com/storytold/vectorcraft | `75dacb4` | MIT OR Apache-2.0 |
+| PhotoCraft | https://github.com/storytold/photocraft | `1c3db2e` | MIT OR Apache-2.0 |
+| SoundCraft | https://github.com/storytold/soundcraft | `93800e0` | MIT OR Apache-2.0 |
+| FilmCraft | https://github.com/storytold/filmcraft | `057f460` | MIT OR Apache-2.0 |
+
+웹 편집기와 MCP CLI는 같은 커밋에서 빌드해 버전을 맞춥니다(커밋은 릴리스 태그 사이에 있습니다. 예: CADCraft `b9f96d3` = v0.12.0 이후 88커밋).
+Build the web editor and the MCP CLI from the same commit (the commits sit between release tags).
+
+## Docker 설치 번들 / Docker bundle
+
+`install/install.sh --with-craft`가 위 커밋에서 패치를 적용해 다섯 앱의 웹 편집기와 CLI를 빌드하고(`install/docker/craft.Dockerfile`), 서버의 `/data/craft/<app>`(웹)과 `/data/craft-bin`(CLI)에 넣습니다. 처음 한 번은 30분 이상 걸리고, 이후에는 빌드 캐시를 씁니다. 빌드 메모리는 `.env`의 `CRAFT_JOBS`(rustc 동시 작업 수, 작업당 약 1GB)로 조절합니다.
+`install/install.sh --with-craft` builds the five apps' web editors and CLIs from these commits with the patches and puts them in the server's `/data/craft/<app>` and `/data/craft-bin`. The first build takes 30+ minutes; `CRAFT_JOBS` in `.env` bounds its memory.
 
 업스트림은 MIT/Apache-2.0 이중 라이선스이므로 수정 패치를 배포할 수 있습니다. 패치를 적용해 만든 빌드를 배포할 때는 업스트림의 `LICENSE-MIT`/`LICENSE-APACHE`와 글꼴 OFL 고지를 함께 넣으세요.
 The upstreams are dual-licensed MIT/Apache-2.0, so distributing these patches is allowed. If you redistribute builds, ship the upstream `LICENSE-*` files and the fonts' OFL notices with them.
@@ -39,7 +47,8 @@ done
 
 # 한글 글꼴 (SIL OFL 1.1): https://fonts.google.com/specimen/Nanum+Gothic
 #   → fonts-ko/fonts/NanumGothic-Regular.ttf  (manifest.txt 는 이미 있음)
-# CADCraft/VectorCraft 빌드는 CRAFT_FONTS_DIR=$PWD/fonts-ko/fonts 로 글꼴 목록을 읽습니다.
+# CADCraft/VectorCraft 빌드는 CRAFT_FONTS_DIR=$PWD/fonts-ko 의 fonts/manifest.txt 로 글꼴 목록을 읽습니다.
+export CRAFT_FONTS_DIR=$PWD/fonts-ko
 
 ./build-ko.sh cadcraft vectorcraft photocraft soundcraft filmcraft
 ```
@@ -47,7 +56,7 @@ done
 빌드 결과(각 앱의 `packaging/web` 산출물)를 `artcraft/web/<app>/`에 두면 Lite 서버가 `/craft/<app>/`로 제공합니다(`PRO_CRAFT_WEB_ROOT`로 위치 변경 가능).
 Put each web build under `artcraft/web/<app>/`; the Lite server serves it at `/craft/<app>/` (`PRO_CRAFT_WEB_ROOT` overrides the location).
 
-MCP CLI는 업스트림 릴리스(예: `cadcraft-cli-0.8.0-macos-universal.zip`)를 받아 `PATH`에 두거나, `PRO_CADCRAFT_CLI` 등 환경 변수로 경로를 지정합니다(`server/.env.example` 참고).
-Download the MCP CLIs from the upstream releases and put them on `PATH`, or point `PRO_<APP>_CLI` at them.
+MCP CLI는 같은 소스에서 `cargo build --release -p <app>-cli`로 빌드하거나(업스트림 릴리스에는 macOS용 CLI 묶음과, 리눅스 묶음 안의 `bin/<app>-cli`가 있습니다) `PATH`에 두고, 또는 `PRO_CADCRAFT_CLI` 등 환경 변수로 경로를 지정합니다(`server/.env.example` 참고).
+Build the MCP CLIs from the same sources (`cargo build --release -p <app>-cli`) and put them on `PATH`, or point `PRO_<APP>_CLI` at them.
 
 ArtCraft가 없어도 Lite의 나머지 기능은 동작합니다. / Lite works without ArtCraft; only the craft apps are unavailable.

@@ -55,6 +55,10 @@ if work and os.path.isdir(work):
 # one form per activity: the skill's .form wins over a stray .html copy (both are listed, .form first)
 seen = set()
 contract["forms"] = [f for f in (contract.get("forms") or []) if not (f.get("activity_id") in seen or seen.add(f.get("activity_id")))]
+# ASSEMBLE_ONLY: the assembled contract for the draft card, nothing saved
+if os.environ.get("ASSEMBLE_ONLY"):
+    print(json.dumps(contract, ensure_ascii=False))
+    sys.exit(0)
 tenant = os.environ.get("TENANT_ID", "localhost")
 sb = get_client()
 

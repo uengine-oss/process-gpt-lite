@@ -12,6 +12,8 @@ ARTCRAFT_SRC="${ARTCRAFT_SRC:-$HERE/src}"
 export PATH="$HOME/.cargo/bin:$PATH"
 # NanumGothic (SIL OFL 1.1) — download it yourself, see README.md
 export PGPT_KO_FONT="${PGPT_KO_FONT:-$HERE/fonts-ko/fonts/NanumGothic-Regular.ttf}"
+# CADCraft/VectorCraft read the face list from $CRAFT_FONTS_DIR/fonts/manifest.txt
+export CRAFT_FONTS_DIR="${CRAFT_FONTS_DIR:-$HERE/fonts-ko}"
 LOG="${LOG_DIR:-${TMPDIR:-/tmp}}"
 [ -f "$PGPT_KO_FONT" ] || { echo "missing Korean font: $PGPT_KO_FONT"; exit 1; }
 for a in "$@"; do

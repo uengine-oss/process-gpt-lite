@@ -224,6 +224,9 @@ services:
       LLM_PROXY_URL: ${LLM_BASE_URL}
       LLM_PROXY_API_KEY: ${LLM_API_KEY}
       OPENAI_API_KEY: ${LLM_API_KEY}
+      LLM_USE_RESPONSES_API: ${LLM_USE_RESPONSES_API:-false}
+      # no strategy (BSC) service in the bundle: its tools only fail and make the agent ask again
+      STRATEGY_TOOLS: ${STRATEGY_TOOLS:-off}
       LLM_EMBEDDING_MODEL: ${LLM_EMBEDDING_MODEL:-text-embedding-3-small}
       SELF_BASE_URL: http://deepagents:8888
       PROCESS_GPT_OFFICE_MCP_URL: http://office-mcp:1192/mcp/
@@ -244,6 +247,29 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
+
+  # process-gpt's own save path for generated process definitions (server/bridge/save_generated.py:
+  # save_contract + the BPMN XML generator), run with the deepagents image's Python; the server
+  # image has none. Used by chat process generation, mining's 정식 등록 and process improvement.
+  bridge:
+    <<: *restart
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/deepagents:${LITE_TAG:-local}
+    profiles: [lite, full]
+    depends_on:
+      deepagents: { condition: service_started }
+    entrypoint: [python, /lite/bridge/serve.py]
+    environment:
+      PGPT_ROOT: /pgpt
+      TENANT_ID: ${LITE_TENANT:-lite}
+      SUPABASE_URL: http://kong:8000
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      # deepagents' workspace root, as mounted below (its own helpers read the same variable)
+      WORKSPACE: ${LITE_DATA_DIR}/deepagents/workspace
+    volumes:
+      - ${PGPT_SRC:-..}/server/bridge:/lite/bridge:ro
+      - ${PROCESS_GPT_SRC:-../backends/process-gpt}:/pgpt:ro
+      # writable: rebuilding a generation folder normalizes its forms in place
+      - ${LITE_DATA_DIR}/deepagents/workspace:${LITE_DATA_DIR}/deepagents/workspace
 
   office-mcp:
     <<: *restart
@@ -309,6 +335,7 @@ services:
     depends_on:
       kong: { condition: service_started }
       migrate: { condition: service_completed_successfully }
+      craft: { condition: service_completed_successfully, required: false }
     environment:
       PRO_PORT: 8787
       PRO_PUBLIC_URL: ${PUBLIC_URL}
@@ -328,6 +355,8 @@ services:
       PRO_OFFICE_MCP_URL: http://office-mcp:1192
       PRO_COMPLETION_URL: http://completion:8000
       PRO_CLI_AGENT_URL: http://cli-agent:8890
+      # saving generated / mined / improved process definitions (process-gpt's Python, see bridge)
+      PRO_BRIDGE_URL: http://bridge:8790
       PRO_CONTEXT_ROUTER_URL: ${CONTEXT_ROUTER_URL:-}
       PRO_JUDGE_URL: ${JUDGE_URL:-}
       # meetings (server/lib/meetings): transcription key, STUN/TURN, the assistant switch
@@ -350,6 +379,12 @@ services:
       PRO_DEMO_LOGIN: ${DEMO_LOGIN:-0}
       PRO_FOLDERS_ROOT: /data/folders
       PRO_CRAFT_WEB_ROOT: /data/craft
+      # ArtCraft CLIs (craft profile, ./install.sh --with-craft); missing = those apps are off
+      PRO_CADCRAFT_CLI: /data/craft-bin/cadcraft-cli
+      PRO_VECTORCRAFT_CLI: /data/craft-bin/vectorcraft-cli
+      PRO_PHOTOCRAFT_CLI: /data/craft-bin/photocraft-cli
+      PRO_SOUNDCRAFT_CLI: /data/craft-bin/soundcraft-cli
+      PRO_FILMCRAFT_CLI: /data/craft-bin/filmcraft-cli
       PRO_HWPX_TEMPLATE_URL: ${HWPX_TEMPLATE_URL:-}
       PRO_MEMENTO_URL: ${MEMENTO_URL:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -417,6 +452,7 @@ services:
     environment:
       <<: *engine-env
       PYTHONPATH: /usr/src/app
+      PYTHONUNBUFFERED: "1"
     working_dir: /usr/src/app/polling_service
     command: [sh, -c, "pip install --no-cache-dir -q -r requirements.txt && exec python main.py"]
 
@@ -455,6 +491,24 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       HOST: 0.0.0.0
       PORT: 8014
+
+  # ───────────────────────── craft profile (optional) ─────────────────────────
+  # ArtCraft (CADCraft · VectorCraft · PhotoCraft · SoundCraft · FilmCraft): web editors and MCP CLIs
+  # built from the tested upstream commits with artcraft/patches (docker/craft.Dockerfile). Runs
+  # once per install/upgrade, copying them into the server's /data (craft/<app>, craft-bin).
+  craft:
+    image: ${LITE_IMAGE_PREFIX:-pgpt-lite}/craft:${LITE_TAG:-local}
+    build:
+      context: ${PGPT_SRC:-..}/artcraft
+      dockerfile: ${LITE_INSTALL_DIR:?run ./install.sh first}/docker/craft.Dockerfile
+      additional_contexts:
+        install-docker: ./docker
+      args:
+        CRAFT_JOBS: ${CRAFT_JOBS:-2}
+    profiles: [craft]
+    volumes:
+      - server-data:/data
+    restart: "no"
 
 volumes:
   db-data:

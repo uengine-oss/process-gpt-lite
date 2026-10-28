@@ -38,6 +38,8 @@ export const config = {
 
   deepagentsUrl: get('PRO_DEEPAGENTS_URL', 'http://127.0.0.1:8888'),
   cliAgentUrl: get('PRO_CLI_AGENT_URL', 'http://127.0.0.1:8890'),
+  // where saveGenerated runs process-gpt's Python (Docker bundle); empty = the local deepagents venv
+  bridgeUrl: get('PRO_BRIDGE_URL', ''),
   // context-router in front of the agents: picks the conversation a chat message belongs to
   contextRouterUrl: get('PRO_CONTEXT_ROUTER_URL', ''),
   // template office-mcp generate_hwpx fills when someone asks for a 한글 document

@@ -4,7 +4,8 @@
 #   ./install.sh                  install or start (idempotent: keeps .env, data and secrets)
 #   ./install.sh --profile full   lite + process engine (completion/polling) + mcp-hub
 #   ./install.sh --with-mining    also process-miner (repeated work → process recommendations)
-#   ./install.sh --upgrade        update sources (git), rebuild/pull images, migrate, restart
+#   ./install.sh --with-craft     also the ArtCraft apps (drawings, images, sound, video; first build 30+ min)
+#   ./install.sh --upgrade       update sources (git), rebuild/pull images, migrate, restart
 #   ./install.sh --uninstall      stop and remove containers (data kept)
 #   ./install.sh --uninstall --purge   also delete volumes, data folder and built images
 #
@@ -15,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-ACTION=install PROFILE="" YES=0 PURGE=0 NO_GIT=0 MINING="" FRESH=0
+ACTION=install PROFILE="" YES=0 PURGE=0 NO_GIT=0 MINING="" CRAFT="" FRESH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --upgrade) ACTION=upgrade ;;
@@ -26,9 +27,11 @@ while [ $# -gt 0 ]; do
     --port) PORT_ARG="$2"; shift ;;
     --with-mining) MINING=1 ;;
     --without-mining) MINING=0 ;;
+    --with-craft) CRAFT=1 ;;
+    --without-craft) CRAFT=0 ;;
     -y|--yes) YES=1 ;;
     --no-git) NO_GIT=1 ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "알 수 없는 옵션: $1" >&2; exit 2 ;;
   esac
   shift
@@ -60,7 +63,8 @@ setenv() { # setenv KEY VALUE  (value never echoed)
 }
 compose() {
   local extra=()
-  [ "$(getenv LITE_MINING)" = 1 ] && extra=(--profile mining)
+  [ "$(getenv LITE_MINING)" = 1 ] && extra+=(--profile mining)
+  [ "$(getenv LITE_CRAFT)" = 1 ] && extra+=(--profile craft)
   docker compose --env-file "$ENVF" --profile "$(getenv LITE_PROFILE)" ${extra[@]+"${extra[@]}"} "$@"
 }
 
@@ -69,9 +73,9 @@ if [ "$ACTION" = uninstall ]; then
   [ -f "$ENVF" ] || die ".env가 없습니다(설치된 적이 없음)."
   say "컨테이너를 내립니다"
   if [ "$PURGE" = 1 ]; then
-    docker compose --env-file "$ENVF" --profile lite --profile full --profile mining down -v --rmi local --remove-orphans
+    docker compose --env-file "$ENVF" --profile lite --profile full --profile mining --profile craft down -v --rmi local --remove-orphans
   else
-    docker compose --env-file "$ENVF" --profile lite --profile full --profile mining down --remove-orphans
+    docker compose --env-file "$ENVF" --profile lite --profile full --profile mining --profile craft down --remove-orphans
   fi
   docker rm -f "deepagent-sandbox-$(getenv LITE_TENANT)" >/dev/null 2>&1 || true
   docker network rm "$(getenv COMPOSE_PROJECT_NAME)-sandbox" >/dev/null 2>&1 || true
@@ -101,7 +105,8 @@ ensure_sources() {
       git -C "$root" submodule update --init backends/process-gpt backends/office-host 2>/dev/null || true
       local pg="$root/backends/process-gpt"
       if [ -d "$pg" ]; then
-        local subs=(services/deepagents services/office-mcp skills/bpmn-process-generation-skill)
+        # bpmn-extractor: its BPMN XML generator is what the bridge saves generated processes with
+        local subs=(services/deepagents services/office-mcp services/bpmn-extractor skills/bpmn-process-generation-skill)
         [ "$(getenv LITE_PROFILE)" = full ] && subs+=(services/completion)
         git -C "$pg" submodule update --init "${subs[@]}" 2>/dev/null || true
       fi
@@ -168,6 +173,7 @@ prepare_env() {
   [ "$(getenv LITE_PROFILE)" = full ] && setenv DEEPAGENTS_PROCESS_POLLING true
   if [ "$MINING" = 1 ]; then setenv LITE_MINING 1; setenv MINER_URL http://process-miner:8014
   elif [ "$MINING" = 0 ]; then setenv LITE_MINING 0; setenv MINER_URL ""; fi
+  [ -n "$CRAFT" ] && setenv LITE_CRAFT "$CRAFT"
 
   ask LLM_BASE_URL "LLM 주소(OpenAI 호환)" "https://api.openai.com/v1"
   ask LLM_API_KEY "LLM API 키(입력은 화면에 보이지 않습니다)" "" secret
@@ -226,6 +232,7 @@ build_or_pull() {
     compose pull
   else
     say "이미지를 빌드합니다(처음에는 20~40분, 이음오피스가 가장 오래 걸립니다)"
+    [ "$(getenv LITE_CRAFT)" = 1 ] && say "ArtCraft 앱 다섯 개도 소스에서 빌드합니다(처음 한 번 30분 이상, 이후 캐시)"
     compose build ${1:-}
   fi
 }

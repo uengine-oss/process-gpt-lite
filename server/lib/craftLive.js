@@ -73,10 +73,12 @@ export function craftLiveRoutes(auth) {
 }
 
 // ---- the peer check: is this TCP connection's other end a socket of one of these pids? ----
+// macOS keeps lsof in /usr/sbin, Debian (the Docker image) in /usr/bin
+const LSOF = ['/usr/sbin/lsof', '/usr/bin/lsof'].find((p) => fs.existsSync(p)) || 'lsof'
 function ownedBy(pids, localPort, remotePort) {
   if (!pids.size) return Promise.resolve(false)
   return new Promise((resolve) => {
-    execFile('/usr/sbin/lsof', ['-nP', '-a', '-p', [...pids].join(','), '-iTCP', '-sTCP:ESTABLISHED', '-Fn'], { timeout: 3000 }, (err, out) => {
+    execFile(LSOF,['-nP', '-a', '-p', [...pids].join(','), '-iTCP', '-sTCP:ESTABLISHED', '-Fn'], { timeout: 3000 }, (err, out) => {
       if (err && !out) return resolve(false)
       const want = `n127.0.0.1:${remotePort}->127.0.0.1:${localPort}`
       resolve(String(out).split('\n').some((l) => l.trim() === want))

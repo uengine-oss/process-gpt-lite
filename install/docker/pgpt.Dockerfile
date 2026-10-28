@@ -46,9 +46,11 @@ FROM ${NODE_IMAGE} AS server
 ARG WITH_BROWSER=1
 ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-# git: shared folders are git repositories; zip: mission skill bundles; socat: loopback forward
+# git: shared folders are git repositories; zip: mission skill bundles; socat: loopback forward;
+# lsof: ArtCraft live editing checks which pid holds the bridge socket; fonts-nanum: the face
+# the agent is told to use in ArtCraft files (the headless CLIs render with system fonts)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git zip socat ca-certificates tini curl \
+      git zip socat ca-certificates tini curl lsof fonts-nanum \
  && rm -rf /var/lib/apt/lists/* \
  && git config --system user.name "Process GPT" \
  && git config --system user.email "noreply@pgpt-lite.local" \
