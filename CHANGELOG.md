@@ -47,6 +47,7 @@
 
 ### 고침
 
+- **백엔드 서브모듈 갱신**: `backends/office-host` → ecea940(편집기 화면 언어를 페이지마다 `lang=en|ko`, 워드 문서 그림 꺼내기·바꿔 넣기, 멘션 칩 언어), `backends/process-gpt` → a066e93(completion: 진행 중인 인스턴스는 시작한 정의 버전을 끝까지 유지 — 새 버전은 새로 시작하는 건부터).
 - **영어 모드 사전·번역기**: 역할·단계 이름을 하나로(Sales · Finance · Design · Legal · Proposals, "Receive request mail" · "Draft quote" · "Prepare quote", 출장비 정산 = "Travel expense settlement"), 제약 표의 여유 = "Spare"(크리티컬 패스는 "Slack"), 폴더 권한 실행 = "Run", "Card saved", 일회용 값 버튼 "Enter code", 설정 메뉴·스킬 목록 "Skills", 기본 스킬 세 개의 설명. 번역기는 수가 1이면 뒤 명사를 단수로 바꾸고("1 output", "1 variation") ` — ` 로 이은 말도 나눠 옮깁니다. 용어집에 예제 이름(Solgil Bakery, Pangyo Store #3, "Store design proposal draft", "Quote tracker", 개선 데모 매장, 파일 이름)과 역할·단계 표.
 - **영어 모드 다듬기 — 영문 튜토리얼·영상 캡처용** (시험 `server/test/en-fix.test.js` · `e2e/tests/feature/english-fixes.spec.js` F-EN-01…04):
   - 워드 문서 안 그림도 포토크래프트 왕복(튜토리얼 9장 영어판): 그림을 「가리키기」로 누르면 `Image 1`, 고쳐 달라고 하면 그림이 포토크래프트로 문서 위에 열리고 「Put in Word document」로 같은 자리(드로잉·크기·배치 유지)에 들어가며 ⌘S 로 편집본 .docx 에 저장됩니다. 워드 그림을 내주는 office-host(`process-gpt-office-host` `feat/per-page-ui-lang`)가 필요하고, 예전 호스트에서는 요청이 문서에 그대로 갑니다.
