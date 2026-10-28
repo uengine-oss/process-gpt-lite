@@ -185,7 +185,8 @@ test.describe('English mode polish (i18n/HANDOFF.md)', () => {
           // the router may copy a field as describe() lists it ("견적 금액(숫자)*", "Quote amount (number)*")
           const amount = app.def.fields.find((f) => f.type === 'number')
           expect(amount, 'a number field for the amount').toBeTruthy()
-          const values = Object.fromEntries(app.def.fields.filter((f) => f.required && f !== amount).map((f) => [f.label, f.type === 'choice' ? f.choices[0] : f.type === 'date' ? '2026-11-03' : f.type === 'number' ? 1 : 'x']))
+          // a person field takes a folder member: the owner (by id)
+          const values = Object.fromEntries(app.def.fields.filter((f) => f.required && f !== amount).map((f) => [f.label, f.type === 'choice' ? f.choices[0] : f.type === 'date' ? '2026-11-03' : f.type === 'number' ? 1 : f.type === 'person' ? u.id : 'x']))
           values[`${amount.label}${lang === 'ko' ? '(숫자)' : ' (number)'}*`] = lang === 'ko' ? '2,450만 원' : '₩24.5M'
           const row = await u.post(`/panel-apps/${app.id}/rows`, { values })
           expect(row.status, row.text).toBe(200)
