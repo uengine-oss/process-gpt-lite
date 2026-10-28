@@ -9,6 +9,7 @@ import SkillList from './SkillList.vue'
 import TeamRoles from './TeamRoles.vue'
 import MailConnect from './MailConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
+import LangSwitch from '../i18n/LangSwitch.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
@@ -161,6 +162,10 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
             <div class="main"><b>이름</b><small>팀원 목록과 인사에 보이는 이름이에요</small></div>
             <input v-model="myName" class="nm" aria-label="이름" maxlength="40" placeholder="이름" />
             <button class="pill-btn sm" :disabled="!myName.trim() || myName.trim() === app.me?.user?.name">{{ nameSaved || '저장' }}</button>
+          </div>
+          <div class="li lang">
+            <div class="main"><b>언어 / Language</b><small>화면과 비서의 답이 이 언어로 나와요</small></div>
+            <LangSwitch compact />
           </div>
         </form>
         <p class="cap">연결</p>

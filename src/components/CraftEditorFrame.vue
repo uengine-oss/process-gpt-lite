@@ -21,6 +21,7 @@ import { uploadAttachment } from '../api.js'
 import { openLiveLink } from '../liveLink.js'
 import { officeEditorFor } from '../officeEditor.js'
 import { BASE } from '../base.js'
+import { lang } from '../i18n/lang.js'
 
 const props = defineProps({
   fileUrl: { type: String, default: '' },
@@ -44,7 +45,8 @@ function drop(w, file) {
 const APPS = {
   cadcraft: { title: 'CADCraft', query: '?host=parent', bridge: true },
   vectorcraft: {
-    title: 'VectorCraft', query: '?lang=ko', ready: (w) => !!w.vectorcraft,
+    // the app's own language switch follows the screen's (src/i18n/lang.js); the others follow the browser's
+    title: 'VectorCraft', query: `?lang=${lang}`, ready: (w) => !!w.vectorcraft,
     open: (w, file, bytes) => w.vectorcraft.openFile(file.name, new Uint8Array(bytes)),
   },
   photocraft: { title: 'PhotoCraft', query: '', ready: (w) => !w.document.getElementById('photocraft_loading'), open: (w, file) => drop(w, file) },

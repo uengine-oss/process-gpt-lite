@@ -41,6 +41,9 @@ export function officeEditorUrl({ fileUrl, name, readOnly = false, assistant = '
   if (readOnly) params.set('readonly', '1')
   if (assistant && !readOnly) params.set('assistant', assistant)
   if (token) params.set('token', token)
+  // English screens ask for English; the office host uses one language per process (IEUM_LANG) and ignores this
+  // today — kept so a host that reads it opens the editor in the same language (i18n/HANDOFF.md)
+  if (document.documentElement.lang === 'en') params.set('lang', 'en')
   return `${BASE}/office/${editor}/?${params.toString()}`
 }
 

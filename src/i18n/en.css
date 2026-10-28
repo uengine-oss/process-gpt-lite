@@ -1,0 +1,18 @@
+/* English mode layout: English runs longer than the Korean the screens were laid out for. Instead of
+   changing components, let text wrap where Korean fit on one line, and tighten the few places with
+   a fixed width. Only under html[lang=en] (set by src/i18n/lang.js); Korean is untouched. */
+html[lang='en'] body { overflow-wrap: break-word; }
+
+/* phone top bar: Home · Chat · Projects · Folders has to fit between the search and avatar buttons */
+html[lang='en'] .top.narrow .seg button,
+html[lang='en'] .narrow .seg button { padding: 0 10px; font-size: 13px; }
+
+/* labels and chips that were nowrap for short Korean words may wrap in English */
+html[lang='en'] .pill-btn,
+html[lang='en'] .dark-btn { white-space: normal; line-height: 1.2; }
+html[lang='en'] .li .main b,
+html[lang='en'] .li .main small { overflow-wrap: anywhere; }
+
+/* improve › value stream map boxes: a label and its value side by side */
+html[lang='en'] .kv { gap: 6px; align-items: baseline; }
+html[lang='en'] .kv b { white-space: nowrap; }

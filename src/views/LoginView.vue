@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import SkyCanvas from '../sky/SkyCanvas.vue'
 import Wordmark from '../components/Wordmark.vue'
 import Typewriter from '../components/Typewriter.vue'
+import LangSwitch from '../i18n/LangSwitch.vue'
 import { auth } from '../api.js'
 import { BASE } from '../base.js'
 
@@ -82,6 +83,7 @@ async function verify() {
     </section>
 
     <section class="form">
+      <LangSwitch class="lang" />
       <div class="inner">
         <Wordmark :size="54" />
         <p class="tag">업무를 위한 새로운 운영체제.<br />무엇이든 process gpt에게 맡기세요.</p>
@@ -142,6 +144,7 @@ async function verify() {
 :root[data-theme="dark"] .code input { background: rgba(255 255 255 / .1); }
 .code input:focus { box-shadow: 0 0 0 2px var(--ink) inset; }
 .err { color: var(--color-attention); font-size: 14px; margin-top: 16px; text-align: center; }
+.lang { position: absolute; top: 4px; right: 4px; }
 .legal { position: absolute; bottom: 4px; width: min(360px, 90%); text-align: center; font-size: 12px; line-height: 1.4; color: var(--text-secondary); }
 @media (max-width: 860px) {
   .login { grid-template-columns: 1fr; }

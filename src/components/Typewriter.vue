@@ -11,7 +11,8 @@ function run() {
   clearInterval(timer)
   shown.value = ''
   let i = 0
-  const chars = [...(props.text || '')]
+  // English mode: type the translation (a half-typed Korean string has no dictionary entry)
+  const chars = [...(window.osI18n ? window.osI18n.tr(props.text || '') : props.text || '')]
   timer = setInterval(() => {
     shown.value += chars[i++] ?? ''
     if (i >= chars.length) { clearInterval(timer); emit('done') }

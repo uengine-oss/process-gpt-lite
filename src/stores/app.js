@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
 import { BASE } from '../base.js'
+import { syncLang } from '../i18n/lang.js'
 
 export const useApp = defineStore('app', {
   state: () => ({
@@ -82,6 +83,7 @@ export const useApp = defineStore('app', {
   actions: {
     async boot() {
       this.me = await api('/me')
+      syncLang(this.me)
       ;[this.mainThread] = await api('/threads')
       this.activeId = this.mainThread.id
       await Promise.all([this.load(this.mainThread.id), this.loadActions(), this.loadPanels(), this.loadPanelApps(), this.loadProjects(), this.loadProcesses(), this.loadNotifications(), this.loadConversations()])

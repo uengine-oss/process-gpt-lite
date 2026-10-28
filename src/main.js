@@ -1,3 +1,5 @@
+// first: picks the screen language and tags every /api call with it (X-PGL-Lang)
+import { isEnglish } from './i18n/lang.js'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
@@ -34,4 +36,6 @@ router.beforeEach((to) => {
   if (!to.meta.public && !auth.get()?.session) return '/login'
 })
 
-createApp(App).use(createPinia()).use(router).mount('#app')
+// English: the dictionary and the runtime translator go in before the first render
+const ready = isEnglish ? import('./i18n/english.js').then((m) => m.installEnglish()).catch((e) => console.error('english mode', e)) : Promise.resolve()
+ready.then(() => createApp(App).use(createPinia()).use(router).mount('#app'))

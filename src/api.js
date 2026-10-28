@@ -138,7 +138,7 @@ export function events(handler) {
     }
   }
   const open = () => {
-    es = new EventSource(`${BASE}/api/events?token=${tok()}`)
+    es = new EventSource(`${BASE}/api/events?token=${tok()}&lang=${document.documentElement.lang === 'en' ? 'en' : 'ko'}`)
     let hello = false
     const fallback = setTimeout(() => {
       if (hello || stopped) return

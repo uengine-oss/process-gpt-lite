@@ -45,7 +45,8 @@ export const DB_URL = env.PGPT_DB_URL || (LOCAL_API ? dbUrlFromProcessGpt() : ''
 
 // test accounts: always pro-rt-<area>@uengine.org (never a real person's account)
 export const email = (area) => `pro-rt-${area}@uengine.org`
-export const isTestEmail = (e) => /^pro-rt-[a-z0-9-]+@uengine\.org$/.test(e)
+// pro-en-ui-*: the English-mode checks (tests/smoke/english.spec.js, scripts/i18n-check.mjs)
+export const isTestEmail = (e) => /^pro-(rt|en-ui)-[a-z0-9-]+@uengine\.org$/.test(e)
 
 // deepagents' workspace on the host (where skill-creator leaves drafts): /workspace/... maps here
 export const PGPT_ROOT = PGPT_ROOT_DIR

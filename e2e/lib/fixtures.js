@@ -12,6 +12,12 @@ import { pathToFileURL } from 'node:url'
 import * as api from './api.js'
 import * as dbm from './db.js'
 import { PGPT_URL, RUN, SERVER_DIR, hasServerSource, LOCAL_API } from './env.js'
+import fs from 'node:fs'
+
+// PGL_LANG=ko|en forces the screen language (src/i18n/lang.js reads localStorage pgl-lang);
+// RT_I18N_HARVEST=<file> (English runs) appends what the translator could not translate on each page
+const LANG = process.env.PGL_LANG
+const HARVEST = process.env.RT_I18N_HARVEST
 
 const onboarded = new Set()
 async function signedIn(area) {
@@ -31,6 +37,7 @@ export const test = base.extend({
       const c = await signedIn(area)
       const ctx = await browser.newContext({ viewport: viewport || { width: 1280, height: 720 }, deviceScaleFactor: dpr, locale: 'ko-KR', baseURL: PGPT_URL })
       await ctx.addInitScript((s) => { if (window.top === window) localStorage.setItem('pgpt-pro-session', s) }, JSON.stringify(c.s))
+      if (LANG) await ctx.addInitScript((l) => { try { if (window.top === window) localStorage.setItem('pgl-lang', l) } catch { /* opaque origin */ } }, LANG)
       contexts.push(ctx)
       const page = await ctx.newPage()
       page.errors = []
@@ -39,6 +46,12 @@ export const test = base.extend({
       return page
     })
     for (const ctx of contexts) {
+      if (HARVEST) {
+        for (const p of ctx.pages()) {
+          const miss = await p.evaluate(() => (window.osI18n?.missing?.() || [])).catch(() => [])
+          if (miss.length) fs.appendFileSync(HARVEST, JSON.stringify({ test: testInfo.title, url: p.url(), missing: miss }) + '\n')
+        }
+      }
       // keep a screenshot of every page on failure (the default fixture only covers `page`)
       if (testInfo.status !== testInfo.expectedStatus) {
         let i = 0
