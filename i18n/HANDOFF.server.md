@@ -18,6 +18,11 @@ Terms: i18n/GLOSSARY.md.
   runs in the saved language of the person it is for — owner or recipient — not of whoever
   triggered it. So the page should save the language (it does) for English-mode background cards.
 
+- **Tenant of a request** (`server/lib/tenant.js`, i18n/EN-DEMO.md): the signed-in person's tenant (auth
+  `app_metadata.tenant_id`), before sign-in the host's (`PRO_TENANT_HOSTS=en.localhost=en-demo`: the English demo
+  tenant at http://en.localhost:5180). Background work runs in the tenant of the person it is for. Without
+  `PRO_TENANT_HOSTS` there is one tenant, as before.
+
 ## What comes back in English at the source (English mode)
 
 - Every direct model call (`lib/llm.js chat/chatJson/chatStream`) carries an English note at the

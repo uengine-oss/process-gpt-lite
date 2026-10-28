@@ -14,7 +14,7 @@ import { L } from '../lang.js'
 import { afterMerge } from './skills.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
-const intDir = (folder, id) => path.join(S.FOLDERS_ROOT, '.integrate', folder.slug, id)
+const intDir = (folder, id) => path.join(S.foldersRoot(), '.integrate', folder.slug, id)
 
 export async function get(folder, id) {
   const [r] = await q('select * from pro_folder_integrations where id=$1 and folder_id=$2', [id, folder.id])

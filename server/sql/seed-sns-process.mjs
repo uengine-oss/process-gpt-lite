@@ -9,14 +9,16 @@
 // Run: node sql/seed-sns-process.mjs [--lang en] [--dry-run]
 //   --lang en   the English edition ("Daily SNS trend response"): same id, steps, form keys, agents and
 //               agent settings; English names, labels, choice values (conditions follow them) and
-//               instructions (the agents answer in English); replaces the Korean one in this database
+//               instructions (the agents answer in English); written to the English demo tenant (en-demo), the Korean one stays
 //   --dry-run   print the contract, write nothing
 import { q, pool } from '../lib/supa.js'
 import { config } from '../config.js'
+import { enterSeedTenant } from '../lib/seedTenant.js'
 import { saveGenerated } from '../lib/generated.js'
 import { PGPT_ROOT } from '../lib/paths.js'
 
-const T = config.tenantId
+// --lang en writes to the English demo tenant (lib/seedTenant.js): the same ids there never touch the Korean demo
+const T = enterSeedTenant()
 const PID = 'pro_sns_trend_response'
 const BROWSER = '5b7c1d2e-9a8b-4c3d-8e7f-6a5b4c3d2e1f'
 const ANALYST = '7c1e2d3f-4a5b-4c6d-9e8f-0a1b2c3d4e5f'

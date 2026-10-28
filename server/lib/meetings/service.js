@@ -11,6 +11,7 @@
 // chat_rooms.context.pgpt.meetingAgent=false.
 import { config } from '../../config.js'
 import { q } from '../supa.js'
+import { withTenant } from '../tenant.js'
 import { emit } from '../bus.js'
 import { TeamError } from '../team/access.js'
 import * as M from '../team/messenger.js'
@@ -504,10 +505,10 @@ export function startSweeper() {
       for (const g of gone) await tell(g.meeting_id, { type: 'left', peer: { id: g.id, name: g.name }, stale: true })
       const empty = await q(`select * from pro_meetings m where m.state='live' and m.started_at < now() - interval '20 seconds'
                              and not exists (select 1 from pro_meeting_participants p where p.meeting_id=m.id and p.left_at is null)`)
-      for (const m of empty) await end(m)
+      for (const m of empty) await withTenant(m.tenant_id, () => end(m))
       for (const id of new Set(gone.map((g) => g.meeting_id))) {
         const [m] = await q(`select * from pro_meetings where id=$1 and state='live'`, [id])
-        if (m) { await inMeeting(m, async () => R.updateCard(m, await everyone(m.id))); await roomState(m) }
+        if (m) await withTenant(m.tenant_id, async () => { await inMeeting(m, async () => R.updateCard(m, await everyone(m.id))); await roomState(m) })
       }
     } catch (e) { console.warn('[meetings] sweep', e.message) }
   }, 15000).unref?.()

@@ -3,7 +3,6 @@
 import { createClient } from '@supabase/supabase-js'
 import pg from 'pg'
 import { config } from '../config.js'
-import { withTenant } from './tenant.js'
 
 export const admin = createClient(config.supabaseUrl, config.serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -17,15 +16,30 @@ export const q = (text, params) => pool.query(text, params).then((r) => r.rows)
 
 // The auth user and its public.users row, created on first sight (sign-in, or a teammate added
 // to the team before they ever signed in).
+// With more than one tenant on this server (lib/tenant.js), an account belongs to the tenant it was
+// made on (app_metadata.tenant_id, written here for every tenant but the default one, so accounts of
+// the default tenant are made exactly as before) and is not let into another one.
 export async function ensureUser(email, name) {
   const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
   let user = list?.users?.find((u) => u.email === email)
+  const { multiTenant, DEFAULT_TENANT, tenantOfAuthUser, TenantMismatch, forgetTenant, ensureTenantRow } = await import('./tenant.js')
+  await ensureTenantRow(config.tenantId)
   if (!user) {
     const { data, error } = await admin.auth.admin.createUser({
       email, email_confirm: true, user_metadata: { name, tenant_id: config.tenantId },
+      ...(multiTenant() && config.tenantId !== DEFAULT_TENANT ? { app_metadata: { tenant_id: config.tenantId } } : {}),
     })
     if (error) throw error
     user = data.user
+  } else if (multiTenant() && tenantOfAuthUser(user) !== config.tenantId) {
+    // an account nobody has used here yet (made by GoTrue when the sign-in code was sent, or by
+    // process-gpt) goes to the tenant it first signs in on; one in use stays where it is
+    const [used] = await q('select 1 from pro_profile where user_id=$1', [user.id])
+    if (used || config.tenantId === DEFAULT_TENANT) throw new TenantMismatch(tenantOfAuthUser(user))
+    const { data, error } = await admin.auth.admin.updateUserById(user.id, { app_metadata: { ...(user.app_metadata || {}), tenant_id: config.tenantId } })
+    if (error) throw error
+    user = data.user
+    forgetTenant(user.id)
   }
   await q(
     `insert into public.users (id, username, email, tenant_id, role, is_admin, is_agent, is_draft, permission_ids)
@@ -76,16 +90,10 @@ export async function isMember(userId, tenantId) {
   return ok
 }
 
-// Runs a background job's tick for each tenant it serves: this install's one, or behind the
-// ProcessGPT gateway every tenant with someone who has used Lite (the list is refreshed each minute).
-let liteTenants = { at: 0, ids: [] }
+// a background job's tick for each tenant it serves (lib/tenant.js forEachTenant)
 export async function eachTenant(fn) {
-  if (!config.tenantFromHeader) return fn()
-  if (liteTenants.at < Date.now() - 60000) {
-    const rows = await q('select distinct u.tenant_id from users u where exists (select 1 from pro_threads t where t.user_id = u.id)')
-    liteTenants = { at: Date.now(), ids: rows.map((r) => r.tenant_id) }
-  }
-  for (const t of liteTenants.ids) await withTenant(t, fn)
+  const { forEachTenant } = await import('./tenant.js')
+  return forEachTenant(fn)
 }
 
 // whether an email already has an account in a tenant

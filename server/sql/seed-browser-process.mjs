@@ -2,13 +2,15 @@
 //   조사 요청 (사람) → 공급사 카탈로그 조사 (browser-automation-agent) → 견적 검토·선정 (사람)
 // Run: node sql/seed-browser-process.mjs [--lang en] [--dry-run]
 //   --lang en   the English edition ("Supplier catalog price survey"): same id, steps, form keys and agent,
-//               English names, labels and instructions; replaces the Korean one in this database
+//               English names, labels and instructions; written to the English demo tenant (en-demo), the Korean one stays
 //   --dry-run   print the contract, write nothing
 import { q, pool } from '../lib/supa.js'
 import { config } from '../config.js'
+import { enterSeedTenant } from '../lib/seedTenant.js'
 import { saveGenerated } from '../lib/generated.js'
 
-const T = config.tenantId
+// --lang en writes to the English demo tenant (lib/seedTenant.js): the same ids there never touch the Korean demo
+const T = enterSeedTenant()
 const PID = 'pro_supplier_survey'
 const AGENT = '5b7c1d2e-9a8b-4c3d-8e7f-6a5b4c3d2e1f'
 const form = (key) => `${PID}_${key}_form`

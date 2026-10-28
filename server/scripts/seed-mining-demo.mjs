@@ -5,21 +5,27 @@
 // --reset removes what the demo made: mining rows, its handover records, the registered process.
 // --lang en: the English edition — the same three earlier cases (same ids, days and times) under
 // English names and step labels (fictional companies, .example domains), the 'Finance' role, and the
-// three accounts' language set to en (lib/lang.js). Use English-named test accounts
-// (pro-en-srv-*@uengine.org). The live fourth case is the English practice mail (Moonlight Coffee
-// Store #2). English cases group only with English cases.
+// three accounts' language set to en (lib/lang.js), all in the English demo tenant (en-demo,
+// i18n/EN-DEMO.md) so the Korean demo's cases stay as they are. Without account arguments it uses
+// the English cast: Jinyoung Jang (sales and admin) and Seoyeon Park (finance). The live fourth case
+// is the English practice mail (Moonlight Coffee Store #2). English cases group only with English cases.
 import { q, pool } from '../lib/supa.js'
 import { config } from '../config.js'
 import { openCase, recordStep } from '../lib/mining/recorder.js'
 import { ensureAgents } from '../lib/mining/service.js'
 import { withLang } from '../lib/lang.js'
+import { enterSeedTenant } from '../lib/seedTenant.js'
 
-const T = config.tenantId
+// --lang en writes to the English demo tenant (lib/seedTenant.js); mining case ids there name the tenant
+const T = enterSeedTenant()
 const argv = process.argv.slice(2)
 const langAt = argv.indexOf('--lang')
 const LANG = String(argv.find((a) => a.startsWith('--lang='))?.slice(7) || (langAt >= 0 ? argv[langAt + 1] : 'ko')).toLowerCase().startsWith('en') ? 'en' : 'ko'
 const EN = LANG === 'en'
-const [sales, fin, adm] = argv.filter((a, i) => !a.startsWith('--') && !(langAt >= 0 && i === langAt + 1))
+const tenantAt = argv.indexOf('--tenant')
+const named = argv.filter((a, i) => !a.startsWith('--') && !(langAt >= 0 && i === langAt + 1) && !(tenantAt >= 0 && i === tenantAt + 1))
+// (the English cast when no accounts are named: i18n/GLOSSARY.md)
+const [sales, fin, adm] = named.length || !EN ? named : ['pro-en-jinyoung@uengine.org', 'pro-en-seoyeon@uengine.org', 'pro-en-jinyoung@uengine.org']
 const reset = process.argv.includes('--reset')
 const user = async (email) => {
   const [u] = await q(`select u.id::text as id, coalesce(p.name, u.username) as name from users u left join pro_profile p on p.user_id::text=u.id::text
@@ -32,9 +38,10 @@ if (reset) {
   const sug = await q('select process_id, proc_def_id, pr_id, version_uuid from pro_mining_suggestions where tenant_id=$1', [T])
   for (const s of sug) {
     const id = s.proc_def_id || s.process_id
+    // (this tenant's only: a mined process id may exist in another tenant too)
     for (const sql of [
-      'delete from todolist where proc_def_id=$1', 'delete from bpm_proc_inst where proc_def_id=$1', 'delete from form_def where proc_def_id=$1',
-      'delete from proc_def_version where proc_def_id=$1', 'delete from proc_def where id=$1', 'delete from pro_role_assignments where proc_def_id=$1']) await q(sql, [id]).catch((e) => console.warn(sql, e.message))
+      'delete from todolist where proc_def_id=$1 and tenant_id=$2', 'delete from bpm_proc_inst where proc_def_id=$1 and tenant_id=$2', 'delete from form_def where proc_def_id=$1 and tenant_id=$2',
+      'delete from proc_def_version where proc_def_id=$1 and tenant_id=$2', 'delete from proc_def where id=$1 and tenant_id=$2', 'delete from pro_role_assignments where proc_def_id=$1 and tenant_id=$2']) await q(sql, [id, T]).catch((e) => console.warn(sql, e.message))
     if (s.pr_id) await q('delete from resource_pull_requests where id=$1', [s.pr_id])
   }
   await q(`delete from notifications where tenant_id=$1 and type='mining'`, [T])

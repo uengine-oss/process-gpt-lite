@@ -13,6 +13,14 @@
 const HANGUL = /[가-힣]/
 
 const plural = (n, one, many) => (Number(String(n).replace(/,/g, '')) === 1 ? one : many)
+// a pattern's English is written for many ("{0} outputs"): with a count of 1 the noun after it is
+// made singular ("1 output", "1 variation", "1 person")
+const SINGULAR = { people: 'person', processes: 'process', times: 'time', ...Object.fromEntries(['cases', 'rows', 'records', 'outputs', 'steps',
+  'items', 'bytes', 'variations', 'files', 'cards', 'days', 'drafts', 'actions', 'messages', 'conversations', 'agents', 'roles', 'forms',
+  'scenarios', 'lines', 'hours', 'arrivals', 'formulas', 'characters', 'tables', 'attendees', 'teammates', 'members', 'folders', 'skills',
+  'apps', 'versions', 'changes', 'instances', 'runs', 'results', 'tasks', 'documents', 'comments', 'replies', 'mails', 'emails', 'weeks',
+  'months', 'years', 'minutes', 'seconds', 'suggestions', 'materials', 'pages', 'images', 'entries', 'branches', 'commits'].map((w) => [w, w.endsWith('ies') ? w.slice(0, -3) + 'y' : w.endsWith('ches') ? w.slice(0, -2) : w.slice(0, -1)])) }
+const singular = (s) => s.replace(/(^|[^\d.,])1 ([a-z]+)\b/g, (m, pre, w) => (SINGULAR[w] ? `${pre}1 ${SINGULAR[w]}` : m))
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const WEEKDAYS = { 일: 'Sun', 월: 'Mon', 화: 'Tue', 수: 'Wed', 목: 'Thu', 금: 'Fri', 토: 'Sat' }
 const UNIT = { 만: 1e4, 억: 1e8, 천: 1e3 }
@@ -152,10 +160,11 @@ function create(dict) {
       // a short pattern ("예약 {0}") whose variable part stays Korean is cutting a sentence apart
       if (p.lit <= 3 && p.order.some((n) => HANGUL.test(vals[n]))) continue
       // {0:만} / {0:억}: a count of 10,000s / 100,000,000s (Korean amounts) as a full number
-      return p.en.replace(/\{(\d+)(?::(만|억|천))?\}/g, (_, n, u) => {
+      const out = p.en.replace(/\{(\d+)(?::(만|억|천))?\}/g, (_, n, u) => {
         const v = vals[n] == null ? '' : vals[n]
         return u && Number.isFinite(num(v)) && v !== '' ? grouped.format(Math.round(num(v) * UNIT[u])) : v
       })
+      return Object.values(vals).includes('1') ? singular(out) : out
     }
     return undefined
   }
@@ -182,8 +191,8 @@ function create(dict) {
       const lines = body.split('\n').map((l) => tr(l))
       if (lines.some((l, i) => l !== body.split('\n')[i])) out = lines.join('\n')
     }
-    for (const sep of [' · ', ', ', ' → ']) {
-      // "3건 · 진행 중", "김민지(편집), 박서연(보기)", "2.5일 → 1.3일" — parts joined by a separator, each a known string
+    for (const sep of [' · ', ', ', ' → ', ' — ']) {
+      // "3건 · 진행 중", "김민지(편집), 박서연(보기)", "2.5일 → 1.3일", "실행 — 변형 만들기·에이전트 실행" — parts joined by a separator, each a known string
       if (out !== undefined || !body.includes(sep)) continue
       const parts = body.split(sep).map((p) => tr(p))
       if (!parts.some((p) => HANGUL.test(p))) out = parts.join(sep)

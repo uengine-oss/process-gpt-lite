@@ -6,7 +6,7 @@
 import crypto from 'node:crypto'
 import { admin, q, sessionFor } from '../supa.js'
 import { config } from '../../config.js'
-import { withTenant } from '../tenant.js'
+import { servesTenant, withTenant } from '../tenant.js'
 import { addMessage } from '../store.js'
 import { emit } from '../bus.js'
 import { ORCH, stepOf } from './catalog.js'
@@ -202,7 +202,7 @@ async function tick() {
     const row = data?.[0]
     if (!row) return
     // one install serves one tenant; behind the ProcessGPT gateway a step runs as the tenant it belongs to
-    if (!config.tenantFromHeader && row.tenant_id !== config.tenantId) {
+    if (!servesTenant(row.tenant_id)) {
       await admin.from('todolist').update({ draft_status: null, consumer: null }).eq('id', row.id)
       return
     }

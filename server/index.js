@@ -5,7 +5,6 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from './config.js'
 import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail } from './lib/supa.js'
-import { withTenant } from './lib/tenant.js'
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
@@ -45,6 +44,7 @@ import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { saveAttachment } from './lib/attachments.js'
 import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
+import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser } from './lib/tenant.js'
 
 const app = express()
 // ArtCraft web apps (static WebAssembly builds) on this origin: their postMessage bridge only
@@ -74,21 +74,11 @@ app.use(express.json({ limit: '2mb' }))
 // (EventSource cannot send headers: /api/events?lang=en carries it as a query parameter)
 const langAsked = (req) => req.headers['x-pgl-lang'] || (typeof req.query?.lang === 'string' ? req.query.lang : undefined)
 app.use((req, res, next) => withLang(resolveLang({ header: langAsked(req) }), next))
-
-// whose request this is (lib/tenant.js), behind the ProcessGPT gateway: the X-Tenant-Id it sets from
-// the address; the agents' MCP calls come straight from deepagents, so there the tenant in the
-// caller's JWT (the token itself is verified where the call is served)
-const jwtTenant = (req) => {
-  const jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || String(req.query.token || '')
-  try { return JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url')).app_metadata?.tenant_id || '' } catch { return '' }
-}
-app.use((req, res, next) => {
-  if (!config.tenantFromHeader) return next()
-  const t = (req.path.startsWith('/mcp') ? '' : String(req.headers['x-tenant-id'] || '').trim()) || jwtTenant(req)
-  if (!t) return next()
-  req.tenantId = t
-  withTenant(t, next)
-})
+// whose request this is (lib/tenant.js): behind the ProcessGPT gateway the X-Tenant-Id it sets from the
+// address (MCP calls: the tenant in the caller's JWT); with tenants by host name (PRO_TENANT_HOSTS:
+// http://en.localhost:5180 is the English demo tenant) the token's person, or before sign-in the host's;
+// otherwise the one tenant of this install
+app.use(tenantMiddleware())
 
 // ---------- auth ----------
 // A stray rejected promise (a background job or feed reconnecting while the database restarts or
@@ -101,8 +91,10 @@ async function auth(req, res, next) {
   const jwt = (req.headers.authorization || '').replace(/^Bearer /, '') || req.query.token
   const u = jwt && await userFromJwt(jwt)
   if (!u) return res.status(401).json({ error: 'unauthorized' })
-  // a ProcessGPT account works only at its own tenant's address
+  // behind the ProcessGPT gateway a ProcessGPT account works only at its own tenant's address; with
+  // tenants by host name the person's own tenant is the request's (lib/tenant.js)
   if (config.tenantFromHeader && !(await isMember(u.id, config.tenantId))) return res.status(403).json({ error: 'not a member of this tenant' })
+  if (multiTenant()) req.tenantId = tenantOfAuthUser(u)
   // to_jsonb(p)->>'lang': still answers on a database the lang migration (sql/019) has not reached
   const [p] = await q(`select name, to_jsonb(p)->>'lang' as lang from pro_profile p where user_id=$1`, [u.id])
   req.user = { id: u.id, email: u.email, name: p?.name || u.user_metadata?.name || u.email.split('@')[0] }
@@ -188,13 +180,15 @@ app.post('/api/auth/email/start', async (req, res) => {
 app.post('/api/auth/email/verify', async (req, res) => {
   const { email, code } = req.body
   if (!(await tenantEmail(email))) return res.status(400).json({ error: '코드가 맞지 않아요' })
-  if (demoLogin && code === '000000') return res.json(await finishLogin(email, email.split('@')[0]))
+  // (an account of another tenant: 403 with where to sign in — lib/tenant.js)
+  const done = (p) => p.then((login) => res.json(login), (e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }) })
+  if (demoLogin && code === '000000') return done(finishLogin(email, email.split('@')[0]))
   const r = await fetch(`${config.supabaseUrl}/auth/v1/verify`, {
     method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'email', email, token: code }),
   })
   if (!r.ok) return res.status(400).json({ error: L('코드가 맞지 않아요', "That code doesn't match") })
-  res.json(await finishLogin(email, email.split('@')[0]))
+  await done(finishLogin(email, email.split('@')[0]))
 })
 app.post('/api/auth/refresh', async (req, res) => res.json(await refresh(req.body.refresh_token)))
 
@@ -459,7 +453,8 @@ app.get('/api/team', auth, async (req, res) => {
 app.post('/api/team', auth, async (req, res) => {
   if (!(await team.isAdmin(req.user))) return res.status(403).json({ error: ADMIN_ONLY() })
   if (!/^[^@\s]+@[^@\s]+$/.test(String(req.body.email || ''))) return res.status(400).json({ error: 'email' })
-  res.json(await team.addMember(req.user, req.body.email, req.body.name))
+  // (someone of another tenant's workspace: 403 — lib/tenant.js)
+  try { res.json(await team.addMember(req.user, req.body.email, req.body.name)) } catch (e) { if (!e.status) throw e; res.status(e.status).json({ error: e.message }) }
 })
 app.delete('/api/team/:id', auth, async (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: 'self' })

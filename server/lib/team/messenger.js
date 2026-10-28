@@ -11,6 +11,7 @@ import crypto from 'node:crypto'
 import pg from 'pg'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
+import { tenants, withTenant } from '../tenant.js'
 import { emit } from '../bus.js'
 import { TeamError, isMember, people } from './access.js'
 import { viewArtifacts } from './shares.js'
@@ -243,12 +244,14 @@ export function startRoomFeed() {
     client.on('notification', async (n) => {
       try {
         const { uuid, id } = JSON.parse(n.payload)
-        const [row] = await q('select c.uuid, c.id, c.messages, r.participants from chats c join chat_rooms r on r.id=c.id where c.uuid=$1 and r.tenant_id=$2', [uuid, T()])
+        const [row] = await q('select c.uuid, c.id, c.messages, r.participants, r.tenant_id from chats c join chat_rooms r on r.id=c.id where c.uuid=$1 and r.tenant_id = any($2)', [uuid, tenants()])
         if (!row) return
-        const { humans } = split(row.participants)
-        const by = Object.fromEntries(humans.map((p) => [p.email, { id: p.id, name: nameOf(p) }]))
-        for (const p of humans) emit(p.id, 'team', { type: 'message', threadId: id, message: view(p.id, row, by) })
-        for (const fn of listeners) fn(row, humans)
+        await withTenant(row.tenant_id, async () => {
+          const { humans } = split(row.participants)
+          const by = Object.fromEntries(humans.map((p) => [p.email, { id: p.id, name: nameOf(p) }]))
+          for (const p of humans) emit(p.id, 'team', { type: 'message', threadId: id, message: view(p.id, row, by) })
+          for (const fn of listeners) fn(row, humans)
+        })
       } catch (e) { console.warn('[rooms feed]', e.message) }
     })
   }

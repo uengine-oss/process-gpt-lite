@@ -6,6 +6,7 @@
 //   external_api_health  — connection health shown next to the system.
 import { config } from '../config.js'
 import { q } from './supa.js'
+import { forEachTenant } from './tenant.js'
 import { CONNECTORS, hubServerName } from '../mcp/connectors.js'
 import { CRAFT_APPS } from '../mcp/craft.js'
 import { OFFICE_MCP } from '../mcp/office.js'
@@ -113,12 +114,13 @@ export async function syncSystemRegistry() {
 }
 
 export function startSystemRegistry() {
-  const run = () => syncSystemRegistry().then((r) => {
+  // (in every tenant this server serves — lib/tenant.js)
+  const run = () => forEachTenant(() => syncSystemRegistry().then((r) => {
     const bad = r.filter((x) => x.error)
-    if (bad.length) console.warn('[systems]', bad)
-  }).catch((e) => console.warn('[systems]', e.message))
+    if (bad.length) console.warn('[systems]', config.tenantId, bad)
+  }), 'systems')
   setTimeout(run, 3000)
-  setInterval(() => REGISTERED.forEach(async (c) => checkHealth(c, { name: META[c.name]?.name || c.title }).catch(() => {})), 5 * 60000)
+  setInterval(() => forEachTenant(() => Promise.all(REGISTERED.map((c) => checkHealth(c, { name: META[c.name]?.name || c.title }).catch(() => {}))), 'systems health'), 5 * 60000)
 }
 
 // The same guide the process-gpt frontend builds from getSystemList/getSystem: each registered

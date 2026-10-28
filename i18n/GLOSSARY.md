@@ -30,6 +30,7 @@ Style
 | 검색 / 페이지와 메일 검색 | Search / Search pages and mail |
 | 설정 | Settings |
 | 설정 탭: 예약된 작업 · 팀·역할 · 스킬 · 계정 · 지갑 · 시스템 설정 · 보안 · 프로필 | Scheduled tasks · Team & roles · Skills · Accounts · Wallet · System · Security · Profile |
+| 스킬 (설정 메뉴·목록 화면·폴더 탭) / 스킬 (배지·한 스킬의 화면) | Skills / Skill |
 | 계정 › 내 정보 · 연결 · 언어 | Accounts › About me · Connections · Language |
 | 로그아웃 | Log out |
 | 작업실 | Workroom |
@@ -93,6 +94,9 @@ Style
 | 문서 카드 | document cards |
 | 원본 | original |
 
+Folder roles (공유 폴더 권한): 소유 · 편집 · 실행 · 보기 → **Owner · Edit · Run · View** (and in the share sheet
+"Run — Create variations and run agents").
+
 ## Panel apps
 
 | Korean | English |
@@ -132,7 +136,8 @@ Style
 | 처리 시간 / 단계 시간 | processing time / step time |
 | 흐름 효율 | flow efficiency |
 | 가동률 | utilization |
-| 여유 (CPM) | slack |
+| 여유 (CPM: 크리티컬 패스 표·간트) | slack |
+| 여유 (제약 표의 처리 능력 열: 쌓인 날이 없음) | Spare |
 | 가장 이른 시작 ES / 가장 이른 끝 EF / 가장 늦은 시작 LS / 가장 늦은 끝 LF | earliest start ES / earliest finish EF / latest start LS / latest finish LF |
 | 중앙값 / 평균 / 늦을 때(p80) | median / average / slow case (p80) |
 | 표본 적음 | small sample |
@@ -151,11 +156,14 @@ Style
 
 ## Example cast and data (English mode, tutorial and videos)
 
+The English demo tenant (`en-demo`, http://en.localhost:5180 — i18n/EN-DEMO.md) holds exactly this cast and data.
+
 | Korean | English |
 |---|---|
-| 장진영 (제안팀 팀장) | Jinyoung Jang (proposal team lead) |
-| 김민지 (디자이너) | Minji Kim (designer) |
-| 박서연 (재무) | Seoyeon Park (finance) |
+| 장진영 (제안팀 팀장, 관리자) | Jinyoung Jang (proposal team lead, administrator) — `pro-en-jinyoung@uengine.org` |
+| 김민지 (디자이너) | Minji Kim (designer) — `pro-en-minji@uengine.org` |
+| 박서연 (재무) | Seoyeon Park (finance) — `pro-en-seoyeon@uengine.org` |
+| 최유나 (회의 데모: 방 밖의 팀원) | Yuna Choi (meeting demo: a teammate outside the room) — `pro-en-yuna@uengine.org` |
 | 달빛커피 (고객사) | Moonlight Coffee (customer) |
 | 2호점 | Store #2 |
 | 성수동 | Seongsu-dong, Seoul |
@@ -163,6 +171,35 @@ Style
 | 공급사 카탈로그 단가 조사 | Supplier catalog price survey |
 | 견적서 / 제안서 / 계약서 | quote / proposal / contract |
 | 거래처 | client |
+| 솔길베이커리 (프로젝트 장의 고객사) | Solgil Bakery |
+| 판교 / 판교 3호점 | Pangyo / Pangyo Store #3 |
+| 3호점 · 4호점 | Store #3 · Store #4 |
+| 스킬 「매장 설계 제안서 초안」 | the "Store design proposal draft" skill |
+| 패널 앱·폴더 「견적 현황판」 (패널 앱 장) | the "Quote tracker" panel app and its "Quote tracker" folder (`apps/Quote tracker.xlsx`) |
+| 패널 「제안 파이프라인」 (프로젝트 장·치트시트) | the "Proposal pipeline" panel |
+| 휴가 일정 (패널 앱, 회의 데모) | Leave schedule |
+| 달빛커피 제안팀 (팀 대화방) | Moonlight Coffee proposal team |
+| 개선 데모 매장: 서울숲 52호점 · 광화문 53호점 · 송리단길 54호점 · 익선동 55호점 · 연남 56호점 | Seoul Forest Store #52 · Gwanghwamun Store #53 · Songnidan-gil Store #54 · Ikseon-dong Store #55 · Yeonnam Store #56 |
+| 마이닝 데모 고객사: 한빛치과 · 온새미로 베이커리 · 그린핏 필라테스 | Hanbit Dental · Onsaemiro Bakery · GreenFit Pilates |
+| 달빛커피 2호점 평면도.dxf · 견적서.xlsx · 준비 체크리스트.docx · 일정표.xlsx | `Moonlight Coffee Store 2 floor plan.dxf` · `Moonlight Coffee Store 2 quote.xlsx` · `Moonlight Coffee Store 2 prep checklist.docx` · `Moonlight Coffee Store 2 schedule.xlsx` (file names write "Store 2", screens and text "Store #2") |
+| 공급사 카탈로그 단가 조사 · SNS 데일리 트렌드 대응 | Supplier catalog price survey · Daily SNS trend response |
 
-Keep IDs, e-mail addresses and numbers identical to the Korean set so screens and tutorial tables
-line up; only names and texts change.
+### Roles and steps (one name everywhere: seeds, mining, dictionary, tutorial)
+
+| Korean | English |
+|---|---|
+| 제안팀장 (every process) | Proposal team lead |
+| 영업 담당 | Sales |
+| 디자이너 / 디자인 담당 | Designer / Design |
+| 재무 담당 | Finance |
+| 법무 담당 · 제안 담당 · 검토 담당 | Legal · Proposals · Review owner |
+| 제품 책임자 · 마케팅 | Product owner · Marketing |
+| 신청자 · 결재자 (출장비 정산) · 구매 담당 (카탈로그 조사) | Requester · Approver · Buyer |
+| 요청 메일 도착 → 요청 메일 접수 → 평면도 작성 ∥ 견적 초안 → 제안서 작성 → 재무 검토 → 고객 회신 → 회신 완료 (달빛커피 제안) | Request mail arrives → Receive request mail → Draw floor plan ∥ Draft quote → Write proposal → Finance review → Reply to customer → Reply sent (Moonlight Coffee proposal) |
+| 견적서 작성 (마이닝 흐름) | Prepare quote |
+| 견적 에이전트 · 제안서 에이전트 · 도면 에이전트 | Quote agent · Proposal agent · Drawing agent |
+| 출장비 신청 → 규정 검토 (정산 검토 에이전트) → 결재 | Submit travel expenses → Policy review (expense review agent) → Approval |
+
+Keep process ids, numbers, amounts and dates identical to the Korean set so screens and tutorial tables
+line up; only names and texts change. The English data lives in its own tenant (`en-demo`), so the same ids
+never touch the Korean demo; mining case ids there name the tenant (`mail:en-demo:<mail id>`).

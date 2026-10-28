@@ -8,7 +8,9 @@ import { agentsIn, reviewsIn, stepOf, labelIn, labelsOf, labelLang } from './cat
 import { lang, isEn, langOf } from '../lang.js'
 
 const T = () => config.tenantId
-export const caseOf = (mailId) => `mail:${mailId}`
+// (a case id is unique across tenants — pro_mining_cases.case_id — and the same demo mail reaches
+// people of every tenant: outside the default tenant the id names the tenant too, lib/tenant.js)
+export const caseOf = (mailId) => (T() === config.defaultTenantId ? `mail:${mailId}` : `mail:${T()}:${mailId}`)
 
 export async function openCase({ userId, mail, customer, files = [], demo = false, at }) {
   const caseId = caseOf(mail.id)

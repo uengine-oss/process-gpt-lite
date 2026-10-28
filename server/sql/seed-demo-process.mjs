@@ -4,12 +4,14 @@
 // Run: node sql/seed-demo-process.mjs [--lang en] [--dry-run]
 //   --lang en   the English edition (i18n/GLOSSARY.md "Travel expense settlement"): the same id, steps,
 //               form keys and agent, English names, labels and instructions (the agent answers in English).
-//               Same id as the Korean one: it replaces it in this database (run without --lang to go back).
+//               Same id as the Korean one, in the English demo tenant (en-demo, i18n/EN-DEMO.md) — the Korean one stays.
 //   --dry-run   print the definition and forms, write nothing
 import { q, pool } from '../lib/supa.js'
 import { config } from '../config.js'
+import { enterSeedTenant } from '../lib/seedTenant.js'
 
-const T = config.tenantId
+// --lang en writes to the English demo tenant (lib/seedTenant.js): the same ids there never touch the Korean demo
+const T = enterSeedTenant()
 const PID = 'pro_expense_claim'
 const AGENT = '7e1f5c2a-3b4d-4e6f-8a9b-0c1d2e3f4a5b'
 const argv = process.argv.slice(2)

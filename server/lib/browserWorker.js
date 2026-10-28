@@ -9,7 +9,7 @@
 import crypto from 'node:crypto'
 import { admin, q } from './supa.js'
 import { config } from '../config.js'
-import { withTenant } from './tenant.js'
+import { servesTenant, withTenant } from './tenant.js'
 import { chatJson } from './llm.js'
 import { runBrowserTask } from './browser.js'
 import { addMessage } from './store.js'
@@ -106,7 +106,7 @@ async function tick() {
     const row = data?.[0]
     if (!row) return
     // one install serves one tenant; behind the ProcessGPT gateway a step runs as the tenant it belongs to
-    if (!config.tenantFromHeader && row.tenant_id !== config.tenantId) {
+    if (!servesTenant(row.tenant_id)) {
       // not ours: hand it back untouched for the worker of that tenant
       await admin.from('todolist').update({ draft_status: null, consumer: null }).eq('id', row.id)
       return

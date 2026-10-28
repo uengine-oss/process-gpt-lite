@@ -12,7 +12,8 @@ function publicGate() {
     const kv = Object.fromEntries(fs.readFileSync(new URL('./server/.public-access', import.meta.url), 'utf8').split('\n').filter((l) => l.includes('=')).map((l) => l.split('=').map((x) => x.trim())))
     pair = `${kv.NGROK_BASIC_USER}:${kv.NGROK_BASIC_PASS}`
   } catch { /* no file: no public access at all */ }
-  const local = (h) => /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(h || '')
+  // (*.localhost too: http://en.localhost:5180 is the English demo tenant — server/lib/tenant.js)
+  const local = (h) => /^(([a-z0-9-]+\.)*localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(h || '')
   const ok = (auth) => {
     if (!pair || !/^Basic /.test(auth || '')) return false
     const got = Buffer.from(Buffer.from(auth.slice(6), 'base64').toString())

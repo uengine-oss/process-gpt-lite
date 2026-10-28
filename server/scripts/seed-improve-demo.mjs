@@ -5,9 +5,9 @@
 //                                                       실제 엔진으로 인스턴스 N건 실행(마지막 --leave 건은 재무 검토에서 멈춤)
 //   node scripts/seed-improve-demo.mjs --remove [--accounts]   시드·실행한 것 모두 지움(--accounts: 계정까지)
 //   … --lang en    영문판(English edition): 같은 정의 id·이력·숫자, 이름과 글만 영어(Moonlight Coffee proposal,
-//                   Jinyoung Jang · Minji Kim · Seoyeon Park). 계정은 pro-en-srv-d-{jang,minji,seoyeon}@uengine.org 이고
-//                   그 계정의 언어(pro_profile.lang)를 en 으로 둔다. 정의 id 가 같으므로 한국어판을 쓰는 데이터베이스에서
-//                   돌리면 한국어판 정의·이력을 바꿔 쓴다(한국어판은 --lang 없이 다시 돌리면 돌아옴).
+//                   Jinyoung Jang · Minji Kim · Seoyeon Park). 영문 데모 테넌트(en-demo, i18n/EN-DEMO.md)에 쓰므로
+//                   한국어판 정의·이력은 그대로다. 계정은 영문 출연진 pro-en-{jinyoung,minji,seoyeon}@uengine.org 이고
+//                   그 계정의 언어(pro_profile.lang)를 en 으로 둔다. --run 은 --api 서버를 그 테넌트 주소(en.localhost)로 부른다.
 //   … --dry-run   데이터베이스에 쓰지 않고 정의·이력의 이름과 글만 보여 준다(--lang en 과 함께)
 // 계정은 튜토리얼용 pro-tut-d-{jang,minji,seoyeon}@uengine.org(장진영·김민지·박서연) 뿐이다.
 // 과거 이력은 process-gpt 엔진이 남기는 모양 그대로(lib/improve/shape.js): todolist + todolist_status_history + events.
@@ -19,15 +19,17 @@ const { saveGenerated } = await import('../lib/generated.js')
 const { DEF_ID, VERSION, agentsIn, contract, simulate } = await import('../lib/improve/demoProcess.js')
 const { writeInstance } = await import('../lib/improve/shape.js')
 const { withLang } = await import('../lib/lang.js')
+const { enterSeedTenant, apiFor } = await import('../lib/seedTenant.js')
 
-const T = config.tenantId
+// --lang en writes to the English demo tenant (lib/seedTenant.js): the same ids there never touch the Korean demo
+const T = enterSeedTenant()
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? (process.argv[i + 1] ?? true) : d }
 const has = (k) => process.argv.includes(k)
 const LANG = String(process.argv.find((a) => a.startsWith('--lang='))?.slice(7) || arg('--lang', 'ko')).toLowerCase().startsWith('en') ? 'en' : 'ko'
 const EN = LANG === 'en'
 const AGENTS = agentsIn(LANG)
 const PEOPLE = EN
-  ? { jang: ['pro-en-srv-d-jang@uengine.org', 'Jinyoung Jang'], minji: ['pro-en-srv-d-minji@uengine.org', 'Minji Kim'], seoyeon: ['pro-en-srv-d-seoyeon@uengine.org', 'Seoyeon Park'] }
+  ? { jang: ['pro-en-jinyoung@uengine.org', 'Jinyoung Jang'], minji: ['pro-en-minji@uengine.org', 'Minji Kim'], seoyeon: ['pro-en-seoyeon@uengine.org', 'Seoyeon Park'] }
   : { jang: ['pro-tut-d-jang@uengine.org', '장진영'], minji: ['pro-tut-d-minji@uengine.org', '김민지'], seoyeon: ['pro-tut-d-seoyeon@uengine.org', '박서연'] }
 const SEED_MARK = { seed: 'improve-demo' }
 // the words the seed itself writes (the definition's own are in lib/improve/demoProcess.js)
@@ -234,7 +236,7 @@ try {
   if (has('--dry-run')) await dryRun()
   else if (has('--remove')) await removeAll()
   else if (has('--run')) {
-    const res = await runReal({ api: arg('--api', 'http://localhost:8788'), n: Number(arg('--run', 3)), leave: Number(arg('--leave', 1)), pause: Number(arg('--pause', 30000)), cont: arg('--continue', null),
+    const res = await runReal({ api: apiFor(T, arg('--api', 'http://localhost:8788')), n: Number(arg('--run', 3)), leave: Number(arg('--leave', 1)), pause: Number(arg('--pause', 30000)), cont: arg('--continue', null),
       stores: arg('--stores', null)?.split(','), areas: arg('--areas', null)?.split(',').map(Number) })
     console.log(JSON.stringify(res, null, 1))
   } else {

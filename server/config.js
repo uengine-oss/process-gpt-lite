@@ -5,7 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { PGPT_ROOT, ARTCRAFT_ROOT } from './lib/paths.js'
-import { currentTenant } from './lib/tenant.js'
+import { tenantStore } from './lib/tenantStore.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -19,11 +19,15 @@ export const config = {
   port: Number(get('PRO_PORT', 8787)),
   publicUrl: get('PRO_PUBLIC_URL', 'http://localhost:5180'),
   // the request's or job's tenant (lib/tenant.js), else this install's one
-  get tenantId() { return currentTenant() || this.defaultTenantId },
+  get tenantId() { return tenantStore.getStore()?.tenant || this.defaultTenantId },
   defaultTenantId: get('PRO_TENANT_ID', 'localhost'),
   // behind the ProcessGPT gateway: the tenant is the address's subdomain, which the gateway always
   // sets as X-Tenant-Id (ForwardHostHeaderFilter); sign-in is ProcessGPT's own
   tenantFromHeader: get('PRO_TENANT_FROM_HEADER', '0') === '1',
+  // more tenants on the same server, each on its own host name: "en.localhost=en-demo,…" (lib/tenant.js)
+  tenantHosts: get('PRO_TENANT_HOSTS', ''),
+  // the English demo tenant the seeds write to with --lang en (lib/seedTenant.js, i18n/EN-DEMO.md)
+  enDemoTenant: get('PRO_EN_DEMO_TENANT', 'en-demo'),
 
   supabaseUrl: get('PRO_SUPABASE_URL', 'http://127.0.0.1:54321'),
   anonKey: get('ANON_KEY'),

@@ -8,7 +8,24 @@ import { emit } from './bus.js'
 import { updateMessage, mainThread, addMessage } from './store.js'
 import { getDefinition, getTodo } from './processes.js'
 import { roleMap } from './team.js'
-import { L } from './lang.js'
+import { L, isEn } from './lang.js'
+
+// English mode: process-gpt's completion names a new instance with a Korean-only prompt (polling_service
+// semantic_naming: "한국어 기준 30자 이내"), so an English process started in English gets a Korean name
+// ("출장비 정산 …"). The instance keeps an English one instead: "<process> · <the first short value of the
+// start form>", the same shape completion uses. Korean mode, and processes with Korean names, are left alone.
+const HANGUL = /[가-힣]/
+const englishNames = new Map() // instId -> name
+function englishName(defName, values) {
+  const v = Object.values(values || {}).map((x) => String(x ?? '').trim()).find((x) => x.length >= 2 && x.length <= 60 && !/^[\d\s.,:/-]+$/.test(x) && !HANGUL.test(x) && !x.includes('\n'))
+  return v ? `${defName} · ${v}` : defName
+}
+async function keepEnglishName(instId) {
+  const name = englishNames.get(instId)
+  if (!name) return
+  const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId]).catch(() => [])
+  if (i && HANGUL.test(i.proc_inst_name || '')) await q('update bpm_proc_inst set proc_inst_name=$2 where proc_inst_id=$1', [instId, name]).catch(() => {})
+}
 
 async function complete(input) {
   const res = await fetch(`${config.completionUrl}/complete`, {
@@ -60,6 +77,10 @@ export async function startProcess({ me, defId, values, messageId }) {
     source_list: [],
     email: me.email,
   })
+  if (isEn() && def.name && !HANGUL.test(def.name)) {
+    englishNames.set(instId, englishName(def.name, values))
+    await keepEnglishName(instId)
+  }
   const [inst] = await q('select proc_inst_id, proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
   const instName = inst?.proc_inst_name || def.name
   if (messageId) await updateMessage(me.id, messageId, { state: 'started', instId, instName })
@@ -85,6 +106,7 @@ export async function submitTodo({ me, todoId, values, messageId }) {
     version: t.version || null,
     email: me.email,
   })
+  await keepEnglishName(t.proc_inst_id)
   if (messageId) await updateMessage(me.id, messageId, { state: 'submitted' })
   emit(me.id, 'process', { instId: t.proc_inst_id, type: 'submitted' })
   watchInstance(me, t.proc_inst_id)
@@ -107,6 +129,7 @@ export function watchInstance(me, instId) {
       if (sig !== last) {
         last = sig
         idle = 0
+        await keepEnglishName(instId)
         emit(me.id, 'process', { instId, type: 'changed', status: i?.status })
         for (const t of todos) {
           const reached = t.status === 'IN_PROGRESS' || (['TODO', 'NEW'].includes(t.status) && (i?.current_activity_ids || []).includes(t.activity_id))
@@ -126,7 +149,7 @@ export function watchInstance(me, instId) {
       if (i?.status === 'COMPLETED' || idle > 360) return stop()
     } catch (e) { console.warn('[watch]', e.message) }
   }
-  const stop = () => { clearInterval(watching.get(instId)); watching.delete(instId) }
+  const stop = () => { clearInterval(watching.get(instId)); watching.delete(instId); englishNames.delete(instId) }
   watching.set(instId, setInterval(tick, 5000))
   tick()
 }

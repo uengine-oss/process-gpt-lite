@@ -18,8 +18,9 @@ const PGPT = PGPT_ROOT
 // folder repositories live outside the deepagents workspace (and outside any other repository), so
 // the sandbox never sees a folder's history or other variations — only the checkout a run is given
 // inside its own run folder
-export const FOLDERS_ROOT = path.join(config.foldersRoot || path.join(os.homedir(), 'pgpt-folders'), config.tenantId)
-export const WORKSPACE = path.join(PGPT, 'services/deepagents/workspace', config.tenantId)
+// (both per tenant, read when used: one server can serve more than one tenant — lib/tenant.js)
+export const foldersRoot = () => path.join(config.foldersRoot || path.join(os.homedir(), 'pgpt-folders'), config.tenantId)
+export const workspaceDir = () => path.join(PGPT, 'services/deepagents/workspace', config.tenantId)
 
 export const RANK = { viewer: 1, runner: 2, editor: 3, owner: 4 }
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -91,7 +92,7 @@ export async function createFolder(user, { name, description = '', slug }) {
   if (!name) throw err(400, L('폴더 이름을 적어 주세요.', 'Please enter a folder name.'))
   if ((await q('select 1 from pro_folders where tenant_id=$1 and name=$2', [T(), name])).length) throw err(409, L('같은 이름의 폴더가 이미 있어요.', 'A folder with that name already exists.'))
   slug = await freeSlug(slugify(slug) || slugify(name))
-  const dir = path.join(FOLDERS_ROOT, slug)
+  const dir = path.join(foldersRoot(), slug)
   await fs.mkdir(dir, { recursive: true })
   await G.git(dir, ['init', '-q', '-b', 'main'])
   await fs.writeFile(path.join(dir, '.gitattributes'), GITATTRIBUTES)
@@ -367,6 +368,6 @@ export async function importBranches(folder, user, names) {
 }
 
 // where an agent run of a deepagents conversation (or instance) gets its checkout
-export const runCheckoutDir = (room, folder) => path.join(WORKSPACE, '.bpmn', room.replace(/[^A-Za-z0-9._-]+/g, '_'), 'folders', folder.slug)
+export const runCheckoutDir = (room, folder) => path.join(workspaceDir(), '.bpmn', room.replace(/[^A-Za-z0-9._-]+/g, '_'), 'folders', folder.slug)
 export const runCheckoutContainer = (room, folder) => `/workspace/.bpmn/${room.replace(/[^A-Za-z0-9._-]+/g, '_')}/folders/${folder.slug}`
-export const personCheckoutDir = (user, v) => path.join(FOLDERS_ROOT, '.people', String(user.id).slice(0, 8), v.id)
+export const personCheckoutDir = (user, v) => path.join(foldersRoot(), '.people', String(user.id).slice(0, 8), v.id)

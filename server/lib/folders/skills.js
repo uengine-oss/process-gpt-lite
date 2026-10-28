@@ -30,7 +30,7 @@ const T = () => config.tenantId
 const PGPT = PGPT_ROOT
 const err = (status, message) => Object.assign(new Error(message), { status })
 export const installedDir = (name) => path.join(PGPT, 'services/deepagents/skills', config.tenantId, 'local', name)
-const privateRoot = (userId) => path.join(S.WORKSPACE, '.pro-skills', String(userId).slice(0, 8))
+const privateRoot = (userId) => path.join(S.workspaceDir(), '.pro-skills', String(userId).slice(0, 8))
 export const privateDir = (userId, name) => path.join(privateRoot(userId), name)
 export const privateContainer = (userId, name) => `/workspace/.pro-skills/${String(userId).slice(0, 8)}/${name}`
 const exists = (p) => fs.stat(p).then(() => true, () => false)
@@ -76,7 +76,7 @@ export async function ensureSkillFolder(name, { fromDir, author } = {}) {
   if (!(await exists(src))) throw err(404, L(`'${name}' 스킬의 파일을 찾지 못했어요.`, `I couldn't find the files of the skill '${name}'.`))
   let slug = slugFor(name)
   for (let i = 2; await S.folderBySlug(slug); i++) slug = `${slugFor(name)}-${i}`
-  const dir = path.join(S.FOLDERS_ROOT, slug)
+  const dir = path.join(S.foldersRoot(), slug)
   await fs.mkdir(dir, { recursive: true })
   await G.git(dir, ['init', '-q', '-b', 'main'])
   await fs.cp(src, dir, { recursive: true, filter: (p) => !/(^|\/)(\.git|__pycache__|\.DS_Store)(\/|$)/.test(p) })
@@ -268,7 +268,7 @@ export async function setBoss(me, agentId, ownerId) {
 // graded. Cases come from the skill's saved scenarios when process-gpt has them, otherwise two are
 // written from the variation's SKILL.md. With a provider, process-gpt's own verification route runs.
 async function versionDir(folder, ref, room) {
-  const dir = path.join(S.WORKSPACE, '.bpmn', room, 'skill', folder.settings.skill_name)
+  const dir = path.join(S.workspaceDir(), '.bpmn', room, 'skill', folder.settings.skill_name)
   await fs.rm(dir, { recursive: true, force: true })
   await fs.mkdir(dir, { recursive: true })
   await run('sh', ['-c', `git -C "$1" archive --format=tar "$3" | tar -x -C "$2"`, 'sh', folder.repo_path, dir, ref])
