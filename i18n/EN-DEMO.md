@@ -32,7 +32,10 @@ How it works (`server/lib/tenant.js`):
   the default tenant's MES/WMS demo servers), shared-folder repositories (`~/pgpt-folders/en-demo/…`).
 - No Korean tenant skill, mined process, process, teammate, room or folder is visible there. The only
   skills listed are process-gpt's three built-in ones (bpmn-process-generation-skill,
-  bsc-strategy-interview, process-execution), with English descriptions from the dictionary.
+  bsc-strategy-interview, process-execution) — in English: setup copies each into the tenant's own skill
+  collection (`skills/en-demo/<name>`) with the English SKILL.md of `server/fixtures/skills-en`. The list and
+  Settings › Skills read that copy; the agents still load the built-in one (deepagents lets the later source,
+  `process-gpt-system`, win), so what they do does not change. Their `references/` stay Korean.
 
 ## Accounts
 
@@ -101,13 +104,13 @@ cast (it signs in on `en.localhost`).
   read **Finance** on screen.
 - Instances started in English get English names (`<process> · <first start-form value>`); completion's
   own namer writes Korean, so the server keeps the English one.
-- Still Korean in this tenant (know before you frame a shot): the body (SKILL.md) of process-gpt's three
-  built-in skills when one is opened in Settings › Skills; the IeumOffice ribbon until the office host's
-  `feat/per-page-ui-lang` is built and the host restarted (HANDOFF.md › Embedded editors).
+- Still Korean in this tenant (know before you frame a shot): the IeumOffice ribbon until the office host's
+  `feat/per-page-ui-lang` is built and the host restarted (HANDOFF.md › Embedded editors); the reference
+  files (`references/*.md`) of the three built-in skills.
 - Model calls run on the shared dev model; a mail poll can time out when it is slow — retry.
-- Limits: a scheduled task run by Claude Code or Codex (cli-agent) finds named skills only in the folder its
-  `SKILLS_DIRS` names (the localhost tenant's), so a skill made in en-demo does not reach it — deepagents is
-  fine; "Sign in with Google" returns to the default address. The shared dev database sometimes restarts
+- A scheduled skill (mission) run by Claude Code or Codex (cli-agent) gets the tenant's skill from the skill's
+  folder repository (cli-agent `git_skills`; `server/lib/missions.js`), so a skill made in en-demo reaches it
+  too. Limits: "Sign in with Google" returns to the default address. The shared dev database sometimes restarts
   (recovery mode): a page then stays blank or a sign-in fails with "Database error checking email" — wait
   a minute and reload.
 

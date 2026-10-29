@@ -58,6 +58,9 @@
 
 ### 고침
 
+- **예약 미션을 Claude Code·Codex(cli-agent)로 돌릴 때 테넌트 스킬을 찾지 못하던 문제**: cli-agent 는 기동할 때 정한 한 테넌트의 스킬 폴더(`SKILLS_DIRS`)만 설치하고, 개인 스킬 사본은 deepagents 작업 폴더에 있어서 영문 데모 테넌트(`en-demo`) 등 다른 테넌트의 스킬이 실행에 들어가지 않았습니다. 이제 미션 실행이 그 스킬의 스킬 폴더 저장소를 cli-agent 의 `git_skills` 로 넘겨, 공유·개인 스킬 모두 실행 프로젝트(`.claude/skills/<이름>`)에 설치됩니다(`server/lib/missions.js`). deepagents 미션은 그대로입니다.
+- **영문 데모 테넌트의 기본 스킬 3개(bpmn-process-generation-skill·bsc-strategy-interview·process-execution)가 설정 › 스킬에서 한국어 SKILL.md 로 보이던 문제**: `server/scripts/en-demo.mjs` 설정 단계가 테넌트 자신의 스킬 컬렉션(`skills/en-demo/<이름>`)에 영어 SKILL.md(`server/fixtures/skills-en`) 사본을 둡니다. 목록·스킬 화면은 그 사본을 읽고, 에이전트는 여전히 기본 원본을 씁니다(deepagents 는 뒤 소스 `process-gpt-system` 이 이김). `references/` 는 한국어 그대로.
+- 영어 모드 사전: 답 위 라우팅 줄의 "판단 모델 1.00" · "판단 모델→logprob 0.99" · "대화에서 직접 1.00" 이 영어로(`routing model 1.00` …).
 - **백엔드 서브모듈 갱신**: `backends/office-host` → ecea940(편집기 화면 언어를 페이지마다 `lang=en|ko`, 워드 문서 그림 꺼내기·바꿔 넣기, 멘션 칩 언어), `backends/process-gpt` → a066e93(completion: 진행 중인 인스턴스는 시작한 정의 버전을 끝까지 유지 — 새 버전은 새로 시작하는 건부터).
 - **영어 모드 사전·번역기**: 역할·단계 이름을 하나로(Sales · Finance · Design · Legal · Proposals, "Receive request mail" · "Draft quote" · "Prepare quote", 출장비 정산 = "Travel expense settlement"), 제약 표의 여유 = "Spare"(크리티컬 패스는 "Slack"), 폴더 권한 실행 = "Run", "Card saved", 일회용 값 버튼 "Enter code", 설정 메뉴·스킬 목록 "Skills", 기본 스킬 세 개의 설명. 번역기는 수가 1이면 뒤 명사를 단수로 바꾸고("1 output", "1 variation") ` — ` 로 이은 말도 나눠 옮깁니다. 용어집에 예제 이름(Solgil Bakery, Pangyo Store #3, "Store design proposal draft", "Quote tracker", 개선 데모 매장, 파일 이름)과 역할·단계 표.
 - **영어 모드 다듬기 — 영문 튜토리얼·영상 캡처용** (시험 `server/test/en-fix.test.js` · `e2e/tests/feature/english-fixes.spec.js` F-EN-01…04):

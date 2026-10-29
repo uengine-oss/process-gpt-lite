@@ -4,7 +4,8 @@
 // (tenant localhost) is never read or written by this script.
 //   node scripts/en-demo.mjs                 set up: tenant row and its MCP list, the cast (English names,
 //                                            language en, Jinyoung Jang administrator), team, roles,
-//                                            mcp-hub servers and bindings
+//                                            mcp-hub servers and bindings, the built-in skills' English
+//                                            SKILL.md (fixtures/skills-en, a copy in the tenant's skills)
 //   node scripts/en-demo.mjs --seed          set up, then every English seed (travel expense, supplier survey,
 //                                            SNS, Moonlight Coffee improvement history, mining cases,
 //                                            meeting demo). The meeting seed signs in through the server:
@@ -49,6 +50,28 @@ const CAST = {
 const ROLES_ALL = { 'Proposal team lead': 'jinyoung', Designer: 'minji', Finance: 'seoyeon', 'Product owner': 'minji' }
 const ROLES_DEF = [['pro_expense_claim', 'Approver', 'jinyoung'], ['pro_supplier_survey', 'Buyer', 'seoyeon']]
 
+// process-gpt's built-in skills (deepagents skills/process-gpt-system: bpmn-process-generation-skill,
+// bsc-strategy-interview, process-execution) carry a Korean SKILL.md. The tenant gets a copy of each in its own
+// skill collection (skills/<tenant>/<name>) with the English SKILL.md of server/fixtures/skills-en: the skill
+// list and Settings › Skills read the tenant's copy first, while the agents keep loading the built-in one
+// (deepagents' SkillsMiddleware lets the later source, process-gpt-system, win), so nothing they do changes.
+function englishBuiltinSkills() {
+  const src = path.join(SERVER, 'fixtures/skills-en')
+  const sys = path.join(PGPT, 'services/deepagents/skills/process-gpt-system')
+  const dst = path.join(PGPT, 'services/deepagents/skills', T)
+  if (!fs.existsSync(src) || !fs.existsSync(sys)) return []
+  const done = []
+  for (const name of fs.readdirSync(src)) {
+    const md = path.join(src, name, 'SKILL.md')
+    if (!fs.existsSync(md) || !fs.existsSync(path.join(sys, name, 'SKILL.md'))) continue
+    fs.rmSync(path.join(dst, name), { recursive: true, force: true })
+    fs.cpSync(path.join(sys, name), path.join(dst, name), { recursive: true })
+    fs.copyFileSync(md, path.join(dst, name, 'SKILL.md'))
+    done.push(name)
+  }
+  return done
+}
+
 async function setup() {
   await ensureTenantRow(T)
   const ids = {}
@@ -78,6 +101,8 @@ async function setup() {
   const bad = reg.filter((r) => r.error)
   const { ensureHubBinding } = await import('../mcp/connectors.js')
   for (const id of Object.values(ids)) await ensureHubBinding(id, T)
+  const skillsEn = englishBuiltinSkills()
+  if (skillsEn.length) console.log(`built-in skills in English for ${T}: ${skillsEn.join(', ')}`)
   console.log(`tenant ${T}: cast ${Object.values(CAST).map((p) => p.name).join(', ')}; roles ${Object.keys(ROLES_ALL).join(', ')}; mcp-hub ${reg.length - bad.length}/${reg.length}${bad.length ? ` (${bad.map((b) => b.connector || '').join(' ')}: ${bad[0].error})` : ''}`)
   return ids
 }

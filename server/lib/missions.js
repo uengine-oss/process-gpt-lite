@@ -16,7 +16,7 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { privateSkillFor } from './folders/skills.js'
+import { privateSkillFor, ensureSkillFolder } from './folders/skills.js'
 import { PGPT_ROOT } from './paths.js'
 import { L, isEn, locale, asUser, langInstruction } from './lang.js'
 
@@ -137,7 +137,7 @@ export async function createMission({ userId, name, cron, skill, params = {}, no
 
 // Both process-gpt agent types serve the SDK's chat SSE, so one reader covers them. deepagents
 // streams 'token' chunks; cli-agent streams 'text' chunks and puts the whole answer on 'done'.
-async function streamAgent({ user, session, message, agent }) {
+async function streamAgent({ user, session, message, agent, gitSkills }) {
   const cli = agent?.orch === 'cliagents'
   const base = cli ? config.cliAgentUrl : config.deepagentsUrl
   const res = await fetch(`${base}/chat/stream`, {
@@ -148,7 +148,8 @@ async function streamAgent({ user, session, message, agent }) {
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
       conversation_id: null, stream: true,
       metadata: cli
-        ? { client: 'pgpt-pro-mission', agent_cli: agent.cli || 'claude-code', agent_model: agent.model || '', agent_permission: agent.permission || 'command_exec', ...(isEn() ? { language: 'en' } : {}) }
+        ? { client: 'pgpt-pro-mission', agent_cli: agent.cli || 'claude-code', agent_model: agent.model || '', agent_permission: agent.permission || 'command_exec', ...(isEn() ? { language: 'en' } : {}),
+            ...(gitSkills ? { skills: Object.keys(gitSkills), git_skills: gitSkills } : {}) }
         : { client: 'pgpt-pro-mission', ...(isEn() ? { language: 'en', style: 'English, concise.' } : {}) },
     }),
   })
@@ -243,12 +244,18 @@ async function runMissionAs(s, trigger) {
     // deepagents pins a skill from a leading '/skill-name'; cli-agent installs the tenant skills
     // into the run's project (.claude/skills, .agents/skills), so it is named instead.
     // a private skill (lib/folders/skills.js) is not installed: the owner's run reads its copy
-    const own = await privateSkillFor(user, `/${s.skill}`).catch(() => null)
+    const cli = s.agent?.orch === 'cliagents'
+    const own = cli ? null : await privateSkillFor(user, `/${s.skill}`).catch(() => null)
+    // cli-agent installs only the skills of its own skill folders (SKILLS_DIRS: one tenant's, set when it
+    // starts), and a private skill's copy is in deepagents' workspace: the run takes this tenant's skill —
+    // private or shared — from its skill folder's repository instead (cli-agent's git_skills), and only it
+    const folder = cli ? await ensureSkillFolder(s.skill).catch((e) => { console.warn('[mission] skill folder', s.skill, e.message); return null }) : null
+    const gitSkills = folder?.repo_path ? { [s.skill]: folder.repo_path } : null
     const message = (own ? L(`다음 스킬 문서의 절차대로 실행하세요: ${own.path} (같은 폴더의 파일도 참고). ${ask}`, `Follow the procedure in this skill document: ${own.path} (see the files in the same folder too). ${ask}`)
-      : s.agent?.orch === 'cliagents'
+      : cli
       ? L(`프로젝트에 설치된 \`${s.skill}\` 스킬을 읽고 사용하세요. ${ask}`, `Read and use the \`${s.skill}\` skill installed in the project. ${ask}`)
       : `/${s.skill} ${ask}`) + langInstruction()
-    const out = await streamAgent({ user, session, message, agent: s.agent })
+    const out = await streamAgent({ user, session, message, agent: s.agent, gitSkills })
     const result = parseResult(out.text)
     // no result line: the run still finished (or not) — read the answer itself
     const plain = result ? null : outcomeOf(out.text)
