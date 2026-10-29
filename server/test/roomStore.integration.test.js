@@ -8,7 +8,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { admin, pool } from '../lib/supa.js'
 import { config } from '../config.js'
-import { fetchRoomDir, rmRoomCopy, encodeSegment, roomPrefix } from '../lib/roomStore.js'
+import { fetchRoomDir, fetchRoomFile, rmRoomCopy, encodeSegment, roomPrefix } from '../lib/roomStore.js'
 
 const room = crypto.randomUUID().replace(/-/g, '')
 const other = crypto.randomUUID().replace(/-/g, '')
@@ -39,6 +39,14 @@ test('방 폴더의 스킬 초안이 하위 폴더·한글 이름까지 그대�
     assert.deepEqual((await fs.readdir(local)).sort(), ['SKILL.md', 'references'])
   } finally { await rmRoomCopy(local) }
   assert.equal(await fetchRoomDir(`/workspace/.bpmn/${room}/skills/없는-스킬`), null)
+})
+
+test('작업실에만 있는 카드 파일 하나도 방 폴더 사본에서 읽는다(공유 커밋용)', async () => {
+  await put(room, '견적서_한빛상사.docx', '견적 본문')
+  const got = await fetchRoomFile(`/workspace/.bpmn/${room}/견적서_한빛상사.docx`)
+  assert.equal(got.buf.toString('utf8'), '견적 본문')
+  assert.equal(await fetchRoomFile(`/workspace/.bpmn/${room}/없는파일.docx`), null)
+  assert.equal(await fetchRoomFile(`/workspace/.bpmn/${room}`), null) // 방 폴더 자체는 파일이 아니다
 })
 
 after(async () => {

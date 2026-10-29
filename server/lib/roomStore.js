@@ -60,4 +60,12 @@ export async function fetchRoomDir(dir) {
   }
   return local
 }
-export const rmRoomCopy = (local) => fs.rm(path.dirname(local), { recursive: true, force: true }).catch(() => {})
+// one file of a room folder from storage, or null
+export async function fetchRoomFile(file) {
+  const key = roomPrefix(file)
+  if (!key || /^skills\/[^/]+\/[^/]+$/.test(key)) return null
+  const { data, error } = await admin.storage.from('files').download(key)
+  return error || !data ? null : { buf: Buffer.from(await data.arrayBuffer()), type: data.type || '' }
+}
+
+export const rmRoomCopy =(local) => fs.rm(path.dirname(local), { recursive: true, force: true }).catch(() => {})

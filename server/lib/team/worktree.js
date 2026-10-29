@@ -10,6 +10,7 @@ import fs from 'node:fs/promises'
 import { config } from '../../config.js'
 import { q, admin } from '../supa.js'
 import { workspaceHostPath } from '../missions.js'
+import { fetchRoomFile } from '../roomStore.js'
 import { TeamError } from './access.js'
 import { objectOf } from './shares.js'
 
@@ -159,6 +160,9 @@ export async function cardBytes(card) {
   if (/^\/workspace\//.test(c.path || '') && !String(c.path).split('/').includes('..')) {
     const host = await workspaceHostPath(c.path).catch(() => null)
     if (host) return { buf: await fs.readFile(host), type: '' }
+    // the agent's pods are elsewhere (no shared disk): the room folder deepagents left in storage
+    const stored = await fetchRoomFile(c.path)
+    if (stored) return stored
   }
   throw new TeamError(400, `'${c.name}' 은(는) 내용을 찾을 수 없어 공유할 수 없어요.`)
 }
