@@ -10,6 +10,8 @@ import TeamRoles from './TeamRoles.vue'
 import MailConnect from './MailConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
+import { MAIN_LANGS, uiLangFor } from '../i18n/mainLangs.js'
+import { lang as uiLang, setLang } from '../i18n/lang.js'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
@@ -103,6 +105,19 @@ const fmtCard = (e) => { card.value.number = e.target.value.replace(/\D/g, '').s
 const fmtExp = (e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 4); card.value.exp = v.length > 2 ? `${v.slice(0, 2)}/${v.slice(2)}` : v }
 async function pollMail() { await api('/mail/poll', { method: 'POST' }) }
 // 계정 › 내 정보: the name teammates and the greeting use (an e-mail sign-in starts with the address's local part)
+// 계정 › 내 정보 › 주 언어: the language I speak in meetings and read messages in (others are interpreted
+// and translated into it). The screens are Korean or English: another main language gets the English ones.
+const mainLang = ref('')
+const mainSaved = ref('')
+watch(() => app.me?.mainLang, (v) => { mainLang.value = v || 'ko' }, { immediate: true })
+async function saveMain() {
+  const v = mainLang.value
+  const r = await api('/me/main-lang', { method: 'PUT', body: { lang: v } })
+  app.me = { ...app.me, mainLang: r.mainLang, mainLangSet: r.mainLang }
+  mainSaved.value = '저장했어요'
+  setTimeout(() => { mainSaved.value = '' }, 2000)
+  if (v !== 'ko' && v !== 'en' && uiLang !== uiLangFor(v)) await setLang(uiLangFor(v))
+}
 const myName = ref('')
 const nameSaved = ref('')
 watch(() => app.me?.user?.name, (n) => { myName.value = n || '' }, { immediate: true })
@@ -166,6 +181,12 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
           <div class="li lang">
             <div class="main"><b>언어 / Language</b><small>화면과 비서의 답이 이 언어로 나와요</small></div>
             <LangSwitch compact />
+          </div>
+          <div class="li lang">
+            <div class="main"><b>주 언어 / Main language</b><small>{{ mainSaved || '회의에서 말하고 듣는 언어, 메시지를 읽는 언어예요. 다른 언어로 된 말과 메시지는 AI가 이 언어로 통역·번역해요' }}</small></div>
+            <select v-model="mainLang" class="msel" data-no-i18n data-test="main-lang" aria-label="주 언어" @change="saveMain">
+              <option v-for="[code, name] in MAIN_LANGS" :key="code" :value="code">{{ name }}</option>
+            </select>
           </div>
         </form>
         <p class="cap">연결</p>
@@ -358,6 +379,7 @@ b.sm { font-size: 15px; }
 .fav { width: 22px; height: 22px; border-radius: 6px; }
 .fav.mailic { display: grid; place-items: center; color: var(--text-secondary); }
 .nm { width: 40%; min-width: 110px; height: 36px; border-radius: 10px; padding: 0 10px; border: 1px solid var(--hairline); background: var(--cell-bg); color: var(--text-primary); font-size: 15px; }
+.msel { height: 36px; border-radius: 10px; padding: 0 10px; font-size: 14px; border: 1px solid var(--hairline); background: var(--cell-bg, transparent); color: var(--text-primary); max-width: 46%; }
 .tag { font-size: 12px; color: var(--text-secondary); background: var(--cell-bg); padding: 3px 8px; border-radius: 9999px; }
 .tabs { display: flex; gap: 6px; margin: 4px 0 14px; }
 .tabs button { height: 34px; padding: 0 14px; border-radius: 9999px; font-size: 14px; color: var(--text-secondary); background: var(--thin-bg); }

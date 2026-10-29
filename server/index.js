@@ -26,6 +26,8 @@ import { folderRoutes } from './routes/folders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
 import { meetingRoutes } from './routes/meetings.js'
+import { attachVoice } from './lib/meetings/voice.js'
+import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang.js'
 import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { improveRoutes } from './routes/improve.js'
 import { mountImprove } from './mcp/improve.js'
@@ -198,13 +200,26 @@ app.get('/api/me', auth, async (req, res) => {
   const [m] = await q('select provider, address, last_poll from pro_mail_accounts where user_id=$1', [req.user.id])
   // admin: the team and tenant-wide role controls are editable (TeamRoles); otherwise read-only
   // lang: the saved language (null = never chosen); reqLang: the one this request ran in
-  res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang })
+  // mainLang: the language I speak and read in (meetings, messages); mainLangSet: whether I chose it
+  res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang,
+    mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null })
+})
+// my main language (Settings › Accounts › Main language, the meeting lobby): what meetings transcribe me
+// in and translate others into for me, and what messages read in; the screens follow it (ko → Korean,
+// anything else → English) unless I set the screen language myself afterwards
+app.put('/api/me/main-lang', auth, async (req, res) => {
+  try {
+    await q(`insert into pro_profile(user_id,email) values ($1,$2) on conflict (user_id) do nothing`, [req.user.id, req.user.email])
+    const main = await saveMainLang(req.user.id, req.body?.lang)
+    res.json({ mainLang: main, uiLang: uiLangFor(main) })
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 // the person's language (Settings › Accounts › Language): background work for them uses it too
 app.put('/api/me/lang', auth, async (req, res) => {
   try {
     await q(`insert into pro_profile(user_id,email) values ($1,$2) on conflict (user_id) do nothing`, [req.user.id, req.user.email])
     res.json({ lang: await saveLang(req.user.id, req.body?.lang) })
+    forgetMain(req.user.id)
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 app.post('/api/profile', auth, async (req, res) => {
@@ -797,3 +812,5 @@ const server = app.listen(config.port, async () => {
 workroom.attachTerminal(server)
 // an ArtCraft app open in the page, driven live by the agent (websocket upgrade on /api/craft/live)
 attachCraftLive(server)
+// the interpreter's voice in a meeting (websocket upgrade on /api/meetings/voice)
+attachVoice(server)

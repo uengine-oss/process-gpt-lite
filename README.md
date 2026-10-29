@@ -18,6 +18,7 @@ Process GPT Lite is a Vue 3 app plus an Express BFF with a live-sky, glass-card 
 - **보관함** — KEK/DEK 봉투 암호화(AES-256-GCM), 비밀값은 모델에게 가지 않음 / credential vault; secrets never reach the model
 - **외부 연동 · 스킬 · 예약 미션** — Google·YouTube·Slack·GitHub·Notion 커넥터 MCP, mcp-hub 등록, pg_cron 미션 / connectors, skills, missions
 - **역할 기반 알림 · 팀 협업** — 역할 담당자에게 단계 배정, 대화 중 동료 지목 / role-based notifications
+- **다국어 협업 · 실시간 AI 통역** — 사람마다 주 언어(18개 언어). 회의에서는 각자 자기 말로 말하고, 다른 사람의 말을 자기 언어의 통역 음성과 원문·번역 자막으로 듣습니다(`gpt-realtime-translate`, 원래 소리는 낮춤). 회의록·방 기록은 각자 언어로, 메신저 메시지도 자동 번역(원문 보기) / multilingual teams: live AI interpretation in meetings, bilingual subtitles and minutes, auto-translated messages
 - **팀 공유 · 메신저** — 산출물 카드·스택·편집기에서 바로 공유(받는 사람만 여는 서버 확인 허가, 받은 사람의 사본으로 편집), 채팅 입력의 @팀원(자주 넘긴 순 → 판단 모델이 고른 관계자 → 역할), 받은 편지함에서 '이어서 작업'으로 내 에이전트가 이어받기, 팀원 1:1·그룹 메신저 / team sharing, @mentions and messenger
 - **프로세스 개선** — 실행 기록으로 병목(리드타임 분해·BPMN 열지도), 가치 흐름(흐름 효율), 제약 이론(가동률·5단계), 크리티컬 패스(CPM·여유 시간·남은 경로)를 계산하고, 단계를 바꾸면 전후를 미리 계산해 「개선안 적용」으로 새 버전을 만들기. 숫자는 결정적 계산, 모델은 설명만 / process improvement: bottlenecks, value stream, theory of constraints, critical path, what-if and versioned redesign
 - **에이전트 작업실** — cli-agent(Claude Code) 작업 폴더와 터미널 / agent workroom

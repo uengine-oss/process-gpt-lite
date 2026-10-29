@@ -84,12 +84,23 @@ function serial(id, fn) {
   chains.set(id, next.catch(() => {}))
   return next
 }
-function blockText(b) {
+// a line in another language than the meeting's carries its translation (process-gpt's room reads only
+// this text; pgpt-pro shows each reader the line in their own language from pgpt.meeting.lines[].tr)
+function blockText(b, mlang = 'ko') {
   const span = b.lines.length ? `${hhmm(b.lines[0].at)}–${hhmm(b.lines[b.lines.length - 1].at)}` : ''
   // plain "이름: 말" lines: process-gpt's chat room shows content as text (no markdown there)
-  return `🎙 ${L('회의록', 'Transcript')} ${b.n}${span ? ` (${span})` : ''}\n${b.lines.map((l) => `${l.speaker}: ${l.text}`).join('\n')}`
+  const said = (l) => `${l.speaker}: ${l.text}${l.lang && l.lang !== mlang && l.tr?.[mlang] ? ` (${l.tr[mlang]})` : ''}`
+  return `🎙 ${L('회의록', 'Transcript')} ${b.n}${span ? ` (${span})` : ''}\n${b.lines.map(said).join('\n')}`
 }
-const blockPgpt = (m, b) => ({ kind: 'meeting-transcript', meeting: { id: m.id, block: b.n, lines: b.lines } })
+// (trp: the translation of each of a line's pieces, in memory only; tr: the whole line, once every piece has it)
+const blockPgpt = (m, b) => ({ kind: 'meeting-transcript', meeting: { id: m.id, block: b.n, lang: meetingLang(m), lines: b.lines.map(({ trp, ...l }) => l) } })
+const lineOf = (seg) => ({ speaker: seg.speaker, userId: seg.user_id, text: seg.text, lang: seg.lang || null, tr: {}, trp: {}, at: new Date(seg.at).toISOString(), segs: [seg.id] })
+function joinTr(l) {
+  for (const [lang, parts] of Object.entries(l.trp || {})) {
+    if (l.segs.every((id) => parts[id])) l.tr[lang] = l.segs.map((id) => parts[id]).join(' ').slice(0, 1600)
+    else delete l.tr[lang]
+  }
+}
 
 // one transcribed line into the room's current block; returns the block's chats uuid
 export function appendLine(m, seg, quiet) {
@@ -98,25 +109,54 @@ export function appendLine(m, seg, quiet) {
     const at = new Date(seg.at).getTime()
     if (b) {
       const last = b.lines[b.lines.length - 1]
-      if (last && last.userId === seg.user_id && at - new Date(last.at).getTime() < TURN_GAP_MS) {
+      if (last && last.userId === seg.user_id && (last.lang || null) === (seg.lang || null) && at - new Date(last.at).getTime() < TURN_GAP_MS) {
         last.text = `${last.text} ${seg.text}`.slice(0, 1200); last.at = new Date(seg.at).toISOString(); last.segs.push(seg.id)
-        await patch(b.uuid, blockText(b), blockPgpt(m, b))
+        joinTr(last)
+        await patch(b.uuid, blockText(b, meetingLang(m)), blockPgpt(m, b))
         return b.uuid
       }
       if (at - b.startedAt < BLOCK_MS && b.lines.length < BLOCK_LINES) {
-        b.lines.push({ speaker: seg.speaker, userId: seg.user_id, text: seg.text, at: new Date(seg.at).toISOString(), segs: [seg.id] })
-        await patch(b.uuid, blockText(b), blockPgpt(m, b))
+        b.lines.push(lineOf(seg))
+        await patch(b.uuid, blockText(b, meetingLang(m)), blockPgpt(m, b))
         return b.uuid
       }
     }
     const [{ n }] = await q(`select count(*)::int + 1 as n from chats where id=$1 and messages->'pgpt'->>'kind'='meeting-transcript' and messages->'pgpt'->'meeting'->>'id'=$2`, [m.room_id, m.id])
-    b = { n, startedAt: at, lines: [{ speaker: seg.speaker, userId: seg.user_id, text: seg.text, at: new Date(seg.at).toISOString(), segs: [seg.id] }] }
-    b.uuid = await insert(m.room_id, blockText(b), blockPgpt(m, b), { quiet })
+    b = { n, startedAt: at, lines: [lineOf(seg)] }
+    b.uuid = await insert(m.room_id, blockText(b, meetingLang(m)), blockPgpt(m, b), { quiet })
     blocks.set(m.id, b)
     return b.uuid
   })
 }
 export const closeBlocks = (meetingId) => serial(meetingId, async () => { blocks.delete(meetingId) })
+
+// a line's translation landed (service.js translateLine): into its line in the block, in place —
+// the live block in memory, or (it has rolled over since) the stored row
+export function lineTr(m, seg, lang, text) {
+  return serial(m.id, async () => {
+    const b = blocks.get(m.id)
+    if (b && (!seg.block_uuid || b.uuid === seg.block_uuid)) {
+      const l = b.lines.find((x) => x.segs.includes(seg.id))
+      if (l) {
+        ;(l.trp[lang] ||= {})[seg.id] = text
+        joinTr(l)
+        await patch(b.uuid, blockText(b, meetingLang(m)), blockPgpt(m, b))
+        return
+      }
+    }
+    if (!seg.block_uuid) return
+    const [row] = await q('select messages from chats where uuid=$1', [seg.block_uuid])
+    const lines = row?.messages?.pgpt?.meeting?.lines
+    const l = lines?.find((x) => (x.segs || []).includes(seg.id))
+    if (!l) return
+    // a stored line made of several pieces gets the translation of the one piece only if it is alone
+    if (l.segs.length === 1) {
+      l.tr = { ...(l.tr || {}), [lang]: text }
+      const sb = { n: row.messages.pgpt.meeting.block, lines }
+      await patch(seg.block_uuid, blockText(sb, meetingLang(m)), { ...row.messages.pgpt, meeting: { ...row.messages.pgpt.meeting, lines } })
+    }
+  })
+}
 
 // ---- materials and results ----
 const KIND_WORD = { file: '파일', process: '진행 상황', panel: '앱 데이터', folder: '폴더 문서', result: '에이전트 결과' }

@@ -5,6 +5,7 @@ import { defineStore } from 'pinia'
 import { api } from '../api.js'
 import { useApp } from './app.js'
 import { openArtifact } from '../artifacts.js'
+import { maybeOther } from '../i18n/mainLangs.js'
 
 // file cards that can be shared: the ones with a storage object behind them (not workroom-only files)
 export const shareable = (m) => m?.kind === 'file' && /\/storage\/v1\/object\/public\//.test(m.content?.url || '')
@@ -26,6 +27,10 @@ export const useTeam = defineStore('team', {
     suggestions: {},          // threadId -> [assist suggestion] (lib/team/assist.js)
     assistOn: {},             // threadId -> the thread's AI 제안 switch
     assistStatus: {},         // suggestion id -> live status text while it runs
+    // auto-translation (server/lib/team/roomTranslate.js): message id -> {body, from} | {lines: {i: text}} |
+    // {minutes: {summary, decisions, actions}} | {same: true}; original: message id -> showing the original
+    tr: {},
+    original: {},
   }),
   actions: {
     async boot() {
@@ -36,7 +41,52 @@ export const useTeam = defineStore('team', {
     },
     async loadUnread() { this.unread = await api('/team/unread').catch(() => this.unread) },
     async loadThreads() { this.threads = await api('/team/threads').catch(() => this.threads) },
-    async loadInbox() { this.inbox = await api('/team/inbox').catch(() => this.inbox) },
+    async loadInbox() { this.inbox = await api('/team/inbox').catch(() => this.inbox); this.takeTr(this.inbox) },
+
+    // ---- auto-translation: messages in another language than my main one ----
+    myLang() { return useApp().me?.mainLang || 'ko' },
+    // what the server already knew (m.tr) and what it said is missing (m.trNeeded)
+    takeTr(list) {
+      const want = []
+      for (const m of list || []) {
+        if (m.tr?.body) this.tr[m.id] = { body: m.tr.body, from: m.tr.from }
+        else if (m.trNeeded || this.needsTr(m)) want.push(m.id)
+      }
+      if (want.length) this.queueTr(want)
+    },
+    needsTr(m, { live = false } = {}) {
+      const my = this.myLang()
+      if (m.kind === 'meeting-transcript') return (m.meeting?.lines || []).some((l, i) => l.lang && l.lang !== my && !l.tr?.[my] && !this.tr[m.id]?.lines?.[i])
+      if (m.kind === 'meeting-minutes') return (m.meeting?.lang || 'ko') !== my && !m.meeting?.tr?.[my] && !this.tr[m.id]?.minutes
+      if (!live || m.mine || !m.body || !['text', 'agent', 'share', 'mention'].includes(m.kind)) return false
+      if (this.tr[m.id]) return false
+      return maybeOther(m.body, my) !== false
+    },
+    // a suggestion card written in another language (its requester's)
+    sugTr(list) {
+      const my = this.myLang()
+      const want = (list || []).filter((x) => x?.id && !this.tr[`s:${x.id}`] && (maybeOther(x.title, my) !== false || maybeOther(x.reason, my) === true)).map((x) => `s:${x.id}`)
+      if (want.length) this.queueTr(want)
+    },
+    trSug(sg, key) { return !this.original[`s:${sg.id}`] && this.tr[`s:${sg.id}`]?.[key] ? this.tr[`s:${sg.id}`][key] : null },
+    queueTr(ids, wait = 150) {
+      this._trq = new Set([...(this._trq || []), ...ids])
+      clearTimeout(this._trt)
+      this._trt = setTimeout(() => this.flushTr(), wait)
+    },
+    async flushTr() {
+      const all = [...(this._trq || [])].slice(0, 40)
+      this._trq = new Set([...(this._trq || [])].slice(40))
+      if (!all.length) return
+      const ids = all.filter((x) => !x.startsWith('s:'))
+      const suggestions = all.filter((x) => x.startsWith('s:')).map((x) => x.slice(2))
+      const r = await api('/team/translate', { method: 'POST', body: { ids, suggestions } }).catch(() => null)
+      for (const [id, v] of Object.entries(r?.items || {})) this.tr[id] = { ...(this.tr[id] || {}), ...v, lines: { ...(this.tr[id]?.lines || {}), ...(v.lines || {}) } }
+      if (this._trq.size) this.queueTr([], 50)
+    },
+    // the body as I read it (null = show it as written)
+    trBody(m) { return !this.original[m.id] && this.tr[m.id]?.body ? this.tr[m.id].body : null },
+    toggleOriginal(id) { this.original = { ...this.original, [id]: !this.original[id] } },
     onEvent({ type, data }) {
       if (type !== 'team') return
       if (data.type === 'message') {
@@ -46,6 +96,7 @@ export const useTeam = defineStore('team', {
         const at = list ? list.findIndex((x) => x.id === m.id) : -1
         if (list && at >= 0) list[at] = m
         else if (list) list.push(m)
+        if (this.needsTr(m, { live: true })) this.queueTr([m.id], String(m.kind).startsWith('meeting') ? 2500 : 150)
         const looking = this.open && this.active === data.threadId && document.visibilityState === 'visible'
         if (!m.mine) {
           if (looking) this.markRead(data.threadId)
@@ -62,6 +113,7 @@ export const useTeam = defineStore('team', {
         const i = list.findIndex((x) => x.id === data.suggestion.id)
         if (data.suggestion.hidden) { if (i >= 0) list.splice(i, 1) } else if (i >= 0) list[i] = data.suggestion
         else list.unshift(data.suggestion)
+        if (!data.suggestion.hidden) this.sugTr([data.suggestion])
       } else if (data.type === 'assist-status') this.assistStatus[data.id] = data.text
       else if (data.type === 'assist-toggle') this.assistOn[data.threadId] = data.on
     },
@@ -82,7 +134,8 @@ export const useTeam = defineStore('team', {
       this.focus = messageId || null
       const [r, a] = await Promise.all([api(`/team/threads/${id}/messages`), api(`/team/threads/${id}/suggestions`).catch(() => null)])
       this.msgs[id] = r.messages
-      if (a) { this.suggestions[id] = a.suggestions; this.assistOn[id] = a.assist && a.enabled }
+      this.takeTr(r.messages)
+      if (a) { this.suggestions[id] = a.suggestions; this.assistOn[id] = a.assist && a.enabled; this.sugTr(a.suggestions) }
       this.markRead(id)
     },
     async markRead(id) {

@@ -27,8 +27,8 @@ function downsample(chunks, rate) {
   return out.subarray(0, oi)
 }
 
-// onPiece(blob, ms), onLevel(0..1) — returns stop()
-export function startCapture(stream, { onPiece, onLevel = () => {} }) {
+// onPiece(blob, ms), onLevel(0..1), onStart() (a voice began: the interpreter gets ready) — returns stop()
+export function startCapture(stream, { onPiece, onLevel = () => {}, onStart = () => {} }) {
   const track = stream.getAudioTracks()[0]
   if (!track) return () => {}
   const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -51,7 +51,7 @@ export function startCapture(stream, { onPiece, onLevel = () => {} }) {
     if (!loud) floor = floor * 0.95 + rms * 0.05
     if (!speaking) {
       pre.push(d); if (pre.length * bufMs > PRE_MS) pre.shift()
-      if (loud) { speaking = true; silent = 0; piece = [...pre]; pre = [] }
+      if (loud) { speaking = true; silent = 0; piece = [...pre]; pre = []; try { onStart() } catch { /* not ours */ } }
       return
     }
     piece.push(d)

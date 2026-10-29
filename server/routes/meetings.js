@@ -41,6 +41,11 @@ export function meetingRoutes(auth) {
   // one spoken piece (WAV) from the speaker's own microphone; a typed line goes the same way
   r.post('/meetings/:id/audio', express.raw({ type: () => true, limit: '3mb' }), auth, h((req) => S.audio(req.user, id(req), req.body, String(req.headers['content-type'] || 'audio/wav'))))
   r.post('/meetings/:id/lines', auth, h((req) => S.typed(req.user, id(req), req.body?.text)))
+  // interpretation (통역): the meeting's switch, what I hear, "I started talking", my voice channel ticket
+  r.put('/meetings/:id/interp', auth, h((req) => S.setInterp(req.user, id(req), !!req.body?.on)))
+  r.put('/meetings/:id/listen', auth, h((req) => S.setListen(req.user, id(req), String(req.body?.mode || ''))))
+  r.post('/meetings/:id/speaking', auth, h((req) => S.speakingNow(req.user, id(req))))
+  r.post('/meetings/:id/voice/ticket', auth, h((req) => S.voiceTicket(req.user, id(req))))
   // materials: open (my card or my copy), present to everyone, take it down
   r.post('/meetings/:id/materials/:mid/open', auth, h((req) => S.openMaterial(req.user, id(req), req.params.mid)))
   r.post('/meetings/:id/materials/:mid/present', auth, h((req) => S.present(req.user, id(req), req.params.mid)))

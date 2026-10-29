@@ -11,6 +11,7 @@ import * as M from '../lib/team/messenger.js'
 import { suggest, workState } from '../lib/team/suggest.js'
 import { watchRooms } from '../lib/team/assist.js'
 import { assistRoutes } from './teamAssist.js'
+import * as RT from '../lib/team/roomTranslate.js'
 
 export function teamRoutes(auth) {
   const r = express.Router()
@@ -107,7 +108,14 @@ export function teamRoutes(auth) {
     const t = ids.length === 1 ? await M.directThread(req.user, ids[0]) : await M.groupThread(req.user, ids, text(req.body.title, 60))
     return { id: t.id }
   }))
-  r.get('/team/threads/:id/messages', auth, h((req) => M.messages(req.user, req.params.id, { before: req.query.before })))
+  // (each message as I read it: in my main language when it is already translated — lib/team/roomTranslate.js)
+  r.get('/team/threads/:id/messages', auth, h(async (req) => {
+    const out = await M.messages(req.user, req.params.id, { before: req.query.before })
+    await RT.attachCached(req.user, out.messages)
+    return out
+  }))
+  // messages in another language than my main one, translated for me (once per text and language)
+  r.post('/team/translate', auth, h((req) => RT.translateFor(req.user, req.body?.ids, req.body?.suggestions)))
   r.post('/team/threads/:id/messages', auth, h(async (req) => {
     const body = text(req.body.text)
     const files = await S.myFiles(req.user, req.body.artifactIds || [])
@@ -119,7 +127,7 @@ export function teamRoutes(auth) {
   assistRoutes(r, auth, h)
   r.post('/team/threads/:id/read', auth, h((req) => M.markRead(req.user, req.params.id)))
   r.get('/team/unread', auth, h((req) => M.unread(req.user)))
-  r.get('/team/inbox', auth, h((req) => M.inbox(req.user)))
+  r.get('/team/inbox', auth, h(async (req) => RT.attachCached(req.user, await M.inbox(req.user))))
 
   // "이어서 작업": my agent picks up what a teammate sent — their note, the gist and my copies
   r.post('/team/messages/:id/continue', auth, h(async (req) => {

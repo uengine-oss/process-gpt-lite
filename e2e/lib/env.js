@@ -47,7 +47,8 @@ export const DB_URL = env.PGPT_DB_URL || (LOCAL_API ? dbUrlFromProcessGpt() : ''
 export const email = (area) => `pro-rt-${area}@uengine.org`
 // pro-en-ui-*: the English-mode checks (tests/smoke/english.spec.js, scripts/i18n-check.mjs);
 // pro-en-fix-*: the English-mode polish checks (tests/feature/english-fixes.spec.js)
-export const isTestEmail = (e) => /^pro-(rt|en-ui|en-fix)-[a-z0-9-]+@uengine\.org$/.test(e)
+// pro-intl-*: the multilingual team (meeting interpretation, messenger translation — interpretation.spec.js)
+export const isTestEmail = (e) => /^pro-(rt|en-ui|en-fix|intl)-[a-z0-9-]+@uengine\.org$/.test(e)
 
 // deepagents' workspace on the host (where skill-creator leaves drafts): /workspace/... maps here
 export const PGPT_ROOT = PGPT_ROOT_DIR

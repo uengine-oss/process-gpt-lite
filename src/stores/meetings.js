@@ -7,12 +7,17 @@ import { markRaw } from 'vue'
 import { api, auth } from '../api.js'
 import { Mesh } from '../components/meetings/rtc.js'
 import { startCapture } from '../components/meetings/capture.js'
+import { Interpreter } from '../components/meetings/interp.js'
 import { useTeam } from './team.js'
+import { useApp } from './app.js'
 import { BASE } from '../base.js'
 
 async function postAudio(id, blob) {
   const go = () => fetch(`${BASE}/api/meetings/${id}/audio`, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/wav', Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` } })
-  const r = await go()
+  let r = await go()
+  // a sign-in check or a gateway that did not answer in time loses a whole spoken piece (and its
+  // interpretation): once more, a moment later
+  if (r.status === 401 || r.status === 502 || r.status === 503) { await new Promise((ok) => setTimeout(ok, 400)); r = await go() }
   if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).error || '받아쓰지 못했어요.'), { status: r.status })
   return r.json()
 }
@@ -39,12 +44,21 @@ export const useMeetings = defineStore('meetings', {
     endedMinutes: null,   // {roomId, messageId} after the meeting ended
     flash: null,          // material id to highlight (just found / mentioned again)
     unseen: 0,            // materials found while the 자막 tab was open
+    // live interpretation (통역): the meeting's state {on, setting, mixed, langs, available, voice, status,
+    // listen}, what I hear ('interp' | 'original'), who is being interpreted to me right now
+    interp: null,
+    listen: 'interp',
+    onAir: {},            // speakerId -> true while their interpretation plays for me
+    interpNote: '',       // an honest notice (no key, quota, budget)
+    showOriginal: false,  // subtitles: my language first (false) or the original first
   }),
   getters: {
     active: (s) => !!s.m,
     lines: (s) => s.m?.lines || [],
     materials: (s) => s.m?.materials || [],
     suggestions: (s) => (s.m?.suggestions || []).filter((x) => x.state !== 'open' || x.canStart),
+    // the language I speak and read in the meeting
+    myLang: (s) => s.m?.me?.lang || useApp().me?.mainLang || 'ko',
   },
   actions: {
     boot() {
@@ -108,6 +122,10 @@ export const useMeetings = defineStore('meetings', {
       }
       this.heart = setInterval(() => api(`/meetings/${s.id}/heartbeat`, { method: 'POST' }).then((r) => { if (!r.joined || !r.live) this.cleanup() }).catch(() => {}), 15000)
       this.startListening()
+      this.interp = s.interp || null
+      this.listen = s.interp?.listen || 'interp'
+      this.noticeFor(this.interp)
+      this.startVoice()
       if (this.stage?.material?.kind === 'file') this.loadStageFile(this.stage)
       this.rooms[s.roomId] = { id: s.id, count: s.peers.length, people: s.peers.map((p) => p.name) }
     },
@@ -116,6 +134,8 @@ export const useMeetings = defineStore('meetings', {
       if (!this.m?.agent || !this.consent || !this.local) return
       this.stopCap = startCapture(this.local, {
         onLevel: (v) => { this.level = v },
+        // the interpreter opens its sessions while I am still talking (lib/meetings/interpret.js warm)
+        onStart: () => { if (this.m && this.mic && this.interp?.on) api(`/meetings/${this.m.id}/speaking`, { method: 'POST' }).catch(() => {}) },
         onPiece: async (blob) => {
           if (!this.m || !this.mic) return
           this.sending++
@@ -178,14 +198,70 @@ export const useMeetings = defineStore('meetings', {
       await api(`/meetings/${m.id}/end`, { method: 'POST' }).catch(() => {})
       this.cleanup()
     },
+    // ---- interpretation ----
+    startVoice() {
+      this.stopVoice()
+      const id = this.m?.id
+      if (!id || !this.interp?.available || !this.interp?.voice) return
+      const ip = new Interpreter({
+        ticket: async () => (await api(`/meetings/${id}/voice/ticket`, { method: 'POST' })).ticket,
+        onNote: (n) => {
+          if (n.type === 'start') this.onAir = { ...this.onAir, [n.speakerId]: true }
+          else if (n.type === 'end') setTimeout(() => { if (!this.voice?.playing(n.speakerId)) { const o = { ...this.onAir }; delete o[n.speakerId]; this.onAir = o } }, 500)
+        },
+      })
+      ip.setMode(this.listen)
+      ip.setOn(!!this.interp.on)
+      this.voice = markRaw(ip)
+      ip.open().catch((e) => console.warn('[meeting] voice', e.message))
+      for (const [pid, el] of Object.entries(this.els || {})) ip.register(pid, el)
+    },
+    stopVoice() { this.voice?.close(); this.voice = null; this.onAir = {} },
+    // a tile's video element, so its voice can be lowered while it is interpreted (VideoTile @el)
+    registerEl(peerId, el) {
+      this.els = this.els || {}
+      if (el) this.els[peerId] = el; else delete this.els[peerId]
+      this.voice?.register(peerId, el)
+    },
+    async setListen(mode) {
+      this.listen = mode === 'original' ? 'original' : 'interp'
+      this.voice?.setMode(this.listen)
+      if (this.m) await api(`/meetings/${this.m.id}/listen`, { method: 'PUT', body: { mode: this.listen } }).catch(() => {})
+    },
+    async setInterp(on) {
+      if (!this.m) return
+      const v = await api(`/meetings/${this.m.id}/interp`, { method: 'PUT', body: { on } })
+      this.applyInterp(v)
+    },
+    applyInterp(v) {
+      const was = this.interp
+      this.interp = { ...v, listen: this.listen }
+      this.voice?.setOn(!!v.on)
+      this.noticeFor(v)
+      if (v.available && v.voice && !this.voice) this.startVoice()
+      if (was && !was.on && v.on) this.voice?.setMode(this.listen)
+    },
+    noticeFor(v) {
+      if (!v || !v.mixed) { this.interpNote = ''; return }
+      const st = v.status
+      this.interpNote = !v.available
+        ? (st === 'off' ? '이 서버에서 통역이 꺼져 있어요. 자막은 원문으로만 보여요.' : '통역 키가 설정되지 않아 통역을 쓸 수 없어요. 자막은 원문으로만 보여요.')
+        : st === 'quota' ? '통역 사용 한도를 넘어 지금은 통역할 수 없어요. 자막은 원문으로 보여요.'
+        : st === 'limit' ? '이 회의의 통역 사용량이 많아 잠시 통역 음성을 멈췄어요. 번역 자막은 계속돼요.'
+        : st === 'subtitles' ? '통역 음성은 꺼져 있고 번역 자막만 보여요.'
+        : ''
+    },
+
     cleanup() {
       clearInterval(this.heart)
       this.stopListening()
+      this.stopVoice()
       this.mesh?.closeAll?.()
       this.mesh = null
       this.stopLocal()
       if (this.m) this.endedMinutes = { roomId: this.m.roomId, pending: true }
       this.m = null; this.peers = {}; this.stage = null; this.mine = null; this.mini = false; this.screen = false
+      this.interp = null; this.interpNote = ''; this.els = {}
     },
 
     // ---- materials ----
@@ -236,9 +312,17 @@ export const useMeetings = defineStore('meetings', {
       } else if (d.type === 'media') {
         const p = this.peers[d.peer.id]; if (p) p.media = d.media
       } else if (d.type === 'line') {
-        if (!m.lines.some((l) => l.id === d.line.id)) m.lines.push(d.line)
+        if (!m.lines.some((l) => l.id === d.line.id)) m.lines.push({ tr: {}, ...d.line })
         if (m.lines.length > 200) m.lines.splice(0, m.lines.length - 200)
         this.agentSay = '듣고 있어요'
+      } else if (d.type === 'line-tr') {
+        const l = m.lines.find((x) => x.id === d.id)
+        if (l) l.tr = { ...(l.tr || {}), [d.lang]: d.text }
+      } else if (d.type === 'interp') {
+        this.applyInterp(d.interp)
+        if (d.by) this.agentSay = d.interp.on ? `${d.by}님이 통역을 켰어요` : `${d.by}님이 통역을 껐어요`
+      } else if (d.type === 'interp-status') {
+        if (this.interp) { this.interp = { ...this.interp, status: d.status }; this.noticeFor(this.interp) }
       } else if (d.type === 'material') {
         const i = m.materials.findIndex((x) => x.id === d.material.id)
         if (i >= 0) m.materials[i] = d.material; else m.materials.push(d.material)

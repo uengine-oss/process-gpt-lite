@@ -13,6 +13,7 @@ import { officeEditorFor, CRAFT_APPS } from '../../officeEditor.js'
 
 import { api } from '../../api.js'
 import VideoTile from './VideoTile.vue'
+import { MAIN_LANGS, langLabel } from '../../i18n/mainLangs.js'
 import MaterialBody from './MaterialBody.vue'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
 import CraftEditorFrame from '../CraftEditorFrame.vue'
@@ -78,6 +79,24 @@ async function saved(msg, { url, name }) {
 }
 const back = () => { mt.mini = false; app.officeDoc = null }
 onMounted(() => mt.boot())
+
+// ---- languages (통역) ----
+const myLang = computed(() => mt.myLang)
+// the lobby: the language I will speak and read in (my main language, saved for my account)
+const lobbyLang = ref('')
+watch(() => mt.lobby, (l) => { if (l) lobbyLang.value = app.me?.mainLang || 'ko' }, { immediate: true })
+async function saveLobbyLang() {
+  const v = lobbyLang.value
+  await run('lang', async () => {
+    await api('/me/main-lang', { method: 'PUT', body: { lang: v } })
+    if (app.me) app.me = { ...app.me, mainLang: v, mainLangSet: v }
+  })
+}
+const interp = computed(() => mt.interp)
+const langsLine = computed(() => (interp.value?.langs || []).map(langLabel).join(' ⇄ '))
+// a subtitle line as I read it: my language's translation first (the original under it), or the original
+const other = (l) => !!l.lang && l.lang !== myLang.value
+const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
 </script>
 
 <template>
@@ -89,6 +108,12 @@ onMounted(() => mt.boot())
       <div class="lobtg">
         <button class="tg press" :class="{ off: !mt.mic }" @click="mt.toggle('mic')">{{ mt.mic ? '마이크 켬' : '마이크 끔' }}</button>
         <button class="tg press" :class="{ off: !mt.cam }" @click="mt.toggle('cam')">{{ mt.cam ? '카메라 켬' : '카메라 끔' }}</button>
+      </div>
+      <div class="lobl">
+        <span><b>내가 말하는 언어</b><small>다른 언어로 말하는 분의 말은 이 언어로 통역해 들려 드리고, 자막은 원문과 번역을 함께 보여 드려요 (AI 통역)</small></span>
+        <select v-model="lobbyLang" data-test="lobby-lang" data-no-i18n :disabled="busy === 'lang'" @change="saveLobbyLang">
+          <option v-for="[code, name] in MAIN_LANGS" :key="code" :value="code">{{ name }}</option>
+        </select>
       </div>
       <label class="consent" :class="{ on: mt.consent }">
         <input v-model="mt.consent" type="checkbox" data-test="consent">
@@ -116,7 +141,10 @@ onMounted(() => mt.boot())
         <span v-if="m.agent" class="chip ag" :class="{ off: !m.me.consent }">{{ m.me.consent ? '받아쓰기·기록 중' : '내 말은 기록 안 함' }}</span>
         <span v-else class="chip off">도우미 꺼짐</span>
         <span v-if="declined.length && m.agent" class="chip warn">기록 안 함: {{ declined.join(', ') }}</span>
+        <span v-if="interp?.on" class="chip ai" data-test="ai-interp" :title="'AI가 각자의 언어로 통역해요'">AI 통역 · <span data-no-i18n>{{ langsLine }}</span></span>
+        <button v-if="interp?.available && m.agent && (interp.mixed || interp.setting !== null)" class="chip tgl press" :class="{ on: interp.on }" data-test="interp-switch" @click="mt.setInterp(!interp.on)">{{ interp.on ? '통역 켬' : '통역 끔' }}</button>
       </header>
+      <p v-if="mt.interpNote" class="inote" data-test="interp-note">{{ mt.interpNote }}</p>
 
       <div class="body">
         <main class="area" :class="{ staged: !!shown }">
@@ -146,8 +174,9 @@ onMounted(() => mt.boot())
           </section>
 
           <div class="tiles" :class="[`n${Math.min(others.length + 2, 6)}`, { strip: !!shown }]">
-            <VideoTile :stream="mt.screen ? mt.screenStream : mt.local" :name="m.me.name" me :muted="!mt.mic" :cam-off="!mt.cam && !mt.screen" :consent="m.me.consent || !m.agent" :level="mt.level" :screen="mt.screen" />
-            <VideoTile v-for="p in others" :key="p.id" :stream="p.stream" :name="p.name" :consent="p.consent || !m.agent" :state="p.state" :muted="p.media && !p.media.mic" :cam-off="p.media && !p.media.cam && !p.media.screen" :screen="p.media?.screen" />
+            <VideoTile :stream="mt.screen ? mt.screenStream : mt.local" :name="m.me.name" me :muted="!mt.mic" :cam-off="!mt.cam && !mt.screen" :consent="m.me.consent || !m.agent" :level="mt.level" :screen="mt.screen" :lang="myLang" :show-lang="!!interp?.mixed" />
+            <VideoTile v-for="p in others" :key="p.id" :stream="p.stream" :name="p.name" :consent="p.consent || !m.agent" :state="p.state" :muted="p.media && !p.media.mic" :cam-off="p.media && !p.media.cam && !p.media.screen" :screen="p.media?.screen"
+              :lang="p.lang || m.peers.find((x) => x.id === p.id)?.lang" :show-lang="!!interp?.mixed" :interpreting="!!mt.onAir[p.id] && mt.listen === 'interp'" @el="(el) => mt.registerEl(p.id, el)" />
             <div v-if="m.agent" class="tile agent" data-test="agent-tile">
               <div class="orb"><span /><span /><span /></div>
               <b>프로세스 GPT 라이트 도우미</b>
@@ -177,7 +206,16 @@ onMounted(() => mt.boot())
           <div v-if="mt.tab === 'lines'" ref="lineBox" class="lines scroll" data-test="lines">
             <p v-if="!m.agent" class="empty">이 회의는 도우미가 꺼져 있어 자막이 없어요.</p>
             <p v-else-if="!mt.lines.length" class="empty">말하면 여기에 화자별 자막이 떠요. 동의한 분의 말만 받아써요.</p>
-            <div v-for="l in mt.lines" :key="l.id" class="ln" :class="{ me: l.userId === m.me.id }"><span class="sp">{{ l.speaker }}</span><span class="tx">{{ l.text }}</span><small>{{ hhmm(l.at) }}</small></div>
+            <button v-if="interp?.mixed && mt.lines.some(trOf)" class="origtog press" data-test="subs-original" @click="mt.showOriginal = !mt.showOriginal">{{ mt.showOriginal ? '내 언어로 먼저 보기' : '원문 먼저 보기' }}</button>
+            <div v-for="l in mt.lines" :key="l.id" class="ln" :class="{ me: l.userId === m.me.id, tr: !!trOf(l) }" :data-lang="l.lang" data-test="line">
+              <span class="sp">{{ l.speaker }}</span>
+              <span class="tx" data-no-i18n>
+                <template v-if="trOf(l) && !mt.showOriginal"><span class="mtx" data-test="line-tr">{{ trOf(l) }}</span><span class="orig" data-test="line-orig"><i>{{ langLabel(l.lang) }}</i> {{ l.text }}</span></template>
+                <template v-else-if="trOf(l)"><span class="mtx" data-test="line-orig">{{ l.text }}</span><span class="orig" data-test="line-tr"><i>{{ langLabel(myLang) }}</i> {{ trOf(l) }}</span></template>
+                <template v-else><span class="mtx">{{ l.text }}</span><span v-if="other(l) && interp?.available && interp?.on !== false" class="orig wait">…</span></template>
+              </span>
+              <small>{{ hhmm(l.at) }}</small>
+            </div>
           </div>
           <div v-else class="mats scroll" data-test="materials">
             <p v-if="!mt.materials.length" class="empty">회의 중에 "지난번 견적서 다시 보자" 처럼 말하면, 도우미가 볼 수 있는 자료를 찾아 여기에 띄워요.</p>
@@ -203,6 +241,7 @@ onMounted(() => mt.boot())
         <button class="ctl press" :class="{ off: !mt.cam }" @click="mt.toggle('cam')">{{ mt.cam ? '📷 카메라' : '📷 꺼짐' }}</button>
         <button class="ctl press" :class="{ on: mt.screen }" @click="mt.toggleScreen()">🖥 {{ mt.screen ? '공유 중지' : '화면 공유' }}</button>
         <button v-if="m.agent" class="ctl press" :class="{ on: m.me.consent }" data-test="consent-toggle" @click="mt.setConsent(!m.me.consent)">{{ m.me.consent ? '✓ 기록 동의' : '기록 동의 안 함' }}</button>
+        <button v-if="interp?.on && interp?.voice" class="ctl press" :class="{ on: mt.listen === 'interp' }" data-test="listen-toggle" @click="mt.setListen(mt.listen === 'interp' ? 'original' : 'interp')">{{ mt.listen === 'interp' ? '🎧 통역 듣는 중' : '🔊 원래 소리 듣는 중' }}</button>
         <span class="sp" />
         <span v-if="mt.sending" class="send">받아쓰는 중…</span>
         <p v-if="mt.error" class="err">{{ mt.error }}</p>
@@ -234,6 +273,20 @@ onMounted(() => mt.boot())
 .main { background: #7a5af5; color: #fff; }
 .ghost { background: transparent; color: #5f6368; }
 .err { color: #e5484d; font-size: 13px; margin: 8px 0 0; }
+.lobl { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; border-radius: 14px; background: #f5f6f8; }
+.lobl span { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 14px; }
+.lobl small { font-size: 12px; color: #5f6368; line-height: 1.45; }
+.lobl select { height: 34px; border-radius: 10px; border: 1px solid #dfe1e5; padding: 0 8px; font-size: 14px; background: #fff; }
+.chip.ai { background: linear-gradient(90deg, rgba(122, 90, 245, .45), rgba(42, 120, 214, .45)); color: #fff; font-weight: 500; }
+.chip.tgl { border: 1px solid rgba(255, 255, 255, .25); background: transparent; color: #cfd3da; }
+.chip.tgl.on { background: rgba(122, 90, 245, .3); color: #e3dcff; border-color: rgba(122, 90, 245, .6); }
+.inote { margin: 0 18px 8px; padding: 7px 12px; border-radius: 10px; background: rgba(255, 196, 0, .14); color: #ffd877; font-size: 13px; }
+.ln .tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ln .orig { font-size: 12.5px; color: #80858d; }
+.ln .orig i { font-style: normal; font-size: 10.5px; padding: 0 5px; margin-right: 3px; border-radius: 5px; background: #eef0f3; color: #5f6368; }
+.ln .orig.wait { letter-spacing: 2px; }
+.ln.tr .mtx { color: #1d1d1f; }
+.origtog { display: block; margin: 2px auto 6px; font-size: 12px; height: 26px; padding: 0 12px; border-radius: 13px; background: #f0f1f4; color: #5f6368; }
 
 .meet { background: #0f1115; color: #f2f3f5; display: flex; flex-direction: column; }
 .mh { height: 50px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 18px; font-size: 15px; }

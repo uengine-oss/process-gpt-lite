@@ -7,8 +7,12 @@
 //             with that person as the speaker; record.js writes it into the room's 회의록 block; intent.js
 //             looks for materials and requests (rules → judge, debounced, no big model)
 //   end       last person out (or 회의 끝내기, or nobody seen for STALE_S) → minutes.js writes the minutes
+//   languages each person speaks and reads their main language (lib/mainLang.js): a piece is transcribed
+//             in the speaker's; every line is translated into the other languages present (subtitles:
+//             original + translation) and into the room's readers' (the record); interpret.js gives each
+//             listener the other speakers' voice in theirs (통역) — design: openspec pgpt-pro-meeting-interpretation
 // Switches: PRO_MEETINGS=0 (no meetings), PRO_MEETING_AGENT=0 (video only), per room
-// chat_rooms.context.pgpt.meetingAgent=false.
+// chat_rooms.context.pgpt.meetingAgent=false; interpretation: PRO_INTERP=0, PRO_INTERP_VOICE=0 (interpret.js).
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { withTenant } from '../tenant.js'
@@ -22,6 +26,10 @@ import * as MAT from './materials.js'
 import { transcribe, wavMs, transcribeConfigured } from './transcribe.js'
 import { finalize } from './minutes.js'
 import { L, isEn, lang, withLang } from '../lang.js'
+import { mainLangOf, mainLangsOf, nativeName } from '../mainLang.js'
+import * as PA from './pairing.js'
+import * as IP from './interpret.js'
+import * as TR from '../translate.js'
 
 const T = () => config.tenantId
 export const enabled = () => process.env.PRO_MEETINGS !== '0'
@@ -57,7 +65,7 @@ async function forMember(me, id) {
   return { m, room }
 }
 const agentOn = (m, room) => !!m.agent && agentEnabled() && room?.context?.pgpt?.meetingAgent !== false
-const PEOPLE = `select p.user_id::text as id, p.name, p.consent, p.consent_ever, p.joined_at, p.left_at, p.seen_at, u.email
+const PEOPLE = `select p.user_id::text as id, p.name, p.consent, p.consent_ever, p.joined_at, p.left_at, p.seen_at, p.lang, p.listen, u.email
                 from pro_meeting_participants p left join users u on u.id=p.user_id and u.tenant_id=$2 where p.meeting_id=$1`
 const active = (id) => q(`${PEOPLE} and p.left_at is null order by p.joined_at`, [id, T()])
 const everyone = (id) => q(`${PEOPLE} order by p.joined_at`, [id, T()])
@@ -65,7 +73,38 @@ async function tell(meetingId, data, { except } = {}) {
   for (const p of await active(meetingId)) if (p.id !== except) emit(p.id, 'meeting', { meetingId, ...data })
 }
 const quietOf = (people) => people.flatMap((p) => [p.email, p.id]).filter(Boolean)
-const peer = (p) => ({ id: p.id, name: p.name, consent: !!p.consent })
+const peer = (p) => ({ id: p.id, name: p.name, consent: !!p.consent, lang: p.lang || null })
+
+// ---- languages (통역) ----
+// the people as the pairing sees them (a person without a saved language speaks the meeting's)
+const voicePeople = (m, people) => people.map((p) => ({ id: p.id, lang: p.lang || R.meetingLang(m), listen: p.listen || 'interp', voice: IP.hasChannel(m.id, p.id) }))
+function interpView(m, people, me = null) {
+  const langs = [...new Set(people.map((p) => p.lang || R.meetingLang(m)))]
+  const st = IP.statusOf(m.id)
+  const mine = me ? people.find((p) => p.id === me.id) : null
+  return { on: PA.interpOn(m.interp, voicePeople(m, people)) && IP.enabled(), setting: m.interp ?? null, mixed: langs.length > 1, langs,
+    available: IP.enabled(), voice: IP.voiceOn(), status: st.status, engine: st.engine || null, ...(mine ? { listen: mine.listen || 'interp' } : {}) }
+}
+async function tellInterp(m0) {
+  const m = (await meetingRow(m0.id)) || m0
+  const people = await active(m.id)
+  for (const p of people) emit(p.id, 'meeting', { meetingId: m.id, type: 'interp', interp: interpView(m, people, p) })
+  warmAll(m, people)
+}
+// someone joined (or the switch came on): the interpreter's sessions for every speaker who may talk are
+// opened now, not on their first words (a session takes 1–1.6 s to open; idle ones close after 2 minutes)
+function warmAll(m, people) {
+  const vp = voicePeople(m, people)
+  const on = PA.interpOn(m.interp, vp) && IP.enabled()
+  if (!on) return
+  for (const p of people) {
+    if (!p.consent) continue
+    const pl = PA.plan(vp.find((x) => x.id === p.id), vp.map((x) => ({ ...x, voice: true })), { on, voice: IP.voiceOn(), engine: IP.ENGINE(), broken: IP.isBroken(m.id) })
+    IP.warm(m.id, p.id, pl.voice.filter((t) => t.engine === 'translate').map((t) => t.lang))
+  }
+}
+// interpret.js: the voice is out of quota, over the meeting's budget, or back — everyone in it hears so
+IP.onStatus((meetingId, st) => { tell(meetingId, { type: 'interp-status', ...st }).catch(() => {}) })
 
 // the room's people hear when a meeting starts, changes or ends (header button, card)
 async function roomState(m) {
@@ -123,11 +162,14 @@ export async function join(me, id, { consent = false, card = true } = {}) {
   if (m.state !== 'live') throw new TeamError(409, L('이미 끝난 회의예요.', "This meeting has already ended."))
   const live = await active(m.id)
   if (!live.some((p) => p.id === me.id) && live.length >= MAX) throw new TeamError(409, L(`회의는 ${MAX}명까지 함께할 수 있어요.`, `A meeting can have up to ${MAX} people.`))
-  await q(`insert into pro_meeting_participants(meeting_id, user_id, name, consent, consent_ever) values ($1,$2,$3,$4,$4)
+  // the language I speak and read in (my main language), kept with my place in the meeting
+  const myLang = await mainLangOf(me.id)
+  await q(`insert into pro_meeting_participants(meeting_id, user_id, name, consent, consent_ever, lang) values ($1,$2,$3,$4,$4,$5)
            on conflict (meeting_id, user_id) do update set left_at=null, seen_at=now(), joined_at=case when pro_meeting_participants.left_at is null then pro_meeting_participants.joined_at else now() end,
-             consent=excluded.consent, consent_ever=pro_meeting_participants.consent_ever or excluded.consent, name=excluded.name`, [m.id, me.id, me.name, !!consent])
-  await tell(m.id, { type: 'joined', peer: { id: me.id, name: me.name, consent: !!consent } }, { except: me.id })
+             consent=excluded.consent, consent_ever=pro_meeting_participants.consent_ever or excluded.consent, name=excluded.name, lang=excluded.lang`, [m.id, me.id, me.name, !!consent, myLang])
+  await tell(m.id, { type: 'joined', peer: { id: me.id, name: me.name, consent: !!consent, lang: myLang } }, { except: me.id })
   if (card && m.card_uuid) { await inMeeting(m, async () => R.updateCard(m, await everyone(m.id))); await roomState(m) }
+  await tellInterp(m)
   return state(me, m, room)
 }
 
@@ -142,7 +184,7 @@ export async function state(me, m0, room0) {
   const { m, room } = m0 && room0 ? { m: m0, room: room0 } : await forMember(me, m0?.id || m0)
   const people = await active(m.id)
   const mine = people.find((p) => p.id === me.id)
-  const segs = await q('select id, user_id::text as "userId", speaker, text, at, typed from (select *, false as typed from pro_meeting_segments where meeting_id=$1 order by id desc limit 120) s order by id', [m.id])
+  const segs = await q('select id, user_id::text as "userId", speaker, text, lang, coalesce(tr, \'{}\'::jsonb) as tr, at, typed from (select *, false as typed from pro_meeting_segments where meeting_id=$1 order by id desc limit 120) s order by id', [m.id])
   const sugg = await q(`select * from pro_room_suggestions where meeting_id=$1 and chat_uuid like 'meeting:%' order by created_at`, [m.id])
   const pres = presenting.get(m.id)
   let present = null
@@ -153,7 +195,8 @@ export async function state(me, m0, room0) {
   // lang: the meeting's language (what it is transcribed and written in)
   return { id: m.id, roomId: m.room_id, title: room.name || null, state: m.state, startedAt: m.started_at, startedBy: m.started_by, lang: R.meetingLang(m),
     agent: agentOn(m, room), transcribe: transcribeConfigured(), judge: I.judgeConfigured(), max: MAX, ice: ice(),
-    me: { id: me.id, name: me.name, consent: !!mine?.consent, joined: !!mine },
+    me: { id: me.id, name: me.name, consent: !!mine?.consent, joined: !!mine, lang: mine?.lang || (await mainLangOf(me.id)) },
+    interp: interpView(m, people, me),
     peers: people.map(peer), lines: segs, materials: await materialsFor(me, m),
     suggestions: sugg.map((s) => A.view(me.id, s)).filter((v) => !v.hidden), presenting: present }
 }
@@ -162,10 +205,11 @@ export async function leave(me, id) {
   const { m } = await forMember(me, id)
   const [p] = await q('update pro_meeting_participants set left_at=now() where meeting_id=$1 and user_id=$2 and left_at is null returning user_id', [m.id, me.id])
   if (p) await tell(m.id, { type: 'left', peer: { id: me.id, name: me.name } })
+  IP.closeSpeaker(m.id, me.id)
   if (m.state !== 'live') return { ok: true }
   const live = await active(m.id)
   if (!live.length) await end(m)
-  else { await inMeeting(m, async () => R.updateCard(m, await everyone(m.id))); await roomState(m) }
+  else { await inMeeting(m, async () => R.updateCard(m, await everyone(m.id))); await roomState(m); await tellInterp(m) }
   return { ok: true }
 }
 
@@ -187,6 +231,7 @@ async function ended(m, by) {
   const before = await active(m.id)
   await q('update pro_meeting_participants set left_at=coalesce(left_at, now()) where meeting_id=$1', [m.id])
   presenting.delete(m.id)
+  IP.closeMeeting(m.id)
   clearTimeout(pending.get(m.id)?.timer); pending.delete(m.id)
   await R.closeBlocks(m.id)
   const people = await everyone(m.id)
@@ -253,9 +298,56 @@ export async function media(me, id, st) {
   return s
 }
 
+// ---- interpretation controls ----
+// the meeting's 통역 switch (anyone in it): on / off for everyone
+export async function setInterp(me, id, on) {
+  const { m } = await forMember(me, id)
+  const live = await active(m.id)
+  if (!live.some((p) => p.id === me.id)) throw new TeamError(403, L('회의에 참여 중이 아니에요.', "You're not in this meeting."))
+  const [u] = await q('update pro_meetings set interp=$2 where id=$1 returning *', [m.id, !!on])
+  if (!on) IP.closeSessions(m.id)
+  for (const p of live) emit(p.id, 'meeting', { meetingId: m.id, type: 'interp', interp: interpView(u, live, p), by: me.name })
+  if (on) warmAll(u, live)
+  return interpView(u, live, me)
+}
+// what I hear: the interpreter (interp) or the speakers' own voices (original); subtitles stay either way
+export async function setListen(me, id, mode) {
+  const { m } = await forMember(me, id)
+  const v = mode === 'original' ? 'original' : 'interp'
+  const [p] = await q('update pro_meeting_participants set listen=$3 where meeting_id=$1 and user_id=$2 and left_at is null returning user_id', [m.id, me.id, v])
+  if (!p) throw new TeamError(404, L('회의에 참여 중이 아니에요.', "You're not in this meeting."))
+  return { listen: v }
+}
+// my browser heard me start talking (before the piece is cut): get the interpreter ready for it
+const warmed = new Map() // `${meeting}:${user}` -> at
+export async function speakingNow(me, id) {
+  const k = `${id}:${me.id}`
+  if (Date.now() - (warmed.get(k) || 0) < 4000) return { ok: true }
+  warmed.set(k, Date.now())
+  const { m } = await forMember(me, id)
+  const people = await active(m.id)
+  const self = people.find((p) => p.id === me.id)
+  if (!self?.consent || m.state !== 'live') return { ok: true }
+  const vp = voicePeople(m, people)
+  const pl = PA.plan(vp.find((p) => p.id === me.id), vp, { on: PA.interpOn(m.interp, vp) && IP.enabled(), voice: IP.voiceOn(), engine: IP.ENGINE(), broken: IP.isBroken(m.id) })
+  IP.warm(m.id, me.id, pl.voice.filter((t) => t.engine === 'translate').map((t) => t.lang))
+  return { ok: true }
+}
+// a ticket for my voice channel (lib/meetings/voice.js)
+export async function voiceTicket(me, id) {
+  const { m } = await forMember(me, id)
+  const [p] = await q('select user_id from pro_meeting_participants where meeting_id=$1 and user_id=$2 and left_at is null', [m.id, me.id])
+  if (!p) throw new TeamError(403, L('회의에 참여 중이 아니에요.', "You're not in this meeting."))
+  const { issueTicket } = await import('./voice.js')
+  return { ticket: issueTicket(me.id, m.id, m.tenant_id) }
+}
+
 // ---- the assistant: speech → line → room record → intents ----
 const hints = new Map() // meetingId -> {at, text}
-async function hintFor(m) {
+async function hintFor(m, spoken = null) {
+  // another language than the meeting's: the names only (a Korean or English sentence would pull the
+  // transcription toward that language)
+  if (spoken && spoken !== R.meetingLang(m)) return (await everyone(m.id)).map((p) => p.name).join(', ')
   const h = hints.get(m.id)
   if (h && Date.now() - h.at < 60000) return h.text
   const people = await everyone(m.id)
@@ -287,12 +379,27 @@ export async function audio(me, id, buf, type = 'audio/wav') {
   if (!Buffer.isBuffer(buf) || buf.length < 1600) { reject('tiny'); throw new TeamError(400, L('소리가 너무 짧아요.', "The audio is too short.")) }
   if (buf.length > 3 * 1024 * 1024) { reject('large'); throw new TeamError(413, L('한 번에 보낼 수 있는 소리는 3MB 까지예요.', "Audio can be up to 3 MB at a time.")) }
   await q('update pro_meeting_participants set seen_at=now() where meeting_id=$1 and user_id=$2', [m.id, me.id])
-  // spoken in the meeting's language (an English meeting is transcribed as English)
+  const receivedAt = Date.now()
+  // spoken in the speaker's main language (a meeting without languages set: the meeting's)
+  const spoken = p.lang || R.meetingLang(m)
+  // the interpreter starts on the sound at once (it does not wait for the words); the chain engine
+  // speaks the line's translation, so it waits for that (deferred per language)
+  const people = await active(m.id)
+  const vp = voicePeople(m, people)
+  const pl = PA.plan({ id: me.id, lang: spoken }, vp, { on: PA.interpOn(m.interp, vp) && IP.enabled(), voice: IP.voiceOn(), engine: IP.ENGINE(), broken: IP.isBroken(m.id) })
+  const waits = {}
+  for (const t of pl.voice) { let r; const pr = new Promise((res) => { r = res }); waits[t.lang] = { promise: pr, resolve: r } }
+  let lineId = null
+  if (pl.voice.length) IP.piece({ meetingId: m.id, speakerId: me.id, wav: buf, receivedAt, targets: pl.voice, textFor: (l) => waits[l]?.promise || Promise.resolve(null), lineId: () => lineId })
+    .catch((e) => console.warn('[meetings] interpret', e.message))
   return inMeeting(m, async () => {
-    const t = await transcribe(buf, { prompt: await hintFor(m), type: /webm|ogg/.test(type) ? type : 'audio/wav', language: R.meetingLang(m) })
+    let t
+    try {
+      t = await transcribe(buf, { prompt: await hintFor(m, spoken), type: /webm|ogg/.test(type) ? type : 'audio/wav', language: spoken })
+    } finally { if (!t?.text) for (const w of Object.values(waits)) w.resolve(null) }
     tstats.ms.push(t.ms); if (tstats.ms.length > 300) tstats.ms.shift()
     if (!t.text) { tstats.empty++; return { text: '', ms: t.ms } }
-    return addLine(m, me, t.text, { ms: t.ms, audioMs: wavMs(buf) })
+    return addLine(m, me, t.text, { ms: t.ms, audioMs: wavMs(buf), lang: spoken, subtitles: pl.subtitles, onTr: (l, x) => waits[l]?.resolve(x), onId: (id) => { lineId = id } })
   })
 }
 
@@ -303,19 +410,48 @@ export async function typed(me, id, text) {
   if (!p.consent) throw new TeamError(403, L('기록에 동의하지 않아 받지 않아요. 동의를 켜 주세요.', "You haven't agreed to the record, so it isn't taken. Turn consent on."))
   const t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 500)
   if (!t) throw new TeamError(400, L('내용을 적어 주세요.', "Please write something."))
-  return inMeeting(m, () => addLine(m, me, t, { typed: true }))
+  // typed lines are subtitled for the other languages like speech (not spoken by the interpreter)
+  return inMeeting(m, () => addLine(m, me, t, { typed: true, lang: p.lang || R.meetingLang(m) }))
 }
 
-async function addLine(m, me, text, { ms = null, audioMs = null } = {}) {
+// The line's translations: every other language in the meeting (subtitles, at once) and the room's
+// readers' (the record) — each once (lib/translate.js), each told to everyone as it lands ('line-tr').
+async function translateLine(m, seg, subtitles, onTr) {
+  const mlang = R.meetingLang(m)
+  if (!IP.enabled()) return {}
+  const readers = Object.values(await mainLangsOf((await M.membersOf(m.room_id)).map((p) => p.id)))
+  const langs = [...new Set([...(subtitles || []), ...PA.recordLangs(seg.lang, readers, mlang)])].filter((l) => l && l !== seg.lang)
+  const tr = {}
+  await Promise.all(langs.map(async (to) => {
+    const r = await TR.translate(seg.text, { from: seg.lang, to, kind: 'speech', budget: m.id })
+    if (r.error === 'quota') IP.quota(m.id)
+    if (r.same || r.error || r.limited || r.off || !r.text) { onTr?.(to, null); return }
+    tr[to] = r.text
+    onTr?.(to, r.text)
+    await q(`update pro_meeting_segments set tr = coalesce(tr, '{}'::jsonb) || jsonb_build_object($2::text, $3::text) where id=$1`, [seg.id, to, r.text])
+    await tell(m.id, { type: 'line-tr', id: seg.id, lang: to, text: r.text })
+    await R.lineTr(m, seg, to, r.text).catch((e) => console.warn('[meetings] record tr', e.message))
+  }))
+  return tr
+}
+
+async function addLine(m, me, text, { ms = null, audioMs = null, lang: spoken = null, subtitles = null, onTr = null, onId = null } = {}) {
   I.stats.segments++; tstats.lines++
-  const [seg] = await q(`insert into pro_meeting_segments(meeting_id, room_id, user_id, speaker, text, ms, audio_ms) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
-    [m.id, m.room_id, me.id, me.name, text, ms, audioMs])
+  const lineLang = spoken || R.meetingLang(m)
+  const [seg] = await q(`insert into pro_meeting_segments(meeting_id, room_id, user_id, speaker, text, ms, audio_ms, lang) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+    [m.id, m.room_id, me.id, me.name, text, ms, audioMs, lineLang])
+  onId?.(seg.id)
   const people = await active(m.id)
   seg.block_uuid = await R.appendLine(m, seg, quietOf(people)).catch((e) => { console.warn('[meetings] record', e.message); return null })
   if (seg.block_uuid) await q('update pro_meeting_segments set block_uuid=$2 where id=$1', [seg.id, seg.block_uuid])
-  await tell(m.id, { type: 'line', line: { id: seg.id, userId: me.id, speaker: me.name, text, at: seg.at, ms } })
-  queueDetect(m, seg, me)
-  return { id: seg.id, text, ms }
+  await tell(m.id, { type: 'line', line: { id: seg.id, userId: me.id, speaker: me.name, text, lang: lineLang, tr: {}, at: seg.at, ms } })
+  const subs = subtitles || PA.plan({ id: me.id, lang: lineLang }, voicePeople(m, people), { on: false }).subtitles
+  const done = translateLine(m, seg, subs, onTr).catch((e) => { console.warn('[meetings] translate', e.message); return {} })
+  // the helper listens in the meeting's language: another language's line is judged by its translation
+  const mlang = R.meetingLang(m)
+  if (lineLang === mlang) queueDetect(m, seg, me)
+  else done.then((tr) => { if (tr[mlang]) queueDetect(m, { ...seg, text: tr[mlang] }, me) })
+  return { id: seg.id, text, ms, lang: lineLang }
 }
 
 // debounce per meeting: lines that arrive close together are judged together, in order
@@ -491,7 +627,8 @@ export async function unpresent(me, id) {
 export function report() {
   const s = [...tstats.ms].sort((a, b) => a - b)
   const pct = (p) => (s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : null)
-  return { detection: I.report(), transcription: { ...tstats, ms: undefined, latency: { n: s.length, p50: pct(0.5), p90: pct(0.9) }, configured: transcribeConfigured() }, enabled: enabled(), agent: agentEnabled() }
+  return { detection: I.report(), transcription: { ...tstats, ms: undefined, latency: { n: s.length, p50: pct(0.5), p90: pct(0.9) }, configured: transcribeConfigured() }, enabled: enabled(), agent: agentEnabled(),
+    interpretation: IP.report(), translation: TR.report() }
 }
 
 // people whose page stopped answering are taken out; a meeting nobody is in ends (minutes follow)

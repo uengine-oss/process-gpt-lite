@@ -11,6 +11,7 @@ import { kindOf, kindLabel } from '../../artifacts.js'
 import AssistSuggestion from './AssistSuggestion.vue'
 import MeetingRoomCard from '../meetings/MeetingRoomCard.vue'
 import { useMeetings } from '../../stores/meetings.js'
+import { langLabel } from '../../i18n/mainLangs.js'
 
 const app = useApp()
 const team = useTeam()
@@ -111,7 +112,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <div class="mh"><span class="av">{{ initial(m.sender.name) }}</span>
               <span class="who"><span><b>{{ m.sender.name }}</b> · {{ kindWord[m.kind] }}</span><small>{{ when(m.at) }}</small></span></div>
             <p v-if="m.context?.title" class="ctitle">{{ m.context.title }}</p>
-            <p v-if="m.body" class="body">{{ m.body }}</p>
+            <p v-if="m.body" class="body" :data-no-i18n="team.tr[m.id]?.body ? '' : null">{{ team.trBody(m) || m.body }}</p>
+            <p v-if="team.tr[m.id]?.body" class="trl"><span>AI 번역</span><button class="press" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
             <div v-if="m.artifacts.length" class="arts">
               <button v-for="a in m.artifacts" :key="a.shareId" class="art press" :disabled="!a.shareId || busy === `f${a.shareId}`" @click="openFile(a)">
                 <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span>{{ a.name }}
@@ -154,7 +156,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ m.sender.name }}</p>
                 <p v-if="m.kind === 'agent'" class="kind">✦ {{ m.sender.name }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
                 <p v-else-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : m.sender.name }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
-                <p v-if="m.body" class="txt">{{ m.body }}</p>
+                <p v-if="m.body" class="txt" :data-no-i18n="team.tr[m.id]?.body ? '' : null" data-test="msg-text">{{ team.trBody(m) || m.body }}</p>
+                <!-- auto-translation (another language than mine): AI 번역 · 원문 보기 / Show original -->
+                <p v-if="team.tr[m.id]?.body" class="trl" data-test="msg-tr"><span>AI 번역<template v-if="team.tr[m.id].from"> · <b data-no-i18n>{{ langLabel(team.tr[m.id].from) }}</b></template></span><button class="press" data-test="show-original" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
                 <details v-if="m.context?.excerpt?.length" class="ex"><summary>대화 발췌</summary><p v-for="(l, i) in m.context.excerpt" :key="i">{{ l }}</p></details>
                 <div v-if="m.artifacts.length" class="arts">
                   <button v-for="a in m.artifacts" :key="a.name + a.shareId" class="art press" :disabled="!a.shareId" @click="openFile(a)">
@@ -260,6 +264,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .msg.agent .bub { border-color: rgba(122, 90, 245, .45); }
 .kind { margin: 0 0 4px; font-size: 12px; color: var(--text-secondary); }
 .txt { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.trl { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; font-size: 11.5px; color: var(--text-secondary); }
+.trl span { opacity: .8; }
+.trl button { font-size: 11.5px; padding: 1px 8px; border-radius: 8px; background: rgba(127, 127, 127, .14); color: inherit; }
 .ex { margin-top: 6px; font-size: 12.5px; color: var(--text-secondary); }
 .ex summary { cursor: pointer; } .ex p { margin: 4px 0 0; }
 .cont { margin-top: 8px; }

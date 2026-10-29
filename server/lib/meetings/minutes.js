@@ -11,6 +11,8 @@ import { WORKS, view as suggestionView } from '../team/assist.js'
 import * as R from './record.js'
 import { isEn } from '../lang.js'
 import { WORKS_EN } from './intent.js'
+import { translate } from '../translate.js'
+import { mainLangsOf } from '../mainLang.js'
 
 const T = () => config.tenantId
 const JUDGE_URL = process.env.PRO_JUDGE_URL ?? 'http://127.0.0.1:8896/judge'
@@ -22,9 +24,11 @@ const SYS_EN = 'You are an assistant who writes meeting minutes. Read the transc
   + 'Write every sentence in English, short and plain, in the past tense ("We agreed to …", "Minji will …"). Do not make anything up: only what was said. '
   + 'Action items are only things someone at the meeting agreed to do or asked for, at most 4, each a short imperative phrase ("Send the revised quote to the customer"). '
   + 'Looking at material is not an action item by itself.'
+// a line in another language reaches the model with its translation into the meeting's language
+const said = (l, mlang) => `${l.speaker}: ${l.text}${l.lang && l.lang !== mlang && l.tr?.[mlang] ? ` (${l.tr[mlang]})` : ''}`
 async function summarize(lines, people, materials) {
   if (!lines.length) return null
-  const transcript = lines.map((l) => `${l.speaker}: ${l.text}`).join('\n').slice(-9000)
+  const transcript = lines.map((l) => said(l, isEn() ? 'en' : 'ko')).join('\n').slice(-9000)
   const sys = isEn() ? SYS_EN : '너는 회의록을 쓰는 비서야. 받아쓴 회의 대화를 읽고 JSON 으로만 답해. 모든 문장은 해요체("…했어요", "…하기로 했어요")로 짧게 써. "합니다/했습니다/하다" 로 끝내지 마. 지어내지 말고 대화에 나온 것만. ' +
     '할 일은 회의에서 누군가 하기로 하거나 부탁한 일만 많아야 4개, "…하기" 로 끝나는 명사형으로. 자료를 본 것 자체는 할 일이 아니야.'
   const user = isEn()
@@ -72,7 +76,7 @@ async function workOf(title) {
 
 export async function finalize(m) {
   const people = await q('select user_id::text as id, name, consent_ever, joined_at, left_at from pro_meeting_participants where meeting_id=$1 order by joined_at', [m.id])
-  const segs = await q('select speaker, user_id::text as user_id, text, at from pro_meeting_segments where meeting_id=$1 order by id', [m.id])
+  const segs = await q('select speaker, user_id::text as user_id, text, lang, tr, at from pro_meeting_segments where meeting_id=$1 order by id', [m.id])
   const mats = await q('select * from pro_meeting_materials where meeting_id=$1 order by created_at', [m.id])
   const tasks = await q(`select id, title, state, started_by, result_uuid from pro_room_suggestions where meeting_id=$1 and chat_uuid like 'meeting:%' and state <> 'open' order by created_at`, [m.id])
   const names = people.map((p) => p.name)
@@ -96,7 +100,10 @@ export async function finalize(m) {
   ].filter((x) => x !== null).join('\n')
   const lang = isEn() ? 'en' : null
   const quiet = []
+  // each of the room's people reads the minutes in their main language: the same structure, translated
+  const tr = await translated(m, s)
   const uuid = await R.minutesRow(m, md, {
+    lang: isEn() ? 'en' : 'ko', ...(Object.keys(tr).length ? { tr } : {}),
     summary: s.summary, decisions: s.decisions, actions: s.actions, people: names, declined, minutes: mins, by,
     startedAt: m.started_at, endedAt: m.ended_at, lines: segs.length,
     materials: shown.map((x) => ({ id: x.id, kind: x.kind, title: x.title, roomCard: x.chat_uuid || null })),
@@ -118,6 +125,25 @@ export async function finalize(m) {
   // (the meeting's language stays with it: lib/meetings/service.js meetingLang)
   await q('update pro_meetings set summary=$2 where id=$1', [m.id, { ...s, by, declined, minutes: mins, ...(lang ? { lang } : {}) }])
   return uuid
+}
+
+// {ja: {summary, decisions: [...], actions: [title...]}, …} for every main language among the room's
+// people other than the meeting's (lib/translate.js: once per text and language)
+export async function translated(m, s) {
+  const base = isEn() ? 'en' : 'ko'
+  const members = await q(`select p->>'id' as id from chat_rooms r, jsonb_array_elements(r.participants) p where r.id=$1 and p->>'id' ~ '^[0-9a-f-]{36}$'`, [m.room_id])
+  const langs = [...new Set(Object.values(await mainLangsOf(members.map((x) => x.id))))].filter((l) => l !== base)
+  const out = {}
+  const one = async (text, to) => {
+    if (!text) return text
+    const r = await translate(text, { from: base, to, kind: 'chat', budget: `minutes:${m.id}` })
+    return r.same || r.error || r.limited || r.off ? null : r.text
+  }
+  await Promise.all(langs.map(async (to) => {
+    const [summary, decisions, actions] = await Promise.all([one(s.summary, to), Promise.all(s.decisions.map((d) => one(d, to))), Promise.all(s.actions.map((a) => one(a.title, to)))])
+    if (summary) out[to] = { summary, decisions, actions }
+  }))
+  return out
 }
 
 function minutesEn({ m, mins, names, declined, s, shown, tasks }) {

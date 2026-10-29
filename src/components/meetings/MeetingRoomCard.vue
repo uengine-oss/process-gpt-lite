@@ -7,6 +7,8 @@ import { useRouter } from 'vue-router'
 import { useMeetings } from '../../stores/meetings.js'
 import { useTeam } from '../../stores/team.js'
 import { kindOf, kindLabel } from '../../artifacts.js'
+import { useApp } from '../../stores/app.js'
+import { langLabel } from '../../i18n/mainLangs.js'
 
 const props = defineProps({ m: Object, title: String })
 const mt = useMeetings()
@@ -21,6 +23,22 @@ const joined = computed(() => mt.m?.id === mm.value.id)
 const hhmm = (d) => (d ? new Date(d).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '')
 const KIND = { file: '파일', process: '진행 상황', panel: '앱 데이터', folder: '폴더 문서', result: '에이전트 결과' }
 const join = () => mt.openLobby(props.m.threadId, props.title)
+// the record in my main language: a line said in another language reads translated (made in the meeting
+// or now, team store tr), the minutes in mine (pgpt.meeting.tr) — the original one click away
+const app = useApp()
+const my = computed(() => app.me?.mainLang || 'ko')
+const orig = computed(() => !!team.original[props.m.id])
+const lineIdx = (l) => lines.value.indexOf(l)
+const lineTr = (l) => (l.lang && l.lang !== my.value ? l.tr?.[my.value] || team.tr[props.m.id]?.lines?.[lineIdx(l)] || null : null)
+const anyTr = computed(() => lines.value.some((l) => lineTr(l)))
+const minTr = computed(() => {
+  if (props.m.kind !== 'meeting-minutes' || (mm.value.lang || 'ko') === my.value) return null
+  const t = mm.value.tr?.[my.value] || team.tr[props.m.id]?.minutes
+  return t?.summary ? t : null
+})
+const summary = computed(() => (minTr.value && !orig.value ? minTr.value.summary : mm.value.summary))
+const decisions = computed(() => (mm.value.decisions || []).map((d, i) => (minTr.value && !orig.value ? minTr.value.decisions?.[i] || d : d)))
+const actionTitle = (a, i) => (minTr.value && !orig.value ? minTr.value.actions?.[i] || a.title : a.title)
 const openFile = (a) => a.shareId && team.openShared(a.shareId, router)
 function goto(uuid) {
   if (!uuid) return
@@ -49,7 +67,11 @@ function goto(uuid) {
     <template v-else-if="m.kind === 'meeting-transcript'">
       <p class="hd">🎙 회의록 {{ mm.block }} <small>{{ hhmm(lines[0]?.at) }}–{{ hhmm(lines[lines.length - 1]?.at) }} · {{ lines.length }}줄</small></p>
       <button v-if="lines.length > 6 && !open" class="more press" @click="open = true">앞의 {{ lines.length - 6 }}줄 더 보기</button>
-      <p v-for="(l, i) in shownLines" :key="i" class="ln"><b>{{ l.speaker }}</b> {{ l.text }}</p>
+      <p v-for="(l, i) in shownLines" :key="i" class="ln" :data-lang="l.lang"><b>{{ l.speaker }}</b>
+        <span v-if="lineTr(l) && !orig" data-no-i18n data-test="record-tr">{{ lineTr(l) }} <small class="o"><i>{{ langLabel(l.lang) }}</i> {{ l.text }}</small></span>
+        <span v-else :data-no-i18n="lineTr(l) ? '' : null">{{ l.text }}</span>
+      </p>
+      <p v-if="anyTr" class="trl"><span>AI 번역</span><button class="press" data-test="record-original" @click="team.toggleOriginal(m.id)">{{ orig ? '번역 보기' : '원문 보기' }}</button></p>
     </template>
 
     <!-- a material shown -->
@@ -67,11 +89,12 @@ function goto(uuid) {
     <!-- the final minutes -->
     <template v-else-if="m.kind === 'meeting-minutes'">
       <p class="hd big">📝 회의록 <small>{{ hhmm(mm.startedAt) }}–{{ hhmm(mm.endedAt) }} · {{ mm.minutes }}분 · {{ (mm.people || []).length }}명</small></p>
-      <p class="ppl">참여 {{ (mm.people || []).join(', ') }}</p>
+      <p class="ppl"><span>참여</span> <span data-no-i18n>{{ (mm.people || []).join(', ') }}</span></p>
       <p v-if="mm.declined?.length" class="dec">받아쓰기에 동의하지 않은 분: {{ mm.declined.join(', ') }} — 이분들의 말은 기록하지 않았어요.</p>
-      <p class="sum">{{ mm.summary }}</p>
-      <template v-if="mm.decisions?.length"><p class="sub">결정</p><ul><li v-for="(d, i) in mm.decisions" :key="i">{{ d }}</li></ul></template>
-      <template v-if="mm.actions?.length"><p class="sub">할 일</p><ul><li v-for="(a, i) in mm.actions" :key="i">{{ a.title }}<small v-if="a.owner"> · {{ a.owner }}</small></li></ul></template>
+      <p class="sum" :data-no-i18n="minTr ? '' : null" data-test="minutes-summary">{{ summary }}</p>
+      <template v-if="mm.decisions?.length"><p class="sub">결정</p><ul :data-no-i18n="minTr ? '' : null"><li v-for="(d, i) in decisions" :key="i">{{ d }}</li></ul></template>
+      <template v-if="mm.actions?.length"><p class="sub">할 일</p><ul :data-no-i18n="minTr ? '' : null"><li v-for="(a, i) in mm.actions" :key="i">{{ actionTitle(a, i) }}<small v-if="a.owner"> · {{ a.owner }}</small></li></ul></template>
+      <p v-if="minTr" class="trl"><span>AI 번역 · <b data-no-i18n>{{ langLabel(mm.lang || 'ko') }}</b></span><button class="press" data-test="minutes-original" @click="team.toggleOriginal(m.id)">{{ orig ? '번역 보기' : '원문 보기' }}</button></p>
       <template v-if="mm.materials?.length">
         <p class="sub">띄운 자료</p>
         <div class="chips"><button v-for="x in mm.materials" :key="x.id" class="chip press" :disabled="!x.roomCard" @click="goto(x.roomCard)">{{ KIND[x.kind] }} · {{ x.title }}</button></div>
@@ -104,6 +127,10 @@ function goto(uuid) {
 .ln { margin: 3px 0; line-height: 1.5; font-size: 13.5px; }
 .ln b { font-weight: 600; color: #3b5bdb; margin-right: 4px; }
 .more { font-size: 12px; color: #7a5af5; margin-bottom: 4px; }
+.ln .o { color: var(--text-tertiary); font-size: 12px; margin-left: 4px; }
+.ln .o i { font-style: normal; font-size: 10.5px; padding: 0 5px; border-radius: 5px; background: rgba(127, 127, 127, .14); margin-right: 2px; }
+.trl { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 11.5px; color: var(--text-secondary); }
+.trl button { font-size: 11.5px; padding: 1px 8px; border-radius: 8px; background: rgba(127, 127, 127, .14); color: inherit; }
 .mt { margin: 0; }
 .why { margin: 4px 0 0; font-size: 12.5px; color: var(--text-secondary); }
 .arts, .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

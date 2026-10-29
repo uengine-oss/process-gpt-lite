@@ -23,8 +23,8 @@ async function go() {
 <template>
   <div class="as glass" :class="s.state">
     <template v-if="s.state === 'open'">
-      <div class="hd"><span class="verb" :title="s.work">{{ s.kind || '도움' }}</span><span class="q">이 일을 도와드릴까요? · <b>{{ s.title }}</b></span></div>
-      <p class="why">{{ s.reason }}</p>
+      <div class="hd"><span class="verb" :title="s.work">{{ s.kind || '도움' }}</span><span class="q">이 일을 도와드릴까요? · <b :data-no-i18n="team.trSug(s, 'title') ? '' : null">{{ team.trSug(s, 'title') || s.title }}</b></span></div>
+      <p class="why" :data-no-i18n="team.trSug(s, 'reason') ? '' : null">{{ team.trSug(s, 'reason') || s.reason }}</p>
       <div class="btns">
         <button class="b main press" :disabled="busy" @click="go">{{ busy ? '시작하는 중…' : '시작' }}</button>
         <button class="b ghost press" :disabled="busy" @click="team.dismissSuggestion(s)">아니요</button>

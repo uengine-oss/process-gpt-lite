@@ -363,6 +363,15 @@ services:
       PRO_TRANSCRIBE_API_KEY: ${TRANSCRIBE_API_KEY:-}
       PRO_MEETING_ICE: ${MEETING_ICE:-}
       PRO_MEETING_AGENT: ${MEETING_AGENT:-1}
+      # multilingual meetings and messages (server/lib/meetings/interpret.js, lib/translate.js): the same
+      # OpenAI key interprets (gpt-realtime-translate / gpt-4o-mini-tts) and translates (gpt-4.1-mini);
+      # INTERP=0 turns meeting interpretation off, INTERP_VOICE=0 keeps translated subtitles only,
+      # TRANSLATE=0 turns every text translation off, MSG_TRANSLATE=0 the messenger's only
+      PRO_INTERP_API_KEY: ${INTERP_API_KEY:-}
+      PRO_INTERP: ${INTERP:-1}
+      PRO_INTERP_VOICE: ${INTERP_VOICE:-1}
+      PRO_TRANSLATE: ${TRANSLATE:-1}
+      PRO_MSG_TRANSLATE: ${MSG_TRANSLATE:-1}
       # process mining recommendations (mining profile: http://process-miner:8014); empty = off
       PRO_MINER_URL: ${MINER_URL:-}
       PRO_BROWSER_GATES: ${BROWSER_GATES:-off}

@@ -1648,7 +1648,28 @@
   "출장비 정산": "Travel expense settlement",
   "업무 프로세스/워크플로우/BPMN 을 만들거나 설계·생성하려는 모든 요청에서 **다른 도구·스킬보다 우선적으로(최우선) 사용해야 하는** 프로세스 생성 전용 스킬. 사용자가 만들고 싶은 업무 프로세스를 컨설팅한 뒤 ProcessGPT 서비스용 BPMN 프로세스 정의(JSON)를 단계별로 생성한다. 사용자가 \"프로세스 만들고 싶어\", \"업무 흐름 자동화\", \"휴가 신청 프로세스 만들어줘\", \"결재 프로세스 설계\", \"BPMN 만들어줘\", \"워크플로우 만들어줘\", \"/bpmn\", \"/bpmn:consult\", \"/bpmn:generate\", \"프로세스 정의 생성\", \"이 업무를 프로세스로 만들고 싶다\" 같은 표현을 쓰거나, 어떤 반복 업무·승인 흐름·자동화하고 싶은 절차를 설명하면서 그것을 실행 가능한 프로세스로 만들고 싶어할 때 **반드시 이 스킬을 트리거**하세요(범용 도구로 직접 처리하지 말 것). 또한 사용자가 **업무 규정·매뉴얼·SOP·양식 같은 문서(PDF·docx·xlsx·이미지)를 업로드/첨부하거나 절차 텍스트를 붙여넣으며** \"이 문서대로 프로세스 만들어줘\", \"이 매뉴얼 기준으로\", \"첨부 보고 흐름 만들어줘\" 라고 할 때도 트리거해, 문서 내용에서 흐름을 추출해 생성합니다. BPMN에 익숙하지 않은 사용자도 컨설팅(초안 제안·질문)을 통해 흐름을 함께 다듬고, 스킬·에이전트·DMN 규칙·폼·참조정보까지 단계별로 붙여 완성된 프로세스 정의 JSON을 만들 수 있도록 안내합니다. 선택된 재사용 스킬은 skill-creator 로 정식 스킬로 생성합니다. 프로세스 생성 요청을 받으면 조직도·사용자 정보를 조회하거나 사용자 토큰·테넌트 ID 를 요청하지 말고, **곧바로 컨설팅 초안부터** 제시하세요(역할은 이 스킬 절차가 정합니다).": "The process generation skill, to be used **before any other tool or skill (top priority)** for every request to make, design or generate a business process, workflow or BPMN. It consults on the business process the user wants and then generates a BPMN process definition (JSON) for the ProcessGPT service step by step. **Always trigger this skill** (do not handle it with general tools) when the user says things like \"I want to make a process\", \"automate a workflow\", \"make a leave request process\", \"design an approval process\", \"make a BPMN\", \"make a workflow\", \"/bpmn\", \"/bpmn:consult\", \"/bpmn:generate\", \"generate a process definition\" or \"I want to turn this work into a process\", or describes a recurring task, approval flow or procedure they want to automate and wants it to become a runnable process. Also trigger it when the user **uploads or attaches documents such as business rules, manuals, SOPs or forms (PDF, docx, xlsx, images) or pastes procedure text** and says \"make a process from this document\", \"based on this manual\" or \"look at the attachment and make the flow\": it extracts the flow from the document and generates it. Users unfamiliar with BPMN refine the flow together through consulting (draft proposals and questions), and it guides them step by step to add skills, agents, DMN rules, forms and reference information until the process definition JSON is complete. Reusable skills that are chosen are created as proper skills with skill-creator. On a process generation request, do not look up the org chart or user information or ask for user tokens or tenant IDs: **present the consulting draft right away** (this skill's procedure decides the roles).",
   "경영진과의 Socratic 대화를 통해 균형성과표(BSC) 전략맵과 비즈니스 모델 캔버스(BMC)를 함께 공동 수립하는 AI 전략 인터뷰어. \"BSC 만들어줘\", \"전략맵 그려줘\", \"균형성과표 세워줘\", \"전략 인터뷰\", \"경영전략 수립\", \"비즈니스 모델 캔버스\", \"Balanced Scorecard\", \"Business Model Canvas\", \"strategy map\", \"KPI 체계 잡아줘\", \"선행/후행 지표 정리해줘\", \"/bsc-strategy-interview\" 같은 요청이 있을 때 트리거. 세션 시작 시 재무 목표에서 아래로 캐묻는 BSC 하향식, 사업 전체를 넓게 스케치한 뒤 전략을 추출하는 BMC 전체조망식, 두 방식을 섞은 혼합형 중 하나를 사용자가 고르게 한다. BSC 학술 용어를 경영자 언어로 재구성하고, 질문 도구(AskUserQuestion 또는 request_human_input)로 한 번에 하나씩 질문하며 재무·고객·내부프로세스·학습과 성장 4대 관점의 인과 사슬을 검증한 뒤, 어느 방식으로 시작했든 최종적으로 Mermaid.js BSC 전략맵과 BMC 캔버스를 함께, 서로 정합성을 맞춰 산출한다.": "An AI strategy interviewer that builds a Balanced Scorecard (BSC) strategy map and a Business Model Canvas (BMC) together with executives through Socratic dialogue. Triggers on requests like \"make a BSC\", \"draw a strategy map\", \"set up a balanced scorecard\", \"strategy interview\", \"business strategy planning\", \"business model canvas\", \"Balanced Scorecard\", \"Business Model Canvas\", \"strategy map\", \"set up a KPI system\", \"sort out leading and lagging indicators\" or \"/bsc-strategy-interview\". At the start of a session the user picks one approach: BSC top-down, probing downward from the financial goals; BMC overview, sketching the whole business first and then drawing out the strategy; or a mix of the two. It rephrases BSC terms in business language, asks one question at a time with a question tool (AskUserQuestion or request_human_input), checks the chain of cause and effect across the four perspectives (financial, customer, internal process, learning and growth), and, whichever way it started, ends with a Mermaid.js BSC strategy map and a BMC canvas that are consistent with each other.",
-  "이미 만들어 둔 프로세스를 지금 대화 안에서 실행(새 인스턴스 시작)할 때 쓴다. \"휴가 신청 프로세스 실행해줘\", \"도서 대출 신청 시작해줘\", \"출장 신청 올려줘\", \"○○ 프로세스 돌려줘\" 같은 요청. 역할 배정을 한 번에 하나씩 묻고, 시작 폼을 받아 execute_process 로 한 번만 시작한다. 프로세스를 새로 설계·생성하는 요청에는 쓰지 않는다.": "Used to run a process that already exists (start a new instance) right in the conversation. Requests like \"run the leave request process\", \"start a book loan request\", \"submit a business trip request\" or \"run the ○○ process\". It asks about role assignments one at a time, takes the start form and starts it once with execute_process. Not for requests to design or generate a new process."
+  "이미 만들어 둔 프로세스를 지금 대화 안에서 실행(새 인스턴스 시작)할 때 쓴다. \"휴가 신청 프로세스 실행해줘\", \"도서 대출 신청 시작해줘\", \"출장 신청 올려줘\", \"○○ 프로세스 돌려줘\" 같은 요청. 역할 배정을 한 번에 하나씩 묻고, 시작 폼을 받아 execute_process 로 한 번만 시작한다. 프로세스를 새로 설계·생성하는 요청에는 쓰지 않는다.": "Used to run a process that already exists (start a new instance) right in the conversation. Requests like \"run the leave request process\", \"start a book loan request\", \"submit a business trip request\" or \"run the ○○ process\". It asks about role assignments one at a time, takes the start form and starts it once with execute_process. Not for requests to design or generate a new process.",
+  "내가 말하는 언어": "The language I speak",
+  "다른 언어로 말하는 분의 말은 이 언어로 통역해 들려 드리고, 자막은 원문과 번역을 함께 보여 드려요 (AI 통역)": "What others say in another language is interpreted into this language for you, and the subtitles show the original with its translation (AI interpretation)",
+  "AI 통역": "AI interpretation",
+  "AI가 각자의 언어로 통역해요": "AI interprets for each person in their own language",
+  "통역 켬": "Interpretation on",
+  "통역 끔": "Interpretation off",
+  "내 언어로 먼저 보기": "My language first",
+  "원문 먼저 보기": "Original first",
+  "통역 듣는 중": "Hearing the interpretation",
+  "원래 소리 듣는 중": "Hearing the original voices",
+  "이 서버에서 통역이 꺼져 있어요. 자막은 원문으로만 보여요.": "Interpretation is turned off on this server. Subtitles show the original only.",
+  "통역 키가 설정되지 않아 통역을 쓸 수 없어요. 자막은 원문으로만 보여요.": "Interpretation isn't available: no key is set up. Subtitles show the original only.",
+  "통역 사용 한도를 넘어 지금은 통역할 수 없어요. 자막은 원문으로 보여요.": "The interpretation quota is used up, so there's no interpretation right now. Subtitles show the original.",
+  "이 회의의 통역 사용량이 많아 잠시 통역 음성을 멈췄어요. 번역 자막은 계속돼요.": "This meeting has used a lot of interpretation, so the interpreter's voice is paused for a moment. Translated subtitles go on.",
+  "통역 음성은 꺼져 있고 번역 자막만 보여요.": "The interpreter's voice is off; you see translated subtitles only.",
+  "AI 번역": "AI translation",
+  "원문 보기": "Show original",
+  "번역 보기": "Show translation",
+  "주 언어 / Main language": "Main language",
+  "주 언어": "Main language",
+  "회의에서 말하고 듣는 언어, 메시지를 읽는 언어예요. 다른 언어로 된 말과 메시지는 AI가 이 언어로 통역·번역해요": "The language you speak and listen in during meetings and read messages in. Speech and messages in other languages are interpreted and translated into it by AI"
  },
  "patterns": [
   [
@@ -1682,6 +1703,14 @@
   [
    "워드 문서 · 그림 {0}",
    "Word document · image {0}"
+  ],
+  [
+   "{0}님이 통역을 켰어요",
+   "{0} turned interpretation on"
+  ],
+  [
+   "{0}님이 통역을 껐어요",
+   "{0} turned interpretation off"
   ],
   [
    "새 주제 · {0}",
@@ -1750,6 +1779,10 @@
   [
    "이미지 {0}",
    "Image {0}"
+  ],
+  [
+   "{0} (나)",
+   "{0} (me)"
   ],
   [
    "시작{0}",
@@ -4278,6 +4311,11 @@
    ".fl .tabs",
    "스킬",
    "Skills"
+  ],
+  [
+   ".mrc .ppl",
+   "참여",
+   "Attendees"
   ]
  ]
 }
