@@ -4,12 +4,17 @@
 //   · 다른 사람 문서는 파일 카드가 되지 않고, 이 대화 폴더의 문서만 원래 이름으로 붙는다 (#6·#39)
 //   · 공유하지 않은 내 스킬을 파일과 함께 부르면 스킬 위치와 첨부가 함께 간다 (#18)
 //   · 빈 답은 빈 말풍선이 아니라 안내 문장으로
+//   · 새 프로세스 초안 카드는 이번 턴이 쓴 정의(폴더) — 스트림에 먼저 온 스킬 예시('휴가 신청 프로세스')가
+//     아니고, 프로세스 폴더 안의 스킬(process-*/skills/xlsx)은 스킬 초안 카드가 아님. 정의를 쓰지 않은 턴(초안 제안)은 카드 없음
 // 데이터베이스(supabase-db)가 없으면 건너뜀. 시험 사용자는 무작위 id(로그인 계정 아님), 끝나면 지움.
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { config } from '../config.js'
 import { q, pool } from '../lib/supa.js'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { PGPT_ROOT } from '../lib/paths.js'
 
 const up = await q('select 1').then(() => true, () => false)
 
@@ -64,7 +69,11 @@ async function thread(conv) {
 const msgs = (tid) => q('select id, role, kind, content from pro_messages where thread_id=$1 order by created_at', [tid])
 const skillName = `fxa-quote-${stamp}`
 
+// a generation folder in the deepagents workspace (lib/missions.js workspaceHostPath), removed at the end
+const WS = path.join(PGPT_ROOT, 'services/deepagents/workspace', config.tenantId)
+const rooms = []
 after(async () => {
+  for (const r of rooms) await fs.rm(path.join(WS, '.bpmn', r), { recursive: true, force: true })
   globalThis.fetch = realFetch
   if (up) {
     if (threads.length) await q('delete from pro_threads where id = any($1)', [threads])
@@ -168,4 +177,94 @@ test('아무 내용 없이 끝난 답은 안내 문장으로', { skip: !up }, as
   h.end()
   const m = await p
   assert.equal(m.content.text, EMPTY_TEXT)
+})
+
+// what deepagents sent before it read results only from the process folder: the first definition-shaped
+// JSON in the stream — here the skill's schema sample the agent read
+const LEAVE = { type: 'process-definition-result', processDefinition: { processDefinitionName: '휴가 신청 프로세스', processDefinitionId: 'leave_request_process', elements: [] }, forms: [], agents: [], skills: [] }
+const MINE = {
+  processDefinitionName: 'Moonlight Coffee proposal', processDefinitionId: 'moonlight_coffee_proposal', description: 'Design request mail to the reply', isHorizontal: true, data: [],
+  roles: [{ name: 'Sales', endpoint: 'sales', resolutionRule: 'the requester', origin: 'created' }],
+  elements: [
+    { elementType: 'Event', id: 'start_event', name: 'Request received', role: 'Sales', type: 'StartEvent' },
+    { elementType: 'Sequence', id: 'seq_1', source: 'start_event', target: 'receive_mail' },
+    { elementType: 'Activity', id: 'receive_mail', name: 'Receive request mail', role: 'Sales', type: 'UserActivity', tool: 'formHandler:receive_mail', inputData: [], outputData: ['request'], checkpoints: [], duration: 1 },
+    { elementType: 'Sequence', id: 'seq_2', source: 'receive_mail', target: 'end_event' },
+    { elementType: 'Event', id: 'end_event', name: 'Reply sent', role: 'Sales', type: 'EndEvent' },
+  ],
+}
+
+test('새 프로세스 초안 카드는 이번 턴이 폴더에 쓴 정의 — 먼저 읽은 스킬 예시도, 프로세스 폴더의 xlsx 스킬도 카드가 아님', { skip: !up }, async () => {
+  const conv = `fxa-d-${stamp}`
+  rooms.push(conv)
+  const work = path.join(WS, '.bpmn', conv, 'process-fxa')
+  await fs.mkdir(path.join(work, 'skills', 'xlsx'), { recursive: true })
+  await fs.writeFile(path.join(work, 'process-definition.json'), JSON.stringify(MINE))
+  await fs.writeFile(path.join(work, 'skills', 'xlsx', 'SKILL.md'), '---\nname: xlsx\ndescription: 엑셀\n---\n')
+  const tid = await thread(conv)
+  const n0 = streams.length
+  // (a document request goes straight to the agent: no router model in this test)
+  const p = runTurn({ user, session, threadId: tid, text: 'Write the definition document of the Moonlight Coffee proposal process' })
+  const h = await nth(n0 + 1)
+  const base = `/workspace/.bpmn/${conv}/process-fxa`
+  h.push('message', { type: 'tool_start', tool: 'read_file', input: { file_path: '/skills/process-gpt-system/bpmn-process-generation-skill/assets/templates/process-definition.schema.json' } })
+  h.push('message', { type: 'process_result', data: LEAVE })
+  h.push('message', { type: 'file_artifact', op: 'create', path: `${base}/process-definition.json`, name: 'process-definition.json', ext: '.json', content: JSON.stringify(MINE) })
+  // completion re-sends the folder, its skills included
+  h.push('message', { type: 'file_artifact', op: 'edit', path: `${base}/skills/xlsx/SKILL.md`, name: 'SKILL.md', ext: '.md', content: '---\nname: xlsx\n---' })
+  h.push('message', { type: 'token', content: 'I built the Moonlight Coffee proposal process.' })
+  h.end()
+  await p
+  const rows = await msgs(tid)
+  assert.equal(rows.filter((m) => m.kind === 'skill_draft').length, 0, 'no xlsx skill draft card')
+  const drafts = rows.filter((m) => m.kind === 'process_draft')
+  assert.equal(drafts.length, 1)
+  assert.equal(drafts[0].content.contract.processDefinition.processDefinitionName, 'Moonlight Coffee proposal')
+  assert.equal(drafts[0].content.workDir, `/.bpmn/${conv}/process-fxa/`)
+  const acts = drafts[0].content.contract.processDefinition.activities || drafts[0].content.contract.processDefinition.elements.filter((e) => e.elementType === 'Activity')
+  assert.deepEqual(acts.map((a) => a.name), ['Receive request mail'])
+})
+
+// the skill test step inside a process generation (deepagents plan_skill_eval) draws its test floor plans under
+// <room>/.skill-evals/…/outputs/, and the answer lists them: four .dxf cards came above the draft card
+test('스킬 시험 단계(.skill-evals)의 산출물은 답에 경로가 적혀 있어도 파일 카드가 아님 — 초안 카드만', { skip: !up }, async () => {
+  const conv = `fxa-v-${stamp}`
+  rooms.push(conv)
+  const work = path.join(WS, '.bpmn', conv, 'process-fxv')
+  await fs.mkdir(work, { recursive: true })
+  await fs.writeFile(path.join(work, 'process-definition.json'), JSON.stringify(MINE))
+  const evals = ['basic-store-floor-plan/with_skill/outputs/floor-plan.dxf', 'basic-store-floor-plan/without_skill/outputs/moonlight_coffee_floor_plan.dxf',
+    'revised-floor-plan-with-notes/with_skill/outputs/Moonlight Coffee revised floor plan.dxf', 'revised-floor-plan-with-notes/without_skill/outputs/floor-plan.dxf']
+  for (const e of evals) {
+    const f = path.join(WS, '.bpmn', conv, '.skill-evals', 'floor-plan-cad', 'iteration-1', e)
+    await fs.mkdir(path.dirname(f), { recursive: true })
+    await fs.writeFile(f, '0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n')
+  }
+  const tid = await thread(conv)
+  const n0 = streams.length
+  const p = runTurn({ user, session, threadId: tid, text: 'Write the definition document of the Moonlight Coffee proposal process' })
+  const h = await nth(n0 + 1)
+  const room = `/workspace/.bpmn/${conv}`
+  h.push('message', { type: 'file_artifact', op: 'create', path: `${room}/process-fxv/process-definition.json`, name: 'process-definition.json', ext: '.json', content: JSON.stringify(MINE) })
+  h.push('message', { type: 'token', content: `The eval gate is done. Test outputs:\n${evals.map((e) => `- \`${room}/.skill-evals/floor-plan-cad/iteration-1/${e}\``).join('\n')}\n\nThe process is ready — press Save.` })
+  h.end()
+  await p
+  const rows = await msgs(tid)
+  assert.deepEqual(rows.filter((m) => m.kind === 'file').map((m) => m.content.path), [], 'no file card for a test run')
+  assert.equal(rows.filter((m) => m.kind === 'process_draft').length, 1)
+})
+
+test('정의를 쓰지 않은 턴(초안 제안)에는 새 프로세스 초안 카드가 없음', { skip: !up }, async () => {
+  const conv = `fxa-c-${stamp}`
+  const tid = await thread(conv)
+  const n0 = streams.length
+  const p = runTurn({ user, session, threadId: tid, text: 'Write a draft document of the Moonlight Coffee proposal process' })
+  const h = await nth(n0 + 1)
+  h.push('message', { type: 'process_result', data: LEAVE })
+  h.push('message', { type: 'token', content: 'Here is the draft of the flow. Shall I proceed?' })
+  h.end()
+  await p
+  const rows = await msgs(tid)
+  assert.equal(rows.filter((m) => m.kind === 'process_draft').length, 0)
+  assert.match(rows.filter((m) => m.role === 'agent').at(-1).content.text, /Shall I proceed/)
 })

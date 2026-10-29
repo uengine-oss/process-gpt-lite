@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { marked } from 'marked'
+import { hidePaths } from '../paths.js'
 import StepTimeline from './StepTimeline.vue'
 import AgentActivity from './AgentActivity.vue'
 import { auth, api } from '../api.js'
@@ -31,7 +32,7 @@ async function retry(s) {
   try { await api(`/todos/${encodeURIComponent(s.todoId)}/retry`, { method: 'POST' }); emit('refresh') }
   catch (e) { retryErr.value = `다시 시도하지 못했어요. ${e.message.slice(0, 120)}` }
 }
-const md = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { breaks: true })
+const md = (t) => marked.parse(hidePaths(t || '').replace(/</g, '&lt;'), { breaks: true })
 const fieldLabel = (a) => a.label || a.field?.replace(/_/g, ' ')
 const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')
 </script>

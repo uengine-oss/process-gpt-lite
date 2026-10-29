@@ -91,7 +91,9 @@ const oauthStates = new Map()
 
 async function auth(req, res, next) {
   const jwt = (req.headers.authorization || '').replace(/^Bearer /, '') || req.query.token
-  const u = jwt && await userFromJwt(jwt)
+  let u
+  // the sign-in check could not be made (auth server slow or restarting): 503 + X-Auth-Retry, the client retries
+  try { u = jwt && await userFromJwt(jwt, { unavailable: true }) } catch { return res.status(503).set('X-Auth-Retry', '1').json({ error: 'auth unavailable' }) }
   if (!u) return res.status(401).json({ error: 'unauthorized' })
   // behind the ProcessGPT gateway a ProcessGPT account works only at its own tenant's address; with
   // tenants by host name the person's own tenant is the request's (lib/tenant.js)
@@ -192,7 +194,10 @@ app.post('/api/auth/email/verify', async (req, res) => {
   if (!r.ok) return res.status(400).json({ error: L('코드가 맞지 않아요', "That code doesn't match") })
   await done(finishLogin(email, email.split('@')[0]))
 })
-app.post('/api/auth/refresh', async (req, res) => res.json(await refresh(req.body.refresh_token)))
+app.post('/api/auth/refresh', async (req, res) => {
+  const j = await refresh(req.body.refresh_token).catch(() => ({ unavailable: true }))
+  res.status(j.unavailable ? 503 : 200).json(j)
+})
 
 // ---------- profile / onboarding ----------
 app.get('/api/me', auth, async (req, res) => {
@@ -428,7 +433,8 @@ app.post('/api/actions/:id/run', auth, async (req, res) => {
   emit(req.user.id, 'action', a)
   res.json(a)
   const t = await mainThread(req.user.id)
-  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}` })
+  // a card that answers a customer mail reviews that mail's drafts: never a shared-folder edit
+  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, noFolder: !!a.source?.mail_id })
     .then(async () => {
       const [d] = await q(`update pro_actions set status='done' where id=$1 returning *`, [a.id])
       if (a.verb === 'Review') import('./lib/mining/recorder.js').then((m) => m.recordReply(req.user, a)).catch((e) => console.warn('[mining] reply', e.message))

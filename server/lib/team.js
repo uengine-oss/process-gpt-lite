@@ -89,12 +89,16 @@ export async function assign(me, { defId, role, userId }) {
   return { defId: def, role, userId }
 }
 
-// role name → user id for one process: the process-specific assignment wins over the tenant default.
+// Role names compare without case or extra spaces: a generated process's "Proposal Team Lead" is the team's
+// "Proposal team lead".
+export const roleKey = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase()
+
+// roleKey(role name) → user id for one process: the process-specific assignment wins over the tenant default.
 export async function roleMap(defId) {
   const rows = await q(`select proc_def_id, role, user_id from pro_role_assignments where tenant_id=$1 and proc_def_id in ($2,'*')`,
     [T(), String(defId).toLowerCase()])
   const out = {}
-  for (const r of rows.sort((a, b) => (a.proc_def_id === '*') - (b.proc_def_id === '*'))) out[r.role] ??= r.user_id
+  for (const r of rows.sort((a, b) => (a.proc_def_id === '*') - (b.proc_def_id === '*'))) out[roleKey(r.role)] ??= r.user_id
   return out
 }
 
@@ -109,7 +113,7 @@ export async function resolveMember(text) {
   if (hit) return { ...hit, via: 'name' }
   const [a] = await q(`select a.role, u.id, u.email, u.username as name from pro_role_assignments a
                        join users u on u.id=a.user_id and u.tenant_id=a.tenant_id
-                       where a.tenant_id=$1 and a.proc_def_id='*' and (a.role=$2 or $2 like '%'||a.role||'%') limit 1`, [T(), s])
+                       where a.tenant_id=$1 and a.proc_def_id='*' and (lower(a.role)=lower($2) or lower($2) like '%'||lower(a.role)||'%') limit 1`, [T(), s])
   return a ? { id: a.id, email: a.email, name: a.name, via: 'role', role: a.role } : null
 }
 
@@ -117,8 +121,15 @@ export async function resolveMember(text) {
 export async function roleCatalog() {
   const rows = await q(`select d.id, d.name, r->>'name' as role from proc_def d, jsonb_array_elements(coalesce(d.definition->'roles','[]'::jsonb)) r
                         where d.tenant_id=$1 and coalesce(d.isdeleted,false)=false and coalesce(r->>'origin','') <> 'used'`, [T()]).catch(() => [])
-  const by = {}
-  for (const r of rows) if (r.role) (by[r.role] ||= []).push(r.name || r.id)
-  return Object.entries(by).map(([role, processes]) => ({ role, processes: [...new Set(processes)].slice(0, 6) }))
+  // one entry per role whatever its capitals, named as the team assigned it (else as first written)
+  const assigned = new Map((await q(`select distinct role from pro_role_assignments where tenant_id=$1`, [T()]).catch(() => [])).map((r) => [roleKey(r.role), r.role]))
+  const by = {}, names = {}
+  for (const r of rows) {
+    if (!r.role) continue
+    const k = roleKey(r.role)
+    names[k] ??= assigned.get(k) || r.role
+    ;(by[k] ||= []).push(r.name || r.id)
+  }
+  return Object.entries(by).map(([k, processes]) => ({ role: names[k], processes: [...new Set(processes)].slice(0, 6) }))
     .sort((a, b) => b.processes.length - a.processes.length || a.role.localeCompare(b.role, 'ko')).slice(0, 300)
 }

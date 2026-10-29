@@ -13,7 +13,7 @@ import { attachmentHint } from '../lib/attachments.js'
 import * as A from '../lib/team/assist.js'
 import * as S from '../lib/team/shares.js'
 import * as M from '../lib/team/messenger.js'
-import { L } from '../lib/lang.js'
+import { L, langOf } from '../lib/lang.js'
 
 const T = () => config.tenantId
 // storage links in an agent's text are not how people in the room get files: the grants are
@@ -32,9 +32,10 @@ export function runAs(me, session) {
   return async (s) => {
     const members = await M.membersOf(s.room_id)
     const others = members.filter((m) => m.id !== me.id)
-    const tick = (text) => { for (const m of members) emit(m.id, 'team', { type: 'assist-status', threadId: s.room_id, id: s.id, text }) }
+    // each member reads the status in their own language (it names whose agent works)
+    const tick = async (ko, en) => { for (const m of members) emit(m.id, 'team', { type: 'assist-status', threadId: s.room_id, id: s.id, text: (await langOf(m.id)) === 'en' ? en : ko }) }
     const by = { by: me.id, byName: L(`${me.name}님의 에이전트`, `${me.name}'s agent`) }
-    tick(L(`${me.name}님의 에이전트가 맥락을 읽는 중`, `${me.name}'s agent is reading the context`))
+    await tick(`${me.name}님의 에이전트가 맥락을 읽는 중`, `${me.name}'s agent is reading the context`)
     // the hand-off is a room message too, so process-gpt's UI shows who set the agent to work
     await M.post(me, s.room_id, { kind: 'assist', body: L(`에이전트에게 맡겼어요 · ${s.title}`, `Handed to the agent · ${s.title}`), context: { assist: s.id, work: s.work } })
     if (s.work === 'StartProcessInstance' && s.process_id) {
@@ -48,7 +49,7 @@ export function runAs(me, session) {
     // the person's own work room for this run, tied to the chat room: conversation_id = room id
     const [t] = await q(`insert into pro_threads(user_id,kind,title,ref,conversation_id) values ($1,'team',$2,$3,$4) returning *`, [me.id, L(`팀 대화 · ${s.title}`, `Team conversation · ${s.title}`), `assist:${s.id}`, s.room_id])
     const started = new Date()
-    tick(L(`${me.name}님의 에이전트가 ${s.title.replace(/하기$/, '')} 중`, `${me.name}'s agent is working on: ${s.title}`))
+    await tick(`${me.name}님의 에이전트가 ${s.title.replace(/하기$/, '')} 중`, `${me.name}'s agent is working on: ${s.title}`)
     const task = L(`팀원 대화방에서 요청받은 일을 해 주세요: ${s.title}\n\n— 대화 (마지막 줄이 요청) —\n${lines.join('\n')}\n\n결과는 대화방 사람들이 바로 읽을 수 있게 핵심만 짧게 정리하고, 표나 문서를 만들면 파일로 남겨 주세요.${attachmentHint(files)}`,
       `Please do what was asked in a team room: ${s.title}\n\n— conversation (the last line is the request) —\n${lines.join('\n')}\n\nKeep the result short and to the point so the people in the room can read it at once, and leave any table or document you make as a file.${attachmentHint(files)}`)
     await delegate({ user: me, session, threadId: t.id, text: task, silent: true })

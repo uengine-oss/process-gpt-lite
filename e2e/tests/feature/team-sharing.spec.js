@@ -149,4 +149,39 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     expect(list.find((m) => m.id === uuid)).toMatchObject({ body: back, mine: false, sender: { id: b.id } })
     expect((await a.get('/team/unread')).body.byThread[t.id]).toBeGreaterThanOrEqual(1)
   })
+
+  // A share that arrived while the messenger was closed was missing from the inbox on its first open:
+  // the inbox was asked for on opening (twice) and by the arriving share, and an answer asked before the
+  // share came back last and put the old list back. Here the server's answers come back out of order on
+  // purpose: an inbox without the share takes 6 s, one with it 4 s (stores/team.js latest, onEvent).
+  test('F-TS-07 메신저를 닫은 채 받은 공유: 처음 열 때 받은 편지함에 바로 있고, 늦게 온 옛 응답이 지우지 않는다', async ({ as, pageAs, db, cleanup }) => {
+    const a = await member(await as('fix-inbox-sender'))
+    const page = await pageAs('fix-inbox-mate')
+    const b = await member(page.user)
+    const card = await fileCard(db, a, 'fix-inbox.xlsx')
+    // (a note in the reader's own language: not machine-translated on screen, so the row keeps its text)
+    const note = uniq('받은 편지함 경합')
+    await page.route('**/api/team/inbox', async (route) => {
+      const res = await route.fetch()
+      const body = await res.text()
+      await new Promise((r) => setTimeout(r, body.includes(note) ? 4000 : 6000))
+      await route.fulfill({ response: res, body }).catch(() => {})
+    })
+    await page.goto('/chat')
+    await page.locator('textarea').first().waitFor()
+    await page.waitForTimeout(1500)
+    // opening asks for the inbox (no share in it yet), and the share arrives meanwhile
+    await page.locator('button.msg-btn').click()
+    await page.locator('.ms').waitFor()
+    const r = await a.post('/team/share', { to: [{ type: 'user', id: b.id }], messageIds: [card.id], note })
+    expect(r.status, r.text).toBe(200)
+    cleanup(() => db.q('delete from chat_rooms where id=$1', [r.body.sent[0].threadId]))
+    const item = page.locator('.ms article.mail', { hasText: note })
+    // from the arriving message itself, before any inbox answer
+    await expect(item).toBeVisible({ timeout: 3000 })
+    // the answers asked before the share come back now: the share stays
+    await page.waitForTimeout(7000)
+    await expect(item).toBeVisible()
+    expect(page.errors).toEqual([])
+  })
 })

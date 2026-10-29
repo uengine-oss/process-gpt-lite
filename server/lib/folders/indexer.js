@@ -165,7 +165,8 @@ export async function changeCard(folder, v) {
       { role: 'system', content: isEn() ? CHANGE_PROMPT_EN : CHANGE_PROMPT },
       { role: 'user', content: parts.join('\n\n') }] })
     const j = JSON.parse(m.content)
-    const card = { title: String(j.title || '').slice(0, 40), summary: String(j.summary || ''), files: j.files && typeof j.files === 'object' ? j.files : {}, generated_at: new Date().toISOString(), head: v.head_commit }
+    // (an English 3-8 word title runs past 40 characters: cut there it ended mid-phrase, "…requirement and")
+    const card = { title: String(j.title || '').slice(0, isEn() ? 72 : 40), summary: String(j.summary || ''), files: j.files && typeof j.files === 'object' ? j.files : {}, generated_at: new Date().toISOString(), head: v.head_commit }
     await q('update pro_folder_variations set change_card=$2 where id=$1', [v.id, card])
     return card
   } catch (e) {

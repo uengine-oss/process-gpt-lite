@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SNS feed copy (demo)</title>
+<style>
+  :root { --bg: #f3f4f7; --card: #fff; --ink: #1d2129; --sub: #6b7280; --line: #e5e7eb; --accent: #3b5bdb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: #fff; border-bottom: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 12px; }
+  header b { font-size: 18px; }
+  .demo { font-size: 12.5px; color: #92400e; background: #fef3c7; border-radius: 999px; padding: 3px 10px; }
+  main { max-width: 680px; margin: 18px auto 60px; padding: 0 16px; display: flex; flex-direction: column; gap: 14px; }
+  article { background: var(--card); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .who { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .av { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; }
+  .who small { display: block; color: var(--sub); font-size: 12.5px; }
+  .body p { margin: 0 0 .7em; }
+  .slides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+  .slide { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff; border-radius: 10px; padding: 14px; font-size: 13px; min-height: 96px; }
+  .slide b { display: block; font-size: 14.5px; margin-bottom: 4px; }
+  .tags { color: var(--accent); font-size: 13.5px; }
+  .stats { display: flex; gap: 16px; color: var(--sub); font-size: 13.5px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 8px; }
+  .comments { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .c { background: #f5f6f8; border-radius: 12px; padding: 8px 12px; font-size: 14px; }
+  .c b { font-size: 13px; margin-right: 6px; }
+  footer { text-align: center; color: var(--sub); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header><b>Feed</b><span class="demo">Rebuilt for the demo · assume these posts showed up in a Facebook feed</span></header>
+<main>
+
+<article id="post-crewon">
+  <div class="who"><div class="av" style="background:#2563eb">C</div><div><b>Crewon AI — talk recap</b><small>2026 AI × RMF Workshop · Korea Institute of Information Security &amp; Cryptology</small></div></div>
+  <div class="body">
+    <p>At the 2026 AI × RMF Workshop hosted by the Korea Institute of Information Security &amp; Cryptology, we presented what security AI agents can do, under the title <b>Running NIST RMF with ontology-based Semantic AI Agents</b>.</p>
+    <p>The talk introduced Crewon AI's technical architecture and shared the concept and use scenarios of the <b>RMF Coordinator AI Crew</b>, designed so that AI agents can support and carry out the whole NIST RMF (Risk Management Framework) process.</p>
+    <p>Cyber attacks are getting smarter as they combine with AI, and they now move faster than people can analyse and respond to one by one. To answer AI-driven attacks, defence has to become AI-centred too.</p>
+    <p>To meet this change, Crewon AI is building an ontology-based Semantic AI Agent Runtime: a platform that links a company's systems, data, organisation, owners, business processes, rules and policies in an ontology, so AI agents understand the business context and can plan, reason and do real work on their own.</p>
+    <p>The RMF Coordinator AI Crew links the seven NIST RMF steps — Prepare, Categorize, Select, Implement, Assess, Authorize, Monitor — into one workflow and coordinates the specialist AI crew of each step with people and security systems. Events detected by existing SIEM, EDR and security appliances are tied to the company's assets, business, security controls and approval history, interpreted semantically, assessed for risk; the needed actions are planned and carried out, and the results are verified again and kept as evidence.</p>
+    <p>Add crewai.work's ITSM, e-approval, task management and collaboration, and you get a new operating model where AI and people do security work together. Of course, people remain responsible for important decisions and for accepting risk. Every AI action is governed by policy and permissions, and the process has to be traceable and auditable.</p>
+    <p>"AI goes from tool to teammate." — we want to build the AI-Native Workplace.</p>
+    <div class="slides">
+      <div class="slide"><b>Traditional RMF Operating Model (AS-IS)</b>Each RMF step changes the team in charge, and handovers through documents, mail and meetings repeat.</div>
+      <div class="slide"><b>Assess: Evidence-Based Validation</b>The AI Crew gathers each control's evidence and gaps; an independent assessor decides whether it is met (AC-2, AC-3, AU-2, SC-7, SI-2).</div>
+    </div>
+    <p class="tags">#AIxRMF #RMFCoordinator #AIAgent #SemanticAI #Ontology #NISTRMF #CyberSecurity #AISecurity #AINativeWorkplace</p>
+  </div>
+  <div class="stats"><span>412 likes</span><span>57 comments</span><span>96 shares</span></div>
+  <div class="comments">
+    <div class="c"><b>Security consultant K</b>Having the crew collect each control's evidence while an independent assessor makes the call is a realistic split. That's what takes the most time in an audit.</div>
+    <div class="c"><b>CISO L</b>Tying SIEM events to assets, business and approval history in an ontology looks like the key part. How does it connect to existing GRC tools?</div>
+    <div class="c"><b>AI engineer P</b>Linking the seven RMF steps into one flow with a crew per step is impressive. Where did you put the human approval points?</div>
+    <div class="c"><b>Public-sector security officer J</b>I agree that responsibility for accepting risk stays with people. Looking forward to public-sector cases.</div>
+  </div>
+</article>
+
+<article>
+  <div class="who"><div class="av" style="background:#059669">D</div><div><b>DevOps Meetup</b><small>Yesterday</small></div></div>
+  <div class="body"><p>Here's the venue for this month's meetup. Sign up to speak in the comments.</p></div>
+  <div class="stats"><span>23 likes</span><span>4 comments</span><span>1 share</span></div>
+</article>
+
+<article>
+  <div class="who"><div class="av" style="background:#d97706">M</div><div><b>Marketing Automation Tool (official)</b><small>Sponsored</small></div></div>
+  <div class="body"><p>Fall sale! 30% off yearly plans.</p></div>
+  <div class="stats"><span>8 likes</span><span>0 comments</span><span>0 shares</span></div>
+</article>
+
+<article>
+  <div class="who"><div class="av" style="background:#7c3aed">L</div><div><b>LLM Benchmark Study Group</b><small>2 days ago</small></div></div>
+  <div class="body"><p>We ran our internal document Q&amp;A benchmark again. Accuracy on reading tables in long contexts is still disappointing.</p></div>
+  <div class="stats"><span>61 likes</span><span>12 comments</span><span>5 shares</span></div>
+</article>
+
+<footer>A feed copy for the demo. The first post is translated from a public post; the reaction counts and comments are made-up values for the demo.</footer>
+</main>
+</body>
+</html>

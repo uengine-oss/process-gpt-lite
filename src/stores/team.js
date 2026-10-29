@@ -40,8 +40,17 @@ export const useTeam = defineStore('team', {
       await Promise.all([this.loadUnread(), this.loadThreads(), this.loadInbox()]).catch(() => {})
     },
     async loadUnread() { this.unread = await api('/team/unread').catch(() => this.unread) },
-    async loadThreads() { this.threads = await api('/team/threads').catch(() => this.threads) },
-    async loadInbox() { this.inbox = await api('/team/inbox').catch(() => this.inbox); this.takeTr(this.inbox) },
+    // Lists asked for again and again (on open, on every arriving message) answer out of order on a busy
+    // server: only the newest request's answer is kept — an older one, asked before a share arrived,
+    // must not put back the inbox without it (the share was missing on the first open)
+    async latest(key, path) {
+      const n = (this._seq = (this._seq || 0) + 1)
+      ;(this._want ||= {})[key] = n
+      const r = await api(path).catch(() => null)
+      return r && this._want[key] === n ? r : null
+    },
+    async loadThreads() { const r = await this.latest('threads', '/team/threads'); if (r) this.threads = r },
+    async loadInbox() { const r = await this.latest('inbox', '/team/inbox'); if (r) { this.inbox = r; this.takeTr(this.inbox) } },
 
     // ---- auto-translation: messages in another language than my main one ----
     myLang() { return useApp().me?.mainLang || 'ko' },
@@ -103,6 +112,13 @@ export const useTeam = defineStore('team', {
           else {
             this.unread = { total: this.unread.total + 1, byThread: { ...this.unread.byThread, [data.threadId]: (this.unread.byThread[data.threadId] || 0) + 1 } }
             if (!this.open) this.say(`${m.sender.name}님: ${m.kind === 'share' ? `${m.artifacts[0]?.name || '산출물'} 공유` : m.body.slice(0, 40)}`, { threadId: data.threadId, messageId: m.id })
+          }
+          // a share or mention is in the inbox at once (the event carries it as the inbox lists it)
+          if (m.kind === 'share' || m.kind === 'mention') {
+            const item = { ...m, unread: !looking }
+            const i = this.inbox.findIndex((x) => x.id === m.id)
+            if (i >= 0) this.inbox[i] = { ...this.inbox[i], ...item }
+            else this.inbox.unshift(item)
           }
           if (m.kind !== 'text') this.loadInbox()
         }

@@ -16,6 +16,7 @@
 //                                            mail, schedules, vault items, panels) and set up again; the cast
 //                                            accounts stay. --accounts: every account of the tenant goes too.
 //                                            Add --seed to seed again in the same run.
+//   node scripts/en-demo.mjs --clean-videos  remove the product videos' accounts (pro-en-pv-*) the same way
 //   node scripts/en-demo.mjs --clean         remove the test accounts that signed in there (pro-rt-*, pro-en-ui-*,
 //                                            pro-en-fix-*: checker, smoke) — run it after a check, before a capture
 //   node scripts/en-demo.mjs --status        what a capture sees there: team, roles, processes, mining, folders,
@@ -190,7 +191,9 @@ async function reset() {
 // Test accounts (pro-rt-*, pro-en-ui-*, pro-en-fix-*: the English checker and smoke, e2e) that signed in on
 // the tenant: they join the team on sight (and the smoke names itself "Jinyoung Jang"), so after a check run
 // they leave again — every row of theirs, the folders they made, their sign-in accounts.
-const TEST = '^pro-(rt|en-ui|en-fix)-[a-z0-9-]+@uengine\\.org$'
+// --clean-videos: the same for the English product videos' own accounts (pro-en-pv-*, demo/product/README.md),
+// kept apart so a check's --clean never removes an account in the middle of a recording
+const TEST = has('--clean-videos') ? '^pro-en-pv-[a-z0-9-]+@uengine\\.org$' : '^pro-(rt|en-ui|en-fix)-[a-z0-9-]+@uengine\\.org$'
 async function cleanTests() {
   const people = await q(`select u.id::text as id, u.email from users u where u.tenant_id=$1 and u.email ~ $2
                           union select a.id::text, a.email from auth.users a where a.raw_app_meta_data->>'tenant_id' = $1 and a.email ~ $2`, [T, TEST])
@@ -258,7 +261,7 @@ async function status() {
 
 try {
   if (has('--status')) await status()
-  else if (has('--clean')) await cleanTests()
+  else if (has('--clean') || has('--clean-videos')) await cleanTests()
   else {
     if (has('--reset')) await reset()
     await setup()

@@ -15,7 +15,10 @@ const busy = ref('')
 // an earlier step's summary can carry a sandbox link ("[견적서.xlsx](/workspace/…)"): its chip below opens the file
 const ctxText = computed(() => String(props.n.context || props.n.text || '').replace(/\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g, '$1'))
 
-const verb = computed(() => props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? (/공유했어요/.test(props.n.title) ? '공유' : '멘션') : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+// a teammate's 'team' notice is a share or a mention; its title is in the recipient's language
+// (lib/team/messenger.js notifyMembers: "…를 공유했어요" / "… shared …", "…나를 언급했어요" / "… mentioned you")
+const teamVerb = (title) => (/나를 언급했어요|\bmentioned you\b/.test(title || '') ? '멘션' : /공유했어요|\sshared\s/.test(title || '') ? '공유' : '멘션')
+const verb = computed(() => props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
 const kinds = { agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선' }
 const when = computed(() => {

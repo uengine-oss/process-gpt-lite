@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { marked } from 'marked'
+// (sandbox and host paths in an answer read as file names: src/paths.js)
+import { hidePaths } from '../paths.js'
 import SkillShareCard from './SkillShareCard.vue'
 import Icon from './Icon.vue'
 import TaskCard from './TaskCard.vue'
@@ -29,7 +31,8 @@ const c = computed(() => props.msg.content || {})
 // a link into the agent's sandbox ("[견적서.xlsx](</workspace/…/견적서.xlsx>)") opens nothing here — its file card does
 const SANDBOX_LINK = /\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g
 // model output is rendered as markdown, never as raw HTML
-const md = (t) => marked.parse(String(t || '').replace(SANDBOX_LINK, '$1').replace(/&/g, '&amp;').replace(/</g, '&lt;'), { breaks: true })
+// (then any other sandbox or host path reads as its file name: src/paths.js)
+const md = (t) => marked.parse(hidePaths(String(t || '').replace(SANDBOX_LINK, '$1')).replace(/&/g, '&amp;').replace(/</g, '&lt;'), { breaks: true })
 const doc = computed(() => {
   if (props.msg.kind !== 'doc') return null
   const [first, ...rest] = c.value.text.split('\n')
@@ -159,7 +162,11 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 .md :deep(strong) { font-weight: 600; }
 .md :deep(code) { font-size: .9em; background: var(--cell-bg); padding: 1px 5px; border-radius: 6px; }
 .md :deep(h1), .md :deep(h2), .md :deep(h3) { font-size: 16px; font-weight: 600; margin: .6em 0 .3em; }
-.md :deep(table) { border-collapse: collapse; font-size: 14px; } .md :deep(td), .md :deep(th) { padding: 4px 8px; border-bottom: 1px solid var(--hairline); }
+/* a wide table or a long code block scrolls sideways inside the bubble; a cell breaks between words, never
+   inside a short one (the bubble's overflow-wrap:anywhere let the table squeeze "Chime" into "Chim/e") */
+.md :deep(table) { border-collapse: collapse; font-size: 14px; display: block; max-width: 100%; overflow-x: auto; } .md :deep(td), .md :deep(th) { padding: 4px 8px; border-bottom: 1px solid var(--hairline); overflow-wrap: normal; }
+.md :deep(pre) { max-width: 100%; overflow-x: auto; margin: .2em 0 .6em; padding: 10px 12px; border-radius: 12px; background: var(--cell-bg); font-size: 13.5px; line-height: 1.5; }
+.md :deep(pre code) { padding: 0; background: none; white-space: pre; overflow-wrap: normal; word-break: normal; }
 .doc { position: relative; width: 424px; max-width: 100%; border-radius: 24px; padding: 8px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); box-shadow: var(--shadow-card); }
 .doc h3 { font-size: 24px; font-weight: 400; letter-spacing: .02em; margin: 14px 14px 16px; line-height: 1.3; }
 .doc .inner { background: var(--cell-bg); border-radius: 16px; padding: 14px 16px; font-size: 15px; line-height: 1.55; max-height: 150px; overflow: hidden;

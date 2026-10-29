@@ -24,7 +24,8 @@ import { chatJson } from '../llm.js'
 import { saveGenerated } from '../generated.js'
 import { mainThread, addMessage } from '../store.js'
 import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
-import { L, isEn, langOf, withLang } from '../lang.js'
+import { L, isEn, lang, langOf, withLang } from '../lang.js'
+import { fmtNum } from '../improve/transform.js'
 
 const T = () => config.tenantId
 // unset: the local miner; set but empty (an install without the mining profile): no scans, no new
@@ -88,7 +89,7 @@ async function doScan() {
     if (have) {
       // more cases of a pattern already suggested: the evidence grows, the decision stays
       // (still undecided: the mined model is drawn again from all the cases)
-      const again = have.status === 'suggested' ? await miner('/discover', { tenant_id: T(), process_id: p.process_id, name: p.process_id, case_ids: p.case_ids }).catch(() => null) : null
+      const again = have.status === 'suggested' ? await miner('/discover', { tenant_id: T(), process_id: p.process_id, name: p.process_id, case_ids: p.case_ids, lang: patternLang(p) }).catch(() => null) : null
       await q('update pro_mining_suggestions set pattern=$2, definition=coalesce($3, definition), updated_at=now() where id=$1', [have.id, p, again?.definition || null])
       continue
     }
@@ -102,8 +103,9 @@ async function doScan() {
     if (open) continue
     const named = await nameOf(p, cases)
     named.name = await uniqueName(named.name)
-    // the miner proposes it as process-gpt does: a draft version + an open PR (live proc_def untouched)
-    const mined = await miner('/mine', { tenant_id: T(), process_id: p.process_id, name: named.name, case_ids: p.case_ids })
+    // the miner proposes it as process-gpt does: a draft version + an open PR (live proc_def untouched),
+    // its names, descriptions and PR in the language of the work (the cases' recorded language)
+    const mined = await miner('/mine', { tenant_id: T(), process_id: p.process_id, name: named.name, case_ids: p.case_ids, lang: patternLang(p) })
     const formats = [...new Set(p.steps.flatMap((s) => s.tools.map((t) => TOOL_FORMAT[t]).filter(Boolean)))]
     const [s] = await q(`insert into pro_mining_suggestions (tenant_id, pattern_key, process_id, name, summary, pattern, definition, pr_id, version_uuid, match)
                          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (tenant_id, pattern_key) do nothing returning *`, [
@@ -191,8 +193,37 @@ const html = (id, alias, fs) => `<section>\n${fs.map((f) => {
   return `  <row-layout name="${id}" alias="${alias}" is_multidata_mode="false" v-model="formValues" v-slot="slotProps"><div class="row"><div class="col-sm-12"><${t} name='${f.key}' alias='${f.text}'${type}${items} disabled='false' readonly='false' v-model="slotProps.modelValue['${f.key}']"></${t}></div></div></row-layout>`
 }).join('\n')}\n</section>`
 
-// The miner leaves "조건N" on an optional step's XOR split for an LLM pass Lite does not run, and the
+// A mined optional review (the miner's xor(review, skip) after the quote, e.g. 'Finance review' skipped
+// in one case of five) gets the rule it stands for: a quote under the threshold skips it — the same
+// rule and wording as the improvement 'skip under a threshold' (lib/improve/transform.js), on the
+// quote step's amount. When the amount is missing the review is the default flow (the miner's
+// default/priority), so the engine always hands out exactly one of the two.
+export const REVIEW_THRESHOLD = () => Number(process.env.PRO_MINING_REVIEW_THRESHOLD || 50_000_000)
+export function reviewRule(d0, threshold = REVIEW_THRESHOLD()) {
+  const d = JSON.parse(JSON.stringify(d0))
+  const quote = (d.activities || []).find((a) => stepOf(a.name)?.key === 'quote')
+  if (!quote) return d
+  const label = L('견적 합계', 'Quote total')
+  for (const g of d.gateways || []) {
+    if (!/exclusive/i.test(g.type || '')) continue
+    const outs = (d.sequences || []).filter((x) => x.source === g.id)
+    if (outs.length !== 2) continue
+    const review = outs.map((x) => (d.activities || []).find((a) => a.id === x.target)).find((a) => a && stepOf(a.name)?.key === 'finance')
+    const keep = review && outs.find((x) => x.target === review.id)
+    const skip = keep && outs.find((x) => x !== keep)
+    // the other branch must go around the review (a pass-through gateway or the join), not to another step
+    if (!skip || (d.activities || []).some((a) => a.id === skip.target)) continue
+    g.name = L(`${label} 기준`, `${label} threshold`)
+    g.description = L(`${label} ${fmtNum(threshold)} 미만이면 '${review.name}' 을(를) 건너뜀`, `Skips '${review.name}' when ${label} is under ${fmtNum(threshold)}`)
+    Object.assign(keep, { name: L(`${fmtNum(threshold)} 이상`, `${fmtNum(threshold)} or more`), condition: L(`${label}(amount) 이(가) ${threshold} 이상`, `${label} (amount) is ${threshold} or more`), properties: JSON.stringify({ priority: 0, default: true }) })
+    Object.assign(skip, { name: L(`${fmtNum(threshold)} 미만 · 건너뜀`, `under ${fmtNum(threshold)} · skipped`), condition: L(`${label}(amount) 이(가) ${threshold} 미만`, `${label} (amount) is under ${threshold}`), properties: JSON.stringify({ priority: 1 }) })
+  }
+  return d
+}
+
+// An older miner leaves "조건N" on an optional step's XOR split for an LLM pass Lite does not run, and the
 // engine cannot decide such a branch (the instance stops there): keep the step on the main path instead.
+// (after reviewRule, which gives the mined Finance review its real rule; a current miner writes none)
 export function dropSkips(d) {
   const placeholder = (c) => /^조건\s*\d+$/.test(String(c || '').trim())
   let gateways = [...(d.gateways || [])]
@@ -216,7 +247,7 @@ export function dropSkips(d) {
 
 // mined definition (flattened) → process-gpt generation contract (elements[] + forms + agents + skills)
 export function buildContract(s) {
-  const d = dropSkips(s.definition)
+  const d = dropSkips(reviewRule(s.definition))
   const PID = s.process_id
   const formId = (a) => `${PID}_${(stepOf(a.name)?.key || a.id)}_form`
   const roles = new Map()
@@ -247,7 +278,8 @@ export function buildContract(s) {
     const parallel = /parallel/i.test(g.type || '')
     elements.push({ elementType: 'Gateway', id: g.id, name: g.name || '', type: parallel ? 'ParallelGateway' : 'ExclusiveGateway', gateWayType: parallel ? 'bpmn:parallelGateway' : 'bpmn:exclusiveGateway' })
   }
-  for (const x of d.sequences) elements.push({ elementType: 'Sequence', id: x.id, source: x.source, target: x.target, condition: x.condition || '', ...(x.condition ? { name: x.condition } : {}) })
+  // (properties carry the miner's default flow and priority: exactly one branch of an exclusive gateway is taken)
+  for (const x of d.sequences) elements.push({ elementType: 'Sequence', id: x.id, source: x.source, target: x.target, condition: x.condition || '', ...(x.name || x.condition ? { name: x.name || x.condition } : {}), ...(x.properties && x.properties !== '{}' ? { properties: x.properties } : {}) })
   const cases = s.pattern.case_count
   return {
     type: 'process-definition-result',
@@ -284,7 +316,7 @@ export async function register(me, id) {
 async function registerIn(me, id, s) {
   await ensureAgents()
   // the evidence may have grown since the recommendation: draw the model again from the cases as they are now
-  const again = await miner('/discover', { tenant_id: T(), process_id: s.process_id, name: s.name, case_ids: s.pattern.case_ids }).catch((e) => { console.warn('[mining] rediscover', e.message); return null })
+  const again = await miner('/discover', { tenant_id: T(), process_id: s.process_id, name: s.name, case_ids: s.pattern.case_ids, lang: lang() }).catch((e) => { console.warn('[mining] rediscover', e.message); return null })
   if (again?.definition) { s.definition = again.definition; await q('update pro_mining_suggestions set definition=$2 where id=$1', [id, again.definition]) }
   const contract = buildContract(s)
   const saved = await saveGenerated(contract)

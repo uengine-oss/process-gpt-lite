@@ -249,8 +249,22 @@ export async function appFor(user, id, need = 'viewer') {
 // an app the person names in chat ("휴가 일수 관리에 … 추가해줘")
 export async function appNamed(user, text) {
   const apps = await listApps(user, { all: true })
-  const t = String(text || '').replace(/\s+/g, '')
-  return apps.filter((a) => t.includes(a.title.replace(/\s+/g, ''))).sort((a, b) => b.title.length - a.title.length)[0] || null
+  return apps.filter((a) => titleIn(a.title, text)).sort((a, b) => b.title.length - a.title.length)[0] || null
+}
+
+// Does the message name this app? As written (spaces aside: "휴가일수관리" for "휴가 일수 관리"), or — an
+// English title — in any case, as whole words ("quote tracker" for "Quote Tracker"). Only a title of
+// two words or more is matched without its case, so one ordinary word ("Budget", "notes") in a
+// sentence never names an app.
+const escapeRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+export function titleIn(title, text) {
+  const t = String(text || '')
+  const name = String(title || '').trim()
+  if (!name) return false
+  if (t.replace(/\s+/g, '').includes(name.replace(/\s+/g, ''))) return true
+  const words = name.split(/\s+/)
+  if (words.length < 2 || !/[A-Za-z]/.test(name)) return false
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${words.map(escapeRe).join('\\s+')}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(t)
 }
 
 // ---------- rows ----------

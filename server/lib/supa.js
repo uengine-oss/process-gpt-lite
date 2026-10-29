@@ -65,19 +65,25 @@ export async function sessionFor(email, name) {
   return { user: { id: user.id, email, name: name || email.split('@')[0] }, session }
 }
 
+// The person of a token, or null when Supabase refuses it (4xx). A timeout or 5xx from a slow or restarting
+// auth server is no answer about the token: with { unavailable: true } it throws instead, so auth() can say
+// 503 and the client keeps its session rather than signing the person out mid-task.
+export async function userFromJwt(jwt, { unavailable = false } = {}) {
+  const { data, error } = await admin.auth.getUser(jwt)
+  if (!error) return data.user
+  if (unavailable && !(error.status >= 400 && error.status < 500)) throw Object.assign(new Error(`auth server unavailable: ${error.message}`), { status: 503 })
+  return null
+}
+
 export async function refresh(refreshToken) {
   const res = await fetch(`${config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
     method: 'POST',
     headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
   })
-  return res.json()
-}
-
-export async function userFromJwt(jwt) {
-  const { data, error } = await admin.auth.getUser(jwt)
-  if (error) return null
-  return data.user
+  const j = await res.json().catch(() => ({}))
+  // a refused refresh token (4xx) ends the session; a failing auth server (5xx) does not
+  return res.status >= 500 ? { ...j, unavailable: true } : j
 }
 
 // whether a user belongs to a tenant (public.users has one row per tenant a person joined)

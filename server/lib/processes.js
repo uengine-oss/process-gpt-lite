@@ -127,9 +127,13 @@ export async function getInstance(instId, me) {
   if (!inst) return null
   const def = await getDefinition(inst.proc_def_id)
   const todos = await q(
-    `select id, activity_id, activity_name, status, user_id, username, start_date, end_date, updated_at, output, draft,
+    // an agent's name as this tenant knows it: the same agent id can be in several tenants (the mining
+    // agents are), and the engine wrote whichever row it found first (Korean names in English tenants)
+    `select id, activity_id, activity_name, status, user_id,
+            coalesce((select u.username from users u where u.is_agent and u.id::text = t.user_id and u.tenant_id = t.tenant_id), username) as username,
+            start_date, end_date, updated_at, output, draft,
             output_url, agent_mode, agent_orch, log, description, draft_status::text as draft_status, consumer, lease_until
-     from todolist where proc_inst_id=$1 order by coalesce(start_date, updated_at::timestamp) asc`, [instId])
+     from todolist t where proc_inst_id=$1 order by coalesce(start_date, updated_at::timestamp) asc`, [instId])
   const byAct = new Map()
   for (const t of todos) byAct.set(t.activity_id, t) // latest wins
   const current = new Set(inst.current_activity_ids || [])

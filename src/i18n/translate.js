@@ -114,7 +114,7 @@ function create(dict) {
         re += '([\\s\\S]+?)'
         loose += '([\\s\\S]*?)'
         order.push(Number(p))
-        glue.push([HANGUL.test(parts[i - 1].slice(-1)), HANGUL.test((parts[i + 1] || '').slice(0, 1))])
+        glue.push([HANGUL.test(parts[i - 1].slice(-1)), HANGUL.test((parts[i + 1] || '').slice(0, 1)), (parts[i + 1] || '').startsWith('님')])
       } else {
         const lit = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         re += lit
@@ -126,11 +126,13 @@ function create(dict) {
   }).sort((a, b) => b.lit - a.lit || a.order.length - b.order.length) // most fixed text first, then fewest variables
   // a part glued to Korean text: no whitespace at the join, and Hangul there only when the part
   // translates completely ("18.9시간이 되지만" is fine, "메일" is not "{0}일" with "메")
-  const glued = (p, m, vals) => p.glue.some(([before, after], i) => {
+  // ("{0}님…": the part before the honorific is a person's name — "장진영님의 에이전트" is "장진영's agent", the
+  // name's last letter is not a cut word)
+  const glued = (p, m, vals) => p.glue.some(([before, after, honorific], i) => {
     const v = m[i + 1]
     const a = before && v.slice(0, 1), b = after && v.slice(-1)
     if ((a && /\s/.test(a)) || (b && /\s/.test(b))) return true
-    return ((a && HANGUL.test(a)) || (b && HANGUL.test(b))) && HANGUL.test(vals[p.order[i]])
+    return ((a && HANGUL.test(a)) || (b && !honorific && HANGUL.test(b))) && HANGUL.test(vals[p.order[i]])
   })
   // "재무 검토를": a variable part with a Korean particle — translate the word without it
   const PARTICLE = /^([\s\S]*[^\s])(을|를|이|가|은|는|와|과|으로|로|의|에게|에서|에|님)$/
@@ -148,7 +150,8 @@ function create(dict) {
   const FILE = /\.(xlsx|xlsm|xls|csv|docx|doc|pptx|hwpx|hwp|pdf|md|txt|html?|png|jpe?g|gif|webp|svg|dxf|dwg|mp4|mov|webm|wav|mp3|m4a|zip|json|psd)$/i
   function core(s) {
     if (Object.prototype.hasOwnProperty.call(exact, s)) return exact[s]
-    if (FILE.test(s)) return undefined
+    // (a sentence that only ends with a file name — "자료를 찾았어요 · Quote Tracker.xlsx" — is not a file name)
+    if (FILE.test(s) && !s.includes(' · ')) return undefined
     for (const [re, fn] of BUILTIN) { const m = s.match(re); if (m) return fn(m) }
     for (const loose of [false, true]) for (const p of pats) {
       const m = s.match(loose ? p.loose : p.re)

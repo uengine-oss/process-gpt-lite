@@ -14,6 +14,7 @@ import { q, admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
 import { folderRoom, folderRoomAccess } from './folders/rooms.js'
 import { L, isEn, ENGLISH_NOTE } from './lang.js'
+import { withTenant } from './tenant.js'
 
 const T = () => config.tenantId
 const TEXT_MAX = 2 * 1024 * 1024
@@ -65,8 +66,10 @@ export async function canAccess(user, room) {
     const assignees = String(t.user_id || '').split(',').map((x) => x.trim())
     return assignees.includes(user.id) || assignees.includes(user.email) || (t.participants || []).includes(user.id)
   }
-  const [hit] = await q(`select 1 from context_threads where user_id=$1 and conversation_id=$2
-                         union all select 1 from pro_threads where user_id=$1 and (id::text=$2 or conversation_id=$2) limit 1`, [user.id, String(room.id)])
+  // (context_threads.user_id is text, pro_threads.user_id uuid: one parameter for both needs the casts —
+  // without them the union fails with "uuid = text" and the owner is refused)
+  const [hit] = await q(`select 1 from context_threads where user_id::text=$1 and conversation_id=$2
+                         union all select 1 from pro_threads where user_id::text=$1 and (id::text=$2 or conversation_id=$2) limit 1`, [user.id, String(room.id)])
   return !!hit
 }
 
@@ -76,8 +79,10 @@ const tickets = new Map() // ticket -> { userId, kind, id, mode, until }
 export function issueTicket(user, room, mode) {
   for (const [k, v] of tickets) if (v.until < Date.now()) tickets.delete(k)
   const t = crypto.randomBytes(24).toString('base64url')
-  // lang: the language of the person opening it (English mode: Claude Code is told to answer in English)
-  tickets.set(t, { userId: user.id, kind: room.kind, id: room.id, mode: mode === 'claude' ? 'claude' : 'shell', lang: isEn() ? 'en' : 'ko', until: Date.now() + 60_000 })
+  // lang: the language of the person opening it (English mode: Claude Code is told to answer in English);
+  // tenant: theirs — the websocket upgrade comes outside any request's tenant (lib/tenant.js), and the
+  // room (an en-demo folder, a conversation folder) is looked up in it
+  tickets.set(t, { userId: user.id, kind: room.kind, id: room.id, mode: mode === 'claude' ? 'claude' : 'shell', lang: isEn() ? 'en' : 'ko', tenant: config.tenantId, until: Date.now() + 60_000 })
   return t
 }
 function spendTicket(t) {
@@ -190,8 +195,9 @@ function spawn(room, mode, lang = 'ko') {
   return pty.spawn(file, args, { name: 'xterm-256color', cols: 120, rows: 32, cwd: room.cwd, env })
 }
 
-function sessionFor(room, mode, lang = 'ko') {
-  const key = `${room.kind}:${room.id}:${mode}`
+function sessionFor(room, mode, lang = 'ko', tenant = config.tenantId) {
+  // (a folder slug can be the same in two tenants: one terminal per tenant's room)
+  const key = `${tenant}:${room.kind}:${room.id}:${mode}`
   let s = sessions.get(key)
   if (s && !s.exited) return s
   const p = spawn(room, mode, lang)
@@ -232,12 +238,13 @@ export function attachTerminal(server) {
     if (!sameOrigin(req)) return deny(403)
     const ticket = spendTicket(String(url.searchParams.get('ticket') || ''))
     if (!ticket) return deny(401)
-    const room = await resolveRoom(ticket.kind, ticket.id).catch(() => null)
+    // in the tenant the ticket was issued in (the upgrade is not an express request: no tenant of its own)
+    const room = await withTenant(ticket.tenant, () => resolveRoom(ticket.kind, ticket.id)).catch(() => null)
     if (!room || !(await fs.stat(room.cwd).catch(() => null))) return deny(404)
     const mode = ticket.mode
     wss.handleUpgrade(req, socket, head, (ws) => {
       let s
-      try { s = sessionFor(room, mode, ticket.lang) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close() }
+      try { s = sessionFor(room, mode, ticket.lang, ticket.tenant) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close() }
       clearTimeout(s.timer)
       s.viewers.add(ws)
       ws.send(JSON.stringify({ type: 'session', mode, cwd: room.cwd, session: room.session || null }))

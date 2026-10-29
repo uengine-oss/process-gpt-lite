@@ -5,7 +5,7 @@
 import { test, expect, api, RUN } from '../../lib/fixtures.js'
 import { lock as lockDb } from '../../lib/db.js'
 import { retireInstance, XLSX, MIME } from '../../lib/seed.js'
-import { LOCAL_API } from '../../lib/env.js'
+import { LOCAL_API, PGPT_URL, TENANT } from '../../lib/env.js'
 
 const MINER = (process.env.MINER_URL || (LOCAL_API ? 'http://127.0.0.1:8014' : '')).replace(/\/$/, '')
 const minerUp = async () => !!MINER && fetch(`${MINER}/health`, { signal: AbortSignal.timeout(3000) }).then((r) => r.ok, () => false)
@@ -20,6 +20,28 @@ test.describe('프로세스 마이닝 (lib/mining)', () => {
     expect((await u.get(`/mining/suggestions/${id}`)).status).toBe(403)
     expect((await u.post(`/mining/suggestions/${id}/register`)).status).toBe(403)
     expect((await u.post(`/mining/suggestions/${id}/hold`)).status).toBe(403)
+  })
+
+  test('F-MN-01b 관리자가 아니면 화면에 "관리자만 볼 수 있어요" — 영어에서도(거절은 메시지 글이 아니라 403 으로 알아봄)', async ({ browser }) => {
+    // (the English demo tenant: English only; an English account is pro-en-fix-*, a Korean one pro-rt-fix-*)
+    for (const lang of TENANT === 'en-demo' ? ['en'] : ['ko', 'en']) {
+      const u = api.client(await api.login(lang === 'en' ? `pro-en-fix-mining-${TENANT === 'en-demo' ? 'en' : 'local'}@uengine.org` : 'pro-rt-fix-mining-viewer@uengine.org'))
+      await u.post('/profile', { name: lang === 'en' ? 'Alex Kim' : '김알렉스', birth: '1990-01-01', onboarded: true })
+      expect((await u.put('/me/lang', { lang })).status).toBe(200)
+      // the refusal the page reads is in the account's language: no "관리자" in the English one
+      const r = await u.get('/mining/suggestions')
+      expect(r.status).toBe(403)
+      if (lang === 'en') expect(r.body.error).not.toMatch(/관리자/)
+      const ctx = await browser.newContext({ locale: lang === 'en' ? 'en-US' : 'ko-KR', baseURL: PGPT_URL })
+      await ctx.addInitScript(([s, l]) => { if (window.top === window) { localStorage.setItem('pgpt-pro-session', s); localStorage.setItem('pgl-lang', l) } }, [JSON.stringify(u.s), lang])
+      const page = await ctx.newPage()
+      try {
+        await page.goto('/mining')
+        await expect(page.locator('.mv .first')).toHaveText(lang === 'en' ? 'Only admins can see this.' : '관리자만 볼 수 있어요.', { timeout: 30_000 })
+        // not the empty list a non-admin used to get in English
+        await expect(page.locator('.mv h1')).toHaveCount(0)
+      } finally { await ctx.close() }
+    }
   })
 
   test('F-MN-02 인계 기록 4건 → process-miner 가 한 패턴으로 묶고 순서대로 도출 → 정식 등록 계약(단계·폼·에이전트)', async ({ db, lib, cleanup }) => {

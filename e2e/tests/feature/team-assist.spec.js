@@ -56,4 +56,40 @@ test.describe('팀 대화 속 에이전트 제안 (spec pgpt-pro-team-sharing ·
     await new Promise((r) => setTimeout(r, 5000))
     expect((await c.get(`/team/threads/${g.id}/suggestions`)).body.suggestions.some((s) => s.messageId === m2.id)).toBe(false)
   })
+
+  // The rules read Korean and English words only: a request in Japanese (a teammate whose main language is
+  // 日本語) got no card. It is now read through its translation, the way a meeting reads a line in another
+  // language — no Japanese word lists. The detection runs here in-process (lib/team/assist.js detect, as the
+  // server's room feed calls it), so the test also works against a development server without the feed.
+  test('F-TA-03 일본어 요청도 제안 카드 (번역으로 읽고 같은 규칙·판단 모델), 일본어 잡담은 제안 없음', async ({ as, db, lib, cleanup }) => {
+    const a = await member(await as('fix-ta-ja')), b = await member(await as('fix-ta-mate'))
+    test.skip(!(await judgeOn(a)), '판단 모델(judge) 서버가 없음')
+    const TR = await lib('lib/translate.js')
+    test.skip(!TR.enabled(), '번역 모델(PRO_TRANSLATE·OpenAI 키)이 없음 — 다른 언어 요청은 카드 없이 둠')
+    // a teammate who speaks Japanese, on English screens (what the app sets when 日本語 is chosen)
+    expect((await a.put('/me/main-lang', { lang: 'ja' })).status).toBe(200)
+    expect((await a.put('/me/lang', { lang: 'en' })).status).toBe(200)
+    const A = await lib('lib/team/assist.js'), M = await lib('lib/team/messenger.js'), { mainLangOf } = await lib('lib/mainLang.js')
+    const t = (await a.post('/team/threads', { members: [b.id] })).body
+    cleanup(() => db.q('delete from chat_rooms where id=$1', [t.id]))
+    const say = async (text) => {
+      const m = (await a.post(`/team/threads/${t.id}/messages`, { text })).body
+      const [row] = await db.q('select c.uuid, c.id, c.messages, r.participants from chats c join chat_rooms r on r.id=c.id where c.uuid=$1', [m.id])
+      const { humans } = M.split(row.participants)
+      const pf = A.prefilter(row.messages.content, await mainLangOf(a.id))
+      expect(pf).toMatchObject({ pass: false, translate: true })
+      await A.detect(row, humans, humans.find((h) => h.id === a.id), { translate: true })
+      return m.id
+    }
+    const chat = await say('お疲れさまです！今日はいい天気ですね。')
+    const ask = await say('見積書を作ってもらえますか？2号店の照明の費用も入れてください。')
+    let sg
+    await expect.poll(async () => { sg = (await b.get(`/team/threads/${t.id}/suggestions`)).body.suggestions.find((s) => s.messageId === ask); return !!sg }, { timeout: 15000 }).toBe(true)
+    expect(['CreateSpreadsheet', 'CreateDocument']).toContain(sg.work)
+    expect(sg).toMatchObject({ state: 'open', canStart: true })
+    // the card quotes the request as it was written; its title is in the requester's screen language (English)
+    expect(sg.reason).toContain('見積書を作ってもらえますか')
+    expect(sg.title).not.toMatch(/[\u3040-\u30ff가-힣]/)
+    expect((await b.get(`/team/threads/${t.id}/suggestions`)).body.suggestions.some((s) => s.messageId === chat)).toBe(false)
+  })
 })

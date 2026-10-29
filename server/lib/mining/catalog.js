@@ -56,7 +56,8 @@ export const STEPS = {
     kind: 'agent', agent: 'quote', role: '견적 에이전트', tool: '엑셀', skill: 'xlsx', key: 'quote',
     description: '실별 면적으로 엑셀 견적서를 수식과 함께 만들어요.',
     instruction: '설계비, 실별 인테리어 공사(면적 × ㎡당 단가), 가구·집기, 전기·설비 행과 공급가액·부가세·합계를 모두 수식으로 넣은 견적서를 만든다. 가정한 단가를 적는다.',
-    fields: [{ key: 'quote', text: '견적서(엑셀)', type: 'file' }, { key: 'assumptions', text: '가정한 단가', type: 'textarea' }],
+    // amount: the total a mined review's skip rule reads (service.js reviewRule)
+    fields: [{ key: 'quote', text: '견적서(엑셀)', type: 'file' }, { key: 'amount', text: '견적 합계(부가세 포함, 원)', type: 'text' }, { key: 'assumptions', text: '가정한 단가', type: 'textarea' }],
   },
   '재무 검토': {
     kind: 'human', role: '재무 담당', tool: '팀 공유', skill: 'team-share-review', key: 'finance',
@@ -110,7 +111,7 @@ export const STEPS_EN = {
     kind: 'agent', agent: 'quote', role: 'Quote agent', tool: 'Excel', skill: 'xlsx', key: 'quote',
     description: 'Builds the Excel quote with formulas from the room areas.',
     instruction: 'Build a quote with rows for the design fee, interior work per room (area × price per ㎡), furniture and fixtures, and electrical and equipment, then subtotal, VAT and total — all as formulas. List the unit prices you assumed.',
-    fields: [{ key: 'quote', text: 'Quote (Excel)', type: 'file' }, { key: 'assumptions', text: 'Assumed unit prices', type: 'textarea' }],
+    fields: [{ key: 'quote', text: 'Quote (Excel)', type: 'file' }, { key: 'amount', text: 'Quote total incl. VAT (KRW)', type: 'text' }, { key: 'assumptions', text: 'Assumed unit prices', type: 'textarea' }],
   },
   'Finance review': {
     kind: 'human', role: 'Finance', tool: 'Team share', skill: 'team-share-review', key: 'finance',

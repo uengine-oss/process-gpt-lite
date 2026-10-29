@@ -7,6 +7,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import Icon from '../Icon.vue'
 import { api } from '../../api.js'
 import { useApp } from '../../stores/app.js'
+import { isEnglish } from '../../i18n/lang.js'
 
 const props = defineProps({ app: Object })
 const emit = defineEmits(['sheet'])
@@ -21,8 +22,23 @@ const refOf = ref(null)       // the event an amendment points at
 const problems = ref('')
 const saving = ref(false)
 const flash = ref('')
+// the action word of an amending event's label: Korean puts it last ("휴가 취소" → 취소, "취소됨"), English
+// first ("Cancel leave" → Cancel, "Canceled"); an English label without a known verb first stays whole
+const PAST = { cancel: 'Canceled', approve: 'Approved', reject: 'Rejected', correct: 'Corrected', withdraw: 'Withdrawn', revoke: 'Revoked', close: 'Closed', complete: 'Completed', deny: 'Denied', decline: 'Declined', amend: 'Amended' }
+const act = (label) => {
+  if (!isEnglish) return String(label).replace(/^.*\s/, '')
+  const w = String(label).split(/\s+/)[0]
+  return PAST[w.toLowerCase()] ? w : label
+}
+const closedText = (label) => {
+  if (!isEnglish) return `${act(label)}됨`
+  const k = Object.keys(PAST).find((v) => new RegExp(`\\b${v}`, 'i').test(label))
+  return k ? PAST[k] : label
+}
 
 const def = computed(() => props.app.def)
+// the unit after a number: "days" after 1 reads "day" in English ("1 days")
+const unit = (v) => { const u = def.value.views?.valueSuffix || ''; return isEnglish && Number(v) === 1 && /[a-z]s$/i.test(u) ? u.slice(0, -1) : u }
 const main = computed(() => def.value.projections.find((p) => p.key === def.value.views.main))
 const openProj = computed(() => def.value.projections.find((p) => p.kind === 'open'))
 const name = (id) => data.value?.people.find((p) => p.id === id)?.name || id
@@ -79,7 +95,7 @@ const payload = (e) => typeOf(e.type).fields.concat(typeOf(e.type).ref?.inherit 
     <template v-if="view === 'main'">
       <div v-if="main" class="sum">
         <div v-for="c in [...main.columns, ...main.computed]" :key="c.key" class="cell" :title="data.totals[main.key][c.key] === null ? '3명 이상일 때만 팀 합계를 보여요' : '기록을 다시 계산한 팀 합계'">
-          <span class="k">{{ c.label }} 합계</span><span class="v">{{ fmt(data.totals[main.key][c.key]) }}<small v-if="data.totals[main.key][c.key] !== null">{{ def.views.valueSuffix }}</small></span>
+          <span class="k">{{ c.label }} 합계</span><span class="v">{{ fmt(data.totals[main.key][c.key]) }}<small v-if="data.totals[main.key][c.key] !== null">{{ unit(data.totals[main.key][c.key]) }}</small></span>
         </div>
       </div>
       <div class="list">
@@ -88,7 +104,7 @@ const payload = (e) => typeOf(e.type).fields.concat(typeOf(e.type).ref?.inherit 
             <b>{{ name(r.entity) }}{{ r.entity === data.me ? ' (나)' : '' }}</b>
             <small>{{ main.columns.map((c) => `${c.label} ${fmt(r[c.key])}`).join(' · ') }}</small>
           </span>
-          <span class="val">{{ fmt(r[def.views.value]) }}<small v-if="r[def.views.value] !== null">{{ def.views.valueSuffix }}</small></span>
+          <span class="val">{{ fmt(r[def.views.value]) }}<small v-if="r[def.views.value] !== null">{{ unit(r[def.views.value]) }}</small></span>
         </button>
         <p v-if="!entities.length" class="empty">아직 기록이 없어요.</p>
       </div>
@@ -97,7 +113,7 @@ const payload = (e) => typeOf(e.type).fields.concat(typeOf(e.type).ref?.inherit 
         <div class="list">
           <div v-for="e in openItems" :key="e.id" class="item">
             <span class="txt"><b>{{ name(e.entity) }}</b><small>{{ payload(e).map((x) => x.v).join(' · ') }}</small></span>
-            <button v-for="t in amendOf(e)" :key="t.type" class="mini press" @click="startEvent(t.type, e)">{{ t.label.replace(/^.*\s/, '') }}</button>
+            <button v-for="t in amendOf(e)" :key="t.type" class="mini press" @click="startEvent(t.type, e)">{{ act(t.label) }}</button>
           </div>
         </div>
       </template>
@@ -114,7 +130,7 @@ const payload = (e) => typeOf(e.type).fields.concat(typeOf(e.type).ref?.inherit 
           <div class="evh">
             <span class="tag" :class="typeOf(e.type).ref ? 'amend' : ''">{{ typeOf(e.type).label }}</span>
             <b>{{ name(e.entity) }}</b>
-            <span v-if="e.closedBy" class="closed">{{ e.closedBy.label.replace(/^.*\s/, '') }}됨</span>
+            <span v-if="e.closedBy" class="closed">{{ closedText(e.closedBy.label) }}</span>
           </div>
           <small class="meta">{{ when(e.at) }} · {{ name(e.by) }} 기록</small>
           <div class="evb">

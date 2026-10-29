@@ -1,4 +1,4 @@
-// A tiny shop for vault tests: login (+ one-time code) and a card checkout.
+// A tiny shop for vault tests: login (+ one-time code), the account with its order history, and a card checkout.
 // It records whether what the browser submitted matched, so a test can prove the vault value
 // reached the site while never having been shown to the model.
 //   node test/fixtures/shop.mjs 8799     (stand-alone, for the UI E2E)
@@ -16,6 +16,10 @@ const T = {
     badOtp: '인증 코드가 올바르지 않습니다.',
     account: '내 계정 · 테스트 상점', accountH: '내 계정', welcome: (u) => `${u} 님, 환영합니다.`,
     lastOrder: '최근 주문: <b>주문 #A-1001 무선 이어폰 89,000원 (배송 중)</b>', again: '다시 주문하기',
+    menu: '계정 메뉴', orderHistory: '주문 내역', orders: '주문 내역 · 테스트 상점', ordersH: '주문 내역',
+    cols: ['주문 번호', '주문일', '상품', '금액', '상태'],
+    past: [['#A-1001', '2026-10-24', '무선 이어폰 1개', '89,000원', '배송 중'], ['#A-0987', '2026-09-30', 'USB-C 충전기 1개', '25,000원', '배송 완료']],
+    paidRow: (l4) => ['#A-2002', '오늘', '무선 이어폰 1개', '89,000원', `결제 완료 (카드 •••• ${l4})`],
     checkout: '결제 · 테스트 상점', checkoutH: '결제', item: '무선 이어폰 1개 · <b>89,000원</b>',
     ccName: '카드 소유자', ccNumber: '카드 번호', ccExp: '만료일 (MM/YY)', cvc: 'CVC', payBtn: '89,000원 결제하기', badCard: '카드 정보를 확인해 주세요.',
     paid: '결제 완료 · 테스트 상점', paidH: '결제 완료', paidP: (l4) => `카드 •••• ${l4} 로 89,000원을 결제했어요. 주문 번호 #A-2002`,
@@ -27,6 +31,10 @@ const T = {
     badOtp: 'That verification code is incorrect.',
     account: 'My account · Test Shop', accountH: 'My account', welcome: (u) => `Welcome, ${u}.`,
     lastOrder: 'Latest order: <b>Order #A-1001 Wireless earbuds ₩89,000 (Shipping)</b>', again: 'Order again',
+    menu: 'Account menu', orderHistory: 'Order history', orders: 'Order history · Test Shop', ordersH: 'Order history',
+    cols: ['Order', 'Date', 'Item', 'Amount', 'Status'],
+    past: [['#A-1001', 'Oct 24, 2026', 'Wireless earbuds × 1', '₩89,000', 'Shipping'], ['#A-0987', 'Sep 30, 2026', 'USB-C charger × 1', '₩25,000', 'Delivered']],
+    paidRow: (l4) => ['#A-2002', 'Today', 'Wireless earbuds × 1', '₩89,000', `Paid (card •••• ${l4})`],
     checkout: 'Checkout · Test Shop', checkoutH: 'Checkout', item: 'Wireless earbuds × 1 · <b>₩89,000</b>',
     ccName: 'Cardholder name', ccNumber: 'Card number', ccExp: 'Expiry (MM/YY)', cvc: 'CVC', payBtn: 'Pay ₩89,000', badCard: 'Please check your card details.',
     paid: 'Payment complete · Test Shop', paidH: 'Payment complete', paidP: (l4) => `You paid ₩89,000 with the card •••• ${l4}. Order #A-2002`,
@@ -38,7 +46,9 @@ const page = (lang, title, body) => `<!doctype html><html lang="${lang}"><head><
 h1{font-size:24px;margin:0 0 20px}label{display:block;margin:12px 0 4px;font-size:14px;color:#555}
 input{width:100%;box-sizing:border-box;height:40px;font-size:16px;padding:0 10px;border:1px solid #bbb;border-radius:8px}
 button{margin-top:18px;height:42px;width:100%;font-size:16px;border:0;border-radius:8px;background:#1d1d1f;color:#fff}
-.err{color:#c00;margin:10px 0}.box{background:#fff;padding:16px;border-radius:12px}</style></head><body><main>${body}</main></body></html>`
+.err{color:#c00;margin:10px 0}.box{background:#fff;padding:16px;border-radius:12px}
+nav{display:flex;gap:16px;margin:0 0 16px;font-size:15px}table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #e5e5ea}</style></head><body><main>${body}</main></body></html>`
 
 const loginPage = (l, err = '') => page(l, T[l].login, `<h1>${T[l].loginH}</h1>${err ? `<p class="err">${err}</p>` : ''}
 <form method="post" action="/login">
@@ -49,6 +59,13 @@ const loginPage = (l, err = '') => page(l, T[l].login, `<h1>${T[l].loginH}</h1>$
 const otpPage = (l, err = '') => page(l, T[l].otp, `<h1>${T[l].otpH}</h1><p>${T[l].otpP}</p>${err ? `<p class="err">${err}</p>` : ''}
 <form method="post" action="/otp"><label for="code">${T[l].code}</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code">
 <button type="submit">${T[l].otpBtn}</button></form>`)
+
+// the account menu on the signed-in pages: the account, its order history, a new order
+const menu = (l) => `<nav aria-label="${T[l].menu}"><a href="/account">${T[l].accountH}</a><a href="/orders">${T[l].orderHistory}</a><a href="/checkout">${T[l].again}</a></nav>`
+
+const ordersPage = (l, paid) => page(l, T[l].orders, `${menu(l)}<h1>${T[l].ordersH}</h1><div class="box"><table>
+<thead><tr>${T[l].cols.map((c) => `<th>${c}</th>`).join('')}</tr></thead>
+<tbody>${[...paid.map((p) => T[l].paidRow(p.last4)), ...T[l].past].map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('\n')}</tbody></table></div>`)
 
 const checkoutPage = (l, err = '') => page(l, T[l].checkout, `<h1>${T[l].checkoutH}</h1><div class="box">${T[l].item}</div>${err ? `<p class="err">${err}</p>` : ''}
 <form method="post" action="/pay">
@@ -99,8 +116,13 @@ export function startShop(port = 0, { cards = [], lang: shopLang = 'ko' } = {}) 
     }
     if (req.method === 'GET' && url.pathname === '/account') {
       if (!state.sessions.has(sid)) return go('/login')
-      return html(page(l, T[l].account, `<h1>${T[l].accountH}</h1><div class="box"><p>${T[l].welcome(SHOP.username)}</p>
-<p>${T[l].lastOrder}</p><p><a href="/checkout">${T[l].again}</a></p></div>`))
+      return html(page(l, T[l].account, `${menu(l)}<h1>${T[l].accountH}</h1><div class="box"><p>${T[l].welcome(SHOP.username)}</p>
+<p>${T[l].lastOrder}</p><p><a href="/orders">${T[l].orderHistory}</a> · <a href="/checkout">${T[l].again}</a></p></div>`))
+    }
+    // order history (the browser agent's "check my orders" task): the past orders, and what was paid here
+    if (req.method === 'GET' && url.pathname === '/orders') {
+      if (!state.sessions.has(sid)) return go('/login')
+      return html(ordersPage(l, state.payments.filter((p) => p.ok)))
     }
     if (req.method === 'GET' && url.pathname === '/checkout') return html(checkoutPage(l))
     if (req.method === 'POST' && url.pathname === '/pay') {

@@ -58,6 +58,19 @@
 
 ### 고침
 
+- **영문 튜토리얼·제품 영상 캡처에서 찾은 문제들** (시험 `server/test/capture-fixes.test.js`·`capture-fixes-2.test.js`, `agentTurn.integration.test.js`, e2e F-MN-01b·F-TS-07·F-TA-03):
+  - **새 프로세스 초안 카드가 엉뚱한 정의를 보이던 것**: 스트림에 먼저 온 정의 모양 JSON(에이전트가 읽은 스킬 예시 「휴가 신청 프로세스」, 조회한 다른 정의)이 카드가 되고, 프로세스 폴더 안의 스킬(`process-*/skills/xlsx`)이 스킬 초안 카드로 떴습니다. 이제 카드는 이번 턴이 폴더에 쓴 정의를 저장할 때와 같은 방식으로 조립해 보여 줍니다(설치 번들은 `bridge` 의 `/assemble`, 로컬은 `save_generated.py` `CONTRACT_ONLY=1`; `server/lib/generated.js` `generatedContract`, `agent.js` `draftContract`). 정의를 쓰지 않은 턴(초안 제안)에는 카드가 없고, deepagents 도 결과를 이 대화의 프로세스 폴더에서만 보냅니다(아래 서브모듈). 영어 "Make a process for …" 요청은 문서 바로가기가 아니라 프로세스 설계로 갑니다.
+  - 스킬 시험 단계(`<대화>/.skill-evals/…/outputs/*.dxf`)의 산출물이 답에 경로가 적혀 있다는 이유로 파일 카드가 되던 것.
+  - **공유 폴더로 잘못 가던 요청**: 폴더 이름과 낱말만 겹치는 요청("…drafts for Moonlight Coffee" ↔ 폴더 "Moonlight Coffee Store 2")과 메일에 답하는 Home 카드는 폴더 편집이 아닙니다. 폴더 이름 전체이거나 "폴더/folder" 와 이름 대부분이어야 하고, 폴더 실행 방에 메인 채팅이 머물러 다음 메시지가 그 방에서 답하던 것도 고침(`server/lib/folders/work.js` `folderMatch`).
+  - **인증 서버가 느리거나 재시작할 때 로그아웃되던 것**: 로그인 확인을 하지 못하면 서버가 401 대신 503 + `X-Auth-Retry` 를 보내고 화면은 잠시 뒤 다시 묻습니다. 토큰 갱신이 5xx 로 실패해도 세션을 지우지 않습니다(`server/lib/supa.js`, `src/api.js`).
+  - 역할 이름을 대소문자·공백 차이 없이 맞춥니다("Proposal Team Lead" = 팀의 "Proposal team lead") — 프로세스 실행의 담당자 배정, 설정 › 팀·역할 목록(`server/lib/team.js` `roleKey`).
+  - **대화방 도우미**: 프로세스 시작 카드는 요청이 프로세스 이름의 의미 있는 낱말을 말할 때만(영어 "of"·"on" 이 Coffee·Moonlight 에 걸려 아무 요청에나 「달빛커피 제안 시작」이 뜨던 것, `team/assist.js` `processMatch`). 한국어·영어가 아닌 요청(일본어 등)은 번역으로 읽어 같은 규칙·판단 모델로 카드를 만듭니다. 대화방의 에이전트 행·회의 결과·진행 상태는 읽는 사람의 언어로 "…님의 에이전트 / …'s agent".
+  - **메신저**: 메신저를 닫아 둔 사이에 온 공유가 처음 열 때 받은 편지함에 없던 것(늦게 온 옛 응답이 목록을 덮음). 메시지 본문의 샌드박스·호스트 경로는 채팅·인스턴스 화면·Craft 대화 오버레이처럼 파일 이름으로 보입니다(`src/paths.js` `hidePaths`).
+  - 작업실 터미널이 다른 주소의 테넌트(`en.localhost`)에서 소유자에게도 "열 수 없음" 이던 것 — 표에 발급한 테넌트를 싣고, 대화 확인의 `uuid = text` 비교를 고침(`server/lib/workroom.js`). 권한이 없으면 403 으로 알아봄.
+  - **패널 앱**: 메시지 보내기·회의 시작·받아쓰기·회의록에서 가끔 나던 "invalid input syntax for type json" — 패널 앱 DB 호출이 연결에 남긴 `request.jwt.claims` '' 를 '{}' 로 되돌립니다(`panelApps/db.js`). 영어 앱 제목은 대소문자와 상관없이 전체 낱말로 알아보고(두 낱말 이상), 이벤트 앱의 영어 동작 단어("Cancel" · "Canceled")와 "1 day".
+  - **마이닝**: 추천 정의의 이름·설명·PR 을 작업한 언어로, 선택적 재무 검토의 배타 분기는 자리표시 조건 대신 견적 합계 기준(기본 5천만 원 미만이면 건너뜀, `PRO_MINING_REVIEW_THRESHOLD`; 견적 단계가 합계를 마지막 줄에 적음). 예전 마이너의 "조건N" 분기는 그대로 본 경로로 둡니다. 마이닝 화면의 영어 도구 아이콘, 관리자가 아니면 영어에서도 「관리자만 볼 수 있어요」(403 으로 알아봄).
+  - 그 밖: Home 의 영어 공유 알림이 「멘션」으로 보이던 것, 인스턴스 단계의 에이전트 이름은 이 테넌트의 이름으로, 폴더 변경 카드의 영어 제목 72자, 영어 설계 제안서의 평면도 그림 폭(6인치), Craft 편집기 「저장 안 됨」 배지에 저장 방법(⌘S·⌘M), 검수 결과 문구, 답의 긴 코드 블록·넓은 표는 말풍선 안에서 가로로 스크롤, 최대화한 ArtCraft·이음오피스의 대화 다이얼이 앱 아래 줄 위로, 영어 사전 추가, 테스트 상점 주문 내역(`/orders`), SNS 데모 정의의 영어 피드 사본(`public/demo-feed/index-en.html`), `en-demo.mjs --clean-videos`.
+  - Android 앱: 화면 문구를 문자열 리소스로(기본 영어, `values-ko` 한국어 — 기기 언어를 따름), `*.localhost` 주소의 연결 확인은 127.0.0.1 로(`adb reverse` 개발 서버).
 - **예약 미션을 Claude Code·Codex(cli-agent)로 돌릴 때 테넌트 스킬을 찾지 못하던 문제**: cli-agent 는 기동할 때 정한 한 테넌트의 스킬 폴더(`SKILLS_DIRS`)만 설치하고, 개인 스킬 사본은 deepagents 작업 폴더에 있어서 영문 데모 테넌트(`en-demo`) 등 다른 테넌트의 스킬이 실행에 들어가지 않았습니다. 이제 미션 실행이 그 스킬의 스킬 폴더 저장소를 cli-agent 의 `git_skills` 로 넘겨, 공유·개인 스킬 모두 실행 프로젝트(`.claude/skills/<이름>`)에 설치됩니다(`server/lib/missions.js`). deepagents 미션은 그대로입니다.
 - **영문 데모 테넌트의 기본 스킬 3개(bpmn-process-generation-skill·bsc-strategy-interview·process-execution)가 설정 › 스킬에서 한국어 SKILL.md 로 보이던 문제**: `server/scripts/en-demo.mjs` 설정 단계가 테넌트 자신의 스킬 컬렉션(`skills/en-demo/<이름>`)에 영어 SKILL.md(`server/fixtures/skills-en`) 사본을 둡니다. 목록·스킬 화면은 그 사본을 읽고, 에이전트는 여전히 기본 원본을 씁니다(deepagents 는 뒤 소스 `process-gpt-system` 이 이김). `references/` 는 한국어 그대로.
 - 영어 모드 사전: 답 위 라우팅 줄의 "판단 모델 1.00" · "판단 모델→logprob 0.99" · "대화에서 직접 1.00" 이 영어로(`routing model 1.00` …).

@@ -5,6 +5,7 @@
 // open app as its context (server/lib/craftLive.js), so the agent's edits land in the app below.
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
+import { hidePaths } from '../paths.js'
 import Composer from './Composer.vue'
 import { useApp } from '../stores/app.js'
 
@@ -18,7 +19,7 @@ const working = computed(() => status.value || (draft.value === '' ? '생각하�
 // the agent's answer, shown for a moment over the app
 const answer = ref('')
 let answerTimer = null
-const md = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { breaks: true })
+const md = (t) => marked.parse(hidePaths(t || '').replace(/</g, '&lt;'), { breaks: true })
 const lastAgent = computed(() => [...(app.thread || [])].reverse().find((m) => m.role === 'agent' && (m.kind === 'text' || m.kind === 'doc')))
 watch(() => lastAgent.value?.id, (id, was) => {
   if (!id || !was) return
@@ -74,7 +75,9 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeo
 /* over the app (dark in every ArtCraft app; IeumOffice is light, the glass reads on both): dark glass, the composer in the page's own theme */
 .clo { position: absolute; inset: 44px 0 0; z-index: 5; pointer-events: none; }
 .clo > * { pointer-events: auto; }
-.dial { position: absolute; right: 22px; bottom: 44px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; color: #1d1d1f;
+/* folded above the app's bottom row, where its own actions sit (FilmCraft's Export, a status bar, a
+   command line): the corner itself stays the app's */
+.dial { position: absolute; right: 22px; bottom: 96px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; color: #1d1d1f;
   background: rgba(250, 250, 252, .86); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
   box-shadow: 0 8px 28px rgba(0, 0, 0, .4), inset 0 0 0 1px rgba(255, 255, 255, .6); animation: pop-in .4s var(--spring); }
 .dial:hover { background: #fff; }
@@ -91,8 +94,8 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeo
   --text-primary: rgb(245 245 247); --text-tertiary: rgba(245 245 247 / .45);
   border: 1px solid rgba(255, 255, 255, .14); background: rgba(34, 38, 48, .82); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: 0 4px 16px rgba(0, 0, 0, .3); }
 .col > .working { position: absolute; left: 4px; bottom: calc(100% + 12px); }
-.mini { position: absolute; right: 90px; bottom: 53px; }
-.reply { position: absolute; right: 90px; bottom: 44px; max-width: 420px; padding: 12px 16px; border-radius: 20px; font-size: 14px; line-height: 1.55; color: #f5f5f7; cursor: pointer;
+.mini { position: absolute; right: 90px; bottom: 105px; }
+.reply { position: absolute; right: 90px; bottom: 96px; max-width: 420px; padding: 12px 16px; border-radius: 20px; font-size: 14px; line-height: 1.55; color: #f5f5f7; cursor: pointer;
   background: rgba(34, 38, 48, .9); border: 1px solid rgba(255, 255, 255, .12); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); box-shadow: 0 8px 28px rgba(0, 0, 0, .35); }
 .reply :deep(p) { margin: 0 0 .5em; } .reply :deep(p:last-child) { margin: 0; }
 .reply :deep(ul) { margin: 0 0 .5em; padding-left: 18px; }

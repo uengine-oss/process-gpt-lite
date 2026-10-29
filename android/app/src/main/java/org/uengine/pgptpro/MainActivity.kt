@@ -113,10 +113,10 @@ class MainActivity : AppCompatActivity() {
         }
         override fun onPageFinished(view: WebView, url: String) { swipe.isRefreshing = false }
         override fun onReceivedHttpAuthRequest(view: WebView, handler: HttpAuthHandler, host: String, realm: String) {
-            if (prefs.authUser.isNotEmpty()) handler.proceed(prefs.authUser, prefs.authPass) else { handler.cancel(); showError("접근 암호가 필요해요. 서버 설정에서 아이디와 암호를 넣어 주세요.") }
+            if (prefs.authUser.isNotEmpty()) handler.proceed(prefs.authUser, prefs.authPass) else { handler.cancel(); showError(getString(R.string.error_auth_needed)) }
         }
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            if (request.isForMainFrame) showError("서버에 연결하지 못했어요.\n(${error.description})")
+            if (request.isForMainFrame) showError(getString(R.string.error_unreachable, error.description))
         }
     }
 
@@ -156,7 +156,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding((28 * dp).toInt(), 0, (28 * dp).toInt(), 0)
             setBackgroundColor(Color.parseColor("#F4F4F1"))
             addView(TextView(context).apply { this.text = text; textSize = 16f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#3D3D3A")) })
-            addView(Button(context).apply { this.text = "다시 시도"; isAllCaps = false; setOnClickListener { setContentView(swipe); web.loadUrl(prefs.serverUrl + "/chat") } })
+            addView(Button(context).apply { this.text = getString(R.string.error_retry); isAllCaps = false; setOnClickListener { setContentView(swipe); web.loadUrl(prefs.serverUrl + "/chat") } })
             addView(Button(context).apply { this.text = getString(R.string.change_server); isAllCaps = false; setOnClickListener { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) } })
         }
         (swipe.parent as? FrameLayout)?.removeView(swipe)

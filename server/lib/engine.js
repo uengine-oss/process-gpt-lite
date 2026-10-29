@@ -7,7 +7,7 @@ import { q } from './supa.js'
 import { emit } from './bus.js'
 import { updateMessage, mainThread, addMessage } from './store.js'
 import { getDefinition, getTodo } from './processes.js'
-import { roleMap } from './team.js'
+import { roleMap, roleKey } from './team.js'
 import { L, isEn } from './lang.js'
 
 // English mode: process-gpt's completion names a new instance with a Korean-only prompt (polling_service
@@ -31,6 +31,7 @@ async function complete(input) {
   const res = await fetch(`${config.completionUrl}/complete`, {
     method: 'POST',
     // completion takes the tenant from the first label of X-Forwarded-Host, not from input.tenant_id
+    // (process-gpt main.py; a host with 'localhost' in it is the localhost tenant)
     headers: { 'Content-Type': 'application/json', 'X-Forwarded-Host': `${config.tenantId}.process-gpt.local` },
     body: JSON.stringify({ input: { ...input, tenant_id: config.tenantId } }),
   })
@@ -59,7 +60,7 @@ export async function startProcess({ me, defId, values, messageId }) {
   for (const x of roles) {
     const eps = [].concat(x.endpoint || []).map(String).filter(Boolean)
     if (eps.length && eps.every((e) => agents.has(e))) continue // agents keep their own endpoint
-    const who = assigned[x.name] || me.id
+    const who = assigned[roleKey(x.name)] || me.id
     x.endpoint = [who]; x.default = [who]
   }
 

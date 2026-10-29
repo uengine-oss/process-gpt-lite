@@ -41,7 +41,7 @@ const isClaude = computed(() => room.value?.agent === 'claude-code')
 async function load() {
   err.value = ''
   try { room.value = await api(base.value) }
-  catch (e) { err.value = /403|권한/.test(e.message) ? '이 작업실을 볼 권한이 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.' : '이 실행의 작업 폴더를 찾지 못했어요.'; return }
+  catch (e) { err.value = e.status === 403 || /403|권한/.test(e.message) ? '이 작업실을 볼 권한이 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.' : '이 실행의 작업 폴더를 찾지 못했어요.'; return }
   if (!isClaude.value) tab.value = 'shell'
   opened.value[tab.value] = true
   if (route.query.open && !file.value) openFile(String(route.query.open))

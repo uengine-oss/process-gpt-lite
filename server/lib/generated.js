@@ -25,17 +25,6 @@ async function viaBridge(action, contract, workHost) {
   return out
 }
 
-// The draft card shows the definition assembled from the generation folder, as saving will:
-// the streamed process_result can be another contract the agent only quoted (a skill example).
-// Without the bridge (local dev) the streamed one stays.
-export async function assembleGenerated(contract, workDir) {
-  if (!config.bridgeUrl || !workDir) return contract
-  const workHost = await workspaceHostPath(workDir).catch(() => '')
-  if (!workHost) return contract
-  const { warn, ...out } = await viaBridge('assemble', contract, workHost)
-  return out.processDefinition ? out : contract
-}
-
 export async function saveGenerated(contract, workDir) {
   const workHost = workDir ? await workspaceHostPath(workDir).catch(() => '') : ''
   if (config.bridgeUrl) return viaBridge('save', contract, workHost)
@@ -52,6 +41,31 @@ export async function saveGenerated(contract, workDir) {
       try { resolve({ ...JSON.parse(out.trim().split('\n').pop()), warn: err.trim() || undefined }) } catch { reject(new Error(out + err)) }
     })
     py.stdin.end(JSON.stringify(contract))
+  })
+}
+
+// The contract a generation folder holds, assembled the way saving assembles it (save_generated.py
+// CONTRACT_ONLY: deepagents' _complete_one_process, no database) — what the chat's draft card shows.
+// Docker bundle: the bridge's /assemble runs it.
+export async function generatedContract(workDir) {
+  const workHost = workDir ? await workspaceHostPath(workDir).catch(() => '') : ''
+  if (!workHost) return null
+  if (config.bridgeUrl) {
+    const { warn, ...out } = await viaBridge('assemble', {}, workHost).catch((e) => { console.warn('[process] assemble', e.message); return {} })
+    return out.processDefinition ? out : null
+  }
+  return new Promise((resolve) => {
+    const py = spawn(`${PGPT}/services/deepagents/.venv/bin/python`, [path.join(here, '..', 'bridge', 'save_generated.py')], {
+      env: { ...process.env, PGPT_ROOT: PGPT, TENANT_ID: config.tenantId, WORK_DIR: workHost, CONTRACT_ONLY: '1' },
+    })
+    let out = ''
+    py.stdout.on('data', (d) => { out += d })
+    py.stderr.on('data', () => {})
+    py.on('error', () => resolve(null))
+    py.on('close', () => {
+      try { const c = JSON.parse(out.trim().split('\n').pop()); resolve(c?.processDefinition ? c : null) } catch { resolve(null) }
+    })
+    py.stdin.end('{}')
   })
 }
 

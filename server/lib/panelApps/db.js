@@ -33,7 +33,13 @@ export async function asUser(user, fn, labels) {
   } catch (e) {
     await c.query('rollback').catch(() => {})
     throw mapError(e, labels)
-  } finally { c.release() }
+  } finally {
+    // the local set_config leaves 'request.jwt.claims' defined as '' on this pooled connection after the
+    // transaction, and tenant_id() ('' ::jsonb) then fails "invalid input syntax for type json" for the next
+    // statement that uses it on this connection (chats insert → notifications default): leave valid JSON
+    await c.query(`select set_config('request.jwt.claims', '{}', false)`).catch(() => {})
+    c.release()
+  }
 }
 
 export async function asOwner(statements) {

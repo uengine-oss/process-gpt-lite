@@ -13,7 +13,7 @@ import * as PA from '../panelApps/service.js'
 import * as F from '../folders/service.js'
 import * as S from '../team/shares.js'
 import { view as messageView } from '../team/messenger.js'
-import { isEn } from '../lang.js'
+import { isEn, L } from '../lang.js'
 
 const T = () => config.tenantId
 const UUID = /^[0-9a-f-]{36}$/i
@@ -140,9 +140,18 @@ export async function canSee(user, mat) {
 
 const hiddenUrl = (o) => { const { url: _u, path: _p, ...rest } = o; return rest }
 
+// an agent's result names whose agent made it in the reader's language, not in its starter's (stored)
+const MADE_BY = /^(?:(.+?)님의 에이전트가 만들었어요|Made by (.+?)'s agent)$/
+export function reasonFor(mat) {
+  const m = mat.kind === 'result' && MADE_BY.exec(String(mat.reason || '').trim())
+  if (!m) return mat.reason || null
+  const who = m[1] || m[2]
+  return L(`${who}님의 에이전트가 만들었어요`, `Made by ${who}'s agent`)
+}
+
 // the material as this person sees it: a summary to draw, never a storage URL or key
 export async function view(user, mat) {
-  const base = { id: mat.id, kind: mat.kind, title: mat.title, reason: mat.reason || null, byAgent: mat.by_agent, presentedBy: mat.presented_by || null,
+  const base = { id: mat.id, kind: mat.kind, title: mat.title, reason: reasonFor(mat), byAgent: mat.by_agent, presentedBy: mat.presented_by || null,
     at: mat.created_at, roomCard: mat.chat_uuid || null }
   const r = mat.ref || {}
   if (mat.kind === 'file') {

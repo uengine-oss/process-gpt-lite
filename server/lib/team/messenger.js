@@ -15,7 +15,7 @@ import { tenants, withTenant } from '../tenant.js'
 import { emit } from '../bus.js'
 import { TeamError, isMember, people } from './access.js'
 import { viewArtifacts } from './shares.js'
-import { L, langOf } from '../lang.js'
+import { L, langOf, withLang } from '../lang.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
@@ -79,6 +79,16 @@ export async function membersOf(roomId) {
   return humans.map((p) => ({ id: p.id, name: nameOf(p), email: p.email, last_read_at: by[p.id] || null }))
 }
 
+// An agent's row is named after the person it works for, in the viewer's language (L: the request's, or
+// the reader's for a live push) — not in the words stored with the row, which are its starter's
+// ("사토 유키's agent" on a Korean screen). The person's name: the room's member, else the stored label.
+const OWNER_LABEL = /^(.*?)(?:님의 에이전트|'s agent)$/
+export function agentLabel(g, byEmail = {}) {
+  const member = g?.by && Object.values(byEmail).find((p) => p && String(p.id) === String(g.by))
+  const owner = member?.name || OWNER_LABEL.exec(String(g?.byName || '').trim())?.[1]
+  return owner ? L(`${owner}님의 에이전트`, `${owner}'s agent`) : null
+}
+
 // one chats row as one viewer sees it
 export function view(viewerId, row, byEmail = {}) {
   const m = row.messages || {}
@@ -90,7 +100,7 @@ export function view(viewerId, row, byEmail = {}) {
   return {
     ...(g.meeting ? { meeting: g.meeting } : {}),
     id: row.uuid, threadId: row.id, kind, body: String(m.content || ''), at: m.timeStamp ? iso(typeof m.timeStamp === 'number' || /^\d+$/.test(m.timeStamp) ? Number(m.timeStamp) : m.timeStamp) : null,
-    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (m.userName || m.name || byEmail[m.email]?.name || L('팀원', 'Teammate')), agent },
+    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (agentLabel(g, byEmail) || g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (m.userName || m.name || byEmail[m.email]?.name || L('팀원', 'Teammate')), agent },
     mine: !agent && senderId === viewerId, byMe: agent && g.by === viewerId,
     artifacts: viewArtifacts(viewerId, agent ? g.by : senderId, g.artifacts), context: g.context || null,
   }
@@ -156,7 +166,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   await q(`update chat_rooms set message=$2 where id=$1`, [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
-  for (const m of members) emit(m.id, 'team', { type: 'message', threadId: t.id, message: view(m.id, row, by) })
+  for (const m of members) emit(m.id, 'team', { type: 'message', threadId: t.id, message: withLang(await langOf(m.id), () => view(m.id, row, by)) })
   if (kind === 'share' || kind === 'mention') await notifyMembers(me, t, row, kind, files, context, members.filter((m) => m.id !== me.id))
   return view(me.id, row, by)
 }
@@ -249,7 +259,8 @@ export function startRoomFeed() {
         await withTenant(row.tenant_id, async () => {
           const { humans } = split(row.participants)
           const by = Object.fromEntries(humans.map((p) => [p.email, { id: p.id, name: nameOf(p) }]))
-          for (const p of humans) emit(p.id, 'team', { type: 'message', threadId: id, message: view(p.id, row, by) })
+          // (each person's copy in their own language: an agent's row names its owner in it)
+          for (const p of humans) emit(p.id, 'team', { type: 'message', threadId: id, message: withLang(await langOf(p.id), () => view(p.id, row, by)) })
           for (const fn of listeners) fn(row, humans)
         })
       } catch (e) { console.warn('[rooms feed]', e.message) }

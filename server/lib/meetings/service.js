@@ -25,7 +25,7 @@ import * as I from './intent.js'
 import * as MAT from './materials.js'
 import { transcribe, wavMs, transcribeConfigured } from './transcribe.js'
 import { finalize } from './minutes.js'
-import { L, isEn, lang, withLang } from '../lang.js'
+import { L, isEn, lang, withLang, langOf } from '../lang.js'
 import { mainLangOf, mainLangsOf, nativeName } from '../mainLang.js'
 import * as PA from './pairing.js'
 import * as IP from './interpret.js'
@@ -563,7 +563,8 @@ export async function startSuggestion(me, id, sid, runner) {
     const [mat] = await q(`insert into pro_meeting_materials(meeting_id, room_id, kind, ref, key, title, reason, by_agent, found_for, chat_uuid)
                            values ($1,$2,'result',$3,$4,$5,$6,true,$7,$8) on conflict (meeting_id, key) do nothing returning *`,
     [m.id, m.room_id, { chatUuid: uuid, files, suggestion: c.id }, `result:${c.id}`, L(`${c.title} 결과`, `${c.title} — result`), L(`${me.name}님의 에이전트가 만들었어요`, `Made by ${me.name}'s agent`), me.id, uuid])
-    if (mat) for (const p of await active(m.id)) emit(p.id, 'meeting', { meetingId: m.id, type: 'material', material: await MAT.view(p, mat) })
+    // (each person's copy names the agent in their own language)
+    if (mat) for (const p of await active(m.id)) emit(p.id, 'meeting', { meetingId: m.id, type: 'material', material: await withLang(await langOf(p.id), () => MAT.view(p, mat)) })
     await tell(m.id, { type: 'task', id: c.id, state: 'done', by: me.name, title: c.title, messageId: uuid })
     return uuid
   }))

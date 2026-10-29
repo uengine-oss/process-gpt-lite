@@ -41,17 +41,33 @@ export async function folderFor(user, text) {
   }
   const rows = await q(`select f.* from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
                         where f.tenant_id=$1 and f.kind='managed' and m.role in ('owner','editor','runner')`, [T(), String(user.id)])
-  if (!rows.length) return null
+  return folderMatch(text, rows)
+}
+
+// The folder (of `folders`) a change request names. It has to point at the folder: its whole name,
+// or the word 폴더/folder with most of the name. Part of the name alone is not enough — a folder named
+// after a customer ("Moonlight Coffee Store 2") shares words with every request about that customer
+// ("…drafts for Moonlight Coffee. Please write a draft reply mail."), and those are not folder edits.
+export function folderMatch(text, folders) {
   const said = words(text)
+  const saysFolder = /폴더|\bfolders?\b/i.test(text)
+  const low = String(text).toLowerCase()
   let best = null
-  for (const f of rows) {
+  for (const f of folders || []) {
     const name = words(f.name)
     const hit = name.filter((w) => said.some((s) => s === w || (w.length >= 3 && s.startsWith(w)) || (s.length >= 3 && w.startsWith(s)))).length
-    const full = text.includes(f.name) || text.includes(f.slug)
+    const full = low.includes(String(f.name).toLowerCase()) || (!!f.slug && text.includes(f.slug))
     const score = full ? 99 : hit / Math.max(1, name.length)
-    if ((full || (hit >= 2 && score >= 0.5) || (name.length === 1 && hit === 1 && /폴더|\bfolder\b/i.test(text))) && (!best || score > best.score)) best = { f, score }
+    if ((full || (saysFolder && ((hit >= 2 && score >= 0.5) || (name.length === 1 && hit === 1)))) && (!best || score > best.score)) best = { f, score }
   }
   return best?.f || null
+}
+
+// a shared folder's run room (startChatWork): one variation's work, never the main chat's conversation
+export async function isFolderRoom(conversationId) {
+  if (!conversationId) return false
+  const [r] = await q(`select 1 from pro_folder_variations where source->>'room_id' = $1 limit 1`, [String(conversationId)])
+  return !!r
 }
 
 // prepare the variation and the instruction; `finish` commits after the agent's turn

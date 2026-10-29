@@ -21,7 +21,8 @@ const busy = ref('')
 const err = ref('')
 const denied = ref(false)
 
-const toolIcon = { 메일: '✉', 캐드크래프트: '◫', 아래아한글: '한', 엑셀: '▦', '팀 공유': '⇄' }
+// the tools a step used, as recorded (lib/mining/catalog.js: Korean cases name them in Korean, English ones in English)
+const toolIcon = { 메일: '✉', 캐드크래프트: '◫', 아래아한글: '한', 엑셀: '▦', '팀 공유': '⇄', Mail: '✉', CADCraft: '◫', Word: 'W', Excel: '▦', 'Team share': '⇄' }
 const statusText = { suggested: '추천', registered: '정식 등록됨', held: '보류' }
 const fmt = (d) => new Date(d).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
 const span = computed(() => s.value ? `${fmt(s.value.pattern.first_seen)} ~ ${fmt(s.value.pattern.last_seen)}` : '')
@@ -34,7 +35,8 @@ async function load() {
       s.value = await api(`/mining/suggestions/${id.value}`)
       def.value = s.value.proc_def_id ? await api(`/processes/${encodeURIComponent(s.value.proc_def_id)}`).catch(() => null) : null
     } else list.value = await api('/mining/suggestions')
-  } catch (e) { if (/관리자/.test(e.message)) denied.value = true; else err.value = e.message }
+  // (the admin-only refusal is a 403, in whichever language its message is)
+  } catch (e) { if (e.status === 403) denied.value = true; else err.value = e.message }
 }
 async function decide(kind) {
   busy.value = kind

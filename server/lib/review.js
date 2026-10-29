@@ -166,7 +166,7 @@ export function losses(request, b, a) {
   const removing = REMOVE.test(request)
   if (b.kind === 'image') {
     const kept = b.strokes ? a.strokes / b.strokes : 1
-    ;(kept < 0.7 ? out : ok).push(L(`선 ${Math.round(kept * 100)}% 유지`, `${Math.round(kept * 100)}% of lines kept`))
+    ;(kept < 0.7 ? out : ok).push(L(`선 ${Math.round(kept * 100)}% 유지`, `lines kept: ${Math.round(kept * 100)}%`))
   } else if (b.kind === 'cad') {
     for (const [t, n] of Object.entries(b.counts)) if ((a.counts[t] || 0) < n && !removing) out.push(`${t} ${n}→${a.counts[t] || 0}`)
     ok.push(L(`객체 ${b.total}→${a.total}`, `objects ${b.total}→${a.total}`))
@@ -213,8 +213,8 @@ export async function reviewTurn({ user, session, threadId, request, open, befor
     const det = () => losses(request, before, after)
     let { out, ok } = det()
     let look = null, how = L('픽셀·개수 검사', 'pixel and count check')
-    if (after.kind === 'image') { look = await visionCheck(request, before, after).catch(() => null); if (look) how = L('그림 비교(사내 모델)·픽셀 검사', 'picture comparison (in-house model) and pixel check') }
-    else if (after.kind === 'doc' || after.kind === 'sheet') { look = await textCheck(request, before, after).catch(() => null); if (look) how = L('내용 비교(사내 모델)·개수 검사', 'content comparison (in-house model) and count check') }
+    if (after.kind === 'image') { look = await visionCheck(request, before, after).catch(() => null); if (look) how = L('그림 비교(사내 모델)·픽셀 검사', 'in-house model picture comparison and pixel check') }
+    else if (after.kind === 'doc' || after.kind === 'sheet') { look = await textCheck(request, before, after).catch(() => null); if (look) how = L('내용 비교(사내 모델)·개수 검사', 'in-house model content comparison and count check') }
     const missing = () => [...out, ...(look?.missing || []).filter(Boolean).map((x) => L(`${x} 사라짐`, `${x} disappeared`))]
     let fixed = ''
     if (missing().length && after.kind === 'image' && open.app === 'photocraft' && RECOLOR.test(request)) {

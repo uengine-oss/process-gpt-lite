@@ -41,18 +41,20 @@ function drop(w, file) {
     canvas.dispatchEvent(new w.DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true, clientX: r.width / 2, clientY: r.height / 2 }))
   }
 }
-// query: how each app starts (empty, no demo); ready: the frame can take a file; open: hand it over
+// query: how each app starts (empty, no demo); ready: the frame can take a file; open: hand it over;
+// save: how the person saves there (the "not saved" badge says it; SAVE is CADCraft's command)
 const APPS = {
   cadcraft: { title: 'CADCraft', query: '?host=parent', bridge: true },
   vectorcraft: {
     // the app's own language switch follows the screen's (src/i18n/lang.js); the others follow the browser's
-    title: 'VectorCraft', query: `?lang=${lang}`, ready: (w) => !!w.vectorcraft,
+    title: 'VectorCraft', query: `?lang=${lang}`, save: '⌘S 로 저장', ready: (w) => !!w.vectorcraft,
     open: (w, file, bytes) => w.vectorcraft.openFile(file.name, new Uint8Array(bytes)),
   },
-  photocraft: { title: 'PhotoCraft', query: '', ready: (w) => !w.document.getElementById('photocraft_loading'), open: (w, file) => drop(w, file) },
+  photocraft: { title: 'PhotoCraft', query: '', save: '⌘S 로 저장', ready: (w) => !w.document.getElementById('photocraft_loading'), open: (w, file) => drop(w, file) },
   soundcraft: { title: 'SoundCraft', query: '?empty', save: '⌘⌥B 로 내보내기', ready: (w) => !w.document.getElementById('soundcraft_loading'), open: (w, file) => drop(w, file) },
   filmcraft: {
-    title: 'FilmCraft', query: '?empty&fresh', ready: (w) => !!w.filmcraft,
+    // the edited copy is the export (⌘M ▸ Export)
+    title: 'FilmCraft', query: '?empty&fresh', save: '⌘M 로 내보내기', ready: (w) => !!w.filmcraft,
     // imported clips only land in the bin: put them on a timeline of their own, ready to cut
     open: async (w, file) => {
       const r = await w.filmcraft.importFiles([file])

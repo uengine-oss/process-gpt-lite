@@ -1,0 +1,16 @@
+<resources>
+    <string name="setup_title">서버 연결</string>
+    <string name="change_server">서버 주소 바꾸기</string>
+    <string name="setup_intro">사용할 서버 주소를 넣어 주세요. 회사 서버, 또는 공개 주소(Cloudflare·ngrok)를 쓸 수 있어요.</string>
+    <string name="setup_auth_hint">공개 주소에 접근 암호가 걸려 있으면 (선택)</string>
+    <string name="setup_user">아이디</string>
+    <string name="setup_pass">암호</string>
+    <string name="setup_connect">연결</string>
+    <string name="setup_need_url">주소를 넣어 주세요.</string>
+    <string name="setup_checking">연결 확인 중…</string>
+    <string name="setup_auth_failed">접근 암호가 필요하거나 맞지 않아요.</string>
+    <string name="setup_unreachable">서버에 연결하지 못했어요. 주소를 확인해 주세요.</string>
+    <string name="error_auth_needed">접근 암호가 필요해요. 서버 설정에서 아이디와 암호를 넣어 주세요.</string>
+    <string name="error_unreachable">서버에 연결하지 못했어요.\n(%1$s)</string>
+    <string name="error_retry">다시 시도</string>
+</resources>

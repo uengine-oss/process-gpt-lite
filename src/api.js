@@ -41,7 +41,9 @@ async function refreshToken() {
   const r = await fetch(BASE + '/api/auth/refresh', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: s.session.refresh_token }),
-  })
+  }).catch(() => null)
+  // a busy or restarting server is not a refused session: null = unknown, the person stays signed in
+  if (!r || r.status >= 500) return null
   const j = await r.json()
   if (!j.access_token) return false
   auth.set({ ...s, session: { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at } })
@@ -79,7 +81,16 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   })
   let r = await go()
-  if (r.status === 401 && await refreshToken()) r = await go()
+  // the server could not check the sign-in (X-Auth-Retry): wait and ask again, never a reason to sign out
+  for (let i = 0; r.status === 503 && r.headers.get('X-Auth-Retry') && i < 4; i++) {
+    await new Promise((ok) => setTimeout(ok, 1500 * (i + 1)))
+    r = await go()
+  }
+  if (r.status === 401) {
+    const renewed = await refreshToken()
+    if (renewed) r = await go()
+    else if (renewed === null) throw new Error('server busy')
+  }
   if (r.status === 401) {
     if (auth.get()?.host) try { sessionStorage.setItem(HOST_FAILED, auth.get().session.refresh_token) } catch { /* ignore */ }
     auth.clear(); location.href = BASE + '/login'; throw new Error('unauthorized')

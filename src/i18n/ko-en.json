@@ -41,7 +41,7 @@
   "승인": "Approve",
   "확인": "Confirm",
   "보안 제공:": "Secured by:",
-  "process gpt에 메시지 보내기": "Message process gpt",
+  "process gpt에 메시지 보내기": "Message Process GPT",
   "내 주식을 추적해 줘": "Track my stocks",
   "내 할 일 목록을 만들어 줘": "Make me a to-do list",
   "오늘 환율을 보여 줘": "Show me today's exchange rate",
@@ -94,8 +94,8 @@
   "열기": "Open",
   "Esc 로 접기": "Esc to collapse",
   "답하는 중": "Answering",
-  "process gpt 입력창 열기": "Open the process gpt input",
-  "process gpt에게 말하기": "Talk to process gpt",
+  "process gpt 입력창 열기": "Open the Process GPT input",
+  "process gpt에게 말하기": "Talk to Process GPT",
   "메일이 도착했어요. 홈과 채팅에서 확인해 보세요.": "Mail arrived. Check it on Home and in Chat.",
   "메일함을 읽었어요.": "I read your mailbox.",
   "연습 메일 고르기": "Choose a practice email",
@@ -1669,7 +1669,22 @@
   "번역 보기": "Show translation",
   "주 언어 / Main language": "Main language",
   "주 언어": "Main language",
-  "회의에서 말하고 듣는 언어, 메시지를 읽는 언어예요. 다른 언어로 된 말과 메시지는 AI가 이 언어로 통역·번역해요": "The language you speak and listen in during meetings and read messages in. Speech and messages in other languages are interpreted and translated into it by AI"
+  "회의에서 말하고 듣는 언어, 메시지를 읽는 언어예요. 다른 언어로 된 말과 메시지는 AI가 이 언어로 통역·번역해요": "The language you speak and listen in during meetings and read messages in. Speech and messages in other languages are interpreted and translated into it by AI",
+  "로그인 비밀번호": "Login Password",
+  "로그인 아이디": "Login Username",
+  "브라우저": "Browser",
+  "[마이닝] Design proposal & quote": "[Mining] Design proposal & quote",
+  "분기": "Split",
+  "합류": "Join",
+  "병렬 분기": "Parallel split",
+  "병렬 합류": "Parallel join",
+  "반복 진입": "Loop entry",
+  "반복 판정": "Loop check",
+  "재수행": "Redo",
+  "⌘S 로 저장": "Save with ⌘S",
+  "⌘M 로 내보내기": "Export with ⌘M",
+  "회의": "Meeting",
+  "나도 할 수 있어요": "You can too"
  },
  "patterns": [
   [
@@ -1681,8 +1696,28 @@
    "Hall | {0}㎡\nBar & kitchen | {1}㎡\nStorage | {2}㎡\nRestroom | {3}㎡\nStaff room | {4}㎡"
   ],
   [
+   "'{0}'에 반영할 새 기록이 없어요 · 거절 {1}건: {2}",
+   "No new records to apply to '{0}' · {1} refused: {2}"
+  ],
+  [
+   "{0} amount {1} 미만이면 '{2}' 을(를) 건너뜀",
+   "Skips '{2}' when {0} amount is under {1}"
+  ],
+  [
    "에이전트가 서식·구조를 고치는 중 · {0}",
    "Agent is fixing formatting and structure · {0}"
+  ],
+  [
+   "{0} 금액 {1} 미만이면 '{2}' 을(를) 건너뜀",
+   "Skips '{2}' when {0} amount is under {1}"
+  ],
+  [
+   "{0} · {1} amount {2} 미만이면 건너뛰기",
+   "{0} · Skip if {1} amount is below {2}"
+  ],
+  [
+   "{0} — {1} amount {2} 미만이면 건너뜀",
+   "{0} — skipped if {1} amount is below {2}"
   ],
   [
    "에이전트가 내용을 바꾸는 중 · {0}",
@@ -1697,8 +1732,24 @@
    "Agent is writing · {0}"
   ],
   [
+   "{0} · {1} 금액 {2} 미만이면 건너뛰기",
+   "{0} · Skip if {1} amount is below {2}"
+  ],
+  [
+   "{0} — {1} 금액 {2} 미만이면 건너뜀",
+   "{0} — skipped if {1} amount is below {2}"
+  ],
+  [
+   "'{0}' 패널에 반영했어요 · {1}건",
+   "Applied to the '{0}' panel · {1} rows changed"
+  ],
+  [
    "에이전트가 작업하는 중 · {0}",
    "Agent is working · {0}"
+  ],
+  [
+   "{0}님께 보냈어요 · 산출물 {1}개",
+   "Sent to {0} · {1} outputs"
   ],
   [
    "에이전트가 저장했어요 · {0}",
@@ -1709,8 +1760,20 @@
    "routing model→logprob {0}"
   ],
   [
+   "도우미가 찾았어요 · {0}",
+   "Helper found it · {0}"
+  ],
+  [
    "워드 문서 · 그림 {0}",
    "Word document · image {0}"
+  ],
+  [
+   "프로세스 마이닝 · {0}",
+   "Process mining · {0}"
+  ],
+  [
+   "산출물 {0}개 공유 · {1}",
+   "Shared {0} outputs · {1}"
   ],
   [
    "{0}님이 통역을 켰어요",
@@ -1721,12 +1784,28 @@
    "{0} turned interpretation off"
   ],
   [
+   "자기 행 + {0}=본인",
+   "Own rows + {0}=me"
+  ],
+  [
+   "{0}/{1} 카드 · 본문",
+   "{0}/{1} cards · full text"
+  ],
+  [
    "대화에서 직접 {0}",
    "Directly in the conversation {0}"
   ],
   [
+   "산출물 {0}개 공유",
+   "Shared {0} outputs"
+  ],
+  [
    "새 주제 · {0}",
    "New topic · {0}"
+  ],
+  [
+   "자기 행 + {0}",
+   "Own rows + {0}"
   ],
   [
    "유휴 {0} ({1})",
@@ -1769,8 +1848,20 @@
    "routing model {0}"
   ],
   [
+   "거절 {0}건: {1}",
+   "{0} refused: {1}"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
+  ],
+  [
+   "{0} · 공유",
+   "{0} · Share"
+  ],
+  [
+   "가능 + {0}",
+   "Allowed + {0}"
   ],
   [
    "{0}(소유)",
@@ -1799,6 +1890,14 @@
   [
    "{0} (나)",
    "{0} (me)"
+  ],
+  [
+   "{0} 로그인",
+   "{0} login"
+  ],
+  [
+   "나: {0}",
+   "Me: {0}"
   ],
   [
    "시작{0}",
@@ -2255,6 +2354,10 @@
   [
    "{0}님 {1}",
    "{0} {1}"
+  ],
+  [
+   "조건{0}",
+   "Condition {0}"
   ],
   [
    "{0}월",
@@ -4329,9 +4432,19 @@
    "Skills"
   ],
   [
+   ".settings .li b.sm",
+   "카드 저장",
+   "Card saved"
+  ],
+  [
    ".mrc .ppl",
    "참여",
    "Attendees"
+  ],
+  [
+   ".fl .search .clr",
+   "지우기",
+   "Clear"
   ]
  ]
 }

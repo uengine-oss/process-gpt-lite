@@ -17,6 +17,8 @@ import { TeamError } from './access.js'
 import * as S from './shares.js'
 import * as M from './messenger.js'
 import { L, isEn, withLang, langOf } from '../lang.js'
+import * as TR from '../translate.js'
+import { mainLangOf, normMain } from '../mainLang.js'
 
 const T = () => config.tenantId
 const ON = () => process.env.PRO_TEAM_ASSIST !== '0'
@@ -65,8 +67,19 @@ const SMALLTALK_EN = /\b(lunch|dinner|coffee|weather|weekend|lol|haha)\b/i
 const ASK_EN = /\b(can you|could you|would you|will you|please|pls|let's|lets|i need|we need|need (a|an|the)|make|draft|prepare|put together|send|write|create|set up|book|summari[sz]e|find|look up|check)\b|\?/i
 const WORK_EN = /\b(quote|quotation|estimate|expense|budget|spreadsheet|excel|xlsx|sheet|table|report|document|doc|docx|plan|notice|proposal|draft|summary|summari[sz]e|minutes|schedule|meeting|book(ing)?|calendar|research|look up|find|compare|comparison|analy[sz]e|analysis|reply|respond|e-?mail|mail|announcement|translate|presentation|slides|deck|ppt|request|approval|process|procedure|calculate|status|progress)\b/i
 
-export function prefilter(body) {
+// A message in another language than Korean or English (日本語, 中文, Español … — `hint` is its writer's
+// main language) is not read by these word lists: it is judged by its translation into the language
+// the card is written in, the way a meeting judges a line in another language (lib/meetings/service.js)
+export function otherLang(body, hint = null) {
+  const g = TR.guessLang(body, hint)
+  return !!g.lang && g.lang !== 'ko' && g.lang !== 'en' && (g.sure || g.lang === normMain(hint)) ? g.lang : null
+}
+export function prefilter(body, hint = null) {
   const t = String(body || '').replace(/\s+/g, ' ').trim()
+  if (!/[가-힣]/.test(t) && otherLang(t, hint)) {
+    if (EMOJI_ONLY.test(t) || t.replace(/\s/g, '').length < 4) return { pass: false, why: EMOJI_ONLY.test(t) ? 'emoji' : 'short' }
+    return { pass: false, why: 'other-lang', translate: true }
+  }
   if (t.length < 8) return { pass: false, why: 'short' }
   if (!/[가-힣]/.test(t)) {
     if (EMOJI_ONLY.test(t)) return { pass: false, why: 'emoji' }
@@ -156,12 +169,36 @@ export function namedIn(members, body) {
   })
 }
 
-// registered processes whose names share a word with the request, for the judge to pick from (stage 2c)
+// Does a request name this registered process? (stage 2c's shortlist for the judge)
+// Korean words as before: a word of the request (2+ letters) inside the name. Other words (English)
+// as whole words, never a piece of one ("of" is not in "Coffee", "on" not in "Moonlight"), without the
+// function words and the words every process name has, and only for a meaningful part of the name:
+// at least half of its own words, including the last one — what the process is ("…proposal",
+// "…settlement") — or the request says it is a process ("the travel expense process"). A customer's
+// name alone ("…after last week's Moonlight Coffee meeting") is not "Moonlight Coffee proposal".
+const FUNCTION_EN = new Set(('a an the of on in at to for from by with into onto about over under after before as and or but nor so if '
+  + 'is are was were be been am do does did have has had can could would will shall should may might must '
+  + 'i me my we us our you your he him his she her it its they them their this that these those there here '
+  + 'please pls let lets just also some any all each every no not one up out off new').split(' '))
+const GENERIC_EN = new Set(['process', 'processes', 'procedure', 'workflow', 'flow', 'request', 'form', 'start'])
+const SAYS_PROCESS = /\b(process|procedure|workflow)\b/i
+const hangulWords = (s) => String(s || '').split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2 && /[가-힣]/.test(w))
+const latinWords = (s) => (String(s || '').toLowerCase().match(/[a-z0-9]+(?:'[a-z]+)?/g) || [])
+  .map((w) => w.replace(/'s$/, '')).filter((w) => w.length >= 2 && !FUNCTION_EN.has(w))
+// "expenses" for "expense", "settle" for "settlement" (a word of 4+ letters that starts the other)
+const sameWord = (a, b) => a === b || (a.length >= 4 && b.startsWith(a)) || (b.length >= 4 && a.startsWith(b))
+export function processMatch(body, name) {
+  const n = String(name || '')
+  if (hangulWords(body).some((w) => n.includes(w))) return true
+  const own = [...new Set(latinWords(n))].filter((w) => !GENERIC_EN.has(w))
+  if (!own.length) return false
+  const said = latinWords(body)
+  const hit = own.filter((w) => said.some((s) => sameWord(s, w)))
+  return hit.length >= Math.ceil(own.length / 2) && (hit.includes(own[own.length - 1]) || SAYS_PROCESS.test(String(body)))
+}
 async function processCandidates(body) {
-  const words = body.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2)
-  if (!words.length) return []
   const defs = await q(`select id, name from proc_def where tenant_id=$1 and coalesce(isdeleted,false)=false and name is not null`, [T()]).catch(() => [])
-  return defs.filter((d) => words.some((w) => d.name.includes(w))).slice(0, 5)
+  return defs.filter((d) => processMatch(body, d.name)).slice(0, 5)
 }
 
 const timers = new Map()
@@ -172,33 +209,40 @@ const LIMIT_HOUR = 6
 export function watchRooms() {
   if (watchRooms.on) return
   watchRooms.on = true
-  M.onChat((row, humans) => {
+  M.onChat(async (row, humans) => {
     const m = row.messages || {}
     if (m.role !== 'user' || m.pgpt?.kind === 'assist' || m.__hidden) return
     const author = humans.find((h) => h.id === m.userId || h.email === m.email)
     if (!author) return // a system or agent row
     stats.messages++
     if (!ON()) return count('tenant-off')
-    const pf = prefilter(m.content)
-    if (!pf.pass) return count(pf.why)
+    const pf = prefilter(m.content, await mainLangOf(author.id).catch(() => null))
+    if (!pf.pass && !pf.translate) return count(pf.why)
     // an install without a judge server (PRO_JUDGE_URL empty, e.g. the Docker bundle): rules only, no suggestions
     if (!JUDGE_URL) return count('no-judge')
     clearTimeout(timers.get(row.id))
     // the latest message of a burst is judged with the ones before it
     timers.set(row.id, setTimeout(() => {
       timers.delete(row.id)
-      detect(row, humans, author).catch((e) => { stats.judgeErrors++; console.warn('[assist]', e.message) })
+      detect(row, humans, author, { translate: !!pf.translate }).catch((e) => { stats.judgeErrors++; console.warn('[assist]', e.message) })
     }, DEBOUNCE_MS))
   })
 }
 
 // the card is written in the language of the person whose message it answers (lib/lang.js)
-async function detect(row, humans0, author) {
-  return withLang(await langOf(author.id), () => detectIn(row, humans0, author))
+export async function detect(row, humans0, author, opts) {
+  return withLang(await langOf(author.id), () => detectIn(row, humans0, author, opts))
 }
-async function detectIn(row, humans0, author) {
+// another language's message, in the card's language (the reader translation's cache: a teammate who
+// reads this language already made it, or will reuse it) — null when it cannot be translated now
+export async function readable(body, { hint = null, budget = null } = {}) {
+  const r = await TR.translate(body, { to: isEn() ? 'en' : 'ko', hint, kind: 'chat', budget })
+  if (!r || r.off || r.limited || r.error || !r.text) return null
+  return r.text
+}
+async function detectIn(row, humans0, author, { translate = false } = {}) {
   const t0 = Date.now()
-  const roomId = row.id, body = String(row.messages.content || '')
+  const roomId = row.id, said = String(row.messages.content || '')
   const [room] = await q('select context from chat_rooms where id=$1 and tenant_id=$2', [roomId, T()])
   if (!room) return
   if (room.context?.pgpt?.assist === false) return count('room-off')
@@ -207,7 +251,19 @@ async function detectIn(row, humans0, author) {
   const now = Date.now()
   const list = (recent.get(roomId) || []).filter((x) => now - x < 3600000)
   if (list.length >= LIMIT_HOUR) return count('room-rate')
+  // another language: the rules, the judge, the card's title and the process names read its translation
+  let body = said
+  if (translate) {
+    body = await readable(said, { hint: await mainLangOf(author.id).catch(() => null), budget: `assist:${roomId}` })
+    if (!body) return count('other-lang-untranslated')
+    const pf = prefilter(body)
+    if (!pf.pass) return count(pf.why)
+  }
   const lines = await excerpt(roomId, row.uuid)
+  if (body !== said && lines.length) {
+    const orig = said.replace(/\s+/g, ' ').slice(0, 200)
+    lines[lines.length - 1] = lines[lines.length - 1].replace(orig, body.replace(/\s+/g, ' ').slice(0, 200))
+  }
   // the new message stands apart from what came before (mixed in, earlier chit-chat pulls "yes" down)
   const prev = lines.slice(0, -1)
   const state = L(`${prev.length ? `앞선 대화:\n${prev.join('\n')}\n\n` : ''}방금 온 메시지:\n${lines[lines.length - 1]}`,
@@ -241,8 +297,9 @@ async function detectIn(row, humans0, author) {
   if (!audience.length) return count('no-audience')
   const title = proc ? L(`${proc.name} 시작하기`, `Start ${proc.name}`) : titleFor(work, body)
   const who = author.username || author.name || L('팀원', 'Teammate')
-  const reason = L(`${who}님의 요청 "${body.replace(/\s+/g, ' ').slice(0, 60)}${body.length > 60 ? '…' : ''}" · 판단 모델 ${Math.round(p * 100)}%`,
-    `${who}'s request "${body.replace(/\s+/g, ' ').slice(0, 60)}${body.length > 60 ? '…' : ''}" · routing model ${Math.round(p * 100)}%`)
+  // (the request in its writer's own words)
+  const reason = L(`${who}님의 요청 "${said.replace(/\s+/g, ' ').slice(0, 60)}${said.length > 60 ? '…' : ''}" · 판단 모델 ${Math.round(p * 100)}%`,
+    `${who}'s request "${said.replace(/\s+/g, ' ').slice(0, 60)}${said.length > 60 ? '…' : ''}" · routing model ${Math.round(p * 100)}%`)
   const [s] = await q(`insert into pro_room_suggestions(tenant_id,room_id,chat_uuid,work,title,reason,process_id,audience,judge)
                        values ($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict (chat_uuid) do nothing returning *`,
   [T(), roomId, row.uuid, work, title, reason, proc?.id || null, audience, { yes: Math.round(yes * 100) / 100, p: Math.round(p * 100) / 100, ms, model: j.model }])

@@ -8,6 +8,7 @@ import { runBrowserTask } from './browser.js'
 import { createSchedule, nextRun } from './scheduler.js'
 import { createMission, createProcessSchedule, listSkills, workspaceHostPath } from './missions.js'
 import { summarizeSkill, listFolder } from './skills.js'
+import { generatedContract } from './generated.js'
 import fs from 'node:fs/promises'
 import { generatePanel } from './panels.js'
 import * as PanelApps from './panelApps/service.js'
@@ -27,9 +28,8 @@ import { liveOpen, liveHint } from './craftLive.js'
 import { capture, reviewTurn } from './review.js'
 import { attachmentHint } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
-import { folderFor, startChatWork, finishChatWork } from './folders/work.js'
+import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folders/work.js'
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
-import { assembleGenerated } from './generated.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 
@@ -181,7 +181,7 @@ export function runTurn(args) {
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
 const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   files = (files || []).filter((f) => f?.path && f?.url).slice(0, 10)
@@ -222,7 +222,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   }
   // an app's folder is named after the app: "휴가 일수 관리에 … 추가해줘" is a record, not a folder change
   const namedApp = await PanelApps.appNamed(user, text).catch(() => null)
-  const sharedFolder = !namedApp && !generationPending(threadId) && !files.length ? await folderFor(user, text).catch(() => null) : null
+  // (a Home card that answers a mail — noFolder — is never a folder edit)
+  const sharedFolder = !noFolder && !namedApp && !generationPending(threadId) && !files.length ? await folderFor(user, text).catch(() => null) : null
   if (sharedFolder) return folderTurn({ user, session, threadId, text, onDelta, folder: sharedFolder })
   // the author's own private skill is not installed: their run is pointed at its copy, and after the
   // first good run the chat asks once more whether to share it
@@ -257,8 +258,10 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     if (proc) { noAgentTurn(); return improveTurn({ user, threadId, text, onDelta, proc }) }
   }
   // Writing a document is the agent's job (office-mcp); a router model reads "안내문을 … 만들어줘" as a panel app.
-  // (a process that names documents among its steps — "…제안서를 만들어" — is still the router's create)
-  if (!namedApp && (DOC_REQUEST.test(text) || DOC_REQUEST_EN.test(text)) && !/패널|위젯|앱|프로세스|\b(panel|widget|app|process)\b/i.test(text) && !RECURRING.test(text)) {
+  // (a process that names documents among its steps — "…제안서를 만들어" — is still the router's create;
+  // "Make a process for the Moonlight Coffee proposal: …" is a new process, not a document: the router's
+  // process tool designs it, as the Korean request always went)
+  if (!namedApp && (DOC_REQUEST.test(text) || (DOC_REQUEST_EN.test(text) && !PROCESS_REQUEST_EN.test(text))) && !/패널|위젯|앱|프로세스|\b(panel|widget|app)\b/i.test(text) && !RECURRING.test(text)) {
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
   // An address plus a site action ("테스트 상점(http://…/login)에 로그인해서 …") is the browser agent's: the router
@@ -372,7 +375,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
 // One run of the agent on a fresh variation of a shared folder, in its own conversation.
 async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
   const work = await startChatWork({ user, folder, text, threadId })
-  pinned.set(threadId, { conversationId: work.room, title: folder.kind === 'skill' ? L(`${folder.name} 스킬 고치기`, `Fix the ${folder.name} skill`) : L(`${folder.name} 폴더 작업`, `${folder.name} folder work`) })
+  // (folder: the run's own room — the main chat does not move into it, so the next message is not
+  // answered there: lib/agent.js delegate)
+  pinned.set(threadId, { conversationId: work.room, title: folder.kind === 'skill' ? L(`${folder.name} 스킬 고치기`, `Fix the ${folder.name} skill`) : L(`${folder.name} 폴더 작업`, `${folder.name} folder work`), folder: true })
   const msg = await delegate({ user, session, threadId, text: work.message, onDelta })
   await finishChatWork({ user, folder, v: work.v, threadId }).catch((e) => console.warn('[folders] chat work', e.message))
   return msg
@@ -396,10 +401,12 @@ const RECURRING = /매일|매주|매달|매시|마다|주기|정기|반복|한\s
 // Something to do on a site the message gives the address of: signing in, paying, ordering, booking, submitting.
 const SITE_ACTION = /로그인|결제|주문|구매|예약|발행|신청|제출|\b(log\s*in|sign\s*in|check\s*out|pay|order|purchase|book|submit)\b/i
 // A document or file to write: a kind of document (or a file format) followed closely by a verb of making.
-const DOC_REQUEST =/(docx|hwpx|pptx|xlsx|워드|한글\s*(파일|문서)|파워포인트|문서|보고서|안내문|제안서|기획서|공문|견적서|회의록)[^.?!\n]{0,20}(작성|만들|써\s*줘|뽑아)/i
+const DOC_REQUEST = /(docx|hwpx|pptx|xlsx|워드|한글\s*(파일|문서)|파워포인트|문서|보고서|안내문|제안서|기획서|공문|견적서|회의록)[^.?!\n]{0,20}(작성|만들|써\s*줘|뽑아)/i
 // the same in English ("write a proposal", "make me a Word document", "draft the quote as xlsx")
 const DOC_REQUEST_EN = /\b(write|make|create|draft|prepare|put together|generate|produce)\b[^.?!\n]{0,40}\b(docx|hwpx|pptx|xlsx|word|powerpoint|excel|document|doc|report|notice|announcement|proposal|plan|letter|quote|quotation|estimate|minutes|memo|slides?|deck|spreadsheet|brochure|flyer)\b/i
 // English requests the Korean shortcuts above recognise in Korean
+// a new process (definition) to design: "make a process for …", "create a workflow …"
+export const PROCESS_REQUEST_EN = /\b(make|create|build|design|set up|model)\b[^.?!\n]{0,30}\b(process|workflow)\b/i
 const SKILL_REQUEST_EN = /\b(make|create|build|write|author|set up)\s+(me\s+)?(a|an|the|my)?\s*(new\s+)?([\w'-]+\s+){0,3}skill\b/i
 const PANEL_REQUEST_EN = /^New panel\s*[:：]|\b(make|create|build|add|set up)\s+(me\s+)?(a|an|the|my)?\s*(new\s+)?([\w'-]+\s+){0,3}panel\b/i
 // What a request for a Home panel / data app says (create_panel's own examples)
@@ -612,6 +619,12 @@ export async function stopTurns({ user, session, threadId, conversation }) {
 
 export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl }) {
   let thread = await getThread(user.id, threadId)
+  // a main chat left standing in a shared folder's run room (as folder turns used to leave it) does
+  // not answer the next message there
+  if (thread?.kind === 'chat' && thread.conversation_id && await isFolderRoom(thread.conversation_id).catch(() => false)) {
+    await q('update pro_threads set conversation_id=null where id=$1 and conversation_id=$2', [threadId, thread.conversation_id])
+    thread = { ...thread, conversation_id: null }
+  }
   const uploads = attached.get(threadId) || []
   attached.delete(threadId)
   const pin = pinned.get(threadId)
@@ -629,6 +642,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const turn = adopted ? store.turn : turns.enqueue({ userId: user.id, threadId, conv: conv0 })
   turn.setConv(conv0)
   turn.title = String(text || '').trim().split('\n')[0].slice(0, 60)
+  // a shared folder's run room (folderTurn) is never offered to the router as a conversation in progress
+  turn.folder = !!pin?.folder
   // the user's message this turn answers (runTurn), marked 대기 while it waits
   const userMsgId = adopted ? store.userMsgId : null
   let routing = null
@@ -645,7 +660,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     // second request on the same conversation would make deepagents cancel the first)
     if (routed && turns.busyThread(turn)) {
       await queued()
-      const ahead = await turns.aheadInThread(turn)
+      const ahead = (await turns.aheadInThread(turn)).filter((x) => !x.folder)
       thread = await getThread(user.id, threadId)
       const r = await routeFirst({ user, thread, text, ahead })
       if (r) { routing = r; preRouted = true; routed = false; turn.setConv(r.conversation_id) }
@@ -665,8 +680,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   } finally { turn.finish() }
 
   async function runDelegated() {
-  // the main chat now stands in that conversation, so an unsure next message stays there too
-  if (pin) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, pin.conversationId])
+  // the main chat now stands in that conversation, so an unsure next message stays there too —
+  // except a shared folder's run room: that room is one variation's work, finished with this turn
+  // (an ordinary message or a Home card answered there edited the folder's checkout)
+  if (pin && !pin.folder) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, pin.conversationId])
   if (preRouted) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, routing.conversation_id])
   await setThreadStatus(user.id, threadId, 'working')
   // tools that need no account (CADCraft) are bound once per user per server start
@@ -755,17 +772,18 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
       } else if (event === 'metadata' && j.conversation_id) {
         turn.setConv(j.conversation_id)
-        if (!thread?.conversation_id) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
+        if (!thread?.conversation_id && !pin?.folder) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
       }
       if (j.type === 'token' && j.content) { out += j.content; partial = out; if (mode !== 'skill') onDelta?.(j.content) }
-      const genDir = j.type === 'file_artifact' && /\/\.bpmn\/[^/]+\/process-[^/]+\//.exec(j.path || '')
-      // skill-creator writes <conversation base>/skills/<name>/SKILL.md (+ scripts/, references/)
-      const skillDir = j.type === 'file_artifact' && /^(.*\/skills\/([^/]+))\/SKILL\.md$/.exec(j.path || '')
-      if (skillDir) skillDraft = { dir: skillDir[1], name: skillDir[2] }
+      const art = j.type === 'file_artifact' ? generationArtifact(j.path) : {}
+      if (art.skill) skillDraft = art.skill
       const room = j.type === 'file_artifact' && /^\/workspace\/\.bpmn\/[^/]+\//.exec(j.path || '')
       if (room) runDirs.add(room[0])
       if (j.type === 'file_artifact' && j.path) { written.add(j.path); seen.add(j.path) }
-      if (genDir) workDir = genDir[0]
+      if (art.def) workDir = art.def
+      if (art.gen) workDir ||= art.gen
+      else if (art.def) { /* the definition (the draft card shows it) */ }
+      else if (art.evalRun) { /* a skill's evaluation run (skill-creator), not the turn's output */ }
       else if (j.type === 'file_artifact' && /\/skills\/[^/]+\//.test(j.path || '')) { /* part of a skill draft */ }
       else if (j.type === 'file_artifact' && j.name && !/\.(form|json|md)$/.test(j.name)) files.push({ name: j.name, path: j.path, ext: j.ext })
       // office-mcp / IeumOffice MCP results carry a storage URL: those open straight in the editor —
@@ -797,7 +815,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   await setThreadStatus(user.id, threadId, null)
   let body = out.trim()
   const ended = cancelled || turn.stopped
-  if (skillDraft && !ended) {
+  // a turn that wrote a process definition ends with its draft card, not a skill card for a skill
+  // the generation picked up along the way
+  if (skillDraft && !ended && !workDir) {
     // The card carries the skill itself; the agent's long write-up stays folded inside it.
     const host = await workspaceHostPath(skillDraft.dir).catch(() => null)
     const markdown = host ? await fs.readFile(`${host}/SKILL.md`, 'utf8').catch(() => '') : ''
@@ -837,11 +857,12 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   for (const t of toolDocs) {
     const { keep, src } = await keepToolDoc({ name: t.raw, tool: t.tool, input: t.input }, seen, ctx)
     if (!keep) { console.log(`[delegate] not attached (not this turn's output): ${src || t.doc.name}`); continue }
+    if ((src && evalRun(src)) || workspacePaths(t.input).some(evalRun)) { console.log(`[delegate] not attached (a skill's test run): ${src || t.doc.name}`); continue }
     if (files.some((f) => f.url === t.doc.url)) continue
     // a republished copy keeps the name of the file it came from
     files.push(src ? { ...t.doc, name: src.split('/').pop(), path: src } : t.doc)
   }
-  if (!body && !files.length && !processResult) body = emptyText()
+  if (!body && !files.length && !workDir) body = emptyText()
   const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
   if (preRouted) touchContext(user, routing, text, body)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
@@ -850,6 +871,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     // office-mcp already published this one (store_and_render): one card per document
     const name = p.split('/').pop()
     if (files.some((f) => f.path === p || (f.url && f.name === name))) continue
+    // the answer often lists the skill test step's outputs (<room>/.skill-evals/…/outputs/*.dxf): named,
+    // but test runs, not what the person asked for — the same as their file_artifact events above
+    if (evalRun(p)) { console.log(`[delegate] not attached (a skill's test run): ${p}`); continue }
     if (!(await isOutput(p, ctx))) { console.log(`[delegate] not attached (not this turn's output): ${p}`); continue }
     files.push({ name, path: p })
   }
@@ -861,17 +885,52 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (!f.url && f.path && editable(f.name)) Object.assign(f, await publish(user.id, f.path).catch((e) => { console.warn('[office publish]', e.message); return {} }))
     await addMessage(user.id, threadId, 'agent', 'file', f)
   }
-  // with the bridge, a draft needs this turn's generation folder: a contract streamed without one is
-  // something the agent only quoted (the skill's leave-request example) while still asking a question
-  if (processResult && !ended && config.bridgeUrl && !workDir) console.warn('[process] process_result without a generation folder this turn: no draft card')
-  else if (processResult && !ended) {
+  // The draft card is the definition this turn wrote, read back from its folder the way saving reads
+  // it (lib/generated.js) — not the first definition-shaped JSON in the stream: deepagents used to send
+  // whatever the agent read first (the skill's schema sample "휴가 신청 프로세스", another saved
+  // process). A turn that wrote no definition (the consulting draft) has no card.
+  const contract = workDir && !ended ? await draftContract(workDir, processResult) : null
+  if (contract) {
     generationDone(threadId)
-    const contract = await assembleGenerated(processResult, workDir).catch((e) => { console.warn('[process] assemble', e.message); return processResult })
     await addMessage(user.id, threadId, 'agent', 'process_draft', { contract, workDir, state: 'draft' })
   }
   return msg
   }
   }
+}
+
+// What a file the agent wrote (file_artifact) is to a process generation:
+//   def   — the folder of the definition this turn wrote (or completion rewrote): process-<id>/, or a
+//           folder the model named itself (deepagents process_work_dirs takes that one too)
+//   gen   — a process folder the file is in (forms, agents …)
+//   skill — a skill-creator draft (<conversation base>/skills/<name>/SKILL.md); the skills inside a
+//           process folder (process-*/skills/) belong to that process and are not a draft
+//   evalRun — a file of a skill's evaluation runs (<room>/.skill-evals/…): no file card
+// a file of a skill's test runs (deepagents' skill test step, also inside a process generation: plan_skill_eval
+// → <room>/.skill-evals/<skill>/iteration-N/<case>/<with|without>_skill/outputs/…), however it reached the turn
+export const evalRun = (path) => /\/\.skill-evals\//.test(String(path || ''))
+export function generationArtifact(path) {
+  const p = String(path || '')
+  const def = /\/\.bpmn\/[^/]+\/(?:[^/.][^/]*\/)?process-definition\.json$/.exec(p)
+  const gen = /\/\.bpmn\/[^/]+\/process-[^/]+\//.exec(p)
+  const skill = !/\/\.bpmn\/[^/]+\/process-[^/]+\/skills\//.test(p) && /^(.*\/skills\/([^/]+))\/SKILL\.md$/.exec(p)
+  return { def: def ? def[0].replace(/process-definition\.json$/, '') : null, gen: gen ? gen[0] : null, skill: skill ? { dir: skill[1], name: skill[2] } : null,
+    ...(evalRun(p) ? { evalRun: true } : {}) }
+}
+
+// The draft card's contract: the definition in the folder a turn wrote (workDir), assembled the way
+// saving assembles it; when that cannot run, the definition file itself (the streamed contract only
+// when it is that same definition — it carries the forms).
+export async function draftContract(workDir, streamed, rebuild = generatedContract) {
+  const built = await rebuild(workDir).catch(() => null)
+  if (built?.processDefinition) return built
+  const host = await workspaceHostPath(`${workDir.replace(/\/$/, '')}/process-definition.json`).catch(() => null)
+  let pd = null
+  try { pd = JSON.parse(await fs.readFile(host, 'utf8')) } catch { return null }
+  pd = pd?.processDefinition || pd
+  if (!pd || typeof pd !== 'object' || !(pd.processDefinitionName || pd.elements || pd.activities)) return null
+  if (streamed?.processDefinition && streamed.processDefinition.processDefinitionName === pd.processDefinitionName) return streamed
+  return { type: 'process-definition-result', processDefinition: pd, forms: [], agents: [], skills: [] }
 }
 
 // Find the definition the user means; the catalogue is small enough to let the model pick.

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { marked } from 'marked'
+import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
 import Composer from './Composer.vue'
 import EdgeBlur from './EdgeBlur.vue'
@@ -13,7 +14,7 @@ const scroller = ref(null)
 const list = computed(() => app.thread)
 const draft = computed(() => app.drafts[app.activeId])
 const status = computed(() => app.status[app.activeId] || (app.active?.status === 'working' ? '작업하는 중' : null))
-const md = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { breaks: true })
+const md = (t) => marked.parse(hidePaths(t || '').replace(/</g, '&lt;'), { breaks: true })
 // hark: a quiet date line where the day changes, and "읽음" under the last thing the user said
 const dayOf = (m) => new Date(m.created_at).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })
 const newDay = (i) => i > 0 && dayOf(list.value[i]) !== dayOf(list.value[i - 1])
