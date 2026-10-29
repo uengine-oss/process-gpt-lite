@@ -4,7 +4,7 @@
 #   ./install.sh                  install or start (idempotent: keeps .env, data and secrets)
 #   ./install.sh --profile full   lite + process engine (completion/polling) + mcp-hub
 #   ./install.sh --with-mining    also process-miner (repeated work → process recommendations)
-#   ./install.sh --with-craft     also the ArtCraft apps (drawings, images, sound, video; first build ~50 min, 12 GB+ memory)
+#   ./install.sh --with-craft     also the ArtCraft apps (drawings, images, sound, video; prebuilt image, else a ~50 min build with 12 GB+ memory)
 #   ./install.sh --upgrade       update sources (git), rebuild/pull images, migrate, restart
 #   ./install.sh --uninstall      stop and remove containers (data kept)
 #   ./install.sh --uninstall --purge   also delete volumes, data folder and built images
@@ -245,12 +245,31 @@ preflight() {
   done
 }
 
+# the ArtCraft image built by .github/workflows/craft-image.yml; LITE_CRAFT_IMAGE= (empty) in .env builds it here
+pull_craft() {
+  local img
+  img="$(getenv LITE_CRAFT_IMAGE)"
+  grep -q '^LITE_CRAFT_IMAGE=' "$ENVF" || img=ghcr.io/uengine-oss/process-gpt-lite-craft:latest
+  [ -n "$img" ] || return 1
+  say "$(t 'ArtCraft 앱은 미리 빌드된 이미지를 받습니다' 'Pulling the prebuilt ArtCraft apps') ($img)"
+  if docker pull -q "$img" >/dev/null && docker tag "$img" "$(getenv LITE_IMAGE_PREFIX)/craft:$(getenv LITE_TAG)"; then
+    return 0
+  fi
+  warn "$(t 'ArtCraft 이미지를 받지 못해 소스에서 빌드합니다.' 'Could not pull the ArtCraft image; building it from source.')"
+  return 1
+}
+
 build_or_pull() {
   if [ "$(getenv LITE_IMAGE_PREFIX)" != pgpt-lite ]; then
     say "$(t '이미지를 받습니다' 'Pulling the images') ($(getenv LITE_IMAGE_PREFIX):$(getenv LITE_TAG))"
     compose pull
   else
     say "$(t '이미지를 빌드합니다(처음에는 20~40분, 이음오피스가 가장 오래 걸립니다)' 'Building the images (20–40 minutes the first time; IeumOffice takes longest)')"
+    if [ "$(getenv LITE_CRAFT)" = 1 ] && pull_craft; then
+      # everything but craft, which `compose build` would otherwise rebuild over the pulled image
+      compose build ${1:-} $(compose config --services | grep -vx craft)
+      return
+    fi
     if [ "$(getenv LITE_CRAFT)" = 1 ]; then
       say "$(t 'ArtCraft 앱 다섯 개도 소스에서 빌드합니다(처음 한 번 약 50분, 이후 캐시)' 'Also building the five ArtCraft apps from source (about 50 minutes once, cached afterwards)')"
       # PhotoCraft's Rust/wasm build ran out of memory with 8 GB and passed with 16 GB
