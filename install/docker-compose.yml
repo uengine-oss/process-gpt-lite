@@ -340,6 +340,8 @@ services:
       PRO_PORT: 8787
       PRO_PUBLIC_URL: ${PUBLIC_URL}
       PRO_TENANT_ID: ${LITE_TENANT:-lite}
+      # the engine writes start/end/due times as Seoul wall-clock in "timestamp without time zone" columns
+      TZ: ${LITE_TZ:-Asia/Seoul}
       # one URL for the server and the browser (storage links are handed to both)
       PRO_SUPABASE_URL: ${PUBLIC_URL}
       LOOPBACK_FORWARD: ${LOOPBACK_FORWARD:-}
@@ -462,6 +464,8 @@ services:
       <<: *engine-env
       PYTHONPATH: /usr/src/app
       PYTHONUNBUFFERED: "1"
+      # no Memento in the bundle: skip its process-output call
+      MEMENTO_SERVICE_URL: ""
     working_dir: /usr/src/app/polling_service
     command: [sh, -c, "pip install --no-cache-dir -q -r requirements.txt && exec python main.py"]
 

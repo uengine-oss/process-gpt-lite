@@ -79,7 +79,7 @@ export const config = {
   llm: {
     baseUrl: get('PRO_LLM_BASE_URL', get('LLM_PROXY_URL', 'https://api.openai.com/v1')),
     apiKey: get('PRO_LLM_API_KEY', get('OPENAI_API_KEY')),
-    model: get('PRO_LLM_MODEL', 'gpt-4.1'),
+    model: get('PRO_LLM_MODEL', 'gpt-6-luna'),
     fastModel: get('PRO_LLM_FAST_MODEL', 'gpt-4.1-mini'),
   },
   llmTrace: get('PRO_LLM_TRACE', ''), // file to append model request text to (see lib/llm.js)

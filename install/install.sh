@@ -4,7 +4,7 @@
 #   ./install.sh                  install or start (idempotent: keeps .env, data and secrets)
 #   ./install.sh --profile full   lite + process engine (completion/polling) + mcp-hub
 #   ./install.sh --with-mining    also process-miner (repeated work → process recommendations)
-#   ./install.sh --with-craft     also the ArtCraft apps (drawings, images, sound, video; first build 30+ min)
+#   ./install.sh --with-craft     also the ArtCraft apps (drawings, images, sound, video; first build ~50 min, 12 GB+ memory)
 #   ./install.sh --upgrade       update sources (git), rebuild/pull images, migrate, restart
 #   ./install.sh --uninstall      stop and remove containers (data kept)
 #   ./install.sh --uninstall --purge   also delete volumes, data folder and built images
@@ -194,7 +194,9 @@ prepare_env() {
 
   ask LLM_BASE_URL "$(t 'LLM 주소(OpenAI 호환)' 'LLM address (OpenAI-compatible)')" "https://api.openai.com/v1"
   ask LLM_API_KEY "$(t 'LLM API 키(입력은 화면에 보이지 않습니다)' 'LLM API key (not shown as you type)')" "" secret
-  ask LLM_MODEL "$(t '기본 모델' 'Default model')" "gpt-4.1"
+  ask LLM_MODEL "$(t '기본 모델' 'Default model')" "gpt-6-luna"
+  # /v1/responses is OpenAI's own: another endpoint keeps chat/completions
+  if [ "$FRESH" = 1 ]; then case "$(getenv LLM_BASE_URL)" in https://api.openai.com/*) ;; *) setenv LLM_USE_RESPONSES_API false ;; esac; fi
   ask LLM_FAST_MODEL "$(t '빠른 모델(라우팅·분류)' 'Fast model (routing and classification)')" "$(getenv LLM_MODEL)"
   ask ADMIN_EMAIL "$(t '첫 관리자 이메일' 'First admin email')" "admin@pgpt-lite.local"
   [ -n "$(getenv LLM_API_KEY)" ] || warn "$(t 'LLM_API_KEY가 비어 있습니다. 채팅이 응답하지 않습니다(.env에 넣고 ./install.sh 다시 실행).' 'LLM_API_KEY is empty, so chat will not answer (put it in .env and run ./install.sh again).')"
@@ -249,7 +251,11 @@ build_or_pull() {
     compose pull
   else
     say "$(t '이미지를 빌드합니다(처음에는 20~40분, 이음오피스가 가장 오래 걸립니다)' 'Building the images (20–40 minutes the first time; IeumOffice takes longest)')"
-    [ "$(getenv LITE_CRAFT)" = 1 ] && say "$(t 'ArtCraft 앱 다섯 개도 소스에서 빌드합니다(처음 한 번 30분 이상, 이후 캐시)' 'Also building the five ArtCraft apps from source (30+ minutes once, cached afterwards)')"
+    if [ "$(getenv LITE_CRAFT)" = 1 ]; then
+      say "$(t 'ArtCraft 앱 다섯 개도 소스에서 빌드합니다(처음 한 번 약 50분, 이후 캐시)' 'Also building the five ArtCraft apps from source (about 50 minutes once, cached afterwards)')"
+      # PhotoCraft's Rust/wasm build ran out of memory with 8 GB and passed with 16 GB
+      [ "$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)" -ge $((11 * 1024 * 1024 * 1024)) ] || warn "$(t 'Docker 메모리가 12GB 미만이면 ArtCraft 빌드가 메모리 부족으로 실패할 수 있습니다(Windows는 .wslconfig 의 memory 를 올리세요).' 'With less than 12 GB of Docker memory the ArtCraft build can fail for lack of memory (on Windows raise memory in .wslconfig).')"
+    fi
     compose build ${1:-}
   fi
 }
@@ -297,11 +303,22 @@ SQL
   : "$anon"
 }
 
+# the demo process the tutorial runs (travel expense claim), once: the seed resets it when re-run
+seed_demo() {
+  [ "$(getenv LITE_PROFILE)" = full ] || return 0
+  local has
+  has="$(compose exec -T db psql -U postgres -d postgres -tAc "select 1 from proc_def where id='pro_expense_claim' and tenant_id='$(getenv LITE_TENANT)'" | tr -d '[:space:]')"
+  [ -n "$has" ] && return 0
+  compose exec -T -w /app/server server node sql/seed-demo-process.mjs >/dev/null 2>&1 \
+    || warn "$(t '데모 프로세스(출장비 정산)를 넣지 못했습니다.' 'Could not add the demo process (travel expense claim).')"
+}
+
 up() {
   say "$(t '시작합니다(프로필' 'Starting (profile'): $(getenv LITE_PROFILE))"
   compose up -d --remove-orphans
   wait_ready
   create_admin
+  seed_demo
 }
 
 summary() {

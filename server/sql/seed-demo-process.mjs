@@ -150,16 +150,16 @@ if (DRY) {
 
 if (EN) {
   await q(`insert into users (id, username, email, tenant_id, is_agent, is_admin, is_draft, agent_type, model, goal, persona, alias, permission_ids)
-           values ($1,'Expense review agent',$2,$3,true,false,false,'agent','gpt-4.1',$4,$5,'expense-review-agent','{}')
-           on conflict (id, tenant_id) do update set username='Expense review agent', goal=$4, persona=$5`,
+           values ($1,'Expense review agent',$2,$3,true,false,false,'agent',$6,$4,$5,'expense-review-agent','{}')
+           on conflict (id, tenant_id) do update set username='Expense review agent', goal=$4, persona=$5, model=$6`,
   [AGENT, `expense-review-agent@${T}`, T, 'Reviews travel expense claims against the company policy and writes a report.',
-    'The expense review agent. It never makes up facts that are not in the input, and lists what is over a limit or missing in a table. It writes in English.'])
+    'The expense review agent. It never makes up facts that are not in the input, and lists what is over a limit or missing in a table. It writes in English.', config.llm.model])
 } else {
 await q(`insert into users (id, username, email, tenant_id, is_agent, is_admin, is_draft, agent_type, model, goal, persona, alias, permission_ids)
-         values ($1,'정산 검토 에이전트',$2,$3,true,false,false,'agent','gpt-4.1',$4,$5,'expense-review-agent','{}')
-         on conflict (id, tenant_id) do update set goal=$4, persona=$5`,
+         values ($1,'정산 검토 에이전트',$2,$3,true,false,false,'agent',$6,$4,$5,'expense-review-agent','{}')
+         on conflict (id, tenant_id) do update set goal=$4, persona=$5, model=$6`,
 [AGENT, `expense-review-agent@${T}`, T, '출장비 청구를 회사 규정에 비추어 검토하고 보고서를 쓴다.',
-  '정산 담당 에이전트다. 입력값에 없는 사실을 지어내지 않고, 한도 초과와 누락을 표로 정리한다.'])
+  '정산 담당 에이전트다. 입력값에 없는 사실을 지어내지 않고, 한도 초과와 누락을 표로 정리한다.', config.llm.model])
 }
 
 await q(`delete from proc_def where id=$1 and tenant_id=$2`, [PID, T])

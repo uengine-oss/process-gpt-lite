@@ -252,7 +252,7 @@ process-gpt에 넣은 작은 변경(공통 기능):
 |---|---|---|
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | 없음 | Google 로그인(기본 프로필) 및 별도 메일 연결(Gmail·캘린더 읽기). 리디렉션 URI `http://localhost:5180/api/auth/google/callback` |
 | `PRO_VAULT_KEK` | 첫 실행 시 `server/.vault-keyring.json` 생성(0600) | 32바이트 base64. 운영 환경에서는 KMS나 Secret Manager로 주입하세요 |
-| `PRO_LLM_MODEL` / `PRO_LLM_FAST_MODEL` | gpt-4.1 / gpt-4.1-mini | |
+| `PRO_LLM_MODEL` / `PRO_LLM_FAST_MODEL` | gpt-6-luna / gpt-4.1-mini | |
 | `PRO_MAIL_POLL_SECONDS` | 300 | |
 | `PRO_TENANT_ID` | localhost | process-gpt 테넌트 |
 | `PRO_DEMO_LOGIN` | 켜짐 | `0`이면 코드 `000000`을 막습니다 |
