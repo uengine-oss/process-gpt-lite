@@ -143,19 +143,18 @@ export async function notifyUser(userId, { type, title, text, url }) {
 
 // New rows reach open clients without a reload: one tenant-wide check every few seconds,
 // fanned out to the users the rows are for (rows may name a user by id or by email).
-const lastByTenant = new Map() // tenant -> time of the newest row seen
+// The position is the database's own text of the newest time_stamp: a JS Date keeps milliseconds
+// and the column microseconds, so the newest row was "new" again on every pass.
+const lastByTenant = new Map() // tenant -> newest time_stamp seen (timestamptz text)
+export async function feedOnce() {
+  const last = lastByTenant.get(T()) || new Date().toISOString()
+  const rows = await q(`select u.id as uid, (max(n.time_stamp) over ())::text as newest from notifications n
+                        left join users u on (u.id::text = n.user_id or u.email = n.user_id) and u.tenant_id = n.tenant_id
+                        where n.tenant_id=$1 and n.time_stamp > $2::timestamptz`, [T(), last])
+  for (const uid of new Set(rows.map((r) => r.uid).filter(Boolean))) emit(uid, 'notifications', {})
+  lastByTenant.set(T(), rows[0]?.newest || last)
+  return rows.length
+}
 export function startNotificationFeed() {
-  setInterval(() => eachTenant(async () => {
-    let last = lastByTenant.get(T()) || new Date()
-    try {
-      const rows = await q(`select n.user_id, n.time_stamp, u.id as uid from notifications n
-                            left join users u on (u.id::text = n.user_id or u.email = n.user_id) and u.tenant_id = n.tenant_id
-                            where n.tenant_id=$1 and n.time_stamp > $2`, [T(), last])
-      for (const r of rows) {
-        if (r.time_stamp > last) last = r.time_stamp
-        if (r.uid) emit(r.uid, 'notifications', {})
-      }
-      lastByTenant.set(T(), last)
-    } catch (e) { console.warn('[notify feed]', e.message) }
-  }), 4000)
+  setInterval(() => eachTenant(() => feedOnce().catch((e) => console.warn('[notify feed]', e.message))), 4000)
 }
