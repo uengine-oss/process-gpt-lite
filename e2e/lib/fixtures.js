@@ -19,6 +19,7 @@ import fs from 'node:fs'
 const LANG = process.env.PGL_LANG
 const HARVEST = process.env.RT_I18N_HARVEST
 
+const BASE_PATH = new URL(PGPT_URL).pathname.replace(/\/+$/, '')
 const onboarded = new Set()
 async function signedIn(area) {
   const c = await api.as(area)
@@ -35,11 +36,17 @@ export const test = base.extend({
     const contexts = []
     await use(async (area, { viewport, dpr = 1 } = {}) => {
       const c = await signedIn(area)
-      const ctx = await browser.newContext({ viewport: viewport || { width: 1280, height: 720 }, deviceScaleFactor: dpr, locale: 'ko-KR', baseURL: PGPT_URL })
+      const ctx = await browser.newContext({ viewport: viewport || { width: 1280, height: 720 }, deviceScaleFactor: dpr, locale: 'ko-KR', baseURL: new URL(PGPT_URL).origin })
       await ctx.addInitScript((s) => { if (window.top === window) localStorage.setItem('pgpt-pro-session', s) }, JSON.stringify(c.s))
       if (LANG) await ctx.addInitScript((l) => { try { if (window.top === window) localStorage.setItem('pgl-lang', l) } catch { /* opaque origin */ } }, LANG)
       contexts.push(ctx)
       const page = await ctx.newPage()
+      // behind the ProcessGPT gateway (PGPT_URL=http://localhost:8088/lite) the app lives under a
+      // path: the tests' own '/chat' style addresses go below it
+      if (BASE_PATH) {
+        const go = page.goto.bind(page)
+        page.goto = (u, o) => go(typeof u === 'string' && u.startsWith('/') && !u.startsWith(`${BASE_PATH}/`) ? BASE_PATH + u : u, o)
+      }
       page.errors = []
       page.on('pageerror', (e) => { page.errors.push(String(e?.message || e)); if (process.env.RT_DEBUG_ERRORS) console.log('[pageerror]', e?.stack || e) })
       page.user = c
