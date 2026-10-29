@@ -201,8 +201,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
 
   // Skill authoring belongs to deepagents' own skill-creator (its root prompt routes '스킬 만들어줘'
   // there); pass such requests through untouched instead of classifying them here.
-  // ("…점검 방법을 스킬로 만들어 줘" — the tutorial's own wording — is one too)
-  if (/(스킬|skill)\s*(을|를|로|으로)?\s*(새로\s*)?(만들|생성|작성)/i.test(text) || SKILL_REQUEST_EN.test(text)) {
+  // ("…점검 방법을 스킬로 만들어 줘" and "아까 만들던 … 스킬을 마무리해 줘" — the tutorial's own wording — are too)
+  if (/(스킬|skill)\s*(을|를|로|으로)?\s*(새로\s*)?(만들|생성|작성)|만들던\s.{0,40}(스킬|skill)|(스킬|skill)\s*(을|를)?\s*(마무리|이어서?\s*(만들|해)|완성)/i.test(text) || SKILL_REQUEST_EN.test(text)) {
     generationDone(threadId)
     // a skill meant to run on a schedule reports its outcome the way missions read it (lib/missions.js)
     return delegate({ user, session, threadId, text: RECURRING.test(text) || /예약|미션|schedul|mission/i.test(text) ? L(`${text}\n\n(이 스킬은 예약 실행(미션)으로도 돌아요: SKILL.md 절차의 마지막 단계로 "${MISSION_LINE}" 을 넣어 주세요.)`, `${text}\n\n(This skill also runs on a schedule (as a mission): add "${MISSION_LINE_EN}" as the last step of the SKILL.md procedure.)`) : text, onDelta, mode: 'skill' })
