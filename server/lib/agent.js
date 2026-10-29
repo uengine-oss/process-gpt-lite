@@ -260,6 +260,19 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (!namedApp && (DOC_REQUEST.test(text) || DOC_REQUEST_EN.test(text)) && !/패널|위젯|앱|프로세스|\b(panel|widget|app|process)\b/i.test(text) && !RECURRING.test(text)) {
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
+  // An address plus a site action ("테스트 상점(http://…/login)에 로그인해서 …") is the browser agent's: the router
+  // model sometimes answers these itself, and the agent's sandbox cannot reach the site
+  const siteUrl = /https?:\/\/[^\s)'"]+/i.exec(text)?.[0]
+  if (!namedApp && siteUrl && SITE_ACTION.test(text) && !files.length && !RECURRING.test(text) && !generationPending(threadId)) {
+    noAgentTurn()
+    const ack = L('사이트에서 직접 처리할게요.', "I'll do it on the site.")
+    const msg = await addMessage(userId, threadId, 'agent', 'text', { text: ack })
+    onDelta?.(ack)
+    runBrowserTask({ userId, threadId, goal: text, startUrl: siteUrl })
+      .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
+      .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment.") }) })
+    return msg
+  }
   const skillList = await listSkills(session.access_token)
   const skillHint = skillList.length ? `\n${L('사용 가능한 스킬(주기 작업에 쓸 수 있음)', 'Available skills (usable for recurring tasks)')}: ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
   const processHint = await processCatalogHint()
@@ -379,8 +392,10 @@ const CONNECTOR_HINTS = [
 const MISSION_LINE = '맨 마지막 줄에 MISSION_RESULT: {"changed": true|false, "summary": "결과 한 문장"} 를 한 줄로 출력'
 const MISSION_LINE_EN = 'print on the very last line, as one line: MISSION_RESULT: {"changed": true|false, "summary": "one sentence with the result"}'
 const RECURRING = /매일|매주|매달|매시|마다|주기|정기|반복|한\s*번씩|한번씩|\d+\s*(초|분|시간|일)\s*(에|간격|마다)|every|hourly|daily|weekly|monthly|on a schedule|recurring/i
+// Something to do on a site the message gives the address of: signing in, paying, ordering, booking, submitting.
+const SITE_ACTION = /로그인|결제|주문|구매|예약|발행|신청|제출|\b(log\s*in|sign\s*in|check\s*out|pay|order|purchase|book|submit)\b/i
 // A document or file to write: a kind of document (or a file format) followed closely by a verb of making.
-const DOC_REQUEST = /(docx|hwpx|pptx|xlsx|워드|한글\s*(파일|문서)|파워포인트|문서|보고서|안내문|제안서|기획서|공문|견적서|회의록)[^.?!\n]{0,20}(작성|만들|써\s*줘|뽑아)/i
+const DOC_REQUEST =/(docx|hwpx|pptx|xlsx|워드|한글\s*(파일|문서)|파워포인트|문서|보고서|안내문|제안서|기획서|공문|견적서|회의록)[^.?!\n]{0,20}(작성|만들|써\s*줘|뽑아)/i
 // the same in English ("write a proposal", "make me a Word document", "draft the quote as xlsx")
 const DOC_REQUEST_EN = /\b(write|make|create|draft|prepare|put together|generate|produce)\b[^.?!\n]{0,40}\b(docx|hwpx|pptx|xlsx|word|powerpoint|excel|document|doc|report|notice|announcement|proposal|plan|letter|quote|quotation|estimate|minutes|memo|slides?|deck|spreadsheet|brochure|flyer)\b/i
 // English requests the Korean shortcuts above recognise in Korean
