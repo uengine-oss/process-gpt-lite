@@ -98,5 +98,7 @@ export const config = {
   mailPollSeconds: Number(get('PRO_MAIL_POLL_SECONDS', 300)),
   // pg_cron fires schedules by calling back into this server through pg_net.
   cronCallbackBase: get('PRO_CRON_CALLBACK', 'http://host.docker.internal:8787'),
+  // 'server': this server checks the schedules every minute instead (lib/scheduler.js)
+  cronMode: get('PRO_CRON_MODE', 'pg_cron') === 'server' ? 'server' : 'pg_cron',
   cronSecret: get('PRO_CRON_SECRET', 'pgpt-pro-cron'),
 }

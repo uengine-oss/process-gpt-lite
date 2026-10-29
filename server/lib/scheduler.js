@@ -42,25 +42,54 @@ export function kstToGmt(expr) {
   return exprs
 }
 
-// Next fire time of a 5-field KST cron expression, as a Date.
-export function nextRun(expr, from = new Date()) {
+// Whether a 5-field KST cron expression names the minute of `t`.
+function matcher(expr) {
   const [mi, ho, dom, mon, dow] = expr.trim().split(/\s+/)
   const sets = [expand(mi, 59), expand(ho, 23), expand(dom, 31), expand(mon, 12), expand(dow, 6)]
   const ok = (set, v) => !set || set.includes(v)
+  return (t) => {
+    const k = new Date(t.getTime() + KST * 3600000) // wall clock in KST via UTC getters
+    return ok(sets[0], k.getUTCMinutes()) && ok(sets[1], k.getUTCHours()) && ok(sets[2], k.getUTCDate()) &&
+      ok(sets[3], k.getUTCMonth() + 1) && ok(sets[4], k.getUTCDay())
+  }
+}
+export const dueAt = (expr, minute) => matcher(expr)(minute)
+
+// Next fire time of a 5-field KST cron expression, as a Date.
+export function nextRun(expr, from = new Date()) {
+  const match = matcher(expr)
   const t = new Date(Math.ceil((from.getTime() + 1) / 60000) * 60000)
   for (let i = 0; i < 60 * 24 * 32; i++) {
-    const k = new Date(t.getTime() + KST * 3600000) // wall clock in KST via UTC getters
-    if (ok(sets[0], k.getUTCMinutes()) && ok(sets[1], k.getUTCHours()) && ok(sets[2], k.getUTCDate()) &&
-        ok(sets[3], k.getUTCMonth() + 1) && ok(sets[4], k.getUTCDay())) return t
+    if (match(t)) return t
     t.setTime(t.getTime() + 60000)
   }
   return null
+}
+
+// PRO_CRON_MODE=server: this process is the clock. A managed database outside the cluster cannot
+// call back to the Service address, so pg_cron is not used; the server is one replica, so a
+// minute fires once. A tick that comes late fires the minutes it missed.
+export async function dueSchedules(minute) {
+  return (await q('select id, cron from pro_schedules where not coalesce(paused, false)'))
+    .filter((s) => { try { return dueAt(s.cron, minute) } catch { return false } }).map((s) => s.id)
+}
+export function startScheduleTicker(fire) {
+  if (config.cronMode !== 'server') return
+  let last = Math.floor(Date.now() / 60000) * 60000
+  setInterval(async () => {
+    const now = Math.floor(Date.now() / 60000) * 60000
+    for (let m = last + 60000; m <= now; m += 60000) {
+      try { for (const id of await dueSchedules(new Date(m))) fire(id) } catch (e) { console.warn('[cron] tick', e.message) }
+    }
+    last = now
+  }, 15000)
 }
 
 export async function createSchedule({ userId, name, cron, prompt, threadId }) {
   const [s] = await q(
     `insert into pro_schedules(user_id,name,cron,prompt,thread_id) values ($1,$2,$3,$4,$5) returning *`,
     [userId, name, cron, prompt, threadId])
+  if (config.cronMode === 'server') return s
   const jobBase = `pro_${s.id.slice(0, 8)}`
   const url = `${config.cronCallbackBase}/api/cron/fire`
   const body = JSON.stringify({ id: s.id, secret: config.cronSecret })

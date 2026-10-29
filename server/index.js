@@ -10,7 +10,7 @@ import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
-import { listSchedules, deleteSchedule } from './lib/scheduler.js'
+import { listSchedules, deleteSchedule, startScheduleTicker } from './lib/scheduler.js'
 import { generatePanel, revisePanel, savePanelData, proxyFetch } from './lib/panels.js'
 import { chat } from './lib/llm.js'
 import * as mail from './lib/mail.js'
@@ -588,16 +588,18 @@ app.delete('/api/schedules/:id', auth, async (req, res) => { await deleteSchedul
 // A short interval (every minute) can fire again while the last run is still working; that tick
 // is skipped rather than stacking runs of the same task.
 const firing = new Set()
-app.post('/api/cron/fire', async (req, res) => {
-  if (req.body.secret !== config.cronSecret) return res.status(403).end()
-  res.json({ ok: true })
-  const id = req.body.id
+function fire(id) {
   if (firing.has(id)) return console.log(`[cron] ${id.slice(0, 8)} still running, tick skipped`)
   firing.add(id)
   // skills, processes and plain prompts alike (lib/missions.js): every run is in the task's run history,
   // a failure is announced in chat and on Home, a run that found nothing new posts nothing, and a tick
   // the database could not even record is tried again a little later
   fireSchedule(id).catch((e) => console.warn('[cron]', e.message)).finally(() => firing.delete(id))
+}
+app.post('/api/cron/fire', async (req, res) => {
+  if (req.body.secret !== config.cronSecret) return res.status(403).end()
+  res.json({ ok: true })
+  fire(req.body.id)
 })
 
 // ---------- missions (scheduled skills) ----------
@@ -808,6 +810,7 @@ const server = app.listen(config.port, async () => {
   // behind the ProcessGPT gateway, where the tenants are ProcessGPT's own
   if (!config.tenantFromHeader) startSystemRegistry()
   notify.startNotificationFeed()
+  startScheduleTicker(fire)
   startFolderSteps()
   startConstraintSweep()
   // agent steps stopped by a passing error are queued again (lib/stepRetry.js)
