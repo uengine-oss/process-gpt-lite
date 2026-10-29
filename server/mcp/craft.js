@@ -185,10 +185,12 @@ export async function callCraft(userId, app, name, args = {}) {
   return text
 }
 
-function buildServer(app, user) {
+function buildServer(app, user, { agentNoToken = false } = {}) {
   const server = new Server({ name: `pgpt-${app}`, version: '1.0.0' }, { capabilities: { tools: {} } })
-  // anonymous (mcp-hub's catalog, health checks): everything; a user: per activation
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: !user || isActive(app, user.id) ? await tools(app) : [switchTool(app)] }))
+  // anonymous (mcp-hub's catalog, health checks): everything; a user: per activation; an agent whose
+  // {{user_jwt}} was not filled in: only the switch — its calls fail anyway, and the full sets of five
+  // apps push the agent past its tool limit (office-mcp's tools are dropped first)
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: (!user && !agentNoToken) || (user && isActive(app, user.id)) ? await tools(app) : [switchTool(app)] }))
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     if (!user) return { isError: true, content: [{ type: 'text', text: 'unauthorized: call with the user JWT (Authorization: Bearer {{user_jwt}})' }] }
     if (params.name === `${app}_start`) {
@@ -215,10 +217,11 @@ export function mountCraft(app) {
   app.post(Object.keys(CRAFT_APPS).map((a) => `/mcp/${a}`), async (req, res) => {
     const name = req.path.split('/').pop()
     let jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
+    const agentNoToken = /^\{\{\s*user_jwt\s*\}\}$/.test(jwt)
+    if (agentNoToken) jwt = ''
     const user = jwt ? await userFromJwt(jwt) : null
     if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
-    const server = buildServer(name, user)
+    const server = buildServer(name, user, { agentNoToken })
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })
     await server.connect(transport)
