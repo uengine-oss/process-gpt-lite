@@ -123,7 +123,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
         {{ c.skill ? `스킬 ${c.skill}` : c.folderName }} · 새 변형</span>
       <b>{{ c.title }}</b>
       <small v-if="c.summary">{{ c.summary }}</small>
-      <span class="fvf">{{ (c.files || []).map((f) => f.path.split('/').pop()).join(', ') }}</span>
+      <span class="fvf">{{ (c.files || []).map((f) => f.name || f.path?.split('/').pop()).join(', ') }}</span>
       <span class="fvgo">{{ c.requested ? `반영 요청을 보냈어요 · ${c.requested.to} 님 검토 대기 →` : '검토하고 반영하기 →' }}</span>
     </button>
     <!-- process improvement numbers the assistant explained (lib/agent.js improveTurn) -->

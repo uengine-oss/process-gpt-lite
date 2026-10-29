@@ -76,6 +76,7 @@ export const config = {
   // IeumOffice editor host (process-gpt office-host): its MCP (/office/mcp) edits the documents open in the page
   officeHostUrl: get('PRO_OFFICE_HOST_URL', 'http://127.0.0.1:5390'),
   completionUrl: get('PRO_COMPLETION_URL', 'http://127.0.0.1:8099'),
+  mementoUrl: get('PRO_MEMENTO_URL', 'http://127.0.0.1:8005'),
   llm: {
     baseUrl: get('PRO_LLM_BASE_URL', get('LLM_PROXY_URL', 'https://api.openai.com/v1')),
     apiKey: get('PRO_LLM_API_KEY', get('OPENAI_API_KEY')),

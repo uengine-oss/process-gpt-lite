@@ -26,7 +26,7 @@ import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
 import { liveOpen, liveHint } from './craftLive.js'
 import { capture, reviewTurn } from './review.js'
-import { attachmentHint } from './attachments.js'
+import { attachmentHint, indexForRoom, chatFiles } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
 import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folders/work.js'
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
@@ -184,7 +184,8 @@ const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv
 async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
-  files = (files || []).filter((f) => f?.path && f?.url).slice(0, 10)
+  // a key is only ever this person's own upload (lib/attachments.js); the page could send any other
+  files = (files || []).filter((f) => f?.url).map((f) => (f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { ...f, key: undefined } : f)).slice(0, 10)
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
   const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
   const store = turnCtx.getStore()
@@ -719,17 +720,22 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   } finally { clearTimeout(idleTimer) }
 
   async function streamTurn() {
+  // attachments are indexed for the conversation they go to (lib/attachments.js), so a new
+  // conversation gets its id here — the SDK keeps a conversation_id it is given. The router's
+  // choice is not known yet, so routed turns send theirs by address only.
+  let conv = turn.conv || pin?.conversationId || thread?.conversation_id || null
+  if (!conv && !routed && uploads.length) conv = crypto.randomUUID().replace(/-/g, '')
+  const sent = conv && !routed ? await indexForRoom(uploads, conv) : uploads
   const res = await fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
     signal: AbortSignal.any([idle.signal, turn.abort.signal]),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
     body: JSON.stringify({
       // English mode: the language instruction goes last, after what the person said and the hints
-      message: text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(uploads) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
-      // process-gpt's chat contract for uploads (same shape its frontend sends)
-      files: uploads.map((f) => ({ fileName: f.name, fileUrl: f.url, filePath: f.path, fileType: f.type, fileSize: f.size })),
+      message: text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+      files: chatFiles(sent),
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
-      conversation_id: turn.conv || pin?.conversationId || thread?.conversation_id || null, stream: true,
+      conversation_id: conv, stream: true,
       metadata: { client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
         ...(isEn() ? { language: 'en' } : {}),
         ...(routed ? { auto_route: true, route_text: text, agent: 'deepagents' } : {}) },

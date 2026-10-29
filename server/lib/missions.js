@@ -18,6 +18,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { privateSkillFor, ensureSkillFolder } from './folders/skills.js'
 import { PGPT_ROOT } from './paths.js'
+import { fetchRoomDir, rmRoomCopy } from './roomStore.js'
 import { L, isEn, locale, asUser, langInstruction } from './lang.js'
 
 const PGPT = PGPT_ROOT
@@ -37,9 +38,18 @@ export async function workspaceHostPath(dir) {
 }
 
 // Save a skill-creator draft (a folder in the deepagents workspace) as a tenant skill through
-// deepagents' own POST /skills/upload, exactly like the process-gpt UI's save button.
+// deepagents' own POST /skills/upload, exactly like the process-gpt UI's save button. Where the
+// workspace is not on this machine (the agent's pods), the room's copy in storage (lib/roomStore.js).
 export async function saveSkillDraft({ dir, name, jwt, ownerId }) {
-  const host = await workspaceHostPath(dir)
+  let copy = null
+  const host = await workspaceHostPath(dir).catch(async (e) => {
+    copy = await fetchRoomDir(dir)
+    if (!copy) throw e
+    return copy
+  })
+  try { return await uploadSkillDir({ host, name, jwt, ownerId }) } finally { if (copy) await rmRoomCopy(copy) }
+}
+async function uploadSkillDir({ host, name, jwt, ownerId }) {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'pro-skill-'))
   const zip = path.join(tmp, `${name}.zip`)
   try {
