@@ -201,7 +201,8 @@ app.post('/api/auth/refresh', async (req, res) => {
 
 // ---------- profile / onboarding ----------
 app.get('/api/me', auth, async (req, res) => {
-  const [p] = await q('select * from pro_profile where user_id=$1', [req.user.id])
+  // birth goes out as the calendar date: a pg date parses to local midnight, which JSON shifts to the day before in UTC
+  const [p] = await q(`select *, to_char(birth, 'YYYY-MM-DD') as birth from pro_profile where user_id=$1`, [req.user.id])
   const [m] = await q('select provider, address, last_poll from pro_mail_accounts where user_id=$1', [req.user.id])
   // admin: the team and tenant-wide role controls are editable (TeamRoles); otherwise read-only
   // lang: the saved language (null = never chosen); reqLang: the one this request ran in

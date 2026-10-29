@@ -16,7 +16,8 @@ const ok = computed(() => y.value && m.value && d.value && (!askName.value || na
 
 onMounted(async () => {
   const me = await api('/me')
-  if (me.profile?.onboarded_at) return router.replace('/chat')
+  // onboarded_at waits for the mail connection; a birth date already given is not asked again
+  if (me.profile?.onboarded_at || me.profile?.birth) return router.replace('/chat')
   const local = String(me.user?.email || '').split('@')[0]
   askName.value = !me.user?.name || me.user.name === local
 })

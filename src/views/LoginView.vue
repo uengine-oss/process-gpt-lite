@@ -5,7 +5,7 @@ import SkyCanvas from '../sky/SkyCanvas.vue'
 import Wordmark from '../components/Wordmark.vue'
 import Typewriter from '../components/Typewriter.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
-import { auth } from '../api.js'
+import { auth, api } from '../api.js'
 import { BASE } from '../base.js'
 
 const router = useRouter()
@@ -67,7 +67,9 @@ async function verify() {
   busy.value = false
   if (!r.ok) { error.value = '코드가 맞지 않아요.'; code.value = ['', '', '', '', '', '']; codeEls.value[0]?.focus(); return }
   auth.set(await r.json())
-  router.replace('/welcome/age')
+  // the birth date is asked once; returning people go straight in
+  const me = await api('/me')
+  router.replace(me.profile?.onboarded_at || me.profile?.birth ? '/chat' : '/welcome/age')
 }
 </script>
 

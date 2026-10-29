@@ -10,7 +10,7 @@ onMounted(async () => {
     auth.set(JSON.parse(decodeURIComponent(location.hash.slice(1))))
     history.replaceState(null, '', BASE + '/auth/done')
     const me = await (await fetch(BASE + '/api/me', { headers: { Authorization: `Bearer ${auth.get().session.access_token}` } })).json()
-    router.replace(me.profile?.onboarded_at ? '/chat' : '/welcome/age')
+    router.replace(me.profile?.onboarded_at || me.profile?.birth ? '/chat' : '/welcome/age')
   } catch {
     router.replace('/login?error=로그인에 실패했어요')
   }
