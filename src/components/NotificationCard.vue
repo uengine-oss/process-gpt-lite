@@ -12,6 +12,8 @@ const app = useApp()
 const router = useRouter()
 const team = useTeam()
 const busy = ref('')
+// an earlier step's summary can carry a sandbox link ("[견적서.xlsx](/workspace/…)"): its chip below opens the file
+const ctxText = computed(() => String(props.n.context || props.n.text || '').replace(/\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g, '$1'))
 
 const verb = computed(() => props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? (/공유했어요/.test(props.n.title) ? '공유' : '멘션') : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
@@ -51,7 +53,7 @@ async function act(choice) {
     <p v-else-if="n.type === 'mention'" class="who">{{ n.from }}님 · {{ when }}</p>
     <p v-else-if="n.type !== 'workitem'" class="who">{{ kinds[n.type] || 'process-gpt' }} · {{ when }}</p>
     <p v-else class="who">{{ n.process }}<template v-if="n.role"> · {{ n.role }}</template> · {{ when }}</p>
-    <p v-if="n.context || n.text" class="ctx">{{ n.context || n.text }}</p>
+    <p v-if="n.context || n.text" class="ctx">{{ ctxText }}</p>
     <!-- a step to decide: the earlier steps' outputs open right here (IeumOffice · ArtCraft) -->
     <StepOutputs v-if="n.type === 'workitem' && n.todoId" :todo-id="n.todoId" />
     <div class="btns">
