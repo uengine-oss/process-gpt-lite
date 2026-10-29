@@ -121,7 +121,9 @@ const SKILLS = {
     const f = await newFile(threadId, since, 'xlsx')
     if (!f) throw new Error(L('견적서 파일을 찾지 못했어요', "I couldn't find the quote file"))
     // the agent's answer streams its progress first; the last paragraphs are the summary (file, assumed prices)
-    const text = String(msg?.content?.text || '').split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).slice(-3).join('\n\n').slice(0, 1500)
+    // the file itself is the step's quote value: its link would show raw on the next step's card
+    const plain = String(msg?.content?.text || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    const text = plain.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).slice(-3).join('\n\n').slice(0, 1500)
     return { values: { quote: f, assumptions: text }, say: null }
   },
 }
