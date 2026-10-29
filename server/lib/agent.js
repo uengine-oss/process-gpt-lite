@@ -791,7 +791,13 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       else if (art.def) { /* the definition (the draft card shows it) */ }
       else if (art.evalRun) { /* a skill's evaluation run (skill-creator), not the turn's output */ }
       else if (j.type === 'file_artifact' && /\/skills\/[^/]+\//.test(j.path || '')) { /* part of a skill draft */ }
-      else if (j.type === 'file_artifact' && j.name && !/\.(form|json|md)$/.test(j.name)) files.push({ name: j.name, path: j.path, ext: j.ext })
+      else if (j.type === 'file_artifact' && j.name && !/\.(form|json|md)$/.test(j.name)) {
+        // deepagents keeps a turn's documents in storage and names them with a signed url (it
+        // expires): the card gets its own copy from there when this server cannot see the sandbox
+        const had = j.url && files.find((f) => f.path === j.path)
+        if (had) had.src = j.url
+        else files.push({ name: j.name, path: j.path, ext: j.ext, ...(j.url ? { src: j.url } : {}) })
+      }
       // office-mcp / IeumOffice MCP results carry a storage URL: those open straight in the editor —
       // when they are this turn's output, not a document the agent only opened (checked at the end)
       if (j.type === 'tool_end' || j.type === 'tool_result') {
@@ -888,7 +894,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (ended || files.some((f) => editable(f.name))) files.splice(0, files.length, ...files.filter((f) => !/\.(py|js|mjs|ts|sh)$/.test(f.name)))
   for (const f of files) {
     // a document the agent wrote in its sandbox is published so the editor can load it
-    if (!f.url && f.path && editable(f.name)) Object.assign(f, await publish(user.id, f.path).catch((e) => { console.warn('[office publish]', e.message); return {} }))
+    if (!f.url && f.path && editable(f.name)) Object.assign(f, await publish(user.id, f.path, f.src).catch((e) => { console.warn('[office publish]', e.message); return {} }))
+    delete f.src
     await addMessage(user.id, threadId, 'agent', 'file', f)
   }
   // The draft card is the definition this turn wrote, read back from its folder the way saving reads

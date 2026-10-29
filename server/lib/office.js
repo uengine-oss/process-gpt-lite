@@ -9,6 +9,7 @@ import path from 'node:path'
 import { config } from '../config.js'
 import { admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
+import { fetchRoomFile } from './roomStore.js'
 import { isEn } from './lang.js'
 
 // same table as process-gpt's src/utils/officeEditor.js EDITOR_BY_EXT
@@ -56,10 +57,21 @@ export function documentFrom(output) {
   return url && editable(name) ? { name: name.replace(/^[0-9a-f-]{36}_/, ''), url, ext: extOf(name) } : null
 }
 
-// A sandbox file → a public URL the editor can load.
-export async function publish(userId, sandboxPath) {
-  const host = await workspaceHostPath(sandboxPath)
-  const buf = await fs.readFile(host)
+// A sandbox file → a public URL the editor can load. Where the sandbox is not on this machine (the
+// agent's pods), the copy deepagents stored for the turn (src, a signed url) or the room folder's.
+async function sandboxBytes(sandboxPath, src) {
+  const host = await workspaceHostPath(sandboxPath).catch(() => null)
+  if (host) return fs.readFile(host)
+  if (src) {
+    const r = await fetch(src, { signal: AbortSignal.timeout(60_000) }).catch(() => null)
+    if (r?.ok) return Buffer.from(await r.arrayBuffer())
+  }
+  const stored = await fetchRoomFile(sandboxPath)
+  if (stored) return stored.buf
+  throw new Error(`workspace folder not found: ${sandboxPath}`)
+}
+export async function publish(userId, sandboxPath, src) {
+  const buf = await sandboxBytes(sandboxPath, src)
   const name = path.basename(sandboxPath)
   // storage keys must be ASCII; the name the user sees travels with the card
   const key = `pgpt-pro/${userId}/${crypto.randomUUID()}.${extOf(name)}`
