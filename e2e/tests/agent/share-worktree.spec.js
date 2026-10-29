@@ -19,6 +19,10 @@ const T = 'localhost'
 const ESTIMATE = '솔잎책방_견적서.docx', MEMO = '솔잎책방_요청메모.docx'
 const PEOPLE = { hong: '홍길동', lee: '이팀장', park: '박대리' }
 const s = {} // shared across the serial steps
+// RT_WT_SET=2 runs on another set of accounts (pro-rt-wt2-*): a run leaves its branches behind, and
+// sharing again to the same people meets them (a conflict to choose), as it should
+const WT = `wt${process.env.RT_WT_SET || ''}`
+const EMAIL = Object.fromEntries(Object.entries(PEOPLE).map(([k, name]) => [name, `pro-rt-${WT}-${k}@uengine.org`]))
 
 test.beforeEach(async () => {
   await expect.poll(async () => (await api.call(null, 'GET', '/config', null, { timeout: 5000 }).catch(() => ({ status: 0 }))).status, { timeout: 120_000, intervals: [3000] }).toBe(200)
@@ -28,7 +32,7 @@ test.beforeEach(async () => {
 async function people(pageAs, ...who) {
   const out = []
   for (const k of who) {
-    const p = await pageAs(`wt-${k}`)
+    const p = await pageAs(`${WT}-${k}`)
     await p.user.post('/profile', { name: PEOPLE[k] })
     await p.user.get('/team')
     out.push(p)
@@ -49,8 +53,10 @@ async function chatSend(page, text) {
 async function share(page, fileName, to, note) {
   await page.locator(`[aria-label="${fileName} 공유"]`).last().click()
   const sp = page.locator('.sp')
+  // found by the test account's address: other people in the tenant carry the same names
+  // (process-gpt's handover runs have their own 이팀장)
   for (const name of to) {
-    await sp.locator('.find').fill(name)
+    await sp.locator('.find').fill(EMAIL[name])
     await sp.locator('.row', { hasText: name }).first().click()
   }
   await sp.locator('.find').fill('')
@@ -80,7 +86,8 @@ async function editAndSave(page, text) {
 async function openDmWith(page, name) {
   await openMessenger(page)
   await page.locator('.tabs button', { hasText: '대화' }).click()
-  await page.locator('.th', { hasText: name }).first().click()
+  // by the room's title: the last message under it can name the other person too
+  await page.locator('.th').filter({ has: page.locator('.nm > b', { hasText: new RegExp(`^${name}$`) }) }).first().click()
 }
 
 // --- judgement (DB read only) ---
@@ -124,8 +131,10 @@ test('W-01 견적서만 골라 이팀장·박대리에게 공유하면 둘 다 �
   // every branch splits from the same sender commit (picked files only: create_branch makes each
   // recipient a commit whose one parent is that commit — the same rule as process-gpt's handover)
   expect(new Set(rows.map((r) => r.base_commit_id)).size, '같은 기준 커밋').toBe(1)
-  const starts = await db.q('select parents from artifact_commits where id = any($1::uuid[])', [rows.map((r) => r.start_commit_id)])
-  expect(starts.every((c) => c.parents.length === 1 && c.parents[0] === rows[0].base_commit_id), '시작 커밋의 부모 = 기준 커밋').toBe(true)
+  // create_branch (process-gpt): picked files equal to the base tree start the branch at the base
+  // itself; otherwise a start commit whose parent is the base
+  const starts = await db.q('select id, parents from artifact_commits where id = any($1::uuid[])', [rows.map((r) => r.start_commit_id)])
+  expect(starts.every((c) => c.id === rows[0].base_commit_id || (c.parents.length === 1 && c.parents[0] === rows[0].base_commit_id)), '시작 커밋 = 기준 커밋 또는 그 자식').toBe(true)
   s.leeRoom = rows.find((r) => r.recipient_id === s.leeId).branch_room_id
   s.parkRoom = rows.find((r) => r.recipient_id === s.parkId).branch_room_id
   s.parkStart = rows.find((r) => r.recipient_id === s.parkId).start_commit_id
@@ -178,10 +187,11 @@ test('W-03 박대리가 이어서 작업하면 전용 작업 대화에서 넘겨
     (await db.q(`select count(*)::int n from pro_messages where thread_id=$1 and role='agent' and kind in ('text','doc')`, [thread]))[0].n >= 2, { timeout: 15 * 60_000 })
 
   await chatSend(park, '받은 견적서의 목공·전기 항목에 들어갈 자재 원가표를 워드 문서 솔잎책방_원가표.docx 로 만들어 줘. 파일만 만들고 짧게 답해 줘.')
-  await waitFor(async () => Object.keys((await head(db, s.parkRoom)).tree).some((p) => /원가표/.test(p)), { timeout: 15 * 60_000 })
+  await waitFor(async () => Object.keys((await head(db, s.parkRoom)).tree).some((p) => /원가표.*\.docx$/.test(p)), { timeout: 15 * 60_000 })
   const ph = await head(db, s.parkRoom)
   expect(ph.reason).toBe('agent_turn')
-  s.costPath = Object.keys(ph.tree).find((p) => /원가표/.test(p))
+  // the Word file asked for (the agent may also leave a .md draft next to it)
+  s.costPath = Object.keys(ph.tree).find((p) => /원가표.*\.docx$/.test(p))
   expect(await objectText(ph.tree[s.costPath].sha256)).toMatch(/목공|전기/)
   await waitFor(() => agentIdle(db, thread), { timeout: 5 * 60_000 })
 
@@ -196,12 +206,14 @@ test('W-03 박대리가 이어서 작업하면 전용 작업 대화에서 넘겨
   // the sender sees the new file and opens it read-only
   await openDmWith(hong, PEOPLE.park)
   const br = hong.locator(`.br[data-room="${s.parkRoom}"]`)
-  await expect(br).toContainText('1개 추가', { timeout: 20_000 })
-  await br.locator('.art', { hasText: '원가표' }).click()
+  // the agent may leave notes next to the file asked for: what counts is that the new file is there
+  await expect(br).toContainText(/\d+개 추가/, { timeout: 20_000 })
+  await expect(br).toContainText(/원가표.*\.docx/)
+  await br.locator('.art', { hasText: /원가표.*\.docx/ }).first().click()
   await expect(hong.locator('.sheet iframe')).toHaveAttribute('src', /readonly=1/)
 
   // a teammate outside the share cannot see the branches
-  const out = await api.as('wt-outsider')
+  const out = await api.as(`${WT}-outsider`)
   await out.get('/team')
   const [m] = await db.q('select chat_uuid from pro_shares where branch_room_id=$1 limit 1', [s.parkRoom])
   expect((await out.get(`/team/messages/${m.chat_uuid}/branches`)).status).toBe(403)
