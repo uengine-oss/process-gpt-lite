@@ -31,7 +31,9 @@ import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang
 import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { improveRoutes } from './routes/improve.js'
 import { billingRoutes } from './routes/billing.js'
+import { backofficeRoutes } from './routes/backoffice.js'
 import { startPlanSync } from './lib/plans/apply.js'
+import { startMeter } from './lib/plans/meter.js'
 import { mountImprove } from './mcp/improve.js'
 import { startConstraintSweep } from './lib/improve/service.js'
 import { startStepRetry } from './lib/stepRetry.js'
@@ -317,6 +319,8 @@ app.use('/api', miningRoutes(auth))
 app.use('/api', improveRoutes(auth))
 // usage windows, plans and seats (PRO_LLM_KEYS=litellm, lib/plans)
 app.use('/api', billingRoutes(auth))
+// the operators' billing back office: every company's plan, usage, invoices (PRO_BILLING_OPERATORS)
+app.use('/api', backofficeRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
@@ -416,9 +420,14 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     send('done', final)
   } catch (e) {
     console.error(e)
-    // a message never goes unanswered: the failure is said in the chat, not only in this stream
+    // a message never goes unanswered: the failure is said in the chat, not only in this stream; a usage
+    // limit (lib/llmKeys.js) says which one and when it opens again, with the way to Settings › Usage & plan
     await setThreadStatus(req.user.id, t.id, null).catch(() => {})
-    await addMessage(req.user.id, t.id, 'agent', 'text', { text: L('이 요청을 처리하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't handle this request. Please send it again in a moment."), failed: true }).catch(() => {})
+    const limit = ['quota_exceeded', 'rate_limited', 'model_not_allowed'].includes(e.code)
+    await addMessage(req.user.id, t.id, 'agent', 'text', {
+      text: limit ? e.message : L('이 요청을 처리하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't handle this request. Please send it again in a moment."),
+      failed: true, ...(limit ? { limit: { code: e.code, scope: e.scope || null, resetsAt: e.resetsAt || null } } : {}),
+    }).catch(() => {})
     send('error', { message: e.message })
   }
   res.end()
@@ -797,6 +806,9 @@ app.get('/api/search', auth, async (req, res) => {
 const server = app.listen(config.port, async () => {
   console.log(`pgpt-pro server on :${config.port}`)
   // a second development server shares the database: it must not reset the main server's tasks either
+  // the usage event consumer (lib/plans/meter.js): one server reads at a time (advisory lock), so a development
+  // server may run it too (PRO_BILLING_METER=1)
+  if (background || process.env.PRO_BILLING_METER === '1') startMeter()
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb

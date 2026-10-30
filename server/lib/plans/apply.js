@@ -10,6 +10,7 @@
 import { q } from '../supa.js'
 import * as K from '../llmKeys.js'
 import { catalog, catalogName, limitsOf, defaultSeat, poolUsd } from './catalog.js'
+import { segmentsOf } from './history.js'
 
 export async function subscriptionOf(tenant) {
   const [s] = await q('select * from pro_billing_subscriptions where tenant_id=$1', [tenant])
@@ -126,8 +127,15 @@ export async function applyPlan(tenant) {
   const models = [...new Set(plan.seats.flatMap((s) => limitsOf(s, { name: sub.catalog }).models))]
   const team = K.teamOf(tenant), extraTeam = K.extraTeamOf(tenant)
   await K.admin('/team/new', { team_id: team, team_alias: tenant, metadata: { tenant } })
-  // the company's monthly cap: Enterprise's spend limit, or a pooled plan's pool (its seats' credits)
-  const pool = poolUsd(sub.plan, await seatsOfCompany(tenant, sub), sub.catalog)
+  // the company's monthly cap: Enterprise's spend limit, or a pooled plan's pool (its seats' credits) — for a
+  // month that changed plans, each plan's pool for its share of the month
+  const seatsNow = await seatsOfCompany(tenant, sub)
+  const segs = await segmentsOf(tenant, sub)
+  const parts = segs.map((g) => {
+    const v = poolUsd(g.plan, g.plan === sub.plan && g.catalog === sub.catalog ? seatsNow : seatsNow.map(() => catalog(g.catalog).plans[g.plan].seats[0]), g.catalog)
+    return v == null ? null : v * g.frac
+  })
+  const pool = parts.every((v) => v == null) ? null : Math.round(parts.reduce((a, v) => a + (v || 0), 0) * 1e6) / 1e6
   const cap = plan.usageBased ? (sub.extra_usage_usd > 0 ? sub.extra_usage_usd : null) : pool
   const [had] = await q('select budget_duration from litellm."LiteLLM_TeamTable" where team_id=$1', [team])
   const duration = cap ? '30d' : null

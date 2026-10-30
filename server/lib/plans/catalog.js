@@ -143,23 +143,36 @@ export function poolUsd(plan, seats, name = catalogName()) {
   return round(seats.reduce((a, s) => a + seatUsd(c.seats[s] || each), 0) + Math.max(0, n - seats.length) * seatUsd(each))
 }
 
-// the month's bill: seats × seat price (at least the plan's minimum), then usage beyond the seats — credits
-// at ₩10 on uengine, at cost in USD on the others — and VAT where the catalog has it
-export function monthlyBill({ plan, billing = 'month', seats, extraSpent = 0, usageSpent = 0, name = catalogName() }) {
+// the month's bill: seats × seat price (at least the plan's minimum) for each stretch of the month on a plan
+// (segments from lib/plans/history.js: a change mid-month is billed by days), then usage beyond the seats —
+// credits at ₩10 on uengine, at cost in USD on the others — and VAT where the catalog has it
+export function monthlyBill({ plan, billing = 'month', seats, extraSpent = 0, usageSpent = 0, name = catalogName(), segments = null }) {
   const c = catalog(name)
   const p = c.plans[plan]
   const credit = c.unit === 'credit'
   const money = (usd) => (credit ? creditsOf(usd) * num('PRO_CREDIT_KRW', 10) : round(usd))
   const lines = []
-  const count = {}
-  for (const s of seats) count[s] = (count[s] || 0) + 1
-  const total = Object.values(count).reduce((a, b) => a + b, 0)
-  if (p.minSeats && total < p.minSeats) count[p.seats[0]] = (count[p.seats[0]] || 0) + (p.minSeats - total)
-  for (const [s, n] of Object.entries(count)) {
-    const price = c.seats[s].price
-    if (!price) { lines.push({ kind: 'seat', seat: s, name: c.seats[s].name, count: n, each: null, amount: 0, contract: true }); continue }
-    const each = billing === 'year' ? (price.year ?? price.month) : (price.month ?? price.year)
-    lines.push({ kind: 'seat', seat: s, name: c.seats[s].name, count: n, each, amount: round(n * each) })
+  const segs = segments?.length ? segments : [{ catalog: name, plan, billing, frac: 1 }]
+  const whole = segs.length === 1 && segs[0].frac === 1
+  for (const g of segs) {
+    const gc = catalog(g.catalog) || c
+    const gp = gc.plans[g.plan] || p
+    // the people's seats on the plan they have now; an earlier plan's stretch: everyone on its first seat
+    const count = {}
+    for (const s of seats) {
+      const seat = g.plan === plan && g.catalog === name && gp.seats.includes(s) ? s : gp.seats[0]
+      count[seat] = (count[seat] || 0) + 1
+    }
+    const n0 = Object.values(count).reduce((a, b) => a + b, 0)
+    if (gp.minSeats && n0 < gp.minSeats) count[gp.seats[0]] = (count[gp.seats[0]] || 0) + (gp.minSeats - n0)
+    for (const [s, n] of Object.entries(count)) {
+      const price = gc.seats[s].price
+      const span = whole ? {} : { from: g.from, to: g.to, days: g.days, frac: g.frac }
+      if (!price) { lines.push({ kind: 'seat', seat: s, name: gc.seats[s].name, count: n, each: null, amount: 0, contract: true, ...span }); continue }
+      const each = g.billing === 'year' ? (price.year ?? price.month) : (price.month ?? price.year)
+      const amount = n * each * (g.frac ?? 1)
+      lines.push({ kind: 'seat', seat: s, name: gc.seats[s].name, count: n, each, amount: credit ? Math.round(amount) : round(amount), ...span })
+    }
   }
   if (extraSpent) lines.push({ kind: 'extra', name: 'extra usage', credits: credit ? creditsOf(extraSpent) : null, amount: money(extraSpent) })
   if (p.usageBased && usageSpent) lines.push({ kind: 'usage', name: 'usage', credits: credit ? creditsOf(usageSpent) : null, amount: money(usageSpent) })

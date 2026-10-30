@@ -46,7 +46,8 @@ const price = (s) => {
   return p.year != null ? `${money(p.month)}/월 · 연간 ${money(p.year)}` : `${money(p.month)}/월`
 }
 const times = (s) => (s.credits != null ? `${s.credits.toLocaleString(loc)}크레딧/월` : s.x == null ? '사용량만큼' : `${s.x}배`)
-const billLine = (l) => (l.kind === 'seat' ? `${l.name} × ${l.count}석`
+const span = (l) => (l.from ? ` (${new Date(l.from).toLocaleDateString(loc, { month: 'numeric', day: 'numeric' })}–${new Date(new Date(l.to) - 1).toLocaleDateString(loc, { month: 'numeric', day: 'numeric' })}, ${Math.round(l.days)}일)` : '')
+const billLine = (l) => (l.kind === 'seat' ? `${l.name} × ${l.count}석${span(l)}`
   : l.kind === 'vat' ? '부가세 (10%)'
   : l.kind === 'extra' ? (l.credits != null ? `충전 크레딧 ${l.credits.toLocaleString(loc)}` : '추가 사용량 (원가)')
   : (l.credits != null ? `사용량 ${l.credits.toLocaleString(loc)}크레딧` : '사용량 (원가)'))
@@ -90,6 +91,7 @@ async function decide(r, ok) {
   <div class="up">
     <p v-if="b && !b.enabled" class="hint">이 서버는 사용량 한도를 쓰지 않아요 (PRO_LLM_KEYS=litellm 으로 켭니다).</p>
     <template v-if="b?.enabled">
+      <router-link v-if="b.operator" to="/backoffice" class="bo-link glass press">빌링 백오피스 (운영자) →</router-link>
       <p class="cap">내 사용량 <span class="chip">{{ current?.name }}{{ short(b.me.seatName) !== current?.name ? ` · ${short(b.me.seatName)}` : '' }}</span></p>
       <div class="card glass">
         <div v-if="b.me.session" class="win">
@@ -230,4 +232,5 @@ select { max-width: 36%; height: 32px; border-radius: 10px; padding: 0 6px; back
 .rm { color: var(--text-secondary); font-size: 13px; }
 .bill { margin-top: 10px; gap: 6px; }
 .err { color: #c62828; font-size: 13px; margin: 6px 4px; }
+.bo-link { display: block; margin: 4px 0 6px; padding: 10px 14px; border-radius: 14px; font-size: 14px; text-decoration: none; color: var(--ink); }
 </style>

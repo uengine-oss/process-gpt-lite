@@ -7,6 +7,7 @@ import { q } from '../supa.js'
 import * as K from '../llmKeys.js'
 import { catalog, limitsOf, monthlyBill, usdPerCredit } from './catalog.js'
 import { subscriptionOf, planOf, seatOf } from './apply.js'
+import { segmentsOf } from './history.js'
 
 const utc = (t) => (t ? new Date(String(t).replace(' ', 'T') + (/[Zz+]/.test(String(t).slice(10)) ? '' : 'Z')).toISOString() : null)
 const MONTH = `date >= to_char(date_trunc('month', now() at time zone 'utc'), 'YYYY-MM-DD')`
@@ -63,8 +64,9 @@ export async function companyOf(tenant) {
   const system = byUser[K.memberOf(tenant, K.SYSTEM)]
   const pool = await poolOf(tenant, sub)
   const usageSpent = month.reduce((a, r) => a + r.spend, 0)
-  const bill = monthlyBill({ plan: sub.plan, billing: sub.billing, seats: people.map((p) => p.seat), extraSpent: pool?.spent || 0, usageSpent, name: sub.catalog })
-  return { subscription: sub, people, system: system || null, pool: await companyPoolOf(tenant, sub), extra: pool, month: { spend: usageSpent, calls: month.reduce((a, r) => a + r.calls, 0) }, bill }
+  const segments = await segmentsOf(tenant, sub)
+  const bill = monthlyBill({ plan: sub.plan, billing: sub.billing, seats: people.map((p) => p.seat), extraSpent: pool?.spent || 0, usageSpent, name: sub.catalog, segments })
+  return { subscription: sub, segments, people, system: system || null, pool: await companyPoolOf(tenant, sub), extra: pool, month: { spend: usageSpent, calls: month.reduce((a, r) => a + r.calls, 0) }, bill }
 }
 
 // the catalog as the page shows it (notes in the person's language)

@@ -27,6 +27,8 @@ const routes = [
   { path: '/mining/:id?', component: () => import('./views/MiningView.vue') },
   // 프로세스 개선: 병목 · 가치 흐름 · 제약 · 크리티컬 패스 · 개선 실행(what-if → 새 버전)
   { path: '/improve/:defId?', component: () => import('./views/ImproveView.vue') },
+  // 빌링 백오피스 (운영자): 회사마다 요금제 · 이번 달 사용 · 청구서 · 충전 크레딧
+  { path: '/backoffice/:tenant?', component: () => import('./views/BackofficeView.vue') },
   { path: '/', redirect: '/chat' },
 ]
 

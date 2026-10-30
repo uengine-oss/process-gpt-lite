@@ -10,7 +10,9 @@ import { notifyUser } from '../lib/notify.js'
 import * as K from '../lib/llmKeys.js'
 import { catalog, catalogName, usdPerCredit } from '../lib/plans/catalog.js'
 import { subscriptionOf, planOf, applyPlan, applyMember } from '../lib/plans/apply.js'
+import { recordChange } from '../lib/plans/history.js'
 import { windowsOf, companyOf, catalogView } from '../lib/plans/usage.js'
+import { isOperator } from './backoffice.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[billing]', e.stack || e.message)
@@ -32,7 +34,7 @@ export function billingRoutes(auth) {
     if (!K.enabled()) return { enabled: false }
     const sub = await subscriptionOf(T())
     const admin = await isAdmin(req.user)
-    const out = { enabled: true, admin, catalog: catalogView(sub.catalog, L), subscription: sub, me: await windowsOf(T(), req.user.id, sub) }
+    const out = { enabled: true, admin, operator: isOperator(req.user), catalog: catalogView(sub.catalog, L), subscription: sub, me: await windowsOf(T(), req.user.id, sub) }
     if (admin) {
       out.company = await companyOf(T())
       out.requests = await q(`select r.id, r.kind, r.wanted, r.note, r.created_at, u.username as name, u.email from pro_billing_requests r
@@ -61,6 +63,8 @@ export function billingRoutes(auth) {
       : req.body.extraUsageUsd != null ? Math.max(0, Number(req.body.extraUsageUsd) || 0) : sub.extra_usage_usd
     await q(`insert into pro_billing_subscriptions(tenant_id, catalog, plan, billing, extra_usage_usd, updated_by, updated_at) values ($1,$2,$3,$4,$5,$6,now())
       on conflict (tenant_id) do update set catalog=$2, plan=$3, billing=$4, extra_usage_usd=$5, updated_by=$6, updated_at=now()`, [T(), name, plan, billing, extra, req.user.id])
+    // a change of plan mid-month: the stretch so far stays on the old plan (lib/plans/history.js)
+    await recordChange(T(), sub, { catalog: name, plan, billing }, req.user.id)
     await q(`update pro_billing_requests set status='done', decided_by=$2, decided_at=now() where tenant_id=$1 and status='open' and kind in ('plan','extra_usage')`, [T(), req.user.id])
     return applyPlan(T())
   })()))
