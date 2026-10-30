@@ -46,6 +46,7 @@ import * as notify from './lib/notify.js'
 import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { saveAttachment } from './lib/attachments.js'
+import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
 import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser } from './lib/tenant.js'
 
@@ -402,8 +403,8 @@ app.post('/api/threads/:id/note', auth, async (req, res) => {
 app.post('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
-  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
-  const send = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`)
+  // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
+  const { send, end } = openStream(res)
   try {
     const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, onDelta: (d) => send('delta', { d }) })
     send('done', final)
@@ -414,7 +415,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     await addMessage(req.user.id, t.id, 'agent', 'text', { text: L('이 요청을 처리하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't handle this request. Please send it again in a moment."), failed: true }).catch(() => {})
     send('error', { message: e.message })
   }
-  res.end()
+  end()
 })
 // 멈추기: the answer being written in this thread (deepagents /chat/stop), or its browser task.
 // Messages waiting their turn (대기) then go ahead.
