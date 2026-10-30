@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import { config } from '../config.js'
 import { isEn, ENGLISH_NOTE } from './lang.js'
+import * as llmKeys from './llmKeys.js'
 
 // A model call that never answers would hold its caller forever (the browser worker runs one job
 // at a time), so every non-streaming call gives up after a few minutes.
@@ -41,12 +42,13 @@ function learn(model, status, text) {
 }
 async function post(payload, signal) {
   for (let tries = 0; ; tries++) {
-    const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
+    // with PRO_LLM_KEYS=litellm: the person's key in their company, the call's feature tag (lib/llmKeys.js)
+    const res = await llmKeys.send((auth) => fetch(`${config.llm.baseUrl}/chat/completions`, {
       method: 'POST',
       signal,
-      headers: { Authorization: `Bearer ${config.llm.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(adapt(payload)),
-    })
+      headers: { Authorization: `Bearer ${auth.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...adapt(payload), ...llmKeys.bodyTags(auth) }),
+    }))
     if (res.ok) return res
     const text = await res.text()
     if (tries < 3 && learn(payload.model, res.status, text)) continue

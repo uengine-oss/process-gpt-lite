@@ -82,6 +82,14 @@ export const config = {
     model: get('PRO_LLM_MODEL', 'gpt-6-luna'),
     fastModel: get('PRO_LLM_FAST_MODEL', 'gpt-4.1-mini'),
   },
+  // LiteLLM budgets as the quota (lib/llmKeys.js): PRO_LLM_KEYS=litellm sends each call with the person's key
+  // in their company (LiteLLM team pgpt-<tenant>), PRO_LLM_BASE_URL being that LiteLLM; off: PRO_LLM_API_KEY
+  llmKeys: {
+    mode: get('PRO_LLM_KEYS', 'off'),
+    adminUrl: get('PRO_LITELLM_URL', ''),
+    adminKey: get('PRO_LITELLM_ADMIN_KEY', ''),
+    secret: get('PRO_LLM_KEY_SECRET', ''),
+  },
   llmTrace: get('PRO_LLM_TRACE', ''), // file to append model request text to (see lib/llm.js)
 
   google: {

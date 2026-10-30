@@ -30,6 +30,8 @@ import { attachVoice } from './lib/meetings/voice.js'
 import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang.js'
 import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { improveRoutes } from './routes/improve.js'
+import { billingRoutes } from './routes/billing.js'
+import { startPlanSync } from './lib/plans/apply.js'
 import { mountImprove } from './mcp/improve.js'
 import { startConstraintSweep } from './lib/improve/service.js'
 import { startStepRetry } from './lib/stepRetry.js'
@@ -46,7 +48,10 @@ import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { saveAttachment } from './lib/attachments.js'
 import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
-import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser } from './lib/tenant.js'
+import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser, forEachTenant } from './lib/tenant.js'
+import { withUsage, featureOf } from './lib/usage.js'
+import * as llmKeys from './lib/llmKeys.js'
+import * as llmUsage from './lib/llmUsage.js'
 
 const app = express()
 // ArtCraft web apps (static WebAssembly builds) on this origin: their postMessage bridge only
@@ -107,7 +112,9 @@ async function auth(req, res, next) {
   // header > saved > ko; everything this request starts (agent turns, drafts, timers) keeps it
   req.lang = resolveLang({ header: langAsked(req), saved: p?.lang })
   // entered again: a body parser in the route's own chain runs outside the request's async context
-  withLang(req.lang, () => (req.tenantId ? withTenant(req.tenantId, next) : next()))
+  // model calls it makes are the person's, under the feature of the path (lib/usage.js, lib/llmKeys.js)
+  withLang(req.lang, () => withUsage({ userId: u.id, feature: featureOf(req.path) },
+    () => (req.tenantId ? withTenant(req.tenantId, next) : next())))
 }
 
 async function finishLogin(email, name) {
@@ -308,6 +315,8 @@ app.use('/api', meetingRoutes(auth))
 app.use('/api', miningRoutes(auth))
 // 프로세스 개선: 병목·가치 흐름·제약·크리티컬 패스·what-if·개선 적용 (lib/improve)
 app.use('/api', improveRoutes(auth))
+// usage windows, plans and seats (PRO_LLM_KEYS=litellm, lib/plans)
+app.use('/api', billingRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
@@ -801,6 +810,8 @@ const server = app.listen(config.port, async () => {
   // turns wait their turn in memory (lib/turns.js): a message still marked 대기 will not be answered now
   await q(`update pro_messages set content = (content - 'queued') || '{"dropped":true}'::jsonb where role='user' and content ? 'queued'`)
   mail.startPoller()
+  // every company's plan, re-applied to LiteLLM every ten minutes (lib/plans/apply.js)
+  startPlanSync(forEachTenant)
   startBrowserWorker()
   startSkillWorker()
   startMiningScan()

@@ -1684,7 +1684,44 @@
   "⌘S 로 저장": "Save with ⌘S",
   "⌘M 로 내보내기": "Export with ⌘M",
   "회의": "Meeting",
-  "나도 할 수 있어요": "You can too"
+  "나도 할 수 있어요": "You can too",
+  "사용량·요금제": "Usage & plan",
+  "내 사용량": "My usage",
+  "현재 세션": "Current session",
+  "이번 주": "This week",
+  "이번 결제 기간": "This billing period",
+  "이번 달 (관리자 한도)": "This month (admin limit)",
+  "사용한 만큼": "Pay as you go",
+  "한도는 회사 관리자가 정해요.": "Your company's administrators set the limits.",
+  "회사 추가 사용량": "Company extra usage",
+  "예약 작업·브라우저 에이전트·마이닝 같은 백그라운드 작업도 같은 한도를 써요.": "Background work (scheduled tasks, the browser agent, mining) uses the same limits.",
+  "요금제": "Plans",
+  "출처": "source",
+  "지금 요금제": "Current plan",
+  "무료": "Free",
+  "사용량만큼": "usage-based",
+  "이 요금제로 변경": "Switch to this plan",
+  "요청했어요": "Requested",
+  "관리자에게 남길 말 (선택)": "Note for your administrators (optional)",
+  "추가 사용량 요청": "Request extra usage",
+  "추가 사용량을 요청했어요": "Extra usage requested",
+  "회사": "Company",
+  "회사 월 지출 한도": "Company monthly spend limit",
+  "추가 사용량 (월 풀)": "Extra usage (monthly pool)",
+  "0이면 한도 없음": "0 means no limit",
+  "0이면 꺼짐": "0 turns it off",
+  "거절": "Decline",
+  "추가 사용량": "Extra usage",
+  "이번 달 예상 청구": "Estimated bill this month",
+  "추가 사용량 (원가)": "Extra usage (at cost)",
+  "사용량 (원가)": "Usage (at cost)",
+  "결제 대행 연동 전이라 실제 청구는 하지 않아요. 좌석은 월간 단가예요.": "No payment is taken yet (no payment provider connected). Seats are at monthly prices.",
+  "결제 대행 연동 전이라 실제 청구는 하지 않아요. 좌석은 연간 단가예요.": "No payment is taken yet (no payment provider connected). Seats are at yearly prices.",
+  "아직 사용 전": "Not used yet",
+  "아직 사용 전 · 5시간마다": "Not used yet · every 5 hours",
+  "월 한도 $": "Limit $",
+  "이 서버는 사용량 한도를 쓰지 않아요 (PRO_LLM_KEYS=litellm 으로 켭니다).": "This server does not use usage limits (turn them on with PRO_LLM_KEYS=litellm).",
+  "AI 사용량 요청": "AI usage request"
  },
  "patterns": [
   [
@@ -1698,6 +1735,10 @@
   [
    "'{0}'에 반영할 새 기록이 없어요 · 거절 {1}건: {2}",
    "No new records to apply to '{0}' · {1} refused: {2}"
+  ],
+  [
+   "내 한도를 다 쓰면 이어서 써요 · 나는 {0} 사용",
+   "Used once your own limits run out · you used {0}"
   ],
   [
    "{0} amount {1} 미만이면 '{2}' 을(를) 건너뜀",
@@ -1736,6 +1777,10 @@
    "{0} · Skip if {1} amount is below {2}"
   ],
   [
+   "· 이번 달 (관리자 한도) {0}%",
+   "· this month (admin limit) {0}%"
+  ],
+  [
    "{0} — {1} 금액 {2} 미만이면 건너뜀",
    "{0} — skipped if {1} amount is below {2}"
   ],
@@ -1760,8 +1805,16 @@
    "routing model→logprob {0}"
   ],
   [
+   "{0}에 초기화 · 5시간마다",
+   "Resets {0} · every 5 hours"
+  ],
+  [
    "도우미가 찾았어요 · {0}",
    "Helper found it · {0}"
+  ],
+  [
+   "· 이번 결제 기간 {0}%",
+   "· this billing period {0}%"
   ],
   [
    "워드 문서 · 그림 {0}",
@@ -1788,8 +1841,32 @@
    "Own rows + {0}=me"
   ],
   [
+   "${0}/월 · 연간 ${1}",
+   "${0}/mo · ${1} yearly"
+  ],
+  [
+   "{0}석부터 · 최대 {1}석",
+   "From {0} seats · up to {1}"
+  ],
+  [
    "{0}/{1} 카드 · 본문",
    "{0}/{1} cards · full text"
+  ],
+  [
+   "{0} 요금제 기준 ·",
+   "Based on {0}'s plans ·"
+  ],
+  [
+   "요금제 → {0} · {1}",
+   "Plan → {0} · {1}"
+  ],
+  [
+   "추가 사용량 · {0}",
+   "Extra usage · {0}"
+  ],
+  [
+   "이번 달 {0} · {1}회",
+   "This month {0} · {1} calls"
   ],
   [
    "대화에서 직접 {0}",
@@ -1798,6 +1875,14 @@
   [
    "산출물 {0}개 공유",
    "Shared {0} outputs"
+  ],
+  [
+   "${0}/월 (연간)",
+   "${0}/mo (yearly)"
+  ],
+  [
+   "· 이번 주 {0}%",
+   "· this week {0}%"
   ],
   [
    "새 주제 · {0}",
@@ -1852,6 +1937,14 @@
    "{0} refused: {1}"
   ],
   [
+   "요금제 → {0}",
+   "Plan → {0}"
+  ],
+  [
+   "· 세션 {0}%",
+   "· session {0}%"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -1862,6 +1955,14 @@
   [
    "가능 + {0}",
    "Allowed + {0}"
+  ],
+  [
+   "{0}에 초기화",
+   "Resets {0}"
+  ],
+  [
+   "좌석 → {0}",
+   "Seat → {0}"
   ],
   [
    "{0}(소유)",
@@ -1896,8 +1997,24 @@
    "{0} login"
   ],
   [
+   "{0}% 사용",
+   "{0}% used"
+  ],
+  [
+   "{0} × {1}석",
+   "{0} × {1} seats"
+  ],
+  [
    "나: {0}",
    "Me: {0}"
+  ],
+  [
+   "${0}/월",
+   "${0}/mo"
+  ],
+  [
+   "{0}석부터",
+   "From {0} seats"
   ],
   [
    "시작{0}",
@@ -4378,6 +4495,10 @@
   [
    "팀원 대화방에서 요청받은 일을 해 주세요: {0}\n\n— 대화 (마지막 줄이 요청) —\n{1}\n\n결과는 대화방 사람들이 바로 읽을 수 있게 핵심만 짧게 정리하고, 표나 문서를 만들면 파일로 남겨 주세요.{2}",
    "Please do what was asked in a team room: {0}\n\n— conversation (the last line is the request) —\n{1}\n\nKeep the result short and to the point so the people in the room can read it at once, and leave any table or document you make as a file.{2}"
+  ],
+  [
+   "{0}배",
+   "{0}x"
   ]
  ],
  "context": [
