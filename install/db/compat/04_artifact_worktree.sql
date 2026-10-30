@@ -1,6 +1,6 @@
 -- 인계 산출물 워크트리(artifact_repos · artifact_commits · artifact_branches, create_branch · commit_branch)와
 -- handover_events 의 묶음(group_id)·시작 커밋(base_commit_id) 열 — Lite 팀 공유가 사본 대신 분기로 넘길 때 쓴다
--- (server/lib/team/worktree.js, server/sql/015_share_worktree.sql).
+-- (server/lib/team/worktree.js, server/sql/021_share_worktree.sql).
 -- process-gpt-infra-docker volumes/db/init.sql 의 '인계 산출물 워크트리' 절과 같다(멱등).
 -- 서브모듈(feat/pgpt-lite)의 스키마에 아직 없어서 설치 번들이 보정한다.
 
