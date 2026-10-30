@@ -70,8 +70,10 @@ export async function evaluate({ tenant = T(), userId = null, action }) {
     matched.push({ id: s.id, category: s.category, decision, title: s.title, explain: s.explain, sources: s.sources || [], approver: s.approver?.role || null, notes })
   }
   const decision = matched.length ? strictest(matched.map((m) => m.decision)) : 'allow'
-  // who approves (or may grant an exception): the role of the policy that set the decision
-  const approver = matched.find((m) => m.decision === decision && m.approver)?.approver || null
+  // who approves (or may grant an exception): the role of the policy that set the decision; when several set it, an
+  // audit policy (a daily count, say) gives way — personal data in the 21st mail of the day still goes to the 개인정보 책임자
+  const setters = matched.filter((m) => m.decision === decision && m.approver)
+  const approver = (setters.find((m) => m.category !== 'audit') || setters[0])?.approver || null
   return { decision, matched, approver }
 }
 

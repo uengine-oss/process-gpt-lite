@@ -61,6 +61,11 @@ test('the window: past 20 external mails a day, approval', async () => {
   made.push(d.id)
   assert.equal(d.decision, 'require_approval')
   assert.equal(d.matched.find((m) => m.id === 'mail-external').notes[0].kind, 'window')
+  assert.equal(d.approver, '팀장')
+  // the 21st mail carries personal data too: two policies want approval, the daily count (audit) gives way
+  const p = await evaluate({ tenant: TEN, userId, action: { kind: 'mail.send', facts: { external: true, pii_count: 3 } } })
+  assert.equal(p.decision, 'require_approval')
+  assert.equal(p.approver, '개인정보 책임자')
 })
 
 test('the PEP: approval runs the kept action as the requester; undo inside the window', async () => {
