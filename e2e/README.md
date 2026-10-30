@@ -346,6 +346,24 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
+### 16. Agentic BPM — 정책·가드레일·결정 원장·대안 경로 최적화 (spec `pgpt-pro_agentic-guardrails`, 설계 `pgpt-pro/docs/agentic-bpm/plan.md`)
+
+판단 사례 30개(`server/test/agentic-cases.json` → `agentic-regression.test.js`)와 시나리오 E2E(`server/test/scenario-{mail,release}.e2e.mjs`)는 서버 시험으로 돈다.
+`cd server && node --test test/policy.test.js test/agentic-regression.test.js`, 시나리오는 BFF 를 띄우고 `node test/scenario-mail.e2e.mjs` 다.
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 정책 카탈로그: 근거·승인자 역할, 켜고 끄기는 관리자만(403), 틀린 정책은 400 | F-AG-01 | feature | ✅ |
+| 가장 엄격한 판단·허용 오차·정책 없는 행위는 허용, 시험해 보기는 원장에 남지 않음 | F-AG-02, 판단 사례 30 | feature, 서버 | ✅ |
+| 하루 21번째 외부 메일 → 팀장 승인(시간 창 한도) | `policy.test.js`, 메일 E2E 7단계 | 서버 | ✅ |
+| 외부 메일: 실행 후 기록, 10분 안 회수, 두 번째 회수 409, 남이 회수 403 | F-AG-03 | feature | ✅ |
+| 개인정보 든 외부 메일: 보관(보낸편지함에 없음), 본인 승인 403(관리자여도), 역할 없는 사람 403, 다른 승인자가 승인 → 요청자 이름으로 실행, 처리된 요청 409, 원장에는 건수·종류만 | F-AG-04 | feature | ✅ |
+| 원장 공개 범위(팀원은 자기 판단만), 리포트는 관리자만 | F-AG-05 | feature | ✅ |
+| 채팅 메일 요청(send_mail): 사내 허용·외부 기록·명단 승인·명단 전체 차단·대외비 보안 담당자, 카드와 승인 뒤 카드 바뀜 | 메일 E2E(`--no-chat` 없이) | 서버 | ✅ |
+| 금요일 출시: 막힘 → 대안 넷(사전 판단·시뮬레이션·점수), 필수 제약 위반 제외, 릴리스 책임자의 선택이 곧 승인, 요청자는 고를 수 없음(403), 우선순위 바꾸면 순위 바뀜·다시 실행, 보안 점검 실패 → 예외 권한자·없으면 멈춤 | 릴리스 E2E 6단계 | 서버 | ✅ |
+| 원장에서 배우는 정책 조정(완화·강화·대안), 적용하면 결정이 바뀌고 버전이 오름, 리포트 집계 | `server/test/agentic-insights.test.js` | 서버 | ✅ |
+| 화면: 정책·가드레일 세 탭, 승인자 알림 → 원장 줄 강조 → 승인, 전략맵 | 영상(녹화 중 단언) | — | ◐ (Playwright 화면 시험 ✗) |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
