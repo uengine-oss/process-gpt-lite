@@ -15,8 +15,8 @@ const ME = { id: '1b0cd880-86db-4803-8b9c-f3cbc3ca66af', name: '테스트' }   /
 const made = []
 after(async () => {
   if (made.length) await q('delete from pro_policy_decisions where id = any($1::uuid[])', [made])
-  // the approval notices this file's requests sent (they would sit on the approvers' Home)
-  await q(`delete from notifications where tenant_id=$1 and type='policy' and title like '승인 요청 — % out'`, [TEN])
+  // the notices this file's requests sent — to the approvers and back to the requester — would sit on their Home
+  await q(`delete from notifications where tenant_id=$1 and type='policy' and title ~ ' — (pii|plain) out$'`, [TEN])
   await pool.end()
 })
 

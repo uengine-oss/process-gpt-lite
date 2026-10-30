@@ -348,7 +348,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 
 ### 16. Agentic BPM — 정책·가드레일·결정 원장·대안 경로 최적화 (spec `pgpt-pro_agentic-guardrails`, 설계 `pgpt-pro/docs/agentic-bpm/plan.md`)
 
-판단 사례 30개(`server/test/agentic-cases.json` → `agentic-regression.test.js`)와 시나리오 E2E(`server/test/scenario-{mail,release}.e2e.mjs`)는 서버 시험으로 돈다.
+판단 사례 30개(`server/test/agentic-cases.json` → `agentic-regression.test.js`)와 시나리오 E2E(`server/test/scenario-{mail,release,purchase}.e2e.mjs`)는 서버 시험으로 돈다.
 `cd server && node --test test/policy.test.js test/agentic-regression.test.js`, 시나리오는 BFF 를 띄우고 `node test/scenario-mail.e2e.mjs` 다.
 
 | 요구사항 | 시험 | 단계 | |
@@ -361,6 +361,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 원장 공개 범위(팀원은 자기 판단만), 리포트는 관리자만 | F-AG-05 | feature | ✅ |
 | 채팅 메일 요청(send_mail): 사내 허용·외부 기록·명단 승인·명단 전체 차단·대외비 보안 담당자, 카드와 승인 뒤 카드 바뀜 | 메일 E2E(`--no-chat` 없이) | 서버 | ✅ |
 | 금요일 출시: 막힘 → 대안 넷(사전 판단·시뮬레이션·점수), 필수 제약 위반 제외, 릴리스 책임자의 선택이 곧 승인, 요청자는 고를 수 없음(403), 우선순위 바꾸면 순위 바뀜·다시 실행, 보안 점검 실패 → 예외 권한자·없으면 멈춤 | 릴리스 E2E 6단계 | 서버 | ✅ |
+| 구매 승인: 결정 브리프(선택지별 추가 승인·남은 리드타임·근거), 승인 전 초안·재고 확인, 승인 전 발주 409·요청자 발주 403, 두 승인 뒤 인계 꾸러미 발주, 반려 보상(초안 취소·원장 되돌림), 주공정 여유 순 승인함 | 구매 E2E 26개(`server/test/scenario-purchase.e2e.mjs --reset`) | 서버 | ✅ (전후 측정의 "후"는 스크립트 승인자라 동작 확인만) |
 | 원장에서 배우는 정책 조정(완화·강화·대안), 적용하면 결정이 바뀌고 버전이 오름, 리포트 집계 | `server/test/agentic-insights.test.js` | 서버 | ✅ |
 | 화면: 정책·가드레일 세 탭, 승인자 알림 → 원장 줄 강조 → 승인, 전략맵 | 영상(녹화 중 단언) | — | ◐ (Playwright 화면 시험 ✗) |
 
