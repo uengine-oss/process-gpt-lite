@@ -9,6 +9,7 @@ import { isAdmin } from '../lib/team.js'
 import { policiesOf, savePolicy, setEnabled, evaluate } from '../lib/policy/pdp.js'
 import { answer, undo, canApprove } from '../lib/policy/pep.js'
 import { graphOf, saveObjective, saveLink, removeObjective } from '../lib/strategy/graph.js'
+import { report, suggestions, applySuggestion } from '../lib/policy/insights.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[agentic]', e.stack || e.message)
@@ -51,6 +52,15 @@ export function agenticRoutes(auth) {
   r.post('/decisions/:id/approve', auth, (req, res) => send(res, answer(req.user, req.params.id, true, req.body?.note || '')))
   r.post('/decisions/:id/reject', auth, (req, res) => send(res, answer(req.user, req.params.id, false, req.body?.note || '')))
   r.post('/decisions/:id/undo', auth, (req, res) => send(res, undo(req.user, req.params.id)))
+
+  // what the ledger teaches: the month's report and policy retuning suggestions (applied by an administrator)
+  r.get('/agentic/report', auth, (req, res) => send(res, (async () => { await mustAdmin(req.user); return report({ days: Number(req.query.days) || 30 }) })()))
+  r.post('/agentic/suggestions/apply', auth, (req, res) => send(res, (async () => {
+    await mustAdmin(req.user)
+    const s = (await suggestions({ days: Number(req.body.days) || 30 })).find((x) => x.policy === req.body.policy && x.kind === req.body.kind)
+    if (!s?.to) throw Object.assign(new Error(L('적용할 제안이 없어요.', 'No such suggestion to apply.')), { status: 404 })
+    return { policy: s.policy, spec: await applySuggestion(req.user, s) }
+  })()))
 
   // the strategy graph
   r.get('/strategy', auth, (req, res) => send(res, graphOf()))

@@ -29,6 +29,8 @@ const routes = [
   { path: '/improve/:defId?', component: () => import('./views/ImproveView.vue') },
   // 전략맵: 목표·우선순위·위험 허용·제약, 단계·기능·정책의 기여 (Agentic BPM)
   { path: '/strategy', component: () => import('./views/StrategyView.vue') },
+  // Agentic BPM 리포트 (관리자): 원장에서 배우는 것 — 판단·승인 대기·막은 일·최적화, 정책 조정 제안
+  { path: '/agentic', component: () => import('./views/AgenticReportView.vue') },
   // 빌링 백오피스 (운영자): 회사마다 요금제 · 이번 달 사용 · 청구서 · 충전 크레딧
   { path: '/backoffice/:tenant?', component: () => import('./views/BackofficeView.vue') },
   { path: '/', redirect: '/chat' },
