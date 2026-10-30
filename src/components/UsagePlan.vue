@@ -46,7 +46,8 @@ const price = (s) => {
   return p.year != null ? `${money(p.month)}/월 · 연간 ${money(p.year)}` : `${money(p.month)}/월`
 }
 const times = (s) => (s.credits != null ? `${s.credits.toLocaleString(loc)}크레딧/월` : s.x == null ? '사용량만큼' : `${s.x}배`)
-const span = (l) => (l.from ? ` (${new Date(l.from).toLocaleDateString(loc, { month: 'numeric', day: 'numeric' })}–${new Date(new Date(l.to) - 1).toLocaleDateString(loc, { month: 'numeric', day: 'numeric' })}, ${Math.round(l.days)}일)` : '')
+// the month is cut in UTC (LiteLLM's monthly reset), so its days are shown in UTC
+const span = (l) => (l.from ? ` (${new Date(l.from).toLocaleDateString(loc, { month: 'numeric', day: 'numeric', timeZone: 'UTC' })}–${new Date(new Date(l.to) - 1).toLocaleDateString(loc, { month: 'numeric', day: 'numeric', timeZone: 'UTC' })}, ${Math.round(l.days)}일)` : '')
 const billLine = (l) => (l.kind === 'seat' ? `${l.name} × ${l.count}석${span(l)}`
   : l.kind === 'vat' ? '부가세 (10%)'
   : l.kind === 'extra' ? (l.credits != null ? `충전 크레딧 ${l.credits.toLocaleString(loc)}` : '추가 사용량 (원가)')

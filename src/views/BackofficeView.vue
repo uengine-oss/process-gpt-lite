@@ -37,6 +37,7 @@ const creditsOf = (usd) => Math.round(Number(usd || 0) / upc.value)
 const amount = (usd, unit) => (unit === 'credit' ? `${creditsOf(usd).toLocaleString(loc)}크레딧` : `$${Number(usd || 0).toFixed(2)}`)
 const money = (n, cur) => (cur === 'KRW' ? `₩${Math.round(Number(n || 0)).toLocaleString(loc)}` : `$${Number(n || 0).toFixed(2)}`)
 const pct = (w) => (w && w.limit ? Math.min(100, Math.round((w.spent / w.limit) * 100)) : 0)
+const utcDay = (t) => (t ? new Date(t).toLocaleDateString(loc, { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '')
 const day = (t) => (t ? new Date(t).toLocaleDateString(loc, { month: 'short', day: 'numeric' }) : '')
 const statusText = { issued: '발행됨', paid: '입금 확인', void: '무효' }
 
@@ -58,7 +59,8 @@ const plans = computed(() => one.value?.catalog?.plans || [])
 const topPeople = computed(() => [...(c.value?.people || [])].sort((a, b) => b.month.spend - a.month.spend).slice(0, 5))
 const featureMax = computed(() => Math.max(...(one.value?.features || []).map((f) => f.spend), 1e-9))
 const featureName = { chat: '채팅', mission: '예약 작업', browser: '브라우저 에이전트', mining: '프로세스 마이닝', meeting: '회의', skill: '스킬', mail: '메일', panel_app: '패널 앱', process: '프로세스', workroom: '작업실', knowledge: '공유 폴더', office_doc: '문서', craft: '크래프트', improve: '프로세스 개선', team: '팀', other: '기타' }
-const span = (l) => (l.from ? ` (${new Date(l.from).toLocaleDateString(loc, { month: 'numeric', day: 'numeric' })}–${new Date(new Date(l.to) - 1).toLocaleDateString(loc, { month: 'numeric', day: 'numeric' })}, ${Math.round(l.days)}일)` : '')
+// the month is cut in UTC (LiteLLM's monthly reset), so its days are shown in UTC
+const span = (l) => (l.from ? ` (${new Date(l.from).toLocaleDateString(loc, { month: 'numeric', day: 'numeric', timeZone: 'UTC' })}–${new Date(new Date(l.to) - 1).toLocaleDateString(loc, { month: 'numeric', day: 'numeric', timeZone: 'UTC' })}, ${Math.round(l.days)}일)` : '')
 const billLine = (l) => (l.kind === 'seat' ? `${l.name} × ${l.count}석${span(l)}`
   : l.kind === 'vat' ? '부가세 (10%)'
   : l.kind === 'extra' ? (l.credits != null ? `충전 크레딧 ${l.credits.toLocaleString(loc)}` : '추가 사용량 (원가)')
@@ -146,7 +148,7 @@ const liveInvoice = computed(() => (one.value?.invoices || []).find((i) => i.per
               </ul>
               <template v-if="one.history?.length">
                 <p class="st">이번 달 요금제 구간 (일할 계산)</p>
-                <div v-for="(g, i) in c.segments" :key="i" class="r2 sm"><span>{{ plans.find((p) => p.code === g.plan)?.name || g.plan }}</span><span>{{ day(g.from) }} – {{ day(new Date(new Date(g.to) - 1)) }} · {{ Math.round(g.days) }}일</span></div>
+                <div v-for="(g, i) in c.segments" :key="i" class="r2 sm"><span>{{ plans.find((p) => p.code === g.plan)?.name || g.plan }}</span><span>{{ utcDay(g.from) }} – {{ utcDay(new Date(new Date(g.to) - 1)) }} · {{ Math.round(g.days) }}일</span></div>
               </template>
             </div>
 
