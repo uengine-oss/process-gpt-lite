@@ -90,6 +90,9 @@ export async function answer(me, id, approve, note = '') {
   const d = await loadPending(id)
   if (d.status !== 'pending') throw Object.assign(new Error(L('이미 처리된 요청이에요.', 'Already decided.')), { status: 409 })
   if (!(await canApprove(me, d.approver_role))) throw Object.assign(new Error(L(`${d.approver_role || '관리자'}만 승인할 수 있어요.`, `Only the ${d.approver_role || 'administrator'} can approve.`)), { status: 403 })
+  // separation of duties: the person who asked never approves it, even holding the role or being an administrator
+  // (another administrator can); they may still reject — withdraw — their own request
+  if (approve && String(d.user_id) === String(me.id)) throw Object.assign(new Error(L('본인 요청은 다른 승인자가 승인해야 해요.', 'Someone else has to approve your own request.')), { status: 403 })
   let status = approve ? 'approved' : 'rejected'
   let result = { note }
   if (approve) {

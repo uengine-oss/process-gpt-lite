@@ -15,6 +15,8 @@ const ME = { id: '1b0cd880-86db-4803-8b9c-f3cbc3ca66af', name: '테스트' }   /
 const made = []
 after(async () => {
   if (made.length) await q('delete from pro_policy_decisions where id = any($1::uuid[])', [made])
+  // the approval notices this file's requests sent (they would sit on the approvers' Home)
+  await q(`delete from notifications where tenant_id=$1 and type='policy' and title like '승인 요청 — % out'`, [TEN])
   await pool.end()
 })
 
@@ -68,12 +70,12 @@ test('the PEP: approval runs the kept action as the requester; undo inside the w
     const held = await guard({ me: ME, kind: 'mail.send', subject: 'pii out', facts: { external: true, pii_count: 2 }, executor: 'test.echo', payload: { n: 1 } })
     made.push(held.decisionId)
     assert.equal(held.status, 'pending'); assert.equal(ran.length, 0)
-    const admin = { id: ME.id, name: 'admin' }
-    const [{ is_admin }] = await q("select coalesce(bool_or(is_admin),false) is_admin from users where id=$1 and tenant_id='localhost'", [ME.id])
-    if (is_admin) {
-      const r = await answer(admin, held.decisionId, true, 'ok')
-      assert.equal(r.status, 'executed'); assert.equal(ran[0].ctx.userId, ME.id)
-    }
+    // the requester never approves their own request, administrator or role holder or not
+    await assert.rejects(answer(ME, held.decisionId, true, 'mine'), (e) => e.status === 403)
+    // the 개인정보 책임자 (이도윤, also an administrator) approves: the kept action runs as the requester
+    const [lee] = await q("select id from users where tenant_id='localhost' and lower(email)='pro-mine3-admin@uengine.org'")
+    const r = await answer({ id: lee.id, name: '이도윤' }, held.decisionId, true, 'ok')
+    assert.equal(r.status, 'executed'); assert.equal(ran[0].ctx.userId, ME.id)
     const audited = await guard({ me: ME, kind: 'mail.send', subject: 'plain out', facts: { external: true, pii_count: 0 }, executor: 'test.echo', payload: { n: 2 } })
     made.push(audited.decisionId)
     assert.equal(audited.decision, 'allow_audit'); assert.equal(audited.status, 'executed'); assert.ok(audited.undoUntil)
