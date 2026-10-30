@@ -7,7 +7,7 @@
 // an action that ran under "record" can be taken back while its window is open. ?d=<decision id> — the link
 // of an approval notification — opens that row.
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { isEnglish } from '../i18n/lang.js'
 import { useApp } from '../stores/app.js'
@@ -49,6 +49,7 @@ const tab = ref(route.query.d ? 'ledger' : 'catalog')
 // ── the catalog
 const policies = ref([])
 const admin = ref(false)
+const router = useRouter()
 const holders = ref({})     // role key → the teammate holding it company-wide
 const team = ref([])
 const err = ref('')
@@ -228,6 +229,12 @@ onUnmounted(() => clearInterval(timer))
       <div v-for="(label, d) in DEC" :key="d" class="lg"><span class="chip" :class="d">{{ label }}</span><small>{{ DEC_HINT[d] }}</small></div>
     </div>
 
+    <!-- where the policies lead: the strategy map the path optimizer ranks by, and (administrators) the ledger's report -->
+    <div class="goto">
+      <button class="lnk" @click="router.push('/strategy')">전략맵 ›</button>
+      <button v-if="admin" class="lnk" @click="router.push('/agentic')">Agentic BPM 리포트 ›</button>
+    </div>
+
     <div class="seg tabs" role="tablist">
       <button :class="{ on: tab === 'catalog' }" role="tab" @click="tab = 'catalog'">정책 <small>{{ onCount }}/{{ policies.length }}</small></button>
       <button :class="{ on: tab === 'try' }" role="tab" @click="tab = 'try'">시험해 보기</button>
@@ -385,6 +392,8 @@ onUnmounted(() => clearInterval(timer))
 .seg button { height: 32px; padding: 0 13px; border-radius: 9999px; background: var(--field-bg); font-size: 13.5px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px; }
 .seg button.on { background: var(--ink); color: var(--ink-inverse); }
 .seg button small { font-size: 12px; opacity: .7; }
+.goto { display: flex; gap: 16px; margin: -4px 6px 10px; }
+.goto .lnk { background: none; border: 0; padding: 0; color: var(--text-secondary); text-decoration: underline; font-size: 13px; cursor: pointer; }
 .tabs { margin: 2px 0 6px; }
 .tabs button { height: 36px; padding: 0 16px; font-size: 14px; }
 .n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #d9822b; color: #fff; font-size: 11.5px; display: grid; place-items: center; }

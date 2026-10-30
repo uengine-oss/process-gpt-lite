@@ -1732,7 +1732,286 @@
   "크레딧": "credits",
   "월 한도": "Limit",
   "부가세 (10%)": "VAT (10%)",
-  "요청이 너무 잦아요. 1분쯤 뒤에 다시 해 주세요. (요금제의 분당 호출 한도)": "Too many requests right now. Try again in a minute. (your plan's per-minute limit)"
+  "요청이 너무 잦아요. 1분쯤 뒤에 다시 해 주세요. (요금제의 분당 호출 한도)": "Too many requests right now. Try again in a minute. (your plan's per-minute limit)",
+  "허용": "Allow",
+  "승인 필요": "Approval needed",
+  "차단": "Blocked",
+  "바로 실행해요": "Runs at once",
+  "실행하고 감사 기록에 남겨요 · 되돌리기 창": "Runs and is recorded for audit · undo window",
+  "승인자가 승인하면 실행해요": "Runs once the approver approves",
+  "실행하지 않아요": "Does not run",
+  "권한·결재": "Authority & sign-off",
+  "법무·계약": "Legal & contracts",
+  "기록·감사": "Records & audit",
+  "품질·운영": "Quality & operations",
+  "비용": "Cost",
+  "윤리": "Ethics",
+  "메일 보내기": "Send mail",
+  "결제 (브라우저 에이전트)": "Payment (browser agent)",
+  "구매 승인": "Purchase approval",
+  "발주": "Purchase order",
+  "배포": "Release",
+  "데이터 반출": "Data export",
+  "데이터 삭제": "Data deletion",
+  "주민등록번호": "Resident registration no.",
+  "휴대전화": "Mobile number",
+  "계좌번호": "Bank account no.",
+  "받는 도메인": "Recipient domains",
+  "외부 포함": "Includes outside",
+  "외부 수신자": "External recipients",
+  "개인정보 종류": "Personal data kinds",
+  "종류별": "By kind",
+  "분류": "Classification",
+  "첨부": "Attachments",
+  "금액": "Amount",
+  "판매처": "Merchant",
+  "처음 쓰는 판매처": "New merchant",
+  "신규 공급사": "New supplier",
+  "되돌릴 수 있는 준비": "Reversible preparation",
+  "공개 대상": "Audience",
+  "기능": "Features",
+  "열린 위험": "Open findings",
+  "보안 점검": "Security scan",
+  "요일": "Weekday",
+  "시": "Hour",
+  "행": "Rows",
+  "개인정보 행": "Rows with personal data",
+  "외부로": "To outside",
+  "건수": "Count",
+  "기밀": "Confidential",
+  "일반": "General",
+  "일반 공개": "Public",
+  "내부": "Internal",
+  "베타": "Beta",
+  "만료": "Expired",
+  "하루": "a day",
+  "정책": "Policies",
+  "시험해 보기": "Try it",
+  "결정 원장": "Decision ledger",
+  "에이전트가 결과가 남는 일(메일 보내기, 결제, 배포 …)을 하기 전에 아래 정책으로 판단해요. 여러 정책이 걸리면 가장 엄격한 결과를 따르고, 판단은 규칙으로만 해요 — AI 모델이 승인 여부를 정하지 않아요.": "Before an agent does something with consequences (sending mail, paying, releasing …), these policies decide. When several apply, the strictest wins, and only rules decide — no AI model decides whether something needs approval.",
+  "정책 켜기·끄기는 관리자만 할 수 있어요. 바꿀 일이 있으면 관리자에게 알려 주세요.": "Only administrators can turn policies on or off. Tell an administrator if one should change.",
+  "승인·예외": "Approves / exceptions",
+  "담당 없음 → 관리자": "No one assigned → administrators",
+  "조건 (JSONLogic)": "Rule (JSONLogic)",
+  "끄기": "Turn off",
+  "켜기": "Turn on",
+  "행위와 그 사실(facts)을 넣으면 정책 엔진이 어떻게 판단하는지 보여 줘요. 실행하지도, 결정 원장에 남기지도 않아요. 구간 규칙(하루 N건)은 내 실제 기록으로 세요.": "Enter an action and its facts to see how the policy engine decides. Nothing runs and nothing goes into the ledger. Window rules (N a day) count your real history.",
+  "행위": "Action",
+  "사내 메일": "Internal mail",
+  "외부 메일": "External mail",
+  "외부 + 개인정보 6건": "External + 6 personal data items",
+  "개인정보 120건": "120 personal data items",
+  "기밀 첨부 외부 발송": "Confidential file to outside",
+  "10만 5천 원 (허용 오차)": "₩105,000 (within tolerance)",
+  "승인 전 발주": "Order before approval",
+  "승인 전 견적·초안": "Quote or draft before approval",
+  "승인 후 발주": "Order after approval",
+  "금요일 오후 공개 + 개인정보 위험": "Friday-afternoon public + privacy finding",
+  "내부 사용자 먼저": "Internal users first",
+  "보안 점검 실패": "Security scan failed",
+  "개인정보 10행 외부로": "10 rows of personal data to outside",
+  "개인정보 3,000행 외부로": "3,000 rows of personal data to outside",
+  "30건 삭제": "Delete 30",
+  "500건 삭제": "Delete 500",
+  "판단해 보기": "Evaluate",
+  "바로 실행돼요": "Runs at once",
+  "실행되고 감사 기록에 남아요 · 되돌릴 수 있어요": "Runs, is recorded for audit and can be undone",
+  "실행되지 않아요": "Does not run",
+  "걸린 정책이 없어서 허용해요.": "No policy applies, so it is allowed.",
+  "승인 대기": "Waiting for approval",
+  "실행됨": "Executed",
+  "반려됨": "Rejected",
+  "되돌림": "Undone",
+  "사전 검증 포함": "Include dry runs",
+  "최적화가 대안을 고르기 전에 정책으로 미리 확인한 판단": "Checks the optimizer ran against the policies before choosing an alternative",
+  "알림의 결정이 목록에 없어요. 볼 수 있는 사람이 아니거나 이미 오래된 결정이에요.": "The decision from the notification is not in the list: you can't see it, or it is old.",
+  "승인 후 실행": "Ran after approval",
+  "실행 · 기록": "Ran · recorded",
+  "실행함": "Ran",
+  "사전 검증": "Dry run",
+  "판단만": "Decided only",
+  "회수함": "Recalled",
+  "시연용 보낸편지함 · 실제 메일은 나가지 않아요": "Demo outbox · no real e-mail goes out",
+  "회수하기": "Recall",
+  "되돌리기": "Undo",
+  "판단에 쓴 사실": "Facts used",
+  "걸린 정책": "Matched policies",
+  "걸린 정책이 없어서 허용했어요.": "No policy applied, so it was allowed.",
+  "예외 권한": "Exception authority",
+  "승인자": "Approver",
+  "승인한 사람": "Approved by",
+  "반려한 사람": "Rejected by",
+  "결과": "Result",
+  "승인·반려 메모 (선택)": "Note for approving or rejecting (optional)",
+  "아직 결정이 없어요.": "No decisions yet.",
+  "내용 확인 못 함": "Content not checked",
+  "반려": "Rejected",
+  "개인정보 책임자": "privacy officer",
+  "보안 담당자": "security officer",
+  "팀장": "team lead",
+  "재무 책임자": "finance lead",
+  "구매 담당": "purchasing",
+  "릴리스 책임자": "release manager",
+  "개인정보보호법 제17조(개인정보의 제공)": "PIPA Art. 17 (Provision of personal information)",
+  "개인정보보호법 제29조(안전조치의무)": "PIPA Art. 29 (Duty of safety measures)",
+  "EU AI Act 제14조(사람의 감독)": "EU AI Act Art. 14 (Human oversight)",
+  "NIST AI RMF — GOVERN·MANAGE": "NIST AI RMF — GOVERN·MANAGE",
+  "ISMS-P 2.10(시스템 및 서비스 보안관리)": "ISMS-P 2.10 (System and service security)",
+  "사내 규정(예시)": "In-house rule (example)",
+  "실행하지 않음": "Not run",
+  "정책·가드레일": "Policies & guardrails",
+  "경로 최적화": "Path optimizer",
+  "대안을 골라 주세요": "Choose an alternative",
+  "가장 나은 대안을 자동으로 실행했어요": "Ran the best alternative on its own",
+  "고른 대안을 진행하고 있어요": "The chosen alternative is under way",
+  "예외 권한자 판단을 기다려요": "Waiting for the exception holder",
+  "다시 계산해 새 대안으로 바뀌었어요": "Re-run: replaced by a new optimization",
+  "멈췄어요": "Stopped",
+  "QA 에이전트": "QA agent",
+  "베타 그룹": "Beta group",
+  "사내 사용자": "Internal users",
+  "품질": "Quality",
+  "높음": "High",
+  "보통": "Medium",
+  "낮음": "Low",
+  "지금": "Now",
+  "정책 사전 검증": "Policy dry run",
+  "시뮬레이션": "Simulation",
+  "전략 점수": "Strategic score",
+  "에이전트 제안": "agent proposal",
+  "제외": "Excluded",
+  "선택됨": "Chosen",
+  "자동 실행": "Ran on its own",
+  "모두 공개까지": "Until all public",
+  "2주 가치 전달": "Value in 2 weeks",
+  "잔여 위험": "Residual risk",
+  "위험 노출 없음": "No risk exposure",
+  "이 대안으로": "Go with this",
+  "승인하고 이 대안으로": "Approve and go with this",
+  "실행 중…": "Running…",
+  "전략맵에서 보기": "Open the strategy map",
+  "전략맵": "Strategy map",
+  "정책에 막힌 일을 에이전트가 대안으로 풀 때, 이 목표들의 우선순위와 위험 허용 수준이 대안을 고르는 기준이 돼요.": "When agents work round a blocked action, these objectives' priorities and risk appetites decide which alternative wins.",
+  "재무": "Financial",
+  "얻을 성과": "Results to gain",
+  "고객이 느끼는 것": "What customers feel",
+  "내부 프로세스": "Internal process",
+  "잘해야 할 일": "What we must do well",
+  "학습·성장": "Learning & growth",
+  "키울 역량": "Capabilities to grow",
+  "우선순위": "Priority",
+  "위험 허용": "Risk appetite",
+  "기본(보통)": "Default (medium)",
+  "필수": "Must",
+  "권장": "Should",
+  "보호": "Protects",
+  "QA 에이전트 검토": "QA agent review",
+  "베타 피드백 수집": "Beta feedback",
+  "목표가 없어요": "No objectives",
+  "최근 최적화": "Latest optimization",
+  "선택 대기": "Awaiting choice",
+  "멈춤": "Stopped",
+  "예외 판단 대기": "Awaiting exception",
+  "대안": "Alternative",
+  "점수": "Score",
+  "점수 (지금 기준)": "Score (today's graph)",
+  "지금 기준으로 다시 계산": "Re-score against today's graph",
+  "계산 중…": "Calculating…",
+  "이 순위로 다시 실행": "Re-run with this ranking",
+  "대화에서 보기": "Open in chat",
+  "점수 = Σ 목표 가중치 × 기여 − 위험 노출 × 위험 허용 − 지연. 미리 보기는 아무것도 기록하지 않아요.": "Score = Σ objective weight × contribution − risk exposure × appetite − delay. A preview records nothing.",
+  "아직 최적화한 일이 없어요. 아래에서 출시를 요청해 보세요.": "Nothing optimized yet. Request the release below.",
+  "이번 출시": "This release",
+  "보안 점검 통과": "Security scan passed",
+  "조치됨": "Fixed",
+  "금요일 16:00": "Friday 16:00",
+  "금요일 11:00": "Friday 11:00",
+  "수요일 10:00": "Wednesday 10:00",
+  "에이전트(모델)가 대안 만들기": "Agents (the model) propose alternatives",
+  "보안 점검 실패로 가정": "Assume the security scan failed",
+  "예외 권한자가 없다고 가정": "Assume no exception holder",
+  "출시 요청": "Request release",
+  "정책 확인·대안 계산 중…": "Checking policies, working out alternatives…",
+  "대안을 계산했어요": "Alternatives worked out",
+  "그대로 출시했어요(시연)": "Released as planned (demo)",
+  "승인을 기다려요": "Waiting for approval",
+  "배포 기록": "Deployment log",
+  "시연용 — 실제로 배포하지 않아요": "demo — nothing is deployed",
+  "배포됨(시연)": "Deployed (demo)",
+  "계획": "Planned",
+  "고객 신뢰": "Customer trust",
+  "출시 일정 준수": "On-time release",
+  "매출 성장": "Revenue growth",
+  "개발 생산성": "Engineering productivity",
+  "유료 전환율": "Paid conversion",
+  "고객 신뢰 지수(NPS)": "Customer trust (NPS)",
+  "계획 기능 적시 배포율": "Planned features shipped on time",
+  "출시 후 2주 사용 피드백 확보율": "Usage feedback within 2 weeks",
+  "공유 링크": "Share links",
+  "대용량 업로드": "Large uploads",
+  "폴더 동기화 개선": "Folder sync improvements",
+  "클라우드 드라이브 4.12 정기 출시": "Cloud Drive 4.12 release",
+  "파일·폴더를 링크로 공유 — 받는 사람의 이메일과 소유자 정보를 다룸": "Share files and folders by link — handles recipients' e-mail and owner details",
+  "최대 50GB 파일을 끊긴 곳부터 이어 올리기": "Resumable uploads of files up to 50 GB",
+  "동기화 충돌 해결과 속도 개선": "Sync conflict resolution and speed-ups",
+  "비민감 기능만 분리 출시": "Release only the non-sensitive features",
+  "내부 사용자 먼저 공개": "Internal users first",
+  "고친 뒤 출시": "Fix first, release later",
+  "공개 범위 제한 (카나리)": "Limited rollout (canary)",
+  "인계 꾸러미": "Hand-over package",
+  "결정 브리프": "Decision brief",
+  "AI가 쓴 문장 · 근거 숫자는 기록에서 계산": "Wording by AI · the numbers come from the records",
+  "규칙 기반 추천": "Rule-based recommendation",
+  "지금 끝나요": "Ends now",
+  "남은 리드타임": "Lead time left",
+  "추가 승인 없음": "No extra approval",
+  "승인 수량": "Approved quantity",
+  "결정 근거": "Reasons",
+  "앞 단계 결정 브리프의 추천": "What the earlier briefs recommended",
+  "발주됨": "Ordered",
+  "취소됨": "Cancelled",
+  "지금 발주하면 남은 리드타임": "Order now — lead time left",
+  "지금 발주하면 요청이 끝나요": "Ordering now completes the request",
+  "초안대로 발주": "Place the order as drafted",
+  "승인 전에 미리 해 둔 일": "Done before approval",
+  "승인 전에 미리 해 둔 일 (되돌릴 수 있는 준비)": "Done before approval (reversible preparation)",
+  "준비됨": "Ready",
+  "발주에 사용": "Used for the order",
+  "막힘": "Blocked",
+  "발주 메모 (선택)": "Order note (optional)",
+  "의견 (선택)": "Comment (optional)",
+  "결정됨": "Decided",
+  "승인했어요": "Approved",
+  "수량을 조정해 승인했어요": "Approved a smaller quantity",
+  "반려했어요": "Rejected",
+  "발주했어요": "Ordered",
+  "양식에서": "on the form",
+  "결정 브리프를 만드는 중": "Preparing the decision brief",
+  "주공정 위에 있는 승인부터 보여 줘요. 순서는 진행 중인 요청마다 남은 주공정(기록된 단계 시간으로 계산한 크리티컬 패스)과 목표 리드타임의 여유로 정해요 — 먼저 온 순서가 아니에요.": "Approvals on the critical path come first. The order comes from each running request's remaining critical path (computed from the recorded step times) and its slack against the lead-time target — not from who asked first.",
+  "내 승인": "My approvals",
+  "지금 결정할 일이 없어요": "Nothing to decide right now",
+  "새 승인이 오면 결정 브리프와 함께 여기와 채팅에 와요.": "New approvals arrive here and in the chat, with their decision brief.",
+  "내 구매 요청": "My purchase requests",
+  "재무 승인 대기": "Waiting for finance",
+  "발주 대기": "Waiting for the order",
+  "팀장 승인 대기": "Waiting for the team lead",
+  "+ 구매 요청 올리기": "+ Raise a purchase request",
+  "품목 (예: 27인치 모니터)": "Item (e.g. 27-inch monitor)",
+  "단가(원)": "Unit price (₩)",
+  "구매 사유": "Reason for buying",
+  "측정 닫기": "Close the measurements",
+  "승인 대기·리드타임 측정 보기": "Approval wait and lead time: before / after",
+  "기존 이력": "History",
+  "브리프·선행 실행 후": "With briefs and preparation",
+  "승인 대기 중앙값 (건당 합)": "Median approval wait (per request)",
+  "what-if 「사전 초안」 예측": "What-if “pre-draft” prediction",
+  "시드한 이력으로 만든 PoC 예요. 「후」는 스크립트·시연으로 돌린 건이라 사람이 몇 초 만에 결정해요 — 동작을 보여 줄 뿐, 실제 승인자가 얼마나 빨라질지는 아니에요.": "A PoC on seeded history. “After” comes from scripted or demo runs where people decide within seconds — it shows the mechanics, not how much faster real approvers would be.",
+  "구매 요청": "Purchase request",
+  "팀장 승인": "Team lead approval",
+  "재무 승인": "Finance approval",
+  "수량 조정 후 승인": "Approve a smaller quantity",
+  "전략맵 ›": "Strategy map ›",
+  "Agentic BPM 리포트 ›": "Agentic BPM report ›"
  },
  "patterns": [
   [
@@ -1760,8 +2039,16 @@
    "Used once your own limits run out · you used {0}"
   ],
   [
+   "금액 {0} · 1,000만 원 초과: 재무 승인까지",
+   "Amount {0} · over ₩10M: finance approves too"
+  ],
+  [
    "{0} amount {1} 미만이면 '{2}' 을(를) 건너뜀",
    "Skips '{2}' when {0} amount is under {1}"
+  ],
+  [
+   "남은 주공정: {0} · 목표 리드타임 {1} · {2}",
+   "Critical path left: {0} · lead-time target {1} · {2}"
   ],
   [
    "에이전트가 서식·구조를 고치는 중 · {0}",
@@ -1778,6 +2065,10 @@
   [
    "{0} — {1} amount {2} 미만이면 건너뜀",
    "{0} — skipped if {1} amount is below {2}"
+  ],
+  [
+   "{0} — 팀장에게 결정 브리프가 갔어요.",
+   "{0} — a decision brief went to the team lead."
   ],
   [
    "에이전트가 내용을 바꾸는 중 · {0}",
@@ -1800,6 +2091,10 @@
    "· this month (admin limit) {0}%"
   ],
   [
+   "허용 오차: {0}의 {1}%까지는 기록만",
+   "Tolerance: up to {1}% over {0} is only recorded"
+  ],
+  [
    "{0} — {1} 금액 {2} 미만이면 건너뜀",
    "{0} — skipped if {1} amount is below {2}"
   ],
@@ -1808,12 +2103,24 @@
    "Applied to the '{0}' panel · {1} rows changed"
   ],
   [
+   "JSON 을 읽지 못했어요: {0}",
+   "Couldn't read the JSON: {0}"
+  ],
+  [
    "에이전트가 작업하는 중 · {0}",
    "Agent is working · {0}"
   ],
   [
    "{0}님께 보냈어요 · 산출물 {1}개",
    "Sent to {0} · {1} outputs"
+  ],
+  [
+   "구간 규칙: {0} {1}건을 넘으면 {2}",
+   "Window: past {1} in {0} → {2}"
+  ],
+  [
+   "{0}님이 고른 대안을 실행했어요",
+   "Ran the alternative {0} chose"
   ],
   [
    "에이전트가 저장했어요 · {0}",
@@ -1836,12 +2143,24 @@
    "· my month {0}%"
   ],
   [
+   "구간 안 {0}번째 ({1}건까지)",
+   "#{0} in the window (limit {1})"
+  ],
+  [
+   "에이전트가 만든 대안 {0}개",
+   "{0} alternatives the agents made"
+  ],
+  [
    "도우미가 찾았어요 · {0}",
    "Helper found it · {0}"
   ],
   [
    "· 이번 결제 기간 {0}%",
    "· this billing period {0}%"
+  ],
+  [
+   "허용 오차 안 ({0}까지)",
+   "Within tolerance (up to {0})"
   ],
   [
    "워드 문서 · 그림 {0}",
@@ -1858,6 +2177,10 @@
   [
    "회사 전체 {0}크레딧/월",
    "{0} credits/mo for the whole company"
+  ],
+  [
+   "요청 {0}개 → 승인 {1}개",
+   "Requested {0} → approved {1}"
   ],
   [
    "{0}님이 통역을 켰어요",
@@ -1884,6 +2207,14 @@
    "₩{0}/mo · ₩{1} yearly"
   ],
   [
+   "{0} 승인 후 실행돼요",
+   "Runs after the {0} approves"
+  ],
+  [
+   "{0} — 보상으로 취소",
+   "{0} — cancelled as compensation"
+  ],
+  [
    "{0}/{1} 카드 · 본문",
    "{0}/{1} cards · full text"
   ],
@@ -1904,6 +2235,10 @@
    "This month {0} · {1} calls"
   ],
   [
+   "{0} 선택을 기다려요",
+   "Waiting for the {0} to choose"
+  ],
+  [
    "대화에서 직접 {0}",
    "Directly in the conversation {0}"
   ],
@@ -1920,6 +2255,18 @@
    "· this week {0}%"
   ],
   [
+   "개인정보 위험 {0}",
+   "privacy risk {0}"
+  ],
+  [
+   "평소보다 {0} 빨리",
+   "{0} sooner than usual"
+  ],
+  [
+   "발주 완료 · {0}",
+   "Ordered · {0}"
+  ],
+  [
    "새 주제 · {0}",
    "New topic · {0}"
   ],
@@ -1934,6 +2281,14 @@
   [
    "사용량 {0}크레딧",
    "Usage {0} credits"
+  ],
+  [
+   "일반 공개 {0}%",
+   "Public {0}%"
+  ],
+  [
+   "조치 추정 {0}일",
+   "fix estimate {0} days"
   ],
   [
    "유휴 {0} ({1})",
@@ -1986,6 +2341,18 @@
   [
    "· 세션 {0}%",
    "· session {0}%"
+  ],
+  [
+   "{0} 승인 대기",
+   "Waiting for the {0}"
+  ],
+  [
+   "보안 위험 {0}",
+   "security risk {0}"
+  ],
+  [
+   "품질 위험 {0}",
+   "quality risk {0}"
   ],
   [
    "표 {0} ({1})",
@@ -2052,6 +2419,26 @@
    "{0} × {1} seats"
   ],
   [
+   "가중치 {0}",
+   "weight {0}"
+  ],
+  [
+   "KPI {0}",
+   "KPI {0}"
+  ],
+  [
+   "요청자 {0}",
+   "Requested by {0}"
+  ],
+  [
+   "{0}개 · {1}",
+   "qty {0} · {1}"
+  ],
+  [
+   "다음: {0}",
+   "Next: {0}"
+  ],
+  [
    "나: {0}",
    "Me: {0}"
   ],
@@ -2074,6 +2461,10 @@
   [
    "₩{0}/월",
    "₩{0}/mo"
+  ],
+  [
+   "금액 {0}",
+   "Amount {0}"
   ],
   [
    "시작{0}",
@@ -2534,6 +2925,14 @@
   [
    "조건{0}",
    "Condition {0}"
+  ],
+  [
+   "{0}까지",
+   "until {0}"
+  ],
+  [
+   "+{0}일",
+   "+{0} days"
   ],
   [
    "{0}월",
@@ -4558,6 +4957,14 @@
   [
    "{0}배",
    "{0}x"
+  ],
+  [
+   "{0}위",
+   "#{0}"
+  ],
+  [
+   "{0}점",
+   "{0} pts"
   ]
  ],
  "context": [
@@ -4625,6 +5032,46 @@
    ".fl .search .clr",
    "지우기",
    "Clear"
+  ],
+  [
+   ".pcn .chip",
+   "기록",
+   "Record"
+  ],
+  [
+   ".pcn .acts",
+   "반려",
+   "Reject"
+  ],
+  [
+   ".lt",
+   "기능",
+   "Feature"
+  ],
+  [
+   ".lt",
+   "단계",
+   "Step"
+  ],
+  [
+   ".lt",
+   "보호",
+   "Protects"
+  ],
+  [
+   ".bc .act",
+   "반려",
+   "Reject"
+  ],
+  [
+   ".bc .ot",
+   "반려",
+   "Reject"
+  ],
+  [
+   ".bc .rh",
+   "반려",
+   "Reject"
   ]
  ]
 }
