@@ -54,6 +54,8 @@ export async function suggestions({ tenant = T(), days = 30, minCount = 5 } = {}
         reason: ['자주 막힙니다. 막히는 일을 허용 범위 안에서 해낼 대안 경로(최적화)를 마련하세요.', 'People keep running into this; give them an allowed path (the optimizer).'] })
     }
   }
+  // the policy's title for the page (an id like payment-approval says little to a person)
+  for (const s of out) s.title = specs[s.policy]?.spec?.title || null
   return out.sort((a, b) => (b.evidence.requests || b.evidence.actions || b.evidence.blocked) - (a.evidence.requests || a.evidence.actions || a.evidence.blocked))
 }
 

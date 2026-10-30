@@ -90,7 +90,7 @@ async function apply(s) {
             <div v-for="s in r.suggestions" :key="s.policy + s.kind" class="li">
               <span class="chip" :class="s.kind">{{ { loosen: '완화', tighten: '강화', alternative: '대안 경로' }[s.kind] }}</span>
               <div class="main">
-                <b>{{ s.policy }}<template v-if="s.to"> · {{ decisionName[s.from] }} → {{ decisionName[s.to] }}</template></b>
+                <b>{{ pick(s.title) || s.policy }}<template v-if="s.to"> · {{ decisionName[s.from] }} → {{ decisionName[s.to] }}</template></b>
                 <small>{{ pick(s.reason) }}</small>
                 <small class="ev">{{ Object.entries(s.evidence).map(([k, v]) => `${k} ${v}`).join(' · ') }}</small>
               </div>
