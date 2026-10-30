@@ -373,7 +373,12 @@ app.get('/api/threads', auth, async (req, res) => {
   res.json(await q(`select * from pro_threads where user_id=$1 and kind='project' order by updated_at desc`, [req.user.id]))
 })
 app.post('/api/threads', auth, async (req, res) => {
-  const t = await chat({ messages: [{ role: 'system', content: L('요청을 5~12자 한국어 프로젝트 제목으로. 제목만.', 'Turn the request into a 2-5 word English project title. Only the title.') }, { role: 'user', content: req.body.text }], temperature: 0.2 })
+  // a usage limit (lib/llmKeys.js) answers as such, not as a server error
+  const t = await chat({ messages: [{ role: 'system', content: L('요청을 5~12자 한국어 프로젝트 제목으로. 제목만.', 'Turn the request into a 2-5 word English project title. Only the title.') }, { role: 'user', content: req.body.text }], temperature: 0.2 }).catch((e) => e)
+  if (t instanceof Error) {
+    if (['quota_exceeded', 'rate_limited', 'model_not_allowed'].includes(t.code)) return res.status(t.status).json({ error: t.message, code: t.code })
+    throw t
+  }
   const [row] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project',$2) returning *`, [req.user.id, t.content.replace(/["'.]/g, '').trim()])
   emit(req.user.id, 'thread', row)
   res.json(row)

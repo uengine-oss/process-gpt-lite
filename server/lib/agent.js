@@ -20,6 +20,7 @@ import { listTeam, listAssignments, resolveMember } from './team.js'
 import { notifyMember } from './notify.js'
 import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, parseToolOutput, publish } from './office.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import * as llmKeys from './llmKeys.js'
 import * as turns from './turns.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
@@ -719,10 +720,13 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   } finally { clearTimeout(idleTimer) }
 
   async function streamTurn() {
+  // with usage limits on (lib/llmKeys.js): refused before the agent starts when a limit is spent, and the
+  // agent's own model calls go out with this person's key
+  const llmAuth = await llmKeys.admit()
   const res = await fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
     signal: AbortSignal.any([idle.signal, turn.abort.signal]),
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
     body: JSON.stringify({
       // English mode: the language instruction goes last, after what the person said and the hints
       message: text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(uploads) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,

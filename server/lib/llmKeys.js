@@ -199,5 +199,35 @@ export async function send(make) {
   throw new QuotaError(scope, { resetsAt: await resetsAt(scope, auth), detail: r.text.slice(0, 300), period: await periodOf() })
 }
 
+// Before work goes to an agent that calls models itself (deepagents, with the key this returns as X-LLM-Key):
+// the person's key exists, and none of their limits is already spent — LiteLLM's counters in the database
+// (they trail by its ~10 s write interval). A spent limit the plan lets overflow goes on with the extra key.
+export async function admit() {
+  if (!enabled()) return null
+  const auth = current()
+  const row = async (a) => (await q(`select k.spend::float8 ks, k.max_budget::float8 km, m.spend::float8 ms, b.max_budget::float8 mm,
+      t.spend::float8 ts, t.max_budget::float8 tm, t.blocked
+    from litellm."LiteLLM_VerificationToken" k
+    left join litellm."LiteLLM_TeamMembership" m on m.team_id=k.team_id and m.user_id=k.user_id
+    left join litellm."LiteLLM_BudgetTable" b on b.budget_id=m.budget_id
+    left join litellm."LiteLLM_TeamTable" t on t.team_id=k.team_id where k.token=$1`, [tokenOf(a.key)]))[0]
+  let r = await row(auth)
+  if (!r) { await provision(auth); r = await row(auth) }
+  const over = (s, m) => m != null && m < NO_LIMIT && s >= m
+  const scope = !r ? null : over(r.ks, r.km) ? 'session' : over(r.ms, r.mm) ? 'period' : over(r.ts, r.tm) ? 'company' : null
+  if (!scope) return auth
+  if ((await overflowOf(auth.tenant)).includes(scope)) {
+    const extra = current('extra')
+    let x = await row(extra)
+    if (!x) { await provision(extra); x = await row(extra) }
+    if (x && !x.blocked && !over(x.ts, x.tm)) return extra
+    throw new QuotaError('extra', { resetsAt: await resetsAt('extra', extra) })
+  }
+  const lim = await (await import('./plans/apply.js')).limitsFor(auth.tenant, auth.userId).catch(() => null)
+  throw new QuotaError(scope, { resetsAt: await resetsAt(scope, auth), period: lim?.period?.duration || null })
+}
+// the headers that make an agent's model calls this person's (deepagents: X-LLM-Key, X-LLM-Tags)
+export const agentHeaders = (auth) => (auth?.tags ? { 'X-LLM-Key': auth.key, 'X-LLM-Tags': auth.tags.join(',') } : {})
+
 // the body fields that put a call on its feature tag (none when off)
 export const bodyTags = (auth) => (auth.tags ? { metadata: { tags: auth.tags } } : {})
