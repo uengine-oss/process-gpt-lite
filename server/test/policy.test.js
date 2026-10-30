@@ -11,10 +11,13 @@ import { withTenant } from '../lib/tenant.js'
 import { q, pool } from '../lib/supa.js'
 
 const TEN = 'localhost'
+// the catalog's own decisions on a tenant of its own: the demo tenant's policies may have been retuned (the report's suggestions)
+const CLEAN = 'policy-test-rt'
 const ME = { id: '1b0cd880-86db-4803-8b9c-f3cbc3ca66af', name: '테스트' }   // pro-team-owner
 const made = []
 after(async () => {
   if (made.length) await q('delete from pro_policy_decisions where id = any($1::uuid[])', [made])
+  await q('delete from pro_policies where tenant_id=$1', [CLEAN])
   // the notices this file's requests sent — to the approvers and back to the requester — would sit on their Home
   await q(`delete from notifications where tenant_id=$1 and type='policy' and title ~ ' — (pii|plain) out$'`, [TEN])
   await pool.end()
@@ -34,18 +37,19 @@ test('every catalog policy is valid', () => {
 })
 
 test('the strictest decision wins; tolerance softens; facts decide', async () => {
-  await policiesOf(TEN)
-  const mail = (facts) => evaluate({ tenant: TEN, userId: null, action: { kind: 'mail.send', facts } })
+  await q('delete from pro_policies where tenant_id=$1', [CLEAN])
+  await policiesOf(CLEAN)
+  const mail = (facts) => evaluate({ tenant: CLEAN, userId: null, action: { kind: 'mail.send', facts } })
   assert.equal((await mail({ external: false, pii_count: 0 })).decision, 'allow')
   assert.equal((await mail({ external: true, pii_count: 0 })).decision, 'allow_audit')
   const pii = await mail({ external: true, pii_count: 3 })
   assert.equal(pii.decision, 'require_approval'); assert.equal(pii.approver, '개인정보 책임자')
   assert.equal((await mail({ external: true, pii_count: 120 })).decision, 'deny')
-  const pay = (amount) => evaluate({ tenant: TEN, action: { kind: 'browser.payment', facts: { amount } } })
+  const pay = (amount) => evaluate({ tenant: CLEAN, action: { kind: 'browser.payment', facts: { amount } } })
   assert.equal((await pay(105000)).decision, 'allow_audit')      // within ₩110,000
   assert.equal((await pay(130000)).decision, 'require_approval')
   assert.equal((await pay(6000000)).decision, 'deny')
-  const rel = (facts) => evaluate({ tenant: TEN, action: { kind: 'release.deploy', facts: { security_scan: 'passed', weekday: 3, hour: 10, ...facts } } })
+  const rel = (facts) => evaluate({ tenant: CLEAN, action: { kind: 'release.deploy', facts: { security_scan: 'passed', weekday: 3, hour: 10, ...facts } } })
   assert.equal((await rel({ audience: 'public', open_findings: { privacy: 1 }, features: [{ name: 'share', pii: true }] })).decision, 'deny')
   assert.equal((await rel({ audience: 'internal', open_findings: { privacy: 1 }, features: [{ name: 'share', pii: true }] })).decision, 'allow_audit')
 })
