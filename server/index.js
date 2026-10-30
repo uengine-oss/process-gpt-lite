@@ -32,6 +32,10 @@ import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { improveRoutes } from './routes/improve.js'
 import { billingRoutes } from './routes/billing.js'
 import { backofficeRoutes } from './routes/backoffice.js'
+import { agenticRoutes } from './routes/agentic.js'
+import { scenarioMailRoutes } from './routes/scenario-mail.js'
+import { scenarioPurchaseRoutes } from './routes/scenario-purchase.js'
+import { scenarioReleaseRoutes } from './routes/scenario-release.js'
 import { startPlanSync } from './lib/plans/apply.js'
 import { startMeter } from './lib/plans/meter.js'
 import { mountImprove } from './mcp/improve.js'
@@ -321,6 +325,11 @@ app.use('/api', improveRoutes(auth))
 app.use('/api', billingRoutes(auth))
 // the operators' billing back office: every company's plan, usage, invoices (PRO_BILLING_OPERATORS)
 app.use('/api', backofficeRoutes(auth))
+// Agentic BPM PoC (pgpt-pro/docs/agentic-bpm/plan.md): policies·decisions·approvals·strategy, then the three scenarios
+app.use('/api', agenticRoutes(auth))
+app.use('/api', scenarioMailRoutes(auth))
+app.use('/api', scenarioPurchaseRoutes(auth))
+app.use('/api', scenarioReleaseRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))

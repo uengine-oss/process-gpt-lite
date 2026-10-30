@@ -7,6 +7,9 @@ import SkillShareCard from './SkillShareCard.vue'
 import Icon from './Icon.vue'
 import TaskCard from './TaskCard.vue'
 import VaultCard from './VaultCard.vue'
+import PolicyCard from './PolicyCard.vue'
+import BriefCard from './BriefCard.vue'
+import OptimizeCard from './OptimizeCard.vue'
 import ProcessCard from './ProcessCard.vue'
 import TodoCard from './TodoCard.vue'
 import ProcessDraftCard from './ProcessDraftCard.vue'
@@ -87,6 +90,10 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 
     <TaskCard v-else-if="msg.kind === 'task'" :msg="msg" />
     <VaultCard v-else-if="msg.kind === 'vault'" :msg="msg" />
+    <!-- Agentic BPM (docs/agentic-bpm): a policy decision, a decision brief, the alternatives of a blocked action -->
+    <PolicyCard v-else-if="msg.kind === 'policy'" :msg="msg" />
+    <BriefCard v-else-if="msg.kind === 'brief'" :msg="msg" />
+    <OptimizeCard v-else-if="msg.kind === 'optimize'" :msg="msg" />
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
     <ProcessCard v-else-if="msg.kind === 'process'" :msg="msg" />
     <ProcessDraftCard v-else-if="msg.kind === 'process_draft'" :msg="msg" />
