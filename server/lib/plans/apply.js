@@ -9,7 +9,7 @@
 // A window that is already running is kept: only a changed duration (or none yet) restarts it.
 import { q } from '../supa.js'
 import * as K from '../llmKeys.js'
-import { catalog, catalogName, limitsOf, defaultSeat, modelsOf } from './catalog.js'
+import { catalog, catalogName, limitsOf, defaultSeat, poolUsd } from './catalog.js'
 
 export async function subscriptionOf(tenant) {
   const [s] = await q('select * from pro_billing_subscriptions where tenant_id=$1', [tenant])
@@ -33,6 +33,22 @@ export async function limitsFor(tenant, userId) {
   if (userId === K.SYSTEM) return null
   const { seat, limit_usd } = await seatOf(tenant, userId, sub)
   return limitsOf(seat, { name: sub.catalog, limitUsd: limit_usd })
+}
+
+// every member's seat (the company's seats on a pooled plan)
+export async function seatsOfCompany(tenant, sub) {
+  const plan = planOf(sub)
+  const rows = await q(`select t.user_id::text, s.seat from pro_team_members t left join pro_billing_seats s on s.tenant_id=t.tenant_id and s.user_id=t.user_id
+    where t.tenant_id=$1`, [tenant])
+  return rows.map((r) => (r.seat && plan.seats.includes(r.seat) ? r.seat : defaultSeat(sub.plan, sub.catalog)))
+}
+
+// which refusals go on in the extra usage pool: on a pooled plan the company's (its pool ran out — the
+// credits it bought take over; a person's own fair share stays theirs), elsewhere the person's own limits
+export async function overflowOf(tenant) {
+  const sub = await subscriptionOf(tenant)
+  if (!(planOf(sub).extraUsage && sub.extra_usage_usd > 0)) return []
+  return catalog(sub.catalog).pooled ? ['company'] : ['session', 'period']
 }
 
 export async function extraOpen(tenant) {
@@ -110,8 +126,12 @@ export async function applyPlan(tenant) {
   const models = [...new Set(plan.seats.flatMap((s) => limitsOf(s, { name: sub.catalog }).models))]
   const team = K.teamOf(tenant), extraTeam = K.extraTeamOf(tenant)
   await K.admin('/team/new', { team_id: team, team_alias: tenant, metadata: { tenant } })
-  const cap = plan.usageBased && sub.extra_usage_usd > 0 ? sub.extra_usage_usd : null
-  await K.admin('/team/update', { team_id: team, models, max_budget: cap ?? NO, budget_duration: cap ? '30d' : null })
+  // the company's monthly cap: Enterprise's spend limit, or a pooled plan's pool (its seats' credits)
+  const pool = poolUsd(sub.plan, await seatsOfCompany(tenant, sub), sub.catalog)
+  const cap = plan.usageBased ? (sub.extra_usage_usd > 0 ? sub.extra_usage_usd : null) : pool
+  const [had] = await q('select budget_duration from litellm."LiteLLM_TeamTable" where team_id=$1', [team])
+  const duration = cap ? '30d' : null
+  await K.admin('/team/update', { team_id: team, models, max_budget: cap ?? NO, ...(duration !== had?.budget_duration ? { budget_duration: duration } : {}) })
 
   const open = !!plan.extraUsage && sub.extra_usage_usd > 0
   const [hasExtra] = await q('select blocked from litellm."LiteLLM_TeamTable" where team_id=$1', [extraTeam])
@@ -132,7 +152,7 @@ export async function applyPlan(tenant) {
   }
   const extraPeople = open ? await q(`select distinct user_id from litellm."LiteLLM_VerificationToken" where team_id=$1`, [extraTeam]) : []
   for (const { user_id } of extraPeople) await applyMember(tenant, user_id, { sub, pool: 'extra' })
-  return { tenant, catalog: sub.catalog, plan: sub.plan, extraUsage: open ? sub.extra_usage_usd : 0, companyCap: cap, models, members }
+  return { tenant, catalog: sub.catalog, plan: sub.plan, extraUsage: open ? sub.extra_usage_usd : 0, companyCap: cap, pool, models, members }
 }
 
 // every company this server serves, every ten minutes (and once at start)

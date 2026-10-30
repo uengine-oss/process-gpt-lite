@@ -1,10 +1,11 @@
 // How much of each window a person has used, the way Claude's usage page shows it: this session (5 hours),
-// this week (or Hark's billing month), the company's extra usage pool — read from LiteLLM's counters in the
+// this week (or the month: Hark's billing month, a pooled plan's fair share), the company's monthly pool
+// (pooled plans), the company's extra usage — read from LiteLLM's counters in the
 // same Postgres (they trail the calls by LiteLLM's ~10-second write interval). And, for administrators,
 // everyone's, with the month's bill estimated from the seats and the usage beyond them.
 import { q } from '../supa.js'
 import * as K from '../llmKeys.js'
-import { catalog, limitsOf, monthlyBill } from './catalog.js'
+import { catalog, limitsOf, monthlyBill, usdPerCredit } from './catalog.js'
 import { subscriptionOf, planOf, seatOf } from './apply.js'
 
 const utc = (t) => (t ? new Date(String(t).replace(' ', 'T') + (/[Zz+]/.test(String(t).slice(10)) ? '' : 'Z')).toISOString() : null)
@@ -25,6 +26,13 @@ async function poolOf(tenant, sub) {
   return { spent: t?.spend || 0, limit: sub.extra_usage_usd, resetsAt: utc(t?.budget_reset_at) }
 }
 
+// a pooled plan's company pool this month: the team's counter against its cap (apply.js sets the cap)
+async function companyPoolOf(tenant, sub) {
+  if (!catalog(sub.catalog).pooled || planOf(sub).usageBased) return null
+  const [t] = await q('select spend::float8, max_budget::float8, budget_reset_at::text from litellm."LiteLLM_TeamTable" where team_id=$1', [K.teamOf(tenant)])
+  return t?.max_budget && t.max_budget < K.NO_LIMIT ? { spent: t.spend || 0, limit: t.max_budget, resetsAt: utc(t.budget_reset_at) } : null
+}
+
 export async function windowsOf(tenant, userId, sub = null) {
   sub ||= await subscriptionOf(tenant)
   const { seat, limit_usd } = await seatOf(tenant, userId, sub)
@@ -34,6 +42,7 @@ export async function windowsOf(tenant, userId, sub = null) {
   return {
     seat, seatName: lim.name, models: lim.models, usageBased: lim.usageBased,
     session: window(k?.spend, lim.session, k), period: window(m?.spend, lim.period, m),
+    company: await companyPoolOf(tenant, sub),
     extra: pool && { ...pool, mine: extraMine },
   }
 }
@@ -55,18 +64,20 @@ export async function companyOf(tenant) {
   const pool = await poolOf(tenant, sub)
   const usageSpent = month.reduce((a, r) => a + r.spend, 0)
   const bill = monthlyBill({ plan: sub.plan, billing: sub.billing, seats: people.map((p) => p.seat), extraSpent: pool?.spent || 0, usageSpent, name: sub.catalog })
-  return { subscription: sub, people, system: system || null, extra: pool, month: { spend: usageSpent, calls: month.reduce((a, r) => a + r.calls, 0) }, bill }
+  return { subscription: sub, people, system: system || null, pool: await companyPoolOf(tenant, sub), extra: pool, month: { spend: usageSpent, calls: month.reduce((a, r) => a + r.calls, 0) }, bill }
 }
 
 // the catalog as the page shows it (notes in the person's language)
 export function catalogView(name, L) {
   const c = catalog(name)
   return {
-    name, title: c.name, source: c.source, windows: c.windows,
+    // amounts are model cost (USD); a credit catalog shows them as credits (usdPerCredit) and prices in won
+    name, title: c.name, source: c.source, windows: c.windows, currency: c.currency, unit: c.unit, pooled: !!c.pooled, vat: c.vat || 0,
+    usdPerCredit: c.unit === 'credit' ? usdPerCredit() : null,
     plans: Object.entries(c.plans).map(([code, p]) => ({
       code, name: p.name, kind: p.kind, note: L(p.note[0], p.note[1]), minSeats: p.minSeats || null, maxSeats: p.maxSeats || null,
-      extraUsage: !!p.extraUsage, adminLimits: !!p.adminLimits, usageBased: !!p.usageBased,
-      seats: p.seats.map((s) => ({ code: s, name: c.seats[s].name, price: c.seats[s].price, x: c.seats[s].x, limits: limitsOf(s, { name }) })),
+      extraUsage: !!p.extraUsage, adminLimits: !!p.adminLimits, usageBased: !!p.usageBased, contract: !!p.contract, fixedPool: p.fixedPool || null,
+      seats: p.seats.map((s) => ({ code: s, name: c.seats[s].name, price: c.seats[s].price, x: c.seats[s].x ?? null, credits: c.seats[s].credits ?? null, limits: limitsOf(s, { name }) })),
     })),
   }
 }

@@ -8,7 +8,7 @@ import { L } from '../lib/lang.js'
 import { isAdmin } from '../lib/team.js'
 import { notifyUser } from '../lib/notify.js'
 import * as K from '../lib/llmKeys.js'
-import { catalog, catalogName } from '../lib/plans/catalog.js'
+import { catalog, catalogName, usdPerCredit } from '../lib/plans/catalog.js'
 import { subscriptionOf, planOf, applyPlan, applyMember } from '../lib/plans/apply.js'
 import { windowsOf, companyOf, catalogView } from '../lib/plans/usage.js'
 
@@ -56,7 +56,9 @@ export function billingRoutes(auth) {
     const [{ n }] = await q('select count(*)::int n from pro_team_members where tenant_id=$1', [T()])
     if (p.maxSeats && n > p.maxSeats) throw bad(L(`${p.name}은 최대 ${p.maxSeats}석이에요. 지금 팀원은 ${n}명이에요.`, `${p.name} has at most ${p.maxSeats} seats; the team has ${n}.`))
     const billing = req.body.billing === 'year' ? 'year' : 'month'
-    const extra = req.body.extraUsageUsd != null ? Math.max(0, Number(req.body.extraUsageUsd) || 0) : sub.extra_usage_usd
+    // the pool (Team) or spend limit (Enterprise): in USD, or in credits on a credit catalog (extraCredits)
+    const extra = req.body.extraCredits != null ? Math.max(0, Number(req.body.extraCredits) || 0) * usdPerCredit()
+      : req.body.extraUsageUsd != null ? Math.max(0, Number(req.body.extraUsageUsd) || 0) : sub.extra_usage_usd
     await q(`insert into pro_billing_subscriptions(tenant_id, catalog, plan, billing, extra_usage_usd, updated_by, updated_at) values ($1,$2,$3,$4,$5,$6,now())
       on conflict (tenant_id) do update set catalog=$2, plan=$3, billing=$4, extra_usage_usd=$5, updated_by=$6, updated_at=now()`, [T(), name, plan, billing, extra, req.user.id])
     await q(`update pro_billing_requests set status='done', decided_by=$2, decided_at=now() where tenant_id=$1 and status='open' and kind in ('plan','extra_usage')`, [T(), req.user.id])
@@ -69,7 +71,9 @@ export function billingRoutes(auth) {
     const sub = await subscriptionOf(T())
     const seat = String(req.body.seat || '')
     if (!planOf(sub).seats.includes(seat)) throw bad(L(`이 요금제에 없는 좌석이에요: ${seat}`, `This plan has no ${seat} seat`))
-    const limit = req.body.limitUsd === '' || req.body.limitUsd == null ? null : Math.max(0, Number(req.body.limitUsd))
+    // the person's monthly limit, in USD or credits (limitCredits); empty: the seat's own
+    const raw = req.body.limitCredits ?? req.body.limitUsd
+    const limit = raw === '' || raw == null ? null : Math.max(0, Number(raw)) * (req.body.limitCredits != null ? usdPerCredit() : 1)
     await q(`insert into pro_billing_seats(tenant_id, user_id, seat, limit_usd, updated_by, updated_at) values ($1,$2,$3,$4,$5,now())
       on conflict (tenant_id, user_id) do update set seat=$3, limit_usd=$4, updated_by=$5, updated_at=now()`, [T(), req.params.userId, seat, limit, req.user.id])
     await q(`update pro_billing_requests set status='done', decided_by=$3, decided_at=now() where tenant_id=$1 and user_id=$2 and status='open' and kind='seat'`, [T(), req.params.userId, req.user.id])

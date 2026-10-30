@@ -96,14 +96,20 @@ export class QuotaError extends Error {
     const what = {
       session: L(`5시간 사용 한도에 도달했어요.${t ? ` ${t}에 다시 쓸 수 있어요.` : ''}`, `You've reached your 5-hour usage limit.${t ? ` It resets ${t}.` : ''}`),
       period: period === '30d'
-        ? L(`이번 결제 기간의 사용량을 다 썼어요.${t ? ` ${t}에 초기화돼요.` : ''}`, `You've used this billing period's usage.${t ? ` It resets ${t}.` : ''}`)
+        ? L(`이번 달 사용 한도에 도달했어요.${t ? ` ${t}에 초기화돼요.` : ''}`, `You've reached your monthly usage limit.${t ? ` It resets ${t}.` : ''}`)
         : L(`이번 주 사용 한도에 도달했어요.${t ? ` ${t}에 초기화돼요.` : ''}`, `You've reached your weekly usage limit.${t ? ` It resets ${t}.` : ''}`),
       extra: L(`회사의 추가 사용량 한도까지 다 썼어요.${t ? ` ${t}에 다시 열려요.` : ''}`, `The company's extra usage is used up.${t ? ` It reopens ${t}.` : ''}`),
-      company: L(`회사의 이번 달 사용 한도에 도달했어요.${t ? ` ${t}에 다시 열려요.` : ''}`, `The company's monthly usage limit is reached.${t ? ` It reopens ${t}.` : ''}`),
+      company: L(`회사의 이번 달 사용 한도에 도달했어요.${t ? ` ${t}에 다시 채워져요.` : ''}`, `The company's monthly usage is used up.${t ? ` It refills ${t}.` : ''}`),
       feature: L('이 기능의 사용 한도에 도달했어요.', 'This feature\'s usage limit is reached.'),
     }[scope]
     super(`${what} ${L('더 쓰려면 설정 › 사용량·요금제에서 요금제 변경을 요청하세요.', 'For more, ask for a plan change in Settings › Usage & plan.')}`)
     Object.assign(this, { code: 'quota_exceeded', scope, status: 429, resetsAt: at, detail })
+  }
+}
+export class RateError extends Error {
+  constructor(detail) {
+    super(L('요청이 너무 잦아요. 1분쯤 뒤에 다시 해 주세요. (요금제의 분당 호출 한도)', 'Too many requests right now. Try again in a minute. (your plan\'s per-minute limit)'))
+    Object.assign(this, { code: 'rate_limited', status: 429, detail })
   }
 }
 export class ModelError extends Error {
@@ -121,13 +127,14 @@ const scopeOf = (text, pool) => (/User=\S+ in Team=/.test(text) ? 'period' : /Te
 const unknownKey = (text) => /token_not_found|invalid proxy server token|unable to find token/i.test(text)
 const modelRefused = (text) => /model_access_denied|not allowed to access model|can only access models/i.test(text)
 
+// which refusals go on in the company's extra usage pool (lib/plans/apply.js overflowOf), for 15 seconds
 let extraCache = new Map()
-async function extraOpen(tenant) {
+async function overflowOf(tenant) {
   const hit = extraCache.get(tenant)
-  if (hit && hit.at > Date.now() - 15000) return hit.open
-  const { extraOpen: open } = await import('./plans/apply.js')
-  const v = await open(tenant).catch(() => false)
-  extraCache.set(tenant, { at: Date.now(), open: v })
+  if (hit && hit.at > Date.now() - 15000) return hit.scopes
+  const { overflowOf: of } = await import('./plans/apply.js')
+  const v = await of(tenant).catch(() => [])
+  extraCache.set(tenant, { at: Date.now(), scopes: v })
   return v
 }
 export const forgetExtra = (tenant) => extraCache.delete(tenant)
@@ -162,6 +169,8 @@ async function attempt(make, auth) {
       return { res: new Response(t2, { status: 401 }) }
     }
   }
+  // the seat's requests or tokens a minute (LiteLLM's rpm / tpm / parallel limits)
+  if (res.status === 429) throw new RateError((await res.text()).slice(0, 300))
   if (res.status === 400) {
     const text = await res.text()
     if (/budget_exceeded|ExceededBudget|Budget has been exceeded/i.test(text)) return { refused: scopeOf(text, auth.pool), text }
@@ -170,9 +179,9 @@ async function attempt(make, auth) {
   return { res }
 }
 
-// send(auth) makes the request with {key, tags}. A spent session or period limit goes on in the company's
-// extra usage pool when it is open; otherwise (or once the pool is spent) it is a QuotaError. Other answers
-// come back as they are.
+// send(auth) makes the request with {key, tags}. A spent limit the plan lets overflow (the company's pool on a
+// pooled plan, a person's own limits elsewhere) goes on in the company's extra usage pool when it is open;
+// otherwise (or once the pool is spent) it is a QuotaError. Other answers come back as they are.
 export async function send(make) {
   const auth = current()
   if (!enabled()) return make(auth)
@@ -180,14 +189,13 @@ export async function send(make) {
   if (r.res) return r.res
   // the person's own period (a week, the billing month, or an administrator's monthly limit) words the refusal
   const periodOf = async () => (await (await import('./plans/apply.js')).limitsFor(auth.tenant, auth.userId).catch(() => null))?.period?.duration || null
-  if ((r.refused === 'session' || r.refused === 'period') && await extraOpen(auth.tenant)) {
-    // (either of the person's own limits: the pool takes over)
+  const scope = await sortOut(r.refused, r.text, auth)
+  if ((await overflowOf(auth.tenant)).includes(scope)) {
     const extra = current('extra')
     const r2 = await attempt(make, extra)
     if (r2.res) return r2.res
     throw new QuotaError('extra', { resetsAt: await resetsAt('extra', extra), detail: r2.text.slice(0, 300) })
   }
-  const scope = await sortOut(r.refused, r.text, auth)
   throw new QuotaError(scope, { resetsAt: await resetsAt(scope, auth), detail: r.text.slice(0, 300), period: await periodOf() })
 }
 

@@ -9,8 +9,9 @@
 
 - **사용량 한도·요금제 (LiteLLM)** — 기본은 꺼짐(`PRO_LLM_KEYS=litellm` 으로 켬):
   - 모든 모델 호출이 그 사람·회사의 LiteLLM 키로 나갑니다(회사 = LiteLLM 팀 `pgpt-<tenant>`, 사람 = 구성원, 키는 비밀값에서 계산해 저장하지 않음, 첫 호출에 자동 생성). 백그라운드 작업은 그 일의 주인, 주인 없는 작업은 회사 키입니다. 기능은 태그(`feature:chat` 등)로 나뉩니다. `server/lib/{usage,llmKeys}.js`
-  - 요금제는 Claude(Free·Pro·Max 5x·Max 20x·Team Standard/Premium·Enterprise) 또는 Hark(Free·Pro 2x·Pro 10x)를 벤치마킹한 데이터이고(`PRO_PLAN_CATALOG`), 좌석이 LiteLLM 한도로 자동 적용됩니다: 키에 5시간 세션 예산·모델·분당 호출·동시 호출, 구성원에 주간(또는 결제 월) 예산, Team 은 추가 사용량 월 풀(별도 팀), Enterprise 는 회사 월 지출 한도. 요금제·좌석을 바꾸면 곧바로, 그리고 10분마다 다시 맞춥니다. `server/lib/plans/`, `server/sql/021_billing_plans.sql`
-  - 한도에 걸리면 "5시간 사용 한도에 도달했어요. 오후 2:00에 다시 쓸 수 있어요"처럼 어느 한도가 언제 풀리는지 알려 주고(한국어·영어), 요금제에 없는 모델은 따로 안내합니다. 추가 사용량이 열려 있으면 좌석 한도를 넘은 호출이 회사 풀로 이어집니다.
+  - 기본 요금표는 Process GPT 과금 설계(1크레딧 = ₩10, 원가 × ₩1,450 × 2.2)를 따른 Free(회사 월 1,000크레딧)·Team ₩19,000·Business ₩39,000(좌석당 월 1,500·4,000크레딧, 연간 ₩16,000·₩33,000)·Enterprise(협의)입니다. 좌석 크레딧은 회사 풀로 모이고(LiteLLM 팀 예산), 풀을 넘으면 충전 크레딧으로 이어지며, 한 사람은 5시간에 좌석 몫의 25%, 한 달에 2배까지 씁니다(관리자가 크레딧으로 바꿀 수 있음). 화면과 청구는 크레딧·원화·부가세 10%입니다.
+  - 그 밖에 Claude(Free·Pro·Max 5x·Max 20x·Team Standard/Premium·Enterprise)나 Hark(Free·Pro 2x·Pro 10x)를 벤치마킹한 요금표도 고를 수 있고(`PRO_PLAN_CATALOG`), 좌석이 LiteLLM 한도로 자동 적용됩니다: 키에 5시간 세션 예산·모델·분당 호출·동시 호출, 구성원에 주간(또는 결제 월) 예산, Team 은 추가 사용량 월 풀(별도 팀), Enterprise 는 회사 월 지출 한도. 요금제·좌석을 바꾸면 곧바로, 그리고 10분마다 다시 맞춥니다. `server/lib/plans/`, `server/sql/021_billing_plans.sql`
+  - 한도에 걸리면 "5시간 사용 한도에 도달했어요. 오후 2:00에 다시 쓸 수 있어요"처럼 어느 한도가 언제 풀리는지 알려 주고(한국어·영어), 요금제에 없는 모델과 분당 호출 한도도 따로 안내합니다. 추가 사용량이 열려 있으면 좌석 한도를 넘은 호출이 회사 풀로 이어집니다.
   - 설정 › 사용량·요금제: 현재 세션·이번 주·회사 추가 사용량 막대, 요금제 카드(변경 요청 → 관리자 알림), 관리자에게는 좌석·개인 월 한도·요청 승인·이번 달 예상 청구. 결제 대행 연동은 아직 없습니다. `src/components/UsagePlan.vue`, `GET/PUT /api/billing…`
   - LiteLLM 은 같은 Postgres 의 전용 스키마·역할(`?schema=litellm`)로만 붙입니다 — `public` 에 붙이면 기동하면서 모르는 테이블을 지웁니다. LiteLLM 의 `5h` 창은 첫 메시지부터가 아니라 UTC 자정 기준 5시간 단위이고, 한도 변경은 LiteLLM 캐시 때문에 최대 1분 늦게 반영됩니다. 검증 `server/test/plans.e2e.mjs`, `server/test/llm-keys.e2e.mjs`.
 

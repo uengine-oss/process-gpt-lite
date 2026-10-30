@@ -15,6 +15,7 @@ import { withLang } from '../lib/lang.js'
 import { QuotaError, ModelError, enabled } from '../lib/llmKeys.js'
 import { applyPlan, applyMember } from '../lib/plans/apply.js'
 import { windowsOf, companyOf } from '../lib/plans/usage.js'
+import { usdPerCredit } from '../lib/plans/catalog.js'
 import { q, pool } from '../lib/supa.js'
 
 assert.ok(enabled(), 'run with PRO_LLM_KEYS=litellm (see the top of this file)')
@@ -125,15 +126,50 @@ try {
     const g = person(); made.push(g)
     const s = await until(g)
     assert.equal(s.scope, 'period'); assert.ok(s.allowed >= 4 && s.allowed <= 5, `allowed ${s.allowed}`)
-    assert.ok(/결제 기간/.test(s.message), s.message)
+    assert.ok(/이번 달/.test(s.message), s.message)
     return s
   })
 
-  await step('company view: seats, windows, the month\'s bill', async () => {
-    await setPlan('claude', 'team', 0.006)
+  await step('Process GPT Team (the default): the seats\' credits pooled, then the credits the company bought', async () => {
+    Object.assign(process.env, { PRO_PLAN_SESSION_SHARE: '1000', PRO_PLAN_PERSON_SHARE: '1000' })   // fair shares out of the way
+    await sleep(14000)                       // the team's counter in the database
+    const [t] = await q('select spend::float8 from litellm."LiteLLM_TeamTable" where team_id=$1', [`pgpt-${T}`])
+    const [x] = await q('select spend::float8 from litellm."LiteLLM_TeamTable" where team_id=$1', [`pgpt-${T}-extra`])
+    const [{ n }] = await q('select count(*)::int n from pro_team_members where tenant_id=$1', [T])
+    // every member's 1,500 credits, scaled so that the pool is what the company spent this month and 3 calls more
+    process.env.PRO_PLAN_SCALE = String(((t?.spend || 0) + 0.006) / (n * 1500 * usdPerCredit()))
+    const applied = await setPlan('uengine', 'team', (x?.spend || 0) + 0.004)   // bought: 2 calls more
+    assert.ok(applied.pool > 0 && applied.extraUsage > 0, JSON.stringify(applied).slice(0, 200))
+    const h = person(); made.push(h)
+    const s = await until(h)
+    assert.equal(s.scope, 'extra'); assert.ok(s.allowed >= 4 && s.allowed <= 7, `allowed ${s.allowed}`)
+    return s
+  })
+
+  await step('Process GPT: a person\'s fair share of the month (twice their seat), and an admin\'s limit in credits', async () => {
+    // the pool far away again; a seat's twice is 3 calls
+    Object.assign(process.env, { PRO_PLAN_SCALE: '1', PRO_PLAN_SESSION_SHARE: '1', PRO_PLAN_PERSON_SHARE: String(0.006 / (1500 * usdPerCredit())) })
+    await setPlan('uengine', 'team', 0)
+    const i = person(), j = person(); made.push(i, j)
+    await seat(j, 'team', 1 * usdPerCredit())    // an administrator's limit: one credit
+    await setPlan('uengine', 'team', 0)
+    const si = await until(i), sj = await until(j)
+    assert.equal(si.scope, 'period'); assert.ok(si.allowed >= 3 && si.allowed <= 4, `allowed ${si.allowed}`)
+    assert.ok(/이번 달/.test(si.message), si.message)
+    // one credit is about 1.6 calls of $0.002: two get through before the limit is reached
+    assert.equal(sj.scope, 'period'); assert.ok(sj.allowed <= 2 && sj.allowed < si.allowed, `admin-limited allowed ${sj.allowed}`)
+    return { fairShare: si, adminLimit: sj }
+  })
+
+  await step('company view: seats, windows, the month\'s bill (won, VAT)', async () => {
     const c = await withTenant(T, () => companyOf(T))
-    assert.ok(c.bill.lines.some((l) => l.kind === 'seat'))
-    return { plan: c.subscription.plan, people: c.people.length, month: c.month, bill: c.bill }
+    assert.equal(c.bill.currency, 'KRW'); assert.ok(c.bill.lines.some((l) => l.kind === 'vat'))
+    assert.ok(c.pool && c.pool.limit > 0, 'the company pool is shown')
+    // the same company on Claude's Team: dollars, no VAT line
+    await setPlan('claude', 'team', 0.006)
+    const d = await withTenant(T, () => companyOf(T))
+    assert.equal(d.bill.currency, 'USD'); assert.ok(d.bill.lines.some((l) => l.kind === 'seat'))
+    return { plan: c.subscription.plan, people: c.people.length, pool: c.pool, month: c.month, bill: c.bill, claudeBill: d.bill.total }
   })
   console.log('\nall passed')
 } finally {
