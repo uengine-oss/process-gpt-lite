@@ -46,3 +46,7 @@ artcraft/fonts-ko/fonts/*.ttf
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# symlinked dependencies in worktrees, i18n-add.py lock
+node_modules
+*.json.lock

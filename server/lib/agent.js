@@ -33,6 +33,7 @@ import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folder
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
+import { sendMail, demoFiles } from './scenarios/mail.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
 const attached = new Map() // threadId -> [{name, path, url, type, size}]
@@ -126,6 +127,25 @@ const ROUTER_TOOLS = [
           ack: { type: 'string', description: '해요체 한 문장' },
         },
         required: ['app', 'action', 'ack'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_mail',
+      // the company's mail policies decide (lib/scenarios/mail.js → lib/policy): sent, recorded, held for approval or blocked
+      description: `Send an e-mail for the user now: "kim@globex-demo.com 에게 견적 메일 보내줘", "고객 명단 파일 첨부해서 메일로 보내", "민지님께 회의 자료 메일로 보내줘". Anything to go by 메일/이메일/e-mail is this tool, to a teammate too (notify_member is a Home notification, not a mail). Write the whole mail from the request. NOT for reading, searching or summarising mail, and not for a mail on a schedule (schedule_task).`,
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'array', items: { type: 'string' }, description: 'recipient e-mail addresses (a teammate may be named instead)' },
+          subject: { type: 'string', description: '메일 제목' },
+          body: { type: 'string', description: '보낼 본문 전체' },
+          attachment: { type: 'string', description: `REQUIRED whenever the request names a file, list or material to send (명단, 파일, 자료, 첨부): its exact file name from the user's demo folder (${demoFiles().join(', ')}) or from this chat's attachments — or the text to attach` },
+          ack: { type: 'string', description: '보내 보겠다는 해요체 한 문장(보냈다고 말하지 말 것 — 회사 정책이 결과를 정함)' },
+        },
+        required: ['to', 'subject', 'body', 'ack'],
       },
     },
   },
@@ -361,6 +381,13 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
         .slice(-3).map((r) => `${r.role === 'user' ? user.name || T('요청자', 'Requester') : T('비서', 'Assistant')}: ${r.content.text.replace(/\s+/g, ' ').slice(0, 220)}`))]
       await withLang(theirs, () => notifyMember(user, member, { title: args.title, text: [args.message.replace(/[^.。!?]*이 대화[^.。!?]*[.。!?]?/g, '').replace(/[^.!?]*\bthis (conversation|chat)\b[^.!?]*[.!?]?/gi, '').trim(), said.length ? `${T('— 대화 발췌 —', '— Conversation excerpt —')}\n${said.join('\n')}` : ''].filter(Boolean).join('\n\n') }))
       await addMessage(userId, threadId, 'agent', 'chip', { icon: 'bell', text: L(`${member.name}님께 알림 보냄${member.via === 'role' ? ` · ${member.role}` : ''} · ${args.title}`, `Notified ${member.name}${member.via === 'role' ? ` · ${member.role}` : ''} · ${args.title}`) })
+      break
+    }
+    case 'send_mail': {
+      // the policy card (and the demo outbox's note) follow in this chat; a recipient without an address is said here
+      // (request: the person's own words, so a file they named is attached even when the arguments left it out)
+      await sendMail(user, { ...args, request: text }, { threadId, files: attached.get(threadId) || [] })
+        .catch((e) => { if (!e.status) console.warn('[mail]', e.message); return addMessage(userId, threadId, 'agent', 'text', { text: e.status ? e.message : L('메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't send the mail. Please try again in a moment.") }) })
       break
     }
     case 'add_action': {
