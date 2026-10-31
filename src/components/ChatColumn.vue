@@ -5,6 +5,7 @@ import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
 import Composer from './Composer.vue'
 import EdgeBlur from './EdgeBlur.vue'
+import BrowserDock from './BrowserDock.vue'
 import { useApp } from '../stores/app.js'
 
 const props = defineProps({ placeholder: String, emptyText: String, keepTop: Boolean })
@@ -21,6 +22,8 @@ const newDay = (i) => i > 0 && dayOf(list.value[i]) !== dayOf(list.value[i - 1])
 const lastUser = computed(() => [...list.value].reverse().find((m) => m.role === 'user')?.id)
 const seen = (m) => m.id === lastUser.value && (status.value || draft.value != null || list.value[list.value.length - 1]?.id !== m.id)
 const needsInput = computed(() => app.active?.status === 'needs_input')
+// a browser task at work: its thumbnail takes the place left of the composer (BrowserDock), 조치 필요 included
+const browsing = computed(() => list.value.some((m) => m.kind === 'task' && ['running', 'needs_input'].includes(m.content?.state)))
 const working = computed(() => status.value || (draft.value === '' ? '생각하는 중' : null))
 // 멈추기: an answer is being written (streaming here, or the thread is working) — not while it only waits for input
 const stoppable = computed(() => !needsInput.value && (draft.value != null || app.active?.status === 'working'))
@@ -68,7 +71,8 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
       <!-- what the agent is doing right now, above the composer (hark's "패널 만드는 중") -->
       <Transition name="pill"><div v-if="working" :key="working" class="working"><span class="shimmer-text">{{ working }}</span></div></Transition>
       <button v-if="stoppable" class="stop press" :disabled="stopping" aria-label="답 멈추기" title="답 멈추기" @click="stop"><span class="sq" />{{ stopping ? '멈추는 중' : '멈추기' }}</button>
-      <button v-if="needsInput" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
+      <button v-if="needsInput && !browsing" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
+      <BrowserDock @pending="toPending" />
       <Composer :placeholder="placeholder" @send="(t) => emit('send', t)" />
     </div>
   </section>
@@ -87,7 +91,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 .day { text-align: center; font-size: 12.5px; color: var(--text-tertiary); margin: 6px 0 -4px; }
 .seen { align-self: flex-end; font-size: 12px; color: var(--text-tertiary); margin: -8px 6px 0; }
 .attn { position: absolute; right: calc(100% + 10px); bottom: 6px; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: var(--color-attention); color: #fff; box-shadow: 0 4px 16px rgba(0 0 0 / .18); animation: pop-in .4s var(--spring); }
-@media (max-width: 760px) { .foot:has(.attn) { padding-left: 56px; } .attn { right: auto; left: 0; } }
+@media (max-width: 760px) { .foot:has(.attn), .foot:has(.dock) { padding-left: 56px; } .attn { right: auto; left: 0; } }
 .working { position: absolute; left: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 18px; border-radius: 19px; display: inline-flex; align-items: center;
   border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: rgba(127, 127, 127, .06); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14.5px; color: var(--text-tertiary); white-space: nowrap; }
 .stop { position: absolute; right: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 16px 0 14px; border-radius: 19px; display: inline-flex; align-items: center; gap: 8px;

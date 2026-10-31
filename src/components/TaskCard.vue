@@ -16,6 +16,9 @@ const needs = computed(() => c.value.state === 'needs_input')
 const queued = computed(() => c.value.state === 'queued')
 const review = computed(() => c.value.state === 'needs_review')
 const takeover = ref(false)
+// hark: while it runs, the pill says what the agent is doing right now (the live line, lib/browser.js say), not
+// the task's title; each new line slides in
+const live = computed(() => (running.value && app.status[props.msg.thread_id]) || null)
 
 function onClick(e) {
   if (!takeover.value) return
@@ -56,7 +59,7 @@ const cancel = () => api('/browser/cancel', { method: 'POST', body: { taskId: pr
         <button v-else-if="review" class="title review press" :title="c.summary" @click.stop="showPlan = !showPlan"><Icon name="alert" :size="14" /><span class="tt">확인 필요 · {{ c.title }}</span></button>
         <button v-else class="title press" :aria-label="`${c.title}, 계획 ${done}/${c.steps?.length}`" @click.stop="showPlan = !showPlan">
           <span v-if="running" class="dots"><i /><i /><i /></span><Icon v-else name="check" :size="14" />
-          <span class="tt">{{ c.title }}</span>
+          <Transition name="line"><span :key="live || c.title" class="tt">{{ live || c.title }}</span></Transition>
         </button>
         <button class="round press" aria-label="확장" @click.stop="app.handoff = msg.id"><Icon name="expand" :size="16" /></button>
         <button v-if="running || needs || queued" class="round press" aria-label="작업 취소" @click.stop="cancel"><Icon name="close" :size="16" /></button>
@@ -81,6 +84,10 @@ const cancel = () => api('/browser/cancel', { method: 'POST', body: { taskId: pr
 .ctl { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 8px; justify-content: flex-end; }
 .title { margin-right: auto; min-width: 0; max-width: 72%; height: 40px; padding: 0 16px 0 14px; border-radius: 9999px; display: flex; align-items: center; gap: 10px; background: rgba(255 255 255 / .94); color: #1d1d1f; font-size: 14px; box-shadow: 0 2px 12px rgba(0 0 0 / .12); }
 .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the old line goes at once (never a blank pill while lines come fast), the new one slides in */
+.line-enter-active { transition: opacity .25s, translate .25s; }
+.line-enter-from { opacity: 0; translate: 0 6px; }
+.line-leave-active { display: none; }
 .title.wait { color: rgba(29 29 31 / .65); }
 .title.review { color: #b25000; }
 .dots { position: relative; width: 14px; height: 14px; flex: none; animation: spin 1.4s linear infinite; }
