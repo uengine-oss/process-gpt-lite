@@ -15,6 +15,7 @@
   - 설정 › 사용량·요금제: 현재 세션·이번 주·회사 추가 사용량 막대, 요금제 카드(변경 요청 → 관리자 알림), 관리자에게는 좌석·개인 월 한도·요청 승인·이번 달 예상 청구. 결제 대행 연동은 아직 없습니다. `src/components/UsagePlan.vue`, `GET/PUT /api/billing…`
   - LiteLLM 은 같은 Postgres 의 전용 스키마·역할(`?schema=litellm`)로만 붙입니다 — `public` 에 붙이면 기동하면서 모르는 테이블을 지웁니다. LiteLLM 의 `5h` 창은 첫 메시지부터가 아니라 UTC 자정 기준 5시간 단위이고, 한도 변경은 LiteLLM 캐시 때문에 최대 1분 늦게 반영됩니다. 검증 `server/test/plans.e2e.mjs`, `server/test/llm-keys.e2e.mjs`.
 
+- **브라우저 작업 독** (Hark 처럼): 브라우저 에이전트가 일하는 동안 그 실시간 화면이 입력창 왼쪽에 작은 원으로 떠 있어, 작업 카드가 위로 밀려 올라가도 보입니다. 원을 누르면 그 자리에서 화면 가운데 카드로 커지고(닫으면 다시 원으로), 카드는 채팅의 작업 카드 그대로(계획·확장·취소)입니다. 작업 카드의 알약은 일하는 동안 작업 제목 대신 지금 하는 일("127.0.0.1 여는 중", "페이지 읽는 중"…)을 바꿔 가며 보여 줍니다. 로그인·인증 코드·승인을 기다리면 원이 주황 테두리로 깜빡이고, 누르면 답할 카드로 갑니다(예전 「조치 필요」 버튼 자리). `src/components/BrowserDock.vue`, `TaskCard.vue`, `ChatColumn.vue`, e2e F-BD-01·02
 - **다국어 협업 — 회의 실시간 AI 통역 · 메신저 자동 번역** (설계 process-gpt `openspec/changes/pgpt-pro-meeting-interpretation`):
   - **주 언어**: 사람마다 말하고 읽는 언어(`pro_profile.main_lang`, `server/sql/020_interpretation.sql`)를 화면 언어(ko|en)와 따로 둡니다. ko·en·ja·zh·es·fr·de·pt·it·ru·hi·vi·id·th·ar·tr·nl·pl 중에서 고르고, 그 밖의 언어는 영어 화면이 됩니다. 설정 › 계정 › 주 언어, 회의 로비, `PUT /api/me/main-lang`.
   - **회의 통역**: 받아쓰기는 말한 사람의 주 언어로 합니다(각자 자기 마이크만 — 화자 귀속 그대로). 듣는 사람은 다른 화자의 말을 자기 주 언어의 통역 음성으로 듣고, 그동안 그 화자의 원래 소리는 0.2로 낮춥니다(끊지 않음). 자막은 원문과 번역을 함께 보여 줍니다. 자기 말의 통역은 듣지 않고, 같은 언어끼리는 손대지 않습니다.
