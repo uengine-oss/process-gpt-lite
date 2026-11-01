@@ -1,0 +1,46 @@
+{
+  "about": "공개 계층 판정 사례(spec hanjang-db_context-visibility). 조직: 회사 › 컨설팅본부 › 전략팀(박하늘 장, 이도윤)·제안팀(최유나 장, 정하은), 본부장 강민호(본부 장), 관리자 윤서진(조직도 루트 직속), 외부 사람 X(조직도 밖). 한지우는 전략팀·제안팀 둘 다.",
+  "cases": [
+    {"id": "V01", "viewer": "박하늘", "owner": "이도윤", "item": {"visibility": "summary", "reach": "team"}, "expect": "summary", "note": "같은 팀, 요약 공개"},
+    {"id": "V02", "viewer": "정하은", "owner": "이도윤", "item": {"visibility": "summary", "reach": "team"}, "expect": "title", "note": "다른 팀은 제목만"},
+    {"id": "V03", "viewer": "정하은", "owner": "이도윤", "item": {"visibility": "summary", "reach": "department"}, "expect": "summary", "note": "부서 범위면 같은 본부의 다른 팀도 요약"},
+    {"id": "V04", "viewer": "윤서진", "owner": "이도윤", "item": {"visibility": "summary", "reach": "department"}, "expect": "summary", "note": "관리자는 범위 밖이어도 요약까지(관리자 덧씌움)"},
+    {"id": "V05", "viewer": "이도윤", "owner": "최유나", "item": {"visibility": "open", "reach": "department"}, "expect": "content", "note": "부서 범위 전체 공개"},
+    {"id": "V06", "viewer": "이도윤", "owner": "최유나", "item": {"visibility": "open", "reach": "team"}, "expect": "title", "note": "팀 범위 전체 공개는 다른 팀에 제목만"},
+    {"id": "V07", "viewer": "박하늘", "owner": "이도윤", "item": {"visibility": "listed", "reach": "team"}, "expect": "summary", "note": "장은 팀원의 제목 공개를 요약까지"},
+    {"id": "V08", "viewer": "최유나", "owner": "이도윤", "item": {"visibility": "listed", "reach": "team"}, "expect": "title", "note": "다른 팀 장은 제목만"},
+    {"id": "V09", "viewer": "강민호", "owner": "이도윤", "item": {"visibility": "listed", "reach": "team"}, "expect": "summary", "note": "장의 장(본부장)도 요약까지"},
+    {"id": "V10", "viewer": "윤서진", "owner": "이도윤", "item": {"visibility": "summary", "reach": "team"}, "expect": "summary", "note": "관리자도 원문은 아님"},
+    {"id": "V11", "viewer": "윤서진", "owner": "이도윤", "item": {"visibility": "private", "reach": "company"}, "expect": "none", "note": "비공개는 관리자에게도 없음"},
+    {"id": "V12", "viewer": "박하늘", "owner": "이도윤", "item": {"visibility": "private", "reach": "team"}, "expect": "none"},
+    {"id": "V13", "viewer": "윤서진", "owner": "최유나", "item": {"visibility": "summary", "reach": "team", "sensitive": "confirmed"}, "expect": "title", "note": "민감 항목은 관리자에게 제목만"},
+    {"id": "V14", "viewer": "정하은", "owner": "최유나", "item": {"visibility": "summary", "reach": "team", "sensitive": "confirmed"}, "expect": "summary", "note": "민감이어도 범위 안의 요약 공개는 요약(덧씌움만 막음)"},
+    {"id": "V15", "viewer": "정하은", "owner": "최유나", "item": {"visibility": "open", "reach": "team", "sensitive": "confirmed"}, "expect": "summary", "note": "민감 항목은 전체 공개여도 원문이 열리지 않는다"},
+    {"id": "V16", "viewer": "X", "owner": "이도윤", "item": {"visibility": "open", "reach": "company"}, "expect": "none", "note": "조직도 밖 사용자"},
+    {"id": "V17", "viewer": "이도윤", "owner": "X", "item": {"visibility": "open", "reach": "company"}, "expect": "none", "note": "조직도 밖 주인의 항목도 없음"},
+    {"id": "V18", "viewer": "이도윤", "owner": "이도윤", "item": {"visibility": "private", "reach": "team"}, "expect": "content", "note": "본인"},
+    {"id": "V19", "viewer": "이도윤", "owner": "최유나", "item": {"visibility": "open", "reach": "company"}, "via": "token", "expect": "none", "note": "외부 AI(개인 키)는 남의 항목 없음"},
+    {"id": "V20", "viewer": "한지우", "owner": "최유나", "item": {"visibility": "summary", "reach": "team"}, "expect": "summary", "note": "두 팀에 속한 사람은 두 팀 범위를 합쳐 본다"},
+    {"id": "V21", "viewer": "정하은", "owner": "이도윤", "item": {"visibility": "listed", "reach": "team"}, "grants": [{"depth": "content", "duration": "7d", "until": "+1d", "via": "owner"}], "expect": "content", "note": "허락받은 원문"},
+    {"id": "V22", "viewer": "정하은", "owner": "이도윤", "item": {"visibility": "listed", "reach": "team"}, "grants": [{"depth": "content", "duration": "7d", "until": "-1s", "via": "owner"}], "expect": "title", "note": "만료 직후의 허락은 쓰이지 않음"},
+    {"id": "V23", "viewer": "정하은", "owner": "이도윤", "item": {"visibility": "listed", "reach": "team"}, "grants": [{"depth": "content", "duration": "7d", "until": "+1s", "via": "owner"}], "expect": "content", "note": "만료 직전의 허락은 쓰인다"},
+    {"id": "V24", "viewer": "정하은", "owner": "이도윤", "item": {"visibility": "listed", "reach": "team"}, "grants": [{"depth": "content", "duration": "forever", "revoked": true, "via": "owner"}], "expect": "title", "note": "회수된 허락"},
+    {"id": "V25", "viewer": "박하늘", "owner": "이도윤", "item": {"visibility": "summary", "reach": "team"}, "grants": [{"depth": "content", "duration": "task", "room": "room-A", "via": "auto"}], "room": "room-B", "expect": "summary", "note": "이 작업 동안 허락은 다른 방에서 안 씀"},
+    {"id": "V26", "viewer": "박하늘", "owner": "이도윤", "item": {"visibility": "summary", "reach": "team"}, "grants": [{"depth": "content", "duration": "task", "room": "room-A", "via": "auto"}], "room": "room-A", "expect": "content", "note": "그 방에서는 원문"},
+    {"id": "V27", "viewer": "윤서진", "owner": "박하늘", "item": {"visibility": "listed", "reach": "team"}, "expect": "summary", "note": "관리자는 장의 항목도 요약까지"},
+    {"id": "V28", "viewer": "이도윤", "owner": "박하늘", "item": {"visibility": "listed", "reach": "team"}, "expect": "title", "note": "팀원은 장의 제목 공개를 제목만(역방향 덧씌움 없음)"}
+  ],
+  "rules": [
+    {"id": "R01", "requester": "이도윤", "owner": "박하늘", "depth": "content", "expect": {"decision": "allow", "depth": "content", "duration": "task"}, "note": "기본 규칙: 같은 팀 자동 허용"},
+    {"id": "R02", "requester": "이도윤", "owner": "최유나", "depth": "content", "expect": {"decision": "ask"}, "note": "같은 부서 → 묻기"},
+    {"id": "R03", "requester": "정하은", "owner": "최유나", "depth": "summary", "sensitive": true, "expect": {"decision": "ask"}, "note": "민감은 같은 팀이어도 묻기"},
+    {"id": "R04", "requester": "이도윤", "owner": "최유나", "depth": "content", "rules": [{"who": "department", "decision": "allow", "depth": "summary", "duration": "7d"}], "expect": {"decision": "allow", "depth": "summary", "duration": "7d"}, "note": "깊이 상한까지만 자동 허용"},
+    {"id": "R05", "requester": "이도윤", "owner": "최유나", "depth": "content", "rules": [{"who": "user:이도윤", "decision": "deny"}], "expect": {"decision": "deny"}, "note": "특정 사람 거절"}
+  ],
+  "inherit": [
+    {"id": "I01", "parent": {"visibility": "listed", "reach": "team"}, "child": {"visibility": "open", "reach": "team"}, "expect": "visibility"},
+    {"id": "I02", "parent": {"visibility": "summary", "reach": "team"}, "child": {"visibility": "summary", "reach": "company"}, "expect": "reach"},
+    {"id": "I03", "parent": {"visibility": "summary", "reach": "department"}, "child": {"visibility": "listed", "reach": "team"}, "expect": null},
+    {"id": "I04", "parent": {"visibility": "private", "reach": "team"}, "child": {"visibility": "private", "reach": "company"}, "expect": null, "note": "둘 다 비공개면 범위는 의미 없음"}
+  ]
+}

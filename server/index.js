@@ -25,6 +25,7 @@ import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
+import { contextRoutes } from './routes/context.js'
 import { meetingRoutes } from './routes/meetings.js'
 import { attachVoice } from './lib/meetings/voice.js'
 import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang.js'
@@ -328,6 +329,7 @@ app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
 // team sharing and messenger (routes/team.js)
 app.use('/api', teamRoutes(auth))
+app.use('/api', contextRoutes(auth))
 // meetings in a team room: mesh WebRTC signalling, transcription, materials, minutes (routes/meetings.js)
 app.use('/api', meetingRoutes(auth))
 // process mining over ad-hoc work → recommended processes (routes/mining.js)

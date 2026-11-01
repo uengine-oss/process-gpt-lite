@@ -18,7 +18,7 @@ function trace(messages) {
 
 // Reasoning models refuse some chat/completions parameters (temperature other than 1, max_tokens,
 // tools while reasoning). What a model refused is learned from its 400 and left out from then on.
-const quirks = new Map() // model → { noTemperature, completionTokens, noReasoning, noEffort }
+const quirks = new Map() // model → { noTemperature, completionTokens, noReasoning, noEffort, noTemplateKwargs }
 function adapt(payload) {
   const q = quirks.get(payload.model) || {}
   const b = { ...payload }
@@ -26,6 +26,7 @@ function adapt(payload) {
   if (q.completionTokens && b.max_tokens) { b.max_completion_tokens = b.max_tokens; delete b.max_tokens }
   if (q.noReasoning && b.tools) b.reasoning_effort = 'none'
   if (q.noEffort) delete b.reasoning_effort
+  if (q.noTemplateKwargs) delete b.chat_template_kwargs
   return b
 }
 function learn(model, status, text) {
@@ -37,6 +38,8 @@ function learn(model, status, text) {
   if (/reasoning_effort/.test(text) && /tools/i.test(text)) q.noReasoning = true
   // non-reasoning models (gpt-4.1) reject the argument itself
   if (/Unrecognized request argument supplied: reasoning_effort/.test(text)) q.noEffort = true
+  // think: false asks a model served by vLLM/SGLang (the company gateway) to skip its thinking; others refuse the argument
+  if (/chat_template_kwargs/.test(text)) q.noTemplateKwargs = true
   quirks.set(model, q)
   return JSON.stringify(q) !== before
 }
@@ -72,8 +75,9 @@ export function inLanguageMessages(messages) {
 }
 
 // timeoutMs: a shorter limit for a call that has a smaller fallback; maxTokens: caps a runaway answer;
-// effort: reasoning_effort for models that reason (dropped for those that don't)
-export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal, timeoutMs = CALL_TIMEOUT_MS, maxTokens, effort }) {
+// effort: reasoning_effort for models that reason (dropped for those that don't); think: false — no thinking at all, for
+// short judgements that must answer in a fraction of a second (dropped by models that refuse it)
+export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal, timeoutMs = CALL_TIMEOUT_MS, maxTokens, effort, think }) {
   messages = inLanguageMessages(messages)
   trace(messages)
   const res = await post({
@@ -83,6 +87,7 @@ export async function chat({ messages, tools, toolChoice, model, json, temperatu
     ...(json ? { response_format: { type: 'json_object' } } : {}),
     ...(maxTokens ? { max_tokens: maxTokens } : {}),
     ...(effort ? { reasoning_effort: effort } : {}),
+    ...(think === false ? { chat_template_kwargs: { enable_thinking: false } } : {}),
   }, signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs))
   const data = await res.json()
   const msg = data.choices[0].message

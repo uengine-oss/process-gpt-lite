@@ -22,6 +22,8 @@ import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, offi
 import { AsyncLocalStorage } from 'node:async_hooks'
 import * as llmKeys from './llmKeys.js'
 import * as turns from './turns.js'
+import { refer as referContext } from './context/refer.js'
+import { rebuildSoon } from './context/digest.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
@@ -728,6 +730,16 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const before = live ? await capture({ userId: user.id, jwt: session.access_token, open: live }) : null
   const usedTools = new Set()
   let partial = ''
+  // 팀 맥락 공유(lib/context/refer.js): 메인 채팅의 턴마다 지금 일과 관계있는 다른 대화 맥락(내 것·팀이 공유한 것·허락받은 것)을
+  // 골라 인용 블록으로 붙인다. 고른 결과는 사람 메시지에 남아 칩이 된다. 2초 안에 못 고르면 참고 없이 간다.
+  const refer = thread?.kind === 'chat' && !silent && mode !== 'skill' && !divider && !pin?.folder
+    ? await referContext(user, { threadId, message: text, current: turn.conv || thread?.conversation_id || null, turnTitle: turn.title }).catch((e) => { console.warn('[delegate] refer', e.message); return null })
+    : null
+  if (refer?.refer_id && userMsgId) {
+    const keep = { refer_id: refer.refer_id, used: refer.used, requestable: refer.requestable, ...(refer.skipped ? { skipped: refer.skipped } : {}) }
+    const [m] = await q(`update pro_messages set content = content || jsonb_build_object('refer', $2::jsonb) where id=$1 returning *`, [userMsgId, JSON.stringify(keep)])
+    if (m) emit(user.id, 'message', m)
+  }
   try {
     const msg = await streamTurn()
     // an edit tool of the open app or document ran: check the result against the request
@@ -756,7 +768,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
     body: JSON.stringify({
       // English mode: the language instruction goes last, after what the person said and the hints
-      message: text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(uploads) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+      message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(uploads) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       // process-gpt's chat contract for uploads (same shape its frontend sends)
       files: uploads.map((f) => ({ fileName: f.name, fileUrl: f.url, filePath: f.path, fileType: f.type, fileSize: f.size })),
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
@@ -894,8 +906,12 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     files.push(src ? { ...t.doc, name: src.split('/').pop(), path: src } : t.doc)
   }
   if (!body && !files.length && !workDir) body = emptyText()
-  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
+  // conv: 이 턴이 실제로 간 맥락(라우터가 「그대로」라고 한 턴은 context 에 맥락 id 가 없다) — 맥락의 턴을 찾는 표지(lib/context/items.js)
+  const convNow = turn.conv || routing?.conversation_id || null
+  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
   if (preRouted) touchContext(user, routing, text, body)
+  if (convNow && userMsgId) await q(`update pro_messages set content = content || jsonb_build_object('conv', $2::text) where id=$1`, [userMsgId, convNow]).catch(() => {})
+  if (convNow && thread?.kind === 'chat') rebuildSoon(user.id, convNow)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
   for (const f of files) if (f.url && !f.path) f.name = displayName(f, body)
   for (const p of await documentsOfRun({ text: body, dirs: rooms, since: started - 2000 }).catch(() => [])) {
