@@ -199,7 +199,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 경로 탈출 거절 | S-22 | smoke | ✅ |
 | SSE 를 막는 프록시 뒤에서도 실시간 | F-RS-02 | feature | ✅ |
 
-### 10. 보관함·브라우저 에이전트 (spec `pgpt-pro_credential-vault` · `pgpt-pro_vault-key-management` · `pgpt-pro_browser-credential-handoff` · `pgpt-pro_browser-decision-gates`, 영상 `n5SBj_iRbig`)
+### 10. 보관함·브라우저 에이전트 (spec `pgpt-pro_credential-vault` · `pgpt-pro_vault-key-management` · `pgpt-pro_browser-credential-handoff` · `pgpt-pro_browser-decision-gates`, 영상 `n5SBj_iRbig` · 작업 독 `X_tziV39e2M` · 메일로 온 인증 코드 `OqXlJt5n27M`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
