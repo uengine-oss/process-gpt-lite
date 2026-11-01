@@ -66,11 +66,18 @@ const auditText = (a) => {
   return {
     create: `${what} 저장`, update: `${what} 변경`, delete: `${what} 삭제`, capture: `${what} 입력을 감지해 보관`,
     confirm: `${what} 저장 확인`, discard: `${what} 보관하지 않음`, reject: `${what} — 사이트가 비밀번호를 거부`,
-    fill: `${what} ${field || ''} · 브라우저 작업에 입력`, one_time: `${what} · 페이지에 바로 입력 (저장 안 함)`,
+    fill: `${what} ${field || ''} · 브라우저 작업에 입력`, one_time: a.actor === 'mail' ? `${what} · ${a.detail?.from || '메일'}에서 온 메일에서 찾아 페이지에 바로 입력 (저장 안 함)` : `${what} · 페이지에 바로 입력 (저장 안 함)`,
     rotate_dek: '데이터 키(DEK) 교체 · 항목 재암호화', rotate_kek: '마스터 키(KEK) 교체 · 데이터 키 다시 감쌈',
   }[a.action] || a.action
 }
 const actorText = { user: '나', 'browser-agent': '브라우저 에이전트', mail: '메일', connector: '커넥터', admin: '관리자' }
+// 메일로 온 인증 코드 자동 입력 (server lib/mailCode.js): on unless turned off
+const mailCodes = computed(() => app.me?.profile?.mail_codes !== false)
+async function toggleMailCodes() {
+  const on = !mailCodes.value
+  await api('/me/mail-codes', { method: 'PUT', body: { on } })
+  if (app.me) app.me = { ...app.me, profile: { ...(app.me.profile || {}), mail_codes: on } }
+}
 async function runProof() {
   checking.value = true
   try { proof.value = await api('/vault/proof') } finally { checking.value = false }
@@ -312,6 +319,12 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
           <div class="li"><div class="main"><b>비밀번호 노출</b><small>저장된 비밀번호·카드 번호·인증 코드는 화면과 AI 모델에 전달되지 않고, 브라우저 작업 때 서버가 직접 입력해요</small></div></div>
         </div>
 
+        <p class="cap">인증 코드</p>
+        <div class="list glass">
+          <div class="li mailcodes"><div class="main"><b>메일로 온 인증 코드 자동 입력</b><small>브라우저 작업이 인증 코드를 기다리면, 연결된 메일함에서 그 사이트가 보낸 메일을 찾아 코드를 바로 넣어요. 그동안 카드로도 물어봐요. 코드는 저장하지 않고 AI 모델에도 보내지 않아요.{{ app.me?.mail ? '' : ' 메일함을 연결하면 쓸 수 있어요.' }}</small></div>
+            <button class="switch" :class="{ on: mailCodes }" role="switch" :aria-checked="mailCodes" aria-label="메일로 온 인증 코드 자동 입력" @click="toggleMailCodes"><i /></button></div>
+        </div>
+
         <p class="cap">암호화 검증</p>
         <div class="list glass">
           <div class="li"><div class="main"><b>내 보관함 검증</b><small>저장된 항목을 서버에서 열어 보고, 변조·이동에 대한 반응을 확인해요. 값은 보여주지 않아요</small></div>
@@ -369,6 +382,9 @@ h2 { margin: 14px 0 0; font-size: 24px; font-weight: 600; }
 h1 { margin: 0; font-size: 34px; font-weight: 500; letter-spacing: -0.02em; }
 .cap { color: var(--text-secondary); font-size: 14px; margin: 0 0 18px; }
 .li { display: flex; align-items: center; gap: 14px; padding: 18px 0; border-bottom: 1px solid var(--hairline); }
+.switch { width: 52px; height: 30px; border-radius: 9999px; background: var(--field-bg); position: relative; transition: background-color .25s; flex: none; }
+.switch i { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0 0 0 / .25); transition: left .25s var(--spring); }
+.switch.on { background: var(--ink); } .switch.on i { left: 25px; }
 .li.col { flex-direction: column; align-items: stretch; gap: 10px; }
 .li .main { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .li b { font-weight: 450; font-size: 16px; }

@@ -309,6 +309,19 @@ app.get('/api/mail/demo-templates', auth, (req, res) => res.json(mail.demoTempla
 app.post('/api/mail/demo-arrive', auth, async (req, res) => {
   try { res.json(await mail.demoArrive(req.user.id, req.body || {})) } catch (e) { res.status(400).json({ error: e.message }) }
 })
+// a test site on this machine mails a demo mailbox (the test shop's e-mailed sign-in code): only while demo login is on
+// (development and test servers) and only from this machine — never a way in for real mail
+app.post('/api/mail/demo-inbound', async (req, res) => {
+  const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)
+  if (!demoLogin || !local) return res.status(404).end()
+  try { res.json(await mail.demoInbound(req.body || {})) } catch (e) { res.status(400).json({ error: e.message }) }
+})
+// 메일로 온 인증 코드 자동 입력 (Settings › 보안): on unless turned off (lib/mailCode.js)
+app.put('/api/me/mail-codes', auth, async (req, res) => {
+  await q(`insert into pro_profile(user_id,email) values ($1,$2) on conflict (user_id) do nothing`, [req.user.id, req.user.email])
+  await q('update pro_profile set mail_codes=$2 where user_id=$1', [req.user.id, req.body?.on !== false])
+  res.json({ on: req.body?.on !== false })
+})
 
 app.use('/api', processRoutes(auth))
 app.use('/api', folderRoutes(auth))

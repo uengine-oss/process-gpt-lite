@@ -4,15 +4,27 @@
 //   node test/fixtures/shop.mjs 8799     (stand-alone, for the UI E2E)
 // In English (the English tutorial and videos): `?lang=en` on any page (remembered in a cookie for
 // the redirects that follow), `startShop(port, { lang: 'en' })`, or SHOP_LANG=en for the stand-alone shop.
+// The sign-in code by e-mail instead of the phone's fixed one: `startShop(port, { otpBy: 'mail', mail })` sends a new
+// code with each sign-in through mail({ to, from, subject, text }); the stand-alone shop with SHOP_OTP=mail posts it to
+// SHOP_MAIL_HOOK (default a Lite server's /api/mail/demo-inbound on :8787), to SHOP_MAIL_TO (a demo mailbox's address),
+// after SHOP_MAIL_DELAY_MS.
 import http from 'node:http'
 
 export const SHOP = { username: 'demo@shop.test', password: 'Correct-Horse-42', otp: '246810' }
+
+// the e-mailed sign-in code (senders on a reserved example domain, RFC 2606)
+const MAIL = {
+  ko: (code) => ({ from: '테스트 상점 <no-reply@shop.example>', subject: '[테스트 상점] 로그인 인증 코드',
+    text: `안녕하세요, 테스트 상점입니다.\n\n로그인 인증 코드는 ${code} 입니다. 10분 안에 입력해 주세요.\n본인이 요청하지 않았다면 이 메일을 무시하세요.\n\n고객센터 1588-1234 · 테스트 상점` }),
+  en: (code) => ({ from: 'Test Shop <no-reply@shop.example>', subject: '[Test Shop] Your sign-in code',
+    text: `Hello from Test Shop.\n\nYour sign-in code is ${code}. Enter it within 10 minutes.\nIf you didn't ask for it, ignore this mail.\n\nSupport 1588-1234 · Test Shop` }),
+}
 
 const T = {
   ko: {
     login: '로그인 · 테스트 상점', loginH: '테스트 상점 로그인', email: '이메일', password: '비밀번호', loginBtn: '로그인',
     badLogin: '이메일 또는 비밀번호가 올바르지 않습니다.',
-    otp: '인증 코드 · 테스트 상점', otpH: '인증 코드 확인', otpP: '휴대폰으로 받은 6자리 인증 코드를 입력하세요.', code: '인증 코드', otpBtn: '확인',
+    otp: '인증 코드 · 테스트 상점', otpH: '인증 코드 확인', otpP: '휴대폰으로 받은 6자리 인증 코드를 입력하세요.', otpMailP: '이메일로 보낸 6자리 인증 코드를 입력하세요.', code: '인증 코드', otpBtn: '확인',
     badOtp: '인증 코드가 올바르지 않습니다.',
     account: '내 계정 · 테스트 상점', accountH: '내 계정', welcome: (u) => `${u} 님, 환영합니다.`,
     lastOrder: '최근 주문: <b>주문 #A-1001 무선 이어폰 89,000원 (배송 중)</b>', again: '다시 주문하기',
@@ -27,7 +39,7 @@ const T = {
   en: {
     login: 'Sign in · Test Shop', loginH: 'Sign in to Test Shop', email: 'Email', password: 'Password', loginBtn: 'Sign in',
     badLogin: 'The email or password is incorrect.',
-    otp: 'Verification code · Test Shop', otpH: 'Verify it’s you', otpP: 'Enter the 6-digit verification code sent to your phone.', code: 'Verification code', otpBtn: 'Verify',
+    otp: 'Verification code · Test Shop', otpH: 'Verify it’s you', otpP: 'Enter the 6-digit verification code sent to your phone.', otpMailP: 'Enter the 6-digit verification code we e-mailed you.', code: 'Verification code', otpBtn: 'Verify',
     badOtp: 'That verification code is incorrect.',
     account: 'My account · Test Shop', accountH: 'My account', welcome: (u) => `Welcome, ${u}.`,
     lastOrder: 'Latest order: <b>Order #A-1001 Wireless earbuds ₩89,000 (Shipping)</b>', again: 'Order again',
@@ -56,7 +68,7 @@ const loginPage = (l, err = '') => page(l, T[l].login, `<h1>${T[l].loginH}</h1>$
 <label for="password">${T[l].password}</label><input id="password" name="password" type="password" autocomplete="current-password">
 <button type="submit">${T[l].loginBtn}</button></form>`)
 
-const otpPage = (l, err = '') => page(l, T[l].otp, `<h1>${T[l].otpH}</h1><p>${T[l].otpP}</p>${err ? `<p class="err">${err}</p>` : ''}
+const otpPage = (l, err = '', byMail = false) => page(l, T[l].otp, `<h1>${T[l].otpH}</h1><p>${byMail ? T[l].otpMailP : T[l].otpP}</p>${err ? `<p class="err">${err}</p>` : ''}
 <form method="post" action="/otp"><label for="code">${T[l].code}</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code">
 <button type="submit">${T[l].otpBtn}</button></form>`)
 
@@ -83,8 +95,11 @@ function body(req) {
   })
 }
 
-export function startShop(port = 0, { cards = [], lang: shopLang = 'ko' } = {}) {
-  const state = { logins: [], otps: [], payments: [], sessions: new Set() }
+export function startShop(port = 0, { cards = [], lang: shopLang = 'ko', otpBy = 'sms', mail = null, mailTo = SHOP.username } = {}) {
+  const state = { logins: [], otps: [], payments: [], sessions: new Set(), mailed: [] }
+  // e-mailed codes by the sign-in they were sent for (the pre cookie)
+  const codes = new Map()
+  const byMail = otpBy === 'mail'
   const server = http.createServer(async (req, res) => {
     const sid = /sid=(\w+)/.exec(req.headers.cookie || '')?.[1]
     const url = new URL(req.url, 'http://x')
@@ -102,14 +117,24 @@ export function startShop(port = 0, { cards = [], lang: shopLang = 'ko' } = {}) 
       state.logins.push({ username: f.username, passwordOk: ok, at: Date.now() })
       if (!ok) return html(loginPage(l, T[l].badLogin))
       const id = Math.random().toString(36).slice(2)
+      if (byMail) {
+        const code = String(100000 + Math.floor(Math.random() * 900000))
+        codes.set(id, code)
+        const m = { to: mailTo, ...MAIL[l](code) }
+        state.mailed.push({ to: mailTo, code, at: Date.now() })
+        // sent on its way: the sign-in goes on to the code page without waiting for the mail
+        Promise.resolve(mail?.(m)).catch(() => {})
+      }
       return go('/otp', { 'Set-Cookie': `pre=${id}; Path=/` })
     }
-    if (req.method === 'GET' && url.pathname === '/otp') return html(otpPage(l))
+    if (req.method === 'GET' && url.pathname === '/otp') return html(otpPage(l, '', byMail))
     if (req.method === 'POST' && url.pathname === '/otp') {
       const f = await body(req)
-      const ok = f.code === SHOP.otp
+      const pre = /pre=(\w+)/.exec(req.headers.cookie || '')?.[1]
+      const ok = byMail ? !!pre && f.code === codes.get(pre) : f.code === SHOP.otp
       state.otps.push({ ok, at: Date.now() })
-      if (!ok) return html(otpPage(l, T[l].badOtp))
+      if (!ok) return html(otpPage(l, T[l].badOtp, byMail))
+      if (byMail) codes.delete(pre)
       const id = Math.random().toString(36).slice(2)
       state.sessions.add(id)
       return go('/account', { 'Set-Cookie': `sid=${id}; Path=/` })
@@ -145,8 +170,18 @@ export function startShop(port = 0, { cards = [], lang: shopLang = 'ko' } = {}) 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.argv[2] || 8799)
   // the demo card the UI E2E saves (Stripe's public test number)
-  const shop = await startShop(port, { cards: [{ number: '4242424242424242', exp: '12/30', cvv: '123' }], lang: process.env.SHOP_LANG === 'en' ? 'en' : 'ko' })
-  console.log(`test shop on ${shop.url}  (login ${SHOP.username} / otp ${SHOP.otp}${process.env.SHOP_LANG === 'en' ? ', English' : ''}; ?lang=en|ko per visit)`)
+  const byMail = process.env.SHOP_OTP === 'mail'
+  const hook = process.env.SHOP_MAIL_HOOK || 'http://127.0.0.1:8787/api/mail/demo-inbound'
+  const mailTo = process.env.SHOP_MAIL_TO || SHOP.username
+  // SHOP_MAIL_DELAY_MS: how long the mail takes to arrive, as real mail does (default at once)
+  const delay = Number(process.env.SHOP_MAIL_DELAY_MS || 0)
+  const mail = async (m) => {
+    if (delay) await new Promise((r) => setTimeout(r, delay))
+    const r = await fetch(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(m) }).catch((e) => ({ ok: false, statusText: e.message }))
+    console.log(`mailed a sign-in code to ${m.to} → ${hook}: ${r.ok ? JSON.stringify(await r.json()) : r.status || r.statusText}`)
+  }
+  const shop = await startShop(port, { cards: [{ number: '4242424242424242', exp: '12/30', cvv: '123' }], lang: process.env.SHOP_LANG === 'en' ? 'en' : 'ko', ...(byMail ? { otpBy: 'mail', mail, mailTo } : {}) })
+  console.log(`test shop on ${shop.url}  (login ${SHOP.username} / otp ${byMail ? `by e-mail to ${mailTo}` : SHOP.otp}${process.env.SHOP_LANG === 'en' ? ', English' : ''}; ?lang=en|ko per visit)`)
   setInterval(() => {
     const last = [...shop.state.logins, ...shop.state.otps, ...shop.state.payments].sort((a, b) => b.at - a.at)[0]
     if (last && Date.now() - last.at < 2000) console.log(JSON.stringify({ logins: shop.state.logins, otps: shop.state.otps, payments: shop.state.payments }))

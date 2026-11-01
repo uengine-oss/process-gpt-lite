@@ -136,6 +136,65 @@ export async function demoArrive(userId, body) {
   return pollUser(userId)
 }
 
+// A local test site's mail to a demo mailbox (the test shop's e-mailed sign-in code): it lands in the demo
+// mailbox whose address it was sent to, as a fictional mail would. Development and test servers only (index.js).
+export async function demoInbound({ to, from, subject, text }) {
+  if (!String(to || '').includes('@') || !String(from || '').trim()) throw new Error('to and from are needed')
+  const rows = await q(`select user_id from pro_mail_accounts where provider='demo' and lower(address)=lower($1)`, [String(to).trim()])
+  for (const r of rows) {
+    await q('insert into pro_demo_mail(user_id, mail_id, sender, subject, body) values ($1,$2,$3,$4,$5)',
+      [r.user_id, `demo-${crypto.randomBytes(6).toString('hex')}`, String(from).slice(0, 200), String(subject || '').slice(0, 300), String(text || '').slice(0, 4000)])
+  }
+  return { delivered: rows.length }
+}
+
+// ---------- the newest mail, read only (lib/mailCode.js: the one-time code a site e-mailed) ----------
+// No triage and no model: the mail since a moment, newest first, as {id, from, subject, date, text}.
+// Gmail: the plain-text body (else the snippet); IMAP: since that day, then by the minute; demo: what arrived.
+const b64 = (s) => Buffer.from(String(s || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+function gmailText(part) {
+  if (!part) return ''
+  if (part.mimeType === 'text/plain' && part.body?.data) return b64(part.body.data)
+  for (const p of part.parts || []) { const t = gmailText(p); if (t) return t }
+  return ''
+}
+export async function recentMail(userId, sinceMs) {
+  const [acc] = await q('select provider from pro_mail_accounts where user_id=$1', [userId])
+  if (!acc) return []
+  const since = new Date(sinceMs)
+  if (acc.provider === 'gmail') {
+    const at = await googleAccessToken(userId)
+    const api = (p) => fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
+    const list = await api(`messages?maxResults=10&q=${encodeURIComponent(`after:${Math.floor(sinceMs / 1000)}`)}`)
+    const out = []
+    for (const m of list.messages || []) {
+      const full = await api(`messages/${m.id}?format=full`)
+      const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name.toLowerCase(), x.value]))
+      out.push({ id: m.id, from: h.from, subject: h.subject, date: new Date(Number(full.internalDate) || h.date).toISOString(), text: (gmailText(full.payload) || full.snippet || '').slice(0, 4000) })
+    }
+    return out
+  }
+  if (acc.provider === 'imap') {
+    const sec = await getSecret(userId, 'login', 'imap')
+    if (!sec) return []
+    const client = new ImapFlow({ host: sec.host, port: 993, secure: true, auth: { user: sec.username, pass: sec.password }, logger: false })
+    await client.connect()
+    const out = []
+    const lock = await client.getMailboxLock('INBOX')
+    try {
+      for await (const msg of client.fetch({ since }, { source: true, uid: true })) {
+        const p = await simpleParser(msg.source)
+        if (p.date && p.date < since) continue
+        out.push({ id: `imap-${msg.uid}`, from: p.from?.text, subject: p.subject, date: p.date?.toISOString(), text: (p.text || '').slice(0, 4000) })
+      }
+    } finally { lock.release(); await client.logout() }
+    return out.reverse().slice(0, 10)
+  }
+  const rows = await q(`select mail_id, sender, subject, body, created_at from pro_demo_mail where user_id=$1 and created_at >= $2
+    order by created_at desc limit 10`, [userId, since])
+  return rows.map((m) => ({ id: m.mail_id, from: m.sender, subject: m.subject, date: m.created_at.toISOString(), text: m.body }))
+}
+
 // ---------- triage ----------
 const TRIAGE = `You read a user's newest emails and decide what their assistant should do.
 Return JSON {"actions":[{"mail_id","verb","text","icon_domain","due","prompt"}],"brief":"..."}.
