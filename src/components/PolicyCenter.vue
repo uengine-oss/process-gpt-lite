@@ -390,9 +390,10 @@ onUnmounted(() => clearInterval(timer))
             <small v-else class="muted">걸린 정책이 없어서 허용했어요.</small>
             <template v-if="d.approver_role && ['require_approval', 'deny'].includes(d.decision)">
               <p class="dh">{{ d.decision === 'deny' ? '예외 권한' : '승인자' }}</p>
-              <small class="line"><b>{{ d.approver_role }}</b> <span v-if="holderOf(d.approver_role)" data-no-i18n>{{ holderOf(d.approver_role) }}</span><span v-else>담당 없음 → 관리자</span></small>
-              <small v-if="d.approved_by" class="line"><span>{{ d.status === 'rejected' ? '반려한 사람' : '승인한 사람' }}</span> <b data-no-i18n>{{ nameOf(d.approved_by) || '—' }}</b> <span>{{ at(d.approved_at) }}</span></small>
-              <small v-if="d.result?.note" class="line" data-no-i18n>“{{ d.result.note }}”</small>
+              <small v-if="d.action_kind === 'context.access'" class="line"><b>{{ d.approver_role }}</b> <span>그 맥락의 주인이 홈 카드에서</span></small>
+              <small v-else class="line"><b>{{ d.approver_role }}</b> <span v-if="holderOf(d.approver_role)" data-no-i18n>{{ holderOf(d.approver_role) }}</span><span v-else>담당 없음 → 관리자</span></small>
+              <small v-if="d.approved_by" class="line"><span>{{ d.action_kind === 'context.access' ? (d.status === 'rejected' ? '거절한 주인' : '허락한 주인') : d.status === 'rejected' ? '반려한 사람' : '승인한 사람' }}</span> <b data-no-i18n>{{ nameOf(d.approved_by) || '—' }}</b> <span>{{ at(d.approved_at) }}</span></small>
+              <small v-if="d.result?.note || d.result?.reason" class="line" data-no-i18n>“{{ d.result.note || d.result.reason }}”</small>
             </template>
             <template v-if="d.result?.error">
               <p class="dh">결과</p>

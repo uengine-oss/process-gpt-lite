@@ -101,7 +101,7 @@ try {
   check(assert.deepEqual, [d2.status, d2.approver_role, d2.facts.topic], ['pending', '맥락 주인', '급여'])
   check(assert.ok, !d2.subject.includes('성과급') && /제목 가림/.test(d2.subject), `원장 한 줄은 제목을 가린다: ${d2.subject}`)
   const [n2] = await q(`select description from notifications where tenant_id = $1 and user_id = $2 and type = 'context_access' and url = $3`, [T, U.park.id, `/pro/context-access/${a2.request_id}`])
-  check(assert.match, n2.description, /회사 정책 「민감할 수 있는 주제는 자동 허용하지 않음」 · 급여/)
+  check(assert.ok, n2 && !/급여|성과급/.test(n2.description), '알림 글에는 주제가 없다(이유는 카드 미리보기에서 주인에게만)')
   const pv2 = await call(U.park, 'GET', `/api/context/access-requests/${a2.request_id}/preview`)
   log(`박하늘 홈 카드 미리보기: 정책 ${pv2.policy.decision} · 주제 ${pv2.policy.topic}`)
   check(assert.deepEqual, [pv2.policy.decision, pv2.policy.topic, pv2.policy.matched[0].id], ['require_approval', '급여', 'context-sensitive-topic'])

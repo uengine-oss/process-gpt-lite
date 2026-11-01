@@ -130,8 +130,8 @@ export async function createRequest(me, body = {}, { via: callerVia = 'jwt' } = 
     : out.status === 'denied' ? { status: 'rejected', result: { outcome: 'denied', via: 'auto' } }
       : { status: 'pending', result: { outcome: 'asked', by: pd.final.by } }).catch((e) => console.warn('[context] ledger', e.message))
   if (out.via === 'auto' && out.status === 'granted') await digest(item.owner).catch((e) => console.warn('[context] digest', e.message))
-  const why = pd.final.by === 'policy' ? `회사 정책 「${policy.matched[0]?.title || '민감 맥락은 주인이 직접 허락'}」${pd.facts.topic ? ` · ${pd.facts.topic}` : ''} — 자동 허용 대신 물어요.` : ''
-  if (out.status === 'pending') await notifyContext(item.owner, { type: 'context_access', title: `참고 요청 · ${vc.name} · 「${item.title}」 ${DEPTH_LABEL[depth]}`, description: [doing ? `지금 하는 일: ${doing}` : '', why].filter(Boolean).join('\n'), url: `/pro/context-access/${out.request_id}`, from: await emailOf(vc.viewer) })
+  // 정책이 묻게 한 이유(정책·주제)는 홈 카드가 미리보기로 보여 준다(AccessDecide) — 알림 글에는 지금 하는 일만
+  if (out.status === 'pending') await notifyContext(item.owner, { type: 'context_access', title: `참고 요청 · ${vc.name} · 「${item.title}」 ${DEPTH_LABEL[depth]}`, description: doing ? `지금 하는 일: ${doing}` : '', url: `/pro/context-access/${out.request_id}`, from: await emailOf(vc.viewer) })
   return out
 }
 
