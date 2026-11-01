@@ -380,10 +380,10 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (14개) | 89 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06) |
-| agent | `tests/agent/*.spec.js` (4개) | 14 (회의 A-14) |
-| 합계 | | 160 |
+| smoke | `tests/smoke/*.spec.js` (6개) | 74 |
+| feature | `tests/feature/*.spec.js` (23개) | 137 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06) |
+| agent | `tests/agent/*.spec.js` (6개) | 17 (회의 A-14) |
+| 합계 | | 228 (`npx playwright test --list` 로 센 수, 2026-11-01) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
