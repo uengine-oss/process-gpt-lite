@@ -212,6 +212,8 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 보관함 활동 기록 · 값을 보여주지 않는 검증 | F-VA-02 | feature | ✅ |
 | KEK 공급원과 식별(보안 정보 조회) | S-01, F-VA-02 | smoke/feature | ✅ |
 | KEK 교체 · 폐기된 KEK 정리 · DEK 교체 · 전수 검증 | F-UT-01 (`server/test/vault.test.js`) | feature | ✅ |
+| 브라우저 작업 독: 일하는 동안 입력창 옆 원형 실시간 썸네일 → 누르면 가운데 카드(작업 카드 그대로, 계획·확장·취소), Esc·✕ 로 닫힘, 끝나면 사라짐, 조치가 필요하면 주황 테두리 → 답할 카드로 | F-BD-01, F-BD-02 | feature | ✅ |
+| 작업 카드 알약: 일하는 동안 지금 하는 일(status 이벤트)로 바뀜 | — | — | ◐ (실제 브라우저 작업 영상으로 확인) |
 | 업그레이드 후 기존 데이터 유지(단일 키 파일→키링) · 메모리 안의 DEK 수명 · 키 작업 기록 | — | — | ✗ |
 | 로그인·결제 카드 요구를 보관함으로, 여러 항목 선택, 비밀 값을 모델에 노출하지 않는 서버 측 입력, 거부된 비밀번호 갱신, 일회용 값 직접 전달, 요청 닫기, 직접 제어 중 입력 감지, 결제 직전 승인 (9개 요구사항) | F-UT-03 (`server/test/browser-vault.test.js`, 모델 대역 서버가 받은 요청에 비밀 0건) | feature | ✅ (부하가 크면 흔들림 — 재시도 2회) |
 | 사람이 없는 실행 · 응답 없는 요청의 만료(서버 재시작) | — | — | ✗ |
@@ -310,6 +312,15 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 설치 번들: 스크립트 문법·compose(lite/full/mining)·인계 기록 스키마·nginx 경로 | `install/` | S-50…S-53 | smoke | ✅ |
 | 영어 모드 다듬기: 워드 그림 ↔ 포토크래프트(영어·한국어), 앱 이름으로 Craft 도구, 영어 이름 지목, 패널 설계 토큰·금액(한·영), 브라우저 구매 차단·결과 문장, 테스트 상점 영어판, 설치 스크립트 언어 | `english-fixes.spec.js`, `server/test/en-fix.test.js`, `browser-tasks.test.js` | F-EN-01…04, S-53 | feature·smoke | ✅ (F-EN-04 는 모델 호출) |
 | 설치 스택에 대고 전체 스위트 | `PGPT_URL=http://localhost:18080` | (전체) | 모두 | ◐ |
+
+### 13e. 사용량·요금제 (`lib/plans/*`, 설계 `pgpt-pro/docs/billing/tenant-billing-design.md`, 영상 `bpYwayg_6Co` · 요금제 화면 `d3UtRrwus7M`)
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 요금제 탭: 지금 요금제의 다음 것을 먼저, 큰 가격·사용량 배지·할 수 있는 일(잰 값으로 센 수)·맨 아래 안내, 팀원은 「바꿔 달라고 요청」, 지금 요금제는 누를 수 없음 | `UsagePlan.vue`, `lib/plans/equivalents.js` | F-PL-01 | feature | ✅ (PRO_LLM_KEYS=litellm 서버) |
+| 할 수 있는 일의 수 = 요금제 사용량 ÷ 실제로 시켜 본 일의 비용(2자리로 내림), 쓴 만큼 요금제는 일 하나의 값 | `jobs.json` (`scripts/measure-plan-jobs.mjs`) | `server/test/plans-equivalents.test.js` | 단위 | ✅ |
+| 일의 비용을 다시 재기(모델·프롬프트가 바뀌면) | `scripts/measure-plan-jobs.mjs --write` | — | — | ✗ (실제 모델 호출, 수동) |
+| 한도·일할 정산·이벤트 소비자 | `server/test/plans.e2e.mjs`, `plans-prorate.test.js`, `llm-keys.e2e.mjs` | — | 서버 | ✅ |
 
 ### 14. 튜토리얼 결함 고침 — 개인정보·채팅·브라우저·메일·프로필 (`docs/tutorial-findings.md`)
 

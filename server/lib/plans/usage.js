@@ -8,6 +8,7 @@ import * as K from '../llmKeys.js'
 import { catalog, limitsOf, monthlyBill, usdPerCredit } from './catalog.js'
 import { subscriptionOf, planOf, seatOf } from './apply.js'
 import { segmentsOf } from './history.js'
+import { equivalentsOf, basis } from './equivalents.js'
 
 const utc = (t) => (t ? new Date(String(t).replace(' ', 'T') + (/[Zz+]/.test(String(t).slice(10)) ? '' : 'Z')).toISOString() : null)
 const MONTH = `date >= to_char(date_trunc('month', now() at time zone 'utc'), 'YYYY-MM-DD')`
@@ -76,10 +77,13 @@ export function catalogView(name, L) {
     // amounts are model cost (USD); a credit catalog shows them as credits (usdPerCredit) and prices in won
     name, title: c.name, source: c.source, windows: c.windows, currency: c.currency, unit: c.unit, pooled: !!c.pooled, vat: c.vat || 0,
     usdPerCredit: c.unit === 'credit' ? usdPerCredit() : null,
+    // what a plan's usage buys in measured jobs (lib/plans/equivalents.js), and how they were measured
+    wit: basis(),
     plans: Object.entries(c.plans).map(([code, p]) => ({
       code, name: p.name, kind: p.kind, note: L(p.note[0], p.note[1]), minSeats: p.minSeats || null, maxSeats: p.maxSeats || null,
       extraUsage: !!p.extraUsage, adminLimits: !!p.adminLimits, usageBased: !!p.usageBased, contract: !!p.contract, fixedPool: p.fixedPool || null,
-      seats: p.seats.map((s) => ({ code: s, name: c.seats[s].name, price: c.seats[s].price, x: c.seats[s].x ?? null, credits: c.seats[s].credits ?? null, limits: limitsOf(s, { name }) })),
+      seats: p.seats.map((s) => ({ code: s, name: c.seats[s].name, price: c.seats[s].price, x: c.seats[s].x ?? null, credits: c.seats[s].credits ?? null, tiers: c.seats[s].models, limits: limitsOf(s, { name }) })),
+      wit: equivalentsOf(code, name),
     })),
   }
 }
