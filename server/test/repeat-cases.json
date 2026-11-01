@@ -1,0 +1,15 @@
+{
+  "_": "같은 요청 판별(lib/context/repeat.js judge — 회사 게이트웨이 모델, think 끔). earlier: 이전 기록(kind turn = 요청 문장, context = 보이는 맥락 글), days: 며칠 전. expect: same(카드에 올림) | different(올리지 않음) | stale(같지만 시간이 지나 쓸모없음 — 올리지 않음). 임베딩만으로는 different 사례 다수가 0.9 이상이다(repeat.js 머리말).",
+  "cases": [
+    { "message": "경쟁 3사 사용자당 월 요금을 표로 비교해줘", "earlier": { "kind": "turn", "text": "경쟁 3사 사용자당 월 요금을 표로 비교해 줘" }, "days": 1, "expect": "same" },
+    { "message": "경쟁사들 요금 바뀐 거 표로 만들어 줄래?", "earlier": { "kind": "turn", "text": "경쟁사 가격 변화를 표로 정리해 줘" }, "days": 0, "expect": "same" },
+    { "message": "신입 교육 자료 목차 짜 줘", "earlier": { "kind": "turn", "text": "신입 컨설턴트 교육 자료 목차를 만들어 줘" }, "days": 3, "expect": "same" },
+    { "message": "경쟁 3사 월 요금을 그래프로 그려 줘", "earlier": { "kind": "turn", "text": "경쟁 3사 사용자당 월 요금을 표로 비교해 줘" }, "days": 1, "expect": "different" },
+    { "message": "고객 B 제안서 초안 써 줘", "earlier": { "kind": "turn", "text": "고객 C 제안서 초안 써 줘" }, "days": 2, "expect": "different" },
+    { "message": "이번 주 팀 회의록 정리해 줘", "earlier": { "kind": "turn", "text": "지난주 팀 회의록 정리해 줘" }, "days": 7, "expect": "different" },
+    { "message": "우리 서비스 가격 인상안 써 줘", "earlier": { "kind": "turn", "text": "경쟁사 가격 변화를 표로 정리해 줘" }, "days": 1, "expect": "different" },
+    { "message": "오늘 서울 날씨 알려 줘", "earlier": { "kind": "turn", "text": "오늘 서울 날씨 알려 줘" }, "days": 3, "expect": "stale" },
+    { "message": "제안서 부록에 넣을 경쟁사 요금 비교표 만들어 줘", "earlier": { "kind": "context", "text": "경쟁사 가격 벤치마크\n국내 협업 SaaS 경쟁사의 요금제·가격 변화를 비교해 제안서 부록에" }, "days": 3, "expect": "same" },
+    { "message": "고객 C 제안서 목차 잡아 줘", "earlier": { "kind": "context", "text": "경쟁사 가격 벤치마크\n국내 협업 SaaS 경쟁사의 요금제·가격 변화를 비교해 제안서 부록에" }, "days": 3, "expect": "different" }
+  ]
+}

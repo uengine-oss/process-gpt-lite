@@ -155,10 +155,26 @@ create table if not exists pro_context_digests (
   primary key (tenant_id, user_id, conversation_id)
 );
 
+-- 같은 요청 알아보기(lib/context/repeat.js): 요청이 에이전트로 가기 전에 찾은 「이미 한 요청」과 사람이 고른 것(그 답 보기·요청하기·새로 하기)
+create table if not exists pro_context_repeats (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id text not null,
+  user_id uuid not null,
+  thread_id uuid,
+  message_id uuid,                                  -- 그 사람 메시지
+  message text not null default '',
+  hits jsonb not null default '[]',                -- [{kind: turn|context, conv, title, owner, owner_name, mine, depth, at, turn_id?, prompt?, can_request}] — 보는 깊이만큼만
+  choice text,                                      -- view | request | fresh
+  chosen_at timestamptz,
+  ms integer,
+  created_at timestamptz not null default now()
+);
+create index if not exists pro_context_repeats_user on pro_context_repeats (tenant_id, user_id, created_at desc);
+
 do $$
 declare t text;
 begin
-  foreach t in array array['pro_context_shares','pro_sharing_rules','pro_team_leads','pro_access_requests','pro_grants','pro_refers','pro_refer_edits','pro_context_refs','pro_context_views','pro_context_digests'] loop
+  foreach t in array array['pro_context_shares','pro_sharing_rules','pro_team_leads','pro_access_requests','pro_grants','pro_refers','pro_refer_edits','pro_context_refs','pro_context_views','pro_context_digests','pro_context_repeats'] loop
     execute format('alter table %I enable row level security', t);
   end loop;
 end $$;

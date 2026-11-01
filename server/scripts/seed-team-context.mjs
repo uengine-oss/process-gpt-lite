@@ -103,7 +103,7 @@ async function peopleIds() {
 
 async function wipeLive() {
   const ids = Object.values(await peopleIds())
-  for (const t of ['pro_access_requests', 'pro_grants', 'pro_refers', 'pro_refer_edits', 'pro_context_refs', 'pro_context_views']) await q(`delete from ${t} where tenant_id = $1`, [T])
+  for (const t of ['pro_access_requests', 'pro_grants', 'pro_refers', 'pro_refer_edits', 'pro_context_refs', 'pro_context_views', 'pro_context_repeats']) await q(`delete from ${t} where tenant_id = $1`, [T])
   await q(`delete from notifications where tenant_id = $1 and (type like 'context_access%' or type = 'context_sensitive')`, [T])
   // 참고 요청이 남긴 결정 원장 줄, 녹화·시험이 끈 팀원 맥락 정책 스위치
   await q(`delete from pro_policy_decisions where tenant_id = $1 and action_kind = 'context.access'`, [T])

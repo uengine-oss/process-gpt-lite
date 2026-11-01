@@ -53,7 +53,7 @@ async function send() {
   } catch (e) { err.value = e.message } finally { busy.value = false }
 }
 const anyGranted = computed(() => all.value.some((x) => x.request && granted(x)))
-const rerun = () => st.value?.message && app.send(st.value.message, props.thread)
+const rerun = () => st.value?.message && app.send(st.value.message, props.thread, undefined, { fresh: true })
 // 이 대화의 자동 참고 끄기·켜기(서버가 대화마다 기억한다)
 const off = ref(!!props.refer?.off)
 async function toggle(on) {

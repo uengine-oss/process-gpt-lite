@@ -24,6 +24,7 @@ import * as llmKeys from './llmKeys.js'
 import * as turns from './turns.js'
 import { refer as referContext } from './context/refer.js'
 import { rebuildSoon } from './context/digest.js'
+import { findRepeat } from './context/repeat.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
@@ -204,14 +205,15 @@ export function runTurn(args) {
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
 const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   files = (files || []).filter((f) => f?.path && f?.url).slice(0, 10)
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
-  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
+  // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
+  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(fresh ? { fresh: true } : {}) })
   const store = turnCtx.getStore()
-  if (store) store.userMsgId = said.id
+  if (store) { store.userMsgId = said.id; store.fresh = !!fresh }
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
   if (files.length) {
     attached.set(threadId, files)
@@ -730,6 +732,21 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const before = live ? await capture({ userId: user.id, jwt: session.access_token, open: live }) : null
   const usedTools = new Set()
   let partial = ''
+  // 같은 요청 알아보기(lib/context/repeat.js): 나나 팀원이 이미 같은 요청을 해 답이 있으면 에이전트를 부르지 않고 카드로 묻는다
+  // (그 답 보기 · 요청하기 · 그래도 새로 하기). 파일을 붙인 요청, 「새로 하기」로 다시 보낸 요청은 보지 않는다.
+  const freshAsked = !!turnCtx.getStore()?.fresh
+  if (thread?.kind === 'chat' && !silent && mode !== 'skill' && !divider && !pin?.folder && userMsgId && !freshAsked && !uploads.length) {
+    const [said] = await q(`select content->>'text' as text from pro_messages where id = $1`, [userMsgId])
+    const rep = said?.text ? await findRepeat(user, { threadId, message: said.text, userMsgId }).catch((e) => { console.warn('[delegate] repeat', e.message); return null }) : null
+    if (rep?.hits?.length) {
+      await setThreadStatus(user.id, threadId, null)
+      clearTimeout(idleTimer)
+      const h = rep.hits[0]
+      const who = h.mine ? L('같은 요청을', 'the same request') : L(`${h.owner_name}님이 같은 요청을`, `${h.owner_name} made the same request`)
+      return addMessage(user.id, threadId, 'agent', 'repeat', { text: L(`이미 한 요청이에요 — ${who} 했어요(「${h.title}」). 그 답을 볼까요, 새로 할까요?`, `Already asked — ${who} (“${h.title}”). See that answer, or do it again?`),
+        repeat_id: rep.repeat_id, request: said.text, hits: rep.hits, ms: rep.ms })
+    }
+  }
   // 팀 맥락 공유(lib/context/refer.js): 메인 채팅의 턴마다 지금 일과 관계있는 다른 대화 맥락(내 것·팀이 공유한 것·허락받은 것)을
   // 골라 인용 블록으로 붙인다. 고른 결과는 사람 메시지에 남아 칩이 된다. 2초 안에 못 고르면 참고 없이 간다.
   const refer = thread?.kind === 'chat' && !silent && mode !== 'skill' && !divider && !pin?.folder

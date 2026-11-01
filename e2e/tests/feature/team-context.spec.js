@@ -164,3 +164,49 @@ test('F-TC-07 홈 카드·공유와 허락: 정책이 묻게 한 요청은 카�
   await expect(page.getByTestId('rule-topic')).toContainText('민감할 수 있는 주제가 보이면 → 묻기')
   expect(page.errors).toEqual([])
 })
+
+// ── 같은 요청 알아보기(server lib/context/repeat.js, test/repeat.{test.js,e2e.mjs}) ─────────────────────────
+test('F-TC-08 「이미 한 요청」 카드: 내 이전 요청은 그 답 보기(그 턴의 답을 펼침), 제목만 보이는 팀원 것은 요청하기, 그래도 새로 하기는 fresh 로 다시 보냄', async ({ pageAs, db, cleanup }) => {
+  const page = await pageAs('tc-repeat')
+  const th = await db.clearMain(page.user.id)
+  const conv = `tc-rep-${Date.now()}`
+  await db.addConversation(page.user.id, conv, '경쟁 서비스 동향')
+  const ASK = '경쟁 3사 월 요금을 표로 비교해줘'
+  const [, ans] = await db.addMessages(th, [
+    { role: 'user', content: { text: '경쟁 3사 월 요금을 표로 비교해 줘' } },
+    { role: 'agent', content: { text: '| 회사 | 월 요금 |\n|---|---|\n| A사 | 9,000원 |\n| B사 | 11,000원 |', conv } },
+  ])
+  const hits = [
+    { kind: 'turn', conv, title: '경쟁 서비스 동향', owner: page.user.id, owner_name: '나', mine: true, depth: 'content', at: ans.created_at, turn_id: ans.id, prompt: '경쟁 3사 월 요금을 표로 비교해 줘', can_request: null, score: 0.99 },
+    { kind: 'context', conv: 'tc-rep-other', title: '경쟁사 가격 벤치마크', owner: '00000000-0000-0000-0000-0000000000a2', owner_name: '최유나', mine: false, depth: 'title', at: ans.created_at, can_request: 'content', score: 0.77 },
+  ]
+  const [rep] = await db.q(`insert into pro_context_repeats (tenant_id, user_id, thread_id, message, hits) values ($1,$2,$3,$4,$5) returning id`, [db.tenant, page.user.id, th, ASK, JSON.stringify(hits)])
+  cleanup(() => db.q('delete from pro_context_repeats where id = $1', [rep.id]))
+  await db.addMessages(th, [
+    { role: 'user', content: { text: ASK } },
+    { role: 'agent', kind: 'repeat', content: { text: '이미 한 요청이에요', repeat_id: rep.id, request: ASK, hits } },
+  ])
+  let sent = null
+  await page.route('**/api/threads/*/messages', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    sent = route.request().postDataJSON()
+    await route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: 'event: done\ndata: {}\n\n' })
+  })
+  await page.goto('/chat')
+  const card = page.getByTestId('repeat-card')
+  await expect(card).toContainText('같은 요청을 전에 했어요', { timeout: 20_000 })
+  await expect(card).toContainText('에이전트는 아직 부르지 않았어요')
+  const mine = card.locator('[data-repeat="경쟁 서비스 동향"]')
+  await expect(mine).toContainText('「경쟁 3사 월 요금을 표로 비교해 줘」')
+  const other = card.locator('[data-repeat="경쟁사 가격 벤치마크"]')
+  await expect(other).toContainText('최유나님이')
+  await expect(other).toContainText('지금은 제목만')
+  await expect(other.getByRole('button', { name: '요청하기' })).toBeVisible()
+  await mine.getByRole('button', { name: '그 답 보기' }).click()
+  await expect(mine.getByTestId('repeat-answer')).toContainText('11,000원')
+  await expect.poll(async () => (await db.q('select choice from pro_context_repeats where id = $1', [rep.id]))[0].choice).toBe('view')
+  await card.getByTestId('repeat-fresh').click()
+  await expect(card).toContainText('같은 요청을 새로 보냈어요')
+  await expect.poll(() => sent).toMatchObject({ text: ASK, fresh: true })
+  expect(page.errors).toEqual([])
+})

@@ -3,6 +3,7 @@
 import express from 'express'
 import * as R from '../lib/context/refer.js'
 import * as A from '../lib/context/access.js'
+import * as P from '../lib/context/repeat.js'
 import { viewerOf, contextView } from '../lib/context/items.js'
 
 export function contextRoutes(auth) {
@@ -25,6 +26,9 @@ export function contextRoutes(auth) {
   r.get('/context/sharing-rules', auth, h((req) => A.rulesOf(req.user.id)))
   r.put('/context/sharing-rules', auth, h((req) => A.saveRules(req.user, req.body)))
   r.get('/context/used', auth, h((req) => A.usedBy(req.user)))
+  // 같은 요청 알아보기 카드: 그 답 보기(지금 깊이로 다시 본다)·고른 것 남기기
+  r.get('/context/repeats/:id/answer', auth, h((req) => P.repeatAnswer(req.user, req.params.id, req.query.n || 0)))
+  r.post('/context/repeats/:id/choice', auth, h((req) => P.repeatChoice(req.user, req.params.id, req.body?.choice)))
   r.get('/context/items/:conv', auth, h(async (req) => contextView(await viewerOf(req.user), req.params.conv, { threadId: req.query.thread || null })))
   // 켜질 때와 5분마다 맥락 임베딩을 데운다(첫 턴이 2초 제한에 걸리지 않게)
   const heat = () => import('../lib/supa.js').then(({ eachTenant }) => eachTenant(() => R.warm())).catch((e) => console.warn('[context] warm', e.message))
