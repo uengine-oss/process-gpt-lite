@@ -29,7 +29,7 @@ function ago(at) {
   return d === 1 ? '어제' : `${d}일 전`
 }
 const who = (h) => (h.mine ? '내가' : `${h.owner_name}님이`)
-const depthNote = (h) => (h.mine ? '내 맥락' : h.depth === 'content' ? '원문을 볼 수 있어요' : h.depth === 'summary' ? '지금은 요약만' : '지금은 제목만')
+const depthNote = (h, i) => (h.mine ? '내 맥락' : req.value[i]?.status === 'granted' ? '허락됨 · 원문' : h.depth === 'content' ? '원문을 볼 수 있어요' : h.depth === 'summary' ? '지금은 요약만' : '지금은 제목만')
 const canView = (h, i) => h.mine || h.depth === 'content' || h.depth === 'summary' || req.value[i]?.status === 'granted'
 
 async function view(h, i) {
@@ -60,7 +60,7 @@ async function fresh() {
       <div class="row">
         <div class="main">
           <b>「{{ h.title }}」</b>
-          <small>{{ who(h) }} · {{ ago(h.at) }} · {{ depthNote(h) }}</small>
+          <small>{{ who(h) }} · {{ ago(h.at) }} · {{ depthNote(h, i) }}</small>
           <small v-if="h.prompt" class="q">「{{ h.prompt }}」</small>
         </div>
         <button v-if="canView(h, i) && !open[i]" class="pill press" :disabled="busy === `v${i}`" @click="view(h, i)">{{ busy === `v${i}` ? '여는 중…' : '그 답 보기' }}</button>

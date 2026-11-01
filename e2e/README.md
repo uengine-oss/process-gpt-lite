@@ -378,11 +378,12 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 원장에서 배우는 정책 조정(완화·강화·대안), 적용하면 결정이 바뀌고 버전이 오름, 리포트 집계 | `server/test/agentic-insights.test.js` | 서버 | ✅ |
 | 화면: 정책·가드레일 세 탭, 승인자 알림 → 원장 줄 강조 → 승인, 전략맵 | 영상(녹화 중 단언) | — | ◐ (Playwright 화면 시험 ✗) |
 
-### 17. 팀 맥락 공유 — 자동 참고·참고 요청·팀 활동·공개 등급 (설계 `process-gpt/openspec/changes/pgpt-pro-team-context`, 영상 ① `7jat7FFJeKw` · ② `VJpa1aKFbUo`)
+### 17. 팀 맥락 공유 — 자동 참고·참고 요청·팀 활동·공개 등급 (설계 `process-gpt/openspec/changes/pgpt-pro-team-context`, 영상 ① `VIDEO1` · ② `VJpa1aKFbUo` · ③ `VIDEO3`)
 
 판정 사례(`server/test/context-visibility-cases.json` 39 · `refer-cases.json` 16)와 HTTP E2E(시드 회사 team-demo, 실제 임베딩·모델)는 서버 시험으로 돈다.
-`cd server && node --test test/context-visibility.test.js test/refer.test.js test/context-grade.test.js test/team-activity.test.js`(82),
-E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `node scripts/seed-team-context.mjs --reset` 뒤 `node test/{context-share,context-grade,team-activity}.e2e.mjs` 다.
+`cd server && node --test test/context-visibility.test.js test/refer.test.js test/context-grade.test.js test/team-activity.test.js test/context-policy.test.js test/repeat.test.js`(92),
+E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `node scripts/seed-team-context.mjs --reset` 뒤 `node test/{context-share,context-grade,team-activity,context-policy,repeat}.e2e.mjs` 다.
+팀원 맥락 참고의 결정은 회사 정책(`context-policy-cases.json` 14 — 실제 정책 엔진), 같은 요청 판별은 `repeat-cases.json` 10(실제 게이트웨이 모델, `repeat.e2e.mjs` ④).
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -394,16 +395,22 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 팀 활동 카드(팀장·다른 팀·관리자 차이, 문장 없음), 시간순 깊이, 원문 보기 자동 허용, 조직도 403/모아 보기, 겹침(보는 사람의 글로만), 관리자 눈, 비공개로 바꾸면 바로 빠짐(진행 중 작업 줄 제목 누출 고침) | `team-activity.e2e.mjs` 12단계, `team-activity.test.js` 16 | 서버 | ✅ |
 | 칩(주인·깊이·원문 요청·빼기·고정·자동 참고 끄기), 요청 후보 상태(요청함·허락됨·다시 답하기), 홈 카드에서 허락 → 카드 내려감·요청자 결과 | F-TC-01…03 | feature | ✅ |
 | 팀 탭·설정 › 공유와 허락 화면 | F-TC-04·05 | feature | ✅ |
-| 실제 턴: 라우터는 원래 메시지로 맥락을 고르고, 에이전트가 [1]·[2] 로 인용, 허락 뒤 다시 답하면 원문 내용 반영 | 영상 ①(녹화 중 단언) | — | ◐ |
+| 회사 정책: 카탈로그 정책 셋(민감 표시 → 주인, 민감할 수 있는 주제 → 주인, 기록), 주제 목록 검증(깨진 패턴·빈 이름 400), 낱말 경계(인사이트 ≠ 인사), 무시한 제안은 주제 없음, 원장 한 줄 제목 가림, 정책 끄기·주제 목록 바꾸기 | `context-policy.test.js` 5(판정 사례 14) | 서버 | ✅ |
+| 참고 요청 ↔ 정책·원장: 자동 허락 「기록」→ 회수 「회수함」, 주제(성과급→급여)면 같은 팀도 묻기·요청자에게 주제 없음·홈 카드 정책 줄, 원장 승인 단추 없음·승인 API 404, 주인 허락·거절이 원장에(승인자), 무시한 제안은 규칙대로, 주제 정책 끄면 규칙대로·고정 줄 바뀜, 3일 만료 「만료」, 요약 때 민감 제안 + 홈 카드 한 장 | `context-policy.e2e.mjs` 13단계(확인 35) | 서버 | ✅ |
+| 같은 요청 알아보기: 후보는 보는 깊이의 글만(예문은 원문 깊이에서만), 좁히기 0.8/0.6·같은 문장 하나·최근 답 먼저, 모델 답 → 카드(stale 제외·맥락마다 하나·최대 2), 카드에 답 본문 없음 | `repeat.test.js` 5 | 서버 | ✅ |
+| 이미 한 요청 → 카드(에이전트 안 부름) → 그 답 보기 → 새로 하기(fresh, 에이전트 답) → 30분 안 같은 문장은 다시 시켜 보기, 표 ↔ 그래프 다름, 같은 팀 제목 깊이 → 403 → 요청하기(자동 허락·원장) → 팀원 답·본 기록 → 회수 뒤 403, 비공개 맥락 후보 아님, 판별 사례 10 | `repeat.e2e.mjs` 11단계(확인 22) | 서버 | ✅ |
+| 설정 › 정책 팀원 맥락 참고 셋(주제 칩·주인이 홈 카드에서)·원장 「주인 결정 대기」 승인 단추 없음, 홈 카드 정책·주제 줄·민감 표시 제안 카드·공유와 허락 고정 줄 둘, 「이미 한 요청」 카드(그 답 보기·요청하기·새로 하기 fresh) | F-TC-06…08 | feature | ✅ |
+| 실제 턴: 라우터는 원래 메시지로 맥락을 고르고, 에이전트가 [1]·[2] 로 인용, 허락 뒤 다시 답하면 원문 내용 반영, 말만 바꾼 같은 요청 → 카드·그 답 보기, 같은 팀이 한 일 → 요청하기 → 그 답 | 영상 ①(녹화 중 단언) | — | ◐ |
+| 실제 턴: 성과급 정리 → 요약 때 민감 제안 카드 → 같은 팀 원문 요청이 묻기 → 홈 카드 정책 줄 → 거절 → 민감 승인 → 원장 | 영상 ③(녹화 중 단언) | — | ◐ |
 
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (25개) | 145 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…05) |
+| feature | `tests/feature/*.spec.js` (25개) | 148 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…08) |
 | agent | `tests/agent/*.spec.js` (6개) | 17 (회의 A-14) |
-| 합계 | | 236 (`npx playwright test --list` 로 센 수, 2026-11-01) |
+| 합계 | | 239 (`npx playwright test --list` 로 센 수, 2026-11-01) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 

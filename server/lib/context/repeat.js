@@ -51,7 +51,8 @@ export function unitsOf(contexts, turnsByConv, { skipTurn = () => false } = {}) 
 }
 // 점수가 매겨진 후보 → 모델에 물을 것(턴은 0.8, 맥락은 0.6 이상, 같은 문장은 그대로 최상위)
 export function shortlist(units, { params = PARAMS } = {}) {
-  const turns = units.filter((u) => u.kind === 'turn' && u.score >= params.turnBar).sort((a, b) => b.score - a.score)
+  // 점수가 같으면(같은 문장을 여러 번 했으면) 최근 답부터
+  const turns = units.filter((u) => u.kind === 'turn' && u.score >= params.turnBar).sort((a, b) => b.score - a.score || new Date(b.at || 0) - new Date(a.at || 0))
   const seen = new Set(), keep = []
   for (const u of turns) { const k = `${u.conv}|${norm(u.prompt)}`; if (seen.has(k)) continue; seen.add(k); keep.push(u) }
   const ctx = units.filter((u) => u.kind === 'context' && u.score >= params.contextBar).sort((a, b) => b.score - a.score).slice(0, params.maxContexts)
@@ -70,7 +71,8 @@ export const hitOut = (h) => ({ kind: h.kind, conv: h.conv, title: h.title, owne
   ...(h.kind === 'turn' ? { turn_id: h.turn_id, prompt: short(h.prompt, 200) } : {}), can_request: !h.mine && h.depth !== 'content' ? 'content' : null, score: Math.round(h.score * 1000) / 1000 })
 
 const JUDGE_SYS = `너는 업무 요청 중복 판별기다. 지금 요청과 이전 기록을 비교한다.
-same: 이전 요청(또는 그 맥락에서 이미 한 일)이 지금 요청과 같은 결과물을 원한다 — 대상·범위·형식·기간이 같다. 대상이 다르면(고객 B ↔ 고객 C), 형식이 다르면(표 ↔ 그래프), 기간이 다르면(이번 주 ↔ 지난주) same 이 아니다.
+same: 이전 요청(또는 그 맥락에서 이미 만든 결과물)이 지금 요청이 원하는 결과물 그 자체다 — 대상·범위·형식·기간이 같다.
+same 이 아닌 것: 대상이 다르다(고객 B ↔ 고객 C), 형식이 다르다(표 ↔ 그래프), 기간이 다르다(이번 주 ↔ 지난주), 지금 요청이 이전 기록을 참고·근거로 써서 다른 결과물을 만든다(「○○를 참고해서 △△ 써 줘」), 이전 기록은 주제만 같고 그 결과물을 만든 적이 없다.
 stale: same 이지만 시간이 지나 이전 답이 쓸모없을 요청이다(오늘 날씨·실시간 시세·「이번 주」처럼 기간이 바뀐 것).
 JSON {"same": [번호], "stale": [번호]} 만 답한다.`
 
