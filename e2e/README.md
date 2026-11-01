@@ -378,7 +378,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 원장에서 배우는 정책 조정(완화·강화·대안), 적용하면 결정이 바뀌고 버전이 오름, 리포트 집계 | `server/test/agentic-insights.test.js` | 서버 | ✅ |
 | 화면: 정책·가드레일 세 탭, 승인자 알림 → 원장 줄 강조 → 승인, 전략맵 | 영상(녹화 중 단언) | — | ◐ (Playwright 화면 시험 ✗) |
 
-### 17. 팀 맥락 공유 — 자동 참고·참고 요청·팀 활동·공개 등급 (설계 `process-gpt/openspec/changes/pgpt-pro-team-context`, 영상 ① `VIDEO1` · ② `VJpa1aKFbUo` · ③ `VIDEO3`)
+### 17. 팀 맥락 공유 — 자동 참고·참고 요청·팀 활동·공개 등급 (설계 `process-gpt/openspec/changes/pgpt-pro-team-context`, 영상 ① `Cm6MyQ_h8qE`(2판, 1판 `7jat7FFJeKw`) · ② `VJpa1aKFbUo` · ③ `2zOfxuP5zEU`)
 
 판정 사례(`server/test/context-visibility-cases.json` 39 · `refer-cases.json` 16)와 HTTP E2E(시드 회사 team-demo, 실제 임베딩·모델)는 서버 시험으로 돈다.
 `cd server && node --test test/context-visibility.test.js test/refer.test.js test/context-grade.test.js test/team-activity.test.js test/context-policy.test.js test/repeat.test.js`(92),
