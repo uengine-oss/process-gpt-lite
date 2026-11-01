@@ -38,7 +38,7 @@ async function digest(owner) {
   const description = today.map((r) => `${personName(org, r.requester)} · 「${r.target_title}」 ${DEPTH_LABEL[r.depth]}`).join('\n')
   const [row] = await q(`select id from notifications where tenant_id = $1 and user_id = $2 and type = 'context_access_digest' and time_stamp >= date_trunc('day', now()) order by time_stamp desc limit 1`, [T(), String(owner)])
   if (row) { await q(`update notifications set title = $2, description = $3, is_checked = false where id = $1`, [row.id, title, description]); emit(String(owner), 'notifications', {}) }
-  else await notify(owner, { type: 'context_access_digest', title, description, url: '/pro/settings/sharing' })
+  else await notify(owner, { type: 'context_access_digest', title, description, url: '/settings/sharing' })
 }
 
 export async function rulesOf(owner) {
@@ -73,7 +73,7 @@ async function makeGrant(x, req, { depth, duration, exclude = [], via }) {
 export async function sweep() {
   const gone = await q(`update pro_access_requests set status = 'expired', via = 'expiry', decided_at = now() where tenant_id = $1 and status = 'pending' and expires_at <= now() returning *`, [T()])
   for (const r of gone) {
-    await notify(r.requester, { type: 'context_access_result', title: `참고 요청 만료 · 「${r.target_title}」`, description: '주인이 3일 동안 답하지 않아 응답 없음으로 만료되었습니다.', url: '/pro/settings/sharing', from: await emailOf(r.owner) })
+    await notify(r.requester, { type: 'context_access_result', title: `참고 요청 만료 · 「${r.target_title}」`, description: '주인이 3일 동안 답하지 않아 응답 없음으로 만료되었습니다.', url: '/settings/sharing', from: await emailOf(r.owner) })
     await q(`update notifications set is_checked = true where tenant_id = $1 and type = 'context_access' and url = $2`, [T(), `/pro/context-access/${r.id}`])
   }
   return gone.length
@@ -156,8 +156,8 @@ export async function decideRequest(me, id, body = {}) {
   await q(`update notifications set is_checked = true where tenant_id = $1 and type = 'context_access' and url = $2`, [T(), `/pro/context-access/${id}`])
   emit(vc.viewer, 'notifications', {})
   const from = await emailOf(vc.viewer)
-  if (out.status === 'denied') await notify(out.req.requester, { type: 'context_access_result', title: `참고 요청 거절 · 「${out.req.target_title}」`, description: out.reason ? `사유: ${out.reason}` : '', url: '/pro/settings/sharing', from })
-  else await notify(out.req.requester, { type: 'context_access_result', title: `참고 허락 · 「${out.req.target_title}」 ${DEPTH_LABEL[out.grant.depth]} · ${durationLabel(out.grant)}`, description: out.grant.exclude.length ? `${out.grant.exclude.length}개 턴은 빼고 허락했습니다` : '', url: '/pro/settings/sharing', from })
+  if (out.status === 'denied') await notify(out.req.requester, { type: 'context_access_result', title: `참고 요청 거절 · 「${out.req.target_title}」`, description: out.reason ? `사유: ${out.reason}` : '', url: '/settings/sharing', from })
+  else await notify(out.req.requester, { type: 'context_access_result', title: `참고 허락 · 「${out.req.target_title}」 ${DEPTH_LABEL[out.grant.depth]} · ${durationLabel(out.grant)}`, description: out.grant.exclude.length ? `${out.grant.exclude.length}개 턴은 빼고 허락했습니다` : '', url: '/settings/sharing', from })
   return { status: out.status, request: out.request, grant: out.grant || null }
 }
 
@@ -171,7 +171,7 @@ export async function grantsList(me) {
 export async function revoke(me, id) {
   const [g] = await q(`update pro_grants set revoked_at = now() where id = $1 and tenant_id = $2 and owner = $3 and revoked_at is null returning *`, [id, T(), me.id])
   if (!g) throw new ContextError(404, '없는 허락입니다')
-  await notify(g.grantee, { type: 'context_access_result', title: `참고 허락 회수 · 「${g.target_title}」`, description: '주인이 허락을 회수했습니다. 이미 만든 답에는 제목과 주인만 남습니다.', url: '/pro/settings/sharing', from: await emailOf(me.id) })
+  await notify(g.grantee, { type: 'context_access_result', title: `참고 허락 회수 · 「${g.target_title}」`, description: '주인이 허락을 회수했습니다. 이미 만든 답에는 제목과 주인만 남습니다.', url: '/settings/sharing', from: await emailOf(me.id) })
   return { revoked: true, grant: g }
 }
 

@@ -17,6 +17,7 @@ import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
 import ShareButton from './team/ShareButton.vue'
 import ImproveCard from './improve/ImproveCard.vue'
+import ReferChips from './context/ReferChips.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -72,6 +73,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       <!-- sent while an answer of the same conversation was still coming: it waits its turn (lib/turns.js) -->
       <small v-if="c.queued" class="queue">대기 · 앞 답이 끝나면 이어서 답해요</small>
       <small v-else-if="c.dropped" class="queue">서버가 다시 시작되어 이 요청은 답하지 못했어요 · 다시 보내 주세요</small>
+      <!-- 팀 맥락 공유: 이 요청에 붙인 다른 대화 맥락(답 위 칩) -->
+      <ReferChips v-if="c.refer" part="used" :refer="c.refer" :thread="msg.thread_id" :key="c.refer.refer_id || 'off'" />
     </template>
     <template v-else-if="msg.kind === 'text'">
       <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
@@ -144,6 +147,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     </button>
 
     <div v-else-if="msg.kind === 'chip'" class="chip"><Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> {{ c.text }}</div>
+    <!-- 팀 맥락 공유: 관계있지만 아직 볼 수 없는 팀원의 맥락(답 아래 요청 후보) -->
+    <ReferChips v-if="msg.role === 'agent' && c.refer_id" part="requestable" :refer-id="c.refer_id" :thread="msg.thread_id" />
   </div>
 </template>
 

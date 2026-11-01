@@ -6,6 +6,7 @@ import { useApp } from '../stores/app.js'
 import { useRouter } from 'vue-router'
 import { useTeam } from '../stores/team.js'
 import StepOutputs from './mining/StepOutputs.vue'
+import AccessDecide from './context/AccessDecide.vue'
 
 const props = defineProps({ n: Object })
 const app = useApp()
@@ -18,9 +19,9 @@ const ctxText = computed(() => String(props.n.context || props.n.text || '').rep
 // a teammate's 'team' notice is a share or a mention; its title is in the recipient's language
 // (lib/team/messenger.js notifyMembers: "…를 공유했어요" / "… shared …", "…나를 언급했어요" / "… mentioned you")
 const teamVerb = (title) => (/나를 언급했어요|\bmentioned you\b/.test(title || '') ? '멘션' : /공유했어요|\sshared\s/.test(title || '') ? '공유' : '멘션')
-const verb = computed(() => props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+const verb = computed(() => props.n.type === 'context_access' ? '참고 요청' : String(props.n.type || '').startsWith('context_access') ? '공유' : props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
-const kinds = { agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선' }
+const kinds = { context_access: '팀 맥락 공유', context_access_result: '팀 맥락 공유', context_access_digest: '팀 맥락 공유', agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선' }
 const when = computed(() => {
   const d = new Date(props.n.at)
   const mins = Math.round((Date.now() - d) / 60000)
@@ -59,7 +60,9 @@ async function act(choice) {
     <p v-if="n.context || n.text" class="ctx">{{ ctxText }}</p>
     <!-- a step to decide: the earlier steps' outputs open right here (IeumOffice · ArtCraft) -->
     <StepOutputs v-if="n.type === 'workitem' && n.todoId" :todo-id="n.todoId" />
-    <div class="btns">
+    <!-- 팀 맥락 공유: 팀원의 참고 요청은 이 카드에서 바로 허락·거절(깊이·기간·뺄 턴) -->
+    <AccessDecide v-if="n.type === 'context_access'" :n="n" />
+    <div v-else class="btns">
       <template v-if="n.choices">
         <button v-for="o in n.choices.options" :key="o.key" class="b press" :class="{ main: o === n.choices.options[0] }"
           :disabled="!!busy" :title="o.label" @click="act(o.key)">{{ busy === o.key ? '처리 중…' : o.key }}</button>
@@ -74,6 +77,8 @@ async function act(choice) {
 .head { display: flex; align-items: flex-start; gap: 8px; }
 .verb { flex: none; height: 30px; line-height: 30px; padding: 0 9px; border-radius: 8px; background: var(--color-attention); color: #fff; font-size: 15px; font-weight: 500; }
 .mention .verb, .team .verb { background: #2a78d6; }
+.context_access .verb { background: #7a5af5; }
+.context_access_result .verb, .context_access_digest .verb { background: #2a78d6; }
 .mission .verb { background: #3d3d3a; }
 .agent_failed .verb, .mission_failed .verb { background: var(--color-error); }
 .title { flex: 1; font-size: 16px; line-height: 30px; font-weight: 500; }

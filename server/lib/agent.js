@@ -735,8 +735,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const refer = thread?.kind === 'chat' && !silent && mode !== 'skill' && !divider && !pin?.folder
     ? await referContext(user, { threadId, message: text, current: turn.conv || thread?.conversation_id || null, turnTitle: turn.title }).catch((e) => { console.warn('[delegate] refer', e.message); return null })
     : null
-  if (refer?.refer_id && userMsgId) {
-    const keep = { refer_id: refer.refer_id, used: refer.used, requestable: refer.requestable, ...(refer.skipped ? { skipped: refer.skipped } : {}) }
+  if ((refer?.refer_id || refer?.off) && userMsgId) {
+    const keep = refer.off ? { off: true } : { refer_id: refer.refer_id, used: refer.used, requestable: refer.requestable, ...(refer.skipped ? { skipped: refer.skipped } : {}) }
     const [m] = await q(`update pro_messages set content = content || jsonb_build_object('refer', $2::jsonb) where id=$1 returning *`, [userMsgId, JSON.stringify(keep)])
     if (m) emit(user.id, 'message', m)
   }

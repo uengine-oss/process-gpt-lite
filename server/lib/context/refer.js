@@ -160,7 +160,7 @@ export async function referState(me, id) {
   if (!row) throw new ContextError(404, '없는 참고입니다')
   const now = await contextsFor(vc, { threadId: row.thread_id })
   const mark = (x) => { const c = now.find((y) => y.id === x.id); return { ...x, depth_now: c?.depth || 'none', granted: !!c?.grant && atLeast(c.depth, x.depth === 'title' ? 'summary' : 'content') } }
-  return { refer_id: row.id, thread_id: row.thread_id, used: await withRequests(vc.viewer, row.used.map(mark)), requestable: await withRequests(vc.viewer, row.requestable.map(mark)), skipped: row.skipped, ms: row.ms }
+  return { refer_id: row.id, thread_id: row.thread_id, message: row.message, used: await withRequests(vc.viewer, row.used.map(mark)), requestable: await withRequests(vc.viewer, row.requestable.map(mark)), skipped: row.skipped, ms: row.ms }
 }
 
 export async function referEdit(me, { threadId = null, owner = null, conversationId = null, action }) {
