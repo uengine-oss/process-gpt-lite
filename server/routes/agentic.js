@@ -38,13 +38,14 @@ export function agenticRoutes(auth) {
   r.get('/decisions', auth, (req, res) => send(res, (async () => {
     const admin = await isAdmin(req.user)
     const rows = await q(`select d.id, d.user_id, u.username as name, d.action_kind, d.subject, d.facts, d.decision, d.matched, d.dry_run, d.status,
-        d.approver_role, d.approved_by, d.approved_at, d.result, d.created_at, a.undo_until
+        d.approver_role, d.approved_by, d.approved_at, d.result, d.created_at, a.undo_until, a.decision_id is not null as kept
       from pro_policy_decisions d left join users u on u.id=d.user_id and u.tenant_id=d.tenant_id left join pro_policy_actions a on a.decision_id=d.id
       where d.tenant_id=$1 and ($2 or d.user_id=$3 or d.status='pending') and ($4::text is null or d.status=$4) and ($5 or not d.dry_run)
       order by d.created_at desc limit 200`, [T(), admin, req.user.id, req.query.status || null, req.query.dry === '1'])
     const out = []
     for (const d of rows) {
-      const mayDecide = d.status === 'pending' && await canApprove(req.user, d.approver_role)
+      // 원장에서 승인하는 것은 승인 뒤 실행할 행위가 보관된 결정만(팀원 맥락 참고는 주인이 홈 카드에서 정한다)
+      const mayDecide = d.status === 'pending' && d.kept && await canApprove(req.user, d.approver_role)
       if (admin || String(d.user_id) === String(req.user.id) || mayDecide) out.push({ ...d, mayDecide })
     }
     return { admin, decisions: out }

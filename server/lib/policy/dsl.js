@@ -6,7 +6,8 @@
 //     decide: 'allow' | 'allow_audit' | 'require_approval' | 'deny',
 //     approver: { role: '개인정보 책임자' },                          // who may approve / grant an exception
 //     tolerance: { field: 'amount', limit: 100000, over: 0.1 },      // within limit × (1 + over): only recorded
-//     window: { span: '1d', count: 20, then: 'require_approval' } }  // more than count in span: stricter
+//     window: { span: '1d', count: 20, then: 'require_approval' },   // more than count in span: stricter
+//     topics: [{ name: '급여', pattern: '급여|월급' }] }                 // a word list the caller matches to fill a fact (context.access)
 //
 // Several policies match one action: the strictest decision wins (deny > require_approval > allow_audit > allow).
 // The decision is deterministic: facts such as "how many personal data items" are inputs the caller fills
@@ -47,6 +48,13 @@ export function validate(spec) {
     need(spanMs(spec.window.span) != null, 'window.span: like 30m, 12h, 1d')
     need(Number(spec.window.count) > 0, 'window.count > 0')
     need(DECISIONS.includes(spec.window.then), 'window.then: a decision')
+  }
+  if (spec?.topics !== undefined) {
+    const ok = Array.isArray(spec.topics) && spec.topics.every((t) => {
+      if (!t?.name || typeof t.pattern !== 'string' || !t.pattern || t.pattern.length > 300) return false
+      try { new RegExp(t.pattern); return true } catch { return false }
+    })
+    need(ok, 'topics: [{name, pattern}] with patterns that compile (300 characters at most)')
   }
   return errs
 }

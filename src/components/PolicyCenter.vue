@@ -23,7 +23,7 @@ const time = (t) => new Date(t).toLocaleTimeString(loc, { hour: 'numeric', minut
 const DEC = { allow: '허용', allow_audit: '기록', require_approval: '승인 필요', deny: '차단' }
 const DEC_HINT = { allow: '바로 실행해요', allow_audit: '실행하고 감사 기록에 남겨요 · 되돌리기 창', require_approval: '승인자가 승인하면 실행해요', deny: '실행하지 않아요' }
 const CATS = [['privacy', '개인정보'], ['security', '보안'], ['authority', '권한·결재'], ['legal', '법무·계약'], ['audit', '기록·감사'], ['quality', '품질·운영'], ['cost', '비용'], ['ethics', '윤리']]
-const KINDS = { 'mail.send': '메일 보내기', 'browser.payment': '결제 (브라우저 에이전트)', 'purchase.approve': '구매 승인', 'purchase.order': '발주', 'release.deploy': '배포', 'data.export': '데이터 반출', 'data.delete': '데이터 삭제' }
+const KINDS = { 'mail.send': '메일 보내기', 'browser.payment': '결제 (브라우저 에이전트)', 'purchase.approve': '구매 승인', 'purchase.order': '발주', 'release.deploy': '배포', 'data.export': '데이터 반출', 'data.delete': '데이터 삭제', 'context.access': '팀원 맥락 참고' }
 const kindName = (k) => KINDS[k] || k
 const PII_KIND = { resident_id: '주민등록번호', mobile: '휴대전화', email: '메일 주소', bank_account: '계좌번호' }
 const FACT = {
@@ -32,9 +32,11 @@ const FACT = {
   amount: '금액', merchant: '판매처', new_merchant: '처음 쓰는 판매처', supplier_new: '신규 공급사', category: '분류',
   approved: '승인됨', speculative: '되돌릴 수 있는 준비', audience: '공개 대상', features: '기능', open_findings: '열린 위험', security_scan: '보안 점검',
   weekday: '요일', hour: '시', rows: '행', pii_rows: '개인정보 행', destination_external: '외부로', count: '건수',
+  sensitive: '민감 표시', topic: '민감할 수 있는 주제', relation: '요청한 사람', depth: '깊이', owner_rule: '주인 규칙',
 }
 const FACT_ORDER = Object.keys(FACT)
-const VALUE = { confidential: '기밀', general: '일반', public: '일반 공개', internal: '내부', beta: '베타', passed: '통과', failed: '실패' }
+const VALUE = { confidential: '기밀', general: '일반', public: '일반 공개', internal: '내부', beta: '베타', passed: '통과', failed: '실패',
+  team: '같은 팀', department: '같은 부서', company: '같은 회사', outside: '조직도 밖', summary: '요약', content: '원문', allow: '자동 허용', ask: '묻기', deny: '거절' }
 function fmt(k, v) {
   if (typeof v === 'boolean') return v ? '예' : '아니오'
   if (typeof v === 'number') return k === 'amount' ? `${v.toLocaleString(loc)}원` : v.toLocaleString(loc)
@@ -87,6 +89,22 @@ async function toggle(p) {
   try { await api(`/policies/${p.id}`, { method: 'PUT', body: { enabled: p.enabled } }) } catch (e) { p.enabled = was; err.value = e.message } finally { busy.value = '' }
 }
 
+// a word list a policy carries (context-sensitive-topic): one 「이름 = 패턴」 per line, saved as the policy's topics
+const topicEdit = ref({})   // policy id → text being edited
+const topicLines = (p) => (p.spec.topics || []).map((t) => `${t.name} = ${t.pattern}`).join('\n')
+async function saveTopics(p) {
+  err.value = ''; busy.value = p.id
+  const topics = String(topicEdit.value[p.id] || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const i = l.indexOf('=')
+    return i < 0 ? { name: l, pattern: l } : { name: l.slice(0, i).trim(), pattern: l.slice(i + 1).trim() }
+  })
+  try {
+    await api(`/policies/${p.id}`, { method: 'PUT', body: { spec: { ...p.spec, topics }, enabled: p.enabled } })
+    p.spec = { ...p.spec, topics }
+    delete topicEdit.value[p.id]
+  } catch (e) { err.value = e.message } finally { busy.value = '' }
+}
+
 // ── 시험해 보기: the PDP's answer for an action, nothing run or recorded
 const PRESETS = {
   'mail.send': [
@@ -123,6 +141,11 @@ const PRESETS = {
     ['개인정보 3,000행 외부로', { rows: 5000, pii_rows: 3000, destination_external: true }],
   ],
   'data.delete': [['30건 삭제', { count: 30 }], ['500건 삭제', { count: 500 }]],
+  'context.access': [
+    ['같은 팀 · 원문', { sensitive: false, topic: null, relation: 'team', depth: 'content', owner_rule: 'allow' }],
+    ['급여 주제가 보이는 맥락', { sensitive: false, topic: '급여', relation: 'team', depth: 'content', owner_rule: 'allow' }],
+    ['민감 표시 · 다른 팀', { sensitive: true, topic: null, relation: 'department', depth: 'summary', owner_rule: 'ask' }],
+  ],
 }
 const kinds = computed(() => [...new Set([...Object.keys(KINDS), ...policies.value.flatMap((p) => p.spec.scope?.action || [])])].filter((k) => !k.includes('*')))
 const kind = ref('mail.send')
@@ -145,6 +168,7 @@ async function tryIt() {
 const verdict = computed(() => {
   const r = result.value
   if (!r) return ''
+  if (kind.value === 'context.access') return { require_approval: '자동 허용하지 않고 주인에게 물어요', deny: '참고할 수 없어요', allow_audit: '주인 규칙대로 하고 결정 원장에 남겨요', allow: '주인 규칙대로 해요' }[r.decision]
   if (r.decision === 'require_approval') return `${r.approver || '관리자'}${holderOf(r.approver) ? ` (${holderOf(r.approver)})` : ''} 승인 후 실행돼요`
   return { allow: '바로 실행돼요', allow_audit: '실행되고 감사 기록에 남아요 · 되돌릴 수 있어요', deny: '실행되지 않아요' }[r.decision]
 })
@@ -165,7 +189,10 @@ const now = ref(Date.now())
 const pendingCount = ref(0)
 let timer = null
 const nameOf = (id) => team.value.find((m) => String(m.id) === String(id))?.name || ''
+// 팀원 맥락 참고: 주인이 홈 카드에서 정하고, 회수·만료도 같은 줄에 남는다
+const CTX_STATUS = { pending: '주인 결정 대기', executed: '자동 허락 · 기록', approved: '주인이 허락', rejected: '거절', expired: '만료 (응답 없음)', undone: '회수함', decided: '판단만' }
 function statusText(d) {
+  if (d.action_kind === 'context.access') return d.status === 'rejected' && d.result?.via === 'auto' ? '주인 규칙으로 거절' : CTX_STATUS[d.status] || d.status
   if (d.status === 'pending') return `${d.approver_role || '관리자'} 승인 대기`
   if (d.status === 'executed' && d.approved_by) return '승인 후 실행'
   if (d.status === 'executed' && d.decision === 'allow_audit') return '실행 · 기록'
@@ -254,11 +281,21 @@ onUnmounted(() => clearInterval(timer))
               <small class="ex">{{ pick(p.spec.explain) }}</small>
               <div class="meta">
                 <span class="kd">{{ scopeText(p.spec) }}</span>
-                <span v-if="p.spec.approver?.role" class="ap"><span>승인·예외</span> <b>{{ p.spec.approver.role }}</b> <span v-if="holderOf(p.spec.approver.role)" data-no-i18n>{{ holderOf(p.spec.approver.role) }}</span><span v-else class="none">담당 없음 → 관리자</span></span>
+                <span v-if="p.spec.approver?.role" class="ap"><span>승인·예외</span> <b>{{ p.spec.approver.role }}</b> <span v-if="p.spec.approver.owner" class="none">그 맥락의 주인이 홈 카드에서</span><span v-else-if="holderOf(p.spec.approver.role)" data-no-i18n>{{ holderOf(p.spec.approver.role) }}</span><span v-else class="none">담당 없음 → 관리자</span></span>
               </div>
               <small v-if="p.spec.window" class="rule">{{ windowText(p.spec.window) }}</small>
               <small v-if="p.spec.tolerance" class="rule">{{ toleranceText(p.spec.tolerance) }}</small>
               <small v-if="p.spec.sources?.length" class="src"><span>근거</span> {{ p.spec.sources.join(' · ') }}</small>
+              <div v-if="p.spec.topics?.length" class="topics" data-testid="policy-topics">
+                <span class="tl">주제 {{ p.spec.topics.length }}개</span>
+                <span v-for="t in p.spec.topics" :key="t.name" class="tp" :title="t.pattern" data-no-i18n>{{ t.name }}</span>
+                <button v-if="admin && topicEdit[p.id] === undefined" class="lnk" @click="topicEdit[p.id] = topicLines(p)">주제 고치기</button>
+                <template v-if="topicEdit[p.id] !== undefined">
+                  <textarea v-model="topicEdit[p.id]" class="facts" rows="6" spellcheck="false" aria-label="주제 목록 (이름 = 패턴)" />
+                  <small class="muted">한 줄에 하나, 「이름 = 정규식」. 제목·한 줄 목적·맥락 요약에서 찾아요.</small>
+                  <div class="row end"><button class="pill-btn sm" @click="delete topicEdit[p.id]">취소</button><button class="dark-btn sm" :disabled="busy === p.id" @click="saveTopics(p)">저장</button></div>
+                </template>
+              </div>
               <details v-if="p.spec.when !== undefined" class="rule-x"><summary>조건 (JSONLogic)</summary><pre>{{ JSON.stringify(p.spec.when, null, 1) }}</pre></details>
             </div>
             <button class="switch" :class="{ on: p.enabled }" role="switch" :aria-checked="p.enabled" :aria-label="p.enabled ? '끄기' : '켜기'"
@@ -415,6 +452,11 @@ onUnmounted(() => clearInterval(timer))
 .rule { color: var(--color-info); font-size: 12px; }
 .src { color: var(--text-tertiary); font-size: 12px; line-height: 1.4; }
 .src > span:first-child { margin-right: 2px; }
+.topics { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; }
+.topics .tl { font-size: 12px; color: var(--text-tertiary); }
+.topics .tp { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--field-bg); }
+.topics .lnk { border: 0; background: none; color: var(--accent, #2563eb); font-size: 12px; cursor: pointer; padding: 0 4px; }
+.topics textarea, .topics small, .topics .row { flex-basis: 100%; }
 .rule-x summary { cursor: pointer; color: var(--text-tertiary); font-size: 12px; }
 .rule-x pre { margin: 4px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--field-bg); font-size: 11.5px; line-height: 1.4; overflow-x: auto; max-height: 180px; }
 .switch { width: 52px; height: 30px; border-radius: 9999px; background: var(--field-bg); position: relative; transition: background-color .25s; flex: none; margin-top: 2px; }

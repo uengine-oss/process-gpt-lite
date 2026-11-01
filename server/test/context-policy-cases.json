@@ -1,0 +1,33 @@
+{
+  "_": "팀원 맥락 참고의 결정(lib/context/sensitive.js + 카탈로그 정책 context-*). item: 맥락(제목·목적·요약·민감 표시·무시함), rel: 주인 입장에서 요청자, owner_rule: 주인 규칙의 답. expect.policy: 정책 엔진의 결정, expect.final: 실제로 할 일(allow|ask|deny)과 누가 정했나(policy|rule), expect.matched: 걸린 정책(이 결정을 낸 것만)",
+  "cases": [
+    { "name": "같은 팀 · 평범한 맥락 · 주인 규칙 자동 허용 → 허용하고 기록", "item": { "title": "경쟁 서비스 동향", "purpose": "경쟁 3사 가격 추적", "summary": "B사 요금제 신설" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "allow_audit", "final": "allow", "by": "rule", "matched": ["context-access-record"] } },
+    { "name": "같은 부서 · 평범한 맥락 · 주인 규칙 묻기 → 묻기(주인 규칙)", "item": { "title": "제안서 표준 목차" }, "rel": "department", "depth": "content", "owner_rule": "ask",
+      "expect": { "policy": "allow_audit", "final": "ask", "by": "rule", "matched": ["context-access-record"] } },
+    { "name": "다른 팀 · 주인 규칙 거절 → 거절(주인 규칙)", "item": { "title": "분기 정리" }, "rel": "company", "depth": "summary", "owner_rule": "deny",
+      "expect": { "policy": "allow_audit", "final": "deny", "by": "rule", "matched": ["context-access-record"] } },
+    { "name": "민감 표시된 맥락 · 주인 규칙이 자동 허용이어도 → 주인에게 묻기(정책)", "item": { "title": "팀 운영 회의", "sensitive": "confirmed" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-owner"] } },
+    { "name": "민감 표시 · 요약만 요청 · 주인 규칙 묻기 → 주인에게 묻기(정책)", "item": { "title": "팀 운영 회의", "sensitive": "confirmed" }, "rel": "department", "depth": "summary", "owner_rule": "ask",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-owner"] } },
+    { "name": "제목에 급여 · 민감 표시 전 · 같은 팀 자동 허용 규칙 → 주인에게 묻기(주제 정책)", "item": { "title": "2분기 급여 조정 논의" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-topic"], "topic": "급여" } },
+    { "name": "제목에 급여지만 주인이 민감 제안을 무시함 → 주제를 보지 않고 주인 규칙대로", "item": { "title": "2분기 급여 조정 논의", "dismissed": true }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "allow_audit", "final": "allow", "by": "rule", "matched": ["context-access-record"], "topic": null } },
+    { "name": "요약에만 병가 → 주인에게 묻기", "item": { "title": "팀 일정 정리", "summary": "다음 주 이도윤 병가로 일정 조정" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-topic"], "topic": "병가" } },
+    { "name": "한 줄 목적에 개인정보 → 주인에게 묻기", "item": { "title": "고객 명단 정리", "purpose": "행사 참석자 개인 정보 정리" }, "rel": "team", "depth": "summary", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-topic"], "topic": "개인정보" } },
+    { "name": "인사이트(인사 아님) → 주인 규칙대로", "item": { "title": "고객 인사이트 정리", "purpose": "인사말 문구 다듬기" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "allow_audit", "final": "allow", "by": "rule", "matched": ["context-access-record"], "topic": null } },
+    { "name": "인사 평가 → 주인에게 묻기", "item": { "title": "하반기 인사 평가 준비" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-topic"], "topic": "인사" } },
+    { "name": "민감 제안 중(proposed)인 연봉 맥락 → 주제로 주인에게 묻기", "item": { "title": "연봉 협상 준비", "sensitive": "proposed" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-topic"], "topic": "연봉" } },
+    { "name": "민감 표시 + 주제도 보임 → 표시 정책 하나만(주제 정책은 표시 전 맥락만 본다)", "item": { "title": "연봉 협상 준비", "sensitive": "confirmed" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-owner"], "topic": null } },
+    { "name": "조직도 밖 · 평범 · 주인 규칙 묻기 → 묻기(주인 규칙)", "item": { "title": "회사 운영 원칙" }, "rel": "outside", "depth": "summary", "owner_rule": "ask",
+      "expect": { "policy": "allow_audit", "final": "ask", "by": "rule", "matched": ["context-access-record"] } }
+  ]
+}

@@ -9,14 +9,34 @@
 //   release.deploy   audience ('public'|'internal'|'beta'), features[{name, pii}], open_findings{privacy, security}, security_scan, weekday, hour
 //   data.export      rows, pii_rows, destination_external (bool)
 //   data.delete      count
+//   context.access   sensitive (bool, the owner marked it), topic (a possibly sensitive topic seen in its title, purpose or
+//                    summary, null when the owner dismissed it), relation ('team'|'department'|'company'), depth ('summary'|'content'),
+//                    owner_rule (what the owner's own rules say: 'allow'|'ask'|'deny')
 export const SOURCES = {
   pipa17: '개인정보보호법 제17조(개인정보의 제공)',
+  pipa23: '개인정보보호법 제23조(민감정보의 처리 제한)',
   pipa29: '개인정보보호법 제29조(안전조치의무)',
   euAiAct14: 'EU AI Act 제14조(사람의 감독)',
   nistGovern: 'NIST AI RMF — GOVERN·MANAGE',
   isms: 'ISMS-P 2.10(시스템 및 서비스 보안관리)',
   inhouse: '사내 규정(예시)',
 }
+
+// Possibly sensitive topics (rules, no model): HR, pay, contract terms, health, discipline, personal identifiers. They live in the
+// policy context-sensitive-topic, so a company edits the list there; a hit only proposes a sensitive mark the owner confirms.
+// 「인사」 counts as a word only (인사이트, 인사말 are not).
+export const SENSITIVE_TOPICS = [
+  { name: '인사', pattern: /(^|[\s·,(「『'"])인사($|[\s·,.)」』'"]|\s?(평가|고과|발령|상담|기록|위원회|조치|정보|이동|카드))/.source },
+  { name: '급여', pattern: /급여|월급|임금|상여금|성과급/.source },
+  { name: '연봉', pattern: /연봉/.source },
+  { name: '계약 조건', pattern: /(계약|근로|고용|채용)\s*조건|근로\s*계약|고용\s*계약/.source },
+  { name: '건강', pattern: /건강|진단서|병력/.source },
+  { name: '병가', pattern: /병가|병\s*휴가/.source },
+  { name: '징계', pattern: /징계/.source },
+  { name: '주민등록', pattern: /주민\s*등록|주민\s*번호/.source },
+  { name: '개인정보', pattern: /개인\s*정보|개인\s*식별|신원\s*정보/.source },
+  { name: '이직', pattern: /이직\s*(준비|상담|면접)|퇴사/.source },
+]
 
 export const CATALOG = [
   // ── 메일·자료 반출 (시나리오: 외부 메일)
@@ -94,4 +114,22 @@ export const CATALOG = [
   { id: 'data-delete-bulk', category: 'security', scope: { action: ['data.delete'] },
     when: { '>': [{ var: 'count' }, 100] }, decide: 'require_approval', approver: { role: '팀장' },
     title: ['100건 넘는 삭제는 승인 후', 'Deleting over 100 records needs approval'], explain: ['한 번에 100건 넘게 지우는 일은 되돌리기 어려워 승인합니다.', 'Deleting over 100 records at once is hard to undo: it is approved first.'], sources: [SOURCES.inhouse] },
+
+  // ── 팀원 맥락 참고 (팀 맥락 공유: 참고 요청의 결정). 주인의 자동 허용 규칙은 이 정책들 안에서만 쓰인다.
+  { id: 'context-sensitive-owner', category: 'privacy', scope: { action: ['context.access'] },
+    when: { var: 'sensitive' }, decide: 'require_approval', approver: { role: '맥락 주인', owner: true },
+    title: ['민감 맥락은 주인이 직접 허락', 'Sensitive contexts wait for their owner'],
+    explain: ['민감 표시가 된 맥락은 주인의 자동 허용 규칙과 관계없이, 주인이 홈 카드에서 직접 허락해야 참고됩니다.', 'A context marked sensitive is referenced only when its owner allows it on the home card, whatever the owner\'s automatic rules say.'],
+    sources: [SOURCES.pipa23, SOURCES.inhouse] },
+  { id: 'context-sensitive-topic', category: 'privacy', scope: { action: ['context.access'] },
+    when: { and: [{ '!': { var: 'sensitive' } }, { '!!': { var: 'topic' } }] }, decide: 'require_approval', approver: { role: '맥락 주인', owner: true },
+    topics: SENSITIVE_TOPICS,
+    title: ['민감할 수 있는 주제는 자동 허용하지 않음', 'Possibly sensitive topics are never allowed automatically'],
+    explain: ['인사·급여·건강·징계·개인정보처럼 민감할 수 있는 주제가 제목·목적·요약에 보이면, 주인이 민감 표시를 하기 전이라도 자동으로 허락하지 않고 주인에게 묻습니다. 맥락 요약을 만들 때 같은 주제 목록으로 주인에게 민감 표시를 제안합니다.',
+      'When a possibly sensitive topic (HR, pay, health, discipline, personal data) shows in a context\'s title, purpose or summary, requests go to the owner even before the owner marks it; the same topics propose a sensitive mark when the context summary is built.'],
+    sources: [SOURCES.pipa23, SOURCES.inhouse] },
+  { id: 'context-access-record', category: 'audit', scope: { action: ['context.access'] }, decide: 'allow_audit',
+    title: ['팀원 맥락 참고는 기록', 'Using a teammate\'s context is recorded'],
+    explain: ['자동 허용을 포함한 모든 참고 허락·거절·회수를 결정 원장에 남깁니다. 주인은 언제든 회수할 수 있습니다.', 'Every allow, refusal and revocation, automatic ones included, goes into the ledger; the owner can revoke at any time.'],
+    sources: [SOURCES.inhouse, SOURCES.nistGovern] },
 ]

@@ -104,7 +104,10 @@ async function peopleIds() {
 async function wipeLive() {
   const ids = Object.values(await peopleIds())
   for (const t of ['pro_access_requests', 'pro_grants', 'pro_refers', 'pro_refer_edits', 'pro_context_refs', 'pro_context_views']) await q(`delete from ${t} where tenant_id = $1`, [T])
-  await q(`delete from notifications where tenant_id = $1 and type like 'context_access%'`, [T])
+  await q(`delete from notifications where tenant_id = $1 and (type like 'context_access%' or type = 'context_sensitive')`, [T])
+  // 참고 요청이 남긴 결정 원장 줄, 녹화·시험이 끈 팀원 맥락 정책 스위치
+  await q(`delete from pro_policy_decisions where tenant_id = $1 and action_kind = 'context.access'`, [T])
+  await q(`update pro_policies set enabled = true where tenant_id = $1 and id like 'context-%'`, [T])
   await q(`update pro_context_shares set sensitive = 'proposed' where tenant_id = $1 and conversation_id in (select conversation_id from context_threads where tenant_id = $1 and title = '연봉 협상 준비')`, [T])
   // 시드 뒤에 생긴 대화(녹화·시험의 턴)와 그 맥락
   const [st] = await q(`select value from configuration where tenant_id = $1 and key = 'team-context-seed'`, [T])

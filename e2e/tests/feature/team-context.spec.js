@@ -110,3 +110,57 @@ test('F-TC-05 설정 › 공유와 허락: 기본 등급, 자동 허용 규칙(�
   await expect(page.getByText('내 맥락이 쓰인 곳')).toBeVisible()
   expect(page.errors).toEqual([])
 })
+
+// ── 회사 정책과 함께(설정 › 정책 · 팀원 맥락 참고, server/test/context-policy.{test.js,e2e.mjs}) ──────────────
+const ledgerRow = (db, userId, { status = 'pending', decision = 'require_approval', topic = '급여', matched = 'context-sensitive-topic' } = {}) =>
+  db.q(`insert into pro_policy_decisions (tenant_id, user_id, action_kind, subject, facts, decision, matched, status, approver_role)
+        values ($1,$2,'context.access','박하늘의 민감할 수 있는 맥락(제목 가림) 원문 참고',$3,$4,$5,$6,'맥락 주인') returning id`,
+  [db.tenant, userId, { sensitive: false, topic, relation: 'team', depth: 'content', owner_rule: 'allow' }, decision,
+    JSON.stringify([{ id: matched, decision, title: ['민감할 수 있는 주제는 자동 허용하지 않음', 'Possibly sensitive topics are never allowed automatically'], approver: '맥락 주인' }]), status]).then((r) => r[0].id)
+
+test('F-TC-06 설정 › 정책: 팀원 맥락 참고 정책 셋(주제 목록·주인이 결정), 원장의 참고 줄은 「주인 결정 대기」이고 승인 버튼이 없다', async ({ pageAs, db, cleanup }) => {
+  const page = await pageAs('tc-policy')
+  const id = await ledgerRow(db, page.user.id)
+  cleanup(() => db.q('delete from pro_policy_decisions where id = $1', [id]))
+  await page.goto('/settings/policies')
+  const topic = page.locator('[data-policy="context-sensitive-topic"]')
+  await expect(topic).toContainText('민감할 수 있는 주제는 자동 허용하지 않음', { timeout: 20_000 })
+  await expect(topic.getByTestId('policy-topics')).toContainText('급여')
+  await expect(topic).toContainText('그 맥락의 주인이 홈 카드에서')
+  await expect(page.locator('[data-policy="context-sensitive-owner"]')).toContainText('민감 맥락은 주인이 직접 허락')
+  await expect(page.locator('[data-policy="context-access-record"]')).toContainText('팀원 맥락 참고는 기록')
+  await page.locator('[data-test="ledger-tab"]').click()
+  const row = page.locator(`[data-decision="${id}"]`)
+  await expect(row).toContainText('주인 결정 대기', { timeout: 20_000 })
+  await expect(row).toContainText('팀원 맥락 참고')
+  await expect(row.locator('[data-test="approve"]')).toHaveCount(0)
+  await row.locator('.li.dec').click()
+  await expect(row).toContainText('민감할 수 있는 주제')
+  expect(page.errors).toEqual([])
+})
+
+test('F-TC-07 홈 카드·공유와 허락: 정책이 묻게 한 요청은 카드에 정책·주제가 보이고, 민감 표시 제안 카드, 고정 줄 둘(회사 정책)', async ({ pageAs, as, db, cleanup }) => {
+  const page = await pageAs('tc-pol-owner')
+  const req = await as('tc-pol-asker')
+  await db.clearMain(page.user.id)
+  const conv = `tc-pol-${Date.now()}`
+  await db.addConversation(page.user.id, conv, '3분기 성과급 기준 정리')
+  const did = await ledgerRow(db, req.id)
+  const [r] = await db.q(`insert into pro_access_requests (tenant_id, requester, owner, conversation_id, target_title, depth, doing, policy_decision) values ($1,$2,$3,$4,'3분기 성과급 기준 정리','content','팀 보상 원칙 비교',$5) returning id`,
+    [db.tenant, req.id, page.user.id, conv, did])
+  await db.q(`insert into notifications (id, user_id, title, type, description, is_checked, time_stamp, url, tenant_id) values
+      (gen_random_uuid(), $1, '참고 요청 · 회귀-tc-pol-asker · 「3분기 성과급 기준 정리」 원문', 'context_access', '지금 하는 일: 팀 보상 원칙 비교', false, now(), $2, $3),
+      (gen_random_uuid(), $1, '민감 표시 제안 · 「팀원 병가 일정 정리」', 'context_sensitive', '「병가」에 관한 내용으로 보여요.', false, now(), '/settings/sharing', $3)`,
+  [page.user.id, `/pro/context-access/${r.id}`, db.tenant])
+  cleanup(() => db.q(`delete from notifications where tenant_id = $1 and user_id = $2 and type like 'context_%'`, [db.tenant, page.user.id]))
+  cleanup(() => db.q('delete from pro_access_requests where id = $1', [r.id]))
+  cleanup(() => db.q('delete from pro_policy_decisions where id = $1', [did]))
+  await page.goto('/chat')
+  const card = page.locator('.nc.context_access')
+  await expect(card.getByTestId('access-policy')).toContainText('회사 정책 「민감할 수 있는 주제는 자동 허용하지 않음」 · 급여', { timeout: 20_000 })
+  await expect(page.locator('.nc.context_sensitive')).toContainText('민감 표시 제안')
+  await page.goto('/settings/sharing')
+  await expect(page.getByTestId('rule-fixed')).toContainText('회사 정책 「민감 맥락은 주인이 직접 허락」', { timeout: 20_000 })
+  await expect(page.getByTestId('rule-topic')).toContainText('민감할 수 있는 주제가 보이면 → 묻기')
+  expect(page.errors).toEqual([])
+})

@@ -17,7 +17,7 @@ export async function viewerOf(me, via = 'jwt') {
 // 등급: 맥락별 행 → 없으면 주인의 기본 등급(규칙 행) → 규칙 행도 없으면 private(이 기능 전 사용자는 그대로)
 export async function contextRows({ owners = null, convs = null } = {}) {
   const rows = await q(`select t.user_id as owner, t.conversation_id as id, t.title, t.turns, t.created_at, t.updated_at,
-        s.visibility, s.reach, s.sensitive, coalesce(s.purpose, '') as purpose,
+        s.visibility, s.reach, s.sensitive, coalesce(s.purpose, '') as purpose, s.sensitive_dismissed_at as dismissed_at,
         r.default_visibility, r.default_reach,
         d.summary, d.decisions, d.questions, d.kinds, d.prompt_types, d.built_at
       from context_threads t

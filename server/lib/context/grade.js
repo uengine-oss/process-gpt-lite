@@ -8,6 +8,8 @@ import { GRADES, REACHES, DEPTHS, GRADE_LABEL, REACH_LABEL, depthOf, sensitiveBl
 import { relation, personName, teamName } from './org.js'
 import { viewerOf, contextRows, ContextError } from './items.js'
 import { rulesOf, saveRules } from './access.js'
+import { compileTopics, topicHit, scanOwner, topicsOf } from './sensitive.js'
+import { SENSITIVE_TOPICS } from '../policy/catalog.js'
 
 const T = () => config.tenantId
 const NOT_FOUND = '없는 맥락입니다'
@@ -34,25 +36,10 @@ export function ro(word) { const t = tail(word); return t.has && !t.rieul ? '으
 // 「요약 공개 · 팀」 — 범위는 요약·전체 공개에서만 뜻이 있다
 export const gradeLabel = (v, r) => (v === 'summary' || v === 'open' ? `${GRADE_LABEL[v]} · ${REACH_LABEL[r] || REACH_LABEL.team}` : GRADE_LABEL[v] || GRADE_LABEL.private)
 
-// 민감 판단(규칙, 모델 없음): 인사·급여·계약 조건·건강·징계·개인 식별 정보. 제안일 뿐이고 주인이 승인해야 적용된다.
-// 「인사」는 낱말로만(인사이트·인사말은 아니다).
-export const SENSITIVE_RULES = [
-  ['인사', /(^|[\s·,(「『'"])인사($|[\s·,.)」』'"]|\s?(평가|고과|발령|상담|기록|위원회|조치|정보|이동|카드))/],
-  ['급여', /급여|월급|임금|상여금|성과급/],
-  ['연봉', /연봉/],
-  ['계약 조건', /(계약|근로|고용|채용)\s*조건|근로\s*계약|고용\s*계약/],
-  ['건강', /건강|진단서|병력/],
-  ['병가', /병가|병\s*휴가/],
-  ['징계', /징계/],
-  ['주민등록', /주민\s*등록|주민\s*번호/],
-  ['개인정보', /개인\s*정보|개인\s*식별|신원\s*정보/],
-  ['이직', /이직\s*(준비|상담|면접)|퇴사/],
-]
-export function sensitiveHit(...texts) {
-  const t = texts.filter(Boolean).join('\n')
-  for (const [k, re] of SENSITIVE_RULES) if (re.test(t)) return k
-  return null
-}
+// 민감 판단(규칙, 모델 없음): 주제 목록은 회사 정책 context-sensitive-topic 이 갖는다(lib/context/sensitive.js). 제안일 뿐이고 주인이 승인해야 적용된다.
+// 여기 것은 카탈로그 기본 목록 — 시험과, 정책을 읽기 전의 기본값
+export const SENSITIVE_RULES = compileTopics(SENSITIVE_TOPICS)
+export function sensitiveHit(...texts) { return topicHit(SENSITIVE_RULES, ...texts) }
 
 // 판정 근거를 화면용으로: 장·관리자 덧씌움과 허락은 따로 표시한다
 export function reasonOf(r, rel, org) {
@@ -135,36 +122,26 @@ export async function setSensitive(me, conv, action) {
     note: action === 'dismiss' ? '민감 표시 제안을 무시했습니다(다시 제안하지 않습니다)' : '민감 표시를 뗐습니다' }
 }
 
-// 민감 제안(규칙): 내 맥락 중 표시가 없고 전에 무시하지 않은 것을 제목·한 줄 목적·맥락 요약으로 본다 → proposed.
-// 돌려주는 것은 지금 제안 중인 모든 맥락(new = 이번에 새로 제안함).
+// 민감 제안(회사 정책의 주제 목록): 내 맥락 중 표시가 없고 전에 무시하지 않은 것 → proposed. 맥락 요약을 만들 때도 같은 것이 돈다(digest.js).
+// 돌려주는 것은 지금 제안 중인 모든 맥락(new = 이번에 새로 제안함). 정책이 꺼져 있으면 새로 제안하지 않는다.
 export async function scanSensitive(me) {
-  const rows = await contextRows({ owners: [String(me.id)] })
-  const dismissed = new Set((await q(`select conversation_id from pro_context_shares where tenant_id = $1 and user_id = $2 and sensitive_dismissed_at is not null`, [T(), String(me.id)])).map((r) => r.conversation_id))
-  const fresh = []
-  for (const r of rows) {
-    if (r.sensitive !== 'none' || dismissed.has(r.id)) continue
-    if (!sensitiveHit(r.title, r.purpose, r.summary)) continue
-    // 행이 없던 맥락은 지금 보이는 등급(기본 등급) 그대로 행을 만든다
-    await q(`insert into pro_context_shares (tenant_id, user_id, conversation_id, visibility, reach, sensitive, purpose) values ($1,$2,$3,$4,$5,'proposed',$6)
-             on conflict (tenant_id, user_id, conversation_id) do update set sensitive = 'proposed', updated_at = now() where pro_context_shares.sensitive = 'none'`,
-      [T(), String(me.id), r.id, r.visibility, r.reach, r.purpose || ''])
-    r.sensitive = 'proposed'
-    fresh.push(r.id)
-  }
+  const { rows, fresh, rules } = await scanOwner(me.id)
+  const isNew = new Set(fresh.map((r) => r.id))
   const proposed = rows.filter((r) => r.sensitive === 'proposed')
-  return { proposed: proposed.map((r) => ({ id: r.id, title: r.title, visibility: r.visibility, reach: r.reach, label: gradeLabel(r.visibility, r.reach), hit: sensitiveHit(r.title, r.purpose, r.summary), new: fresh.includes(r.id) })) }
+  return { rules, proposed: proposed.map((r) => ({ id: r.id, title: r.title, visibility: r.visibility, reach: r.reach, label: gradeLabel(r.visibility, r.reach), hit: topicHit(rules || SENSITIVE_RULES, r.title, r.purpose, r.summary), new: isNew.has(r.id) })) }
 }
 
 // 내 대화 맥락(context_threads)과 그 공개 등급. 먼저 민감 제안을 돌린다(conv 하나만 물으면 돌리지 않는다).
 export async function myContexts(me, { conv = null } = {}) {
   const scan = conv ? null : await scanSensitive(me)
+  const topics = scan?.rules || (await topicsOf().catch(() => null)) || SENSITIVE_RULES
   const rows = await contextRows({ owners: [String(me.id)], convs: conv ? [String(conv)] : null })
   if (conv && !rows.length) throw new ContextError(404, NOT_FOUND)
   const live = new Map((await q(`select conversation_id, count(*)::int as n from pro_grants where tenant_id = $1 and owner = $2 and revoked_at is null and (until is null or until > now()) group by 1`, [T(), String(me.id)])).map((r) => [r.conversation_id, r.n]))
   const rules = await rulesOf(String(me.id))
   return {
     items: rows.map((r) => ({ ...itemOut(r), turns: r.turns, updated_at: r.updated_at, created_at: r.created_at, summary: r.summary || '', grants: live.get(r.id) || 0,
-      hit: r.sensitive === 'proposed' ? sensitiveHit(r.title, r.purpose, r.summary) : null })),
+      hit: r.sensitive === 'proposed' ? topicHit(topics, r.title, r.purpose, r.summary) : null })),
     proposed: scan?.proposed || [],
     // 규칙 행이 없으면 기본 등급이 아직 없다 — 행 없는 맥락은 비공개로 다룬다(이 기능 전 사용자는 그대로)
     defaults: { enabled: rules.enabled, default_visibility: rules.default_visibility, default_reach: rules.default_reach,

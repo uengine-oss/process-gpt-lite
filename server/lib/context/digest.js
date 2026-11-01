@@ -6,6 +6,7 @@ import { config } from '../../config.js'
 import { chatJson } from '../llm.js'
 import { vectors, cosine } from './embed.js'
 import { turnsOf } from './items.js'
+import { scanOwner } from './sensitive.js'
 
 export const WORK_KINDS = ['조사', '문서 작성', '분석·계산', '코드', '회의 준비', '메일·연락', '기타']
 // 프롬프트 유형 묶기: 완전 연결(무리 안 모든 쌍이 이 값 이상). bge-m3 로 잰 값 — 같은 유형 쌍의 중앙값 0.70, 다른 유형 쌍의 상위 10% 0.62
@@ -133,7 +134,9 @@ ${P || '(없음)'}
            on conflict (tenant_id, user_id, conversation_id) do update set summary = excluded.summary, decisions = excluded.decisions, questions = excluded.questions,
              kinds = excluded.kinds, prompt_types = excluded.prompt_types, turns = excluded.turns, last_at = excluded.last_at, built_at = now()`,
     [T(), owner, conv, row.summary, JSON.stringify(row.decisions), JSON.stringify(row.questions), JSON.stringify(row.kinds), JSON.stringify(row.prompt_types), row.turns, row.last_at])
-  return row
+  // 새 요약으로 민감 표시 제안(회사 정책의 주제 목록) — 주인이 설정을 열기 전에, 누가 요청하기 전에 홈 카드로
+  const scan = await scanOwner(owner, { convs: [conv], notify: true }).catch((e) => { console.warn('[context] sensitive scan', e.message); return null })
+  return { ...row, proposed: scan?.fresh?.[0]?.hit || null }
 }
 
 // 요약이 없거나 맥락이 그 뒤로 바뀐 것(라우터가 턴을 더함)

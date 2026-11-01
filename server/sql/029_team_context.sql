@@ -56,6 +56,8 @@ create table if not exists pro_access_requests (
   decided_at timestamptz
 );
 alter table pro_context_shares add column if not exists sensitive_dismissed_at timestamptz;
+-- 이 요청을 판단한 정책 결정(결정 원장 pro_policy_decisions 의 행). 허락·거절·만료·회수 때 그 행의 상태를 고친다
+alter table pro_access_requests add column if not exists policy_decision uuid;
 
 create index if not exists pro_access_requests_owner on pro_access_requests (tenant_id, owner, status, created_at desc);
 create index if not exists pro_access_requests_requester on pro_access_requests (tenant_id, requester, created_at desc);

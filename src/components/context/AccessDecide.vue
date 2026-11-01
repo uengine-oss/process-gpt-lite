@@ -24,6 +24,10 @@ async function decide(decision) {
 
 <template>
   <div class="ad">
+    <!-- 회사 정책이 자동 허용 대신 묻게 했으면 그 이유(정책·주제) — 결정은 결정 원장에도 남는다 -->
+    <p v-if="pv?.policy?.decision === 'require_approval'" class="pol" data-testid="access-policy">
+      <b>회사 정책</b> 「{{ pv.policy.matched[0]?.title }}」<template v-if="pv.policy.topic"> · {{ pv.policy.topic }}</template> — 자동으로 허락하지 않고 내게 물어요
+    </p>
     <p v-if="pv" class="pv">허락하면 나가는 것 — 턴 {{ pv.turns.length }}개 · 결정 {{ pv.decisions }}개 · 열린 질문 {{ pv.questions }}개</p>
     <details v-if="pv && depth === 'content' && pv.turns.length" class="cut">
       <summary>뺄 턴 고르기<span v-if="exclude.length"> ({{ exclude.length }}개 뺌)</span></summary>
@@ -48,6 +52,8 @@ async function decide(decision) {
 </template>
 
 <style scoped>
+.pol { margin: 0 0 6px; font-size: 12.5px; color: var(--text-secondary); padding: 6px 10px; border-radius: 10px; background: color-mix(in srgb, var(--color-error, #d33) 8%, transparent); }
+.pol b { font-weight: 600; }
 .ad { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .pv { margin: 0; color: var(--text-secondary); font-size: 13px; }
 .cut summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }

@@ -3,12 +3,14 @@
 //   허락은 깊이·기간 안에서만 쓰이고(visibility.depthOf), 주인은 언제든 회수한다. 받은 맥락은 복사하지 않는다(참조만).
 //   알림은 Process GPT notifications(홈 카드·알림 종·푸시가 그대로 받는다): context_access(주인이 결정할 요청),
 //   context_access_result(요청자에게 결과), context_access_digest(오늘 자동으로 허락한 참고 — 하루 한 장).
+//   결정은 회사 정책이 먼저(lib/context/sensitive.js — 민감 표시·민감할 수 있는 주제면 주인에게 묻기), 주인 규칙은 그 안에서. 모든 결정은 결정 원장에.
 import { q, pool } from '../supa.js'
 import { config } from '../../config.js'
 import { emit } from '../bus.js'
 import { viewerOf, contextRows, depthFor, grantsOf, turnsOf, ContextError } from './items.js'
 import { relation, personName } from './org.js'
 import { ruleFor, atLeast, DEFAULT_RULES, DEPTH_LABEL, durationLabel } from './visibility.js'
+import { judgeRequest, ledgerUpdate, contextPolicies } from './sensitive.js'
 
 export const DAILY_LIMIT = 30
 const DUR = ['task', '7d', 'forever']
@@ -22,7 +24,7 @@ async function tx(fn) {
   catch (e) { await c.query('rollback').catch(() => {}); throw e }
   finally { c.release() }
 }
-async function notify(user, { type, title, description = '', url, from = null }) {
+export async function notifyContext(user, { type, title, description = '', url, from = null }) {
   await q(`insert into notifications (id, user_id, title, type, description, is_checked, time_stamp, url, from_user_id, tenant_id)
            values (gen_random_uuid(), $1, $2, $3, $4, false, now(), $5, $6, $7)`, [String(user), title.slice(0, 200), type, description.slice(0, 1000), url, from, T()])
   emit(String(user), 'notifications', {})
@@ -38,13 +40,16 @@ async function digest(owner) {
   const description = today.map((r) => `${personName(org, r.requester)} · 「${r.target_title}」 ${DEPTH_LABEL[r.depth]}`).join('\n')
   const [row] = await q(`select id from notifications where tenant_id = $1 and user_id = $2 and type = 'context_access_digest' and time_stamp >= date_trunc('day', now()) order by time_stamp desc limit 1`, [T(), String(owner)])
   if (row) { await q(`update notifications set title = $2, description = $3, is_checked = false where id = $1`, [row.id, title, description]); emit(String(owner), 'notifications', {}) }
-  else await notify(owner, { type: 'context_access_digest', title, description, url: '/settings/sharing' })
+  else await notifyContext(owner, { type: 'context_access_digest', title, description, url: '/settings/sharing' })
 }
 
+// 고정 줄(민감 항목 → 묻기)은 주인 규칙이 아니라 회사 정책이다: 관리자가 설정 › 정책에서 끄면 민감 항목도 주인 규칙을 따른다
 export async function rulesOf(owner) {
   const [r] = await q(`select rules, default_visibility, default_reach from pro_sharing_rules where tenant_id = $1 and user_id = $2`, [T(), owner])
+  const policy = await contextPolicies().catch(() => ({ sensitive: true, topic: true, record: true, titles: {} }))
   return { enabled: !!r, rules: r?.rules?.length ? r.rules : DEFAULT_RULES, custom: !!r?.rules?.length, default_visibility: r?.default_visibility || 'summary', default_reach: r?.default_reach || 'team',
-    fixed: { who: 'sensitive', decision: 'ask', note: '민감 항목은 언제나 묻기(지울 수 없음)' }, defaults: DEFAULT_RULES }
+    fixed: { who: 'sensitive', decision: policy.sensitive ? 'ask' : 'rule', policy,
+      note: policy.sensitive ? '민감 항목은 언제나 묻기(회사 정책 · 지울 수 없음)' : '회사 정책이 꺼져 있어 민감 항목도 내 규칙을 따릅니다' }, defaults: DEFAULT_RULES }
 }
 export async function saveRules(me, body = {}) {
   const ok = (r) => r && (['team', 'department', 'company'].includes(r.who) || /^user:[0-9a-f-]{36}$/i.test(String(r.who))) && ['allow', 'ask', 'deny'].includes(r.decision)
@@ -73,7 +78,8 @@ async function makeGrant(x, req, { depth, duration, exclude = [], via }) {
 export async function sweep() {
   const gone = await q(`update pro_access_requests set status = 'expired', via = 'expiry', decided_at = now() where tenant_id = $1 and status = 'pending' and expires_at <= now() returning *`, [T()])
   for (const r of gone) {
-    await notify(r.requester, { type: 'context_access_result', title: `참고 요청 만료 · 「${r.target_title}」`, description: '주인이 3일 동안 답하지 않아 응답 없음으로 만료되었습니다.', url: '/settings/sharing', from: await emailOf(r.owner) })
+    await ledgerUpdate(r.policy_decision, { status: 'expired', result: { outcome: 'expired' } }).catch(() => {})
+    await notifyContext(r.requester, { type: 'context_access_result', title: `참고 요청 만료 · 「${r.target_title}」`, description: '주인이 3일 동안 답하지 않아 응답 없음으로 만료되었습니다.', url: '/settings/sharing', from: await emailOf(r.owner) })
     await q(`update notifications set is_checked = true where tenant_id = $1 and type = 'context_access' and url = $2`, [T(), `/pro/context-access/${r.id}`])
   }
   return gone.length
@@ -96,11 +102,17 @@ export async function createRequest(me, body = {}, { via: callerVia = 'jwt' } = 
   if (n >= DAILY_LIMIT) throw new ContextError(429, `참고 요청은 하루 ${DAILY_LIMIT}건까지입니다`)
   const rules = await rulesOf(item.owner)
   const rel = relation(vc.org, item.owner, vc.viewer)       // 규칙은 주인 입장에서 요청자를 본다
-  const r = ruleFor(rules.custom ? rules.rules : null, rel, { sensitive: item.sensitive === 'confirmed', requester: vc.viewer, depth })
+  // 회사 정책이 먼저(민감 표시·민감할 수 있는 주제 → 주인에게 묻기), 주인 규칙은 그 안에서. 판단은 결정 원장에 남는다
+  const own = ruleFor(rules.custom ? rules.rules : null, rel, { requester: vc.viewer, depth })
+  const pd = await judgeRequest({ requester: vc.viewer, item, rel, depth, ownerRule: own, ownerName: personName(vc.org, item.owner) })
+  const r = pd.final.decision === 'allow' ? own : { decision: pd.final.decision, line: pd.final.by === 'policy' ? 'policy' : own.line }
+  // 요청자에게는 어떤 정책이 결정했는지만(주제 이름은 주인 화면에만 — 남의 맥락 내용을 짐작하게 하지 않는다)
+  const policy = { decision_id: pd.id, decision: pd.decision, by: pd.final.by,
+    matched: (pd.matched || []).filter((m) => m.decision === pd.decision).map((m) => ({ id: m.id, title: m.title?.[0] || m.id })) }
   const doing = String(body.doing || '').slice(0, 200), note = String(body.note || '').slice(0, 500)
   const out = await tx(async (x) => {
-    let req = (await x(`insert into pro_access_requests (tenant_id, requester, owner, conversation_id, target_title, depth, doing, note, thread_id, status)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending') returning *`, [T(), vc.viewer, item.owner, conv, item.title, depth, doing, note, threadId]))[0]
+    let req = (await x(`insert into pro_access_requests (tenant_id, requester, owner, conversation_id, target_title, depth, doing, note, thread_id, status, policy_decision)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10) returning *`, [T(), vc.viewer, item.owner, conv, item.title, depth, doing, note, threadId, pd.id]))[0]
     if (r.decision === 'allow') {
       const g = await makeGrant(x, req, { depth: r.depth, duration: r.duration, via: 'auto' })
       req = (await x(`update pro_access_requests set status = 'granted', via = 'auto', grant_id = $2, decided_at = now(), decision = $3 where id = $1 returning *`, [req.id, g.id, { depth: r.depth, duration: r.duration, rule: r.line }]))[0]
@@ -110,10 +122,16 @@ export async function createRequest(me, body = {}, { via: callerVia = 'jwt' } = 
       req = (await x(`update pro_access_requests set status = 'denied', via = 'auto', decided_at = now(), decision = $2 where id = $1 returning *`, [req.id, { rule: r.line }]))[0]
       return { status: 'denied', request_id: req.id, request: req, via: 'auto' }
     }
-    return { status: 'pending', request_id: req.id, request: req, via: r.line === 'sensitive' ? 'sensitive' : 'ask' }
+    return { status: 'pending', request_id: req.id, request: req, via: r.line === 'policy' ? 'sensitive' : 'ask' }
   })
+  out.policy = policy
+  await q(`update pro_policy_decisions set ref = $2 where id = $1`, [pd.id, `context-request:${out.request_id}`]).catch(() => {})
+  await ledgerUpdate(pd.id, out.status === 'granted' ? { status: 'executed', result: { outcome: 'granted', via: 'auto', depth: out.grant.depth, duration: out.grant.duration } }
+    : out.status === 'denied' ? { status: 'rejected', result: { outcome: 'denied', via: 'auto' } }
+      : { status: 'pending', result: { outcome: 'asked', by: pd.final.by } }).catch((e) => console.warn('[context] ledger', e.message))
   if (out.via === 'auto' && out.status === 'granted') await digest(item.owner).catch((e) => console.warn('[context] digest', e.message))
-  if (out.status === 'pending') await notify(item.owner, { type: 'context_access', title: `참고 요청 · ${vc.name} · 「${item.title}」 ${DEPTH_LABEL[depth]}`, description: doing ? `지금 하는 일: ${doing}` : '', url: `/pro/context-access/${out.request_id}`, from: await emailOf(vc.viewer) })
+  const why = pd.final.by === 'policy' ? `회사 정책 「${policy.matched[0]?.title || '민감 맥락은 주인이 직접 허락'}」${pd.facts.topic ? ` · ${pd.facts.topic}` : ''} — 자동 허용 대신 물어요.` : ''
+  if (out.status === 'pending') await notifyContext(item.owner, { type: 'context_access', title: `참고 요청 · ${vc.name} · 「${item.title}」 ${DEPTH_LABEL[depth]}`, description: [doing ? `지금 하는 일: ${doing}` : '', why].filter(Boolean).join('\n'), url: `/pro/context-access/${out.request_id}`, from: await emailOf(vc.viewer) })
   return out
 }
 
@@ -132,7 +150,11 @@ export async function preview(me, id) {
   const [d] = await q(`select decisions, questions from pro_context_digests where tenant_id = $1 and user_id = $2 and conversation_id = $3`, [T(), me.id, req.conversation_id])
   const turns = await turnsOf(String(me.id), req.conversation_id)
   const vc = await viewerOf(me)
-  return { request: { ...req, requester_name: personName(vc.org, req.requester) }, turns: turns.map((t) => ({ id: t.id, prompt: String(t.prompt || '').slice(0, 80), at: t.at })), decisions: (d?.decisions || []).length, questions: (d?.questions || []).length }
+  // 정책이 자동 허용 대신 묻게 했으면 그 정책과 주제(주인에게만)
+  const [pd] = req.policy_decision ? await q(`select decision, facts, matched from pro_policy_decisions where id = $1 and tenant_id = $2`, [req.policy_decision, T()]) : []
+  const policy = pd ? { decision_id: req.policy_decision, decision: pd.decision, topic: pd.facts?.topic || null, sensitive: !!pd.facts?.sensitive,
+    matched: (pd.matched || []).filter((m) => m.decision === pd.decision).map((m) => ({ id: m.id, title: m.title?.[0] || m.id })) } : null
+  return { request: { ...req, requester_name: personName(vc.org, req.requester) }, turns: turns.map((t) => ({ id: t.id, prompt: String(t.prompt || '').slice(0, 80), at: t.at })), decisions: (d?.decisions || []).length, questions: (d?.questions || []).length, policy }
 }
 
 export async function decideRequest(me, id, body = {}) {
@@ -155,9 +177,11 @@ export async function decideRequest(me, id, body = {}) {
   })
   await q(`update notifications set is_checked = true where tenant_id = $1 and type = 'context_access' and url = $2`, [T(), `/pro/context-access/${id}`])
   emit(vc.viewer, 'notifications', {})
+  await ledgerUpdate(out.req.policy_decision, out.status === 'denied' ? { status: 'rejected', by: vc.viewer, result: { outcome: 'denied', via: 'owner', reason: out.reason || '' } }
+    : { status: 'approved', by: vc.viewer, result: { outcome: 'granted', via: 'owner', depth: out.grant.depth, duration: out.grant.duration, excluded: out.grant.exclude.length } }).catch((e) => console.warn('[context] ledger', e.message))
   const from = await emailOf(vc.viewer)
-  if (out.status === 'denied') await notify(out.req.requester, { type: 'context_access_result', title: `참고 요청 거절 · 「${out.req.target_title}」`, description: out.reason ? `사유: ${out.reason}` : '', url: '/settings/sharing', from })
-  else await notify(out.req.requester, { type: 'context_access_result', title: `참고 허락 · 「${out.req.target_title}」 ${DEPTH_LABEL[out.grant.depth]} · ${durationLabel(out.grant)}`, description: out.grant.exclude.length ? `${out.grant.exclude.length}개 턴은 빼고 허락했습니다` : '', url: '/settings/sharing', from })
+  if (out.status === 'denied') await notifyContext(out.req.requester, { type: 'context_access_result', title: `참고 요청 거절 · 「${out.req.target_title}」`, description: out.reason ? `사유: ${out.reason}` : '', url: '/settings/sharing', from })
+  else await notifyContext(out.req.requester, { type: 'context_access_result', title: `참고 허락 · 「${out.req.target_title}」 ${DEPTH_LABEL[out.grant.depth]} · ${durationLabel(out.grant)}`, description: out.grant.exclude.length ? `${out.grant.exclude.length}개 턴은 빼고 허락했습니다` : '', url: '/settings/sharing', from })
   return { status: out.status, request: out.request, grant: out.grant || null }
 }
 
@@ -171,7 +195,9 @@ export async function grantsList(me) {
 export async function revoke(me, id) {
   const [g] = await q(`update pro_grants set revoked_at = now() where id = $1 and tenant_id = $2 and owner = $3 and revoked_at is null returning *`, [id, T(), me.id])
   if (!g) throw new ContextError(404, '없는 허락입니다')
-  await notify(g.grantee, { type: 'context_access_result', title: `참고 허락 회수 · 「${g.target_title}」`, description: '주인이 허락을 회수했습니다. 이미 만든 답에는 제목과 주인만 남습니다.', url: '/settings/sharing', from: await emailOf(me.id) })
+  const [req] = g.request_id ? await q(`select policy_decision from pro_access_requests where id = $1`, [g.request_id]) : []
+  await ledgerUpdate(req?.policy_decision, { status: 'undone', result: { revoked_at: g.revoked_at } }).catch(() => {})
+  await notifyContext(g.grantee, { type: 'context_access_result', title: `참고 허락 회수 · 「${g.target_title}」`, description: '주인이 허락을 회수했습니다. 이미 만든 답에는 제목과 주인만 남습니다.', url: '/settings/sharing', from: await emailOf(me.id) })
   return { revoked: true, grant: g }
 }
 

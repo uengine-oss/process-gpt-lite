@@ -130,9 +130,18 @@ const viewWhen = (r) => (r.depth === 'summary' ? `${r.day.slice(5).replace('-', 
 
     <p class="cap">자동 허용 규칙 <span class="dim">· 내 맥락을 참고하겠다는 요청에 위에서부터 처음 맞는 줄을 씁니다</span></p>
     <div v-if="rules" class="list glass" data-testid="sharing-rules">
-      <div class="li rule fixed" title="지울 수 없는 줄">
+      <!-- 고정 줄은 회사 정책(설정 › 정책 · 팀원 맥락 참고)이다: 관리자가 끄면 민감 항목도 내 규칙을 따른다 -->
+      <div v-if="rules.fixed?.policy?.sensitive !== false" class="li rule fixed" title="회사 정책 — 지울 수 없는 줄" data-testid="rule-fixed">
         <span class="no"><Icon name="lock" :size="14" /></span>
-        <div class="main"><b>민감 항목 → 언제나 묻기</b><small>지울 수 없음 · 규칙보다 먼저</small></div>
+        <div class="main"><b>민감 항목 → 언제나 묻기</b><small>회사 정책 「{{ rules.fixed?.policy?.titles?.sensitive || '민감 맥락은 주인이 직접 허락' }}」 · 지울 수 없음 · 규칙보다 먼저</small></div>
+      </div>
+      <div v-else class="li rule fixed off" data-testid="rule-fixed">
+        <span class="no"><Icon name="lock" :size="14" /></span>
+        <div class="main"><b>민감 항목도 내 규칙대로</b><small>{{ rules.fixed.note }}</small></div>
+      </div>
+      <div v-if="rules.fixed?.policy?.topic" class="li rule fixed" data-testid="rule-topic">
+        <span class="no"><Icon name="lock" :size="14" /></span>
+        <div class="main"><b>민감할 수 있는 주제가 보이면 → 묻기</b><small>회사 정책 「{{ rules.fixed.policy.titles?.topic || '민감할 수 있는 주제는 자동 허용하지 않음' }}」 · 인사·급여·건강 같은 주제는 민감 표시 전이라도 자동 허용하지 않습니다</small></div>
       </div>
       <div v-for="(r, i) in rules.rules" :key="i" class="li rule" data-testid="rule-row">
         <span class="no">{{ i + 1 }}</span>
