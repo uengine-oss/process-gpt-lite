@@ -39,8 +39,9 @@ test('F-BD-01 일하는 브라우저 작업: 입력창 옆 원형 썸네일 → 
   expect(page.errors).toEqual([])
 })
 
+// its own account: the two tests may run side by side, and each clears its person's chat
 test('F-BD-02 끝난 작업에는 독이 없고, 조치가 필요한 작업은 주황 테두리 — 누르면 카드 대신 답할 카드로', async ({ pageAs, db }) => {
-  const page = await pageAs('bd-dock')
+  const page = await pageAs('bd-dock-states')
   const th = await db.clearMain(page.user.id)
   const [done] = await db.addMessages(th, [{ role: 'agent', kind: 'task', content: { ...running, state: 'done' } }])
   await page.goto('/chat')
