@@ -90,3 +90,23 @@ test('F-TC-03 홈 카드: 팀원의 참고 요청을 카드 안에서 깊이·�
   await expect.poll(async () => (await db.q(`select title from notifications where user_id = $1 and type = 'context_access_result'`, [req.id])).map((x) => x.title).join()).toContain('참고 허락')
   expect(page.errors).toEqual([])
 })
+
+test('F-TC-04 팀 탭: 팀 활동 화면이 뜨고, 조직도에 없는 사람에게는 공유된 활동이 없다고 말한다', async ({ pageAs }) => {
+  const page = await pageAs('tc-team')
+  await page.goto('/chat')
+  await page.locator('nav.seg button', { hasText: '팀' }).click()
+  await expect(page).toHaveURL(/\/team-activity/)
+  await expect(page.getByRole('heading', { name: '팀 활동' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText('공유된 작업만, 내가 볼 수 있는 깊이로 모았어요')).toBeVisible()
+  expect(page.errors).toEqual([])
+})
+
+test('F-TC-05 설정 › 공유와 허락: 기본 등급, 자동 허용 규칙(민감 줄 고정), 쓰인 곳·본 기록 칸', async ({ pageAs }) => {
+  const page = await pageAs('tc-sharing')
+  await page.goto('/settings/sharing')
+  await expect(page.getByRole('heading', { name: '공유와 허락' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText('새 맥락의 기본 등급')).toBeVisible()
+  await expect(page.getByText('민감 항목 → 언제나 묻기')).toBeVisible()
+  await expect(page.getByText('내 맥락이 쓰인 곳')).toBeVisible()
+  expect(page.errors).toEqual([])
+})

@@ -33,6 +33,10 @@ const routes = [
   { path: '/agentic', component: () => import('./views/AgenticReportView.vue') },
   // 빌링 백오피스 (운영자): 회사마다 요금제 · 이번 달 사용 · 청구서 · 충전 크레딧
   { path: '/backoffice/:tenant?', component: () => import('./views/BackofficeView.vue') },
+  // 팀 활동 (팀 맥락 공유): 공유된 작업만, 보는 사람의 깊이로 — 사람마다 지금 하는 일·주로 하는 일·프롬프트 유형, 장·관리자는 조직도로
+  { path: '/team-activity', component: () => import('./views/TeamActivityView.vue') },
+  // 다른 사람(또는 내) 대화 맥락 하나를 보는 사람의 깊이로 — 볼 수 없는 깊이는 「요청하기」
+  { path: '/context/:conv', component: () => import('./views/ContextView.vue') },
   { path: '/', redirect: '/chat' },
 ]
 

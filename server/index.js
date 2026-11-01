@@ -26,6 +26,8 @@ import { folderRoutes } from './routes/folders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
 import { contextRoutes } from './routes/context.js'
+import { teamActivityRoutes } from './routes/teamActivity.js'
+import { contextGradeRoutes } from './routes/contextGrade.js'
 import { meetingRoutes } from './routes/meetings.js'
 import { attachVoice } from './lib/meetings/voice.js'
 import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang.js'
@@ -330,6 +332,8 @@ app.use('/api', panelAppRoutes(auth))
 // team sharing and messenger (routes/team.js)
 app.use('/api', teamRoutes(auth))
 app.use('/api', contextRoutes(auth))
+app.use('/api', teamActivityRoutes(auth))
+app.use('/api', contextGradeRoutes(auth))
 // meetings in a team room: mesh WebRTC signalling, transcription, materials, minutes (routes/meetings.js)
 app.use('/api', meetingRoutes(auth))
 // process mining over ad-hoc work → recommended processes (routes/mining.js)

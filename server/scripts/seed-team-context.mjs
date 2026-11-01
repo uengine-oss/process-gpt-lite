@@ -69,7 +69,7 @@ const C = {
       ['3년 계약 할인 시나리오 세 가지를 계산해 줘', '8%·10%·12% 할인일 때 3년 매출은 각각 2억 2,080만·2억 1,600만·2억 1,120만 원이에요.'],
       ['고객 B 구매 담당자에게 회의 일정을 잡는 메일을 써 줘', '다음 주 화요일이나 목요일 오후에 30분 통화가 가능하실까요?'],
     ] },
-    { title: '경쟁사 가격 벤치마크', visibility: 'listed', reach: 'team', purpose: '제안서에 넣을 경쟁 서비스 가격 비교와 동향', days: 3, turns: [
+    { title: '경쟁사 가격 벤치마크', visibility: 'listed', reach: 'team', purpose: '국내 협업 SaaS 경쟁사의 요금제·가격 변화를 비교해 제안서 부록에', days: 3, turns: [
       ['제안서 부록용 경쟁사 요금 비교표를 만들어 줘', '부록 표를 만들었어요. 분기마다 갱신하는 것으로 적었어요.'],
       ['경쟁 서비스 신규 요금제를 찾아 줘', 'B사 비즈니스 요금제가 새로 생겼어요.'],
     ] },
@@ -125,6 +125,7 @@ async function cleanAll() {
   const ids = Object.values(await peopleIds())
   await wipeLive()
   for (const t of ['pro_context_shares', 'pro_context_digests', 'pro_sharing_rules', 'pro_team_leads']) await q(`delete from ${t} where tenant_id = $1`, [T])
+  if (ids.length) await q(`delete from pro_schedules where user_id::text = any($1)`, [ids])
   await q(`delete from context_threads where tenant_id = $1`, [T])
   if (ids.length) {
     await q(`delete from pro_messages where thread_id in (select id from pro_threads where user_id::text = any($1))`, [ids])
@@ -187,6 +188,12 @@ async function seed() {
         [T, owner, conv, c.visibility, c.reach, c.sensitive || 'none', c.purpose])
     }
   }
+  // 이도윤: 지금 도는 AI 작업(예약 작업의 실행 — cron 은 걸지 않는다)과 경쟁 서비스 동향에서 만든 파일
+  const lee = ids.lee, leeTh = await mainThread(lee), comp = convs.find((c) => c.title === '경쟁 서비스 동향')
+  const [sch] = await q(`insert into pro_schedules (user_id, name, cron, prompt, thread_id) values ($1, '주간 경쟁 동향 조사', '0 9 * * 1', '경쟁 3사 요금제 페이지를 확인해 지난주와 바뀐 점을 정리해 줘', $2) returning id`, [lee, leeTh.id])
+  await q(`insert into pro_mission_runs (schedule_id, trigger, status, started_at) values ($1, 'cron', 'running', now() - interval '4 minutes')`, [sch.id])
+  await q(`insert into pro_messages (thread_id, role, kind, content, created_at) values ($1, 'agent', 'file', $2, now() - interval '2 hours')`,
+    [leeTh.id, { name: '경쟁사_요금_비교_3분기.xlsx', ext: 'xlsx', url: '', conv: comp.conv, seed: 'team-context' }])
   return { ids, convs }
 }
 
