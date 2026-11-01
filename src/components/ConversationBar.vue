@@ -5,6 +5,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
+import GradePicker from './context/GradePicker.vue'
 import { useApp } from '../stores/app.js'
 
 const app = useApp()
@@ -29,6 +30,8 @@ function go(c) { open.value = false; router.push(c ? `/chat/c/${encodeURICompone
         <b>{{ cur.title }}</b>
         <small>이 대화의 메시지 {{ cur.count }}개 · 여기서 물으면 이 대화에 이어져요</small>
       </div>
+      <!-- 이 대화 맥락의 공개 등급(팀 맥락 공유) — 내 맥락이 아니거나 라우터가 아직 기록하지 않았으면 보이지 않는다 -->
+      <GradePicker :conv="cur.id" :title="cur.title" compact />
       <button class="pill press" @click="open = !open">다른 대화 ▾</button>
     </template>
     <button v-else-if="list.length" class="pill press" @click="open = !open">

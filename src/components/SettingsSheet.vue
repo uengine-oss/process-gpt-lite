@@ -10,6 +10,7 @@ import TeamRoles from './TeamRoles.vue'
 import UsagePlan from './UsagePlan.vue'
 import PolicyCenter from './PolicyCenter.vue'
 import ApprovalInbox from './ApprovalInbox.vue'
+import SharingCenter from './context/SharingCenter.vue'
 import MailConnect from './MailConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
@@ -26,7 +27,7 @@ const app = useApp()
 const sky = useSky()
 const page = computed(() => route.params.page)
 const sub = computed(() => route.params.sub)
-const titles = { policies: '정책·가드레일', approvals: '승인함', usage: '사용량·요금제', schedules: '예약된 작업', team: '팀·역할', skills: '스킬', accounts: '계정', wallet: '지갑', system: '시스템 설정', security: '보안', profile: '프로필' }
+const titles = { sharing: '공유와 허락', policies: '정책·가드레일', approvals: '승인함', usage: '사용량·요금제', schedules: '예약된 작업', team: '팀·역할', skills: '스킬', accounts: '계정', wallet: '지갑', system: '시스템 설정', security: '보안', profile: '프로필' }
 
 const schedules = ref([])
 const vault = ref([])
@@ -175,6 +176,9 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
 
       <!-- teammates and process role holders -->
       <TeamRoles v-if="page === 'team'" />
+
+      <!-- 팀 맥락 공유: 내 맥락의 공개 등급, 자동 허용 규칙, 준·받은 허락, 내 맥락이 쓰인 곳·본 기록 -->
+      <SharingCenter v-if="page === 'sharing'" />
 
       <!-- usage windows, plans, seats (server lib/plans) -->
       <UsagePlan v-if="page === 'usage'" />

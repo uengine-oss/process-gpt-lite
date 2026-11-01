@@ -13,6 +13,7 @@ create table if not exists pro_context_shares (
   reach text not null default 'team',
   sensitive text not null default 'none',
   purpose text not null default '',                 -- 제목 깊이에 함께 보이는 한 줄 목적(주인이 쓴다)
+  sensitive_dismissed_at timestamptz,                -- 주인이 민감 표시 제안을 무시함(다시 제안하지 않는다)
   updated_at timestamptz not null default now(),
   primary key (tenant_id, user_id, conversation_id),
   constraint pro_context_shares_chk check (visibility in ('private','listed','summary','open') and reach in ('team','department','company') and sensitive in ('none','proposed','confirmed'))
@@ -54,6 +55,8 @@ create table if not exists pro_access_requests (
   expires_at timestamptz not null default now() + interval '3 days',
   decided_at timestamptz
 );
+alter table pro_context_shares add column if not exists sensitive_dismissed_at timestamptz;
+
 create index if not exists pro_access_requests_owner on pro_access_requests (tenant_id, owner, status, created_at desc);
 create index if not exists pro_access_requests_requester on pro_access_requests (tenant_id, requester, created_at desc);
 

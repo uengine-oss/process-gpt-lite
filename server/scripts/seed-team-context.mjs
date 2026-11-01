@@ -109,7 +109,12 @@ async function wipeLive() {
   // 시드 뒤에 생긴 대화(녹화·시험의 턴)와 그 맥락
   const [st] = await q(`select value from configuration where tenant_id = $1 and key = 'team-context-seed'`, [T])
   const at = st?.value?.at
+  // 녹화·시험이 바꾼 등급·목적·민감 표시를 시드 값으로 되돌린다
+  for (const g of st?.value?.grades || []) {
+    await q(`update pro_context_shares set visibility = $3, reach = $4, sensitive = $5, purpose = $6, sensitive_dismissed_at = null where tenant_id = $1 and conversation_id = $2`, [T, g.conv, g.visibility, g.reach, g.sensitive, g.purpose])
+  }
   if (at && ids.length) {
+    await q(`delete from pro_context_shares where tenant_id = $1 and not (conversation_id = any($2::text[]))`, [T, st.value.convs || []])
     await q(`delete from pro_messages where created_at > $2 and thread_id in (select id from pro_threads where user_id::text = any($1))`, [ids, at])
     await q(`delete from context_threads where tenant_id = $1 and user_id::text = any($2) and not (conversation_id = any($3::text[]))`, [T, ids, st.value.convs || []])
     await q(`update pro_threads set conversation_id = null, status = null where user_id::text = any($1) and kind = 'chat'`, [ids])
@@ -167,7 +172,7 @@ async function seed() {
     const th = await mainThread(owner)
     for (const c of C[p.key] || []) {
       const conv = crypto.randomUUID()
-      convs.push({ owner, conv, title: c.title })
+      convs.push({ owner, conv, title: c.title, visibility: c.visibility, reach: c.reach, sensitive: c.sensitive || 'none', purpose: c.purpose })
       const start = now - c.days * DAY - c.turns.length * 3600000
       for (const [i, [ask, answer]] of c.turns.entries()) {
         const at = new Date(start + i * (c.days * DAY / Math.max(1, c.turns.length)) + i * 60000)
@@ -206,7 +211,7 @@ if (has('--status')) {
     for (const c of convs) { const d = await buildDigest(c.owner, c.conv).catch((e) => ({ error: e.message })); if (d?.summary) ok++; else console.log('  요약 실패', c.title, d?.error || '') }
     console.log(`  맥락 ${convs.length}개 · 요약 ${ok}개(${((Date.now() - t0) / 1000).toFixed(0)}초)`)
     await q(`delete from configuration where tenant_id = $1 and key = 'team-context-seed'`, [T])
-    await q(`insert into configuration (key, value, tenant_id) values ('team-context-seed', $1, $2)`, [{ at: new Date().toISOString(), convs: convs.map((c) => c.conv) }, T])
+    await q(`insert into configuration (key, value, tenant_id) values ('team-context-seed', $1, $2)`, [{ at: new Date().toISOString(), convs: convs.map((c) => c.conv), grades: convs.map((c) => ({ conv: c.conv, visibility: c.visibility, reach: c.reach, sensitive: c.sensitive, purpose: c.purpose })) }, T])
   }
 }
 await pool.end()
