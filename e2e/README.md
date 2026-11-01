@@ -378,14 +378,32 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 원장에서 배우는 정책 조정(완화·강화·대안), 적용하면 결정이 바뀌고 버전이 오름, 리포트 집계 | `server/test/agentic-insights.test.js` | 서버 | ✅ |
 | 화면: 정책·가드레일 세 탭, 승인자 알림 → 원장 줄 강조 → 승인, 전략맵 | 영상(녹화 중 단언) | — | ◐ (Playwright 화면 시험 ✗) |
 
+### 17. 팀 맥락 공유 — 자동 참고·참고 요청·팀 활동·공개 등급 (설계 `process-gpt/openspec/changes/pgpt-pro-team-context`, 영상 ① `7jat7FFJeKw` · ② `VJpa1aKFbUo`)
+
+판정 사례(`server/test/context-visibility-cases.json` 39 · `refer-cases.json` 16)와 HTTP E2E(시드 회사 team-demo, 실제 임베딩·모델)는 서버 시험으로 돈다.
+`cd server && node --test test/context-visibility.test.js test/refer.test.js test/context-grade.test.js test/team-activity.test.js`(82),
+E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `node scripts/seed-team-context.mjs --reset` 뒤 `node test/{context-share,context-grade,team-activity}.e2e.mjs` 다.
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 공개 등급 판정: 범위(팀·부서·회사)×깊이(제목·요약·원문), 장·관리자 덧씌움, 민감, 조직도 밖, 두 팀, 허락 만료 직전·직후·회수·다른 대화 | 판정 사례 39 | 서버 | ✅ |
+| 자동 참고 고르기: 기준 0.55·회색 0.45~0.55 판정 0.5·판정 실패·고정·빼기·세 대화 빼기 학습·요청 후보 0.5·상한, 인용 블록 | 고르기 사례 16 | 서버 | ✅ |
+| 경쟁사 가격 → 내 맥락(원문)+같은 팀 요약, 박하늘 원문 표지 0, 「분기 정리」 후보 아님, 관계없는 질문, 빼기, 끄기, 2초 안 | `context-share.e2e.mjs` 1–4 | 서버 | ✅ |
+| 같은 팀 자동 허용·다른 대화는 요약·하루 모음 카드, 다른 팀 묻기→홈 카드→원문·7일·턴 빼고 허락·409, 민감 묻기, 비공개 404(관리자 포함), 30건 429, 3일 만료, 쓰인 곳·회수 | `context-share.e2e.mjs` 5–8 | 서버 | ✅ |
+| 등급 바꾸기·422(민감 전체 공개)·주인 아니면 404, 민감 제안·승인·무시, 미리보기(새로·장·관리자·허락), 열람 기록, 기본 등급 | `context-grade.e2e.mjs` 16단계(확인 63), `context-grade.test.js` 11 | 서버 | ✅ |
+| 팀 활동 카드(팀장·다른 팀·관리자 차이, 문장 없음), 시간순 깊이, 원문 보기 자동 허용, 조직도 403/모아 보기, 겹침(보는 사람의 글로만), 관리자 눈, 비공개로 바꾸면 바로 빠짐(진행 중 작업 줄 제목 누출 고침) | `team-activity.e2e.mjs` 12단계, `team-activity.test.js` 16 | 서버 | ✅ |
+| 칩(주인·깊이·원문 요청·빼기·고정·자동 참고 끄기), 요청 후보 상태(요청함·허락됨·다시 답하기), 홈 카드에서 허락 → 카드 내려감·요청자 결과 | F-TC-01…03 | feature | ✅ |
+| 팀 탭·설정 › 공유와 허락 화면 | F-TC-04·05 | feature | ✅ |
+| 실제 턴: 라우터는 원래 메시지로 맥락을 고르고, 에이전트가 [1]·[2] 로 인용, 허락 뒤 다시 답하면 원문 내용 반영 | 영상 ①(녹화 중 단언) | — | ◐ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (23개) | 137 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06) |
+| feature | `tests/feature/*.spec.js` (25개) | 145 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…05) |
 | agent | `tests/agent/*.spec.js` (6개) | 17 (회의 A-14) |
-| 합계 | | 228 (`npx playwright test --list` 로 센 수, 2026-11-01) |
+| 합계 | | 236 (`npx playwright test --list` 로 센 수, 2026-11-01) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
