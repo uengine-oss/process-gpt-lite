@@ -57,6 +57,88 @@ const short = (n) => String(n || '').replace(/^Team /, '')
 // a window nobody has used yet has no reset time: it starts with the first use
 const resets = (w) => (w.resetsAt ? `${at(w.resetsAt)}에 초기화` : '아직 사용 전')
 
+// The plan picker, after Hark's: one plan at a time behind tabs (the next one up first), its price large, how
+// much it holds as a badge, and what that buys said in jobs — counts the server divides from measured runs
+// (server lib/plans/equivalents.js). Its sentences are written in both languages here (numbers inside).
+const T = (ko, en) => (isEnglish ? en : ko)
+const pick = ref('')
+const sel = computed(() => {
+  const i = plans.value.findIndex((p) => p.code === b.value?.subscription?.plan)
+  return plans.value.find((p) => p.code === pick.value) || plans.value[i + 1] || plans.value[i] || plans.value[0]
+})
+const brand = computed(() => String(b.value?.catalog?.title || '').toLowerCase())
+const n = (v) => Number(v).toLocaleString(loc)
+const head = (p) => p.seats[0]
+const badge = (p) => {
+  const s = head(p)
+  if (p.usageBased) return T('쓴 만큼 · 같은 요율', 'Pay as you go · same rate')
+  if (p.fixedPool) return T(`회사 전체 월 ${n(p.fixedPool)}크레딧`, `${n(p.fixedPool)} credits a month for the company`)
+  if (s.credits != null) return T(`좌석당 월 ${n(s.credits)}크레딧`, `${n(s.credits)} credits a seat a month`)
+  return s.x > 1 ? T(`${s.x}× 더 많은 사용량`, `${s.x}× more usage`) : T('기본 사용량', 'Baseline usage')
+}
+const bigPrice = (p) => {
+  const pr = head(p).price
+  if (!pr) return T('협의', 'Contact us')
+  return money(pr.month ?? pr.year ?? 0)
+}
+const priceUnit = (p) => {
+  const pr = head(p).price
+  if (!pr) return ''
+  const seat = p.kind === 'company' && !p.fixedPool
+  return T(`/월${seat ? ' · 좌석' : ''}`, `/mo${seat ? ' · seat' : ''}`)
+}
+const yearly = (p) => {
+  const pr = head(p).price
+  if (!pr) return ''
+  if (pr.month == null && pr.year != null) return T('연간 결제', 'billed yearly')
+  return pr.year != null && pr.month ? T(`연간 결제 시 ${money(pr.year)}/월`, `${money(pr.year)}/mo billed yearly`) : ''
+}
+const order = (p) => plans.value.findIndex((x) => x.code === p.code)
+const cta = (p) => {
+  if (p.code === b.value.subscription.plan) return T('지금 요금제', 'Your plan')
+  const up = order(p) > order(current.value || p)
+  if (!admin.value) return sent.value === p.code ? T('요청했어요', 'Requested') : T(`${p.name} 요금제로 바꿔 달라고 요청`, `Ask for ${p.name}`)
+  return up ? T(`${p.name} 요금제로 업그레이드`, `Upgrade to ${p.name}`) : T(`${p.name} 요금제로 바꾸기`, `Switch to ${p.name}`)
+}
+// [Korean "…거나" form, Korean last form, English]
+const JOBS = {
+  draft: (k) => [`품의서를 ${k}번 쓰거나`, `품의서를 ${k}번 쓸 수도 있어요`, `write ${k} approval requests`],
+  minutes: (k) => [`10분짜리 회의를 ${k}번 회의록으로 정리하거나`, `10분짜리 회의를 ${k}번 회의록으로 정리할 수도 있어요`, `turn ${k} ten-minute meetings into minutes`],
+  process: (k) => [`업무 프로세스를 ${k}개 그리거나`, `업무 프로세스를 ${k}개 그릴 수도 있어요`, `draw ${k} business processes`],
+  apology: (k) => [`일이 전부 꼬였을 때를 대비해 사과 메일을 ${k}통 써 두거나`, `일이 전부 꼬였을 때를 대비해 사과 메일을 ${k}통 미리 써 둘 수도 있어요`, `— in case it all goes wrong — write ${k} apology emails in advance`],
+}
+const LEAD = {
+  seat: ['좌석 하나의 한 달 크레딧이면', "One seat's month of credits could have"], company: ['회사의 한 달 크레딧이면', "The company's month of credits could have"],
+  week: ['일주일 한도면', "A week's limit could have"], month: ['한 달 한도면', "A month's limit could have"], session: ['5시간 세션 하나면', 'One 5-hour session could have'],
+}
+const PRICED = { draft: ['품의서 한 건', 'an approval request'], minutes: ['10분 회의록 한 건', "a ten-minute meeting's minutes"], process: ['업무 프로세스 하나', 'a business process'] }
+function witLine(p) {
+  const w = p.wit
+  if (!w?.jobs?.length) return ''
+  if (w.per === 'usage') {
+    const each = w.jobs.filter((j) => PRICED[j.key]).map((j) => [PRICED[j.key], j.krw != null ? `₩${n(j.krw)}` : `$${j.usd}`])
+    return T(`쓴 만큼 내요. ${each.map(([w2, v]) => `${w2[0]} 약 ${v}`).join(', ')} 정도예요. 일이 전부 꼬여도 관리자 지출 한도가 회사를 지켜 줘요.`,
+      `You pay for what you use: about ${each.map(([w2, v]) => `${v} ${w2[1]}`).join(', ')}. And if it all goes wrong, the admin spend limit has the company covered.`)
+  }
+  const parts = w.jobs.filter((j) => JOBS[j.key]).map((j) => JOBS[j.key](n(j.n)))
+  const lead = LEAD[w.per] || LEAD.seat
+  if (isEnglish) return `${lead[1]} Process GPT ${parts.length > 1 ? parts.slice(0, -1).map((x) => x[2]).join(', ') + ', or ' : ''}${parts.at(-1)[2]}.`
+  return `${lead[0]} Process GPT가 ${[...parts.slice(0, -1).map((x) => x[0]), parts.at(-1)[1]].join(', ')}.`
+}
+const witSource = computed(() => {
+  const m = b.value?.catalog?.wit?.measured
+  return T(`품의서·회의록·프로세스·사과 메일을 실제로 시켜 보고 잰 비용으로 셌어요${m ? ` (${m}, 기본 모델 기준)` : ''}.`,
+    `Counted from what each job cost when we actually asked for it${m ? ` (${m}, standard model)` : ''}.`)
+})
+// Hark: "every feature on every plan; upgrading adds usage" — said only as far as this catalog makes it true
+const footLine = computed(() => {
+  const tiers = plans.value.map((p) => p.seats.map((s) => (s.tiers || []).join()).join('|'))
+  const pro = plans.value.find((p) => p.seats.some((s) => (s.tiers || []).includes('pro')))
+  if (new Set(tiers).size <= 1) return T('모든 기능은 모든 요금제에서 쓸 수 있어요. 요금제를 올리면 사용량만 늘어요.', 'Every feature comes with every plan. A higher plan only adds usage.')
+  return T(`업무 기능은 모든 요금제에 다 들어 있어요. 요금제를 올리면 쓸 수 있는 양이 늘고${pro ? `, ${pro.name}부터는 고급 모델도 써요` : ''}.`,
+    `Every work feature comes with every plan. A higher plan adds usage${pro ? `, and from ${pro.name} on, the advanced models` : ''}.`)
+})
+
 async function choose(p) {
   busy.value = true; err.value = ''; sent.value = ''
   try {
@@ -123,20 +205,29 @@ async function decide(r, ok) {
         <small v-if="b.catalog.source" class="src">{{ b.catalog.title }} 요금제 기준 · <a :href="b.catalog.source" target="_blank" rel="noopener">출처</a></small>
         <small v-else-if="krw" class="src">1크레딧 = ₩10 · 부가세 별도</small>
       </p>
-      <div class="plans">
-        <div v-for="p in plans" :key="p.code" class="plan glass" :class="{ on: p.code === b.subscription.plan }">
-          <div class="pn"><b>{{ p.name }}</b><span v-if="p.code === b.subscription.plan" class="chip">지금 요금제</span></div>
-          <p class="pnote">{{ p.note }}</p>
-          <ul>
-            <li v-for="s in p.seats" :key="s.code"><span v-if="p.seats.length > 1" class="sn">{{ short(s.name) }}</span><span class="pr">{{ price(s) }}</span><span v-if="!p.fixedPool" class="x">{{ times(s) }}</span></li>
-          </ul>
-          <small v-if="p.fixedPool" class="seats">회사 전체 {{ p.fixedPool.toLocaleString() }}크레딧/월</small>
-          <small v-if="p.minSeats" class="seats">{{ p.minSeats }}석부터{{ p.maxSeats ? ` · 최대 ${p.maxSeats}석` : '' }}</small>
-          <button v-if="p.code !== b.subscription.plan" class="pill-btn" :disabled="busy || sent === p.code" @click="choose(p)">
-            {{ admin ? '이 요금제로 변경' : sent === p.code ? '요청했어요' : '변경 요청' }}
-          </button>
-        </div>
+      <div class="tiers glass" role="tablist">
+        <button v-for="p in plans" :key="p.code" role="tab" :aria-selected="p.code === sel?.code" :class="{ on: p.code === sel?.code }" @click="pick = p.code">
+          {{ p.name }}<i v-if="p.code === b.subscription.plan" class="now" title="지금 요금제" />
+        </button>
       </div>
+      <div v-if="sel" class="hero glass">
+        <div class="brand"><span class="serif">{{ brand }}</span> <em class="serif">{{ sel.name.toLowerCase() }}</em></div>
+        <span class="badge" data-no-i18n>{{ badge(sel) }}</span>
+        <div class="price" data-no-i18n><b class="serif">{{ bigPrice(sel) }}</b><small>{{ priceUnit(sel) }}</small></div>
+        <small v-if="yearly(sel)" class="yr" data-no-i18n>{{ yearly(sel) }}</small>
+        <ul v-if="sel.seats.length > 1" class="seatlist">
+          <li v-for="s in sel.seats" :key="s.code"><span class="sn">{{ short(s.name) }}</span><span class="pr">{{ price(s) }}</span><span v-if="!sel.fixedPool" class="x">{{ times(s) }}</span></li>
+        </ul>
+        <p class="pnote">{{ sel.note }}</p>
+        <hr />
+        <p v-if="witLine(sel)" class="wit" data-no-i18n>{{ witLine(sel) }}</p>
+        <small v-if="witLine(sel)" class="witsrc" data-no-i18n>{{ witSource }}</small>
+        <small v-if="sel.minSeats" class="seats">{{ sel.minSeats }}석부터{{ sel.maxSeats ? ` · 최대 ${sel.maxSeats}석` : '' }}</small>
+        <button class="cta" data-no-i18n :class="{ current: sel.code === b.subscription.plan }" :disabled="busy || sel.code === b.subscription.plan || sent === sel.code" @click="choose(sel)">
+          {{ cta(sel) }}
+        </button>
+      </div>
+      <p class="foot" data-no-i18n>{{ footLine }}</p>
       <template v-if="!admin">
         <input v-model="note" class="note" placeholder="관리자에게 남길 말 (선택)" />
         <button v-if="current?.extraUsage && !b.me.extra" class="link" :disabled="sent === 'extra'" @click="askExtra">{{ sent === 'extra' ? '추가 사용량을 요청했어요' : '추가 사용량 요청' }}</button>
@@ -202,19 +293,36 @@ async function decide(r, ok) {
 .bar { height: 8px; border-radius: 4px; background: rgba(0, 0, 0, .07); overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 4px; background: var(--ink); transition: width .4s; }
 .bar i.full { background: #c62828; }
-.plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
-.plan { border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
-.plan.on { outline: 2px solid var(--ink); }
-.pn { display: flex; justify-content: space-between; align-items: center; }
-.pn b { font-size: 16px; font-weight: 600; }
-.pnote { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.4; }
-.plan ul { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.plan li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; }
-.plan li .sn { flex: 1 0 100%; color: var(--text-secondary); }
-.plan li .pr, .plan li .x { white-space: nowrap; }
-.plan .x { color: var(--text-tertiary); }
+.tiers { display: flex; gap: 2px; padding: 4px; border-radius: 9999px; margin-bottom: 10px; }
+.tiers button { flex: 1; min-width: 0; height: 42px; border-radius: 9999px; font-size: 15px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background-color .2s, color .2s; }
+.tiers button.on { background: var(--ink); color: var(--ink-inverse); }
+.tiers .now { display: inline-block; width: 6px; height: 6px; border-radius: 3px; background: currentColor; margin-left: 6px; vertical-align: 3px; opacity: .6; }
+.hero { border-radius: 28px; padding: 22px 20px 18px; display: flex; flex-direction: column; gap: 10px; }
+.brand { font-size: 34px; line-height: 1.1; }
+.brand .serif { font-weight: 500; }
+.brand em { font-style: italic; font-weight: 300; color: var(--text-secondary); }
+.badge { align-self: flex-start; padding: 6px 16px; border-radius: 9999px; background: var(--ink); color: var(--ink-inverse); font-size: 14px; }
+.price { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; }
+.hero .price b { font-size: 44px; font-weight: 500; letter-spacing: -0.02em; line-height: 1; }
+.hero .price small { color: var(--text-tertiary); font-size: 18px; }
+/* the settings sheet's .main b / .main small (one-line list rows) must not reach the hero */
+.up .hero small { white-space: normal; overflow: visible; }
+.hero .yr { color: var(--text-tertiary); font-size: 13px; margin-top: -4px; }
+.hero hr { width: 100%; border: 0; border-top: 1px solid rgba(128, 128, 128, .25); margin: 6px 0 2px; }
+.wit { margin: 0; font-size: 15px; line-height: 1.65; }
+.hero .witsrc { color: var(--text-tertiary); font-size: 12px; line-height: 1.5; }
+.seatlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.seatlist li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; }
+.seatlist li .sn { flex: 1 0 100%; color: var(--text-secondary); }
+.seatlist li .pr, .seatlist li .x { white-space: nowrap; }
+.seatlist .x { color: var(--text-tertiary); }
 .seats { color: var(--text-tertiary); font-size: 12px; }
-.plan .pill-btn { margin-top: auto; }
+.pnote { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+.cta { margin-top: 10px; height: 52px; border-radius: 16px; background: var(--ink); color: var(--ink-inverse); font-size: 16px; font-weight: 600; transition: scale .12s ease-out, opacity .2s; }
+.cta:active { scale: .98; }
+.cta:disabled { cursor: default; }
+.cta.current { background: transparent; color: var(--text-secondary); outline: 1px solid rgba(128, 128, 128, .35); }
+.foot { margin: 14px 12px 4px; text-align: center; color: var(--text-tertiary); font-size: 13px; line-height: 1.55; }
 .note { width: 100%; height: 38px; border-radius: 12px; padding: 0 12px; margin-top: 10px; border: 1px solid rgba(0, 0, 0, .12); background: rgba(255, 255, 255, .7); }
 .link { margin: 8px 4px; color: var(--text-secondary); font-size: 13px; text-decoration: underline; }
 .list { border-radius: 20px; overflow: hidden; margin-top: 10px; }

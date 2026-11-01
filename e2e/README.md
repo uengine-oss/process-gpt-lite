@@ -313,6 +313,15 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 영어 모드 다듬기: 워드 그림 ↔ 포토크래프트(영어·한국어), 앱 이름으로 Craft 도구, 영어 이름 지목, 패널 설계 토큰·금액(한·영), 브라우저 구매 차단·결과 문장, 테스트 상점 영어판, 설치 스크립트 언어 | `english-fixes.spec.js`, `server/test/en-fix.test.js`, `browser-tasks.test.js` | F-EN-01…04, S-53 | feature·smoke | ✅ (F-EN-04 는 모델 호출) |
 | 설치 스택에 대고 전체 스위트 | `PGPT_URL=http://localhost:18080` | (전체) | 모두 | ◐ |
 
+### 13e. 사용량·요금제 (`lib/plans/*`, 설계 `pgpt-pro/docs/billing/tenant-billing-design.md`, 영상 `bpYwayg_6Co` · 요금제 화면 `d3UtRrwus7M`)
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 요금제 탭: 지금 요금제의 다음 것을 먼저, 큰 가격·사용량 배지·할 수 있는 일(잰 값으로 센 수)·맨 아래 안내, 팀원은 「바꿔 달라고 요청」, 지금 요금제는 누를 수 없음 | `UsagePlan.vue`, `lib/plans/equivalents.js` | F-PL-01 | feature | ✅ (PRO_LLM_KEYS=litellm 서버) |
+| 할 수 있는 일의 수 = 요금제 사용량 ÷ 실제로 시켜 본 일의 비용(2자리로 내림), 쓴 만큼 요금제는 일 하나의 값 | `jobs.json` (`scripts/measure-plan-jobs.mjs`) | `server/test/plans-equivalents.test.js` | 단위 | ✅ |
+| 일의 비용을 다시 재기(모델·프롬프트가 바뀌면) | `scripts/measure-plan-jobs.mjs --write` | — | — | ✗ (실제 모델 호출, 수동) |
+| 한도·일할 정산·이벤트 소비자 | `server/test/plans.e2e.mjs`, `plans-prorate.test.js`, `llm-keys.e2e.mjs` | — | 서버 | ✅ |
+
 ### 14. 튜토리얼 결함 고침 — 개인정보·채팅·브라우저·메일·프로필 (`docs/tutorial-findings.md`)
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
