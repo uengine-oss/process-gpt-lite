@@ -5,10 +5,11 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { admin, pool } from '../lib/supa.js'
 import { config } from '../config.js'
-import { fetchRoomDir, fetchRoomFile, rmRoomCopy, encodeSegment, roomPrefix } from '../lib/roomStore.js'
+import { fetchRoomDir, fetchRoomFile, rmRoomCopy, encodeSegment, roomPrefix, pushRoomDir, pullRoomChanges } from '../lib/roomStore.js'
 
 const room = crypto.randomUUID().replace(/-/g, '')
 const other = crypto.randomUUID().replace(/-/g, '')
@@ -47,6 +48,45 @@ test('작업실에만 있는 카드 파일 하나도 방 폴더 사본에서 읽
   assert.equal(got.buf.toString('utf8'), '견적 본문')
   assert.equal(await fetchRoomFile(`/workspace/.bpmn/${room}/없는파일.docx`), null)
   assert.equal(await fetchRoomFile(`/workspace/.bpmn/${room}`), null) // 방 폴더 자체는 파일이 아니다
+})
+
+test('공유 폴더 체크아웃을 Storage 로 넘기고, 다른 파드의 에이전트가 고친 것만 돌려받는다', async () => {
+  const worktree = await fs.mkdtemp(path.join(os.tmpdir(), 'pro-worktree-'))
+  await fs.writeFile(path.join(worktree, '.git'), 'gitdir: /here/only')
+  await fs.mkdir(path.join(worktree, '문서'))
+  await fs.writeFile(path.join(worktree, '문서', '견적 조건.md'), '원본')
+  await fs.writeFile(path.join(worktree, '그대로.md'), '그대로')
+  await fs.writeFile(path.join(worktree, '지운파일.md'), '여기서 지움')
+  const pod = crypto.randomUUID().replace(/-/g, '')
+  const dir = `/workspace/.bpmn/${pod}/folders/seminar`
+  const seeded = await pushRoomDir(worktree, dir)
+  keys.push(...(await pool.query("select name from storage.objects where bucket_id='files' and starts_with(name, $1)", [`${roomPrefix(dir)}/`])).rows.map((r) => r.name))
+  // 하위 폴더 파일도 키 한 조각이라 deepagents 가 폴더 목록을 걷지 않고 찾는다
+  assert.ok(keys.every((k) => !k.startsWith(roomPrefix(dir)) || !k.slice(roomPrefix(dir).length + 1).includes('/')))
+
+  // 에이전트 파드가 받는 것: 파일은 있고 .git 포인터는 없다
+  const hydrated = await fetchRoomDir(dir)
+  assert.equal(await fs.readFile(path.join(hydrated, '문서', '견적 조건.md'), 'utf8'), '원본')
+  await assert.rejects(fs.stat(path.join(hydrated, '.git')))
+  await rmRoomCopy(hydrated)
+
+  // 공유 디스크에서 사람이 지운 파일은 Storage 사본으로 되살아나지 않는다
+  await fs.rm(path.join(worktree, '지운파일.md'))
+  // 답이 끝난 뒤 deepagents 가 모든 파일을 다시 올린다
+  const late = (async () => {
+    await new Promise((r) => setTimeout(r, 300))
+    await put(pod, 'folders/seminar/문서/견적 조건.md', '검토 메모 추가')
+    await put(pod, 'folders/seminar/그대로.md', '그대로')
+    await put(pod, 'folders/seminar/지운파일.md', '여기서 지움')
+    await put(pod, 'folders/seminar/새 문서.md', '새로 만듦')
+  })()
+  const changed = await pullRoomChanges(dir, seeded, worktree, { timeoutMs: 20000, everyMs: 200 })
+  await late
+  assert.deepEqual(changed.sort(), ['문서/견적 조건.md', '새 문서.md'].sort())
+  assert.equal(await fs.readFile(path.join(worktree, '문서', '견적 조건.md'), 'utf8'), '검토 메모 추가')
+  assert.equal(await fs.readFile(path.join(worktree, '.git'), 'utf8'), 'gitdir: /here/only')
+  await assert.rejects(fs.stat(path.join(worktree, '지운파일.md')))
+  await fs.rm(worktree, { recursive: true })
 })
 
 after(async () => {

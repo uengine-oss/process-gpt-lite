@@ -18,6 +18,7 @@ import { changeCard, catalog } from './indexer.js'
 import { RULES, rules } from './runner.js'
 import * as SK from './skills.js'
 import { L, asUser, withLang, langOf } from '../lang.js'
+import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 
 const T = () => config.tenantId
 const EDIT = /고쳐|고치|수정|다듬|바꿔|바꾸|변경|추가|넣어|빼|삭제|작성|만들어|정리|업데이트|반영해|번역|채워|보완|손봐/
@@ -77,7 +78,10 @@ export async function startChatWork({ user, folder, text, threadId }) {
     title: text.replace(/\s+/g, ' ').slice(0, 40), kind: 'chat', holder: { type: 'user', id: user.id, name: user.name },
     source: { label: L(`${user.name} 님의 채팅 요청`, `Chat request from ${user.name}`), room_id: room, thread_id: threadId, engine: 'deepagents', request: text.slice(0, 500) }, createdBy: user.id,
   })
-  await S.checkout(folder, v, S.runCheckoutDir(room, folder))
+  const dir = S.runCheckoutDir(room, folder)
+  await S.checkout(folder, v, dir)
+  // the agent may run on another pod, with no disk in common: it gets the files from storage
+  const seeded = await pushRoomDir(dir, S.runCheckoutContainer(room, folder))
   const [cat] = await catalog(user.id).then((c) => c.filter((x) => x.slug === folder.slug))
   const listing = (cat?.files || []).map((f) => `- ${f.path}${f.summary ? ` — ${f.summary}` : ''}`).join('\n')
   const message = L(`${text}
@@ -91,11 +95,12 @@ ${RULES} 고친 뒤 무엇을 바꿨는지 해요체로 짧게 알려 주세요.
 Files in this folder:
 ${listing || '(no files yet)'}
 ${rules()} When you are done, say briefly in English what you changed. A person reviews it and merges it into main.)`)
-  return { room, v, message }
+  return { room, v, message, seeded }
 }
 
-export async function finishChatWork({ user, folder, v, threadId }) {
+export async function finishChatWork({ user, folder, v, threadId, room, seeded, stopped = false }) {
   const cur = await S.variationById(v.id)
+  await pullRoomChanges(S.runCheckoutContainer(room, folder), seeded, cur.worktree_path, { wait: !stopped })
   await S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`채팅 요청: ${cur.title}`, `Chat request: ${cur.title}`))
   await S.release(folder, cur)
   const after = await S.variationById(v.id)
