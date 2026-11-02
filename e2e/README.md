@@ -412,7 +412,7 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
 | feature | `tests/feature/*.spec.js` (25개) | 149 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…09) |
 | agent | `tests/agent/*.spec.js` (6개) | 17 (회의 A-14) |
-| 합계 | | 240 (`npx playwright test --list` 로 센 수에 F-TC-09 를 더함, 2026-11-03) |
+| 합계 | | 240 (`npx playwright test --list` 로 센 수, 2026-11-03) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
