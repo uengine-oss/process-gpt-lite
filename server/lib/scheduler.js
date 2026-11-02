@@ -85,10 +85,17 @@ export function startScheduleTicker(fire) {
   }, 15000)
 }
 
-export async function createSchedule({ userId, name, cron, prompt, threadId }) {
+// the KST minute `minutes` from now as a cron expression: "3분 뒤" has no repeating form. It would match
+// again a year later, so such a schedule is `once`: it pauses after its run (lib/missions.js).
+export function cronAfter(minutes, from = new Date()) {
+  const kst = new Date(Math.ceil((from.getTime() + Math.max(1, Number(minutes) || 0) * 60000) / 60000) * 60000 + 9 * 3600000)
+  return `${kst.getUTCMinutes()} ${kst.getUTCHours()} ${kst.getUTCDate()} ${kst.getUTCMonth() + 1} *`
+}
+
+export async function createSchedule({ userId, name, cron, prompt, threadId, notify = 'on_change', once = false }) {
   const [s] = await q(
-    `insert into pro_schedules(user_id,name,cron,prompt,thread_id) values ($1,$2,$3,$4,$5) returning *`,
-    [userId, name, cron, prompt, threadId])
+    `insert into pro_schedules(user_id,name,cron,prompt,thread_id,notify,state) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
+    [userId, name, cron, prompt, threadId, notify, once ? { once: true } : {}])
   if (config.cronMode === 'server') return s
   const jobBase = `pro_${s.id.slice(0, 8)}`
   const url = `${config.cronCallbackBase}/api/cron/fire`

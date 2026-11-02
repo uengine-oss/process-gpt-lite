@@ -5,7 +5,7 @@ import { chat } from './llm.js'
 import { q } from './supa.js'
 import { addMessage, history, getThread, setThreadStatus } from './store.js'
 import { runBrowserTask } from './browser.js'
-import { createSchedule, nextRun } from './scheduler.js'
+import { createSchedule, nextRun, cronAfter, dueAt } from './scheduler.js'
 import { createMission, createProcessSchedule, listSkills, workspaceHostPath } from './missions.js'
 import { summarizeSkill, listFolder } from './skills.js'
 import { generatedContract } from './generated.js'
@@ -73,14 +73,17 @@ const ROUTER_TOOLS = [
         type: 'object',
         properties: {
           name: { type: 'string', description: '짧은 작업 이름' },
-          cron: { type: 'string', description: '5-field cron in Asia/Seoul local time' },
+          cron: { type: 'string', description: '5-field cron in Asia/Seoul local time. Leave out when in_minutes is given' },
+          in_minutes: { type: 'integer', description: 'For one run a number of minutes from now ("3분 뒤에 한 번만"): the minutes. It runs once' },
+          once: { type: 'boolean', description: 'true when it should run only one time at the cron moment ("내일 오전 9시에 한 번")' },
+          notify: { type: 'string', enum: ['always', 'on_change'], description: "always: the user is told at every run (reminders, reports). on_change: only when something changed since the last run (watching for news, prices, new items)" },
           prompt: { type: 'string', description: 'Self-contained instruction executed at each run' },
           skill: { type: 'string', description: 'If one of the available skills (listed in the system message) does this job, its exact name. The run then executes that skill as a mission. A skill is one person\'s job done by one agent: results go only to the person who set it up.' },
           process: { type: 'string', description: 'If one of the processes (listed in the system message) is the job to run on this schedule, its exact id. Each run then starts a new instance of that process. Use a process (not a skill) when the work passes between people or roles (검토·승인·결정을 다른 사람/역할이 함), branches on a decision, or chains several agents/skills — each step then goes to whoever holds its role.' },
           params: { type: 'object', description: 'Inputs taken from the request. For a skill, what the skill needs, e.g. {"channel":"@경제사냥꾼","sectors":["코스피","반도체"]}. For a process, its first-step fields (listed with the process), e.g. {"sources":"Facebook","topics":"AI 업무 자동화"}' },
           ack: { type: 'string', description: '해요체 확인 문장 한두 개. 첫 실행 시각은 말하지 말 것(시스템이 따로 표시)' },
         },
-        required: ['name', 'cron', 'prompt', 'ack'],
+        required: ['name', 'prompt', 'ack'],
       },
     },
   },
@@ -313,25 +316,33 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
         .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment.") }) })
       break
     case 'schedule_task': {
-      const skills = await listSkills(session.access_token)
-      const useSkill = args.skill && skills.some((k) => k.name === args.skill)
-      // the router sometimes names the process only inside its prompt; match ids and names as well
-      let procId = !useSkill ? args.process : null
-      if (!useSkill && !procId) {
-        const said = `${args.prompt || ''} ${args.name || ''} ${text}`
-        procId = (await listDefinitions()).slice(0, 40).find((d) => said.includes(d.id) || (d.name && d.name.length >= 6 && said.includes(d.name)))?.id
+      // the ack is already in the chat: a schedule that cannot be made has to say so
+      try {
+        const cron = args.in_minutes ? cronAfter(args.in_minutes) : args.cron
+        dueAt(cron, new Date()) // throws on an expression that is not a cron
+        const skills = await listSkills(session.access_token)
+        const useSkill = args.skill && skills.some((k) => k.name === args.skill)
+        // the router sometimes names the process only inside its prompt; match ids and names as well
+        let procId = !useSkill ? args.process : null
+        if (!useSkill && !procId) {
+          const said = `${args.prompt || ''} ${args.name || ''} ${text}`
+          procId = (await listDefinitions()).slice(0, 40).find((d) => said.includes(d.id) || (d.name && d.name.length >= 6 && said.includes(d.name)))?.id
+        }
+        const proc = procId ? await getDefinition(procId) : null
+        const s = proc
+          ? await createProcessSchedule({ userId, name: args.name, cron, processId: proc.id, params: { ...(args.params || {}), request: text }, threadId })
+          : useSkill
+          // keep the user's own words with the inputs so the skill can recover anything the router missed
+          ? await createMission({ userId, name: args.name, cron, skill: args.skill, params: { ...(args.params || {}), request: text } })
+          : await createSchedule({ userId, name: args.name, cron, prompt: args.prompt, threadId, notify: args.notify === 'on_change' ? 'on_change' : 'always', once: !!(args.in_minutes || args.once) })
+        const next = nextRun(s.cron)
+        const when = next ? next.toLocaleString(locale(), { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit' }) : ''
+        await addMessage(userId, threadId, 'agent', 'chip', { icon: 'clock', text: L(`예약됨 · ${s.name}${useSkill ? ` · 스킬 ${args.skill}` : proc ? ` · 프로세스 ${proc.name}` : ''}${when ? ` · 다음 실행 ${when}` : ''}`,
+          `Scheduled · ${s.name}${useSkill ? ` · skill ${args.skill}` : proc ? ` · process ${proc.name}` : ''}${when ? ` · next run ${when}` : ''}`), cron: s.cron, scheduleId: s.id })
+      } catch (e) {
+        console.warn('[schedule]', e.message)
+        await addMessage(userId, threadId, 'agent', 'text', { text: L('예약을 걸지 못했어요. 시각을 다시 알려 주세요.', "I couldn't set that schedule. Please tell me the time again.") })
       }
-      const proc = procId ? await getDefinition(procId) : null
-      const s = proc
-        ? await createProcessSchedule({ userId, name: args.name, cron: args.cron, processId: proc.id, params: { ...(args.params || {}), request: text }, threadId })
-        : useSkill
-        // keep the user's own words with the inputs so the skill can recover anything the router missed
-        ? await createMission({ userId, name: args.name, cron: args.cron, skill: args.skill, params: { ...(args.params || {}), request: text } })
-        : await createSchedule({ userId, name: args.name, cron: args.cron, prompt: args.prompt, threadId })
-      const next = nextRun(s.cron)
-      const when = next ? next.toLocaleString(locale(), { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit' }) : ''
-      await addMessage(userId, threadId, 'agent', 'chip', { icon: 'clock', text: L(`예약됨 · ${s.name}${useSkill ? ` · 스킬 ${args.skill}` : proc ? ` · 프로세스 ${proc.name}` : ''}${when ? ` · 다음 실행 ${when}` : ''}`,
-        `Scheduled · ${s.name}${useSkill ? ` · skill ${args.skill}` : proc ? ` · process ${proc.name}` : ''}${when ? ` · next run ${when}` : ''}`), cron: s.cron, scheduleId: s.id })
       break
     }
     case 'create_panel':
@@ -380,7 +391,7 @@ async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
   // answered there: lib/agent.js delegate)
   pinned.set(threadId, { conversationId: work.room, title: folder.kind === 'skill' ? L(`${folder.name} 스킬 고치기`, `Fix the ${folder.name} skill`) : L(`${folder.name} 폴더 작업`, `${folder.name} folder work`), folder: true })
   const msg = await delegate({ user, session, threadId, text: work.message, onDelta })
-  await finishChatWork({ user, folder, v: work.v, threadId }).catch((e) => console.warn('[folders] chat work', e.message))
+  await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: !!msg?.content?.stopped }).catch((e) => console.warn('[folders] chat work', e.message))
   return msg
 }
 

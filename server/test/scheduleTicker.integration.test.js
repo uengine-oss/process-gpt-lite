@@ -35,6 +35,31 @@ test('서버 모드 등록은 pg_cron 작업 없이 남고, 그 분에만 골라
   assert.ok(!(await S.dueSchedules(KST('2026-10-30T03:07:00'))).includes(s.id))
 })
 
+test('"N분 뒤 한 번"은 KST 그 분을 가리키는 cron 이고, 한 번짜리로 저장된다', async () => {
+  const cron = S.cronAfter(3, KST('2026-11-02T23:58:30'))
+  assert.equal(cron, '2 0 3 11 *') // 올림한 분, 날짜가 넘어간다
+  assert.equal(S.dueAt(cron, KST('2026-11-03T00:02:00')), true)
+  const s = await S.createSchedule({ userId: crypto.randomUUID(), name: '한 번', cron, prompt: '시험', threadId: null, notify: 'always', once: true })
+  ids.push(s.id)
+  assert.equal(s.notify, 'always')
+  assert.deepEqual(s.state, { once: true })
+})
+
+test('기본 예약은 지금처럼 바뀔 때만 알리고 한 번짜리가 아니다', async () => {
+  const s = await S.createSchedule({ userId: crypto.randomUUID(), name: '감시', cron: '7 3 * * *', prompt: '시험', threadId: null })
+  ids.push(s.id)
+  assert.equal(s.notify, 'on_change')
+  assert.equal(s.state?.once, undefined)
+})
+
+test('한 번짜리 예약은 실행되면 다시 골라지지 않는다', async () => {
+  const { runMission } = await import('../lib/missions.js')
+  const s = await S.createSchedule({ userId: crypto.randomUUID(), name: '한 번 실행', cron: '7 3 * * *', prompt: '시험', threadId: null, notify: 'always', once: true })
+  ids.push(s.id)
+  await runMission(s.id, 'cron') // 프로필이 없어 실행은 실패로 기록되지만, 다시 돌면 안 되는 것은 같다
+  assert.ok(!(await S.dueSchedules(KST('2026-10-30T03:07:00'))).includes(s.id))
+})
+
 after(async () => {
   if (ids.length) await q('delete from pro_schedules where id = any($1::uuid[])', [ids])
   await pool.end()

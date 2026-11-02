@@ -194,10 +194,14 @@ async function runPromptSchedule(s, run) {
   const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
   const { user, session } = await sessionFor(p.email, p.name)
   const threadId = s.thread_id || (await mainThread(s.user_id)).id
-  const text = L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`,
+  // a reminder is meant to arrive every time; "no change" only suits a schedule that watches something
+  const reminder = s.notify === 'always'
+  const text = reminder ? L(`${s.prompt}\n\n(예약 실행입니다. 사용자에게 알릴 내용을 과정 설명 없이 답하세요.)`,
+    `${s.prompt}\n\n(This is a scheduled run. Answer with what the user should be told, without describing the process.)`) : L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`,
     `${s.prompt}\n\n(This is a scheduled run. If nothing differs from what you shared in the previous run, answer exactly "No change" and nothing else. When you share, write only the result, without describing the process.)`)
   const { delegate } = await import('./agent.js')
-  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, quietIfUnchanged: true })
+  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, quietIfUnchanged: !reminder })
+  if (reminder && msg) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: String(msg.content?.text || '').slice(0, 300), url: `/pro/threads/${threadId}` })
   const body = String(msg?.content?.text || '')
   const out = msg ? outcomeOf(body) : { ok: true, summary: L('변동 없음', 'No change') }
   // the answer is already in the chat: a failure is announced by the caller, not repeated here
@@ -238,6 +242,8 @@ export async function fireSchedule(scheduleId, attempt = 0) {
 export async function runMission(scheduleId, trigger = 'cron') {
   const [s] = await q('update pro_schedules set last_run=now() where id=$1 returning *', [scheduleId])
   if (!s || (s.paused && trigger !== 'manual')) return null
+  // pauses before the run: a retry after a failed start must not make it fire twice
+  if (s.state?.once && trigger !== 'manual') await q('update pro_schedules set paused=true where id=$1', [s.id])
   return asUser(s.user_id, () => runMissionAs(s, trigger))
 }
 async function runMissionAs(s, trigger) {
