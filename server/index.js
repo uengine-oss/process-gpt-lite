@@ -125,7 +125,8 @@ async function finishLogin(email, name) {
 app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
 
 app.get('/api/auth/google/start', (req, res) => {
-  if (!mail.googleEnabled()) return res.status(400).send('Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).')
+  // an old tab or a kept link: the app shows no Google button when this is off
+  if (!mail.googleEnabled()) return res.redirect(config.publicUrl || '/')
   for (const [key, value] of oauthStates) {
     if (Date.now() - value.at > 10 * 60 * 1000) oauthStates.delete(key)
   }
@@ -203,6 +204,8 @@ app.post('/api/auth/refresh', async (req, res) => {
 
 // ---------- profile / onboarding ----------
 app.get('/api/me', auth, async (req, res) => {
+  // teammates find a new account from its first visit, not from when it opens the team settings
+  await team.ensureMember(req.user).catch((e) => console.warn('[team] admit', e.message))
   // birth goes out as the calendar date: a pg date parses to local midnight, which JSON shifts to the day before in UTC
   const [p] = await q(`select *, to_char(birth, 'YYYY-MM-DD') as birth from pro_profile where user_id=$1`, [req.user.id])
   const [m] = await q('select provider, address, last_poll from pro_mail_accounts where user_id=$1', [req.user.id])

@@ -186,6 +186,10 @@ test('W-03 박대리가 이어서 작업하면 전용 작업 대화에서 넘겨
   await waitFor(async () => (await agentIdle(db, thread)) &&
     (await db.q(`select count(*)::int n from pro_messages where thread_id=$1 and role='agent' and kind in ('text','doc')`, [thread]))[0].n >= 2, { timeout: 15 * 60_000 })
 
+  // the answer of the background run reaches the open screen without a reload
+  const [first] = await db.q(`select content from pro_messages where thread_id=$1 and role='agent' and kind in ('text','doc') order by created_at desc limit 1`, [thread])
+  await expect(park.locator('body')).toContainText(String(first.content.text).split('\n').find((l) => l.trim().length > 8).trim().slice(0, 16), { timeout: 20_000 })
+
   await chatSend(park, '받은 견적서의 목공·전기 항목에 들어갈 자재 원가표를 워드 문서 솔잎책방_원가표.docx 로 만들어 줘. 파일만 만들고 짧게 답해 줘.')
   await waitFor(async () => Object.keys((await head(db, s.parkRoom)).tree).some((p) => /원가표.*\.docx$/.test(p)), { timeout: 15 * 60_000 })
   const ph = await head(db, s.parkRoom)

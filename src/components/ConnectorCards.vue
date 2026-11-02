@@ -8,6 +8,7 @@ import { BASE } from '../base.js'
 // through its own mcp-hub server, so connecting here makes its tools usable by agents and skills.
 const list = ref([])
 const hub = ref(null)
+const google = ref(false)
 const editing = ref(null)
 const token = ref('')
 const busy = ref(false)
@@ -24,6 +25,7 @@ async function load() {
   const r = await api('/connectors')
   list.value = r.connectors
   hub.value = r.hub
+  google.value = !!(await api('/config').catch(() => null))?.google
 }
 onMounted(load)
 
@@ -49,7 +51,7 @@ async function saveToken() {
         <img :src="`https://www.google.com/s2/favicons?domain=${favicon[c.name]}&sz=64`" alt="" />
         <div class="t"><b>{{ c.title }}</b><small>{{ how[c.name]?.hint }}</small></div>
         <span v-if="c.connected" class="state"><Icon name="check" :size="14" /> 연결됨</span>
-        <button v-else-if="how[c.name]?.kind !== 'public'" class="pill-btn press" @click="connect(c)">연결</button>
+        <button v-else-if="how[c.name]?.kind !== 'public'" class="pill-btn press" :disabled="how[c.name]?.kind === 'oauth' && !google" :title="how[c.name]?.kind === 'oauth' && !google ? '이 서버에는 Google 연결이 설정되어 있지 않아요' : undefined" @click="connect(c)">연결</button>
       </div>
       <div class="tools">
         <span v-for="t in c.tools" :key="t" class="tool">{{ t }}</span>
