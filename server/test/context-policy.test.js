@@ -19,6 +19,8 @@ const REL = {
   team: { member: true, sameTeam: true, sameDept: true }, department: { member: true, sameTeam: false, sameDept: true },
   company: { member: true, sameTeam: false, sameDept: false }, outside: { member: false, sameTeam: false, sameDept: false },
 }
+// 낱말 규칙으로 읽은 값(모델 없이): 여기서는 정책 엔진이 값을 받아 무엇을 결정하는지를 본다. 읽는 순서는 test/guard-reading.test.js
+const wordReading = (item, rules) => ({ topic: rules ? topicHit(rules, item.title, item.purpose, item.summary) : null, source: 'regex', p: null, model: null })
 const itemOf = (c) => ({ title: c.title, purpose: c.purpose || '', summary: c.summary || '', sensitive: c.sensitive || 'none', dismissed_at: c.dismissed ? new Date() : null })
 after(async () => { await q('delete from pro_policies where tenant_id = $1', [CLEAN]); await pool.end() })
 
@@ -44,9 +46,10 @@ test('주제 찾기: 낱말 경계(인사이트 ≠ 인사), 깨진 패턴은 �
 
 test('사실·원장 한 줄: 무시한 제안은 주제를 보지 않고, 민감할 수 있으면 제목을 가린다', () => {
   const rules = compileTopics()
-  const f = factsOf(itemOf({ title: '급여 조정' }), { rel: REL.team, depth: 'content', ownerRule: 'allow', rules })
-  assert.deepEqual(f, { sensitive: false, topic: '급여', relation: 'team', depth: 'content', owner_rule: 'allow' })
-  assert.equal(factsOf(itemOf({ title: '급여 조정', dismissed: true }), { rel: REL.team, depth: 'content', ownerRule: 'allow', rules }).topic, null)
+  const pay = itemOf({ title: '급여 조정' })
+  const f = factsOf(pay, { rel: REL.team, depth: 'content', ownerRule: 'allow', reading: wordReading(pay, rules) })
+  assert.deepEqual(f, { sensitive: false, topic: '급여', topic_source: 'regex', topic_p: null, topic_model: null, relation: 'team', depth: 'content', owner_rule: 'allow' })
+  assert.equal(factsOf(itemOf({ title: '급여 조정', dismissed: true }), { rel: REL.team, depth: 'content', ownerRule: 'allow', reading: wordReading(pay, rules) }).topic, null)
   assert.equal(subjectOf({ title: '급여 조정' }, f, '박하늘'), '박하늘의 민감할 수 있는 맥락(제목 가림) 원문 참고')
   assert.equal(subjectOf({ title: '경쟁 동향' }, { ...f, topic: null }, '박하늘'), '박하늘의 「경쟁 동향」 원문 참고')
   assert.equal(relationName(REL.outside), 'outside')
@@ -62,7 +65,8 @@ test(`판단 사례 ${CASES.length}개: 실제 정책 엔진이 사례대로 결
   assert.ok(rules?.length, '주제 정책이 켜져 있다')
   const bad = []
   for (const c of CASES) {
-    const facts = factsOf(itemOf(c.item), { rel: REL[c.rel], depth: c.depth, ownerRule: c.owner_rule, rules })
+    const item = itemOf(c.item)
+    const facts = factsOf(item, { rel: REL[c.rel], depth: c.depth, ownerRule: c.owner_rule, reading: c.reading || wordReading(item, rules) })
     const r = await evaluate({ tenant: CLEAN, action: { kind: KIND, facts } })
     const fin = combine(r.decision, c.owner_rule)
     const matched = r.matched.filter((m) => m.decision === r.decision).map((m) => m.id).sort()
@@ -81,7 +85,7 @@ test('회사가 정책을 끄고 고치면: 주제 정책을 끄면 주제로 �
   assert.equal(await withTenant(CLEAN, () => topicsOf()), null)
   const p = await withTenant(CLEAN, () => contextPolicies())
   assert.deepEqual([p.sensitive, p.topic, p.record], [true, false, true])
-  const facts = factsOf(itemOf({ title: '2분기 급여 조정 논의' }), { rel: REL.team, depth: 'content', ownerRule: 'allow', rules: null })
+  const facts = factsOf(itemOf({ title: '2분기 급여 조정 논의' }), { rel: REL.team, depth: 'content', ownerRule: 'allow', reading: null })
   assert.equal((await evaluate({ tenant: CLEAN, action: { kind: KIND, facts } })).decision, 'allow_audit')
   // 표시 정책을 끄면 민감 표시도 주인 규칙을 따른다(회사의 결정 — 원장에는 그대로 남는다)
   await setEnabled(null, 'context-sensitive-owner', false, CLEAN)

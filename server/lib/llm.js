@@ -97,6 +97,18 @@ export async function chat({ messages, tools, toolChoice, model, json, temperatu
   return msg
 }
 
+// One token, and how likely each candidate was: {model, top: [{token, logprob}]}, top null when the endpoint gives no
+// log-probabilities. Nothing is generated, so it is cheap enough to run on every action a policy looks at.
+export async function firstTokenTop({ prompt, model, timeoutMs = 4000 }) {
+  const m = model || config.llm.model
+  const messages = [{ role: 'user', content: prompt }]
+  trace(messages)
+  const res = await post({ model: m, messages, temperature: 0, max_tokens: 1, logprobs: true, top_logprobs: 20, chat_template_kwargs: { enable_thinking: false } }, AbortSignal.timeout(timeoutMs))
+  const data = await res.json()
+  const first = data.choices?.[0]?.logprobs?.content?.[0]
+  return { model: m, top: first ? (first.top_logprobs?.length ? first.top_logprobs : [first]) : null }
+}
+
 export async function chatJson(system, user, opts = {}) {
   const msg = await chat({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], json: true, ...opts })
   // a cut-off or empty answer says so, instead of JSON.parse's "Unexpected end of JSON input"

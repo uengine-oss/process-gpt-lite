@@ -382,13 +382,15 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 
 판정 사례(`server/test/context-visibility-cases.json` 39 · `refer-cases.json` 16)와 HTTP E2E(시드 회사 team-demo, 실제 임베딩·모델)는 서버 시험으로 돈다.
 `cd server && node --test test/context-visibility.test.js test/refer.test.js test/context-grade.test.js test/team-activity.test.js test/context-policy.test.js test/repeat.test.js`(92),
-E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `node scripts/seed-team-context.mjs --reset` 뒤 `node test/{context-share,context-grade,team-activity,context-policy,repeat}.e2e.mjs` 다.
+E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `node scripts/seed-team-context.mjs --reset` 뒤 `node test/{context-share,context-grade,team-activity,context-policy,repeat,guard-reading}.e2e.mjs` 다. 글을 읽는 품질의 하한은 `node test/guard-eval.e2e.mjs`(사례 `test/guard-eval/`, 실제 모델, 스펙 `pgpt-pro_guardrail-reading`).
 팀원 맥락 참고의 결정은 회사 정책(`context-policy-cases.json` 14 — 실제 정책 엔진), 같은 요청 판별은 `repeat-cases.json` 10(실제 게이트웨이 모델, `repeat.e2e.mjs` ④).
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
 | 공개 등급 판정: 범위(팀·부서·회사)×깊이(제목·요약·원문), 장·관리자 덧씌움, 민감, 조직도 밖, 두 팀, 허락 만료 직전·직후·회수·다른 대화 | 판정 사례 39 | 서버 | ✅ |
 | 자동 참고 고르기: 기준 0.55·회색 0.45~0.55 판정 0.5·판정 실패·고정·빼기·세 대화 빼기 학습·요청 후보 0.5·상한, 인용 블록 | 고르기 사례 16 | 서버 | ✅ |
+| 글 읽기: 돌려 말한 글은 모델이 읽어 묻기, 낱말만 같은 글은 자동 허용, 형식 일치는 모델 없이 묻기, 같은 글은 다시 안 부름, 정책 끄면 안 읽음, 모델 장애 때 낱말·`regex` 기록, 복귀 후 다시 읽음 | `guard-reading.test.js` 12, `guard-reading.e2e.mjs` 12단계, F-TC-09 | 서버·feature | ✅ |
+| 읽는 품질 하한: 맥락 잡음 95%↑·오탐 25%↓, 메일 잡음 90%↑·오탐 20%↓, 낱말 먼저보다 나쁘지 않음 | `guard-eval.e2e.mjs`(고정 사례) | 서버 | ✅ |
 | 경쟁사 가격 → 내 맥락(원문)+같은 팀 요약, 박하늘 원문 표지 0, 「분기 정리」 후보 아님, 관계없는 질문, 빼기, 끄기, 2초 안 | `context-share.e2e.mjs` 1–4 | 서버 | ✅ |
 | 같은 팀 자동 허용·다른 대화는 요약·하루 모음 카드, 다른 팀 묻기→홈 카드→원문·7일·턴 빼고 허락·409, 민감 묻기, 비공개 404(관리자 포함), 30건 429, 3일 만료, 쓰인 곳·회수 | `context-share.e2e.mjs` 5–8 | 서버 | ✅ |
 | 등급 바꾸기·422(민감 전체 공개)·주인 아니면 404, 민감 제안·승인·무시, 미리보기(새로·장·관리자·허락), 열람 기록, 기본 등급 | `context-grade.e2e.mjs` 16단계(확인 63), `context-grade.test.js` 11 | 서버 | ✅ |
@@ -408,9 +410,9 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (25개) | 148 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…08) |
+| feature | `tests/feature/*.spec.js` (25개) | 149 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…09) |
 | agent | `tests/agent/*.spec.js` (6개) | 17 (회의 A-14) |
-| 합계 | | 239 (`npx playwright test --list` 로 센 수, 2026-11-01) |
+| 합계 | | 240 (`npx playwright test --list` 로 센 수에 F-TC-09 를 더함, 2026-11-03) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 

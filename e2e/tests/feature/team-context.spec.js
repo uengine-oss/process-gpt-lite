@@ -161,7 +161,46 @@ test('F-TC-07 홈 카드·공유와 허락: 정책이 묻게 한 요청은 카�
   await expect(page.locator('.nc.context_sensitive')).toContainText('민감 표시 제안')
   await page.goto('/settings/sharing')
   await expect(page.getByTestId('rule-fixed')).toContainText('회사 정책 「민감 맥락은 주인이 직접 허락」', { timeout: 20_000 })
-  await expect(page.getByTestId('rule-topic')).toContainText('민감할 수 있는 주제가 보이면 → 묻기')
+  await expect(page.getByTestId('rule-topic')).toContainText('민감할 수 있는 내용으로 읽히면 → 묻기')
+  expect(page.errors).toEqual([])
+})
+
+// ── 글을 읽은 값(server lib/context/sensitive.js readContext, test/guard-reading.{test.js,e2e.mjs}) ──
+test('F-TC-09 읽은 값이 보인다: 카드에 모델 판단과 확률, 원장에 판별 방법·민감 확률, 모델이 답하지 못하면 정책 화면에 경고', async ({ pageAs, as, db, cleanup }) => {
+  const page = await pageAs('tc-read-owner')
+  const req = await as('tc-read-asker')
+  await db.clearMain(page.user.id)
+  const conv = `tc-read-${Date.now()}`
+  await db.addConversation(page.user.id, conv, '최 대리 권고사직 면담 메모')
+  const [{ id: did }] = await db.q(`insert into pro_policy_decisions (tenant_id, user_id, action_kind, subject, facts, decision, matched, status, approver_role) values ($1,$2,'context.access','회귀 민감할 수 있는 맥락(제목 가림) 원문 참고',$3,'require_approval',$4,'pending','맥락 주인') returning id`,
+    [db.tenant, req.id, { sensitive: false, topic: '이직', topic_source: 'logprob', topic_p: 0.97, topic_model: 'frentis-ai-model', relation: 'team', depth: 'content', owner_rule: 'allow' },
+      JSON.stringify([{ id: 'context-sensitive-topic', decision: 'require_approval', title: ['민감할 수 있는 주제는 자동 허용하지 않음', 'x'], approver: '맥락 주인' }])])
+  const [r] = await db.q(`insert into pro_access_requests (tenant_id, requester, owner, conversation_id, target_title, depth, doing, policy_decision) values ($1,$2,$3,$4,'최 대리 권고사직 면담 메모','content','회귀',$5) returning id`,
+    [db.tenant, req.id, page.user.id, conv, did])
+  await db.q(`insert into notifications (id, user_id, title, type, description, is_checked, time_stamp, url, tenant_id) values (gen_random_uuid(), $1, '참고 요청 · 회귀 · 「최 대리 권고사직 면담 메모」 원문', 'context_access', '', false, now(), $2, $3)`,
+    [page.user.id, `/pro/context-access/${r.id}`, db.tenant])
+  cleanup(() => db.q(`delete from notifications where tenant_id = $1 and user_id = $2 and type like 'context_%'`, [db.tenant, page.user.id]))
+  cleanup(() => db.q('delete from pro_access_requests where id = $1', [r.id]))
+  cleanup(() => db.q('delete from pro_policy_decisions where id = $1', [did]))
+  await page.goto('/chat')
+  await expect(page.locator('.nc.context_access').getByTestId('access-how')).toContainText('모델이 글을 읽고 판단, 97%', { timeout: 20_000 })
+  // 모델이 답하지 못하는 상태: 정책 화면이 말해 준다. 원장에는 판별 방법·확률
+  const admin = await pageAs('tc-policy')
+  await db.q('update pro_policy_decisions set user_id = $2 where id = $1', [did, admin.user.id])
+  await admin.route('**/api/policies', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    const res = await route.fetch()
+    await route.fulfill({ response: res, json: { ...(await res.json()), reading: { state: 'down', model: 'm', at: null, reason: 'x' } } })
+  })
+  await admin.goto('/settings/policies')
+  await expect(admin.locator('[data-policy="context-sensitive-topic"]').getByTestId('reading-off')).toContainText('지금 모델이 답하지 않아 낱말로 판단하고 있어요', { timeout: 20_000 })
+  await admin.locator('[data-test="ledger-tab"]').click()
+  const row = admin.locator(`[data-decision="${did}"]`)
+  await row.locator('.li.dec').click({ timeout: 20_000 })
+  await expect(row).toContainText('판별 방법')
+  await expect(row).toContainText('모델이 글을 읽음')
+  await expect(row).toContainText('민감 확률')
+  await expect(row).toContainText('97%')
   expect(page.errors).toEqual([])
 })
 

@@ -28,17 +28,19 @@ const kindName = (k) => KINDS[k] || k
 const PII_KIND = { resident_id: '주민등록번호', mobile: '휴대전화', email: '메일 주소', bank_account: '계좌번호' }
 const FACT = {
   external: '외부 포함', external_count: '외부 수신자', recipient_count: '받는 사람', recipients: '받는 도메인', pii_count: '개인정보',
-  pii_kinds: '개인정보 종류', pii_by_kind: '종류별', classification: '분류', attachments: '첨부',
+  pii_kinds: '개인정보 종류', pii_by_kind: '종류별', classification: '분류', classification_source: '분류 방법', classification_p: '기밀 확률', attachments: '첨부',
   amount: '금액', merchant: '판매처', new_merchant: '처음 쓰는 판매처', supplier_new: '신규 공급사', category: '분류',
   approved: '승인됨', speculative: '되돌릴 수 있는 준비', audience: '공개 대상', features: '기능', open_findings: '열린 위험', security_scan: '보안 점검',
   weekday: '요일', hour: '시', rows: '행', pii_rows: '개인정보 행', destination_external: '외부로', count: '건수',
-  sensitive: '민감 표시', topic: '민감할 수 있는 주제', relation: '요청한 사람', depth: '깊이', owner_rule: '주인 규칙',
+  sensitive: '민감 표시', topic: '민감할 수 있는 주제', topic_source: '판별 방법', topic_p: '민감 확률', topic_model: '판별 모델', relation: '요청한 사람', depth: '깊이', owner_rule: '주인 규칙',
 }
 const FACT_ORDER = Object.keys(FACT)
 const VALUE = { confidential: '기밀', general: '일반', public: '일반 공개', internal: '내부', beta: '베타', passed: '통과', failed: '실패',
+  format: '형식 일치', logprob: '모델이 글을 읽음', regex: '낱말 일치(모델이 답하지 못함)',
   team: '같은 팀', department: '같은 부서', company: '같은 회사', outside: '조직도 밖', summary: '요약', content: '원문', allow: '자동 허용', ask: '묻기', deny: '거절' }
 function fmt(k, v) {
   if (typeof v === 'boolean') return v ? '예' : '아니오'
+  if (typeof v === 'number' && k.endsWith('_p')) return `${Math.round(v * 100)}%`
   if (typeof v === 'number') return k === 'amount' ? `${v.toLocaleString(loc)}원` : v.toLocaleString(loc)
   if (Array.isArray(v)) return v.map((x) => (typeof x === 'object' ? JSON.stringify(x) : PII_KIND[x] || VALUE[x] || x)).join(', ') || '—'
   if (v && typeof v === 'object') return JSON.stringify(v)
@@ -78,6 +80,7 @@ async function loadCatalog() {
   const [p, roles, members] = await Promise.all([api('/policies'), api('/roles').catch(() => []), api('/team').catch(() => [])])
   admin.value = !!p.admin
   policies.value = p.policies
+  reading.value = p.reading || null
   holders.value = Object.fromEntries(roles.filter((a) => a.proc_def_id === '*').map((a) => [roleKey(a.role), a.name || a.email]))
   team.value = members
 }
@@ -91,6 +94,7 @@ async function toggle(p) {
 
 // a word list a policy carries (context-sensitive-topic): one 「이름 = 패턴」 per line, saved as the policy's topics
 const topicEdit = ref({})   // policy id → text being edited
+const reading = ref(null)   // is the model reading now, or are the words standing in
 const topicLines = (p) => (p.spec.topics || []).map((t) => `${t.name} = ${t.pattern}`).join('\n')
 async function saveTopics(p) {
   err.value = ''; busy.value = p.id
@@ -288,11 +292,12 @@ onUnmounted(() => clearInterval(timer))
               <small v-if="p.spec.sources?.length" class="src"><span>근거</span> {{ p.spec.sources.join(' · ') }}</small>
               <div v-if="p.spec.topics?.length" class="topics" data-testid="policy-topics">
                 <span class="tl">주제 {{ p.spec.topics.length }}개</span>
+                <small v-if="reading?.state === 'no_odds' || reading?.state === 'down'" class="reading-off" data-testid="reading-off">{{ reading.state === 'down' ? '지금 모델이 답하지 않아 낱말로 판단하고 있어요' : '지금 모델이 확률을 주지 않아 낱말로 판단하고 있어요' }}</small>
                 <span v-for="t in p.spec.topics" :key="t.name" class="tp" :title="t.pattern" data-no-i18n>{{ t.name }}</span>
                 <button v-if="admin && topicEdit[p.id] === undefined" class="lnk" @click="topicEdit[p.id] = topicLines(p)">주제 고치기</button>
                 <template v-if="topicEdit[p.id] !== undefined">
                   <textarea v-model="topicEdit[p.id]" class="facts" rows="6" spellcheck="false" aria-label="주제 목록 (이름 = 패턴)" />
-                  <small class="muted">한 줄에 하나, 「이름 = 정규식」. 제목·한 줄 목적·맥락 요약에서 찾아요.</small>
+                  <small class="muted">한 줄에 하나, 「이름 = 정규식」. 모델이 글을 읽을 때 이 이름을 참고하고, 정규식은 모델이 답하지 못할 때만 써요.</small>
                   <div class="row end"><button class="pill-btn sm" @click="delete topicEdit[p.id]">취소</button><button class="dark-btn sm" :disabled="busy === p.id" @click="saveTopics(p)">저장</button></div>
                 </template>
               </div>
@@ -455,6 +460,7 @@ onUnmounted(() => clearInterval(timer))
 .src > span:first-child { margin-right: 2px; }
 .topics { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; }
 .topics .tl { font-size: 12px; color: var(--text-tertiary); }
+.topics .reading-off { font-size: 12px; color: var(--color-error); }
 .topics .tp { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--field-bg); }
 .topics .lnk { border: 0; background: none; color: var(--accent, #2563eb); font-size: 12px; cursor: pointer; padding: 0 4px; }
 .topics textarea, .topics small, .topics .row { flex-basis: 100%; }

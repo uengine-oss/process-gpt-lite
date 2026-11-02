@@ -7,11 +7,13 @@
 // Nothing is really e-mailed: a "sent" mail lands in a demo outbox (pro_outbox, sql/025_scenario_mail.sql), and
 // the chat says so next to the policy card.
 //
-// The facts the policies read are found here without a model: a recipient whose domain is not the company's
-// (PRO_COMPANY_DOMAINS, default uengine.org) is external; the subject, body and attachment text are searched for
-// personal data (resident registration numbers, mobile numbers, e-mail addresses, bank-account-like numbers);
-// an attachment whose name or text says 기밀/대외비/confidential makes the mail confidential. Facts carry counts
-// and kinds only — never the body, nor the personal data found — since the ledger keeps them.
+// The facts the policies read: a recipient whose domain is not the company's (PRO_COMPANY_DOMAINS, default
+// uengine.org) is external; the subject, body and attachment text are searched by pattern for personal data
+// (resident registration numbers, mobile numbers, e-mail addresses, bank-account-like numbers). Whether a mail going
+// outside is confidential is a matter of meaning, so the model reads it (spec pgpt-pro_guardrail-reading); the marking
+// words 기밀/대외비/confidential decide only when the model cannot answer. Personal data and confidentiality are
+// different questions with different approvers, so a personal-data hit does not skip the reading. Facts carry counts,
+// kinds and the reading's probability only — never the body, nor the personal data found — since the ledger keeps them.
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -22,6 +24,10 @@ import { registerExecutor, guard } from '../policy/pep.js'
 import { addMessage, mainThread } from '../store.js'
 import { resolveMember } from '../team.js'
 import { L } from '../lang.js'
+import { oddsOf } from '../decide.js'
+import { ADDR, findPii, maskPii } from '../policy/pii.js'
+
+export { findPii, maskPii }
 
 const T = () => config.tenantId
 export const UNDO_MINUTES = 10
@@ -30,7 +36,6 @@ const bad = (m, status = 400) => Object.assign(new Error(m), { status })
 // ── recipients
 export const companyDomains = () => String(process.env.PRO_COMPANY_DOMAINS || 'uengine.org').split(',')
   .map((s) => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean)
-const ADDR = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/
 const domainOf = (a) => String(a).split('@').pop().toLowerCase()
 // a sub-domain of the company's (mail.uengine.org) is the company too
 export const isInternal = (addr, domains = companyDomains()) => { const d = domainOf(addr); return domains.some((c) => d === c || d.endsWith(`.${c}`)) }
@@ -47,42 +52,32 @@ async function recipientsOf(to) {
   return out
 }
 
-// ── personal data: found by pattern, counted by distinct value, never kept
-const EMAIL_G = new RegExp(ADDR.source, 'g')
-const PII = [
-  // 주민등록번호·외국인등록번호: YYMMDD-Gnnnnnn with a plausible date
-  ['resident_id', /(?<!\d)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\s?-\s?[1-8]\d{6}(?!\d)/g],
-  // 휴대전화: 010-1234-5678, 010 1234 5678, 01012345678, +82 10-1234-5678
-  ['mobile', /(?:\+82[-.\s]?|(?<![\d+])0)1[016789][-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)/g],
-  ['email', EMAIL_G],
-  // 계좌번호처럼 보이는 수: hyphenated groups (110-123-456789, 123456-01-123456, 3333-01-1234567); 11–14 digits and
-  // not starting with 0 keeps out phone and area-code numbers, dates and business registration numbers (10 digits)
-  ['bank_account', /(?<![\d-])[1-9]\d{1,5}(?:-\d{2,7}){2,3}(?![\d-])/g],
-]
-const digits = (s) => s.replace(/\D/g, '')
-const KEEP = { bank_account: (v) => digits(v).length >= 11 && digits(v).length <= 14 }
-
-// {count, kinds, byKind}; the addresses of the people on the mail (recipients, sender) are not disclosed by
-// naming them, so they do not count
-export function findPii(text, { except = [] } = {}) {
-  const skip = new Set(except.map((s) => String(s).toLowerCase()))
-  const byKind = {}
-  for (const [kind, re] of PII) {
-    const seen = new Set()
-    for (const m of String(text || '').matchAll(re)) {
-      const v = kind === 'email' ? m[0].toLowerCase() : digits(m[0])
-      if ((kind === 'email' && skip.has(v)) || (KEEP[kind] && !KEEP[kind](m[0]))) continue
-      seen.add(v)
-    }
-    if (seen.size) byKind[kind] = seen.size
-  }
-  const count = Object.values(byKind).reduce((s, n) => s + n, 0)
-  return { count, kinds: Object.keys(byKind), byKind }
-}
-// what the ledger line and a notification title show of the mail's own subject: personal data masked
-export const maskPii = (s) => PII.reduce((t, [kind, re]) => t.replace(re, (m) => (KEEP[kind] && !KEEP[kind](m) ? m : '•••')), String(s || ''))
-
 const CONFIDENTIAL = /기밀|대외비|confidential/i
+export const CONFIDENTIAL_READING = { bar: 0.5, bodyChars: 800, fileChars: 800, marks: 3 }
+export const CONFIDENTIAL_QUESTION = '이 메일을 회사 밖으로 보내기 전에 보안 담당자의 검토가 필요한가?'
+export const CONFIDENTIAL_OPTIONS = [
+  { key: 'confidential', label: '회사 밖으로 나가면 안 되는 기밀 자료다(미공개 실적·경영 계획·인수합병·원가와 마진·소스 코드·설계 문서·공개 전 로드맵 등)' },
+  { key: 'general', label: '밖으로 보내도 되는 일반 자료다(공개 자료·안내문·일정 조율·그 고객을 위한 견적과 청구·서명할 빈 계약서 양식 등)' },
+]
+// what the model reads of a mail: the start of the body and of each file, plus any line further down carrying a marking
+// word, so a long file's marking is still seen. Personal data is masked first.
+export function mailExcerpt({ subject, body, attachments = [] }) {
+  const { bodyChars, fileChars, marks } = CONFIDENTIAL_READING
+  const parts = [`제목: ${subject || ''}`, `본문: ${String(body || '').slice(0, bodyChars)}`]
+  for (const a of attachments) {
+    const t = String(a.text || '')
+    const later = t.slice(fileChars).split('\n').filter((l) => CONFIDENTIAL.test(l)).slice(0, marks).map((l) => l.slice(0, 160))
+    parts.push(`첨부 ${a.name}: ${a.text == null ? '(내용을 읽을 수 없는 파일)' : t.slice(0, fileChars)}${later.length ? `\n…\n${later.join('\n')}` : ''}`)
+  }
+  return maskPii(parts.join('\n'))
+}
+// {confidential, source: logprob|regex, p, model}
+export async function readConfidential(mail, { ask = oddsOf } = {}) {
+  const d = await ask(mailExcerpt(mail), CONFIDENTIAL_QUESTION, CONFIDENTIAL_OPTIONS)
+  if (!d) return { confidential: (mail.attachments || []).some((x) => CONFIDENTIAL.test(x.name) || CONFIDENTIAL.test(x.text || '')), source: 'regex', p: null, model: null }
+  const p = Number(d.probabilities.confidential.toFixed(4))
+  return { confidential: p >= CONFIDENTIAL_READING.bar, source: 'logprob', p, model: d.model }
+}
 
 // ── attachments: a file of the demo folder, a file attached in this chat, or text
 const DEMO_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures/agentic-mail')
@@ -139,12 +134,13 @@ async function attachmentOf(a, files = []) {
 }
 
 // the facts lib/policy/catalog.js documents for mail.send (counts and kinds only)
-export function factsOf({ from = null, to, subject, body, attachments }) {
+export function factsOf({ from = null, to, subject, body, attachments, reading = null }) {
   const domains = companyDomains()
   const outside = to.filter((a) => !isInternal(a, domains))
   const text = [subject, body, ...attachments.map((x) => x.text || '')].join('\n')
   const pii = findPii(text, { except: [...to, from].filter(Boolean) })
-  const confidential = attachments.some((x) => CONFIDENTIAL.test(x.name) || CONFIDENTIAL.test(x.text || ''))
+  // (a mail staying inside is not read: no policy looks at its classification)
+  const confidential = reading ? reading.confidential : attachments.some((x) => CONFIDENTIAL.test(x.name) || CONFIDENTIAL.test(x.text || ''))
   return {
     recipients: [...new Set(to.map(domainOf))],           // domains, not addresses
     recipient_count: to.length,
@@ -154,6 +150,8 @@ export function factsOf({ from = null, to, subject, body, attachments }) {
     pii_kinds: pii.kinds,
     pii_by_kind: pii.byKind,
     classification: confidential ? 'confidential' : 'general',
+    classification_source: reading?.source || 'regex',
+    classification_p: reading?.p ?? null,
     attachments: attachments.map((x) => ({ name: x.name, size: x.size, source: x.source, ...(x.text == null ? { scanned: false } : {}), ...(/\.(csv|tsv)$/i.test(x.name) && x.text ? { rows: x.text.split('\n').filter((l) => l.trim() && !l.startsWith('#')).length - 1 } : {}) })),
   }
 }
@@ -172,7 +170,8 @@ export async function prepare(me, input, { files = [] } = {}) {
     const x = await attachmentOf(a, files)
     if (x) attachments.push(x)
   }
-  const facts = factsOf({ from: me?.email, to, subject, body, attachments })
+  const reading = to.some((a) => !isInternal(a)) ? await readConfidential({ subject, body, attachments }) : null
+  const facts = factsOf({ from: me?.email, to, subject, body, attachments, reading })
   // (the recipient is named — the ledger says where it went; what the mail itself says is masked)
   const who = to.length > 1 ? L(`${to[0]} 외 ${to.length - 1}명`, `${to[0]} and ${to.length - 1} more`) : to[0]
   const names = maskPii(attachments.map((x) => x.name).join(', '))

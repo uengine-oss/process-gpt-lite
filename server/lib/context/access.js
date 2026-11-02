@@ -152,7 +152,7 @@ export async function preview(me, id) {
   const vc = await viewerOf(me)
   // 정책이 자동 허용 대신 묻게 했으면 그 정책과 주제(주인에게만)
   const [pd] = req.policy_decision ? await q(`select decision, facts, matched from pro_policy_decisions where id = $1 and tenant_id = $2`, [req.policy_decision, T()]) : []
-  const policy = pd ? { decision_id: req.policy_decision, decision: pd.decision, topic: pd.facts?.topic || null, sensitive: !!pd.facts?.sensitive,
+  const policy = pd ? { decision_id: req.policy_decision, decision: pd.decision, topic: pd.facts?.topic || null, source: pd.facts?.topic_source || null, p: pd.facts?.topic_p ?? null, sensitive: !!pd.facts?.sensitive,
     matched: (pd.matched || []).filter((m) => m.decision === pd.decision).map((m) => ({ id: m.id, title: m.title?.[0] || m.id })) } : null
   return { request: { ...req, requester_name: personName(vc.org, req.requester) }, turns: turns.map((t) => ({ id: t.id, prompt: String(t.prompt || '').slice(0, 80), at: t.at })), decisions: (d?.decisions || []).length, questions: (d?.questions || []).length, policy }
 }

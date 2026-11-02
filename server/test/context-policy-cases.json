@@ -1,6 +1,14 @@
 {
   "_": "팀원 맥락 참고의 결정(lib/context/sensitive.js + 카탈로그 정책 context-*). item: 맥락(제목·목적·요약·민감 표시·무시함), rel: 주인 입장에서 요청자, owner_rule: 주인 규칙의 답. expect.policy: 정책 엔진의 결정, expect.final: 실제로 할 일(allow|ask|deny)과 누가 정했나(policy|rule), expect.matched: 걸린 정책(이 결정을 낸 것만)",
   "cases": [
+    { "name": "낱말이 없어도 모델이 민감하다고 읽으면 → 자동 허용 규칙이어도 주인에게", "item": { "title": "최 대리 권고사직 면담 메모" }, "reading": { "topic": "이직", "source": "logprob", "p": 0.99, "model": "m" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-topic"], "topic": "이직" } },
+    { "name": "낱말이 있어도 모델이 일반이라고 읽으면 → 주인 규칙대로", "item": { "title": "서버 건강 체크 대시보드" }, "reading": { "topic": null, "source": "logprob", "p": 0.02, "model": "m" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "allow_audit", "final": "allow", "by": "rule", "matched": ["context-access-record"], "topic": null } },
+    { "name": "형식이 일치하면 → 모델 없이 주인에게", "item": { "title": "거래처 담당자 정리", "purpose": "휴대폰 010-2345-6789" }, "reading": { "topic": "전화번호", "source": "format", "p": null, "model": null }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "require_approval", "final": "ask", "by": "policy", "matched": ["context-sensitive-topic"], "topic": "전화번호" } },
+    { "name": "모델이 민감하다고 읽어도 주인이 무시한 맥락 → 주인 규칙대로", "item": { "title": "신입 처우 비교", "dismissed": true }, "reading": { "topic": "연봉", "source": "logprob", "p": 0.97, "model": "m" }, "rel": "team", "depth": "content", "owner_rule": "allow",
+      "expect": { "policy": "allow_audit", "final": "allow", "by": "rule", "matched": ["context-access-record"], "topic": null } },
     { "name": "같은 팀 · 평범한 맥락 · 주인 규칙 자동 허용 → 허용하고 기록", "item": { "title": "경쟁 서비스 동향", "purpose": "경쟁 3사 가격 추적", "summary": "B사 요금제 신설" }, "rel": "team", "depth": "content", "owner_rule": "allow",
       "expect": { "policy": "allow_audit", "final": "allow", "by": "rule", "matched": ["context-access-record"] } },
     { "name": "같은 부서 · 평범한 맥락 · 주인 규칙 묻기 → 묻기(주인 규칙)", "item": { "title": "제안서 표준 목차" }, "rel": "department", "depth": "content", "owner_rule": "ask",

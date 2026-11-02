@@ -7,6 +7,7 @@ import { config } from '../config.js'
 import { L } from '../lib/lang.js'
 import { isAdmin } from '../lib/team.js'
 import { policiesOf, savePolicy, setEnabled, evaluate } from '../lib/policy/pdp.js'
+import { readingStatus } from '../lib/decide.js'
 import { answer, undo, canApprove } from '../lib/policy/pep.js'
 import { graphOf, saveObjective, saveLink, removeObjective } from '../lib/strategy/graph.js'
 import { report, suggestions, applySuggestion } from '../lib/policy/insights.js'
@@ -24,7 +25,7 @@ export function agenticRoutes(auth) {
   const r = express.Router()
 
   // the catalog: every policy with its switch
-  r.get('/policies', auth, (req, res) => send(res, (async () => ({ admin: await isAdmin(req.user), policies: await policiesOf(T(), { all: true }) }))()))
+  r.get('/policies', auth, (req, res) => send(res, (async () => ({ admin: await isAdmin(req.user), policies: await policiesOf(T(), { all: true }), reading: readingStatus() }))()))
   r.put('/policies/:id', auth, (req, res) => send(res, (async () => {
     await mustAdmin(req.user)
     if (req.body.spec) await savePolicy(req.user, { ...req.body.spec, id: req.params.id }, { enabled: req.body.enabled !== false })

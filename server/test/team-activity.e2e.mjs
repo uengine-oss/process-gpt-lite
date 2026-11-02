@@ -54,7 +54,8 @@ const wipeMine = async () => {
 await wipeMine()
 // 이도윤의 진행 중인 AI 작업 두 가지(메인 채팅이 「경쟁 서비스 동향」에서 일하는 중 + 정기 작업)와 그 맥락의 파일 카드
 const [main] = await q(`select id, status, conversation_id from pro_threads where user_id = $1 and kind = 'chat' order by created_at limit 1`, [U.lee.id])
-await q(`update pro_threads set status = 'working', conversation_id = $2 where id = $1`, [main.id, TREND])
+// (updated_at: 하루 지난 「작업 중」은 세지 않는다 — 시드가 오래돼도 지금 일하는 중이게)
+await q(`update pro_threads set status = 'working', conversation_id = $2, updated_at = now() where id = $1`, [main.id, TREND])
 const [sch] = await q(`insert into pro_schedules (user_id, name, cron, prompt, paused) values ($1, '주간 경쟁 동향 조사', '0 9 * * 1', '매주 월요일 경쟁 3사 요금제 페이지를 확인해 바뀐 점을 정리해 줘', true) returning id`, [U.lee.id])
 await q(`insert into pro_mission_runs (schedule_id, trigger, status) values ($1, 'manual', 'running')`, [sch.id])
 const [file] = await q(`insert into pro_messages (thread_id, role, kind, content) values ($1, 'agent', 'file', $2) returning id`,

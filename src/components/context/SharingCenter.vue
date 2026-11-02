@@ -141,7 +141,7 @@ const viewWhen = (r) => (r.depth === 'summary' ? `${r.day.slice(5).replace('-', 
       </div>
       <div v-if="rules.fixed?.policy?.topic" class="li rule fixed" data-testid="rule-topic">
         <span class="no"><Icon name="lock" :size="14" /></span>
-        <div class="main"><b>민감할 수 있는 주제가 보이면 → 묻기</b><small>회사 정책 「{{ rules.fixed.policy.titles?.topic || '민감할 수 있는 주제는 자동 허용하지 않음' }}」 · 인사·급여·건강 같은 주제는 민감 표시 전이라도 자동 허용하지 않습니다</small></div>
+        <div class="main"><b>민감할 수 있는 내용으로 읽히면 → 묻기</b><small>회사 정책 「{{ rules.fixed.policy.titles?.topic || '민감할 수 있는 주제는 자동 허용하지 않음' }}」 · 모델이 글을 읽어 인사·급여·건강처럼 민감해 보이거나 주민번호·계좌·전화 형식이 있으면, 민감 표시 전이라도 자동 허용하지 않습니다</small></div>
       </div>
       <div v-for="(r, i) in rules.rules" :key="i" class="li rule" data-testid="rule-row">
         <span class="no">{{ i + 1 }}</span>

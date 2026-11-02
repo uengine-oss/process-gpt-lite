@@ -7,7 +7,7 @@
 //     approver: { role: '개인정보 책임자' },                          // who may approve / grant an exception
 //     tolerance: { field: 'amount', limit: 100000, over: 0.1 },      // within limit × (1 + over): only recorded
 //     window: { span: '1d', count: 20, then: 'require_approval' },   // more than count in span: stricter
-//     topics: [{ name: '급여', pattern: '급여|월급' }] }                 // a word list the caller matches to fill a fact (context.access)
+//     topics: [{ name: '급여', pattern: '급여|월급' }] }                 // the topics a reading names; the patterns decide only when the model cannot answer (context.access)
 //
 // Several policies match one action: the strictest decision wins (deny > require_approval > allow_audit > allow).
 // The decision is deterministic: facts such as "how many personal data items" are inputs the caller fills

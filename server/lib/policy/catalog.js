@@ -2,15 +2,16 @@
 // law or framework a policy follows; "사내 규정(예시)" marks an example in-house rule, to be replaced by the
 // company's own. Facts each action carries are documented next to the action kinds.
 //
-//   mail.send        recipients[], external (bool), external_count, pii_count, pii_kinds[], classification, attachments
+//   mail.send        recipients[], external (bool), external_count, pii_count, pii_kinds[], classification (the model's reading of the mail,
+//                    the marking words when it cannot answer), classification_source ('logprob'|'regex'), classification_p, attachments
 //   browser.payment  amount (KRW), merchant, new_merchant (bool)
 //   purchase.approve amount (KRW), supplier_new (bool), category
 //   purchase.order   amount, approved (bool), speculative (bool)
 //   release.deploy   audience ('public'|'internal'|'beta'), features[{name, pii}], open_findings{privacy, security}, security_scan, weekday, hour
 //   data.export      rows, pii_rows, destination_external (bool)
 //   data.delete      count
-//   context.access   sensitive (bool, the owner marked it), topic (a possibly sensitive topic seen in its title, purpose or
-//                    summary, null when the owner dismissed it), relation ('team'|'department'|'company'), depth ('summary'|'content'),
+//   context.access   sensitive (bool, the owner marked it), topic (read from its title, purpose and summary: spec pgpt-pro_guardrail-reading; null
+//                    when the owner dismissed it), topic_source ('format'|'logprob'|'regex'), topic_p, topic_model, relation ('team'|'department'|'company'), depth ('summary'|'content'),
 //                    owner_rule (what the owner's own rules say: 'allow'|'ask'|'deny')
 export const SOURCES = {
   pipa17: '개인정보보호법 제17조(개인정보의 제공)',
@@ -22,8 +23,9 @@ export const SOURCES = {
   inhouse: '사내 규정(예시)',
 }
 
-// Possibly sensitive topics (rules, no model): HR, pay, contract terms, health, discipline, personal identifiers. They live in the
-// policy context-sensitive-topic, so a company edits the list there; a hit only proposes a sensitive mark the owner confirms.
+// Possibly sensitive topics: HR, pay, contract terms, health, discipline, personal identifiers. They live in the policy
+// context-sensitive-topic, so a company edits the list there. The model reads the text and names one of them; the patterns decide
+// only when the model cannot answer (they miss what is said in other words and catch 「서버 건강」: spec pgpt-pro_guardrail-reading).
 // 「인사」 counts as a word only (인사이트, 인사말 are not).
 export const SENSITIVE_TOPICS = [
   { name: '인사', pattern: /(^|[\s·,(「『'"])인사($|[\s·,.)」』'"]|\s?(평가|고과|발령|상담|기록|위원회|조치|정보|이동|카드))/.source },
@@ -60,7 +62,7 @@ export const CATALOG = [
     sources: [SOURCES.pipa17, SOURCES.pipa29] },
   { id: 'mail-confidential', category: 'security', scope: { action: ['mail.send'] },
     when: { and: [{ var: 'external' }, { '==': [{ var: 'classification' }, 'confidential'] }] }, decide: 'require_approval', approver: { role: '보안 담당자' },
-    title: ['기밀 자료 외부 발송은 보안 담당 승인', 'Confidential files outside need security'], explain: ['기밀로 분류된 자료를 외부로 보내려면 보안 담당자가 승인합니다.', 'Files classified confidential go outside with the security officer\'s approval.'], sources: [SOURCES.isms] },
+    title: ['기밀 자료 외부 발송은 보안 담당 승인', 'Confidential files outside need security'], explain: ['모델이 메일과 첨부를 읽어 기밀 자료로 판단하면 보안 담당자가 승인합니다. 모델이 답하지 못할 때는 기밀·대외비 표시로 판단합니다.', 'When the model reads the mail and its files as confidential, the security officer approves. If the model cannot answer, the marking words decide.'], sources: [SOURCES.isms] },
 
   // ── 결제 (브라우저 에이전트)
   { id: 'payment-approval', category: 'authority', scope: { action: ['browser.payment'] },
@@ -125,8 +127,8 @@ export const CATALOG = [
     when: { and: [{ '!': { var: 'sensitive' } }, { '!!': { var: 'topic' } }] }, decide: 'require_approval', approver: { role: '맥락 주인', owner: true },
     topics: SENSITIVE_TOPICS,
     title: ['민감할 수 있는 주제는 자동 허용하지 않음', 'Possibly sensitive topics are never allowed automatically'],
-    explain: ['인사·급여·건강·징계·개인정보처럼 민감할 수 있는 주제가 제목·목적·요약에 보이면, 주인이 민감 표시를 하기 전이라도 자동으로 허락하지 않고 주인에게 묻습니다. 맥락 요약을 만들 때 같은 주제 목록으로 주인에게 민감 표시를 제안합니다.',
-      'When a possibly sensitive topic (HR, pay, health, discipline, personal data) shows in a context\'s title, purpose or summary, requests go to the owner even before the owner marks it; the same topics propose a sensitive mark when the context summary is built.'],
+    explain: ['모델이 제목·목적·요약을 읽어 인사·급여·건강·징계·개인정보처럼 민감한 내용이라고 판단하거나 주민번호·계좌·전화 형식이 보이면, 주인이 민감 표시를 하기 전이라도 자동으로 허락하지 않고 주인에게 묻습니다. 맥락 요약을 만들 때도 같은 판별로 민감 표시를 제안합니다. 모델이 답하지 못할 때는 이 주제 목록의 낱말로 판단합니다.',
+      'When the model reads a context\'s title, purpose and summary as sensitive (HR, pay, health, discipline, personal data), or a resident number, account or phone number shows, requests go to the owner even before the owner marks it; the same reading proposes a sensitive mark when the context summary is built. If the model cannot answer, these topics\' words decide.'],
     sources: [SOURCES.pipa23, SOURCES.inhouse] },
   { id: 'context-access-record', category: 'audit', scope: { action: ['context.access'] }, decide: 'allow_audit',
     title: ['팀원 맥락 참고는 기록', 'Using a teammate\'s context is recorded'],

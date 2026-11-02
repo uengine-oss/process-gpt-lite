@@ -13,6 +13,10 @@ import { inScope, strictest, spanMs, validate } from './dsl.js'
 const T = () => config.tenantId
 const get = (o, path) => String(path).split('.').reduce((v, k) => (v == null ? v : v[k]), o)
 
+// a policy the company never edited (version 1) shows the catalog's current wording; what it decides stays as stored
+const catalogById = new Map(CATALOG.map((s) => [s.id, s]))
+const latestText = (r) => (r.version === 1 && catalogById.has(r.id) ? { ...r, spec: { ...r.spec, explain: catalogById.get(r.id).explain } } : r)
+
 // the company's policies; the catalog seeds a company the first time (new catalog entries join later ones too)
 export async function policiesOf(tenant = T(), { all = false } = {}) {
   const have = await q('select id from pro_policies where tenant_id=$1', [tenant])
@@ -20,7 +24,7 @@ export async function policiesOf(tenant = T(), { all = false } = {}) {
   for (const spec of CATALOG.filter((s) => !known.has(s.id))) {
     await q('insert into pro_policies(tenant_id, id, spec) values ($1,$2,$3) on conflict do nothing', [tenant, spec.id, spec])
   }
-  const rows = await q(`select id, version, enabled, spec, updated_at from pro_policies where tenant_id=$1 ${all ? '' : 'and enabled'} order by id`, [tenant])
+  const rows = (await q(`select id, version, enabled, spec, updated_at from pro_policies where tenant_id=$1 ${all ? '' : 'and enabled'} order by id`, [tenant])).map(latestText)
   return all ? rows : rows.map((r) => r.spec)
 }
 

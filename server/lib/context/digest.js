@@ -134,7 +134,7 @@ ${P || '(없음)'}
            on conflict (tenant_id, user_id, conversation_id) do update set summary = excluded.summary, decisions = excluded.decisions, questions = excluded.questions,
              kinds = excluded.kinds, prompt_types = excluded.prompt_types, turns = excluded.turns, last_at = excluded.last_at, built_at = now()`,
     [T(), owner, conv, row.summary, JSON.stringify(row.decisions), JSON.stringify(row.questions), JSON.stringify(row.kinds), JSON.stringify(row.prompt_types), row.turns, row.last_at])
-  // 새 요약으로 민감 표시 제안(회사 정책의 주제 목록) — 주인이 설정을 열기 전에, 누가 요청하기 전에 홈 카드로
+  // 새 요약을 읽어 민감 표시 제안 — 주인이 설정을 열기 전에, 누가 요청하기 전에 홈 카드로
   const scan = await scanOwner(owner, { convs: [conv], notify: true }).catch((e) => { console.warn('[context] sensitive scan', e.message); return null })
   return { ...row, proposed: scan?.fresh?.[0]?.hit || null }
 }

@@ -139,6 +139,25 @@ try {
     return { decision: r.decision, approver: r.approver, after: x.body.status }
   })
 
+  await step('the model reads the mail: an unmarked confidential file outside → 보안 담당자 approval', async () => {
+    const r = await send(owner, { to: [PARTNER], subject: '검토 자료 전달', body: '내부 수치입니다. 먼저 봐 주세요.', attachment: { name: '3분기_실적_잠정.md', text: '3분기 잠정 실적(공시 전). 매출 182억, 영업이익률 6.4%. 4분기 가격 인상과 A사 인수 협상 진행 상황 포함.' }, threadId: th.id })
+    assert.deepEqual([r.decision, r.approver, r.facts.classification, r.facts.classification_source], ['require_approval', '보안 담당자', 'confidential', 'logprob'])
+    assert.ok(r.facts.classification_p >= 0.5, `p ${r.facts.classification_p}`)
+    return { decision: r.decision, approver: r.approver, p: r.facts.classification_p }
+  })
+
+  await step('the model reads the mail: a blank NDA form only uses the word → recorded, not held', async () => {
+    const r = await send(owner, { to: [PARTNER], subject: '기밀유지계약서 서명 요청', body: '다음 주 미팅 전에 서명 부탁드립니다.', attachment: { name: '기밀유지계약서_양식.md', text: '기밀유지계약서(양식). 갑과 을은 상호 제공하는 정보의 기밀을 유지한다. 회사명과 날짜를 기입한 뒤 서명해 주십시오.' }, threadId: th.id })
+    assert.deepEqual([r.decision, r.facts.classification, r.facts.classification_source], ['allow_audit', 'general', 'logprob'])
+    return { decision: r.decision, p: r.facts.classification_p }
+  })
+
+  await step('a mail staying inside is not read', async () => {
+    const r = await send(owner, { to: ['pro-team-minji@uengine.org'], subject: '사내 공유', body: '참고하세요', threadId: th.id })
+    assert.deepEqual([r.decision, r.facts.classification_source, r.facts.classification_p], ['allow', 'regex', null])
+    return { decision: r.decision, source: r.facts.classification_source }
+  })
+
   await step('the window: the 21st external mail of the day → pending (팀장)', async () => {
     const w = await signIn('pro-agentic-mail-e2e@uengine.org')
     // its own rows first: the window counts this person's day
