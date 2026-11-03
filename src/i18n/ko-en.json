@@ -8,6 +8,20 @@
   "검토": "Review",
   "납부": "Pay",
   "답장": "Reply",
+  "습관": "Habits",
+  "네, 해 주세요": "Yes, please",
+  "다시 묻지 않기": "Don't ask again",
+  "네, 하는 중이에요": "Yes, working on it",
+  "이번에는 하지 않았어요": "Skipped this time",
+  "다시 묻지 않을게요": "I won't ask again",
+  "직접 말씀하신 습관": "A habit you told me",
+  "습관 · 제안을 수락했어요": "Habit · you accepted the suggestion",
+  "묻지 않아요": "Not asking",
+  "한 번 더 보면 물어볼게요": "I'll ask after seeing it once more",
+  "직접 말씀하신 습관 · 다음부터 물어봐요": "A habit you told me · I'll ask from next time",
+  "다음부터 물어봐요": "I'll ask from next time",
+  "결과물을 받은 뒤 습관처럼 시키는 일을 기억해 두었다가, 다음에 먼저 묻습니다. 눌러야 실행하고, 다른 사람에게는 보이지 않습니다.": "What you usually ask for after a result is remembered and offered next time. Nothing runs until you say so, and no one else can see these.",
+  "아직 배운 습관이 없어요. 「앞으로 슬라이드 만들면 로고는 유엔진으로 바꿔 줘」처럼 직접 말해도 됩니다.": "No habits yet. You can also tell me directly: \"From now on, when you make slides, change the logo to uEngine.\"",
   "서명": "Sign",
   "알림": "Notification",
   "예약": "Book",
@@ -2014,6 +2028,10 @@
   "Agentic BPM 리포트 ›": "Agentic BPM report ›"
  },
  "patterns": [
+  [
+   "지금까지 {0}번 하셨어요",
+   "You've done this {0} times"
+  ],
   [
    "고친 그림을 워드 문서의 그림 {0} 자리에 넣었어요 · ⌘S 로 저장하세요",
    "I put the edited image in place of image {0} in the Word document · save with ⌘S"

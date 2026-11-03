@@ -10,6 +10,7 @@ import TeamRoles from './TeamRoles.vue'
 import UsagePlan from './UsagePlan.vue'
 import PolicyCenter from './PolicyCenter.vue'
 import ApprovalInbox from './ApprovalInbox.vue'
+import FollowupList from './FollowupList.vue'
 import SharingCenter from './context/SharingCenter.vue'
 import MailConnect from './MailConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
@@ -27,7 +28,7 @@ const app = useApp()
 const sky = useSky()
 const page = computed(() => route.params.page)
 const sub = computed(() => route.params.sub)
-const titles = { sharing: '공유와 허락', policies: '정책·가드레일', approvals: '승인함', usage: '사용량·요금제', schedules: '예약된 작업', team: '팀·역할', skills: '스킬', accounts: '계정', wallet: '지갑', system: '시스템 설정', security: '보안', profile: '프로필' }
+const titles = { sharing: '공유와 허락', policies: '정책·가드레일', approvals: '승인함', usage: '사용량·요금제', schedules: '예약된 작업', team: '팀·역할', skills: '스킬', habits: '습관', accounts: '계정', wallet: '지갑', system: '시스템 설정', security: '보안', profile: '프로필' }
 
 const schedules = ref([])
 const vault = ref([])
@@ -189,6 +190,9 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
 
       <!-- tenant skills -->
       <SkillList v-if="page === 'skills'" :name="sub" />
+
+      <!-- 후행 습관: 비서가 배운, 결과물 뒤에 시키는 일 (server lib/followups.js) -->
+      <FollowupList v-if="page === 'habits'" />
 
       <!-- accounts (vault) -->
       <template v-if="page === 'accounts' && !sub">

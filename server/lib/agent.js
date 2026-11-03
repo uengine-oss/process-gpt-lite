@@ -25,6 +25,7 @@ import * as turns from './turns.js'
 import { refer as referContext } from './context/refer.js'
 import { rebuildSoon } from './context/digest.js'
 import { findRepeat } from './context/repeat.js'
+import { afterTurn, readAnswer, readRule, whenText } from './followups.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
@@ -188,7 +189,7 @@ const PERSONA_EN = `You are the user's work assistant, like a personal operating
 first person ("I'll…"), no preamble. Write every tool argument a person will read (ack, name, title, message, text) in English. Current time: ${'{now}'}.`
 
 function toLlmHistory(rows) {
-  return rows.filter((r) => r.kind === 'text' || r.kind === 'doc').map((r) => ({
+  return rows.filter((r) => r.kind === 'text' || r.kind === 'doc' || r.kind === 'followup').map((r) => ({
     role: r.role === 'user' ? 'user' : 'assistant',
     content: r.content.text || '',
   }))
@@ -205,15 +206,41 @@ export function runTurn(args) {
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
 const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   files = (files || []).filter((f) => f?.path && f?.url).slice(0, 10)
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
-  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(fresh ? { fresh: true } : {}) })
+  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}) })
   const store = turnCtx.getStore()
-  if (store) { store.userMsgId = said.id; store.fresh = !!fresh }
+  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null }
+  // 후행 습관(lib/followups.js): an answer in words to the question just asked, or a habit told outright
+  if (!habitId) {
+    const ans = await readAnswer(user, threadId, said.id, text, files.length > 0).catch((e) => { console.warn('[followups] answer', e.message); return null })
+    if (ans?.decline) {
+      noAgentTurn()
+      const ok = L('알겠어요. 이번에는 하지 않을게요.', "Okay, I won't this time.")
+      onDelta?.(ok)
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok })
+    }
+    if (ans?.accept) {
+      // from here it is the turn the card's button runs; the person's own words stay in the chat
+      text = ans.accept.action
+      files = (ans.accept.files || []).filter((f) => f?.path && f?.url).slice(0, 10)
+      if (ans.accept.conversation?.id) pinned.set(threadId, { conversationId: String(ans.accept.conversation.id), title: String(ans.accept.conversation.title || '') })
+      context = [context, L('(비서가 물은 일을 사용자가 수락했습니다)', '(The person accepted what the assistant asked)')].filter(Boolean).join('\n\n')
+      if (store) { store.fresh = true; store.said = text; store.habitId = ans.accept.habitId }
+    } else {
+      const told = await readRule(user, text).catch((e) => { console.warn('[followups] rule', e.message); return null })
+      if (told) {
+        noAgentTurn()
+        const ok = L(`기억할게요. ${whenText(told.event_cls)} 「${told.action}」를 먼저 물어볼게요. 설정 › 습관에서 끄거나 지울 수 있어요.`, `Got it. ${whenText(told.event_cls)}, I'll ask about "${told.action}" first. You can turn it off or remove it in Settings › Habits.`)
+        onDelta?.(ok)
+        return addMessage(userId, threadId, 'agent', 'text', { text: ok, habit: told.id })
+      }
+    }
+  }
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
   if (files.length) {
     attached.set(threadId, files)
@@ -957,6 +984,12 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (contract) {
     generationDone(threadId)
     await addMessage(user.id, threadId, 'agent', 'process_draft', { contract, workDir, state: 'draft' })
+  }
+  // 후행 습관(lib/followups.js): what this turn made, whether it followed the last one, the usual next step. The answer is
+  // already out; this never holds it up, and a scheduled run or a stopped answer teaches nothing.
+  const tc = turnCtx.getStore()
+  if (tc?.said && !ended && !silent && !divider && mode !== 'skill' && !contract) {
+    afterTurn({ user, threadId, msg, conv: turn.conv || routing?.conversation_id || pin?.conversationId || thread?.conversation_id || null, title: context?.title, said: tc.said, files, attached: uploads, fromHabit: tc.habitId }).catch((e) => console.warn('[followups]', e.message))
   }
   return msg
   }

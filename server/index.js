@@ -36,6 +36,7 @@ import { improveRoutes } from './routes/improve.js'
 import { billingRoutes } from './routes/billing.js'
 import { backofficeRoutes } from './routes/backoffice.js'
 import { agenticRoutes } from './routes/agentic.js'
+import { followupRoutes } from './routes/followups.js'
 import { scenarioMailRoutes } from './routes/scenario-mail.js'
 import { scenarioPurchaseRoutes } from './routes/scenario-purchase.js'
 import { scenarioReleaseRoutes } from './routes/scenario-release.js'
@@ -346,6 +347,7 @@ app.use('/api', billingRoutes(auth))
 app.use('/api', backofficeRoutes(auth))
 // Agentic BPM PoC (pgpt-pro/docs/agentic-bpm/plan.md): policies·decisions·approvals·strategy, then the three scenarios
 app.use('/api', agenticRoutes(auth))
+app.use('/api', followupRoutes(auth))
 app.use('/api', scenarioMailRoutes(auth))
 app.use('/api', scenarioPurchaseRoutes(auth))
 app.use('/api', scenarioReleaseRoutes(auth))
