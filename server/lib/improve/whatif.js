@@ -11,17 +11,19 @@ import { L } from '../lang.js'
 
 const RHO_MAX = 0.97
 
-function erlangWq(lambda, mu, c) {
+export function erlangWq(lambda, mu, c) {
   if (!mu || !lambda) return 0
-  const a = lambda / mu
-  const rho = a / c
-  if (rho >= RHO_MAX) return erlangWq(RHO_MAX * c * mu, mu, c) * (1 + 4 * (rho - RHO_MAX))
+  const rho = lambda / mu / c
+  // past saturation the formula has no answer: take it at the limit and grow it from there
+  const saturated = rho >= RHO_MAX
+  const a = saturated ? RHO_MAX * c : lambda / mu
   let sum = 0, term = 1
   for (let k = 0; k < c; k++) { if (k) term *= a / k; sum += term }
   const last = term * (a / c) // a^c / c!
   const tail = last * (c / (c - a))
   const C = tail / (sum + tail)
-  return C / (c * mu - lambda)
+  const wq = C / (c * mu - a * mu)
+  return saturated ? wq * (1 + 4 * (rho - RHO_MAX)) : wq
 }
 
 /** the model behind CPM and the what-if, from the analysis and the resources (toc.resources) */
