@@ -4,6 +4,7 @@ import { marked } from 'marked'
 import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
 import Composer from './Composer.vue'
+import MessageMenu from './MessageMenu.vue'
 import EdgeBlur from './EdgeBlur.vue'
 import { useApp } from '../stores/app.js'
 
@@ -46,12 +47,15 @@ async function toBottom(force) {
 }
 watch(() => [list.value.length, draft.value], () => toBottom(false))
 watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
+// 답장: what is being answered sits above the composer, over the blurred chat; a reply goes out at the bottom
+const replying = computed(() => app.replyTo?.threadId === app.activeId)
+watch(() => list.value[list.value.length - 1], (m) => { if (m?.role === 'user' && m.content?.replyUuid) { stick = true; toBottom(true) } })
 </script>
 
 <template>
   <section class="col">
     <EdgeBlur side="top" />
-    <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode }" @scroll="onScroll">
+    <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode || replying }" @scroll="onScroll">
       <div class="inner">
         <slot name="header" />
         <p v-if="!list.length && emptyText" class="empty serif">{{ emptyText }}</p>
@@ -64,6 +68,8 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
       </div>
     </div>
     <EdgeBlur side="bottom" :height="120" />
+    <div v-if="replying" class="reply-scrim" data-testid="reply-scrim" @click="app.cancelReply()" />
+    <MessageMenu />
     <div class="foot">
       <!-- what the agent is doing right now, above the composer (hark's "패널 만드는 중") -->
       <Transition name="pill"><div v-if="working" :key="working" class="working"><span class="shimmer-text">{{ working }}</span></div></Transition>
@@ -96,5 +102,6 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 .stop:disabled { opacity: .55; }
 .pill-enter-active, .pill-leave-active { transition: opacity .25s, translate .25s; }
 .pill-enter-from, .pill-leave-to { opacity: 0; translate: 0 6px; }
+.reply-scrim { position: absolute; inset: 0; z-index: 5; }
 .foot { position: absolute; z-index: 6; left: 50%; bottom: 32px; translate: -50% 0; width: 512px; max-width: calc(100% - 32px); }
 </style>

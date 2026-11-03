@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
 import { BASE } from '../base.js'
 import { syncLang } from '../i18n/lang.js'
@@ -28,6 +29,8 @@ export const useApp = defineStore('app', {
     searchOpen: false,
     prefill: '',
     focusTick: 0,              // bumps: the chat composer takes the focus (an open document's AI 도우미 button)
+    messageMenu: null,         // the menu of one bubble: { msg, el, at } (MessageMenu.vue)
+    replyTo: null,             // the message the next one answers: { id, role, threadId, text } (spec pgpt-pro_message-actions)
     mentions: [],              // objects pointed at in an open document (@표 2, @이미지 1, @B3:D6) for the next message
     beforeSend: null,          // (text, mentions) => true when it took the message (OfficeSheet: an image goes to PhotoCraft)
     instances: [],
@@ -176,6 +179,13 @@ export const useApp = defineStore('app', {
       this.mentions = [...this.mentions.filter((x) => !(x.label === m.label && x.file === m.file)), m].slice(-4)
     },
     removeMention(i) { this.mentions = this.mentions.filter((_, k) => k !== i) },
+    openMessageMenu(msg, el, at) { this.messageMenu = { msg, el: markRaw(el), at } },
+    startReply(msg, text) {
+      this.replyTo = { id: msg.id, role: msg.role, threadId: msg.thread_id, text }
+      this.focusTick++
+    },
+    cancelReply() { this.replyTo = null },
+    async rateMessage(msg, value) { this.onEvent('message', await api(`/messages/${msg.id}/feedback`, { method: 'POST', body: { value } })) },
     async send(text, threadId = this.activeId, context) {
       // mentions: the chips read first in the message; where each one is goes to the agent
       const mentions = this.mentions
@@ -185,6 +195,8 @@ export const useApp = defineStore('app', {
         text = `${mentions.map((m) => `@${m.label}`).join(' ')} ${text}`
         context = [context, `(사용자가 열린 문서에서 가리킨 대상: ${mentions.map((m) => `@${m.label} = ${JSON.stringify(m)}`).join(' ; ')})`].filter(Boolean).join('\n\n')
       }
+      const replyTo = this.replyTo?.threadId === threadId ? this.replyTo.id : undefined
+      this.replyTo = null
       const pending = this.attachments
       this.attachments = []
       await Promise.all(pending.map((a) => a.job))
@@ -195,7 +207,7 @@ export const useApp = defineStore('app', {
       this.drafts[threadId] = ''
       let ended = false
       try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation }, (ev, data) => {
+        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, replyTo }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
         })

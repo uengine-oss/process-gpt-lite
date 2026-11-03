@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { hold as vHold } from './holdMenu.js'
 import { marked } from 'marked'
 // (sandbox and host paths in an answer read as file names: src/paths.js)
 import { hidePaths } from '../paths.js'
@@ -28,6 +29,14 @@ const router = useRouter()
 const app = useApp()
 const instStatus = { RUNNING: '진행 중', COMPLETED: '완료', NEW: '시작 전' }
 const c = computed(() => props.msg.content || {})
+const openMenu = (el, at) => app.openMessageMenu(props.msg, el, at)
+// 답장: the quote leads back to the message answered, while it is in view
+function toOriginal() {
+  const el = document.querySelector(`[data-msg="${c.value.replyUuid}"]`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.animate([{ filter: 'brightness(1.5)' }, { filter: 'none' }], { duration: 1200 })
+}
 // a link into the agent's sandbox ("[견적서.xlsx](</workspace/…/견적서.xlsx>)") opens nothing here — its file card does
 const SANDBOX_LINK = /\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g
 // model output is rendered as markdown, never as raw HTML
@@ -51,7 +60,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 </script>
 
 <template>
-  <div class="row" :class="[`r-${msg.role}`, `k-${msg.kind}`, { pinned: msg.kind === 'task' && c.state === 'running', needs: c.state === 'needs_input' || c.state === 'pending' }]">
+  <div class="row" :data-msg="msg.id" :class="[`r-${msg.role}`, `k-${msg.kind}`, { pinned: msg.kind === 'task' && c.state === 'running', needs: c.state === 'needs_input' || c.state === 'pending' }]">
     <span v-if="msg.kind !== 'divider'" class="ts">{{ time }}</span>
 
     <!-- which context this answer belongs to, as the context-router decided (hark-style threads) -->
@@ -65,19 +74,24 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 
     <template v-else-if="msg.kind === 'text' && msg.role === 'user'">
       <span v-if="panelReq" class="req">새 패널 만들기</span>
-      <div class="bubble user">{{ panelReq ?? c.text }}</div>
+      <button v-if="c.replyContent" class="quote press" :class="`q-${c.replyRole}`" data-testid="reply-of" title="답장한 메시지로 가기" @click="toOriginal">
+        <span v-if="c.replyRole === 'agent'" class="qt md" v-html="md(c.replyContent)" /><span v-else class="qt">{{ c.replyContent }}</span>
+      </button>
+      <svg v-if="c.replyContent" class="elbow" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2 2h6a4 4 0 0 1 4 4v6" /></svg>
+      <div v-hold="openMenu" class="bubble user">{{ panelReq ?? c.text }}</div>
       <!-- sent while an answer of the same conversation was still coming: it waits its turn (lib/turns.js) -->
       <small v-if="c.queued" class="queue">대기 · 앞 답이 끝나면 이어서 답해요</small>
       <small v-else-if="c.dropped" class="queue">서버가 다시 시작되어 이 요청은 답하지 못했어요 · 다시 보내 주세요</small>
     </template>
     <template v-else-if="msg.kind === 'text'">
-      <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <div v-hold="openMenu" class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <small v-if="c.feedback" class="rated" :class="c.feedback" data-testid="rated" :aria-label="c.feedback === 'up' ? '좋아요' : '별로예요'"><Icon name="thumb" :size="13" /></small>
       <div v-if="replies" class="replies">
         <button v-for="o in replies.options" :key="o.label" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id)">{{ o.label }}</button>
       </div>
     </template>
 
-    <div v-else-if="doc" class="doc" :class="{ open: expanded }">
+    <div v-else-if="doc" v-hold="openMenu" class="doc" :class="{ open: expanded }">
       <h3 class="serif">{{ doc.title }}</h3>
       <div class="inner md" v-html="doc.body" />
       <button class="more press" :aria-label="expanded ? '접기' : '펼치기'" @click="expanded = !expanded">
@@ -141,6 +155,17 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 </template>
 
 <style scoped>
+/* a long press opens the message menu (holdMenu.js), so words are selected from its 텍스트 선택 */
+@media (pointer: coarse) { .bubble, .doc { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
+/* 답장: a dimmed copy of the message answered above the person's words (hark) */
+.quote { display: block; max-width: 424px; padding: 11px 16px; border-radius: 20px; background: var(--bubble-agent-bg); font-size: 14.5px; line-height: 1.5; text-align: left; opacity: .55; color: var(--text-primary); word-break: keep-all; overflow-wrap: anywhere; }
+.quote.q-agent { align-self: flex-start; }
+.quote.q-user { background: var(--bubble-user-bg); }
+.qt { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+.qt.md { white-space: normal; }
+.elbow { margin: 4px 14px 4px 0; color: var(--text-tertiary); }
+.rated { display: inline-flex; margin: 4px 0 0 10px; color: var(--text-tertiary); }
+.rated.down :deep(svg) { rotate: 180deg; }
 /* the last 검수 of an edited copy (lib/review.js) */
 .reviewed { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; background: rgba(60, 190, 120, .22); color: #8fe0a8; }
 .reviewed.warn { background: rgba(240, 160, 40, .22); color: #ffc46b; }

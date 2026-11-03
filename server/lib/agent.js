@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { chat } from './llm.js'
 import { q } from './supa.js'
 import { addMessage, history, getThread, setThreadStatus } from './store.js'
+import { replyOf, replyNote } from './messageActions.js'
 import { runBrowserTask } from './browser.js'
 import { createSchedule, nextRun, cronAfter, dueAt } from './scheduler.js'
 import { createMission, createProcessSchedule, listSkills, workspaceHostPath } from './missions.js'
@@ -169,7 +170,7 @@ first person ("I'll…"), no preamble. Write every tool argument a person will r
 function toLlmHistory(rows) {
   return rows.filter((r) => r.kind === 'text' || r.kind === 'doc').map((r) => ({
     role: r.role === 'user' ? 'user' : 'assistant',
-    content: r.content.text || '',
+    content: r.content.replyContent ? `${r.content.text || ''}\n\n${replyNote(r.content.replyContent)}` : r.content.text || '',
   }))
 }
 
@@ -184,15 +185,18 @@ export function runTurn(args) {
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
 const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, replyTo }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
+  // 답장: the words answered go along with this message, and the answer stays in their conversation (lib/messageActions.js)
+  const reply = replyTo ? await replyOf(threadId, replyTo).catch((e) => { console.warn('[reply]', e.message); return null }) : null
+  if (reply?.conversation && !conversation?.id && !(await isFolderRoom(reply.conversation.id).catch(() => false))) pinned.set(threadId, { conversationId: reply.conversation.id, title: reply.conversation.title })
   // a key is only ever this person's own upload (lib/attachments.js); the page could send any other
   files = (files || []).filter((f) => f?.url).map((f) => (f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { ...f, key: undefined } : f)).slice(0, 10)
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
-  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
+  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...reply?.fields })
   const store = turnCtx.getStore()
-  if (store) store.userMsgId = said.id
+  if (store) { store.userMsgId = said.id; store.replyNote = reply?.note }
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
   if (files.length) {
     attached.set(threadId, files)
@@ -200,7 +204,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     context = [context, L(`(첨부: ${files.map((f) => f.name).join(', ')})`, `(attached: ${files.map((f) => f.name).join(', ')})`)].filter(Boolean).join('\n\n')
   }
   const hist = toLlmHistory(await history(threadId, 12))
-  if (context) hist[hist.length - 1] = { role: 'user', content: `${text}\n\n${context}` }
+  if (context) hist[hist.length - 1] = { role: 'user', content: `${hist[hist.length - 1].content}\n\n${context}` }
   const now = new Date().toLocaleString(locale(), { timeZone: 'Asia/Seoul' })
 
   // Skill authoring belongs to deepagents' own skill-creator (its root prompt routes '스킬 만들어줘'
@@ -630,6 +634,9 @@ export async function stopTurns({ user, session, threadId, conversation }) {
 }
 
 export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl }) {
+  // every way a turn reaches the agent (skill, connector, folder, plain) carries the words answered
+  const replying = turnCtx.getStore()?.replyNote
+  if (replying) text = `${text}\n\n${replying}`
   let thread = await getThread(user.id, threadId)
   // a main chat left standing in a shared folder's run room (as folder turns used to leave it) does
   // not answer the next message there

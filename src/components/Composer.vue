@@ -28,6 +28,8 @@ let rot
 onMounted(() => { rot = setInterval(() => { si.value = (si.value + 1) % suggestions.length }, 3200) })
 onBeforeUnmount(() => { clearInterval(rot); rec?.stop() })
 
+// 답장: the message the next one answers, right above the box (hark)
+const quote = computed(() => (!props.overlay && app.replyTo?.threadId === app.activeId ? app.replyTo : null))
 const ph = computed(() => (app.panelMode ? suggestions[si.value].t : props.placeholder))
 watch(() => app.prefill, async (v) => {
   if (!v) return
@@ -85,6 +87,7 @@ function onKey(e) {
   if (tm.onKey(e)) return
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit() }
   if (e.key === 'Escape' && app.panelMode) app.panelMode = false
+  if (e.key === 'Escape' && quote.value) app.cancelReply()
   if (e.key === 'Escape') emit('escape')
 }
 function dictate() {
@@ -109,6 +112,10 @@ defineExpose({ focus: () => ta.value?.focus() })
     <Transition name="fade">
       <button v-if="app.panelMode" class="undo press" aria-label="취소" @click="app.panelMode = false"><Icon name="undo" :size="20" /></button>
     </Transition>
+    <div v-if="quote" class="quoting" :class="`q-${quote.role}`" data-testid="reply-quote">
+      <div class="qb">{{ quote.text }}</div>
+      <button class="qx press" aria-label="답장 취소" title="답장 취소" data-testid="reply-cancel" @click="app.cancelReply()"><Icon name="close" :size="15" /></button>
+    </div>
     <ComposerTeam v-if="!overlay" :tm="tm" />
     <div v-if="app.mentions.length" class="mentions">
       <span v-for="(m, i) in app.mentions" :key="i + m.label" class="mention" :title="m.file || ''">
@@ -149,6 +156,10 @@ defineExpose({ focus: () => ta.value?.focus() })
 .mention .x { width: 20px; height: 20px; border-radius: 10px; color: inherit; opacity: .7; }
 .mention .x:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
 .composer { position: relative; width: 100%; }
+.quoting { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; animation: pop-in .3s var(--spring) both; }
+.quoting.q-user { justify-content: flex-end; }
+.qb { max-width: 424px; max-height: 38vh; overflow: hidden; padding: 13px 18px; border-radius: 24px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); font-size: 15px; line-height: 1.6; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; color: var(--text-primary); }
+.qx { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--regular-solid-bg); color: var(--text-secondary); }
 .box { display: flex; align-items: flex-end; min-height: 48px; border-radius: 24px; padding-right: 6px; --thin-bg: var(--composer-bg); transition: background-color 1s, margin .4s var(--spring); }
 .panel .box { margin-left: 60px; }
 textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; height: 48px; padding: 14.5px 8px 14.5px 16px; font-size: 15px; line-height: 19px; color: var(--text-primary); }

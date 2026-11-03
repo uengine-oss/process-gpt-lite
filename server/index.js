@@ -46,6 +46,7 @@ import * as notify from './lib/notify.js'
 import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { saveAttachment } from './lib/attachments.js'
+import { rateMessage } from './lib/messageActions.js'
 import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
 import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser } from './lib/tenant.js'
@@ -396,6 +397,10 @@ app.post('/api/reviews', auth, async (req, res) => {
 app.post('/api/messages/:id/open-file', auth, async (req, res) => {
   try { res.json(await openFileCard(req.user, req.params.id)) } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
+// 👍 👎 on an answer (lib/messageActions.js); null takes it back
+app.post('/api/messages/:id/feedback', auth, async (req, res) => {
+  try { res.json(await rateMessage(req.user.id, req.params.id, req.body?.value ?? null)) } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
 app.post('/api/threads/:id/note', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
@@ -409,7 +414,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, onDelta: (d) => send('delta', { d }) })
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, replyTo: req.body.replyTo, context: req.body.context, files: req.body.files, conversation: req.body.conversation, onDelta: (d) => send('delta', { d }) })
     send('done', final)
   } catch (e) {
     console.error(e)

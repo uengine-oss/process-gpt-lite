@@ -34,9 +34,9 @@ export const test = base.extend({
   as: async ({}, use) => { await use(signedIn) },
   pageAs: async ({ browser }, use, testInfo) => {
     const contexts = []
-    await use(async (area, { viewport, dpr = 1 } = {}) => {
+    await use(async (area, { viewport, dpr = 1, touch = false } = {}) => {
       const c = await signedIn(area)
-      const ctx = await browser.newContext({ viewport: viewport || { width: 1280, height: 720 }, deviceScaleFactor: dpr, locale: 'ko-KR', baseURL: new URL(PGPT_URL).origin })
+      const ctx = await browser.newContext({ viewport: viewport || { width: 1280, height: 720 }, deviceScaleFactor: dpr, ...(touch ? { hasTouch: true, isMobile: true } : {}), locale: 'ko-KR', baseURL: new URL(PGPT_URL).origin })
       await ctx.addInitScript((s) => { if (window.top === window) localStorage.setItem('pgpt-pro-session', s) }, JSON.stringify(c.s))
       if (LANG) await ctx.addInitScript((l) => { try { if (window.top === window) localStorage.setItem('pgl-lang', l) } catch { /* opaque origin */ } }, LANG)
       contexts.push(ctx)

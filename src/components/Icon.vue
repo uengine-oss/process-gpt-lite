@@ -3,6 +3,10 @@ defineProps({ name: String, size: { type: Number, default: 20 } })
 const P = {
   home: 'M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z',
   plus: 'M12 5v14M5 12h14',
+  thumb: 'M8 11v9H4v-9zM8 11l3.6-7.2A2 2 0 0 1 15.4 5l-.9 4h4.8a2 2 0 0 1 2 2.4l-1.3 6.8a2.2 2.2 0 0 1-2.2 1.8H8',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  select: 'M4 6h10M9 6v12M7 18h4M17 5h3M18.5 5v14M17 19h3',
+  reply: 'M9 7 4 12l5 5M4 12h10a6 6 0 0 1 6 6v1',
   mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3',
   up: 'M12 19V6M6 11.5 12 5.5l6 6',
   undo: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-2',

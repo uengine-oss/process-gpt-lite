@@ -1,0 +1,11 @@
+[
+ {"name": "답의 대화: 라우터가 정한 대화", "rows": [{"id": "a", "role": "agent", "context": {"conversationId": "c1", "title": "메일", "action": "new"}}], "id": "a", "expect": {"id": "c1", "title": "메일"}},
+ {"name": "사람 말: 그 뒤 답의 대화를 따른다", "rows": [{"id": "a", "role": "agent", "context": {"conversationId": "c1", "title": "메일", "action": "new"}}, {"id": "u", "role": "user"}, {"id": "b", "role": "agent", "context": {"conversationId": "c2", "title": "일정", "action": "new"}}], "id": "u", "expect": {"id": "c2", "title": "일정"}},
+ {"name": "stay 답: 그때 있던 대화에 머문다", "rows": [{"id": "a", "role": "agent", "context": {"conversationId": "c1", "title": "메일", "action": "new"}}, {"id": "b", "role": "agent", "context": {"title": "메일", "action": "stay"}}], "id": "b", "expect": {"id": "c1", "title": "메일"}},
+ {"name": "stay 표시에 대화 ID 가 있어도 대화를 바꾸지 않는다", "rows": [{"id": "a", "role": "agent", "context": {"conversationId": "c1", "title": "메일", "action": "new"}}, {"id": "b", "role": "agent", "context": {"conversationId": "c9", "title": "다른", "action": "stay"}}], "id": "b", "expect": {"id": "c1", "title": "메일"}},
+ {"name": "맥락 없는 카드: 그때 대화에 속한다", "rows": [{"id": "a", "role": "agent", "context": {"conversationId": "c1", "title": "메일", "action": "continue"}}, {"id": "n", "role": "agent", "context": null}], "id": "n", "expect": {"id": "c1", "title": "메일"}},
+ {"name": "뒤따르는 답이 아직 없는 사람 말: 지금 대화", "rows": [{"id": "a", "role": "agent", "context": {"conversationId": "c1", "title": "메일", "action": "new"}}, {"id": "u", "role": "user"}], "id": "u", "expect": {"id": "c1", "title": "메일"}},
+ {"name": "라우터 없이 쓰는 설치: 대화 없음", "rows": [{"id": "a", "role": "agent", "context": null}, {"id": "u", "role": "user"}], "id": "a", "expect": null},
+ {"name": "그 스레드에 없는 메시지: 대화 없음", "rows": [{"id": "a", "role": "agent", "context": {"conversationId": "c1", "title": "메일", "action": "new"}}], "id": "zz", "expect": null},
+ {"name": "제목 없는 대화: 빈 제목", "rows": [{"id": "a", "role": "agent", "context": {"conversationId": "c1", "action": "new"}}], "id": "a", "expect": {"id": "c1", "title": ""}}
+]
