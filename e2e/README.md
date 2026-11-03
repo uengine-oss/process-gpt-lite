@@ -421,7 +421,7 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 설정 › 습관: 끄기·켜기·지우기, 남의 것 404 | F-FU-05·06·07, `followups.e2e.mjs` 14·15·17 | feature·HTTP | ✅ |
 | 모델이 못 읽으면 배우지 않고 규칙으로 묻기 | `followups.e2e.mjs` 20 | HTTP | ✅ |
 | 판단 품질 하한(사례 260건) | `node scripts/eval-followups.mjs all test --check` | 측정 | ✅ |
-| 물어봐도 되는가: 묻지 않아도 될 때 묻는 경우가 남음(test 88%, dev 67%) | `eval` fits | 측정 | ◐ |
+| 물어봐도 되는가: 묻지 않아도 될 때 묻는 경우가 남음(test 85~88%, dev 67~75%) | `eval` fits | 측정 | ◐ |
 | 영어 모드 | F-FU-09, `followups.test.js` | feature·단위 | ◐ (영어 모델 판단은 재지 않음) |
 | 수락 뒤 이어지는 둘째 후행 작업, 메일 수신 같은 다른 사건, 자동 실행, 프로세스 승격 | — | — | ✗ |
 
