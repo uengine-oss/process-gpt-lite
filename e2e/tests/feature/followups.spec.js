@@ -135,6 +135,26 @@ test.describe('후행 습관 (spec pgpt-pro_followup-habits)', () => {
     expect(b.x + b.width).toBeLessThanOrEqual(390)
   })
 
+  test('F-FU-10 [model] 에이전트 없이 바로 온 답도 화면 아래까지 따라간다', async ({ pageAs, db }) => {
+    const page = await pageAs('fu-scroll')
+    await db.q('delete from pro_followups where user_id=$1', [page.user.id])
+    const th = await db.clearMain(page.user.id)
+    const rows = []
+    for (let i = 0; i < 30; i++) rows.push({ role: i % 2 ? 'agent' : 'user', kind: 'text', content: { text: `지난 이야기 ${i}` } })
+    await db.addMessages(th, rows)
+    await page.goto('/chat')
+    await expect(page.locator('.row').last()).toBeVisible()
+    await page.waitForTimeout(800)
+    await page.locator('.composer textarea').first().fill('앞으로 문서 만들면 표지에 대외비라고 넣어 줘')
+    await page.keyboard.press('Enter')
+    const ok = page.locator('.bubble.agent', { hasText: '기억할게요' })
+    await expect(ok).toBeVisible({ timeout: 40000 })
+    await page.waitForTimeout(1200)
+    // 입력창에 가리지 않는다
+    const b = await ok.boundingBox(), c = await page.locator('.composer .box').first().boundingBox()
+    expect(b.y + b.height).toBeLessThanOrEqual(c.y)
+  })
+
   test('F-FU-09 영어 모드: 카드와 화면 이름이 영어다', async ({ pageAs, db }) => {
     const page = await pageAs('fu-en')
     await page.addInitScript(() => localStorage.setItem('pgl-lang', 'en'))

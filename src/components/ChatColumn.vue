@@ -42,10 +42,16 @@ function onScroll() {
   const el = scroller.value
   stick = el.scrollHeight - el.scrollTop - el.clientHeight < 120
 }
+// A draft bubble turning into its message shrinks and regrows the list in the middle of a smooth scroll, which then stops
+// short of the bottom: once it has run, finish it.
+let settle
 async function toBottom(force) {
   await nextTick()
   const el = scroller.value
-  if (el && (stick || force)) el.scrollTo({ top: el.scrollHeight, behavior: force ? 'instant' : 'smooth' })
+  if (!el || !(stick || force)) return
+  el.scrollTo({ top: el.scrollHeight, behavior: force ? 'instant' : 'smooth' })
+  clearTimeout(settle)
+  settle = setTimeout(() => { if (stick && el.scrollHeight - el.scrollTop - el.clientHeight > 2) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }) }, 500)
 }
 watch(() => [list.value.length, draft.value], () => toBottom(false))
 watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })

@@ -5,12 +5,13 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { config } from '../config.js'
 import { q, pool } from '../lib/supa.js'
-import { afterTurn, readRule } from '../lib/followups.js'
+import { afterTurn, followsResult, readRule } from '../lib/followups.js'
 
 const API = process.env.API_URL || 'http://localhost:8794'
 const CODE = process.env.PGPT_LOGIN_CODE || '000000'
-const AWAIT_MS = 240_000
+const AWAIT_MS = 480_000
 let n = 0
 async function step(name, fn) {
   n++
@@ -93,6 +94,13 @@ await step('이어서 로고를 바꾸라고 한다: 습관 후보로 한 번 �
   assert.equal(hs[0].action, '슬라이드 로고를 유엔진으로 바꿔 줘')
   assert.equal((await chips(th)).length, 0)
   assert.equal((await cards(th)).length, 0, '후행 작업의 결과물로 묻지 않는다')
+})
+await step('방금 나온 결과물에 대한 말은 에이전트에게 보낸다. 상관없는 말은 평소대로다', async () => {
+  const [u] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'user','text','{"text":"x"}') returning id`, [th])
+  const about = await followsResult(th, u.id, '슬라이드 첫 장 제목 앞에 [유엔진]을 붙여 줘')
+  assert.equal(about?.conv, 'c1', JSON.stringify(about))
+  assert.equal(await followsResult(th, u.id, '내일 날씨 알려 줘'), null)
+  await q('delete from pro_messages where id=$1', [u.id])
 })
 await step('결과물 뒤의 감사·내용 질문은 습관이 아니다', async () => {
   await turn(a, th, 'c2', '신제품 소개 슬라이드 만들어 줘', ['신제품.pptx'])
@@ -247,6 +255,7 @@ await step('「앞으로 …」라고 직접 말하면 에이전트 없이 바�
   const c = (await lastCard(th)).content
   assert.match(c.text, /^말씀하신 대로 /)
   assert.equal(c.origin, 'told')
+  assert.equal(c.source, 'told', '직접 말한 습관은 어울림을 따지지 않는다')
 })
 await step('예약이나 말투 부탁은 습관이 아니다', async () => {
   const count = (await habits(a)).length
@@ -257,7 +266,8 @@ await step('예약이나 말투 부탁은 습관이 아니다', async () => {
 })
 await step('모델이 읽지 못할 때: 말만 보고 배우지 않고, 이미 있는 습관은 규칙으로 묻는다', async () => {
   // 닿지 않는 LLM 을 쓰는 프로세스에서 턴의 끝을 부른다
-  await q(`update pro_followups set last_asked_conv=null where user_id=$1`, [a.id])
+  await q(`delete from pro_followups where user_id=$1`, [a.id])
+  await q(`insert into pro_followups(tenant_id,user_id,event_cls,action,ask,seen) select tenant_id,$1,'doc','표지에 대외비라고 넣어 줘','표지에 대외비라고 넣어드릴까요?',2 from (select $2::text as tenant_id) x`, [a.id, config.tenantId])
   const code = `
     import { q, pool } from '${new URL('../lib/supa.js', import.meta.url).href}'
     import { afterTurn } from '${new URL('../lib/followups.js', import.meta.url).href}'

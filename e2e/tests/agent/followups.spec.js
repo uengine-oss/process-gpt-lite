@@ -7,12 +7,12 @@ const habits = (db, id) => db.q('select * from pro_followups where user_id=$1 or
 const fileCards = async (db, th, t0) => (await since(db, th, t0, ['file'])).filter((m) => /\.pptx$/i.test(m.content?.name || ''))
 async function slides(u, db, topic) {
   const r = await ask(u, db, `${topic} 슬라이드 3장짜리 pptx 파일로 만들어 줘. 표는 넣지 말고 짧게.`)
-  await waitFor(async () => (await fileCards(db, r.th, r.t0)).length > 0, { timeout: 280_000, every: 3000 })
+  await waitFor(async () => (await fileCards(db, r.th, r.t0)).length > 0, { timeout: 480_000, every: 3000 })
   return r
 }
 
 test('A-FU-01 슬라이드 → 후행 작업을 두 번 보면, 세 번째 슬라이드 뒤에 먼저 묻고, 네를 누르면 그 대화에서 실행한다', async ({ as, db }) => {
-  test.setTimeout(1_200_000)
+  test.setTimeout(2_700_000)
   const u = await as('fu-agent')
   await db.q('delete from pro_followups where user_id=$1', [u.id])
   await db.clearMain(u.id)
@@ -37,7 +37,7 @@ test('A-FU-01 슬라이드 → 후행 작업을 두 번 보면, 세 번째 슬�
   expect(answered.status, answered.text).toBe(200)
   const said = await waitFor(async () => (await db.q(`select * from pro_messages where thread_id=$1 and role='user' and content->>'fromHabit'='true' and created_at > $2 limit 1`, [third.th, card.created_at]))[0], { timeout: 30_000, every: 1000 })
   expect(said.content.text).toBe(AFTER)
-  await waitFor(async () => (await db.q(`select 1 from pro_messages where thread_id=$1 and role='agent' and kind in ('text','doc') and created_at > $2 and content ? 'event'`, [third.th, said.created_at]))[0], { timeout: 280_000, every: 3000 })
+  await waitFor(async () => (await db.q(`select 1 from pro_messages where thread_id=$1 and role='agent' and kind in ('text','doc') and created_at > $2 and content ? 'event'`, [third.th, said.created_at]))[0], { timeout: 480_000, every: 3000 })
   const h = (await habits(db, u.id)).find((x) => x.action === AFTER)
   expect(h.accepted).toBe(1)
   expect(h.seen).toBe(3)

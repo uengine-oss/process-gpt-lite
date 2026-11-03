@@ -123,12 +123,24 @@ export async function recordPair(user, cls, text, attached = []) {
   return h
 }
 
+const within = (at) => Date.now() - new Date(at).getTime() < HABIT.windowDays * 864e5
+const isFollowup = async (prev, text) => {
+  if (cap(text).length < 2) return false
+  const r = await oddsOf(followupState(prev, text), FOLLOWUP_QUESTION(), FOLLOWUP_OPTIONS())
+  // the model cannot read: nothing is decided from words alone
+  return !!r && r.choice === 'followup' && r.confidence >= HABIT.learnBar
+}
+// Is this message about the result the last turn of the chat made? Then the agent that made it answers, in that conversation:
+// a small router model reads "put [uEngine] in front of the first title" as some other tool. → { conv, title } | null
+export async function followsResult(threadId, saidId, text) {
+  const [m] = await q(`select content->'event' as e from pro_messages where thread_id=$1 and id<>$2 and role='agent' and kind in ('text','doc') order by created_at desc limit 1`, [threadId, saidId])
+  if (!m?.e?.classes?.length || !within(m.e.at) || !(await isFollowup(m.e, text))) return null
+  return { conv: m.e.conv || null, title: m.e.title || '' }
+}
+
 // Whether this message followed the last result of its conversation; if so it is learned.
 async function learn({ user, threadId, prev, said, attached }) {
-  if (cap(said).length < 2) return false
-  const r = await oddsOf(followupState(prev, said), FOLLOWUP_QUESTION(), FOLLOWUP_OPTIONS())
-  // the model cannot read: nothing is learned from words alone
-  if (!r || r.choice !== 'followup' || r.confidence < HABIT.learnBar) return false
+  if (!(await isFollowup(prev, said))) return false
   const cls = pickClass(prev.classes, said)
   const h = await recordPair(user, cls, said, attached)
   // the once a habit becomes one: said out loud, so what is remembered is never a surprise
@@ -145,6 +157,8 @@ async function offer({ user, threadId, classes, said, files, conv, title }) {
     .filter((h) => asksNow(h)).slice(0, 3)
   let pick = null, source = null, p = null
   for (const h of rows) {
+    // the person said "every time": the model does not get to overrule that
+    if (h.origin === 'told') { pick = h; source = 'told'; break }
     const r = await oddsOf(fitsState(h.event_cls, h.action, said, files), FITS_QUESTION(), FITS_OPTIONS())
     if (!r) { pick = h; source = 'rule'; break }
     if (r.probabilities.fits >= HABIT.fitsBar) { pick = h; source = 'logprob'; p = r.probabilities.fits; break }
@@ -161,9 +175,9 @@ export async function afterTurn({ user, threadId, msg, conv, title, said, files,
   const names = (files || []).map((f) => f?.name).filter(Boolean)
   const classes = classesOf(files)
   const [prev] = conv ? await q(`select content->'event' as e from pro_messages where thread_id=$1 and id<>$2 and role='agent' and kind in ('text','doc') and content->'event'->>'conv'=$3 order by created_at desc limit 1`, [threadId, msg.id, conv]) : []
-  await q(`update pro_messages set content = content || jsonb_build_object('event', $2::jsonb) where id=$1`, [msg.id, JSON.stringify({ conv, classes, files: names.slice(0, 6), request: cap(said), at: new Date().toISOString() })])
+  await q(`update pro_messages set content = content || jsonb_build_object('event', $2::jsonb) where id=$1`, [msg.id, JSON.stringify({ conv, title: title || '', classes, files: names.slice(0, 6), request: cap(said), at: new Date().toISOString() })])
   const last = prev?.e
-  const recent = last?.classes?.length && Date.now() - new Date(last.at).getTime() < HABIT.windowDays * 864e5
+  const recent = last?.classes?.length && within(last.at)
   const followed = fromHabit || (recent ? await learn({ user, threadId, prev: last, said, attached }) : false)
   if (classes.length && !followed) await offer({ user, threadId, classes, said, files: names, conv, title })
 }

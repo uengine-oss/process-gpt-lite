@@ -25,7 +25,7 @@ import * as turns from './turns.js'
 import { refer as referContext } from './context/refer.js'
 import { rebuildSoon } from './context/digest.js'
 import { findRepeat } from './context/repeat.js'
-import { afterTurn, readAnswer, readRule, whenText } from './followups.js'
+import { afterTurn, followsResult, readAnswer, readRule, whenText } from './followups.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
@@ -329,6 +329,14 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment.") }) })
     return msg
   }
+  // a message about the result just made goes to the agent that made it (lib/followups.js)
+  const about = await followsResult(threadId, said.id, text).catch(() => null)
+  if (about) {
+    if (about.conv) pinned.set(threadId, { conversationId: about.conv, title: about.title })
+    // the same words about a new result are new work, not 「이미 한 요청」
+    if (store) store.fresh = true
+    return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
+  }
   const skillList = await listSkills(session.access_token)
   const skillHint = skillList.length ? `\n${L('사용 가능한 스킬(주기 작업에 쓸 수 있음)', 'Available skills (usable for recurring tasks)')}: ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
   const processHint = await processCatalogHint()
@@ -354,6 +362,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const args = JSON.parse(call.function.arguments || '{}')
   // only designing a new process goes on to the agent; the other tools answer here
   if (!(call.function.name === 'process' && args.intent === 'create')) noAgentTurn()
+  // (a small router model sometimes leaves the acknowledgement out: never an empty bubble)
+  if (!String(args.ack || '').trim()) args.ack = L('네, 처리할게요.', 'On it.')
   const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack })
   onDelta?.(args.ack)
 
