@@ -1,6 +1,6 @@
 // 제약 이론 5단계(찾기 → 최대 활용 → 종속 → 강화 → 반복)를 이 프로세스의 기록으로 채운다.
 // 단계마다 할 일과 그 근거 숫자, what-if 로 미리 계산한 효과를 붙인다(결정적 계산, 모델 호출 없음).
-import { resources, constraintOf } from './toc.js'
+import { resources, constraintOf, resourceKey } from './toc.js'
 import { whatIf } from './whatif.js'
 import { upstreamActivities, ancestorActivities } from './graph.js'
 import { fmtNum } from './transform.js'
@@ -71,11 +71,35 @@ export function dur(sec) {
   return `${Math.round(sec)}초`
 }
 
+/**
+ * of the constraint person's steps, the one where their work waits the longest: that is where the lead time
+ * goes. Counting runs alone picked whichever came first when a person ran two steps equally often.
+ */
+export function constraintStep(a, c) {
+  const of = (id) => a.executions.filter((x) => x.activityId === id && resourceKey(x) === c.key)
+  const rank = c.stepIds.map((id) => { const xs = of(id); return { id, wait: xs.reduce((s, x) => s + (x.wait || 0), 0), n: xs.length } })
+  return rank.sort((p, q) => q.wait - p.wait || q.n - p.n)[0].id
+}
+
+/** "새 요청의 A, B은(는)" — and when the constraint is the first step, there is nothing before it to name */
+export function ropeText(st, limit, ups) {
+  const ko = ups.length ? `새 요청의 ${ups.join(', ')}은(는) 급한 건부터 순서를 정해 시작해요` : '새 요청은 급한 건부터 순서를 정해 받아요'
+  const en = ups.length ? `new requests start ${ups.join(', ')} in order of urgency` : 'new requests are taken in order of urgency'
+  return L(`${st.name} 앞에 ${limit}건(처리 능력 약 1.5일 치)이 쌓여 있으면 ${ko}(로프).`,
+    `When ${limit} items (about 1.5 days of capacity) are already waiting in front of ${st.name}, ${en} (the rope).`)
+}
+
+/** the capacity line of the pre-draft action: what the what-if computed, not a flat doubling */
+export function predraftCapacity(before, after) {
+  if (!before || !after) return L('확인에 드는 시간이 줄어요', 'cuts the time the check takes')
+  return L(`처리 능력이 하루 ${before.toFixed(1)}건 → ${after.toFixed(1)}건이 돼요`, `raises capacity from ${before.toFixed(1)} to ${after.toFixed(1)} a day`)
+}
+
 export function focusingSteps(a, { basis = 'median', labels = {}, agentFor } = {}) {
   const res = resources(a)
   const c = constraintOf(res)
   if (!c) return { resources: res, constraint: null, steps: [] }
-  const stepId = c.stepIds.map((id) => [id, a.executions.filter((x) => x.activityId === id).length]).sort((p, q) => q[1] - p[1])[0][0]
+  const stepId = constraintStep(a, c)
   const st = a.steps.find((s) => s.id === stepId)
   const run = (changes, share) => {
     const r = whatIf(a, res, changes, { basis, share, agentFor })
@@ -98,8 +122,8 @@ export function focusingSteps(a, { basis = 'median', labels = {}, agentFor } = {
   if (st.kind === 'human') {
     const r = run([{ type: 'predraft', step: stepId, saving: 0.5 }])
     exploit.push({ title: L('에이전트가 먼저 검토 초안을 만들고 담당자는 확인만', 'An agent drafts the review first; the reviewer only checks'),
-      text: L(`${c.name}님이 건당 ${dur(c.workPerItem)} 쓰는 확인 작업 중 절반을 에이전트 사전 초안(점검표·계산 확인)으로 넘기면 ${c.muPerDay ? `처리 능력이 하루 ${c.muPerDay.toFixed(1)}건 → ${(c.muPerDay * 2).toFixed(1)}건이 돼요` : '확인에 드는 시간이 절반으로 줄어요'}.`,
-        `Handing half of the checking that takes ${c.name} ${dur(c.workPerItem)} per item to an agent pre-draft (checklist, calculation check) ${c.muPerDay ? `raises capacity from ${c.muPerDay.toFixed(1)} to ${(c.muPerDay * 2).toFixed(1)} a day` : 'halves the time the check takes'}.`), ...r })
+      text: L(`${c.name}님이 ${st.name}에 쓰는 작업 중 절반을 에이전트 사전 초안(점검표·계산 확인)으로 넘기면 ${predraftCapacity(c.muPerDay, r.after.mu)}.`,
+        `Handing half of ${c.name}'s work on ${st.name} to an agent pre-draft (checklist, calculation check) ${predraftCapacity(c.muPerDay, r.after.mu)}.`), ...r })
   }
   const loop = a.g.edges.find((e) => a.g.back.has(e.id) && (e.target === stepId || upstreamActivities(a.g, e.source, { withLoops: false }).includes(stepId)))
   const loopP = loop ? Object.values(a.branches).flatMap((b) => b.edges).find((e) => e.id === loop.id)?.p || 0 : 0
@@ -121,8 +145,8 @@ export function focusingSteps(a, { basis = 'median', labels = {}, agentFor } = {
     stage: 'subordinate', title: L('3. 종속 — 나머지를 제약의 속도에 맞추기', '3. Subordinate — pace everything else to the constraint'),
     actions: [{
       title: L(`${st.name} 앞 대기 ${limit}건 상한(WIP 제한)`, `At most ${limit} waiting in front of ${st.name} (WIP limit)`),
-      text: L(`${st.name} 앞에 ${limit}건(처리 능력 약 1.5일 치)이 쌓여 있으면 새 요청의 ${ups.join(', ')}은(는) 급한 건부터 순서를 정해 시작해요(로프). 앞에서 서둘러도 ${st.name} 앞에서 기다릴 뿐이라 리드타임은 줄지 않고, 기다리는 사이 요청이 바뀌어 다시 만드는 일만 늘어요. 지금은 평균 ${c.wip.toFixed(1)}건, 최근 2주 ${c.wipRecent.toFixed(1)}건이 기다려요.`,
-        `When ${limit} items (about 1.5 days of capacity) are already waiting in front of ${st.name}, new requests start ${ups.join(', ')} in order of urgency (the rope). Hurrying the earlier steps only makes work wait in front of ${st.name}: the lead time does not drop, and requests change while they wait, so more gets redone. Right now ${c.wip.toFixed(1)} wait on average, ${c.wipRecent.toFixed(1)} over the last 2 weeks.`),
+      text: `${ropeText(st, limit, ups)} ` + L(`앞에서 서둘러도 ${st.name} 앞에서 기다릴 뿐이라 리드타임은 줄지 않고, 기다리는 사이 요청이 바뀌어 다시 만드는 일만 늘어요. 지금은 평균 ${c.wip.toFixed(1)}건, 최근 2주 ${c.wipRecent.toFixed(1)}건이 기다려요.`,
+        `Hurrying the earlier steps only makes work wait in front of ${st.name}: the lead time does not drop, and requests change while they wait, so more gets redone. Right now ${c.wip.toFixed(1)} wait on average, ${c.wipRecent.toFixed(1)} over the last 2 weeks.`),
       changes: [], wipLimit: limit,
     }],
   })
@@ -156,4 +180,4 @@ export function focusingSteps(a, { basis = 'median', labels = {}, agentFor } = {
   return { resources: res, constraint: c, step: stepId, steps: out }
 }
 
-const pick = (e, key) => ({ leadSec: e.leadSec, workSec: e.workSec, flowEfficiency: e.flowEfficiency, path: e.path, rho: e.util.find((u) => u.key === key)?.rho ?? null })
+const pick = (e, key) => ({ leadSec: e.leadSec, workSec: e.workSec, flowEfficiency: e.flowEfficiency, path: e.path, rho: e.util.find((u) => u.key === key)?.rho ?? null, mu: e.util.find((u) => u.key === key)?.mu ?? null })
