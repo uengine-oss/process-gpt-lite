@@ -1,6 +1,7 @@
 // 민감 판단과 참고 요청의 결정을 회사 정책(lib/policy, 설정 › 정책)에 맡긴다(spec pgpt-pro_context-visibility · pgpt-pro_context-access-request).
-//   민감한 글인지 읽기(spec pgpt-pro_guardrail-reading): 주민번호·계좌·전화 형식이 보이면 그것으로 사람에게 보내고, 아니면 모델이 글을 읽어
-//   확률을 낸다(logprob). 낱말 목록(정책 context-sensitive-topic 의 topics)은 주제 이름이고, 모델이 답하지 못할 때만 판별을 대신한다.
+//   민감한 글인지 읽기(spec pgpt-pro_guardrail-reading): 주민번호 형식이 보이면 모델 없이 사람에게 보내고, 아니면 모델이 글을 읽어 확률을 낸다
+//   (logprob). 계좌·전화 형식은 양식 예시·주문번호·서명에도 걸려 앞에 두지 않는다. 낱말 목록(정책 context-sensitive-topic 의 topics)은 주제
+//   이름이고, 모델이 답하지 못할 때만 계좌·전화 형식과 함께 판별을 대신한다. 모델이 잠시 끊긴 동안의 참고 요청은 낱말에 안 걸려도 주인에게 묻는다.
 //   읽은 값은 정책의 입력일 뿐이다 — 묻기·허용은 정책 엔진이 정한다. 회사가 그 정책을 끄면 읽지도, 제안하지도, 주제로 묻지도 않는다.
 //   참고 요청: 정책 엔진(PDP)이 결정하고 결정 원장(pro_policy_decisions)에 남긴다 — 민감 표시·민감할 수 있는 주제면 주인에게 묻기,
 //   그 밖에는 주인의 자동 허용 규칙. 허락·거절·만료·회수는 같은 원장 행을 고쳐 쓴다(pro_access_requests.policy_decision).
@@ -8,7 +9,7 @@
 import crypto from 'node:crypto'
 import { q } from '../supa.js'
 import { config } from '../../config.js'
-import { oddsOf } from '../decide.js'
+import { oddsOf, readingStatus } from '../decide.js'
 import { findPii, maskPii } from '../policy/pii.js'
 import { policiesOf, decide } from '../policy/pdp.js'
 import { SENSITIVE_TOPICS } from '../policy/catalog.js'
@@ -36,13 +37,15 @@ export function topicHit(rules, ...texts) {
 // 모델이 답하지 못한 맥락을 낱말로 대신 볼 때도, 판별한 뒤 주제 이름을 붙일 때도 쓰는 글
 export const contextText = (item) => [item.title, item.purpose, item.summary].filter(Boolean).join('\n')
 const FORMAT_TOPICS = { resident_id: '주민등록번호', bank_account: '계좌번호', mobile: '전화번호' }
-export function formatHit(text) {
-  const { kinds } = findPii(text)
-  const k = Object.keys(FORMAT_TOPICS).find((x) => kinds.includes(x))
+const LEADING_FORMATS = ['resident_id']   // 모델보다 먼저 보는 형식(나머지는 모델이 답하지 못할 때만)
+export function formatHit(text, kinds = Object.keys(FORMAT_TOPICS)) {
+  const found = findPii(text).kinds
+  const k = kinds.find((x) => found.includes(x))
   return k ? FORMAT_TOPICS[k] : null
 }
-export const READING = { bar: 0.5, maxChars: 1500, scanMax: 12, version: 2 }
+export const READING = { bar: 0.5, maxChars: 1500, scanMax: 12, version: 3 }
 export const OTHER_TOPIC = '민감한 사항'
+export const UNREAD_TOPIC = '모델이 읽지 못함'
 export const SENSITIVE_QUESTION = '이 업무 맥락을 다른 팀원에게 보여 주기 전에 주인 확인이 필요한가?'
 export const NAME_QUESTION = '이 업무 맥락의 민감한 내용은 어떤 주제에 가장 가까운가?'
 export const sensitiveOptions = (rules) => [
@@ -51,13 +54,20 @@ export const sensitiveOptions = (rules) => [
 ]
 export const readingState = (item) => `업무 맥락:\n${maskPii(contextText(item)).slice(0, READING.maxChars)}`
 
+// 모델이 답하지 못할 때 대신 보는 값: 계좌·전화 형식과 주제 낱말
+const wordReading = (item, rules) => ({ topic: formatHit(contextText(item)) || topicHit(rules, item.title, item.purpose, item.summary), source: 'regex', p: null, model: null })
+// 모델이 잠시 끊긴 동안(down)의 참고 요청: 낱말에 안 걸려도 읽지 못한 글이니 자동 허용하지 않는다. 확률을 주지 않는 모델(no_odds)은 장애가
+// 아니라 낱말로 운영하는 설치이므로 그대로 둔다. 민감 제안에는 쓰지 않는다(장애 때 맥락마다 카드가 가지 않게).
+export const closedIfDown = (reading, state) => (reading?.source === 'regex' && !reading.topic && state === 'down'
+  ? { ...reading, topic: UNREAD_TOPIC, source: 'unread' } : reading)
+
 // 맥락 하나를 읽는다: {topic, source: format|logprob|regex, p, model}. ask 는 시험에서 바꿔 끼운다.
 export async function readContext(item, { rules, ask = oddsOf } = {}) {
-  const fmt = formatHit(contextText(item))
+  const fmt = formatHit(contextText(item), LEADING_FORMATS)
   if (fmt) return { topic: fmt, source: 'format', p: null, model: null }
   const state = readingState(item)
   const d = await ask(state, SENSITIVE_QUESTION, sensitiveOptions(rules))
-  if (!d) return { topic: topicHit(rules, item.title, item.purpose, item.summary), source: 'regex', p: null, model: null }
+  if (!d) return wordReading(item, rules)
   const p = Number(d.probabilities.sensitive.toFixed(4))
   if (p < READING.bar) return { topic: null, source: 'logprob', p, model: d.model }
   const options = [...rules.slice(0, 24).map(([k], i) => ({ key: `t${i}`, label: k, name: k })), { key: 'other', label: OTHER_TOPIC, name: OTHER_TOPIC }]
@@ -137,7 +147,7 @@ export async function hitsOf(rows, rules) {
 export async function judgeRequest({ requester, item, rel, depth, ownerRule, ownerName }) {
   const rules = await topicsOf().catch(() => compileTopics())
   const reading = rules && item.sensitive !== 'confirmed' && !item.dismissed_at
-    ? (await readingsOf([item], rules).catch(() => new Map())).get(item.id) || { topic: topicHit(rules, item.title, item.purpose, item.summary), source: 'regex', p: null, model: null }
+    ? closedIfDown((await readingsOf([item], rules).catch(() => new Map())).get(item.id) || wordReading(item, rules), readingStatus().state)
     : null
   const facts = factsOf(item, { rel, depth, ownerRule: ownerRule.decision, reading })
   try {

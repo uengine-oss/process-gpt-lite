@@ -33,7 +33,7 @@ if (set === 'context') {
     report.rows.push({ id: c.id, bucket: c.bucket, lang: c.lang, label: c.label, short: !c.purpose && !c.summary, p: raw.probabilities.sensitive, format: !!formatHit(contextText(c)), word: !!topicHit(rules, c.title, c.purpose, c.summary), hit: !!r.topic, source: r.source, text: contextText(c).slice(0, 80) })
   }
   const all = report.rows, scored = all.filter((r) => r.bucket !== 'ambiguous')
-  const cfg = { '구현(형식 → 모델)': (r) => r.hit, '낱말만(전)': (r) => r.word || r.format, '낱말 먼저 → 모델': (r) => r.word || r.format || r.p >= READING.bar, '모델만': (r) => r.p >= READING.bar }
+  const cfg = { '구현(주민번호 → 모델)': (r) => r.hit, '낱말만(전)': (r) => r.word || r.format, '낱말 먼저 → 모델': (r) => r.word || r.format || r.p >= READING.bar, '형식 셋 먼저 → 모델': (r) => r.format || r.p >= READING.bar, '모델만': (r) => r.p >= READING.bar }
   console.log(`## 맥락 ${split} ${scored.length}건(모호 ${all.length - scored.length}건 제외, 민감 ${scored.filter((r) => r.label).length} · 일반 ${scored.filter((r) => !r.label).length})`)
   for (const [k, f] of Object.entries(cfg)) { report.scores[k] = score(scored, f); line(k, report.scores[k]) }
   console.log('## 묶음별(구현)')

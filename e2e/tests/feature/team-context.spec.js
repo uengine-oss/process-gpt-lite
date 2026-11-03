@@ -193,7 +193,7 @@ test('F-TC-09 읽은 값이 보인다: 카드에 모델 판단과 확률, 원장
     await route.fulfill({ response: res, json: { ...(await res.json()), reading: { state: 'down', model: 'm', at: null, reason: 'x' } } })
   })
   await admin.goto('/settings/policies')
-  await expect(admin.locator('[data-policy="context-sensitive-topic"]').getByTestId('reading-off')).toContainText('지금 모델이 답하지 않아 낱말로 판단하고 있어요', { timeout: 20_000 })
+  await expect(admin.locator('[data-policy="context-sensitive-topic"]').getByTestId('reading-off')).toContainText('지금 모델이 답하지 않아 참고 요청을 모두 주인에게 묻고 있어요', { timeout: 20_000 })
   await admin.locator('[data-test="ledger-tab"]').click()
   const row = admin.locator(`[data-decision="${did}"]`)
   await row.locator('.li.dec').click({ timeout: 20_000 })
@@ -201,6 +201,29 @@ test('F-TC-09 읽은 값이 보인다: 카드에 모델 판단과 확률, 원장
   await expect(row).toContainText('모델이 글을 읽음')
   await expect(row).toContainText('민감 확률')
   await expect(row).toContainText('97%')
+  expect(page.errors).toEqual([])
+})
+
+test('F-TC-10 모델이 끊겨 읽지 못한 글: 카드가 직접 확인해 달라고 말한다', async ({ pageAs, as, db, cleanup }) => {
+  const page = await pageAs('tc-unread-owner')
+  const req = await as('tc-unread-asker')
+  await db.clearMain(page.user.id)
+  const conv = `tc-unread-${Date.now()}`
+  await db.addConversation(page.user.id, conv, '한 대리 재택 요청')
+  const [{ id: did }] = await db.q(`insert into pro_policy_decisions (tenant_id, user_id, action_kind, subject, facts, decision, matched, status, approver_role) values ($1,$2,'context.access','회귀 민감할 수 있는 맥락(제목 가림) 원문 참고',$3,'require_approval',$4,'pending','맥락 주인') returning id`,
+    [db.tenant, req.id, { sensitive: false, topic: '모델이 읽지 못함', topic_source: 'unread', topic_p: null, topic_model: null, relation: 'team', depth: 'content', owner_rule: 'allow' },
+      JSON.stringify([{ id: 'context-sensitive-topic', decision: 'require_approval', title: ['민감할 수 있는 주제는 자동 허용하지 않음', 'x'], approver: '맥락 주인' }])])
+  const [r] = await db.q(`insert into pro_access_requests (tenant_id, requester, owner, conversation_id, target_title, depth, doing, policy_decision) values ($1,$2,$3,$4,'한 대리 재택 요청','content','회귀',$5) returning id`,
+    [db.tenant, req.id, page.user.id, conv, did])
+  await db.q(`insert into notifications (id, user_id, title, type, description, is_checked, time_stamp, url, tenant_id) values (gen_random_uuid(), $1, '참고 요청 · 회귀 · 「한 대리 재택 요청」 원문', 'context_access', '', false, now(), $2, $3)`,
+    [page.user.id, `/pro/context-access/${r.id}`, db.tenant])
+  cleanup(() => db.q(`delete from notifications where tenant_id = $1 and user_id = $2 and type like 'context_%'`, [db.tenant, page.user.id]))
+  cleanup(() => db.q('delete from pro_access_requests where id = $1', [r.id]))
+  cleanup(() => db.q('delete from pro_policy_decisions where id = $1', [did]))
+  await page.goto('/chat')
+  const card = page.locator('.nc.context_access')
+  await expect(card.getByTestId('access-policy')).toContainText('모델이 읽지 못함', { timeout: 20_000 })
+  await expect(card.getByTestId('access-how')).toContainText('모델이 끊겨 직접 확인해 주세요')
   expect(page.errors).toEqual([])
 })
 

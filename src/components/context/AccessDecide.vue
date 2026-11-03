@@ -26,7 +26,7 @@ async function decide(decision) {
   <div class="ad">
     <!-- 회사 정책이 자동 허용 대신 묻게 했으면 그 이유(정책·주제) — 결정은 결정 원장에도 남는다 -->
     <p v-if="pv?.policy?.decision === 'require_approval'" class="pol" data-testid="access-policy">
-      <b>회사 정책</b> 「{{ pv.policy.matched[0]?.title }}」<template v-if="pv.policy.topic"> · {{ pv.policy.topic }}<small v-if="pv.policy.source" class="how" data-testid="access-how">({{ pv.policy.source === 'logprob' ? `모델이 글을 읽고 판단, ${Math.round(pv.policy.p * 100)}%` : pv.policy.source === 'format' ? '글에서 형식 일치' : '낱말 일치' }})</small></template> — 자동으로 허락하지 않고 내게 물어요
+      <b>회사 정책</b> 「{{ pv.policy.matched[0]?.title }}」<template v-if="pv.policy.topic"> · {{ pv.policy.topic }}<small v-if="pv.policy.source" class="how" data-testid="access-how">({{ pv.policy.source === 'logprob' ? `모델이 글을 읽고 판단, ${Math.round(pv.policy.p * 100)}%` : pv.policy.source === 'format' ? '글에서 형식 일치' : pv.policy.source === 'unread' ? '모델이 끊겨 직접 확인해 주세요' : '낱말 일치' }})</small></template> — 자동으로 허락하지 않고 내게 물어요
     </p>
     <p v-if="pv" class="pv">허락하면 나가는 것 — 턴 {{ pv.turns.length }}개 · 결정 {{ pv.decisions }}개 · 열린 질문 {{ pv.questions }}개</p>
     <details v-if="pv && depth === 'content' && pv.turns.length" class="cut">

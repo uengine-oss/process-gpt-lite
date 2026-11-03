@@ -11,7 +11,7 @@
 //   data.export      rows, pii_rows, destination_external (bool)
 //   data.delete      count
 //   context.access   sensitive (bool, the owner marked it), topic (read from its title, purpose and summary: spec pgpt-pro_guardrail-reading; null
-//                    when the owner dismissed it), topic_source ('format'|'logprob'|'regex'), topic_p, topic_model, relation ('team'|'department'|'company'), depth ('summary'|'content'),
+//                    when the owner dismissed it), topic_source ('format'|'logprob'|'regex'|'unread'), topic_p, topic_model, relation ('team'|'department'|'company'), depth ('summary'|'content'),
 //                    owner_rule (what the owner's own rules say: 'allow'|'ask'|'deny')
 export const SOURCES = {
   pipa17: '개인정보보호법 제17조(개인정보의 제공)',
@@ -127,8 +127,8 @@ export const CATALOG = [
     when: { and: [{ '!': { var: 'sensitive' } }, { '!!': { var: 'topic' } }] }, decide: 'require_approval', approver: { role: '맥락 주인', owner: true },
     topics: SENSITIVE_TOPICS,
     title: ['민감할 수 있는 주제는 자동 허용하지 않음', 'Possibly sensitive topics are never allowed automatically'],
-    explain: ['모델이 제목·목적·요약을 읽어 인사·급여·건강·징계·개인정보처럼 민감한 내용이라고 판단하거나 주민번호·계좌·전화 형식이 보이면, 주인이 민감 표시를 하기 전이라도 자동으로 허락하지 않고 주인에게 묻습니다. 맥락 요약을 만들 때도 같은 판별로 민감 표시를 제안합니다. 모델이 답하지 못할 때는 이 주제 목록의 낱말로 판단합니다.',
-      'When the model reads a context\'s title, purpose and summary as sensitive (HR, pay, health, discipline, personal data), or a resident number, account or phone number shows, requests go to the owner even before the owner marks it; the same reading proposes a sensitive mark when the context summary is built. If the model cannot answer, these topics\' words decide.'],
+    explain: ['모델이 제목·목적·요약을 읽어 인사·급여·건강·징계·개인정보처럼 민감한 내용이라고 판단하거나 주민번호 형식이 보이면, 주인이 민감 표시를 하기 전이라도 자동으로 허락하지 않고 주인에게 묻습니다. 맥락 요약을 만들 때도 같은 판별로 민감 표시를 제안합니다. 모델이 답하지 못할 때는 이 주제 목록의 낱말과 계좌·전화 형식으로 판단하고, 모델이 잠시 끊긴 동안의 요청은 언제나 주인에게 묻습니다.',
+      'When the model reads a context\'s title, purpose and summary as sensitive (HR, pay, health, discipline, personal data), or a resident number shows, requests go to the owner even before the owner marks it; the same reading proposes a sensitive mark when the context summary is built. If the model cannot answer, these topics\' words and account or phone numbers decide, and while the model is briefly down every request goes to the owner.'],
     sources: [SOURCES.pipa23, SOURCES.inhouse] },
   { id: 'context-access-record', category: 'audit', scope: { action: ['context.access'] }, decide: 'allow_audit',
     title: ['팀원 맥락 참고는 기록', 'Using a teammate\'s context is recorded'],

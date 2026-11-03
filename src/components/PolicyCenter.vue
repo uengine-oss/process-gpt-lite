@@ -36,7 +36,7 @@ const FACT = {
 }
 const FACT_ORDER = Object.keys(FACT)
 const VALUE = { confidential: '기밀', general: '일반', public: '일반 공개', internal: '내부', beta: '베타', passed: '통과', failed: '실패',
-  format: '형식 일치', logprob: '모델이 글을 읽음', regex: '낱말 일치(모델이 답하지 못함)',
+  format: '형식 일치', logprob: '모델이 글을 읽음', regex: '낱말 일치(모델이 답하지 못함)', unread: '모델이 끊겨 읽지 못함',
   team: '같은 팀', department: '같은 부서', company: '같은 회사', outside: '조직도 밖', summary: '요약', content: '원문', allow: '자동 허용', ask: '묻기', deny: '거절' }
 function fmt(k, v) {
   if (typeof v === 'boolean') return v ? '예' : '아니오'
@@ -292,7 +292,7 @@ onUnmounted(() => clearInterval(timer))
               <small v-if="p.spec.sources?.length" class="src"><span>근거</span> {{ p.spec.sources.join(' · ') }}</small>
               <div v-if="p.spec.topics?.length" class="topics" data-testid="policy-topics">
                 <span class="tl">주제 {{ p.spec.topics.length }}개</span>
-                <small v-if="reading?.state === 'no_odds' || reading?.state === 'down'" class="reading-off" data-testid="reading-off">{{ reading.state === 'down' ? '지금 모델이 답하지 않아 낱말로 판단하고 있어요' : '지금 모델이 확률을 주지 않아 낱말로 판단하고 있어요' }}</small>
+                <small v-if="reading?.state === 'no_odds' || reading?.state === 'down'" class="reading-off" data-testid="reading-off">{{ reading.state === 'down' ? '지금 모델이 답하지 않아 참고 요청을 모두 주인에게 묻고 있어요' : '지금 모델이 확률을 주지 않아 낱말로 판단하고 있어요' }}</small>
                 <span v-for="t in p.spec.topics" :key="t.name" class="tp" :title="t.pattern" data-no-i18n>{{ t.name }}</span>
                 <button v-if="admin && topicEdit[p.id] === undefined" class="lnk" @click="topicEdit[p.id] = topicLines(p)">주제 고치기</button>
                 <template v-if="topicEdit[p.id] !== undefined">

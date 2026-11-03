@@ -1,10 +1,10 @@
-// 가드레일이 글을 읽는 순서(spec pgpt-pro_guardrail-reading): 형식 → 모델 → 모델이 답하지 못하면 낱말. 모델 자리는 바꿔 끼워 값만 본다.
+// 가드레일이 글을 읽는 순서(spec pgpt-pro_guardrail-reading): 주민번호 형식 → 모델 → 모델이 답하지 못하면 계좌·전화 형식과 낱말. 모델 자리는 바꿔 끼워 값만 본다.
 // 실제 모델은 test/guard-reading.e2e.mjs, 품질은 scripts/eval-guard.mjs.
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { config } from '../config.js'
 import { oddsFromTop, optionPrompt, oddsOf, readingStatus } from '../lib/decide.js'
-import { compileTopics, formatHit, readContext, readingsOf, factsOf, READING, OTHER_TOPIC, NAME_QUESTION } from '../lib/context/sensitive.js'
+import { compileTopics, formatHit, readContext, readingsOf, factsOf, closedIfDown, READING, OTHER_TOPIC, UNREAD_TOPIC, NAME_QUESTION } from '../lib/context/sensitive.js'
 import { factsOf as mailFacts, mailExcerpt, readConfidential, CONFIDENTIAL_READING } from '../lib/scenarios/mail.js'
 import { findPii } from '../lib/policy/pii.js'
 import { tenantStore } from '../lib/tenantStore.js'
@@ -36,11 +36,22 @@ test('형식: 주민번호·계좌·전화는 잡고, 메일 주소만으로는 
   assert.deepEqual(findPii('a@b.co 010-2345-6789').kinds, ['mobile', 'email'])
 })
 
-test('맥락 읽기 순서: 형식이 보이면 모델을 부르지 않는다', async () => {
-  const ask = counting(answer(0.99))
-  const r = await readContext({ title: '연락처 정리', summary: '담당자 010-2345-6789' }, { rules, ask })
-  assert.deepEqual(r, { topic: '전화번호', source: 'format', p: null, model: null })
+test('맥락 읽기 순서: 주민번호 형식이 보이면 모델을 부르지 않는다', async () => {
+  const ask = counting(answer(0.01))
+  const r = await readContext({ title: '입사 서류 확인', summary: '주민번호 900101-1234567 오기 확인' }, { rules, ask })
+  assert.deepEqual(r, { topic: '주민등록번호', source: 'format', p: null, model: null })
   assert.equal(ask.calls, 0)
+})
+
+test('맥락 읽기 순서: 계좌·전화 형식은 모델이 읽어 정한다(주문번호·서명에도 걸리므로)', async () => {
+  for (const text of ['운송장번호 110-123-456789 추적', '견적서 하단 담당 010-2345-6789']) {
+    const ask = counting(answer(0.02))
+    assert.deepEqual(await readContext({ title: text }, { rules, ask }), { topic: null, source: 'logprob', p: 0.02, model: 'm' })
+    assert.equal(ask.calls, 1)
+  }
+  let seen = ''
+  await readContext({ title: '급여 계좌 110-123-456789 변경' }, { rules, ask: async (s) => { seen = s; return null } })
+  assert.ok(!seen.includes('110-123-456789'), '값은 가리고 보낸다')
 })
 
 test('맥락 읽기 순서: 낱말이 있어도 모델이 아니라고 하면 묻지 않고, 낱말이 없어도 모델이 민감하다고 하면 묻는다', async () => {
@@ -63,6 +74,18 @@ test('모델이 답하지 못하면 낱말이 대신하고, 대신했다고 적�
   const none = async () => null
   assert.deepEqual(await readContext({ title: '연봉 협상 준비' }, { rules, ask: none }), { topic: '연봉', source: 'regex', p: null, model: null })
   assert.deepEqual(await readContext({ title: '경쟁사 가격 벤치마크' }, { rules, ask: none }), { topic: null, source: 'regex', p: null, model: null })
+  assert.deepEqual(await readContext({ title: '담당자 010-2345-6789' }, { rules, ask: none }), { topic: '전화번호', source: 'regex', p: null, model: null })
+})
+
+test('모델이 잠시 끊긴 동안의 참고 요청: 낱말에 안 걸려도 읽지 못한 글로 묻고, 확률을 주지 않는 모델은 낱말 그대로', () => {
+  const miss = { topic: null, source: 'regex', p: null, model: null }
+  assert.deepEqual(closedIfDown(miss, 'down'), { topic: UNREAD_TOPIC, source: 'unread', p: null, model: null })
+  assert.deepEqual(closedIfDown(miss, 'no_odds'), miss)
+  const word = { topic: '연봉', source: 'regex', p: null, model: null }
+  assert.deepEqual(closedIfDown(word, 'down'), word)
+  const read = { topic: null, source: 'logprob', p: 0.02, model: 'm' }
+  assert.deepEqual(closedIfDown(read, 'down'), read)
+  assert.equal(closedIfDown(null, 'down'), null)
 })
 
 test('모델로 보내는 글에서는 메일 주소를 가린다', async () => {

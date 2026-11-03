@@ -1,10 +1,11 @@
 // 가드레일이 글을 읽는 순서 HTTP E2E (spec pgpt-pro_guardrail-reading): 실제 BFF + 실제 DB + 실제 모델.
-//   돌려 말한 민감한 글 → 모델이 읽고 주인에게 묻기 / 낱말만 같은 일반 글 → 자동 허용 / 형식 일치 → 모델 없이 묻기 / 글이 그대로면 다시 안 부름 /
-//   민감 제안 / 정책을 끄면 읽지 않음 / 모델이 답하지 못하면 낱말로 대신하고 그렇게 적으며, 모델이 돌아오면 다시 읽음.
+//   돌려 말한 민감한 글 → 모델이 읽고 주인에게 묻기 / 낱말만 같은 일반 글 → 자동 허용 / 주민번호 형식 → 모델 없이 묻기 / 전화 형식 → 모델이 읽음 / 글이 그대로면 다시 안 부름 /
+//   민감 제안 / 정책을 끄면 읽지 않음 / 모델이 끊기면 낱말로 대신하고 낱말에 안 걸려도 묻기 / 모델이 돌아오면 다시 읽음 / 확률을 주지 않는 모델은 낱말로 운영.
 //   시드 회사(scripts/seed-team-context.mjs, 테넌트 team-demo). 끝나면 만든 것을 지우고 정책 스위치를 되돌린다.
 // 실행(server/): node test/guard-reading.e2e.mjs — API_URL(기본 http://127.0.0.1:8798) · TENANT_HOST(기본 team.localhost:5198)
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import pg from 'pg'
 
 const API = process.env.API_URL || 'http://127.0.0.1:8798'
@@ -87,13 +88,20 @@ try {
   check(assert.match, d2.subject, /쿠버네티스/)
 
   // ── 3. 형식 일치: 모델을 부르지 않고 사람에게 ──────────────────────────────
-  const conv3 = await newContext('거래처 담당자 정리', '담당자 휴대폰 010-2345-6789')
+  const conv3 = await newContext('입사 서류 확인', '주민번호 900101-1234567 오기 여부')
   const a3 = await ask(U.lee, conv3)
   const d3 = await ledger(a3.policy.decision_id)
   const r3 = await readingRow(conv3)
-  log(`형식 일치 → ${a3.status} · 주제 ${d3.facts.topic} · ${d3.facts.topic_source} · 모델 ${d3.facts.topic_model}`)
-  check(assert.deepEqual, [a3.status, d3.facts.topic, d3.facts.topic_source, d3.facts.topic_p, d3.facts.topic_model, r3.source], ['pending', '전화번호', 'format', null, null, 'format'])
-  check(assert.ok, !JSON.stringify(d3.facts).includes('010-2345-6789') && !d3.subject.includes('010-2345-6789'), '값 자체는 원장에 남지 않는다')
+  log(`주민번호 형식 → ${a3.status} · 주제 ${d3.facts.topic} · ${d3.facts.topic_source} · 모델 ${d3.facts.topic_model}`)
+  check(assert.deepEqual, [a3.status, d3.facts.topic, d3.facts.topic_source, d3.facts.topic_p, d3.facts.topic_model, r3.source], ['pending', '주민등록번호', 'format', null, null, 'format'])
+  check(assert.ok, !JSON.stringify(d3.facts).includes('900101-1234567') && !d3.subject.includes('900101-1234567'), '값 자체는 원장에 남지 않는다')
+  // 전화 형식은 모델이 읽어 정한다: 거래처 담당자 연락처는 일반 글
+  const conv3b = await newContext('거래처 담당자 정리', '담당자 휴대폰 010-2345-6789')
+  const a3b = await ask(U.lee, conv3b)
+  const d3b = await ledger(a3b.policy.decision_id)
+  log(`전화 형식 → ${a3b.status} · ${d3b.facts.topic_source} ${d3b.facts.topic_p}`)
+  check(assert.equal, d3b.facts.topic_source, 'logprob')
+  check(assert.ok, !JSON.stringify(d3b.facts).includes('010-2345-6789') && !d3b.subject.includes('010-2345-6789'), '값 자체는 원장에 남지 않는다')
 
   // ── 4. 글이 그대로면 모델을 다시 부르지 않고, 글이 바뀌면 다시 읽는다 ────────────
   const before = await readingRow(conv2)
@@ -124,10 +132,14 @@ try {
   check(assert.deepEqual, [a6.status, d6.facts.topic, d6.facts.topic_source, !!(await readingRow(conv6))], ['granted', null, null, false])
   await call(U.yoon, 'PUT', '/api/policies/context-sensitive-topic', { enabled: true })
 
-  // ── 7. 모델이 답하지 못하면: 낱말이 대신하고 그렇게 적는다(게이트웨이가 닿지 않는 서버를 하나 더 띄운다) ──
-  down = spawn(process.execPath, ['index.js'], { env: { ...process.env, PRO_PORT: String(DOWN_PORT), PRO_BACKGROUND: '0', PRO_LLM_BASE_URL: 'http://127.0.0.1:9', PRO_TENANT_HOSTS: `${process.env.PRO_TENANT_HOSTS || ''},team.localhost=team-demo`.replace(/^,/, ''), PRO_PUBLIC_URL: `http://${HOST}` }, stdio: 'ignore' })
+  // ── 7. 모델이 끊기면: 낱말이 대신하고 그렇게 적으며, 낱말에 안 걸려도 주인에게 묻는다(게이트웨이가 닿지 않는 서버를 하나 더 띄운다) ──
+  const startServer = async (llmUrl) => {
+    down = spawn(process.execPath, ['index.js'], { env: { ...process.env, PRO_PORT: String(DOWN_PORT), PRO_BACKGROUND: '0', PRO_LLM_BASE_URL: llmUrl, PRO_TENANT_HOSTS: `${process.env.PRO_TENANT_HOSTS || ''},team.localhost=team-demo`.replace(/^,/, ''), PRO_PUBLIC_URL: `http://${HOST}` }, stdio: 'ignore' })
+    for (let i = 0; i < 60; i++) { if (await fetch(`http://127.0.0.1:${DOWN_PORT}/api/health`).then((r) => r.status < 500, () => false)) break; await new Promise((r) => setTimeout(r, 500)) }
+  }
+  const stopServer = async () => { const d = down; down = null; d.kill(); await new Promise((r) => d.on('exit', r)) }
+  await startServer('http://127.0.0.1:9')
   const DOWN = `http://127.0.0.1:${DOWN_PORT}`
-  for (let i = 0; i < 60; i++) { if (await fetch(`${DOWN}/api/health`).then((r) => r.status < 500, () => false)) break; await new Promise((r) => setTimeout(r, 500)) }
   const conv7 = await newContext('3분기 성과급 기준 정리')
   const a7 = await ask(U.lee, conv7, DOWN)
   const d7 = await ledger(a7.policy.decision_id)
@@ -139,15 +151,35 @@ try {
   const conv7b = await newContext('한 대리 이혼 소송으로 재택 요청')
   const a7b = await ask(U.lee, conv7b, DOWN)
   const d7b = await ledger(a7b.policy.decision_id)
-  log(`모델 없음, 돌려 말한 글 → ${a7b.status} · ${d7b.facts.topic_source} (낱말 규칙의 한계: 원장에 regex 로 남아 알아볼 수 있다)`)
-  check(assert.deepEqual, [a7b.status, d7b.facts.topic_source], ['granted', 'regex'])
-  down.kill(); down = null
+  log(`모델 끊김, 돌려 말한 글 → ${a7b.status}(${a7b.via}) · 주제 ${d7b.facts.topic} · ${d7b.facts.topic_source} · 저장 ${(await readingRow(conv7b)) ? '함' : '안 함'}`)
+  check(assert.deepEqual, [a7b.status, a7b.via, d7b.facts.topic, d7b.facts.topic_source, !!(await readingRow(conv7b))], ['pending', 'sensitive', '모델이 읽지 못함', 'unread', false])
+  check(assert.match, d7b.subject, /제목 가림/)
+  await stopServer()
 
   // ── 8. 모델이 돌아오면 다시 읽는다(낱말로 대신한 값을 남기지 않았으므로) ─────────
   const a8 = await ask(U.jung, conv7b)
   const d8 = await ledger(a8.policy.decision_id)
   log(`모델 복귀, 같은 글 → ${a8.status} · 주제 ${d8.facts.topic} · ${d8.facts.topic_source} ${d8.facts.topic_p}`)
   check(assert.deepEqual, [a8.status, d8.facts.topic_source], ['pending', 'logprob'])
+
+  // ── 9. 확률을 주지 않는 모델: 장애가 아니라 낱말로 운영하는 설치 — 낱말에 안 걸리면 주인 규칙대로 ──
+  const fake = createServer((req, res) => { req.resume(); req.on('end', () => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'A' }, finish_reason: 'stop' }] })) }) })
+  await new Promise((r) => fake.listen(0, '127.0.0.1', r))
+  try {
+    await startServer(`http://127.0.0.1:${fake.address().port}/v1`)
+    const conv9 = await newContext('다음 분기 전시회 부스 배치')
+    const a9 = await ask(U.lee, conv9, DOWN)
+    const d9 = await ledger(a9.policy.decision_id)
+    const pol9 = await call(U.yoon, 'GET', '/api/policies', undefined, DOWN)
+    log(`확률 없는 모델 → ${a9.status}(${a9.via}) · ${d9.facts.topic_source} · 정책 화면 상태 ${pol9.reading.state}`)
+    check(assert.deepEqual, [a9.status, d9.facts.topic, d9.facts.topic_source, pol9.reading.state], ['granted', null, 'regex', 'no_odds'])
+    const conv9b = await newContext('3분기 성과급 배분표')
+    const a9b = await ask(U.lee, conv9b, DOWN)
+    const d9b = await ledger(a9b.policy.decision_id)
+    log(`확률 없는 모델, 낱말 있음 → ${a9b.status} · 주제 ${d9b.facts.topic} · ${d9b.facts.topic_source}`)
+    check(assert.deepEqual, [a9b.status, d9b.facts.topic, d9b.facts.topic_source], ['pending', '급여', 'regex'])
+    await stopServer()
+  } finally { fake.close() }
 
   console.log(`\n통과 ${passed}개 확인 · ${step}단계`)
 } finally {

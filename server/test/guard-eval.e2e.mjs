@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const FLOOR = {
-  context: { name: '구현(형식 → 모델)', recall: 95, fp: 25, worse: '낱말 먼저 → 모델' },
+  context: { name: '구현(주민번호 → 모델)', recall: 95, fp: 25, worse: '낱말 먼저 → 모델' },
   mail: { name: '구현(모델)', recall: 90, fp: 20, worse: '낱말 먼저 → 모델' },
 }
 const num = (s) => Number(String(s).replace('%', ''))
