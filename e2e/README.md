@@ -346,16 +346,39 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
+### 16. 메시지 메뉴 — 길게 누르기·우클릭, 평가, 복사, 답장 (spec `pgpt-pro_message-actions`, 영상 `Z1PKtQvNc4Y`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| PC 우클릭: 포인터 자리에 메뉴, 답에만 👍 👎, Esc·바깥으로 닫힘 | F-MA-01 | feature | ✅ |
+| 화면 끝에서도 메뉴가 화면 안 | F-MA-02 | feature | ✅ |
+| 선택한 글자·링크의 우클릭은 브라우저 메뉴 | F-MA-03 | feature | ✅ |
+| 복사: 보이는 글(마크다운 기호 없이) | F-MA-04 | feature | ✅ |
+| 텍스트 선택 창, 전체 복사 | F-MA-05 | feature | ✅ |
+| 👍 👎: 저장·표시·새로고침 뒤 유지·거두기 | F-MA-06 | feature | ✅ |
+| 평가 거절(남의 답·사람 말·없는 값·로그인 없음) | `server/test/message-actions.e2e.mjs` 9 | HTTP | ✅ |
+| 휴대폰 길게 누르기: 말풍선 떠오름, 배경 흐림, 손 떼도 유지 | F-MA-07 | feature | ✅ |
+| 짧게 누르기·스크롤은 열리지 않음 | F-MA-08 | feature | ✅ |
+| 답장: 입력창 위 원문, 흐림, 포커스, 요청에 ID | F-MA-09 | feature | ✅ |
+| 답장 취소 세 가지, 다음 말에 인용 없음 | F-MA-10 | feature | ✅ |
+| 흐린 사본 표시, 눌러서 원문으로 | F-MA-11 | feature | ✅ |
+| 문서 카드, 펼치기 버튼은 그대로 | F-MA-12 | feature | ✅ |
+| 영어 모드 메뉴 이름 | F-MA-13 | feature | ✅ |
+| 인용으로만 알 수 있는 말을 에이전트가 안다, 그 대화로 이어짐, 남의 메시지 인용 안 됨 | A-MA-01, `message-actions.e2e.mjs` 3~6 | agent·HTTP | ✅ |
+| 어느 대화로 이어 가는지(사례 9건) | `server/test/message-actions.test.js` | 단위 | ✅ |
+| 실제 iOS·Android 기기의 길게 누르기(시험은 Chromium 터치 입력) | — | — | ✗ |
+| 키보드만으로 메뉴 열기(말풍선에 포커스가 가지 않음) | — | — | ✗ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (14개) | 89 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06) |
-| agent | `tests/agent/*.spec.js` (4개) | 14 (회의 A-14) |
-| 합계 | | 160 |
+| smoke | `tests/smoke/*.spec.js` (6개) | 74 |
+| feature | `tests/feature/*.spec.js` (21개) | 143 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 메시지 메뉴 F-MA-01…13) |
+| agent | `tests/agent/*.spec.js` (8개) | 25 (회의 A-14, 답장 A-MA-01) |
+| 합계 | | 242 |
 
-openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
+(`playwright test --list` 기준, 2026-11-04) 메시지 메뉴 이전 집계로 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
