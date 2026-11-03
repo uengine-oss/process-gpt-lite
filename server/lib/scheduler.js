@@ -94,8 +94,9 @@ export function cronAfter(minutes, from = new Date()) {
 
 export async function createSchedule({ userId, name, cron, prompt, threadId, notify = 'on_change', once = false }) {
   const [s] = await q(
-    `insert into pro_schedules(user_id,name,cron,prompt,thread_id,notify,state) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
-    [userId, name, cron, prompt, threadId, notify, once ? { once: true } : {}])
+    `insert into pro_schedules(user_id,name,cron,prompt,thread_id,notify,state,tenant_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+    // the tenant the request is in: the minute ticker has no request to tell it (sql/022)
+    [userId, name, cron, prompt, threadId, notify, once ? { once: true } : {}, config.tenantId])
   if (config.cronMode === 'server') return s
   const jobBase = `pro_${s.id.slice(0, 8)}`
   const url = `${config.cronCallbackBase}/api/cron/fire`

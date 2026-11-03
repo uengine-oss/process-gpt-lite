@@ -20,6 +20,7 @@ import { privateSkillFor, ensureSkillFolder } from './folders/skills.js'
 import { PGPT_ROOT } from './paths.js'
 import { fetchRoomDir, rmRoomCopy } from './roomStore.js'
 import { L, isEn, locale, asUser, langInstruction } from './lang.js'
+import { withTenant } from './tenant.js'
 
 const PGPT = PGPT_ROOT
 
@@ -244,7 +245,15 @@ export async function runMission(scheduleId, trigger = 'cron') {
   if (!s || (s.paused && trigger !== 'manual')) return null
   // pauses before the run: a retry after a failed start must not make it fire twice
   if (s.state?.once && trigger !== 'manual') await q('update pro_schedules set paused=true where id=$1', [s.id])
-  return asUser(s.user_id, () => runMissionAs(s, trigger))
+  return inScheduleTenant(s, () => runMissionAs(s, trigger))
+}
+
+// a run happens in the tenant its schedule was made in (sql/022): the agent checks X-Tenant-Id against
+// the person, and the run's chat lines and notification belong there. Older schedules without one: the
+// person's own tenant (lib/tenant.js asTenantOf)
+export function inScheduleTenant(s, fn) {
+  const run = () => asUser(s.user_id, fn)
+  return s.tenant_id ? withTenant(s.tenant_id, run) : run()
 }
 async function runMissionAs(s, trigger) {
   const [run] = await q(`insert into pro_mission_runs(schedule_id, trigger) values ($1,$2) returning *`, [s.id, trigger])

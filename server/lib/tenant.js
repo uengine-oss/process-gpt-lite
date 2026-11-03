@@ -70,10 +70,34 @@ export async function tenantOf(userId) {
 }
 export function forgetTenant(userId) { cache.delete(String(userId)) }
 
-// (one tenant, or the gateway's: the work stays in the tenant it started in)
+// (one tenant: as it is. Behind the gateway: work that already names its tenant — a request, a schedule
+// (sql/022) — stays in it; background work for a person that does not (mail, folder steps) runs in the
+// person's tenant when they belong to just one. Before this it ran in the default tenant, so the agent
+// refused it — X-Tenant-Id localhost for an ohsy person — and its notifications went to localhost.)
 export async function asTenantOf(userId, fn) {
+  if (gateway()) {
+    if (currentTenant()) return fn()
+    const t = await soleTenantOf(userId)
+    return t ? withTenant(t, fn) : fn()
+  }
   if (!multiTenant()) return fn()
   return withTenant(await tenantOf(userId), fn)
+}
+
+// behind the gateway: the one tenant a person belongs to (public.users is keyed by id and tenant_id),
+// or null when they belong to none or several — the work cannot tell which, and says so
+const sole = new Map() // userId -> {t, at}
+export async function soleTenantOf(userId) {
+  const id = String(userId || '')
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null
+  const hit = sole.get(id)
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.t
+  const { q } = await import('./supa.js')
+  const rows = await q('select distinct tenant_id from users where id::text=$1', [id]).catch(() => [])
+  const t = rows.length === 1 ? rows[0].tenant_id : null
+  if (rows.length > 1) console.warn(`[tenant] ${id.slice(0, 8)} belongs to ${rows.length} tenants: background work without a tenant runs in ${DEFAULT_TENANT}`)
+  sole.set(id, { t, at: Date.now() })
+  return t
 }
 
 // Behind the gateway: every tenant with someone who has used Lite (the list is refreshed each minute)
