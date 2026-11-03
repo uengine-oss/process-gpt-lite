@@ -405,14 +405,34 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 실제 턴: 라우터는 원래 메시지로 맥락을 고르고, 에이전트가 [1]·[2] 로 인용, 허락 뒤 다시 답하면 원문 내용 반영, 말만 바꾼 같은 요청 → 카드·그 답 보기, 같은 팀이 한 일 → 요청하기 → 그 답 | 영상 ①(녹화 중 단언) | — | ◐ |
 | 실제 턴: 성과급 정리 → 요약 때 민감 제안 카드 → 같은 팀 원문 요청이 묻기 → 홈 카드 정책 줄 → 거절 → 민감 승인 → 원장 | 영상 ③(녹화 중 단언) | — | ◐ |
 
+### 18. 후행 습관 — 결과물 뒤에 늘 시키는 일을 배워 먼저 묻기 (spec `pgpt-pro_followup-habits`, 영상 `l2urEzo6zko`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 슬라이드 → 후행 작업 2회 → 세 번째에 묻고, 네를 누르면 그 대화에서 실행(실제 에이전트) | A-FU-01 | agent | ✅ |
+| 후행 작업 기록, 감사·내용 질문 제외, 다른 말로 같은 일 | `server/test/followups.e2e.mjs` 3·5·6 | HTTP | ✅ |
+| 결과물에 대한 말은 그 대화의 에이전트로(라우터 우회, 「이미 한 요청」 제외) | `followups.e2e.mjs` 4, A-FU-01 | HTTP·agent | ✅ |
+| 묻는 조건: 2회, 한 대화 한 번, 같은 종류, 후행 결과로는 안 물음 | `followups.e2e.mjs` 7·8·11, `followups-cases.json` | HTTP·단위 | ✅ |
+| 카드: 질문, 세 버튼, 근거 한 줄 | F-FU-01 | feature | ✅ |
+| 네·아니요·다시 묻지 않기, 연달아 3회 거절이면 끔(경계) | F-FU-02·03·04·05, `followups.test.js` | feature·단위 | ✅ |
+| 말로 수락·사양·다른 말 | `followups.e2e.mjs` 10·12·13, `eval` answer | HTTP | ✅ |
+| 직접 말한 습관(에이전트 없이), 예약·말투는 제외 | `followups.e2e.mjs` 18·19, `eval` explicit | HTTP | ✅ |
+| 빠른 답도 화면 아래까지(수정 전 실패 확인) | F-FU-10 | feature | ✅ |
+| 설정 › 습관: 끄기·켜기·지우기, 남의 것 404 | F-FU-05·06·07, `followups.e2e.mjs` 14·15·17 | feature·HTTP | ✅ |
+| 모델이 못 읽으면 배우지 않고 규칙으로 묻기 | `followups.e2e.mjs` 20 | HTTP | ✅ |
+| 판단 품질 하한(사례 260건) | `node scripts/eval-followups.mjs all test --check` | 측정 | ✅ |
+| 물어봐도 되는가: 묻지 않아도 될 때 묻는 경우가 남음(test 88%, dev 67%) | `eval` fits | 측정 | ◐ |
+| 영어 모드 | F-FU-09, `followups.test.js` | feature·단위 | ◐ (영어 모델 판단은 재지 않음) |
+| 수락 뒤 이어지는 둘째 후행 작업, 메일 수신 같은 다른 사건, 자동 실행, 프로세스 승격 | — | — | ✗ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (25개) | 150 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
-| agent | `tests/agent/*.spec.js` (6개) | 17 (회의 A-14) |
-| 합계 | | 241 (`npx playwright test --list` 로 센 수, 2026-11-03) |
+| feature | `tests/feature/*.spec.js` (26개) | 160 (후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
+| agent | `tests/agent/*.spec.js` (7개) | 18 (회의 A-14, 후행 습관 A-FU-01) |
+| 합계 | | 252 (`npx playwright test --list` 로 센 수, 2026-11-04) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 

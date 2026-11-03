@@ -10,10 +10,11 @@ import { chat, chatJson } from './llm.js'
 import { oddsOf } from './decide.js'
 import { addMessage, updateMessage } from './store.js'
 
-// Bars, set on test/followup-eval (dev half) before the test half was read. What is learned gets run again, so learning and
-// merging want to be sure. Asking is one question, and this model's "fits" sits near 0.5 even for a plain fit, so only a
-// clear no stays quiet.
-export const HABIT = { bar: 0.5, learnBar: 0.7, sameBar: 0.6, fitsBar: 0.4, minSeen: Number(process.env.PRO_FOLLOWUP_MIN_SEEN) || 2, muteAfter: 3, windowDays: 3, maxTextChars: 300, answerMaxChars: 80 }
+// Bars, set on test/followup-eval (dev half). What is learned gets run again, so learning and merging want to be sure.
+// Asking is one question about a habit this person showed, so the model only stops it for what would be odd to ask: a
+// private file, or one that has it already (the bar and wording come from real runs: "does it fit?" turned down a paper's
+// slides because the paper has nothing to do with the company, and that is exactly the habit).
+export const HABIT = { bar: 0.5, learnBar: 0.7, sameBar: 0.6, fitsBar: 0.7, minSeen: Number(process.env.PRO_FOLLOWUP_MIN_SEEN) || 2, muteAfter: 3, windowDays: 3, maxTextChars: 300, answerMaxChars: 80 }
 
 export const CLASSES = {
   slides: { ext: ['pptx', 'ppt', 'key', 'odp'], ko: '슬라이드', obj: '슬라이드를', en: 'slides', word: /슬라이드|피피티|ppt|발표\s*자료|deck|slide/i },
@@ -48,10 +49,10 @@ export const followupState = (prev, text) => L(
 export const SAME_QUESTION = () => L('이번 말과 같은 일을 시키는 것은 어느 것인가? 표현이 달라도 하는 일이 같으면 같은 일이고, 낱말이 비슷해도 하는 일이 다르면 다른 일이다.', 'Which one asks for the same work as this message? Different words for the same work count as the same; similar words for different work do not.')
 export const sameOptions = (actions) => [...actions.map((a, i) => ({ key: `h${i}`, label: cap(a, 200) })), { key: 'none', label: L('같은 일이 없다', 'None of these') }]
 export const sameState = (text) => L(`이번 말: ${cap(text)}`, `This message: ${cap(text)}`)
-export const FITS_QUESTION = () => L('이번 결과물에도 이 습관대로 하자고 물어보는 것이 어울리는가?', 'Does it make sense to offer this habit for this result?')
+export const FITS_QUESTION = () => L('이번 결과물에 이 습관대로 하자고 물어보면 이상한가?', 'Would it be odd to offer this habit for this result?')
 export const FITS_OPTIONS = () => [
-  { key: 'fits', label: L('어울린다. 이번 결과물에도 그 일이 자연스럽다', 'Yes, that work is natural for this result too') },
-  { key: 'not', label: L('어울리지 않는다. 이번 결과물의 쓰임이나 성격에 맞지 않는다', 'No, it does not suit what this result is for') },
+  { key: 'not', label: L('이상하다. 사적인 자료이거나, 이미 되어 있거나, 받는 사람이나 쓰임이 달라서 그 일이 분명히 맞지 않는다', 'Odd: it is a private file, already done, or the reader or use clearly rules that work out') },
+  { key: 'fits', label: L('이상하지 않다. 그 일이 맞지 않을 분명한 이유가 없다', 'Not odd: there is no clear reason that work would not apply') },
 ]
 export const fitsState = (cls, action, request, files) => L(
   `지금 끝난 일: ${cap(request)}\n결과물: ${(files || []).join(', ')}\n습관: ${CLASSES[cls]?.obj || cls} 만들면 「${cap(action, 200)}」를 시킨다`,
