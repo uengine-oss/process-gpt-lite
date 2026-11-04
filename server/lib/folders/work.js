@@ -24,6 +24,10 @@ const T = () => config.tenantId
 const EDIT = /고쳐|고치|수정|다듬|바꿔|바꾸|변경|추가|넣어|빼|삭제|작성|만들어|정리|업데이트|반영해|번역|채워|보완|손봐/
 // the same request in English ("fix the notice in the November seminar folder")
 const EDIT_EN = /\b(fix|edit|revise|update|change|add|insert|remove|delete|write|rewrite|correct|translate|fill( in)?|polish|improve|tidy|clean up|amend|draft)\b/i
+// What the agent changes here is a proposal (the variation), not the original: the folder's owner
+// reviews it and merges it. Saying "삭제했어요" made people think the file was already gone.
+export const CHANGE_TALK = "끝나면 무엇을 바꿨는지 해요체로 짧게 알려 주세요. 여기서 바꾼 것은 원본이 아니라 변경안에 담기고, 폴더 주인이 검토해 반영해야 원본에 들어가요. 그래서 '삭제했어요', '수정했어요'처럼 이미 끝난 일로 말하지 말고 '○○ 파일 삭제를 요청했어요', '○○ 수정을 요청했어요'처럼 요청으로 말하고, 반영 전까지 원본은 그대로라고 덧붙여 주세요."
+export const CHANGE_TALK_EN = "When you are done, say briefly in English what you changed. What you change here goes into a proposal, not the original: the folder's owner reviews it and merges it. So do not say \"I deleted\" or \"I updated\" as if it were done — say \"I requested deleting …\", \"I requested an update to …\", and add that the original stays as it is until it is merged."
 const words = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter((w) => w.length >= 2)
 
 // the folder a chat request is about, if it asks for a change in one
@@ -89,12 +93,12 @@ export async function startChatWork({ user, folder, text, threadId }) {
 (공유 폴더 '${folder.name}' 의 새 변형 '${v.branch}' 에서 작업합니다. 작업 폴더: ${S.runCheckoutContainer(room, folder)}
 이 폴더의 파일:
 ${listing || '(아직 파일 없음)'}
-${RULES} 고친 뒤 무엇을 바꿨는지 해요체로 짧게 알려 주세요. 기준본(main)에는 사람이 검토하고 반영합니다.)`, `${text}
+${RULES} ${CHANGE_TALK})`, `${text}
 
 (You are working on a new variation '${v.branch}' of the shared folder '${folder.name}'. Working folder: ${S.runCheckoutContainer(room, folder)}
 Files in this folder:
 ${listing || '(no files yet)'}
-${rules()} When you are done, say briefly in English what you changed. A person reviews it and merges it into main.)`)
+${rules()} ${CHANGE_TALK_EN})`)
   return { room, v, message, seeded }
 }
 

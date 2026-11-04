@@ -99,7 +99,8 @@ export async function pushRoomDir(local, dir) {
 }
 
 // deepagents uploads the room after its answer has ended, and uploads every file: the turn is in
-// storage once each pushed file has a new stamp and the listing has stopped changing.
+// storage once each pushed file has a new stamp — or is gone, deleted by the agent (deepagents
+// removes those before it uploads) — and the listing has stopped changing.
 async function roomSynced(dir, seeded, { timeoutMs, everyMs }) {
   const prefix = roomPrefix(dir)
   const deadline = Date.now() + (seeded.stamps.size ? timeoutMs : Math.min(timeoutMs, 10000))
@@ -107,7 +108,10 @@ async function roomSynced(dir, seeded, { timeoutMs, everyMs }) {
   while (Date.now() < deadline) {
     const objects = await listObjects(prefix)
     const now = JSON.stringify(objects.map((o) => [o.key, o.updatedAt]).sort())
-    const fresh = objects.length > 0 && [...seeded.stamps].every(([rel, stamp]) => objects.some((o) => relOf(prefix, o.key) === rel && o.updatedAt !== stamp))
+    const fresh = (objects.length > 0 || seeded.stamps.size > 0) && [...seeded.stamps].every(([rel, stamp]) => {
+      const got = objects.filter((o) => relOf(prefix, o.key) === rel)
+      return !got.length || got.some((o) => o.updatedAt !== stamp)
+    })
     if (fresh && now === last) return true
     last = now
     await new Promise((r) => setTimeout(r, everyMs))
@@ -115,16 +119,25 @@ async function roomSynced(dir, seeded, { timeoutMs, everyMs }) {
   return false
 }
 
-// The agent's changes into the checkout: files it made or altered. A pushed file that comes back the
-// same is left alone, so a deletion on a shared disk stays deleted. A deletion on the agent's pod
-// does not reach storage (deepagents only uploads) and cannot be seen here.
+// The agent's changes into the checkout: files it made, altered or deleted. A pushed file that comes
+// back the same is left alone, so a deletion on a shared disk stays deleted. A pushed file that is no
+// longer in storage was deleted by the agent on its pod (deepagents removes what the turn deleted):
+// it is deleted from the checkout too, so the variation carries the deletion for the owner to review.
 export async function pullRoomChanges(dir, seeded, local, { wait = true, timeoutMs = 45000, everyMs = 2000 } = {}) {
   if (wait) await roomSynced(dir, seeded, { timeoutMs, everyMs })
   const copy = await fetchRoomDir(dir)
-  if (!copy) return []
+  const back = copy ? new Set(await localFiles(copy)) : new Set()
+  const changed = []
+  for (const rel of seeded.hashes.keys()) {
+    if (back.has(rel)) continue
+    const dest = path.join(local, rel)
+    if (!dest.startsWith(path.resolve(local) + path.sep)) continue
+    await fs.rm(dest, { force: true })
+    changed.push(rel)
+  }
+  if (!copy) return changed
   try {
-    const changed = []
-    for (const rel of await localFiles(copy)) {
+    for (const rel of back) {
       const buf = await fs.readFile(path.join(copy, rel))
       if (seeded.hashes.get(rel) === digest(buf)) continue
       await fs.mkdir(path.dirname(path.join(local, rel)), { recursive: true })

@@ -89,6 +89,58 @@ test('공유 폴더 체크아웃을 Storage 로 넘기고, 다른 파드의 에�
   await fs.rm(worktree, { recursive: true })
 })
 
+// 운영(2026-11-03): 공유 폴더의 자료/Docs 에서 문서 하나 수정, 하나 삭제를 시키면 에이전트는 "삭제했어요"라고
+// 답했지만 변경안에는 수정만 들어갔다. deepagents 가 턴에 지운 파일을 Storage 에서 지우면(두 키 모두),
+// 거둘 때 체크아웃에서도 지워져 변형 커밋에 삭제가 담긴다.
+const seedKeyOf = (prefix, rel) => `${prefix}/__u8__${Buffer.from(rel, 'utf8').toString('base64url')}`
+async function seedFolder(files) {
+  const worktree = await fs.mkdtemp(path.join(os.tmpdir(), 'pro-worktree-'))
+  await fs.writeFile(path.join(worktree, '.git'), 'gitdir: /here/only')
+  for (const [rel, body] of Object.entries(files)) {
+    await fs.mkdir(path.dirname(path.join(worktree, rel)), { recursive: true })
+    await fs.writeFile(path.join(worktree, rel), body)
+  }
+  const pod = crypto.randomUUID().replace(/-/g, '')
+  const dir = `/workspace/.bpmn/${pod}/folders/docs`
+  const seeded = await pushRoomDir(worktree, dir)
+  keys.push(...(await pool.query("select name from storage.objects where bucket_id='files' and starts_with(name, $1)", [`${roomPrefix(dir)}/`])).rows.map((r) => r.name))
+  return { worktree, pod, dir, seeded }
+}
+// deepagents remove_workspace_files 와 같은 키: 경로별 인코딩, 경로 전체 한 조각
+const agentRemoves = async (dir, rel) => {
+  const { error } = await admin.storage.from('files').remove([`${roomPrefix(dir)}/${rel.split('/').map(encodeSegment).join('/')}`, seedKeyOf(roomPrefix(dir), rel)])
+  if (error) throw error
+}
+
+test('한글·대문자 하위 폴더에서 에이전트가 지운 파일은 체크아웃에서도 지워지고, 고친 파일은 들어온다', async () => {
+  const { worktree, pod, dir, seeded } = await seedFolder({ '자료/Docs/견적 조건.md': '원본', '자료/Docs/지울 문서.md': '지울 것', '그대로.md': '그대로' })
+  const late = (async () => {
+    await new Promise((r) => setTimeout(r, 300))
+    await agentRemoves(dir, '자료/Docs/지울 문서.md') // 지우기를 먼저, 올리기는 뒤에
+    await put(pod, 'folders/docs/자료/Docs/견적 조건.md', '검토 메모 추가')
+    await put(pod, 'folders/docs/그대로.md', '그대로')
+  })()
+  const t0 = Date.now()
+  const changed = await pullRoomChanges(dir, seeded, worktree, { timeoutMs: 20000, everyMs: 200 })
+  await late
+  assert.ok(Date.now() - t0 < 15000, '지운 파일 때문에 동기화 대기를 끝까지 채우지 않는다')
+  assert.deepEqual(changed.sort(), ['자료/Docs/견적 조건.md', '자료/Docs/지울 문서.md'].sort())
+  assert.equal(await fs.readFile(path.join(worktree, '자료', 'Docs', '견적 조건.md'), 'utf8'), '검토 메모 추가')
+  await assert.rejects(fs.stat(path.join(worktree, '자료', 'Docs', '지울 문서.md')))
+  assert.equal(await fs.readFile(path.join(worktree, '그대로.md'), 'utf8'), '그대로')
+  assert.equal(await fs.readFile(path.join(worktree, '.git'), 'utf8'), 'gitdir: /here/only')
+  await fs.rm(worktree, { recursive: true })
+})
+
+test('폴더의 하나뿐인 파일을 지우기만 해도 삭제가 거둬진다', async () => {
+  const { worktree, dir, seeded } = await seedFolder({ '자료/Docs/하나뿐.md': '혼자' })
+  setTimeout(() => agentRemoves(dir, '자료/Docs/하나뿐.md'), 300)
+  const changed = await pullRoomChanges(dir, seeded, worktree, { timeoutMs: 20000, everyMs: 200 })
+  assert.deepEqual(changed, ['자료/Docs/하나뿐.md'])
+  await assert.rejects(fs.stat(path.join(worktree, '자료', 'Docs', '하나뿐.md')))
+  await fs.rm(worktree, { recursive: true })
+})
+
 after(async () => {
   if (keys.length) await admin.storage.from('files').remove(keys)
   await pool.end()
