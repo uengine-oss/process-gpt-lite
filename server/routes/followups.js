@@ -2,6 +2,7 @@
 import express from 'express'
 import { runTurn } from '../lib/agent.js'
 import { HABIT, answerCard, listHabits, removeHabit, setHabit, whenText } from '../lib/followups.js'
+import { removeRule, ruleOf } from '../lib/roomRules.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[followups]', e.stack || e.message)
@@ -18,5 +19,8 @@ export function followupRoutes(auth) {
     if (a.action) runTurn({ user: req.user, session: req.session, threadId: a.threadId, text: a.action, files: a.files, conversation: a.conversation, fresh: true, habitId: a.habitId }).catch((e) => console.warn('[followups] run', e.message))
     return { state: a.state }
   })))
+  // 방 규칙(lib/roomRules.js): 이 방에 걸린 약속을 보고 끈다
+  r.get('/threads/:id/rule', auth, (req, res) => send(res, ruleOf(req.user.id, req.params.id).then((rule) => ({ rule }))))
+  r.delete('/threads/:id/rule', auth, (req, res) => send(res, removeRule(req.user.id, req.params.id)))
   return r
 }

@@ -16,6 +16,9 @@ import { decide, sure } from './decide.js'
 import { config } from '../config.js'
 import { L, isEn } from './lang.js'
 import * as mailCode from './mailCode.js'
+import { saveAttachment } from './attachments.js'
+import { workspaceHostPath } from './missions.js'
+import { guideFor } from './browserGuides.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const PROFILES = path.join(here, '..', '.browser-profiles')
@@ -70,6 +73,22 @@ const PAGE_GUARD = () => {
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') report(scopeOf(e.target)) }, true)
 }
 
+// A file the page downloads during a task goes to the person as a file card.
+async function keepDownload(userId, s, d) {
+  const task = s.task
+  if (!task) return d.cancel().catch(() => {})
+  const name = d.suggestedFilename()
+  try {
+    const saved = await saveAttachment({ id: userId }, name, '', await fs.promises.readFile(await d.path()))
+    await addMessage(userId, task.threadId, 'agent', 'file', { name: saved.name, url: saved.url, path: saved.path })
+    ;(task.downloads ||= []).push(saved.name)
+    task.log.push({ kind: 'download', text: L(`${saved.name} 받기`, `Download ${saved.name}`), ok: true })
+  } catch (e) {
+    console.warn('[browser] download', e.message)
+    task.notes.push(L(`${name} 파일을 받지 못했어요(${e.message.slice(0, 60)})`, `Could not keep ${name} (${e.message.slice(0, 60)})`))
+  }
+}
+
 async function sessionOf(userId) {
   let s = sessions.get(userId)
   if (s && !s.ctx._closed) return s
@@ -81,7 +100,10 @@ async function sessionOf(userId) {
   s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [] }
   await ctx.addInitScript(PAGE_GUARD)
   await ctx.exposeBinding('__proVaultCapture', (_src, payload) => onCapture(userId, s, payload).catch((e) => console.warn('[vault capture]', e.message)))
+  const watchDownloads = (page) => page.on('download', (d) => keepDownload(userId, s, d).catch((e) => console.warn('[browser] download', e.message)))
+  ctx.on('page', watchDownloads)
   s.page = ctx.pages()[0] || await ctx.newPage()
+  watchDownloads(s.page)
   await s.page.evaluate(PAGE_GUARD).catch(() => {})
   sessions.set(userId, s)
   await startScreencast(userId, s)
@@ -147,6 +169,9 @@ const SNAPSHOT_JS = () => {
   return { title: document.title, url: location.href, text: document.body.innerText.slice(0, 2500), els: out }
 }
 
+// Slow work on a page (a report, an audio file being made) is waited for here, without spending the model's turns.
+export const WAIT = { everyMs: 15000, maxMinutes: 30, taskMaxMinutes: 60 }
+
 const TOOLS = [
   ['goto', 'Open a URL', { url: 'string' }],
   ['click', 'Click element by index', { i: 'number' }],
@@ -155,6 +180,9 @@ const TOOLS = [
   ['login_failed', 'The site rejected the login you filled (wrong password / error after submitting). The server marks it rejected and asks the user for a corrected password', { reason: 'string' }],
   ['need_secret', 'A one-time value only the user has (SMS/e-mail verification code, OTP, 2FA). The server asks the user and types it into element i; you never see the value', { i: 'number', label: 'string' }],
   ['scroll', 'Scroll the page', { dy: 'number' }],
+  ['wait_for_page', 'Wait for slow work on this page (something being generated) without using up your actions. The page is checked every 15 seconds until until_text appears on it or gone_text is no longer on it, or the minutes run out. Files the page downloads meanwhile reach the person by themselves', { minutes: 'number', until_text: 'string', gone_text: 'string' }],
+  ['tell_user', 'Tell the person in the chat how a long task is going, in one or two sentences. Work goes on', { text: 'string' }],
+  ['attach_file', 'Give a file the person attached to this task to the page: i is the file input or the control that opens the file picker', { i: 'number', name: 'string' }],
   ['step_done', 'Mark a plan step complete', { step: 'number', note: 'string' }],
   ['note', 'Record facts you found (names, prices, URLs) so they survive leaving this page', { text: 'string' }],
   ['need_login', 'No saved credential for this site; ask the user to save one', { site: 'string' }],
@@ -168,7 +196,7 @@ const TOOLS = [
     parameters: {
       type: 'object',
       properties: Object.fromEntries(Object.entries(props).map(([k, t]) => [k, t === 'array' ? { type: 'array', items: { type: 'string' } } : { type: t }])),
-      required: Object.keys(props).filter((k) => k !== 'enter' && k !== 'note' && k !== 'options'),
+      required: Object.keys(props).filter((k) => !['enter', 'note', 'options', 'until_text', 'gone_text', 'name'].includes(k)),
     },
   },
 }))
@@ -200,7 +228,7 @@ async function plan(goal) {
 // is still running (or waiting for the person) waits in line — its card says so, and the person can
 // still answer or cancel the one in front (cards and 작업 취소 reach the task that holds the page).
 // Runs a browser task; posts a task card into the thread and keeps it updated.
-export async function runBrowserTask({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates }) {
+export async function runBrowserTask({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates, files = [] }) {
   const s = await sessionOf(userId)
   const t0 = Date.now()
   const p = await plan(goal)
@@ -209,7 +237,7 @@ export async function runBrowserTask({ userId, threadId, goal, startUrl, onActio
     title: p.title, goal, steps: p.steps.map((t) => ({ text: t, done: false })), state: ahead ? 'queued' : 'running', url: startUrl || '',
     ...(ahead ? { reason: L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`) } : {}),
   })
-  const task = { id: card.id, userId, threadId, goal, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
+  const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     gates, gatedUrl: null, stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, early_finish: false, decisions: [] } }
   if (ahead) {
     await addMessage(userId, threadId, 'agent', 'text', { text: L(`브라우저는 한 번에 한 작업만 해요. 앞 작업 '${ahead.title}'이(가) 끝나거나 취소되면 '${p.title}' 작업을 이어서 시작할게요.${s.task?.waiting ? ' 앞 작업은 지금 입력을 기다리고 있어요 — 그 카드에 답하거나 작업을 취소해 주세요.' : ''}`,
@@ -238,7 +266,8 @@ Secret fields appear in the snapshot as secret:true with no value. If the site r
 Before submitting a payment, sending a message or deleting anything, call approve and act only if the user approves.
 Do only what the goal asks. ${asksToBuy(goal) ? 'Buy or order only what the goal names, and only after approve.' : 'The goal does not ask to buy anything: never click reorder, buy, add-to-cart, checkout, pay, subscribe or booking controls — the server refuses them.'}
 Mark steps with step_done as you complete them. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for (one or two sentences) and contains all collected facts.
-Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.`,
+Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.
+${files.length ? `The person attached these files for this task: ${files.map((f) => f.name).join(', ')}.\n` : ''}${guideFor(goal, startUrl)}`,
   }]
   // the first answer without a single browser action is sent back once: do the steps first
   const NUDGE = 'You have not performed any browser action yet (no goto/click/type/fill_secret/note). Do the plan steps with the tools now. Call finish only after you have actually done them; if the page already shows what the goal asks, record it with note first.'
@@ -252,6 +281,9 @@ Never claim a step you did not do with a tool: the summary the user sees lists o
     let snap = await s.page.evaluate(SNAPSHOT_JS).catch(() => ({ url: s.page.url(), els: [], text: '' }))
     let hint = ''
     if (task.gates && snap.url !== task.gatedUrl && /^https?:/.test(snap.url)) ({ snap, hint } = await pageGate(s, task, snap))
+    // a file the page downloaded since the last look
+    const got = (task.downloads || []).splice(0)
+    if (got.length) hint += `\nDownloaded and shown to the person as file cards: ${got.join(', ')}`
     messages.push({ role: 'user', content: hide(task, JSON.stringify(snap)) + hint })
     const shot = await s.page.screenshot({ type: 'jpeg', quality: 50, mask: [s.page.locator(SECRET_SELECTOR)], maskColor: '#1d1d1f' }).catch(() => null)
     if (shot) messages.push({ role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${shot.toString('base64')}` } }] })
@@ -408,6 +440,9 @@ function logAction(task, name, a, out) {
     approve: () => L(`승인 요청: ${String(a.summary || '').slice(0, 80)} → ${/approved/.test(String(out)) ? '승인됨' : '승인 안 됨'}`, `Approval request: ${String(a.summary || '').slice(0, 80)} → ${/approved/.test(String(out)) ? 'approved' : 'not approved'}`),
     login_failed: () => L('로그인 거부 확인', 'Login rejected'),
     scroll: () => L('화면 내리기', 'Scroll down'),
+    wait_for_page: () => L(`생성 기다리기(${Math.round(Number(a.minutes) || 0)}분까지)`, `Wait for it to finish (up to ${Math.round(Number(a.minutes) || 0)} min)`),
+    attach_file: () => L(`${a.name || '첨부 파일'} 올리기`, `Upload ${a.name || 'the attached file'}`),
+    tell_user: () => null,
     need_login: () => L(`${a.site || ''} 로그인 정보 요청`, `Ask for the ${a.site || ''} login`),
     need_user: () => L(`확인 요청: ${String(a.reason || '').slice(0, 60)}`, `Ask to check: ${String(a.reason || '').slice(0, 60)}`),
     note: () => null,
@@ -416,7 +451,7 @@ function logAction(task, name, a, out) {
   if (line) task.log.push({ kind: name, text: line, ok, ...(String(out).startsWith(REFUSED_PURCHASE) ? { refusedPurchase: true } : {}) })
 }
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, '') } catch { return String(u || '').slice(0, 60) } }
-const ACTIONS = new Set(['goto', 'click', 'type', 'fill_secret', 'need_secret', 'approve', 'scroll'])
+const ACTIONS = new Set(['goto', 'click', 'type', 'fill_secret', 'need_secret', 'approve', 'scroll', 'wait_for_page', 'attach_file'])
 const REFUSED_PURCHASE = 'refused: purchase gate —'
 
 // The summary the person reads: the model's account only when the task actually did something, and
@@ -438,6 +473,27 @@ export function honest(result, task, { moved = false } = {}) {
   const refused = task.log.filter((e) => e.kind === 'click' && e.refusedPurchase).map((e) => `• ${e.text}`)
   return { ...result, summary: [head, done.length ? `${L('실제로 한 일', 'What I actually did')}\n${done.slice(-12).join('\n')}` : '',
     refused.length ? `${L('요청하지 않은 구매라 누르지 않은 것', "Not pressed — a purchase you didn't ask for")}\n${refused.slice(-4).join('\n')}` : ''].filter(Boolean).join('\n\n') }
+}
+
+async function waitForPage(s, task, a) {
+  const until = String(a.until_text || '').trim(), gone = String(a.gone_text || '').trim()
+  const left = WAIT.taskMaxMinutes - (task.waitedMinutes || 0)
+  if (left <= 0) return `error: this task has already waited ${WAIT.taskMaxMinutes} minutes; tell the person where it stands and finish`
+  const minutes = Math.min(Math.max(Number(a.minutes) || 5, 0), WAIT.maxMinutes, left)
+  const t0 = Date.now()
+  const passed = () => (Date.now() - t0) / 60000
+  try {
+    for (;;) {
+      if (task.cancelled) return 'cancelled'
+      const text = await s.page.locator('body').innerText().catch(() => '')
+      if (until && text.includes(until)) return `done: "${until}" is on the page now`
+      if (gone && !text.includes(gone)) return `done: "${gone}" is no longer on the page`
+      if (passed() >= minutes) return `still waiting after ${minutes} minutes: it has not finished. Wait again, or tell the person where it stands`
+      say(task, L(`기다리는 중 · ${Math.floor(passed())}분째`, `Waiting · ${Math.floor(passed())} min`))
+      await pushFrame(task.userId, s)
+      await s.page.waitForTimeout(Math.min(WAIT.everyMs, Math.max(50, (minutes - passed()) * 60000)))
+    }
+  } finally { task.waitedMinutes = (task.waitedMinutes || 0) + passed() }
 }
 
 async function act(s, task, name, a) {
@@ -475,6 +531,17 @@ async function doAct(s, task, name, a) {
       await el(a.i).fill(a.text); if (a.enter) await el(a.i).press('Enter'); return 'ok'
     }
     case 'scroll': await s.page.mouse.wheel(0, a.dy || 600); return 'ok'
+    case 'wait_for_page': return waitForPage(s, task, a)
+    case 'tell_user': await addMessage(task.userId, task.threadId, 'agent', 'text', { text: String(a.text || '').slice(0, 600) }); return 'told'
+    case 'attach_file': {
+      const f = (task.files || []).find((x) => x.name === a.name) || task.files?.[0]
+      if (!f) return 'error: no file was attached to this task'
+      const file = await workspaceHostPath(f.path)
+      if (await el(a.i).evaluate((e) => e.tagName === 'INPUT' && e.type === 'file')) { await el(a.i).setInputFiles(file); return `attached ${f.name}` }
+      const [chooser] = await Promise.all([s.page.waitForEvent('filechooser', { timeout: 8000 }), el(a.i).click({ timeout: 8000 })])
+      await chooser.setFiles(file)
+      return `attached ${f.name}`
+    }
     case 'fill_secret': {
       const site = normSite(new URL(s.page.url()).hostname)
       const kind = String(a.field).startsWith('card') ? 'card' : 'login'

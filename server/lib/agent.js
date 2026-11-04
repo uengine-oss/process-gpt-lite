@@ -26,6 +26,8 @@ import { refer as referContext } from './context/refer.js'
 import { rebuildSoon } from './context/digest.js'
 import { findRepeat } from './context/repeat.js'
 import { afterTurn, followsResult, readAnswer, readRule, whenText } from './followups.js'
+import { ranRule, readRoomRule, roomGoal, roomInput, ruleOf } from './roomRules.js'
+import { NOTEBOOK_URL, isNotebookJob } from './browserGuides.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
@@ -206,6 +208,17 @@ export function runTurn(args) {
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
 const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
 
+// A turn the browser agent answers: said now, its result posted when it ends. Nothing runs in the agent service.
+async function startBrowserTurn({ userId, threadId, goal, startUrl, files, onDelta, ack }) {
+  noAgentTurn()
+  const msg = await addMessage(userId, threadId, 'agent', 'text', { text: ack })
+  onDelta?.(ack)
+  runBrowserTask({ userId, threadId, goal, startUrl, files })
+    .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
+    .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment."), failed: true }) })
+  return msg
+}
+
 async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
@@ -247,6 +260,27 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     // the router only needs to know there are files; a question about them is the agent's job
     context = [context, L(`(첨부: ${files.map((f) => f.name).join(', ')})`, `(attached: ${files.map((f) => f.name).join(', ')})`)].filter(Boolean).join('\n\n')
   }
+  // 방 규칙(lib/roomRules.js): 이 방에 올린 링크·파일은 묻지 않고 그 일로 간다. 규칙을 정하는 말도 여기서 받는다.
+  const room = !habitId && (await getThread(userId, threadId))?.kind === 'project'
+  if (room) {
+    const set = await readRoomRule(user, threadId, text).catch((e) => { console.warn('[room rule]', e.message); return null })
+    if (set) {
+      noAgentTurn()
+      const ok = L(`알겠습니다. 이 방에 올리시는 링크와 파일은 앞으로 바로 처리할게요. ${set.action}`, `Got it. Links and files you put in this room will be handled right away. ${set.action}`)
+      onDelta?.(ok)
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok, roomRule: set.id })
+    }
+    const rule = await ruleOf(userId, threadId).catch(() => null)
+    const input = rule && roomInput(text, files)
+    if (input) {
+      ranRule(rule.id).catch(() => {})
+      const goal = roomGoal(rule.action, input)
+      if (isNotebookJob(rule.action) || isNotebookJob(rule.said)) return startBrowserTurn({ userId, threadId, goal, startUrl: NOTEBOOK_URL, files, onDelta, ack: L('이 방의 규칙대로 시작할게요.', 'Starting, as this room is set up to.') })
+      return delegate({ user, session, threadId, text: goal, onDelta })
+    }
+  }
+  // NotebookLM 은 사이트에서 하는 일이다: 라우터 모델은 "노트북 lm"을 잘 모르고, 유튜브 링크가 있으면 커넥터로 간다
+  if (isNotebookJob(text) && !RECURRING.test(text) && !generationPending(threadId)) return startBrowserTurn({ userId, threadId, goal: text, startUrl: NOTEBOOK_URL, files, onDelta, ack: L('NotebookLM에서 직접 처리할게요.', "I'll do it in NotebookLM.") })
   const hist = toLlmHistory(await history(threadId, 12))
   if (context) hist[hist.length - 1] = { role: 'user', content: `${text}\n\n${context}` }
   const now = new Date().toLocaleString(locale(), { timeZone: 'Asia/Seoul' })

@@ -5,6 +5,7 @@ import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
 import Composer from './Composer.vue'
 import EdgeBlur from './EdgeBlur.vue'
+import RoomRuleBar from './RoomRuleBar.vue'
 import BrowserDock from './BrowserDock.vue'
 import { useApp } from '../stores/app.js'
 
@@ -63,6 +64,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
     <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode }" @scroll="onScroll">
       <div class="inner">
         <slot name="header" />
+        <RoomRuleBar v-if="app.active?.kind === 'project' && app.activeId" :thread="app.activeId" />
         <p v-if="!list.length && emptyText" class="empty serif">{{ emptyText }}</p>
         <template v-for="(m, i) in list" :key="m.id">
           <div v-if="newDay(i)" class="day">{{ dayOf(m) }}</div>
