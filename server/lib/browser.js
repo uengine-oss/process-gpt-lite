@@ -782,10 +782,12 @@ export async function input(userId, ev) {
   const s = sessions.get(userId)
   if (!s) return
   const { width, height } = s.page.viewportSize()
-  if (ev.type === 'click') await s.page.mouse.click(ev.x * width, ev.y * height)
-  if (ev.type === 'key') await s.page.keyboard.press(ev.key)
-  if (ev.type === 'text') await s.page.keyboard.type(ev.text)
-  if (ev.type === 'scroll') await s.page.mouse.wheel(0, ev.dy)
+  try {
+    if (ev.type === 'click') await s.page.mouse.click(ev.x * width, ev.y * height)
+    if (ev.type === 'key') await s.page.keyboard.press(ev.key)
+    if (ev.type === 'text') await s.page.keyboard.type(ev.text)
+    if (ev.type === 'scroll') await s.page.mouse.wheel(0, ev.dy)
+  } catch (e) { console.warn('[browser] input', ev.type, e.message) } // a key the driver does not know, a page going away: the next key still counts
 }
 
 // Closes the user's browser (profile stays on disk).
