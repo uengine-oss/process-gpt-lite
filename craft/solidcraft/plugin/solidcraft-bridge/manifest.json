@@ -1,0 +1,8 @@
+{
+    "name": "solidcraft-bridge",
+    "version": "0.1.0",
+    "description": "Connects Chili3D to a host page: open, save, dirty, export and render",
+    "main": "bridge.js",
+    "author": { "name": "uEngine" },
+    "engines": { "chili3d": ">=0.8.0" }
+}

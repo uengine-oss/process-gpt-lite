@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+// solidcraft-cli mcp [--automation-read-root DIR] [--automation-write-root DIR] [--web-root DIR] [--wasm-dir DIR]
+// Headless 3D CAD over MCP on stdio: one model in memory per process.
+// The WASM kernel and OCCT print to console.log, and on stdio stdout is the protocol.
+console.log = console.error
+const [cmd, ...rest] = process.argv.slice(2)
+if (cmd !== 'mcp') {
+  console.error('usage: solidcraft-cli mcp [--automation-read-root DIR] [--automation-write-root DIR] [--web-root DIR] [--wasm-dir DIR]')
+  process.exit(2)
+}
+const arg = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined }
+const { startMcp } = await import('../src/mcp.mjs')
+await startMcp({
+  readRoot: arg('--automation-read-root'),
+  writeRoot: arg('--automation-write-root'),
+  webRoot: arg('--web-root'),
+  wasmDir: arg('--wasm-dir'),
+})

@@ -1,0 +1,7 @@
+.build/
+test/.venv/
+test/out/
+__pycache__/
+test/fixtures/sample_part.stp
+test/fixtures/surf114.igs
+test/fixtures/curve_geom_plate.igs

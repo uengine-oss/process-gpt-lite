@@ -1,0 +1,11 @@
+SolidCraft
+
+SolidCraft is Chili3D __CHILI3D_VERSION__ with a bridge plugin. Chili3D's source is not modified.
+
+Chili3D  https://github.com/xiangechen/chili3d  commit __CHILI3D_COMMIT__
+  Copyright the Chili3D authors. TypeScript: GNU AGPL-3.0 (LICENSE.txt).
+  WebAssembly module (cpp/): GNU LGPL-3.0.
+Open CASCADE Technology (in the WebAssembly module): GNU LGPL-2.1 with the OCCT exception.
+
+The bridge plugin is served in the clear next to this file: plugins/solidcraft-bridge/
+The build recipe: craft/solidcraft/ in the Process GPT Lite source tree.

@@ -1,0 +1,13 @@
+{
+  "name": "solidcraft-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless 3D CAD over MCP (STEP/IGES, enclosures, inspect, render) on the Chili3D WASM kernel",
+  "bin": { "solidcraft-cli": "bin/solidcraft-cli" },
+  "scripts": { "test": "node --test test/solidcraft.test.mjs" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "playwright-core": "1.64.1"
+  }
+}

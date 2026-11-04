@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="chili3d-version" content="__CHILI3D_VERSION__" />
+        <!-- This page shares the product's origin, so it talks to nothing else: no analytics, no assistant
+             endpoint, and no third-party script (the Text tool would import opentype.js from a CDN).
+             Loosen connect-src and script-src here to let a configured assistant or the Text tool work. -->
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+        />
+        <title>SolidCraft</title>
+        <link rel="icon" href="favicon.svg" />
+        <link rel="stylesheet" type="text/css" href="index.css" />
+        <style>
+            /* Hosted in a page or drawing for the CLI: the file arrives by message, so no welcome screen. */
+            html.sc-host chili-home { display: none !important; }
+            /* One file per frame: no second document, and closing is the host's. */
+            html.sc-host chili-ribbon svg:has(use[*|href="#icon-plus"]),
+            html.sc-host chili-ribbon svg:has(use[*|href="#icon-times"]) { display: none; }
+        </style>
+        <script>
+            // Runs before the bundle. This replaces Chili3D's public/index.html (which loads a remote
+            // analytics tag) without touching its source.
+            (function () {
+                var params = new URLSearchParams(location.search);
+                // /craft/solidcraft/ shares its origin with the product, so these startup parameters must
+                // not be able to pull in code or files from elsewhere: ?plugin= runs JavaScript here,
+                // ?url=/?model= fetch a remote file, ?bridge= opens a socket. Our plugin comes from
+                // plugins/plugins.json.
+                ["plugin", "url", "model", "bridge"].forEach(function (name) { params.delete(name); });
+                var rest = params.toString();
+                window.__solidcraftQuery = rest ? "?" + rest : "";
+                // Chili3D builds the plugins folder's address from location.href, query included, so
+                // plugins/plugins.json is never found while a query is present. The URL goes without it
+                // until the bridge has loaded, and the bridge puts it back.
+                history.replaceState(null, "", location.pathname + location.hash);
+                if (params.get("host") === "parent" || params.has("render")) {
+                    document.documentElement.classList.add("sc-host");
+                }
+                // The welcome screen asks the site root for a list of videos with remote thumbnails.
+                var realFetch = window.fetch.bind(window);
+                window.fetch = function (input, init) {
+                    if (input === "/videos.json") {
+                        return Promise.resolve(new Response('{"recent":{"items":[]},"cases":{"items":[]}}', {
+                            headers: { "Content-Type": "application/json" },
+                        }));
+                    }
+                    return realFetch(input, init);
+                };
+            })();
+        </script>
+    </head>
+    <body>
+        <noscript>You need to enable JavaScript to run this app.</noscript>
+    </body>
+</html>
