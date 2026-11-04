@@ -17,10 +17,12 @@ const PGPT = PGPT_ROOT
 async function viaBridge(action, contract, workHost) {
   const root = `${PGPT}/services/deepagents/workspace`
   const workRel = workHost.startsWith(`${root}/`) ? workHost.slice(root.length) : ''
+  // the bridge writes with the service_role key and asks for the same key; one bridge serves every
+  // tenant of a multi-tenant install, so each request names this request's tenant
   const r = await fetch(`${config.bridgeUrl}/${action}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contract, work_rel: workRel }), signal: AbortSignal.timeout(620_000),
-  })
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(config.serviceKey ? { Authorization: `Bearer ${config.serviceKey}` } : {}) },
+    body: JSON.stringify({ contract, work_rel: workRel, tenant_id: config.tenantId }), signal: AbortSignal.timeout(620_000),
+  }).catch((e) => { console.warn('[process] bridge', e.cause?.code || e.message); throw saveUnavailable() })
   const out = await r.json().catch(() => ({ error: `bridge ${r.status}` }))
   if (!r.ok) throw new Error(out.error || `bridge ${r.status}`)
   return out
