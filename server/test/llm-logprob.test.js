@@ -12,6 +12,13 @@ const server = http.createServer((req, res) => {
   req.on('data', (d) => { body += d })
   req.on('end', () => {
     const b = JSON.parse(body); seen.push(b)
+    if (mode === 'slow') { // a refusal that takes a while, several times over: together longer than one limit
+      const later = (fn) => setTimeout(fn, 70)
+      if (b.max_tokens) return later(() => refuse(res, "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."))
+      if (b.top_logprobs > 5) return later(() => refuse(res, "Invalid value for 'top_logprobs': must be less than or equal to 5."))
+      if (b.max_completion_tokens < 4) return later(() => refuse(res, 'Could not finish the message because max_tokens or model output limit was reached.'))
+      return later(() => answer(res, [{ ...A, top_logprobs: [A, B] }]))
+    }
     if (mode === 'luna') { // gpt-6-luna, gpt-6.1-terra
       if (b.chat_template_kwargs) return refuse(res, 'Unknown parameter: chat_template_kwargs.')
       if (b.max_tokens) return refuse(res, "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.")
@@ -68,10 +75,11 @@ test('서버를 켠 직후 동시에 불러도 모두 받는다(먼저 배운 �
   assert.ok(all.every((r) => r.top?.length === 2))
 })
 test('시간 제한은 재시도마다 새로 잡는다', async () => {
-  mode = 'luna'
-  // 정답 응답에 20 ms 가 걸리고 거절이 여러 번이어도, 한 번의 제한 안에 다 들어가지 않아도 된다
-  const r = await llm.firstTokenTop({ prompt: 'q', model: 'cold-3', timeoutMs: 60 })
+  mode = 'slow'
+  // 한 번에 70 ms, 네 번이면 280 ms: 제한 150 ms 를 다 함께 쓰면 끝내 받지 못한다
+  const r = await llm.firstTokenTop({ prompt: 'q', model: 'cold-3', timeoutMs: 150 })
   assert.equal(r.top.length, 2)
+  assert.equal(seen.length, 4)
 })
 test('추론 없는 모델(gpt-4.1-mini)은 reasoning_effort 를 빼고 후보 20개를 그대로 받는다', async () => {
   mode = 'plain'
