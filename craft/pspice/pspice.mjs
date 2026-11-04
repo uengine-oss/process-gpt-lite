@@ -402,7 +402,9 @@ export function toNgspice(text, { files } = {}) {
   }
   if (fours.length && !analyses.some((a) => /^\.TRAN\b/i.test(a))) warn('.FOUR 는 .TRAN 이 있어야 돌아요')
   const missing = missingParts(lines)
-  for (const m of missing) stop(`${m.name} 모델이 없어요(${m.refs.slice(0, 3).join(', ')}). ${m.kind} 정의가 든 라이브러리 파일을 함께 주세요`)
+  // 보드 하나면 수십 개다: 한 줄로 묶는다
+  if (missing.length > 3) stop(`부품 모델 ${missing.length}개가 없어요: ${missing.slice(0, 4).map((m) => m.name).join(', ')} 외 ${missing.length - 4}개. 정의가 든 라이브러리 파일을 함께 주세요`)
+  else for (const m of missing) stop(`${m.name} 모델이 없어요(${m.refs.slice(0, 3).join(', ')}). ${m.kind} 정의가 든 라이브러리 파일을 함께 주세요`)
   if (!analyses.length) warn('해석 명령(.TRAN .AC .DC .OP)이 없어서 동작점만 구해요')
   const runs = []
   // 값을 바꾼 .PARAM 줄들: 한 줄에 여러 값이 있을 수 있다

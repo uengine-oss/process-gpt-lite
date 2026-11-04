@@ -122,6 +122,8 @@ test('.DC PARAM: 점마다 돌려 곡선 하나로 묶는다', async () => {
 test('없는 부품 모델·넷리스트·암호화 모델·회로 없는 파일은 이유를 말한다', () => {
   const miss = toNgspice(`* m\nX1 a 0 Sw_tClose\nQ1 a b 0 Q2N3904\nR1 a 0 1\n.OP\n.END`)
   assert.deepEqual(miss.missing.map((m) => m.name), ['Sw_tClose', 'Q2N3904']); assert.ok(miss.unsupported.some((u) => /Q2N3904/.test(u)))
+  const many = toNgspice(`* m\nX1 a 0 P1\nX2 a 0 P2\nX3 a 0 P3\nX4 a 0 P4\nX5 a 0 P5\nR1 a 0 1\n.OP\n.END`)
+  assert.equal(many.unsupported.length, 1, '많으면 한 줄로 묶는다'); assert.match(many.unsupported[0], /부품 모델 5개가 없어요: P1, P2, P3, P4 외 1개/); assert.equal(many.missing.length, 5)
   assert.ok(toNgspice(`* n\n.INC "gone.net"\n.AC DEC 1 1 10\n.END`).unsupported.some((u) => /gone\.net/.test(u)), '빈 회로를 성공으로 치지 않는다')
   assert.ok(toNgspice(`* l\n.SUBCKT A 1 2\nR1 1 2 1\n.ENDS\n`).unsupported.some((u) => /돌릴 회로가 없어요/.test(u)))
   const sealed = toNgspice(`* e\n.LIB "t.lib"\nX1 a 0 TPS\nR1 a 0 1\n.OP\n.END`, { files: { 't.lib': `.SUBCKT TPS 1 2\n$CDNENCSTART\nabcdef\n$CDNENCFINISH\n.ENDS TPS\n` } })
