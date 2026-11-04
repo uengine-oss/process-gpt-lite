@@ -1,0 +1,8 @@
+#!/usr/bin/env node
+// circuitcraft-cli mcp [--automation-read-root DIR] [--automation-write-root DIR]
+// PSpice 문서를 읽고, ngspice(WASM)로 돌리고, 값을 재고, 그래프를 그리고, PSpice 넷리스트로 쓴다. 한 프로세스에 문서 하나.
+import { startMcp } from '../mcp.mjs'
+const [cmd, ...rest] = process.argv.slice(2)
+if (cmd !== 'mcp') { console.error('usage: circuitcraft-cli mcp [--automation-read-root DIR] [--automation-write-root DIR]'); process.exit(2) }
+const arg = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : null }
+await startMcp({ readRoot: arg('--automation-read-root'), writeRoot: arg('--automation-write-root') })

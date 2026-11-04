@@ -1,0 +1,13 @@
+{
+  "name": "circuitcraft-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PSpice 문서를 읽고 ngspice(WASM)로 돌리는 MCP 도구",
+  "bin": { "circuitcraft-cli": "bin/circuitcraft-cli" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "eecircuit-engine": "1.9.0"
+  }
+}
