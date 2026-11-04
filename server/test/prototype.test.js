@@ -24,6 +24,11 @@ test('메일의 치수를 그대로 쓰고 보스 자리를 계산한다', () =>
   assert.deepEqual(s.standoffs.map((b) => [b.x, b.y]), [[8, 8], [82, 8], [8, 52], [82, 52]])
   assert.deepEqual(s.holes, [{ face: 'front', x: 45, y: 15, diameter: 12 }])
 })
+test('메일이 지정한 부품 번호를 가져간다', () => {
+  const s = normalizeSpec({ enclosure: { width: 90, depth: 60, height: 30, wall: 2 }, part_numbers: [{ role: '궤환 커패시터', part: 'TDK C1608C0G1H100D080AA' }, { role: 'x' }] })
+  assert.deepEqual(s.part_numbers, [{ role: '궤환 커패시터', part: 'TDK C1608C0G1H100D080AA' }])
+  assert.deepEqual(normalizeSpec({}).part_numbers, [])
+})
 test('메일에 없는 치수는 가정이라고 적는다', () => {
   const s = normalizeSpec({ product: 'X', enclosure: { width: 90 } })
   assert.equal(s.enclosure.width, 90); assert.equal(s.enclosure.depth, 70)

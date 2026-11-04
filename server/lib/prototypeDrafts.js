@@ -20,8 +20,8 @@ const ASK = /시작품|시제품|프로토타입|prototype/i
 export const isPrototypeRequest = (mail, attachments = []) => ASK.test(`${mail.subject} ${mail.text}`) || attachments.some((a) => CIRCUIT_EXT.test(a.name) || SOLID_EXT.test(a.name))
 
 const SPEC = `You read a customer's mail asking for a prototype of an electronic product and return its mechanical facts as JSON:
-{"product","quantity","material","enclosure":{"width","depth","height","wall","corner_radius"},"standoffs":{"count","diameter","height","hole_diameter"},"front_hole":{"diameter"},"pcb":{"width","depth","thickness"},"due","assumed":[...]}
-Sizes in mm as numbers. A screw size means the tapped hole: M3 is hole_diameter 2.5, M2.5 is 2.05, M4 is 3.3. Write product and material in the language of the mail. Use only what the mail says; leave a field null when the mail does not say it. "assumed" stays [].`
+{"product","quantity","material","enclosure":{"width","depth","height","wall","corner_radius"},"standoffs":{"count","diameter","height","hole_diameter"},"front_hole":{"diameter"},"pcb":{"width","depth","thickness"},"part_numbers":[{"role","part"}],"due","assumed":[...]}
+Sizes in mm as numbers. A screw size means the tapped hole: M3 is hole_diameter 2.5, M2.5 is 2.05, M4 is 3.3. part_numbers lists every manufacturer part number the mail names, role being what the mail says it is for. Write product and material in the language of the mail. Use only what the mail says; leave a field null when the mail does not say it. "assumed" stays [].`
 
 // 메일의 숫자만 쓴다. 없는 값은 기본값으로 채우고 가정이라고 적는다.
 export function normalizeSpec(raw = {}) {
@@ -41,6 +41,7 @@ export function normalizeSpec(raw = {}) {
   return {
     product: String(raw.product || L('시작품', 'Prototype')).slice(0, 60), quantity: Math.max(1, Math.round(Number(raw.quantity)) || 1), material: raw.material || L('알루미늄', 'Aluminum'),
     enclosure: { width, depth, height, wall, corner_radius: Number(e.corner_radius) > 0 ? Number(e.corner_radius) : 0 }, standoffs, holes, due: raw.due || '', assumed,
+    part_numbers: (Array.isArray(raw.part_numbers) ? raw.part_numbers : []).filter((p) => p?.part).map((p) => ({ role: String(p.role || ''), part: String(p.part) })),
   }
 }
 
@@ -207,7 +208,8 @@ export async function prototypeDrafts(userId, t, mail, d, attachments, { delegat
   const facts = [
     L(`제품: ${spec.product}, 수량 ${spec.quantity}대, 재질 ${spec.material}`, `Product: ${spec.product}, quantity ${spec.quantity}, material ${spec.material}`),
     L(`외함: ${spec.enclosure.width} × ${spec.enclosure.depth} × ${spec.enclosure.height} mm, 벽 ${spec.enclosure.wall} mm${solid?.mass_g ? `, 재료 ${solid.mass_g} g` : ''}`, `Enclosure: ${spec.enclosure.width} × ${spec.enclosure.depth} × ${spec.enclosure.height} mm, wall ${spec.enclosure.wall} mm${solid?.mass_g ? `, ${solid.mass_g} g of material` : ''}`),
-    circuit ? L(`회로 시뮬레이션: ${circuitSummary(circuit)}`, `Circuit simulation: ${circuitSummary(circuit)}`) : '',
+    circuit ? L(`회로 검토(고객이 보낸 회로를 우리가 CircuitCraft 로 시뮬레이션해 잰 값): ${circuitSummary(circuit)}`, `Circuit review (we simulated the customer's circuit in CircuitCraft and measured): ${circuitSummary(circuit)}`) : '',
+    spec.part_numbers.length ? L(`메일이 지정한 부품 번호(견적서의 해당 부품 줄 규격에 그대로 적으세요): ${spec.part_numbers.map((x) => `${x.role} = ${x.part}`).join(', ')}`, `Part numbers the mail names (put each in the spec column of its line in the quote): ${spec.part_numbers.map((x) => `${x.role} = ${x.part}`).join(', ')}`) : '',
     circuit?.bom ? L(`회로 부품표(참조|종류|값|수량):\n${bomLines(circuit.bom)}`, `Circuit parts (refs|kind|value|qty):\n${bomLines(circuit.bom)}`) : '',
     spec.assumed.length ? L(`메일에 없어 가정한 값: ${spec.assumed.join(', ')}`, `Assumed because the mail did not say: ${spec.assumed.join(', ')}`) : '',
     missing.length ? L(`만들지 못한 것: ${missing.join('. ')}`, `Not made: ${missing.join('. ')}`) : '',
