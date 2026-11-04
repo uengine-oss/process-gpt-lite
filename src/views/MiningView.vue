@@ -48,7 +48,11 @@ async function decide(kind) {
 }
 async function rescan() {
   busy.value = 'scan'
-  try { await api('/mining/scan', { method: 'POST' }); await load() } finally { busy.value = '' }
+  let failed = ''
+  try { await api('/mining/scan', { method: 'POST' }) } catch (e) { failed = e.message || '흐름을 찾지 못했어요. 잠시 후 다시 시도해 주세요.' }
+  try { await load() } finally { busy.value = '' }
+  // (load clears err: the failed search is shown after it)
+  if (failed) err.value = failed
 }
 const defSteps = computed(() => (def.value?.steps || []).filter((x) => x.kind === 'human' || x.kind === 'agent'))
 let timer
@@ -76,7 +80,8 @@ onMounted(async () => {
             <span class="sp" />
             <button class="hbtn glass press" :disabled="busy === 'scan'" @click="rescan"><Icon name="refresh" :size="15" /> {{ busy === 'scan' ? '찾는 중…' : '지금 다시 찾기' }}</button>
           </div>
-          <p v-if="!list.length" class="first glass">아직 반복되는 흐름이 없어요. 같은 일이 몇 번 더 쌓이면 여기에 추천이 나와요.</p>
+          <p v-if="err" class="err" role="alert">{{ err }}</p>
+          <p v-if="!list.length && !err" class="first glass">아직 반복되는 흐름이 없어요. 같은 일이 몇 번 더 쌓이면 여기에 추천이 나와요.</p>
           <button v-for="x in list" :key="x.id" class="row glass press" @click="router.push(`/mining/${x.id}`)">
             <span class="st" :class="x.status">{{ statusText[x.status] }}</span>
             <b>{{ x.name }}</b>

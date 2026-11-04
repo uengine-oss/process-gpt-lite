@@ -1,13 +1,14 @@
 // 프로세스 마이닝 → 정식 등록 → 메일 라우팅, 그리고 검토 카드의 앞 단계 산출물 칩.
 // 반복된 메일 업무의 인계 기록(handover_events)을 process-miner 가 패턴으로 묶고(관리자 추천), 정식 등록하면
 // process-gpt 정의(save_contract)가 되고 다음 비슷한 메일이 그 프로세스로 간다. 검토자는 앞 단계 산출물을 연다.
-// (server/lib/mining/*, routes/mining.js, MiningView.vue, StepOutputs.vue · process-miner :8014 필요한 시험은 없으면 건너뜀)
+// (server/lib/mining/*, routes/mining.js, MiningView.vue, StepOutputs.vue · process-miner :8015 필요한 시험은 없으면 건너뜀)
 import { test, expect, api, RUN } from '../../lib/fixtures.js'
 import { lock as lockDb } from '../../lib/db.js'
 import { retireInstance, XLSX, MIME } from '../../lib/seed.js'
 import { LOCAL_API, PGPT_URL, TENANT } from '../../lib/env.js'
 
-const MINER = (process.env.MINER_URL || (LOCAL_API ? 'http://127.0.0.1:8014' : '')).replace(/\/$/, '')
+// the dev stack's process-miner (the one ProcessGPT's gateway also routes /process-miner to)
+const MINER = (process.env.MINER_URL || (LOCAL_API ? 'http://127.0.0.1:8015' : '')).replace(/\/$/, '')
 const minerUp = async () => !!MINER && fetch(`${MINER}/health`, { signal: AbortSignal.timeout(3000) }).then((r) => r.ok, () => false)
 
 test.describe('프로세스 마이닝 (lib/mining)', () => {
@@ -62,12 +63,15 @@ test.describe('프로세스 마이닝 (lib/mining)', () => {
           label, new Date(t0 + ci * 600_000 + si * 60_000).toISOString()])
       }
     }
-    const pats = await (await fetch(`${MINER}/patterns?tenant_id=${encodeURIComponent(db.tenant)}&min_cases=4`)).json()
+    // the miner checks the caller: the Lite server calls it with the service_role key (lib/mining/service.js)
+    const { config } = await lib('config.js')
+    const auth = { Authorization: `Bearer ${config.serviceKey}` }
+    const pats = await (await fetch(`${MINER}/patterns?tenant_id=${encodeURIComponent(db.tenant)}&min_cases=4`, { headers: auth })).json()
     const p = pats.patterns.find((x) => x.case_ids.some((id) => cases.includes(id)))
     expect(p, '패턴').toBeTruthy()
     expect([...p.case_ids].sort()).toEqual([...cases].sort())
     expect(p.main_variant).toEqual(steps.map(([l]) => l))
-    const disc = await fetch(`${MINER}/discover`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const disc = await fetch(`${MINER}/discover`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenant_id: db.tenant, process_id: `rt_mined_${RUN}`, name: '회귀 마이닝', case_ids: p.case_ids }) })
     expect(disc.status).toBe(200)
     const { definition } = await disc.json()

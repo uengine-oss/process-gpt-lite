@@ -34,11 +34,19 @@ const MINER = (process.env.PRO_MINER_URL ?? 'http://127.0.0.1:8014').replace(/\/
 export const minerEnabled = () => !!MINER
 const err = (status, message) => Object.assign(new Error(message), { status })
 
+// (errors from here carry .miner: the scan route tells the admin the search itself failed)
 async function miner(path, body) {
-  if (!MINER) throw new Error('process-miner is not configured (PRO_MINER_URL)')
-  const r = await fetch(`${MINER}${path}`, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {})
+  const fail = (m) => Object.assign(new Error(m), { miner: true })
+  if (!MINER) throw fail('process-miner is not configured (PRO_MINER_URL)')
+  let r
+  try {
+    // a server-to-server call (the periodic scan runs without a user): the miner accepts the verified
+    // service_role key and reads only the tenant asked for; it writes nothing
+    const headers = { ...(config.serviceKey ? { Authorization: `Bearer ${config.serviceKey}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }
+    r = await fetch(`${MINER}${path}`, body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers })
+  } catch (e) { throw fail(`process-miner unreachable: ${e.cause?.code || e.message}`) }
   const t = await r.text()
-  if (!r.ok) throw new Error(`process-miner ${r.status}: ${t.slice(0, 200)}`)
+  if (!r.ok) throw fail(`process-miner ${r.status}: ${t.slice(0, 200)}`)
   return JSON.parse(t)
 }
 
@@ -77,6 +85,16 @@ async function nameOf(p, cases) {
 let scanning = null
 export function scan() { return (scanning ||= doScan().finally(() => { scanning = null })) }
 
+// the admin's "지금 다시 찾기": a search that could not run is said so — not shown as "no flows yet"
+export async function scanNow() {
+  if (!MINER) throw err(503, L('프로세스 마이닝 서비스가 설정되지 않아 흐름을 찾을 수 없어요.', "Process mining isn't set up, so I can't look for flows."))
+  try { return await scan() } catch (e) {
+    if (!e.miner) throw e
+    console.warn('[mining] scan', e.message)
+    throw err(502, L('프로세스 마이닝 서비스에 연결하지 못해 흐름을 찾지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't reach the process mining service, so no flows were checked. Try again in a moment."))
+  }
+}
+
 async function doScan() {
   if (!MINER) return []
   const { patterns } = await miner(`/patterns?tenant_id=${encodeURIComponent(T())}&min_cases=${Number(process.env.PRO_MINING_MIN_CASES || 4)}`)
@@ -103,9 +121,9 @@ async function doScan() {
     if (open) continue
     const named = await nameOf(p, cases)
     named.name = await uniqueName(named.name)
-    // the miner proposes it as process-gpt does: a draft version + an open PR (live proc_def untouched),
-    // its names, descriptions and PR in the language of the work (the cases' recorded language)
-    const mined = await miner('/mine', { tenant_id: T(), process_id: p.process_id, name: named.name, case_ids: p.case_ids, lang: patternLang(p) })
+    // the miner only draws the model (it writes nothing); its names and descriptions are in the language
+    // of the work (the cases' recorded language). The process is saved on 정식 등록 (registerIn).
+    const mined = await miner('/discover', { tenant_id: T(), process_id: p.process_id, name: named.name, case_ids: p.case_ids, lang: patternLang(p) })
     const formats = [...new Set(p.steps.flatMap((s) => s.tools.map((t) => TOOL_FORMAT[t]).filter(Boolean)))]
     const [s] = await q(`insert into pro_mining_suggestions (tenant_id, pattern_key, process_id, name, summary, pattern, definition, pr_id, version_uuid, match)
                          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (tenant_id, pattern_key) do nothing returning *`, [

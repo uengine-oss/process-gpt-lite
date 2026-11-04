@@ -40,7 +40,7 @@ export function miningRoutes(auth) {
   }))
   r.get('/mining/me', auth, h(async (req) => ({ admin: await M.isAdmin(req.user) })))
   r.get('/mining/suggestions', auth, h(async (req) => { await admin(req); return M.list() }))
-  r.post('/mining/scan', auth, h(async (req) => { await admin(req); return { made: (await M.scan()).map((s) => s.id) } }))
+  r.post('/mining/scan', auth, h(async (req) => { await admin(req); return { made: (await M.scanNow()).map((s) => s.id) } }))
   r.get('/mining/suggestions/:id', auth, h(async (req) => {
     await admin(req)
     const s = await M.get(req.params.id)
