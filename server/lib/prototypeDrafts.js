@@ -21,7 +21,7 @@ export const isPrototypeRequest = (mail, attachments = []) => ASK.test(`${mail.s
 
 const SPEC = `You read a customer's mail asking for a prototype of an electronic product and return its mechanical facts as JSON:
 {"product","quantity","material","enclosure":{"width","depth","height","wall","corner_radius"},"standoffs":{"count","diameter","height","hole_diameter"},"front_hole":{"diameter"},"pcb":{"width","depth","thickness"},"due","assumed":[...]}
-Sizes in mm as numbers. A screw size means the tapped hole: M3 is hole_diameter 2.5, M2.5 is 2.05, M4 is 3.3. Use only what the mail says; leave a field null when the mail does not say it. "assumed" stays [].`
+Sizes in mm as numbers. A screw size means the tapped hole: M3 is hole_diameter 2.5, M2.5 is 2.05, M4 is 3.3. Write product and material in the language of the mail. Use only what the mail says; leave a field null when the mail does not say it. "assumed" stays [].`
 
 // 메일의 숫자만 쓴다. 없는 값은 기본값으로 채우고 가정이라고 적는다.
 export function normalizeSpec(raw = {}) {

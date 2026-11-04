@@ -79,6 +79,7 @@ test('부품표: 소스는 빼고 묶는다', async () => {
   assert.equal(b.parts, 4)
   const refs = Object.fromEntries(b.rows.map((r) => [r.refs.join(), r.value]))
   assert.equal(refs.R1, '1k'); assert.equal(refs.X1, 'OPA'); assert.equal(refs.CF, '1.6n')
+  assert.equal(refs.R2, '10k, 22k', '.STEP 으로 도는 값을 푼다')
 })
 test('고치고 저장한 넷리스트를 다시 열어 돌리면 바뀐 값이 나온다', async () => {
   const e = await call('edit', { ref: 'R1', value: '2k' })

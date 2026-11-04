@@ -61,10 +61,8 @@ export async function drawEnclosure(userId, spec, filePath, onStep = () => {}) {
   }
   onStep(L('표제란', 'Title block'))
   await run('layer.current', { name: 'TEXT' })
-  const t = (x, y, text, height = 2.8) => run('text', { at: [r2(x), r2(y)], text, height, justify: 'ML' })
-  const bx = rightX, by = topY
-  await run('rectang', { p1: [bx - 2, by + D - 44], p2: [bx + 92, by + D] })
-  await t(bx + 2, by + D - 8, spec.product || L('외함', 'Enclosure'), 4.2)
+  const t = (x, y, text, height = 4) => run('text', { at: [r2(x), r2(y)], text, height, justify: 'ML' })
+  // 표제란은 오른쪽면 아래: 오른쪽 위는 화면에서 뷰큐브가 가린다
   const rows = [
     L(`재질: ${spec.material || '알루미늄'}`, `Material: ${spec.material || 'Aluminum'}`),
     L(`크기: ${W} × ${D} × ${H} mm, 벽 ${T} mm`, `Size: ${W} × ${D} × ${H} mm, wall ${T} mm`),
@@ -72,7 +70,10 @@ export async function drawEnclosure(userId, spec, filePath, onStep = () => {}) {
     bosses.length ? L(`보스 ${bosses.length}개: Ø${bosses[0].diameter} × ${bosses[0].height}, 구멍 Ø${bosses[0].hole_diameter}`, `${bosses.length} bosses: Ø${bosses[0].diameter} × ${bosses[0].height}, hole Ø${bosses[0].hole_diameter}`) : '',
     front ? L(`앞면 구멍: Ø${front.diameter}`, `Front hole: Ø${front.diameter}`) : '',
   ].filter(Boolean)
-  for (const [i, row] of rows.entries()) await t(bx + 2, by + D - 16 - i * 6, row)
+  const bx = rightX, top = -30, tall = 16 + rows.length * 8
+  await run('rectang', { p1: [bx - 2, top - tall], p2: [bx + 108, top] })
+  await t(bx + 2, top - 8, spec.product || L('외함', 'Enclosure'), 5.5)
+  for (const [i, row] of rows.entries()) await t(bx + 2, top - 18 - i * 8, row)
   await run('text', { at: [W / 2, topY - 7], text: L('윗면', 'Top'), height: 3, justify: 'MC' })
   await run('text', { at: [W / 2, -21], text: L('앞면', 'Front'), height: 3, justify: 'MC' })
   await run('text', { at: [rightX + D / 2, -21], text: L('오른쪽면', 'Right'), height: 3, justify: 'MC' })

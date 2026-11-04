@@ -346,6 +346,20 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
+### 19. 시작품 요청 — 메일 하나로 회로 검토·3D·2D·제안서·견적서 (spec `pgpt-pro_prototype-request`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 연습 메일 → 회로 값 → STEP·IGES(다른 도구로 잼) → DXF → 제안서·견적서(값·그림·수식·가정 문구) | `server/test/prototype.e2e.mjs` 1~5 | HTTP | ✅ |
+| 판별, 메일의 치수, 가정 표시, 말이 안 되는 치수, Gmail 본문 | `prototype.test.js`, `prototype-cases.json` | 단위 | ✅ |
+| PSpice 호환 변환, 쓰고 다시 읽기, 못 옮기는 것 말하기, 없는 모델·암호화 | `craft/pspice/test/pspice.test.mjs` | 단위 | ✅ |
+| 시뮬레이션 MCP(값은 이론과 비교) | `craft/circuitcraft-cli/test/mcp.test.mjs` | 단위 | ✅ |
+| CircuitCraft: 자동 회로도, 런 선택, 치명 오류 복구, 왕복 저장, 호스트 | `craft/circuitcraft/test/circuitcraft.e2e.mjs` | 화면 | ✅ |
+| SolidCraft·3D MCP: 외함 부피(다른 도구), STEP·IGES, 경로 제한, 호스트 | `craft/solidcraft-cli/test/solidcraft.test.mjs`, `craft/solidcraft/test/web.e2e.mjs` | 단위·화면 | ✅ |
+| 카드를 앱에서 연다: 라이브러리 함께, 없는 부품 이름, 3D, 연습 메일 목록 | F-PR-01·02·03·04 | feature | ✅ |
+| 실제 프로젝트 180개 대조(PSpice .out) | `craft/pspice/test/corpus.mjs` | 측정 | ◐ 파일은 저장소 밖 |
+| 실제 Gmail 첨부, 없는 앱 건너뛰기 | — | — | ✗ 코드 경로만 |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |

@@ -7,6 +7,11 @@
 
 ### 추가
 
+- **시작품 요청 메일** (spec process-gpt `openspec/specs/pgpt-pro_prototype-request`): 전자 제품 시작품을 요청하는 고객 메일 하나로 회로 검토, 3D(STEP·IGES), 2D 도면, 제안서, 견적서 초안을 먼저 만들어 둡니다. 값은 도구가 낸 것이고, 메일에 없는 값과 단가는 가정이라고 적습니다.
+  - **CircuitCraft** (`craft/circuitcraft`, WebSpice 포크, ngspice WebAssembly): PSpice 넷리스트(.cir .lib 등)를 열면 회로도를 자동으로 그리고 TRAN·AC·스텝 결과를 봅니다. ngspice 가 그대로 못 돌리는 PSpice 문법은 `craft/pspice` 가 옮깁니다. 옮기지 못하는 회로(LAPLACE, 디지털, Cadence 암호화 모델, 없는 모델)는 돌리지 않고 이유를 말합니다. 실제 OrCAD 프로젝트 180개 중 167개를 돌렸고, PSpice 가 남긴 값이 있는 내부 노드 189개가 모두 2% 안이었습니다. OrCAD .dsn 은 읽기만 하며, 쓰기는 오픈소스가 없어 넷리스트로 대신합니다.
+  - **SolidCraft** (`craft/solidcraft`, Chili3D AGPL-3.0, OpenCascade WebAssembly): STEP·IGES 를 읽고 씁니다. 에이전트는 선언형 도구(`craft/solidcraft-cli`)로 외함을 짓고 부품을 앉힙니다. 모델이 보낸 코드는 실행하지 않습니다. 제품에 넣어 판매하기 전에 AGPL 소스 공개나 상용 라이선스를 정해야 합니다.
+  - **메일**: 첨부를 받습니다(데모·IMAP·Gmail). Gmail 은 본문 전체를 읽습니다(지금까지 앞 200자뿐이었습니다).
+
 - **다국어 협업 — 회의 실시간 AI 통역 · 메신저 자동 번역** (설계 process-gpt `openspec/changes/pgpt-pro-meeting-interpretation`):
   - **주 언어**: 사람마다 말하고 읽는 언어(`pro_profile.main_lang`, `server/sql/020_interpretation.sql`)를 화면 언어(ko|en)와 따로 둡니다. ko·en·ja·zh·es·fr·de·pt·it·ru·hi·vi·id·th·ar·tr·nl·pl 중에서 고르고, 그 밖의 언어는 영어 화면이 됩니다. 설정 › 계정 › 주 언어, 회의 로비, `PUT /api/me/main-lang`.
   - **회의 통역**: 받아쓰기는 말한 사람의 주 언어로 합니다(각자 자기 마이크만 — 화자 귀속 그대로). 듣는 사람은 다른 화자의 말을 자기 주 언어의 통역 음성으로 듣고, 그동안 그 화자의 원래 소리는 0.2로 낮춥니다(끊지 않음). 자막은 원문과 번역을 함께 보여 줍니다. 자기 말의 통역은 듣지 않고, 같은 언어끼리는 손대지 않습니다.
