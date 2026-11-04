@@ -22,6 +22,7 @@ export default defineConfig({
   ],
   globalTeardown: './lib/teardown.js',
   use: {
+    channel: 'chrome',
     baseURL: PGPT_URL,
     viewport: { width: 1280, height: 720 },
     // the ArtCraft (egui) apps lay out wrongly above dpr 1

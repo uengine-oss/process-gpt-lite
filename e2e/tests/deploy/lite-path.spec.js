@@ -195,7 +195,7 @@ test('5 두 계정이 같은 대화방 회의에서 서로 들리고, 마치면 
   micWav(path.join(dir, 'b.wav'), await speech('좋아요. 방문 전에 견적서를 한 번 더 확인할게요.', 'nova'), 9)
 
   const open = async (who, mic) => {
-    const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${mic}`, '--autoplay-policy=no-user-gesture-required'] })
+    const browser = await chromium.launch({ channel: 'chrome', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${mic}`, '--autoplay-policy=no-user-gesture-required'] })
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: 'ko-KR', permissions: ['camera', 'microphone'] })
     const page = await ctx.newPage()
     await signIn(page, who)
