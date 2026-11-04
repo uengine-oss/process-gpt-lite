@@ -7,6 +7,7 @@ import { config } from '../config.js'
 import fs from 'node:fs/promises'
 import { workspaceHostPath, saveSkillDraft } from './missions.js'
 import { PGPT_ROOT } from './paths.js'
+import { L } from './lang.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const PGPT = PGPT_ROOT
@@ -25,15 +26,30 @@ async function viaBridge(action, contract, workHost) {
   return out
 }
 
-export async function saveGenerated(contract, workDir) {
+// No bridge (PRO_BRIDGE_URL) and no deepagents venv on this host (a server image deployed without the
+// bridge service): saving cannot run. The caller gets this error (500 — not 502/503, which Cloudflare in
+// front of production replaces with its own page) instead of the server process dying on the spawn's
+// unhandled 'error' event (ENOENT), which took every user's session down with it.
+export const saveUnavailable = () => Object.assign(
+  new Error(L('프로세스 정의를 저장할 곳이 설정되지 않아 저장하지 못했어요. 관리자에게 알려 주세요.',
+    "There is nowhere set up to save process definitions, so it wasn't saved. Please tell your administrator.")),
+  { status: 500, code: 'SAVE_UNAVAILABLE' })
+
+export async function saveGenerated(contract, workDir, { python = `${PGPT}/services/deepagents/.venv/bin/python` } = {}) {
   const workHost = workDir ? await workspaceHostPath(workDir).catch(() => '') : ''
   if (config.bridgeUrl) return viaBridge('save', contract, workHost)
   return new Promise((resolve, reject) => {
-    const py = spawn(`${PGPT}/services/deepagents/.venv/bin/python`, [path.join(here, '..', 'bridge', 'save_generated.py')], {
+    const py = spawn(python, [path.join(here, '..', 'bridge', 'save_generated.py')], {
       env: { ...process.env, PGPT_ROOT: PGPT, TENANT_ID: config.tenantId, SUPABASE_URL: config.supabaseUrl, SERVICE_ROLE_KEY: config.serviceKey,
         WORK_DIR: workHost },
     })
     let out = '', err = ''
+    py.on('error', (e) => {
+      console.warn('[process] save', e.code || e.message)
+      reject(e.code === 'ENOENT' ? saveUnavailable() : e)
+    })
+    // (writing the contract to a process that never started fails too: that is the 'error' above)
+    py.stdin.on('error', () => {})
     py.stdout.on('data', (d) => { out += d })
     py.stderr.on('data', (d) => { err += d })
     py.on('close', (code) => {
