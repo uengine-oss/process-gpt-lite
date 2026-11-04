@@ -91,7 +91,7 @@ await step('제안서·견적서: 잰 값을 그대로 쓰고, 그림이 들어�
   const shared = (() => { try { return unz(x, 'xl/sharedStrings.xml') } catch { return '' } })(), sheet = unz(x, 'xl/worksheets/sheet1.xml')
   const all = (shared + sheet).replace(/<[^>]+>/g, ' ')
   assert.match(all, /C1608C0G1H100D080AA/, '메일의 부품 번호')
-  assert.ok((sheet.match(/<f>/g) || []).length >= 5, '금액은 수식')
+  assert.ok((sheet.match(/<f[ >]/g) || []).length >= 5, '금액은 수식')
   assert.match(all, /가정/, '단가가 가정값이라고 적는다')
 })
 console.log(`  # 전체 ${Math.round((Date.now() - t0) / 1000)}초`)

@@ -196,7 +196,14 @@ export async function prototypeDrafts(userId, t, mail, d, attachments, { delegat
   }
 
   // 4) 제안서·견적서: 위의 값으로 에이전트가 쓴다
-  const pictures = [...(circuit?.plots || []), solid?.png, solid?.inside, drawingPng].filter(Boolean)
+  // 그림마다 무엇인지 함께 준다: 모델에게 맡기면 없는 말을 지어낸다("임펄스 응답", "배치도")
+  const captioned = [
+    ...(circuit?.plots || []).map((p) => [p, /주파수/.test(p) ? L('주파수 응답: 시뮬레이션', 'Frequency response: simulation') : L('시간 응답(사인파 입력): 시뮬레이션', 'Transient response (sine input): simulation')]),
+    ...(solid?.png ? [[solid.png, L('외함 3D 모델', 'Enclosure 3D model')]] : []),
+    ...(solid?.inside ? [[solid.inside, L('뚜껑을 뺀 모습: 안에 고객 PCB', 'With the lid off: the customer PCB inside')]] : []),
+    ...(drawingPng ? [[drawingPng, L('외함 2D 도면(윗면·앞면·오른쪽면)', 'Enclosure 2D drawing (top, front, right)')]] : []),
+  ]
+  const pictures = captioned.map(([p, c]) => `${p} (${L('설명', 'caption')}: ${c})`)
   const facts = [
     L(`제품: ${spec.product}, 수량 ${spec.quantity}대, 재질 ${spec.material}`, `Product: ${spec.product}, quantity ${spec.quantity}, material ${spec.material}`),
     L(`외함: ${spec.enclosure.width} × ${spec.enclosure.depth} × ${spec.enclosure.height} mm, 벽 ${spec.enclosure.wall} mm${solid?.mass_g ? `, 재료 ${solid.mass_g} g` : ''}`, `Enclosure: ${spec.enclosure.width} × ${spec.enclosure.depth} × ${spec.enclosure.height} mm, wall ${spec.enclosure.wall} mm${solid?.mass_g ? `, ${solid.mass_g} g of material` : ''}`),
@@ -209,10 +216,10 @@ export async function prototypeDrafts(userId, t, mail, d, attachments, { delegat
   const docs = items.length ? items : [{ kind: L('제안서', 'proposal'), format: 'docx', name: `${base} ${L('제작 제안서', 'proposal')}.docx` }, { kind: L('견적서', 'quote'), format: 'xlsx', name: `${base} ${L('견적서', 'quote')}.xlsx` }]
   const body = String(mail.text || '').slice(0, 2500)
   const jobs = docs.map((i, k) => `${k + 1}) ${i.kind}, ${dir}/${safeName(i.name.replace(/\.hwpx$/i, '.docx'))}. ${/xlsx/.test(i.format)
-    ? L(`엑셀(xlsx) 스킬로 만드세요. 위에 제목·수신·발신·견적일·유효기간, 품목 표(구분·품목·규격·수량·단가·금액, 금액은 =수량*단가 수식). 품목: 회로 부품표의 부품(1대 기준 수량에 대수를 곱함, 메일에 나온 부품 번호를 규격에 그대로), PCB 제작·조립, 외함 재료(무게 기준)·CNC 가공·표면 처리, 시험·검사. 아래에 공급가액·부가세(10%)·합계 수식. 단가는 합리적인 가정값이고, 아래쪽에 "단가는 가정값입니다. 확정 전 공급사 견적이 필요합니다"라고 적으세요.`,
+    ? L(`엑셀(xlsx) 스킬로 만드세요. 위에 제목·수신·발신·견적일·유효기간, 품목 표(구분·품목·규격·수량·단가·금액, 금액은 =수량*단가 엑셀 수식이어야 하고 값을 직접 쓰지 마세요). 품목: 회로 부품표의 부품(1대 기준 수량에 대수를 곱함, 메일에 나온 부품 번호를 규격에 그대로), PCB 제작·조립, 외함 재료(무게 기준)·CNC 가공·표면 처리, 시험·검사. 아래에 공급가액·부가세(10%)·합계 수식. 단가는 합리적인 가정값이고, 아래쪽에 "단가는 가정값입니다. 확정 전 공급사 견적이 필요합니다"라고 적으세요.`,
       `Use the Excel (xlsx) skill. At the top the title, to, from, date and validity; an item table (category, item, spec, quantity, unit price, amount, amount as a =quantity*unit formula). Items: the circuit's parts (per-unit quantity × units; part numbers from the mail in the spec column), PCB and assembly, enclosure material (by mass), CNC machining and finish, test. Below: subtotal, VAT 10%, total as formulas. Unit prices are reasonable assumptions: say below the table that they are assumptions and need supplier quotes.`)
-    : L(`워드(docx) 스킬로 만드세요. 표지(고객·제목·날짜), 요청 내용, 회로 검토 결과(위 값 그대로, 표로), 기구 설계(치수·재질), 일정, 제작 범위. 그림을 넣으세요: ${pictures.join(', ') || '(없음)'}. 숫자는 위 값만 쓰고 지어내지 마세요.`,
-      `Use the Word (docx) skill. A cover (customer, title, date), the request, the circuit review (the values above, as a table), the mechanical design (sizes, material), schedule, scope. Put these pictures in: ${pictures.join(', ') || '(none)'}. Use only the values above; do not make up numbers.`)}`).join('\n')
+    : L(`워드(docx) 스킬로 만드세요. 표지(고객·제목·날짜), 요청 내용, 회로 검토 결과(위 값 그대로, 표로), 기구 설계(치수·재질), 일정, 제작 범위. 그림을 설명 그대로 넣으세요: ${pictures.join(', ') || '(없음)'}. 숫자는 위 값만 쓰고 지어내지 마세요. 메일에 없는 제작 조건(표면 처리 방법, 일정 등)은 정해진 것처럼 쓰지 말고 "가정"이라고 적으세요.`,
+      `Use the Word (docx) skill. A cover (customer, title, date), the request, the circuit review (the values above, as a table), the mechanical design (sizes, material), schedule, scope. Put these pictures in with their captions: ${pictures.join(', ') || '(none)'}. Use only the values above; do not make up numbers. Conditions the mail does not give (finish, schedule) are assumptions: say so rather than stating them as decided.`)}`).join('\n')
   await say(L('이 값들로 제안서와 견적서를 쓸게요.', "I'll write the proposal and the quote from these values."))
   await delegateTurn(L(`같은 고객 메일(${mail.subject})에 회신할 문서 초안을 만드세요.\n\n${facts}\n\n메일 본문: ${body}\n\n${jobs}\n\n(회로, 3D, 2D 도면은 이미 만들었으니 다시 만들지 마세요.) 다 만들면 파일 이름과 가정한 단가를 두세 줄로 적으세요. 진행 설명과 답은 모두 한국어(해요체)로 쓰세요.`,
     `Make draft documents to answer the same customer mail (${mail.subject}).\n\n${facts}\n\nMail body: ${body}\n\n${jobs}\n\n(The circuit, 3D model and 2D drawing are already made: do not make them again.) When done, give the file names and the unit prices you assumed in two or three lines. Write the progress notes and the answer in English.`))
