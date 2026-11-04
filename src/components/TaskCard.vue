@@ -26,16 +26,29 @@ const takeover = ref(false)
 // the task's title; each new line slides in
 const live = computed(() => (running.value && app.status[props.msg.thread_id]) || null)
 
+// one at a time, in order: a password typed fast must not arrive shuffled
+let sending = Promise.resolve()
+const send = (body) => { sending = sending.then(() => api('/browser/input', { method: 'POST', body })).catch(() => {}) }
 function onClick(e) {
   if (!takeover.value) return
   const r = e.currentTarget.getBoundingClientRect()
-  api('/browser/input', { method: 'POST', body: { type: 'click', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height } })
+  send({ type: 'click', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height })
 }
 function onKey(e) {
   if (!takeover.value) return
+  const cmd = e.metaKey || e.ctrlKey
+  if (cmd && e.key.toLowerCase() === 'v') return // onPaste brings the text itself
   e.preventDefault()
-  if (e.key.length === 1) api('/browser/input', { method: 'POST', body: { type: 'text', text: e.key } })
-  else api('/browser/input', { method: 'POST', body: { type: 'key', key: e.key } })
+  if (['Process', 'Dead', 'Unidentified', 'HangulMode', 'HanjaMode'].includes(e.key)) return // input method keys, not characters
+  if (cmd) { if (e.key.length === 1) send({ type: 'key', key: `ControlOrMeta+${e.key}` }) }
+  else if (e.key.length === 1) send({ type: 'text', text: e.key })
+  else send({ type: 'key', key: e.key })
+}
+function onPaste(e) {
+  if (!takeover.value) return
+  e.preventDefault()
+  const text = e.clipboardData?.getData('text')
+  if (text) send({ type: 'text', text })
 }
 function finishTakeover() {
   takeover.value = false
@@ -47,7 +60,7 @@ const cancel = () => api('/browser/cancel', { method: 'POST', body: { taskId: pr
 
 <template>
   <div class="task" :class="{ full }">
-    <div class="screen" :class="{ live: running, takeover }" tabindex="0" @click="onClick" @keydown="onKey">
+    <div class="screen" :class="{ live: running, takeover }" tabindex="0" @click="onClick" @keydown="onKey" @paste="onPaste">
       <img v-if="frame?.data" :src="`data:image/jpeg;base64,${frame.data}`" alt="" />
       <div v-else class="blank"><span class="shimmer-text">{{ running ? '브라우저 여는 중' : queued ? (c.reason || '앞 작업이 끝나면 시작해요') : c.title }}</span></div>
       <Transition name="fade">
@@ -111,7 +124,7 @@ const cancel = () => api('/browser/cancel', { method: 'POST', body: { taskId: pr
 .plan li small { grid-column: 2; color: rgba(29 29 31 / .45); }
 .dot { width: 8px; height: 8px; border-radius: 9999px; background: rgba(29 29 31 / .2); margin-top: 7px; }
 li.done .dot { background: #0F9D58; }
-.full .screen { aspect-ratio: auto; height: min(70vh, 640px); width: min(92vw, 1024px); margin: 0 auto; }
+.full .screen { width: min(92vw, 1024px, 112vh); margin: 0 auto; } /* keeps 16/10, the browser's own shape: nothing cropped, and a click lands where it is seen */
 .bar { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
 .pill { height: 40px; padding: 0 16px; border-radius: 9999px; background: rgba(255 255 255 / .92); color: #1d1d1f; display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; }
 .pill.on { background: var(--color-attention); color: #fff; }
