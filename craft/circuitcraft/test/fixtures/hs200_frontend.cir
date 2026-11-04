@@ -1,0 +1,31 @@
+* HS200 receiver front-end: inverting stage with an anti-alias RC
+.LIB "hs200.lib"
+.LIB "1N4148.lib"
+.PARAM RIN=1k RF=10k RAA=1.6k CAA=1n VSUP=15
+
+* Supplies
+VCC VCC 0 DC {VSUP}
+VEE VEE 0 DC {-VSUP}
+
+* Sensor input: a 100 mV step for .TRAN, 1 V for .AC
+VIN IN 0 DC 0 AC 1 PULSE(0 100m 10u 100n 100n 200u 400u)
+
+* Input protection clamps to the rails
+XD1 IN VCC 1N4148
+XD2 VEE IN 1N4148
+
+* Inverting gain stage, gain = -RF/RIN
+R1 IN INV {RIN}
+R2 INV OUT {RF}
+X1 0 INV OUT VCC VEE HS200
+
+* Anti-alias filter in front of the ADC, corner = 1/(2*pi*RAA*CAA)
+R3 OUT ADC {RAA}
+C1 ADC 0 {CAA}
+RADC ADC 0 1MEG
+
+.STEP PARAM RF LIST 10k 22k 47k
+.TRAN 0.1u 300u 0 0.2u
+.AC DEC 40 10 100MEG
+.PROBE V(IN) V(OUT) V(ADC)
+.END

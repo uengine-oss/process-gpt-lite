@@ -1,0 +1,86 @@
+{
+  "examples": [
+    {
+      "id": "voltage-divider",
+      "name": "Voltage Divider",
+      "description": "Basic voltage divider with two resistors",
+      "category": "basic",
+      "schematicFile": "/examples/voltage-divider.json",
+      "netlistFile": null,
+      "previewImage": "/previewImage/voltage-divider.png"
+    },
+    {
+      "id": "minimal-rc",
+      "name": "RC Low-Pass Filter (Transient)",
+      "description": "RC low-pass with pulse input, shows time-domain response",
+      "category": "basic",
+      "schematicFile": "/examples/rc-lowpass.json",
+      "netlistFile": "/test-circuits/minimal-rc.cir",
+      "previewImage": "/previewImage/rc-lowpass.png"
+    },
+    {
+      "id": "rc-lowpass-ac",
+      "name": "RC Low-Pass Filter (AC)",
+      "description": "RC low-pass frequency sweep, shows Bode plot (fc=159Hz)",
+      "category": "filters",
+      "schematicFile": "/examples/rc-lowpass-ac.json",
+      "netlistFile": null,
+      "previewImage": "/previewImage/rc-lowpass-ac.png"
+    },
+    {
+      "id": "rc-highpass",
+      "name": "RC High-Pass Filter (Transient)",
+      "description": "RC high-pass with sine input, shows time-domain response",
+      "category": "basic",
+      "schematicFile": "/examples/rc-highpass.json",
+      "netlistFile": null,
+      "previewImage": "/previewImage/rc-highpass.png"
+    },
+    {
+      "id": "rc-highpass-ac",
+      "name": "RC High-Pass Filter (AC)",
+      "description": "RC high-pass frequency sweep, shows Bode plot (fc=159Hz)",
+      "category": "filters",
+      "schematicFile": "/examples/rc-highpass-ac.json",
+      "netlistFile": null,
+      "previewImage": "/previewImage/rc-highpass-ac.png"
+    },
+    {
+      "id": "rlc-bandpass",
+      "name": "RLC Bandpass Filter (Transient)",
+      "description": "Series RLC bandpass with 5 kHz resonance - time domain",
+      "category": "filters",
+      "schematicFile": "/examples/rlc-bandpass.json",
+      "netlistFile": null,
+      "previewImage": "/previewImage/rlc-bandpass.png"
+    },
+    {
+      "id": "rlc-bandpass-ac",
+      "name": "RLC Bandpass Filter (AC)",
+      "description": "Series RLC bandpass - frequency response (Bode plot)",
+      "category": "filters",
+      "schematicFile": "/examples/rlc-bandpass-ac.json",
+      "netlistFile": null,
+      "previewImage": "/previewImage/rlc-bandpass-ac.png"
+    },
+    {
+      "id": "voltage-multiplier",
+      "name": "Voltage Multiplier",
+      "description": "6-stage Cockcroft-Walton multiplier",
+      "category": "analog",
+      "schematicFile": "/examples/voltage-multiplier-ltspice.json",
+      "netlistFile": "/test-circuits/voltage-multiplier.cir",
+      "previewImage": "/previewImage/voltage-multiplier.png"
+    },
+    {
+      "id": "coupled-lc-resonators",
+      "name": "Coupled LC Resonators",
+      "description": "Circuit QED-like coupled microwave resonators at 5 GHz",
+      "category": "analog",
+      "schematicFile": "/examples/coupled-lc-resonators.json",
+      "netlistFile": null,
+      "previewImage": "/previewImage/coupled-LC.png"
+    }
+  ]
+}
+

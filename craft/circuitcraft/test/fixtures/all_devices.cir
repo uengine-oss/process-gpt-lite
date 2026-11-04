@@ -1,0 +1,64 @@
+* Every device kind the symbol set cannot draw, next to the ones it can
+.LIB "hs200.lib"
+.MODEL SWV VSWITCH(RON=1 ROFF=1MEG VON=2 VOFF=1)
+.MODEL SWI ISWITCH(RON=1 ROFF=1MEG ION=2m IOFF=1m)
+.MODEL JN NJF(VTO=-2 BETA=1m)
+.MODEL QN NPN(BF=100)
+.MODEL MN NMOS(VTO=1 KP=2m)
+.MODEL DX D(IS=1n)
+.PARAM RL=1k
+
+VIN IN 0 DC 1 PULSE(0 5 0 1u 1u 1m 2m)
+VDD VDD 0 DC 12
+R1 IN A {RL}
+D1 A 0 DX
+
+* Controlled sources
+EAMP E1 0 A 0 2
+RE1 E1 0 1k
+GAMP 0 G1 A 0 1m
+RG1 G1 0 1k
+VSENSE A SENSE 0
+RSENSE SENSE 0 1k
+FMIR 0 F1 VSENSE 2
+RF1 F1 0 1k
+HZ H1 0 VSENSE 100
+RH1 H1 0 1k
+EVAL V1 0 VALUE={2*V(A)+1}
+RV1 V1 0 1k
+BLOG B1 0 V = V(A)*2
+RB1 B1 0 1k
+
+* Switches and a transmission line
+S1 IN S1O A 0 SWV
+RS1 S1O 0 1k
+W1 IN W1O VSENSE SWI
+RW1 W1O 0 1k
+T1 IN 0 TO 0 Z0=50 TD=1u
+RT1 TO 0 50
+
+* Semiconductors
+J1 VDD A JS JN
+RJ JS 0 1k
+Q1 VDD A QE QN
+RQ QE 0 1k
+Q2 VDD A QE2 QS QN
+RQ2 QE2 0 1k
+RQS QS 0 1k
+M1 VDD A MS MS MN L=10u W=10u
+RM MS 0 1k
+M2 VDD A MS2 0 MN L=10u W=10u
+RM2 MS2 0 1k
+
+* A subcircuit with more than two pins and a coupled pair
+X1 0 A XO VDD 0 HS200
+RXO XO 0 10k
+L1 IN L1O 1m
+RL1 L1O 0 100
+L2 L2A 0 1m
+RL2 L2A 0 100
+K1 L1 L2 0.9
+
+.TRAN 1u 2m
+.OP
+.END

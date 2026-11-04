@@ -1,0 +1,6 @@
+* A circuit with part of it in an include file
+.INC "sheet_stage.inc"
+V1 IN 0 DC 2
+R1 IN MID 1k
+.OP
+.END

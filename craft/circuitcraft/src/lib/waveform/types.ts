@@ -1,0 +1,53 @@
+/** Waveform viewer types */
+
+export type TraceType = 'voltage' | 'current' | 'time' | 'frequency' | 'magnitude' | 'phase' | 'notype';
+
+export interface TraceData {
+	id: string;
+	name: string;
+	type: TraceType;
+	values: ArrayLike<number>;
+	/** its own X axis: traces of different runs do not share time points */
+	x?: ArrayLike<number>;
+	color: TraceColor;
+	visible: boolean;
+}
+
+export interface TraceColor {
+	r: number; g: number; b: number; a: number;
+}
+
+export interface ViewBounds {
+	xMin: number; xMax: number; yMin: number; yMax: number;
+}
+
+export interface Cursor {
+	id: 'A' | 'B';
+	x: number;
+	visible: boolean;
+	color: string;
+}
+
+/** Waveform tab - contains traces for one panel */
+export interface WaveformTab {
+	id: string;
+	name: string;
+	traces: TraceData[];
+	xAxisType?: 'time' | 'frequency';
+}
+
+const TRACE_COLORS: TraceColor[] = [
+	{ r: 0, g: 1, b: 0, a: 1 },
+	{ r: 1, g: 0, b: 0, a: 1 },
+	{ r: 0, g: 0.5, b: 1, a: 1 },
+	{ r: 1, g: 0, b: 1, a: 1 },
+	{ r: 0, g: 1, b: 1, a: 1 },
+	{ r: 1, g: 1, b: 0, a: 1 },
+	{ r: 1, g: 0.5, b: 0, a: 1 },
+	{ r: 0.5, g: 1, b: 0, a: 1 },
+];
+
+export function getTraceColor(index: number): TraceColor {
+	return TRACE_COLORS[index % TRACE_COLORS.length];
+}
+

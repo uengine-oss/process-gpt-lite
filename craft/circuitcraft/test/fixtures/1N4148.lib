@@ -1,0 +1,5 @@
+* Small signal diode for the tests: generic textbook values, not a vendor model.
+.SUBCKT 1N4148 1 2
+D1 1 2 DSIG
+.MODEL DSIG D(IS=2.5n RS=0.6 N=1.75 CJO=4p M=0.4 TT=20n BV=100 IBV=100u)
+.ENDS 1N4148

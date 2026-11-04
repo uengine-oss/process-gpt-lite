@@ -1,0 +1,20 @@
+* HS200 high-speed op-amp, vendor-style PSpice macro model
+* Pins: IN+ IN- OUT VCC VEE
+* A0 = 100 V/mV, open-loop pole 1 kHz (GBW 100 MHz), output swing to 1 V from the rails.
+.SUBCKT HS200 IN+ IN- OUT VCC VEE PARAMS: A0=100k FP=1k ROUT=75
+RIN   IN+ IN- 2MEG
+CIN   IN+ IN- 1p
+GM    0   N1  IN+ IN- 1
+RP    N1  0   {A0}
+CP    N1  0   {1/(6.2832*FP*A0)}
+EOUT  OI  0   VALUE={LIMIT(V(N1),V(VEE)+1,V(VCC)-1)}
+RO    OI  OUT {ROUT}
+IQ    VCC VEE 5m
+.ENDS HS200
+
+* A second part of the same vendor file. This one cannot be read by the simulator
+* (an unterminated expression); a circuit that does not use it must not be touched by it.
+.SUBCKT HS200_BROKEN A B
+EBAD A B VALUE={LIMIT(V(A),
+RBAD A B 1k
+.ENDS HS200_BROKEN
