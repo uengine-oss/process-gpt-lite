@@ -116,7 +116,7 @@ export async function startMcp({ readRoot, writeRoot } = {}) {
       const rows = new Map()
       // {RF} 는 .PARAM 의 값으로 푼다. .STEP 으로 도는 값이면 값들을 모두 적는다
       const paramValue = (name) => { for (const l of d.parsed.params) { const m = new RegExp(`\\b${name}\\s*=\\s*([^\\s,]+)`, 'i').exec(l); if (m) return m[1] } return null }
-      const stepped = (name) => { for (const l of d.parsed.others) { const m = new RegExp(`^\\.STEP\\s+(?:LIN\\s+)?PARAM\\s+${name}\\s+LIST\\s+(.*)$`, 'i').exec(l); if (m) return m[1].split(/[\\s,]+/).join(', ') } return null }
+      const stepped = (name) => { for (const l of d.parsed.others) { const m = new RegExp(`^\\.STEP\\s+(?:LIN\\s+)?PARAM\\s+${name}\\s+LIST\\s+(.*)$`, 'i').exec(l); if (m) return m[1].split(/[\s,]+/).join(', ') } return null }
       const plain = (v) => String(v).replace(/^\{(\w+)\}$/, (m, n) => stepped(n) || paramValue(n) || m)
       for (const e of el) {
         const value = e.model || plain(valueOf(e))
