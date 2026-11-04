@@ -30,6 +30,8 @@ const META = {
   panelapps: { name: '패널 앱', category: '협업·문서', link: 'http://localhost:5180/', desc: '공유 폴더의 스프레드시트를 데이터 원본으로 쓰는 Home 패널 앱(리드 관리·휴가 일수 관리 등). 앱 목록·만들기·행 조회·추가·수정(panel_app_list, panel_app_create, panel_app_rows, panel_app_add_row, panel_app_update_row). 폴더 구성원 권한을 따름.' },
   improve: { name: '프로세스 개선', category: '업무 프로세스', link: 'http://localhost:5180/improve', desc: '실행 기록으로 프로세스의 병목·가치 흐름(흐름 효율)·제약(가동률·대기열)·크리티컬 패스를 계산하고 개선안을 미리 계산(improve_processes, improve_bottlenecks, improve_value_stream, improve_constraint, improve_critical_path, improve_what_if). 숫자는 모두 결정적 계산. 참여한 프로세스만 보임.' },
   'ieumoffice-live-editor': { name: '이음오피스', category: '협업·문서', link: 'http://localhost:5180/', desc: '채팅 옆 이음오피스 편집기에 열린 워드·엑셀 문서를 사람이 보는 앞에서 읽고 고치기(office_live_*). 문서가 열려 있을 때만 도구가 보임. 새 문서 만들기는 office-mcp.' },
+  circuitcraft: { name: 'CircuitCraft', category: '설계·도면', link: 'https://github.com/jwt625/WebSpice', desc: 'PSpice 넷리스트(.cir .lib)를 읽고 쓰고 ngspice(WebAssembly)로 시뮬레이션, 값 재기, 그래프, 부품표. OrCAD .dsn 은 읽기만. 편집은 채팅의 회로 카드에서 웹 CircuitCraft 로.' },
+  solidcraft: { name: 'SolidCraft', category: '설계·도면', link: 'https://github.com/xiangechen/chili3d', desc: 'STEP·IGES 읽기·쓰기, 외함 모델링, 부품 조립, 형상 측정, 렌더링(Chili3D·OpenCascade WebAssembly). 편집은 채팅의 3D 카드에서 웹 SolidCraft 로.' },
   cadcraft: { name: 'CADCraft', category: '설계·도면', link: 'https://getartcraft.com/apps/cadcraft', desc: 'DXF·DWG 도면 그리기·조회·렌더링(CADCraft 오픈소스 CAD, 계정 불필요). 편집은 채팅의 도면 카드에서 웹 CADCraft로.' },
 }
 // servers that are not account connectors (mcp/craft.js), registered the same way

@@ -536,7 +536,7 @@ const skillStatus = (tool, steps) => L(`스킬 만드는 중 · ${SKILL_STEPS[to
 // What the person sees above the composer while the agent works (hark's "패널 만드는 중"): the tool
 // the agent just reached for, in everyday words.
 const PHASES = [
-  [/^cadcraft_/, '도면 그리는 중'], [/^vectorcraft_/, '그림 만드는 중'], [/^photocraft_/, '이미지 편집하는 중'],
+  [/^circuitcraft_/, '회로 돌리는 중'], [/^solidcraft_/, '3D 모델 만드는 중'], [/^cadcraft_/, '도면 그리는 중'], [/^vectorcraft_/, '그림 만드는 중'], [/^photocraft_/, '이미지 편집하는 중'],
   [/^soundcraft_/, '소리 만드는 중'], [/^filmcraft_/, '영상 편집하는 중'], [/^folder_/, '폴더 살펴보는 중'],
   [/^office_live_(read|documents)|^office_guide/, '문서 읽는 중'], [/^office_live_/, '문서 고치는 중'],
   [/hwpx|docx|pptx|xlsx|office|document|render_hwp/i, '문서 만드는 중'], [/panel/i, '패널 만드는 중'],

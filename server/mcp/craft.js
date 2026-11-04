@@ -24,6 +24,9 @@ export const CRAFT_APPS = {
   photocraft: { args: [], roots: true },
   soundcraft: { args: [], roots: true },
   filmcraft: { args: [] },
+  // PSpice 회로(craft/circuitcraft-cli), STEP·IGES 3D(craft/solidcraft-cli): 우리가 만든 CLI, 같은 규약
+  circuitcraft: { args: [], roots: true },
+  solidcraft: { args: [], roots: true },
 }
 // What this install has of each app: the web build under craftWebRoot/<app>/ and its CLI (an
 // absolute path, or a name on PATH). An install without ArtCraft (the Docker lite profile) opens

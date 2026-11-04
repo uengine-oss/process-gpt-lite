@@ -70,6 +70,38 @@ export async function googleAccessToken(userId) {
   return tok.access_token
 }
 
+// ---------- 첨부: 시작품 요청이 보내는 회로·3D 파일(lib/prototypeDrafts.js) ----------
+const WANTED_FILE = /\.(cir|net|ckt|sp|lib|mod|inc|dsn|olb|step|stp|igs|iges|pdf)$/i
+const MAX_ATTACHMENT = 40 * 1024 * 1024
+export function plainText(part) {
+  if (!part) return ''
+  if (part.mimeType === 'text/plain' && part.body?.data) return Buffer.from(part.body.data, 'base64url').toString('utf8')
+  for (const p of part.parts || []) { const t = plainText(p); if (t) return t }
+  return ''
+}
+const fileParts = (part, out = []) => { if (part?.filename && part.body?.attachmentId) out.push(part); for (const p of part?.parts || []) fileParts(p, out); return out }
+const hasFiles = (payload) => fileParts(payload).some((p) => WANTED_FILE.test(p.filename))
+export async function gmailAttachments(userId, id) {
+  const at = await googleAccessToken(userId)
+  const api = (p) => fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
+  const full = await api(`messages/${id}?format=full`)
+  const out = []
+  for (const part of fileParts(full.payload)) {
+    if (!WANTED_FILE.test(part.filename) || (part.body.size || 0) > MAX_ATTACHMENT) continue
+    const a = await api(`messages/${id}/attachments/${part.body.attachmentId}`)
+    if (a.data) out.push({ name: part.filename, bytes: Buffer.from(a.data, 'base64url') })
+  }
+  return out
+}
+// demo mail keeps its files by id while this process runs: the practice mail is polled the moment it arrives
+const demoFiles = new Map()
+async function mailAttachments(userId, mail) {
+  if (mail.attachments) return mail.attachments
+  if (demoFiles.has(mail.id)) return demoFiles.get(mail.id).map((f) => ({ name: path.basename(f), bytes: fs.readFileSync(f) }))
+  if (mail.hasFiles) return gmailAttachments(userId, mail.id)
+  return []
+}
+
 // ---------- fetchers: each returns [{id, from, subject, date, text}] ----------
 async function fetchGmail(userId) {
   const at = await googleAccessToken(userId)
@@ -79,7 +111,7 @@ async function fetchGmail(userId) {
   for (const m of list.messages || []) {
     const full = await api(`messages/${m.id}?format=full`)
     const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name.toLowerCase(), x.value]))
-    out.push({ id: m.id, from: h.from, subject: h.subject, date: h.date, text: full.snippet || '' })
+    out.push({ id: m.id, from: h.from, subject: h.subject, date: h.date, text: plainText(full.payload).slice(0, 4000) || full.snippet || '', hasFiles: hasFiles(full.payload) })
   }
   return out
 }
@@ -95,7 +127,7 @@ async function fetchImap(userId, acc) {
     const since = new Date(Date.now() - 2 * 86400000)
     for await (const msg of client.fetch({ since }, { source: true, uid: true })) {
       const p = await simpleParser(msg.source)
-      out.push({ id: String(msg.uid), from: p.from?.text, subject: p.subject, date: p.date?.toISOString(), text: (p.text || '').slice(0, 1500) })
+      out.push({ id: String(msg.uid), from: p.from?.text, subject: p.subject, date: p.date?.toISOString(), text: (p.text || '').slice(0, 4000), attachments: (p.attachments || []).filter((a) => a.filename && WANTED_FILE.test(a.filename) && a.size <= MAX_ATTACHMENT).map((a) => ({ name: a.filename, bytes: a.content })) })
     }
   } finally { lock.release(); await client.logout() }
   return out.slice(-20)
@@ -124,14 +156,16 @@ export function demoTemplates() {
 export async function demoArrive(userId, body) {
   const [acc] = await q('select provider from pro_mail_accounts where user_id=$1', [userId])
   if (acc?.provider !== 'demo') throw new Error(L('데모 메일함에서만 쓸 수 있어요', 'This only works with the demo mailbox'))
-  let { from, subject, text } = body || {}
+  let { from, subject, text } = body || {}, files = []
   if (body?.template) {
     const t = demoTemplates().find((x) => x.id === body.template)
     if (!t) throw new Error(L('없는 연습 메일이에요', "There's no such practice mail"))
     ;({ from, subject, text } = t)
+    files = (t.attachments || []).map((n) => fixture(path.join(t.attachments_dir || '', n)))
   }
   if (!String(from || '').trim() || !String(subject || '').trim()) throw new Error(L('보낸 사람과 제목을 적어 주세요', 'Please fill in the sender and the subject'))
   const id = `demo-${crypto.randomBytes(6).toString('hex')}`
+  if (files.length) demoFiles.set(id, files)
   await q('insert into pro_demo_mail(user_id, mail_id, sender, subject, body) values ($1,$2,$3,$4,$5)', [userId, id, String(from).slice(0, 200), String(subject).slice(0, 300), String(text).slice(0, 4000)])
   return pollUser(userId)
 }
@@ -146,7 +180,7 @@ Return JSON {"actions":[{"mail_id","verb","text","icon_domain","due","prompt"}],
 - Skip newsletters, ads and anything not needing action. 0-4 actions.
 - brief: 1-3 Korean 해요체 sentences on what matters most, or "" when nothing does.
 Also return "drafts":[{"mail_id","customer","items":[{"kind","format","name"}],"summary"}] for mails that ask the user to
-send documents back (견적서·제안서·계획서·보고서·설계도 …): kind is the Korean document word, format one of xlsx|hwpx|docx|pptx|dxf
+send documents back (견적서·제안서·계획서·보고서·설계도·시작품 자료 …): kind is the Korean document word, format one of xlsx|hwpx|docx|pptx|dxf
 (견적서·예산·단가표 → xlsx; 제안서·계획서·공문 → hwpx unless the mail names another format; 설계도·평면도·도면·배치도 → dxf,
 also when a design proposal needs a drawing the mail does not name), name a file name like
 "<customer> 견적서.xlsx", customer the sender's company in Korean, summary one Korean line of what they need. [] when none.`
@@ -198,10 +232,15 @@ export async function pollUser(userId, { announce } = {}) {
     await addMessage(userId, t.id, 'agent', 'text', { text: L('메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.', "I looked through your inbox and nothing is urgent right now. I'll check again when new mail comes in.") })
   }
   // documents the mail asks for: drafts are made right away, before anyone asks (the person reviews them)
-  for (const d of r.drafts || []) {
+  const { isPrototypeRequest } = await import('./prototypeDrafts.js')
+  const drafts = [...(r.drafts || [])]
+  for (const m of fresh) if (!m.fixture && !drafts.some((x) => x.mail_id === m.id) && isPrototypeRequest(m)) drafts.push({ mail_id: m.id, customer: String(m.from || '').replace(/<.*/, '').trim(), items: [], summary: m.subject })
+  for (const d of drafts) {
     const src = fresh.find((m) => m.id === d.mail_id)
-    // a process registered from mining takes the mail when it matches (lib/mining); else the ad-hoc drafts
-    if (src && !src.fixture && d.items?.length) import('./mining/service.js').then((m) => m.routeMail(userId, src, d)).catch((e) => { console.warn('[mail] route', e.message); return false })
+    // a process registered from mining takes the mail when it matches (lib/mining); else the ad-hoc drafts.
+    // Not a prototype request: what mining has learned so far is store design ("설계 제안·견적"), whose keywords
+    // also hit a prototype mail, and it would answer with a floor plan
+    if (src && !src.fixture && (d.items?.length || isPrototypeRequest(src))) (isPrototypeRequest(src) ? Promise.resolve(false) : import('./mining/service.js').then((m) => m.routeMail(userId, src, d))).catch((e) => { console.warn('[mail] route', e.message); return false })
       .then((routed) => routed || draftFromMail(userId, src, d)).catch((e) => console.warn('[mail] drafts', e.message))
   }
   return { fresh: fresh.length, actions: (r.actions || []).length }
@@ -398,22 +437,25 @@ async function draftFromMail(userId, mail, d) {
   if (!p?.email) return
   const t = await mainThread(userId)
   const items = d.items.filter((i) => i.format === 'hwpx' || i.format === 'dxf' || skillRule(i.format)).slice(0, 4)
-  if (!items.length) return
+  const { isPrototypeRequest, prototypeDrafts } = await import('./prototypeDrafts.js')
+  const attachments = await mailAttachments(userId, mail).catch((e) => { console.warn('[mail] attachments', e.message); return [] })
+  const proto = isPrototypeRequest(mail, attachments)
+  if (!items.length && !proto) return
   // a design proposal needs its drawing, whether or not the mail lists one
-  if (!items.some((i) => i.format === 'dxf') && (/평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(`${mail.subject} ${mail.text}`) || /floor\s*plan|blueprint|layout drawing|interior|design proposal|store design/i.test(`${mail.subject} ${mail.text}`))) {
+  if (!proto && !items.some((i) => i.format === 'dxf') && (/평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(`${mail.subject} ${mail.text}`) || /floor\s*plan|blueprint|layout drawing|interior|design proposal|store design/i.test(`${mail.subject} ${mail.text}`))) {
     items.unshift(L({ kind: '평면도', format: 'dxf', name: `${(d.customer || '고객').trim()} 평면도.dxf` }, { kind: 'floor plan', format: 'dxf', name: `${(d.customer || 'Customer').trim()} floor plan.dxf` }))
   }
   // an install without CADCraft (Docker lite): the other drafts still come, the drawing is left to a person
   const { craftAvailable } = await import('../mcp/craft.js')
   let noPlan = false
-  if (items.some((i) => i.format === 'dxf') && !craftAvailable('cadcraft')) {
+  if (!proto && items.some((i) => i.format === 'dxf') && !craftAvailable('cadcraft')) {
     noPlan = true
     items.splice(0, items.length, ...items.filter((i) => i.format !== 'dxf'))
     if (!items.length) return
   }
   const rank = { dxf: 0, hwpx: 1, docx: 1, xlsx: 2 }
   items.sort((a, b) => (rank[a.format] ?? 3) - (rank[b.format] ?? 3))
-  const what = items.map((i) => i.kind).join(L('·', ', '))
+  const what = proto ? L('시작품 자료', 'prototype documents') : items.map((i) => i.kind).join(L('·', ', '))
   const customer = d.customer || L('고객', 'Customer')
   await addMessage(userId, t.id, 'system', 'divider', { text: L(`메일 · ${customer} ${what} 요청`, `Mail · ${customer} ${what} request`) })
   await addMessage(userId, t.id, 'agent', 'text', { text: L(`${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. I'll make drafts for the reply first.`), mail: { from: mail.from, subject: mail.subject } })
@@ -426,6 +468,14 @@ async function draftFromMail(userId, mail, d) {
   const mining = await import('./mining/recorder.js')
   const caseId = await mining.openCase({ userId, mail, customer, files: items.map((i) => i.name) }).catch((e) => console.warn('[mining] case', e.message))
   if (caseId) await mining.recordStep(caseId, '요청 메일 접수', { to: { id: userId, name: p.name } }).catch((e) => console.warn('[mining] step', e.message)) // (the case's own language: lib/mining/recorder.js)
+  if (proto) {
+    const { sessionFor } = await import('./supa.js')
+    const { delegate } = await import('./agent.js')
+    const { user, session } = await sessionFor(p.email, p.name)
+    return prototypeDrafts(userId, t, mail, d, attachments, { delegateTurn: (text) => delegate({ user, session, threadId: t.id, silent: true, text }) })
+      .catch(async (e) => { console.warn('[prototype]', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: L(`시작품 초안을 끝내지 못했어요: ${e.message}`, `I could not finish the prototype drafts: ${e.message}`) }) })
+      .finally(() => mining.recordDrafts(t.id, mail.id).catch((e) => console.warn('[mining] drafts', e.message)))
+  }
   if (items.some((i) => i.format === 'dxf')) return designDrafts(userId, t, mail, d, items).finally(() => mining.recordDrafts(t.id, mail.id).catch((e) => console.warn('[mining] drafts', e.message)))
   const jobs = items.filter((i) => i.format === 'hwpx').map((i) => hwpxDraft(userId, t.id, mail, i, customer)
     .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: L(`${i.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${i.name}: ${e.message}`) }) }))

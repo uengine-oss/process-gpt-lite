@@ -72,6 +72,8 @@ export const config = {
     photocraft: get('PRO_PHOTOCRAFT_CLI', 'photocraft-cli'),
     soundcraft: get('PRO_SOUNDCRAFT_CLI', 'soundcraft-cli'),
     filmcraft: get('PRO_FILMCRAFT_CLI', 'filmcraft-cli'),
+    circuitcraft: get('PRO_CIRCUITCRAFT_CLI', path.resolve(here, '../craft/circuitcraft-cli/bin/circuitcraft-cli')),
+    solidcraft: get('PRO_SOLIDCRAFT_CLI', path.resolve(here, '../craft/solidcraft-cli/bin/solidcraft-cli')),
   },
   // IeumOffice editor host (process-gpt office-host): its MCP (/office/mcp) edits the documents open in the page
   officeHostUrl: get('PRO_OFFICE_HOST_URL', 'http://127.0.0.1:5390'),

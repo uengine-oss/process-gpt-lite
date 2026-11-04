@@ -1,0 +1,13 @@
+* HS-200 parts library (PSpice macro models). Illustrative values for this practice mail.
+.SUBCKT HSOPA IN+ IN- OUT VCC VEE
+RIN IN+ IN- 10MEG
+GM 0 X1 VALUE = { LIMIT(1m*V(IN+,IN-), -10u, 10u) }
+RO1 X1 0 100MEG
+CC X1 0 15.9p
+E1 INT 0 VALUE = { LIMIT(V(X1), V(VEE,0)+0.1, V(VCC,0)-0.1) }
+ROUT INT OUT 50
+.ENDS HSOPA
+* a part this board does not use: the simulator must not trip on it
+.SUBCKT HSREF 1 2
+E1 1 2 LAPLACE {V(1)} = {1/(1+0.001*s)}
+.ENDS HSREF

@@ -19,7 +19,7 @@ const note = ref(null) // {kind, text} — what happened to a panel app's sheet 
 const craft = computed(() => !!app.officeDoc && CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url)))
 // a read-only preview stays a plain overlay (nothing to edit)
 const office = computed(() => !!app.officeDoc && !craft.value && !app.officeDoc.readOnly)
-const craftTitle = computed(() => office.value ? '문서' : ({ cadcraft: 'CADCraft', vectorcraft: 'VectorCraft', photocraft: 'PhotoCraft', soundcraft: 'SoundCraft', filmcraft: 'FilmCraft' })[officeEditorFor(app.officeDoc?.name || app.officeDoc?.url || '')] || '')
+const craftTitle = computed(() => office.value ? '문서' : ({ circuitcraft: 'CircuitCraft', solidcraft: 'SolidCraft', cadcraft: 'CADCraft', vectorcraft: 'VectorCraft', photocraft: 'PhotoCraft', soundcraft: 'SoundCraft', filmcraft: 'FilmCraft' })[officeEditorFor(app.officeDoc?.name || app.officeDoc?.url || '')] || '')
 const live = ref(false)
 const side = computed(() => (craft.value || office.value) && !maximized.value)
 const overlay = ref(null)
@@ -180,7 +180,7 @@ async function saved({ url, name }) {
 <template>
   <div class="veil" :class="{ max: maximized, side }" @click.self="!side && !maximized && (app.officeDoc = null)">
     <div class="sheet glass" :class="{ max: maximized }">
-      <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
+      <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :companions="app.officeDoc.companions"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
         :assistant="office" v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" @assistant="assistant" @mention="mention" />

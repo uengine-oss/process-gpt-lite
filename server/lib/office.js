@@ -18,6 +18,8 @@ export const EDITOR_BY_EXT = {
   pdf: 'pdf', hwp: 'hwp', hwpx: 'hwp',
   // ArtCraft web apps (src/craftEditor.js)
   dxf: 'cadcraft', dwg: 'cadcraft',
+  cir: 'circuitcraft', net: 'circuitcraft', ckt: 'circuitcraft', sp: 'circuitcraft', lib: 'circuitcraft', mod: 'circuitcraft', dsn: 'circuitcraft',
+  step: 'solidcraft', stp: 'solidcraft', igs: 'solidcraft', iges: 'solidcraft',
   svg: 'vectorcraft', vectorcraft: 'vectorcraft',
   psd: 'photocraft', psb: 'photocraft', pcraft: 'photocraft', png: 'photocraft', jpg: 'photocraft', jpeg: 'photocraft', webp: 'photocraft',
   wav: 'soundcraft', mp3: 'soundcraft', flac: 'soundcraft', soundcraft: 'soundcraft', scraftz: 'soundcraft',
@@ -28,6 +30,7 @@ const MIME = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   pdf: 'application/pdf', hwpx: 'application/hwp+zip', hwp: 'application/x-hwp', csv: 'text/csv',
+  step: 'model/step', stp: 'model/step', igs: 'model/iges', iges: 'model/iges', cir: 'text/plain', net: 'text/plain', ckt: 'text/plain', sp: 'text/plain', lib: 'text/plain', mod: 'text/plain', dsn: 'application/octet-stream',
   dxf: 'image/vnd.dxf', dwg: 'image/vnd.dwg', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
   psd: 'image/vnd.adobe.photoshop', wav: 'audio/wav', mp3: 'audio/mpeg', flac: 'audio/flac', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
 }
@@ -82,7 +85,7 @@ export async function publish(userId, sandboxPath, src) {
 
 // Documents the agent wrote with its own scripts (docx/pptx/xlsx skills) never show up as
 // file_artifact events: look for them in the paths the answer names and in the run's folder.
-const EXT = '(?:docx|pptx|xlsx|xls|csv|pdf|hwpx|hwp|dxf|dwg|svg|vectorcraft|psd|psb|pcraft|png|jpe?g|webp|wav|mp3|flac|soundcraft|scraftz|mp4|mov|webm|fcproj)'
+const EXT = '(?:docx|pptx|xlsx|xls|csv|pdf|hwpx|hwp|dxf|dwg|cir|net|ckt|lib|dsn|step|stp|igs|iges|svg|vectorcraft|psd|psb|pcraft|png|jpe?g|webp|wav|mp3|flac|soundcraft|scraftz|mp4|mov|webm|fcproj)'
 // a quoted path may hold spaces ("/workspace/11월 고객 세미나 예산표.xlsx"); a bare one may not
 const QUOTED_RE = new RegExp(`[\`*"'](\\/workspace\\/[^\`*"'\\n]+?\\.${EXT})[\`*"']`, 'g')
 const BARE_RE = new RegExp(`\\/workspace\\/[^\\s"'\`)\\]]+?\\.${EXT}\\b`, 'g')
@@ -118,6 +121,8 @@ export async function documentsOfRun({ text, dirs, since }) {
 const MAKE = '(만들|그려|제작|편집|합성|디자인|자르|잘라|붙여|합쳐|이어|믹스|보정|바꿔|넣어|고쳐|내보내|작곡|녹음해|입혀|깔아)'
 const CRAFT_ASKS = {
   cadcraft: /도면|캐드|\bcad\b|dxf|dwg|평면도|설계도|배치도/i,
+  solidcraft: /3d\s*모델|외함|기구\s*설계|\bstep\b\s*파일|\biges\b|\.stp\b|\.igs\b/i,
+  circuitcraft: /회로\s*(도|시뮬|해석)|시뮬레이션|pspice|넷리스트|\.cir\b|\.dsn\b/i,
   vectorcraft: '(벡터|로고|아이콘|배너|일러스트|svg|도형 그림|포스터 디자인)',
   photocraft: '(사진|이미지|psd|포토샵|썸네일|합성|레이어)',
   soundcraft: '(오디오|음악|음원|효과음|배경음|알림음|멜로디|징글|bgm|사운드|녹음|wav|mp3|믹스)',
@@ -128,6 +133,8 @@ const CRAFT_ASKS = {
 const MAKE_EN = '\\b(make|draw|create|design|edit|cut|trim|crop|merge|combine|join|mix|retouch|change|put|add|fix|export|compose|record|render|turn)'
 const CRAFT_ASKS_EN = {
   cadcraft: /floor\s*plan|\bcad\b|\bdxf\b|\bdwg\b|blueprint|layout drawing|site plan|technical drawing/i,
+  solidcraft: /\b3d model\b|\benclosure\b|\bstep file\b|\biges\b/i,
+  circuitcraft: /\bcircuit\b|\bspice\b|\bpspice\b|\bnetlist\b/i,
   vectorcraft: '\\b(vector|logo|icon|banner|illustration|svg|poster design)',
   photocraft: '\\b(photo|image|picture|psd|photoshop|thumbnail|layers?)\\b',
   soundcraft: '\\b(audio|music|track|sound effect|background music|jingle|melody|bgm|sound|wav|mp3|ringtone|chime)\\b',
@@ -137,6 +144,8 @@ const CRAFT_ASKS_EN = {
 // in either language, without a verb from MAKE — VectorCraft already worked that way by its "vector"
 const CRAFT_NAMES = {
   cadcraft: /cad\s*-?craft|캐드\s*크래프트/i,
+  solidcraft: /solid\s*-?craft|솔리드\s*크래프트/i,
+  circuitcraft: /circuit\s*-?craft|서킷\s*크래프트/i,
   vectorcraft: /vector\s*-?craft|벡터\s*크래프트/i,
   photocraft: /photo\s*-?craft|포토\s*크래프트/i,
   soundcraft: /sound\s*-?craft|사운드\s*크래프트/i,
@@ -151,6 +160,8 @@ export function craftAppsFor(text) {
   return [...new Set([...named, ...asks(CRAFT_ASKS, MAKE), ...asks(CRAFT_ASKS_EN, MAKE_EN)])]
 }
 const CRAFT_HINTS = {
+  circuitcraft: '전자 회로(PSpice 넷리스트 .cir .lib, OrCAD .dsn 읽기)는 CircuitCraft 도구(circuitcraft_open·circuitcraft_simulate·circuitcraft_measure·circuitcraft_plot·circuitcraft_bom·circuitcraft_edit·circuitcraft_save)로 다루세요. 값은 circuitcraft_measure 로 잰 것만 쓰고, warnings 와 unsupported 는 그대로 전하세요.',
+  solidcraft: '3D 모델(STEP·IGES 읽기·쓰기, 외함)은 SolidCraft 도구(solidcraft_new·solidcraft_build_enclosure·solidcraft_import·solidcraft_cut_hole·solidcraft_fillet·solidcraft_inspect·solidcraft_render·solidcraft_export)로 만드세요. 단위는 mm이고, 닫힌 외함은 x 0..width, y 0..depth, z 0..height를 채우며 구멍 x,y는 그 면의 아래쪽 모서리부터 잽니다. 만든 뒤 solidcraft_inspect의 값으로 크기와 부피를 말하고 solidcraft_render로 직접 보세요(속을 보려면 hide에 뚜껑 이름). .iges는 솔리드가 면으로 바뀌므로 요청받았을 때만 쓰세요.',
   cadcraft: '도면(CAD)은 CADCraft 도구(cadcraft_command_line·cadcraft_script·cadcraft_execute·cadcraft_inspect_drawing·cadcraft_render·cadcraft_save)로 그리세요. 단위는 미터(1 = 1m)로 하고, 치수를 넣기 전에 반드시 cadcraft_execute {"command":"dimstyle","params":{"name":"M","current":true,"DIMTXT":0.2,"DIMASZ":0.15,"DIMEXO":0.1,"DIMEXE":0.1,"DIMGAP":0.05,"DIMSCALE":1,"DIMDEC":2}} 로 치수 스타일을 만드세요(기본 스타일은 미터 도면에 글자가 너무 큽니다). 방 이름 글자 높이는 0.3, 문·창 표시는 0.2, 치수선은 벽에서 0.8m 바깥에 두세요. 그린 뒤 cadcraft_render 로 직접 보고 겹치는 글자·치수가 있으면 고친 다음, cadcraft_save 로 이 대화 전용 산출물 폴더(📁 섹션의 base, /workspace/.bpmn/<대화>/) 아래 .dxf 파일(예: <base>/평면도.dxf)에 저장하고 답에 그 경로를 적으세요.',
   vectorcraft: '벡터 그림(로고·배너·아이콘·SVG)은 VectorCraft 도구(vectorcraft_draw_shape·vectorcraft_add_text·vectorcraft_set_paint·vectorcraft_transform·vectorcraft_command_run·vectorcraft_render_preview·vectorcraft_save_file)로 만드세요. 글자는 웹 편집기에도 있는 NanumGothic 글꼴로 쓰고, 필요하면 vectorcraft_command_run 으로 대지 크기부터 맞추고, vectorcraft_render_preview 로 직접 본 뒤 vectorcraft_save_file 로 이 대화 전용 산출물 폴더(📁 섹션의 base, /workspace/.bpmn/<대화>/) 아래 .svg(예: <base>/배너.svg)에 저장하고 답에 그 경로를 적으세요.',
   photocraft: '사진·이미지 편집(레이어·보정·합성·글자)은 PhotoCraft 도구(photocraft_doc_new·photocraft_doc_open·photocraft_doc_place·photocraft_command_run·photocraft_doc_render_preview·photocraft_doc_save)로 하세요(VectorCraft 로 만들지 마세요). 글자는 웹 편집기에도 있는 NanumGothic 글꼴로 쓰세요. 첨부 이미지는 photocraft_doc_open 으로 열고, 결과는 photocraft_doc_save 로 이 대화 전용 산출물 폴더(📁 섹션의 base, /workspace/.bpmn/<대화>/) 아래 .psd(레이어 유지, 예: <base>/썸네일.psd)에 저장한 뒤 답에 그 경로를 적으세요.',
@@ -160,6 +171,8 @@ const CRAFT_HINTS = {
 
 // English mode: the same instructions, with English example file names (the agent names its files after them)
 const CRAFT_HINTS_EN = {
+  circuitcraft: 'Use the CircuitCraft tools (circuitcraft_open, circuitcraft_simulate, circuitcraft_measure, circuitcraft_plot, circuitcraft_bom, circuitcraft_edit, circuitcraft_save) for electronic circuits (PSpice netlists .cir .lib, reading OrCAD .dsn). Quote only values from circuitcraft_measure, and pass on warnings and unsupported as they are.',
+  solidcraft: 'Make 3D models (read and write STEP and IGES, enclosures) with the SolidCraft tools (solidcraft_new, solidcraft_build_enclosure, solidcraft_import, solidcraft_cut_hole, solidcraft_fillet, solidcraft_inspect, solidcraft_render, solidcraft_export). Units are mm; a closed enclosure fills x 0..width, y 0..depth, z 0..height, and hole x,y are measured from that face\'s lower corner. Report sizes and volumes from solidcraft_inspect, look at it with solidcraft_render (hide the lid to see inside). Use .iges only when asked: it turns solids into surfaces.',
   cadcraft: 'Draw drawings (CAD) with the CADCraft tools (cadcraft_command_line · cadcraft_script · cadcraft_execute · cadcraft_inspect_drawing · cadcraft_render · cadcraft_save). Use metres (1 = 1 m), and before adding dimensions always create a dimension style with cadcraft_execute {"command":"dimstyle","params":{"name":"M","current":true,"DIMTXT":0.2,"DIMASZ":0.15,"DIMEXO":0.1,"DIMEXE":0.1,"DIMGAP":0.05,"DIMSCALE":1,"DIMDEC":2}} (the default style makes text far too large in a metre drawing). Room name text height 0.3, door/window marks 0.2, dimension lines 0.8 m outside the walls. Write room names and labels in English. After drawing, look at it with cadcraft_render, fix overlapping text or dimensions, then save it with cadcraft_save as a .dxf file under this conversation\'s own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), e.g. <base>/floor-plan.dxf, and give that path in your answer.',
   vectorcraft: 'Make vector pictures (logos, banners, icons, SVG) with the VectorCraft tools (vectorcraft_draw_shape · vectorcraft_add_text · vectorcraft_set_paint · vectorcraft_transform · vectorcraft_command_run · vectorcraft_render_preview · vectorcraft_save_file). Use the NanumGothic font, which the web editor also has; set the artboard size first with vectorcraft_command_run if needed, look at it with vectorcraft_render_preview, then save it with vectorcraft_save_file as .svg under this conversation\'s own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), e.g. <base>/banner.svg, and give that path in your answer.',
   photocraft: 'Edit photos and images (layers, adjustments, compositing, text) with the PhotoCraft tools (photocraft_doc_new · photocraft_doc_open · photocraft_doc_place · photocraft_command_run · photocraft_doc_render_preview · photocraft_doc_save) — not with VectorCraft. Use the NanumGothic font, which the web editor also has. Open attached images with photocraft_doc_open, and save the result with photocraft_doc_save as .psd (keeps the layers) under this conversation\'s own output folder (the base in the 📁 section, /workspace/.bpmn/<conversation>/), e.g. <base>/thumbnail.psd, then give that path in your answer.',

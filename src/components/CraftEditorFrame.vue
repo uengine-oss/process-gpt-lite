@@ -24,6 +24,7 @@ import { BASE } from '../base.js'
 import { lang } from '../i18n/lang.js'
 
 const props = defineProps({
+  companions: { type: Array, default: () => [] },
   fileUrl: { type: String, default: '' },
   name: { type: String, default: '' },
   maximized: { type: Boolean, default: false },
@@ -45,6 +46,8 @@ function drop(w, file) {
 // save: how the person saves there (the "not saved" badge says it; SAVE is CADCraft's command)
 const APPS = {
   cadcraft: { title: 'CADCraft', query: '?host=parent', bridge: true },
+  circuitcraft: { title: 'CircuitCraft', query: '?host=parent', bridge: true, save: '⌘S 로 저장' },
+  solidcraft: { title: 'SolidCraft', query: '?host=parent', bridge: true, save: '⌘S 로 저장' },
   vectorcraft: {
     // the app's own language switch follows the screen's (src/i18n/lang.js); the others follow the browser's
     title: 'VectorCraft', query: `?lang=${lang}`, save: '⌘S 로 저장', ready: (w) => !!w.vectorcraft,
@@ -102,7 +105,9 @@ async function documentBytes() {
 async function sendDocument() {
   try {
     const bytes = await documentBytes()
-    frame.value?.contentWindow?.postMessage({ type: `${appName()}:open`, name: props.name || 'Drawing.dxf', bytes }, location.origin, [bytes])
+    // the circuit's libraries travel with it (.LIB "x.lib")
+    const files = await Promise.all((props.companions || []).map(async (c) => ({ name: c.name, bytes: await (await fetch(c.url)).arrayBuffer() })))
+    frame.value?.contentWindow?.postMessage({ type: `${appName()}:open`, name: props.name || 'Drawing.dxf', bytes, ...(files.length ? { files } : {}) }, location.origin, [bytes])
   } catch (e) { show('error', `파일을 불러오지 못했어요: ${e.message}`); emit('error', e.message) }
 }
 // the others: wait until the app runs, then hand the file over and catch its downloads

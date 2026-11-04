@@ -9,12 +9,14 @@ const EDITOR_BY_EXT = {
   pdf: 'pdf', md: 'markdown', markdown: 'markdown', html: 'html', htm: 'html', xmind: 'mindmap', hwp: 'hwp', hwpx: 'hwp',
   // ArtCraft web apps, not IeumOffice (CraftEditorFrame.vue)
   dxf: 'cadcraft', dwg: 'cadcraft',
+  cir: 'circuitcraft', net: 'circuitcraft', ckt: 'circuitcraft', sp: 'circuitcraft', lib: 'circuitcraft', mod: 'circuitcraft', dsn: 'circuitcraft',
+  step: 'solidcraft', stp: 'solidcraft', igs: 'solidcraft', iges: 'solidcraft',
   svg: 'vectorcraft', vectorcraft: 'vectorcraft',
   psd: 'photocraft', psb: 'photocraft', pcraft: 'photocraft', photocraft: 'photocraft', png: 'photocraft', jpg: 'photocraft', jpeg: 'photocraft', webp: 'photocraft',
   wav: 'soundcraft', mp3: 'soundcraft', flac: 'soundcraft', ogg: 'soundcraft', soundcraft: 'soundcraft', scraftz: 'soundcraft',
   mp4: 'filmcraft', mov: 'filmcraft', webm: 'filmcraft', fcproj: 'filmcraft', filmcraft: 'filmcraft',
 }
-export const CRAFT_APPS = new Set(['cadcraft', 'vectorcraft', 'photocraft', 'soundcraft', 'filmcraft'])
+export const CRAFT_APPS = new Set(['cadcraft', 'vectorcraft', 'photocraft', 'soundcraft', 'filmcraft', 'circuitcraft', 'solidcraft'])
 // which ArtCraft web apps this install serves (/api/config craft; the Docker lite profile has none):
 // a file whose app is missing opens as a plain link. Unknown yet = assume it is there.
 let craftHave = null

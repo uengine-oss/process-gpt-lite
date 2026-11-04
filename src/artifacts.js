@@ -21,7 +21,7 @@ export async function openArtifact(app, router, msg) {
     try { c = await api(`/messages/${encodeURIComponent(msg.id)}/open-file`, { method: 'POST' }) } catch (e) { window.alert(`파일을 열지 못했어요. ${e.message}`); return }
   }
   const ed = officeEditorFor(c.name)
-  if (c.url && ed && !craftMissing(ed)) app.officeDoc = { msgId: msg.id, url: c.url, name: c.name }
+  if (c.url && ed && !craftMissing(ed)) app.officeDoc = { msgId: msg.id, url: c.url, name: c.name, companions: c.companions }
   else if (c.url) window.open(c.url, '_blank', 'noopener')
   else if (room(c.path)) router.push({ path: `/workroom/chat/${room(c.path)[1]}`, query: { open: room(c.path)[2] } })
 }

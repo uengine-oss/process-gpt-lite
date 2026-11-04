@@ -1,0 +1,12 @@
+[
+  { "name": "시작품 제작 요청", "subject": "HS-200 시작품 제작 및 견적 요청", "expect": true },
+  { "name": "시제품", "subject": "시제품 견적 부탁드립니다", "expect": true },
+  { "name": "프로토타입(본문)", "subject": "견적 문의", "text": "프로토타입을 5대 만들고 싶습니다", "expect": true },
+  { "name": "영문 prototype", "subject": "Prototype quote request", "expect": true },
+  { "name": "말이 없어도 회로 첨부", "subject": "검토 부탁", "files": ["a.cir"], "expect": true },
+  { "name": "말이 없어도 STEP 첨부", "subject": "도면 부탁", "files": ["case.STEP"], "expect": true },
+  { "name": "말이 없어도 OrCAD 첨부", "subject": "회로 검토", "files": ["board.DSN"], "expect": true },
+  { "name": "평면도 요청은 아니다", "subject": "매장 설계 제안 및 견적 요청", "text": "매장 평면도와 설계 제안서를 보내 주세요", "expect": false },
+  { "name": "PDF 첨부만으로는 아니다", "subject": "세금계산서", "files": ["invoice.pdf"], "expect": false },
+  { "name": "라이브러리만 첨부는 아니다", "subject": "모델 파일", "files": ["x.lib"], "expect": false }
+]
