@@ -1,0 +1,23 @@
+[
+ {"name": "링크만 붙임", "kind": "input", "text": "https://youtu.be/3jQHMKGcwQs?si=u3OpyXHebLe2Xq6z", "files": 0, "expect": {"urls": 1, "files": 0}},
+ {"name": "링크 둘", "kind": "input", "text": "https://a.example/x https://b.example/y", "files": 0, "expect": {"urls": 2, "files": 0}},
+ {"name": "같은 링크 두 번은 하나", "kind": "input", "text": "https://a.example/x https://a.example/x", "files": 0, "expect": {"urls": 1, "files": 0}},
+ {"name": "링크와 짧은 말", "kind": "input", "text": "이것도 https://a.example/x", "files": 0, "expect": {"urls": 1, "files": 0}},
+ {"name": "경계: 링크 밖 글자 30자", "kind": "input", "text": "https://a.example/x 가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나", "files": 0, "expect": {"urls": 1, "files": 0}},
+ {"name": "경계: 링크 밖 글자 31자면 말이다", "kind": "input", "text": "https://a.example/x 가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다", "files": 0, "expect": null},
+ {"name": "파일만", "kind": "input", "text": "", "files": 1, "expect": {"urls": 0, "files": 1}},
+ {"name": "파일과 비서가 넣은 기본 문장", "kind": "input", "text": "첨부한 파일을 확인해 줘", "files": 1, "expect": {"urls": 0, "files": 1}},
+ {"name": "파일과 긴 부탁은 말이다", "kind": "input", "text": "이 파일에서 3분기 매출만 뽑아서 지난번 표 양식에 맞춰 정리해 주고 메모도 달아 줘", "files": 1, "expect": null},
+ {"name": "링크 없는 말", "kind": "input", "text": "오늘 일정 알려 줘", "files": 0, "expect": null},
+ {"name": "긴 부탁 안의 링크는 말이다", "kind": "input", "text": "https://a.example/x 이 페이지 내용 중에서 가격표만 뽑아서 표로 만들어 주고 경쟁사와 비교도 해 줘", "files": 0, "expect": null},
+ {"name": "규칙 말일 수 있음: 영상의 그 문장", "kind": "room_words", "text": "앞으로 이 방에 붙여넣는 모든 내용들은 URL 이나 어떤 첨부파일은 곧바로 노트북 lm의 슬라이드 팟캐스트로 만들어주는 작업을 해주면 돼.", "expect": true},
+ {"name": "규칙 말일 수 있음: 여기에 올리면", "kind": "room_words", "text": "여기에 올리면 앞으로 전부 요약해 줘", "expect": true},
+ {"name": "규칙 말이 아님: 지금 한 번", "kind": "room_words", "text": "이 링크 요약해 줘", "expect": false},
+ {"name": "규칙 말이 아님: 앞으로 일반 말투", "kind": "room_words", "text": "앞으로 존댓말로 해 줘", "expect": false},
+ {"name": "NotebookLM: 받아쓰기 표기", "kind": "notebook", "text": "노트북 lm의 슬라이드로 만들어 줘", "expect": true},
+ {"name": "NotebookLM: 영문", "kind": "notebook", "text": "put this in NotebookLM", "expect": true},
+ {"name": "NotebookLM: 새 이름", "kind": "notebook", "text": "제미나이 노트북에 넣어 줘", "expect": true},
+ {"name": "NotebookLM: 주소", "kind": "notebook", "text": "https://notebook.google.com/ 열어 줘", "expect": true},
+ {"name": "NotebookLM 아님: 그냥 노트북", "kind": "notebook", "text": "노트북 추천해 줘", "expect": false},
+ {"name": "NotebookLM 아님: 주피터 노트북", "kind": "notebook", "text": "주피터 노트북으로 분석해 줘", "expect": false}
+]
