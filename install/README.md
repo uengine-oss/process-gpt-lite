@@ -10,8 +10,13 @@ cd process-gpt-lite/install
 
 또는 한 줄로(저장소를 `~/process-gpt-lite`에 받고 같은 설치를 실행합니다):
 
+v0.2.0 릴리스에 고정된 설치 스크립트를 내려받아 확인값(SHA-256)을 검사한 뒤 실행하세요. 확인값이 맞지 않으면 실행하지 마세요.
+Download the installation script pinned to release v0.2.0, verify its SHA-256 checksum, then run it. Do not run it if the checksum does not match.
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/uengine-oss/process-gpt-lite/main/install/get.sh | bash
+curl -fsSLO https://raw.githubusercontent.com/uengine-oss/process-gpt-lite/v0.2.0/install/get.sh
+echo "d659b9b09cc7c05c914c06bd5ecf3ba72042ef3bb5cf1d5f13f89e23a43907a9  get.sh" | shasum -a 256 -c -
+bash get.sh
 ```
 
 설치가 끝나면 http://localhost:18080 에 접속해 관리자 이메일을 입력합니다. 로그인 코드는 번들 메일함 http://localhost:18025 로 갑니다(SMTP를 설정하면 실제 메일로 갑니다).
