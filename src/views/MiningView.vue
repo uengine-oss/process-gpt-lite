@@ -49,7 +49,8 @@ async function decide(kind) {
 async function rescan() {
   busy.value = 'scan'
   let failed = ''
-  try { await api('/mining/scan', { method: 'POST' }) } catch (e) { failed = e.message || '흐름을 찾지 못했어요. 잠시 후 다시 시도해 주세요.' }
+  // (a proxy's HTML error page in place of our JSON: the plain notice, not the page source)
+  try { await api('/mining/scan', { method: 'POST' }) } catch (e) { failed = e.message && !/^\s*</.test(e.message) ? e.message : '흐름을 찾지 못했어요. 잠시 후 다시 시도해 주세요.' }
   try { await load() } finally { busy.value = '' }
   // (load clears err: the failed search is shown after it)
   if (failed) err.value = failed

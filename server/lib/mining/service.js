@@ -85,13 +85,17 @@ async function nameOf(p, cases) {
 let scanning = null
 export function scan() { return (scanning ||= doScan().finally(() => { scanning = null })) }
 
-// the admin's "지금 다시 찾기": a search that could not run is said so — not shown as "no flows yet"
+// the admin's "지금 다시 찾기": a search that could not run is said so — not shown as "no flows yet".
+// (500, not 502/503: Cloudflare in front of production replaces an origin 502 with its own HTML page and
+// the message is lost.) The miner's status or reachability is kept short at the end, e.g. "(process-miner 401)".
 export async function scanNow() {
-  if (!MINER) throw err(503, L('프로세스 마이닝 서비스가 설정되지 않아 흐름을 찾을 수 없어요.', "Process mining isn't set up, so I can't look for flows."))
+  if (!MINER) throw err(500, L('프로세스 마이닝 서비스가 설정되지 않아 흐름을 찾을 수 없어요.', "Process mining isn't set up, so I can't look for flows."))
   try { return await scan() } catch (e) {
     if (!e.miner) throw e
     console.warn('[mining] scan', e.message)
-    throw err(502, L('프로세스 마이닝 서비스에 연결하지 못해 흐름을 찾지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't reach the process mining service, so no flows were checked. Try again in a moment."))
+    const why = (/^process-miner (\d{3}|unreachable: \S+)/.exec(e.message) || [])[0] || 'process-miner'
+    throw err(500, L(`프로세스 마이닝 서비스에 연결하지 못해 흐름을 찾지 못했어요. 잠시 후 다시 시도해 주세요. (${why})`,
+      `I couldn't reach the process mining service, so no flows were checked. Try again in a moment. (${why})`))
   }
 }
 
