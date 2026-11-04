@@ -4,6 +4,12 @@
 import crypto from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { oddsOf, readingStatus } from '../lib/decide.js'
+
+// EVAL_TIMEOUT_MS: a longer limit than the 4 s the product reads with, to measure how long reads really take
+const TIME = { timeoutMs: Number(process.env.EVAL_TIMEOUT_MS) || 4000 }
+const took = []
+const timed = async (fn) => { const t0 = Date.now(); const r = await fn(); took.push(Date.now() - t0); return r }
+process.on('exit', () => { if (!took.length) return; const t = [...took].sort((a, b) => a - b); console.log(`지연(ms): 중앙값 ${t[t.length >> 1]} · 90% ${t[Math.floor(t.length * 0.9)]} · 최대 ${t.at(-1)} · 4초 넘음 ${t.filter((x) => x > 4000).length}/${t.length}`) })
 import { compileTopics, topicHit, formatHit, contextText, readContext, readingState, sensitiveOptions, SENSITIVE_QUESTION, NAME_QUESTION, READING } from '../lib/context/sensitive.js'
 import { CONFIDENTIAL_OPTIONS, CONFIDENTIAL_QUESTION, CONFIDENTIAL_READING, mailExcerpt, readConfidential } from '../lib/scenarios/mail.js'
 
@@ -25,7 +31,7 @@ if (set === 'context') {
   const rules = compileTopics()
   const rows = pick(load('context-cases.json'))
   for (const c of rows) {
-    const raw = await oddsOf(readingState(c), SENSITIVE_QUESTION, sensitiveOptions(rules))
+    const raw = await timed(() => oddsOf(readingState(c), SENSITIVE_QUESTION, sensitiveOptions(rules), TIME))
     if (!raw) throw new Error(`모델이 답하지 않음: ${JSON.stringify(readingStatus())}`)
     // 실제 코드로 판단(주제 이름 묻기는 빼고 — 이 평가는 판별만 잰다)
     const ask = async (s, q) => (q === NAME_QUESTION ? null : raw)
@@ -48,7 +54,7 @@ if (set === 'mail') {
   const rows = pick(load('mail-cases.json'))
   const WORD = /기밀|대외비|confidential/i
   for (const c of rows) {
-    const raw = await oddsOf(mailExcerpt(c), CONFIDENTIAL_QUESTION, CONFIDENTIAL_OPTIONS)
+    const raw = await timed(() => oddsOf(mailExcerpt(c), CONFIDENTIAL_QUESTION, CONFIDENTIAL_OPTIONS, TIME))
     if (!raw) throw new Error(`모델이 답하지 않음: ${JSON.stringify(readingStatus())}`)
     const r = await readConfidential(c, { ask: async () => raw })
     report.rows.push({ id: c.id, bucket: c.bucket, label: c.label, p: raw.probabilities.confidential, hit: r.confidential, word: (c.attachments || []).some((x) => WORD.test(x.name) || WORD.test(x.text || '')), text: `${c.subject} / ${(c.attachments || []).map((a) => a.name).join(', ')}`.slice(0, 80) })

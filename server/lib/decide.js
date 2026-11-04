@@ -57,7 +57,8 @@ export function oddsFromTop(top, options) {
 
 // options: [{key, label}] → {choice, probabilities, confidence, strategy: 'logprob', model, latency_ms}, or null when it
 // cannot be measured (the model is down, or gives no log-probabilities): the caller then uses its fallback rule, marked as such
-export async function oddsOf(state, question, options, { timeoutMs = 4000 } = {}) {
+// (8 s: gpt-6-luna's median is 0.8 s, but about 3 in 100 reads take over 4 s and a timeout counts as an outage for 30 s)
+export async function oddsOf(state, question, options, { timeoutMs = 8000 } = {}) {
   if (Date.now() < unusableUntil) return null
   const t = Date.now()
   try {
