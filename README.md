@@ -4,7 +4,8 @@
 **A chat-first AI work assistant built on [Process GPT](https://github.com/uengine-oss/process-gpt).**
 
 - 제품 소개 / Product page: https://www.uengine.org/contents/processgptlite.html
-- 라이선스 / License: [MIT](LICENSE) · 코드명 / codename `pgpt-pro`
+- 라이선스 / License: [Process GPT License](LICENSE) — 조직 안 무료 사용, 판매·상업 호스팅은 서면 허락 또는 별도 계약이 필요합니다 / Free use within your organization; sales and commercial hosting require written permission or a separate agreement.
+- 코드명 / codename `pgpt-pro`
 
 Process GPT Lite는 실시간 하늘 배경과 유리 카드 UI(hark 스타일)로 된 Vue 3 앱과 Express BFF입니다. 사용자는 채팅 하나로 프로세스를 만들고 실행하며, 브라우저 에이전트·스킬·예약 미션·문서 편집·패널 앱을 씁니다. 실행 엔진·에이전트·저장소는 Process GPT 백엔드(deepagents, completion, Supabase …)를 그대로 쓰고, 이 저장소에는 Lite 전용 화면과 BFF만 있습니다.
 
@@ -287,3 +288,9 @@ Google Cloud → Google Auth Platform에서 `process gpt pro` 앱의 브랜딩�
 - Process GPT: https://github.com/uengine-oss/process-gpt
 - 이음오피스 문서 편집 백엔드 / office host: https://github.com/uengine-oss/process-gpt-office-host
 - ArtCraft (storytold): https://github.com/storytold
+
+## 라이선스 / License
+
+조직 안에서는 Process GPT License에 따라 무료로 설치·학습·사용하실 수 있습니다. 판매·라이선스 제공·배포·호스팅(SaaS 포함)을 상업적으로 하려면 UENGINE Inc.의 서면 허락이나 별도 계약이 필요합니다(문의: license@uengine.org). 이미 MIT로 배포한 v0.1.0과 v0.1.1은 MIT 라이선스를 그대로 유지합니다.
+
+Under the Process GPT License, you may install, learn from, and use the software within your organization free of charge. Selling, licensing, distributing, or hosting the software (including SaaS) as part of a commercial offering requires written permission from UENGINE Inc. or a separate agreement (contact: license@uengine.org). Versions v0.1.0 and v0.1.1, already released under MIT, remain under the MIT License.
