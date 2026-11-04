@@ -5,7 +5,7 @@ const NOTEBOOK_WORDS = /노트북\s*(엘엠|lm)|notebook\s*lm|(구글|제미나�
 export const isNotebookJob = (text) => NOTEBOOK_WORDS.test(String(text || ''))
 
 const NOTEBOOK_GUIDE = `This site is Google NotebookLM (also shown as Gemini Notebook) at ${NOTEBOOK_URL}.
-If it asks to sign in, call need_user and ask the person to sign in with takeover: never type a Google password yourself. The sign-in stays for next time.
+If it asks to sign in, call need_user and ask the person, in plain words, to press 「직접 제어」 and sign in themselves: never type a Google password yourself. The sign-in stays for next time.
 - Home: 「새 노트북」 (New notebook) creates one. A new notebook opens with an add-source dialog, or use 「소스 추가」 / 「출처 추가」.
 - A link or YouTube video: in that dialog choose 「웹사이트」 (it also takes YouTube links), put the address in its box, press 「삽입」. A file: choose 「파일 업로드」 and use attach_file.
 - Wait until the source shows up in the left panel, with wait_for_page, before going on.

@@ -797,5 +797,5 @@ export async function close(userId) {
 
 export function lastFrame(userId) {
   const s = sessions.get(userId)
-  return s ? { data: s.frame, url: s.page.url(), running: !!s.task } : null
+  return s ? { data: s.frame, url: s.page.url(), running: !!s.task, taskId: s.task?.id || null } : null
 }

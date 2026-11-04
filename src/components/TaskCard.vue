@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
@@ -9,6 +9,12 @@ const app = useApp()
 const showPlan = ref(false)
 const c = computed(() => props.msg.content)
 const frame = computed(() => app.frames[props.msg.id] || (c.value.shot ? { data: c.value.shot } : null))
+// frames come when the page changes: a card opened while it waits still has to show the page, or nobody can take over
+onMounted(async () => {
+  if (app.frames[props.msg.id] || !['running', 'needs_input'].includes(c.value.state)) return
+  const last = await api('/browser/frame').catch(() => null)
+  if (last?.data && last.taskId === props.msg.id && !app.frames[props.msg.id]) app.frames[props.msg.id] = { taskId: last.taskId, data: last.data, url: last.url }
+})
 const done = computed(() => c.value.steps?.filter((s) => s.done).length || 0)
 const running = computed(() => c.value.state === 'running')
 const needs = computed(() => c.value.state === 'needs_input')
