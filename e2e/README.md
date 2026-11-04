@@ -346,7 +346,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
-### 19. 시작품 요청 — 메일 하나로 회로 검토·3D·2D·제안서·견적서 (spec `pgpt-pro_prototype-request`)
+### 19. 시작품 요청 — 메일 하나로 회로 검토·3D·2D·제안서·견적서 (spec `pgpt-pro_prototype-request`, 영상 `GuUOpGCo8Hw`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
