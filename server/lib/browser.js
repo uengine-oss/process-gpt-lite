@@ -97,7 +97,7 @@ async function sessionOf(userId) {
     headless: true, viewport: { width: 1280, height: 800 }, locale: 'ko-KR',
   })
   ctx.on('close', () => { ctx._closed = true })
-  s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [] }
+  s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [], planning: new Map() }
   await ctx.addInitScript(PAGE_GUARD)
   await ctx.exposeBinding('__proVaultCapture', (_src, payload) => onCapture(userId, s, payload).catch((e) => console.warn('[vault capture]', e.message)))
   const watchDownloads = (page) => page.on('download', (d) => keepDownload(userId, s, d).catch((e) => console.warn('[browser] download', e.message)))
@@ -213,6 +213,7 @@ export const asksToBuy = (goal) => /(구매|구입|주문\s*(해|하|을\s*넣|�
 export const isPurchaseControl = (text) => PURCHASE_CONTROL.test(String(text || ''))
 export const isPaymentControl = (text) => PAYMENT_CONTROL.test(String(text || ''))
 
+const firstLine = (goal) => String(goal).split('\n')[0].slice(0, 60)
 async function plan(goal) {
   const msg = await chat({
     model: undefined, json: true,
@@ -231,24 +232,30 @@ async function plan(goal) {
 export async function runBrowserTask({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates, files = [] }) {
   const s = await sessionOf(userId)
   const t0 = Date.now()
-  const p = await plan(goal)
+  // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
+  const card = await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '' })
+  s.planning.set(card.id, false)
+  const p = await plan(goal).catch((e) => { console.warn('[browser] plan', e.message); return { title: firstLine(goal), steps: [] } })
+  const cancelledEarly = s.planning.get(card.id)
+  s.planning.delete(card.id)
   const ahead = s.task || s.queue.length ? (s.queue.at(-1)?.task || s.task) : null
-  const card = await addMessage(userId, threadId, 'agent', 'task', {
-    title: p.title, goal, steps: p.steps.map((t) => ({ text: t, done: false })), state: ahead ? 'queued' : 'running', url: startUrl || '',
+  await updateMessage(userId, card.id, {
+    title: p.title, steps: p.steps.map((t) => ({ text: t, done: false })), state: ahead ? 'queued' : 'running',
     ...(ahead ? { reason: L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`) } : {}),
   })
   const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     gates, gatedUrl: null, stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, early_finish: false, decisions: [] } }
-  if (ahead) {
+  task.cancelled = cancelledEarly
+  if (ahead && !task.cancelled) {
     await addMessage(userId, threadId, 'agent', 'text', { text: L(`브라우저는 한 번에 한 작업만 해요. 앞 작업 '${ahead.title}'이(가) 끝나거나 취소되면 '${p.title}' 작업을 이어서 시작할게요.${s.task?.waiting ? ' 앞 작업은 지금 입력을 기다리고 있어요 — 그 카드에 답하거나 작업을 취소해 주세요.' : ''}`,
       `The browser does one task at a time. When the task ahead, '${ahead.title}', is done or canceled, I'll start '${p.title}'.${s.task?.waiting ? ' The task ahead is waiting for your input right now — answer its card or cancel the task.' : ''}`) })
     await new Promise((go) => s.queue.push({ task, go }))
-    if (task.cancelled) {
-      await updateMessage(userId, card.id, { state: 'cancelled', reason: '', summary: L('시작하기 전에 취소했어요.', 'Canceled before it started.') })
-      return { state: 'cancelled', summary: '', notes: [], stats: task.stats }
-    }
-    await updateMessage(userId, card.id, { state: 'running', reason: '' })
   }
+  if (task.cancelled) {
+    await updateMessage(userId, card.id, { state: 'cancelled', reason: '', summary: L('시작하기 전에 취소했어요.', 'Canceled before it started.') })
+    return { state: 'cancelled', summary: '', notes: [], stats: task.stats }
+  }
+  if (ahead) await updateMessage(userId, card.id, { state: 'running', reason: '' })
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
@@ -769,6 +776,7 @@ export function resume(userId, text = 'user resolved it, continue') {
 // 작업 취소: the task holding the browser, or (by its card id) one waiting in line
 export function cancel(userId, taskId) {
   const s = sessions.get(userId)
+  if (taskId && s?.planning.has(taskId)) { s.planning.set(taskId, true); return true } // its card is up, the plan is not back yet
   const inLine = taskId && s?.queue.find((x) => x.task.id === taskId)
   if (inLine) { s.queue.splice(s.queue.indexOf(inLine), 1); inLine.task.cancelled = true; inLine.go(); return true }
   const t = s?.task
