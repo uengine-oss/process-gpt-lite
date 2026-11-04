@@ -17,7 +17,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
-import { uploadAttachment } from '../api.js'
+import { uploadAttachment, auth } from '../api.js'
 import { openLiveLink } from '../liveLink.js'
 import { officeEditorFor } from '../officeEditor.js'
 import { BASE } from '../base.js'
@@ -104,10 +104,19 @@ async function documentBytes() {
 // CADCraft: the app asked for the drawing
 async function sendDocument() {
   try {
-    const bytes = await documentBytes()
+    let bytes = await documentBytes()
+    let name = props.name || 'Drawing.dxf'
+    // an OrCAD design opens as the netlist the server reads from it (read only: .dsn is not written back)
+    if (/\.(dsn|dbk)$/i.test(name)) {
+      const r = await fetch(`${BASE}/api/craft/dsn2cir`, { method: 'POST', headers: { Authorization: `Bearer ${auth.get()?.session?.access_token || ''}`, 'Content-Type': 'application/octet-stream' }, body: bytes })
+      const out = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(out.error || `HTTP ${r.status}`)
+      bytes = new TextEncoder().encode(out.text).buffer
+      name = name.replace(/\.[^.]+$/, '.cir')
+    }
     // the circuit's libraries travel with it (.LIB "x.lib")
     const files = await Promise.all((props.companions || []).map(async (c) => ({ name: c.name, bytes: await (await fetch(c.url)).arrayBuffer() })))
-    frame.value?.contentWindow?.postMessage({ type: `${appName()}:open`, name: props.name || 'Drawing.dxf', bytes, ...(files.length ? { files } : {}) }, location.origin, [bytes])
+    frame.value?.contentWindow?.postMessage({ type: `${appName()}:open`, name, bytes, ...(files.length ? { files } : {}) }, location.origin, [bytes])
   } catch (e) { show('error', `파일을 불러오지 못했어요: ${e.message}`); emit('error', e.message) }
 }
 // the others: wait until the app runs, then hand the file over and catch its downloads

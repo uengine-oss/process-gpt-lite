@@ -48,6 +48,21 @@ test.describe('시작품 요청 (spec pgpt-pro_prototype-request)', () => {
     expect(s.lastError || null).toBeNull()
   })
 
+  // 실제 설계(BeagleBoard-xM, 공개 하드웨어). 저장소에 넣지 않는다: craft/orcad/test/fetch-evidence.sh 로 받아 ORCAD_TEST_DIR 에 둔다
+  test('F-PR-05 OrCAD .dsn 카드를 열면 넷리스트로 바꿔 부품을 그린다', async ({ pageAs, db }) => {
+    const dir = (process.env.ORCAD_TEST_DIR || '').split(':').find((d) => d && fs.existsSync(path.join(d, 'BeagleBoard-xM_ORCAD.DSN')))
+    test.skip(!dir, 'ORCAD_TEST_DIR 에 BeagleBoard-xM_ORCAD.DSN 이 없어요')
+    const page = await pageAs('pr-dsn', { viewport: { width: 1280, height: 800 } })
+    const th = await db.clearMain(page.user.id)
+    await page.route('**/__dsn/**', (route) => route.fulfill({ status: 200, body: fs.readFileSync(path.join(dir, 'BeagleBoard-xM_ORCAD.DSN')), contentType: 'application/octet-stream' }))
+    await db.addMessages(th, [{ role: 'agent', kind: 'file', content: { name: 'BeagleBoard-xM_ORCAD.DSN', ext: 'dsn', url: '/__dsn/x' } }])
+    await page.goto('/chat')
+    await page.locator('button.file', { hasText: '.DSN' }).click()
+    await expect.poll(() => frameState(page, 'circuitcraft').then((s) => s?.elements?.length || 0), { timeout: 120000 }).toBe(438)
+    const s = await frameState(page, 'circuitcraft')
+    expect(s.name).toBe('BeagleBoard-xM_ORCAD.cir')
+  })
+
   test('F-PR-04 설정의 연습 메일에 시작품 요청이 있다', async ({ as }) => {
     const c = await as('pr-mail')
     const t = (await c.get('/mail/demo-templates')).body.find((x) => x.id === 'hanbit-sensor-prototype')

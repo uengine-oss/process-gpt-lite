@@ -356,7 +356,8 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 시뮬레이션 MCP(값은 이론과 비교) | `craft/circuitcraft-cli/test/mcp.test.mjs` | 단위 | ✅ |
 | CircuitCraft: 자동 회로도, 런 선택, 치명 오류 복구, 왕복 저장, 호스트 | `craft/circuitcraft/test/circuitcraft.e2e.mjs` | 화면 | ✅ |
 | SolidCraft·3D MCP: 외함 부피(다른 도구), STEP·IGES, 경로 제한, 호스트 | `craft/solidcraft-cli/test/solidcraft.test.mjs`, `craft/solidcraft/test/web.e2e.mjs` | 단위·화면 | ✅ |
-| 카드를 앱에서 연다: 라이브러리 함께, 없는 부품 이름, 3D, 연습 메일 목록 | F-PR-01·02·03·04 | feature | ✅ |
+| 카드를 앱에서 연다: 라이브러리 함께, 없는 부품 이름, 3D, 연습 메일 목록, OrCAD .dsn | F-PR-01·02·03·04·05 | feature | ✅ |
+| OrCAD .dsn 읽기: Capture 넷리스트 141개 대조(139 일치), PDF·BOM·PCB 대조 | `craft/orcad/test/dsn.test.mjs`, `evidence.md` | 측정·단위 | ◐ 설계 파일은 저장소 밖 |
 | 실제 프로젝트 180개 대조(PSpice .out) | `craft/pspice/test/corpus.mjs` | 측정 | ◐ 파일은 저장소 밖 |
 | 실제 Gmail 첨부, 없는 앱 건너뛰기 | — | — | ✗ 코드 경로만 |
 

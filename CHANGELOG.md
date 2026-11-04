@@ -8,7 +8,7 @@
 ### 추가
 
 - **시작품 요청 메일** (spec process-gpt `openspec/specs/pgpt-pro_prototype-request`): 전자 제품 시작품을 요청하는 고객 메일 하나로 회로 검토, 3D(STEP·IGES), 2D 도면, 제안서, 견적서 초안을 먼저 만들어 둡니다. 값은 도구가 낸 것이고, 메일에 없는 값과 단가는 가정이라고 적습니다.
-  - **CircuitCraft** (`craft/circuitcraft`, WebSpice 포크, ngspice WebAssembly): PSpice 넷리스트(.cir .lib 등)를 열면 회로도를 자동으로 그리고 TRAN·AC·스텝 결과를 봅니다. ngspice 가 그대로 못 돌리는 PSpice 문법은 `craft/pspice` 가 옮깁니다. 옮기지 못하는 회로(LAPLACE, 디지털, Cadence 암호화 모델, 없는 모델)는 돌리지 않고 이유를 말합니다. 실제 OrCAD 프로젝트 180개 중 167개를 돌렸고, PSpice 가 남긴 값이 있는 내부 노드 189개가 모두 2% 안이었습니다. OrCAD .dsn 은 읽기만 하며, 쓰기는 오픈소스가 없어 넷리스트로 대신합니다.
+  - **CircuitCraft** (`craft/circuitcraft`, WebSpice 포크, ngspice WebAssembly): PSpice 넷리스트(.cir .lib 등)를 열면 회로도를 자동으로 그리고 TRAN·AC·스텝 결과를 봅니다. ngspice 가 그대로 못 돌리는 PSpice 문법은 `craft/pspice` 가 옮깁니다. 옮기지 못하는 회로(LAPLACE, 디지털, Cadence 암호화 모델, 없는 모델)는 돌리지 않고 이유를 말합니다. 실제 OrCAD 프로젝트 180개 중 167개를 돌렸고, PSpice 가 남긴 값이 있는 내부 노드 189개가 모두 2% 안이었습니다. OrCAD .dsn 은 읽기만 합니다(`craft/orcad`, OpenOrCadParser 기반): Capture 가 만든 넷리스트와 대조해 141개 설계 중 139개가 부품·값·연결까지 일치합니다. 쓰기는 오픈소스가 없고 OrCAD 없이 확인할 수 없어 PSpice 넷리스트로 대신합니다.
   - **SolidCraft** (`craft/solidcraft`, Chili3D AGPL-3.0, OpenCascade WebAssembly): STEP·IGES 를 읽고 씁니다. 에이전트는 선언형 도구(`craft/solidcraft-cli`)로 외함을 짓고 부품을 앉힙니다. 모델이 보낸 코드는 실행하지 않습니다. 제품에 넣어 판매하기 전에 AGPL 소스 공개나 상용 라이선스를 정해야 합니다.
   - **메일**: 첨부를 받습니다(데모·IMAP·Gmail). Gmail 은 본문 전체를 읽습니다(지금까지 앞 200자뿐이었습니다).
 

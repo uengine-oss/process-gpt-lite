@@ -66,6 +66,10 @@ test('말로 부르면 도구를 켠다', () => {
   assert.ok(craftAppsFor('SolidCraft 로 열어 줘').includes('solidcraft'))
   assert.ok(!craftAppsFor('오늘 일정 알려 줘').includes('circuitcraft'))
 })
+test('OrCAD 변환: 복합 파일이 아니면 도구를 부르지 않고 거절한다', async () => {
+  const { dsnToCir } = await import('../lib/orcad.js')
+  await assert.rejects(dsnToCir(Buffer.from('not an orcad file')), (e) => e.status === 400 && /\.dsn/.test(e.message))
+})
 test('고객 회로 예제: 읽히고, 옮겨지고, 안 쓰는 깨진 부품은 건너뛴다', () => {
   const dir = new URL('../fixtures/mail-attachments/hanbit-sensor/', import.meta.url)
   const text = fs.readFileSync(new URL('HS-200_frontend.cir', dir), 'latin1'), lib = fs.readFileSync(new URL('HS-200.lib', dir), 'latin1')

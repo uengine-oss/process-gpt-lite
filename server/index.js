@@ -770,6 +770,13 @@ app.get('/api/vault/audit', auth, vaultRoute(async (req, res) => res.json(await 
 // what is stored for this user and that it behaves like envelope encryption — no plaintext
 app.get('/api/vault/proof', auth, vaultRoute(async (req, res) => res.json(await vault.proof(req.user.id))))
 
+// ---------- OrCAD ----------
+// .dsn 는 브라우저에서 못 읽는다(파서가 C++): 서버가 PSpice 넷리스트로 바꿔 CircuitCraft 에 건넨다. 쓰기는 없다
+app.post('/api/craft/dsn2cir', auth, express.raw({ type: '*/*', limit: '40mb' }), async (req, res) => {
+  const { dsnToCir } = await import('./lib/orcad.js')
+  try { res.json(await dsnToCir(req.body)) } catch (e) { res.status(e.status || 422).json({ error: e.message }) }
+})
+
 // ---------- browser ----------
 app.get('/api/browser/frame', auth, (req, res) => res.json(browser.lastFrame(req.user.id)))
 app.post('/api/browser/input', auth, async (req, res) => { await browser.input(req.user.id, req.body); res.json({ ok: true }) })
