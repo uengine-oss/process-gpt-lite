@@ -12,6 +12,7 @@ import { startStudio } from './fixtures/studio.mjs'
 
 const scripts = {}
 const bodies = []
+let slowPlan = null
 // the numbered element whose text is this, in the page the model was last shown
 const pick = (body, text) => {
   const last = [...body.messages].reverse().find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('{'))
@@ -26,7 +27,12 @@ const llm = http.createServer((req, res) => {
     const body = JSON.parse(raw)
     bodies.push(body)
     let message
-    if (body.response_format) message = { role: 'assistant', content: JSON.stringify({ title: '스튜디오 작업', steps: ['생성', '기다리기', '받기'] }) }
+    if (slowPlan && body.response_format) return void setTimeout(() => {
+      res.writeHead(slowPlan.fail ? 500 : 200, { 'Content-Type': 'application/json' })
+      res.end(slowPlan.fail ? '{"error":{"message":"down"}}' : JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ title: '느린 계획', steps: ['하나'] }) } }] }))
+    }, slowPlan.ms)
+    if (body.logprobs) message = { role: 'assistant', content: 'A' } // 확률 없이 답한다: 확률을 주지 않는 모델
+    else if (body.response_format) message = { role: 'assistant', content: JSON.stringify({ title: '스튜디오 작업', steps: ['생성', '기다리기', '받기'] }) }
     else {
       const goal = /Goal: (.*)/.exec(body.messages[0].content)?.[1] || ''
       const s = scripts[goal]
@@ -130,6 +136,44 @@ test('한 작업이 기다릴 수 있는 시간에는 끝이 있다', async () =
     assert.ok(bodies.flatMap((b) => b.messages || []).some((m) => m.role === 'tool' && /already waited/.test(m.content)))
   } finally { browser.WAIT.taskMaxMinutes = keep }
 })
+test('계획을 받기 전에 카드가 먼저 뜨고, 받으면 채워진다', async () => {
+  slowPlan = { ms: 1500 }
+  const running = task('느린 계획', [['finish', { summary: '끝' }]])
+  const card = async () => (await rows('task')).filter((m) => m.content.goal === '느린 계획').at(-1)?.content
+  for (let i = 0; i < 40 && !await card(); i++) await sleep(25)
+  const early = await card()
+  assert.ok(early, '카드가 계획 전에 떠야 한다')
+  assert.equal(early.title, '느린 계획')
+  assert.deepEqual(early.steps, [])
+  await running
+  slowPlan = null
+  assert.deepEqual((await card()).steps.map((s) => s.text), ['하나'])
+})
+
+test('계획이 실패해도 일은 한다', async () => {
+  slowPlan = { ms: 10, fail: true }
+  const out = await task('계획 없이', [['finish', { summary: '계획 없이 끝냈어요' }]])
+  slowPlan = null
+  assert.notEqual(out.state, 'failed')
+})
+
+test('계획을 기다리는 동안 카드에서 취소하면 시작하지 않는다', async () => {
+  slowPlan = { ms: 1500 }
+  const running = task('곧 취소', [['finish', { summary: '돌면 안 됨' }]])
+  let card
+  for (let i = 0; i < 40 && !card; i++) { card = (await q(`select id from pro_messages where thread_id=$1 and kind='task' and content->>'goal'='곧 취소'`, [threadId]))[0]; await sleep(25) }
+  assert.equal(browser.cancel(user, card.id), true)
+  const out = await running
+  slowPlan = null
+  assert.equal(out.state, 'cancelled')
+})
+
+test('모델이 확률을 주지 못하면 규칙으로 삼지 않는다', async () => {
+  const { readRoomRule, ruleOf } = await import('../lib/roomRules.js')
+  assert.equal(await readRoomRule({ id: user }, threadId, '앞으로 이 방에 올리는 링크는 곧바로 영어로 번역해 줘'), null)
+  assert.equal(await ruleOf(user, threadId), null)
+})
+
 test('사람이 올린 파일을 사이트의 파일 칸에 넣는다', async () => {
   const file = await saveAttachment({ id: user }, '회의록.pdf', 'application/pdf', Buffer.from('%PDF-1.4 test'))
   const r = await task('파일 넣기', [
