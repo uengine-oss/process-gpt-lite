@@ -26,6 +26,7 @@ import { mainThread, addMessage } from '../store.js'
 import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
 import { L, isEn, lang, langOf, withLang } from '../lang.js'
 import { fmtNum } from '../improve/transform.js'
+import { josa } from '../improve/focus.js'
 
 const T = () => config.tenantId
 // unset: the local miner; set but empty (an install without the mining profile): no scans, no new
@@ -416,11 +417,33 @@ async function routeMailIn(userId, mail, d) {
   const { instId, instName } = await startProcess({ me: { id: userId, email: p.email }, defId: s.proc_def_id, values })
   await q(`insert into pro_mining_runs (proc_inst_id, tenant_id, suggestion_id, user_id, mail) values ($1,$2,$3,$4,$5) on conflict do nothing`,
     [instId, T(), s.id, userId, { id: mail.id, from: mail.from, subject: mail.subject, text: String(mail.text || '').slice(0, 3000), customer, items: d?.items || [] }])
-  await addMessage(userId, t.id, 'agent', 'text', { text: L(`${customer} 메일은 정식 등록된 '${s.name}' 프로세스로 처리할게요. 평면도·제안서·견적서는 단계별 에이전트가 만들고, 재무 검토는 재무 담당에게 넘어가요.`,
-    `I'll handle the ${customer} mail with the registered '${s.name}' process. The step agents make the floor plan, proposal and quote, and the finance review goes to Finance.`), mail: { from: mail.from, subject: mail.subject } })
+  const { getDefinition } = await import('../processes.js')
+  await addMessage(userId, t.id, 'agent', 'text', { text: routeNote(customer, s.name, await getDefinition(s.proc_def_id).catch(() => null)), mail: { from: mail.from, subject: mail.subject } })
   await addMessage(userId, t.id, 'agent', 'process', { defId: s.proc_def_id, name: s.name, state: 'started', instId, instName })
   console.log(`[mining] mail ${mail.id} → ${s.proc_def_id} ${instId}`)
   return { instId, suggestion: s.id }
+}
+
+// What the started process will do next, read from its own definition: the steps after the first one
+// (the start form, filled from the mail), agent steps by the agent's role, people's steps by their role.
+// "견적서 작성은 견적 에이전트가, 재무 검토는 재무 담당이, 고객 회신은 영업 담당이 맡아요." A process without a floor plan
+// step never mentions one.
+export function routeNote(customer, name, def) {
+  const acts = (def?.steps || []).filter((x) => x.kind === 'human' || x.kind === 'agent')
+  const rest = acts.slice(1)
+  const head = L(`${customer} 메일은 정식 등록된 '${name}' 프로세스로 처리할게요.`, `I'll handle the ${customer} mail with the registered '${name}' process.`)
+  if (!rest.length) return head
+  // consecutive steps of one role read as one clause ("재무 검토·고객 회신은 재무 담당이")
+  const groups = []
+  for (const x of rest) {
+    const g = groups[groups.length - 1]
+    const role = x.role || (x.kind === 'agent' ? L('에이전트', 'an agent') : L('담당자', 'the assignee'))
+    if (g && g.role === role && g.kind === x.kind) g.names.push(x.name)
+    else groups.push({ role, kind: x.kind, names: [x.name] })
+  }
+  const ko = groups.map((g) => `${josa(g.names.join('·'), '은/는')} ${josa(g.role, '이/가')}`).join(', ')
+  const en = groups.map((g) => `${g.names.join(', ')} by ${g.role}`).join(', ')
+  return `${head} ${L(`${ko} 맡아요.`, `Next: ${en}.`)}`
 }
 
 export const newId = () => crypto.randomUUID()
