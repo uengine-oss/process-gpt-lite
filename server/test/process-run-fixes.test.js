@@ -65,3 +65,12 @@ test('견적 단계는 평면도가 있을 때만 인테리어 견적 틀을 쓴
   assert.match(design, /실별 인테리어 공사/)
   assert.match(design, /\(평면도와 제안서는 앞 단계에서 이미 만들었으니 만들지 마세요\.\)/)
 })
+
+// 4) 검토 카드의 앞 단계 산출물 — 운영 completion 은 단계 결과 문서를 Google Docs 링크(output_url)로 남긴다.
+//    링크 끝 조각을 파일 이름으로 써서 칩이 "edit?usp=drivesdk&ouid=…"로 보였다.
+test('파일 이름이 없는 결과 문서 링크는 "<단계> 결과 문서"로 보인다', async () => {
+  const { urlName } = await import('../lib/processes.js')
+  assert.equal(urlName('https://docs.google.com/document/d/1gWVpXa2/edit?usp=drivesdk&ouid=1085&rtpof=true&sd=true', '요청 메일 접수 결과 문서'), '요청 메일 접수 결과 문서')
+  assert.equal(urlName('https://x.supabase.co/storage/v1/object/public/files/pgpt-pro/u/%ED%95%9C%EB%B9%9B%EC%9D%B4%EB%B2%A4%ED%8A%B8%20%EA%B2%AC%EC%A0%81%EC%84%9C.xlsx', 'x'), '한빛이벤트 견적서.xlsx')
+  assert.equal(urlName('not a url', '결과'), '결과')
+})

@@ -2,6 +2,7 @@
 import { q, ENGINE_TZ } from './supa.js'
 import { config } from '../config.js'
 import { failures } from './stepRetry.js'
+import { L } from './lang.js'
 
 const T = () => config.tenantId
 
@@ -173,6 +174,16 @@ export async function getInstance(instId, me) {
   return { inst, def, steps, todos, artifacts }
 }
 
+// A file's name from its link: the last path part when it names a file (…/견적서.xlsx), else the fallback —
+// process-gpt keeps each step's result document in Google Docs (…/document/d/<id>/edit?usp=drivesdk),
+// whose last part would show as "edit?usp=drivesdk&ouid=…" on the reviewer's card
+export function urlName(url, fallback) {
+  try {
+    const seg = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || '')
+    return /\.[a-z0-9]{2,5}$/i.test(seg) ? seg : fallback
+  } catch { return fallback }
+}
+
 // todolist.output is {formId: {field: value}} (sometimes flat). Pull out documents and files.
 function flattenOutput(t) {
   const out = []
@@ -190,7 +201,7 @@ function flattenOutput(t) {
       else if (typeof v === 'string' && v.length > 280) out.push({ kind: 'doc', field: k, text: v, activity: t.activity_name, todoId: t.id, formId })
     }
   }
-  if (t.output_url) out.push({ kind: 'file', name: t.output_url.split('/').pop(), url: t.output_url, activity: t.activity_name, todoId: t.id })
+  if (t.output_url) out.push({ kind: 'file', name: urlName(t.output_url, L(`${t.activity_name} 결과 문서`, `${t.activity_name} result document`)), url: t.output_url, activity: t.activity_name, todoId: t.id })
   if (worktree?.commit) out.push({ kind: 'branch', ...worktree, activity: t.activity_name, todoId: t.id })
   // media a CLI agent left in its run workspace (demo video and the like), served through cli-agent
   for (const m of all.media || []) {
