@@ -113,22 +113,47 @@ const SKILLS = {
     const since = new Date()
     status(L('엑셀 견적서 만드는 중', 'Building the Excel quote'))
     const msg = await delegate({ user, session, threadId, silent: true,
-      text: L(`프로세스 '견적서 작성' 단계예요. 고객 메일(${prev.subject})에 회신할 견적서를 만드세요. 평면도의 실별 면적: ${String(prev.rooms || '').split('\n').join(' / ')}\n메일 본문: ${String(prev.body || '').slice(0, 2000)}\n\n` +
-        `엑셀(xlsx) 스킬로 /workspace/${name} 를 만드세요: 위에 제목·수신·발신·견적일·유효기간, 품목 표(구분·품목·수량·단위·단가·금액, 금액은 =수량*단가 수식) — 설계비(평면·마감 설계, 1식), 실별 인테리어 공사(면적 ㎡ × ㎡당 단가, 실마다 한 줄), 가구·집기(좌석 수 기준), 전기·설비(1식), 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 천 단위 쉼표, 머리글 색 구분. 단가는 합리적인 가정값.\n\n` +
-        `(평면도와 제안서는 앞 단계에서 이미 만들었으니 만들지 마세요.) 다 만들면 파일 이름과 가정한 단가를 두세 줄로 적고, 맨 마지막 줄에 부가세 포함 합계를 원 단위 숫자로 "TOTAL: 51216000" 처럼 한 줄로 쓰세요. 모두 한국어(해요체)로 쓰세요.`,
-      `This is the 'Prepare quote' step of a process. Build the quote that answers the customer mail (${prev.subject}). Room areas from the floor plan: ${String(prev.rooms || '').split('\n').join(' / ')}\nMail body: ${String(prev.body || '').slice(0, 2000)}\n\n` +
-        `With the Excel (xlsx) skill, create /workspace/${name}: at the top the title, to, from, quote date and validity; an item table (category, item, quantity, unit, unit price, amount — amount as the formula =quantity*unit price) with the design fee (floor plan and finishing design, 1 lot), interior work per room (area in ㎡ × price per ㎡, one row per room), furniture and fixtures (by the number of seats), and electrical and equipment (1 lot); below it subtotal, VAT (10%) and total rows (all formulas), thousands separators, colored header row. Use reasonable assumed unit prices in KRW (₩).\n\n` +
-        `(The floor plan and the proposal were made in earlier steps — do not make them.) When it is done, give the file name and the unit prices you assumed in two or three lines, and on the very last line the total incl. VAT in won as a plain number, like "TOTAL: 51216000". Write everything in English.`) })  // (delegate adds the language instruction)
+      text: quotePrompt(prev, name) })  // (delegate adds the language instruction)
     const f = await newFile(threadId, since, 'xlsx')
     if (!f) throw new Error(L('견적서 파일을 찾지 못했어요', "I couldn't find the quote file"))
     // the agent's answer streams its progress first; the last paragraphs are the summary (file, assumed
     // prices), its last line the total — the amount a mined review's skip rule reads (service.js reviewRule)
     // the file itself is the step's quote value: its link would show raw on the next step's card
-    const plain = String(msg?.content?.text || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    // (a sandbox path the agent wrote, /workspace/.bpmn/<대화>/한빛이벤트 견적서.xlsx, keeps only the file name)
+    const plain = String(msg?.content?.text || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/(?:sandbox:)?\/workspace\/(?:[^\n/]*\/)*/g, '')
     const { total, rest } = quoteTotal(plain)
     const text = rest.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).slice(-3).join('\n\n').slice(0, 1500)
     return { values: { quote: f, ...(total != null ? { amount: String(total) } : {}), assumptions: text }, say: null }
   },
+}
+
+// The quote step's request to the agent, from what this instance's earlier steps actually left: a floor
+// plan's room areas make it an interior quote (design fee, work per room …); without one it is a quote
+// for what the mail asks for (a 송년회 다과 비용표 is snacks and drinks, not 인테리어 공사). The documents
+// earlier steps already made are named so the agent does not make them again — none when there are none.
+export function quotePrompt(prev, name) {
+  const rooms = String(prev.rooms || '').split('\n').map((x) => x.trim()).filter(Boolean).join(' / ')
+  const body = String(prev.body || '').slice(0, 2000)
+  const made = [prev.floor_plan && L('평면도', 'the floor plan'), prev.proposal && L('제안서', 'the proposal')].filter(Boolean)
+  const ko = [
+    `프로세스 '견적서 작성' 단계예요. 고객 메일(${prev.subject})에 회신할 견적서를 만드세요.${rooms ? ` 평면도의 실별 면적: ${rooms}` : ''}\n메일 본문: ${body}\n\n`,
+    `엑셀(xlsx) 스킬로 /workspace/${name} 를 만드세요: 위에 제목·수신·발신·견적일·유효기간, 품목 표(구분·품목·수량·단위·단가·금액, 금액은 =수량*단가 수식) — `,
+    rooms ? '설계비(평면·마감 설계, 1식), 실별 인테리어 공사(면적 ㎡ × ㎡당 단가, 실마다 한 줄), 가구·집기(좌석 수 기준), 전기·설비(1식)'
+      : '메일이 요청한 품목을 한 줄씩(메일에 적힌 인원·수량·기간으로 수량을 정하고, 요청하지 않은 공사·설계 항목은 넣지 마세요)',
+    ', 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 천 단위 쉼표, 머리글 색 구분. 단가는 합리적인 가정값.\n\n',
+    made.length ? `(${made.join('와 ')}는 앞 단계에서 이미 만들었으니 만들지 마세요.) ` : '',
+    '다 만들면 파일 이름과 가정한 단가를 두세 줄로 적고, 맨 마지막 줄에 부가세 포함 합계를 원 단위 숫자로 "TOTAL: 51216000" 처럼 한 줄로 쓰세요. 모두 한국어(해요체)로 쓰세요.',
+  ].join('')
+  const en = [
+    `This is the 'Prepare quote' step of a process. Build the quote that answers the customer mail (${prev.subject}).${rooms ? ` Room areas from the floor plan: ${rooms}` : ''}\nMail body: ${body}\n\n`,
+    `With the Excel (xlsx) skill, create /workspace/${name}: at the top the title, to, from, quote date and validity; an item table (category, item, quantity, unit, unit price, amount — amount as the formula =quantity*unit price) with `,
+    rooms ? 'the design fee (floor plan and finishing design, 1 lot), interior work per room (area in ㎡ × price per ㎡, one row per room), furniture and fixtures (by the number of seats), and electrical and equipment (1 lot)'
+      : 'one row per item the mail asks for (quantities from the headcount, amounts and dates the mail gives; no construction or design items it did not ask for)',
+    '; below it subtotal, VAT (10%) and total rows (all formulas), thousands separators, colored header row. Use reasonable assumed unit prices in KRW (₩).\n\n',
+    made.length ? `(${made.join(' and ')} ${made.length > 1 ? 'were' : 'was'} made in earlier steps — do not make ${made.length > 1 ? 'them' : 'it'}.) ` : '',
+    'When it is done, give the file name and the unit prices you assumed in two or three lines, and on the very last line the total incl. VAT in won as a plain number, like "TOTAL: 51216000". Write everything in English.',
+  ].join('')
+  return L(ko, en)
 }
 
 // "TOTAL: 51,216,000" (or "합계: 5,121만 6천 원" read by improve's numberOf) on its own line → the number,
