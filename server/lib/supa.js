@@ -8,6 +8,16 @@ export const admin = createClient(config.supabaseUrl, config.serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 })
 
+// process-gpt's engine (completion) writes its work times — bpm_proc_inst / todolist start_date, end_date,
+// due_date, the only `timestamp without time zone` columns we read — as Asia/Seoul wall-clock time
+// (datetime.now(pytz.timezone('Asia/Seoul')) into a naive column). pg would read them in this server's own
+// time zone: right on a Korean laptop, nine hours late on a UTC pod ("오전 2:08 시작" for 오후 5:08). Read
+// them as Seoul time wherever this runs; write ours the same way (ENGINE_NOW).
+export const ENGINE_TZ = 'Asia/Seoul'
+export const ENGINE_NOW = `(now() at time zone '${ENGINE_TZ}')`
+export const engineTime = (s) => (s == null || !/^\d{4}-\d\d-\d\d/.test(s) ? s : new Date(`${s.replace(' ', 'T')}+09:00`))
+pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, engineTime)
+
 export const pool = new pg.Pool(config.db)
 // an idle client dropped by the DB (restart, recovery mode) is discarded by the pool; without a
 // listener the 'error' event would take the whole server down

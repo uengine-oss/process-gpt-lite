@@ -1,5 +1,5 @@
 // Read side of process-gpt BPM: definitions, forms, instances, work items, artifacts.
-import { q } from './supa.js'
+import { q, ENGINE_TZ } from './supa.js'
 import { config } from '../config.js'
 import { failures } from './stepRetry.js'
 
@@ -117,7 +117,7 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
      from bpm_proc_inst i left join proc_def d on d.id=i.proc_def_id and d.tenant_id=i.tenant_id
      where i.tenant_id=$1 and not coalesce(i.is_deleted,false) and ($4::text is null or i.status::text=$4)
        and ${INVOLVED}
-     order by coalesce(i.updated_at, i.start_date::timestamptz) desc nulls last limit $5`,
+     order by coalesce(i.updated_at, i.start_date at time zone '${ENGINE_TZ}') desc nulls last limit $5`,
     [T(), userEmail, userId, status || null, limit])
 }
 
@@ -133,7 +133,7 @@ export async function getInstance(instId, me) {
             coalesce((select u.username from users u where u.is_agent and u.id::text = t.user_id and u.tenant_id = t.tenant_id), username) as username,
             start_date, end_date, updated_at, output, draft,
             output_url, agent_mode, agent_orch, log, description, draft_status::text as draft_status, consumer, lease_until
-     from todolist t where proc_inst_id=$1 order by coalesce(start_date, updated_at::timestamp) asc`, [instId])
+     from todolist t where proc_inst_id=$1 order by coalesce(start_date, updated_at at time zone '${ENGINE_TZ}') asc`, [instId])
   const byAct = new Map()
   for (const t of todos) byAct.set(t.activity_id, t) // latest wins
   const current = new Set(inst.current_activity_ids || [])
