@@ -74,3 +74,21 @@ test('파일 이름이 없는 결과 문서 링크는 "<단계> 결과 문서"�
   assert.equal(urlName('https://x.supabase.co/storage/v1/object/public/files/pgpt-pro/u/%ED%95%9C%EB%B9%9B%EC%9D%B4%EB%B2%A4%ED%8A%B8%20%EA%B2%AC%EC%A0%81%EC%84%9C.xlsx', 'x'), '한빛이벤트 견적서.xlsx')
   assert.equal(urlName('not a url', '결과'), '결과')
 })
+
+// 5) 메일 초안이 "에이전트에 연결하지 못했어요"로 끝나던 것 — 운영(2026-11-05)에서 같은 설치의 첫 초안은 되고 다음
+//    초안들은 곧바로 실패했다. 턴이 시작되지 않은 실패(연결 거부, 502/503/504)는 잠시 뒤 다시 시도하고, 그래도 안 되면
+//    안내 끝에 원인(상태 코드·네트워크 오류)을 붙여 로그를 볼 수 없는 운영에서도 이유가 보이게 한다.
+test('에이전트 연결: 일시 실패는 다시 시도하고, 다른 응답은 그대로, 원인은 안내에 붙는다', async () => {
+  const { connect, causeOf } = await import('../lib/agent.js')
+  const seq = (...xs) => { let i = 0; const calls = []; return { calls, open: async () => { const x = xs[Math.min(i++, xs.length - 1)]; calls.push(x); if (x instanceof Error) throw x; return { status: x, ok: x < 400 } } } }
+  const netErr = Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } })
+  let s = seq(503, 200); assert.equal((await connect(s.open, () => false, [1, 1])).status, 200); assert.equal(s.calls.length, 2)
+  s = seq(netErr, 502, 200); assert.equal((await connect(s.open, () => false, [1, 1])).status, 200); assert.equal(s.calls.length, 3)
+  s = seq(500); assert.equal((await connect(s.open, () => false, [1, 1])).status, 500); assert.equal(s.calls.length, 1)
+  s = seq(401); assert.equal((await connect(s.open, () => false, [1, 1])).status, 401); assert.equal(s.calls.length, 1)
+  s = seq(503); assert.equal((await connect(s.open, () => false, [1, 1])).status, 503); assert.equal(s.calls.length, 3)
+  s = seq(503, 200); assert.equal((await connect(s.open, () => true, [1, 1])).status, 503) // stopped by the person
+  s = seq(netErr); await assert.rejects(connect(s.open, () => false, [1, 1]), /fetch failed/)
+  assert.equal(causeOf(new Error('deepagents 503')), 'deepagents 503')
+  assert.equal(causeOf(netErr), 'ECONNREFUSED')
+})

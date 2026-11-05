@@ -727,7 +727,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent })
     return addMessage(user.id, threadId, 'agent', 'text', { text: idle.signal.aborted
       ? L('에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.', "The agent didn't respond for a while, so I stopped waiting. Please send the same request again.")
-      : L('에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't reach the agent. Please send it again in a moment.") })
+      : L(`에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요. (${causeOf(e)})`, `I couldn't reach the agent. Please send it again in a moment. (${causeOf(e)})`) })
   } finally { clearTimeout(idleTimer) }
 
   async function streamTurn() {
@@ -737,7 +737,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   let conv = turn.conv || pin?.conversationId || thread?.conversation_id || null
   if (!conv && !routed && uploads.length) conv = crypto.randomUUID().replace(/-/g, '')
   const sent = conv && !routed ? await indexForRoom(uploads, conv) : uploads
-  const res = await fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
+  const res = await connect(() => fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
     signal: AbortSignal.any([idle.signal, turn.abort.signal]),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
@@ -751,7 +751,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         ...(isEn() ? { language: 'en' } : {}),
         ...(routed ? { auto_route: true, route_text: text, agent: 'deepagents' } : {}) },
     }),
-  })
+  }), () => idle.signal.aborted || turn.abort.signal.aborted)
   if (!res.ok) throw new Error(`deepagents ${res.status}`)
   const reader = res.body.getReader()
   const dec = new TextDecoder()
@@ -1136,3 +1136,21 @@ async function panelEvent({ user, threadId, args, app, say }) {
     return say(e.status === 403 ? `${e.message.replace(/\.$/, '')} — ${L(`'${app.title}'의 기록 권한`, `record permissions of '${app.title}'`)}: ${(app.eventRules || []).map((x) => `${x.label}: ${x.who}`).join(' / ')}` : L(`기록하지 못했어요: ${e.message}`, `I couldn't record it: ${e.message}`))
   } finally { emit(userId, 'status', { threadId, text: null }) }
 }
+
+// Reaching the agent for a turn: a refused connection or a gateway that has no agent to hand the turn to
+// yet (502/503/504 — a pod starting or being replaced) means the turn never started, so it is tried again
+// a moment later, twice, before the chat says it could not reach the agent. Any other answer is final.
+export async function connect(open, stopped = () => false, waits = [3000, 8000]) {
+  for (let i = 0; ; i++) {
+    let res, err
+    try { res = await open() } catch (e) { err = e }
+    const transient = err ? /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up/i.test(`${err.message} ${err.cause?.code || ''}`) : [502, 503, 504].includes(res.status)
+    if (!transient || i >= waits.length || stopped()) { if (err) throw err; return res }
+    console.warn('[delegate] agent not reachable, trying again:', err ? err.message : res.status)
+    await res?.body?.cancel().catch(() => {})
+    await new Promise((r) => setTimeout(r, waits[i]))
+  }
+}
+// what the chat shows after "에이전트에 연결하지 못했어요": the status or the network error, so a failure
+// on a server whose logs nobody can read still says why ("deepagents 503", "ECONNREFUSED")
+export const causeOf = (e) => (/^deepagents \d{3}$/.test(e?.message || '') ? e.message : e?.cause?.code || String(e?.message || 'error').slice(0, 60))
