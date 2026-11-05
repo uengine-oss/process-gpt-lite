@@ -12,6 +12,10 @@ const admin = computed(() => !!app.me?.admin)
 const team = ref([])
 const roles = ref([])
 const held = ref({})
+// a process's own holder of a role (정식 등록 writes the person who did the step before): it wins over
+// the tenant-wide holder above, so it is shown under the role and changed there — otherwise picking
+// someone above would look done while that process kept sending the step to the old holder
+const own = ref([])
 const add = ref({ name: '', email: '' })
 const err = ref('')
 const find = ref('')
@@ -27,7 +31,11 @@ async function load() {
   team.value = t
   roles.value = c
   held.value = Object.fromEntries(a.filter((x) => x.proc_def_id === '*').map((x) => [x.role, x.user_id]))
+  own.value = a.filter((x) => x.proc_def_id !== '*')
 }
+const key = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase()
+const ownOf = (r) => own.value.filter((x) => key(x.role) === key(r.role) && r.defs?.[x.proc_def_id])
+  .map((x) => ({ ...x, defName: r.defs[x.proc_def_id] }))
 onMounted(load)
 
 async function addMember() {
@@ -41,6 +49,12 @@ async function addMember() {
 async function remove(m) {
   err.value = ''
   try { await api(`/team/${m.id}`, { method: 'DELETE' }) } catch (e) { err.value = e.message }
+  await load()
+}
+// '' = this process follows the role's holder above (its own assignment is removed)
+async function setOwn(x, userId) {
+  err.value = ''
+  try { await api('/roles', { method: 'PUT', body: { defId: x.proc_def_id, role: x.role, userId: userId || null } }) } catch (e) { err.value = e.message }
   await load()
 }
 async function setRole(role, userId) {
@@ -73,13 +87,22 @@ async function setRole(role, userId) {
     <p class="hint">프로세스 단계는 그 역할을 맡은 팀원에게 가고, 그 사람에게 알림이 갑니다. 비워 두면 일을 시작한 사람(예약을 건 사람)이 맡습니다.</p>
     <input v-model="find" class="find" placeholder="역할·프로세스 검색" />
     <div class="list glass">
-      <div v-for="r in shown" :key="r.role" class="li">
-        <div class="main"><b>{{ r.role }}</b><small>{{ r.processes.join(' · ') }}</small></div>
-        <select :value="held[r.role] || ''" :disabled="!admin" :title="admin ? '' : '관리자만 바꿀 수 있어요'" @change="setRole(r.role, $event.target.value)">
-          <option value="">시작한 사람</option>
-          <option v-for="m in team" :key="m.id" :value="m.id">{{ m.name }}</option>
-        </select>
-      </div>
+      <template v-for="r in shown" :key="r.role">
+        <div class="li">
+          <div class="main"><b>{{ r.role }}</b><small>{{ r.processes.join(' · ') }}</small></div>
+          <select :value="held[r.role] || ''" :disabled="!admin" :title="admin ? '' : '관리자만 바꿀 수 있어요'" @change="setRole(r.role, $event.target.value)">
+            <option value="">시작한 사람</option>
+            <option v-for="m in team" :key="m.id" :value="m.id">{{ m.name }}</option>
+          </select>
+        </div>
+        <div v-for="x in ownOf(r)" :key="r.role + x.proc_def_id" class="li sub">
+          <div class="main"><small>↳ {{ x.defName }}</small></div>
+          <select :value="x.user_id" :disabled="!admin" :aria-label="`${x.defName} ${r.role}`" @change="setOwn(x, $event.target.value)">
+            <option value="">위 담당 따름</option>
+            <option v-for="m in team" :key="m.id" :value="m.id">{{ m.name }}</option>
+          </select>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -90,6 +113,7 @@ async function setRole(role, userId) {
 .list { border-radius: 20px; overflow: hidden; }
 .li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid rgba(0, 0, 0, .06); }
 .li:last-child { border-bottom: 0; }
+.li.sub { padding: 8px 14px 10px 28px; }
 .av { width: 34px; height: 34px; border-radius: 17px; background: var(--ink); color: var(--ink-inverse); display: grid; place-items: center; font-size: 15px; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; }
 .main b { font-weight: 500; font-size: 15px; }

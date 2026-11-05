@@ -123,13 +123,15 @@ export async function roleCatalog() {
                         where d.tenant_id=$1 and coalesce(d.isdeleted,false)=false and coalesce(r->>'origin','') <> 'used'`, [T()]).catch(() => [])
   // one entry per role whatever its capitals, named as the team assigned it (else as first written)
   const assigned = new Map((await q(`select distinct role from pro_role_assignments where tenant_id=$1`, [T()]).catch(() => [])).map((r) => [roleKey(r.role), r.role]))
-  const by = {}, names = {}
+  const by = {}, names = {}, defs = {}
   for (const r of rows) {
     if (!r.role) continue
     const k = roleKey(r.role)
     names[k] ??= assigned.get(k) || r.role
     ;(by[k] ||= []).push(r.name || r.id)
+    ;(defs[k] ||= new Map()).set(r.id.toLowerCase(), r.name || r.id)
   }
-  return Object.entries(by).map(([k, processes]) => ({ role: names[k], processes: [...new Set(processes)].slice(0, 6) }))
+  // defs: the processes using the role (id → name), so a process's own holder can be shown and changed
+  return Object.entries(by).map(([k, processes]) => ({ role: names[k], processes: [...new Set(processes)].slice(0, 6), defs: Object.fromEntries(defs[k]) }))
     .sort((a, b) => b.processes.length - a.processes.length || a.role.localeCompare(b.role, 'ko')).slice(0, 300)
 }
