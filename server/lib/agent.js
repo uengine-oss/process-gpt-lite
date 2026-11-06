@@ -752,7 +752,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         ...(routed ? { auto_route: true, route_text: text, agent: 'deepagents' } : {}) },
     }),
   }), () => idle.signal.aborted || turn.abort.signal.aborted)
-  if (!res.ok) throw new Error(`deepagents ${res.status}`)
+  if (!res.ok) throw new Error(`deepagents ${res.status}${await refusal(res)}`)
   const reader = res.body.getReader()
   const dec = new TextDecoder()
   let buf = '', out = '', event = ''
@@ -1147,11 +1147,22 @@ export async function connect(open, stopped = () => false, waits = [3000, 8000])
     try { res = await open() } catch (e) { err = e }
     const transient = err ? /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up/i.test(`${err.message} ${err.cause?.code || ''}`) : [502, 503, 504].includes(res.status)
     if (!transient || i >= waits.length || stopped()) { if (err) throw err; return res }
-    console.warn('[delegate] agent not reachable, trying again:', err ? err.message : res.status)
-    await res?.body?.cancel().catch(() => {})
+    console.warn('[delegate] agent not reachable, trying again:', err ? err.message : `${res.status}${await refusal(res)}`)
     await new Promise((r) => setTimeout(r, waits[i]))
   }
 }
-// what the chat shows after "에이전트에 연결하지 못했어요": the status or the network error, so a failure
-// on a server whose logs nobody can read still says why ("deepagents 503", "ECONNREFUSED")
-export const causeOf = (e) => (/^deepagents \d{3}$/.test(e?.message || '') ? e.message : e?.cause?.code || String(e?.message || 'error').slice(0, 60))
+// why the agent's address refused a turn, from the body it answered with: the session router in front
+// of the runners says which of its failures it was ({"error":"agent runner unreachable"} — no runner
+// answered — or "could not start an agent runner for this conversation"), FastAPI says {"detail": …}.
+// ": <reason>", or '' when the body says nothing readable.
+export async function refusal(res) {
+  const t = await res.text().catch(() => '')
+  let why = t
+  try { const j = JSON.parse(t); why = j.error || j.detail || j.message || '' } catch { /* not JSON: an HTML page from a proxy says nothing */ if (/^\s*</.test(t)) why = '' }
+  why = String(typeof why === 'string' ? why : JSON.stringify(why)).replace(/\s+/g, ' ').trim().slice(0, 100)
+  return why ? `: ${why}` : ''
+}
+// what the chat shows after "에이전트에 연결하지 못했어요": the status and the reason the agent's address gave,
+// or the network error, so a failure on a server whose logs nobody can read still says why
+// ("deepagents 502: agent runner unreachable", "ECONNREFUSED")
+export const causeOf = (e) => (/^deepagents \d{3}(: |$)/.test(e?.message || '') ? e.message.slice(0, 130) : e?.cause?.code || String(e?.message || 'error').slice(0, 60))

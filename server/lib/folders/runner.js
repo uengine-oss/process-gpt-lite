@@ -4,6 +4,7 @@
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { L, isEn, langInstruction } from '../lang.js'
+import { refusal } from '../agent.js'
 
 export const RULES = '이 폴더 안의 파일만 읽고 고치세요. git 명령(commit, checkout, merge 등)은 쓰지 마세요 — 바뀐 내용은 시스템이 변형에 커밋합니다. 새 파일을 만들 때도 이 폴더 안에 두세요.'
 export const RULES_EN = 'Read and change only the files in this folder. Do not use git commands (commit, checkout, merge …) — the system commits the changes to the variation. Put any new file in this folder too.'
@@ -23,7 +24,7 @@ export async function runAgent({ jwt, user, conversationId, message, onText, sig
       metadata: { client: 'pgpt-pro', origin: 'pgpt-pro-folders', style: isEn() ? 'English, concise.' : 'Korean 해요체, concise.' },
     }),
   })
-  if (!res.ok) throw new Error(`deepagents ${res.status}`)
+  if (!res.ok) throw new Error(`deepagents ${res.status}${await refusal(res)}`)
   const reader = res.body.getReader()
   const dec = new TextDecoder()
   let buf = '', out = ''
