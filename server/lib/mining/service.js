@@ -27,7 +27,7 @@ import { emit } from '../bus.js'
 import { chatJson } from '../llm.js'
 import { saveGenerated } from '../generated.js'
 import { mainThread, addMessage } from '../store.js'
-import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
+import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang, labelsOf } from './catalog.js'
 import { L, isEn, lang, langOf, withLang } from '../lang.js'
 import { fmtNum } from '../improve/transform.js'
 import { josa } from '../improve/focus.js'
@@ -113,20 +113,33 @@ async function doScan() {
     const cases = await q('select * from pro_mining_cases where tenant_id=$1 and case_id = any($2) order by created_at', [T(), p.case_ids])
     if (cases.length * 2 < p.case_ids.length) continue
     const have = await sameSuggestion(p)
-    if (have) {
-      // more cases of a pattern already suggested: the evidence grows, the decision stays
-      // (still undecided: the mined model is drawn again from all the cases)
-      const again = have.status === 'suggested' ? await miner('/discover', { tenant_id: T(), process_id: p.process_id, name: p.process_id, case_ids: p.case_ids, lang: patternLang(p) }).catch(() => null) : null
+    if (have?.status === 'suggested') {
+      // more cases of a pattern already suggested: the evidence grows, the decision is still to come
+      // (the mined model is drawn again from all the cases)
+      const again = await miner('/discover', { tenant_id: T(), process_id: p.process_id, name: p.process_id, case_ids: p.case_ids, lang: patternLang(p) }).catch(() => null)
       await q('update pro_mining_suggestions set pattern=$2, definition=coalesce($3, definition), updated_at=now() where id=$1', [have.id, p, again?.definition || null])
       continue
     }
-    // a case still under way is not evidence yet: each case must have reached the flow's usual last
-    // step (or sat idle for a while), and none may have moved in the last moments
-    const last = p.main_variant.at(-1)
-    const [open] = await q(`select 1 from (select distinct on (case_id) case_id, norm_activity_label as l, occurred_at from handover_events
+    if (have) {
+      // a decided flow (등록·보류): the miner gave back its own cases under its key. They only add up —
+      // the list is never replaced, so the flow keeps what it was decided on
+      const ids = [...new Set([...(have.cases || []), ...p.case_ids])]
+      await q('update pro_mining_suggestions set pattern=$2, updated_at=now() where id=$1', [have.id, { ...p, case_ids: ids, case_count: ids.length }])
+      continue
+    }
+    // a group holding cases of a decided flow is not new work (the miner keeps those apart; this only
+    // happens when it could not read them): no recommendation is made of them
+    if (await decidedOverlap(p)) continue
+    // a case still under way is not evidence yet: each case must have been answered (고객 회신 ends a
+    // case, recorder.js) or sat idle for a while, and none may have moved in the last moments. (Not "reached
+    // the group's usual last step": cases all stopped at the same middle step have that step as their last.)
+    const [open] = await q(`select 1 from (select distinct on (case_id) case_id, occurred_at from handover_events
                               where tenant_id=$1 and case_id = any($2) order by case_id, occurred_at desc) x
-                            where occurred_at > now() - make_interval(secs => $4) or (l <> $3 and occurred_at > now() - make_interval(secs => $5)) limit 1`,
-    [T(), p.case_ids, last, Number(process.env.PRO_MINING_SETTLE_SEC || 20), Number(process.env.PRO_MINING_IDLE_SEC || 1800)])
+                            where occurred_at > now() - make_interval(secs => $4)
+                               or (occurred_at > now() - make_interval(secs => $5)
+                                   and not exists (select 1 from handover_events h where h.tenant_id=$1 and h.case_id=x.case_id and h.norm_activity_label = any($3)))
+                            limit 1`,
+    [T(), p.case_ids, labelsOf('고객 회신'), Number(process.env.PRO_MINING_SETTLE_SEC || 20), Number(process.env.PRO_MINING_IDLE_SEC || 1800)])
     if (open) continue
     const named = await nameOf(p, cases)
     named.name = await uniqueName(named.name)
@@ -154,12 +167,13 @@ async function findPatterns() {
   return miner('/patterns', { tenant_id: T(), min_cases: minCases, known })
 }
 
-// the recommendation a found group already is: the same key, or most of its cases (≥ half of the
+// the recommendation a found group already is: the same key (any status — a decided flow comes back
+// from the miner under its own key), or, for one not decided yet, most of its cases (≥ half of the
 // smaller side) already counted there — the miner's groups grow and merge as cases pile up
 export async function sameSuggestion(p) {
-  const [byKey] = await q('select id, status from pro_mining_suggestions where tenant_id=$1 and pattern_key=$2', [T(), p.key])
+  const [byKey] = await q(`select id, status, pattern->'case_ids' as cases from pro_mining_suggestions where tenant_id=$1 and pattern_key=$2`, [T(), p.key])
   if (byKey) return byKey
-  const rows = await q(`select id, status, pattern->'case_ids' as cases from pro_mining_suggestions where tenant_id=$1`, [T()])
+  const rows = await q(`select id, status, pattern->'case_ids' as cases from pro_mining_suggestions where tenant_id=$1 and status='suggested'`, [T()])
   const mine = new Set(p.case_ids || [])
   let best = null
   for (const r of rows) {
@@ -169,6 +183,13 @@ export async function sameSuggestion(p) {
     if (shared && share >= 0.5 && (!best || share > best.share)) best = { id: r.id, status: r.status, share }
   }
   return best
+}
+
+// does a found group hold cases a decided flow (등록·보류) already has
+async function decidedOverlap(p) {
+  const [r] = await q(`select 1 from pro_mining_suggestions where tenant_id=$1 and status <> 'suggested'
+                       and exists (select 1 from jsonb_array_elements_text(pattern->'case_ids') c where c = any($2)) limit 1`, [T(), p.case_ids])
+  return !!r
 }
 
 // two different flows the model happens to name alike stay apart in the admin's list
