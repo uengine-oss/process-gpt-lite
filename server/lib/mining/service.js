@@ -13,9 +13,13 @@
 //   - a group is the same recommendation as an existing one when the key is the same OR most of its
 //     cases already belong to that recommendation (sameSuggestion): the evidence grows there, the
 //     decision (등록·보류) stays, and no second recommendation with the same cases appears
-//   - so new cases whose activities match an already registered flow add evidence to it rather than
-//     making a new recommendation; a different flow needs different activities (e.g. its own review
-//     steps — recorder.js names a review after the recipient's role)
+//   - a decided flow (등록·보류) is handed to the miner with its cases (known): its cases, and new ones
+//     that follow it (no step outside it, every core step done), stay with it as evidence; only the
+//     rest are grouped. Otherwise the decided flow's cases bridge any work one step different (above
+//     the Jaccard bar) into that flow and it is never suggested on its own.
+//   - so new cases handled with an already registered flow's steps add evidence to it rather than
+//     making a new recommendation; work that differs in a step (e.g. a review by another role —
+//     recorder.js names a review after the recipient's role) becomes its own recommendation
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
@@ -102,7 +106,7 @@ export async function scanNow() {
 
 async function doScan() {
   if (!MINER) return []
-  const { patterns } = await miner(`/patterns?tenant_id=${encodeURIComponent(T())}&min_cases=${Number(process.env.PRO_MINING_MIN_CASES || 4)}`)
+  const { patterns } = await findPatterns()
   const made = []
   for (const p of patterns) {
     // only work pgpt-pro recorded (one case = one mail); other tenants' demos are not ours to suggest
@@ -139,6 +143,15 @@ async function doScan() {
     await notifyAdmins(s)
   }
   return made
+}
+
+// the miner's groups, with the flows already decided kept apart (known: their key and cases)
+async function findPatterns() {
+  const minCases = Number(process.env.PRO_MINING_MIN_CASES || 4)
+  const known = (await q(`select pattern_key as key, pattern->'case_ids' as case_ids from pro_mining_suggestions
+                          where tenant_id=$1 and status <> 'suggested'`, [T()]))
+    .map((r) => ({ key: r.key, case_ids: Array.isArray(r.case_ids) ? r.case_ids.map(String) : [] }))
+  return miner('/patterns', { tenant_id: T(), min_cases: minCases, known })
 }
 
 // the recommendation a found group already is: the same key, or most of its cases (≥ half of the
