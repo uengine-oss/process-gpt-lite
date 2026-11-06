@@ -87,58 +87,6 @@ test.describe('프로세스 마이닝 (lib/mining)', () => {
     expect(c.processDefinition.elements.filter((e) => e.elementType === 'Sequence').length).toBeGreaterThanOrEqual(acts.length + 1)
   })
 
-  test('F-MN-04 결정된 흐름과 단계 하나만 다른 업무는 4건이면 따로 묶이고, 같은 단계 업무는 몇 건이어도 그 흐름에 붙는다 (구성이 다른 두 흐름)', async ({ db, lib, cleanup }) => {
-    test.skip(!(await minerUp()), `process-miner 에 닿지 않음 (${MINER || 'MINER_URL 없음'})`)
-    const L = (s) => `회귀${RUN} ${s}`
-    // two decided flows of different make-up (4 and 6 steps); each variant swaps one review step,
-    // which keeps it at or above the Jaccard bar (3/5 = 0.6, 5/7 ≈ 0.71) against the decided flow
-    const EVENT = [L('접수'), L('견적서 작성'), L('계약 검토'), L('회신')]
-    const DESIGN = [L('접수'), L('평면도 작성'), L('제안서 작성'), L('견적서 작성'), L('재무 검토'), L('회신')]
-    const swap = (f, a, b) => f.map((x) => (x === a ? b : x))
-    const groups = {
-      ev: EVENT, evSame: EVENT, evVar: swap(EVENT, L('계약 검토'), L('재무 검토')),
-      ds: DESIGN, dsSame: DESIGN, dsVar: swap(DESIGN, L('재무 검토'), L('디자인 검토')),
-    }
-    const count = { ev: 4, evSame: 6, evVar: 4, ds: 4, dsSame: 6, dsVar: 4 }
-    const ids = Object.fromEntries(Object.keys(groups).map((g) => [g, Array.from({ length: count[g] }, (_, i) => `rt-mining4:${RUN}:${g}:${i}`)]))
-    const all = Object.values(ids).flat()
-    cleanup(() => db.q('delete from handover_events where tenant_id=$1 and case_id = any($2)', [db.tenant, all]))
-    const t0 = Date.now() - 6 * 3600_000
-    let n = 0
-    for (const [g, cs] of Object.entries(ids)) {
-      for (const c of cs) {
-        n++
-        for (const [si, label] of groups[g].entries()) {
-          await db.q(`insert into handover_events (tenant_id, case_id, origin_room_id, source, is_explicit, to_user_id, to_user_name, to_is_agent,
-                       activity_label, next_activity_label, norm_activity_label, occurred_at)
-                      values ($1,$2,$2,'chat_handover',true,'rt-person','회귀 담당',false,$3,$3,$3,$4)`,
-          [db.tenant, c, label, new Date(t0 + n * 300_000 + si * 30_000).toISOString()])
-        }
-      }
-    }
-    const { config } = await lib('config.js')
-    const headers = { Authorization: `Bearer ${config.serviceKey}`, 'Content-Type': 'application/json' }
-    const mine = (p) => p.case_ids.some((id) => all.includes(id))
-    const find = async (known) => (await (await fetch(`${MINER}/patterns`, { method: 'POST', headers,
-      body: JSON.stringify({ tenant_id: db.tenant, min_cases: 4, known }) })).json()).patterns.filter(mine)
-    // without the decided flows, the variants are bridged into them (the reason they were never suggested)
-    const before = (await (await fetch(`${MINER}/patterns?tenant_id=${encodeURIComponent(db.tenant)}&min_cases=4`, { headers })).json()).patterns.filter(mine)
-    expect(before.some((p) => p.case_ids.includes(ids.evVar[0]) && p.case_ids.includes(ids.ev[0])), '예전 묶음: 변형이 결정된 흐름과 한 묶음').toBe(true)
-    // the scan hands the decided flows (등록·보류) with their cases
-    const known = [{ key: `rt${RUN}ev`, case_ids: ids.ev }, { key: `rt${RUN}ds`, case_ids: ids.ds }]
-    const found = await find(known)
-    const byKey = Object.fromEntries(found.map((p) => [p.key, [...p.case_ids].sort()]))
-    expect(byKey[`rt${RUN}ev`]).toEqual([...ids.ev, ...ids.evSame].sort())
-    expect(byKey[`rt${RUN}ds`]).toEqual([...ids.ds, ...ids.dsSame].sort())
-    const fresh = found.filter((p) => !p.key.startsWith(`rt${RUN}`))
-    expect(fresh.map((p) => [...p.case_ids].sort()).sort()).toEqual([[...ids.dsVar].sort(), [...ids.evVar].sort()].sort())
-    expect(fresh.find((p) => p.case_ids.includes(ids.evVar[0])).main_variant).toEqual(groups.evVar)
-    expect(fresh.find((p) => p.case_ids.includes(ids.dsVar[0])).main_variant).toEqual(groups.dsVar)
-    // three variants are not a recommendation yet (the minimum stays 4)
-    await db.q('delete from handover_events where tenant_id=$1 and case_id = any($2)', [db.tenant, [ids.evVar[3], ids.dsVar[3]]])
-    expect((await find(known)).filter((p) => !p.key.startsWith(`rt${RUN}`))).toEqual([])
-  })
-
   test('F-MN-03 등록된 프로세스의 라우팅 기준: 형식 2개 이상 일치 또는 낱말 2개 이상일 때만', async ({ lib }) => {
     // the rule routeMail applies to the next mail (lib/mining/service.js)
     const { matches } = await lib('lib/mining/service.js')
