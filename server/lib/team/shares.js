@@ -56,7 +56,7 @@ export async function fork(me, files, { choices } = {}) {
   const threadId = files[0].card.thread_id
   const room = W.roomOf(threadId)
   const { caseOfFiles } = await import('../mining/recorder.js')
-  const caseId = await caseOfFiles(me, files.map((f) => f.name)).catch(() => null)
+  const caseId = await caseOfFiles(me, files.map((f) => f.name), files.map((f) => f.card?.content?.mail_id)).catch(() => null)
   const { paths } = await W.commitWorkState(me, room, files.map((f) => f.card), { origin: caseId })
   await W.gather(me, room, choices)
   const head = await W.branchHead(room)

@@ -50,7 +50,9 @@ export async function caseLang(caseId, userId) {
 
 // to: {id, name, isAgent} — or omitted for an agent step (the catalog names the agent);
 // role: the recipient's role when the step's kind does not fix one (a '<역할> 검토')
-export async function recordStep(caseId, label, { to, role, artifacts = [], note = '', at, demo = false, groupId = null, baseCommitId = null } = {}) {
+// failed: the step was reached but its work made nothing (an agent that could not be reached): the case
+// still went through it — the flow is what mining reads, whatever came of the work
+export async function recordStep(caseId, label, { to, role, artifacts = [], note = '', at, demo = false, groupId = null, baseCommitId = null, failed = false } = {}) {
   // the code names steps by their Korean label; an English case records the English one
   const cl = await caseLang(caseId)
   label = labelIn(label, cl)
@@ -63,7 +65,7 @@ export async function recordStep(caseId, label, { to, role, artifacts = [], note
   const prev = await last(caseId)
   const when = at ? new Date(at) : new Date()
   const latency = prev ? Math.max(0, Math.round((when - new Date(prev.occurred_at)) / 1000)) : null
-  const refs = (artifacts.length ? artifacts : [{}]).map((a) => ({ type: 'file', ...a, tool: st.tool, skill: st.skill }))
+  const refs = (artifacts.length ? artifacts : [{}]).map((a) => ({ type: 'file', ...a, tool: st.tool, skill: st.skill, ...(failed ? { outcome: 'failed' } : {}) }))
   const [row] = await q(`insert into handover_events (tenant_id, case_id, origin_room_id, source, is_explicit,
              from_room_id, to_room_id, from_user_id, from_user_name, from_is_agent, to_user_id, to_user_name, to_role, to_is_agent, agent_orch,
              activity_label, next_activity_label, norm_activity_label, instruction, reason, artifact_refs, occurred_at, returned_at, handover_latency_sec,
@@ -83,17 +85,26 @@ const DRAFTS = [['평면도 작성', 'dxf'], ['제안서 작성', 'hwpx'], ['견
 const DRAFTS_EN = [['평면도 작성', 'dxf'], ['제안서 작성', 'docx', 'hwpx'], ['견적서 작성', 'xlsx']]
 export async function recordDrafts(threadId, mailId) {
   const caseId = caseOf(mailId)
-  const [c] = await q('select created_at, user_id from pro_mining_cases where case_id=$1', [caseId])
+  const [c] = await q('select created_at, user_id, files from pro_mining_cases where case_id=$1', [caseId])
   if (!c) return
+  // only this mail's drafts: the cards its draft jobs marked with its mail id (lib/mail.js). Drafts of
+  // other mails made at the same time in the same chat are theirs, not this case's.
   const files = await q(`select content->>'name' as name, content->>'url' as url from pro_messages
-                         where thread_id=$1 and kind='file' and created_at >= $2 order by created_at`, [threadId, c.created_at])
+                         where thread_id=$1 and kind='file' and created_at >= $2 and content->>'mail_id' = $3 order by created_at`, [threadId, c.created_at, String(mailId)])
   const done = new Set((await q('select norm_activity_label as l from handover_events where tenant_id=$1 and case_id=$2', [T(), caseId])).map((r) => r.l))
+  // the documents the mail asked for (the case opened with their names)
+  const asked = new Set((c.files || []).map((n) => String(n).toLowerCase().split('.').pop()))
   const cl = await caseLang(caseId, c.user_id)
   for (const [label, ...exts] of cl === 'en' ? DRAFTS_EN : DRAFTS) {
+    if (labelsOf(label).some((l) => done.has(l))) continue
     const mine = files.filter((f) => exts.some((ext) => String(f.name || '').toLowerCase().endsWith(`.${ext}`)))
-    if (!mine.length || labelsOf(label).some((l) => done.has(l))) continue
-    await recordStep(caseId, label, { artifacts: mine.map((f) => ({ name: f.name, url: f.url })) })
-    await q(`update pro_mining_cases set files = (select array(select distinct unnest(files || $2::text[]))) where case_id=$1`, [caseId, mine.map((f) => f.name)])
+    if (mine.length) {
+      await recordStep(caseId, label, { artifacts: mine.map((f) => ({ name: f.name, url: f.url })) })
+      await q(`update pro_mining_cases set files = (select array(select distinct unnest(files || $2::text[]))) where case_id=$1`, [caseId, mine.map((f) => f.name)])
+    } else if (exts.some((ext) => asked.has(ext))) {
+      // asked for and tried, but no draft came of it: the case reached the step all the same
+      await recordStep(caseId, label, { failed: true, note: cl === 'en' ? 'The draft could not be made.' : '초안을 만들지 못했어요.' })
+    }
   }
 }
 
@@ -116,8 +127,13 @@ export async function shareStep(recipient, note = '', l = lang()) {
   return { label: '팀원 검토', role: '검토 담당' }
 }
 
-// the mail case whose drafts these are (the newest of mine that made a file of that name)
-export async function caseOfFiles(me, names) {
+// the mail case whose drafts these are: the mail the cards were made for (mailIds, lib/mail.js), else —
+// a card from before that mark — the newest of mine that made a file of that name
+export async function caseOfFiles(me, names, mailIds = []) {
+  for (const m of [...new Set(mailIds.filter(Boolean))]) {
+    const [c] = await q('select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and case_id=$3', [T(), me.id, caseOf(m)])
+    if (c) return c.case_id
+  }
   names = names.filter(Boolean)
   if (!names.length) return null
   const [c] = await q(`select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and files && $3::text[]
@@ -132,8 +148,13 @@ export async function caseOfFiles(me, names) {
 export async function recordShare(me, files, recipients, note, fork = null) {
   const names = files.map((f) => f.name).filter(Boolean)
   if (!names.length) return
-  const cases = await q(`select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and files && $3::text[]
-                         order by created_at desc limit 5`, [T(), me.id, names])
+  // the case is the mail the shared draft was made for (its card says, lib/mail.js); only a card from
+  // before that mark is matched by file name (the newest of my cases that made a file of that name)
+  const mails = [...new Set(files.map((f) => f.card?.content?.mail_id).filter(Boolean))]
+  const cases = mails.length
+    ? await q('select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and case_id = any($3) order by created_at desc', [T(), me.id, mails.map(caseOf)])
+    : await q(`select case_id from pro_mining_cases where tenant_id=$1 and user_id=$2 and files && $3::text[]
+               order by created_at desc limit 5`, [T(), me.id, names])
   let open = null
   for (const c of cases) if (!(await caseClosed(c.case_id))) { open = c; break }
   if (!open) return

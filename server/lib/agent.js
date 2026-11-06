@@ -629,7 +629,7 @@ export async function stopTurns({ user, session, threadId, conversation }) {
   return { stopped: list.length, waiting: turns.waiting({ userId: user.id, threadId }).length }
 }
 
-export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl }) {
+export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag }) {
   let thread = await getThread(user.id, threadId)
   // a main chat left standing in a shared folder's run room (as folder turns used to leave it) does
   // not answer the next message there
@@ -907,7 +907,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     // a document the agent wrote in its sandbox is published so the editor can load it
     if (!f.url && f.path && editable(f.name)) Object.assign(f, await publish(user.id, f.path, f.src).catch((e) => { console.warn('[office publish]', e.message); return {} }))
     delete f.src
-    await addMessage(user.id, threadId, 'agent', 'file', f)
+    // fileTag: what the card belongs to, e.g. the mail whose draft it is (lib/mining/recorder.js)
+    await addMessage(user.id, threadId, 'agent', 'file', { ...f, ...(fileTag || {}) })
   }
   // The draft card is the definition this turn wrote, read back from its folder the way saving reads
   // it (lib/generated.js) — not the first definition-shaped JSON in the stream: deepagents used to send
