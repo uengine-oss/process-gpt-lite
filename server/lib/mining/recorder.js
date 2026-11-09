@@ -4,7 +4,7 @@
 // draft and share that answers one customer mail is one case. process-miner reads these rows.
 import { config } from '../../config.js'
 import { q } from '../supa.js'
-import { agentsIn, reviewsIn, stepOf, labelIn, labelsOf, labelLang } from './catalog.js'
+import { agentsIn, reviewsIn, stepOf, labelIn, labelsOf, labelLang, docReview } from './catalog.js'
 import { lang, isEn, langOf } from '../lang.js'
 
 const T = () => config.tenantId
@@ -108,10 +108,15 @@ export async function recordDrafts(threadId, mailId) {
   }
 }
 
-// What a recipient's review is: the kind their role says (재무 담당 → 재무 검토, 디자이너 → 디자인 검토),
-// else the kind the share note asks for ("도면 확인 부탁해요"), else '<their role> 검토', else '팀원 검토'.
-export async function shareStep(recipient, note = '', l = lang()) {
+// What a recipient's review is: the document they were given to review (평면도·제안서·견적서), else —
+// no document to go by — the kind their role says (재무 담당 → 재무 검토), else the kind the share note
+// asks for ("도면 확인 부탁해요"), else '<their role> 검토', else '팀원 검토'.
+// The document comes first because the role names the reviewer, not the review: one person reviewing a
+// floor plan and a quote left two different step names, and the mined flows differed for no reason.
+export async function shareStep(recipient, note = '', l = lang(), files = []) {
+  const byDoc = docReview(files)
   const roles = (await q(`select distinct role from pro_role_assignments where tenant_id=$1 and user_id::text=$2 order by role`, [T(), String(recipient.id)])).map((r) => r.role)
+  if (byDoc) return { label: labelIn(byDoc, l), role: roles[0] || (l === 'en' ? 'Reviewer' : '검토 담당') }
   const REVIEWS = reviewsIn(l)
   for (const r of roles) {
     const k = REVIEWS.find((x) => x.re.test(r))
@@ -160,7 +165,7 @@ export async function recordShare(me, files, recipients, note, fork = null) {
   if (!open) return
   const cl = await caseLang(open.case_id, me.id)
   for (const p of recipients) {
-    const { label, role } = await shareStep(p, note, cl)
+    const { label, role } = await shareStep(p, note, cl, names)
     await recordStep(open.case_id, label, { to: { id: p.id, name: p.name }, role, artifacts: names.map((name) => ({ name })), note: note || '',
       groupId: fork?.batchId, baseCommitId: fork?.baseCommitId })
   }
