@@ -90,6 +90,16 @@ test('유닛 표시가 없는 사건은 유닛이 아니고, 감사 기록의 \\
   assert.equal(t.detail, 'Feedback: 끄지 마세요. 다른 작업')
 })
 
+test('질문: 답을 다 적은 뒤 엔진이 붙이는 요약 확인도 열린 질문', () => {
+  const md = ['## Q1. [제품] 누가 쓰나요?', '', '- A. 나 혼자', '- B. 팀', '', '[Answer]: A', '', '## Consolidated Summary Confirmation', '',
+    'Does this all look correct before I generate the artifact?', '', '- Looks correct', '- Request changes', '', '[Answer]:', '', '## Notes', '', '- not an option'].join('\n')
+  const qs = R.parseQuestions(md)
+  assert.deepEqual(qs.map((q) => [q.id, q.answer]), [['Q1', 'A'], ['summary', '']])
+  assert.equal(qs[1].text, 'Does this all look correct before I generate the artifact?')
+  assert.deepEqual(qs[1].options.map((o) => [o.key, o.text]), [['', 'Looks correct'], ['', 'Request changes']])
+  assert.equal(R.parseQuestions(md.replace(/\[Answer\]:$/m, '[Answer]: Looks correct'))[1].answer, 'Looks correct')
+})
+
 test('승인 대기: 기다린 시간은 지금까지', () => {
   const t0 = Date.parse('2026-11-09T00:00:00Z')
   const ev = [

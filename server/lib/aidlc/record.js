@@ -156,17 +156,23 @@ function where(rel) {
 const Q_HEAD = /^## (Q\d+)\.\s*(?:\[([^\]]+)\]\s*)?(\((?:후속|follow-?up)\)\s*)?(.*)$/i
 const OPTION = /^- ([A-Z])\.\s+(.*)$/
 const ANSWER = /^\[Answer\]:\s*(.*)$/
+// after the answers the engine adds one section asking the person to confirm its summary before it
+// writes the artifact ("Does this all look correct …?" with plain "- Looks correct" options)
+const SUMMARY = /^## (?:Consolidated )?Summary Confirmation\s*$/i
 export function parseQuestions(text) {
   const qs = []
   let cur = null
   for (const line of String(text || '').split('\n')) {
     const h = line.match(Q_HEAD)
     if (h) { cur = { id: h[1], tag: h[2] || '', followup: !!h[3], text: h[4].trim(), options: [], answer: '' }; qs.push(cur); continue }
+    if (SUMMARY.test(line)) { cur = { id: 'summary', tag: '', followup: false, summary: true, text: '', options: [], answer: '' }; qs.push(cur); continue }
+    if (line.startsWith('## ')) { cur = null; continue }
     if (!cur) continue
-    const o = line.match(OPTION)
+    const o = line.match(OPTION) || (cur.summary && line.match(/^- ()(.+)$/))
     if (o) { cur.options.push({ key: o[1], text: o[2].trim() }); continue }
     const a = line.match(ANSWER)
-    if (a) cur.answer = a[1].trim()
+    if (a) { cur.answer = a[1].trim(); continue }
+    if (cur.summary && !cur.text && line.trim()) cur.text = line.trim()
   }
   return qs
 }

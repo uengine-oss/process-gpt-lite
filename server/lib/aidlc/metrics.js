@@ -127,7 +127,7 @@ export function counts(events) {
 
 // ---------- timeline ----------
 // what a person reads in a feed: the stage in words, and the one field that says what happened
-const DETAIL = ['Reply', 'Person Reply', 'Feedback', 'User Input', 'Sensor ID', 'Exit Code', 'Request', 'Next Stage']
+const DETAIL = ['Reply', 'Person Reply', 'Feedback', 'User Input', 'Decision', 'Sensor ID', 'Exit Code', 'Request', 'Next Stage']
 export function timeline(events, { limit = 50, kinds } = {}) {
   const pick = kinds ? events.filter((e) => kinds.includes(e.event)) : events
   return pick.slice(-limit).reverse().map((e) => {
