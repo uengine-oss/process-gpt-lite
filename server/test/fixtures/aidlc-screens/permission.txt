@@ -1,0 +1,25 @@
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+⏺ 개발자가 계획대로 코드를 만들고 있어요. 끝나면 결과를 정리해 드릴게요.
+
+✻ Waiting for 1 background agent to finish
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command · from the aidlc-developer-agent agent
+ Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+ Run business-rule and store tests
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ node --test test/todos.test.js test/store.test.js
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ This command requires approval
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don’t ask again for: node *
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+
+ Esc to cancel · Tab to amend · ctrl+x ctrl+k twice to stop background agents
+
+
+

@@ -74,6 +74,8 @@ const FOOTER = /Enter to select|Esc to cancel|to navigate/
 const RULE = /^[─━-]{10,}$/
 const FREE_TEXT = /^(Type something\.?|Type here)/i
 const CHAT = /^Chat about this/i
+// switching the shared session to auto mode is not one person's call from a card (the shell still has it)
+const AUTO = /switch to auto mode/i
 export function parseChoice(text) {
   const lines = String(text || '').split('\n').map((l) => l.replace(/\s+$/, ''))
   let end = lines.length - 1
@@ -100,20 +102,34 @@ export function parseChoice(text) {
   if (!options.length || options[0].n !== 1) return null
   const q = []
   let title = ''
-  // the question just above the options; past a blank line only the header chip still belongs to it
-  let gap = false
+  // the question just above the options; past a blank line only the header chip still belongs to it —
+  // or, for a tool permission, the box from the rule above: the tool, what it is for, the command
+  let gap = false, ruleAt = -1
   for (let j = top - 1; j >= 0 && j > top - 12; j--) {
     const l = lines[j].trim()
     if (!l) { if (q.length) gap = true; continue }
     if (RULE.test(l)) break
     const chip = l.match(/^☐\s+(.+)$/)
     if (chip) { title = chip[1].trim(); break }
-    if (gap) break
+    if (gap) {
+      // a tool box above: up to its top rule, at most a screenful
+      for (let k = j; k >= 0 && k > j - 20; k--) if (RULE.test(lines[k].trim())) { ruleAt = k; break }
+      break
+    }
     q.unshift(l.replace(/^│\s?/, ''))
   }
-  const opts = options.filter((o) => !CHAT.test(o.label))
+  const detail = []
+  if (ruleAt >= 0) {
+    for (let k = ruleAt + 1; k < top; k++) {
+      const l = lines[k].trim()
+      if (!l || /^╌{5,}$/.test(l) || /^Tip:/.test(l) || q.includes(l)) continue
+      detail.push(l)
+    }
+    if (detail.length) title = detail.shift()
+  }
+  const opts = options.filter((o) => !CHAT.test(o.label) && !AUTO.test(o.label))
   return {
-    title, question: q.join('\n').replace(/\n{2,}/g, '\n').trim(),
+    title, question: q.join('\n').replace(/\n{2,}/g, '\n').trim(), detail: detail.join('\n'),
     options: opts.map((o) => ({ n: o.n, label: o.label, hint: o.hint, freeText: FREE_TEXT.test(o.label) })),
     fingerprint: crypto.createHash('sha1').update(JSON.stringify([title, q, opts.map((o) => o.label)])).digest('hex').slice(0, 16),
   }

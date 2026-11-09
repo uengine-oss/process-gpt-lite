@@ -28,7 +28,9 @@ export async function waitsOf(folder) {
     const kind = TM.promptKind(choice)
     // a tool permission while code is written is the developer's to answer
     const roleKey = kind === 'permission' && stage.phase === 'construction' ? 'developer' : stage.roleKey
-    return [{ key: `prompt:${choice.fingerprint}`, kind: 'prompt', stage: stage.slug, roleKey, title: TM.promptTitle(kind, stage.name), text: choice.question || choice.title }]
+    // a permission card says which tool and command asks (the box above the question)
+    const text = choice.detail ? `${choice.title} — ${choice.detail.split('\n').slice(0, 2).join(' · ')}` : choice.question || choice.title
+    return [{ key: `prompt:${choice.fingerprint}`, kind: 'prompt', stage: stage.slug, roleKey, title: TM.promptTitle(kind, stage.name), text: text.slice(0, 400) }]
   }
   // no prompt on screen: question files of the stage with blank answers (the team answers in the file)
   // (a blank summary confirmation is the session's own prompt, coming next — not a question for the team)

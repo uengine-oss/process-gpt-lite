@@ -249,6 +249,12 @@ test('세션 화면: Claude Code 선택 창을 읽는다 (답하는 방식 · �
   assert.equal(promptKind(m), 'answer-mode')
   assert.ok(!m.options.some((o) => /Chat about this/.test(o.label)), 'the "chat about this" escape is not offered')
   assert.equal(S.parseChoice(await screenOf('working')), null)
+  // a tool permission while code is written: which tool, what for, the command; "switch to auto mode" is not offered
+  const p = S.parseChoice(await screenOf('permission'))
+  assert.equal(promptKind(p), 'permission')
+  assert.match(p.title, /^Bash command/)
+  assert.match(p.detail, /node --test test\/todos\.test\.js/)
+  assert.deepEqual(p.options.map((o) => o.label.split(',')[0]), ['Yes', 'Yes', 'No'])
   // the same prompt reads the same fingerprint; another prompt another one
   assert.equal(S.parseChoice(await screenOf('approval')).fingerprint, a.fingerprint)
   assert.notEqual(m.fingerprint, a.fingerprint)

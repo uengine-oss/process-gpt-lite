@@ -97,6 +97,7 @@ const when = (d) => new Date(d).toLocaleString('ko-KR', { month: 'numeric', day:
           <!-- the prompt on the session screen -->
           <section v-if="choice" class="card glass" data-test="aidlc-prompt">
             <div class="ct"><span class="kind">{{ kindText[choice.kind] || '선택' }}</span><b>{{ choice.title }}</b></div>
+            <pre v-if="choice.detail" class="detail" data-test="aidlc-prompt-detail">{{ choice.detail }}</pre>
             <p v-if="choice.question" class="q">{{ choice.question }}</p>
             <div class="opts">
               <button v-for="o in choice.options.filter((x) => !x.freeText)" :key="o.n" class="opt press" :class="{ main: o.n === 1 }"
@@ -164,6 +165,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 .ct b { font-size: 16px; font-weight: 600; }
 .kind { font-size: 12px; padding: 2px 9px; border-radius: 9px; background: rgba(10 132 255 / .14); color: #0a84ff; }
 .q { margin: 0 0 12px; line-height: 1.6; white-space: pre-wrap; }
+.detail { margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; background: rgba(0 0 0 / .06); font: 12.5px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
 .opts.small { flex-direction: row; flex-wrap: wrap; gap: 6px; }
 .opt { text-align: left; border-radius: 14px; padding: 10px 14px; border: 1px solid var(--line, rgba(0 0 0 / .1)); background: var(--chip-bg); color: inherit; font: inherit; display: flex; flex-direction: column; gap: 2px; }

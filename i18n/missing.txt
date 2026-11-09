@@ -1,4 +1,56 @@
-# 0 extracted string(s) not translated by src/i18n/ko-en.json
-# (1679 extracted: 1330 exact, 349 patterns; 789 skipped by rules; 601 dictionary entries not extracted — runtime data, fragments or stale)
+# 52 extracted string(s) not translated by src/i18n/ko-en.json
+# (1840 extracted: 1460 exact, 380 patterns; 865 skipped by rules; 661 dictionary entries not extracted — runtime data, fragments or stale)
 # kind<TAB>text<TAB>first source   ([new] = not in the previous strings.json)
 
+exact	이 서버에는 Google 연결이 설정되어 있지 않아요	src/components/ConnectorCards.vue:54
+pattern	(이 요청은 {0} 문서 '{1}' 의 그림 {2} 에 대한 것이에요. 그 그림을 지금 포토크래프트에 '{3}' 으로 열어 두었으니 열린 포토크래프트에서 고치세요. 다 고치면 사용자가 '{4} 문서에 넣기' 로 문서에 다시 넣어요.)	src/components/OfficeSheet.vue:131
+pattern	고친 그림을 {0} 문서의 그림 {1} 자리에 넣었어요 · ⌘S 로 저장하세요	src/components/OfficeSheet.vue:145
+pattern	{0} 문서 · 그림 {1}	src/components/OfficeSheet.vue:190
+pattern	{0} 문서에 넣기	src/components/OfficeSheet.vue:191
+exact	참여	src/components/meetings/MeetingRoomCard.vue:92
+exact	AI 번역 ·	src/components/meetings/MeetingRoomCard.vue:97
+exact	AI 통역 ·	src/components/meetings/MeetingView.vue:144
+exact	🎧 통역 듣는 중	src/components/meetings/MeetingView.vue:244
+exact	🔊 원래 소리 듣는 중	src/components/meetings/MeetingView.vue:244
+exact	충돌한 파일 고르기	src/components/team/ConflictChoice.vue:14
+exact	같은 파일을 서로 다르게 고쳤어요	src/components/team/ConflictChoice.vue:15
+exact	지움	src/components/team/ConflictChoice.vue:20
+exact	고른 쪽으로	src/components/team/ConflictChoice.vue:25
+pattern	{0}개 고침	src/components/team/Messenger.vue:83
+pattern	{0}개 지움	src/components/team/Messenger.vue:83
+pattern	{0}개 추가	src/components/team/Messenger.vue:83
+exact	아직 그대로	src/components/team/Messenger.vue:84
+pattern	{0} (읽기 전용)	src/components/team/Messenger.vue:198
+exact	받는 분만 열 수 있어요 · 받는 분의 작업 대화로 가요	src/components/team/SharePicker.vue:71
+exact	흐름을 찾지 못했어요. 잠시 후 다시 시도해 주세요.	src/views/MiningView.vue:53
+exact	새 요청은 급한 건부터 순서를 정해 받아요	server/lib/improve/focus.js:86
+pattern	새 요청의 {0}은(는) 급한 건부터 순서를 정해 시작해요	server/lib/improve/focus.js:86
+exact	한국어	server/lib/mainLang.js:15
+exact	견적 합계(부가세 포함, 원)	server/lib/mining/catalog.js:60
+exact	초안을 만들지 못했어요.	server/lib/mining/recorder.js:106
+exact	은/는	server/lib/mining/service.js:444
+exact	이/가	server/lib/mining/service.js:444
+pattern	평면도의 실별 면적: {0}	server/lib/mining/worker.js:139
+pattern	프로세스 '견적서 작성' 단계예요. 고객 메일({0})에 회신할 견적서를 만드세요.{1}\n메일 본문: {2}	server/lib/mining/worker.js:139
+exact	설계비(평면·마감 설계, 1식), 실별 인테리어 공사(면적 ㎡ × ㎡당 단가, 실마다 한 줄), 가구·집기(좌석 수 기준), 전기·설비(1식)	server/lib/mining/worker.js:141
+exact	메일이 요청한 품목을 한 줄씩(메일에 적힌 인원·수량·기간으로 수량을 정하고, 요청하지 않은 공사·설계 항목은 넣지 마세요)	server/lib/mining/worker.js:142
+exact	, 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 천 단위 쉼표, 머리글 색 구분. 단가는 합리적인 가정값.	server/lib/mining/worker.js:143
+pattern	({0}는 앞 단계에서 이미 만들었으니 만들지 마세요.)	server/lib/mining/worker.js:144
+exact	와	server/lib/mining/worker.js:144
+pattern	{0}님의 {1}	server/lib/team/shares.js:108
+pattern	외 {0}	server/lib/team/shares.js:108
+pattern	{0}님이 공유한 일이에요{1}	server/lib/team/shares.js:111
+exact	받은 파일이 작업 대화에 더 이상 없어요.	server/lib/team/shares.js:176
+pattern	방 브랜치가 없습니다: {0}	server/lib/team/worktree.js:113
+pattern	커밋 재시도 한도를 넘었습니다: {0}	server/lib/team/worktree.js:123
+pattern	'{0}' 의 원본 파일이 더 이상 없어요.	server/lib/team/worktree.js:157
+pattern	'{0}' 은(는) 내용을 찾을 수 없어 공유할 수 없어요.	server/lib/team/worktree.js:167
+exact	내 대화	server/lib/team/worktree.js:230
+exact	같은 파일을 서로 다르게 고친 갈래가 있어요. 어느 쪽을 쓸지 골라 주세요.	server/lib/team/worktree.js:237
+exact	파일을 찾지 못했어요.	server/routes/team.js:106
+exact	공유한 대화를 찾지 못했어요.	server/routes/team.js:207
+pattern	모은 결과 · {0}	server/routes/team.js:219
+pattern	팀원들이 돌려준 결과를 모아 이어서 할게요{0}	server/routes/team.js:225
+pattern	(모은 갈래 {0}개의 결과가 작업 폴더에 있어요.)	server/routes/team.js:227
+exact	갈래를 찾지 못했어요.	server/routes/team.js:236
+exact	이 공유에 참여하지 않았어요.	server/routes/team.js:239

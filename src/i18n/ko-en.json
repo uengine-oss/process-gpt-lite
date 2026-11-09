@@ -1688,9 +1688,86 @@
   "나도 할 수 있어요": "You can too",
   "AI-DLC 기록이 있어요.": "This folder has an AI-DLC record.",
   "홈에 대시보드 추가": "Add dashboards to Home",
-  "추가하는 중…": "Adding…"
+  "추가하는 중…": "Adding…",
+  "결정하기": "Decide",
+  "AI-DLC 작업": "AI-DLC work",
+  "AI-DLC 팀 세션이 돌고 있어요.": "The AI-DLC team session is running.",
+  "팀 모두 같은 Claude Code 화면을 보고, 사람이 정할 것은 담당 역할에게 카드로 가요.": "Everyone watches the same Claude Code screen; what a person must decide goes as a card to the people in that role.",
+  "AI-DLC 팀 세션": "AI-DLC team session",
+  "— Claude Code 를 이 저장소에서 띄우면 팀 모두 같은 화면을 보고, 질문·승인은 역할 담당자에게 카드로 가요.": "— Start Claude Code in this repository and the whole team watches the same screen; questions and approvals go as cards to the people in each role.",
+  "세션 보기": "Open session",
+  "띄우는 중…": "Starting…",
+  "세션 시작": "Start session",
+  "이 폴더의 구성원만 볼 수 있어요.": "Only members of this folder can see this.",
+  "단계 승인": "Stage approval",
+  "도구 권한": "Tool permission",
+  "요약 확인": "Confirm summary",
+  "질문에 답하는 방식": "How to answer the questions",
+  "보낼 글을 먼저 적어 주세요.": "Write what to send first.",
+  "세션 화면이 그새 바뀌었어요. 다시 볼게요.": "The session screen changed in the meantime. Looking again.",
+  "답을 하나 이상 골라 주세요.": "Pick at least one answer.",
+  "— 세션에도 알렸어요.": " — and told the session.",
+  "AI-DLC 결정": "AI-DLC decisions",
+  "지금 단계": "Current stage",
+  "결정은 담당자나 폴더 편집 권한이 있는 사람이 해요. 보기만 할 수 있어요.": "Decisions are made by the people in the role or anyone who can edit the folder. You can only look.",
+  "넣는 중…": "Entering…",
+  "다른 답 — 예: Request Changes: 결정권자를 팀 리드로 바로잡아 주세요": "Another answer — e.g. Request Changes: make the team lead the decision maker",
+  "고른 답은 팀 세션의 이 선택 창에 그대로 들어가요. AI-DLC 감사 기록에는 사람의 답으로 남아요.": "Your choice goes straight into this prompt of the team session. AI-DLC's audit log keeps it as a person's answer.",
+  "이 폴더의 Claude Code 세션이 꺼져 있어요. 폴더 화면에서 「세션 시작」을 누르세요.": "This folder's Claude Code session is off. Press 「Start session」 on the folder screen.",
+  "질문": "Questions",
+  "몹 회의 열기": "Open a mob meeting",
+  "몹 회의에서 합의한 답을 채워 두었어요. 확인하고 적으세요.": "The answers the mob agreed on are filled in. Check them, then write them.",
+  "적는 중…": "Writing…",
+  "파일에 적고 세션에 알리기": "Write to the file and tell the session",
+  "에 있어요.": ".",
+  "이 폴더의 결정 기록": "Decisions in this folder",
+  "보기만 해요": "View only",
+  "PO·기획": "PO / planner",
+  "아키텍트": "Architect",
+  "딜리버리 리드": "Delivery lead",
+  "개발자": "Developer",
+  "컴플라이언스": "Compliance",
+  "플랫폼": "Platform",
+  "배포": "Release",
+  "운영": "Operations",
+  "팀 리드": "Team lead",
+  "작업 공간 살피기": "Workspace detection",
+  "작업 공간 준비": "Workspace scaffold",
+  "상태 만들기": "State init",
+  "시장 조사": "Market research",
+  "의도 정리": "Intent capture",
+  "범위 정하기": "Scope definition",
+  "실현 가능성": "Feasibility",
+  "팀 구성": "Team formation",
+  "승인과 넘김": "Approval & handoff",
+  "화면 초안": "Rough mockups",
+  "기존 코드 분석": "Reverse engineering",
+  "팀 규칙": "Practices discovery",
+  "요구사항": "Requirements",
+  "유저 스토리": "User stories",
+  "화면": "Mockups",
+  "API 계약": "API contracts",
+  "도메인 설계": "Domain design",
+  "유닛": "Units",
+  "기능 설계": "Functional design",
+  "볼트 계획": "Delivery planning",
+  "품질 요구": "NFR requirements",
+  "인프라 설계": "Infrastructure design",
+  "코드 생성": "Code generation",
+  "품질 설계": "NFR design",
+  "배포 파이프라인": "Deployment pipeline",
+  "빌드·테스트": "Build & test",
+  "환경 준비": "Environment provisioning",
+  "관측 설정": "Observability",
+  "사고 대응": "Incident response",
+  "성능 검증": "Performance validation",
+  "피드백 반영": "Feedback & optimization"
  },
  "patterns": [
+  [
+   "지적 {0}개(Major {1} · Minor {2}) — 승인하면 남은 지적은 위험으로 받아들여요. 내용은 세션 화면과",
+   "{0} finding(s) (Major {1} · Minor {2}) — approving accepts the open ones as risks. The details are on the session screen and in"
+  ],
   [
    "고친 그림을 워드 문서의 그림 {0} 자리에 넣었어요 · ⌘S 로 저장하세요",
    "I put the edited image in place of image {0} in the Word document · save with ⌘S"
@@ -1724,6 +1801,10 @@
    "{0} — skipped if {1} amount is below {2}"
   ],
   [
+   "지금 사람이 정할 것이 있어요 — {0}",
+   "A person needs to decide now — {0}"
+  ],
+  [
    "에이전트가 내용을 바꾸는 중 · {0}",
    "Agent is replacing text · {0}"
   ],
@@ -1738,6 +1819,10 @@
   [
    "{0} · {1} 금액 {2} 미만이면 건너뛰기",
    "{0} · Skip if {1} amount is below {2}"
+  ],
+  [
+   "질문 {0}개의 답을 파일에 적었어요{1}",
+   "Wrote the answers to {0} question(s) in the file{1}"
   ],
   [
    "{0} — {1} 금액 {2} 미만이면 건너뜀",
@@ -1756,12 +1841,20 @@
    "Sent to {0} · {1} outputs"
   ],
   [
+   "{0} · 답을 기다리는 질문 {1}개",
+   "{0} · {1} question(s) waiting for answers"
+  ],
+  [
    "에이전트가 저장했어요 · {0}",
    "Agent saved it · {0}"
   ],
   [
    "판단 모델→logprob {0}",
    "routing model→logprob {0}"
+  ],
+  [
+   "세션에 「{0}」를 넣었어요.",
+   "Entered “{0}” in the session."
   ],
   [
    "도우미가 찾았어요 · {0}",
@@ -1856,6 +1949,10 @@
    "{0} refused: {1}"
   ],
   [
+   "{0} 검토 · {1}",
+   "{0} review · {1}"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -1898,6 +1995,10 @@
   [
    "{0} 로그인",
    "{0} login"
+  ],
+  [
+   "회의: {0}",
+   "Meeting: {0}"
   ],
   [
    "나: {0}",
