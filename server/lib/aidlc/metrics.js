@@ -58,7 +58,8 @@ export function unitMetrics(events, declared = [], now = Date.now()) {
   }
   for (const d of declared) Object.assign(unit(d.name), { kind: d.kind, dependsOn: d.dependsOn || [] })
   for (const e of events) {
-    if (!e.unit) continue
+    // a hook that could not tell the unit writes "(missing marker)": not a unit of the plan
+    if (!e.unit || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(e.unit)) continue
     const u = unit(e.unit)
     switch (e.event) {
       case 'UNIT_STARTED':
@@ -131,7 +132,9 @@ export function timeline(events, { limit = 50, kinds } = {}) {
   const pick = kinds ? events.filter((e) => kinds.includes(e.event)) : events
   return pick.slice(-limit).reverse().map((e) => {
     const key = DETAIL.find((k) => e.fields[k])
-    return { ts: e.ts, event: e.event, title: e.title, stage: e.stage ? describeStage(e.stage).name : '', unit: e.unit, detail: key ? `${key}: ${String(e.fields[key]).slice(0, 160)}` : '' }
+    // the audit log keeps line breaks of a reply as a literal \n
+    const text = key ? String(e.fields[key]).replace(/\\n|\s+/g, ' ').trim() : ''
+    return { ts: e.ts, event: e.event, title: e.title, stage: e.stage ? describeStage(e.stage).name : '', unit: e.unit, detail: key ? `${key}: ${text.slice(0, 160)}` : '' }
   })
 }
 

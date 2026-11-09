@@ -50,7 +50,7 @@ export const PRESETS = [
 <div class="p-muted" id="nx" style="margin-top:10px"></div>`,
     script: `
 async function draw(){const s=await get(base+'/summary'); if(!s) return;
-$('#proj').textContent=(s.project||s.slug).slice(0,70)+' · '+(s.scope||'');
+const pj=(s.project||s.slug).split(/(?<=[.!?。])\\s/)[0]; $('#proj').textContent=(pj.length>90?pj.slice(0,89)+'…':pj)+' · '+(s.scope||'');
 $('#k1').textContent=T.current; $('#cur').textContent=s.current?s.current.name:(s.runStatus||'-');
 $('#role').innerHTML=s.current?esc(s.current.role||'')+' · '+esc(s.runStatus||''):'';
 $('#rail').innerHTML=s.rail.filter(r=>r.status!=='skipped'&&r.phase!=='initialization').map(r=>'<span title="'+esc(r.number+' '+r.name+' · '+(T[r.status]||r.status))+'">'+dot(r.status)+'</span>').join('');

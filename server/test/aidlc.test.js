@@ -82,6 +82,14 @@ test('유닛 상태: 아직 시작 전이면 의존이 풀린 것만 「시작 �
   assert.deepEqual(u.map((x) => [x.name, x.status]), [['a', 'ready'], ['b', 'blocked']])
 })
 
+test('유닛 표시가 없는 사건은 유닛이 아니고, 감사 기록의 \\n 은 띄어 쓴다', () => {
+  const ev = (event, fields) => ({ t: 1, ts: '2026-11-05T00:00:00Z', event, title: '', stage: 'code-generation', unit: fields.Unit || '', fields })
+  const u = M.unitMetrics([ev('SENSOR_FIRED', { Unit: '(missing marker)' })], [{ name: 'a', kind: 'service', dependsOn: [] }])
+  assert.deepEqual(u.map((x) => x.name), ['a'])
+  const [t] = M.timeline([ev('GATE_REJECTED', { Feedback: '끄지 마세요.\\n다른 작업' })])
+  assert.equal(t.detail, 'Feedback: 끄지 마세요. 다른 작업')
+})
+
 test('승인 대기: 기다린 시간은 지금까지', () => {
   const t0 = Date.parse('2026-11-09T00:00:00Z')
   const ev = [
@@ -166,6 +174,8 @@ test('프리셋 패널: 여섯 개 모두 실제 요약으로 그려진다', asy
     assert.ok(html.length > 20, `${p.kind} drew nothing`)
     // ids used in the script exist in the html
     for (const id of new Set([...spec.spec.script.matchAll(/\$\('#([a-z0-9]+)'\)/g)].map((m) => m[1]))) assert.match(spec.spec.html, new RegExp(`id="${id}"`), `${p.kind} #${id}`)
+    // the project line is its first sentence, not cut inside a word
+    if (p.kind === 'status') assert.match(els['#proj'].textContent, /VoiceParking 프로토타입을 만들어 줘\. · classic$/)
   }
   // the first load failing says why (a refresh failing later keeps the last view)
   const s = presetSpec('status', { folder: 'demo', space: 'default', slug: 'voice-parking' })
