@@ -177,3 +177,19 @@ test('프리셋 패널: 여섯 개 모두 실제 요약으로 그려진다', asy
   assert.equal(q.data.slug, 'todo-web-app')
   assert.throws(() => presetSpec('nope', { folder: 'a', space: 'b', slug: 'c' }), /unknown/)
 })
+
+// judgement cases (aidlc-cases.json): what a panel script may reach, and what names may become paths
+const CASES = JSON.parse(await (await import('node:fs/promises')).readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), 'aidlc-cases.json'), 'utf8'))
+test('사례: panel.aidlc 경로', () => {
+  for (const c of CASES.panelPath) {
+    if (c.ok) assert.equal(aidlcApiPath(c.path), `/aidlc/${c.path}`, c.why)
+    else assert.throws(() => aidlcApiPath(c.path), /not allowed/, `${c.path} (${c.why})`)
+  }
+  assert.equal(CASES.panelPath.length, CASES.panelPath.filter((c) => c.ok).length + CASES.panelPath.filter((c) => !c.ok).length)
+})
+test('사례: 기록 이름', () => {
+  for (const c of CASES.recordName) {
+    if (c.ok) assert.equal(R.safeName(c.name), c.name)
+    else assert.throws(() => R.safeName(c.name), /bad name/, c.name)
+  }
+})

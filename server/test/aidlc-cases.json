@@ -1,0 +1,33 @@
+{
+  "about": "Robo-DLC Lite 판단 사례: panel.aidlc 경로 검사(패널 스크립트가 부를 수 있는 곳)와 기록 이름 검사(폴더 밖으로 못 나감). 바뀌면 aidlc.test.js 의 사례 시험이 실패한다.",
+  "panelPath": [
+    { "path": "demo/intents/default/voice-parking/summary", "ok": true, "why": "요약" },
+    { "path": "demo/intents/default/voice-parking/timeline?limit=400", "ok": true, "why": "질의 문자열" },
+    { "path": "demo/intents/default/todo-web-app/questions", "ok": true, "why": "질문" },
+    { "path": "demo", "ok": true, "why": "한 조각" },
+    { "path": "../panels", "ok": false, "why": "위로" },
+    { "path": "demo/../../panels/1", "ok": false, "why": "가운데 위로" },
+    { "path": "demo/./x", "ok": false, "why": "점 하나 조각" },
+    { "path": "..", "ok": false, "why": "점 둘만" },
+    { "path": "demo/%2e%2e/x", "ok": false, "why": "인코딩된 점" },
+    { "path": "demo%2fx", "ok": false, "why": "인코딩된 슬래시" },
+    { "path": "demo%5cx", "ok": false, "why": "인코딩된 역슬래시" },
+    { "path": "http://evil", "ok": false, "why": "주소" },
+    { "path": "/abs", "ok": false, "why": "절대 경로" },
+    { "path": "a b", "ok": false, "why": "공백" },
+    { "path": "demo/summary#x", "ok": false, "why": "조각 식별자" },
+    { "path": "", "ok": false, "why": "빈 값" }
+  ],
+  "recordName": [
+    { "name": "voice-parking", "ok": true },
+    { "name": "261105-voice-parking", "ok": true },
+    { "name": "default", "ok": true },
+    { "name": "a.b_c-1", "ok": true },
+    { "name": "../x", "ok": false },
+    { "name": "a/b", "ok": false },
+    { "name": ".hidden", "ok": false },
+    { "name": "x\\y", "ok": false },
+    { "name": "", "ok": false },
+    { "name": "-dash-first", "ok": false }
+  ]
+}
