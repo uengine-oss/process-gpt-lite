@@ -346,7 +346,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
-### 16. Robo-DLC Lite — AI-DLC 대시보드 패널 (spec `pgpt-pro_aidlc-dashboards`, 영상 `FvKAU5LZTUU`, 설계 `docs/robo-dlc/plan.md`)
+### 16. Robo-DLC Lite — AI-DLC 대시보드 패널·팀 세션 (spec `pgpt-pro_aidlc-dashboards`·`pgpt-pro_aidlc-team`, 영상 `FvKAU5LZTUU`·`X76vebAtr_E`·`Q4soHt6enZI`, 설계 `docs/robo-dlc/plan.md`)
 
 AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이 홈 패널(작업 현황·사람 대기·볼트·품질·감사 기록·질문)로 봅니다.
 서버 단위 시험은 `server/test/aidlc.test.js`(고정 자료 `server/test/fixtures/aidlc-project`, 판단 사례 `server/test/aidlc-cases.json`),
@@ -368,6 +368,7 @@ AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이
 | 기다림이 끝나면 카드가 내려가고 빈 답 질문 파일이 다음 카드, 답 쓰기(기록 밖 경로 404) | `aidlc-team.e2e` 3단계 | feature | ✅ |
 | 선택 창 읽기(승인·요약 확인·답하는 방식·도구 권한, 자동 모드 전환은 빼기) | `aidlc.test.js` 「세션 화면」 | feature | ✅ |
 | 몹 회의 → 합의한 답 제안 → 담당자 확인 | 실제 서버 탐색 판(typed lines), 영상 판(목소리) | — | ◐ (자동 회귀 없음: 회의록 모델 호출이 든다) |
+| 코딩 중 쉘에서 지시 → AI-DLC 가 사람 요청으로 받아 설계·코드에 반영 | 실제 classic 실행(영상 `Q4soHt6enZI`, 프레임 `docs/robo-dlc/results/team/steer-*.png`) | — | ◐ (자동 회귀 없음: 실제 Claude Code 실행) |
 
 ## 단계별 시험 수
 
