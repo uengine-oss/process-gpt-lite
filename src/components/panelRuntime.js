@@ -24,7 +24,7 @@ const RUNTIME = `
 const __p={};let __s=0;
 const __call=(type,payload)=>new Promise((res,rej)=>{const id=++__s;__p[id]={res,rej};parent.postMessage({__panel:1,id,type,payload},'*')});
 addEventListener('message',e=>{const m=e.data||{};if(m.__reply&&__p[m.id]){m.error?__p[m.id].rej(new Error(m.error)):__p[m.id].res(m.result);delete __p[m.id]}if(m.__theme)document.documentElement.dataset.theme=m.__theme});
-window.panel={data:__DATA__,save(o){this.data=o;return __call('save',o)},fetch:u=>__call('fetch',u),ask:p=>__call('ask',p),open:u=>__call('open',u),chat:t=>__call('chat',t)};
+window.panel={data:__DATA__,save(o){this.data=o;return __call('save',o)},fetch:u=>__call('fetch',u),ask:p=>__call('ask',p),open:u=>__call('open',u),chat:t=>__call('chat',t),aidlc:p=>__call('aidlc',p)};
 window.$=s=>document.querySelector(s);
 window.ui={
  days:ts=>ts.map(t=>new Date(typeof t==='number'&&t<1e12?t*1000:t).toLocaleDateString('en-US',{weekday:'short'})).filter((d,i,a)=>i===0||d!==a[i-1]),
@@ -43,6 +43,15 @@ window.ui={
 addEventListener('DOMContentLoaded',()=>new ResizeObserver(()=>parent.postMessage({__panel:1,type:'height',payload:document.documentElement.scrollHeight},'*')).observe(document.body));
 addEventListener('error',e=>parent.postMessage({__panel:1,type:'error',payload:String(e.message)},'*'));
 `
+
+// panel.aidlc(path) reads the AI-DLC dashboards API (routes/aidlc.js) for the panel: GET only, and
+// only below /api/aidlc/ — no '..', no encoded slashes or dots that could step outside it.
+const AIDLC_PATH = /^[A-Za-z0-9._~%-]+(\/[A-Za-z0-9._~%-]+)*(\?[A-Za-z0-9._~%=&-]*)?$/
+export function aidlcApiPath(p) {
+  const s = String(p || '')
+  if (!AIDLC_PATH.test(s) || /(^|\/)\.{1,2}(\/|\?|$)/.test(s) || /%2[ef]|%5c/i.test(s)) throw new Error('panel.aidlc: path not allowed')
+  return `/aidlc/${s}`
+}
 
 export function panelDoc(p, theme) {
   const data = JSON.stringify(p.data || {}).replace(/</g, '\\u003c')

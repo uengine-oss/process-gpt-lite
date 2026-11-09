@@ -25,6 +25,7 @@ import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
+import { aidlcRoutes } from './routes/aidlc.js'
 import { teamRoutes } from './routes/team.js'
 import { meetingRoutes } from './routes/meetings.js'
 import { attachVoice } from './lib/meetings/voice.js'
@@ -306,6 +307,7 @@ app.post('/api/mail/demo-arrive', auth, async (req, res) => {
 app.use('/api', processRoutes(auth))
 app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
+app.use('/api', aidlcRoutes(auth))
 // team sharing and messenger (routes/team.js)
 app.use('/api', teamRoutes(auth))
 // meetings in a team room: mesh WebRTC signalling, transcription, materials, minutes (routes/meetings.js)

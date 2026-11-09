@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
-import { panelDoc } from './panelRuntime.js'
+import { panelDoc, aidlcApiPath } from './panelRuntime.js'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
@@ -30,6 +30,7 @@ async function onMessage(e) {
     else if (m.type === 'ask') reply((await api('/panel-ask', { method: 'POST', body: { prompt: m.payload } })).text)
     else if (m.type === 'open') { window.open(m.payload, '_blank', 'noopener'); reply(true) }
     else if (m.type === 'chat') { app.send(m.payload, app.mainThread.id); reply(true) }
+    else if (m.type === 'aidlc') reply(await api(aidlcApiPath(m.payload)))
   } catch (err) { reply(null, err.message) }
 }
 watch(theme, (t) => frame.value?.contentWindow?.postMessage({ __theme: t }, '*'))
