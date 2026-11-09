@@ -53,3 +53,17 @@ create table if not exists pro_aidlc_proposals (
   created_at timestamptz not null default now(),
   used_at timestamptz
 );
+
+-- a folder's mob room (Mob Elaboration / Mob Construction): the team's group conversation where the
+-- meeting is held; a meeting there ends with its agreed answers proposed for the stage's question file
+create table if not exists pro_aidlc_mobs (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id text not null,
+  folder_id uuid not null,
+  room_id text not null,
+  stage text,
+  questions_path text,
+  started_by uuid not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists pro_aidlc_mobs_room on pro_aidlc_mobs (tenant_id, room_id, created_at desc);

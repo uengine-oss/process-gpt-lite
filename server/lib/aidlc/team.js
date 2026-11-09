@@ -86,7 +86,8 @@ export async function sessionInfo(slug, user) {
   const name = nameOf(folder)
   const running = await AS.has(name)
   const choice = running ? AS.parseChoice(await AS.screen(name).catch(() => '')) : null
-  return { running, name, choice, canType: F.RANK[role] >= F.RANK.editor }
+  const aidlc = !!folder.repo_path && (await R.hasAidlc(folder.repo_path))
+  return { aidlc, running, name, choice, canType: F.RANK[role] >= F.RANK.editor, canStart: F.RANK[role] >= F.RANK.editor && aidlc }
 }
 export async function startSession(slug, user) {
   const { folder } = await F.access(R.safeName(slug), user, 'editor')
@@ -120,7 +121,8 @@ export async function decideView(slug, user) {
     stage, role: roleKey && roleName(roleKey), deciders: roleKey ? await deciders(folder, roleKey) : [],
     canDecide: await mayDecide(folder, user, roleKey),
     session: { running, choice: choice && { ...choice, kind: promptKind(choice), title: promptTitle(promptKind(choice), stage?.name || '') } },
-    questions: questions.map((f) => ({ path: f.path, stage: describeStage(f.stage).name, open: f.open, questions: f.questions })),
+    // (the summary confirmation is answered in the session's prompt, not as a question here)
+    questions: questions.map((f) => { const qs = f.questions.filter((x) => !x.summary); return { path: f.path, stage: describeStage(f.stage).name, open: qs.filter((x) => !x.answer).length, questions: qs } }),
     review: reviews[0] || null, proposal: proposal || null, ledger,
   }
 }
@@ -151,7 +153,11 @@ export async function submitAnswers(slug, user, { path: rel, answers, proposalId
   if (!cur) throw err(404, 'no AI-DLC work in this folder')
   if (!(await mayDecide(folder, user, cur.stage?.roleKey))) throw err(403, 'not yours to decide')
   const written = await R.writeAnswers(cur.dir, rel, answers || {})
-  if (proposalId) await q('update pro_aidlc_proposals set used_at=now() where id=$1 and tenant_id=$2 and folder_id=$3', [proposalId, T(), folder.id])
+  if (proposalId) {
+    await q('update pro_aidlc_proposals set used_at=now() where id=$1 and tenant_id=$2 and folder_id=$3', [proposalId, T(), folder.id])
+    // the meeting's "answers agreed" card has done its job
+    await q(`update notifications set is_checked=true where tenant_id=$1 and type='aidlc' and url=$2`, [T(), `/aidlc/${folder.slug}/decide?p=${proposalId}`])
+  }
   await record(folder, user, { stage: cur.state.currentStage, kind: 'answers', question: rel, choice: Object.entries(written).map(([k, v]) => `${k}: ${v}`).join(' · '), note: proposalId ? 'mob meeting' : null })
   const name = nameOf(folder)
   let told = false

@@ -38,11 +38,16 @@ const steerText = ref('')
 const steerNote = ref('')
 
 const isClaude = computed(() => room.value?.agent === 'claude-code')
+// a folder's AI-DLC team session (lib/aidlc/session.js): one terminal, the Claude Code everyone watches
+const isAidlc = computed(() => room.value?.agent === 'aidlc')
+const ses = ref(null)
+const modes = computed(() => (isAidlc.value ? ['aidlc'] : ['claude', 'shell']))
 async function load() {
   err.value = ''
   try { room.value = await api(base.value) }
   catch (e) { err.value = e.status === 403 || /403|권한/.test(e.message) ? '이 작업실을 볼 권한이 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.' : '이 실행의 작업 폴더를 찾지 못했어요.'; return }
-  if (!isClaude.value) tab.value = 'shell'
+  if (!isClaude.value) tab.value = isAidlc.value ? 'aidlc' : 'shell'
+  if (isAidlc.value) ses.value = await api(`/aidlc/${encodeURIComponent(id.value)}/session`).catch(() => null)
   opened.value[tab.value] = true
   if (route.query.open && !file.value) openFile(String(route.query.open))
 }
@@ -122,11 +127,13 @@ async function sendSteer() {
   <div class="wr">
     <header class="hd">
       <button class="ib" title="뒤로" @click="router.back()"><Icon name="back" :size="17" /></button>
-      <span class="brand"><b>&gt;_</b> {{ !room ? '작업실' : isClaude ? 'Claude Code' : 'deepagents' }}</span>
+      <span class="brand"><b>&gt;_</b> {{ !room ? '작업실' : isAidlc ? 'AI-DLC · Claude Code' : isClaude ? 'Claude Code' : 'deepagents' }}</span>
       <span v-if="room" class="chip" :title="room.cwd"><Icon name="doc" :size="13" /> {{ room.folder }}<template v-if="room.branch"> · {{ room.branch }}</template></span>
       <span v-if="room" class="st" :class="{ on: live, bad: termState[tab] === 'denied' }"><i />{{ statusText }}</span>
       <span class="ttl">{{ room?.title }}<template v-if="room?.sub"> · {{ room.sub }}</template><b v-if="room?.running" class="run"> · 실행 중</b></span>
       <span class="sp" />
+      <span v-if="isAidlc && ses && !ses.canType" class="chip" data-test="aidlc-readonly">보기만 해요</span>
+      <button v-if="isAidlc" class="hb" data-test="aidlc-decide" @click="router.push(`/aidlc/${id}/decide`)">결정하기</button>
       <div v-if="isClaude" class="seg">
         <button :class="{ on: tab === 'claude' }" @click="openTab('claude')">Claude Code</button>
         <button :class="{ on: tab === 'shell' }" @click="openTab('shell')">셸</button>
@@ -147,7 +154,7 @@ async function sendSteer() {
               <button :class="{ on: mode === 'preview' }" @click="mode = 'preview'">미리보기</button>
               <button :class="{ on: mode === 'edit' }" @click="mode = 'edit'">편집</button>
             </div>
-            <button v-if="file.content !== undefined" class="fb" :disabled="!dirty || saving" @click="save(viewer.draft)">{{ saving ? '저장 중…' : dirty ? '저장 ⌘S' : '저장됨' }}</button>
+            <button v-if="file.content !== undefined && !room.readOnlyFiles" class="fb" :disabled="!dirty || saving" @click="save(viewer.draft)">{{ saving ? '저장 중…' : dirty ? '저장 ⌘S' : '저장됨' }}</button>
             <button v-if="isClaude" class="fb" title="Claude Code 에 이 파일을 가리켜요" @click="mention">@ Claude</button>
             <a class="fb" :href="rawUrl(file.path)" target="_blank" title="원본 받기">원본</a>
             <button class="fb" @click="closeFile"><Icon name="close" :size="13" /> 터미널</button>
@@ -160,13 +167,13 @@ async function sendSteer() {
         <!-- the terminals stay connected while a file is open -->
         <div v-show="!file" class="terms">
           <template v-if="room">
-            <WorkroomTerminal v-for="m in ['claude', 'shell'].filter((x) => opened[x])" v-show="tab === m" :key="m"
+            <WorkroomTerminal v-for="m in modes.filter((x) => opened[x])" v-show="tab === m" :key="m"
               :ref="(c) => (terms[m] = c)" :kind="kind" :id="id" :mode="m" :active="tab === m && !file"
               @state="(s) => (termState[m] = s)" />
           </template>
           <p v-if="termState[tab] === 'denied'" class="deny">이 작업실의 터미널을 열 수 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.</p>
         </div>
-        <form v-if="room && !isClaude" class="steer" @submit.prevent="sendSteer">
+        <form v-if="room && !isClaude && !isAidlc" class="steer" @submit.prevent="sendSteer">
           <input v-model="steerText" placeholder="실행 중인 에이전트에게 방향 지시 — 다음 단계부터 반영돼요" />
           <button class="fb main" :disabled="!steerText.trim()">보내기</button>
           <small v-if="steerNote">{{ steerNote }}</small>

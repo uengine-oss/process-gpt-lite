@@ -18,9 +18,9 @@ const ctxText = computed(() => String(props.n.context || props.n.text || '').rep
 // a teammate's 'team' notice is a share or a mention; its title is in the recipient's language
 // (lib/team/messenger.js notifyMembers: "…를 공유했어요" / "… shared …", "…나를 언급했어요" / "… mentioned you")
 const teamVerb = (title) => (/나를 언급했어요|\bmentioned you\b/.test(title || '') ? '멘션' : /공유했어요|\sshared\s/.test(title || '') ? '공유' : '멘션')
-const verb = computed(() => props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+const verb = computed(() => props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : props.n.type === 'aidlc' ? '결정' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
-const kinds = { agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선' }
+const kinds = { agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선', aidlc: 'AI-DLC' }
 const when = computed(() => {
   const d = new Date(props.n.at)
   const mins = Math.round((Date.now() - d) / 60000)
@@ -37,6 +37,8 @@ async function act(choice) {
   if (!choice && String(props.n.url || '').startsWith('/mining/')) return router.push(props.n.url)
   // a new constraint in a process (lib/improve/service.js checkConstraint) opens its 개선 view
   if (!choice && String(props.n.url || '').startsWith('/improve/')) return router.push(props.n.url)
+  // an AI-DLC session waiting on a person (lib/aidlc/watch.js) opens the decision page; the card leaves Home when the wait is over
+  if (!choice && String(props.n.url || '').startsWith('/aidlc/')) return router.push(props.n.url)
   // a failed agent step (lib/stepRetry.js) opens its instance, where 「다시 시도」 is; a failed scheduled
   // run opens its task's run history (lib/missions.js)
   if (!choice && /^\/(projects|settings)\//.test(String(props.n.url || ''))) { app.dismissNotification(props.n); return router.push(props.n.url) }
@@ -64,7 +66,7 @@ async function act(choice) {
         <button v-for="o in n.choices.options" :key="o.key" class="b press" :class="{ main: o === n.choices.options[0] }"
           :disabled="!!busy" :title="o.label" @click="act(o.key)">{{ busy === o.key ? '처리 중…' : o.key }}</button>
       </template>
-      <button class="b ghost press" :disabled="!!busy" @click="act()">{{ n.type === 'mention' ? '채팅에서 보기' : n.choices ? '자세히' : n.type === 'merge_request' || n.type === 'mining' ? '검토하기' : n.type === 'improve' ? '개선 보기' : n.type === 'agent_failed' ? '인스턴스 보기' : n.type === 'mission_failed' ? '실행 기록 보기' : '열기' }}</button>
+      <button class="b ghost press" :disabled="!!busy" @click="act()">{{ n.type === 'mention' ? '채팅에서 보기' : n.choices ? '자세히' : n.type === 'merge_request' || n.type === 'mining' ? '검토하기' : n.type === 'improve' ? '개선 보기' : n.type === 'aidlc' ? '결정하기' : n.type === 'agent_failed' ? '인스턴스 보기' : n.type === 'mission_failed' ? '실행 기록 보기' : '열기' }}</button>
     </div>
   </div>
 </template>

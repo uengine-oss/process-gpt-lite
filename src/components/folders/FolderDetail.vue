@@ -34,6 +34,11 @@ const fileInput = ref(null)
 const aidlc = ref([])
 const aidlcPick = ref('')
 const aidlcBusy = ref(false)
+// the folder's AI-DLC team session (docs/robo-dlc/plan-team.md): Claude Code everyone watches, roles
+const ses = ref(null)
+const rolesOpen = ref(false)
+const roles = ref([])
+const TEAM_ROLES = ['team-lead', 'product', 'architect', 'developer', 'quality']
 const say = (t) => { toast.value = t; setTimeout(() => { if (toast.value === t) toast.value = '' }, 2800) }
 
 const can = (need) => ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[folder.value?.role] >= ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[need]
@@ -46,6 +51,7 @@ async function load() {
     if (f.kind === 'linked' && !cand.value) cand.value = await F.candidates(props.slug).catch(() => null)
     if (f.kind !== 'skill') {
       aidlc.value = await api(`/aidlc/${encodeURIComponent(props.slug)}/intents`).catch(() => [])
+      ses.value = await api(`/aidlc/${encodeURIComponent(props.slug)}/session`).catch(() => null)
       if (!aidlc.value.some((i) => `${i.space}/${i.slug}` === aidlcPick.value)) aidlcPick.value = aidlc.value[0] ? `${aidlc.value[0].space}/${aidlc.value[0].slug}` : ''
     }
   } catch (e) { err.value = e.message }
@@ -107,6 +113,20 @@ async function addAidlcPanels() {
     const out = await api(`/aidlc/${encodeURIComponent(props.slug)}/panels`, { method: 'POST', body: { space, slug } })
     say(`홈에 AI-DLC 대시보드 ${out.length}개를 추가했어요.`)
   } catch (e) { say(e.message) } finally { aidlcBusy.value = false }
+}
+async function startSession() {
+  aidlcBusy.value = true
+  try { await api(`/aidlc/${encodeURIComponent(props.slug)}/session`, { method: 'POST' }); router.push(`/workroom/aidlc/${props.slug}`) } catch (e) { say(e.message) } finally { aidlcBusy.value = false }
+}
+async function openRoles() {
+  rolesOpen.value = !rolesOpen.value
+  if (rolesOpen.value) roles.value = await api(`/aidlc/${encodeURIComponent(props.slug)}/roles`).catch(() => [])
+}
+const people = computed(() => (folder.value?.members || []).filter((m) => m.type === 'user' && !m.is_agent))
+async function toggleRole(r, m) {
+  const ids = r.people.map((p) => p.id)
+  const next = ids.includes(m.id) ? ids.filter((x) => x !== m.id) : [...ids, m.id]
+  try { roles.value = await api(`/aidlc/${encodeURIComponent(props.slug)}/roles`, { method: 'PUT', body: { roleKey: r.roleKey, userIds: next } }) } catch (e) { say(e.message) }
 }
 const aidlcStatus = (s) => ({ complete: '완료', 'in-flight': '진행 중' })[s] || s || ''
 async function importAll() {
@@ -174,6 +194,23 @@ const ix = computed(() => folder.value?.index_state || {})
           <option v-for="i in aidlc" :key="i.space + '/' + i.slug" :value="i.space + '/' + i.slug">{{ i.slug }}{{ i.scope ? ' · ' + i.scope : '' }}{{ i.status ? ' · ' + aidlcStatus(i.status) : '' }}</option>
         </select>
         <button class="dark-btn sm2" :disabled="aidlcBusy || !aidlcPick" @click="addAidlcPanels">{{ aidlcBusy ? '추가하는 중…' : '홈에 대시보드 추가' }}</button>
+      </div>
+
+      <div v-if="ses?.aidlc" class="banner aidlc glass" data-test="aidlc-team">
+        <FIcon name="terminal" :size="18" />
+        <span v-if="ses.running"><b>AI-DLC 팀 세션이 돌고 있어요.</b> {{ ses.choice ? '지금 사람이 정할 것이 있어요 — ' + (ses.choice.title || ses.choice.question) : '팀 모두 같은 Claude Code 화면을 보고, 사람이 정할 것은 담당 역할에게 카드로 가요.' }}</span>
+        <span v-else><b>AI-DLC 팀 세션</b> — Claude Code 를 이 저장소에서 띄우면 팀 모두 같은 화면을 보고, 질문·승인은 역할 담당자에게 카드로 가요.</span>
+        <span class="sp" />
+        <button class="tb press" data-test="aidlc-roles" @click="openRoles">역할</button>
+        <button v-if="ses.running" class="tb press" @click="router.push(`/aidlc/${folder.slug}/decide`)">결정하기</button>
+        <button v-if="ses.running" class="dark-btn sm2" @click="router.push(`/workroom/aidlc/${folder.slug}`)">세션 보기</button>
+        <button v-else-if="ses.canStart" class="dark-btn sm2" :disabled="aidlcBusy" @click="startSession">{{ aidlcBusy ? '띄우는 중…' : '세션 시작' }}</button>
+      </div>
+      <div v-if="rolesOpen" class="banner glass roles" data-test="aidlc-role-sheet">
+        <div v-for="r in roles.filter((x) => TEAM_ROLES.includes(x.roleKey))" :key="r.roleKey" class="role-row">
+          <b>{{ r.role }}</b>
+          <button v-for="m in people" :key="m.id" class="chip press" :class="{ on: r.people.some((p) => p.id === m.id) }" :disabled="!can('editor')" @click="toggleRole(r, m)">{{ m.name }}</button>
+        </div>
       </div>
 
       <div class="cols">
@@ -331,6 +368,11 @@ h1 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
 .fic.hwp { background: #1f6fd1; } .fic.doc { background: #2b579a; } .fic.xls { background: #217346; } .fic.ppt { background: #c43e1c; } .fic.pdf { background: #d93025; } .fic.cad { background: #0b6f88; } .fic.vec { background: #c2570c; } .fic.img { background: #7b3fbf; } .fic.snd { background: #0f8a5f; } .fic.vid { background: #b0223c; } .fic.md { background: #3d4f6b; } .fic.code { background: #2d333b; }
 .banner.ask { border: 1px solid rgba(123 92 214 / .45); }
 .banner.aidlc { border: 1px solid rgba(10 132 255 / .35); }
+.banner.roles { flex-direction: column; align-items: stretch; gap: 8px; }
+.role-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.role-row b { min-width: 92px; font-size: 13px; }
+.chip { font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line, rgba(0 0 0 / .12)); background: transparent; color: inherit; }
+.chip.on { background: #0a84ff; border-color: #0a84ff; color: #fff; }
 .aidlc-pick { font: inherit; font-size: 13px; color: inherit; background: var(--cell-bg); border: 0; border-radius: 10px; padding: 6px 10px; max-width: 220px; }
 .sm2 { height: 36px; padding: 0 16px; font-size: 13.5px; }
 .kb { display: inline-flex; vertical-align: middle; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 500; background: rgba(150 240 176 / .2); color: var(--color-success); letter-spacing: 0; }

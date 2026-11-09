@@ -112,6 +112,9 @@ test('질문: 답을 다 적은 뒤 엔진이 붙이는 요약 확인도 열린 
   assert.equal(qs[1].text, 'Does this all look correct before I generate the artifact?')
   assert.deepEqual(qs[1].options.map((o) => [o.key, o.text]), [['', 'Looks correct'], ['', 'Request changes']])
   assert.equal(R.parseQuestions(md.replace(/\[Answer\]:$/m, '[Answer]: Looks correct'))[1].answer, 'Looks correct')
+  // some runs write the options without the bullet
+  const bare = R.parseQuestions('## Q1. [제품] 누가 쓰나요?\n\n설명 문장입니다.\n\nA. 나 혼자\nB. 팀\nX. Other (please specify)\n\n[Answer]:\n')
+  assert.deepEqual(bare[0].options.map((o) => o.key), ['A', 'B', 'X'])
 })
 
 test('승인 대기: 기다린 시간은 지금까지', () => {

@@ -124,6 +124,8 @@ export async function finalize(m) {
   for (const sg of made) for (const p of members) emit(p.id, 'team', { type: 'assist', threadId: m.room_id, suggestion: suggestionView(p.id, sg) })
   // (the meeting's language stays with it: lib/meetings/service.js meetingLang)
   await q('update pro_meetings set summary=$2 where id=$1', [m.id, { ...s, by, declined, minutes: mins, ...(lang ? { lang } : {}) }])
+  // an AI-DLC mob room: the answers the team agreed on, proposed on its decision page (lib/aidlc/mob.js)
+  import('../aidlc/mob.js').then((x) => x.afterMinutes(m, s, segs)).catch((e) => console.warn('[meetings] aidlc mob', e.message))
   return uuid
 }
 

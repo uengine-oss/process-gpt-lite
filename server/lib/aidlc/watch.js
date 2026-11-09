@@ -3,6 +3,7 @@
 // tool permission), or a question file whose answers are blank — becomes one Home card for the people
 // in the stage's role (lib/aidlc/team.js deciders), opening the decision page. A wait that is over is
 // closed and its cards leave Home.
+import crypto from 'node:crypto'
 import { q, eachTenant } from '../supa.js'
 import { config } from '../../config.js'
 import { L } from '../lang.js'
@@ -13,7 +14,8 @@ import * as AS from './session.js'
 import * as TM from './team.js'
 
 const T = () => config.tenantId
-const url = (slug) => `/aidlc/${slug}/decide`
+// each wait's card opens the decision page; its own address lets it leave Home when that wait is over
+export const waitUrl = (slug, key) => `/aidlc/${slug}/decide?w=${crypto.createHash('sha1').update(key).digest('hex').slice(0, 12)}`
 
 // what waits on a person in one folder now: [{ key, kind, stage, roleKey, title, text }]
 export async function waitsOf(folder) {
@@ -29,9 +31,10 @@ export async function waitsOf(folder) {
     return [{ key: `prompt:${choice.fingerprint}`, kind: 'prompt', stage: stage.slug, roleKey, title: TM.promptTitle(kind, stage.name), text: choice.question || choice.title }]
   }
   // no prompt on screen: question files of the stage with blank answers (the team answers in the file)
-  const files = (await R.listQuestions(cur.dir)).filter((f) => f.open > 0 && f.stage === stage.slug)
+  // (a blank summary confirmation is the session's own prompt, coming next — not a question for the team)
+  const files = (await R.listQuestions(cur.dir)).filter((f) => f.stage === stage.slug && f.questions.some((x) => !x.answer && !x.summary))
   return files.map((f) => {
-    const open = f.questions.filter((x) => !x.answer)
+    const open = f.questions.filter((x) => !x.answer && !x.summary)
     return { key: `questions:${f.path}:${open.map((x) => x.id).join(',')}`, kind: 'questions', stage: stage.slug, roleKey: stage.roleKey,
       title: L(`${stage.name} 질문 ${open.length}개가 답을 기다려요`, `${open.length} ${stage.name} question(s) wait for answers`),
       text: open.map((x) => `${x.id}. ${x.text}`).join(' / ').slice(0, 300) }
@@ -51,18 +54,17 @@ export async function scanFolder(folder) {
                            returning wait_key`, [T(), folder.id, w.key, w.kind, w.stage, w.roleKey, w.title])
     if (!row) continue
     for (const p of await TM.deciders(folder, w.roleKey)) {
-      if (p.id) await notifyUser(p.id, { type: 'aidlc', title: `${folder.name} · ${w.title}`, text: w.text, url: url(folder.slug) })
+      if (p.id) await notifyUser(p.id, { type: 'aidlc', title: `${folder.name} · ${w.title}`, text: w.text, url: waitUrl(folder.slug, w.key) })
     }
     fresh.push(w)
   }
   const gone = [...known].filter((k) => !now.some((w) => w.key === k))
   if (gone.length) {
     await q('update pro_aidlc_waits set closed_at=now() where tenant_id=$1 and folder_id=$2 and wait_key = any($3)', [T(), folder.id, gone])
-    // nothing left to decide in this folder: its cards leave Home
-    if (!now.length) {
-      const users = await q(`update notifications set is_checked=true where tenant_id=$1 and type='aidlc' and url=$2 and not coalesce(is_checked,false) returning user_id`, [T(), url(folder.slug)])
-      for (const u of new Set(users.map((x) => x.user_id))) emit(u, 'notifications', {})
-    }
+    // a wait that is over: its cards leave Home
+    const users = await q(`update notifications set is_checked=true where tenant_id=$1 and type='aidlc' and url = any($2) and not coalesce(is_checked,false) returning user_id`,
+      [T(), gone.map((k) => waitUrl(folder.slug, k))])
+    for (const u of new Set(users.map((x) => x.user_id))) emit(u, 'notifications', {})
   }
   if (fresh.length || gone.length) emit(`aidlc:${folder.slug}`, 'aidlc', { waits: now.length })
   return { fresh, gone }

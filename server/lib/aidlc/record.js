@@ -154,7 +154,8 @@ function where(rel) {
 
 // ---------- question files ----------
 const Q_HEAD = /^## (Q\d+)\.\s*(?:\[([^\]]+)\]\s*)?(\((?:후속|follow-?up)\)\s*)?(.*)$/i
-const OPTION = /^- ([A-Z])\.\s+(.*)$/
+// options are "- A. text" or, in some runs, "A. text" without the bullet
+const OPTION = /^(?:- )?([A-Z])\.\s+(.*)$/
 const ANSWER = /^\[Answer\]:\s*(.*)$/
 // after the answers the engine adds one section asking the person to confirm its summary before it
 // writes the artifact ("Does this all look correct …?" with plain "- Looks correct" options)

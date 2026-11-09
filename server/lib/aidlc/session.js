@@ -41,6 +41,8 @@ export async function start({ name, cwd, lang = 'ko' }) {
   await tmux('new-session', '-d', '-s', name, '-x', '160', '-y', '48', '-c', cwd, ...args)
   // every client sees the latest size (one person's small window does not shrink everyone's)
   await tmux('set-option', '-t', name, 'window-size', 'latest').catch(() => {})
+  // no tmux status line: the screen is Claude Code's alone
+  await tmux('set-option', '-t', name, 'status', 'off').catch(() => {})
   return { name, started: true }
 }
 
@@ -111,7 +113,7 @@ export function parseChoice(text) {
   }
   const opts = options.filter((o) => !CHAT.test(o.label))
   return {
-    title, question: q.join(' ').trim(),
+    title, question: q.join('\n').replace(/\n{2,}/g, '\n').trim(),
     options: opts.map((o) => ({ n: o.n, label: o.label, hint: o.hint, freeText: FREE_TEXT.test(o.label) })),
     fingerprint: crypto.createHash('sha1').update(JSON.stringify([title, q, opts.map((o) => o.label)])).digest('hex').slice(0, 16),
   }

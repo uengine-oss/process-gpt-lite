@@ -19,6 +19,8 @@ const routes = [
   { path: '/projects/:id?', component: () => import('./views/MainView.vue'), meta: { mode: 'project' } },
   { path: '/settings/:page?/:sub?', component: () => import('./views/MainView.vue'), meta: { mode: 'chat', settings: true } },
   { path: '/workroom/:kind/:id', component: () => import('./views/WorkroomView.vue') },
+  // AI-DLC: what the folder's team session asks a person now (docs/robo-dlc/plan-team.md)
+  { path: '/aidlc/:folder/decide', component: () => import('./views/AidlcDecide.vue') },
   // 공유 폴더 (UI 프로토타입, 가짜 데이터)
   { path: '/folders', component: () => import('./views/FoldersView.vue') },
   { path: '/folders/:slug', component: () => import('./views/FoldersView.vue') },

@@ -5,6 +5,7 @@ import express from 'express'
 import * as A from '../lib/aidlc/service.js'
 import { createPresetPanels, PRESETS } from '../lib/aidlc/presets.js'
 import * as TM from '../lib/aidlc/team.js'
+import * as MOB from '../lib/aidlc/mob.js'
 import { scanFolder } from '../lib/aidlc/watch.js'
 import { folderBySlug } from '../lib/folders/service.js'
 
@@ -54,5 +55,7 @@ export function aidlcRoutes(auth) {
     rescan(req.params.folder)
     return out
   }))
+  // the folder's mob room: the team meets there; the meeting's agreed answers come back as a proposal
+  r.post('/aidlc/:folder/mob', auth, h((req) => MOB.startMob(req.params.folder, me(req))))
   return r
 }
