@@ -67,6 +67,9 @@ export const promptTitle = (kind, stageName) => ({
   choice: L(`${stageName} — 결정이 필요해요`, `${stageName} — a decision is needed`),
 }[kind])
 
+// the role a wait belongs to: the stage's, except a tool permission while code is written — the developer's
+export const waitRole = (stage, choice) => (choice && promptKind(choice) === 'permission' && stage?.phase === 'construction' ? 'developer' : stage?.roleKey || null)
+
 // who decides a wait: the role's people; with nobody in the role, the folder's owners
 export async function deciders(folder, roleKey) {
   const people = roleKey ? await holders(folder.id, roleKey) : []
@@ -108,7 +111,7 @@ export async function decideView(slug, user) {
   const running = await AS.has(name)
   const choice = running ? AS.parseChoice(await AS.screen(name).catch(() => '')) : null
   const stage = cur?.stage || null
-  const roleKey = stage?.roleKey || null
+  const roleKey = waitRole(stage, choice)
   const questions = cur ? (await R.listQuestions(cur.dir)).filter((f) => !stage || f.stage === stage.slug || f.questions.some((x) => !x.answer)) : []
   const reviews = cur ? (await R.listReviews(cur.dir)).filter((r) => r.stage === stage?.slug).slice(-1) : []
   // the mob's proposal for a question file still waiting (one for a file already answered is past)
@@ -139,10 +142,10 @@ async function record(folder, user, { stage, kind, question, choice, note }) {
 export async function decide(slug, user, { fingerprint, option, text }) {
   const { folder } = await F.access(R.safeName(slug), user, 'viewer')
   const cur = await currentIntent(folder.repo_path)
-  if (!(await mayDecide(folder, user, cur?.stage?.roleKey))) throw err(403, 'not yours to decide')
   const name = nameOf(folder)
   if (!(await AS.has(name))) throw err(409, 'no session')
   const choice = AS.parseChoice(await AS.screen(name))
+  if (!(await mayDecide(folder, user, waitRole(cur?.stage, choice)))) throw err(403, 'not yours to decide')
   const out = await AS.answer(name, { fingerprint, option, text })
   await record(folder, user, { stage: cur?.state.currentStage, kind: 'prompt', question: choice ? `${choice.title} ${choice.question}`.trim() : '', choice: out.answered, note: text || null })
   return out
