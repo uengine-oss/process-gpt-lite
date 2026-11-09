@@ -4,8 +4,19 @@
 import * as S from './service.js'
 import { L } from '../lang.js'
 import { reindex } from './indexer.js'
+import { hasAidlc } from '../aidlc/record.js'
+import { sessionName } from '../aidlc/session.js'
+import { config } from '../../config.js'
 
 export async function folderRoom(kind, id) {
+  // the folder's AI-DLC team session (lib/aidlc/session.js): every member watches the same Claude Code,
+  // editors and up type into it (writeNeed); files are read here, never written
+  if (kind === 'aidlc') {
+    const f = await S.folderBySlug(id)
+    if (!f?.repo_path || !(await hasAidlc(f.repo_path))) return null
+    return { kind, id, folder: f.id, need: 'viewer', writeNeed: 'editor', readOnlyFiles: true, title: f.name, sub: L('AI-DLC · Claude Code 세션', 'AI-DLC · Claude Code session'),
+      agent: 'aidlc', root: f.repo_path, cwd: f.repo_path, branch: f.default_branch, tmux: sessionName(config.tenantId, f.slug) }
+  }
   if (kind === 'folder') {
     const f = await S.folderBySlug(id)
     if (!f) return null
@@ -19,8 +30,8 @@ export async function folderRoom(kind, id) {
     afterWrite: async (rel) => S.commitVariation(f, await S.variationById(v.id), { name: L('작업실', 'Workroom'), email: 'workroom@pgpt-pro.local' }, L(`작업실에서 고침: ${rel}`, `Edited in the workroom: ${rel}`)) }
 }
 
-export async function folderRoomAccess(user, room) {
+export async function folderRoomAccess(user, room, need = room.need) {
   const f = await S.folderById(room.folder)
   const role = await S.roleOf(f, user)
-  return !!role && S.RANK[role] >= S.RANK[room.need]
+  return !!role && S.RANK[role] >= S.RANK[need]
 }

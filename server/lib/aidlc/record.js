@@ -187,6 +187,31 @@ export async function listQuestions(dir) {
   return out
 }
 
+// Answers agreed by the team written into a question file: the first `[Answer]:` line of each
+// `## Qn.` section (and of the summary confirmation, key 'summary'). Only a question file of this
+// record (the walk above), only questions that are there; returns what was written.
+export async function writeAnswers(dir, rel, answers) {
+  const files = await recordFiles(dir)
+  if (!files.includes(rel) || !rel.endsWith('-questions.md')) throw err(404, 'questions file not found')
+  const file = path.join(dir, rel)
+  const lines = String(await readText(file)).split('\n')
+  const written = {}
+  let cur = null
+  for (let i = 0; i < lines.length; i++) {
+    const h = lines[i].match(Q_HEAD)
+    if (h) { cur = h[1]; continue }
+    if (SUMMARY.test(lines[i])) { cur = 'summary'; continue }
+    if (lines[i].startsWith('## ')) { cur = null; continue }
+    if (cur && ANSWER.test(lines[i]) && cur in answers && !(cur in written)) {
+      const a = String(answers[cur] ?? '').replace(/\s*\n\s*/g, ' ').trim().slice(0, 500)
+      if (a) { lines[i] = `[Answer]: ${a}`; written[cur] = a }
+    }
+  }
+  if (!Object.keys(written).length) throw err(400, 'nothing to write')
+  await fs.writeFile(file, lines.join('\n'))
+  return written
+}
+
 // ---------- reviews ----------
 const VERDICT = /^\*\*Verdict:\*\*\s*(\S+)/m
 const META = (k) => new RegExp(`^\\*\\*${k}:\\*\\*\\s*(.+)$`, 'm')

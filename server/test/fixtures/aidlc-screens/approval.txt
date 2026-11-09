@@ -1,0 +1,42 @@
+  ▎ R-02 Suggested change: 확인된 답에 있는 표현으로 줄이거나 해당 수식어를 뺀다.                                                           
+
+  ▎ R-03 Finding: "포함" 항목을 "사용자가 확인한 제품 경계"라 부르지만 근거는 [desc] 뿐이고, 사용자가 질문으로 확인한 답이 아니다. 제외     
+  ▎ 항목([Q4])과 같은 확인 수준인 것처럼 읽힌다.
+
+  ▎ R-03 Where: intent-statement.md > Initial Scope Signal (사용자가 확인한 제품 경계 — 포함)                                               
+
+  ▎ R-03 Suggested change: "요청 설명에 적힌 내용"처럼 출처가 드러나게 표기하거나, 확인 질문으로 뒷받침한다.                                
+
+  ▎ R-04 Finding: 단계 정의가 다루라고 한 고객의 현재 불편, 소통 주기·보고 요구, 범위·우선순위 결정자 질문이 빠졌다. Q1 의 "목적"과 "계기"도
+  ▎ 한 질문에 합쳐졌다. Minimal 깊이의 poc 라 차단 사유는 아니며, 해당 항목이 산출물에 적히지 않은 점은 올바르다.
+
+  ▎ R-04 Suggested change: 승인 전에 위 항목이 필요한지 판단한다. 필요하면 Q5 이후 후속 질문으로 확인하고, 필요 없으면 그대로 진행한다.     
+
+  Approve accepts the open review findings R-01 (Q2 는 "누가 결과물이 괜찮은지 판단하는가"만 물었는데, 지도는 "팀 또는 리더"를 "결정권자"로
+  적었다. 범위·우선순위를 누가...), R-02 ("작고 이해하기 쉬운 예제"는 Q1 답("개발 방식(AI-DLC)을 시연하거나 익히기 위한 예제")에 없는
+  수식어인데 [Q1] 태그...), R-03 ("포함" 항목을 "사용자가 확인한 제품 경계"라 부르지만 근거는 [desc] 뿐이고, 사용자가 질문으로 확인한 답이
+  아니다. 제외...) and R-04 (단계 정의가 다루라고 한 고객의 현재 불편, 소통 주기·보고 요구, 범위·우선순위 결정자 질문이 빠졌다. Q1 의
+  "목적"과 "계기"도...) as risk; you can also approve and ask for one to be fixed, or reject one as not applying, saying why.
+
+  Decision options:                                                                                                                         
+  - Approve - continue.
+  - Request Changes - return to the listed artifacts so the required actions can be addressed.
+   
+  Review: aidlc/spaces/default/intents/261109-todo-web-app/ideation/intent-capture/
+
+  승인하시면 다음 단계인 요구사항 분석으로 넘어갑니다.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Approval                                                        
+
+의도 파악 및 프레이밍을 마쳤습니다. 어떻게 진행할까요?
+
+❯ 1. Approve                                                                                                                                
+     Continue to Requirements Analysis (요구사항 분석으로 진행)                                                                             
+  2. Request Changes                  
+     수정할 내용을 알려 주시면 문서를 고칩니다
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+

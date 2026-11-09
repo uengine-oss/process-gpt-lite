@@ -61,6 +61,13 @@ export const config = {
   // shared folders: where folder repositories live (<root>/<tenant>/<slug>); unset = ~/pgpt-folders
   foldersRoot: get('PRO_FOLDERS_ROOT', ''),
   claudeBin: get('PRO_CLAUDE_BIN', 'claude'),
+  // AI-DLC team sessions (lib/aidlc/session.js): an interactive Claude Code per linked AI-DLC folder,
+  // kept in tmux on its own socket. aidlcPath goes in front of PATH (where the `aidlc` CLI is);
+  // the permission mode and effort the session starts with.
+  aidlcTmuxSocket: get('PRO_AIDLC_TMUX_SOCKET', 'pgpt-aidlc'),
+  aidlcPath: get('PRO_AIDLC_PATH', ''),
+  aidlcPermissionMode: get('PRO_AIDLC_PERMISSION_MODE', 'default'),
+  aidlcEffort: get('PRO_AIDLC_EFFORT', 'high'),
   // fast page-state / goal-done checks in the browser loop through the router's /decide
   browserGates: get('PRO_BROWSER_GATES', 'on') !== 'off',
   // ArtCraft apps: the self-hosted web builds served at /craft/<app>/ and each app's MCP CLI

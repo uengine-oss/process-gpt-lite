@@ -15,6 +15,7 @@ import { workspaceHostPath } from './missions.js'
 import { folderRoom, folderRoomAccess } from './folders/rooms.js'
 import { L, isEn, ENGLISH_NOTE } from './lang.js'
 import { withTenant } from './tenant.js'
+import * as AS from './aidlc/session.js'
 
 const T = () => config.tenantId
 const TEXT_MAX = 2 * 1024 * 1024
@@ -48,7 +49,7 @@ export async function resolveRoom(kind, id) {
   }
   // shared folders (lib/folders): 'folder' = a folder's main (id = slug), 'variation' = a person's
   // checkout of a variation (id = variation id, checked out by POST …/variations/:vid/checkout)
-  if (kind === 'folder' || kind === 'variation') return folderRoom(kind, id)
+  if (kind === 'folder' || kind === 'variation' || kind === 'aidlc') return folderRoom(kind, id)
   return null
 }
 
@@ -76,13 +77,15 @@ export async function canAccess(user, room) {
 // A terminal is opened with a one-time ticket the page fetched (signed in, allowed in the room)
 // a moment before; it never travels in a link and is spent on use.
 const tickets = new Map() // ticket -> { userId, kind, id, mode, until }
-export function issueTicket(user, room, mode) {
+export function issueTicket(user, room, mode, { readOnly = false } = {}) {
   for (const [k, v] of tickets) if (v.until < Date.now()) tickets.delete(k)
   const t = crypto.randomBytes(24).toString('base64url')
+  // an AI-DLC room has one terminal: its team session; readOnly: watch without typing (viewers)
+  if (room.agent === 'aidlc') mode = 'aidlc'
   // lang: the language of the person opening it (English mode: Claude Code is told to answer in English);
   // tenant: theirs — the websocket upgrade comes outside any request's tenant (lib/tenant.js), and the
   // room (an en-demo folder, a conversation folder) is looked up in it
-  tickets.set(t, { userId: user.id, kind: room.kind, id: room.id, mode: mode === 'claude' ? 'claude' : 'shell', lang: isEn() ? 'en' : 'ko', tenant: config.tenantId, until: Date.now() + 60_000 })
+  tickets.set(t, { userId: user.id, kind: room.kind, id: room.id, mode: ['claude', 'aidlc'].includes(mode) ? mode : 'shell', readOnly: !!readOnly, lang: isEn() ? 'en' : 'ko', tenant: config.tenantId, until: Date.now() + 60_000 })
   return t
 }
 function spendTicket(t) {
@@ -186,6 +189,8 @@ function spawn(room, mode, lang = 'ko') {
   // the login shell, else the first one this machine has (the Docker image has bash, not zsh)
   const shell = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'].find((x) => x && existsSync(x)) || '/bin/sh'
   let file = shell, args = ['-i']
+  // the folder's AI-DLC session lives in tmux (it outlives this terminal); a terminal is one more client of it
+  if (mode === 'aidlc') return pty.spawn('tmux', AS.attachArgs(room.tmux, false), { name: 'xterm-256color', cols: 120, rows: 32, cwd: room.cwd, env: AS.cleanEnv() })
   if (mode === 'claude') {
     file = config.claudeBin
     args = room.session ? ['--resume', room.session] : []
@@ -242,16 +247,18 @@ export function attachTerminal(server) {
     const room = await withTenant(ticket.tenant, () => resolveRoom(ticket.kind, ticket.id)).catch(() => null)
     if (!room || !(await fs.stat(room.cwd).catch(() => null))) return deny(404)
     const mode = ticket.mode
+    if (mode === 'aidlc' && !(await AS.has(room.tmux))) return deny(409)
     wss.handleUpgrade(req, socket, head, (ws) => {
       let s
       try { s = sessionFor(room, mode, ticket.lang, ticket.tenant) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close() }
       clearTimeout(s.timer)
       s.viewers.add(ws)
-      ws.send(JSON.stringify({ type: 'session', mode, cwd: room.cwd, session: room.session || null }))
+      ws.send(JSON.stringify({ type: 'session', mode, cwd: room.cwd, session: room.session || null, readOnly: !!ticket.readOnly }))
       if (s.buf) ws.send(JSON.stringify({ type: 'output', data: s.buf, replay: true }))
       ws.on('message', (raw) => {
         let m
         try { m = JSON.parse(raw) } catch { return }
+        if (ticket.readOnly) return // watching only
         if (m.type === 'input' && typeof m.data === 'string') s.pty.write(m.data)
         else if (m.type === 'resize' && m.cols > 0 && m.rows > 0 && m.cols < 1000 && m.rows < 500) s.pty.resize(m.cols | 0, m.rows | 0)
       })

@@ -1,8 +1,12 @@
-// HTTP routes for AI-DLC dashboards (Robo-DLC Lite). Read-only; every route checks the caller's role
-// in the shared folder that holds the AI-DLC record.
+// HTTP routes for AI-DLC (Robo-DLC Lite): the dashboards (read-only), and the team session — roles,
+// the folder's Claude Code session, the decision page and the decisions typed into the session.
+// Every route checks the caller's role in the shared folder that holds the AI-DLC record.
 import express from 'express'
 import * as A from '../lib/aidlc/service.js'
 import { createPresetPanels, PRESETS } from '../lib/aidlc/presets.js'
+import * as TM from '../lib/aidlc/team.js'
+import { scanFolder } from '../lib/aidlc/watch.js'
+import { folderBySlug } from '../lib/folders/service.js'
 
 export function aidlcRoutes(auth) {
   const r = express.Router()
@@ -30,6 +34,25 @@ export function aidlcRoutes(auth) {
     const list = await A.intents(req.params.folder, me(req))
     if (!list.some((i) => i.space === space && i.slug === slug)) throw Object.assign(new Error('intent not found'), { status: 404 })
     return createPresetPanels(req.user.id, { folder: req.params.folder, space, slug, kinds })
+  }))
+  // ---------- the team (docs/robo-dlc/plan-team.md) ----------
+  r.get('/aidlc/:folder/roles', auth, h((req) => TM.roles(req.params.folder, me(req))))
+  r.put('/aidlc/:folder/roles', auth, h((req) => TM.setRole(req.params.folder, me(req), { roleKey: req.body?.roleKey, userIds: req.body?.userIds || [] })))
+  r.get('/aidlc/:folder/session', auth, h((req) => TM.sessionInfo(req.params.folder, me(req))))
+  r.post('/aidlc/:folder/session', auth, h((req) => TM.startSession(req.params.folder, me(req))))
+  r.delete('/aidlc/:folder/session', auth, h((req) => TM.stopSession(req.params.folder, me(req))))
+  r.get('/aidlc/:folder/decide', auth, h((req) => TM.decideView(req.params.folder, me(req))))
+  // a decision changes what waits: look again now rather than at the watcher's next pass
+  const rescan = (slug) => folderBySlug(slug).then((f) => f && setTimeout(() => scanFolder(f).catch(() => {}), 2500)).catch(() => {})
+  r.post('/aidlc/:folder/decide', auth, h(async (req) => {
+    const out = await TM.decide(req.params.folder, me(req), { fingerprint: req.body?.fingerprint, option: req.body?.option, text: req.body?.text })
+    rescan(req.params.folder)
+    return out
+  }))
+  r.post('/aidlc/:folder/answers', auth, h(async (req) => {
+    const out = await TM.submitAnswers(req.params.folder, me(req), { path: req.body?.path, answers: req.body?.answers, proposalId: req.body?.proposalId })
+    rescan(req.params.folder)
+    return out
   }))
   return r
 }

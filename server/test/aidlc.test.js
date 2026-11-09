@@ -227,3 +227,43 @@ test('사례: 기록 이름', () => {
     else assert.throws(() => R.safeName(c.name), /bad name/, c.name)
   }
 })
+
+// ---------- the team session (docs/robo-dlc/plan-team.md) ----------
+const SCREENS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'aidlc-screens')
+const screenOf = async (n) => (await import('node:fs/promises')).readFile(path.join(SCREENS, `${n}.txt`), 'utf8')
+
+test('세션 화면: Claude Code 선택 창을 읽는다 (답하는 방식 · 요약 확인 · 승인), 일하는 중이면 없음', async () => {
+  const S = await import('../lib/aidlc/session.js')
+  const { promptKind } = await import('../lib/aidlc/team.js')
+  const a = S.parseChoice(await screenOf('approval'))
+  assert.equal(a.title, 'Approval')
+  assert.match(a.question, /어떻게 진행할까요/)
+  assert.deepEqual(a.options.map((o) => [o.n, o.label, o.freeText]), [[1, 'Approve', false], [2, 'Request Changes', false], [3, 'Type something.', true]])
+  assert.match(a.options[0].hint, /Requirements Analysis/)
+  assert.equal(promptKind(a), 'approval')
+  assert.equal(promptKind(S.parseChoice(await screenOf('summary'))), 'summary')
+  const m = S.parseChoice(await screenOf('answer-mode'))
+  assert.equal(promptKind(m), 'answer-mode')
+  assert.ok(!m.options.some((o) => /Chat about this/.test(o.label)), 'the "chat about this" escape is not offered')
+  assert.equal(S.parseChoice(await screenOf('working')), null)
+  // the same prompt reads the same fingerprint; another prompt another one
+  assert.equal(S.parseChoice(await screenOf('approval')).fingerprint, a.fingerprint)
+  assert.notEqual(m.fingerprint, a.fingerprint)
+})
+
+test('질문 파일에 합의한 답 쓰기: 빈 [Answer] 에만, 이 기록의 질문 파일만', async () => {
+  const fsp = await import('node:fs/promises')
+  const os = await import('node:os')
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'aidlc-answers-'))
+  await fsp.cp(ROOT, tmp, { recursive: true })
+  const { dir } = await R.intentDir(tmp, 'default', 'todo-web-app')
+  const f = (await R.listQuestions(dir)).find((x) => x.open > 0)
+  const ids = f.questions.filter((x) => !x.answer).map((x) => x.id)
+  const written = await R.writeAnswers(dir, f.path, Object.fromEntries(ids.map((id, i) => [id, 'ABCD'[i % 4]])))
+  assert.deepEqual(Object.keys(written), ids)
+  const again = (await R.listQuestions(dir)).find((x) => x.path === f.path)
+  assert.equal(again.open, 0)
+  await assert.rejects(R.writeAnswers(dir, '../../../etc/passwd-questions.md', { Q1: 'A' }), /not found/)
+  await assert.rejects(R.writeAnswers(dir, f.path, { Q99: 'A' }), /nothing to write/)
+  await fsp.rm(tmp, { recursive: true, force: true })
+})

@@ -56,6 +56,8 @@ const ROLE = {
   'team-lead': ['팀 리드', 'Team lead'],
 }
 const ROLE_OF_STAGE = { 'practices-discovery': 'team-lead' }
+// the roles a person can be given in a project (the orchestrator is AI-DLC itself)
+export const ROLE_KEYS = Object.keys(ROLE).filter((k) => k !== 'orchestrator')
 
 const NAME = {
   'workspace-scaffold': ['작업 공간 준비', 'Workspace scaffold'], 'workspace-detection': ['작업 공간 살피기', 'Workspace detection'],

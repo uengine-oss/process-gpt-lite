@@ -46,6 +46,8 @@ import { startSystemRegistry, syncSystemRegistry } from './lib/systems.js'
 import * as notify from './lib/notify.js'
 import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
+import { folderRoomAccess } from './lib/folders/rooms.js'
+import { startAidlcWatch } from './lib/aidlc/watch.js'
 import { saveAttachment } from './lib/attachments.js'
 import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
@@ -556,6 +558,7 @@ app.get('/api/workroom/:kind/:id/raw', async (req, res, next) => {
 })
 app.put('/api/workroom/:kind/:id/file', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
+  if (r.readOnlyFiles) return res.status(403).json({ error: L('이 작업실의 파일은 읽기만 해요', 'Files in this workroom are read-only') })
   try { res.json(await workroom.writeFile(r, req.body.path, String(req.body.content ?? ''), req.body.mtime)) } catch (e) { fail(res, e) }
 })
 app.post('/api/workroom/:kind/:id/publish', auth, async (req, res) => {
@@ -564,7 +567,9 @@ app.post('/api/workroom/:kind/:id/publish', auth, async (req, res) => {
 })
 app.post('/api/workroom/:kind/:id/ticket', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
-  res.json({ ticket: workroom.issueTicket(req.user, r, req.body.mode) })
+  // (an AI-DLC room: viewers watch, editors and up type)
+  const readOnly = r.writeNeed ? !(await folderRoomAccess(req.user, r, r.writeNeed).catch(() => false)) : false
+  res.json({ ticket: workroom.issueTicket(req.user, r, req.body.mode, { readOnly }), readOnly })
 })
 app.post('/api/workroom/:kind/:id/steer', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
@@ -799,6 +804,9 @@ app.get('/api/search', auth, async (req, res) => {
 
 const server = app.listen(config.port, async () => {
   console.log(`pgpt-pro server on :${config.port}`)
+  // AI-DLC team waits → Home cards (lib/aidlc/watch.js): its own switch, so a development server with the
+  // other pollers off can still run it (PRO_AIDLC_WATCH=1); on by default with the pollers
+  if (background ? process.env.PRO_AIDLC_WATCH !== '0' : process.env.PRO_AIDLC_WATCH === '1') startAidlcWatch()
   // a second development server shares the database: it must not reset the main server's tasks either
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
