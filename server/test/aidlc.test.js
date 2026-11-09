@@ -157,13 +157,22 @@ test('프리셋 패널: 여섯 개 모두 실제 요약으로 그려진다', asy
     }
     const ui = { ago: () => '방금' }
     const document = { body: { innerHTML: '' } }
-    await new AsyncFunction('$', 'panel', 'ui', 'document', spec.spec.script)($, panel, ui, document)
+    const timers = []
+    await new AsyncFunction('$', 'panel', 'ui', 'document', 'setInterval', spec.spec.script)($, panel, ui, document, (fn, ms) => timers.push(ms))
+    await new Promise((r) => setTimeout(r, 30))
+    assert.deepEqual(timers, [20000], `${p.kind} refreshes every 20 s`)
     assert.equal(document.body.innerHTML, '', `${p.kind} failed: ${document.body.innerHTML}`)
     const html = Object.values(els).map((e) => e.innerHTML + e.textContent).join('')
     assert.ok(html.length > 20, `${p.kind} drew nothing`)
     // ids used in the script exist in the html
     for (const id of new Set([...spec.spec.script.matchAll(/\$\('#([a-z0-9]+)'\)/g)].map((m) => m[1]))) assert.match(spec.spec.html, new RegExp(`id="${id}"`), `${p.kind} #${id}`)
   }
+  // the first load failing says why (a refresh failing later keeps the last view)
+  const s = presetSpec('status', { folder: 'demo', space: 'default', slug: 'voice-parking' })
+  const document = { body: { innerHTML: '' } }
+  await new AsyncFunction('$', 'panel', 'ui', 'document', 'setInterval', s.spec.script)(() => ({}), { data: s.data, aidlc: async () => { throw new Error('403 not a member') } }, {}, document, () => 0)
+  await new Promise((r) => setTimeout(r, 30))
+  assert.match(document.body.innerHTML, /불러오지 못했어요.*403 not a member/)
   const q = presetSpec('questions', { folder: 'demo', space: 'default', slug: 'todo-web-app' })
   assert.equal(q.data.slug, 'todo-web-app')
   assert.throws(() => presetSpec('nope', { folder: 'a', space: 'b', slug: 'c' }), /unknown/)

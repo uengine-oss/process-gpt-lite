@@ -9,6 +9,7 @@ import MergeSheet from './MergeSheet.vue'
 import ShareSheet from './ShareSheet.vue'
 import { folders as F, whoOf, roleLabel, statusLabel, sourceLabel, indexLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, fmtSize } from './fileKind.js'
+import { api } from '../../api.js'
 
 const props = defineProps({ slug: String })
 const emit = defineEmits(['preview'])
@@ -29,6 +30,10 @@ const cand = ref(null)
 const skill = ref(null)        // skill folders: author, visibility, agents & bosses, contributions, merge right
 const sharing2 = ref(false)
 const fileInput = ref(null)
+// an AI-DLC record in this folder (Robo-DLC Lite): its intents, and putting the dashboards on Home
+const aidlc = ref([])
+const aidlcPick = ref('')
+const aidlcBusy = ref(false)
 const say = (t) => { toast.value = t; setTimeout(() => { if (toast.value === t) toast.value = '' }, 2800) }
 
 const can = (need) => ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[folder.value?.role] >= ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[need]
@@ -39,6 +44,10 @@ async function load() {
     if (f.kind === 'skill') skill.value = await F.skillInfo(props.slug).catch(() => null)
     picked.value = picked.value.filter((id) => f.variations.some((v) => v.id === id && v.status === 'ready'))
     if (f.kind === 'linked' && !cand.value) cand.value = await F.candidates(props.slug).catch(() => null)
+    if (f.kind !== 'skill') {
+      aidlc.value = await api(`/aidlc/${encodeURIComponent(props.slug)}/intents`).catch(() => [])
+      if (!aidlc.value.some((i) => `${i.space}/${i.slug}` === aidlcPick.value)) aidlcPick.value = aidlc.value[0] ? `${aidlc.value[0].space}/${aidlc.value[0].slug}` : ''
+    }
   } catch (e) { err.value = e.message }
 }
 onMounted(load)
@@ -91,6 +100,15 @@ async function newVariation() {
   if (!title) return
   try { const v = await F.newVariation(props.slug, { title }); router.push(`/folders/${props.slug}/v/${v.id}`) } catch (e) { say(e.message) }
 }
+async function addAidlcPanels() {
+  const [space, slug] = aidlcPick.value.split('/')
+  aidlcBusy.value = true
+  try {
+    const out = await api(`/aidlc/${encodeURIComponent(props.slug)}/panels`, { method: 'POST', body: { space, slug } })
+    say(`홈에 AI-DLC 대시보드 ${out.length}개를 추가했어요.`)
+  } catch (e) { say(e.message) } finally { aidlcBusy.value = false }
+}
+const aidlcStatus = (s) => ({ complete: '완료', 'in-flight': '진행 중' })[s] || s || ''
 async function importAll() {
   const names = cand.value.branches.filter((b) => !b.imported).map((b) => b.name)
   try { const out = await F.importBranches(props.slug, names); say(`변형 ${out.length}개를 가져왔어요 (저장소는 그대로예요)`); cand.value = await F.candidates(props.slug); load() } catch (e) { say(e.message) }
@@ -147,6 +165,15 @@ const ix = computed(() => folder.value?.index_state || {})
         <span>이 저장소에 에이전트 브랜치 <b>{{ cand.branches.length }}개</b>와 작업 사본 <b>{{ cand.worktrees }}개</b>(디렉터리가 사라진 것 {{ cand.staleWorktrees }}개)가 있어요. 저장소는 건드리지 않고 목록만 보여 드려요.</span>
         <span class="sp" />
         <button v-if="cand.branches.some((b) => !b.imported) && can('editor')" class="tb press" @click="importAll">변형으로 가져오기</button>
+      </div>
+      <div v-if="aidlc.length" class="banner aidlc glass" data-test="aidlc-banner">
+        <FIcon name="branch" :size="18" />
+        <span><b>AI-DLC 기록이 있어요.</b> 작업 {{ aidlc.length }}개 — 진행 상황, 사람 대기, 볼트, 품질, 감사 기록, 질문을 홈 패널로 볼 수 있어요.</span>
+        <span class="sp" />
+        <select v-model="aidlcPick" class="aidlc-pick" aria-label="AI-DLC 작업">
+          <option v-for="i in aidlc" :key="i.space + '/' + i.slug" :value="i.space + '/' + i.slug">{{ i.slug }}{{ i.scope ? ' · ' + i.scope : '' }}{{ i.status ? ' · ' + aidlcStatus(i.status) : '' }}</option>
+        </select>
+        <button class="dark-btn sm2" :disabled="aidlcBusy || !aidlcPick" @click="addAidlcPanels">{{ aidlcBusy ? '추가하는 중…' : '홈에 대시보드 추가' }}</button>
       </div>
 
       <div class="cols">
@@ -303,6 +330,8 @@ h1 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
 .fic.folder { background: #e2a93b; } .fic.folder.linked { background: #4a5f9a; }
 .fic.hwp { background: #1f6fd1; } .fic.doc { background: #2b579a; } .fic.xls { background: #217346; } .fic.ppt { background: #c43e1c; } .fic.pdf { background: #d93025; } .fic.cad { background: #0b6f88; } .fic.vec { background: #c2570c; } .fic.img { background: #7b3fbf; } .fic.snd { background: #0f8a5f; } .fic.vid { background: #b0223c; } .fic.md { background: #3d4f6b; } .fic.code { background: #2d333b; }
 .banner.ask { border: 1px solid rgba(123 92 214 / .45); }
+.banner.aidlc { border: 1px solid rgba(10 132 255 / .35); }
+.aidlc-pick { font: inherit; font-size: 13px; color: inherit; background: var(--cell-bg); border: 0; border-radius: 10px; padding: 6px 10px; max-width: 220px; }
 .sm2 { height: 36px; padding: 0 16px; font-size: 13.5px; }
 .kb { display: inline-flex; vertical-align: middle; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 500; background: rgba(150 240 176 / .2); color: var(--color-success); letter-spacing: 0; }
 .kb.private { background: rgba(255 160 60 / .18); color: #e08a2c; }

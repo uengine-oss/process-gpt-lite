@@ -1685,7 +1685,10 @@
   "⌘S 로 저장": "Save with ⌘S",
   "⌘M 로 내보내기": "Export with ⌘M",
   "회의": "Meeting",
-  "나도 할 수 있어요": "You can too"
+  "나도 할 수 있어요": "You can too",
+  "AI-DLC 기록이 있어요.": "This folder has an AI-DLC record.",
+  "홈에 대시보드 추가": "Add dashboards to Home",
+  "추가하는 중…": "Adding…"
  },
  "patterns": [
   [
@@ -4379,6 +4382,22 @@
   [
    "팀원 대화방에서 요청받은 일을 해 주세요: {0}\n\n— 대화 (마지막 줄이 요청) —\n{1}\n\n결과는 대화방 사람들이 바로 읽을 수 있게 핵심만 짧게 정리하고, 표나 문서를 만들면 파일로 남겨 주세요.{2}",
    "Please do what was asked in a team room: {0}\n\n— conversation (the last line is the request) —\n{1}\n\nKeep the result short and to the point so the people in the room can read it at once, and leave any table or document you make as a file.{2}"
+  ],
+  [
+   "작업 {0}개 — 진행 상황, 사람 대기, 볼트, 품질, 감사 기록, 질문을 홈 패널로 볼 수 있어요.",
+   "{0} pieces of work — see progress, human wait, bolts, quality, the audit log and questions as Home panels."
+  ],
+  [
+   "홈에 AI-DLC 대시보드 {0}개를 추가했어요.",
+   "Added {0} AI-DLC dashboards to Home."
+  ],
+  [
+   "{0} · {1} · 완료",
+   "{0} · {1} · complete"
+  ],
+  [
+   "{0} · {1} · 진행 중",
+   "{0} · {1} · in progress"
   ]
  ],
  "context": [
