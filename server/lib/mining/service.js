@@ -5,17 +5,20 @@
 // catalog (forms, skills) and saved with process-gpt's own save path (save_contract + BPMN XML);
 // the next similar mail starts it (routeMail).
 //
-// How cases become one recommendation (the matching rule):
+// How cases become one recommendation (the matching rule, decided 2026-11-09):
 //   - one case = one customer mail (pro_mining_cases); its steps are the handover records up to the
 //     customer reply — anything after the reply is not part of it (recorder.js caseClosed)
-//   - the miner groups cases whose sets of activity names are similar (Jaccard ≥ 0.6, at least
-//     PRO_MINING_MIN_CASES cases); a group's key is a hash of its core activities (in half its cases)
-//   - a group is the same recommendation as an existing one when the key is the same OR most of its
-//     cases already belong to that recommendation (sameSuggestion): the evidence grows there, the
-//     decision (등록·보류) stays, and no second recommendation with the same cases appears
-//   - so new cases whose activities match an already registered flow add evidence to it rather than
-//     making a new recommendation; a different flow needs different activities (e.g. its own review
-//     steps — recorder.js names a review after the recipient's role)
+//   - what the case was asked to do (its 업무 범주) is judged once, when the case ends, and kept on the
+//     case (categoryOf). The miner groups by that category, not by how much the step names overlap:
+//     branches, repeats and skipped steps are variants of one flow, not flows of their own
+//   - the admin's decisions are the boundary: every 정식 등록·보류 recommendation is sent along
+//     (decidedOf) and the miner keeps one group per decision, so two decided flows never merge
+//   - a group is the same recommendation as an existing one when the key is the same; for a
+//     recommendation that is not decided yet, also when most of its cases already belong to it
+//     (sameSuggestion). A decided recommendation grows only through its own key — its evidence is
+//     never overwritten by another group that happens to share cases
+//   - a case the miner could not place (no category, or none of the group's required steps) comes back
+//     in `unclassified`; the admin is asked which work it is (category_ask on the case)
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
@@ -24,6 +27,7 @@ import { chatJson } from '../llm.js'
 import { saveGenerated } from '../generated.js'
 import { mainThread, addMessage } from '../store.js'
 import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
+import { caseClosed } from './recorder.js'
 import { L, isEn, lang, langOf, withLang } from '../lang.js'
 import { fmtNum } from '../improve/transform.js'
 import { josa } from '../improve/focus.js'
@@ -83,6 +87,135 @@ async function nameOf(p, cases) {
   })
 }
 
+// ---------- 업무 범주: 무엇을 요청받은 일인가 ----------
+// The one thing that decides whether two cases are the same process. Judged once, when the case has
+// ended, and kept — judging again on every search would make the same cases group differently each
+// time the admin presses "지금 다시 찾기". An admin's own answer (category_by='admin') is never redone.
+const CATEGORY = `아래는 고객이 메일로 요청한 일을 처리한 업무들입니다. 업무마다 무엇을 요청받은 일인지 범주를 정하세요.
+JSON {"categories": {"<id>": "<범주>"}} 로 답하세요. 모든 업무에 하나씩 답하세요.
+- 범주는 한국어 명사구 12자 이내입니다. 예: "행사 견적", "매장 설계"
+- 범주는 일의 종류입니다. 행사 이름(송년회·워크숍·북토크·창립 기념식)이나 고객 이름으로 나누지 마세요 — 그것들은 모두 "행사 견적" 하나입니다.
+- known 에 같은 종류의 일이 있으면 그 범주를 글자 그대로 쓰세요.
+- 거쳐 간 단계 이름이 아니라 고객이 요청한 일로 정하세요. 누가 검토했는지는 범주와 상관없습니다.
+- 범주는 되도록 적게 쓰세요. 한 조직이 하는 일의 종류는 보통 두세 가지입니다.`
+const CATEGORY_EN = `Below are pieces of work, each answering a customer's request mail. Name the kind of work each one is.
+Answer with JSON {"categories": {"<id>": "<category>"}}, one for every piece.
+- A category is an English noun phrase of at most 24 characters, e.g. "Event quote", "Store design".
+- A category is the kind of work. Do not split by the name of the event (year-end party, workshop, book talk) or by the customer — those are all one "Event quote".
+- If \`known\` already holds the same kind of work, reuse that category exactly.
+- Go by what the customer asked for, not by the step names. Who reviewed it does not change the category.
+- Use as few categories as possible. An organization usually does two or three kinds of work.`
+
+// All the pending cases are judged together, in one call: judged one at a time, the same work came
+// back as 워크숍 견적, 송별회 견적, 시상식 견적 … — the event's name, not the kind of work — and the
+// groups split for the same reason the step names used to split them.
+async function categoriesOf(cases, known, cl) {
+  return withLang(cl, async () => {
+    try {
+      const r = await chatJson(L(CATEGORY, CATEGORY_EN), JSON.stringify({ known, cases }))
+      const out = {}
+      for (const [id, v] of Object.entries(r?.categories || {})) {
+        const name = String(v || '').trim().slice(0, L(14, 30))
+        if (name) out[id] = name
+      }
+      return out
+    } catch (e) { console.warn('[mining] category', e.message); return {} }
+  })
+}
+
+// A case has ended when the customer was answered — or when nothing has moved on it for a while.
+// The same two ways doScan counts a case as evidence: work that ends without a reply (the mail was
+// handled another way, the demo mailbox cannot send) would otherwise never get a category at all.
+async function caseEnded(caseId) {
+  if (await caseClosed(caseId)) return true
+  const [r] = await q(`select 1 from handover_events where tenant_id=$1 and case_id=$2
+                       and occurred_at > now() - make_interval(secs => $3) limit 1`,
+  [T(), caseId, Number(process.env.PRO_MINING_IDLE_SEC || 1800)])
+  return !r
+}
+
+// every case that has ended and has no category yet gets one (once)
+async function ensureCategories() {
+  const rows = await q(`select case_id, subject, customer, files from pro_mining_cases
+                        where tenant_id=$1 and category is null order by created_at`, [T()])
+  if (!rows.length) return
+  const known = (await q(`select distinct category from pro_mining_cases where tenant_id=$1 and category is not null order by category`, [T()])).map((r) => r.category)
+  const pending = []
+  for (const c of rows) {
+    if (!(await caseEnded(c.case_id))) continue
+    const steps = (await q(`select norm_activity_label as l from handover_events
+                            where tenant_id=$1 and case_id=$2 order by occurred_at`, [T(), c.case_id])).map((r) => r.l).filter(Boolean)
+    if (steps.length < 2) continue
+    pending.push({ id: c.case_id, subject: c.subject || '', customer: c.customer || '', documents: c.files || [], steps })
+  }
+  if (!pending.length) return
+  const cl = labelLang(pending.flatMap((p) => p.steps).join(' '))
+  // in batches, so one call sees enough of the work at once to use the same few categories
+  for (let i = 0; i < pending.length; i += 25) {
+    const batch = pending.slice(i, i + 25)
+    const got = await categoriesOf(batch, known, cl)
+    for (const p of batch) {
+      const category = got[p.id]
+      if (!category) continue
+      await q(`update pro_mining_cases set category=$2, category_by='ai' where case_id=$1 and category is null`, [p.id, category])
+      if (!known.includes(category)) known.push(category)
+    }
+  }
+}
+
+// the boundaries the admin drew: one group per decided recommendation, in the order they were decided
+async function decidedOf() {
+  const rows = await q(`select pattern_key, pattern from pro_mining_suggestions
+                        where tenant_id=$1 and status in ('registered','held')
+                        order by coalesce(decided_at, created_at), created_at`, [T()])
+  const out = []
+  for (const r of rows) {
+    const ids = r.pattern?.case_ids || []
+    const [top] = ids.length
+      ? await q(`select category from pro_mining_cases where tenant_id=$1 and case_id = any($2) and category is not null
+                 group by category order by count(*) desc, category limit 1`, [T(), ids])
+      : []
+    out.push({ key: r.pattern_key, category: top?.category || r.pattern?.category || '', core_activities: r.pattern?.core_activities || [] })
+  }
+  return out
+}
+
+// cases the miner could not place — the admin is asked which work they are. Work still under way is
+// not asked about: it has no category yet only because it has not ended, and it is not evidence either.
+async function markUnclassified(list = []) {
+  const ask = []
+  for (const u of list) if (await caseEnded(u.case_id)) ask.push(u)
+  await q('update pro_mining_cases set category_ask=null where tenant_id=$1 and category_ask is not null and not (case_id = any($2))',
+    [T(), ask.map((u) => u.case_id)])
+  for (const u of ask) {
+    await q('update pro_mining_cases set category_ask=$2 where tenant_id=$1 and case_id=$3', [T(), u.reason || 'no_category', u.case_id])
+  }
+}
+
+export async function unclassified() {
+  const rows = await q(`select case_id, subject, customer, files, category, category_ask, created_at
+                        from pro_mining_cases where tenant_id=$1 and category_ask is not null order by created_at`, [T()])
+  const known = (await q(`select distinct category from pro_mining_cases where tenant_id=$1 and category is not null order by category`, [T()])).map((r) => r.category)
+  const out = []
+  for (const c of rows) {
+    const steps = (await q(`select norm_activity_label as l from handover_events
+                            where tenant_id=$1 and case_id=$2 order by occurred_at`, [T(), c.case_id])).map((r) => r.l).filter(Boolean)
+    out.push({ ...c, steps })
+  }
+  return { cases: out, categories: known }
+}
+
+// the admin's answer wins over the judged category and is not judged again
+export async function setCategory(me, caseId, category) {
+  if (!(await isAdmin(me))) throw err(403, L('관리자만 바꿀 수 있어요.', 'Only an administrator can change this.'))
+  const v = String(category || '').trim().slice(0, 40)
+  if (!v) throw err(400, L('업무 범주를 입력해 주세요.', 'Enter the kind of work.'))
+  const [row] = await q(`update pro_mining_cases set category=$2, category_by='admin', category_ask=null
+                         where tenant_id=$1 and case_id=$3 returning case_id, category`, [T(), v, caseId])
+  if (!row) throw err(404, L('사례를 찾지 못했어요.', "I couldn't find that case."))
+  return row
+}
+
 let scanning = null
 export function scan() { return (scanning ||= doScan().finally(() => { scanning = null })) }
 
@@ -102,12 +235,23 @@ export async function scanNow() {
 
 async function doScan() {
   if (!MINER) return []
-  const { patterns } = await miner(`/patterns?tenant_id=${encodeURIComponent(T())}&min_cases=${Number(process.env.PRO_MINING_MIN_CASES || 4)}`)
+  await ensureCategories()
+  const categories = Object.fromEntries((await q(
+    'select case_id, category from pro_mining_cases where tenant_id=$1 and category is not null', [T()])).map((r) => [r.case_id, r.category]))
+  const { patterns, unclassified: unplaced } = await miner('/patterns', {
+    tenant_id: T(), min_cases: Number(process.env.PRO_MINING_MIN_CASES || 4), categories, decided: await decidedOf(),
+  })
+  await markUnclassified(unplaced)
   const made = []
   for (const p of patterns) {
+    // A decided flow's evidence is exactly what the miner placed in it — empty included. The miner
+    // places every case in one group only, so keeping an older, larger list here would show the same
+    // case under two recommendations. (A flow starves when the admin drew two boundaries the data
+    // cannot tell apart: same category, same required steps. Then the one decided first takes them.)
+    if (!p.case_ids?.length && !p.decided_key) continue
     // only work pgpt-pro recorded (one case = one mail); other tenants' demos are not ours to suggest
     const cases = await q('select * from pro_mining_cases where tenant_id=$1 and case_id = any($2) order by created_at', [T(), p.case_ids])
-    if (cases.length * 2 < p.case_ids.length) continue
+    if (p.case_ids.length && cases.length * 2 < p.case_ids.length) continue
     const have = await sameSuggestion(p)
     if (have) {
       // more cases of a pattern already suggested: the evidence grows, the decision stays
@@ -138,15 +282,37 @@ async function doScan() {
     made.push(s)
     await notifyAdmins(s)
   }
+  await dropWithdrawn(patterns)
   return made
 }
 
-// the recommendation a found group already is: the same key, or most of its cases (≥ half of the
-// smaller side) already counted there — the miner's groups grow and merge as cases pile up
+// A recommendation the admin has not decided on is the system's own proposal. When the cases it rested
+// on now belong to other groups, the proposal no longer stands: its evidence is trimmed to what is
+// still its own, and a proposal left with nothing is withdrawn. Decided ones (정식 등록·보류) are the
+// admin's and are never withdrawn here — the miner keeps a group for each of them.
+async function dropWithdrawn(patterns) {
+  const taken = new Set(patterns.flatMap((p) => p.case_ids || []))
+  const keys = new Set(patterns.map((p) => p.key))
+  const rows = await q(`select id, pattern_key, pattern from pro_mining_suggestions where tenant_id=$1 and status='suggested'`, [T()])
+  for (const r of rows) {
+    if (keys.has(r.pattern_key)) continue
+    const ids = (r.pattern?.case_ids || []).filter((c) => !taken.has(c))
+    if (ids.length === (r.pattern?.case_ids || []).length) continue
+    if (!ids.length) { await q('delete from pro_mining_suggestions where id=$1', [r.id]); continue }
+    await q('update pro_mining_suggestions set pattern = jsonb_set(jsonb_set(pattern, \'{case_ids}\', $2::jsonb), \'{case_count}\', $3::jsonb), updated_at=now() where id=$1',
+      [r.id, JSON.stringify(ids), JSON.stringify(ids.length)])
+  }
+}
+
+// the recommendation a found group already is: the same key, or — for a recommendation the admin has
+// not decided on yet — most of its cases (≥ half of the smaller side) already counted there.
+// A decided recommendation (정식 등록·보류) grows only through its own key: the miner keeps one group
+// per decision, so a group that merely shares cases with it is other work and must not overwrite it.
 export async function sameSuggestion(p) {
   const [byKey] = await q('select id, status from pro_mining_suggestions where tenant_id=$1 and pattern_key=$2', [T(), p.key])
   if (byKey) return byKey
-  const rows = await q(`select id, status, pattern->'case_ids' as cases from pro_mining_suggestions where tenant_id=$1`, [T()])
+  if (p.decided_key) return null
+  const rows = await q(`select id, status, pattern->'case_ids' as cases from pro_mining_suggestions where tenant_id=$1 and status='suggested'`, [T()])
   const mine = new Set(p.case_ids || [])
   let best = null
   for (const r of rows) {

@@ -41,6 +41,10 @@ export function miningRoutes(auth) {
   r.get('/mining/me', auth, h(async (req) => ({ admin: await M.isAdmin(req.user) })))
   r.get('/mining/suggestions', auth, h(async (req) => { await admin(req); return M.list() }))
   r.post('/mining/scan', auth, h(async (req) => { await admin(req); return { made: (await M.scanNow()).map((s) => s.id) } }))
+  // work the miner could not place: the admin says which kind of work it is (case_id in the body —
+  // a case id contains ':', so it is not a path segment)
+  r.get('/mining/unclassified', auth, h(async (req) => { await admin(req); return M.unclassified() }))
+  r.post('/mining/cases/category', auth, h((req) => M.setCategory(req.user, req.body?.case_id, req.body?.category)))
   r.get('/mining/suggestions/:id', auth, h(async (req) => {
     await admin(req)
     const s = await M.get(req.params.id)

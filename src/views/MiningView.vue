@@ -20,6 +20,10 @@ const def = ref(null)
 const busy = ref('')
 const err = ref('')
 const denied = ref(false)
+// 확인 필요: 마이너가 어느 업무인지 가리지 못한 사례. 관리자가 업무 범주를 정해 준다
+const ask = ref({ cases: [], categories: [] })
+const pick = ref({})
+const askWhy = { no_category: '무슨 업무인지 아직 정하지 못했어요', no_core_step: '같은 업무의 단계를 하나도 거치지 않았어요' }
 
 // the tools a step used, as recorded (lib/mining/catalog.js: Korean cases name them in Korean, English ones in English)
 const toolIcon = { 메일: '✉', 캐드크래프트: '◫', 아래아한글: '한', 엑셀: '▦', '팀 공유': '⇄', Mail: '✉', CADCraft: '◫', Word: 'W', Excel: '▦', 'Team share': '⇄' }
@@ -34,7 +38,10 @@ async function load() {
     if (id.value) {
       s.value = await api(`/mining/suggestions/${id.value}`)
       def.value = s.value.proc_def_id ? await api(`/processes/${encodeURIComponent(s.value.proc_def_id)}`).catch(() => null) : null
-    } else list.value = await api('/mining/suggestions')
+    } else {
+      list.value = await api('/mining/suggestions')
+      ask.value = await api('/mining/unclassified').catch(() => ({ cases: [], categories: [] }))
+    }
   // (the admin-only refusal is a 403, in whichever language its message is)
   } catch (e) { if (e.status === 403) denied.value = true; else err.value = e.message }
 }
@@ -54,6 +61,18 @@ async function rescan() {
   try { await load() } finally { busy.value = '' }
   // (load clears err: the failed search is shown after it)
   if (failed) err.value = failed
+}
+// 관리자가 고른 업무 범주는 판단을 덮고, 다음 찾기부터 그 범주로 묶인다
+async function saveCategory(c) {
+  const category = String(pick.value[c.case_id] || '').trim()
+  if (!category) return
+  busy.value = c.case_id
+  err.value = ''
+  try {
+    await api('/mining/cases/category', { method: 'POST', body: { case_id: c.case_id, category } })
+    delete pick.value[c.case_id]
+    await load()
+  } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
 const defSteps = computed(() => (def.value?.steps || []).filter((x) => x.kind === 'human' || x.kind === 'agent'))
 let timer
@@ -89,12 +108,28 @@ onMounted(async () => {
             <small>{{ (x.steps || []).join(' → ') }}</small>
             <span class="n">{{ x.case_count }}건</span>
           </button>
+          <section v-if="ask.cases.length" class="askbox">
+            <h2>확인 필요 <small>어떤 업무인지 알려 주시면 다음 찾기부터 그 업무로 묶여요</small></h2>
+            <div v-for="c in ask.cases" :key="c.case_id" class="arow glass">
+              <b>{{ c.subject || c.case_id }}</b>
+              <small class="why">{{ askWhy[c.category_ask] || c.category_ask }}</small>
+              <small class="st2">{{ (c.steps || []).join(' → ') }}</small>
+              <div class="pickrow">
+                <input v-model="pick[c.case_id]" list="mining-categories" class="cat" placeholder="업무 범주" @keyup.enter="saveCategory(c)">
+                <button class="hbtn glass press" :disabled="busy === c.case_id || !String(pick[c.case_id] || '').trim()" @click="saveCategory(c)">
+                  {{ busy === c.case_id ? '…' : '정하기' }}
+                </button>
+              </div>
+            </div>
+            <datalist id="mining-categories"><option v-for="t in ask.categories" :key="t" :value="t" /></datalist>
+          </section>
           <details class="rule">
             <summary>사례는 어떻게 묶이나요?</summary>
             <p>메일 한 통이 사례 하나예요. 고객에게 회신하면 그 사례는 끝나고, 그 뒤의 공유는 사례에 넣지 않아요.
-              단계 이름이 비슷한 사례(겹치는 비율 60% 이상)가 여러 건(기본 4건 이상) 모이면 추천이 되고, 이미 있는 추천과 사례가 절반 넘게 겹치면
-              새 추천 대신 그 추천의 근거로 더해져요(등록·보류 결정은 그대로). 그래서 정식 등록된 흐름과 같은 단계로 일한 사례는 새 추천을 만들지 않아요.
-              팀 공유는 받는 사람의 역할(재무 담당 → 재무 검토, 디자이너 → 디자인 검토)이나 공유 메모로 단계 이름이 정해져요.</p>
+              사례가 끝나면 무엇을 요청받은 업무인지(업무 범주)를 한 번 정해 두고, 같은 범주의 사례끼리 묶어요. 단계 이름이 얼마나 겹치는지는 보지 않아요.
+              그래서 검토 단계가 다르거나 한 단계를 건너뛴 사례도 같은 업무면 한 추천으로 모여요. 여러 건(기본 4건 이상) 모이면 추천이 돼요.
+              정식 등록하거나 보류한 프로세스는 경계가 그대로 지켜져요. 두 프로세스가 사례가 쌓였다고 한 추천으로 합쳐지지 않아요.
+              팀 공유는 공유한 문서(평면도·제안서·견적서)로 검토 단계 이름이 정해지고, 문서가 없을 때만 받는 사람의 역할로 정해져요.</p>
           </details>
         </template>
 
@@ -205,6 +240,19 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 .row { width: 100%; display: grid; grid-template-columns: 96px 220px 1fr 60px; gap: 14px; align-items: center; text-align: left; padding: 14px 18px; border-radius: 20px; margin-bottom: 8px; }
 .row small { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .n { text-align: right; color: var(--text-secondary); }
+/* 확인 필요: 어느 업무인지 가리지 못한 사례 — 관리자가 업무 범주를 정한다 */
+.askbox { margin-top: 18px; }
+.arow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 12px 18px; border-radius: 20px; margin-bottom: 8px; }
+.arow b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arow .why { grid-column: 1; color: var(--color-attention); font-size: 12.5px; }
+.arow .st2 { grid-column: 1; color: var(--text-secondary); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pickrow { grid-column: 2; grid-row: 1 / span 3; display: flex; gap: 8px; align-items: center; }
+.cat { height: 40px; width: 160px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--line, rgba(128, 128, 128, .35)); background: transparent; color: var(--text-primary); font-size: 14px; }
+@media (max-width: 720px) {
+  .arow { grid-template-columns: minmax(0, 1fr); }
+  .pickrow { grid-column: 1; grid-row: auto; }
+  .cat { width: 100%; }
+}
 .st { display: inline-flex; align-items: center; justify-content: center; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12.5px; background: var(--color-attention); color: #fff; width: fit-content; }
 .st.registered { background: var(--color-success); color: #0b2a17; }
 .st.held { background: var(--chip-bg); color: var(--text-secondary); }
