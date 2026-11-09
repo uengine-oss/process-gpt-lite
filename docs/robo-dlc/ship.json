@@ -1,0 +1,39 @@
+{
+  "feature": "robo-dlc",
+  "repo": "/Users/uengine/uengine-platform/process-gpt-lite-robodlc",
+  "branch": "feat/robo-dlc",
+  "plan": "docs/robo-dlc/plan.md",
+
+  "tests": {
+    "unit": ["server/test/aidlc.test.js"],
+    "e2e": ["server/test/aidlc.e2e.test.js"],
+    "run": "cd server && node --test test/aidlc.test.js"
+  },
+  "regression": {
+    "cases": "server/test/aidlc-cases.json",
+    "runner": "server/test/aidlc.test.js",
+    "playwright": "e2e/tests/feature/robo-dlc.spec.js",
+    "catalog": "e2e/README.md",
+    "catalog_heading": "Robo-DLC Lite"
+  },
+  "spec": {
+    "spec_repo": "/private/tmp/claude-501/-Users-uengine-uengine-platform/62ccdb67-31f7-4a39-a960-18c0b68ba152/scratchpad/pg-spec-rdlc",
+    "id": "pgpt-pro_aidlc-dashboards"
+  },
+  "videos": [
+    {"slug": "robo-dlc-ko", "demo": "/Users/uengine/uengine-platform/pgpt-pro/demo/product", "youtube": ""}
+  ],
+  "tutorial": {
+    "site": "/private/tmp/claude-501/-Users-uengine-uengine-platform/62ccdb67-31f7-4a39-a960-18c0b68ba152/scratchpad/site-wt",
+    "chapter": "robo-dlc",
+    "part": "팀으로 일하기",
+    "english": {"skip": "영문 튜토리얼은 다음 영문 동기화 때"}
+  },
+  "product_page": {
+    "file": "contents/processgptlite.html",
+    "video_ids": [],
+    "english": true
+  },
+  "changelog": "CHANGELOG.md",
+  "memory": "/Users/uengine/.claude/projects/-Users-uengine-uengine-platform/memory/robo-dlc-lite.md"
+}

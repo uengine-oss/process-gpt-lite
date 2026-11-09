@@ -346,16 +346,34 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
+### 16. Robo-DLC Lite — AI-DLC 대시보드 패널 (spec `pgpt-pro_aidlc-dashboards`, 설계 `docs/robo-dlc/plan.md`)
+
+AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이 홈 패널(작업 현황·사람 대기·볼트·품질·감사 기록·질문)로 봅니다.
+서버 단위 시험은 `server/test/aidlc.test.js`(고정 자료 `server/test/fixtures/aidlc-project`, 판단 사례 `server/test/aidlc-cases.json`),
+실제 서버 시험은 `server/test/aidlc.e2e.test.js`(`PRO_E2E_API`) 입니다. 시험 계정은 `pro-rd-*`·`rdlc-*@pgpt.test` 입니다.
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| AI-DLC 프로젝트는 공유 폴더의 구성원만 본다(목록에 없음, 요약 403) | F-RD-02, `aidlc.e2e` 2단계 | feature | ✅ |
+| 작업 요약은 기록에서 계산한다(단계별 AI 시간·사람 대기·반려, 유닛 의존·검증, 승인 18·반려 3·센서 실패 7) | `aidlc.test.js`, `aidlc.e2e` 3단계 | feature | ✅ |
+| 작업 사본의 변화가 바로 보인다(승인 대기 약 3분, 역할 PO·기획) | `aidlc.e2e` 6단계, F-RD-03 | feature | ✅ |
+| 요청의 이름은 기록 폴더 밖으로 못 나간다(400·404) | `aidlc-cases.json` recordName, `aidlc.e2e` 4단계 | feature | ✅ |
+| 대시보드 패널 6종을 내 홈에(외부인 403, 없는 작업 404) | `aidlc.e2e` 5단계, F-RD-01 | feature | ✅ |
+| 패널 스크립트는 읽기 전용 `/api/aidlc/` GET 만(`..`·인코딩된 점·슬래시·주소 거절) | `aidlc-cases.json` panelPath | feature | ✅ |
+| 패널은 20초마다 다시 그리고 첫 실패만 이유를 보인다 | `aidlc.test.js` 프리셋, F-RD-03 | feature | ✅ |
+| 폴더 화면은 AI-DLC 기록을 알아보고 「홈에 대시보드 추가」 | F-RD-01 | feature | ✅ |
+| 승인·반려를 패널에서 하기(부모 창 확인 대화) | — | — | ✗ (P2 계획, 이번 단계는 읽기 전용) |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (14개) | 89 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06) |
+| feature | `tests/feature/*.spec.js` (15개) | 92 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, AI-DLC F-RD-01…03) |
 | agent | `tests/agent/*.spec.js` (4개) | 14 (회의 A-14) |
-| 합계 | | 160 |
+| 합계 | | 163 |
 
-openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
+openspec 명세 14개의 요구사항 120개: 덮음 81 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
