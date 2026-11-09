@@ -150,5 +150,6 @@ export async function answer(name, { fingerprint, option, text }) {
     await sleep(300)
     await tmux('send-keys', '-t', name, 'Enter')
   }
-  return { answered: o.label }
+  // (a written answer is what the person wrote, not the option's "Type something.")
+  return { answered: o.freeText ? String(text).replace(/\s*\n\s*/g, ' ').slice(0, 120) : o.label }
 }
