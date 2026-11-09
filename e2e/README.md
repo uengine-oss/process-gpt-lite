@@ -346,7 +346,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
-### 16. Robo-DLC Lite — AI-DLC 대시보드 패널 (spec `pgpt-pro_aidlc-dashboards`, 설계 `docs/robo-dlc/plan.md`)
+### 16. Robo-DLC Lite — AI-DLC 대시보드 패널 (spec `pgpt-pro_aidlc-dashboards`, 영상 `FvKAU5LZTUU`, 설계 `docs/robo-dlc/plan.md`)
 
 AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이 홈 패널(작업 현황·사람 대기·볼트·품질·감사 기록·질문)로 봅니다.
 서버 단위 시험은 `server/test/aidlc.test.js`(고정 자료 `server/test/fixtures/aidlc-project`, 판단 사례 `server/test/aidlc-cases.json`),
@@ -355,7 +355,7 @@ AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
 | AI-DLC 프로젝트는 공유 폴더의 구성원만 본다(목록에 없음, 요약 403) | F-RD-02, `aidlc.e2e` 2단계 | feature | ✅ |
-| 작업 요약은 기록에서 계산한다(단계별 AI 시간·사람 대기·반려, 유닛 의존·검증, 승인 18·반려 3·센서 실패 7) | `aidlc.test.js`, `aidlc.e2e` 3단계 | feature | ✅ |
+| 작업 요약은 기록에서 계산한다(단계별 AI 시간·사람 대기(질문 답 대기 포함)·반려, 유닛 의존·검증, 요약 확인도 열린 질문, 승인 18·반려 3·센서 실패 7) | `aidlc.test.js`, `aidlc.e2e` 3단계 | feature | ✅ |
 | 작업 사본의 변화가 바로 보인다(승인 대기 약 3분, 역할 PO·기획) | `aidlc.e2e` 6단계, F-RD-03 | feature | ✅ |
 | 요청의 이름은 기록 폴더 밖으로 못 나간다(400·404) | `aidlc-cases.json` recordName, `aidlc.e2e` 4단계 | feature | ✅ |
 | 대시보드 패널 6종을 내 홈에(외부인 403, 없는 작업 404) | `aidlc.e2e` 5단계, F-RD-01 | feature | ✅ |

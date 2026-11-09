@@ -9,7 +9,7 @@
 
 - **Robo-DLC Lite — AI-DLC 대시보드 패널** (설계 `docs/robo-dlc/plan.md`, 스펙 process-gpt `openspec/specs/pgpt-pro_aidlc-dashboards`):
   - AI-DLC(AWS Labs `aidlc-workflows` 2.11.2)로 일하는 저장소를 연결형 공유 폴더로 붙이면, 폴더 화면에 「AI-DLC 기록이 있어요 · 홈에 대시보드 추가」 띠가 나옵니다. 누르면 고른 작업(intent)의 패널 6개가 내 홈에 생깁니다: 작업 현황 · 사람 대기 · 볼트 보드 · 품질 · 감사 타임라인 · 질문함.
-  - 수치는 모두 저장소의 `aidlc/` 기록(상태 파일, 클론별 감사 기록, `*-questions.md`, `reviews/review-NN.md`, 유닛 의존 계획)에서 계산합니다. 별도 입력은 없습니다. 설계 단계는 AI 작업(시작·수정 → 승인 대기)과 사람 대기(승인 대기 → 승인·반려)로 나누고, 구현 단계는 유닛마다 의존·상태·체크포인트 검증 성공과 실패를 봅니다. 승인 대기 항목에는 기다린 시간과 담당 역할(33단계 → PO·기획·아키텍트·팀 리드 등)을 붙입니다.
+  - 수치는 모두 저장소의 `aidlc/` 기록(상태 파일, 클론별 감사 기록, `*-questions.md`, `reviews/review-NN.md`, 유닛 의존 계획)에서 계산합니다. 별도 입력은 없습니다. 설계 단계는 AI 작업(시작·수정 → 승인 대기, AI가 질문·요약 확인을 남기고 사람의 답을 기다린 동안은 뺌)과 사람 대기(그 답 대기 + 승인 대기 → 승인·반려)로 나누고, 구현 단계는 유닛마다 의존·상태·체크포인트 검증 성공과 실패를 봅니다. 승인 대기 항목에는 기다린 시간과 담당 역할(33단계 → PO·기획·아키텍트·팀 리드 등)을 붙입니다. 답을 다 적은 뒤 AI-DLC가 붙이는 「요약 확인」도 열린 질문으로 셉니다.
   - 작업 사본을 바로 읽으므로 커밋하지 않은 변화도 다음 갱신(20초)에 보입니다. 기록 파일은 크기·수정 시각이 바뀔 때만 다시 해석하고, 질문·검토 파일 목록은 15초 재사용합니다. 실습 기록 전체(사건 1,577건)에서 요약 한 번에 첫 번째는 약 0.4초, 그 뒤는 5~30ms였습니다.
   - 폴더 구성원(보기 이상)만 봅니다(`GET /api/aidlc/projects`·`/:folder/intents/:space/:slug/{summary,timeline,questions,reviews}`, 패널 추가 `POST /api/aidlc/:folder/panels`). 이름은 형식 검사 뒤 기록 목록에 있는 작업만 열고, 패널 스크립트의 `panel.aidlc(path)` 는 `/api/aidlc/` 아래 GET 만 부릅니다(`..`·인코딩된 점·슬래시 거절). 이번 단계는 읽기 전용이며 승인은 AI-DLC 쪽(Claude Code)에서 합니다.
   - 시험: `server/test/aidlc.test.js`(고정 자료 `server/test/fixtures/aidlc-project`, 판단 사례 `aidlc-cases.json`), `server/test/aidlc.e2e.test.js`, `e2e/tests/feature/robo-dlc.spec.js`(F-RD-01~03).
