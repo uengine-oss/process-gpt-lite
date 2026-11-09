@@ -111,7 +111,10 @@ export async function decideView(slug, user) {
   const roleKey = stage?.roleKey || null
   const questions = cur ? (await R.listQuestions(cur.dir)).filter((f) => !stage || f.stage === stage.slug || f.questions.some((x) => !x.answer)) : []
   const reviews = cur ? (await R.listReviews(cur.dir)).filter((r) => r.stage === stage?.slug).slice(-1) : []
-  const [proposal] = await q(`select id, questions_path, answers, created_at from pro_aidlc_proposals where tenant_id=$1 and folder_id=$2 and used_at is null order by created_at desc limit 1`, [T(), folder.id])
+  // the mob's proposal for a question file still waiting (one for a file already answered is past)
+  const waiting = new Set(questions.filter((f) => f.questions.some((x) => !x.answer && !x.summary)).map((f) => f.path))
+  const [proposal] = await q(`select id, questions_path, answers, created_at from pro_aidlc_proposals where tenant_id=$1 and folder_id=$2 and used_at is null
+                              and questions_path = any($3) order by created_at desc limit 1`, [T(), folder.id, [...waiting]])
   const ledger = await q(`select d.stage, d.kind, d.question, d.choice, d.note, d.created_at, ${WHO} as who from pro_aidlc_decisions d
                           left join users u on u.id = d.user_id and u.tenant_id = d.tenant_id left join pro_profile p on p.user_id = d.user_id
                           where d.tenant_id=$1 and d.folder_id=$2 order by d.created_at desc limit 12`, [T(), folder.id])
@@ -153,6 +156,8 @@ export async function submitAnswers(slug, user, { path: rel, answers, proposalId
   if (!cur) throw err(404, 'no AI-DLC work in this folder')
   if (!(await mayDecide(folder, user, cur.stage?.roleKey))) throw err(403, 'not yours to decide')
   const written = await R.writeAnswers(cur.dir, rel, answers || {})
+  // a proposal for this file is done with once its answers are written (by it or by hand)
+  await q('update pro_aidlc_proposals set used_at=now() where tenant_id=$1 and folder_id=$2 and questions_path=$3 and used_at is null and id is distinct from $4', [T(), folder.id, rel, proposalId || null])
   if (proposalId) {
     await q('update pro_aidlc_proposals set used_at=now() where id=$1 and tenant_id=$2 and folder_id=$3', [proposalId, T(), folder.id])
     // the meeting's "answers agreed" card has done its job
