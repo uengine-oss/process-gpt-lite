@@ -31,7 +31,7 @@ const LABELS = () => ({
   ai: L('AI 작업', 'AI work'), human: L('사람 대기', 'Human wait'), totalAi: L('AI 작업 합계', 'Total AI work'), totalHuman: L('사람 대기 합계', 'Total human wait'),
   deps: L('의존', 'Needs'), work: L('작업', 'Work'), checks: L('검증', 'Checks'), none: L('없음', 'none'),
   sensors: L('센서', 'Sensors'), failed: L('실패', 'failed'), checkpoints: L('체크포인트 검증', 'Checkpoint checks'), openMajor: L('남은 Major', 'Open Major'),
-  noQ: L('답을 기다리는 질문이 없어요', 'No question is waiting for an answer'), file: L('파일', 'File'), summary: L('요약 확인', 'Confirm summary'),
+  noQ: L('답을 기다리는 질문이 없어요', 'No question is waiting for an answer'), file: L('파일', 'File'), summary: L('요약 확인', 'Confirm summary'), summaryAsk: L('답을 정리한 요약이 맞는지 확인해 주세요. 확인하면 결과물을 씁니다.', 'Check the summary of your answers; the artifact is written once you confirm.'),
   ev: {
     GATE_APPROVED: L('승인', 'Approved'), GATE_REJECTED: L('수정 요청', 'Changes requested'), STAGE_AWAITING_APPROVAL: L('승인 대기', 'Awaiting approval'),
     STAGE_STARTED: L('단계 시작', 'Stage started'), STAGE_COMPLETED: L('단계 완료', 'Stage completed'), QUESTION_REPLIED: L('답변', 'Answered'),
@@ -111,7 +111,7 @@ every(draw);`,
     script: `
 async function draw(){const fs=await get(base+'/questions'); if(!fs) return;
 const open=[];fs.forEach(f=>f.questions.filter(q=>!q.answer).forEach(q=>open.push({f,q})));
-$('#list').innerHTML=open.length?open.slice(0,8).map(({f,q})=>'<div class="p-item" style="flex-direction:column;align-items:stretch;gap:3px"><div class="p-muted">'+esc(f.stageName)+(f.unit?' · '+esc(f.unit):'')+' · '+esc(f.role||'')+' · '+esc(q.summary?T.summary:q.id)+(q.tag?' ['+esc(q.tag)+']':'')+'</div><div>'+esc(q.text)+'</div>'+(q.options.length?'<div class="p-muted">'+q.options.map(o=>esc((o.key?o.key+'. ':'')+o.text)).join('<br>')+'</div>':'')+'<div class="p-muted">'+T.file+': '+esc(f.path)+'</div></div>').join(''):'<div class="p-muted">'+esc(T.noQ)+'</div>';
+$('#list').innerHTML=open.length?open.slice(0,8).map(({f,q})=>'<div class="p-item" style="flex-direction:column;align-items:stretch;gap:3px"><div class="p-muted">'+esc(f.stageName)+(f.unit?' · '+esc(f.unit):'')+' · '+esc(f.role||'')+' · '+esc(q.summary?T.summary:q.id)+(q.tag?' ['+esc(q.tag)+']':'')+'</div><div>'+esc(q.text||(q.summary?T.summaryAsk:''))+'</div>'+(q.options.length?'<div class="p-muted">'+q.options.map(o=>esc((o.key?o.key+'. ':'')+o.text)).join('<br>')+'</div>':'')+'<div class="p-muted">'+T.file+': '+esc(f.path)+'</div></div>').join(''):'<div class="p-muted">'+esc(T.noQ)+'</div>';
 }
 every(draw);`,
   },

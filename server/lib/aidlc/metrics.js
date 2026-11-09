@@ -1,5 +1,7 @@
 // Numbers for the AI-DLC dashboards, all computed from the audit log and the state file.
-//   design stages: AI work = started (or revising) → awaiting approval; human wait = awaiting → approved/rejected
+//   design stages: AI work = started (or revising) → awaiting approval, less the stretches where the AI had stopped and
+//                  waited for the person's turn (questions, summary confirmation); human wait = those stretches + awaiting →
+//                  approved/rejected
 //   units:         work = each stage's UNIT_STARTED → UNIT_COMPLETED; wait = last passing checkpoint → approval
 import { describeStage, stageBySlug } from './stages.js'
 
@@ -8,13 +10,27 @@ const mins = (ms) => Math.round((ms / MIN) * 10) / 10
 const iso = (t) => (t == null ? null : new Date(t).toISOString())
 
 // ---------- design (non-unit) stages ----------
+const QUIET = new Set(['SESSION_ENDED', 'SESSION_RESUMED', 'SESSION_STARTED', 'SESSION_COMPACTED'])
+const ASKS = new Set(['DECISION_RECORDED', 'PLAN_APPROVAL_BLOCKED'])
 export function stageMetrics(events, now = Date.now()) {
   const unitStages = new Set(events.filter((e) => e.unit && e.stage).map((e) => e.stage))
+  // the AI handed the turn to the person (asked a question or a confirmation, or its session ended) and the person's
+  // next turn picked it up: that stretch is the person's. A silence after other work stays the AI's (a long build or a
+  // wait for the machine writes no events either).
+  const gaps = []
+  for (let i = 1; i < events.length; i++) {
+    if (events[i].event !== 'HUMAN_TURN') continue
+    let j = i - 1, ended = false
+    while (j >= 0 && QUIET.has(events[j].event)) { if (events[j].event === 'SESSION_ENDED') ended = true; j-- }
+    if (j >= 0 && (ended || ASKS.has(events[j].event))) gaps.push([events[j].t, events[i].t])
+  }
+  const personIn = (a, b) => gaps.reduce((n, [x, y]) => n + Math.max(0, Math.min(b, y) - Math.max(a, x)), 0)
   const rows = new Map()
   const row = (stage) => {
-    if (!rows.has(stage)) rows.set(stage, { stage, ai: 0, human: 0, rejects: 0, approvals: 0, workFrom: null, waitFrom: null, done: false })
+    if (!rows.has(stage)) rows.set(stage, { stage, ai: 0, human: 0, answer: 0, rejects: 0, approvals: 0, workFrom: null, waitFrom: null, done: false })
     return rows.get(stage)
   }
+  const work = (r, t) => { const p = personIn(r.workFrom, t); r.ai += t - r.workFrom - p; r.answer += p; r.workFrom = null }
   for (const e of events) {
     if (!e.stage || e.unit || unitStages.has(e.stage) || !stageBySlug.has(e.stage)) continue
     const r = row(e.stage)
@@ -24,7 +40,7 @@ export function stageMetrics(events, now = Date.now()) {
         if (r.workFrom == null) r.workFrom = e.t
         break
       case 'STAGE_AWAITING_APPROVAL':
-        if (r.workFrom != null) { r.ai += e.t - r.workFrom; r.workFrom = null }
+        if (r.workFrom != null) work(r, e.t)
         r.waitFrom = e.t
         break
       case 'GATE_APPROVED':
@@ -36,14 +52,14 @@ export function stageMetrics(events, now = Date.now()) {
         r.rejects++; r.workFrom = e.t
         break
       case 'STAGE_COMPLETED':
-        if (r.workFrom != null) { r.ai += e.t - r.workFrom; r.workFrom = null }
+        if (r.workFrom != null) work(r, e.t)
         r.done = true
         break
     }
   }
   return [...rows.values()].map((r) => ({
     ...describeStage(r.stage),
-    aiMin: mins(r.ai), humanMin: mins(r.human + (r.waitFrom != null ? now - r.waitFrom : 0)), rejects: r.rejects, approvals: r.approvals,
+    aiMin: mins(r.ai), humanMin: mins(r.answer + r.human + (r.waitFrom != null ? now - r.waitFrom : 0)), answerMin: mins(r.answer), rejects: r.rejects, approvals: r.approvals,
     state: r.waitFrom != null ? 'waiting' : r.workFrom != null ? 'working' : r.done ? 'done' : 'started',
     waitingSince: iso(r.waitFrom), waitingMin: r.waitFrom != null ? mins(now - r.waitFrom) : null,
   }))

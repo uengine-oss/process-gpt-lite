@@ -55,9 +55,11 @@ test('감사 기록: 승인 18 · 반려 3 · 체크포인트 검증', async () 
 test('설계 단계: AI 작업과 사람 대기, 반려', async () => {
   const { events } = await load('voice-parking')
   const by = Object.fromEntries(M.stageMetrics(events).map((s) => [s.slug, s]))
-  // 4.85 min of AI work, 0.6 min of waiting (rounded to 0.1 min)
-  assert.ok(Math.abs(by['practices-discovery'].aiMin - 4.85) <= 0.06, String(by['practices-discovery'].aiMin))
-  assert.equal(by['practices-discovery'].humanMin, 0.6)
+  // 4.9 min from start to awaiting approval, of which 1.8 min the AI had asked its questions and waited for the
+  // answers: 3.1 min of AI work, 1.8 + 0.6 min of the person's (rounded to 0.1 min)
+  assert.ok(Math.abs(by['practices-discovery'].aiMin - 3.1) <= 0.06, String(by['practices-discovery'].aiMin))
+  assert.equal(by['practices-discovery'].answerMin, 1.8)
+  assert.equal(by['practices-discovery'].humanMin, 2.4)
   assert.equal(by['practices-discovery'].role, '팀 리드')
   assert.equal(by['domain-design'].rejects, 1)
   assert.equal(by['domain-design'].state, 'done')
@@ -88,6 +90,18 @@ test('유닛 표시가 없는 사건은 유닛이 아니고, 감사 기록의 \\
   assert.deepEqual(u.map((x) => x.name), ['a'])
   const [t] = M.timeline([ev('GATE_REJECTED', { Feedback: '끄지 마세요.\\n다른 작업' })])
   assert.equal(t.detail, 'Feedback: 끄지 마세요. 다른 작업')
+})
+
+test('질문을 남기고 사람을 기다린 시간은 AI 작업이 아니다', () => {
+  const at = (m) => Date.parse('2026-11-09T03:00:00Z') + m * 60000
+  const ev = (m, event, stage = '') => ({ t: at(m), ts: new Date(at(m)).toISOString(), event, title: '', stage, unit: '', fields: {} })
+  const rows = M.stageMetrics([
+    ev(0, 'STAGE_STARTED', 'intent-capture'), ev(1, 'DECISION_RECORDED', 'intent-capture'), ev(1.1, 'SESSION_ENDED'),
+    ev(54, 'HUMAN_TURN'), ev(54.5, 'ARTIFACT_UPDATED'), ev(55, 'HUMAN_TURN'), // a reply after other work stays AI time
+    ev(56, 'STAGE_AWAITING_APPROVAL', 'intent-capture'),
+  ], at(56))
+  const r = rows.find((x) => x.slug === 'intent-capture')
+  assert.deepEqual([r.aiMin, r.answerMin, r.humanMin], [3, 53, 53])
 })
 
 test('질문: 답을 다 적은 뒤 엔진이 붙이는 요약 확인도 열린 질문', () => {
