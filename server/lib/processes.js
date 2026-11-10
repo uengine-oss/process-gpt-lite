@@ -240,8 +240,9 @@ export async function getTodo(todoId) {
 // Same lookup order as the process-gpt frontend's getRawDefinition({type:'bpmn'}):
 // latest proc_def_version snapshot, then proc_def.bpmn.
 export async function getBpmn(defId) {
+  // the newest saved version: by when it was saved — version is text, and '9.0' sorts after '10.0'
   const [v] = await q(`select snapshot from proc_def_version where proc_def_id=$1 and tenant_id=$2 and coalesce(snapshot,'') <> ''
-                       order by version desc limit 1`, [defId, T()]).catch(() => [])
+                       order by "timeStamp" desc nulls last limit 1`, [defId, T()]).catch(() => [])
   if (v?.snapshot) return v.snapshot
   const [d] = await q('select bpmn from proc_def where id=$1 and tenant_id=$2', [defId, T()])
   return d?.bpmn || null

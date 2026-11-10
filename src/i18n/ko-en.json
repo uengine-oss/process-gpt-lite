@@ -1685,9 +1685,29 @@
   "⌘S 로 저장": "Save with ⌘S",
   "⌘M 로 내보내기": "Export with ⌘M",
   "회의": "Meeting",
-  "나도 할 수 있어요": "You can too"
+  "나도 할 수 있어요": "You can too",
+  "필수": "Required",
+  "옵션": "Optional",
+  "관리자 확정": "confirmed by an admin",
+  "빈도 초안": "draft from counts",
+  "넣지 않기": "Leave out",
+  "왜 이렇게 묶였는지 묻거나, 단계의 필수·옵션과 사례가 속한 프로세스를 말로 고쳐 주세요.": "Ask why these cases were grouped, or tell me which steps are required or optional and which process a case belongs to.",
+  "확인하는 중": "Checking",
+  "예: 재무 검토는 옵션이야": "e.g. Finance review is optional",
+  "이 추천에 대해 묻고 고치기": "Ask about and correct this recommendation",
+  "이 추천과 대화 열기": "Open the conversation about this recommendation",
+  "대화 닫기": "Close the conversation",
+  "대화 입력": "Message",
+  "답하지 못했어요.": "I couldn't answer.",
+  "단계 빈도는 필수·옵션의 초안이에요. 추천을 열어 대화로 근거를 묻고 필수·옵션과 사례의 소속을 고쳐 확정해요.": "Step counts are only a draft of required and optional. Open a recommendation to ask why, and confirm which steps are required and where each case belongs.",
+  "한 번 보인 추천과 정식 등록·보류한 프로세스는 관리자가 정하기 전에는 바뀌지 않아요. 같은 업무의 새 사례는 제안으로 와요.": "A recommendation you have seen, and a registered or held process, does not change until you decide. New cases of the same work come as a proposal.",
+  "정의에 없음": "Not in the definition"
  },
  "patterns": [
+  [
+   "같은 업무로 보이는 새 사례 {0}건 · 정하기 전에는 프로세스가 바뀌지 않아요",
+   "{0} new case(s) that look like the same work · the process stays as it is until you decide"
+  ],
   [
    "고친 그림을 워드 문서의 그림 {0} 자리에 넣었어요 · ⌘S 로 저장하세요",
    "I put the edited image in place of image {0} in the Word document · save with ⌘S"
@@ -1703,6 +1723,10 @@
   [
    "{0} amount {1} 미만이면 '{2}' 을(를) 건너뜀",
    "Skips '{2}' when {0} amount is under {1}"
+  ],
+  [
+   "{0} — {1} 건너뜀 · 사례 {2}/{3}건이 거침{4}",
+   "{0} — skipped {1} · {2}/{3} cases went through it{4}"
   ],
   [
    "에이전트가 서식·구조를 고치는 중 · {0}",
@@ -1729,12 +1753,20 @@
    "routing model recheck→logprob {0}"
   ],
   [
+   "새 사례 {0}건이 제안으로 와 있어요",
+   "{0} new case(s) waiting as a proposal"
+  ],
+  [
    "에이전트가 내용을 쓰는 중 · {0}",
    "Agent is writing · {0}"
   ],
   [
    "{0} · {1} 금액 {2} 미만이면 건너뛰기",
    "{0} · Skip if {1} amount is below {2}"
+  ],
+  [
+   "필수 단계 {0} 를 거치지 않았어요",
+   "Skipped the required step {0}"
   ],
   [
    "{0} — {1} 금액 {2} 미만이면 건너뜀",

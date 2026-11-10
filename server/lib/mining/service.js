@@ -11,14 +11,21 @@
 //   - what the case was asked to do (its 업무 범주) is judged once, when the case ends, and kept on the
 //     case (categoryOf). The miner groups by that category, not by how much the step names overlap:
 //     branches, repeats and skipped steps are variants of one flow, not flows of their own
-//   - the admin's decisions are the boundary: every 정식 등록·보류 recommendation is sent along
-//     (decidedOf) and the miner keeps one group per decision, so two decided flows never merge
-//   - a group is the same recommendation as an existing one when the key is the same; for a
-//     recommendation that is not decided yet, also when most of its cases already belong to it
-//     (sameSuggestion). A decided recommendation grows only through its own key — its evidence is
-//     never overwritten by another group that happens to share cases
+//   - the admin's decisions are the boundary: every recommendation the admin has seen is sent along
+//     (boundariesOf) and the miner keeps one group per boundary, so two of them never merge
+//   - a group is an existing recommendation when it comes back under that recommendation's key
+//     (sameSuggestion); only a group with no key of its own becomes a new recommendation
 //   - a case the miner could not place (no category, or none of the group's required steps) comes back
 //     in `unclassified`; the admin is asked which work it is (category_ask on the case)
+//
+// What the admin confirms holds (2026-11-10, boundary.js · talk.js):
+//   - a step's frequency is only the draft of 필수/옵션; the admin confirms it (confirmed) and the counts
+//     never change it again. The confirmed required steps are what the miner matches new cases against
+//   - every recommendation the admin has seen — 추천 too, not only 정식 등록·보류 — is a boundary with its
+//     own cases pinned. New cases of the same work come back from the miner apart (new_case_ids) and wait
+//     as the recommendation's proposal; nothing about a recommendation changes until the admin says so
+//   - the admin moves a case to another recommendation, or says it is not this one (excluded); the case's
+//     category becomes the admin's, and admin-set categories are the examples the next judgment follows
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
@@ -30,6 +37,8 @@ import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from 
 import { caseClosed } from './recorder.js'
 import { L, isEn, lang, langOf, withLang } from '../lang.js'
 import { fmtNum } from '../improve/transform.js'
+import { boundaryOf, boundaryOrder, keepFound, requiredIn, sameCases, stepsView } from './boundary.js'
+import { applyStepRules, forSave, gatewayLanes, ruleOf, stepKinds } from './shape.js'
 import { josa } from '../improve/focus.js'
 
 const T = () => config.tenantId
@@ -97,22 +106,24 @@ JSON {"categories": {"<id>": "<범주>"}} 로 답하세요. 모든 업무에 하
 - 범주는 일의 종류입니다. 행사 이름(송년회·워크숍·북토크·창립 기념식)이나 고객 이름으로 나누지 마세요 — 그것들은 모두 "행사 견적" 하나입니다.
 - known 에 같은 종류의 일이 있으면 그 범주를 글자 그대로 쓰세요.
 - 거쳐 간 단계 이름이 아니라 고객이 요청한 일로 정하세요. 누가 검토했는지는 범주와 상관없습니다.
-- 범주는 되도록 적게 쓰세요. 한 조직이 하는 일의 종류는 보통 두세 가지입니다.`
+- 범주는 되도록 적게 쓰세요. 한 조직이 하는 일의 종류는 보통 두세 가지입니다.
+- examples 는 관리자가 직접 정한 업무와 범주입니다. 같은 일을 요청한 업무에는 그 범주를 글자 그대로 쓰세요.`
 const CATEGORY_EN = `Below are pieces of work, each answering a customer's request mail. Name the kind of work each one is.
 Answer with JSON {"categories": {"<id>": "<category>"}}, one for every piece.
 - A category is an English noun phrase of at most 24 characters, e.g. "Event quote", "Store design".
 - A category is the kind of work. Do not split by the name of the event (year-end party, workshop, book talk) or by the customer — those are all one "Event quote".
 - If \`known\` already holds the same kind of work, reuse that category exactly.
 - Go by what the customer asked for, not by the step names. Who reviewed it does not change the category.
-- Use as few categories as possible. An organization usually does two or three kinds of work.`
+- Use as few categories as possible. An organization usually does two or three kinds of work.
+- \`examples\` are pieces of work an administrator categorized by hand. Work asking for the same thing gets that category, exactly.`
 
 // All the pending cases are judged together, in one call: judged one at a time, the same work came
 // back as 워크숍 견적, 송별회 견적, 시상식 견적 … — the event's name, not the kind of work — and the
 // groups split for the same reason the step names used to split them.
-async function categoriesOf(cases, known, cl) {
+async function categoriesOf(cases, known, cl, examples = []) {
   return withLang(cl, async () => {
     try {
-      const r = await chatJson(L(CATEGORY, CATEGORY_EN), JSON.stringify({ known, cases }))
+      const r = await chatJson(L(CATEGORY, CATEGORY_EN), JSON.stringify({ known, examples, cases }))
       const out = {}
       for (const [id, v] of Object.entries(r?.categories || {})) {
         const name = String(v || '').trim().slice(0, L(14, 30))
@@ -150,10 +161,12 @@ async function ensureCategories() {
   }
   if (!pending.length) return
   const cl = labelLang(pending.flatMap((p) => p.steps).join(' '))
+  // what the admin has said about earlier work (picked a category, moved a case): the next judgment follows it
+  const examples = await adminExamples()
   // in batches, so one call sees enough of the work at once to use the same few categories
   for (let i = 0; i < pending.length; i += 25) {
     const batch = pending.slice(i, i + 25)
-    const got = await categoriesOf(batch, known, cl)
+    const got = await categoriesOf(batch, known, cl, examples)
     for (const p of batch) {
       const category = got[p.id]
       if (!category) continue
@@ -163,19 +176,28 @@ async function ensureCategories() {
   }
 }
 
-// the boundaries the admin drew: one group per decided recommendation, in the order they were decided
-async function decidedOf() {
-  const rows = await q(`select pattern_key, pattern from pro_mining_suggestions
-                        where tenant_id=$1 and status in ('registered','held')
-                        order by coalesce(decided_at, created_at), created_at`, [T()])
+export async function adminExamples(limit = 30) {
+  return (await q(`select subject, category from pro_mining_cases where tenant_id=$1 and category_by='admin'
+                   and category is not null and coalesce(subject,'') <> '' order by created_at desc limit $2`, [T(), limit]))
+    .map((r) => ({ subject: r.subject, category: r.category }))
+}
+
+// The boundaries: every recommendation the admin has seen — decided ones first, in the order they were
+// decided, then the open ones, oldest first. Each carries its required steps (the admin's word over the
+// draft), the cases it rests on (pinned there) and the cases the admin took out.
+async function boundariesOf() {
+  const rows = boundaryOrder(await q(`select pattern_key, pattern, status, confirmed, excluded, decided_at, created_at, proc_def_id, definition
+                                      from pro_mining_suggestions where tenant_id=$1`, [T()]))
   const out = []
   for (const r of rows) {
     const ids = r.pattern?.case_ids || []
-    const [top] = ids.length
+    // (a row from before categories: the category most of its cases have)
+    const [top] = !r.pattern?.category && ids.length
       ? await q(`select category from pro_mining_cases where tenant_id=$1 and case_id = any($2) and category is not null
                  group by category order by count(*) desc, category limit 1`, [T(), ids])
       : []
-    out.push({ key: r.pattern_key, category: top?.category || r.pattern?.category || '', core_activities: r.pattern?.core_activities || [] })
+    // required = what the process definition says (every path passes it); new cases are matched against it
+    out.push(boundaryOf(r, top?.category || '', requiredIn(await definitionOf(r))))
   }
   return out
 }
@@ -238,28 +260,24 @@ async function doScan() {
   await ensureCategories()
   const categories = Object.fromEntries((await q(
     'select case_id, category from pro_mining_cases where tenant_id=$1 and category is not null', [T()])).map((r) => [r.case_id, r.category]))
+  const rows = await q('select * from pro_mining_suggestions where tenant_id=$1', [T()])
   const { patterns, unclassified: unplaced } = await miner('/patterns', {
-    tenant_id: T(), min_cases: Number(process.env.PRO_MINING_MIN_CASES || 4), categories, decided: await decidedOf(),
+    tenant_id: T(), min_cases: Number(process.env.PRO_MINING_MIN_CASES || 4), categories, decided: await boundariesOf(),
   })
   await markUnclassified(unplaced)
+  const byKey = new Map(rows.map((r) => [r.pattern_key, r]))
   const made = []
   for (const p of patterns) {
-    // A decided flow's evidence is exactly what the miner placed in it — empty included. The miner
-    // places every case in one group only, so keeping an older, larger list here would show the same
-    // case under two recommendations. (A flow starves when the admin drew two boundaries the data
-    // cannot tell apart: same category, same required steps. Then the one decided first takes them.)
-    if (!p.case_ids?.length && !p.decided_key) continue
+    // A recommendation the admin has already seen (any status): its cases and required steps stay as the
+    // admin has them. The miner's view of those same cases is refreshed (a case's late steps, the counts);
+    // new cases of the same work wait as its proposal. (The miner pins each one's cases there, so no case
+    // shows under two recommendations, and nothing is withdrawn behind the admin's back.)
+    const have = byKey.get(p.decided_key || p.key)
+    if (have) { await keepExisting(have, p); continue }
+    if (!p.case_ids?.length) continue
     // only work pgpt-pro recorded (one case = one mail); other tenants' demos are not ours to suggest
     const cases = await q('select * from pro_mining_cases where tenant_id=$1 and case_id = any($2) order by created_at', [T(), p.case_ids])
-    if (p.case_ids.length && cases.length * 2 < p.case_ids.length) continue
-    const have = await sameSuggestion(p)
-    if (have) {
-      // more cases of a pattern already suggested: the evidence grows, the decision stays
-      // (still undecided: the mined model is drawn again from all the cases)
-      const again = have.status === 'suggested' ? await miner('/discover', { tenant_id: T(), process_id: p.process_id, name: p.process_id, case_ids: p.case_ids, lang: patternLang(p) }).catch(() => null) : null
-      await q('update pro_mining_suggestions set pattern=$2, definition=coalesce($3, definition), updated_at=now() where id=$1', [have.id, p, again?.definition || null])
-      continue
-    }
+    if (cases.length * 2 < p.case_ids.length) continue
     // a case still under way is not evidence yet: each case must have reached the flow's usual last
     // step (or sat idle for a while), and none may have moved in the last moments
     const last = p.main_variant.at(-1)
@@ -272,56 +290,36 @@ async function doScan() {
     named.name = await uniqueName(named.name)
     // the miner only draws the model (it writes nothing); its names and descriptions are in the language
     // of the work (the cases' recorded language). The process is saved on 정식 등록 (registerIn).
+    // (a new recommendation's 필수/옵션 is the draft from the counts; the admin confirms it in the talk)
     const mined = await miner('/discover', { tenant_id: T(), process_id: p.process_id, name: named.name, case_ids: p.case_ids, lang: patternLang(p) })
     const formats = [...new Set(p.steps.flatMap((s) => s.tools.map((t) => TOOL_FORMAT[t]).filter(Boolean)))]
+    const pattern = { ...p }
+    delete pattern.new_case_ids
+    delete pattern.proposed
     const [s] = await q(`insert into pro_mining_suggestions (tenant_id, pattern_key, process_id, name, summary, pattern, definition, pr_id, version_uuid, match)
                          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (tenant_id, pattern_key) do nothing returning *`, [
-      T(), p.key, p.process_id, named.name, named.summary, p, mined.definition, mined.pr?.pr_id || null, mined.pr?.version_uuid || null,
+      T(), p.key, p.process_id, named.name, named.summary, pattern, mined.definition, mined.pr?.pr_id || null, mined.pr?.version_uuid || null,
       { formats, keywords: named.keywords }])
     if (!s) continue
     made.push(s)
     await notifyAdmins(s)
   }
-  await dropWithdrawn(patterns)
   return made
 }
 
-// A recommendation the admin has not decided on is the system's own proposal. When the cases it rested
-// on now belong to other groups, the proposal no longer stands: its evidence is trimmed to what is
-// still its own, and a proposal left with nothing is withdrawn. Decided ones (정식 등록·보류) are the
-// admin's and are never withdrawn here — the miner keeps a group for each of them.
-async function dropWithdrawn(patterns) {
-  const taken = new Set(patterns.flatMap((p) => p.case_ids || []))
-  const keys = new Set(patterns.map((p) => p.key))
-  const rows = await q(`select id, pattern_key, pattern from pro_mining_suggestions where tenant_id=$1 and status='suggested'`, [T()])
-  for (const r of rows) {
-    if (keys.has(r.pattern_key)) continue
-    const ids = (r.pattern?.case_ids || []).filter((c) => !taken.has(c))
-    if (ids.length === (r.pattern?.case_ids || []).length) continue
-    if (!ids.length) { await q('delete from pro_mining_suggestions where id=$1', [r.id]); continue }
-    await q('update pro_mining_suggestions set pattern = jsonb_set(jsonb_set(pattern, \'{case_ids}\', $2::jsonb), \'{case_count}\', $3::jsonb), updated_at=now() where id=$1',
-      [r.id, JSON.stringify(ids), JSON.stringify(ids.length)])
-  }
+// One recommendation the admin has seen, after a search: same cases, same required steps; the counts
+// over those cases refreshed; new cases kept as the proposal (the admin is told when it is new or grew).
+async function keepExisting(row, p) {
+  const { pattern, proposal } = keepFound(row, p, requiredIn(await definitionOf(row)))
+  await q('update pro_mining_suggestions set pattern=$2, proposal=$3, updated_at=now() where id=$1', [row.id, pattern, proposal])
+  if (proposal && !sameCases(proposal, row.proposal) && proposal.case_count > (row.proposal?.case_count || 0)) await notifyProposal({ ...row, pattern }, proposal)
 }
 
-// the recommendation a found group already is: the same key, or — for a recommendation the admin has
-// not decided on yet — most of its cases (≥ half of the smaller side) already counted there.
-// A decided recommendation (정식 등록·보류) grows only through its own key: the miner keeps one group
-// per decision, so a group that merely shares cases with it is other work and must not overwrite it.
+// the recommendation a found group already is: the same key (the miner hands each boundary back under
+// its own key; a new group's key carries its category, so two kinds of work never share one)
 export async function sameSuggestion(p) {
-  const [byKey] = await q('select id, status from pro_mining_suggestions where tenant_id=$1 and pattern_key=$2', [T(), p.key])
-  if (byKey) return byKey
-  if (p.decided_key) return null
-  const rows = await q(`select id, status, pattern->'case_ids' as cases from pro_mining_suggestions where tenant_id=$1 and status='suggested'`, [T()])
-  const mine = new Set(p.case_ids || [])
-  let best = null
-  for (const r of rows) {
-    const theirs = Array.isArray(r.cases) ? r.cases : []
-    const shared = theirs.filter((c) => mine.has(c)).length
-    const share = shared / Math.max(1, Math.min(theirs.length, mine.size))
-    if (shared && share >= 0.5 && (!best || share > best.share)) best = { id: r.id, status: r.status, share }
-  }
-  return best
+  const [byKey] = await q('select id, status from pro_mining_suggestions where tenant_id=$1 and pattern_key=$2', [T(), p.decided_key || p.key])
+  return byKey || null
 }
 
 // two different flows the model happens to name alike stay apart in the admin's list
@@ -349,28 +347,202 @@ async function notifyAdmins(s) {
   }
 }
 
+// new cases of the same work for a recommendation the admin has seen: they decide whether they go in
+async function notifyProposal(s, prop) {
+  const admins = await q(`select u.id::text as id from users u join pro_team_members m on m.user_id=u.id and m.tenant_id=u.tenant_id
+                          where u.tenant_id=$1 and u.is_admin and not coalesce(u.is_agent,false)`, [T()])
+  await q(`update notifications set is_checked=true where tenant_id=$1 and url=$2 and type='mining' and not coalesce(is_checked,false)`, [T(), `/mining/${s.id}`])
+  for (const a of admins) {
+    const en = (await langOf(a.id)) === 'en'
+    await q(`insert into notifications (id, user_id, title, type, description, url, tenant_id) values (gen_random_uuid(),$1,$2,'mining',$3,$4,$5)`,
+      [a.id, en ? `New cases for ${s.name}` : `${s.name}에 같은 업무의 새 사례가 있어요`,
+        en ? `${prop.case_count} new case(s) look like the same work. The process stays as it is until you decide whether they go in.`
+          : `새 사례 ${prop.case_count}건이 같은 업무로 보여요. 넣을지 정하기 전에는 프로세스가 바뀌지 않아요.`, `/mining/${s.id}`, T()])
+    emit(a.id, 'notifications', {})
+    emit(a.id, 'mining', { id: s.id })
+  }
+}
+
 // ---------- 보기 ----------
 export async function list() {
-  return q(`select id, name, summary, status, proc_def_id, pattern->'case_count' as case_count, pattern->'main_variant' as steps, created_at, decided_at
+  return q(`select id, name, summary, status, proc_def_id, pattern->'case_count' as case_count, pattern->'main_variant' as steps,
+                   pattern->>'category' as category, proposal->'case_count' as proposal_count, created_at, decided_at
             from pro_mining_suggestions where tenant_id=$1 order by created_at desc limit 20`, [T()])
+}
+
+// the cases of a recommendation (or of its proposal) as the admin reads them: who asked, what, the
+// steps it went through, its category and who set it, and the required steps it skipped
+async function casesOf(ids, required = []) {
+  if (!ids?.length) return []
+  const cases = await q(`select case_id, customer, subject, demo, category, category_by, created_at from pro_mining_cases
+                         where tenant_id=$1 and case_id = any($2) order by created_at`, [T(), ids])
+  const evs = await q(`select case_id, norm_activity_label as activity, to_user_name as who, to_is_agent as agent, occurred_at, artifact_refs
+                       from handover_events where tenant_id=$1 and case_id = any($2) order by occurred_at`, [T(), ids])
+  for (const c of cases) {
+    const mine = evs.filter((e) => e.case_id === c.case_id)
+    c.steps = mine.map((e) => ({ activity: e.activity, who: e.who, agent: e.agent, at: e.occurred_at, files: (e.artifact_refs || []).map((r) => r.name).filter(Boolean) }))
+    c.minutes = mine.length > 1 ? Math.round((new Date(mine.at(-1).occurred_at) - new Date(mine[0].occurred_at)) / 60000) : 0
+    const went = new Set(mine.map((e) => e.activity))
+    c.missing = required.filter((a) => !went.has(a))
+  }
+  return cases
 }
 
 export async function get(id) {
   const [s] = await q('select * from pro_mining_suggestions where id=$1 and tenant_id=$2', [id, T()])
   if (!s) return null
-  const cases = await q('select case_id, customer, subject, demo, created_at from pro_mining_cases where tenant_id=$1 and case_id = any($2) order by created_at', [T(), s.pattern.case_ids])
-  const evs = await q(`select case_id, norm_activity_label as activity, to_user_name as who, to_is_agent as agent, occurred_at, artifact_refs
-                       from handover_events where tenant_id=$1 and case_id = any($2) order by occurred_at`, [T(), s.pattern.case_ids])
-  for (const c of cases) {
-    const mine = evs.filter((e) => e.case_id === c.case_id)
-    c.steps = mine.map((e) => ({ activity: e.activity, who: e.who, agent: e.agent, at: e.occurred_at, files: (e.artifact_refs || []).map((r) => r.name).filter(Boolean) }))
-    c.minutes = mine.length > 1 ? Math.round((new Date(mine.at(-1).occurred_at) - new Date(mine[0].occurred_at)) / 60000) : 0
-  }
-  const steps = s.pattern.steps.map((x) => ({ ...x, kind: x.by_agent * 2 >= x.total ? 'agent' : 'human', catalog: stepOf(x.activity) }))
+  // 필수·옵션 per step: the draft from the counts, the admin's word over it (boundary.js)
+  // 필수·옵션 is what the process definition says (BPMN: a way around the task or not); the counts are evidence
+  const def = await definitionOf(s)
+  const decided = stepsView(s.pattern, s.confirmed || {}, def)
+  const required = decided.filter((x) => x.kind === 'required').map((x) => x.activity)
+  const cases = await casesOf(s.pattern.case_ids, required)
+  const byAct = Object.fromEntries(decided.map((x) => [x.activity, x]))
+  const steps = s.pattern.steps.map((x) => ({ ...x, kind: x.by_agent * 2 >= x.total ? 'agent' : 'human', catalog: stepOf(x.activity), decided: byAct[x.activity] || null }))
+  const proposal = s.proposal ? { ...s.proposal, cases: await casesOf(s.proposal.case_ids, required) } : null
+  // where a case can be moved to: the other recommendations; and cases in none of them
+  const others = await q(`select id, name, status, pattern->>'category' as category from pro_mining_suggestions
+                          where tenant_id=$1 and id<>$2 order by created_at`, [T(), id])
+  const unplaced = await unplacedCases()
   const pr = s.pr_id ? (await q('select id, title, status, branch_name, created_at, merged_at from resource_pull_requests where id=$1', [s.pr_id]))[0] : null
   const runs = s.proc_def_id ? await q(`select r.proc_inst_id, r.mail, r.created_at, i.status, i.proc_inst_name from pro_mining_runs r
                                          left join bpm_proc_inst i on i.proc_inst_id=r.proc_inst_id where r.suggestion_id=$1 order by r.created_at desc`, [s.id]) : []
-  return { ...s, steps, cases, pr, runs }
+  return { ...s, steps, decided, required, cases, proposal, others, unplaced, pr, runs }
+}
+
+// ---------- 관리자 확정 (대화로: talk.js) ----------
+async function own(me, id) {
+  if (!(await isAdmin(me))) throw err(403, L('관리자만 바꿀 수 있어요.', 'Only an administrator can change this.'))
+  const [s] = await q('select * from pro_mining_suggestions where id=$1 and tenant_id=$2', [id, T()])
+  if (!s) throw err(404, L('추천을 찾지 못했어요.', "I couldn't find that recommendation."))
+  return s
+}
+
+// The definition a recommendation stands for: a registered one's saved definition (what the engine runs);
+// otherwise the drawn one with the admin's word applied — what 정식 등록 will save (buildContract).
+export async function definitionOf(s) {
+  if (s.status === 'registered' && s.proc_def_id) {
+    const [row] = await q('select definition from proc_def where lower(id)=lower($1) and tenant_id=$2', [s.proc_def_id, T()])
+    if (row?.definition?.activities?.length) return row.definition
+  }
+  return s.definition ? applyStepRules(dropSkips(reviewRule(s.definition)), s.confirmed || {}).def : null
+}
+
+// a changed definition saved the way Lite saves a process (lib/generated.js → process-gpt save_contract +
+// BPMN generator), with a new proc_def_version as process-gpt's own save button leaves (the engine takes it
+// from the next instance) — the same path 「개선안 적용」 uses (lib/improve/apply.js)
+async function saveVersion(me, defId, def, message) {
+  def = forSave(def)
+  const [d] = await q('select id, name, description from proc_def where lower(id)=lower($1) and tenant_id=$2', [defId, T()])
+  if (!d) throw err(404, L('등록된 프로세스를 찾지 못했어요.', "I couldn't find the registered process."))
+  const vs = await q(`select version, arcv_id from proc_def_version where lower(proc_def_id)=lower($1) and tenant_id=$2 and not coalesce(is_draft,false) order by "timeStamp" asc nulls first`, [d.id, T()])
+  const version = `${Math.max(0, ...vs.map((v) => parseInt(String(v.version), 10) || 0)) + 1}.0`
+  const forms = await q('select id, activity_id, html from form_def where lower(proc_def_id)=lower($1) and tenant_id=$2', [d.id, T()])
+  await saveGenerated({
+    type: 'process-definition-result',
+    processDefinition: { ...def, processDefinitionId: d.id, processDefinitionName: d.name, description: def.description || d.description || '' },
+    forms: forms.map((f) => ({ activity_id: f.activity_id, form_id: f.id, html: f.html })), agents: [], skills: [],
+  })
+  const [row] = await q('select bpmn, definition from proc_def where id=$1 and tenant_id=$2', [d.id, T()])
+  await q(`insert into proc_def_version (arcv_id, proc_def_id, version, version_tag, "timeStamp", snapshot, definition, diff, message, tenant_id, parent_version, is_draft, owner)
+           values ($1,$2,$3,'major',now(),$4,$5,$6,$7,$8,$9,false,$10)`,
+  [`${d.id}_${version}`, d.id, version, row?.bpmn || null, row?.definition || def, JSON.stringify({ mining: message }), message, T(), vs.at(-1)?.arcv_id || null, String(me.id)])
+  return { version, definition: row?.definition || def }
+}
+
+const NOTE = {
+  not_in_definition: (a) => L(`'${a}' 단계는 프로세스 정의에 없어요. 정의에 있는 단계만 필수·옵션을 정할 수 있어요.`, `The process definition has no '${a}' step. Only steps in the definition can be made required or optional.`),
+  many_outgoing: (a) => L(`'${a}' 뒤 흐름이 여러 갈래라 건너뛰는 분기를 넣을 수 없어요.`, `'${a}' is followed by more than one flow, so a skip branch can't be added.`),
+  still_bypassed: (a) => L(`'${a}' 을(를) 돌아가는 다른 길이 남아 있어 필수로 만들지 못했어요.`, `Another path still goes around '${a}', so it couldn't be made required.`),
+}
+
+// The admin confirms a step 필수 or 옵션 — in the BPMN sense. 옵션 needs when it is skipped (skip_when): the
+// definition gets an exclusive gateway before the task, the skip flow carries that condition and the flow
+// into the task is the default. 필수 takes every way around it away. A registered process is saved as a
+// new version at once (the next mail runs it); a recommendation keeps the word and 정식 등록 applies it.
+// The counts never change it again, and the required steps go to the miner as the boundary.
+export async function setStep(me, id, activity, kind, skipWhen = '') {
+  const s = await own(me, id)
+  const rule = ruleOf(kind === 'optional' ? { kind, skip_when: skipWhen } : kind)
+  if (!rule) throw err(400, kind === 'optional' ? L('언제 건너뛰는지(조건)를 알려 주세요.', 'Tell me when it is skipped (the condition).') : L('필수나 옵션으로 정해 주세요.', 'Choose required or optional.'))
+  const before = await definitionOf(s)
+  const step = stepsView(s.pattern, s.confirmed || {}, before).find((x) => x.activity === activity)
+  if (!step) throw err(404, L(`'${activity}' 단계가 이 추천에 없어요.`, `This recommendation has no '${activity}' step.`))
+  const value = rule.kind === 'required' ? 'required' : rule
+  let saved = null
+  if (s.status === 'registered' && s.proc_def_id) {
+    const { def, notes } = applyStepRules(before, { [activity]: value })
+    if (notes.length) throw err(409, NOTE[notes[0].reason](activity))
+    saved = await saveVersion(me, s.proc_def_id, def, rule.kind === 'required'
+      ? L(`[프로세스 마이닝] '${activity}' 필수 — 건너뛰는 길 없음`, `[Process mining] '${activity}' required — no way around it`)
+      : L(`[프로세스 마이닝] '${activity}' 옵션 — ${rule.skip_when} 건너뜀`, `[Process mining] '${activity}' optional — skipped ${rule.skip_when}`))
+  } else if (before) {
+    const { notes } = applyStepRules(before, { [activity]: value })
+    if (notes.length) throw err(409, NOTE[notes[0].reason](activity))
+  }
+  await q('update pro_mining_suggestions set confirmed=$2, updated_at=now() where id=$1', [id, { ...(s.confirmed || {}), [activity]: value }])
+  const after = stepKinds(saved?.definition || applyStepRules(before || {}, { [activity]: value }).def)[activity]
+  return { activity, kind: after?.kind || rule.kind, skip_when: after?.skip_when || rule.skip_when || '', was: step.kind, cases: step.cases, total: step.total, version: saved?.version || null, registered: s.status === 'registered' }
+}
+
+// the admin says which recommendation a case belongs to (toId), or only which work it is (category) and that
+// it is not the recommendation it sits in now. Wherever the case was — another recommendation's evidence
+// or proposal, or none — it leaves there for good (excluded), joins toId's evidence, and takes that
+// recommendation's category as the admin's: the example the next judgment follows.
+export async function moveCase(me, caseId, { toId = null, category = '' } = {}) {
+  if (!(await isAdmin(me))) throw err(403, L('관리자만 바꿀 수 있어요.', 'Only an administrator can change this.'))
+  const [c] = await q('select case_id, subject, category from pro_mining_cases where tenant_id=$1 and case_id=$2', [T(), caseId])
+  if (!c) throw err(404, L('사례를 찾지 못했어요.', "I couldn't find that case."))
+  const to = toId ? await own(me, toId) : null
+  const cat = String(to?.pattern?.category || category || '').trim().slice(0, 40)
+  if (!to && !cat) throw err(400, L('옮길 추천이나 업무 범주를 알려 주세요.', 'Tell me which recommendation or kind of work it is.'))
+  const without = (xs) => (xs || []).filter((x) => x !== caseId)
+  const prop = (p) => { const ids = without(p?.case_ids); return ids.length ? { ...p, case_ids: ids, case_count: ids.length } : null }
+  const rows = await q(`select * from pro_mining_suggestions where tenant_id=$1 and (pattern->'case_ids' ? $2 or proposal->'case_ids' ? $2)`, [T(), caseId])
+  const from = rows.find((r) => r.id !== to?.id && (r.pattern?.case_ids || []).includes(caseId)) || null
+  if (to && (to.pattern.case_ids || []).includes(caseId)) throw err(400, L('이미 이 추천의 사례예요.', 'That case is already in this recommendation.'))
+  for (const r of rows) {
+    if (r.id === to?.id) continue
+    const ids = without(r.pattern?.case_ids)
+    await q('update pro_mining_suggestions set pattern=$2, excluded=$3, proposal=$4, updated_at=now() where id=$1',
+      [r.id, { ...r.pattern, case_ids: ids, case_count: ids.length }, JSON.stringify([...new Set([...(r.excluded || []), caseId])]), prop(r.proposal)])
+  }
+  if (to) {
+    const ids = [...new Set([...(to.pattern.case_ids || []), caseId])]
+    await q('update pro_mining_suggestions set pattern=$2, excluded=$3, proposal=$4, updated_at=now() where id=$1',
+      [to.id, { ...to.pattern, case_ids: ids, case_count: ids.length }, JSON.stringify(without(to.excluded)), prop(to.proposal)])
+  }
+  if (cat) await q(`update pro_mining_cases set category=$3, category_by='admin', category_ask=null where tenant_id=$1 and case_id=$2`, [T(), caseId, cat])
+  return { case_id: caseId, subject: c.subject, from: from?.name || null, to: to?.name || null, category: cat || c.category }
+}
+
+// ended cases that sit in no recommendation (too few of their kind yet, or taken out by the admin):
+// the admin may still say where they belong
+export async function unplacedCases(limit = 20) {
+  return q(`select c.case_id, c.customer, c.subject, c.category, c.category_by, c.created_at from pro_mining_cases c
+            where c.tenant_id=$1 and c.category is not null
+              and not exists (select 1 from pro_mining_suggestions s where s.tenant_id=c.tenant_id
+                              and (s.pattern->'case_ids' ? c.case_id or s.proposal->'case_ids' ? c.case_id))
+            order by c.created_at desc limit $2`, [T(), limit])
+}
+
+// the admin's answer to a proposal: the new cases go in (the evidence grows; an undecided recommendation's
+// model is drawn again from all its cases), or they stay out of this recommendation for good
+export async function decideProposal(me, id, accept) {
+  const s = await own(me, id)
+  const prop = s.proposal
+  if (!prop?.case_ids?.length) throw err(409, L('반영할 제안이 없어요.', 'There is no proposal to decide.'))
+  if (accept) {
+    const ids = [...new Set([...(s.pattern.case_ids || []), ...prop.case_ids])]
+    const p = { ...s.pattern, case_ids: ids, case_count: ids.length }
+    const again = s.status === 'suggested'
+      ? await miner('/discover', { tenant_id: T(), process_id: s.process_id, name: s.name, case_ids: ids, lang: patternLang(p) }).catch(() => null) : null
+    await q('update pro_mining_suggestions set pattern=$2, proposal=null, definition=coalesce($3, definition), updated_at=now() where id=$1', [id, p, again?.definition || null])
+  } else {
+    await q('update pro_mining_suggestions set proposal=null, excluded=$2, updated_at=now() where id=$1', [id, JSON.stringify([...new Set([...(s.excluded || []), ...prop.case_ids])])])
+  }
+  await q(`update notifications set is_checked=true where tenant_id=$1 and url=$2`, [T(), `/mining/${id}`])
+  return { accepted: !!accept, case_count: prop.case_ids.length, name: s.name }
 }
 
 // ---------- 결정 ----------
@@ -436,7 +608,8 @@ export function dropSkips(d) {
 
 // mined definition (flattened) → process-gpt generation contract (elements[] + forms + agents + skills)
 export function buildContract(s) {
-  const d = dropSkips(reviewRule(s.definition))
+  // (the admin's 필수·옵션 go into the definition: an exclusive gateway with the skip condition — shape.js)
+  const d = applyStepRules(dropSkips(reviewRule(s.definition)), s.confirmed || {}).def
   const PID = s.process_id
   const formId = (a) => `${PID}_${(stepOf(a.name)?.key || a.id)}_form`
   const roles = new Map()
@@ -463,9 +636,11 @@ export function buildContract(s) {
   }
   // process-gpt's BPMN generator (bpmn_xml_generator.createGateway) draws elements[] gateways from
   // gateWayType only — without it every gateway, parallel ones too, is drawn as exclusive (X)
+  // (and in a lane: the generator lays out by role, a gateway with none is left in the corner — shape.js gatewayLanes)
+  const lanes = gatewayLanes(d, (a) => stepOf(a.name)?.role || a.role || L('담당자', 'Assignee'))
   for (const g of d.gateways) {
     const parallel = /parallel/i.test(g.type || '')
-    elements.push({ elementType: 'Gateway', id: g.id, name: g.name || '', type: parallel ? 'ParallelGateway' : 'ExclusiveGateway', gateWayType: parallel ? 'bpmn:parallelGateway' : 'bpmn:exclusiveGateway' })
+    elements.push({ elementType: 'Gateway', id: g.id, name: g.name || '', role: g.role || lanes[g.id] || firstHumanRole, type: parallel ? 'ParallelGateway' : 'ExclusiveGateway', gateWayType: parallel ? 'bpmn:parallelGateway' : 'bpmn:exclusiveGateway' })
   }
   // (properties carry the miner's default flow and priority: exactly one branch of an exclusive gateway is taken)
   for (const x of d.sequences) elements.push({ elementType: 'Sequence', id: x.id, source: x.source, target: x.target, condition: x.condition || '', ...(x.name || x.condition ? { name: x.name || x.condition } : {}), ...(x.properties && x.properties !== '{}' ? { properties: x.properties } : {}) })

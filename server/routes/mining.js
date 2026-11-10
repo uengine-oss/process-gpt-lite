@@ -1,6 +1,7 @@
 // HTTP routes for process mining: recommendations from repeated ad-hoc work and the admin's decision.
 import express from 'express'
 import * as M from '../lib/mining/service.js'
+import * as Talk from '../lib/mining/talk.js'
 import { q, eachTenant } from '../lib/supa.js'
 import { canSeeInstance, getInstance } from '../lib/processes.js'
 import { mainThread, addMessage } from '../lib/store.js'
@@ -51,6 +52,10 @@ export function miningRoutes(auth) {
     if (!s) throw Object.assign(new Error(L('추천을 찾지 못했어요.', "I couldn't find that recommendation.")), { status: 404 })
     return s
   }))
+  // the admin's conversation about one recommendation: why it is grouped so, and what they confirm
+  // (steps 필수·옵션, which process a case belongs to, the proposal) — lib/mining/talk.js
+  r.get('/mining/suggestions/:id/talk', auth, h((req) => Talk.history(req.user, req.params.id)))
+  r.post('/mining/suggestions/:id/talk', auth, h((req) => Talk.say(req.user, req.params.id, req.body?.text)))
   r.post('/mining/suggestions/:id/register', auth, h((req) => M.register(req.user, req.params.id)))
   r.post('/mining/suggestions/:id/hold', auth, h((req) => M.hold(req.user, req.params.id)))
   return r

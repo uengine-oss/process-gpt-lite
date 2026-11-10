@@ -169,14 +169,24 @@ design proposal needs a drawing the mail does not name), name an English file na
 customer the sender's company in English, summary one English line of what they need. [] when none.
 Write every text in English even when a mail is written in Korean.`
 
+// The mails new to this poll. A mail is new to the poll that marks it seen: two polls at once (two
+// mails arriving together, a timer and a button) both read it as unseen, and each made its drafts and
+// recorded its case steps ('요청 메일 접수' twice in one case — the mined definition lost the step order).
+export async function claimFresh(userId, mails) {
+  const seen = new Set((await q('select mail_id from pro_mail_seen where user_id=$1', [userId])).map((r) => r.mail_id))
+  const fresh = []
+  for (const m of mails.filter((x) => !seen.has(x.id))) {
+    if ((await q('insert into pro_mail_seen values ($1,$2) on conflict do nothing returning mail_id', [userId, m.id])).length) fresh.push(m)
+  }
+  return fresh
+}
+
 export async function pollUser(userId, { announce } = {}) {
   const [acc] = await q('select * from pro_mail_accounts where user_id=$1', [userId])
   if (!acc) return { skipped: 'no account' }
   const mails = acc.provider === 'gmail' ? await fetchGmail(userId)
     : acc.provider === 'imap' ? await fetchImap(userId, acc) : await fetchDemo(userId)
-  const seen = new Set((await q('select mail_id from pro_mail_seen where user_id=$1', [userId])).map((r) => r.mail_id))
-  const fresh = mails.filter((m) => !seen.has(m.id))
-  for (const m of fresh) await q('insert into pro_mail_seen values ($1,$2) on conflict do nothing', [userId, m.id])
+  const fresh = await claimFresh(userId, mails)
   await q('update pro_mail_accounts set last_poll=now() where user_id=$1', [userId])
   if (!fresh.length) return { fresh: 0 }
 
