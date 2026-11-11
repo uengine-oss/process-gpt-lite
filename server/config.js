@@ -69,6 +69,8 @@ export const config = {
   // so they cannot touch Lite's page. Empty: the proxy comes from Lite's own origin (no more isolation than a
   // same-origin frame). appsHostOrigins: the Lite pages that may frame the proxy (comma list, besides its own origin)
   appsSandboxOrigin: get('PRO_APPS_SANDBOX_ORIGIN', '').replace(/\/$/, ''),
+  // signs the demo addresses for other MCP Apps hosts (lib/apps/links.js); empty: no such addresses
+  appsLinkSecret: get('PRO_APPS_LINK_SECRET', ''),
   appsHostOrigins: get('PRO_APPS_HOST_ORIGINS', '').split(',').map((x) => x.trim().replace(/\/$/, '')).filter(Boolean),
   aidlcTmuxSocket: get('PRO_AIDLC_TMUX_SOCKET', 'pgpt-aidlc'),
   // a second development server on the same database watches only the AI-DLC folders below this path

@@ -3,7 +3,6 @@
 // split by role, reviewed by everyone at once (who is looking at what, stances, comments with
 // evidence), then sent as one: answers into the question file, or one decision into the session's
 // approval prompt. An MCP App: these tools, the screen ui://review/board; Lite only through ctx (lite-host).
-import fs from 'node:fs'
 import { z } from 'zod'
 import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import * as B from './board.js'
@@ -11,7 +10,6 @@ import * as B from './board.js'
 const err = (status, message) => Object.assign(new Error(message), { status })
 const ALL_STANCES = new Set(['agree', 'choose', 'object', 'ask', 'accept', 'fix', 'reject'])
 const VIEW = 'ui://review/board'
-const page = () => fs.readFileSync(new URL('./ui/index.html', import.meta.url), 'utf8')
 const run = (fn) => async (args) => {
   try {
     const value = await fn(args || {})
@@ -283,10 +281,10 @@ export default function register(server, ctx) {
   }
 
   // ---------- the tools and the screen ----------
-  const A = { folder: z.string().describe('the shared folder that holds the AI-DLC record (its slug)') }
+  const A = { folder: z.string().optional().describe('the shared folder that holds the AI-DLC record (its slug); left out on an address made for one folder') }
   const app = (extra = {}) => ({ _meta: { ui: { resourceUri: VIEW, ...extra } } })
   registerAppResource(server, '검토 보드', VIEW, { description: 'The AI-DLC stage\'s questions and review findings as cards by role' },
-    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: page() }] }))
+    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: await ctx.screen() }] }))
   registerAppTool(server, 'review_open', {
     title: 'Review board', description: 'What the folder\'s AI-DLC stage waits on — its questions with the recommendation and why, an approval\'s review findings — as cards by role, with everyone\'s stances and comments.',
     inputSchema: { ...A, item: z.string().optional(), w: z.string().optional() }, ...app(),

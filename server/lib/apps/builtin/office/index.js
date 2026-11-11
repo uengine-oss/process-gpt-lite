@@ -5,7 +5,6 @@
 // is unchanged: the screen passes the editor's messages to the page as Lite's notification 'office' and the page's to
 // the editor through the screen tool office_post; what the page did inside the editor's document (fold the ribbon or
 // the 한글 tool box, hide the AI dock) are the screen's tools too.
-import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
@@ -20,9 +19,9 @@ export const EDITORS = ['docs', 'sheets', 'slides', 'pdf', 'markdown', 'html', '
 const VIEW = 'ui://office/editor'
 const UI = { csp: {}, permissions: { clipboardWrite: {} } }
 
-export function registerOffice(server) {
+export function registerOffice(server, ctx) {
   registerAppResource(server, '이음오피스 편집기', VIEW, { description: 'An IeumOffice editor with the document open in it', _meta: { ui: UI } },
-    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: fs.readFileSync(path.join(OFFICE_DIR, 'ui', 'index.html'), 'utf8'), _meta: { ui: UI } }] }))
+    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: await ctx.screen(), _meta: { ui: UI } }] }))
   registerAppTool(server, 'office_open', {
     title: 'Open in IeumOffice', description: 'A document in its IeumOffice editor (the page hands the editor\'s address to the screen).',
     inputSchema: { editor: z.string(), name: z.string().optional(), readOnly: z.boolean().optional() }, _meta: { ui: { resourceUri: VIEW } },

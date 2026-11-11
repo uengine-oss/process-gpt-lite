@@ -9,13 +9,16 @@
 // says the same way comes out as emit('event'); the page may call the screen's own tools (callView).
 // A screen whose app needs an origin of its own (manifest origin: true — the ArtCraft builds keep settings and fonts
 // there) runs behind the sandbox proxy (the double iframe of MCP Apps) from /api/config appsSandbox.
+// An app of another MCP server (manifest external: <server>, src/views/ExternalAppsView.vue) is someone else's code:
+// its MCP goes through Lite's relay (/api/apps/x/<server>/mcp), it runs behind the proxy with the CSP it declared, and
+// its inner frame has no origin at all — it reaches neither Lite nor what the editors keep in the sandbox origin.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { AppBridge, PostMessageTransport, getToolUiResourceUri } from '@modelcontextprotocol/ext-apps/app-bridge'
 import { BASE } from '../base.js'
-import { freshToken } from '../api.js'
+import { authedFetch } from './mcpFetch.js'
 import { navAllowed } from './paths.js'
 import { useApp } from '../stores/app.js'
 import { useApps } from '../stores/apps.js'
@@ -32,10 +35,13 @@ const frame = ref(null)
 const failed = ref('')
 const theme = computed(() => (sky.isDay ? 'light' : 'dark'))
 const LIVE = 'notifications/io.uengine.lite/event'
-const proxied = computed(() => !!props.manifest.origin)
+const external = computed(() => !!props.manifest.external)
+const proxied = computed(() => !!props.manifest.origin || external.value)
 // the screen with no origin of its own; the proxy (another origin, or Lite's own when none is set) with one
 const SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox'
 const SANDBOX_ORIGIN = 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-pointer-lock'
+// inside the proxy, another server's screen: scripts and forms, no origin
+const SANDBOX_EXTERNAL = 'allow-scripts allow-forms'
 let sandboxAt = null
 const sandboxOrigin = () => (sandboxAt ||= fetch(`${BASE}/api/config`).then((r) => r.json()).then((c) => c.appsSandbox || location.origin).catch(() => location.origin))
 let client = null
@@ -67,17 +73,10 @@ async function start() {
   const id = props.manifest.id
   // the app's MCP server, as this person (a fresh token on every request)
   client = new Client({ name: 'process-gpt-lite', version: '2.0.0' })
-  const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/apps/${id}/mcp`, location.origin), {
-    // (the transport's headers come as a Headers object: Accept and Content-Type must stay)
-    fetch: async (u, init = {}) => {
-      const headers = new Headers(init.headers)
-      headers.set('Authorization', `Bearer ${await freshToken()}`)
-      return fetch(u, { ...init, headers })
-    },
-  })
-  await client.connect(transport)
+  const endpoint = external.value ? `${BASE}/api/apps/x/${encodeURIComponent(props.manifest.external)}/mcp` : `${BASE}/api/apps/${id}/mcp`
+  await client.connect(new StreamableHTTPClientTransport(new URL(endpoint, location.origin), { fetch: authedFetch }))
   // the entry tool: its result is the screen's first data, its ui:// resource the screen
-  const args = { folder: props.folder, ...props.params }
+  const args = { ...(props.folder ? { folder: props.folder } : {}), ...props.params }
   const { tools } = await client.listTools()
   const entry = tools.find((t) => t.name === props.manifest.entry)
   const uri = entry && getToolUiResourceUri(entry)
@@ -98,14 +97,15 @@ async function start() {
   bridge.onloggingmessage = (m) => console.warn(`[app ${id}]`, m.level, m.data)
   bridge.ondownloadfile = async ({ contents }) => { emit('download', contents || []); return {} }
   bridge.fallbackNotificationHandler = async (n) => { if (n?.method === LIVE) emit('event', n.params || {}) }
-  // the page's relative addresses (its files, the runtime) are the app's own ui/ on the server it is loaded from
+  // a Lite screen's relative addresses (the editors' frames) are the app's own ui/ on the server it is loaded from;
+  // another server's screen is whole as it came
   const at = proxied.value ? await sandboxOrigin() : location.origin
   const base = `<base href="${at}${BASE}/api/apps/${id}/ui/">`
-  const page = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (h) => `${h}${base}`) : base + html
+  const page = external.value ? html : /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (h) => `${h}${base}`) : base + html
   if (closed) return
   if (proxied.value) {
     const meta = res.contents?.[0]?._meta?.ui || {}
-    bridge.onsandboxready = () => bridge.sendSandboxResourceReady({ html: page, sandbox: SANDBOX_ORIGIN, csp: meta.csp || {}, permissions: meta.permissions })
+    bridge.onsandboxready = () => bridge.sendSandboxResourceReady({ html: page, sandbox: external.value ? SANDBOX_EXTERNAL : SANDBOX_ORIGIN, csp: meta.csp || {}, permissions: meta.permissions })
   }
   await bridge.connect(new PostMessageTransport(frame.value.contentWindow, frame.value.contentWindow))
   if (proxied.value) frame.value.src = `${at}${BASE}/api/apps/_sandbox?app=${encodeURIComponent(id)}`

@@ -2,13 +2,11 @@
 // units (units-generation) → each unit's construction stages from the audit; the unit the session is on now,
 // its progress, its artifacts, and the session's screen. Tools here, the screen is ui://bolts/view; Lite's
 // record only through ctx (lite-host).
-import fs from 'node:fs'
 import { z } from 'zod'
 import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import { stageTimes, buildTree, UNIT_STAGES } from './tree.js'
 
 const VIEW = 'ui://bolts/view'
-const page = () => fs.readFileSync(new URL('./ui/index.html', import.meta.url), 'utf8')
 const run = (fn) => async (args) => {
   try {
     const value = await fn(args || {})
@@ -65,9 +63,9 @@ export default function register(server, ctx) {
     const s = await w.session()
     return { running: text != null, text: text || '', now: w.unit, prompt: s.choice && { kind: s.choice.kind, title: s.choice.title }, workroom: s.workroom }
   }
-  const A = { folder: z.string().describe('the shared folder that holds the AI-DLC record (its slug)') }
+  const A = { folder: z.string().optional().describe('the shared folder that holds the AI-DLC record (its slug); left out on an address made for one folder') }
   registerAppResource(server, '볼트 보드', VIEW, { description: 'Bolts, units and their construction stages, and the session building the unit now' },
-    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: page() }] }))
+    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: await ctx.screen() }] }))
   registerAppTool(server, 'bolts_open', {
     title: 'Bolt board', description: 'The AI-DLC work of a folder as bolts → units → construction stages, with the unit the team session is building now.',
     inputSchema: { ...A, unit: z.string().optional() }, _meta: { ui: { resourceUri: VIEW } },

@@ -24,6 +24,8 @@ import { q, pool } from '../supa.js'
 import { config } from '../../config.js'
 import { makeContext } from './context.js'
 import { hostServer } from './host.js'
+import { readLink, bindFolder } from './links.js'
+import { externalServers, relay } from './external.js'
 import { registerPanels, PANELS_MANIFEST, PANELS_DIR } from './builtin/panels/index.js'
 import { registerCraft, CRAFT_MANIFEST, CRAFT_DIR } from './builtin/craft/index.js'
 import { registerOffice, OFFICE_MANIFEST, OFFICE_DIR } from './builtin/office/index.js'
@@ -84,7 +86,7 @@ export async function loadApps(dir = APPS_DIR) {
       if (typeof mod.default !== 'function') throw bad(name, 'server.js must export default (server, ctx) => …')
       // a dry registration: the entry tool must be there
       const probe = new McpServer({ name, version: manifest.version })
-      mod.default(probe, makeContext(manifest, null))
+      mod.default(probe, makeContext(manifest, null, appDir))
       if (!probe._registeredTools?.[manifest.entry]) throw bad(name, `entry tool ${manifest.entry} is not registered`)
       apps.set(manifest.id, { manifest, dir: appDir, register: mod.default })
     } catch (e) {
@@ -102,7 +104,7 @@ export const get = (id) => apps.get(id) || null
 export function appServer(id, user) {
   const a = apps.get(id)
   if (!a) throw Object.assign(new Error('no such app'), { status: 404 })
-  const ctx = makeContext(a.manifest, user)
+  const ctx = makeContext(a.manifest, user, a.dir)
   const server = new McpServer({ name: id, version: a.manifest.version })
   a.register(server, ctx)
   return { server, ctx }
@@ -192,6 +194,13 @@ async function serveMcp(req, res, server, done) {
   }
 }
 const noSessions = (req, res) => res.status(405).set('Allow', 'POST').json({ jsonrpc: '2.0', error: { code: -32000, message: 'stateless: POST only' }, id: null })
+// a demo address is called by another host, from its server or from a page (the reference host): no cookies, any origin
+const linkCors = (res) => res.set({
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'content-type, accept, mcp-protocol-version, mcp-session-id, last-event-id',
+  'Access-Control-Expose-Headers': 'mcp-session-id',
+})
 
 // The sandbox proxy of MCP Apps (the double iframe): served from config.appsSandboxOrigin, framed only by Lite's
 // pages; the screen it is handed runs inside it with that origin. Not CSP-sandboxed itself: that origin is the point.
@@ -218,6 +227,11 @@ export function mountApps(app, auth, { folderHasAidlc }) {
       res.json(list().filter((m) => m.requires.every((x) => x !== 'aidlc' || has)))
     } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
   })
+  // MCP Apps of other servers (lib/apps/external.js): which servers, and their MCP passed on as the person
+  app.get('/api/apps/external', auth, async (req, res) => {
+    try { res.json(Object.keys(await externalServers()).map((name) => ({ name }))) } catch (e) { res.status(500).json({ error: e.message }) }
+  })
+  for (const m of ['post', 'get', 'delete']) app[m]('/api/apps/x/:name/mcp', auth, (req, res) => relay(req, res, req.params.name))
   // lite-host for an app running as its own service (it passes on the person's token)
   app.post('/api/apps/_host/mcp', auth, (req, res) => serveMcp(req, res, hostServer({ appId: String(req.query.app || 'external').slice(0, 32), user: req.user })))
   app.get('/api/apps/_host/mcp', noSessions)
@@ -231,5 +245,19 @@ export function mountApps(app, auth, { folderHasAidlc }) {
     })
     app.get(`/api/apps/${id}/mcp`, noSessions)
     app.delete(`/api/apps/${id}/mcp`, noSessions)
+    // the demo address for another MCP Apps host (lib/apps/links.js): one person, one folder, until a time
+    const link = `/api/apps/${id}/mcp/link/:key`
+    app.options(link, (req, res) => { linkCors(res); res.status(204).end() })
+    app.post(link, (req, res) => {
+      linkCors(res)
+      const l = readLink(config.appsLinkSecret, req.params.key)
+      if (!l || l.app !== id) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'not a valid address' }, id: null })
+      const refused = bindFolder(req.body, l.folder)
+      if (refused) return res.status(403).json(refused)
+      const { server, ctx } = appServer(id, l.user)
+      return serveMcp(req, res, server, () => ctx.close?.())
+    })
+    app.get(link, (req, res) => { linkCors(res); noSessions(req, res) })
+    app.delete(link, (req, res) => { linkCors(res); noSessions(req, res) })
   }
 }

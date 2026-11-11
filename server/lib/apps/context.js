@@ -3,12 +3,14 @@
 // link, as the person who called the app (or the server itself, for the watcher's hooks) — so an app
 // that runs as its own service makes the same calls over HTTP. What stays in-process: the app's own
 // tables (ctx.db, apps embedded in this server only) and the language helpers.
+import path from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { q } from '../supa.js'
 import { config } from '../../config.js'
 import { L, isEn } from '../lang.js'
 import { hostServer } from './host.js'
+import { screenHtml } from './bundle.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
 
@@ -69,8 +71,8 @@ async function openWork(link, slug) {
   }
 }
 
-// The context for one request of app `manifest`, as `user` (null: the watcher's hooks)
-export function makeContext(manifest, user) {
+// The context for one request of app `manifest`, as `user` (null: the watcher's hooks); dir: the app's folder
+export function makeContext(manifest, user, dir = null) {
   const id = manifest.id
   let link = null
   const host = async () => (link ||= await hostLink({ appId: id, user }))
@@ -85,6 +87,8 @@ export function makeContext(manifest, user) {
     aidlc: { open: async (slug) => openWork(await host(), slug) },
     events: { toFolder: async (folder, type, data) => (await host()).call('events_publish', { folder: folder.slug || folder, type, data }) },
     notify: async (userId, card) => (await host()).call('notify_user', { userId, title: card.title, text: card.text, url: card.url }),
+    // the app's screen as one self-contained HTML (lib/apps/bundle.js): what every MCP Apps host gets
+    screen: (file = 'index.html') => screenHtml(path.join(dir, 'ui'), file),
     close: () => link?.close(),
   }
 }

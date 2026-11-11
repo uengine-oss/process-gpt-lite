@@ -1,13 +1,11 @@
 // 산출물 보기 (docs/robo-dlc/plan-review.md §3.3) as an MCP App: one document of a folder's AI-DLC record, whole,
 // focused on the part a review or a question points at. Tools here, the screen is ui://artifact/view; Lite's
 // record only through ctx (lite-host).
-import fs from 'node:fs'
 import { z } from 'zod'
 import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import { renderDoc, findHeading } from './render.js'
 
 const VIEW = 'ui://artifact/view'
-const page = () => fs.readFileSync(new URL('./ui/index.html', import.meta.url), 'utf8')
 // a tool's answer: the value for the screen, a short text for a model
 const run = (fn) => async (args) => {
   try {
@@ -38,10 +36,10 @@ export default function register(server, ctx) {
     const all = await w.docs()
     return { kind: 'docs', intent: w.intent, docs: all.map((x) => ({ ...x, stageName: w.describeStage(x.stage).name, name: x.path.split('/').pop() })) }
   }
-  const A = { folder: z.string().describe('the shared folder that holds the AI-DLC record (its slug)') }
+  const A = { folder: z.string().optional().describe('the shared folder that holds the AI-DLC record (its slug); left out on an address made for one folder') }
 
   registerAppResource(server, '산출물 보기', VIEW, { description: 'An AI-DLC document, whole, with the part under review in focus' },
-    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: page() }] }))
+    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: await ctx.screen() }] }))
   // the entry: a document (path, focus on a section) or, with no path, the record's documents
   registerAppTool(server, 'artifact_open', {
     title: 'Open an AI-DLC artifact',

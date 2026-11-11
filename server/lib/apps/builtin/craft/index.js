@@ -4,7 +4,6 @@
 // that same origin, so it can hand the file over and catch saves the way the page used to from outside. What the
 // page and the screen pass each other: the file (the screen's tool craft_file), saves and exports
 // (ui/download-file), the screen's state (Lite's notification) and live requests (the screen's tool craft_request).
-import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
@@ -19,12 +18,12 @@ export const CRAFT_MANIFEST = {
 const VIEW = 'ui://craft/editor'
 const err = (status, message) => Object.assign(new Error(message), { status })
 
-export function registerCraft(server) {
+export function registerCraft(server, ctx) {
   registerAppResource(server, 'ArtCraft 편집기', VIEW, {
     description: 'An ArtCraft web app with the file open in it',
     // its own origin's files only (the build, its fonts); the clipboard for copy and paste inside the app
     _meta: { ui: { csp: {}, permissions: { clipboardWrite: {} } } },
-  }, async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: fs.readFileSync(path.join(CRAFT_DIR, 'ui', 'index.html'), 'utf8'), _meta: { ui: { csp: {}, permissions: { clipboardWrite: {} } } } }] }))
+  }, async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: await ctx.screen(), _meta: { ui: { csp: {}, permissions: { clipboardWrite: {} } } } }] }))
   registerAppTool(server, 'craft_open', {
     title: 'Open in an ArtCraft app', description: 'A file in its ArtCraft web app (the page hands the file to the screen).',
     inputSchema: { app: z.string(), name: z.string().optional(), lang: z.enum(['ko', 'en']).optional() }, _meta: { ui: { resourceUri: VIEW } },

@@ -22,6 +22,7 @@ const routes = [
   // AI-DLC: what the folder's team session asks a person now (docs/robo-dlc/plan-team.md)
   { path: '/aidlc/:folder/decide', component: () => import('./views/AidlcDecide.vue') },
   // Lite apps (server/apps/*): the review board, the bolt board, the document viewer …
+  { path: '/apps/external', component: () => import('./views/ExternalAppsView.vue') },
   { path: '/apps/:id/:folder', component: () => import('./views/AppView.vue') },
   // 공유 폴더 (UI 프로토타입, 가짜 데이터)
   { path: '/folders', component: () => import('./views/FoldersView.vue') },

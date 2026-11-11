@@ -73,7 +73,11 @@ test('앱 규약: 앱마다 입구 도구가 MCP Apps 화면(ui://)을 가리키
       assert.ok(uri?.startsWith(`ui://${m.id}/`), `${m.id}: entry ${m.entry} -> ${uri}`)
       const res = await client.readResource({ uri })
       assert.equal(res.contents[0].mimeType, RESOURCE_MIME_TYPE)
-      assert.match(res.contents[0].text, /<script type="module"/)
+      // one self-contained HTML (lib/apps/bundle.js): what any MCP Apps host can load as it is
+      const html = res.contents[0].text
+      assert.match(html, /<script type="module">/, `${m.id}: an inline module`)
+      assert.doesNotMatch(html, /<script[^>]+src="(?!https?:)|<link\s+rel="stylesheet"\s+href="(?!https?:)/, `${m.id}: no file beside the page`)
+      assert.doesNotMatch(html, /from\s*["']\.\.?\//, `${m.id}: no relative import left`)
       for (const t of tools) {
         assert.ok(getToolUiResourceUri(t)?.startsWith(`ui://${m.id}/`), `${m.id}: ${t.name} belongs to its own screen`)
         // the watcher's hooks are the host's, never a model's
@@ -188,6 +192,38 @@ test('샌드박스 프록시: frame-ancestors 는 Lite 화면만, 프록시는 �
   assert.match(html, /ui\/notifications\/sandbox-proxy-ready/)
   assert.match(html, /ui\/notifications\/sandbox-resource-ready/)
   assert.match(html, /if \(!hosts\.has\(e\.origin\) \|\| \(host && e\.origin !== host\)\) return/)
+})
+
+// a demo address for another host: one app, one person, one folder, until a time; nothing else passes
+test('데모 주소: 서명·만료·앱이 맞아야 하고, 도구 호출은 그 폴더로만', async () => {
+  const { makeLink, readLink, bindFolder } = await import('../lib/apps/links.js')
+  const user = { id: '00000000-0000-0000-0000-000000000001', name: '한지수' }
+  const key = makeLink('s3cret', { app: 'bolts', user, folder: 'folder-1', hours: 1 })
+  assert.deepEqual({ ...readLink('s3cret', key), exp: 0 }, { app: 'bolts', user, folder: 'folder-1', exp: 0 })
+  assert.equal(readLink('other', key), null, 'another secret')
+  assert.equal(readLink('', key), null, 'no secret: off')
+  const [body] = key.split('.')
+  const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url')), f: 'folder-2' })).toString('base64url')
+  assert.equal(readLink('s3cret', `${forged}.${key.split('.')[1]}`), null, 'a changed folder')
+  assert.equal(readLink('s3cret', makeLink('s3cret', { app: 'bolts', user, folder: 'folder-1', hours: -1 })), null, 'expired')
+  assert.throws(() => makeLink('', { app: 'bolts', user, folder: 'f' }), /PRO_APPS_LINK_SECRET/)
+  const call = { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'bolts_open', arguments: {} } }
+  assert.equal(bindFolder(call, 'folder-1'), null)
+  assert.equal(call.params.arguments.folder, 'folder-1', 'filled in')
+  assert.equal(bindFolder([{ method: 'tools/list' }, { ...call, params: { name: 'x', arguments: { folder: 'folder-2' } } }], 'folder-1').error.code, -32001, 'another folder')
+})
+
+// another server's apps: the tenant's registry (and a development list); never Lite's own, a switched-off or a non-http one
+test('다른 MCP 서버: 이름·주소가 맞는 켜진 서버만, Lite 자신의 pgpt-* 는 빼고', async () => {
+  process.env.PRO_APPS_EXTERNAL = JSON.stringify({
+    'budget-allocator': { url: 'https://example.com/apps/budget/mcp' }, 'pgpt-folders': { url: 'http://x/mcp' },
+    off: { url: 'https://example.com/mcp', enabled: false }, local: { url: 'file:///etc/passwd' }, 'bad name!': { url: 'https://example.com/mcp' },
+  })
+  const { externalServers } = await import('../lib/apps/external.js')
+  const servers = await externalServers()
+  assert.deepEqual(servers['budget-allocator'], { url: 'https://example.com/apps/budget/mcp', headers: {} })
+  for (const k of ['pgpt-folders', 'off', 'local', 'bad name!']) assert.ok(!(k in servers), k)
+  delete process.env.PRO_APPS_EXTERNAL
 })
 
 test('앱 화면의 링크: 정해진 Lite 화면으로만 옮긴다', () => {

@@ -2,7 +2,6 @@
 // row of pro_panels (html, script, data) that a model wrote or that is one of the ready-made AI-DLC
 // dashboards. The screen ui://panels/view is one runtime; panel_view hands it the panel, and the old panel.*
 // calls are the tools here — always as the panel's owner.
-import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
@@ -64,7 +63,7 @@ export function registerPanels(server, ctx) {
     return p
   }
   registerAppResource(server, '홈 패널', VIEW, { description: 'A Home panel: its own html and script, run in the sandbox' },
-    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: fs.readFileSync(new URL('./ui/index.html', import.meta.url), 'utf8') }] }))
+    async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: await ctx.screen() }] }))
   registerAppTool(server, 'panel_view', {
     title: 'A Home panel', description: 'One of my Home panels, to show.', inputSchema: { id: z.string(), folder: z.string().optional() }, _meta: { ui: { resourceUri: VIEW } },
   }, run(async ({ id }) => { const p = await mine(id); return { id: p.id, title: p.title, html: p.spec?.html || '', script: p.spec?.script || '', data: p.data || {} } }))
