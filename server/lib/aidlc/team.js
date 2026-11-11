@@ -115,6 +115,8 @@ export async function decideView(slug, user) {
   const name = nameOf(folder)
   const running = await AS.has(name)
   const choice = running ? AS.parseChoice(await AS.screen(name).catch(() => '')) : null
+  // an approval on screen is about the review written a moment before it: read the record afresh
+  if (cur && choice && promptKind(choice) === 'approval') R.forget(cur.dir)
   const stage = cur?.stage || null
   const roleKey = waitRole(stage, choice)
   const questions = cur ? (await R.listQuestions(cur.dir)).filter((f) => !stage || f.stage === stage.slug || f.questions.some((x) => !x.answer)) : []

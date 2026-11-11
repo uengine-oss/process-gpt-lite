@@ -36,6 +36,8 @@ async function openWork(slug, user, need = 'viewer') {
     stage: cur?.stage || null, unit: cur?.unit || null, stateStage: cur ? describeStage(cur.state.currentStage) : null,
     describeStage, roleName, roleKeys: ROLE_KEYS,
     // ---- the record (read only) ----
+    // read the record afresh on the next call (a file written a moment ago)
+    fresh: () => { if (dir) R.forget(dir) },
     questions: async () => { need404(); return R.listQuestions(dir) },
     reviews: async () => { need404(); return R.listReviews(dir) },
     units: async () => { need404(); return R.readUnits(dir) },

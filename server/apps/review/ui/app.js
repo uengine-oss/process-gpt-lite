@@ -60,8 +60,12 @@ function draw() {
     }).join('')
   }
   drawSend()
-  if (open) drawer()
+  // (someone else's change must not take the text box from under the person typing: redraw when they leave it)
+  if (open) { if (typing()) heldDrawer = true; else drawer() }
 }
+const typing = () => { const a = document.activeElement; return !!a && a.tagName === 'TEXTAREA' && !!a.closest('#drawer') && !!a.value }
+let heldDrawer = false
+document.addEventListener('focusout', (e) => { if (heldDrawer && e.target.closest?.('#drawer')) setTimeout(() => { if (heldDrawer && !typing()) { heldDrawer = false; drawer() } }, 150) })
 
 function watchersOf(key) { return live.filter((p) => p.key === key && p.id !== me?.id) }
 function drawLive() {
@@ -96,7 +100,8 @@ function drawer() {
   if (!i) { d.hidden = true; open = null; return }
   d.hidden = false
   const lane = B.lanes.find((l) => l.roleKey === i.roleKey)
-  const reviewer = lane?.people.some((p) => p.id === me?.id)
+  // the card's role decides it; the stage's decider may decide any card (the server checks the same)
+  const reviewer = lane?.people.some((p) => p.id === me?.id) || B.me.canSend
   const keep = { note: $('#note')?.value || '', cbody: $('#cbody')?.value || '', other: $('#other')?.value || '' }
   let body = `<div class="dh"><span class="id">${esc(i.id)}</span>${i.tag ? `<span class="chip">${esc(i.tag)}</span>` : ''}${i.severity ? `<span class="chip sev ${esc(String(i.severity).toLowerCase())}">${esc(i.severity)}</span>` : ''}<span class="state ${i.state}">${esc(STATE[i.state])}</span><button class="x" data-act="close" aria-label="close">✕</button></div>
     <div class="watchers" id="watchers">${watchersHtml(i.key)}</div>

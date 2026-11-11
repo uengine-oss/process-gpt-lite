@@ -122,9 +122,9 @@ export async function readAudit(dir) {
 }
 
 // ---------- walking the record ----------
-// the question and review files of a record: one walk, reused for 15 s (a new stage's files show up
+// the question and review files of a record: one walk, reused for 4 s (a new stage's files show up
 // on the next refresh; answers written into an existing file are seen at once through its mtime)
-const WALK_TTL = 15000
+const WALK_TTL = 4000
 const walks = new Map() // dir -> { at, files }
 // a look that must not miss a file written a moment ago (the watcher routing a new wait): walk again
 export function forget(dir) { walks.delete(dir); docWalks.delete(dir) }
@@ -305,7 +305,7 @@ export async function readBolts(dir, unitNames = []) {
 
 // ---------- the record's documents (what a stage produced) ----------
 // every .md of the intent's record but the audit shards and the engine's own folders; read only these
-const DOC_TTL = 15000
+const DOC_TTL = 4000
 const docWalks = new Map()
 export async function docFiles(dir) {
   const hit = docWalks.get(dir)

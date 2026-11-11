@@ -32,6 +32,7 @@ export default (ctx) => {
     }
     // an approval's findings: the stage's (and unit's) latest review, while its approval waits
     const session = await w.session()
+    if (session.choice?.kind === 'approval') w.fresh()
     const reviews = (await w.reviews()).filter((r) => r.stage === stage.slug && (!w.unit || !r.unit || r.unit === w.unit.unit))
     const review = reviews.at(-1) || null
     if (review && session.choice?.kind === 'approval') {
