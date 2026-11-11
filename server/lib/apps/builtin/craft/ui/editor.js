@@ -1,8 +1,9 @@
 // The ArtCraft screen (an MCP App behind the sandbox proxy): the app's self-hosted web build in a frame of this
 // screen's own origin, so the screen can reach into it the way the page used to (src/components/CraftEditorFrame.vue
 // keeps the toolbar):
-// - CADCraft has a postMessage bridge (?host=parent): cadcraft:ready → we send cadcraft:open{name, bytes};
-//   SAVE comes back as cadcraft:save{name, bytes}; cadcraft:dirty{dirty}; cadcraft:failed{error}.
+// - CADCraft (and CircuitCraft · SolidCraft) have a postMessage bridge (?host=parent): <app>:ready → we send
+//   <app>:open{name, bytes, files?} (files: what travels with it, a circuit's .lib); SAVE comes back as
+//   <app>:save{name, bytes}; <app>:dirty{dirty}; <app>:failed{error}.
 // - The others take the file through their page API (window.vectorcraft.openFile, window.filmcraft.importFiles)
 //   or a file dropped on the canvas, and save as browser downloads, which we catch inside the frame (the blob behind
 //   the download link) instead of letting them go.
@@ -24,6 +25,8 @@ function drop(w, file) {
 // query: how each app starts (empty, no demo); ready: the frame can take a file; open: hand it over
 const APPS = {
   cadcraft: { query: () => '?host=parent', bridge: true },
+  circuitcraft: { query: () => '?host=parent', bridge: true },
+  solidcraft: { query: () => '?host=parent', bridge: true },
   // the app's own language switch follows the screen's; the others follow the browser's
   vectorcraft: { query: (lang) => `?lang=${lang}`, ready: (w) => !!w.vectorcraft, open: (w, file, bytes) => w.vectorcraft.openFile(file.name, new Uint8Array(bytes)) },
   photocraft: { query: () => '', ready: (w) => !w.document.getElementById('photocraft_loading'), open: (w, file) => drop(w, file) },
@@ -41,7 +44,10 @@ const APPS = {
 // the file, when the page hands it in
 let gotFile
 const fileP = new Promise((r) => { gotFile = r })
-lite.provide('craft_file', ({ name, base64 }) => { gotFile({ name: name || 'file', bytes: lite.unb64(base64 || '').buffer }); return true })
+lite.provide('craft_file', ({ name, base64, files }) => {
+  gotFile({ name: name || 'file', bytes: lite.unb64(base64 || '').buffer, files: (files || []).map((f) => ({ name: f.name, bytes: lite.unb64(f.base64 || '').buffer })) })
+  return true
+})
 
 await lite.ready
 const { app, lang } = lite.initial || {}
@@ -86,7 +92,7 @@ else if (a.bridge) {
     if (!kind || m.type !== `${app}:${kind}`) return
     if (kind === 'ready') {
       const f = await fileP
-      win().postMessage({ type: `${app}:open`, name: f.name, bytes: f.bytes }, self.origin, [f.bytes])
+      win().postMessage({ type: `${app}:open`, name: f.name, bytes: f.bytes, ...(f.files.length ? { files: f.files } : {}) }, self.origin, [f.bytes])
       state('open', { live: canLive() })
     } else if (kind === 'save') save(m.name, m.bytes)
     else if (kind === 'dirty') state('dirty', { dirty: !!m.dirty })

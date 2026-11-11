@@ -55,7 +55,10 @@
 - 페이지 `CraftEditorFrame.vue`: 머리줄·알림·저장(업로드)·라이브 연결(`craftLive` 웹소켓)은 그대로다. 앱에 손대는 일은 모두 `AppFrame.callView` 로 바뀌었다.
 - 겪은 일: 화면은 `about:srcdoc` 이라 `location.origin` 이 `"null"` 이다. 진짜 출처는 `self.origin` 이다(CADCraft 다리의 출처 검사).
 - 시험: Craft 13개(F-CR-<앱> 5·F-CR-10·F-CR-11·F-ED-04 다섯 앱·F-CV-04)가 프록시 뒤에서 통과했다. 바꾸기 전 기준선 12개도 통과. 중첩 틀의 출처가 샌드박스 출처인지도 본다.
-- CircuitCraft·SolidCraft 는 `feat/prototype-request`(미병합)에 있다. 그 가지가 이 위로 올라오면 `editor.js` 의 앱 표와 `CraftEditorFrame` 의 머리줄 표에 한 줄씩 넣으면 된다.
+- CircuitCraft·SolidCraft 는 `feat/prototype-request`(미병합)에 있다. 둘 다 CADCraft 와 같은 postMessage 다리 앱이다. 화면(`editor.js` 앱 표·`craft_file` 의 `files`)과 페이지(머리줄 표·`companions` 로 회로의 .lib 같이 보내기)는 미리 받아 두었다. 그 가지를 합칠 때 남는 일은 셋이다.
+  - `CraftEditorFrame.sendDocument` 에 OrCAD `.dsn` → 넷리스트 변환(`/api/craft/dsn2cir`)을 넣는다. 변환은 페이지에서 하고 화면에는 결과 `.cir` 를 넘긴다.
+  - 서버 `CRAFT_APPS`(`server/mcp/craft.js`)에 두 앱을 넣는다. 그래야 `craft_open` 이 받는다.
+  - 그 가지의 `CraftEditorFrame` 충돌은 이 가지 쪽을 택한다.
 
 ### 이음오피스 = 내장 앱 `office` (끝남)
 

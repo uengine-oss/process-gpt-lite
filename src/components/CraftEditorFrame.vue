@@ -22,6 +22,8 @@ import { officeEditorFor } from '../officeEditor.js'
 import { lang } from '../i18n/lang.js'
 
 const props = defineProps({
+  // files that travel with this one ({name, url}: a circuit's .lib), handed to a bridge app with it
+  companions: { type: Array, default: () => [] },
   fileUrl: { type: String, default: '' },
   name: { type: String, default: '' },
   maximized: { type: Boolean, default: false },
@@ -33,6 +35,8 @@ const emit = defineEmits(['saved', 'error', 'update:maximized', 'close', 'live',
 // the toolbar's part of each app: its name, and how the person saves there (the "not saved" badge says it)
 const APPS = {
   cadcraft: { title: 'CADCraft' },
+  circuitcraft: { title: 'CircuitCraft', save: '⌘S 로 저장' },
+  solidcraft: { title: 'SolidCraft', save: '⌘S 로 저장' },
   vectorcraft: { title: 'VectorCraft', save: '⌘S 로 저장' },
   photocraft: { title: 'PhotoCraft', save: '⌘S 로 저장' },
   soundcraft: { title: 'SoundCraft', save: '⌘⌥B 로 내보내기' },
@@ -80,7 +84,8 @@ async function documentBytes() {
 // the screen is up: hand it the file (it opens it once the app runs)
 async function sendDocument() {
   try {
-    await view.value.callView('craft_file', { name: props.name || 'file', base64: b64(await documentBytes()) })
+    const files = await Promise.all((props.companions || []).map(async (c) => ({ name: c.name, base64: b64(await (await fetch(c.url)).arrayBuffer()) })))
+    await view.value.callView('craft_file', { name: props.name || 'file', base64: b64(await documentBytes()), files })
   } catch (e) { show('error', `파일을 불러오지 못했어요: ${e.message}`); emit('error', e.message) }
 }
 function onScreen({ type, data } = {}) {
