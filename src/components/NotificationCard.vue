@@ -68,7 +68,7 @@ async function act(choice) {
         <button v-for="o in n.choices.options" :key="o.key" class="b press" :class="{ main: o === n.choices.options[0] }"
           :disabled="!!busy" :title="o.label" @click="act(o.key)">{{ busy === o.key ? '처리 중…' : o.key }}</button>
       </template>
-      <button class="b ghost press" :disabled="!!busy" @click="act()">{{ n.type === 'mention' ? '채팅에서 보기' : n.choices ? '자세히' : n.type === 'merge_request' || n.type === 'mining' ? '검토하기' : n.type === 'improve' ? '개선 보기' : n.type === 'aidlc' ? '결정하기' : n.type === 'agent_failed' ? '인스턴스 보기' : n.type === 'mission_failed' ? '실행 기록 보기' : '열기' }}</button>
+      <button class="b ghost press" :disabled="!!busy" @click="act()">{{ n.type === 'mention' ? '채팅에서 보기' : n.choices ? '자세히' : n.type === 'merge_request' || n.type === 'mining' ? '검토하기' : n.type === 'improve' ? '개선 보기' : n.type === 'aidlc' ? (String(n.url || '').startsWith('/apps/review/') ? '검토하기' : '결정하기') : n.type === 'agent_failed' ? '인스턴스 보기' : n.type === 'mission_failed' ? '실행 기록 보기' : '열기' }}</button>
     </div>
   </div>
 </template>
