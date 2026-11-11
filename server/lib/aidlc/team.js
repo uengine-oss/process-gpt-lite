@@ -8,6 +8,7 @@ import { L, isEn } from '../lang.js'
 import * as F from '../folders/service.js'
 import * as R from './record.js'
 import * as AS from './session.js'
+import * as M from './metrics.js'
 import { describeStage, roleName, ROLE_KEYS } from './stages.js'
 
 const T = () => config.tenantId
@@ -47,7 +48,11 @@ export async function currentIntent(root) {
   const hit = list.find((i) => i.dirName === active || i.slug === active) || list.filter((i) => i.status !== 'complete').at(-1) || list.at(-1)
   const { dir } = await R.intentDir(root, hit.space, hit.slug)
   const state = await R.readState(dir)
-  return { ...hit, dir, state, stage: describeStage(state.currentStage) }
+  let stage = describeStage(state.currentStage)
+  // construction runs unit by unit: the stage is the unit's (the code plan is the developer's)
+  const unit = stage?.phase === 'construction' ? M.unitNow(await R.readAudit(dir)) : null
+  if (unit) stage = describeStage(unit.stage)
+  return { ...hit, dir, state, stage, unit }
 }
 
 // a prompt read off the session screen, in words a person reads on a card
@@ -113,7 +118,12 @@ export async function decideView(slug, user) {
   const stage = cur?.stage || null
   const roleKey = waitRole(stage, choice)
   const questions = cur ? (await R.listQuestions(cur.dir)).filter((f) => !stage || f.stage === stage.slug || f.questions.some((x) => !x.answer)) : []
-  const reviews = cur ? (await R.listReviews(cur.dir)).filter((r) => r.stage === stage?.slug).slice(-1) : []
+  const reviews = cur ? (await R.listReviews(cur.dir)).filter((r) => r.stage === stage?.slug && (!cur.unit || !r.unit || r.unit === cur.unit.unit)).slice(-1) : []
+  // what the stage produced (the originals an approval is about) and where each finding points
+  const allDocs = cur ? await R.docList(cur.dir) : []
+  const docs = allDocs.filter((d) => d.stage === stage?.slug && (!cur.unit || !d.unit || d.unit === cur.unit.unit) && !/-questions\.md$|\/reviews\/|\/memory\.md$/.test(d.path))
+    .map((d) => ({ path: d.path, name: d.path.split('/').pop() }))
+  for (const r of reviews) for (const f of r.findings) f.refs = R.resolveRefs(f.location, allDocs, stage?.slug)
   // the mob's proposal for a question file still waiting (one for a file already answered is past)
   const waiting = new Set(questions.filter((f) => f.questions.some((x) => !x.answer && !x.summary)).map((f) => f.path))
   const [proposal] = await q(`select id, questions_path, answers, created_at from pro_aidlc_proposals where tenant_id=$1 and folder_id=$2 and used_at is null
@@ -129,7 +139,7 @@ export async function decideView(slug, user) {
     session: { running, choice: choice && { ...choice, kind: promptKind(choice), title: promptTitle(promptKind(choice), stage?.name || '') } },
     // (the summary confirmation is answered in the session's prompt, not as a question here)
     questions: questions.map((f) => { const qs = f.questions.filter((x) => !x.summary); return { path: f.path, stage: describeStage(f.stage).name, open: qs.filter((x) => !x.answer).length, questions: qs } }),
-    review: reviews[0] || null, proposal: proposal || null, ledger,
+    review: reviews[0] || null, docs, unit: cur?.unit || null, proposal: proposal || null, ledger,
   }
 }
 

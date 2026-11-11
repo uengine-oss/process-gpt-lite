@@ -18,7 +18,8 @@ const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
 
 // the room the folder's mob meets in (made once, for everyone in a role and the person asking)
-export async function startMob(slug, user) {
+// (only: the question ids to put to the meeting — the review board sends just the ones in dispute)
+export async function startMob(slug, user, { only } = {}) {
   const { folder } = await F.access(R.safeName(slug), user, 'viewer')
   const cur = await TM.currentIntent(folder.repo_path)
   if (!cur) throw err(404, 'no AI-DLC work in this folder')
@@ -31,10 +32,11 @@ export async function startMob(slug, user) {
   if (!room) room = await M.groupThread(user, [...people.keys()].filter((id) => id !== user.id), `${folder.name} · ${L('AI-DLC 몹', 'AI-DLC mob')}`.slice(0, 60))
   const f = files[0]
   await q(`insert into pro_aidlc_mobs(tenant_id,folder_id,room_id,stage,questions_path,started_by) values ($1,$2,$3,$4,$5,$6)`, [T(), folder.id, room.id, cur.stage.slug, f?.path || null, user.id])
-  const lines = f ? f.questions.filter((x) => !x.answer).map((x) => `${x.id}. ${x.text}${x.options.length ? `\n   ${x.options.map((o) => `${o.key}. ${o.text}`).join(' · ')}` : ''}`) : []
+  const pick = Array.isArray(only) && only.length ? new Set(only.map(String)) : null
+  const lines = f ? f.questions.filter((x) => !x.answer && !x.summary && (!pick || pick.has(x.id))).map((x) => `${x.id}. ${x.text}${x.options.length ? `\n   ${x.options.map((o) => `${o.key}. ${o.text}`).join(' · ')}` : ''}`) : []
   const body = f
-    ? L(`🧩 몹 정교화 · ${cur.stage.name} — 답을 기다리는 질문 ${lines.length}개예요. 회의에서 함께 정하면, 끝난 뒤 합의한 답을 정리해 담당자(${cur.stage.role})가 확인하고 질문 파일에 적어요.\n\n${lines.join('\n')}\n\n(${f.path})`,
-      `🧩 Mob elaboration · ${cur.stage.name} — ${lines.length} question(s) wait for answers. Decide them together in a meeting; afterwards the agreed answers are collected for the ${cur.stage.role} to confirm into the question file.\n\n${lines.join('\n')}\n\n(${f.path})`)
+    ? L(`🧩 몹 정교화 · ${cur.stage.name} — ${pick ? '검토 보드에서 논의가 필요하다고 한' : '답을 기다리는'} 질문 ${lines.length}개예요. 회의에서 함께 정하면, 끝난 뒤 합의한 답을 정리해 담당자(${cur.stage.role})가 확인하고 질문 파일에 적어요.\n\n${lines.join('\n')}\n\n(${f.path})`,
+      `🧩 Mob elaboration · ${cur.stage.name} — ${lines.length} question(s) ${pick ? 'the review board marked for discussion' : 'wait for answers'}. Decide them together in a meeting; afterwards the agreed answers are collected for the ${cur.stage.role} to confirm into the question file.\n\n${lines.join('\n')}\n\n(${f.path})`)
     : L(`🧩 몹 회의 · ${cur.stage.name} — 지금 단계의 산출물과 결정을 함께 봐요.`, `🧩 Mob meeting · ${cur.stage.name} — let's review this stage's artifacts and decisions together.`)
   await M.post(user, room.id, { body })
   return { roomId: room.id, stage: cur.stage.slug, questions: f?.path || null }

@@ -126,7 +126,7 @@ export async function stream(path, body, onEvent) {
   }
 }
 
-const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'process', 'mission', 'notifications', 'team', 'meeting']
+const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'process', 'mission', 'notifications', 'team', 'meeting', 'app']
 // Live events over SSE; if the stream never says hello (a proxy in front holding it back, as
 // Cloudflare quick tunnels do), the same events come by long polling instead.
 export function events(handler) {

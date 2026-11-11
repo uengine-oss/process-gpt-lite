@@ -10,8 +10,10 @@ import { L } from '../lang.js'
 import { notifyUser } from '../notify.js'
 import { emit } from '../bus.js'
 import * as R from './record.js'
+import * as F from '../folders/service.js'
 import * as AS from './session.js'
 import * as TM from './team.js'
+import * as APPS from '../apps/registry.js'
 
 const T = () => config.tenantId
 // each wait's card opens the decision page; its own address lets it leave Home when that wait is over
@@ -30,14 +32,14 @@ export async function waitsOf(folder) {
     const roleKey = TM.waitRole(stage, choice)
     // a permission card says which tool and command asks (the box above the question)
     const text = choice.detail ? `${choice.title} — ${choice.detail.split('\n').slice(0, 2).join(' · ')}` : choice.question || choice.title
-    return [{ key: `prompt:${choice.fingerprint}`, kind: 'prompt', stage: stage.slug, roleKey, title: TM.promptTitle(kind, stage.name), text: text.slice(0, 400) }]
+    return [{ key: `prompt:${choice.fingerprint}`, kind: 'prompt', promptKind: kind, stage: stage.slug, roleKey, title: TM.promptTitle(kind, stage.name), text: text.slice(0, 400) }]
   }
   // no prompt on screen: question files of the stage with blank answers (the team answers in the file)
   // (a blank summary confirmation is the session's own prompt, coming next — not a question for the team)
   const files = (await R.listQuestions(cur.dir)).filter((f) => f.stage === stage.slug && f.questions.some((x) => !x.answer && !x.summary))
   return files.map((f) => {
     const open = f.questions.filter((x) => !x.answer && !x.summary)
-    return { key: `questions:${f.path}:${open.map((x) => x.id).join(',')}`, kind: 'questions', stage: stage.slug, roleKey: stage.roleKey,
+    return { key: `questions:${f.path}:${open.map((x) => x.id).join(',')}`, kind: 'questions', path: f.path, questions: open, stage: stage.slug, roleKey: stage.roleKey,
       title: L(`${stage.name} 질문 ${open.length}개가 답을 기다려요`, `${open.length} ${stage.name} question(s) wait for answers`),
       text: open.map((x) => `${x.id}. ${x.text}`).join(' / ').slice(0, 300) }
   })
@@ -55,20 +57,30 @@ export async function scanFolder(folder) {
                            on conflict (tenant_id,folder_id,wait_key) do update set closed_at=null, opened_at=now() where pro_aidlc_waits.closed_at is not null
                            returning wait_key`, [T(), folder.id, w.key, w.kind, w.stage, w.roleKey, w.title])
     if (!row) continue
+    // a kind an app handles (lib/apps: the review board takes questions and approvals) opens in that app,
+    // which may also tell the people its items go to
+    const via = APPS.handlerFor(w.kind === 'questions' ? 'aidlc.questions' : w.promptKind === 'approval' ? 'aidlc.approval' : '')
+    const url = via ? APPS.appWaitUrl(via.id, folder.slug, w.key) : waitUrl(folder.slug, w.key)
+    const told = new Set()
     for (const p of await TM.deciders(folder, w.roleKey)) {
-      if (p.id) await notifyUser(p.id, { type: 'aidlc', title: `${folder.name} · ${w.title}`, text: w.text, url: waitUrl(folder.slug, w.key) })
+      if (p.id) { await notifyUser(p.id, { type: 'aidlc', title: `${folder.name} · ${w.title}`, text: w.text, url }); told.add(p.id) }
     }
+    if (via?.notify) await via.notify({ id: folder.id, slug: folder.slug, name: folder.name }, w, url, told).catch((e) => console.warn('[aidlc watch] app', via.id, e.message))
     fresh.push(w)
   }
   const gone = [...known].filter((k) => !now.some((w) => w.key === k))
   if (gone.length) {
     await q('update pro_aidlc_waits set closed_at=now() where tenant_id=$1 and folder_id=$2 and wait_key = any($3)', [T(), folder.id, gone])
     // a wait that is over: its cards leave Home
+    const urls = gone.flatMap((k) => [waitUrl(folder.slug, k), ...APPS.handlerIds().map((id) => APPS.appWaitUrl(id, folder.slug, k))])
     const users = await q(`update notifications set is_checked=true where tenant_id=$1 and type='aidlc' and url = any($2) and not coalesce(is_checked,false) returning user_id`,
-      [T(), gone.map((k) => waitUrl(folder.slug, k))])
+      [T(), urls])
     for (const u of new Set(users.map((x) => x.user_id))) emit(u, 'notifications', {})
   }
-  if (fresh.length || gone.length) emit(`aidlc:${folder.slug}`, 'aidlc', { waits: now.length })
+  // open app screens of this folder look again (a new question file, an approval, a wait that ended)
+  if (fresh.length || gone.length) {
+    for (const m of await F.members(folder.id)) if (m.type === 'user' && !m.is_agent) emit(m.id, 'app', { app: '*', folder: folder.slug, type: 'aidlc.waits', data: { waits: now.length } })
+  }
   return { fresh, gone }
 }
 

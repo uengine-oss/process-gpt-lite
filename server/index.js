@@ -48,6 +48,9 @@ import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { folderRoomAccess } from './lib/folders/rooms.js'
 import { startAidlcWatch } from './lib/aidlc/watch.js'
+import * as APPS from './lib/apps/registry.js'
+import { access as folderAccess } from './lib/folders/service.js'
+import { hasAidlc, safeName } from './lib/aidlc/record.js'
 import { saveAttachment } from './lib/attachments.js'
 import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
@@ -310,6 +313,9 @@ app.use('/api', processRoutes(auth))
 app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
 app.use('/api', aidlcRoutes(auth))
+// Lite apps (server/apps/*, contract v1 — lib/apps/registry.js): the review board, the bolt board, the document viewer …
+await APPS.loadApps()
+APPS.mountApps(app, auth, { folderHasAidlc: async (slug, user) => { const { folder } = await folderAccess(safeName(slug), user, 'viewer'); return !!folder.repo_path && hasAidlc(folder.repo_path) } })
 // team sharing and messenger (routes/team.js)
 app.use('/api', teamRoutes(auth))
 // meetings in a team room: mesh WebRTC signalling, transcription, materials, minutes (routes/meetings.js)
@@ -807,6 +813,8 @@ const server = app.listen(config.port, async () => {
   // AI-DLC team waits → Home cards (lib/aidlc/watch.js): its own switch, so a development server with the
   // other pollers off can still run it (PRO_AIDLC_WATCH=1); on by default with the pollers
   if (background ? process.env.PRO_AIDLC_WATCH !== '0' : process.env.PRO_AIDLC_WATCH === '1') startAidlcWatch()
+  // the apps' own tables (each sql file once)
+  await APPS.migrate().catch((e) => console.warn('[apps] migrate', e.message))
   // a second development server shares the database: it must not reset the main server's tasks either
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume

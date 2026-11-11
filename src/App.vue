@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted } from 'vue'
 import SkyCanvas from './sky/SkyCanvas.vue'
+import AppSheet from './apps/AppSheet.vue'
 import { useSky } from './stores/sky.js'
 
 const sky = useSky()
@@ -15,6 +16,7 @@ onMounted(() => sky.init())
         <component :is="Component" />
       </Transition>
     </RouterView>
+    <AppSheet />
   </div>
 </template>
 

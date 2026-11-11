@@ -160,21 +160,35 @@ const ANSWER = /^\[Answer\]:\s*(.*)$/
 // after the answers the engine adds one section asking the person to confirm its summary before it
 // writes the artifact ("Does this all look correct …?" with plain "- Looks correct" options)
 const SUMMARY = /^## (?:Consolidated )?Summary Confirmation\s*$/i
+// An option the engine recommends says so in its own text: "(권장)", "(권장: 이유)", "(제안)", "(Recommended: why)".
+// The lines between a question's heading and its options are the engine's reason for asking.
+const REC = /\((?:권장|제안|추천|recommended)(?:\s*[:：]\s*([^)]*))?\)/i
 export function parseQuestions(text) {
   const qs = []
   let cur = null
+  // a file that says "각 질문의 A가 권장안" / "Option A is recommended" recommends A where no option says so
+  const fileRec = (String(text || '').match(/(?:각 질문의\s*|^|\s)([A-Z])(?:가|이)\s*권장안|option\s+([A-Z])\s+is\s+(?:the\s+)?recommended/im) || [])
+  const fallback = fileRec[1] || fileRec[2] || ''
   for (const line of String(text || '').split('\n')) {
     const h = line.match(Q_HEAD)
-    if (h) { cur = { id: h[1], tag: h[2] || '', followup: !!h[3], text: h[4].trim(), options: [], answer: '' }; qs.push(cur); continue }
-    if (SUMMARY.test(line)) { cur = { id: 'summary', tag: '', followup: false, summary: true, text: '', options: [], answer: '' }; qs.push(cur); continue }
+    if (h) { cur = { id: h[1], tag: h[2] || '', followup: !!h[3], text: h[4].trim(), note: '', options: [], answer: '', recommended: '', why: '' }; qs.push(cur); continue }
+    if (SUMMARY.test(line)) { cur = { id: 'summary', tag: '', followup: false, summary: true, text: '', note: '', options: [], answer: '', recommended: '', why: '' }; qs.push(cur); continue }
     if (line.startsWith('## ')) { cur = null; continue }
     if (!cur) continue
     const o = line.match(OPTION) || (cur.summary && line.match(/^- ()(.+)$/))
-    if (o) { cur.options.push({ key: o[1], text: o[2].trim() }); continue }
+    if (o) {
+      const t = o[2].trim()
+      const r = t.match(REC)
+      cur.options.push({ key: o[1], text: t, rec: !!r })
+      if (r && !cur.recommended) { cur.recommended = o[1]; cur.why = (r[1] || '').trim() }
+      continue
+    }
     const a = line.match(ANSWER)
     if (a) { cur.answer = a[1].trim(); continue }
-    if (cur.summary && !cur.text && line.trim()) cur.text = line.trim()
+    if (cur.summary && !cur.text && line.trim()) { cur.text = line.trim(); continue }
+    if (!cur.options.length && line.trim()) cur.note = [cur.note, line.trim()].filter(Boolean).join(' ')
   }
+  for (const x of qs) if (!x.summary && !x.recommended && fallback && x.options.some((o) => o.key === fallback)) x.recommended = fallback
   return qs
 }
 export async function listQuestions(dir) {
@@ -221,7 +235,12 @@ export function parseReview(text) {
   const findings = []
   for (const line of text.split('\n')) {
     const cells = line.split('|').map((c) => c.trim())
-    if (cells.length > 4 && /^R-\d+$/.test(cells[1])) findings.push({ id: cells[1], severity: cells[2], status: cells[cells.length - 2] || '' })
+    // | ID | Severity | Location | Finding | Required action | Status |
+    if (cells.length > 4 && /^R-\d+$/.test(cells[1])) {
+      const full = cells.length >= 8
+      findings.push({ id: cells[1], severity: cells[2], status: cells[cells.length - 2] || '',
+        location: full ? cells[3] : '', finding: full ? cells[4] : '', action: full ? cells[5] : '' })
+    }
   }
   return {
     verdict: (text.match(VERDICT) || [])[1] || '', reviewer: (text.match(META('Reviewer')) || [])[1] || '',
@@ -255,4 +274,77 @@ export function parseUnits(text) {
 }
 export async function readUnits(dir) {
   return parseUnits(await readText(path.join(dir, 'inception', 'units-generation', 'unit-of-work-dependency.md')))
+}
+
+// ---------- bolts (delivery-planning/bolt-plan.md) ----------
+// "## Bolt 1 — 할 일 API (`bolt-1-todo-api`)", then a table whose "포함 단위 / Units" row names the units
+// in backticks and whose "앞선 Bolt / Depends on" row names the bolts before it
+const BOLT_HEAD = /^##\s+Bolt\s+(\d+)\s*[—–-]\s*(.+?)\s*(?:\(`([^`]+)`\))?\s*$/i
+export function parseBolts(text, unitNames = []) {
+  const bolts = []
+  let cur = null
+  const known = new Set(unitNames)
+  for (const line of String(text || '').split('\n')) {
+    const h = line.match(BOLT_HEAD)
+    if (h) { cur = { n: Number(h[1]), name: h[2].trim(), id: h[3] || `bolt-${h[1]}`, units: [], after: [] }; bolts.push(cur); continue }
+    if (/^##\s/.test(line)) { cur = null; continue }
+    if (!cur || !line.startsWith('|')) continue
+    const cells = line.split('|').map((c) => c.trim())
+    const key = cells[1] || '', val = cells.slice(2).join(' ')
+    const ticks = [...val.matchAll(/`([^`]+)`/g)].map((m) => m[1])
+    if (/포함\s*단위|^units?$|included units|units included/i.test(key)) cur.units = ticks.filter((t) => !known.size || known.has(t))
+    else if (/앞선\s*bolt|depends|after|선행/i.test(key)) cur.after = [...val.matchAll(/Bolt\s+(\d+)/gi)].map((m) => Number(m[1]))
+  }
+  return bolts
+}
+export async function readBolts(dir, unitNames = []) {
+  return parseBolts(await readText(path.join(dir, 'inception', 'delivery-planning', 'bolt-plan.md')), unitNames)
+}
+
+// ---------- the record's documents (what a stage produced) ----------
+// every .md of the intent's record but the audit shards and the engine's own folders; read only these
+const DOC_TTL = 15000
+const docWalks = new Map()
+export async function docFiles(dir) {
+  const hit = docWalks.get(dir)
+  if (hit && Date.now() - hit.at < DOC_TTL) return hit.files
+  const files = (await walk(dir, (r) => r.endsWith('.md') && !r.startsWith('audit/'))).sort()
+  if (docWalks.size > 200) docWalks.clear()
+  docWalks.set(dir, { at: Date.now(), files })
+  return files
+}
+export async function docList(dir) {
+  return (await docFiles(dir)).map((rel) => ({ path: rel, ...where(rel) }))
+}
+export async function readDoc(dir, rel) {
+  rel = String(rel || '').replace(/^\/+/, '')
+  if (!(await docFiles(dir)).includes(rel)) throw err(404, 'document not found')
+  const st = await fs.stat(path.join(dir, rel))
+  return { path: rel, ...where(rel), text: await readText(path.join(dir, rel)), mtime: st.mtime.toISOString() }
+}
+
+// A place the engine names in prose — a review finding's Location ("…/inception/domain-design/
+// decisions.md > ADR-004, against requirements.md FR7.2"), a question's reason — as links into the
+// record: [{ path, focus, label }]. A full path loses its aidlc/spaces/<s>/intents/<i>/ prefix; a bare
+// file name is found by name (the given stage's first); what follows " > " (or an ID like FR7.2,
+// ADR-004, US1.1, Q3 right after the name) is the part to focus on.
+const DOC_REF = /((?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.md)\b/g
+const AFTER = /^\s*>\s*([^,;()\n]+?)(?=\s+(?:and|with|against|및|와|과)\s|[,;()\n]|$)|^\s+([A-Z]{1,6}-?\d+(?:\.\d+)*)\b/
+export function resolveRefs(text, docs, stage = '') {
+  const out = []
+  const s = String(text || '')
+  for (const m of s.matchAll(DOC_REF)) {
+    const raw = m[1].replace(/^aidlc\/spaces\/[^/]+\/intents\/[^/]+\//, '')
+    let hit = docs.find((d) => d.path === raw)
+    if (!hit) {
+      const name = raw.split('/').pop()
+      const same = docs.filter((d) => d.path.split('/').pop() === name)
+      hit = same.find((d) => d.stage === stage) || same[0]
+    }
+    if (!hit) continue
+    const a = s.slice(m.index + m[0].length).match(AFTER)
+    const focus = ((a && (a[1] || a[2])) || '').trim()
+    if (!out.some((o) => o.path === hit.path && o.focus === focus)) out.push({ path: hit.path, focus, label: hit.path.split('/').pop() + (focus ? ` › ${focus}` : '') })
+  }
+  return out
 }

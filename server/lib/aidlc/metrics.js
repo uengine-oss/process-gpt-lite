@@ -170,3 +170,21 @@ export function reviewSummary(reviews) {
     path: r.path,
   }))
 }
+
+// ---------- the unit stage construction is on ----------
+// The state file keeps naming the first construction stage while units run stage by stage, so the
+// stage a person is waited on comes from the audit: the latest event that names a unit and one of
+// its stages (UNIT_STARTED / COMPLETED, the code plan's PLAN_APPROVAL_*, the checkpoint, the unit's
+// review and approval — a unit stage that just finished still owns the approval after it). The
+// whole-intent STAGE_* events that follow the last unit (no unit named) end it.
+export const UNIT_STAGES = new Set(['functional-design', 'nfr-requirements', 'nfr-design', 'infrastructure-design', 'code-generation'])
+export function unitNow(events) {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (UNIT_STAGES.has(e.stage) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(e.unit || '')) {
+      return { unit: e.unit, stage: e.stage, open: !/^(UNIT_COMPLETED|GATE_APPROVED)$/.test(e.event), at: e.ts }
+    }
+    if ((/^STAGE_/.test(e.event) && e.stage && !e.unit) || e.event === 'WORKFLOW_COMPLETED') return null
+  }
+  return null
+}

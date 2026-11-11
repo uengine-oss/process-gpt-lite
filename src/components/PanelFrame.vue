@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
-import { panelDoc, aidlcApiPath } from './panelRuntime.js'
+import { panelDoc } from './panelRuntime.js'
+import { bridge, PANEL_CAPS } from '../apps/bridge.js'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
@@ -17,22 +18,11 @@ const theme = computed(() => (sky.isDay ? 'light' : 'dark'))
 const doc = computed(() => panelDoc(props.panel, document.documentElement.dataset.theme || 'light'))
 const codeKey = computed(() => props.panel.spec?.html + props.panel.spec?.script)
 
-async function onMessage(e) {
-  if (e.source !== frame.value?.contentWindow) return
-  const m = e.data
-  if (!m?.__panel) return
-  const reply = (result, error) => frame.value?.contentWindow.postMessage({ __reply: 1, id: m.id, result, error }, '*')
-  try {
-    if (m.type === 'height') height.value = Math.min(Math.max(m.payload, 40), 640)
-    else if (m.type === 'error') console.warn('[panel]', props.panel.title, m.payload)
-    else if (m.type === 'save') reply(await api(`/panels/${props.panel.id}/data`, { method: 'PUT', body: m.payload }))
-    else if (m.type === 'fetch') reply(await api(`/panel-proxy?url=${encodeURIComponent(m.payload)}`))
-    else if (m.type === 'ask') reply((await api('/panel-ask', { method: 'POST', body: { prompt: m.payload } })).text)
-    else if (m.type === 'open') { window.open(m.payload, '_blank', 'noopener'); reply(true) }
-    else if (m.type === 'chat') { app.send(m.payload, app.mainThread.id); reply(true) }
-    else if (m.type === 'aidlc') reply(await api(aidlcApiPath(m.payload)))
-  } catch (err) { reply(null, err.message) }
-}
+// what the panel may ask of the host: the panel set of src/apps/bridge.js
+const onMessage = bridge(() => frame.value, PANEL_CAPS, {
+  app, get panelId() { return props.panel.id },
+  onFrame: (type, v) => { if (type === 'height') height.value = Math.min(Math.max(v, 40), 640); else console.warn('[panel]', props.panel.title, v) },
+})
 watch(theme, (t) => frame.value?.contentWindow?.postMessage({ __theme: t }, '*'))
 onMounted(() => window.addEventListener('message', onMessage))
 onBeforeUnmount(() => window.removeEventListener('message', onMessage))
