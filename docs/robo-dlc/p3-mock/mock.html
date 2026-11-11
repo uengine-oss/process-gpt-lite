@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>Robo-DLC P3 화면 시안</title>
+<style>
+:root{--bg:#141826;--panel:#1d2234;--cell:#262c42;--line:#343b56;--text:#e8eaf2;--sub:#9aa1b8;--accent:#6e8bff;--ok:#3fbf7f;--warn:#f0a43a;--bad:#ef5b5b;--vio:#6e5ae6}
+*{box-sizing:border-box}body{margin:0;background:#0b0e18;font-family:-apple-system,"Apple SD Gothic Neo","Pretendard",sans-serif;color:var(--text);font-size:14px}
+.screen{width:1280px;height:800px;padding:18px 22px;background:radial-gradient(1200px 600px at 10% -10%,#2a3260 0,transparent 60%),var(--bg);position:relative;overflow:hidden;margin-bottom:24px}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:14px}.top .home{width:38px;height:38px;border-radius:50%;background:#fff;color:#111;display:grid;place-items:center;font-weight:700}
+.top h1{font-size:22px;margin:0}.top .sl{color:var(--sub)}.top .tag{margin-left:auto;font-size:12px;color:#fff;background:var(--vio);border-radius:20px;padding:4px 10px}
+.glass{background:var(--panel);border:1px solid var(--line);border-radius:18px}
+.row{display:flex;gap:16px}.col{display:flex;flex-direction:column;gap:12px}
+.h{font-size:13px;color:var(--sub);margin:0 0 6px}.b{font-weight:700}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:12px;padding:8px 14px;background:var(--cell);border:1px solid var(--line);color:var(--text);font-size:13px}
+.btn.p{background:var(--vio);border-color:var(--vio);color:#fff;font-weight:700}.btn.d{background:#3a1f25;border-color:#7a2d36;color:#ffb3b3}
+.chip{display:inline-block;border-radius:20px;padding:3px 9px;font-size:12px;background:var(--cell);border:1px solid var(--line);color:var(--sub);margin:0 4px 4px 0}
+.chip.on{background:#1f3a2c;border-color:#2f6b49;color:#8fe0b4}.chip.off{opacity:.45;text-decoration:line-through}.chip.w{background:#3b2f17;border-color:#7a5a22;color:#f3c77a}.chip.r{background:#3a1f25;border-color:#7a2d36;color:#ffb3b3}.chip.a{background:#22284a;border-color:#4253a8;color:#aab8ff}
+textarea,.ta{width:100%;background:var(--cell);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:12px;font-size:14px;line-height:1.55}
+.bar{height:8px;border-radius:6px;background:#2b3150;overflow:hidden}.bar i{display:block;height:100%;border-radius:6px}
+.metric{display:grid;grid-template-columns:150px 1fr 40px;gap:10px;align-items:center;font-size:13px;margin:5px 0}.metric .why{grid-column:2/4;color:var(--sub);font-size:12px;margin-top:-3px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--sub);font-weight:500;font-size:12px}
+.note{font-size:12px;color:var(--sub)}.big{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.callout{position:absolute;background:#ffd84d;color:#1b1b1b;font-size:12.5px;line-height:1.45;border-radius:10px;padding:8px 11px;max-width:260px;box-shadow:0 6px 18px rgba(0,0,0,.35);font-weight:600}
+.callout b{color:#5a2db0}
+.dim{position:absolute;inset:0;background:rgba(5,8,16,.62)}
+.av{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;font-size:11px;font-weight:700;color:#fff;margin-right:4px;vertical-align:middle}
+.q{border-left:3px solid var(--line);padding:6px 10px;margin:6px 0;background:#20263b;border-radius:0 10px 10px 0;font-size:13px}
+</style></head><body>
+
+<!-- 1. 새 작업 접수 + 계획 추천 -->
+<section class="screen" id="s1">
+  <div class="top"><div class="home">⌂</div><h1>새 작업</h1><span class="sl">비품 대여 · folder-068457</span><span class="tag">P3 시안 ① 접수와 계획 추천</span></div>
+  <div class="row">
+    <div class="glass col" style="width:430px;padding:16px">
+      <p class="h">무엇을 바꾸고 싶은지 그대로 적어 주세요 — 범위는 AI가 추천해요</p>
+      <div class="ta" style="height:150px">반납 하루 전 알림이 같은 대여에 두 번 와요. 어제 노트북 빌린 사람 3명이 같은 알림을 두 번 받았다고 합니다.</div>
+      <div><span class="chip">📎 알림 화면.png</span><span class="chip">🔗 고객 문의 #812</span></div>
+      <div class="note">넣은 사람 오세린(PO) · 작업 접수 권한 있음</div>
+      <div style="margin-top:6px" class="h">진행 중인 작업</div>
+      <div class="glass" style="padding:10px 12px;background:var(--cell)"><b>equipment-loan</b> <span class="chip a">classic</span><br><span class="note">구축 · u1-domain-core 코드 생성 중 (볼트 1)</span></div>
+      <div class="h" style="margin-top:4px">이 요청을</div>
+      <div><span class="chip">지금 작업에 합치기</span><span class="chip on">별도 작업으로</span><span class="chip">지금 작업 끝난 뒤로</span></div>
+      <div class="note">AI-DLC 가 묻는 세 갈래 그대로 — 계획 재구성 / 새 인텐트 / 대기</div>
+    </div>
+    <div class="glass" style="flex:1;padding:18px">
+      <div style="display:flex;align-items:center;gap:10px"><span class="note">AI-DLC 계획 작성기의 추천</span><span class="chip a">ARS 18 · 거의 바로 구현</span></div>
+      <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px"><span class="big">bugfix</span><span class="note">단계 7 · 사람이 정할 일 약 3번 · 이 폴더 기준 AI 40분 안팎</span></div>
+      <p style="margin:4px 0 12px;line-height:1.6">버그 하나의 재현과 수정이라 의도가 분명하고(모호성 낮음), 고칠 곳이 알림 작업자 한 모듈입니다. 다만 같은 대여에 두 번 보내지 않는다는 규칙이 이미 요구사항(FR5.3)에 있어 <b>회귀 시험을 꼭 넣는</b> bugfix 가 맞습니다.</p>
+      <div class="metric"><span>요청이 분명한가</span><div class="bar"><i style="width:15%;background:var(--ok)"></i></div><span class="note">0.15</span><span class="why">재현 조건(같은 대여 · 하루 전)이 적혀 있음</span></div>
+      <div class="metric"><span>고칠 코드가 복잡한가</span><div class="bar"><i style="width:22%;background:var(--ok)"></i></div><span class="note">0.22</span><span class="why">codekb: notification-worker 1개 패키지, 스케줄러 한 곳</span></div>
+      <div class="metric"><span>확인할 근거가 있나</span><div class="bar"><i style="width:35%;background:var(--warn)"></i></div><span class="note">0.35</span><span class="why">작업자 단위 시험은 있으나 동시 실행 시험 없음</span></div>
+      <div class="metric"><span>틀리면 위험한가</span><div class="bar"><i style="width:28%;background:var(--ok)"></i></div><span class="note">0.28</span><span class="why">사용자에게 보이지만 돈·보안과 무관, 되돌리기 쉬움</span></div>
+      <div class="metric"><span>숨은 가정이 많나</span><div class="bar"><i style="width:20%;background:var(--ok)"></i></div><span class="note">0.20</span><span class="why">「하루 전」 기준 시각은 이미 정해짐(KST 09:00)</span></div>
+      <div class="h" style="margin-top:12px">단계 (눌러서 넣고 빼기)</div>
+      <div><span class="chip on">요구사항 확인</span><span class="chip on">코드 지식 부분 스캔</span><span class="chip on">기능 설계</span><span class="chip off">NFR 설계</span><span class="chip on">코드 생성</span><span class="chip on">회귀 시험</span><span class="chip on">빌드·테스트</span><span class="chip off">유저 스토리</span><span class="chip off">도메인 설계</span></div>
+      <div class="h" style="margin-top:10px">다른 계획</div>
+      <div class="note">express — 단계 9, 요구사항 문서 새로 씀 (이 건엔 과함) · feature — 단계 22, 새 기능일 때</div>
+      <div style="display:flex;gap:8px;margin-top:14px"><span class="btn p">이 계획으로 시작</span><span class="btn">계획 고치기</span><span class="btn">반려</span><span class="note" style="margin-left:auto;align-self:center">승인하면 요청 #r-0412 ↔ 인텐트가 연결돼요</span></div>
+    </div>
+  </div>
+  <div class="callout" style="left:470px;top:640px">요청만 적으면 AI-DLC 의 <b>계획 작성기</b>가 다섯 점수와 근거로 범위를 추천 — Lite 는 따로 분류기를 만들지 않고 그 제안을 카드로</div>
+</section>
+
+<!-- 2. 영향 검토 -->
+<section class="screen" id="s2">
+  <div class="top"><div class="home">⌂</div><h1>기존 것과의 관계</h1><span class="sl">「대여 연장 기능 + 연체 수수료」 · classic 추천으로 시작함</span><span class="tag">P3 시안 ② 브라운필드 영향 검토</span></div>
+  <div class="row">
+    <div class="col" style="width:380px">
+      <div class="glass" style="padding:14px">
+        <p class="h">코드 지식(codekb)</p>
+        <div style="display:flex;align-items:center;gap:8px"><span class="chip w">오래됨</span><span class="note">11-11 스캔 이후 api-server 파일 23개 바뀜</span></div>
+        <div style="margin-top:10px;display:flex;gap:8px"><span class="btn p">부분 다시 스캔</span><span class="btn">전체 다시 스캔</span></div>
+        <div class="note" style="margin-top:8px">역공학 단계를 이 저장소만 단독 실행 · 지식은 인텐트 사이에 쌓여요</div>
+      </div>
+      <div class="glass" style="padding:14px">
+        <p class="h">이번 요청이 건드릴 곳 (정적 모델)</p>
+        <table><tr><th>구성 요소</th><th>만든 작업</th></tr>
+          <tr><td><b>loan-service</b><br><span class="note">대여 생성·기간 겹침</span></td><td>equipment-loan · u2 · 볼트 2</td></tr>
+          <tr><td><b>notification-worker</b><br><span class="note">반납 하루 전 알림</span></td><td>equipment-loan · u4 · 볼트 1<br><span class="chip">bugfix r-0412 고침</span></td></tr>
+          <tr><td><b>web-ui / MyLoans</b></td><td>equipment-loan · u5 · 볼트 2</td></tr>
+          <tr><td><b>billing</b> <span class="chip a">새로</span></td><td>—</td></tr></table>
+      </div>
+    </div>
+    <div class="glass" style="flex:1;padding:16px">
+      <p class="h">유닛 대응표 — 유닛 생성 승인 때 아키텍트가 줄마다 확인</p>
+      <table>
+        <tr><th style="width:190px">새 유닛</th><th style="width:190px">기존</th><th style="width:150px">AI 판단</th><th>이유</th><th style="width:110px">아키텍트</th></tr>
+        <tr><td><b>u1-loan-extension</b></td><td>loan-service (u2)</td><td><span class="chip">기존 것을 고침</span></td><td>연장은 기간 겹침 규칙을 그대로 써야 함</td><td><span class="chip on">✓ 동의</span></td></tr>
+        <tr><td><b>u2-late-fee</b></td><td>—</td><td><span class="chip a">새로 만듦</span></td><td>요금 계산은 기존 어디에도 없음</td><td><span class="chip on">✓ 동의</span></td></tr>
+        <tr><td><b>u3-overdue-notice</b></td><td>notification-worker (u4)</td><td><span class="chip w">나눔</span></td><td>반납 알림과 연체 알림의 발송 주기가 달라 작업자를 둘로</td><td><span class="chip r">✎ 바꿈</span></td></tr>
+        <tr><td colspan="5" style="border:0;padding-top:0"><div class="q">최민준: 나누지 말고 같은 작업자에 「알림 종류」를 더해 주세요 — 중복 발송 방지(r-0412)를 두 군데서 지키게 됩니다.</div></td></tr>
+        <tr><td><b>u4-my-loans-ui</b></td><td>web-ui / MyLoans (u5)</td><td><span class="chip">기존 것을 고침</span></td><td>연장 단추와 수수료 표시만 추가</td><td><span class="chip">고르기</span></td></tr>
+      </table>
+      <div class="h" style="margin-top:14px">동적 모델 — 이번 요청의 흐름이 지나는 순서</div>
+      <div style="font-size:13px;line-height:2">MyLoans(화면) → <b>loan-service</b>.extend() → 겹침 검사 → <b>billing</b>.lateFee() → <b>notification-worker</b>(연체 알림)</div>
+      <div style="display:flex;gap:8px;margin-top:14px"><span class="btn p">바꾼 1줄을 Request Changes 로 보내기</span><span class="btn">모두 동의</span></div>
+    </div>
+  </div>
+  <div class="callout" style="left:480px;top:660px">원문의 브라운필드 절차(코드 → <b>정적·동적 모델</b> → 사람 검증)를 이 화면이 맡음. 새 유닛 ↔ 기존 구성 요소·이전 유닛 대응을 <b>줄마다</b></div>
+</section>
+
+<!-- 3. 이전 결정과의 충돌 -->
+<section class="screen" id="s3">
+  <div class="top"><div class="home">⌂</div><h1>검토 보드</h1><span class="sl">「대여 연장」 · 요구사항 분석 · 함께 고르기</span><span class="tag">P3 시안 ③ 이전 결정과의 충돌</span></div>
+  <div class="row">
+    <div class="glass" style="width:520px;padding:14px">
+      <p class="h">질문 5개 — 합의 3 · 의견 갈림 0 · <b style="color:var(--warn)">이전 결정과 겹침 1</b></p>
+      <div class="glass" style="padding:12px;background:var(--cell);margin-bottom:8px"><b>Q2</b> 연장은 몇 번까지?<br><span class="note">합의 · A 1번까지</span></div>
+      <div class="glass" style="padding:12px;background:var(--cell);margin-bottom:8px;border-color:#7a5a22"><b>Q3</b> 연장하면 다음 대여 예약과 겹칠 때<br><span class="chip w">⚠ 이전 결정과 겹칠 수 있음 · D-0007 · 12일 전 오세린</span></div>
+      <div class="glass" style="padding:12px;background:var(--cell);margin-bottom:8px"><b>Q4</b> 연체 수수료 단위<br><span class="note">고르는 중 · 2명</span></div>
+    </div>
+    <div class="glass" style="flex:1;padding:16px">
+      <div style="display:flex;align-items:center;gap:8px"><b style="font-size:16px">Q3 · 이전 결정과 충돌</b><span class="chip w">겹칠 수 있음 — 판단은 사람이</span></div>
+      <div class="h" style="margin-top:12px">이전 결정 · equipment-loan · 요구사항 분석 · 11-11 오세린</div>
+      <div class="q">「같은 비품의 다음 대여가 잡혀 있으면 반납일은 바꿀 수 없다(FR3.4)」</div>
+      <div class="h">새 요청 · 대여 연장 · 마케팅 조각 r-0420 (윤채원)</div>
+      <div class="q">「연장 신청이 오면 다음 예약자에게 양해를 구하고 우선 연장해 준다」</div>
+      <div class="h" style="margin-top:8px">이 결정에 기대는 것</div>
+      <div><span class="chip">u2-booking-rules · 볼트 2</span><span class="chip">u5 MyLoans 「반납일 고정」 문구</span><span class="chip">시험 overlap.spec 4건</span></div>
+      <div class="h" style="margin-top:12px">어느 쪽이 우선인가요</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn p">새 요청이 우선 — 이전 유닛에 「다시 볼 것」 표시</span><span class="btn">이전 결정 유지 — 새 요청에 이유를 답함</span><span class="btn">몹 회의로</span></div>
+      <div class="note" style="margin-top:12px">AI-DLC 의 모순 처리 규칙과 같음: 양쪽 인용 → AI 가 고르지 않음 → 사람이 우선순위 → 진 쪽 산출물 고침 → 판정을 그대로 결정 기록·감사 기록에</div>
+    </div>
+  </div>
+  <div class="callout" style="left:40px;top:560px">인텐트를 넘는 충돌은 AI-DLC 가 검사하지 않음 → Lite 가 <b>결정 기록(모든 인텐트)</b>과 이전 요구사항 ID 를 낱말로 대조해 칩으로 알림. 온톨로지 없이</div>
+</section>
+
+<!-- 4. 작업 함 -->
+<section class="screen" id="s4">
+  <div class="top"><div class="home">⌂</div><h1>작업 함</h1><span class="sl">비품 대여 · 들어온 조각 6 · 이번 주</span><span class="tag">P3 시안 ④ 크기가 다른 조각</span></div>
+  <div class="glass" style="padding:14px">
+    <table>
+      <tr><th style="width:260px">조각</th><th style="width:120px">넣은 사람</th><th style="width:120px">크기 추정</th><th style="width:220px">가까운 것</th><th>정한 것</th></tr>
+      <tr><td>「대여하기」 단추를 「빌리기」로 바꿔 주세요</td><td><span class="av" style="background:#c2410c">윤</span>마케팅 · 메신저</td><td><span class="chip">문구 하나</span></td><td>web-ui / EquipmentList</td><td><span class="chip on">묶음 → express 인텐트 i-copy-1112</span></td></tr>
+      <tr><td>목록에 「곧 반납」 배지가 있으면 좋겠어요</td><td><span class="av" style="background:#c2410c">윤</span>마케팅 · 메신저</td><td><span class="chip">화면 하나</span></td><td>web-ui / EquipmentList</td><td><span class="chip on">묶음 → express 인텐트 i-copy-1112</span></td></tr>
+      <tr><td>반납 알림이 두 번 와요 (고객 문의 #812)</td><td><span class="av" style="background:#2563eb">오</span>PO · 폴더</td><td><span class="chip">버그</span></td><td>notification-worker (u4)</td><td><span class="chip on">bugfix 인텐트 → 볼트 1 · 커밋 3f2a…</span></td></tr>
+      <tr><td>대여 연장 + 연체 수수료</td><td><span class="av" style="background:#059669">한</span>팀 리드 · 회의</td><td><span class="chip a">여러 유닛</span></td><td>loan-service · billing(새)</td><td><span class="chip on">classic 인텐트 → 유닛 4</span></td></tr>
+      <tr><td>연장 신청 시 다음 예약자에게 양해 메일</td><td><span class="av" style="background:#c2410c">윤</span>마케팅 · 메일</td><td><span class="chip">기능 하나</span></td><td>⚠ 이전 결정 D-0007 과 겹침</td><td><span class="chip w">대여 연장 인텐트에 합침 · 충돌 카드로</span></td></tr>
+      <tr><td>관리자 화면을 다크 모드로</td><td><span class="av" style="background:#7c3aed">강</span>개발자 · 폴더</td><td><span class="chip">화면 여러 개</span></td><td>—</td><td><span class="chip">나중에</span> <span class="btn" style="padding:4px 10px">새 작업으로</span></td></tr>
+    </table>
+    <div style="display:flex;gap:8px;margin-top:14px;align-items:center"><span class="btn p">고른 2개를 묶어 새 작업으로</span><span class="btn">진행 중 작업에 합치기</span><span class="btn">안 함(이유)</span><span class="note" style="margin-left:auto">추적: 조각 → 인텐트(request 번호) → 유닛 → 볼트 → 커밋</span></div>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <div class="glass" style="flex:1;padding:14px"><p class="h">볼트 보드에서 보면 — 유닛에 매달린 조각</p>
+      <div style="font-size:13px;line-height:2"><b>u4 notification-worker</b> <span class="chip a">조각 2</span> 볼트 1 통과 · 볼트 2 <span class="chip on">bugfix r-0412</span><br><b>web-ui / EquipmentList</b> <span class="chip a">조각 2</span> express i-copy-1112 볼트 1</div></div>
+    <div class="glass" style="width:420px;padding:14px"><p class="h">넣는 길</p><div class="note" style="line-height:1.8">누구나: 대화·메신저 메시지의 「작업 함에 넣기」, 폴더 화면, 메일 전달<br>정하기: 작업 접수 권한(PO · 팀 리드 · 소유자)<br>크기 추정은 가벼운 모델, 계획 작성기는 「새 작업으로」 때만</div></div>
+  </div>
+  <div class="callout" style="left:40px;top:690px;max-width:520px">마케팅의 한 줄부터 여러 유닛짜리까지 — 조각마다 <b>크기</b>를 미리 짐작하고, 정한 뒤에는 어느 인텐트·볼트·커밋이 됐는지 끝까지</div>
+</section>
+
+<!-- 5. 멈추기·버리기 -->
+<section class="screen" id="s5">
+  <div class="top"><div class="home">⌂</div><h1>볼트 보드</h1><span class="sl">equipment-loan · 유닛 6 · 볼트 4</span><span class="tag">P3 시안 ⑤ 멈추기와 버리기</span></div>
+  <div class="glass" style="padding:16px;height:640px">
+    <div style="font-size:13px;line-height:2.2"><b>u1-domain-core</b> <span class="chip on">볼트 1 통과</span><br><b>u2-loan-service</b> <span class="chip on">볼트 1 통과</span><br><b>u3-auth</b> <span class="chip a">볼트 1 · 코드 생성 중 · 41분 · 토큰 1.9M</span> <span class="btn d" style="padding:4px 10px">■ 멈추기</span></div>
+  </div>
+  <div class="dim"></div>
+  <div class="glass" style="position:absolute;left:250px;top:110px;width:780px;padding:20px;background:#1b2031">
+    <div style="display:flex;align-items:center;gap:10px"><b style="font-size:18px">u3-auth · 볼트 1 멈추기</b><span class="chip r">보안 멈춤 요청 · 윤서준(QA) 4분 전</span></div>
+    <div class="q" style="margin-top:10px">「비밀번호 재설정 토큰을 URL 쿼리에 그대로 싣고 로그에도 남겨요. 요구사항(FR8.2)이 잘못 들어왔습니다 — 이 볼트는 버리고 요구사항부터 고쳐야 해요.」</div>
+    <div class="note" style="margin:6px 0 12px">요청이 「보안」이라 권한자 응답 전에 이미 <b>잠깐 멈춤</b>(Esc) — 토큰 사용 멈춤 · 파일은 그대로</div>
+    <table>
+      <tr><td style="width:24px">○</td><td style="width:160px"><b>잠깐 멈춤 유지</b></td><td class="note">파일 그대로, 「이어서」로 계속</td></tr>
+      <tr><td>●</td><td><b>이 볼트 버리기</b></td><td class="note">볼트 시작(21:58) 뒤 바뀐 파일 14개를 되돌림 · 유닛은 코드 생성 전으로 · 버린 변경은 보관해 「되살리기」 가능 · 다음 볼트는 요구사항을 고친 뒤</td></tr>
+      <tr><td>○</td><td><b>작업 보류</b></td><td class="note">단계 경계에서 park — 다음 세션에서 이어 감</td></tr>
+      <tr><td>○</td><td><b>작업 중단·보관</b></td><td class="note">인텐트 보관(기록·감사는 남음) · 팀 리드·소유자만</td></tr>
+    </table>
+    <div class="h" style="margin-top:12px">영향</div>
+    <div><span class="chip">이 볼트: 41분 · 토큰 1.9M</span><span class="chip">바뀐 파일 14 · 사람이 쉘에서 고친 파일 1 (따로 확인)</span><span class="chip w">u5-web-ui 가 u3 에 기댐</span></div>
+    <div class="h" style="margin-top:12px">사유 (필수 · 결정 기록과 팀 알림에)</div>
+    <div class="ta" style="height:52px">FR8.2 가 토큰을 URL·로그에 남기게 되어 있음 — 요구사항 고친 뒤 새 볼트로</div>
+    <div style="display:flex;gap:8px;margin-top:14px;align-items:center"><span class="btn d">볼트 버리기</span><span class="btn">취소</span><span class="note" style="margin-left:auto">권한: 팀 리드 · PO · 소유자 — 지금 한지수(팀 리드)</span></div>
+  </div>
+  <div class="callout" style="left:1040px;top:120px;max-width:220px">누구나 <b>멈춰 달라고 요청</b>, 권한자가 <b>버리기</b>. 기본 실행은 저장소에 바로 쓰므로 Lite 가 볼트 시작 순간을 git 객체로 떠 둠</div>
+</section>
+</body></html>
