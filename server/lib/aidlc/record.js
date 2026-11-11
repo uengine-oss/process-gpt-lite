@@ -155,7 +155,8 @@ function where(rel) {
 }
 
 // ---------- question files ----------
-const Q_HEAD = /^## (Q\d+)\.\s*(?:\[([^\]]+)\]\s*)?(\((?:후속|follow-?up)\)\s*)?(.*)$/i
+// ("## Q1." in most stages; a unit's construction questions came as "### Q1." under "## " sections)
+const Q_HEAD = /^#{2,3} (Q\d+)\.\s*(?:\[([^\]]+)\]\s*)?(\((?:후속|follow-?up)\)\s*)?(.*)$/i
 // options are "- A. text" or, in some runs, "A. text" without the bullet
 const OPTION = /^(?:- )?([A-Z])\.\s+(.*)$/
 const ANSWER = /^\[Answer\]:\s*(.*)$/

@@ -102,6 +102,9 @@ test('질문 파일: 역할 태그, 묻는 이유, AI-DLC 추천과 그 이유�
   assert.equal(fileRec[0].recommended, 'A')
   assert.equal(fileRec[0].note, '이유 한 줄')
   assert.equal(R.parseQuestions('## Q2. [제품] 몇 명?\n\nA. 한 명\nB. 여러 명 (Recommended: simpler later)\n\n[Answer]: \n')[0].recommended, 'B')
+  // a unit's construction questions: "### Q1." under "## …" sections, no role tag
+  const h3 = R.parseQuestions('# 기능 설계 질문\n\n## 근거 문서\n\n- 계약 C3\n\n---\n\n### Q1. 규칙을 여러 개 어겼을 때 무엇을 알려 주나요?\n\n예를 들어 …\n\nA. 목록 모두\nB. 계약 순서\n\n[Answer]:\n\n### Q2. 겹침 문장에 시간을 넣나요?\n\nA. 넣는다\n\n[Answer]:\n')
+  assert.deepEqual(h3.map((x) => [x.id, x.tag, x.options.length]), [['Q1', '', 2], ['Q2', '', 1]])
 })
 
 test('검토 파일: 지적의 위치·내용·고칠 일을 읽고, 위치를 기록 안 문서와 초점으로 바꾼다', async () => {
