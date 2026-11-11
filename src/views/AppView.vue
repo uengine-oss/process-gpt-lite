@@ -6,6 +6,7 @@ import TopBar from '../components/TopBar.vue'
 import AppFrame from '../apps/AppFrame.vue'
 import { useApps } from '../stores/apps.js'
 import { isEnglish } from '../i18n/lang.js'
+import { events } from '../api.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,7 +14,8 @@ const apps = useApps()
 const ready = ref(false)
 const manifest = computed(() => apps.byId(route.params.id))
 const params = computed(() => Object.fromEntries(Object.entries(route.query).map(([k, v]) => [k, String(v ?? '')])))
-onMounted(async () => { await apps.load(); ready.value = true })
+// the app's live events come over the tab's one event stream (opened here when this is the first screen)
+onMounted(async () => { events(); await apps.load(); ready.value = true })
 const name = (m) => (isEnglish ? m.name.en : m.name.ko)
 </script>
 
