@@ -64,7 +64,8 @@ async function openWork(slug, user, need = 'viewer') {
     screen: async (lines = 40) => {
       if (!(await AS.has(session))) return null
       const text = await AS.screen(session).catch(() => '')
-      return text.split('\n').filter((l, i, a) => i < a.length - 1 || l.trim()).slice(-Math.min(Math.max(lines, 5), 120)).join('\n')
+      // (the terminal leaves rows blank below and between its parts: the last lines with something on them)
+      return text.split('\n').filter((l) => l.trim()).slice(-Math.min(Math.max(lines, 5), 120)).join('\n')
     },
     decide: (body) => { if (!user) throw err(403, 'a person decides'); return TM.decide(folder.slug, user, body) },
     answers: (body) => { if (!user) throw err(403, 'a person decides'); return TM.submitAnswers(folder.slug, user, body) },
