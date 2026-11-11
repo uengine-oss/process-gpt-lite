@@ -37,3 +37,17 @@ html, body { height: 100%; background: transparent; overflow: hidden }
 .doc { font-size: 12.5px; padding: 4px 10px; border-radius: 99px; background: rgba(10 132 255 / .1); color: var(--accent); cursor: pointer; border: 0; min-height: 0 }
 .hint { color: var(--ts); font-size: 14px; padding: 30px 6px; line-height: 1.6 }
 @media (max-width: 860px) { .wrap { grid-template-columns: 1fr } .right { border-left: 0; border-top: 1px solid var(--line) } }
+
+/* intent → units → bolts */
+.intent { font-size: 13px; color: var(--ts); margin: 2px 0 2px 2px } .intent .n { font-weight: 800; color: var(--tp) }
+.unit .grp { padding: 0 6px; border-radius: 99px; background: var(--btn); font-size: 11px }
+.rail.design { grid-template-columns: repeat(4, 1fr) }
+.bolts { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; margin-top: 6px }
+.brow { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 8px; border-radius: 8px; background: var(--btn); border-left: 3px solid var(--line) }
+.brow .bn { font-weight: 700 } .brow .ck { letter-spacing: 1px } .brow .back { margin-left: auto; color: #b36b00 }
+.brow.accepted, .brow.verified, .brow.approved { border-left-color: #34c759 } .brow.sent-back { border-left-color: #ff9f0a }
+.brow.working { border-left-color: var(--accent) } .brow.now { box-shadow: 0 0 0 1.5px var(--accent) } .brow.none { color: var(--ts); border-left-color: transparent }
+/* the name on one line; time, dependencies and the delivery group on the line below it */
+.unit { grid-template-columns: minmax(0, 1fr) }
+.unit .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis } .unit .nm .state { white-space: nowrap }
+.unit .meta { text-align: left; grid-column: 1 / -1 }

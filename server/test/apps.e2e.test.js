@@ -238,10 +238,10 @@ test('산출물 보기: 지적이 가리킨 문서 전체와 그 절, 기록 밖
   assert.equal((await tool(out, 'artifact', 'artifact_docs', { folder: folder.slug })).status, 403)
 })
 
-test('볼트 보드: 볼트 계획이 없는 작업은 빈 나무, 세션 화면은 구성원에게', { skip: !up }, async () => {
+test('볼트 보드: 유닛이 아직 없는 작업은 빈 나무, 세션 화면은 구성원에게', { skip: !up }, async () => {
   const t = await tool(dev, 'bolts', 'bolts_open', { folder: folder.slug })
   assert.equal(t.status, 200, JSON.stringify(t.body))
-  assert.deepEqual(t.body.bolts, [])
+  assert.deepEqual(t.body.units, [])
   assert.equal(t.body.session.running, true)
   const s = await tool(dev, 'bolts', 'bolts_screen', { folder: folder.slug, lines: 12 })
   assert.equal(s.body.running, true)

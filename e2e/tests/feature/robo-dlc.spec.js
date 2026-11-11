@@ -245,7 +245,7 @@ test.describe('Robo-DLC Lite · 검토 보드 · 볼트 보드 · 산출물 보�
     expect(po.errors).toEqual([])
   })
 
-  test('F-RD-08 볼트 보드: 볼트 → 유닛 → 구축 단계, 유닛을 누르면 진척과 그 유닛의 산출물', async ({ pageAs, as, db, cleanup }) => {
+  test('F-RD-08 볼트 보드: 의도 → 유닛 → 볼트(코드 생성 한 번 = 볼트 하나), 볼트 계획은 묶음 표시, 유닛을 누르면 진척과 산출물', async ({ pageAs, as, db, cleanup }) => {
     test.setTimeout(90_000)
     const lead = await as('rd-lead')
     const { repo, folder } = await linkedRecord(lead, db, cleanup, '볼트 회귀')
@@ -261,11 +261,17 @@ test.describe('Robo-DLC Lite · 검토 보드 · 볼트 보드 · 산출물 보�
     const page = await pageAs('rd-lead')
     await page.goto(`/apps/bolts/${folder.slug}`)
     const bb = page.frameLocator('iframe[data-test=app-bolts]')
-    await expect(bb.locator('[data-test=bolts-bolt]')).toHaveCount(2, { timeout: 30_000 })
-    await expect(bb.locator('[data-test=bolts-unit]')).toHaveCount(units.length)
+    await expect(bb.locator('[data-test=bolts-unit]')).toHaveCount(units.length, { timeout: 30_000 })
+    // every unit of this finished run was built in one bolt (repeated checks inside it, nothing sent back)
+    await expect(bb.locator('#tree [data-test=bolts-bolt]')).toHaveCount(units.length)
+    await expect(bb.locator('#tree [data-test=bolts-bolt].accepted')).toHaveCount(units.length)
+    // the bolt plan's groups are labels on the units, not their parents
+    await expect(bb.locator(`[data-test=bolts-unit][data-unit="${units[0]}"] .grp`)).toHaveText('묶음 B1')
+    await expect(bb.locator(`[data-test=bolts-unit][data-unit="${units.at(-1)}"] .grp`)).toHaveText('묶음 B2')
     await bb.locator(`[data-test=bolts-unit][data-unit="${units[0]}"]`).click()
     await expect(bb.locator('[data-test=bolts-detail]')).toContainText(units[0])
     await expect(bb.locator('[data-test=bolts-detail] .stg .row')).toHaveCount(5)
+    await expect(bb.locator('[data-test=bolts-detail] [data-test=bolts-bolt]')).toHaveCount(1)
     const doc = bb.locator('[data-test=bolts-detail] [data-doc]').first()
     if (await doc.count()) {
       await doc.click()

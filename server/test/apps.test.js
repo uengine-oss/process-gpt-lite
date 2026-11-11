@@ -16,7 +16,7 @@ import { HOST_TOOLS } from '../lib/apps/host.js'
 import * as R from '../lib/aidlc/record.js'
 import { unitNow } from '../lib/aidlc/metrics.js'
 import * as B from '../apps/review/board.js'
-import { stageTimes, buildTree } from '../apps/bolts/tree.js'
+import { stageTimes, buildTree, unitBolts, buildUnitTree } from '../apps/bolts/tree.js'
 import { renderDoc, findHeading } from '../apps/artifact/render.js'
 import { navAllowed } from '../../src/apps/paths.js'
 
@@ -376,6 +376,40 @@ test('볼트 보드: 볼트 → 유닛 → 구축 단계, 지금 도는 단계�
   assert.ok(u1.running)
   assert.deepEqual(u1.stages.map((s) => s.state), ['done', 'pending', 'pending', 'pending', 'working'])
   assert.ok(u1.stages[4].now)
+})
+
+// a unit is built through one or more bolts (the AI-DLC method): each pass of its code generation, closed by the
+// unit checkpoint; a pass sent back (from Build and Test) is followed by the next — the real run's u3-identity
+test('볼트 보드: 유닛 → 볼트 — 코드 생성 한 번이 볼트 하나, 되돌아오면 다음 볼트, 끝난 뒤의 일은 새 볼트가 아니다', () => {
+  const t0 = Date.UTC(2026, 10, 11, 4, 0)
+  const at = (min) => t0 + min * 60000
+  const e = (min, event, fields = {}, unit = 'u3', stage = 'code-generation') => ({ t: at(min), event, unit, stage, fields })
+  const events = [
+    e(0, 'UNIT_STARTED', {}, 'u3', 'functional-design'), e(10, 'UNIT_COMPLETED', {}, 'u3', 'functional-design'),
+    e(20, 'PLAN_APPROVAL_RECORDED'), e(100, 'UNIT_COMPLETED'),
+    e(100, 'CHECKPOINT_VERIFICATION_RECORDED', { Verified: 'false', 'Exit Code': '1' }), e(101, 'CHECKPOINT_VERIFICATION_RECORDED', { Verified: 'true', 'Exit Code': '0' }),
+    e(102, 'GATE_APPROVED'), e(150, 'SENSOR_PASSED'),
+    e(346, 'GATE_REJECTED', { 'Moved From': 'build-and-test', Feedback: 'Reopened Code Generation for unit u3' }),
+    e(385, 'UNIT_COMPLETED'), e(386, 'CHECKPOINT_VERIFICATION_RECORDED', { Verified: 'true', 'Exit Code': '0' }),
+    e(462, 'GATE_REJECTED', { 'Moved From': 'build-and-test' }),
+    e(475, 'UNIT_COMPLETED'), e(476, 'CHECKPOINT_VERIFICATION_RECORDED', { Verified: 'true', 'Exit Code': '0' }),
+    e(30, 'UNIT_COMPLETED', {}, 'u1'), e(31, 'CHECKPOINT_VERIFICATION_RECORDED', { Verified: 'true' }, 'u1'), e(200, 'SENSOR_PASSED', {}, 'u1'),
+  ].sort((a, b) => a.t - b.t)
+  const b = unitBolts(events, 'u3', { now: at(500), complete: true })
+  assert.deepEqual(b.map((x) => [x.n, x.outcome, x.min, x.checks.map((c) => c.ok)]), [[1, 'sent-back', 81, [false, true]], [2, 'sent-back', 40, [true]], [3, 'accepted', 14, [true]]])
+  assert.deepEqual(b[0].back, { at: at(346), from: 'build-and-test', feedback: 'Reopened Code Generation for unit u3' })
+  // a sensor after a unit's only pass is that pass's, not a new bolt
+  assert.equal(unitBolts(events, 'u1', { now: at(500) }).length, 1)
+  // sent back and not started again: the next bolt waits, open
+  const open = unitBolts(events.filter((x) => x.t <= at(400)), 'u3', { now: at(400) })
+  assert.deepEqual(open.map((x) => x.outcome), ['sent-back', 'verified'])
+  const waiting = unitBolts(events.filter((x) => x.t <= at(470)), 'u3', { now: at(470) })
+  assert.deepEqual(waiting.map((x) => x.outcome), ['sent-back', 'sent-back', 'working'])
+  // the tree: units in the plan's order, the bolt plan's group a label, the running pass marked
+  const units = [{ name: 'u1', status: 'done', stages: {} }, { name: 'u3', status: 'working', stages: {} }]
+  const tree = buildUnitTree({ units, plan: [{ n: 1, name: 'API', units: ['u1'] }, { n: 2, name: '로그인', units: ['u3'] }], times: stageTimes(events, at(470)), events: events.filter((x) => x.t <= at(470)), now: { unit: 'u3', stage: 'code-generation', open: true }, at: at(470) })
+  assert.deepEqual(tree.map((u) => [u.name, u.group?.n, u.bolts.length, u.design.length]), [['u1', 1, 1, 4], ['u3', 2, 3, 4]])
+  assert.ok(tree[1].bolts.at(-1).now)
 })
 
 // ---------- the document viewer ----------

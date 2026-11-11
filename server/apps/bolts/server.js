@@ -4,7 +4,7 @@
 // record only through ctx (lite-host).
 import { z } from 'zod'
 import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
-import { stageTimes, buildTree, UNIT_STAGES } from './tree.js'
+import { stageTimes, buildUnitTree, unitBolts, UNIT_STAGES } from './tree.js'
 
 const VIEW = 'ui://bolts/view'
 const run = (fn) => async (args) => {
@@ -28,13 +28,14 @@ export default function register(server, ctx) {
     const w = await ctx.aidlc.open(folder)
     const units = await w.unitMetrics()
     const events = await w.events()
-    const bolts = await w.bolts(units.map((u) => u.name))
+    const plan = await w.bolts(units.map((u) => u.name))
     const session = await w.session()
-    const rows = buildTree({ bolts, units, times: stageTimes(events), now: w.unit })
+    const complete = /complete/i.test(w.intent?.status || '')
+    const rows = buildUnitTree({ units, plan, times: stageTimes(events), events, now: w.unit, complete })
     return {
       folder: w.folder, intent: w.intent, stage: w.stage, now: w.unit, session: { running: session.running, workroom: session.workroom, prompt: session.choice && { kind: session.choice.kind, title: session.choice.title } },
       stageNames: Object.fromEntries(UNIT_STAGES.map((s) => [s, w.describeStage(s).name])),
-      bolts: rows,
+      units: rows, plan: plan.map(({ n, name, units: us }) => ({ n, name, units: us })),
     }
   }
   // one unit: its row, what happened to it lately, its documents
@@ -51,6 +52,7 @@ export default function register(server, ctx) {
     const row = { ...u, workMin: Math.max(u.workMin || 0, Math.round((staged - (u.humanMin || 0)) * 10) / 10) }
     return {
       unit: row, running: !!w.unit && w.unit.unit === name, now: w.unit,
+      bolts: unitBolts(events, name, { complete: /complete/i.test(w.intent?.status || '') }),
       stages: UNIT_STAGES.map((s) => ({ slug: s, name: w.describeStage(s).name, role: w.describeStage(s).role, state: u.stages?.[s] || 'pending', min: times.get(s)?.min ?? null })),
       events: events.filter((e) => LABEL[e.event]).slice(-12).reverse().map((e) => ({ ts: e.ts, what: L(...LABEL[e.event]), stage: w.describeStage(e.stage).name, detail: e.fields?.Verified ? `${e.fields.Verified === 'true' ? '✓' : '✗'} ${e.fields['Command'] || ''}`.trim() : '' })),
       docs: docs.map((d) => ({ path: d.path, name: d.path.split('/').pop(), stage: w.describeStage(d.stage).name, order: UNIT_STAGES.indexOf(d.stage) })).sort((a, b) => a.order - b.order),
@@ -67,7 +69,7 @@ export default function register(server, ctx) {
   registerAppResource(server, '볼트 보드', VIEW, { description: 'Bolts, units and their construction stages, and the session building the unit now' },
     async () => ({ contents: [{ uri: VIEW, mimeType: RESOURCE_MIME_TYPE, text: await ctx.screen() }] }))
   registerAppTool(server, 'bolts_open', {
-    title: 'Bolt board', description: 'The AI-DLC work of a folder as bolts → units → construction stages, with the unit the team session is building now.',
+    title: 'Bolt board', description: 'The AI-DLC work of a folder as its units, each with its design stages and its bolts (the passes that build it, with their checks and send-backs), and the unit the team session is building now.',
     inputSchema: { ...A, unit: z.string().optional() }, _meta: { ui: { resourceUri: VIEW } },
   }, run(tree))
   registerAppTool(server, 'bolts_unit', {

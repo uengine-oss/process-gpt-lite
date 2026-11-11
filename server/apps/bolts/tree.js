@@ -1,6 +1,13 @@
-// The bolt board's own logic (test/apps.test.js): bolts → units → the unit's construction stages,
-// each with its state and time, from the bolt plan, the unit plan and the audit — no database.
+// The bolt board's own logic (test/apps.test.js): the intent's units, each with its design stages and its bolts —
+// from the unit plan, the bolt plan and the audit, no database.
+// Unit → bolts, as the AI-DLC method defines them (Raja SP, 2025): a Unit is "a cohesive, self-contained work element
+// derived from an Intent", a Bolt "the smallest iteration … for rapid implementation of a Unit", and "a Unit may be
+// executed through one or more Bolts". In AI-DLC 2.11.x a unit's bolt is one pass of its code generation closed by
+// the unit checkpoint (`aidlc engine bolt checkpoint --kind unit`); a pass sent back (a unit-end GATE_REJECTED, e.g.
+// from Build and Test) is followed by the next. bolt-plan.md's "Bolt N" only groups units for delivery (the runtime
+// order is the unit DAG), so here it is a label on the unit, not its parent.
 export const UNIT_STAGES = ['functional-design', 'nfr-requirements', 'nfr-design', 'infrastructure-design', 'code-generation']
+export const DESIGN_STAGES = UNIT_STAGES.slice(0, 4)
 const mins = (ms) => Math.round((ms / 60000) * 10) / 10
 
 // per unit and stage: when it started, when it finished, its time (an open one runs to now). The start is
@@ -22,7 +29,69 @@ export function stageTimes(events, now = Date.now()) {
   return out
 }
 
-// the tree: bolts in plan order with their units; units no bolt names go in a bolt of their own
+// one unit's bolts in order: { n, start, end, min, checks: [{ at, ok, exit }], outcome, back }
+//   outcome: working (open) · verified (its checkpoint passed) · approved (the unit gate passed) ·
+//            sent-back (back: { at, from, feedback }) · accepted (the last one, once the whole intent is complete)
+export function unitBolts(events, unit, { now = Date.now(), complete = false } = {}) {
+  const out = []
+  let cur = null
+  let reopened = null
+  const last = () => cur || out.at(-1)
+  for (const e of events) {
+    if (e.unit !== unit || e.stage !== 'code-generation') continue
+    if (e.event === 'GATE_REJECTED') {
+      const b = last()
+      if (b) { b.outcome = 'sent-back'; b.back = { at: e.t, from: e.fields?.['Moved From'] || '', feedback: e.fields?.Feedback || '' }; b.end = b.end ?? e.t }
+      cur = null
+      reopened = e.t
+      continue
+    }
+    if (e.event === 'GATE_APPROVED') { const b = last(); if (b && b.outcome !== 'sent-back') b.outcome = 'approved'; continue }
+    // a new pass only for the unit's first code generation or after it was sent back: what follows a closed pass
+    // (sensors, reviews, a check run again) belongs to that pass
+    if (!cur && (!out.length || reopened != null)) {
+      cur = { n: out.length + 1, start: reopened ?? e.t, end: null, checks: [], outcome: 'working', back: null }
+      out.push(cur)
+      reopened = null
+    }
+    const b = cur || out.at(-1)
+    if (!b) continue
+    if (e.event === 'CHECKPOINT_VERIFICATION_RECORDED') {
+      const ok = e.fields?.Verified === 'true'
+      b.checks.push({ at: e.t, ok, exit: e.fields?.['Exit Code'] != null ? Number(e.fields['Exit Code']) : null })
+      if (ok && b === cur) { cur.end = e.t; cur.outcome = 'verified'; cur = null }
+    } else if (e.event === 'UNIT_COMPLETED' && b === cur) cur.end = e.t
+  }
+  // sent back and not started again yet: the next pass is waiting
+  if (reopened != null) out.push({ n: out.length + 1, start: reopened, end: null, checks: [], outcome: 'working', back: null })
+  const tail = out.at(-1)
+  if (complete && tail && ['verified', 'approved'].includes(tail.outcome)) tail.outcome = 'accepted'
+  for (const b of out) b.min = mins((b.end ?? now) - b.start)
+  return out
+}
+
+// the intent's units (the unit plan's order), each with its design stages, its bolts and its delivery group
+export function buildUnitTree({ units, plan = [], times, events, now: running, complete = false, at = Date.now() }) {
+  const groupOf = new Map()
+  for (const b of plan) for (const n of b.units) if (!groupOf.has(n)) groupOf.set(n, { n: b.n, name: b.name })
+  return units.map((u) => {
+    const t = times.get(u.name) || new Map()
+    const stages = UNIT_STAGES.map((slug) => {
+      const st = u.stages?.[slug] || null
+      const isNow = running && running.unit === u.name && running.stage === slug
+      return { slug, state: isNow && running.open ? 'working' : st === 'done' ? 'done' : st === 'skipped' ? 'skipped' : st === 'working' ? 'working' : 'pending', min: t.get(slug)?.min ?? null, now: !!isNow }
+    })
+    const bolts = unitBolts(events, u.name, { now: at, complete })
+    const runningHere = !!running && running.unit === u.name
+    if (runningHere && running.stage === 'code-generation' && bolts.length && bolts.at(-1).outcome === 'working') bolts.at(-1).now = true
+    const staged = Math.round(stages.reduce((n, s) => n + (s.min || 0), 0) * 10) / 10
+    const workMin = Math.max(u.workMin || 0, Math.round((staged - (u.humanMin || 0)) * 10) / 10)
+    const done = stages.filter((s) => s.state === 'done' || s.state === 'skipped').length
+    return { ...u, workMin, stages, design: stages.slice(0, DESIGN_STAGES.length), bolts, group: groupOf.get(u.name) || null, done, total: stages.length, running: runningHere }
+  })
+}
+
+// (the earlier shape, bolt plan groups → units, kept for the dashboards' bolt panel)
 export function buildTree({ bolts, units, times, now: running }) {
   const byName = new Map(units.map((u) => [u.name, u]))
   const unitRow = (u) => {
