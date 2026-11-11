@@ -1701,7 +1701,15 @@
   "답하지 못했어요.": "I couldn't answer.",
   "단계 빈도는 필수·옵션의 초안이에요. 추천을 열어 대화로 근거를 묻고 필수·옵션과 사례의 소속을 고쳐 확정해요.": "Step counts are only a draft of required and optional. Open a recommendation to ask why, and confirm which steps are required and where each case belongs.",
   "한 번 보인 추천과 정식 등록·보류한 프로세스는 관리자가 정하기 전에는 바뀌지 않아요. 같은 업무의 새 사례는 제안으로 와요.": "A recommendation you have seen, and a registered or held process, does not change until you decide. New cases of the same work come as a proposal.",
-  "정의에 없음": "Not in the definition"
+  "정의에 없음": "Not in the definition",
+  "택일": "Choice",
+  "초안대로": "As drafted",
+  "필수로": "Required",
+  "초안 없음": "No draft",
+  "대화로 조건 말하기": "Say the condition in the talk",
+  "언제 건너뛰나요? 건너뛰지 않으면 필수": "When is it skipped? If never, it is required",
+  "정할 때마다 새 버전으로 저장돼요": "Each decision is saved as a new version",
+  "모두 정해야 정식 등록돼요": "Decide them all to register"
  },
  "patterns": [
   [
@@ -1719,6 +1727,10 @@
   [
    "'{0}'에 반영할 새 기록이 없어요 · 거절 {1}건: {2}",
    "No new records to apply to '{0}' · {1} refused: {2}"
+  ],
+  [
+   "택일 — {0} 대신{1} · 사례 {2}/{3}건이 거침{4}",
+   "Choice — instead of {0}{1} · {2}/{3} cases went through it{4}"
   ],
   [
    "{0} amount {1} 미만이면 '{2}' 을(를) 건너뜀",
@@ -1745,6 +1757,10 @@
    "{0} — skipped if {1} amount is below {2}"
   ],
   [
+   "언제 이 갈래로 가나요? ({0} 대신)",
+   "When is this branch taken? (instead of {0})"
+  ],
+  [
    "에이전트가 내용을 바꾸는 중 · {0}",
    "Agent is replacing text · {0}"
   ],
@@ -1755,6 +1771,10 @@
   [
    "새 사례 {0}건이 제안으로 와 있어요",
    "{0} new case(s) waiting as a proposal"
+  ],
+  [
+   "확인 필요 {0}개를 먼저 정해 주세요",
+   "Decide the {0} open branch(es) first"
   ],
   [
    "에이전트가 내용을 쓰는 중 · {0}",
@@ -1793,6 +1813,10 @@
    "routing model→logprob {0}"
   ],
   [
+   "정하지 않은 분기 {0}개 · {1}",
+   "{0} undecided branch(es) · {1}"
+  ],
+  [
    "도우미가 찾았어요 · {0}",
    "Helper found it · {0}"
   ],
@@ -1807,6 +1831,14 @@
   [
    "산출물 {0}개 공유 · {1}",
    "Shared {0} outputs · {1}"
+  ],
+  [
+   "택일: {0}갈래 중 하나",
+   "Choice: one of {0} branches"
+  ],
+  [
+   "이번 일에 {0} 필요하면",
+   "When this work needs {0}"
   ],
   [
    "{0}님이 통역을 켰어요",
@@ -1927,6 +1959,10 @@
   [
    "{0} 로그인",
    "{0} login"
+  ],
+  [
+   "초안: {0}",
+   "Draft: {0}"
   ],
   [
    "나: {0}",

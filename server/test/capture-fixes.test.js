@@ -7,8 +7,8 @@
 //     document shortcut "make … proposal" (agent.js PROCESS_REQUEST_EN)
 //   - a chat message or a Home card that only shares words with a shared folder's name ("…drafts for
 //     Moonlight Coffee" vs the folder "Moonlight Coffee Store 2") is not a folder edit (folders/work.js folderMatch)
-//   - a mined optional Finance review after the quote: skipped under the threshold on the quote's amount,
-//     the review otherwise and by default — one branch, never both (mining/service.js reviewRule, buildContract)
+//   - a mined optional Finance review after the quote: no threshold nobody gave on its flows (2026-11-11:
+//     a branch's conditions come from the work or the admin — mining/branch.js, shape.js)
 //   - the quote step's total on its last line (mining/worker.js quoteTotal)
 //   - a panel app named in chat in another case ("quote tracker" for "Quote Tracker"), but no single
 //     ordinary word (panelApps/service.js titleIn)
@@ -22,7 +22,7 @@ import path from 'node:path'
 
 const { generationArtifact, draftContract, PROCESS_REQUEST_EN } = await import('../lib/agent.js')
 const { folderMatch } = await import('../lib/folders/work.js')
-const { reviewRule, buildContract } = await import('../lib/mining/service.js')
+const { buildContract } = await import('../lib/mining/service.js')
 const { quoteTotal } = await import('../lib/mining/worker.js')
 const { withLang } = await import('../lib/lang.js')
 const { startShop, SHOP } = await import('./fixtures/shop.mjs')
@@ -124,40 +124,19 @@ function mined(lang) {
   }
 }
 
-test('mining: a mined optional Finance review after the quote is skipped under the threshold, kept by default (English)', () => {
-  const d = withLang('en', () => reviewRule(mined('en').definition, 50_000_000))
-  const keep = d.sequences.find((x) => x.id === 's4')
-  const skip = d.sequences.find((x) => x.id === 's5')
-  assert.equal(keep.condition, 'Quote total (amount) is 50000000 or more')
-  assert.equal(skip.condition, 'Quote total (amount) is under 50000000')
-  assert.equal(keep.name, '50M or more')
-  assert.equal(skip.name, 'under 50M · skipped')
-  // no amount → neither condition holds → the review (default flow); both → the review (priority)
-  assert.deepEqual(JSON.parse(keep.properties), { priority: 0, default: true })
-  assert.deepEqual(JSON.parse(skip.properties), { priority: 1 })
-  assert.equal(d.gateways.find((g) => g.id === 'gw_split').name, 'Quote total threshold')
-  assert.ok(!hangul([d.sequences, d.gateways]), 'no Korean in the English rule')
-  // what registration saves carries the default flow and priority (save_contract keeps properties)
+test('mining: a mined optional Finance review gets no threshold nobody gave — its flows wait for the work or the admin; the quote form keeps its amount', () => {
+  for (const l of ['en', 'ko']) {
+    const c = withLang(l, () => buildContract(mined(l)))
+    const split = c.processDefinition.elements.filter((e) => e.elementType === 'Sequence' && e.source === 'gw_split')
+    assert.equal(split.length, 2)
+    for (const s of split) {
+      assert.equal(s.condition, '', `${l}: no condition the work or the admin did not give`)
+      assert.ok(!JSON.parse(s.properties || '{}').default, `${l}: no default flow`)
+    }
+  }
+  // the quote step's form still has the amount an admin's condition can read
   const c = withLang('en', () => buildContract(mined('en')))
-  const seq = c.processDefinition.elements.find((e) => e.elementType === 'Sequence' && e.id === 's4')
-  assert.equal(seq.condition, 'Quote total (amount) is 50000000 or more')
-  assert.deepEqual(JSON.parse(seq.properties), { priority: 0, default: true })
-  // the quote step's form has the amount the rule reads
-  const quoteForm = c.forms.find((f) => f.activity_id === 'activity_02')
-  assert.match(quoteForm.html, /name='amount' alias='Quote total incl\. VAT \(KRW\)'/)
-})
-
-test('mining: the same rule in Korean; without a quote step the miner\'s safe default stays', () => {
-  const d = withLang('ko', () => reviewRule(mined('ko').definition, 50_000_000))
-  assert.equal(d.sequences.find((x) => x.id === 's4').condition, '견적 합계(amount) 이(가) 50000000 이상')
-  assert.equal(d.sequences.find((x) => x.id === 's5').condition, '견적 합계(amount) 이(가) 50000000 미만')
-  assert.equal(d.sequences.find((x) => x.id === 's5').name, '5,000만 미만 · 건너뜀')
-  assert.equal(d.gateways.find((g) => g.id === 'gw_split').name, '견적 합계 기준')
-  const noQuote = mined('en').definition
-  noQuote.activities = noQuote.activities.filter((a) => a.id !== 'activity_02')
-  const kept = withLang('en', () => reviewRule(noQuote))
-  assert.equal(kept.sequences.find((x) => x.id === 's4').condition, '')
-  assert.deepEqual(JSON.parse(kept.sequences.find((x) => x.id === 's4').properties), { priority: 0, default: true })
+  assert.match(c.forms.find((f) => f.activity_id === 'activity_02').html, /name='amount' alias='Quote total incl\. VAT \(KRW\)'/)
 })
 
 test('mining: the quote step reads its total off the agent\'s last line', () => {

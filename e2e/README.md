@@ -284,7 +284,9 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 다음 메일 라우팅 기준(형식 2개·낱말 2개) | F-MN-03 | feature | ✅ |
 | 등록된 프로세스와 맞는 메일 → 그 프로세스로 시작(프로세스 카드·`pro_mining_runs`) | A-13 | agent | ✅ (등록된 추천이 없으면 건너뜀) |
 | 관리자 화면(MiningView)에서 흐름 보기·정식 등록 | — | — | ✗ (관리자 계정이 필요 — 시험 계정은 관리자가 아님) |
-| 관리자가 추천 화면의 대화로 근거를 묻고, 단계를 옵션으로 정하면 언제 건너뛰는지 되묻고 조건을 들으면 정식 등록 정의에 배타 게이트웨이·조건 흐름·기본 흐름을 넣어 새 버전으로 저장 · ProcessGPT 엔진이 그 조건대로 분기 · 다시 찾아도 그대로 · 새 사례는 제안으로 · 사례 옮기기 · 관리자가 정한 범주가 다음 판단에 이어짐 (단계 구성이 다른 정식 등록 프로세스 두 개) | A-MN-10 (`mining-admin-talk.spec.js`) | agent | 8088/lite 에서 (시험 계정 `pro-rt-mining-admin` 을 관리자로 바꿈, 테넌트의 기존 추천 세 개를 씀. 엔진 분기는 `process-gpt-completion/polling_service` 가 옆에 있을 때) |
+| 관리자가 추천 화면의 대화로 근거를 묻고, 단계를 옵션으로 정하면 언제 건너뛰는지 되묻고 조건을 들으면 정식 등록 정의에 배타 게이트웨이와 두 흐름의 조건(관리자 조건과 그 반대)을 넣어 새 버전으로 저장 · ProcessGPT 엔진이 그 조건대로 분기 · 다시 찾아도 그대로 · 새 사례는 제안으로 · 사례 옮기기 · 관리자가 정한 범주가 다음 판단에 이어짐 (단계 구성이 다른 정식 등록 프로세스 두 개) | A-MN-10 (`mining-admin-talk.spec.js`) | agent | 8088/lite 에서 (시험 계정 `pro-rt-mining-admin` 을 관리자로 바꿈, 테넌트의 기존 추천 세 개를 씀. 엔진 분기는 `process-gpt-completion/polling_service` 가 옆에 있을 때) |
+| 관리자가 대화로 택일 갈래(견적서 작성)의 조건을 고치면 새 버전으로 저장 · 모든 분기 흐름에 조건, 기본 흐름 없음 · 데모 메일이 업무 범주로 정식 등록 프로세스를 시작 · 폴링 서비스가 저장된 조건대로 갈래를 골라 인스턴스를 진행 (고객 회신 제외) | A-MN-11 (`mining-branch-run.spec.js`) | agent | 8088/lite + 폴링 서비스 |
+| 구성이 다른 두 정식 등록 프로세스(행사 견적·고객 회신: 계약서 요청 여부 / 설계 제안·견적 대응: 견적 합계 5천만 원)에서 갈래마다 데모 메일 한 통 · 업무 범주로 그 프로세스가 시작 · 에이전트 단계 뒤 엔진이 저장된 조건대로 참인 흐름 하나로 감 (합계 갈래는 그 인스턴스의 견적 합계로 판정) | A-MN-12 (`mining-branch-run-others.spec.js`) | agent | 8088/lite + 폴링 서비스 + deepagents·office-mcp |
 | 정의에서 필수·옵션 읽기·게이트웨이 넣고 빼기·저장 전 이벤트 정리 / 경계·제안 계산·말에서 단계·사례 가리기 | `server/test/mining-shape.test.js` · `server/test/mining-admin.test.js` · process-miner `tests/test_lite_admin_boundary.py` | unit | ✅ |
 
 ### 13d. 프로세스 개선 — 병목·가치 흐름·제약 이론·크리티컬 패스·개선 실행 (`lib/improve/*`, 설계 `process-gpt/openspec/changes/pgpt-pro-process-improvement`)

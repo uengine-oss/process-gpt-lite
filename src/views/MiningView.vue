@@ -9,6 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import Icon from '../components/Icon.vue'
 import BpmnView from '../components/BpmnView.vue'
+import FlowStep from '../components/mining/FlowStep.vue'
 import { useApp } from '../stores/app.js'
 import { api } from '../api.js'
 
@@ -35,13 +36,25 @@ const talkBox = ref(null)
 const talkInput = ref(null)
 const md = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { breaks: true })
 // 필수·옵션은 프로세스 정의(BPMN)가 말하는 것: 옵션 = 배타 게이트웨이로 건너뛰는 길이 있는 단계. 건수는 근거
-const kindText = { required: '필수', optional: '옵션', absent: '정의에 없음' }
-const stepTip = (d) => d ? `${kindText[d.kind]}${d.skip_when ? ` — ${d.skip_when} 건너뜀` : ''} · 사례 ${d.cases}/${d.total}건이 거침${d.by === 'admin' ? ' · 관리자 확정' : ''}` : ''
-// 대표 순서에 없는 단계(분기·건너뜀으로만 나온 단계)
-const moreSteps = computed(() => (s.value?.decided || []).filter((d) => !(s.value.steps || []).some((x) => x.activity === d.activity)))
+const kindText = { required: '필수', optional: '옵션', choice: '택일', absent: '정의에 없음' }
+const stepTip = (d) => d ? `${kindText[d.kind]}${d.skip_when ? ` — ${d.skip_when} 건너뜀` : ''} · 사례 ${d.cases}/${d.total}건이 거침${d.by === 'admin' ? ' · 관리자 확정' : d.by === 'cases' ? ` · 업무 흐름 ${d.sorted}건 맞음` : ''}` : ''
+// 찾은 흐름의 칸: 정의(s.flow)가 있으면 그 순서와 갈래(택일은 칸 하나에 갈래들), 없으면 가장 많은 변형의 단계.
+// 갈래 안의 갈래는 펼쳐 한 줄로(드묾). 번호는 읽는 순서대로
+const slots = computed(() => {
+  if (!s.value) return []
+  let no = 0
+  if (!s.value.flow?.length) return (s.value.steps || []).map((x) => ({ card: x, no: ++no }))
+  const flat = (items) => items.flatMap((it) => (it.step ? [it.step] : it.branches.flatMap((b) => flat(b.items))))
+  return s.value.flow.map((it) => (it.step ? { card: it.step, no: ++no }
+    : { branches: it.branches.map((b) => ({ when: b.when, cards: flat(b.items).map((c) => ({ card: c, no: ++no })) })) }))
+})
+// 흐름에 없는 단계(정의에 없지만 사례에 나온 단계 등)
+const moreSteps = computed(() => {
+  const shown = new Set(slots.value.flatMap((sl) => (sl.card ? [sl.card.activity] : sl.branches.flatMap((b) => b.cards.map((c) => c.card.activity)))))
+  return (s.value?.decided || []).filter((d) => !shown.has(d.activity))
+})
 
 // the tools a step used, as recorded (lib/mining/catalog.js: Korean cases name them in Korean, English ones in English)
-const toolIcon = { 메일: '✉', 캐드크래프트: '◫', 아래아한글: '한', 엑셀: '▦', '팀 공유': '⇄', Mail: '✉', CADCraft: '◫', Word: 'W', Excel: '▦', 'Team share': '⇄' }
 const statusText = { suggested: '추천', registered: '정식 등록됨', held: '보류' }
 const fmt = (d) => new Date(d).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
 const span = computed(() => s.value ? `${fmt(s.value.pattern.first_seen)} ~ ${fmt(s.value.pattern.last_seen)}` : '')
@@ -109,6 +122,27 @@ async function send() {
     s.value = r.suggestion
   } catch (e) { talk.value.push({ id: `err-${Date.now()}`, role: 'agent', text: e.message || '답하지 못했어요.', failed: true }) }
   finally { talking.value = false; await nextTick(); talkBox.value?.scrollTo({ top: 1e6, behavior: 'smooth' }); talkInput.value?.focus() }
+}
+// 확인 필요: 관리자가 아직 정하지 않은 분기(정식 등록은 이것이 없어야 된다). 초안대로·필수로는 바로 정하고,
+// 직접 말하기는 대화에 그 단계로 시작하는 말을 채워 연다
+const pending = computed(() => new Set((s.value?.undecided || []).map((x) => x.step)))
+async function decideStep(x, how) {
+  busy.value = `step:${x.step}`
+  err.value = ''
+  try {
+    const body = how === 'required' ? { activity: x.step, kind: 'required' }
+      : x.need === 'when' ? { activity: x.step, kind: 'choice', when: x.draft }
+        : x.need === 'redo' ? { activity: x.step, kind: 'loop', redo_when: x.draft } : { activity: x.step, kind: 'optional', skip_when: x.draft }
+    s.value = await api(`/mining/suggestions/${id.value}/steps`, { method: 'POST', body })
+    def.value = s.value.proc_def_id ? await api(`/processes/${encodeURIComponent(s.value.proc_def_id)}`).catch(() => null) : null
+  } catch (e) { err.value = e.message } finally { busy.value = '' }
+}
+async function sayStep(x) {
+  // ('견적서 검토'는 — the particle follows the last syllable)
+  const c = String(x.step).charCodeAt(String(x.step).length - 1) - 0xac00
+  const eun = c >= 0 && c <= 11171 && c % 28 ? '은' : '는'
+  said.value = x.need === 'when' ? `'${x.step}' 갈래로 가는 조건은 ` : x.need === 'redo' ? `'${x.step}'${eun} 다시 하는 조건이 ` : `'${x.step}'${eun} `
+  await openTalk()
 }
 // 제안(같은 업무의 새 사례)을 버튼으로도 정할 수 있다 — 대화와 같은 서버 동작
 async function proposal(accept) {
@@ -192,23 +226,42 @@ onMounted(async () => {
             </div>
           </div>
 
+          <section v-if="s.undecided?.length" class="undecided">
+            <h2>확인 필요 <small>정하지 않은 분기 {{ s.undecided.length }}개 · {{ s.status === 'registered' ? '정할 때마다 새 버전으로 저장돼요' : '모두 정해야 정식 등록돼요' }}</small></h2>
+            <div v-for="x in s.undecided" :key="x.step" class="urow glass">
+              <div class="uq">
+                <b>{{ x.step }}</b>
+                <small>{{ x.need === 'when' ? `언제 이 갈래로 가나요? (${(x.alternatives || []).join('·')} 대신)` : x.need === 'redo' ? '언제 다시 하나요?' : '언제 건너뛰나요? 건너뛰지 않으면 필수' }}</small>
+                <small class="draft" :class="{ none: !x.draft }">{{ x.draft ? `초안: ${x.draft} · 사례 ${x.total}건 중 ${x.matched}건 맞음` : '초안 없음' }}</small>
+              </div>
+              <div class="ub">
+                <button v-if="x.draft" class="go press" :disabled="!!busy" @click="decideStep(x, 'draft')">초안대로</button>
+                <button v-if="x.need === 'skip'" class="hold press" :disabled="!!busy" @click="decideStep(x, 'required')">필수로</button>
+                <button class="hold press" :disabled="!!busy" title="대화로 조건 말하기" aria-label="대화로 조건 말하기" @click="sayStep(x)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-12.3 7.6L3 21l1.4-5.4A8.5 8.5 0 1 1 21 12z" /></svg></button>
+              </div>
+            </div>
+          </section>
+
           <section>
             <h2>찾은 흐름 <small>단계마다 맡은 역할, 쓴 도구와 스킬, 몇 건에서 나왔는지</small></h2>
+            <!-- 정의(BPMN)의 순서와 갈래: 택일은 한 칸에 갈래를 위아래로. 정의가 없으면 가장 많은 변형 -->
             <ol class="flow">
-              <li v-for="(x, i) in s.steps" :key="x.activity" class="step glass" :style="{ '--i': i }">
-                <div class="top"><span class="no">{{ i + 1 }}</span><span class="kind" :class="x.kind">{{ x.kind === 'agent' ? '에이전트' : '사람' }}</span><span class="freq">{{ x.cases }}/{{ s.pattern.case_count }}건</span></div>
-                <span v-if="x.decided" class="req" :class="[x.decided.kind, x.decided.by]" :title="stepTip(x.decided)"><Icon v-if="x.decided.by === 'admin'" name="lock" :size="11" />{{ kindText[x.decided.kind] }}</span>
-                <b class="nm">{{ x.activity }}</b>
-                <span class="role">{{ x.role || x.performers[0] }}</span>
-                <div class="tools">
-                  <span v-for="t in x.tools" :key="t" class="tool"><i>{{ toolIcon[t] || '•' }}</i>{{ t }}</span>
-                </div>
-                <div class="skills"><code v-for="k in x.skills" :key="k">{{ k }}</code></div>
-                <small class="who">{{ x.performers.join(', ') }}</small>
-              </li>
+              <template v-for="(sl, k) in slots" :key="k">
+                <li v-if="k" class="arr" aria-hidden="true">›</li>
+                <li v-if="sl.card" class="slot"><FlowStep :x="sl.card" :no="sl.no" :total="s.pattern.case_count" :i="sl.no - 1" :pending="pending.has(sl.card.activity)" /></li>
+                <li v-else class="slot choice" :aria-label="`택일: ${sl.branches.length}갈래 중 하나`">
+                  <div v-for="(b, j) in sl.branches" :key="j" class="branch" :title="b.when">
+                    <template v-for="(c, m) in b.cards" :key="m">
+                      <span v-if="m" class="arr" aria-hidden="true">›</span>
+                      <FlowStep :x="c.card" :no="c.no" :total="s.pattern.case_count" :i="c.no - 1" :pending="pending.has(c.card.activity)" />
+                    </template>
+                    <span v-if="!b.cards.length" class="skip">건너뜀</span>
+                  </div>
+                </li>
+              </template>
             </ol>
             <div v-if="moreSteps.length" class="more">
-              <span v-for="d in moreSteps" :key="d.activity" class="req" :class="[d.kind, d.by]" :title="stepTip(d)"><Icon v-if="d.by === 'admin'" name="lock" :size="11" />{{ d.activity }} · {{ d.cases }}/{{ d.total }}건 · {{ kindText[d.kind] }}</span>
+              <span v-for="d in moreSteps" :key="d.activity" class="req" :class="[d.kind, d.by]" :title="stepTip(d)"><Icon v-if="d.by === 'admin'" name="lock" :size="11" /><Icon v-else-if="d.by === 'cases'" name="check" :size="11" />{{ d.activity }} · {{ d.cases }}/{{ d.total }}건 · {{ kindText[d.kind] }}</span>
             </div>
           </section>
 
@@ -253,11 +306,11 @@ onMounted(async () => {
 
           <div v-if="s.status === 'suggested'" class="decide glass">
             <div class="dt">
-              <b>{{ busy === 'register' ? '프로세스 정의를 만드는 중이에요…' : '이 흐름을 정식 프로세스로 등록할까요?' }}</b>
+              <b>{{ busy === 'register' ? '프로세스 정의를 만드는 중이에요…' : s.undecided?.length ? `확인 필요 ${s.undecided.length}개를 먼저 정해 주세요` : '이 흐름을 정식 프로세스로 등록할까요?' }}</b>
               <small>등록하면 BPMN·양식·역할·단계별 스킬이 담긴 프로세스 정의가 만들어지고, 다음 비슷한 메일부터 이 프로세스가 알아서 시작돼요.</small>
             </div>
             <button class="hold press" :disabled="!!busy" @click="decide('hold')">{{ busy === 'hold' ? '보류하는 중…' : '보류' }}</button>
-            <button class="go press" :disabled="!!busy" @click="decide('register')">{{ busy === 'register' ? '만드는 중…' : '정식 등록' }}</button>
+            <button class="go press" :disabled="!!busy || !!s.undecided?.length" @click="decide('register')">{{ busy === 'register' ? '만드는 중…' : '정식 등록' }}</button>
           </div>
           <p v-if="err" class="err">{{ err }}</p>
 
@@ -361,22 +414,28 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 section { margin-top: 24px; }
 h2 { font-size: 17px; font-weight: 500; margin: 0 0 10px; }
 h2 small { font-size: 13px; color: var(--text-tertiary); font-weight: 400; margin-left: 8px; }
-.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-.step { position: relative; border-radius: 20px; padding: 12px 12px 12px; display: flex; flex-direction: column; gap: 5px; min-width: 0; animation: blur-in .45s var(--spring) both; animation-delay: calc(var(--i) * 70ms); }
-.step:not(:last-child)::after { content: '›'; position: absolute; right: -9px; top: 50%; translate: 0 -50%; color: var(--text-tertiary); font-size: 18px; z-index: 1; }
-.top { display: flex; align-items: center; gap: 6px; }
-.no { width: 20px; height: 20px; border-radius: 10px; background: var(--chip-bg); display: grid; place-items: center; font-size: 11.5px; }
+.flow { list-style: none; margin: 0; padding: 0 0 4px; display: flex; align-items: stretch; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
+.flow .slot { flex: 1 0 150px; max-width: 220px; min-width: 150px; }
+/* 택일 칸이 있으면 한 단계 칸은 칸 높이로 늘이지 않고 가운데에 */
+.flow:has(.choice) .slot:not(.choice) { align-self: center; }
+.flow .slot.choice { flex: 0 0 auto; max-width: none; display: flex; flex-direction: column; gap: 8px; padding: 6px; border-radius: 24px; border: 1px solid rgba(161 208 255 / .35); }
+.flow .branch { display: flex; align-items: stretch; gap: 6px; }
+.flow .branch > .step { width: 150px; flex: none; }
+.flow .arr { flex: none; align-self: center; color: var(--text-tertiary); font-size: 18px; }
+.undecided h2 small { color: var(--text-secondary); }
+.urow { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 18px; margin-bottom: 8px; }
+.uq { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.uq small { color: var(--text-secondary); font-size: 12.5px; }
+.uq .draft { color: var(--text-primary); }
+.uq .draft.none { color: var(--text-tertiary); }
+.ub { display: flex; gap: 6px; flex: none; }
+.ub button { height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; display: inline-flex; align-items: center; }
+@media (max-width: 720px) { .urow { flex-direction: column; align-items: stretch; } .ub { justify-content: flex-end; } }
+.flow .skip { align-self: center; font-size: 12px; color: var(--text-tertiary); border: 1px dashed var(--hairline); border-radius: 9px; padding: 2px 10px; }
 .kind { font-size: 11.5px; padding: 1px 7px; border-radius: 8px; background: var(--chip-bg); color: var(--text-secondary); }
 .kind.agent { background: rgba(161 208 255 / .2); color: var(--color-info); }
-.freq { margin-left: auto; font-size: 11.5px; color: var(--text-secondary); }
-.nm { font-size: 15.5px; font-weight: 600; line-height: 1.3; }
-.role { font-size: 13px; color: var(--text-secondary); }
-.tools { display: flex; flex-wrap: wrap; gap: 4px; }
-.tool { font-size: 12px; padding: 2px 8px 2px 4px; border-radius: 10px; background: var(--field-bg); display: inline-flex; align-items: center; gap: 4px; }
-.tool i { font-style: normal; width: 16px; height: 16px; border-radius: 5px; background: var(--chip-bg); display: inline-grid; place-items: center; font-size: 10px; }
 .skills { display: flex; flex-wrap: wrap; gap: 4px; }
 code { font-size: 11.5px; padding: 1px 6px; border-radius: 6px; background: rgba(150 240 176 / .14); color: var(--color-success); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.who { font-size: 11.5px; color: var(--text-tertiary); }
 .cases { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .case { border-radius: 18px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
 .ch { display: flex; align-items: baseline; gap: 10px; }
@@ -402,6 +461,19 @@ code { font-size: 11.5px; padding: 1px 6px; border-radius: 6px; background: rgba
 .tbl { border-radius: 20px; padding: 6px 8px; }
 .tr { display: grid; grid-template-columns: 1.2fr 1fr 1.4fr 1.2fr; gap: 12px; padding: 9px 12px; align-items: center; font-size: 14px; border-top: 1px solid var(--hairline); }
 .tr.th { border-top: 0; font-size: 12.5px; color: var(--text-tertiary); }
+/* 휴대폰: 목록은 상태·이름·건수 한 줄 + 단계 아랫줄, 제목은 낱말 단위로, 사례는 한 칸, 등록된 정의 표는 행마다 두 줄 */
+@media (max-width: 720px) {
+  .row { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'st nm n' 'fl fl fl'; gap: 6px 10px; padding: 12px 16px; }
+  .row > .st { grid-area: st; }
+  .row > b { grid-area: nm; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row > small { grid-area: fl; }
+  .row > .n { grid-area: n; white-space: nowrap; }
+  .hero h1 { font-size: 28px; word-break: keep-all; overflow-wrap: anywhere; }
+  .cases { grid-template-columns: minmax(0, 1fr); }
+  .tr.th { display: none; }
+  .tr { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; }
+  .tr > span:nth-child(2) { text-align: right; color: var(--text-secondary); font-size: 13px; }
+}
 .run { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-radius: 18px; margin-bottom: 8px; text-align: left; }
 .run small { color: var(--text-secondary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 필수·옵션: 관리자 확정은 채운 배지(자물쇠), 빈도 초안은 점선 */

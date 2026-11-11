@@ -87,14 +87,13 @@ test.describe('프로세스 마이닝 (lib/mining)', () => {
     expect(c.processDefinition.elements.filter((e) => e.elementType === 'Sequence').length).toBeGreaterThanOrEqual(acts.length + 1)
   })
 
-  test('F-MN-03 등록된 프로세스의 라우팅 기준: 형식 2개 이상 일치 또는 낱말 2개 이상일 때만', async ({ lib }) => {
-    // the rule routeMail applies to the next mail (lib/mining/service.js)
-    const { matches } = await lib('lib/mining/service.js')
-    const m = { formats: ['dxf', 'hwpx', 'xlsx'], keywords: ['인테리어', '설계', '제안서', '견적서'] }
-    expect(matches(m, { subject: '카페 인테리어 설계 제안서 요청', text: '' }, { items: [{ format: 'hwpx' }] })).toBe(true)
-    expect(matches(m, { subject: '행사 다과 단가', text: '엑셀로 주세요' }, { items: [{ format: 'xlsx' }] })).toBe(false)
-    expect(matches(m, { subject: '자료', text: '평면도와 함께 보내 주세요' }, { items: [{ format: 'hwpx' }] }), '평면도 낱말은 dxf 로 셈').toBe(true)
-    expect(matches(null, { subject: '인테리어 설계', text: '' }, {})).toBe(false)
+  test('F-MN-03 등록된 프로세스의 라우팅 기준: 메일의 업무 범주가 등록 프로세스의 범주와 같을 때 (2026-11-11)', async ({ lib }) => {
+    // the rule routeMail applies to the next mail (lib/mining/service.js): the mail's 업무 범주, not step words
+    const { registeredFor } = await lib('lib/mining/service.js')
+    const regs = [{ name: '설계 제안·견적 대응', pattern: { category: '매장 설계' } }, { name: '행사 견적·고객 회신', pattern: { category: '행사 견적' } }]
+    expect(registeredFor(regs, '매장 설계')?.name).toBe('설계 제안·견적 대응')
+    expect(registeredFor(regs, '행사 견적')?.name).toBe('행사 견적·고객 회신')
+    expect(registeredFor(regs, '교육 일정표'), '범주가 맞는 등록 프로세스가 없으면 맡지 않음').toBeNull()
   })
 })
 

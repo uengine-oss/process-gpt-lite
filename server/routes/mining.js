@@ -56,6 +56,12 @@ export function miningRoutes(auth) {
   // (steps 필수·옵션, which process a case belongs to, the proposal) — lib/mining/talk.js
   r.get('/mining/suggestions/:id/talk', auth, h((req) => Talk.history(req.user, req.params.id)))
   r.post('/mining/suggestions/:id/talk', auth, h((req) => Talk.say(req.user, req.params.id, req.body?.text)))
+  // the admin decides one branch from the screen (확인 필요: 초안대로 · 필수로), the same as in the talk
+  r.post('/mining/suggestions/:id/steps', auth, h(async (req) => {
+    const b = req.body || {}
+    await M.setStep(req.user, req.params.id, b.activity, b.kind, b.kind === 'choice' ? b.when : b.kind === 'loop' ? b.redo_when : b.skip_when)
+    return M.get(req.params.id)
+  }))
   r.post('/mining/suggestions/:id/register', auth, h((req) => M.register(req.user, req.params.id)))
   r.post('/mining/suggestions/:id/hold', auth, h((req) => M.hold(req.user, req.params.id)))
   return r

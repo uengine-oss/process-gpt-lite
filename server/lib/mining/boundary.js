@@ -69,7 +69,11 @@ export function stepsView(pattern = {}, confirmed = {}, def = null) {
     draft: draft.has(a) ? 'required' : 'optional',
     kind: kinds ? (kinds[a]?.kind || 'absent') : (req.has(a) ? 'required' : 'optional'),
     skip_when: kinds?.[a]?.skip_when || '',
-    by: ruleOf(confirmed?.[a]) ? 'admin' : 'frequency',
+    ...(kinds?.[a]?.kind === 'choice' ? { when: kinds[a].when || '', alternatives: kinds[a].alternatives || [] } : {}),
+    // who set it: the admin, or the work (the cases' requests sorted every case the way it went: sorted N/N)
+    by: ruleOf(confirmed?.[a]) ? (confirmed[a].by === 'cases' ? 'cases' : 'admin') : 'frequency',
+    ...(ruleOf(confirmed?.[a]) && confirmed[a].by === 'cases' ? { sorted: `${confirmed[a].matched}/${confirmed[a].total}` } : {}),
+    ...(ruleOf(confirmed?.[a])?.kind === 'loop' ? { redo_when: confirmed[a].redo_when } : {}),
   }))
 }
 

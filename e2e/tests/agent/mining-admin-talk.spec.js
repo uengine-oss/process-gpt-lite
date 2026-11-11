@@ -80,7 +80,7 @@ function skipOf(def, step) {
   const into = (def.sequences || []).find((x) => x.target === a.id && gws.has(x.source))
   if (!into) return null
   const skip = (def.sequences || []).find((x) => x.source === into.source && x.target !== a.id)
-  return skip ? { gateway: into.source, condition: skip.condition, keepDefault: JSON.parse(into.properties || '{}').default === true } : null
+  return skip ? { gateway: into.source, condition: skip.condition, keepCondition: into.condition || '', keepDefault: JSON.parse(into.properties || '{}').default === true } : null
 }
 
 // ProcessGPT 엔진 코드로: 저장된 정의에서 `after` 가 `data` 로 끝나면 다음 단계는?
@@ -128,10 +128,11 @@ test('A-MN-10 관리자가 대화로 근거를 확인하고 필수·옵션(BPMN)
     await shot(page, '2-설계-조건-되물음')
     const done = await say(page, '견적 합계가 5천만 원 미만이면 건너뛰어')
     expect(done).toMatch(/배타 게이트웨이/)
-    // 정의: 재무 검토 앞 배타 게이트웨이, 건너뛰는 흐름에 관리자의 조건, 재무 검토로 가는 흐름이 기본
+    // 정의: 재무 검토 앞 배타 게이트웨이, 건너뛰는 흐름에 관리자의 조건, 재무 검토로 가는 흐름에 그 반대 조건 (기본 흐름 없음)
     const skip = skipOf(await defOf(db, design0), '재무 검토')
     expect(skip?.condition).toMatch(/5천만/)
-    expect(skip?.keepDefault).toBe(true)
+    expect(skip?.keepDefault).toBe(false)
+    expect(skip?.keepCondition).toMatch(/5천만/)
     expect(await versionsOf(db, design0)).toBe(v0 + 1)
     // 화면이 받는 BPMN 도 게이트웨이와 조건이 든 최신 버전이다
     const xml = (await u.get(`/processes/${encodeURIComponent(design0.proc_def_id)}/bpmn`)).text

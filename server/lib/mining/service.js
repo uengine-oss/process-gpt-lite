@@ -36,9 +36,9 @@ import { mainThread, addMessage } from '../store.js'
 import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
 import { caseClosed } from './recorder.js'
 import { L, isEn, lang, langOf, withLang } from '../lang.js'
-import { fmtNum } from '../improve/transform.js'
-import { boundaryOf, boundaryOrder, keepFound, requiredIn, sameCases, stepsView } from './boundary.js'
-import { applyStepRules, forSave, gatewayLanes, ruleOf, stepKinds } from './shape.js'
+import { boundaryOf, boundaryOrder, frequencyOf, keepFound, requiredIn, sameCases, stepsView } from './boundary.js'
+import { applyStepRules, clearMined, completeSplits, oppositesOf, flowOf, forSave, gatewayLanes, ruleOf, splitsOf, stepKinds, undecided } from './shape.js'
+import { branchCases, deriveSplit, materialsBefore, writeOpposite } from './branch.js'
 import { josa } from '../improve/focus.js'
 
 const T = () => config.tenantId
@@ -76,7 +76,7 @@ JSON {"name","summary","keywords"} 로 답하세요.
 - summary: 이 흐름이 무엇인지 해요체 한 문장
 - keywords: 다음에 같은 일을 요청하는 메일에 나올 한국어 낱말 3~6개`
 // English mode: an English flow (its steps were recorded in English) gets an English name, and English
-// keywords, so the next English mail asking for the same work matches them (matches below)
+// keywords (shown with the recommendation; a mail is routed by its 업무 범주 — registeredFor below)
 const NAME_EN = `Process mining found a work flow that repeats in the handover records of people and agents. Give this flow a name.
 Answer with JSON {"name","summary","keywords"}.
 - name: an English noun phrase of at most 32 characters joining two jobs with " & ", e.g. "Design proposal & quote", "Onboarding papers & accounts"
@@ -266,6 +266,10 @@ async function doScan() {
   })
   await markUnclassified(unplaced)
   const byKey = new Map(rows.map((r) => [r.pattern_key, r]))
+  try { return await scanPatterns(patterns, byKey) } finally { await settleAll() }
+}
+
+async function scanPatterns(patterns, byKey) {
   const made = []
   for (const p of patterns) {
     // A recommendation the admin has already seen (any status): its cases and required steps stay as the
@@ -305,6 +309,76 @@ async function doScan() {
     await notifyAdmins(s)
   }
   return made
+}
+
+// ---------- 분기 조건: 업무 흐름에서 (branch.js) ----------
+// After each search: every recommendation's splits nobody has decided get what the cases say — a condition
+// when it sorts every case onto the flow it took (by 'cases'), else a draft with how many it sorted right.
+// A registered process saves what changed (the cases' conditions, a complement the admin's word already
+// decides, a default flow gone) as a new version. One judgment per split and evidence: an entry already
+// drawn from the same number of cases is not asked again.
+async function settleAll() {
+  for (const row of await q('select * from pro_mining_suggestions where tenant_id=$1', [T()])) {
+    await settleBranches(row).catch((e) => console.warn('[mining] branches', row.name, e.message))
+  }
+}
+const FIELD = { skip: ['optional', 'skip_when'], when: ['choice', 'when'], redo: ['loop', 'redo_when'] }
+const oppositeOf = async (c) => { const o = await writeOpposite(c).catch(() => null); return o ? { opposite: o } : {} }
+export async function settleBranches(row, ask) {
+  const def = await definitionOf(row)
+  if (!def?.activities?.length) return null
+  const confirmed = { ...(row.confirmed || {}) }
+  const open = undecided(def, confirmed)
+  let learned = false
+  if (open.length) {
+    const cases = await casesOf(row.pattern?.case_ids || [])
+    const traces = Object.fromEntries(cases.map((c) => [c.case_id, c.steps.map((x) => x.activity)]))
+    const bodies = Object.fromEntries((await q('select mail_id, body from pro_demo_mail where mail_id = any($1)', [cases.map((c) => c.mail_id).filter(Boolean)]).catch(() => []))
+      .map((r) => [r.mail_id, String(r.body || '').slice(0, 1500)]))
+    const splits = Object.fromEntries(branchCases(def, traces).map((x) => [x.gateway, x]))
+    for (const gw of [...new Set(open.map((x) => x.gateway))]) {
+      const sp = splits[gw]
+      const asked = open.filter((x) => x.gateway === gw)
+      if (!sp || sp.kind === 'loop') continue
+      const total = sp.flows.reduce((n, f) => n + f.cases.length, 0)
+      if (asked.every((x) => Number(confirmed[x.step]?.draft?.total ?? confirmed[x.step]?.total) === total)) continue
+      const materials = Object.fromEntries(cases.map((c) => [c.case_id, {
+        subject: c.subject || '', body: bodies[c.mail_id] || '', attachments: c.files || [],
+        before: materialsBefore(def, gw, c.steps).map((x) => ({ step: x.activity, documents: x.files })),
+      }]))
+      // the flows asked about: an optional step's way around it; a choice's branches as undecided lists them
+      const stepOfSeq = Object.fromEntries(sp.flows.map((f) => [f.seq, sp.kind === 'optional' ? sp.step : f.label]))
+      const named = sp.flows.filter((f) => (sp.kind === 'optional' ? f.label !== sp.step : asked.some((x) => x.step === f.label))).map((f) => f.seq)
+      const r = await deriveSplit({ kind: sp.kind, flows: sp.flows, materials, named, ...(ask ? { ask } : {}) })
+      for (const x of asked) {
+        const [kind, field] = FIELD[x.need]
+        const seq = Object.keys(r.conditions || {}).find((k) => stepOfSeq[k] === x.step)
+        const text = seq ? r.conditions[seq] : ''
+        confirmed[x.step] = r.grounded && text ? { kind, [field]: text, by: 'cases', matched: r.matched, total: r.total, ...await oppositeOf(text) }
+          : { kind, draft: { [field]: text, matched: r.matched, total: r.total } }
+      }
+      learned = true
+    }
+  }
+  // every decided condition gets its opposite in plain words once (the admin's from before too): the flow
+  // left on its split reads "견적 합계가 5천만 원 이상이면", not a wrapped "다음에 해당하지 않으면: …"
+  for (const [step, v] of Object.entries(confirmed)) {
+    const r = ruleOf(v)
+    const c = r && (r.skip_when || r.when || r.redo_when)
+    if (!c || v.opposite || v.opposite_tried === c) continue
+    const o = await oppositeOf(c)
+    confirmed[step] = { ...v, ...o, ...(o.opposite ? {} : { opposite_tried: c }) }
+    learned = true
+  }
+  if (learned) await q('update pro_mining_suggestions set confirmed=$2, updated_at=now() where id=$1', [row.id, confirmed])
+  if (row.status !== 'registered' || !row.proc_def_id) return { confirmed }
+  // a registered process: the cases' conditions and the opposites go into a new version
+  const rules = Object.fromEntries(Object.entries(confirmed).filter(([, v]) => ruleOf(v)))
+  const next = applyStepRules(def, rules).def
+  if (JSON.stringify(next) === JSON.stringify(def)) return { confirmed }
+  const saved = await saveVersion({ id: row.decided_by || 'process-mining' }, row.proc_def_id, next,
+    L('[프로세스 마이닝] 분기 조건 — 모든 흐름에 조건(업무 흐름·관리자와 그 반대), 기본 흐름 없음', '[Process mining] branch conditions — every flow has one (the work\'s or the admin\'s and its opposite), no default flow'))
+  return { confirmed, version: saved.version }
 }
 
 // One recommendation the admin has seen, after a search: same cases, same required steps; the counts
@@ -374,7 +448,7 @@ export async function list() {
 // steps it went through, its category and who set it, and the required steps it skipped
 async function casesOf(ids, required = []) {
   if (!ids?.length) return []
-  const cases = await q(`select case_id, customer, subject, demo, category, category_by, created_at from pro_mining_cases
+  const cases = await q(`select case_id, mail_id, files, customer, subject, demo, category, category_by, created_at from pro_mining_cases
                          where tenant_id=$1 and case_id = any($2) order by created_at`, [T(), ids])
   const evs = await q(`select case_id, norm_activity_label as activity, to_user_name as who, to_is_agent as agent, occurred_at, artifact_refs
                        from handover_events where tenant_id=$1 and case_id = any($2) order by occurred_at`, [T(), ids])
@@ -399,6 +473,11 @@ export async function get(id) {
   const cases = await casesOf(s.pattern.case_ids, required)
   const byAct = Object.fromEntries(decided.map((x) => [x.activity, x]))
   const steps = s.pattern.steps.map((x) => ({ ...x, kind: x.by_agent * 2 >= x.total ? 'agent' : 'human', catalog: stepOf(x.activity), decided: byAct[x.activity] || null }))
+  // the definition in order, its choices as branches (shape.js flowOf), each task with what the cases show
+  // of it — a task the most common variant never passed (the other branch of a choice) included
+  const flow = def ? cardsOf(flowOf(def), s.pattern, def, byAct) : null
+  // the branches the admin has not decided yet (정식 등록 waits for them)
+  const open = undecided(def, s.confirmed || {})
   const proposal = s.proposal ? { ...s.proposal, cases: await casesOf(s.proposal.case_ids, required) } : null
   // where a case can be moved to: the other recommendations; and cases in none of them
   const others = await q(`select id, name, status, pattern->>'category' as category from pro_mining_suggestions
@@ -407,7 +486,24 @@ export async function get(id) {
   const pr = s.pr_id ? (await q('select id, title, status, branch_name, created_at, merged_at from resource_pull_requests where id=$1', [s.pr_id]))[0] : null
   const runs = s.proc_def_id ? await q(`select r.proc_inst_id, r.mail, r.created_at, i.status, i.proc_inst_name from pro_mining_runs r
                                          left join bpm_proc_inst i on i.proc_inst_id=r.proc_inst_id where r.suggestion_id=$1 order by r.created_at desc`, [s.id]) : []
-  return { ...s, steps, decided, required, cases, proposal, others, unplaced, pr, runs }
+  return { ...s, steps, flow, undecided: open, decided, required, cases, proposal, others, unplaced, pr, runs }
+}
+
+// A task card: the step as the cases recorded it (role, tools, skills, who did it), else — a task no case of
+// the most common variant passed — what the catalog and the definition say about it.
+function cardsOf(items, pattern, def, byAct) {
+  const seen = Object.fromEntries((pattern.steps || []).map((x) => [x.activity, x]))
+  const freq = frequencyOf(pattern)
+  const card = (name) => {
+    const x = seen[name]
+    const c = stepOf(name)
+    const a = (def.activities || []).find((y) => y.name === name) || {}
+    const base = x || { activity: name, role: c?.role || a.role || '', tools: c?.tool ? [c.tool] : [], skills: c?.skill ? [c.skill] : (a.skills || []),
+      performers: [], total: freq[name] || 0, by_agent: c?.kind === 'agent' ? freq[name] || 0 : 0 }
+    return { ...base, cases: freq[name] ?? base.cases ?? 0, kind: c?.kind || (base.by_agent * 2 >= (base.total || 1) ? 'agent' : 'human'), decided: byAct[name] || null }
+  }
+  const walk = (list) => list.map((it) => (it.step ? { step: card(it.step) } : { choice: it.choice, branches: it.branches.map((b) => ({ when: b.when, items: walk(b.items) })) }))
+  return walk(items)
 }
 
 // ---------- 관리자 확정 (대화로: talk.js) ----------
@@ -425,13 +521,13 @@ export async function definitionOf(s) {
     const [row] = await q('select definition from proc_def where lower(id)=lower($1) and tenant_id=$2', [s.proc_def_id, T()])
     if (row?.definition?.activities?.length) return row.definition
   }
-  return s.definition ? applyStepRules(dropSkips(reviewRule(s.definition)), s.confirmed || {}).def : null
+  return s.definition ? drawn(s) : null
 }
 
 // a changed definition saved the way Lite saves a process (lib/generated.js → process-gpt save_contract +
 // BPMN generator), with a new proc_def_version as process-gpt's own save button leaves (the engine takes it
 // from the next instance) — the same path 「개선안 적용」 uses (lib/improve/apply.js)
-async function saveVersion(me, defId, def, message) {
+export async function saveVersion(me, defId, def, message) {
   def = forSave(def)
   const [d] = await q('select id, name, description from proc_def where lower(id)=lower($1) and tenant_id=$2', [defId, T()])
   if (!d) throw err(404, L('등록된 프로세스를 찾지 못했어요.', "I couldn't find the registered process."))
@@ -454,6 +550,12 @@ const NOTE = {
   not_in_definition: (a) => L(`'${a}' 단계는 프로세스 정의에 없어요. 정의에 있는 단계만 필수·옵션을 정할 수 있어요.`, `The process definition has no '${a}' step. Only steps in the definition can be made required or optional.`),
   many_outgoing: (a) => L(`'${a}' 뒤 흐름이 여러 갈래라 건너뛰는 분기를 넣을 수 없어요.`, `'${a}' is followed by more than one flow, so a skip branch can't be added.`),
   still_bypassed: (a) => L(`'${a}' 을(를) 돌아가는 다른 길이 남아 있어 필수로 만들지 못했어요.`, `Another path still goes around '${a}', so it couldn't be made required.`),
+  // (shape.js: a choice's branch made 필수 or 옵션 would take away or rewrite the other branch)
+  // ('견적서 작성'은 '제안서 작성'과 — the particle follows the word, not the quote mark)
+  not_choice: (a) => L(`'${a}'${josa(a, '은/는').slice(a.length)} 택일 갈래가 아니에요.`, `'${a}' is not a branch of a choice.`),
+  not_loop: (a) => L(`'${a}' 뒤에는 다시 하는 반복 판정이 없어요.`, `There is no loop check after '${a}'.`),
+  in_choice: (a, alt = []) => L(`'${a}'${josa(a, '은/는').slice(a.length)} ${alt.length ? `${alt.map((x) => `'${x}'`).join('·')}${josa(alt.at(-1), '과/와').slice(alt.at(-1).length)} ` : ''}둘 중 하나를 하는 택일 단계라 필수·옵션으로 바꿀 수 없어요. 갈래를 바꾸는 것은 프로세스 구조를 고치는 일이에요.`,
+    `'${a}' is a choice${alt.length ? ` with ${alt.map((x) => `'${x}'`).join(', ')}` : ''} (one of the branches is done), so it can't be made required or optional. Changing the branches changes the process structure.`),
 }
 
 // The admin confirms a step 필수 or 옵션 — in the BPMN sense. 옵션 needs when it is skipped (skip_when): the
@@ -461,28 +563,42 @@ const NOTE = {
 // into the task is the default. 필수 takes every way around it away. A registered process is saved as a
 // new version at once (the next mail runs it); a recommendation keeps the word and 정식 등록 applies it.
 // The counts never change it again, and the required steps go to the miner as the boundary.
+// kind 'choice': the condition a choice's branch is taken on (`skipWhen` carries it) — the admin's own words,
+// or the mining draft as it is when they choose 「초안대로」.
 export async function setStep(me, id, activity, kind, skipWhen = '') {
   const s = await own(me, id)
-  const rule = ruleOf(kind === 'optional' ? { kind, skip_when: skipWhen } : kind)
-  if (!rule) throw err(400, kind === 'optional' ? L('언제 건너뛰는지(조건)를 알려 주세요.', 'Tell me when it is skipped (the condition).') : L('필수나 옵션으로 정해 주세요.', 'Choose required or optional.'))
   const before = await definitionOf(s)
   const step = stepsView(s.pattern, s.confirmed || {}, before).find((x) => x.activity === activity)
   if (!step) throw err(404, L(`'${activity}' 단계가 이 추천에 없어요.`, `This recommendation has no '${activity}' step.`))
-  const value = rule.kind === 'required' ? 'required' : rule
+  if (step.kind === 'choice' && kind !== 'choice' && kind !== 'loop') throw err(409, NOTE.in_choice(activity, step.alternatives))
+  const field = { optional: 'skip_when', choice: 'when', loop: 'redo_when' }[kind]
+  const rule = ruleOf(field ? { kind, [field]: skipWhen } : kind)
+  if (!rule) throw err(400, kind === 'optional' ? L('언제 건너뛰는지(조건)를 알려 주세요.', 'Tell me when it is skipped (the condition).')
+    : kind === 'choice' ? L(`언제 ${josa(activity, '으로/로')} 가는지(조건)를 알려 주세요.`, `Tell me when the work goes to '${activity}' (the condition).`)
+      : kind === 'loop' ? L(`언제 ${josa(activity, '을/를')} 다시 하는지(조건)를 알려 주세요.`, `Tell me when '${activity}' is done again (the condition).`)
+        : L('필수나 옵션으로 정해 주세요.', 'Choose required or optional.'))
+  // the admin's word: it replaces whatever the cases drafted or decided for the step
+  const value = rule.kind === 'required' ? 'required' : { ...rule, by: 'admin' }
+  // the other flow's condition: the same in plain words ("5천만 원 미만이면" → "5천만 원 이상이면")
+  if (value !== 'required') { const o = await writeOpposite(skipWhen); if (o) value.opposite = o; else delete value.opposite }
   let saved = null
   if (s.status === 'registered' && s.proc_def_id) {
-    const { def, notes } = applyStepRules(before, { [activity]: value })
-    if (notes.length) throw err(409, NOTE[notes[0].reason](activity))
+    const { def, notes } = applyStepRules(before, { [activity]: value }, oppositesOf(s.confirmed || {}))
+    if (notes.length) throw err(409, NOTE[notes[0].reason](activity, step.alternatives))
     saved = await saveVersion(me, s.proc_def_id, def, rule.kind === 'required'
       ? L(`[프로세스 마이닝] '${activity}' 필수 — 건너뛰는 길 없음`, `[Process mining] '${activity}' required — no way around it`)
-      : L(`[프로세스 마이닝] '${activity}' 옵션 — ${rule.skip_when} 건너뜀`, `[Process mining] '${activity}' optional — skipped ${rule.skip_when}`))
+      : rule.kind === 'choice'
+        ? L(`[프로세스 마이닝] '${activity}' 갈래 — ${rule.when}`, `[Process mining] '${activity}' branch — ${rule.when}`)
+        : rule.kind === 'loop'
+          ? L(`[프로세스 마이닝] '${activity}' 다시 하기 — ${rule.redo_when}`, `[Process mining] '${activity}' done again — ${rule.redo_when}`)
+          : L(`[프로세스 마이닝] '${activity}' 옵션 — ${rule.skip_when} 건너뜀`, `[Process mining] '${activity}' optional — skipped ${rule.skip_when}`))
   } else if (before) {
     const { notes } = applyStepRules(before, { [activity]: value })
-    if (notes.length) throw err(409, NOTE[notes[0].reason](activity))
+    if (notes.length) throw err(409, NOTE[notes[0].reason](activity, step.alternatives))
   }
   await q('update pro_mining_suggestions set confirmed=$2, updated_at=now() where id=$1', [id, { ...(s.confirmed || {}), [activity]: value }])
   const after = stepKinds(saved?.definition || applyStepRules(before || {}, { [activity]: value }).def)[activity]
-  return { activity, kind: after?.kind || rule.kind, skip_when: after?.skip_when || rule.skip_when || '', was: step.kind, cases: step.cases, total: step.total, version: saved?.version || null, registered: s.status === 'registered' }
+  return { activity, kind: rule.kind === 'loop' ? 'loop' : after?.kind || rule.kind, skip_when: after?.skip_when || rule.skip_when || '', when: after?.when || rule.when || '', redo_when: rule.redo_when || '', was: step.kind, cases: step.cases, total: step.total, version: saved?.version || null, registered: s.status === 'registered' }
 }
 
 // the admin says which recommendation a case belongs to (toId), or only which work it is (category) and that
@@ -554,37 +670,8 @@ const html = (id, alias, fs) => `<section>\n${fs.map((f) => {
   return `  <row-layout name="${id}" alias="${alias}" is_multidata_mode="false" v-model="formValues" v-slot="slotProps"><div class="row"><div class="col-sm-12"><${t} name='${f.key}' alias='${f.text}'${type}${items} disabled='false' readonly='false' v-model="slotProps.modelValue['${f.key}']"></${t}></div></div></row-layout>`
 }).join('\n')}\n</section>`
 
-// A mined optional review (the miner's xor(review, skip) after the quote, e.g. 'Finance review' skipped
-// in one case of five) gets the rule it stands for: a quote under the threshold skips it — the same
-// rule and wording as the improvement 'skip under a threshold' (lib/improve/transform.js), on the
-// quote step's amount. When the amount is missing the review is the default flow (the miner's
-// default/priority), so the engine always hands out exactly one of the two.
-export const REVIEW_THRESHOLD = () => Number(process.env.PRO_MINING_REVIEW_THRESHOLD || 50_000_000)
-export function reviewRule(d0, threshold = REVIEW_THRESHOLD()) {
-  const d = JSON.parse(JSON.stringify(d0))
-  const quote = (d.activities || []).find((a) => stepOf(a.name)?.key === 'quote')
-  if (!quote) return d
-  const label = L('견적 합계', 'Quote total')
-  for (const g of d.gateways || []) {
-    if (!/exclusive/i.test(g.type || '')) continue
-    const outs = (d.sequences || []).filter((x) => x.source === g.id)
-    if (outs.length !== 2) continue
-    const review = outs.map((x) => (d.activities || []).find((a) => a.id === x.target)).find((a) => a && stepOf(a.name)?.key === 'finance')
-    const keep = review && outs.find((x) => x.target === review.id)
-    const skip = keep && outs.find((x) => x !== keep)
-    // the other branch must go around the review (a pass-through gateway or the join), not to another step
-    if (!skip || (d.activities || []).some((a) => a.id === skip.target)) continue
-    g.name = L(`${label} 기준`, `${label} threshold`)
-    g.description = L(`${label} ${fmtNum(threshold)} 미만이면 '${review.name}' 을(를) 건너뜀`, `Skips '${review.name}' when ${label} is under ${fmtNum(threshold)}`)
-    Object.assign(keep, { name: L(`${fmtNum(threshold)} 이상`, `${fmtNum(threshold)} or more`), condition: L(`${label}(amount) 이(가) ${threshold} 이상`, `${label} (amount) is ${threshold} or more`), properties: JSON.stringify({ priority: 0, default: true }) })
-    Object.assign(skip, { name: L(`${fmtNum(threshold)} 미만 · 건너뜀`, `under ${fmtNum(threshold)} · skipped`), condition: L(`${label}(amount) 이(가) ${threshold} 미만`, `${label} (amount) is under ${threshold}`), properties: JSON.stringify({ priority: 1 }) })
-  }
-  return d
-}
-
 // An older miner leaves "조건N" on an optional step's XOR split for an LLM pass Lite does not run, and the
 // engine cannot decide such a branch (the instance stops there): keep the step on the main path instead.
-// (after reviewRule, which gives the mined Finance review its real rule; a current miner writes none)
 export function dropSkips(d) {
   const placeholder = (c) => /^조건\s*\d+$/.test(String(c || '').trim())
   let gateways = [...(d.gateways || [])]
@@ -606,10 +693,16 @@ export function dropSkips(d) {
   return { ...d, gateways, sequences }
 }
 
+// the branches of what 정식 등록 would save that the admin has not decided (registration waits for them)
+// what 정식 등록 would save: the drawn structure, without the conditions the miner wrote (they are not the
+// work's or the admin's — shape.js clearMined), with the admin's and the cases' words applied
+const drawn = (s) => applyStepRules(clearMined(dropSkips(s.definition)), s.confirmed || {}).def
+export const openBranches = (s) => (s?.definition ? undecided(drawn(s), s.confirmed || {}) : [])
+
 // mined definition (flattened) → process-gpt generation contract (elements[] + forms + agents + skills)
 export function buildContract(s) {
   // (the admin's 필수·옵션 go into the definition: an exclusive gateway with the skip condition — shape.js)
-  const d = applyStepRules(dropSkips(reviewRule(s.definition)), s.confirmed || {}).def
+  const d = drawn(s)
   const PID = s.process_id
   const formId = (a) => `${PID}_${(stepOf(a.name)?.key || a.id)}_form`
   const roles = new Map()
@@ -642,7 +735,7 @@ export function buildContract(s) {
     const parallel = /parallel/i.test(g.type || '')
     elements.push({ elementType: 'Gateway', id: g.id, name: g.name || '', role: g.role || lanes[g.id] || firstHumanRole, type: parallel ? 'ParallelGateway' : 'ExclusiveGateway', gateWayType: parallel ? 'bpmn:parallelGateway' : 'bpmn:exclusiveGateway' })
   }
-  // (properties carry the miner's default flow and priority: exactly one branch of an exclusive gateway is taken)
+  // (every flow of a split carries its condition, none is a default flow; properties keep the priority)
   for (const x of d.sequences) elements.push({ elementType: 'Sequence', id: x.id, source: x.source, target: x.target, condition: x.condition || '', ...(x.name || x.condition ? { name: x.name || x.condition } : {}), ...(x.properties && x.properties !== '{}' ? { properties: x.properties } : {}) })
   const cases = s.pattern.case_count
   return {
@@ -682,6 +775,12 @@ async function registerIn(me, id, s) {
   // the evidence may have grown since the recommendation: draw the model again from the cases as they are now
   const again = await miner('/discover', { tenant_id: T(), process_id: s.process_id, name: s.name, case_ids: s.pattern.case_ids, lang: lang() }).catch((e) => { console.warn('[mining] rediscover', e.message); return null })
   if (again?.definition) { s.definition = again.definition; await q('update pro_mining_suggestions set definition=$2 where id=$1', [id, again.definition]) }
+  // a branch nobody decided is not a process definition yet: the admin says when (or 초안대로) first
+  const open = openBranches(s)
+  if (open.length) {
+    throw Object.assign(err(409, L(`정식 등록 전에 정할 분기가 ${open.length}개 있어요: ${open.map((x) => `'${x.step}'`).join(', ')}. 언제 건너뛰는지·언제 그 갈래로 가는지 정해 주세요.`,
+      `${open.length} branch(es) need your decision before registering: ${open.map((x) => `'${x.step}'`).join(', ')}. Say when each is skipped or taken.`)), { undecided: open })
+  }
   const contract = buildContract(s)
   const saved = await saveGenerated(contract)
   const defId = saved.proc_def_id || s.process_id
@@ -719,19 +818,14 @@ export async function hold(me, id) {
 }
 
 // ---------- 다음 메일: 등록된 프로세스로 ----------
-export function matches(m, mail, d) {
-  const formats = new Set((d?.items || []).map((i) => i.format))
-  const said = `${mail.subject} ${mail.text}`
-  // (English mail too: "floor plan", "store design proposal")
-  if (/평면도|설계도|도면|배치도|인테리어|설계\s*제안/.test(said) || /floor\s*plan|layout|interior|design\s+proposal|drawing/i.test(said)) formats.add('dxf')
-  // a Word proposal answers what a 한글 one does
-  if (formats.has('docx') && (m?.formats || []).includes('hwpx') && !(m?.formats || []).includes('docx')) formats.add('hwpx')
-  if (formats.has('hwpx') && (m?.formats || []).includes('docx') && !(m?.formats || []).includes('hwpx')) formats.add('docx')
-  const hit = (m?.formats || []).filter((f) => formats.has(f)).length
-  // English keywords are matched without regard to case ("Proposal" in a subject)
-  const low = said.toLowerCase()
-  const words = (m?.keywords || []).filter((k) => k && (said.includes(k) || (!/[가-힣]/.test(k) && low.includes(String(k).toLowerCase())))).length
-  return (m?.formats?.length >= 2 && hit >= 2) || words >= 2
+// the most recently registered process of that category (regs come in that order), or null
+export const registeredFor = (regs, category) => (category ? regs.find((r) => r.pattern?.category === category) || null : null)
+// a new mail's 업무 범주: the same judgment a finished case gets, before any step (the request and the documents asked for)
+async function mailCategory(mail, d) {
+  const known = (await q(`select distinct category from pro_mining_cases where tenant_id=$1 and category is not null
+                          union select distinct pattern->>'category' from pro_mining_suggestions where tenant_id=$1 and pattern->>'category' is not null`, [T()])).map((r) => r.category).filter(Boolean)
+  const one = { id: 'mail', subject: mail.subject || '', customer: d?.customer || '', request: String(mail.text || '').slice(0, 1200), documents: (d?.items || []).map((i) => i.kind), steps: [] }
+  return (await categoriesOf([one], known, lang(), await adminExamples())).mail || ''
 }
 
 // called by lib/mail.js for a mail asking for documents: true when a registered process took it
@@ -746,7 +840,15 @@ async function routeMailIn(userId, mail, d) {
   // without an English one the mail gets the ad-hoc drafts, in English
   // (Korean mode: as before, any registered process)
   const sameLang = (r) => !isEn() || !/[가-힣]/.test(String(r.name || ''))
-  const s = regs.find((r) => sameLang(r) && matches(r.match, mail, d))
+  // the registered process of the same work: the mail's 업무 범주, judged the way a case's is (the admin's
+  // categories as the examples), is a registered process's category (2026-11-11, design 결정 10). Step
+  // words the model picked for the name no longer decide it: work the admin put in a process never matched them.
+  const live = []
+  for (const r of regs.filter(sameLang)) if ((await q('select 1 from proc_def where lower(id)=lower($1) and tenant_id=$2', [r.proc_def_id, T()])).length) live.push(r)
+  if (!live.some((r) => r.pattern?.category)) return false
+  const category = await mailCategory(mail, d)
+  const s = registeredFor(live, category)
+  console.log(`[mining] mail ${mail.id} 범주 '${category || '-'}' → ${s ? s.name : '등록 프로세스 없음'}`)
   if (!s) return false
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
   if (!p?.email) return false
