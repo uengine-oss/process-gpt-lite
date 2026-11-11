@@ -125,6 +125,8 @@ test('준비: AI-DLC 저장소(질문 셋·검토 지적 둘), 팀 리드(소유
   const r = await call(lead, 'POST', '/folders/link', { path: repo, name: `검토 보드 시험 ${stamp}` })
   assert.equal(r.status, 200, JSON.stringify(r.body))
   folder = r.body
+  // this run-through checks the by-role way (each card decided by its role); 함께 고르기 has its own below
+  assert.equal((await tool(lead, 'review', 'review_mode', { folder: folder.slug, mode: 'roles' })).status, 200)
   for (const [who, role] of [[po, 'editor'], [arch, 'editor'], [dev, 'viewer']]) assert.equal((await call(lead, 'POST', `/folders/${folder.slug}/members`, { type: 'user', id: who.user.id, role })).status, 200)
   for (const [key, who] of [['product', po], ['architect', arch], ['developer', dev]]) assert.equal((await call(lead, 'PUT', `/aidlc/${folder.slug}/roles`, { roleKey: key, userIds: [who.user.id] })).status, 200)
   // the apps this folder gets (it holds an AI-DLC record)
@@ -305,11 +307,71 @@ test('홈 패널: panel_view 가 패널의 코드와 데이터를 주고, 저장
   } finally { await q('delete from pro_panels where id=$1', [p.id]) }
 })
 
+// 함께 고르기 (the default): every member picks on every card; picks show once you have picked; split cards are held
+let repo2, folder2
+test('검토 보드 · 함께 고르기: 모두에게 카드, 고르기 전엔 가려짐, 다르면 의견 갈림, 결정권자가 정하고 보내기', { skip: !up }, async () => {
+  repo2 = await fs.mkdtemp(path.join(os.tmpdir(), 'aidlc-together-'))
+  await fs.cp(FIXTURE, repo2, { recursive: true })
+  const ra = path.join(repo2, INTENT, 'inception/requirements-analysis')
+  await fs.writeFile(path.join(ra, 'requirements.md'), REQUIREMENTS)
+  const git = (...a) => execFileSync('git', ['-c', 'user.name=e2e', '-c', 'user.email=e2e@pgpt.test', ...a], { cwd: repo2 })
+  git('init', '-q', '-b', 'main'); git('add', '-A'); git('commit', '-q', '-m', 'AI-DLC record')
+  const r = await call(lead, 'POST', '/folders/link', { path: repo2, name: `함께 고르기 시험 ${Date.now()}` })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  folder2 = r.body
+  for (const [who, role] of [[po, 'editor'], [arch, 'editor'], [dev, 'viewer']]) assert.equal((await call(lead, 'POST', `/folders/${folder2.slug}/members`, { type: 'user', id: who.user.id, role })).status, 200)
+  // AI-DLC asks once the team is in (the watcher tells whoever is a member when it first sees the questions)
+  await fs.writeFile(path.join(ra, 'requirements-analysis-questions.md'), QUESTIONS)
+  const f = folder2.slug
+  // everyone gets a card with the whole count (not their role's share)
+  const cardOf = async (who) => ((await call(who, 'GET', '/notifications')).body || []).find((n) => n.type === 'aidlc' && String(n.url).startsWith(`/apps/review/${f}`))
+  for (const who of [arch, dev]) assert.match((await until(() => cardOf(who), 30000, 'a card')).title, /함께 고를 질문 3개/)
+  const board = async (who) => Object.fromEntries((await tool(who, 'review', 'review_open', { folder: f })).body.items.map((i) => [i.id, i]))
+  assert.equal((await tool(po, 'review', 'review_open', { folder: f })).body.mode, 'together')
+  // the PO picks Q1 first: the architect sees one pick, not which
+  assert.equal((await tool(po, 'review', 'review_mark', { folder: f, key: (await board(po)).Q1.key, stance: 'agree' })).status, 200)
+  let a = await board(arch)
+  assert.deepEqual([a.Q1.state, a.Q1.hidden, a.Q1.votes, a.Q1.groups, a.Q1.decision], ['voting', true, 1, [], null])
+  assert.equal(a.Q1.marks.find((m) => m.user_id === po.user.id).stance, 'voted', 'the PO\'s pick is hidden from the architect')
+  // the architect picks B with a reason: now both see the split, with who picked what and why
+  assert.equal((await tool(arch, 'review', 'review_mark', { folder: f, key: a.Q1.key, stance: 'choose', choice: 'B', note: '서버 저장이면 되돌리기도 서버 기록' })).status, 200)
+  for (const who of [po, arch]) {
+    const q1 = (await board(who)).Q1
+    assert.deepEqual([q1.state, q1.hidden, q1.groups.map((g) => [g.answer, g.people.map((p) => p.id)])], ['split', false, [['A', [po.user.id]], ['B', [arch.user.id]]]])
+  }
+  // anyone picks any card (the developer has view rights only and Q2 is the architect's topic)
+  assert.equal((await tool(dev, 'review', 'review_mark', { folder: f, key: a.Q2.key, stance: 'agree' })).status, 200)
+  assert.equal((await tool(po, 'review', 'review_mark', { folder: f, key: a.Q2.key, stance: 'choose', choice: 'A' })).status, 200)
+  assert.equal((await board(dev)).Q2.state, 'agreed')
+  // the send waits for the split card; the decider settles it and sends (the rest as recommended)
+  const held = await tool(po, 'review', 'review_send', { folder: f, what: 'questions' })
+  assert.equal(held.status, 409)
+  assert.match(held.body.error, /Q1/)
+  assert.equal((await tool(dev, 'review', 'review_settle', { folder: f, key: a.Q1.key, stance: 'choose', choice: 'B' })).status, 403, 'the decider settles')
+  assert.equal((await tool(po, 'review', 'review_settle', { folder: f, key: a.Q1.key, stance: 'choose', choice: 'B' })).status, 200)
+  assert.equal((await board(dev)).Q1.state, 'decided')
+  const sent = await tool(po, 'review', 'review_send', { folder: f, what: 'questions', useRecommended: true })
+  assert.equal(sent.status, 200, JSON.stringify(sent.body))
+  assert.deepEqual(sent.body.answers, { Q1: 'B', Q2: 'A', Q3: 'A' })
+  const text = await fs.readFile(path.join(ra, 'requirements-analysis-questions.md'), 'utf8')
+  assert.deepEqual([...text.matchAll(/^\[Answer\]: (.*)$/gm)].map((m) => m[1]), ['B', 'A', 'A'])
+})
+
 after(async () => {
   try { if (name) tmux('kill-session', '-t', name) } catch { /* gone */ }
+  for (const r2 of [repo2].filter(Boolean)) {
+    const [f] = await q('select id, slug from pro_folders where repo_path=$1', [path.resolve(r2)]).catch(() => [])
+    if (f) {
+      for (const t of ['pro_aidlc_roles', 'pro_aidlc_decisions', 'pro_aidlc_waits', 'pro_aidlc_proposals', 'app_review_marks', 'app_review_comments', 'app_review_modes', 'app_review_settled']) await q(`delete from ${t} where folder_id=$1`, [f.id]).catch(() => {})
+      await q(`update notifications set is_checked=true where type='aidlc' and url like $1`, [`/apps/%/${f.slug}%`]).catch(() => {})
+      await q('delete from pro_folder_members where folder_id=$1', [f.id]).catch(() => {})
+      await q('delete from pro_folders where id=$1', [f.id]).catch(() => {})
+    }
+    await fs.rm(r2, { recursive: true, force: true })
+  }
   if (repo) {
     const [f] = await q('select id from pro_folders where repo_path=$1', [path.resolve(repo)]).catch(() => [])
-    if (f) for (const t of ['pro_aidlc_roles', 'pro_aidlc_decisions', 'pro_aidlc_waits', 'pro_aidlc_proposals', 'pro_aidlc_mobs', 'app_review_marks', 'app_review_comments']) await q(`delete from ${t} where folder_id=$1`, [f.id]).catch(() => {})
+    if (f) for (const t of ['pro_aidlc_roles', 'pro_aidlc_decisions', 'pro_aidlc_waits', 'pro_aidlc_proposals', 'pro_aidlc_mobs', 'app_review_marks', 'app_review_comments', 'app_review_modes', 'app_review_settled']) await q(`delete from ${t} where folder_id=$1`, [f.id]).catch(() => {})
     await q(`update notifications set is_checked=true where type='aidlc' and (url like $1 or url like $2)`, [`/aidlc/${folder?.slug}/%`, `/apps/%/${folder?.slug}%`]).catch(() => {})
     await q('delete from pro_folder_members where folder_id in (select id from pro_folders where repo_path=$1)', [path.resolve(repo)]).catch(() => {})
     await q('delete from pro_folders where repo_path=$1', [path.resolve(repo)]).catch(() => {})

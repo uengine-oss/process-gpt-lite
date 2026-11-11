@@ -43,6 +43,43 @@ export function itemState(item, marks, reviewerIds) {
   return { state: doubts.length ? 'discuss' : decision ? 'decided' : 'open', decision, doubts }
 }
 
+// 함께 고르기 (the default way a stage is reviewed): every card is open to every member, each picks on their own, the
+// picks are shown together once you have picked (planning poker: no one leans on the first answer), and a card where
+// the picks differ goes to the team to talk through. AI-DLC's Mob Elaboration is the whole team answering together
+// ("Team provides answers", "The team validates"); how the team converges is ours.
+//   open → voting (fewer picks than the quorum) → agreed (the same pick from at least the quorum) | split (picks
+//   differ, or a doubt newer than the last pick) → decided (the stage's decider settled it) → sent
+// The other picks are hidden from someone who has not picked yet (hidden: true): the count shows, not the choices.
+export function voteState(item, marks, { viewerId = null, settled = null, quorum = 2 } = {}) {
+  if (item.sent) return { state: 'sent', decision: null, votes: [], groups: [], doubts: [], voted: true, hidden: false }
+  const mine = marks.filter((m) => m.item_key === item.key)
+  const isVote = item.kind === 'question' ? QUESTION_DECISION : FINDING_DECISION
+  const votes = mine.filter((m) => isVote.has(m.stance))
+  const keyOf = (m) => (item.kind === 'question' ? answerOf(item, m) : m.stance)
+  const groups = []
+  for (const v of votes) {
+    const k = keyOf(v)
+    let g = groups.find((x) => x.answer === k)
+    if (!g) groups.push((g = { answer: k, stance: v.stance, choice: v.choice ?? null, people: [] }))
+    g.people.push({ id: v.user_id, name: v.name, note: v.note || null })
+  }
+  groups.sort((a, b) => b.people.length - a.people.length)
+  const last = votes.reduce((t, v) => Math.max(t, +new Date(v.updated_at)), 0)
+  const doubts = mine.filter((m) => DOUBT.has(m.stance) && +new Date(m.updated_at) > last)
+  const voted = !!viewerId && votes.some((v) => v.user_id === viewerId)
+  let state = 'open'
+  let decision = null
+  if (settled) { state = 'decided'; decision = { stance: settled.stance, choice: settled.choice ?? null, note: settled.note ?? null, settled: true } }
+  else if (!votes.length) state = 'open'
+  else if (groups.length > 1 || doubts.length) state = 'split'
+  else if (votes.length >= quorum) {
+    state = 'agreed'
+    const g = groups[0]
+    decision = { stance: g.stance, choice: g.choice, note: g.people.map((p) => p.note).filter(Boolean).join(' / ') || null }
+  } else state = 'voting'
+  return { state, decision, votes, groups, doubts, voted, hidden: !voted && !settled && votes.length > 0 }
+}
+
 // the answer a question's decision writes: an option key, or "X. <text>" for one of the team's own
 export function answerOf(item, decision, { useRecommended = false } = {}) {
   if (decision) {

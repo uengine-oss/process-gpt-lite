@@ -1,5 +1,7 @@
-// 검토 보드 — the stage's questions and findings as cards in role lanes; everyone reviews their own lane at
-// once, sees who looks at what, leaves stances and comments with evidence; the stage's decider sends it all.
+// 검토 보드 — the stage's questions and findings as cards (grouped by the role they are mostly about). Together (the
+// default): every member picks on every card, sees the others' picks once they have picked, and the cards where picks
+// differ go to the team; roles: each card is decided by its role, anyone may object. Who looks at what, comments with
+// evidence; the stage's decider settles split cards and sends it all.
 import lite from '../../_runtime/lite.js'
 const { t, esc, $, $$ } = lite
 await lite.ready
@@ -13,7 +15,13 @@ let found = {}        // key -> evidence hits
 let attach = []       // evidence picked for the comment being written
 let pendingForce = null // a send the server held back for cards still in dispute
 
-const STATE = { open: t('열림', 'Open'), decided: t('정함', 'Decided'), discuss: t('논의 필요', 'In dispute'), sent: t('보냄', 'Sent') }
+const STATE = { open: t('열림', 'Open'), voting: t('고르는 중', 'Picking'), agreed: t('합의', 'Agreed'), split: t('의견 갈림', 'Split'), decided: t('정함', 'Decided'), discuss: t('논의 필요', 'In dispute'), sent: t('보냄', 'Sent') }
+const together = () => B?.mode === 'together'
+const isDone = (i) => ['decided', 'agreed', 'sent'].includes(i.state)
+const isDispute = (i) => i.state === 'discuss' || i.state === 'split'
+const isLeft = (i) => i.state === 'open' || i.state === 'voting'
+// a group of picks, said short: the answer ("A", "X. …") or the stance on a finding
+const pickLabel = (g) => (g.stance === 'agree' ? `${g.answer} · ${t('추천대로', 'as recommended')}` : STANCE[g.stance] && g.stance !== 'choose' ? STANCE[g.stance][1] : String(g.answer || '').slice(0, 40))
 const STANCE = {
   agree: ['ok', t('추천대로', 'As recommended')], choose: ['ok', t('골랐어요', 'Chose')], accept: ['ok', t('위험 감수', 'Accept as risk')],
   fix: ['fix', t('고쳐 주세요', 'Fix it')], reject: ['bad', t('해당 없음', 'Does not apply')], object: ['bad', t('이의', 'Objects')], ask: ['bad', t('질문', 'Asks')],
@@ -34,18 +42,21 @@ function draw() {
   $('#stage').textContent = s ? `${s.name}${B.unit ? ` · ${B.unit.unit}` : ''}` : t('AI-DLC 작업 없음', 'No AI-DLC work')
   $('#sub').textContent = [B.intent?.slug, s?.role && t(`결정: ${s.role}`, `decides: ${s.role}`), B.prompt?.title].filter(Boolean).join(' · ')
   const items = B.items
-  const n = (st) => items.filter((i) => i.state === st).length
+  const c = (f) => items.filter(f).length
   const total = items.length || 1
-  $('#progress').innerHTML = `<div class="bar">${['sent', 'decided', 'discuss'].map((st) => `<i class="${st}" style="width:${(n(st) / total) * 100}%"></i>`).join('')}</div>
-    <div class="counts"><span>${t('정함', 'Decided')} <b>${n('decided') + n('sent')}</b>/${items.length}</span><span>${t('논의 필요', 'In dispute')} <b>${n('discuss')}</b></span><span>${t('열림', 'Open')} <b>${n('open')}</b></span></div>`
+  $('#progress').innerHTML = `<div class="bar"><i class="sent" style="width:${(c((i) => i.state === 'sent') / total) * 100}%"></i><i class="decided" style="width:${(c((i) => i.state === 'decided' || i.state === 'agreed') / total) * 100}%"></i><i class="discuss" style="width:${(c(isDispute) / total) * 100}%"></i></div>
+    <div class="counts"><span>${together() ? t('합의·정함', 'Agreed') : t('정함', 'Decided')} <b>${c(isDone)}</b>/${items.length}</span><span>${together() ? t('의견 갈림', 'Split') : t('논의 필요', 'In dispute')} <b>${c(isDispute)}</b></span><span>${together() ? t('고르는 중', 'Picking') : t('열림', 'Open')} <b>${c(isLeft)}</b></span></div>`
   drawLive()
-  const mineN = items.filter((i) => B.me.reviews.includes(i.roleKey) && i.state !== 'sent').length
-  const discussQ = items.filter((i) => i.kind === 'question' && i.state === 'discuss').length
-  $('#tabs').innerHTML = [['all', t('전체', 'All') + ` ${items.length}`], ['mine', t('내 검토', 'Mine') + ` ${mineN}`], ['discuss', t('논의 필요', 'In dispute') + ` ${n('discuss')}`]]
+  // mine: together — the cards I have not picked on yet; roles — my role's cards
+  const isMine = (i) => i.state !== 'sent' && (together() ? !i.voted : B.me.reviews.includes(i.roleKey))
+  const discussQ = items.filter((i) => i.kind === 'question' && isDispute(i)).length
+  $('#tabs').innerHTML = [['all', t('전체', 'All') + ` ${items.length}`], ['mine', (together() ? t('아직 안 고름', 'Not picked yet') : t('내 검토', 'Mine')) + ` ${c(isMine)}`], ['discuss', (together() ? t('의견 갈림', 'Split') : t('논의 필요', 'In dispute')) + ` ${c(isDispute)}`]]
     .map(([k, label]) => `<button data-tab="${k}" class="${tab === k ? 'on' : ''}">${esc(label)}</button>`).join('') +
-    `<span class="sp"></span>${discussQ ? `<button class="act" data-act="mob" data-test="review-mob">${esc(t(`논의 필요 ${discussQ}개로 몹 회의`, `Mob meeting on ${discussQ} in dispute`))}</button>` : ''}` +
+    `<span class="sp"></span>` +
+    (B.me.canSend ? `<span class="mode" data-test="review-mode"><button data-act="mode" data-mode="together" class="${together() ? 'on' : ''}">${esc(t('함께 고르기', 'Pick together'))}</button><button data-act="mode" data-mode="roles" class="${together() ? '' : 'on'}">${esc(t('역할별로', 'By role'))}</button></span>` : `<span class="mode"><button class="on" disabled>${esc(together() ? t('함께 고르기', 'Pick together') : t('역할별로', 'By role'))}</button></span>`) +
+    `${discussQ ? `<button class="act" data-act="mob" data-test="review-mob">${esc(together() ? t(`의견 갈린 ${discussQ}개로 몹 회의`, `Mob meeting on ${discussQ} split`) : t(`논의 필요 ${discussQ}개로 몹 회의`, `Mob meeting on ${discussQ} in dispute`))}</button>` : ''}` +
     (B.workroom ? `<button class="act" data-act="shell">⌨︎ ${esc(t('세션 보기', 'Session'))}</button>` : '')
-  const show = items.filter((i) => tab === 'all' || (tab === 'mine' ? B.me.reviews.includes(i.roleKey) : i.state === 'discuss'))
+  const show = items.filter((i) => tab === 'all' || (tab === 'mine' ? isMine(i) : isDispute(i)))
   if (!items.length) {
     $('#lanes').innerHTML = ''
     $('#empty').hidden = false
@@ -55,7 +66,7 @@ function draw() {
     $('#lanes').innerHTML = B.lanes.map((l) => {
       const cards = show.filter((i) => i.roleKey === l.roleKey)
       const all = items.filter((i) => i.roleKey === l.roleKey)
-      const done = all.filter((i) => i.state === 'decided' || i.state === 'sent').length
+      const done = all.filter(isDone).length
       return `<section class="lane${B.me.reviews.includes(l.roleKey) ? ' mine' : ''}" data-test="review-lane" data-role="${esc(l.roleKey || '')}">
         <div class="lh"><b>${esc(l.role)}</b><span class="people">${l.people.map((p) => lite.avatar(p.name, { size: 20 }) + esc(p.name)).join(' ')}</span><span class="n">${done}/${all.length}</span></div>
         <div class="cards">${cards.map(card).join('')}</div></section>`
@@ -83,6 +94,12 @@ function drawLive() {
 const watchersHtml = (key) => { const w = watchersOf(key); return w.length ? `${EYE}${w.map((p) => lite.avatar(p.name, { size: 20, ring: true }) + esc(p.name)).join(' ')} ${esc(t('보는 중', 'looking'))}` : '' }
 
 function stances(i) {
+  if (together() && i.kind && !i.sent) {
+    const doubts = i.marks.filter((m) => m.stance === 'object' || m.stance === 'ask')
+    const picks = i.hidden ? `<span class="hid" data-test="review-hidden">🙈 ${esc(t(`${i.votes}명 골랐어요 — 고르면 보여요`, `${i.votes} picked — pick to see`))}</span>`
+      : (i.groups || []).map((g) => `<span class="st ${g.stance === 'fix' ? 'fix' : g.stance === 'reject' ? 'bad' : 'ok'}" data-test="review-group">${g.people.map((p) => lite.avatar(p.name, { size: 18 })).join('')}${esc(pickLabel(g))}</span>`).join('')
+    return picks + doubts.map((m) => `<span class="st bad" title="${esc(m.note || '')}">${lite.avatar(m.name, { size: 18 })}${esc(STANCE[m.stance][1])}</span>`).join('')
+  }
   return i.marks.map((m) => `<span class="st ${STANCE[m.stance]?.[0] || ''}" title="${esc(m.note || '')}">${lite.avatar(m.name, { size: 18 })}${esc(STANCE[m.stance]?.[1] || m.stance)}${m.stance === 'choose' ? ' ' + esc(m.choice) : ''}</span>`).join('')
 }
 function card(i) {
@@ -103,16 +120,19 @@ function drawer() {
   d.hidden = false
   document.body.classList.add('drawer-open')
   const lane = B.lanes.find((l) => l.roleKey === i.roleKey)
-  // the card's role decides it; the stage's decider may decide any card (the server checks the same)
-  const reviewer = lane?.people.some((p) => p.id === me?.id) || B.me.canSend
+  // together: everyone picks; roles: the card's role decides it, and the stage's decider may decide any card (the
+  // server checks the same)
+  const reviewer = together() || lane?.people.some((p) => p.id === me?.id) || B.me.canSend
+  const myPick = i.marks.find((m) => m.user_id === me?.id && ['agree', 'choose', 'accept', 'fix', 'reject'].includes(m.stance))
   const keep = { note: $('#note')?.value || '', cbody: $('#cbody')?.value || '', other: $('#other')?.value || '' }
   let body = `<div class="dh"><span class="id">${esc(i.id)}</span>${i.tag ? `<span class="chip">${esc(i.tag)}</span>` : ''}${i.severity ? `<span class="chip sev ${esc(String(i.severity).toLowerCase())}">${esc(i.severity)}</span>` : ''}<span class="state ${i.state}">${esc(STATE[i.state])}</span><button class="x" data-act="close" aria-label="close">✕</button></div>
     <div class="watchers" id="watchers">${watchersHtml(i.key)}</div>
-    <div class="muted small">${esc(t('검토', 'Reviewer'))}: ${esc(lane?.role || '')} — ${esc((lane?.people || []).map((p) => p.name).join(', '))}</div>`
+    <div class="muted small">${together() ? esc(t('모두 고르기 · 주로 볼 역할', 'Everyone picks · mostly for')) : esc(t('검토', 'Reviewer'))}: ${esc(lane?.role || '')} — ${esc((lane?.people || []).map((p) => p.name).join(', '))}</div>`
   if (i.kind === 'question') {
     body += `<div class="dq">${esc(i.text)}</div>${i.note ? `<p class="why">${esc(t('왜 묻나요', 'Why it asks'))} — ${esc(i.note)}</p>` : ''}
       <div class="opts">${i.options.map((o) => {
-        const chosen = i.sent ? String(i.answer).startsWith(o.key) : i.decision && ((i.decision.stance === 'agree' && o.key === i.recommended) || i.decision.choice === o.key)
+        const pick = together() ? myPick : i.decision
+        const chosen = i.sent ? String(i.answer).startsWith(o.key) : pick && ((pick.stance === 'agree' && o.key === i.recommended) || pick.choice === o.key)
         return `<div class="opt${o.rec ? ' rec' : ''}${chosen ? ' chosen' : ''}"><span class="k">${esc(o.key)}</span><span>${o.rec ? `<span class="badge">${esc(t('AI 추천', 'AI suggests'))}</span>` : ''}${esc(o.text)}</span>
           ${reviewer && !i.sent && o.key !== 'X' && o.key !== i.recommended ? `<button data-act="choose" data-choice="${esc(o.key)}">${esc(t('이걸로', 'Pick'))}</button>` : ''}</div>`
       }).join('')}</div>`
@@ -129,7 +149,8 @@ function drawer() {
         <button data-act="object">✋ ${esc(t('이의 있어요', 'I object'))}</button></div>
       <textarea class="note" id="note" placeholder="${esc(t('고칠 것·해당 없는 이유·이의를 적어 주세요', 'What to fix, why it does not apply, or your objection'))}"></textarea>`
   }
-  if (i.marks.length) body += `<div class="sec">${esc(t('의견', 'Stances'))}</div><div class="marks">${i.marks.map((m) => `<div class="mk">${lite.avatar(m.name, { size: 22 })}<div><span class="what">${esc(m.name)} · ${esc(STANCE[m.stance]?.[1] || m.stance)}${m.choice ? ' ' + esc(m.choice) : ''}</span>${m.note ? `<div>${esc(m.note)}</div>` : ''}<div class="faint small">${esc(lite.ago(m.updated_at))}</div></div></div>`).join('')}</div>`
+  if (together() && !i.sent) body += picksHtml(i)
+  else if (i.marks.length) body += `<div class="sec">${esc(t('의견', 'Stances'))}</div><div class="marks">${i.marks.map((m) => `<div class="mk">${lite.avatar(m.name, { size: 22 })}<div><span class="what">${esc(m.name)} · ${esc(STANCE[m.stance]?.[1] || m.stance)}${m.choice ? ' ' + esc(m.choice) : ''}</span>${m.note ? `<div>${esc(m.note)}</div>` : ''}<div class="faint small">${esc(lite.ago(m.updated_at))}</div></div></div>`).join('')}</div>`
   const hits = found[i.key]
   body += `<div class="sec">${esc(t('근거', 'Evidence'))}<button data-act="find" data-test="review-find">🔎 ${esc(t('근거 찾기', 'Find evidence'))}</button></div>
     <div class="ev">${hits ? (hits.length ? hits.map((h, n) => `<div class="hit${attach.some((a) => a.path === h.path && a.focus === h.focus) ? ' on' : ''}"><div class="where">📄 ${esc(h.label)}<a data-doc="${esc(h.path)}" data-focus="${esc(h.focus)}">${esc(t('원본 보기', 'Open'))}</a><a data-act="attach" data-n="${n}">${esc(t('의견에 붙이기', 'Attach'))}</a></div>${h.snippet ? `<div class="q">“${esc(h.snippet)}”</div>` : ''}</div>`).join('') : `<span class="muted small">${esc(t('기록에서 찾지 못했어요.', 'Nothing found in the record.'))}</span>`) : ''}</div>`
@@ -144,6 +165,20 @@ function drawer() {
   for (const c of $$('.card')) c.classList.toggle('open', c.dataset.key === open)
 }
 
+// together: everyone's picks on a card (once mine is in), the decider's settle, and the doubts
+function picksHtml(i) {
+  let h = `<div class="sec">${esc(t('모두의 선택', 'Everyone’s picks'))}${i.state === 'decided' ? ` · ${esc(t('정함', 'settled'))}` : ''}</div>`
+  if (i.hidden) return h + `<p class="muted small" data-test="review-hidden">🙈 ${esc(t(`${i.votes}명이 골랐어요. 다른 사람의 선택은 내가 고른 뒤에 보여요 — 먼저 생각을 정해 보세요.`, `${i.votes} have picked. The others’ picks show once you pick — make up your mind first.`))}</p>`
+  if (!i.groups?.length) h += `<p class="muted small">${esc(t('아직 아무도 고르지 않았어요.', 'No one has picked yet.'))}</p>`
+  h += `<div class="groups">${(i.groups || []).map((g, n) => `<div class="grp ${g.stance}" data-test="review-group"><div class="gh"><b>${esc(pickLabel(g))}</b><span class="faint">${g.people.length}${esc(t('명', ''))}</span>
+      ${B.me.canSend && i.state !== 'decided' && (i.state === 'split' || i.state === 'voting') ? `<button data-act="settle" data-g="${n}" data-test="review-settle">${esc(t('이걸로 정하기', 'Settle on this'))}</button>` : ''}</div>
+      ${g.people.map((p) => `<div class="mk">${lite.avatar(p.name, { size: 20 })}<div><span class="what">${esc(p.name)}</span>${p.note ? `<div>${esc(p.note)}</div>` : ''}</div></div>`).join('')}</div>`).join('')}</div>`
+  if (i.state === 'decided' && i.decision) h += `<div class="settled">✔︎ ${esc(t('결정권자가 정함', 'Settled by the decider'))}: <b>${esc(i.decision.choice || STANCE[i.decision.stance]?.[1] || '')}</b>${i.decision.note ? ' — ' + esc(i.decision.note) : ''}${B.me.canSend ? ` <a data-act="unsettle">${esc(t('풀기', 'undo'))}</a>` : ''}</div>`
+  const doubts = i.marks.filter((m) => m.stance === 'object' || m.stance === 'ask')
+  if (doubts.length) h += `<div class="marks">${doubts.map((m) => `<div class="mk">${lite.avatar(m.name, { size: 22 })}<div><span class="what">${esc(m.name)} · ${esc(STANCE[m.stance][1])}</span>${m.note ? `<div>${esc(m.note)}</div>` : ''}</div></div>`).join('')}</div>`
+  return h
+}
+
 // ---------- the send bar (the stage's decider) ----------
 function drawSend() {
   const f = $('#send')
@@ -156,13 +191,13 @@ function drawSend() {
   const qs = B.items.filter((i) => i.kind === 'question' && !i.sent)
   const fs = B.items.filter((i) => i.kind === 'finding')
   if (qs.length) {
-    const undecided = qs.filter((i) => i.state === 'open').length, dispute = qs.filter((i) => i.state === 'discuss').length
+    const undecided = qs.filter(isLeft).length, dispute = qs.filter(isDispute).length
     f.hidden = false
-    f.innerHTML = `<div class="msg"><b>${esc(t(`질문 ${qs.length}개`, `${qs.length} question(s)`))}</b> — ${esc(t(`정함 ${qs.length - undecided - dispute} · 논의 필요 ${dispute} · 열림 ${undecided}`, `decided ${qs.length - undecided - dispute} · in dispute ${dispute} · open ${undecided}`))}</div>
+    f.innerHTML = `<div class="msg"><b>${esc(t(`질문 ${qs.length}개`, `${qs.length} question(s)`))}</b> — ${esc(together() ? t(`합의·정함 ${qs.length - undecided - dispute} · 의견 갈림 ${dispute} · 고르는 중 ${undecided}`, `agreed ${qs.length - undecided - dispute} · split ${dispute} · picking ${undecided}`) : t(`정함 ${qs.length - undecided - dispute} · 논의 필요 ${dispute} · 열림 ${undecided}`, `decided ${qs.length - undecided - dispute} · in dispute ${dispute} · open ${undecided}`))}</div>
       ${undecided ? `<button data-act="send-q" data-rec="1">${esc(t('나머지는 AI 추천대로 채워 보내기', 'Send, recommended for the rest'))}</button>` : ''}
       <button class="primary" data-act="send-q" ${undecided ? 'disabled' : ''} data-test="review-send-questions">${esc(t('답을 질문 파일에 적고 세션에 알리기', 'Write the answers and tell the session'))}</button>`
   } else if (fs.length && B.prompt?.kind === 'approval') {
-    const undecided = fs.filter((i) => i.state === 'open').length
+    const undecided = fs.filter(isLeft).length
     const fix = fs.filter((i) => i.decision?.stance === 'fix'), rej = fs.filter((i) => i.decision?.stance === 'reject')
     const pre = fix.length ? `Request Changes: ${fix.map((i) => i.id + (i.decision.note ? ' — ' + i.decision.note : '')).join('; ')}` : rej.length ? `Approve · ${t('해당 없음', 'does not apply')}: ${rej.map((i) => i.id).join(', ')}` : 'Approve'
     f.hidden = false
@@ -223,6 +258,13 @@ document.addEventListener('click', async (e) => {
     if (act === 'send-f') return send('findings')
     if (act === 'mob') { try { const out = await lite.tool('review_mob', { folder }); say(t(`몹 회의 대화방에 질문 ${out.questions.length}개를 올렸어요.`, `Put ${out.questions.length} question(s) in the mob room.`)) } catch (err) { say(err.message) } return }
     if (act === 'shell') return lite.navigate(B.workroom)
+    if (act === 'mode') { try { await lite.tool('review_mode', { folder, mode: a.dataset.mode }); await load() } catch (err) { say(err.message) } return }
+    if (act === 'settle' || act === 'unsettle') {
+      const i = B.items.find((x) => x.key === open)
+      const g = act === 'settle' ? i?.groups?.[Number(a.dataset.g)] : null
+      try { await lite.tool('review_settle', { folder, key: open, stance: g ? g.stance : null, choice: g?.choice ?? null, note: g ? g.people.map((p) => p.note).filter(Boolean).join(' / ') || null : null }); await load() } catch (err) { say(err.message) }
+      return
+    }
   }
   const c = e.target.closest('.card')
   if (c) { if (open !== c.dataset.key) attach = []; open = c.dataset.key; beat(); return draw() }

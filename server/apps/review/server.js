@@ -84,7 +84,15 @@ export default function register(server, ctx) {
     return [...out.values()]
   }
 
-  async function board(slug) {
+  // how this stage is reviewed: together (the default — everyone picks, picks shown once you have picked) or roles
+  const VOTE = new Set(['agree', 'choose', 'accept', 'fix', 'reject'])
+  async function modeOf(w) {
+    const [r] = await q('select mode from app_review_modes where tenant_id=$1 and folder_id=$2 and stage=$3', [T(), w.folder.id, w.stage?.slug || ''])
+    return r?.mode === 'roles' ? 'roles' : 'together'
+  }
+
+  // the board as `user` sees it; reveal: the picks as they are, hidden or not (the send reads them)
+  async function board(slug, { reveal = false } = {}) {
     const user = ctx.user
     const w = await ctx.aidlc.open(slug)
     const { items, review, session } = await itemsOf(w)
@@ -98,15 +106,30 @@ export default function register(server, ctx) {
       left join users u on u.id = c.user_id and u.tenant_id = c.tenant_id left join pro_profile p on p.user_id = c.user_id
       where c.tenant_id=$1 and c.folder_id=$2 and c.item_key = any($3) order by c.created_at`, [T(), fid, keys]) : []
     const ls = await lanes(w, items)
-    const reviewersOf = new Map(ls.map((l) => [l.roleKey, new Set(l.people.map((p) => p.id))]))
-    const out = items.map((it) => {
-      const st = B.itemState(it, marks, reviewersOf.get(it.roleKey) || new Set())
-      return { ...it, state: st.state, decision: st.decision, doubts: st.doubts, marks: marks.filter((m) => m.item_key === it.key), comments: comments.filter((c) => c.item_key === it.key) }
-    })
+    const mode = await modeOf(w)
+    let out
+    if (mode === 'together') {
+      const settled = keys.length ? await q('select item_key, stance, choice, note from app_review_settled where tenant_id=$1 and folder_id=$2 and item_key = any($3)', [T(), fid, keys]) : []
+      // two picks that agree are an agreement (one, in a team of one)
+      const quorum = Math.max(1, Math.min(2, (await w.members()).length))
+      out = items.map((it) => {
+        const st = B.voteState(it, marks, { viewerId: user.id, settled: settled.find((x) => x.item_key === it.key), quorum })
+        const hide = st.hidden && !reveal
+        const shown = marks.filter((m) => m.item_key === it.key).map((m) => (hide && m.user_id !== user.id && VOTE.has(m.stance) ? { item_key: m.item_key, user_id: m.user_id, name: m.name, stance: 'voted', choice: null, note: null, updated_at: m.updated_at } : m))
+        return { ...it, state: st.state, decision: hide ? null : st.decision, doubts: st.doubts, marks: shown, votes: st.votes.length, groups: hide ? [] : st.groups, voted: st.voted, hidden: hide, comments: comments.filter((c) => c.item_key === it.key) }
+      })
+    } else {
+      const reviewersOf = new Map(ls.map((l) => [l.roleKey, new Set(l.people.map((p) => p.id))]))
+      out = items.map((it) => {
+        const st = B.itemState(it, marks, reviewersOf.get(it.roleKey) || new Set())
+        return { ...it, state: st.state, decision: st.decision, doubts: st.doubts, marks: marks.filter((m) => m.item_key === it.key), comments: comments.filter((c) => c.item_key === it.key) }
+      })
+    }
     const stageRole = w.stage?.roleKey || null
     return {
       folder: w.folder, intent: w.intent, stage: w.stage, unit: w.unit,
       me: { id: user.id, name: user.name, canSend: await w.mayDecide(stageRole), reviews: ls.filter((l) => l.people.some((p) => p.id === user.id)).map((l) => l.roleKey) },
+      mode,
       lanes: ls, items: out, presence: presenceOf(fid),
       review: review && { path: review.path, verdict: review.verdict, iteration: review.iteration },
       prompt: session?.choice ? { kind: session.choice.kind, title: session.choice.title, fingerprint: session.choice.fingerprint } : null,
@@ -134,7 +157,7 @@ export default function register(server, ctx) {
     const decides = it.kind === 'question' ? ['agree', 'choose'] : ['accept', 'fix', 'reject']
     if (it.kind === 'question' && ['accept', 'fix', 'reject'].includes(stance)) throw err(400, 'not a stance on a question')
     if (it.kind === 'finding' && ['agree', 'choose', 'ask'].includes(stance)) throw err(400, 'not a stance on a finding')
-    if (decides.includes(stance)) {
+    if (decides.includes(stance) && (await modeOf(w)) === 'roles') {
       let people = it.roleKey ? await w.holders(it.roleKey) : []
       if (!people.length) people = await w.deciders(w.stage?.roleKey)
       if (!people.some((p) => p.id === user.id) && !w.canEdit) throw err(403, L('이 카드는 담당 역할의 사람이 정해요. 이의·질문은 누구나 달 수 있어요.', 'The person in the role decides this card; anyone can object or ask.'))
@@ -148,6 +171,40 @@ export default function register(server, ctx) {
       [T(), w.folder.id, it.key, user.id, stance, stance === 'choose' ? choice : null, note ? String(note).slice(0, 1000) : null])
     await changed(w.folder, { key: it.key, by: user.name, stance })
     return { ok: true }
+  }
+
+  // the stage's decider settles a card (the team split on it, or not enough picked); stance null clears it
+  async function settle({ folder, key, stance = null, choice = null, note = null }) {
+    const user = ctx.user
+    const w = await ctx.aidlc.open(folder)
+    if (!(await w.mayDecide(w.stage?.roleKey))) throw err(403, L('정하기는 이 단계의 담당자나 폴더 편집 권한이 있는 사람이 해요.', 'The stage’s decider (or a folder editor) settles.'))
+    const { it } = await itemFor(w, String(key || ''))
+    if (it.sent) throw err(409, L('이미 보낸 항목이에요.', 'Already sent.'))
+    if (!stance) {
+      await q('delete from app_review_settled where tenant_id=$1 and folder_id=$2 and item_key=$3', [T(), w.folder.id, it.key])
+    } else {
+      const ok = it.kind === 'question' ? ['agree', 'choose'] : ['accept', 'fix', 'reject']
+      if (!ok.includes(stance)) throw err(400, 'not a pick on this card')
+      if (stance === 'choose' && !(it.options || []).some((o) => o.key === choice)) throw err(400, 'no such option')
+      if (((stance === 'choose' && choice === 'X') || ['fix', 'reject'].includes(stance)) && !String(note || '').trim()) throw err(400, L('이유를 적어 주세요.', 'Say why.'))
+      await q(`insert into app_review_settled(tenant_id,folder_id,item_key,user_id,stance,choice,note,updated_at) values ($1,$2,$3,$4,$5,$6,$7,now())
+               on conflict (tenant_id,folder_id,item_key) do update set user_id=excluded.user_id, stance=excluded.stance, choice=excluded.choice, note=excluded.note, updated_at=now()`,
+        [T(), w.folder.id, it.key, user.id, stance, stance === 'choose' ? choice : null, note ? String(note).slice(0, 1000) : null])
+    }
+    await changed(w.folder, { key: it.key, by: user.name, settled: stance })
+    return { ok: true }
+  }
+
+  // how this stage is reviewed (the stage's decider): together | roles
+  async function setMode({ folder, mode }) {
+    const user = ctx.user
+    const w = await ctx.aidlc.open(folder)
+    if (!['together', 'roles'].includes(mode)) throw err(400, 'mode: together | roles')
+    if (!(await w.mayDecide(w.stage?.roleKey))) throw err(403, L('검토 방식은 이 단계의 담당자나 폴더 편집 권한이 있는 사람이 정해요.', 'The stage’s decider (or a folder editor) sets how it is reviewed.'))
+    await q(`insert into app_review_modes(tenant_id,folder_id,stage,mode,updated_by,updated_at) values ($1,$2,$3,$4,$5,now())
+             on conflict (tenant_id,folder_id,stage) do update set mode=excluded.mode, updated_by=excluded.updated_by, updated_at=now()`, [T(), w.folder.id, w.stage?.slug || '', mode, user.id])
+    await changed(w.folder, { mode })
+    return { mode }
   }
 
   // a comment, with evidence: a part of a record document, or a link
@@ -201,7 +258,7 @@ export default function register(server, ctx) {
     const user = ctx.user
     const w = await ctx.aidlc.open(folder)
     const b = await board(folder)
-    const only = b.items.filter((i) => i.kind === 'question' && i.state === 'discuss').map((i) => i.id)
+    const only = b.items.filter((i) => i.kind === 'question' && (i.state === 'discuss' || i.state === 'split')).map((i) => i.id)
     const out = await w.mob({ only: only.length ? only : undefined })
     await changed(w.folder, { mob: out.roomId })
     return { ...out, questions: only }
@@ -213,13 +270,14 @@ export default function register(server, ctx) {
     const user = ctx.user
     const w = await ctx.aidlc.open(folder)
     if (!(await w.mayDecide(w.stage?.roleKey))) throw err(403, L('보내기는 이 단계의 담당자나 폴더 편집 권한이 있는 사람이 해요.', 'The stage’s decider (or a folder editor) sends.'))
-    const b = await board(folder)
+    const b = await board(folder, { reveal: true })
+    const disputed = (i) => i.state === 'discuss' || i.state === 'split'
     if (what === 'questions') {
       const files = [...new Set(b.items.filter((i) => i.kind === 'question' && !i.sent).map((i) => i.file))]
       if (!files.length) throw err(409, L('보낼 질문이 없어요.', 'No question to send.'))
       const file = wantFile && files.includes(wantFile) ? wantFile : files[0]
       const mine = b.items.filter((i) => i.kind === 'question' && !i.sent && i.file === file)
-      const inDispute = mine.filter((i) => i.state === 'discuss')
+      const inDispute = mine.filter(disputed)
       if (inDispute.length && !force) throw err(409, L(`논의가 끝나지 않은 질문이 ${inDispute.length}개 있어요: ${inDispute.map((i) => i.id).join(', ')}`, `${inDispute.length} question(s) still in dispute: ${inDispute.map((i) => i.id).join(', ')}`))
       const answers = {}
       const missing = []
@@ -236,9 +294,9 @@ export default function register(server, ctx) {
     if (what === 'findings') {
       if (b.prompt?.kind !== 'approval') throw err(409, L('세션 화면에 승인 창이 없어요.', 'No approval prompt on the session screen.'))
       const findings = b.items.filter((i) => i.kind === 'finding')
-      const open = findings.filter((i) => i.state === 'open' && !useRecommended)
+      const open = findings.filter((i) => (i.state === 'open' || i.state === 'voting') && !useRecommended)
       if (open.length) throw err(409, L(`아직 정하지 않은 지적: ${open.map((i) => i.id).join(', ')}`, `Findings not decided: ${open.map((i) => i.id).join(', ')}`))
-      const inDispute = findings.filter((i) => i.state === 'discuss')
+      const inDispute = findings.filter(disputed)
       if (inDispute.length && !force) throw err(409, L(`논의가 끝나지 않은 지적이 있어요: ${inDispute.map((i) => i.id).join(', ')}`, `Findings still in dispute: ${inDispute.map((i) => i.id).join(', ')}`))
       const states = new Map(findings.map((i) => [i.key, { decision: i.decision }]))
       const d = B.composeApproval(findings, states, { lang: ctx.isEn() ? 'en' : 'ko' })
@@ -266,6 +324,16 @@ export default function register(server, ctx) {
     const { items } = await itemsOf(w)
     const open = items.filter((i) => !i.sent)
     if (!open.length) return [...told]
+    // together: every member picks on every card — one card each with the whole count
+    if ((await modeOf(w)) === 'together') {
+      const what = open[0].kind === 'question' ? L(`함께 고를 질문 ${open.length}개`, `${open.length} question(s) to pick together`) : L(`함께 볼 지적 ${open.length}개`, `${open.length} finding(s) to review together`)
+      for (const p of await w.members()) {
+        if (!p.id || told.has(p.id)) continue
+        told.add(p.id)
+        await ctx.notify(p.id, { title: `${folderName} · ${w.stage.name} — ${what}`, text: open.map((i) => `${i.id}. ${i.text}`).join(' / ').slice(0, 300), url })
+      }
+      return [...told]
+    }
     const byRole = new Map()
     for (const it of open) byRole.set(it.roleKey, [...(byRole.get(it.roleKey) || []), it])
     for (const [roleKey, list] of byRole) {
@@ -309,6 +377,14 @@ export default function register(server, ctx) {
     title: 'Mob meeting on the cards in dispute', description: 'Put the questions in dispute to the folder\'s mob meeting room.',
     inputSchema: A, ...app(),
   }, run(mob))
+  registerAppTool(server, 'review_settle', {
+    title: 'Settle a card', description: 'The stage\'s decider settles a card the team split on (or that not enough people picked): the pick that goes. stance null clears it.',
+    inputSchema: { ...A, key: z.string(), stance: z.string().nullable().optional(), choice: z.string().nullable().optional(), note: z.string().nullable().optional() }, ...app(),
+  }, run(settle))
+  registerAppTool(server, 'review_mode', {
+    title: 'How the stage is reviewed', description: 'together: everyone picks on every card, picks shown once you have picked, split cards talked through · roles: each card decided by its role.',
+    inputSchema: { ...A, mode: z.enum(['together', 'roles']) }, ...app(),
+  }, run(setMode))
   registerAppTool(server, 'review_send', {
     title: 'Send the review', description: 'The stage\'s decider sends: the questions\' answers into their file, or the findings as one decision into the approval prompt.',
     inputSchema: { ...A, what: z.enum(['questions', 'findings']), useRecommended: z.boolean().optional(), force: z.boolean().optional(), file: z.string().optional() }, ...app(),

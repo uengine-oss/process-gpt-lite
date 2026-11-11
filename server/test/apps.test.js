@@ -335,6 +335,32 @@ test('검토 보드: 담당의 결정, 그 뒤의 이의, 다시 정하면 풀�
   assert.equal(B.answerOf(it, null, { useRecommended: true }), 'A')
 })
 
+// 함께 고르기: everyone picks on every card; picks show once you have picked; the same pick from the quorum agrees,
+// different picks split the card; the decider's settle stands
+test('검토 보드 · 함께 고르기: 내가 고르기 전엔 가려지고, 같으면 합의, 다르면 의견 갈림, 결정권자가 정하면 정함', () => {
+  const q = { key: 'q:a#Q1@x', kind: 'question', recommended: 'A', options: [{ key: 'A' }, { key: 'B' }, { key: 'X' }] }
+  const at = (s) => new Date(Date.UTC(2026, 10, 11, 10, s)).toISOString()
+  const m = (user_id, stance, s, extra = {}) => ({ item_key: q.key, user_id, name: user_id, stance, updated_at: at(s), ...extra })
+  assert.equal(B.voteState(q, [], { viewerId: 'po' }).state, 'open')
+  const one = B.voteState(q, [m('po', 'agree', 1)], { viewerId: 'arch' })
+  assert.deepEqual([one.state, one.hidden, one.voted, one.decision], ['voting', true, false, null], 'one pick: not yet agreed, hidden from the one who has not picked')
+  const two = B.voteState(q, [m('po', 'agree', 1), m('arch', 'choose', 2, { choice: 'A' })], { viewerId: 'arch' })
+  assert.deepEqual([two.state, two.hidden, two.groups.length, two.groups[0].people.length], ['agreed', false, 1, 2], 'agree with A and choose A are the same pick')
+  assert.equal(B.answerOf(q, two.decision), 'A')
+  const split = B.voteState(q, [m('po', 'agree', 1), m('arch', 'choose', 2, { choice: 'B', note: '서버 저장' })], { viewerId: 'dev' })
+  assert.deepEqual([split.state, split.hidden, split.groups.map((g) => g.answer)], ['split', true, ['A', 'B']], 'different picks split; still hidden from dev')
+  assert.equal(B.voteState(q, [m('po', 'agree', 1), m('arch', 'agree', 2), m('dev', 'object', 3, { note: '왜' })], { viewerId: 'po' }).state, 'split', 'a doubt after the picks')
+  const settled = B.voteState(q, [m('po', 'agree', 1), m('arch', 'choose', 2, { choice: 'B' })], { viewerId: 'dev', settled: { stance: 'choose', choice: 'B' } })
+  assert.deepEqual([settled.state, settled.hidden, B.answerOf(q, settled.decision)], ['decided', false, 'B'])
+  assert.equal(B.voteState(q, [m('po', 'agree', 1)], { viewerId: 'po', quorum: 1 }).state, 'agreed', 'a team of one')
+  assert.equal(B.voteState({ ...q, sent: true }, [m('po', 'agree', 1)], { viewerId: 'x' }).state, 'sent')
+  // findings: the stance is the pick; notes of an agreed fix come together
+  const f = { key: 'r:x#R-1', kind: 'finding' }
+  const fm = (u, stance, s, note) => ({ item_key: f.key, user_id: u, name: u, stance, note, updated_at: at(s) })
+  const fixed = B.voteState(f, [fm('po', 'fix', 1, 'FR2.2 로'), fm('arch', 'fix', 2, '키보드도')], { viewerId: 'po' })
+  assert.deepEqual([fixed.state, fixed.decision.stance, fixed.decision.note], ['agreed', 'fix', 'FR2.2 로 / 키보드도'])
+})
+
 test('검토 보드: 지적들의 결정이 승인 창의 답 하나가 된다', () => {
   const f = (id, stance, note) => ({ key: id, id, kind: 'finding', decision: stance && { stance, note } })
   const states = (list) => new Map(list.map((x) => [x.key, { decision: x.decision }]))

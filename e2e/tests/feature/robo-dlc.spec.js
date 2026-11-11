@@ -193,7 +193,7 @@ async function boardFolder({ as, db, cleanup }, name, { review = false } = {}) {
 }
 
 test.describe('Robo-DLC Lite · 검토 보드 · 볼트 보드 · 산출물 보기', () => {
-  test('F-RD-06 검토 보드: 역할 열로 나뉜 카드를 두 사람이 동시에 보고, 한 사람의 이의가 다른 사람 화면에 바로 「논의 필요」로 뜬다', async ({ pageAs, as, db, cleanup }) => {
+  test('F-RD-06 검토 보드 · 함께 고르기: 두 사람이 동시에 보고, 남의 선택은 내가 고른 뒤에 보이며, 고른 답이 다르면 두 화면에 바로 「의견 갈림」', async ({ pageAs, as, db, cleanup }) => {
     test.setTimeout(120_000)
     const { lead, folder } = await boardFolder({ as, db, cleanup }, '검토 보드 회귀')
     const po = await pageAs('rd-po')
@@ -214,14 +214,20 @@ test.describe('Robo-DLC Lite · 검토 보드 · 볼트 보드 · 산출물 보�
     // the architect looks at Q2: the PO sees who
     await ab.locator('[data-test=review-card][data-id=Q2]').click()
     await expect(pb.locator('[data-test=review-card][data-id=Q2] .watch .av')).toHaveCount(1, { timeout: 20_000 })
-    // the PO takes the recommendation on Q1; the architect objects, with a reason
+    // 함께 고르기 (the default): the PO picks Q1 first — the architect sees that one has picked, not what
     await pb.locator('[data-test=review-card][data-id=Q1]').click()
     await pb.locator('[data-test=review-agree]').click()
-    await expect(pb.locator('[data-test=review-card][data-id=Q1]')).toHaveAttribute('data-state', 'decided')
+    await expect(pb.locator('[data-test=review-card][data-id=Q1]')).toHaveAttribute('data-state', 'voting')
+    await expect(ab.locator('[data-test=review-card][data-id=Q1] [data-test=review-hidden]')).toContainText('1명 골랐어요', { timeout: 10_000 })
     await ab.locator('[data-test=review-card][data-id=Q1]').click()
+    await expect(ab.locator('[data-test=review-drawer] [data-test=review-hidden]')).toBeVisible()
+    // the architect picks B, with a reason: both screens show the split at once — who picked what, and why
     await ab.locator('#note').fill('서버 저장이면 되돌리기도 서버 기록이 필요해요')
-    await ab.locator('[data-test=review-object]').click()
-    await expect(pb.locator('[data-test=review-card][data-id=Q1]')).toHaveAttribute('data-state', 'discuss', { timeout: 10_000 })
+    await ab.locator('[data-test=review-drawer] [data-act=choose][data-choice=B]').click()
+    for (const b of [pb, ab]) {
+      await expect(b.locator('[data-test=review-card][data-id=Q1]')).toHaveAttribute('data-state', 'split', { timeout: 10_000 })
+      await expect(b.locator('[data-test=review-card][data-id=Q1] [data-test=review-group]')).toHaveCount(2)
+    }
     await expect(pb.locator('[data-test=review-drawer]')).toContainText('서버 저장이면 되돌리기도')
     expect(po.errors).toEqual([])
     expect(arch.errors).toEqual([])
