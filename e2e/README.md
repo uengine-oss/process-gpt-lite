@@ -171,7 +171,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
-| 같은 출처의 웹 앱(5종, wasm/js gzip) | S-30, F-CR-<앱> | smoke/feature | ✅ |
+| 웹 앱(5종, wasm/js gzip)은 MCP App `craft` 화면 안에서, 샌드박스 프록시 뒤 자기 출처로(`PRO_APPS_SANDBOX_ORIGIN`; 없으면 Lite 출처) — 파일은 화면 도구로, 저장은 `ui/download-file`, 라이브는 화면 도구 `craft_request` | S-30, F-CR-<앱> | smoke/feature | ✅ |
 | 도면 카드는 CADCraft 로 연다 | F-CR-cadcraft, A-05 | feature/agent | ✅ |
 | 에이전트는 CADCraft MCP 로 그린다 | A-05 | agent | ✅ |
 | 한글 표시 | — | — | ✗ (화면 비교 필요) |
@@ -371,6 +371,7 @@ AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이
 | 코딩 중 쉘에서 지시 → AI-DLC 가 사람 요청으로 받아 설계·코드에 반영 | 실제 classic 실행(영상 `Q4soHt6enZI`, 프레임 `docs/robo-dlc/results/team/steer-*.png`) | — | ◐ (자동 회귀 없음: 실제 Claude Code 실행) |
 | (P2 앱, spec `pgpt-pro_aidlc-review`, 설계 `docs/robo-dlc/plan-review.md`·`plan-mcp-apps.md`) 앱 규약 v2 = MCP Apps: 매니페스트 검사(입구 도구), 앱마다 MCP 서버의 입구 도구가 `ui://` 화면(`text/html;profile=mcp-app`)을 가리킴, 감시기 훅은 모델에게 숨김, 앱 서버는 호스트 모듈 import 금지·화면은 런타임만, 한 앱이 깨져도 나머지, 앱 도구는 메모리 안 MCP 로 | `server/test/apps.test.js` 규약 5·링크 1 | feature | ✅ |
 | MCP 앱 서버(`/api/apps/<id>/mcp`, Streamable HTTP·상태 없음): 토큰 없이 401·GET 405, 화면 파일·런타임은 CORS·CSP sandbox, lite-host(`/api/apps/_host/mcp`)는 사람이 남에게 카드 보내기 403 | `apps.e2e` 8단계 | feature | ✅ |
+| 샌드박스 프록시(MCP Apps 이중 iframe, `/api/apps/_sandbox`): Lite 화면만 틀에 넣을 수 있음(frame-ancestors), 허락된 부모에게만 답함, 자기 출처가 필요한 화면(`origin: true`, ArtCraft)만 그 뒤에서 — 모델이 쓴 홈 패널은 출처 없는 틀 그대로 | `apps.test.js` 프록시·ArtCraft, `apps.e2e` 8단계, F-CR-<앱>(중첩 틀의 출처 = 샌드박스 출처) | feature | ✅ |
 | 홈 패널도 MCP App(내장 panels 앱): 패널 코드가 격리된 틀(같은 출처 없음)에서 돌고, 저장·AI-DLC 읽기는 주인만(남의 패널 404), 경로 밖 거절, 틀 높이는 내용을 따름 | F-RD-09, `apps.e2e` 9단계, `aidlc-cases.json` panelPath | feature | ✅ |
 | 검토 보드: 질문 태그 → 역할 열, AI-DLC 추천과 이유, 검토자마다 자기 카드(결정권자 「질문 N개」, 다른 역할 「검토할 질문 N개」) | `apps.e2e` 2·3단계, `apps.test.js` 태그·질문 읽기 | feature | ✅ |
 | 검토 보드: 두 사람이 동시에 — 보는 중, 한 사람의 이의(이유 필수)가 다른 사람 화면에 바로 「논의 필요」, 남의 역할 카드 결정 403 | F-RD-06, `apps.e2e` 3단계 | feature | ✅ |

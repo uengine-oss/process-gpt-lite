@@ -1,26 +1,23 @@
 <script setup>
-// An ArtCraft web app (CADCraft · VectorCraft · PhotoCraft · SoundCraft · FilmCraft) in an iframe,
-// the way OfficeEditorFrame hosts IeumOffice. The self-hosted WebAssembly builds are served at
-// /craft/<app>/ on this origin, so this page can reach into the frame:
-// - CADCraft has a postMessage bridge (?host=parent): <app>:ready → we send <app>:open{name, bytes};
-//   SAVE comes back as <app>:save{name, bytes}; <app>:dirty{dirty}; <app>:failed{error}.
-// - The others take the file through their page API (window.vectorcraft.openFile,
-//   window.filmcraft.importFiles) or a file dropped on the canvas, and save as browser downloads,
-//   which we catch inside the frame (the blob behind the download link) instead of letting them go.
-// A save in the app's own formats becomes the card's edited copy; anything else (exports) is
-// uploaded and offered as a link.
-// Live co-editing (server/lib/craftLive.js, src/liveLink.js): once the file is open, every app's page
-// API (window.<app>.request(method, params): PhotoCraft · CADCraft · SoundCraft through local patches
-// in artcraft/patches, VectorCraft · FilmCraft built in) is joined to the server over a websocket;
-// the agent's tool calls arrive as control requests, run on this window, and the replies go back —
-// so the person watches the agent's edits land here.
+// An ArtCraft web app (CADCraft · VectorCraft · PhotoCraft · SoundCraft · FilmCraft), the way OfficeEditorFrame hosts
+// IeumOffice: this is the toolbar and the page's side; the app runs in the built-in MCP App 'craft'
+// (server/lib/apps/builtin/craft) behind the sandbox proxy — an origin of its own (/api/config appsSandbox), where
+// the self-hosted WebAssembly build keeps its settings and fonts, and which cannot reach this page. What crosses:
+// - the file: we fetch it and hand it to the screen (its tool craft_file);
+// - saves and exports: the screen catches them in the app (CADCraft's SAVE, the others' browser downloads) and
+//   hands them over as ui/download-file. A save in the app's own formats becomes the card's edited copy; anything
+//   else (exports) is uploaded and offered as a link;
+// - the state ('craft' notification: open · dirty · failed);
+// - live co-editing (server/lib/craftLive.js, src/liveLink.js): once the file is open, the agent's tool calls arrive
+//   over a websocket and run on the app through the screen's tool craft_request, so the person watches the agent's
+//   edits land here.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
+import AppFrame from '../apps/AppFrame.vue'
 import { uploadAttachment } from '../api.js'
 import { openLiveLink } from '../liveLink.js'
 import { officeEditorFor } from '../officeEditor.js'
-import { BASE } from '../base.js'
 import { lang } from '../i18n/lang.js'
 
 const props = defineProps({
@@ -32,45 +29,24 @@ const props = defineProps({
 })
 const emit = defineEmits(['saved', 'error', 'update:maximized', 'close', 'live', 'return'])
 
-function drop(w, file) {
-  const canvas = w.document.querySelector('canvas')
-  const r = canvas.getBoundingClientRect()
-  const dt = new w.DataTransfer()
-  dt.items.add(file)
-  for (const type of ['dragenter', 'dragover', 'drop']) {
-    canvas.dispatchEvent(new w.DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true, clientX: r.width / 2, clientY: r.height / 2 }))
-  }
-}
-// query: how each app starts (empty, no demo); ready: the frame can take a file; open: hand it over;
-// save: how the person saves there (the "not saved" badge says it; SAVE is CADCraft's command)
+// the toolbar's part of each app: its name, and how the person saves there (the "not saved" badge says it)
 const APPS = {
-  cadcraft: { title: 'CADCraft', query: '?host=parent', bridge: true },
-  vectorcraft: {
-    // the app's own language switch follows the screen's (src/i18n/lang.js); the others follow the browser's
-    title: 'VectorCraft', query: `?lang=${lang}`, save: '⌘S 로 저장', ready: (w) => !!w.vectorcraft,
-    open: (w, file, bytes) => w.vectorcraft.openFile(file.name, new Uint8Array(bytes)),
-  },
-  photocraft: { title: 'PhotoCraft', query: '', save: '⌘S 로 저장', ready: (w) => !w.document.getElementById('photocraft_loading'), open: (w, file) => drop(w, file) },
-  soundcraft: { title: 'SoundCraft', query: '?empty', save: '⌘⌥B 로 내보내기', ready: (w) => !w.document.getElementById('soundcraft_loading'), open: (w, file) => drop(w, file) },
-  filmcraft: {
-    // the edited copy is the export (⌘M ▸ Export)
-    title: 'FilmCraft', query: '?empty&fresh', save: '⌘M 로 내보내기', ready: (w) => !!w.filmcraft,
-    // imported clips only land in the bin: put them on a timeline of their own, ready to cut
-    open: async (w, file) => {
-      const r = await w.filmcraft.importFiles([file])
-      if (r?.items?.length) await w.filmcraft.execute('file.newSequenceFromClip', { items: r.items })
-    },
-  },
+  cadcraft: { title: 'CADCraft' },
+  vectorcraft: { title: 'VectorCraft', save: '⌘S 로 저장' },
+  photocraft: { title: 'PhotoCraft', save: '⌘S 로 저장' },
+  soundcraft: { title: 'SoundCraft', save: '⌘⌥B 로 내보내기' },
+  // the edited copy is the export (⌘M ▸ Export)
+  filmcraft: { title: 'FilmCraft', save: '⌘M 로 내보내기' },
 }
+const CRAFT = { id: 'craft', entry: 'craft_open', origin: true, name: { ko: 'ArtCraft 편집기', en: 'ArtCraft editors' } }
 
 const root = ref(null)
-const frame = ref(null)
-const frameSrc = ref('')
+const view = ref(null)
+const opened = ref(0)
 const notice = ref(null)
 const dirty = ref(false)
 const fullscreen = ref(false)
 let timer = null
-let wait = null
 const savedUrls = new Set()
 // live co-editing
 const LIVE = new Set(['photocraft', 'vectorcraft', 'filmcraft', 'cadcraft', 'soundcraft'])
@@ -81,12 +57,16 @@ let link = null
 let alive = true
 const appName = () => officeEditorFor(props.name || props.fileUrl)
 const app = computed(() => APPS[appName()] || null)
+const params = computed(() => ({ app: appName(), name: props.name || '', lang }))
+const b64 = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s) }
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
+// a live request can run long (a render, an export): no protocol timeout of its own
+const LONG = { timeout: 30 * 60 * 1000 }
 
 function load() {
   stopLive()
   dirty.value = false
-  clearTimeout(wait)
-  frameSrc.value = app.value ? `${BASE}/craft/${appName()}/${app.value.query}` : ''
+  opened.value++
 }
 function show(kind, text, link) {
   clearTimeout(timer)
@@ -98,84 +78,48 @@ async function documentBytes() {
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.arrayBuffer()
 }
-// CADCraft: the app asked for the drawing
+// the screen is up: hand it the file (it opens it once the app runs)
 async function sendDocument() {
   try {
-    const bytes = await documentBytes()
-    frame.value?.contentWindow?.postMessage({ type: `${appName()}:open`, name: props.name || 'Drawing.dxf', bytes }, location.origin, [bytes])
+    await view.value.callView('craft_file', { name: props.name || 'file', base64: b64(await documentBytes()) })
   } catch (e) { show('error', `파일을 불러오지 못했어요: ${e.message}`); emit('error', e.message) }
 }
-// the others: wait until the app runs, then hand the file over and catch its downloads
-function onFrameLoad() {
-  const a = app.value
-  if (!a || a.bridge) return
-  const w = frame.value?.contentWindow
-  let tries = 0
-  const poll = async () => {
-    try {
-      if (w?.document.querySelector('canvas') && a.ready(w)) {
-        catchDownloads(w)
-        // a moment for the first frames, or a dropped file lands before the canvas listens
-        await new Promise((r) => setTimeout(r, 1500))
-        const bytes = await documentBytes()
-        await a.open(w, new w.File([bytes], props.name || 'file'), bytes)
-        startLive()
-        return
-      }
-    } catch (e) { show('error', `파일을 열지 못했어요: ${e.message}`); emit('error', e.message); return }
-    if (++tries < 240) wait = setTimeout(poll, 500)
-    else show('error', '편집기가 시작되지 않았어요.')
-  }
-  poll()
+function onScreen({ type, data } = {}) {
+  if (type !== 'craft' || !data) return
+  if (data.state === 'open') { if (data.live) startLive() }
+  else if (data.state === 'dirty') dirty.value = !!data.dirty
+  else if (data.state === 'failed') { show('error', `편집기를 시작하지 못했어요: ${data.error || ''}`); emit('error', data.error) }
 }
-function catchDownloads(w) {
-  const blobs = new Map()
-  const create = w.URL.createObjectURL.bind(w.URL)
-  w.URL.createObjectURL = (obj) => { const url = create(obj); if (obj instanceof w.Blob) blobs.set(url, obj); return url }
-  const click = w.HTMLAnchorElement.prototype.click
-  w.HTMLAnchorElement.prototype.click = function () {
-    const blob = blobs.get(this.href)
-    if (!this.download || !blob) return click.call(this)
-    blob.arrayBuffer().then((bytes) => onSave({ name: this.download, bytes }))
+function onScreenFailed(e) { show('error', `편집기를 시작하지 못했어요: ${e?.message || ''}`); emit('error', e?.message) }
+async function onDownload(contents) {
+  for (const c of contents) {
+    if (c.type !== 'resource' || !c.resource?.blob) continue
+    await onSave({ name: decodeURIComponent(String(c.resource.uri || '').replace(/^file:\/\/\//, '')), bytes: unb64(c.resource.blob) })
   }
+}
+// a control request on the open app: the agent's (live) or the page's (OfficeSheet's recolour guard)
+async function request(method, params = {}) {
+  if (!view.value) throw new Error('앱이 아직 열리지 않았어요')
+  const r = await view.value.callView('craft_request', { method, params }, LONG)
+  if (!READS.test(method) && !READS.test(params?.command || '')) dirty.value = true
+  return r
 }
 function startLive() {
   const name = appName()
-  const w = frame.value?.contentWindow
-  if (!alive || !LIVE.has(name) || link || !w?.[name]?.request) return
+  if (!alive || !LIVE.has(name) || link) return
   link = openLiveLink({
-    app: name, file: props.name, alive: () => alive && !!frame.value,
+    app: name, file: props.name, alive: () => alive && !!view.value,
     onState: (on) => { live.value = on; if (!on) busy.value = 0; emit('live', on) },
     onCall: async (method, params) => {
       busy.value++
-      try {
-        const fw = frame.value?.contentWindow
-        if (!fw?.[name]?.request) throw new Error('the app is not running in the page')
-        const result = await fw[name].request(method, params)
-        if (!READS.test(method) && !READS.test(params?.command || '')) dirty.value = true
-        return result
-      } finally { busy.value-- }
+      try { return await request(method, params) } finally { busy.value-- }
     },
   })
 }
 // the open document as PNG (PhotoCraft renders it for ui.screenshot on the web: api.rs)
 async function snapshot() {
-  const w = frame.value?.contentWindow
-  const name = appName()
-  if (!w?.[name]?.request) throw new Error('앱이 아직 열리지 않았어요')
-  const r = await w[name].request('ui.screenshot', {})
-  const b64 = r?.base64 || r?.png_base64 || r?.pngBase64
-  if (!b64) throw new Error('이미지를 받지 못했어요')
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-}
-// a control request on the open app (OfficeSheet's recolour guard)
-async function request(method, params = {}) {
-  const w = frame.value?.contentWindow
-  const name = appName()
-  if (!w?.[name]?.request) throw new Error('앱이 아직 열리지 않았어요')
-  const r = await w[name].request(method, params)
-  if (!READS.test(method) && !READS.test(params?.command || '')) dirty.value = true
-  return r
+  if (!view.value) throw new Error('앱이 아직 열리지 않았어요')
+  return unb64(await view.value.callView('craft_snapshot', {}, LONG))
 }
 defineExpose({ snapshot, request })
 function stopLive() {
@@ -196,16 +140,6 @@ async function onSave({ name, bytes }) {
     else show('success', `${f.name} 을(를) 만들었어요.`, f.url)
   } catch (e) { show('error', `저장하지 못했어요: ${e.message}`); emit('error', e.message) }
 }
-function onMessage(event) {
-  if (!app.value?.bridge || event.origin !== location.origin || event.source !== frame.value?.contentWindow) return
-  const m = event.data || {}
-  const kind = String(m.type || '').split(':')[1]
-  if (!kind || m.type !== `${appName()}:${kind}`) return
-  if (kind === 'ready') sendDocument().then(startLive)
-  else if (kind === 'save') onSave(m)
-  else if (kind === 'dirty') dirty.value = !!m.dirty
-  else if (kind === 'failed') { show('error', `편집기를 시작하지 못했어요: ${m.error || ''}`); emit('error', m.error) }
-}
 async function toggleFullscreen() {
   try { if (document.fullscreenElement) await document.exitFullscreen(); else await root.value.requestFullscreen() }
   catch { show('error', '이 브라우저에서는 전체 화면을 쓸 수 없어요.') }
@@ -216,12 +150,12 @@ const onLeave = (e) => { if (dirty.value) { e.preventDefault(); e.returnValue = 
 
 watch(() => props.fileUrl, (u) => { if (u && !savedUrls.has(u)) load() })
 onMounted(() => {
-  window.addEventListener('message', onMessage); window.addEventListener('beforeunload', onLeave)
-  document.addEventListener('fullscreenchange', onFs); load()
+  window.addEventListener('beforeunload', onLeave)
+  document.addEventListener('fullscreenchange', onFs)
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('message', onMessage); window.removeEventListener('beforeunload', onLeave)
-  document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(wait)
+  window.removeEventListener('beforeunload', onLeave)
+  document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer)
   alive = false; stopLive()
 })
 </script>
@@ -244,7 +178,8 @@ onBeforeUnmount(() => {
       <button class="tb ic press" title="닫기" @click="emit('close')"><Icon name="close" :size="16" /></button>
     </div>
     <div v-if="busy" class="glow" />
-    <iframe v-if="frameSrc" ref="frame" :src="frameSrc" :title="name || '편집기'" class="frm" allow="clipboard-read; clipboard-write; fullscreen; autoplay" @load="onFrameLoad" />
+    <AppFrame v-if="app && fileUrl" :key="opened" ref="view" class="frm" :manifest="CRAFT" :params="params"
+      @initialized="sendDocument" @event="onScreen" @download="onDownload" @error="onScreenFailed" />
     <div v-else class="empty">이 파일은 편집기로 열 수 없어요.</div>
     <Transition name="fade">
       <div v-if="notice" class="notice" :class="notice.kind">
@@ -279,7 +214,7 @@ onBeforeUnmount(() => {
 .tb.primary { background: #6e5ae6; color: #fff; font-weight: 600; }
 .tb.primary:hover { background: #7d6af0; }
 .tb.primary:disabled { opacity: .5; }
-.frm { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; }
+.frm { flex: 1 1 0; width: 100%; height: auto; min-height: 0; }
 .empty { margin: auto; color: #b8b8b8; font-size: 14px; }
 .notice { position: absolute; right: 16px; bottom: 32px; padding: 8px 14px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); }
 .notice a { color: #fff; font-weight: 600; text-decoration: underline; margin-left: 6px; }

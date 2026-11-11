@@ -268,6 +268,12 @@ test('MCP 앱 서버: 토큰 없이는 401, GET 은 405, 입구 도구는 ui:// 
   assert.equal(rt.headers.get('access-control-allow-origin'), '*')
   assert.match(rt.headers.get('content-security-policy'), /^sandbox allow-scripts/)
   assert.equal((await fetch(`${API}/apps/_runtime/ext-apps.js`)).status, 200)
+  // the sandbox proxy (the double iframe): framed only by Lite's pages, no sandbox CSP of its own (its origin is the point)
+  const proxy = await fetch(`${API}/apps/_sandbox?app=craft`)
+  assert.equal(proxy.status, 200)
+  assert.match(proxy.headers.get('content-security-policy'), /^frame-ancestors 'self'/)
+  assert.doesNotMatch(proxy.headers.get('content-security-policy'), /sandbox/)
+  assert.ok(!(await proxy.text()).includes('__HOSTS__'))
   // lite-host for an app run as its own service: the folder's work as the person; never cards in others' names
   const host = new Client({ name: 'e2e', version: '1.0.0' })
   await host.connect(new StreamableHTTPClientTransport(new URL(`${API}/apps/_host/mcp?app=e2e`), { requestInit: { headers: { Authorization: `Bearer ${po.session.access_token}` } } }))

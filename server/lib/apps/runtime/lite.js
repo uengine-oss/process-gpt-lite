@@ -7,6 +7,9 @@
 //   lite.openLink(url)                  an outside link, or a Lite screen ("/apps/<id>/<folder>?…", "/workroom/…")
 //   lite.openApp(id, params)            another app beside this one (it knows the other only by id): a Lite link
 //   lite.say(text)                      a message to the chat (ui/message)
+//   lite.provide(name, fn)              a tool of this screen the host may call (tools/call host → screen); fn(args) → value
+//   lite.notify(type, data)             tell the host something (Lite's extension notification, the other way round)
+//   lite.download(name, bytes, type)    hand a file to the host (ui/download-file); Lite keeps it (an edited copy, an export)
 import { App, PostMessageTransport } from './ext-apps.js'
 
 const handlers = {}
@@ -14,7 +17,18 @@ const fire = (type, data) => [...(handlers[type] || []), ...(handlers['*'] || []
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const LIVE = 'notifications/io.uengine.lite/event'
 
-const app = new App({ name: document.title || 'lite-app', version: '2.0.0' }, {}, { autoResize: true })
+// the screen's own tools (lite.provide): declared before the handshake, answered here
+const provided = {}
+const app = new App({ name: document.title || 'lite-app', version: '2.0.0' }, { tools: { listChanged: true } }, { autoResize: true })
+app.oncalltool = async ({ name, arguments: args }) => {
+  if (!provided[name]) return { isError: true, content: [{ type: 'text', text: `no tool ${name}` }] }
+  try {
+    const value = await provided[name](args || {})
+    return { content: [{ type: 'text', text: JSON.stringify(value ?? null).slice(0, 1000) }], structuredContent: { value: value ?? null } }
+  } catch (e) { return { isError: true, content: [{ type: 'text', text: e.message }], structuredContent: { error: e.message } } }
+}
+app.onlisttools = async () => ({ tools: Object.keys(provided).map((name) => ({ name, inputSchema: { type: 'object' } })) })
+const b64 = (bytes) => { const u = new Uint8Array(bytes); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s) }
 let gotInput, gotResult
 const inputP = new Promise((r) => { gotInput = r })
 const resultP = new Promise((r) => { gotResult = r })
@@ -38,6 +52,14 @@ const lite = {
   openApp: (id, p = {}) => app.openLink({ url: `/apps/${id}/${encodeURIComponent(lite.params.folder || '')}?${new URLSearchParams({ ...p, sheet: '1' })}` }),
   navigate: (url) => app.openLink({ url }),
   say: (text) => app.sendMessage({ role: 'user', content: [{ type: 'text', text }] }),
+  provide(name, fn) { provided[name] = fn },
+  notify: (type, data) => app.notification({ method: LIVE, params: { type, data: data ?? {} } }),
+  async download(name, bytes, mimeType = 'application/octet-stream') {
+    const buf = bytes instanceof Blob ? await bytes.arrayBuffer() : bytes
+    return app.downloadFile({ contents: [{ type: 'resource', resource: { uri: `file:///${encodeURIComponent(name)}`, mimeType, blob: b64(buf) } }] })
+  },
+  b64,
+  unb64: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
   // small helpers every app wants
   esc,
   $: (s, el = document) => el.querySelector(s),

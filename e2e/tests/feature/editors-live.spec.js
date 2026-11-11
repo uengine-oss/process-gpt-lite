@@ -149,6 +149,9 @@ test.describe('최대화 다이얼 (spec office-editor · craft-apps: 최대화 
   }
 })
 
+// the ArtCraft build's frame (nested in the screen) by its address
+const craftUrl = (page, app) => page.frames().find((f) => f.url().includes(`/craft/${app}/`))?.url() || ''
+
 test.describe('ArtCraft 편집기와 라이브 (spec craft-apps)', () => {
   const APPS = [
     ['썸네일.png', 'photocraft', 'photocraft_doc_inspect', {}],
@@ -158,7 +161,7 @@ test.describe('ArtCraft 편집기와 라이브 (spec craft-apps)', () => {
     ['티저.mp4', 'filmcraft', 'filmcraft_project_inspect', {}],
   ]
   for (const [file, app, inspect, args] of APPS) {
-    test(`F-CR-${app} 카드 → 웹 ${app} 가 같은 출처에서 열리고, 대화와 연결된 동안 도구가 열린 화면을 읽는다`, async ({ pageAs, db }) => {
+    test(`F-CR-${app} 카드 → 웹 ${app} 가 격리된 자기 출처에서 열리고, 대화와 연결된 동안 도구가 열린 화면을 읽는다`, async ({ pageAs, db }) => {
       test.skip(!(await api.craftHas(app, ['web', 'cli'])), api.craftSkip(app, ['web', 'cli']))
       const page = await pageAs(`cr-${app}`)
       const tok = page.user.token()
@@ -166,7 +169,10 @@ test.describe('ArtCraft 편집기와 라이브 (spec craft-apps)', () => {
       test.skip(!files[file], `${file} 를 만들 수 없음 (ffmpeg)`)
       await page.goto('/chat')
       await openCard(page, file)
-      await expect(page.locator('.cef iframe.frm')).toHaveAttribute('src', new RegExp(`^/craft/${app}/`))
+      // the app's own frame: inside the ArtCraft screen, behind the sandbox proxy (an origin of its own)
+      await expect.poll(() => craftUrl(page, app), { timeout: 30_000 }).toMatch(new RegExp(`/craft/${app}/`))
+      const cfg = await api.config()
+      if (cfg.appsSandbox) expect(new URL(craftUrl(page, app)).origin).toBe(cfg.appsSandbox)
       await expect(page.locator('.cef .badge.live')).toContainText('대화와 연결됨', { timeout: 90_000 })
       await api.mcp(`/mcp/${app}`, 'tools/call', { name: `${app}_start`, arguments: {} }, tok)
       const tools = (await api.mcp(`/mcp/${app}`, 'tools/list', {}, tok)).body.result.tools.map((t) => t.name)

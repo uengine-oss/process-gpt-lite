@@ -43,8 +43,10 @@ test('앱 규약: 들어 있는 앱의 매니페스트는 모두 규약 v2 를 �
     assert.equal(m.contract, 2)
     assert.ok(fs.existsSync(path.join(APPS, id, 'ui', 'index.html')), `${id} has a page`)
   }
-  assert.deepEqual((await loadApps()).sort(), ['artifact', 'bolts', 'panels', 'review'])
+  assert.deepEqual((await loadApps()).sort(), ['artifact', 'bolts', 'craft', 'panels', 'review'])
   assert.deepEqual(list().find((m) => m.id === 'panels').mounts, ['panel'])
+  // only the ArtCraft screen asks for an origin of its own (the sandbox proxy); model-written panels never get one
+  assert.deepEqual(list().filter((m) => m.origin).map((m) => m.id), ['craft'])
 })
 
 test('앱 규약: 잘못된 매니페스트는 무엇이 틀렸는지 말하고 거절된다', () => {
@@ -127,12 +129,36 @@ test('앱 규약: 한 앱이 깨져도 다른 앱은 올라오고, 앱 도구는
   }`)
   mk('bad-app', 'bad_open', 'throw new Error("boom")')
   mk('no-entry', 'missing_open', `export default (server) => { ${ok('other_tool', '{ content: [] }')} }`)
-  assert.deepEqual((await loadApps(dir)).sort(), ['good-app', 'panels'])
-  assert.deepEqual(list().map((m) => m.id).sort(), ['good-app', 'panels'])
+  assert.deepEqual((await loadApps(dir)).sort(), ['craft', 'good-app', 'panels'])
+  assert.deepEqual(list().map((m) => m.id).sort(), ['craft', 'good-app', 'panels'])
   assert.deepEqual(await callAppTool('good-app', 'good_open'), { contract: 2, app: 'good-app', user: null })
   await assert.rejects(callAppTool('good-app', 'good_deny'), { status: 403, message: 'no' })
   await assert.rejects(callAppTool('no-entry', 'other_tool'), { status: 404 })
   await loadApps() // back to the real apps for the rest of the process
+})
+
+// the ArtCraft editors: one screen for every app, behind the sandbox proxy; an app this install lacks is refused
+test('ArtCraft 앱: 입구 도구가 앱과 언어를 화면에 넘기고, 없는 앱은 404, 화면은 클립보드만 청한다', async () => {
+  const { client, close } = await connect('craft')
+  try {
+    const { tools } = await client.listTools()
+    assert.deepEqual(tools.map((t) => t.name), ['craft_open'])
+    const bad = await client.callTool({ name: 'craft_open', arguments: { app: 'paintcraft' } })
+    assert.equal(bad.isError, true)
+    assert.equal(bad.structuredContent.status, 404)
+    const page = await client.readResource({ uri: 'ui://craft/editor' })
+    assert.deepEqual(page.contents[0]._meta.ui, { csp: {}, permissions: { clipboardWrite: {} } })
+    assert.match(page.contents[0].text, /<iframe id="craft"/)
+  } finally { await close() }
+})
+
+// the proxy page: framed only by Lite's pages, the hosts it answers written into it (no other parent gets the screen)
+test('샌드박스 프록시: frame-ancestors 는 Lite 화면만, 프록시는 허락된 부모에게만 답하고 화면은 안쪽 틀에서 그 출처로', () => {
+  const html = fs.readFileSync(path.join(RUNTIME, 'sandbox.html'), 'utf8')
+  assert.match(html, /data-hosts="__HOSTS__"/)
+  assert.match(html, /ui\/notifications\/sandbox-proxy-ready/)
+  assert.match(html, /ui\/notifications\/sandbox-resource-ready/)
+  assert.match(html, /if \(!hosts\.has\(e\.origin\) \|\| \(host && e\.origin !== host\)\) return/)
 })
 
 test('앱 화면의 링크: 정해진 Lite 화면으로만 옮긴다', () => {

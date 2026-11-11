@@ -64,6 +64,12 @@ export const config = {
   // AI-DLC team sessions (lib/aidlc/session.js): an interactive Claude Code per linked AI-DLC folder,
   // kept in tmux on its own socket. aidlcPath goes in front of PATH (where the `aidlc` CLI is);
   // the permission mode and effort the session starts with.
+  // MCP Apps screens that need an origin of their own (storage, workers: the ArtCraft builds) run behind the sandbox
+  // proxy (lib/apps/runtime/sandbox.html) loaded from this origin — another host or port that reaches this server,
+  // so they cannot touch Lite's page. Empty: the proxy comes from Lite's own origin (no more isolation than a
+  // same-origin frame). appsHostOrigins: the Lite pages that may frame the proxy (comma list, besides its own origin)
+  appsSandboxOrigin: get('PRO_APPS_SANDBOX_ORIGIN', '').replace(/\/$/, ''),
+  appsHostOrigins: get('PRO_APPS_HOST_ORIGINS', '').split(',').map((x) => x.trim().replace(/\/$/, '')).filter(Boolean),
   aidlcTmuxSocket: get('PRO_AIDLC_TMUX_SOCKET', 'pgpt-aidlc'),
   // a second development server on the same database watches only the AI-DLC folders below this path
   aidlcWatchOnly: get('PRO_AIDLC_WATCH_ONLY', ''),

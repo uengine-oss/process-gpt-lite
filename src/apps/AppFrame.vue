@@ -4,8 +4,11 @@
 // the folder and the screen's arguments, the tool's ui:// resource shown in a sandboxed iframe, and the
 // standard bridge (AppBridge of @modelcontextprotocol/ext-apps) between them — tools/call and resources/read
 // pass through to the app's server; ui/open-link opens a Lite screen, another app beside this one, or an
-// outside page; ui/message goes to the chat. Lite's extension: live events for this folder are passed in as
-// notifications/io.uengine.lite/event.
+// outside page; ui/message goes to the chat; ui/download-file hands a file to the page (emit 'download'). Lite's
+// extension: live events for this folder are passed in as notifications/io.uengine.lite/event, and what the screen
+// says the same way comes out as emit('event'); the page may call the screen's own tools (callView).
+// A screen whose app needs an origin of its own (manifest origin: true — the ArtCraft builds keep settings and fonts
+// there) runs behind the sandbox proxy (the double iframe of MCP Apps) from /api/config appsSandbox.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -20,7 +23,7 @@ import { useSky } from '../stores/sky.js'
 import { isEnglish } from '../i18n/lang.js'
 
 const props = defineProps({ manifest: Object, folder: String, params: { type: Object, default: () => ({}) }, inline: Boolean })
-const emit = defineEmits(['ready', 'size', 'error'])
+const emit = defineEmits(['ready', 'initialized', 'size', 'error', 'event', 'download'])
 const router = useRouter()
 const app = useApp()
 const apps = useApps()
@@ -29,6 +32,12 @@ const frame = ref(null)
 const failed = ref('')
 const theme = computed(() => (sky.isDay ? 'light' : 'dark'))
 const LIVE = 'notifications/io.uengine.lite/event'
+const proxied = computed(() => !!props.manifest.origin)
+// the screen with no origin of its own; the proxy (another origin, or Lite's own when none is set) with one
+const SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox'
+const SANDBOX_ORIGIN = 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-pointer-lock'
+let sandboxAt = null
+const sandboxOrigin = () => (sandboxAt ||= fetch(`${BASE}/api/config`).then((r) => r.json()).then((c) => c.appsSandbox || location.origin).catch(() => location.origin))
 let client = null
 let bridge = null
 let closed = false
@@ -85,12 +94,22 @@ async function start() {
     return {}
   }
   bridge.onsizechange = (s) => emit('size', s)
-  bridge.oninitialized = () => { bridge.sendToolInput({ arguments: args }); bridge.sendToolResult(result) }
+  bridge.oninitialized = () => { bridge.sendToolInput({ arguments: args }); bridge.sendToolResult(result); emit('initialized') }
   bridge.onloggingmessage = (m) => console.warn(`[app ${id}]`, m.level, m.data)
+  bridge.ondownloadfile = async ({ contents }) => { emit('download', contents || []); return {} }
+  bridge.fallbackNotificationHandler = async (n) => { if (n?.method === LIVE) emit('event', n.params || {}) }
+  // the page's relative addresses (its files, the runtime) are the app's own ui/ on the server it is loaded from
+  const at = proxied.value ? await sandboxOrigin() : location.origin
+  const base = `<base href="${at}${BASE}/api/apps/${id}/ui/">`
+  const page = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (h) => `${h}${base}`) : base + html
+  if (closed) return
+  if (proxied.value) {
+    const meta = res.contents?.[0]?._meta?.ui || {}
+    bridge.onsandboxready = () => bridge.sendSandboxResourceReady({ html: page, sandbox: SANDBOX_ORIGIN, csp: meta.csp || {}, permissions: meta.permissions })
+  }
   await bridge.connect(new PostMessageTransport(frame.value.contentWindow, frame.value.contentWindow))
-  // the page's relative addresses (its files, the runtime) are the app's own ui/ on this server
-  const base = `<base href="${location.origin}${BASE}/api/apps/${id}/ui/">`
-  frame.value.srcdoc = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (h) => `${h}${base}`) : base + html
+  if (proxied.value) frame.value.src = `${at}${BASE}/api/apps/_sandbox?app=${encodeURIComponent(id)}`
+  else frame.value.srcdoc = page
   emit('ready')
 }
 
@@ -102,6 +121,15 @@ function onEvent(e) {
   if (data.folder && data.folder !== props.folder) return
   bridge.notification({ method: LIVE, params: { type: data.type, data: data.data } }).catch(() => {})
 }
+// a tool of the screen itself (lite.provide), e.g. the ArtCraft screen's live requests
+async function callView(name, args = {}, options) {
+  if (!bridge) throw new Error('the screen is not open yet')
+  const r = await bridge.callTool({ name, arguments: args }, options)
+  if (r.isError) throw new Error(r.structuredContent?.error || r.content?.[0]?.text || 'screen error')
+  return r.structuredContent?.value ?? null
+}
+defineExpose({ callView })
+
 watch(theme, () => { if (bridge) bridge.setHostContext(hostContext()) })
 watch(() => props.params, (p) => { if (bridge) bridge.sendToolInput({ arguments: { folder: props.folder, ...p } }) }, { deep: true })
 onMounted(() => {
@@ -118,7 +146,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-host" :class="{ inline }">
-    <iframe ref="frame" class="app-frame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" :title="manifest.name?.ko || manifest.id" :data-test="`app-${manifest.id}`" />
+    <iframe ref="frame" class="app-frame" :sandbox="proxied ? SANDBOX_ORIGIN : SANDBOX" :allow="proxied ? 'fullscreen; autoplay; clipboard-read; clipboard-write' : undefined" :title="manifest.name?.ko || manifest.id" :data-test="`app-${manifest.id}`" />
     <p v-if="failed" class="failed">{{ failed }}</p>
   </div>
 </template>

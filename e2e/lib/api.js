@@ -155,4 +155,6 @@ export async function craftHas(app, need = ['web']) {
   if (!craftCfg) return true
   return need.every((k) => craftCfg[app]?.[k])
 }
+// the server's public config (/api/config: craft, appsSandbox …)
+export const config = async () => (await call(null, 'GET', '/config').catch(() => null))?.body || {}
 export const craftSkip = (app, need = ['web']) => `${app} ${need.join('·')} 이(가) 이 설치에 없음 (Docker lite 프로필엔 ArtCraft 앱이 없음 — artcraft/README.md)`

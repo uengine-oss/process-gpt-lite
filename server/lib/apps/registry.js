@@ -1,5 +1,6 @@
 // Lite apps, contract v2 = MCP Apps (docs/robo-dlc/plan-mcp-apps.md). One folder under server/apps per app:
-//   manifest.json  Lite's own part (io.uengine.lite): name, icon, where it mounts, the waits it handles, its entry tool
+//   manifest.json  Lite's own part (io.uengine.lite): name, icon, where it mounts, the waits it handles, its entry tool,
+//                  whether its screen needs an origin of its own (origin: true → behind the sandbox proxy)
 //   server.js      export default (server, ctx) => { … } — an MCP server: tools, and its screens as ui:// resources
 //                  (registerAppTool / registerAppResource of @modelcontextprotocol/ext-apps/server). Lite's own
 //                  functions only through ctx, which is a client of the lite-host MCP server (lib/apps/host.js);
@@ -20,9 +21,11 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { q, pool } from '../supa.js'
+import { config } from '../../config.js'
 import { makeContext } from './context.js'
 import { hostServer } from './host.js'
 import { registerPanels, PANELS_MANIFEST, PANELS_DIR } from './builtin/panels/index.js'
+import { registerCraft, CRAFT_MANIFEST, CRAFT_DIR } from './builtin/craft/index.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const APPS_DIR = path.join(HERE, '../../apps')
@@ -55,12 +58,14 @@ export function checkManifest(m, dirName) {
   return {
     id, version: m.version, contract: m.contract, name: m.name, icon: m.icon || '🧩', description: m.description || null,
     entry: m.entry, requires: list('requires', REQUIRES), mounts: list('mounts', MOUNTS), handles: list('handles', HANDLES),
+    // the screen needs an origin of its own (storage, workers): the host loads it behind the sandbox proxy
+    origin: m.origin === true,
   }
 }
 
 const apps = new Map() // id -> { manifest, dir, register }
-// apps that come with the host (lib/apps/builtin): the Home panels' screen
-const BUILTINS = [{ manifest: PANELS_MANIFEST, dir: PANELS_DIR, register: registerPanels }]
+// apps that come with the host (lib/apps/builtin): the Home panels' screen, the ArtCraft editors
+const BUILTINS = [{ manifest: PANELS_MANIFEST, dir: PANELS_DIR, register: registerPanels }, { manifest: CRAFT_MANIFEST, dir: CRAFT_DIR, register: registerCraft }]
 
 export async function loadApps(dir = APPS_DIR) {
   apps.clear()
@@ -183,8 +188,21 @@ async function serveMcp(req, res, server, done) {
 }
 const noSessions = (req, res) => res.status(405).set('Allow', 'POST').json({ jsonrpc: '2.0', error: { code: -32000, message: 'stateless: POST only' }, id: null })
 
+// The sandbox proxy of MCP Apps (the double iframe): served from config.appsSandboxOrigin, framed only by Lite's
+// pages; the screen it is handed runs inside it with that origin. Not CSP-sandboxed itself: that origin is the point.
+const PROXY = path.join(RUNTIME_DIR, 'sandbox.html')
+export function proxyAncestors() {
+  return ["'self'", ...config.appsHostOrigins].join(' ')
+}
+
 export function mountApps(app, auth, { folderHasAidlc }) {
   app.get('/api/apps/_runtime/ext-apps.js', (req, res) => { staticHeaders(res); res.type('text/javascript').sendFile(EXT_APPS) })
+  app.get('/api/apps/_sandbox', (req, res) => {
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${proxyAncestors()}`)
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.type('html').send(fs.readFileSync(PROXY, 'utf8').replace('__HOSTS__', JSON.stringify(config.appsHostOrigins).replace(/"/g, '&quot;')))
+  })
   app.use('/api/apps/_runtime', express.static(RUNTIME_DIR, staticOpts))
   // which apps there are (the host draws their buttons and links from this)
   app.get('/api/apps', auth, (req, res) => res.json(list()))

@@ -1,0 +1,67 @@
+<!doctype html>
+<html data-hosts="__HOSTS__">
+<head>
+<meta charset="utf-8">
+<title>Lite app sandbox</title>
+<style>html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; } iframe { display: block; width: 100%; height: 100%; border: 0; }</style>
+</head>
+<body>
+<script>
+// The sandbox proxy of MCP Apps (spec 2026-01-26, "sandbox proxy"): the outer frame of the double iframe. It says
+// ui/notifications/sandbox-proxy-ready, takes the screen's HTML from the host page (ui/notifications/sandbox-resource-ready),
+// runs it in an inner frame with this page's origin and the CSP the resource declared, and passes every other message
+// between the host page and the screen unchanged. Only Lite's pages may talk to it (this origin and the configured ones;
+// the server also sends frame-ancestors).
+(() => {
+  if (window.parent === window) return
+  const hosts = new Set([location.origin, ...JSON.parse(document.documentElement.dataset.hosts || '[]')])
+  const READY = 'ui/notifications/sandbox-proxy-ready'
+  const RESOURCE = 'ui/notifications/sandbox-resource-ready'
+  let host = null
+  let inner = null
+  const urls = (a) => (Array.isArray(a) ? a : []).filter((x) => /^(https?|wss?):\/\/[^\s;'",]+$/.test(x)).join(' ')
+  function policy(csp) {
+    const res = urls(csp.resourceDomains)
+    return [
+      "default-src 'self'",
+      `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: ${res}`,
+      `style-src 'self' 'unsafe-inline' ${res}`,
+      `img-src 'self' data: blob: ${res}`,
+      `font-src 'self' data: ${res}`,
+      `media-src 'self' data: blob: ${res}`,
+      `connect-src 'self' ${urls(csp.connectDomains)}`,
+      `frame-src 'self' ${urls(csp.frameDomains)}`,
+      "worker-src 'self' blob:",
+      `base-uri 'self' ${urls(csp.baseUriDomains)}`,
+    ].join('; ')
+  }
+  const ALLOW = { camera: 'camera', microphone: 'microphone', geolocation: 'geolocation', clipboardWrite: 'clipboard-write' }
+  function load({ html, sandbox, csp, permissions }) {
+    if (inner) inner.remove()
+    inner = document.createElement('iframe')
+    inner.setAttribute('sandbox', sandbox || 'allow-scripts allow-same-origin allow-forms')
+    inner.setAttribute('allow', ['fullscreen', 'autoplay', ...Object.keys(permissions || {}).map((k) => ALLOW[k]).filter(Boolean)].join('; '))
+    let doc = String(html || '')
+    if (csp) {
+      const meta = `<meta http-equiv="Content-Security-Policy" content="${policy(csp).replace(/"/g, '&quot;')}">`
+      doc = /<head[^>]*>/i.test(doc) ? doc.replace(/<head[^>]*>/i, (h) => h + meta) : meta + doc
+    }
+    inner.srcdoc = doc
+    document.body.appendChild(inner)
+  }
+  window.addEventListener('message', (e) => {
+    if (e.source === window.parent) {
+      if (!hosts.has(e.origin) || (host && e.origin !== host)) return
+      host = e.origin
+      if (e.data?.method === RESOURCE) return load(e.data.params || {})
+      inner?.contentWindow?.postMessage(e.data, '*')
+    } else if (inner && e.source === inner.contentWindow) {
+      if (host) window.parent.postMessage(e.data, host)
+    }
+  })
+  // no data in it: any parent may hear that the proxy is up (only an allowed one gets an answer)
+  window.parent.postMessage({ jsonrpc: '2.0', method: READY, params: {} }, '*')
+})()
+</script>
+</body>
+</html>

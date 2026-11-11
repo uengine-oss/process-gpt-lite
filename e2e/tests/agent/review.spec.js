@@ -50,7 +50,7 @@ test('A-11 [flaky] 도면 색을 바꾼 뒤 검수: 테이블 선이 남고(70% 
   expect(note.content.text).toMatch(/^검수/)
   expect(note.content.review.app).toBe('photocraft')
   // the picture as it is now in PhotoCraft: its strokes are still there
-  const shot = await page.evaluate(async () => (await document.querySelector('.cef iframe').contentWindow.photocraft.request('ui.screenshot', {})).base64)
+  const shot = await page.frames().find((f) => f.url().includes('/craft/photocraft/')).evaluate(async () => (await window.photocraft.request('ui.screenshot', {})).base64)
   const before = await page.evaluate(`(${COVERAGE})('data:image/png;base64,${png.toString('base64')}')`)
   const after = await page.evaluate(`(${COVERAGE})('data:image/png;base64,${shot}')`)
   test.info().annotations.push({ type: 'strokes', description: `${before} → ${after}` })

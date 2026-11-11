@@ -126,9 +126,10 @@ async function finishLogin(email, name) {
   return { user, session: { access_token: session.access_token, refresh_token: session.refresh_token, expires_at: session.expires_at } }
 }
 
-// craft: which ArtCraft apps this install has ({web, cli} flags only); contextRouter: whether messages are routed
+// craft: which ArtCraft apps this install has ({web, cli} flags only); appsSandbox: the origin app screens that need one
+// of their own are loaded from (lib/apps/runtime/sandbox.html); contextRouter: whether messages are routed
 // to conversations (services/context-router) — flags only
-app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
+app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl, appsSandbox: config.appsSandboxOrigin || null }))
 
 app.get('/api/auth/google/start', (req, res) => {
   // an old tab or a kept link: the app shows no Google button when this is off

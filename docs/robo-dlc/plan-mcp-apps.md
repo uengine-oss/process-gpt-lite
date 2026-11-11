@@ -35,7 +35,28 @@
 - 단위 `apps.test.js` 17·`aidlc.test.js`+`panelApps.test.js` 23 통과. 실서버(:8799) `apps.e2e` 9(검토 보드 흐름 전부 MCP 로, MCP 끝점 보호, 홈 패널)·`aidlc.e2e`+`aidlc-team.e2e`+`panelPrivacy.e2e` 15 통과. Playwright `robo-dlc.spec.js` F-RD-01~09 통과(:5198 고정 빌드).
 - 겪은 일: MCP 클라이언트 전송은 헤더를 `Headers` 객체로 넘긴다. 토큰을 덧붙일 때 객체 펼치기를 하면 `Accept` 가 빠져 서버가 406 을 준다(`new Headers(init.headers)` 로 고침). 클라이언트가 여는 GET 이벤트 흐름에는 405 를 준다(상태 없는 서버, 표준이 허용).
 
-## 5. 2단계: 이음오피스 · Craft
+## 5. 2단계: Craft (끝남) · 이음오피스
 
-- 지금: 둘 다 MCP 로 기능이 나뉘어 있지만 화면은 같은 출처 iframe(`/office/…`, `/craft/<app>/…`)이고 격리가 없다.
-- 할 일: 편집기마다 MCP 서버의 입구 도구 + `ui://<app>/editor` 화면, 호스트가 같은 `AppFrame` 으로 연다. 편집기와 주고받는 저장·열기·내보내기는 앱 도구로, 편집기 고유 메시지는 Lite 확장 알림으로 옮긴다. 큰 편집기(이음오피스·CADCraft)는 화면 HTML 이 바깥 주소의 편집기를 읽어야 하므로 리소스의 `_meta.ui.csp` 에 그 출처를 선언한다.
+### 자기 출처가 필요한 화면: 샌드박스 프록시
+
+- 실험(2026-11-11): VectorCraft·PhotoCraft 웹 빌드를 출처 없는 틀(sandbox `allow-scripts` 만)에 넣으면 앱은 뜨지만 IndexedDB·localStorage 가 `SecurityError` 이고, PhotoCraft 는 글꼴 목록(`fonts/manifest.txt`, same-origin fetch)을 못 읽어 한글이 깨진다. 자기 출처가 있으면 모두 된다.
+- 그래서 MCP Apps 명세의 이중 iframe(샌드박스 프록시)을 쓴다. 바깥 틀 `/api/apps/_sandbox`(`lib/apps/runtime/sandbox.html`)는 `PRO_APPS_SANDBOX_ORIGIN`(Lite 와 다른 호스트·포트, 같은 서버로 오는 주소)에서 뜨고, 화면 HTML 을 받아 안쪽 틀(그 출처, 선언한 CSP)에서 돌린다. 메시지는 그대로 넘긴다. Lite 화면만 프록시를 틀에 넣을 수 있다(`frame-ancestors 'self'` + `PRO_APPS_HOST_ORIGINS`). 프록시는 허락된 부모에게만 답한다.
+- 매니페스트 `origin: true` 인 앱만 프록시 뒤에서 돈다(지금 `craft` 하나). 모델이 쓴 홈 패널·검토 보드 같은 화면은 출처 없는 틀 그대로다.
+- `PRO_APPS_SANDBOX_ORIGIN` 이 없으면 프록시는 Lite 출처에서 뜬다. 예전 같은 출처 iframe 과 격리 수준이 같고, 코드 길은 하나다. 설치판에서 격리를 켜려면 nginx 에 둘째 포트(또는 하위 도메인)를 열고 그 주소를 넣는다.
+
+### Craft = 내장 앱 `craft`
+
+- 서버 `lib/apps/builtin/craft`: 입구 도구 `craft_open({app, name, lang})`(이 설치에 없는 앱 404), 화면 `ui://craft/editor`(권한은 클립보드만).
+- 화면 `ui/editor.js`: 앱의 웹 빌드를 같은 출처 틀에 넣고, 예전에 페이지가 밖에서 하던 일을 안에서 한다. CADCraft 는 postMessage 다리, 나머지는 페이지 API·합성 drop·다운로드 가로채기다.
+  - 페이지가 파일을 넣는다: 화면 도구 `craft_file`.
+  - 저장·내보내기는 `ui/download-file` 로 페이지에 넘긴다(Lite 는 편집본·내보낸 파일로 올린다).
+  - 상태(열림·저장 안 됨·실패)는 Lite 알림 `craft` 로 알린다.
+  - 라이브 요청과 그림 뜨기는 화면 도구 `craft_request`·`craft_snapshot` 이다.
+- 페이지 `CraftEditorFrame.vue`: 머리줄·알림·저장(업로드)·라이브 연결(`craftLive` 웹소켓)은 그대로다. 앱에 손대는 일은 모두 `AppFrame.callView` 로 바뀌었다.
+- 겪은 일: 화면은 `about:srcdoc` 이라 `location.origin` 이 `"null"` 이다. 진짜 출처는 `self.origin` 이다(CADCraft 다리의 출처 검사).
+- 시험: Craft 13개(F-CR-<앱> 5·F-CR-10·F-CR-11·F-ED-04 다섯 앱·F-CV-04)가 프록시 뒤에서 통과했다. 바꾸기 전 기준선 12개도 통과. 중첩 틀의 출처가 샌드박스 출처인지도 본다.
+- CircuitCraft·SolidCraft 는 `feat/prototype-request`(미병합)에 있다. 그 가지가 이 위로 올라오면 `editor.js` 의 앱 표와 `CraftEditorFrame` 의 머리줄 표에 한 줄씩 넣으면 된다.
+
+### 이음오피스 (다음)
+
+- 지금은 같은 출처 iframe(`/office/…`, office-host 를 이 서버가 대리)이다. 같은 방식으로 `office` 내장 앱 + 프록시 뒤 화면으로 옮긴다. 편집기와 주고받는 메시지(열기·저장·멘션·라이브)는 화면 도구와 Lite 알림으로 옮긴다.

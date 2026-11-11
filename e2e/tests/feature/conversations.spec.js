@@ -77,7 +77,9 @@ test('F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG �
   if (!(await api.craftHas('vectorcraft'))) { test.info().annotations.push({ type: 'skip-part', description: api.craftSkip('vectorcraft') }); expect(page.errors).toEqual([]); return }
   await page.waitForTimeout(800)
   await page.locator('.astack .fitem', { hasText: '숙소 3.svg' }).click({ force: true })
-  await expect(page.locator('.cef iframe.frm')).toHaveAttribute('src', /\/craft\/vectorcraft\//, { timeout: 20_000 })
+  // VectorCraft runs in the ArtCraft screen behind the sandbox proxy: its frame is nested there
+  await expect(page.locator('.cef iframe[data-test=app-craft]')).toBeVisible({ timeout: 20_000 })
+  await expect.poll(() => page.frames().some((f) => f.url().includes('/craft/vectorcraft/')), { timeout: 20_000 }).toBe(true)
   expect(page.errors).toEqual([])
 })
 
