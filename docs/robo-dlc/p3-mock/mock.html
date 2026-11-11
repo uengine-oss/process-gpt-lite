@@ -171,4 +171,66 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;p
   </div>
   <div class="callout" style="left:1040px;top:120px;max-width:220px">누구나 <b>멈춰 달라고 요청</b>, 권한자가 <b>버리기</b>. 기본 실행은 저장소에 바로 쓰므로 Lite 가 볼트 시작 순간을 git 객체로 떠 둠</div>
 </section>
+
+<!-- 6. 채팅에서 시작 -->
+<section class="screen" id="s6">
+  <div class="top"><div class="home">⌂</div><h1>메신저</h1><span class="sl">「제품팀」 대화방 · 오세린 · 윤채원 · 한지수 · AI-DLC 도우미</span><span class="tag">P3 시안 ⑥ 채팅에서 시작</span></div>
+  <div class="row">
+    <div class="glass" style="flex:1;padding:16px;height:690px;display:flex;flex-direction:column;gap:12px">
+      <div><span class="av" style="background:#2563eb">오</span><b>오세린</b> <span class="note">PO · 14:02</span><div class="q" style="margin-left:26px">@AI-DLC 반납 알림이 같은 대여에 두 번 온대요(고객 문의 #812). 고쳐 주세요</div></div>
+      <div style="margin-left:26px" class="glass" >
+        <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center"><span class="note">작업 접수 앱 · 대화 안에서 열림</span><span class="chip a">MCP App</span><span class="chip on" style="margin-left:auto">오세린 — 작업 접수 권한</span></div>
+        <div style="padding:14px">
+          <div style="display:flex;align-items:baseline;gap:10px"><span class="big" style="font-size:22px">bugfix</span><span class="note">단계 7 · 사람이 정할 일 약 3번 · ARS 18</span></div>
+          <div class="note" style="margin:6px 0 10px;color:var(--text)">버그 하나, 알림 작업자 한 모듈 — 회귀 시험을 꼭 넣는 bugfix 를 권해요</div>
+          <div class="metric"><span>요청이 분명한가</span><div class="bar"><i style="width:15%;background:var(--ok)"></i></div><span class="note">0.15</span></div>
+          <div class="metric"><span>고칠 코드가 복잡한가</span><div class="bar"><i style="width:22%;background:var(--ok)"></i></div><span class="note">0.22</span></div>
+          <div class="metric"><span>틀리면 위험한가</span><div class="bar"><i style="width:28%;background:var(--ok)"></i></div><span class="note">0.28</span></div>
+          <div class="note" style="margin-top:6px">진행 중 작업 「대여 연장」(classic, 구축) — <b style="color:var(--text)">별도 작업으로</b> · 합치기 · 끝난 뒤로</div>
+          <div style="display:flex;gap:8px;margin-top:10px"><span class="btn p">이 계획으로 시작</span><span class="btn">자세히</span><span class="btn">계획 고치기</span></div>
+        </div>
+      </div>
+      <div><span class="av" style="background:#c2410c">윤</span><b>윤채원</b> <span class="note">마케팅 · 14:05</span><div class="q" style="margin-left:26px">목록의 「대여하기」 단추를 「빌리기」로 바꿔 주세요~</div></div>
+      <div style="margin-left:26px" class="glass"><div style="padding:12px 14px;display:flex;gap:10px;align-items:center"><span>📥</span><div><b>작업 함에 넣었어요</b> <span class="chip">문구 하나</span><br><span class="note">윤채원 님은 작업을 바로 시작할 권한이 없어 오세린(PO)에게 알렸어요 · 가까운 것: web-ui / EquipmentList</span></div><span class="btn" style="margin-left:auto">작업 함 보기</span></div></div>
+      <div><span class="av" style="background:#059669">한</span><b>한지수</b> <span class="note">팀 리드 · 14:07</span><div class="q" style="margin-left:26px">다음 분기엔 정산 쪽도 손봐야 할 것 같아요</div></div>
+      <div style="margin-left:26px" class="note">AI-DLC 도우미: 「AI-DLC 작업으로 시작할까요?」 <span class="btn" style="padding:3px 10px">시작</span> <span class="btn" style="padding:3px 10px">아니요</span> — 인텐트인지 모호하면 시작하지 않고 한 번 묻기</div>
+    </div>
+    <div class="col" style="width:360px">
+      <div class="glass" style="padding:14px"><p class="h">진입점 셋, 판단은 한 곳</p>
+        <div style="font-size:13px;line-height:1.9">💬 <b>채팅·메신저</b> — @AI-DLC, 메시지 메뉴 「AI-DLC 작업으로」<br>🧩 <b>작업 접수 앱</b> — 폴더 띠 「새 작업」, 홈 패널, 볼트 보드 머리<br>🖥 <b>다른 MCP Apps 호스트</b> — Claude 에서도 같은 카드</div>
+        <div class="note" style="margin-top:8px">모두 같은 도구(<code>intake_propose</code>)를 부르고, 도구는 말한 사람의 권한으로 돈다</div></div>
+      <div class="glass" style="padding:14px"><p class="h">이 회사 = AI-DLC 프로젝트 하나</p>
+        <div class="note" style="line-height:1.8">저장소 묶음 4개(web-ui · api-server · notification-worker · billing)<br>바운디드 컨텍스트 = 유닛들 · 프로젝트를 고를 필요 없음</div></div>
+    </div>
+  </div>
+  <div class="callout" style="left:860px;top:600px;max-width:380px">권한자가 말하면 <b>대화 안에 계획 카드</b>가 바로 뜨고, 권한이 없으면 같은 말이 <b>작업 함</b>으로 — MCP App 이라 채팅·앱·Claude 어디서나 같은 화면</div>
+</section>
+
+<!-- 7. 처음 설정 -->
+<section class="screen" id="s7">
+  <div class="top"><div class="home">⌂</div><h1>AI-DLC 프로젝트 설정</h1><span class="sl">처음 한 번 · 뒤에는 폴더 띠 「설정」</span><span class="tag">P3 시안 ⑦ 처음 설정</span></div>
+  <div class="row">
+    <div class="col" style="width:300px">
+      <div class="glass" style="padding:14px;line-height:2.1;font-size:14px">
+        <div>✓ 1. 저장소</div><div><b style="color:#aab8ff">● 2. 역할과 권한</b></div><div class="note">○ 3. 기본 방식</div><div class="note">○ 4. 코드 지식 첫 스캔</div><div class="note">○ 5. 작업 함 받을 길</div></div>
+      <div class="glass" style="padding:14px"><p class="h">저장소 묶음</p><div class="note" style="line-height:1.8">web-ui · api-server · notification-worker · billing<br>회사 하나 = 프로젝트 하나</div></div>
+    </div>
+    <div class="glass" style="flex:1;padding:16px">
+      <p class="h">역할과 권한 — 회사 조직도에서 고르기 · 칸은 기본값(바꿀 수 있음)</p>
+      <table>
+        <tr><th style="width:150px">역할</th><th style="width:170px">사람</th><th>작업 접수</th><th>유닛 대응 판정</th><th>멈추기·버리기</th><th>중단·보관</th><th>멈춤 요청</th></tr>
+        <tr><td><b>팀 리드</b></td><td><span class="av" style="background:#059669">한</span>한지수</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        <tr><td><b>PO · 기획</b></td><td><span class="av" style="background:#2563eb">오</span>오세린</td><td>✅</td><td>—</td><td>✅</td><td>—</td><td>✅</td></tr>
+        <tr><td><b>아키텍트</b></td><td><span class="av" style="background:#dc2626">최</span>최민준</td><td>—</td><td>✅</td><td>—</td><td>—</td><td>✅</td></tr>
+        <tr><td><b>개발자</b></td><td><span class="av" style="background:#7c3aed">강</span>강다은</td><td>—</td><td>—</td><td>—</td><td>—</td><td>✅</td></tr>
+        <tr><td><b>QA</b></td><td><span class="av" style="background:#0891b2">윤</span>윤서준</td><td>—</td><td>—</td><td>—</td><td>—</td><td>✅ <span class="chip r">보안은 즉시 멈춤</span></td></tr>
+        <tr><td><b>그 밖의 구성원</b></td><td class="note">마케팅 윤채원 외 6명</td><td class="note">작업 함으로</td><td>—</td><td>—</td><td>—</td><td>✅</td></tr>
+      </table>
+      <p class="h" style="margin-top:16px">기본 방식 (다음 단계 미리 보기)</p>
+      <div><span class="chip on">검토: 함께 고르기</span><span class="chip on">볼트: 작업 트리로 격리 (stage-major + swarm)</span><span class="chip on">구축: 체크포인트마다 검토</span><span class="chip">코드 지식: 저장소 4개 첫 스캔 약 25분</span></div>
+      <div style="display:flex;gap:8px;margin-top:16px"><span class="btn p">다음 — 기본 방식</span><span class="btn">이전</span><span class="note" style="margin-left:auto;align-self:center">지금은 폴더 띠의 「역할」(역할 칩만) — 이 화면이 권한 칸과 기본값을 더함</span></div>
+    </div>
+  </div>
+  <div class="callout" style="left:340px;top:680px;max-width:520px">역할은 지금도 프로젝트(폴더)마다 정함 — 회사 하나 = 프로젝트 하나라서 <b>처음 설정 한 번</b>으로 묶고, 역할마다 <b>권한 칸</b>(D-1112-23 기본값)을 둠</div>
+</section>
 </body></html>
