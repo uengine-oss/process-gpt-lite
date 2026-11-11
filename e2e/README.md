@@ -346,7 +346,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
-### 16. Robo-DLC Lite — AI-DLC 대시보드 패널·팀 세션 (spec `pgpt-pro_aidlc-dashboards`·`pgpt-pro_aidlc-team`, 영상 `FvKAU5LZTUU`·`X76vebAtr_E`·`Q4soHt6enZI`, 설계 `docs/robo-dlc/plan.md`)
+### 16. Robo-DLC Lite — AI-DLC 대시보드 패널·팀 세션·검토 보드 (spec `pgpt-pro_aidlc-dashboards`·`pgpt-pro_aidlc-team`·`pgpt-pro_aidlc-review`, 영상 `FvKAU5LZTUU`·`X76vebAtr_E`·`Q4soHt6enZI`·`2sLXg2leryQ`·`ouMzEZ0QHEE`·`eVvGYKYNjng`, 설계 `docs/robo-dlc/plan.md`·`plan-review.md`)
 
 AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이 홈 패널(작업 현황·사람 대기·볼트·품질·감사 기록·질문)로 봅니다.
 서버 단위 시험은 `server/test/aidlc.test.js`(고정 자료 `server/test/fixtures/aidlc-project`, 판단 사례 `server/test/aidlc-cases.json`),
