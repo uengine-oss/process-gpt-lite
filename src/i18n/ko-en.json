@@ -1761,7 +1761,10 @@
   "관측 설정": "Observability",
   "사고 대응": "Incident response",
   "성능 검증": "Performance validation",
-  "피드백 반영": "Feedback & optimization"
+  "피드백 반영": "Feedback & optimization",
+  "원본 보기": "Open original",
+  "검토 보드에서 함께 보기": "Review together on the board",
+  "검토 보드에서 나눠 보기": "Split it on the review board"
  },
  "patterns": [
   [
@@ -4499,6 +4502,14 @@
   [
    "{0} · {1} · 진행 중",
    "{0} · {1} · in progress"
+  ],
+  [
+   "검토 지적 {0}개를 역할별로 나눠 함께 보고, 결정을 묶어 넣을 수 있어요.",
+   "The {0} review finding(s) can be split by role, reviewed together and put in as one decision."
+  ],
+  [
+   "이 앱은 설치되어 있지 않아요: {0}",
+   "This app is not installed: {0}"
   ]
  ],
  "context": [

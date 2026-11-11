@@ -164,7 +164,7 @@ export default (ctx) => {
         const w = await ctx.aidlc.open(req.params.folder, req.user)
         const { it } = await itemFor(w, String(req.body?.key || ''))
         const list = await w.docs()
-        const skip = (p) => /-questions\.md$|\/memory\.md$|\/reviews\//.test(p)
+        const skip = (p) => /-questions\.md$|\/memory\.md$|\/reviews\/|^aidlc-state\.md$/.test(p)
         const docs = []
         for (const d of list.filter((x) => !skip(x.path)).slice(0, 120)) docs.push(await w.readDoc(d.path).catch(() => ({ path: d.path, text: '' })))
         const terms = B.termsOf(it.kind === 'question' ? `${it.text} ${it.note || ''} ${(it.options || []).filter((o) => o.key !== 'X').map((o) => o.text).join(' ')}` : `${it.text} ${it.action || ''}`)
