@@ -235,19 +235,217 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;p
 </section>
 
 
+<!-- 8·9. 볼트 줄 (v2) -->
+<style>
+.c1{--ic:#6e8bff}.c2{--ic:#35c2c1}.c3{--ic:#e57fb5}.c4{--ic:#a98bff}
+.bl-int{display:flex;align-items:center;gap:8px;height:34px;margin-bottom:12px;font-size:12.5px}
+.bl-int .lab{color:var(--sub);font-size:12px;margin-right:2px}
+.bl-int .arr{color:#5b6385}
+.ipill{display:flex;align-items:center;gap:7px;height:32px;padding:0 13px 0 11px;border-radius:16px;background:var(--panel);border:1px solid var(--line);white-space:nowrap}
+.ipill i{width:9px;height:9px;border-radius:50%;background:var(--ic)}
+.ipill span{color:var(--sub);font-size:11.5px}
+.ipill.new{border-color:#8b6cf0;background:#2a2150;box-shadow:0 0 0 3px rgba(139,108,240,.18)}
+.ipill.new span{color:#cdbfff}
+.ipill.clash{border-color:#ef5b5b;background:#3a1f25;box-shadow:0 0 0 3px rgba(239,91,91,.16)}
+.ipill.clash span{color:#ffb3b3}
+.bl-int .lg{margin-left:auto;color:var(--sub);font-size:11.5px;display:flex;gap:14px;align-items:center}
+.lg em{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+.lg .sw{display:inline-block;width:16px;height:11px;border-radius:3px;background:var(--cell)}
+.board{position:relative;display:grid;grid-template-columns:116px repeat(4,1fr) 14px repeat(2,1fr) 14px 1fr;grid-template-rows:30px 22px repeat(4,86px);padding:12px 14px;height:420px}
+.board>svg{position:absolute;left:0;top:0;width:100%;height:100%;z-index:3;pointer-events:none}
+.bk{grid-row:1/7;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.025)}
+.bk.now{grid-column:2/6;background:rgba(255,216,77,.045);border-color:rgba(255,216,77,.42)}
+.bk.next{grid-column:7/9}
+.bk.tail{grid-column:10;background:rgba(139,108,240,.09);border:1px dashed #8b6cf0}
+.bkt{grid-row:1;align-self:center;padding:0 14px;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;z-index:1;white-space:nowrap}
+.bkt .chip{margin:0;font-weight:500;font-size:11px;padding:1px 8px}
+.stl{grid-row:2;font-size:11px;color:var(--sub);padding:0 14px;align-self:center;z-index:1;white-space:nowrap}
+.ln{grid-column:1/-1;border-top:1px solid var(--line)}
+.ll{grid-column:1;align-self:center;font-size:12.5px;font-weight:700;line-height:1.35;z-index:1}
+.ll small{display:block;font-weight:400;font-size:11px;color:var(--sub)}
+.bolt{margin:12px 14px;border-radius:10px;background:var(--cell);border:1px dashed #4a5274;padding:6px 9px 6px 13px;position:relative;font-size:12px;line-height:1.32;z-index:2;overflow:hidden}
+.bolt::before,.dpill::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ic)}
+.bolt .bh{display:flex;justify-content:space-between;align-items:center}
+.bolt .bh b{font-size:12.5px}
+.bolt .st{font-size:10.5px;color:var(--sub)}
+.bolt .bt{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bolt .bm{font-size:10.5px;color:var(--sub);margin-top:1px;white-space:nowrap}
+.bolt.run{border:1.5px solid #6e8bff;background:#22284a}
+.bolt.run .st{color:#aab8ff;font-weight:600}
+.bolt .pg{position:absolute;left:4px;right:0;bottom:0;height:3px;background:#2b3150}
+.bolt .pg i{display:block;height:100%;background:#6e8bff}
+.bolt.sel{border:2px solid #3b9bff;box-shadow:0 0 0 3px rgba(59,155,255,.22)}
+.bolt.nw{border:1.5px dashed #8b6cf0;background:#2a2150}
+.bolt.nw .st{color:#cdbfff;font-weight:700}
+.bolt.bad{border:1.5px solid #ef5b5b;background:#3a1f25}
+.bolt.bad .st,.bolt .st.r{color:#ffb3b3;font-weight:700}
+.bolt.wt{border:1.5px solid #f0a43a;background:#3b2f17}
+.bolt.wt .st{color:#f3c77a;font-weight:700}
+.dn{margin:0 14px;display:flex;flex-direction:column;gap:6px;justify-content:center;z-index:2}
+.dpill{height:27px;border-radius:8px;background:#1a2130;border:1px solid #2a3248;display:flex;align-items:center;gap:6px;padding:0 8px 0 12px;font-size:11.5px;color:#aab1c8;position:relative;overflow:hidden;white-space:nowrap}
+.dpill .ck{color:#3fbf7f;font-weight:700}
+.pns{display:flex;gap:12px;margin-top:12px;height:236px}
+.pn{padding:13px 16px;font-size:12.5px;line-height:1.5;overflow:hidden}
+.pn .h{font-size:12px;color:var(--sub);margin:0 0 8px}
+.pn code,.q code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#c9d3ff;background:#232a45;border-radius:5px;padding:1px 5px}
+.kv{display:grid;grid-template-columns:70px 1fr;gap:8px;margin-top:7px}
+.kv>span{color:var(--sub);font-size:12px}
+.rl{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+.rl:first-of-type{border-top:0;padding-top:0}
+.ic{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;margin-top:1px}
+.ic.ok{background:#1f3a2c;color:#8fe0b4}.ic.wn{background:#3b2f17;color:#f3c77a}
+.blk{border:1px solid #7a5a22;background:#2c2618;border-radius:12px;padding:9px 11px;margin-top:9px}
+.opt{display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:var(--cell);margin-bottom:6px;white-space:nowrap}
+.opt .rd{width:14px;height:14px;border-radius:50%;border:2px solid #6b7396;flex:none}
+.opt.on{border-color:#8b6cf0;background:#2a2150}
+.opt.on .rd{border-color:#a98bff;background:radial-gradient(#a98bff 0 42%,transparent 48%)}
+.opt span{color:var(--sub);font-size:11.5px}
+.rec{font-size:10px;font-weight:700;color:#1b1b1b;background:#ffd84d;border-radius:8px;padding:1px 6px}
+.stp{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--vio);color:#fff;font-size:11px;font-weight:700;margin-right:6px}
+</style>
+
 <!-- 8. 볼트 줄 -->
 <section class="screen" id="s8">
-  <div class="top"><div class="home">⌂</div><h1>볼트 줄</h1><span class="sl">회사 하나 = 프로젝트 하나 · 인텐트 4개</span><span class="tag" style="margin-left:24px">P3 시안 ⑧ 볼트 줄 · 의존 · 릴리스</span></div>
-  <div style="position:absolute;left:22px;top:150px;width:1236px;height:92px;border-top:1px solid #343b56"></div><div style="position:absolute;left:30px;top:180px;width:130px;font-size:13px"><b>loan-service</b></div><div style="position:absolute;left:22px;top:242px;width:1236px;height:92px;border-top:1px solid #343b56"></div><div style="position:absolute;left:30px;top:272px;width:130px;font-size:13px"><b>billing</b></div><div style="position:absolute;left:22px;top:334px;width:1236px;height:92px;border-top:1px solid #343b56"></div><div style="position:absolute;left:30px;top:364px;width:130px;font-size:13px"><b>notification-worker</b></div><div style="position:absolute;left:22px;top:426px;width:1236px;height:92px;border-top:1px solid #343b56"></div><div style="position:absolute;left:30px;top:456px;width:130px;font-size:13px"><b>web-ui · auth</b></div><div style="position:absolute;left:180px;top:122px;font-size:11px;color:#9aa1b8">끝남</div><div style="position:absolute;left:372px;top:122px;font-size:11px;color:#9aa1b8">도는 중</div><div style="position:absolute;left:468px;top:122px;font-size:11px;color:#9aa1b8">예정 →</div><div style="position:absolute;left:852px;top:122px;font-size:11px;color:#9aa1b8">새로 붙음</div><div style="position:absolute;left:748px;top:118px;width:2px;height:408px;background:#ffd84d"></div><div style="position:absolute;left:572px;top:96px;font-size:12px;color:#ffd84d;font-weight:700">이번 릴리스(11월 4주) ◀ 선</div><div style="position:absolute;left:178px;top:164px;width:82px;height:66px;background:#1f3a2c;border:1.5px solid #2f6b49;border-radius:10px;padding:6px 8px;color:#8fe0b4;font-size:12px;line-height:1.35"><b>B1</b><br><span style="opacity:.85">u1 도메인</span></div><div style="position:absolute;left:274px;top:164px;width:82px;height:66px;background:#1f3a2c;border:1.5px solid #2f6b49;border-radius:10px;padding:6px 8px;color:#8fe0b4;font-size:12px;line-height:1.35"><b>B2</b><br><span style="opacity:.85">u2 대여 규칙</span></div><div style="position:absolute;left:274px;top:348px;width:82px;height:66px;background:#1f3a2c;border:1.5px solid #2f6b49;border-radius:10px;padding:6px 8px;color:#8fe0b4;font-size:12px;line-height:1.35"><b>B3</b><br><span style="opacity:.85">bugfix r-0412</span></div><div style="position:absolute;left:370px;top:440px;width:82px;height:66px;background:#22284a;border:1.5px solid #6e8bff;border-radius:10px;padding:6px 8px;color:#c9d3ff;font-size:12px;line-height:1.35"><b>B4</b><br><span style="opacity:.85">u3 인증</span></div><div style="position:absolute;left:370px;top:256px;width:82px;height:66px;background:#22284a;border:1.5px solid #6e8bff;border-radius:10px;padding:6px 8px;color:#c9d3ff;font-size:12px;line-height:1.35"><b>B5</b><br><span style="opacity:.85">express 문구</span></div><div style="position:absolute;left:466px;top:164px;width:82px;height:66px;background:#3a1f25;border:1.5px solid #c0505d;border-style:dashed;border-radius:10px;padding:6px 8px;color:#ffb3b3;font-size:12px;line-height:1.35"><b>B6</b><br><span style="opacity:.85">u1 대여 연장</span></div><div style="position:absolute;left:466px;top:256px;width:82px;height:66px;background:#262c42;border:1.5px solid #4a5274;border-style:dashed;border-radius:10px;padding:6px 8px;color:#cfd5ea;font-size:12px;line-height:1.35"><b>B7</b><br><span style="opacity:.85">u2 연체 수수료</span></div><div style="position:absolute;left:658px;top:440px;width:82px;height:66px;background:#262c42;border:1.5px solid #4a5274;border-style:dashed;border-radius:10px;padding:6px 8px;color:#cfd5ea;font-size:12px;line-height:1.35"><b>B8</b><br><span style="opacity:.85">u4 MyLoans</span></div><div style="position:absolute;left:658px;top:348px;width:82px;height:66px;background:#262c42;border:1.5px solid #4a5274;border-style:dashed;border-radius:10px;padding:6px 8px;color:#cfd5ea;font-size:12px;line-height:1.35"><b>B9</b><br><span style="opacity:.85">u3 연체 알림</span></div><div style="position:absolute;left:850px;top:348px;width:82px;height:66px;background:#33215a;border:1.5px solid #8b6cf0;border-style:dashed;border-radius:10px;padding:6px 8px;color:#e2d8ff;font-size:12px;line-height:1.35"><b>B10 새</b><br><span style="opacity:.85">양해 메일</span></div><div style="position:absolute;left:850px;top:164px;width:82px;height:66px;background:#33215a;border:1.5px solid #8b6cf0;border-style:dashed;border-radius:10px;padding:6px 8px;color:#e2d8ff;font-size:12px;line-height:1.35"><b>B11 새</b><br><span style="opacity:.85">연장·예약 우선</span></div><svg style="position:absolute;left:0;top:0" width="1280" height="800"><defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#f0a43a"/></marker></defs>
-<path d="M548,197.0 C601.0,197.0 601.0,473.0 654,473.0" stroke="#f0a43a" stroke-width="2" fill="none" marker-end="url(#ah)"/><text x="508" y="517.0" fill="#f0a43a" font-size="11.5" font-weight="600">POST /loans/{id}/extend</text><path d="M548,289.0 C601.0,289.0 601.0,381.0 654,381.0" stroke="#f0a43a" stroke-width="2" fill="none" marker-end="url(#ah)"/><text x="532" y="347.0" fill="#f0a43a" font-size="11.5" font-weight="600">late-fee.charged</text>
-<path d="M850,213.0 C754,317.0 774,473.0 744,473.0" stroke="#8b6cf0" stroke-width="1.5" stroke-dasharray="5 4" fill="none"/><text x="744" y="433.0" fill="#b9a6ff" font-size="11">B6 대신 제공?</text></svg><div class="glass" style="position:absolute;left:22px;top:540px;width:760px;padding:14px;background:#1b2031">
-<div style="display:flex;gap:8px;align-items:center"><b>새 인텐트 「연장 시 다음 예약보다 연장 우선」 승인 — 앞 볼트와 충돌</b><span class="chip r">B6 예정</span></div>
-<div class="note" style="margin:6px 0 8px">B6(u1 대여 연장)은 이전 결정 FR3.4 「다음 예약이 있으면 연장 불가」를 구현할 예정 — 새 인텐트의 B11 이 같은 규칙을 반대로 바꿈</div>
-<div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn d">B6 버리기 · 예정이라 토큰 0</span><span class="btn">B6 뒤로 미루기</span><span class="btn">합치기(대여 연장 계획 재구성)</span></div>
-<div class="note" style="margin-top:8px">⚠ B6 을 버리면 <b style="color:#f3c77a">B8</b> 이 기다리게 돼요(B6 의 POST /loans/{id}/extend 를 씀) → <span class="chip a">B11 이 같은 계약을 제공하도록 연결</span><span class="chip">B8 도 보류</span></div></div>
-<div class="glass" style="position:absolute;left:800px;top:540px;width:458px;padding:14px;background:#1b2031">
-<p class="h">이번 릴리스 확인</p>
-<div style="font-size:13px;line-height:1.9">끝남 B1·B2·B3 · 도는 중 B4·B5 · 예정 B6~B9<br><span class="chip on">B9 → B7 같은 릴리스 · 충족</span><br><span class="chip w">B6 을 버리면 B8 은 B11 이 필요 → B11 을 이번 릴리스로 당기거나 B8 을 다음으로</span></div>
-<div class="note" style="margin-top:6px">끌어서 순서 바꾸기 · 의존을 거스르면 막고 이유를 보여 줌</div></div><div class="callout" style="left:860px;top:20px;max-width:390px">인텐트를 승인하면 그 볼트들이 <b>줄 끝에 쌓이고</b>, 칸(바운디드 컨텍스트)마다 나란히 돈다. 화살표는 <b>계약 의존</b>(계약 요약의 제공 → 소비)</div>
+  <div class="top"><div class="home">⌂</div><h1>볼트 줄</h1><span class="sl">회사 하나 = 프로젝트 하나 · 볼트 11개</span><span class="tag">P3 시안 ⑧ 볼트 줄 · 의존 · 릴리스</span></div>
+  <div class="bl-int">
+    <span class="lab">들어온 작업</span>
+    <div class="ipill c1"><i></i><b>① 대여 연장</b><span>classic · 볼트 7</span></div><span class="arr">›</span>
+    <div class="ipill c2"><i></i><b>② 알림 중복</b><span>bugfix ⚡ · 1</span></div><span class="arr">›</span>
+    <div class="ipill c3"><i></i><b>③ 청구서 문구</b><span>express · 1</span></div><span class="arr">›</span>
+    <div class="ipill c4 new"><i></i><b>④ 연장 우선</b><span>feature · 2 · 방금 승인</span></div>
+    <div class="lg"><em><span class="sw" style="border-left:4px solid #6e8bff"></span>띠 색 = 작업</em><em><span class="sw" style="border:1.5px solid #6e8bff"></span>도는 중</em><em><span class="sw" style="border:1px dashed #6b7396"></span>예정</em></div>
+  </div>
+  <div class="glass board">
+    <div class="bk now"></div><div class="bk next"></div><div class="bk tail"></div>
+    <div class="bkt" style="grid-column:2/6;color:#ffd84d">이번 릴리스 · 11월 4주<span class="chip on">의존 ✓</span></div>
+    <div class="bkt" style="grid-column:7/9">다음 릴리스 · 12월 2주<span class="chip on">의존 ✓</span></div>
+    <div class="bkt" style="grid-column:10;color:#cdbfff">줄 끝 · 릴리스 미정</div>
+    <div class="stl" style="grid-column:2">끝남</div><div class="stl" style="grid-column:3">도는 중</div><div class="stl" style="grid-column:4/6">예정 →</div>
+    <div class="stl" style="grid-column:7/9">예정 →</div><div class="stl" style="grid-column:10;color:#cdbfff">새 작업이 여기 쌓여요</div>
+    <div class="ln" style="grid-row:3"></div><div class="ln" style="grid-row:4"></div><div class="ln" style="grid-row:5"></div><div class="ln" style="grid-row:6"></div>
+    <div class="ll" style="grid-row:3">loan-service<small>대여 · 예약</small></div>
+    <div class="ll" style="grid-row:4">billing<small>수수료 · 청구</small></div>
+    <div class="ll" style="grid-row:5">notification-worker<small>알림</small></div>
+    <div class="ll" style="grid-row:6">web-ui · auth<small>화면 · 로그인</small></div>
+
+    <div class="dn" style="grid-column:2;grid-row:3"><div class="dpill c1"><span class="ck">✓</span><b>B1</b> 도메인 모델</div><div class="dpill c1"><span class="ck">✓</span><b>B2</b> 대여 규칙</div></div>
+    <div class="dn" style="grid-column:2;grid-row:5"><div class="dpill c2"><span class="ck">✓</span><b>B3</b> ⚡ 알림 중복</div></div>
+    <div class="bolt run c3" style="grid-column:3;grid-row:4"><div class="bh"><b>B5</b><span class="st">도는 중</span></div><div class="bt">청구서 문구</div><div class="bm">③ · 시험</div><div class="pg"><i style="width:85%"></i></div></div>
+    <div class="bolt run c1" style="grid-column:3;grid-row:6"><div class="bh"><b>B4</b><span class="st">도는 중</span></div><div class="bt">로그인 · 권한</div><div class="bm">u2 · 코드 생성</div><div class="pg"><i style="width:60%"></i></div></div>
+    <div class="bolt c1" id="a6" style="grid-column:4;grid-row:3"><div class="bh"><b>B6</b><span class="st">예정</span></div><div class="bt">연장 API</div><div class="bm">u1 · → B8</div></div>
+    <div class="bolt c1 sel" id="a8" data-dep="a6" data-col="#3b9bff" data-w="2" data-label="POST /loans/{id}/extend" style="grid-column:5;grid-row:6"><div class="bh"><b>B8</b><span class="st">예정</span></div><div class="bt">MyLoans 화면</div><div class="bm">u4 · ← B6</div></div>
+    <div class="bolt c1" id="a7" style="grid-column:7;grid-row:4"><div class="bh"><b>B7</b><span class="st">예정</span></div><div class="bt">연체 수수료</div><div class="bm">u3 · → B9</div></div>
+    <div class="bolt c1" id="a9" data-dep="a7" data-label="late-fee.charged" data-ly="src" style="grid-column:8;grid-row:5"><div class="bh"><b>B9</b><span class="st">예정</span></div><div class="bt">연체 알림</div><div class="bm">u5 · ← B7</div></div>
+    <div class="bolt nw c4" style="grid-column:10;grid-row:3"><div class="bh"><b>B11</b><span class="st">새</span></div><div class="bt">연장 우선 규칙</div><div class="bm" style="color:#ffb3b3">● B6 과 충돌</div></div>
+    <div class="bolt nw c4" style="grid-column:10;grid-row:5"><div class="bh"><b>B10</b><span class="st">새</span></div><div class="bt">양해 메일</div><div class="bm">④ 연장 우선</div></div>
+    <svg></svg>
+  </div>
+  <div class="pns">
+    <div class="glass pn" style="flex:1.12">
+      <p class="h">고른 볼트</p>
+      <div style="display:flex;align-items:center;gap:8px"><b style="font-size:15px">B8 · MyLoans 화면</b><span class="chip" style="margin:0">예정</span></div>
+      <div class="note">① 대여 연장 · u4 my-loans · web-ui · auth</div>
+      <div class="kv"><span>기대는 볼트</span><div><b>B6 연장 API</b> — <code>POST /loans/{id}/extend</code><br><span class="note">계약 요약: loan-core 제공 → my-loans 소비 · 같은 릴리스 ✓</span></div></div>
+      <div class="kv"><span>같은 칸 앞</span><div><b>B4 로그인 · 권한</b> — 도는 중</div></div>
+      <div class="kv"><span>시작</span><div>B6 과 B4 가 끝나면 작업 트리에서 시작</div></div>
+      <div class="kv"><span>온 조각</span><div>작업 함 #31 「내 대여 목록에서 바로 연장」 · 윤채원</div></div>
+    </div>
+    <div class="glass pn" style="flex:1">
+      <p class="h">릴리스 확인</p>
+      <div class="rl"><div class="ic ok">✓</div><div><b>이번 릴리스 · 11월 4주</b> — 볼트 7<br><span class="note">끝남 3 · 도는 중 2 · 예정 2 · 기대는 볼트가 모두 이 안에 있어요</span></div></div>
+      <div class="rl"><div class="ic ok">✓</div><div><b>다음 릴리스 · 12월 2주</b> — B7 → B9<br><span class="note">연체 수수료와 그 알림은 함께 넘겼어요</span></div></div>
+      <div class="rl"><div class="ic wn">!</div><div style="flex:1"><b>줄 끝</b> — B10 · B11 릴리스 미정<br><span class="note">B11 이 B6 과 충돌해요</span></div><span class="btn" style="padding:5px 11px;font-size:12px;align-self:center">충돌 확인 →</span></div>
+    </div>
+    <div class="glass pn" style="flex:1">
+      <p class="h">줄 바꾸기 · PO · 팀 리드</p>
+      <div>⠿ 예정 볼트를 끌어 순서나 릴리스를 바꿔요</div>
+      <div style="margin-top:3px">⚡ bugfix · 보안 패치는 예정 맨 앞에 끼워 넣어요</div>
+      <div class="blk"><b style="color:#f3c77a">B9 는 이번 릴리스로 옮길 수 없어요</b><br><span class="note">B9 가 받는 <code>late-fee.charged</code> 를 만드는 B7 이 다음 릴리스에 있어요</span>
+        <div style="margin-top:7px;display:flex;gap:6px"><span class="btn p" style="padding:5px 11px;font-size:12px">B7 도 함께 옮기기</span><span class="btn" style="padding:5px 11px;font-size:12px">그대로 두기</span></div></div>
+    </div>
+  </div>
 </section>
+
+<!-- 9. 충돌 → 버리기 -->
+<section class="screen" id="s9">
+  <div class="top"><div class="home">⌂</div><h1>볼트 줄</h1><span class="sl">새 작업 ④ 의 볼트가 앞 볼트 B6 과 충돌</span><span class="tag">P3 시안 ⑨ 충돌 → 앞 볼트 버리기</span></div>
+  <div class="bl-int">
+    <span class="lab">들어온 작업</span>
+    <div class="ipill c1"><i></i><b>① 대여 연장</b><span>classic · 볼트 7</span></div><span class="arr">›</span>
+    <div class="ipill c2"><i></i><b>② 알림 중복</b><span>bugfix ⚡ · 1</span></div><span class="arr">›</span>
+    <div class="ipill c3"><i></i><b>③ 청구서 문구</b><span>express · 1</span></div><span class="arr">›</span>
+    <div class="ipill c4 clash"><i></i><b>④ 연장 우선</b><span>B11 이 ① 의 B6 과 충돌</span></div>
+    <div class="lg"><em><span class="sw" style="border:1.5px solid #ef5b5b;background:#3a1f25"></span>충돌</em><em><span class="sw" style="border:1.5px solid #f0a43a;background:#3b2f17"></span>기다리게 됨</em><em><span class="sw" style="border:1.5px dashed #8b6cf0;background:#2a2150"></span>새 볼트</em></div>
+  </div>
+  <div class="glass board">
+    <div class="bk now"></div><div class="bk next"></div><div class="bk tail"></div>
+    <div class="bkt" style="grid-column:2/6;color:#ffd84d">이번 릴리스 · 11월 4주<span class="chip w">B6 을 버리면 B8 이 기다려요</span></div>
+    <div class="bkt" style="grid-column:7/9">다음 릴리스 · 12월 2주<span class="chip on">의존 ✓</span></div>
+    <div class="bkt" style="grid-column:10;color:#cdbfff">줄 끝 · 릴리스 미정</div>
+    <div class="stl" style="grid-column:2">끝남</div><div class="stl" style="grid-column:3">도는 중</div><div class="stl" style="grid-column:4/6">예정 →</div>
+    <div class="stl" style="grid-column:7/9">예정 →</div><div class="stl" style="grid-column:10;color:#cdbfff">새 작업이 여기 쌓여요</div>
+    <div class="ln" style="grid-row:3"></div><div class="ln" style="grid-row:4"></div><div class="ln" style="grid-row:5"></div><div class="ln" style="grid-row:6"></div>
+    <div class="ll" style="grid-row:3">loan-service<small>대여 · 예약</small></div>
+    <div class="ll" style="grid-row:4">billing<small>수수료 · 청구</small></div>
+    <div class="ll" style="grid-row:5">notification-worker<small>알림</small></div>
+    <div class="ll" style="grid-row:6">web-ui · auth<small>화면 · 로그인</small></div>
+
+    <div class="dn" style="grid-column:2;grid-row:3;opacity:.55"><div class="dpill c1"><span class="ck">✓</span><b>B1</b> 도메인 모델</div><div class="dpill c1"><span class="ck">✓</span><b>B2</b> 대여 규칙</div></div>
+    <div class="dn" style="grid-column:2;grid-row:5;opacity:.55"><div class="dpill c2"><span class="ck">✓</span><b>B3</b> ⚡ 알림 중복</div></div>
+    <div class="bolt run c3" style="grid-column:3;grid-row:4;opacity:.55"><div class="bh"><b>B5</b><span class="st">도는 중</span></div><div class="bt">청구서 문구</div><div class="bm">③ · 시험</div><div class="pg"><i style="width:85%"></i></div></div>
+    <div class="bolt run c1" style="grid-column:3;grid-row:6;opacity:.55"><div class="bh"><b>B4</b><span class="st">도는 중</span></div><div class="bt">로그인 · 권한</div><div class="bm">u2 · 코드 생성</div><div class="pg"><i style="width:60%"></i></div></div>
+    <div class="bolt bad c1" id="b6" style="grid-column:4;grid-row:3"><div class="bh"><b>B6</b><span class="st">충돌 · 예정</span></div><div class="bt">연장 API</div><div class="bm">FR3.4 연장 불가</div></div>
+    <div class="bolt wt c1" id="b8" data-dep="b6" data-col="#ef5b5b" data-dash="5 4" data-label="POST /loans/{id}/extend ✕" style="grid-column:5;grid-row:6"><div class="bh"><b>B8</b><span class="st">B6 필요</span></div><div class="bt">MyLoans 화면</div><div class="bm">u4 · ← B6</div></div>
+    <div class="bolt c1" style="grid-column:7;grid-row:4;opacity:.55"><div class="bh"><b>B7</b><span class="st">예정</span></div><div class="bt">연체 수수료</div><div class="bm">u3 · → B9</div></div>
+    <div class="bolt c1" style="grid-column:8;grid-row:5;opacity:.55"><div class="bh"><b>B9</b><span class="st">예정</span></div><div class="bt">연체 알림</div><div class="bm">u5 · ← B7</div></div>
+    <div class="bolt nw c4" data-pull="b6" data-label="B6 자리로 당김" style="grid-column:10;grid-row:3"><div class="bh"><b>B11</b><span class="st">새</span></div><div class="bt">연장 우선 규칙</div><div class="bm">FR3.4 를 반대로</div></div>
+    <div class="bolt nw c4" style="grid-column:10;grid-row:5;opacity:.55"><div class="bh"><b>B10</b><span class="st">새</span></div><div class="bt">양해 메일</div><div class="bm">④ 연장 우선</div></div>
+    <svg></svg>
+  </div>
+  <div class="pns">
+    <div class="glass pn" style="flex:1.05">
+      <p class="h"><span class="stp">1</span>무엇이 충돌하나</p>
+      <div class="q" style="border-left-color:#ef5b5b"><span class="note">앞 결정 FR3.4 · 10월 28일 한지수 승인 · B6 이 구현할 예정</span><br>「다음 예약이 있으면 연장할 수 없다」</div>
+      <div class="q" style="border-left-color:#8b6cf0"><span class="note">새 작업 ④ · 오늘 오세린 승인 · B11 이 구현</span><br>「연장이 다음 예약보다 우선한다」</div>
+      <div class="note" style="margin-top:8px">같은 요구사항 FR3.4 와 같은 경로 <code>/loans/{id}/extend</code> 를 건드려요</div>
+    </div>
+    <div class="glass pn" style="flex:1">
+      <p class="h"><span class="stp">2</span>앞 볼트 B6 을 어떻게 할까요</p>
+      <div class="opt on"><i class="rd"></i><b>버리기</b><span class="rec">추천</span><span>아직 예정 · 쓴 토큰 0</span></div>
+      <div class="opt"><i class="rd"></i><b>뒤로 미루기</b><span>B11 뒤에서 다시 계획</span></div>
+      <div class="opt"><i class="rd"></i><b>합치기</b><span>④ 를 ① 의 계획 재구성으로</span></div>
+      <div class="note" style="margin-top:8px">도는 중이면 「멈추고 버리기」, 끝난 볼트면 「되돌리는 볼트 추가」를 권해요</div>
+    </div>
+    <div class="glass pn" style="flex:1.05">
+      <p class="h"><span class="stp">3</span>B6 에 기대던 B8 MyLoans 화면</p>
+      <div class="opt on"><i class="rd"></i><b>B11 이 대신 제공</b><span class="rec">추천</span><span>B11 을 B6 자리로 당김</span></div>
+      <div class="opt"><i class="rd"></i><b>B8 보류</b><span>다음 릴리스로</span></div>
+      <div class="opt"><i class="rd"></i><b>B8 도 버리기</b></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:9px"><span class="btn p" style="padding:6px 13px">이대로 적용</span><span class="btn" style="padding:6px 13px">취소</span><span class="note" style="line-height:1.35">적용하면 이번 릴리스 의존 ✓<br>한지수(팀 리드) · 사유는 결정 기록에</span></div>
+    </div>
+  </div>
+</section>
+
+<script>
+document.querySelectorAll('.board').forEach(function (bd) {
+  var svg = bd.querySelector('svg'), NS = 'http://www.w3.org/2000/svg'
+  function mk(n, a, txt) { var e = document.createElementNS(NS, n); for (var k in a) e.setAttribute(k, a[k]); if (txt) e.textContent = txt; svg.appendChild(e); return e }
+  function R(el) { var a = el.getBoundingClientRect(), r = bd.getBoundingClientRect(); return { l: a.left - r.left, r: a.right - r.left, cy: (a.top + a.bottom) / 2 - r.top } }
+  function label(x, y, s, col, anchor) { mk('text', { x: x, y: y + 4, fill: col, 'font-size': 11, 'font-weight': 600, 'text-anchor': anchor || 'start', style: 'paint-order:stroke;stroke:#1d2234;stroke-width:5px;stroke-linejoin:round' }, s) }
+  bd.querySelectorAll('[data-dep]').forEach(function (to) {
+    var s = R(bd.querySelector('#' + to.dataset.dep)), t = R(to), col = to.dataset.col || '#8a93b5'
+    var gx = s.r + 12, r = 7, d = t.cy > s.cy ? 1 : -1
+    mk('path', { d: 'M' + (s.r + 1) + ',' + s.cy + ' H' + (gx - r) + ' Q' + gx + ',' + s.cy + ' ' + gx + ',' + (s.cy + d * r) + ' V' + (t.cy - d * r) + ' Q' + gx + ',' + t.cy + ' ' + (gx + r) + ',' + t.cy + ' H' + (t.l - 7), stroke: col, 'stroke-width': to.dataset.w || 1.6, fill: 'none', 'stroke-dasharray': to.dataset.dash || '' })
+    mk('path', { d: 'M' + (t.l - 9) + ',' + (t.cy - 4.5) + ' L' + (t.l - 1) + ',' + t.cy + ' L' + (t.l - 9) + ',' + (t.cy + 4.5) + ' z', fill: col })
+    mk('circle', { cx: s.r + 1, cy: s.cy, r: 3, fill: col })
+    if (to.dataset.label) label(gx + 10, to.dataset.ly === 'src' ? s.cy : (s.cy + t.cy) / 2, to.dataset.label, col === '#8a93b5' ? '#aab1c8' : col)
+  })
+  bd.querySelectorAll('[data-pull]').forEach(function (el) {
+    var a = R(el), t = R(bd.querySelector('#' + el.dataset.pull)), y = a.cy - 15, x1 = a.l - 3, x2 = t.r + 12, col = '#a98bff'
+    mk('path', { d: 'M' + x1 + ',' + y + ' H' + x2, stroke: col, 'stroke-width': 1.8, fill: 'none', 'stroke-dasharray': '6 4' })
+    mk('path', { d: 'M' + (x2 + 1) + ',' + (y - 5) + ' L' + (x2 - 8) + ',' + y + ' L' + (x2 + 1) + ',' + (y + 5) + ' z', fill: col })
+    label((x1 + x2) / 2, y - 12, el.dataset.label, '#cdbfff', 'middle')
+  })
+})
+</script>
 </body></html>
