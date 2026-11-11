@@ -78,9 +78,15 @@ async function decide(kind) {
   busy.value = kind
   err.value = ''
   try {
-    s.value = await api(`/mining/suggestions/${id.value}/${kind}`, { method: 'POST' })
+    // (with the preview open: only the definition it drew is saved — the server refuses a changed one)
+    const body = kind === 'register' && previewOpen.value && previewToken.value ? { preview: previewToken.value } : undefined
+    s.value = await api(`/mining/suggestions/${id.value}/${kind}`, { method: 'POST', body })
     def.value = s.value.proc_def_id ? await api(`/processes/${encodeURIComponent(s.value.proc_def_id)}`).catch(() => null) : null
-  } catch (e) { err.value = e.message } finally { busy.value = '' }
+  } catch (e) {
+    err.value = e.message
+    // the definition moved after the preview: show the new one before anything is saved
+    if (e.status === 409 && previewOpen.value) { previewToken.value = ''; previewNonce.value++; s.value = await api(`/mining/suggestions/${id.value}`).catch(() => s.value) }
+  } finally { busy.value = '' }
 }
 async function rescan() {
   busy.value = 'scan'
@@ -150,10 +156,28 @@ async function proposal(accept) {
   await openTalk()
   await send()
 }
+// 정식 등록 전 미리보기: 등록하면 저장될 BPMN(같은 생성기, 저장 없음). 대화·확인 필요로 정의가 바뀌면 다시 그린다
+const previewOpen = ref(false)
+const previewToken = ref('')
+const previewNonce = ref(0)
+const previewSrc = computed(() => {
+  if (!s.value) return ''
+  const v = JSON.stringify([s.value.confirmed || {}, s.value.flow || [], s.value.pattern?.case_ids || [], previewNonce.value])
+  let h = 0
+  for (let i = 0; i < v.length; i++) h = (h * 31 + v.charCodeAt(i)) | 0
+  return `/mining/suggestions/${id.value}/bpmn?v=${(h >>> 0).toString(36)}`
+})
+async function togglePreview() {
+  previewOpen.value = !previewOpen.value
+  if (!previewOpen.value) return
+  await nextTick()
+  // (the sticky decide bar sits over the page's bottom: the diagram is brought up past it)
+  document.querySelector('.mining .preview')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
 const defSteps = computed(() => (def.value?.steps || []).filter((x) => x.kind === 'human' || x.kind === 'agent'))
 let timer
 watch(() => s.value?.status, (v) => { clearInterval(timer); if (v === 'registered') timer = setInterval(() => api(`/mining/suggestions/${id.value}`).then((r) => { s.value = r }).catch(() => {}), 6000) })
-watch(id, load)
+watch(id, () => { previewOpen.value = false; previewToken.value = ''; load() })
 onMounted(async () => {
   app.mode = 'mining'
   if (!app.me) app.me = await api('/me').catch(() => null)
@@ -304,11 +328,17 @@ onMounted(async () => {
             <p v-if="s.pr" class="pr">process-gpt 제안 <code>{{ s.pr.title }}</code> · 브랜치 <code>{{ s.pr.branch_name }}</code> · {{ s.pr.status }}</p>
           </section>
 
+          <section v-if="previewOpen && s.status !== 'registered'" class="preview">
+            <h2>BPMN 미리보기 <small>{{ s.undecided?.length ? `정식 등록하면 이대로 저장돼요 · 정하지 않은 분기 ${s.undecided.length}개는 조건 없이 그려져요` : '정식 등록하면 이대로 저장돼요' }}</small></h2>
+            <BpmnView :src="previewSrc" :height="420" class="bpmn glass" @loaded="(x) => (previewToken = x.token)" />
+          </section>
+
           <div v-if="s.status === 'suggested'" class="decide glass">
             <div class="dt">
               <b>{{ busy === 'register' ? '프로세스 정의를 만드는 중이에요…' : s.undecided?.length ? `확인 필요 ${s.undecided.length}개를 먼저 정해 주세요` : '이 흐름을 정식 프로세스로 등록할까요?' }}</b>
               <small>등록하면 BPMN·양식·역할·단계별 스킬이 담긴 프로세스 정의가 만들어지고, 다음 비슷한 메일부터 이 프로세스가 알아서 시작돼요.</small>
             </div>
+            <button class="hold icon press" :class="{ on: previewOpen }" :aria-pressed="previewOpen" title="BPMN 미리보기" aria-label="BPMN 미리보기" @click="togglePreview"><Icon name="eye" :size="18" /></button>
             <button class="hold press" :disabled="!!busy" @click="decide('hold')">{{ busy === 'hold' ? '보류하는 중…' : '보류' }}</button>
             <button class="go press" :disabled="!!busy || !!s.undecided?.length" @click="decide('register')">{{ busy === 'register' ? '만드는 중…' : '정식 등록' }}</button>
           </div>
@@ -456,6 +486,8 @@ code { font-size: 11.5px; padding: 1px 6px; border-radius: 6px; background: rgba
 .hold { background: var(--button-bg); }
 .go { background: var(--color-attention); color: #fff; font-weight: 500; }
 .go:disabled, .hold:disabled { opacity: .6; }
+.hold.icon { width: 44px; padding: 0; display: grid; place-items: center; }
+.hold.icon.on { background: var(--ink); color: var(--ink-inverse); }
 .err { color: var(--color-error); }
 .bpmn { border-radius: 20px; padding: 8px; margin-bottom: 10px; overflow: hidden; }
 .tbl { border-radius: 20px; padding: 6px 8px; }

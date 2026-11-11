@@ -5,6 +5,7 @@ POST /save  {"contract": {...}, "work_rel": "<generation folder relative to the 
              "tenant_id": "<the tenant to save for; default TENANT_ID>"}
          → 200 the script's JSON summary (+ "warn"), or 500 {"error": "<last stderr lines>"}
 POST /assemble  same body → 200 the contract assembled from the folder (nothing saved)
+POST /preview   same body → 200 {"bpmn": "<the XML /save would store>"} (nothing saved)
 GET  /health → 200
 Env: as save_generated.py (PGPT_ROOT, TENANT_ID, SUPABASE_URL, SERVICE_ROLE_KEY); WORKSPACE
 (deepagents' workspace root as mounted here); BRIDGE_PORT.
@@ -45,7 +46,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200 if self.path == "/health" else 404, {"ok": self.path == "/health"})
 
     def do_POST(self):
-        if self.path not in ("/save", "/assemble"):
+        if self.path not in ("/save", "/assemble", "/preview"):
             return self._send(404, {"error": "not found"})
         if not _authorized(self.headers.get("Authorization")):
             return self._send(401, {"error": "unauthorized"})
@@ -58,7 +59,7 @@ class Handler(BaseHTTPRequestHandler):
         work = os.path.normpath(os.path.join(root, rel)) if rel else ""
         if work and not work.startswith(root + os.sep):
             return self._send(400, {"error": "work_rel outside the workspace"})
-        env = {**os.environ, "WORK_DIR": work, "TENANT_ID": tenant, **({"ASSEMBLE_ONLY": "1"} if self.path == "/assemble" else {})}
+        env = {**os.environ, "WORK_DIR": work, "TENANT_ID": tenant, **({"ASSEMBLE_ONLY": "1"} if self.path == "/assemble" else {}), **({"PREVIEW_ONLY": "1"} if self.path == "/preview" else {})}
         p = subprocess.run([sys.executable, SCRIPT], input=json.dumps(body.get("contract") or {}),
                            capture_output=True, text=True, env=env, timeout=600)
         err = p.stderr.strip()

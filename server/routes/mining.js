@@ -62,7 +62,18 @@ export function miningRoutes(auth) {
     await M.setStep(req.user, req.params.id, b.activity, b.kind, b.kind === 'choice' ? b.when : b.kind === 'loop' ? b.redo_when : b.skip_when)
     return M.get(req.params.id)
   }))
-  r.post('/mining/suggestions/:id/register', auth, h((req) => M.register(req.user, req.params.id)))
+  // 정식 등록 전 미리보기: the BPMN XML 정식 등록 would save, nothing written (M.preview)
+  r.get('/mining/suggestions/:id/bpmn', auth, async (req, res) => {
+    try {
+      const { bpmn, token } = await M.preview(req.user, req.params.id)
+      res.set('X-Preview-Token', token).set('Cache-Control', 'no-store').type('application/xml').send(bpmn)
+    } catch (e) {
+      if (!e.status) console.warn('[mining]', req.method, req.path, e.message)
+      res.status(e.status || 500).json({ error: e.status ? e.message : L('BPMN 을 그리지 못했어요.', "I couldn't draw the BPMN.") })
+    }
+  })
+  // (preview: the token of the preview the admin saw — 정식 등록 saves only that same definition)
+  r.post('/mining/suggestions/:id/register', auth, h((req) => M.register(req.user, req.params.id, { preview: req.body?.preview || '' })))
   r.post('/mining/suggestions/:id/hold', auth, h((req) => M.hold(req.user, req.params.id)))
   return r
 }

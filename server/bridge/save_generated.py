@@ -9,6 +9,7 @@ Uses, unchanged:
       (Python port of the frontend BPMNXmlGenerator.vue#createBpmnXml) for proc_def.bpmn,
       which is what the process-gpt frontend stores when a user presses save.
 Env: PGPT_ROOT, TENANT_ID, SUPABASE_URL, SERVICE_ROLE_KEY
+     (CONTRACT_ONLY=1: print the assembled contract; PREVIEW_ONLY=1: print {"bpmn": ...} — neither writes)
 """
 import importlib.util
 import json
@@ -59,6 +60,12 @@ contract["forms"] = [f for f in (contract.get("forms") or []) if not (f.get("act
 # chat's draft card shows it (nothing is written)
 if os.environ.get("CONTRACT_ONLY") == "1" or os.environ.get("ASSEMBLE_ONLY"):
     print(json.dumps(contract if isinstance(contract.get("processDefinition"), dict) else {}, ensure_ascii=False))
+    sys.exit(0)
+# PREVIEW_ONLY=1 (the bridge's /preview): only the BPMN the save would store, drawn from the same contract
+# by the same generator — nothing is written (a mined recommendation's preview before 정식 등록)
+if os.environ.get("PREVIEW_ONLY") == "1":
+    pd = contract.get("processDefinition") if isinstance(contract.get("processDefinition"), dict) else {}
+    print(json.dumps({"bpmn": gen.ProcessGPTBPMNXmlGenerator().create_bpmn_xml(pd)}, ensure_ascii=False))
     sys.exit(0)
 tenant = os.environ.get("TENANT_ID", "localhost")
 sb = get_client()

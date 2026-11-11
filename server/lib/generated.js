@@ -62,6 +62,26 @@ export async function saveGenerated(contract, workDir, { python = `${PGPT}/servi
   })
 }
 
+// The BPMN saving would store for this contract (save_generated.py PREVIEW_ONLY: the same process-gpt
+// generator on the same processDefinition), without writing anything — a recommendation's preview.
+// Docker bundle: the bridge's /preview runs it.
+export async function previewGenerated(contract, { python = `${PGPT}/services/deepagents/.venv/bin/python` } = {}) {
+  if (config.bridgeUrl) return (await viaBridge('preview', contract, '')).bpmn || ''
+  return new Promise((resolve, reject) => {
+    const py = spawn(python, [path.join(here, '..', 'bridge', 'save_generated.py')], { env: { ...process.env, PGPT_ROOT: PGPT, PREVIEW_ONLY: '1', WORK_DIR: '' } })
+    let out = '', err = ''
+    py.on('error', (e) => reject(e.code === 'ENOENT' ? saveUnavailable() : e))
+    py.stdin.on('error', () => {})
+    py.stdout.on('data', (d) => { out += d })
+    py.stderr.on('data', (d) => { err += d })
+    py.on('close', (code) => {
+      if (code !== 0) return reject(new Error(err.split('\n').filter(Boolean).slice(-3).join(' | ')))
+      try { resolve(JSON.parse(out.trim().split('\n').pop()).bpmn || '') } catch { reject(new Error(out + err)) }
+    })
+    py.stdin.end(JSON.stringify(contract))
+  })
+}
+
 // The contract a generation folder holds, assembled the way saving assembles it (save_generated.py
 // CONTRACT_ONLY: deepagents' _complete_one_process, no database) — what the chat's draft card shows.
 // Docker bundle: the bridge's /assemble runs it.

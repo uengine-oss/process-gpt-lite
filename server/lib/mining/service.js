@@ -31,7 +31,7 @@ import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { chatJson } from '../llm.js'
-import { saveGenerated } from '../generated.js'
+import { saveGenerated, previewGenerated } from '../generated.js'
 import { mainThread, addMessage } from '../store.js'
 import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
 import { caseClosed } from './recorder.js'
@@ -762,19 +762,49 @@ export async function ensureAgents() {
   }
 }
 
-export async function register(me, id) {
+// the evidence may have grown since the recommendation: the model drawn again from the cases as they are
+// now (the miner writes nothing), or null — 정식 등록 saves it, the preview only draws it
+async function rediscover(s) {
+  const again = await miner('/discover', { tenant_id: T(), process_id: s.process_id, name: s.name, case_ids: s.pattern.case_ids, lang: lang() }).catch((e) => { console.warn('[mining] rediscover', e.message); return null })
+  return again?.definition || null
+}
+
+// 정식 등록 전 미리보기: the BPMN 정식 등록 would save now — the same rediscovery, the same contract
+// (the admin's word and the cases' conditions applied: buildContract) and the same process-gpt generator —
+// with nothing written (no proc_def, no version, not even the recommendation's redrawn model). A branch
+// not decided yet is drawn without its condition: what is still open shows as open.
+// token: the contract's fingerprint. 정식 등록 given it saves only that same contract — the definition can
+// move after the admin looked (the search fills branch conditions from the cases every minute), and what
+// is saved must be what they saw.
+export const contractToken = (c) => crypto.createHash('sha256').update(JSON.stringify(c)).digest('hex').slice(0, 20)
+export async function preview(me, id) {
+  if (!(await isAdmin(me))) throw err(403, L('관리자만 볼 수 있어요.', 'Only an administrator can see this.'))
+  const [s] = await q('select * from pro_mining_suggestions where id=$1 and tenant_id=$2', [id, T()])
+  if (!s) throw err(404, L('추천을 찾지 못했어요.', "I couldn't find that recommendation."))
+  if (s.status === 'registered') throw err(409, L('이미 정식 등록된 프로세스예요. 등록된 BPMN 을 보세요.', 'This process is already registered. See its saved BPMN.'))
+  return withLang(patternLang(s.pattern), async () => {
+    const again = await rediscover(s)
+    if (again) s.definition = again
+    if (!s.definition) throw err(409, L('아직 그릴 프로세스 정의가 없어요.', 'There is no process definition to draw yet.'))
+    const contract = buildContract(s)
+    const bpmn = await previewGenerated(contract)
+    if (!bpmn) throw err(500, L('BPMN 을 그리지 못했어요.', "I couldn't draw the BPMN."))
+    return { bpmn, token: contractToken(contract) }
+  })
+}
+
+export async function register(me, id, { preview: seen } = {}) {
   if (!(await isAdmin(me))) throw err(403, L('관리자만 정식 등록할 수 있어요.', 'Only an administrator can register a process.'))
   const [s] = await q('select * from pro_mining_suggestions where id=$1 and tenant_id=$2', [id, T()])
   if (!s) throw err(404, L('추천을 찾지 못했어요.', "I couldn't find that recommendation."))
   if (s.status === 'registered') return get(id)
   // the process is written in the language its flow was recorded in (English steps → English process)
-  return withLang(patternLang(s.pattern), () => registerIn(me, id, s))
+  return withLang(patternLang(s.pattern), () => registerIn(me, id, s, seen))
 }
-async function registerIn(me, id, s) {
+async function registerIn(me, id, s, seen) {
   await ensureAgents()
-  // the evidence may have grown since the recommendation: draw the model again from the cases as they are now
-  const again = await miner('/discover', { tenant_id: T(), process_id: s.process_id, name: s.name, case_ids: s.pattern.case_ids, lang: lang() }).catch((e) => { console.warn('[mining] rediscover', e.message); return null })
-  if (again?.definition) { s.definition = again.definition; await q('update pro_mining_suggestions set definition=$2 where id=$1', [id, again.definition]) }
+  const again = await rediscover(s)
+  if (again) { s.definition = again; await q('update pro_mining_suggestions set definition=$2 where id=$1', [id, again]) }
   // a branch nobody decided is not a process definition yet: the admin says when (or 초안대로) first
   const open = openBranches(s)
   if (open.length) {
@@ -782,6 +812,10 @@ async function registerIn(me, id, s) {
       `${open.length} branch(es) need your decision before registering: ${open.map((x) => `'${x.step}'`).join(', ')}. Say when each is skipped or taken.`)), { undecided: open })
   }
   const contract = buildContract(s)
+  if (seen && seen !== contractToken(contract)) {
+    throw Object.assign(err(409, L('미리보기를 본 뒤 정의가 바뀌었어요. 바뀐 미리보기를 확인하고 다시 등록해 주세요.',
+      'The definition changed after you previewed it. Check the new preview and register again.')), { stale: true })
+  }
   const saved = await saveGenerated(contract)
   const defId = saved.proc_def_id || s.process_id
   // save_contract keeps activities' own fields, but make sure each step carries its skills and runner
