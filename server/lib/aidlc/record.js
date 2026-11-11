@@ -279,24 +279,44 @@ export async function readUnits(dir) {
 }
 
 // ---------- bolts (delivery-planning/bolt-plan.md) ----------
-// "## Bolt 1 — 할 일 API (`bolt-1-todo-api`)", then a table whose "포함 단위 / Units" row names the units
-// in backticks and whose "앞선 Bolt / Depends on" row names the bolts before it
-const BOLT_HEAD = /^##\s+Bolt\s+(\d+)\s*[—–-]\s*(.+?)\s*(?:\(`([^`]+)`\))?\s*$/i
+// Two ways the engine writes a bolt (both seen in real runs):
+//   "## Bolt 1 — 할 일 API (`bolt-1-todo-api`)" + a table row "| 포함 단위 | U1 `u1-todo-api` |"
+//   "## B2 — U2 `u2-booking-rules`" + a list line "- **포함 단위**: U2" (U2 = the unit named u2-…)
+// and the bolts before it in a "앞선 Bolt / Depends on" row or line ("Bolt 1", "B1").
+const BOLT_HEAD = /^##\s+(?:Bolt\s+(\d+)|B(\d+))\b\s*[—–:-]?\s*(.*)$/i
 export function parseBolts(text, unitNames = []) {
   const bolts = []
   let cur = null
   const known = new Set(unitNames)
+  const byCode = (n) => unitNames.find((u) => new RegExp(`^u${n}(?:[-_.]|$)`, 'i').test(u))
+  // unit names in a piece of text: backtick names of the plan, then U<n> codes
+  const unitsIn = (t) => {
+    const out = [...String(t).matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((x) => !known.size || known.has(x))
+    for (const m of String(t).matchAll(/\bU(\d+)\b/g)) { const u = byCode(m[1]); if (u) out.push(u) }
+    return [...new Set(out)]
+  }
   for (const line of String(text || '').split('\n')) {
     const h = line.match(BOLT_HEAD)
-    if (h) { cur = { n: Number(h[1]), name: h[2].trim(), id: h[3] || `bolt-${h[1]}`, units: [], after: [] }; bolts.push(cur); continue }
+    if (h) {
+      const n = Number(h[1] || h[2])
+      const rest = h[3] || ''
+      const id = (rest.match(/`(bolt[^`]*)`/i) || [])[1] || `bolt-${n}`
+      const label = (rest.match(/⟨([^⟩]+)⟩/) || [])[1]
+      const plain = rest.replace(/\(`[^`]*`\)|`[^`]*`|⟨[^⟩]*⟩|\bU\d+\b/g, ' ').replace(/\s+/g, ' ').trim()
+      cur = { n, name: plain || label || '', id, units: unitsIn(rest).filter((u) => !/^bolt/i.test(u)), after: [] }
+      bolts.push(cur)
+      continue
+    }
     if (/^##\s/.test(line)) { cur = null; continue }
-    if (!cur || !line.startsWith('|')) continue
-    const cells = line.split('|').map((c) => c.trim())
-    const key = cells[1] || '', val = cells.slice(2).join(' ')
-    const ticks = [...val.matchAll(/`([^`]+)`/g)].map((m) => m[1])
-    if (/포함\s*단위|^units?$|included units|units included/i.test(key)) cur.units = ticks.filter((t) => !known.size || known.has(t))
-    else if (/앞선\s*bolt|depends|after|선행/i.test(key)) cur.after = [...val.matchAll(/Bolt\s+(\d+)/gi)].map((m) => Number(m[1]))
+    if (!cur) continue
+    let key = '', val = ''
+    if (line.startsWith('|')) { const cells = line.split('|').map((c) => c.trim()); key = cells[1] || ''; val = cells.slice(2).join(' ') }
+    else { const m = line.match(/^\s*[-*]\s+\*\*([^*]+)\*\*\s*[:：]\s*(.*)$/); if (m) { key = m[1]; val = m[2] } }
+    if (!key) continue
+    if (/포함\s*단위|^units?$|included units|units included/i.test(key)) { const us = unitsIn(val); if (us.length) cur.units = us }
+    else if (/앞선\s*bolt|depends|after|선행/i.test(key)) cur.after = [...val.matchAll(/(?:Bolt\s+|\bB)(\d+)/gi)].map((m) => Number(m[1]))
   }
+  for (const b of bolts) if (!b.name) b.name = b.units.join(', ')
   return bolts
 }
 export async function readBolts(dir, unitNames = []) {

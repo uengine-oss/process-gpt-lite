@@ -134,7 +134,13 @@ test('볼트 계획: 볼트마다 포함 유닛과 앞선 볼트', async () => {
     { n: 1, name: '할 일 API', id: 'bolt-1-todo-api', units: ['u1-todo-api'], after: [] },
     { n: 2, name: '보드 화면', id: 'bolt-2-board-web', units: ['u2-board-web'], after: [1] },
   ])
-  assert.deepEqual(R.parseBolts('## Bolt 1 — API (`b1`)\n\n| Item | Detail |\n|---|---|\n| Units | U1 `u1-api` |\n'), [{ n: 1, name: 'API', id: 'b1', units: ['u1-api'], after: [] }])
+  assert.deepEqual(R.parseBolts('## Bolt 1 — API (`bolt-1-api`)\n\n| Item | Detail |\n|---|---|\n| Units | U1 `u1-api` |\n'), [{ n: 1, name: 'API', id: 'bolt-1-api', units: ['u1-api'], after: [] }])
+  // the other way (a real run): "## B2 — U2 `u2-…`" and a list line "- **포함 단위**: U2"
+  const names = ['u1-walking-skeleton', 'u2-booking-rules', 'u3-identity']
+  assert.deepEqual(R.parseBolts('## B1 — U1 `u1-walking-skeleton` ⟨walking skeleton⟩\n\n- **포함 단위**: U1\n\n## B2 — U2 `u2-booking-rules`\n\n- **포함 단위**: U2\n- **앞선 Bolt**: B1\n\n## 검증 명령\n', names), [
+    { n: 1, name: 'walking skeleton', id: 'bolt-1', units: ['u1-walking-skeleton'], after: [] },
+    { n: 2, name: 'u2-booking-rules', id: 'bolt-2', units: ['u2-booking-rules'], after: [1] },
+  ])
 })
 
 // the code plan waits on the developer: the stage comes from the unit's events, not the state file
