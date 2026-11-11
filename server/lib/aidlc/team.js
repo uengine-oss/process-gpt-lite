@@ -159,7 +159,7 @@ export async function decide(slug, user, { fingerprint, option, text }) {
   const choice = AS.parseChoice(await AS.screen(name))
   if (!(await mayDecide(folder, user, waitRole(cur?.stage, choice)))) throw err(403, 'not yours to decide')
   const out = await AS.answer(name, { fingerprint, option, text })
-  await record(folder, user, { stage: cur?.state.currentStage, kind: 'prompt', question: choice ? `${choice.title} ${choice.question}`.trim() : '', choice: out.answered, note: text || null })
+  await record(folder, user, { stage: cur?.stage?.slug || cur?.state.currentStage, kind: 'prompt', question: choice ? `${choice.title} ${choice.question}`.trim() : '', choice: out.answered, note: text || null })
   return out
 }
 
@@ -178,7 +178,7 @@ export async function submitAnswers(slug, user, { path: rel, answers, proposalId
     // the meeting's "answers agreed" card has done its job
     await q(`update notifications set is_checked=true where tenant_id=$1 and type='aidlc' and url=$2`, [T(), `/aidlc/${folder.slug}/decide?p=${proposalId}`])
   }
-  await record(folder, user, { stage: cur.state.currentStage, kind: 'answers', question: rel, choice: Object.entries(written).map(([k, v]) => `${k}: ${v}`).join(' · '), note: proposalId ? 'mob meeting' : null })
+  await record(folder, user, { stage: cur.stage?.slug || cur.state.currentStage, kind: 'answers', question: rel, choice: Object.entries(written).map(([k, v]) => `${k}: ${v}`).join(' · '), note: proposalId ? 'mob meeting' : null })
   const name = nameOf(folder)
   let told = false
   if (await AS.has(name)) {
