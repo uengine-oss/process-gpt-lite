@@ -28,6 +28,10 @@ app.oncalltool = async ({ name, arguments: args }) => {
   } catch (e) { return { isError: true, content: [{ type: 'text', text: e.message }], structuredContent: { error: e.message } } }
 }
 app.onlisttools = async () => ({ tools: Object.keys(provided).map((name) => ({ name, inputSchema: { type: 'object' } })) })
+const pack = (v) => (v instanceof ArrayBuffer ? { __b64: b64(v), __as: 'buffer' } : ArrayBuffer.isView(v) ? { __b64: b64(new Uint8Array(v.buffer, v.byteOffset, v.byteLength)), __as: 'bytes' }
+  : Array.isArray(v) ? v.map(pack) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, pack(x)])) : v)
+const unpack = (v) => (v && typeof v === 'object' && typeof v.__b64 === 'string' ? (({ buffer: (u) => u.buffer, bytes: (u) => u })[v.__as] || ((u) => u))(Uint8Array.from(atob(v.__b64), (c) => c.charCodeAt(0)))
+  : Array.isArray(v) ? v.map(unpack) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unpack(x)])) : v)
 const b64 = (bytes) => { const u = new Uint8Array(bytes); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s) }
 let gotInput, gotResult
 const inputP = new Promise((r) => { gotInput = r })
@@ -60,6 +64,9 @@ const lite = {
   },
   b64,
   unb64: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
+  // a message with bytes in it (ArrayBuffer, typed arrays) as JSON and back: {__b64, __as: 'buffer' | 'bytes'}
+  pack,
+  unpack,
   // small helpers every app wants
   esc,
   $: (s, el = document) => el.querySelector(s),

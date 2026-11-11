@@ -2,6 +2,7 @@
 // 스택(ArtifactStack: 더미 → 펼침, 많으면 격자 → 누르면 편집기). 모델 없이 고정 데이터로.
 // (영상 대화 맥락 라우터 youtu.be/oL_mfiQBCPU)
 import { test, expect, api } from '../../lib/fixtures.js'
+import { framePath } from '../../lib/frames.js'
 import { seedConversations } from '../../lib/chatseed.js'
 
 test.describe.configure({ mode: 'serial' })
@@ -63,9 +64,9 @@ test('F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG �
   await expect(page.locator('.astack .fitem')).toHaveCount(3)
   await page.waitForTimeout(800) // let the fan settle (items fly out with a spring)
   await page.locator('.astack .fitem', { hasText: '숙소 1.xlsx' }).click({ force: true })
-  const frame = page.locator('.oef iframe.frm')
-  await expect(frame).toBeVisible({ timeout: 20_000 })
-  expect(await frame.getAttribute('src')).toMatch(/^\/office\/sheets\/\?src=/)
+  // the editor runs in the IeumOffice screen behind the sandbox proxy: its frame is nested there
+  await expect(page.locator('.oef iframe[data-test=app-office]')).toBeVisible({ timeout: 20_000 })
+  await expect.poll(() => framePath(page, '/office/'), { timeout: 20_000 }).toMatch(/^\/office\/sheets\/\?src=/)
   await page.locator('.oef .tb.ic[title="닫기"]').click()
   await expect(page.locator('.oef')).toHaveCount(0)
   // the pile bobs (animated): force the click, and retry once the sheet's closing transition ends

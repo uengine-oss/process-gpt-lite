@@ -1,6 +1,7 @@
 // 에이전트 여정 — 시연 영상의 사용자 흐름을 실제 모델·에이전트로 끝까지. 문구가 아니라 남는 결과(대화 id·행·파일·
 // 카드 종류)를 확인한다. 모델 답이 흔들리는 시험은 [flaky] 표시, 프로젝트 설정으로 한 번 더 시도한다.
 import { test, expect, api, RUN } from '../../lib/fixtures.js'
+import { framePath } from '../../lib/frames.js'
 import { ask, since, waitFor } from '../../lib/agent.js'
 import { makeApp } from '../../lib/panel.js'
 import path from 'node:path'
@@ -80,7 +81,7 @@ test('A-04 문서 요청 → 문서 카드 → 누르면 이음오피스 편집�
   expect(file.content.url).toMatch(/^https?:\/\//)
   await page.goto('/chat')
   await page.locator('button.file', { hasText: file.content.name }).last().click()
-  await expect(page.locator('.oef iframe.frm')).toHaveAttribute('src', /^\/office\/(docs|hwp)\//, { timeout: 30_000 })
+  await expect.poll(() => framePath(page, '/office/'), { timeout: 30_000 }).toMatch(/^\/office\/(docs|hwp)\//)
   await expect(page.locator('.oef .badge.live')).toBeVisible({ timeout: 60_000 })
 })
 
@@ -95,7 +96,7 @@ test('A-05 CAD 도면 요청 → CADCraft MCP 로 그린 .dxf 카드 → 웹 CAD
   expect(file, 'CAD 카드').toBeTruthy()
   await page.goto('/chat')
   await page.locator('button.file', { hasText: file.content.name }).last().click()
-  await expect(page.locator('.cef iframe.frm')).toHaveAttribute('src', /\/craft\/cadcraft\//)
+  await expect.poll(() => framePath(page, '/craft/'), { timeout: 30_000 }).toMatch(/\/craft\/cadcraft\//)
   await expect(page.locator('.cef .badge.live')).toBeVisible({ timeout: 90_000 })
 })
 

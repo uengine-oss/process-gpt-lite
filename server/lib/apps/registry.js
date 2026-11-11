@@ -26,6 +26,7 @@ import { makeContext } from './context.js'
 import { hostServer } from './host.js'
 import { registerPanels, PANELS_MANIFEST, PANELS_DIR } from './builtin/panels/index.js'
 import { registerCraft, CRAFT_MANIFEST, CRAFT_DIR } from './builtin/craft/index.js'
+import { registerOffice, OFFICE_MANIFEST, OFFICE_DIR } from './builtin/office/index.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const APPS_DIR = path.join(HERE, '../../apps')
@@ -64,8 +65,12 @@ export function checkManifest(m, dirName) {
 }
 
 const apps = new Map() // id -> { manifest, dir, register }
-// apps that come with the host (lib/apps/builtin): the Home panels' screen, the ArtCraft editors
-const BUILTINS = [{ manifest: PANELS_MANIFEST, dir: PANELS_DIR, register: registerPanels }, { manifest: CRAFT_MANIFEST, dir: CRAFT_DIR, register: registerCraft }]
+// apps that come with the host (lib/apps/builtin): the Home panels' screen, the ArtCraft and IeumOffice editors
+const BUILTINS = [
+  { manifest: PANELS_MANIFEST, dir: PANELS_DIR, register: registerPanels },
+  { manifest: CRAFT_MANIFEST, dir: CRAFT_DIR, register: registerCraft },
+  { manifest: OFFICE_MANIFEST, dir: OFFICE_DIR, register: registerOffice },
+]
 
 export async function loadApps(dir = APPS_DIR) {
   apps.clear()

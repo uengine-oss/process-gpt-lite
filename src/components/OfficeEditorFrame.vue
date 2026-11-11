@@ -9,10 +9,16 @@
 // (emit 'assistant'); while the document is open the page tells the server (src/liveLink.js, app
 // 'ieumoffice'), so a chat message is about this document and the agent edits it in front of the
 // person through office-host's office_live_* tools (server/mcp/office.js).
+// The editor runs in the built-in MCP App 'office' (server/lib/apps/builtin/office) behind the sandbox proxy — an
+// origin of its own (/api/config appsSandbox) that cannot reach this page: the protocol above is relayed by that
+// screen (the editor's messages come as its notification 'office', ours go through its tool office_post), and what
+// this page used to do inside the editor's document (ribbon, 한글 tool box, AI dock) are its tools.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
-import { isOfficeEditorMessage, officeEditorUrl } from '../officeEditor.js'
+import AppFrame from '../apps/AppFrame.vue'
+import { pack, unpack } from '../apps/bytes.js'
+import { officeEditorUrl } from '../officeEditor.js'
 import { freshToken } from '../api.js'
 import { BASE } from '../base.js'
 import { kindOf, kindLabel } from '../artifacts.js'
@@ -28,8 +34,9 @@ const props = defineProps({
 })
 const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'assistant', 'mention'])
 
+const OFFICE = { id: 'office', entry: 'office_open', origin: true, name: { ko: '이음오피스 편집기', en: 'IeumOffice editors' } }
 const root = ref(null)
-const frame = ref(null)
+const view = ref(null)
 const frameSrc = ref('')
 const emptyText = ref('문서를 여는 중…')
 const notice = ref(null)
@@ -49,24 +56,15 @@ const savedUrls = new Set()
 // in localStorage on this origin; the 한글 editor folds its tool box with its own button).
 const RIBBON_KEYS = { docs: 'aidocs.ribbonCollapsed', sheets: 'ai-sheets-ribbon-collapsed', slides: 'ai-slides-ribbon-collapsed', pdf: 'genoffice-pdf-ribbon-collapsed' }
 const editor = () => (frameSrc.value.match(/\/office\/([a-z]+)\//) || [])[1]
+const params = computed(() => ({ editor: editor(), name: props.name || '', readOnly: !!props.readOnly }))
 const ribbonOpen = ref(false)
-function hwpToggle() {
-  const studio = frame.value?.contentDocument?.querySelector('iframe')?.contentDocument
-  return studio?.getElementById('toolbox-basic-toggle') || null
-}
-function foldHwpWhenReady(tries = 40) {
-  const t = hwpToggle()
-  if (t) { if (t.classList.contains('active')) t.click(); ribbonOpen.value = false; return }
-  if (tries > 0) setTimeout(() => foldHwpWhenReady(tries - 1), 250)
-}
-function toggleRibbon() {
-  if (editor() === 'hwp') { hwpToggle()?.click(); ribbonOpen.value = !!hwpToggle()?.classList.contains('active'); return }
-  // the editors toggle on their own shortcut (Ctrl+F1); the frame is same-origin, so send it in
-  const w = frame.value?.contentWindow
-  if (!w) return
-  // dispatched on the document it bubbles to window too, wherever the editor listens
-  w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'F1', code: 'F1', ctrlKey: true, bubbles: true }))
-  ribbonOpen.value = !ribbonOpen.value
+const screen = (name, args = {}) => (view.value ? view.value.callView(name, args) : Promise.reject(new Error('편집기가 아직 열리지 않았어요')))
+// the 한글 editor folds its tool box with its own button; the others toggle on their own shortcut (Ctrl+F1)
+async function foldHwpWhenReady() { if ((await screen('office_fold_hwp').catch(() => null))?.open === false) ribbonOpen.value = false }
+async function toggleRibbon() {
+  const r = await screen('office_ribbon', { editor: editor() }).catch(() => undefined)
+  if (r === undefined) return
+  ribbonOpen.value = r ? !!r.open : !ribbonOpen.value
 }
 
 function startLive() {
@@ -80,10 +78,7 @@ function stopLive() { link?.close(); link = null; live.value = false; busy.value
 const MENTIONS = new Set(['docs', 'sheets', 'hwp'])
 const canMention = computed(() => props.assistant && !props.readOnly && MENTIONS.has(editor()))
 const mentionMode = ref(false)
-function post(msg) {
-  const w = frame.value?.contentWindow
-  if (w) w.postMessage({ source: 'process-gpt', ...msg }, new URL(frameSrc.value, location.href).origin)
-}
+function post(msg) { screen('office_post', { msg: pack(msg) }).catch((e) => console.warn('[office]', e.message)) }
 watch(mentionMode, (on) => post({ type: 'mention-mode', on }))
 // requests the page answers ({type:'reply', requestId}): a picture's bytes, or new ones for it.
 // 한글 pictures: every office host since the round trip ('hwp-*'); Word pictures: a host whose page
@@ -114,9 +109,12 @@ async function load() {
   const token = await freshToken()
   frameSrc.value = officeEditorUrl({ fileUrl: props.fileUrl, name: props.name, readOnly: props.readOnly, assistant: props.assistant ? 'parent' : '', token })
   if (!frameSrc.value) { emptyText.value = '이 문서는 편집기로 열 수 없어요.'; return }
-  const key = RIBBON_KEYS[editor()]
-  if (key) try { localStorage.setItem(key, '1') } catch { /* private mode: the editor opens unfolded */ }
   ribbonOpen.value = false
+}
+// the screen is up: hand it the editor's address (it folds the ribbon in its own origin's storage first)
+function openEditor() {
+  screen('office_load', { src: frameSrc.value, ribbonKey: RIBBON_KEYS[editor()] || '' })
+    .catch((e) => { show('error', `문서를 열지 못했어요: ${e.message}`); emit('error', e.message) })
 }
 function show(kind, text) {
   clearTimeout(timer)
@@ -124,24 +122,16 @@ function show(kind, text) {
   timer = setTimeout(() => (notice.value = null), kind === 'error' ? 8000 : kind === 'agent' ? 6000 : 2500)
 }
 function sendContext() {
-  const w = frame.value?.contentWindow
-  if (!ready || !w || !props.context) return
-  w.postMessage({ source: 'process-gpt', type: 'context', context: JSON.parse(JSON.stringify(props.context)) }, new URL(frameSrc.value, location.href).origin)
+  if (!ready || !props.context) return
+  post({ type: 'context', context: JSON.parse(JSON.stringify(props.context)) })
 }
 // a read-only preview (shared-folder files) is for looking: the editor's AI dock stays out of the way
 // (the chat sheet edits, so it keeps the dock)
-function hideAiDock(tries = 20) {
-  const doc = frame.value?.contentDocument
-  if (!doc?.head) { if (tries > 0) setTimeout(() => hideAiDock(tries - 1), 250); return }
-  if (doc.getElementById('pgpt-hide-ai')) return
-  const st = doc.createElement('style')
-  st.id = 'pgpt-hide-ai'
-  st.textContent = '.ai-dock, .copilot, .ai-panel-resizer { display: none !important; }'
-  doc.head.appendChild(st)
-}
-function onMessage(event) {
-  if (!isOfficeEditorMessage(event, frame.value?.contentWindow)) return
-  const m = event.data
+function hideAiDock() { screen('office_hide_ai').catch(() => {}) }
+// what the editor said, passed on by the screen
+function onScreen({ type, data } = {}) {
+  if (type !== 'office' || !data) return
+  const m = unpack(data)
   if (m.type === 'ready') { ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly) hideAiDock(); startLive() }
   else if (m.type === 'assistant') emit('assistant', { label: m.label || '', prompt: m.prompt || null, selection: m.selection || '' })
   else if (m.type === 'mention' && m.mention) emit('mention', { ...m.mention, file: props.name })
@@ -176,8 +166,8 @@ const onFs = () => { fullscreen.value = document.fullscreenElement === root.valu
 watch(() => props.fileUrl, (u) => { if (u && !savedUrls.has(u)) load() })
 watch(() => props.readOnly, load)
 watch(() => props.context, sendContext, { deep: true })
-onMounted(() => { window.addEventListener('message', onMessage); document.addEventListener('fullscreenchange', onFs); load() })
-onBeforeUnmount(() => { window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive() })
+onMounted(() => { document.addEventListener('fullscreenchange', onFs); load() })
+onBeforeUnmount(() => { document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive() })
 </script>
 
 <template>
@@ -204,7 +194,8 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <button class="tb ic press" title="닫기" @click="emit('close')"><Icon name="close" :size="16" /></button>
     </div>
     <div v-if="busy" class="glow" />
-    <iframe v-if="frameSrc" ref="frame" :src="frameSrc" :title="name || '문서 편집기'" class="frm" allow="clipboard-read; clipboard-write; fullscreen" />
+    <AppFrame v-if="frameSrc" :key="frameSrc" ref="view" class="frm" :manifest="OFFICE" :params="params"
+      @initialized="openEditor" @event="onScreen" @error="(e) => { show('error', `문서를 열지 못했어요: ${e?.message || ''}`); emit('error', e?.message) }" />
     <div v-else class="empty">{{ emptyText }}</div>
     <Transition name="fade">
       <div v-if="notice" class="notice" :class="notice.kind">{{ notice.text }}</div>
@@ -240,7 +231,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 .tb:hover { background: rgba(0, 0, 0, .05); }
 .tb.ic { width: 30px; padding: 0; justify-content: center; }
 .tb.on { background: rgba(110, 90, 230, .14); color: #5b47d6; font-weight: 600; }
-.frm { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; }
+.frm { flex: 1 1 0; width: 100%; height: auto; min-height: 0; }
 .empty { margin: auto; color: var(--text-secondary); font-size: 14px; }
 .notice { position: absolute; right: 16px; bottom: 32px; padding: 8px 14px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); }
 .notice.success { background: #2e7d32; }

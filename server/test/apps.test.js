@@ -43,10 +43,10 @@ test('앱 규약: 들어 있는 앱의 매니페스트는 모두 규약 v2 를 �
     assert.equal(m.contract, 2)
     assert.ok(fs.existsSync(path.join(APPS, id, 'ui', 'index.html')), `${id} has a page`)
   }
-  assert.deepEqual((await loadApps()).sort(), ['artifact', 'bolts', 'craft', 'panels', 'review'])
+  assert.deepEqual((await loadApps()).sort(), ['artifact', 'bolts', 'craft', 'office', 'panels', 'review'])
   assert.deepEqual(list().find((m) => m.id === 'panels').mounts, ['panel'])
-  // only the ArtCraft screen asks for an origin of its own (the sandbox proxy); model-written panels never get one
-  assert.deepEqual(list().filter((m) => m.origin).map((m) => m.id), ['craft'])
+  // only the editors' screens ask for an origin of their own (the sandbox proxy); model-written panels never get one
+  assert.deepEqual(list().filter((m) => m.origin).map((m) => m.id).sort(), ['craft', 'office'])
 })
 
 test('앱 규약: 잘못된 매니페스트는 무엇이 틀렸는지 말하고 거절된다', () => {
@@ -129,8 +129,8 @@ test('앱 규약: 한 앱이 깨져도 다른 앱은 올라오고, 앱 도구는
   }`)
   mk('bad-app', 'bad_open', 'throw new Error("boom")')
   mk('no-entry', 'missing_open', `export default (server) => { ${ok('other_tool', '{ content: [] }')} }`)
-  assert.deepEqual((await loadApps(dir)).sort(), ['craft', 'good-app', 'panels'])
-  assert.deepEqual(list().map((m) => m.id).sort(), ['craft', 'good-app', 'panels'])
+  assert.deepEqual((await loadApps(dir)).sort(), ['craft', 'good-app', 'office', 'panels'])
+  assert.deepEqual(list().map((m) => m.id).sort(), ['craft', 'good-app', 'office', 'panels'])
   assert.deepEqual(await callAppTool('good-app', 'good_open'), { contract: 2, app: 'good-app', user: null })
   await assert.rejects(callAppTool('good-app', 'good_deny'), { status: 403, message: 'no' })
   await assert.rejects(callAppTool('no-entry', 'other_tool'), { status: 404 })
@@ -150,6 +150,35 @@ test('ArtCraft 앱: 입구 도구가 앱과 언어를 화면에 넘기고, 없�
     assert.deepEqual(page.contents[0]._meta.ui, { csp: {}, permissions: { clipboardWrite: {} } })
     assert.match(page.contents[0].text, /<iframe id="craft"/)
   } finally { await close() }
+})
+
+// the IeumOffice editors: one screen for every editor, behind the sandbox proxy; it relays the editor's own protocol
+test('이음오피스 앱: 입구 도구는 편집기 종류만 받고(없는 편집기 404), 화면은 편집기 메시지를 중계한다', async () => {
+  const { client, close } = await connect('office')
+  try {
+    const ok = await client.callTool({ name: 'office_open', arguments: { editor: 'hwp', name: '설계 제안서.hwpx' } })
+    assert.deepEqual(ok.structuredContent.value, { editor: 'hwp', name: '설계 제안서.hwpx', readOnly: false })
+    const bad = await client.callTool({ name: 'office_open', arguments: { editor: 'excel' } })
+    assert.equal(bad.structuredContent.status, 404)
+    const page = await client.readResource({ uri: 'ui://office/editor' })
+    assert.match(page.contents[0].text, /<iframe id="office"/)
+  } finally { await close() }
+  const screen = fs.readFileSync(path.join(HERE, '../lib/apps/builtin/office/ui/editor.js'), 'utf8')
+  assert.match(screen, /e\.data\?\.source !== 'ieum-office'/)
+  assert.match(screen, /url\.origin !== self\.origin/, 'the editor address stays on the screen\'s own origin')
+})
+
+// bytes cross the bridge as JSON both ways, the same shape in the page and in the screens
+test('바이트 싣기: ArrayBuffer·Uint8Array 가 JSON 으로 갔다가 같은 꼴로 돌아온다', async () => {
+  const { pack, unpack } = await import('../../src/apps/bytes.js')
+  const msg = { type: 'reply', result: { n: 1, bytes: new Uint8Array([1, 2, 250]), raw: new Uint8Array([7, 8]).buffer, list: [new Uint8Array([9])] } }
+  const back = unpack(JSON.parse(JSON.stringify(pack(msg))))
+  assert.ok(back.result.bytes instanceof Uint8Array)
+  assert.deepEqual([...back.result.bytes], [1, 2, 250])
+  assert.ok(back.result.raw instanceof ArrayBuffer)
+  assert.deepEqual([...new Uint8Array(back.result.raw)], [7, 8])
+  assert.deepEqual([...back.result.list[0]], [9])
+  assert.equal(back.type, 'reply')
 })
 
 // the proxy page: framed only by Lite's pages, the hosts it answers written into it (no other parent gets the screen)

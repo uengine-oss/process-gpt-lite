@@ -156,6 +156,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
 | 에이전트가 만든 문서는 그 자리에서 편집(한글·워드 요청 → 카드 → 편집기) | A-04, F-ED-01 | agent/feature | ✅ |
+| 편집기는 MCP App `office` 화면 안에서, 샌드박스 프록시 뒤 자기 출처로(중첩 틀의 출처 = `appsSandbox`) — 편집기 메시지(ready·saved·mention·reply …)는 화면이 중계, 리본·한글 도구 상자·AI 칸 숨기기는 화면 도구, 그림 바이트는 base64 로 | F-ED-01(출처), F-ED-05·08, F-EN-02, `apps.test.js` 이음오피스·바이트 | feature | ✅ |
 | 문서를 저장소 URL 로 확보 | A-04 | agent | ◐ |
 | 편집본 저장(카드가 편집본, 이전 주소는 versions, 남의 카드 404) | F-ED-03 | feature | ✅ |
 | 열린 문서를 대화로 바로 고친다(라이브) | F-ED-02 (도구로 셀 고침 → 화면) | feature | ◐ (대화→모델 ✗) |

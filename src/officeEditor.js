@@ -49,7 +49,3 @@ export function officeEditorUrl({ fileUrl, name, readOnly = false, assistant = '
   return `${BASE}/office/${editor}/?${params.toString()}`
 }
 
-/** a message from the editor iframe */
-export function isOfficeEditorMessage(event, frameWindow) {
-  return !!frameWindow && event.source === frameWindow && event.data?.source === 'ieum-office'
-}

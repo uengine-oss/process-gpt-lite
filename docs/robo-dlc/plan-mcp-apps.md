@@ -57,6 +57,10 @@
 - 시험: Craft 13개(F-CR-<앱> 5·F-CR-10·F-CR-11·F-ED-04 다섯 앱·F-CV-04)가 프록시 뒤에서 통과했다. 바꾸기 전 기준선 12개도 통과. 중첩 틀의 출처가 샌드박스 출처인지도 본다.
 - CircuitCraft·SolidCraft 는 `feat/prototype-request`(미병합)에 있다. 그 가지가 이 위로 올라오면 `editor.js` 의 앱 표와 `CraftEditorFrame` 의 머리줄 표에 한 줄씩 넣으면 된다.
 
-### 이음오피스 (다음)
+### 이음오피스 = 내장 앱 `office` (끝남)
 
-- 지금은 같은 출처 iframe(`/office/…`, office-host 를 이 서버가 대리)이다. 같은 방식으로 `office` 내장 앱 + 프록시 뒤 화면으로 옮긴다. 편집기와 주고받는 메시지(열기·저장·멘션·라이브)는 화면 도구와 Lite 알림으로 옮긴다.
+- 서버 `lib/apps/builtin/office`: 입구 도구 `office_open({editor, name, readOnly})`(모르는 편집기 404), 화면 `ui://office/editor`.
+- 화면 `ui/editor.js`: 편집기(`/office/<editor>/`, 화면과 같은 출처)를 틀에 넣고, 편집기의 기존 메시지 규약을 그대로 중계한다. 편집기 → 페이지는 Lite 알림 `office`, 페이지 → 편집기는 화면 도구 `office_post` 다. 예전에 페이지가 편집기 문서 안에서 하던 일(리본 접기 Ctrl+F1, 한글 도구 상자, 미리보기의 AI 칸 숨기기, 리본 기억 localStorage)은 화면 도구다. 편집기 주소(사람의 토큰 포함)는 페이지가 화면 도구 `office_load` 로 넘기고, 화면은 자기 출처의 `/office/…` 만 연다.
+- 그림 왕복의 바이트는 base64 로 싣는다(`src/apps/bytes.js` 와 런타임 `lite.pack/unpack`, 같은 꼴).
+- 개발: 샌드박스 출처는 `/office`·`/craft`·`/api` 를 다 대리하는 곳이어야 한다. 그래서 같은 미리보기를 다른 호스트 이름으로 쓴다(페이지 `127.0.0.1:5198`, 샌드박스 `localhost:5198`). 설치판도 nginx 의 둘째 포트에 같은 경로를 연다.
+- 시험: 편집기 묶음 21개(F-ED-01~08·F-CR·F-CV-04), 영문 F-EN-02(워드 그림 ↔ 포토크래프트), 스모크 S-30 이 모두 통과했다. 바꾸기 전 기준선도 21개 통과(F-ED-08 은 Craft 틀 주소 검사를 고친 뒤).

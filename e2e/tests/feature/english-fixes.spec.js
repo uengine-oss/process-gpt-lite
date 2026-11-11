@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 import { test, expect, api } from '../../lib/fixtures.js'
+import { framePath } from '../../lib/frames.js'
 import { PGPT_URL, SERVER_DIR, hasServerSource } from '../../lib/env.js'
 import { removeFolder } from '../../lib/seed.js'
 
@@ -50,7 +51,7 @@ async function openWord(page, live) {
   await page.goto('/chat')
   await page.waitForLoadState('networkidle').catch(() => {})
   await page.locator('button.file', { hasText: NAME }).first().click()
-  await expect(page.locator('.oef iframe.frm')).toHaveAttribute('src', /^\/office\/docs\/\?/)
+  await expect.poll(() => framePath(page, '/office/'), { timeout: 30_000 }).toMatch(/^\/office\/docs\/\?/)
   await expect(page.locator('.oef .badge.live')).toContainText(live, { timeout: 90_000 })
   const frame = page.frames().find((f) => f.url().includes('/office/docs/'))
   await expect.poll(() => frame.evaluate(() => !!document.querySelector('.ProseMirror')?.editor), { timeout: 60_000 }).toBe(true)
@@ -112,7 +113,7 @@ test.describe('English mode polish (i18n/HANDOFF.md)', () => {
     await page.keyboard.press('Enter')
     // the picture comes out of the Word document into PhotoCraft (over it); once PhotoCraft is live the request goes
     await expect(page.locator('.pic .pic-tag')).toHaveText('Word document · image 1', { timeout: 60_000 })
-    await expect(page.locator('.pic .cef iframe.frm')).toHaveAttribute('src', /^\/craft\/photocraft\//)
+    await expect.poll(() => framePath(page, '/craft/photocraft/'), { timeout: 30_000 }).toMatch(/^\/craft\/photocraft\//)
     await expect.poll(() => sent.at(-1)?.text || '', { timeout: 120_000 }).toBe('@Image 1 Recolor the picture in navy tones')
     expect(sent.at(-1).context).toMatch(/picture 1 of the Word document 'Moonlight Coffee Store #2 proposal\.docx'.*PhotoCraft/)
     expect(sent.at(-1).context).not.toMatch(HANGUL)

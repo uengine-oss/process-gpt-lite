@@ -2,6 +2,7 @@
 // 열린 동안 에이전트 도구(MCP)는 열린 화면을 직접 고친다. 저장하면 편집본이 원본 옆에, 카드는 편집본을 가리킨다.
 // (spec pgpt-pro_office-editor · pgpt-pro_craft-apps · 영상 youtu.be/39F2rgTL5B0, izcVNcW37J0, QyfrjwhBSsw …)
 import { test, expect, api } from '../../lib/fixtures.js'
+import { framePath } from '../../lib/frames.js'
 import { PNG, SVG, DXF, WAV, MP4, XLSX, MIME } from '../../lib/seed.js'
 
 async function seedFiles(db, u) {
@@ -34,7 +35,10 @@ test.describe('이음오피스 편집기 (spec office-editor)', () => {
     const idle = (await api.mcp('/mcp/office', 'tools/list', {}, tok)).body.result.tools.map((t) => t.name)
     expect(idle).toEqual(['office_live_status'])
     await openCard(page, '예산표.xlsx')
-    await expect(page.locator('.oef iframe.frm')).toHaveAttribute('src', /^\/office\/sheets\/\?src=/)
+    await expect.poll(() => framePath(page, '/office/'), { timeout: 30_000 }).toMatch(/^\/office\/sheets\/\?src=/)
+    // the editor runs behind the sandbox proxy: its frame has the sandbox's origin, not this page's
+    const cfg = await api.config()
+    if (cfg.appsSandbox) expect(new URL(page.frames().find((f) => f.url().includes('/office/')).url()).origin).toBe(cfg.appsSandbox)
     await expect(page.locator('.oef .badge.live')).toContainText('대화와 연결됨', { timeout: 30_000 })
     const tools = (await api.mcp('/mcp/office', 'tools/list', {}, tok)).body.result.tools.map((t) => t.name)
     expect(tools).toEqual(expect.arrayContaining(['office_live_documents', 'office_live_read', 'office_live_apply_ops']))
@@ -121,7 +125,7 @@ test.describe('최대화 다이얼 (spec office-editor · craft-apps: 최대화 
       await openCard(page, file)
       await expect(page.locator(`${cls} .badge.live`)).toBeVisible({ timeout: 90_000 })
       if (cls === '.oef') {
-        expect(await page.locator('.oef iframe.frm').getAttribute('src')).toContain('assistant=parent') // one assistant: the chat
+        expect(framePath(page, '/office/')).toContain('assistant=parent') // one assistant: the chat
         // the sheet takes the keyboard focus when it finishes loading: wait for that first
         await expect.poll(async () => JSON.parse(api.toolText(await api.mcp('/mcp/office', 'tools/call', { name: 'office_live_documents', arguments: {} }, page.user.token())) || '{}').documents?.some((d) => d.ready), { timeout: 30_000 }).toBe(true)
         await page.waitForTimeout(1500)
@@ -272,7 +276,7 @@ test.describe('한글 문서 (spec office-editor: 한글 실시간 편집 · 그
     test.skip(!seeded, '한글 양식(server/fixtures) 없음')
     await page.goto('/chat')
     await openCard(page, '설계 제안서.hwpx')
-    await expect(page.locator('.oef iframe.frm')).toHaveAttribute('src', /^\/office\/hwp\/\?src=/)
+    await expect.poll(() => framePath(page, '/office/'), { timeout: 30_000 }).toMatch(/^\/office\/hwp\/\?src=/)
     await expect(page.locator('.oef .badge.live')).toContainText('대화와 연결됨', { timeout: 60_000 })
     await expect(page.locator('.oef .bar .fmt.hwp')).toBeVisible()
     let doc
@@ -318,7 +322,8 @@ test.describe('한글 문서 (spec office-editor: 한글 실시간 편집 · 그
     // the picture comes out of the document into PhotoCraft (over the document); once PhotoCraft is live
     // the request goes to the chat, about that picture
     await expect(page.locator('.pic .pic-tag')).toContainText('그림 1', { timeout: 60_000 })
-    await expect(page.locator('.pic .cef iframe.frm')).toHaveAttribute('src', /^\/craft\/photocraft\//)
+    await expect(page.locator('.pic .cef iframe[data-test=app-craft]')).toBeVisible()
+    await expect.poll(() => craftUrl(page, 'photocraft'), { timeout: 30_000 }).toMatch(/\/craft\/photocraft\//)
     await expect.poll(() => sent.at(-1)?.text || '', { timeout: 90_000 }).toBe('@이미지 1 그림을 남색 톤으로 바꿔줘')
     expect(sent.at(-1).context).toContain('포토크래프트')
     const reviews = []

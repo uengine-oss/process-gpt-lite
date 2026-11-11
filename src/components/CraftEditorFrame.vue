@@ -15,6 +15,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
 import AppFrame from '../apps/AppFrame.vue'
+import { b64, unb64 } from '../apps/bytes.js'
 import { uploadAttachment } from '../api.js'
 import { openLiveLink } from '../liveLink.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -58,8 +59,6 @@ let alive = true
 const appName = () => officeEditorFor(props.name || props.fileUrl)
 const app = computed(() => APPS[appName()] || null)
 const params = computed(() => ({ app: appName(), name: props.name || '', lang }))
-const b64 = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s) }
-const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 // a live request can run long (a render, an export): no protocol timeout of its own
 const LONG = { timeout: 30 * 60 * 1000 }
 
