@@ -1,0 +1,19 @@
+{
+  "id": "intake",
+  "version": "1.0.0",
+  "contract": 2,
+  "name": {
+    "ko": "작업 접수",
+    "en": "Work intake"
+  },
+  "icon": "📥",
+  "description": "하고 싶은 일을 말로 적으면 범위와 건드릴 곳, 진행 중인 작업과 부딪히는지를 계획안으로 보여 주고, 접수 권한이 있는 사람이 시작·대기·합치기를 정합니다.",
+  "requires": [
+    "aidlc"
+  ],
+  "mounts": [
+    "folder"
+  ],
+  "handles": [],
+  "entry": "intake_open"
+}

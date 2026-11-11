@@ -324,6 +324,42 @@ export async function readBolts(dir, unitNames = []) {
   return parseBolts(await readText(path.join(dir, 'inception', 'delivery-planning', 'bolt-plan.md')), unitNames)
 }
 
+// The contracts between units (contract-design/contract-summary.md): the table "| # | Provider Unit | Consumer |
+// Mechanism | Owner |". A unit is written as a name in backticks, a bare name, or its code (U4); a provider or
+// consumer that is not a unit (the browser, a mail server) is kept as text. → [{ id, provider, providerText,
+// consumers: [unit], consumerText, mechanism }]
+export function parseContracts(text, unitNames = []) {
+  const byCode = (n) => unitNames.find((u) => new RegExp(`^u${n}(?:[-_.]|$)`, 'i').test(u))
+  const unitsIn = (t) => {
+    const out = unitNames.filter((u) => String(t).includes(u))
+    for (const m of String(t).matchAll(/\bU(\d+)\b/g)) { const u = byCode(m[1]); if (u && !out.includes(u)) out.push(u) }
+    return out
+  }
+  const out = []
+  let cols = null
+  for (const line of String(text || '').split('\n')) {
+    if (!line.trim().startsWith('|')) { cols = null; continue }
+    const cells = line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim())
+    if (!cols) {
+      const at = (re) => cells.findIndex((c) => re.test(c))
+      const head = { id: at(/^#$|^id$/i), provider: at(/provider|제공/i), consumer: at(/consumer|소비|사용/i), mechanism: at(/mechanism|방식|수단/i) }
+      cols = head.provider >= 0 && head.consumer >= 0 ? head : 'other'
+      continue
+    }
+    if (cols === 'other' || cells.every((c) => /^:?-+:?$/.test(c))) continue
+    const id = (cells[cols.id >= 0 ? cols.id : 0] || '').replace(/[`*]/g, '')
+    if (!/^C\d+$/i.test(id)) continue
+    const plain = (c) => String(c || '').replace(/`/g, '').trim()
+    const provider = unitsIn(cells[cols.provider])[0] || null
+    out.push({ id: id.toUpperCase(), provider, providerText: plain(cells[cols.provider]),
+      consumers: unitsIn(cells[cols.consumer]).filter((u) => u !== provider), consumerText: plain(cells[cols.consumer]), mechanism: plain(cells[cols.mechanism]) })
+  }
+  return out
+}
+export async function readContracts(dir, unitNames = []) {
+  return parseContracts(await readText(path.join(dir, 'inception', 'contract-design', 'contract-summary.md')), unitNames)
+}
+
 // ---------- the record's documents (what a stage produced) ----------
 // every .md of the intent's record but the audit shards and the engine's own folders; read only these
 const DOC_TTL = 4000

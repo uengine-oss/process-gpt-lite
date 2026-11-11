@@ -14,6 +14,7 @@ import * as F from '../folders/service.js'
 import * as AS from './session.js'
 import * as TM from './team.js'
 import * as APPS from '../apps/registry.js'
+import * as IN from './intake.js'
 
 const T = () => config.tenantId
 // each wait's card opens the decision page; its own address lets it leave Home when that wait is over
@@ -83,6 +84,8 @@ export async function scanFolder(folder) {
   if (fresh.length || gone.length) {
     for (const m of await F.members(folder.id)) if (m.type === 'user' && !m.is_agent) emit(m.id, 'app', { app: '*', folder: folder.slug, type: 'aidlc.waits', data: { waits: now.length } })
   }
+  // work intake: a started request gets its intent, a starting unit its snapshot, a free head its card
+  await IN.tick(folder).catch((e) => console.warn('[aidlc watch] intake', folder.slug, e.message))
   return { fresh, gone }
 }
 

@@ -14,6 +14,7 @@ import * as M from '../aidlc/metrics.js'
 import * as AS from '../aidlc/session.js'
 import * as TM from '../aidlc/team.js'
 import * as MOB from '../aidlc/mob.js'
+import * as IN from '../aidlc/intake.js'
 import { STAGES, describeStage, roleName, ROLE_KEYS } from '../aidlc/stages.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -29,6 +30,7 @@ async function work(slug, user) {
 }
 const need = (w) => { if (!w.dir) throw err(404, 'no AI-DLC work in this folder'); return w.dir }
 const sessionOf = (folder) => AS.sessionName(config.tenantId, folder.slug)
+const person = (who) => { if (!who.user) throw err(403, 'a person does this'); return who.user }
 
 // The tools: name → [input shape, (args, who) => value]. Every folder tool takes `folder` (its slug).
 const F_ = { folder: z.string() }
@@ -89,6 +91,22 @@ const TOOLS = {
     if (!who.user) throw err(403, 'a person starts a meeting')
     return MOB.startMob(folder, who.user, { only })
   }],
+  // work intake and the bolt line (lib/aidlc/intake.js): asking is for anyone in the folder; who may take in,
+  // order, stop and discard is checked there, by the AI-DLC role the person holds
+  aidlc_intake: [F_, async ({ folder }, who) => IN.view(folder, person(who))],
+  aidlc_intake_propose: [{ ...F_, body: z.string(), source: z.string().optional() }, async ({ folder, ...body }, who) => IN.propose(folder, person(who), body)],
+  aidlc_intake_again: [{ ...F_, id: z.string() }, async ({ folder, id }, who) => IN.again(folder, person(who), id)],
+  aidlc_intake_impact: [{ ...F_, id: z.string(), units: z.array(z.string()).optional(), note: z.string().optional() }, async ({ folder, id, ...body }, who) => IN.confirmImpact(folder, person(who), id, body)],
+  aidlc_intake_approve: [{ ...F_, id: z.string(), scope: z.string().optional(), mode: z.string().optional(), fast: z.boolean().optional(), note: z.string().optional() },
+    async ({ folder, id, ...body }, who) => IN.approve(folder, person(who), id, body)],
+  aidlc_intake_triage: [{ ...F_, id: z.string(), action: z.string(), note: z.string().optional() }, async ({ folder, id, ...body }, who) => IN.triage(folder, person(who), id, body)],
+  aidlc_line_move: [{ ...F_, key: z.string(), bucket: z.string(), together: z.boolean().optional() }, async ({ folder, ...body }, who) => IN.move(folder, person(who), body)],
+  aidlc_line_hold: [{ ...F_, key: z.string(), hold: z.boolean().optional(), reason: z.string().optional() }, async ({ folder, ...body }, who) => IN.hold(folder, person(who), body)],
+  aidlc_line_stop_request: [{ ...F_, key: z.string(), reason: z.string(), security: z.boolean().optional() }, async ({ folder, ...body }, who) => IN.stopRequest(folder, person(who), body)],
+  aidlc_line_release: [{ ...F_, bucket: z.string().optional() }, async ({ folder, ...body }, who) => IN.release(folder, person(who), body)],
+  aidlc_line_discard_preview: [{ ...F_, key: z.string() }, async ({ folder, key }, who) => IN.discardPreview(folder, person(who), key)],
+  aidlc_line_discard: [{ ...F_, key: z.string(), reason: z.string(), dependents: z.string().optional(), forRequest: z.string().nullable().optional(), archive: z.boolean().optional() },
+    async ({ folder, ...body }, who) => IN.discard(folder, person(who), body)],
   // live to everyone in the folder who has Lite open: the SSE event 'app', for this app's screens only
   events_publish: [{ ...F_, type: z.string(), data: z.any().optional() }, async ({ folder, type, data }, who) => {
     const { folder: f } = await work(folder, who.user)

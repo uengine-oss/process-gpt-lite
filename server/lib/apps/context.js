@@ -68,6 +68,19 @@ async function openWork(link, slug) {
     decide: (body) => call('aidlc_decide', body),
     answers: (body) => call('aidlc_answers', body),
     mob: (opts) => call('aidlc_mob', { only: opts?.only }),
+    // work intake and the bolt line
+    intake: () => call('aidlc_intake'),
+    propose: (body) => call('aidlc_intake_propose', body),
+    again: (id) => call('aidlc_intake_again', { id }),
+    impact: (id, body) => call('aidlc_intake_impact', { id, ...body }),
+    approve: (id, body) => call('aidlc_intake_approve', { id, ...body }),
+    triage: (id, body) => call('aidlc_intake_triage', { id, ...body }),
+    lineMove: (body) => call('aidlc_line_move', body),
+    lineHold: (body) => call('aidlc_line_hold', body),
+    stopRequest: (body) => call('aidlc_line_stop_request', body),
+    release: (body) => call('aidlc_line_release', body || {}),
+    discardPreview: (key) => call('aidlc_line_discard_preview', { key }),
+    discard: (body) => call('aidlc_line_discard', body),
   }
 }
 

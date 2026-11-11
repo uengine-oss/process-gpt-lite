@@ -78,6 +78,10 @@ export const config = {
   aidlcPath: get('PRO_AIDLC_PATH', ''),
   aidlcPermissionMode: get('PRO_AIDLC_PERMISSION_MODE', 'default'),
   aidlcEffort: get('PRO_AIDLC_EFFORT', 'high'),
+  // the estimate of a new request (lib/aidlc/compose.js): the model Claude Code reads the record with (empty:
+  // its default), and for tests a file of ready answers so that no model is called
+  aidlcComposeModel: get('PRO_AIDLC_COMPOSE_MODEL', ''),
+  aidlcComposeStub: get('PRO_AIDLC_COMPOSE_STUB', ''),
   // fast page-state / goal-done checks in the browser loop through the router's /decide
   browserGates: get('PRO_BROWSER_GATES', 'on') !== 'off',
   // ArtCraft apps: the self-hosted web builds served at /craft/<app>/ and each app's MCP CLI

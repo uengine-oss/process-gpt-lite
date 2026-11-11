@@ -1,0 +1,98 @@
+html, body { height: 100%; background: transparent; overflow: hidden }
+.wrap { display: grid; grid-template-columns: minmax(360px, .82fr) minmax(460px, 1.18fr); height: 100vh }
+.left { overflow-y: auto; padding: 14px 14px 24px 18px; display: flex; flex-direction: column; gap: 12px }
+.right { overflow-y: auto; padding: 14px 18px 28px 14px; border-left: 1px solid var(--line) }
+.hint { color: var(--ts); font-size: 14px; padding: 24px 6px; line-height: 1.6 }
+h3 { font-size: 13px; font-weight: 700; color: var(--ts); margin: 0 0 8px; letter-spacing: .01em }
+
+/* asking */
+.ask textarea { width: 100%; min-height: 92px; resize: vertical; font-size: 15px; line-height: 1.5 }
+.ask .who { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px }
+.ask .who .right_ { margin-left: auto }
+.ask .who button { margin-left: 8px }
+.chip.can { background: rgba(52 199 89 / .16); color: #1f8a3b } .chip.cannot { background: rgba(255 159 10 / .18); color: #a86400 }
+:root[data-theme=dark] .chip.can { color: #7ee29a } :root[data-theme=dark] .chip.cannot { color: #ffc56b }
+
+/* the work in flight */
+.headbox { background: var(--cell); border-radius: 14px; padding: 10px 12px; font-size: 13.5px; display: flex; align-items: center; gap: 10px }
+.headbox .live { width: 9px; height: 9px; border-radius: 9px; background: var(--accent); flex: none }
+.headbox.free .live { background: var(--ok) }
+.headbox b { font-weight: 700 }
+.headbox a { margin-left: auto; white-space: nowrap; font-size: 13px }
+
+/* the requests */
+.grp { margin-top: 2px }
+.grp > .gh { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--ts); margin: 8px 2px 6px }
+.grp > .gh .n { background: var(--btn); border-radius: 99px; padding: 0 7px; font-weight: 600 }
+.grp.inbox > .gh .n { background: rgba(255 159 10 / .22); color: #a86400 }
+.req { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px; align-items: center; background: var(--panel); border-radius: 13px; padding: 9px 12px; margin-bottom: 6px; cursor: pointer; box-shadow: 0 1px 2px rgba(0 0 0 / .05) }
+.req:hover { box-shadow: var(--shadow) } .req.sel { box-shadow: 0 0 0 2px var(--accent), var(--shadow) }
+.req .ti { font-weight: 650; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.req .me { grid-column: 2; font-size: 12px; color: var(--ts); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.req .st { grid-row: 1 / span 2; grid-column: 3; text-align: right; display: flex; flex-direction: column; gap: 3px; align-items: flex-end }
+.req .av { grid-row: 1 / span 2 }
+.st .chip.estimating { color: var(--accent); background: rgba(10 132 255 / .13) }
+.st .chip.proposed, .st .chip.inbox { color: #a86400; background: rgba(255 159 10 / .18) }
+.st .chip.queued { color: #8a3fc0; background: rgba(191 90 242 / .16) }
+.st .chip.started, .st .chip.merged { color: #1f8a3b; background: rgba(52 199 89 / .16) }
+.st .chip.failed, .st .chip.declined { color: var(--bad); background: rgba(255 59 48 / .12) }
+:root[data-theme=dark] .st .chip.proposed, :root[data-theme=dark] .st .chip.inbox { color: #ffc56b }
+:root[data-theme=dark] .st .chip.queued { color: #dba4fb } :root[data-theme=dark] .st .chip.started, :root[data-theme=dark] .st .chip.merged { color: #7ee29a }
+.clash { color: var(--bad); font-weight: 700 }
+
+/* the plan */
+.p-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 4px }
+.p-head .tt { font-size: 19px; font-weight: 750; letter-spacing: -.01em; line-height: 1.3 }
+.p-head .ars { margin-left: auto; text-align: right; flex: none }
+.ars .num { font-size: 26px; font-weight: 800; line-height: 1; letter-spacing: -.02em } .ars .lab { font-size: 11.5px; color: var(--ts) }
+.p-sub { font-size: 12.5px; color: var(--ts); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px }
+.body { background: var(--cell); border-radius: 12px; padding: 9px 12px; font-size: 14px; white-space: pre-wrap; margin-bottom: 12px }
+.scope { display: flex; align-items: center; gap: 12px; background: var(--panel); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 16px; margin-bottom: 12px }
+.scope .nm { font-size: 24px; font-weight: 800; letter-spacing: -.02em }
+.scope .why { font-size: 13px; color: var(--ts); line-height: 1.45 } .scope .why b { color: var(--tp) }
+.scope select { margin-left: auto; font-size: 13px }
+.sum { font-size: 14.5px; line-height: 1.6; margin: 0 2px 12px }
+.sec { font-size: 12.5px; font-weight: 700; color: var(--ts); margin: 14px 2px 6px; display: flex; align-items: center; gap: 8px }
+.sec .more { margin-left: auto; font-weight: 500 }
+.metric { display: grid; grid-template-columns: 96px 110px 34px 1fr; gap: 8px; align-items: center; font-size: 13px; padding: 3px 2px }
+.metric .bar { height: 8px; border-radius: 6px; background: var(--btn); overflow: hidden } .metric .bar i { display: block; height: 100%; border-radius: 6px; background: var(--accent) }
+.metric .bar i.mid { background: var(--warn) } .metric .bar i.high { background: var(--bad) }
+.metric .v { font-variant-numeric: tabular-nums; color: var(--ts); text-align: right } .metric .why { color: var(--ts); font-size: 12.5px; line-height: 1.4 }
+.tags { display: flex; flex-wrap: wrap; gap: 5px; align-items: center }
+.tags .k { font-size: 12px; color: var(--ts); min-width: 62px }
+.trow { display: flex; gap: 6px; align-items: baseline; margin: 4px 2px }
+.chip.unit { background: rgba(10 132 255 / .12); color: var(--accent); font-weight: 600 } .chip.new { background: rgba(191 90 242 / .16); color: #8a3fc0; font-weight: 600 }
+.chip.contract { background: rgba(52 199 89 / .14); color: #1f8a3b } .chip.drop { text-decoration: line-through; opacity: .7 }
+:root[data-theme=dark] .chip.new { color: #dba4fb } :root[data-theme=dark] .chip.contract { color: #7ee29a }
+.confirmed { font-size: 12.5px; color: var(--ts); margin: 4px 2px }
+.units-edit { display: flex; flex-wrap: wrap; gap: 6px 12px; background: var(--cell); border-radius: 12px; padding: 10px 12px; margin: 6px 0; font-size: 13px }
+.units-edit label { display: flex; gap: 5px; align-items: center } .units-edit .row { flex-basis: 100%; display: flex; gap: 8px; margin-top: 4px } .units-edit input[type=text] { flex: 1 }
+.conf { border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; background: rgba(255 59 48 / .08); box-shadow: inset 0 0 0 1px rgba(255 59 48 / .3) }
+.conf.ok { background: var(--cell); box-shadow: none }
+.conf .ch { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700 } .conf .ch .bn { background: var(--tp); color: var(--bg); border-radius: 7px; padding: 0 6px; font-size: 12px }
+.conf .q { font-size: 13px; color: var(--ts); margin: 6px 0 0; display: grid; grid-template-columns: 78px 1fr; gap: 3px 8px } .conf .q i { font-style: normal; color: var(--tp) }
+.conf .why { font-size: 13px; margin-top: 6px } .conf .acts { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap }
+.near { display: flex; gap: 6px; flex-wrap: wrap }
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 8px }
+.mode { text-align: left; background: var(--cell); border-radius: 13px; padding: 9px 11px; min-height: 0; line-height: 1.35 }
+.mode b { display: block; font-size: 13.5px } .mode span { font-size: 12px; color: var(--ts) }
+.mode.on { box-shadow: 0 0 0 2px var(--accent); background: rgba(10 132 255 / .08) }
+.fast { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ts); margin: 0 2px 10px }
+.acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.acts .sp { flex: 1 }
+button.danger { color: var(--bad) } button.go { min-height: 38px; padding: 0 18px; font-size: 15px }
+.note { background: var(--cell); border-radius: 12px; padding: 9px 12px; font-size: 13.5px; margin: 10px 0 }
+.note.warn { background: rgba(255 159 10 / .14) } .note.bad { background: rgba(255 59 48 / .1) } .note.good { background: rgba(52 199 89 / .12) }
+.spin { display: inline-block; width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: sp 0.8s linear infinite; vertical-align: -2px; margin-right: 6px }
+@keyframes sp { to { transform: rotate(360deg) } }
+.ledger { list-style: none; margin: 0; padding: 0; font-size: 12.5px; color: var(--ts) } .ledger li { padding: 3px 2px; display: flex; gap: 8px } .ledger b { color: var(--tp); font-weight: 600 }
+
+/* a dialog over the screen */
+.veil { position: fixed; inset: 0; background: rgba(0 0 0 / .32); display: grid; place-items: center; z-index: 40 }
+.dlg { background: var(--bg); border-radius: 18px; box-shadow: var(--shadow); width: min(520px, 92vw); max-height: 86vh; overflow-y: auto; padding: 18px 20px }
+:root[data-theme=dark] .dlg { background: #1d1e21 }
+.dlg h2 { font-size: 17px; margin: 0 0 6px } .dlg p { font-size: 13.5px; color: var(--ts); margin: 4px 0 10px; line-height: 1.55 }
+.dlg textarea { width: 100%; min-height: 64px; resize: vertical } .dlg .acts { margin-top: 12px; justify-content: flex-end }
+.dlg ul { margin: 6px 0; padding-left: 18px; font-size: 13px } .dlg .files { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ts); max-height: 110px; overflow: auto; background: var(--cell); border-radius: 10px; padding: 6px 10px }
+.dlg label.opt { display: flex; gap: 6px; align-items: center; font-size: 13.5px; margin: 4px 0 }
+@media (max-width: 860px) { .wrap { grid-template-columns: 1fr; height: auto } html, body { overflow: auto } .right { border-left: 0; border-top: 1px solid var(--line) } .modes { grid-template-columns: 1fr } .metric { grid-template-columns: 84px 70px 30px 1fr } }

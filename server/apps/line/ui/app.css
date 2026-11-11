@@ -1,0 +1,70 @@
+html, body { height: 100%; background: transparent; overflow: hidden }
+.page { height: 100vh; overflow-y: auto; padding: 14px 18px 26px }
+.top { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; margin-bottom: 10px }
+.top b#title { font-size: 18px; letter-spacing: -.01em; display: block }
+.headbox { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ts); text-align: right }
+.headbox b { color: var(--tp) } .headbox .live { width: 9px; height: 9px; border-radius: 9px; background: var(--accent); flex: none } .headbox.free .live { background: var(--ok) }
+.hint { color: var(--ts); font-size: 14px; padding: 18px 4px; line-height: 1.6 }
+
+/* the work taken in, in order */
+.works { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px }
+.work { display: flex; align-items: center; gap: 7px; background: var(--panel); border-radius: 12px; padding: 5px 11px 5px 6px; font-size: 13px; cursor: pointer; box-shadow: 0 1px 2px rgba(0 0 0 / .05); min-height: 0; border-left: 4px solid var(--wc) }
+.work .no { width: 20px; height: 20px; border-radius: 99px; background: var(--wc); color: #fff; font-size: 11.5px; font-weight: 700; display: grid; place-items: center; flex: none }
+.work b { font-weight: 650 } .work .cnt { color: var(--ts); font-size: 12px }
+.work.on { box-shadow: 0 0 0 2px var(--wc) } .work.done { opacity: .62 }
+
+/* lanes × releases */
+.board { overflow-x: auto; background: var(--cell); border-radius: 16px; padding: 10px 10px 12px }
+.inner { position: relative; min-width: 980px }
+.grid { display: grid; grid-template-columns: 124px minmax(150px, .9fr) repeat(3, minmax(130px, 1fr)) minmax(150px, 1fr) minmax(160px, 1.05fr); gap: 0 }
+#arrows { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible }
+.gh { font-size: 12.5px; font-weight: 700; padding: 4px 8px 2px; display: flex; align-items: baseline; gap: 6px }
+.gh .cnt { font-weight: 500; color: var(--ts); font-size: 12px } .gh.now { grid-column: span 3 } .gh.tail { color: #8a3fc0 } :root[data-theme=dark] .gh.tail { color: #dba4fb }
+.sh { font-size: 11.5px; color: var(--ts); padding: 0 8px 6px; border-bottom: 1px solid var(--line) }
+.lane { font-size: 12.5px; font-weight: 650; padding: 10px 6px 10px 4px; border-bottom: 1px solid var(--line); color: var(--ts); display: flex; align-items: center; word-break: break-all }
+.cell { padding: 7px 6px; border-bottom: 1px solid var(--line); border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; min-height: 58px }
+.cell.b-shipped { background: rgba(0 0 0 / .025) } .cell.b-now.first, .gh.now, .sh.now.first { border-left: 2px solid var(--accent) }
+.cell.b-tail { border-left: 2px dashed rgba(191 90 242 / .55); background: rgba(191 90 242 / .05) } .gh.tail, .sh.tail { border-left: 2px dashed rgba(191 90 242 / .55) }
+.grid > .last { border-bottom: 0 }
+.cell.drop-ok { background: rgba(10 132 255 / .1) }
+
+.bolt { position: relative; text-align: left; background: var(--panel); border-radius: 11px; padding: 6px 9px 6px 11px; min-height: 0; line-height: 1.3; box-shadow: 0 1px 2px rgba(0 0 0 / .07); border-left: 4px solid var(--wc); display: block; width: 100%; z-index: 1 }
+.bolt .l1 { display: flex; align-items: center; gap: 5px; font-size: 12px } .bolt .bn { font-weight: 800 } .bolt .st { margin-left: auto; font-size: 11px; color: var(--ts) }
+.bolt .ti { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.bolt .bd { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px } .bolt .bd span { font-size: 10.5px; padding: 0 6px; border-radius: 99px; background: var(--btn); color: var(--ts) }
+.bolt.done { opacity: .7 } .bolt.done .st { color: #1f8a3b } .bolt.running .st { color: var(--accent); font-weight: 700 }
+.bolt.running { box-shadow: 0 0 0 1.5px var(--accent), 0 1px 2px rgba(0 0 0 / .07) }
+.bolt.estimated { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); border-left-style: solid }
+.bolt.hold { box-shadow: 0 0 0 1.5px var(--warn) } .bolt .bd .hold, .bolt .bd .stop { background: rgba(255 159 10 / .2); color: #a86400 } .bolt .bd .sec { background: rgba(255 59 48 / .16); color: var(--bad) }
+.bolt.gone { opacity: .55 } .bolt.gone .ti { text-decoration: line-through } .bolt .bd .gone { background: rgba(255 59 48 / .14); color: var(--bad) }
+.bolt.sel { box-shadow: 0 0 0 2.5px var(--tp), var(--shadow); opacity: 1 }
+.bolt.dim { opacity: .28 } .bolt.related { box-shadow: 0 0 0 2px var(--accent) }
+:root[data-theme=dark] .bolt.done .st { color: #7ee29a } :root[data-theme=dark] .bolt .bd .hold, :root[data-theme=dark] .bolt .bd .stop { color: #ffc56b }
+#arrows path { fill: none; stroke: var(--tt); stroke-width: 1.3 } #arrows path.unmet { stroke: var(--warn); stroke-dasharray: 5 4 } #arrows path.lane { stroke-dasharray: 2 4 }
+#arrows path.hl { stroke: var(--accent); stroke-width: 2.2 } #arrows path.off { opacity: .16 }
+#arrows text { font: 600 10.5px 'Pretendard Variable', system-ui, sans-serif; fill: var(--ts); paint-order: stroke; stroke: var(--bg); stroke-width: 3px } #arrows text.hl { fill: var(--accent) } #arrows text.off { opacity: .2 }
+
+/* below: the bolt picked, the releases, the change being made */
+.panels { display: grid; grid-template-columns: 1.25fr .9fr 1fr; gap: 12px; margin-top: 12px; align-items: start }
+.panels h3 { font-size: 12.5px; font-weight: 700; color: var(--ts); margin: 0 0 8px }
+.pk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap } .pk-head .bn { background: var(--tp); color: var(--bg); border-radius: 8px; padding: 1px 8px; font-weight: 800; font-size: 13px } .pk-head b { font-size: 16px }
+.kvs { display: grid; grid-template-columns: 92px 1fr; gap: 4px 10px; font-size: 13px; margin: 10px 0 } .kvs .k { color: var(--ts) }
+.dep { display: flex; gap: 6px; align-items: center; cursor: pointer } .dep .via { font-size: 11px; background: var(--btn); border-radius: 99px; padding: 0 6px; color: var(--ts) } .dep .ok { color: #1f8a3b } .dep .wait { color: #a86400 }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center } .acts .lbl { font-size: 12px; color: var(--ts); margin-right: 2px } .acts + .acts { margin-top: 8px }
+button.danger { color: var(--bad) } button.sm { min-height: 28px; padding: 0 10px; font-size: 13px; border-radius: 9px }
+.note { background: var(--cell); border-radius: 12px; padding: 8px 11px; font-size: 13px; margin: 8px 0; line-height: 1.5 }
+.note.warn { background: rgba(255 159 10 / .15) } .note.bad { background: rgba(255 59 48 / .1) } .note.good { background: rgba(52 199 89 / .12) }
+.rel { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px } .rel:last-of-type { border-bottom: 0 }
+.rel .mk { width: 20px; height: 20px; border-radius: 99px; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; background: var(--tt) } .rel .mk.ok { background: var(--ok) } .rel .mk.no { background: var(--warn) }
+.rel .nm { font-weight: 650 } .rel .ds { grid-column: 2 / span 2; color: var(--ts); font-size: 12.5px }
+.ledger { list-style: none; margin: 0; padding: 0; font-size: 12.5px; color: var(--ts) } .ledger li { padding: 3px 0; display: flex; gap: 8px } .ledger b { color: var(--tp); font-weight: 600 } .ledger .tm { flex: none; min-width: 48px; color: var(--tt) }
+.blk { margin: 6px 0; padding-left: 0; list-style: none; font-size: 13px } .blk li { padding: 3px 0 } .blk .bn { font-weight: 800 }
+
+.veil { position: fixed; inset: 0; background: rgba(0 0 0 / .32); display: grid; place-items: center; z-index: 40 }
+.dlg { background: var(--bg); border-radius: 18px; box-shadow: var(--shadow); width: min(520px, 92vw); max-height: 86vh; overflow-y: auto; padding: 18px 20px }
+:root[data-theme=dark] .dlg { background: #1d1e21 }
+.dlg h2 { font-size: 17px; margin: 0 0 6px } .dlg p { font-size: 13.5px; color: var(--ts); margin: 4px 0 10px; line-height: 1.55 }
+.dlg textarea { width: 100%; min-height: 64px; resize: vertical; margin-top: 8px } .dlg .acts { margin-top: 12px; justify-content: flex-end }
+.dlg .files { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ts); max-height: 110px; overflow: auto; background: var(--cell); border-radius: 10px; padding: 6px 10px; margin-top: 6px }
+.dlg label.opt { display: flex; gap: 6px; align-items: center; font-size: 13.5px; margin: 4px 0 }
+@media (max-width: 900px) { .panels { grid-template-columns: 1fr } .top { flex-direction: column } }

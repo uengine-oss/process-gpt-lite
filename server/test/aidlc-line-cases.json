@@ -1,0 +1,11 @@
+{
+  "about": "볼트를 다른 릴리스로 옮길 때의 판단(lib/aidlc/line.js checkMove). 줄: 1차 릴리스 6볼트(출시) + 줄 끝의 「반복 예약」(규칙 → 예약 → 화면, 계약 C3·C2) + 「문구 수정」(화면, 같은 칸의 앞 볼트 뒤). blockers 는 「유닛:막는 까닭」, together 는 함께 옮기면 되는 볼트 수(0: 방법 없음).",
+  "moves": [
+    { "name": "제공 볼트가 뒤 릴리스에 남으면 소비 볼트는 앞 릴리스로 못 간다", "title": "반복 예약", "unit": "u6-web-ui", "to": "now", "ok": false, "blockers": ["u2-booking-rules:provider", "u4-booking:provider"], "together": 3 },
+    { "name": "맨 앞 제공 볼트는 혼자 앞 릴리스로 갈 수 있다", "title": "반복 예약", "unit": "u2-booking-rules", "to": "now", "ok": true, "blockers": [], "together": 1 },
+    { "name": "가운데 볼트는 제공 볼트 하나와 함께", "title": "반복 예약", "unit": "u4-booking", "to": "next", "ok": false, "blockers": ["u2-booking-rules:provider"], "together": 2 },
+    { "name": "같은 칸의 뒤 볼트는 앞 볼트와 그 제공 볼트를 모두 데려와야 한다", "title": "문구 수정", "unit": "u6-web-ui", "to": "now", "ok": false, "blockers": ["u2-booking-rules:provider", "u4-booking:provider", "u6-web-ui:provider"], "together": 4 },
+    { "name": "같은 릴리스 안에서는 막지 않는다", "title": "반복 예약", "unit": "u6-web-ui", "to": "tail", "ok": true, "blockers": [], "together": 1 },
+    { "name": "출시 칸으로는 옮길 수 없다", "title": "반복 예약", "unit": "u2-booking-rules", "to": "shipped", "ok": false, "blockers": [], "together": 0 }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "line",
+  "version": "1.0.0",
+  "contract": 2,
+  "name": {
+    "ko": "볼트 줄",
+    "en": "Bolt line"
+  },
+  "icon": "🚦",
+  "description": "프로젝트의 모든 볼트를 한 줄로 봅니다. 릴리스 묶음과 볼트 사이 의존을 보고, 권한이 있는 사람이 옮기고·멈추고·폐기하고·내보냅니다.",
+  "requires": [
+    "aidlc"
+  ],
+  "mounts": [
+    "folder"
+  ],
+  "handles": [],
+  "entry": "line_open"
+}

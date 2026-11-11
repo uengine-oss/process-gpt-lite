@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>볼트 줄</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="../../_runtime/kit.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div><b id="title"></b><div class="muted small" id="sub"></div></div>
+    <div id="head" class="headbox" data-test="line-head"></div>
+  </header>
+  <div class="works" id="works" data-test="line-works"></div>
+  <div class="board" id="board"><div class="inner" id="inner"><div class="grid" id="grid" data-test="line-grid"></div><svg id="arrows" aria-hidden="true"></svg></div></div>
+  <div class="panels">
+    <section class="card" id="picked" data-test="line-picked"></section>
+    <section class="card" id="release" data-test="line-release"></section>
+    <section class="card" id="change" data-test="line-change"></section>
+  </div>
+</div>
+<div id="dlg"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
