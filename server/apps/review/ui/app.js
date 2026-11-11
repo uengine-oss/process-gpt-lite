@@ -16,6 +16,7 @@ const STANCE = {
   agree: ['ok', t('추천대로', 'As recommended')], choose: ['ok', t('골랐어요', 'Chose')], accept: ['ok', t('위험 감수', 'Accept as risk')],
   fix: ['fix', t('고쳐 주세요', 'Fix it')], reject: ['bad', t('해당 없음', 'Does not apply')], object: ['bad', t('이의', 'Objects')], ask: ['bad', t('질문', 'Asks')],
 }
+const EYE = '<svg class="eye" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 5C6.5 5 2.7 9.4 1.6 11.4a1.2 1.2 0 0 0 0 1.2C2.7 14.6 6.5 19 12 19s9.3-4.4 10.4-6.4a1.2 1.2 0 0 0 0-1.2C21.3 9.4 17.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z" fill="currentColor"/></svg>'
 const say = (s) => { const el = $('#toast'); el.textContent = s; el.hidden = false; clearTimeout(say.t); say.t = setTimeout(() => { el.hidden = true }, 3200) }
 
 async function load() {
@@ -40,7 +41,7 @@ function draw() {
   const discussQ = items.filter((i) => i.kind === 'question' && i.state === 'discuss').length
   $('#tabs').innerHTML = [['all', t('전체', 'All') + ` ${items.length}`], ['mine', t('내 검토', 'Mine') + ` ${mineN}`], ['discuss', t('논의 필요', 'In dispute') + ` ${n('discuss')}`]]
     .map(([k, label]) => `<button data-tab="${k}" class="${tab === k ? 'on' : ''}">${esc(label)}</button>`).join('') +
-    `<span class="sp"></span>${discussQ ? `<button class="act" data-act="mob" data-test="review-mob">🧑‍🤝‍🧑 ${esc(t(`논의 필요 ${discussQ}개로 몹 회의`, `Mob meeting on ${discussQ} in dispute`))}</button>` : ''}` +
+    `<span class="sp"></span>${discussQ ? `<button class="act" data-act="mob" data-test="review-mob">${esc(t(`논의 필요 ${discussQ}개로 몹 회의`, `Mob meeting on ${discussQ} in dispute`))}</button>` : ''}` +
     (B.workroom ? `<button class="act" data-act="shell">⌨︎ ${esc(t('세션 보기', 'Session'))}</button>` : '')
   const show = items.filter((i) => tab === 'all' || (tab === 'mine' ? B.me.reviews.includes(i.roleKey) : i.state === 'discuss'))
   if (!items.length) {
@@ -65,15 +66,15 @@ function draw() {
 function watchersOf(key) { return live.filter((p) => p.key === key && p.id !== me?.id) }
 function drawLive() {
   const here = live.filter((p) => p.id !== me?.id)
-  $('#live').innerHTML = here.length ? `<span>${esc(t('지금 함께 보는 중', 'Here now'))}</span><span class="avs">${here.map((p) => lite.avatar(p.name, { size: 26, ring: true })).join('')}</span>` : ''
+  $('#live').innerHTML = here.length ? `${EYE}<span>${esc(t('지금 함께 보는 중', 'Here now'))}</span><span class="avs">${here.map((p) => lite.avatar(p.name, { size: 26, ring: true })).join('')}</span>` : ''
   for (const c of $$('.card')) {
     const w = watchersOf(c.dataset.key)
     const el = c.querySelector('.watch')
-    if (el) el.innerHTML = w.length ? `👀 ${w.map((p) => lite.avatar(p.name, { size: 18, ring: true })).join('')}` : ''
+    if (el) el.innerHTML = w.length ? `${EYE}${w.map((p) => lite.avatar(p.name, { size: 18, ring: true })).join('')}` : ''
   }
   if (open) { const el = $('#watchers'); if (el) el.innerHTML = watchersHtml(open) }
 }
-const watchersHtml = (key) => { const w = watchersOf(key); return w.length ? `👀 ${w.map((p) => lite.avatar(p.name, { size: 20, ring: true }) + esc(p.name)).join(' ')} ${esc(t('보는 중', 'looking'))}` : '' }
+const watchersHtml = (key) => { const w = watchersOf(key); return w.length ? `${EYE}${w.map((p) => lite.avatar(p.name, { size: 20, ring: true }) + esc(p.name)).join(' ')} ${esc(t('보는 중', 'looking'))}` : '' }
 
 function stances(i) {
   return i.marks.map((m) => `<span class="st ${STANCE[m.stance]?.[0] || ''}" title="${esc(m.note || '')}">${lite.avatar(m.name, { size: 18 })}${esc(STANCE[m.stance]?.[1] || m.stance)}${m.stance === 'choose' ? ' ' + esc(m.choice) : ''}</span>`).join('')

@@ -59,7 +59,9 @@ export async function scanFolder(folder) {
     if (!row) continue
     // a kind an app handles (lib/apps: the review board takes questions and approvals) opens in that app,
     // which may also tell the people its items go to
-    const via = APPS.handlerFor(w.kind === 'questions' ? 'aidlc.questions' : w.promptKind === 'approval' ? 'aidlc.approval' : '')
+    let via = APPS.handlerFor(w.kind === 'questions' ? 'aidlc.questions' : w.promptKind === 'approval' ? 'aidlc.approval' : '')
+    // (the app may pass on one: an approval with no review findings is a plain choice on the decision page)
+    if (via?.accepts && !(await via.accepts({ id: folder.id, slug: folder.slug, name: folder.name }, w).catch(() => true))) via = null
     const url = via ? APPS.appWaitUrl(via.id, folder.slug, w.key) : waitUrl(folder.slug, w.key)
     const told = new Set()
     for (const p of await TM.deciders(folder, w.roleKey)) {

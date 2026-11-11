@@ -126,6 +126,8 @@ export async function readAudit(dir) {
 // on the next refresh; answers written into an existing file are seen at once through its mtime)
 const WALK_TTL = 15000
 const walks = new Map() // dir -> { at, files }
+// a look that must not miss a file written a moment ago (the watcher routing a new wait): walk again
+export function forget(dir) { walks.delete(dir); docWalks.delete(dir) }
 async function recordFiles(dir) {
   const hit = walks.get(dir)
   if (hit && Date.now() - hit.at < WALK_TTL) return hit.files

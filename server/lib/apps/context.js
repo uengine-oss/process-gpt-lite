@@ -26,6 +26,8 @@ async function openWork(slug, user, need = 'viewer') {
   if (!folder.repo_path || !(await R.hasAidlc(folder.repo_path))) throw err(404, 'no AI-DLC record in this folder')
   const cur = await TM.currentIntent(folder.repo_path)
   const dir = cur?.dir
+  // the server's own look runs when a wait has just appeared: see the files written a moment ago
+  if (!user && dir) R.forget(dir)
   const need404 = () => { if (!dir) throw err(404, 'no AI-DLC work in this folder') }
   const session = AS.sessionName(config.tenantId, folder.slug)
   return {

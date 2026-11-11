@@ -73,7 +73,7 @@ export const get = (id) => apps.get(id) || null
 export const waitHash = (key) => crypto.createHash('sha1').update(key).digest('hex').slice(0, 12)
 export const appWaitUrl = (id, slug, key) => `/apps/${id}/${slug}?w=${waitHash(key)}`
 export function handlerFor(kind) {
-  for (const a of apps.values()) if (a.manifest.handles.includes(kind)) return { id: a.manifest.id, notify: a.server.waits?.notify || null }
+  for (const a of apps.values()) if (a.manifest.handles.includes(kind)) return { id: a.manifest.id, notify: a.server.waits?.notify || null, accepts: a.server.waits?.accepts || null }
   return null
 }
 export const handlerIds = () => [...apps.values()].filter((a) => a.manifest.handles.length).map((a) => a.manifest.id)

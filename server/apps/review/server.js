@@ -243,6 +243,12 @@ export default (ctx) => {
     // the watcher found a wait this app handles (manifest "handles"): besides the stage's decider (told
     // already), each person whose cards are in it gets one card with their own count
     waits: {
+      // questions always; an approval only when its stage has review findings to split (else the decision page)
+      async accepts(folder, wait) {
+        if (wait.kind === 'questions') return true
+        const w = await ctx.aidlc.system(folder.slug)
+        return (await itemsOf(w)).items.some((i) => i.kind === 'finding')
+      },
       async notify(folder, wait, url, told) {
         const w = await ctx.aidlc.system(folder.slug)
         const { items } = await itemsOf(w)

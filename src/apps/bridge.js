@@ -25,7 +25,11 @@ const HANDLERS = {
   },
   navigate: (c, url) => { if (!navAllowed(url)) throw new Error('navigate: not allowed'); c.router.push(url); return true },
   openApp: (c, { id, params } = {}) => { c.openApp(String(id), params || {}); return true },
-  me: (c) => ({ id: c.app.me?.user?.id || null, name: c.app.me?.user?.name || '' }),
+  // (a screen opened straight from a card may not have loaded the person yet)
+  me: async (c) => {
+    if (!c.app.me?.user) c.app.me = await api('/me')
+    return { id: c.app.me?.user?.id || null, name: c.app.me?.user?.name || '' }
+  },
 }
 
 // a message listener for one frame: answers only that frame, only for the capabilities it was given
