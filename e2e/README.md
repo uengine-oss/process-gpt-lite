@@ -369,15 +369,24 @@ AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이
 | 선택 창 읽기(승인·요약 확인·답하는 방식·도구 권한, 자동 모드 전환은 빼기) | `aidlc.test.js` 「세션 화면」 | feature | ✅ |
 | 몹 회의 → 합의한 답 제안 → 담당자 확인 | 실제 서버 탐색 판(typed lines), 영상 판(목소리) | — | ◐ (자동 회귀 없음: 회의록 모델 호출이 든다) |
 | 코딩 중 쉘에서 지시 → AI-DLC 가 사람 요청으로 받아 설계·코드에 반영 | 실제 classic 실행(영상 `Q4soHt6enZI`, 프레임 `docs/robo-dlc/results/team/steer-*.png`) | — | ◐ (자동 회귀 없음: 실제 Claude Code 실행) |
+| (P2 앱, spec `pgpt-pro_aidlc-review`, 설계 `docs/robo-dlc/plan-review.md`) Lite 앱 규약 v1: 매니페스트 검사·앱 서버는 호스트 모듈 import 금지·한 앱이 깨져도 나머지·브리지 경로 거절 | `server/test/apps.test.js` 규약 4·브리지 1 | feature | ✅ |
+| 검토 보드: 질문 태그 → 역할 열, AI-DLC 추천과 이유, 검토자마다 자기 카드(결정권자 「질문 N개」, 다른 역할 「검토할 질문 N개」) | `apps.e2e` 2·3단계, `apps.test.js` 태그·질문 읽기 | feature | ✅ |
+| 검토 보드: 두 사람이 동시에 — 보는 중, 한 사람의 이의(이유 필수)가 다른 사람 화면에 바로 「논의 필요」, 남의 역할 카드 결정 403 | F-RD-06, `apps.e2e` 3단계 | feature | ✅ |
+| 근거 찾기(모델 없이 기록의 절)·근거 붙인 의견(기록 밖 경로 버림) | `apps.e2e` 3단계, `apps.test.js` 근거 | feature | ✅ |
+| 보내기: 논의가 남으면 409, 다시 정하면 답 셋이 질문 파일에 한 번에(결정 기록) | `apps.e2e` 4단계 | feature | ✅ |
+| 승인 창의 검토 지적: 위치 → 원본 링크, 위치 문서 단계의 역할, 고칠 것·받아들일 것이 Request Changes 하나로 세션에(대역 세션이 받은 키) · 지적 없는 승인은 결정 화면 | `apps.e2e` 5단계, `apps.test.js` 지적·결정 묶기 | feature | ✅ |
+| 산출물 보기: 문서 전체, 초점 절에 띠(같은 계열의 다음 절 앞까지), 원문 HTML 은 글자, 기록 밖 404·구성원 밖 403 | F-RD-07, `apps.e2e` 6단계, `apps.test.js` 렌더 | feature | ✅ |
+| 볼트 보드: 볼트 → 유닛 → 구축 단계, 유닛 진척·산출물, 세션 화면은 구성원에게 | F-RD-08, `apps.e2e` 7단계, `apps.test.js` 볼트 | feature | ✅ |
+| 구축의 기다림은 유닛 단계의 역할에게(코드 계획 → 개발자) | `apps.test.js` 지금 유닛 단계(실제 실행의 사건 순서), 실제 classic 실행 | feature | ✅ |
 
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (15개) | 94 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, AI-DLC F-RD-01…05) |
+| feature | `tests/feature/*.spec.js` (15개) | 97 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, AI-DLC F-RD-01…08) |
 | agent | `tests/agent/*.spec.js` (4개) | 14 (회의 A-14) |
-| 합계 | | 165 |
+| 합계 | | 168 |
 
 openspec 명세 15개의 요구사항 126개: 덮음 86 · 일부 21 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
