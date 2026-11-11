@@ -118,3 +118,11 @@ server/apps/<id>/
 - 단위: 앱 규약(매니페스트 검사, import 경계, 기능 거절), 질문 태그 → 역할, 추천·이유 읽기, 지적 위치 → 링크, 볼트 계획 읽기, 지금 유닛 판별, 문서 렌더(원문 html 무력화·절 id), 경로 거절.
 - 실서버 E2E: 보드 읽기 → 두 사람 표시·의견 → 보내기(대역 세션) → 파일 답, 산출물 보기 경로 거절, 볼트 트리.
 - Playwright: F-RD-06 검토 보드 두 브라우저 실시간, F-RD-07 산출물 초점, F-RD-08 볼트 보드 → 세션.
+
+## 6. 11-12 고침: 함께 고르기와 의도 → 유닛 → 볼트 (결정 D-1112-21 · D-1112-22)
+
+첫 실제 실행의 영상을 본 뒤의 지적 두 가지를 AI-DLC 원문(ai-dlc.dev/paper)과 대조해 고쳤다.
+
+- **볼트 계층.** 원문은 "A Unit may be executed through one or more Bolts"라고 정의한다. 2.11.2 의 `bolt-plan.md` 는 유닛을 전달 순서로 묶은 계획일 뿐이고 실행은 유닛 의존 그래프를 따르므로, 볼트 보드를 의도 → 유닛 → 볼트로 바꿨다. 볼트 하나 = 유닛의 코드 생성 한 번(`aidlc engine bolt checkpoint --kind unit` 검증으로 닫힘), 빌드·테스트의 `GATE_REJECTED` 가 그 볼트를 「되돌아옴」으로 닫고 다음 코드 생성이 새 볼트다. 계획의 묶음은 유닛의 「묶음 B<n>」 이름표(`server/apps/bolts/tree.js` `unitBolts`·`buildUnitTree`). 회의실 예약 실행: 계획 6, 실제 11(되돌아옴 5, u3 셋).
+- **함께 고르기.** 원문의 몹 정교화는 팀이 답하고 팀이 검증하는 의식이며 역할 분담이나 투표 절차가 없다. 역할별 나눔(§3)을 「역할별로」 모드로 남기고, 기본을 플래닝 포커식 「함께 고르기」로 했다: 모두가 모든 카드에서 고르고, 남의 선택은 내가 고른 뒤에 보이며, 같은 답 두 사람 = 합의, 다르거나 마지막 선택 뒤 이의 = 의견 갈림, 결정권자가 정하거나(`review_settle`) 몹 회의로(`server/apps/review/board.js` `voteState`, 표 `app_review_modes`·`app_review_settled`).
+- 시험: `apps.test.js` 25(voteState·unitBolts), `apps.e2e` 10(「함께 고르기」 한 바퀴), F-RD-06(두 브라우저: 가림 → 의견 갈림)·F-RD-08(유닛 → 볼트). 실제 classic 한 판(비품 대여, `pgpt-pro/demo/product/robo-dlc-review2-ko`)으로 영상을 다시 찍는다.
