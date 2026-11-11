@@ -1,5 +1,6 @@
-// Lite apps, contract v1 (docs/robo-dlc/plan-review.md): the manifests, the import boundary, the record
-// readers the apps stand on, and each app's own logic — no database, no server.
+// Lite apps, contract v2 = MCP Apps (docs/robo-dlc/plan-mcp-apps.md): the manifests, each app's MCP server
+// (its entry tool and ui:// screen), the import boundary, the record readers the apps stand on, and each
+// app's own logic — no database, no server.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -7,85 +8,136 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { builtinModules } from 'node:module'
-import { checkManifest, CAPABILITIES } from '../lib/apps/registry.js'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { getToolUiResourceUri, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/app-bridge'
+import { checkManifest, loadApps, list, appServer, callAppTool } from '../lib/apps/registry.js'
+import { HOST_TOOLS } from '../lib/apps/host.js'
 import * as R from '../lib/aidlc/record.js'
 import { unitNow } from '../lib/aidlc/metrics.js'
 import * as B from '../apps/review/board.js'
 import { stageTimes, buildTree } from '../apps/bolts/tree.js'
 import { renderDoc, findHeading } from '../apps/artifact/render.js'
-import { appApiPath, navAllowed } from '../../src/apps/paths.js'
+import { navAllowed } from '../../src/apps/paths.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const APPS = path.join(HERE, '../apps')
+const RUNTIME = path.join(HERE, '../lib/apps/runtime')
 const P2 = path.join(HERE, 'fixtures/aidlc-p2/261109-team-todo-board')
 const apps = fs.readdirSync(APPS, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
 
+// an app's MCP server as the host's client sees it (no person: nothing here reaches the database)
+async function connect(id) {
+  const { server, ctx } = appServer(id, null)
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  const client = new Client({ name: 'test', version: '1.0.0' })
+  await Promise.all([server.connect(a), client.connect(b)])
+  return { client, close: () => Promise.all([client.close(), server.close(), ctx.close?.()]) }
+}
+
 // ---------- the contract ----------
-test('앱 규약: 들어 있는 앱의 매니페스트는 모두 규약 v1 을 지킨다', () => {
+test('앱 규약: 들어 있는 앱의 매니페스트는 모두 규약 v2 를 지키고, 홈 패널은 호스트에 들어 있다', async () => {
   assert.deepEqual(apps.sort(), ['artifact', 'bolts', 'review'])
   for (const id of apps) {
     const m = checkManifest(JSON.parse(fs.readFileSync(path.join(APPS, id, 'manifest.json'), 'utf8')), id)
-    assert.equal(m.contract, 1)
-    for (const c of m.capabilities) assert.ok(CAPABILITIES.includes(c), `${id}: ${c}`)
+    assert.equal(m.contract, 2)
     assert.ok(fs.existsSync(path.join(APPS, id, 'ui', 'index.html')), `${id} has a page`)
   }
+  assert.deepEqual((await loadApps()).sort(), ['artifact', 'bolts', 'panels', 'review'])
+  assert.deepEqual(list().find((m) => m.id === 'panels').mounts, ['panel'])
 })
 
 test('앱 규약: 잘못된 매니페스트는 무엇이 틀렸는지 말하고 거절된다', () => {
-  const ok = { id: 'x-app', version: '1.0.0', contract: 1, name: { ko: '가', en: 'A' } }
-  assert.equal(checkManifest(ok, 'x-app').id, 'x-app')
+  const ok = { id: 'x-app', version: '2.0.0', contract: 2, name: { ko: '가', en: 'A' }, entry: 'x_open', mounts: ['folder'] }
+  assert.equal(checkManifest(ok, 'x-app').entry, 'x_open')
   assert.throws(() => checkManifest(ok, 'other'), /id must match/)
-  assert.throws(() => checkManifest({ ...ok, contract: 2 }, 'x-app'), /contract 2/)
-  assert.throws(() => checkManifest({ ...ok, capabilities: ['api', 'shell'] }, 'x-app'), /unknown shell/)
+  assert.throws(() => checkManifest({ ...ok, contract: 1 }, 'x-app'), /contract 1/)
+  assert.throws(() => checkManifest({ ...ok, entry: undefined }, 'x-app'), /entry must name the tool/)
+  assert.throws(() => checkManifest({ ...ok, entry: 'Open Screen' }, 'x-app'), /entry must name the tool/)
+  assert.throws(() => checkManifest({ ...ok, mounts: ['folder', 'desktop'] }, 'x-app'), /unknown desktop/)
   assert.throws(() => checkManifest({ ...ok, handles: ['aidlc.everything'] }, 'x-app'), /unknown aidlc.everything/)
   assert.throws(() => checkManifest({ ...ok, name: { ko: '가' } }, 'x-app'), /name needs ko and en/)
 })
 
-// an app's server code reaches Lite only through ctx: its imports are its own files, node's, or a package
-test('앱 규약: 앱 서버 코드는 호스트 모듈을 import 하지 않는다', () => {
+// every app is an MCP server: its entry tool names a ui:// screen in the MCP Apps type, each tool belongs to
+// that screen, and the watcher's hooks are hidden from a model
+test('앱 규약: 앱마다 입구 도구가 MCP Apps 화면(ui://)을 가리키고, 감시기 훅은 모델에게 숨긴다', async () => {
+  for (const m of list()) {
+    const { client, close } = await connect(m.id)
+    try {
+      const { tools } = await client.listTools()
+      const entry = tools.find((t) => t.name === m.entry)
+      const uri = entry && getToolUiResourceUri(entry)
+      assert.ok(uri?.startsWith(`ui://${m.id}/`), `${m.id}: entry ${m.entry} -> ${uri}`)
+      const res = await client.readResource({ uri })
+      assert.equal(res.contents[0].mimeType, RESOURCE_MIME_TYPE)
+      assert.match(res.contents[0].text, /<script type="module"/)
+      for (const t of tools) {
+        assert.ok(getToolUiResourceUri(t)?.startsWith(`ui://${m.id}/`), `${m.id}: ${t.name} belongs to its own screen`)
+        // the watcher's hooks are the host's, never a model's
+        if (t.name.startsWith('lite_wait_')) assert.deepEqual(t._meta.ui.visibility, ['app'], `${m.id}: ${t.name}`)
+      }
+    } finally { await close() }
+  }
+  assert.equal(RESOURCE_MIME_TYPE, 'text/html;profile=mcp-app')
+})
+
+// an app's server code reaches Lite only through ctx (a client of lite-host); its screen only through the
+// runtime. Server imports are its own files, node's, or a package the server declares; screen imports are its
+// own files or ../../_runtime/
+test('앱 규약: 앱 코드는 호스트 모듈을 import 하지 않는다(서버는 ctx, 화면은 런타임으로만)', () => {
   const deps = Object.keys(JSON.parse(fs.readFileSync(path.join(HERE, '../package.json'), 'utf8')).dependencies)
-  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? (d.name === 'ui' ? [] : walk(path.join(dir, d.name))) : d.name.endsWith('.js') ? [path.join(dir, d.name)] : []))
+  const pkg = (spec) => (spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0])
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? walk(path.join(dir, d.name)) : d.name.endsWith('.js') ? [path.join(dir, d.name)] : []))
+  const importsOf = (src) => [...src.matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/gm)].map((m) => m[1] || m[2])
   for (const id of apps) {
-    for (const file of walk(path.join(APPS, id))) {
-      const src = fs.readFileSync(file, 'utf8')
-      for (const m of src.matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/gm)) {
-        const spec = m[1] || m[2]
-        if (spec.startsWith('.')) {
+    const root = path.join(APPS, id)
+    for (const file of walk(root)) {
+      const ui = file.startsWith(path.join(root, 'ui') + path.sep)
+      for (const spec of importsOf(fs.readFileSync(file, 'utf8'))) {
+        const where = `${path.relative(APPS, file)} imports ${spec}`
+        if (ui) {
           const target = path.resolve(path.dirname(file), spec)
-          assert.ok(target.startsWith(path.join(APPS, id) + path.sep), `${path.relative(APPS, file)} imports ${spec} outside its app`)
+          assert.ok(spec.startsWith('.') && (target.startsWith(path.join(root, 'ui') + path.sep) || spec === '../../_runtime/lite.js'), where)
+        } else if (spec.startsWith('.')) {
+          assert.ok(path.resolve(path.dirname(file), spec).startsWith(root + path.sep), `${where} (outside its app)`)
         } else {
-          const name = spec.replace(/^node:/, '').split('/')[0]
-          assert.ok(builtinModules.includes(name) || deps.includes(spec.split('/')[0]), `${path.relative(APPS, file)} imports ${spec}`)
+          assert.ok(builtinModules.includes(spec.replace(/^node:/, '').split('/')[0]) || deps.includes(pkg(spec)), where)
         }
       }
     }
   }
+  // the runtime itself speaks only the standard App of @modelcontextprotocol/ext-apps
+  assert.deepEqual(importsOf(fs.readFileSync(path.join(RUNTIME, 'lite.js'), 'utf8')), ['./ext-apps.js'])
+  // what lite-host offers is a fixed list (a new tool there is a contract change)
+  assert.ok(HOST_TOOLS.includes('aidlc_work') && HOST_TOOLS.includes('events_publish') && HOST_TOOLS.includes('notify_user'))
 })
 
-test('앱 규약: 한 앱이 깨져도 다른 앱은 올라온다', async () => {
-  const { loadApps, list } = await import('../lib/apps/registry.js')
+test('앱 규약: 한 앱이 깨져도 다른 앱은 올라오고, 앱 도구는 메모리 안 MCP 로 부른다', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lite-apps-'))
-  const mk = (id, server) => {
+  const mk = (id, entry, server) => {
     fs.mkdirSync(path.join(dir, id))
-    fs.writeFileSync(path.join(dir, id, 'manifest.json'), JSON.stringify({ id, version: '1.0.0', contract: 1, name: { ko: id, en: id }, capabilities: ['api'] }))
+    fs.writeFileSync(path.join(dir, id, 'manifest.json'), JSON.stringify({ id, version: '2.0.0', contract: 2, name: { ko: id, en: id }, entry, mounts: ['folder'] }))
     fs.writeFileSync(path.join(dir, id, 'server.js'), server)
   }
-  mk('good-app', 'export default (ctx) => ({ routes(r) { r.get("/x", () => ({ contract: ctx.contract })) } })')
-  mk('bad-app', 'throw new Error("boom")')
-  const loaded = await loadApps(dir)
-  assert.deepEqual(loaded, ['good-app'])
-  assert.deepEqual(list().map((m) => m.id), ['good-app'])
+  const ok = (name, body) => `server.registerTool('${name}', { description: 'x' }, async () => (${body}))`
+  mk('good-app', 'good_open', `export default (server, ctx) => {
+    ${ok('good_open', "{ content: [], structuredContent: { value: { contract: ctx.contract, app: ctx.app.id, user: ctx.user } } }")}
+    ${ok('good_deny', "{ isError: true, content: [{ type: 'text', text: 'no' }], structuredContent: { error: 'no', status: 403 } }")}
+  }`)
+  mk('bad-app', 'bad_open', 'throw new Error("boom")')
+  mk('no-entry', 'missing_open', `export default (server) => { ${ok('other_tool', '{ content: [] }')} }`)
+  assert.deepEqual((await loadApps(dir)).sort(), ['good-app', 'panels'])
+  assert.deepEqual(list().map((m) => m.id).sort(), ['good-app', 'panels'])
+  assert.deepEqual(await callAppTool('good-app', 'good_open'), { contract: 2, app: 'good-app', user: null })
+  await assert.rejects(callAppTool('good-app', 'good_deny'), { status: 403, message: 'no' })
+  await assert.rejects(callAppTool('no-entry', 'other_tool'), { status: 404 })
   await loadApps() // back to the real apps for the rest of the process
 })
 
-test('앱 브리지: 앱은 자기 경로만 부르고, 정해진 Lite 화면으로만 옮긴다', () => {
-  assert.equal(appApiPath('review', 'folder-1/board'), '/apps/review/folder-1/board')
-  assert.equal(appApiPath('review', '/folder-1/mark'), '/apps/review/folder-1/mark')
-  assert.equal(appApiPath('artifact', 'folder-1/doc?path=inception%2Fdomain-design%2Fdecisions.md&focus=ADR-004'), '/apps/artifact/folder-1/doc?path=inception%2Fdomain-design%2Fdecisions.md&focus=ADR-004')
-  for (const bad of ['../aidlc/x', 'a/../../b', 'a/%2e%2e/b', 'a%2fb', 'ui/index.html', '']) assert.throws(() => appApiPath('review', bad), /not allowed/, bad)
-  assert.throws(() => appApiPath('../x', 'a'), /not allowed/)
+test('앱 화면의 링크: 정해진 Lite 화면으로만 옮긴다', () => {
   for (const ok of ['/workroom/aidlc/folder-1', '/aidlc/folder-1/decide', '/apps/artifact/folder-1?path=a.md', '/folders/folder-1']) assert.ok(navAllowed(ok), ok)
-  for (const bad of ['https://evil.example', '/settings/admin', '//evil', '/workroom/folder/x', 'javascript:alert(1)']) assert.ok(!navAllowed(bad), bad)
+  for (const bad of ['https://evil.example', '/settings/admin', '//evil', '/workroom/folder/x', 'javascript:alert(1)', '/api/apps/review/mcp']) assert.ok(!navAllowed(bad), bad)
 })
 
 // ---------- the record readers ----------

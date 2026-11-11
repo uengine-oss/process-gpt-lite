@@ -11,7 +11,7 @@ import { runTurn, delegate, stopTurns } from './lib/agent.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
 import { listSchedules, deleteSchedule, startScheduleTicker } from './lib/scheduler.js'
-import { generatePanel, revisePanel, savePanelData, proxyFetch } from './lib/panels.js'
+import { generatePanel, revisePanel } from './lib/panels.js'
 import { chat } from './lib/llm.js'
 import * as mail from './lib/mail.js'
 import { reviewFor, recordReview } from './lib/review.js'
@@ -313,7 +313,7 @@ app.use('/api', processRoutes(auth))
 app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
 app.use('/api', aidlcRoutes(auth))
-// Lite apps (server/apps/*, contract v1 — lib/apps/registry.js): the review board, the bolt board, the document viewer …
+// Lite apps as MCP Apps (server/apps/*, contract v2 — lib/apps/registry.js, docs/robo-dlc/plan-mcp-apps.md): the review board, the bolt board, the document viewer …
 await APPS.loadApps()
 APPS.mountApps(app, auth, { folderHasAidlc: async (slug, user) => { const { folder } = await folderAccess(safeName(slug), user, 'viewer'); return !!folder.repo_path && hasAidlc(folder.repo_path) } })
 // team sharing and messenger (routes/team.js)
@@ -589,19 +589,12 @@ app.post('/api/panels', auth, async (req, res) => {
 })
 app.post('/api/panels/:id/revise', auth, async (req, res) =>
   res.json(await revisePanel({ userId: req.user.id, id: req.params.id, instruction: req.body.instruction })))
-app.put('/api/panels/:id/data', auth, async (req, res) => res.json(await savePanelData(req.user.id, req.params.id, req.body)))
 app.delete('/api/panels/:id', auth, async (req, res) => {
   await q('delete from pro_panels where id=$1 and user_id=$2', [req.params.id, req.user.id])
   emit(req.user.id, 'panel.deleted', { id: req.params.id })
   res.json({ ok: true })
 })
-app.get('/api/panel-proxy', auth, async (req, res) => {
-  try { res.json(await proxyFetch(req.query.url)) } catch (e) { res.status(400).json({ error: e.message }) }
-})
-app.post('/api/panel-ask', auth, async (req, res) => {
-  const m = await chat({ model: config.llm.fastModel, messages: [{ role: 'system', content: L('짧게 한국어로 답해.', 'Answer briefly in English.') }, { role: 'user', content: req.body.prompt }] })
-  res.json({ text: m.content })
-})
+// a panel's own calls (save, fetch, ask, AI-DLC reads) are tools of the built-in panels app (lib/apps/builtin/panels)
 
 // ---------- schedules ----------
 app.get('/api/schedules', auth, async (req, res) => res.json(await listSchedules(req.user.id)))

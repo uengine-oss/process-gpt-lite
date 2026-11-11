@@ -1,31 +1,22 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+// A Home panel: the built-in panels app (server/lib/apps/builtin/panels) shown by the MCP Apps host — its
+// entry tool panel_view hands the screen this panel's html, script and data; what the panel may do are
+// that app's tools, as the panel's owner.
+import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
-import { panelDoc } from './panelRuntime.js'
-import { bridge, PANEL_CAPS } from '../apps/bridge.js'
+import AppFrame from '../apps/AppFrame.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
-import { useSky } from '../stores/sky.js'
 
+const PANELS = { id: 'panels', entry: 'panel_view', name: { ko: '홈 패널', en: 'Home panels' } }
 const props = defineProps({ panel: Object })
 const app = useApp()
-const sky = useSky()
-const frame = ref(null)
 const height = ref(120)
 const menu = ref(false)
-const theme = computed(() => (sky.isDay ? 'light' : 'dark'))
+const params = computed(() => ({ id: props.panel.id }))
 // Rebuild only when the panel's code changes; data saves must not reload it.
-const doc = computed(() => panelDoc(props.panel, document.documentElement.dataset.theme || 'light'))
 const codeKey = computed(() => props.panel.spec?.html + props.panel.spec?.script)
-
-// what the panel may ask of the host: the panel set of src/apps/bridge.js
-const onMessage = bridge(() => frame.value, PANEL_CAPS, {
-  app, get panelId() { return props.panel.id },
-  onFrame: (type, v) => { if (type === 'height') height.value = Math.min(Math.max(v, 40), 640); else console.warn('[panel]', props.panel.title, v) },
-})
-watch(theme, (t) => frame.value?.contentWindow?.postMessage({ __theme: t }, '*'))
-onMounted(() => window.addEventListener('message', onMessage))
-onBeforeUnmount(() => window.removeEventListener('message', onMessage))
+const onSize = (s) => { if (s?.height) height.value = Math.min(Math.max(s.height, 40), 640) }
 
 function ask() {
   menu.value = false
@@ -57,7 +48,9 @@ async function remove() {
         </div>
       </Transition>
     </div>
-    <iframe :key="codeKey" ref="frame" sandbox="allow-scripts" :srcdoc="doc" @load="frame?.contentWindow?.postMessage({ __theme: theme }, '*')" :style="{ height: height + 'px' }" title="panel" />
+    <div class="body" :style="{ height: height + 'px' }">
+      <AppFrame :key="codeKey" :manifest="PANELS" :params="params" inline @size="onSize" />
+    </div>
   </div>
 </template>
 
@@ -72,5 +65,5 @@ async function remove() {
 .menu button { text-align: left; padding: 10px 12px; border-radius: 10px; font-size: 14px; }
 .menu button:hover { background: var(--cell-bg); }
 .danger { color: var(--color-error); }
-iframe { width: 100%; border: 0; display: block; background: transparent; transition: height .35s var(--spring); }
+.body { width: 100%; transition: height .35s var(--spring); }
 </style>

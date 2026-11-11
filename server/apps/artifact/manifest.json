@@ -1,13 +1,12 @@
 {
   "id": "artifact",
-  "version": "1.0.0",
-  "contract": 1,
+  "version": "2.0.0",
+  "contract": 2,
   "name": { "ko": "산출물 보기", "en": "Artifacts" },
   "icon": "📄",
   "description": "AI-DLC 산출물 원본을 통째로, 검토 중인 부분에 초점을 맞춰 보여 줍니다.",
+  "entry": "artifact_open",
   "requires": ["aidlc"],
   "mounts": ["folder", "sheet"],
-  "capabilities": ["api", "openApp", "open"],
-  "events": [],
   "handles": []
 }

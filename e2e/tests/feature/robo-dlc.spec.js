@@ -274,3 +274,29 @@ test.describe('Robo-DLC Lite · 검토 보드 · 볼트 보드 · 산출물 보�
     expect(page.errors).toEqual([])
   })
 })
+
+// Every frame is an MCP App now (docs/robo-dlc/plan-mcp-apps.md): a Home panel too — the built-in panels app
+// hands the screen the panel's own html, script and data; panel.save is that app's tool, as the panel's owner.
+test.describe('Robo-DLC Lite · MCP Apps 호스트', () => {
+  test('F-RD-09 홈 패널도 MCP App: 패널 코드가 격리된 틀에서 돌고, 저장은 주인의 데이터로, 틀 높이는 내용을 따른다', async ({ pageAs, db, cleanup }) => {
+    const page = await pageAs('rd-panel')
+    const o = page.user
+    const spec = { html: '<div style="height:260px"><b id="n"></b> <button id="add">하나 더</button></div>', script: '$("#n").textContent = panel.data.n\n$("#add").onclick = async () => { await panel.save({ n: panel.data.n + 1 }); $("#n").textContent = panel.data.n }' }
+    const [p] = await db.q(`insert into pro_panels(user_id, title, icon, spec, data) values ($1, $2, '🧪', $3, '{"n":1}') returning id`, [o.id, `MCP 패널 ${RUN}`, spec])
+    cleanup(() => db.q('delete from pro_panels where id=$1', [p.id]))
+    await page.goto('/')
+    const box = page.locator('.panel', { hasText: `MCP 패널 ${RUN}` })
+    const frame = box.frameLocator('iframe[data-test=app-panels]')
+    await expect(frame.locator('#n')).toHaveText('1', { timeout: 30_000 })
+    // the frame has no origin of its own: scripts only, no same-origin
+    await expect(box.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox')
+    await frame.locator('#add').click()
+    await expect(frame.locator('#n')).toHaveText('2')
+    await expect.poll(async () => (await db.q('select data from pro_panels where id=$1', [p.id]))[0].data.n).toBe(2)
+    // the frame grows to its content (ui/notifications/size-changed)
+    await expect.poll(async () => (await box.locator('.body').boundingBox())?.height || 0).toBeGreaterThan(250)
+    await page.reload()
+    await expect(page.locator('.panel', { hasText: `MCP 패널 ${RUN}` }).frameLocator('iframe').locator('#n')).toHaveText('2', { timeout: 30_000 })
+    expect(page.errors).toEqual([])
+  })
+})

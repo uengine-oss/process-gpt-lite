@@ -1,7 +1,9 @@
 // 검토 보드 — the stage's questions and findings as cards in role lanes; everyone reviews their own lane at
 // once, sees who looks at what, leaves stances and comments with evidence; the stage's decider sends it all.
+import lite from '../../_runtime/lite.js'
 const { t, esc, $, $$ } = lite
-const folder = encodeURIComponent(lite.params.folder)
+await lite.ready
+const folder = lite.params.folder
 let B = null          // the board from the server
 let me = null
 let open = lite.params.item || null // the card in the drawer
@@ -20,7 +22,7 @@ const EYE = '<svg class="eye" viewBox="0 0 24 24" width="15" height="15" aria-hi
 const say = (s) => { const el = $('#toast'); el.textContent = s; el.hidden = false; clearTimeout(say.t); say.t = setTimeout(() => { el.hidden = true }, 3200) }
 
 async function load() {
-  try { B = await lite.api(`${folder}/board`) } catch (e) { $('#empty').hidden = false; $('#empty').textContent = e.message; return }
+  try { B = await lite.tool('review_open', { folder }); me = { id: B.me.id, name: B.me.name } } catch (e) { $('#empty').hidden = false; $('#empty').textContent = e.message; return }
   draw()
 }
 let reloadT = null
@@ -173,14 +175,14 @@ function drawSend() {
 async function mark(stance, extra = {}) {
   const note = ($('#note')?.value || '').trim()
   try {
-    await lite.api(`${folder}/mark`, { method: 'POST', body: { key: open, stance, note: note || null, ...extra } })
+    await lite.tool('review_mark', { folder, key: open, stance, note: note || null, ...extra })
     if ($('#note')) $('#note').value = ''
     await load()
   } catch (e) { say(e.message) }
 }
 async function send(what, rec, force = false) {
   try {
-    const out = await lite.api(`${folder}/send`, { method: 'POST', body: { what, useRecommended: !!rec, force } })
+    const out = await lite.tool('review_send', { folder, what, useRecommended: !!rec, force })
     say(what === 'questions' ? t(`답 ${Object.keys(out.answers).length}개를 적고 세션에 알렸어요.`, `Wrote ${Object.keys(out.answers).length} answer(s) and told the session.`) : t(`세션에 넣었어요: ${out.text || 'Approve'}`, `Put into the session: ${out.text || 'Approve'}`))
     await load()
   } catch (e) {
@@ -205,21 +207,21 @@ document.addEventListener('click', async (e) => {
     if (act === 'choose') return mark('choose', { choice: a.dataset.choice })
     if (act === 'other') { if (!($('#note')?.value || '').trim()) return say(t('다른 답을 적어 주세요.', 'Write the other answer.')); return mark('choose', { choice: 'X' }) }
     if (['object', 'ask', 'fix', 'reject'].includes(act)) { if (!($('#note')?.value || '').trim()) { $('#note')?.focus(); return say(t('이유를 적어 주세요.', 'Say why.')) } return mark(act) }
-    if (act === 'find') { try { found[open] = (await lite.api(`${folder}/evidence`, { method: 'POST', body: { key: open } })).hits } catch (err) { say(err.message) } return drawer() }
+    if (act === 'find') { try { found[open] = (await lite.tool('review_evidence', { folder, key: open })).hits } catch (err) { say(err.message) } return drawer() }
     if (act === 'attach') { const h = found[open]?.[Number(a.dataset.n)]; if (h && !attach.some((x) => x.path === h.path && x.focus === h.focus)) attach.push(h); return drawer() }
     if (act === 'unattach') { attach.splice(Number(a.dataset.n), 1); return drawer() }
     if (act === 'comment') {
       const body = ($('#cbody')?.value || '').trim()
       if (!body) return
       const urls = [...body.matchAll(/https?:\/\/\S+/g)].map((m) => ({ url: m[0], label: m[0].replace(/^https?:\/\//, '').slice(0, 60) }))
-      try { await lite.api(`${folder}/comment`, { method: 'POST', body: { key: open, body, evidence: [...attach, ...urls] } }); $('#cbody').value = ''; attach = []; await load() } catch (err) { say(err.message) }
+      try { await lite.tool('review_comment', { folder, key: open, body, evidence: [...attach, ...urls] }); $('#cbody').value = ''; attach = []; await load() } catch (err) { say(err.message) }
       return
     }
     if (act === 'force-no') { pendingForce = null; return drawSend() }
     if (act === 'force-yes') { const p = pendingForce; pendingForce = null; return send(p.what, p.rec, true) }
     if (act === 'send-q') return send('questions', a.dataset.rec)
     if (act === 'send-f') return send('findings')
-    if (act === 'mob') { try { const out = await lite.api(`${folder}/mob`, { method: 'POST' }); say(t(`몹 회의 대화방에 질문 ${out.questions.length}개를 올렸어요.`, `Put ${out.questions.length} question(s) in the mob room.`)) } catch (err) { say(err.message) } return }
+    if (act === 'mob') { try { const out = await lite.tool('review_mob', { folder }); say(t(`몹 회의 대화방에 질문 ${out.questions.length}개를 올렸어요.`, `Put ${out.questions.length} question(s) in the mob room.`)) } catch (err) { say(err.message) } return }
     if (act === 'shell') return lite.navigate(B.workroom)
   }
   const c = e.target.closest('.card')
@@ -229,7 +231,7 @@ document.addEventListener('click', async (e) => {
 // ---------- live ----------
 // I look at the board (or one card): said every 5 s; the others' last word is good for 15 s
 async function beat() {
-  try { const out = await lite.api(`${folder}/presence`, { method: 'POST', body: { key: open } }); setLive(out.users) } catch { /* offline: try again */ }
+  try { const out = await lite.tool('review_presence', { folder, key: open }); setLive(out.users) } catch { /* offline: try again */ }
 }
 function setLive(users) { const now = Date.now(); live = users.map((u) => ({ ...u, got: now - (u.age || 0) })); drawLive() }
 setInterval(beat, 5000)
@@ -239,4 +241,5 @@ lite.on('changed', reload)
 lite.on('aidlc.waits', reload)
 setInterval(load, 20000) // in case an event was missed
 
-;(async () => { me = await lite.me().catch(() => null); await load(); beat() })()
+await load()
+beat()

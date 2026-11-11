@@ -7,6 +7,13 @@
 
 ### 추가
 
+- **Lite 앱 규약 v2 = MCP Apps** (설계 `docs/robo-dlc/plan-mcp-apps.md`): Lite 앱과 홈 패널을 MCP 공식 확장 MCP Apps(2026-01-26) 위로 옮겼습니다. 같은 앱을 Claude·ChatGPT·VS Code 같은 다른 MCP Apps 호스트에도 띄울 수 있게 하려는 것입니다.
+  - 앱 하나 = MCP 서버 하나(`/api/apps/<id>/mcp`, Streamable HTTP·상태 없음, 로그인한 사람으로). 도구와 화면(`ui://<id>/…`, `text/html;profile=mcp-app`)을 `@modelcontextprotocol/ext-apps` 로 등록하고, 매니페스트는 입구 도구와 Lite 확장(붙는 자리·맡는 기다림)만 적습니다.
+  - Lite 기능은 `lite-host` MCP 서버의 도구로만 씁니다(AI-DLC 기록·사람·세션·결정·이벤트·알림). 같은 프로세스 앱은 메모리 안 연결로, 따로 도는 앱은 `/api/apps/_host/mcp` 로 같은 도구를 부릅니다. 사람의 토큰으로는 남에게 카드를 보낼 수 없습니다.
+  - 화면 쪽: `AppFrame` 이 MCP Apps 호스트(`AppBridge` + MCP 클라이언트)이고, 화면은 표준 `App` 위의 얇은 `lite` 어댑터를 씁니다. 실시간 갱신은 Lite 확장 알림 `notifications/io.uengine.lite/event` 입니다.
+  - 홈 패널도 내장 `panels` 앱입니다. 패널의 저장·외부 JSON·짧은 답·AI-DLC 읽기는 그 앱의 도구이고 언제나 패널 주인으로 돕니다. 그래서 `/api/panel-proxy`·`/api/panel-ask`·`PUT /api/panels/:id/data` 를 지웠습니다.
+  - 개발 서버 둘이 한 DB 를 쓸 때 `PRO_AIDLC_WATCH_ONLY=<경로>` 로 감시기가 볼 폴더를 좁힙니다.
+  - 시험: `apps.test.js` 17(입구 도구의 `ui://` 화면, 감시기 훅 숨김, 화면은 런타임만 import), `apps.e2e.test.js` 9(검토 보드 흐름 전부 MCP 로, MCP 끝점 401·405, 홈 패널은 주인만), Playwright F-RD-01~09.
 - **Robo-DLC Lite P2 — 검토 보드 · 볼트 보드 · 산출물 보기, Lite 앱 규약 v1** (설계 `docs/robo-dlc/plan-review.md`, 스펙 process-gpt `openspec/specs/pgpt-pro_aidlc-review`, 튜토리얼 31장):
   - **Lite 앱 규약 v1**: 앱 하나 = `server/apps/<id>/`(매니페스트 · `ctx` 위의 서버 · 격리 iframe 화면 · 자기 표). 서버가 뜰 때 매니페스트를 검사해 올리고(한 앱이 깨져도 나머지는 올라옴), 앱 서버는 호스트 모듈을 import 하지 않고 호스트 맥락 `ctx`(AI-DLC 기록·사람·세션·결정, SSE `app` 이벤트, 알림)만 씁니다(시험이 검사). 화면은 CSP sandbox 로 제공되고 `window.lite` 로만 호스트와 이야기하며, 호스트는 매니페스트에 없는 기능을 거절합니다. 홈 패널도 같은 기능 표(`src/apps/bridge.js`)를 씁니다. 폴더의 AI-DLC 띠 아래에 앱 단추, `/apps/:id/:folder` 화면, 옆 시트(`lite.openApp`).
   - **검토 보드(review)**: 지금 단계의 질문을 역할 태그대로 역할별 열의 카드로(AI-DLC 추천·이유·묻는 이유), 검토자마다 자기 카드, 동시에 보는 사람, 추천대로·고름·다른 답 / 이의·질문(이유 필수), 근거 찾기(모델 없이 기록의 절)와 근거 붙인 의견, 논의 필요만 몹 회의, 단계 결정권자의 한 번에 보내기(질문 파일 답 · 승인 창에 결정 하나: Request Changes / 해당 없음 승인 / Approve). 승인 창의 검토 지적은 위치 문서를 만든 단계의 역할에게, 위치는 원본 링크로. 지적 없는 승인은 결정 화면.

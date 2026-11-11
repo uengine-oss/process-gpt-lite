@@ -1,6 +1,8 @@
 // 볼트 보드 — bolts → units → construction stages; a unit's progress, documents and the live session.
+import lite from '../../_runtime/lite.js'
 const { t, esc, $, $$ } = lite
-const folder = encodeURIComponent(lite.params.folder)
+await lite.ready
+const folder = lite.params.folder
 let T = null
 let sel = lite.params.unit || null
 let U = null
@@ -10,7 +12,7 @@ const dur = (m) => (m == null ? '–' : m < 1 ? t('1분 미만', '<1m') : m < 60
 const short = { 'functional-design': t('기능 설계', 'Functional'), 'nfr-requirements': t('NFR 요구', 'NFR req.'), 'nfr-design': t('NFR 설계', 'NFR design'), 'infrastructure-design': t('인프라', 'Infra'), 'code-generation': t('코드 생성', 'Code') }
 
 async function load() {
-  try { T = await lite.api(`${folder}/tree`) } catch (e) { $('#tree').innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
+  try { T = await lite.tool('bolts_open', { folder }) } catch (e) { $('#tree').innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
   $('#title').textContent = (T.intent?.project || T.intent?.slug || '').split(/(?<=[.!?。])\s|—/)[0].slice(0, 80)
   const nb = T.bolts.filter((b) => !b.loose).length, nu = T.bolts.reduce((n, b) => n + b.units.length, 0)
   $('#sub').textContent = `${T.intent?.slug || ''} · ${t(`볼트 ${nb}개 · 유닛 ${nu}개`, `${nb} bolt(s) · ${nu} unit(s)`)}`
@@ -36,7 +38,7 @@ function unit(u) {
 async function pick(name, redraw = true) {
   sel = name
   for (const el of $$('.unit')) el.classList.toggle('sel', el.dataset.unit === name)
-  try { U = await lite.api(`${folder}/unit/${encodeURIComponent(name)}`) } catch (e) { $('#detail').innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
+  try { U = await lite.tool('bolts_unit', { folder, name }) } catch (e) { $('#detail').innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
   const u = U.unit
   $('#detail').innerHTML = `<div class="d-head"><b>${esc(u.name)}</b>${u.kind ? `<span class="chip">${esc(u.kind)}</span>` : ''}<span class="state ${u.status}">${esc(STATE[u.status] || u.status)}</span></div>
     ${u.dependsOn?.length ? `<div class="muted small">${esc(t('의존', 'Depends on'))}: ${esc(u.dependsOn.join(', '))}</div>` : ''}
@@ -58,7 +60,7 @@ async function shell() {
     return
   }
   let s
-  try { s = await lite.api(`${folder}/screen?lines=26`) } catch { s = null }
+  try { s = await lite.tool('bolts_screen', { folder, lines: 26 }) } catch { s = null }
   if (!$('#shell') || sel !== U.unit.name) return
   box.innerHTML = `<div class="shellbar"><span class="muted">${s?.prompt ? '⏳ ' + esc(s.prompt.title) : esc(t('Claude Code 가 이 유닛을 만들고 있어요 — 3초마다 갱신', 'Claude Code is building this unit — refreshed every 3 s'))}</span><button class="primary" data-act="open" data-test="bolts-open-shell">${esc(t('작업실에서 열기', 'Open in the workroom'))}</button></div>
     <pre class="screen" data-test="bolts-screen">${esc(s?.running ? s.text : t('세션이 떠 있지 않아요.', 'The session is not running.'))}</pre>`

@@ -9,7 +9,7 @@ import * as R from '../lib/aidlc/record.js'
 import * as M from '../lib/aidlc/metrics.js'
 import { build } from '../lib/aidlc/service.js'
 import { PRESETS, presetSpec } from '../lib/aidlc/presets.js'
-import { aidlcApiPath } from '../../src/components/panelRuntime.js'
+import { aidlcApiPath } from '../lib/apps/builtin/panels/index.js'
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'aidlc-project')
 

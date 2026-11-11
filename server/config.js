@@ -65,6 +65,8 @@ export const config = {
   // kept in tmux on its own socket. aidlcPath goes in front of PATH (where the `aidlc` CLI is);
   // the permission mode and effort the session starts with.
   aidlcTmuxSocket: get('PRO_AIDLC_TMUX_SOCKET', 'pgpt-aidlc'),
+  // a second development server on the same database watches only the AI-DLC folders below this path
+  aidlcWatchOnly: get('PRO_AIDLC_WATCH_ONLY', ''),
   aidlcPath: get('PRO_AIDLC_PATH', ''),
   aidlcPermissionMode: get('PRO_AIDLC_PERMISSION_MODE', 'default'),
   aidlcEffort: get('PRO_AIDLC_EFFORT', 'high'),

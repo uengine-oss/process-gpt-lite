@@ -1,5 +1,7 @@
 // 산출물 보기: the whole document, the part under review in a band (docs/robo-dlc/plan-review.md §3.3).
+import lite from '../../_runtime/lite.js'
 const { t, esc, $, $$ } = lite
+await lite.ready
 const folder = lite.params.folder
 let cur = null // the document on screen
 let allDocs = []
@@ -10,7 +12,7 @@ $('#tocLabel').textContent = t('목차', 'Contents')
 async function show(path, focus = '', quote = '') {
   if (!path) return library()
   let d
-  try { d = await lite.api(`${encodeURIComponent(folder)}/doc?path=${encodeURIComponent(path)}&focus=${encodeURIComponent(focus || '')}`) } catch (e) {
+  try { d = await lite.tool('artifact_doc', { folder, path, focus: focus || '' }) } catch (e) {
     $('#doc').innerHTML = `<p class="empty">${esc(t('문서를 열 수 없어요: ', 'Cannot open the document: '))}${esc(e.message)}</p>`
     return
   }
@@ -101,7 +103,7 @@ function mark(el, quote) {
 }
 
 async function library() {
-  const d = await lite.api(`${encodeURIComponent(folder)}/docs`).catch(() => ({ docs: [] }))
+  const d = await lite.tool('artifact_docs', { folder }).catch(() => ({ docs: [] }))
   allDocs = d.docs.map((x) => x.path)
   const groups = new Map()
   for (const x of d.docs) {

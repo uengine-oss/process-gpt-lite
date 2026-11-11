@@ -89,6 +89,7 @@ export async function scanFolder(folder) {
 export async function scanOnce() {
   const folders = await q(`select * from pro_folders where tenant_id=$1 and repo_path is not null and kind <> 'skill'`, [T()])
   for (const f of folders) {
+    if (config.aidlcWatchOnly && !f.repo_path.startsWith(config.aidlcWatchOnly)) continue
     if (!(await R.hasAidlc(f.repo_path))) continue
     await scanFolder(f).catch((e) => console.warn('[aidlc watch]', f.slug, e.message))
   }

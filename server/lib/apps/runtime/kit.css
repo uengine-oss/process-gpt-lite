@@ -1,4 +1,4 @@
-/* The look every Lite app shares (contract v1): Lite's own tokens, light and dark. */
+/* The look every Lite app shares (contract v2, the screens of MCP Apps): Lite's own tokens, light and dark. */
 :root { --bg: #f5f5f7; --panel: rgba(255 255 255 / .78); --cell: rgba(0 0 0 / .045); --line: rgba(0 0 0 / .09); --tp: rgb(29 29 31); --ts: rgba(29 29 31 / .62); --tt: rgba(29 29 31 / .38);
   --btn: rgba(0 0 0 / .06); --accent: #0a84ff; --ok: #34c759; --warn: #ff9f0a; --bad: #ff3b30; --violet: #bf5af2; --focus: rgba(255 214 10 / .28); --shadow: 0 6px 24px rgba(0 0 0 / .08) }
 :root[data-theme=dark] { --bg: #111214; --panel: rgba(38 38 42 / .82); --cell: rgba(255 255 255 / .06); --line: rgba(255 255 255 / .1); --tp: rgb(245 245 247); --ts: rgba(245 245 247 / .62); --tt: rgba(245 245 247 / .38);

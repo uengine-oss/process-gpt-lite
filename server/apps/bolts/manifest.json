@@ -1,13 +1,19 @@
 {
   "id": "bolts",
-  "version": "1.0.0",
-  "contract": 1,
-  "name": { "ko": "볼트 보드", "en": "Bolt board" },
+  "version": "2.0.0",
+  "contract": 2,
+  "name": {
+    "ko": "볼트 보드",
+    "en": "Bolt board"
+  },
   "icon": "🧱",
   "description": "볼트 → 유닛 → 구축 단계를 한눈에 보고, 유닛을 누르면 진척 요약과 그 유닛을 만드는 Claude Code 세션을 바로 봅니다.",
-  "requires": ["aidlc"],
-  "mounts": ["folder"],
-  "capabilities": ["api", "navigate", "openApp"],
-  "events": [],
-  "handles": []
+  "requires": [
+    "aidlc"
+  ],
+  "mounts": [
+    "folder"
+  ],
+  "handles": [],
+  "entry": "bolts_open"
 }

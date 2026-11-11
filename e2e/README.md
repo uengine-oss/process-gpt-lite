@@ -359,7 +359,7 @@ AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이
 | 작업 사본의 변화가 바로 보인다(승인 대기 약 3분, 역할 PO·기획) | `aidlc.e2e` 6단계, F-RD-03 | feature | ✅ |
 | 요청의 이름은 기록 폴더 밖으로 못 나간다(400·404) | `aidlc-cases.json` recordName, `aidlc.e2e` 4단계 | feature | ✅ |
 | 대시보드 패널 6종을 내 홈에(외부인 403, 없는 작업 404) | `aidlc.e2e` 5단계, F-RD-01 | feature | ✅ |
-| 패널 스크립트는 읽기 전용 `/api/aidlc/` GET 만(`..`·인코딩된 점·슬래시·주소 거절) | `aidlc-cases.json` panelPath | feature | ✅ |
+| 패널 스크립트의 AI-DLC 읽기는 대시보드 읽기 다섯 가지만(`..`·인코딩된 점·슬래시·주소 거절) | `aidlc-cases.json` panelPath, `apps.e2e` 9단계 | feature | ✅ |
 | 패널은 20초마다 다시 그리고 첫 실패만 이유를 보인다 | `aidlc.test.js` 프리셋, F-RD-03 | feature | ✅ |
 | 폴더 화면은 AI-DLC 기록을 알아보고 「홈에 대시보드 추가」 | F-RD-01 | feature | ✅ |
 | (P1 팀 세션, spec `pgpt-pro_aidlc-team`, 설계 `docs/robo-dlc/plan-team.md`) 폴더 팀 세션을 구성원이 같이 보고 보기 권한은 읽기만 | F-RD-05 | feature | ✅ |
@@ -369,7 +369,9 @@ AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이
 | 선택 창 읽기(승인·요약 확인·답하는 방식·도구 권한, 자동 모드 전환은 빼기) | `aidlc.test.js` 「세션 화면」 | feature | ✅ |
 | 몹 회의 → 합의한 답 제안 → 담당자 확인 | 실제 서버 탐색 판(typed lines), 영상 판(목소리) | — | ◐ (자동 회귀 없음: 회의록 모델 호출이 든다) |
 | 코딩 중 쉘에서 지시 → AI-DLC 가 사람 요청으로 받아 설계·코드에 반영 | 실제 classic 실행(영상 `Q4soHt6enZI`, 프레임 `docs/robo-dlc/results/team/steer-*.png`) | — | ◐ (자동 회귀 없음: 실제 Claude Code 실행) |
-| (P2 앱, spec `pgpt-pro_aidlc-review`, 설계 `docs/robo-dlc/plan-review.md`) Lite 앱 규약 v1: 매니페스트 검사·앱 서버는 호스트 모듈 import 금지·한 앱이 깨져도 나머지·브리지 경로 거절 | `server/test/apps.test.js` 규약 4·브리지 1 | feature | ✅ |
+| (P2 앱, spec `pgpt-pro_aidlc-review`, 설계 `docs/robo-dlc/plan-review.md`·`plan-mcp-apps.md`) 앱 규약 v2 = MCP Apps: 매니페스트 검사(입구 도구), 앱마다 MCP 서버의 입구 도구가 `ui://` 화면(`text/html;profile=mcp-app`)을 가리킴, 감시기 훅은 모델에게 숨김, 앱 서버는 호스트 모듈 import 금지·화면은 런타임만, 한 앱이 깨져도 나머지, 앱 도구는 메모리 안 MCP 로 | `server/test/apps.test.js` 규약 5·링크 1 | feature | ✅ |
+| MCP 앱 서버(`/api/apps/<id>/mcp`, Streamable HTTP·상태 없음): 토큰 없이 401·GET 405, 화면 파일·런타임은 CORS·CSP sandbox, lite-host(`/api/apps/_host/mcp`)는 사람이 남에게 카드 보내기 403 | `apps.e2e` 8단계 | feature | ✅ |
+| 홈 패널도 MCP App(내장 panels 앱): 패널 코드가 격리된 틀(같은 출처 없음)에서 돌고, 저장·AI-DLC 읽기는 주인만(남의 패널 404), 경로 밖 거절, 틀 높이는 내용을 따름 | F-RD-09, `apps.e2e` 9단계, `aidlc-cases.json` panelPath | feature | ✅ |
 | 검토 보드: 질문 태그 → 역할 열, AI-DLC 추천과 이유, 검토자마다 자기 카드(결정권자 「질문 N개」, 다른 역할 「검토할 질문 N개」) | `apps.e2e` 2·3단계, `apps.test.js` 태그·질문 읽기 | feature | ✅ |
 | 검토 보드: 두 사람이 동시에 — 보는 중, 한 사람의 이의(이유 필수)가 다른 사람 화면에 바로 「논의 필요」, 남의 역할 카드 결정 403 | F-RD-06, `apps.e2e` 3단계 | feature | ✅ |
 | 근거 찾기(모델 없이 기록의 절)·근거 붙인 의견(기록 밖 경로 버림) | `apps.e2e` 3단계, `apps.test.js` 근거 | feature | ✅ |
@@ -384,9 +386,9 @@ AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (15개) | 97 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, AI-DLC F-RD-01…08) |
+| feature | `tests/feature/*.spec.js` (15개) | 98 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, AI-DLC F-RD-01…09) |
 | agent | `tests/agent/*.spec.js` (4개) | 14 (회의 A-14) |
-| 합계 | | 168 |
+| 합계 | | 169 |
 
 openspec 명세 15개의 요구사항 126개: 덮음 86 · 일부 21 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
