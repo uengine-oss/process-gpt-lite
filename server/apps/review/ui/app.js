@@ -97,8 +97,9 @@ function card(i) {
 function drawer() {
   const i = B.items.find((x) => x.key === open)
   const d = $('#drawer')
-  if (!i) { d.hidden = true; open = null; return }
+  if (!i) { d.hidden = true; open = null; document.body.classList.remove('drawer-open'); return }
   d.hidden = false
+  document.body.classList.add('drawer-open')
   const lane = B.lanes.find((l) => l.roleKey === i.roleKey)
   // the card's role decides it; the stage's decider may decide any card (the server checks the same)
   const reviewer = lane?.people.some((p) => p.id === me?.id) || B.me.canSend
@@ -199,7 +200,7 @@ document.addEventListener('click', async (e) => {
   const a = e.target.closest('[data-act]')
   if (a) {
     const act = a.dataset.act
-    if (act === 'close') { open = null; $('#drawer').hidden = true; attach = []; beat(); return draw() }
+    if (act === 'close') { open = null; $('#drawer').hidden = true; document.body.classList.remove('drawer-open'); attach = []; beat(); return draw() }
     if (act === 'agree' || act === 'accept') return mark(act)
     if (act === 'choose') return mark('choose', { choice: a.dataset.choice })
     if (act === 'other') { if (!($('#note')?.value || '').trim()) return say(t('다른 답을 적어 주세요.', 'Write the other answer.')); return mark('choose', { choice: 'X' }) }

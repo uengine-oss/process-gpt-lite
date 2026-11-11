@@ -72,3 +72,5 @@ textarea.note { width: 100%; min-height: 64px; resize: vertical; font-size: 14px
 .box { background: var(--cell); border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.5; margin: 4px 0 10px }
 .box .k { font-size: 12px; color: var(--tt) }
 .eye { color: var(--accent); flex: none; margin-right: 2px }
+/* with a card open the lanes keep clear of the drawer (and scroll sideways), so every card can still be picked */
+body.drawer-open .lanes { margin-right: min(460px, 92vw) }
