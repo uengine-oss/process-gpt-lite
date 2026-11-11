@@ -131,7 +131,8 @@ export function parseChoice(text) {
   return {
     title, question: q.join('\n').replace(/\n{2,}/g, '\n').trim(), detail: detail.join('\n'),
     options: opts.map((o) => ({ n: o.n, label: o.label, hint: o.hint, freeText: FREE_TEXT.test(o.label) })),
-    fingerprint: crypto.createHash('sha1').update(JSON.stringify([title, q, opts.map((o) => o.label)])).digest('hex').slice(0, 16),
+    // (the command too: two tool permissions one after the other differ only in what they would run)
+    fingerprint: crypto.createHash('sha1').update(JSON.stringify([title, q, opts.map((o) => o.label), detail])).digest('hex').slice(0, 16),
   }
 }
 
