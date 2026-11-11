@@ -150,6 +150,12 @@ test('지금 유닛 단계: 유닛 사건이 단계를 정하고, 유닛이 끝�
   assert.equal(unitNow([...plan, e('GATE_APPROVED', 'code-generation', 'u2'), e('STAGE_AWAITING_APPROVAL', 'functional-design')]), null)
   assert.equal(unitNow([...plan, e('STAGE_STARTED', 'build-and-test')]), null)
   assert.equal(unitNow([e('UNIT_STARTED', 'code-generation', '(missing marker)')]), null)
+  // the code plan is written (and asked about) before any event names the unit's code-generation: the file's Context does
+  const wrote = (ctx) => ({ event: 'ARTIFACT_CREATED', stage: '', unit: '', fields: { Context: ctx } })
+  const infraDone = [e('UNIT_STARTED', 'infrastructure-design', 'u1'), e('UNIT_COMPLETED', 'infrastructure-design', 'u1'), e('GATE_APPROVED', 'infrastructure-design', 'u1')]
+  assert.equal(unitNow(infraDone).stage, 'infrastructure-design')
+  assert.deepEqual(unitNow([...infraDone, wrote('construction > u1 > code-generation > code-generation-plan.md')]), { unit: 'u1', stage: 'code-generation', open: true, at: undefined })
+  assert.equal(unitNow([...infraDone, wrote('inception > units-generation')]).stage, 'infrastructure-design')
 })
 
 // ---------- the review board ----------

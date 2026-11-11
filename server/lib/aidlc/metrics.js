@@ -178,12 +178,17 @@ export function reviewSummary(reviews) {
 // review and approval — a unit stage that just finished still owns the approval after it). The
 // whole-intent STAGE_* events that follow the last unit (no unit named) end it.
 export const UNIT_STAGES = new Set(['functional-design', 'nfr-requirements', 'nfr-design', 'infrastructure-design', 'code-generation'])
+// A file the engine writes says where it is ("Context: construction > u1 > code-generation"): the code plan is
+// written, and asked about, before any event names the unit's code-generation (seen in a real run).
+const CONTEXT = /^construction\s*>\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*>\s*([a-z-]+)/
 export function unitNow(events) {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]
     if (UNIT_STAGES.has(e.stage) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(e.unit || '')) {
       return { unit: e.unit, stage: e.stage, open: !/^(UNIT_COMPLETED|GATE_APPROVED)$/.test(e.event), at: e.ts }
     }
+    const c = /^ARTIFACT_/.test(e.event) && String(e.fields?.Context || '').match(CONTEXT)
+    if (c && UNIT_STAGES.has(c[2])) return { unit: c[1], stage: c[2], open: true, at: e.ts }
     if ((/^STAGE_/.test(e.event) && e.stage && !e.unit) || e.event === 'WORKFLOW_COMPLETED') return null
   }
   return null
