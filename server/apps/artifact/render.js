@@ -40,8 +40,20 @@ export function renderDoc(text) {
 
 // the heading a focus names: the same words first, then one that starts with them, then one that
 // holds them ("ADR-004" → "ADR-004: 칸 단위 저장"); none: null (the viewer then looks in the text)
+// A focus may say more than the heading ("ADR-003 Decision 1단계", '"외부 의존" 아래 문단'): then its leading
+// words are tried, longest first, down to one word.
 export function findHeading(headings, focus) {
   const f = norm(focus)
   if (!f) return null
-  return headings.find((h) => norm(h.text) === f) || headings.find((h) => norm(h.text).startsWith(f)) || headings.find((h) => norm(h.text).includes(f)) || null
+  const hit = (x) => headings.find((h) => norm(h.text) === x) || headings.find((h) => norm(h.text).startsWith(x)) || headings.find((h) => norm(h.text).includes(x))
+  const exact = hit(f)
+  if (exact) return exact
+  const words = f.split(' ')
+  for (let k = words.length - 1; k >= 1; k--) {
+    const pre = words.slice(0, k).join(' ')
+    if (pre.length < 2) break
+    const h = headings.find((x) => norm(x.text) === pre) || headings.find((x) => norm(x.text).startsWith(pre + ' ') || norm(x.text) === pre)
+    if (h) return h
+  }
+  return null
 }

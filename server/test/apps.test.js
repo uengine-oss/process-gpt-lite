@@ -231,5 +231,8 @@ test('산출물 보기: 원문 HTML 은 글자로, 링크는 스스로 열리지
   assert.equal(findHeading(r.headings, 'ADR-004').text, 'ADR-004: 바뀐 칸만 저장')
   assert.equal(findHeading(r.headings, 'adr 005').text, 'ADR-005: 다음')
   assert.equal(findHeading(r.headings, 'FR7.2'), null)
+  // a focus that says more than the heading: its leading words
+  assert.equal(findHeading(r.headings, 'ADR-004 Decision 1단계').text, 'ADR-004: 바뀐 칸만 저장')
+  assert.equal(findHeading(r.headings, '"결정" 아래 문단').text, '결정')
   assert.equal(r.title, '결정')
 })
