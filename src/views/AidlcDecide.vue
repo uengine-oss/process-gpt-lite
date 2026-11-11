@@ -8,10 +8,16 @@ import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import { api } from '../api.js'
 import { useTeam } from '../stores/team.js'
+import { useApps } from '../stores/apps.js'
 
 const route = useRoute()
 const router = useRouter()
 const team = useTeam()
+// the review board and the document viewer, when this Lite has them (server/apps)
+const apps = useApps()
+apps.load()
+const hasApp = (id) => !!apps.byId(id)
+const original = (path, focus = '') => apps.open('artifact', slug.value, { path, focus })
 const slug = computed(() => route.params.folder)
 const v = ref(null)
 const err = ref('')
@@ -110,12 +116,22 @@ const when = (d) => new Date(d).toLocaleString('ko-KR', { month: 'numeric', day:
               <button class="dark-btn" :disabled="!v.canDecide || !freeText.trim() || !!busy">보내기</button>
             </form>
             <p class="note">고른 답은 팀 세션의 이 선택 창에 그대로 들어가요. AI-DLC 감사 기록에는 사람의 답으로 남아요.</p>
+            <!-- an approval is about documents: open the originals, whole -->
+            <div v-if="choice.kind === 'approval' && v.docs?.length && hasApp('artifact')" class="docs" data-test="aidlc-originals">
+              <span class="muted">원본 보기</span>
+              <button v-for="d in v.docs" :key="d.path" class="doc press" @click="original(d.path)">📄 {{ d.name }}</button>
+            </div>
+            <div v-if="choice.kind === 'approval' && v.review?.findings?.length && hasApp('review')" class="row">
+              <span class="muted">검토 지적 {{ v.review.findings.length }}개를 역할별로 나눠 함께 보고, 결정을 묶어 넣을 수 있어요.</span><span class="sp" />
+              <button class="tb press" data-test="aidlc-to-board" @click="router.push(`/apps/review/${slug}`)">검토 보드에서 함께 보기</button>
+            </div>
           </section>
           <p v-else-if="!v.session.running" class="first glass">이 폴더의 Claude Code 세션이 꺼져 있어요. 폴더 화면에서 「세션 시작」을 누르세요.</p>
 
           <!-- question files waiting for answers -->
           <section v-for="f in v.questions.filter((x) => x.open > 0)" :key="f.path" class="card glass" data-test="aidlc-questions">
             <div class="ct"><span class="kind">질문</span><b>{{ f.stage }} · 답을 기다리는 질문 {{ f.open }}개</b><span class="sp" />
+              <button v-if="hasApp('review')" class="tb press" data-test="aidlc-to-board" @click="router.push(`/apps/review/${slug}`)">검토 보드에서 나눠 보기</button>
               <button class="tb press" :disabled="!!busy" data-test="aidlc-mob" @click="mob">몹 회의 열기</button></div>
             <p v-if="v.proposal?.questions_path === f.path" class="from-mob">몹 회의에서 합의한 답을 채워 두었어요. 확인하고 적으세요.</p>
             <div v-for="x in openQs(f)" :key="x.id" class="qa">
@@ -133,6 +149,10 @@ const when = (d) => new Date(d).toLocaleString('ko-KR', { month: 'numeric', day:
           <section v-if="v.review" class="card glass">
             <div class="ct"><span class="kind">검토</span><b>{{ v.stage?.name }} 검토 · {{ v.review.verdict }}</b></div>
             <p class="muted">지적 {{ v.review.findings.length }}개(Major {{ v.review.major }} · Minor {{ v.review.minor }}) — 승인하면 남은 지적은 위험으로 받아들여요. 내용은 세션 화면과 <code>{{ v.review.path }}</code>에 있어요.</p>
+            <ul class="findings">
+              <li v-for="f in v.review.findings" :key="f.id"><b>{{ f.id }}</b> <span class="tag">{{ f.severity }}</span> {{ f.finding }}
+                <span v-if="hasApp('artifact')" class="refs"><button v-for="r in f.refs || []" :key="r.path + r.focus" class="doc press" data-test="aidlc-finding-ref" @click="original(r.path, r.focus)">📄 {{ r.label }}</button></span></li>
+            </ul>
           </section>
 
           <section v-if="v.ledger.length" class="card glass">
@@ -184,5 +204,9 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 .row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .row code { font-size: 12px; color: var(--text-tertiary); }
 .ledger { list-style: none; margin: 0; padding: 0; font-size: 13.5px; line-height: 1.8; }
+.docs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; font-size: 13px; }
+.doc { font-size: 12.5px; padding: 4px 10px; border-radius: 99px; background: rgba(10 132 255 / .1); color: #0a84ff; border: 0; }
+.findings { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13.5px; line-height: 1.55; display: flex; flex-direction: column; gap: 8px; }
+.findings .refs { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; }
 .toast { position: fixed; left: 50%; bottom: 28px; translate: -50% 0; padding: 10px 18px; border-radius: 16px; font-size: 14px; z-index: 50; }
 </style>

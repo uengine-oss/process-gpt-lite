@@ -9,6 +9,8 @@ import MergeSheet from './MergeSheet.vue'
 import ShareSheet from './ShareSheet.vue'
 import { folders as F, whoOf, roleLabel, statusLabel, sourceLabel, indexLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, fmtSize } from './fileKind.js'
+import { useApps } from '../../stores/apps.js'
+import { isEnglish } from '../../i18n/lang.js'
 import { api } from '../../api.js'
 
 const props = defineProps({ slug: String })
@@ -34,6 +36,8 @@ const fileInput = ref(null)
 const aidlc = ref([])
 const aidlcPick = ref('')
 const aidlcBusy = ref(false)
+const folderApps = ref([])
+const appsStore = useApps()
 // the folder's AI-DLC team session (docs/robo-dlc/plan-team.md): Claude Code everyone watches, roles
 const ses = ref(null)
 const rolesOpen = ref(false)
@@ -52,6 +56,8 @@ async function load() {
     if (f.kind !== 'skill') {
       aidlc.value = await api(`/aidlc/${encodeURIComponent(props.slug)}/intents`).catch(() => [])
       ses.value = await api(`/aidlc/${encodeURIComponent(props.slug)}/session`).catch(() => null)
+      // the apps that mount on an AI-DLC folder (server/apps: review board, bolt board, documents)
+      folderApps.value = ses.value?.aidlc ? (await appsStore.forFolder(props.slug)).filter((a) => a.mounts.includes('folder')) : []
       if (!aidlc.value.some((i) => `${i.space}/${i.slug}` === aidlcPick.value)) aidlcPick.value = aidlc.value[0] ? `${aidlc.value[0].space}/${aidlc.value[0].slug}` : ''
     }
   } catch (e) { err.value = e.message }
@@ -205,6 +211,9 @@ const ix = computed(() => folder.value?.index_state || {})
         <button v-if="ses.running" class="tb press" @click="router.push(`/aidlc/${folder.slug}/decide`)">결정하기</button>
         <button v-if="ses.running" class="dark-btn sm2" @click="router.push(`/workroom/aidlc/${folder.slug}`)">세션 보기</button>
         <button v-else-if="ses.canStart" class="dark-btn sm2" :disabled="aidlcBusy" @click="startSession">{{ aidlcBusy ? '띄우는 중…' : '세션 시작' }}</button>
+      </div>
+      <div v-if="ses?.aidlc && folderApps.length" class="apps-row" data-test="aidlc-apps">
+        <button v-for="a in folderApps" :key="a.id" class="tb press" :data-test="`app-btn-${a.id}`" :title="a.description || ''" @click="router.push(`/apps/${a.id}/${folder.slug}`)">{{ a.icon }} {{ isEnglish ? a.name.en : a.name.ko }}</button>
       </div>
       <div v-if="rolesOpen" class="banner glass roles" data-test="aidlc-role-sheet">
         <div v-for="r in roles.filter((x) => TEAM_ROLES.includes(x.roleKey))" :key="r.roleKey" class="role-row">
@@ -368,6 +377,7 @@ h1 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
 .fic.hwp { background: #1f6fd1; } .fic.doc { background: #2b579a; } .fic.xls { background: #217346; } .fic.ppt { background: #c43e1c; } .fic.pdf { background: #d93025; } .fic.cad { background: #0b6f88; } .fic.vec { background: #c2570c; } .fic.img { background: #7b3fbf; } .fic.snd { background: #0f8a5f; } .fic.vid { background: #b0223c; } .fic.md { background: #3d4f6b; } .fic.code { background: #2d333b; }
 .banner.ask { border: 1px solid rgba(123 92 214 / .45); }
 .banner.aidlc { border: 1px solid rgba(10 132 255 / .35); }
+.apps-row { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
 .banner.roles { flex-direction: column; align-items: stretch; gap: 8px; }
 .role-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .role-row b { min-width: 92px; font-size: 13px; }

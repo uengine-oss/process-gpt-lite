@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>산출물 보기</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="../../_runtime/kit.css">
+<link rel="stylesheet" href="app.css">
+<script src="../../_runtime/lite.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <aside class="side">
+    <div class="where" id="where"></div>
+    <div class="label" id="sibsLabel"></div>
+    <ul class="list" id="sibs"></ul>
+    <div class="label" id="tocLabel"></div>
+    <ul class="list toc" id="toc"></ul>
+  </aside>
+  <main class="main" id="main">
+    <div class="bar"><span class="crumb" id="crumb"></span><span id="focusChip"></span></div>
+    <article class="md" id="doc" data-test="artifact-doc"></article>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

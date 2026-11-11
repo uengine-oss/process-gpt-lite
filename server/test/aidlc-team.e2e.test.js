@@ -31,6 +31,8 @@ async function until(fn, ms, what) {
   throw new Error(`timeout: ${what}`)
 }
 const tmux = (...a) => execFileSync('tmux', ['-L', config.aidlcTmuxSocket, ...a], { encoding: 'utf8' })
+// a question or approval wait opens the review board when this Lite has it (server/apps/review, P2), else the decision page
+const opens = (n, slug) => String(n.url).startsWith(`/apps/review/${slug}?w=`) || String(n.url).startsWith(`/aidlc/${slug}/decide`)
 
 let lead, po, out, repo, folder, name, keys
 const tenant = 'localhost'
@@ -67,10 +69,10 @@ test('세션이 묻는 선택 창 → 단계 역할(PO)에게 홈 카드 → 결
   // the watcher's card reaches the PO (the requirements stage is the PO's), once
   const card = await until(async () => {
     const list = (await call(tok(po), 'GET', '/notifications')).body || []
-    return list.find((n) => n.type === 'aidlc' && String(n.url).startsWith(`/aidlc/${folder.slug}/decide`))
+    return list.find((n) => n.type === 'aidlc' && opens(n, folder.slug))
   }, 30000, 'the PO card')
   assert.match(card.title, /승인/)
-  assert.ok(!((await call(tok(lead), 'GET', '/notifications')).body || []).some((n) => n.type === 'aidlc' && String(n.url).startsWith(`/aidlc/${folder.slug}/`)), 'not the lead\'s card')
+  assert.ok(!((await call(tok(lead), 'GET', '/notifications')).body || []).some((n) => n.type === 'aidlc' && opens(n, folder.slug)), 'not the lead\'s card')
   const v = (await call(tok(po), 'GET', `/aidlc/${folder.slug}/decide`)).body
   assert.equal(v.stage.slug, 'requirements-analysis')
   assert.equal(v.role, 'PO·기획')
@@ -88,8 +90,8 @@ test('세션이 묻는 선택 창 → 단계 역할(PO)에게 홈 카드 → 결
 
 test('세션이 끝나면 카드는 홈에서 내려가고, 답이 빈 질문 파일이 다음 대기가 된다', { skip: !up }, async () => {
   tmux('kill-session', '-t', name)
-  await until(async () => !((await call(tok(po), 'GET', '/notifications')).body || []).some((n) => n.type === 'aidlc' && /승인/.test(n.title) && String(n.url).startsWith(`/aidlc/${folder.slug}/`)), 30000, 'the approval card leaving Home')
-  const qcard = await until(async () => ((await call(tok(po), 'GET', '/notifications')).body || []).find((n) => n.type === 'aidlc' && /질문 3개/.test(n.title) && String(n.url).startsWith(`/aidlc/${folder.slug}/`)), 30000, 'the questions card')
+  await until(async () => !((await call(tok(po), 'GET', '/notifications')).body || []).some((n) => n.type === 'aidlc' && /승인/.test(n.title) && opens(n, folder.slug)), 30000, 'the approval card leaving Home')
+  const qcard = await until(async () => ((await call(tok(po), 'GET', '/notifications')).body || []).find((n) => n.type === 'aidlc' && /질문 3개/.test(n.title) && opens(n, folder.slug)), 30000, 'the questions card')
   assert.ok(qcard)
   const v = (await call(tok(po), 'GET', `/aidlc/${folder.slug}/decide`)).body
   const f = v.questions.find((x) => x.open > 0)
@@ -109,7 +111,7 @@ after(async () => {
   if (repo) {
     const [f] = await q('select id from pro_folders where repo_path=$1', [path.resolve(repo)]).catch(() => [])
     if (f) for (const t of ['pro_aidlc_roles', 'pro_aidlc_decisions', 'pro_aidlc_waits', 'pro_aidlc_proposals', 'pro_aidlc_mobs']) await q(`delete from ${t} where folder_id=$1`, [f.id]).catch(() => {})
-    await q(`update notifications set is_checked=true where type='aidlc' and url like $1`, [`/aidlc/${folder?.slug}/%`]).catch(() => {})
+    await q(`update notifications set is_checked=true where type='aidlc' and (url like $1 or url like $2)`, [`/aidlc/${folder?.slug}/%`, `/apps/%/${folder?.slug}%`]).catch(() => {})
     await q('delete from pro_folder_members where folder_id in (select id from pro_folders where repo_path=$1)', [path.resolve(repo)]).catch(() => {})
     await q('delete from pro_folders where repo_path=$1', [path.resolve(repo)]).catch(() => {})
     await fs.rm(repo, { recursive: true, force: true })

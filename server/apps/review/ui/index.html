@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>검토 보드</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="../../_runtime/kit.css">
+<link rel="stylesheet" href="app.css">
+<script src="../../_runtime/lite.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="title"><b id="stage"></b><span class="muted" id="sub"></span></div>
+  <div class="progress" id="progress" data-test="review-progress"></div>
+  <div class="live" id="live" data-test="review-live"></div>
+</header>
+<nav class="tabs" id="tabs"></nav>
+<div class="lanes" id="lanes" data-test="review-lanes"></div>
+<div class="empty" id="empty" hidden></div>
+<footer class="send" id="send" hidden data-test="review-send"></footer>
+<aside class="drawer" id="drawer" hidden data-test="review-drawer"></aside>
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
