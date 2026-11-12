@@ -52,6 +52,7 @@ h3 { font-size: 13px; font-weight: 700; color: var(--ts); margin: 0 0 8px; lette
 .scope .why { font-size: 13px; color: var(--ts); line-height: 1.45 } .scope .why b { color: var(--tp) }
 .scope select { margin-left: auto; font-size: 13px }
 .sum { font-size: 14.5px; line-height: 1.6; margin: 0 2px 12px }
+.sum code, .why code { font: 12.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--cell); border-radius: 4px; padding: 1px 5px }
 .sec { font-size: 12.5px; font-weight: 700; color: var(--ts); margin: 14px 2px 6px; display: flex; align-items: center; gap: 8px }
 .sec .more { margin-left: auto; font-weight: 500 }
 .metric { display: grid; grid-template-columns: 96px 110px 34px 1fr; gap: 8px; align-items: center; font-size: 13px; padding: 3px 2px }

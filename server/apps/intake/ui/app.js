@@ -2,6 +2,8 @@
 // card on the right; the people who take in work start it, stand it after the work in flight, or fold it in.
 import lite from '../../_runtime/lite.js'
 const { t, esc, $, $$ } = lite
+// 모델이 쓴 글: 이스케이프한 뒤 `이름` 만 코드 글자로 바꾼다
+const prose = (x) => esc(x).replace(/`([^`\n]+)`/g, '<code>$1</code>')
 await lite.ready
 const folder = lite.params.folder
 let V = null
@@ -116,7 +118,7 @@ function drawPlan() {
     ${can && V.scopes.length ? `<select id="scope" data-test="plan-scope-select">${V.scopes.map((s) => `<option value="${esc(s.name)}"${s.name === p.scope ? ' selected' : ''}>${esc(s.name)}${s.name === e.scope ? ` · ${esc(t('추천', 'suggested'))}` : ''}</option>`).join('')}</select>` : ''}</div>`
   const scores = e.scores ? `<div class="sec">${esc(t('어떻게 가늠했나 — 높을수록 살필 것이 많아요', 'How it was sized — higher means more to look into'))}</div>${Object.keys(SCORE).map((k) => {
     const s = e.scores[k] || { score: 0, why: '' }
-    return `<div class="metric"><span>${esc(SCORE[k])}</span><div class="bar"><i class="${s.score >= .66 ? 'high' : s.score >= .4 ? 'mid' : ''}" style="width:${Math.round(s.score * 100)}%"></i></div><span class="v">${s.score.toFixed(2)}</span><span class="why">${esc(s.why)}</span></div>`
+    return `<div class="metric"><span>${esc(SCORE[k])}</span><div class="bar"><i class="${s.score >= .66 ? 'high' : s.score >= .4 ? 'mid' : ''}" style="width:${Math.round(s.score * 100)}%"></i></div><span class="v">${s.score.toFixed(2)}</span><span class="why">${prose(s.why)}</span></div>`
   }).join('')}` : ''
   const tc = e.touches || { units: [], contracts: [], requirements: [], paths: [] }
   const dropped = Object.values(e.dropped || {}).flat()
@@ -133,7 +135,7 @@ function drawPlan() {
     const gone = !b || b.discarded
     return `<div class="conf${c.compatible || gone ? ' ok' : ''}" data-test="plan-conflict" data-bolt="${esc(c.bolt)}"><div class="ch">${b ? `<span class="bn">B${b.n}</span> ${esc(b.title)}${b.unit !== '*' ? ` · ${esc(b.unit)}` : ''}` : esc(c.bolt)}
       <span class="chip">${esc(gone ? t('폐기됨', 'discarded') : b.state === 'running' ? t('도는 중', 'running') : b.state === 'done' ? t('끝남', 'done') : t('시작 전', 'not started'))}</span>${c.compatible ? `<span class="chip">${esc(t('함께 갈 수 있음', 'both can stand'))}</span>` : gone ? '' : `<span class="chip" style="color:var(--bad)">${esc(t('둘 중 하나만', 'only one can stand'))}</span>`}</div>
-      <div class="q"><span>${esc(t('이 요청', 'This request'))}</span><i>“${esc(c.requestQuote)}”</i><span>${esc(t('그 볼트', 'That bolt'))}</span><i>“${esc(c.recordQuote)}”</i></div><div class="why">${esc(c.why)}</div>
+      <div class="q"><span>${esc(t('이 요청', 'This request'))}</span><i>“${esc(c.requestQuote)}”</i><span>${esc(t('그 볼트', 'That bolt'))}</span><i>“${esc(c.recordQuote)}”</i></div><div class="why">${prose(c.why)}</div>
       ${gone ? '' : `<div class="acts"><button data-act="see-bolt" data-key="${esc(c.bolt)}">${esc(t('볼트 줄에서 보기', 'See it in the line'))}</button>${!c.compatible && V.rights.stop ? `<button class="danger" data-act="discard" data-key="${esc(c.bolt)}" data-test="plan-discard">${esc(t('그 볼트를 폐기하고 이 요청으로', 'Discard that bolt for this request'))}</button>` : ''}</div>`}</div>`
   }).join('')
   const live = (e.conflicts || []).filter((c) => !c.compatible && boltOf(c.bolt) && !boltOf(c.bolt).discarded).length
@@ -159,7 +161,7 @@ function drawPlan() {
       ${['started', 'merged'].includes(r.status) ? ` <a data-act="line">${esc(t('볼트 줄에서 보기', 'See the line'))} →</a>` : ''}</div>`
   }
   if (can && r.note && ['later', 'inbox'].includes(r.status)) foot = `<div class="note">${esc(r.note)}</div>${foot}`
-  el.innerHTML = `${head}${scope}<p class="sum" data-test="plan-summary">${esc(e.summary)}</p>${touches}${conflicts ? `<div class="sec">${esc(t('줄에 있는 볼트와 부딪히는 곳', 'Where it collides with the line'))}</div>${conflicts}` : ''}${card ? '' : `${scores}${near}`}${foot}${card && (scores || near) ? `<p class="small" style="margin:10px 2px 0"><a data-act="large" data-test="plan-large">${esc(t('어떻게 가늠했는지 · 다른 요청 보기', 'How it was sized · the other requests'))} →</a></p>` : ''}${e.cost && !e.cost.stub ? `<p class="faint small" style="margin-top:14px">${esc(t(`계획 세우는 데 ${Math.round(e.cost.ms / 1000)}초 · ${e.cost.turns}턴 · $${Number(e.cost.usd || 0).toFixed(2)}`, `Planned in ${Math.round(e.cost.ms / 1000)} s · ${e.cost.turns} turns · $${Number(e.cost.usd || 0).toFixed(2)}`))}</p>` : ''}`
+  el.innerHTML = `${head}${scope}<p class="sum" data-test="plan-summary">${prose(e.summary)}</p>${touches}${conflicts ? `<div class="sec">${esc(t('줄에 있는 볼트와 부딪히는 곳', 'Where it collides with the line'))}</div>${conflicts}` : ''}${card ? '' : `${scores}${near}`}${foot}${card && (scores || near) ? `<p class="small" style="margin:10px 2px 0"><a data-act="large" data-test="plan-large">${esc(t('어떻게 가늠했는지 · 다른 요청 보기', 'How it was sized · the other requests'))} →</a></p>` : ''}${e.cost && !e.cost.stub ? `<p class="faint small" style="margin-top:14px">${esc(t(`계획 세우는 데 ${Math.round(e.cost.ms / 1000)}초 · ${e.cost.turns}턴 · $${Number(e.cost.usd || 0).toFixed(2)}`, `Planned in ${Math.round(e.cost.ms / 1000)} s · ${e.cost.turns} turns · $${Number(e.cost.usd || 0).toFixed(2)}`))}</p>` : ''}`
 }
 
 function unitsEdit(on) {
