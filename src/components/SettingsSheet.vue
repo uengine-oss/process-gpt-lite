@@ -136,6 +136,13 @@ async function mailClosed() {
   mailSheet.value = false
   app.me = await api('/me')
 }
+// the way back for a phone sent here by the ProcessGPT portal (same origin, at /): its setting
+// 휴대폰 화면 › 라이트 모드 keeps the choice in localStorage.mobileView and opens /lite/ from then on;
+// the portal takes ?mobileView=desktop as "show the desktop view again"
+const fromPortal = (() => {
+  try { return BASE === '/lite' && localStorage.getItem('mobileView') === 'lite' } catch { return false }
+})()
+const toPortal = () => { location.assign('/definition-map?mobileView=desktop') }
 const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.floor(sky.simHour)}:${String(Math.round((sky.simHour % 1) * 60)).padStart(2, '0')}`))
 </script>
 
@@ -151,6 +158,7 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
       <div class="list glass">
         <button v-for="(t, k) in titles" :key="k" @click="router.push(`/settings/${k}`)">{{ t }}<Icon name="chevron" :size="16" /></button>
       </div>
+      <div v-if="fromPortal" class="list glass"><button data-test="to-portal" @click="toPortal">Process GPT 데스크톱 화면으로<Icon name="chevron" :size="16" /></button></div>
       <div class="list glass"><button class="danger" @click="app.logout()">로그아웃</button></div>
     </div>
 

@@ -7,6 +7,7 @@
 
 ### 추가
 
+- **ProcessGPT 포털에서 넘어온 휴대폰 — 데스크톱 화면으로 돌아가기**: ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「라이트 모드」를 고른 휴대폰은 같은 주소의 `/lite/`로 이동합니다. 그 휴대폰의 설정 시트에 「Process GPT 데스크톱 화면으로」 항목이 보이고, 누르면 포털 `/definition-map?mobileView=desktop`으로 이동해 포털이 데스크톱 버전으로 바꿉니다. `/lite` 아래에서 열리지 않았거나 포털에서 넘어온 휴대폰이 아니면 항목이 보이지 않습니다. 시험: `e2e/tests/feature/portal-link.spec.js`(F-PT-01~03). 결정 process-gpt `docs/decisions/2026-11.md` D-1112-30.
 - **다국어 협업 — 회의 실시간 AI 통역 · 메신저 자동 번역** (설계 process-gpt `openspec/changes/pgpt-pro-meeting-interpretation`):
   - **주 언어**: 사람마다 말하고 읽는 언어(`pro_profile.main_lang`, `server/sql/020_interpretation.sql`)를 화면 언어(ko|en)와 따로 둡니다. ko·en·ja·zh·es·fr·de·pt·it·ru·hi·vi·id·th·ar·tr·nl·pl 중에서 고르고, 그 밖의 언어는 영어 화면이 됩니다. 설정 › 계정 › 주 언어, 회의 로비, `PUT /api/me/main-lang`.
   - **회의 통역**: 받아쓰기는 말한 사람의 주 언어로 합니다(각자 자기 마이크만 — 화자 귀속 그대로). 듣는 사람은 다른 화자의 말을 자기 주 언어의 통역 음성으로 듣고, 그동안 그 화자의 원래 소리는 0.2로 낮춥니다(끊지 않음). 자막은 원문과 번역을 함께 보여 줍니다. 자기 말의 통역은 듣지 않고, 같은 언어끼리는 손대지 않습니다.
