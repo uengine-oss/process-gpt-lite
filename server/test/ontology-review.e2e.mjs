@@ -71,10 +71,14 @@ await step('다음 달 1일부터 재무 검토 고정 — 오늘의 스냅샷�
   const [dToday] = await q('select definition from proc_def where id=$1', [today.procDefId])
   const [dLater] = await q('select definition from proc_def where id=$1', [later.procDefId])
   const outsOf = (d, name) => {
-    const id = d.definition.activities.find((a) => a.name === name)?.id
-    const g = d.definition.sequences.filter((s) => s.source === id).map((s) => s.target)
-    return d.definition.sequences.filter((s) => g.includes(s.source) || s.source === id).map((s) => d.definition.activities.find((a) => a.id === s.target)?.name || s.target)
+    // the ways out of a step: straight to an activity, or through the gateway right after it
+    const D = d.definition, gw = new Set((D.gateways || []).map((g) => g.id))
+    const id = D.activities.find((a) => a.name === name)?.id
+    const first = D.sequences.filter((s) => s.source === id).map((s) => s.target)
+    const via = first.filter((t) => gw.has(t))
+    return [...first.filter((t) => !gw.has(t)), ...D.sequences.filter((s) => via.includes(s.source)).map((s) => s.target)].map((t) => D.activities.find((a) => a.id === t)?.name || t)
   }
+
   const tOuts = outsOf(dToday, '견적서 작성'), lOuts = outsOf(dLater, '견적서 작성')
   assert.ok(tOuts.includes('고객 회신') && tOuts.includes('재무 검토'), `today ${tOuts}`)
   assert.ok(lOuts.includes('재무 검토') && !lOuts.includes('고객 회신'), `later ${lOuts}`)

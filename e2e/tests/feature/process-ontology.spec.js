@@ -81,9 +81,12 @@ test('F-PO-05 앞날짜 고정 — 그날 뒤 스냅샷에만 재무 검토가 �
   const outs = async (at) => {
     const s = (await a.get(`/ontology/snapshot?bundle=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}${at ? `&at=${at}T12:00:00Z` : ''}`)).body
     const [d] = await db.q('select definition from proc_def where id=$1', [s.procDefId])
-    const id = d.definition.activities.find((x) => x.name === '견적서 작성').id
-    const g = d.definition.sequences.filter((x) => x.source === id).map((x) => x.target)
-    return d.definition.sequences.filter((x) => g.includes(x.source) || x.source === id).map((x) => d.definition.activities.find((y) => y.id === x.target)?.name || x.target)
+    // the ways out of the quote: straight to an activity, or through the gateway right after it
+    const D = d.definition, gw = new Set((D.gateways || []).map((g) => g.id))
+    const id = D.activities.find((x) => x.name === '견적서 작성').id
+    const first = D.sequences.filter((x) => x.source === id).map((x) => x.target)
+    const via = first.filter((t) => gw.has(t))
+    return [...first.filter((t) => !gw.has(t)), ...D.sequences.filter((x) => via.includes(x.source)).map((x) => x.target)].map((t) => D.activities.find((y) => y.id === t)?.name || t)
   }
   expect(await outs('')).toEqual(expect.arrayContaining(['재무 검토', '고객 회신']))
   const later = await outs(day)

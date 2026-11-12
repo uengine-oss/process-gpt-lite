@@ -156,3 +156,11 @@ test('묶음: 공통 일(요청·회신)이 있어도 핵심 흐름이 다르면
   assert.equal(A.caseIds.length, 15)
   assert.ok(!A.tasks.includes('계약') && !A.tasks.includes('하자 보수'))
 })
+
+test('은퇴 후보의 「최근 N일」: 마지막으로 쓰인 뒤 그 일이 계속 쓰인 날 수', () => {
+  const DAY = 86_400_000, L = Date.UTC(2026, 7, 31)
+  const times = [...Array(10).fill(L - DAY), ...Array(40).fill(L + 5 * DAY), L + 72 * DAY]
+  const s = staleness({ to: 'x', n: 5, lastSeen: L }, times)
+  assert.equal(s.stale, true)
+  assert.equal(Math.round(s.gapDays), 72)
+})

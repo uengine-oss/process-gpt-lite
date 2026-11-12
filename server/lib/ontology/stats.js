@@ -206,7 +206,9 @@ export function staleness(e, outTimes) {
   const pOld = before ? e.n / before : 0
   const expected = after * pOld
   const pValue = Math.pow(1 - pOld, after)
-  return { stale: expected > 3, expected, pValue, after, pOld, gapDays: 0 }
+  // the days the source task kept being used after this edge's last use (what 「최근 N일 동안」 counts)
+  const last = Math.max(...outTimes.map(Number))
+  return { stale: expected > 3, expected, pValue, after, pOld, gapDays: Math.max(0, (last - Number(e.lastSeen)) / 86_400_000) }
 }
 
 // the times of every transition out of each task (for staleness)
