@@ -15,15 +15,20 @@ const snap = ref(null)
 const busy = ref(false)
 const err = ref('')
 
+// only the latest request's answer is shown: changing the start task while the first snapshot is still being saved
+// must not let that slower first answer land last
+let seq = 0
 async function load() {
   if (!entry.value) return
+  const mine = ++seq
   busy.value = true
   err.value = ''
   try {
     const qs = new URLSearchParams({ bundle: props.bundle.key, entry: entry.value })
     if (day.value) qs.set('at', `${day.value}T12:00:00Z`)
-    snap.value = await api(`/ontology/snapshot?${qs}`)
-  } catch (e) { err.value = e.message; snap.value = null } finally { busy.value = false }
+    const r = await api(`/ontology/snapshot?${qs}`)
+    if (mine === seq) snap.value = r
+  } catch (e) { if (mine === seq) { err.value = e.message; snap.value = null } } finally { if (mine === seq) busy.value = false }
 }
 watch(() => [props.bundle.key, day.value, entry.value], load, { immediate: true })
 </script>

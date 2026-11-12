@@ -5,11 +5,12 @@
 //   node scripts/ax-demo.mjs                 set up: tenant row (and its MCP list), the cast (장진영 제안팀장 ·
 //                                            administrator · owner, 이도윤 영업, 김민지 디자이너, 박서연 재무 담당,
 //                                            language ko), the team, every-process roles, mcp-hub bindings
-//   node scripts/ax-demo.mjs --clean-runs    remove what a scenario run left (cases, practice mails, their handovers, cards)
+//   node scripts/ax-demo.mjs --clean-runs    remove what a scenario run left (cases, practice mails, their handovers, cards,
+//                                            the engine's snapshot instances, case threads, home action cards)
 //   node scripts/ax-demo.mjs --seed          set up, then the chat handovers of the fixture (chat_handovers →
 //                                            handover_events, case ids chat:ax-demo:NNNN); generates the fixture
 //                                            first when it is missing. Run again: the same rows again.
-//   node scripts/ax-demo.mjs --reset         remove the tenant's demo rows: handover_events, and — when those
+//   node scripts/ax-demo.mjs --reset         remove the tenant's demo rows: handover_events, the cast's conversations, and — when those
 //                                            tables exist — pro_mail_history, pro_onto_jobs, pro_onto_labels,
 //                                            pro_po_cases; then lib/ontology/reset.js resetTenant('ax-demo') when
 //                                            it exists. The cast accounts stay (--accounts: they go too).
@@ -147,6 +148,15 @@ async function tableInfo(t) {
 async function reset() {
   const out = {}
   out.handover_events = (await q('delete from handover_events where tenant_id=$1 returning 1', [T])).length
+  // the cast's conversations: an earlier run's cards (map summaries, start cards, the mail triage of a connect) and its
+  // case threads would show in the next run's chat, and a kept agent conversation remembers the last run's files
+  const castIds = (await q('select id::text as id from users where tenant_id=$1 and email = any($2)', [T, Object.values(CAST).map((p) => p.email)])).map((r) => r.id)
+  if (castIds.length) {
+    out.messages = (await q('delete from pro_messages where thread_id in (select id from pro_threads where user_id::text = any($1)) returning 1', [castIds])).length
+    await q(`delete from pro_threads where user_id::text = any($1) and kind <> 'chat'`, [castIds]).catch((e) => console.warn('threads', e.message))
+    await q('update pro_threads set conversation_id=null where user_id::text = any($1)', [castIds]).catch((e) => console.warn('threads', e.message))
+    await q('delete from pro_actions where user_id::text = any($1)', [castIds]).catch((e) => console.warn('actions', e.message))
+  }
   // a few passes in case the feature's tables refer to each other
   let left = [...ONTO_TABLES]
   for (let pass = 0; pass < 3 && left.length; pass++) {
@@ -216,6 +226,20 @@ async function cleanRuns() {
     out.mails = (await q(`delete from pro_demo_mail where user_id=$1 returning mail_id`, [boss.id])).length
     await q(`delete from pro_mail_seen where user_id=$1`, [boss.id]).catch(() => {})
     out.cards = (await q(`delete from pro_messages m using pro_threads t where t.id=m.thread_id and t.user_id=$1 and m.kind in ('onto-entry','onto-habit','process') returning m.id`, [boss.id])).length
+  }
+  // the engine's instances of the snapshots (onto_…) with their work items and events, the cast's case threads (the
+  // agent's messages, a kept agent conversation) and the home action cards the mails made
+  const insts = (await q(`select proc_inst_id from bpm_proc_inst where tenant_id=$1 and proc_def_id like 'onto\\_%'`, [T])).map((r) => r.proc_inst_id)
+  if (insts.length) {
+    await q('delete from events where proc_inst_id = any($1)', [insts]).catch((e) => console.warn('events', e.message))
+    await q('delete from todolist where proc_inst_id = any($1)', [insts])
+    out.instances = (await q('delete from bpm_proc_inst where proc_inst_id = any($1) returning 1', [insts])).length
+  }
+  const castIds = (await q('select id::text as id from users where tenant_id=$1 and email = any($2)', [T, Object.values(CAST).map((p) => p.email)])).map((r) => r.id)
+  if (castIds.length) {
+    await q(`delete from pro_messages where thread_id in (select id from pro_threads where user_id::text = any($1) and kind='process')`, [castIds])
+    out.threads = (await q(`delete from pro_threads where user_id::text = any($1) and kind='process' returning id`, [castIds])).length
+    out.actions = (await q('delete from pro_actions where user_id::text = any($1) returning id', [castIds])).length
   }
   console.log('clean-runs', JSON.stringify(out))
 }

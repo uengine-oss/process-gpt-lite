@@ -48,6 +48,9 @@ async function ledger(me, actionKind, subject, facts) {
            values ($1,$2,$3,$4,$5,'allow','executed','process-ontology')`, [T(), me.id, actionKind, subject, facts]).catch((e) => console.warn('[ontology] ledger', e.message))
 }
 
+// the day a decision takes effect, as the company reads it (the screen sends that day's midnight in its own time zone,
+// which in UTC is the evening before — 「12월 1일부터」 must not read 「11월 30일부터」)
+const dayOf = (iso) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: process.env.PRO_TZ || 'Asia/Seoul' })
 const when = (validFrom) => {
   if (!validFrom) return undefined
   const d = new Date(validFrom)
@@ -60,7 +63,7 @@ export async function pinTask(me, key, { pinned = true, validFrom, reason = '' }
   const r = await cypher(`MATCH (t:Task {key:$key}) SET t.pinned=$pinned, t.pinned_by=$by, t.pin_reason=$reason RETURN t.key AS key`,
     { key, pinned: !!pinned, by: me.email || String(me.id), reason }, { actor: me.email || String(me.id), reason: reason || (pinned ? '고정' : '고정 풀기'), validFrom: at })
   if (!r.length) throw err(404, '일을 찾지 못했어요.')
-  await ledger(me, pinned ? 'ontology.pin' : 'ontology.unpin', `${pinned ? '고정' : '고정 풀기'}: ${key}${at ? ` (${at.slice(0, 10)}부터)` : ''}`, { task: key, validFrom: at || null, reason })
+  await ledger(me, pinned ? 'ontology.pin' : 'ontology.unpin', `${pinned ? '고정' : '고정 풀기'}: ${key}${at ? ` (${dayOf(at)}부터)` : ''}`, { task: key, validFrom: at || null, reason })
   return { key, pinned: !!pinned, validFrom: at || null }
 }
 
