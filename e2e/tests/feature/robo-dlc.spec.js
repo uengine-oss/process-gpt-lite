@@ -6,7 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { test, expect, RUN } from '../../lib/fixtures.js'
+import { randomUUID } from 'node:crypto'
+import { test, expect, RUN, api } from '../../lib/fixtures.js'
 
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../server/test/fixtures/aidlc-project')
 const SCREEN = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../server/test/fixtures/aidlc-screens/approval.txt')
@@ -24,9 +25,9 @@ async function fakeSession(repo, slug, cleanup) {
 }
 
 // a fresh git repository holding the fixture record, linked as a shared folder by `owner`
-async function linkedRecord(owner, db, cleanup, name) {
+async function linkedRecord(owner, db, cleanup, name, fixture = FIXTURE) {
   const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'aidlc-rt-'))
-  await fs.cp(FIXTURE, repo, { recursive: true })
+  await fs.cp(fixture, repo, { recursive: true })
   const git = (...a) => execFileSync('git', ['-c', 'user.name=rt', '-c', 'user.email=rt@pgpt.test', ...a], { cwd: repo })
   git('init', '-q', '-b', 'main'); git('add', '-A'); git('commit', '-q', '-m', 'AI-DLC record')
   const r = await owner.post('/folders/link', { path: repo, name: `${name} ${RUN}` })
@@ -310,5 +311,255 @@ test.describe('Robo-DLC Lite · MCP Apps 호스트', () => {
     await page.reload()
     await expect(page.locator('.panel', { hasText: `MCP 패널 ${RUN}` }).frameLocator('iframe').locator('#n')).toHaveText('2', { timeout: 30_000 })
     expect(page.errors).toEqual([])
+  })
+})
+
+// ---------- P3: work intake and the bolt line (docs/robo-dlc/plan-intake.md · spec pgpt-pro_aidlc-intake) ----------
+// A project with one finished piece of work (room booking, six units). The plan for a request is the stand-in
+// file the server reads (PRO_AIDLC_COMPOSE_STUB, the same path here and on the server): without it these are skipped.
+const LINE_FIXTURE = path.join(path.dirname(FIXTURE), 'aidlc-line')
+const SCREENS = path.dirname(SCREEN)
+const STUB = process.env.PRO_AIDLC_COMPOSE_STUB || ''
+const U2 = 'u2-booking-rules', U4 = 'u4-booking', U5 = 'u5-notification-worker', U6 = 'u6-web-ui'
+const sc = (...n) => Object.fromEntries(['iae', 'csu', 've', 'r', 'ua'].map((k, i) => [k, { score: n[i], why: '대역' }]))
+const STUBS = [
+  { match: '문구', estimate: { title: '예약 버튼 문구', kind: 'change', scores: sc(0.1, 0.1, 0.1, 0.1, 0.1), touches: { units: [U6], contracts: [], requirements: [], paths: [] }, newUnits: [], conflicts: [], summary: '예약 화면의 버튼 문구를 바꿔요.' } },
+  { match: '두 번', estimate: { title: '알림 메일 중복 발송', kind: 'bug', scores: sc(0.2, 0.2, 0.3, 0.3, 0.2), touches: { units: [U5], contracts: ['C6'], requirements: ['FR6.4'], paths: ['packages/worker/src/mail.ts'] }, newUnits: [], conflicts: [], summary: '알림 작업자가 같은 예약에 메일을 두 번 보내는 까닭을 찾아 고쳐요.' } },
+  { match: '반복 예약', estimate: { title: '반복 예약', kind: 'feature', scores: sc(0.6, 0.6, 0.5, 0.4, 0.4), touches: { units: [U2, U4, U6], contracts: ['C2', 'C3'], requirements: ['FR3.1'], paths: [] }, newUnits: [], conflicts: [], summary: '매주 같은 시간에 되풀이되는 예약을 규칙·API·화면에 더해요.' } },
+]
+// an app's tool as the person, the way its screen calls it (MCP over HTTP; the endpoint keeps no session)
+async function appTool(who, app, name, args) {
+  const r = await api.mcp(`/api/apps/${app}/mcp`, 'tools/call', { name, arguments: args }, who.token())
+  const res = r.body?.result
+  if (!res || res.isError) throw new Error(`${name}: ${res?.structuredContent?.error || res?.content?.[0]?.text || r.text}`)
+  return res.structuredContent?.value
+}
+async function lineFolder({ as, db, cleanup }, name) {
+  const lead = await as('rd-lead')
+  const { repo, folder } = await linkedRecord(lead, db, cleanup, name, LINE_FIXTURE)
+  await fs.writeFile(STUB, JSON.stringify(STUBS, null, 2))
+  cleanup(async () => {
+    const [f] = await db.q('select id from pro_folders where repo_path=$1', [path.resolve(repo)])
+    if (f) for (const t of ['pro_aidlc_roles', 'pro_aidlc_requests', 'pro_aidlc_line', 'pro_aidlc_decisions', 'pro_aidlc_waits']) await db.q(`delete from ${t} where folder_id=$1`, [f.id])
+    await db.q(`update notifications set is_checked=true where type='aidlc' and (url like $1 or url like $2)`, [`/aidlc/${folder.slug}/%`, `/apps/%/${folder.slug}%`])
+  })
+  const join = async (who, roleKey) => {
+    if (who.id !== lead.id) expect((await lead.post(`/folders/${folder.slug}/members`, { type: 'user', id: who.id, role: 'editor' })).status).toBe(200)
+    expect((await lead.put(`/aidlc/${folder.slug}/roles`, { roleKey, userIds: [who.id] })).status).toBe(200)
+  }
+  await join(lead, 'team-lead')
+  // ask for work and wait for its plan
+  const ask = async (who, body) => {
+    const r = await appTool(who, 'intake', 'intake_propose', { folder: folder.slug, body })
+    return api.until(async () => { const x = (await appTool(who, 'intake', 'intake_open', { folder: folder.slug })).requests.find((y) => y.id === r.id); return x.status !== 'estimating' && x }, { timeout: 30_000, every: 700 })
+  }
+  return { lead, repo, folder, join, ask }
+}
+// the stand-in session for a folder Claude Code opens for the first time: its "is this folder trusted?" screen
+// (the cursor on "No, exit"; Down moves it to Yes, Enter there goes on), then an idle prompt where every key goes
+// to a file outside the project
+async function trustSession(slug, cleanup) {
+  const name = `aidlc-${process.env.PGPT_TENANT || 'localhost'}-${slug}`.replace(/[^A-Za-z0-9_-]/g, '_')
+  const side = await fs.mkdtemp(path.join(os.tmpdir(), 'aidlc-rt-side-'))
+  const keys = path.join(side, 'keys.log')
+  const script = path.join(side, 'fake-claude.sh')
+  const show = (n) => `printf '\\033[2J\\033[H'; cat ${JSON.stringify(path.join(SCREENS, `${n}.txt`))}`
+  await fs.writeFile(script, `#!/bin/bash\ncat ${JSON.stringify(path.join(SCREENS, 'trust.txt'))}\nat=no\nwhile IFS= read -rsn1 k; do
+  if [ "$at" != done ]; then
+    if [ "$k" = B ]; then at=yes; ${show('trust-yes')}
+    elif [ -z "$k" ] && [ "$at" = yes ]; then at=done; ${show('idle')}
+    elif [ -z "$k" ]; then exit 0; fi
+    continue
+  fi
+  printf '%s' "$k" >> ${JSON.stringify(keys)}\ndone\n`, { mode: 0o755 })
+  tmux('new-session', '-d', '-s', name, '-x', '160', '-y', '48', script)
+  cleanup(async () => { try { tmux('kill-session', '-t', name) } catch { /* gone */ } await fs.rm(side, { recursive: true, force: true }) })
+  return { name, typed: () => fs.readFile(keys, 'utf8').catch(() => '') }
+}
+// what the engine writes when the session starts an intent
+async function writeIntent(repo, dir, { scope, project, stage }) {
+  const intents = path.join(repo, 'aidlc/spaces/default/intents')
+  const list = JSON.parse(await fs.readFile(path.join(intents, 'intents.json'), 'utf8'))
+  list.push({ uuid: randomUUID(), slug: dir.replace(/^\d{6}-/, ''), dirName: dir, scope, status: 'active', request: 'rt' })
+  await fs.mkdir(path.join(intents, dir, 'audit'), { recursive: true })
+  await fs.writeFile(path.join(intents, dir, 'aidlc-state.md'), `# AI-DLC State Tracking\n\n## Project Information\n- **Project**: ${project}\n- **Scope**: ${scope}\n\n## Current Status\n- **Current Stage**: ${stage}\n- **Status**: In Progress\n`)
+  await fs.writeFile(path.join(intents, 'intents.json'), JSON.stringify(list, null, 2))
+  await fs.writeFile(path.join(intents, 'active-intent'), dir)
+}
+
+test.describe('Robo-DLC Lite · 작업 접수 · 볼트 줄', () => {
+  test.skip(!STUB, 'PRO_AIDLC_COMPOSE_STUB (the stand-in plan file the server reads) is not set')
+
+  test('F-RD-10 채팅으로 접수: 접수 권한이 없는 사람이 「작업 접수: …」 라고 하면 계획안이 대화에 카드로 오고, 접수 담당에게 알림이 간다', async ({ pageAs, as, db, cleanup }) => {
+    test.setTimeout(150_000)
+    const { lead, folder, join } = await lineFolder({ as, db, cleanup }, '접수 채팅 회귀')
+    const page = await pageAs('rd-dev')
+    const dev = page.user
+    await join(dev, 'developer')
+    const thread = (await dev.get('/threads')).body[0].id
+    const said = async (text) => {
+      const before = (await dev.get(`/threads/${thread}/messages`)).body.length
+      await api.sendChat(dev.token(), thread, text)
+      return (await dev.get(`/threads/${thread}/messages`)).body.slice(before).filter((m) => m.role === 'agent')
+    }
+    let got = await said('작업 접수: 예약 화면의 "예약하기" 버튼 문구를 "회의실 잡기"로 바꿔 주세요')
+    // (someone who is in more than one project is asked which: its name is the answer)
+    if (!got.some((m) => m.kind === 'app')) got = await said(folder.name)
+    const text = got.find((m) => m.kind === 'text').content.text
+    expect(text).toMatch(/작업 요청으로 넣었어요/)
+    expect(text).toContain(`접수 권한이 있는 회귀-rd-lead 님께 알려요`)
+    const card = got.find((m) => m.kind === 'app').content
+    expect([card.app, card.folder, card.folderName]).toEqual(['intake', folder.slug, folder.name])
+    // the conversation shows the app's own screen as a card: the plan, and that it waits for who takes in work
+    await page.goto('/chat')
+    const box = page.locator('[data-test=app-card][data-app=intake]').last()
+    await expect(box).toContainText(folder.name, { timeout: 30_000 })
+    const plan = box.frameLocator('iframe')
+    await expect(plan.locator('[data-test=plan-title]')).toHaveText('예약 버튼 문구', { timeout: 40_000 })
+    await expect(plan.locator('[data-test=plan-scope]')).toHaveText('express')
+    await expect(plan.locator('[data-test=plan-unit]')).toHaveText([U6])
+    await expect(plan.locator('[data-test=plan-waiting]')).toContainText('접수를 기다리고 있어요. 회귀-rd-lead 님이')
+    await expect(plan.locator('[data-test=plan-approve]')).toHaveCount(0)
+    // the team lead is told, with the way to that plan
+    const url = `/apps/intake/${folder.slug}?r=${card.params.r}`
+    await expect.poll(async () => ((await lead.get('/notifications')).body || []).find((n) => n.type === 'aidlc' && n.url === url)?.title || '', { timeout: 20_000 }).toMatch(/접수를 기다려요/)
+    // the same screen, large
+    await box.locator('[data-test=app-card-open]').click()
+    const sheet = page.frameLocator('[data-test=app-sheet] iframe')
+    await expect(sheet.locator('[data-test=intake-req][data-status=inbox]')).toHaveCount(1, { timeout: 30_000 })
+    await expect(sheet.locator('[data-test=plan-title]')).toHaveText('예약 버튼 문구')
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-RD-11 작업 접수: 하고 싶은 일을 적으면 계획안(범위·건드리는 유닛·ARS) → 「지금 시작」 → 처음 여는 폴더는 믿을지 사람에게 묻고 → 세션에 /aidlc 가 들어간다', async ({ pageAs, as, db, cleanup }) => {
+    test.setTimeout(150_000)
+    const { folder } = await lineFolder({ as, db, cleanup }, '작업 접수 회귀')
+    const session = await trustSession(folder.slug, cleanup)
+    const page = await pageAs('rd-lead')
+    await page.goto(`/apps/intake/${folder.slug}`)
+    const f = page.frameLocator('iframe[data-test=app-intake]')
+    await f.locator('[data-test=intake-body]').fill('예약 알림 메일이 두 번 와요. 같은 예약인데 10분 전 알림이 두 통씩 옵니다.', { timeout: 30_000 })
+    await f.locator('[data-test=intake-send]').click()
+    // the plan: the scope by what kind of work it is, the units it touches (checked against the record), the score
+    await expect(f.locator('[data-test=plan-title]')).toHaveText('알림 메일 중복 발송', { timeout: 40_000 })
+    await expect(f.locator('[data-test=plan-scope]')).toHaveText('bugfix')
+    await expect(f.locator('[data-test=plan-unit]')).toHaveText([U5])
+    await expect(f.locator('[data-test=plan-ars]')).toHaveText(/^\d+$/)
+    // nothing is in flight: it cannot be folded into anything
+    await expect(f.locator('[data-test=plan-mode-merge]')).toBeDisabled()
+    await f.locator('[data-test=plan-mode-now]').click()
+    await f.locator('[data-test=plan-approve]').click()
+    // Claude Code asks whether the folder is trusted: nothing is typed over it — the person is asked, with what
+    // the folder's settings pre-approve
+    await expect(f.locator('[data-test=dialog]')).toContainText('이 폴더를 믿고 시작할까요?', { timeout: 20_000 })
+    await expect(f.locator('[data-test=trust-pre]')).toContainText('도구 132개')
+    expect(await session.typed()).toBe('')
+    await f.locator('[data-test=dialog-ok]').click()
+    await expect(f.getByText('세션에 넘겼어요')).toBeVisible({ timeout: 20_000 })
+    await expect.poll(session.typed, { timeout: 15_000 }).toContain('/aidlc bugfix "예약 알림 메일이 두 번 와요. 같은 예약인데 10분 전 알림이 두 통씩 옵니다."')
+    await expect(f.locator('[data-test=intake-req][data-status=started]')).toHaveCount(1)
+    await expect(f.locator('[data-test=plan-outcome]')).toContainText('회귀-rd-lead 님이 시작했어요')
+    // the bolt line has it at the head, running
+    await f.locator('[data-test=intake-to-line]').click()
+    const line = page.frameLocator('[data-test=app-sheet] iframe')
+    await expect(line.locator(`[data-test=line-bolt][data-state=running][data-unit="${U5}"]`)).toHaveCount(1, { timeout: 30_000 })
+    await expect(line.locator('[data-test=line-bolt][data-bucket=shipped]')).toHaveCount(6)
+    // who answered the trust question is in the ledger
+    await expect(line.locator('[data-test=line-ledger]')).toContainText('믿고 진행')
+    await expect(line.locator('[data-test=line-ledger]')).toContainText('미리 허용한 도구 132개')
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-RD-12 볼트 줄: 줄 끝에 세운 요청의 볼트 셋 · 의존을 깨는 이동은 막고 함께 옮길 볼트를 알려 주며 · 「함께 옮기기」 로 셋이 다음 릴리스로', async ({ pageAs, as, db, cleanup }) => {
+    test.setTimeout(150_000)
+    const { lead, folder, ask } = await lineFolder({ as, db, cleanup }, '볼트 줄 회귀')
+    const recur = await ask(lead, '반복 예약을 넣어 주세요. 매주 같은 시간에 되풀이되는 예약이요.')
+    expect([recur.status, recur.estimate.scope]).toEqual(['proposed', 'feature'])
+    expect(await appTool(lead, 'intake', 'intake_approve', { folder: folder.slug, id: recur.id, mode: 'after' })).toEqual({ status: 'queued', scope: 'feature' })
+    const k = (u) => `r:${recur.id}:${u}`
+    const page = await pageAs('rd-lead')
+    await page.goto(`/apps/line/${folder.slug}`)
+    const f = page.frameLocator('iframe[data-test=app-line]')
+    const bolt = (u) => f.locator(`[data-test=line-bolt][data-bolt="${k(u)}"]`)
+    // the finished work is released; the request's expected bolts stand at the tail, one per unit
+    await expect(f.locator('[data-test=line-bolt][data-bucket=shipped]')).toHaveCount(6, { timeout: 30_000 })
+    for (const u of [U2, U4, U6]) await expect(bolt(u)).toHaveAttribute('data-bucket', 'tail')
+    await expect(bolt(U6)).toHaveAttribute('data-state', 'estimated')
+    // the screen bolt waits for the API bolt (C2) and the rules bolt (C3): alone it may not go to the next release
+    await bolt(U6).click()
+    await expect(f.locator('[data-test=picked-deps]')).toContainText('C2')
+    await f.locator('[data-test=picked-move-next]').click()
+    await expect(f.locator('[data-test=move-blocked]')).toBeVisible({ timeout: 15_000 })
+    await expect(f.locator('[data-test=move-blocker]')).toHaveCount(2)
+    await expect(bolt(U6)).toHaveAttribute('data-bucket', 'tail')
+    await f.locator('[data-test=move-together]').click()
+    await expect(f.getByText('볼트 3개를')).toBeVisible({ timeout: 15_000 })
+    for (const u of [U2, U4, U6]) await expect(bolt(u)).toHaveAttribute('data-bucket', 'next')
+    // it is in the ledger, with how many went together
+    await expect(f.locator('[data-test=line-ledger]')).toContainText('줄 끝 → 다음 릴리스')
+    await expect(f.locator('[data-test=line-ledger]')).toContainText('3개를 함께')
+    // nothing is in flight: the head offers the next work to a person who may start it
+    await expect(f.locator('[data-test=line-start]')).toBeVisible()
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-RD-13 보안 멈춤과 폐기: 누구든 보안 사유로 멈추면 세션에 바로 Esc · 팀 리드가 까닭을 적어 폐기하면 바뀐 파일이 시작 전으로, 줄에는 폐기된 볼트로 남는다', async ({ pageAs, as, db, cleanup }) => {
+    test.setTimeout(200_000)
+    const { lead, repo, folder, join, ask } = await lineFolder({ as, db, cleanup }, '보안 멈춤 회귀')
+    const session = await trustSession(folder.slug, cleanup)
+    const devPage = await pageAs('rd-dev')
+    await join(devPage.user, 'developer')
+    // the team lead starts the bug fix (the folder is trusted); the record gets the intent, as the engine writes it
+    const bug = await ask(lead, '예약 알림 메일이 두 번 와요. 같은 예약인데 10분 전 알림이 두 통씩 옵니다.')
+    expect((await appTool(lead, 'intake', 'intake_approve', { folder: folder.slug, id: bug.id, mode: 'now' })).status).toBe('trust')
+    expect(await appTool(lead, 'intake', 'intake_approve', { folder: folder.slug, id: bug.id, mode: 'now', trust: true })).toEqual({ status: 'started', scope: 'bugfix' })
+    await expect.poll(session.typed, { timeout: 15_000 }).toContain('/aidlc bugfix')
+    const BUG = '261112-double-mail', key = `i:${BUG}:${U5}`
+    await writeIntent(repo, BUG, { scope: 'bugfix', project: '예약 알림 메일이 두 번 와요', stage: 'code-generation' })
+    await expect.poll(async () => (await appTool(lead, 'line', 'line_open', { folder: folder.slug })).requests.find((r) => r.id === bug.id).intent, { timeout: 40_000 }).toBe(BUG)
+    // the session "worked": a file changed
+    const mail = path.join(repo, 'packages/worker/src/mail.ts')
+    const before = await fs.readFile(mail, 'utf8')
+    await fs.writeFile(mail, `${before}\nconsole.log('SMTP_PASSWORD', process.env.SMTP_PASSWORD)\n`)
+
+    // a developer (who may not stop or discard) sees a secret in the log: a security stop pauses the session at once
+    await devPage.goto(`/apps/line/${folder.slug}`)
+    const d = devPage.frameLocator('iframe[data-test=app-line]')
+    await d.locator(`[data-test=line-bolt][data-bolt="${key}"]`).click({ timeout: 30_000 })
+    await expect(d.locator('[data-test=picked-discard]')).toHaveCount(0)
+    const mark = (await session.typed()).length
+    await d.locator('[data-test=picked-ask-stop]').click()
+    await d.locator('[data-test=stop-security]').check()
+    await d.locator('[data-test=dialog-reason]').fill('SMTP 비밀번호가 로그에 찍혀요')
+    await d.locator('[data-test=dialog-ok]').click()
+    await expect(d.getByText('세션을 바로 멈추고 알렸어요')).toBeVisible({ timeout: 20_000 })
+    await expect.poll(async () => (await session.typed()).slice(mark), { timeout: 10_000 }).toBe('\x1b')
+    await expect(d.locator(`[data-test=line-bolt][data-bolt="${key}"]`)).toHaveAttribute('data-hold', /.+/)
+    // the team lead gets the card, straight to that bolt
+    const url = `/apps/line/${folder.slug}?b=${encodeURIComponent(key)}`
+    await expect.poll(async () => ((await lead.get('/notifications')).body || []).find((n) => n.type === 'aidlc' && n.url === url)?.title || '', { timeout: 20_000 }).toMatch(/보안 사유로 작업을 멈췄어요/)
+
+    // the team lead looks at what discarding means, gives the reason, and discards
+    const page = await pageAs('rd-lead')
+    await page.goto(url)
+    const f = page.frameLocator('iframe[data-test=app-line]')
+    await expect(f.locator('[data-test=picked-stop]')).toContainText('SMTP 비밀번호가 로그에 찍혀요', { timeout: 30_000 })
+    await f.locator('[data-test=picked-discard]').click()
+    await expect(f.locator('[data-test=discard-kind]')).toHaveAttribute('data-kind', 'stop', { timeout: 20_000 })
+    await expect(f.locator('[data-test=discard-files]')).toContainText('되돌릴 파일 1개')
+    await f.locator('[data-test=dialog-ok]').click()   // no reason yet: refused
+    await expect(f.getByText('폐기하는 까닭을 적어 주세요')).toBeVisible()
+    await f.locator('[data-test=dialog-reason]').fill('비밀번호를 로그에 남기는 코드예요. 처음부터 다시 해요')
+    await f.locator('[data-test=dialog-ok]').click()
+    await expect(f.getByText('멈추고 폐기했어요')).toBeVisible({ timeout: 30_000 })
+    await expect(f.locator('[data-test=picked-discarded]')).toContainText('비밀번호를 로그에 남기는 코드예요')
+    await expect(f.locator(`[data-test=line-bolt][data-bolt="${key}"]`)).toHaveAttribute('data-gone', /.+/)
+    // the file is as it was when the bolt started; the session was told; the ledger has who and why
+    expect(await fs.readFile(mail, 'utf8')).toBe(before)
+    await expect.poll(session.typed, { timeout: 15_000 }).toContain('[Lite] 이 작업은 폐기하기로 했어요')
+    await expect(f.locator('[data-test=line-ledger]')).toContainText('멈추고 폐기')
+    const v = await appTool(lead, 'line', 'line_open', { folder: folder.slug })
+    expect(v.head.busy).toBe(false)
+    expect([page.errors, devPage.errors]).toEqual([[], []])
   })
 })

@@ -383,15 +383,26 @@ AI-DLC 저장소를 연결형 공유 폴더로 붙이면 그 폴더 구성원이
 | 산출물 보기: 문서 전체, 초점 절에 띠(같은 계열의 다음 절 앞까지), 원문 HTML 은 글자, 기록 밖 404·구성원 밖 403 | F-RD-07, `apps.e2e` 6단계, `apps.test.js` 렌더 | feature | ✅ |
 | 볼트 보드: 의도 → 유닛 → 볼트(코드 생성 한 번 = 볼트 하나, 빌드·테스트가 되돌리면 다음 볼트), 볼트 계획은 「묶음 B<n>」 이름표, 유닛 진척·산출물, 세션 화면은 구성원에게 | F-RD-08, `apps.e2e` 7단계, `apps.test.js` unitBolts(실제 실행 u3 의 사건 순서: 볼트 셋) | feature | ✅ |
 | 구축의 기다림은 유닛 단계의 역할에게(코드 계획 → 개발자) | `apps.test.js` 지금 유닛 단계(실제 실행의 사건 순서), 실제 classic 실행 | feature | ✅ |
+| (P3 작업 접수·볼트 줄, spec `pgpt-pro_aidlc-intake`, 설계 `docs/robo-dlc/plan-intake.md`) 하고 싶은 일을 적으면 계획안: 종류로 범위 추천(bug → bugfix, 작은 변경 → express, 기능 → feature), 건드리는 유닛·계약·요구사항은 기록과 대조해 없는 것은 버림, ARS 다섯 축 | F-RD-11, `aidlc-intake.e2e` S1·S2(express·feature), `aidlc-chat.e2e` | feature | ✅ (계획안은 대역 파일 `PRO_AIDLC_COMPOSE_STUB`; 실제 추정은 실제 실행으로 확인) |
+| 접수 권한(PO·팀 리드)만 시작·대기·합치기를 정한다. 그 밖의 요청은 접수함으로, 접수 담당에게 카드 | F-RD-10, `aidlc-intake.e2e` S1, `aidlc-chat.e2e` 1단계 | feature | ✅ |
+| 「지금 시작」: 처음 여는 폴더의 "믿을까요" 화면 위에는 아무것도 치지 않고 사람에게 묻는다(미리 허용한 도구 수) → 「믿고 시작」 뒤에 세션에 `/aidlc <범위> "<요청>"`, 누가 답했는지 결정 기록에 · 진행 중이면 지금 시작 409 | F-RD-11, `aidlc-intake.e2e` S1 | feature | ✅ |
+| 세션이 만든 의도가 요청과 이어진다(볼트 키 `r:` → `i:`) | F-RD-13, `aidlc-intake.e2e` S1 | feature | ✅ |
+| 채팅으로 접수: 「작업 접수: …」 는 모델 없이 접수, 계획안은 대화에 접수 앱 카드로(「크게 보기」 → 옆 시트), 두 프로젝트면 어느 프로젝트인지 묻기, 평소 말은 라우터가 넘김 | F-RD-10, `aidlc-chat.e2e`, `aidlc-chat-router.test.js` | feature · agent | ✅ (평소 말 판은 모델을 거침) |
+| 볼트 줄: 내보냄 · 지금 · 다음 릴리스 · 줄 끝, 줄 끝에 세운 요청은 유닛마다 예상 볼트, 볼트 의존(계약 제공자 먼저) | F-RD-12, `aidlc-line.test.js`, `aidlc-intake.e2e` S2 | feature | ✅ |
+| 의존을 깨는 이동은 막고 함께 옮길 볼트를 알려 준다 → 「함께 옮기기」, 결정 기록에 몇 개를 함께 옮겼는지 | F-RD-12, `aidlc-intake.e2e` S2 | feature | ✅ |
+| 보안 멈춤: 멈춤 권한이 없는 사람도 보안 사유면 세션에 바로 Esc(그 밖의 키 없음), 볼트는 멈춰 둠, 팀 리드·PO 에게 그 볼트로 가는 카드 | F-RD-13, `aidlc-intake.e2e` S4 | feature | ✅ |
+| 폐기: 미리 보기(되돌릴 파일·치울 새 파일·기다리던 볼트), 까닭 필수, 도는 볼트는 멈추고 시작 전으로 되돌림(기록은 남김), 세션에 폐기 알림, 줄에는 폐기된 볼트로 남고 줄 앞이 빔 | F-RD-13, `aidlc-snapshot.test.js`, `aidlc-intake.e2e` S3·S4 | feature | ✅ |
+| 부딪히는 요청: 진행 중 볼트와 양립 못 하면 계획안에 인용과 함께, 「그 볼트를 폐기하고 이 요청으로」 | `aidlc-intake.e2e` S3 | feature | ✅ (화면 회귀 없음) |
+| 메신저 방에서 접수 · 엔진 작업 트리 폐기 · 동시 세션 | — | — | ✗ (미구현, `docs/robo-dlc/plan-p3-impl.md` 남은 공백) |
 
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (15개) | 98 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, AI-DLC F-RD-01…09) |
+| feature | `tests/feature/*.spec.js` (15개) | 102 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, AI-DLC F-RD-01…13) |
 | agent | `tests/agent/*.spec.js` (4개) | 14 (회의 A-14) |
-| 합계 | | 169 |
+| 합계 | | 173 |
 
 openspec 명세 15개의 요구사항 126개: 덮음 86 · 일부 21 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 

@@ -47,7 +47,7 @@ async function folderRow() {
 async function reset() {
   const f = await folderRow()
   if (f) {
-    for (const t of ['pro_aidlc_roles', 'pro_aidlc_decisions', 'pro_aidlc_waits', 'pro_aidlc_proposals', 'pro_aidlc_mobs']) await q(`delete from ${t} where tenant_id=$1 and folder_id=$2`, [config.tenantId, f.id])
+    for (const t of ['pro_aidlc_roles', 'pro_aidlc_decisions', 'pro_aidlc_waits', 'pro_aidlc_proposals', 'pro_aidlc_mobs', 'pro_aidlc_requests', 'pro_aidlc_line']) await q(`delete from ${t} where tenant_id=$1 and folder_id=$2`, [config.tenantId, f.id])
     // the review board's stances and comments (server/apps/review), when this Lite has it
     for (const t of ['app_review_marks', 'app_review_comments']) await q(`delete from ${t} where tenant_id=$1 and folder_id=$2`, [config.tenantId, f.id]).catch(() => {})
     await q(`update notifications set is_checked=true where tenant_id=$1 and type='aidlc' and url like $2`, [config.tenantId, `/aidlc/${f.slug}/decide%`])
