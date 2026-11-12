@@ -497,14 +497,19 @@ export async function discardPreview(slug, user, key) {
   }
 }
 
-// the engine puts the intent away (its record stays under the archive)
+// the engine puts the intent away: its record and audit trail stay on disk, its status becomes "archived" and
+// it is no longer the active intent (`aidlc engine intent unarchive` brings it back). The record is what tells
+// whether it happened — the command's words are not checked.
 async function archiveIntent(root, intent, reason) {
+  let message = ''
   try {
-    const { stdout } = await run('aidlc', ['engine', 'orchestrate', 'next', 'intent', 'archive', intent, '--reason', oneLine(reason, 300)], { cwd: root, env: AS.cleanEnv(), timeout: 30000 })
-    return { ok: true, message: stdout.trim().slice(0, 300) }
+    const { stdout } = await run('aidlc', ['engine', 'intent', 'archive', intent, '--reason', oneLine(reason, 300)], { cwd: root, env: AS.cleanEnv(), timeout: 30000 })
+    message = stdout.trim().slice(0, 300)
   } catch (e) {
-    return { ok: false, message: String(e.stderr || e.message).trim().slice(0, 300) }
+    message = String(e.stderr || e.message).trim().slice(0, 300)
   }
+  const ok = (await R.listIntents(root).catch(() => [])).some((i) => i.dirName === intent && i.archived)
+  return { ok, message }
 }
 
 // dependents: 'hold' (default) | 'discard' | 'keep' — what happens to the bolts that wait for this one

@@ -37,7 +37,7 @@ export async function listIntents(root) {
     }
     for (const i of list) {
       if (!NAME.test(i.slug || '') || !NAME.test(i.dirName || '')) continue
-      out.push({ space: s.name, slug: i.slug, dirName: i.dirName, scope: i.scope || null, status: i.status || null, archived: !!i.archived })
+      out.push({ space: s.name, slug: i.slug, dirName: i.dirName, scope: i.scope || null, status: i.status || null, archived: !!i.archived || i.status === 'archived' })
     }
   }
   return out

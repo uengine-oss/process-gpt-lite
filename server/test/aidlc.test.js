@@ -289,3 +289,23 @@ test('질문 파일에 합의한 답 쓰기: 빈 [Answer] 에만, 이 기록의 
   await assert.rejects(R.writeAnswers(dir, f.path, { Q99: 'A' }), /nothing to write/)
   await fsp.rm(tmp, { recursive: true, force: true })
 })
+
+test('보관한 작업: 엔진이 intents.json 의 status 를 archived 로 바꾼 작업은 지금 작업이 아니다', async () => {
+  const fsp = await import('node:fs/promises')
+  const os = await import('node:os')
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'aidlc-archived-'))
+  await fsp.cp(ROOT, tmp, { recursive: true })
+  const file = path.join(tmp, 'aidlc/spaces/default/intents/intents.json')
+  const list = JSON.parse(await fsp.readFile(file, 'utf8'))
+  const before = await R.listIntents(tmp)
+  assert.ok(before.every((i) => !i.archived))
+  // what `aidlc engine intent archive <name>` leaves: the status, and no active-intent file
+  list.at(-1).status = 'archived'
+  await fsp.writeFile(file, JSON.stringify(list, null, 2))
+  await fsp.rm(path.join(tmp, 'aidlc/spaces/default/intents/active-intent'), { force: true })
+  const after = await R.listIntents(tmp)
+  assert.deepEqual(after.filter((i) => i.archived).map((i) => i.dirName), [list.at(-1).dirName])
+  const { currentIntent } = await import('../lib/aidlc/team.js')
+  assert.notEqual((await currentIntent(tmp))?.dirName, list.at(-1).dirName)
+  await fsp.rm(tmp, { recursive: true, force: true })
+})
