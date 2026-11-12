@@ -176,12 +176,14 @@ export async function runMailHistory(me, jobId, days) {
   const threads = threadsOf(kept)
   const inside = await insidePeople()
   // the names the company already uses: the chat handovers are matched first, so the mail speaks the same words
+  // (the filtered mails count as read at once; the screen says what is going on while the chat names are matched)
+  let done = mails.length - kept.length, work = 0
   const chat = await q(`select coalesce(nullif(activity_label,''), nullif(next_activity_label,''), instruction) as raw from handover_events where tenant_id=$1`, [T()])
+  await update(`done=$2, detail=coalesce(detail,'{}'::jsonb) || $3::jsonb`, [done, { stage: 'chat', chat: chat.length }])
   if (chat.length) await (await import('./names.js')).resolveLabels(chat.map((r) => ({ raw: r.raw }))).catch((e) => console.warn('[ontology] chat names', e.message))
   const known = (await q(`select distinct task from pro_onto_labels where tenant_id=$1 and task <> ''`, [T()])).map((r) => r.task)
-  let done = mails.length - kept.length, work = 0
   const found = new Set(known)
-  await update('done=$2', [done])
+  await update(`found=$2, detail=coalesce(detail,'{}'::jsonb) || $3::jsonb`, [found.size, { stage: 'mail' }])
   // four threads at a time (one model call each); progress moves as each finishes
   const readOne = async (t) => {
     // a single plain mail with no attachment and no reply is not a flow: it costs no model call

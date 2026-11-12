@@ -33,6 +33,7 @@ const weeks = computed(() => props.job?.detail?.weeks || 0)
         <template v-if="job?.total">{{ (job.total || 0).toLocaleString('ko-KR') }}통 중 {{ (job.done || 0).toLocaleString('ko-KR') }}통 읽음 · 일 {{ job.found || 0 }}개</template>
         <template v-else>메일함을 여는 중…</template>
       </p>
+      <p v-if="job?.detail?.stage === 'chat'" class="sub">먼저 채팅 인계 기록 {{ job.detail.chat || 0 }}건의 일 이름을 맞추고 있어요. 메일은 그 이름으로 읽어요.</p>
       <p class="sub">창을 닫아도 계속 읽어요. 다 읽으면 지도를 그려요.</p>
     </template>
 
