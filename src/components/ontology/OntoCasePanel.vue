@@ -1,7 +1,7 @@
 <script setup>
 // 건 하나: 어디서 시작했는지(시작 일과 확률), 건너뛴 일, 옮긴 일, 지금 스냅샷(BPMN, 진행 표시)과 할 일.
 // 「다른 일로 옮기기」는 누구나(건을 맡은 사람) — 지금 인스턴스를 닫고 그 일부터 새 스냅샷으로 잇는다.
-// props.tasks: 옮길 수 있는 일 목록(지도 화면이 넘기면 그걸, 없으면 지도에서 이 묶음의 일을 읽는다)
+// props.tasks: 옮길 수 있는 일 목록(지도 화면이 넘기면 그걸, 없으면 지도에서 이 프로세스의 일을 읽는다)
 // hideHeader: 지도 화면의 SidePanel 처럼 바깥 틀이 제목을 보일 때 · emits moved(결과) · open-task(key)
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -43,21 +43,21 @@ const moveTo = ref('')
 const reason = ref('')
 const busy = ref(false)
 const moved = ref('')
-const bundleTasks = ref(null)
+const procTasks = ref(null)
 const choices = computed(() => {
   const cur = moves.value.at(-1)?.task || c.value?.entry_task
-  const list = props.tasks || bundleTasks.value || [...new Set([...(odds.value?.options || []).map((o) => o.task), ...history.value.map((h) => h.task), ...curTodos.value.map((t) => t.activity_name)])]
+  const list = props.tasks || procTasks.value || [...new Set([...(odds.value?.options || []).map((o) => o.task), ...history.value.map((h) => h.task), ...curTodos.value.map((t) => t.activity_name)])]
   return list.filter((k) => k && k !== cur && k !== '요청 접수')
 })
 async function openMove() {
   moveOpen.value = !moveOpen.value
   moved.value = ''
-  if (!moveOpen.value || props.tasks || bundleTasks.value || !c.value?.bundle) return
+  if (!moveOpen.value || props.tasks || procTasks.value || !c.value?.proc) return
   try {
     const m = await api('/ontology/map')
-    const b = (m.bundles || []).find((x) => x.key === c.value.bundle)
+    const b = (m.processes || []).find((x) => x.key === c.value.proc)
     const retired = new Set((m.tasks || []).filter((t) => t.status === 'retired').map((t) => t.key))
-    if (b) bundleTasks.value = b.tasks.filter((k) => !retired.has(k))
+    if (b) procTasks.value = b.tasks.filter((k) => !retired.has(k))
   } catch { /* 아는 일들로 */ }
 }
 async function move() {

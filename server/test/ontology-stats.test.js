@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { toCases, transitions, graphOf, nextOf, split, fitness, kneeTheta, nextStepAccuracy, pickHalfLife, staleness,
-  bundlesOf, clusterCases, calibrate, summaryTheta, autoValues, bandOf, wilson, END, DAY, THETAS } from '../lib/ontology/stats.js'
+  processesOf, clusterCases, calibrate, summaryTheta, autoValues, bandOf, wilson, END, DAY, THETAS } from '../lib/ontology/stats.js'
 
 const CASES = JSON.parse(fs.readFileSync(new URL('./ontology-cases.json', import.meta.url), 'utf8'))
 const T0 = Date.UTC(2026, 7, 12)
@@ -96,9 +96,9 @@ test('반감기: 잴 이동이 10개 미만이면 시작값', () => {
   assert.equal(r.halfLife, 60)
 })
 
-test('묶음: 서로 이어지지 않는 일들은 다른 묶음', () => {
+test('프로세스: 서로 이어지지 않는 일들은 다른 프로세스', () => {
   const g = graphOf(toCases([ev('a', '요청', 0), ev('a', '견적서', 1), ev('b', '계약', 0), ev('b', '발주', 1)]))
-  const b = bundlesOf(g)
+  const b = processesOf(g)
   assert.equal(b.length, 2)
   assert.deepEqual(b.map((x) => x.tasks).sort(), [['견적서', '요청'], ['계약', '발주']])
 })
@@ -142,7 +142,7 @@ test('조건 문턱: 금액으로 두 갈래를 가르면 1천만 원 같은 사
   assert.equal(learnThreshold(rows.slice(0, 3)), null)
 })
 
-test('묶음: 공통 일(요청·회신)이 있어도 핵심 흐름이 다르면 다른 묶음, 일부만 있는 건(견적만 다시)은 같은 묶음', () => {
+test('프로세스: 공통 일(요청·회신)이 있어도 핵심 흐름이 다르면 다른 프로세스, 일부만 있는 건(견적만 다시)은 같은 프로세스', () => {
   const evs = []
   const add = (id, tasks, d) => tasks.forEach((t, i) => evs.push(ev(id, t, d + i * 0.1)))
   for (let i = 0; i < 10; i++) add(`a${i}`, ['요청', '실측', '평면도', '제안서', '견적서', '회신'], i)

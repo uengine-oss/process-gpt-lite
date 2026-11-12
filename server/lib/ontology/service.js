@@ -1,5 +1,6 @@
 // 프로세스 온톨로지 — what the routes call (spec pgpt-pro_process-ontology). Reading the mail history, building the
 // graph, and the map a person sees (θ, a point in time, the automatic values with their evidence).
+import { shownRoutine } from './structure.js'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
@@ -61,12 +62,13 @@ export async function readMailAndBuild(me, { days = 90 } = {}) {
 
 export async function postSummary(me, mailJob) {
   const m = await map({})
-  const band = (k) => m.bundles.filter((b) => b.band === k).length
+  const flows = m.processes.filter((p) => p.kind !== 'routine')
+  const band = (k) => flows.filter((b) => b.band === k).length
   const t = await mainThread(me.id)
   const tasks = m.tasks.filter((x) => x.status !== 'retired').length
   const msg = await addMessage(me.id, t.id, 'agent', 'onto-summary', {
-    text: `메일 ${mailJob?.total ?? '-'}통과 채팅 핸드오버를 읽어 일 ${tasks}개, 흐름 ${m.bundles.length}개를 찾았어요. 굳은 길 ${band('paved')} · 열린 일 ${band('open')} · 지켜보기 ${band('watch')}.`,
-    tasks, bundles: m.bundles.map((b) => ({ key: b.key, name: b.name, band: b.band, bandName: b.bandName, cases: b.cases })), sources: m.meta?.sources || {}, url: '/process-map',
+    text: `메일 ${mailJob?.total ?? '-'}통과 채팅 핸드오버를 읽어 일 ${tasks}개, 흐름 ${flows.length}개를 찾았어요. 굳은 길 ${band('paved')} · 열린 일 ${band('open')} · 지켜보기 ${band('watch')}.`,
+    tasks, processes: flows.map((b) => ({ key: b.key, name: b.name, band: b.band, bandName: b.bandName, cases: b.cases })), sources: m.meta?.sources || {}, url: '/process-map',
   })
   return msg
 }
@@ -77,13 +79,42 @@ export async function job(id) {
   return j
 }
 
-// The map: tasks, NEXT edges and bundles as of a point in time (validAt: the world then; default now), with the values
+// The map: tasks, NEXT edges and processes as of a point in time (validAt: the world then; default now), with the values
 // set automatically and what they rest on. θ filtering is the screen's (it moves a slider over the same data).
 export async function map({ validAt, systemAt } = {}) {
   if (!ontologyEnabled()) throw err(503, 'Ontological DB 가 연결되지 않았어요.')
   const g = await readGraph({ validAt, systemAt })
-  const bundles = g.bundles.map((b) => ({ ...b, bandName: BAND_KO[b.band] || b.band }))
-  return { at: validAt || null, tasks: g.tasks, edges: g.edges, bundles, meta: g.meta }
+  const processes = g.processes.map((b) => ({ ...b, bandName: BAND_KO[b.band] || b.band }))
+  // personal habits are all counted; the map shows the role routines the setting lets through (design-v0.3 §4)
+  const settings = await habitSettings()
+  const personal = (t) => ['habit', 'told', 'rule'].includes(t.source)
+  const triggers = g.triggers.filter((t) => !personal(t) || shownRoutine(t, settings))
+  const routineTasks = new Set(triggers.filter(personal).map((t) => t.to))
+  const shownRole = new Set(triggers.filter(personal).map((t) => String(t.scope || '').replace(/^role:/, '')))
+  const procs = processes.filter((p) => p.kind !== 'routine' || shownRole.has(p.role))
+    .map((p) => (p.kind === 'routine' ? { ...p, tasks: p.tasks.filter((t) => routineTasks.has(t)) } : p))
+  const live = new Set(procs.map((p) => p.key))
+  const tasks = g.tasks.filter((t) => t.kind !== 'habit' || routineTasks.has(t.key))
+    .map((t) => ({ ...t, procs: (t.procs || []).filter((k) => live.has(k)) })).map((t) => ({ ...t, proc: t.procs[0] || '' }))
+  const hidden = g.triggers.length - triggers.length
+  return { at: validAt || null, tasks, edges: g.edges, processes: procs, events: g.events.filter((e) => e.kind !== 'artifact' || !String(e.key).startsWith('artifact:@') || triggers.some((t) => t.from === e.key)),
+    triggers, raises: g.raises, startsOn: g.startsOn.filter((x) => live.has(x.from)), hasTask: g.hasTask.filter((x) => live.has(x.from)),
+    roles: g.roles, performedBy: g.performedBy, performers: g.performers, plays: g.plays, ofRole: g.ofRole.filter((x) => live.has(x.from)), ways: g.ways,
+    habits: { ...settings, hidden }, meta: g.meta }
+}
+
+// 개인 습관을 지도에 보이는 설정(관리자): threshold(같은 역할 min 명 이상 · 본인이 공유한 것) | all(모두, 이름 없이) | off
+export async function habitSettings() {
+  const [r] = await q('select habit_publish as mode, habit_min_people as min from pro_onto_settings where tenant_id=$1', [config.tenantId]).catch(() => [])
+  return { mode: r?.mode || 'threshold', min: r?.min ?? 3 }
+}
+export async function setHabitSettings(me, { mode, min }) {
+  if (!['threshold', 'all', 'off'].includes(mode)) throw err(400, '설정은 threshold · all · off 가운데 하나예요.')
+  const n = Math.max(1, Math.min(50, Math.round(Number(min) || 3)))
+  await q(`insert into pro_onto_settings (tenant_id, habit_publish, habit_min_people, updated_by, updated_at) values ($1,$2,$3,$4,now())
+           on conflict (tenant_id) do update set habit_publish=excluded.habit_publish, habit_min_people=excluded.habit_min_people, updated_by=excluded.updated_by, updated_at=now()`,
+  [config.tenantId, mode, n, me.id])
+  return habitSettings()
 }
 
 export async function labels() { return labelExamples(40) }

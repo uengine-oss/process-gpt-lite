@@ -1,4 +1,4 @@
-// E2E S2 「어디서든 시작」 (spec pgpt-pro_process-ontology): a returning customer asks only for a new quote. The bundle is
+// E2E S2 「어디서든 시작」 (spec pgpt-pro_process-ontology): a returning customer asks only for a new quote. The proc is
 // adopted; the quote task gets its definition from the quote form found in the mail (checkpoints); the mail arrives in
 // the demo mailbox → the start task is chosen with odds (견적서 작성, not 요청 메일 접수) → a snapshot from there runs on
 // Process GPT's engine (the earlier steps skipped) → the agent drafts the quote with the xlsx skill and its checkpoints
@@ -38,10 +38,10 @@ export const REQUOTE = {
 
 const boss = await signIn('pro-ax-jinyoung@uengine.org')
 const m = (await call(boss.tok, 'GET', '/ontology/map')).body
-const A = m.bundles.find((b) => b.tasks.includes('견적서 작성'))
+const A = m.processes.find((b) => b.tasks.includes('견적서 작성'))
 
-await step('묶음 채택(관리자)', async () => {
-  const r = await call(boss.tok, 'POST', '/ontology/bundles/status', { key: A.key, status: 'adopted' })
+await step('프로세스 채택(관리자)', async () => {
+  const r = await call(boss.tok, 'POST', '/ontology/processes/status', { key: A.key, status: 'adopted' })
   assert.equal(r.status, 200, JSON.stringify(r.body))
   return r.body
 })
@@ -80,7 +80,7 @@ await step('메일이 오면 그 일에서 시작하는 스냅샷이 엔진에�
     ;[asked] = await q(`select m.id, m.content from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$1 and m.kind='onto-entry' and m.content->>'state'='ask' and m.created_at >= $2 order by m.created_at desc limit 1`, [boss.id, since])
     if (asked) {
       assert.equal(asked.content.choice.options[0].task, '견적서 작성', JSON.stringify(asked.content.choice))
-      const r2 = await call(boss.tok, 'POST', '/ontology/cases', { bundle: asked.content.choice.bundle, entry: '견적서 작성', subject: REQUOTE.subject, body: REQUOTE.text, from: REQUOTE.from, odds: asked.content.choice, kind: 'mail', messageId: asked.id })
+      const r2 = await call(boss.tok, 'POST', '/ontology/cases', { proc: asked.content.choice.proc, entry: '견적서 작성', subject: REQUOTE.subject, body: REQUOTE.text, from: REQUOTE.from, odds: asked.content.choice, kind: 'mail', messageId: asked.id })
       assert.equal(r2.status, 200, JSON.stringify(r2.body))
       ;[c] = await q(`select * from pro_po_cases where id=$1`, [r2.body.caseId])
       break

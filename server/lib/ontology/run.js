@@ -1,7 +1,7 @@
 // 스냅샷 실행(design-v0.2 §4): the ontology is not run as such. When a case comes in, its start task is chosen, and the
-// bundle's graph is unfolded from there into an ordinary process definition (a snapshot: lanes per role, XOR splits
+// proc's graph is unfolded from there into an ordinary process definition (a snapshot: lanes per role, XOR splits
 // with the learned conditions, AND splits for parallel work, pinned steps always in) that Process GPT's own engine
-// runs. A snapshot with the same key (bundle · start task · θ · last structural change · statistics week) is reused.
+// runs. A snapshot with the same key (proc · start task · θ · last structural change · statistics week) is reused.
 // A case that jumps somewhere its snapshot does not go is moved: the running instance is closed and a new snapshot
 // from the target task continues the same case. Agent steps run here (orchestration pgpt-pro-onto): the step's skills,
 // and its checkpoints checked against what it produced.
@@ -25,20 +25,20 @@ const err = (status, message) => Object.assign(new Error(message), { status })
 const fmtWon = (n) => new Intl.NumberFormat('ko-KR').format(n)
 const isoDay = (d = new Date()) => new Date(d).toISOString()
 
-// ---------- reading a bundle ----------
-export async function bundleGraph(bundleKey, { validAt } = {}) {
+// ---------- reading a proc ----------
+export async function procGraph(procKey, { validAt } = {}) {
   const g = await readGraph({ validAt })
-  const bundle = g.bundles.find((b) => b.key === bundleKey)
-  if (!bundle) throw err(404, '묶음을 찾지 못했어요.')
-  const set = new Set(bundle.tasks)
+  const proc = g.processes.find((b) => b.key === procKey)
+  if (!proc) throw err(404, '프로세스를 찾지 못했어요.')
+  const set = new Set(proc.tasks)
   const tasks = new Map(g.tasks.filter((t) => set.has(t.key)).map((t) => [t.key, t]))
   const edges = g.edges.filter((e) => set.has(e.from) && (e.to === END || set.has(e.to)))
-  return { bundle, tasks, edges, all: g }
+  return { proc, tasks, edges, all: g }
 }
 
-// the usual way from the bundle's main entry to `entry` (most probable path) — what a case starting at `entry` skipped
-export function skippedBefore(bundle, edges, entry) {
-  const start = bundle.entries?.[0]
+// the usual way from the proc's main entry to `entry` (most probable path) — what a case starting at `entry` skipped
+export function skippedBefore(proc, edges, entry) {
+  const start = proc.entries?.[0]
   if (!start || start === entry) return []
   const dist = new Map([[start, 0]]), prev = new Map(), todo = new Set([start])
   while (todo.size) {
@@ -58,7 +58,7 @@ export function skippedBefore(bundle, edges, entry) {
 
 // ---------- unfolding ----------
 // → {nodes:[task], flows:[{from,to,cond,p,default}], gateways, band}
-export function unfold({ bundle, tasks, edges }, entry, theta) {
+export function unfold({ proc, tasks, edges }, entry, theta) {
   const retiredTask = (k) => tasks.get(k)?.status === 'retired'
   const pinnedTask = (k) => !!tasks.get(k)?.pinned
   let ok = edges.filter((e) => e.status !== 'retired' && !retiredTask(e.from) && !(e.to !== END && retiredTask(e.to)) && (e.p >= theta || e.pinned || (e.to !== END && pinnedTask(e.to))))
@@ -68,7 +68,7 @@ export function unfold({ bundle, tasks, edges }, entry, theta) {
     const pin = outs.find((e) => e.to !== END && pinnedTask(e.to))
     if (pin && outs.length > 1) ok = ok.filter((e) => e.from !== x || e === pin || (e.to !== END && isUpstream(ok, e.to, x)))
   }
-  if (bundle.band === 'open') ok = ok.filter((e) => e.from === entry && e.to === END)
+  if (proc.band === 'open') ok = ok.filter((e) => e.from === entry && e.to === END)
   const nodes = [], seen = new Set([entry]), queue = [entry]
   while (queue.length) {
     const x = queue.shift()
@@ -175,7 +175,7 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
     pid, nodes, flows,
     contract: {
       type: 'process-definition-result',
-      processDefinition: { processDefinitionId: pid, processDefinitionName: `${view.bundle.name} · ${entry}부터`, isHorizontal: true, data: [],
+      processDefinition: { processDefinitionId: pid, processDefinitionName: `${view.proc.name} · ${entry}부터`, isHorizontal: true, data: [],
         description: `회사 프로세스 지도에서 뽑은 스냅샷(θ ${theta}, ${entry}부터). 일 ${nodes.length}개.`, roles: [...roles.values()], elements: els },
       forms,
       agents: [{ id: agent, skills: [...new Set(nodes.flatMap((k) => defs.get(k).runner === 'agent' ? defs.get(k).skills : []))] }],
@@ -184,22 +184,22 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
   }
 }
 
-// a snapshot for (bundle, entry, θ) as of validAt — reused when the key is the same
-export async function snapshot({ bundleKey, entry, theta, validAt, starterRole }) {
-  const view = await bundleGraph(bundleKey, { validAt })
-  if (!view.tasks.has(entry)) throw err(400, '그 일은 이 묶음에 없어요.')
-  const th = Number.isFinite(theta) ? theta : view.bundle.theta ?? 0.05
+// a snapshot for (proc, entry, θ) as of validAt — reused when the key is the same
+export async function snapshot({ procKey, entry, theta, validAt, starterRole }) {
+  const view = await procGraph(procKey, { validAt })
+  if (!view.tasks.has(entry)) throw err(400, '그 일은 이 프로세스에 없어요.')
+  const th = Number.isFinite(theta) ? theta : view.proc.theta ?? 0.05
   const structural = [...view.tasks.values()].map((t) => `${t.key}:${t.pinned ? 1 : 0}:${t.status}:${t.definition_md ? sha(t.definition_md).slice(0, 6) : ''}`).join('|') +
     view.edges.map((e) => `${e.from}>${e.to}:${e.status}:${e.pinned ? 1 : 0}`).join('|')
   const week = Math.floor(new Date(validAt || Date.now()).getTime() / (7 * 86_400_000))
-  const key = `${T()}|${bundleKey}|${entry}|${th}|${sha(structural).slice(0, 12)}|${week}|${starterRole || ''}`
+  const key = `${T()}|${procKey}|${entry}|${th}|${sha(structural).slice(0, 12)}|${week}|${starterRole || ''}`
   const [have] = await cypher(`MATCH (s:Snapshot {key:$key}) RETURN s.proc_def_id AS pid, s.tasks AS tasks`, { key })
   const cases = (await cypher(`MATCH (m:Meta {key:'meta'}) RETURN m.cases AS cases`))[0]?.cases || 1
   const isReceipt = (k) => { const t = view.tasks.get(k); return !!t?.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2 }
-  const skipped = skippedBefore(view.bundle, view.edges, entry).filter((k) => !isReceipt(k))
+  const skipped = skippedBefore(view.proc, view.edges, entry).filter((k) => !isReceipt(k))
   if (have?.pid) {
     const [d] = await q('select 1 from proc_def where id=$1 and tenant_id=$2', [have.pid, T()])
-    if (d) return { key, procDefId: have.pid, reused: true, nodes: have.tasks || [], skipped, theta: th, bundle: view.bundle }
+    if (d) return { key, procDefId: have.pid, reused: true, nodes: have.tasks || [], skipped, theta: th, proc: view.proc }
   }
   const { pid, nodes, flows, contract } = await contractOf(view, entry, th, { starterRole, key })
   const saved = await saveGenerated(contract)
@@ -213,24 +213,24 @@ export async function snapshot({ bundleKey, entry, theta, validAt, starterRole }
     await q(`update proc_def set definition = jsonb_set(definition, '{activities}', $3::jsonb) where id=$1 and tenant_id=$2`, [defId, T(), JSON.stringify(acts)])
   }
   // (two statements: Ontological does not take MERGE … WITH … MERGE of a relationship in one)
-  await cypher(`MERGE (s:Snapshot {key:$key}) ON CREATE SET s.bundle=$bundle, s.entry=$entry, s.theta=$theta, s.made_at=$at, s.onto_at=$onto, s.proc_def_id=$pid, s.tasks=$tasks
-                ON MATCH SET s.bundle=$bundle, s.entry=$entry, s.theta=$theta, s.made_at=$at, s.onto_at=$onto, s.proc_def_id=$pid, s.tasks=$tasks`,
-  { key, bundle: bundleKey, entry, theta: th, at: isoDay(), onto: validAt || isoDay(), pid: defId, tasks: nodes })
-  const [linked] = await cypher('MATCH (b:Bundle {key:$bundle})-[r:HAS_SNAPSHOT]->(s:Snapshot {key:$key}) RETURN s.key AS key', { bundle: bundleKey, key })
-  if (!linked) await cypher('MATCH (b:Bundle {key:$bundle}), (s:Snapshot {key:$key}) CREATE (b)-[:HAS_SNAPSHOT]->(s)', { bundle: bundleKey, key }).catch((e) => console.warn('[ontology] snapshot link', e.message))
-  return { key, procDefId: defId, reused: false, nodes, flows, skipped, theta: th, bundle: view.bundle }
+  await cypher(`MERGE (s:Snapshot {key:$key}) ON CREATE SET s.proc=$proc, s.entry=$entry, s.theta=$theta, s.made_at=$at, s.onto_at=$onto, s.proc_def_id=$pid, s.tasks=$tasks
+                ON MATCH SET s.proc=$proc, s.entry=$entry, s.theta=$theta, s.made_at=$at, s.onto_at=$onto, s.proc_def_id=$pid, s.tasks=$tasks`,
+  { key, proc: procKey, entry, theta: th, at: isoDay(), onto: validAt || isoDay(), pid: defId, tasks: nodes })
+  const [linked] = await cypher('MATCH (b:Process {key:$proc})-[r:HAS_SNAPSHOT]->(s:Snapshot {key:$key}) RETURN s.key AS key', { proc: procKey, key })
+  if (!linked) await cypher('MATCH (b:Process {key:$proc}), (s:Snapshot {key:$key}) CREATE (b)-[:HAS_SNAPSHOT]->(s)', { proc: procKey, key }).catch((e) => console.warn('[ontology] snapshot link', e.message))
+  return { key, procDefId: defId, reused: false, nodes, flows, skipped, theta: th, proc: view.proc }
 }
 
 // ---------- the start task ----------
-// the request's text → which task it starts at: the model's first-token odds over the bundle's tasks, weighted by how
+// the request's text → which task it starts at: the model's first-token odds over the proc's tasks, weighted by how
 // often cases start there (smoothed); unsure (top < 0.5) → the person picks from the two best
-// The start task (design §4.4): walk the bundle's usual way (from its receipt, the most likely next step each time) and ask,
+// The start task (design §4.4): walk the proc's usual way (from its receipt, the most likely next step each time) and ask,
 // task by task, whether this request needs it done anew — the first "yes" is where the case starts. A yes/no reading per
 // step (first-token odds) is what this model answers reliably; one pick out of eight was not (measured: 「견적만 다시」
 // read as 고객 회신 87%). The probability is P(yes here) × Π P(no before); under 0.5 the person picks.
-export function mainPath(bundle, tasks, edges, receipt) {
-  const inB = new Set(bundle.tasks)
-  const start = [...receipt].find((r) => inB.has(r)) || bundle.entries?.[0]
+export function mainPath(proc, tasks, edges, receipt) {
+  const inB = new Set(proc.tasks)
+  const start = [...receipt].find((r) => inB.has(r)) || proc.entries?.[0]
   const path = [], seen = new Set([start])
   let x = start
   for (;;) {
@@ -241,15 +241,15 @@ export function mainPath(bundle, tasks, edges, receipt) {
   return { start, path }
 }
 
-export async function chooseEntry({ subject = '', text = '', bundleKey } = {}) {
+export async function chooseEntry({ subject = '', text = '', procKey } = {}) {
   const g = await readGraph({})
-  const adopted = g.bundles.filter((b) => (bundleKey ? b.key === bundleKey : b.status === 'adopted')).sort((a, b) => b.cases - a.cases)
+  const adopted = g.processes.filter((b) => (procKey ? b.key === procKey : b.status === 'adopted')).sort((a, b) => b.cases - a.cases)
   if (!adopted.length) return null
-  const bundle = adopted[0]
+  const proc = adopted[0]
   const cases = g.meta?.cases || 1
   // the receipt (a task that is nearly always a case's first step, like 요청 메일 접수) is the snapshot's own 요청 접수
   const receipt = new Set(g.tasks.filter((t) => t.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2).map((t) => t.key))
-  const { path } = mainPath(bundle, g.tasks, g.edges, receipt)
+  const { path } = mainPath(proc, g.tasks, g.edges, receipt)
   const byKey = new Map(g.tasks.map((t) => [t.key, t]))
   const state = `회사에 들어온 요청\n제목: ${String(subject).slice(0, 200)}\n내용: ${String(text).slice(0, 1500)}`
   const reads = []
@@ -272,7 +272,7 @@ export async function chooseEntry({ subject = '', text = '', bundleKey } = {}) {
   const ranked = [...reads].sort((a, b) => b.p - a.p)
   const top = reads.find((x) => x.yes >= 0.5) || ranked[0]
   if (!top) return null
-  return { task: top.task, p: top.p, ask: top.p < 0.5, options: ranked.slice(0, 3).map(({ task, p }) => ({ task, p })), reads, bundle: bundle.key, bundleName: bundle.name, measured, receipt: [...receipt] }
+  return { task: top.task, p: top.p, ask: top.p < 0.5, options: ranked.slice(0, 3).map(({ task, p }) => ({ task, p })), reads, proc: proc.key, procName: proc.name, measured, receipt: [...receipt] }
 }
 
 // ---------- cases ----------
@@ -281,14 +281,14 @@ async function roleOfPerson(userId) {
   return r?.role || '담당자'
 }
 
-export async function startCase(me, { bundleKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', validAt }) {
+export async function startCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', validAt }) {
   if (!ontologyEnabled()) throw err(503, 'Ontological DB 가 연결되지 않았어요.')
   const starterRole = await roleOfPerson(me.id)
-  const snap = await snapshot({ bundleKey, entry, starterRole, validAt })
+  const snap = await snapshot({ procKey, entry, starterRole, validAt })
   const { startProcess } = await import('../engine.js')
   const values = { subject, body: String(body).slice(0, 3000), customer, sender: from }
   const [c] = await q(`insert into pro_po_cases (tenant_id, bundle, entry_task, started_by, trigger, entry_odds, snapshots, history)
-                       values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`, [T(), bundleKey, entry, me.id, { kind, subject, from, customer }, odds, [snap.procDefId],
+                       values ($1,$2,$3,$4,$5,$6,$7,$8) returning *, bundle as proc`, [T(), procKey, entry, me.id, { kind, subject, from, customer }, odds, [snap.procDefId],
     JSON.stringify(snap.skipped.map((t) => ({ task: t, state: 'skipped', at: isoDay() })))])
   const { instId, instName } = await startProcess({ me, defId: snap.procDefId, values })
   await q(`update pro_po_cases set instances = array_append(instances, $2), updated_at=now() where id=$1`, [c.id, instId])
@@ -296,7 +296,7 @@ export async function startCase(me, { bundleKey, entry, subject = '', body = '',
 }
 
 export async function getCase(id) {
-  const [c] = await q('select * from pro_po_cases where id=$1 and tenant_id=$2', [id, T()])
+  const [c] = await q('select *, bundle as proc from pro_po_cases where id=$1 and tenant_id=$2', [id, T()])
   if (!c) throw err(404, '건을 찾지 못했어요.')
   const insts = c.instances.length ? await q(`select proc_inst_id, proc_inst_name, status, proc_def_id from bpm_proc_inst where proc_inst_id = any($1)`, [c.instances]) : []
   const todos = c.instances.length ? await q(`select id, proc_inst_id, activity_id, activity_name, status::text as status, user_id, agent_orch, end_date from todolist where proc_inst_id = any($1) order by start_date nulls last`, [c.instances]) : []
@@ -313,7 +313,7 @@ export async function moveCase(me, id, { task, reason = '' }) {
     await q(`update bpm_proc_inst set status='COMPLETED' where proc_inst_id=$1`, [cur])
   }
   const starterRole = await roleOfPerson(me.id)
-  const snap = await snapshot({ bundleKey: c.bundle, entry: task, starterRole })
+  const snap = await snapshot({ procKey: c.proc, entry: task, starterRole })
   const { startProcess } = await import('../engine.js')
   const { instId, instName } = await startProcess({ me, defId: snap.procDefId, values: { subject: c.trigger?.subject || '', body: `${reason ? `옮긴 이유: ${reason}\n` : ''}`, customer: c.trigger?.customer || '' } })
   await q(`update pro_po_cases set instances = array_append(instances, $2), snapshots = array_append(snapshots, $3),
@@ -323,11 +323,11 @@ export async function moveCase(me, id, { task, reason = '' }) {
   return { caseId: id, instId, instName, snapshot: snap }
 }
 
-// ---------- mail: an adopted bundle takes the mail first (lib/mail.js), else process mining's registered flows ----------
+// ---------- mail: an adopted proc takes the mail first (lib/mail.js), else process mining's registered flows ----------
 export async function routeMail(userId, mail) {
   if (!ontologyEnabled()) return false
   const g = await readGraph({}).catch(() => null)
-  if (!g?.bundles.some((b) => b.status === 'adopted')) return false
+  if (!g?.processes.some((b) => b.status === 'adopted')) return false
   const choice = await chooseEntry({ subject: mail.subject, text: mail.text })
   if (!choice) return false
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
@@ -339,7 +339,7 @@ export async function routeMail(userId, mail) {
     await addMessage(userId, t.id, 'agent', 'onto-entry', { state: 'ask', mail: { from: mail.from, subject: mail.subject, text: String(mail.text || '').slice(0, 1500) }, customer, choice })
     return { asked: true }
   }
-  const r = await startCase(me, { bundleKey: choice.bundle, entry: choice.task, subject: mail.subject, body: mail.text, from: mail.from, customer, odds: choice, kind: 'mail' })
+  const r = await startCase(me, { procKey: choice.proc, entry: choice.task, subject: mail.subject, body: mail.text, from: mail.from, customer, odds: choice, kind: 'mail' })
   await addMessage(userId, t.id, 'agent', 'onto-entry', { state: 'started', mail: { from: mail.from, subject: mail.subject }, customer, choice, caseId: r.caseId, instId: r.instId,
     skipped: r.snapshot.skipped, nodes: r.snapshot.nodes, procDefId: r.snapshot.procDefId })
   await addMessage(userId, t.id, 'agent', 'process', { defId: r.snapshot.procDefId, name: r.instName, state: 'started', instId: r.instId, instName: r.instName })
@@ -453,7 +453,7 @@ export async function habitFor(caseId) {
   const c = await getCase(caseId)
   const done = c.todos.filter((t) => t.status === 'DONE' && t.activity_id !== 'intake').at(-1)
   if (!done) return null
-  const view = await bundleGraph(c.bundle)
+  const view = await procGraph(c.proc)
   const outs = view.edges.filter((e) => e.from === done.activity_name && e.to !== END && e.status !== 'retired').sort((a, b) => b.p - a.p)
   if (!outs.length) return null
   const { calibrate } = await import('./stats.js')

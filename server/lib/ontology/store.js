@@ -59,21 +59,36 @@ export async function cypher(query, params = {}, meta = {}, tenant = config.tena
 // [type, kind, [[prop, datatype, isKey?]], temporal?]
 const N = 'float8', S = 'text', B = 'bool', A = 'text[]'
 export const SCHEMA = [
-  ['Task', 'entity', [['key', S, true], ['name', S], ['aliases', A], ['description', S], ['role', S], ['bundle', S], ['definition_md', S],
+  ['Task', 'entity', [['key', S, true], ['name', S], ['aliases', A], ['description', S], ['role', S], ['proc', S], ['definition_md', S],
     ['skills', A], ['checkpoints', S], ['outputs', S], ['autonomy', S], ['split_type', S], ['join_type', S], ['pinned', B], ['pinned_by', S], ['pin_reason', S],
     ['status', S], ['n', N], ['n_cases', N], ['entry_share', N], ['exit_share', N], ['first_seen', S], ['last_seen', S], ['sources', S], ['people', N],
-    ['candidate', B], ['stale', B]], true],
+    ['candidate', B], ['stale', B], ['kind', S]], true],
   ['NEXT', 'relation', [['n', N], ['p', N], ['share', N], ['dependency', N], ['w', N], ['wait_h', N], ['ci_low', N], ['ci_high', N], ['thin', B],
     ['first_seen', S], ['last_seen', S], ['cond', S], ['cond_cases', S], ['pinned', B], ['status', S], ['stale', B], ['expected', N], ['p_value', N],
     ['gap_days', N], ['by_source', S], ['people', N], ['parallel', B], ['retired_by', S], ['retire_reason', S]], true],
   ['End', 'entity', [['key', S, true]], false],
-  ['Bundle', 'entity', [['key', S, true], ['name', S], ['summary', S], ['band', S], ['status', S], ['theta', N], ['theta_start', B], ['half_life', N],
+  // a process: the cases that hold the same work (flow: several roles hand work on; routine: one role's habits, design-v0.3)
+  ['Process', 'entity', [['key', S, true], ['name', S], ['summary', S], ['band', S], ['status', S], ['theta', N], ['theta_start', B], ['half_life', N],
     ['half_life_start', B], ['a1', N], ['a3', N], ['held', N], ['held_transitions', N], ['curve', S], ['hl_scores', S], ['autonomy', S], ['tasks', A],
-    ['entries', A], ['cases', N], ['owner', S], ['summary_theta', N]], true],
-  ['HAS_TASK', 'relation', [['entry', B]], false],
-  ['Role', 'entity', [['key', S, true], ['name', S], ['outside', B]], false],
-  ['PERFORMED_BY', 'relation', [['share', N]], false],
-  ['Snapshot', 'entity', [['key', S, true], ['bundle', S], ['entry', S], ['theta', N], ['made_at', S], ['onto_at', S], ['proc_def_id', S], ['tasks', A]], false],
+    ['entries', A], ['cases', N], ['owner', S], ['summary_theta', N], ['kind', S], ['role', S]], true],
+  ['HAS_TASK', 'relation', [['n', N], ['share', N], ['entry_share', N]], true],
+  // events: a request mail, a chat request, a result of a kind (from rules only)
+  ['Event', 'entity', [['key', S, true], ['kind', S], ['cls', S], ['name', S], ['n', N]], false],
+  ['TRIGGERS', 'relation', [['n', N], ['p', N], ['split', S], ['cond', S], ['source', S], ['scope', S], ['people', N], ['shared', N], ['status', S], ['pinned', B]], true],
+  ['RAISES', 'relation', [['n', N], ['p', N]], true],
+  ['STARTS_ON', 'relation', [['n', N], ['share', N]], true],
+  // roles: who performs the work, what the role carries (definition and competencies confirmed by an admin)
+  ['Role', 'entity', [['key', S, true], ['name', S], ['outside', B], ['definition', S], ['competencies', S], ['tools', A], ['skills', A], ['artifacts', A],
+    ['tasks', A], ['single_tasks', A], ['n', N], ['members', N], ['load', N], ['agent_share', N], ['handovers_in', N], ['handovers_out', N],
+    ['confirmed', B], ['confirmed_by', S]], true],
+  ['PERFORMED_BY', 'relation', [['n', N], ['share', N]], true],
+  ['Performer', 'entity', [['key', S, true], ['name', S], ['is_agent', B]], false],
+  ['PLAYS', 'relation', [['n', N], ['share', N], ['assigned', B]], true],
+  ['OF_ROLE', 'relation', [['n', N]], false],
+  // a way of doing a task its owner shared with the company (numbers, and whether it became the task's skill)
+  ['Way', 'entity', [['key', S, true], ['task', S], ['role', S], ['cls', S], ['how', S], ['by', S], ['minutes', N], ['runs', N], ['taken', N], ['status', S], ['skill', S]], true],
+  ['HAS_WAY', 'relation', [], false],
+  ['Snapshot', 'entity', [['key', S, true], ['proc', S], ['entry', S], ['theta', N], ['made_at', S], ['onto_at', S], ['proc_def_id', S], ['tasks', A]], false],
   ['HAS_SNAPSHOT', 'relation', [], false],
   ['Meta', 'entity', [['key', S, true], ['built_at', S], ['events', N], ['cases', N], ['data_start', S], ['data_end', S], ['sources', S], ['values', S], ['backfilled', B]], false],
 ]
@@ -88,13 +103,16 @@ export async function ensureGraph(tenant = config.tenantId) {
   await db.connect()
   try {
     const have = await db.query(`select 1 from og_catalog.graph where name=$1`, [g]).catch(() => ({ rows: [] }))
-    if (!have.rows.length) {
-      await db.query('select og_create_graph($1)', [g])
-      for (const [type, kind, props, temporal] of SCHEMA) {
-        await db.query('select og_create_type($1,$2,$3)', [g, type, kind])
-        for (const [p, t, key] of props) await db.query('select og_add_property($1,$2,$3,$4,$5,$6)', [g, type, p, t, false, !!key])
-        if (temporal) await db.query('select og_enable_temporal($1,$2)', [g, type])
-      }
+    if (!have.rows.length) await db.query('select og_create_graph($1)', [g])
+    // a graph made by an earlier version gets the types and properties it lacks (install-time SQL, design-v0.3 §7)
+    const temporal = new Set((await db.query('select og_temporal_types($1) as t', [g])).rows[0]?.t || [])
+    for (const [type, kind, props, temp] of SCHEMA) {
+      let id = (await db.query('select og_type_id($1,$2) as id', [g, type])).rows[0]?.id
+      const fresh = !id
+      if (fresh) { await db.query('select og_create_type($1,$2,$3)', [g, type, kind]); id = (await db.query('select og_type_id($1,$2) as id', [g, type])).rows[0].id }
+      const known = new Set((await db.query('select name from og_catalog.property where type_id=$1', [id])).rows.map((r) => r.name))
+      for (const [p, t, key] of props) if (!known.has(p)) await db.query('select og_add_property($1,$2,$3,$4,$5,$6)', [g, type, p, t, false, !!key && fresh])
+      if (temp && !temporal.has(type)) await db.query('select og_enable_temporal($1,$2)', [g, type])
     }
   } finally { await db.end() }
   made.add(g)
@@ -119,7 +137,7 @@ export async function dropGraph(tenant = config.tenantId) {
 const J = (s, d) => { try { return s ? JSON.parse(s) : d } catch { return d } }
 export const parseTask = (t) => t && ({ ...t, checkpoints: J(t.checkpoints, []), outputs: J(t.outputs, []), sources: J(t.sources, {}), aliases: t.aliases || [], skills: t.skills || [] })
 export const parseEdge = (e) => e && ({ ...e, cond_cases: J(e.cond_cases, null), by_source: J(e.by_source, {}) })
-export const parseBundle = (b) => b && ({ ...b, curve: J(b.curve, []), hl_scores: J(b.hl_scores, []), tasks: b.tasks || [], entries: b.entries || [] })
+export const parseProcess = (b) => b && ({ ...b, curve: J(b.curve, []), hl_scores: J(b.hl_scores, []), tasks: b.tasks || [], entries: b.entries || [] })
 
 // at: {validAt?, systemAt?} — read the graph as it was then
 export async function readGraph(at = {}) {
@@ -127,7 +145,29 @@ export async function readGraph(at = {}) {
   const tasks = (await cypher('MATCH (t:Task) RETURN t', {}, meta)).map((r) => parseTask(r.t))
   const edges = (await cypher('MATCH (a:Task)-[e:NEXT]->(b:Task) RETURN a.key AS from, b.key AS to, e', {}, meta)).map((r) => ({ from: r.from, to: r.to, ...parseEdge(r.e) }))
   const ends = (await cypher('MATCH (a:Task)-[e:NEXT]->(b:End) RETURN a.key AS from, e', {}, meta)).map((r) => ({ from: r.from, to: '__end__', ...parseEdge(r.e) }))
-  const bundles = (await cypher('MATCH (b:Bundle) RETURN b', {}, meta)).map((r) => parseBundle(r.b)).filter((b) => b.status !== 'gone')
+  const processes = (await cypher('MATCH (b:Process) RETURN b', {}, meta)).map((r) => parseProcess(r.b)).filter((b) => b.status !== 'gone')
+    .map((p) => ({ ...p, kind: p.kind || 'flow' }))
+  const rel = async (q) => (await cypher(q, {}, meta)).map((r) => ({ from: r.from, to: r.to, ...(r.e || {}) }))
+  const events = (await cypher('MATCH (e:Event) RETURN e', {}, {})).map((r) => r.e)
+  const triggers = (await rel('MATCH (a:Event)-[e:TRIGGERS]->(b:Task) RETURN a.key AS from, b.key AS to, e')).filter((t) => t.status !== 'gone')
+  const raises = await rel('MATCH (a:Task)-[e:RAISES]->(b:Event) RETURN a.key AS from, b.key AS to, e')
+  const startsOn = await rel('MATCH (a:Process)-[e:STARTS_ON]->(b:Event) RETURN a.key AS from, b.key AS to, e')
+  const hasTask = await rel('MATCH (a:Process)-[e:HAS_TASK]->(b:Task) RETURN a.key AS from, b.key AS to, e')
+  const roles = (await cypher('MATCH (r:Role) RETURN r', {}, meta)).map((r) => ({ ...r.r, competencies: J(r.r.competencies, []), tasks: r.r.tasks || [], artifacts: r.r.artifacts || [], single_tasks: r.r.single_tasks || [] }))
+  const performedBy = await rel('MATCH (a:Task)-[e:PERFORMED_BY]->(b:Role) RETURN a.key AS from, b.key AS to, e')
+  const performers = (await cypher('MATCH (p:Performer) RETURN p', {}, {})).map((r) => r.p)
+  const plays = await rel('MATCH (a:Performer)-[e:PLAYS]->(b:Role) RETURN a.key AS from, b.key AS to, e')
+  const ofRole = await rel('MATCH (a:Process)-[e:OF_ROLE]->(b:Role) RETURN a.key AS from, b.key AS to, e')
+  const ways = (await cypher('MATCH (w:Way) RETURN w', {}, meta)).map((r) => r.w).filter((w) => w.status !== 'withdrawn')
+  // a task's processes (it may be in several); its main one (the most cases) colours it and sets its θ
+  const live = new Set(processes.map((p) => p.key))
+  for (const t of tasks) {
+    const mine = processes.filter((p) => p.tasks.includes(t.key)).sort((a, b) => (b.cases || 0) - (a.cases || 0))
+    t.procs = mine.map((p) => p.key)
+    t.proc = mine[0]?.key || ''
+  }
   const [m] = await cypher(`MATCH (m:Meta {key:'meta'}) RETURN m`, {}, {})
-  return { tasks, edges: [...edges, ...ends], bundles, meta: m?.m ? { ...m.m, values: J(m.m.values, {}), sources: J(m.m.sources, {}) } : null }
+  return { tasks, edges: [...edges, ...ends], processes, events, triggers, raises, startsOn: startsOn.filter((x) => live.has(x.from)), hasTask: hasTask.filter((x) => live.has(x.from)),
+    roles, performedBy, performers, plays, ofRole: ofRole.filter((x) => live.has(x.from)), ways,
+    meta: m?.m ? { ...m.m, values: J(m.m.values, {}), sources: J(m.m.sources, {}) } : null }
 }

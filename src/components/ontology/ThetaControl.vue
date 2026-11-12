@@ -1,19 +1,19 @@
 <script setup>
-// θ(입도) 고르기: 요약 · 기본 · 전체 = 묶음의 요약 θ · 자동으로 정한 θ · 0, 또는 막대로 0 ~ 20%.
-// 보기만 바꾼다(실행에 쓰는 θ 는 그대로). 묶음을 고르지 않았으면(전체) 요약 · 기본은 묶음마다 그 묶음의 값.
+// θ(입도) 고르기: 요약 · 기본 · 전체 = 프로세스의 요약 θ · 자동으로 정한 θ · 0, 또는 막대로 0 ~ 20%.
+// 보기만 바꾼다(실행에 쓰는 θ 는 그대로). 프로세스를 고르지 않았으면(전체) 요약 · 기본은 프로세스마다 그 프로세스의 값.
 import { computed } from 'vue'
 import { THETAS, pct } from './fmt.js'
 import { thetaOf } from './mapView.js'
 
-const props = defineProps({ mode: { type: [String, Number], default: 'summary' }, bundle: { type: Object, default: null } })
+const props = defineProps({ mode: { type: [String, Number], default: 'summary' }, proc: { type: Object, default: null } })
 const emit = defineEmits(['update:mode'])
 const MODES = [['summary', '요약'], ['auto', '기본'], ['all', '전체']]
 
-const value = computed(() => thetaOf(props.mode, props.bundle))
+const value = computed(() => thetaOf(props.mode, props.proc))
 const nearest = (v) => THETAS.reduce((b, t, i) => (Math.abs(t - v) < Math.abs(THETAS[b] - v) ? i : b), 0)
 const index = computed(() => nearest(value.value))
-const autoIndex = computed(() => (props.bundle ? THETAS.findIndex((t) => Math.abs(t - props.bundle.theta) < 1e-9) : -1))
-const shown = computed(() => (!props.bundle && typeof props.mode === 'string' && props.mode !== 'all' ? '묶음마다' : pct(value.value)))
+const autoIndex = computed(() => (props.proc ? THETAS.findIndex((t) => Math.abs(t - props.proc.theta) < 1e-9) : -1))
+const shown = computed(() => (!props.proc && typeof props.mode === 'string' && props.mode !== 'all' ? '프로세스마다' : pct(value.value)))
 const slide = (ev) => emit('update:mode', THETAS[Number(ev.target.value)])
 const on = (k) => props.mode === k
 </script>

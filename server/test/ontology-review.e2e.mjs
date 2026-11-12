@@ -62,12 +62,12 @@ await step('은퇴: 지도에서 은퇴로 보이고, 과거 시점에는 살아
 let A
 await step('다음 달 1일부터 재무 검토 고정 — 오늘의 스냅샷은 그대로, 그날 뒤의 스냅샷에는 반드시', async () => {
   const m = (await call(boss.tok, 'GET', '/ontology/map')).body
-  A = m.bundles.find((b) => b.tasks.includes('견적서 작성'))
+  A = m.processes.find((b) => b.tasks.includes('견적서 작성'))
   const day = nextMonthFirst()
   const r = await call(boss.tok, 'POST', `/ontology/tasks/${encodeURIComponent('재무 검토')}/pin`, { validFrom: day, reason: '금액과 상관없이 재무 검토(분기 검토)' })
   assert.equal(r.status, 200, JSON.stringify(r.body))
-  const today = (await call(boss.tok, 'GET', `/ontology/snapshot?bundle=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}`)).body
-  const later = (await call(boss.tok, 'GET', `/ontology/snapshot?bundle=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}&at=${day}T12:00:00Z`)).body
+  const today = (await call(boss.tok, 'GET', `/ontology/snapshot?proc=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}`)).body
+  const later = (await call(boss.tok, 'GET', `/ontology/snapshot?proc=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}&at=${day}T12:00:00Z`)).body
   const [dToday] = await q('select definition from proc_def where id=$1', [today.procDefId])
   const [dLater] = await q('select definition from proc_def where id=$1', [later.procDefId])
   const outsOf = (d, name) => {

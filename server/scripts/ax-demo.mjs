@@ -49,7 +49,21 @@ const CAST = {
   doyun: { email: 'pro-ax-doyun@uengine.org', name: '이도윤', role: '영업' },
   minji: { email: 'pro-ax-minji@uengine.org', name: '김민지', role: '디자이너' },
   seoyeon: { email: 'pro-ax-seoyeon@uengine.org', name: '박서연', role: '재무 담당' },
+  // 영업 is several people (design-v0.3: the same goal reached in different ways); 정하나 joined lately and has no habit yet
+  yuna: { email: 'pro-ax-yuna@uengine.org', name: '최유나', role: '영업' },
+  jiho: { email: 'pro-ax-jiho@uengine.org', name: '한지호', role: '영업' },
+  hana: { email: 'pro-ax-hana@uengine.org', name: '정하나', role: '영업' },
 }
+// the practice habits (후행 습관, pro_followups): after a quote sheet three of 영업 put the company seal on it, each in their own
+// words; one-person habits elsewhere stay off the company map at the default setting (같은 역할 3명)
+const HABITS = [
+  { who: 'doyun', cls: 'sheet', action: '견적서 마지막 장 오른쪽 아래에 회사 직인 이미지 넣어 줘', ask: '견적서에 회사 직인을 넣어 드릴까요?', seen: 3, accepted: 2 },
+  { who: 'yuna', cls: 'sheet', action: '견적서 공급자 칸 옆에 대표 직인 넣어 줘', ask: '견적서 공급자 칸에 직인을 넣어 드릴까요?', seen: 2, accepted: 1 },
+  { who: 'jiho', cls: 'sheet', action: '견적서에 회사 도장 찍어 줘', ask: '견적서에 회사 도장을 찍어 드릴까요?', seen: 4, accepted: 3, declined: 1 },
+  { who: 'doyun', cls: 'sheet', action: '견적서를 PDF로도 저장해 줘', ask: '견적서를 PDF로도 저장해 드릴까요?', seen: 2, accepted: 1 },
+  { who: 'minji', cls: 'doc', action: '제안서 표지에 대외비 넣어 줘', ask: '제안서 표지에 대외비를 넣어 드릴까요?', seen: 2, accepted: 1 },
+  { who: 'seoyeon', cls: 'sheet', action: '검토한 견적서 맨 아래에 재무 검토 날짜 적어 줘', ask: '견적서 맨 아래에 재무 검토 날짜를 적어 드릴까요?', seen: 2, accepted: 1 },
+]
 // role owners for every process (Settings › Team & roles)
 const ROLES_ALL = { 제안팀장: 'jinyoung', 영업: 'doyun', 디자이너: 'minji', '재무 담당': 'seoyeon' }
 // tables of the process-ontology feature that may not exist yet; children first
@@ -76,6 +90,10 @@ async function setup() {
     await q(`insert into pro_role_assignments (tenant_id, proc_def_id, role, user_id, updated_by) values ($1,'*',$2,$3,$4)
              on conflict (tenant_id, proc_def_id, role) do update set user_id=excluded.user_id, updated_at=now()`, [T, role, ids[who], ids.jinyoung])
   }
+  // role members (several per role): what the company map counts habits by
+  for (const [k, p] of Object.entries(CAST)) {
+    await q(`insert into pro_role_members (tenant_id, role, user_id, added_by) values ($1,$2,$3,$4) on conflict do nothing`, [T, p.role, ids[k], ids.jinyoung]).catch((e) => console.warn('members', e.message))
+  }
   // the agents' tools: this server's MCP gateways registered in mcp-hub, bound to the cast (best effort)
   let hub = 'skipped'
   try {
@@ -101,6 +119,17 @@ function fixture() {
 
 // the chat handovers of the fixture as handover_events rows: the people's raw words in activity_label,
 // nothing normalized (norm_activity_label stays NULL for the reader to fill)
+async function seedHabits(ids) {
+  const people = Object.values(ids)
+  await q('delete from pro_habit_shares where tenant_id=$1 and user_id = any($2::uuid[])', [T, people]).catch(() => {})
+  await q('delete from pro_followups where tenant_id=$1 and user_id = any($2::uuid[])', [T, people])
+  for (const h of HABITS) {
+    await q(`insert into pro_followups (tenant_id, user_id, event_cls, action, ask, origin, seen, accepted, declined, last_seen_at) values ($1,$2,$3,$4,$5,'observed',$6,$7,$8, now() - interval '3 days')`,
+      [T, ids[h.who], h.cls, h.action, h.ask, h.seen, h.accepted || 0, h.declined || 0])
+  }
+  return HABITS.length
+}
+
 async function seed(ids) {
   const fx = fixture()
   const byEmail = Object.fromEntries(Object.entries(CAST).map(([k, p]) => [p.email, { id: ids[k], name: p.name, role: p.role }]))
@@ -148,6 +177,8 @@ async function tableInfo(t) {
 async function reset() {
   const out = {}
   out.handover_events = (await q('delete from handover_events where tenant_id=$1 returning 1', [T])).length
+  // v0.3: the habit setting, role members and shared ways of this demo tenant
+  for (const t of ['pro_onto_settings', 'pro_role_members', 'pro_habit_shares']) await q(`delete from ${t} where tenant_id=$1`, [T]).catch(() => {})
   // the cast's conversations: an earlier run's cards (map summaries, start cards, the mail triage of a connect) and its
   // case threads would show in the next run's chat, and a kept agent conversation remembers the last run's files
   const castIds = (await q('select id::text as id from users where tenant_id=$1 and email = any($2)', [T, Object.values(CAST).map((p) => p.email)])).map((r) => r.id)
@@ -208,7 +239,7 @@ async function status() {
   if (fs.existsSync(FIXTURE)) {
     const fx = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'))
     const by = (arr, f) => arr.reduce((m, x) => { const k = f(x); m[k] = (m[k] || 0) + 1; return m }, {})
-    out.fixture = { mails: fx.mails.length, kinds: by(fx.mails, (m) => m.kind), cases: by(fx.truth.cases, (c) => c.bundle), chat_cases: fx.truth.chat_cases.length, chat_rows: fx.chat_handovers.length }
+    out.fixture = { mails: fx.mails.length, kinds: by(fx.mails, (m) => m.kind), cases: by(fx.truth.cases, (c) => c.proc), chat_cases: fx.truth.chat_cases.length, chat_rows: fx.chat_handovers.length }
   } else out.fixture = 'missing (node scripts/gen-ax-demo-mailbox.mjs)'
   console.log(JSON.stringify(out, null, 1))
 }
@@ -251,7 +282,7 @@ try {
     if (has('--reset')) await reset()
     if (!has('--reset') || has('--seed')) {
       const ids = await setup()
-      if (has('--seed')) await seed(ids)
+      if (has('--seed')) { await seed(ids); console.log(`habits ${await seedHabits(ids)} (pro_followups)`) }
     }
   }
 } finally { await pool.end() }

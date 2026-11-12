@@ -35,9 +35,13 @@ export function toCases(events) {
         last.end = e.at
         if (e.source) last.sources.add(e.source)
         if (e.person) last.people.add(e.person)
+        for (const a of e.arts || []) last.arts.add(a)
+        if (e.actor?.id) last.actors.set(e.actor.id, e.actor)
         continue
       }
-      steps.push({ task: e.task, at: e.at, end: e.at, who: e.who || null, role: e.role || null, sources: new Set(e.source ? [e.source] : []), people: new Set(e.person ? [e.person] : []) })
+      // arts: the kinds of results handed over in this step; actors: who did it (users.id → {id, name, agent})
+      steps.push({ task: e.task, at: e.at, end: e.at, who: e.who || null, role: e.role || null, sources: new Set(e.source ? [e.source] : []), people: new Set(e.person ? [e.person] : []),
+        arts: new Set(e.arts || []), actors: new Map(e.actor?.id ? [[e.actor.id, e.actor]] : []) })
     }
     cases.push({ id, start: steps[0].at, steps })
   }
@@ -218,7 +222,7 @@ export function outTimesOf(g) {
   return m
 }
 
-// Bundles (design §2.4): cases grouped by the work they hold. The most common task sets come first and found a group
+// Processes (design §2.4): cases grouped by the work they hold. The most common task sets come first and found a group
 // (its core flow). A case joins the first group when
 //   - every task of it is already in the group (a re-quote: part of the flow, nothing else), or
 //   - it has more than half of the group's core and most (≥ 0.7) of its tasks are in the group (the flow plus a stray step)
@@ -238,7 +242,7 @@ export function clusterCases(cases, bar = 0.7) {
 }
 
 // (kept for the tests: the connected parts of the task graph)
-export function bundlesOf(g) {
+export function processesOf(g) {
   const adj = new Map()
   const link = (a, b) => { if (!adj.has(a)) adj.set(a, new Set()); adj.get(a).add(b) }
   for (const t of g.tasks.keys()) link(t, t)
@@ -280,7 +284,7 @@ export function summaryTheta(g, max = SUMMARY_TASKS) {
   return 0.5
 }
 
-// Everything §2.5 sets automatically, for one bundle's cases
+// Everything §2.5 sets automatically, for one proc's cases
 export function autoValues(cases, { now, pinned } = {}) {
   const { train, holdout } = split(cases)
   const hl = pickHalfLife(cases, { now })

@@ -31,7 +31,7 @@ export function mockApi(kind) {
     if (s > 2.5) { build.status = 'done'; built = true }
     return build
   }
-  const empty = { at: null, tasks: [], edges: [], bundles: [], meta: null }
+  const empty = { at: null, tasks: [], edges: [], processes: [], meta: null }
   return async function call(path, { method = 'GET' } = {}) {
     await wait(120)
     const [p, qs] = path.split('?')

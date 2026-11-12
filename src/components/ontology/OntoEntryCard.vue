@@ -33,7 +33,7 @@ async function start(o) {
   const m = v.value.mail || {}
   try {
     const r = await api('/ontology/cases', { method: 'POST', body: {
-      bundle: choice.value.bundle, entry: o.task, subject: m.subject || '', body: m.text || '', from: m.from || '', customer: v.value.customer || '',
+      proc: choice.value.proc, entry: o.task, subject: m.subject || '', body: m.text || '', from: m.from || '', customer: v.value.customer || '',
       odds: { ...choice.value, task: o.task, p: o.p, picked: true }, kind: 'mail', messageId: props.msg.id,
     } })
     persist({ state: 'started', picked: true, choice: { ...choice.value, task: o.task, p: o.p }, caseId: r.caseId, instId: r.instId,
@@ -83,7 +83,7 @@ const sheet = ref(false)
           <span class="on">{{ busy === o.task ? '시작하는 중…' : o.task }}</span><b>{{ pText(o.p) }}</b>
         </button>
       </div>
-      <small v-if="choice.bundleName" class="why">「{{ choice.bundleName }}」 흐름의 일 중에서 골랐어요.</small>
+      <small v-if="choice.procName" class="why">「{{ choice.procName }}」 흐름의 일 중에서 골랐어요.</small>
     </template>
 
     <!-- 시작함 -->
@@ -91,7 +91,7 @@ const sheet = ref(false)
       <p class="q" data-testid="onto-entry-text">
         <template v-if="v.movedFrom">「{{ v.movedFrom }}」 대신 「{{ task }}」부터 하고 있어요.</template>
         <template v-else-if="v.picked">「{{ task }}」부터 시작했어요.</template>
-        <template v-else>{{ who }} <template v-if="choice.bundleName">「{{ choice.bundleName }}」의 </template>「{{ task }}」부터 시작할게요 <span class="p">({{ pText(choice.p) }})</span></template>
+        <template v-else>{{ who }} <template v-if="choice.procName">「{{ choice.procName }}」의 </template>「{{ task }}」부터 시작할게요 <span class="p">({{ pText(choice.p) }})</span></template>
       </p>
       <ol class="strip" aria-label="이번 건의 일">
         <li v-if="skipped.length" class="lbl">건너뜀</li>

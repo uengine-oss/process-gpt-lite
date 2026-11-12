@@ -6,8 +6,8 @@ import BpmnView from '../BpmnView.vue'
 import { api } from '../../api.js'
 import { dateKo } from './fmt.js'
 
-const props = defineProps({ bundle: { type: Object, required: true }, at: { type: String, default: '' } })
-const entry = ref(props.bundle.entries?.[0] || props.bundle.tasks?.[0] || '')
+const props = defineProps({ proc: { type: Object, required: true }, at: { type: String, default: '' } })
+const entry = ref(props.proc.entries?.[0] || props.proc.tasks?.[0] || '')
 // a day to look at: the map's point in time, or a later one (a pin that takes effect next month shows from that day)
 const day = ref(props.at || '')
 watch(() => props.at, (v) => { day.value = v || '' })
@@ -24,13 +24,13 @@ async function load() {
   busy.value = true
   err.value = ''
   try {
-    const qs = new URLSearchParams({ bundle: props.bundle.key, entry: entry.value })
+    const qs = new URLSearchParams({ proc: props.proc.key, entry: entry.value })
     if (day.value) qs.set('at', `${day.value}T12:00:00Z`)
     const r = await api(`/ontology/snapshot?${qs}`)
     if (mine === seq) snap.value = r
   } catch (e) { if (mine === seq) { err.value = e.message; snap.value = null } } finally { if (mine === seq) busy.value = false }
 }
-watch(() => [props.bundle.key, day.value, entry.value], load, { immediate: true })
+watch(() => [props.proc.key, day.value, entry.value], load, { immediate: true })
 </script>
 
 <template>
@@ -38,7 +38,7 @@ watch(() => [props.bundle.key, day.value, entry.value], load, { immediate: true 
     <label class="row">
       <span>시작 일</span>
       <select v-model="entry">
-        <option v-for="t in bundle.tasks" :key="t" :value="t">{{ t }}</option>
+        <option v-for="t in proc.tasks" :key="t" :value="t">{{ t }}</option>
       </select>
     </label>
     <label class="row">

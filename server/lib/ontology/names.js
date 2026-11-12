@@ -67,6 +67,46 @@ export async function resolveLabels(items, { known = [] } = {}) {
   return out
 }
 
+// 습관의 목표 이름(design-v0.3 §10): what a person asks for right after a result is named after the goal of that follow-up
+// step ("직인 넣기"), never after the work that made the result ("견적서 작성") — different words for the same goal get one
+// name, so the same goal reached in different ways can be compared. Kept with the other names (raw "습관 · …").
+const HABIT_PROMPT = `결과물을 받은 사람이 이어서 시키는 일(후행 작업)마다 그 일이 이루려는 목표의 이름을 붙입니다. JSON {"items":[{"i":번호,"task":"이름"}]} 로만 답하세요.
+- task: 「명사 + 동작」 4~10자. 예: "직인 넣기", "PDF 저장", "대외비 표기", "로고 교체", "검토 날짜 기록"
+- 표현이 달라도 목표가 같으면 같은 이름이다(「회사 도장 찍어 줘」 · 「대표 직인 넣어 줘」 → "직인 넣기"). known 에 같은 목표의 이름이 있으면 그 이름을 그대로 쓴다.
+- 결과물을 만드는 일(견적서 작성 · 제안서 작성 · 평면도 작성 등)의 이름을 쓰지 않는다. 이어서 하는 일만 이름 붙인다.`
+export async function nameHabits(actions) {
+  const out = new Map()
+  const want = [...new Set(actions.map(clean).filter(Boolean))]
+  if (!want.length) return out
+  const key = (a) => `습관 · ${a}`
+  const cached = await q('select raw_hash, task from pro_onto_labels where tenant_id=$1 and raw_hash = any($2)', [T(), want.map((a) => hashOf(key(a)))])
+  const byHash = new Map(cached.map((r) => [r.raw_hash, r.task]))
+  const left = []
+  for (const a of want) { const t = byHash.get(hashOf(key(a))); if (t) out.set(a, t); else left.push(a) }
+  const known = new Set([...out.values()])
+  for (const r of await q(`select distinct task from pro_onto_labels where tenant_id=$1 and act='habit' and task <> ''`, [T()])) known.add(r.task)
+  for (let i = 0; i < left.length; i += 10) {
+    const part = left.slice(i, i + 10)
+    let ans = null
+    for (let tries = 0; tries < 2 && !ans; tries++) {
+      try {
+        const r = await chatJson(HABIT_PROMPT, JSON.stringify({ known: [...known], items: part.map((a, n) => ({ i: n, text: maskPii(a).slice(0, 300) })) }), { timeoutMs: 60000, temperature: 0 })
+        ans = Array.isArray(r?.items) ? r.items : null
+      } catch (e) { console.warn('[ontology] habit names', e.message) }
+    }
+    if (!ans) continue
+    for (let n = 0; n < part.length; n++) {
+      const task = clean(ans.find((x) => Number(x.i) === n)?.task).slice(0, 30)
+      if (!task) continue
+      known.add(task)
+      out.set(part[n], task)
+      await q(`insert into pro_onto_labels (tenant_id, raw_hash, raw, task, act, how) values ($1,$2,$3,$4,'habit','model')
+               on conflict (tenant_id, raw_hash) do update set task=excluded.task, act='habit'`, [T(), hashOf(key(part[n])), key(part[n]).slice(0, 2000), task])
+    }
+  }
+  return out
+}
+
 // what the label table shows a person: raw texts and the task each became (newest first)
 export async function labelExamples(limit = 30) {
   return q(`select raw, task, act, how, created_at from pro_onto_labels where tenant_id=$1 and task <> '' order by length(raw) desc, created_at desc limit $2`, [T(), limit])

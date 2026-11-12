@@ -1,5 +1,5 @@
 <script setup>
-// 값 보기: 묶음마다 자동으로 정한 θ · 반감기 · 띠와 그 근거(서버 stats.js 가 잰 숫자).
+// 값 보기: 프로세스마다 자동으로 정한 θ · 반감기 · 띠와 그 근거(서버 stats.js 가 잰 숫자).
 //   θ      θ 후보마다 떼어 둔 최근 건의 재생 적합도 — 곡선이 가장 크게 꺾이기 직전 값
 //   반감기  후보마다 최근 4주 이동의 로그 우도 — 가장 큰 값
 //   띠     떼어 둔 최근 건에서 다음 일을 1위로 맞힌 비율이 0.5 이상이면 굳은 길
@@ -7,8 +7,8 @@
 import { computed } from 'vue'
 import { pct, BAND } from './fmt.js'
 
-const props = defineProps({ bundle: { type: Object, required: true }, meta: { type: Object, default: null }, compact: Boolean })
-const b = computed(() => props.bundle)
+const props = defineProps({ proc: { type: Object, required: true }, meta: { type: Object, default: null }, compact: Boolean })
+const b = computed(() => props.proc)
 
 // θ별 재생 적합도
 const CW = 300, CH = 128, PL = 40, PR = 14, PT = 16, PB = 30

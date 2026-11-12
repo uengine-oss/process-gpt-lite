@@ -94,7 +94,7 @@ await step('지도: 메일 이력과 채팅 핸드오버가 함께 셈해진다'
   assert.ok(src.mail_history > 0 && src.chat_handover > 0, JSON.stringify(src))
   const names = m.tasks.map((t) => t.key)
   for (const k of ['견적서 작성', '재무 검토', '고객 회신']) assert.ok(names.includes(k), `${k} 없음: ${names.join(', ')}`)
-  return { tasks: names.length, edges: m.edges.length, bundles: m.bundles.map((b) => `${b.name}:${b.band}:${b.cases}`), sources: src }
+  return { tasks: names.length, edges: m.edges.length, processes: m.processes.map((b) => `${b.name}:${b.band}:${b.cases}`), sources: src }
 })
 
 await step('견적서 → 재무 검토: 메일에 적힌 합계로 배운 조건(1천만 원)', async () => {
@@ -116,14 +116,14 @@ await step('실측 없이 바로 가던 옛 경로는 은퇴 후보(포아송)',
 await step('드문 경로: 견적서 작성 뒤 한 번뿐인 길은 θ 기본에서 빠지고 전체(θ 0)에만, 은퇴 후보도 아니다', async () => {
   const rare = m.edges.filter((e) => e.from === '견적서 작성' && e.to !== '__end__').sort((a, b) => a.p - b.p)[0]
   assert.ok(rare && rare.n <= 2, JSON.stringify(rare))
-  const A = m.bundles.find((b) => b.tasks.includes('견적서 작성'))
+  const A = m.processes.find((b) => b.tasks.includes('견적서 작성'))
   assert.ok(rare.p < A.theta, `p ${rare.p} θ ${A.theta}`)
   assert.equal(rare.stale, false, '드문 경로를 은퇴 후보로 올리면 안 된다')
   return { to: rare.to, p: rare.p, n: rare.n, theta: A.theta }
 })
 
 await step('자동 값: θ 는 재생 적합도 곡선에서, 반감기는 로그 우도로, 띠는 1위 맞히기로', async () => {
-  const a = m.bundles.find((b) => b.tasks.includes('견적서 작성'))
+  const a = m.processes.find((b) => b.tasks.includes('견적서 작성'))
   assert.ok([0, 0.01, 0.02, 0.05, 0.1, 0.2].includes(a.theta), `theta ${a.theta}`)
   assert.equal(a.curve.length, 6)
   assert.ok([14, 30, 60, 90, 180].includes(a.half_life))

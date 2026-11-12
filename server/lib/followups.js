@@ -147,6 +147,8 @@ async function learn({ user, threadId, prev, said, attached }) {
   // the once a habit becomes one: said out loud, so what is remembered is never a surprise
   if (h.seen === HABIT.minSeen && h.state === 'on' && h.origin === 'observed') {
     await addMessage(user.id, threadId, 'agent', 'chip', { icon: 'check', text: L(`이 순서를 기억할게요 · ${whenText(cls)} → ${cap(h.action, 40)} · 설정 › 습관에서 지울 수 있어요`, `I'll remember this · ${whenText(cls)} → ${cap(h.action, 40)} · remove it in Settings › Habits`), habit: h.id })
+    // the way of doing it can go to the company (회사 프로세스 지도 v0.3): asked once, nothing is shared without a yes
+    await import('./ontology/ways.js').then((w) => w.askShare(user, threadId, h)).catch((e) => console.warn('[followups] share', e.message))
   }
   return true
 }
@@ -164,10 +166,39 @@ async function offer({ user, threadId, classes, said, files, conv, title }) {
     if (!r) { pick = h; source = 'rule'; break }
     if (r.probabilities.fits >= HABIT.fitsBar) { pick = h; source = 'logprob'; p = r.probabilities.fits; break }
   }
-  if (!pick) return null
+  if (!pick) return rows.length ? null : routineOffer({ user, threadId, classes, conv, title })
   await q('update pro_followups set last_asked_conv=$2 where id=$1', [pick.id, conv || null])
   return addMessage(user.id, threadId, 'agent', 'followup', { text: askText(pick), followupId: pick.id, state: 'pending', seen: pick.seen, accepted: pick.accepted, origin: pick.origin, source, p,
     ...(conv ? { conv: { id: conv, title: title || '' } } : {}) })
+}
+
+// No habit of one's own for this result: the same role's routine on the company map (shown by the company's setting), done
+// the way the company picked — asked once per conversation, and taken up it becomes this person's habit
+const started = new Map() // habit id → { t0, way } — a run's minutes for the way it followed (ontology/ways.js)
+async function routineOffer({ user, threadId, classes, conv, title }) {
+  const mine = await q('select 1 from pro_followups where tenant_id=$1 and user_id=$2 and event_cls = any($3) limit 1', [T(), user.id, classes])
+  if (mine.length) return null
+  const [asked] = await q(`select 1 from pro_messages where thread_id=$1 and kind='followup' and content->>'source'='routine' and coalesce(content->'conv'->>'id','')=$2 limit 1`, [threadId, conv || ''])
+  if (asked) return null
+  const r = await (async () => {
+    const { routineFor } = await import('./ontology/ways.js')
+    const { habitSettings } = await import('./ontology/service.js')
+    return routineFor(user.id, classes, await habitSettings())
+  })().catch((e) => { console.warn('[followups] routine', e.message); return null })
+  if (!r) return null
+  const what = CLASSES[r.cls]?.ko || r.cls
+  const way = r.way ? L(` 회사가 고른 방법은 ${r.way.name}님의 방법이에요${r.way.minutes != null ? `(평균 ${r.way.minutes}분)` : ''}.`, ` The company's chosen way is ${r.way.name}'s${r.way.minutes != null ? ` (${r.way.minutes} min on average)` : ''}.`) : ''
+  const text = L(`같은 역할(${r.role})에서는 ${what} 결과물 뒤에 보통 「${r.task}」를 해요(${r.people}명).${way} 이번에도 할까요?`,
+    `People in your role (${r.role}) usually do “${r.task}” after a ${CLASSES[r.cls]?.en || r.cls} (${r.people} people).${way} Shall I do it now?`)
+  return addMessage(user.id, threadId, 'agent', 'followup', { text, routine: r, state: 'pending', source: 'routine', ...(conv ? { conv: { id: conv, title: title || '' } } : {}) })
+}
+async function acceptRoutine(user, card) {
+  const r = card.content.routine
+  const action = String(r.way?.how || '').split('\n')[0].trim() || L(`방금 만든 ${CLASSES[r.cls]?.ko || '결과물'}에 「${r.task}」를 해 주세요`, `Do “${r.task}” on the ${CLASSES[r.cls]?.en || 'result'} just made`)
+  const h = await recordPair(user, r.cls, action)
+  await close(user.id, card, 'accepted')
+  started.set(h.id, { t0: Date.now(), way: r.way?.followupId || null })
+  return { ...h, action, files: h.files || [] }
 }
 
 // A turn ended: note what it made on its answer, learn whether it followed the one before, and ask about the usual next
@@ -179,6 +210,11 @@ export async function afterTurn({ user, threadId, msg, conv, title, said, files,
   await q(`update pro_messages set content = content || jsonb_build_object('event', $2::jsonb) where id=$1`, [msg.id, JSON.stringify({ conv, title: title || '', classes, files: names.slice(0, 6), request: cap(said), at: new Date().toISOString() })])
   const last = prev?.e
   const recent = last?.classes?.length && within(last.at)
+  if (fromHabit && started.has(fromHabit)) {
+    const s = started.get(fromHabit)
+    started.delete(fromHabit)
+    if (s.way) await import('./ontology/ways.js').then((w) => w.recordRun(s.way, (Date.now() - s.t0) / 60000)).catch(() => {})
+  }
   const followed = fromHabit || (recent ? await learn({ user, threadId, prev: last, said, attached }) : false)
   if (classes.length && !followed) await offer({ user, threadId, classes, said, files: names, conv, title })
 }
@@ -194,6 +230,7 @@ async function accepted(user, card) {
   const h = await habitOf(card.content.followupId)
   if (h) await q('update pro_followups set accepted=$2, seen=$3, declined_run=$4, last_seen_at=now() where id=$1', [h.id, ...Object.values(afterAccept(h))])
   await close(user.id, card, 'accepted')
+  if (h) started.set(h.id, { t0: Date.now(), way: h.id })
   return h
 }
 async function refused(user, card) {
@@ -210,6 +247,11 @@ export async function answerCard(user, messageId, choice) {
   const [card] = await q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where m.id=$1 and t.user_id=$2 and m.kind='followup'`, [messageId, user.id])
   if (!card) throw fail(404, 'no such card')
   if (card.content.state !== 'pending') throw fail(409, 'already answered')
+  if (card.content.routine) {
+    if (choice !== 'accept') { await close(user.id, card, choice === 'mute' ? 'muted' : 'declined'); return { state: choice === 'mute' ? 'muted' : 'declined' } }
+    const h = await acceptRoutine(user, card)
+    return { state: 'accepted', threadId: card.thread_id, habitId: h.id, action: h.action, files: [], conversation: card.content.conv }
+  }
   if (choice === 'decline') { await refused(user, card); return { state: 'declined' } }
   if (choice === 'mute') {
     await q(`update pro_followups set state='muted' where id=$1 and user_id=$2`, [card.content.followupId, user.id])
@@ -229,10 +271,10 @@ export async function readAnswer(user, threadId, saidId, text, hasFiles) {
   if (hasFiles || cap(text, 999).length > HABIT.answerMaxChars) { await close(user.id, card, 'passed'); return null }
   const r = await oddsOf(answerState(card.content.text, text), ANSWER_QUESTION(), ANSWER_OPTIONS())
   if (r?.choice === 'accept' && r.confidence >= HABIT.bar) {
-    const h = await accepted(user, card)
+    const h = card.content.routine ? await acceptRoutine(user, card) : await accepted(user, card)
     return h ? { accept: { action: h.action, files: h.files || [], conversation: card.content.conv, habitId: h.id } } : null
   }
-  if (r?.choice === 'decline' && r.confidence >= HABIT.bar) { await refused(user, card); return { decline: true } }
+  if (r?.choice === 'decline' && r.confidence >= HABIT.bar) { if (card.content.routine) await close(user.id, card, 'declined'); else await refused(user, card); return { decline: true } }
   await close(user.id, card, 'passed')
   return null
 }

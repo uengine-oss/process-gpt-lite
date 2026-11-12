@@ -1,6 +1,6 @@
 <script setup>
 // 「지난 메일 읽기」가 끝나고 지도가 그려지면 오는 카드(server lib/ontology/service.js postSummary):
-// 찾은 일 · 흐름 수, 흐름(묶음)마다 띠와 건수, 그리고 「프로세스 지도 보기」.
+// 찾은 일 · 흐름 수, 흐름(프로세스)마다 띠와 건수, 그리고 「프로세스 지도 보기」.
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { SOURCE_KO } from './fmt.js'
@@ -8,18 +8,18 @@ import { SOURCE_KO } from './fmt.js'
 const props = defineProps({ msg: Object })
 const router = useRouter()
 const c = computed(() => props.msg.content || {})
-const bundles = computed(() => [...(c.value.bundles || [])].sort((a, b) => (b.cases || 0) - (a.cases || 0)))
+const processes = computed(() => [...(c.value.processes || [])].sort((a, b) => (b.cases || 0) - (a.cases || 0)))
 const sources = computed(() => Object.entries(c.value.sources || {}).filter(([, n]) => n > 0).map(([k, n]) => `${SOURCE_KO[k] || k} ${n.toLocaleString('ko-KR')}`))
 const BAND_KO = { paved: '굳은 길', open: '열린 일', watch: '지켜보기' }
-const go = (key) => router.push(key ? `${c.value.url || '/process-map'}?bundle=${encodeURIComponent(key)}` : c.value.url || '/process-map')
+const go = (key) => router.push(key ? `${c.value.url || '/process-map'}?proc=${encodeURIComponent(key)}` : c.value.url || '/process-map')
 </script>
 
 <template>
   <div class="os" data-testid="onto-summary-card">
     <span class="badge">회사 프로세스 지도</span>
     <p class="txt">{{ c.text }}</p>
-    <div v-if="bundles.length" class="bl">
-      <button v-for="b in bundles" :key="b.key" class="b press" :class="b.band" data-testid="onto-summary-bundle" @click="go(b.key)">
+    <div v-if="processes.length" class="bl">
+      <button v-for="b in processes" :key="b.key" class="b press" :class="b.band" data-testid="onto-summary-proc" @click="go(b.key)">
         <span class="bn">{{ b.name }}</span>
         <span class="band">{{ b.bandName || BAND_KO[b.band] || b.band }}</span>
         <span class="n">건 {{ b.cases ?? 0 }}</span>

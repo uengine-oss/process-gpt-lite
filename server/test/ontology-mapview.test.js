@@ -4,17 +4,17 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { visibleGraph } from '../../src/components/ontology/mapView.js'
 
-const T = (key, x = {}) => ({ key, bundle: 'b', ...x })
+const T = (key, x = {}) => ({ key, proc: 'b', ...x })
 const E = (from, to, p, x = {}) => ({ from, to, p, ...x })
 const map = {
-  bundles: [{ key: 'b', theta: 0.2, summary_theta: 0.1 }],
+  processes: [{ key: 'b', theta: 0.2, summary_theta: 0.1 }],
   tasks: [T('요청', { entry_share: 1 }), T('평면도'), T('견적'), T('법무')],
   edges: [E('요청', '평면도', 0.9), E('평면도', '견적', 1), E('요청', '견적', 0.09, { stale: true }),
     E('견적', '평면도', 0.05, { status: 'retired' }), E('견적', '법무', 0.03, { stale: true })],
 }
 
 test('은퇴 후보 · 은퇴한 관계는 θ 보다 드물어도 보이는 일 사이에서는 그린다', () => {
-  const v = visibleGraph(map, { bundle: 'b', mode: 'auto' })
+  const v = visibleGraph(map, { proc: 'b', mode: 'auto' })
   const ids = v.edges.map((e) => `${e.from}>${e.to}`)
   assert.ok(ids.includes('요청>견적'), '은퇴 후보')
   assert.ok(ids.includes('견적>평면도'), '은퇴함')
@@ -24,7 +24,7 @@ test('은퇴 후보 · 은퇴한 관계는 θ 보다 드물어도 보이는 일 
 
 test('θ 보다 드문 보통 관계는 빠진다', () => {
   const m = { ...map, edges: [...map.edges, E('평면도', '요청', 0.04)] }
-  const ids = visibleGraph(m, { bundle: 'b', mode: 'auto' }).edges.map((e) => `${e.from}>${e.to}`)
+  const ids = visibleGraph(m, { proc: 'b', mode: 'auto' }).edges.map((e) => `${e.from}>${e.to}`)
   assert.ok(!ids.includes('평면도>요청'))
-  assert.ok(visibleGraph(m, { bundle: 'b', mode: 'all' }).edges.some((e) => e.from === '평면도' && e.to === '요청'))
+  assert.ok(visibleGraph(m, { proc: 'b', mode: 'all' }).edges.some((e) => e.from === '평면도' && e.to === '요청'))
 })

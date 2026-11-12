@@ -15,7 +15,7 @@ const props = defineProps({
   selected: { type: Object, default: null }, // {kind: 'edge'|'task', id}
   dir: { type: String, default: 'LR' },
   side: Boolean, // a side panel covers the right: keep room so the map can move out from under it
-  scale: { type: Number, default: 1 }, // entry shares are of all cases; × this = of the shown bundle's cases
+  scale: { type: Number, default: 1 }, // entry shares are of all cases; × this = of the shown proc's cases
 })
 const emit = defineEmits(['select'])
 

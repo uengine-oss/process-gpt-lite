@@ -1,13 +1,14 @@
 // 온톨로지 셈하기(design-v0.2 §3.4 · §5.3): the facts (handover_events + pro_mail_history) → task names → cases →
-// tasks, NEXT edges, bundles and their automatic values → Ontological, written in one batch with only what changed.
+// tasks, NEXT edges, processes and their automatic values → Ontological, written in one batch with only what changed.
 // The first build of a company also writes the weeks before (each week's graph with that week as its effective date),
 // so the map can be looked at as it was on a past day; later builds write today's.
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { chatJson } from '../llm.js'
-import { resolveLabels, consolidate } from './names.js'
+import { resolveLabels, consolidate, nameHabits } from './names.js'
 import { cypher, readGraph } from './store.js'
 import { toCases, graphOf, clusterCases, autoValues, bandOf, summaryTheta, staleness, outTimesOf, pickHalfLife, learnThreshold, END, DAY } from './stats.js'
+import { structureOf, clsOf, routinesOf, artifactEvent, CLS_KO } from './structure.js'
 import crypto from 'node:crypto'
 
 const T = () => config.tenantId
@@ -20,6 +21,18 @@ async function rolesOfPeople() {
   const rows = await q(`select user_id::text as id, role from pro_role_assignments where tenant_id=$1 and proc_def_id='*'`, [T()])
   const m = new Map()
   for (const r of rows) if (!m.has(r.id)) m.set(r.id, r.role)
+  return m
+}
+
+// who holds which roles (the per-process owner in pro_role_assignments and the role members, several per role) — with
+// names, so a member who has done no work yet is still on the map
+export async function membersOf() {
+  const rows = await q(`select x.user_id::text as id, x.role, coalesce(u.username, u.email) as name, coalesce(u.is_agent,false) as agent
+                          from (select user_id, role from pro_role_assignments where tenant_id=$1 and proc_def_id='*'
+                                union select user_id, role from pro_role_members where tenant_id=$1) x
+                          left join users u on u.id = x.user_id and u.tenant_id = $1`, [T()]).catch(() => [])
+  const m = new Map()
+  for (const r of rows) { if (!m.has(r.id)) m.set(r.id, { roles: new Set(), name: r.name, agent: r.agent }); m.get(r.id).roles.add(r.role) }
   return m
 }
 
@@ -40,12 +53,16 @@ export function taskOf(task, act, { fromRole, toRole, fromAgent = false, toAgent
 // the event log: one event per handover and per mail that is work, each as {case, task, at, who, role, source, person}
 export async function loadEvents({ until } = {}) {
   const ho = await q(`select case_id, source, occurred_at, from_user_id, from_user_name, from_role, from_is_agent, to_user_id, to_user_name, to_role, to_is_agent,
-                             activity_label, next_activity_label, instruction
+                             activity_label, next_activity_label, instruction, artifact_refs
                         from handover_events where tenant_id=$1 ${until ? 'and occurred_at <= $2' : ''} order by occurred_at`, until ? [T(), until] : [T()])
-  const mh = await q(`select case_id, occurred_at, owner_id::text as owner, from_addr, to_addrs, from_role, to_role, activity_label, act, attrs
+  const mh = await q(`select case_id, occurred_at, owner_id::text as owner, from_addr, to_addrs, from_role, to_role, activity_label, act, attrs, artifacts
                         from pro_mail_history where tenant_id=$1 ${until ? 'and occurred_at <= $2' : ''} order by occurred_at`, until ? [T(), until] : [T()])
   const labels = await resolveLabels([...ho.map((r) => ({ raw: rawOf(r) })), ...mh.map((r) => ({ raw: r.activity_label, hint: r.act }))])
   const roles = await rolesOfPeople()
+  // the company's people and agents by address (who did a mail step) — outside people are not performers
+  const people = new Map((await q(`select id::text as id, lower(email) as email, coalesce(username, email) as name, coalesce(is_agent,false) as agent from users where tenant_id=$1`, [T()]))
+    .map((u) => [u.email, { id: u.id, name: u.name, agent: u.agent }]))
+  const kinds = (list) => [...new Set((list || []).map((f) => clsOf(f?.name) || (['xlsx', 'docx', 'hwpx', 'pptx', 'pdf', 'dxf'].includes(f?.type) ? clsOf(`x.${f.type}`) : null)).filter(Boolean))]
   // the roles that approve something (their approvals are reviews named after them)
   const reviewers = new Set([...mh.filter((r) => (r.act || labels.get(clean(r.activity_label))?.act) === 'approve').map((r) => r.from_role),
     ...ho.filter((r) => labels.get(rawOf(r))?.act === 'approve').map((r) => r.from_role)].filter(Boolean))
@@ -58,7 +75,9 @@ export async function loadEvents({ until } = {}) {
     const id = toSide ? r.to_user_id : r.from_user_id
     const isAgent = toSide ? r.to_is_agent : r.from_is_agent
     const role = (toSide ? r.to_role : r.from_role) || roles.get(String(id)) || (isAgent ? '에이전트' : (toSide ? r.to_user_name : r.from_user_name)) || '담당자'
-    events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: id ? String(id) : null, role, source: r.source, person: String(r.from_user_id || r.to_user_id || '') })
+    const name = toSide ? r.to_user_name : r.from_user_name
+    events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: id ? String(id) : null, role, source: r.source, person: String(r.from_user_id || r.to_user_id || ''),
+      arts: l.act === 'request' ? [] : kinds(r.artifact_refs), actor: id ? { id: String(id), name: name || String(id), agent: !!isAgent } : null })
   }
   for (const r of mh) {
     const l = { ...(labels.get(clean(r.activity_label)) || {}) }
@@ -66,7 +85,10 @@ export async function loadEvents({ until } = {}) {
     const act = r.act || l.act
     l.task = taskOf(l.task, act, { fromRole: r.from_role, toRole: r.to_role, reviewers })
     const role = (act === 'request' ? r.to_role : r.from_role) || '담당자'
-    events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: act === 'request' ? (r.to_addrs?.[0] || null) : r.from_addr, role, source: 'mail_history', person: `mail:${r.owner}`, amount: r.attrs?.amount ?? null })
+    const addr = String((act === 'request' ? r.to_addrs?.[0] : r.from_addr) || '').toLowerCase()
+    // a result handed over by mail (the sender's work); a request's attachments are what the work starts from, not its result
+    events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: addr || null, role, source: 'mail_history', person: `mail:${r.owner}`, amount: r.attrs?.amount ?? null,
+      arts: act === 'request' ? [] : kinds(r.artifacts), actor: people.get(addr) || null })
   }
   return events
 }
@@ -74,17 +96,17 @@ export async function loadEvents({ until } = {}) {
 const NAME = `회사의 업무 흐름 하나에 이름을 붙입니다. JSON {"name","summary"} 로만 답하세요.
 - name: 한국어 명사구 14자 이내, 가운뎃점(·)으로 두 일을 잇는 형식. 예: "설계 제안 · 견적", "계약 · 시공 준비"
 - summary: 이 흐름이 무엇인지 해요체 한 문장`
-async function nameBundle(tasks, entry) {
+async function nameProcess(tasks, entry) {
   try {
     const r = await chatJson(NAME, JSON.stringify({ steps: tasks, starts_with: entry }), { timeoutMs: 30000, temperature: 0 })
     if (r?.name) return { name: String(r.name).slice(0, 30), summary: String(r.summary || '') }
-  } catch (e) { console.warn('[ontology] bundle name', e.message) }
+  } catch (e) { console.warn('[ontology] proc name', e.message) }
   return { name: `${entry} 흐름`, summary: '' }
 }
 
-// one state of the company's process: graph + bundles with their values, as of `now`
+// one state of the company's process: graph + processes with their values, as of `now`
 const set0 = (b) => b.tasks.length > 0
-export function stateAt(events, now, { halfLife } = {}) {
+export function stateAt(events, now, { halfLife, assigned = new Map() } = {}) {
   const evs = events.filter((e) => new Date(e.at).getTime() <= now)
   const cases = toCases(evs)
   if (!cases.length) return null
@@ -113,7 +135,7 @@ export function stateAt(events, now, { halfLife } = {}) {
     if (lo) Object.assign(lo, { cond: `견적 합계(amount)가 ${won}원 미만`, condInfo: info })
   }
   const byId = new Map(cases.map((c) => [c.id, c]))
-  const bundles = clusterCases(cases).map((b) => {
+  const processes = clusterCases(cases).map((b) => {
     const bc = b.caseIds.map((id) => byId.get(id))
     const set = new Set(b.tasks)
     const firsts = new Map()
@@ -121,12 +143,12 @@ export function stateAt(events, now, { halfLife } = {}) {
     const entries = [...firsts].sort((x, y) => y[1] - x[1]).map(([t]) => t)
     const values = autoValues(bc, { now })
     const sub = graphOf(bc, { halfLife: hl.halfLife, now })
-    return { key: `bundle:${crypto.createHash('sha1').update(b.key).digest('hex').slice(0, 10)}`, core: b.core, tasks: b.tasks, entries, cases: bc.length, values, band: bandOf(values), summaryTheta: summaryTheta(sub) }
+    return { key: `process:${crypto.createHash('sha1').update(b.key).digest('hex').slice(0, 10)}`, core: b.core, tasks: b.tasks, caseIds: b.caseIds, entries, cases: bc.length, values, band: bandOf(values), summaryTheta: summaryTheta(sub) }
   }).filter((b) => b.cases >= 2)
-  return { g, cases, bundles, halfLife: hl, now }
+  return { g, cases, processes, halfLife: hl, now, structure: structureOf(cases, g, processes, { assigned }) }
 }
 
-// write a state to the graph with `validFrom` as its effective date; names: bundle key → {name, summary}
+// write a state to the graph with `validFrom` as its effective date; names: proc key → {name, summary}
 // Writes split into "update what exists" (UNWIND … MATCH … SET) and "create what is new" (UNWIND … CREATE): on a temporal
 // type with a key, Ontological's UNWIND … MERGE that updates an existing node collides with that key (measured: a single
 // MERGE with parameters works, UNWIND + MERGE does not — reported to Ontological), so MERGE is not used for batches.
@@ -150,20 +172,43 @@ async function upsertEdges(rows, keys, w) {
   }
 }
 
-// write a state to the graph with `validFrom` as its effective date; names: bundle key → {name, summary}
+// any other relation, between two labels by their keys (the same split into update and create)
+async function upsertRel(rel, fromLabel, toLabel, rows, keys, w, extra = []) {
+  if (!rows.length) return
+  const have = new Set((await cypher(`MATCH (a:${fromLabel})-[e:${rel}]->(b:${toLabel}) RETURN a.key AS from, b.key AS to`)).map((r) => `${r.from}>${r.to}`))
+  const old = rows.filter((r) => have.has(`${r.from}>${r.to}`)), neu = rows.filter((r) => !have.has(`${r.from}>${r.to}`))
+  if (keys.length) for (let i = 0; i < old.length; i += 200) await cypher(`UNWIND $rows AS r MATCH (a:${fromLabel} {key:r.from})-[e:${rel}]->(b:${toLabel} {key:r.to}) SET ${sets('e', keys)}`, { rows: old.slice(i, i + 200) }, w)
+  const props = keys.length || extra.length ? ` ${createMap(keys, extra)}` : ''
+  for (let i = 0; i < neu.length; i += 200) await cypher(`UNWIND $rows AS r MATCH (a:${fromLabel} {key:r.from}), (b:${toLabel} {key:r.to}) CREATE (a)-[e:${rel}${props}]->(b)`, { rows: neu.slice(i, i + 200) }, w)
+}
+
+// events, process membership, roles and performers of a state (structure.js) — events and performers have no history
+async function writeStructure(S, w) {
+  const now = { actor: w.actor, reason: w.reason }
+  await upsertNodes('Event', S.events.map((e) => ({ key: e.key, kind: e.kind, cls: e.cls, name: e.name, n: e.n })), ['kind', 'cls', 'name', 'n'], [], now)
+  await upsertRel('TRIGGERS', 'Event', 'Task', S.triggers, ['n', 'p', 'split', 'cond', 'source', 'scope', 'people'], w, ["status:'active'", 'pinned:false', 'shared:0'])
+  await upsertRel('RAISES', 'Task', 'Event', S.raises, ['n', 'p'], w)
+  await upsertRel('HAS_TASK', 'Process', 'Task', S.hasTask, ['n', 'share', 'entry_share'], w)
+  await upsertRel('STARTS_ON', 'Process', 'Event', S.startsOn, ['n', 'share'], w)
+  await upsertNodes('Role', S.roles, ['name', 'outside', 'n', 'members', 'load', 'agent_share', 'handovers_in', 'handovers_out', 'artifacts', 'tasks', 'single_tasks'], ['confirmed:false'], w)
+  await upsertRel('PERFORMED_BY', 'Task', 'Role', S.performedBy, ['n', 'share'], w)
+  await upsertNodes('Performer', S.performers, ['name', 'is_agent'], [], now)
+  await upsertRel('PLAYS', 'Performer', 'Role', S.plays, ['n', 'share', 'assigned'], w)
+}
+
+// write a state to the graph with `validFrom` as its effective date; names: proc key → {name, summary}
 async function writeState(st, validFrom, names, meta) {
-  const { g, bundles } = st
-  // a task shown in several bundles (a shared step like 고객 회신) is coloured by the one with the most cases
-  const taskBundle = new Map()
-  for (const b of [...bundles].sort((x, y) => x.cases - y.cases)) for (const t of b.tasks) taskBundle.set(t, b.key)
+  const { g, processes } = st
+  // a task shown in several processes (a shared step like 고객 회신) is coloured by the one with the most cases
+  // (a task's processes are read from the processes' task lists — a shared step like 고객 회신 is in several)
   const tasks = [...g.tasks.values()].map((t) => ({
-    key: t.key, name: t.key, role: t.role || '', bundle: taskBundle.get(t.key) || '', n: t.n, n_cases: t.cases.size, entry_share: t.entryShare, exit_share: t.exitShare,
+    key: t.key, name: t.key, role: t.role || '', kind: 'flow', n: t.n, n_cases: t.cases.size, entry_share: t.entryShare, exit_share: t.exitShare,
     first_seen: iso(t.first), last_seen: iso(t.last), sources: JSON.stringify(Object.fromEntries(t.sources)), people: t.people.size,
   }))
   const w = { validFrom, actor: meta.actor, reason: meta.reason }
   const [end] = await cypher(`MATCH (e:End {key:'__end__'}) RETURN e.key AS key`)
   if (!end) await cypher(`CREATE (e:End {key:'__end__'})`)
-  await upsertNodes('Task', tasks, ['name', 'role', 'bundle', 'n', 'n_cases', 'entry_share', 'exit_share', 'first_seen', 'last_seen', 'sources', 'people'],
+  await upsertNodes('Task', tasks, ['name', 'role', 'kind', 'n', 'n_cases', 'entry_share', 'exit_share', 'first_seen', 'last_seen', 'sources', 'people'],
     ["status:'active'", 'pinned:false', 'candidate:false'], w)
   const edges = [...g.edges.values()].map((e) => ({
     from: e.from, to: e.to, n: e.n, p: e.p, share: e.share, dependency: e.dependency, w: e.w, wait_h: e.avgWaitH, ci_low: e.ci.low, ci_high: e.ci.high, thin: e.thin,
@@ -173,14 +218,70 @@ async function writeState(st, validFrom, names, meta) {
   }))
   await upsertEdges(edges, ['n', 'p', 'share', 'dependency', 'w', 'wait_h', 'ci_low', 'ci_high', 'thin', 'first_seen', 'last_seen', 'stale', 'expected', 'p_value',
     'gap_days', 'by_source', 'people', 'parallel', 'cond', 'cond_cases'], w)
-  const rows = bundles.map((b) => ({
+  const rows = processes.map((b) => ({
     key: b.key, name: names.get(b.key)?.name || b.entries[0] || b.tasks[0], summary: names.get(b.key)?.summary || '', band: b.band, theta: b.values.theta, theta_start: b.values.thetaStart,
     half_life: st.halfLife.halfLife, half_life_start: !!st.halfLife.start, a1: b.values.accuracy.top1, a3: b.values.accuracy.top3, held: b.values.heldCases,
     held_transitions: b.values.heldTransitions, curve: JSON.stringify(b.values.curve), hl_scores: JSON.stringify(st.halfLife.scores || []), tasks: b.tasks, entries: b.entries,
-    cases: b.cases, summary_theta: b.summaryTheta,
+    cases: b.cases, summary_theta: b.summaryTheta, kind: 'flow', role: '',
   }))
-  await upsertNodes('Bundle', rows, ['name', 'summary', 'band', 'theta', 'theta_start', 'half_life', 'half_life_start', 'a1', 'a3', 'held', 'held_transitions', 'curve',
-    'hl_scores', 'tasks', 'entries', 'cases', 'summary_theta'], ["status:'suggested'", "autonomy:'draft'"], w)
+  await upsertNodes('Process', rows, ['name', 'summary', 'band', 'theta', 'theta_start', 'half_life', 'half_life_start', 'a1', 'a3', 'held', 'held_transitions', 'curve',
+    'hl_scores', 'tasks', 'entries', 'cases', 'summary_theta', 'kind', 'role'], ["status:'suggested'", "autonomy:'draft'"], w)
+  await writeStructure(st.structure, w)
+}
+
+// personal habits (후행 습관 pro_followups · 방 규칙 pro_room_rules) → role routines (design-v0.3 §3.4): every habit is
+// counted — the setting only decides what the map shows (service.js) — and the graph gets the role, the task and how many
+// people, never a name or the words. A role's routine is a process of its own (kind routine) hung on the role.
+const shaOf = (x) => crypto.createHash('sha1').update(String(x)).digest('hex').slice(0, 10)
+const roleEvent = (role, cls) => (cls === 'link' ? { key: `link:@${role}`, kind: 'link', cls: 'link', name: `${CLS_KO.link} 올림(${role})` }
+  : { key: `artifact:@${role}:${cls}`, kind: 'artifact', cls, name: `${CLS_KO[cls] || cls} 결과물(${role})` })
+async function habitRoutines(final, meta, assigned) {
+  const rows = await q(`select id::text as id, user_id::text as user_id, event_cls as cls, action, seen, origin from pro_followups
+                          where tenant_id=$1 and (seen >= 2 or origin = 'told')`, [T()]).catch(() => [])
+  const rules = await q(`select id::text as id, user_id::text as user_id, action from pro_room_rules where tenant_id=$1`, [T()]).catch(() => [])
+  const shared = new Set((await q(`select followup_id::text as id from pro_habit_shares where tenant_id=$1 and answer='shared' and status <> 'withdrawn'`, [T()]).catch(() => [])).map((r) => r.id))
+  if (!rows.length && !rules.length) return { keys: [], routines: 0 }
+  // each person's role: the assignment, else the role they performed most in the cases
+  const played = new Map()
+  for (const p of final.structure.plays) if (!played.has(p.from) || played.get(p.from).n < p.n) played.set(p.from, { role: p.to, n: p.n })
+  const roleOf = (id) => [...(assigned.get(id)?.roles || [])][0] || played.get(id)?.role || null
+  const goals = await nameHabits([...rows, ...rules].map((r) => r.action))
+  const habits = [
+    ...rows.map((r) => ({ userId: r.user_id, role: roleOf(r.user_id), cls: r.cls, task: goals.get(clean(r.action)), seen: r.seen, told: r.origin === 'told', shared: shared.has(r.id), source: r.origin === 'told' ? 'told' : 'habit' })),
+    ...rules.map((r) => ({ userId: r.user_id, role: roleOf(r.user_id), cls: 'link', task: goals.get(clean(r.action)), seen: 1, told: true, shared: false, source: 'rule' })),
+  ]
+  const routines = routinesOf(habits)
+  if (!routines.length) return { keys: [], routines: 0 }
+  const w = { validFrom: iso(final.now), actor: meta.actor, reason: `${meta.reason}(역할 루틴)` }
+  const plain = { actor: meta.actor, reason: w.reason }
+  const evs = new Map()
+  for (const r of routines) { const e = roleEvent(r.role, r.cls); evs.set(e.key, { ...e, n: (evs.get(e.key)?.n || 0) + r.n }); r.event = e.key }
+  await upsertNodes('Event', [...evs.values()], ['kind', 'cls', 'name', 'n'], [], plain)
+  const flowTasks = new Set(final.g.tasks.keys())
+  const habitTasks = new Map()
+  for (const r of routines) if (!flowTasks.has(r.task)) habitTasks.set(r.task, { key: r.task, name: r.task, role: r.role, kind: 'habit', n: (habitTasks.get(r.task)?.n || 0) + r.n })
+  await upsertNodes('Task', [...habitTasks.values()], ['name', 'role', 'kind', 'n'], ["status:'active'", 'pinned:false', 'candidate:false'], w)
+  // members of a role: who performed it in the cases, else who holds it in the assignments
+  const members = new Map(final.structure.roles.map((x) => [x.key, x.members]))
+  const held = new Map()
+  for (const a of assigned.values()) for (const role of a.roles || []) held.set(role, (held.get(role) || 0) + 1)
+  const size = (role) => Math.max(members.get(role) || 0, held.get(role) || 0)
+  await upsertRel('TRIGGERS', 'Event', 'Task', routines.map((r) => ({ from: r.event, to: r.task, n: r.n, p: r.people / Math.max(r.people, size(r.role), 1), split: '', cond: '',
+    source: r.source, scope: `role:${r.role}`, people: r.people, shared: r.shared, status: 'active' })), ['n', 'p', 'split', 'cond', 'source', 'scope', 'people', 'shared', 'status'], w, ['pinned:false'])
+  // a routine step nobody does any more (or one named differently now) leaves the map, kept in the history
+  const liveTrig = new Set(routines.map((r) => `${r.event}>${r.task}`))
+  const before = await cypher(`MATCH (e:Event)-[t:TRIGGERS]->(x:Task) WHERE t.source IN $sources RETURN e.key AS from, x.key AS to, t.status AS status`, { sources: ['habit', 'told', 'rule'] }).catch(() => [])
+  for (const x of before) if (!liveTrig.has(`${x.from}>${x.to}`) && x.status !== 'gone') await cypher('MATCH (e:Event {key:$from})-[t:TRIGGERS]->(x:Task {key:$to}) SET t.status=$status RETURN e.key AS key', { from: x.from, to: x.to, status: 'gone' }, w)
+  const byRole = new Map()
+  for (const r of routines) { if (!byRole.has(r.role)) byRole.set(r.role, []); byRole.get(r.role).push(r) }
+  const procs = [...byRole].map(([role, rs]) => ({ key: `routine:${shaOf(role)}`, name: `${role} 루틴`, summary: `${role}가 결과물 뒤에 혼자 이어서 하는 일`, kind: 'routine', role,
+    tasks: [...new Set(rs.map((r) => r.task))], entries: [], cases: Math.max(...rs.map((r) => r.people)), band: 'open' }))
+  await upsertNodes('Process', procs, ['name', 'summary', 'kind', 'role', 'tasks', 'entries', 'cases', 'band'], ["status:'suggested'", "autonomy:'draft'", 'theta:0', 'summary_theta:0', 'half_life:0'], w)
+  await upsertRel('HAS_TASK', 'Process', 'Task', procs.flatMap((p) => byRole.get(p.role).map((r) => ({ from: p.key, to: r.task, n: r.people, share: r.people / Math.max(size(p.role), r.people, 1), entry_share: 0 }))),
+    ['n', 'share', 'entry_share'], w)
+  await upsertNodes('Role', [...byRole.keys()].filter((r) => !members.has(r)).map((r) => ({ key: r, name: r })), ['name'], ['confirmed:false'], w)
+  await upsertRel('OF_ROLE', 'Process', 'Role', procs.map((p) => ({ from: p.key, to: p.role, n: p.cases })), ['n'], plain)
+  return { keys: procs.map((p) => p.key), routines: routines.length, roles: byRole.size }
 }
 
 // one sentence per task that has none yet (who does what) — the start-task questions name the work this way
@@ -210,25 +311,26 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   const events = await loadEvents()
   if (!events.length) return { empty: true, events: 0 }
   const now = Date.now()
-  const final = stateAt(events, now)
-  // bundle names: kept when the bundle is already named in the graph
-  const have = new Map((await cypher('MATCH (b:Bundle) RETURN b.key AS key, b.name AS name, b.summary AS summary')).map((r) => [r.key, r]))
-  // names are given once a bundle's key is settled (and kept when the graph already has one)
+  const assigned = await membersOf()
+  const final = stateAt(events, now, { assigned })
+  // proc names: kept when the proc is already named in the graph
+  const have = new Map((await cypher('MATCH (b:Process) RETURN b.key AS key, b.name AS name, b.summary AS summary')).map((r) => [r.key, r]))
+  // names are given once a proc's key is settled (and kept when the graph already has one)
   const names = new Map()
   const nameAll = async (st) => {
-    for (const b of st.bundles) if (!names.has(b.key)) names.set(b.key, have.get(b.key)?.name && have.get(b.key).name !== b.entries[0] ? have.get(b.key) : await nameBundle(b.tasks, b.entries[0]))
+    for (const b of st.processes) if (!names.has(b.key)) names.set(b.key, have.get(b.key)?.name && have.get(b.key).name !== b.entries[0] ? have.get(b.key) : await nameProcess(b.tasks, b.entries[0]))
   }
-  // a bundle keeps its key from week to week: a cluster takes the key of the known bundle it overlaps most (Jaccard ≥ 0.5)
-  const known = new Map((await cypher('MATCH (b:Bundle) WHERE b.status <> \'gone\' RETURN b.key AS key, b.tasks AS tasks')).map((r) => [r.key, r.tasks || []]))
+  // a proc keeps its key from week to week: a cluster takes the key of the known proc it overlaps most (Jaccard ≥ 0.5)
+  const known = new Map((await cypher('MATCH (b:Process) WHERE b.status <> \'gone\' RETURN b.key AS key, b.tasks AS tasks')).map((r) => [r.key, r.tasks || []]))
   const stable = (st) => {
-    for (const b of st.bundles) {
+    for (const b of st.processes) {
       let best = null, score = 0
       for (const [k, tasks] of known) {
         const inter = b.tasks.filter((t) => tasks.includes(t)).length
         const j = inter / new Set([...b.tasks, ...tasks]).size
         if (j > score) { score = j; best = k }
       }
-      if (best && score >= 0.5 && !st.bundles.some((x) => x !== b && x.key === best)) b.key = best
+      if (best && score >= 0.5 && !st.processes.some((x) => x !== b && x.key === best)) b.key = best
       known.set(b.key, b.tasks)
     }
   }
@@ -239,7 +341,7 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
     // the weeks before: what the graph would have said at the end of each week (effective date = that day)
     const start = final.g.first
     for (let t = start + 14 * DAY; t < now - DAY; t += 7 * DAY) {
-      const st = stateAt(events, t, { halfLife: final.halfLife.halfLife })
+      const st = stateAt(events, t, { halfLife: final.halfLife.halfLife, assigned })
       if (!st) continue
       stable(st)
       await nameAll(st)
@@ -252,9 +354,10 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   await nameAll(final)
   await writeState(final, iso(now), names, meta)
   await describeTasks(final, meta).catch((e) => console.warn('[ontology] describe', e.message))
-  // bundles of earlier weeks that are not in today's picture are gone (kept in the history, hidden on the map)
-  const live = final.bundles.map((b) => b.key)
-  await cypher(`MATCH (b:Bundle) WHERE NOT b.key IN $live AND b.status <> 'gone' SET b.status='gone'`, { live }, { ...meta, validFrom: iso(now) })
+  const habits = await habitRoutines(final, meta, assigned).catch((e) => { console.warn('[ontology] routines', e.message); return { keys: [], routines: 0 } })
+  // processes of earlier weeks that are not in today's picture are gone (kept in the history, hidden on the map)
+  const live = [...final.processes.map((b) => b.key), ...habits.keys]
+  await cypher(`MATCH (b:Process) WHERE NOT b.key IN $live AND b.status <> 'gone' SET b.status='gone'`, { live }, { ...meta, validFrom: iso(now) })
   const sources = {}
   for (const e of events) sources[e.source] = (sources[e.source] || 0) + 1
   await cypher(`MERGE (m:Meta {key:'meta'}) SET m.built_at=$at, m.events=$events, m.cases=$cases, m.data_start=$ds, m.data_end=$de, m.sources=$sources,
@@ -262,7 +365,8 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
     at: iso(now), events: events.length, cases: final.cases.length, ds: iso(final.g.first), de: iso(final.g.last), sources: JSON.stringify(sources),
     values: JSON.stringify({ halfLife: final.halfLife.halfLife, halfLifeStart: !!final.halfLife.start, halfLifeScores: final.halfLife.scores, tested: final.halfLife.tested }),
   })
-  return { events: events.length, cases: final.cases.length, tasks: final.g.tasks.size, edges: final.g.edges.size, bundles: final.bundles.length, weeks, sources, merged }
+  return { events: events.length, cases: final.cases.length, tasks: final.g.tasks.size, edges: final.g.edges.size, processes: final.processes.length, weeks, sources, merged,
+    happenings: final.structure.events.length, roles: final.structure.roles.length, routines: habits.routines }
 }
 
 export { readGraph }

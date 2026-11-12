@@ -14,11 +14,11 @@ async function mapOf(u) {
 }
 const admin = async (db, c, cleanup) => { await db.q('update users set is_admin=true where id=$1', [c.id]); cleanup(() => db.q('update users set is_admin=false where id=$1', [c.id])); return c }
 
-test('F-PO-01 지도 — 일 · 관계 · 묶음과 자동 값(θ · 반감기 · 띠)이 근거와 함께', async ({ as }) => {
+test('F-PO-01 지도 — 일 · 관계 · 프로세스과 자동 값(θ · 반감기 · 띠)이 근거와 함께', async ({ as }) => {
   const u = await as('po-user')
   const m = await mapOf(u)
   expect(m.edges.length).toBeGreaterThan(m.tasks.length - 1)
-  for (const b of m.bundles) {
+  for (const b of m.processes) {
     expect([0, 0.01, 0.02, 0.05, 0.1, 0.2]).toContain(b.theta)
     expect([14, 30, 60, 90, 180]).toContain(b.half_life)
     expect(['paved', 'open', 'watch']).toContain(b.band)
@@ -56,8 +56,8 @@ test('F-PO-03 시점 고르기 — 9월 1일의 지도', async ({ as }) => {
 test('F-PO-04 스냅샷 — 같은 키는 같은 정의를 다시 쓴다, 맨 앞은 요청 접수', async ({ as, db }) => {
   const u = await as('po-user')
   const m = await mapOf(u)
-  const A = m.bundles.find((b) => b.tasks.includes('견적서 작성'))
-  const qs = `bundle=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}`
+  const A = m.processes.find((b) => b.tasks.includes('견적서 작성'))
+  const qs = `proc=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}`
   const one = (await u.get(`/ontology/snapshot?${qs}`)).body
   const two = (await u.get(`/ontology/snapshot?${qs}`)).body
   expect(two.procDefId).toBe(one.procDefId)
@@ -72,7 +72,7 @@ test('F-PO-04 스냅샷 — 같은 키는 같은 정의를 다시 쓴다, 맨 �
 test('F-PO-05 앞날짜 고정 — 그날 뒤 스냅샷에만 재무 검토가 반드시, 결정 원장, 관리자만', async ({ as, db, cleanup }) => {
   const u = await as('po-user')
   const m = await mapOf(u)
-  const A = m.bundles.find((b) => b.tasks.includes('견적서 작성'))
+  const A = m.processes.find((b) => b.tasks.includes('견적서 작성'))
   const day = nextMonthFirst()
   expect((await u.post(`/ontology/tasks/${encodeURIComponent('재무 검토')}/pin`, { validFrom: day })).status).toBe(403)
   const a = await admin(db, await as('po-admin'), cleanup)
@@ -80,7 +80,7 @@ test('F-PO-05 앞날짜 고정 — 그날 뒤 스냅샷에만 재무 검토가 �
   expect(r.status, r.text).toBe(200)
   cleanup(() => a.post(`/ontology/tasks/${encodeURIComponent('재무 검토')}/pin`, { pinned: false, validFrom: day, reason: '회귀 시험 정리' }))
   const outs = async (at) => {
-    const s = (await a.get(`/ontology/snapshot?bundle=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}${at ? `&at=${at}T12:00:00Z` : ''}`)).body
+    const s = (await a.get(`/ontology/snapshot?proc=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}${at ? `&at=${at}T12:00:00Z` : ''}`)).body
     const [d] = await db.q('select definition from proc_def where id=$1', [s.procDefId])
     // the ways out of the quote: straight to an activity, or through the gateway right after it
     const D = d.definition, gw = new Set((D.gateways || []).map((g) => g.id))

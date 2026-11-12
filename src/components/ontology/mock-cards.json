@@ -6,10 +6,10 @@
       "content": {
         "text": "메일 485통과 채팅 핸드오버를 읽어 일 24개, 흐름 3개를 찾았어요. 굳은 길 2 · 열린 일 0 · 지켜보기 1.",
         "tasks": 24,
-        "bundles": [
-          { "key": "bundle:요청 메일 접수", "name": "설계 제안 · 견적", "band": "paved", "bandName": "굳은 길", "cases": 132 },
-          { "key": "bundle:계약 요청 접수", "name": "계약 · 시공 준비", "band": "paved", "bandName": "굳은 길", "cases": 38 },
-          { "key": "bundle:세금계산서 요청 접수", "name": "세금계산서 · 정산", "band": "watch", "bandName": "지켜보기", "cases": 4 }
+        "processes": [
+          { "key": "proc:요청 메일 접수", "name": "설계 제안 · 견적", "band": "paved", "bandName": "굳은 길", "cases": 132 },
+          { "key": "proc:계약 요청 접수", "name": "계약 · 시공 준비", "band": "paved", "bandName": "굳은 길", "cases": 38 },
+          { "key": "proc:세금계산서 요청 접수", "name": "세금계산서 · 정산", "band": "watch", "bandName": "지켜보기", "cases": 4 }
         ],
         "sources": { "mail_history": 771, "chat_handover": 476, "agent_delegation": 113, "todolist": 36 },
         "url": "/process-map"
@@ -21,7 +21,7 @@
         "state": "started",
         "mail": { "from": "달빛커피 정하늘 <haneul@dalbitcoffee.example>", "subject": "달빛커피 평촌점 견적 다시 부탁드려요 (면적 19평 → 22평)" },
         "customer": "달빛커피",
-        "choice": { "task": "견적서 작성", "p": 0.82, "ask": false, "bundle": "bundle:요청 메일 접수", "bundleName": "설계 제안 · 견적", "measured": true,
+        "choice": { "task": "견적서 작성", "p": 0.82, "ask": false, "proc": "proc:요청 메일 접수", "procName": "설계 제안 · 견적", "measured": true,
           "options": [ { "task": "견적서 작성", "p": 0.82 }, { "task": "제안서 작성", "p": 0.11 }, { "task": "요구사항 정리", "p": 0.04 } ] },
         "caseId": "mock-case-1", "instId": "mock-inst-1",
         "skipped": [ "요청 메일 접수", "현장 실측", "평면도 작성", "제안서 작성" ],
@@ -36,7 +36,7 @@
         "mail": { "from": "한빛치과 김원장 <dr.kim@hanbit-dental.example>", "subject": "치과 대기실 리모델링 관련 문의드립니다",
           "text": "안녕하세요, 한빛치과 김원장입니다. 대기실 12평 정도를 다시 꾸미고 싶은데, 지난달 보내 주신 평면도에서 접수 데스크 위치만 바꿀 수 있을지 궁금합니다. 이번 주 안에 현장 한 번 봐 주실 수 있을까요? 공사는 설 연휴 전에 끝났으면 해요." },
         "customer": "한빛치과 김원장",
-        "choice": { "task": "현장 실측", "p": 0.44, "ask": true, "bundle": "bundle:요청 메일 접수", "bundleName": "설계 제안 · 견적", "measured": true,
+        "choice": { "task": "현장 실측", "p": 0.44, "ask": true, "proc": "proc:요청 메일 접수", "procName": "설계 제안 · 견적", "measured": true,
           "options": [ { "task": "현장 실측", "p": 0.44 }, { "task": "평면도 작성", "p": 0.38 }, { "task": "요구사항 정리", "p": 0.12 } ] }
       }
     },
@@ -52,9 +52,9 @@
     }
   ],
   "case": {
-    "id": "mock-case-1", "tenant_id": "ax-demo", "bundle": "bundle:요청 메일 접수", "entry_task": "견적서 작성", "status": "running", "created_at": "2026-11-12T05:10:00.000Z",
+    "id": "mock-case-1", "tenant_id": "ax-demo", "proc": "proc:요청 메일 접수", "entry_task": "견적서 작성", "status": "running", "created_at": "2026-11-12T05:10:00.000Z",
     "trigger": { "kind": "mail", "subject": "달빛커피 평촌점 견적 다시 부탁드려요 (면적 19평 → 22평)", "from": "달빛커피 정하늘 <haneul@dalbitcoffee.example>", "customer": "달빛커피" },
-    "entry_odds": { "task": "견적서 작성", "p": 0.82, "measured": true, "bundle": "bundle:요청 메일 접수", "bundleName": "설계 제안 · 견적",
+    "entry_odds": { "task": "견적서 작성", "p": 0.82, "measured": true, "proc": "proc:요청 메일 접수", "procName": "설계 제안 · 견적",
       "options": [ { "task": "견적서 작성", "p": 0.82 }, { "task": "제안서 작성", "p": 0.11 }, { "task": "요구사항 정리", "p": 0.04 } ] },
     "history": [
       { "task": "요청 메일 접수", "state": "skipped", "at": "2026-11-12T05:10:00.000Z" },
@@ -82,7 +82,7 @@
   },
   "tasks": {
     "견적서 작성": {
-      "task": { "key": "견적서 작성", "name": "견적서 작성", "role": "영업", "bundle": "bundle:요청 메일 접수", "n": 118, "pinned": false, "status": "active" },
+      "task": { "key": "견적서 작성", "name": "견적서 작성", "role": "영업", "proc": "proc:요청 메일 접수", "n": 118, "pinned": false, "status": "active" },
       "definition": "---\nname: 견적서 작성\ndescription: 고객 요구사항과 평면도를 받아 회사 양식대로 견적서를 만든다\nkind: task\nrole: 영업\nrunner: agent\nskills: [xlsx, mail-reply]\noutputs:\n  - name: 견적서\n    format: xlsx\n    template: 견적서_양식.xlsx\ncheckpoints:\n  - 품목마다 규격 · 수량 · 단가 · 금액이 있다\n  - 부가세 10%를 따로 적는다\n  - 합계가 3천만 원을 넘으면 재무 검토로 넘긴다\n  - 유효기간(발행일로부터 30일)을 적는다\nautonomy: draft\n---\n\n## 하는 일\n1. 요구사항 정리와 평면도에서 품목과 면적을 받는다\n2. 견적서_양식.xlsx 에 품목 · 수량 · 단가를 채운다\n3. 합계와 부가세를 셈하고 유효기간을 적는다\n4. 담당자가 확인하도록 초안으로 올린다\n",
       "parsed": { "runner": "agent", "skills": [ "xlsx", "mail-reply" ], "autonomy": "draft",
         "checkpoints": [ "품목마다 규격 · 수량 · 단가 · 금액이 있다", "부가세 10%를 따로 적는다", "합계가 3천만 원을 넘으면 재무 검토로 넘긴다", "유효기간(발행일로부터 30일)을 적는다" ],
@@ -102,7 +102,7 @@
       ]
     },
     "재무 검토": {
-      "task": { "key": "재무 검토", "name": "재무 검토", "role": "재무", "bundle": "bundle:요청 메일 접수", "n": 41, "pinned": true, "status": "active" },
+      "task": { "key": "재무 검토", "name": "재무 검토", "role": "재무", "proc": "proc:요청 메일 접수", "n": 41, "pinned": true, "status": "active" },
       "definition": "",
       "parsed": { "runner": "person", "skills": [], "checkpoints": [], "outputs": [], "autonomy": "draft", "description": "", "instruction": "" },
       "labels": [
@@ -136,7 +136,7 @@
     { "id": "d1", "action_kind": "ontology.revive", "subject": "되살림: 고객 회신 → 고객 피드백 반영", "facts": { "reason": "" }, "created_at": "2026-11-03T07:45:00.000Z" }
   ],
   "map": {
-    "bundles": [ { "key": "bundle:요청 메일 접수", "name": "설계 제안 · 견적", "tasks": [ "요청 메일 접수", "요구사항 정리", "현장 실측", "평면도 작성", "3D 시안 작성", "제안서 작성", "견적서 작성", "재무 검토", "고객 회신", "고객 피드백 반영", "계약 의사 확인", "도면 검수", "팩스 견적 발송" ] } ],
+    "processes": [ { "key": "proc:요청 메일 접수", "name": "설계 제안 · 견적", "tasks": [ "요청 메일 접수", "요구사항 정리", "현장 실측", "평면도 작성", "3D 시안 작성", "제안서 작성", "견적서 작성", "재무 검토", "고객 회신", "고객 피드백 반영", "계약 의사 확인", "도면 검수", "팩스 견적 발송" ] } ],
     "tasks": [ { "key": "팩스 견적 발송", "status": "active" } ],
     "edges": []
   }
