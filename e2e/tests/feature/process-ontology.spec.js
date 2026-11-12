@@ -65,7 +65,8 @@ test('F-PO-04 스냅샷 — 같은 키는 같은 정의를 다시 쓴다, 맨 �
   expect(one.skipped.length).toBeGreaterThan(0)
   const [d] = await db.q('select definition from proc_def where id=$1', [one.procDefId])
   expect(d.definition.activities[0].name).toBe('요청 접수')
-  expect(d.definition.activities.map((a) => a.name)).not.toContain('현장 확인')
+  // the steps before the start are skipped, not in the definition (their names are the model's: 현장 실측 or 현장 확인)
+  for (const k of one.skipped) expect(d.definition.activities.map((a) => a.name)).not.toContain(k)
 })
 
 test('F-PO-05 앞날짜 고정 — 그날 뒤 스냅샷에만 재무 검토가 반드시, 결정 원장, 관리자만', async ({ as, db, cleanup }) => {
@@ -130,9 +131,10 @@ test('F-PO-08 화면 — 지도 · θ · 값 보기 · 검토 안건 · 스냅�
   const nodes = page.locator('svg g.node, svg [data-task]')
   await expect.poll(async () => nodes.count(), { timeout: 15000 }).toBeGreaterThan(2)
   await page.getByRole('button', { name: '값 보기' }).click()
-  await expect(page.getByText(/재생 적합도/).first()).toBeVisible()
+  await expect(page.getByText('입도 θ').first()).toBeVisible()
   await page.getByRole('button', { name: '검토 안건' }).click()
-  await expect(page.getByText(/은퇴 후보|0건/).first()).toBeVisible({ timeout: 15000 })
+  // (the map's edge tooltips also say 은퇴 후보, in hidden <title>s — look in the agenda itself)
+  await expect(page.getByTestId('onto-review-item').first()).toContainText(/0건/, { timeout: 15000 })
   await page.getByRole('button', { name: '스냅샷 보기' }).click()
   await expect(page.locator('.djs-container, .bjs-container').first()).toBeVisible({ timeout: 60000 })
   expect(page.errors).toEqual([])
