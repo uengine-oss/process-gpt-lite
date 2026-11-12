@@ -16,16 +16,16 @@ import { numberOf } from '../improve/analyze.js'
 const CONSUMER = `pgpt-pro-skill-${process.pid}`
 let busy = false
 
-async function events(list) {
+export async function events(list) {
   const { error } = await admin.rpc('record_events_bulk', { p_events: list })
   if (error) console.warn('[skill-worker] events', error.message)
 }
 
-async function ownerOf(row) {
+export async function ownerOf(row) {
   const [t] = await q(`select user_id from todolist where proc_inst_id=$1 and coalesce(agent_orch,'') = '' order by start_date asc nulls last limit 1`, [row.proc_inst_id])
   return (t?.user_id || '').split(',')[0].trim() || null
 }
-async function instanceThread(userId, instId) {
+export async function instanceThread(userId, instId) {
   let [t] = await q('select id from pro_threads where user_id=$1 and ref=$2', [userId, instId])
   if (!t) {
     const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
@@ -34,7 +34,7 @@ async function instanceThread(userId, instId) {
   return t.id
 }
 // values of the steps done so far in this instance, flat ({customer, subject, body, floor_plan, rooms, …})
-async function earlier(instId) {
+export async function earlier(instId) {
   const rows = await q(`select output from todolist where proc_inst_id=$1 and status in ('DONE','SUBMITTED') order by end_date asc nulls last`, [instId])
   const out = {}
   for (const r of rows) for (const v of Object.values(r.output || {})) if (v && typeof v === 'object' && !Array.isArray(v)) Object.assign(out, v)
@@ -46,13 +46,14 @@ async function planPicture(dxfUrl) {
   return render(dxfUrl)
 }
 
-async function newFile(threadId, since, ext) {
+export async function newFile(threadId, since, ext) {
   const [m] = await q(`select content from pro_messages where thread_id=$1 and kind='file' and created_at >= $2 and lower(content->>'name') like $3 order by created_at desc limit 1`,
     [threadId, since, `%.${ext}`])
   return m ? { name: m.content.name, url: m.content.url } : null
 }
 
-const SKILLS = {
+// (also run by the process ontology's step worker, lib/ontology/run.js)
+export const SKILLS = {
   // CADCraft through its MCP (lib/floorPlan.js), the same drawing the mail drafts make
   async 'cadcraft-floor-plan'({ owner, threadId, prev, status }) {
     const { layoutFromMail, drawFloorPlan } = await import('../floorPlan.js')

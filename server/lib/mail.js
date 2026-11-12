@@ -260,7 +260,10 @@ export async function pollUser(userId, { announce } = {}) {
   for (const d of r.drafts || []) {
     const src = fresh.find((m) => m.id === d.mail_id)
     // a process registered from mining takes the mail when it matches (lib/mining); else the ad-hoc drafts
-    if (src && !src.fixture && d.items?.length) import('./mining/service.js').then((m) => m.routeMail(userId, src, d)).catch((e) => { console.warn('[mail] route', e.message); return false })
+    // an adopted bundle of the company's process map takes the mail first (lib/ontology/run.js), else a flow process mining registered
+    if (src && !src.fixture && d.items?.length) import('./ontology/run.js').then((o) => o.routeMail(userId, src, d))
+      .then((done) => done || import('./mining/service.js').then((m) => m.routeMail(userId, src, d)))
+      .catch((e) => { console.warn('[mail] route', e.message); return false })
       .then((routed) => routed || draftFromMail(userId, src, d)).catch((e) => console.warn('[mail] drafts', e.message))
   }
   return { fresh: fresh.length, actions: (r.actions || []).length }

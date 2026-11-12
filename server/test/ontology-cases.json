@@ -1,0 +1,193 @@
+[
+  {
+    "id": "stale-01",
+    "kind": "stale",
+    "note": "옛 우회 경로: 그 뒤 같은 일에서 40번 나갔고 예전 비율(5/15)로는 13번쯤 그 길이었어야 하는데 0번 → 은퇴 후보",
+    "edge": {
+      "n": 5
+    },
+    "before": 15,
+    "after": 40,
+    "expect": true
+  },
+  {
+    "id": "stale-02",
+    "kind": "stale",
+    "note": "기대 3.0 = 경계 → 아직 아님",
+    "edge": {
+      "n": 3
+    },
+    "before": 10,
+    "after": 10,
+    "expect": false
+  },
+  {
+    "id": "stale-03",
+    "kind": "stale",
+    "note": "기대 3.3 → 후보",
+    "edge": {
+      "n": 3
+    },
+    "before": 10,
+    "after": 11,
+    "expect": true
+  },
+  {
+    "id": "stale-04",
+    "kind": "stale",
+    "note": "드문 경로(40번 중 1번), 그 뒤 25번 → 기대 0.6, 걷어 내지 않는다",
+    "edge": {
+      "n": 1
+    },
+    "before": 40,
+    "after": 25,
+    "expect": false
+  },
+  {
+    "id": "stale-05",
+    "kind": "stale",
+    "note": "주 경로(50번 중 45번)인데 그 뒤 2번만 지나감(끝나지 않은 최근 건) → 기대 1.8, 아님",
+    "edge": {
+      "n": 45
+    },
+    "before": 50,
+    "after": 2,
+    "expect": false
+  },
+  {
+    "id": "stale-06",
+    "kind": "stale",
+    "note": "주 경로가 정말 끊김: 그 뒤 10번 모두 다른 길 → 기대 9 → 후보",
+    "edge": {
+      "n": 45
+    },
+    "before": 50,
+    "after": 10,
+    "expect": true
+  },
+  {
+    "id": "thin-01",
+    "kind": "thin",
+    "note": "5건 중 2건: 신뢰구간이 넓다 → 관찰 적음",
+    "k": 2,
+    "n": 5,
+    "expect": true
+  },
+  {
+    "id": "thin-02",
+    "kind": "thin",
+    "note": "60건 중 24건: 좁다",
+    "k": 24,
+    "n": 60,
+    "expect": false
+  },
+  {
+    "id": "thin-03",
+    "kind": "thin",
+    "note": "경계 근처: 30건 중 15건(폭 약 0.33) → 관찰 적음",
+    "k": 15,
+    "n": 30,
+    "expect": true
+  },
+  {
+    "id": "thin-04",
+    "kind": "thin",
+    "note": "경계 근처: 40건 중 20건(폭 약 0.29) → 아님",
+    "k": 20,
+    "n": 40,
+    "expect": false
+  },
+  {
+    "id": "knee-01",
+    "kind": "knee",
+    "note": "평평한 곡선 → 가장 큰 θ(가장 단순한 모델)",
+    "curve": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "held": 50,
+    "expect": 0.2
+  },
+  {
+    "id": "knee-02",
+    "kind": "knee",
+    "note": "0.05→0.1 에서 크게 떨어짐 → 0.05",
+    "curve": [
+      1,
+      1,
+      0.98,
+      0.97,
+      0.8,
+      0.75
+    ],
+    "held": 100,
+    "expect": 0.05
+  },
+  {
+    "id": "knee-03",
+    "kind": "knee",
+    "note": "떨어짐이 한 건 몫보다 작으면 잡음 → 가장 큰 θ",
+    "curve": [
+      1,
+      0.995,
+      0.995,
+      0.995,
+      0.995,
+      0.995
+    ],
+    "held": 100,
+    "expect": 0.2
+  },
+  {
+    "id": "knee-04",
+    "kind": "knee",
+    "note": "처음부터 크게 떨어짐 → 0(전부 보기)",
+    "curve": [
+      1,
+      0.7,
+      0.68,
+      0.66,
+      0.6,
+      0.6
+    ],
+    "held": 100,
+    "expect": 0
+  },
+  {
+    "id": "band-01",
+    "kind": "band",
+    "note": "1위 맞히기 0.5 = 기준 → 굳은 길",
+    "measurable": true,
+    "top1": 0.5,
+    "expect": "paved"
+  },
+  {
+    "id": "band-02",
+    "kind": "band",
+    "note": "기준 바로 아래 → 열린 일",
+    "measurable": true,
+    "top1": 0.49,
+    "expect": "open"
+  },
+  {
+    "id": "band-03",
+    "kind": "band",
+    "note": "잴 건이 모자람 → 지켜보기",
+    "measurable": false,
+    "top1": 0.9,
+    "expect": "watch"
+  },
+  {
+    "id": "band-04",
+    "kind": "band",
+    "note": "보정된 받아들일 확률 기준(0.6)이면 0.55 는 열린 일",
+    "measurable": true,
+    "top1": 0.55,
+    "bar": 0.6,
+    "expect": "open"
+  }
+]

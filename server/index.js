@@ -37,6 +37,7 @@ import { billingRoutes } from './routes/billing.js'
 import { backofficeRoutes } from './routes/backoffice.js'
 import { agenticRoutes } from './routes/agentic.js'
 import { followupRoutes } from './routes/followups.js'
+import { ontologyRoutes } from './routes/ontology.js'
 import { scenarioMailRoutes } from './routes/scenario-mail.js'
 import { scenarioPurchaseRoutes } from './routes/scenario-purchase.js'
 import { scenarioReleaseRoutes } from './routes/scenario-release.js'
@@ -301,6 +302,13 @@ app.post('/api/mail/connect', auth, async (req, res) => {
   res.json({ ok: true })
   await onboardConnected(req.user.id, provider === 'demo' ? L('데모 메일함 연결됨', 'Demo mailbox connected') : L(`${username} 연결됨`, `${username} connected`))
   setTimeout(() => mail.pollUser(req.user.id, { announce: true }).catch((e) => console.warn('[mail]', e.message)), 6000)
+
+  // 오토 AX 온보딩: the promised ideas — the past mail is read and the company's process map drawn (lib/ontology)
+  import('./lib/ontology/store.js').then(async ({ ontologyEnabled }) => {
+    if (!ontologyEnabled()) return
+    const { readMailAndBuild } = await import('./lib/ontology/service.js')
+    await readMailAndBuild({ id: req.user.id, email: req.user.email }, { days: 90 })
+  }).catch((e) => console.warn('[ontology] onboarding', e.message))
 })
 app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUser(req.user.id, { announce: true })))
 // a demo mailbox only: a fictional message arrives (demos, tests) — never real mail
@@ -348,6 +356,11 @@ app.use('/api', backofficeRoutes(auth))
 // Agentic BPM PoC (pgpt-pro/docs/agentic-bpm/plan.md): policies·decisions·approvals·strategy, then the three scenarios
 app.use('/api', agenticRoutes(auth))
 app.use('/api', followupRoutes(auth))
+// 프로세스 온톨로지: 메일 이력 + 채팅 핸드오버 → Ontological 의 회사 프로세스 지도, 스냅샷 실행, 고정 · 노화 (lib/ontology)
+app.use('/api', ontologyRoutes(auth))
+// the ontology's agent steps (orchestration pgpt-pro-onto) and habit questions run here even with PRO_BACKGROUND=0:
+// no other server polls that orchestration, so nothing races for them (PRO_ONTOLOGY_WORKER=0 turns it off)
+import('./lib/ontology/run.js').then((m) => m.startOntologyWorker()).catch((e) => console.warn('[onto-worker]', e.message))
 app.use('/api', scenarioMailRoutes(auth))
 app.use('/api', scenarioPurchaseRoutes(auth))
 app.use('/api', scenarioReleaseRoutes(auth))

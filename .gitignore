@@ -50,3 +50,7 @@ artcraft/fonts-ko/fonts/*.ttf
 # symlinked dependencies in worktrees, i18n-add.py lock
 node_modules
 *.json.lock
+
+# local scratch (screens, previews, one-off scripts)
+.scratch/
+server/.scratch/

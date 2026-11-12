@@ -2026,9 +2026,131 @@
   "재무 승인": "Finance approval",
   "수량 조정 후 승인": "Approve a smaller quantity",
   "전략맵 ›": "Strategy map ›",
-  "Agentic BPM 리포트 ›": "Agentic BPM report ›"
+  "Agentic BPM 리포트 ›": "Agentic BPM report ›",
+  "회사 프로세스 지도": "Company process map",
+  "값 보기": "Values",
+  "이름 맞춘 기록": "Name matches",
+  "다시 셈하기": "Recount",
+  "셈하는 중…": "Counting…",
+  "굳은 길": "Paved path",
+  "열린 일": "Open work",
+  "지켜보기": "Watching",
+  "묶음마다": "Per bundle",
+  "굵을수록 자주": "Thicker = more often",
+  "은퇴 후보": "Retirement candidate",
+  "· 은퇴 후보": "· retirement candidate",
+  "은퇴함": "Retired",
+  "관찰 적음": "Few observations",
+  "자동으로 정한 값": "Values set automatically",
+  "입도 θ": "Granularity θ",
+  "θ보다 드문 길은 지도에서 빼고 봐요.": "Paths rarer than θ are left off the map.",
+  "반감기": "Half-life",
+  "이만큼 지난 기록은 무게가 반으로 줄어요.": "Records this old count half as much.",
+  "1위 맞히기": "Top-1 hits",
+  "3위 맞히기": "Top-3 hits",
+  "다음 일을 대개 맞혀요. 흐름 그림대로 돌려도 돼요.": "The next step is usually predictable. It can run as a flow.",
+  "다음 일이 자주 달라져요. 사람이 고르게 둬요.": "The next step often varies. Let people choose it.",
+  "아직 건이 적어 지켜보는 중이에요.": "Too few cases yet — watching.",
+  "떼어 둔 최근 건에서 다음 일을 1위로 맞힌 비율이 기준(50%) 이상이면 굳은 길이에요.": "A paved path predicts the next step as its first choice in at least 50% of the held-out recent cases.",
+  "떼어 둔 건이 5건이 안 되면 지켜봐요.": "With fewer than 5 held-out cases it stays on watch.",
+  "시작값": "Starting value",
+  "최근 4주 이동이 적어 아직 잴 수 없어 시작값을 써요.": "Too few moves in the last 4 weeks to measure, so the starting value is used.",
+  "요약 보기 θ": "Summary view θ",
+  "— 일이 12개 이하로 남는 가장 작은 값": "— the smallest value that leaves 12 tasks or fewer",
+  "은퇴한 길이에요. 지도에는 회색 점선으로 남아요.": "A retired path. It stays on the map as a grey dashed line.",
+  "여기서 끝날 확률": "Chance it ends here",
+  "다음 일로 갈 확률": "Chance of going here next",
+  "최근 기준": "Recent-weighted",
+  "오래된 기록일수록 가볍게 셌을 때": "counting older records less",
+  "평균 대기": "Average wait",
+  "처음 본 날": "First seen",
+  "마지막으로 본 날": "Last seen",
+  "관찰 적음 — 구간 폭이 30%p 를 넘어 확률이 아직 흔들릴 수 있어요.": "Few observations — the interval is wider than 30 points, so the chance may still move.",
+  "한 사람 기준 — 한 사람의 기록에서만 보인 길이에요.": "One person only — this path was seen in one person's records only.",
+  "출처별": "By source",
+  "위임": "Delegation",
+  "아직 후보인 일이에요. 이름을 확정하거나 다른 일과 합칠 수 있어요.": "A candidate task. Confirm its name or merge it with another task.",
+  "다른 이름": "Other names",
+  "시작 비율": "Start share",
+  "이 일로 시작한 건": "cases that started here",
+  "끝 비율": "End share",
+  "이 일에서 끝난 건": "cases that ended here",
+  "본 기간": "Seen",
+  "다음 일": "Next",
+  "앞 일": "Before",
+  "인계 글과 메일이 어떤 일로 맞춰졌는지예요. 같은 일을 다르게 쓴 글은 한 일로 셉니다.": "Which task each handover note and mail was matched to. The same work written differently counts as one task.",
+  "아직 맞춘 기록이 없어요.": "No matches yet.",
+  "맡김": "Assigned",
+  "건넴": "Handed over",
+  "· 같은 이름": "· same name",
+  "· 다른 이름으로 맞춤": "· matched by another name",
+  "· 새 이름": "· new name",
+  "· 후보": "· candidate",
+  "· 일 아님": "· not work",
+  "그날에는 아직 그린 지도가 없어요.": "There was no map yet on that day.",
+  "이 θ 로는 남는 일이 없어요.": "No tasks are left at this θ.",
+  "묶음을 하나 고르면 근거 그림이 함께 보여요.": "Pick a bundle to see the evidence charts.",
+  "읽은 기록에서 아직 일 흐름을 찾지 못했어요. 인계 기록이 더 쌓이면 다시 셈해 보세요.": "No work flow found in what was read yet. Recount once more handovers pile up.",
+  "메일을 읽지 못했어요.": "Couldn't read the mail.",
+  "지도를 그리지 못했어요.": "Couldn't draw the map.",
+  "아직 지도를 그릴 수 없어요": "The map can't be drawn yet",
+  "Ontological DB 가 연결되지 않았어요. 관리자에게 연결을 부탁해 주세요.": "Ontological DB isn't connected. Ask an admin to connect it.",
+  "지난 메일을 읽고 있어요": "Reading past mail",
+  "메일함을 여는 중…": "Opening the mailbox…",
+  "창을 닫아도 계속 읽어요. 다 읽으면 지도를 그려요.": "Reading continues if you close this window. The map is drawn when it's done.",
+  "지도 그리는 중…": "Drawing the map…",
+  "일 이름을 맞추고, 건마다 다음 일로 넘어간 횟수를 세요.": "Matching task names and counting, case by case, which task came next.",
+  "회사 프로세스 지도를 그려 볼까요?": "Draw the company process map?",
+  "지난 메일과 채팅 인계 기록에서 누가 누구에게 어떤 일을 넘겼는지 모아 회사의 일 흐름을 그려요.": "From past mail and chat handovers, it gathers who handed which work to whom and draws how work flows in the company.",
+  "읽는 것": "What's read",
+  "지난 90일 메일의 머리글 — 보낸 사람 · 받는 사람 · 제목 · 날짜 · 첨부 이름": "Headers of the last 90 days of mail — sender · recipients · subject · date · attachment names",
+  "거르는 것": "What's filtered",
+  "뉴스레터 · 자동 알림 · 일정 초대는 규칙으로 먼저 빼요": "Newsletters, automatic notices and calendar invites are dropped first by rules",
+  "남기는 것": "What's kept",
+  "누가 · 누구에게 · 어떤 일 · 언제뿐이에요. 메일 본문은 남기지 않아요": "Only who · to whom · which work · when. Mail bodies are not kept",
+  "지난 메일 읽기(90일)": "Read past mail (90 days)",
+  "프로세스 지도 →": "Process map →",
+  "한 주 전": "A week earlier",
+  "한 주 뒤": "A week later",
+  "시점 고르기": "Pick a date",
+  "작게": "Smaller",
+  "크게": "Larger",
+  "지도 전체를 한 화면에": "The whole map on one screen",
+  "이보다 드문 길은 지도에서 빼고 봐요(고정한 길은 남아요)": "Paths rarer than this are left off the map (pinned ones stay)",
+  "θ별 재생 적합도": "Replay fitness by θ",
+  "기준 50%": "Bar 50%",
+  "지난 시점의 지도라 그때 정한 값으로 셌어요.": "A past map, counted with the value set back then.",
+  "최근 4주 이동을 가장 잘 맞힌 값이에요(로그 우도가 클수록 잘 맞힘).": "The value that best predicted the moves of the last 4 weeks (higher log-likelihood fits better).",
+  "지도를 불러오지 못했어요": "Couldn't load the map",
+  "잠시 뒤 다시 불러와 보세요. 계속 안 되면 관리자에게 알려 주세요.": "Try loading it again in a moment. If it keeps failing, tell an admin.",
+  "다시 불러오기": "Reload",
+  "회사 전체 건 중 이 일로 시작한 건": "of all company cases, started here"
  },
  "patterns": [
+  [
+   "떼어 둔 최근 건 {0}건 · 이동 {1}개로 쟀어요. 적합도가 크게 꺾이기 직전 값이에요.",
+   "Measured on {0} held-out recent cases · {1} moves. It's the value just before fitness drops sharply."
+  ],
+  [
+   "최근 4주 이동 {0}개를 가장 잘 맞힌 값이에요(로그 우도가 클수록 잘 맞힘).",
+   "The value that best predicted the {0} moves of the last 4 weeks (higher log-likelihood fits better)."
+  ],
+  [
+   "떼어 둔 최근 건이 {0}건뿐이라 아직 잴 수 없어 시작값을 써요.",
+   "Only {0} held-out recent cases, too few to measure, so the starting value is used."
+  ],
+  [
+   "예전 빈도로는 최근 {0}일 동안 {1}건쯤 나왔어야 하는데 0건이에요.",
+   "At its old rate about {1} should have appeared in the last {0} days, but there were none."
+  ],
+  [
+   "θ {0} · 재생 적합도 {1}",
+   "θ {0} · replay fitness {1}"
+  ],
+  [
+   "일 {0}/{1} · 관계 {2}/{3}",
+   "Tasks {0}/{1} · links {2}/{3}"
+  ],
   [
    "지금까지 {0}번 하셨어요",
    "You've done this {0} times"
@@ -2234,6 +2356,10 @@
    "{0} — cancelled as compensation"
   ],
   [
+   "{0}일 · 로그 우도 {1}",
+   "{0} days · log-likelihood {1}"
+  ],
+  [
    "{0}/{1} 카드 · 본문",
    "{0}/{1} cards · full text"
   ],
@@ -2256,6 +2382,14 @@
   [
    "{0} 선택을 기다려요",
    "Waiting for the {0} to choose"
+  ],
+  [
+   "채팅 핸드오버 {0}건",
+   "Chat handovers {0}"
+  ],
+  [
+   "에이전트 위임 {0}건",
+   "Agent delegations {0}"
   ],
   [
    "대화에서 직접 {0}",
@@ -2286,6 +2420,10 @@
    "Ordered · {0}"
   ],
   [
+   "95% 구간 {0}–{1}",
+   "95% interval {0}–{1}"
+  ],
+  [
    "새 주제 · {0}",
    "New topic · {0}"
   ],
@@ -2308,6 +2446,22 @@
   [
    "조치 추정 {0}일",
    "fix estimate {0} days"
+  ],
+  [
+   "메일 이력 {0}건",
+   "Mail history {0}"
+  ],
+  [
+   "실행 기록 {0}건",
+   "Run records {0}"
+  ],
+  [
+   "마지막 계산 {0}",
+   "Last counted {0}"
+  ],
+  [
+   "거친 횟수 {0}번",
+   "passed {0} times"
   ],
   [
    "유휴 {0} ({1})",
@@ -2374,6 +2528,10 @@
    "quality risk {0}"
   ],
   [
+   "{0}월 {1}일 기준",
+   "as of {0}/{1}"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -2396,6 +2554,14 @@
   [
    "{0}크레딧/월",
    "{0} credits/mo"
+  ],
+  [
+   "고른 값 {0}",
+   "Chosen {0}"
+  ],
+  [
+   "조건 · {0}",
+   "Condition · {0}"
   ],
   [
    "{0}(소유)",
@@ -2458,6 +2624,10 @@
    "Next: {0}"
   ],
   [
+   "시작값 {0}",
+   "Starting value {0}"
+  ],
+  [
    "나: {0}",
    "Me: {0}"
   ],
@@ -2484,6 +2654,18 @@
   [
    "금액 {0}",
    "Amount {0}"
+  ],
+  [
+   "건 {0}개",
+   "{0} cases"
+  ],
+  [
+   "시작 {0}",
+   "Start {0}"
+  ],
+  [
+   "{0} ~ {1}",
+   "{0} – {1}"
   ],
   [
    "시작{0}",
@@ -2952,6 +3134,10 @@
   [
    "+{0}일",
    "+{0} days"
+  ],
+  [
+   "건 {0}",
+   "{0} cases"
   ],
   [
    "{0}월",
@@ -5091,6 +5277,36 @@
    ".bc .rh",
    "반려",
    "Reject"
+  ],
+  [
+   ".ontomap",
+   "일",
+   "Task"
+  ],
+  [
+   ".ontomap",
+   "관계",
+   "Link"
+  ],
+  [
+   ".ontomap",
+   "띠",
+   "Band"
+  ],
+  [
+   ".ontomap",
+   "기본",
+   "Default"
+  ],
+  [
+   ".ontomap",
+   "끝",
+   "End"
+  ],
+  [
+   ".ontomap",
+   "요약",
+   "Summary"
   ]
  ]
 }

@@ -28,7 +28,7 @@ const hiddenDone = computed(() => Math.max(0, app.instances.filter((i) => i.stat
       </button>
     </TransitionGroup>
     <template v-if="app.instances.length">
-      <div class="sec">프로세스 <router-link class="imp" to="/improve">개선 분석 →</router-link></div>
+      <div class="sec">프로세스 <router-link class="imp" to="/improve">개선 분석 →</router-link> <router-link class="imp" to="/process-map">프로세스 지도 →</router-link></div>
       <TransitionGroup name="arc" tag="div" class="items">
         <button v-for="i in shownInstances" :key="i.proc_inst_id" class="item proc" :class="{ on: route.params.instId === i.proc_inst_id, ended: i.status === 'COMPLETED' }"
           @click="router.push(`/projects/p/${encodeURIComponent(i.proc_inst_id)}`)">

@@ -27,6 +27,7 @@ const routes = [
   { path: '/mining/:id?', component: () => import('./views/MiningView.vue') },
   // 프로세스 개선: 병목 · 가치 흐름 · 제약 · 크리티컬 패스 · 개선 실행(what-if → 새 버전)
   { path: '/improve/:defId?', component: () => import('./views/ImproveView.vue') },
+  { path: '/process-map', component: () => import('./views/ProcessMapView.vue') },
   // 전략맵: 목표·우선순위·위험 허용·제약, 단계·기능·정책의 기여 (Agentic BPM)
   { path: '/strategy', component: () => import('./views/StrategyView.vue') },
   // Agentic BPM 리포트 (관리자): 원장에서 배우는 것 — 판단·승인 대기·막은 일·최적화, 정책 조정 제안

@@ -20,6 +20,9 @@ import ImproveCard from './improve/ImproveCard.vue'
 import ReferChips from './context/ReferChips.vue'
 import RepeatCard from './context/RepeatCard.vue'
 import FollowupCard from './FollowupCard.vue'
+import OntoSummaryCard from './ontology/OntoSummaryCard.vue'
+import OntoEntryCard from './ontology/OntoEntryCard.vue'
+import OntoHabitCard from './ontology/OntoHabitCard.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -103,6 +106,10 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <RepeatCard v-else-if="msg.kind === 'repeat'" :msg="msg" />
     <!-- 후행 습관: 결과물 뒤에 평소 하던 다음 일을 먼저 묻는다 -->
     <FollowupCard v-else-if="msg.kind === 'followup'" :msg="msg" />
+    <!-- 회사 프로세스 지도: 지도 요약 · 들어온 메일의 시작 일 · 열린 일의 다음 걸음 -->
+    <OntoSummaryCard v-else-if="msg.kind === 'onto-summary'" :msg="msg" />
+    <OntoEntryCard v-else-if="msg.kind === 'onto-entry'" :msg="msg" />
+    <OntoHabitCard v-else-if="msg.kind === 'onto-habit'" :msg="msg" />
     <BriefCard v-else-if="msg.kind === 'brief'" :msg="msg" />
     <OptimizeCard v-else-if="msg.kind === 'optimize'" :msg="msg" />
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />

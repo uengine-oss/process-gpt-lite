@@ -1,0 +1,143 @@
+{
+  "_note": "개발용 가짜 데이터(카드 · 패널 미리 보기 전용, 제품 경로에서 읽지 않음). 모양은 server/lib/ontology/service.js · run.js · taskdef.js · review.js 그대로.",
+  "messages": [
+    {
+      "id": "mock-summary", "thread_id": "mock", "role": "agent", "kind": "onto-summary", "created_at": "2026-11-12T05:06:00.000Z",
+      "content": {
+        "text": "메일 485통과 채팅 핸드오버를 읽어 일 24개, 흐름 3개를 찾았어요. 굳은 길 2 · 열린 일 0 · 지켜보기 1.",
+        "tasks": 24,
+        "bundles": [
+          { "key": "bundle:요청 메일 접수", "name": "설계 제안 · 견적", "band": "paved", "bandName": "굳은 길", "cases": 132 },
+          { "key": "bundle:계약 요청 접수", "name": "계약 · 시공 준비", "band": "paved", "bandName": "굳은 길", "cases": 38 },
+          { "key": "bundle:세금계산서 요청 접수", "name": "세금계산서 · 정산", "band": "watch", "bandName": "지켜보기", "cases": 4 }
+        ],
+        "sources": { "mail_history": 771, "chat_handover": 476, "agent_delegation": 113, "todolist": 36 },
+        "url": "/process-map"
+      }
+    },
+    {
+      "id": "mock-entry-started", "thread_id": "mock", "role": "agent", "kind": "onto-entry", "created_at": "2026-11-12T05:10:00.000Z",
+      "content": {
+        "state": "started",
+        "mail": { "from": "달빛커피 정하늘 <haneul@dalbitcoffee.example>", "subject": "달빛커피 평촌점 견적 다시 부탁드려요 (면적 19평 → 22평)" },
+        "customer": "달빛커피",
+        "choice": { "task": "견적서 작성", "p": 0.82, "ask": false, "bundle": "bundle:요청 메일 접수", "bundleName": "설계 제안 · 견적", "measured": true,
+          "options": [ { "task": "견적서 작성", "p": 0.82 }, { "task": "제안서 작성", "p": 0.11 }, { "task": "요구사항 정리", "p": 0.04 } ] },
+        "caseId": "mock-case-1", "instId": "mock-inst-1",
+        "skipped": [ "요청 메일 접수", "현장 실측", "평면도 작성", "제안서 작성" ],
+        "nodes": [ "견적서 작성", "재무 검토", "고객 회신", "고객 피드백 반영", "계약 의사 확인" ],
+        "procDefId": "onto_mock_a"
+      }
+    },
+    {
+      "id": "mock-entry-ask", "thread_id": "mock", "role": "agent", "kind": "onto-entry", "created_at": "2026-11-12T05:12:00.000Z",
+      "content": {
+        "state": "ask",
+        "mail": { "from": "한빛치과 김원장 <dr.kim@hanbit-dental.example>", "subject": "치과 대기실 리모델링 관련 문의드립니다",
+          "text": "안녕하세요, 한빛치과 김원장입니다. 대기실 12평 정도를 다시 꾸미고 싶은데, 지난달 보내 주신 평면도에서 접수 데스크 위치만 바꿀 수 있을지 궁금합니다. 이번 주 안에 현장 한 번 봐 주실 수 있을까요? 공사는 설 연휴 전에 끝났으면 해요." },
+        "customer": "한빛치과 김원장",
+        "choice": { "task": "현장 실측", "p": 0.44, "ask": true, "bundle": "bundle:요청 메일 접수", "bundleName": "설계 제안 · 견적", "measured": true,
+          "options": [ { "task": "현장 실측", "p": 0.44 }, { "task": "평면도 작성", "p": 0.38 }, { "task": "요구사항 정리", "p": 0.12 } ] }
+      }
+    },
+    {
+      "id": "mock-habit-ask", "thread_id": "mock", "role": "agent", "kind": "onto-habit", "created_at": "2026-11-12T05:20:00.000Z",
+      "content": { "caseId": "mock-case-1", "from": "견적서 작성", "to": "재무 검토", "p": 0.52, "accept": 0.71, "calibrated": false, "ask": true,
+        "others": [ { "to": "고객 회신", "p": 0.42 }, { "to": "팩스 견적 발송", "p": 0.044 } ], "state": "ask" }
+    },
+    {
+      "id": "mock-habit-quiet", "thread_id": "mock", "role": "agent", "kind": "onto-habit", "created_at": "2026-11-12T05:22:00.000Z",
+      "content": { "caseId": "mock-case-1", "from": "고객 회신", "to": "계약 의사 확인", "p": 0.41, "accept": 0.38, "calibrated": true, "ask": false,
+        "others": [ { "to": "고객 피드백 반영", "p": 0.33 } ], "state": "quiet" }
+    }
+  ],
+  "case": {
+    "id": "mock-case-1", "tenant_id": "ax-demo", "bundle": "bundle:요청 메일 접수", "entry_task": "견적서 작성", "status": "running", "created_at": "2026-11-12T05:10:00.000Z",
+    "trigger": { "kind": "mail", "subject": "달빛커피 평촌점 견적 다시 부탁드려요 (면적 19평 → 22평)", "from": "달빛커피 정하늘 <haneul@dalbitcoffee.example>", "customer": "달빛커피" },
+    "entry_odds": { "task": "견적서 작성", "p": 0.82, "measured": true, "bundle": "bundle:요청 메일 접수", "bundleName": "설계 제안 · 견적",
+      "options": [ { "task": "견적서 작성", "p": 0.82 }, { "task": "제안서 작성", "p": 0.11 }, { "task": "요구사항 정리", "p": 0.04 } ] },
+    "history": [
+      { "task": "요청 메일 접수", "state": "skipped", "at": "2026-11-12T05:10:00.000Z" },
+      { "task": "현장 실측", "state": "skipped", "at": "2026-11-12T05:10:00.000Z" },
+      { "task": "평면도 작성", "state": "skipped", "at": "2026-11-12T05:10:00.000Z" },
+      { "task": "제안서 작성", "state": "skipped", "at": "2026-11-12T05:10:00.000Z" },
+      { "task": "재무 검토", "state": "moved", "at": "2026-11-12T06:02:00.000Z", "reason": "합계가 3천만 원을 넘어 재무 검토 먼저" }
+    ],
+    "instances": [ "mock-inst-1", "mock-inst-2" ],
+    "snapshots": [ "onto_mock_a", "onto_mock_b" ],
+    "instancesInfo": [
+      { "proc_inst_id": "mock-inst-1", "status": "COMPLETED", "proc_def_id": "onto_mock_a" },
+      { "proc_inst_id": "mock-inst-2", "status": "RUNNING", "proc_def_id": "onto_mock_b" }
+    ],
+    "todos": [
+      { "id": "td1", "proc_inst_id": "mock-inst-1", "activity_id": "intake", "activity_name": "요청 접수", "status": "DONE", "user_id": "pro-ax-jinyoung@uengine.org" },
+      { "id": "td2", "proc_inst_id": "mock-inst-1", "activity_id": "t_quote", "activity_name": "견적서 작성", "status": "CANCELLED", "user_id": "onto-agent@ax-demo", "agent_orch": "pgpt-pro-onto" },
+      { "id": "td3", "proc_inst_id": "mock-inst-2", "activity_id": "intake", "activity_name": "요청 접수", "status": "DONE", "user_id": "pro-ax-jinyoung@uengine.org" },
+      { "id": "td4", "proc_inst_id": "mock-inst-2", "activity_id": "t_fin", "activity_name": "재무 검토", "status": "IN_PROGRESS", "user_id": "pro-ax-minji@uengine.org" }
+    ]
+  },
+  "bpmn": {
+    "onto_mock_a": [ ["intake", "요청 접수"], ["t_quote", "견적서 작성"], ["t_fin", "재무 검토"], ["t_reply", "고객 회신"], ["t_contract", "계약 의사 확인"] ],
+    "onto_mock_b": [ ["intake", "요청 접수"], ["t_fin", "재무 검토"], ["t_reply", "고객 회신"], ["t_feedback", "고객 피드백 반영"], ["t_contract", "계약 의사 확인"] ]
+  },
+  "tasks": {
+    "견적서 작성": {
+      "task": { "key": "견적서 작성", "name": "견적서 작성", "role": "영업", "bundle": "bundle:요청 메일 접수", "n": 118, "pinned": false, "status": "active" },
+      "definition": "---\nname: 견적서 작성\ndescription: 고객 요구사항과 평면도를 받아 회사 양식대로 견적서를 만든다\nkind: task\nrole: 영업\nrunner: agent\nskills: [xlsx, mail-reply]\noutputs:\n  - name: 견적서\n    format: xlsx\n    template: 견적서_양식.xlsx\ncheckpoints:\n  - 품목마다 규격 · 수량 · 단가 · 금액이 있다\n  - 부가세 10%를 따로 적는다\n  - 합계가 3천만 원을 넘으면 재무 검토로 넘긴다\n  - 유효기간(발행일로부터 30일)을 적는다\nautonomy: draft\n---\n\n## 하는 일\n1. 요구사항 정리와 평면도에서 품목과 면적을 받는다\n2. 견적서_양식.xlsx 에 품목 · 수량 · 단가를 채운다\n3. 합계와 부가세를 셈하고 유효기간을 적는다\n4. 담당자가 확인하도록 초안으로 올린다\n",
+      "parsed": { "runner": "agent", "skills": [ "xlsx", "mail-reply" ], "autonomy": "draft",
+        "checkpoints": [ "품목마다 규격 · 수량 · 단가 · 금액이 있다", "부가세 10%를 따로 적는다", "합계가 3천만 원을 넘으면 재무 검토로 넘긴다", "유효기간(발행일로부터 30일)을 적는다" ],
+        "outputs": [ { "name": "견적서", "format": "xlsx", "template": "견적서_양식.xlsx" } ],
+        "description": "고객 요구사항과 평면도를 받아 회사 양식대로 견적서를 만든다",
+        "instruction": "## 하는 일\n1. 요구사항 정리와 평면도에서 품목과 면적을 받는다\n2. 견적서_양식.xlsx 에 품목 · 수량 · 단가를 채운다\n3. 합계와 부가세를 셈하고 유효기간을 적는다\n4. 담당자가 확인하도록 초안으로 올린다" },
+      "labels": [
+        { "raw": "안녕하세요, 지난번 말씀드린 강남 오피스 리모델링 건 견적 다시 한 번 뽑아 주실 수 있을까요? 면적이 조금 늘었습니다.", "act": "request", "how": "alias" },
+        { "raw": "견적 수정본 보내드립니다. 바닥재를 강마루로 바꾸면서 자재비가 조금 올랐어요.", "act": "deliver", "how": "alias" },
+        { "raw": "단가표 반영해서 다시 계산했습니다", "act": "deliver", "how": "model" },
+        { "raw": "견적서 작성 부탁해요", "act": "request", "how": "same" },
+        { "raw": "견적 금액 확인 부탁드립니다", "act": "request", "how": "alias" }
+      ],
+      "templates": [
+        { "name": "견적서_양식.xlsx", "type": "xlsx", "seen": 12, "example": "견적서_달빛커피.xlsx", "file": "ax-demo-templates/견적서_양식.xlsx" },
+        { "name": "단가표.xlsx", "type": "xlsx", "seen": 3, "example": "단가표_2026.xlsx", "file": null }
+      ]
+    },
+    "재무 검토": {
+      "task": { "key": "재무 검토", "name": "재무 검토", "role": "재무", "bundle": "bundle:요청 메일 접수", "n": 41, "pinned": true, "status": "active" },
+      "definition": "",
+      "parsed": { "runner": "person", "skills": [], "checkpoints": [], "outputs": [], "autonomy": "draft", "description": "", "instruction": "" },
+      "labels": [
+        { "raw": "재무팀 검토 부탁드립니다 — 3천만 원 넘는 건이라 마진 확인이 필요해요", "act": "request", "how": "same" },
+        { "raw": "마진율 18%로 확인했습니다. 진행하셔도 됩니다.", "act": "deliver", "how": "alias" }
+      ],
+      "templates": [ { "name": "견적서_양식.xlsx", "type": "xlsx", "seen": 5, "example": "견적서_한빛치과.xlsx", "file": "ax-demo-templates/견적서_양식.xlsx" } ]
+    }
+  },
+  "draft": {
+    "definition": "---\nname: 재무 검토\ndescription: 3천만 원이 넘는 견적의 마진과 결제 조건을 확인한다\nkind: task\nrole: 재무\nrunner: person\nskills: [xlsx]\noutputs:\n  - name: 검토 의견\n    format: text\ncheckpoints:\n  - 마진율이 15% 이상이다\n  - 선급금 비율을 적는다\n  - 부가세 포함 합계가 견적서와 같다\nautonomy: draft\n---\n\n## 하는 일\n1. 견적서를 받아 품목별 원가와 마진을 확인한다\n2. 결제 조건(선급 · 잔금)을 적는다\n3. 문제가 없으면 고객 회신으로 넘긴다\n",
+    "template": { "name": "견적서_양식.xlsx", "type": "xlsx", "seen": 5, "file": "ax-demo-templates/견적서_양식.xlsx" },
+    "fields": "견적서 | | 발행일 | \n품목 | 규격 | 수량 | 단가 | 금액\n공급가액 합계 | 부가세(10%) | 총액\n유효기간: 발행일로부터 30일"
+  },
+  "review": {
+    "items": [
+      { "kind": "retire", "from": "견적서 작성", "to": "팩스 견적 발송", "n": 9, "p": 0.044, "gapDays": 42, "expected": 3.6,
+        "text": "「견적서 작성 → 팩스 견적 발송」 예전 빈도로는 최근 42일 동안 3.6건쯤 나왔어야 하는데 0건이에요." },
+      { "kind": "retire", "from": "팩스 견적 발송", "to": "고객 회신", "n": 8, "p": 0.89, "gapDays": 42, "expected": 3.1,
+        "text": "「팩스 견적 발송 → 고객 회신」 예전 빈도로는 최근 42일 동안 3.1건쯤 나왔어야 하는데 0건이에요." },
+      { "kind": "pin-skipped", "task": "재무 검토", "n": 2, "text": "고정된 「재무 검토」를 건너뛴 건이 2건 있어요." },
+      { "kind": "firmed", "from": "평면도 작성", "to": "3D 시안 작성", "p": 0.41, "was": 0.18, "text": "「평면도 작성 → 3D 시안 작성」 4주 전 18% → 지금 41%" },
+      { "kind": "retired", "from": "요청 메일 접수", "to": "평면도 작성", "text": "「요청 메일 접수 → 평면도 작성」 은퇴함 — 다시 쓰이면 되살림 후보가 돼요." }
+    ],
+    "pinned": [ "재무 검토" ],
+    "tasks": [ "요청 메일 접수", "요구사항 정리", "현장 실측", "평면도 작성", "3D 시안 작성", "제안서 작성", "견적서 작성", "재무 검토", "고객 회신" ]
+  },
+  "decisions": [
+    { "id": "d3", "action_kind": "ontology.retire", "subject": "은퇴: 요청 메일 접수 → 평면도 작성", "facts": { "from": "요청 메일 접수", "to": "평면도 작성", "reason": "실측 없이 도면부터 그리지 않기로" }, "created_at": "2026-11-11T08:30:00.000Z" },
+    { "id": "d2", "action_kind": "ontology.pin", "subject": "고정: 재무 검토 (2026-11-20부터)", "facts": { "task": "재무 검토", "validFrom": "2026-11-19T15:00:00.000Z", "reason": "3천만 원 넘는 건은 반드시" }, "created_at": "2026-11-10T02:12:00.000Z" },
+    { "id": "d1", "action_kind": "ontology.revive", "subject": "되살림: 고객 회신 → 고객 피드백 반영", "facts": { "reason": "" }, "created_at": "2026-11-03T07:45:00.000Z" }
+  ],
+  "map": {
+    "bundles": [ { "key": "bundle:요청 메일 접수", "name": "설계 제안 · 견적", "tasks": [ "요청 메일 접수", "요구사항 정리", "현장 실측", "평면도 작성", "3D 시안 작성", "제안서 작성", "견적서 작성", "재무 검토", "고객 회신", "고객 피드백 반영", "계약 의사 확인", "도면 검수", "팩스 견적 발송" ] } ],
+    "tasks": [ { "key": "팩스 견적 발송", "status": "active" } ],
+    "edges": []
+  }
+}

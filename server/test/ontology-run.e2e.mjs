@@ -1,0 +1,128 @@
+// E2E S2 「어디서든 시작」 (spec pgpt-pro_process-ontology): a returning customer asks only for a new quote. The bundle is
+// adopted; the quote task gets its definition from the quote form found in the mail (checkpoints); the mail arrives in
+// the demo mailbox → the start task is chosen with odds (견적서 작성, not 요청 메일 접수) → a snapshot from there runs on
+// Process GPT's engine (the earlier steps skipped) → the agent drafts the quote with the xlsx skill and its checkpoints
+// are checked → the learned condition sends a quote of 10,000,000원 or more to the finance review (박서연).
+//
+//   PRO_API=http://ax.localhost:8790 node test/ontology-run.e2e.mjs
+//
+// Needs S1 first (the map built). Uses the shared completion (:8099) and deepagents (:8888) as they are.
+process.env.DOTENV_CONFIG_QUIET = 'true'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import { q, pool } from '../lib/supa.js'
+
+const API = process.env.PRO_API || 'http://ax.localhost:8790'
+let failed = 0
+const out = {}
+const step = async (name, fn) => {
+  try { out[name] = await fn(); console.log(`✓ ${name}`, JSON.stringify(out[name]).slice(0, 400)) } catch (e) { failed++; console.log(`✗ ${name}`, e.message) }
+}
+async function call(tok, method, path, body) {
+  const r = await fetch(`${API}/api${path}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: body ? JSON.stringify(body) : undefined })
+  return { status: r.status, body: await r.json().catch(() => ({})) }
+}
+async function signIn(email) {
+  const r = await fetch(`${API}/api/auth/email/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, code: '000000' }) })
+  const j = await r.json()
+  assert.ok(j.session?.access_token, `sign-in ${email}`)
+  return { id: j.user.id, tok: j.session.access_token, email }
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+export const REQUOTE = {
+  from: '달빛커피 한서윤 <seoyun.han@moonlight.example>',
+  subject: '2호점 견적만 다시 부탁드려요',
+  text: '안녕하세요, 달빛커피 한서윤입니다. 지난번 보내 주신 2호점 설계안은 그대로 진행하려고 합니다. 다만 좌석을 32석에서 40석으로 늘리고 바닥재를 원목으로 바꾸고 싶어서요. 이 조건으로 견적만 다시 뽑아 주실 수 있을까요? 면적은 홀 72㎡, 주방 18㎡, 창고 6㎡ 그대로입니다.',
+}
+
+const boss = await signIn('pro-ax-jinyoung@uengine.org')
+const m = (await call(boss.tok, 'GET', '/ontology/map')).body
+const A = m.bundles.find((b) => b.tasks.includes('견적서 작성'))
+
+await step('묶음 채택(관리자)', async () => {
+  const r = await call(boss.tok, 'POST', '/ontology/bundles/status', { key: A.key, status: 'adopted' })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  return r.body
+})
+
+await step('일 정의: 메일에 붙어 온 견적서 양식에서 점검 항목 초안', async () => {
+  const t = (await call(boss.tok, 'GET', `/ontology/tasks/${encodeURIComponent('견적서 작성')}`)).body
+  assert.ok(t.templates?.length, '이 일에 쓰인 양식이 없다')
+  const d = (await call(boss.tok, 'POST', `/ontology/tasks/${encodeURIComponent('견적서 작성')}/draft`, {})).body
+  assert.match(d.definition, /kind: task/)
+  assert.match(d.definition, /checkpoints:/)
+  // the person confirms: the agent drafts it with the xlsx skill
+  const md = d.definition.replace(/runner: \w+/, 'runner: agent').replace(/skills: \[[^\]]*\]/, 'skills: [xlsx]')
+  const s = await call(boss.tok, 'PUT', `/ontology/tasks/${encodeURIComponent('견적서 작성')}/definition`, { definition: md })
+  assert.equal(s.status, 200, JSON.stringify(s.body))
+  assert.equal(s.body.parsed.runner, 'agent')
+  assert.ok(s.body.parsed.checkpoints.length >= 3)
+  return { template: d.template?.name, checkpoints: s.body.parsed.checkpoints }
+})
+
+await step('시작 일: 「견적만 다시」는 견적서 작성부터(확률)', async () => {
+  const c = (await call(boss.tok, 'POST', '/ontology/entry', { subject: REQUOTE.subject, text: REQUOTE.text })).body
+  assert.equal(c.task, '견적서 작성', JSON.stringify(c))
+  return { task: c.task, p: Number(c.p.toFixed(3)), ask: c.ask, measured: c.measured, options: c.options.map((o) => `${o.task} ${Math.round(o.p * 100)}%`) }
+})
+
+let caseId, instId
+await step('메일이 오면 그 일에서 시작하는 스냅샷이 엔진에서 돈다(앞 일은 건너뜀)', async () => {
+  const since = new Date()
+  const r = await call(boss.tok, 'POST', '/mail/demo-arrive', REQUOTE)
+  assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 200))
+  let c
+  for (let i = 0; i < 90 && !c; i++) {
+    ;[c] = await q(`select * from pro_po_cases where tenant_id='ax-demo' and created_at >= $1 order by created_at desc limit 1`, [since])
+    if (!c) await sleep(2000)
+  }
+  assert.ok(c, '건이 시작되지 않았다')
+  caseId = c.id; instId = c.instances[0]
+  assert.equal(c.entry_task, '견적서 작성')
+  const skipped = c.history.filter((h) => h.state === 'skipped').map((h) => h.task)
+  assert.ok(skipped.length >= 2, `skipped ${skipped}`)
+  const [d] = await q(`select definition from proc_def where id=(select proc_def_id from bpm_proc_inst where proc_inst_id=$1)`, [instId])
+  const acts = d.definition.activities.map((a) => a.name)
+  assert.equal(acts[0], '요청 접수')
+  assert.ok(!acts.includes('현장 실측') && !acts.includes('평면도 작성'), acts.join(','))
+  return { caseId, instId, entry: c.entry_task, skipped, activities: acts, lanes: (d.definition.roles || []).map((x) => x.name) }
+})
+
+await step('에이전트가 일 정의대로 견적서를 만들고 점검 항목을 확인한다', async () => {
+  let t
+  for (let i = 0; i < 150; i++) {
+    ;[t] = await q(`select id, status::text s, output from todolist where proc_inst_id=$1 and activity_name='견적서 작성'`, [instId])
+    if (t?.s === 'DONE') break
+    await sleep(4000)
+  }
+  assert.equal(t?.s, 'DONE', `quote step ${t?.s}`)
+  const v = Object.values(t.output || {})[0] || {}
+  assert.ok(v.quote?.url, 'xlsx 없음')
+  assert.ok(Number(v.amount) > 0, `amount ${v.amount}`)
+  assert.ok(Array.isArray(v.checkpoints) && v.checkpoints.length >= 3, 'checkpoints')
+  return { file: v.quote.name, amount: Number(v.amount), checks: v.checkpoints.map((c) => `${c.ok ? '✓' : c.ok === false ? '✗' : '?'} ${c.checkpoint}`) }
+})
+
+await step('배운 조건대로: 1천만 원 이상이면 재무 검토(박서연)', async () => {
+  const amount = out['에이전트가 일 정의대로 견적서를 만들고 점검 항목을 확인한다']?.amount
+  let next
+  for (let i = 0; i < 60; i++) {
+    ;[next] = await q(`select activity_name, user_id, status::text s from todolist where proc_inst_id=$1 and activity_name in ('재무 검토','고객 회신') order by start_date desc nulls last limit 1`, [instId])
+    if (next) break
+    await sleep(3000)
+  }
+  assert.ok(next, '다음 단계가 생기지 않았다')
+  const expect = amount >= 10_000_000 ? '재무 검토' : '고객 회신'
+  assert.equal(next.activity_name, expect, `amount ${amount}`)
+  if (expect === '재무 검토') {
+    const [u] = await q(`select email from users where id::text = split_part($1, ',', 1)`, [next.user_id])
+    assert.equal(u?.email, 'pro-ax-seoyeon@uengine.org')
+  }
+  return { amount, next: next.activity_name, to: next.user_id }
+})
+
+console.log(failed ? `\n${failed} failed` : '\nall passed')
+fs.writeFileSync(new URL('../.scratch/ontology-run.e2e.json', import.meta.url), JSON.stringify({ caseId, instId, ...out }, null, 1))
+await pool.end()
+process.exit(failed ? 1 : 0)
