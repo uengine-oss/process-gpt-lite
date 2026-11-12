@@ -155,6 +155,7 @@ function drawPicked() {
     </div>
     ${isNext && R.intake ? `<div class="acts"><button class="primary" data-act="start" data-id="${b.request}" data-test="picked-start">${esc(t('이 작업 시작', 'Start this work'))}</button></div>` : ''}
     ${canMove ? `<div class="acts"><span class="lbl">${esc(t('릴리스 옮기기', 'Move to'))}</span>${['now', 'next', 'tail'].filter((k) => k !== b.bucket).map((k) => `<button class="sm" data-act="move" data-to="${k}" data-test="picked-move-${k}">${esc(SHORT[k])}</button>`).join('')}</div>` : ''}
+    ${blocked && blocked.key === b.key ? blockedNote() : ''}
     ${live ? `<div class="acts">${R.stop ? (b.hold ? `<button class="sm" data-act="resume" data-test="picked-resume">▶ ${esc(t('다시 진행', 'Carry on'))}</button>` : `<button class="sm" data-act="hold" data-test="picked-hold">⏸ ${esc(t('멈춰 두기', 'Hold'))}</button>`) : ''}
       ${R.stop ? '' : `<button class="sm" data-act="ask-stop" data-test="picked-ask-stop">✋ ${esc(t('멈춤 요청', 'Ask to stop'))}</button>`}
       ${R.stop ? `<button class="sm danger" data-act="discard" data-test="picked-discard">${esc(t('폐기', 'Discard'))}</button>` : ''}</div>` : ''}
@@ -178,17 +179,18 @@ function drawRelease() {
   $('#release').innerHTML = `<h3>${esc(t('릴리스 확인', 'Release check'))}</h3>${rows.join('')}<p class="faint small" style="margin:8px 0 0">${esc(t(`출시된 볼트 ${shipped}개 · 한 릴리스의 볼트는 서로 기다리는 것까지 같은 릴리스나 앞 릴리스에 있어야 내보낼 수 있어요.`, `${shipped} bolt(s) released · a release needs everything its bolts wait for in it or before it.`))}</p>`
 }
 
-function drawChange() {
-  const el = $('#change')
-  if (blocked) {
-    const b = bolt(blocked.key)
-    const n = blocked.together.length
-    el.innerHTML = `<h3>${esc(t('줄 바꾸기', 'Changing the line'))}</h3>
+// a move that would break a dependency is answered where it was asked: under the buttons of the bolt picked
+function blockedNote() {
+  const b = bolt(blocked.key)
+  const n = blocked.together.length
+  return `<div class="blocked">
       <div class="note warn" data-test="move-blocked">${esc(t(`B${b.n} ${unitName(b)} 볼트만 ${SHORT[blocked.bucket]}(으)로 옮길 수는 없어요.`, `B${b.n} ${unitName(b)} cannot move to ${SHORT[blocked.bucket]} alone.`))}</div>
       <ul class="blk">${blocked.blockers.map((x) => `<li data-test="move-blocker"><span class="bn">B${x.n}</span> ${esc(x.title)} · ${esc(x.unit === '*' ? '' : x.unit)} — ${esc(x.why === 'provider' ? t(`먼저 끝나야 하는데 ${SHORT[x.bucket]}에 남아요`, `must finish first but stays in ${SHORT[x.bucket]}`) : t(`이 볼트를 기다리는데 ${SHORT[x.bucket]}에 남아요`, `waits for it but stays in ${SHORT[x.bucket]}`))}${x.via && !['lane', 'unit'].includes(x.via) ? ` <span class="chip">${esc(x.via)}</span>` : ''}</li>`).join('')}</ul>
-      <div class="acts">${n ? `<button class="primary" data-act="move-together" data-test="move-together">${esc(t(`볼트 ${n}개를 함께 옮기기`, `Move all ${n} together`))}</button>` : `<span class="small muted">${esc(t('이미 출시된 볼트에 묶여 있어 함께 옮길 수도 없어요', 'Tied to a released bolt'))}</span>`}<button data-act="move-cancel" data-test="move-cancel">${esc(t('그대로 두기', 'Leave it'))}</button></div>`
-    return
-  }
+      <div class="acts">${n ? `<button class="primary" data-act="move-together" data-test="move-together">${esc(t(`볼트 ${n}개를 함께 옮기기`, `Move all ${n} together`))}</button>` : `<span class="small muted">${esc(t('이미 출시된 볼트에 묶여 있어 함께 옮길 수도 없어요', 'Tied to a released bolt'))}</span>`}<button data-act="move-cancel" data-test="move-cancel">${esc(t('그대로 두기', 'Leave it'))}</button></div></div>`
+}
+
+function drawChange() {
+  const el = $('#change')
   el.innerHTML = `<h3>${esc(t('최근 결정', 'Lately decided'))}</h3>${V.ledger?.length ? `<ul class="ledger" data-test="line-ledger">${V.ledger.slice(0, 9).map((d) => `<li><span class="tm">${esc(lite.ago(d.at))}</span><span><b>${esc(d.who || '')}</b> · ${esc(d.question || '')} — ${esc(d.choice || '')}${d.note ? ` <span class="faint">(${esc(d.note)})</span>` : ''}</span></li>`).join('')}</ul>` : `<p class="muted small">${esc(t('접수·줄 바꾸기·멈춤·폐기는 누가 왜 했는지 여기에 남아요.', 'Who took in, moved, stopped or discarded what, and why, is kept here.'))}</p>`}`
 }
 
@@ -260,7 +262,7 @@ document.addEventListener('click', async (ev) => {
   }
   if (a === 'move') return move(sel, el.dataset.to)
   if (a === 'move-together') return move(blocked.key, blocked.bucket, true)
-  if (a === 'move-cancel') { blocked = null; return drawChange() }
+  if (a === 'move-cancel') { blocked = null; return drawPicked() }
   if (a === 'release') { el.disabled = true; return act('line_release', { bucket: 'now' }, (o) => t(`볼트 ${o.released.length}개를 내보냈어요`, `${o.released.length} bolt(s) released`)) }
   if (a === 'hold') return holdDialog(b)
   if (a === 'hold-go') { const reason = $('#why').value.trim(); closeDialog(); return act('line_hold', { key: sel, hold: true, reason }, t('멈춰 두었어요', 'Held')) }
