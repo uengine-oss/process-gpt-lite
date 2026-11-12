@@ -348,14 +348,24 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
+### 16. ProcessGPT 포털에서 넘어온 휴대폰 — 데스크톱 화면으로 돌아가기 (process-gpt 스펙 `gateway_mobile-web-access`, 결정 D-1112-30)
+
+ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「라이트 모드」를 고른 휴대폰은 같은 주소의 `/lite/`(이 앱)로 이동합니다. `/lite` 아래에서 열린 앱을 대상으로 실행해야 F-PT-03이 실행됩니다(`PGPT_URL=http://…/lite`). 그 밖의 설치 환경에서는 해당 항목이 없는지만 확인합니다.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 설정 시트에 「Process GPT 데스크톱 화면으로」 줄은 `/lite` 아래에서 떴고 포털에서 라이트 모드로 넘어온 휴대폰(`mobileView=lite`)일 때만 보임 — 넘어온 휴대폰이 아니면 없음 | D-1112-30 (`SettingsSheet.vue`) | F-PT-01 | feature | ✅ |
+| 따로 설치한 Lite(루트에서 뜸)에서는 `mobileView=lite` 가 남아 있어도 줄이 없음 | D-1112-30 | F-PT-02 | feature | ✅ |
+| 줄을 누르면 포털 `/definition-map?mobileView=desktop` 으로 감(휴대폰 390×844) — 포털이 그 값을 받아 데스크톱 버전으로 바꾸는 것은 process-gpt-vue3 F-MV-20 | D-1112-30 | F-PT-03 | feature | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (14개) | 89 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06) |
+| feature | `tests/feature/*.spec.js` (15개) | 92 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06) |
 | agent | `tests/agent/*.spec.js` (4개) | 14 (회의 A-14) |
-| 합계 | | 160 |
+| 합계 | | 163 |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
