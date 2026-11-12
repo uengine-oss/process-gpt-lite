@@ -437,14 +437,35 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 직접 제어로 로그인: 화면 전체, 보이는 자리 클릭, 입력 순서, 붙여넣기, 입력기 키, 로그 미기록, 돌려주기 | `takeover.e2e.mjs`(실제 화면) | HTTP·화면 | ✅ |
 | 로그인 뒤 실제 NotebookLM: 소스·슬라이드·오디오 생성, 파일 카드 | 사람이 로그인한 프로필로 실행 | 수동 | ✗ 미확인 |
 
+### 20. 회사 프로세스 지도 — 메일 이력 · 채팅 인계로 Ontological 에 프로세스 온톨로지, 스냅샷 실행, 고정 · 은퇴 (spec `pgpt-pro_process-ontology`, 설계 `pgpt-pro/docs/auto-ax-onboarding/design-v0.2.md`, 영상 지도 `onto-map-ko` · 실행 `onto-run-ko` · 검토 `onto-review-ko`)
+
+데모 테넌트 `ax-demo`(`node server/scripts/ax-demo.mjs --reset --seed`)에서 돈다: `PGPT_URL=http://ax.localhost:5191 API_URL=http://ax.localhost:8790 PGPT_TENANT=ax-demo PGPT_DB_URL=…`. F-PO 는 지도가 셈해진 뒤(S1) 돌고, 지도가 없으면 건너뛴다.
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 지난 메일 90일 깔때기(규칙 거르기 · 스레드마다 한 번 읽기 · 결과물 메일은 보낸 사람의 일 · 검토는 역할), 원문 미저장 | `server/test/ontology-map.e2e.mjs` 1~3 | HTTP | ✅ |
+| 채팅 핸드오버와 메일 이력을 같은 건으로, 긴 지시문도 일 이름 하나로 | `ontology-map.e2e.mjs` 4·10 | HTTP | ✅ |
+| 지도(일 · 관계 · 묶음) · 시점 고르기(주마다 다시 셈) | `ontology-map.e2e.mjs` 4·9, F-PO-01·03 | HTTP·feature | ✅ |
+| 배운 조건(견적 합계 1천만 원, 하나씩 빼고 맞히기 > 늘 많은 쪽) | `ontology-map.e2e.mjs` 5, F-PO-02, `ontology-stats.test.js` | HTTP·feature·단위 | ✅ |
+| 드문 경로는 θ 기본에서 빠지고 은퇴 후보가 아님, 은퇴 후보(조건부 포아송, 「최근 N일」) | `ontology-map.e2e.mjs` 6·7, F-PO-02, `ontology-cases.json` | HTTP·feature·단위 | ✅ |
+| 자동 값(θ 재생 적합도 무릎 · 반감기 로그 우도 · 띠 1위 맞히기) | `ontology-map.e2e.mjs` 8, F-PO-01, `ontology-cases.json` | HTTP·feature·단위 | ✅ |
+| 온보딩 요약 카드, 빈 그래프(서버가 도는 중 초기화 포함)는 오류가 아니라 빈 지도 | `ontology-map.e2e.mjs` 1·12 | HTTP | ✅ |
+| 정답 대비 되찾음(데모 메일함의 정답 흐름) | `ontology-map.e2e.mjs` 11(재현율 0.99, 같은 이름 0.86) | 측정 | ✅ |
+| 묶음 채택 · 일 정의 초안(메일의 양식 칸 → 점검 항목) · SKILL.md 형식 왕복 | `ontology-run.e2e.mjs` 1·2, F-PO-07 | HTTP·feature | ✅ |
+| 시작 일(주 경로의 일마다 예/아니오) · 앞 일 건너뜀 · 스냅샷(요청 접수 맨 앞, 같은 키 다시 씀) | `ontology-run.e2e.mjs` 3·4, F-PO-04 | HTTP·feature | ✅ |
+| 업무 에이전트가 양식대로 새 견적서 · 점검 항목마다 판단(rich text 칸 포함) · 엔진이 배운 조건으로 재무 검토 | `ontology-run.e2e.mjs` 5·6, `ontology-taskdef.test.js` | agent·단위 | ✅ |
+| 검토 안건 · 은퇴(관리자만) · 지난 시점에는 살아 있음 · 앞날짜 고정 · 결정 원장 · 되돌리기 | `ontology-review.e2e.mjs` 1~6, F-PO-05·06 | HTTP·feature | ✅ |
+| 화면: 지도 · θ · 값 보기 · 검토 안건 · 스냅샷 | F-PO-08 | feature | ✅ |
+| 습관(열린 일 묶음에서 다음 일 묻기)이 굳은 길 묶음에서 실제로 묻는 장면, Gmail 지난 메일, 설치판 Ontological 컨테이너 | — | — | ✗ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (27개) | 164 (방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
+| feature | `tests/feature/*.spec.js` (28개) | 172 (프로세스 지도 F-PO-01…08, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
 | agent | `tests/agent/*.spec.js` (7개) | 18 (회의 A-14, 후행 습관 A-FU-01) |
-| 합계 | | 256 (`npx playwright test --list` 로 센 수, 2026-11-04) |
+| 합계 | | 264 (`npx playwright test --list` 로 센 수 256 + F-PO 8, 2026-11-13) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
