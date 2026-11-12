@@ -41,6 +41,6 @@ export default function register(server, ctx) {
     inputSchema: { ...A, key: z.string(), reason: z.string(), dependents: z.string().optional(), forRequest: z.string().nullable().optional(), archive: z.boolean().optional() }, _meta: ui(['app']),
   }, run(host('aidlc_line_discard')))
   // the head of the line is free: a person starts the work that is next
-  registerAppTool(server, 'line_start', { title: 'Start the next work', description: 'Start a queued request now.', inputSchema: { ...A, id: z.string() }, _meta: ui(['app']) },
-    run(({ folder, id }) => ctx.host.call('aidlc_intake_approve', { folder, id, mode: 'now' })))
+  registerAppTool(server, 'line_start', { title: 'Start the next work', description: 'Start a queued request now. A folder Claude Code opens for the first time answers { status: "trust" }: the person is asked, and the call is made again with trust: true.', inputSchema: { ...A, id: z.string(), trust: z.boolean().optional() }, _meta: ui(['app']) },
+    run(({ folder, id, trust }) => ctx.host.call('aidlc_intake_approve', { folder, id, mode: 'now', trust })))
 }

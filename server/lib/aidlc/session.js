@@ -65,6 +65,30 @@ export async function sendKey(name, key) {
   await tmux('send-keys', '-t', name, key)
 }
 
+// Claude Code's first question in a folder it has not opened before: is this workspace trusted ("❯ No, exit /
+// Yes, I trust this folder", the cursor on No). It has no numbers, so it is no selection prompt — and anything
+// typed there followed by Enter answers "No, exit". A person answers it; trust() presses what they chose.
+export function parseTrust(text) {
+  if (!/Yes, I trust this folder/.test(text) || !/No, exit/.test(text)) return null
+  const cursor = String(text).split('\n').find((l) => /^\s*❯/.test(l)) || ''
+  const pre = /pre-approves (\d+) tool permissions/.exec(text)
+  return { onYes: /Yes, I trust/.test(cursor), preApproved: pre ? Number(pre[1]) : 0 }
+}
+export async function trust(name) {
+  for (let i = 0; i < 6; i++) {
+    const t = parseTrust(await screen(name))
+    if (!t) return true
+    await sendKey(name, t.onYes ? 'Enter' : 'Down')
+    await sleep(t.onYes ? 1200 : 300)
+  }
+  return !parseTrust(await screen(name))
+}
+// the input box is drawn: a "❯" line between two rules (a menu's cursor line is a "❯" line too, but not there)
+export function atPrompt(text) {
+  const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean)
+  return lines.some((l, i) => /^[❯>]/.test(l) && RULE.test(lines[i - 1] || '') && RULE.test(lines[i + 1] || ''))
+}
+
 // ---------- reading a selection prompt off the screen ----------
 // Claude Code draws a prompt at the bottom: a header chip ("☐ Approval") or a tool box, the question,
 // numbered options ("❯ 1. Approve" with the cursor on one, a hint line under each), and a footer

@@ -260,6 +260,19 @@ test('세션 화면: Claude Code 선택 창을 읽는다 (답하는 방식 · �
   assert.notEqual(m.fingerprint, a.fingerprint)
 })
 
+test('세션 화면: 처음 여는 폴더의 "믿을 수 있나요" 는 선택 창도 입력 칸도 아니다 — 사람이 답할 것으로 읽는다', async () => {
+  const S = await import('../lib/aidlc/session.js')
+  // the cursor starts on "No, exit": anything typed there and Enter would end the session
+  const t = await screenOf('trust')
+  assert.deepEqual(S.parseTrust(t), { onYes: false, preApproved: 132 })
+  assert.deepEqual(S.parseTrust(await screenOf('trust-yes')), { onYes: true, preApproved: 132 })
+  assert.equal(S.parseChoice(t), null)
+  assert.equal(S.atPrompt(t), false)
+  // the input box (a "❯" line between two rules) is there when idle and while working; not on a selection prompt
+  assert.deepEqual(await Promise.all(['idle', 'working', 'approval', 'permission', 'answer-mode'].map(async (n) => S.atPrompt(await screenOf(n)))), [true, true, false, false, false])
+  assert.equal(S.parseTrust(await screenOf('idle')), null)
+})
+
 test('질문 파일에 합의한 답 쓰기: 빈 [Answer] 에만, 이 기록의 질문 파일만', async () => {
   const fsp = await import('node:fs/promises')
   const os = await import('node:os')

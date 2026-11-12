@@ -201,7 +201,7 @@ async function discardDialog(key) {
 
 // ---------- doing ----------
 async function act(name, args, done) {
-  try { const out = await lite.tool(name, { folder, ...args }); if (done) toast(typeof done === 'function' ? done(out) : done); return out } catch (e) { toast(e.message); return null } finally { await load() }
+  try { const out = await lite.tool(name, { folder, ...args }); const said = typeof done === 'function' ? done(out) : done; if (said) toast(said); return out } catch (e) { toast(e.message); return null } finally { await load() }
 }
 
 document.addEventListener('click', async (ev) => {
@@ -223,10 +223,18 @@ document.addEventListener('click', async (ev) => {
   }
   if (a === 'again') return act('intake_again', { id: sel })
   if (a === 'withdraw') return act('intake_triage', { id: sel, action: 'withdraw' }, t('요청을 거뒀어요', 'Withdrawn'))
-  if (a === 'approve') {
+  if (a === 'approve' || a === 'trust-go') {
     const p = pick[sel]
     el.disabled = true
-    return act('intake_approve', { id: sel, scope: p.scope, mode: p.mode, fast: !!p.fast }, (o) => (o.status === 'started' ? t('세션에 넘겼어요. 볼트 줄에서 진행을 볼 수 있어요', 'Handed to the session') : o.status === 'merged' ? t('진행 중인 작업에 합쳤어요', 'Folded in') : t('볼트 줄 끝에 세웠어요', 'Standing in line')))
+    if (a === 'trust-go') closeDialog()
+    const out = await act('intake_approve', { id: sel, scope: p.scope, mode: p.mode, fast: !!p.fast, trust: a === 'trust-go' }, (o) => (o.status === 'trust' ? '' : o.status === 'started' ? t('세션에 넘겼어요. 볼트 줄에서 진행을 볼 수 있어요', 'Handed to the session') : o.status === 'merged' ? t('진행 중인 작업에 합쳤어요', 'Folded in') : t('볼트 줄 끝에 세웠어요', 'Standing in line')))
+    // Claude Code has not opened this folder before: its own safety question, answered by the person
+    if (out?.status === 'trust') dialog(`<h2>${esc(t('이 폴더를 믿고 시작할까요?', 'Trust this folder and start?'))}</h2>
+      <p>${esc(t(`Claude Code 가 「${V.folder.name}」 폴더를 처음 열어서, 믿을 수 있는 프로젝트인지 먼저 묻고 있어요. 믿는다고 답하면 이 폴더의 파일을 읽고 고치고 실행할 수 있어요.`, `Claude Code opens "${V.folder.name}" for the first time and asks whether the project is trusted. Trusted, it can read, edit and run files there.`))}</p>
+      ${out.preApproved ? `<div class="note warn" data-test="trust-pre">${esc(t(`이 폴더의 설정이 도구 ${out.preApproved}개를 미리 허용해 두었어요. 그 도구들은 묻지 않고 실행돼요.`, `This folder's settings pre-approve ${out.preApproved} tool permissions: those run without asking.`))}</div>` : ''}
+      <p class="small muted">${esc(t('답한 사람과 시각이 원장에 남아요.', 'Who answered, and when, is kept in the ledger.'))}</p>
+      <div class="acts"><button data-act="close">${esc(t('닫기', 'Close'))}</button><button class="primary" data-act="trust-go" data-test="dialog-ok">${esc(t('믿고 시작', 'Trust and start'))}</button></div>`)
+    return
   }
   if (a === 'later') return reasonDialog({ title: t('나중에 하기', 'Later'), text: t(`「${r.title}」 요청을 지금은 줄에 세우지 않아요. 까닭은 요청한 사람에게 전해져요.`, `"${r.title}" is not taken in now. The asker is told why.`), placeholder: t('까닭', 'The reason'), ok: t('나중에', 'Later'), act: 'later-go' })
   if (a === 'decline') return reasonDialog({ title: t('받지 않기', 'Decline'), text: t(`「${r.title}」 요청을 받지 않아요. 까닭은 요청한 사람에게 전해져요.`, `"${r.title}" is declined. The asker is told why.`), placeholder: t('까닭', 'The reason'), ok: t('받지 않기', 'Decline'), danger: true, act: 'decline-go' })

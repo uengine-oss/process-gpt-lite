@@ -125,11 +125,20 @@ test('준비: 끝난 인텐트가 하나 있는 저장소, 팀 리드(소유)·P
   for (const [roleKey, u] of [['team-lead', lead], ['product', po], ['architect', arch], ['developer', dev]]) {
     assert.equal((await call(lead, 'PUT', `/aidlc/${folder.slug}/roles`, { roleKey, userIds: [u.user.id] })).status, 200)
   }
-  // the stand-in session: an idle prompt, then every key it gets goes to a file outside the project
+  // the stand-in session: Claude Code's "is this folder trusted?" first (the cursor on "No, exit"; Down moves it to
+  // Yes, Enter there goes on), then an idle prompt where every key it gets goes to a file outside the project
   name = `aidlc-localhost-${folder.slug}`.replace(/[^A-Za-z0-9_-]/g, '_')
   keys = path.join(side, 'keys.log')
   const script = path.join(side, 'fake-claude.sh')
-  await fs.writeFile(script, `#!/bin/bash\ncat ${JSON.stringify(SCREEN)}\nwhile IFS= read -rsn1 k; do printf '%s' "$k" >> ${JSON.stringify(keys)}; done\n`, { mode: 0o755 })
+  const show = (n) => `printf '\\033[2J\\033[H'; cat ${JSON.stringify(path.join(path.dirname(SCREEN), `${n}.txt`))}`
+  await fs.writeFile(script, `#!/bin/bash\ncat ${JSON.stringify(path.join(path.dirname(SCREEN), 'trust.txt'))}\nat=no\nwhile IFS= read -rsn1 k; do
+  if [ "$at" != done ]; then
+    if [ "$k" = B ]; then at=yes; ${show('trust-yes')}
+    elif [ -z "$k" ] && [ "$at" = yes ]; then at=done; ${show('idle')}
+    elif [ -z "$k" ]; then exit 0; fi
+    continue
+  fi
+  printf '%s' "$k" >> ${JSON.stringify(keys)}\ndone\n`, { mode: 0o755 })
   tmux('new-session', '-d', '-s', name, '-x', '160', '-y', '48', script)
 
   // what each may do (D-1112-23); an outsider sees nothing
@@ -170,12 +179,19 @@ test('S1 접수: 권한 없는 사람의 요청은 접수함으로, 접수 담�
   await ok(arch, 'intake', 'intake_impact', { id: bug.id, units: [U5], note: '알림 작업자만 봐요' })
   assert.ok((await ok(lead, 'intake', 'intake_open')).requests.find((x) => x.id === bug.id).estimate.confirmed.at)
 
-  // start now: the request is typed into the team session with the scope
-  const started = await ok(lead, 'intake', 'intake_approve', { id: bug.id, mode: 'now' })
+  // start now — Claude Code has not opened this folder before and asks whether it is trusted: nothing is typed
+  // over that question and nothing is decided; the person is asked, with what the folder pre-approves
+  assert.deepEqual(await ok(lead, 'intake', 'intake_approve', { id: bug.id, mode: 'now' }), { status: 'trust', preApproved: 132 })
+  assert.equal(await typed(), '')
+  assert.equal(tmux('has-session', '-t', name), '')
+  assert.deepEqual([(await view(lead)).requests.find((x) => x.id === bug.id).status, (await view(lead)).head.busy], ['proposed', false])
+  // they say yes: that is pressed for them (and kept in the ledger), then the request is typed with the scope
+  const started = await ok(lead, 'intake', 'intake_approve', { id: bug.id, mode: 'now', trust: true })
   assert.deepEqual(started, { status: 'started', scope: 'bugfix' })
   assert.match(await until(async () => { const k = await typed(); return k.includes('두 통씩 옵니다') && k }, 10000, 'the request typed'), /\/aidlc bugfix "예약 알림 메일이 두 번 와요\. 같은 예약인데 10분 전 알림이 두 통씩 옵니다\."/)
   let v = await view(lead)
   assert.equal(v.head.busy, true)
+  assert.ok(v.ledger.some((l) => l.kind === 'intake' && l.choice === '믿고 진행' && /미리 허용한 도구 132개/.test(l.note)))
   let b = boltOf(v, `r:${bug.id}:${U5}`)
   assert.deepEqual([b.state, b.bucket, b.canRestore, b.lane], ['running', 'now', true, 'notification-worker'])
   // one piece of work at a time: another cannot start now

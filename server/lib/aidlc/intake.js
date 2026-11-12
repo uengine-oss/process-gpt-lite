@@ -277,7 +277,7 @@ export async function confirmImpact(slug, user, id, { units, note = '' } = {}) {
 
 // ---------- taking it in ----------
 const MODES = ['now', 'after', 'merge']
-export async function approve(slug, user, id, { scope, mode = 'after', fast = false, note = '' } = {}) {
+export async function approve(slug, user, id, { scope, mode = 'after', fast = false, note = '', trust = false } = {}) {
   const { folder } = await open(slug, user)
   await must(folder, user, 'intake')
   if (!MODES.includes(mode)) throw err(400, 'unknown start mode')
@@ -287,7 +287,7 @@ export async function approve(slug, user, id, { scope, mode = 'after', fast = fa
   const sc = scope || req.scope || req.estimate?.scope
   if (!sc || (scopes.length && !scopes.some((s) => s.name === sc))) throw err(400, 'unknown scope')
   let out
-  if (mode === 'now') out = await begin(folder, user, req, sc, { fast, note })
+  if (mode === 'now') out = await begin(folder, user, req, sc, { fast, note, trust })
   else if (mode === 'merge') out = await merge(folder, user, req, note)
   else {
     await q(`update pro_aidlc_requests set status='queued', scope=$3, start_mode='after', fast=$4, decided_by=$5, decided_at=now(), note=$6, head_told_at=null, updated_at=now() where id=$1 and tenant_id=$2`,
@@ -295,6 +295,7 @@ export async function approve(slug, user, id, { scope, mode = 'after', fast = fa
     await record(folder, user, { kind: 'intake', question: req.title, choice: L(`줄 끝에 세움 · ${sc}${fast ? ' · 빠른 줄' : ''}`, `queued · ${sc}${fast ? ' · fast lane' : ''}`), note })
     out = { status: 'queued', scope: sc }
   }
+  if (out.status === 'trust') return out
   await card(folder, [{ id: req.user_id }], { title: L(`「${req.title}」 요청이 접수됐어요`, `"${req.title}" was taken in`),
     text: out.status === 'queued' ? L(`${user.name} 님이 앞 작업 다음에 시작하기로 했어요.`, `${user.name} queued it after the work in flight.`)
       : out.status === 'merged' ? L(`${user.name} 님이 지금 진행 중인 작업에 합쳤어요.`, `${user.name} folded it into the work in flight.`)
@@ -306,24 +307,38 @@ export async function approve(slug, user, id, { scope, mode = 'after', fast = fa
 }
 
 // the session is at its prompt with nothing asked (a new session shows the prompt after a few seconds)
-async function ready(name, ms = 60000) {
+// A folder Claude Code opens for the first time asks whether the workspace is trusted before anything else:
+// that is returned ({ trust }) for the person to answer, and pressed only when they said yes (trust: true).
+async function ready(name, { trust = false, ms = 60000 } = {}) {
   const until = Date.now() + ms
+  let trusted = null
   for (;;) {
     const text = await AS.screen(name).catch(() => '')
+    const asked = AS.parseTrust(text)
+    if (asked) {
+      if (!trust) return { trust: asked }
+      if (!(await AS.trust(name))) throw err(504, L('세션이 준비되지 않았어요', 'The session did not come up'))
+      trusted = asked
+      continue
+    }
     if (AS.parseChoice(text)) throw err(409, L('세션이 먼저 답을 기다리고 있어요. 그 결정을 한 뒤에 시작해 주세요', 'The session waits for an answer first'))
-    if (/^\s*[❯>]/m.test(text)) return
+    if (AS.atPrompt(text)) return { trusted }
     if (Date.now() > until) throw err(504, L('세션이 준비되지 않았어요', 'The session did not come up'))
     await sleep(1000)
   }
 }
 
 // start it in the team session: the files as they are now are kept, then the request is typed in
-async function begin(folder, user, req, scope, { fast = false, note = '' } = {}) {
+async function begin(folder, user, req, scope, { fast = false, note = '', trust = false } = {}) {
   const inp = await inputs(folder)
   if (inp.busy) throw err(409, L('진행 중인 작업이 있어요. 그 뒤에 세우거나 지금 작업에 합칠 수 있어요', 'Work is in flight: queue this after it, or fold it in'))
   const name = nameOf(folder)
   await AS.start({ name, cwd: folder.repo_path, lang: isEn() ? 'en' : 'ko' })
-  await ready(name)
+  const up = await ready(name, { trust })
+  // nothing is typed and nothing is decided until a person has said the folder is trusted
+  if (up.trust) return { status: 'trust', preApproved: up.trust.preApproved }
+  if (up.trusted) await record(folder, user, { kind: 'intake', question: L('Claude Code 가 이 폴더를 처음 열어요. 믿을 수 있는 프로젝트인가요?', 'Claude Code opens this folder for the first time: is it trusted?'),
+    choice: L('믿고 진행', 'trusted'), note: up.trusted.preApproved ? L(`이 폴더가 미리 허용한 도구 ${up.trusted.preApproved}개`, `${up.trusted.preApproved} tool permissions pre-approved by this folder`) : '' })
   const queued = req.status === 'queued'
   await q(`update pro_aidlc_requests set status='started', scope=$3, start_mode=coalesce(start_mode,'now'), fast=$4, decided_by=coalesce(decided_by,$5), decided_at=coalesce(decided_at,now()),
            note=coalesce($6,note), known_intents=$7, updated_at=now() where id=$1 and tenant_id=$2`,

@@ -226,7 +226,7 @@ function holdDialog(b) {
 
 // ---------- doing ----------
 async function act(name, args, done) {
-  try { const out = await lite.tool(name, { folder, ...args }); if (done) toast(typeof done === 'function' ? done(out) : done); return out } catch (e) { toast(e.message); return null } finally { await load() }
+  try { const out = await lite.tool(name, { folder, ...args }); const said = typeof done === 'function' ? done(out) : done; if (said) toast(said); return out } catch (e) { toast(e.message); return null } finally { await load() }
 }
 async function move(key, bucket, together = false) {
   let out
@@ -246,7 +246,18 @@ document.addEventListener('click', async (ev) => {
   if (a === 'close') return closeDialog()
   if (a === 'intake') return lite.openApp('intake')
   if (a === 'request') return lite.openApp('intake', { r: el.dataset.id })
-  if (a === 'start') { el.disabled = true; return act('line_start', { id: el.dataset.id }, t('세션에 넘겼어요', 'Handed to the session')) }
+  if (a === 'start' || a === 'trust-go') {
+    el.disabled = true
+    if (a === 'trust-go') closeDialog()
+    const out = await act('line_start', { id: el.dataset.id, trust: a === 'trust-go' }, (o) => (o.status === 'trust' ? '' : t('세션에 넘겼어요', 'Handed to the session')))
+    // Claude Code has not opened this folder before: its own safety question, answered by the person
+    if (out?.status === 'trust') dialog(`<h2>${esc(t('이 폴더를 믿고 시작할까요?', 'Trust this folder and start?'))}</h2>
+      <p>${esc(t(`Claude Code 가 「${V.folder.name}」 폴더를 처음 열어서, 믿을 수 있는 프로젝트인지 먼저 묻고 있어요. 믿는다고 답하면 이 폴더의 파일을 읽고 고치고 실행할 수 있어요.`, `Claude Code opens "${V.folder.name}" for the first time and asks whether the project is trusted. Trusted, it can read, edit and run files there.`))}</p>
+      ${out.preApproved ? `<div class="note warn" data-test="trust-pre">${esc(t(`이 폴더의 설정이 도구 ${out.preApproved}개를 미리 허용해 두었어요. 그 도구들은 묻지 않고 실행돼요.`, `This folder's settings pre-approve ${out.preApproved} tool permissions: those run without asking.`))}</div>` : ''}
+      <p class="small muted">${esc(t('답한 사람과 시각이 원장에 남아요.', 'Who answered, and when, is kept in the ledger.'))}</p>
+      <div class="acts"><button data-act="close">${esc(t('닫기', 'Close'))}</button><button class="primary" data-act="trust-go" data-id="${esc(el.dataset.id)}" data-test="dialog-ok">${esc(t('믿고 시작', 'Trust and start'))}</button></div>`)
+    return
+  }
   if (a === 'move') return move(sel, el.dataset.to)
   if (a === 'move-together') return move(blocked.key, blocked.bucket, true)
   if (a === 'move-cancel') { blocked = null; return drawChange() }

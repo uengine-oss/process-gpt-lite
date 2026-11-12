@@ -35,8 +35,8 @@ export default function register(server, ctx) {
     inputSchema: { ...A, id: z.string(), units: z.array(z.string()).optional(), note: z.string().optional() }, _meta: ui(['app']),
   }, run(host('aidlc_intake_impact')))
   registerAppTool(server, 'intake_approve', {
-    title: 'Take the request in', description: 'Start it now, queue it after the work in flight, or fold it into that work (mode: now | after | merge).',
-    inputSchema: { ...A, id: z.string(), scope: z.string().optional(), mode: z.string().optional(), fast: z.boolean().optional(), note: z.string().optional() }, _meta: ui(['app']),
+    title: 'Take the request in', description: 'Start it now, queue it after the work in flight, or fold it into that work (mode: now | after | merge). A folder Claude Code opens for the first time answers { status: "trust" }: nothing started — the person is asked whether the folder is trusted, and the call is made again with trust: true.',
+    inputSchema: { ...A, id: z.string(), scope: z.string().optional(), mode: z.string().optional(), fast: z.boolean().optional(), note: z.string().optional(), trust: z.boolean().optional() }, _meta: ui(['app']),
   }, run(host('aidlc_intake_approve')))
   registerAppTool(server, 'intake_triage', {
     title: 'Later, or not at all', description: 'Put a request off or decline it with a reason (action: later | decline), or take one\'s own request back (withdraw).',
