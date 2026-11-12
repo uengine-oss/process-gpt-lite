@@ -7,10 +7,12 @@
 // 필수·옵션은 BPMN 의 뜻이다 — 옵션 = 정의에 건너뛰는 길(배타 게이트웨이 + 조건 흐름)이 있는 단계.
 // 관리자가 언제 건너뛰는지 말하면 정식 등록된 정의가 새 버전으로 저장되고, 엔진이 그 조건대로 가른다.
 //
+// (2026-11-12 추천 이름을 업무 범주로 바꿨다: 설계 제안·견적 대응 → 인테리어 설계 견적, 행사 견적·고객 회신 → 행사 견적,
+//  요청 메일·견적서 작성 → 교육 일정표 — scripts/rename-mining-to-category.mjs)
 // 단계 구성이 다른 정식 등록 프로세스 두 개 — 테넌트에 이미 있는 것을 쓴다(시험이 지어낸 추천이 아니다):
-//   설계 제안·견적 대응  요청 메일 접수 → 평면도 → 제안서 → 견적서 → 재무 검토 → 고객 회신
-//   행사 견적·고객 회신  요청 메일 접수 → 견적서 작성 → 계약 검토 → 고객 회신
-// 그리고 제안·옮기기를 보는 추천 "요청 메일·견적서 작성"(교육 일정표).
+//   인테리어 설계 견적   요청 메일 접수 → 평면도 → 제안서 → 견적서 → 재무 검토 → 고객 회신
+//   행사 견적            요청 메일 접수 → 견적서 작성 → 계약 검토 → 고객 회신
+// 그리고 제안·옮기기를 보는 "교육 일정표".
 //
 // 로컬 Lite 를 ProcessGPT 게이트웨이 뒤(8088)에서 연다:
 //   cd e2e && PGPT_URL=http://localhost:8088/lite npx playwright test tests/agent/mining-admin-talk.spec.js --project=agent
@@ -24,9 +26,9 @@ import { fileURLToPath } from 'node:url'
 import { test, expect } from '../../lib/fixtures.js'
 import { waitFor } from '../../lib/agent.js'
 
-const DESIGN = '설계 제안·견적 대응'
-const EDU = '요청 메일·견적서 작성'
-const EVENT = '행사 견적·고객 회신'
+const DESIGN = '인테리어 설계 견적'
+const EDU = '교육 일정표'
+const EVENT = '행사 견적'
 const SHOTS = process.env.RT_SHOTS || ''
 const here = path.dirname(fileURLToPath(import.meta.url))
 const COMPLETION = process.env.PGPT_COMPLETION_DIR || path.resolve(here, '../../../../process-gpt-completion')
@@ -111,7 +113,7 @@ test('A-MN-10 관리자가 대화로 근거를 확인하고 필수·옵션(BPMN)
     expect(skipOf(await defOf(db, r), step), `${step} 를 필수로 되돌림`).toBeNull()
   }
 
-  await test.step('인수조건 1·4: 정식 등록 "설계 제안·견적 대응"(6단계)의 근거를 묻고, 재무 검토를 조건과 함께 옵션으로 확정한다', async () => {
+  await test.step('인수조건 1·4: 정식 등록 "인테리어 설계 견적"(6단계)의 근거를 묻고, 재무 검토를 조건과 함께 옵션으로 확정한다', async () => {
     await openRec(page, DESIGN)
     const why = await say(page, '왜 이 사례들이 한 프로세스로 묶였어? 단계별 근거도 알려줘')
     // 근거는 저장된 값으로: 업무 범주와 단계별 빈도
@@ -155,7 +157,7 @@ test('A-MN-10 관리자가 대화로 근거를 확인하고 필수·옵션(BPMN)
     expect(high.next).toEqual(['재무 검토'])
   })
 
-  await test.step('인수조건 1·4: 단계 구성이 다른 정식 등록 "행사 견적·고객 회신"(4단계)에서 계약 검토를 옵션으로 확정한다', async () => {
+  await test.step('인수조건 1·4: 단계 구성이 다른 정식 등록 "행사 견적"(4단계)에서 계약 검토를 옵션으로 확정한다', async () => {
     await openRec(page, EVENT)
     const v0 = await versionsOf(db, event0)
     const done = await say(page, '계약 검토는 옵션이야. 고객이 메일에서 계약서를 요청하지 않았으면 건너뛰어')
@@ -195,7 +197,7 @@ test('A-MN-10 관리자가 대화로 근거를 확인하고 필수·옵션(BPMN)
     await expect(badge(page, '재무 검토')).toHaveText(/옵션/)
   })
 
-  await test.step('인수조건 3: 추천 "요청 메일·견적서 작성"에서 묻기만 한 말은 아무것도 바꾸지 않는다', async () => {
+  await test.step('인수조건 3: 추천 "교육 일정표"에서 묻기만 한 말은 아무것도 바꾸지 않는다', async () => {
     await openRec(page, EDU)
     const before = await rec(db, EDU)
     const why = await say(page, '이 추천은 왜 하나로 묶였어?')

@@ -70,29 +70,39 @@ export async function isAdmin(me) {
 }
 
 // ---------- 찾기: 반복 패턴 → 추천 ----------
-const NAME = `프로세스 마이닝이 사람·에이전트의 인계 기록에서 반복되는 업무 흐름을 찾았어요. 이 흐름에 이름을 붙이세요.
-JSON {"name","summary","keywords"} 로 답하세요.
-- name: 한국어 명사구 14자 이내, 가운뎃점(·)으로 두 일을 잇는 형식. 예: "설계 제안·견적 대응", "입사 서류·계정 발급"
-- summary: 이 흐름이 무엇인지 해요체 한 문장
+// A recommendation is named by its 업무 범주 — what the cases were asked to do — not by its steps
+// (2026-11-12). Named from the steps, two recommendations of quite different work came out alike
+// (요청 메일·견적서 작성 for 교육 일정표, 요청 접수·견적 회신 for 사무실 이전 견적): every flow here starts with
+// the request mail and most write a quote. The summary and keywords come from the requests, too.
+const NAME = `프로세스 마이닝이 같은 종류의 요청을 처리한 업무들을 찾았어요. category 는 이 업무들이 무엇을 요청받은 일인지(업무 범주)이고, examples 는 그 요청 메일 제목이에요.
+JSON {"summary","keywords"} 로 답하세요.
+- summary: 이 업무가 무엇을 요청받아 하는 일인지 해요체 한 문장. 거쳐 간 단계를 나열하지 마세요
 - keywords: 다음에 같은 일을 요청하는 메일에 나올 한국어 낱말 3~6개`
-// English mode: an English flow (its steps were recorded in English) gets an English name, and English
-// keywords (shown with the recommendation; a mail is routed by its 업무 범주 — registeredFor below)
-const NAME_EN = `Process mining found a work flow that repeats in the handover records of people and agents. Give this flow a name.
-Answer with JSON {"name","summary","keywords"}.
-- name: an English noun phrase of at most 32 characters joining two jobs with " & ", e.g. "Design proposal & quote", "Onboarding papers & accounts"
-- summary: one plain sentence on what this flow is
+// English mode: an English flow (its steps were recorded in English) gets English keywords (shown with the
+// recommendation; a mail is routed by its 업무 범주 — registeredFor below)
+const NAME_EN = `Process mining found pieces of work answering the same kind of request. \`category\` is what they were asked to do (the kind of work) and \`examples\` are the subjects of those request mails.
+Answer with JSON {"summary","keywords"}.
+- summary: one plain sentence on what this work is asked to do. Do not list the steps
 - keywords: 3–6 English words that a mail asking for the same work next time would contain (lowercase, single words)`
+
+// the name of a recommendation: its 업무 범주; a group from before categories falls back to its first step
+export function nameFor(p) {
+  const category = String(p?.category || '').trim()
+  if (category) return category.slice(0, L(30, 40))
+  return L(`${p.main_variant[0]} 이후 반복 흐름`, `Recurring flow after ${p.main_variant[0]}`)
+}
 
 // the language a mined flow is in: the language its steps were recorded in (lib/mining/recorder.js)
 export const patternLang = (p) => labelLang((p?.main_variant || []).join(' '))
 
 async function nameOf(p, cases) {
   return withLang(patternLang(p), async () => {
+    const name = nameFor(p)
     try {
-      const r = await chatJson(L(NAME, NAME_EN), JSON.stringify({ steps: p.main_variant, examples: cases.map((c) => c.subject).filter(Boolean).slice(0, 5) }))
-      if (r?.name) return { name: String(r.name).slice(0, L(30, 40)), summary: String(r.summary || ''), keywords: (r.keywords || []).map(String).slice(0, 6) }
+      const r = await chatJson(L(NAME, NAME_EN), JSON.stringify({ category: p.category || '', examples: cases.map((c) => c.subject).filter(Boolean).slice(0, 5) }))
+      return { name, summary: String(r?.summary || ''), keywords: (r?.keywords || []).map(String).slice(0, 6) }
     } catch (e) { console.warn('[mining] name', e.message) }
-    return { name: L(`${p.main_variant[0]} 이후 반복 흐름`, `Recurring flow after ${p.main_variant[0]}`), summary: '', keywords: [] }
+    return { name, summary: '', keywords: [] }
   })
 }
 
@@ -100,30 +110,30 @@ async function nameOf(p, cases) {
 // The one thing that decides whether two cases are the same process. Judged once, when the case has
 // ended, and kept — judging again on every search would make the same cases group differently each
 // time the admin presses "지금 다시 찾기". An admin's own answer (category_by='admin') is never redone.
-const CATEGORY = `아래는 고객이 메일로 요청한 일을 처리한 업무들입니다. 업무마다 무엇을 요청받은 일인지 범주를 정하세요.
-JSON {"categories": {"<id>": "<범주>"}} 로 답하세요. 모든 업무에 하나씩 답하세요.
-- 범주는 한국어 명사구 12자 이내입니다. 예: "행사 견적", "매장 설계"
-- 범주는 일의 종류입니다. 행사 이름(송년회·워크숍·북토크·창립 기념식)이나 고객 이름으로 나누지 마세요 — 그것들은 모두 "행사 견적" 하나입니다.
-- known 에 같은 종류의 일이 있으면 그 범주를 글자 그대로 쓰세요.
-- 거쳐 간 단계 이름이 아니라 고객이 요청한 일로 정하세요. 누가 검토했는지는 범주와 상관없습니다.
-- 범주는 되도록 적게 쓰세요. 한 조직이 하는 일의 종류는 보통 두세 가지입니다.
-- examples 는 관리자가 직접 정한 업무와 범주입니다. 같은 일을 요청한 업무에는 그 범주를 글자 그대로 쓰세요.`
-const CATEGORY_EN = `Below are pieces of work, each answering a customer's request mail. Name the kind of work each one is.
-Answer with JSON {"categories": {"<id>": "<category>"}}, one for every piece.
-- A category is an English noun phrase of at most 24 characters, e.g. "Event quote", "Store design".
-- A category is the kind of work. Do not split by the name of the event (year-end party, workshop, book talk) or by the customer — those are all one "Event quote".
-- If \`known\` already holds the same kind of work, reuse that category exactly.
-- Go by what the customer asked for, not by the step names. Who reviewed it does not change the category.
-- Use as few categories as possible. An organization usually does two or three kinds of work.
-- \`examples\` are pieces of work an administrator categorized by hand. Work asking for the same thing gets that category, exactly.`
-
+// The judgment itself is process-miner's (POST /categories, 2026-11-12 general-intent-grouping): ProcessGPT's
+// identification screen and Lite judge by the same rule, kept in one place. What stays here: what a case is
+// (one customer mail: its subject, customer, documents and steps), when it is judged (when it ended) and
+// keeping the answer (pro_mining_cases.category). The miner stores nothing.
+//
 // All the pending cases are judged together, in one call: judged one at a time, the same work came
 // back as 워크숍 견적, 송별회 견적, 시상식 견적 … — the event's name, not the kind of work — and the
 // groups split for the same reason the step names used to split them.
-async function categoriesOf(cases, known, cl, examples = []) {
+export async function categoriesOf(cases, known, cl, examples = []) {
   return withLang(cl, async () => {
     try {
-      const r = await chatJson(L(CATEGORY, CATEGORY_EN), JSON.stringify({ known, examples, cases }))
+      const r = await miner('/categories', {
+        tenant_id: T(),
+        lang: isEn() ? 'en' : 'ko',
+        known,
+        examples: examples.map((e) => ({ request: e.subject || '', category: e.category })),
+        cases: cases.map((c) => ({
+          id: c.id,
+          request: [c.subject, c.request].filter(Boolean).join('\n'),
+          steps: c.steps || [],
+          customer: c.customer || null,
+          documents: c.documents || null,
+        })),
+      })
       const out = {}
       for (const [id, v] of Object.entries(r?.categories || {})) {
         const name = String(v || '').trim().slice(0, L(14, 30))
@@ -527,10 +537,12 @@ export async function definitionOf(s) {
 // a changed definition saved the way Lite saves a process (lib/generated.js → process-gpt save_contract +
 // BPMN generator), with a new proc_def_version as process-gpt's own save button leaves (the engine takes it
 // from the next instance) — the same path 「개선안 적용」 uses (lib/improve/apply.js)
-export async function saveVersion(me, defId, def, message) {
+// name: a new process name (renaming to the 업무 범주, scripts/rename-mining-to-category.mjs); otherwise the saved one
+export async function saveVersion(me, defId, def, message, name = null) {
   def = forSave(def)
   const [d] = await q('select id, name, description from proc_def where lower(id)=lower($1) and tenant_id=$2', [defId, T()])
   if (!d) throw err(404, L('등록된 프로세스를 찾지 못했어요.', "I couldn't find the registered process."))
+  if (name) d.name = name
   const vs = await q(`select version, arcv_id from proc_def_version where lower(proc_def_id)=lower($1) and tenant_id=$2 and not coalesce(is_draft,false) order by "timeStamp" asc nulls first`, [d.id, T()])
   const version = `${Math.max(0, ...vs.map((v) => parseInt(String(v.version), 10) || 0)) + 1}.0`
   const forms = await q('select id, activity_id, html from form_def where lower(proc_def_id)=lower($1) and tenant_id=$2', [d.id, T()])
