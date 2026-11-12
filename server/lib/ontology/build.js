@@ -183,6 +183,20 @@ async function writeState(st, validFrom, names, meta) {
     'hl_scores', 'tasks', 'entries', 'cases', 'summary_theta'], ["status:'suggested'", "autonomy:'draft'"], w)
 }
 
+// one sentence per task that has none yet (who does what) — the start-task questions name the work this way
+const DESCRIBE = `회사 업무 흐름의 「일」마다 무엇을 하는 일인지 짧게 씁니다. JSON {"items":[{"name","description"}]} 로만 답하세요.
+- description: 「<역할>가 … 한다」 형식의 한 문장, 20자 안팎. 앞뒤 일과 역할에서 알 수 있는 것만 쓴다.`
+async function describeTasks(st, meta) {
+  const have = new Map((await cypher('MATCH (t:Task) RETURN t.key AS key, t.description AS d')).map((r) => [r.key, r.d]))
+  const want = [...st.g.tasks.values()].filter((t) => !have.get(t.key))
+  if (!want.length) return
+  const ctx = want.map((t) => ({ name: t.key, role: t.role, before: [...st.g.edges.values()].filter((e) => e.to === t.key).sort((a, b) => b.n - a.n)[0]?.from || null,
+    after: [...st.g.edges.values()].filter((e) => e.from === t.key && e.to !== END).sort((a, b) => b.n - a.n)[0]?.to || null }))
+  const r = await chatJson(DESCRIBE, JSON.stringify(ctx), { temperature: 0, timeoutMs: 90000 })
+  const rows = (r?.items || []).filter((x) => want.some((t) => t.key === x.name) && x.description).map((x) => ({ key: x.name, description: String(x.description).slice(0, 80) }))
+  if (rows.length) await cypher('UNWIND $rows AS r MATCH (t:Task {key:r.key}) SET t.description=r.description', { rows }, { actor: meta.actor, reason: '일 설명' })
+}
+
 let running = null
 export function rebuild(opts = {}) { return (running ||= doBuild(opts).finally(() => { running = null })) }
 
@@ -237,6 +251,7 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   stable(final)
   await nameAll(final)
   await writeState(final, iso(now), names, meta)
+  await describeTasks(final, meta).catch((e) => console.warn('[ontology] describe', e.message))
   // bundles of earlier weeks that are not in today's picture are gone (kept in the history, hidden on the map)
   const live = final.bundles.map((b) => b.key)
   await cypher(`MATCH (b:Bundle) WHERE NOT b.key IN $live AND b.status <> 'gone' SET b.status='gone'`, { live }, { ...meta, validFrom: iso(now) })

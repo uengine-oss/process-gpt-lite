@@ -64,7 +64,7 @@ await step('일 정의: 메일에 붙어 온 견적서 양식에서 점검 항�
 await step('시작 일: 「견적만 다시」는 견적서 작성부터(확률)', async () => {
   const c = (await call(boss.tok, 'POST', '/ontology/entry', { subject: REQUOTE.subject, text: REQUOTE.text })).body
   assert.equal(c.task, '견적서 작성', JSON.stringify(c))
-  return { task: c.task, p: Number(c.p.toFixed(3)), ask: c.ask, measured: c.measured, options: c.options.map((o) => `${o.task} ${Math.round(o.p * 100)}%`) }
+  return { task: c.task, p: Number(c.p.toFixed(3)), ask: c.ask, measured: c.measured, reads: c.reads.map((r) => `${r.task} 예 ${Math.round(r.yes * 100)}%`) }
 })
 
 let caseId, instId
@@ -72,10 +72,20 @@ await step('메일이 오면 그 일에서 시작하는 스냅샷이 엔진에�
   const since = new Date()
   const r = await call(boss.tok, 'POST', '/mail/demo-arrive', REQUOTE)
   assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 200))
-  let c
+  // the start task is read with odds: sure → the case starts by itself; unsure (< 50%) → the card asks and the person picks
+  let c, asked = null
   for (let i = 0; i < 90 && !c; i++) {
     ;[c] = await q(`select * from pro_po_cases where tenant_id='ax-demo' and created_at >= $1 order by created_at desc limit 1`, [since])
-    if (!c) await sleep(2000)
+    if (c) break
+    ;[asked] = await q(`select m.id, m.content from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$1 and m.kind='onto-entry' and m.content->>'state'='ask' and m.created_at >= $2 order by m.created_at desc limit 1`, [boss.id, since])
+    if (asked) {
+      assert.equal(asked.content.choice.options[0].task, '견적서 작성', JSON.stringify(asked.content.choice))
+      const r2 = await call(boss.tok, 'POST', '/ontology/cases', { bundle: asked.content.choice.bundle, entry: '견적서 작성', subject: REQUOTE.subject, body: REQUOTE.text, from: REQUOTE.from, odds: asked.content.choice, kind: 'mail', messageId: asked.id })
+      assert.equal(r2.status, 200, JSON.stringify(r2.body))
+      ;[c] = await q(`select * from pro_po_cases where id=$1`, [r2.body.caseId])
+      break
+    }
+    await sleep(2000)
   }
   assert.ok(c, '건이 시작되지 않았다')
   caseId = c.id; instId = c.instances[0]
@@ -86,7 +96,7 @@ await step('메일이 오면 그 일에서 시작하는 스냅샷이 엔진에�
   const acts = d.definition.activities.map((a) => a.name)
   assert.equal(acts[0], '요청 접수')
   assert.ok(!acts.includes('현장 실측') && !acts.includes('평면도 작성'), acts.join(','))
-  return { caseId, instId, entry: c.entry_task, skipped, activities: acts, lanes: (d.definition.roles || []).map((x) => x.name) }
+  return { caseId, instId, entry: c.entry_task, asked: !!asked, skipped, activities: acts, lanes: (d.definition.roles || []).map((x) => x.name) }
 })
 
 await step('에이전트가 일 정의대로 견적서를 만들고 점검 항목을 확인한다', async () => {
@@ -106,20 +116,27 @@ await step('에이전트가 일 정의대로 견적서를 만들고 점검 항�
 
 await step('배운 조건대로: 1천만 원 이상이면 재무 검토(박서연)', async () => {
   const amount = out['에이전트가 일 정의대로 견적서를 만들고 점검 항목을 확인한다']?.amount
-  let next
+  // the engine's own gateway decision (it evaluates the learned condition), and the step it opened — the engine
+  // makes later steps' rows ahead as TODO, so the opened one is the IN_PROGRESS row
+  let gw, next
   for (let i = 0; i < 60; i++) {
-    ;[next] = await q(`select activity_name, user_id, status::text s from todolist where proc_inst_id=$1 and activity_name in ('재무 검토','고객 회신') order by start_date desc nulls last limit 1`, [instId])
+    ;[gw] = await q(`select data from events where proc_inst_id=$1 and event_type::text='gateway_decision' and data->'source'->>'type'='gateway' order by timestamp desc limit 1`, [instId]).catch(() => [])
+    ;[next] = await q(`select activity_name, user_id, status::text s from todolist where proc_inst_id=$1 and activity_name in ('재무 검토','고객 회신') and status::text in ('IN_PROGRESS','SUBMITTED','PENDING') order by start_date nulls last limit 1`, [instId])
     if (next) break
     await sleep(3000)
   }
-  assert.ok(next, '다음 단계가 생기지 않았다')
+  assert.ok(next, '다음 단계가 열리지 않았다')
   const expect = amount >= 10_000_000 ? '재무 검토' : '고객 회신'
   assert.equal(next.activity_name, expect, `amount ${amount}`)
+  const picked = (gw?.data?.selectedTargets || []).map((x) => x.activityName)
+  if (gw) assert.deepEqual(picked, [expect], `gateway ${JSON.stringify(picked)}`)
+  let to = null
   if (expect === '재무 검토') {
     const [u] = await q(`select email from users where id::text = split_part($1, ',', 1)`, [next.user_id])
-    assert.equal(u?.email, 'pro-ax-seoyeon@uengine.org')
+    to = u?.email
+    assert.equal(to, 'pro-ax-seoyeon@uengine.org')
   }
-  return { amount, next: next.activity_name, to: next.user_id }
+  return { amount, next: next.activity_name, status: next.s, to, gateway: gw ? { picked, rule: gw.data.selectionRule, why: (gw.data.evaluations || []).find((e) => e.selected)?.reason?.slice(0, 160) || (gw.data.evaluations || []).find((e) => e.selected)?.explanation?.slice(0, 160) || '' } : null }
 })
 
 console.log(failed ? `\n${failed} failed` : '\nall passed')

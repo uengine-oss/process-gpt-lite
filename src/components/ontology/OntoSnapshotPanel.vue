@@ -8,6 +8,9 @@ import { dateKo } from './fmt.js'
 
 const props = defineProps({ bundle: { type: Object, required: true }, at: { type: String, default: '' } })
 const entry = ref(props.bundle.entries?.[0] || props.bundle.tasks?.[0] || '')
+// a day to look at: the map's point in time, or a later one (a pin that takes effect next month shows from that day)
+const day = ref(props.at || '')
+watch(() => props.at, (v) => { day.value = v || '' })
 const snap = ref(null)
 const busy = ref(false)
 const err = ref('')
@@ -18,11 +21,11 @@ async function load() {
   err.value = ''
   try {
     const qs = new URLSearchParams({ bundle: props.bundle.key, entry: entry.value })
-    if (props.at) qs.set('at', `${props.at}T12:00:00Z`)
+    if (day.value) qs.set('at', `${day.value}T12:00:00Z`)
     snap.value = await api(`/ontology/snapshot?${qs}`)
   } catch (e) { err.value = e.message; snap.value = null } finally { busy.value = false }
 }
-watch(() => [props.bundle.key, props.at, entry.value], load, { immediate: true })
+watch(() => [props.bundle.key, day.value, entry.value], load, { immediate: true })
 </script>
 
 <template>
@@ -33,8 +36,13 @@ watch(() => [props.bundle.key, props.at, entry.value], load, { immediate: true }
         <option v-for="t in bundle.tasks" :key="t" :value="t">{{ t }}</option>
       </select>
     </label>
+    <label class="row">
+      <span>기준 날</span>
+      <input v-model="day" type="date" aria-label="기준 날" />
+      <button v-if="day" class="now press" @click="day = ''">지금</button>
+    </label>
     <p class="meta">
-      {{ at ? `${dateKo(`${at}T12:00:00`)} 기준` : '지금 기준' }}<template v-if="snap"> · θ {{ snap.theta }} · 일 {{ snap.nodes.length }}개{{ snap.reused ? ' · 같은 스냅샷 다시 씀' : '' }}</template>
+      {{ day ? `${dateKo(`${day}T12:00:00`)} 기준` : '지금 기준' }}<template v-if="snap"> · θ {{ snap.theta }} · 일 {{ snap.nodes.length }}개{{ snap.reused ? ' · 같은 스냅샷 다시 씀' : '' }}</template>
     </p>
     <p v-if="err" class="err">{{ err }}</p>
     <p v-else-if="busy && !snap" class="loading pulse">스냅샷 뽑는 중…</p>
@@ -53,6 +61,8 @@ watch(() => [props.bundle.key, props.at, entry.value], load, { immediate: true }
 .snap { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .row span { color: var(--text-secondary); min-width: 52px; }
+.row input { flex: 1; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--hairline); background: var(--field-bg); color: var(--text-primary); font: inherit; color-scheme: dark light; }
+.now { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--hairline); background: transparent; color: var(--text-secondary); }
 .row select { flex: 1; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--hairline); background: var(--field-bg); color: var(--text-primary); font: inherit; }
 .meta { margin: 0; font-size: 12.5px; color: var(--text-secondary); }
 .skipped { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

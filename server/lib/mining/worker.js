@@ -106,7 +106,8 @@ export const SKILLS = {
     return { values: { proposal: f }, say: L(`평면도를 넣은 워드 제안서(${f.name})를 썼어요.`, `I wrote the Word proposal (${f.name}) with the floor plan in it.`) }
   },
   // the agent's xlsx skill (deepagents), in the instance's conversation
-  async xlsx({ owner, threadId, prev, status }) {
+  // extra: what the process ontology's task definition adds (its form and checkpoints, lib/ontology/run.js)
+  async xlsx({ owner, threadId, prev, status, extra = '' }) {
     const { delegate } = await import('../agent.js')
     const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
     const { user, session } = await sessionFor(p.email, p.name)
@@ -115,10 +116,10 @@ export const SKILLS = {
     status(L('엑셀 견적서 만드는 중', 'Building the Excel quote'))
     const msg = await delegate({ user, session, threadId, silent: true,
       text: L(`프로세스 '견적서 작성' 단계예요. 고객 메일(${prev.subject})에 회신할 견적서를 만드세요. 평면도의 실별 면적: ${String(prev.rooms || '').split('\n').join(' / ')}\n메일 본문: ${String(prev.body || '').slice(0, 2000)}\n\n` +
-        `엑셀(xlsx) 스킬로 /workspace/${name} 를 만드세요: 위에 제목·수신·발신·견적일·유효기간, 품목 표(구분·품목·수량·단위·단가·금액, 금액은 =수량*단가 수식) — 설계비(평면·마감 설계, 1식), 실별 인테리어 공사(면적 ㎡ × ㎡당 단가, 실마다 한 줄), 가구·집기(좌석 수 기준), 전기·설비(1식), 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 천 단위 쉼표, 머리글 색 구분. 단가는 합리적인 가정값.\n\n` +
+        `엑셀(xlsx) 스킬로 /workspace/${name} 를 만드세요: 위에 제목·수신·발신·견적일·유효기간, 품목 표(구분·품목·수량·단위·단가·금액, 금액은 =수량*단가 수식) — 설계비(평면·마감 설계, 1식), 실별 인테리어 공사(면적 ㎡ × ㎡당 단가, 실마다 한 줄), 가구·집기(좌석 수 기준), 전기·설비(1식), 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 천 단위 쉼표, 머리글 색 구분. 단가는 합리적인 가정값.\n\n${extra ? `${extra}\n\n` : ''}` +
         `(평면도와 제안서는 앞 단계에서 이미 만들었으니 만들지 마세요.) 다 만들면 파일 이름과 가정한 단가를 두세 줄로 적고, 맨 마지막 줄에 부가세 포함 합계를 원 단위 숫자로 "TOTAL: 51216000" 처럼 한 줄로 쓰세요. 모두 한국어(해요체)로 쓰세요.`,
       `This is the 'Prepare quote' step of a process. Build the quote that answers the customer mail (${prev.subject}). Room areas from the floor plan: ${String(prev.rooms || '').split('\n').join(' / ')}\nMail body: ${String(prev.body || '').slice(0, 2000)}\n\n` +
-        `With the Excel (xlsx) skill, create /workspace/${name}: at the top the title, to, from, quote date and validity; an item table (category, item, quantity, unit, unit price, amount — amount as the formula =quantity*unit price) with the design fee (floor plan and finishing design, 1 lot), interior work per room (area in ㎡ × price per ㎡, one row per room), furniture and fixtures (by the number of seats), and electrical and equipment (1 lot); below it subtotal, VAT (10%) and total rows (all formulas), thousands separators, colored header row. Use reasonable assumed unit prices in KRW (₩).\n\n` +
+        `With the Excel (xlsx) skill, create /workspace/${name}: at the top the title, to, from, quote date and validity; an item table (category, item, quantity, unit, unit price, amount — amount as the formula =quantity*unit price) with the design fee (floor plan and finishing design, 1 lot), interior work per room (area in ㎡ × price per ㎡, one row per room), furniture and fixtures (by the number of seats), and electrical and equipment (1 lot); below it subtotal, VAT (10%) and total rows (all formulas), thousands separators, colored header row. Use reasonable assumed unit prices in KRW (₩).\n\n${extra ? `${extra}\n\n` : ''}` +
         `(The floor plan and the proposal were made in earlier steps — do not make them.) When it is done, give the file name and the unit prices you assumed in two or three lines, and on the very last line the total incl. VAT in won as a plain number, like "TOTAL: 51216000". Write everything in English.`) })  // (delegate adds the language instruction)
     const f = await newFile(threadId, since, 'xlsx')
     if (!f) throw new Error(L('견적서 파일을 찾지 못했어요', "I couldn't find the quote file"))

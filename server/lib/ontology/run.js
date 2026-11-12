@@ -123,7 +123,7 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
     role(r, runner ? agent : '')
     forms.push({ activity_id: id, form_id: fid, html: formHtml(fid, k, [{ key: 'result', text: `${k} 결과`, type: 'textarea' }]) })
     const base = { elementType: 'Activity', id, name: k, role: r, type: 'UserActivity', tool: `formHandler:${fid}`, duration: 1, inputData: [], outputData: [k],
-      checkpoints: d.checkpoints, skills: d.skills, description: d.description || '', instruction: d.instruction || '' }
+      checkpoints: d.checkpoints, skills: d.skills, outputs: d.outputs, description: d.description || '', instruction: d.instruction || '' }
     elements.push(runner ? { ...base, agent, agentMode: 'complete', orchestration: ORCH } : { ...base, agentMode: 'none' })
   }
   elements.push({ elementType: 'Event', id: 'end', name: '끝', role: starterRole, type: 'EndEvent' })
@@ -224,41 +224,55 @@ export async function snapshot({ bundleKey, entry, theta, validAt, starterRole }
 // ---------- the start task ----------
 // the request's text → which task it starts at: the model's first-token odds over the bundle's tasks, weighted by how
 // often cases start there (smoothed); unsure (top < 0.5) → the person picks from the two best
+// The start task (design §4.4): walk the bundle's usual way (from its receipt, the most likely next step each time) and ask,
+// task by task, whether this request needs it done anew — the first "yes" is where the case starts. A yes/no reading per
+// step (first-token odds) is what this model answers reliably; one pick out of eight was not (measured: 「견적만 다시」
+// read as 고객 회신 87%). The probability is P(yes here) × Π P(no before); under 0.5 the person picks.
+export function mainPath(bundle, tasks, edges, receipt) {
+  const inB = new Set(bundle.tasks)
+  const start = [...receipt].find((r) => inB.has(r)) || bundle.entries?.[0]
+  const path = [], seen = new Set([start])
+  let x = start
+  for (;;) {
+    const next = edges.filter((e) => e.from === x && e.to !== END && inB.has(e.to) && !seen.has(e.to) && e.status !== 'retired').sort((a, b) => b.p - a.p)[0]
+    if (!next) break
+    path.push(next.to); seen.add(next.to); x = next.to
+  }
+  return { start, path }
+}
+
 export async function chooseEntry({ subject = '', text = '', bundleKey } = {}) {
   const g = await readGraph({})
-  const bundles = g.bundles.filter((b) => (bundleKey ? b.key === bundleKey : b.status === 'adopted'))
-  if (!bundles.length) return null
-  const inBundles = (k) => bundles.some((b) => b.tasks.includes(k))
-  const all = g.tasks.filter((t) => inBundles(t.key) && t.status !== 'retired' && !t.candidate)
-  // the receipt (a task that is nearly always a case's first step, like 요청 메일 접수) is what every snapshot opens with
-  // (요청 접수): the choice is the first work after it
+  const adopted = g.bundles.filter((b) => (bundleKey ? b.key === bundleKey : b.status === 'adopted')).sort((a, b) => b.cases - a.cases)
+  if (!adopted.length) return null
+  const bundle = adopted[0]
   const cases = g.meta?.cases || 1
-  const receipt = new Set(all.filter((t) => t.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2).map((t) => t.key))
-  const cand = all.filter((t) => !receipt.has(t.key))
-  const after = (k) => cand.find((t) => t.key === k)?.entry_share || 0
-  const prior = new Map(cand.map((t) => [t.key, after(t.key)]))
-  for (const r of receipt) {
-    const rs = all.find((t) => t.key === r)?.entry_share || 0
-    for (const e of g.edges.filter((x) => x.from === r && prior.has(x.to))) prior.set(e.to, prior.get(e.to) + rs * e.p)
-  }
-  const options = cand.map((t) => ({ key: t.key, label: `${t.key}${t.role ? ` (${t.role})` : ''}` }))
+  // the receipt (a task that is nearly always a case's first step, like 요청 메일 접수) is the snapshot's own 요청 접수
+  const receipt = new Set(g.tasks.filter((t) => t.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2).map((t) => t.key))
+  const { path } = mainPath(bundle, g.tasks, g.edges, receipt)
+  const byKey = new Map(g.tasks.map((t) => [t.key, t]))
   const state = `회사에 들어온 요청\n제목: ${String(subject).slice(0, 200)}\n내용: ${String(text).slice(0, 1500)}`
-  const question = '이 요청을 받은 회사가 이어서 처음 해야 할 일은 무엇인가? 고객이 이미 끝난 앞 단계는 다시 하지 않는다.'
-  const read = await oddsOf(state, question, options).catch(() => null)
-  let probs
-  if (read?.probabilities) probs = read.probabilities
-  else {
-    // no log-probabilities from this model: the model names one, without odds (marked as such)
-    const r = await chatJson('JSON {"task"} 로만 답하세요. ' + question, JSON.stringify({ request: state, tasks: options.map((o) => o.key) }), { temperature: 0 }).catch(() => ({}))
-    probs = Object.fromEntries(options.map((o) => [o.key, o.key === r.task ? 0.6 : 0.4 / Math.max(1, options.length - 1)]))
+  const reads = []
+  let measured = true, noBefore = 1
+  for (const k of path) {
+    const t = byKey.get(k)
+    const what = t?.description || `${t?.role || '담당자'}의 일`
+    const r = await oddsOf(state, `이 요청에 답하려면 회사가 「${k}」(${what})를 이번에 새로 해야 하나? 고객이 이미 받았고 그대로 두라는 것은 다시 하지 않는다.`,
+      [{ key: 'yes', label: '예, 새로 해야 한다' }, { key: 'no', label: '아니요, 이번에는 하지 않아도 된다' }]).catch(() => null)
+    let yes = r?.probabilities?.yes
+    if (yes == null) {
+      measured = false
+      const j = await chatJson('JSON {"needed": true|false} 로만 답하세요.', JSON.stringify({ request: state, question: `「${k}」를 이번에 새로 해야 하나?` }), { temperature: 0 }).catch(() => ({}))
+      yes = j.needed ? 0.7 : 0.3
+    }
+    reads.push({ task: k, yes, p: yes * noBefore })
+    if (yes >= 0.5) break
+    noBefore *= 1 - yes
   }
-  // the model's reading weighted by how often that work came first after a receipt (smoothed)
-  const w = options.map((o) => ({ task: o.key, p: (probs[o.key] || 0) * ((prior.get(o.key) || 0) + 0.05) }))
-  const sum = w.reduce((s2, x) => s2 + x.p, 0) || 1
-  const ranked = w.map((x) => ({ ...x, p: x.p / sum })).sort((a, b) => b.p - a.p)
-  const top = ranked[0]
-  const bundle = bundles.find((b) => b.tasks.includes(top.task))
-  return { task: top.task, p: top.p, ask: top.p < 0.5, options: ranked.slice(0, 3), bundle: bundle?.key, bundleName: bundle?.name, measured: !!read?.probabilities, receipt: [...receipt] }
+  const ranked = [...reads].sort((a, b) => b.p - a.p)
+  const top = reads.find((x) => x.yes >= 0.5) || ranked[0]
+  if (!top) return null
+  return { task: top.task, p: top.p, ask: top.p < 0.5, options: ranked.slice(0, 3).map(({ task, p }) => ({ task, p })), reads, bundle: bundle.key, bundleName: bundle.name, measured, receipt: [...receipt] }
 }
 
 // ---------- cases ----------
@@ -341,7 +355,7 @@ async function checkOutputs(checkpoints, file) {
     const buf = Buffer.from(await (await fetch(file.url)).arrayBuffer())
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    wb.eachSheet((ws) => ws.eachRow((row) => { text += row.values.filter((v) => v != null).map((v) => (typeof v === 'object' ? (v.result ?? v.text ?? v.formula ?? '') : v)).join(' | ') + '\n' }))
+    text = (await import('./taskdef.js')).sheetText(wb)
   } catch (e) { text = '' }
   if (!text) return checkpoints.map((c) => ({ checkpoint: c, ok: null, note: '파일을 읽지 못했어요' }))
   try {
@@ -370,6 +384,20 @@ async function tick() {
   } catch (e) { console.warn('[onto-worker]', e.message) } finally { busy = false }
 }
 
+// the task definition the skill follows on top of its own way of working: what the step does, the form the
+// company's mail shows for it (its cells as text, so the agent keeps the same labels and layout) and what to keep
+async function definitionText(name, act) {
+  const { templatesOf, templateText } = await import('./taskdef.js')
+  const out = (act.outputs || []).find((o) => o.template)
+  const t = out ? (await templatesOf(name)).find((x) => x.name === out.template && x.file) : null
+  const form = t ? await templateText(t.file).catch(() => '') : ''
+  return [
+    act.instruction ? `이 일의 정의(회사 업무 지도에서):\n${act.instruction}` : '',
+    form ? `회사가 메일로 주고받아 온 양식 「${t.name}」의 칸이에요. 위의 품목 표 안내와 다르면 이 양식을 따르세요 — 머리 칸 · 표의 열 이름 · 안내 문구를 그대로 두고 채우세요:\n${form}` : '',
+    act.checkpoints?.length ? `만든 파일은 다음을 모두 지켜야 해요(빠짐없이 파일 안에 적으세요):\n${act.checkpoints.map((c) => `- ${c}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n')
+}
+
 async function runStep(row) {
   const W = await import('../mining/worker.js')
   const job = crypto.randomUUID()
@@ -384,7 +412,7 @@ async function runStep(row) {
   await W.events([{ ...base, event_type: 'task_started', data: { goal: `${row.activity_name} — 일 정의(스킬 ${(act.skills || []).join(', ') || '없음'} · 점검 ${(act.checkpoints || []).length}개)`, name: '업무 에이전트', role: row.activity_name } }])
   let r
   try {
-    if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await W.earlier(row.proc_inst_id), status })
+    if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await W.earlier(row.proc_inst_id), status, extra: await definitionText(row.activity_name, act) })
     else {
       const { delegate } = await import('../agent.js')
       const { sessionFor } = await import('../supa.js')

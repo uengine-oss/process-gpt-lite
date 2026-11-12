@@ -118,16 +118,34 @@ function templateFile(attachmentName) {
   return null
 }
 
-async function templateText(rel) {
+// a cell as the text a person sees: rich-text runs joined (LibreOffice saves a mixed-font cell that way), a formula by
+// its last result, a date as its day
+export function cellText(v) {
+  if (v == null) return ''
+  if (v instanceof Date) return v.toISOString().slice(0, 10)
+  if (typeof v !== 'object') return String(v)
+  if (Array.isArray(v.richText)) return v.richText.map((r) => r.text || '').join('')
+  if (v.text != null) return cellText(v.text)
+  if (v.result != null) return cellText(v.result)
+  if (v.formula || v.sharedFormula) return `=${v.formula || v.sharedFormula}`
+  return ''
+}
+// a workbook as lines of cells (a merged range's repeated value once)
+export function sheetText(wb) {
+  const lines = []
+  wb.eachSheet((ws) => ws.eachRow((row) => {
+    const cells = []
+    row.eachCell((c) => { if (c.isMerged && c.master.address !== c.address) return; const t = cellText(c.value).trim(); if (t) cells.push(t) })
+    if (cells.length) lines.push(cells.join(' | '))
+  }))
+  return lines.join('\n')
+}
+
+export async function templateText(rel) {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.readFile(path.join(FIXTURES, rel))
-  const lines = []
-  wb.eachSheet((ws) => ws.eachRow((row) => {
-    const cells = row.values.filter((v) => v != null && String(typeof v === 'object' ? v.text ?? v.result ?? '' : v).trim()).map((v) => (typeof v === 'object' ? (v.text ?? v.result ?? '') : v))
-    if (cells.length) lines.push(cells.join(' | '))
-  }))
-  return lines.join('\n').slice(0, 4000)
+  return sheetText(wb).slice(0, 4000)
 }
 
 const DRAFT = `회사 업무 한 가지의 「일 정의」 초안을 씁니다. JSON {"description","runner","skills","checkpoints","outputs","body"} 로만 답하세요.
