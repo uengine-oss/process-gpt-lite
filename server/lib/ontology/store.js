@@ -38,7 +38,10 @@ const toPlain = (v) => {
 }
 
 // One Cypher statement in the tenant's graph. meta: {actor, reason, source, validFrom, validAt, systemAt}
-export async function cypher(query, params = {}, meta = {}, tenant = config.tenantId) {
+// A graph dropped outside this process (a demo reset) leaves `made` saying it exists, and Bolt then answers with the
+// dropped graph's views (relation "og_data.v_…" does not exist): forget it, make the graph again, and run once more.
+const goneGraph = (e) => /relation "og_data\.v_\d+" does not exist|graph .* does not exist/i.test(e?.message || '')
+export async function cypher(query, params = {}, meta = {}, tenant = config.tenantId, again = true) {
   await ensureGraph(tenant)
   const s = bolt().session({ database: graphName(tenant) })
   const metadata = Object.fromEntries(Object.entries({ source: 'pgpt-lite', ...meta }).filter(([, v]) => v !== undefined && v !== null && v !== ''))
@@ -46,9 +49,10 @@ export async function cypher(query, params = {}, meta = {}, tenant = config.tena
     const r = await s.run(query, params, { metadata })
     return r.records.map((rec) => Object.fromEntries(rec.keys.map((k) => [k, toPlain(rec.get(k))])))
   } catch (e) {
+    if (again && goneGraph(e)) { made.delete(graphName(tenant)); await s.close(); return cypher(query, params, meta, tenant, false) }
     e.message = `${e.message} — in: ${query.replace(/\s+/g, ' ').slice(0, 90)}${metadata.validFrom ? ` (validFrom ${metadata.validFrom})` : ''}`
     throw e
-  } finally { await s.close() }
+  } finally { await s.close().catch(() => {}) }
 }
 
 // ---------- install-time: the company's graph ----------

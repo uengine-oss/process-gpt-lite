@@ -46,7 +46,11 @@ await step('메일 연결 전: 지도 없음', async () => {
   const s = (await call(boss.tok, 'GET', '/ontology/status')).body
   assert.equal(s.enabled, true, 'Ontological 연결')
   assert.equal(s.admin, true)
-  return { meta: s.meta }
+  // the first screen reads the map too: an empty graph (also one a reset dropped under a running server) is no map, not an error
+  const m = await call(boss.tok, 'GET', '/ontology/map')
+  assert.equal(m.status, 200, JSON.stringify(m.body))
+  assert.equal(m.body.tasks.length, 0)
+  return { meta: s.meta, tasks: m.body.tasks.length }
 })
 
 let mailJob
