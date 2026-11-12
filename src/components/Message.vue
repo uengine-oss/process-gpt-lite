@@ -85,6 +85,10 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     </template>
     <template v-else-if="msg.kind === 'text'">
       <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <!-- 회사 프로세스 지도의 업무 에이전트: 일 정의의 점검 항목마다 지켰는지(근거는 마우스를 올리면) -->
+      <ul v-if="c.checks?.length" class="checks" data-testid="onto-checks">
+        <li v-for="(x, i) in c.checks" :key="i" :class="x.ok === true ? 'ok' : x.ok === false ? 'no' : 'na'" :title="x.note"><b>{{ x.ok === true ? '✓' : x.ok === false ? '✗' : '?' }}</b><span>{{ x.checkpoint }}</span></li>
+      </ul>
       <div v-if="replies" class="replies">
         <button v-for="o in replies.options" :key="o.label" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id)">{{ o.label }}</button>
       </div>
@@ -168,6 +172,12 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 </template>
 
 <style scoped>
+.checks { list-style: none; margin: 6px 0 0; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 5px; font-size: 13px; max-width: 560px; }
+.checks li { display: flex; gap: 8px; line-height: 1.45; color: var(--text-secondary); }
+.checks b { flex: none; width: 14px; text-align: center; }
+.checks .ok b { color: var(--color-success, #1a7f37); }
+.checks .no b { color: var(--color-danger, #d1242f); }
+.checks .no span { color: var(--text-primary); }
 /* the last 검수 of an edited copy (lib/review.js) */
 .reviewed { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; background: rgba(60, 190, 120, .22); color: #8fe0a8; }
 .reviewed.warn { background: rgba(240, 160, 40, .22); color: #ffc46b; }

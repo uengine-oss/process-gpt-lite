@@ -65,7 +65,7 @@ test('F-PO-04 스냅샷 — 같은 키는 같은 정의를 다시 쓴다, 맨 �
   expect(one.skipped.length).toBeGreaterThan(0)
   const [d] = await db.q('select definition from proc_def where id=$1', [one.procDefId])
   expect(d.definition.activities[0].name).toBe('요청 접수')
-  expect(d.definition.activities.map((a) => a.name)).not.toContain('현장 실측')
+  expect(d.definition.activities.map((a) => a.name)).not.toContain('현장 확인')
 })
 
 test('F-PO-05 앞날짜 고정 — 그날 뒤 스냅샷에만 재무 검토가 반드시, 결정 원장, 관리자만', async ({ as, db, cleanup }) => {
