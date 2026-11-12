@@ -9,9 +9,14 @@ let sel = lite.params.r || null
 let pick = {}            // what the person chose on the open plan: { scope, mode, fast }
 let editUnits = false
 let sending = false
+// inside a conversation (the chat called intake_propose): the one request's plan, as tall as it is
+const card = !!lite.params.card
+if (card) document.documentElement.classList.add('card')
 
 const STATUS = { estimating: t('계획 세우는 중', 'Working out'), proposed: t('계획안', 'Plan ready'), inbox: t('접수 대기', 'Waiting'), queued: t('줄에 섬', 'In line'), started: t('시작됨', 'Started'),
-  merged: t('합침', 'Folded in'), later: t('나중에', 'Later'), declined: t('받지 않음', 'Declined'), failed: t('계획 실패', 'Failed') }
+  merged: t('합침', 'Folded in'), later: t('나중에', 'Later'), declined: t('받지 않음', 'Declined'), failed: t('계획 실패', 'Failed'), discarded: t('폐기됨', 'Discarded') }
+// (a request whose bolts were all discarded reads as discarded, whatever was decided about it before)
+const stOf = (r) => (r.discarded ? 'discarded' : r.status)
 const KIND = { bug: t('버그', 'Bug'), feature: t('새 기능', 'Feature'), change: t('변경', 'Change'), security: t('보안', 'Security'), refactor: t('정리', 'Refactor'), question: t('질문', 'Question') }
 const SCORE = { iae: t('요청의 모호함', 'Unclear intent'), csu: t('코드의 얽힘', 'Code coupling'), ve: t('확인 근거 부족', 'Weak evidence'), r: t('틀렸을 때 위험', 'Risk'), ua: t('숨은 가정', 'Assumptions') }
 const WHY = { kind: (e) => t(`<b>${esc(KIND[e.kind] || e.kind)}</b> 요청이라 그 일에 맞춘 범위를 골랐어요.`, `A <b>${esc(KIND[e.kind] || e.kind)}</b> request: the scope made for it.`),
@@ -32,6 +37,7 @@ async function load(keep = true) {
 }
 
 function draw() {
+  if (card) return drawPlan()
   drawAsk(); drawHead(); drawList(); drawPlan()
 }
 
@@ -75,19 +81,22 @@ function row(r) {
   const clash = (r.estimate?.conflicts || []).filter((c) => !c.compatible && boltOf(c.bolt) && !boltOf(c.bolt).discarded).length
   return `<div class="req${sel === r.id ? ' sel' : ''}" data-req="${r.id}" data-test="intake-req" data-status="${r.status}">${lite.avatar(r.asker.name || '?', { size: 26 })}
     <div class="ti">${esc(r.title)}</div><div class="me">${esc(r.asker.name)} · ${esc(lite.ago(r.at))}${clash ? ` · <span class="clash">${esc(t(`볼트 ${clash}개와 충돌`, `clashes with ${clash}`))}</span>` : ''}</div>
-    <div class="st"><span class="chip ${r.status}">${r.status === 'estimating' ? '<span class="spin"></span>' : ''}${esc(STATUS[r.status] || r.status)}</span>${r.scope ? `<span class="chip">${esc(r.scope)}</span>` : ''}</div></div>`
+    <div class="st"><span class="chip ${stOf(r)}">${r.status === 'estimating' ? '<span class="spin"></span>' : ''}${esc(STATUS[stOf(r)] || r.status)}</span>${r.scope ? `<span class="chip">${esc(r.scope)}</span>` : ''}</div></div>`
 }
 
 function drawPlan() {
   const el = $('#plan')
   const r = V.requests.find((x) => x.id === sel)
+  // (a narrow screen shows one column: the picked plan comes first, the list after it)
+  document.documentElement.classList.toggle('picked', !!r)
+  if (!r && card) { el.innerHTML = `<p class="hint">${esc(t('이 요청은 거두었거나 더 이상 없어요.', 'This request was withdrawn or is gone.'))}</p>`; return }
   if (!r) {
     el.innerHTML = `<p class="hint">${esc(t('요청을 고르면 Lite 가 세운 계획안이 여기에 보여요. 계획안에는 어떤 범위로 돌릴지, 어느 유닛과 계약을 건드리는지, 줄에 있는 볼트와 부딪히는지가 근거와 함께 들어 있어요.', 'Pick a request to see the plan proposed for it: the scope, the units and contracts it touches, and whether it collides with a bolt in the line.'))}</p>${ledger()}`
     return
   }
   const e = r.estimate
   const head = `<div class="p-head"><div><div class="tt" data-test="plan-title">${esc(r.title)}</div></div>${e?.ars ? `<div class="ars" title="ARS"><div class="num" data-test="plan-ars">${Math.round(e.ars.total)}</div><div class="lab">ARS · ${esc(e.ars.label || '')}</div></div>` : ''}</div>
-    <div class="p-sub">${lite.avatar(r.asker.name || '?', { size: 20 })} ${esc(r.asker.name)} · ${esc(lite.ago(r.at))}${e?.kind ? ` <span class="chip">${esc(KIND[e.kind] || e.kind)}</span>` : ''}<span class="chip ${r.status}" data-test="plan-status">${esc(STATUS[r.status] || r.status)}</span>${r.source === 'chat' ? `<span class="chip">${esc(t('채팅에서', 'from chat'))}</span>` : ''}</div>
+    <div class="p-sub">${lite.avatar(r.asker.name || '?', { size: 20 })} ${esc(r.asker.name)} · ${esc(lite.ago(r.at))}${e?.kind ? ` <span class="chip">${esc(KIND[e.kind] || e.kind)}</span>` : ''}<span class="chip ${stOf(r)}" data-test="plan-status">${esc(STATUS[stOf(r)] || r.status)}</span>${r.source === 'chat' ? `<span class="chip">${esc(t('채팅에서', 'from chat'))}</span>` : ''}</div>
     <div class="body">${esc(r.body)}</div>`
   if (r.status === 'estimating') { el.innerHTML = `${head}<div class="note"><span class="spin"></span>${esc(t('프로젝트의 기록과 코드를 읽고 계획을 세우고 있어요. 1분쯤 걸려요. 아무것도 바꾸지 않아요.', 'Reading the project’s record and code to work out a plan — about a minute. Nothing is changed.'))}</div>`; return }
   if (r.status === 'failed') {
@@ -146,11 +155,11 @@ function drawPlan() {
     foot = `<div class="note" data-test="plan-waiting">${esc(r.status === 'queued' ? t(`${r.decidedBy || ''} 님이 줄에 세웠어요. 앞 작업이 끝나면 접수 권한이 있는 사람이 시작해요.`, `${r.decidedBy || ''} stood it in line.`) : r.status === 'later' ? t('나중에 하기로 한 요청이에요.', 'Put off for later.') : t(`접수를 기다리고 있어요. ${names(V.people.intake)} 님이 계획안을 보고 시작·대기·합치기를 정해요.`, `Waiting: ${names(V.people.intake)} decide.`))}${r.note ? ` — ${esc(r.note)}` : ''}</div>
       ${r.mine ? `<div class="acts"><button data-act="withdraw" data-test="plan-withdraw">${esc(t('요청 거두기', 'Withdraw'))}</button></div>` : ''}`
   } else {
-    foot = `<div class="note ${r.status === 'declined' ? 'bad' : 'good'}" data-test="plan-outcome">${esc(r.status === 'started' ? t(`${r.decidedBy || ''} 님이 시작했어요${r.done ? ' · 끝났어요' : ''}.`, `${r.decidedBy || ''} started it${r.done ? ' · finished' : ''}.`) : r.status === 'merged' ? t(`${r.decidedBy || ''} 님이 진행 중이던 작업에 합쳤어요.`, `${r.decidedBy || ''} folded it into the work in flight.`) : t(`${r.decidedBy || ''} 님이 받지 않기로 했어요.`, `${r.decidedBy || ''} declined it.`))}${r.note ? ` — ${esc(r.note)}` : ''}
+    foot = `<div class="note ${r.status === 'declined' || r.discarded ? 'bad' : 'good'}" data-test="plan-outcome">${esc(r.discarded && r.status !== 'declined' ? t('이 작업의 볼트는 모두 폐기됐어요.', 'Every bolt of this work was discarded.') : r.status === 'started' ? t(`${r.decidedBy || ''} 님이 시작했어요${r.done ? ' · 끝났어요' : ''}.`, `${r.decidedBy || ''} started it${r.done ? ' · finished' : ''}.`) : r.status === 'merged' ? t(`${r.decidedBy || ''} 님이 진행 중이던 작업에 합쳤어요.`, `${r.decidedBy || ''} folded it into the work in flight.`) : t(`${r.decidedBy || ''} 님이 받지 않기로 했어요.`, `${r.decidedBy || ''} declined it.`))}${r.note ? ` — ${esc(r.note)}` : ''}
       ${['started', 'merged'].includes(r.status) ? ` <a data-act="line">${esc(t('볼트 줄에서 보기', 'See the line'))} →</a>` : ''}</div>`
   }
   if (can && r.note && ['later', 'inbox'].includes(r.status)) foot = `<div class="note">${esc(r.note)}</div>${foot}`
-  el.innerHTML = `${head}${scope}<p class="sum" data-test="plan-summary">${esc(e.summary)}</p>${touches}${conflicts ? `<div class="sec">${esc(t('줄에 있는 볼트와 부딪히는 곳', 'Where it collides with the line'))}</div>${conflicts}` : ''}${scores}${near}${foot}${e.cost && !e.cost.stub ? `<p class="faint small" style="margin-top:14px">${esc(t(`계획 세우는 데 ${Math.round(e.cost.ms / 1000)}초 · ${e.cost.turns}턴 · $${Number(e.cost.usd || 0).toFixed(2)}`, `Planned in ${Math.round(e.cost.ms / 1000)} s · ${e.cost.turns} turns · $${Number(e.cost.usd || 0).toFixed(2)}`))}</p>` : ''}`
+  el.innerHTML = `${head}${scope}<p class="sum" data-test="plan-summary">${esc(e.summary)}</p>${touches}${conflicts ? `<div class="sec">${esc(t('줄에 있는 볼트와 부딪히는 곳', 'Where it collides with the line'))}</div>${conflicts}` : ''}${card ? '' : `${scores}${near}`}${foot}${card && (scores || near) ? `<p class="small" style="margin:10px 2px 0"><a data-act="large" data-test="plan-large">${esc(t('어떻게 가늠했는지 · 다른 요청 보기', 'How it was sized · the other requests'))} →</a></p>` : ''}${e.cost && !e.cost.stub ? `<p class="faint small" style="margin-top:14px">${esc(t(`계획 세우는 데 ${Math.round(e.cost.ms / 1000)}초 · ${e.cost.turns}턴 · $${Number(e.cost.usd || 0).toFixed(2)}`, `Planned in ${Math.round(e.cost.ms / 1000)} s · ${e.cost.turns} turns · $${Number(e.cost.usd || 0).toFixed(2)}`))}</p>` : ''}`
 }
 
 function unitsEdit(on) {
@@ -198,11 +207,12 @@ async function act(name, args, done) {
 document.addEventListener('click', async (ev) => {
   const el = ev.target.closest('[data-req], [data-act], [data-mode]')
   if (!el) return
-  if (el.dataset.req) { sel = el.dataset.req; editUnits = false; drawList(); drawPlan(); return }
+  if (el.dataset.req) { sel = el.dataset.req; editUnits = false; drawList(); drawPlan(); window.scrollTo({ top: 0 }); return }
   if (el.dataset.mode) { if (!el.disabled) { pick[sel].mode = el.dataset.mode; drawPlan() } return }
   const a = el.dataset.act
   const r = V.requests.find((x) => x.id === sel)
   if (a === 'line') return lite.openApp('line')
+  if (a === 'large') return lite.openApp('intake', { r: sel })
   if (a === 'see-bolt') return lite.openApp('line', { b: el.dataset.key })
   if (a === 'close') return closeDialog()
   if (a === 'units') { editUnits = !editUnits; return drawPlan() }

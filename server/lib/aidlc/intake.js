@@ -187,6 +187,12 @@ export async function view(slug, user) {
   }
 }
 
+// what this person may do here and who takes in work (the chat says which of the two the asker is)
+export async function rights(slug, user) {
+  const { folder } = await open(slug, user)
+  return { folder: pub(folder), rights: await rightsOf(folder, user), intake: (await holdersOf(folder, 'intake')).map((p) => p.name) }
+}
+
 // ---------- a request ----------
 // anyone in the project asks; the plan is worked out behind (a minute or so) and the screens are told
 export async function propose(slug, user, { body, source = 'app' }) {

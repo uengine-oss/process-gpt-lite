@@ -20,6 +20,17 @@ export async function projects(user) {
   return out
 }
 
+// the same list by name only (the chat asks "is there a project this request is for?" on every turn)
+export async function projectsOf(user) {
+  const out = []
+  for (const id of await F.readableFolderIds(user.id)) {
+    const f = await F.folderById(id)
+    if (!f || f.kind === 'skill' || !f.repo_path || !(await R.hasAidlc(f.repo_path))) continue
+    out.push({ folder: f.slug, name: f.name, at: f.updated_at })
+  }
+  return out.sort((a, b) => String(b.at).localeCompare(String(a.at)))
+}
+
 export async function intents(slug, user) {
   const { root } = await rootOf(slug, user)
   return R.listIntents(root)

@@ -32,6 +32,8 @@ import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folder
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
+import { projectsOf as aidlcProjects } from './aidlc/service.js'
+import * as Intake from './aidlc/intake.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
 const attached = new Map() // threadId -> [{name, path, url, type, size}]
@@ -101,6 +103,23 @@ const ROUTER_TOOLS = [
           ack: { type: 'string', description: '해요체 한 문장' },
         },
         required: ['member', 'title', 'message', 'ack'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'aidlc_work',
+      description: 'The user wants the team\'s software project (listed in the system message as an AI-DLC project) CHANGED: a new feature ("반복 예약 기능을 넣어 주세요"), a bug to fix ("알림 메일이 두 번 와요, 고쳐 주세요"), a wording or screen change, a refactor, a security fix. The request is handed to the project\'s work intake, which proposes a plan first; nothing is built in this chat. NOT for questions about the project or how it is going, and NOT for documents, mails, panels or processes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          request: { type: 'string', description: "what should be changed, in the user's own words — the whole request, with what was said earlier when this turn only adds to it" },
+          project: { type: 'string', description: 'the project name, when the system message lists more than one' },
+          sure: { type: 'boolean', description: 'false when the words may be only a question or a remark ("알림이 두 번 오던데 왜 그래요?"), not a request to change the software' },
+          ack: { type: 'string', description: '해요체 한 문장' },
+        },
+        required: ['request', 'ack'],
       },
     },
   },
@@ -203,6 +222,18 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (context) hist[hist.length - 1] = { role: 'user', content: `${text}\n\n${context}` }
   const now = new Date().toLocaleString(locale(), { timeZone: 'Asia/Seoul' })
 
+  // "작업으로 접수할까요?" was asked just before: this turn is its answer (anything else lets the question go)
+  const asked = workAsk.get(threadId)
+  workAsk.delete(threadId)
+  if (asked && !files.length) {
+    const named = !asked.slug && (await aidlcProjects(user).catch(() => [])).find((p) => flat(text).includes(flat(p.name)))
+    if (asked.slug ? WORK_YES.test(text.trim()) : named) return aidlcWorkTurn({ user, threadId, text, onDelta, confirmed: { slug: asked.slug || named.folder, body: asked.body } })
+  }
+  // "작업 접수: 예약 알림 메일이 두 번 와요" — said outright
+  if (WORK_SAID.test(text.trim()) && !files.length && (await aidlcHint(user))) {
+    return aidlcWorkTurn({ user, threadId, text, onDelta, args: { request: text.trim().replace(WORK_SAID, '').trim() }, outright: true })
+  }
+
   // Skill authoring belongs to deepagents' own skill-creator (its root prompt routes '스킬 만들어줘'
   // there); pass such requests through untouched instead of classifying them here.
   // ("…점검 방법을 스킬로 만들어 줘" and "아까 만들던 … 스킬을 마무리해 줘" — the tutorial's own wording — are too)
@@ -286,15 +317,17 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const processHint = await processCatalogHint()
   const teamHint = await teamCatalogHint(userId)
   const appHint = await panelAppHint(user)
+  const workHint = await aidlcHint(user)
   const route = await chat({
     model: config.llm.fastModel,
     temperature: 0,
     // with no apps to name, a small router model still reaches for panel_record ("'문서 작성' 패널을 찾지 못했어요")
-    tools: routerTools(appHint ? ROUTER_TOOLS : ROUTER_TOOLS.filter((t) => t.function.name !== 'panel_record')),
+    // (and no project to change: no work intake)
+    tools: routerTools(ROUTER_TOOLS.filter((t) => (appHint || t.function.name !== 'panel_record') && (workHint || t.function.name !== 'aidlc_work'))),
     messages: [
       { role: 'system', content: isEn()
-        ? PERSONA_EN.replace('{now}', now) + skillHint + processHint + teamHint + appHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
-        : PERSONA.replace('{now}', now) + skillHint + processHint + teamHint + appHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
+        ? PERSONA_EN.replace('{now}', now) + skillHint + processHint + teamHint + appHint + workHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
+        : PERSONA.replace('{now}', now) + skillHint + processHint + teamHint + appHint + workHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
       ...hist.slice(-8),
     ],
   })
@@ -304,6 +337,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (!call || strayPanel) return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
 
   const args = JSON.parse(call.function.arguments || '{}')
+  if (call.function.name === 'aidlc_work') return aidlcWorkTurn({ user, threadId, text, args, onDelta })
   // only designing a new process goes on to the agent; the other tools answer here
   if (!(call.function.name === 'process' && args.intent === 'create')) noAgentTurn()
   const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack })
@@ -482,6 +516,53 @@ async function improveTurn({ user, threadId, text, onDelta, proc }) {
 
 const PANEL_WORDS = /패널|위젯|앱|홈에|대시보드|관리|대장|목록|명단|추적|트래커|현황판|날씨|환율|주가|주식/
 const PANEL_WORDS_EN = /\b(panel|widget|app|on home|dashboard|manage|management|tracker|track|list|roster|register|ledger|log|board|weather|exchange rate|stock|stocks|share price)\b/i
+// ---------- work asked of the team's software project (docs/robo-dlc/plan-intake.md §12-2) ----------
+// The chat is where work is asked for: the request goes to the project's work intake (lib/aidlc/intake.js), and
+// the plan proposed for it — scope, what it touches, what it collides with — is shown in the conversation as the
+// intake app's screen (message kind `app`). Whoever may take in work decides on that card; anyone else's request
+// waits in the inbox. When the words may be only a question, the chat asks before making a request of them.
+const workAsk = new Map() // threadId -> { slug|null, body }: "작업으로 접수할까요?" / "어느 프로젝트?" waiting for the answer
+const WORK_YES = /^(네|예|응|넵)[,.!]?\s*(작업으로\s*)?접수|^yes[,.!]?\s*take it in/i
+const WORK_SAID = /^(AI-?DLC\s*)?작업\s*(으로\s*)?(접수|요청)\s*[:：]\s*|^(new work|work request)\s*[:：]\s*/i
+const flat = (x) => String(x || '').toLowerCase().replace(/[\s_-]+/g, '')
+async function aidlcHint(user) {
+  const list = await aidlcProjects(user).catch(() => [])
+  return list.length ? `\n${L('팀의 소프트웨어 프로젝트(AI-DLC 프로젝트 — 바꿔 달라는 요청은 aidlc_work)', "The team's software project (AI-DLC project — a change asked of it goes to aidlc_work)")}: ${list.slice(0, 6).map((p) => p.name).join(' / ')}` : ''
+}
+async function aidlcWorkTurn({ user, threadId, text, args = {}, onDelta, confirmed = null, outright = false }) {
+  const userId = user.id
+  noAgentTurn()
+  const say = async (t) => { const m = await addMessage(userId, threadId, 'agent', 'text', { text: t }); onDelta?.(t); return m }
+  const list = await aidlcProjects(user).catch(() => [])
+  // the person's own words are the request; a turn that only adds to what was said before ("그거 고쳐 주세요") is the router's summary
+  const body = confirmed?.body || (outright ? args.request : text.trim().length >= 12 ? text.trim() : String(args.request || text).trim())
+  const p = confirmed ? list.find((x) => x.folder === confirmed.slug)
+    : list.length === 1 ? list[0]
+      : list.find((x) => args.project && [x.name, x.folder].some((n) => flat(n) === flat(args.project))) || list.find((x) => flat(text).includes(flat(x.name)))
+  if (!p) {
+    if (!list.length) return say(L('연결된 AI-DLC 프로젝트가 없어요. 공유 폴더에서 저장소를 먼저 연결해 주세요.', 'No AI-DLC project is connected. Link the repository as a shared folder first.'))
+    workAsk.set(threadId, { slug: null, body })
+    return say(L(`어느 프로젝트에 접수할까요?\n\n${list.slice(0, 4).map((x) => `- ${x.name}`).join('\n')}`, `Which project is this for?\n\n${list.slice(0, 4).map((x) => `- ${x.name}`).join('\n')}`))
+  }
+  if (args.sure === false && !confirmed && !outright) {
+    workAsk.set(threadId, { slug: p.folder, body })
+    return say(L(`${p.name} 프로젝트에 작업으로 접수할까요? 접수하면 범위와 건드릴 곳, 진행 중인 작업과 부딪히는지를 계획안으로 먼저 보여 드려요.\n\n- 네, 작업으로 접수해 줘\n- 아니요, 그냥 물어본 거예요`,
+      `Shall I take this in as work for ${p.name}? You get a plan first: the scope, what it touches, and whether it collides with the work in flight.\n\n- Yes, take it in\n- No, I was only asking`))
+  }
+  try {
+    const who = await Intake.rights(p.folder, user)
+    const r = await Intake.propose(p.folder, user, { body, source: 'chat' })
+    const m = await say(who.rights.intake
+      ? L(`${p.name} 프로젝트의 작업 요청으로 넣었어요. 계획안이 1분쯤 뒤 아래 카드에 나와요 — 보고 시작·대기·합치기를 정해 주세요.`, `It is a work request of ${p.name} now. The plan shows in the card below in about a minute — start it, queue it or fold it in there.`)
+      : L(`${p.name} 프로젝트의 작업 요청으로 넣었어요. 계획안이 나오면 접수 권한이 있는 ${who.intake.join(', ') || '폴더 소유자'} 님께 알려요.`, `It is a work request of ${p.name} now. When the plan is ready, ${who.intake.join(', ') || 'the folder owners'} — who take in work — are told.`))
+    await addMessage(userId, threadId, 'agent', 'app', { app: 'intake', folder: p.folder, folderName: p.name, title: r.title, params: { r: r.id } })
+    return m
+  } catch (e) {
+    console.warn('[aidlc work]', e.message)
+    return say(e.status && e.status < 500 ? e.message : L('작업 요청을 넣지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't make the work request. Please try again in a moment."))
+  }
+}
+
 // Teammates and who holds which role, so "제품 책임자한테 알려줘" can name someone.
 async function teamCatalogHint(userId) {
   const team = (await listTeam()).filter((m) => m.id !== userId)

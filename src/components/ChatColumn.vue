@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
 import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
@@ -34,10 +34,15 @@ function toPending() {
   el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
+// following the bottom ends only when the person scrolls up: a smooth scroll on its way down, or content that
+// grew under it, leaves the bottom far away for a moment without anyone having left it
 let stick = !props.keepTop
+let lastTop = 0
 function onScroll() {
   const el = scroller.value
-  stick = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) stick = true
+  else if (el.scrollTop < lastTop - 2) stick = false
+  lastTop = el.scrollTop
 }
 async function toBottom(force) {
   await nextTick()
@@ -46,6 +51,16 @@ async function toBottom(force) {
 }
 watch(() => [list.value.length, draft.value], () => toBottom(false))
 watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
+// what is already in the list grows after it is drawn (an app card takes the height of its screen): when the
+// bottom was in view it stays in view
+let grown = null
+onMounted(() => {
+  const inner = scroller.value?.querySelector('.inner')
+  if (!inner || typeof ResizeObserver === 'undefined') return
+  grown = new ResizeObserver(() => { const el = scroller.value; if (el && stick) el.scrollTop = el.scrollHeight })
+  grown.observe(inner)
+})
+onBeforeUnmount(() => grown?.disconnect())
 </script>
 
 <template>

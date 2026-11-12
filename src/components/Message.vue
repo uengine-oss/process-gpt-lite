@@ -12,6 +12,7 @@ import TodoCard from './TodoCard.vue'
 import ProcessDraftCard from './ProcessDraftCard.vue'
 import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
+import AppCard from './AppCard.vue'
 import ShareButton from './team/ShareButton.vue'
 import ImproveCard from './improve/ImproveCard.vue'
 import { useRouter } from 'vue-router'
@@ -88,6 +89,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <TaskCard v-else-if="msg.kind === 'task'" :msg="msg" />
     <VaultCard v-else-if="msg.kind === 'vault'" :msg="msg" />
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
+    <!-- an app's screen as the answer (lib/agent.js aidlcWorkTurn: the plan work intake proposes) -->
+    <AppCard v-else-if="msg.kind === 'app'" :msg="msg" />
     <ProcessCard v-else-if="msg.kind === 'process'" :msg="msg" />
     <ProcessDraftCard v-else-if="msg.kind === 'process_draft'" :msg="msg" />
     <SkillDraftCard v-else-if="msg.kind === 'skill_draft'" :msg="msg" />
@@ -149,6 +152,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 /* a running browser task stays in view while the conversation scrolls under it */
 .row.pinned { position: sticky; top: 0; z-index: 4; }
 .row.k-task { align-self: stretch; }
+.row.k-app { align-self: stretch; }
 .ts { position: absolute; right: calc(100% + 24px); top: 50%; translate: 0 -50%; white-space: nowrap; font-size: 14px; color: var(--text-secondary); opacity: 0; transition: opacity .2s; pointer-events: none; text-align: right; }
 .row.r-user .ts { right: auto; left: -160px; }
 .row:hover .ts { opacity: 1; }
