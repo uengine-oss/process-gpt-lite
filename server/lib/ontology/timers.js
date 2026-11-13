@@ -104,6 +104,8 @@ export async function syncSchedule(id, { actor = 'system' } = {}) {
   const [c] = await cypher(`MATCH (e:Event)-[t:TRIGGERS]->(x:Task {key:$task}) WHERE t.source = 'timer' AND t.scope = $scope AND t.status <> 'gone' RETURN max(t.people) AS people`,
     { task: h.task, scope: role ? `role:${role}` : 'person' }).catch(() => [])
   await writeTimer(h, Math.max(1, c?.people || 0), w)
+  // the step joins its role's routine right away (the next count recounts it): the map shows it where the role's routine is
+  if (role) await joinRoutine(role, h.task, w).catch((e) => console.warn('[ontology] routine join', e.message))
   return { key: `timer:${s.id}`, task: h.task, status: s.paused ? 'paused' : 'active' }
 }
 async function writeTimer(h, people, w) {
@@ -111,6 +113,22 @@ async function writeTimer(h, people, w) {
   await putNode('Event', key, { kind: 'timer', cls: '', name: cronKo(s.cron), n: s.runs, cron: s.cron, tz: TZ, status, scope, schedule: s.id }, { actor: w.actor, reason: w.reason })
   await putNode('Task', h.task, {}, w, { name: h.task, role: h.role || '', kind: 'habit', n: s.runs, status: 'active', pinned: false, candidate: false })
   await putRel('TRIGGERS', ['Event', key], ['Task', h.task], { n: s.runs, p: 1, split: '', cond: '', source: 'timer', scope, people, shared: 0, status, pinned: false, autonomy: 'auto' }, w)
+}
+
+// a role's routine (build.js habitRoutines: routine:<sha(role)>, 「<역할> 루틴」) gets the task — made if the role has none yet
+async function joinRoutine(role, task, w) {
+  const key = `routine:${shaOf(role)}`
+  const [p] = await cypher('MATCH (b:Process {key:$key}) RETURN b.tasks AS tasks, b.status AS status', { key })
+  if (!p) {
+    await cypher(`CREATE (b:Process {key:$key, name:$name, summary:$summary, kind:'routine', role:$role, tasks:$tasks, entries:$entries, cases:1, band:'open',
+                   status:'suggested', autonomy:'draft', theta:0, summary_theta:0, half_life:0}) RETURN b.key AS key`,
+      { key, name: `${role} 루틴`, summary: `${role}의 정해 둔 시각에 혼자 하는 일`, role, tasks: [task], entries: [] }, w)
+    await putRel('OF_ROLE', ['Process', key], ['Role', role], { n: 1 }, { actor: w.actor, reason: w.reason }).catch(() => {})
+  } else {
+    const tasks = [...new Set([...(p.tasks || []), task])]
+    await cypher('MATCH (b:Process {key:$key}) SET b.tasks=$tasks, b.status=$status RETURN b.key AS key', { key, tasks, status: p.status === 'gone' ? 'suggested' : p.status }, w)
+  }
+  await putRel('HAS_TASK', ['Process', key], ['Task', task], { n: 1, share: 0, entry_share: 0 }, w)
 }
 
 // when pg_cron rings a schedule: does the graph still say it runs? (paused or gone there → the run is skipped, and the
