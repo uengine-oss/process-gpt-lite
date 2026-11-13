@@ -11,6 +11,8 @@ const props = defineProps({
 const emit = defineEmits(['start', 'retry'])
 const ratio = computed(() => (props.job?.total ? Math.min(1, (props.job.done || 0) / props.job.total) : 0))
 const weeks = computed(() => props.job?.detail?.weeks || 0)
+// what the job has found so far, a line at a time (server lib/ontology/feed.js) — the last few, newest at the bottom
+const feed = computed(() => (props.job?.detail?.feed || []).slice(-6))
 </script>
 
 <template>
@@ -34,6 +36,9 @@ const weeks = computed(() => props.job?.detail?.weeks || 0)
         <template v-else>메일함을 여는 중…</template>
       </p>
       <p v-if="job?.detail?.stage === 'chat'" class="sub">먼저 채팅 인계 기록 {{ job.detail.chat || 0 }}건의 일 이름을 맞추고 있어요. 메일은 그 이름으로 읽어요.</p>
+      <ul v-if="feed.length" class="feed" data-testid="onto-feed" aria-live="polite">
+        <li v-for="f in feed" :key="f.at + f.text">{{ f.text }}</li>
+      </ul>
       <p class="sub">창을 닫아도 계속 읽어요. 다 읽으면 지도를 그려요.</p>
     </template>
 
@@ -41,13 +46,16 @@ const weeks = computed(() => props.job?.detail?.weeks || 0)
       <b class="ttl shimmer-text">지도 그리는 중…</b>
       <div class="bar busy"><i /></div>
       <p class="sub">일 이름을 맞추고, 건마다 다음 일로 넘어간 횟수를 세요.<template v-if="weeks"> 지난 {{ weeks }}주 지도도 함께 그리고 있어요.</template></p>
+      <ul v-if="feed.length" class="feed" data-testid="onto-feed" aria-live="polite">
+        <li v-for="f in feed" :key="f.at + f.text">{{ f.text }}</li>
+      </ul>
     </template>
 
     <template v-else>
       <b class="ttl">회사 프로세스 지도를 그려 볼까요?</b>
       <p class="lead">지난 메일과 채팅 인계 기록에서 누가 누구에게 어떤 일을 넘겼는지 모아 회사의 일 흐름을 그려요.</p>
       <ul class="what">
-        <li><b>읽는 것</b> 지난 90일 메일의 머리글 — 보낸 사람 · 받는 사람 · 제목 · 날짜 · 첨부 이름</li>
+        <li><b>읽는 것</b> 지난 90일 동안 받은 · 보낸 메일의 본문과 첨부(회사가 보낸 양식은 칸까지), 채팅 인계 기록</li>
         <li><b>거르는 것</b> 뉴스레터 · 자동 알림 · 일정 초대는 규칙으로 먼저 빼요</li>
         <li><b>남기는 것</b> 지도에는 누가 · 누구에게 · 어떤 일 · 언제뿐이에요. 읽은 메일은 내 메일 보관함에만 남아요</li>
       </ul>
@@ -74,6 +82,9 @@ const weeks = computed(() => props.job?.detail?.weeks || 0)
 .prog { margin: 0; font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .sub { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
 .err { margin: 0; color: var(--color-error); font-size: 13.5px; }
+.feed { list-style: none; margin: 2px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--field-bg); display: flex; flex-direction: column; gap: 5px; }
+.feed li { font-size: 13px; line-height: 1.5; color: var(--text-secondary); animation: blur-in .4s var(--spring) both; }
+.feed li:last-child { color: var(--text-primary); }
 @media (max-width: 760px) {
   .first { margin: 12px 0; padding: 22px 20px; }
 }

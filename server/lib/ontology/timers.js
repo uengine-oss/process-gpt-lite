@@ -11,6 +11,7 @@ import { addMessage, mainThread } from '../store.js'
 import { cypher, ontologyEnabled } from './store.js'
 import { nameHabits } from './names.js'
 import { periodOf, cronOfHint } from './mailbody.js'
+import { prompt, rules as skillRules } from './discovery.js'
 import { chatJson } from '../llm.js'
 
 const T = () => config.tenantId
@@ -246,9 +247,10 @@ export async function minedTimers(w, { tasks } = {}) {
     s.dates.push(r.occurred_at); s.people.add(r.act === 'request' ? r.to_role : r.from_addr)
   }
   for (const s of series.values()) s.hints = hintsOf.get(s.task) || []
+  const { period } = await skillRules()
   const found = new Map()
   for (const s of series.values()) {
-    const p = periodOf(s.dates)
+    const p = periodOf(s.dates, period)
     const [hint] = mode(s.hints.map(cronOfHint).filter(Boolean))
     const cron = p?.cron || hint
     if (!cron) continue
@@ -275,14 +277,11 @@ export async function minedTimers(w, { tasks } = {}) {
 // ---------- 들어온 메일이 정해진 때마다 하는 일일 때 ----------
 // 「앞으로 매주 월요일 오전에 공정 보고 부탁드립니다」: 규칙으로 먼저 거르고(모델 없음), 걸린 메일만 모델이 읽어 그 일과 때를
 // 정한다. 받은 사람에게 「예약을 걸까요?」를 묻고, 걸면 그 사람의 예약 = 타이머 사건(위)이 된다.
-const RECUR = /매\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|앞으로|weekly|monthly|daily|every\s+(day|week|month|mon|tue|wed|thu|fri)/i
-const RECUR_READ = `들어온 메일 하나를 읽고, 받은 사람이 정해진 때마다 해야 하는 일을 부탁하거나 알리는지 봅니다.
-JSON {"recurring":true|false,"task":"그 일 이름(명사 + 동작, 4~12자)","every":"day|week|month","dow":0~6|null,"dom":1~28|null,"hour":0~23|null,"weekdays":true|false,"says":"메일의 그 구절(40자 이내)"} 로만 답하세요.
-- 한 번만 하는 일, 지난 일, 광고 · 뉴스레터는 recurring false.
-- 시각이 없으면 hour 는 오전 업무 시작 9. 「월요일 오전까지」면 dow 1, hour 9.`
+// prompt: the process-discovery skill's prompts/incoming-recurrence.md
 export async function recurFromMail(userId, mail) {
-  if (!ontologyEnabled() || !RECUR.test(`${mail.subject || ''}\n${mail.text || ''}`)) return null
-  const r = await chatJson(RECUR_READ, JSON.stringify({ from: mail.from, subject: mail.subject, text: String(mail.text || '').slice(0, 2500) }), { temperature: 0, timeoutMs: 60000 }).catch(() => null)
+  const R = await skillRules()
+  if (!ontologyEnabled() || !new RegExp(R.incoming.prefilter, 'i').test(`${mail.subject || ''}\n${mail.text || ''}`)) return null
+  const r = await chatJson(await prompt('incoming-recurrence'), JSON.stringify({ from: mail.from, subject: mail.subject, text: String(mail.text || '').slice(0, 2500) }), { temperature: 0, timeoutMs: 60000 }).catch(() => null)
   const cron = r?.recurring ? cronOfHint(r) : null
   if (!cron || !String(r.task || '').trim()) return null
   const t = await mainThread(userId)

@@ -1,0 +1,33 @@
+{
+ "mailbox": {
+  "days": 90,
+  "threadsAtOnce": 4,
+  "historyTextChars": 1500,
+  "incomingTextChars": 6000
+ },
+ "filters": {
+  "newsletterHeaders": ["list-unsubscribe"],
+  "noReplySender": "(^|[^a-z])(no-?reply|do-?not-?reply|mailer-daemon|notifications?)@",
+  "inviteSubject": "^\\s*(초대|업데이트된 초대|invitation|updated invitation)\\s*[:：]",
+  "inviteAttachment": "\\.ics$"
+ },
+ "readAlone": "매\\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|weekly|monthly|daily|every\\s+(day|week|month|mon|tue|wed|thu|fri)",
+ "forms": {
+  "openKinds": ["xlsx", "docx", "pptx", "hwpx", "csv"],
+  "labelsPerFile": 60,
+  "share": 0.6,
+  "minFiles": 2
+ },
+ "period": {
+  "minMails": 4,
+  "sameTimeMinutes": 90,
+  "sameTimeShare": 0.7,
+  "twiceInBucketMax": 0.1,
+  "weekly": { "gapDays": 7, "gapTolerance": 1.5, "regular": 0.7, "sameWeekday": 0.6 },
+  "monthly": { "gapDays": 30.4, "gapTolerance": 4, "regular": 0.7, "sameDay": 0.6 },
+  "daily": { "regular": 0.8 }
+ },
+ "incoming": {
+  "prefilter": "매\\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|앞으로|weekly|monthly|daily|every\\s+(day|week|month|mon|tue|wed|thu|fri)"
+ }
+}

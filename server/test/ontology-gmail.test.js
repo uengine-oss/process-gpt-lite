@@ -65,3 +65,15 @@ test('Gmail: 받은 · 보낸 메일, 지금 쓴 부분, 회사가 보낸 첨부
   assert.ok(!hits.includes('/messages/a2?format=full') && hits.includes('/messages/a1?format=full'), hits.join(' '))
   assert.equal(again[1].archived, true)
 })
+
+test('Gmail 이 거절하면(프로젝트에서 API 꺼짐 · 만료) 빈 메일함이 아니라 고칠 수 있는 말로 실패한다', async (t) => {
+  const srv = http.createServer((req, res) => { res.statusCode = 403; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: { code: 403, message: 'Gmail API has not been used in project 161000591426 before or it is disabled. Enable it by visiting …' } })) })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  t.after(() => srv.close())
+  process.env.PRO_GMAIL_API = `http://127.0.0.1:${srv.address().port}`
+  const { gmailMails } = await import('../lib/ontology/history.js')
+  await assert.rejects(gmailMails('test-token', 90, {}), (e) => /Gmail API 가 이 Google 프로젝트\(161000591426\)에서 꺼져 있어요/.test(e.message) && e.gmail.status === 403)
+  const { gmailError } = await import('../lib/ontology/mailbody.js')
+  assert.match(gmailError(401, {}).message, /만료/)
+  assert.equal(gmailError(401, {}).status, 401)
+})

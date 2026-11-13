@@ -18,7 +18,9 @@ import { q } from '../supa.js'
 import { chatJson } from '../llm.js'
 import { maskPii } from '../policy/pii.js'
 import { googleAccessToken } from '../mail.js'
-import { partsOf, bodyOf, newPart, readFile, kindOf, formKey, b64u } from './mailbody.js'
+import { partsOf, bodyOf, newPart, readFile, kindOf, formKey, b64u, gmailError } from './mailbody.js'
+import { prompt, rules as skillRules, defaultRules, discoverySkill } from './discovery.js'
+import { sayer } from './feed.js'
 import { emit } from '../bus.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -40,8 +42,9 @@ function demoArchive(email) {
 // newly written part of it, and its attachments. The company's own attachments (sent by someone inside) are opened: their
 // labels make the form a reply uses (templatesOf), and the latest file of each form is kept as that form's template.
 export const gmailApi = () => process.env.PRO_GMAIL_API || 'https://gmail.googleapis.com/gmail/v1/users/me'
-export async function gmailMails(token, days, { inside = new Map(), onPage, formsDir = null, archived = null } = {}) {
-  const api = async (p) => { const r = await fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error(`Gmail ${r.status}`); return r.json() }
+export async function gmailMails(token, days, { inside = new Map(), onPage, formsDir = null, archived = null, forms = defaultRules().forms } = {}) {
+  const OFFICE = new Set(forms.openKinds)
+  const api = async (p) => { const r = await fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${token}` } }); const j = await r.json().catch(() => ({})); if (!r.ok) throw gmailError(r.status, j); return j }
   const out = []
   const latest = new Map()
   let page = ''
@@ -63,7 +66,7 @@ export async function gmailMails(token, days, { inside = new Map(), onPage, form
           try {
             const buf = f.data ? b64u(f.data) : b64u((await api(`messages/${m.id}/attachments/${f.attachmentId}`)).data)
             const r = await readFile(f.name, buf)
-            a.fields = r.labels.slice(0, 60).map((l) => maskPii(l))
+            a.fields = r.labels.slice(0, forms.labelsPerFile).map((l) => maskPii(l))
             if (formsDir && (!latest.has(formKey(f.name)) || latest.get(formKey(f.name)) < date)) {
               latest.set(formKey(f.name), date)
               fs.mkdirSync(formsDir, { recursive: true })
@@ -84,28 +87,29 @@ export async function gmailMails(token, days, { inside = new Map(), onPage, form
   } while (page)
   return out
 }
-const OFFICE = new Set(['xlsx', 'docx', 'pptx', 'hwpx', 'csv'])
 export const formsDirOf = (tenant = T()) => path.join(process.env.PRO_FORMS_DIR || path.join(here, '..', '..', '.forms'), tenant)
 
 // the demo mailbox: its attachments name the template files they were made from (fixtures/ax-demo-templates) — the
 // company's own are opened the same way as Gmail's
-async function demoFields(mails, inside) {
+async function demoFields(mails, inside, forms = defaultRules().forms) {
+  const OFFICE = new Set(forms.openKinds)
   for (const m of mails) {
     if (!inside.has(addrOf(m.from))) continue
     for (const f of m.attachments || []) {
       if (!f.file || !OFFICE.has(kindOf(f.name)) || f.fields) continue
       const p = path.join(path.dirname(DEMO_ARCHIVE), f.file)
-      if (fs.existsSync(p)) f.fields = (await readFile(f.name, fs.readFileSync(p))).labels.slice(0, 60)
+      if (fs.existsSync(p)) f.fields = (await readFile(f.name, fs.readFileSync(p))).labels.slice(0, forms.labelsPerFile)
     }
   }
   return mails
 }
 
 // ---------- 2 rules ----------
-export function notWork(m) {
-  if (m.headers && Object.keys(m.headers).some((k) => lower(k) === 'list-unsubscribe')) return 'newsletter'
-  if (/(^|[^a-z])(no-?reply|do-?not-?reply|mailer-daemon|notifications?)@/i.test(addrOf(m.from))) return 'noreply'
-  if (/^\s*(초대|업데이트된 초대|invitation|updated invitation)\s*[:：]/i.test(m.subject || '') || (m.attachments || []).some((f) => /\.ics$/i.test(f.name))) return 'invite'
+export function notWork(m, f = defaultRules().filters) {
+  const heads = Object.keys(m.headers || {}).map(lower)
+  if ((f.newsletterHeaders || []).some((h) => heads.includes(lower(h)))) return 'newsletter'
+  if (f.noReplySender && new RegExp(f.noReplySender, 'i').test(addrOf(m.from))) return 'noreply'
+  if ((f.inviteSubject && new RegExp(f.inviteSubject, 'i').test(m.subject || '')) || (f.inviteAttachment && (m.attachments || []).some((x) => new RegExp(f.inviteAttachment, 'i').test(x.name)))) return 'invite'
   return null
 }
 
@@ -148,20 +152,7 @@ export function amountOf(text) {
 }
 
 // ---------- 4 the model, once per thread ----------
-const READ = `회사 메일함의 스레드 하나를 읽고, 메일마다 그 메일이 회사 업무에서 무슨 일인지 적습니다.
-JSON {"mails":[{"i":번호,"work":true|false,"task":"일 이름","act":"request|deliver|approve|notify","recur":null}]} 로만 답하세요.
-- task: 그 메일로 진행된 업무 한 가지를 「명사 + 동작」 4~10자로(예: "요청 메일 접수", "현장 실측", "평면도 작성", "제안서 작성", "견적서 작성", "재무 검토", "고객 회신", "자재 발주").
-  이미 쓰는 일 이름(known_tasks)과 같은 일이면 그 이름을 그대로 쓴다.
-- 결과물(첨부 파일·완료 보고)을 건네는 메일은 보낸 사람이 해 낸 일의 이름으로 적는다. 다음 사람에게 검토·승인을 부탁하며 결과물을 붙였어도 그렇다
-  (예: 견적서를 붙여 재무 검토를 부탁 → "견적서 작성", act deliver). 결과물 없이 일을 맡기기만 하는 메일은 맡긴 일의 이름(act request), 검토한 쪽의 답은 그 검토의 이름(act approve).
-- 고객이 처음 일을 맡기는 메일은 "요청 메일 접수", 고객에게 결과를 보내는 메일은 "고객 회신"처럼 그 일의 이름으로 적는다.
-- 고객이 진행 중인 일을 고쳐 달라고 하는 메일은 따로 일을 만들지 말고 그 메일로 다시 하게 되는 우리 일의 이름(예: 제안서를 고쳐 달라면 "제안서 작성")으로 적고 act 는 request.
-- act: 일을 맡기면 request, 해 둔 일·결과를 건네면 deliver, 승인이면 approve, 그 밖의 알림이면 notify.
-- 인사·감사·일정 잡기만 있는 메일도 그 업무 흐름의 한 단계면 그 단계의 이름으로 적고, 업무와 무관하면 work 를 false 로.
-- recur: 메일이 그 일을 정해진 때마다 한다고 말하면(「매주 월요일 오전에 보내 드리겠습니다」, 「매월 5일까지」, 「매일 아침 공유」, 「주간 보고」)
-  {"task":"정해진 때마다 하는 그 일의 이름","every":"day|week|month","dow":요일 0(일)~6(토)|null,"dom":날짜 1~28|null,"hour":0~23|null,"weekdays":평일만이면 true,"says":"그 구절 그대로(30자 이내)"}.
-  task 는 반복되는 그 일이다 — 고객이 「매주 공정 보고를 보내 달라」고 부탁하는 메일이면 이 메일의 일은 "요청 메일 접수"여도 recur.task 는
-  "주간 공정 보고"다. 한 번만 하는 일이면 null. 첨부 files 의 fields 는 그 파일의 칸 이름이다.`
+// the reading prompt is the process-discovery skill's prompts/read-thread.md (discovery.js)
 
 function personOf(addr, inside) {
   const a = addrOf(addr)
@@ -170,15 +161,15 @@ function personOf(addr, inside) {
   return { addr: `${crypto.createHash('sha1').update(a).digest('hex').slice(0, 10)}@${d}`, role: '고객', inside: false }
 }
 
-async function readThread(t, inside, known) {
+async function readThread(t, inside, known, chars = defaultRules().mailbox.historyTextChars) {
   const mails = t.mails.map((m, i) => ({
     i, date: m.date.slice(0, 10),
     from: personOf(m.from, inside).inside ? inside.get(addrOf(m.from)).label : `고객(${domainOf(m.from)})`,
     to: [...(m.to || [])].map((x) => (inside.has(addrOf(x)) ? inside.get(addrOf(x)).label : `고객(${domainOf(x)})`)),
-    subject: maskPii(m.subject).slice(0, 200), text: maskPii(m.text).slice(0, 1500), files: (m.attachments || []).map((f) => (f.fields?.length ? { name: f.name, fields: f.fields.slice(0, 16) } : f.name)),
+    subject: maskPii(m.subject).slice(0, 200), text: maskPii(m.text).slice(0, chars), files: (m.attachments || []).map((f) => (f.fields?.length ? { name: f.name, fields: f.fields.slice(0, 16) } : f.name)),
   }))
   try {
-    const r = await chatJson(READ, JSON.stringify({ known_tasks: known, thread: mails }), { timeoutMs: 90000, temperature: 0 })
+    const r = await chatJson(await prompt('read-thread'), JSON.stringify({ known_tasks: known, thread: mails }), { timeoutMs: 90000, temperature: 0 })
     return Array.isArray(r?.mails) ? r.mails : []
   } catch (e) { console.warn('[ontology] read thread', e.message); return [] }
 }
@@ -205,9 +196,6 @@ export async function startMailHistory(me, { days = 90 } = {}) {
 }
 
 // a mail thread's case: the same id the recorder gives the chat handovers about that mail's work
-// a mail that may say its work repeats is read even when it stands alone
-const RECUR_HINT = /매\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|weekly|monthly|daily|every\s+(day|week|month|mon|tue|wed|thu|fri)/i
-
 export const caseIdOf = (threadId) => `mail:${T()}:${threadId}`
 
 export async function runMailHistory(me, jobId, days) {
@@ -215,35 +203,45 @@ export async function runMailHistory(me, jobId, days) {
   let mails = []
   const inside = await insidePeople()
   const { archiveMails, archivedOf, mailOf } = await import('../mailArchive.js')
-  if (acc?.provider === 'gmail') mails = await gmailMails(await googleAccessToken(me.id), days, { inside, formsDir: formsDirOf(),
+  // the company's process-discovery skill (rules · prompts), recorded with the job
+  const skill = await discoverySkill()
+  const R = skill.rules
+  const say = sayer(jobId)
+  await say(skill.source === 'bundled' ? '기본 「프로세스 찾기」 스킬로 읽어요.' : `회사가 고친 「프로세스 찾기」 스킬(${skill.version})로 읽어요.`)
+  await q(`update pro_onto_jobs set detail=coalesce(detail,'{}'::jsonb) || $2::jsonb where id=$1`, [jobId, { skill: { source: skill.source, version: skill.version } }])
+  if (acc?.provider === 'gmail') mails = await gmailMails(await googleAccessToken(me.id), days, { inside, formsDir: formsDirOf(), forms: R.forms,
     archived: async (ids) => new Map([...(await archivedOf(me.id, ids))].map(([k, r]) => [k, mailOf(r)])) })
   else if (acc?.provider === 'demo' || !acc) {
     const a = demoArchive(me.email)
     if (!a) throw new Error('이 메일함에는 읽을 지난 메일이 없어요.')
     const cut = new Date(a.today || Date.now()).getTime() - days * 86_400_000
-    mails = await demoFields(a.mails.filter((m) => new Date(m.date).getTime() >= cut), inside)
+    mails = await demoFields(a.mails.filter((m) => new Date(m.date).getTime() >= cut), inside, R.forms)
   } else throw new Error('IMAP 지난 메일 읽기는 아직 준비 중이에요.')
   const update = (set, args) => q(`update pro_onto_jobs set ${set} where id=$1`, [jobId, ...args])
   // every mail read is kept in its owner's mail archive (the demo mailbox's whole text is its new part and the quoted mail)
   await archiveMails(me.id, acc?.provider || 'demo', mails.filter((m) => !m.archived).map((m) => (m.body != null ? m : { ...m, body: [m.text, m.quoted].filter(Boolean).join('\n\n') })), 'history')
     .catch((e) => console.warn('[ontology] mail archive', e.message))
   await update('total=$2', [mails.length])
-  const kept = mails.filter((m) => !notWork(m))
+  await say(`메일 ${mails.length.toLocaleString('ko-KR')}통을 가져왔어요${mails.some((m) => m.archived) ? ` (보관함에 있던 ${mails.filter((m) => m.archived).length.toLocaleString('ko-KR')}통은 다시 받지 않았어요)` : ''}.`)
+  const kept = mails.filter((m) => !notWork(m, R.filters))
   const threads = threadsOf(kept)
+  await say(`뉴스레터 · 자동 알림 · 일정 초대 ${(mails.length - kept.length).toLocaleString('ko-KR')}통은 규칙으로 걸렀어요. 남은 메일은 스레드 ${threads.length.toLocaleString('ko-KR')}개(건)로 묶었어요.`)
   // the names the company already uses: the chat handovers are matched first, so the mail speaks the same words
   // (the filtered mails count as read at once; the screen says what is going on while the chat names are matched)
   let done = mails.length - kept.length, work = 0
   const chat = await q(`select coalesce(nullif(activity_label,''), nullif(next_activity_label,''), instruction) as raw from handover_events where tenant_id=$1`, [T()])
   await update(`done=$2, detail=coalesce(detail,'{}'::jsonb) || $3::jsonb`, [done, { stage: 'chat', chat: chat.length }])
   if (chat.length) await (await import('./names.js')).resolveLabels(chat.map((r) => ({ raw: r.raw }))).catch((e) => console.warn('[ontology] chat names', e.message))
+  if (chat.length) await say(`채팅 인계 기록 ${chat.length}건의 일 이름을 먼저 맞췄어요. 메일도 그 이름으로 읽어요.`)
   const known = (await q(`select distinct task from pro_onto_labels where tenant_id=$1 and task <> ''`, [T()])).map((r) => r.task)
   const found = new Set(known)
   await update(`found=$2, detail=coalesce(detail,'{}'::jsonb) || $3::jsonb`, [found.size, { stage: 'mail' }])
   // four threads at a time (one model call each); progress moves as each finishes
+  const readAlone = new RegExp(R.readAlone, 'i')
   const readOne = async (t) => {
     // a single plain mail with no attachment and no reply is not a flow: it costs no model call
-    const one = t.mails.length === 1 && !(t.mails[0].attachments || []).length && !RECUR_HINT.test(`${t.mails[0].subject || ''}\n${t.mails[0].text || ''}`)
-    const read = one ? [] : await readThread(t, inside, [...found])
+    const one = t.mails.length === 1 && !(t.mails[0].attachments || []).length && !readAlone.test(`${t.mails[0].subject || ''}\n${t.mails[0].text || ''}`)
+    const read = one ? [] : await readThread(t, inside, [...found], R.mailbox.historyTextChars)
     for (const r of read) {
       const m = t.mails[Number(r.i)]
       if (!m || !r.work || !String(r.task || '').trim()) continue
@@ -258,14 +256,19 @@ export async function runMailHistory(me, jobId, days) {
         JSON.stringify((m.attachments || []).map((f) => ({ name: f.name, type: f.type || String(f.name).split('.').pop(), ...(f.fields?.length ? { fields: f.fields } : {}), ...(f.file?.startsWith('forms/') ? { file: f.file } : {}) }))), crypto.createHash('sha1').update(baseSubject(m.subject)).digest('hex').slice(0, 16),
         JSON.stringify({ ...(amount ? { amount } : {}), ...(r.recur?.every ? { recur: r.recur } : {}) })])
       work++
-      found.add(String(r.task).trim())
+      const task = String(r.task).trim()
+      if (!found.has(task)) await say(`새 일 「${task}」을 찾았어요 — ${act === 'deliver' ? '결과물을 건네는 메일' : act === 'request' ? '일을 맡기는 메일' : act === 'approve' ? '승인하는 메일' : '알리는 메일'}에서.`, 'task')
+      if (r.recur?.every && r.recur.says) await say(`정해진 때마다 하는 일 같아요: “${String(r.recur.says).slice(0, 40)}” → 「${String(r.recur.task || task).slice(0, 30)}」`, 'recur')
+      for (const f of m.attachments || []) if (f.fields?.length) await say(`보낸 첨부에서 「${formKey(f.name)}」 양식의 칸 ${f.fields.length}개를 읽었어요.`, 'form')
+      found.add(task)
     }
     done += t.mails.length
     await update('done=$2, kept=$3, found=$4, cursor=$5', [done, work, found.size, t.id])
     emit(me.id, 'ontology', { job: jobId, done, total: mails.length, kept: work, found: found.size })
   }
   const queue = [...threads]
-  await Promise.all(Array.from({ length: 4 }, async () => { while (queue.length) await readOne(queue.shift()) }))
+  await Promise.all(Array.from({ length: R.mailbox.threadsAtOnce || 4 }, async () => { while (queue.length) await readOne(queue.shift()) }))
+  await say(`메일 ${work.toLocaleString('ko-KR')}통이 일로 읽혔고, 일 이름 ${found.size}개를 찾았어요. 이제 흐름을 셉니다.`)
   await update(`status='done', finished_at=now()`, [])
   return { total: mails.length, kept: work, found: found.size }
 }

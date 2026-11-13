@@ -8,6 +8,8 @@ import { chatJson } from '../llm.js'
 import { resolveLabels, consolidate, nameHabits } from './names.js'
 import { cypher, readGraph } from './store.js'
 import { timerHabits, writeTimers, minedTimers } from './timers.js'
+import { prompt } from './discovery.js'
+import { sayer } from './feed.js'
 import { toCases, graphOf, clusterCases, autoValues, bandOf, summaryTheta, staleness, outTimesOf, pickHalfLife, learnThreshold, END, DAY } from './stats.js'
 import { structureOf, clsOf, routinesOf, artifactEvent, CLS_KO } from './structure.js'
 import crypto from 'node:crypto'
@@ -97,12 +99,10 @@ export async function loadEvents({ until } = {}) {
   return events
 }
 
-const NAME = `회사의 업무 흐름 하나에 이름을 붙입니다. JSON {"name","summary"} 로만 답하세요.
-- name: 한국어 명사구 14자 이내, 가운뎃점(·)으로 두 일을 잇는 형식. 예: "설계 제안 · 견적", "계약 · 시공 준비"
-- summary: 이 흐름이 무엇인지 해요체 한 문장`
+// prompt: the process-discovery skill's prompts/name-process.md
 async function nameProcess(tasks, entry) {
   try {
-    const r = await chatJson(NAME, JSON.stringify({ steps: tasks, starts_with: entry }), { timeoutMs: 30000, temperature: 0 })
+    const r = await chatJson(await prompt('name-process'), JSON.stringify({ steps: tasks, starts_with: entry }), { timeoutMs: 30000, temperature: 0 })
     if (r?.name) return { name: String(r.name).slice(0, 30), summary: String(r.summary || '') }
   } catch (e) { console.warn('[ontology] proc name', e.message) }
   return { name: `${entry} 흐름`, summary: '' }
@@ -135,8 +135,8 @@ export function stateAt(events, now, { halfLife, assigned = new Map() } = {}) {
     const won = new Intl.NumberFormat('ko-KR').format(c.threshold)
     const info = JSON.stringify({ attr: 'amount', threshold: c.threshold, accuracy: c.accuracy, loo: c.loo, baseline: c.baseline, n: c.n })
     const hi = g.edges.get(`${from}\u0000${c.high}`), lo = g.edges.get(`${from}\u0000${c.low}`)
-    if (hi) Object.assign(hi, { cond: `견적 합계(amount)가 ${won}원 이상`, condInfo: info })
-    if (lo) Object.assign(lo, { cond: `견적 합계(amount)가 ${won}원 미만`, condInfo: info })
+    if (hi) Object.assign(hi, { cond: `금액(amount)이 ${won}원 이상`, condInfo: info })
+    if (lo) Object.assign(lo, { cond: `금액(amount)이 ${won}원 미만`, condInfo: info })
   }
   const byId = new Map(cases.map((c) => [c.id, c]))
   const processes = clusterCases(cases).map((b) => {
@@ -302,15 +302,14 @@ async function habitRoutines(final, meta, assigned) {
 }
 
 // one sentence per task that has none yet (who does what) — the start-task questions name the work this way
-const DESCRIBE = `회사 업무 흐름의 「일」마다 무엇을 하는 일인지 짧게 씁니다. JSON {"items":[{"name","description"}]} 로만 답하세요.
-- description: 「<역할>가 … 한다」 형식의 한 문장, 20자 안팎. 앞뒤 일과 역할에서 알 수 있는 것만 쓴다.`
+// prompt: the process-discovery skill's prompts/describe-tasks.md
 async function describeTasks(st, meta) {
   const have = new Map((await cypher('MATCH (t:Task) RETURN t.key AS key, t.description AS d')).map((r) => [r.key, r.d]))
   const want = [...st.g.tasks.values()].filter((t) => !have.get(t.key))
   if (!want.length) return
   const ctx = want.map((t) => ({ name: t.key, role: t.role, before: [...st.g.edges.values()].filter((e) => e.to === t.key).sort((a, b) => b.n - a.n)[0]?.from || null,
     after: [...st.g.edges.values()].filter((e) => e.from === t.key && e.to !== END).sort((a, b) => b.n - a.n)[0]?.to || null }))
-  const r = await chatJson(DESCRIBE, JSON.stringify(ctx), { temperature: 0, timeoutMs: 90000 })
+  const r = await chatJson(await prompt('describe-tasks'), JSON.stringify(ctx), { temperature: 0, timeoutMs: 90000 })
   const rows = (r?.items || []).filter((x) => want.some((t) => t.key === x.name) && x.description).map((x) => ({ key: x.name, description: String(x.description).slice(0, 80) }))
   if (rows.length) await cypher('UNWIND $rows AS r MATCH (t:Task {key:r.key}) SET t.description=r.description', { rows }, { actor: meta.actor, reason: '일 설명' })
 }
@@ -319,17 +318,21 @@ let running = null
 export function rebuild(opts = {}) { return (running ||= doBuild(opts).finally(() => { running = null })) }
 
 async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하기', job } = {}) {
+  const say = sayer(job, 20)
   // names first: every text gets a name, then names that mean the same work are joined
   const first = graphOf(toCases(await loadEvents()))
+  await say(`일 이름 ${first.tasks.size}개를 서로 견줘 같은 일을 다르게 부른 말을 찾고 있어요.`)
   const top2 = (xs) => [...xs].sort((a, b) => b.n - a.n).slice(0, 2).map((e) => e.name)
   const merged = await consolidate([...first.tasks.values()].map((t) => ({ name: t.key, count: t.n,
     before: top2([...first.edges.values()].filter((e) => e.to === t.key).map((e) => ({ name: e.from, n: e.n }))),
     after: top2([...first.edges.values()].filter((e) => e.from === t.key && e.to !== END).map((e) => ({ name: e.to, n: e.n }))) })))
   const events = await loadEvents()
   if (!events.length) return { empty: true, events: 0 }
+  if (merged.length) await say(`같은 일을 다르게 부른 이름을 맞췄어요: ${merged.slice(0, 3).map((x) => `「${x.from}」→「${x.to}」`).join(' · ')}${merged.length > 3 ? ` 외 ${merged.length - 3}개` : ''}`)
   const now = Date.now()
   const assigned = await membersOf()
   const final = stateAt(events, now, { assigned })
+  await say(`건 ${final.cases.length}개의 일 순서를 셌어요. 반복되는 흐름을 묶고 있어요.`)
   // proc names: kept when the proc is already named in the graph
   const have = new Map((await cypher('MATCH (b:Process) RETURN b.key AS key, b.name AS name, b.summary AS summary')).map((r) => [r.key, r]))
   // names are given once a proc's key is settled (and kept when the graph already has one)
@@ -367,14 +370,25 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
       if (job) await q('update pro_onto_jobs set detail = detail || $2 where id=$1', [job, { weeks }]).catch(() => {})
     }
   }
+  if (weeks) await say(`지난 ${weeks}주의 지도도 주마다 다시 셌어요(지난 시점으로 돌려 볼 수 있어요).`)
   stable(final)
   await nameAll(final)
+  const bandKo = { paved: '굳은 길', open: '열린 일', watch: '지켜보기' }
+  await say(`반복되는 흐름 ${final.processes.length}개를 찾았어요: ${final.processes.slice(0, 4).map((b) => `「${names.get(b.key)?.name || b.entries[0]}」(${bandKo[b.band] || b.band}, ${b.cases}건)`).join(' · ')}`)
+  const conds = [...final.g.edges.values()].filter((e) => e.cond)
+  for (const e of conds.slice(0, 3)) await say(`갈림길에서 조건을 배웠어요: 「${e.from}」 → 「${e.to}」 — ${String(e.cond).replace(/\s*\([a-z_]+\)/gi, '')}`, 'cond')
+  const stale = [...final.g.edges.values()].filter((e) => e.stale)
+  if (stale.length) await say(`예전에는 쓰였지만 요즘 안 쓰이는 길 ${stale.length}개를 은퇴 후보로 올렸어요.`)
+  await say(`역할 ${final.structure.roles.filter((r) => !r.outside).length}개 · 일을 일으키는 사건 ${final.structure.events.length}개를 찾았어요.`)
   await writeState(final, iso(now), names, meta)
   await describeTasks(final, meta).catch((e) => console.warn('[ontology] describe', e.message))
   const habits = await habitRoutines(final, meta, assigned).catch((e) => { console.warn('[ontology] routines', e.message); return { keys: [], routines: 0 } })
   // work the mail does at set times (a weekly report, a month-end statement): timer events with no clock yet (timers.js)
-  await minedTimers({ validFrom: iso(now), actor: meta.actor, reason: `${meta.reason}(메일의 정해진 때)` }, { tasks: new Set(final.g.tasks.keys()) })
-    .catch((e) => console.warn('[ontology] mined timers', e.message))
+  const timers = await minedTimers({ validFrom: iso(now), actor: meta.actor, reason: `${meta.reason}(메일의 정해진 때)` }, { tasks: new Set(final.g.tasks.keys()) })
+    .catch((e) => { console.warn('[ontology] mined timers', e.message); return [] })
+  const { cronKo } = await import('./timers.js')
+  for (const t of (timers || []).slice(0, 4)) await say(`정해진 때에 하는 일을 찾았어요: ${cronKo(t.cron)} · 「${t.task}」(메일 ${t.n}통)`, 'timer')
+  if (habits.routines) await say(`개인 습관 ${habits.routines}개를 역할 루틴으로 모았어요(지도에는 설정한 기준만큼 보여요).`)
   // processes of earlier weeks that are not in today's picture are gone (kept in the history, hidden on the map)
   const live = [...final.processes.map((b) => b.key), ...habits.keys]
   await cypher(`MATCH (b:Process) WHERE NOT b.key IN $live AND b.status <> 'gone' SET b.status='gone'`, { live }, { ...meta, validFrom: iso(now) })
@@ -385,6 +399,7 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
     at: iso(now), events: events.length, cases: final.cases.length, ds: iso(final.g.first), de: iso(final.g.last), sources: JSON.stringify(sources),
     values: JSON.stringify({ halfLife: final.halfLife.halfLife, halfLifeStart: !!final.halfLife.start, halfLifeScores: final.halfLife.scores, tested: final.halfLife.tested }),
   })
+  await say('지도를 다 그렸어요.')
   return { events: events.length, cases: final.cases.length, tasks: final.g.tasks.size, edges: final.g.edges.size, processes: final.processes.length, weeks, sources, merged,
     happenings: final.structure.events.length, roles: final.structure.roles.length, routines: habits.routines }
 }

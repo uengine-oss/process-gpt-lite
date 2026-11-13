@@ -5,6 +5,7 @@
 import { chatJson } from '../llm.js'
 import { cypher, readGraph } from './store.js'
 import { CLS_KO, shownRoutine } from './structure.js'
+import { prompt } from './discovery.js'
 import { habitSettings } from './service.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -30,11 +31,7 @@ export async function roleView(key) {
   return { role: { ...role, competencies: J(role.competencies, []) }, performers, tasks: doing, routines: routines.map((p) => p.key), routineTasks, hiddenRoutines, ways }
 }
 
-const DRAFT = `회사의 「역할」 하나를 정의합니다. 역할은 전문성의 관점입니다. JSON {"definition","competencies":[{"name","evidence"}]} 로만 답하세요.
-- definition: 이 역할이 회사에서 무엇을 책임지는지 한두 문장(「~한다」체)
-- competencies: 이 역할에 필요한 역량 3~6개. name 은 짧은 명사구(예: "견적 원가 판단", "엑셀 견적서 작성", "도면 읽기"),
-  evidence 는 그 역량을 보여 주는 근거(맡은 일 이름 · 결과물 종류 · 일 정의의 스킬이나 점검 항목 · 습관) 한 줄
-지어내지 말고 주어진 근거에서 알 수 있는 것만 씁니다.`
+// prompt: the process-discovery skill's prompts/draft-role.md
 export async function draftRole(key) {
   const v = await roleView(key)
   const evidence = {
@@ -42,7 +39,7 @@ export async function draftRole(key) {
     results: (v.role.artifacts || []).map((c) => CLS_KO[c] || c), routine: v.routineTasks.map((r) => `${r.task}(${r.people}명)`),
     agent_share: v.role.agent_share, members: v.role.members, single_person_tasks: v.role.single_tasks || [],
   }
-  const r = await chatJson(DRAFT, JSON.stringify(evidence), { temperature: 0, timeoutMs: 60000 })
+  const r = await chatJson(await prompt('draft-role'), JSON.stringify(evidence), { temperature: 0, timeoutMs: 60000 })
   return { definition: String(r?.definition || ''), competencies: (r?.competencies || []).slice(0, 8).map((c) => ({ name: String(c.name || ''), evidence: String(c.evidence || '') })).filter((c) => c.name), evidence }
 }
 

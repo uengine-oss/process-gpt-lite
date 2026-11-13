@@ -76,8 +76,9 @@ export async function googleAccessToken(userId) {
 async function fetchGmail(userId) {
   const at = await googleAccessToken(userId)
   const { gmailApi } = await import('./ontology/history.js')
-  const { partsOf, bodyOf, newPart } = await import('./ontology/mailbody.js')
-  const api = (p) => fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
+  const { partsOf, bodyOf, newPart, gmailError } = await import('./ontology/mailbody.js')
+  // a refusal (the Gmail API off in the Google project, an expired grant) is an error, not an empty inbox
+  const api = async (p) => { const r = await fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${at}` } }); const j = await r.json().catch(() => ({})); if (!r.ok) throw gmailError(r.status, j); return j }
   const list = await api('messages?maxResults=20&q=' + encodeURIComponent('newer_than:2d -category:promotions -category:social -in:sent'))
   const out = []
   for (const m of list.messages || []) {
@@ -238,8 +239,17 @@ Write every text in English even when a mail is written in Korean.`
 export async function pollUser(userId, { announce } = {}) {
   const [acc] = await q('select * from pro_mail_accounts where user_id=$1', [userId])
   if (!acc) return { skipped: 'no account' }
-  const mails = acc.provider === 'gmail' ? await fetchGmail(userId)
-    : acc.provider === 'imap' ? await fetchImap(userId, acc) : await fetchDemo(userId)
+  let mails
+  try {
+    mails = acc.provider === 'gmail' ? await fetchGmail(userId)
+      : acc.provider === 'imap' ? await fetchImap(userId, acc) : await fetchDemo(userId)
+  } catch (e) {
+    // said once a day in the owner's chat (the poll is not marked done, so it is tried again)
+    const t = await mainThread(userId)
+    const [said] = await q(`select 1 from pro_messages where thread_id=$1 and kind='text' and content->>'mailError'=$2 and created_at > now() - interval '1 day' limit 1`, [t.id, e.message])
+    if (!said) await addMessage(userId, t.id, 'agent', 'text', { text: L(`메일함을 읽지 못했어요 — ${e.message}`, `I couldn't read your mailbox — ${e.message}`), mailError: e.message })
+    throw e
+  }
   const seen = new Set((await q('select mail_id from pro_mail_seen where user_id=$1', [userId])).map((r) => r.mail_id))
   const fresh = mails.filter((m) => !seen.has(m.id))
   for (const m of fresh) await q('insert into pro_mail_seen values ($1,$2) on conflict do nothing', [userId, m.id])

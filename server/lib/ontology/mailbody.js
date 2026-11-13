@@ -7,6 +7,7 @@
 //   periodOf     한 일의 메일 날짜들 → 매일(평일) · 매주 무슨 요일 · 매월 며칠, 몇 시(KST)와 규칙성
 // 파일 · 네트워크 없이 시험한다(test/ontology-mailbody.test.js). Gmail 을 부르는 쪽은 history.js · mail.js.
 import JSZip from 'jszip'
+import { defaultRules } from './discovery.js'
 
 const DAY = 86_400_000
 const KST = 9
@@ -116,12 +117,12 @@ export const formKey = (name) => `${String(name).split(/[_\s(]/)[0].replace(/\.[
 
 // the labels a form always has: in at least 60% of its attachments (and at least two of them) — a customer's name, a
 // site address or an amount differ from file to file and drop out
-export function formFields(labelSets) {
+export function formFields(labelSets, { share = 0.6, minFiles = 2 } = defaultRules().forms) {
   const sets = labelSets.filter((s) => s?.length)
-  if (sets.length < 2) return []
+  if (sets.length < minFiles) return []
   const n = new Map()
   for (const s of sets) for (const l of new Set(s)) n.set(l, (n.get(l) || 0) + 1)
-  const need = Math.max(2, Math.ceil(sets.length * 0.6))
+  const need = Math.max(minFiles, Math.ceil(sets.length * share))
   return [...n].filter(([, k]) => k >= need).map(([l]) => l)
 }
 
@@ -135,36 +136,37 @@ const modeOf = (xs) => { const n = new Map(); for (const x of xs) n.set(x, (n.ge
 // median) and (3) once per day · week · month (at most 10% of those with two). Then weekly when the gaps are about seven
 // days (70%+) on one weekday (60%+), monthly when about a month on one day of the month, daily when about a day (weekdays
 // only → 평일). The hour is the median KST hour.
-export function periodOf(dates) {
+export function periodOf(dates, P = defaultRules().period) {
   const ts = [...new Set(dates.map((d) => new Date(d).getTime()).filter(Number.isFinite))].sort((a, b) => a - b)
-  if (ts.length < 4) return null
+  if (ts.length < P.minMails) return null
   const gaps = ts.slice(1).map((t, i) => (t - ts[i]) / DAY)
   const med = median(gaps)
   const local = ts.map((t) => new Date(t + KST * 3_600_000))
   const mins = local.map((d) => d.getUTCHours() * 60 + d.getUTCMinutes())
   const atMin = median(mins)
-  if (mins.filter((m) => Math.abs(m - atMin) <= 90).length / mins.length < 0.7) return null
+  if (mins.filter((m) => Math.abs(m - atMin) <= P.sameTimeMinutes).length / mins.length < P.sameTimeShare) return null
   const hour = Math.min(23, Math.floor(atMin / 60))
   const share = (f) => gaps.filter(f).length / gaps.length
-  const once = (bucket) => { const n = new Map(); for (const d of local) n.set(bucket(d), (n.get(bucket(d)) || 0) + 1); return [...n.values()].filter((k) => k > 1).length / n.size <= 0.1 }
+  const once = (bucket) => { const n = new Map(); for (const d of local) n.set(bucket(d), (n.get(bucket(d)) || 0) + 1); return [...n.values()].filter((k) => k > 1).length / n.size <= P.twiceInBucketMax }
   const ymd = (d) => d.toISOString().slice(0, 10)
   const week = (d) => ymd(new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * DAY))
   const base = { n: ts.length, hour, first: new Date(ts[0]).toISOString(), last: new Date(ts.at(-1)).toISOString() }
-  if (Math.abs(med - 7) <= 1 && once(week)) {
-    const regular = share((g) => Math.abs(g - 7) <= 1.5)
+  const W = P.weekly, M = P.monthly
+  if (Math.abs(med - W.gapDays) <= 1 && once(week)) {
+    const regular = share((g) => Math.abs(g - W.gapDays) <= W.gapTolerance)
     const [dow, k] = modeOf(local.map((d) => d.getUTCDay()))
-    if (regular >= 0.7 && k / ts.length >= 0.6) return { ...base, every: 'week', dow, regular, cron: `0 ${hour} * * ${dow}` }
+    if (regular >= W.regular && k / ts.length >= W.sameWeekday) return { ...base, every: 'week', dow, regular, cron: `0 ${hour} * * ${dow}` }
   }
-  if (Math.abs(med - 30.4) <= 3.5 && once((d) => ymd(d).slice(0, 7))) {
-    const regular = share((g) => Math.abs(g - 30.4) <= 4)
+  if (Math.abs(med - M.gapDays) <= 3.5 && once((d) => ymd(d).slice(0, 7))) {
+    const regular = share((g) => Math.abs(g - M.gapDays) <= M.gapTolerance)
     const [dom, k] = modeOf(local.map((d) => d.getUTCDate()))
-    if (regular >= 0.7 && k / ts.length >= 0.6) return { ...base, every: 'month', dom, regular, cron: `0 ${hour} ${dom} * *` }
+    if (regular >= M.regular && k / ts.length >= M.sameDay) return { ...base, every: 'month', dom, regular, cron: `0 ${hour} ${dom} * *` }
   }
   if (med <= 1.5 && once(ymd)) {
     const days = local.map((d) => d.getUTCDay())
     const weekdays = days.every((d) => d >= 1 && d <= 5)
     const regular = share((g) => g <= (weekdays ? 3.2 : 1.5))
-    if (regular >= 0.8) return { ...base, every: 'day', regular, cron: `0 ${hour} * * ${weekdays ? '1-5' : '*'}` }
+    if (regular >= P.daily.regular) return { ...base, every: 'day', regular, cron: `0 ${hour} * * ${weekdays ? '1-5' : '*'}` }
   }
   return null
 }
@@ -177,4 +179,17 @@ export function cronOfHint(h) {
   if (h.every === 'week' && Number.isInteger(h.dow) && h.dow >= 0 && h.dow <= 6) return `0 ${hour} * * ${h.dow}`
   if (h.every === 'month' && Number.isInteger(h.dom) && h.dom >= 1 && h.dom <= 28) return `0 ${hour} ${h.dom} * *`
   return null
+}
+
+// Gmail's refusal in words a person can act on (a 403 that says the API is off in the Google project, an expired grant, a
+// rate limit) — the caller throws it instead of reading an error body as an empty mailbox
+export function gmailError(status, body) {
+  const msg = String(body?.error?.message || '')
+  const project = msg.match(/project (\d+)/)?.[1]
+  const e = new Error(status === 403 && /has not been used|is disabled/i.test(msg)
+    ? `Gmail API 가 이 Google 프로젝트${project ? `(${project})` : ''}에서 꺼져 있어요. Google Cloud 콘솔에서 Gmail API 를 켜 주세요.`
+    : status === 401 ? 'Google 연결이 만료됐어요. 메일을 다시 연결해 주세요.'
+      : status === 429 ? 'Gmail 이 잠시 요청을 막았어요(너무 많은 요청). 조금 뒤에 다시 읽어요.'
+        : `Gmail 이 요청을 거절했어요(${status}${msg ? `: ${msg.slice(0, 120)}` : ''}).`)
+  return Object.assign(e, { status: status === 401 ? 401 : 502, gmail: { status, project: project || null } })
 }
