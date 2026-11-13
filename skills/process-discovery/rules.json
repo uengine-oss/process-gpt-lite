@@ -21,7 +21,8 @@
   "openKinds": ["xlsx", "docx", "pptx", "hwpx", "csv"],
   "labelsPerFile": 60,
   "share": 0.6,
-  "minFiles": 2
+  "minFiles": 2,
+  "sameLabels": 0.5
  },
  "period": {
   "minMails": 4,

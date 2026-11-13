@@ -9,7 +9,7 @@ import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { chatJson } from '../llm.js'
 import { cypher, parseTask } from './store.js'
-import { formFields, readFile } from './mailbody.js'
+import { formFields, readFile, formKey } from './mailbody.js'
 import { prompt, rules as skillRules } from './discovery.js'
 import { formsDirOf } from './history.js'
 
@@ -88,28 +88,70 @@ export async function getTask(key) {
   return { task: t, definition: t.definition_md || '', parsed: await taskDefinition(key, t), labels: raws, templates: await templatesOf(key) }
 }
 
-// the attachments the company's mail shows for this work (most frequent first) and whether a template file is at hand
+// the attachments the company's mail shows for this work (most frequent first) and whether a template file is at hand.
+// One form is the attachments that hold the same thing: the same template file, the same name before the customer part
+// (「견적서_달빛커피.xlsx」 → 견적서), or — a real mailbox names files by customer first (「바이켐_AI 도입_제안서.docx」) —
+// mostly the same labels (rules.forms.sameLabels). A form whose name is not a kind of document is named by the model
+// from its file names and labels (the skill's prompts/name-form.md).
 export async function templatesOf(key) {
   const forms = (await skillRules()).forms
   const raws = (await q(`select raw from pro_onto_labels where tenant_id=$1 and task=$2`, [T(), key])).map((r) => r.raw)
   const rows = await q(`select artifacts from pro_mail_history where tenant_id=$1 and (activity_label = $2 or activity_label = any($3))`, [T(), key, raws])
-  // one row per form: attachments with the same template file behind them (or, without one, the same name before the
-  // customer part, 「견적서_달빛커피.xlsx」 → 견적서) count as one, with how many mails and file names showed it
-  const count = new Map()
+  const items = []
   for (const r of rows) for (const f of r.artifacts || []) {
     const kind = String(f.type || '').toLowerCase()
     if (!['xlsx', 'docx', 'hwpx', 'pptx'].includes(kind)) continue
     const file = f.file || templateFile(f.name)
-    const stem = String(f.name).split('_')[0].replace(/\.[a-z]+$/i, '')
-    const k = (file && !file.startsWith('forms/') && file) || `${stem}.${kind}`
-    const x = count.get(k) || { name: file && !file.startsWith('forms/') ? path.basename(file) : `${stem}.${kind}`, type: kind, seen: 0, names: new Set(), file, example: f.name, labelSets: [] }
-    x.seen++; x.names.add(f.name)
-    if (f.file) x.file = f.file
-    if (f.fields?.length) x.labelSets.push(f.fields)
-    count.set(k, x)
+    const stem = String(f.name).split(/[_\s(]/)[0].replace(/\.[a-z0-9]+$/i, '')
+    items.push({ f, kind, file, stem, key: (file && !file.startsWith('forms/') && file) || `${stem}.${kind}`, labels: new Set(f.fields || []) })
   }
-  // the form's own labels: what the company's attachments of that form always have (mailbody.js formFields)
-  return [...count.values()].sort((a, b) => b.seen - a.seen).map(({ names, labelSets, ...x }) => ({ ...x, fileNames: names.size, fields: formFields(labelSets, forms) }))
+  // the same form: the same key, or (same kind) most of the labels shared
+  const group = items.map((_, i) => i)
+  const root = (i) => (group[i] === i ? i : (group[i] = root(group[i])))
+  const same = forms.sameLabels ?? 0.5
+  for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+    const a = items[i], b = items[j]
+    if (a.kind !== b.kind) continue
+    const both = [...a.labels].filter((l) => b.labels.has(l)).length
+    const jac = a.labels.size && b.labels.size ? both / (a.labels.size + b.labels.size - both) : 0
+    if (a.key === b.key || jac >= same) group[root(i)] = root(j)
+  }
+  const by = new Map()
+  for (const [i, it] of items.entries()) { const g = root(i); if (!by.has(g)) by.set(g, []); by.get(g).push(it) }
+  const out = []
+  for (const its of by.values()) {
+    const stems = new Map()
+    for (const it of its) stems.set(it.key, (stems.get(it.key) || 0) + 1)
+    const top = [...stems].sort((a, b) => b[1] - a[1])[0][0]
+    const lead = its.find((it) => it.key === top)
+    const fixture = its.find((it) => it.file && !it.file.startsWith('forms/'))
+    const kept = its.filter((it) => it.file).at(-1)
+    const fields = formFields(its.filter((it) => it.labels.size).map((it) => [...it.labels]), forms)
+    const name = fixture ? path.basename(fixture.file) : DOC_KIND.test(lead.stem) ? `${lead.stem}.${lead.kind}` : `${await formName(its, fields)}.${lead.kind}`
+    // the template file: one of these mails kept it, else the latest file of that form kept from another mail (forms/<key>)
+    const kept1 = kept?.file || its.map((it) => `forms/${formKey(it.f.name)}`).find((rel) => fs.existsSync(path.join(formsDirOf(), rel.slice(6)))) || null
+    // groups the model named alike (a customer's file without labels beside the company's) are one form
+    const same1 = out.find((x) => x.name === name)
+    if (same1) { same1.seen += its.length; same1.fileNames += new Set(its.map((it) => it.f.name)).size; same1.file ||= kept1; if (fields.length > same1.fields.length) same1.fields = fields; continue }
+    out.push({ name, type: lead.kind, seen: its.length, file: kept1, example: lead.f.name, fileNames: new Set(its.map((it) => it.f.name)).size, fields })
+  }
+  return out.sort((a, b) => b.seen - a.seen)
+}
+// a file name that already says what kind of document it is (「견적서_…」 · 「과거력조사_…」)
+const DOC_KIND = /(서|표|록|안|조사|양식|보고|계획|명세|내역|현황|목록|대장|일지|리포트|report|proposal|quote|invoice|form)$/i
+const formNames = new Map()
+async function formName(its, fields) {
+  const names = [...new Set(its.map((it) => it.f.name))].slice(0, 6)
+  const k = names.slice().sort().join('|')
+  if (formNames.has(k)) return formNames.get(k)
+  let n = ''
+  try {
+    const r = await chatJson(await prompt('name-form'), JSON.stringify({ file_names: names, labels: (fields.length ? fields : [...its[0].labels]).slice(0, 24) }), { timeoutMs: 90000, temperature: 0 })
+    n = String(r?.name || '').replace(/[\\/:*?"<>|.]/g, ' ').trim().slice(0, 20)
+  } catch (e) { console.warn('[ontology] form name', e.message) }
+  n ||= its[0].stem
+  formNames.set(k, n)
+  return n
 }
 
 // the template file behind an attachment name: the demo mailbox's archive names it (fixtures/ax-demo-templates);
