@@ -210,7 +210,8 @@ export async function myTodos(me) {
      left join proc_def d on d.id=t.proc_def_id and d.tenant_id=t.tenant_id
      where t.tenant_id=$1
        and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))
-       and coalesce(t.agent_orch,'') = ''
+       -- an agent's step is not anyone's to do — except a draft step: the agent writes the draft, the person hands it in
+       and (coalesce(t.agent_orch,'') = '' or upper(coalesce(t.agent_mode::text,'')) = 'DRAFT')
        and (t.user_id like '%'||$2||'%' or t.user_id like '%'||$3||'%')
      order by t.start_date desc nulls last limit 20`, [T(), me.email, me.id])
 }

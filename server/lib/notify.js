@@ -84,7 +84,7 @@ export async function listFor(me) {
 }
 
 async function own(me, id) {
-  const [n] = await q(`select * from notifications n where id=$1 and tenant_id=$2 and ${MINE.replace('$2', '$3')}`, [id, T(), ids(me)])
+  const [n] = await q(`select * from notifications n where id=$1 and tenant_id=$2 and ${MINE.replaceAll('$2', '$3')}`, [id, T(), ids(me)])
   return n || null
 }
 
