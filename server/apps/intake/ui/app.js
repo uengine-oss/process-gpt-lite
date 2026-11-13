@@ -54,9 +54,9 @@ function drawAsk() {
     <textarea id="body" data-test="intake-body" placeholder="${esc(t('무엇을 바꾸고 싶은지 그대로 적어 주세요. 예) 예약 알림 메일이 두 번 와요', 'Say what you want changed, in your own words.'))}"></textarea>
     <div class="who">${V.rights.intake ? `<span class="chip can" data-test="intake-right">${esc(t('접수 권한 있음 — 계획안을 보고 바로 정해요', 'You take in work'))}</span>`
       : `<span class="chip cannot" data-test="intake-right">${esc(t(`요청만 할 수 있어요 — 접수는 ${names(V.people.intake)}`, `You can ask — ${names(V.people.intake)} take it in`))}</span>`}
-      <span class="right_"></span>${V.rights.intake && V.scopes.length ? `<select id="direct-scope" data-test="intake-direct-scope" title="${esc(t('추정 없이 시작할 때의 범위', 'The scope to start with, without an estimate'))}">${V.scopes.map((s) => `<option value="${esc(s.name)}"${s.name === 'classic' ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+      <span class="go-row">${V.rights.intake && V.scopes.length ? `<select id="direct-scope" data-test="intake-direct-scope" title="${esc(t('추정 없이 시작할 때의 범위', 'The scope to start with, without an estimate'))}">${V.scopes.map((s) => `<option value="${esc(s.name)}"${s.name === 'classic' ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
       <button id="send-direct" data-test="intake-send-direct" title="${esc(t('계획안(약 1분) 없이, 고른 범위로 바로 시작 단계로 가요', 'Skip the plan (about a minute): straight to starting, with the scope you chose'))}">${esc(t('추정 없이 바로 시작', 'Start without a plan'))}</button>` : ''}
-      <button class="primary" id="send" data-test="intake-send">${esc(t('계획안 받기', 'Get a plan'))}</button></div>`
+      <button class="primary" id="send" data-test="intake-send">${esc(t('계획안 받기', 'Get a plan'))}</button></span></div>`
 }
 
 function drawHead() {

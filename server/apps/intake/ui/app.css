@@ -8,8 +8,9 @@ h3 { font-size: 13px; font-weight: 700; color: var(--ts); margin: 0 0 8px; lette
 /* asking */
 .ask textarea { width: 100%; min-height: 92px; resize: vertical; font-size: 15px; line-height: 1.5 }
 .ask .who { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px }
-.ask .who .right_ { margin-left: auto }
-.ask .who button { margin-left: 8px }
+.ask .who { flex-wrap: wrap; row-gap: 8px }
+.ask .who .go-row { display: flex; align-items: center; gap: 8px; margin-left: auto }
+.ask .who .go-row > * { flex: none; white-space: nowrap }
 .chip.can { background: rgba(52 199 89 / .16); color: #1f8a3b } .chip.cannot { background: rgba(255 159 10 / .18); color: #a86400 }
 :root[data-theme=dark] .chip.can { color: #7ee29a } :root[data-theme=dark] .chip.cannot { color: #ffc56b }
 
