@@ -80,6 +80,24 @@ await step('깔때기: 규칙이 뉴스레터·no-reply·초대를 거르고, �
   return { total: j.total, noise, kept: j.kept, found: j.found, rows: n }
 })
 
+// 메일 보관함(design-v0.3 §16): 읽은 메일은 주인 몫으로 본문 전체까지 남는다 — 회사 지도 · 메일 이력에는 원문이 없고, 다른 사람은 못 연다
+await step('메일 보관함: 읽은 메일은 본문 전체로 주인 몫에 남고, 다른 사람은 열 수 없다', async () => {
+  const cut = new Date(ARCHIVE.today).getTime() - 90 * 86_400_000
+  const inWindow = ARCHIVE.mails.filter((x) => new Date(x.date).getTime() >= cut)
+  const [{ n }] = await q(`select count(*)::int n from pro_mail_archive where tenant_id='ax-demo' and owner_id=$1 and source='history'`, [boss.id])
+  assert.equal(n, inWindow.length)
+  const found = (await call(boss.tok, 'GET', `/mail/archive?q=${encodeURIComponent('주간 공정 보고')}&limit=20`)).body.filter((x) => x.source === 'history' && /^\[주간 공정 보고\]/.test(x.subject))
+  assert.ok(found.length >= 10, `found ${found.length}`)
+  const one = (await call(boss.tok, 'GET', `/mail/archive/${encodeURIComponent(found[0].mail_id)}`)).body
+  assert.match(one.body, /공정률/)
+  assert.ok(one.attachments.some((f) => /주간공정보고/.test(f.name)))
+  const minji = await signIn('pro-ax-minji@uengine.org')
+  assert.equal((await call(minji.tok, 'GET', `/mail/archive/${encodeURIComponent(found[0].mail_id)}`)).status, 404)
+  const [h] = await q(`select to_jsonb(h) j from pro_mail_history h where tenant_id='ax-demo' and mail_id=$1`, [found[0].mail_id])
+  assert.ok(!JSON.stringify(h?.j || {}).includes('공정률'), '메일 이력에 본문이 남았다')
+  return { archived: n, found: found.length, subject: one.subject, attachments: one.attachments.map((f) => f.name) }
+})
+
 let m
 await step('지도: 메일 이력과 채팅 핸드오버가 함께 셈해진다', async () => {
   for (let i = 0; i < 300; i++) {
@@ -95,6 +113,43 @@ await step('지도: 메일 이력과 채팅 핸드오버가 함께 셈해진다'
   const names = m.tasks.map((t) => t.key)
   for (const k of ['견적서 작성', '재무 검토', '고객 회신']) assert.ok(names.includes(k), `${k} 없음: ${names.join(', ')}`)
   return { tasks: names.length, edges: m.edges.length, processes: m.processes.map((b) => `${b.name}:${b.band}:${b.cases}`), sources: src }
+})
+
+await step('사건 · 소속 · 역할(v0.3): 요청 메일과 결과물이 일을 일으키고, 한 일이 여러 프로세스에, 역할마다 사람 · 지표', async () => {
+  const m = (await call(boss.tok, 'GET', '/ontology/map')).body
+  const mail = m.triggers.filter((t) => t.from === 'mail').sort((a, b) => b.n - a.n)
+  assert.ok(mail.length && /요청/.test(mail[0].to), JSON.stringify(mail.slice(0, 3)))
+  const quote = m.events.find((e) => e.key.startsWith('artifact:견적서 작성:'))
+  assert.ok(quote, m.events.map((e) => e.key).join(','))
+  const after = m.triggers.filter((t) => t.from === quote.key).map((t) => `${t.to}:${t.split}`)
+  assert.ok(after.some((x) => x.startsWith('재무 검토')) && after.some((x) => x.startsWith('고객 회신')), after.join(','))
+  const shared = m.tasks.filter((t) => (t.procs || []).length > 1).map((t) => t.key)
+  assert.ok(shared.length > 0)
+  const sales = m.roles.find((r) => r.key === '영업')
+  assert.ok(sales?.members >= 1 && sales.tasks.length > 0, JSON.stringify(sales))
+  return { mail: mail.slice(0, 2).map((t) => `${t.to} ${t.n}`), quote: `${quote.key} ${quote.n} → ${after.join(' · ')}`, shared, roles: m.roles.map((r) => `${r.key}(${r.members})`) }
+})
+
+// 본문 · 첨부를 읽어(design-v0.3 §15): 이도윤의 주간 공정 보고는 메일 날짜가 매주 월요일 아침이고 메일도 그렇게 말한다,
+// 박서연의 월 결산 보고는 세 번뿐이라 날짜로는 모자라고 메일이 「매월 1일 오전에」라고 말한다. 둘 다 시계 없는 타이머 사건.
+// 보낸 첨부의 칸은 그 일의 양식이 된다. 건이 이끄는 일(고객 회신 · 평면도 작성 …)은 매일 있어도 타이머가 아니다.
+await step('메일에서 찾은 정해진 때: 주간 공정 보고(매주 월 9시) · 월 결산 보고(매월 1일 9시), 보낸 첨부의 칸이 양식', async () => {
+  const m = (await call(boss.tok, 'GET', '/ontology/map')).body
+  const mined = m.triggers.filter((t) => t.source === 'mined' && String(t.from).startsWith('timer:mined:'))
+  const ev = new Map(m.events.map((e) => [e.key, e]))
+  const got = mined.map((t) => ({ task: t.to, cron: ev.get(t.from)?.cron, when: ev.get(t.from)?.name, n: t.n, p: t.p, says: t.cond }))
+  for (const want of ARCHIVE.truth.set_times) {
+    const hit = got.find((g) => g.cron === want.cron && (want.task.includes('공정') ? /공정/.test(g.task) : /결산/.test(g.task)))
+    assert.ok(hit, `${want.task} ${want.cron} 없음: ${JSON.stringify(got)}`)
+  }
+  // (a mail that asks for the weekly report, or promises it, is a request or a reply: its words name the report's clock, not its own)
+  assert.ok(!got.some((g) => /회신|평면도|실측|제안서|요청 메일 접수/.test(g.task)), `건이 이끄는 일이 타이머로: ${JSON.stringify(got)}`)
+  assert.ok(/매주|월요일|9시/.test(got.find((g) => /공정/.test(g.task)).says || ''), '공정 보고의 「메일이 한 말」이 때를 말하지 않는다')
+  const report = got.find((g) => /공정/.test(g.task)).task
+  const d = (await call(boss.tok, 'GET', `/ontology/tasks/${encodeURIComponent(report)}`)).body
+  const form = (d.templates || []).find((x) => /공정/.test(x.name))
+  assert.ok(form?.fields?.includes('공정률(%)') && form.fields.includes('다음 주 할 일'), JSON.stringify(d.templates))
+  return { timers: got.map((g) => `${g.when} · ${g.task}(메일 ${g.n}, 규칙성 ${g.p}${g.says ? `, “${g.says}”` : ''})`), form: `${form.name} ${form.fields.join(' · ')}` }
 })
 
 await step('견적서 → 재무 검토: 메일에 적힌 합계로 배운 조건(1천만 원)', async () => {

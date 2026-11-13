@@ -18,6 +18,7 @@ import { q } from '../supa.js'
 import { chatJson } from '../llm.js'
 import { maskPii } from '../policy/pii.js'
 import { googleAccessToken } from '../mail.js'
+import { partsOf, bodyOf, newPart, readFile, kindOf, formKey, b64u } from './mailbody.js'
 import { emit } from '../bus.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -35,27 +36,69 @@ function demoArchive(email) {
   } catch { return null }
 }
 
-async function gmailHeaders(userId, days, onPage) {
-  const at = await googleAccessToken(userId)
-  const api = (p) => fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
+// Gmail: every mail of `days` (received and sent — Gmail's search leaves out only spam and trash) with its whole body, the
+// newly written part of it, and its attachments. The company's own attachments (sent by someone inside) are opened: their
+// labels make the form a reply uses (templatesOf), and the latest file of each form is kept as that form's template.
+export const gmailApi = () => process.env.PRO_GMAIL_API || 'https://gmail.googleapis.com/gmail/v1/users/me'
+export async function gmailMails(token, days, { inside = new Map(), onPage, formsDir = null, archived = null } = {}) {
+  const api = async (p) => { const r = await fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error(`Gmail ${r.status}`); return r.json() }
   const out = []
+  const latest = new Map()
   let page = ''
   do {
     const list = await api(`messages?maxResults=100&q=${encodeURIComponent(`newer_than:${days}d`)}${page ? `&pageToken=${page}` : ''}`)
+    // a mail already in the owner's mail archive (lib/mailArchive.js) is taken from there, not fetched again
+    const kept = archived ? await archived(list.messages?.map((x) => x.id) || []) : new Map()
     for (const m of list.messages || []) {
+      if (kept.has(m.id)) { out.push({ ...kept.get(m.id), archived: true }); continue }
       const full = await api(`messages/${m.id}?format=full`)
       const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name.toLowerCase(), x.value]))
-      const files = []
-      const walk = (p) => { if (!p) return; if (p.filename) files.push({ name: p.filename, type: p.filename.split('.').pop().toLowerCase(), size: p.body?.size || 0 }); (p.parts || []).forEach(walk) }
-      walk(full.payload)
-      out.push({ id: m.id, thread: full.threadId, date: new Date(Number(full.internalDate)).toISOString(), from: h.from, to: String(h.to || '').split(',').map(addrOf).filter(Boolean),
-        cc: String(h.cc || '').split(',').map(addrOf).filter(Boolean), subject: h.subject || '', text: full.snippet || '', attachments: files,
+      const parts = partsOf(full.payload)
+      const date = new Date(Number(full.internalDate)).toISOString()
+      const ours = inside.has(addrOf(h.from))
+      const attachments = []
+      for (const f of parts.attachments) {
+        const a = { name: f.name, type: kindOf(f.name), size: f.size, ...(f.attachmentId ? { attachmentId: f.attachmentId } : {}) }
+        if (ours && OFFICE.has(a.type) && (f.attachmentId || f.data)) {
+          try {
+            const buf = f.data ? b64u(f.data) : b64u((await api(`messages/${m.id}/attachments/${f.attachmentId}`)).data)
+            const r = await readFile(f.name, buf)
+            a.fields = r.labels.slice(0, 60).map((l) => maskPii(l))
+            if (formsDir && (!latest.has(formKey(f.name)) || latest.get(formKey(f.name)) < date)) {
+              latest.set(formKey(f.name), date)
+              fs.mkdirSync(formsDir, { recursive: true })
+              fs.writeFileSync(path.join(formsDir, formKey(f.name)), buf)
+              a.file = `forms/${formKey(f.name)}`
+            }
+          } catch (e) { console.warn('[ontology] attachment', f.name, e.message) }
+        }
+        attachments.push(a)
+      }
+      const body = bodyOf(parts)
+      out.push({ id: m.id, thread: full.threadId, date, from: h.from, to: String(h.to || '').split(',').map(addrOf).filter(Boolean),
+        cc: String(h.cc || '').split(',').map(addrOf).filter(Boolean), subject: h.subject || '', body, text: newPart(body) || full.snippet || '', attachments,
         labels: full.labelIds || [], headers: h['list-unsubscribe'] ? { 'list-unsubscribe': h['list-unsubscribe'] } : {} })
     }
     page = list.nextPageToken || ''
     if (onPage) await onPage(out.length)
   } while (page)
   return out
+}
+const OFFICE = new Set(['xlsx', 'docx', 'pptx', 'hwpx', 'csv'])
+export const formsDirOf = (tenant = T()) => path.join(process.env.PRO_FORMS_DIR || path.join(here, '..', '..', '.forms'), tenant)
+
+// the demo mailbox: its attachments name the template files they were made from (fixtures/ax-demo-templates) — the
+// company's own are opened the same way as Gmail's
+async function demoFields(mails, inside) {
+  for (const m of mails) {
+    if (!inside.has(addrOf(m.from))) continue
+    for (const f of m.attachments || []) {
+      if (!f.file || !OFFICE.has(kindOf(f.name)) || f.fields) continue
+      const p = path.join(path.dirname(DEMO_ARCHIVE), f.file)
+      if (fs.existsSync(p)) f.fields = (await readFile(f.name, fs.readFileSync(p))).labels.slice(0, 60)
+    }
+  }
+  return mails
 }
 
 // ---------- 2 rules ----------
@@ -106,7 +149,7 @@ export function amountOf(text) {
 
 // ---------- 4 the model, once per thread ----------
 const READ = `회사 메일함의 스레드 하나를 읽고, 메일마다 그 메일이 회사 업무에서 무슨 일인지 적습니다.
-JSON {"mails":[{"i":번호,"work":true|false,"task":"일 이름","act":"request|deliver|approve|notify"}]} 로만 답하세요.
+JSON {"mails":[{"i":번호,"work":true|false,"task":"일 이름","act":"request|deliver|approve|notify","recur":null}]} 로만 답하세요.
 - task: 그 메일로 진행된 업무 한 가지를 「명사 + 동작」 4~10자로(예: "요청 메일 접수", "현장 실측", "평면도 작성", "제안서 작성", "견적서 작성", "재무 검토", "고객 회신", "자재 발주").
   이미 쓰는 일 이름(known_tasks)과 같은 일이면 그 이름을 그대로 쓴다.
 - 결과물(첨부 파일·완료 보고)을 건네는 메일은 보낸 사람이 해 낸 일의 이름으로 적는다. 다음 사람에게 검토·승인을 부탁하며 결과물을 붙였어도 그렇다
@@ -114,7 +157,11 @@ JSON {"mails":[{"i":번호,"work":true|false,"task":"일 이름","act":"request|
 - 고객이 처음 일을 맡기는 메일은 "요청 메일 접수", 고객에게 결과를 보내는 메일은 "고객 회신"처럼 그 일의 이름으로 적는다.
 - 고객이 진행 중인 일을 고쳐 달라고 하는 메일은 따로 일을 만들지 말고 그 메일로 다시 하게 되는 우리 일의 이름(예: 제안서를 고쳐 달라면 "제안서 작성")으로 적고 act 는 request.
 - act: 일을 맡기면 request, 해 둔 일·결과를 건네면 deliver, 승인이면 approve, 그 밖의 알림이면 notify.
-- 인사·감사·일정 잡기만 있는 메일도 그 업무 흐름의 한 단계면 그 단계의 이름으로 적고, 업무와 무관하면 work 를 false 로.`
+- 인사·감사·일정 잡기만 있는 메일도 그 업무 흐름의 한 단계면 그 단계의 이름으로 적고, 업무와 무관하면 work 를 false 로.
+- recur: 메일이 그 일을 정해진 때마다 한다고 말하면(「매주 월요일 오전에 보내 드리겠습니다」, 「매월 5일까지」, 「매일 아침 공유」, 「주간 보고」)
+  {"task":"정해진 때마다 하는 그 일의 이름","every":"day|week|month","dow":요일 0(일)~6(토)|null,"dom":날짜 1~28|null,"hour":0~23|null,"weekdays":평일만이면 true,"says":"그 구절 그대로(30자 이내)"}.
+  task 는 반복되는 그 일이다 — 고객이 「매주 공정 보고를 보내 달라」고 부탁하는 메일이면 이 메일의 일은 "요청 메일 접수"여도 recur.task 는
+  "주간 공정 보고"다. 한 번만 하는 일이면 null. 첨부 files 의 fields 는 그 파일의 칸 이름이다.`
 
 function personOf(addr, inside) {
   const a = addrOf(addr)
@@ -128,7 +175,7 @@ async function readThread(t, inside, known) {
     i, date: m.date.slice(0, 10),
     from: personOf(m.from, inside).inside ? inside.get(addrOf(m.from)).label : `고객(${domainOf(m.from)})`,
     to: [...(m.to || [])].map((x) => (inside.has(addrOf(x)) ? inside.get(addrOf(x)).label : `고객(${domainOf(x)})`)),
-    subject: maskPii(m.subject).slice(0, 200), text: maskPii(m.text).slice(0, 700), files: (m.attachments || []).map((f) => f.name),
+    subject: maskPii(m.subject).slice(0, 200), text: maskPii(m.text).slice(0, 1500), files: (m.attachments || []).map((f) => (f.fields?.length ? { name: f.name, fields: f.fields.slice(0, 16) } : f.name)),
   }))
   try {
     const r = await chatJson(READ, JSON.stringify({ known_tasks: known, thread: mails }), { timeoutMs: 90000, temperature: 0 })
@@ -158,23 +205,31 @@ export async function startMailHistory(me, { days = 90 } = {}) {
 }
 
 // a mail thread's case: the same id the recorder gives the chat handovers about that mail's work
+// a mail that may say its work repeats is read even when it stands alone
+const RECUR_HINT = /매\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|weekly|monthly|daily|every\s+(day|week|month|mon|tue|wed|thu|fri)/i
+
 export const caseIdOf = (threadId) => `mail:${T()}:${threadId}`
 
 export async function runMailHistory(me, jobId, days) {
   const [acc] = await q('select provider from pro_mail_accounts where user_id=$1', [me.id])
   let mails = []
-  if (acc?.provider === 'gmail') mails = await gmailHeaders(me.id, days)
+  const inside = await insidePeople()
+  const { archiveMails, archivedOf, mailOf } = await import('../mailArchive.js')
+  if (acc?.provider === 'gmail') mails = await gmailMails(await googleAccessToken(me.id), days, { inside, formsDir: formsDirOf(),
+    archived: async (ids) => new Map([...(await archivedOf(me.id, ids))].map(([k, r]) => [k, mailOf(r)])) })
   else if (acc?.provider === 'demo' || !acc) {
     const a = demoArchive(me.email)
     if (!a) throw new Error('이 메일함에는 읽을 지난 메일이 없어요.')
     const cut = new Date(a.today || Date.now()).getTime() - days * 86_400_000
-    mails = a.mails.filter((m) => new Date(m.date).getTime() >= cut)
+    mails = await demoFields(a.mails.filter((m) => new Date(m.date).getTime() >= cut), inside)
   } else throw new Error('IMAP 지난 메일 읽기는 아직 준비 중이에요.')
   const update = (set, args) => q(`update pro_onto_jobs set ${set} where id=$1`, [jobId, ...args])
+  // every mail read is kept in its owner's mail archive (the demo mailbox's whole text is its new part and the quoted mail)
+  await archiveMails(me.id, acc?.provider || 'demo', mails.filter((m) => !m.archived).map((m) => (m.body != null ? m : { ...m, body: [m.text, m.quoted].filter(Boolean).join('\n\n') })), 'history')
+    .catch((e) => console.warn('[ontology] mail archive', e.message))
   await update('total=$2', [mails.length])
   const kept = mails.filter((m) => !notWork(m))
   const threads = threadsOf(kept)
-  const inside = await insidePeople()
   // the names the company already uses: the chat handovers are matched first, so the mail speaks the same words
   // (the filtered mails count as read at once; the screen says what is going on while the chat names are matched)
   let done = mails.length - kept.length, work = 0
@@ -187,7 +242,7 @@ export async function runMailHistory(me, jobId, days) {
   // four threads at a time (one model call each); progress moves as each finishes
   const readOne = async (t) => {
     // a single plain mail with no attachment and no reply is not a flow: it costs no model call
-    const one = t.mails.length === 1 && !(t.mails[0].attachments || []).length
+    const one = t.mails.length === 1 && !(t.mails[0].attachments || []).length && !RECUR_HINT.test(`${t.mails[0].subject || ''}\n${t.mails[0].text || ''}`)
     const read = one ? [] : await readThread(t, inside, [...found])
     for (const r of read) {
       const m = t.mails[Number(r.i)]
@@ -200,8 +255,8 @@ export async function runMailHistory(me, jobId, days) {
                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                on conflict (tenant_id, mail_id) do update set case_id=excluded.case_id, activity_label=excluded.activity_label, act=excluded.act, from_role=excluded.from_role, to_role=excluded.to_role, attrs=excluded.attrs`, [
         T(), me.id, m.id, caseIdOf(t.id), m.date, from.addr, to.map((x) => x.addr), from.role, to[0]?.role || null, String(r.task).trim().slice(0, 40), act,
-        JSON.stringify((m.attachments || []).map((f) => ({ name: f.name, type: f.type || String(f.name).split('.').pop() }))), crypto.createHash('sha1').update(baseSubject(m.subject)).digest('hex').slice(0, 16),
-        JSON.stringify(amount ? { amount } : {})])
+        JSON.stringify((m.attachments || []).map((f) => ({ name: f.name, type: f.type || String(f.name).split('.').pop(), ...(f.fields?.length ? { fields: f.fields } : {}), ...(f.file?.startsWith('forms/') ? { file: f.file } : {}) }))), crypto.createHash('sha1').update(baseSubject(m.subject)).digest('hex').slice(0, 16),
+        JSON.stringify({ ...(amount ? { amount } : {}), ...(r.recur?.every ? { recur: r.recur } : {}) })])
       work++
       found.add(String(r.task).trim())
     }

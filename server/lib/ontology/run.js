@@ -99,7 +99,7 @@ export async function agentId() {
 }
 
 // the snapshot's process definition contract (process-gpt's generation contract, saved with its own save path)
-export async function contractOf(view, entry, theta, { starterRole = '담당자', key }) {
+export async function contractOf(view, entry, theta, { starterRole = '담당자', key, draft = false }) {
   const { nodes, flows } = unfold(view, entry, theta)
   const pid = `onto_${sha(key).slice(0, 12)}`
   const roles = new Map()
@@ -124,7 +124,9 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
     forms.push({ activity_id: id, form_id: fid, html: formHtml(fid, k, [{ key: 'result', text: `${k} 결과`, type: 'textarea' }]) })
     const base = { elementType: 'Activity', id, name: k, role: r, type: 'UserActivity', tool: `formHandler:${fid}`, duration: 1, inputData: [], outputData: [k],
       checkpoints: d.checkpoints, skills: d.skills, outputs: d.outputs, description: d.description || '', instruction: d.instruction || '' }
-    elements.push(runner ? { ...base, agent, agentMode: 'complete', orchestration: ORCH } : { ...base, agentMode: 'none' })
+    // an agent's step completes itself; a person's step of a promoted process gets the agent's draft first (Process GPT's
+    // draft mode: the agent is put beside the person on the work item, its result lands in the item's draft)
+    elements.push(runner ? { ...base, agent, agentMode: 'complete', orchestration: ORCH } : draft ? { ...base, agent, agentMode: 'draft', orchestration: ORCH } : { ...base, agentMode: 'none' })
   }
   elements.push({ elementType: 'Event', id: 'end', name: '끝', role: starterRole, type: 'EndEvent' })
   const node = (k) => (k === END ? 'end' : actId(k))
@@ -192,16 +194,18 @@ export async function snapshot({ procKey, entry, theta, validAt, starterRole }) 
   const structural = [...view.tasks.values()].map((t) => `${t.key}:${t.pinned ? 1 : 0}:${t.status}:${t.definition_md ? sha(t.definition_md).slice(0, 6) : ''}`).join('|') +
     view.edges.map((e) => `${e.from}>${e.to}:${e.status}:${e.pinned ? 1 : 0}`).join('|')
   const week = Math.floor(new Date(validAt || Date.now()).getTime() / (7 * 86_400_000))
-  const key = `${T()}|${procKey}|${entry}|${th}|${sha(structural).slice(0, 12)}|${week}|${starterRole || ''}`
+  // a promoted process (자동, design-v0.3 §12): its people's steps arrive with a draft the agent made in the background
+  const draft = view.proc.status === 'adopted'
+  const key = `${T()}|${procKey}|${entry}|${th}|${sha(structural).slice(0, 12)}|${week}|${starterRole || ''}${draft ? '|draft' : ''}`
   const [have] = await cypher(`MATCH (s:Snapshot {key:$key}) RETURN s.proc_def_id AS pid, s.tasks AS tasks`, { key })
   const cases = (await cypher(`MATCH (m:Meta {key:'meta'}) RETURN m.cases AS cases`))[0]?.cases || 1
   const isReceipt = (k) => { const t = view.tasks.get(k); return !!t?.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2 }
   const skipped = skippedBefore(view.proc, view.edges, entry).filter((k) => !isReceipt(k))
   if (have?.pid) {
     const [d] = await q('select 1 from proc_def where id=$1 and tenant_id=$2', [have.pid, T()])
-    if (d) return { key, procDefId: have.pid, reused: true, nodes: have.tasks || [], skipped, theta: th, proc: view.proc }
+    if (d) return { key, procDefId: have.pid, reused: true, nodes: have.tasks || [], skipped, theta: th, proc: view.proc, draft }
   }
-  const { pid, nodes, flows, contract } = await contractOf(view, entry, th, { starterRole, key })
+  const { pid, nodes, flows, contract } = await contractOf(view, entry, th, { starterRole, key, draft })
   const saved = await saveGenerated(contract)
   const defId = saved.proc_def_id || pid
   // save_contract keeps the activities' own fields, but make sure each carries its skills, checkpoints and runner
@@ -209,7 +213,7 @@ export async function snapshot({ procKey, entry, theta, validAt, starterRole }) 
   const [row] = await q('select definition from proc_def where id=$1 and tenant_id=$2', [defId, T()])
   if (row?.definition?.activities) {
     const acts = row.definition.activities.map((a) => ({ ...a, skills: byId[a.id]?.skills || [], checkpoints: byId[a.id]?.checkpoints || a.checkpoints || [], instruction: byId[a.id]?.instruction || a.instruction || '',
-      ...(byId[a.id]?.agent ? { orchestration: ORCH, agentMode: 'complete', agent: byId[a.id].agent } : {}) }))
+      ...(byId[a.id]?.agent ? { orchestration: ORCH, agentMode: byId[a.id].agentMode || 'complete', agent: byId[a.id].agent } : {}) }))
     await q(`update proc_def set definition = jsonb_set(definition, '{activities}', $3::jsonb) where id=$1 and tenant_id=$2`, [defId, T(), JSON.stringify(acts)])
   }
   // (two statements: Ontological does not take MERGE … WITH … MERGE of a relationship in one)
@@ -218,7 +222,7 @@ export async function snapshot({ procKey, entry, theta, validAt, starterRole }) 
   { key, proc: procKey, entry, theta: th, at: isoDay(), onto: validAt || isoDay(), pid: defId, tasks: nodes })
   const [linked] = await cypher('MATCH (b:Process {key:$proc})-[r:HAS_SNAPSHOT]->(s:Snapshot {key:$key}) RETURN s.key AS key', { proc: procKey, key })
   if (!linked) await cypher('MATCH (b:Process {key:$proc}), (s:Snapshot {key:$key}) CREATE (b)-[:HAS_SNAPSHOT]->(s)', { proc: procKey, key }).catch((e) => console.warn('[ontology] snapshot link', e.message))
-  return { key, procDefId: defId, reused: false, nodes, flows, skipped, theta: th, proc: view.proc }
+  return { key, procDefId: defId, reused: false, nodes, flows, skipped, theta: th, proc: view.proc, draft }
 }
 
 // ---------- the start task ----------
@@ -324,12 +328,32 @@ export async function moveCase(me, id, { task, reason = '' }) {
 }
 
 // ---------- mail: an adopted proc takes the mail first (lib/mail.js), else process mining's registered flows ----------
+// which of the company's processes (if any) a request starts: one first-token reading over their names (design-v0.3 §12)
+export async function whichProcess(text, procs) {
+  const list = procs.slice(0, 8)
+  if (!list.length) return null
+  const options = [...list.map((p, i) => ({ key: `p${i}`, label: `${p.name} — ${p.summary || p.tasks.slice(0, 4).join(' · ')}` })),
+    { key: 'none', label: '어느 업무 흐름의 시작도 아니다(질문 · 잡담 · 다른 일)' }]
+  const r = await oddsOf(`회사에 들어온 요청:\n${String(text).slice(0, 1500)}`, '이 요청은 회사의 어느 업무 흐름(프로세스)을 시작하는 일인가?', options).catch(() => null)
+  if (!r || r.choice === 'none' || (r.confidence ?? 0) < 0.6) return null
+  return { ...list[Number(r.choice.slice(1))], p: r.confidence }
+}
+
+// a mail that came in: a promoted process (자동) starts on it by itself; a process that is only suggested (제안) is offered —
+// 「이 메일은 … 프로세스의 … 부터 할 수 있어요. 진행할까요?」
 export async function routeMail(userId, mail) {
   if (!ontologyEnabled()) return false
   const g = await readGraph({}).catch(() => null)
-  if (!g?.processes.some((b) => b.status === 'adopted')) return false
-  const choice = await chooseEntry({ subject: mail.subject, text: mail.text })
-  if (!choice) return false
+  const flows = (g?.processes || []).filter((b) => b.kind !== 'routine')
+  if (!flows.some((b) => ['adopted', 'suggested'].includes(b.status))) return false
+  let choice = flows.some((b) => b.status === 'adopted') ? await chooseEntry({ subject: mail.subject, text: mail.text }) : null
+  if (!choice) {
+    const which = await whichProcess(`${mail.subject || ''}\n${mail.text || ''}`, flows.filter((b) => b.status === 'suggested'))
+    if (!which) return false
+    choice = await chooseEntry({ subject: mail.subject, text: mail.text, procKey: which.key })
+    if (!choice) return false
+    choice = { ...choice, suggest: true, ask: true, procName: which.name, procP: which.p }
+  }
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
   if (!p?.email) return false
   const me = { id: userId, email: p.email }
@@ -344,6 +368,23 @@ export async function routeMail(userId, mail) {
     skipped: r.snapshot.skipped, nodes: r.snapshot.nodes, procDefId: r.snapshot.procDefId })
   await addMessage(userId, t.id, 'agent', 'process', { defId: r.snapshot.procDefId, name: r.instName, state: 'started', instId: r.instId, instName: r.instName })
   return { instId: r.instId, caseId: r.caseId }
+}
+
+// a new request typed in chat that is the start of one of the company's processes: offered, never started by itself (a person
+// typed it — the events that start promoted processes are mails and finished steps); once per conversation
+export async function chatSuggest({ user, threadId, said, conv }) {
+  if (!ontologyEnabled() || String(said || '').trim().length < 12) return null
+  const g = await readGraph({}).catch(() => null)
+  const flows = (g?.processes || []).filter((b) => b.kind !== 'routine' && ['adopted', 'suggested'].includes(b.status))
+  if (!flows.length) return null
+  const [asked] = await q(`select 1 from pro_messages where thread_id=$1 and kind='onto-entry' and content->>'source'='chat' and coalesce(content->>'conv','')=$2 and created_at > now() - interval '1 day' limit 1`, [threadId, conv || ''])
+  if (asked) return null
+  const which = await whichProcess(said, flows)
+  if (!which) return null
+  const choice = await chooseEntry({ subject: '', text: said, procKey: which.key })
+  if (!choice) return null
+  return addMessage(user.id, threadId, 'agent', 'onto-entry', { state: 'ask', source: 'chat', conv: conv || '', suggest: true,
+    mail: { from: '', subject: String(said).split('\n')[0].slice(0, 80), text: String(said).slice(0, 1500) }, customer: '', choice: { ...choice, suggest: true, ask: true, procName: which.name, procP: which.p } })
 }
 
 // ---------- agent steps (orchestration pgpt-pro-onto) ----------
@@ -389,8 +430,9 @@ async function tick() {
 async function definitionText(name, act) {
   const { templatesOf, templateText } = await import('./taskdef.js')
   const out = (act.outputs || []).find((o) => o.template)
-  const t = out ? (await templatesOf(name)).find((x) => x.name === out.template && x.file) : null
-  const form = t ? await templateText(t.file).catch(() => '') : ''
+  const t = out ? (await templatesOf(name)).find((x) => x.name === out.template && (x.file || x.fields?.length)) : null
+  // the form's file (a demo template, or the latest one the company sent from a real mailbox), else its labels
+  const form = t?.file ? await templateText(t.file).catch(() => (t.fields || []).join(' | ')) : (t?.fields || []).join(' | ')
   return [
     act.instruction ? `이 일의 정의(회사 업무 지도에서):\n${act.instruction}` : '',
     form ? `회사가 메일로 주고받아 온 양식 「${t.name}」의 칸이에요. 위의 품목 표 안내와 다르면 이 양식을 따르세요 — 머리 칸 · 표의 열 이름 · 안내 문구를 그대로 두고 채우세요:\n${form}` : '',
@@ -404,7 +446,11 @@ async function runStep(row) {
   const base = { job_id: job, todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH }
   const [a] = await q(`select a as act from proc_def, jsonb_array_elements(definition->'activities') a where id=$1 and tenant_id=$2 and a->>'id'=$3`, [row.proc_def_id, row.tenant_id, row.activity_id])
   const act = a?.act || {}
-  const owner = await W.ownerOf(row)
+  // a draft (a person's step of a promoted process): the agent works for the person the step is for, in their thread, and
+  // its result is the step's draft — the person checks it and submits (design-v0.3 §12)
+  const isDraft = String(row.agent_mode || '').toUpperCase() === 'DRAFT'
+  const assignee = isDraft ? String(row.user_id || '').split(',').map((x) => x.trim()).filter((x) => x && x !== act.agent)[0] : null
+  const owner = assignee || await W.ownerOf(row)
   if (!owner) throw new Error('no human participant to act for')
   const threadId = await W.instanceThread(owner, row.proc_inst_id)
   const status = (text) => emit(owner, 'status', { threadId, text })
@@ -419,7 +465,10 @@ async function runStep(row) {
       const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
       const { user, session } = await sessionFor(p.email, p.name)
       const prev = await W.earlier(row.proc_inst_id)
-      const msg = await delegate({ user, session, threadId, silent: true, text: `프로세스의 '${row.activity_name}' 단계예요. ${act.instruction || act.description || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ')}\n쓸 스킬: ${(act.skills || []).join(', ')}` })
+      const ask = isDraft
+        ? `프로세스의 '${row.activity_name}' 단계를 맡은 사람(${act.role || '담당자'})이 받기 전에 초안을 만들어 두는 일이에요. ${act.description || ''} ${act.instruction || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ') || '없음'}\n담당자가 그대로 확인하고 낼 수 있게, 이 단계의 결과(판단 · 근거 · 다음에 할 일)를 다섯 줄 안으로 써 주세요. 파일은 만들지 마세요.`
+        : `프로세스의 '${row.activity_name}' 단계예요. ${act.instruction || act.description || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ')}\n쓸 스킬: ${(act.skills || []).join(', ')}`
+      const msg = await delegate({ user, session, threadId, silent: true, text: ask })
       r = { values: { result: String(msg?.content?.text || '').slice(0, 3000) }, say: null }
     }
   } finally { status(null) }
@@ -435,7 +484,9 @@ async function runStep(row) {
   ])
   const passed = checks.filter((c) => c.ok === true).length
   const amount = values.amount ? ` 합계 ${fmtWon(Number(values.amount))}원.` : ''
-  await addMessage(owner, threadId, 'agent', 'text', { text: `업무 에이전트 · ${row.activity_name}: 일 정의대로 만들었어요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`, checks })
+  await addMessage(owner, threadId, 'agent', 'text', { text: isDraft
+    ? `업무 에이전트 · ${row.activity_name}: 초안을 만들어 두었어요. 확인하고 고칠 곳만 고쳐 내 주세요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`
+    : `업무 에이전트 · ${row.activity_name}: 일 정의대로 만들었어요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`, checks, ...(isDraft ? { draftOf: row.id } : {}) })
   emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
 }
 

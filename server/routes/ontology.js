@@ -7,6 +7,7 @@ import * as D from '../lib/ontology/taskdef.js'
 import * as V from '../lib/ontology/review.js'
 import * as RL from '../lib/ontology/roles.js'
 import * as W from '../lib/ontology/ways.js'
+import * as TM from '../lib/ontology/timers.js'
 import { cypher } from '../lib/ontology/store.js'
 import { q } from '../lib/supa.js'
 import { updateMessage } from '../lib/store.js'
@@ -46,8 +47,10 @@ export function ontologyRoutes(auth) {
     const status = String(req.body?.status || '')
     if (!['adopted', 'paused', 'suggested'].includes(status)) throw S.err(400, 'status 는 adopted · paused · suggested 예요.')
     const rows = await cypher('MATCH (b:Process {key:$key}) SET b.status=$status, b.owner=$owner RETURN b.key AS key, b.status AS status',
-      { key: String(req.body?.key || ''), status, owner: req.user.email || '' }, { actor: req.user.email, reason: `프로세스 ${status === 'adopted' ? '채택' : status}` })
+      { key: String(req.body?.key || ''), status, owner: req.user.email || '' }, { actor: req.user.email, reason: `프로세스 ${status === 'adopted' ? '자동으로 승격' : status === 'suggested' ? '제안으로' : '관찰로'}` })
     if (!rows.length) throw S.err(404, '프로세스를 찾지 못했어요.')
+    // 조직이 정한 일(design-v0.3 §12): 승격은 결정 원장에 남는다
+    await V.ledger(req.user, status === 'adopted' ? 'ontology.promote' : 'ontology.demote', `${status === 'adopted' ? '자동으로 승격' : status === 'suggested' ? '제안으로' : '관찰로'}: ${req.body?.name || rows[0].key}`, { process: rows[0].key, status })
     return rows[0]
   }))
 
@@ -88,6 +91,11 @@ export function ontologyRoutes(auth) {
 
   // 일의 방법: 습관 주인이 공유에 답하고(본인만), 같은 목표의 방법을 견주고(누구나), 고른 방법을 그 일의 스킬로(관리자)
   r.post('/ontology/ways/answer', auth, h((req) => W.answerShare(req.user, { messageId: req.body?.messageId, followupId: String(req.body?.followupId || ''), answer: String(req.body?.answer || '') })))
+  // 타이머 사건(design-v0.3 §13): 회사가 프로세스에 거는 타이머, 켬 · 멈춤 · 지움(사람의 예약도 그래프에서 멈출 수 있다)
+  r.post('/ontology/timers', auth, h(async (req) => { await admin(req); return TM.addProcessTimer(req.user, { proc: String(req.body?.proc || ''), entry: String(req.body?.entry || ''), cron: String(req.body?.cron || ''), name: req.body?.name }) }))
+  r.post('/ontology/timers/from-mail', auth, h((req) => TM.acceptMailTimer(req.user, String(req.body?.messageId || ''))))
+  r.put('/ontology/timers/:key', auth, h(async (req) => { await admin(req); return TM.setTimerStatus(req.user, req.params.key, String(req.body?.status || '')) }))
+  r.post('/ontology/routines/autonomy', auth, h(async (req) => { await admin(req); return W.setRoutineAutonomy(req.user, { role: String(req.body?.role || ''), task: String(req.body?.task || ''), auto: req.body?.auto === true }) }))
   r.get('/ontology/ways', auth, h((req) => W.waysFor(req.query.task ? String(req.query.task) : null)))
   r.post('/ontology/ways/:id/skill', auth, h(async (req) => { await admin(req); return W.makeSkill(req.user, req.params.id, String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')) }))
 

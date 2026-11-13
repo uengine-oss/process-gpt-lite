@@ -1,29 +1,39 @@
 <script setup>
 // 일 하나: 이름 · 다른 이름 · 역할 · 건수 · 시작 비율 · 끝 비율, 앞뒤 일. 아래 actions 자리에 고정 · 은퇴 단추가 들어간다.
+// v0.3: 역할을 누르면 역할 패널(emit role), 한 일이 여러 프로세스에 들 수 있어 속한 프로세스를 모두 보인다(emit proc).
 import { computed } from 'vue'
 import { pct, dateKo, SOURCE_KO, taskName } from './fmt.js'
+import { procsOf } from './mapView.js'
 
-const props = defineProps({ task: { type: Object, required: true }, edges: { type: Array, default: () => [] } })
-const emit = defineEmits(['edge'])
+const props = defineProps({ task: { type: Object, required: true }, edges: { type: Array, default: () => [] }, processes: { type: Array, default: () => [] } })
+const emit = defineEmits(['edge', 'role', 'proc'])
 const t = computed(() => props.task)
 const next = computed(() => props.edges.filter((e) => e.from === t.value.key).sort((a, b) => b.p - a.p))
 const prev = computed(() => props.edges.filter((e) => e.to === t.value.key).sort((a, b) => b.n - a.n))
 const sources = computed(() => Object.entries(t.value.sources || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]))
+// a role routine's task (v0.3 kind habit): counted from habits, not cases
+const habit = computed(() => t.value.kind === 'habit' && !t.value.n_cases)
+const procs = computed(() => procsOf(t.value).map((k) => props.processes.find((p) => p.key === k)).filter(Boolean))
 </script>
 
 <template>
   <div class="tp">
     <p v-if="t.candidate" class="note">아직 후보인 일이에요. 이름을 확정하거나 다른 일과 합칠 수 있어요.</p>
+    <p v-if="habit" class="note">역할 루틴의 일이에요. 같은 역할 사람들이 결과물 뒤에 혼자 이어서 해요(메일 · 인계 건이 아니라 습관에서 셈했어요).</p>
     <div v-if="t.aliases?.length" class="al">
       <span class="k">다른 이름</span>
       <span v-for="a in t.aliases" :key="a" class="chip">{{ a }}</span>
     </div>
     <dl class="kv">
-      <dt>역할</dt><dd>{{ t.role || '–' }}</dd>
-      <dt>건수</dt><dd><b>{{ t.n_cases }}건</b> <small>거친 횟수 {{ t.n }}번</small></dd>
-      <dt>시작 비율</dt><dd>{{ pct(t.entry_share) }} <small>회사 전체 건 중 이 일로 시작한 건</small></dd>
-      <dt>끝 비율</dt><dd>{{ pct(t.exit_share) }} <small>이 일에서 끝난 건</small></dd>
-      <dt>본 기간</dt><dd>{{ dateKo(t.first_seen) }} ~ {{ dateKo(t.last_seen) }}</dd>
+      <dt>역할</dt><dd><button v-if="t.role" class="lnk press" data-testid="onto-task-role" @click="emit('role', t.role)">{{ t.role }}</button><template v-else>–</template></dd>
+      <template v-if="procs.length"><dt>프로세스</dt><dd class="procs"><button v-for="p in procs" :key="p.key" class="lnk press" @click="emit('proc', p.key)">{{ p.name }}<small v-if="p.kind === 'routine'"> · 루틴</small></button></dd></template>
+      <template v-if="habit"><dt>한 횟수</dt><dd><b>{{ t.n || 0 }}번</b></dd></template>
+      <template v-else>
+        <dt>건수</dt><dd><b>{{ t.n_cases }}건</b> <small>거친 횟수 {{ t.n }}번</small></dd>
+        <dt>시작 비율</dt><dd>{{ pct(t.entry_share) }} <small>회사 전체 건 중 이 일로 시작한 건</small></dd>
+        <dt>끝 비율</dt><dd>{{ pct(t.exit_share) }} <small>이 일에서 끝난 건</small></dd>
+      </template>
+      <template v-if="t.first_seen"><dt>본 기간</dt><dd>{{ dateKo(t.first_seen) }} ~ {{ dateKo(t.last_seen) }}</dd></template>
       <template v-if="sources.length"><dt>출처</dt><dd><template v-for="([k, n], i) in sources" :key="k"><i v-if="i" class="dot"> · </i><span>{{ SOURCE_KO[k] || k }}</span> {{ n }}</template></dd></template>
     </dl>
     <template v-if="next.length">
@@ -54,6 +64,9 @@ const sources = computed(() => Object.entries(t.value.sources || {}).filter(([, 
 .kv dd b { font-size: 17px; font-weight: 600; }
 .kv small { font-size: 12px; color: var(--text-tertiary); }
 .dot { font-style: normal; color: var(--text-tertiary); }
+.lnk { text-align: left; text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 3px; }
+.lnk:hover { text-decoration-color: currentColor; }
+.procs { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 h4 { margin: 6px 0 -4px; font-size: 12.5px; font-weight: 500; color: var(--text-tertiary); }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: 10px; background: var(--field-bg); font-size: 13.5px; text-align: left; }
 .row b { font-weight: 600; font-variant-numeric: tabular-nums; }

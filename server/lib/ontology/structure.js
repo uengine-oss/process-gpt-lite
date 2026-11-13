@@ -51,8 +51,14 @@ export function structureOf(cases, g, processes, { assigned = new Map() } = {}) 
   const trigRows = [...triggers.values()].map((t) => {
     const e = events.get(t.from)
     const outs = [...triggers.values()].filter((x) => x.from === t.from).map((x) => x.to)
-    // and: the targets of one event were seen running side by side (both orders between them, NEXT.parallel)
-    const and = outs.length > 1 && outs.some((o) => o !== t.to && (edge(t.to, o)?.n || 0) > 0 && (edge(o, t.to)?.n || 0) > 0)
+    // and: the targets of one event run side by side — each is taken often enough and the two were seen in both orders,
+    // neither order rare (a 95 / 5 split with a stray reversed case is a choice, not work done together)
+    const pOf = (to) => (triggers.get(`${t.from}\u0000${to}`)?.n || 0) / e.n
+    const and = outs.length > 1 && pOf(t.to) >= 0.15 && outs.some((o) => {
+      if (o === t.to || pOf(o) < 0.15) return false
+      const ab = edge(t.to, o)?.n || 0, ba = edge(o, t.to)?.n || 0
+      return ab > 0 && ba > 0 && Math.min(ab, ba) >= 0.3 * Math.max(ab, ba)
+    })
     // the condition the split learned (the raising task's NEXT edge to this target)
     const raiser = e.kind === 'artifact' ? t.from.split(':')[1] : null
     const cond = raiser ? edge(raiser, t.to)?.cond || '' : ''

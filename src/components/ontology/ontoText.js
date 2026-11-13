@@ -28,7 +28,7 @@ export const dayKo = (date) => {
 
 export const ACT_KO = { request: '요청', deliver: '전달', ask: '문의', confirm: '확인', other: '기타' }
 export const KIND_KO = { retire: '은퇴 후보', firmed: '굳어짐', retired: '은퇴함', 'pin-skipped': '고정 건너뜀' }
-export const DECISION_KO = { 'ontology.pin': '고정', 'ontology.unpin': '고정 풀기', 'ontology.retire': '은퇴', 'ontology.revive': '되살림' }
+export const DECISION_KO = { 'ontology.pin': '고정', 'ontology.unpin': '고정 풀기', 'ontology.retire': '은퇴', 'ontology.revive': '되살림', 'ontology.promote': '자동으로 승격', 'ontology.demote': '승격 낮춤', 'ontology.timer': '타이머 걸기', 'ontology.timer_on': '타이머 켬', 'ontology.timer_pause': '타이머 멈춤', 'ontology.timer_off': '타이머 지움' }
 export const TODO_KO = { DONE: '끝남', IN_PROGRESS: '하는 중', TODO: '할 일', NEW: '할 일', SUBMITTED: '제출됨', PENDING: '기다림', CANCELLED: '취소됨' }
 export const RUNNER_KO = { person: '사람', agent: '에이전트' }
 export const AUTONOMY_KO = { draft: '초안까지', review: '검토 받고', auto: '알아서 끝까지', complete: '알아서 끝까지' }

@@ -7,6 +7,7 @@ import { q } from '../supa.js'
 import { chatJson } from '../llm.js'
 import { resolveLabels, consolidate, nameHabits } from './names.js'
 import { cypher, readGraph } from './store.js'
+import { timerHabits, writeTimers, minedTimers } from './timers.js'
 import { toCases, graphOf, clusterCases, autoValues, bandOf, summaryTheta, staleness, outTimesOf, pickHalfLife, learnThreshold, END, DAY } from './stats.js'
 import { structureOf, clsOf, routinesOf, artifactEvent, CLS_KO } from './structure.js'
 import crypto from 'node:crypto'
@@ -59,6 +60,7 @@ export async function loadEvents({ until } = {}) {
                         from pro_mail_history where tenant_id=$1 ${until ? 'and occurred_at <= $2' : ''} order by occurred_at`, until ? [T(), until] : [T()])
   const labels = await resolveLabels([...ho.map((r) => ({ raw: rawOf(r) })), ...mh.map((r) => ({ raw: r.activity_label, hint: r.act }))])
   const roles = await rolesOfPeople()
+  const known = new Set([...roles.values(), ...(await q(`select distinct role from pro_role_members where tenant_id=$1`, [T()]).catch(() => [])).map((r) => r.role)])
   // the company's people and agents by address (who did a mail step) — outside people are not performers
   const people = new Map((await q(`select id::text as id, lower(email) as email, coalesce(username, email) as name, coalesce(is_agent,false) as agent from users where tenant_id=$1`, [T()]))
     .map((u) => [u.email, { id: u.id, name: u.name, agent: u.agent }]))
@@ -74,7 +76,9 @@ export async function loadEvents({ until } = {}) {
     const toSide = l.act === 'request'
     const id = toSide ? r.to_user_id : r.from_user_id
     const isAgent = toSide ? r.to_is_agent : r.from_is_agent
-    const role = (toSide ? r.to_role : r.from_role) || roles.get(String(id)) || (isAgent ? '에이전트' : (toSide ? r.to_user_name : r.from_user_name)) || '담당자'
+    // a role written on the handover that the company does not have (a model's guess, 「영업 담당」) gives way to the person's own
+    const said = toSide ? r.to_role : r.from_role
+    const role = (said && known.has(said) ? said : roles.get(String(id)) || said) || (isAgent ? '에이전트' : (toSide ? r.to_user_name : r.from_user_name)) || '담당자'
     const name = toSide ? r.to_user_name : r.from_user_name
     events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: id ? String(id) : null, role, source: r.source, person: String(r.from_user_id || r.to_user_id || ''),
       arts: l.act === 'request' ? [] : kinds(r.artifact_refs), actor: id ? { id: String(id), name: name || String(id), agent: !!isAgent } : null })
@@ -232,6 +236,8 @@ async function writeState(st, validFrom, names, meta) {
 // personal habits (후행 습관 pro_followups · 방 규칙 pro_room_rules) → role routines (design-v0.3 §3.4): every habit is
 // counted — the setting only decides what the map shows (service.js) — and the graph gets the role, the task and how many
 // people, never a name or the words. A role's routine is a process of its own (kind routine) hung on the role.
+// 이/가 after a Korean word (받침)
+const iGa = (w) => { const c = String(w).charCodeAt(String(w).length - 1); return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 ? '이' : '가' }
 const shaOf = (x) => crypto.createHash('sha1').update(String(x)).digest('hex').slice(0, 10)
 const roleEvent = (role, cls) => (cls === 'link' ? { key: `link:@${role}`, kind: 'link', cls: 'link', name: `${CLS_KO.link} 올림(${role})` }
   : { key: `artifact:@${role}:${cls}`, kind: 'artifact', cls, name: `${CLS_KO[cls] || cls} 결과물(${role})` })
@@ -240,22 +246,25 @@ async function habitRoutines(final, meta, assigned) {
                           where tenant_id=$1 and (seen >= 2 or origin = 'told')`, [T()]).catch(() => [])
   const rules = await q(`select id::text as id, user_id::text as user_id, action from pro_room_rules where tenant_id=$1`, [T()]).catch(() => [])
   const shared = new Set((await q(`select followup_id::text as id from pro_habit_shares where tenant_id=$1 and answer='shared' and status <> 'withdrawn'`, [T()]).catch(() => [])).map((r) => r.id))
-  if (!rows.length && !rules.length) return { keys: [], routines: 0 }
   // each person's role: the assignment, else the role they performed most in the cases
   const played = new Map()
   for (const p of final.structure.plays) if (!played.has(p.from) || played.get(p.from).n < p.n) played.set(p.from, { role: p.to, n: p.n })
   const roleOf = (id) => [...(assigned.get(id)?.roles || [])][0] || played.get(id)?.role || null
+  // the schedules people keep (예약) are habits on a clock: timer events (timers.js, design-v0.3 §13)
+  const timers = await timerHabits(roleOf)
+  if (!rows.length && !rules.length && !timers.length) return { keys: [], routines: 0 }
   const goals = await nameHabits([...rows, ...rules].map((r) => r.action))
   const habits = [
     ...rows.map((r) => ({ userId: r.user_id, role: roleOf(r.user_id), cls: r.cls, task: goals.get(clean(r.action)), seen: r.seen, told: r.origin === 'told', shared: shared.has(r.id), source: r.origin === 'told' ? 'told' : 'habit' })),
     ...rules.map((r) => ({ userId: r.user_id, role: roleOf(r.user_id), cls: 'link', task: goals.get(clean(r.action)), seen: 1, told: true, shared: false, source: 'rule' })),
+    ...timers,
   ]
   const routines = routinesOf(habits)
   if (!routines.length) return { keys: [], routines: 0 }
   const w = { validFrom: iso(final.now), actor: meta.actor, reason: `${meta.reason}(역할 루틴)` }
   const plain = { actor: meta.actor, reason: w.reason }
   const evs = new Map()
-  for (const r of routines) { const e = roleEvent(r.role, r.cls); evs.set(e.key, { ...e, n: (evs.get(e.key)?.n || 0) + r.n }); r.event = e.key }
+  for (const r of routines) { if (r.cls === 'timer') continue; const e = roleEvent(r.role, r.cls); evs.set(e.key, { ...e, n: (evs.get(e.key)?.n || 0) + r.n }); r.event = e.key }
   await upsertNodes('Event', [...evs.values()], ['kind', 'cls', 'name', 'n'], [], plain)
   const flowTasks = new Set(final.g.tasks.keys())
   const habitTasks = new Map()
@@ -266,19 +275,27 @@ async function habitRoutines(final, meta, assigned) {
   const held = new Map()
   for (const a of assigned.values()) for (const role of a.roles || []) held.set(role, (held.get(role) || 0) + 1)
   const size = (role) => Math.max(members.get(role) || 0, held.get(role) || 0)
-  await upsertRel('TRIGGERS', 'Event', 'Task', routines.map((r) => ({ from: r.event, to: r.task, n: r.n, p: r.people / Math.max(r.people, size(r.role), 1), split: '', cond: '',
+  const byEvent = routines.filter((r) => r.cls !== 'timer')
+  await upsertRel('TRIGGERS', 'Event', 'Task', byEvent.map((r) => ({ from: r.event, to: r.task, n: r.n, p: r.people / Math.max(r.people, size(r.role), 1), split: '', cond: '',
     source: r.source, scope: `role:${r.role}`, people: r.people, shared: r.shared, status: 'active' })), ['n', 'p', 'split', 'cond', 'source', 'scope', 'people', 'shared', 'status'], w, ['pinned:false'])
   // a routine step nobody does any more (or one named differently now) leaves the map, kept in the history
-  const liveTrig = new Set(routines.map((r) => `${r.event}>${r.task}`))
-  const before = await cypher(`MATCH (e:Event)-[t:TRIGGERS]->(x:Task) WHERE t.source IN $sources RETURN e.key AS from, x.key AS to, t.status AS status`, { sources: ['habit', 'told', 'rule'] }).catch(() => [])
-  for (const x of before) if (!liveTrig.has(`${x.from}>${x.to}`) && x.status !== 'gone') await cypher('MATCH (e:Event {key:$from})-[t:TRIGGERS]->(x:Task {key:$to}) SET t.status=$status RETURN e.key AS key', { from: x.from, to: x.to, status: 'gone' }, w)
+  const liveTrig = new Set(byEvent.map((r) => `${r.event}>${r.task}`))
+  const before = await cypher(`MATCH (e:Event)-[t:TRIGGERS]->(x:Task) WHERE t.source IN $sources RETURN e.key AS from, x.key AS to, t.status AS status, t.scope AS scope`, { sources: ['habit', 'told', 'rule'] }).catch(() => [])
+  // (a company's own trigger — a process timer, scope company — is not a habit and stays)
+  for (const x of before) if (String(x.scope || '').startsWith('role:') && !liveTrig.has(`${x.from}>${x.to}`) && x.status !== 'gone') await cypher('MATCH (e:Event {key:$from})-[t:TRIGGERS]->(x:Task {key:$to}) SET t.status=$status RETURN e.key AS key', { from: x.from, to: x.to, status: 'gone' }, w)
+  const peopleOf = (h) => routines.find((r) => r.role === h.role && r.cls === 'timer' && r.task === h.task)?.people || 1
+  await writeTimers(timers.filter((h) => h.role), peopleOf, w)
   const byRole = new Map()
   for (const r of routines) { if (!byRole.has(r.role)) byRole.set(r.role, []); byRole.get(r.role).push(r) }
-  const procs = [...byRole].map(([role, rs]) => ({ key: `routine:${shaOf(role)}`, name: `${role} 루틴`, summary: `${role}가 결과물 뒤에 혼자 이어서 하는 일`, kind: 'routine', role,
+  const procs = [...byRole].map(([role, rs]) => ({ key: `routine:${shaOf(role)}`, name: `${role} 루틴`, summary: rs.some((r) => r.cls === 'timer') ? `${role}${iGa(role)} 결과물 뒤에 · 정해 둔 시각에 혼자 하는 일` : `${role}${iGa(role)} 결과물 뒤에 혼자 이어서 하는 일`, kind: 'routine', role,
     tasks: [...new Set(rs.map((r) => r.task))], entries: [], cases: Math.max(...rs.map((r) => r.people)), band: 'open' }))
   await upsertNodes('Process', procs, ['name', 'summary', 'kind', 'role', 'tasks', 'entries', 'cases', 'band'], ["status:'suggested'", "autonomy:'draft'", 'theta:0', 'summary_theta:0', 'half_life:0'], w)
   await upsertRel('HAS_TASK', 'Process', 'Task', procs.flatMap((p) => byRole.get(p.role).map((r) => ({ from: p.key, to: r.task, n: r.people, share: r.people / Math.max(size(p.role), r.people, 1), entry_share: 0 }))),
     ['n', 'share', 'entry_share'], w)
+  // a task that left a routine (renamed, or nobody does it now) leaves its membership too
+  const liveHas = new Set(procs.flatMap((p) => p.tasks.map((t) => `${p.key}>${t}`)))
+  for (const x of await cypher(`MATCH (p:Process)-[h:HAS_TASK]->(t:Task) WHERE p.kind = 'routine' RETURN p.key AS p, t.key AS t`).catch(() => []))
+    if (!liveHas.has(`${x.p}>${x.t}`)) await cypher('MATCH (p:Process {key:$p})-[h:HAS_TASK]->(t:Task {key:$t}) DELETE h', x, w).catch((e) => console.warn('[ontology] routine membership', e.message))
   await upsertNodes('Role', [...byRole.keys()].filter((r) => !members.has(r)).map((r) => ({ key: r, name: r })), ['name'], ['confirmed:false'], w)
   await upsertRel('OF_ROLE', 'Process', 'Role', procs.map((p) => ({ from: p.key, to: p.role, n: p.cases })), ['n'], plain)
   return { keys: procs.map((p) => p.key), routines: routines.length, roles: byRole.size }
@@ -355,6 +372,9 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   await writeState(final, iso(now), names, meta)
   await describeTasks(final, meta).catch((e) => console.warn('[ontology] describe', e.message))
   const habits = await habitRoutines(final, meta, assigned).catch((e) => { console.warn('[ontology] routines', e.message); return { keys: [], routines: 0 } })
+  // work the mail does at set times (a weekly report, a month-end statement): timer events with no clock yet (timers.js)
+  await minedTimers({ validFrom: iso(now), actor: meta.actor, reason: `${meta.reason}(메일의 정해진 때)` }, { tasks: new Set(final.g.tasks.keys()) })
+    .catch((e) => console.warn('[ontology] mined timers', e.message))
   // processes of earlier weeks that are not in today's picture are gone (kept in the history, hidden on the map)
   const live = [...final.processes.map((b) => b.key), ...habits.keys]
   await cypher(`MATCH (b:Process) WHERE NOT b.key IN $live AND b.status <> 'gone' SET b.status='gone'`, { live }, { ...meta, validFrom: iso(now) })

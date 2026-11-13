@@ -4,7 +4,8 @@
 // the same way a task's definition is.
 import { chatJson } from '../llm.js'
 import { cypher, readGraph } from './store.js'
-import { CLS_KO } from './structure.js'
+import { CLS_KO, shownRoutine } from './structure.js'
+import { habitSettings } from './service.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
 const J = (s, d) => { try { return typeof s === 'string' ? JSON.parse(s) : s ?? d } catch { return d } }
@@ -20,9 +21,13 @@ export async function roleView(key) {
   const doing = g.performedBy.filter((p) => p.to === key).sort((a, b) => b.n - a.n)
     .map((p) => ({ task: p.from, n: p.n, share: p.share, skills: tasks.get(p.from)?.skills || [], checkpoints: tasks.get(p.from)?.checkpoints || [], single: (role.single_tasks || []).includes(p.from) }))
   const routines = g.processes.filter((p) => p.kind === 'routine' && p.role === key)
-  const routineTasks = g.triggers.filter((t) => String(t.scope) === `role:${key}`).map((t) => ({ task: t.to, people: t.people, source: t.source, event: t.from }))
+  // the role's routine steps the habit setting lets through (the same rule as the map, design-v0.3 §4)
+  const settings = await habitSettings()
+  const own = g.triggers.filter((t) => String(t.scope) === `role:${key}`)
+  const routineTasks = own.filter((t) => shownRoutine(t, settings)).map((t) => ({ task: t.to, people: t.people, source: t.source, event: t.from, autonomy: t.autonomy || 'ask' }))
+  const hiddenRoutines = own.length - routineTasks.length
   const ways = (g.ways || []).filter((w) => w.role === key)
-  return { role: { ...role, competencies: J(role.competencies, []) }, performers, tasks: doing, routines: routines.map((p) => p.key), routineTasks, ways }
+  return { role: { ...role, competencies: J(role.competencies, []) }, performers, tasks: doing, routines: routines.map((p) => p.key), routineTasks, hiddenRoutines, ways }
 }
 
 const DRAFT = `회사의 「역할」 하나를 정의합니다. 역할은 전문성의 관점입니다. JSON {"definition","competencies":[{"name","evidence"}]} 로만 답하세요.

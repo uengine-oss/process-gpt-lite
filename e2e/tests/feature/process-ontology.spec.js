@@ -18,7 +18,7 @@ test('F-PO-01 지도 — 일 · 관계 · 프로세스과 자동 값(θ · 반�
   const u = await as('po-user')
   const m = await mapOf(u)
   expect(m.edges.length).toBeGreaterThan(m.tasks.length - 1)
-  for (const b of m.processes) {
+  for (const b of m.processes.filter((p) => p.kind !== 'routine')) {
     expect([0, 0.01, 0.02, 0.05, 0.1, 0.2]).toContain(b.theta)
     expect([14, 30, 60, 90, 180]).toContain(b.half_life)
     expect(['paved', 'open', 'watch']).toContain(b.band)
@@ -137,5 +137,110 @@ test('F-PO-08 화면 — 지도 · θ · 값 보기 · 검토 안건 · 스냅�
   await expect(page.getByTestId('onto-review-item').first()).toContainText(/0건/, { timeout: 15000 })
   await page.getByRole('button', { name: '스냅샷 보기' }).click()
   await expect(page.locator('.djs-container, .bjs-container').first()).toBeVisible({ timeout: 60000 })
+  expect(page.errors).toEqual([])
+})
+
+// ---- v0.3 (design-v0.3): 사건 · 프로세스 소속 · 역할 · 역할 루틴과 그 설정 · 일의 방법
+
+test('F-PO-09 사건과 소속 — 요청 메일이 첫 일을, 결과물이 다음 일을 일으키고, 한 일이 여러 프로세스에', async ({ as }) => {
+  const m = await mapOf(await as('po-user'))
+  expect(m.events.some((e) => e.key === 'mail')).toBe(true)
+  const art = m.events.find((e) => e.kind === 'artifact' && e.key.startsWith('artifact:견적서 작성:'))
+  expect(art?.n).toBeGreaterThan(0)
+  expect(m.triggers.some((t) => t.from === 'mail' && t.source === 'mined')).toBe(true)
+  expect(m.raises.some((r) => r.from === '견적서 작성' && r.to === art.key)).toBe(true)
+  for (const t of m.triggers.filter((x) => x.split)) expect(['xor', 'and']).toContain(t.split)
+  expect(m.tasks.some((t) => (t.procs || []).length > 1)).toBe(true)
+})
+
+test('F-PO-10 역할 — 사람 · 에이전트 · 지표, 보기는 누구나, 정의 초안은 관리자만', async ({ as }) => {
+  const u = await as('po-user')
+  const m = await mapOf(u)
+  const role = m.roles.find((r) => !r.outside && r.members > 0)
+  expect(role).toBeTruthy()
+  const v = (await u.get(`/ontology/roles/${encodeURIComponent(role.key)}`)).body
+  expect(v.performers.length).toBeGreaterThan(0)
+  expect(typeof v.role.agent_share).toBe('number')
+  expect((await u.post(`/ontology/roles/${encodeURIComponent(role.key)}/draft`, {})).status).toBe(403)
+})
+
+test('F-PO-11 개인 습관을 지도에 보이는 설정 — 관리자만 바꾸고, 지도에는 역할 · 일 · 사람 수만', async ({ as, db, cleanup }) => {
+  const u = await as('po-user')
+  const m = await mapOf(u)
+  expect((await u.put('/ontology/settings', { mode: 'all', min: 3 })).status).toBe(403)
+  const a = await admin(db, await as('po-admin'), cleanup)
+  const was = (await a.get('/ontology/settings')).body
+  cleanup(() => a.put('/ontology/settings', was))
+  expect((await a.put('/ontology/settings', { mode: 'off', min: 3 })).status).toBe(200)
+  const off = (await a.get('/ontology/map')).body
+  expect(off.triggers.filter((t) => ['habit', 'told', 'rule'].includes(t.source))).toEqual([])
+  expect(off.processes.filter((p) => p.kind === 'routine')).toEqual([])
+  for (const t of m.triggers.filter((x) => x.source === 'habit')) { expect(t.scope).toMatch(/^role:/); expect(typeof t.people).toBe('number') }
+  expect(JSON.stringify(m)).not.toMatch(/user_id|followup/)
+})
+
+test('F-PO-12 일의 방법 — 목표마다 공유한 방법, 남의 습관은 공유할 수 없고, 스킬은 관리자만', async ({ as }) => {
+  const u = await as('po-user')
+  await mapOf(u)
+  const ways = (await u.get('/ontology/ways')).body
+  expect(Array.isArray(ways)).toBe(true)
+  for (const w of ways) { expect(w.task).toBeTruthy(); expect(typeof w.best).toBe('boolean') }
+  expect((await u.post('/ontology/ways/answer', { followupId: '00000000-0000-0000-0000-000000000000', answer: 'shared' })).status).toBe(404)
+  if (ways[0]) expect((await u.post(`/ontology/ways/${ways[0].id}/skill`, {})).status).toBe(403)
+})
+
+// ---- v0.3 §12 · §13: 승격 단계(관찰 · 제안 · 자동)와 타이머 사건 — 메일 · 채팅 제안과 실제 시작은 server/test/ontology-triggers.e2e.mjs
+
+test('F-PO-13 승격 단계 — 관찰 · 제안 · 자동은 관리자만 바꾸고, 바꾸면 결정 원장에', async ({ as, db, cleanup }) => {
+  const u = await as('po-user')
+  const m = await mapOf(u)
+  const p = m.processes.find((x) => x.kind !== 'routine')
+  expect(['paused', 'suggested', 'adopted']).toContain(p.status)
+  expect((await u.post('/ontology/processes/status', { key: p.key, status: 'suggested' })).status).toBe(403)
+  const a = await admin(db, await as('po-admin'), cleanup)
+  cleanup(() => a.post('/ontology/processes/status', { key: p.key, status: p.status }))
+  const since = new Date()
+  const next = p.status === 'suggested' ? 'paused' : 'suggested'
+  expect((await a.post('/ontology/processes/status', { key: p.key, status: next })).status).toBe(200)
+  const [l] = await db.q(`select action_kind from pro_policy_decisions where action_kind like 'ontology.%mote' and created_at >= $1 order by created_at desc`, [since])
+  expect(l?.action_kind).toBe('ontology.demote')
+  expect((await a.get('/ontology/map')).body.processes.find((x) => x.key === p.key).status).toBe(next)
+  expect((await a.post('/ontology/processes/status', { key: p.key, status: 'bogus' })).status).toBe(400)
+})
+
+test('F-PO-14 타이머 — 회사 타이머는 관리자만 걸고 프로세스의 시작 사건이 되며, 멈추고 지우면 예약도 따라간다', async ({ as, db, cleanup }) => {
+  const u = await as('po-user')
+  const m = await mapOf(u)
+  const p = m.processes.find((x) => x.kind !== 'routine')
+  expect((await u.post('/ontology/timers', { proc: p.key, cron: '0 9 1 * *' })).status).toBe(403)
+  const a = await admin(db, await as('po-admin'), cleanup)
+  expect((await a.post('/ontology/timers', { proc: p.key, entry: '없는 일', cron: '0 9 1 * *' })).status).toBe(400)
+  const r = await a.post('/ontology/timers', { proc: p.key, cron: '0 9 1 * *' })
+  expect(r.status).toBe(200)
+  cleanup(() => a.put(`/ontology/timers/${encodeURIComponent(r.body.key)}`, { status: 'gone' }))
+  expect(r.body.when).toBe('매월 1일 9시')
+  const m2 = (await a.get('/ontology/map')).body
+  expect(m2.startsOn.some((s) => s.from === p.key && s.to === r.body.key)).toBe(true)
+  expect(m2.events.find((e) => e.key === r.body.key)).toMatchObject({ kind: 'timer', cron: '0 9 1 * *', scope: 'company', status: 'active' })
+  expect((await a.put(`/ontology/timers/${encodeURIComponent(r.body.key)}`, { status: 'paused' })).status).toBe(200)
+  expect((await db.q('select paused from pro_schedules where id=$1', [r.body.scheduleId]))[0].paused).toBe(true)
+  expect((await a.put(`/ontology/timers/${encodeURIComponent(r.body.key)}`, { status: 'gone' })).status).toBe(200)
+  expect((await db.q('select id from pro_schedules where id=$1', [r.body.scheduleId])).length).toBe(0)
+  // 사람의 예약은 공개 기준을 넘은 루틴 단계와 함께만 지도에 보인다
+  for (const e of m2.events.filter((x) => x.kind === 'timer' && x.scope !== 'company')) expect(m2.triggers.some((t) => t.from === e.key)).toBe(true)
+})
+
+test('F-PO-15 화면 — 승격 단계 · 타이머 · 사건 보기', async ({ pageAs, db, cleanup }) => {
+  const page = await pageAs('po-admin')
+  await db.q('update users set is_admin=true where id=$1', [page.user.id]); cleanup(() => db.q('update users set is_admin=false where id=$1', [page.user.id]))
+  const r = await page.user.get('/ontology/map')
+  test.skip(!r.body?.tasks?.length, '셈한 지도가 없다')
+  const p = r.body.processes.find((x) => x.kind !== 'routine')
+  await page.goto(`/process-map?proc=${encodeURIComponent(p.key)}`)
+  await expect(page.getByTestId('onto-ladder')).toHaveAttribute('data-status', p.status, { timeout: 15000 })
+  await expect(page.getByTestId(`onto-ladder-${p.status}`)).toBeDisabled()
+  await page.getByTestId('onto-timer-button').click()
+  await expect(page.getByTestId('onto-timer-panel')).toBeVisible()
+  await expect(page.getByTestId('onto-timer-cron')).toBeVisible()
   expect(page.errors).toEqual([])
 })

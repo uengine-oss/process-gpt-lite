@@ -59,7 +59,7 @@ const CAST = {
 const HABITS = [
   { who: 'doyun', cls: 'sheet', action: '견적서 마지막 장 오른쪽 아래에 회사 직인 이미지 넣어 줘', ask: '견적서에 회사 직인을 넣어 드릴까요?', seen: 3, accepted: 2 },
   { who: 'yuna', cls: 'sheet', action: '견적서 공급자 칸 옆에 대표 직인 넣어 줘', ask: '견적서 공급자 칸에 직인을 넣어 드릴까요?', seen: 2, accepted: 1 },
-  { who: 'jiho', cls: 'sheet', action: '견적서에 회사 도장 찍어 줘', ask: '견적서에 회사 도장을 찍어 드릴까요?', seen: 4, accepted: 3, declined: 1 },
+  { who: 'jiho', cls: 'sheet', action: '견적서 합계 아래에 회사 직인 이미지 넣어 줘', ask: '견적서 합계 아래에 회사 직인을 넣어 드릴까요?', seen: 4, accepted: 3, declined: 1 },
   { who: 'doyun', cls: 'sheet', action: '견적서를 PDF로도 저장해 줘', ask: '견적서를 PDF로도 저장해 드릴까요?', seen: 2, accepted: 1 },
   { who: 'minji', cls: 'doc', action: '제안서 표지에 대외비 넣어 줘', ask: '제안서 표지에 대외비를 넣어 드릴까요?', seen: 2, accepted: 1 },
   { who: 'seoyeon', cls: 'sheet', action: '검토한 견적서 맨 아래에 재무 검토 날짜 적어 줘', ask: '견적서 맨 아래에 재무 검토 날짜를 적어 드릴까요?', seen: 2, accepted: 1 },
@@ -67,7 +67,7 @@ const HABITS = [
 // role owners for every process (Settings › Team & roles)
 const ROLES_ALL = { 제안팀장: 'jinyoung', 영업: 'doyun', 디자이너: 'minji', '재무 담당': 'seoyeon' }
 // tables of the process-ontology feature that may not exist yet; children first
-const ONTO_TABLES = ['pro_onto_labels', 'pro_onto_jobs', 'pro_po_cases', 'pro_mail_history']
+const ONTO_TABLES = ['pro_onto_labels', 'pro_onto_jobs', 'pro_po_cases', 'pro_mail_history', 'pro_mail_archive']
 const SEED_REASON = 'ax-demo seed'
 const CASE_PREFIX = `chat:${T}:`
 
@@ -187,6 +187,9 @@ async function reset() {
     await q(`delete from pro_threads where user_id::text = any($1) and kind <> 'chat'`, [castIds]).catch((e) => console.warn('threads', e.message))
     await q('update pro_threads set conversation_id=null where user_id::text = any($1)', [castIds]).catch((e) => console.warn('threads', e.message))
     await q('delete from pro_actions where user_id::text = any($1)', [castIds]).catch((e) => console.warn('actions', e.message))
+    // the practice mails an earlier run sent (they would arrive again, and land in the mail archive, on the next connect)
+    out.demo_mails = (await q('delete from pro_demo_mail where user_id::text = any($1) returning 1', [castIds]).catch(() => [])).length
+    await q('delete from pro_mail_seen where user_id::text = any($1)', [castIds]).catch(() => {})
   }
   // a few passes in case the feature's tables refer to each other
   let left = [...ONTO_TABLES]

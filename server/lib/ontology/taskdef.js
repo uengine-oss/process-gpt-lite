@@ -9,6 +9,8 @@ import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { chatJson } from '../llm.js'
 import { cypher, parseTask } from './store.js'
+import { formFields, readFile } from './mailbody.js'
+import { formsDirOf } from './history.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURES = path.join(here, '..', '..', 'scripts', 'fixtures')
@@ -81,7 +83,7 @@ export async function getTask(key) {
   const [r] = await cypher('MATCH (t:Task {key:$key}) RETURN t', { key })
   if (!r) throw err(404, '일을 찾지 못했어요.')
   const t = parseTask(r.t)
-  const raws = await q(`select raw, act, how from pro_onto_labels where tenant_id=$1 and task=$2 order by length(raw) desc limit 12`, [T(), key])
+  const raws = await q(`select raw, act, how from pro_onto_labels where tenant_id=$1 and task=$2 and coalesce(act,'') <> 'habit' order by length(raw) desc limit 12`, [T(), key])
   return { task: t, definition: t.definition_md || '', parsed: await taskDefinition(key, t), labels: raws, templates: await templatesOf(key) }
 }
 
@@ -95,14 +97,17 @@ export async function templatesOf(key) {
   for (const r of rows) for (const f of r.artifacts || []) {
     const kind = String(f.type || '').toLowerCase()
     if (!['xlsx', 'docx', 'hwpx', 'pptx'].includes(kind)) continue
-    const file = templateFile(f.name)
+    const file = f.file || templateFile(f.name)
     const stem = String(f.name).split('_')[0].replace(/\.[a-z]+$/i, '')
-    const k = file || `${stem}.${kind}`
-    const x = count.get(k) || { name: file ? path.basename(file) : `${stem}.${kind}`, type: kind, seen: 0, names: new Set(), file, example: f.name }
+    const k = (file && !file.startsWith('forms/') && file) || `${stem}.${kind}`
+    const x = count.get(k) || { name: file && !file.startsWith('forms/') ? path.basename(file) : `${stem}.${kind}`, type: kind, seen: 0, names: new Set(), file, example: f.name, labelSets: [] }
     x.seen++; x.names.add(f.name)
+    if (f.file) x.file = f.file
+    if (f.fields?.length) x.labelSets.push(f.fields)
     count.set(k, x)
   }
-  return [...count.values()].sort((a, b) => b.seen - a.seen).map(({ names, ...x }) => ({ ...x, fileNames: names.size }))
+  // the form's own labels: what the company's attachments of that form always have (mailbody.js formFields)
+  return [...count.values()].sort((a, b) => b.seen - a.seen).map(({ names, labelSets, ...x }) => ({ ...x, fileNames: names.size, fields: formFields(labelSets) }))
 }
 
 // the template file behind an attachment name: the demo mailbox's archive names it (fixtures/ax-demo-templates);
@@ -141,10 +146,16 @@ export function sheetText(wb) {
   return lines.join('\n')
 }
 
+// a template's text: the demo's fixture files, or the latest file of a form the company sent from a real mailbox (forms/…)
+export function templatePath(rel) {
+  return String(rel).startsWith('forms/') ? path.join(formsDirOf(), String(rel).slice('forms/'.length)) : path.join(FIXTURES, rel)
+}
 export async function templateText(rel) {
+  const p = templatePath(rel)
+  if (!/\.xlsx$/i.test(p)) return (await readFile(path.basename(p), fs.readFileSync(p))).text.slice(0, 4000)
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
-  await wb.xlsx.readFile(path.join(FIXTURES, rel))
+  await wb.xlsx.readFile(p)
   return sheetText(wb).slice(0, 4000)
 }
 
@@ -163,7 +174,7 @@ export async function draftDefinition(key, { template } = {}) {
   const text = t?.file ? await templateText(t.file).catch(() => '') : ''
   const [nexts] = [await cypher('MATCH (a:Task {key:$key})-[e:NEXT]->(b:Task) RETURN b.key AS to, e.p AS p', { key })]
   const [prevs] = [await cypher('MATCH (a:Task)-[e:NEXT]->(b:Task {key:$key}) RETURN a.key AS from, e.p AS p', { key })]
-  const r = await chatJson(DRAFT, JSON.stringify({ task: key, role: task.role, before: prevs.map((x) => x.from), after: nexts.map((x) => x.to), template: t ? { name: t.name, seen_in_mails: t.seen, fields: text } : null }), { temperature: 0, timeoutMs: 60000 })
+  const r = await chatJson(DRAFT, JSON.stringify({ task: key, role: task.role, before: prevs.map((x) => x.from), after: nexts.map((x) => x.to), template: t ? { name: t.name, seen_in_mails: t.seen, fields: text || (t.fields || []).join(' | ') } : null }), { temperature: 0, timeoutMs: 60000 })
   const front = {
     name: key, description: String(r.description || ''), kind: 'task', role: task.role || '',
     runner: r.runner === 'agent' ? 'agent' : 'person', skills: (r.skills || []).map(String),

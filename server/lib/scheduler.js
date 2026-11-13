@@ -72,6 +72,7 @@ export async function createSchedule({ userId, name, cron, prompt, threadId }) {
     names.push(job)
   }
   await q('update pro_schedules set job_name=$2 where id=$1', [s.id, names.join(',')])
+  ontoTimer(s.id)
   return { ...s, job_name: names.join(',') }
 }
 
@@ -80,6 +81,12 @@ export async function deleteSchedule(userId, id) {
   if (!s) return
   for (const job of (s.job_name || '').split(',').filter(Boolean)) await q('select cron.unschedule($1)', [job]).catch(() => {})
   await q('delete from pro_schedules where id=$1', [id])
+  ontoTimer(id)
+}
+
+// the company's process map keeps every schedule as a timer event (lib/ontology/timers.js) — the graph is the record
+export function ontoTimer(id) {
+  setTimeout(() => import('./ontology/timers.js').then((m) => m.syncSchedule(id)).catch((e) => console.warn('[ontology] timer', e.message)), 1500)
 }
 
 export const listSchedules = async (userId) =>

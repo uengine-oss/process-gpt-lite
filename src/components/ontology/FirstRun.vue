@@ -49,7 +49,7 @@ const weeks = computed(() => props.job?.detail?.weeks || 0)
       <ul class="what">
         <li><b>읽는 것</b> 지난 90일 메일의 머리글 — 보낸 사람 · 받는 사람 · 제목 · 날짜 · 첨부 이름</li>
         <li><b>거르는 것</b> 뉴스레터 · 자동 알림 · 일정 초대는 규칙으로 먼저 빼요</li>
-        <li><b>남기는 것</b> 누가 · 누구에게 · 어떤 일 · 언제뿐이에요. 메일 본문은 남기지 않아요</li>
+        <li><b>남기는 것</b> 지도에는 누가 · 누구에게 · 어떤 일 · 언제뿐이에요. 읽은 메일은 내 메일 보관함에만 남아요</li>
       </ul>
       <p v-if="note" class="sub">{{ note }}</p>
       <button class="go press" :disabled="busy" @click="emit('start')">{{ busy ? '시작하는 중…' : '지난 메일 읽기(90일)' }}</button>

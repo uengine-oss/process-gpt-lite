@@ -2339,6 +2339,32 @@
   },
   {
    "id": "m0086",
+   "thread": "t0033",
+   "date": "2026-09-01T09:42:00+09:00",
+   "from": "pro-ax-seoyeon@uengine.org",
+   "to": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "cc": [
+    "pro-ax-doyun@uengine.org"
+   ],
+   "subject": "8월 결산 보고",
+   "text": "8월 결산 보고드립니다. 매월 1일 오전에 지난달 매출 · 매입 · 미수금을 정리해 보내 드리고 있습니다. 미수금이 있는 현장은 첨부 파일의 비고를 봐 주세요.",
+   "attachments": [
+    {
+     "name": "월결산_2026-08.xlsx",
+     "type": "xlsx",
+     "size": 49580,
+     "file": "ax-demo-templates/월결산_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0087",
    "thread": "t0014",
    "date": "2026-09-01T10:04:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2369,7 +2395,7 @@
    "kind": "work"
   },
   {
-   "id": "m0087",
+   "id": "m0088",
    "thread": "t0023",
    "date": "2026-09-01T14:56:00+09:00",
    "from": "pro-ax-minji@uengine.org",
@@ -2394,7 +2420,7 @@
    "kind": "work"
   },
   {
-   "id": "m0088",
+   "id": "m0089",
    "thread": "t0025",
    "date": "2026-09-01T15:26:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
@@ -2414,7 +2440,7 @@
    "kind": "work"
   },
   {
-   "id": "m0089",
+   "id": "m0090",
    "thread": "t0013",
    "date": "2026-09-01T16:44:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2450,7 +2476,7 @@
    "kind": "work"
   },
   {
-   "id": "m0090",
+   "id": "m0091",
    "thread": "t0020",
    "date": "2026-09-01T17:10:00+09:00",
    "from": "pro-ax-minji@uengine.org",
@@ -2480,7 +2506,7 @@
    "kind": "work"
   },
   {
-   "id": "m0091",
+   "id": "m0092",
    "thread": "t0030",
    "date": "2026-09-02T10:58:00+09:00",
    "from": "pro-ax-minji@uengine.org",
@@ -2506,7 +2532,7 @@
    "kind": "work"
   },
   {
-   "id": "m0092",
+   "id": "m0093",
    "thread": "t0023",
    "date": "2026-09-02T11:40:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
@@ -2525,7 +2551,7 @@
    "kind": "work"
   },
   {
-   "id": "m0093",
+   "id": "m0094",
    "thread": "t0023",
    "date": "2026-09-02T15:28:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2544,7 +2570,7 @@
    "kind": "work"
   },
   {
-   "id": "m0094",
+   "id": "m0095",
    "thread": "t0024",
    "date": "2026-09-02T16:05:00+09:00",
    "from": "pro-ax-minji@uengine.org",
@@ -2569,8 +2595,8 @@
    "kind": "work"
   },
   {
-   "id": "m0095",
-   "thread": "t0033",
+   "id": "m0096",
+   "thread": "t0034",
    "date": "2026-09-02T16:55:00+09:00",
    "from": "boram@raon-kids.example",
    "to": [
@@ -2588,8 +2614,8 @@
    "kind": "work"
   },
   {
-   "id": "m0096",
-   "thread": "t0034",
+   "id": "m0097",
+   "thread": "t0035",
    "date": "2026-09-02T22:34:00+09:00",
    "from": "hangyeol.clinic@example.net",
    "to": [
@@ -2607,7 +2633,7 @@
    "kind": "work"
   },
   {
-   "id": "m0097",
+   "id": "m0098",
    "thread": "t0028",
    "date": "2026-09-03T09:42:00+09:00",
    "from": "pro-ax-minji@uengine.org",
@@ -2632,7 +2658,26 @@
    "kind": "work"
   },
   {
-   "id": "m0098",
+   "id": "m0099",
+   "thread": "t0036",
+   "date": "2026-09-03T10:32:00+09:00",
+   "from": "hyun.ng@moa-office.example",
+   "to": [
+    "pro-ax-doyun@uengine.org"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[모아 공유오피스] 공사 기간 주간 공정 보고 요청",
+   "text": "공사가 시작됐으니 준공 때까지 매주 월요일 오전에 주간 공정 보고서를 메일로 보내 주세요. 공정률과 이번 주 한 일, 다음 주 일정, 현장 사진 몇 장이면 됩니다.",
+   "attachments": [],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0100",
    "thread": "t0030",
    "date": "2026-09-03T11:33:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2651,7 +2696,7 @@
    "kind": "work"
   },
   {
-   "id": "m0099",
+   "id": "m0101",
    "thread": "t0020",
    "date": "2026-09-03T12:46:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2676,8 +2721,8 @@
    "kind": "work"
   },
   {
-   "id": "m0100",
-   "thread": "t0035",
+   "id": "m0102",
+   "thread": "t0037",
    "date": "2026-09-03T13:18:00+09:00",
    "from": "haram.gil@darae-meat.example",
    "to": [
@@ -2695,8 +2740,8 @@
    "kind": "work"
   },
   {
-   "id": "m0101",
-   "thread": "t0036",
+   "id": "m0103",
+   "thread": "t0038",
    "date": "2026-09-03T13:31:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -2715,7 +2760,34 @@
    "kind": "work"
   },
   {
-   "id": "m0102",
+   "id": "m0104",
+   "thread": "t0036",
+   "date": "2026-09-03T14:14:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "회신: [모아 공유오피스] 공사 기간 주간 공정 보고 요청",
+   "text": "네, 다음 주부터 매주 월요일 오전 9시 반까지 주간 공정 보고서를 보내 드리겠습니다. 양식은 첨부와 같이 공정률 · 이번 주 · 다음 주 · 특이 사항 순서입니다.",
+   "quoted": "--- 원본 메일 ---\n보낸 사람: 남궁현 <hyun.ng@moa-office.example>\n보낸 날짜: 2026. 9. 3. 오전 10시 32분\n제목: [모아 공유오피스] 공사 기간 주간 공정 보고 요청\n\n공사가 시작됐으니 준공 때까지 매주 월요일 오전에 주간 공정 보고서를 메일로 보내 주세요. 공정률과 이번 주 한 일, 다음 주 일정, 현장 사진 몇 장이면 됩니다.",
+   "attachments": [
+    {
+     "name": "주간공정보고_양식.xlsx",
+     "type": "xlsx",
+     "size": 12757,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0105",
    "thread": "t0031",
    "date": "2026-09-03T14:16:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2734,7 +2806,7 @@
    "kind": "work"
   },
   {
-   "id": "m0103",
+   "id": "m0106",
    "thread": "t0020",
    "date": "2026-09-03T16:37:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2758,7 +2830,7 @@
    "kind": "work"
   },
   {
-   "id": "m0104",
+   "id": "m0107",
    "thread": "t0028",
    "date": "2026-09-03T17:11:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2777,7 +2849,7 @@
    "kind": "work"
   },
   {
-   "id": "m0105",
+   "id": "m0108",
    "thread": "t0024",
    "date": "2026-09-03T17:25:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2802,7 +2874,7 @@
    "kind": "work"
   },
   {
-   "id": "m0106",
+   "id": "m0109",
    "thread": "t0020",
    "date": "2026-09-04T11:57:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2833,7 +2905,7 @@
    "kind": "work"
   },
   {
-   "id": "m0107",
+   "id": "m0110",
    "thread": "t0024",
    "date": "2026-09-04T14:21:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2857,7 +2929,7 @@
    "kind": "work"
   },
   {
-   "id": "m0108",
+   "id": "m0111",
    "thread": "t0024",
    "date": "2026-09-04T17:32:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -2888,8 +2960,8 @@
    "kind": "work"
   },
   {
-   "id": "m0109",
-   "thread": "t0037",
+   "id": "m0112",
+   "thread": "t0039",
    "date": "2026-09-05T12:30:00+09:00",
    "from": "hanol.hanbok@example.com",
    "to": [
@@ -2913,8 +2985,8 @@
    "kind": "work"
   },
   {
-   "id": "m0110",
-   "thread": "t0038",
+   "id": "m0113",
+   "thread": "t0040",
    "date": "2026-09-05T14:45:00+09:00",
    "from": "no-reply@account.example",
    "to": [
@@ -2930,8 +3002,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0111",
-   "thread": "t0039",
+   "id": "m0114",
+   "thread": "t0041",
    "date": "2026-09-05T20:12:00+09:00",
    "from": "haeun@supsok-yoga.example",
    "to": [
@@ -2955,8 +3027,34 @@
    "kind": "work"
   },
   {
-   "id": "m0112",
-   "thread": "t0040",
+   "id": "m0115",
+   "thread": "t0042",
+   "date": "2026-09-07T09:25:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 9/7(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 10%, 이번 주에는 철거와 바닥 수평 작업을 마쳤고 다음 주에는 전기 배선과 설비 배관 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_0907.xlsx",
+     "type": "xlsx",
+     "size": 53782,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0116",
+   "thread": "t0043",
    "date": "2026-09-07T10:13:00+09:00",
    "from": "showroom@namuhyang.example",
    "to": [
@@ -2975,8 +3073,8 @@
    "kind": "work"
   },
   {
-   "id": "m0113",
-   "thread": "t0041",
+   "id": "m0117",
+   "thread": "t0044",
    "date": "2026-09-07T11:44:00+09:00",
    "from": "eunbi@bitdam-photo.example",
    "to": [
@@ -2995,8 +3093,8 @@
    "kind": "work"
   },
   {
-   "id": "m0114",
-   "thread": "t0037",
+   "id": "m0118",
+   "thread": "t0039",
    "date": "2026-09-07T13:04:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3014,8 +3112,8 @@
    "kind": "work"
   },
   {
-   "id": "m0115",
-   "thread": "t0037",
+   "id": "m0119",
+   "thread": "t0039",
    "date": "2026-09-07T13:36:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3040,7 +3138,7 @@
    "kind": "work"
   },
   {
-   "id": "m0116",
+   "id": "m0120",
    "thread": "t0024",
    "date": "2026-09-07T15:44:00+09:00",
    "from": "nayeon.jin@haram-peds.example",
@@ -3060,8 +3158,8 @@
    "kind": "work"
   },
   {
-   "id": "m0117",
-   "thread": "t0035",
+   "id": "m0121",
+   "thread": "t0037",
    "date": "2026-09-07T17:47:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3085,8 +3183,8 @@
    "kind": "work"
   },
   {
-   "id": "m0118",
-   "thread": "t0033",
+   "id": "m0122",
+   "thread": "t0034",
    "date": "2026-09-07T17:59:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3110,8 +3208,8 @@
    "kind": "work"
   },
   {
-   "id": "m0119",
-   "thread": "t0036",
+   "id": "m0123",
+   "thread": "t0038",
    "date": "2026-09-07T18:00:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3129,8 +3227,8 @@
    "kind": "work"
   },
   {
-   "id": "m0120",
-   "thread": "t0042",
+   "id": "m0124",
+   "thread": "t0045",
    "date": "2026-09-08T07:36:00+09:00",
    "from": "news@interior-weekly.example",
    "to": [
@@ -3149,8 +3247,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0121",
-   "thread": "t0043",
+   "id": "m0125",
+   "thread": "t0046",
    "date": "2026-09-08T12:38:00+09:00",
    "from": "hyun.ng@moa-office.example",
    "to": [
@@ -3174,8 +3272,8 @@
    "kind": "work"
   },
   {
-   "id": "m0122",
-   "thread": "t0040",
+   "id": "m0126",
+   "thread": "t0043",
    "date": "2026-09-08T12:57:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3200,8 +3298,8 @@
    "kind": "work"
   },
   {
-   "id": "m0123",
-   "thread": "t0035",
+   "id": "m0127",
+   "thread": "t0037",
    "date": "2026-09-08T13:29:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3225,8 +3323,8 @@
    "kind": "work"
   },
   {
-   "id": "m0124",
-   "thread": "t0041",
+   "id": "m0128",
+   "thread": "t0044",
    "date": "2026-09-08T13:39:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3249,8 +3347,8 @@
    "kind": "work"
   },
   {
-   "id": "m0125",
-   "thread": "t0037",
+   "id": "m0129",
+   "thread": "t0039",
    "date": "2026-09-08T14:36:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3274,7 +3372,7 @@
    "kind": "work"
   },
   {
-   "id": "m0126",
+   "id": "m0130",
    "thread": "t0024",
    "date": "2026-09-08T16:22:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -3299,8 +3397,8 @@
    "kind": "work"
   },
   {
-   "id": "m0127",
-   "thread": "t0041",
+   "id": "m0131",
+   "thread": "t0044",
    "date": "2026-09-08T16:51:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3325,8 +3423,8 @@
    "kind": "work"
   },
   {
-   "id": "m0128",
-   "thread": "t0036",
+   "id": "m0132",
+   "thread": "t0038",
    "date": "2026-09-08T17:38:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3350,8 +3448,8 @@
    "kind": "work"
   },
   {
-   "id": "m0129",
-   "thread": "t0037",
+   "id": "m0133",
+   "thread": "t0039",
    "date": "2026-09-08T18:03:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -3370,7 +3468,7 @@
    "kind": "work"
   },
   {
-   "id": "m0130",
+   "id": "m0134",
    "thread": "t0024",
    "date": "2026-09-09T09:39:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -3394,8 +3492,8 @@
    "kind": "work"
   },
   {
-   "id": "m0131",
-   "thread": "t0033",
+   "id": "m0135",
+   "thread": "t0034",
    "date": "2026-09-09T10:08:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3419,7 +3517,7 @@
    "kind": "work"
   },
   {
-   "id": "m0132",
+   "id": "m0136",
    "thread": "t0024",
    "date": "2026-09-09T10:29:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
@@ -3450,8 +3548,8 @@
    "kind": "work"
   },
   {
-   "id": "m0133",
-   "thread": "t0044",
+   "id": "m0137",
+   "thread": "t0047",
    "date": "2026-09-09T11:34:00+09:00",
    "from": "gaon.optical@example.org",
    "to": [
@@ -3469,8 +3567,8 @@
    "kind": "work"
   },
   {
-   "id": "m0134",
-   "thread": "t0043",
+   "id": "m0138",
+   "thread": "t0046",
    "date": "2026-09-09T13:43:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3488,8 +3586,8 @@
    "kind": "work"
   },
   {
-   "id": "m0135",
-   "thread": "t0035",
+   "id": "m0139",
+   "thread": "t0037",
    "date": "2026-09-09T14:58:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3513,8 +3611,8 @@
    "kind": "work"
   },
   {
-   "id": "m0136",
-   "thread": "t0034",
+   "id": "m0140",
+   "thread": "t0035",
    "date": "2026-09-10T09:25:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3538,8 +3636,8 @@
    "kind": "work"
   },
   {
-   "id": "m0137",
-   "thread": "t0037",
+   "id": "m0141",
+   "thread": "t0039",
    "date": "2026-09-10T10:48:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3557,8 +3655,8 @@
    "kind": "work"
   },
   {
-   "id": "m0138",
-   "thread": "t0040",
+   "id": "m0142",
+   "thread": "t0043",
    "date": "2026-09-10T12:48:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -3576,8 +3674,8 @@
    "kind": "work"
   },
   {
-   "id": "m0139",
-   "thread": "t0045",
+   "id": "m0143",
+   "thread": "t0048",
    "date": "2026-09-10T13:03:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3603,8 +3701,8 @@
    "kind": "work"
   },
   {
-   "id": "m0140",
-   "thread": "t0033",
+   "id": "m0144",
+   "thread": "t0034",
    "date": "2026-09-10T13:50:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3628,8 +3726,8 @@
    "kind": "work"
   },
   {
-   "id": "m0141",
-   "thread": "t0034",
+   "id": "m0145",
+   "thread": "t0035",
    "date": "2026-09-10T13:54:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3652,8 +3750,8 @@
    "kind": "work"
   },
   {
-   "id": "m0142",
-   "thread": "t0040",
+   "id": "m0146",
+   "thread": "t0043",
    "date": "2026-09-10T15:09:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3679,8 +3777,8 @@
    "kind": "work"
   },
   {
-   "id": "m0143",
-   "thread": "t0046",
+   "id": "m0147",
+   "thread": "t0049",
    "date": "2026-09-10T15:14:00+09:00",
    "from": "yerin@saebom-pilates.example",
    "to": [
@@ -3699,8 +3797,8 @@
    "kind": "work"
   },
   {
-   "id": "m0144",
-   "thread": "t0044",
+   "id": "m0148",
+   "thread": "t0047",
    "date": "2026-09-10T16:26:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3718,8 +3816,8 @@
    "kind": "work"
   },
   {
-   "id": "m0145",
-   "thread": "t0039",
+   "id": "m0149",
+   "thread": "t0041",
    "date": "2026-09-10T17:29:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3743,8 +3841,8 @@
    "kind": "work"
   },
   {
-   "id": "m0146",
-   "thread": "t0033",
+   "id": "m0150",
+   "thread": "t0034",
    "date": "2026-09-10T17:35:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3767,8 +3865,8 @@
    "kind": "work"
   },
   {
-   "id": "m0147",
-   "thread": "t0047",
+   "id": "m0151",
+   "thread": "t0050",
    "date": "2026-09-11T12:16:00+09:00",
    "from": "dowon@saessak-vet.example",
    "to": [
@@ -3792,8 +3890,8 @@
    "kind": "work"
   },
   {
-   "id": "m0148",
-   "thread": "t0047",
+   "id": "m0152",
+   "thread": "t0050",
    "date": "2026-09-11T14:28:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3812,8 +3910,8 @@
    "kind": "work"
   },
   {
-   "id": "m0149",
-   "thread": "t0046",
+   "id": "m0153",
+   "thread": "t0049",
    "date": "2026-09-11T14:52:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3838,8 +3936,8 @@
    "kind": "work"
   },
   {
-   "id": "m0150",
-   "thread": "t0045",
+   "id": "m0154",
+   "thread": "t0048",
    "date": "2026-09-11T15:59:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -3857,8 +3955,8 @@
    "kind": "work"
   },
   {
-   "id": "m0151",
-   "thread": "t0044",
+   "id": "m0155",
+   "thread": "t0047",
    "date": "2026-09-11T16:37:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3887,8 +3985,8 @@
    "kind": "work"
   },
   {
-   "id": "m0152",
-   "thread": "t0043",
+   "id": "m0156",
+   "thread": "t0046",
    "date": "2026-09-11T17:06:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -3906,8 +4004,8 @@
    "kind": "work"
   },
   {
-   "id": "m0153",
-   "thread": "t0048",
+   "id": "m0157",
+   "thread": "t0051",
    "date": "2026-09-13T08:24:00+09:00",
    "from": "letter@build-expo.example",
    "to": [
@@ -3926,8 +4024,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0154",
-   "thread": "t0049",
+   "id": "m0158",
+   "thread": "t0052",
    "date": "2026-09-13T19:25:00+09:00",
    "from": "dahyun@ongi-brunch.example",
    "to": [
@@ -3945,8 +4043,34 @@
    "kind": "work"
   },
   {
-   "id": "m0155",
-   "thread": "t0039",
+   "id": "m0159",
+   "thread": "t0053",
+   "date": "2026-09-14T09:37:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 9/14(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 20%, 이번 주에는 전기 배선과 설비 배관을 마쳤고 다음 주에는 천장 틀과 경량 벽체 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_0914.xlsx",
+     "type": "xlsx",
+     "size": 78821,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0160",
+   "thread": "t0041",
    "date": "2026-09-14T10:33:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -3975,8 +4099,8 @@
    "kind": "work"
   },
   {
-   "id": "m0156",
-   "thread": "t0035",
+   "id": "m0161",
+   "thread": "t0037",
    "date": "2026-09-14T10:44:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4011,8 +4135,8 @@
    "kind": "work"
   },
   {
-   "id": "m0157",
-   "thread": "t0034",
+   "id": "m0162",
+   "thread": "t0035",
    "date": "2026-09-14T11:05:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4048,8 +4172,8 @@
    "kind": "work"
   },
   {
-   "id": "m0158",
-   "thread": "t0039",
+   "id": "m0163",
+   "thread": "t0041",
    "date": "2026-09-14T16:54:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4073,8 +4197,8 @@
    "kind": "work"
   },
   {
-   "id": "m0159",
-   "thread": "t0039",
+   "id": "m0164",
+   "thread": "t0041",
    "date": "2026-09-15T09:16:00+09:00",
    "from": "pro-ax-jinyoung@uengine.org",
    "to": [
@@ -4093,8 +4217,8 @@
    "kind": "work"
   },
   {
-   "id": "m0160",
-   "thread": "t0039",
+   "id": "m0165",
+   "thread": "t0041",
    "date": "2026-09-15T09:18:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4117,8 +4241,8 @@
    "kind": "work"
   },
   {
-   "id": "m0161",
-   "thread": "t0046",
+   "id": "m0166",
+   "thread": "t0049",
    "date": "2026-09-15T10:07:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -4136,8 +4260,8 @@
    "kind": "work"
   },
   {
-   "id": "m0162",
-   "thread": "t0033",
+   "id": "m0167",
+   "thread": "t0034",
    "date": "2026-09-15T10:56:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4168,8 +4292,8 @@
    "kind": "work"
   },
   {
-   "id": "m0163",
-   "thread": "t0044",
+   "id": "m0168",
+   "thread": "t0047",
    "date": "2026-09-15T11:06:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4193,8 +4317,8 @@
    "kind": "work"
   },
   {
-   "id": "m0164",
-   "thread": "t0050",
+   "id": "m0169",
+   "thread": "t0054",
    "date": "2026-09-15T11:50:00+09:00",
    "from": "seoa@sodam-gallery.example",
    "to": [
@@ -4212,8 +4336,8 @@
    "kind": "work"
   },
   {
-   "id": "m0165",
-   "thread": "t0039",
+   "id": "m0170",
+   "thread": "t0041",
    "date": "2026-09-15T12:19:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4249,8 +4373,8 @@
    "kind": "work"
   },
   {
-   "id": "m0166",
-   "thread": "t0051",
+   "id": "m0171",
+   "thread": "t0055",
    "date": "2026-09-15T13:44:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4268,8 +4392,8 @@
    "kind": "work"
   },
   {
-   "id": "m0167",
-   "thread": "t0046",
+   "id": "m0172",
+   "thread": "t0049",
    "date": "2026-09-15T13:46:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4295,8 +4419,8 @@
    "kind": "work"
   },
   {
-   "id": "m0168",
-   "thread": "t0044",
+   "id": "m0173",
+   "thread": "t0047",
    "date": "2026-09-15T14:22:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4321,8 +4445,8 @@
    "kind": "work"
   },
   {
-   "id": "m0169",
-   "thread": "t0052",
+   "id": "m0174",
+   "thread": "t0056",
    "date": "2026-09-15T22:05:00+09:00",
    "from": "junseo.hong@byeolbit.example",
    "to": [
@@ -4340,8 +4464,8 @@
    "kind": "work"
   },
   {
-   "id": "m0170",
-   "thread": "t0047",
+   "id": "m0175",
+   "thread": "t0050",
    "date": "2026-09-16T10:16:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4359,8 +4483,8 @@
    "kind": "work"
   },
   {
-   "id": "m0171",
-   "thread": "t0053",
+   "id": "m0176",
+   "thread": "t0057",
    "date": "2026-09-16T15:06:00+09:00",
    "from": "jaemin@barofit.example",
    "to": [
@@ -4384,8 +4508,8 @@
    "kind": "work"
   },
   {
-   "id": "m0172",
-   "thread": "t0054",
+   "id": "m0177",
+   "thread": "t0058",
    "date": "2026-09-17T13:30:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -4409,8 +4533,8 @@
    "kind": "invite"
   },
   {
-   "id": "m0173",
-   "thread": "t0049",
+   "id": "m0178",
+   "thread": "t0052",
    "date": "2026-09-17T15:25:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4428,8 +4552,8 @@
    "kind": "work"
   },
   {
-   "id": "m0174",
-   "thread": "t0055",
+   "id": "m0179",
+   "thread": "t0059",
    "date": "2026-09-18T09:35:00+09:00",
    "from": "cheongsol.pharm@example.net",
    "to": [
@@ -4447,8 +4571,8 @@
    "kind": "work"
   },
   {
-   "id": "m0175",
-   "thread": "t0047",
+   "id": "m0180",
+   "thread": "t0050",
    "date": "2026-09-18T09:36:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4472,8 +4596,8 @@
    "kind": "work"
   },
   {
-   "id": "m0176",
-   "thread": "t0044",
+   "id": "m0181",
+   "thread": "t0047",
    "date": "2026-09-18T13:52:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -4491,8 +4615,8 @@
    "kind": "work"
   },
   {
-   "id": "m0177",
-   "thread": "t0050",
+   "id": "m0182",
+   "thread": "t0054",
    "date": "2026-09-18T14:03:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4516,8 +4640,8 @@
    "kind": "work"
   },
   {
-   "id": "m0178",
-   "thread": "t0044",
+   "id": "m0183",
+   "thread": "t0047",
    "date": "2026-09-18T14:25:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4548,8 +4672,8 @@
    "kind": "work"
   },
   {
-   "id": "m0179",
-   "thread": "t0056",
+   "id": "m0184",
+   "thread": "t0060",
    "date": "2026-09-18T14:37:00+09:00",
    "from": "nayeon.jin@haram-peds.example",
    "to": [
@@ -4573,8 +4697,8 @@
    "kind": "work"
   },
   {
-   "id": "m0180",
-   "thread": "t0047",
+   "id": "m0185",
+   "thread": "t0050",
    "date": "2026-09-18T16:26:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4597,8 +4721,8 @@
    "kind": "work"
   },
   {
-   "id": "m0181",
-   "thread": "t0057",
+   "id": "m0186",
+   "thread": "t0061",
    "date": "2026-09-20T06:31:00+09:00",
    "from": "promo@office-mall.example",
    "to": [
@@ -4617,8 +4741,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0182",
-   "thread": "t0034",
+   "id": "m0187",
+   "thread": "t0035",
    "date": "2026-09-20T13:57:00+09:00",
    "from": "hangyeol.clinic@example.net",
    "to": [
@@ -4637,8 +4761,8 @@
    "kind": "work"
   },
   {
-   "id": "m0183",
-   "thread": "t0049",
+   "id": "m0188",
+   "thread": "t0052",
    "date": "2026-09-21T09:05:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4662,8 +4786,34 @@
    "kind": "work"
   },
   {
-   "id": "m0184",
-   "thread": "t0058",
+   "id": "m0189",
+   "thread": "t0062",
+   "date": "2026-09-21T09:11:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 9/21(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 30%, 이번 주에는 천장 틀과 경량 벽체을 마쳤고 다음 주에는 석고보드와 퍼티 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_0921.xlsx",
+     "type": "xlsx",
+     "size": 63414,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0190",
+   "thread": "t0063",
    "date": "2026-09-21T10:57:00+09:00",
    "from": "seoyun.ban@yeondu-dental.example",
    "to": [
@@ -4681,8 +4831,8 @@
    "kind": "work"
   },
   {
-   "id": "m0185",
-   "thread": "t0047",
+   "id": "m0191",
+   "thread": "t0050",
    "date": "2026-09-21T11:23:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4712,8 +4862,8 @@
    "kind": "work"
   },
   {
-   "id": "m0186",
-   "thread": "t0056",
+   "id": "m0192",
+   "thread": "t0060",
    "date": "2026-09-21T11:53:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4731,8 +4881,8 @@
    "kind": "work"
   },
   {
-   "id": "m0187",
-   "thread": "t0050",
+   "id": "m0193",
+   "thread": "t0054",
    "date": "2026-09-21T16:13:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4756,8 +4906,8 @@
    "kind": "work"
   },
   {
-   "id": "m0188",
-   "thread": "t0053",
+   "id": "m0194",
+   "thread": "t0057",
    "date": "2026-09-21T17:33:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4775,8 +4925,8 @@
    "kind": "work"
   },
   {
-   "id": "m0189",
-   "thread": "t0034",
+   "id": "m0195",
+   "thread": "t0035",
    "date": "2026-09-22T09:03:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4800,8 +4950,8 @@
    "kind": "work"
   },
   {
-   "id": "m0190",
-   "thread": "t0052",
+   "id": "m0196",
+   "thread": "t0056",
    "date": "2026-09-22T09:47:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4819,8 +4969,8 @@
    "kind": "work"
   },
   {
-   "id": "m0191",
-   "thread": "t0049",
+   "id": "m0197",
+   "thread": "t0052",
    "date": "2026-09-22T11:03:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4844,8 +4994,8 @@
    "kind": "work"
   },
   {
-   "id": "m0192",
-   "thread": "t0034",
+   "id": "m0198",
+   "thread": "t0035",
    "date": "2026-09-22T12:43:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4868,8 +5018,8 @@
    "kind": "work"
   },
   {
-   "id": "m0193",
-   "thread": "t0056",
+   "id": "m0199",
+   "thread": "t0060",
    "date": "2026-09-22T13:12:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4893,8 +5043,8 @@
    "kind": "work"
   },
   {
-   "id": "m0194",
-   "thread": "t0053",
+   "id": "m0200",
+   "thread": "t0057",
    "date": "2026-09-22T13:44:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4923,8 +5073,8 @@
    "kind": "work"
   },
   {
-   "id": "m0195",
-   "thread": "t0055",
+   "id": "m0201",
+   "thread": "t0059",
    "date": "2026-09-22T15:34:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -4948,8 +5098,8 @@
    "kind": "work"
   },
   {
-   "id": "m0196",
-   "thread": "t0034",
+   "id": "m0202",
+   "thread": "t0035",
    "date": "2026-09-22T15:44:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -4979,8 +5129,8 @@
    "kind": "work"
   },
   {
-   "id": "m0197",
-   "thread": "t0056",
+   "id": "m0203",
+   "thread": "t0060",
    "date": "2026-09-22T16:32:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -4998,8 +5148,8 @@
    "kind": "work"
   },
   {
-   "id": "m0198",
-   "thread": "t0050",
+   "id": "m0204",
+   "thread": "t0054",
    "date": "2026-09-23T09:50:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5023,8 +5173,8 @@
    "kind": "work"
   },
   {
-   "id": "m0199",
-   "thread": "t0049",
+   "id": "m0205",
+   "thread": "t0052",
    "date": "2026-09-23T09:59:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5047,8 +5197,8 @@
    "kind": "work"
   },
   {
-   "id": "m0200",
-   "thread": "t0050",
+   "id": "m0206",
+   "thread": "t0054",
    "date": "2026-09-23T13:54:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5071,8 +5221,8 @@
    "kind": "work"
   },
   {
-   "id": "m0201",
-   "thread": "t0056",
+   "id": "m0207",
+   "thread": "t0060",
    "date": "2026-09-23T14:07:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5090,8 +5240,8 @@
    "kind": "work"
   },
   {
-   "id": "m0202",
-   "thread": "t0050",
+   "id": "m0208",
+   "thread": "t0054",
    "date": "2026-09-23T14:35:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5107,8 +5257,8 @@
    "kind": "work"
   },
   {
-   "id": "m0203",
-   "thread": "t0053",
+   "id": "m0209",
+   "thread": "t0057",
    "date": "2026-09-23T15:18:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5132,8 +5282,8 @@
    "kind": "work"
   },
   {
-   "id": "m0204",
-   "thread": "t0058",
+   "id": "m0210",
+   "thread": "t0063",
    "date": "2026-09-23T15:55:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -5151,8 +5301,8 @@
    "kind": "work"
   },
   {
-   "id": "m0205",
-   "thread": "t0059",
+   "id": "m0211",
+   "thread": "t0064",
    "date": "2026-09-23T16:49:00+09:00",
    "from": "majung.guest@example.org",
    "to": [
@@ -5170,8 +5320,8 @@
    "kind": "work"
   },
   {
-   "id": "m0206",
-   "thread": "t0060",
+   "id": "m0212",
+   "thread": "t0065",
    "date": "2026-09-24T07:05:00+09:00",
    "from": "no-reply@parcel.example",
    "to": [
@@ -5187,8 +5337,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0207",
-   "thread": "t0061",
+   "id": "m0213",
+   "thread": "t0066",
    "date": "2026-09-24T11:10:00+09:00",
    "from": "bomnal.flower@example.com",
    "to": [
@@ -5206,8 +5356,8 @@
    "kind": "work"
   },
   {
-   "id": "m0208",
-   "thread": "t0062",
+   "id": "m0214",
+   "thread": "t0067",
    "date": "2026-09-25T07:01:00+09:00",
    "from": "newsletter@designtalk.example",
    "to": [
@@ -5226,8 +5376,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0209",
-   "thread": "t0063",
+   "id": "m0215",
+   "thread": "t0068",
    "date": "2026-09-25T16:41:00+09:00",
    "from": "haram.gil@darae-meat.example",
    "to": [
@@ -5251,8 +5401,8 @@
    "kind": "work"
   },
   {
-   "id": "m0210",
-   "thread": "t0064",
+   "id": "m0216",
+   "thread": "t0069",
    "date": "2026-09-26T10:04:00+09:00",
    "from": "no-reply@tax-invoice.example",
    "to": [
@@ -5268,8 +5418,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0211",
-   "thread": "t0065",
+   "id": "m0217",
+   "thread": "t0070",
    "date": "2026-09-27T13:14:00+09:00",
    "from": "taemin@irang-wine.example",
    "to": [
@@ -5293,8 +5443,8 @@
    "kind": "work"
   },
   {
-   "id": "m0212",
-   "thread": "t0066",
+   "id": "m0218",
+   "thread": "t0071",
    "date": "2026-09-27T13:37:00+09:00",
    "from": "somssi.tteok@example.net",
    "to": [
@@ -5313,8 +5463,8 @@
    "kind": "work"
   },
   {
-   "id": "m0213",
-   "thread": "t0053",
+   "id": "m0219",
+   "thread": "t0057",
    "date": "2026-09-28T11:12:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5337,8 +5487,8 @@
    "kind": "work"
   },
   {
-   "id": "m0214",
-   "thread": "t0050",
+   "id": "m0220",
+   "thread": "t0054",
    "date": "2026-09-28T11:27:00+09:00",
    "from": "pro-ax-jinyoung@uengine.org",
    "to": [
@@ -5355,8 +5505,8 @@
    "kind": "work"
   },
   {
-   "id": "m0215",
-   "thread": "t0055",
+   "id": "m0221",
+   "thread": "t0059",
    "date": "2026-09-28T11:47:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5380,8 +5530,8 @@
    "kind": "work"
   },
   {
-   "id": "m0216",
-   "thread": "t0063",
+   "id": "m0222",
+   "thread": "t0068",
    "date": "2026-09-28T12:02:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5399,8 +5549,8 @@
    "kind": "work"
   },
   {
-   "id": "m0217",
-   "thread": "t0058",
+   "id": "m0223",
+   "thread": "t0063",
    "date": "2026-09-28T12:27:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -5429,8 +5579,8 @@
    "kind": "work"
   },
   {
-   "id": "m0218",
-   "thread": "t0050",
+   "id": "m0224",
+   "thread": "t0054",
    "date": "2026-09-28T13:47:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5460,8 +5610,8 @@
    "kind": "work"
   },
   {
-   "id": "m0219",
-   "thread": "t0052",
+   "id": "m0225",
+   "thread": "t0056",
    "date": "2026-09-28T14:46:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5485,8 +5635,8 @@
    "kind": "work"
   },
   {
-   "id": "m0220",
-   "thread": "t0049",
+   "id": "m0226",
+   "thread": "t0052",
    "date": "2026-09-28T15:11:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5516,8 +5666,8 @@
    "kind": "work"
   },
   {
-   "id": "m0221",
-   "thread": "t0067",
+   "id": "m0227",
+   "thread": "t0072",
    "date": "2026-09-28T16:13:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -5541,8 +5691,8 @@
    "kind": "invite"
   },
   {
-   "id": "m0222",
-   "thread": "t0068",
+   "id": "m0228",
+   "thread": "t0073",
    "date": "2026-09-28T16:55:00+09:00",
    "from": "no-reply@cloud-drive.example",
    "to": [
@@ -5558,8 +5708,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0223",
-   "thread": "t0069",
+   "id": "m0229",
+   "thread": "t0074",
    "date": "2026-09-28T17:09:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5583,8 +5733,8 @@
    "kind": "work"
   },
   {
-   "id": "m0224",
-   "thread": "t0066",
+   "id": "m0230",
+   "thread": "t0071",
    "date": "2026-09-28T17:31:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5609,8 +5759,8 @@
    "kind": "work"
   },
   {
-   "id": "m0225",
-   "thread": "t0055",
+   "id": "m0231",
+   "thread": "t0059",
    "date": "2026-09-29T09:05:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5633,8 +5783,34 @@
    "kind": "work"
   },
   {
-   "id": "m0226",
-   "thread": "t0070",
+   "id": "m0232",
+   "thread": "t0075",
+   "date": "2026-09-29T09:31:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 9/29(화)",
+   "text": "추석 연휴 뒤라 하루 늦었습니다. 이번 주 공정 보고드립니다. 공정률 40%, 이번 주에는 석고보드와 퍼티을 마쳤고 다음 주에는 바닥재 시공 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_0929.xlsx",
+     "type": "xlsx",
+     "size": 42425,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0233",
+   "thread": "t0076",
    "date": "2026-09-29T13:17:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -5652,8 +5828,8 @@
    "kind": "work"
   },
   {
-   "id": "m0227",
-   "thread": "t0052",
+   "id": "m0234",
+   "thread": "t0056",
    "date": "2026-09-29T13:39:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5676,8 +5852,8 @@
    "kind": "work"
   },
   {
-   "id": "m0228",
-   "thread": "t0055",
+   "id": "m0235",
+   "thread": "t0059",
    "date": "2026-09-29T13:58:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5712,8 +5888,8 @@
    "kind": "work"
   },
   {
-   "id": "m0229",
-   "thread": "t0063",
+   "id": "m0236",
+   "thread": "t0068",
    "date": "2026-09-29T14:59:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -5737,8 +5913,8 @@
    "kind": "work"
   },
   {
-   "id": "m0230",
-   "thread": "t0058",
+   "id": "m0237",
+   "thread": "t0063",
    "date": "2026-09-29T16:37:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5762,8 +5938,8 @@
    "kind": "work"
   },
   {
-   "id": "m0231",
-   "thread": "t0052",
+   "id": "m0238",
+   "thread": "t0056",
    "date": "2026-09-29T17:02:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5798,8 +5974,8 @@
    "kind": "work"
   },
   {
-   "id": "m0232",
-   "thread": "t0071",
+   "id": "m0239",
+   "thread": "t0077",
    "date": "2026-09-30T07:13:00+09:00",
    "from": "news@interior-weekly.example",
    "to": [
@@ -5818,8 +5994,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0233",
-   "thread": "t0059",
+   "id": "m0240",
+   "thread": "t0064",
    "date": "2026-09-30T09:36:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -5837,8 +6013,8 @@
    "kind": "work"
   },
   {
-   "id": "m0234",
-   "thread": "t0061",
+   "id": "m0241",
+   "thread": "t0066",
    "date": "2026-09-30T09:57:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -5862,8 +6038,8 @@
    "kind": "work"
   },
   {
-   "id": "m0235",
-   "thread": "t0066",
+   "id": "m0242",
+   "thread": "t0071",
    "date": "2026-09-30T13:59:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -5881,8 +6057,8 @@
    "kind": "work"
   },
   {
-   "id": "m0236",
-   "thread": "t0058",
+   "id": "m0243",
+   "thread": "t0063",
    "date": "2026-09-30T14:15:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5907,8 +6083,8 @@
    "kind": "work"
   },
   {
-   "id": "m0237",
-   "thread": "t0066",
+   "id": "m0244",
+   "thread": "t0071",
    "date": "2026-09-30T14:41:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5934,8 +6110,8 @@
    "kind": "work"
   },
   {
-   "id": "m0238",
-   "thread": "t0053",
+   "id": "m0245",
+   "thread": "t0057",
    "date": "2026-09-30T16:10:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5965,8 +6141,8 @@
    "kind": "work"
   },
   {
-   "id": "m0239",
-   "thread": "t0063",
+   "id": "m0246",
+   "thread": "t0068",
    "date": "2026-09-30T17:27:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -5984,8 +6160,34 @@
    "kind": "work"
   },
   {
-   "id": "m0240",
-   "thread": "t0069",
+   "id": "m0247",
+   "thread": "t0078",
+   "date": "2026-10-01T09:22:00+09:00",
+   "from": "pro-ax-seoyeon@uengine.org",
+   "to": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "cc": [
+    "pro-ax-doyun@uengine.org"
+   ],
+   "subject": "9월 결산 보고",
+   "text": "9월 결산 보고드립니다. 매월 1일 오전에 지난달 매출 · 매입 · 미수금을 정리해 보내 드리고 있습니다. 미수금이 있는 현장은 첨부 파일의 비고를 봐 주세요.",
+   "attachments": [
+    {
+     "name": "월결산_2026-09.xlsx",
+     "type": "xlsx",
+     "size": 54196,
+     "file": "ax-demo-templates/월결산_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0248",
+   "thread": "t0074",
    "date": "2026-10-01T12:53:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -6009,8 +6211,8 @@
    "kind": "work"
   },
   {
-   "id": "m0241",
-   "thread": "t0059",
+   "id": "m0249",
+   "thread": "t0064",
    "date": "2026-10-01T13:01:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -6039,8 +6241,8 @@
    "kind": "work"
   },
   {
-   "id": "m0242",
-   "thread": "t0069",
+   "id": "m0250",
+   "thread": "t0074",
    "date": "2026-10-01T17:07:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6058,8 +6260,8 @@
    "kind": "work"
   },
   {
-   "id": "m0243",
-   "thread": "t0058",
+   "id": "m0251",
+   "thread": "t0063",
    "date": "2026-10-01T17:54:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -6078,8 +6280,8 @@
    "kind": "work"
   },
   {
-   "id": "m0244",
-   "thread": "t0065",
+   "id": "m0252",
+   "thread": "t0070",
    "date": "2026-10-02T09:54:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -6097,8 +6299,8 @@
    "kind": "work"
   },
   {
-   "id": "m0245",
-   "thread": "t0059",
+   "id": "m0253",
+   "thread": "t0064",
    "date": "2026-10-02T11:34:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6122,8 +6324,8 @@
    "kind": "work"
   },
   {
-   "id": "m0246",
-   "thread": "t0058",
+   "id": "m0254",
+   "thread": "t0063",
    "date": "2026-10-02T13:00:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6153,8 +6355,8 @@
    "kind": "work"
   },
   {
-   "id": "m0247",
-   "thread": "t0061",
+   "id": "m0255",
+   "thread": "t0066",
    "date": "2026-10-02T15:10:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6178,8 +6380,8 @@
    "kind": "work"
   },
   {
-   "id": "m0248",
-   "thread": "t0072",
+   "id": "m0256",
+   "thread": "t0079",
    "date": "2026-10-02T16:29:00+09:00",
    "from": "pro-ax-jinyoung@uengine.org",
    "to": [
@@ -6203,8 +6405,8 @@
    "kind": "invite"
   },
   {
-   "id": "m0249",
-   "thread": "t0073",
+   "id": "m0257",
+   "thread": "t0080",
    "date": "2026-10-03T09:47:00+09:00",
    "from": "jia@haeoreum.example",
    "to": [
@@ -6228,8 +6430,8 @@
    "kind": "work"
   },
   {
-   "id": "m0250",
-   "thread": "t0074",
+   "id": "m0258",
+   "thread": "t0081",
    "date": "2026-10-04T13:16:00+09:00",
    "from": "harin.byun@example.com",
    "to": [
@@ -6253,8 +6455,8 @@
    "kind": "work"
   },
   {
-   "id": "m0251",
-   "thread": "t0075",
+   "id": "m0259",
+   "thread": "t0082",
    "date": "2026-10-04T21:47:00+09:00",
    "from": "hyunwoo@solbit-books.example",
    "to": [
@@ -6272,8 +6474,8 @@
    "kind": "work"
   },
   {
-   "id": "m0252",
-   "thread": "t0076",
+   "id": "m0260",
+   "thread": "t0083",
    "date": "2026-10-05T07:10:00+09:00",
    "from": "letter@build-expo.example",
    "to": [
@@ -6292,8 +6494,34 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0253",
-   "thread": "t0077",
+   "id": "m0261",
+   "thread": "t0084",
+   "date": "2026-10-05T09:06:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 10/5(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 50%, 이번 주에는 바닥재 시공을 마쳤고 다음 주에는 도장과 벽지 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_1005.xlsx",
+     "type": "xlsx",
+     "size": 87607,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0262",
+   "thread": "t0085",
    "date": "2026-10-05T09:38:00+09:00",
    "from": "haneul@dalbitcoffee.example",
    "to": [
@@ -6317,8 +6545,8 @@
    "kind": "work"
   },
   {
-   "id": "m0254",
-   "thread": "t0078",
+   "id": "m0263",
+   "thread": "t0086",
    "date": "2026-10-05T14:48:00+09:00",
    "from": "junseo.hong@byeolbit.example",
    "to": [
@@ -6342,8 +6570,8 @@
    "kind": "work"
   },
   {
-   "id": "m0255",
-   "thread": "t0059",
+   "id": "m0264",
+   "thread": "t0064",
    "date": "2026-10-06T09:28:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6368,8 +6596,8 @@
    "kind": "work"
   },
   {
-   "id": "m0256",
-   "thread": "t0074",
+   "id": "m0265",
+   "thread": "t0081",
    "date": "2026-10-06T11:46:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6388,8 +6616,8 @@
    "kind": "work"
   },
   {
-   "id": "m0257",
-   "thread": "t0078",
+   "id": "m0266",
+   "thread": "t0086",
    "date": "2026-10-06T12:08:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6407,8 +6635,8 @@
    "kind": "work"
   },
   {
-   "id": "m0258",
-   "thread": "t0078",
+   "id": "m0267",
+   "thread": "t0086",
    "date": "2026-10-06T13:01:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6427,8 +6655,8 @@
    "kind": "work"
   },
   {
-   "id": "m0259",
-   "thread": "t0079",
+   "id": "m0268",
+   "thread": "t0087",
    "date": "2026-10-06T13:14:00+09:00",
    "from": "no-reply@tax-invoice.example",
    "to": [
@@ -6444,8 +6672,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0260",
-   "thread": "t0061",
+   "id": "m0269",
+   "thread": "t0066",
    "date": "2026-10-06T13:37:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6468,8 +6696,8 @@
    "kind": "work"
   },
   {
-   "id": "m0261",
-   "thread": "t0080",
+   "id": "m0270",
+   "thread": "t0088",
    "date": "2026-10-06T15:11:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6493,8 +6721,8 @@
    "kind": "work"
   },
   {
-   "id": "m0262",
-   "thread": "t0061",
+   "id": "m0271",
+   "thread": "t0066",
    "date": "2026-10-06T16:34:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6524,8 +6752,8 @@
    "kind": "work"
   },
   {
-   "id": "m0263",
-   "thread": "t0081",
+   "id": "m0272",
+   "thread": "t0089",
    "date": "2026-10-06T17:15:00+09:00",
    "from": "no-reply@card.example",
    "to": [
@@ -6541,8 +6769,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0264",
-   "thread": "t0074",
+   "id": "m0273",
+   "thread": "t0081",
    "date": "2026-10-06T17:18:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -6566,8 +6794,8 @@
    "kind": "work"
   },
   {
-   "id": "m0265",
-   "thread": "t0078",
+   "id": "m0274",
+   "thread": "t0086",
    "date": "2026-10-07T12:43:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -6585,8 +6813,8 @@
    "kind": "work"
   },
   {
-   "id": "m0266",
-   "thread": "t0074",
+   "id": "m0275",
+   "thread": "t0081",
    "date": "2026-10-07T12:57:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6604,8 +6832,8 @@
    "kind": "work"
   },
   {
-   "id": "m0267",
-   "thread": "t0082",
+   "id": "m0276",
+   "thread": "t0090",
    "date": "2026-10-07T17:00:00+09:00",
    "from": "seoyun.ban@yeondu-dental.example",
    "to": [
@@ -6629,8 +6857,8 @@
    "kind": "work"
   },
   {
-   "id": "m0268",
-   "thread": "t0083",
+   "id": "m0277",
+   "thread": "t0091",
    "date": "2026-10-07T20:42:00+09:00",
    "from": "soyul.m@example.net",
    "to": [
@@ -6654,8 +6882,8 @@
    "kind": "work"
   },
   {
-   "id": "m0269",
-   "thread": "t0084",
+   "id": "m0278",
+   "thread": "t0092",
    "date": "2026-10-08T09:09:00+09:00",
    "from": "dahyun@ongi-brunch.example",
    "to": [
@@ -6674,8 +6902,8 @@
    "kind": "work"
   },
   {
-   "id": "m0270",
-   "thread": "t0080",
+   "id": "m0279",
+   "thread": "t0088",
    "date": "2026-10-08T12:11:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -6693,8 +6921,8 @@
    "kind": "work"
   },
   {
-   "id": "m0271",
-   "thread": "t0065",
+   "id": "m0280",
+   "thread": "t0070",
    "date": "2026-10-08T12:26:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6718,8 +6946,8 @@
    "kind": "work"
   },
   {
-   "id": "m0272",
-   "thread": "t0065",
+   "id": "m0281",
+   "thread": "t0070",
    "date": "2026-10-08T14:22:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6742,8 +6970,8 @@
    "kind": "work"
   },
   {
-   "id": "m0273",
-   "thread": "t0065",
+   "id": "m0282",
+   "thread": "t0070",
    "date": "2026-10-08T14:53:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6773,8 +7001,8 @@
    "kind": "work"
   },
   {
-   "id": "m0274",
-   "thread": "t0082",
+   "id": "m0283",
+   "thread": "t0090",
    "date": "2026-10-08T15:15:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -6792,8 +7020,8 @@
    "kind": "work"
   },
   {
-   "id": "m0275",
-   "thread": "t0073",
+   "id": "m0284",
+   "thread": "t0080",
    "date": "2026-10-08T15:39:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -6811,8 +7039,8 @@
    "kind": "work"
   },
   {
-   "id": "m0276",
-   "thread": "t0080",
+   "id": "m0285",
+   "thread": "t0088",
    "date": "2026-10-08T16:41:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -6836,8 +7064,8 @@
    "kind": "work"
   },
   {
-   "id": "m0277",
-   "thread": "t0059",
+   "id": "m0286",
+   "thread": "t0064",
    "date": "2026-10-08T17:17:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -6855,8 +7083,8 @@
    "kind": "work"
   },
   {
-   "id": "m0278",
-   "thread": "t0075",
+   "id": "m0287",
+   "thread": "t0082",
    "date": "2026-10-08T17:32:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -6874,8 +7102,8 @@
    "kind": "work"
   },
   {
-   "id": "m0279",
-   "thread": "t0085",
+   "id": "m0288",
+   "thread": "t0093",
    "date": "2026-10-08T23:00:00+09:00",
    "from": "taeo@haedam-dining.example",
    "to": [
@@ -6899,8 +7127,8 @@
    "kind": "work"
   },
   {
-   "id": "m0280",
-   "thread": "t0086",
+   "id": "m0289",
+   "thread": "t0094",
    "date": "2026-10-09T12:45:00+09:00",
    "from": "no-reply@cloud-drive.example",
    "to": [
@@ -6916,8 +7144,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0281",
-   "thread": "t0087",
+   "id": "m0290",
+   "thread": "t0095",
    "date": "2026-10-09T20:46:00+09:00",
    "from": "gaon.optical@example.org",
    "to": [
@@ -6936,8 +7164,8 @@
    "kind": "work"
   },
   {
-   "id": "m0282",
-   "thread": "t0088",
+   "id": "m0291",
+   "thread": "t0096",
    "date": "2026-10-10T14:23:00+09:00",
    "from": "admin@bareun-ortho.example",
    "to": [
@@ -6955,8 +7183,8 @@
    "kind": "work"
   },
   {
-   "id": "m0283",
-   "thread": "t0089",
+   "id": "m0292",
+   "thread": "t0097",
    "date": "2026-10-10T19:18:00+09:00",
    "from": "junhyuk@saebyeok-bagel.example",
    "to": [
@@ -6974,8 +7202,8 @@
    "kind": "work"
   },
   {
-   "id": "m0284",
-   "thread": "t0090",
+   "id": "m0293",
+   "thread": "t0098",
    "date": "2026-10-11T07:21:00+09:00",
    "from": "promo@office-mall.example",
    "to": [
@@ -6994,8 +7222,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0285",
-   "thread": "t0091",
+   "id": "m0294",
+   "thread": "t0099",
    "date": "2026-10-11T08:14:00+09:00",
    "from": "no-reply@cloud-drive.example",
    "to": [
@@ -7011,8 +7239,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0286",
-   "thread": "t0061",
+   "id": "m0295",
+   "thread": "t0066",
    "date": "2026-10-11T14:12:00+09:00",
    "from": "bomnal.flower@example.com",
    "to": [
@@ -7031,8 +7259,8 @@
    "kind": "work"
   },
   {
-   "id": "m0287",
-   "thread": "t0078",
+   "id": "m0296",
+   "thread": "t0086",
    "date": "2026-10-12T09:05:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -7056,8 +7284,34 @@
    "kind": "work"
   },
   {
-   "id": "m0288",
-   "thread": "t0085",
+   "id": "m0297",
+   "thread": "t0100",
+   "date": "2026-10-12T09:31:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 10/12(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 60%, 이번 주에는 도장과 벽지을 마쳤고 다음 주에는 조명 · 콘센트 설치 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_1012.xlsx",
+     "type": "xlsx",
+     "size": 53321,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0298",
+   "thread": "t0093",
    "date": "2026-10-12T10:14:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7076,8 +7330,8 @@
    "kind": "work"
   },
   {
-   "id": "m0289",
-   "thread": "t0080",
+   "id": "m0299",
+   "thread": "t0088",
    "date": "2026-10-12T10:34:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7095,8 +7349,8 @@
    "kind": "work"
   },
   {
-   "id": "m0290",
-   "thread": "t0059",
+   "id": "m0300",
+   "thread": "t0064",
    "date": "2026-10-12T10:54:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7126,8 +7380,8 @@
    "kind": "work"
   },
   {
-   "id": "m0291",
-   "thread": "t0084",
+   "id": "m0301",
+   "thread": "t0092",
    "date": "2026-10-12T12:07:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7152,8 +7406,8 @@
    "kind": "work"
   },
   {
-   "id": "m0292",
-   "thread": "t0073",
+   "id": "m0302",
+   "thread": "t0080",
    "date": "2026-10-12T13:57:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -7177,8 +7431,8 @@
    "kind": "work"
   },
   {
-   "id": "m0293",
-   "thread": "t0092",
+   "id": "m0303",
+   "thread": "t0101",
    "date": "2026-10-12T14:58:00+09:00",
    "from": "office@neulbom-im.example",
    "to": [
@@ -7202,8 +7456,8 @@
    "kind": "work"
   },
   {
-   "id": "m0294",
-   "thread": "t0075",
+   "id": "m0304",
+   "thread": "t0082",
    "date": "2026-10-12T15:34:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -7227,8 +7481,8 @@
    "kind": "work"
   },
   {
-   "id": "m0295",
-   "thread": "t0077",
+   "id": "m0305",
+   "thread": "t0085",
    "date": "2026-10-12T16:47:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -7252,8 +7506,8 @@
    "kind": "work"
   },
   {
-   "id": "m0296",
-   "thread": "t0083",
+   "id": "m0306",
+   "thread": "t0091",
    "date": "2026-10-12T17:01:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -7277,8 +7531,8 @@
    "kind": "work"
   },
   {
-   "id": "m0297",
-   "thread": "t0061",
+   "id": "m0307",
+   "thread": "t0066",
    "date": "2026-10-12T17:48:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7302,8 +7556,8 @@
    "kind": "work"
   },
   {
-   "id": "m0298",
-   "thread": "t0073",
+   "id": "m0308",
+   "thread": "t0080",
    "date": "2026-10-12T18:02:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7327,8 +7581,8 @@
    "kind": "work"
   },
   {
-   "id": "m0299",
-   "thread": "t0093",
+   "id": "m0309",
+   "thread": "t0102",
    "date": "2026-10-12T22:28:00+09:00",
    "from": "jaemin@barofit.example",
    "to": [
@@ -7352,8 +7606,8 @@
    "kind": "work"
   },
   {
-   "id": "m0300",
-   "thread": "t0078",
+   "id": "m0310",
+   "thread": "t0086",
    "date": "2026-10-13T09:32:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7371,8 +7625,8 @@
    "kind": "work"
   },
   {
-   "id": "m0301",
-   "thread": "t0061",
+   "id": "m0311",
+   "thread": "t0066",
    "date": "2026-10-13T11:02:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7395,8 +7649,8 @@
    "kind": "work"
   },
   {
-   "id": "m0302",
-   "thread": "t0061",
+   "id": "m0312",
+   "thread": "t0066",
    "date": "2026-10-13T12:38:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7427,8 +7681,8 @@
    "kind": "work"
   },
   {
-   "id": "m0303",
-   "thread": "t0094",
+   "id": "m0313",
+   "thread": "t0103",
    "date": "2026-10-13T15:05:00+09:00",
    "from": "pro-ax-jinyoung@uengine.org",
    "to": [
@@ -7446,8 +7700,8 @@
    "kind": "work"
   },
   {
-   "id": "m0304",
-   "thread": "t0082",
+   "id": "m0314",
+   "thread": "t0090",
    "date": "2026-10-13T15:09:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -7465,8 +7719,8 @@
    "kind": "work"
   },
   {
-   "id": "m0305",
-   "thread": "t0087",
+   "id": "m0315",
+   "thread": "t0095",
    "date": "2026-10-13T15:44:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7491,8 +7745,8 @@
    "kind": "work"
   },
   {
-   "id": "m0306",
-   "thread": "t0073",
+   "id": "m0316",
+   "thread": "t0080",
    "date": "2026-10-13T15:46:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7515,8 +7769,8 @@
    "kind": "work"
   },
   {
-   "id": "m0307",
-   "thread": "t0077",
+   "id": "m0317",
+   "thread": "t0085",
    "date": "2026-10-13T15:55:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -7540,8 +7794,8 @@
    "kind": "work"
   },
   {
-   "id": "m0308",
-   "thread": "t0095",
+   "id": "m0318",
+   "thread": "t0104",
    "date": "2026-10-13T19:52:00+09:00",
    "from": "yeonseo.ju@onyu-clinic.example",
    "to": [
@@ -7565,8 +7819,8 @@
    "kind": "work"
   },
   {
-   "id": "m0309",
-   "thread": "t0073",
+   "id": "m0319",
+   "thread": "t0080",
    "date": "2026-10-14T09:30:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7597,8 +7851,8 @@
    "kind": "work"
   },
   {
-   "id": "m0310",
-   "thread": "t0093",
+   "id": "m0320",
+   "thread": "t0102",
    "date": "2026-10-14T09:31:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7617,8 +7871,8 @@
    "kind": "work"
   },
   {
-   "id": "m0311",
-   "thread": "t0075",
+   "id": "m0321",
+   "thread": "t0082",
    "date": "2026-10-14T10:49:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7642,8 +7896,8 @@
    "kind": "work"
   },
   {
-   "id": "m0312",
-   "thread": "t0077",
+   "id": "m0322",
+   "thread": "t0085",
    "date": "2026-10-14T13:03:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7667,8 +7921,8 @@
    "kind": "work"
   },
   {
-   "id": "m0313",
-   "thread": "t0083",
+   "id": "m0323",
+   "thread": "t0091",
    "date": "2026-10-14T13:55:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -7692,8 +7946,8 @@
    "kind": "work"
   },
   {
-   "id": "m0314",
-   "thread": "t0096",
+   "id": "m0324",
+   "thread": "t0105",
    "date": "2026-10-14T14:33:00+09:00",
    "from": "no-reply@card.example",
    "to": [
@@ -7709,8 +7963,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0315",
-   "thread": "t0075",
+   "id": "m0325",
+   "thread": "t0082",
    "date": "2026-10-14T15:25:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7733,8 +7987,8 @@
    "kind": "work"
   },
   {
-   "id": "m0316",
-   "thread": "t0084",
+   "id": "m0326",
+   "thread": "t0092",
    "date": "2026-10-14T16:17:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -7752,8 +8006,8 @@
    "kind": "work"
   },
   {
-   "id": "m0317",
-   "thread": "t0082",
+   "id": "m0327",
+   "thread": "t0090",
    "date": "2026-10-14T17:04:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7771,8 +8025,8 @@
    "kind": "work"
   },
   {
-   "id": "m0318",
-   "thread": "t0083",
+   "id": "m0328",
+   "thread": "t0091",
    "date": "2026-10-14T17:22:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7796,8 +8050,8 @@
    "kind": "work"
   },
   {
-   "id": "m0319",
-   "thread": "t0097",
+   "id": "m0329",
+   "thread": "t0106",
    "date": "2026-10-14T23:08:00+09:00",
    "from": "dowon@saessak-vet.example",
    "to": [
@@ -7816,8 +8070,8 @@
    "kind": "work"
   },
   {
-   "id": "m0320",
-   "thread": "t0084",
+   "id": "m0330",
+   "thread": "t0092",
    "date": "2026-10-15T09:57:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7843,8 +8097,8 @@
    "kind": "work"
   },
   {
-   "id": "m0321",
-   "thread": "t0075",
+   "id": "m0331",
+   "thread": "t0082",
    "date": "2026-10-15T10:04:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7880,8 +8134,8 @@
    "kind": "work"
   },
   {
-   "id": "m0322",
-   "thread": "t0077",
+   "id": "m0332",
+   "thread": "t0085",
    "date": "2026-10-15T10:22:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7906,8 +8160,8 @@
    "kind": "work"
   },
   {
-   "id": "m0323",
-   "thread": "t0083",
+   "id": "m0333",
+   "thread": "t0091",
    "date": "2026-10-15T11:02:00+09:00",
    "from": "pro-ax-jinyoung@uengine.org",
    "to": [
@@ -7926,8 +8180,8 @@
    "kind": "work"
   },
   {
-   "id": "m0324",
-   "thread": "t0098",
+   "id": "m0334",
+   "thread": "t0107",
    "date": "2026-10-15T12:06:00+09:00",
    "from": "sales@garam-tile.example",
    "to": [
@@ -7951,8 +8205,8 @@
    "kind": "work"
   },
   {
-   "id": "m0325",
-   "thread": "t0083",
+   "id": "m0335",
+   "thread": "t0091",
    "date": "2026-10-15T14:01:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7975,8 +8229,8 @@
    "kind": "work"
   },
   {
-   "id": "m0326",
-   "thread": "t0097",
+   "id": "m0336",
+   "thread": "t0106",
    "date": "2026-10-15T14:21:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -7999,8 +8253,8 @@
    "kind": "work"
   },
   {
-   "id": "m0327",
-   "thread": "t0083",
+   "id": "m0337",
+   "thread": "t0091",
    "date": "2026-10-15T14:36:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8030,8 +8284,8 @@
    "kind": "work"
   },
   {
-   "id": "m0328",
-   "thread": "t0085",
+   "id": "m0338",
+   "thread": "t0093",
    "date": "2026-10-15T15:19:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8055,8 +8309,8 @@
    "kind": "work"
   },
   {
-   "id": "m0329",
-   "thread": "t0089",
+   "id": "m0339",
+   "thread": "t0097",
    "date": "2026-10-15T16:38:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8080,8 +8334,8 @@
    "kind": "work"
   },
   {
-   "id": "m0330",
-   "thread": "t0087",
+   "id": "m0340",
+   "thread": "t0095",
    "date": "2026-10-15T16:55:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -8099,8 +8353,8 @@
    "kind": "work"
   },
   {
-   "id": "m0331",
-   "thread": "t0088",
+   "id": "m0341",
+   "thread": "t0096",
    "date": "2026-10-15T17:03:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8124,8 +8378,8 @@
    "kind": "work"
   },
   {
-   "id": "m0332",
-   "thread": "t0097",
+   "id": "m0342",
+   "thread": "t0106",
    "date": "2026-10-15T17:48:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8151,8 +8405,8 @@
    "kind": "work"
   },
   {
-   "id": "m0333",
-   "thread": "t0087",
+   "id": "m0343",
+   "thread": "t0095",
    "date": "2026-10-16T09:16:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8178,8 +8432,8 @@
    "kind": "work"
   },
   {
-   "id": "m0334",
-   "thread": "t0093",
+   "id": "m0344",
+   "thread": "t0102",
    "date": "2026-10-16T10:01:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8203,8 +8457,8 @@
    "kind": "work"
   },
   {
-   "id": "m0335",
-   "thread": "t0059",
+   "id": "m0345",
+   "thread": "t0064",
    "date": "2026-10-16T11:00:00+09:00",
    "from": "majung.guest@example.org",
    "to": [
@@ -8223,8 +8477,8 @@
    "kind": "work"
   },
   {
-   "id": "m0336",
-   "thread": "t0093",
+   "id": "m0346",
+   "thread": "t0102",
    "date": "2026-10-16T12:10:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -8242,8 +8496,8 @@
    "kind": "work"
   },
   {
-   "id": "m0337",
-   "thread": "t0095",
+   "id": "m0347",
+   "thread": "t0104",
    "date": "2026-10-16T15:24:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8261,8 +8515,8 @@
    "kind": "work"
   },
   {
-   "id": "m0338",
-   "thread": "t0099",
+   "id": "m0348",
+   "thread": "t0108",
    "date": "2026-10-17T13:00:00+09:00",
    "from": "cheongsol.pharm@example.net",
    "to": [
@@ -8281,8 +8535,8 @@
    "kind": "work"
   },
   {
-   "id": "m0339",
-   "thread": "t0100",
+   "id": "m0349",
+   "thread": "t0109",
    "date": "2026-10-17T13:04:00+09:00",
    "from": "danbi.nail@example.net",
    "to": [
@@ -8300,8 +8554,8 @@
    "kind": "work"
   },
   {
-   "id": "m0340",
-   "thread": "t0101",
+   "id": "m0350",
+   "thread": "t0110",
    "date": "2026-10-18T08:18:00+09:00",
    "from": "newsletter@designtalk.example",
    "to": [
@@ -8320,8 +8574,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0341",
-   "thread": "t0102",
+   "id": "m0351",
+   "thread": "t0111",
    "date": "2026-10-18T09:38:00+09:00",
    "from": "sohee@goyo-reading.example",
    "to": [
@@ -8339,8 +8593,8 @@
    "kind": "work"
   },
   {
-   "id": "m0342",
-   "thread": "t0103",
+   "id": "m0352",
+   "thread": "t0112",
    "date": "2026-10-18T11:11:00+09:00",
    "from": "office@sonamu-dental.example",
    "to": [
@@ -8358,8 +8612,8 @@
    "kind": "work"
   },
   {
-   "id": "m0343",
-   "thread": "t0093",
+   "id": "m0353",
+   "thread": "t0102",
    "date": "2026-10-19T09:09:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8377,8 +8631,34 @@
    "kind": "work"
   },
   {
-   "id": "m0344",
-   "thread": "t0092",
+   "id": "m0354",
+   "thread": "t0113",
+   "date": "2026-10-19T09:29:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 10/19(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 70%, 이번 주에는 조명 · 콘센트 설치을 마쳤고 다음 주에는 가구 반입과 설치 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_1019.xlsx",
+     "type": "xlsx",
+     "size": 63201,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0355",
+   "thread": "t0101",
    "date": "2026-10-19T09:32:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8402,8 +8682,8 @@
    "kind": "work"
   },
   {
-   "id": "m0345",
-   "thread": "t0085",
+   "id": "m0356",
+   "thread": "t0093",
    "date": "2026-10-19T10:01:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8432,8 +8712,8 @@
    "kind": "work"
   },
   {
-   "id": "m0346",
-   "thread": "t0077",
+   "id": "m0357",
+   "thread": "t0085",
    "date": "2026-10-19T10:10:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -8451,8 +8731,8 @@
    "kind": "work"
   },
   {
-   "id": "m0347",
-   "thread": "t0104",
+   "id": "m0358",
+   "thread": "t0114",
    "date": "2026-10-19T10:33:00+09:00",
    "from": "bomnal.flower@example.com",
    "to": [
@@ -8476,8 +8756,8 @@
    "kind": "work"
   },
   {
-   "id": "m0348",
-   "thread": "t0095",
+   "id": "m0359",
+   "thread": "t0104",
    "date": "2026-10-19T11:19:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8506,8 +8786,8 @@
    "kind": "work"
   },
   {
-   "id": "m0349",
-   "thread": "t0105",
+   "id": "m0360",
+   "thread": "t0115",
    "date": "2026-10-19T12:12:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8526,8 +8806,8 @@
    "kind": "work"
   },
   {
-   "id": "m0350",
-   "thread": "t0106",
+   "id": "m0361",
+   "thread": "t0116",
    "date": "2026-10-19T14:11:00+09:00",
    "from": "hanol.hanbok@example.com",
    "to": [
@@ -8551,8 +8831,8 @@
    "kind": "work"
   },
   {
-   "id": "m0351",
-   "thread": "t0089",
+   "id": "m0362",
+   "thread": "t0097",
    "date": "2026-10-19T14:26:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8576,8 +8856,8 @@
    "kind": "work"
   },
   {
-   "id": "m0352",
-   "thread": "t0083",
+   "id": "m0363",
+   "thread": "t0091",
    "date": "2026-10-19T14:37:00+09:00",
    "from": "soyul.m@example.net",
    "to": [
@@ -8596,8 +8876,8 @@
    "kind": "work"
   },
   {
-   "id": "m0353",
-   "thread": "t0077",
+   "id": "m0364",
+   "thread": "t0085",
    "date": "2026-10-19T14:47:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8627,8 +8907,8 @@
    "kind": "work"
   },
   {
-   "id": "m0354",
-   "thread": "t0107",
+   "id": "m0365",
+   "thread": "t0117",
    "date": "2026-10-19T15:28:00+09:00",
    "from": "pro-ax-jinyoung@uengine.org",
    "to": [
@@ -8652,8 +8932,8 @@
    "kind": "invite"
   },
   {
-   "id": "m0355",
-   "thread": "t0059",
+   "id": "m0366",
+   "thread": "t0064",
    "date": "2026-10-19T16:58:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8677,8 +8957,8 @@
    "kind": "work"
   },
   {
-   "id": "m0356",
-   "thread": "t0095",
+   "id": "m0367",
+   "thread": "t0104",
    "date": "2026-10-20T10:24:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8702,8 +8982,8 @@
    "kind": "work"
   },
   {
-   "id": "m0357",
-   "thread": "t0104",
+   "id": "m0368",
+   "thread": "t0114",
    "date": "2026-10-20T12:00:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8722,8 +9002,8 @@
    "kind": "work"
   },
   {
-   "id": "m0358",
-   "thread": "t0088",
+   "id": "m0369",
+   "thread": "t0096",
    "date": "2026-10-20T12:10:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8747,8 +9027,8 @@
    "kind": "work"
   },
   {
-   "id": "m0359",
-   "thread": "t0095",
+   "id": "m0370",
+   "thread": "t0104",
    "date": "2026-10-20T12:24:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8773,8 +9053,8 @@
    "kind": "work"
   },
   {
-   "id": "m0360",
-   "thread": "t0108",
+   "id": "m0371",
+   "thread": "t0118",
    "date": "2026-10-20T12:25:00+09:00",
    "from": "jihoon@dodam-math.example",
    "to": [
@@ -8798,8 +9078,8 @@
    "kind": "work"
   },
   {
-   "id": "m0361",
-   "thread": "t0092",
+   "id": "m0372",
+   "thread": "t0101",
    "date": "2026-10-20T12:53:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -8823,8 +9103,8 @@
    "kind": "work"
   },
   {
-   "id": "m0362",
-   "thread": "t0059",
+   "id": "m0373",
+   "thread": "t0064",
    "date": "2026-10-20T13:05:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8847,8 +9127,8 @@
    "kind": "work"
   },
   {
-   "id": "m0363",
-   "thread": "t0088",
+   "id": "m0374",
+   "thread": "t0096",
    "date": "2026-10-20T13:18:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8871,8 +9151,8 @@
    "kind": "work"
   },
   {
-   "id": "m0364",
-   "thread": "t0085",
+   "id": "m0375",
+   "thread": "t0093",
    "date": "2026-10-20T13:19:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8896,8 +9176,8 @@
    "kind": "work"
   },
   {
-   "id": "m0365",
-   "thread": "t0108",
+   "id": "m0376",
+   "thread": "t0118",
    "date": "2026-10-20T14:01:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8916,8 +9196,8 @@
    "kind": "work"
   },
   {
-   "id": "m0366",
-   "thread": "t0088",
+   "id": "m0377",
+   "thread": "t0096",
    "date": "2026-10-20T14:21:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8948,8 +9228,8 @@
    "kind": "work"
   },
   {
-   "id": "m0367",
-   "thread": "t0099",
+   "id": "m0378",
+   "thread": "t0108",
    "date": "2026-10-20T15:14:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -8972,8 +9252,8 @@
    "kind": "work"
   },
   {
-   "id": "m0368",
-   "thread": "t0059",
+   "id": "m0379",
+   "thread": "t0064",
    "date": "2026-10-20T15:30:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9004,8 +9284,8 @@
    "kind": "work"
   },
   {
-   "id": "m0369",
-   "thread": "t0109",
+   "id": "m0380",
+   "thread": "t0119",
    "date": "2026-10-20T15:47:00+09:00",
    "from": "no-reply@tax-invoice.example",
    "to": [
@@ -9021,8 +9301,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0370",
-   "thread": "t0075",
+   "id": "m0381",
+   "thread": "t0082",
    "date": "2026-10-20T16:10:00+09:00",
    "from": "hyunwoo@solbit-books.example",
    "to": [
@@ -9041,8 +9321,8 @@
    "kind": "work"
   },
   {
-   "id": "m0371",
-   "thread": "t0085",
+   "id": "m0382",
+   "thread": "t0093",
    "date": "2026-10-20T17:28:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9067,8 +9347,8 @@
    "kind": "work"
   },
   {
-   "id": "m0372",
-   "thread": "t0089",
+   "id": "m0383",
+   "thread": "t0097",
    "date": "2026-10-20T17:35:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9092,8 +9372,8 @@
    "kind": "work"
   },
   {
-   "id": "m0373",
-   "thread": "t0099",
+   "id": "m0384",
+   "thread": "t0108",
    "date": "2026-10-21T09:29:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9118,8 +9398,8 @@
    "kind": "work"
   },
   {
-   "id": "m0374",
-   "thread": "t0083",
+   "id": "m0385",
+   "thread": "t0091",
    "date": "2026-10-21T11:29:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9143,8 +9423,8 @@
    "kind": "work"
   },
   {
-   "id": "m0375",
-   "thread": "t0089",
+   "id": "m0386",
+   "thread": "t0097",
    "date": "2026-10-21T12:39:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9169,8 +9449,8 @@
    "kind": "work"
   },
   {
-   "id": "m0376",
-   "thread": "t0092",
+   "id": "m0387",
+   "thread": "t0101",
    "date": "2026-10-21T13:29:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9194,8 +9474,8 @@
    "kind": "work"
   },
   {
-   "id": "m0377",
-   "thread": "t0083",
+   "id": "m0388",
+   "thread": "t0091",
    "date": "2026-10-21T13:34:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9218,8 +9498,8 @@
    "kind": "work"
   },
   {
-   "id": "m0378",
-   "thread": "t0083",
+   "id": "m0389",
+   "thread": "t0091",
    "date": "2026-10-21T15:52:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9250,8 +9530,8 @@
    "kind": "work"
   },
   {
-   "id": "m0379",
-   "thread": "t0104",
+   "id": "m0390",
+   "thread": "t0114",
    "date": "2026-10-21T16:14:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -9269,8 +9549,8 @@
    "kind": "work"
   },
   {
-   "id": "m0380",
-   "thread": "t0105",
+   "id": "m0391",
+   "thread": "t0115",
    "date": "2026-10-21T16:55:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -9294,8 +9574,8 @@
    "kind": "work"
   },
   {
-   "id": "m0381",
-   "thread": "t0103",
+   "id": "m0392",
+   "thread": "t0112",
    "date": "2026-10-21T17:33:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -9319,8 +9599,8 @@
    "kind": "work"
   },
   {
-   "id": "m0382",
-   "thread": "t0075",
+   "id": "m0393",
+   "thread": "t0082",
    "date": "2026-10-22T09:03:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9344,8 +9624,8 @@
    "kind": "work"
   },
   {
-   "id": "m0383",
-   "thread": "t0102",
+   "id": "m0394",
+   "thread": "t0111",
    "date": "2026-10-22T09:44:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -9363,8 +9643,8 @@
    "kind": "work"
   },
   {
-   "id": "m0384",
-   "thread": "t0092",
+   "id": "m0395",
+   "thread": "t0101",
    "date": "2026-10-22T10:04:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9387,8 +9667,8 @@
    "kind": "work"
   },
   {
-   "id": "m0385",
-   "thread": "t0110",
+   "id": "m0396",
+   "thread": "t0120",
    "date": "2026-10-22T10:46:00+09:00",
    "from": "seojin@nuri-english.example",
    "to": [
@@ -9406,8 +9686,8 @@
    "kind": "work"
   },
   {
-   "id": "m0386",
-   "thread": "t0106",
+   "id": "m0397",
+   "thread": "t0116",
    "date": "2026-10-22T12:14:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9425,8 +9705,8 @@
    "kind": "work"
   },
   {
-   "id": "m0387",
-   "thread": "t0108",
+   "id": "m0398",
+   "thread": "t0118",
    "date": "2026-10-22T13:34:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9444,8 +9724,8 @@
    "kind": "work"
   },
   {
-   "id": "m0388",
-   "thread": "t0105",
+   "id": "m0399",
+   "thread": "t0115",
    "date": "2026-10-22T14:39:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -9474,8 +9754,8 @@
    "kind": "work"
   },
   {
-   "id": "m0389",
-   "thread": "t0075",
+   "id": "m0400",
+   "thread": "t0082",
    "date": "2026-10-22T14:43:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9498,8 +9778,8 @@
    "kind": "work"
   },
   {
-   "id": "m0390",
-   "thread": "t0095",
+   "id": "m0401",
+   "thread": "t0104",
    "date": "2026-10-22T16:22:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -9518,8 +9798,8 @@
    "kind": "work"
   },
   {
-   "id": "m0391",
-   "thread": "t0077",
+   "id": "m0402",
+   "thread": "t0085",
    "date": "2026-10-22T17:03:00+09:00",
    "from": "haneul@dalbitcoffee.example",
    "to": [
@@ -9538,8 +9818,8 @@
    "kind": "work"
   },
   {
-   "id": "m0392",
-   "thread": "t0075",
+   "id": "m0403",
+   "thread": "t0082",
    "date": "2026-10-22T17:50:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9569,8 +9849,8 @@
    "kind": "work"
   },
   {
-   "id": "m0393",
-   "thread": "t0111",
+   "id": "m0404",
+   "thread": "t0121",
    "date": "2026-10-22T20:21:00+09:00",
    "from": "gaeun.woo@example.org",
    "to": [
@@ -9594,8 +9874,8 @@
    "kind": "work"
   },
   {
-   "id": "m0394",
-   "thread": "t0095",
+   "id": "m0405",
+   "thread": "t0104",
    "date": "2026-10-23T09:28:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9625,8 +9905,8 @@
    "kind": "work"
   },
   {
-   "id": "m0395",
-   "thread": "t0104",
+   "id": "m0406",
+   "thread": "t0114",
    "date": "2026-10-23T13:04:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9644,8 +9924,8 @@
    "kind": "work"
   },
   {
-   "id": "m0396",
-   "thread": "t0085",
+   "id": "m0407",
+   "thread": "t0093",
    "date": "2026-10-23T13:06:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -9664,8 +9944,8 @@
    "kind": "work"
   },
   {
-   "id": "m0397",
-   "thread": "t0085",
+   "id": "m0408",
+   "thread": "t0093",
    "date": "2026-10-23T15:02:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9696,8 +9976,8 @@
    "kind": "work"
   },
   {
-   "id": "m0398",
-   "thread": "t0077",
+   "id": "m0409",
+   "thread": "t0085",
    "date": "2026-10-23T15:05:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9721,8 +10001,8 @@
    "kind": "work"
   },
   {
-   "id": "m0399",
-   "thread": "t0089",
+   "id": "m0410",
+   "thread": "t0097",
    "date": "2026-10-23T16:35:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -9740,8 +10020,8 @@
    "kind": "work"
   },
   {
-   "id": "m0400",
-   "thread": "t0110",
+   "id": "m0411",
+   "thread": "t0120",
    "date": "2026-10-23T17:07:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -9765,8 +10045,8 @@
    "kind": "work"
   },
   {
-   "id": "m0401",
-   "thread": "t0089",
+   "id": "m0412",
+   "thread": "t0097",
    "date": "2026-10-23T18:01:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9797,8 +10077,8 @@
    "kind": "work"
   },
   {
-   "id": "m0402",
-   "thread": "t0112",
+   "id": "m0413",
+   "thread": "t0122",
    "date": "2026-10-24T20:54:00+09:00",
    "from": "badamaeul@example.net",
    "to": [
@@ -9816,8 +10096,8 @@
    "kind": "work"
   },
   {
-   "id": "m0403",
-   "thread": "t0113",
+   "id": "m0414",
+   "thread": "t0123",
    "date": "2026-10-25T07:50:00+09:00",
    "from": "news@interior-weekly.example",
    "to": [
@@ -9836,8 +10116,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0404",
-   "thread": "t0114",
+   "id": "m0415",
+   "thread": "t0124",
    "date": "2026-10-25T17:01:00+09:00",
    "from": "jiho.sung@dajeong-tax.example",
    "to": [
@@ -9855,8 +10135,34 @@
    "kind": "work"
   },
   {
-   "id": "m0405",
-   "thread": "t0077",
+   "id": "m0416",
+   "thread": "t0125",
+   "date": "2026-10-26T09:11:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 10/26(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 80%, 이번 주에는 가구 반입과 설치을 마쳤고 다음 주에는 부분 마감 보수 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_1026.xlsx",
+     "type": "xlsx",
+     "size": 66152,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0417",
+   "thread": "t0085",
    "date": "2026-10-26T09:16:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9879,8 +10185,8 @@
    "kind": "work"
   },
   {
-   "id": "m0406",
-   "thread": "t0102",
+   "id": "m0418",
+   "thread": "t0111",
    "date": "2026-10-26T10:03:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -9904,8 +10210,8 @@
    "kind": "work"
   },
   {
-   "id": "m0407",
-   "thread": "t0077",
+   "id": "m0419",
+   "thread": "t0085",
    "date": "2026-10-26T10:09:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9936,8 +10242,8 @@
    "kind": "work"
   },
   {
-   "id": "m0408",
-   "thread": "t0100",
+   "id": "m0420",
+   "thread": "t0109",
    "date": "2026-10-26T10:34:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9961,8 +10267,8 @@
    "kind": "work"
   },
   {
-   "id": "m0409",
-   "thread": "t0115",
+   "id": "m0421",
+   "thread": "t0126",
    "date": "2026-10-26T12:00:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -9981,8 +10287,8 @@
    "kind": "work"
   },
   {
-   "id": "m0410",
-   "thread": "t0100",
+   "id": "m0422",
+   "thread": "t0109",
    "date": "2026-10-26T12:53:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10005,8 +10311,8 @@
    "kind": "work"
   },
   {
-   "id": "m0411",
-   "thread": "t0092",
+   "id": "m0423",
+   "thread": "t0101",
    "date": "2026-10-26T15:43:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10042,8 +10348,8 @@
    "kind": "work"
   },
   {
-   "id": "m0412",
-   "thread": "t0100",
+   "id": "m0424",
+   "thread": "t0109",
    "date": "2026-10-26T16:18:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10078,8 +10384,8 @@
    "kind": "work"
   },
   {
-   "id": "m0413",
-   "thread": "t0116",
+   "id": "m0425",
+   "thread": "t0127",
    "date": "2026-10-26T21:40:00+09:00",
    "from": "daonhair@example.com",
    "to": [
@@ -10097,8 +10403,8 @@
    "kind": "work"
   },
   {
-   "id": "m0414",
-   "thread": "t0103",
+   "id": "m0426",
+   "thread": "t0112",
    "date": "2026-10-27T11:37:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10122,8 +10428,8 @@
    "kind": "work"
   },
   {
-   "id": "m0415",
-   "thread": "t0117",
+   "id": "m0427",
+   "thread": "t0128",
    "date": "2026-10-27T12:49:00+09:00",
    "from": "dohyun.k@miso-dental.example",
    "to": [
@@ -10141,8 +10447,8 @@
    "kind": "work"
   },
   {
-   "id": "m0416",
-   "thread": "t0102",
+   "id": "m0428",
+   "thread": "t0111",
    "date": "2026-10-27T12:57:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10166,8 +10472,8 @@
    "kind": "work"
   },
   {
-   "id": "m0417",
-   "thread": "t0111",
+   "id": "m0429",
+   "thread": "t0121",
    "date": "2026-10-27T13:02:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10185,8 +10491,8 @@
    "kind": "work"
   },
   {
-   "id": "m0418",
-   "thread": "t0103",
+   "id": "m0430",
+   "thread": "t0112",
    "date": "2026-10-27T13:22:00+09:00",
    "from": "pro-ax-jinyoung@uengine.org",
    "to": [
@@ -10205,8 +10511,8 @@
    "kind": "work"
   },
   {
-   "id": "m0419",
-   "thread": "t0103",
+   "id": "m0431",
+   "thread": "t0112",
    "date": "2026-10-27T13:44:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10229,8 +10535,8 @@
    "kind": "work"
   },
   {
-   "id": "m0420",
-   "thread": "t0110",
+   "id": "m0432",
+   "thread": "t0120",
    "date": "2026-10-27T14:51:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10259,8 +10565,8 @@
    "kind": "work"
   },
   {
-   "id": "m0421",
-   "thread": "t0103",
+   "id": "m0433",
+   "thread": "t0112",
    "date": "2026-10-27T15:17:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10290,8 +10596,8 @@
    "kind": "work"
   },
   {
-   "id": "m0422",
-   "thread": "t0112",
+   "id": "m0434",
+   "thread": "t0122",
    "date": "2026-10-27T16:49:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10315,8 +10621,8 @@
    "kind": "work"
   },
   {
-   "id": "m0423",
-   "thread": "t0102",
+   "id": "m0435",
+   "thread": "t0111",
    "date": "2026-10-27T17:30:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10341,8 +10647,8 @@
    "kind": "work"
   },
   {
-   "id": "m0424",
-   "thread": "t0110",
+   "id": "m0436",
+   "thread": "t0120",
    "date": "2026-10-28T09:43:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10366,8 +10672,8 @@
    "kind": "work"
   },
   {
-   "id": "m0425",
-   "thread": "t0118",
+   "id": "m0437",
+   "thread": "t0129",
    "date": "2026-10-28T10:47:00+09:00",
    "from": "manager@goun-derm.example",
    "to": [
@@ -10385,8 +10691,8 @@
    "kind": "work"
   },
   {
-   "id": "m0426",
-   "thread": "t0111",
+   "id": "m0438",
+   "thread": "t0121",
    "date": "2026-10-28T13:19:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10410,8 +10716,8 @@
    "kind": "work"
   },
   {
-   "id": "m0427",
-   "thread": "t0110",
+   "id": "m0439",
+   "thread": "t0120",
    "date": "2026-10-28T14:45:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10434,8 +10740,8 @@
    "kind": "work"
   },
   {
-   "id": "m0428",
-   "thread": "t0115",
+   "id": "m0440",
+   "thread": "t0126",
    "date": "2026-10-28T16:02:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10453,8 +10759,8 @@
    "kind": "work"
   },
   {
-   "id": "m0429",
-   "thread": "t0110",
+   "id": "m0441",
+   "thread": "t0120",
    "date": "2026-10-28T16:53:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10485,8 +10791,8 @@
    "kind": "work"
   },
   {
-   "id": "m0430",
-   "thread": "t0112",
+   "id": "m0442",
+   "thread": "t0122",
    "date": "2026-10-29T09:24:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10510,8 +10816,8 @@
    "kind": "work"
   },
   {
-   "id": "m0431",
-   "thread": "t0112",
+   "id": "m0443",
+   "thread": "t0122",
    "date": "2026-10-29T10:57:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10534,8 +10840,8 @@
    "kind": "work"
   },
   {
-   "id": "m0432",
-   "thread": "t0111",
+   "id": "m0444",
+   "thread": "t0121",
    "date": "2026-10-29T11:40:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10559,8 +10865,8 @@
    "kind": "work"
   },
   {
-   "id": "m0433",
-   "thread": "t0116",
+   "id": "m0445",
+   "thread": "t0127",
    "date": "2026-10-29T12:49:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10584,8 +10890,8 @@
    "kind": "work"
   },
   {
-   "id": "m0434",
-   "thread": "t0112",
+   "id": "m0446",
+   "thread": "t0122",
    "date": "2026-10-29T13:39:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10616,8 +10922,8 @@
    "kind": "work"
   },
   {
-   "id": "m0435",
-   "thread": "t0117",
+   "id": "m0447",
+   "thread": "t0128",
    "date": "2026-10-29T15:53:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10635,8 +10941,8 @@
    "kind": "work"
   },
   {
-   "id": "m0436",
-   "thread": "t0111",
+   "id": "m0448",
+   "thread": "t0121",
    "date": "2026-10-29T16:50:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10659,8 +10965,8 @@
    "kind": "work"
   },
   {
-   "id": "m0437",
-   "thread": "t0119",
+   "id": "m0449",
+   "thread": "t0130",
    "date": "2026-10-29T16:56:00+09:00",
    "from": "jiwoo@maru-books.example",
    "to": [
@@ -10678,8 +10984,8 @@
    "kind": "work"
   },
   {
-   "id": "m0438",
-   "thread": "t0120",
+   "id": "m0450",
+   "thread": "t0131",
    "date": "2026-10-30T10:02:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10701,8 +11007,8 @@
    "kind": "work"
   },
   {
-   "id": "m0439",
-   "thread": "t0111",
+   "id": "m0451",
+   "thread": "t0121",
    "date": "2026-10-30T10:13:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10738,8 +11044,8 @@
    "kind": "work"
   },
   {
-   "id": "m0440",
-   "thread": "t0121",
+   "id": "m0452",
+   "thread": "t0132",
    "date": "2026-10-30T10:25:00+09:00",
    "from": "subin@chorok-salad.example",
    "to": [
@@ -10757,8 +11063,8 @@
    "kind": "work"
   },
   {
-   "id": "m0441",
-   "thread": "t0102",
+   "id": "m0453",
+   "thread": "t0111",
    "date": "2026-10-30T13:09:00+09:00",
    "from": "pro-ax-seoyeon@uengine.org",
    "to": [
@@ -10776,8 +11082,8 @@
    "kind": "work"
   },
   {
-   "id": "m0442",
-   "thread": "t0122",
+   "id": "m0454",
+   "thread": "t0133",
    "date": "2026-10-30T14:25:00+09:00",
    "from": "no-reply@account.example",
    "to": [
@@ -10793,8 +11099,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0443",
-   "thread": "t0102",
+   "id": "m0455",
+   "thread": "t0111",
    "date": "2026-10-30T15:16:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10825,8 +11131,8 @@
    "kind": "work"
   },
   {
-   "id": "m0444",
-   "thread": "t0115",
+   "id": "m0456",
+   "thread": "t0126",
    "date": "2026-10-30T15:37:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10850,8 +11156,8 @@
    "kind": "work"
   },
   {
-   "id": "m0445",
-   "thread": "t0123",
+   "id": "m0457",
+   "thread": "t0134",
    "date": "2026-10-30T22:17:00+09:00",
    "from": "siwoo.bong@pogeun-care.example",
    "to": [
@@ -10875,8 +11181,8 @@
    "kind": "work"
   },
   {
-   "id": "m0446",
-   "thread": "t0124",
+   "id": "m0458",
+   "thread": "t0135",
    "date": "2026-10-31T08:11:00+09:00",
    "from": "letter@build-expo.example",
    "to": [
@@ -10895,8 +11201,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0447",
-   "thread": "t0125",
+   "id": "m0459",
+   "thread": "t0136",
    "date": "2026-10-31T13:52:00+09:00",
    "from": "jisu@neurin-cafe.example",
    "to": [
@@ -10914,8 +11220,60 @@
    "kind": "work"
   },
   {
-   "id": "m0448",
-   "thread": "t0114",
+   "id": "m0460",
+   "thread": "t0137",
+   "date": "2026-11-02T09:22:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 11/2(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 90%, 이번 주에는 부분 마감 보수을 마쳤고 다음 주에는 준공 청소와 점검 진행 예정입니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_1102.xlsx",
+     "type": "xlsx",
+     "size": 82767,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0461",
+   "thread": "t0138",
+   "date": "2026-11-02T09:35:00+09:00",
+   "from": "pro-ax-seoyeon@uengine.org",
+   "to": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "cc": [
+    "pro-ax-doyun@uengine.org"
+   ],
+   "subject": "10월 결산 보고",
+   "text": "10월 결산 보고드립니다. 매월 1일 오전에 지난달 매출 · 매입 · 미수금을 정리해 보내 드리고 있습니다. 미수금이 있는 현장은 첨부 파일의 비고를 봐 주세요.",
+   "attachments": [
+    {
+     "name": "월결산_2026-10.xlsx",
+     "type": "xlsx",
+     "size": 32966,
+     "file": "ax-demo-templates/월결산_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0462",
+   "thread": "t0124",
    "date": "2026-11-02T13:46:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -10939,8 +11297,8 @@
    "kind": "work"
   },
   {
-   "id": "m0449",
-   "thread": "t0117",
+   "id": "m0463",
+   "thread": "t0128",
    "date": "2026-11-02T16:18:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10964,8 +11322,8 @@
    "kind": "work"
   },
   {
-   "id": "m0450",
-   "thread": "t0121",
+   "id": "m0464",
+   "thread": "t0132",
    "date": "2026-11-02T17:39:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -10989,8 +11347,8 @@
    "kind": "work"
   },
   {
-   "id": "m0451",
-   "thread": "t0118",
+   "id": "m0465",
+   "thread": "t0129",
    "date": "2026-11-03T09:54:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11008,8 +11366,8 @@
    "kind": "work"
   },
   {
-   "id": "m0452",
-   "thread": "t0114",
+   "id": "m0466",
+   "thread": "t0124",
    "date": "2026-11-03T12:34:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11032,8 +11390,8 @@
    "kind": "work"
   },
   {
-   "id": "m0453",
-   "thread": "t0117",
+   "id": "m0467",
+   "thread": "t0128",
    "date": "2026-11-03T12:57:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11057,8 +11415,8 @@
    "kind": "work"
   },
   {
-   "id": "m0454",
-   "thread": "t0116",
+   "id": "m0468",
+   "thread": "t0127",
    "date": "2026-11-03T13:17:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11082,8 +11440,8 @@
    "kind": "work"
   },
   {
-   "id": "m0455",
-   "thread": "t0119",
+   "id": "m0469",
+   "thread": "t0130",
    "date": "2026-11-03T14:41:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11107,8 +11465,8 @@
    "kind": "work"
   },
   {
-   "id": "m0456",
-   "thread": "t0116",
+   "id": "m0470",
+   "thread": "t0127",
    "date": "2026-11-03T16:17:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11131,8 +11489,8 @@
    "kind": "work"
   },
   {
-   "id": "m0457",
-   "thread": "t0114",
+   "id": "m0471",
+   "thread": "t0124",
    "date": "2026-11-03T16:48:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11163,8 +11521,8 @@
    "kind": "work"
   },
   {
-   "id": "m0458",
-   "thread": "t0116",
+   "id": "m0472",
+   "thread": "t0127",
    "date": "2026-11-04T09:26:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11194,8 +11552,8 @@
    "kind": "work"
   },
   {
-   "id": "m0459",
-   "thread": "t0117",
+   "id": "m0473",
+   "thread": "t0128",
    "date": "2026-11-04T10:01:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11218,8 +11576,8 @@
    "kind": "work"
   },
   {
-   "id": "m0460",
-   "thread": "t0126",
+   "id": "m0474",
+   "thread": "t0139",
    "date": "2026-11-04T12:39:00+09:00",
    "from": "taemin@irang-wine.example",
    "to": [
@@ -11238,8 +11596,8 @@
    "kind": "work"
   },
   {
-   "id": "m0461",
-   "thread": "t0121",
+   "id": "m0475",
+   "thread": "t0132",
    "date": "2026-11-04T13:45:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11263,8 +11621,8 @@
    "kind": "work"
   },
   {
-   "id": "m0462",
-   "thread": "t0123",
+   "id": "m0476",
+   "thread": "t0134",
    "date": "2026-11-04T16:13:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11288,8 +11646,8 @@
    "kind": "work"
   },
   {
-   "id": "m0463",
-   "thread": "t0127",
+   "id": "m0477",
+   "thread": "t0140",
    "date": "2026-11-05T07:24:00+09:00",
    "from": "promo@office-mall.example",
    "to": [
@@ -11308,8 +11666,8 @@
    "kind": "newsletter"
   },
   {
-   "id": "m0464",
-   "thread": "t0118",
+   "id": "m0478",
+   "thread": "t0129",
    "date": "2026-11-05T09:03:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11333,8 +11691,8 @@
    "kind": "work"
   },
   {
-   "id": "m0465",
-   "thread": "t0121",
+   "id": "m0479",
+   "thread": "t0132",
    "date": "2026-11-05T11:39:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11358,8 +11716,8 @@
    "kind": "work"
   },
   {
-   "id": "m0466",
-   "thread": "t0119",
+   "id": "m0480",
+   "thread": "t0130",
    "date": "2026-11-05T13:53:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11388,8 +11746,8 @@
    "kind": "work"
   },
   {
-   "id": "m0467",
-   "thread": "t0118",
+   "id": "m0481",
+   "thread": "t0129",
    "date": "2026-11-05T15:10:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11413,8 +11771,8 @@
    "kind": "work"
   },
   {
-   "id": "m0468",
-   "thread": "t0117",
+   "id": "m0482",
+   "thread": "t0128",
    "date": "2026-11-05T15:14:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11444,8 +11802,8 @@
    "kind": "work"
   },
   {
-   "id": "m0469",
-   "thread": "t0125",
+   "id": "m0483",
+   "thread": "t0136",
    "date": "2026-11-05T16:07:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11463,8 +11821,8 @@
    "kind": "work"
   },
   {
-   "id": "m0470",
-   "thread": "t0121",
+   "id": "m0484",
+   "thread": "t0132",
    "date": "2026-11-05T16:38:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11487,8 +11845,8 @@
    "kind": "work"
   },
   {
-   "id": "m0471",
-   "thread": "t0126",
+   "id": "m0485",
+   "thread": "t0139",
    "date": "2026-11-05T16:52:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11511,8 +11869,8 @@
    "kind": "work"
   },
   {
-   "id": "m0472",
-   "thread": "t0118",
+   "id": "m0486",
+   "thread": "t0129",
    "date": "2026-11-05T17:20:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11535,8 +11893,8 @@
    "kind": "work"
   },
   {
-   "id": "m0473",
-   "thread": "t0121",
+   "id": "m0487",
+   "thread": "t0132",
    "date": "2026-11-06T10:05:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11567,8 +11925,8 @@
    "kind": "work"
   },
   {
-   "id": "m0474",
-   "thread": "t0126",
+   "id": "m0488",
+   "thread": "t0139",
    "date": "2026-11-06T11:25:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11594,8 +11952,8 @@
    "kind": "work"
   },
   {
-   "id": "m0475",
-   "thread": "t0118",
+   "id": "m0489",
+   "thread": "t0129",
    "date": "2026-11-06T11:35:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11626,8 +11984,8 @@
    "kind": "work"
   },
   {
-   "id": "m0476",
-   "thread": "t0125",
+   "id": "m0490",
+   "thread": "t0136",
    "date": "2026-11-06T14:42:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11651,8 +12009,8 @@
    "kind": "work"
   },
   {
-   "id": "m0477",
-   "thread": "t0123",
+   "id": "m0491",
+   "thread": "t0134",
    "date": "2026-11-06T15:26:00+09:00",
    "from": "pro-ax-minji@uengine.org",
    "to": [
@@ -11676,8 +12034,8 @@
    "kind": "work"
   },
   {
-   "id": "m0478",
-   "thread": "t0128",
+   "id": "m0492",
+   "thread": "t0141",
    "date": "2026-11-06T15:50:00+09:00",
    "from": "no-reply@card.example",
    "to": [
@@ -11693,8 +12051,8 @@
    "kind": "noreply"
   },
   {
-   "id": "m0479",
-   "thread": "t0119",
+   "id": "m0493",
+   "thread": "t0130",
    "date": "2026-11-06T17:22:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11718,8 +12076,34 @@
    "kind": "work"
   },
   {
-   "id": "m0480",
-   "thread": "t0119",
+   "id": "m0494",
+   "thread": "t0142",
+   "date": "2026-11-09T09:07:00+09:00",
+   "from": "pro-ax-doyun@uengine.org",
+   "to": [
+    "hyun.ng@moa-office.example"
+   ],
+   "cc": [
+    "pro-ax-jinyoung@uengine.org"
+   ],
+   "subject": "[주간 공정 보고] 모아 공유오피스 11/9(월)",
+   "text": "이번 주 공정 보고드립니다. 공정률 100%, 이번 주에는 준공 청소와 점검까지 마쳤습니다. 자세한 내용은 첨부 파일을 봐 주세요.",
+   "attachments": [
+    {
+     "name": "주간공정보고_모아공유오피스_1109.xlsx",
+     "type": "xlsx",
+     "size": 80236,
+     "file": "ax-demo-templates/주간공정보고_양식.xlsx"
+    }
+   ],
+   "labels": [
+    "INBOX"
+   ],
+   "kind": "work"
+  },
+  {
+   "id": "m0495",
+   "thread": "t0130",
    "date": "2026-11-09T09:55:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11742,8 +12126,8 @@
    "kind": "work"
   },
   {
-   "id": "m0481",
-   "thread": "t0123",
+   "id": "m0496",
+   "thread": "t0134",
    "date": "2026-11-09T10:58:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11767,8 +12151,8 @@
    "kind": "work"
   },
   {
-   "id": "m0482",
-   "thread": "t0119",
+   "id": "m0497",
+   "thread": "t0130",
    "date": "2026-11-09T12:59:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11804,8 +12188,8 @@
    "kind": "work"
   },
   {
-   "id": "m0483",
-   "thread": "t0123",
+   "id": "m0498",
+   "thread": "t0134",
    "date": "2026-11-09T14:31:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11830,8 +12214,8 @@
    "kind": "work"
   },
   {
-   "id": "m0484",
-   "thread": "t0125",
+   "id": "m0499",
+   "thread": "t0136",
    "date": "2026-11-09T17:02:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -11855,8 +12239,8 @@
    "kind": "work"
   },
   {
-   "id": "m0485",
-   "thread": "t0125",
+   "id": "m0500",
+   "thread": "t0136",
    "date": "2026-11-10T14:37:00+09:00",
    "from": "pro-ax-doyun@uengine.org",
    "to": [
@@ -12268,13 +12652,13 @@
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-01T15:26:00+09:00",
-      "mail": "m0088"
+      "mail": "m0089"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-01T16:44:00+09:00",
-      "mail": "m0089"
+      "mail": "m0090"
      }
     ]
    },
@@ -12323,7 +12707,7 @@
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-01T10:04:00+09:00",
-      "mail": "m0086"
+      "mail": "m0087"
      }
     ]
    },
@@ -12443,25 +12827,25 @@
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-01T17:10:00+09:00",
-      "mail": "m0090"
+      "mail": "m0091"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-03T12:46:00+09:00",
-      "mail": "m0099"
+      "mail": "m0101"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-03T16:37:00+09:00",
-      "mail": "m0103"
+      "mail": "m0106"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-04T11:57:00+09:00",
-      "mail": "m0106"
+      "mail": "m0109"
      }
     ]
    },
@@ -12483,19 +12867,19 @@
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-01T14:56:00+09:00",
-      "mail": "m0087"
+      "mail": "m0088"
      },
      {
       "task": "자재 발주",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-02T11:40:00+09:00",
-      "mail": "m0092"
+      "mail": "m0093"
      },
      {
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-02T15:28:00+09:00",
-      "mail": "m0093"
+      "mail": "m0094"
      }
     ]
    },
@@ -12520,7 +12904,7 @@
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-02T16:05:00+09:00",
-      "mail": "m0094"
+      "mail": "m0095"
      },
      {
       "task": "평면도 작성",
@@ -12534,37 +12918,37 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-03T17:25:00+09:00",
-      "mail": "m0105"
+      "mail": "m0108"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-04T14:21:00+09:00",
-      "mail": "m0107"
+      "mail": "m0110"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-04T17:32:00+09:00",
-      "mail": "m0108"
+      "mail": "m0111"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-08T16:22:00+09:00",
-      "mail": "m0126"
+      "mail": "m0130"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-09T09:39:00+09:00",
-      "mail": "m0130"
+      "mail": "m0134"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-09T10:29:00+09:00",
-      "mail": "m0132"
+      "mail": "m0136"
      }
     ]
    },
@@ -12593,13 +12977,13 @@
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-03T09:42:00+09:00",
-      "mail": "m0097"
+      "mail": "m0098"
      },
      {
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-03T17:11:00+09:00",
-      "mail": "m0104"
+      "mail": "m0107"
      }
     ]
    },
@@ -12621,7 +13005,7 @@
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-02T10:58:00+09:00",
-      "mail": "m0091"
+      "mail": "m0092"
      },
      {
       "task": "자재 발주",
@@ -12634,7 +13018,7 @@
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-03T11:33:00+09:00",
-      "mail": "m0098"
+      "mail": "m0100"
      }
     ]
    },
@@ -12670,12 +13054,12 @@
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-03T14:16:00+09:00",
-      "mail": "m0102"
+      "mail": "m0105"
      }
     ]
    },
    {
-    "thread": "t0033",
+    "thread": "t0034",
     "bundle": "A",
     "variant": "normal",
     "customer": "라온 키즈카페",
@@ -12688,31 +13072,31 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-02T16:55:00+09:00",
-      "mail": "m0095"
+      "mail": "m0096"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-07T17:59:00+09:00",
-      "mail": "m0118"
+      "mail": "m0122"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-09T10:08:00+09:00",
-      "mail": "m0131"
+      "mail": "m0135"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-10T13:50:00+09:00",
-      "mail": "m0140"
+      "mail": "m0144"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-10T17:35:00+09:00",
-      "mail": "m0146"
+      "mail": "m0150"
      },
      {
       "task": "재무 검토",
@@ -12725,18 +13109,18 @@
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-15T10:56:00+09:00",
-      "mail": "m0162"
+      "mail": "m0167"
      }
     ]
    },
    {
-    "thread": "t0034",
+    "thread": "t0035",
     "bundle": "A",
     "variant": "revision",
     "customer": "한결한의원",
     "project": "한결한의원 리모델링",
     "extra_threads": [
-     "t0036"
+     "t0038"
     ],
     "amounts": [
      10400000,
@@ -12747,31 +13131,31 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-02T22:34:00+09:00",
-      "mail": "m0096"
+      "mail": "m0097"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-07T18:00:00+09:00",
-      "mail": "m0119"
+      "mail": "m0123"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-08T17:38:00+09:00",
-      "mail": "m0128"
+      "mail": "m0132"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-10T09:25:00+09:00",
-      "mail": "m0136"
+      "mail": "m0140"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-10T13:54:00+09:00",
-      "mail": "m0141"
+      "mail": "m0145"
      },
      {
       "task": "재무 검토",
@@ -12784,36 +13168,36 @@
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-14T11:05:00+09:00",
-      "mail": "m0157"
+      "mail": "m0162"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-22T09:03:00+09:00",
-      "mail": "m0189"
+      "mail": "m0195"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-22T12:43:00+09:00",
-      "mail": "m0192"
+      "mail": "m0198"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-22T15:44:00+09:00",
-      "mail": "m0196"
+      "mail": "m0202"
      }
     ]
    },
    {
-    "thread": "t0035",
+    "thread": "t0037",
     "bundle": "A",
     "variant": "normal",
     "customer": "다래 정육식당",
     "project": "다래 정육식당 리뉴얼",
     "extra_threads": [
-     "t0045"
+     "t0048"
     ],
     "amounts": [
      29500000
@@ -12823,48 +13207,48 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-03T13:18:00+09:00",
-      "mail": "m0100"
+      "mail": "m0102"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-07T17:47:00+09:00",
-      "mail": "m0117"
+      "mail": "m0121"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-08T13:29:00+09:00",
-      "mail": "m0123"
+      "mail": "m0127"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-09T14:58:00+09:00",
-      "mail": "m0135"
+      "mail": "m0139"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-10T13:03:00+09:00",
-      "mail": "m0139"
+      "mail": "m0143"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-11T15:59:00+09:00",
-      "mail": "m0150"
+      "mail": "m0154"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-14T10:44:00+09:00",
-      "mail": "m0156"
+      "mail": "m0161"
      }
     ]
    },
    {
-    "thread": "t0037",
+    "thread": "t0039",
     "bundle": "B",
     "variant": "contract",
     "customer": "한올 한복",
@@ -12875,30 +13259,30 @@
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-07T13:04:00+09:00",
-      "mail": "m0114"
+      "mail": "m0118"
      },
      {
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-08T14:36:00+09:00",
-      "mail": "m0125"
+      "mail": "m0129"
      },
      {
       "task": "자재 발주",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-08T18:03:00+09:00",
-      "mail": "m0129"
+      "mail": "m0133"
      },
      {
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-10T10:48:00+09:00",
-      "mail": "m0137"
+      "mail": "m0141"
      }
     ]
    },
    {
-    "thread": "t0039",
+    "thread": "t0041",
     "bundle": "A",
     "variant": "normal",
     "customer": "숲속 요가",
@@ -12911,42 +13295,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-05T20:12:00+09:00",
-      "mail": "m0111"
+      "mail": "m0114"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-10T17:29:00+09:00",
-      "mail": "m0145"
+      "mail": "m0149"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-14T10:33:00+09:00",
-      "mail": "m0155"
+      "mail": "m0160"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-14T16:54:00+09:00",
-      "mail": "m0158"
+      "mail": "m0163"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-15T09:18:00+09:00",
-      "mail": "m0160"
+      "mail": "m0165"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-15T12:19:00+09:00",
-      "mail": "m0165"
+      "mail": "m0170"
      }
     ]
    },
    {
-    "thread": "t0040",
+    "thread": "t0043",
     "bundle": "A",
     "variant": "requote",
     "customer": "나무향 가구 쇼룸",
@@ -12960,30 +13344,30 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-07T10:13:00+09:00",
-      "mail": "m0112"
+      "mail": "m0116"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-08T12:57:00+09:00",
-      "mail": "m0122"
+      "mail": "m0126"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-10T12:48:00+09:00",
-      "mail": "m0138"
+      "mail": "m0142"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-10T15:09:00+09:00",
-      "mail": "m0142"
+      "mail": "m0146"
      }
     ]
    },
    {
-    "thread": "t0041",
+    "thread": "t0044",
     "bundle": "A",
     "variant": "requote",
     "customer": "빛담 사진관",
@@ -12997,24 +13381,24 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-07T11:44:00+09:00",
-      "mail": "m0113"
+      "mail": "m0117"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-08T13:39:00+09:00",
-      "mail": "m0124"
+      "mail": "m0128"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-08T16:51:00+09:00",
-      "mail": "m0127"
+      "mail": "m0131"
      }
     ]
    },
    {
-    "thread": "t0043",
+    "thread": "t0046",
     "bundle": "B",
     "variant": "contract",
     "customer": "모아 공유오피스",
@@ -13025,7 +13409,7 @@
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-09T13:43:00+09:00",
-      "mail": "m0134"
+      "mail": "m0138"
      },
      {
       "task": "자재 발주",
@@ -13045,12 +13429,12 @@
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-11T17:06:00+09:00",
-      "mail": "m0152"
+      "mail": "m0156"
      }
     ]
    },
    {
-    "thread": "t0044",
+    "thread": "t0047",
     "bundle": "A",
     "variant": "normal",
     "customer": "가온 안경원",
@@ -13063,48 +13447,48 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-09T11:34:00+09:00",
-      "mail": "m0133"
+      "mail": "m0137"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-10T16:26:00+09:00",
-      "mail": "m0144"
+      "mail": "m0148"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-11T16:37:00+09:00",
-      "mail": "m0151"
+      "mail": "m0155"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-15T11:06:00+09:00",
-      "mail": "m0163"
+      "mail": "m0168"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-15T14:22:00+09:00",
-      "mail": "m0168"
+      "mail": "m0173"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-18T13:52:00+09:00",
-      "mail": "m0176"
+      "mail": "m0181"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-18T14:25:00+09:00",
-      "mail": "m0178"
+      "mail": "m0183"
      }
     ]
    },
    {
-    "thread": "t0046",
+    "thread": "t0049",
     "bundle": "A",
     "variant": "requote",
     "customer": "새봄 필라테스",
@@ -13118,30 +13502,30 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-10T15:14:00+09:00",
-      "mail": "m0143"
+      "mail": "m0147"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-11T14:52:00+09:00",
-      "mail": "m0149"
+      "mail": "m0153"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-15T10:07:00+09:00",
-      "mail": "m0161"
+      "mail": "m0166"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-15T13:46:00+09:00",
-      "mail": "m0167"
+      "mail": "m0172"
      }
     ]
    },
    {
-    "thread": "t0047",
+    "thread": "t0050",
     "bundle": "A",
     "variant": "normal",
     "customer": "새싹 동물병원",
@@ -13154,13 +13538,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-11T12:16:00+09:00",
-      "mail": "m0147"
+      "mail": "m0151"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-16T10:16:00+09:00",
-      "mail": "m0170"
+      "mail": "m0175"
      },
      {
       "task": "평면도 작성",
@@ -13173,24 +13557,24 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-18T09:36:00+09:00",
-      "mail": "m0175"
+      "mail": "m0180"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-18T16:26:00+09:00",
-      "mail": "m0180"
+      "mail": "m0185"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-21T11:23:00+09:00",
-      "mail": "m0185"
+      "mail": "m0191"
      }
     ]
    },
    {
-    "thread": "t0049",
+    "thread": "t0052",
     "bundle": "A",
     "variant": "normal",
     "customer": "온기 브런치",
@@ -13203,31 +13587,31 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-13T19:25:00+09:00",
-      "mail": "m0154"
+      "mail": "m0158"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-17T15:25:00+09:00",
-      "mail": "m0173"
+      "mail": "m0178"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-21T09:05:00+09:00",
-      "mail": "m0183"
+      "mail": "m0188"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-22T11:03:00+09:00",
-      "mail": "m0191"
+      "mail": "m0197"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-23T09:59:00+09:00",
-      "mail": "m0199"
+      "mail": "m0205"
      },
      {
       "task": "재무 검토",
@@ -13240,12 +13624,12 @@
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-28T15:11:00+09:00",
-      "mail": "m0220"
+      "mail": "m0226"
      }
     ]
    },
    {
-    "thread": "t0050",
+    "thread": "t0054",
     "bundle": "A",
     "variant": "legal",
     "customer": "소담 갤러리",
@@ -13258,48 +13642,48 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-15T11:50:00+09:00",
-      "mail": "m0164"
+      "mail": "m0169"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-18T14:03:00+09:00",
-      "mail": "m0177"
+      "mail": "m0182"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-21T16:13:00+09:00",
-      "mail": "m0187"
+      "mail": "m0193"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-23T09:50:00+09:00",
-      "mail": "m0198"
+      "mail": "m0204"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-23T13:54:00+09:00",
-      "mail": "m0200"
+      "mail": "m0206"
      },
      {
       "task": "법무 검토",
       "who": "pro-ax-jinyoung@uengine.org",
       "at": "2026-09-28T11:27:00+09:00",
-      "mail": "m0214"
+      "mail": "m0220"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-28T13:47:00+09:00",
-      "mail": "m0218"
+      "mail": "m0224"
      }
     ]
    },
    {
-    "thread": "t0052",
+    "thread": "t0056",
     "bundle": "A",
     "variant": "normal",
     "customer": "별빛 스터디카페",
@@ -13312,13 +13696,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-15T22:05:00+09:00",
-      "mail": "m0169"
+      "mail": "m0174"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-22T09:47:00+09:00",
-      "mail": "m0190"
+      "mail": "m0196"
      },
      {
       "task": "평면도 작성",
@@ -13331,24 +13715,24 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-28T14:46:00+09:00",
-      "mail": "m0219"
+      "mail": "m0225"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-29T13:39:00+09:00",
-      "mail": "m0227"
+      "mail": "m0234"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-29T17:02:00+09:00",
-      "mail": "m0231"
+      "mail": "m0238"
      }
     ]
    },
    {
-    "thread": "t0053",
+    "thread": "t0057",
     "bundle": "A",
     "variant": "normal",
     "customer": "바로핏 짐",
@@ -13361,31 +13745,31 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-16T15:06:00+09:00",
-      "mail": "m0171"
+      "mail": "m0176"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-21T17:33:00+09:00",
-      "mail": "m0188"
+      "mail": "m0194"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-22T13:44:00+09:00",
-      "mail": "m0194"
+      "mail": "m0200"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-23T15:18:00+09:00",
-      "mail": "m0203"
+      "mail": "m0209"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-28T11:12:00+09:00",
-      "mail": "m0213"
+      "mail": "m0219"
      },
      {
       "task": "재무 검토",
@@ -13398,12 +13782,12 @@
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-30T16:10:00+09:00",
-      "mail": "m0238"
+      "mail": "m0245"
      }
     ]
    },
    {
-    "thread": "t0055",
+    "thread": "t0059",
     "bundle": "A",
     "variant": "normal",
     "customer": "청솔약국",
@@ -13416,13 +13800,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-18T09:35:00+09:00",
-      "mail": "m0174"
+      "mail": "m0179"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-22T15:34:00+09:00",
-      "mail": "m0195"
+      "mail": "m0201"
      },
      {
       "task": "평면도 작성",
@@ -13436,24 +13820,24 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-28T11:47:00+09:00",
-      "mail": "m0215"
+      "mail": "m0221"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-29T09:05:00+09:00",
-      "mail": "m0225"
+      "mail": "m0231"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-29T13:58:00+09:00",
-      "mail": "m0228"
+      "mail": "m0235"
      }
     ]
    },
    {
-    "thread": "t0056",
+    "thread": "t0060",
     "bundle": "B",
     "variant": "contract",
     "customer": "하람 소아과",
@@ -13464,30 +13848,30 @@
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-21T11:53:00+09:00",
-      "mail": "m0186"
+      "mail": "m0192"
      },
      {
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-22T13:12:00+09:00",
-      "mail": "m0193"
+      "mail": "m0199"
      },
      {
       "task": "자재 발주",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-22T16:32:00+09:00",
-      "mail": "m0197"
+      "mail": "m0203"
      },
      {
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-23T14:07:00+09:00",
-      "mail": "m0201"
+      "mail": "m0207"
      }
     ]
    },
    {
-    "thread": "t0058",
+    "thread": "t0063",
     "bundle": "A",
     "variant": "normal",
     "customer": "연두 어린이치과",
@@ -13500,25 +13884,25 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-21T10:57:00+09:00",
-      "mail": "m0184"
+      "mail": "m0190"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-23T15:55:00+09:00",
-      "mail": "m0204"
+      "mail": "m0210"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-28T12:27:00+09:00",
-      "mail": "m0217"
+      "mail": "m0223"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-29T16:37:00+09:00",
-      "mail": "m0230",
+      "mail": "m0237",
       "chat_case": "chat:ax-demo:0016",
       "assist": "ax-agent-proposal"
      },
@@ -13526,24 +13910,24 @@
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-30T14:15:00+09:00",
-      "mail": "m0236"
+      "mail": "m0243"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-01T17:54:00+09:00",
-      "mail": "m0243"
+      "mail": "m0251"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-02T13:00:00+09:00",
-      "mail": "m0246"
+      "mail": "m0254"
      }
     ]
    },
    {
-    "thread": "t0059",
+    "thread": "t0064",
     "bundle": "A",
     "variant": "revision",
     "customer": "마중 게스트하우스",
@@ -13557,66 +13941,66 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-23T16:49:00+09:00",
-      "mail": "m0205"
+      "mail": "m0211"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-30T09:36:00+09:00",
-      "mail": "m0233"
+      "mail": "m0240"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-01T13:01:00+09:00",
-      "mail": "m0241"
+      "mail": "m0249"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-02T11:34:00+09:00",
-      "mail": "m0245"
+      "mail": "m0253"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-06T09:28:00+09:00",
-      "mail": "m0255"
+      "mail": "m0264"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-08T17:17:00+09:00",
-      "mail": "m0277"
+      "mail": "m0286"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-12T10:54:00+09:00",
-      "mail": "m0290"
+      "mail": "m0300"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-19T16:58:00+09:00",
-      "mail": "m0355"
+      "mail": "m0366"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T13:05:00+09:00",
-      "mail": "m0362"
+      "mail": "m0373"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T15:30:00+09:00",
-      "mail": "m0368"
+      "mail": "m0379"
      }
     ]
    },
    {
-    "thread": "t0061",
+    "thread": "t0066",
     "bundle": "A",
     "variant": "revision",
     "customer": "봄날 꽃집",
@@ -13630,13 +14014,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-24T11:10:00+09:00",
-      "mail": "m0207"
+      "mail": "m0213"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-30T09:57:00+09:00",
-      "mail": "m0234"
+      "mail": "m0241"
      },
      {
       "task": "평면도 작성",
@@ -13650,59 +14034,59 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-02T15:10:00+09:00",
-      "mail": "m0247"
+      "mail": "m0255"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-06T13:37:00+09:00",
-      "mail": "m0260"
+      "mail": "m0269"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-06T16:34:00+09:00",
-      "mail": "m0262"
+      "mail": "m0271"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-12T17:48:00+09:00",
-      "mail": "m0297"
+      "mail": "m0307"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-13T11:02:00+09:00",
-      "mail": "m0301"
+      "mail": "m0311"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-13T12:38:00+09:00",
-      "mail": "m0302"
+      "mail": "m0312"
      }
     ]
    },
    {
-    "thread": "t0063",
+    "thread": "t0068",
     "bundle": "B",
     "variant": "contract",
     "customer": "다래 정육식당",
     "project": "다래 정육식당 리뉴얼",
-    "follows": "t0035",
+    "follows": "t0037",
     "steps": [
      {
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-28T12:02:00+09:00",
-      "mail": "m0216"
+      "mail": "m0222"
      },
      {
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-09-29T14:59:00+09:00",
-      "mail": "m0229"
+      "mail": "m0236"
      },
      {
       "task": "자재 발주",
@@ -13715,12 +14099,12 @@
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-30T17:27:00+09:00",
-      "mail": "m0239"
+      "mail": "m0246"
      }
     ]
    },
    {
-    "thread": "t0065",
+    "thread": "t0070",
     "bundle": "A",
     "variant": "normal",
     "customer": "이랑 와인바",
@@ -13733,13 +14117,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-27T13:14:00+09:00",
-      "mail": "m0211"
+      "mail": "m0217"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-02T09:54:00+09:00",
-      "mail": "m0244"
+      "mail": "m0252"
      },
      {
       "task": "평면도 작성",
@@ -13752,24 +14136,24 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-08T12:26:00+09:00",
-      "mail": "m0271"
+      "mail": "m0280"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-08T14:22:00+09:00",
-      "mail": "m0272"
+      "mail": "m0281"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-08T14:53:00+09:00",
-      "mail": "m0273"
+      "mail": "m0282"
      }
     ]
    },
    {
-    "thread": "t0066",
+    "thread": "t0071",
     "bundle": "A",
     "variant": "requote",
     "customer": "솜씨 떡집",
@@ -13783,41 +14167,41 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-27T13:37:00+09:00",
-      "mail": "m0212"
+      "mail": "m0218"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-28T17:31:00+09:00",
-      "mail": "m0224"
+      "mail": "m0230"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-09-30T13:59:00+09:00",
-      "mail": "m0235"
+      "mail": "m0242"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-30T14:41:00+09:00",
-      "mail": "m0237"
+      "mail": "m0244"
      }
     ]
    },
    {
-    "thread": "t0069",
+    "thread": "t0074",
     "bundle": "B",
     "variant": "contract",
     "customer": "숲속 요가",
     "project": "숲속 요가 2호점",
-    "follows": "t0039",
+    "follows": "t0041",
     "steps": [
      {
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-09-28T17:09:00+09:00",
-      "mail": "m0223"
+      "mail": "m0229"
      },
      {
       "task": "자재 발주",
@@ -13830,18 +14214,18 @@
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-01T12:53:00+09:00",
-      "mail": "m0240"
+      "mail": "m0248"
      },
      {
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-01T17:07:00+09:00",
-      "mail": "m0242"
+      "mail": "m0250"
      }
     ]
    },
    {
-    "thread": "t0073",
+    "thread": "t0080",
     "bundle": "A",
     "variant": "normal",
     "customer": "해오름 치킨",
@@ -13854,42 +14238,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-03T09:47:00+09:00",
-      "mail": "m0249"
+      "mail": "m0257"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-08T15:39:00+09:00",
-      "mail": "m0275"
+      "mail": "m0284"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-12T13:57:00+09:00",
-      "mail": "m0292"
+      "mail": "m0302"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-12T18:02:00+09:00",
-      "mail": "m0298"
+      "mail": "m0308"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-13T15:46:00+09:00",
-      "mail": "m0306"
+      "mail": "m0316"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-14T09:30:00+09:00",
-      "mail": "m0309"
+      "mail": "m0319"
      }
     ]
    },
    {
-    "thread": "t0074",
+    "thread": "t0081",
     "bundle": "C",
     "variant": "defect",
     "customer": "꿈꾸는 공방",
@@ -13900,24 +14284,24 @@
       "task": "하자 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-04T13:16:00+09:00",
-      "mail": "m0250"
+      "mail": "m0258"
      },
      {
       "task": "현장 방문",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-06T17:18:00+09:00",
-      "mail": "m0264"
+      "mail": "m0273"
      },
      {
       "task": "처리 보고",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-07T12:57:00+09:00",
-      "mail": "m0266"
+      "mail": "m0275"
      }
     ]
    },
    {
-    "thread": "t0075",
+    "thread": "t0082",
     "bundle": "A",
     "variant": "revision",
     "customer": "솔빛 서점",
@@ -13931,60 +14315,60 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-04T21:47:00+09:00",
-      "mail": "m0251"
+      "mail": "m0259"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-08T17:32:00+09:00",
-      "mail": "m0278"
+      "mail": "m0287"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-12T15:34:00+09:00",
-      "mail": "m0294"
+      "mail": "m0304"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-14T10:49:00+09:00",
-      "mail": "m0311"
+      "mail": "m0321"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-14T15:25:00+09:00",
-      "mail": "m0315"
+      "mail": "m0325"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-15T10:04:00+09:00",
-      "mail": "m0321"
+      "mail": "m0331"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-22T09:03:00+09:00",
-      "mail": "m0382"
+      "mail": "m0393"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-22T14:43:00+09:00",
-      "mail": "m0389"
+      "mail": "m0400"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-22T17:50:00+09:00",
-      "mail": "m0392"
+      "mail": "m0403"
      }
     ]
    },
    {
-    "thread": "t0077",
+    "thread": "t0085",
     "bundle": "A",
     "variant": "revision",
     "customer": "달빛커피",
@@ -13998,151 +14382,151 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-05T09:38:00+09:00",
-      "mail": "m0253"
+      "mail": "m0262"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-12T16:47:00+09:00",
-      "mail": "m0295"
+      "mail": "m0305"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-13T15:55:00+09:00",
-      "mail": "m0307"
+      "mail": "m0317"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-14T13:03:00+09:00",
-      "mail": "m0312"
+      "mail": "m0322"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-15T10:22:00+09:00",
-      "mail": "m0322"
+      "mail": "m0332"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-19T10:10:00+09:00",
-      "mail": "m0346"
+      "mail": "m0357"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-19T14:47:00+09:00",
-      "mail": "m0353"
+      "mail": "m0364"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-23T15:05:00+09:00",
-      "mail": "m0398"
+      "mail": "m0409"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-26T09:16:00+09:00",
-      "mail": "m0405"
+      "mail": "m0417"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-26T10:09:00+09:00",
-      "mail": "m0407"
+      "mail": "m0419"
      }
     ]
    },
    {
-    "thread": "t0078",
+    "thread": "t0086",
     "bundle": "B",
     "variant": "contract",
     "customer": "별빛 스터디카페",
     "project": "별빛 스터디카페 확장 이전",
-    "follows": "t0052",
+    "follows": "t0056",
     "steps": [
      {
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-06T12:08:00+09:00",
-      "mail": "m0257"
+      "mail": "m0266"
      },
      {
       "task": "자재 발주",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-07T12:43:00+09:00",
-      "mail": "m0265"
+      "mail": "m0274"
      },
      {
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-12T09:05:00+09:00",
-      "mail": "m0287"
+      "mail": "m0296"
      },
      {
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-13T09:32:00+09:00",
-      "mail": "m0300"
+      "mail": "m0310"
      }
     ]
    },
    {
-    "thread": "t0080",
+    "thread": "t0088",
     "bundle": "B",
     "variant": "contract",
     "customer": "한결한의원",
     "project": "한결한의원 리모델링",
-    "follows": "t0034",
+    "follows": "t0035",
     "steps": [
      {
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-06T15:11:00+09:00",
-      "mail": "m0261"
+      "mail": "m0270"
      },
      {
       "task": "자재 발주",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-08T12:11:00+09:00",
-      "mail": "m0270"
+      "mail": "m0279"
      },
      {
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-08T16:41:00+09:00",
-      "mail": "m0276"
+      "mail": "m0285"
      },
      {
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-12T10:34:00+09:00",
-      "mail": "m0289"
+      "mail": "m0299"
      }
     ]
    },
    {
-    "thread": "t0082",
+    "thread": "t0090",
     "bundle": "B",
     "variant": "contract",
     "customer": "연두 어린이치과",
     "project": "연두 어린이치과 리모델링",
-    "follows": "t0058",
+    "follows": "t0063",
     "steps": [
      {
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-08T15:15:00+09:00",
-      "mail": "m0274"
+      "mail": "m0283"
      },
      {
       "task": "자재 발주",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-13T15:09:00+09:00",
-      "mail": "m0304"
+      "mail": "m0314"
      },
      {
       "task": "시공 일정 조율",
@@ -14155,12 +14539,12 @@
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-14T17:04:00+09:00",
-      "mail": "m0317"
+      "mail": "m0327"
      }
     ]
    },
    {
-    "thread": "t0083",
+    "thread": "t0091",
     "bundle": "A",
     "variant": "revision",
     "customer": "산들 베이커리",
@@ -14174,60 +14558,60 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-07T20:42:00+09:00",
-      "mail": "m0268"
+      "mail": "m0277"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-12T17:01:00+09:00",
-      "mail": "m0296"
+      "mail": "m0306"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-14T13:55:00+09:00",
-      "mail": "m0313"
+      "mail": "m0323"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-14T17:22:00+09:00",
-      "mail": "m0318"
+      "mail": "m0328"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-15T14:01:00+09:00",
-      "mail": "m0325"
+      "mail": "m0335"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-15T14:36:00+09:00",
-      "mail": "m0327"
+      "mail": "m0337"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-21T11:29:00+09:00",
-      "mail": "m0374"
+      "mail": "m0385"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-21T13:34:00+09:00",
-      "mail": "m0377"
+      "mail": "m0388"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-21T15:52:00+09:00",
-      "mail": "m0378"
+      "mail": "m0389"
      }
     ]
    },
    {
-    "thread": "t0084",
+    "thread": "t0092",
     "bundle": "A",
     "variant": "requote",
     "customer": "온기 브런치",
@@ -14235,36 +14619,36 @@
     "amounts": [
      32900000
     ],
-    "follows": "t0049",
+    "follows": "t0052",
     "steps": [
      {
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-08T09:09:00+09:00",
-      "mail": "m0269"
+      "mail": "m0278"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-12T12:07:00+09:00",
-      "mail": "m0291"
+      "mail": "m0301"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-14T16:17:00+09:00",
-      "mail": "m0316"
+      "mail": "m0326"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-15T09:57:00+09:00",
-      "mail": "m0320"
+      "mail": "m0330"
      }
     ]
    },
    {
-    "thread": "t0085",
+    "thread": "t0093",
     "bundle": "A",
     "variant": "normal",
     "customer": "해담 레스토랑",
@@ -14277,48 +14661,48 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-08T23:00:00+09:00",
-      "mail": "m0279"
+      "mail": "m0288"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-15T15:19:00+09:00",
-      "mail": "m0328"
+      "mail": "m0338"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-19T10:01:00+09:00",
-      "mail": "m0345"
+      "mail": "m0356"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T13:19:00+09:00",
-      "mail": "m0364"
+      "mail": "m0375"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T17:28:00+09:00",
-      "mail": "m0371"
+      "mail": "m0382"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-23T13:06:00+09:00",
-      "mail": "m0396"
+      "mail": "m0407"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-23T15:02:00+09:00",
-      "mail": "m0397"
+      "mail": "m0408"
      }
     ]
    },
    {
-    "thread": "t0087",
+    "thread": "t0095",
     "bundle": "A",
     "variant": "requote",
     "customer": "가온 안경원",
@@ -14326,36 +14710,36 @@
     "amounts": [
      46100000
     ],
-    "follows": "t0044",
+    "follows": "t0047",
     "steps": [
      {
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-09T20:46:00+09:00",
-      "mail": "m0281"
+      "mail": "m0290"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-13T15:44:00+09:00",
-      "mail": "m0305"
+      "mail": "m0315"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-15T16:55:00+09:00",
-      "mail": "m0330"
+      "mail": "m0340"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-16T09:16:00+09:00",
-      "mail": "m0333"
+      "mail": "m0343"
      }
     ]
    },
    {
-    "thread": "t0088",
+    "thread": "t0096",
     "bundle": "A",
     "variant": "normal",
     "customer": "바른정형외과",
@@ -14368,13 +14752,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-10T14:23:00+09:00",
-      "mail": "m0282"
+      "mail": "m0291"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-15T17:03:00+09:00",
-      "mail": "m0331"
+      "mail": "m0341"
      },
      {
       "task": "평면도 작성",
@@ -14387,24 +14771,24 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T12:10:00+09:00",
-      "mail": "m0358"
+      "mail": "m0369"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T13:18:00+09:00",
-      "mail": "m0363"
+      "mail": "m0374"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T14:21:00+09:00",
-      "mail": "m0366"
+      "mail": "m0377"
      }
     ]
    },
    {
-    "thread": "t0089",
+    "thread": "t0097",
     "bundle": "A",
     "variant": "normal",
     "customer": "새벽 베이글",
@@ -14417,48 +14801,48 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-10T19:18:00+09:00",
-      "mail": "m0283"
+      "mail": "m0292"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-15T16:38:00+09:00",
-      "mail": "m0329"
+      "mail": "m0339"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-19T14:26:00+09:00",
-      "mail": "m0351"
+      "mail": "m0362"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T17:35:00+09:00",
-      "mail": "m0372"
+      "mail": "m0383"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-21T12:39:00+09:00",
-      "mail": "m0375"
+      "mail": "m0386"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-23T16:35:00+09:00",
-      "mail": "m0399"
+      "mail": "m0410"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-23T18:01:00+09:00",
-      "mail": "m0401"
+      "mail": "m0412"
      }
     ]
    },
    {
-    "thread": "t0092",
+    "thread": "t0101",
     "bundle": "A",
     "variant": "normal",
     "customer": "늘봄 내과",
@@ -14471,31 +14855,31 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-12T14:58:00+09:00",
-      "mail": "m0293"
+      "mail": "m0303"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-19T09:32:00+09:00",
-      "mail": "m0344"
+      "mail": "m0355"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-20T12:53:00+09:00",
-      "mail": "m0361"
+      "mail": "m0372"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-21T13:29:00+09:00",
-      "mail": "m0376"
+      "mail": "m0387"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-22T10:04:00+09:00",
-      "mail": "m0384"
+      "mail": "m0395"
      },
      {
       "task": "재무 검토",
@@ -14508,46 +14892,46 @@
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-26T15:43:00+09:00",
-      "mail": "m0411"
+      "mail": "m0423"
      }
     ]
    },
    {
-    "thread": "t0093",
+    "thread": "t0102",
     "bundle": "B",
     "variant": "contract",
     "customer": "바로핏 짐",
     "project": "바로핏 짐 2호점",
-    "follows": "t0053",
+    "follows": "t0057",
     "steps": [
      {
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-14T09:31:00+09:00",
-      "mail": "m0310"
+      "mail": "m0320"
      },
      {
       "task": "시공 일정 조율",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-16T10:01:00+09:00",
-      "mail": "m0334"
+      "mail": "m0344"
      },
      {
       "task": "자재 발주",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-16T12:10:00+09:00",
-      "mail": "m0336"
+      "mail": "m0346"
      },
      {
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-19T09:09:00+09:00",
-      "mail": "m0343"
+      "mail": "m0353"
      }
     ]
    },
    {
-    "thread": "t0095",
+    "thread": "t0104",
     "bundle": "A",
     "variant": "normal",
     "customer": "온유 정신건강의학과",
@@ -14560,48 +14944,48 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-13T19:52:00+09:00",
-      "mail": "m0308"
+      "mail": "m0318"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-16T15:24:00+09:00",
-      "mail": "m0337"
+      "mail": "m0347"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-19T11:19:00+09:00",
-      "mail": "m0348"
+      "mail": "m0359"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T10:24:00+09:00",
-      "mail": "m0356"
+      "mail": "m0367"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T12:24:00+09:00",
-      "mail": "m0359"
+      "mail": "m0370"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-22T16:22:00+09:00",
-      "mail": "m0390"
+      "mail": "m0401"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-23T09:28:00+09:00",
-      "mail": "m0394"
+      "mail": "m0405"
      }
     ]
    },
    {
-    "thread": "t0097",
+    "thread": "t0106",
     "bundle": "A",
     "variant": "requote",
     "customer": "새싹 동물병원",
@@ -14609,30 +14993,30 @@
     "amounts": [
      4500000
     ],
-    "follows": "t0047",
+    "follows": "t0050",
     "steps": [
      {
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-14T23:08:00+09:00",
-      "mail": "m0319"
+      "mail": "m0329"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-15T14:21:00+09:00",
-      "mail": "m0326"
+      "mail": "m0336"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-15T17:48:00+09:00",
-      "mail": "m0332"
+      "mail": "m0342"
      }
     ]
    },
    {
-    "thread": "t0099",
+    "thread": "t0108",
     "bundle": "A",
     "variant": "requote",
     "customer": "청솔약국",
@@ -14640,36 +15024,36 @@
     "amounts": [
      3500000
     ],
-    "follows": "t0055",
+    "follows": "t0059",
     "steps": [
      {
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-17T13:00:00+09:00",
-      "mail": "m0338"
+      "mail": "m0348"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T15:14:00+09:00",
-      "mail": "m0367"
+      "mail": "m0378"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-21T09:29:00+09:00",
-      "mail": "m0373"
+      "mail": "m0384"
      }
     ]
    },
    {
-    "thread": "t0100",
+    "thread": "t0109",
     "bundle": "A",
     "variant": "normal",
     "customer": "단비 네일",
     "project": "단비 네일 리뉴얼",
     "extra_threads": [
-     "t0105"
+     "t0115"
     ],
     "amounts": [
      9100000
@@ -14679,42 +15063,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-17T13:04:00+09:00",
-      "mail": "m0339"
+      "mail": "m0349"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-21T16:55:00+09:00",
-      "mail": "m0380"
+      "mail": "m0391"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-22T14:39:00+09:00",
-      "mail": "m0388"
+      "mail": "m0399"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-26T10:34:00+09:00",
-      "mail": "m0408"
+      "mail": "m0420"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-26T12:53:00+09:00",
-      "mail": "m0410"
+      "mail": "m0422"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-26T16:18:00+09:00",
-      "mail": "m0412"
+      "mail": "m0424"
      }
     ]
    },
    {
-    "thread": "t0102",
+    "thread": "t0111",
     "bundle": "A",
     "variant": "normal",
     "customer": "고요 독서실",
@@ -14727,48 +15111,48 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-18T09:38:00+09:00",
-      "mail": "m0341"
+      "mail": "m0351"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-22T09:44:00+09:00",
-      "mail": "m0383"
+      "mail": "m0394"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-26T10:03:00+09:00",
-      "mail": "m0406"
+      "mail": "m0418"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-27T12:57:00+09:00",
-      "mail": "m0416"
+      "mail": "m0428"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-27T17:30:00+09:00",
-      "mail": "m0423"
+      "mail": "m0435"
      },
      {
       "task": "재무 검토",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-30T13:09:00+09:00",
-      "mail": "m0441"
+      "mail": "m0453"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-30T15:16:00+09:00",
-      "mail": "m0443"
+      "mail": "m0455"
      }
     ]
    },
    {
-    "thread": "t0103",
+    "thread": "t0112",
     "bundle": "A",
     "variant": "normal",
     "customer": "소나무치과",
@@ -14781,13 +15165,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-18T11:11:00+09:00",
-      "mail": "m0342"
+      "mail": "m0352"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-21T17:33:00+09:00",
-      "mail": "m0381"
+      "mail": "m0392"
      },
      {
       "task": "평면도 작성",
@@ -14800,41 +15184,41 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-27T11:37:00+09:00",
-      "mail": "m0414"
+      "mail": "m0426"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-27T13:44:00+09:00",
-      "mail": "m0419"
+      "mail": "m0431"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-27T15:17:00+09:00",
-      "mail": "m0421"
+      "mail": "m0433"
      }
     ]
    },
    {
-    "thread": "t0104",
+    "thread": "t0114",
     "bundle": "B",
     "variant": "contract",
     "customer": "봄날 꽃집",
     "project": "봄날 꽃집 이전 오픈",
-    "follows": "t0061",
+    "follows": "t0066",
     "steps": [
      {
       "task": "계약 확정",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T12:00:00+09:00",
-      "mail": "m0357"
+      "mail": "m0368"
      },
      {
       "task": "자재 발주",
       "who": "pro-ax-seoyeon@uengine.org",
       "at": "2026-10-21T16:14:00+09:00",
-      "mail": "m0379"
+      "mail": "m0390"
      },
      {
       "task": "시공 일정 조율",
@@ -14847,23 +15231,23 @@
       "task": "착공 안내",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-23T13:04:00+09:00",
-      "mail": "m0395"
+      "mail": "m0406"
      }
     ]
    },
    {
-    "thread": "t0106",
+    "thread": "t0116",
     "bundle": "C",
     "variant": "defect",
     "customer": "한올 한복",
     "project": "한올 한복 리뉴얼",
-    "follows": "t0037",
+    "follows": "t0039",
     "steps": [
      {
       "task": "하자 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-19T14:11:00+09:00",
-      "mail": "m0350"
+      "mail": "m0361"
      },
      {
       "task": "현장 방문",
@@ -14876,12 +15260,12 @@
       "task": "처리 보고",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-22T12:14:00+09:00",
-      "mail": "m0386"
+      "mail": "m0397"
      }
     ]
    },
    {
-    "thread": "t0108",
+    "thread": "t0118",
     "bundle": "C",
     "variant": "defect",
     "customer": "도담 수학학원",
@@ -14892,7 +15276,7 @@
       "task": "하자 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-20T12:25:00+09:00",
-      "mail": "m0360"
+      "mail": "m0371"
      },
      {
       "task": "현장 방문",
@@ -14905,12 +15289,12 @@
       "task": "처리 보고",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-22T13:34:00+09:00",
-      "mail": "m0387"
+      "mail": "m0398"
      }
     ]
    },
    {
-    "thread": "t0110",
+    "thread": "t0120",
     "bundle": "A",
     "variant": "normal",
     "customer": "누리 영어학원",
@@ -14923,42 +15307,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-22T10:46:00+09:00",
-      "mail": "m0385"
+      "mail": "m0396"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-23T17:07:00+09:00",
-      "mail": "m0400"
+      "mail": "m0411"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-27T14:51:00+09:00",
-      "mail": "m0420"
+      "mail": "m0432"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-28T09:43:00+09:00",
-      "mail": "m0424"
+      "mail": "m0436"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-28T14:45:00+09:00",
-      "mail": "m0427"
+      "mail": "m0439"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-28T16:53:00+09:00",
-      "mail": "m0429"
+      "mail": "m0441"
      }
     ]
    },
    {
-    "thread": "t0111",
+    "thread": "t0121",
     "bundle": "A",
     "variant": "normal",
     "customer": "무지개 피아노 학원",
@@ -14971,42 +15355,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-22T20:21:00+09:00",
-      "mail": "m0393"
+      "mail": "m0404"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-27T13:02:00+09:00",
-      "mail": "m0417"
+      "mail": "m0429"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-28T13:19:00+09:00",
-      "mail": "m0426"
+      "mail": "m0438"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-29T11:40:00+09:00",
-      "mail": "m0432"
+      "mail": "m0444"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-29T16:50:00+09:00",
-      "mail": "m0436"
+      "mail": "m0448"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-30T10:13:00+09:00",
-      "mail": "m0439"
+      "mail": "m0451"
      }
     ]
    },
    {
-    "thread": "t0112",
+    "thread": "t0122",
     "bundle": "A",
     "variant": "normal",
     "customer": "바다마을 횟집",
@@ -15019,13 +15403,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-24T20:54:00+09:00",
-      "mail": "m0402"
+      "mail": "m0413"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-27T16:49:00+09:00",
-      "mail": "m0422"
+      "mail": "m0434"
      },
      {
       "task": "평면도 작성",
@@ -15039,30 +15423,30 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-29T09:24:00+09:00",
-      "mail": "m0430"
+      "mail": "m0442"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-29T10:57:00+09:00",
-      "mail": "m0431"
+      "mail": "m0443"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-29T13:39:00+09:00",
-      "mail": "m0434"
+      "mail": "m0446"
      }
     ]
    },
    {
-    "thread": "t0114",
+    "thread": "t0124",
     "bundle": "A",
     "variant": "normal",
     "customer": "다정 세무회계",
     "project": "다정 세무회계 3층 확장",
     "extra_threads": [
-     "t0115"
+     "t0126"
     ],
     "amounts": [
      5500000
@@ -15072,42 +15456,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-25T17:01:00+09:00",
-      "mail": "m0404"
+      "mail": "m0415"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-28T16:02:00+09:00",
-      "mail": "m0428"
+      "mail": "m0440"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-30T15:37:00+09:00",
-      "mail": "m0444"
+      "mail": "m0456"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-02T13:46:00+09:00",
-      "mail": "m0448"
+      "mail": "m0462"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-03T12:34:00+09:00",
-      "mail": "m0452"
+      "mail": "m0466"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-03T16:48:00+09:00",
-      "mail": "m0457"
+      "mail": "m0471"
      }
     ]
    },
    {
-    "thread": "t0116",
+    "thread": "t0127",
     "bundle": "A",
     "variant": "normal",
     "customer": "다온 헤어",
@@ -15120,13 +15504,13 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-26T21:40:00+09:00",
-      "mail": "m0413"
+      "mail": "m0425"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-29T12:49:00+09:00",
-      "mail": "m0433"
+      "mail": "m0445"
      },
      {
       "task": "평면도 작성",
@@ -15139,24 +15523,24 @@
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-03T13:17:00+09:00",
-      "mail": "m0454"
+      "mail": "m0468"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-03T16:17:00+09:00",
-      "mail": "m0456"
+      "mail": "m0470"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-04T09:26:00+09:00",
-      "mail": "m0458"
+      "mail": "m0472"
      }
     ]
    },
    {
-    "thread": "t0117",
+    "thread": "t0128",
     "bundle": "A",
     "variant": "normal",
     "customer": "미소치과",
@@ -15169,31 +15553,31 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-27T12:49:00+09:00",
-      "mail": "m0415"
+      "mail": "m0427"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-10-29T15:53:00+09:00",
-      "mail": "m0435"
+      "mail": "m0447"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-02T16:18:00+09:00",
-      "mail": "m0449"
+      "mail": "m0463"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-03T12:57:00+09:00",
-      "mail": "m0453"
+      "mail": "m0467"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-04T10:01:00+09:00",
-      "mail": "m0459"
+      "mail": "m0473"
      },
      {
       "task": "재무 검토",
@@ -15206,12 +15590,12 @@
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-05T15:14:00+09:00",
-      "mail": "m0468"
+      "mail": "m0482"
      }
     ]
    },
    {
-    "thread": "t0118",
+    "thread": "t0129",
     "bundle": "A",
     "variant": "normal",
     "customer": "고운피부과",
@@ -15224,42 +15608,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-28T10:47:00+09:00",
-      "mail": "m0425"
+      "mail": "m0437"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-03T09:54:00+09:00",
-      "mail": "m0451"
+      "mail": "m0465"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-05T09:03:00+09:00",
-      "mail": "m0464"
+      "mail": "m0478"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-05T15:10:00+09:00",
-      "mail": "m0467"
+      "mail": "m0481"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-05T17:20:00+09:00",
-      "mail": "m0472"
+      "mail": "m0486"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-06T11:35:00+09:00",
-      "mail": "m0475"
+      "mail": "m0489"
      }
     ]
    },
    {
-    "thread": "t0119",
+    "thread": "t0130",
     "bundle": "A",
     "variant": "normal",
     "customer": "마루서점",
@@ -15272,42 +15656,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-29T16:56:00+09:00",
-      "mail": "m0437"
+      "mail": "m0449"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-03T14:41:00+09:00",
-      "mail": "m0455"
+      "mail": "m0469"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-05T13:53:00+09:00",
-      "mail": "m0466"
+      "mail": "m0480"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-06T17:22:00+09:00",
-      "mail": "m0479"
+      "mail": "m0493"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-09T09:55:00+09:00",
-      "mail": "m0480"
+      "mail": "m0495"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-09T12:59:00+09:00",
-      "mail": "m0482"
+      "mail": "m0497"
      }
     ]
    },
    {
-    "thread": "t0121",
+    "thread": "t0132",
     "bundle": "A",
     "variant": "normal",
     "customer": "초록 샐러드",
@@ -15320,42 +15704,42 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-30T10:25:00+09:00",
-      "mail": "m0440"
+      "mail": "m0452"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-02T17:39:00+09:00",
-      "mail": "m0450"
+      "mail": "m0464"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-04T13:45:00+09:00",
-      "mail": "m0461"
+      "mail": "m0475"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-05T11:39:00+09:00",
-      "mail": "m0465"
+      "mail": "m0479"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-05T16:38:00+09:00",
-      "mail": "m0470"
+      "mail": "m0484"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-06T10:05:00+09:00",
-      "mail": "m0473"
+      "mail": "m0487"
      }
     ]
    },
    {
-    "thread": "t0123",
+    "thread": "t0134",
     "bundle": "A",
     "variant": "normal",
     "customer": "포근 산후조리원",
@@ -15369,36 +15753,36 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-30T22:17:00+09:00",
-      "mail": "m0445"
+      "mail": "m0457"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-04T16:13:00+09:00",
-      "mail": "m0462"
+      "mail": "m0476"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-06T15:26:00+09:00",
-      "mail": "m0477"
+      "mail": "m0491"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-09T10:58:00+09:00",
-      "mail": "m0481"
+      "mail": "m0496"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-09T14:31:00+09:00",
-      "mail": "m0483"
+      "mail": "m0498"
      }
     ]
    },
    {
-    "thread": "t0125",
+    "thread": "t0136",
     "bundle": "A",
     "variant": "normal",
     "customer": "느린 책방 카페",
@@ -15412,36 +15796,36 @@
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-10-31T13:52:00+09:00",
-      "mail": "m0447"
+      "mail": "m0459"
      },
      {
       "task": "현장 실측",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-05T16:07:00+09:00",
-      "mail": "m0469"
+      "mail": "m0483"
      },
      {
       "task": "평면도 작성",
       "who": "pro-ax-minji@uengine.org",
       "at": "2026-11-06T14:42:00+09:00",
-      "mail": "m0476"
+      "mail": "m0490"
      },
      {
       "task": "제안서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-09T17:02:00+09:00",
-      "mail": "m0484"
+      "mail": "m0499"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-10T14:37:00+09:00",
-      "mail": "m0485"
+      "mail": "m0500"
      }
     ]
    },
    {
-    "thread": "t0126",
+    "thread": "t0139",
     "bundle": "A",
     "variant": "requote",
     "customer": "이랑 와인바",
@@ -15449,25 +15833,25 @@
     "amounts": [
      6700000
     ],
-    "follows": "t0065",
+    "follows": "t0070",
     "steps": [
      {
       "task": "요청 메일 접수",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-04T12:39:00+09:00",
-      "mail": "m0460"
+      "mail": "m0474"
      },
      {
       "task": "견적서 작성",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-05T16:52:00+09:00",
-      "mail": "m0471"
+      "mail": "m0485"
      },
      {
       "task": "고객 회신",
       "who": "pro-ax-doyun@uengine.org",
       "at": "2026-11-06T11:25:00+09:00",
-      "mail": "m0474"
+      "mail": "m0488"
      }
     ]
    }
@@ -15667,7 +16051,7 @@
    },
    {
     "case_id": "chat:ax-demo:0008",
-    "thread": "t0043",
+    "thread": "t0046",
     "bundle": "B",
     "kind": "both",
     "steps": [
@@ -15707,7 +16091,7 @@
    },
    {
     "case_id": "chat:ax-demo:0009",
-    "thread": "t0034",
+    "thread": "t0035",
     "bundle": "A",
     "kind": "fin",
     "steps": [
@@ -15732,7 +16116,7 @@
    },
    {
     "case_id": "chat:ax-demo:0010",
-    "thread": "t0033",
+    "thread": "t0034",
     "bundle": "A",
     "kind": "fin",
     "steps": [
@@ -15757,7 +16141,7 @@
    },
    {
     "case_id": "chat:ax-demo:0011",
-    "thread": "t0047",
+    "thread": "t0050",
     "bundle": "A",
     "kind": "plan",
     "steps": [
@@ -15782,7 +16166,7 @@
    },
    {
     "case_id": "chat:ax-demo:0012",
-    "thread": "t0052",
+    "thread": "t0056",
     "bundle": "A",
     "kind": "plan",
     "steps": [
@@ -15807,7 +16191,7 @@
    },
    {
     "case_id": "chat:ax-demo:0013",
-    "thread": "t0055",
+    "thread": "t0059",
     "bundle": "A",
     "kind": "agent-plan",
     "steps": [
@@ -15838,7 +16222,7 @@
    },
    {
     "case_id": "chat:ax-demo:0014",
-    "thread": "t0049",
+    "thread": "t0052",
     "bundle": "A",
     "kind": "fin",
     "steps": [
@@ -15863,7 +16247,7 @@
    },
    {
     "case_id": "chat:ax-demo:0015",
-    "thread": "t0053",
+    "thread": "t0057",
     "bundle": "A",
     "kind": "fin",
     "steps": [
@@ -15888,7 +16272,7 @@
    },
    {
     "case_id": "chat:ax-demo:0016",
-    "thread": "t0058",
+    "thread": "t0063",
     "bundle": "A",
     "kind": "agent-prop",
     "steps": [
@@ -15909,7 +16293,7 @@
    },
    {
     "case_id": "chat:ax-demo:0017",
-    "thread": "t0063",
+    "thread": "t0068",
     "bundle": "B",
     "kind": "order",
     "steps": [
@@ -15934,7 +16318,7 @@
    },
    {
     "case_id": "chat:ax-demo:0018",
-    "thread": "t0069",
+    "thread": "t0074",
     "bundle": "B",
     "kind": "order",
     "steps": [
@@ -15959,7 +16343,7 @@
    },
    {
     "case_id": "chat:ax-demo:0019",
-    "thread": "t0061",
+    "thread": "t0066",
     "bundle": "A",
     "kind": "agent-plan",
     "steps": [
@@ -15990,7 +16374,7 @@
    },
    {
     "case_id": "chat:ax-demo:0020",
-    "thread": "t0065",
+    "thread": "t0070",
     "bundle": "A",
     "kind": "plan",
     "steps": [
@@ -16015,7 +16399,7 @@
    },
    {
     "case_id": "chat:ax-demo:0021",
-    "thread": "t0082",
+    "thread": "t0090",
     "bundle": "B",
     "kind": "schedule",
     "steps": [
@@ -16040,7 +16424,7 @@
    },
    {
     "case_id": "chat:ax-demo:0022",
-    "thread": "t0088",
+    "thread": "t0096",
     "bundle": "A",
     "kind": "plan",
     "steps": [
@@ -16065,7 +16449,7 @@
    },
    {
     "case_id": "chat:ax-demo:0023",
-    "thread": "t0106",
+    "thread": "t0116",
     "bundle": "C",
     "kind": "visit",
     "steps": [
@@ -16090,7 +16474,7 @@
    },
    {
     "case_id": "chat:ax-demo:0024",
-    "thread": "t0104",
+    "thread": "t0114",
     "bundle": "B",
     "kind": "schedule",
     "steps": [
@@ -16115,7 +16499,7 @@
    },
    {
     "case_id": "chat:ax-demo:0025",
-    "thread": "t0108",
+    "thread": "t0118",
     "bundle": "C",
     "kind": "visit",
     "steps": [
@@ -16140,7 +16524,7 @@
    },
    {
     "case_id": "chat:ax-demo:0026",
-    "thread": "t0092",
+    "thread": "t0101",
     "bundle": "A",
     "kind": "fin",
     "steps": [
@@ -16165,7 +16549,7 @@
    },
    {
     "case_id": "chat:ax-demo:0027",
-    "thread": "t0103",
+    "thread": "t0112",
     "bundle": "A",
     "kind": "plan",
     "steps": [
@@ -16190,7 +16574,7 @@
    },
    {
     "case_id": "chat:ax-demo:0028",
-    "thread": "t0112",
+    "thread": "t0122",
     "bundle": "A",
     "kind": "agent-plan",
     "steps": [
@@ -16221,7 +16605,7 @@
    },
    {
     "case_id": "chat:ax-demo:0029",
-    "thread": "t0116",
+    "thread": "t0127",
     "bundle": "A",
     "kind": "plan",
     "steps": [
@@ -16246,7 +16630,7 @@
    },
    {
     "case_id": "chat:ax-demo:0030",
-    "thread": "t0117",
+    "thread": "t0128",
     "bundle": "A",
     "kind": "fin",
     "steps": [
@@ -16268,6 +16652,24 @@
       "act": "deliver"
      }
     ]
+   }
+  ],
+  "set_times": [
+   {
+    "task": "주간 공정 보고",
+    "who": "pro-ax-doyun@uengine.org",
+    "role": "영업",
+    "cron": "0 9 * * 1",
+    "mails": 10,
+    "says": "매주 월요일 오전 9시 반까지"
+   },
+   {
+    "task": "월 결산 보고",
+    "who": "pro-ax-seoyeon@uengine.org",
+    "role": "재무 담당",
+    "cron": "0 9 1 * *",
+    "mails": 3,
+    "says": "매월 1일 오전에"
    }
   ]
  },

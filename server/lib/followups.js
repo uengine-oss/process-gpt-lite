@@ -192,6 +192,23 @@ async function routineOffer({ user, threadId, classes, conv, title }) {
     `People in your role (${r.role}) usually do “${r.task}” after a ${CLASSES[r.cls]?.en || r.cls} (${r.people} people).${way} Shall I do it now?`)
   return addMessage(user.id, threadId, 'agent', 'followup', { text, routine: r, state: 'pending', source: 'routine', ...(conv ? { conv: { id: conv, title: title || '' } } : {}) })
 }
+// a routine step the company promoted (자동): done without asking, the company's way, and said in one line
+async function autoRoutine({ user, session, threadId, classes, conv }) {
+  if (!session) return false
+  const r = await (async () => {
+    const { routineFor } = await import('./ontology/ways.js')
+    const { habitSettings } = await import('./ontology/service.js')
+    return routineFor(user.id, classes, await habitSettings())
+  })().catch(() => null)
+  if (!r?.auto) return false
+  const action = String(r.way?.how || '').split('\n')[0].trim() || L(`방금 만든 ${CLASSES[r.cls]?.ko || '결과물'}에 「${r.task}」를 해 주세요`, `Do “${r.task}” on the ${CLASSES[r.cls]?.en || 'result'} just made`)
+  const h = await recordPair(user, r.cls, action)
+  started.set(h.id, { t0: Date.now(), way: r.way?.followupId || null })
+  await addMessage(user.id, threadId, 'agent', 'chip', { icon: 'refresh', text: L(`회사가 정한 대로 「${r.task}」를 할게요 · ${r.role} 루틴(자동)${r.way?.name ? ` · ${r.way.name}님 방법` : ''}`, `Doing “${r.task}” as the company set · ${r.role} routine (automatic)`), auto: { task: r.task, role: r.role } })
+  const { runTurn } = await import('./agent.js')
+  runTurn({ user, session, threadId, text: action, files: [], conversation: conv ? { id: conv } : undefined, fresh: true, habitId: h.id }).catch((e) => console.warn('[followups] auto routine', e.message))
+  return true
+}
 async function acceptRoutine(user, card) {
   const r = card.content.routine
   const action = String(r.way?.how || '').split('\n')[0].trim() || L(`방금 만든 ${CLASSES[r.cls]?.ko || '결과물'}에 「${r.task}」를 해 주세요`, `Do “${r.task}” on the ${CLASSES[r.cls]?.en || 'result'} just made`)
@@ -203,7 +220,7 @@ async function acceptRoutine(user, card) {
 
 // A turn ended: note what it made on its answer, learn whether it followed the one before, and ask about the usual next
 // step. A follow-up's own result (the deck with the new logo) asks nothing, or a habit would ask for itself forever.
-export async function afterTurn({ user, threadId, msg, conv, title, said, files, attached, fromHabit }) {
+export async function afterTurn({ user, threadId, msg, conv, title, said, files, attached, fromHabit, session }) {
   const names = (files || []).map((f) => f?.name).filter(Boolean)
   const classes = classesOf(files)
   const [prev] = conv ? await q(`select content->'event' as e from pro_messages where thread_id=$1 and id<>$2 and role='agent' and kind in ('text','doc') and content->'event'->>'conv'=$3 order by created_at desc limit 1`, [threadId, msg.id, conv]) : []
@@ -216,7 +233,7 @@ export async function afterTurn({ user, threadId, msg, conv, title, said, files,
     if (s.way) await import('./ontology/ways.js').then((w) => w.recordRun(s.way, (Date.now() - s.t0) / 60000)).catch(() => {})
   }
   const followed = fromHabit || (recent ? await learn({ user, threadId, prev: last, said, attached }) : false)
-  if (classes.length && !followed) await offer({ user, threadId, classes, said, files: names, conv, title })
+  if (classes.length && !followed && !(await autoRoutine({ user, session, threadId, classes, conv }))) await offer({ user, threadId, classes, said, files: names, conv, title })
 }
 
 const pendingCard = async (threadId, beforeId) => {

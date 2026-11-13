@@ -2,6 +2,7 @@
 // 들어온 메일이 어느 일부터 시작하는지(server lib/ontology/run.js routeMail):
 // started — 고른 일과 확률, 평소 흐름에서 건너뛴 일 · 이번 스냅샷의 일, 「건 보기」 · 「다른 일에서 시작」
 // ask — 모델이 확실하지 않을 때(가장 높은 확률이 50% 아래) 두세 후보 중에서 사람이 고른다
+// ask + suggest — 아직 「제안」 단계인 프로세스(자동으로 승격 전): 이 메일 · 채팅 요청으로 그 프로세스를 진행할지 묻는다(design-v0.3 §12)
 // 서버는 이 카드 내용을 바꾸지 않으므로, 고른 결과 · 옮긴 결과는 이 기기에 남겨 다시 열어도 그대로 보인다.
 import { ref, computed } from 'vue'
 import { api } from '../../api.js'
@@ -15,7 +16,11 @@ const saved = ref(local.get(`entry:${props.msg.id}`))
 const v = computed(() => ({ ...(props.msg.content || {}), ...(saved.value || {}) }))
 const choice = computed(() => v.value.choice || {})
 const task = computed(() => choice.value.task || v.value.nodes?.[0] || '')
+const chat = computed(() => v.value.source === 'chat')
+const timer = computed(() => v.value.source === 'timer')
 const who = computed(() => {
+  if (chat.value) return '이 요청은'
+  if (timer.value) return `${v.value.when || '정해 둔 시각'} 타이머가 울렸어요.`
   const s = String(v.value.customer || '').trim()
   return s && !s.includes('@') ? `${s} 메일은` : '이 메일은'
 })
@@ -34,9 +39,9 @@ async function start(o) {
   try {
     const r = await api('/ontology/cases', { method: 'POST', body: {
       proc: choice.value.proc, entry: o.task, subject: m.subject || '', body: m.text || '', from: m.from || '', customer: v.value.customer || '',
-      odds: { ...choice.value, task: o.task, p: o.p, picked: true }, kind: 'mail', messageId: props.msg.id,
+      odds: { ...choice.value, task: o.task, p: o.p, picked: true }, kind: chat.value ? 'message' : timer.value ? 'timer' : 'mail', messageId: props.msg.id,
     } })
-    persist({ state: 'started', picked: true, choice: { ...choice.value, task: o.task, p: o.p }, caseId: r.caseId, instId: r.instId,
+    persist({ state: 'started', picked: !choice.value.suggest || o.task !== choice.value.task, choice: { ...choice.value, task: o.task, p: o.p }, caseId: r.caseId, instId: r.instId,
       skipped: r.snapshot?.skipped || [], nodes: r.snapshot?.nodes || [o.task], procDefId: r.snapshot?.procDefId })
   } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
@@ -64,17 +69,39 @@ async function move() {
   } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
 const sheet = ref(false)
+const decline = () => persist({ state: 'declined' })
+const top = computed(() => options.value[0] || { task: choice.value.task, p: choice.value.p })
 </script>
 
 <template>
   <div class="oe" data-testid="onto-entry-card" :data-state="v.state">
     <div class="mail">
-      <span class="badge">메일</span>
+      <span class="badge">{{ chat ? '채팅' : timer ? '타이머' : '메일' }}</span>
       <span class="ms" :title="`${v.mail?.from || ''} · ${v.mail?.subject || ''}`">{{ v.mail?.subject || '(제목 없음)' }}</span>
     </div>
 
+    <!-- 아직 「제안」 단계인 프로세스: 진행할지 묻는다 -->
+    <template v-if="v.state === 'ask' && choice.suggest">
+      <p class="q" data-testid="onto-entry-suggest">{{ who }} 「{{ choice.procName }}」 업무로 진행할 수 있어요. 「{{ top.task }}」부터 시작할까요?</p>
+      <p v-if="v.mail?.text && !chat && !timer" class="ex">{{ v.mail.text }}</p>
+      <div class="opts">
+        <button class="opt press" :disabled="!!busy" data-testid="onto-entry-go" @click="start(top)">
+          <i :style="{ width: `${Math.max(3, Math.round((top.p || 0) * 100))}%` }" />
+          <span class="on">{{ busy === top.task ? '시작하는 중…' : `「${top.task}」부터 진행` }}</span><b>{{ pText(top.p) }}</b>
+        </button>
+        <button v-for="o in options.slice(1)" :key="o.task" class="opt press" :disabled="!!busy" data-testid="onto-entry-option" @click="start(o)">
+          <i :style="{ width: `${Math.max(3, Math.round((o.p || 0) * 100))}%` }" />
+          <span class="on">{{ busy === o.task ? '시작하는 중…' : `「${o.task}」부터` }}</span><b>{{ pText(o.p) }}</b>
+        </button>
+        <button class="link press" :disabled="!!busy" data-testid="onto-entry-decline" @click="decline">아니요, 이번엔 그냥 할게요</button>
+      </div>
+      <small class="why">이 프로세스는 아직 「제안」 단계라 물어봐요. 관리자가 「자동으로 승격」하면 같은 요청이 오면 바로 시작해요.</small>
+    </template>
+    <template v-else-if="v.state === 'declined'">
+      <p class="q" data-testid="onto-entry-declined">이번 요청은 프로세스 없이 진행해요.</p>
+    </template>
     <!-- 확실하지 않을 때: 사람이 고른다 -->
-    <template v-if="v.state === 'ask'">
+    <template v-else-if="v.state === 'ask'">
       <p class="q">{{ who }} 어디서 시작할지 확실하지 않아요. 어느 일부터 할까요?</p>
       <p v-if="v.mail?.text" class="ex">{{ v.mail.text }}</p>
       <div class="opts">

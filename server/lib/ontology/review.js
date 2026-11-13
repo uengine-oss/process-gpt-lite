@@ -43,7 +43,7 @@ export async function agenda({ weeks = 4 } = {}) {
   return { items: items.sort((a, b) => order[a.kind] - order[b.kind]), pinned, tasks: [...tasks.keys()] }
 }
 
-async function ledger(me, actionKind, subject, facts) {
+export async function ledger(me, actionKind, subject, facts) {
   await q(`insert into pro_policy_decisions (tenant_id, user_id, action_kind, subject, facts, decision, status, ref)
            values ($1,$2,$3,$4,$5,'allow','executed','process-ontology')`, [T(), me.id, actionKind, subject, facts]).catch((e) => console.warn('[ontology] ledger', e.message))
 }

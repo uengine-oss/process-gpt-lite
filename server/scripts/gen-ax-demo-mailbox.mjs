@@ -27,6 +27,11 @@ const OUT = path.join(FIX, 'ax-demo-mailbox.json')
 const TEMPLATE_DIR = path.join(FIX, 'ax-demo-templates')
 const QUOTE_TEMPLATE = '견적서_양식.xlsx'
 const QUOTE_FILE = `ax-demo-templates/${QUOTE_TEMPLATE}`
+// the report forms of the work at set times (writeFormTemplate)
+const FORMS = [
+  ['주간공정보고_양식.xlsx', '주 간 공 정 보 고', [['현장명', '보고일'], ['공정률(%)', '작성자'], ['이번 주 한 일'], ['다음 주 할 일'], ['특이 사항'], ['현장 사진']]],
+  ['월결산_양식.xlsx', '월 결 산 보 고', [['기간', '작성자'], ['매출', '매입'], ['미수금', '미지급금'], ['현장별 미수금'], ['비고']]],
+]
 const has = (k) => process.argv.includes(k)
 
 // ---------------------------------------------------------------- randomness (seeded, one stream)
@@ -870,6 +875,43 @@ function noise() {
 }
 noise()
 
+// ---------------------------------------------------------------- work at set times (design-v0.3 §15)
+// 이도윤's weekly site report to 모아 공유오피스 (cc 장진영) every Monday morning, from the week after the customer asked for it
+// and he said when — the dates keep a weekly clock and the mails say so; once a day late after the 추석 week. 박서연's closing
+// report on the 1st of each month: three in 90 days is too few for the dates alone, the mails' own words make it a timer.
+// A stream of its own, so the mail above stays the same byte for byte.
+const SET_TIMES = []
+{
+  const r2 = mulberry32(20261113)
+  const jit = (a, b) => Math.round((a + r2() * (b - a)) / MIN) * MIN
+  const MOA = 'hyun.ng@moa-office.example'
+  const ask = mail({ at: day('2026-09-03') + 10 * HOUR + jit(0, 40 * MIN), from: MOA, to: [DOYUN], cc: [JIN], subject: '[모아 공유오피스] 공사 기간 주간 공정 보고 요청', thread: 'P0', kind: 'work',
+    text: '공사가 시작됐으니 준공 때까지 매주 월요일 오전에 주간 공정 보고서를 메일로 보내 주세요. 공정률과 이번 주 한 일, 다음 주 일정, 현장 사진 몇 장이면 됩니다.' })
+  mail({ at: day('2026-09-03') + 14 * HOUR + jit(0, 50 * MIN), from: DOYUN, to: [MOA], cc: [JIN], subject: re(ask.subject), thread: 'P0', kind: 'work', quoted: quote(ask),
+    text: '네, 다음 주부터 매주 월요일 오전 9시 반까지 주간 공정 보고서를 보내 드리겠습니다. 양식은 첨부와 같이 공정률 · 이번 주 · 다음 주 · 특이 사항 순서입니다.',
+    attachments: [att('주간공정보고_양식.xlsx', 'xlsx', 12, 16, { file: 'ax-demo-templates/주간공정보고_양식.xlsx' })] })
+  const DONE = ['철거와 바닥 수평 작업', '전기 배선과 설비 배관', '천장 틀과 경량 벽체', '석고보드와 퍼티', '바닥재 시공', '도장과 벽지', '조명 · 콘센트 설치', '가구 반입과 설치', '부분 마감 보수', '준공 청소와 점검']
+  let k = 0
+  for (let d = day('2026-09-07'); d <= day('2026-11-09'); d += 7 * DAY, k++) {
+    const late = ymd(d) === '2026-09-28' // the Monday after 추석: a day late
+    const at = d + (late ? DAY : 0) + 9 * HOUR + jit(5 * MIN, 38 * MIN)
+    const pct = Math.min(100, Math.round(((k + 1) / DONE.length) * 100))
+    const mmdd = `${String(new Date(at).getUTCMonth() + 1).padStart(2, '0')}${String(new Date(at).getUTCDate()).padStart(2, '0')}`
+    mail({ at, from: DOYUN, to: [MOA], cc: [JIN], subject: `[주간 공정 보고] 모아 공유오피스 ${md(at)}`, thread: `P${k + 1}`, kind: 'work',
+      text: `${late ? '추석 연휴 뒤라 하루 늦었습니다. ' : ''}이번 주 공정 보고드립니다. 공정률 ${pct}%, 이번 주에는 ${DONE[k]}${k + 1 < DONE.length ? `을 마쳤고 다음 주에는 ${DONE[k + 1]} 진행 예정입니다` : '까지 마쳤습니다'}. 자세한 내용은 첨부 파일을 봐 주세요.`,
+      attachments: [att(`주간공정보고_모아공유오피스_${mmdd}.xlsx`, 'xlsx', 40, 90, { file: 'ax-demo-templates/주간공정보고_양식.xlsx' })] })
+  }
+  SET_TIMES.push({ task: '주간 공정 보고', who: DOYUN, role: '영업', cron: '0 9 * * 1', mails: k, says: '매주 월요일 오전 9시 반까지' })
+  for (const [i, s] of ['2026-09-01', '2026-10-01', '2026-11-02'].entries()) {
+    const at = day(s) + 9 * HOUR + jit(10 * MIN, 50 * MIN)
+    const m = new Date(at).getUTCMonth() // the month just closed (getUTCMonth is 0-based: September's mail closes 8월)
+    mail({ at, from: SEOYEON, to: [JIN], cc: [DOYUN], subject: `${m}월 결산 보고`, thread: `F${i}`, kind: 'work',
+      text: `${m}월 결산 보고드립니다. 매월 1일 오전에 지난달 매출 · 매입 · 미수금을 정리해 보내 드리고 있습니다. 미수금이 있는 현장은 첨부 파일의 비고를 봐 주세요.`,
+      attachments: [att(`월결산_2026-${String(m).padStart(2, '0')}.xlsx`, 'xlsx', 30, 60, { file: 'ax-demo-templates/월결산_양식.xlsx' })] })
+  }
+  SET_TIMES.push({ task: '월 결산 보고', who: SEOYEON, role: '재무 담당', cron: '0 9 1 * *', mails: 3, says: '매월 1일 오전에' })
+}
+
 // ---------------------------------------------------------------- ids, threads and the file
 mails.sort((a, b) => a.at - b.at || a.key - b.key)
 const idOfKey = new Map(), threadIds = new Map()
@@ -925,7 +967,7 @@ const out = {
     A: { name: '설계 제안 · 견적', steps: ['요청 메일 접수', '현장 실측', '평면도 작성', '제안서 작성', '견적서 작성', '재무 검토', '고객 회신'], condition: { '재무 검토': 'quote total ≥ 10,000,000원 (부가세 별도)' }, rare: ['법무 검토'] },
     B: { name: '계약 · 시공 준비', steps: ['계약 확정', '자재 발주', '시공 일정 조율', '착공 안내'], parallel: [['자재 발주', '시공 일정 조율']] },
     C: { name: '하자 · AS', steps: ['하자 접수', '현장 방문', '처리 보고'] },
-  }, agents: Object.values(AGENTS), cases: truthCases, chat_cases: truthChat },
+  }, agents: Object.values(AGENTS), cases: truthCases, chat_cases: truthChat, set_times: SET_TIMES },
   chat_handovers: chatRows,
 }
 
@@ -947,6 +989,7 @@ else {
   fs.mkdirSync(FIX, { recursive: true })
   fs.writeFileSync(OUT, json)
   if (has('--templates') || !fs.existsSync(path.join(TEMPLATE_DIR, QUOTE_TEMPLATE))) await writeQuoteTemplate(path.join(TEMPLATE_DIR, QUOTE_TEMPLATE))
+  for (const [name, title, rows] of FORMS) if (has('--templates') || !fs.existsSync(path.join(TEMPLATE_DIR, name))) await writeFormTemplate(path.join(TEMPLATE_DIR, name), title, rows)
   summary()
 }
 
@@ -968,6 +1011,39 @@ function summary() {
   console.log(`steps only in chat ${truthCases.flatMap((c) => c.steps).filter((s) => s.via === 'chat').length}  chat cases ${truthChat.length} ${JSON.stringify(by(truthChat, (c) => c.kind))}  chat rows ${chatRows.length} ${JSON.stringify(by(chatRows, (r) => r.source))}`)
   console.log('transitions (truth.cases):')
   for (const [k, n] of Object.entries(trans).sort((a, b) => a[0].localeCompare(b[0], 'ko'))) console.log(`  ${String(n).padStart(3)}  ${k}`)
+}
+
+// ---------------------------------------------------------------- the report forms of the work at set times (exceljs)
+async function writeFormTemplate(file, title, rows) {
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'Process GPT Lite'
+  wb.created = wb.modified = new Date('2026-11-12T00:00:00Z')
+  const ws = wb.addWorksheet(title.replace(/\s/g, ''), { views: [{ showGridLines: false }] })
+  ws.columns = [{ width: 16 }, { width: 26 }, { width: 16 }, { width: 26 }]
+  const font = { name: '맑은 고딕', size: 10 }
+  const thin = { style: 'thin', color: { argb: 'FF9CA3AF' } }
+  const box = { top: thin, left: thin, bottom: thin, right: thin }
+  const gray = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F3F5' } }
+  ws.mergeCells('A1:D1')
+  Object.assign(ws.getCell('A1'), { value: title, font: { ...font, size: 18, bold: true }, alignment: { horizontal: 'center', vertical: 'middle' } })
+  ws.getRow(1).height = 36
+  rows.forEach((labels, i) => {
+    const r = i + 3
+    if (labels.length === 2) labels.forEach((l, j) => {
+      Object.assign(ws.getCell(r, j * 2 + 1), { value: l, font: { ...font, bold: true }, fill: gray, border: box })
+      Object.assign(ws.getCell(r, j * 2 + 2), { font, border: box })
+    })
+    else {
+      Object.assign(ws.getCell(r, 1), { value: labels[0], font: { ...font, bold: true }, fill: gray, border: box })
+      ws.mergeCells(r, 2, r, 4)
+      Object.assign(ws.getCell(r, 2), { font, border: box, alignment: { wrapText: true, vertical: 'top' } })
+      ws.getRow(r).height = 48
+    }
+  })
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  await wb.xlsx.writeFile(file)
+  console.log(`wrote ${path.relative(process.cwd(), file)}`)
 }
 
 // ---------------------------------------------------------------- the quote template (exceljs)

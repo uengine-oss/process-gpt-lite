@@ -40,7 +40,7 @@ const boss = await signIn('pro-ax-jinyoung@uengine.org')
 const m = (await call(boss.tok, 'GET', '/ontology/map')).body
 const A = m.processes.find((b) => b.tasks.includes('견적서 작성'))
 
-await step('프로세스 채택(관리자)', async () => {
+await step('프로세스를 「자동」으로 승격(관리자)', async () => {
   const r = await call(boss.tok, 'POST', '/ontology/processes/status', { key: A.key, status: 'adopted' })
   assert.equal(r.status, 200, JSON.stringify(r.body))
   return r.body
@@ -132,11 +132,30 @@ await step('배운 조건대로: 1천만 원 이상이면 재무 검토(박서�
   if (gw) assert.deepEqual(picked, [expect], `gateway ${JSON.stringify(picked)}`)
   let to = null
   if (expect === '재무 검토') {
-    const [u] = await q(`select email from users where id::text = split_part($1, ',', 1)`, [next.user_id])
+    // (in draft mode the engine puts the agent first in the step's people — the person is the one who is not an agent)
+    const [u] = await q(`select email from users where id::text = any(string_to_array($1, ',')) and tenant_id='ax-demo' and not coalesce(is_agent, false) limit 1`, [next.user_id])
     to = u?.email
     assert.equal(to, 'pro-ax-seoyeon@uengine.org')
   }
   return { amount, next: next.activity_name, status: next.s, to, gateway: gw ? { picked, rule: gw.data.selectionRule, why: (gw.data.evaluations || []).find((e) => e.selected)?.reason?.slice(0, 160) || (gw.data.evaluations || []).find((e) => e.selected)?.explanation?.slice(0, 160) || '' } : null }
+})
+
+// 자동으로 승격한 프로세스의 사람 단계(design-v0.3 §12): 일이 사람에게 닿을 때 에이전트가 만든 초안이 이미 있다
+await step('사람 단계는 초안이 먼저: 박서연에게 닿기 전에 재무 검토 초안', async () => {
+  const nx = out['배운 조건대로: 1천만 원 이상이면 재무 검토(박서연)']
+  if (nx?.next !== '재무 검토') return { skipped: `다음 단계가 ${nx?.next || '없음'}` }
+  let t
+  for (let i = 0; i < 90; i++) {
+    ;[t] = await q(`select agent_mode, draft, status::text s, user_id from todolist where proc_inst_id=$1 and activity_name='재무 검토' order by start_date desc nulls last limit 1`, [instId])
+    if (t?.draft && Object.keys(t.draft).length) break
+    await sleep(4000)
+  }
+  assert.equal(String(t?.agent_mode || '').toUpperCase(), 'DRAFT', `mode ${t?.agent_mode}`)
+  assert.ok(t?.draft && Object.keys(t.draft).length, '초안 없음')
+  assert.notEqual(t.s, 'DONE', '사람이 내기 전에 끝났다')
+  const [m] = await q(`select content->>'text' as text from pro_messages m join pro_threads th on th.id=m.thread_id join users u on u.id::text = th.user_id::text and u.tenant_id='ax-demo'
+                       where u.email='pro-ax-seoyeon@uengine.org' and m.content->>'text' like '%초안을 만들어 두었어요%' order by m.created_at desc limit 1`).catch(() => [])
+  return { mode: t.agent_mode, status: t.s, draft: Object.keys(t.draft).slice(0, 6), told: m?.text?.slice(0, 80) || null }
 })
 
 console.log(failed ? `\n${failed} failed` : '\nall passed')

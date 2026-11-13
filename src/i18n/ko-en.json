@@ -2124,9 +2124,127 @@
   "지도를 불러오지 못했어요": "Couldn't load the map",
   "잠시 뒤 다시 불러와 보세요. 계속 안 되면 관리자에게 알려 주세요.": "Try loading it again in a moment. If it keeps failing, tell an admin.",
   "다시 불러오기": "Reload",
-  "회사 전체 건 중 이 일로 시작한 건": "of all company cases, started here"
+  "회사 전체 건 중 이 일로 시작한 건": "of all company cases, started here",
+  "사건": "Event",
+  "루틴": "Routine",
+  "결과물": "Result",
+  "함께": "together",
+  "하나만": "one only",
+  "확정": "Confirm",
+  "확정됨": "Confirmed",
+  "부하": "Load",
+  "바깥": "Outside",
+  "슬라이드": "Slides",
+  "한 횟수": "Times done",
+  "정의 · 역량": "Definition · competencies",
+  "맡은 일": "Tasks",
+  "방법 후보": "Ways of doing it",
+  "링크": "Link",
+  "정한 시각": "Set time",
+  "일이 끝남": "Task done",
+  "방 규칙": "Room rule",
+  "개인 습관": "Personal habit",
+  "직접 말함": "Said directly",
+  "메일 · 인계에서": "From mail · handovers",
+  "사건 보기": "Show events",
+  "‹ 역할 목록": "‹ Roles",
+  "하는 사람 · 에이전트": "People · agents",
+  "에이전트 몫": "Agent share",
+  "회사 바깥": "Outside the company",
+  "지정 안 됨": "Not assigned",
+  "한 사람에게만": "One person only",
+  "가장 빠른 방법": "Fastest way",
+  "이 방법을 스킬로": "Make this a skill",
+  "일의 방법 공유": "Share a way of working",
+  "나만 써요": "Kept to yourself",
+  "공유했어요": "Shared",
+  "정의": "Definition",
+  "역량": "Competencies",
+  "이름 없음": "No name",
+  "초안 만드는 중…": "Drafting…",
+  "역할 루틴의 일이에요. 같은 역할 사람들이 결과물 뒤에 혼자 이어서 해요(메일 · 인계 건이 아니라 습관에서 셈했어요).": "A role routine task: people in the role do it on their own after a result (counted from habits, not mail or handover cases).",
+  "이 사건이 여는 일": "Tasks this event opens",
+  "이 사건을 내는 일": "Tasks that raise this event",
+  "지도에 보이는 일 가운데 이 사건으로 열리는 일이 없어요.": "No task on the map opens from this event.",
+  "이 사건 뒤에는 여러 일이 함께 열려요.": "Several tasks open together after this event.",
+  "이 사건 뒤에는 건마다 하나만 열려요.": "Only one task opens after this event in each case.",
+  "이 사건 뒤에는 건마다 조건에 따라 하나만 열려요.": "Only one task opens after this event in each case, depending on a condition.",
+  "이 역할의 사람이 이런 결과물을 만들면 생기는 사건이에요.": "This event happens when someone in this role makes this kind of result.",
+  "한 사건 뒤 여러 일이 함께 열려요": "Several tasks open together after one event",
+  "루틴은 사건으로만 보여요": "A routine is shown with its events only",
+  "일 사이에 메일 · 결과물 같은 사건을 넣어 봐요": "Show events such as mail and results between tasks",
+  "역할마다 맡은 일 · 하는 사람 · 필요한 역량을 봐요. 메일과 인계 기록에서 셈했어요.": "See each role's tasks, people and needed competencies, counted from mail and handover records.",
+  "아직 셈한 역할이 없어요.": "No roles counted yet.",
+  "아직 정의가 없어요.": "No definition yet.",
+  "맡은 일과 결과물을 근거로 초안을 만들 수 있어요.": "You can draft one from its tasks and results.",
+  "정의 초안 만들기": "Draft a definition",
+  "＋ 역량 더하기": "＋ Add a competency",
+  "확정하는 중…": "Confirming…",
+  "확정했어요.": "Confirmed.",
+  "맡은 일 · 결과물 · 루틴을 근거로 초안을 썼어요. 고친 뒤 확정해야 반영돼요.": "Drafted from its tasks, results and routines. Edit it, then confirm to apply it.",
+  "이 역할이 회사에서 무엇을 책임지는지 한두 문장": "One or two sentences on what this role is responsible for",
+  "역량(예: 견적 원가 판단)": "Competency (e.g. judging quote costs)",
+  "근거(맡은 일 · 결과물 · 습관)": "Evidence (tasks · results · habits)",
+  "역량 빼기": "Remove competency",
+  "지정됨 · 아직 기록 없음": "Assigned · no records yet",
+  "이 역할에 지정되지 않았는데 이 역할의 일을 했어요": "Did this role's work without being assigned to it",
+  "결과물 뒤에 혼자 이어서 하는 일": "What people do on their own after a result",
+  "같은 일을 사람마다 다르게 해요 · 본인이 공유한 것만": "People do the same task differently · only what they chose to share",
+  "아직 실행 없음": "Not run yet",
+  "스킬 만드는 중…": "Making the skill…",
+  "SKILL.md 보기": "View SKILL.md",
+  "개인 습관을 지도에 보이기": "Show personal habits on the map",
+  "기준 이상만(같은 역할": "Only above the bar (same role,",
+  "명)": "people)",
+  "모두(이름 없이)": "All (no names)",
+  "셈에는 늘 모두 들어가요. 여기서는 지도 · 검토 안건 · 역할 화면에 보이는지만 정해요.": "Everything is always counted. This only sets what the map, the review agenda and the role screen show.",
+  "저장했어요. 지도를 다시 그려요.": "Saved. Redrawing the map.",
+  "같은 역할 사람 수": "People in the same role",
+  "공유는 「공유하기」를 누를 때만 해요. 나만 쓰면 어디에도 보이지 않아요.": "Nothing is shared unless you press “Share”. Kept to yourself, it isn't shown anywhere.",
+  "이 방법을 회사에 공유할까요? 같은 일을 하는 동료에게 방법 후보로 보이고(이름 · 걸린 시간 · 받아들인 비율과 함께), 회사가 고르면 그 일의 스킬이 돼요.": "Share this way of working with the company? Colleagues doing the same task see it as a candidate (with your name, the time it takes and how often it's taken up), and if the company picks it, it becomes that task's skill.",
+  "관찰": "Watch",
+  "타이머": "Timer",
+  "타이머 걸기": "Set timer",
+  "거는 중…": "Setting…",
+  "주기": "Schedule",
+  "시작할 일": "Start at",
+  "평일 9시": "Weekdays 9:00",
+  "매월 1일 9시": "1st of every month 9:00",
+  "매주 금 17시": "Fridays 17:00",
+  "정해 둔 시각이 되면 이 프로세스를 시작해요. 단계가 「자동」이면 바로 시작하고 사람 단계는 초안이 먼저 만들어져요. 「제안」이면 시작할지 물어요.": "When the time comes, this process starts. At “Automatic” it starts right away and person steps get a draft first; at “Suggest” you are asked.",
+  "이 요청은": "This request",
+  "아니요, 이번엔 그냥 할게요": "No, I'll handle it myself this time",
+  "이번 요청은 프로세스 없이 진행해요.": "This request goes ahead without the process.",
+  "이 프로세스는 아직 「제안」 단계라 물어봐요. 관리자가 「자동으로 승격」하면 같은 요청이 오면 바로 시작해요.": "This process is still at “Suggest”, so you are asked. Once an admin promotes it to “Automatic”, the same request starts it right away.",
+  "자동으로 승격": "Promoted to automatic",
+  "승격 낮춤": "Demoted",
+  "예약(타이머)": "Schedule (timer)",
+  "울렸어요": "rang",
+  "메일 · 정해진 때": "Mail · set times",
+  "예약 걸기": "Schedule it",
+  "메일에서 찾은 주기예요. 아직 시계는 걸려 있지 않아요.": "A rhythm found in the mail. No clock is set yet.",
+  "메일 날짜와 메일에 쓴 말에서 찾은 주기예요. 아직 시계는 걸려 있지 않아요.": "A rhythm found in the mail dates and wording. No clock is set yet.",
+  "이 일이 든 프로세스가 없어 회사 타이머로는 걸 수 없어요. 맡은 사람이 예약으로 걸 수 있어요.": "No process contains this work, so it can't take a company timer. The person who does it can schedule it.",
+  "예약하지 않았어요.": "Not scheduled.",
+  "타이머 멈추기": "Pause timer",
+  "타이머 다시 켜기": "Turn timer back on",
+  "바꾸는 중…": "Changing…",
+  "멈췄어요. 예약도 함께 멈춰요.": "Paused. The schedule pauses with it.",
+  "다시 켰어요.": "Turned back on.",
+  "타이머 켬": "Timer on",
+  "타이머 멈춤": "Timer paused",
+  "타이머 지움": "Timer removed",
+  "지도에는 누가 · 누구에게 · 어떤 일 · 언제뿐이에요. 읽은 메일은 내 메일 보관함에만 남아요": "The map keeps only who · to whom · which work · when. The mail you read stays in your own mail archive"
  },
  "patterns": [
+  [
+   "{0}님의 방법을 「{1}」 스킬로 만들어 「{2}」의 일 정의에 붙였어요. 스냅샷 실행과 에이전트가 이 스킬을 써요.",
+   "Made {0}'s way into the skill “{1}” and added it to the definition of “{2}”. Snapshot runs and agents use this skill."
+  ],
+  [
+   "「{0}」 역할에서 결과물이 나오면 혼자 이어서 하는 일이에요. 같은 역할 여러 사람의 습관을 셈했어요.",
+   "What people in the “{0}” role do on their own after a result, counted from several people's habits."
+  ],
   [
    "떼어 둔 최근 건 {0}건 · 이동 {1}개로 쟀어요. 적합도가 크게 꺾이기 직전 값이에요.",
    "Measured on {0} held-out recent cases · {1} moves. It's the value just before fitness drops sharply."
@@ -2134,6 +2252,10 @@
   [
    "최근 4주 이동 {0}개를 가장 잘 맞힌 값이에요(로그 우도가 클수록 잘 맞힘).",
    "The value that best predicted the {0} moves of the last 4 weeks (higher log-likelihood fits better)."
+  ],
+  [
+   "{0}에 「{1}」 예약을 걸었어요. 회사 지도에는 타이머 사건으로 남아요.",
+   "Scheduled “{1}”, {0}. It stays on the company map as a timer event."
   ],
   [
    "떼어 둔 최근 건이 {0}건뿐이라 아직 잴 수 없어 시작값을 써요.",
@@ -2144,8 +2266,72 @@
    "At its old rate about {1} should have appeared in the last {0} days, but there were none."
   ],
   [
+   "{0} 업무로 진행할 수 있어요. 「{1}」부터 시작할까요?",
+   "{0} can go ahead as this process. Start at “{1}”?"
+  ],
+  [
+   "기준에 못 미쳐 지도에 안 보이는 습관 {0}개",
+   "{0} habits hidden from the map below the bar"
+  ],
+  [
+   "그 일이 끝난 {0}번에 이 사건이 생겼어요",
+   "Happened in {0} of that task's completions"
+  ],
+  [
+   "같은 역할 {0}명 · 회사가 고른 방법: {1}",
+   "{0} people in your role · the company's way: {1}"
+  ],
+  [
+   "기준에 못 미쳐 안 보이는 루틴 {0}개",
+   "{0} routines hidden below the bar"
+  ],
+  [
+   "꺼 두어 지도에 안 보이는 습관 {0}개",
+   "{0} habits hidden from the map (turned off)"
+  ],
+  [
+   "{0}마다 하는 일을 부탁하고 있어요.",
+   "asks for work done {0}."
+  ],
+  [
+   "일 {0}/{1} · 사건 {2} · 관계 {3}",
+   "Tasks {0}/{1} · events {2} · links {3}"
+  ],
+  [
+   "기준 이상만(같은 역할 {0}명)",
+   "Only above the bar ({0} people in the same role)"
+  ],
+  [
+   "이 주기로 「{0}」 타이머 걸기",
+   "Set a “{0}” timer on this rhythm"
+  ],
+  [
+   "「{0}」에 {1} 타이머를 걸었어요.",
+   "Set a timer on “{0}”: {1}."
+  ],
+  [
+   "물었을 때 받아들인 비율 {0}",
+   "taken up {0} when asked"
+  ],
+  [
+   "공유했어요 · 목표 「{0}」",
+   "Shared · goal “{0}”"
+  ],
+  [
    "θ {0} · 재생 적합도 {1}",
    "θ {0} · replay fitness {1}"
+  ],
+  [
+   "{0}건 · 그 사람 일의 {1}",
+   "{0} · {1} of their work"
+  ],
+  [
+   "{0}에 「{1}」부터 시작해요.",
+   "Starts at “{1}”, {0}."
+  ],
+  [
+   "사람마다 한 주에 {0}건",
+   "{0} per person a week"
   ],
   [
    "일 {0}/{1} · 관계 {2}/{3}",
@@ -2360,6 +2546,18 @@
    "{0} days · log-likelihood {1}"
   ],
   [
+   "사람 {0}명 · 일 {1}개",
+   "{0} people · {1} tasks"
+  ],
+  [
+   "{0}건 · 이 역할이 {1}",
+   "{0} · {1} by this role"
+  ],
+  [
+   "같은 역할 {0}명 · {1}",
+   "{0} people in the role · {1}"
+  ],
+  [
    "{0}/{1} 카드 · 본문",
    "{0}/{1} cards · full text"
   ],
@@ -2390,6 +2588,10 @@
   [
    "에이전트 위임 {0}건",
    "Agent delegations {0}"
+  ],
+  [
+   "받음 {0} · 넘김 {1}",
+   "In {0} · out {1}"
   ],
   [
    "대화에서 직접 {0}",
@@ -2464,6 +2666,18 @@
    "passed {0} times"
   ],
   [
+   "같은 역할 {0}명",
+   "{0} people in your role"
+  ],
+  [
+   "{0} 결과물 뒤에",
+   "After a {0} result"
+  ],
+  [
+   "「{0}」부터 진행",
+   "Go ahead from “{0}”"
+  ],
+  [
    "유휴 {0} ({1})",
    "Idle {0} ({1})"
   ],
@@ -2530,6 +2744,10 @@
   [
    "{0}월 {1}일 기준",
    "as of {0}/{1}"
+  ],
+  [
+   "{0}번 생겼어요",
+   "Happened {0} times"
   ],
   [
    "표 {0} ({1})",
@@ -2626,6 +2844,30 @@
   [
    "시작값 {0}",
    "Starting value {0}"
+  ],
+  [
+   "{0}번 실행",
+   "Ran {0} times"
+  ],
+  [
+   "「{0}」부터",
+   "From “{0}”"
+  ],
+  [
+   "{0} 타이머",
+   "{0} timers"
+  ],
+  [
+   "{0}번 울림",
+   "rang {0} times"
+  ],
+  [
+   "칸 · {0}",
+   "Fields · {0}"
+  ],
+  [
+   " 외 {0}개",
+   " and {0} more"
   ],
   [
    "나: {0}",

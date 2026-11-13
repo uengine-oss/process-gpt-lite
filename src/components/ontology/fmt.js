@@ -29,3 +29,14 @@ export const SOURCE_KO = { mail_history: '메일', chat_handover: '채팅', agen
 export const BAND = { paved: '굳은 길', open: '열린 일', watch: '지켜보기' }
 export const HOW_KO = { same: '같은 이름', alias: '다른 이름으로 맞춤', model: '새 이름', candidate: '후보', none: '일 아님' }
 export const taskName = (key) => (key === END ? '끝' : key)
+// v0.3 사건 · 역할 · 습관
+export const CLS_KO = { slides: '슬라이드', doc: '문서', sheet: '표', pdf: 'PDF', audio: '오디오', image: '그림', video: '영상', drawing: '도면', link: '링크 · 파일' }
+export const EVENT_KO = { mail: '메일', artifact: '결과물', message: '채팅', link: '링크', time: '정한 시각', timer: '타이머', done: '일이 끝남' }
+export const TRIG_SOURCE_KO = { mined: '메일 · 인계에서', habit: '개인 습관', told: '직접 말함', rule: '방 규칙', timer: '예약(타이머)' }
+export const SPLIT_KO = { and: '함께', xor: '하나만' }
+export const HABIT_MODE_KO = { threshold: '기준 이상만', all: '모두(이름 없이)', off: '끄기' }
+// 「role:영업」 → 「영업」
+export const scopeRole = (scope) => (String(scope || '').startsWith('role:') ? String(scope).slice(5) : '')
+
+// a learned condition as people read it: 「견적 합계(amount)가 …」 keeps the field name for the engine, the screen drops it
+export const condText = (s) => String(s || '').replace(/\s*\([a-z_][a-z0-9_]*\)/gi, '')

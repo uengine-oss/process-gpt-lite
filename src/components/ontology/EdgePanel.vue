@@ -2,7 +2,7 @@
 // 관계 하나: 건수, 확률과 95% 구간, 평균 대기, 처음 · 마지막으로 본 날, 출처별, 은퇴 후보의 근거.
 // 아래 actions 자리에 고정 · 은퇴 단추가 들어간다.
 import { computed } from 'vue'
-import { pct, dateKo, waitText, SOURCE_KO, END } from './fmt.js'
+import { pct, dateKo, waitText, SOURCE_KO, END, condText } from './fmt.js'
 
 const props = defineProps({ edge: { type: Object, required: true } })
 const e = computed(() => props.edge)
@@ -18,7 +18,7 @@ const expected = computed(() => { const x = e.value.expected || 0; return x >= 1
       <b>은퇴 후보</b> 예전 빈도로는 최근 {{ gap }}일 동안 {{ expected }}건쯤 나왔어야 하는데 0건이에요.
     </p>
     <p v-if="e.status === 'retired'" class="note">은퇴한 길이에요. 지도에는 회색 점선으로 남아요.</p>
-    <p v-if="e.cond" class="note">조건 · {{ e.cond }}</p>
+    <p v-if="e.cond" class="note">조건 · {{ condText(e.cond) }}</p>
 
     <dl class="kv">
       <dt>건수</dt><dd><b>{{ e.n }}번</b></dd>

@@ -3,16 +3,19 @@
 // 관계 굵기는 확률(p), 숫자는 p. 고리는 바깥으로 도는 곡선, 은퇴 후보는 주황 점선, 은퇴한 관계는 회색 점선,
 // 고정은 핀, 관찰 적음(Wilson 구간 폭 > 0.3)은 흐리게, 후보 일은 흐리게. 배치는 layout.js.
 // 넓은 화면은 왼→오, 폰은 위→아래. 끌어서 옮기고 − / 맞춤 / + 로 크기를 바꾼다.
+// 사건 보기(events): 사건은 작은 원(메일 · 결과물 · 채팅)과 그 아래 이름. 일 → 사건(RAISES) · 사건 → 일(TRIGGERS) 관계를
+// 그리고, 한 사건 뒤 여러 일이 함께 열리면(split and) 숫자 옆에 「함께」. 사건이나 그 관계를 누르면 select {kind: 'event'}.
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { layoutGraph } from './layout.js'
-import { END, pct, taskName } from './fmt.js'
-import { edgeId } from './mapView.js'
+import { END, pct, taskName, SPLIT_KO, condText } from './fmt.js'
+import { edgeId, EV } from './mapView.js'
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
   edges: { type: Array, default: () => [] },
   entries: { type: Array, default: () => [] },
-  selected: { type: Object, default: null }, // {kind: 'edge'|'task', id}
+  events: { type: Array, default: () => [] }, // 사건 보기: [{key: EV + event key, ev, label, and}]
+  selected: { type: Object, default: null }, // {kind: 'edge'|'task'|'event', id}
   dir: { type: String, default: 'LR' },
   side: Boolean, // a side panel covers the right: keep room so the map can move out from under it
   scale: { type: Number, default: 1 }, // entry shares are of all cases; × this = of the shown proc's cases
@@ -22,14 +25,14 @@ const emit = defineEmits(['select'])
 // text width at a font size (Hangul a full em, digits and Latin narrower) — enough to wrap names and size labels
 const em = (ch) => (/[가-힣ㄱ-ㆎ一-龥]/.test(ch) ? 1 : /[0-9]/.test(ch) ? 0.6 : ch === ' ' ? 0.3 : ch === '%' ? 0.85 : ch === '·' ? 0.4 : /[A-Z]/.test(ch) ? 0.68 : 0.56)
 const textW = (s, size) => [...String(s)].reduce((a, c) => a + em(c) * size, 0)
-const NAME = 14, SMALL = 11.5, LABEL = 11.5
-function wrap(name, max) {
+const NAME = 14, SMALL = 11.5, LABEL = 11.5, EVS = 11, R = 13
+function wrap(name, max, size = NAME) {
   const words = String(name).split(/\s+/).filter(Boolean)
   const lines = []
   let cur = ''
   for (const w of words) {
     const next = cur ? `${cur} ${w}` : w
-    if (textW(next, NAME) <= max || !cur) cur = next
+    if (textW(next, size) <= max || !cur) cur = next
     else { lines.push(cur); cur = w }
   }
   if (cur) lines.push(cur)
@@ -37,9 +40,9 @@ function wrap(name, max) {
   if (lines.length > 2) out[1] = `${out[1]}…`
   // a single word longer than the box: cut by characters
   return out.map((l) => {
-    if (textW(l, NAME) <= max) return l
+    if (textW(l, size) <= max) return l
     let s = ''
-    for (const c of l) { if (textW(`${s}${c}…`, NAME) > max) return `${s}…`; s += c }
+    for (const c of l) { if (textW(`${s}${c}…`, size) > max) return `${s}…`; s += c }
     return s
   })
 }
@@ -50,16 +53,27 @@ const nodeDefs = computed(() => {
     const lines = wrap(t.name || t.key, W.value - 22)
     return { key: t.key, w: W.value, h: lines.length > 1 ? 74 : 58, lines, t }
   })
+  // an event: a small circle, its name under it (LR) or beside it (TB); edges meet the circle (port), not the box
+  for (const e of props.events) {
+    const LR = props.dir === 'LR'
+    const lines = wrap(e.label, LR ? 100 : 90, EVS)
+    const lw = Math.ceil(Math.max(...lines.map((l) => textW(l, EVS))))
+    if (LR) list.push({ key: e.key, ev: e, lines, w: Math.max(2 * R + 8, lw + 8), h: 2 * R + 2 * (lines.length * 13 + 5), port: R })
+    else list.push({ key: e.key, ev: e, lines, w: 2 * R + 2 * (lw + 10), h: Math.max(2 * R + 6, lines.length * 13 + 6), port: R })
+  }
   if (props.edges.some((e) => e.to === END)) list.push({ key: END, w: 58, h: 36, end: true })
   return list
 })
 const stale = (e) => e.stale && e.status !== 'retired'
-const labelW = (e, short) => Math.ceil(textW(`${pct(e.p)}${stale(e) && !short ? ' · 은퇴 후보' : ''}`, LABEL) + 14 + (e.pinned ? 13 : 0))
+const isAnd = (e) => e.kind === 'trigger' && e.split === 'and'
+// a role routine's step: how many people of the role do it
+const people = (e) => (e.kind === 'trigger' && String(e.scope || '').startsWith('role:') ? `${e.people || 0}명` : '')
+const labelW = (e, short) => Math.ceil(textW(`${pct(e.p)}${stale(e) && !short ? ' · 은퇴 후보' : ''}${isAnd(e) ? ` · ${SPLIT_KO.and}` : ''}${people(e) ? ` · ${people(e)}` : ''}`, LABEL) + 14 + (e.pinned ? 13 : 0))
 const width = (e) => 1.2 + 4.6 * Math.min(1, Math.max(0, e.p || 0))
 const tipLen = (e) => 7 + width(e) * 1.4
 
 const L = computed(() => layoutGraph({
-  nodes: nodeDefs.value.map(({ key, w, h }) => ({ key, w, h })),
+  nodes: nodeDefs.value.map(({ key, w, h, port }) => ({ key, w, h, port })),
   edges: props.edges.map((e) => ({ id: edgeId(e), from: e.from, to: e.to, p: e.p })),
   entries: props.entries,
   dir: props.dir,
@@ -68,6 +82,8 @@ const L = computed(() => layoutGraph({
   labelSize: (x) => { const e = props.edges.find((y) => edgeId(y) === x.id) || x; return { w: labelW(e), ws: stale(e) ? labelW(e, true) : 0, h: 18 } },
 }))
 const nodeBy = computed(() => new Map(nodeDefs.value.map((n) => [n.key, n])))
+const nameOf = (key) => nodeBy.value.get(key)?.ev?.ev?.name || taskName(key)
+const selKey = computed(() => (props.selected?.kind === 'event' ? EV + props.selected.id : props.selected?.kind === 'task' ? props.selected.id : null))
 const edgeBy = computed(() => new Map(props.edges.map((e) => [edgeId(e), e])))
 const entryShare = computed(() => new Map(props.tasks.filter((t) => props.entries.includes(t.key)).map((t) => [t.key, Math.min(1, (t.entry_share || 0) * props.scale)])))
 
@@ -88,15 +104,19 @@ const drawn = computed(() => L.value.edges.map((g) => {
   const e = edgeBy.value.get(g.id)
   const { d, tip } = trimmed(g)
   const retired = e.status === 'retired'
-  const tips = [`${taskName(e.from)} → ${taskName(e.to)} · ${pct(e.p)} · ${e.n}건`]
+  const tips = [`${nameOf(e.from)} → ${nameOf(e.to)} · ${pct(e.p)} · ${e.n}건`]
+  if (isAnd(e)) tips.push('여러 일이 함께 열려요')
+  if (people(e)) tips.push(`같은 역할 ${people(e)}`)
+  if (e.cond) tips.push(`조건: ${condText(e.cond)}`)
   if (e.pinned) tips.push('고정')
   if (e.stale) tips.push('은퇴 후보')
   if (retired) tips.push('은퇴함')
   if (e.thin) tips.push('관찰 적음')
-  if ((e.people ?? 2) <= 1) tips.push('한 사람 기준')
+  if (!e.kind && (e.people ?? 2) <= 1) tips.push('한 사람 기준')
   return {
     id: g.id, d, tip, e, back: g.back, label: g.label, w: width(e), tl: tipLen(e), title: tips.join(' · '),
-    cls: { stale: stale(e), retired, thin: e.thin, back: g.back, sel: props.selected?.kind === 'edge' && props.selected.id === g.id, near: props.selected?.kind === 'task' && (e.from === props.selected.id || e.to === props.selected.id) },
+    cls: { stale: stale(e), retired, thin: e.thin, back: g.back, and: isAnd(e), evt: e.kind === 'raise' || e.kind === 'trigger',
+      sel: props.selected?.kind === 'edge' && props.selected.id === g.id, near: !!selKey.value && (e.from === selKey.value || e.to === selKey.value) },
   }
 }))
 const nodes = computed(() => L.value.nodes.map((n) => {
@@ -149,7 +169,7 @@ watch(() => props.selected, async (s) => {
   await nextTick()
   const el = vp.value, svg = el?.querySelector('svg.map')
   if (!el || !svg) return
-  const n = s.kind === 'task' ? L.value.nodes.find((x) => x.key === s.id) : null
+  const n = s.kind === 'task' || s.kind === 'event' ? L.value.nodes.find((x) => x.key === (s.kind === 'event' ? EV + s.id : s.id)) : null
   const g = s.kind === 'edge' ? L.value.edges.find((x) => x.id === s.id) : null
   const pt = n ? { x: n.x, y: n.y } : g ? { x: g.label.x, y: g.label.y } : null
   if (!pt) return
@@ -189,6 +209,9 @@ function pick(kind, id) {
   if (moved) { moved = false; return }
   emit('select', kind ? { kind, id } : null)
 }
+// in the events view a line into or out of an event opens that event (its panel lists what it opens and what raises it)
+const pickEdge = (x) => (x.e.event ? pick('event', x.e.event) : pick('edge', x.id))
+const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' · 여러 일이 함께 열려요' : ''}`
 </script>
 
 <template>
@@ -197,7 +220,7 @@ function pick(kind, id) {
     <svg v-if="L.width" class="map" :width="L.width * zoom" :height="L.height * zoom" :viewBox="`0 0 ${L.width} ${L.height}`" role="img" aria-label="회사 프로세스 지도" @click.self="pick(null)">
       <defs><clipPath id="pm-node-clip"><rect x="4" y="0" :width="W - 8" height="90" /></clipPath></defs>
       <g class="edges">
-        <g v-for="x in drawn" :key="x.id" class="edge" :class="x.cls" @click.stop="pick('edge', x.id)">
+        <g v-for="x in drawn" :key="x.id" class="edge" :class="x.cls" @click.stop="pickEdge(x)">
           <title>{{ x.title }}</title>
           <path class="hit" :d="x.d" />
           <path class="line" :d="x.d" :stroke-width="x.w" />
@@ -205,7 +228,24 @@ function pick(kind, id) {
         </g>
       </g>
       <g class="nodes">
-        <g v-for="n in nodes" :key="n.key" class="node" :class="{ end: n.end, cand: n.t?.candidate, sel: selected?.kind === 'task' && selected.id === n.key, entry: n.share }"
+        <g v-for="n in nodes.filter((x) => x.ev)" :key="n.key" class="node ev" :class="[n.ev.ev.kind, { sel: selKey === n.key, and: n.ev.and }]"
+          :transform="`translate(${n.x0},${n.y0})`" tabindex="0" role="button" data-testid="onto-event-node" :data-event="n.ev.ev.key"
+          @click.stop="pick('event', n.ev.ev.key)" @keydown.enter.prevent="pick('event', n.ev.ev.key)">
+          <title>{{ evTitle(n) }}</title>
+          <g :transform="`translate(${n.w / 2},${n.h / 2})`">
+            <circle class="hit" :r="R + 6" />
+            <circle class="disc" :r="R" />
+            <path v-if="n.ev.ev.kind === 'mail'" class="glyph" d="M-6,-4.5 H6 V4.5 H-6 Z M-6,-4.5 L0,0.8 L6,-4.5" />
+            <path v-else-if="n.ev.ev.kind === 'message'" class="glyph" d="M-6,-5 H6 V3 H-1 L-4.5,6 V3 H-6 Z" />
+            <path v-else-if="n.ev.ev.kind === 'link'" class="glyph" d="M-1.5,1.5 L1.5,-1.5 M-1,-3.5 L1,-5.5 A2.8,2.8 0 0 1 5,-1.5 L3,0.5 M1,3.5 L-1,5.5 A2.8,2.8 0 0 1 -5,1.5 L-3,-0.5" />
+            <path v-else-if="n.ev.ev.kind === 'time' || n.ev.ev.kind === 'timer'" class="glyph" d="M0,-5.5 A5.5,5.5 0 1 1 -0.01,-5.5 M0,-3 V0 L2.5,1.5" />
+            <path v-else-if="n.ev.ev.kind === 'done'" class="glyph" d="M-4.5,0 L-1.2,3.2 L4.8,-3.4" />
+            <path v-else class="glyph" d="M-4.5,-6 H1.5 L4.5,-3 V6 H-4.5 Z M1.5,-6 V-3 H4.5" />
+          </g>
+          <text v-if="dir === 'LR'" class="evl" text-anchor="middle"><tspan v-for="(l, i) in n.lines" :key="i" :x="n.w / 2" :y="n.h / 2 + R + 13 + i * 13">{{ l }}</tspan></text>
+          <text v-else class="evl"><tspan v-for="(l, i) in n.lines" :key="i" :x="n.w / 2 + R + 7" :y="n.h / 2 + 4 - ((n.lines.length - 1) * 13) / 2 + i * 13">{{ l }}</tspan></text>
+        </g>
+        <g v-for="n in nodes.filter((x) => !x.ev)" :key="n.key" class="node" :class="{ end: n.end, cand: n.t?.candidate, sel: selected?.kind === 'task' && selected.id === n.key, entry: n.share, habit: n.t?.kind === 'habit' }"
           :transform="`translate(${n.x0},${n.y0})`" :tabindex="n.end ? -1 : 0" :role="n.end ? null : 'button'"
           @click.stop="!n.end && pick('task', n.key)" @keydown.enter.prevent="!n.end && pick('task', n.key)">
           <title v-if="!n.end">{{ n.t.name }}{{ n.t.role ? ` · ${n.t.role}` : '' }} · {{ n.t.n_cases }}건{{ n.t.candidate ? ' · 후보' : '' }}</title>
@@ -217,7 +257,7 @@ function pick(kind, id) {
             <rect :width="n.w" :height="n.h" rx="13" />
             <text class="nm" clip-path="url(#pm-node-clip)"><tspan v-for="(l, i) in n.lines" :key="i" x="11" :y="22 + i * 17">{{ l }}</tspan></text>
             <text class="sm" x="11" :y="n.h - 11" clip-path="url(#pm-node-clip)">{{ n.t.role }}</text>
-            <text class="sm ct" :x="n.w - 11" :y="n.h - 11" text-anchor="end">{{ n.t.n_cases }}건</text>
+            <text class="sm ct" :x="n.w - 11" :y="n.h - 11" text-anchor="end">{{ n.t.kind === 'habit' && !n.t.n_cases ? '루틴' : `${n.t.n_cases}건` }}</text>
           </template>
         </g>
         <g v-for="n in nodes.filter((x) => x.share)" :key="`s-${n.key}`" class="etag" :transform="`translate(${entryTag(n).x},${entryTag(n).y})`">
@@ -228,13 +268,13 @@ function pick(kind, id) {
       </g>
       <g class="labels">
         <g v-for="x in drawn" :key="`l-${x.id}`" class="lbl" :class="x.cls" :transform="`translate(${x.label.x},${x.label.y})`" tabindex="0" role="button"
-          @click.stop="pick('edge', x.id)" @keydown.enter.prevent="pick('edge', x.id)">
+          @click.stop="pickEdge(x)" @keydown.enter.prevent="pickEdge(x)">
           <title>{{ x.title }}</title>
           <rect :x="-x.label.w / 2" y="-9" :width="x.label.w" height="18" rx="9" />
           <g v-if="x.e.pinned" class="pin" :transform="`translate(${-x.label.w / 2 + 6},-6)`">
             <path d="M3.2,0.6 H8.8 L8,4.6 L10.2,6.8 H1.8 L4,4.6 Z M6,6.8 V11.6" />
           </g>
-          <text :x="x.e.pinned ? 6.5 : 0" y="4" text-anchor="middle">{{ pct(x.e.p) }}<tspan v-if="x.cls.stale && !x.label.short" class="hint"> · 은퇴 후보</tspan></text>
+          <text :x="x.e.pinned ? 6.5 : 0" y="4" text-anchor="middle">{{ pct(x.e.p) }}<tspan v-if="x.cls.stale && !x.label.short" class="hint"> · 은퇴 후보</tspan><tspan v-if="x.cls.and" class="and"> · {{ SPLIT_KO.and }}</tspan><tspan v-if="people(x.e)" class="ppl"> · {{ people(x.e) }}</tspan></text>
         </g>
       </g>
     </svg>
@@ -287,6 +327,21 @@ function pick(kind, id) {
 .etag rect { fill: var(--color-success); }
 .etag path { fill: #0b2a17; }
 .etag text { fill: #0b2a17; font-size: 10.5px; font-weight: 600; }
+
+.node.habit rect { stroke-dasharray: 5 3; stroke: color-mix(in srgb, var(--color-info) 60%, transparent); }
+.node.ev { --evc: var(--text-secondary); }
+.node.ev.mail { --evc: var(--color-info); }
+.node.ev.artifact { --evc: var(--color-success); }
+.node.ev.message { --evc: #a78bfa; }
+.node.ev .hit { fill: transparent; }
+.node.ev .disc { fill: var(--regular-solid-bg); stroke: var(--evc); stroke-width: 1.6; transition: stroke .2s; }
+.node.ev .glyph { fill: none; stroke: var(--evc); stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+.node.ev:hover .disc { stroke: var(--text-primary); }
+.node.ev:focus-visible .disc, .node.ev.sel .disc { stroke: var(--sel); stroke-width: 2.4; }
+.node.ev .evl { fill: var(--text-secondary); font-size: 11px; font-weight: 500; letter-spacing: -0.01em; }
+.node.ev.sel .evl { fill: var(--text-primary); }
+.lbl .and { fill: var(--color-info); font-weight: 600; }
+.lbl .ppl { fill: var(--text-secondary); }
 
 .lbl { cursor: pointer; outline: none; }
 .lbl:focus-visible rect { stroke: var(--sel); stroke-width: 1.5; }

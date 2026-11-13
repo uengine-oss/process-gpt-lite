@@ -71,15 +71,22 @@ export async function googleAccessToken(userId) {
 }
 
 // ---------- fetchers: each returns [{id, from, subject, date, text}] ----------
+// the whole body (the part its sender wrote now — quoted earlier mails cut off) and the attachments' names, not Gmail's
+// short preview: what the mail asks, in what form and whether it repeats is in there (lib/ontology/mailbody.js)
 async function fetchGmail(userId) {
   const at = await googleAccessToken(userId)
-  const api = (p) => fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
-  const list = await api('messages?maxResults=20&q=' + encodeURIComponent('newer_than:2d -category:promotions -category:social'))
+  const { gmailApi } = await import('./ontology/history.js')
+  const { partsOf, bodyOf, newPart } = await import('./ontology/mailbody.js')
+  const api = (p) => fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
+  const list = await api('messages?maxResults=20&q=' + encodeURIComponent('newer_than:2d -category:promotions -category:social -in:sent'))
   const out = []
   for (const m of list.messages || []) {
     const full = await api(`messages/${m.id}?format=full`)
     const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name.toLowerCase(), x.value]))
-    out.push({ id: m.id, from: h.from, subject: h.subject, date: h.date, text: full.snippet || '' })
+    const parts = partsOf(full.payload)
+    const body = bodyOf(parts)
+    out.push({ id: m.id, thread: full.threadId, from: h.from, to: h.to, cc: h.cc, subject: h.subject, date: h.date, body, labels: full.labelIds || [], text: (newPart(body) || full.snippet || '').slice(0, 6000),
+      attachments: parts.attachments.map((f) => ({ name: f.name, size: f.size, attachmentId: f.attachmentId })) })
   }
   return out
 }
@@ -236,10 +243,14 @@ export async function pollUser(userId, { announce } = {}) {
   const seen = new Set((await q('select mail_id from pro_mail_seen where user_id=$1', [userId])).map((r) => r.mail_id))
   const fresh = mails.filter((m) => !seen.has(m.id))
   for (const m of fresh) await q('insert into pro_mail_seen values ($1,$2) on conflict do nothing', [userId, m.id])
+  // what was read is kept in the owner's mail archive (lib/mailArchive.js)
+  if (fresh.length) await import('./mailArchive.js').then((a) => a.archiveMails(userId, acc.provider, fresh, 'intake')).catch((e) => console.warn('[mail] archive', e.message))
   await q('update pro_mail_accounts set last_poll=now() where user_id=$1', [userId])
   if (!fresh.length) return { fresh: 0 }
 
-  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(fresh.map(({ id, from, subject, date, text }) => ({ id, from, subject, date, text: (text || '').slice(0, 800) }))))
+  // work that repeats (「앞으로 매주 월요일 오전에 …」): asked as a schedule — a timer event on the company map (lib/ontology/timers.js)
+  for (const m of fresh) if (!m.fixture) import('./ontology/timers.js').then((o) => o.recurFromMail(userId, m)).catch((e) => console.warn('[mail] recur', e.message))
+  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(fresh.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name) }))))
   for (const a of r.actions || []) {
     const src = fresh.find((m) => m.id === a.mail_id)
     const [row] = await q(

@@ -10,7 +10,7 @@ import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
-import { listSchedules, deleteSchedule } from './lib/scheduler.js'
+import { listSchedules, deleteSchedule, ontoTimer } from './lib/scheduler.js'
 import { generatePanel, revisePanel, savePanelData, proxyFetch } from './lib/panels.js'
 import { chat } from './lib/llm.js'
 import * as mail from './lib/mail.js'
@@ -318,6 +318,16 @@ const background = process.env.PRO_BACKGROUND !== '0'
 if (background) setTimeout(() => mail.resumeDrafts().catch((e) => console.warn('[mail] resume', e.message)), 5000)
 // 연습 메일 받기 (Settings): the fictional mails a demo mailbox can be sent ({template: id} below)
 app.get('/api/mail/demo-templates', auth, (req, res) => res.json(mail.demoTemplates().map(({ id, label, hint, from, subject }) => ({ id, label, hint, from, subject }))))
+// 메일 보관함(lib/mailArchive.js): 읽은 메일 — 주인만 보고 지운다
+app.get('/api/mail/archive', auth, async (req, res) => {
+  const { listArchive } = await import('./lib/mailArchive.js')
+  res.json(await listArchive(req.user.id, { search: req.query.q || '', limit: req.query.limit, before: req.query.before || null }))
+})
+app.get('/api/mail/archive/:id', auth, async (req, res) => {
+  const m = await (await import('./lib/mailArchive.js')).readArchived(req.user.id, req.params.id)
+  return m ? res.json(m) : res.status(404).json({ error: '보관함에 없는 메일이에요.' })
+})
+app.delete('/api/mail/archive', auth, async (req, res) => res.json(await (await import('./lib/mailArchive.js')).clearArchive(req.user.id)))
 app.post('/api/mail/demo-arrive', auth, async (req, res) => {
   try { res.json(await mail.demoArrive(req.user.id, req.body || {})) } catch (e) { res.status(400).json({ error: e.message }) }
 })
@@ -732,6 +742,7 @@ app.post('/api/missions/:id/agent', auth, async (req, res) => {
 app.post('/api/missions/:id/pause', auth, async (req, res) => {
   if (!(await ownSchedule(req))) return res.status(404).end()
   const [s] = await q('update pro_schedules set paused=$2 where id=$1 returning paused', [req.params.id, !!req.body.paused])
+  ontoTimer(req.params.id)
   res.json(s)
 })
 

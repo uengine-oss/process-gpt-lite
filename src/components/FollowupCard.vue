@@ -1,5 +1,7 @@
 <script setup>
 // 후행 습관: 결과물이 나온 뒤 평소 하던 다음 일을 먼저 묻는 카드(server lib/followups.js). 눌러야 실행한다. 말로 답해도 된다.
+// 내 습관이 없을 때는 같은 역할의 루틴으로 묻는다(content.routine, source 'routine' — 회사 프로세스 지도 v0.3 §10):
+// 「같은 역할 n명 · 회사가 고른 방법: 이름」.
 import { computed, ref } from 'vue'
 import { api } from '../api.js'
 
@@ -8,7 +10,11 @@ const c = computed(() => props.msg.content || {})
 const busy = ref('')
 const err = ref('')
 const DONE = { accepted: '네, 하는 중이에요', declined: '이번에는 하지 않았어요', muted: '다시 묻지 않을게요', passed: '' }
-const seenText = computed(() => (c.value.origin === 'told' ? '직접 말씀하신 습관' : `지금까지 ${c.value.seen}번 하셨어요`))
+const r = computed(() => c.value.routine || null)
+const seenText = computed(() => {
+  if (r.value) return `같은 역할 ${r.value.people || 0}명${r.value.way?.name ? ` · 회사가 고른 방법: ${r.value.way.name}` : ''}`
+  return c.value.origin === 'told' ? '직접 말씀하신 습관' : `지금까지 ${c.value.seen}번 하셨어요`
+})
 async function answer(choice) {
   err.value = ''; busy.value = choice
   try { await api(`/followups/answer/${props.msg.id}`, { method: 'POST', body: { choice } }) } catch (e) { err.value = e.message } finally { busy.value = '' }
@@ -16,7 +22,7 @@ async function answer(choice) {
 </script>
 
 <template>
-  <div class="fu" data-testid="followup-card" :data-state="c.state">
+  <div class="fu" data-testid="followup-card" :data-state="c.state" :data-source="c.source || null">
     <div class="q">{{ c.text }}</div>
     <template v-if="c.state === 'pending'">
       <div class="btns">
@@ -24,7 +30,7 @@ async function answer(choice) {
         <button class="pill press" :disabled="!!busy" data-testid="followup-decline" @click="answer('decline')">아니요</button>
         <button class="pill press" :disabled="!!busy" data-testid="followup-mute" @click="answer('mute')">다시 묻지 않기</button>
       </div>
-      <small class="why">{{ seenText }}</small>
+      <small class="why" :data-testid="r ? 'followup-routine' : null">{{ seenText }}</small>
     </template>
     <small v-else-if="DONE[c.state]" class="why" data-testid="followup-done">{{ DONE[c.state] }}</small>
     <small v-if="err" class="err">{{ err }}</small>

@@ -73,8 +73,8 @@ export const SCHEMA = [
     ['entries', A], ['cases', N], ['owner', S], ['summary_theta', N], ['kind', S], ['role', S]], true],
   ['HAS_TASK', 'relation', [['n', N], ['share', N], ['entry_share', N]], true],
   // events: a request mail, a chat request, a result of a kind (from rules only)
-  ['Event', 'entity', [['key', S, true], ['kind', S], ['cls', S], ['name', S], ['n', N]], false],
-  ['TRIGGERS', 'relation', [['n', N], ['p', N], ['split', S], ['cond', S], ['source', S], ['scope', S], ['people', N], ['shared', N], ['status', S], ['pinned', B]], true],
+  ['Event', 'entity', [['key', S, true], ['kind', S], ['cls', S], ['name', S], ['n', N], ['cron', S], ['tz', S], ['status', S], ['scope', S], ['schedule', S]], false],
+  ['TRIGGERS', 'relation', [['n', N], ['p', N], ['split', S], ['cond', S], ['source', S], ['scope', S], ['people', N], ['shared', N], ['status', S], ['pinned', B], ['autonomy', S]], true],
   ['RAISES', 'relation', [['n', N], ['p', N]], true],
   ['STARTS_ON', 'relation', [['n', N], ['share', N]], true],
   // roles: who performs the work, what the role carries (definition and competencies confirmed by an admin)
@@ -142,13 +142,14 @@ export const parseProcess = (b) => b && ({ ...b, curve: J(b.curve, []), hl_score
 // at: {validAt?, systemAt?} — read the graph as it was then
 export async function readGraph(at = {}) {
   const meta = { validAt: at.validAt, systemAt: at.systemAt }
-  const tasks = (await cypher('MATCH (t:Task) RETURN t', {}, meta)).map((r) => parseTask(r.t))
+  // the v0.2 `bundle` property is left on old nodes (membership is HAS_TASK now)
+  const tasks = (await cypher('MATCH (t:Task) RETURN t', {}, meta)).map((r) => { const { bundle, ...t } = parseTask(r.t); return { ...t, kind: t.kind || 'flow' } })
   const edges = (await cypher('MATCH (a:Task)-[e:NEXT]->(b:Task) RETURN a.key AS from, b.key AS to, e', {}, meta)).map((r) => ({ from: r.from, to: r.to, ...parseEdge(r.e) }))
   const ends = (await cypher('MATCH (a:Task)-[e:NEXT]->(b:End) RETURN a.key AS from, e', {}, meta)).map((r) => ({ from: r.from, to: '__end__', ...parseEdge(r.e) }))
   const processes = (await cypher('MATCH (b:Process) RETURN b', {}, meta)).map((r) => parseProcess(r.b)).filter((b) => b.status !== 'gone')
     .map((p) => ({ ...p, kind: p.kind || 'flow' }))
   const rel = async (q) => (await cypher(q, {}, meta)).map((r) => ({ from: r.from, to: r.to, ...(r.e || {}) }))
-  const events = (await cypher('MATCH (e:Event) RETURN e', {}, {})).map((r) => r.e)
+  const events = (await cypher('MATCH (e:Event) RETURN e', {}, {})).map((r) => r.e).filter((e) => e.status !== 'gone')
   const triggers = (await rel('MATCH (a:Event)-[e:TRIGGERS]->(b:Task) RETURN a.key AS from, b.key AS to, e')).filter((t) => t.status !== 'gone')
   const raises = await rel('MATCH (a:Task)-[e:RAISES]->(b:Event) RETURN a.key AS from, b.key AS to, e')
   const startsOn = await rel('MATCH (a:Process)-[e:STARTS_ON]->(b:Event) RETURN a.key AS from, b.key AS to, e')

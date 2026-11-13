@@ -1,13 +1,15 @@
 <script setup>
 // 검토할 것(학습 순환의 사람 몫): 은퇴 후보 · 고정을 건너뛴 건 · 굳어진 길 · 은퇴한 길, 그리고 최근 결정.
 // 은퇴 · 되살림은 관리자만. emits changed(결정 뒤) · open-edge({from,to}) · open-task(key) — 지도 화면이 그쪽으로 옮겨 간다.
+// 맨 위는 개인 습관을 지도에 보이는 기준(v0.3 §4, OntoHabitSettings): habits = 지도 응답의 habits.
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../../api.js'
 import { pct, dateTimeKo } from './fmt.js'
 import OntoEdgeActions from './OntoEdgeActions.vue'
+import OntoHabitSettings from './OntoHabitSettings.vue'
 import { KIND_KO, DECISION_KO } from './ontoText.js'
 
-const props = defineProps({ admin: Boolean })
+const props = defineProps({ admin: Boolean, habits: { type: Object, default: null } })
 const emit = defineEmits(['changed', 'open-edge', 'open-task'])
 const agenda = ref(null)
 const decisions = ref([])
@@ -31,6 +33,7 @@ defineExpose({ reload: load })
 
 <template>
   <section class="rv" data-testid="onto-review-panel">
+    <OntoHabitSettings :habits="habits" :admin="admin" @changed="(r) => emit('changed', r)" />
     <header class="hd">
       <h3>검토할 것</h3>
       <small v-if="items.length" class="sum">

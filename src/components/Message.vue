@@ -23,6 +23,8 @@ import FollowupCard from './FollowupCard.vue'
 import OntoSummaryCard from './ontology/OntoSummaryCard.vue'
 import OntoEntryCard from './ontology/OntoEntryCard.vue'
 import OntoHabitCard from './ontology/OntoHabitCard.vue'
+import OntoHabitShareCard from './ontology/OntoHabitShareCard.vue'
+import OntoTimerAskCard from './ontology/OntoTimerAskCard.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -52,7 +54,7 @@ const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text |
 // "- 네, 이대로 진행 (설명)" style options closing an agent question become tappable replies
 // (src/replies.js: only a real choice list — a report's bullet lines stay text)
 const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
-const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell' }
+const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell', refresh: 'refresh' }
 const ctx = computed(() => (c.value.context && c.value.context.action !== 'stay' && c.value.context.title ? c.value.context : null))
 const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinned: '대화에서 직접', trivial: '', none: '' }
 const ctxBy = computed(() => (ctx.value ? (ctx.value.rechecked ? '판단 모델 재확인→logprob' : ctx.value.escalated ? '판단 모델→logprob' : byName[ctx.value.strategy] ?? ctx.value.strategy) : ''))
@@ -114,6 +116,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <OntoSummaryCard v-else-if="msg.kind === 'onto-summary'" :msg="msg" />
     <OntoEntryCard v-else-if="msg.kind === 'onto-entry'" :msg="msg" />
     <OntoHabitCard v-else-if="msg.kind === 'onto-habit'" :msg="msg" />
+    <OntoHabitShareCard v-else-if="msg.kind === 'habit-share'" :msg="msg" />
+    <OntoTimerAskCard v-else-if="msg.kind === 'onto-timer'" :msg="msg" />
     <BriefCard v-else-if="msg.kind === 'brief'" :msg="msg" />
     <OptimizeCard v-else-if="msg.kind === 'optimize'" :msg="msg" />
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />

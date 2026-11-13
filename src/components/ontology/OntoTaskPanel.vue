@@ -1,12 +1,14 @@
 <script setup>
 // 일 하나: 메일 · 채팅에서 불린 다른 이름, 메일에 오간 양식, 일 정의(SKILL.md 모양, kind: task)와 고정.
 // 정의 편집 · 양식에서 초안 · 고정은 관리자만. hideHeader: 바깥 틀(SidePanel)이 이름을 보일 때 이름 줄을 빼고 태그만.
-// emits changed({kind:'definition'|'pin', ...})
+// 방법 후보(v0.3 §10, OntoWays): 같은 일을 사람마다 다르게 하는 방법 — 고른 방법이 스킬이 되면 정의를 다시 불러온다.
+// emits changed({kind:'definition'|'pin'|'skill', ...})
 import { ref, computed, watch } from 'vue'
 import { marked } from 'marked'
 import { api } from '../../api.js'
 import { HOW_KO } from './fmt.js'
 import OntoWhenReason from './OntoWhenReason.vue'
+import OntoWays from './OntoWays.vue'
 import { ACT_KO, RUNNER_KO, AUTONOMY_KO, validFromOf, dayKo, EUL } from './ontoText.js'
 
 const props = defineProps({ taskKey: { type: String, required: true }, admin: Boolean, hideHeader: Boolean })
@@ -35,8 +37,8 @@ watch(() => props.taskKey, load, { immediate: true })
 
 const t = computed(() => d.value?.task || {})
 const p = computed(() => d.value?.parsed || {})
-// 일 이름과 똑같은 말은 「다른 이름」이 아니다
-const labels = computed(() => (d.value?.labels || []).filter((l) => l.raw && l.raw.trim() !== String(d.value?.task?.key || '').trim()))
+// 일 이름과 똑같은 말은 「다른 이름」이 아니다. 개인 습관의 원래 말(act habit)은 회사 화면에 보이지 않는다(design-v0.3 §3.4)
+const labels = computed(() => (d.value?.labels || []).filter((l) => l.raw && l.act !== 'habit' && l.raw.trim() !== String(d.value?.task?.key || '').trim()))
 const shownLabels = computed(() => (allLabels.value ? labels.value : labels.value.slice(0, 3)))
 // 메일 첨부 이름은 고객마다 달라(견적서_달빛커피.xlsx · 견적서_한빛치과.xlsx …) 같은 양식 파일이면 한 줄로 모은다.
 // pick: 초안 만들기에 넘길 이름(서버 templates 의 name 중 하나)
@@ -98,6 +100,8 @@ async function applyPin() {
     emit('changed', { kind: 'pin', key: props.taskKey, pinned, validFrom: validFrom || null })
   } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
+// a way became this task's skill: its definition now lists it
+async function skilled(x) { await load(); note.value = ''; emit('changed', { kind: 'skill', key: props.taskKey, name: x.name }) }
 defineExpose({ reload: load })
 </script>
 
@@ -152,7 +156,9 @@ defineExpose({ reload: load })
         <ul class="tpl">
           <li v-for="x in shownTemplates" :key="x.file || x.name" data-testid="onto-template">
             <span class="fic" :class="kindOfFile(x.type)">{{ (x.type || '').toUpperCase().slice(0, 4) }}</span>
-            <span class="tn"><b :title="x.example">{{ x.name }}</b><small>메일 {{ x.seen }}번<template v-if="x.variants > 1"> · 파일 이름 {{ x.variants }}가지</template><template v-if="x.file"> · 양식 파일 있음</template></small></span>
+            <span class="tn"><b :title="x.example">{{ x.name }}</b><small>메일 {{ x.seen }}번<template v-if="x.variants > 1"> · 파일 이름 {{ x.variants }}가지</template><template v-if="x.file"> · 양식 파일 있음</template></small>
+              <!-- the form's own labels: what the company's attachments of that form always have (server mailbody.js formFields) -->
+              <small v-if="x.fields?.length" class="tf" data-testid="onto-template-fields">칸 · {{ x.fields.slice(0, 10).join(' · ') }}<template v-if="x.fields.length > 10"> 외 {{ x.fields.length - 10 }}개</template></small></span>
           </li>
         </ul>
         <button v-if="templates.length > 3" class="more press" @click="allTpl = !allTpl">{{ allTpl ? '접기' : `모두 보기 (${templates.length})` }}</button>
@@ -202,6 +208,9 @@ defineExpose({ reload: load })
         </template>
         <small v-if="note" class="ok" data-testid="onto-def-note">{{ note }}</small>
       </div>
+
+      <!-- 방법 후보 -->
+      <OntoWays :task-key="taskKey" :admin="admin" @skill="skilled" />
       <p v-if="err" class="err">{{ err }}</p>
       <small v-if="!admin && !hasDef" class="muted">일 정의는 관리자가 써요. 「{{ t.name || taskKey }}」{{ EUL(t.name || taskKey) }} 어떻게 할지 정해 두면 에이전트가 맡을 수 있어요.</small>
     </template>
@@ -243,6 +252,7 @@ h4 small { font-weight: 400; color: var(--text-tertiary); margin-left: 4px; }
 
 .tpl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .tpl li { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tpl .tf { display: block; margin-top: 2px; color: var(--text-secondary); line-height: 1.45; white-space: normal; }
 .fic { flex: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; background: #6b6b66; }
 .fic.xls { background: #217346; } .fic.doc { background: #2b579a; } .fic.hwp { background: #1f6fd1; } .fic.ppt { background: #c43e1c; }
 .tn { display: flex; flex-direction: column; min-width: 0; }

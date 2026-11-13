@@ -12,7 +12,8 @@ const bez = (s, t) => {
   return { r: u * u * u * s.p0.r + 3 * u * u * t * s.c1.r + 3 * u * t * t * s.c2.r + t * t * t * s.p1.r, o: u * u * u * s.p0.o + 3 * u * u * t * s.c1.o + 3 * u * t * t * s.c2.o + t * t * t * s.p1.o }
 }
 
-// nodes [{key, w, h}] · edges [{id, from, to, p}] · entries [key] · labelSize(edge) → {w, h, ws?} in screen units (ws: the short form's width)
+// nodes [{key, w, h, port?}] · edges [{id, from, to, p}] · entries [key] · labelSize(edge) → {w, h, ws?} in screen units (ws: the short form's width)
+// port: where edges meet a node, from its centre (default half its box) — a round event drawn small inside a box that also holds its name
 export function layoutGraph({ nodes, edges, entries = [], endKey = '__end__', dir = 'LR', gapRank = 64, gapOrder = 30, margin = 20, labelSize = () => ({ w: 36, h: 18 }) }) {
   if (!nodes.length) return { width: 0, height: 0, nodes: [], edges: [] }
   const LR = dir === 'LR'
@@ -20,6 +21,8 @@ export function layoutGraph({ nodes, edges, entries = [], endKey = '__end__', di
   const E = edges.filter((e) => N.has(e.from) && N.has(e.to))
   const rs = (n) => (n.dummy ? 0 : LR ? n.w : n.h)
   const os = (n) => (n.dummy ? 6 : LR ? n.h : n.w)
+  const rp = (n) => (n.port != null ? n.port : rs(n) / 2)
+  const op = (n) => (n.port != null ? n.port : os(n) / 2)
 
   // 1 back edges by DFS, heavier edges first
   const outs = new Map()
@@ -145,8 +148,8 @@ export function layoutGraph({ nodes, edges, entries = [], endKey = '__end__', di
     const ch = chains.get(e.id)
     const pts = ch.map((k, i) => {
       const p = P(k), it = items.get(k)
-      if (i === 0) return { r: p.r + rs(it) / 2, o: p.o }
-      if (i === ch.length - 1) return { r: p.r - rs(it) / 2, o: p.o }
+      if (i === 0) return { r: p.r + rp(it), o: p.o }
+      if (i === ch.length - 1) return { r: p.r - rp(it), o: p.o }
       return p
     })
     const sg = []
@@ -168,8 +171,8 @@ export function layoutGraph({ nodes, edges, entries = [], endKey = '__end__', di
     const edgeO = sg < 0 ? Math.min(...between.map((it) => o.get(it.key) - os(it) / 2)) : Math.max(...between.map((it) => o.get(it.key) + os(it) / 2))
     const stack = arcs[side].filter((a) => a.lo <= hi && a.hi >= lo).length
     arcs[side].push({ lo, hi })
-    const S = { r: P(e.from).r - Math.min(14, rs(u) / 4), o: o.get(e.from) + sg * os(u) / 2 }
-    const T = { r: P(e.to).r + Math.min(18, rs(v) / 4), o: o.get(e.to) + sg * os(v) / 2 }
+    const S = { r: P(e.from).r - Math.min(14, rp(u) / 2), o: o.get(e.from) + sg * op(u) }
+    const T = { r: P(e.to).r + Math.min(18, rp(v) / 2), o: o.get(e.to) + sg * op(v) }
     const peak = edgeO + sg * (22 + 16 * stack)
     const oc = (8 * peak - S.o - T.o) / 6
     geo.push({ e, segs: [{ p0: S, c1: { r: S.r, o: oc }, c2: { r: T.r, o: oc }, p1: T }], back: true })

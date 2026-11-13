@@ -87,18 +87,21 @@ export async function map({ validAt, systemAt } = {}) {
   const processes = g.processes.map((b) => ({ ...b, bandName: BAND_KO[b.band] || b.band }))
   // personal habits are all counted; the map shows the role routines the setting lets through (design-v0.3 §4)
   const settings = await habitSettings()
-  const personal = (t) => ['habit', 'told', 'rule'].includes(t.source)
+  const personal = (t) => ['habit', 'told', 'rule', 'timer'].includes(t.source) && String(t.scope || '').startsWith('role:')
   const triggers = g.triggers.filter((t) => !personal(t) || shownRoutine(t, settings))
   const routineTasks = new Set(triggers.filter(personal).map((t) => t.to))
   const shownRole = new Set(triggers.filter(personal).map((t) => String(t.scope || '').replace(/^role:/, '')))
   const procs = processes.filter((p) => p.kind !== 'routine' || shownRole.has(p.role))
     .map((p) => (p.kind === 'routine' ? { ...p, tasks: p.tasks.filter((t) => routineTasks.has(t)) } : p))
   const live = new Set(procs.map((p) => p.key))
+  const routineKeys = new Set(procs.filter((p) => p.kind === 'routine').map((p) => p.key))
   const tasks = g.tasks.filter((t) => t.kind !== 'habit' || routineTasks.has(t.key))
     .map((t) => ({ ...t, procs: (t.procs || []).filter((k) => live.has(k)) })).map((t) => ({ ...t, proc: t.procs[0] || '' }))
   const hidden = g.triggers.length - triggers.length
-  return { at: validAt || null, tasks, edges: g.edges, processes: procs, events: g.events.filter((e) => e.kind !== 'artifact' || !String(e.key).startsWith('artifact:@') || triggers.some((t) => t.from === e.key)),
-    triggers, raises: g.raises, startsOn: g.startsOn.filter((x) => live.has(x.from)), hasTask: g.hasTask.filter((x) => live.has(x.from)),
+  // a role's result events and a person's timers show only with a routine step the setting lets through
+  const personalEvent = (e) => String(e.key).startsWith('artifact:@') || String(e.key).startsWith('link:@') || (e.kind === 'timer' && e.scope !== 'company')
+  return { at: validAt || null, tasks, edges: g.edges, processes: procs, events: g.events.filter((e) => !personalEvent(e) || triggers.some((t) => t.from === e.key)),
+    triggers, raises: g.raises, startsOn: g.startsOn.filter((x) => live.has(x.from)), hasTask: g.hasTask.filter((x) => live.has(x.from) && (!routineKeys.has(x.from) || routineTasks.has(x.to))),
     roles: g.roles, performedBy: g.performedBy, performers: g.performers, plays: g.plays, ofRole: g.ofRole.filter((x) => live.has(x.from)), ways: g.ways,
     habits: { ...settings, hidden }, meta: g.meta }
 }

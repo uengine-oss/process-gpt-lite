@@ -172,7 +172,7 @@ export async function routineFor(userId, classes, settings) {
   if (!role) return null
   const rows = []
   for (const cls of classes) {
-    const r = await cypher(`MATCH (e:Event {key:$key})-[t:TRIGGERS]->(x:Task) RETURN x.key AS task, t.people AS people, t.shared AS shared, t.source AS source, t.status AS status`,
+    const r = await cypher(`MATCH (e:Event {key:$key})-[t:TRIGGERS]->(x:Task) RETURN x.key AS task, t.people AS people, t.shared AS shared, t.source AS source, t.status AS status, t.autonomy AS autonomy`,
       { key: `artifact:@${role}:${cls}` }).catch(() => [])
     for (const x of r) if (x.status !== 'retired' && shownRoutine(x, settings)) rows.push({ ...x, cls })
   }
@@ -180,5 +180,15 @@ export async function routineFor(userId, classes, settings) {
   if (!top) return null
   const ways = await waysFor(top.task).catch(() => [])
   const way = ways.find((w) => w.status === 'skill') || ways.find((w) => w.best) || null
-  return { role, task: top.task, people: top.people || 0, cls: top.cls, way: way ? { id: way.id, followupId: way.followup_id, name: way.name, how: way.how, minutes: way.minutes, skill: way.skill_name || null } : null }
+  return { role, task: top.task, people: top.people || 0, cls: top.cls, auto: top.autonomy === 'auto', way: way ? { id: way.id, followupId: way.followup_id, name: way.name, how: way.how, minutes: way.minutes, skill: way.skill_name || null } : null }
+}
+
+// 역할 루틴 단계의 승격(관리자, design-v0.3 §12): 자동이면 그 역할 사람의 결과물이 나올 때 묻지 않고 회사가 고른 방법대로 한다
+export async function setRoutineAutonomy(me, { role, task, auto }) {
+  const rows = await cypher(`MATCH (e:Event)-[t:TRIGGERS]->(x:Task {key:$task}) WHERE t.scope = $scope SET t.autonomy = $a RETURN e.key AS event`,
+    { task, scope: `role:${role}`, a: auto ? 'auto' : 'ask' }, { actor: me.email || String(me.id), reason: auto ? '역할 루틴 자동으로 승격' : '역할 루틴 묻기로', validFrom: new Date().toISOString() })
+  if (!rows.length) throw err(404, '그 역할 루틴 단계를 찾지 못했어요.')
+  const { ledger } = await import('./review.js')
+  await ledger(me, auto ? 'ontology.promote' : 'ontology.demote', `${auto ? '자동으로 승격' : '묻기로'}: ${role} 루틴 · ${task}`, { role, task, auto: !!auto })
+  return { role, task, autonomy: auto ? 'auto' : 'ask' }
 }
