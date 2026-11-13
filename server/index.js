@@ -167,8 +167,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
     if (st.connectMail) {
       const granted = new Set((tok.scope || '').split(' '))
       if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error(L('메일 연결에 Gmail 읽기 권한이 필요해요. 다시 연결해 주세요.', 'Connecting mail needs permission to read Gmail. Please connect again.'))
-      const previous = await vault.getSecret(login.user.id, 'oauth', 'google')
-      await vault.putItem(login.user.id, 'oauth', 'google', {
+      const previous = await vault.getSecret(login.user.id, 'oauth', config.google.vaultSite)
+      await vault.putItem(login.user.id, 'oauth', config.google.vaultSite, {
         username: me.email, access_token: tok.access_token, refresh_token: tok.refresh_token || previous?.refresh_token,
         expires_at: Date.now() + tok.expires_in * 1000, scope: tok.scope,
       })

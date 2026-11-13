@@ -95,6 +95,9 @@ export const config = {
   google: {
     clientId: get('GOOGLE_CLIENT_ID'),
     clientSecret: get('GOOGLE_CLIENT_SECRET'),
+    // the vault site a person's Google token is kept under: a token belongs to the OAuth client that issued it, so a
+    // server on another client (a second app on the same database) keeps its own (PRO_GOOGLE_VAULT_SITE=google-lite)
+    vaultSite: get('PRO_GOOGLE_VAULT_SITE', 'google'),
   },
   // Vault KEKs (32 bytes, base64), never stored in the database. Either PRO_VAULT_KEK (current) plus
   // PRO_VAULT_KEK_RETIRED (comma-separated older keys), or a 0600 keyring file created on first run

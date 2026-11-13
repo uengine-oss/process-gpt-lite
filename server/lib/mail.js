@@ -55,7 +55,7 @@ export async function googleExchange(code, verifier) {
 }
 
 export async function googleAccessToken(userId) {
-  const sec = await getSecret(userId, 'oauth', 'google')
+  const sec = await getSecret(userId, 'oauth', config.google.vaultSite)
   if (!sec) throw new Error('google not connected')
   if (sec.expires_at > Date.now() + 60000) return sec.access_token
   const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -66,7 +66,7 @@ export async function googleAccessToken(userId) {
   const tok = await res.json()
   if (!res.ok || !tok.access_token) throw new Error('Google 연결이 만료됐어요. 메일을 다시 연결해 주세요.')
   const { id, site, ...saved } = sec
-  await putItem(userId, 'oauth', 'google', { ...saved, access_token: tok.access_token, expires_at: Date.now() + tok.expires_in * 1000 }, { actor: 'mail' })
+  await putItem(userId, 'oauth', config.google.vaultSite, { ...saved, access_token: tok.access_token, expires_at: Date.now() + tok.expires_in * 1000 }, { actor: 'mail' })
   return tok.access_token
 }
 
