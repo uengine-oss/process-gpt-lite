@@ -94,10 +94,10 @@ const TOOLS = {
   // work intake and the bolt line (lib/aidlc/intake.js): asking is for anyone in the folder; who may take in,
   // order, stop and discard is checked there, by the AI-DLC role the person holds
   aidlc_intake: [F_, async ({ folder }, who) => IN.view(folder, person(who))],
-  aidlc_intake_propose: [{ ...F_, body: z.string(), source: z.string().optional() }, async ({ folder, ...body }, who) => IN.propose(folder, person(who), body)],
+  aidlc_intake_propose: [{ ...F_, body: z.string(), source: z.string().optional(), direct: z.boolean().optional(), scope: z.string().optional() }, async ({ folder, ...body }, who) => IN.propose(folder, person(who), body)],
   aidlc_intake_again: [{ ...F_, id: z.string() }, async ({ folder, id }, who) => IN.again(folder, person(who), id)],
   aidlc_intake_impact: [{ ...F_, id: z.string(), units: z.array(z.string()).optional(), note: z.string().optional() }, async ({ folder, id, ...body }, who) => IN.confirmImpact(folder, person(who), id, body)],
-  aidlc_intake_approve: [{ ...F_, id: z.string(), scope: z.string().optional(), mode: z.string().optional(), fast: z.boolean().optional(), note: z.string().optional(), trust: z.boolean().optional() },
+  aidlc_intake_approve: [{ ...F_, id: z.string(), scope: z.string().optional(), mode: z.string().optional(), fast: z.boolean().optional(), note: z.string().optional(), trust: z.boolean().optional(), worktrees: z.boolean().optional() },
     async ({ folder, id, ...body }, who) => IN.approve(folder, person(who), id, body)],
   aidlc_intake_triage: [{ ...F_, id: z.string(), action: z.string(), note: z.string().optional() }, async ({ folder, id, ...body }, who) => IN.triage(folder, person(who), id, body)],
   aidlc_line_move: [{ ...F_, key: z.string(), bucket: z.string(), together: z.boolean().optional() }, async ({ folder, ...body }, who) => IN.move(folder, person(who), body)],

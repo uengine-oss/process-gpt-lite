@@ -25,7 +25,10 @@ const WHY = { kind: (e) => t(`<b>${esc(KIND[e.kind] || e.kind)}</b> 요청이라
   small: () => t('한 유닛 안의 <b>작은 변경</b>이라 가장 가벼운 범위를 골랐어요.', 'A <b>small change</b> inside one unit: the lightest scope.'),
   size: () => t('여러 유닛에 걸치거나 새 유닛이 필요해 <b>기능 한 바퀴</b>를 도는 범위를 골랐어요.', 'It spans units or adds one: the <b>feature</b> lifecycle.'),
   nearest: () => t('엔진이 계산한 가장 가까운 범위예요.', 'The nearest scope the engine found.'),
+  person: () => t('추정 없이 접수해서 사람이 고른 범위예요.', 'Taken in without a plan: the scope a person chose.'),
   revert: () => t('끝난 작업을 <b>되돌리는</b> 요청이에요.', 'A request that <b>reverts</b> finished work.') }
+// the scopes whose work splits into units built in bolts (the others fix or try one thing: one unit, one pass)
+const UNITS_SCOPES = ['classic', 'feature', 'mvp', 'enterprise', 'workshop', 'infra']
 const open_ = (r) => ['proposed', 'inbox', 'later', 'queued'].includes(r.status)
 const boltOf = (key) => V.line.bolts.find((b) => b.key === key)
 const toast = (text) => { const el = document.createElement('div'); el.className = 'toast'; el.textContent = text; document.body.append(el); setTimeout(() => el.remove(), 3200) }
@@ -51,7 +54,9 @@ function drawAsk() {
     <textarea id="body" data-test="intake-body" placeholder="${esc(t('무엇을 바꾸고 싶은지 그대로 적어 주세요. 예) 예약 알림 메일이 두 번 와요', 'Say what you want changed, in your own words.'))}"></textarea>
     <div class="who">${V.rights.intake ? `<span class="chip can" data-test="intake-right">${esc(t('접수 권한 있음 — 계획안을 보고 바로 정해요', 'You take in work'))}</span>`
       : `<span class="chip cannot" data-test="intake-right">${esc(t(`요청만 할 수 있어요 — 접수는 ${names(V.people.intake)}`, `You can ask — ${names(V.people.intake)} take it in`))}</span>`}
-      <span class="right_"></span><button class="primary" id="send" data-test="intake-send">${esc(t('계획안 받기', 'Get a plan'))}</button></div>`
+      <span class="right_"></span>${V.rights.intake && V.scopes.length ? `<select id="direct-scope" data-test="intake-direct-scope" title="${esc(t('추정 없이 시작할 때의 범위', 'The scope to start with, without an estimate'))}">${V.scopes.map((s) => `<option value="${esc(s.name)}"${s.name === 'classic' ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+      <button id="send-direct" data-test="intake-send-direct" title="${esc(t('계획안(약 1분) 없이, 고른 범위로 바로 시작 단계로 가요', 'Skip the plan (about a minute): straight to starting, with the scope you chose'))}">${esc(t('추정 없이 바로 시작', 'Start without a plan'))}</button>` : ''}
+      <button class="primary" id="send" data-test="intake-send">${esc(t('계획안 받기', 'Get a plan'))}</button></div>`
 }
 
 function drawHead() {
@@ -107,7 +112,11 @@ function drawPlan() {
     return
   }
   if (!e) { el.innerHTML = head; return }
-  const p = pick[r.id] = pick[r.id] || { scope: r.scope || e.scope, mode: r.startMode || (V.head.busy ? 'after' : 'now'), fast: r.fast }
+  // a worktree per bolt (D-1112-25) for the scopes that split the work into units — until the person says otherwise;
+  // a request already in line keeps its choice
+  const p = pick[r.id] = pick[r.id] || { scope: r.scope || e.scope, mode: r.startMode || (V.head.busy ? 'after' : 'now'), fast: r.fast, worktrees: r.status === 'queued' ? !!r.worktrees : null }
+  if (p.worktrees == null) p.wt = UNITS_SCOPES.includes(p.scope)
+  else p.wt = p.worktrees
   if (p.mode === 'now' && V.head.busy && V.head.intent?.request !== r.id) p.mode = 'after'
   if (p.mode === 'merge' && !V.head.busy) p.mode = 'now'
   const can = V.rights.intake && open_(r)
@@ -150,6 +159,7 @@ function drawPlan() {
     ]
     foot = `<div class="sec">${esc(t('언제 시작할까요', 'When'))}</div><div class="modes">${modes.map(([k, a, b, off]) => `<button class="mode${p.mode === k ? ' on' : ''}" data-mode="${k}" data-test="plan-mode-${k}"${off ? ' disabled' : ''}><b>${esc(a)}</b><span>${esc(b)}</span></button>`).join('')}</div>
       ${p.mode === 'after' ? `<label class="fast"><input type="checkbox" id="fast"${p.fast ? ' checked' : ''}> ${esc(t('빠른 줄 — 기다리는 작업들 맨 앞에 세워요(급한 버그·보안)', 'Fast lane — in front of the waiting work'))}</label>` : ''}
+      ${p.mode !== 'merge' ? `<label class="fast" data-test="plan-worktrees-label"><input type="checkbox" id="wt" data-test="plan-worktrees"${p.wt ? ' checked' : ''}> ${esc(t('볼트마다 작업 트리 — 유닛을 병렬로, 볼트마다 따로 만들고 승인된 볼트만 합쳐요. 세션에 주는 요청에 이 말을 붙여요', 'A worktree per bolt — units in parallel, each bolt built apart, only approved bolts merged. Said to the session with the request'))}</label>` : ''}
       ${live ? `<div class="note warn" data-test="plan-clash-note">${esc(t(`줄에 있는 볼트 ${live}개와 부딪혀요. 그대로 접수하면 둘 다 진행돼요 — 위에서 그 볼트를 폐기하거나, 이 요청을 나중으로 미룰 수 있어요.`, `It clashes with ${live} bolt(s) in the line. Taken in as is, both go on.`))}</div>` : ''}
       <div class="acts"><button class="primary go" data-act="approve" data-test="plan-approve">${esc(p.mode === 'now' ? t('이 계획으로 시작', 'Start with this plan') : p.mode === 'merge' ? t('지금 작업에 합치기', 'Fold it in') : r.status === 'queued' ? t('이대로 줄에 두기', 'Keep it in line') : t('이 계획으로 줄에 세우기', 'Stand it in line'))}</button>
       <span class="sp"></span><button data-act="later" data-test="plan-later">${esc(t('나중에', 'Later'))}</button><button class="danger" data-act="decline" data-test="plan-decline">${esc(t('받지 않기', 'Decline'))}</button></div>`
@@ -161,6 +171,10 @@ function drawPlan() {
       ${['started', 'merged'].includes(r.status) ? ` <a data-act="line">${esc(t('볼트 줄에서 보기', 'See the line'))} →</a>` : ''}</div>`
   }
   if (can && r.note && ['later', 'inbox'].includes(r.status)) foot = `<div class="note">${esc(r.note)}</div>${foot}`
+  if (e.direct) {
+    el.innerHTML = `${head}${scope}<p class="sum" data-test="plan-summary">${prose(e.summary)}</p><div class="note" data-test="plan-direct">${esc(t('추정 없이 접수한 요청이에요. 건드리는 유닛과 줄의 볼트와 부딪히는지는 살피지 않았어요 — 시작하면 AI-DLC 가 처음부터 살펴요.', 'Taken in without a plan: what it touches and what it collides with were not looked into — AI-DLC looks from the start.'))}</div>${foot}`
+    return
+  }
   el.innerHTML = `${head}${scope}<p class="sum" data-test="plan-summary">${prose(e.summary)}</p>${touches}${conflicts ? `<div class="sec">${esc(t('줄에 있는 볼트와 부딪히는 곳', 'Where it collides with the line'))}</div>${conflicts}` : ''}${card ? '' : `${scores}${near}`}${foot}${card && (scores || near) ? `<p class="small" style="margin:10px 2px 0"><a data-act="large" data-test="plan-large">${esc(t('어떻게 가늠했는지 · 다른 요청 보기', 'How it was sized · the other requests'))} →</a></p>` : ''}${e.cost && !e.cost.stub ? `<p class="faint small" style="margin-top:14px">${esc(t(`계획 세우는 데 ${Math.round(e.cost.ms / 1000)}초 · ${e.cost.turns}턴 · $${Number(e.cost.usd || 0).toFixed(2)}`, `Planned in ${Math.round(e.cost.ms / 1000)} s · ${e.cost.turns} turns · $${Number(e.cost.usd || 0).toFixed(2)}`))}</p>` : ''}`
 }
 
@@ -229,7 +243,7 @@ document.addEventListener('click', async (ev) => {
     const p = pick[sel]
     el.disabled = true
     if (a === 'trust-go') closeDialog()
-    const out = await act('intake_approve', { id: sel, scope: p.scope, mode: p.mode, fast: !!p.fast, trust: a === 'trust-go' }, (o) => (o.status === 'trust' ? '' : o.status === 'started' ? t('세션에 넘겼어요. 볼트 줄에서 진행을 볼 수 있어요', 'Handed to the session') : o.status === 'merged' ? t('진행 중인 작업에 합쳤어요', 'Folded in') : t('볼트 줄 끝에 세웠어요', 'Standing in line')))
+    const out = await act('intake_approve', { id: sel, scope: p.scope, mode: p.mode, fast: !!p.fast, worktrees: p.mode !== 'merge' && !!p.wt, trust: a === 'trust-go' }, (o) => (o.status === 'trust' ? '' : o.status === 'started' ? t('세션에 넘겼어요. 볼트 줄에서 진행을 볼 수 있어요', 'Handed to the session') : o.status === 'merged' ? t('진행 중인 작업에 합쳤어요', 'Folded in') : t('볼트 줄 끝에 세웠어요', 'Standing in line')))
     // Claude Code has not opened this folder before: its own safety question, answered by the person
     if (out?.status === 'trust') dialog(`<h2>${esc(t('이 폴더를 믿고 시작할까요?', 'Trust this folder and start?'))}</h2>
       <p>${esc(t(`Claude Code 가 「${V.folder.name}」 폴더를 처음 열어서, 믿을 수 있는 프로젝트인지 먼저 묻고 있어요. 믿는다고 답하면 이 폴더의 파일을 읽고 고치고 실행할 수 있어요.`, `Claude Code opens "${V.folder.name}" for the first time and asks whether the project is trusted. Trusted, it can read, edit and run files there.`))}</p>
@@ -258,18 +272,21 @@ document.addEventListener('click', async (ev) => {
 document.addEventListener('change', (ev) => {
   if (ev.target.id === 'scope') { pick[sel].scope = ev.target.value; drawPlan() }
   if (ev.target.id === 'fast') pick[sel].fast = ev.target.checked
+  if (ev.target.id === 'wt') pick[sel].worktrees = ev.target.checked
 })
 document.addEventListener('click', async (ev) => {
-  if (ev.target.id !== 'send' || sending) return
+  if (!['send', 'send-direct'].includes(ev.target.id) || sending) return
   const body = $('#body').value.trim()
   if (body.length < 4) return toast(t('무엇을 하고 싶은지 적어 주세요', 'Say what you want done'))
+  // without a plan: the scope the person picked, and straight to the start options
+  const direct = ev.target.id === 'send-direct'
   sending = true; ev.target.disabled = true
   try {
-    const r = await lite.tool('intake_propose', { folder, body })
+    const r = await lite.tool('intake_propose', direct ? { folder, body, direct, scope: $('#direct-scope').value } : { folder, body })
     $('#body').value = ''
     sel = r.id
   } catch (e) { toast(e.message) }
-  sending = false; $('#send').disabled = false
+  sending = false; $('#send').disabled = false; if ($('#send-direct')) $('#send-direct').disabled = false
   await load()
 })
 

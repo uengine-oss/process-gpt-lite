@@ -403,6 +403,23 @@ test('S4 보안 멈춤: 누구든 보안 사유로 멈추면 세션이 바로 �
   assert.deepEqual(await ok(lead, 'intake', 'intake_triage', { id: r.request, action: 'decline', note: '시험이라 받지 않아요' }), { status: 'declined' })
 })
 
+test('S5 추정 없이 바로 시작 · 볼트마다 작업 트리: 범위를 고른 요청은 추정 없이 시작 단계로 → 지금 시작하면 그 말이 요청에 붙어 세션에 들어간다', { skip: !up }, async () => {
+  const body = '예약 목록에서 회의실 이름으로 찾을 수 있게 해 주세요'
+  // only the people who take in work may skip the plan, and only with a scope the project has
+  assert.equal((await tool(dev, 'intake', 'intake_propose', { body, direct: true, scope: 'feature' })).status, 403)
+  assert.equal((await tool(lead, 'intake', 'intake_propose', { body, direct: true, scope: 'no-such-scope' })).status, 400)
+  const r = await ok(lead, 'intake', 'intake_propose', { body, direct: true, scope: 'feature' })
+  assert.deepEqual([r.status, r.scope, r.estimate.direct, r.estimate.scopeWhy, r.estimate.touches.units], ['proposed', 'feature', true, 'person', []])
+  // no estimate ran: the request is a plan at once, and starting it says the worktree words with the request
+  const mark = (await typed()).length
+  assert.deepEqual(await ok(lead, 'intake', 'intake_approve', { id: r.id, mode: 'now', worktrees: true }), { status: 'started', scope: 'feature' })
+  const sent = await until(async () => { const x = (await typed()).slice(mark); return x.includes('swarm).') && x }, 10000, 'the request with the worktree words')
+  assert.ok(sent.includes(`/aidlc feature "${body} — 구축은 유닛을 병렬로, 볼트마다 작업 트리에서 진행해 주세요(stage-major + swarm)."`), sent)
+  const v = await view(lead)
+  assert.equal(v.requests.find((x) => x.id === r.id).worktrees, true)
+  assert.ok(v.ledger.some((l) => l.choice === '시작 · feature · 볼트마다 작업 트리'), JSON.stringify(v.ledger.slice(0, 3)))
+})
+
 after(async () => {
   try { if (name) tmux('kill-session', '-t', name) } catch { /* gone */ }
   if (STUB && up) await fs.writeFile(STUB, '[]').catch(() => {})

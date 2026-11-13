@@ -14,11 +14,11 @@ const SCREEN = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..
 // the team session's tmux (server/config.js aidlcTmuxSocket) and a stand-in for Claude Code in it:
 // a prompt screen that records every key it gets (docs/robo-dlc/plan-team.md)
 const tmux = (...a) => execFileSync('tmux', ['-L', process.env.PRO_AIDLC_TMUX_SOCKET || 'pgpt-aidlc', ...a], { encoding: 'utf8' })
-async function fakeSession(repo, slug, cleanup) {
+async function fakeSession(repo, slug, cleanup, screen = SCREEN) {
   const name = `aidlc-${process.env.PGPT_TENANT || 'localhost'}-${slug}`.replace(/[^A-Za-z0-9_-]/g, '_')
   const keys = path.join(repo, '.keys.log')
   const script = path.join(repo, '.fake-claude.sh')
-  await fs.writeFile(script, `#!/bin/bash\ncat ${JSON.stringify(SCREEN)}\nwhile IFS= read -rsn1 k; do printf '%s' "$k" >> ${JSON.stringify(keys)}; done\n`, { mode: 0o755 })
+  await fs.writeFile(script, `#!/bin/bash\ncat ${JSON.stringify(screen)}\nwhile IFS= read -rsn1 k; do printf '%s' "$k" >> ${JSON.stringify(keys)}; done\n`, { mode: 0o755 })
   tmux('new-session', '-d', '-s', name, '-x', '160', '-y', '48', script)
   cleanup(async () => { try { tmux('kill-session', '-t', name) } catch { /* gone */ } })
   return { name, keys }
@@ -134,6 +134,46 @@ test.describe('Robo-DLC Lite · AI-DLC 대시보드', () => {
     await prompt.locator('[data-test="opt-1"]').click()
     await expect(page.getByText('세션에 「Approve」를 넣었어요.')).toBeVisible()
     await expect.poll(() => fs.readFile(keys, 'utf8').catch(() => ''), { timeout: 10_000 }).toBe('1')
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-RD-14 대화로 물은 승인: 선택 창 없이 대화로 물은 세션도 단계 역할의 카드가 되고, 결정 화면의 「Approve」 가 세션 입력창에 글로 들어간다', async ({ pageAs, as, db, cleanup }) => {
+    test.setTimeout(120_000)
+    const lead = await as('rd-lead')
+    const page = await pageAs('rd-po')
+    const po = page.user
+    const { repo, folder } = await linkedRecord(lead, db, cleanup, 'AI-DLC 대화로 물음')
+    cleanup(async () => {
+      const [f] = await db.q('select id from pro_folders where repo_path=$1', [path.resolve(repo)])
+      if (f) for (const t of ['pro_aidlc_roles', 'pro_aidlc_decisions', 'pro_aidlc_waits']) await db.q(`delete from ${t} where folder_id=$1`, [f.id])
+      await db.q(`update notifications set is_checked=true where type='aidlc' and url like $1`, [`/aidlc/${folder.slug}/%`])
+    })
+    expect((await lead.post(`/folders/${folder.slug}/members`, { type: 'user', id: po.id, role: 'editor' })).status).toBe(200)
+    expect((await lead.put(`/aidlc/${folder.slug}/roles`, { roleKey: 'product', userIds: [po.id] })).status).toBe(200)
+    // no question left blank in the stage: what waits is only what the session said
+    const qdir = path.join(repo, 'aidlc/spaces/default/intents/261109-todo-web-app/inception/requirements-analysis')
+    for (const f of (await fs.readdir(qdir)).filter((x) => x.endsWith('-questions.md'))) {
+      const p = path.join(qdir, f)
+      await fs.writeFile(p, (await fs.readFile(p, 'utf8')).replace(/\[Answer\]:[ \t]*$/gm, '[Answer]: A'))
+    }
+    // a session started without hooks: its idle screen alone, standing still for a few seconds, says it waits
+    const { keys } = await fakeSession(repo, folder.slug, cleanup, path.join(SCREENS, 'ask.txt'))
+    await expect.poll(async () => ((await po.get('/notifications')).body || []).some((n) => n.type === 'aidlc' && /승인을 기다려요/.test(n.title) && String(n.url).startsWith(`/aidlc/${folder.slug}/decide`)), { timeout: 60_000 }).toBe(true)
+    await page.goto('/')
+    const card = page.locator('.nc.aidlc', { hasText: '승인을 기다려요' }).first()
+    await expect(card).toBeVisible({ timeout: 45_000 })
+    await card.getByRole('button', { name: '결정하기' }).click()
+    const ask = page.locator('[data-test="aidlc-ask"]')
+    await expect(ask).toContainText('대화로 물은 승인')
+    await expect(page.locator('[data-test="aidlc-ask-message"]')).toContainText('Build and Test를 승인할까요?')
+    await expect(ask.locator('[data-test="ask-opt-2"]')).toContainText('Request Changes')
+    // 「Request Changes」 needs the person's words: it fills the box and waits for them
+    await ask.locator('[data-test="ask-opt-2"]').click()
+    await expect(page.locator('[data-test="aidlc-ask-text"]')).toHaveValue('Request Changes: ')
+    await page.locator('[data-test="aidlc-ask-text"]').fill('')
+    await ask.locator('[data-test="ask-opt-1"]').click()
+    await expect(page.getByText('세션에 「Approve」를 보냈어요.')).toBeVisible()
+    await expect.poll(() => fs.readFile(keys, 'utf8').catch(() => ''), { timeout: 10_000 }).toContain('Approve')
     expect(page.errors).toEqual([])
   })
 
@@ -447,6 +487,8 @@ test.describe('Robo-DLC Lite · 작업 접수 · 볼트 줄', () => {
     await expect(f.locator('[data-test=plan-ars]')).toHaveText(/^\d+$/)
     // nothing is in flight: it cannot be folded into anything
     await expect(f.locator('[data-test=plan-mode-merge]')).toBeDisabled()
+    // a bugfix is one unit in one pass: no worktree per bolt unless someone turns it on
+    await expect(f.locator('[data-test=plan-worktrees]')).not.toBeChecked()
     await f.locator('[data-test=plan-mode-now]').click()
     await f.locator('[data-test=plan-approve]').click()
     // Claude Code asks whether the folder is trusted: nothing is typed over it — the person is asked, with what
@@ -467,6 +509,30 @@ test.describe('Robo-DLC Lite · 작업 접수 · 볼트 줄', () => {
     // who answered the trust question is in the ledger
     await expect(line.locator('[data-test=line-ledger]')).toContainText('믿고 진행')
     await expect(line.locator('[data-test=line-ledger]')).toContainText('미리 허용한 도구 132개')
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-RD-15 추정 없이 바로 시작: 범위를 골라 계획안 없이 시작 단계로 → 「볼트마다 작업 트리」 가 기본으로 켜져 있고, 시작하면 그 말이 요청에 붙어 세션에 들어간다', async ({ pageAs, as, db, cleanup }) => {
+    test.setTimeout(150_000)
+    const { folder } = await lineFolder({ as, db, cleanup }, '바로 시작 회귀')
+    const session = await trustSession(folder.slug, cleanup)
+    const page = await pageAs('rd-lead')
+    await page.goto(`/apps/intake/${folder.slug}`)
+    const f = page.frameLocator('iframe[data-test=app-intake]')
+    await f.locator('[data-test=intake-body]').fill('예약 목록에서 회의실 이름으로 찾을 수 있게 해 주세요', { timeout: 30_000 })
+    await f.locator('[data-test=intake-direct-scope]').selectOption('feature')
+    await f.locator('[data-test=intake-send-direct]').click()
+    // no estimate: the plan says only what the person chose, at once
+    await expect(f.locator('[data-test=plan-direct]')).toBeVisible({ timeout: 15_000 })
+    await expect(f.locator('[data-test=plan-scope]')).toHaveText('feature')
+    await expect(f.locator('[data-test=plan-ars]')).toHaveCount(0)
+    await expect(f.locator('[data-test=plan-worktrees]')).toBeChecked()
+    await f.locator('[data-test=plan-mode-now]').click()
+    await f.locator('[data-test=plan-approve]').click()
+    await expect(f.locator('[data-test=dialog]')).toContainText('이 폴더를 믿고 시작할까요?', { timeout: 20_000 })
+    await f.locator('[data-test=dialog-ok]').click()
+    await expect(f.getByText('세션에 넘겼어요')).toBeVisible({ timeout: 20_000 })
+    await expect.poll(session.typed, { timeout: 15_000 }).toContain('/aidlc feature "예약 목록에서 회의실 이름으로 찾을 수 있게 해 주세요 — 구축은 유닛을 병렬로, 볼트마다 작업 트리에서 진행해 주세요(stage-major + swarm)."')
     expect(page.errors).toEqual([])
   })
 

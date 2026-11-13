@@ -26,8 +26,8 @@ export default function register(server, ctx) {
     inputSchema: { ...A, r: z.string().optional().describe('a request to open') }, _meta: ui(),
   }, run(({ folder }) => ctx.host.call('aidlc_intake', { folder })))
   registerAppTool(server, 'intake_propose', {
-    title: 'Ask for work', description: 'Ask for a piece of work in plain words. The plan for it is worked out in the background (about a minute) and shown on the intake screen.',
-    inputSchema: { ...A, body: z.string().describe('what should be done, in the person\'s own words'), source: z.string().optional() }, _meta: ui(['app', 'model']),
+    title: 'Ask for work', description: 'Ask for a piece of work in plain words. The plan for it is worked out in the background (about a minute) and shown on the intake screen. direct: true (with scope) skips the estimate — only for a person who may take in work, who then starts it from the intake screen.',
+    inputSchema: { ...A, body: z.string().describe('what should be done, in the person\'s own words'), source: z.string().optional(), direct: z.boolean().optional(), scope: z.string().optional().describe('with direct: the scope to run it with') }, _meta: ui(['app', 'model']),
   }, run(host('aidlc_intake_propose')))
   registerAppTool(server, 'intake_again', { title: 'Work the plan out again', description: 'Estimate a request again after a failure.', inputSchema: { ...A, id: z.string() }, _meta: ui(['app']) }, run(host('aidlc_intake_again')))
   registerAppTool(server, 'intake_impact', {
@@ -36,7 +36,7 @@ export default function register(server, ctx) {
   }, run(host('aidlc_intake_impact')))
   registerAppTool(server, 'intake_approve', {
     title: 'Take the request in', description: 'Start it now, queue it after the work in flight, or fold it into that work (mode: now | after | merge). A folder Claude Code opens for the first time answers { status: "trust" }: nothing started — the person is asked whether the folder is trusted, and the call is made again with trust: true.',
-    inputSchema: { ...A, id: z.string(), scope: z.string().optional(), mode: z.string().optional(), fast: z.boolean().optional(), note: z.string().optional(), trust: z.boolean().optional() }, _meta: ui(['app']),
+    inputSchema: { ...A, id: z.string(), scope: z.string().optional(), mode: z.string().optional(), fast: z.boolean().optional(), note: z.string().optional(), trust: z.boolean().optional(), worktrees: z.boolean().optional().describe('build each bolt in its own worktree (said to the session in the request)') }, _meta: ui(['app']),
   }, run(host('aidlc_intake_approve')))
   registerAppTool(server, 'intake_triage', {
     title: 'Later, or not at all', description: 'Put a request off or decline it with a reason (action: later | decline), or take one\'s own request back (withdraw).',

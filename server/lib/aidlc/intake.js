@@ -92,7 +92,7 @@ const isDone = (intent, state) => intent?.status === 'complete' || /^complete/i.
 // the first words of what the intent was started with
 const titleOf = (text) => { const t = String(text || '').split(/\s[—–-]\s|[.\n]/)[0].trim(); return t.length > 28 ? `${t.slice(0, 27)}…` : t }
 const pubReq = (r) => ({
-  id: r.id, body: r.body, title: r.title || titleOf(r.body), status: r.status, source: r.source, scope: r.scope, startMode: r.start_mode, fast: !!r.fast,
+  id: r.id, body: r.body, title: r.title || titleOf(r.body), status: r.status, source: r.source, scope: r.scope, startMode: r.start_mode, fast: !!r.fast, worktrees: !!r.worktrees,
   intent: r.intent, note: r.note || '', at: r.created_at, decidedAt: r.decided_at, asker: { id: r.user_id, name: r.asker || '' }, decidedBy: r.decider || null, estimate: r.estimate || null,
 })
 const REQ = `select r.*, coalesce(p.name, u.username, u.email) as asker, coalesce(dp.name, du.username, du.email) as decider from pro_aidlc_requests r
@@ -195,10 +195,11 @@ export async function rights(slug, user) {
 
 // ---------- a request ----------
 // anyone in the project asks; the plan is worked out behind (a minute or so) and the screens are told
-export async function propose(slug, user, { body, source = 'app' }) {
+export async function propose(slug, user, { body, source = 'app', direct = false, scope = '' }) {
   const { folder } = await open(slug, user)
   const text = String(body || '').trim().slice(0, 4000)
   if (text.length < 4) throw err(400, L('무엇을 하고 싶은지 적어 주세요', 'Say what you want done'))
+  if (direct) return proposeDirect(folder, user, text, scope)
   const [row] = await q(`insert into pro_aidlc_requests(tenant_id,folder_id,user_id,source,body,title) values ($1,$2,$3,$4,$5,$6) returning *`,
     [T(), folder.id, user.id, source === 'chat' ? 'chat' : 'app', text, titleOf(text)])
   // (started inside this request: the tenant and the language go with it)
@@ -206,6 +207,20 @@ export async function propose(slug, user, { body, source = 'app' }) {
   await tell(folder, 'requests', { id: row.id })
   return pubReq({ ...row, asker: user.name })
 }
+// no estimate: a person who may take in work picks the scope and goes straight to the start (or the line).
+// The plan says only what the person chose — nothing about the units it touches or what it collides with.
+async function proposeDirect(folder, user, text, scope) {
+  await must(folder, user, 'intake')
+  const scopes = await C.scopes(folder.repo_path)
+  if (!scope || (scopes.length && !scopes.some((s) => s.name === scope))) throw err(400, 'unknown scope')
+  const est = { title: titleOf(text), kind: 'change', direct: true, summary: text, scope, scopeWhy: 'person', scopes,
+    touches: { units: [], contracts: [], requirements: [], paths: [] }, newUnits: [], conflicts: [], dropped: {} }
+  const [row] = await q(`insert into pro_aidlc_requests(tenant_id,folder_id,user_id,source,body,title,status,estimate,scope) values ($1,$2,$3,'app',$4,$5,'proposed',$6,$7) returning *`,
+    [T(), folder.id, user.id, text, est.title, JSON.stringify(est), scope])
+  await tell(folder, 'requests', { id: row.id })
+  return pubReq({ ...row, asker: user.name })
+}
+
 // estimates under way in this process (a test waits on one; a restart leaves the row for `again`)
 const estimating = new Map()
 export const settled = (id) => estimating.get(id) || Promise.resolve()
@@ -277,7 +292,7 @@ export async function confirmImpact(slug, user, id, { units, note = '' } = {}) {
 
 // ---------- taking it in ----------
 const MODES = ['now', 'after', 'merge']
-export async function approve(slug, user, id, { scope, mode = 'after', fast = false, note = '', trust = false } = {}) {
+export async function approve(slug, user, id, { scope, mode = 'after', fast = false, note = '', trust = false, worktrees = false } = {}) {
   const { folder } = await open(slug, user)
   await must(folder, user, 'intake')
   if (!MODES.includes(mode)) throw err(400, 'unknown start mode')
@@ -287,12 +302,12 @@ export async function approve(slug, user, id, { scope, mode = 'after', fast = fa
   const sc = scope || req.scope || req.estimate?.scope
   if (!sc || (scopes.length && !scopes.some((s) => s.name === sc))) throw err(400, 'unknown scope')
   let out
-  if (mode === 'now') out = await begin(folder, user, req, sc, { fast, note, trust })
+  if (mode === 'now') out = await begin(folder, user, req, sc, { fast, note, trust, worktrees })
   else if (mode === 'merge') out = await merge(folder, user, req, note)
   else {
-    await q(`update pro_aidlc_requests set status='queued', scope=$3, start_mode='after', fast=$4, decided_by=$5, decided_at=now(), note=$6, head_told_at=null, updated_at=now() where id=$1 and tenant_id=$2`,
-      [id, T(), sc, !!fast, user.id, String(note).slice(0, 1000) || null])
-    await record(folder, user, { kind: 'intake', question: req.title, choice: L(`줄 끝에 세움 · ${sc}${fast ? ' · 빠른 줄' : ''}`, `queued · ${sc}${fast ? ' · fast lane' : ''}`), note })
+    await q(`update pro_aidlc_requests set status='queued', scope=$3, start_mode='after', fast=$4, decided_by=$5, decided_at=now(), note=$6, head_told_at=null, worktrees=$7, updated_at=now() where id=$1 and tenant_id=$2`,
+      [id, T(), sc, !!fast, user.id, String(note).slice(0, 1000) || null, !!worktrees])
+    await record(folder, user, { kind: 'intake', question: req.title, choice: L(`줄 끝에 세움 · ${sc}${fast ? ' · 빠른 줄' : ''}${worktrees ? ' · 볼트마다 작업 트리' : ''}`, `queued · ${sc}${fast ? ' · fast lane' : ''}${worktrees ? ' · a worktree per bolt' : ''}`), note })
     out = { status: 'queued', scope: sc }
   }
   if (out.status === 'trust') return out
@@ -329,7 +344,12 @@ async function ready(name, { trust = false, ms = 60000 } = {}) {
 }
 
 // start it in the team session: the files as they are now are kept, then the request is typed in
-async function begin(folder, user, req, scope, { fast = false, note = '', trust = false } = {}) {
+// the person's own words for building each bolt in a worktree: AI-DLC sets it (stage-major + swarm) only on what a
+// person asked, and makes the worktrees itself (.aidlc/worktrees/bolt-<id8>_<unit>, squash-merged when approved)
+export const WORKTREE_WORDS = () => L('구축은 유닛을 병렬로, 볼트마다 작업 트리에서 진행해 주세요(stage-major + swarm).',
+  'Build the units in parallel, each bolt in its own worktree (stage-major + swarm).')
+
+async function begin(folder, user, req, scope, { fast = false, note = '', trust = false, worktrees = false } = {}) {
   const inp = await inputs(folder)
   if (inp.busy) throw err(409, L('진행 중인 작업이 있어요. 그 뒤에 세우거나 지금 작업에 합칠 수 있어요', 'Work is in flight: queue this after it, or fold it in'))
   const name = nameOf(folder)
@@ -340,9 +360,10 @@ async function begin(folder, user, req, scope, { fast = false, note = '', trust 
   if (up.trusted) await record(folder, user, { kind: 'intake', question: L('Claude Code 가 이 폴더를 처음 열어요. 믿을 수 있는 프로젝트인가요?', 'Claude Code opens this folder for the first time: is it trusted?'),
     choice: L('믿고 진행', 'trusted'), note: up.trusted.preApproved ? L(`이 폴더가 미리 허용한 도구 ${up.trusted.preApproved}개`, `${up.trusted.preApproved} tool permissions pre-approved by this folder`) : '' })
   const queued = req.status === 'queued'
+  const wt = queued ? !!(req.worktrees || worktrees) : !!worktrees
   await q(`update pro_aidlc_requests set status='started', scope=$3, start_mode=coalesce(start_mode,'now'), fast=$4, decided_by=coalesce(decided_by,$5), decided_at=coalesce(decided_at,now()),
-           note=coalesce($6,note), known_intents=$7, updated_at=now() where id=$1 and tenant_id=$2`,
-    [req.id, T(), scope, queued ? req.fast : !!fast, user.id, String(note).slice(0, 1000) || null, JSON.stringify((await R.listIntents(folder.repo_path)).map((i) => i.dirName))])
+           note=coalesce($6,note), known_intents=$7, worktrees=$8, updated_at=now() where id=$1 and tenant_id=$2`,
+    [req.id, T(), scope, queued ? req.fast : !!fast, user.id, String(note).slice(0, 1000) || null, JSON.stringify((await R.listIntents(folder.repo_path)).map((i) => i.dirName)), wt])
   // "the tail" was where it waited: started, its bolts are this release's unless a person put them in the next
   await q(`update pro_aidlc_line set bucket=null, updated_at=now() where tenant_id=$1 and folder_id=$2 and bolt_key like $3 and bucket='tail'`, [T(), folder.id, `r:${req.id}:%`])
   // what its first bolt can be put back to
@@ -351,8 +372,8 @@ async function begin(folder, user, req, scope, { fast = false, note = '', trust 
     const snap = await SNAP.take(folder.repo_path, first.key).catch((e) => { console.warn('[aidlc intake] snapshot', e.message); return null })
     if (snap) await mark(folder, first.key, { snapshot: snap.object, snapshot_head: snap.head, snapshot_untracked: snap.untracked })
   }
-  await AS.sendText(name, `/aidlc ${scope} "${oneLine(req.body)}"`)
-  await record(folder, user, { kind: 'intake', question: req.title, choice: L(`시작 · ${scope}`, `started · ${scope}`), note })
+  await AS.sendText(name, `/aidlc ${scope} "${oneLine(req.body)}${wt ? ` — ${oneLine(WORKTREE_WORDS())}` : ''}"`)
+  await record(folder, user, { kind: 'intake', question: req.title, choice: L(`시작 · ${scope}${wt ? ' · 볼트마다 작업 트리' : ''}`, `started · ${scope}${wt ? ' · a worktree per bolt' : ''}`), note })
   return { status: 'started', scope }
 }
 
