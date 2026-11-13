@@ -437,13 +437,16 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 직접 제어로 로그인: 화면 전체, 보이는 자리 클릭, 입력 순서, 붙여넣기, 입력기 키, 로그 미기록, 돌려주기 | `takeover.e2e.mjs`(실제 화면) | HTTP·화면 | ✅ |
 | 로그인 뒤 실제 NotebookLM: 소스·슬라이드·오디오 생성, 파일 카드 | 사람이 로그인한 프로필로 실행 | 수동 | ✗ 미확인 |
 
-### 20. 회사 프로세스 지도 — 메일 이력 · 채팅 인계로 Ontological 에 프로세스 온톨로지, 스냅샷 실행, 고정 · 은퇴 (spec `pgpt-pro_process-ontology`, 설계 `pgpt-pro/docs/auto-ax-onboarding/design-v0.2.md`, 영상 지도 `onto-map-ko` · 실행 `onto-run-ko` · 검토 `onto-review-ko`)
+### 20. 회사 프로세스 지도 — 메일 이력 · 채팅 인계로 Ontological 에 프로세스 온톨로지, 스냅샷 실행, 고정 · 은퇴 (spec `pgpt-pro_process-ontology`, 설계 `pgpt-pro/docs/auto-ax-onboarding/design-v0.2.md` · `design-v0.3.md`, 영상 지도 `onto-map-ko` · 실행 `onto-run-ko` · 검토 `onto-review-ko` · 역할과 습관 `onto-roles-ko` · 사건과 타이머 `onto-triggers-ko`)
 
 데모 테넌트 `ax-demo`(`node server/scripts/ax-demo.mjs --reset --seed`)에서 돈다: `PGPT_URL=http://ax.localhost:5191 API_URL=http://ax.localhost:8790 PGPT_TENANT=ax-demo PGPT_DB_URL=…`. F-PO 는 지도가 셈해진 뒤(S1) 돌고, 지도가 없으면 건너뛴다.
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
-| 지난 메일 90일 깔때기(규칙 거르기 · 스레드마다 한 번 읽기 · 결과물 메일은 보낸 사람의 일 · 검토는 역할), 원문 미저장 | `server/test/ontology-map.e2e.mjs` 1~3 | HTTP | ✅ |
+| 지난 메일 90일 깔때기(규칙 거르기 · 스레드마다 한 번 읽기 · 결과물 메일은 보낸 사람의 일 · 검토는 역할), 지도에는 문장 없음 | `server/test/ontology-map.e2e.mjs` 1~3 | HTTP | ✅ |
+| 메일 보관함: 읽은 메일은 주인 몫으로 본문 · 첨부 목록까지, 다른 사람 404, 메일 이력 · 지도에 문장 없음, 다시 읽을 때 메일 서버 안 부름 | `ontology-archive.e2e.mjs`(S1b), `ontology-gmail.test.js` | HTTP·단위 | ✅ |
+| 메일 본문 전체(인용 자르기) · 보낸 첨부의 양식 칸(늘 있는 칸) · Gmail(모의 서버) | `ontology-mailbody.test.js` · `ontology-gmail.test.js`, `ontology-map.e2e.mjs` 「메일에서 찾은 정해진 때」 | 단위·HTTP | ✅ |
+| 정해진 때: 메일 날짜의 주기 + 메일이 말한 주기(반복되는 그 일에만), 건이 이끄는 일은 아님 → 시계 없는 타이머 사건 | `ontology-map.e2e.mjs` 「메일에서 찾은 정해진 때」, `ontology-mailbody.test.js` | HTTP·단위 | ✅ |
 | 채팅 핸드오버와 메일 이력을 같은 건으로, 긴 지시문도 일 이름 하나로 | `ontology-map.e2e.mjs` 4·10 | HTTP | ✅ |
 | 지도(일 · 관계 · 묶음) · 시점 고르기(주마다 다시 셈) | `ontology-map.e2e.mjs` 4·9, F-PO-01·03 | HTTP·feature | ✅ |
 | 배운 조건(견적 합계 1천만 원, 하나씩 빼고 맞히기 > 늘 많은 쪽) | `ontology-map.e2e.mjs` 5, F-PO-02, `ontology-stats.test.js` | HTTP·feature·단위 | ✅ |
@@ -456,16 +459,22 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 업무 에이전트가 양식대로 새 견적서 · 점검 항목마다 판단(rich text 칸 포함) · 엔진이 배운 조건으로 재무 검토 | `ontology-run.e2e.mjs` 5·6, `ontology-taskdef.test.js` | agent·단위 | ✅ |
 | 검토 안건 · 은퇴(관리자만) · 지난 시점에는 살아 있음 · 앞날짜 고정 · 결정 원장 · 되돌리기 | `ontology-review.e2e.mjs` 1~6, F-PO-05·06 | HTTP·feature | ✅ |
 | 화면: 지도 · θ · 값 보기 · 검토 안건 · 스냅샷 | F-PO-08 | feature | ✅ |
-| 습관(열린 일 묶음에서 다음 일 묻기)이 굳은 길 묶음에서 실제로 묻는 장면, Gmail 지난 메일, 설치판 Ontological 컨테이너 | — | — | ✗ |
+| 사건 · 프로세스 소속(한 일이 여러 프로세스에) · 역할(사람 · 지표, 정의 초안은 관리자만) | `ontology-map.e2e.mjs` 「사건 · 소속 · 역할」, F-PO-09·10, `ontology-structure.test.js` | HTTP·feature·단위 | ✅ |
+| 개인 습관 → 역할 루틴, 공개 설정(관리자만, 이름 · 말 없이), 역할 정의 확정, 영업 4명 | `ontology-roles.e2e.mjs` 1~6, F-PO-11 | HTTP·feature | ✅ |
+| 일의 방법 공유 → 실제 실행의 걸린 시간 → 가장 빠른 방법을 스킬로, 새 사람에게 회사가 고른 방법 | `ontology-roles.e2e.mjs` 7~10, F-PO-12 | agent·feature | ✅ |
+| 승격 단계(관찰 · 제안 · 자동, 관리자만, 결정 원장), 제안 단계의 메일 · 채팅 제안 카드 | `ontology-triggers.e2e.mjs` 1~3, F-PO-13 | HTTP·feature | ✅ |
+| 자동 단계의 사람 단계는 초안 모드(에이전트 초안이 먼저) | `ontology-run.e2e.mjs` 7 | agent | ✅ |
+| 타이머 사건: 사람의 예약 → 역할 루틴 단계, 그래프에서 멈추면 실행 안 함, 회사 타이머(제안이면 묻고 자동이면 시작), 메일의 「예약 걸까요?」 | `ontology-triggers.e2e.mjs` 4~9, F-PO-14·15 | HTTP·feature | ✅ |
+| 습관(열린 일 프로세스에서 다음 일 묻기)이 굳은 길에서 실제로 묻는 장면, 실제 Gmail 메일함, 설치판 Ontological(소스 공개 결정 대기), 메일 보관함 보관 기간 · 연결 끊기 | — | — | ✗ |
 
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (28개) | 172 (프로세스 지도 F-PO-01…08, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
+| feature | `tests/feature/*.spec.js` (28개) | 179 (프로세스 지도 F-PO-01…15, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
 | agent | `tests/agent/*.spec.js` (7개) | 18 (회의 A-14, 후행 습관 A-FU-01) |
-| 합계 | | 264 (`npx playwright test --list` 로 센 수 256 + F-PO 8, 2026-11-13) |
+| 합계 | | 271 (`npx playwright test --list` 로 센 수 256 + F-PO 15, 2026-11-13) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
