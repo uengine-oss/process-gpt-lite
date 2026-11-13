@@ -2,7 +2,7 @@
  "mailbox": {
   "days": 90,
   "threadsAtOnce": 4,
-  "fetchAtOnce": 8,
+  "fetchAtOnce": 4,
   "historyTextChars": 1500,
   "incomingTextChars": 6000
  },

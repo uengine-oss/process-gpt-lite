@@ -183,6 +183,9 @@ export function cronOfHint(h) {
 
 // Gmail's refusal in words a person can act on (a 403 that says the API is off in the Google project, an expired grant, a
 // rate limit) — the caller throws it instead of reading an error body as an empty mailbox
+// a per-minute quota or rate limit (429, or 403 「Quota exceeded …」 / rateLimitExceeded): wait and ask again
+export const gmailBusy = (status, body) => status === 429 || (status === 403 && /quota exceeded|rate ?limit/i.test(`${body?.error?.message || ''} ${JSON.stringify(body?.error?.errors || [])}`))
+
 export function gmailError(status, body) {
   const msg = String(body?.error?.message || '')
   const project = msg.match(/project (\d+)/)?.[1]

@@ -18,7 +18,7 @@ import { q } from '../supa.js'
 import { chatJson } from '../llm.js'
 import { maskPii } from '../policy/pii.js'
 import { googleAccessToken } from '../mail.js'
-import { partsOf, bodyOf, newPart, readFile, kindOf, formKey, b64u, gmailError } from './mailbody.js'
+import { partsOf, bodyOf, newPart, readFile, kindOf, formKey, b64u, gmailError, gmailBusy } from './mailbody.js'
 import { prompt, rules as skillRules, defaultRules, discoverySkill } from './discovery.js'
 import { sayer } from './feed.js'
 import { emit } from '../bus.js'
@@ -51,9 +51,19 @@ function demoArchive(email) {
 // newly written part of it, and its attachments. The company's own attachments (sent by someone inside) are opened: their
 // labels make the form a reply uses (templatesOf), and the latest file of each form is kept as that form's template.
 export const gmailApi = () => process.env.PRO_GMAIL_API || 'https://gmail.googleapis.com/gmail/v1/users/me'
-export async function gmailMails(token, days, { inside = new Map(), onPage, formsDir = null, archived = null, forms = defaultRules().forms, fetchAtOnce = 8 } = {}) {
+export async function gmailMails(token, days, { inside = new Map(), onPage, onBusy, formsDir = null, archived = null, forms = defaultRules().forms, fetchAtOnce = 4 } = {}) {
   const OFFICE = new Set(forms.openKinds)
-  const api = async (p) => { const r = await fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${token}` } }); const j = await r.json().catch(() => ({})); if (!r.ok) throw gmailError(r.status, j); return j }
+  // Gmail's per-minute quota per person: a refusal for it is waited out (longer each time), not a failed read
+  const api = async (p) => {
+    for (let i = 0; ; i++) {
+      const r = await fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${token}` } })
+      const j = await r.json().catch(() => ({}))
+      if (r.ok) return j
+      if (!gmailBusy(r.status, j) || i >= 8) throw gmailError(r.status, j)
+      await onBusy?.(i)
+      await new Promise((ok) => setTimeout(ok, Math.min(60_000, 2_000 * 2 ** i) + Math.random() * 1000))
+    }
+  }
   const out = []
   const latest = new Map()
   let page = ''
@@ -257,6 +267,7 @@ export async function runMailHistory(me, jobId, days) {
   await q(`update pro_onto_jobs set detail=coalesce(detail,'{}'::jsonb) || $2::jsonb where id=$1`, [jobId, { skill: { source: skill.source, version: skill.version } }])
   if (acc?.provider === 'gmail') mails = await gmailMails(await googleAccessToken(me.id), days, { inside, formsDir: formsDirOf(), forms: R.forms, fetchAtOnce: R.mailbox.fetchAtOnce,
     archived: async (ids) => new Map([...(await archivedOf(me.id, ids))].map(([k, r]) => [k, mailOf(r)])),
+    onBusy: async (i) => { if (i === 0) await say('Gmail 이 1분에 받을 수 있는 양을 넘었어요. 잠깐 쉬었다가 이어서 받아요.', 'busy') },
     onPage: async (n) => { await update('total=$2', [n]); if (n % 1000 < 100) await say(`메일 ${n.toLocaleString('ko-KR')}통째 받는 중이에요.`, 'fetch') } })
   else if (acc?.provider === 'demo' || !acc) {
     const a = demoArchive(me.email)

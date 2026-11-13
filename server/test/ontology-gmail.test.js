@@ -95,3 +95,24 @@ test('회사 사람: 구성원과, 아직 가입하지 않은 같은 회사 도�
   inside.vote('someone@gmail.com', '개발')
   assert.equal(inside.get('someone@gmail.com').role, '영업')
 })
+
+test('Gmail 의 1분 쿼터에 걸리면(403 Quota exceeded · 429) 기다렸다가 이어서 받는다', async (t) => {
+  let n = 0
+  const busy = []
+  const srv = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (n++ === 0) { res.statusCode = 403; return res.end(JSON.stringify({ error: { code: 403, message: "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'" } })) }
+    const u = new URL(req.url, 'http://x')
+    if (u.pathname === '/messages') return res.end(JSON.stringify({ messages: [{ id: 'a1', threadId: 't1' }] }))
+    return res.end(JSON.stringify(MAILS.a1))
+  })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  t.after(() => srv.close())
+  process.env.PRO_GMAIL_API = `http://127.0.0.1:${srv.address().port}`
+  const { gmailMails } = await import('../lib/ontology/history.js')
+  const mails = await gmailMails('test-token', 90, { onBusy: (i) => busy.push(i) })
+  assert.equal(mails.length, 1)
+  assert.deepEqual(busy, [0])
+  const { gmailBusy } = await import('../lib/ontology/mailbody.js')
+  assert.ok(gmailBusy(429, {}) && !gmailBusy(403, { error: { message: 'Gmail API has not been used in project 1 before or it is disabled' } }))
+})
