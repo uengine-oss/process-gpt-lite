@@ -53,6 +53,7 @@ const TOOLS = {
   aidlc_events: [F_, async ({ folder }, who) => R.readAudit(need(await work(folder, who.user)))],
   aidlc_unit_metrics: [F_, async ({ folder }, who) => { const dir = need(await work(folder, who.user)); return M.unitMetrics(await R.readAudit(dir), await R.readUnits(dir)) }],
   aidlc_docs: [F_, async ({ folder }, who) => R.docList(need(await work(folder, who.user)))],
+  aidlc_worktree: [{ ...F_, path: z.string(), unit: z.string() }, async ({ folder, path: p, unit }, who) => { const w = await work(folder, who.user); return R.worktreeProgress(w.folder.repo_path, need(w), p, unit) }],
   aidlc_read_doc: [{ ...F_, path: z.string() }, async ({ folder, path }, who) => R.readDoc(need(await work(folder, who.user)), path)],
   aidlc_refs: [{ ...F_, text: z.string(), stage: z.string().optional() }, async ({ folder, text, stage }, who) => { const dir = need(await work(folder, who.user)); return R.resolveRefs(text, await R.docList(dir), stage) }],
   aidlc_members: [F_, async ({ folder }, who) => (await F.members((await work(folder, who.user)).folder.id)).filter((m) => m.type === 'user' && !m.is_agent).map((m) => ({ id: m.id, name: m.name, role: m.role }))],

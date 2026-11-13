@@ -121,6 +121,24 @@ export async function readAudit(dir) {
   return all.sort((a, b) => a.t - b.t || (a.shard === b.shard ? a.i - b.i : a.shard.localeCompare(b.shard)))
 }
 
+// ---------- a swarm bolt's worktree ----------
+// How far a bolt built in its own worktree has got (AI-DLC swarm): its code plan's ticked steps and the last step its
+// worker wrote in the worktree's own audit shard — the main record has neither until the bolt is merged.
+// wtPath: the worktree as the audit names it, relative to the project; only below .aidlc/worktrees/.
+export async function worktreeProgress(root, dir, wtPath, unit) {
+  const base = path.resolve(root, '.aidlc', 'worktrees')
+  const wt = path.resolve(root, String(wtPath || ''))
+  if (!wt.startsWith(base + path.sep) || !NAME.test(String(unit || ''))) throw err(400, 'not a bolt worktree')
+  if (!(await isDir(wt))) return { exists: false }
+  const rec = path.join(wt, path.relative(root, dir))
+  const plan = await readText(path.join(rec, 'construction', unit, 'code-generation', 'code-generation-plan.md'))
+  const done = (plan.match(/^\s*[-*] \[[xX]\]/gm) || []).length
+  const open = (plan.match(/^\s*[-*] \[ \]/gm) || []).length
+  const events = await readAudit(rec)
+  const last = events.filter((e) => e.event !== 'AUDIT_FORKED' && e.event !== 'STATE_FORKED').at(-1)
+  return { exists: true, plan: plan ? { done, total: done + open } : null, steps: events.length, last: last ? { event: last.event, ts: last.ts, stage: last.stage } : null }
+}
+
 // ---------- walking the record ----------
 // the question and review files of a record: one walk, reused for 4 s (a new stage's files show up
 // on the next refresh; answers written into an existing file are seen at once through its mtime)

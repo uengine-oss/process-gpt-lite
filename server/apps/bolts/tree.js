@@ -29,10 +29,36 @@ export function stageTimes(events, now = Date.now()) {
   return out
 }
 
-// one unit's bolts in order: { n, start, end, min, checks: [{ at, ok, exit }], outcome, back }
+// swarm (AI-DLC 2.11.2 with `stage-major` + `swarm`): each bolt is built in its own worktree — made (WORKTREE_CREATED,
+// `Swarm Unit`), merged into the landing branch (SWARM_SOURCE_MERGED: the proof it landed, a squash commit "Bolt <slug>")
+// or set aside (WORKTREE_DISCARDED, kept under a parked ref). The worker's own steps are in the worktree's audit shard
+// and reach the main record only when the bolt is merged. → unit -> [{ slug, path, branch, batch, at, merged, discarded }]
+export function boltWorktrees(events) {
+  const out = new Map()
+  const bySlug = new Map()
+  for (const e of events) {
+    const f = e.fields || {}
+    if (e.event === 'WORKTREE_CREATED' && f['Swarm Unit']) {
+      const w = { slug: f['Bolt slug'] || '', path: f['Worktree path'] || '', branch: f['Branch name'] || '', batch: f['Swarm Batch'] || null, at: e.t, merged: null, discarded: null }
+      if (!out.has(f['Swarm Unit'])) out.set(f['Swarm Unit'], [])
+      out.get(f['Swarm Unit']).push(w)
+      bySlug.set(w.slug, w)
+    } else if (e.event === 'SWARM_SOURCE_MERGED' && f['Unit name']) {
+      const w = (out.get(f['Unit name']) || []).filter((x) => !x.merged && !x.discarded).at(0)
+      if (w) w.merged = { at: e.t, commit: f['Merge commit'] || f['Source Commit'] || '' }
+    } else if (e.event === 'WORKTREE_DISCARDED') {
+      const w = bySlug.get(f['Bolt slug'])
+      if (w) w.discarded = { at: e.t, ref: f['Parked ref'] || '' }
+    }
+  }
+  return out
+}
+
+// one unit's bolts in order: { n, start, end, min, checks: [{ at, ok, exit }], outcome, back, worktree? }
 //   outcome: working (open) · verified (its checkpoint passed) · approved (the unit gate passed) ·
-//            sent-back (back: { at, from, feedback }) · accepted (the last one, once the whole intent is complete)
-export function unitBolts(events, unit, { now = Date.now(), complete = false } = {}) {
+//            sent-back (back: { at, from, feedback }) · accepted (the last one, once the whole intent is complete) ·
+//            merged (swarm: landed from its worktree) · discarded (swarm: its worktree set aside)
+export function unitBolts(events, unit, { now = Date.now(), complete = false, worktrees = null } = {}) {
   const out = []
   let cur = null
   let reopened = null
@@ -64,6 +90,15 @@ export function unitBolts(events, unit, { now = Date.now(), complete = false } =
   }
   // sent back and not started again yet: the next pass is waiting
   if (reopened != null) out.push({ n: out.length + 1, start: reopened, end: null, checks: [], outcome: 'working', back: null })
+  // swarm: the n-th worktree of a unit is its n-th pass (a pass whose steps are still in the worktree has no events here)
+  const wts = (worktrees || boltWorktrees(events)).get(unit) || []
+  wts.forEach((w, i) => {
+    let b = out[i]
+    if (!b) { b = { n: out.length + 1, start: w.at, end: null, checks: [], outcome: 'working', back: null }; out.push(b) }
+    b.worktree = { slug: w.slug, path: w.path, branch: w.branch, batch: w.batch }
+    if (w.discarded) { b.outcome = 'discarded'; b.end = b.end ?? w.discarded.at; b.parked = w.discarded.ref }
+    else if (w.merged) { b.merged = w.merged; if (['working', 'verified'].includes(b.outcome)) b.outcome = 'merged'; b.end = b.end ?? w.merged.at }
+  })
   const tail = out.at(-1)
   if (complete && tail && ['verified', 'approved'].includes(tail.outcome)) tail.outcome = 'accepted'
   for (const b of out) b.min = mins((b.end ?? now) - b.start)
@@ -72,6 +107,7 @@ export function unitBolts(events, unit, { now = Date.now(), complete = false } =
 
 // the intent's units (the unit plan's order), each with its design stages, its bolts and its delivery group
 export function buildUnitTree({ units, plan = [], times, events, now: running, complete = false, at = Date.now() }) {
+  const wts = boltWorktrees(events)
   const groupOf = new Map()
   for (const b of plan) for (const n of b.units) if (!groupOf.has(n)) groupOf.set(n, { n: b.n, name: b.name })
   return units.map((u) => {
@@ -81,9 +117,11 @@ export function buildUnitTree({ units, plan = [], times, events, now: running, c
       const isNow = running && running.unit === u.name && running.stage === slug
       return { slug, state: isNow && running.open ? 'working' : st === 'done' ? 'done' : st === 'skipped' ? 'skipped' : st === 'working' ? 'working' : 'pending', min: t.get(slug)?.min ?? null, now: !!isNow }
     })
-    const bolts = unitBolts(events, u.name, { now: at, complete })
-    const runningHere = !!running && running.unit === u.name
-    if (runningHere && running.stage === 'code-generation' && bolts.length && bolts.at(-1).outcome === 'working') bolts.at(-1).now = true
+    const bolts = unitBolts(events, u.name, { now: at, complete, worktrees: wts })
+    // a swarm batch builds several units at once: any unit with a worktree still open is running
+    const inWorktree = bolts.some((b) => b.worktree && b.outcome === 'working')
+    const runningHere = (!!running && running.unit === u.name) || inWorktree
+    if (runningHere && (inWorktree || running.stage === 'code-generation') && bolts.length && bolts.at(-1).outcome === 'working') bolts.at(-1).now = true
     const staged = Math.round(stages.reduce((n, s) => n + (s.min || 0), 0) * 10) / 10
     const workMin = Math.max(u.workMin || 0, Math.round((staged - (u.humanMin || 0)) * 10) / 10)
     const done = stages.filter((s) => s.state === 'done' || s.state === 'skipped').length

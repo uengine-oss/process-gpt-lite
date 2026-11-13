@@ -42,6 +42,7 @@ test('화면: 입력창이 비었고 일하지 않으면 기다리는 중, 마�
 test('화면: 일하는 중(esc to interrupt), 누가 입력창에 적는 중, 마지막이 도구 줄이면 말이 없다', () => {
   assert.ok(AS.busy(working))
   assert.equal(AS.draft(idle('커밋해 줘')), '커밋해 줘')
+  assert.equal(AS.draft(idle('Try "how do I log an error?"')), '', 'a fresh session\'s suggestion is not a draft')
   assert.equal(AS.lastMessage(idle('', ['⏺ 확인합니다.', '⏺ Read 3 files (ctrl+o to expand)'])), '')
 })
 

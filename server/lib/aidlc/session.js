@@ -95,11 +95,14 @@ export function atPrompt(text) {
 // "✻ Waiting for 1 background agent to finish") — not the one a finished turn leaves ("✻ Worked for 4s · done 8:14 AM")
 const SPINNER = /^\s*[·✢✳✶✻✽]\s+(?:[^\n]*…|Waiting for\b)/m
 export const busy = (text) => /esc to interrupt/i.test(String(text)) || SPINNER.test(String(text))
-// what someone has typed into the box and not sent yet ('' when it is empty)
+// what someone has typed into the box and not sent yet ('' when it is empty — or shows Claude Code's own dimmed
+// suggestion, which a plain capture cannot tell from text: 'Try "how do I log an error?"')
+const PLACEHOLDER = /^Try ".*"$/
 export function draft(text) {
   const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean)
   const i = lines.findIndex((l, k) => /^[❯>]/.test(l) && RULE.test(lines[k - 1] || '') && RULE.test(lines[k + 1] || ''))
-  return i < 0 ? '' : lines[i].replace(/^[❯>]\s?/, '').trim()
+  const typed = i < 0 ? '' : lines[i].replace(/^[❯>]\s?/, '').trim()
+  return PLACEHOLDER.test(typed) ? '' : typed
 }
 // the session's last words on screen, above the input box: its last "⏺" block that is not a tool call
 // (the hook's copy is whole; this is what a screen can show, for a session started without hooks)

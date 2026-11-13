@@ -10,7 +10,7 @@ let U = null
 let screenTimer = null
 const STATE = { done: t('끝남', 'Done'), working: t('진행 중', 'In progress'), waiting: t('승인 대기', 'Awaiting approval'), ready: t('시작 가능', 'Ready'), blocked: t('의존 대기', 'Blocked'), pending: t('대기', 'Pending'), started: t('진행 중', 'In progress') }
 const dur = (m) => (m == null ? '–' : m < 1 ? t('1분 미만', '<1m') : m < 60 ? `${Math.round(m)}${t('분', 'm')}` : `${(m / 60).toFixed(1)}${t('시간', 'h')}`)
-const OUT = { working: t('진행 중', 'In progress'), verified: t('검증 통과', 'Checks passed'), approved: t('유닛 승인', 'Unit approved'), 'sent-back': t('되돌아옴', 'Sent back'), accepted: t('통과', 'Accepted') }
+const OUT = { working: t('진행 중', 'In progress'), verified: t('검증 통과', 'Checks passed'), approved: t('유닛 승인', 'Unit approved'), 'sent-back': t('되돌아옴', 'Sent back'), accepted: t('통과', 'Accepted'), merged: t('합쳐짐', 'Merged'), discarded: t('버림 · 보관', 'Set aside') }
 const hm = (ms) => new Date(ms).toLocaleTimeString(lite.lang === 'en' ? 'en-US' : 'ko-KR', { hour: '2-digit', minute: '2-digit' })
 const from = (f) => (f === 'build-and-test' ? 'Build and Test' : f)
 const short = { 'functional-design': t('기능 설계', 'Functional'), 'nfr-requirements': t('NFR 요구', 'NFR req.'), 'nfr-design': t('NFR 설계', 'NFR design'), 'infrastructure-design': t('인프라', 'Infra'), 'code-generation': t('코드 생성', 'Code') }
@@ -19,7 +19,8 @@ async function load() {
   try { T = await lite.tool('bolts_open', { folder }) } catch (e) { $('#tree').innerHTML = `<p class="hint">${esc(e.message)}</p>`; return }
   $('#title').textContent = (T.intent?.project || T.intent?.slug || '').split(/(?<=[.!?。])\s|—/)[0].slice(0, 80)
   const nu = T.units.length, nb = T.units.reduce((n, u) => n + u.bolts.length, 0), back = T.units.reduce((n, u) => n + u.bolts.filter((b) => b.outcome === 'sent-back').length, 0)
-  $('#sub').textContent = `${T.intent?.slug || ''} · ${t(`유닛 ${nu}개 · 볼트 ${nb}개`, `${nu} unit(s) · ${nb} bolt(s)`)}${back ? ' · ' + t(`되돌아온 볼트 ${back}개`, `${back} sent back`) : ''}`
+  const inWt = T.units.reduce((n, u) => n + u.bolts.filter((b) => b.worktree && b.outcome === 'working').length, 0)
+  $('#sub').textContent = `${T.intent?.slug || ''} · ${t(`유닛 ${nu}개 · 볼트 ${nb}개`, `${nu} unit(s) · ${nb} bolt(s)`)}${back ? ' · ' + t(`되돌아온 볼트 ${back}개`, `${back} sent back`) : ''}${inWt ? ' · ' + t(`작업 트리에서 도는 볼트 ${inWt}개`, `${inWt} running in worktrees`) : ''}`
   $('#now').innerHTML = T.now ? `${esc(t('지금 세션이 만드는 유닛', 'The session is on'))}<b>${esc(T.now.unit)} · ${esc(T.stageNames[T.now.stage] || T.now.stage)}</b>` : T.stage ? `${esc(t('지금 단계', 'Stage'))}<b>${esc(T.stage.name)}</b>` : ''
   $('#tree').innerHTML = T.units.length ? `<div class="intent"><span class="n">${esc(t('의도', 'Intent'))}</span> ${esc(T.intent?.slug || '')}</div>${T.units.map(unit).join('')}` : `<p class="hint">${esc(t('아직 유닛이 없어요. 인셉션의 유닛 생성이 끝나면 유닛이, 구축이 시작되면 유닛마다 볼트가 나타나요.', 'No units yet. They appear once units generation is done, and each unit’s bolts once construction starts.'))}</p>`
   if (!sel && T.now) sel = T.now.unit
@@ -36,9 +37,19 @@ function unit(u) {
     <div class="rail design">${u.design.map((s) => `<span class="s ${s.state}" title="${esc(T.stageNames[s.slug] || s.slug)} ${s.min != null ? dur(s.min) : ''}">${esc(short[s.slug] || s.slug)}</span>`).join('')}</div>
     <div class="bolts">${u.bolts.length ? u.bolts.map((b) => boltRow(b)).join('') : `<div class="brow none">${esc(t('아직 볼트 없음 — 코드 생성이 시작되면 생겨요', 'No bolt yet — one starts with code generation'))}</div>`}</div></div>`
 }
+// a swarm bolt: the worktree it is built in, how far its worker has got there, and what became of it
+function worktreeLine(b) {
+  const w = b.worktree
+  if (!w) return ''
+  const pr = b.progress?.plan
+  const step = pr && pr.total ? t(`계획 ${pr.done}/${pr.total}`, `plan ${pr.done}/${pr.total}`) : ''
+  const fate = b.merged ? t(`합침 ${hm(b.merged.at)}${b.merged.commit ? ` · ${b.merged.commit.slice(0, 7)}` : ''}`, `merged ${hm(b.merged.at)}${b.merged.commit ? ` · ${b.merged.commit.slice(0, 7)}` : ''}`)
+    : b.outcome === 'discarded' ? t('작업 트리를 버리고 보관했어요', 'worktree set aside') : step
+  return `<div class="wt" data-test="bolts-worktree" title="${esc(w.path)}"><span class="wt-ico">⑂</span><code>${esc(w.branch || w.slug)}</code>${w.batch ? `<span class="faint">${esc(t(`묶음 ${w.batch}`, `batch ${w.batch}`))}</span>` : ''}${fate ? `<span class="wt-fate">${esc(fate)}</span>` : ''}</div>`
+}
 function boltRow(b) {
   const checks = b.checks.map((c) => (c.ok ? '✓' : '✗')).join('')
-  return `<div class="brow ${b.outcome}${b.now ? ' now' : ''}" data-test="bolts-bolt"><span class="bn">Bolt ${b.n}</span><span class="out">${esc(OUT[b.outcome] || b.outcome)}</span><span class="faint">${dur(b.min)}</span>${checks ? `<span class="ck" title="${esc(t('체크포인트 검증', 'checkpoint checks'))}">${checks}</span>` : ''}${b.back ? `<span class="back">${esc(b.back.from ? t(`${from(b.back.from)} 에서 되돌아옴`, `sent back by ${from(b.back.from)}`) : t('다시 열림', 'reopened'))} ${hm(b.back.at)}</span>` : ''}</div>`
+  return `<div class="brow ${b.outcome}${b.now ? ' now' : ''}" data-test="bolts-bolt"${b.worktree ? ' data-worktree="1"' : ''}><span class="bn">Bolt ${b.n}</span><span class="out">${esc(OUT[b.outcome] || b.outcome)}</span><span class="faint">${dur(b.min)}</span>${checks ? `<span class="ck" title="${esc(t('체크포인트 검증', 'checkpoint checks'))}">${checks}</span>` : ''}${b.back ? `<span class="back">${esc(b.back.from ? t(`${from(b.back.from)} 에서 되돌아옴`, `sent back by ${from(b.back.from)}`) : t('다시 열림', 'reopened'))} ${hm(b.back.at)}</span>` : ''}${worktreeLine(b)}</div>`
 }
 
 async function pick(name, redraw = true) {

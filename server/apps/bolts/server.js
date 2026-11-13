@@ -32,11 +32,18 @@ export default function register(server, ctx) {
     const session = await w.session()
     const complete = /complete/i.test(w.intent?.status || '')
     const rows = buildUnitTree({ units, plan, times: stageTimes(events), events, now: w.unit, complete })
+    await withProgress(w, rows.flatMap((u) => u.bolts.map((b) => [u.name, b])))
     return {
       folder: w.folder, intent: w.intent, stage: w.stage, now: w.unit, session: { running: session.running, workroom: session.workroom, prompt: session.choice && { kind: session.choice.kind, title: session.choice.title } },
       stageNames: Object.fromEntries(UNIT_STAGES.map((s) => [s, w.describeStage(s).name])),
       units: rows, plan: plan.map(({ n, name, units: us }) => ({ n, name, units: us })),
     }
+  }
+  // a bolt still open in its worktree (swarm): how far its worker has got there
+  async function withProgress(w, pairs) {
+    await Promise.all(pairs.filter(([, b]) => b.worktree && b.outcome === 'working').map(async ([name, b]) => {
+      b.progress = await w.worktree(b.worktree.path, name).catch(() => null)
+    }))
   }
   // one unit: its row, what happened to it lately, its documents
   async function unit({ folder, name }) {
@@ -50,9 +57,12 @@ export default function register(server, ctx) {
     // (the stages' own times, as on the tree: a late UNIT_STARTED undercounts the unit's work)
     const staged = [...times.values()].reduce((n, s) => n + (s.min || 0), 0)
     const row = { ...u, workMin: Math.max(u.workMin || 0, Math.round((staged - (u.humanMin || 0)) * 10) / 10) }
+    // (the swarm's worktree events name the unit in their own field: read them from the whole record)
+    const bolts = unitBolts(await w.events(), name, { complete: /complete/i.test(w.intent?.status || '') })
+    await withProgress(w, bolts.map((b) => [name, b]))
     return {
-      unit: row, running: !!w.unit && w.unit.unit === name, now: w.unit,
-      bolts: unitBolts(events, name, { complete: /complete/i.test(w.intent?.status || '') }),
+      unit: row, running: (!!w.unit && w.unit.unit === name) || bolts.some((b) => b.worktree && b.outcome === 'working'), now: w.unit,
+      bolts,
       stages: UNIT_STAGES.map((s) => ({ slug: s, name: w.describeStage(s).name, role: w.describeStage(s).role, state: u.stages?.[s] || 'pending', min: times.get(s)?.min ?? null })),
       events: events.filter((e) => LABEL[e.event]).slice(-12).reverse().map((e) => ({ ts: e.ts, what: L(...LABEL[e.event]), stage: w.describeStage(e.stage).name, detail: e.fields?.Verified ? `${e.fields.Verified === 'true' ? '✓' : '✗'} ${e.fields['Command'] || ''}`.trim() : '' })),
       docs: docs.map((d) => ({ path: d.path, name: d.path.split('/').pop(), stage: w.describeStage(d.stage).name, order: UNIT_STAGES.indexOf(d.stage) })).sort((a, b) => a.order - b.order),

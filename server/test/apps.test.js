@@ -16,7 +16,7 @@ import { HOST_TOOLS } from '../lib/apps/host.js'
 import * as R from '../lib/aidlc/record.js'
 import { unitNow } from '../lib/aidlc/metrics.js'
 import * as B from '../apps/review/board.js'
-import { stageTimes, buildTree, unitBolts, buildUnitTree } from '../apps/bolts/tree.js'
+import { stageTimes, buildTree, unitBolts, buildUnitTree, boltWorktrees } from '../apps/bolts/tree.js'
 import { renderDoc, findHeading } from '../apps/artifact/render.js'
 import { navAllowed } from '../../src/apps/paths.js'
 
@@ -436,6 +436,33 @@ test('볼트 보드: 유닛 → 볼트 — 코드 생성 한 번이 볼트 하�
   const tree = buildUnitTree({ units, plan: [{ n: 1, name: 'API', units: ['u1'] }, { n: 2, name: '로그인', units: ['u3'] }], times: stageTimes(events, at(470)), events: events.filter((x) => x.t <= at(470)), now: { unit: 'u3', stage: 'code-generation', open: true }, at: at(470) })
   assert.deepEqual(tree.map((u) => [u.name, u.group?.n, u.bolts.length, u.design.length]), [['u1', 1, 1, 4], ['u3', 2, 3, 4]])
   assert.ok(tree[1].bolts.at(-1).now)
+})
+
+// swarm (stage-major + swarm): a batch's units each built in a worktree at once — the main record has the worktree
+// events (the unit in its own field); the worker's steps come only with the merge. Field names as AI-DLC 2.11.2 writes them.
+test('볼트 보드 · 작업 트리: 묶음의 유닛마다 작업 트리 하나 = 볼트, 나란히 도는 중 → 합쳐짐 · 버림', () => {
+  const t0 = Date.UTC(2026, 10, 14, 1, 0)
+  const at = (min) => t0 + min * 60000
+  const ev = (min, event, fields) => ({ t: at(min), event, unit: '', stage: '', fields })
+  const created = (min, unit, id8 = '7c1e0a2f') => ev(min, 'WORKTREE_CREATED', { 'Bolt slug': `bolt-${id8}_${unit}`, 'Worktree path': `.aidlc/worktrees/bolt-${id8}_${unit}`, 'Branch name': `bolt-${id8}_${unit}`, 'Swarm Unit': unit, 'Swarm Batch': '2', 'Swarm Stage': 'code-generation' })
+  const events = [
+    ev(0, 'SWARM_STARTED', { 'Batch number': '2', 'Unit names': 'u2-api, u3-web' }),
+    created(1, 'u2-api'), created(1, 'u3-web'),
+    ev(40, 'SWARM_SOURCE_MERGED', { 'Unit name': 'u2-api', 'Source Commit': 'aaaa111', 'Merge commit': 'bbbb2222cccc' }),
+  ]
+  const wts = boltWorktrees(events)
+  assert.deepEqual([...wts.keys()], ['u2-api', 'u3-web'])
+  const api = unitBolts(events, 'u2-api', { now: at(50) })
+  assert.deepEqual(api.map((b) => [b.n, b.outcome, b.worktree.branch, b.merged?.commit]), [[1, 'merged', 'bolt-7c1e0a2f_u2-api', 'bbbb2222cccc']])
+  const web = unitBolts(events, 'u3-web', { now: at(50) })
+  assert.deepEqual(web.map((b) => [b.n, b.outcome, b.worktree.path, b.min]), [[1, 'working', '.aidlc/worktrees/bolt-7c1e0a2f_u3-web', 49]])
+  // the tree: the unit still in its worktree runs, even though the session's own "now" is another unit
+  const units = [{ name: 'u2-api', status: 'working', stages: {} }, { name: 'u3-web', status: 'working', stages: {} }]
+  const tree = buildUnitTree({ units, times: stageTimes(events, at(50)), events, now: { unit: 'u2-api', stage: 'code-generation', open: true }, at: at(50) })
+  assert.deepEqual(tree.map((u) => [u.name, u.running, u.bolts.at(-1).outcome, !!u.bolts.at(-1).now]), [['u2-api', true, 'merged', false], ['u3-web', true, 'working', true]])
+  // set aside: the worktree parked, the bolt discarded; a retry is the unit's next bolt in a new worktree
+  const later = [...events, ev(60, 'WORKTREE_DISCARDED', { 'Bolt slug': 'bolt-7c1e0a2f_u3-web', 'Parked ref': 'refs/aidlc/parked/7c1e0a2f/bolt-7c1e0a2f_u3-web/20261114T0200', Reason: 'agent-discard' }), created(61, 'u3-web')]
+  assert.deepEqual(unitBolts(later, 'u3-web', { now: at(70) }).map((b) => [b.n, b.outcome, !!b.parked]), [[1, 'discarded', true], [2, 'working', false]])
 })
 
 // ---------- the document viewer ----------

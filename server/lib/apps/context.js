@@ -57,6 +57,7 @@ async function openWork(link, slug) {
     events: () => call('aidlc_events'),
     unitMetrics: () => call('aidlc_unit_metrics'),
     docs: () => call('aidlc_docs'),
+    worktree: (p, unit) => call('aidlc_worktree', { path: p, unit }),
     readDoc: (path) => call('aidlc_read_doc', { path }),
     refs: (text, stage) => call('aidlc_refs', { text: String(text || ''), stage: stage || undefined }),
     members: () => call('aidlc_members'),
