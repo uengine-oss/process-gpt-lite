@@ -155,7 +155,12 @@ await step('사람 단계는 초안이 먼저: 박서연에게 닿기 전에 재
   assert.notEqual(t.s, 'DONE', '사람이 내기 전에 끝났다')
   const [m] = await q(`select content->>'text' as text from pro_messages m join pro_threads th on th.id=m.thread_id join users u on u.id::text = th.user_id::text and u.tenant_id='ax-demo'
                        where u.email='pro-ax-seoyeon@uengine.org' and m.content->>'text' like '%초안을 만들어 두었어요%' order by m.created_at desc limit 1`).catch(() => [])
-  return { mode: t.agent_mode, status: t.s, draft: Object.keys(t.draft).slice(0, 6), told: m?.text?.slice(0, 80) || null }
+  // the step reaches her Home: the engine lists 'agent,person' on a draft step and the notification copies the list
+  const seoyeon = await signIn('pro-ax-seoyeon@uengine.org')
+  const home = (await call(seoyeon.tok, 'GET', '/notifications')).body
+  const card = (Array.isArray(home) ? home : []).find((n) => n.type === 'workitem' && n.title === '재무 검토')
+  assert.ok(card, `박서연의 홈에 재무 검토가 없다: ${JSON.stringify(home).slice(0, 200)}`)
+  return { mode: t.agent_mode, status: t.s, draft: Object.keys(t.draft).slice(0, 6), told: m?.text?.slice(0, 80) || null, home: `입력 · ${card.title}` }
 })
 
 console.log(failed ? `\n${failed} failed` : '\nall passed')

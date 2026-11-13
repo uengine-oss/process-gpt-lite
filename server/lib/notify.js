@@ -52,12 +52,16 @@ function choicesOf(form) {
   return { field: f.key, options: f.items.map(opt) }
 }
 
+// a step with several people — the engine writes them as one comma list (a draft step: 'agent,person') and the
+// notification trigger copies that list as is — is each of theirs
+const MINE = `(n.user_id = any($2) or string_to_array(replace(n.user_id, ' ', ''), ',') && $2::text[])`
+
 export async function listFor(me) {
   const rows = await q(`select n.*, t.id as todo_id, t.status as todo_status, t.proc_inst_id, fu.username as from_name
                         from notifications n
                         left join todolist t on n.url = '/todolist/' || t.id::text
                         left join users fu on fu.email = n.from_user_id and fu.tenant_id = n.tenant_id
-                        where n.tenant_id=$1 and coalesce(n.is_checked,false)=false and n.user_id = any($2)
+                        where n.tenant_id=$1 and coalesce(n.is_checked,false)=false and ${MINE}
                         order by n.time_stamp desc limit 30`, [T(), ids(me)])
   const out = []
   for (const n of rows) {
@@ -80,7 +84,7 @@ export async function listFor(me) {
 }
 
 async function own(me, id) {
-  const [n] = await q('select * from notifications where id=$1 and tenant_id=$2 and user_id = any($3)', [id, T(), ids(me)])
+  const [n] = await q(`select * from notifications n where id=$1 and tenant_id=$2 and ${MINE.replace('$2', '$3')}`, [id, T(), ids(me)])
   return n || null
 }
 
@@ -149,7 +153,7 @@ export function startNotificationFeed() {
     let last = lastByTenant.get(T()) || new Date()
     try {
       const rows = await q(`select n.user_id, n.time_stamp, u.id as uid from notifications n
-                            left join users u on (u.id::text = n.user_id or u.email = n.user_id) and u.tenant_id = n.tenant_id
+                            left join users u on (u.id::text = any(string_to_array(replace(n.user_id, ' ', ''), ',')) or u.email = n.user_id) and u.tenant_id = n.tenant_id
                             where n.tenant_id=$1 and n.time_stamp > $2`, [T(), last])
       for (const r of rows) {
         if (r.time_stamp > last) last = r.time_stamp
