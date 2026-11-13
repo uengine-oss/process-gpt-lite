@@ -90,6 +90,16 @@ export const SCHEMA = [
   ['HAS_WAY', 'relation', [], false],
   ['Snapshot', 'entity', [['key', S, true], ['proc', S], ['entry', S], ['theta', N], ['made_at', S], ['onto_at', S], ['proc_def_id', S], ['tasks', A]], false],
   ['HAS_SNAPSHOT', 'relation', [], false],
+  // a regulation or procedure document the company uploaded, the procedures it describes and their steps (documents.js, design-v0.3 §17):
+  // kept apart from the Process the build finds, a step tied to the same work on the map by SAME_AS
+  ['Document', 'entity', [['key', S, true], ['name', S], ['kind', S], ['pages', N], ['chars', N], ['by', S], ['at', S]], false],
+  ['Procedure', 'entity', [['key', S, true], ['name', S], ['description', S], ['trigger', S], ['doc', S], ['steps', N], ['seen', N], ['process', S],
+    ['process_name', S], ['coverage', N], ['only_mail', A]], false],
+  ['DESCRIBES', 'relation', [], false],
+  ['Step', 'entity', [['key', S, true], ['name', S], ['role', S], ['order', N], ['description', S], ['evidence', S], ['task', S], ['proc', S]], false],
+  ['HAS_STEP', 'relation', [['order', N]], false],
+  ['THEN', 'relation', [['cond', S]], false],
+  ['SAME_AS', 'relation', [], false],
   ['Meta', 'entity', [['key', S, true], ['built_at', S], ['events', N], ['cases', N], ['data_start', S], ['data_end', S], ['sources', S], ['values', S], ['backfilled', B]], false],
 ]
 

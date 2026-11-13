@@ -8,6 +8,7 @@ import * as V from '../lib/ontology/review.js'
 import * as RL from '../lib/ontology/roles.js'
 import * as W from '../lib/ontology/ways.js'
 import * as TM from '../lib/ontology/timers.js'
+import * as DOC from '../lib/ontology/documents.js'
 import { cypher } from '../lib/ontology/store.js'
 import { q } from '../lib/supa.js'
 import { updateMessage } from '../lib/store.js'
@@ -34,6 +35,10 @@ export function ontologyRoutes(auth) {
   r.get('/ontology/status', auth, h((req) => S.status(req.user)))
   r.post('/ontology/mail-history', auth, h((req) => S.readMailAndBuild(req.user, { days: Math.min(180, Math.max(7, Number(req.body?.days) || 90)) })))
   r.get('/ontology/jobs/:id', auth, h((req) => S.job(req.params.id)))
+  // 규정 · 업무 정의서(design-v0.3 §17): 파일 그대로 올리면 process-gpt 의 문서 읽기로 절차를 뽑아 지도 곁에 둔다
+  r.post('/ontology/documents', express.raw({ type: () => true, limit: '30mb' }), auth, h((req) =>
+    DOC.startDocument(req.user, { name: decodeURIComponent(String(req.headers['x-file-name'] || 'document.txt')), buf: req.body })))
+  r.get('/ontology/documents', auth, h(() => DOC.documents()))
   r.post('/ontology/build', auth, h(async (req) => { await admin(req); return S.startBuild(req.user) }))
   r.get('/ontology/map', auth, h((req) => S.map({ validAt: req.query.at || undefined, systemAt: req.query.system || undefined })))
   r.get('/ontology/labels', auth, h(() => S.labels()))
