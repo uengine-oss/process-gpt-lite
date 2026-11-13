@@ -38,7 +38,8 @@ export async function startBuild(me, reason = '온톨로지 다시 셈하기') {
 
 // 「지난 메일 읽기」: read the mailbox, then build the graph from it and the chat handovers already there; when the map
 // is drawn, the person gets a summary card (the "ideas" the onboarding promised after the mail connection)
-const waitJob = async (id, ms = 60 * 60_000) => {
+// a real mailbox's read runs for hours (Gmail's quota, a model call per thread): wait as long as the job runs
+const waitJob = async (id, ms = 12 * 60 * 60_000) => {
   const until = Date.now() + ms
   while (Date.now() < until) {
     const j = await jobOf(id).catch(() => null)

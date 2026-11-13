@@ -239,7 +239,7 @@ export function insideOf(rows, ownerEmail = '', company = defaultRules().company
 
 // Read `days` of one person's mailbox into pro_mail_history, with progress in pro_onto_jobs. Returns the job id at once.
 export async function startMailHistory(me, { days = 90 } = {}) {
-  const [running] = await q(`select id from pro_onto_jobs where tenant_id=$1 and user_id=$2 and kind='mail_history' and status='running' and started_at > now() - interval '1 hour'`, [T(), me.id])
+  const [running] = await q(`select id from pro_onto_jobs where tenant_id=$1 and user_id=$2 and kind='mail_history' and status='running' and started_at > now() - interval '12 hours'`, [T(), me.id])
   if (running) return { job: running.id, already: true }
   const [job] = await q(`insert into pro_onto_jobs (tenant_id, user_id, kind, detail) values ($1,$2,'mail_history',$3) returning id`, [T(), me.id, { days }])
   const tenant = T()

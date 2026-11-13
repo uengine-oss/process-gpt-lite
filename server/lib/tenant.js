@@ -92,7 +92,9 @@ async function gatewayTenants() {
 // default tenant's list — never the other servers registered for the default tenant's demos.
 const ensured = new Set()
 export async function ensureTenantRow(t, ownerId = null) {
-  if (!servesTenant(t) || t === DEFAULT_TENANT || (ensured.has(t) && !ownerId)) return
+  // the default tenant too: an install (or a server) whose PRO_TENANT_ID names a tenant nobody made yet would refuse its
+  // first person (public.users.tenant_id refers to tenants)
+  if (!servesTenant(t) || (ensured.has(t) && !ownerId)) return
   const { q } = await import('./supa.js')
   const [d] = await q('select mcp from tenants where id=$1', [DEFAULT_TENANT]).catch(() => [])
   const ours = Object.fromEntries(Object.entries(d?.mcp?.mcpServers || {}).filter(([k]) => k.startsWith('pgpt-')))
