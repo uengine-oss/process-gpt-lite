@@ -4,8 +4,11 @@ import NavigatedViewer from 'bpmn-js/lib/NavigatedViewer'
 import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-js.css'
 import { api } from '../api.js'
+import { laidOutBpmn } from '../lib/bpmnLayout.js'
 
 // Renders the process-gpt designer's stored BPMN, painting each node by its live state.
+// The stored layout is redone with Process GPT's automatic layout first (src/lib/bpmn-auto-layout): lanes per role,
+// no overlapping shapes, flows around them.
 // steps: [{id, state: done|active|pending|skipped, mine}]
 const props = defineProps({ defId: String, steps: { type: Array, default: () => [] }, height: { type: Number, default: 360 } })
 const host = ref(null)
@@ -30,7 +33,9 @@ async function load() {
   const r = await api(`/processes/${encodeURIComponent(props.defId)}/bpmn`, { raw: true })
   if (!r.ok) { empty.value = true; return }
   try {
-    await viewer.importXML(await r.text())
+    const xml = await laidOutBpmn(await r.text(), props.defId)
+    if (gone) return
+    await viewer.importXML(xml)
     // size the box to the diagram's aspect so wide flows are not shrunk to a sliver
     const inner = viewer.get('canvas').viewbox().inner
     const w = host.value.clientWidth || 600
@@ -49,7 +54,8 @@ onMounted(() => {
   viewer = new NavigatedViewer({ container: host.value })
   load()
 })
-onBeforeUnmount(() => viewer?.destroy())
+let gone = false
+onBeforeUnmount(() => { gone = true; viewer?.destroy() })
 watch(() => props.steps.map((s) => s.state + s.mine).join(), paint)
 watch(() => props.defId, load)
 const fit = () => { viewer?.get('canvas').resized(); viewer?.get('canvas').zoom('fit-viewport', 'auto') }

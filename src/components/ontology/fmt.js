@@ -38,5 +38,5 @@ export const HABIT_MODE_KO = { threshold: '기준 이상만', all: '모두(이�
 // 「role:영업」 → 「영업」
 export const scopeRole = (scope) => (String(scope || '').startsWith('role:') ? String(scope).slice(5) : '')
 
-// a learned condition as people read it: 「견적 합계(amount)가 …」 keeps the field name for the engine, the screen drops it
+// a learned condition as people read it: 「금액(amount)이 …」 keeps the field name for the engine, the screen drops it
 export const condText = (s) => String(s || '').replace(/\s*\([a-z_][a-z0-9_]*\)/gi, '')

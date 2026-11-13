@@ -132,6 +132,8 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
   const node = (k) => (k === END ? 'end' : actId(k))
   const seq = (source, target, extra = {}) => elements.push({ elementType: 'Sequence', id: `s_${source}_${target}`, source, target, condition: extra.condition || '', ...(extra.condition ? { name: extra.name || extra.condition } : {}), ...(extra.properties ? { properties: extra.properties } : {}) })
   seq('start', 'intake'); seq('intake', node(nodes[0]))
+  // a gateway sits in the lane of the step it decides after (a join: the step it leads to), so the diagram's lanes hold every node
+  const laneOf = (id) => elements.find((e) => e.id === id)?.role || ''
   // splits: two parallel siblings → AND (their links to each other dropped, a join waits for both), else XOR
   const parallel = new Map() // x → {targets, next}
   const sibling = new Set()
@@ -151,8 +153,8 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
     const par = parallel.get(x)
     if (par) {
       const g = `g_and_${node(x)}`, j = `j_and_${node(x)}`
-      elements.push({ elementType: 'Gateway', id: g, name: '', type: 'ParallelGateway', gateWayType: 'bpmn:parallelGateway' })
-      elements.push({ elementType: 'Gateway', id: j, name: '', type: 'ParallelGateway', gateWayType: 'bpmn:parallelGateway' })
+      elements.push({ elementType: 'Gateway', id: g, name: '', role: laneOf(node(x)), type: 'ParallelGateway', gateWayType: 'bpmn:parallelGateway' })
+      elements.push({ elementType: 'Gateway', id: j, name: '', role: laneOf(node(par.next)) || laneOf(node(x)), type: 'ParallelGateway', gateWayType: 'bpmn:parallelGateway' })
       seq(node(x), g)
       for (const a of par.targets) { seq(g, node(a)); seq(node(a), j) }
       seq(j, node(par.next))
@@ -163,7 +165,7 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
     const g = `g_${node(x)}`
     const best = [...outs].sort((a, b) => b.p - a.p)[0]
     const conds = outs.filter((f) => f.cond)
-    elements.push({ elementType: 'Gateway', id: g, name: conds.length ? '견적 합계 기준' : `${x} 다음`, type: 'ExclusiveGateway', gateWayType: 'bpmn:exclusiveGateway' })
+    elements.push({ elementType: 'Gateway', id: g, name: conds.length ? '금액 기준' : `${x} 다음`, role: laneOf(node(x)), type: 'ExclusiveGateway', gateWayType: 'bpmn:exclusiveGateway' })
     seq(node(x), g)
     // a split with a learned condition uses it; without one, the most common branch is the default flow
     outs.forEach((f, i) => seq(g, node(f.to), {
