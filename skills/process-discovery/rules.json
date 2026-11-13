@@ -2,8 +2,13 @@
  "mailbox": {
   "days": 90,
   "threadsAtOnce": 4,
+  "fetchAtOnce": 8,
   "historyTextChars": 1500,
   "incomingTextChars": 6000
+ },
+ "company": {
+  "publicDomains": ["gmail.com", "googlemail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "nate.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "icloud.com", "me.com", "proton.me"],
+  "colleagueRole": "동료"
  },
  "filters": {
   "newsletterHeaders": ["list-unsubscribe"],

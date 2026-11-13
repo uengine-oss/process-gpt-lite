@@ -26,6 +26,7 @@ import OntoCasePanel from '../components/ontology/OntoCasePanel.vue'
 import OntoSnapshotPanel from '../components/ontology/OntoSnapshotPanel.vue'
 import EventPanel from '../components/ontology/EventPanel.vue'
 import OntoRolePanel from '../components/ontology/OntoRolePanel.vue'
+import OntoDocsPanel from '../components/ontology/OntoDocsPanel.vue'
 import { visibleGraph, eventGraph, edgeId, procsOf, inProc } from '../components/ontology/mapView.js'
 import { BAND, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
 import { useApp } from '../stores/app.js'
@@ -54,6 +55,7 @@ const at = ref('') // '' = now
 const sel = ref(null) // {kind: 'edge'|'task'|'event', id}
 const eventsOn = ref(false)
 const rolesOpen = ref(false)
+const docsOpen = ref(false)
 const roleKey = ref('')
 const valuesOpen = ref(false)
 const reviewOpen = ref(false)
@@ -239,12 +241,13 @@ watch(procKey, (k) => {
 function pickProc(k) { procKey.value = k; sel.value = null }
 // 일 패널의 「프로세스」에서: 그 프로세스로 옮기고 그 일은 계속 고른 채로
 function openProc(k) { const id = sel.value?.kind === 'task' ? sel.value.id : null; pickProc(k); if (id) sel.value = { kind: 'task', id } }
-const closeSide = () => { valuesOpen.value = false; reviewOpen.value = false; snapOpen.value = false; rolesOpen.value = false; roleKey.value = ''; caseId.value = '' }
+const closeSide = () => { valuesOpen.value = false; reviewOpen.value = false; snapOpen.value = false; rolesOpen.value = false; docsOpen.value = false; roleKey.value = ''; caseId.value = '' }
 function onSelect(x) { if (x) closeSide(); sel.value = x }
 function toggleValues() { const open = !valuesOpen.value; closeSide(); sel.value = null; valuesOpen.value = open }
 function toggleReview() { const open = !reviewOpen.value; closeSide(); sel.value = null; reviewOpen.value = open }
 function toggleSnap() { const open = !snapOpen.value; closeSide(); sel.value = null; snapOpen.value = open }
 function toggleRoles() { const open = !rolesOpen.value; closeSide(); sel.value = null; rolesOpen.value = open }
+function toggleDocs() { const open = !docsOpen.value; closeSide(); sel.value = null; docsOpen.value = open }
 // 일 패널의 역할 이름 · 역할 목록에서: 그 역할로
 function openRole(key) { closeSide(); sel.value = null; rolesOpen.value = true; roleKey.value = key || '' }
 const roleName = computed(() => (map.value?.roles || []).find((r) => r.key === roleKey.value)?.name || roleKey.value)
@@ -320,6 +323,7 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
           <button class="hbtn glass press" @click="openLabels">이름 맞춘 기록</button>
           <button class="hbtn glass press" :class="{ on: reviewOpen }" @click="toggleReview">검토 안건</button>
           <button class="hbtn glass press" :class="{ on: rolesOpen }" data-testid="onto-roles-button" @click="toggleRoles">역할</button>
+          <button class="hbtn glass press" :class="{ on: docsOpen }" data-testid="onto-docs-button" @click="toggleDocs">문서</button>
           <button v-if="proc && !isRoutine" class="hbtn glass press" :class="{ on: snapOpen }" @click="toggleSnap">스냅샷 보기</button>
           <!-- 승격 단계(design-v0.3 §12): 관찰 → 제안(요청이 오면 묻는다) → 자동(이벤트에 저절로 시작, 사람 단계는 초안이 먼저) -->
           <div v-if="proc && !isRoutine" class="ladder glass" role="group" aria-label="이 프로세스의 단계" data-testid="onto-ladder" :data-status="proc.status">
@@ -327,6 +331,10 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
               :title="st.tip" :data-testid="`onto-ladder-${st.key}`" @click="adopt(st.key)">{{ st.ko }}</button>
           </div>
           <button v-if="proc && !isRoutine && status?.admin" class="hbtn glass press" :class="{ on: timerOpen }" data-testid="onto-timer-button" @click="timerOpen = !timerOpen">타이머</button>
+          <!-- 온보딩 다시: 새로 온 메일과, 스킬이 바뀐 뒤 아직 그 판으로 읽지 않은 스레드만 읽고 지도를 다시 그린다 -->
+          <button class="hbtn glass press" data-testid="onto-reread" :disabled="!!busy || rebuilding" title="새로 온 메일과, 스킬이 바뀐 뒤 아직 읽지 않은 스레드만 읽어요" @click="startMail">
+            <Icon name="mail" :size="15" /> 메일 다시 읽기
+          </button>
           <button v-if="status?.admin" class="hbtn glass press" :disabled="!!busy || rebuilding" @click="rebuild">
             <Icon name="refresh" :size="15" :class="{ spin: rebuilding }" /> {{ rebuilding ? '셈하는 중…' : '다시 셈하기' }}
           </button>
@@ -410,6 +418,9 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
           <SidePanel v-else-if="rolesOpen" kicker="역할" :title="roleKey ? roleName : '역할'" @close="rolesOpen = false; roleKey = ''">
             <OntoRolePanel :role-key="roleKey" :roles="map.roles || []" :events="map.events || []" :triggers="map.triggers || []" :tasks="map.tasks" :admin="!!status?.admin"
               @pick="(k) => (roleKey = k)" @task="showTask" @changed="loadMap" />
+          </SidePanel>
+          <SidePanel v-else-if="docsOpen" kicker="규정 · 업무 정의서" title="문서대로와 실제" @close="docsOpen = false">
+            <OntoDocsPanel :tasks="map.tasks" @task="showTask" @proc="(k) => { docsOpen = false; pickProc(k) }" />
           </SidePanel>
           <SidePanel v-else-if="timerOpen && proc" kicker="타이머" :title="`${proc.name} 타이머`" @close="timerOpen = false">
             <div class="timers" data-testid="onto-timer-panel">

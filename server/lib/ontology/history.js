@@ -29,6 +29,15 @@ const DEMO_ARCHIVE = path.join(here, '..', '..', 'scripts', 'fixtures', 'ax-demo
 const lower = (s) => String(s || '').trim().toLowerCase()
 const addrOf = (s) => (String(s || '').match(/<([^>]+)>/)?.[1] || String(s || '')).trim().toLowerCase()
 const domainOf = (a) => addrOf(a).split('@')[1] || ''
+// 「장진영 <jyjang@uengine.org>」 → 장진영
+const nameOf = (s) => String(s || '').match(/^\s*"?([^"<]+?)"?\s*</)?.[1]?.trim() || ''
+// items through fn, n at a time, results in the items' order
+async function pool(items, n, fn) {
+  const out = new Array(items.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(n, items.length)) }, async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]) } }))
+  return out
+}
 
 // ---------- 1 headers ----------
 function demoArchive(email) {
@@ -42,7 +51,7 @@ function demoArchive(email) {
 // newly written part of it, and its attachments. The company's own attachments (sent by someone inside) are opened: their
 // labels make the form a reply uses (templatesOf), and the latest file of each form is kept as that form's template.
 export const gmailApi = () => process.env.PRO_GMAIL_API || 'https://gmail.googleapis.com/gmail/v1/users/me'
-export async function gmailMails(token, days, { inside = new Map(), onPage, formsDir = null, archived = null, forms = defaultRules().forms } = {}) {
+export async function gmailMails(token, days, { inside = new Map(), onPage, formsDir = null, archived = null, forms = defaultRules().forms, fetchAtOnce = 8 } = {}) {
   const OFFICE = new Set(forms.openKinds)
   const api = async (p) => { const r = await fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${token}` } }); const j = await r.json().catch(() => ({})); if (!r.ok) throw gmailError(r.status, j); return j }
   const out = []
@@ -52,8 +61,9 @@ export async function gmailMails(token, days, { inside = new Map(), onPage, form
     const list = await api(`messages?maxResults=100&q=${encodeURIComponent(`newer_than:${days}d`)}${page ? `&pageToken=${page}` : ''}`)
     // a mail already in the owner's mail archive (lib/mailArchive.js) is taken from there, not fetched again
     const kept = archived ? await archived(list.messages?.map((x) => x.id) || []) : new Map()
-    for (const m of list.messages || []) {
-      if (kept.has(m.id)) { out.push({ ...kept.get(m.id), archived: true }); continue }
+    // several mails of a page at a time (Gmail allows ~50 reads a second per person); the page keeps its order
+    const page1 = await pool(list.messages || [], fetchAtOnce, async (m) => {
+      if (kept.has(m.id)) return { ...kept.get(m.id), archived: true }
       const full = await api(`messages/${m.id}?format=full`)
       const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name.toLowerCase(), x.value]))
       const parts = partsOf(full.payload)
@@ -78,10 +88,11 @@ export async function gmailMails(token, days, { inside = new Map(), onPage, form
         attachments.push(a)
       }
       const body = bodyOf(parts)
-      out.push({ id: m.id, thread: full.threadId, date, from: h.from, to: String(h.to || '').split(',').map(addrOf).filter(Boolean),
+      return { id: m.id, thread: full.threadId, date, from: h.from, to: String(h.to || '').split(',').map(addrOf).filter(Boolean),
         cc: String(h.cc || '').split(',').map(addrOf).filter(Boolean), subject: h.subject || '', body, text: newPart(body) || full.snippet || '', attachments,
-        labels: full.labelIds || [], headers: h['list-unsubscribe'] ? { 'list-unsubscribe': h['list-unsubscribe'] } : {} })
-    }
+        labels: full.labelIds || [], headers: h['list-unsubscribe'] ? { 'list-unsubscribe': h['list-unsubscribe'] } : {} }
+    })
+    out.push(...page1)
     page = list.nextPageToken || ''
     if (onPage) await onPage(out.length)
   } while (page)
@@ -174,12 +185,46 @@ async function readThread(t, inside, known, chars = defaultRules().mailbox.histo
   } catch (e) { console.warn('[ontology] read thread', e.message); return [] }
 }
 
-// people inside the company: their address → {role, label}
-async function insidePeople() {
+// people inside the company: address → {id, role, label}. Its members, and — while the rest have not joined yet — anyone
+// writing from the company's own mail domain (the members' domains that are not public mail services): a colleague is
+// labeled by the name in their mail and the role the mail shows (votes from the read, see roleOf); else rules.company.colleagueRole.
+export async function insidePeople(ownerEmail = '', company = defaultRules().company) {
   const rows = await q(`select u.id::text as id, lower(u.email) as email, coalesce(u.username, u.email) as name,
                                (select role from pro_role_assignments r where r.tenant_id=u.tenant_id and r.user_id::text=u.id::text and r.proc_def_id='*' limit 1) as role
                           from users u where u.tenant_id=$1 and not coalesce(u.is_agent,false)`, [T()])
-  return new Map(rows.map((r) => [r.email, { id: r.id, role: r.role || '담당자', label: `${r.name}(${r.role || '담당자'})` }]))
+  return insideOf(rows, ownerEmail, company)
+}
+export function insideOf(rows, ownerEmail = '', company = defaultRules().company) {
+  const members = new Map(rows.map((r) => [r.email, { id: r.id, role: r.role || '', name: r.name }]))
+  const pub = new Set((company?.publicDomains || []).map(lower))
+  const domains = new Set([...members.keys(), lower(ownerEmail)].map(domainOf).filter((d) => d && !pub.has(d)))
+  const fallback = company?.colleagueRole || '담당자'
+  const names = new Map(), votes = new Map()
+  const roleOf = (a) => {
+    const v = votes.get(a)
+    if (v?.size) return [...v].sort((x, y) => y[1] - x[1])[0][0]
+    return members.get(a)?.role || (members.has(a) ? '담당자' : fallback)
+  }
+  return {
+    domains, names,
+    has: (a) => members.has(lower(a)) || domains.has(domainOf(a)),
+    get(a) {
+      a = lower(a)
+      if (!this.has(a)) return undefined
+      const m = members.get(a), role = m?.role || roleOf(a)
+      const name = m?.name && !m.name.includes('@') ? m.name : names.get(a) || m?.name || a.split('@')[0]
+      return { id: m?.id || null, role, label: `${name}(${role})`, guessed: !m?.role }
+    },
+    // the read says what a colleague without an assigned role does (their signature, what they hand over)
+    vote(a, role) {
+      a = lower(a); role = String(role || '').trim().slice(0, 12)
+      if (!role || members.get(a)?.role || !this.has(a)) return
+      if (!votes.has(a)) votes.set(a, new Map())
+      votes.get(a).set(role, (votes.get(a).get(role) || 0) + 1)
+    },
+    voted: () => [...votes.keys()].map((a) => [a, roleOf(a)]),
+    learnNames(mails) { for (const m of mails) { const a = addrOf(m.from), n = nameOf(m.from); if (n && this.has(a) && !names.has(a)) names.set(a, n) } },
+  }
 }
 
 // Read `days` of one person's mailbox into pro_mail_history, with progress in pro_onto_jobs. Returns the job id at once.
@@ -201,30 +246,34 @@ export const caseIdOf = (threadId) => `mail:${T()}:${threadId}`
 export async function runMailHistory(me, jobId, days) {
   const [acc] = await q('select provider from pro_mail_accounts where user_id=$1', [me.id])
   let mails = []
-  const inside = await insidePeople()
   const { archiveMails, archivedOf, mailOf } = await import('../mailArchive.js')
   // the company's process-discovery skill (rules · prompts), recorded with the job
   const skill = await discoverySkill()
   const R = skill.rules
+  const inside = await insidePeople(me.email, R.company)
   const say = sayer(jobId)
+  const update = (set, args) => q(`update pro_onto_jobs set ${set} where id=$1`, [jobId, ...args])
   await say(skill.source === 'bundled' ? '기본 「프로세스 찾기」 스킬로 읽어요.' : `회사가 고친 「프로세스 찾기」 스킬(${skill.version})로 읽어요.`)
   await q(`update pro_onto_jobs set detail=coalesce(detail,'{}'::jsonb) || $2::jsonb where id=$1`, [jobId, { skill: { source: skill.source, version: skill.version } }])
-  if (acc?.provider === 'gmail') mails = await gmailMails(await googleAccessToken(me.id), days, { inside, formsDir: formsDirOf(), forms: R.forms,
-    archived: async (ids) => new Map([...(await archivedOf(me.id, ids))].map(([k, r]) => [k, mailOf(r)])) })
+  if (acc?.provider === 'gmail') mails = await gmailMails(await googleAccessToken(me.id), days, { inside, formsDir: formsDirOf(), forms: R.forms, fetchAtOnce: R.mailbox.fetchAtOnce,
+    archived: async (ids) => new Map([...(await archivedOf(me.id, ids))].map(([k, r]) => [k, mailOf(r)])),
+    onPage: async (n) => { await update('total=$2', [n]); if (n % 1000 < 100) await say(`메일 ${n.toLocaleString('ko-KR')}통째 받는 중이에요.`, 'fetch') } })
   else if (acc?.provider === 'demo' || !acc) {
     const a = demoArchive(me.email)
     if (!a) throw new Error('이 메일함에는 읽을 지난 메일이 없어요.')
     const cut = new Date(a.today || Date.now()).getTime() - days * 86_400_000
     mails = await demoFields(a.mails.filter((m) => new Date(m.date).getTime() >= cut), inside, R.forms)
   } else throw new Error('IMAP 지난 메일 읽기는 아직 준비 중이에요.')
-  const update = (set, args) => q(`update pro_onto_jobs set ${set} where id=$1`, [jobId, ...args])
   // every mail read is kept in its owner's mail archive (the demo mailbox's whole text is its new part and the quoted mail)
   await archiveMails(me.id, acc?.provider || 'demo', mails.filter((m) => !m.archived).map((m) => (m.body != null ? m : { ...m, body: [m.text, m.quoted].filter(Boolean).join('\n\n') })), 'history')
     .catch((e) => console.warn('[ontology] mail archive', e.message))
   await update('total=$2', [mails.length])
+  inside.learnNames(mails)
+  const colleagues = new Set(mails.flatMap((m) => [addrOf(m.from), ...(m.to || [])].map(addrOf)).filter((a) => inside.has(a) && a !== lower(me.email)))
   await say(`메일 ${mails.length.toLocaleString('ko-KR')}통을 가져왔어요${mails.some((m) => m.archived) ? ` (보관함에 있던 ${mails.filter((m) => m.archived).length.toLocaleString('ko-KR')}통은 다시 받지 않았어요)` : ''}.`)
   const kept = mails.filter((m) => !notWork(m, R.filters))
   const threads = threadsOf(kept)
+  if (inside.domains.size) await say(`${[...inside.domains].join(' · ')} 주소는 회사 사람으로 봐요 — 메일에 나온 동료 ${colleagues.size}명.`)
   await say(`뉴스레터 · 자동 알림 · 일정 초대 ${(mails.length - kept.length).toLocaleString('ko-KR')}통은 규칙으로 걸렀어요. 남은 메일은 스레드 ${threads.length.toLocaleString('ko-KR')}개(건)로 묶었어요.`)
   // the names the company already uses: the chat handovers are matched first, so the mail speaks the same words
   // (the filtered mails count as read at once; the screen says what is going on while the chat names are matched)
@@ -244,6 +293,7 @@ export async function runMailHistory(me, jobId, days) {
     const read = one ? [] : await readThread(t, inside, [...found], R.mailbox.historyTextChars)
     for (const r of read) {
       const m = t.mails[Number(r.i)]
+      if (m && r.from_role) inside.vote(addrOf(m.from), r.from_role)
       if (!m || !r.work || !String(r.task || '').trim()) continue
       const from = personOf(m.from, inside)
       const to = (m.to || []).map((x) => personOf(x, inside))
@@ -263,11 +313,34 @@ export async function runMailHistory(me, jobId, days) {
       found.add(task)
     }
     done += t.mails.length
+    await q(`insert into pro_mail_reads (tenant_id, owner_id, thread_id, mail_ids, skill_version) values ($1,$2,$3,$4,$5)
+             on conflict (tenant_id, owner_id, thread_id) do update set mail_ids=excluded.mail_ids, skill_version=excluded.skill_version, read_at=now()`,
+      [T(), me.id, String(t.id), t.mails.map((m) => String(m.id)), skill.version])
     await update('done=$2, kept=$3, found=$4, cursor=$5', [done, work, found.size, t.id])
     emit(me.id, 'ontology', { job: jobId, done, total: mails.length, kept: work, found: found.size })
   }
-  const queue = [...threads]
+  // read again (a second onboarding): a thread read before by this version of the skill, with no mail since, is not read again
+  const before = new Map((await q(`select thread_id, mail_ids, skill_version from pro_mail_reads where tenant_id=$1 and owner_id=$2`, [T(), me.id])).map((r) => [r.thread_id, r]))
+  const unchanged = (t) => { const b = before.get(String(t.id)); return b && b.skill_version === skill.version && t.mails.every((m) => b.mail_ids.includes(String(m.id))) }
+  const queue = threads.filter((t) => !unchanged(t))
+  if (queue.length < threads.length) {
+    const skip = threads.filter(unchanged)
+    done += skip.reduce((n, t) => n + t.mails.length, 0)
+    await update('done=$2', [done])
+    await say(`전에 읽은 스레드 ${skip.length.toLocaleString('ko-KR')}개는 그대로라 건너뛰어요 — 새 메일이 붙었거나 스킬이 바뀐 ${queue.length.toLocaleString('ko-KR')}개만 읽어요.`)
+  }
   await Promise.all(Array.from({ length: R.mailbox.threadsAtOnce || 4 }, async () => { while (queue.length) await readOne(queue.shift()) }))
+  // a colleague's role: what most of their mails showed (rows read before the votes came in are rewritten)
+  const voted = inside.voted()
+  for (const [a, role] of voted) {
+    await q(`update pro_mail_history set from_role=$3 where tenant_id=$1 and owner_id=$4 and from_addr=$2`, [T(), a, role, me.id])
+    await q(`update pro_mail_history set to_role=$3 where tenant_id=$1 and owner_id=$4 and to_addrs[1]=$2`, [T(), a, role, me.id])
+  }
+  if (voted.length) {
+    const byRole = new Map()
+    for (const [a, role] of voted) byRole.set(role, [...(byRole.get(role) || []), (inside.names.get(a) || a.split('@')[0])])
+    await say(`메일로 본 동료의 역할: ${[...byRole].sort((x, y) => y[1].length - x[1].length).slice(0, 6).map(([r, ns]) => `${r} ${ns.length}명`).join(' · ')}.`)
+  }
   await say(`메일 ${work.toLocaleString('ko-KR')}통이 일로 읽혔고, 일 이름 ${found.size}개를 찾았어요. 이제 흐름을 셉니다.`)
   await update(`status='done', finished_at=now()`, [])
   return { total: mails.length, kept: work, found: found.size }

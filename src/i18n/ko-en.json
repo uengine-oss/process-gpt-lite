@@ -2235,7 +2235,16 @@
   "타이머 멈춤": "Timer paused",
   "타이머 지움": "Timer removed",
   "지도에는 누가 · 누구에게 · 어떤 일 · 언제뿐이에요. 읽은 메일은 내 메일 보관함에만 남아요": "The map keeps only who · to whom · which work · when. The mail you read stays in your own mail archive",
-  "지난 90일 동안 받은 · 보낸 메일의 본문과 첨부(회사가 보낸 양식은 칸까지), 채팅 인계 기록": "The body and attachments of mail received and sent over the last 90 days (the company's own forms down to their fields), and chat handover records"
+  "지난 90일 동안 받은 · 보낸 메일의 본문과 첨부(회사가 보낸 양식은 칸까지), 채팅 인계 기록": "The body and attachments of mail received and sent over the last 90 days (the company's own forms down to their fields), and chat handover records",
+  "메일 다시 읽기": "Read mail again",
+  "새로 온 메일과, 스킬이 바뀐 뒤 아직 읽지 않은 스레드만 읽어요": "Reads only new mail and the threads not yet read since the skill changed",
+  "문서 올리기": "Upload a document",
+  "문서대로와 실제": "As documented and as done",
+  "규정 · 업무 정의서": "Regulations · procedure documents",
+  "문서에만": "Document only",
+  "실제로는": "In practice",
+  "아직 올린 문서가 없어요.": "No documents uploaded yet.",
+  "규정 · 업무 정의서를 올리면 거기 적힌 절차를 읽어, 메일 · 인계에서 찾은 실제 일과 나란히 보여 줘요. PDF · 한글 · 워드 · 파워포인트 · 엑셀 · 텍스트.": "Upload a regulation or procedure document: its procedures are read and shown next to the work the mail and handovers show. PDF · Hangul · Word · PowerPoint · Excel · text."
  },
  "patterns": [
   [

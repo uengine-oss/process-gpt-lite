@@ -77,3 +77,21 @@ test('Gmail 이 거절하면(프로젝트에서 API 꺼짐 · 만료) 빈 메일
   assert.match(gmailError(401, {}).message, /만료/)
   assert.equal(gmailError(401, {}).status, 401)
 })
+
+test('회사 사람: 구성원과, 아직 가입하지 않은 같은 회사 도메인 동료(메일의 이름 · 읽은 역할), 공용 메일 도메인은 바깥', async () => {
+  const { insideOf } = await import('../lib/ontology/history.js')
+  const company = { publicDomains: ['gmail.com'], colleagueRole: '동료' }
+  const inside = insideOf([{ id: 'u1', email: 'jyjang@uengine.org', name: '장진영', role: '' }, { id: 'u2', email: 'someone@gmail.com', name: 'x', role: '영업' }], 'jyjang@uengine.org', company)
+  assert.deepEqual([...inside.domains], ['uengine.org'])
+  assert.ok(inside.has('kim@uengine.org') && !inside.has('friend@gmail.com') && !inside.has('buyer@dalbit.example'))
+  assert.equal(inside.get('jyjang@uengine.org').label, '장진영(담당자)')
+  inside.learnNames([{ from: '김하나 <kim@uengine.org>' }, { from: 'Buyer <buyer@dalbit.example>' }])
+  assert.equal(inside.get('kim@uengine.org').label, '김하나(동료)')
+  inside.vote('kim@uengine.org', '교육 운영'); inside.vote('kim@uengine.org', '교육 운영'); inside.vote('kim@uengine.org', '영업')
+  inside.vote('buyer@dalbit.example', '구매')
+  assert.equal(inside.get('kim@uengine.org').role, '교육 운영')
+  assert.deepEqual(inside.voted(), [['kim@uengine.org', '교육 운영']])
+  // a member with an assigned role keeps it
+  inside.vote('someone@gmail.com', '개발')
+  assert.equal(inside.get('someone@gmail.com').role, '영업')
+})
