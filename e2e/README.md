@@ -437,7 +437,7 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 직접 제어로 로그인: 화면 전체, 보이는 자리 클릭, 입력 순서, 붙여넣기, 입력기 키, 로그 미기록, 돌려주기 | `takeover.e2e.mjs`(실제 화면) | HTTP·화면 | ✅ |
 | 로그인 뒤 실제 NotebookLM: 소스·슬라이드·오디오 생성, 파일 카드 | 사람이 로그인한 프로필로 실행 | 수동 | ✗ 미확인 |
 
-### 20. 회사 프로세스 지도 — 메일 이력 · 채팅 인계로 Ontological 에 프로세스 온톨로지, 스냅샷 실행, 고정 · 은퇴 (spec `pgpt-pro_process-ontology`, 설계 `pgpt-pro/docs/auto-ax-onboarding/design-v0.2.md` · `design-v0.3.md`, 영상 지도 `onto-map-ko` · 실행 `onto-run-ko` · 검토 `onto-review-ko` · 역할과 습관 `onto-roles-ko` · 사건과 타이머 `onto-triggers-ko`)
+### 20. 회사 프로세스 지도 — 메일 이력 · 채팅 인계로 Ontological 에 프로세스 온톨로지, 스냅샷 실행, 고정 · 은퇴 (spec `pgpt-pro_process-ontology`, 설계 `pgpt-pro/docs/auto-ax-onboarding/design-v0.2.md` · `design-v0.3.md`, 영상 지도 `onto-map-ko`(glG1BW1LMb4) · 실행 `onto-run-ko`(ueqW6Hk1l80) · 검토 `onto-review-ko`(upi0oXxPWMI) · 역할과 습관 `onto-roles-ko`(EqtVqj_e_us) · 사건과 타이머 `onto-triggers-ko`(NsZcm2Z3i_k))
 
 데모 테넌트 `ax-demo`(`node server/scripts/ax-demo.mjs --reset --seed`)에서 돈다: `PGPT_URL=http://ax.localhost:5191 API_URL=http://ax.localhost:8790 PGPT_TENANT=ax-demo PGPT_DB_URL=…`. F-PO 는 지도가 셈해진 뒤(S1) 돌고, 지도가 없으면 건너뛴다.
 
