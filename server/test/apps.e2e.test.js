@@ -131,7 +131,7 @@ test('준비: AI-DLC 저장소(질문 셋·검토 지적 둘), 팀 리드(소유
   for (const [key, who] of [['product', po], ['architect', arch], ['developer', dev]]) assert.equal((await call(lead, 'PUT', `/aidlc/${folder.slug}/roles`, { roleKey: key, userIds: [who.user.id] })).status, 200)
   // the apps this folder gets (it holds an AI-DLC record)
   const apps = (await call(po, 'GET', `/apps/for/${folder.slug}`)).body
-  assert.deepEqual(apps.filter((a) => a.mounts.includes('folder')).map((a) => a.id).sort(), ['artifact', 'bolts', 'review'])
+  assert.deepEqual(apps.filter((a) => a.mounts.includes('folder')).map((a) => a.id).sort(), ['artifact', 'bolts', 'intake', 'line', 'review'])
   assert.deepEqual(apps.find((a) => a.id === 'panels')?.mounts, ['panel'], 'the Home panels app comes with the host')
 })
 
