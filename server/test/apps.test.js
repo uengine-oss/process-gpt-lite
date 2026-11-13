@@ -465,6 +465,23 @@ test('볼트 보드 · 작업 트리: 묶음의 유닛마다 작업 트리 하�
   assert.deepEqual(unitBolts(later, 'u3-web', { now: at(70) }).map((b) => [b.n, b.outcome, !!b.parked]), [[1, 'discarded', true], [2, 'working', false]])
 })
 
+test('볼트 보드 · 작업 트리 안 진척: 코드 계획의 체크 수와 일꾼의 마지막 걸음, .aidlc/worktrees/ 밖은 400', async () => {
+  const RR = await import('../lib/aidlc/record.js')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-wt-'))
+  const rel = 'aidlc/spaces/default/intents/261114-notice-board'
+  const dir = path.join(root, rel)
+  const wt = path.join(root, '.aidlc/worktrees/bolt-7c1e0a2f_u3-web')
+  const plan = path.join(wt, rel, 'construction/u3-web/code-generation')
+  fs.mkdirSync(plan, { recursive: true }); fs.mkdirSync(path.join(wt, rel, 'audit'), { recursive: true }); fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(plan, 'code-generation-plan.md'), '# 코드 생성 계획\n- [x] Step 1\n- [x] Step 2\n- [ ] Step 3\n  - [ ] 3.1\n')
+  fs.writeFileSync(path.join(wt, rel, 'audit', 'worker.md'), '## Forked\n**Timestamp**: 2026-11-14T01:01:00Z\n**Event**: AUDIT_FORKED\n\n---\n## Unit started\n**Timestamp**: 2026-11-14T01:02:00Z\n**Event**: UNIT_STARTED\n**Stage**: code-generation\n**Unit**: u3-web\n')
+  const p = await RR.worktreeProgress(root, dir, '.aidlc/worktrees/bolt-7c1e0a2f_u3-web', 'u3-web')
+  assert.deepEqual([p.exists, p.plan, p.last.event], [true, { done: 2, total: 4 }, 'UNIT_STARTED'])
+  assert.deepEqual(await RR.worktreeProgress(root, dir, '.aidlc/worktrees/bolt-gone_u9', 'u9'), { exists: false })
+  for (const bad of ['../../etc', '.aidlc/worktrees/../../x', 'apps/web']) await assert.rejects(RR.worktreeProgress(root, dir, bad, 'u3-web'), (e) => e.status === 400, bad)
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
 // ---------- the document viewer ----------
 test('산출물 보기: 원문 HTML 은 글자로, 링크는 스스로 열리지 않고, 절마다 id, 초점 절을 이름으로 찾는다', () => {
   const r = renderDoc('# 결정\n\n## ADR-004: 바뀐 칸만 저장\n\n## Status: Accepted\n\n본문 <script>alert(1)</script> <img src=x onerror=alert(1)>\n\n[나쁜](javascript:alert(1)) [좋은](https://example.com)\n\n## ADR-005: 다음\n')
