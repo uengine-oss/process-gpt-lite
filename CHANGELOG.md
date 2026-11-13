@@ -7,6 +7,11 @@
 
 ### 추가
 
+- **Robo-DLC Lite P4 — 대화로 물은 것도 카드로 · 추정 없이 바로 시작 · 볼트마다 작업 트리** (설계 `docs/robo-dlc/plan-p4.md`, 결정 D-1114-01~03, 스펙 process-gpt `pgpt-pro_aidlc-team` · `pgpt-pro_aidlc-intake` · `pgpt-pro_aidlc-review`, 표 `042_aidlc_worktrees.sql`)
+  - **대화로 물은 것**: AI-DLC 가 선택 창 없이 대화로 승인을 묻거나(「Build and Test를 승인할까요? 1. **Approve** 2. **Request Changes**」) 할 일을 말하고 멈추면, 그 단계 역할의 사람에게 카드가 갑니다. 결정 화면의 「대화로 물음」 칸에서 고를 말을 누르거나 적어 보내면 세션 입력창에 그대로 들어갑니다. 실제 판 2 에서는 이런 승인 하나로 세션이 약 41시간 멈췄습니다.
+  - **세션 훅**: 팀 세션을 띄울 때 Claude Code 훅(Stop · UserPromptSubmit · Notification)을 `--settings` 로 넘겨, 세션이 멈춘 순간과 그때 한 말을 서버가 바로 받습니다(로컬·세션별 서명만, 설정·키는 `~/.pgpt-lite/aidlc-hooks`). 훅이 없는 세션은 화면으로 같은 판단을 합니다. `PRO_AIDLC_HOOKS=0` 이면 화면만, `PRO_AIDLC_HOOK_LOG=1` 이면 받은 훅을 로그에 남깁니다.
+  - **추정 없이 바로 시작**: 접수 권한자는 범위를 골라 약 1분짜리 계획안 없이 시작 단계로 갑니다.
+  - **볼트마다 작업 트리**: 시작 옵션을 켜면 요청 뒤에 「구축은 유닛을 병렬로, 볼트마다 작업 트리에서 진행해 주세요(stage-major + swarm).」 를 붙입니다. AI-DLC 가 볼트마다 작업 트리(`.aidlc/worktrees/bolt-<id8>_<유닛>`)를 만들고 승인된 볼트만 합칩니다. 볼트 보드는 볼트마다 작업 트리 가지·묶음·작업 트리 안 진척(계획 N/M)·합쳐짐(병합 커밋)·버림(보관)을 보입니다. 유닛으로 나뉘는 범위는 기본으로 켜고, bugfix 같은 한 유닛 범위는 꺼 둡니다.
 - **Robo-DLC Lite P3 — 작업 접수 · 볼트 줄** (설계 `docs/robo-dlc/plan-intake.md`, 구현 `docs/robo-dlc/plan-p3-impl.md`, 결정 D-1112-23~28, 스펙 process-gpt `openspec/specs/pgpt-pro_aidlc-intake`): 운영 중인 AI-DLC 프로젝트에 일을 더 넣고, 여러 의도의 볼트를 한 줄로 봅니다. 앱 둘(`intake` · `line`, MCP Apps)과 표 둘(`pro_aidlc_requests` · `pro_aidlc_line`, `041_aidlc_intake.sql`)입니다.
 - **작업 접수**: 대화에 「작업 접수: …」 라고 적거나(평소 말로 부탁해도 라우터가 `aidlc_work`로 넘깁니다) 접수 앱에 적으면, 헤드리스 Claude Code 한 번이 저장소의 AI-DLC 기록을 읽고 계획안을 냅니다. 범위(bugfix · feature · classic …), 다섯 점수, 건드릴 유닛·계약·요구사항, 도는 볼트와 맞지 않는 점을 담습니다. 기록에 없는 유닛은 싣지 않습니다. 계획안은 추천이고, 「지금 시작」·「앞 작업 뒤에 세우기」는 접수 권한자가 누릅니다. 권한이 없는 사람의 요청은 접수함으로 갑니다. 대화에는 앱 카드(메시지 종류 `app`)로 오고 「크게 보기」로 옆 시트에 엽니다.
 - **폴더를 믿는지는 사람이 답합니다**: Claude Code가 처음 여는 저장소에서 묻는 화면에는 아무것도 치지 않고, 그 폴더가 미리 허용한 도구 수를 보여 준 뒤 「믿고 시작」을 누른 사람을 원장에 남깁니다.
