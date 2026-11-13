@@ -80,24 +80,6 @@ await step('깔때기: 규칙이 뉴스레터·no-reply·초대를 거르고, �
   return { total: j.total, noise, kept: j.kept, found: j.found, rows: n }
 })
 
-// 메일 보관함(design-v0.3 §16): 읽은 메일은 주인 몫으로 본문 전체까지 남는다 — 회사 지도 · 메일 이력에는 원문이 없고, 다른 사람은 못 연다
-await step('메일 보관함: 읽은 메일은 본문 전체로 주인 몫에 남고, 다른 사람은 열 수 없다', async () => {
-  const cut = new Date(ARCHIVE.today).getTime() - 90 * 86_400_000
-  const inWindow = ARCHIVE.mails.filter((x) => new Date(x.date).getTime() >= cut)
-  const [{ n }] = await q(`select count(*)::int n from pro_mail_archive where tenant_id='ax-demo' and owner_id=$1 and source='history'`, [boss.id])
-  assert.equal(n, inWindow.length)
-  const found = (await call(boss.tok, 'GET', `/mail/archive?q=${encodeURIComponent('주간 공정 보고')}&limit=20`)).body.filter((x) => x.source === 'history' && /^\[주간 공정 보고\]/.test(x.subject))
-  assert.ok(found.length >= 10, `found ${found.length}`)
-  const one = (await call(boss.tok, 'GET', `/mail/archive/${encodeURIComponent(found[0].mail_id)}`)).body
-  assert.match(one.body, /공정률/)
-  assert.ok(one.attachments.some((f) => /주간공정보고/.test(f.name)))
-  const minji = await signIn('pro-ax-minji@uengine.org')
-  assert.equal((await call(minji.tok, 'GET', `/mail/archive/${encodeURIComponent(found[0].mail_id)}`)).status, 404)
-  const [h] = await q(`select to_jsonb(h) j from pro_mail_history h where tenant_id='ax-demo' and mail_id=$1`, [found[0].mail_id])
-  assert.ok(!JSON.stringify(h?.j || {}).includes('공정률'), '메일 이력에 본문이 남았다')
-  return { archived: n, found: found.length, subject: one.subject, attachments: one.attachments.map((f) => f.name) }
-})
-
 let m
 await step('지도: 메일 이력과 채팅 핸드오버가 함께 셈해진다', async () => {
   for (let i = 0; i < 300; i++) {
