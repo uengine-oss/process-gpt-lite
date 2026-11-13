@@ -37,13 +37,13 @@ async function connect(id) {
 
 // ---------- the contract ----------
 test('앱 규약: 들어 있는 앱의 매니페스트는 모두 규약 v2 를 지키고, 홈 패널은 호스트에 들어 있다', async () => {
-  assert.deepEqual(apps.sort(), ['artifact', 'bolts', 'review'])
+  assert.deepEqual(apps.sort(), ['artifact', 'bolts', 'intake', 'line', 'review'])
   for (const id of apps) {
     const m = checkManifest(JSON.parse(fs.readFileSync(path.join(APPS, id, 'manifest.json'), 'utf8')), id)
     assert.equal(m.contract, 2)
     assert.ok(fs.existsSync(path.join(APPS, id, 'ui', 'index.html')), `${id} has a page`)
   }
-  assert.deepEqual((await loadApps()).sort(), ['artifact', 'bolts', 'craft', 'office', 'panels', 'review'])
+  assert.deepEqual((await loadApps()).sort(), ['artifact', 'bolts', 'craft', 'intake', 'line', 'office', 'panels', 'review'])
   assert.deepEqual(list().find((m) => m.id === 'panels').mounts, ['panel'])
   // only the editors' screens ask for an origin of their own (the sandbox proxy); model-written panels never get one
   assert.deepEqual(list().filter((m) => m.origin).map((m) => m.id).sort(), ['craft', 'office'])

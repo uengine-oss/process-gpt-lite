@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { ENGLISH_NOTE } from '../lang.js'
+import * as HK from './hooks.js'
 
 const run = promisify(execFile)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -38,6 +39,8 @@ export async function start({ name, cwd, lang = 'ko' }) {
   const args = [config.claudeBin, '--permission-mode', config.aidlcPermissionMode]
   if (config.aidlcEffort) args.push('--effort', config.aidlcEffort)
   if (lang === 'en') args.push('--append-system-prompt', ENGLISH_NOTE)
+  // its events come straight here (lib/aidlc/hooks.js): what it asked, the moment it stops
+  if (config.aidlcHooks) args.push('--settings', HK.settingsFile(name))
   await tmux('new-session', '-d', '-s', name, '-x', '160', '-y', '48', '-c', cwd, ...args)
   // every client sees the latest size (one person's small window does not shrink everyone's)
   await tmux('set-option', '-t', name, 'window-size', 'latest').catch(() => {})
@@ -87,6 +90,30 @@ export async function trust(name) {
 export function atPrompt(text) {
   const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean)
   return lines.some((l, i) => /^[❯>]/.test(l) && RULE.test(lines[i - 1] || '') && RULE.test(lines[i + 1] || ''))
+}
+// working on something: a spinner line that is still going ("✶ Razzle-dazzling… (14s · ↓ 1.0k tokens)",
+// "✻ Waiting for 1 background agent to finish") — not the one a finished turn leaves ("✻ Worked for 4s · done 8:14 AM")
+const SPINNER = /^\s*[·✢✳✶✻✽]\s+(?:[^\n]*…|Waiting for\b)/m
+export const busy = (text) => /esc to interrupt/i.test(String(text)) || SPINNER.test(String(text))
+// what someone has typed into the box and not sent yet ('' when it is empty)
+export function draft(text) {
+  const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean)
+  const i = lines.findIndex((l, k) => /^[❯>]/.test(l) && RULE.test(lines[k - 1] || '') && RULE.test(lines[k + 1] || ''))
+  return i < 0 ? '' : lines[i].replace(/^[❯>]\s?/, '').trim()
+}
+// the session's last words on screen, above the input box: its last "⏺" block that is not a tool call
+// (the hook's copy is whole; this is what a screen can show, for a session started without hooks)
+const TOOL_LINE = /^⏺\s+[A-Za-z][\w.-]*(\(|$)/
+export function lastMessage(text) {
+  const lines = String(text).split('\n')
+  let box = lines.length
+  for (let i = lines.length - 1; i > 0; i--) if (/^\s*[❯>]/.test(lines[i]) && RULE.test(lines[i - 1].trim())) { box = i - 1; break }
+  for (let i = box - 1; i >= 0; i--) {
+    if (!/^⏺\s/.test(lines[i])) continue
+    if (TOOL_LINE.test(lines[i].trim()) || /ctrl\+o to expand/.test(lines[i])) return ''
+    return lines.slice(i, box).filter((l) => !/^\s*[·✢✳✶✻✽]\s/.test(l)).map((l) => l.replace(/^⏺\s/, '').replace(/^  /, '')).join('\n').replace(/\s+$/, '').trim()
+  }
+  return ''
 }
 
 // ---------- reading a selection prompt off the screen ----------

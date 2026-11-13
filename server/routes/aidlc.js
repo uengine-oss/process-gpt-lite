@@ -6,7 +6,8 @@ import * as A from '../lib/aidlc/service.js'
 import { createPresetPanels, PRESETS } from '../lib/aidlc/presets.js'
 import * as TM from '../lib/aidlc/team.js'
 import * as MOB from '../lib/aidlc/mob.js'
-import { scanFolder } from '../lib/aidlc/watch.js'
+import { scanFolder, poke } from '../lib/aidlc/watch.js'
+import * as HK from '../lib/aidlc/hooks.js'
 import { folderBySlug } from '../lib/folders/service.js'
 
 export function aidlcRoutes(auth) {
@@ -19,6 +20,15 @@ export function aidlcRoutes(auth) {
   }
   const me = (req) => ({ id: req.user.id, name: req.user.name, email: req.user.email })
   const at = '/aidlc/:folder/intents/:space/:slug'
+
+  // the team session's own Claude Code hooks (lib/aidlc/hooks.js): from this machine only, signed per session
+  const LOCAL = /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/
+  r.post('/aidlc/hook/:name', h((req) => {
+    const name = String(req.params.name)
+    if (!LOCAL.test(req.socket.remoteAddress || '') || !HK.verify(name, req.get('x-lite-hook'))) throw Object.assign(new Error('not this server\'s session'), { status: 403 })
+    if (HK.receive(name, req.body || {})) poke(name)
+    return { ok: true }
+  }))
 
   r.get('/aidlc/projects', auth, h((req) => A.projects(me(req))))
   r.get('/aidlc/presets', auth, h(() => PRESETS.map(({ kind, icon, title }) => ({ kind, icon, title: title() }))))
@@ -47,6 +57,11 @@ export function aidlcRoutes(auth) {
   const rescan = (slug) => folderBySlug(slug).then((f) => f && setTimeout(() => scanFolder(f).catch(() => {}), 2500)).catch(() => {})
   r.post('/aidlc/:folder/decide', auth, h(async (req) => {
     const out = await TM.decide(req.params.folder, me(req), { fingerprint: req.body?.fingerprint, option: req.body?.option, text: req.body?.text })
+    rescan(req.params.folder)
+    return out
+  }))
+  r.post('/aidlc/:folder/reply', auth, h(async (req) => {
+    const out = await TM.reply(req.params.folder, me(req), { fingerprint: req.body?.fingerprint, text: req.body?.text })
     rescan(req.params.folder)
     return out
   }))

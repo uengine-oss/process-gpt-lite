@@ -78,6 +78,10 @@ export const config = {
   aidlcPath: get('PRO_AIDLC_PATH', ''),
   aidlcPermissionMode: get('PRO_AIDLC_PERMISSION_MODE', 'default'),
   aidlcEffort: get('PRO_AIDLC_EFFORT', 'high'),
+  // the session's Claude Code hooks post its events to this server (lib/aidlc/hooks.js); 0: the screen alone.
+  // Where their settings files and signing key live (outside every project)
+  aidlcHooks: get('PRO_AIDLC_HOOKS', '1') !== '0',
+  aidlcHookDir: get('PRO_AIDLC_HOOK_DIR', ''),
   // the estimate of a new request (lib/aidlc/compose.js): the model Claude Code reads the record with (empty:
   // its default), and for tests a file of ready answers so that no model is called
   aidlcComposeModel: get('PRO_AIDLC_COMPOSE_MODEL', ''),

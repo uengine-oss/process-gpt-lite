@@ -2,6 +2,7 @@
 // AI-DLC 결정 (docs/robo-dlc/plan-team.md): 폴더의 Claude Code 세션이 지금 사람에게 묻는 것.
 //   - 세션 화면의 선택 창(답하는 방식·요약 확인·단계 승인·도구 권한): 고른 번호가 그 선택 창에 그대로 들어가요
 //   - 답이 빈 질문 파일: 여기서 적거나, 몹 회의에서 합의한 답을 확인해 적으면 세션에 알려요
+//   - 선택 창 없이 대화로 물은 것(대화로 물은 승인, 말없이 멈춘 세션): 고른 말이나 적은 말이 세션 입력창에 들어가요
 //   - 이 폴더의 결정 기록(원장)
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -24,6 +25,8 @@ const err = ref('')
 const busy = ref('')
 const toast = ref('')
 const freeText = ref('')
+const askText = ref('')
+const askInput = ref(null)
 const drafts = ref({})          // path -> { Q1: 'A', … }
 const say = (t) => { toast.value = t; setTimeout(() => { if (toast.value === t) toast.value = '' }, 3200) }
 
@@ -58,6 +61,24 @@ async function pick(o) {
     freeText.value = ''
     setTimeout(load, 1200)
   } catch (e) { say(e.status === 409 ? '세션 화면이 그새 바뀌었어요. 다시 볼게요.' : e.message); load() } finally { busy.value = '' }
+}
+// what the session asked in the chat: a word from its options, or the person's own words
+const askKindText = { approval: '대화로 물은 승인', choice: '대화로 물은 선택', reply: '대화로 물음', stalled: '멈춘 세션' }
+const plain = (t) => String(t || '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').slice(-1600)
+function quick(o) {
+  if (!o.text) return send(o.label)
+  askText.value = /^(other|기타|다른 답)/i.test(o.label) ? '' : `${o.label}: `
+  askInput.value?.focus()
+}
+async function send(text) {
+  if (!String(text || '').trim()) return say('보낼 말을 먼저 적어 주세요.')
+  busy.value = 'ask'
+  try {
+    const out = await api(`/aidlc/${encodeURIComponent(slug.value)}/reply`, { method: 'POST', body: { fingerprint: v.value.ask.fingerprint, text } })
+    say(`세션에 「${out.sent}」를 보냈어요.`)
+    askText.value = ''
+    setTimeout(load, 1200)
+  } catch (e) { say(e.status === 409 ? '세션이 그새 움직였어요. 다시 볼게요.' : e.message); load() } finally { busy.value = '' }
 }
 async function submit(f) {
   const answers = Object.fromEntries(Object.entries(drafts.value[f.path] || {}).filter(([, a]) => String(a).trim()))
@@ -126,6 +147,26 @@ const when = (d) => new Date(d).toLocaleString('ko-KR', { month: 'numeric', day:
               <button class="tb press" data-test="aidlc-to-board" @click="router.push(`/apps/review/${slug}`)">검토 보드에서 함께 보기</button>
             </div>
           </section>
+          <!-- asked in the chat, not in a selection prompt (or stopped without asking) -->
+          <section v-else-if="v.ask" class="card glass" data-test="aidlc-ask">
+            <div class="ct"><span class="kind">{{ askKindText[v.ask.kind] || '대화로 물음' }}</span><b>{{ v.ask.title }}</b></div>
+            <pre class="said" data-test="aidlc-ask-message">{{ plain(v.ask.message) || '세션이 아무 말 없이 멈춰 있어요.' }}</pre>
+            <div v-if="v.ask.options.length" class="opts">
+              <button v-for="(o, i) in v.ask.options" :key="o.label" class="opt press" :class="{ main: i === 0 }"
+                :disabled="!v.canDecide || !!busy" :data-test="`ask-opt-${i + 1}`" @click="quick(o)">
+                <b>{{ busy === 'ask' && !o.text ? '보내는 중…' : o.label }}</b><small v-if="o.hint">{{ o.hint }}</small>
+              </button>
+            </div>
+            <form class="free" @submit.prevent="send(askText)">
+              <input ref="askInput" v-model="askText" :disabled="!v.canDecide" placeholder="직접 적어 보내기 — 예: Request Changes: 결정권자를 팀 리드로 바로잡아 주세요" data-test="aidlc-ask-text" />
+              <button class="dark-btn" :disabled="!v.canDecide || !askText.trim() || !!busy" data-test="aidlc-ask-send">보내기</button>
+            </form>
+            <p class="note">세션이 선택 창 없이 대화로 물었어요. 보낸 말은 팀 세션 입력창에 그대로 들어가고, AI-DLC 감사 기록에 사람의 답으로 남아요.</p>
+            <div v-if="v.ask.kind === 'approval' && v.docs?.length && hasApp('artifact')" class="docs">
+              <span class="muted">원본 보기</span>
+              <button v-for="d in v.docs" :key="d.path" class="doc press" @click="original(d.path)">📄 {{ d.name }}</button>
+            </div>
+          </section>
           <p v-else-if="!v.session.running" class="first glass">이 폴더의 Claude Code 세션이 꺼져 있어요. 폴더 화면에서 「세션 시작」을 누르세요.</p>
 
           <!-- question files waiting for answers -->
@@ -185,6 +226,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 .ct b { font-size: 16px; font-weight: 600; }
 .kind { font-size: 12px; padding: 2px 9px; border-radius: 9px; background: rgba(10 132 255 / .14); color: #0a84ff; }
 .q { margin: 0 0 12px; line-height: 1.6; white-space: pre-wrap; }
+.said { margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; background: rgba(0 0 0 / .05); font: 13.5px/1.65 inherit; font-family: inherit; white-space: pre-wrap; max-height: 320px; overflow: auto; }
 .detail { margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; background: rgba(0 0 0 / .06); font: 12.5px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
 .opts.small { flex-direction: row; flex-wrap: wrap; gap: 6px; }

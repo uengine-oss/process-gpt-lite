@@ -15,6 +15,7 @@ import * as AS from './session.js'
 import * as TM from './team.js'
 import * as APPS from '../apps/registry.js'
 import * as IN from './intake.js'
+import * as ASK from './ask.js'
 
 const T = () => config.tenantId
 // each wait's card opens the decision page; its own address lets it leave Home when that wait is over
@@ -26,7 +27,8 @@ export async function waitsOf(folder) {
   if (!cur) return []
   const stage = cur.stage
   const name = AS.sessionName(T(), folder.slug)
-  const choice = (await AS.has(name)) ? AS.parseChoice(await AS.screen(name).catch(() => '')) : null
+  const screen = (await AS.has(name)) ? await AS.screen(name).catch(() => '') : null
+  const choice = screen != null ? AS.parseChoice(screen) : null
   if (choice) {
     const kind = TM.promptKind(choice)
     // a tool permission while code is written is the developer's to answer (lib/aidlc/team.js waitRole)
@@ -38,6 +40,11 @@ export async function waitsOf(folder) {
   // no prompt on screen: question files of the stage with blank answers (the team answers in the file)
   // (a blank summary confirmation is the session's own prompt, coming next — not a question for the team)
   const files = (await R.listQuestions(cur.dir)).filter((f) => f.stage === stage.slug && f.questions.some((x) => !x.answer && !x.summary))
+  // nothing asked either way, yet the session stopped and waits: what it said in the chat (lib/aidlc/ask.js)
+  if (!files.length) {
+    const ask = screen != null ? await ASK.askOf(cur, name, screen) : null
+    return ask ? [ask] : []
+  }
   return files.map((f) => {
     const open = f.questions.filter((x) => !x.answer && !x.summary)
     return { key: `questions:${f.path}:${open.map((x) => x.id).join(',')}`, kind: 'questions', path: f.path, questions: open, stage: stage.slug, roleKey: stage.roleKey,
@@ -96,6 +103,21 @@ export async function scanOnce() {
     if (!(await R.hasAidlc(f.repo_path))) continue
     await scanFolder(f).catch((e) => console.warn('[aidlc watch]', f.slug, e.message))
   }
+}
+
+// a session's hook said something happened (lib/aidlc/hooks.js): look at its folder now, not at the next round
+const poking = new Map()
+export function poke(name, ms = 300) {
+  if (poking.has(name)) return
+  poking.set(name, setTimeout(() => {
+    poking.delete(name)
+    eachTenant(async () => {
+      const folders = await q(`select * from pro_folders where tenant_id=$1 and repo_path is not null and kind <> 'skill'`, [T()])
+      const f = folders.find((x) => AS.sessionName(T(), x.slug) === name)
+      if (!f || (config.aidlcWatchOnly && !f.repo_path.startsWith(config.aidlcWatchOnly))) return
+      await scanFolder(f).catch((e) => console.warn('[aidlc hook]', f.slug, e.message))
+    }).catch((e) => console.warn('[aidlc hook]', e.message))
+  }, ms))
 }
 
 let started = false

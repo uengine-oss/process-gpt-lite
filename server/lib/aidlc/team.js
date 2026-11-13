@@ -9,6 +9,7 @@ import * as F from '../folders/service.js'
 import * as R from './record.js'
 import * as AS from './session.js'
 import * as M from './metrics.js'
+import * as ASK from './ask.js'
 import { describeStage, roleName, ROLE_KEYS } from './stages.js'
 
 const T = () => config.tenantId
@@ -114,11 +115,14 @@ export async function decideView(slug, user) {
   const cur = await currentIntent(folder.repo_path)
   const name = nameOf(folder)
   const running = await AS.has(name)
-  const choice = running ? AS.parseChoice(await AS.screen(name).catch(() => '')) : null
+  const screen = running ? await AS.screen(name).catch(() => '') : ''
+  const choice = running ? AS.parseChoice(screen) : null
   // an approval on screen is about the review written a moment before it: read the record afresh
   if (cur && choice && promptKind(choice) === 'approval') R.forget(cur.dir)
   const stage = cur?.stage || null
   const roleKey = waitRole(stage, choice)
+  // no prompt: what the session asked in the chat, if it stopped and waits (lib/aidlc/ask.js)
+  const ask = running && !choice ? await ASK.askOf(cur, name, screen) : null
   const questions = cur ? (await R.listQuestions(cur.dir)).filter((f) => !stage || f.stage === stage.slug || f.questions.some((x) => !x.answer)) : []
   const reviews = cur ? (await R.listReviews(cur.dir)).filter((r) => r.stage === stage?.slug && (!cur.unit || !r.unit || r.unit === cur.unit.unit)).slice(-1) : []
   // what the stage produced (the originals an approval is about) and where each finding points
@@ -139,6 +143,7 @@ export async function decideView(slug, user) {
     stage, role: roleKey && roleName(roleKey), deciders: roleKey ? await deciders(folder, roleKey) : [],
     canDecide: await mayDecide(folder, user, roleKey),
     session: { running, choice: choice && { ...choice, kind: promptKind(choice), title: promptTitle(promptKind(choice), stage?.name || '') } },
+    ask: ask && { kind: ask.askKind, title: ask.title, message: ask.message, options: ask.options, fingerprint: ask.fingerprint },
     // (the summary confirmation is answered in the session's prompt, not as a question here)
     questions: questions.map((f) => { const qs = f.questions.filter((x) => !x.summary); return { path: f.path, stage: describeStage(f.stage).name, open: qs.filter((x) => !x.answer).length, questions: qs } }),
     review: reviews[0] || null, docs, unit: cur?.unit || null, proposal: proposal || null, ledger,
@@ -161,6 +166,23 @@ export async function decide(slug, user, { fingerprint, option, text }) {
   const out = await AS.answer(name, { fingerprint, option, text })
   await record(folder, user, { stage: cur?.stage?.slug || cur?.state.currentStage, kind: 'prompt', question: choice ? `${choice.title} ${choice.question}`.trim() : '', choice: out.answered, note: text || null })
   return out
+}
+
+// words for a session that asked in the chat (the ask the person saw: its fingerprint), typed into its input box
+export async function reply(slug, user, { fingerprint, text }) {
+  const { folder } = await F.access(R.safeName(slug), user, 'viewer')
+  const words = String(text || '').replace(/\s*\n\s*/g, ' ').trim().slice(0, 2000)
+  if (!words) throw err(400, L('보낼 말을 적어 주세요', 'Say what to send'))
+  const cur = await currentIntent(folder.repo_path)
+  const name = nameOf(folder)
+  if (!(await AS.has(name))) throw err(409, 'no session')
+  const ask = await ASK.askOf(cur, name, await AS.screen(name))
+  if (!ask) throw err(409, L('세션이 지금은 답을 기다리지 않아요', 'The session is not waiting for an answer now'))
+  if (fingerprint && ask.fingerprint !== fingerprint) throw err(409, 'the question changed')
+  if (!(await mayDecide(folder, user, ask.roleKey))) throw err(403, 'not yours to decide')
+  await AS.sendText(name, words)
+  await record(folder, user, { stage: ask.stage, kind: 'reply', question: ask.message.slice(-500), choice: words.slice(0, 500), note: null })
+  return { sent: words }
 }
 
 // answers to a question file (typed on the page, or agreed in a mob meeting and confirmed here),

@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { pool, q } from '../lib/supa.js'
 import { config } from '../config.js'
+import * as HK from '../lib/aidlc/hooks.js'
 
 const API = process.env.PRO_E2E_API || 'http://127.0.0.1:8787/api'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -104,6 +105,42 @@ test('세션이 끝나면 카드는 홈에서 내려가고, 답이 빈 질문 �
   assert.match(text, /\[Answer\]: B/)
   // outside the record or not a question file: refused
   assert.equal((await call(tok(po), 'POST', `/aidlc/${folder.slug}/answers`, { path: '../../../../etc/hosts', answers: { Q1: 'A' } })).status, 404)
+})
+
+test('대화로 물은 승인: 세션 훅이 그 말을 알리면 곧바로 단계 역할에게 카드 → 고른 말이 세션 입력창에 들어간다', { skip: !up }, async () => {
+  // the idle screen of a session that asked in the chat (no selection prompt); the first key makes it look busy
+  const keys2 = path.join(repo, '.keys-ask.log')
+  const script = path.join(repo, '.fake-claude-ask.sh')
+  const screen = (f) => JSON.stringify(path.join(HERE, 'fixtures', 'aidlc-screens', `${f}.txt`))
+  await fs.writeFile(script, `#!/bin/bash\ncat ${screen('ask')}\nfirst=1\nwhile IFS= read -rsn1 k; do printf '%s' "$k" >> ${JSON.stringify(keys2)}; if [ $first = 1 ]; then first=0; clear; cat ${screen('working')}; fi; done\n`, { mode: 0o755 })
+  tmux('new-session', '-d', '-s', name, '-x', '160', '-y', '48', script)
+  const said = '9개가 Unverified입니다.\n\n**Review:** `aidlc/.../build-and-test/`\n\nBuild and Test를 승인할까요?\n\n1. **Approve**\n2. **Request Changes**'
+  const hook = (body, token = HK.token(name)) => fetch(`${API}/aidlc/hook/${name}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-lite-hook': token }, body: JSON.stringify(body) })
+  await sleep(500)
+  assert.equal((await hook({ hook_event_name: 'Stop', last_assistant_message: said }, 'forged')).status, 403, 'unsigned call refused')
+  const sent = Date.now()
+  assert.equal((await hook({ hook_event_name: 'Stop', last_assistant_message: said })).status, 200)
+  const card = await until(async () => ((await call(tok(po), 'GET', '/notifications')).body || []).find((n) => n.type === 'aidlc' && /승인을 기다려요/.test(n.title)
+    && String(n.url).startsWith(`/aidlc/${folder.slug}/decide`)), 15000, 'the card for the approval asked in the chat')
+  // the hook, not the watcher's round: an idle screen alone has to stand 6 s and wait for the next 8 s pass
+  assert.ok(Date.now() - sent < 6000, `card after ${Date.now() - sent} ms`)
+  assert.match(card.text, /승인할까요/)
+  const v = (await call(tok(po), 'GET', `/aidlc/${folder.slug}/decide`)).body
+  assert.equal(v.session.choice, null)
+  assert.equal(v.ask.kind, 'approval')
+  assert.equal(v.ask.message, said)
+  assert.deepEqual(v.ask.options.map((o) => [o.label, o.text]), [['Approve', false], ['Request Changes', true]])
+  assert.equal((await call(tok(lead), 'GET', `/aidlc/${folder.slug}/decide`)).body.canDecide, true, 'the folder owner may answer too')
+  assert.equal((await call(tok(po), 'POST', `/aidlc/${folder.slug}/reply`, { fingerprint: 'stale', text: 'Approve' })).status, 409)
+  const r = await call(tok(po), 'POST', `/aidlc/${folder.slug}/reply`, { fingerprint: v.ask.fingerprint, text: 'Approve' })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  assert.equal(await until(() => fs.readFile(keys2, 'utf8').then((k) => k.includes('Approve') && 'Approve'), 10000, 'the words in the input box'), 'Approve')
+  // the person's words went in: the session works again and the card leaves Home
+  await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Approve' })
+  await until(async () => !((await call(tok(po), 'GET', '/notifications')).body || []).some((n) => n.type === 'aidlc' && n.id === card.id), 20000, 'the card leaving Home')
+  const ledger = (await call(tok(po), 'GET', `/aidlc/${folder.slug}/decide`)).body.ledger
+  assert.equal(ledger[0].choice, 'Approve')
+  assert.match(ledger[0].stage, /requirements-analysis/)
 })
 
 after(async () => {

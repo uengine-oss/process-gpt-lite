@@ -1,0 +1,20 @@
+⏺ Bash(npm run verify)
+  ⎿  > equipment-loan@0.1.0 verify
+     > npm run lint && npm test
+     … +12 lines (ctrl+o to expand)
+
+⏺ 9개가 Unverified입니다. 실제 브라우저 확인 항목은 점검표에 따로 적었습니다.
+
+  Review: aidlc/spaces/default/intents/261111-equipment-loan/construction/build-and-test/
+
+  Build and Test를 승인할까요?
+
+  1. Approve
+  2. Request Changes
+
+✻ Worked for 3m 12s · done 6:52 AM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts
