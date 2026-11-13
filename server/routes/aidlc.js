@@ -26,7 +26,9 @@ export function aidlcRoutes(auth) {
   r.post('/aidlc/hook/:name', h((req) => {
     const name = String(req.params.name)
     if (!LOCAL.test(req.socket.remoteAddress || '') || !HK.verify(name, req.get('x-lite-hook'))) throw Object.assign(new Error('not this server\'s session'), { status: 403 })
-    if (HK.receive(name, req.body || {})) poke(name)
+    const ev = HK.receive(name, req.body || {})
+    if (ev) poke(name)
+    if (ev && process.env.PRO_AIDLC_HOOK_LOG === '1') console.log('[aidlc hook]', name, req.body?.hook_event_name, ev.turn, String(req.body?.notification_type || ''))
     return { ok: true }
   }))
 
