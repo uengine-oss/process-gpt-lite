@@ -429,6 +429,15 @@ async function tick() {
 
 // the task definition the skill follows on top of its own way of working: what the step does, the form the
 // company's mail shows for it (its cells as text, so the agent keeps the same labels and layout) and what to keep
+// the company's own file of the form this work uses (the one its definition names, else the most used one that has a file)
+async function formFileOf(name, act) {
+  const { templatesOf, templatePath } = await import('./taskdef.js')
+  const want = (act.outputs || []).find((o) => o.template)?.template
+  const all = (await templatesOf(name)).filter((x) => x.file)
+  const t = all.find((x) => x.name === want) || all[0]
+  return t ? { name: t.name, path: templatePath(t.file) } : null
+}
+
 async function definitionText(name, act) {
   const { templatesOf, templateText } = await import('./taskdef.js')
   const out = (act.outputs || []).find((o) => o.template)
@@ -460,7 +469,8 @@ async function runStep(row) {
   await W.events([{ ...base, event_type: 'task_started', data: { goal: `${row.activity_name} — 일 정의(스킬 ${(act.skills || []).join(', ') || '없음'} · 점검 ${(act.checkpoints || []).length}개)`, name: '업무 에이전트', role: row.activity_name } }])
   let r
   try {
-    if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await W.earlier(row.proc_inst_id), status, extra: await definitionText(row.activity_name, act) })
+    if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await W.earlier(row.proc_inst_id), status, extra: await definitionText(row.activity_name, act),
+      template: await formFileOf(row.activity_name, act), step: row.activity_name })
     else {
       const { delegate } = await import('../agent.js')
       const { sessionFor } = await import('../supa.js')

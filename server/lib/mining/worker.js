@@ -54,6 +54,41 @@ export async function newFile(threadId, since, ext) {
 
 // (also run by the process ontology's step worker, lib/ontology/run.js)
 export const SKILLS = {
+  // 회사 양식 채우기(design-v0.3 §22): the latest file of the form this work uses, kept from the company's own mail
+  // (lib/ontology/history.js), copied into the agent's workspace and filled for this case — the same sheets, labels,
+  // layout, formatting and formulas; this case's values. Any office kind (xlsx · docx · pptx · hwpx).
+  async 'form-fill'({ owner, threadId, prev, status, extra = '', template, step = '' }) {
+    if (!template?.path) throw new Error(L('이 일의 회사 양식 파일이 없어요', 'This work has no company form file'))
+    const fsp = await import('node:fs/promises')
+    const { delegate } = await import('../agent.js')
+    const { saveAttachment } = await import('../attachments.js')
+    const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
+    const { user, session } = await sessionFor(p.email, p.name)
+    const kind = String(template.path).split('.').pop().toLowerCase()
+    const src = await saveAttachment(user, `양식_${template.name}`, '', await fsp.readFile(template.path))
+    const who = String(prev.customer || '').replace(/[\\/:*?"<>|]/g, ' ').trim()
+    const out = `${who ? `${who} ` : ''}${template.name.replace(/\.[a-z0-9]+$/i, '')}.${kind}`
+    status(L(`회사 양식 「${template.name}」으로 만드는 중`, `Filling the company form ${template.name}`))
+    const since = new Date()
+    const msg = await delegate({ user, session, threadId, silent: true,
+      text: L(`프로세스의 '${step}' 단계예요. 회사가 메일로 주고받아 온 양식 「${template.name}」의 가장 최근 파일이 ${src.path} 에 있어요. ` +
+        `이 파일을 복사해 /workspace/${out} 를 만들고 이 건에 맞게 채우세요 — 시트 · 머리 칸 · 표의 열 이름 · 서식 · 수식 · 안내 문구는 그대로 두고, ` +
+        `지난 건의 고객 · 날짜 · 금액 · 품목 · 사람 같은 값만 이 건의 것으로 바꾸세요. 이 건에서 알 수 없는 값은 합리적인 가정값으로 채우고 무엇을 가정했는지 적으세요. ` +
+        `새로 그리지 말고 원본 파일을 고쳐 쓰세요(엑셀은 openpyxl 로 같은 칸에 값만, 워드 · 한글 · 파워포인트는 같은 문단 · 표 · 슬라이드에 글만).\n\n` +
+        `이 건: ${prev.subject || ''}\n${String(prev.body || '').slice(0, 2500)}\n\n${extra ? `${extra}\n\n` : ''}` +
+        `다 만들면 파일 이름과 바꾼 값 · 가정한 값을 서너 줄로 적으세요. 합계 금액이 있는 양식이면 맨 마지막 줄에 "TOTAL: 12400000" 처럼 원 단위 숫자를 한 줄로 쓰세요. 모두 한국어(해요체)로.`,
+        `This is the '${step}' step of a process. The latest file of the company's form ${template.name} (from its mail) is at ${src.path}. ` +
+        `Copy it to /workspace/${out} and fill it for this case — keep its sheets, labels, column names, formatting, formulas and notes; replace only the ` +
+        `previous case's values (customer, dates, amounts, items, people) with this case's. Unknown values: reasonable assumptions, and say which. ` +
+        `Edit the original file, do not draw a new one.\n\nThis case: ${prev.subject || ''}\n${String(prev.body || '').slice(0, 2500)}\n\n${extra ? `${extra}\n\n` : ''}` +
+        `When done, write the file name and the values you changed or assumed in three or four lines; if the form has a total, end with a line like "TOTAL: 12400000".`) })
+    const f = await newFile(threadId, since, kind)
+    if (!f) throw new Error(L('양식으로 만든 파일을 찾지 못했어요', "I couldn't find the filled form"))
+    const plain = String(msg?.content?.text || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    const { total, rest } = quoteTotal(plain)
+    const text = rest.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).slice(-3).join('\n\n').slice(0, 1500)
+    return { values: { document: f, form: template.name, ...(total != null ? { amount: String(total) } : {}), assumptions: text }, say: null }
+  },
   // CADCraft through its MCP (lib/floorPlan.js), the same drawing the mail drafts make
   async 'cadcraft-floor-plan'({ owner, threadId, prev, status }) {
     const { layoutFromMail, drawFloorPlan } = await import('../floorPlan.js')
