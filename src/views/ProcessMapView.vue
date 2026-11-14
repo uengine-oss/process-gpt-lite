@@ -451,6 +451,12 @@ onBeforeUnmount(() => {
             <span><b class="and">함께</b>한 사건 뒤 여러 일이 함께 열려요</span>
             <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="3.5" /></svg>굵을수록 자주</span>
           </div>
+          <div v-else-if="view.tasks.length && marks.size" class="legend" data-testid="onto-cand-legend">
+            <span><i class="lg high" />AI가 맡을 수 있는 일</span>
+            <span><i class="lg mid" />AI가 초안 · 사람이 확인</span>
+            <span><i class="lg human" />사람이 꼭 해야 하는 일</span>
+            <span><i class="lg dim" />그 밖 · 아직 안 본 일</span>
+          </div>
           <div v-else-if="view.tasks.length" class="legend">
             <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="3.5" /></svg>굵을수록 자주</span>
             <span><svg width="26" height="10"><path d="M1 5h24" stroke="#F0883E" stroke-width="2" stroke-dasharray="6 4" /></svg>은퇴 후보</span>
@@ -593,6 +599,11 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .legend { position: absolute; left: 16px; bottom: 14px; right: 170px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--text-secondary); pointer-events: none; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { color: var(--text-secondary); }
+.lg { width: 18px; height: 12px; border-radius: 4px; box-sizing: border-box; }
+.lg.high { background: color-mix(in srgb, #2f9e6e 34%, transparent); border: 2px solid #2f9e6e; }
+.lg.mid { background: color-mix(in srgb, #2f9e6e 14%, transparent); border: 1.5px dashed #2f9e6e; }
+.lg.human { background: color-mix(in srgb, #d9822b 26%, transparent); border: 2px solid #d9822b; }
+.lg.dim { border: 1px solid var(--hairline); opacity: .5; }
 .legend .and { font-weight: 600; color: var(--color-info); }
 .vnote { margin: 0 0 12px; font-size: 13px; color: var(--text-secondary); }
 .vb { padding: 12px 0; border-top: 1px solid var(--hairline); }
