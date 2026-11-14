@@ -7,6 +7,7 @@ import path from 'node:path'
 import { config } from '../config.js'
 import { admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
+import { PGPT_ROOT } from './paths.js'
 import { L } from './lang.js'
 
 const MAX = 50 * 1024 * 1024
@@ -23,6 +24,10 @@ export async function saveAttachment(user, rawName, type, buf) {
   const name = safeName(rawName)
   const id = crypto.randomUUID()
   const rel = `/workspace/uploads/${user.id}/${id}/${name}`
+  // deepagents keeps one workspace per tenant (its /workspace is <root>/<tenant>): a tenant whose first run has not made it yet
+  // would get the file in the shared root, where its sandbox never looks
+  const shared = path.join(PGPT_ROOT, 'services', 'deepagents', 'workspace')
+  if (await fs.stat(shared).then((x) => x.isDirectory(), () => false)) await fs.mkdir(path.join(shared, config.tenantId), { recursive: true }).catch(() => {})
   const root = await workspaceHostPath('/workspace')
   const host = path.join(root, rel.slice('/workspace'.length))
   await fs.mkdir(path.dirname(host), { recursive: true })

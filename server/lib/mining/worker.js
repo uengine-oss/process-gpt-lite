@@ -59,12 +59,14 @@ export const SKILLS = {
   // layout, formatting and formulas; this case's values. Any office kind (xlsx · docx · pptx · hwpx).
   async 'form-fill'({ owner, threadId, prev, status, extra = '', template, step = '' }) {
     if (!template?.path) throw new Error(L('이 일의 회사 양식 파일이 없어요', 'This work has no company form file'))
+    const kind = String(template.path).split('.').pop().toLowerCase()
+    // an Excel form is filled here, cell by cell, in the company's own file — its formatting, formulas and layout untouched
+    if (kind === 'xlsx') return fillXlsx({ owner, threadId, prev, status, extra, template, step })
     const fsp = await import('node:fs/promises')
     const { delegate } = await import('../agent.js')
     const { saveAttachment } = await import('../attachments.js')
     const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
     const { user, session } = await sessionFor(p.email, p.name)
-    const kind = String(template.path).split('.').pop().toLowerCase()
     const src = await saveAttachment(user, `양식_${template.name}`, '', await fsp.readFile(template.path))
     const who = String(prev.customer || '').replace(/[\\/:*?"<>|]/g, ' ').trim()
     const out = `${who ? `${who} ` : ''}${template.name.replace(/\.[a-z0-9]+$/i, '')}.${kind}`
@@ -166,6 +168,94 @@ export const SKILLS = {
     const text = rest.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).slice(-3).join('\n\n').slice(0, 1500)
     return { values: { quote: f, ...(total != null ? { amount: String(total) } : {}), assumptions: text }, say: null }
   },
+}
+
+// 회사 엑셀 양식 채우기: the cells of the company's latest file (labels, last case's values, formulas) and this case go to the
+// model (the skill's prompts/fill-form.md), which names the cells to change; only those cells are rewritten in the file's own
+// XML — every other part (styles, formulas, merged cells, comments, links) stays byte for byte as the company made it, and the
+// workbook is marked to recalculate its formulas when opened
+const xmlEsc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const xmlText = (t) => String(t).replace(/<[^>]+>/g, '').replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+const CELL = /<c r="([A-Z]{1,3}\d{1,7})"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
+export async function xlsxSheets(buf) {
+  const JSZip = (await import('jszip')).default
+  const zip = await JSZip.loadAsync(buf)
+  const read = async (p) => (zip.file(p) ? zip.file(p).async('string') : '')
+  const rels = await read('xl/_rels/workbook.xml.rels')
+  const target = (id) => { const t = rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`))?.[1] || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${id}"`))?.[1] || ''; return t.startsWith('/') ? t.slice(1) : `xl/${t}` }
+  const shared = [...(await read('xl/sharedStrings.xml')).matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => xmlText(m[1]))
+  const sheets = []
+  for (const m of (await read('xl/workbook.xml')).matchAll(/<sheet\b[^>]*?name="([^"]+)"[^>]*?r:id="([^"]+)"/g)) {
+    const file = target(m[2])
+    const xml = await read(file)
+    const cells = []
+    for (const c of xml.matchAll(CELL)) {
+      const [, ref, attrs, inner = ''] = c
+      const t = attrs.match(/\bt="([^"]+)"/)?.[1] || ''
+      const f = inner.match(/<f[^>]*>([\s\S]*?)<\/f>/)?.[1]
+      const v = inner.match(/<v>([\s\S]*?)<\/v>/)?.[1]
+      const value = f != null ? `=${xmlText(f)}` : t === 's' ? shared[Number(v)] ?? '' : t === 'inlineStr' ? xmlText(inner.match(/<is>([\s\S]*?)<\/is>/)?.[1] || '') : xmlText(v ?? '')
+      if (String(value).trim()) cells.push({ cell: ref, value: String(value).trim().slice(0, 200) })
+    }
+    sheets.push({ name: xmlText(m[1]), file, cells })
+  }
+  return { zip, sheets }
+}
+const excelDay = (iso) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 86_400_000)
+async function fillXlsx({ owner, threadId, prev, status, extra = '', template, step = '' }) {
+  const fsp = await import('node:fs/promises')
+  const path = await import('node:path')
+  const { chatJson } = await import('../llm.js')
+  const { prompt } = await import('../ontology/discovery.js')
+  const { workspaceHostPath } = await import('../missions.js')
+  const { publish } = await import('../office.js')
+  const { zip, sheets } = await xlsxSheets(await fsp.readFile(template.path))
+  const cells = sheets.flatMap((sh) => sh.cells.map((c) => ({ sheet: sh.name, ...c })))
+  status(L(`회사 양식 「${template.name}」의 칸 ${cells.length}개를 이 건으로 채우는 중`, `Filling ${cells.length} cells of the company form ${template.name}`))
+  const r = await chatJson(await prompt('fill-form'), JSON.stringify({ form: template.name, step, case: { subject: prev.subject || '', body: String(prev.body || '').slice(0, 3000), customer: prev.customer || '' },
+    definition: extra.slice(0, 3000), cells: cells.slice(0, 600) }), { timeoutMs: 180000, temperature: 0 })
+  const formula = new Set(cells.filter((c) => c.value.startsWith('=')).map((c) => `${c.sheet}!${c.cell}`))
+  let changed = 0
+  for (const sh of sheets) {
+    const want = new Map((r?.cells || []).filter((x) => (String(x.sheet || sheets[0].name) === sh.name) && /^[A-Z]{1,3}\d{1,7}$/.test(String(x.cell || '')) && !formula.has(`${sh.name}!${x.cell}`)).map((x) => [String(x.cell), x.value]))
+    if (!want.size) continue
+    let xml = await zip.file(sh.file).async('string')
+    xml = xml.replace(CELL, (all, ref, attrs) => {
+      if (!want.has(ref)) return all
+      const v = want.get(ref)
+      const style = attrs.match(/\bs="(\d+)"/)?.[0] || ''
+      let t = String(v ?? '').trim()
+      changed++
+      if (t === '') return `<c r="${ref}"${style ? ` ${style}` : ''}/>`
+      // a cell that held text keeps text (a date written 「2027/01/01」 keeps that shape); one that held a number keeps a number
+      const was = sh.cells.find((c) => c.cell === ref)?.value || ''
+      if (/\bt="(s|inlineStr|str)"/.test(attrs)) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(t) && /^\d{4}[./]\d{2}[./]\d{2}$/.test(was)) t = t.replace(/-/g, was[4])
+        return `<c r="${ref}"${style ? ` ${style}` : ''} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(t)}</t></is></c>`
+      }
+      if (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(t.replace(/,/g, ''))) return `<c r="${ref}"${style ? ` ${style}` : ''}><v>${Number(t.replace(/,/g, ''))}</v></c>`
+      if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return `<c r="${ref}"${style ? ` ${style}` : ''}><v>${excelDay(t)}</v></c>`
+      return `<c r="${ref}"${style ? ` ${style}` : ''} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(t)}</t></is></c>`
+    })
+    zip.file(sh.file, xml)
+  }
+  if (!changed) throw new Error(L('양식에서 바꿀 칸을 정하지 못했어요', "Couldn't decide which cells of the form to fill"))
+  // formulas keep their last results until recalculated: the file asks to be recalculated when it is opened
+  const wbXml = await zip.file('xl/workbook.xml').async('string')
+  zip.file('xl/workbook.xml', /<calcPr\b/.test(wbXml) ? wbXml.replace(/<calcPr\b(?![^>]*fullCalcOnLoad)/, '<calcPr fullCalcOnLoad="1"') : wbXml.replace('</workbook>', '<calcPr fullCalcOnLoad="1"/></workbook>'))
+  const who = String(prev.customer || '').replace(/[\\/:*?"<>|]/g, ' ').trim()
+  const name = `${who ? `${who} ` : ''}${template.name.replace(/\.[a-z0-9]+$/i, '')}.xlsx`
+  const rel = `/workspace/forms-out/${Date.now().toString(36)}/${name}`
+  const host = await workspaceHostPath('/workspace') + rel.slice('/workspace'.length)
+  await fsp.mkdir(path.dirname(host), { recursive: true })
+  await fsp.writeFile(host, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+  const doc = await publish(owner, rel)
+  await addMessage(owner, threadId, 'agent', 'file', { ...doc, path: rel })
+  const assumed = (r.assumptions || []).map(String).slice(0, 8)
+  const total = Number(r.total) > 0 ? Number(r.total) : null
+  return { values: { document: { name: doc.name, url: doc.url }, form: template.name, cells: changed, ...(total ? { amount: String(total) } : {}),
+    assumptions: assumed.join('\n') }, say: null }
 }
 
 // "TOTAL: 51,216,000" (or "합계: 5,121만 6천 원" read by improve's numberOf) on its own line → the number,

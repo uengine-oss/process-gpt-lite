@@ -484,7 +484,7 @@ async function runStep(row) {
       r = { values: { result: String(msg?.content?.text || '').slice(0, 3000) }, say: null }
     }
   } finally { status(null) }
-  const checks = await checkOutputs(act.checkpoints || [], r.values.quote || r.values.proposal || null)
+  const checks = await checkOutputs(act.checkpoints || [], r.values.quote || r.values.proposal || r.values.document || null)
   const values = { ...r.values, ...(checks.length ? { checkpoints: checks } : {}) }
   const formId = (act.tool || '').startsWith('formHandler:') ? act.tool.slice(12) : `${row.activity_id}_form`
   const payload = { [formId]: values }
