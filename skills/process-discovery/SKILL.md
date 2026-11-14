@@ -22,6 +22,10 @@ Process GPT Lite 의 「회사 프로세스 지도」가 지난 메일 · 인계
 7. **흐름 · 프로세스 이름**(`prompts/name-process.md`), **일 설명**(`describe-tasks.md`), **습관의 목표**(`name-habits.md`).
 8. **들어온 메일**(`incoming`): 정기 업무를 부탁하는 메일이면 받은 사람에게 예약을 묻는다(`prompts/incoming-recurrence.md`).
 9. **정의 초안**: 일 정의(`draft-task-definition.md`) · 역할 정의(`draft-role.md`).
+10. **대화 기록**(`chat`, `prompts/read-chat.md`): 단체 대화방 내보내기 파일(카카오톡 CSV · TXT)을 날짜별로 나눈다. 하루의 메시지를 `chat.windowMessages` 개씩 읽는다. 메시지마다 일 · 행위 · 대상 · 받는 사람 · 정해진 때를 적는다. 같은 대상에 관한 대화가 `chat.caseGapDays` 일 넘게 없으면 이후 대화는 새 건으로 본다. 대화방 이름을 메일의 보낸 사람 이름과 맞춰 같은 사람으로 연결한다.
+11. **건 이어 묶기**(`streams`, `prompts/link-cases.md`): 메일 스레드 · 대화 대상별로 나뉜 건 중 고객 · 프로젝트 · 목적이 같은 일을 한 줄기로 잇는다. 정기 보고 · 뉴스레터는 묶지 않는다. 줄기 안에서 `streams.gapDays` 일 넘게 끊기면 이후 건은 새 덩어리로 나눈다. 다시 셀 때는 새 건만 읽는다.
+12. **양식 이름**(`prompts/name-form.md`): 파일 이름이 고객사 이름으로 시작해도 칸이 대부분 같은 첨부는 한 양식으로 본다(`forms.sameLabels`). 양식에는 문서 종류를 나타내는 이름을 붙인다.
+13. **양식 채우기**(`prompts/fill-form.md`): 일 정의가 `form-fill` 스킬을 쓰면 회사가 보낸 해당 양식의 최근 파일을 기준으로 삼는다. 이번 건에 맞게 바꿀 칸만 정한다. 엑셀은 해당 칸만 고친다. 서식 · 수식은 그대로 둔다.
 
 ## 남기는 것과 남기지 않는 것
 
