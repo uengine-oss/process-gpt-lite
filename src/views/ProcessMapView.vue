@@ -300,18 +300,63 @@ function showTask(key) {
   onSelect({ kind: 'task', id: key })
 }
 
+// 전체 화면: the whole map edge to edge (the browser's full screen where it lets us), fitted to the screen. The title, the
+// buttons and the process chips become a drawer that slides down when the pointer comes to the top (or the 「메뉴」 tab is
+// pressed). Esc (or the button, or F) leaves.
+const full = ref(false)
+const menuOpen = ref(false)
+const menuEl = ref(null)
+let menuT = 0
+async function enterFull() {
+  full.value = true; menuOpen.value = false
+  try { if (document.fullscreenEnabled && !document.fullscreenElement) await document.documentElement.requestFullscreen() } catch { /* the page fills the window instead */ }
+}
+function exitFull() {
+  if (!full.value) return
+  full.value = false; menuOpen.value = false
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+}
+const toggleFull = () => (full.value ? exitFull() : enterFull())
+// the browser left full screen (Esc): leave ours too
+function onFsChange() { if (!document.fullscreenElement) exitFull() }
+function onKey(e) {
+  const t = e.target
+  if (e.metaKey || e.ctrlKey || e.altKey || t?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName || '')) return
+  if (e.key === 'Escape' && full.value) exitFull()
+  else if ((e.key === 'f' || e.key === 'F') && phase.value === 'map' && !labelsOpen.value) { e.preventDefault(); toggleFull() }
+}
+let hoverAt = 0
+function menuIn() { if (!full.value) return; clearTimeout(menuT); if (!menuOpen.value) hoverAt = Date.now(); menuOpen.value = true }
+// the tab: a press right after the pointer opened the drawer (a mouse, or a phone's tap that hovers first) keeps it open
+function tabPress() { if (menuOpen.value && Date.now() - hoverAt < 600) return; menuOpen.value = !menuOpen.value }
+// leaving the drawer closes it — not while one of its pickers (the week select) is open
+function menuOut() {
+  if (!full.value) return
+  clearTimeout(menuT)
+  menuT = setTimeout(() => { if (document.activeElement?.tagName !== 'SELECT' || !menuEl.value?.contains(document.activeElement)) menuOpen.value = false }, 380)
+}
+
 onMounted(async () => {
+  document.addEventListener('keydown', onKey)
+  document.addEventListener('fullscreenchange', onFsChange)
   app.mode = 'process-map'
   if (!app.me) app.me = await api('/me').catch(() => null)
   init()
 })
-onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
+onBeforeUnmount(() => {
+  alive = false; clearTimeout(timer); clearTimeout(menuT)
+  document.removeEventListener('keydown', onKey)
+  document.removeEventListener('fullscreenchange', onFsChange)
+  if (full.value && document.fullscreenElement) document.exitFullscreen().catch(() => {})
+})
 </script>
 
 <template>
-  <div class="pmap ontomap">
-    <TopBar />
+  <div class="pmap ontomap" :class="{ full }">
+    <TopBar v-show="!full" />
     <div class="content" :class="{ narrow, sheet: narrow && (sel || valuesOpen) }">
+      <div v-if="full" class="hot" aria-hidden="true" @mouseenter="menuIn" />
+      <div ref="menuEl" class="menu" :class="{ drawer: full, open: full && menuOpen, glass: full }" data-testid="onto-menu" @mouseenter="menuIn" @mouseleave="menuOut">
       <div class="head">
         <div class="ttl">
           <h1>회사 프로세스 지도</h1>
@@ -344,36 +389,41 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
         </button>
       </div>
 
+      <div v-if="phase === 'map'" class="bar">
+        <div class="chips scroll">
+          <button class="bchip press" :class="{ on: !procKey }" @click="pickProc('')">전체 <small>건 {{ n(allCases) }}</small></button>
+          <button v-for="b in processes" :key="b.key" class="bchip press" :class="{ on: procKey === b.key, routine: b.kind === 'routine' }" :title="b.summary" data-testid="onto-proc-chip" :data-kind="b.kind || 'flow'" @click="pickProc(b.key)">
+            {{ b.name }}
+            <template v-if="b.kind === 'routine'"><span class="band routine">루틴</span> <small>{{ b.role }}</small></template>
+            <template v-else><span class="band" :class="b.band">{{ BAND[b.band] || b.bandName }}</span> <small>건 {{ n(b.cases) }}</small></template>
+          </button>
+        </div>
+        <div class="when glass-thin">
+          <button class="nav" aria-label="한 주 전" :disabled="atIndex >= weeks.length - 1" @click="older"><Icon name="back" :size="14" /></button>
+          <label class="pick">
+            <span>{{ atLabel }}</span>
+            <select v-model="at" aria-label="시점 고르기">
+              <option value="">지금</option>
+              <option v-for="w in weeks" :key="w" :value="w">{{ dateKo(`${w}T12:00:00`) }}</option>
+            </select>
+          </label>
+          <button class="nav" aria-label="한 주 뒤" :disabled="!at" @click="newer"><Icon name="chevron" :size="14" /></button>
+          <button v-if="at" class="now press" @click="at = ''">지금</button>
+        </div>
+      </div>
+      <!-- 전체 화면: the drawer's tab, peeking under the top edge -->
+      <button v-if="full" class="tab press" :aria-expanded="menuOpen" data-testid="onto-menu-tab" @click="tabPress" @mouseenter="menuIn">
+        메뉴 <Icon name="chevron" :size="12" class="tchev" :class="{ up: menuOpen }" />
+      </button>
+      </div>
+
       <p v-if="err" class="err">{{ err }}</p>
 
       <p v-if="phase === 'loading'" class="loading pulse">불러오는 중…</p>
       <FirstRun v-else-if="phase !== 'map'" :phase="phase" :job="phase === 'build' ? job || status?.build : job" :busy="busy === 'mail' || busy === 'retry'" :note="note" @start="startMail" @retry="retry" />
 
       <template v-else>
-        <div class="bar">
-          <div class="chips scroll">
-            <button class="bchip press" :class="{ on: !procKey }" @click="pickProc('')">전체 <small>건 {{ n(allCases) }}</small></button>
-            <button v-for="b in processes" :key="b.key" class="bchip press" :class="{ on: procKey === b.key, routine: b.kind === 'routine' }" :title="b.summary" data-testid="onto-proc-chip" :data-kind="b.kind || 'flow'" @click="pickProc(b.key)">
-              {{ b.name }}
-              <template v-if="b.kind === 'routine'"><span class="band routine">루틴</span> <small>{{ b.role }}</small></template>
-              <template v-else><span class="band" :class="b.band">{{ BAND[b.band] || b.bandName }}</span> <small>건 {{ n(b.cases) }}</small></template>
-            </button>
-          </div>
-          <div class="when glass-thin">
-            <button class="nav" aria-label="한 주 전" :disabled="atIndex >= weeks.length - 1" @click="older"><Icon name="back" :size="14" /></button>
-            <label class="pick">
-              <span>{{ atLabel }}</span>
-              <select v-model="at" aria-label="시점 고르기">
-                <option value="">지금</option>
-                <option v-for="w in weeks" :key="w" :value="w">{{ dateKo(`${w}T12:00:00`) }}</option>
-              </select>
-            </label>
-            <button class="nav" aria-label="한 주 뒤" :disabled="!at" @click="newer"><Icon name="chevron" :size="14" /></button>
-            <button v-if="at" class="now press" @click="at = ''">지금</button>
-          </div>
-        </div>
-
-        <div class="card glass">
+        <div class="card glass" @pointerdown="full && (menuOpen = false)">
           <div class="ctl">
             <ThetaControl v-if="!isRoutine" v-model:mode="mode" :proc="proc" />
             <p v-else class="rnote">「{{ proc.role }}」 역할에서 결과물이 나오면 혼자 이어서 하는 일이에요. 같은 역할 여러 사람의 습관을 셈했어요.</p>
@@ -381,10 +431,13 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
               <span class="knob" /> 사건 보기
             </button>
             <small class="cnt">{{ countText }}</small>
+            <button class="fs press" :class="{ on: full }" :title="full ? '전체 화면 나가기 (Esc)' : '지도를 화면 가득 (F)'" data-testid="onto-fullscreen" @click="toggleFull">
+              <Icon :name="full ? 'shrink' : 'expand'" :size="14" /> {{ full ? '나가기' : '전체 화면' }}
+            </button>
           </div>
           <div class="stage">
           <p v-if="!view.tasks.length" class="none">{{ at ? '그날에는 아직 그린 지도가 없어요.' : '이 θ 로는 남는 일이 없어요.' }}</p>
-          <MapGraph v-else :tasks="view.tasks" :edges="view.edges" :entries="view.entries" :events="view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="!!(selEdge || selTask || selEvent || valuesOpen || reviewOpen || snapOpen || rolesOpen || timerOpen || caseId)" :scale="shareScale" @select="onSelect" />
+          <MapGraph v-else :whole="full" :tasks="view.tasks" :edges="view.edges" :entries="view.entries" :events="view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="!!(selEdge || selTask || selEvent || valuesOpen || reviewOpen || snapOpen || rolesOpen || timerOpen || caseId)" :scale="shareScale" @select="onSelect" />
           <div v-if="view.tasks.length && eventsShown" class="legend">
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--color-info)" stroke-width="1.6" /></svg>메일</span>
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--color-success)" stroke-width="1.6" /></svg>결과물</span>
@@ -550,4 +603,22 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .narrow .cnt { margin-left: 0; }
 .content.narrow.sheet { padding-bottom: 52vh; }
 .narrow .legend { left: 12px; right: 140px; bottom: 10px; gap: 2px 10px; font-size: 11px; }
+
+.menu { display: flex; flex-direction: column; gap: 10px; }
+.fs { flex: none; height: 30px; padding: 0 12px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); background: var(--field-bg); white-space: nowrap; }
+.fs:hover, .fs.on { color: var(--text-primary); }
+
+/* 전체 화면: the map card fills the window; the title, buttons and chips are a drawer above it */
+.pmap.full .content { position: fixed; inset: 0; z-index: 30; max-width: none; padding: 0; gap: 0; display: flex; overflow: hidden; }
+.pmap.full .content > * + * { margin-top: 0; }
+.pmap.full .card { flex: 1; height: auto; min-height: 0; border-radius: 0; }
+.pmap.full .ctl { padding-top: 32px; }
+.hot { position: absolute; z-index: 7; top: 0; left: 0; right: 0; height: 14px; }
+.menu.drawer { position: absolute; z-index: 8; top: 0; left: 0; right: 0; padding: 16px 24px 14px; border-radius: 0 0 22px 22px; translate: 0 -100%; transition: translate .32s var(--spring), box-shadow .32s; }
+.menu.drawer.open { translate: 0 0; box-shadow: 0 12px 40px rgba(0 0 0 / .22); }
+.tab { position: absolute; left: 50%; top: 100%; translate: -50% 0; height: 26px; padding: 0 14px; border-radius: 0 0 13px 13px; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--text-secondary); background: inherit; -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+.tab:hover { color: var(--text-primary); }
+.tab .tchev { rotate: 90deg; transition: rotate .2s; }
+.tab .tchev.up { rotate: -90deg; }
+.pmap.full .narrow .menu.drawer { padding: 12px 12px 10px; }
 </style>

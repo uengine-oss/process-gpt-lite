@@ -19,6 +19,7 @@ const props = defineProps({
   dir: { type: String, default: 'LR' },
   side: Boolean, // a side panel covers the right: keep room so the map can move out from under it
   scale: { type: Number, default: 1 }, // entry shares are of all cases; × this = of the shown proc's cases
+  whole: Boolean, // 전체 화면: the whole map on the screen, also after the map changes (smaller sizes allowed)
 })
 const emit = defineEmits(['select'])
 
@@ -133,12 +134,13 @@ const entryTag = (n) => {
 const vp = ref(null)
 const zoom = ref(1)
 const fitMode = ref('auto') // auto: readable size, scroll if larger · all: the whole map · manual: − / +
+const minZoom = () => (props.whole ? 0.08 : 0.3)
 function apply() {
   const el = vp.value
   if (!el || !L.value.width) return
   const cw = el.clientWidth - 12 - (props.side && props.dir === 'LR' ? 360 : 0), ch = el.clientHeight - 58
   const all = Math.min(cw / L.value.width, ch / L.value.height, 1.05)
-  if (fitMode.value === 'all') zoom.value = Math.max(0.3, all)
+  if (fitMode.value === 'all') zoom.value = Math.max(minZoom(), all)
   else if (fitMode.value === 'auto') zoom.value = props.dir === 'TB' ? Math.max(0.78, Math.min(1.05, cw / L.value.width)) : Math.max(0.8, all)
 }
 // start where the work starts: the main entry in view (LR: from the left edge, TB: centred across)
@@ -158,9 +160,12 @@ function fit() {
   apply()
   nextTick(home)
 }
-const step = (k) => { zoom.value = Math.min(2, Math.max(0.3, +(zoom.value * k).toFixed(3))); fitMode.value = 'manual' }
+// back to the readable size (leaving 전체 화면)
+function reset() { fitMode.value = 'auto'; apply(); nextTick(home) }
+watch(() => props.whole, (w) => nextTick(w ? fit : reset))
+const step = (k) => { zoom.value = Math.min(2, Math.max(minZoom(), +(zoom.value * k).toFixed(3))); fitMode.value = 'manual' }
 watch(() => [L.value.width, L.value.height, props.dir], () => {
-  fitMode.value = 'auto'
+  fitMode.value = props.whole ? 'all' : 'auto'
   nextTick(() => { apply(); nextTick(home) })
 })
 // a selection made elsewhere (the task panel's lists, the labels drawer) or under the side panel: bring it into view
