@@ -19,6 +19,7 @@ const props = defineProps({
   dir: { type: String, default: 'LR' },
   side: Boolean, // a side panel covers the right: keep room so the map can move out from under it
   scale: { type: Number, default: 1 }, // entry shares are of all cases; × this = of the shown proc's cases
+  marks: { type: Map, default: () => new Map() }, // AI 후보: 일 → high · mid · human (칠하고, 나머지는 흐리게)
   whole: Boolean, // 전체 화면: the whole map on the screen, also after the map changes (smaller sizes allowed)
 })
 const emit = defineEmits(['select'])
@@ -283,7 +284,7 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
           <text v-if="dir === 'LR'" class="evl" text-anchor="middle"><tspan v-for="(l, i) in n.lines" :key="i" :x="n.w / 2" :y="n.h / 2 + R + 13 + i * 13">{{ l }}</tspan></text>
           <text v-else class="evl"><tspan v-for="(l, i) in n.lines" :key="i" :x="n.w / 2 + R + 7" :y="n.h / 2 + 4 - ((n.lines.length - 1) * 13) / 2 + i * 13">{{ l }}</tspan></text>
         </g>
-        <g v-for="n in nodes.filter((x) => !x.ev)" :key="n.key" class="node" :class="{ end: n.end, cand: n.t?.candidate, sel: selected?.kind === 'task' && selected.id === n.key, entry: n.share, habit: n.t?.kind === 'habit' }"
+        <g v-for="n in nodes.filter((x) => !x.ev)" :key="n.key" class="node" :class="{ [`mk-${marks.get(n.key)}`]: marks.has(n.key), dim: marks.size && !n.end && !marks.has(n.key), end: n.end, cand: n.t?.candidate, sel: selected?.kind === 'task' && selected.id === n.key, entry: n.share, habit: n.t?.kind === 'habit' }"
           :transform="`translate(${n.x0},${n.y0})`" :tabindex="n.end ? -1 : 0" :role="n.end ? null : 'button'"
           @click.stop="!n.end && pick('task', n.key)" @keydown.enter.prevent="!n.end && pick('task', n.key)">
           <title v-if="!n.end">{{ n.t.name }}{{ n.t.role ? ` · ${n.t.role}` : '' }} · {{ n.t.n_cases }}건{{ n.t.candidate ? ' · 후보' : '' }}</title>
@@ -354,6 +355,10 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .node:hover rect { stroke: var(--text-secondary); }
 .node.sel rect { stroke: var(--sel); stroke-width: 2; }
 .node.cand { opacity: .5; }
+.node.dim { opacity: .28; }
+.node.mk-high rect { fill: color-mix(in srgb, #2f9e6e 34%, var(--regular-solid-bg)); stroke: #2f9e6e; stroke-width: 2.5; }
+.node.mk-mid rect { fill: color-mix(in srgb, #2f9e6e 14%, var(--regular-solid-bg)); stroke: #2f9e6e; stroke-width: 1.5; stroke-dasharray: 5 3; }
+.node.mk-human rect { fill: color-mix(in srgb, #d9822b 26%, var(--regular-solid-bg)); stroke: #d9822b; stroke-width: 2.5; }
 .node.cand rect { stroke-dasharray: 4 3; stroke: var(--text-secondary); }
 .node.end { cursor: default; }
 .node.end rect { fill: var(--ink); stroke: none; }

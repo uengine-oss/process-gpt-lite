@@ -1,55 +1,228 @@
 {
- "mailbox": {
-  "days": 90,
-  "threadsAtOnce": 4,
-  "fetchAtOnce": 4,
-  "historyTextChars": 1500,
-  "incomingTextChars": 6000
- },
- "streams": {
-  "enabled": true,
-  "batch": 40,
-  "gapDays": 45,
-  "timeoutMs": 180000
- },
- "chat": {
-  "days": 90,
-  "windowMessages": 25,
-  "textChars": 400,
-  "timeoutMs": 240000,
-  "caseGapDays": 2,
-  "skip": "^(메시지가 삭제되었습니다\\.?|삭제된 메시지입니다\\.?|.{0,1})$",
-  "colleagueRole": "동료"
- },
- "company": {
-  "publicDomains": ["gmail.com", "googlemail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "nate.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "icloud.com", "me.com", "proton.me"],
-  "colleagueRole": "동료"
- },
- "filters": {
-  "newsletterHeaders": ["list-unsubscribe"],
-  "noReplySender": "(^|[^a-z])(no-?reply|do-?not-?reply|mailer-daemon|notifications?)@",
-  "inviteSubject": "^\\s*(초대|업데이트된 초대|invitation|updated invitation)\\s*[:：]",
-  "inviteAttachment": "\\.ics$",
-  "skipLabels": ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"]
- },
- "readAlone": "매\\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|weekly|monthly|daily|every\\s+(day|week|month|mon|tue|wed|thu|fri)",
- "forms": {
-  "openKinds": ["xlsx", "docx", "pptx", "hwpx", "csv"],
-  "labelsPerFile": 60,
-  "share": 0.6,
-  "minFiles": 2,
-  "sameLabels": 0.5
- },
- "period": {
-  "minMails": 4,
-  "sameTimeMinutes": 90,
-  "sameTimeShare": 0.7,
-  "twiceInBucketMax": 0.1,
-  "weekly": { "gapDays": 7, "gapTolerance": 1.5, "regular": 0.7, "sameWeekday": 0.6 },
-  "monthly": { "gapDays": 30.4, "gapTolerance": 4, "regular": 0.7, "sameDay": 0.6 },
-  "daily": { "regular": 0.8 }
- },
- "incoming": {
-  "prefilter": "매\\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|앞으로|weekly|monthly|daily|every\\s+(day|week|month|mon|tue|wed|thu|fri)"
- }
+  "mailbox": {
+    "days": 90,
+    "threadsAtOnce": 4,
+    "fetchAtOnce": 4,
+    "historyTextChars": 1500,
+    "incomingTextChars": 6000
+  },
+  "streams": {
+    "enabled": true,
+    "batch": 40,
+    "gapDays": 45,
+    "timeoutMs": 180000
+  },
+  "chat": {
+    "days": 90,
+    "windowMessages": 25,
+    "textChars": 400,
+    "timeoutMs": 240000,
+    "caseGapDays": 2,
+    "skip": "^(메시지가 삭제되었습니다\\.?|삭제된 메시지입니다\\.?|.{0,1})$",
+    "colleagueRole": "동료"
+  },
+  "company": {
+    "publicDomains": [
+      "gmail.com",
+      "googlemail.com",
+      "naver.com",
+      "daum.net",
+      "hanmail.net",
+      "kakao.com",
+      "nate.com",
+      "outlook.com",
+      "hotmail.com",
+      "live.com",
+      "yahoo.com",
+      "icloud.com",
+      "me.com",
+      "proton.me"
+    ],
+    "colleagueRole": "동료"
+  },
+  "filters": {
+    "newsletterHeaders": [
+      "list-unsubscribe"
+    ],
+    "noReplySender": "(^|[^a-z])(no-?reply|do-?not-?reply|mailer-daemon|notifications?)@",
+    "inviteSubject": "^\\s*(초대|업데이트된 초대|invitation|updated invitation)\\s*[:：]",
+    "inviteAttachment": "\\.ics$",
+    "skipLabels": [
+      "CATEGORY_PROMOTIONS",
+      "CATEGORY_SOCIAL",
+      "CATEGORY_FORUMS"
+    ]
+  },
+  "readAlone": "매\\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|weekly|monthly|daily|every\\s+(day|week|month|mon|tue|wed|thu|fri)",
+  "forms": {
+    "openKinds": [
+      "xlsx",
+      "docx",
+      "pptx",
+      "hwpx",
+      "csv"
+    ],
+    "labelsPerFile": 60,
+    "share": 0.6,
+    "minFiles": 2,
+    "sameLabels": 0.5
+  },
+  "period": {
+    "minMails": 4,
+    "sameTimeMinutes": 90,
+    "sameTimeShare": 0.7,
+    "twiceInBucketMax": 0.1,
+    "weekly": {
+      "gapDays": 7,
+      "gapTolerance": 1.5,
+      "regular": 0.7,
+      "sameWeekday": 0.6
+    },
+    "monthly": {
+      "gapDays": 30.4,
+      "gapTolerance": 4,
+      "regular": 0.7,
+      "sameDay": 0.6
+    },
+    "daily": {
+      "regular": 0.8
+    }
+  },
+  "incoming": {
+    "prefilter": "매\\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|앞으로|weekly|monthly|daily|every\\s+(day|week|month|mon|tue|wed|thu|fri)"
+  },
+  "candidates": {
+    "minN": 2,
+    "batch": 20,
+    "parallel": 3,
+    "timeoutMs": 300000,
+    "skills": [
+      {
+        "name": "mail-reply",
+        "does": "메일 회신 · 안내 메일 초안"
+      },
+      {
+        "name": "form-fill",
+        "does": "회사 양식(엑셀 · 한글 · 워드) 칸 채우기"
+      },
+      {
+        "name": "xlsx",
+        "does": "엑셀 표 만들기 · 고치기"
+      },
+      {
+        "name": "docx",
+        "does": "워드 문서 쓰기"
+      },
+      {
+        "name": "hwpx-proposal",
+        "does": "한글 제안서 · 보고서"
+      },
+      {
+        "name": "summarize",
+        "does": "메일 · 대화 · 회의 내용 요약 보고"
+      },
+      {
+        "name": "schedule",
+        "does": "일정 · 회의 링크 잡고 알리기"
+      },
+      {
+        "name": "web-research",
+        "does": "자료 · 뉴스 찾아 모으기"
+      }
+    ],
+    "human": {
+      "approveShare": 0.3,
+      "kinds": [
+        {
+          "key": "approval",
+          "name": "승인 · 결재",
+          "why": "결정한 사람이 책임을 진다",
+          "words": [
+            "승인",
+            "결재",
+            "재가",
+            "허가",
+            "최종 확정",
+            "검수 확인"
+          ]
+        },
+        {
+          "key": "legal",
+          "name": "계약 · 법적 책임",
+          "why": "회사를 법적으로 묶는다",
+          "words": [
+            "계약",
+            "서명",
+            "날인",
+            "직인",
+            "협약",
+            "법무",
+            "소송",
+            "보증"
+          ]
+        },
+        {
+          "key": "money",
+          "name": "돈이 나가는 일",
+          "why": "되돌리기 어렵다",
+          "words": [
+            "지급",
+            "송금",
+            "이체",
+            "결제 승인",
+            "대금",
+            "급여",
+            "입금 처리"
+          ]
+        },
+        {
+          "key": "people",
+          "name": "사람에 대한 판단",
+          "why": "사람의 처우가 걸린다",
+          "words": [
+            "채용",
+            "면접",
+            "평가",
+            "인사",
+            "징계",
+            "해고",
+            "연봉",
+            "승진"
+          ]
+        },
+        {
+          "key": "relationship",
+          "name": "직접 만나는 일",
+          "why": "관계와 협상은 사람이 한다",
+          "words": [
+            "협상",
+            "영업 미팅",
+            "고객 방문",
+            "면담",
+            "발표",
+            "강의",
+            "시연"
+          ]
+        },
+        {
+          "key": "physical",
+          "name": "현장 · 몸으로 하는 일",
+          "why": "현장에 있어야 한다",
+          "words": [
+            "현장",
+            "설치",
+            "납품",
+            "출장",
+            "실측",
+            "점검 방문"
+          ]
+        }
+      ]
+    },
+    "judge": {
+      "via": "claude-cli",
+      "model": "claude-fable-5-2",
+      "fallback": "gateway"
+    }
+  }
 }

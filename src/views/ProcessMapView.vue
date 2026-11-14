@@ -27,6 +27,7 @@ import OntoSnapshotPanel from '../components/ontology/OntoSnapshotPanel.vue'
 import EventPanel from '../components/ontology/EventPanel.vue'
 import OntoRolePanel from '../components/ontology/OntoRolePanel.vue'
 import OntoDocsPanel from '../components/ontology/OntoDocsPanel.vue'
+import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
 import { visibleGraph, eventGraph, edgeId, procsOf, inProc } from '../components/ontology/mapView.js'
 import { BAND, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
 import { useApp } from '../stores/app.js'
@@ -304,6 +305,10 @@ function showTask(key) {
 // buttons and the process chips become a drawer that slides down when the pointer comes to the top (or the 「메뉴」 tab is
 // pressed). Esc (or the button, or F) leaves.
 const full = ref(false)
+// AI 후보: the panel hands the map what to paint (일 → high · mid · human)
+const candOpen = ref(false)
+const marks = ref(new Map())
+watch(candOpen, (on) => { if (!on) marks.value = new Map() })
 const menuOpen = ref(false)
 const menuEl = ref(null)
 let menuT = 0
@@ -369,6 +374,7 @@ onBeforeUnmount(() => {
           <button class="hbtn glass press" :class="{ on: reviewOpen }" @click="toggleReview">검토 안건</button>
           <button class="hbtn glass press" :class="{ on: rolesOpen }" data-testid="onto-roles-button" @click="toggleRoles">역할</button>
           <button class="hbtn glass press" :class="{ on: docsOpen }" data-testid="onto-docs-button" @click="toggleDocs">문서</button>
+          <button class="hbtn glass press" :class="{ on: candOpen }" data-testid="onto-candidates-button" @click="sel = null; candOpen = !candOpen">AI 후보</button>
           <button v-if="proc && !isRoutine" class="hbtn glass press" :class="{ on: snapOpen }" @click="toggleSnap">스냅샷 보기</button>
           <!-- 승격 단계(design-v0.3 §12): 관찰 → 제안(요청이 오면 묻는다) → 자동(이벤트에 저절로 시작, 사람 단계는 초안이 먼저) -->
           <div v-if="proc && !isRoutine" class="ladder glass" role="group" aria-label="이 프로세스의 단계" data-testid="onto-ladder" :data-status="proc.status">
@@ -437,7 +443,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="stage">
           <p v-if="!view.tasks.length" class="none">{{ at ? '그날에는 아직 그린 지도가 없어요.' : '이 θ 로는 남는 일이 없어요.' }}</p>
-          <MapGraph v-else :whole="full" :tasks="view.tasks" :edges="view.edges" :entries="view.entries" :events="view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="!!(selEdge || selTask || selEvent || valuesOpen || reviewOpen || snapOpen || rolesOpen || timerOpen || caseId)" :scale="shareScale" @select="onSelect" />
+          <MapGraph v-else :whole="full" :marks="marks" :tasks="view.tasks" :edges="view.edges" :entries="view.entries" :events="view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="!!(selEdge || selTask || selEvent || valuesOpen || reviewOpen || snapOpen || rolesOpen || timerOpen || caseId || candOpen)" :scale="shareScale" @select="onSelect" />
           <div v-if="view.tasks.length && eventsShown" class="legend">
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--color-info)" stroke-width="1.6" /></svg>메일</span>
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--color-success)" stroke-width="1.6" /></svg>결과물</span>
@@ -474,6 +480,9 @@ onBeforeUnmount(() => {
           </SidePanel>
           <SidePanel v-else-if="docsOpen" kicker="규정 · 업무 정의서" title="문서대로와 실제" @close="docsOpen = false">
             <OntoDocsPanel :tasks="map.tasks" @task="showTask" @proc="(k) => { docsOpen = false; pickProc(k) }" @changed="loadMap" />
+          </SidePanel>
+          <SidePanel v-else-if="candOpen" kicker="AI 후보" title="AI에 맡길 일 · 사람이 꼭 할 일" @close="candOpen = false">
+            <OntoCandidatesPanel :admin="!!status?.admin" @marks="(m) => (marks = m)" @task="showTask" />
           </SidePanel>
           <SidePanel v-else-if="timerOpen && proc" kicker="타이머" :title="`${proc.name} 타이머`" @close="timerOpen = false">
             <div class="timers" data-testid="onto-timer-panel">
