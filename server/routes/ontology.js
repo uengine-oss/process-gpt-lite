@@ -89,6 +89,9 @@ export function ontologyRoutes(auth) {
 
   // 일 정의
   r.get('/ontology/tasks/:key', auth, h((req) => D.getTask(req.params.key)))
+  // 근거: the mails · chat messages · chat handovers this work was read from (subjects and originals: their owner only)
+  r.get('/ontology/tasks/:key/evidence', auth, h(async (req) => (await import('../lib/ontology/evidence.js')).taskEvidence(req.user, req.params.key, {
+    limit: Math.min(100, Math.max(5, Number(req.query.limit) || 40)), before: req.query.before || null })))
   r.post('/ontology/tasks/:key/draft', auth, h(async (req) => { await admin(req); return D.draftDefinition(req.params.key, { template: req.body?.template }) }))
   r.put('/ontology/tasks/:key/definition', auth, h(async (req) => { await admin(req); return D.saveDefinition(req.user, req.params.key, String(req.body?.definition || '')) }))
 

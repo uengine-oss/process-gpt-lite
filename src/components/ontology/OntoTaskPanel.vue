@@ -9,6 +9,7 @@ import { api } from '../../api.js'
 import { HOW_KO } from './fmt.js'
 import OntoWhenReason from './OntoWhenReason.vue'
 import OntoWays from './OntoWays.vue'
+import OntoEvidence from './OntoEvidence.vue'
 import { ACT_KO, RUNNER_KO, AUTONOMY_KO, validFromOf, dayKo, EUL } from './ontoText.js'
 
 const props = defineProps({ taskKey: { type: String, required: true }, admin: Boolean, hideHeader: Boolean })
@@ -121,6 +122,9 @@ defineExpose({ reload: load })
           <small v-if="t.n">{{ t.n }}번 나왔어요</small>
         </div>
       </header>
+
+      <!-- 근거: 이 일로 읽힌 메일 · 대화 하나하나 -->
+      <OntoEvidence :task-key="taskKey" />
 
       <!-- 고정 -->
       <div v-if="admin" class="pinrow sec">

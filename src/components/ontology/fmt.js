@@ -25,7 +25,7 @@ export function waitText(h) {
   const d = h / 24
   return `${d < 10 ? +d.toFixed(1) : Math.round(d)}일`
 }
-export const SOURCE_KO = { mail_history: '메일', chat_handover: '채팅', agent_delegation: '위임', todolist: '실행' }
+export const SOURCE_KO = { mail_history: '메일', chat_export: '대화방', chat_handover: '채팅', agent_delegation: '위임', todolist: '실행' }
 export const BAND = { paved: '굳은 길', open: '열린 일', watch: '지켜보기' }
 export const HOW_KO = { same: '같은 이름', alias: '다른 이름으로 맞춤', model: '새 이름', candidate: '후보', none: '일 아님' }
 export const taskName = (key) => (key === END ? '끝' : key)

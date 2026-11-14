@@ -186,7 +186,7 @@ export async function runChatHistory(me, jobId, name, buf) {
       if (subject && !subjects.includes(subject)) subjects.push(subject)
       const act = ['request', 'deliver', 'approve', 'notify'].includes(x.act) ? x.act : 'notify'
       const k = kindOf(m.text)
-      items.push({ at: m.at, from: m.from, to: x.to ? clean(x.to).replace(/^@/, '') : null, task, act, subject, recur: x.recur?.every ? x.recur : null,
+      items.push({ at: m.at, from: m.from, to: x.to ? clean(x.to).replace(/^@/, '') : null, task, act, subject, recur: x.recur?.every ? x.recur : null, text: String(m.text),
         file: k === 'file' ? String(m.text).replace(/^(?:파일|File)\s*:\s*/i, '').trim() : null, key: sha(`${m.at.toISOString()}|${m.from}|${m.text}`, 16) })
       if (!found.has(task) && !known.has(task)) await say(`새 일 「${task}」을 찾았어요 — ${m.from}의 ${act === 'request' ? '부탁' : act === 'deliver' ? '결과 공유' : act === 'approve' ? '확인' : '알림'}에서.`, 'task')
       if (x.recur?.every && x.recur.says) await say(`정해진 때마다 하는 일 같아요: “${String(x.recur.says).slice(0, 40)}” → 「${String(x.recur.task || task).slice(0, 30)}」`, 'recur')
@@ -217,6 +217,9 @@ export async function runChatHistory(me, jobId, name, buf) {
         attrs: { source: 'chat', export: name, subject: it.subject, ...(it.recur ? { recur: it.recur } : {}) } }
     }))])
   }
+  // the messages read as work, kept in their uploader's archive (owner only, like mail) — the map's 근거 shows them to the owner
+  await (await import('../mailArchive.js')).archiveMails(me.id, 'chat', items.map((it) => ({ id: `chat:${it.key}`, thread: `chat:${T()}:${it.caseKey}`, date: it.at.toISOString(),
+    from: it.from, to: it.to ? [it.to] : [], subject: it.subject, body: it.text, text: it.text, labels: ['CHAT'] })), 'chat').catch((e) => console.warn('[ontology] chat archive', e.message))
   const cases = new Set(items.map((it) => it.caseKey)).size
   const byRole = new Map()
   for (const n of people) { const r = who(n).role; byRole.set(r, (byRole.get(r) || 0) + 1) }

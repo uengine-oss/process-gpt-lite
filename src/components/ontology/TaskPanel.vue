@@ -14,6 +14,8 @@ const sources = computed(() => Object.entries(t.value.sources || {}).filter(([, 
 // a role routine's task (v0.3 kind habit): counted from habits, not cases
 const habit = computed(() => t.value.kind === 'habit' && !t.value.n_cases)
 const procs = computed(() => procsOf(t.value).map((k) => props.processes.find((p) => p.key === k)).filter(Boolean))
+// the evidence list (OntoEvidence, in the actions slot below): which mails · chat messages this task was read from
+function toEvidence(e) { e.currentTarget.closest('.tp')?.querySelector('[data-testid="onto-evidence"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
 </script>
 
 <template>
@@ -34,7 +36,8 @@ const procs = computed(() => procsOf(t.value).map((k) => props.processes.find((p
         <dt>끝 비율</dt><dd>{{ pct(t.exit_share) }} <small>이 일에서 끝난 건</small></dd>
       </template>
       <template v-if="t.first_seen"><dt>본 기간</dt><dd>{{ dateKo(t.first_seen) }} ~ {{ dateKo(t.last_seen) }}</dd></template>
-      <template v-if="sources.length"><dt>출처</dt><dd><template v-for="([k, n], i) in sources" :key="k"><i v-if="i" class="dot"> · </i><span>{{ SOURCE_KO[k] || k }}</span> {{ n }}</template></dd></template>
+      <template v-if="sources.length"><dt>출처</dt><dd><template v-for="([k, n], i) in sources" :key="k"><i v-if="i" class="dot"> · </i><span>{{ SOURCE_KO[k] || k }}</span> {{ n }}</template>
+        <button class="lnk ev press" data-testid="onto-task-evidence-link" @click="toEvidence">근거 보기</button></dd></template>
     </dl>
     <template v-if="next.length">
       <h4>다음 일</h4>
@@ -64,6 +67,7 @@ const procs = computed(() => procsOf(t.value).map((k) => props.processes.find((p
 .kv dd b { font-size: 17px; font-weight: 600; }
 .kv small { font-size: 12px; color: var(--text-tertiary); }
 .dot { font-style: normal; color: var(--text-tertiary); }
+.lnk.ev { margin-left: 8px; font-size: 12.5px; color: var(--color-info); }
 .lnk { text-align: left; text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 3px; }
 .lnk:hover { text-decoration-color: currentColor; }
 .procs { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }

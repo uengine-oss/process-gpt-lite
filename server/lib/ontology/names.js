@@ -15,6 +15,8 @@ const T = () => config.tenantId
 export const hashOf = (s) => crypto.createHash('sha1').update(String(s).trim()).digest('hex')
 const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim()
 export const ACTS = ['request', 'deliver', 'approve', 'notify']
+// Hangul and a lowercase Latin run inside one word — a model's slip, not a name ("SDK업데이트" · "PoC 컨택" stay)
+export const garbled = (s) => /[가-힣][a-z]{2,}|[a-z]{2,}[가-힣]/.test(String(s || ''))
 
 // prompt: the process-discovery skill's prompts/name-labels.md
 
@@ -48,7 +50,10 @@ export async function resolveLabels(items, { known = [] } = {}) {
     for (let n = 0; n < part.length; n++) {
       const a = ans.find((x) => Number(x.i) === n)
       if (!a) continue
-      const task = clean(a.task).slice(0, 30)
+      let task = clean(a.task).slice(0, 30)
+      const raw0 = clean(part[n].raw)
+      // a name the model garbled mid-word ("온톨ologi 탐색" for "온톨로지 탐색기"): the short original is the name; a long one is asked again next build
+      if (task && garbled(task)) { if (raw0.length <= 20 && !garbled(raw0)) task = raw0; else continue }
       const act = ACTS.includes(a.act) ? a.act : 'notify'
       const how = !task ? 'none' : names.has(task) ? (a.known ? 'alias' : 'same') : 'model'
       if (task) names.add(task)
