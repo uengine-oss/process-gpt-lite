@@ -2,7 +2,7 @@
 // 회사 프로세스 지도의 그림(SVG): 일은 둥근 상자(이름 · 역할 · 건수), 시작 일에는 「시작 n%」, 끝은 하나.
 // 관계 굵기는 확률(p), 숫자는 p. 고리는 바깥으로 도는 곡선, 은퇴 후보는 주황 점선, 은퇴한 관계는 회색 점선,
 // 고정은 핀, 관찰 적음(Wilson 구간 폭 > 0.3)은 흐리게, 후보 일은 흐리게. 배치는 layout.js.
-// 넓은 화면은 왼→오, 폰은 위→아래. 끌어서 옮기고 − / 맞춤 / + 로 크기를 바꾼다.
+// 넓은 화면은 왼→오, 폰은 위→아래. 끌어서 옮기고, 휠은 커서 자리를 중심으로, − / 맞춤 / + 로도 크기를 바꾼다.
 // 사건 보기(events): 사건은 작은 원(메일 · 결과물 · 채팅)과 그 아래 이름. 일 → 사건(RAISES) · 사건 → 일(TRIGGERS) 관계를
 // 그리고, 한 사건 뒤 여러 일이 함께 열리면(split and) 숫자 옆에 「함께」. 사건이나 그 관계를 누르면 select {kind: 'event'}.
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
@@ -197,6 +197,39 @@ onMounted(() => {
 })
 onBeforeUnmount(() => ro?.disconnect())
 
+// 휠 · 트랙패드: 커서 자리를 중심으로 키우고 줄인다 — 커서 밑의 일이 그 자리에 그대로 있다. 옆으로 미는 두 손가락은 옆으로 옮기기.
+// 폰 모양(TB)에서는 페이지가 스크롤돼야 해서 Ctrl(트랙패드 핀치)만 크기를 바꾼다. 여러 이벤트는 한 프레임에 모아 한 번에.
+let wheelK = 1, wheelAt = null, wheelRaf = 0
+function onWheel(ev) {
+  const el = vp.value
+  if (!el || !L.value.width) return
+  if (!ev.ctrlKey && Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) { ev.preventDefault(); el.scrollLeft += ev.deltaX; return }
+  if (props.dir === 'TB' && !ev.ctrlKey) return
+  ev.preventDefault()
+  const unit = ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? 400 : 1
+  wheelK *= Math.exp(-ev.deltaY * unit * (ev.ctrlKey ? 0.01 : 0.0015))
+  wheelAt = { x: ev.clientX, y: ev.clientY }
+  if (!wheelRaf) wheelRaf = requestAnimationFrame(zoomAtCursor)
+}
+async function zoomAtCursor() {
+  wheelRaf = 0
+  const k = wheelK
+  wheelK = 1
+  const el = vp.value, svg = el?.querySelector('svg.map')
+  if (!el || !svg || !wheelAt) return
+  const z0 = zoom.value, z1 = Math.min(2, Math.max(minZoom(), +(z0 * k).toFixed(4)))
+  if (z1 === z0) return
+  const at = wheelAt, a = svg.getBoundingClientRect()
+  const ux = (at.x - a.left) / z0, uy = (at.y - a.top) / z0 // the map point under the cursor
+  zoom.value = z1
+  fitMode.value = 'manual'
+  await nextTick()
+  const b = svg.getBoundingClientRect()
+  el.scrollLeft += b.left + ux * z1 - at.x
+  el.scrollTop += b.top + uy * z1 - at.y
+}
+onBeforeUnmount(() => cancelAnimationFrame(wheelRaf))
+
 let drag = null, moved = false
 function down(ev) {
   if (ev.pointerType !== 'mouse' || ev.button !== 0) return
@@ -221,7 +254,7 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 
 <template>
   <div class="mg">
-  <div ref="vp" class="vp" :class="{ dragging: moved, side: side && dir === 'LR' }" @pointerdown="down" @pointermove="move" @pointerup="up" @pointerleave="up" @click.self="pick(null)">
+  <div ref="vp" class="vp" :class="{ dragging: moved, side: side && dir === 'LR' }" @pointerdown="down" @pointermove="move" @pointerup="up" @pointerleave="up" @wheel="onWheel" @click.self="pick(null)">
     <svg v-if="L.width" class="map" :width="L.width * zoom" :height="L.height * zoom" :viewBox="`0 0 ${L.width} ${L.height}`" role="img" aria-label="회사 프로세스 지도" @click.self="pick(null)">
       <defs><clipPath id="pm-node-clip"><rect x="4" y="0" :width="W - 8" height="90" /></clipPath></defs>
       <g class="edges">
