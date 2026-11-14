@@ -2244,7 +2244,11 @@
   "문서에만": "Document only",
   "실제로는": "In practice",
   "아직 올린 문서가 없어요.": "No documents uploaded yet.",
-  "규정 · 업무 정의서를 올리면 거기 적힌 절차를 읽어, 메일 · 인계에서 찾은 실제 일과 나란히 보여 줘요. PDF · 한글 · 워드 · 파워포인트 · 엑셀 · 텍스트.": "Upload a regulation or procedure document: its procedures are read and shown next to the work the mail and handovers show. PDF · Hangul · Word · PowerPoint · Excel · text."
+  "규정 · 업무 정의서를 올리면 거기 적힌 절차를 읽어, 메일 · 인계에서 찾은 실제 일과 나란히 보여 줘요. PDF · 한글 · 워드 · 파워포인트 · 엑셀 · 텍스트.": "Upload a regulation or procedure document: its procedures are read and shown next to the work the mail and handovers show. PDF · Hangul · Word · PowerPoint · Excel · text.",
+  "문서 · 대화 기록 올리기": "Upload a document or chat log",
+  "단체 대화방을 내보낸 파일(카카오톡 대화 내보내기 CSV · TXT)을 올리면 메일처럼 읽어 지도에 더해요.": "Upload a group chat export (KakaoTalk CSV · TXT): it is read like mail and added to the map.",
+  "대화 기록으로 지도 다시 그리는 중…": "Drawing the map again with the chat log…",
+  "대화 기록을 지도에 더했어요.": "The chat log is on the map."
  },
  "patterns": [
   [

@@ -93,7 +93,9 @@ export async function loadEvents({ until } = {}) {
     const role = (act === 'request' ? r.to_role : r.from_role) || '담당자'
     const addr = String((act === 'request' ? r.to_addrs?.[0] : r.from_addr) || '').toLowerCase()
     // a result handed over by mail (the sender's work); a request's attachments are what the work starts from, not its result
-    events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: addr || null, role, source: 'mail_history', person: `mail:${r.owner}`, amount: r.attrs?.amount ?? null,
+    // a chat export's rows (lib/ontology/chatlog.js) sit beside the mail's, marked as such
+    const chat = r.attrs?.source === 'chat'
+    events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: addr || null, role, source: chat ? 'chat_export' : 'mail_history', person: `${chat ? 'chat' : 'mail'}:${r.owner}`, amount: r.attrs?.amount ?? null,
       arts: act === 'request' ? [] : kinds(r.artifacts), actor: people.get(addr) || null })
   }
   return events

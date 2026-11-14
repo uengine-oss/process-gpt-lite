@@ -2,13 +2,14 @@
 // 문서(design-v0.3 §17): 규정 · 업무 정의서를 올리면 process-gpt 의 문서 읽기(PDF2BPMN)가 절차를 뽑고, 절차마다
 // 「문서대로 · 실제로」를 나란히 보여 준다 — 단계마다 메일 · 인계에서도 보이는지(몇 건), 문서에만 있는 단계,
 // 가장 닮은 실제 흐름에서 문서에 없는 일. 읽는 동안에는 진행 줄(feed)을 보여 준다.
-// emits task(key) · proc(key)
+// 같은 올리기로 대화 기록(카카오톡 대화 내보내기 CSV · TXT, design-v0.3 §21)도 받는다: 메일처럼 읽고(진행 줄) 지도를 다시 그린 뒤 changed.
+// emits task(key) · proc(key) · changed
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { api, freshToken } from '../../api.js'
 import { BASE } from '../../base.js'
 
 const props = defineProps({ tasks: { type: Array, default: () => [] } })
-const emit = defineEmits(['task', 'proc'])
+const emit = defineEmits(['task', 'proc', 'changed'])
 const d = ref({ documents: [], procedures: [] })
 const err = ref('')
 const job = ref(null)
@@ -30,16 +31,27 @@ async function upload(ev) {
       headers: { 'Content-Type': f.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(f.name), Authorization: `Bearer ${await freshToken()}` } })
     const out = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(out.error || '올리지 못했어요.')
-    follow(out.job, f.name)
+    follow(out.job, f.name, out.kind || 'document')
   } catch (e) { err.value = e.message }
 }
-function follow(id, name) {
-  job.value = { id, name, status: 'running', feed: [] }
+// a document: its job; a chat export: its reading, then the map drawn again from it (the build the server starts after)
+function follow(id, name, kind = 'document') {
+  job.value = { id, name, kind, status: 'running', feed: [] }
+  let build = null
   const tick = async () => {
-    const j = await api(`/ontology/jobs/${id}`).catch(() => null)
-    if (j) job.value = { id, name, status: j.status, feed: (j.detail?.feed || []).slice(-6), error: j.error, done: j.done, total: j.total }
+    const j = await api(`/ontology/jobs/${build || id}`).catch(() => null)
+    if (j) job.value = { id, name, kind, stage: build ? 'build' : 'read', status: j.status, feed: (j.detail?.feed || []).slice(-6), error: j.error, done: j.done, total: j.total }
     if (j?.status === 'running' || !j) { timer = setTimeout(tick, 1500); return }
-    if (j.status === 'failed') err.value = j.error || '문서를 읽지 못했어요.'
+    if (j.status === 'failed') { err.value = j.error || (kind === 'chat' ? '대화 기록을 읽지 못했어요.' : '문서를 읽지 못했어요.'); job.value.status = 'failed'; return }
+    if (kind === 'chat' && !build) {
+      // the build the chat's reading started
+      const st = await api('/ontology/status').catch(() => null)
+      if (st?.build?.id && new Date(st.build.started_at || 0) >= new Date(j.started_at || 0)) build = st.build.id
+      job.value = { ...job.value, status: 'running', stage: 'build' }
+      timer = setTimeout(tick, 1500)
+      return
+    }
+    if (kind === 'chat') { job.value = { ...job.value, status: 'done' }; emit('changed'); return }
     await load()
     if (j.status === 'done') open.value = d.value.procedures.find((p) => p.doc === name)?.key || ''
   }
@@ -51,17 +63,22 @@ const taskKey = (name) => props.tasks.find((t) => t.name === name)?.key || name
 <template>
   <div class="dp" data-testid="onto-docs">
     <p class="muted">규정 · 업무 정의서를 올리면 거기 적힌 절차를 읽어, 메일 · 인계에서 찾은 실제 일과 나란히 보여 줘요. PDF · 한글 · 워드 · 파워포인트 · 엑셀 · 텍스트.</p>
+    <p class="muted">단체 대화방을 내보낸 파일(카카오톡 대화 내보내기 CSV · TXT)을 올리면 메일처럼 읽어 지도에 더해요.</p>
     <label class="up press" data-testid="onto-docs-upload">
       <input ref="file" type="file" accept=".pdf,.docx,.hwpx,.pptx,.xlsx,.txt,.md,.csv" hidden @change="upload" />
-      문서 올리기
+      문서 · 대화 기록 올리기
     </label>
     <p v-if="err" class="err">{{ err }}</p>
 
-    <div v-if="job && job.status === 'running'" class="sec" data-testid="onto-docs-job">
-      <h4>「{{ job.name }}」 읽는 중<small v-if="job.total">{{ job.done || 0 }}/{{ job.total }}부분</small></h4>
+    <div v-if="job && job.status === 'running'" class="sec" data-testid="onto-docs-job" :data-kind="job.kind" :data-stage="job.stage || 'read'">
+      <h4 v-if="job.kind === 'chat' && job.stage === 'build'">대화 기록으로 지도 다시 그리는 중…</h4>
+      <h4 v-else-if="job.kind === 'chat'">대화 기록 「{{ job.name }}」 읽는 중<small v-if="job.total">{{ job.done || 0 }}/{{ job.total }}번째 묶음</small></h4>
+      <h4 v-else>「{{ job.name }}」 읽는 중<small v-if="job.total">{{ job.done || 0 }}/{{ job.total }}부분</small></h4>
+      <div v-if="job.kind === 'chat' && job.total && job.stage !== 'build'" class="bar"><i :style="{ width: `${Math.min(100, (job.done || 0) / job.total * 100)}%` }" /></div>
       <ul class="feed"><li v-for="f in job.feed" :key="f.at + f.text">{{ f.text }}</li></ul>
     </div>
 
+    <p v-if="job && job.kind === 'chat' && job.status === 'done'" class="ok" data-testid="onto-docs-chat-done">대화 기록을 지도에 더했어요.</p>
     <p v-if="!d.procedures.length && !(job && job.status === 'running')" class="muted sm">아직 올린 문서가 없어요.</p>
     <div v-for="p in d.procedures" :key="p.key" class="sec proc" :class="{ on: open === p.key }" data-testid="onto-doc-proc">
       <button class="ph press" @click="open = open === p.key ? '' : p.key">
@@ -102,6 +119,8 @@ const taskKey = (name) => props.tasks.find((t) => t.name === name)?.key || name
 .sec { padding: 12px; border-radius: 16px; background: var(--cell-bg); min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
 h4 small { font-weight: 400; color: var(--text-tertiary); margin-left: 6px; }
+.bar { height: 8px; border-radius: 4px; background: var(--field-bg); overflow: hidden; position: relative; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--color-success); transition: width .6s; }
 .feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .feed li { font-size: 12.5px; line-height: 1.45; color: var(--text-secondary); padding-left: 10px; border-left: 2px solid var(--hairline); }
 .feed li:last-child { color: var(--text-primary); border-left-color: var(--color-success); }

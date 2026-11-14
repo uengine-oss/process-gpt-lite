@@ -6,6 +6,14 @@
   "historyTextChars": 1500,
   "incomingTextChars": 6000
  },
+ "chat": {
+  "days": 90,
+  "windowMessages": 60,
+  "textChars": 500,
+  "caseGapDays": 2,
+  "skip": "^(메시지가 삭제되었습니다\\.?|삭제된 메시지입니다\\.?|.{0,1})$",
+  "colleagueRole": "동료"
+ },
  "company": {
   "publicDomains": ["gmail.com", "googlemail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com", "nate.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "icloud.com", "me.com", "proton.me"],
   "colleagueRole": "동료"

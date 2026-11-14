@@ -36,8 +36,12 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/mail-history', auth, h((req) => S.readMailAndBuild(req.user, { days: Math.min(180, Math.max(7, Number(req.body?.days) || 90)) })))
   r.get('/ontology/jobs/:id', auth, h((req) => S.job(req.params.id)))
   // 규정 · 업무 정의서(design-v0.3 §17): 파일 그대로 올리면 process-gpt 의 문서 읽기로 절차를 뽑아 지도 곁에 둔다
-  r.post('/ontology/documents', express.raw({ type: () => true, limit: '30mb' }), auth, h((req) =>
-    DOC.startDocument(req.user, { name: decodeURIComponent(String(req.headers['x-file-name'] || 'document.txt')), buf: req.body })))
+  // the same upload takes a chat export (카카오톡 대화 내보내기 CSV · TXT, design-v0.3 §21): its messages are read like mail
+  r.post('/ontology/documents', express.raw({ type: () => true, limit: '60mb' }), auth, h(async (req) => {
+    const name = decodeURIComponent(String(req.headers['x-file-name'] || 'document.txt'))
+    const C = await import('../lib/ontology/chatlog.js')
+    return C.isChatExport(name, req.body) ? C.startChatHistory(req.user, { name, buf: req.body }) : DOC.startDocument(req.user, { name, buf: req.body })
+  }))
   r.get('/ontology/documents', auth, h(() => DOC.documents()))
   r.post('/ontology/build', auth, h(async (req) => { await admin(req); return S.startBuild(req.user) }))
   r.get('/ontology/map', auth, h((req) => S.map({ validAt: req.query.at || undefined, systemAt: req.query.system || undefined })))

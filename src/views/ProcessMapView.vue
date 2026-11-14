@@ -420,7 +420,7 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
               @pick="(k) => (roleKey = k)" @task="showTask" @changed="loadMap" />
           </SidePanel>
           <SidePanel v-else-if="docsOpen" kicker="규정 · 업무 정의서" title="문서대로와 실제" @close="docsOpen = false">
-            <OntoDocsPanel :tasks="map.tasks" @task="showTask" @proc="(k) => { docsOpen = false; pickProc(k) }" />
+            <OntoDocsPanel :tasks="map.tasks" @task="showTask" @proc="(k) => { docsOpen = false; pickProc(k) }" @changed="loadMap" />
           </SidePanel>
           <SidePanel v-else-if="timerOpen && proc" kicker="타이머" :title="`${proc.name} 타이머`" @close="timerOpen = false">
             <div class="timers" data-testid="onto-timer-panel">
