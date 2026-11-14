@@ -389,7 +389,7 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   const timers = await minedTimers({ validFrom: iso(now), actor: meta.actor, reason: `${meta.reason}(메일의 정해진 때)` }, { tasks: new Set(final.g.tasks.keys()) })
     .catch((e) => { console.warn('[ontology] mined timers', e.message); return [] })
   const { cronKo } = await import('./timers.js')
-  for (const t of (timers || []).slice(0, 4)) await say(`정해진 때에 하는 일을 찾았어요: ${cronKo(t.cron)} · 「${t.task}」(메일 ${t.n}통)`, 'timer')
+  for (const t of (timers || []).slice(0, 4)) await say(`정해진 때에 하는 일을 찾았어요: ${cronKo(t.cron)} · 「${t.task}」(기록 ${t.n}건)`, 'timer')
   if (habits.routines) await say(`개인 습관 ${habits.routines}개를 역할 루틴으로 모았어요(지도에는 설정한 기준만큼 보여요).`)
   // processes of earlier weeks that are not in today's picture are gone (kept in the history, hidden on the map)
   const live = [...final.processes.map((b) => b.key), ...habits.keys]
