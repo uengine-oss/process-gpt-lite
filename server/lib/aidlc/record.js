@@ -134,8 +134,11 @@ export async function worktreeProgress(root, dir, wtPath, unit) {
   const plan = await readText(path.join(rec, 'construction', unit, 'code-generation', 'code-generation-plan.md'))
   const done = (plan.match(/^\s*[-*] \[[xX]\]/gm) || []).length
   const open = (plan.match(/^\s*[-*] \[ \]/gm) || []).length
-  const events = await readAudit(rec)
-  const last = events.filter((e) => e.event !== 'AUDIT_FORKED' && e.event !== 'STATE_FORKED').at(-1)
+  // the worktree's record starts as a copy of the main one: the worker's own steps are those after the fork marker
+  const all = await readAudit(rec)
+  const fork = all.findLastIndex((e) => e.event === 'AUDIT_FORKED')
+  const events = all.slice(fork + 1).filter((e) => e.event !== 'STATE_FORKED')
+  const last = events.at(-1) || all.filter((e) => e.event !== 'AUDIT_FORKED' && e.event !== 'STATE_FORKED').at(-1)
   return { exists: true, plan: plan ? { done, total: done + open } : null, steps: events.length, last: last ? { event: last.event, ts: last.ts, stage: last.stage } : null }
 }
 
