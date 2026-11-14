@@ -40,7 +40,8 @@ function follow(id, name, kind = 'document') {
   let build = null
   const tick = async () => {
     const j = await api(`/ontology/jobs/${build || id}`).catch(() => null)
-    if (j) job.value = { id, name, kind, stage: build ? 'build' : 'read', status: j.status, feed: (j.detail?.feed || []).slice(-6), error: j.error, done: j.done, total: j.total }
+    // a chat's reading done is not the end: the map is drawn after it (the status stays running until the build is done)
+    if (j) job.value = { id, name, kind, stage: build ? 'build' : 'read', status: kind === 'chat' && !build && j.status === 'done' ? 'running' : j.status, feed: (j.detail?.feed || []).slice(-6), error: j.error, done: j.done, total: j.total }
     if (j?.status === 'running' || !j) { timer = setTimeout(tick, 1500); return }
     if (j.status === 'failed') { err.value = j.error || (kind === 'chat' ? '대화 기록을 읽지 못했어요.' : '문서를 읽지 못했어요.'); job.value.status = 'failed'; return }
     if (kind === 'chat' && !build) {
