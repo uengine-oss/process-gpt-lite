@@ -19,7 +19,7 @@ import { chatJson } from '../llm.js'
 import { maskPii } from '../policy/pii.js'
 import { googleAccessToken } from '../mail.js'
 import { partsOf, bodyOf, newPart, readFile, kindOf, formKey, b64u, gmailError, gmailBusy } from './mailbody.js'
-import { prompt, rules as skillRules, defaultRules, discoverySkill } from './discovery.js'
+import { prompt, rules as skillRules, defaultRules, discoverySkill, readVersion } from './discovery.js'
 import { sayer } from './feed.js'
 import { emit } from '../bus.js'
 
@@ -326,19 +326,20 @@ export async function runMailHistory(me, jobId, days) {
     done += t.mails.length
     await q(`insert into pro_mail_reads (tenant_id, owner_id, thread_id, mail_ids, skill_version) values ($1,$2,$3,$4,$5)
              on conflict (tenant_id, owner_id, thread_id) do update set mail_ids=excluded.mail_ids, skill_version=excluded.skill_version, read_at=now()`,
-      [T(), me.id, String(t.id), t.mails.map((m) => String(m.id)), skill.version])
+      [T(), me.id, String(t.id), t.mails.map((m) => String(m.id)), rv])
     await update('done=$2, kept=$3, found=$4, cursor=$5', [done, work, found.size, t.id])
     emit(me.id, 'ontology', { job: jobId, done, total: mails.length, kept: work, found: found.size })
   }
   // read again (a second onboarding): a thread read before by this version of the skill, with no mail since, is not read again
   const before = new Map((await q(`select thread_id, mail_ids, skill_version from pro_mail_reads where tenant_id=$1 and owner_id=$2`, [T(), me.id])).map((r) => [r.thread_id, r]))
-  const unchanged = (t) => { const b = before.get(String(t.id)); return b && b.skill_version === skill.version && t.mails.every((m) => b.mail_ids.includes(String(m.id))) }
+  const rv = readVersion(skill)
+  const unchanged = (t) => { const b = before.get(String(t.id)); return b && b.skill_version === rv && t.mails.every((m) => b.mail_ids.includes(String(m.id))) }
   const queue = threads.filter((t) => !unchanged(t))
   if (queue.length < threads.length) {
     const skip = threads.filter(unchanged)
     done += skip.reduce((n, t) => n + t.mails.length, 0)
     await update('done=$2', [done])
-    await say(`전에 읽은 스레드 ${skip.length.toLocaleString('ko-KR')}개는 그대로라 건너뛰어요 — 새 메일이 붙었거나 스킬이 바뀐 ${queue.length.toLocaleString('ko-KR')}개만 읽어요.`)
+    await say(`전에 읽은 스레드 ${skip.length.toLocaleString('ko-KR')}개는 그대로라 건너뛰어요 — 새 메일이 붙었거나 읽는 규칙이 바뀐 ${queue.length.toLocaleString('ko-KR')}개만 읽어요.`)
   }
   await Promise.all(Array.from({ length: R.mailbox.threadsAtOnce || 4 }, async () => { while (queue.length) await readOne(queue.shift()) }))
   // a colleague's role: what most of their mails showed (rows read before the votes came in are rewritten)

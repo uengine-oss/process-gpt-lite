@@ -69,5 +69,11 @@ export async function prompt(name) {
   return p
 }
 export async function rules() { return (await discoverySkill()).rules }
+// what reading a thread depends on (its prompt, the filters, what counts as one to read, how much of it, who is inside):
+// a re-read reads a thread again only when this changed — not when a form, a period or a naming rule did
+export function readVersion(skill) {
+  const r = skill.rules || {}
+  return crypto.createHash('sha1').update(JSON.stringify([skill.prompts['read-thread'] || '', r.filters, r.readAlone, r.mailbox?.historyTextChars, r.company])).digest('hex').slice(0, 10)
+}
 // the rules as the bundled version has them, for the code that must not wait (pure functions and their tests)
 export const defaultRules = () => bundled().rules
