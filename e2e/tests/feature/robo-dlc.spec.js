@@ -177,7 +177,43 @@ test.describe('Robo-DLC Lite · AI-DLC 대시보드', () => {
     expect(page.errors).toEqual([])
   })
 
-  test('F-RD-05 팀 세션은 폴더 구성원이 같이 보고, 보기 권한이면 읽기만 한다', async ({ pageAs, as, db, cleanup }) => {
+  test('F-RD-16 막힌 세션: 로그아웃된 채 멈춘 세션은 폴더 주인에게 「로그인되어 있지 않아요」 카드, 결정 화면은 먼저 고칠 것을 말하고 「계속」은 한 번만 들어간다', async ({ pageAs, as, db, cleanup }) => {
+    test.setTimeout(120_000)
+    const page = await pageAs('rd-lead')
+    const lead = await as('rd-lead')
+    const { repo, folder } = await linkedRecord(lead, db, cleanup, 'AI-DLC 막힌 세션')
+    cleanup(async () => {
+      const [f] = await db.q('select id from pro_folders where repo_path=$1', [path.resolve(repo)])
+      if (f) for (const t of ['pro_aidlc_roles', 'pro_aidlc_decisions', 'pro_aidlc_waits']) await db.q(`delete from ${t} where folder_id=$1`, [f.id])
+      await db.q(`update notifications set is_checked=true where type='aidlc' and url like $1`, [`/aidlc/${folder.slug}/%`])
+    })
+    const qdir = path.join(repo, 'aidlc/spaces/default/intents/261109-todo-web-app/inception/requirements-analysis')
+    for (const f of (await fs.readdir(qdir)).filter((x) => x.endsWith('-questions.md'))) {
+      const p = path.join(qdir, f)
+      await fs.writeFile(p, (await fs.readFile(p, 'utf8')).replace(/\[Answer\]:[ \t]*$/gm, '[Answer]: A'))
+    }
+    // no hooks: the logged-out screen alone (the run-3 screen, 2026-11-14)
+    const { keys } = await fakeSession(repo, folder.slug, cleanup, path.join(SCREENS, 'blocked.txt'))
+    await page.goto('/')
+    const card = page.locator('.nc.aidlc', { hasText: '로그인되어 있지 않아요' }).first()
+    await expect(card).toBeVisible({ timeout: 60_000 })
+    await card.getByRole('button', { name: '결정하기' }).click()
+    const ask = page.locator('[data-test="aidlc-ask"]')
+    await expect(ask).toContainText('막힌 세션')
+    await expect(page.locator('[data-test="aidlc-ask-message"]')).toContainText('Not logged in · Please run /login')
+    await expect(page.locator('[data-test="aidlc-ask-help"]')).toContainText('claude /login')
+    await ask.locator('[data-test="ask-opt-1"]').click()
+    await expect(page.getByText('세션에 「계속 진행해 주세요」를 보냈어요.')).toBeVisible()
+    await expect.poll(() => fs.readFile(keys, 'utf8').catch(() => ''), { timeout: 10_000 }).toContain('계속 진행해 주세요')
+    // the same error on screen: words right away are refused
+    await expect(ask.locator('[data-test="ask-opt-1"]')).toBeEnabled({ timeout: 15_000 })
+    await ask.locator('[data-test="ask-opt-1"]').click()
+    await expect(page.getByText(/방금 보냈어요/)).toBeVisible()
+    expect((await fs.readFile(keys, 'utf8')).split('계속 진행해 주세요').length - 1).toBe(1)
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-RD-05팀 세션은 폴더 구성원이 같이 보고, 보기 권한이면 읽기만 한다', async ({ pageAs, as, db, cleanup }) => {
     const lead = await as('rd-lead')
     const page = await pageAs('rd-viewer')
     const { repo, folder } = await linkedRecord(lead, db, cleanup, 'AI-DLC 관전')

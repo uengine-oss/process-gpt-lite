@@ -13,9 +13,15 @@
 | 모든 볼트가 main 작업 사본에 바로 썼다 | AI-DLC 의 기본은 `unit-major` + `serial`. 병렬(`swarm`)일 때만 볼트마다 작업 트리를 만든다 | 볼트 하나만 버리기 어렵고(P3 은 시작 전 스냅숏으로 되돌림), 유닛을 나란히 못 만든다 |
 | 시작은 터미널에서 `/aidlc classic "…"` 를 쳤다 | 작업 접수(P3)는 그 판보다 늦게 생겼고, 접수는 늘 약 1분짜리 계획안을 거친다 | 범위를 이미 아는 사람도 계획안을 기다려야 했다 |
 
+실제 판 3(공지 게시판) 에서 더 본 것:
+
+| 본 것 | 원인 | 결과 → 고침 |
+|---|---|---|
+| 2026-11-14 10:11~10:29(KST) 팀 세션의 Claude Code 로그인이 풀려 턴마다 「⎿ Not logged in · Please run /login」 으로 끝났다 | 막힘을 따로 보지 않아, 말 없이 멈춘 세션(「멈춰 있어요」 + 「계속 진행해 주세요」) 으로 읽었다 | 녹화기가 그 카드에 10초마다 「계속」을 보내 감사 기록에 사람의 턴 100개가 쌓였다 → **막힌 세션**: 오류 줄(또는 `StopFailure` 훅)이면 막힘 카드, 폴더 주인에게, 고칠 것을 먼저 말하고 「계속」은 2분에 한 번. 로그인이 돌아온 뒤 다음 「계속」으로 이어서 했다 |
+
 ## 2. 확인한 사실
 
-- **Claude Code 훅(2.1.325, 실험 `scratchpad/hooklab`)**: `--settings <파일>` 로 넘긴 훅이 돈다. `Stop` 에 `last_assistant_message`(세션이 멈추며 한 말 그대로), `UserPromptSubmit` 에 `prompt`, 60초 쉬면 `Notification` 의 `notification_type: idle_prompt`.
+- **Claude Code 훅(2.1.325, 실험 `scratchpad/hooklab`)**: `--settings <파일>` 로 넘긴 훅이 돈다. `Stop` 에 `last_assistant_message`(세션이 멈추며 한 말 그대로), `UserPromptSubmit` 에 `prompt`, 60초 쉬면 `Notification` 의 `notification_type: idle_prompt`. 턴이 오류로 끝나면 `Stop` 대신 `StopFailure` 가 `error`(authentication_failed · rate_limit · billing_error · overloaded · server_error 등 13가지)와 `error_details` 를 준다(설치본에서 확인). 화면에는 마지막 덩어리 아래 `⎿  Not logged in · Please run /login` 처럼 그려진다. 띄운 세션은 `--settings` 파일을 다시 읽지 않는다 — 훅을 바꾸면 새로 띄운 세션부터.
 - **멈춘 화면**: 입력창(가로줄 사이 `❯`)이 비었고, 도는 스피너가 없다(`✶ Razzle-dazzling… (14s · ↓ 1.0k tokens)`, `✻ Waiting for 1 background agent to finish` 는 일하는 중, `✻ Worked for 4s · done 8:14 AM` 은 끝난 턴의 요약). 녹화해 둔 화면 fixture 로 확인.
 - **AI-DLC 2.11.2 swarm**(설치본 `.claude/` 를 읽어 확인, 실제 판 3 에서 다시 확인):
   - 작업 트리 `<저장소>/.aidlc/worktrees/bolt-<id8>_<유닛>`, 가지 이름도 같다(`<id8>` = 인텐트 UUID 끝 8자리). 승인되면 `aidlc engine worktree merge --strategy squash` 로 커밋 「Bolt <slug>」 하나. 버리면 `refs/aidlc/parked/…` 에 보관하고 `restore` 로 되살린다.
@@ -32,6 +38,7 @@
 | 훅 | 팀 세션을 띄울 때 `--settings` 로 훅 셋(Stop·UserPromptSubmit·Notification)을 넘긴다. 훅은 `curl` 로 이 서버의 `/api/aidlc/hook/<세션>` 에 알리고(로컬·세션별 서명만 받음, 실패해도 세션은 안 기다림), 받으면 그 폴더를 바로 다시 본다 | `lib/aidlc/hooks.js`, `routes/aidlc.js`, 설정·키는 `~/.pgpt-lite/aidlc-hooks`(600) |
 | 대화로 물은 것 | 선택 창도 빈 질문 파일도 없는데 세션이 멈춰 있으면 대기 하나: 훅이 준 말(없으면 화면의 마지막 말, 같은 화면이 6초 서 있어야). 말에서 고를 것을 읽는다 — 굵은 번호 목록(승인), `**done**` 같은 답할 말, 물음표(답), 아무것도 없으면 「멈춰 있어요」 + 「계속 진행해 주세요」 | `lib/aidlc/ask.js`, `watch.js` |
 | 결정 화면 | 「대화로 물은 승인/물음/멈춘 세션」 칸: 세션의 말, 고를 말 단추(Request Changes·Other 는 글을 받는다), 직접 적어 보내기 → 입력창에 그대로, 결정 기록에 남음 | `src/views/AidlcDecide.vue`, `POST /api/aidlc/:folder/reply` |
+| 막힌 세션 | 화면의 마지막 덩어리에 로그아웃·한도·API 오류 줄이 있거나 `StopFailure` 훅이 오면 「멈춰 있어요」가 아닌 막힘(login · limit · api). 폴더 주인에게 카드 하나(같은 오류가 거듭 나도), 결정 화면은 고칠 것을 먼저 말하고, 「계속」은 2분에 한 번만 받는다 | `session.js` `blocked`, `ask.js`, `team.js` `reply` |
 | 추정 없이 바로 시작 | 접수 권한자가 범위를 고르고 계획안 없이 시작 단계로. 계획안 칸에는 고른 범위만 | `lib/aidlc/intake.js` `proposeDirect`, `apps/intake` |
 | 볼트마다 작업 트리 | 시작 옵션. 고르면 요청 뒤에 「구축은 유닛을 병렬로, 볼트마다 작업 트리에서 진행해 주세요(stage-major + swarm).」 — AI-DLC 가 사람의 말로 켜고 작업 트리를 스스로 만든다. 유닛으로 나뉘는 범위(classic·feature·mvp·enterprise·workshop·infra)는 기본으로 켬 | `intake.js` `begin`, `pro_aidlc_requests.worktrees`(sql 042) |
 
@@ -49,7 +56,9 @@
 - **S2 대화로 물은 것** — 세션이 선택 창 없이 대화로 묻고 멈춘다(실제 판에서는 승인된 소스 커밋 요청 등) → 훅이 알리고 그 단계 역할에게 카드 → 결정 화면의 「대화로 물음」 칸에서 고르거나 적어 보냄 → 입력창에 그대로 들어가고 카드는 내려간다.
 - **S3 작업 트리에서 나란히** — 묶음 계획 승인 뒤 유닛마다 작업 트리가 생기고 볼트가 동시에 돈다 → 볼트 보드에서 볼트마다 작업 트리 → 승인되면 「Bolt <유닛>」 커밋으로 합쳐진다.
 
-시험: `server/test/aidlc-ask.test.js`(실제 판 2 의 말 9개 사례 + 녹화 화면), `aidlc-team.e2e.test.js`(훅 → 6초 안 카드 → 답), `aidlc-intake.e2e.test.js` S5, Playwright F-RD-14(훅 없이 화면으로) · F-RD-15.
+- **S4 막힌 세션** — 세션의 로그인이 풀려 턴이 오류로 끝난다 → 폴더 주인(한지수)에게 「세션이 로그인되어 있지 않아요」 카드 → 결정 화면이 「다시 로그인한 뒤 계속」을 먼저 말함 → 로그인을 고치고 「계속 진행해 주세요」 한 번 → 곧바로 또 보내면 거절.
+
+시험: `server/test/aidlc-ask.test.js`(실제 판 2 의 말 9개 사례 + 녹화 화면 + 막힌 화면), `aidlc-team.e2e.test.js`(훅 → 6초 안 카드 → 답, 막힌 세션), `aidlc-intake.e2e.test.js` S5, Playwright F-RD-14(훅 없이 화면으로) · F-RD-15 · F-RD-16(막힌 세션).
 
 ## 6. 남은 공백
 

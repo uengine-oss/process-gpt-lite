@@ -143,7 +143,7 @@ export async function decideView(slug, user) {
     stage, role: roleKey && roleName(roleKey), deciders: roleKey ? await deciders(folder, roleKey) : [],
     canDecide: await mayDecide(folder, user, roleKey),
     session: { running, choice: choice && { ...choice, kind: promptKind(choice), title: promptTitle(promptKind(choice), stage?.name || '') } },
-    ask: ask && { kind: ask.askKind, title: ask.title, message: ask.message, options: ask.options, fingerprint: ask.fingerprint },
+    ask: ask && { kind: ask.askKind, title: ask.title, message: ask.message, options: ask.options, fingerprint: ask.fingerprint, block: ask.block || null, help: ask.help || null },
     // (the summary confirmation is answered in the session's prompt, not as a question here)
     questions: questions.map((f) => { const qs = f.questions.filter((x) => !x.summary); return { path: f.path, stage: describeStage(f.stage).name, open: qs.filter((x) => !x.answer).length, questions: qs } }),
     review: reviews[0] || null, docs, unit: cur?.unit || null, proposal: proposal || null, ledger,
@@ -168,7 +168,11 @@ export async function decide(slug, user, { fingerprint, option, text }) {
   return out
 }
 
-// words for a session that asked in the chat (the ask the person saw: its fingerprint), typed into its input box
+// words for a session that asked in the chat (the ask the person saw: its fingerprint), typed into its input box.
+// A session its own error stopped takes words once in a while only: each one before the error is fixed is
+// another turn that fails the same way (a run once took a hundred 「계속」 in 18 minutes while logged out).
+const BLOCKED_GAP_MS = 2 * 60 * 1000
+const blockedReplies = new Map() // session -> when words last went to it while blocked
 export async function reply(slug, user, { fingerprint, text }) {
   const { folder } = await F.access(R.safeName(slug), user, 'viewer')
   const words = String(text || '').replace(/\s*\n\s*/g, ' ').trim().slice(0, 2000)
@@ -180,6 +184,11 @@ export async function reply(slug, user, { fingerprint, text }) {
   if (!ask) throw err(409, L('세션이 지금은 답을 기다리지 않아요', 'The session is not waiting for an answer now'))
   if (fingerprint && ask.fingerprint !== fingerprint) throw err(409, 'the question changed')
   if (!(await mayDecide(folder, user, ask.roleKey))) throw err(403, 'not yours to decide')
+  if (ask.askKind === 'blocked') {
+    const at = blockedReplies.get(name) || 0
+    if (Date.now() - at < BLOCKED_GAP_MS) throw err(429, L(`방금 보냈어요. 같은 오류면 ${Math.ceil((BLOCKED_GAP_MS - (Date.now() - at)) / 1000)}초 뒤에 다시 보낼 수 있어요`, 'Just sent. If it is the same error, try again in a little while'))
+    blockedReplies.set(name, Date.now())
+  }
   await AS.sendText(name, words)
   await record(folder, user, { stage: ask.stage, kind: 'reply', question: ask.message.slice(-500), choice: words.slice(0, 500), note: null })
   return { sent: words }

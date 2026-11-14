@@ -63,7 +63,7 @@ async function pick(o) {
   } catch (e) { say(e.status === 409 ? '세션 화면이 그새 바뀌었어요. 다시 볼게요.' : e.message); load() } finally { busy.value = '' }
 }
 // what the session asked in the chat: a word from its options, or the person's own words
-const askKindText = { approval: '대화로 물은 승인', choice: '대화로 물은 선택', reply: '대화로 물음', stalled: '멈춘 세션' }
+const askKindText = { approval: '대화로 물은 승인', choice: '대화로 물은 선택', reply: '대화로 물음', stalled: '멈춘 세션', blocked: '막힌 세션' }
 const plain = (t) => String(t || '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').slice(-1600)
 function quick(o) {
   if (!o.text) return send(o.label)
@@ -78,7 +78,7 @@ async function send(text) {
     say(`세션에 「${out.sent}」를 보냈어요.`)
     askText.value = ''
     setTimeout(load, 1200)
-  } catch (e) { say(e.status === 409 ? '세션이 그새 움직였어요. 다시 볼게요.' : e.message); load() } finally { busy.value = '' }
+  } catch (e) { say(e.status === 409 ? '세션이 그새 움직였어요. 다시 볼게요.' : e.message); if (e.status !== 429) load() } finally { busy.value = '' }
 }
 async function submit(f) {
   const answers = Object.fromEntries(Object.entries(drafts.value[f.path] || {}).filter(([, a]) => String(a).trim()))
@@ -161,7 +161,8 @@ const when = (d) => new Date(d).toLocaleString('ko-KR', { month: 'numeric', day:
               <input ref="askInput" v-model="askText" :disabled="!v.canDecide" placeholder="직접 적어 보내기 — 예: Request Changes: 결정권자를 팀 리드로 바로잡아 주세요" data-test="aidlc-ask-text" />
               <button class="dark-btn" :disabled="!v.canDecide || !askText.trim() || !!busy" data-test="aidlc-ask-send">보내기</button>
             </form>
-            <p class="note">세션이 선택 창 없이 대화로 물었어요. 보낸 말은 팀 세션 입력창에 그대로 들어가고, AI-DLC 감사 기록에 사람의 답으로 남아요.</p>
+            <p v-if="v.ask.help" class="note warn" data-test="aidlc-ask-help">{{ v.ask.help }}</p>
+            <p v-else class="note">세션이 선택 창 없이 대화로 물었어요. 보낸 말은 팀 세션 입력창에 그대로 들어가고, AI-DLC 감사 기록에 사람의 답으로 남아요.</p>
             <div v-if="v.ask.kind === 'approval' && v.docs?.length && hasApp('artifact')" class="docs">
               <span class="muted">원본 보기</span>
               <button v-for="d in v.docs" :key="d.path" class="doc press" @click="original(d.path)">📄 {{ d.name }}</button>
@@ -238,6 +239,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 .free { display: flex; gap: 8px; margin-top: 10px; }
 .free input { flex: 1; font: inherit; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line, rgba(0 0 0 / .12)); background: transparent; color: inherit; }
 .note { margin: 10px 0 0; font-size: 12.5px; color: var(--text-tertiary); }
+.note.warn { color: var(--text-secondary); font-weight: 600; }
 .qa { padding: 10px 0; border-top: 1px solid var(--line, rgba(0 0 0 / .06)); }
 .qt { margin: 0 0 8px; line-height: 1.55; }
 .tag { font-size: 11.5px; margin: 0 4px; padding: 1px 6px; border-radius: 6px; background: var(--chip-bg); color: var(--text-secondary); }

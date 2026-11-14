@@ -65,11 +65,31 @@ export const askTitle = (kind, stageName) => ({
   stalled: L(`${stageName} — 세션이 멈춰 있어요`, `${stageName} — the session has stopped`),
 }[kind])
 
+// ---------- a session its own error stopped ----------
+// The turn ended on an error (lib/aidlc/session.js blocked, or the StopFailure hook): not logged in, a usage
+// limit, the API failing. That is not the stage's question, so it goes to the folder's owners (roleKey null),
+// and "go on" is offered once it is fixed — not before: 「계속」 to a logged-out session only adds a turn
+// that fails the same way.
+const HOOK_BLOCK = { authentication_failed: 'login', oauth_org_not_allowed: 'login', account_on_hold: 'login', verification_required: 'login', cloud_credential_error: 'login', rate_limit: 'limit', billing_error: 'limit' }
+export const blockOfHook = (error) => HOOK_BLOCK[error] || 'api'
+const BLOCK_TITLE = {
+  login: L('세션이 로그인되어 있지 않아요', 'The session is not logged in'),
+  limit: L('세션이 사용 한도에 걸렸어요', 'The session hit a usage limit'),
+  api: L('세션이 API 오류로 멈췄어요', 'The session stopped on an API error'),
+}
+const BLOCK_HELP = {
+  login: L('세션을 띄운 컴퓨터에서 Claude Code 에 다시 로그인한 뒤(claude /login) 「계속 진행해 주세요」를 보내 주세요. 그 전에 보내면 같은 오류로 끝나요.',
+    'Log Claude Code in again on the computer that runs the session (claude /login), then send "Please continue". Sent before that, it ends on the same error.'),
+  limit: L('한도가 풀리거나 결제를 고친 뒤 「계속 진행해 주세요」를 보내 주세요.', 'Once the limit resets or billing is fixed, send "Please continue".'),
+  api: L('잠시 뒤 「계속 진행해 주세요」를 보내면 대개 이어서 해요. 계속 같은 오류면 세션 화면을 봐 주세요.', 'Send "Please continue" in a moment; it usually goes on. If the same error keeps coming, look at the session screen.'),
+}
+
 // ---------- is the session waiting on a person now? ----------
 const idleSince = new Map() // session -> { fp, since }: the idle screen first seen, when no hook said it stopped
 
 // cur: the intent being worked on (lib/aidlc/team.js currentIntent); text: the session's screen when already read
 // → { key, kind: 'ask', askKind, options, message, stage, roleKey, title, text, fingerprint } or null
+//   (askKind 'blocked': also block — login | limit | api — and help, what to fix first)
 export async function askOf(cur, name, text, now = Date.now()) {
   if (!cur?.stage || cur.status === 'complete' || /^complete/i.test(cur.state?.status || '')) return null
   if (text == null) {
@@ -79,17 +99,28 @@ export async function askOf(cur, name, text, now = Date.now()) {
   // something else is on screen, it is working, or someone is typing an answer right now
   if (AS.parseChoice(text) || AS.parseTrust(text) || !AS.atPrompt(text) || AS.busy(text) || AS.draft(text)) { idleSince.delete(name); return null }
   const hook = HK.lastOf(name)
-  let message
-  if (hook?.turn === 'idle') message = hook.message || AS.lastMessage(text)
+  let message, block = null
+  if (hook?.turn === 'failed') block = { kind: blockOfHook(hook.error), line: hook.message || hook.error }
+  else if (hook?.turn === 'idle') message = hook.message || AS.lastMessage(text)
   else {
     const fp = sha(text)
     const seen = idleSince.get(name)
     if (!seen || seen.fp !== fp) { idleSince.set(name, { fp, since: now }); return null }
     if (now - seen.since < STEADY_MS) return null
+    block = AS.blocked(text)
     message = AS.lastMessage(text)
   }
-  const { kind, options } = askOptions(message)
   const stage = cur.stage
+  if (block) {
+    // one card per stage and kind, however many times the same error comes back
+    const fingerprint = sha(`${stage.slug}\nblocked:${block.kind}`).slice(0, 16)
+    return {
+      key: `ask:${fingerprint}`, kind: 'ask', askKind: 'blocked', block: block.kind, message: block.line, help: BLOCK_HELP[block.kind],
+      options: [{ label: L('계속 진행해 주세요', 'Please continue'), hint: L('고친 뒤에 보내 주세요', 'once it is fixed'), text: false }],
+      stage: stage.slug, roleKey: null, title: `${stage.name} — ${BLOCK_TITLE[block.kind]}`, text: `${block.line} — ${BLOCK_HELP[block.kind]}`.slice(0, 400), fingerprint,
+    }
+  }
+  const { kind, options } = askOptions(message)
   const fingerprint = sha(`${stage.slug}\n${message}`).slice(0, 16)
   return {
     key: `ask:${fingerprint}`, kind: 'ask', askKind: kind, options, message, stage: stage.slug, roleKey: stage.roleKey,

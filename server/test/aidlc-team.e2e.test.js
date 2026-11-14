@@ -143,6 +143,40 @@ test('대화로 물은 승인: 세션 훅이 그 말을 알리면 곧바로 단�
   assert.match(ledger[0].stage, /requirements-analysis/)
 })
 
+test('막힌 세션: 로그아웃돼 멈추면 폴더 주인에게 「로그인되어 있지 않아요」 카드 → 「계속」은 한 번, 곧바로 또 보내면 거절', { skip: !up }, async () => {
+  try { tmux('kill-session', '-t', name) } catch { /* gone */ }
+  const keys3 = path.join(repo, '.keys-blocked.log')
+  const script = path.join(repo, '.fake-claude-blocked.sh')
+  await fs.writeFile(script, `#!/bin/bash\ncat ${JSON.stringify(path.join(HERE, 'fixtures', 'aidlc-screens', 'blocked.txt'))}\nwhile IFS= read -rsn1 k; do printf '%s' "$k" >> ${JSON.stringify(keys3)}; done\n`, { mode: 0o755 })
+  tmux('new-session', '-d', '-s', name, '-x', '160', '-y', '48', script)
+  const hook = (body) => fetch(`${API}/aidlc/hook/${name}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-lite-hook': HK.token(name) }, body: JSON.stringify(body) })
+  await sleep(500)
+  assert.equal((await hook({ hook_event_name: 'StopFailure', error: 'authentication_failed', error_details: 'Not logged in · Please run /login' })).status, 200)
+  // not the stage's question: the folder's owner (the lead), not the PO in the stage's role
+  const card = await until(async () => ((await call(tok(lead), 'GET', '/notifications')).body || []).find((n) => n.type === 'aidlc' && /로그인되어 있지 않아요/.test(n.title)
+    && String(n.url).startsWith(`/aidlc/${folder.slug}/decide`)), 15000, 'the owner\'s card for a logged-out session')
+  assert.match(card.text, /claude \/login/)
+  assert.ok(!((await call(tok(po), 'GET', '/notifications')).body || []).some((n) => n.type === 'aidlc' && /로그인되어 있지 않아요/.test(n.title)), 'not the PO\'s card')
+  const v = (await call(tok(lead), 'GET', `/aidlc/${folder.slug}/decide`)).body
+  assert.equal(v.ask.kind, 'blocked'); assert.equal(v.ask.block, 'login')
+  assert.equal(v.ask.message, 'Not logged in · Please run /login')
+  assert.deepEqual(v.ask.options.map((o) => o.label), ['계속 진행해 주세요'])
+  assert.equal((await call(tok(po), 'GET', `/aidlc/${folder.slug}/decide`)).body.canDecide, true, 'the PO is an editor of the folder')
+  const r = await call(tok(lead), 'POST', `/aidlc/${folder.slug}/reply`, { fingerprint: v.ask.fingerprint, text: '계속 진행해 주세요' })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  assert.equal(await until(() => fs.readFile(keys3, 'utf8').then((k) => k.includes('계속 진행해 주세요') && 'sent'), 10000, 'the words in the input box'), 'sent')
+  // still logged out: the same error again, and the same card; words right away are refused, not typed
+  await hook({ hook_event_name: 'UserPromptSubmit', prompt: '계속 진행해 주세요' })
+  await hook({ hook_event_name: 'StopFailure', error: 'authentication_failed', error_details: 'Not logged in · Please run /login' })
+  const v2 = (await call(tok(lead), 'GET', `/aidlc/${folder.slug}/decide`)).body
+  assert.equal(v2.ask.fingerprint, v.ask.fingerprint)
+  const again = await call(tok(po), 'POST', `/aidlc/${folder.slug}/reply`, { fingerprint: v2.ask.fingerprint, text: '계속 진행해 주세요' })
+  assert.equal(again.status, 429, JSON.stringify(again.body))
+  assert.match(again.body.error || '', /방금 보냈어요/)
+  await sleep(500)
+  assert.equal((await fs.readFile(keys3, 'utf8')).split('계속 진행해 주세요').length - 1, 1, 'typed once')
+})
+
 after(async () => {
   try { if (name) tmux('kill-session', '-t', name) } catch { /* gone */ }
   if (repo) {

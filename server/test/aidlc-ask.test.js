@@ -90,18 +90,58 @@ test('끝난 작업, 선택 창이 떠 있는 화면은 대화로 묻는 것이 
   assert.equal(await ASK.askOf(cur, 'aidlc-test-done', prompt, 1000), null)
 })
 
+// ---------- a session its own error stopped ----------
+const screenOf = (f) => fs.readFileSync(path.join(here, 'fixtures', 'aidlc-screens', `${f}.txt`), 'utf8')
+test('막힌 세션(화면): 로그아웃된 채 멈춘 화면은 「멈춰 있어요」가 아니라 막힘 — 마지막 덩어리의 오류만', () => {
+  const s = screenOf('blocked')
+  assert.ok(AS.atPrompt(s)); assert.equal(AS.busy(s), false)
+  assert.deepEqual(AS.blocked(s), { kind: 'login', line: 'Not logged in · Please run /login' })
+  assert.deepEqual(AS.blocked(idle('', ['⏺ 확인합니다.', '  ⎿  API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}'])).kind, 'api')
+  assert.equal(AS.blocked(idle('', ['⏺ 확인합니다.', '  ⎿  Claude usage limit reached. Your limit will reset at 3pm'])).kind, 'limit')
+  // the session got past it: words after the error
+  assert.equal(AS.blocked(idle('', ['❯ 계속 진행해 주세요', '  ⎿  Not logged in · Please run /login', '', '❯ 계속 진행해 주세요', '', '⏺ 이어서 NFR Design 검토를 진행합니다.'])), null)
+  // a tool's own output is not the session's error
+  assert.equal(AS.blocked(idle('', ['⏺ Bash(npm test)', '  ⎿  Error: 2 tests failed'])), null)
+  assert.equal(AS.blocked(idle()), null)
+})
+test('막힌 세션: 단계 역할이 아니라 폴더 주인에게, 같은 오류가 몇 번 나도 카드 하나', async () => {
+  const name = 'aidlc-test-blocked'
+  const s = screenOf('blocked')
+  assert.equal(await ASK.askOf(cur, name, s, 1000), null, 'it has to stand like any idle screen')
+  const a = await ASK.askOf(cur, name, s, 8000)
+  assert.equal(a.askKind, 'blocked'); assert.equal(a.block, 'login'); assert.equal(a.roleKey, null)
+  assert.equal(a.title, '빌드와 테스트 — 세션이 로그인되어 있지 않아요')
+  assert.match(a.help, /claude \/login/)
+  assert.deepEqual(a.options.map((o) => [o.label, o.text]), [['계속 진행해 주세요', false]])
+  // another try, the same error: the same card
+  const again = s.replace('✻ Worked for 2m 3s', '✻ Worked for 0s') + '\n'
+  await ASK.askOf(cur, name, again, 9000)
+  assert.equal((await ASK.askOf(cur, name, again, 16000)).key, a.key)
+})
+test('막힌 세션(훅): StopFailure 의 오류 종류로 바로 — 사람이 보내면 다시 화면을 기다린다', async () => {
+  const name = 'aidlc-test-stopfailure'
+  HK.receive(name, { hook_event_name: 'StopFailure', error: 'rate_limit', error_details: 'Claude usage limit reached' })
+  const a = await ASK.askOf(cur, name, idle(), 1000)
+  assert.equal(a.askKind, 'blocked'); assert.equal(a.block, 'limit'); assert.equal(a.message, 'Claude usage limit reached')
+  assert.equal(ASK.blockOfHook('authentication_failed'), 'login')
+  assert.equal(ASK.blockOfHook('server_error'), 'api')
+  HK.receive(name, { hook_event_name: 'UserPromptSubmit', prompt: '계속 진행해 주세요' })
+  assert.equal(HK.lastOf(name).error, '')
+  assert.equal(await ASK.askOf(cur, name, idle(), 2000), null)
+})
+
 // ---------- the hooks ----------
 test('훅 설정: 세션마다 서명이 다르고, 설정 파일은 프로젝트 밖에 600 으로', () => {
   const file = HK.settingsFile('aidlc-localhost-demo', 8798)
   assert.ok(file.startsWith(config.aidlcHookDir))
   assert.equal(fs.statSync(file).mode & 0o777, 0o600)
   const s = JSON.parse(fs.readFileSync(file, 'utf8'))
-  assert.deepEqual(Object.keys(s.hooks).sort(), ['Notification', 'Stop', 'UserPromptSubmit'])
+  assert.deepEqual(Object.keys(s.hooks).sort(), ['Notification', 'Stop', 'StopFailure', 'UserPromptSubmit'])
   const cmd = s.hooks.Stop[0].hooks[0].command
   assert.match(cmd, /http:\/\/127\.0\.0\.1:8798\/api\/aidlc\/hook\/aidlc-localhost-demo/)
   assert.match(cmd, /\|\| true$/, 'a hook never holds the session up')
   assert.ok(HK.verify('aidlc-localhost-demo', HK.token('aidlc-localhost-demo')))
   assert.equal(HK.verify('aidlc-localhost-other', HK.token('aidlc-localhost-demo')), false)
   assert.equal(HK.verify('aidlc-localhost-demo', ''), false)
-  assert.equal(HK.receive('x', { hook_event_name: 'PreToolUse' }), null, 'only the three events')
+  assert.equal(HK.receive('x', { hook_event_name: 'PreToolUse' }), null, 'only the four events')
 })

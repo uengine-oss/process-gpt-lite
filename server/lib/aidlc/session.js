@@ -118,6 +118,27 @@ export function lastMessage(text) {
   }
   return ''
 }
+// a turn that ended on an error, not on words: Claude Code prints it under the last thing on screen
+// ("⎿  Not logged in · Please run /login" — a real run sat 18 minutes on it, 2026-11-14). Saying "go on"
+// does nothing until someone fixes what it names, so it is not a session that waits on an answer.
+// Only the last block counts (up to the last "⏺" or "❯" line): an error the session got past is not one now.
+// → { kind: 'login' | 'limit' | 'api', line } or null
+const BLOCKS = [
+  ['login', /^(Not logged in|Invalid API key|OAuth token|Authentication (error|required)|Failed to authenticate|API Error: 401)|Please run \/login|Run \/login|claude auth login/i],
+  ['limit', /^(Claude (AI )?usage limit|Credit balance is too low|You've (hit|reached) your|API Error: 429)|limit reached/i],
+  ['api', /^(API Error|Repeated (server )?errors|Request timed out|Connection error)/i],
+]
+export function blocked(text) {
+  const lines = String(text).split('\n')
+  let box = lines.length
+  for (let i = lines.length - 1; i > 0; i--) if (/^\s*[❯>]/.test(lines[i]) && RULE.test(lines[i - 1].trim())) { box = i - 1; break }
+  for (let i = box - 1; i >= 0 && i >= box - 30; i--) {
+    const m = lines[i].match(/^\s*⎿\s+(.+?)\s*$/)
+    if (m) { for (const [kind, re] of BLOCKS) if (re.test(m[1])) return { kind, line: m[1] }; continue }
+    if (/^(⏺|❯)\s/.test(lines[i])) break
+  }
+  return null
+}
 
 // ---------- reading a selection prompt off the screen ----------
 // Claude Code draws a prompt at the bottom: a header chip ("☐ Approval") or a tool box, the question,

@@ -1,7 +1,8 @@
 // What the team session tells this server itself, the moment it happens: Claude Code hooks (passed with
 // --settings when the session starts) post the session's events here — it stopped and handed the turn back
 // (Stop, with the words it ended on), a person sent it something (UserPromptSubmit), it shows a notice
-// (Notification: a permission, or the prompt idle for a minute). The watcher (lib/aidlc/watch.js) still
+// (Notification: a permission, or the prompt idle for a minute), its turn ended on an error instead
+// (StopFailure: not logged in, a usage limit, the API failing). The watcher (lib/aidlc/watch.js) still
 // reads the screen every few seconds; an event only makes it look at once, and tells it what was asked in
 // plain words — an approval asked in the chat instead of a selection prompt has nothing else to find it by.
 //
@@ -14,7 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { config } from '../../config.js'
 
-const EVENTS = ['Stop', 'UserPromptSubmit', 'Notification']
+const EVENTS = ['Stop', 'StopFailure', 'UserPromptSubmit', 'Notification']
 export const dir = () => config.aidlcHookDir || path.join(os.homedir(), '.pgpt-lite', 'aidlc-hooks')
 
 let key = null
@@ -50,16 +51,18 @@ export function settingsFile(name, port) {
 }
 
 // ---------- what each session said last ----------
-// name -> { turn: 'idle' | 'busy', at, message, notice } — whose turn it is: the person's once the session
-// stopped (with the words it stopped on), the session's once a person sent it something. A notice leaves the
-// turn as it was. (This process only: after a restart the screen is read as before.)
+// name -> { turn: 'idle' | 'busy' | 'failed', at, message, error, notice } — whose turn it is: the person's once
+// the session stopped (with the words it stopped on), the session's once a person sent it something; 'failed'
+// when the turn ended on an error (its kind, Claude Code's own: authentication_failed, rate_limit, …). A notice
+// leaves the turn as it was. (This process only: after a restart the screen is read as before.)
 const last = new Map()
 export function receive(name, body = {}) {
   const event = String(body.hook_event_name || '')
   if (!EVENTS.includes(event)) return null
   const now = { ...(last.get(name) || {}) }
-  if (event === 'Stop') Object.assign(now, { turn: 'idle', at: Date.now(), message: String(body.last_assistant_message || '').slice(-6000) })
-  if (event === 'UserPromptSubmit') Object.assign(now, { turn: 'busy', at: Date.now(), message: '' })
+  if (event === 'Stop') Object.assign(now, { turn: 'idle', at: Date.now(), message: String(body.last_assistant_message || '').slice(-6000), error: '' })
+  if (event === 'StopFailure') Object.assign(now, { turn: 'failed', at: Date.now(), error: String(body.error || 'unknown'), message: String(body.error_details || body.last_assistant_message || '').slice(-600) })
+  if (event === 'UserPromptSubmit') Object.assign(now, { turn: 'busy', at: Date.now(), message: '', error: '' })
   if (event === 'Notification') Object.assign(now, { notice: String(body.message || '').slice(0, 300), noticeKind: String(body.notification_type || ''), noticeAt: Date.now() })
   last.set(name, now)
   return now
