@@ -303,7 +303,7 @@ async function habitRoutines(final, meta, assigned) {
     if (!liveHas.has(`${x.p}>${x.t}`)) await cypher('MATCH (p:Process {key:$p})-[h:HAS_TASK]->(t:Task {key:$t}) DELETE h', x, w).catch((e) => console.warn('[ontology] routine membership', e.message))
   await upsertNodes('Role', [...byRole.keys()].filter((r) => !members.has(r)).map((r) => ({ key: r, name: r })), ['name'], ['confirmed:false'], w)
   await upsertRel('OF_ROLE', 'Process', 'Role', procs.map((p) => ({ from: p.key, to: p.role, n: p.cases })), ['n'], plain)
-  return { keys: procs.map((p) => p.key), routines: routines.length, roles: byRole.size }
+  return { keys: procs.map((p) => p.key), tasks: [...habitTasks.keys()], routines: routines.length, roles: byRole.size }
 }
 
 // one sentence per task that has none yet (who does what) — the start-task questions name the work this way
@@ -403,6 +403,15 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   // processes of earlier weeks that are not in today's picture are gone (kept in the history, hidden on the map)
   const live = [...final.processes.map((b) => b.key), ...habits.keys]
   await cypher(`MATCH (b:Process) WHERE NOT b.key IN $live AND b.status <> 'gone' SET b.status='gone'`, { live }, { ...meta, validFrom: iso(now) })
+  // tasks no longer in today's count (a name merged into another, or corrected) are gone the same way — a pinned one stays;
+  // habit tasks only when the routines were counted this time. One that comes back is active again.
+  const flowLive = new Set(final.g.tasks.keys()), habitLive = Array.isArray(habits.tasks) ? new Set(habits.tasks) : null
+  const isLive = (t) => flowLive.has(t.key) || !!habitLive?.has(t.key) || (t.kind === 'habit' && !habitLive)
+  const allTasks = await cypher('MATCH (t:Task) RETURN t.key AS key, t.kind AS kind, t.status AS status, t.pinned AS pinned')
+  const goneTasks = allTasks.filter((t) => t.status !== 'gone' && !t.pinned && !isLive(t)).map((t) => t.key)
+  const backTasks = allTasks.filter((t) => t.status === 'gone' && (flowLive.has(t.key) || habitLive?.has(t.key))).map((t) => t.key)
+  if (goneTasks.length) await cypher(`UNWIND $keys AS k MATCH (t:Task {key:k}) SET t.status='gone'`, { keys: goneTasks }, { ...meta, validFrom: iso(now) })
+  if (backTasks.length) await cypher(`UNWIND $keys AS k MATCH (t:Task {key:k}) SET t.status='active'`, { keys: backTasks }, { ...meta, validFrom: iso(now) })
   const sources = {}
   for (const e of events) sources[e.source] = (sources[e.source] || 0) + 1
   await cypher(`MERGE (m:Meta {key:'meta'}) SET m.built_at=$at, m.events=$events, m.cases=$cases, m.data_start=$ds, m.data_end=$de, m.sources=$sources,

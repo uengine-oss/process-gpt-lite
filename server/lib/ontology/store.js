@@ -153,9 +153,14 @@ export const parseProcess = (b) => b && ({ ...b, curve: J(b.curve, []), hl_score
 export async function readGraph(at = {}) {
   const meta = { validAt: at.validAt, systemAt: at.systemAt }
   // the v0.2 `bundle` property is left on old nodes (membership is HAS_TASK now)
-  const tasks = (await cypher('MATCH (t:Task) RETURN t', {}, meta)).map((r) => { const { bundle, ...t } = parseTask(r.t); return { ...t, kind: t.kind || 'flow' } })
+  // a task the count no longer names (build.js: merged or corrected) is gone — kept in the history, not on the map, nor its edges
+  const all = (await cypher('MATCH (t:Task) RETURN t', {}, meta)).map((r) => { const { bundle, ...t } = parseTask(r.t); return { ...t, kind: t.kind || 'flow' } })
+  const tasks = all.filter((t) => t.status !== 'gone')
+  const gone = new Set(all.filter((t) => t.status === 'gone').map((t) => t.key))
   const edges = (await cypher('MATCH (a:Task)-[e:NEXT]->(b:Task) RETURN a.key AS from, b.key AS to, e', {}, meta)).map((r) => ({ from: r.from, to: r.to, ...parseEdge(r.e) }))
+    .filter((e) => !gone.has(e.from) && !gone.has(e.to))
   const ends = (await cypher('MATCH (a:Task)-[e:NEXT]->(b:End) RETURN a.key AS from, e', {}, meta)).map((r) => ({ from: r.from, to: '__end__', ...parseEdge(r.e) }))
+    .filter((e) => !gone.has(e.from))
   const processes = (await cypher('MATCH (b:Process) RETURN b', {}, meta)).map((r) => parseProcess(r.b)).filter((b) => b.status !== 'gone')
     .map((p) => ({ ...p, kind: p.kind || 'flow' }))
   const rel = async (q) => (await cypher(q, {}, meta)).map((r) => ({ from: r.from, to: r.to, ...(r.e || {}) }))
@@ -178,7 +183,8 @@ export async function readGraph(at = {}) {
     t.proc = mine[0]?.key || ''
   }
   const [m] = await cypher(`MATCH (m:Meta {key:'meta'}) RETURN m`, {}, {})
-  return { tasks, edges: [...edges, ...ends], processes, events, triggers, raises, startsOn: startsOn.filter((x) => live.has(x.from)), hasTask: hasTask.filter((x) => live.has(x.from)),
-    roles, performedBy, performers, plays, ofRole: ofRole.filter((x) => live.has(x.from)), ways,
+  return { tasks, edges: [...edges, ...ends], processes, events, triggers: triggers.filter((x) => !gone.has(x.to)), raises: raises.filter((x) => !gone.has(x.from)),
+    startsOn: startsOn.filter((x) => live.has(x.from)), hasTask: hasTask.filter((x) => live.has(x.from) && !gone.has(x.to)),
+    roles, performedBy: performedBy.filter((x) => !gone.has(x.from)), performers, plays, ofRole: ofRole.filter((x) => live.has(x.from)), ways,
     meta: m?.m ? { ...m.m, values: J(m.m.values, {}), sources: J(m.m.sources, {}) } : null }
 }

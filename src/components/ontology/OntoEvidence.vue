@@ -95,7 +95,7 @@ h4 small { font-weight: 400; color: var(--text-tertiary); margin-left: 4px; }
 .chev { flex: none; width: 8px; height: 8px; margin-top: 6px; border-right: 1.5px solid var(--text-tertiary); border-bottom: 1.5px solid var(--text-tertiary); rotate: 45deg; transition: rotate .2s; }
 .open .chev { rotate: 225deg; margin-top: 10px; }
 .detail { padding: 0 12px 10px 64px; display: flex; flex-direction: column; gap: 6px; }
-.text { margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--cell-bg); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.text { margin: 0; max-height: 240px; overflow: auto; padding: 8px 10px; border-radius: 10px; background: var(--cell-bg); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sm { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); overflow-wrap: anywhere; }
 .k { color: var(--text-tertiary); margin-right: 4px; }
 .lnk { font-size: 12.5px; color: var(--color-info); text-decoration: none; }
