@@ -397,8 +397,14 @@ async function checkOutputs(checkpoints, file) {
     const ExcelJS = (await import('exceljs')).default
     const buf = Buffer.from(await (await fetch(file.url)).arrayBuffer())
     const wb = new ExcelJS.Workbook()
-    await wb.xlsx.load(buf)
-    text = (await import('./taskdef.js')).sheetText(wb)
+    try {
+      await wb.xlsx.load(buf)
+      text = (await import('./taskdef.js')).sheetText(wb)
+    } catch {
+      // a company's own file ExcelJS cannot open (its comments part, an external link): its cells straight from the sheet XML
+      const { sheets } = await (await import('../mining/worker.js')).xlsxSheets(buf)
+      text = sheets.map((sh) => sh.cells.map((c) => `${c.cell} ${c.value}`).join('\n')).join('\n\n')
+    }
   } catch (e) { text = '' }
   if (!text) return checkpoints.map((c) => ({ checkpoint: c, ok: null, note: '파일을 읽지 못했어요' }))
   try {
