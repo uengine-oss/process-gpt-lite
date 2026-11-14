@@ -166,13 +166,17 @@ export async function runChatHistory(me, jobId, name, buf) {
   const votes = new Map()
   const items = []
   const found = new Set()
-  let done = 0
+  let done = 0, unread = 0
   const readOne = async (w) => {
     const msgs = w.ms.map((m, i) => ({ i, time: kst(m.at).slice(11, 16), from: m.from, text: maskPii(String(m.text)).slice(0, R.textChars || 500) }))
+    // a slow answer is asked once more (the model gateway under four readers at once)
     let r = null
-    try {
-      r = await chatJson(await prompt('read-chat'), JSON.stringify({ date: w.day, known_tasks: [...known].slice(-80), known_subjects: subjects.slice(-40), messages: msgs }), { timeoutMs: 120000, temperature: 0 })
-    } catch (e) { console.warn('[ontology] read chat', e.message) }
+    for (let tries = 0; tries < 2 && !r; tries++) {
+      try {
+        r = await chatJson(await prompt('read-chat'), JSON.stringify({ date: w.day, known_tasks: [...known].slice(-80), known_subjects: subjects.slice(-40), messages: msgs }), { timeoutMs: R.timeoutMs || 240000, temperature: 0 })
+      } catch (e) { console.warn('[ontology] read chat', e.message) }
+    }
+    if (!r) unread++
     for (const x of r?.items || []) {
       const m = w.ms[Number(x.i)]
       const task = clean(x.task).slice(0, 40)
@@ -193,6 +197,7 @@ export async function runChatHistory(me, jobId, name, buf) {
   }
   const queue = [...windows]
   await Promise.all(Array.from({ length: (await skillRules()).mailbox?.threadsAtOnce || 4 }, async () => { while (queue.length) await readOne(queue.shift()) }))
+  if (unread) await say(`${windows.length}번 중 ${unread}번은 모델이 답하지 않아 읽지 못했어요 — 다시 올리면 그 날들만 다시 읽어요.`)
   casesOf(items, R.caseGapDays ?? 2)
   // a speaker's role: what most of their messages showed; a company address keeps the role its mail showed
   const roleOf = (n) => { const v = votes.get(n); return v?.size ? [...v].sort((a, b) => b[1] - a[1])[0][0] : ((R.colleagueRole || '동료')) }

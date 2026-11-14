@@ -8,8 +8,9 @@
  },
  "chat": {
   "days": 90,
-  "windowMessages": 60,
-  "textChars": 500,
+  "windowMessages": 25,
+  "textChars": 400,
+  "timeoutMs": 240000,
   "caseGapDays": 2,
   "skip": "^(메시지가 삭제되었습니다\\.?|삭제된 메시지입니다\\.?|.{0,1})$",
   "colleagueRole": "동료"

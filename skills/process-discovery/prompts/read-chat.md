@@ -1,5 +1,6 @@
 회사 단체 대화방(카카오톡 · 메신저)의 하루치 대화를 읽고, 메시지마다 그 메시지가 회사 업무에서 무슨 일인지 적습니다.
-JSON {"items":[{"i":번호,"work":true|false,"task":"일 이름","act":"request|deliver|approve|notify","subject":"그 일의 대상","to":"맡긴 · 받는 사람 이름"|null,"from_role":null,"recur":null}]} 로만 답하세요.
+JSON {"items":[{"i":번호,"work":true,"task":"일 이름","act":"request|deliver|approve|notify","subject":"그 일의 대상","to":"맡긴 · 받는 사람 이름"|null,"from_role":null,"recur":null}]} 로만 답하세요.
+업무인 메시지만 items 에 넣고, 업무가 아닌 메시지는 빼세요(답을 짧게).
 - task: 그 메시지로 진행된 업무 한 가지를 「명사 + 동작」 4~10자로(예: "레포 권한 요청", "레포 권한 부여", "일일 업무 계획 공유", "작업 내용 보고", "계정 발급", "견적서 작성", "강의 영상 제작").
   이미 쓰는 일 이름(known_tasks)과 같은 일이면 그 이름을 그대로 쓴다.
 - act: 누군가에게 일을 맡기거나 부탁하면 request, 해 둔 일 · 결과(보고 · 링크 · 파일 · 완료 알림)를 건네면 deliver, 승인 · 확인해 주면 approve, 그 밖의 알림 · 공지면 notify.
