@@ -75,7 +75,7 @@ export async function splitList({ minN } = {}) {
 }
 
 // the texts of the records an example points at (the owner's mail archive: subject and the newly written part)
-async function textsOf(refs, chars) {
+export async function textsOf(refs, chars) {
   const ids = [...new Set(refs.filter((r) => r?.ref && !String(r.ref).startsWith('ho:')).map((r) => r.ref))]
   const rows = ids.length ? await q(`select mail_id, subject, left(coalesce(nullif(new_part,''), body, ''), $3) as text from pro_mail_archive where tenant_id=$1 and mail_id = any($2)`, [T(), ids, chars]) : []
   const by = new Map(rows.map((r) => [r.mail_id, r]))

@@ -100,6 +100,15 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/candidates', auth, h(async (req) => { await admin(req); return S.startCandidates(req.user, { all: !!req.body?.all }) }))
   r.get('/ontology/candidates/:task', auth, h(async (req) => ({ candidate: await (await import('../lib/ontology/candidates.js')).candidateOf(req.params.task) })))
   r.post('/ontology/candidates/:task', auth, h(async (req) => { await admin(req); return (await import('../lib/ontology/candidates.js')).decideCandidate(req.user, req.params.task, req.body || {}) }))
+  // 프로세스 다듬기 ① 바로잡기 · ② 단계 가르기(plan-process-refinement §3): 찾은 흐름 · 다듬은 흐름 · AI 점검 · 고친 기록 · 단계 분류.
+  // 보기는 누구나, 점검 · 고치기 · 분류는 관리자
+  const RF = () => import('../lib/ontology/refine.js')
+  r.get('/ontology/refine/:proc', auth, h(async (req) => (await RF()).refineView(req.user, req.params.proc)))
+  r.post('/ontology/refine/:proc/review', auth, h(async (req) => { await admin(req); return S.startRefine(req.user, req.params.proc) }))
+  r.post('/ontology/refine/:proc/issues/:id', auth, h(async (req) => { await admin(req); return (await RF()).decideIssue(req.user, req.params.proc, req.params.id, { action: String(req.body?.action || '') }) }))
+  r.post('/ontology/refine/:proc/corrections', auth, h(async (req) => { await admin(req); return (await RF()).addCorrection(req.user, req.params.proc, { op: req.body?.op, args: req.body?.args, why: String(req.body?.why || '') }) }))
+  r.delete('/ontology/refine/:proc/corrections/:id', auth, h(async (req) => { await admin(req); return (await RF()).removeCorrection(req.user, req.params.proc, req.params.id) }))
+  r.post('/ontology/refine/:proc/classes', auth, h(async (req) => { await admin(req); return (await RF()).setClass(req.user, req.params.proc, { task: String(req.body?.task || ''), class: req.body?.class ?? null }) }))
   r.get('/ontology/tasks/:key/evidence', auth, h(async (req) => (await import('../lib/ontology/evidence.js')).taskEvidence(req.user, req.params.key, {
     limit: Math.min(100, Math.max(5, Number(req.query.limit) || 40)), before: req.query.before || null })))
   r.post('/ontology/tasks/:key/draft', auth, h(async (req) => { await admin(req); return D.draftDefinition(req.params.key, { template: req.body?.template }) }))

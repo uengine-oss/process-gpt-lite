@@ -5,7 +5,9 @@
 // 넓은 화면은 왼→오, 폰은 위→아래. 끌어서 옮기고, 휠은 커서 자리를 중심으로, − / 맞춤 / + 로도 크기를 바꾼다.
 // 사건 보기(events): 사건은 작은 원(메일 · 결과물 · 채팅)과 그 아래 이름. 일 → 사건(RAISES) · 사건 → 일(TRIGGERS) 관계를
 // 그리고, 한 사건 뒤 여러 일이 함께 열리면(split and) 숫자 옆에 「함께」. 사건이나 그 관계를 누르면 select {kind: 'event'}.
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+// 프로세스 다듬기(OntoRefine): 일 · 관계에 added(다듬으며 더함, 파랑 점선 · 기록이 없으면 「더함」) · removed(다듬으며 뺌, 빨강 점선)가
+// 있으면 그렇게 그린다. marks 는 AI 후보(high · mid · human)와 단계 가르기(gate · human · ai · drop · skipped)를 함께 칠한다.
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, useId } from 'vue'
 import { layoutGraph } from './layout.js'
 import { END, pct, taskName, SPLIT_KO, condText } from './fmt.js'
 import { edgeId, EV } from './mapView.js'
@@ -19,7 +21,7 @@ const props = defineProps({
   dir: { type: String, default: 'LR' },
   side: Boolean, // a side panel covers the right: keep room so the map can move out from under it
   scale: { type: Number, default: 1 }, // entry shares are of all cases; × this = of the shown proc's cases
-  marks: { type: Map, default: () => new Map() }, // AI 후보: 일 → high · mid · human (칠하고, 나머지는 흐리게)
+  marks: { type: Map, default: () => new Map() }, // 일 → high · mid · human (AI 후보) | gate · human · ai · drop · skipped (단계 가르기) — 칠하고, 나머지는 흐리게
   whole: Boolean, // 전체 화면: the whole map on the screen, also after the map changes (smaller sizes allowed)
 })
 const emit = defineEmits(['select'])
@@ -70,7 +72,11 @@ const stale = (e) => e.stale && e.status !== 'retired'
 const isAnd = (e) => e.kind === 'trigger' && e.split === 'and'
 // a role routine's step: how many people of the role do it
 const people = (e) => (e.kind === 'trigger' && String(e.scope || '').startsWith('role:') ? `${e.people || 0}명` : '')
-const labelW = (e, short) => Math.ceil(textW(`${pct(e.p)}${stale(e) && !short ? ' · 은퇴 후보' : ''}${isAnd(e) ? ` · ${SPLIT_KO.and}` : ''}${people(e) ? ` · ${people(e)}` : ''}`, LABEL) + 14 + (e.pinned ? 13 : 0))
+// 다듬으며 더한 관계는 아직 지나간 건이 없으면 비율 대신 「더함」
+const head = (e) => (e.added && !e.n ? '더함' : pct(e.p))
+// one id per map: two maps on a page (프로세스 다듬기 나란히 보기) must not share the clip
+const clipId = `pm-node-clip-${useId()}`
+const labelW = (e, short) => Math.ceil(textW(`${head(e)}${stale(e) && !short ? ' · 은퇴 후보' : ''}${isAnd(e) ? ` · ${SPLIT_KO.and}` : ''}${people(e) ? ` · ${people(e)}` : ''}`, LABEL) + 14 + (e.pinned ? 13 : 0))
 const width = (e) => 1.2 + 4.6 * Math.min(1, Math.max(0, e.p || 0))
 const tipLen = (e) => 7 + width(e) * 1.4
 
@@ -115,9 +121,11 @@ const drawn = computed(() => L.value.edges.map((g) => {
   if (retired) tips.push('은퇴함')
   if (e.thin) tips.push('관찰 적음')
   if (!e.kind && (e.people ?? 2) <= 1) tips.push('한 사람 기준')
+  if (e.added) tips.push('다듬으며 더함')
+  if (e.removed) tips.push('다듬으며 뺌')
   return {
     id: g.id, d, tip, e, back: g.back, label: g.label, w: width(e), tl: tipLen(e), title: tips.join(' · '),
-    cls: { stale: stale(e), retired, thin: e.thin, back: g.back, and: isAnd(e), evt: e.kind === 'raise' || e.kind === 'trigger',
+    cls: { stale: stale(e), retired, thin: e.thin, back: g.back, and: isAnd(e), evt: e.kind === 'raise' || e.kind === 'trigger', added: !!e.added, removed: !!e.removed,
       sel: props.selected?.kind === 'edge' && props.selected.id === g.id, near: !!selKey.value && (e.from === selKey.value || e.to === selKey.value) },
   }
 }))
@@ -257,7 +265,7 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
   <div class="mg">
   <div ref="vp" class="vp" :class="{ dragging: moved, side: side && dir === 'LR' }" @pointerdown="down" @pointermove="move" @pointerup="up" @pointerleave="up" @wheel="onWheel" @click.self="pick(null)">
     <svg v-if="L.width" class="map" :width="L.width * zoom" :height="L.height * zoom" :viewBox="`0 0 ${L.width} ${L.height}`" role="img" aria-label="회사 프로세스 지도" @click.self="pick(null)">
-      <defs><clipPath id="pm-node-clip"><rect x="4" y="0" :width="W - 8" height="90" /></clipPath></defs>
+      <defs><clipPath :id="clipId"><rect x="4" y="0" :width="W - 8" height="90" /></clipPath></defs>
       <g class="edges">
         <g v-for="x in drawn" :key="x.id" class="edge" :class="x.cls" @click.stop="pickEdge(x)">
           <title>{{ x.title }}</title>
@@ -284,19 +292,21 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
           <text v-if="dir === 'LR'" class="evl" text-anchor="middle"><tspan v-for="(l, i) in n.lines" :key="i" :x="n.w / 2" :y="n.h / 2 + R + 13 + i * 13">{{ l }}</tspan></text>
           <text v-else class="evl"><tspan v-for="(l, i) in n.lines" :key="i" :x="n.w / 2 + R + 7" :y="n.h / 2 + 4 - ((n.lines.length - 1) * 13) / 2 + i * 13">{{ l }}</tspan></text>
         </g>
-        <g v-for="n in nodes.filter((x) => !x.ev)" :key="n.key" class="node" :class="{ [`mk-${marks.get(n.key)}`]: marks.has(n.key), dim: marks.size && !n.end && !marks.has(n.key), end: n.end, cand: n.t?.candidate, sel: selected?.kind === 'task' && selected.id === n.key, entry: n.share, habit: n.t?.kind === 'habit' }"
+        <g v-for="n in nodes.filter((x) => !x.ev)" :key="n.key" class="node" :class="{ [`mk-${marks.get(n.key)}`]: marks.has(n.key), dim: marks.size && !n.end && !marks.has(n.key), end: n.end, cand: n.t?.candidate, sel: selected?.kind === 'task' && selected.id === n.key, entry: n.share, habit: n.t?.kind === 'habit', added: n.t?.added, removed: n.t?.removed }"
           :transform="`translate(${n.x0},${n.y0})`" :tabindex="n.end ? -1 : 0" :role="n.end ? null : 'button'"
           @click.stop="!n.end && pick('task', n.key)" @keydown.enter.prevent="!n.end && pick('task', n.key)">
-          <title v-if="!n.end">{{ n.t.name }}{{ n.t.role ? ` · ${n.t.role}` : '' }} · {{ n.t.n_cases }}건{{ n.t.candidate ? ' · 후보' : '' }}</title>
+          <title v-if="!n.end">{{ n.t.name }}{{ n.t.role ? ` · ${n.t.role}` : '' }} · {{ n.t.n_cases }}건{{ n.t.candidate ? ' · 후보' : '' }}{{ n.t.added ? ' · 다듬으며 더함' : '' }}{{ n.t.removed ? ' · 다듬으며 뺌' : '' }}</title>
           <template v-if="n.end">
             <rect :width="n.w" :height="n.h" :rx="n.h / 2" />
             <text class="endt" :x="n.w / 2" :y="n.h / 2 + 5" text-anchor="middle">끝</text>
           </template>
           <template v-else>
             <rect :width="n.w" :height="n.h" rx="13" />
-            <text class="nm" clip-path="url(#pm-node-clip)"><tspan v-for="(l, i) in n.lines" :key="i" x="11" :y="22 + i * 17">{{ l }}</tspan></text>
-            <text class="sm" x="11" :y="n.h - 11" clip-path="url(#pm-node-clip)">{{ n.t.role }}</text>
-            <text class="sm ct" :x="n.w - 11" :y="n.h - 11" text-anchor="end">{{ n.t.kind === 'habit' && !n.t.n_cases ? '루틴' : `${n.t.n_cases}건` }}</text>
+            <text class="nm" :clip-path="`url(#${clipId})`"><tspan v-for="(l, i) in n.lines" :key="i" x="11" :y="22 + i * 17">{{ l }}</tspan></text>
+            <!-- 걷어냄(단계 가르기): 이름에 줄 -->
+            <template v-if="marks.get(n.key) === 'drop' || n.t.removed"><line v-for="(l, i) in n.lines" :key="`x${i}`" class="strike" x1="10" :x2="Math.min(n.w - 10, 12 + textW(l, NAME))" :y1="17 + i * 17" :y2="17 + i * 17" /></template>
+            <text class="sm" x="11" :y="n.h - 11" :clip-path="`url(#${clipId})`">{{ n.t.role }}</text>
+            <text class="sm ct" :x="n.w - 11" :y="n.h - 11" text-anchor="end">{{ n.t.kind === 'habit' && !n.t.n_cases ? '루틴' : n.t.added && !n.t.n_cases ? '더함' : `${n.t.n_cases}건` }}</text>
           </template>
         </g>
         <g v-for="n in nodes.filter((x) => x.share)" :key="`s-${n.key}`" class="etag" :transform="`translate(${entryTag(n).x},${entryTag(n).y})`">
@@ -313,7 +323,7 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
           <g v-if="x.e.pinned" class="pin" :transform="`translate(${-x.label.w / 2 + 6},-6)`">
             <path d="M3.2,0.6 H8.8 L8,4.6 L10.2,6.8 H1.8 L4,4.6 Z M6,6.8 V11.6" />
           </g>
-          <text :x="x.e.pinned ? 6.5 : 0" y="4" text-anchor="middle">{{ pct(x.e.p) }}<tspan v-if="x.cls.stale && !x.label.short" class="hint"> · 은퇴 후보</tspan><tspan v-if="x.cls.and" class="and"> · {{ SPLIT_KO.and }}</tspan><tspan v-if="people(x.e)" class="ppl"> · {{ people(x.e) }}</tspan></text>
+          <text :x="x.e.pinned ? 6.5 : 0" y="4" text-anchor="middle">{{ head(x.e) }}<tspan v-if="x.cls.stale && !x.label.short" class="hint"> · 은퇴 후보</tspan><tspan v-if="x.cls.and" class="and"> · {{ SPLIT_KO.and }}</tspan><tspan v-if="people(x.e)" class="ppl"> · {{ people(x.e) }}</tspan></text>
         </g>
       </g>
     </svg>
@@ -360,6 +370,26 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .node.mk-mid rect { fill: color-mix(in srgb, #2f9e6e 14%, var(--regular-solid-bg)); stroke: #2f9e6e; stroke-width: 1.5; stroke-dasharray: 5 3; }
 .node.mk-human rect { fill: color-mix(in srgb, #d9822b 26%, var(--regular-solid-bg)); stroke: #d9822b; stroke-width: 2.5; }
 .node.cand rect { stroke-dasharray: 4 3; stroke: var(--text-secondary); }
+/* 단계 가르기(프로세스 다듬기 ②): 꼭 하는 관문 = 주황 굵게 · 사람이 꼭 = 주황(mk-human) · AI가 맡음 = 초록 · 걷어냄 = 회색 줄 · 건너뛰었지만 해야 함 = 주황 점선 */
+.node.mk-gate rect { fill: color-mix(in srgb, #d9822b 40%, var(--regular-solid-bg)); stroke: #d9822b; stroke-width: 4.5; }
+.node.mk-gate .nm { font-weight: 800; }
+.node.mk-ai rect { fill: color-mix(in srgb, #2f9e6e 30%, var(--regular-solid-bg)); stroke: #2f9e6e; stroke-width: 2.5; }
+.node.mk-drop rect { fill: color-mix(in srgb, var(--text-primary) 5%, var(--regular-solid-bg)); stroke: var(--text-tertiary); stroke-width: 1.5; }
+.node.mk-drop .nm, .node.mk-drop .sm { fill: var(--text-tertiary); }
+.node.mk-skipped rect { fill: color-mix(in srgb, #d9822b 10%, var(--regular-solid-bg)); stroke: #d9822b; stroke-width: 2.2; stroke-dasharray: 6 4; }
+.node .strike { stroke: var(--text-secondary); stroke-width: 1.6; stroke-linecap: round; pointer-events: none; }
+/* 프로세스 다듬기 ①: 더한 일 · 관계는 파랑 점선, 뺀 것(찾은 대로 쪽)은 빨강 점선 */
+.node.added rect { stroke: var(--color-info); stroke-width: 2.2; stroke-dasharray: 6 3; }
+.node.added .ct { fill: var(--color-info); font-weight: 600; }
+.node.removed { opacity: .62; }
+.node.removed rect { stroke: var(--color-error); stroke-width: 1.6; stroke-dasharray: 3 3; }
+.node.removed .strike { stroke: var(--color-error); }
+.edge.added .line { stroke: var(--color-info); stroke-dasharray: 7 4; stroke-linecap: butt; }
+.edge.added .tip { fill: var(--color-info); }
+.edge.removed .line { stroke: var(--color-error); stroke-dasharray: 3 4; stroke-linecap: butt; opacity: .75; }
+.edge.removed .tip { fill: var(--color-error); opacity: .75; }
+/* a coloured node keeps its colour when picked: a glow shows the pick */
+.node.sel[class*='mk-'] rect, .node.sel.added rect, .node.sel.removed rect { filter: drop-shadow(0 0 3px var(--sel)) drop-shadow(0 0 1px var(--sel)); }
 .node.end { cursor: default; }
 .node.end rect { fill: var(--ink); stroke: none; }
 .endt { fill: var(--text-primary-on); font-size: 13.5px; font-weight: 600; }
@@ -395,6 +425,10 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .lbl .hint, .lbl.stale text { fill: var(--stale); }
 .lbl.retired text { fill: var(--text-tertiary); }
 .lbl.sel rect { stroke: var(--sel); stroke-width: 1.5; }
+.lbl.added rect { stroke: var(--color-info); }
+.lbl.added text { fill: var(--color-info); }
+.lbl.removed rect { stroke: var(--color-error); }
+.lbl.removed text { fill: var(--color-error); text-decoration: line-through; }
 .pin path { fill: none; stroke: var(--text-primary); stroke-width: 1.4; stroke-linejoin: round; }
 
 .zoom { position: absolute; z-index: 2; right: 12px; bottom: 12px; display: flex; gap: 2px; padding: 3px; border-radius: 9999px; }

@@ -238,5 +238,19 @@
     },
     "branchMinN": 2,
     "maxBranches": 8
+  },
+  "refine": {
+    "examples": 8,
+    "stepsPerCase": 16,
+    "textChars": 160,
+    "minInside": 0.6,
+    "maxIssues": 6,
+    "timeoutMs": 480000,
+    "classifyTimeoutMs": 300000,
+    "judge": {
+      "via": "claude-cli",
+      "model": "claude-fable-5-2",
+      "fallback": "gateway"
+    }
   }
 }

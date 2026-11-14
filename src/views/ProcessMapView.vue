@@ -29,6 +29,7 @@ import OntoRolePanel from '../components/ontology/OntoRolePanel.vue'
 import OntoDocsPanel from '../components/ontology/OntoDocsPanel.vue'
 import OntoBranch from '../components/ontology/OntoBranch.vue'
 import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
+import OntoRefine from '../components/ontology/OntoRefine.vue'
 import { visibleGraph, eventGraph, edgeId, procsOf, inProc, isSimple, withoutSimple } from '../components/ontology/mapView.js'
 import { BAND, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
 import { useApp } from '../stores/app.js'
@@ -318,6 +319,8 @@ const full = ref(false)
 const candOpen = ref(false)
 const marks = ref(new Map())
 watch(candOpen, (on) => { if (!on) marks.value = new Map() })
+// 프로세스 다듬기(① 바로잡기 · ② 단계 가르기): 지도 위를 덮는 창 — 열려 있는 동안 이 페이지의 F · Esc 는 쉰다
+const refineOpen = ref(false)
 const menuOpen = ref(false)
 const menuEl = ref(null)
 let menuT = 0
@@ -335,7 +338,7 @@ const toggleFull = () => (full.value ? exitFull() : enterFull())
 function onFsChange() { if (!document.fullscreenElement) exitFull() }
 function onKey(e) {
   const t = e.target
-  if (e.metaKey || e.ctrlKey || e.altKey || t?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName || '')) return
+  if (refineOpen.value || e.metaKey || e.ctrlKey || e.altKey || t?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName || '')) return
   if (e.key === 'Escape' && full.value) exitFull()
   else if ((e.key === 'f' || e.key === 'F') && phase.value === 'map' && !labelsOpen.value) { e.preventDefault(); toggleFull() }
 }
@@ -385,6 +388,7 @@ onBeforeUnmount(() => {
           <button class="hbtn glass press" :class="{ on: docsOpen }" data-testid="onto-docs-button" @click="toggleDocs">문서</button>
           <button class="hbtn glass press" :class="{ on: candOpen }" data-testid="onto-candidates-button" @click="sel = null; candOpen = !candOpen">AI 후보</button>
           <button v-if="proc && !isRoutine" class="hbtn glass press" :class="{ on: snapOpen }" @click="toggleSnap">스냅샷 보기</button>
+          <button v-if="proc && !isRoutine && !isSimple(proc)" class="hbtn glass press" :class="{ on: refineOpen }" title="찾은 순서를 바로잡고 단계를 나눠요" data-testid="onto-refine-button" @click="refineOpen = true">다듬기</button>
           <!-- 승격 단계(design-v0.3 §12): 관찰 → 제안(요청이 오면 묻는다) → 자동(이벤트에 저절로 시작, 사람 단계는 초안이 먼저) -->
           <div v-if="proc && !isRoutine" class="ladder glass" role="group" aria-label="이 프로세스의 단계" data-testid="onto-ladder" :data-status="proc.status">
             <button v-for="st in LADDER" :key="st.key" class="press" :class="{ on: proc.status === st.key }" :disabled="!status?.admin || !!busy || proc.status === st.key"
@@ -555,6 +559,7 @@ onBeforeUnmount(() => {
     </div>
 
     <LabelsDrawer v-if="labelsOpen" :labels="labels" :loading="labelsLoading" :error="labelsErr" @close="labelsOpen = false" @task="showTask" />
+    <OntoRefine v-if="refineOpen && proc" :proc="proc" :admin="!!status?.admin" :call="call" @close="refineOpen = false" />
   </div>
 </template>
 

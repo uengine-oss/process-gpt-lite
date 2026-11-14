@@ -5,7 +5,9 @@
 //   ?mock=progress  메일 읽는 중(412통 중 280통부터)
 //   ?mock=build     지도 그리는 중
 // mock-map.json 은 서버 stats.js 로 만든 숫자다(가상의 인테리어 설계 회사, 90일).
+// 프로세스 다듬기(/ontology/refine/…)는 mock-refine.js — 「계약 · 시공 준비」를 고르고 「다듬기」를 누르면 손으로 만든 예가 보인다.
 import data from './mock-map.json'
+import { refineMock } from './mock-refine.js'
 
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms))
 export function mockApi(kind) {
@@ -32,7 +34,8 @@ export function mockApi(kind) {
     return build
   }
   const empty = { at: null, tasks: [], edges: [], processes: [], meta: null }
-  return async function call(path, { method = 'GET' } = {}) {
+  const refine = refineMock(data.now)
+  return async function call(path, { method = 'GET', body } = {}) {
     await wait(120)
     const [p, qs] = path.split('?')
     const q = new URLSearchParams(qs || '')
@@ -51,6 +54,8 @@ export function mockApi(kind) {
       const keys = Object.keys(data.past).sort()
       return { ...data.past[keys.filter((d) => d <= at).pop() || keys[0]], at }
     }
+    const r = refine(p, method, body)
+    if (r !== undefined) return r
     throw Object.assign(new Error(`mock: ${method} ${path}`), { status: 404 })
   }
 }
