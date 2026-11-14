@@ -7,7 +7,11 @@ import { thetaOf } from './mapView.js'
 
 const props = defineProps({ mode: { type: [String, Number], default: 'summary' }, proc: { type: Object, default: null } })
 const emit = defineEmits(['update:mode'])
-const MODES = [['summary', '요약'], ['auto', '기본'], ['all', '전체']]
+const MODES = [
+  ['summary', '요약', '큰 줄기만: 일이 8개 이하로 남을 때까지 드문 길을 빼요(그래서 θ 가 20%를 넘기도 해요)'],
+  ['auto', '기본', '자동으로 정한 θ: 지난 건 일부를 떼어 두고, 지도가 그 건들의 흐름을 가장 알뜰하게 설명하는 값'],
+  ['all', '전체', 'θ 0: 한 번이라도 지나간 길을 모두'],
+]
 
 const value = computed(() => thetaOf(props.mode, props.proc))
 const nearest = (v) => THETAS.reduce((b, t, i) => (Math.abs(t - v) < Math.abs(THETAS[b] - v) ? i : b), 0)
@@ -20,15 +24,15 @@ const on = (k) => props.mode === k
 
 <template>
   <div class="theta">
-    <span class="lab" title="이보다 드문 길은 지도에서 빼고 봐요(고정한 길은 남아요)">θ <b>{{ shown }}</b></span>
+    <span class="lab" title="θ(입도): 이보다 드문 길은 지도에서 빼고 봐요(고정한 길은 남아요). 요약 · 기본 · 전체는 θ 를 고르는 방법, 막대는 직접 고르기">θ <b>{{ shown }}</b></span>
     <div class="seg">
-      <button v-for="[k, l] in MODES" :key="k" :class="{ on: on(k) }" @click="emit('update:mode', k)">{{ l }}</button>
+      <button v-for="[k, l, tip] in MODES" :key="k" :class="{ on: on(k) }" :title="tip" @click="emit('update:mode', k)">{{ l }}</button>
     </div>
     <div class="slider">
       <input type="range" min="0" :max="THETAS.length - 1" step="1" :value="index" aria-label="θ" @input="slide">
       <div class="ticks">
-        <span v-for="(t, i) in THETAS" :key="t" :class="{ cur: Math.abs(t - value) < 1e-9, auto: i === autoIndex }" :style="{ left: `calc(${(i / (THETAS.length - 1)) * 100}% + ${8 - (i / (THETAS.length - 1)) * 16}px)` }">
-          {{ pct(t) }}<i v-if="i === autoIndex">자동</i>
+        <span v-for="(t, i) in THETAS" :key="t" :class="{ cur: Math.abs(t - value) < 1e-9 || (i === THETAS.length - 1 && value > t), auto: i === autoIndex }" :style="{ left: `calc(${(i / (THETAS.length - 1)) * 100}% + ${8 - (i / (THETAS.length - 1)) * 16}px)` }">
+          {{ i === THETAS.length - 1 && value > t ? pct(value) : pct(t) }}<i v-if="i === autoIndex">자동</i>
         </span>
       </div>
     </div>

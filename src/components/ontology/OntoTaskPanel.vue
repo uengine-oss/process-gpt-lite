@@ -10,6 +10,7 @@ import { HOW_KO } from './fmt.js'
 import OntoWhenReason from './OntoWhenReason.vue'
 import OntoWays from './OntoWays.vue'
 import OntoEvidence from './OntoEvidence.vue'
+import OntoTaskAi from './OntoTaskAi.vue'
 import { ACT_KO, RUNNER_KO, AUTONOMY_KO, validFromOf, dayKo, EUL } from './ontoText.js'
 
 const props = defineProps({ taskKey: { type: String, required: true }, admin: Boolean, hideHeader: Boolean })
@@ -122,6 +123,9 @@ defineExpose({ reload: load })
           <small v-if="t.n">{{ t.n }}번 나왔어요</small>
         </div>
       </header>
+
+      <!-- AI 판단: 맡길 수 있는지 · 사람이 꼭 해야 하는지(지도 색과 같은 말) -->
+      <OntoTaskAi :task-key="taskKey" :admin="admin" @changed="emit('changed', { kind: 'candidate', key: taskKey })" />
 
       <!-- 근거: 이 일로 읽힌 메일 · 대화 하나하나 -->
       <OntoEvidence :task-key="taskKey" />

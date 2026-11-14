@@ -93,6 +93,7 @@ export function ontologyRoutes(auth) {
   // AI 후보(§24): 일마다 AI 가 맡을 수 있는지 · 사람이 꼭 해야 하는지
   r.get('/ontology/candidates', auth, h(async () => ({ ...(await (await import('../lib/ontology/candidates.js')).candidateList()), job: await (await import('../lib/ontology/history.js')).latestJob('candidates') })))
   r.post('/ontology/candidates', auth, h(async (req) => { await admin(req); return S.startCandidates(req.user, { all: !!req.body?.all }) }))
+  r.get('/ontology/candidates/:task', auth, h(async (req) => ({ candidate: await (await import('../lib/ontology/candidates.js')).candidateOf(req.params.task) })))
   r.post('/ontology/candidates/:task', auth, h(async (req) => { await admin(req); return (await import('../lib/ontology/candidates.js')).decideCandidate(req.user, req.params.task, req.body || {}) }))
   r.get('/ontology/tasks/:key/evidence', auth, h(async (req) => (await import('../lib/ontology/evidence.js')).taskEvidence(req.user, req.params.key, {
     limit: Math.min(100, Math.max(5, Number(req.query.limit) || 40)), before: req.query.before || null })))
