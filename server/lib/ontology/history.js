@@ -29,6 +29,8 @@ const DEMO_ARCHIVE = path.join(here, '..', '..', 'scripts', 'fixtures', 'ax-demo
 const lower = (s) => String(s || '').trim().toLowerCase()
 const addrOf = (s) => (String(s || '').match(/<([^>]+)>/)?.[1] || String(s || '')).trim().toLowerCase()
 const domainOf = (a) => addrOf(a).split('@')[1] || ''
+// a mailing-list mail (List-Unsubscribe) keeps this mark among its labels in the mail archive, which keeps no headers
+export const LIST_MARK = 'X-LIST-UNSUBSCRIBE'
 // 「장진영 <jyjang@uengine.org>」 → 장진영
 const nameOf = (s) => String(s || '').match(/^\s*"?([^"<]+?)"?\s*</)?.[1]?.trim() || ''
 // items through fn, n at a time, results in the items' order
@@ -129,6 +131,9 @@ async function demoFields(mails, inside, forms = defaultRules().forms) {
 export function notWork(m, f = defaultRules().filters) {
   const heads = Object.keys(m.headers || {}).map(lower)
   if ((f.newsletterHeaders || []).some((h) => heads.includes(lower(h)))) return 'newsletter'
+  // a mail read back from the archive has no headers: its list mark (mailArchive.js) — and Gmail's own tabs (promotions · social · forums)
+  if ((m.labels || []).includes(LIST_MARK)) return 'newsletter'
+  if ((f.skipLabels || []).some((l) => (m.labels || []).includes(l))) return 'category'
   if (f.noReplySender && new RegExp(f.noReplySender, 'i').test(addrOf(m.from))) return 'noreply'
   if ((f.inviteSubject && new RegExp(f.inviteSubject, 'i').test(m.subject || '')) || (f.inviteAttachment && (m.attachments || []).some((x) => new RegExp(f.inviteAttachment, 'i').test(x.name)))) return 'invite'
   return null
@@ -284,6 +289,10 @@ export async function runMailHistory(me, jobId, days) {
   await say(`메일 ${mails.length.toLocaleString('ko-KR')}통을 가져왔어요${mails.some((m) => m.archived) ? ` (보관함에 있던 ${mails.filter((m) => m.archived).length.toLocaleString('ko-KR')}통은 다시 받지 않았어요)` : ''}.`)
   const kept = mails.filter((m) => !notWork(m, R.filters))
   const threads = threadsOf(kept)
+  // a re-read under stricter rules: what an earlier read took for work and these rules now leave out is taken off the map
+  const out = mails.filter((m) => notWork(m, R.filters)).map((m) => String(m.id))
+  const dropped = out.length ? await q(`delete from pro_mail_history where tenant_id=$1 and owner_id=$2 and mail_id = any($3) returning 1`, [T(), me.id, out]) : []
+  if (dropped.length) await say(`지금 규칙으로는 업무가 아닌 메일 ${dropped.length.toLocaleString('ko-KR')}통의 지난 기록을 지도에서 뺐어요.`)
   if (inside.domains.size) await say(`${[...inside.domains].join(' · ')} 주소는 회사 사람으로 봐요 — 메일에 나온 동료 ${colleagues.size}명.`)
   await say(`뉴스레터 · 자동 알림 · 일정 초대 ${(mails.length - kept.length).toLocaleString('ko-KR')}통은 규칙으로 걸렀어요. 남은 메일은 스레드 ${threads.length.toLocaleString('ko-KR')}개(건)로 묶었어요.`)
   // the names the company already uses: the chat handovers are matched first, so the mail speaks the same words

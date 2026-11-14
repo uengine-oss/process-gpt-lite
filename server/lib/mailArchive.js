@@ -22,7 +22,9 @@ export async function archiveMails(userId, provider, mails, source = 'history') 
       [T(), userId, provider, JSON.stringify(part.map((m) => ({
         id: String(m.id), thread: m.thread || m.threadId || null, date: m.date ? new Date(m.date).toISOString() : null, from: cap(m.from, 300),
         to: (Array.isArray(m.to) ? m.to : String(m.to || '').split(',')).map(addr).filter(Boolean), cc: (Array.isArray(m.cc) ? m.cc : String(m.cc || '').split(',')).map(addr).filter(Boolean),
-        subject: cap(m.subject, 500), body: cap(m.body ?? m.text, 100_000), text: cap(m.text, 20_000), labels: m.labels || [],
+        subject: cap(m.subject, 500), body: cap(m.body ?? m.text, 100_000), text: cap(m.text, 20_000),
+        // the archive keeps no headers: a mailing list's mail keeps its mark among the labels (history.js notWork)
+        labels: [...(m.labels || []), ...(m.headers?.['list-unsubscribe'] ? ['X-LIST-UNSUBSCRIBE'] : [])],
         attachments: (m.attachments || []).map((f) => ({ name: f.name, type: f.type || String(f.name || '').split('.').pop(), size: f.size || 0,
           ...(f.attachmentId ? { attachment_id: f.attachmentId } : {}), ...(f.fields?.length ? { fields: f.fields } : {}), ...(f.file ? { file: f.file } : {}) })),
       }))), source])

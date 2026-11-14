@@ -14,7 +14,8 @@
   "newsletterHeaders": ["list-unsubscribe"],
   "noReplySender": "(^|[^a-z])(no-?reply|do-?not-?reply|mailer-daemon|notifications?)@",
   "inviteSubject": "^\\s*(초대|업데이트된 초대|invitation|updated invitation)\\s*[:：]",
-  "inviteAttachment": "\\.ics$"
+  "inviteAttachment": "\\.ics$",
+  "skipLabels": ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"]
  },
  "readAlone": "매\\s?(일|주|월|분기|년)|격주|주간|월간|월말|월초|정기|weekly|monthly|daily|every\\s+(day|week|month|mon|tue|wed|thu|fri)",
  "forms": {
