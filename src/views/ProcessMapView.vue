@@ -27,6 +27,7 @@ import OntoSnapshotPanel from '../components/ontology/OntoSnapshotPanel.vue'
 import EventPanel from '../components/ontology/EventPanel.vue'
 import OntoRolePanel from '../components/ontology/OntoRolePanel.vue'
 import OntoDocsPanel from '../components/ontology/OntoDocsPanel.vue'
+import OntoBranch from '../components/ontology/OntoBranch.vue'
 import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
 import { visibleGraph, eventGraph, edgeId, procsOf, inProc, isSimple, withoutSimple } from '../components/ontology/mapView.js'
 import { BAND, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
@@ -491,7 +492,7 @@ onBeforeUnmount(() => {
 
           <SidePanel v-if="selEdge" kicker="관계" :title="`${taskName(selEdge.from)} → ${taskName(selEdge.to)}`" @close="sel = null">
             <EdgePanel :edge="selEdge">
-              <template #actions><OntoEdgeActions :edge="selEdge" :admin="!!status?.admin" @changed="loadMap" /></template>
+              <template #actions><OntoBranch :edge="selEdge" :admin="!!status?.admin" /><OntoEdgeActions :edge="selEdge" :admin="!!status?.admin" @changed="loadMap" /></template>
             </EdgePanel>
           </SidePanel>
           <SidePanel v-else-if="selEvent" kicker="사건" :title="selEvent.name" @close="sel = null">

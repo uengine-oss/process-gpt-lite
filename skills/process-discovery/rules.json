@@ -224,5 +224,19 @@
       "model": "claude-fable-5-2",
       "fallback": "gateway"
     }
+  },
+  "conditions": {
+    "minN": 3,
+    "perBranch": 4,
+    "parallel": 3,
+    "timeoutMs": 300000,
+    "textChars": 300,
+    "judge": {
+      "via": "claude-cli",
+      "model": "claude-fable-5-2",
+      "fallback": "gateway"
+    },
+    "branchMinN": 2,
+    "maxBranches": 8
   }
 }

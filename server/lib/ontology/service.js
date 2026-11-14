@@ -36,6 +36,19 @@ export async function startBuild(me, reason = '온톨로지 다시 셈하기') {
   return { job: job.id }
 }
 
+// 갈림길 조건 뽑기(conditions.js): 뒤에서 돌고, 진행 줄을 작업에 남긴다
+export async function startConditions(me, { force = false } = {}) {
+  const [job] = await q(`insert into pro_onto_jobs (tenant_id, user_id, kind) values ($1,$2,'conditions') returning id`, [T(), me?.id || null])
+  const tenant = T()
+  const { judgeConditions } = await import('./conditions.js')
+  const { sayer } = await import('./feed.js')
+  judgeConditions({ say: sayer(job.id, 40), force })
+    .then((r) => q(`update pro_onto_jobs set status='done', finished_at=now(), detail = detail || $2, found=$3 where id=$1`, [job.id, r, r.clear || 0]))
+    .catch((e) => { console.warn('[ontology] conditions', e.message); return q(`update pro_onto_jobs set status='failed', error=$2, finished_at=now() where id=$1`, [job.id, String(e.message).slice(0, 500)]) })
+    .finally(() => { if (me?.id) emit(me.id, 'ontology', { job: job.id, kind: 'conditions', tenant }) })
+  return { job: job.id }
+}
+
 // AI 후보 고르기(candidates.js): 뒤에서 돌고, 진행 줄을 작업에 남긴다
 export async function startCandidates(me, { all = false } = {}) {
   const [job] = await q(`insert into pro_onto_jobs (tenant_id, user_id, kind) values ($1,$2,'candidates') returning id`, [T(), me?.id || null])

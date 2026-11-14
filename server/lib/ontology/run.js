@@ -130,6 +130,9 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
   }
   elements.push({ elementType: 'Event', id: 'end', name: '끝', role: starterRole, type: 'EndEvent' })
   const node = (k) => (k === END ? 'end' : actId(k))
+  // 갈림길 조건(conditions.js): a split without a learned amount condition uses the conditions read from its cases
+  const texts = await (await import('./conditions.js')).textConditions([...new Set(flows.map((f) => f.from))].filter((x) => flows.filter((f) => f.from === x).length > 1))
+  const condOf = (f) => f.cond || texts.get(`${f.from}\u0000${f.to}`) || ''
   const seq = (source, target, extra = {}) => elements.push({ elementType: 'Sequence', id: `s_${source}_${target}`, source, target, condition: extra.condition || '', ...(extra.condition ? { name: extra.name || extra.condition } : {}), ...(extra.properties ? { properties: extra.properties } : {}) })
   seq('start', 'intake'); seq('intake', node(nodes[0]))
   // a gateway sits in the lane of the step it decides after (a join: the step it leads to), so the diagram's lanes hold every node
@@ -164,13 +167,13 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
     if (outs.length === 1) { seq(node(x), node(outs[0].to)); continue }
     const g = `g_${node(x)}`
     const best = [...outs].sort((a, b) => b.p - a.p)[0]
-    const conds = outs.filter((f) => f.cond)
-    elements.push({ elementType: 'Gateway', id: g, name: conds.length ? '금액 기준' : `${x} 다음`, role: laneOf(node(x)), type: 'ExclusiveGateway', gateWayType: 'bpmn:exclusiveGateway' })
+    const conds = outs.filter((f) => condOf(f))
+    elements.push({ elementType: 'Gateway', id: g, name: outs.some((f) => f.cond) ? '금액 기준' : conds.length ? `${x} 뒤 갈림` : `${x} 다음`, role: laneOf(node(x)), type: 'ExclusiveGateway', gateWayType: 'bpmn:exclusiveGateway' })
     seq(node(x), g)
     // a split with a learned condition uses it; without one, the most common branch is the default flow
     outs.forEach((f, i) => seq(g, node(f.to), {
-      condition: conds.length ? (f.cond || '') : '',
-      name: f.cond || (f === best ? `가장 흔함 ${Math.round(f.p * 100)}%` : `${Math.round(f.p * 100)}%`),
+      condition: conds.length ? condOf(f) : '',
+      name: condOf(f) || (f === best ? `가장 흔함 ${Math.round(f.p * 100)}%` : `${Math.round(f.p * 100)}%`),
       properties: JSON.stringify({ priority: f === best ? 0 : i + 1, ...(f === best ? { default: true } : {}) }),
     }))
   }

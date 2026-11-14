@@ -55,10 +55,10 @@ export function taskOf(task, act, { fromRole, toRole, fromAgent = false, toAgent
 
 // the event log: one event per handover and per mail that is work, each as {case, task, at, who, role, source, person}
 export async function loadEvents({ until } = {}) {
-  const ho = await q(`select case_id, source, occurred_at, from_user_id, from_user_name, from_role, from_is_agent, to_user_id, to_user_name, to_role, to_is_agent,
+  const ho = await q(`select id::text as hid, case_id, source, occurred_at, from_user_id, from_user_name, from_role, from_is_agent, to_user_id, to_user_name, to_role, to_is_agent,
                              activity_label, next_activity_label, instruction, artifact_refs
                         from handover_events where tenant_id=$1 ${until ? 'and occurred_at <= $2' : ''} order by occurred_at`, until ? [T(), until] : [T()])
-  const mh = await q(`select case_id, occurred_at, owner_id::text as owner, from_addr, to_addrs, from_role, to_role, activity_label, act, attrs, artifacts
+  const mh = await q(`select mail_id, case_id, occurred_at, owner_id::text as owner, from_addr, to_addrs, from_role, to_role, activity_label, act, attrs, artifacts
                         from pro_mail_history where tenant_id=$1 ${until ? 'and occurred_at <= $2' : ''} order by occurred_at`, until ? [T(), until] : [T()])
   const labels = await resolveLabels([...ho.map((r) => ({ raw: rawOf(r) })), ...mh.map((r) => ({ raw: r.activity_label, hint: r.act }))])
   const roles = await rolesOfPeople()
@@ -83,7 +83,8 @@ export async function loadEvents({ until } = {}) {
     const role = (said && known.has(said) ? said : roles.get(String(id)) || said) || (isAgent ? '에이전트' : (toSide ? r.to_user_name : r.from_user_name)) || '담당자'
     const name = toSide ? r.to_user_name : r.from_user_name
     events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: id ? String(id) : null, role, source: r.source, person: String(r.from_user_id || r.to_user_id || ''),
-      arts: l.act === 'request' ? [] : kinds(r.artifact_refs), actor: id ? { id: String(id), name: name || String(id), agent: !!isAgent } : null })
+      arts: l.act === 'request' ? [] : kinds(r.artifact_refs), actor: id ? { id: String(id), name: name || String(id), agent: !!isAgent } : null,
+      ref: `ho:${r.hid}`, said: rawOf(r) })
   }
   for (const r of mh) {
     const l = { ...(labels.get(clean(r.activity_label)) || {}) }
@@ -96,7 +97,9 @@ export async function loadEvents({ until } = {}) {
     // a chat export's rows (lib/ontology/chatlog.js) sit beside the mail's, marked as such
     const chat = r.attrs?.source === 'chat'
     events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: addr || null, role, source: chat ? 'chat_export' : 'mail_history', person: `${chat ? 'chat' : 'mail'}:${r.owner}`, amount: r.attrs?.amount ?? null,
-      arts: act === 'request' ? [] : kinds(r.artifacts), actor: people.get(addr) || null })
+      arts: act === 'request' ? [] : kinds(r.artifacts), actor: people.get(addr) || null,
+      // which record it was (the evidence of a step: lib/ontology/conditions.js reads the branch examples by it)
+      ref: r.mail_id, owner: r.owner, said: r.activity_label })
   }
   // a case joined to a chunk of the same work (streams.js) is counted as that chunk
   const links = await (await import('./streams.js')).caseLinks()

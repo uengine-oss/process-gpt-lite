@@ -65,5 +65,5 @@ h4 { margin: 6px 0 0; font-size: 12.5px; font-weight: 500; color: var(--text-ter
 .st { height: 8px; border-radius: 4px; background: var(--field-bg); overflow: hidden; }
 .st i { display: block; height: 100%; background: var(--text-secondary); border-radius: 4px; }
 .actions:empty { display: none; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.actions { display: flex; flex-direction: column; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 </style>

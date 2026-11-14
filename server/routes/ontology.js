@@ -90,6 +90,11 @@ export function ontologyRoutes(auth) {
   // 일 정의
   r.get('/ontology/tasks/:key', auth, h((req) => D.getTask(req.params.key)))
   // 근거: the mails · chat messages · chat handovers this work was read from (subjects and originals: their owner only)
+  // 갈림길 조건(§25): 한 일 뒤 갈래마다 「어떤 경우에 이쪽으로」 — 보기 · 한 갈림길 뽑기(관리자) · 모두 뽑기(관리자, 작업)
+  r.get('/ontology/branches/:task', auth, h(async (req) => (await import('../lib/ontology/conditions.js')).branchView(req.user, req.params.task)))
+  r.post('/ontology/branches/:task', auth, h(async (req) => { await admin(req); const C = await import('../lib/ontology/conditions.js'); await C.judgeConditions({ task: req.params.task }); return C.branchView(req.user, req.params.task) }))
+  r.post('/ontology/conditions', auth, h(async (req) => { await admin(req); return S.startConditions(req.user, { force: !!req.body?.force }) }))
+  r.get('/ontology/conditions', auth, h(async () => ({ job: await (await import('../lib/ontology/history.js')).latestJob('conditions') })))
   // AI 후보(§24): 일마다 AI 가 맡을 수 있는지 · 사람이 꼭 해야 하는지
   r.get('/ontology/candidates', auth, h(async () => ({ ...(await (await import('../lib/ontology/candidates.js')).candidateList()), job: await (await import('../lib/ontology/history.js')).latestJob('candidates') })))
   r.post('/ontology/candidates', auth, h(async (req) => { await admin(req); return S.startCandidates(req.user, { all: !!req.body?.all }) }))
