@@ -6,6 +6,12 @@
   "historyTextChars": 1500,
   "incomingTextChars": 6000
  },
+ "streams": {
+  "enabled": true,
+  "batch": 40,
+  "gapDays": 45,
+  "timeoutMs": 180000
+ },
  "chat": {
   "days": 90,
   "windowMessages": 25,

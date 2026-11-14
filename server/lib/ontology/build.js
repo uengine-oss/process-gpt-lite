@@ -98,6 +98,9 @@ export async function loadEvents({ until } = {}) {
     events.push({ case: r.case_id, task: l.task, at: r.occurred_at, who: addr || null, role, source: chat ? 'chat_export' : 'mail_history', person: `${chat ? 'chat' : 'mail'}:${r.owner}`, amount: r.attrs?.amount ?? null,
       arts: act === 'request' ? [] : kinds(r.artifacts), actor: people.get(addr) || null })
   }
+  // a case joined to a chunk of the same work (streams.js) is counted as that chunk
+  const links = await (await import('./streams.js')).caseLinks()
+  if (links.size) for (const e of events) { const to = links.get(e.case); if (to) { e.thread = e.case; e.case = to } }
   return events
 }
 
@@ -321,6 +324,12 @@ export function rebuild(opts = {}) { return (running ||= doBuild(opts).finally((
 
 async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하기', job } = {}) {
   const say = sayer(job, 20)
+  // cases cut apart (a mail thread, a chat subject) that are one piece of work are joined first (streams.js, design-v0.3 §22)
+  try {
+    const { linkCases } = await import('./streams.js')
+    const own = (await q(`select distinct lower(split_part(email,'@',2)) as d from users where tenant_id=$1 and email like '%@%'`, [T()])).map((r) => r.d)
+    await linkCases({ say, companyDomains: own })
+  } catch (e) { console.warn('[ontology] link cases', e.message) }
   // names first: every text gets a name, then names that mean the same work are joined
   const first = graphOf(toCases(await loadEvents()))
   await say(`일 이름 ${first.tasks.size}개를 서로 견줘 같은 일을 다르게 부른 말을 찾고 있어요.`)

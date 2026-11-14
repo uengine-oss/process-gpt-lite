@@ -67,7 +67,7 @@ const HABITS = [
 // role owners for every process (Settings › Team & roles)
 const ROLES_ALL = { 제안팀장: 'jinyoung', 영업: 'doyun', 디자이너: 'minji', '재무 담당': 'seoyeon' }
 // tables of the process-ontology feature that may not exist yet; children first
-const ONTO_TABLES = ['pro_onto_labels', 'pro_onto_jobs', 'pro_po_cases', 'pro_mail_history', 'pro_mail_archive', 'pro_mail_reads']
+const ONTO_TABLES = ['pro_onto_labels', 'pro_onto_jobs', 'pro_po_cases', 'pro_mail_history', 'pro_mail_archive', 'pro_mail_reads', 'pro_case_links']
 const SEED_REASON = 'ax-demo seed'
 const CASE_PREFIX = `chat:${T}:`
 
