@@ -65,3 +65,20 @@ test('사건 보기: 루틴은 사건 → 일, 결과물이 있는 넘어감은 
   assert.ok(f.events.find((e) => e.ev.key === 'artifact:평면도:drawing').and)
   assert.equal(f.events.find((e) => e.ev.key === 'artifact:평면도:drawing').label, '결과물(도면)')
 })
+
+test('단순 프로세스(일 하나짜리 흐름): 전체 지도에서 빼면 그 흐름에만 든 일과 그 관계가 빠지고, 다른 흐름에도 든 일은 남는다', async () => {
+  const { isSimple, withoutSimple } = await import('../../src/components/ontology/mapView.js')
+  const map = {
+    processes: [{ key: 'p1', kind: 'flow', tasks: ['뉴스클리핑'] }, { key: 'p2', kind: 'flow', tasks: ['보고'] }, { key: 'p3', kind: 'flow', tasks: ['계획', '보고'] }, { key: 'r', kind: 'routine', tasks: ['직인'] }],
+    tasks: [{ key: '뉴스클리핑', procs: ['p1'] }, { key: '보고', procs: ['p2', 'p3'] }, { key: '계획', procs: ['p3'] }, { key: '직인', procs: ['r'] }, { key: '외톨이', procs: [] }],
+    edges: [{ from: '뉴스클리핑', to: '__end__' }, { from: '계획', to: '보고' }, { from: '보고', to: '__end__' }],
+    triggers: [{ from: 'e1', to: '뉴스클리핑' }, { from: 'e2', to: '계획' }], raises: [{ from: '뉴스클리핑', to: 'e3' }],
+  }
+  assert.deepEqual(map.processes.filter(isSimple).map((p) => p.key), ['p1', 'p2'])
+  const m = withoutSimple(map)
+  assert.deepEqual(m.tasks.map((t) => t.key), ['보고', '계획', '직인', '외톨이'])
+  assert.deepEqual(m.edges.map((e) => `${e.from}>${e.to}`), ['계획>보고', '보고>__end__'])
+  assert.equal(m.triggers.length, 1); assert.equal(m.raises.length, 0)
+  assert.equal(m.hidden, 1)
+  assert.deepEqual(m.processes.map((p) => p.key), ['p3', 'r'])
+})

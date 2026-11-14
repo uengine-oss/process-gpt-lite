@@ -21,6 +21,25 @@ export const procsOf = (t) => (Array.isArray(t?.procs) ? t.procs : t?.proc ? [t.
 export const mainProc = (t) => t?.proc || procsOf(t)[0] || ''
 export const inProc = (t, proc) => !proc || procsOf(t).includes(proc)
 
+// 단순 프로세스: 일이 하나뿐인 흐름(뉴스클리핑 작성 · 연차 사용 확인처럼 한 가지 일이 되풀이되는 것). 프로세스 목록에서는 따로 모으고,
+// 전체 지도에서는 뺄 수 있다 — 단순 프로세스에만 속한 일을 빼고(다른 흐름에도 든 일은 남는다), 그 일에 닿는 관계 · 사건도 뺀다.
+export const isSimple = (p) => (p?.kind || 'flow') === 'flow' && (p?.tasks || []).length <= 1
+export function withoutSimple(map) {
+  if (!map?.tasks?.length) return map
+  const simple = new Set((map.processes || []).filter(isSimple).map((p) => p.key))
+  if (!simple.size) return map
+  const gone = new Set(map.tasks.filter((t) => { const ps = procsOf(t); return ps.length && ps.every((k) => simple.has(k)) }).map((t) => t.key))
+  return {
+    ...map,
+    tasks: map.tasks.filter((t) => !gone.has(t.key)),
+    edges: (map.edges || []).filter((e) => !gone.has(e.from) && !gone.has(e.to)),
+    triggers: (map.triggers || []).filter((x) => !gone.has(x.to)),
+    raises: (map.raises || []).filter((x) => !gone.has(x.from)),
+    processes: (map.processes || []).filter((p) => !simple.has(p.key)),
+    hidden: gone.size,
+  }
+}
+
 export function visibleGraph(map, { proc = '', mode = 'summary' } = {}) {
   if (!map?.tasks?.length) return { tasks: [], edges: [], entries: [], procShares: false }
   const processes = new Map((map.processes || []).map((b) => [b.key, b]))

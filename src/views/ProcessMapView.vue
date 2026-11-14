@@ -28,7 +28,7 @@ import EventPanel from '../components/ontology/EventPanel.vue'
 import OntoRolePanel from '../components/ontology/OntoRolePanel.vue'
 import OntoDocsPanel from '../components/ontology/OntoDocsPanel.vue'
 import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
-import { visibleGraph, eventGraph, edgeId, procsOf, inProc } from '../components/ontology/mapView.js'
+import { visibleGraph, eventGraph, edgeId, procsOf, inProc, isSimple, withoutSimple } from '../components/ontology/mapView.js'
 import { BAND, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
 import { useApp } from '../stores/app.js'
 import { api } from '../api.js'
@@ -75,7 +75,15 @@ const proc = computed(() => processes.value.find((b) => b.key === procKey.value)
 const isRoutine = computed(() => routineOf(proc.value))
 // 루틴에는 다음 일(NEXT)이 없고 사건 → 일뿐이라 늘 사건으로 본다
 const eventsShown = computed(() => eventsOn.value || isRoutine.value)
-const view = computed(() => (eventsShown.value ? eventGraph : visibleGraph)(map.value, { proc: procKey.value, mode: mode.value }))
+// 단순 프로세스(일 하나짜리 흐름): 목록에서는 따로 모으고, 전체 지도에서는 빼고 본다(기본 · 이 기기에 기억)
+const flowProcs = computed(() => processes.value.filter((b) => !isSimple(b)))
+const simpleProcs = computed(() => processes.value.filter(isSimple))
+const simpleOpen = ref(false)
+const readHide = () => { try { return localStorage.getItem('onto.hideSimple') !== '0' } catch { return true } }
+const hideSimple = ref(readHide())
+watch(hideSimple, (v) => { try { localStorage.setItem('onto.hideSimple', v ? '1' : '0') } catch { /* private window */ } })
+const shownMap = computed(() => (!procKey.value && hideSimple.value ? withoutSimple(map.value) : map.value))
+const view = computed(() => (eventsShown.value ? eventGraph : visibleGraph)(shownMap.value, { proc: procKey.value, mode: mode.value }))
 // 회사 전체 건 수: 지금은 meta 의 건 수(어느 흐름에도 들지 않은 건까지), 지난 시점에는 흐름들의 합(루틴은 건이 아니다)
 const flowCases = computed(() => processes.value.filter((b) => !routineOf(b)).reduce((a, b) => a + (b.cases || 0), 0))
 const allCases = computed(() => (at.value ? flowCases.value || meta.value?.cases : meta.value?.cases || flowCases.value) || 0)
@@ -83,9 +91,9 @@ const allCases = computed(() => (at.value ? flowCases.value || meta.value?.cases
 // (지도가 그 프로세스 안의 시작 비율 hasTask 를 주면 그대로)
 const shareScale = computed(() => (view.value.procShares ? 1 : proc.value?.cases ? allCases.value / proc.value.cases : 1))
 const counts = computed(() => {
-  const tasks = (map.value?.tasks || []).filter((t) => inProc(t, procKey.value))
+  const tasks = (shownMap.value?.tasks || []).filter((t) => inProc(t, procKey.value))
   const keys = new Set(tasks.map((t) => t.key))
-  return { tasks: tasks.length, edges: (map.value?.edges || []).filter((e) => keys.has(e.from)).length, shownTasks: view.value.tasks.length, shownEdges: view.value.edges.length, events: view.value.events?.length || 0 }
+  return { tasks: tasks.length, edges: (shownMap.value?.edges || []).filter((e) => keys.has(e.from)).length, shownTasks: view.value.tasks.length, shownEdges: view.value.edges.length, events: view.value.events?.length || 0 }
 })
 // one string (the English-mode dictionary translates it whole)
 const countText = computed(() => {
@@ -398,12 +406,18 @@ onBeforeUnmount(() => {
       <div v-if="phase === 'map'" class="bar">
         <div class="chips scroll">
           <button class="bchip press" :class="{ on: !procKey }" @click="pickProc('')">전체 <small>건 {{ n(allCases) }}</small></button>
-          <button v-for="b in processes" :key="b.key" class="bchip press" :class="{ on: procKey === b.key, routine: b.kind === 'routine' }" :title="b.summary" data-testid="onto-proc-chip" :data-kind="b.kind || 'flow'" @click="pickProc(b.key)">
+          <button v-if="proc && isSimple(proc)" class="bchip press on" data-testid="onto-simple-picked" @click="simpleOpen = !simpleOpen">
+            {{ proc.name }} <span class="band simple">단순</span> <small>건 {{ n(proc.cases) }}</small>
+          </button>
+          <button v-for="b in flowProcs" :key="b.key" class="bchip press" :class="{ on: procKey === b.key, routine: b.kind === 'routine' }" :title="b.summary" data-testid="onto-proc-chip" :data-kind="b.kind || 'flow'" @click="pickProc(b.key)">
             {{ b.name }}
             <template v-if="b.kind === 'routine'"><span class="band routine">루틴</span> <small>{{ b.role }}</small></template>
             <template v-else><span class="band" :class="b.band">{{ BAND[b.band] || b.bandName }}</span> <small>건 {{ n(b.cases) }}</small></template>
           </button>
         </div>
+        <button v-if="simpleProcs.length" class="bchip simplebtn press" :class="{ open: simpleOpen }" :aria-expanded="simpleOpen" data-testid="onto-simple-button" @click="simpleOpen = !simpleOpen">
+          단순 프로세스 <small>{{ simpleProcs.length }}</small> <Icon name="chevron" :size="12" class="schev" />
+        </button>
         <div class="when glass-thin">
           <button class="nav" aria-label="한 주 전" :disabled="atIndex >= weeks.length - 1" @click="older"><Icon name="back" :size="14" /></button>
           <label class="pick">
@@ -415,6 +429,14 @@ onBeforeUnmount(() => {
           </label>
           <button class="nav" aria-label="한 주 뒤" :disabled="!at" @click="newer"><Icon name="chevron" :size="14" /></button>
           <button v-if="at" class="now press" @click="at = ''">지금</button>
+        </div>
+      </div>
+      <div v-if="phase === 'map' && simpleOpen" class="simple glass" data-testid="onto-simple-list">
+        <p class="snote">일이 하나뿐인 프로세스예요. 같은 일이 되풀이될 뿐 앞뒤 흐름이 없어서 목록과 전체 지도에서 따로 모았어요.</p>
+        <div class="sgrid">
+          <button v-for="b in simpleProcs" :key="b.key" class="sitem press" :class="{ on: procKey === b.key }" data-testid="onto-simple-item" @click="pickProc(b.key); simpleOpen = false">
+            <b>{{ b.name }}</b><small><span class="band" :class="b.band">{{ BAND[b.band] || b.bandName }}</span> 건 {{ n(b.cases) }}</small>
+          </button>
         </div>
       </div>
       <!-- 전체 화면: the drawer's tab, peeking under the top edge -->
@@ -436,7 +458,10 @@ onBeforeUnmount(() => {
             <button class="evt press" role="switch" :aria-checked="eventsShown" :class="{ on: eventsShown }" :disabled="isRoutine" :title="isRoutine ? '루틴은 사건으로만 보여요' : '일 사이에 메일 · 결과물 같은 사건을 넣어 봐요'" data-testid="onto-events-toggle" @click="eventsOn = !eventsOn">
               <span class="knob" /> 사건 보기
             </button>
-            <small class="cnt">{{ countText }}</small>
+            <button v-if="!procKey && simpleProcs.length" class="evt press" role="switch" :aria-checked="hideSimple" :class="{ on: hideSimple }" :title="`일이 하나뿐인 프로세스 ${simpleProcs.length}개를 전체 지도에서 빼요(다른 흐름에도 든 일은 남아요)`" data-testid="onto-hide-simple" @click="hideSimple = !hideSimple">
+              <span class="knob" /> 단순 프로세스 빼기
+            </button>
+            <small class="cnt">{{ countText }}<template v-if="!procKey && hideSimple && shownMap?.hidden"> · 단순 {{ shownMap.hidden }}개 뺌</template></small>
             <button class="fs press" :class="{ on: full }" :title="full ? '전체 화면 나가기 (Esc)' : '지도를 화면 가득 (F)'" data-testid="onto-fullscreen" @click="toggleFull">
               <Icon :name="full ? 'shrink' : 'expand'" :size="14" /> {{ full ? '나가기' : '전체 화면' }}
             </button>
@@ -605,6 +630,17 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .lg.human { background: color-mix(in srgb, #d9822b 26%, transparent); border: 2px solid #d9822b; }
 .lg.dim { border: 1px solid var(--hairline); opacity: .5; }
 .legend .and { font-weight: 600; color: var(--color-info); }
+.simplebtn { flex: none; }
+.simplebtn .schev { rotate: 90deg; transition: rotate .2s; }
+.simplebtn.open .schev { rotate: -90deg; }
+.band.simple { background: color-mix(in srgb, var(--text-primary-on) 14%, transparent); color: var(--text-primary-on); }
+.simple { border-radius: 18px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.snote { margin: 0; font-size: 12.5px; color: var(--text-secondary); }
+.sgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; max-height: 40vh; overflow: auto; }
+.sitem { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 11px; border-radius: 12px; background: var(--field-bg); text-align: left; }
+.sitem b { font-size: 13.5px; font-weight: 500; }
+.sitem small { font-size: 12px; color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.sitem.on { background: var(--ink); color: var(--text-primary-on); }
 .vnote { margin: 0 0 12px; font-size: 13px; color: var(--text-secondary); }
 .vb { padding: 12px 0; border-top: 1px solid var(--hairline); }
 .vbn { display: inline-flex; align-items: center; gap: 4px; font-size: 14.5px; font-weight: 600; margin-bottom: 8px; }
