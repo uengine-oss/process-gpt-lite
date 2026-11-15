@@ -43,8 +43,11 @@ export const local = {
 
 // 실행 방식(server lib/ontology/runmode.js)
 export const RUNMODE_KO = { hotl: '사람이 지켜봄(자동 진행)', hitl: '단계마다 사람이 정함' }
-export const STEP_KO = { done: '끝남', running: '에이전트가 하는 중', person: '사람 차례', waiting: '사람을 기다림', next: '다음', closed: '닫힘' }
-export const WAIT_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계' }
+export const STEP_KO = { done: '끝남', running: '에이전트가 하는 중', person: '사람 차례', waiting: '사람을 기다림', next: '다음', closed: '닫힘', skipped: '건너뜀' }
+export const WAIT_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계', optional: '해도 되는 단계' }
+// 단계의 꼭 · 선택(server lib/ontology/steprule.js)
+export const REQ_KO = { required: '꼭 하는 단계', optional: '해도 되고 안 해도 되는 단계' }
+export const REQ_SHORT = { required: '꼭', optional: '선택' }
 // 맡은 이: 업무 에이전트, 또는 역할 · 사람(사람 단계의 초안은 에이전트가 먼저)
 export const holderText = (h) => {
   if (!h) return ''

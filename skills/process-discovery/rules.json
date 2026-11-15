@@ -67,6 +67,31 @@
     "minFiles": 2,
     "sameLabels": 0.5
   },
+  "formats": {
+    "share": 0.6,
+    "minFiles": 2,
+    "minChars": 8,
+    "maxChars": 240,
+    "maxCandidates": 30,
+    "maxFiles": 6,
+    "fetchFromMail": true,
+    "firstParagraphs": 8,
+    "lastParagraphs": 8,
+    "slideShare": 0.6,
+    "fixed": "문의|연락처|전화|☎|Tel|TEL|팩스|Fax|이메일|E-?mail|주소|본사|대표이사|사업자|www\\.|https?://|@|※|유의|주의|면책|저작권|Copyright|copyright|©|무단|대외비|Confidential|confidential|기밀|귀중|드림|올림",
+    "people": "[가-힣]{2,4}\\s?(전무|상무|이사|대표|부장|차장|과장|대리|주임|사원|팀장|실장|본부장|교수|선생님|님)",
+    "timeoutMs": 300000,
+    "sheetPhraseChars": 20,
+    "fillParagraphs": 260,
+    "fillChars": 240,
+    "fillTimeoutMs": 300000,
+    "fillEffort": "low",
+    "judge": {
+      "via": "claude-cli",
+      "model": "claude-fable-5-2",
+      "fallback": "gateway"
+    }
+  },
   "period": {
     "minMails": 4,
     "sameTimeMinutes": 90,
@@ -278,6 +303,28 @@
     "draft": {
       "timeoutMs": 120000,
       "textChars": 2500
+    }
+  },
+  "stepRules": {
+    "need": {
+      "skipBelow": 0.25,
+      "runAbove": 0.6
+    },
+    "textMatch": 0.6,
+    "textChars": 1500,
+    "maxRules": 8,
+    "suggest": {
+      "gate": "required",
+      "skipped": "required",
+      "drop": "optional"
+    },
+    "questions": {
+      "need": "이 건을 끝까지 처리하려면 회사가 「{task}」({what}) 단계를 해야 하나? 지금 당장 요청한 것만이 아니라 이 건 전체를 보고, 요청한 쪽이 이미 했다거나 필요 없다고 했으면 아니요.",
+      "rule": "이 건은 다음 경우에 해당하나? 「{text}」"
+    },
+    "options": {
+      "yes": "예, 그렇다",
+      "no": "아니요, 그렇지 않다"
     }
   }
 }

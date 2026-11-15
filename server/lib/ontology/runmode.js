@@ -23,6 +23,7 @@ import { ledger } from './review.js'
 import { parseDefinition } from './taskdef.js'
 import { END } from './stats.js'
 import { procGraph, getCase, moveCase, ORCH } from './run.js'
+import * as SR from './steprule.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -33,7 +34,7 @@ const pct = (p) => `${Math.round((p || 0) * 100)}%`
 const ro = (w) => { const c = String(w).trim().slice(-1).charCodeAt(0); const f = c >= 0xac00 && c <= 0xd7a3 ? (c - 0xac00) % 28 : 0; return f && f !== 8 ? '으로' : '로' }
 export const MODES = ['hotl', 'hitl']
 export const MODE_KO = { hotl: '사람이 지켜봄(자동 진행)', hitl: '단계마다 사람이 정함' }
-export const WHY_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계' }
+export const WHY_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계', optional: '해도 되고 안 해도 되는 단계' }
 const GATE_PIN = '다듬기: 꼭 하는 관문'
 const INTAKE = '요청 접수'
 
@@ -77,19 +78,35 @@ export function irreversibleOf({ name = '', front = {}, records = null } = {}, R
 
 // The gate's decision for one step as it comes. kind: agent (the agent does it) · draft (the agent drafts a person's step) · person
 // (a person's own step). approved: a person already said 「진행」 for this step. policy: the step's own rule (auto · ask).
-//   → {act: run | wait | person, why: [...], draftFirst?: true (draft what would go out, then wait), hold?: true (keep it off the
+// requirement: what the step is for this case (steprule.js — required · optional · null). need: an optional step's reading of
+// whether this case needs it (P(yes); null: not measured) against band {skipBelow, runAbove} (rules.stepRules.need). A required step
+// is never skipped here and changes nothing else (who does it and whether to ask stay as they were).
+//   → {act: run | wait | person | skip, why: [...], draftFirst?: true (draft what would go out, then wait), hold?: true (keep it off the
 //      person's list until then)}
-export function decideStep({ mode = 'hotl', kind = 'agent', responsible = false, irreversible = false, policy = null, paused = false, approved = false } = {}) {
-  if (kind === 'person') return approved || mode !== 'hitl' ? { act: 'person', why: [] } : { act: 'wait', why: ['hitl'], hold: true }
+export function decideStep({ mode = 'hotl', kind = 'agent', responsible = false, irreversible = false, policy = null, paused = false, approved = false, requirement = null, need = null, band = {} } = {}) {
+  const opt = requirement === 'optional'
+  const needed = need == null ? 'unsure' : need < (band.skipBelow ?? 0.25) ? 'no' : need >= (band.runAbove ?? 0.6) ? 'yes' : 'unsure'
+  if (kind === 'person') {
+    if (approved) return { act: 'person', why: [] }
+    if (mode === 'hitl') return { act: 'wait', why: opt ? ['hitl', 'optional'] : ['hitl'], hold: true }
+    if (opt && needed === 'no') return { act: 'skip', why: ['optional'] }
+    if (opt && needed === 'unsure') return { act: 'wait', why: ['optional'], hold: true }
+    return { act: 'person', why: [] }
+  }
   if (paused) return { act: 'wait', why: ['paused'] }
   if (approved) return { act: 'run', why: [] }
-  if (kind === 'draft') return mode === 'hitl' ? { act: 'wait', why: ['hitl'], hold: true } : { act: 'run', why: [] }
+  if (opt && mode !== 'hitl' && needed === 'no') return { act: 'skip', why: ['optional'] }
+  if (kind === 'draft') {
+    if (mode === 'hitl') return { act: 'wait', why: opt ? ['hitl', 'optional'] : ['hitl'], hold: true }
+    return opt && needed === 'unsure' ? { act: 'wait', why: ['optional'], hold: true } : { act: 'run', why: [] }
+  }
   const why = []
   if (responsible) why.push('responsible')
   const outward = irreversible && policy !== 'auto'
   if (outward) why.push('irreversible')
   if (mode === 'hitl') why.push('hitl')
   if (policy === 'ask') why.push('ask')
+  if (opt && (mode === 'hitl' || needed === 'unsure')) why.push('optional')
   if (!why.length) return { act: 'run', why: [] }
   // one question for the step: what would go out is drafted first, and the person decides on it
   if (outward) return { act: 'run', why, draftFirst: true }
@@ -110,7 +127,8 @@ export function afterSwitch(waiting, mode) {
 // 「다른 일로 옮기기」). What lies from it on is done again (the earlier outputs stay as history); a step from it on that already sent
 // something outside cannot call it back: the rewind needs the person to say so (confirm), and going through that step again sends again.
 // steps: this case's steps in the order they came [{task, state, sent}]
-const REACHED = ['done', 'running', 'waiting', 'person']
+// (a step skipped as not needed — steprule.js — was reached too: rewinding to it does it this time)
+const REACHED = ['done', 'running', 'waiting', 'person', 'skipped']
 export function rewindCheck(target, steps = []) {
   if (!target || target === INTAKE) return { ok: false, why: '요청 접수로는 되감을 수 없어요.' }
   let at = -1
@@ -118,7 +136,7 @@ export function rewindCheck(target, steps = []) {
   if (at < 0) return { ok: false, why: '이 건이 아직 닿지 않은 일이에요 — 「다른 일로 옮기기」를 쓰세요.' }
   const from = steps.slice(at)
   const lost = [...new Set(from.filter((s) => s.sent).map((s) => s.task))]
-  const redo = [...new Set(from.filter((s) => s.state === 'done').map((s) => s.task))]
+  const redo = [...new Set(from.filter((s) => s.state === 'done' || s.state === 'skipped').map((s) => s.task))]
   return { ok: true, confirm: lost.length > 0, lost, redo }
 }
 
@@ -133,14 +151,15 @@ export function proposalOf({ from, to, outs = [], conds = new Map(), engineWhy =
     others: outs.filter((o) => o.to !== to && o.to !== END).map((o) => ({ to: o.to, p: o.p, cond: conds.get(o.to)?.cond || '' })), end: outs.some((o) => o.to === END) }
 }
 
-// one line per reason, as the owner reads it
-export function whyLines(why = [], facts = null) {
+// one line per reason, as the owner reads it (step: the gate's row — an optional step's reading of this case)
+export function whyLines(why = [], facts = null, step = null) {
   return why.map((w) => {
     if (w === 'responsible') return `${WHY_KO.responsible} — ${facts?.responsible?.why?.[0] || '사람이 책임지기로 한 단계예요'}`
     if (w === 'irreversible') return `${WHY_KO.irreversible} — ${facts?.irreversible?.why || '회사 밖으로 나가는 일이에요'}`
     if (w === 'hitl') return '단계마다 사람이 정하는 방식이에요'
     if (w === 'ask') return '이 단계는 늘 물어보기로 정했어요'
     if (w === 'paused') return '건이 멈춰 있어요'
+    if (w === 'optional') return `${WHY_KO.optional} — ${SR.needText(step?.need) || step?.matched?.line || '건마다 할지 정해요'}`
     return w
   })
 }
@@ -148,6 +167,7 @@ export function whyLines(why = [], facts = null) {
 // a step's state in the run view, from its work item and its gate
 export function stepState(t, g) {
   if (!t) return 'next'
+  if (g?.state === 'skipped') return 'skipped'
   const s = String(t.status || '')
   if (['DONE', 'SUBMITTED'].includes(s)) return 'done'
   if (s === 'CANCELLED') return 'closed'
@@ -249,15 +269,19 @@ export async function stepFacts(procKey, { view } = {}) {
   const rules = new Map((await q(`select task, policy from pro_run_step_rules where tenant_id=$1 and proc_key=$2`, [T(), procKey]).catch(() => [])).map((x) => [x.task, x.policy]))
   const outside = new Set((view.all?.roles || []).filter((r) => r.outside).flatMap((r) => [r.key, r.name]).filter(Boolean))
   const records = await outwardRecords(origins, outside)
+  // 꼭 · 선택(steprule.js): the step's own setting in this process (by the name the map shows, or the one it was found under)
+  const reqs = await SR.requirementsOf(procKey)
   const out = new Map()
   for (const t of tasks) {
     const o = t.origin || t.key
     const { front } = parseDefinition(t.definition_md || '')
     const runner = t.definition_md ? (front.runner === 'agent' ? 'agent' : 'person') : null
     const cls = classes[t.key] ?? classes[o] ?? null
+    const set = reqs.get(t.key) || reqs.get(o) || null
     out.set(t.key, { task: t.key, origin: o, role: t.role || '', runner, cls: cls ? { class: cls.class, decided: !!cls.decided } : null, policy: rules.get(t.key) || null,
       responsible: responsibleOf({ cls, human: cands.get(o) || [], pinnedGate: !!t.pinned && t.pin_reason === GATE_PIN, runner }),
-      irreversible: irreversibleOf({ name: t.key, front, records: records.get(o) }, R) })
+      irreversible: irreversibleOf({ name: t.key, front, records: records.get(o) }, R),
+      rule: set ? { requirement: set.requirement, rules: set.rules } : null, what: clean(front.description || t.description || '') || (t.role ? `${t.role}의 일` : '') })
   }
   return out
 }
@@ -324,34 +348,66 @@ async function askOwner(c, s, { facts = null, preview = null } = {}) {
   if (!owner) return null
   const t = await mainThread(owner)
   const msg = await addMessage(owner, t.id, 'agent', 'onto-step', { state: 'ask', caseId: c.id, stepId: s.id, todoId: s.todo_id, task: s.task, kind: s.kind, mode: s.mode,
-    why: s.why || [], whyText: whyLines(s.why || [], facts), reversible: s.reversible, proposal: s.proposal || null, holder: await holderOf(s.todo_id),
-    preview: preview || s.preview || null, subject: c.trigger?.subject || '', from: c.trigger?.from || '' })
+    why: s.why || [], whyText: whyLines(s.why || [], facts, s), reversible: s.reversible, proposal: s.proposal || null, holder: await holderOf(s.todo_id),
+    preview: preview || s.preview || null, subject: c.trigger?.subject || '', from: c.trigger?.from || '',
+    // 꼭 · 선택(steprule.js): what the step is for this case and why (a rule that matched, with its evidence)
+    requirement: s.requirement || null, reqLine: s.matched?.line || '', matched: s.matched?.matched || null, need: s.need || null })
   await q(`update pro_case_steps set message_id=$2 where id=$1`, [s.id, msg.id])
   return msg
 }
 
-// The gate (see the top). Returns {act: run | wait | person, why, draftFirst?, facts}. A step that waits: the agent's work item is
-// left alone (draft_status HUMAN_ASKED — the step pool never hands it out again until a person decides) and the owner is asked
-// (not for a pause: the person who paused is watching).
+// a person moved or rewound the case to this step (its new instance starts there): an optional step is then done, not read
+async function movedHere(c, row) {
+  const last = (c.history || []).filter((h) => ['moved', 'rewound'].includes(h.state)).at(-1)
+  if (!last || last.task !== row.activity_name || row.proc_inst_id !== c.instances?.at(-1)) return ''
+  const [before] = await q(`select 1 from pro_case_steps where proc_inst_id=$1 and task=$2 and todo_id <> $3 limit 1`, [row.proc_inst_id, row.activity_name, row.id])
+  return before ? '' : last.state === 'rewound' ? '사람이 이 단계로 되감아서 해요' : '사람이 이 단계로 옮겨서 해요'
+}
+
+// The gate (see the top). Returns {act: run | wait | person | skip, why, draftFirst?, facts}. A step that waits: the agent's work item
+// is left alone (draft_status HUMAN_ASKED — the step pool never hands it out again until a person decides) and the owner is asked
+// (not for a pause: the person who paused is watching). A step that is skipped (an optional one this case does not need) is ended
+// as skipped here (steprule.js skipStep) — the step worker does not run it.
 export async function gateStep(row) {
   const c = await caseOfInstance(row.proc_inst_id)
   if (!c) return { act: 'run' }
   const kind = kindOf(row)
   const [have] = await q(`select * from pro_case_steps where todo_id=$1`, [row.id])
   if (have?.state === 'waiting') return { act: 'wait', why: have.why }
+  if (have?.state === 'skipped') return { act: 'skip', why: have.why, done: true }
   const view = await procGraph(c.bundle).catch(() => null)
   const facts = view ? (await stepFacts(c.bundle, { view })).get(row.activity_name) || null : null
   const { mode } = await modeOf(c.bundle)
   const paused = await pausedOf(c.id)
   const approved = have?.state === 'go'
-  const d = decideStep({ mode, kind, responsible: !!facts?.responsible.on, irreversible: !!facts?.irreversible.on, policy: facts?.policy || null, paused, approved })
+  // 꼭 · 선택(steprule.js): what this step is for this case — its rules read against the case, an optional step's need of it; kept
+  // as it was when a person said 「진행」. Nothing is read while the agent would wait for the pause anyway.
+  const req = approved ? (have.requirement ? { requirement: have.requirement, ...(have.matched || {}), need: have.need } : null)
+    : await SR.forStep(c, row.activity_name, { set: facts?.rule, what: facts?.what }, { forced: await movedHere(c, row).catch(() => ''), read: !(paused && kind !== 'person') })
+      .catch((e) => { console.warn('[runmode] requirement', e.message); return null })
+  const band = (await skillRules()).stepRules?.need || {}
+  const d = decideStep({ mode, kind, responsible: !!facts?.responsible.on, irreversible: !!facts?.irreversible.on, policy: facts?.policy || null, paused, approved,
+    requirement: req?.requirement || null, need: req?.need?.p ?? null, band })
   const proposal = await proposalFor(c, row, view).catch(() => null)
   const state = d.act === 'wait' ? 'waiting' : approved ? 'go' : 'auto'
-  const [s] = await q(`insert into pro_case_steps (tenant_id, case_id, proc_inst_id, todo_id, task, kind, mode, state, why, reversible, hold_item, proposal)
-                       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+  const matched = req ? { from: req.from, base: req.base, matched: req.matched, checked: req.checked, amount: req.amount, amountFrom: req.amountFrom, line: req.line } : null
+  const [s] = await q(`insert into pro_case_steps (tenant_id, case_id, proc_inst_id, todo_id, task, kind, mode, state, why, reversible, hold_item, proposal, requirement, matched, need)
+                       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                        on conflict (todo_id) do update set mode=excluded.mode, state=excluded.state, why=excluded.why, reversible=excluded.reversible,
-                         hold_item=excluded.hold_item, proposal=excluded.proposal, updated_at=now() returning *`,
-  [T(), c.id, row.proc_inst_id, row.id, row.activity_name, kind, mode, state, approved ? have.why || [] : d.why, !facts?.irreversible.on, !!d.hold, approved ? have.proposal || proposal : proposal])
+                         hold_item=excluded.hold_item, proposal=excluded.proposal, requirement=excluded.requirement, matched=excluded.matched, need=excluded.need, updated_at=now() returning *`,
+  [T(), c.id, row.proc_inst_id, row.id, row.activity_name, kind, mode, state, approved ? have.why || [] : d.why, !facts?.irreversible.on, !!d.hold, approved ? have.proposal || proposal : proposal,
+    req?.requirement || null, matched, req?.need || null])
+  // 해도 되고 안 해도 되는 단계가 이 건에는 필요 없어 보이면: 까닭을 남기고 건너뛴다(엔진이 스스로 다음으로)
+  if (d.act === 'skip') {
+    try {
+      await SR.skipStep({ c, todoId: row.id, stepId: s.id, reason: SR.skipReason(req), by: 'agent', me: await SR.ownerOf(c) })
+      return { ...d, stepId: s.id, caseId: c.id, facts }
+    } catch (e) {
+      // could not end it as skipped: the step is done as it comes (safer than leaving it)
+      console.warn(`[runmode] ${row.activity_name}: 건너뛰지 못해 그대로 진행`, e.message)
+      return { act: kind === 'person' ? 'person' : 'run', why: [], stepId: s.id, caseId: c.id, facts }
+    }
+  }
   if (d.act === 'wait') {
     if (kind !== 'person') await q(`update todolist set draft_status='HUMAN_ASKED', consumer=null where id=$1`, [row.id])
     if (!d.why.every((w) => w === 'paused')) await askOwner(c, s, { facts })
@@ -403,9 +459,11 @@ async function setPaused(me, c, paused) {
 
 // ---------- a person decides ----------
 // on a waiting step: go (진행 — an outward step's draft is what goes out: this build only records it, sends nothing) · other (다른 갈래:
-// the case moves to that step) · stop (멈추기: the case is paused, the step keeps waiting; 이어 가기 asks again)
-export async function decide(me, stepId, { action, to = '' } = {}) {
-  if (!['go', 'stop', 'other'].includes(action)) throw err(400, 'action 은 go · stop · other 예요.')
+// the case moves to that step) · stop (멈추기: the case is paused, the step keeps waiting; 이어 가기 asks again) · skip (건너뛰기: a step
+// set as 해도 되고 안 해도 되는 단계 ends as skipped and the engine goes on — steprule.js). A 꼭 하는 단계 passed by skip or another branch
+// only says so ({confirm}) until the person confirms with a reason (kept in the ledger).
+export async function decide(me, stepId, { action, to = '', confirm = false, reason = '' } = {}) {
+  if (!['go', 'stop', 'other', 'skip'].includes(action)) throw err(400, 'action 은 go · stop · other · skip 이에요.')
   const [s] = await q(`select * from pro_case_steps where id=$1 and tenant_id=$2`, [stepId, T()]).catch(() => [])
   if (!s) throw err(404, '그 단계를 찾지 못했어요.')
   const c = await getCase(s.case_id)
@@ -413,8 +471,17 @@ export async function decide(me, stepId, { action, to = '' } = {}) {
   if (s.state !== 'waiting') throw err(409, '이미 정해진 단계예요.')
   const [todo] = await q(`select id, status::text as status, draft, draft_status::text as draft_status, user_id, proc_inst_id from todolist where id=$1`, [s.todo_id])
   if (!todo || ['DONE', 'CANCELLED', 'SUBMITTED'].includes(todo.status)) throw err(409, '그 단계는 이미 닫혔어요.')
+  const said = clean(reason).slice(0, 300)
+  const passing = (action === 'skip' || action === 'other') && s.requirement === 'required'
+  if (passing && !(confirm && said)) return { confirm: true, required: true, task: s.task, action, to: to || null, line: s.matched?.line || '꼭 하는 단계예요', step: s.id }
+  if (action === 'skip' && !passing && s.requirement !== 'optional') throw err(400, '이 단계는 건너뛸 수 있게 정한 단계가 아니에요 — 지도에서 단계를 눌러 「해도 되고 안 해도 되는 단계」로 정할 수 있어요.')
   let out = {}
-  if (action === 'stop') {
+  if (action === 'skip') {
+    if (await pausedOf(c.id)) throw err(409, '건이 멈춰 있어요 — 먼저 「이어 가기」를 눌러 주세요.')
+    await SR.skipStep({ c, todoId: s.todo_id, stepId: s.id, reason: said || '사람이 이 건에는 하지 않기로 했어요', by: me.email || String(me.id), me })
+    await q(`update pro_case_steps set decision='skip', decided_by=$2, decided_at=now(), updated_at=now() where id=$1`, [s.id, me.id])
+    out = { skipped: true }
+  } else if (action === 'stop') {
     await setPaused(me, c, true)
     await q(`update pro_case_steps set decision='stop', decided_by=$2, decided_at=now(), updated_at=now() where id=$1`, [s.id, me.id])
     out = { paused: true }
@@ -449,9 +516,10 @@ export async function decide(me, stepId, { action, to = '' } = {}) {
       out = { going: true }
     }
   }
-  const said = action === 'go' ? (out.sent ? '보내기(기록만)' : '진행') : action === 'stop' ? '멈추기' : `다른 갈래 「${to}」`
-  await ledger(me, 'ontology.run.step', `${c.trigger?.subject || '건'} · 「${s.task}」 ${said}`, { case: c.id, step: s.id, task: s.task, action, to: to || null, why: s.why })
-  if (s.message_id) await updateMessage(c.started_by, s.message_id, { state: 'answered', answer: { action, to: to || null, at: iso(), by: me.email || '', sent: !!out.sent } }).catch(() => {})
+  const what = action === 'go' ? (out.sent ? '보내기(기록만)' : '진행') : action === 'stop' ? '멈추기' : action === 'skip' ? '건너뛰기' : `다른 갈래 「${to}」`
+  await ledger(me, 'ontology.run.step', `${c.trigger?.subject || '건'} · 「${s.task}」 ${what}`, { case: c.id, step: s.id, task: s.task, action, to: to || null, why: s.why, ...(said ? { reason: said } : {}) })
+  if (passing) await ledger(me, 'ontology.run.pass', `${c.trigger?.subject || '건'} · 꼭 하는 단계 「${s.task}」${action === 'skip' ? ' 건너뛰기' : ` 대신 「${to}」`}`, { case: c.id, step: s.id, task: s.task, action, to: to || null, reason: said, via: 'step' })
+  if (s.message_id) await updateMessage(c.started_by, s.message_id, { state: 'answered', answer: { action, to: to || null, at: iso(), by: me.email || '', sent: !!out.sent, ...(said ? { reason: said } : {}) } }).catch(() => {})
   emit(c.started_by, 'ontology', { caseId: c.id, step: s.id, state: action })
   return { ...out, step: s.id, run: await runView(me, c.id) }
 }
@@ -547,7 +615,10 @@ export async function runView(me, caseId) {
         kind: g?.kind || (agentStep ? 'agent' : a.agentMode === 'draft' ? 'draft' : 'person'),
         holder: agentStep ? { agent: true, name: '업무 에이전트', role: a.role } : { agent: false, role: a.role || '', names: people, draft: a.agentMode === 'draft' },
         reversible: g ? g.reversible : !f?.irreversible?.on, reversibleWhy: f?.irreversible?.why || '', responsible: f?.responsible?.on || false, responsibleWhy: f?.responsible?.why || [],
-        policy: f?.policy || null, why: g?.state === 'waiting' ? g.why : [], whyText: g?.state === 'waiting' ? whyLines(g.why, f) : [], gate: g?.state || null, mode: g?.mode || null,
+        policy: f?.policy || null, why: g?.state === 'waiting' ? g.why : [], whyText: g?.state === 'waiting' ? whyLines(g.why, f, g) : [], gate: g?.state || null, mode: g?.mode || null,
+        // 꼭 · 선택(steprule.js): what this case read for the step (before it came: the step's own setting), the rule that matched, a skip
+        requirement: g ? g.requirement || null : f?.rule?.requirement || null, reqLine: g?.matched?.line || '', matched: g?.matched?.matched || null, need: g?.need || null,
+        hasRules: !!f?.rule?.rules?.length, skipped: g?.state === 'skipped' ? g.skip || { reason: '' } : null,
         proposal: g?.proposal || null, preview: g?.state === 'waiting' ? g.preview || null : null, decision: g?.decision || null, sent: g?.sent ? { to: g.sent.to, subject: g.sent.subject, at: g.sent.at, stub: true } : null,
         result: clean(v.summary || v.title || v.result || d.summary || '').slice(0, 160) || null, hasDraft: !!Object.keys(d).length,
       })

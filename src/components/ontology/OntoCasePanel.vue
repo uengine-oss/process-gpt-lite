@@ -9,7 +9,7 @@ import { api } from '../../api.js'
 import { pct, dateTimeKo } from './fmt.js'
 import BpmnView from '../BpmnView.vue'
 import OntoCaseRun from './OntoCaseRun.vue'
-import { TODO_KO, RO } from './ontoText.js'
+import { TODO_KO, RO, EUL } from './ontoText.js'
 
 const props = defineProps({ caseId: { type: String, required: true }, tasks: { type: Array, default: null }, bpmnHeight: { type: Number, default: 300 }, hideHeader: Boolean })
 const emit = defineEmits(['moved', 'open-task'])
@@ -26,7 +26,8 @@ async function load() {
 const trig = computed(() => c.value?.trigger || {})
 const odds = computed(() => c.value?.entry_odds || null)
 const history = computed(() => c.value?.history || [])
-const skipped = computed(() => history.value.filter((h) => h.state === 'skipped'))
+// (a step skipped on the way — steprule.js, step: true — is shown in 진행, not with where the case started)
+const skipped = computed(() => history.value.filter((h) => h.state === 'skipped' && !h.step))
 const moves = computed(() => history.value.filter((h) => h.state === 'moved' || h.state === 'rewound'))
 const curInst = computed(() => (c.value?.instances || []).at(-1) || null)
 const curInfo = computed(() => (c.value?.instancesInfo || []).find((i) => i.proc_inst_id === curInst.value) || null)
@@ -61,11 +62,16 @@ async function openMove() {
     if (b) procTasks.value = b.tasks.filter((k) => !retired.has(k))
   } catch { /* 아는 일들로 */ }
 }
+// 꼭 하는 단계를 지나치는 옮기기: 서버가 먼저 알리고({confirm, required}), 까닭을 적고 한 번 더 누르면 옮긴다(결정 기록에 남아요)
+const passing = ref(null)
+watch(moveTo, () => { passing.value = null })
 async function move() {
   if (!moveTo.value) return
   busy.value = true; err.value = ''
   try {
-    const r = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/move`, { method: 'POST', body: { task: moveTo.value, reason: reason.value.trim() } })
+    const r = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/move`, { method: 'POST', body: { task: moveTo.value, reason: reason.value.trim(), ...(passing.value ? { confirm: true } : {}) } })
+    if (r?.confirm) { passing.value = r.required || []; return }
+    passing.value = null
     moved.value = `「${moveTo.value}」${RO(moveTo.value)} 옮겼어요. 새 스냅샷에서 이어서 해요.`
     moveOpen.value = false; moveTo.value = ''; reason.value = ''
     emit('moved', r)
@@ -150,9 +156,14 @@ defineExpose({ reload: load })
           </select>
           <input v-model="reason" class="in" placeholder="옮기는 이유(선택)" maxlength="200" />
           <small class="hint">지금 인스턴스는 닫고, 고른 일부터 새 스냅샷으로 이어요. 다음에 지도를 셈할 때 배워요.</small>
+          <div v-if="passing" class="pass" data-testid="onto-case-move-pass">
+            <b>꼭 하는 단계 「{{ passing.map((x) => x.task).join('」 · 「') }}」{{ EUL(passing.at(-1)?.task || '') }} 지나쳐요.</b>
+            <small v-for="x in passing" :key="x.task">{{ x.task }} · {{ x.line }}</small>
+            <small>그래도 옮기려면 위에 옮기는 이유를 적고 「그래도 옮기기」를 눌러 주세요.</small>
+          </div>
           <div class="btns">
-            <button class="ghost press" :disabled="busy" @click="moveOpen = false">취소</button>
-            <button class="go press" :disabled="busy || !moveTo" data-testid="onto-case-move-apply" @click="move">{{ busy ? '옮기는 중…' : '옮기기' }}</button>
+            <button class="ghost press" :disabled="busy" @click="moveOpen = false; passing = null">취소</button>
+            <button class="go press" :disabled="busy || !moveTo || (!!passing && !reason.trim())" data-testid="onto-case-move-apply" @click="move">{{ busy ? '옮기는 중…' : passing ? '그래도 옮기기' : '옮기기' }}</button>
           </div>
         </div>
         <small v-if="moved" class="ok">{{ moved }}</small>
@@ -207,6 +218,9 @@ h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text-secon
 .sel option { color: #1d1d1f; }
 .in::placeholder { color: var(--text-tertiary); }
 .hint { font-size: 12px; color: var(--text-tertiary); line-height: 1.45; }
+.pass { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, #7a4fd0 10%, var(--field-bg)); }
+.pass b { font-size: 13px; font-weight: 600; line-height: 1.45; }
+.pass small { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
 .btns { display: flex; justify-content: flex-end; gap: 6px; }
 .ghost { height: 34px; padding: 0 14px; border-radius: 9999px; font-size: 13.5px; color: var(--text-secondary); }
 .go { height: 34px; padding: 0 16px; border-radius: 9999px; font-size: 13.5px; font-weight: 600; background: var(--ink); color: var(--ink-inverse); }

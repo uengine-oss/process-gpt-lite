@@ -21,7 +21,7 @@ const props = defineProps({
   dir: { type: String, default: 'LR' },
   side: Boolean, // a side panel covers the right: keep room so the map can move out from under it
   scale: { type: Number, default: 1 }, // entry shares are of all cases; × this = of the shown proc's cases
-  marks: { type: Map, default: () => new Map() }, // 일 → high · mid · human (AI 후보) | gate · human · ai · drop · skipped (단계 가르기) — 칠하고, 나머지는 흐리게
+  marks: { type: Map, default: () => new Map() }, // 일 → high · mid · human (AI 후보) | gate · human · ai · drop · skipped (단계 가르기) | req · opt · cond (단계 규칙) — 칠하고, 나머지는 흐리게
   whole: Boolean, // 전체 화면: the whole map on the screen, also after the map changes (smaller sizes allowed)
 })
 const emit = defineEmits(['select'])
@@ -305,6 +305,8 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
             <text class="nm" :clip-path="`url(#${clipId})`"><tspan v-for="(l, i) in n.lines" :key="i" x="11" :y="22 + i * 17">{{ l }}</tspan></text>
             <!-- 걷어냄(단계 가르기): 이름에 줄 -->
             <template v-if="marks.get(n.key) === 'drop' || n.t.removed"><line v-for="(l, i) in n.lines" :key="`x${i}`" class="strike" x1="10" :x2="Math.min(n.w - 10, 12 + textW(l, NAME))" :y1="17 + i * 17" :y2="17 + i * 17" /></template>
+            <!-- 단계 규칙: 꼭 하는 단계는 자물쇠 -->
+            <path v-if="marks.get(n.key) === 'req'" class="lock" :transform="`translate(${n.w - 21},6)`" d="M3 6V4a3 3 0 0 1 6 0v2h1.5v8h-9V6zm1.5 0h3V4a1.5 1.5 0 0 0-3 0z" />
             <text class="sm" x="11" :y="n.h - 11" :clip-path="`url(#${clipId})`">{{ n.t.role }}</text>
             <text class="sm ct" :x="n.w - 11" :y="n.h - 11" text-anchor="end">{{ n.t.kind === 'habit' && !n.t.n_cases ? '루틴' : n.t.added && !n.t.n_cases ? '더함' : `${n.t.n_cases}건` }}</text>
           </template>
@@ -378,6 +380,11 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .node.mk-drop .nm, .node.mk-drop .sm { fill: var(--text-tertiary); }
 .node.mk-skipped rect { fill: color-mix(in srgb, #d9822b 10%, var(--regular-solid-bg)); stroke: #d9822b; stroke-width: 2.2; stroke-dasharray: 6 4; }
 .node .strike { stroke: var(--text-secondary); stroke-width: 1.6; stroke-linecap: round; pointer-events: none; }
+/* 단계 규칙(steprule): 꼭 하는 단계 = 보라 굵게 + 자물쇠 · 해도 되는 단계 = 파랑 점선 · 사안에 따라 = 파랑 잔 점선 */
+.node.mk-req rect { fill: color-mix(in srgb, #7a4fd0 16%, var(--regular-solid-bg)); stroke: #7a4fd0; stroke-width: 3; }
+.node .lock { fill: #7a4fd0; pointer-events: none; }
+.node.mk-opt rect { fill: color-mix(in srgb, #2b7fbf 8%, var(--regular-solid-bg)); stroke: #2b7fbf; stroke-width: 2; stroke-dasharray: 6 4; }
+.node.mk-cond rect { stroke: #2b7fbf; stroke-width: 2; stroke-dasharray: 1.5 3; stroke-linecap: round; }
 /* 프로세스 다듬기 ①: 더한 일 · 관계는 파랑 점선, 뺀 것(찾은 대로 쪽)은 빨강 점선 */
 .node.added rect { stroke: var(--color-info); stroke-width: 2.2; stroke-dasharray: 6 3; }
 .node.added .ct { fill: var(--color-info); font-weight: 600; }

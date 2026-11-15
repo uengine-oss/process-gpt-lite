@@ -13,6 +13,7 @@ import { cypher } from '../lib/ontology/store.js'
 import { q } from '../lib/supa.js'
 import { updateMessage } from '../lib/store.js'
 import { config } from '../config.js'
+import { formRoutes } from './ontologyForms.js'
 
 export function ontologyRoutes(auth) {
   const r = express.Router()
@@ -76,6 +77,9 @@ export function ontologyRoutes(auth) {
   r.get('/ontology/cases', auth, h(() => q(`select id, bundle as proc, entry_task, trigger, status, instances, history, created_at from pro_po_cases where tenant_id=$1 order by created_at desc limit 30`, [config.tenantId])))
   r.get('/ontology/cases/:id', auth, h((req) => R.getCase(req.params.id)))
   r.post('/ontology/cases/:id/move', auth, h(async (req) => {
+    // a move that passes a 꼭 하는 단계 only says so until the person confirms with a reason (steprule.js)
+    const pass = await SR().then((m) => m.guardMove(req.user, req.params.id, { task: String(req.body?.task || ''), confirm: req.body?.confirm === true, reason: String(req.body?.reason || '') }))
+    if (pass) return pass
     const r2 = await R.moveCase(req.user, req.params.id, { task: String(req.body?.task || ''), reason: req.body?.reason || '' })
     await keepOnCard(req.user, req.body?.messageId, { movedTo: req.body?.task, instId: r2.instId, skipped: r2.snapshot.skipped, nodes: r2.snapshot.nodes, procDefId: r2.snapshot.procDefId })
     return r2
@@ -90,6 +94,7 @@ export function ontologyRoutes(auth) {
   // 실행 방식(runmode.js): 사람이 지켜봄(자동 진행) · 단계마다 사람이 정함 — 보기는 누구나, 바꾸기는 관리자. 건 지켜보기 · 멈추기 ·
   // 이어 가기 · 이 단계로 되감기 · 기다리는 단계 정하기(진행 · 다른 갈래 · 멈추기)는 건을 맡은 사람이나 관리자
   const RM = () => import('../lib/ontology/runmode.js')
+  const SR = () => import('../lib/ontology/steprule.js')
   r.get('/ontology/run-mode', auth, h(async () => (await RM()).modesView()))
   r.put('/ontology/run-mode', auth, h(async (req) => { await admin(req); return (await RM()).setDefaultMode(req.user, String(req.body?.mode || '')) }))
   r.post('/ontology/processes/run-mode', auth, h(async (req) => { await admin(req); return (await RM()).setMode(req.user, String(req.body?.key || ''), req.body?.mode ? String(req.body.mode) : null, { name: req.body?.name }) }))
@@ -102,7 +107,12 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/cases/:id/pause', auth, h(async (req) => (await RM()).pauseCase(req.user, req.params.id)))
   r.post('/ontology/cases/:id/resume', auth, h(async (req) => (await RM()).resumeCase(req.user, req.params.id)))
   r.post('/ontology/cases/:id/rewind', auth, h(async (req) => (await RM()).rewindCase(req.user, req.params.id, { task: String(req.body?.task || ''), confirm: req.body?.confirm === true })))
-  r.post('/ontology/steps/:id', auth, h(async (req) => (await RM()).decide(req.user, req.params.id, { action: String(req.body?.action || ''), to: String(req.body?.to || '') })))
+  r.post('/ontology/steps/:id', auth, h(async (req) => (await RM()).decide(req.user, req.params.id, { action: String(req.body?.action || ''), to: String(req.body?.to || ''), confirm: req.body?.confirm === true, reason: String(req.body?.reason || '') })))
+  // 단계의 꼭 · 선택(steprule.js): 꼭 하는 단계 · 해도 되고 안 해도 되는 단계 · 지도대로, 사안에 따라(금액 · 글로 쓴 조건) — 보기는 누구나, 바꾸기는 관리자
+  r.get('/ontology/processes/:proc/requirements', auth, h(async (req) => (await SR()).requirementMarks(req.params.proc)))
+  r.get('/ontology/tasks/:key/step-processes', auth, h(async (req) => (await SR()).stepProcesses(req.params.key)))
+  r.get('/ontology/processes/:proc/steps/:task/requirement', auth, h(async (req) => (await SR()).requirementView(req.user, req.params.proc, req.params.task)))
+  r.put('/ontology/processes/:proc/steps/:task/requirement', auth, h(async (req) => { await admin(req); return (await SR()).setRequirement(req.user, req.params.proc, req.params.task, req.body || {}) }))
   // 시험용으로 들어온 메일(개발 · 시연 서버에서만): 진짜 메일이 들어올 때와 같은 길(run.js routeMail)로 건을 연다 — 이 기기에서, 관리자만,
   // 보낸 사람은 예약된 시험용 도메인(.test · .example · .invalid · example.com/net/org)만. 실제 메일함에는 아무것도 읽거나 쓰지 않는다.
   r.post('/ontology/simulate-mail', auth, h(async (req) => {
@@ -141,6 +151,8 @@ export function ontologyRoutes(auth) {
     limit: Math.min(100, Math.max(5, Number(req.query.limit) || 40)), before: req.query.before || null })))
   r.post('/ontology/tasks/:key/draft', auth, h(async (req) => { await admin(req); return D.draftDefinition(req.params.key, { template: req.body?.template }) }))
   r.put('/ontology/tasks/:key/definition', auth, h(async (req) => { await admin(req); return D.saveDefinition(req.user, req.params.key, String(req.body?.definition || '')) }))
+  // 일이 쓰는 양식 · 형식 규칙 · 스킬 보기 · 건의 단계가 만든 파일(routes/ontologyForms.js)
+  formRoutes(r, { auth, h, admin })
 
   // 역할: 보기는 누구나, 정의 초안 · 확정은 관리자
   r.get('/ontology/roles/:key', auth, h((req) => RL.roleView(req.params.key)))

@@ -68,6 +68,14 @@ export async function publish(userId, sandboxPath) {
   return { name, url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, ext: extOf(name) }
 }
 
+// Bytes the server holds (a company form kept from its mail, lib/ontology/formats.js) → the same kind of public URL.
+export async function publishBuffer(userId, name, buf) {
+  const key = `pgpt-pro/${userId}/${crypto.randomUUID()}.${extOf(name)}`
+  const { error } = await admin.storage.from('files').upload(key, buf, { contentType: MIME[extOf(name)] || 'application/octet-stream', upsert: false })
+  if (error) throw error
+  return { name, url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, ext: extOf(name) }
+}
+
 // Documents the agent wrote with its own scripts (docx/pptx/xlsx skills) never show up as
 // file_artifact events: look for them in the paths the answer names and in the run's folder.
 const EXT = '(?:docx|pptx|xlsx|xls|csv|pdf|hwpx|hwp|dxf|dwg|svg|vectorcraft|psd|psb|pcraft|png|jpe?g|webp|wav|mp3|flac|soundcraft|scraftz|mp4|mov|webm|fcproj)'

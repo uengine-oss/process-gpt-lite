@@ -30,6 +30,7 @@ import OntoDocsPanel from '../components/ontology/OntoDocsPanel.vue'
 import OntoBranch from '../components/ontology/OntoBranch.vue'
 import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
 import OntoRefine from '../components/ontology/OntoRefine.vue'
+import OntoStepRule from '../components/ontology/OntoStepRule.vue'
 import { visibleGraph, eventGraph, edgeId, procsOf, inProc, isSimple, withoutSimple } from '../components/ontology/mapView.js'
 import { BAND, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
 import { useApp } from '../stores/app.js'
@@ -341,7 +342,20 @@ const full = ref(false)
 // AI 후보: the panel hands the map what to paint (일 → high · mid · human)
 const candOpen = ref(false)
 const marks = ref(new Map())
-watch(candOpen, (on) => { if (!on) marks.value = new Map() })
+watch(candOpen, (on) => { if (on) rulesOn.value = false; else if (!rulesOn.value) marks.value = new Map() })
+// 단계 규칙(server lib/ontology/steprule.js): 이 프로세스에서 꼭 하는 단계(자물쇠) · 해도 되는 단계(점선) · 사안에 따라 바뀌는 단계를 지도에 칠한다
+const rulesOn = ref(false)
+async function loadRuleMarks() {
+  if (!rulesOn.value || !proc.value) { if (!candOpen.value) marks.value = new Map(); return }
+  try {
+    const r = await call(`/ontology/processes/${encodeURIComponent(proc.value.key)}/requirements`)
+    if (rulesOn.value) marks.value = new Map((r.steps || []).map((s) => [s.task, s.mark]))
+  } catch (e) { err.value = e.message }
+}
+function toggleRules() { rulesOn.value = !rulesOn.value; if (rulesOn.value) candOpen.value = false; loadRuleMarks() }
+watch(procKey, () => { if (rulesOn.value) loadRuleMarks() })
+// 일 패널의 「이 단계는」: 그 일이 든 흐름(루틴은 건이 돌지 않는다)
+const selTaskProcs = computed(() => (selTask.value ? procsOf(selTask.value).map((k) => processes.value.find((p) => p.key === k)).filter((p) => p && p.kind !== 'routine') : []))
 // 프로세스 다듬기(① 바로잡기 · ② 단계 가르기): 지도 위를 덮는 창 — 열려 있는 동안 이 페이지의 F · Esc 는 쉰다
 const refineOpen = ref(false)
 const menuOpen = ref(false)
@@ -492,6 +506,9 @@ onBeforeUnmount(() => {
             <button class="evt press" role="switch" :aria-checked="eventsShown" :class="{ on: eventsShown }" :disabled="isRoutine" :title="isRoutine ? '루틴은 사건으로만 보여요' : '일 사이에 메일 · 결과물 같은 사건을 넣어 봐요'" data-testid="onto-events-toggle" @click="eventsOn = !eventsOn">
               <span class="knob" /> 사건 보기
             </button>
+            <button v-if="proc && !isRoutine" class="evt press" role="switch" :aria-checked="rulesOn" :class="{ on: rulesOn }" title="꼭 하는 단계 · 해도 되는 단계 · 사안에 따라 바뀌는 단계를 지도에 표시해요" data-testid="onto-steprule-toggle" @click="toggleRules">
+              <span class="knob" /> 단계 규칙
+            </button>
             <button v-if="!procKey && simpleProcs.length" class="evt press" role="switch" :aria-checked="hideSimple" :class="{ on: hideSimple }" :title="`일이 하나뿐인 프로세스 ${simpleProcs.length}개를 전체 지도에서 빼요(다른 흐름에도 든 일은 남아요)`" data-testid="onto-hide-simple" @click="hideSimple = !hideSimple">
               <span class="knob" /> 단순 프로세스 빼기
             </button>
@@ -509,6 +526,12 @@ onBeforeUnmount(() => {
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#a78bfa" stroke-width="1.6" /></svg>채팅</span>
             <span><b class="and">함께</b>한 사건 뒤 여러 일이 함께 열려요</span>
             <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="3.5" /></svg>굵을수록 자주</span>
+          </div>
+          <div v-else-if="view.tasks.length && rulesOn" class="legend" data-testid="onto-steprule-legend">
+            <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#7a4fd0" stroke-width="2.2" /><path d="M7.4 7V5.6a1.6 1.6 0 0 1 3.2 0V7h.9v4H6.5V7z" fill="#7a4fd0" /></svg>꼭 하는 단계</span>
+            <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#2b7fbf" stroke-width="1.8" stroke-dasharray="4 3" /></svg>해도 되고 안 해도 되는 단계</span>
+            <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#2b7fbf" stroke-width="1.8" stroke-dasharray="1.5 2.5" /></svg>사안에 따라</span>
+            <span v-if="!marks.size">이 프로세스에는 정한 단계가 없어요 — 단계를 눌러 정해요</span>
           </div>
           <div v-else-if="view.tasks.length && marks.size" class="legend" data-testid="onto-cand-legend">
             <span><i class="lg high" />AI가 맡을 수 있는 일</span>
@@ -533,7 +556,7 @@ onBeforeUnmount(() => {
           </SidePanel>
           <SidePanel v-else-if="selTask" kicker="일" :title="selTask.name" @close="sel = null">
             <TaskPanel :task="selTask" :edges="map.edges" :processes="processes" @edge="(e) => onSelect({ kind: 'edge', id: edgeId(e) })" @role="openRole" @proc="openProc">
-              <template #actions><OntoTaskPanel :task-key="selTask.key" :admin="!!status?.admin" hide-header @changed="loadMap" /></template>
+              <template #actions><OntoTaskPanel :task-key="selTask.key" :admin="!!status?.admin" hide-header @changed="loadMap"><template #step><OntoStepRule :task-key="selTask.key" :proc-key="procKey" :procs="selTaskProcs" :admin="!!status?.admin" @changed="loadRuleMarks" /></template></OntoTaskPanel></template>
             </TaskPanel>
           </SidePanel>
           <SidePanel v-else-if="reviewOpen" kicker="학습 순환" title="검토 안건" @close="reviewOpen = false">

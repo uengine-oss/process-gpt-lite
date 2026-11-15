@@ -85,7 +85,8 @@ export async function getTask(key) {
   if (!r) throw err(404, '일을 찾지 못했어요.')
   const t = parseTask(r.t)
   const raws = await q(`select raw, act, how from pro_onto_labels where tenant_id=$1 and task=$2 and coalesce(act,'') <> 'habit' order by length(raw) desc limit 12`, [T(), key])
-  return { task: t, definition: t.definition_md || '', parsed: await taskDefinition(key, t), labels: raws, templates: await templatesOf(key) }
+  // (a form's mails — who sent which file when — are its owner's: formats.js formsView shows them)
+  return { task: t, definition: t.definition_md || '', parsed: await taskDefinition(key, t), labels: raws, templates: (await templatesOf(key)).map(({ sources, ...x }) => x) }
 }
 
 // the attachments the company's mail shows for this work (most frequent first) and whether a template file is at hand.
@@ -96,14 +97,16 @@ export async function getTask(key) {
 export async function templatesOf(key) {
   const forms = (await skillRules()).forms
   const raws = (await q(`select raw from pro_onto_labels where tenant_id=$1 and task=$2`, [T(), key])).map((r) => r.raw)
-  const rows = await q(`select artifacts from pro_mail_history where tenant_id=$1 and (activity_label = $2 or activity_label = any($3))`, [T(), key, raws])
+  const rows = await q(`select mail_id, owner_id::text as owner_id, occurred_at, artifacts from pro_mail_history where tenant_id=$1 and (activity_label = $2 or activity_label = any($3))`, [T(), key, raws])
   const items = []
   for (const r of rows) for (const f of r.artifacts || []) {
     const kind = String(f.type || '').toLowerCase()
     if (!['xlsx', 'docx', 'hwpx', 'pptx'].includes(kind)) continue
     const file = f.file || templateFile(f.name)
     const stem = String(f.name).split(/[_\s(]/)[0].replace(/\.[a-z0-9]+$/i, '')
-    items.push({ f, kind, file, stem, key: (file && !file.startsWith('forms/') && file) || `${stem}.${kind}`, labels: new Set(f.fields || []) })
+    // src: the mail it came in (formats.js — where a form came from, and its other files to read the fixed parts from)
+    items.push({ f, kind, file, stem, key: (file && !file.startsWith('forms/') && file) || `${stem}.${kind}`, labels: new Set(f.fields || []),
+      src: { mail: r.mail_id, owner: r.owner_id, at: r.occurred_at, name: f.name, file: file || null } })
   }
   // the same form: the same key, or (same kind) most of the labels shared
   const group = items.map((_, i) => i)
@@ -130,10 +133,13 @@ export async function templatesOf(key) {
     const name = fixture ? path.basename(fixture.file) : DOC_KIND.test(lead.stem) ? `${lead.stem}.${lead.kind}` : `${await formName(its, fields)}.${lead.kind}`
     // the template file: one of these mails kept it, else the latest file of that form kept from another mail (forms/<key>)
     const kept1 = kept?.file || its.map((it) => `forms/${formKey(it.f.name)}`).find((rel) => fs.existsSync(path.join(formsDirOf(), rel.slice(6)))) || null
+    // every kept file of the form (each name's latest file the company sent) and the mails it came in (formats.js)
+    const files = [...new Set(its.flatMap((it) => [it.file, fs.existsSync(path.join(formsDirOf(), formKey(it.f.name))) ? `forms/${formKey(it.f.name)}` : null]).filter(Boolean))]
+    const sources = its.map((it) => it.src)
     // groups the model named alike (a customer's file without labels beside the company's) are one form
     const same1 = out.find((x) => x.name === name)
-    if (same1) { same1.seen += its.length; same1.fileNames += new Set(its.map((it) => it.f.name)).size; same1.file ||= kept1; if (fields.length > same1.fields.length) same1.fields = fields; continue }
-    out.push({ name, type: lead.kind, seen: its.length, file: kept1, example: lead.f.name, fileNames: new Set(its.map((it) => it.f.name)).size, fields })
+    if (same1) { same1.seen += its.length; same1.fileNames += new Set(its.map((it) => it.f.name)).size; same1.file ||= kept1; if (fields.length > same1.fields.length) same1.fields = fields; same1.files = [...new Set([...same1.files, ...files])]; same1.sources.push(...sources); continue }
+    out.push({ name, type: lead.kind, seen: its.length, file: kept1, example: lead.f.name, fileNames: new Set(its.map((it) => it.f.name)).size, fields, files, sources })
   }
   return out.sort((a, b) => b.seen - a.seen)
 }
@@ -143,14 +149,22 @@ const formNames = new Map()
 async function formName(its, fields) {
   const names = [...new Set(its.map((it) => it.f.name))].slice(0, 6)
   const k = names.slice().sort().join('|')
-  if (formNames.has(k)) return formNames.get(k)
+  if (formNames.has(`${T()}\u0000${k}`)) return formNames.get(`${T()}\u0000${k}`)
+  // a name once given stays (sql/043 pro_form_names): what a person chose and the form's format rules are kept by it, and every server
+  // reads the same name — the model names a form only the first time (or a form none of whose files was named before)
+  const known = await q(`select names_key, names, name from pro_form_names where tenant_id=$1`, [T()]).catch(() => [])
+  const share = (a) => { const s = new Set(a || []); return names.filter((x) => s.has(x)).length / Math.max(1, Math.min(names.length, s.size)) }
+  const had = known.find((r) => r.names_key === k) || known.filter((r) => share(r.names) >= 0.5).sort((a, b) => share(b.names) - share(a.names))[0]
+  if (had?.name) { formNames.set(`${T()}\u0000${k}`, had.name); return had.name }
   let n = ''
   try {
     const r = await chatJson(await prompt('name-form'), JSON.stringify({ file_names: names, labels: (fields.length ? fields : [...its[0].labels]).slice(0, 24) }), { timeoutMs: 90000, temperature: 0 })
     n = String(r?.name || '').replace(/[\\/:*?"<>|.]/g, ' ').trim().slice(0, 20)
   } catch (e) { console.warn('[ontology] form name', e.message) }
   n ||= its[0].stem
-  formNames.set(k, n)
+  formNames.set(`${T()}\u0000${k}`, n)
+  // (only a name the model gave is kept: a failed call names the form by its file for now and asks again next time)
+  if (n !== its[0].stem) await q(`insert into pro_form_names (tenant_id, names_key, names, name) values ($1,$2,$3,$4) on conflict (tenant_id, names_key) do nothing`, [T(), k, JSON.stringify(names), n]).catch(() => {})
   return n
 }
 

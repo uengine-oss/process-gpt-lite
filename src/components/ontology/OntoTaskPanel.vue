@@ -11,6 +11,8 @@ import OntoWhenReason from './OntoWhenReason.vue'
 import OntoWays from './OntoWays.vue'
 import OntoEvidence from './OntoEvidence.vue'
 import OntoTaskAi from './OntoTaskAi.vue'
+import OntoForms from './OntoForms.vue'
+import OntoSkillView from './OntoSkillView.vue'
 import { ACT_KO, RUNNER_KO, AUTONOMY_KO, validFromOf, dayKo, EUL } from './ontoText.js'
 
 const props = defineProps({ taskKey: { type: String, required: true }, admin: Boolean, hideHeader: Boolean })
@@ -25,6 +27,9 @@ const busy = ref('')
 const fields = ref('')
 const allLabels = ref(false)
 const pick = ref('')
+// 스킬 열어 보기: {name} 또는 {format: {task, form}} · 이 일이 쓰는 양식(OntoForms 가 알려 준다 — 형식 규칙도 스킬로 열린다)
+const skillOpen = ref(null)
+const usedForm = ref('')
 
 async function load() {
   loading.value = true; err.value = ''; note.value = ''; fields.value = ''
@@ -126,6 +131,8 @@ defineExpose({ reload: load })
 
       <!-- AI 판단: 맡길 수 있는지 · 사람이 꼭 해야 하는지(지도 색과 같은 말) -->
       <OntoTaskAi :task-key="taskKey" :admin="admin" @changed="emit('changed', { kind: 'candidate', key: taskKey })" />
+      <!-- 이 단계는(꼭 · 선택 · 사안에 따라): 프로세스를 아는 바깥(지도 화면)이 OntoStepRule 을 넣는다 -->
+      <slot name="step" />
 
       <!-- 근거: 이 일로 읽힌 메일 · 대화 하나하나 -->
       <OntoEvidence :task-key="taskKey" />
@@ -158,19 +165,8 @@ defineExpose({ reload: load })
         <button v-if="labels.length > 3" class="more press" @click="allLabels = !allLabels">{{ allLabels ? '접기' : `모두 보기 (${labels.length})` }}</button>
       </div>
 
-      <!-- 메일에서 본 양식 -->
-      <div v-if="templates.length" class="sec">
-        <h4>메일에서 본 양식</h4>
-        <ul class="tpl">
-          <li v-for="x in shownTemplates" :key="x.file || x.name" data-testid="onto-template">
-            <span class="fic" :class="kindOfFile(x.type)">{{ (x.type || '').toUpperCase().slice(0, 4) }}</span>
-            <span class="tn"><b :title="x.example">{{ x.name }}</b><small>메일 {{ x.seen }}번<template v-if="x.variants > 1"> · 파일 이름 {{ x.variants }}가지</template><template v-if="x.file"> · 양식 파일 있음</template></small>
-              <!-- the form's own labels: what the company's attachments of that form always have (server mailbody.js formFields) -->
-              <small v-if="x.fields?.length" class="tf" data-testid="onto-template-fields">칸 · {{ x.fields.slice(0, 10).join(' · ') }}<template v-if="x.fields.length > 10"> 외 {{ x.fields.length - 10 }}개</template></small></span>
-          </li>
-        </ul>
-        <button v-if="templates.length > 3" class="more press" @click="allTpl = !allTpl">{{ allTpl ? '접기' : `모두 보기 (${templates.length})` }}</button>
-      </div>
+      <!-- 메일에서 본 양식: 이 일이 쓰는 양식(정해 둔 · 자동), 어디서 왔는지, 이음오피스로 열기, 형식 규칙(OntoForms) -->
+      <OntoForms :task-key="taskKey" :admin="admin" @loaded="(x) => (usedForm = x?.chosen?.name || '')" @changed="(e) => emit('changed', e)" />
 
       <!-- 일 정의 -->
       <div class="sec def">
@@ -187,7 +183,11 @@ defineExpose({ reload: load })
             <p v-if="p.description" class="desc">{{ p.description }}</p>
             <dl class="kv">
               <dt>하는 사람</dt><dd>{{ RUNNER_KO[p.runner] || '사람' }}<template v-if="p.runner === 'agent'"> · {{ AUTONOMY_KO[p.autonomy] || p.autonomy }}</template></dd>
-              <template v-if="p.skills?.length"><dt>스킬</dt><dd class="chips"><code v-for="s in p.skills" :key="s">{{ s }}</code></dd></template>
+              <!-- a skill opens: what it does (Lite's step skills), its SKILL.md (the company's), and the form's format rules (OntoSkillView) -->
+              <template v-if="p.skills?.length || usedForm"><dt>스킬</dt><dd class="chips">
+                <button v-for="s in p.skills" :key="s" class="sk press" data-testid="onto-skill-chip" :data-skill="s" title="스킬 열어 보기" @click="skillOpen = { name: s }">{{ s }}</button>
+                <button v-if="usedForm" class="sk fmt press" data-testid="onto-skill-chip" data-skill="format" :title="`「${usedForm}」 양식의 형식 규칙`" @click="skillOpen = { format: { task: taskKey, form: usedForm } }">형식 규칙 · {{ usedForm.replace(/\.[a-z0-9]+$/i, '') }}</button>
+              </dd></template>
               <template v-if="p.outputs?.length"><dt>내놓는 것</dt><dd><span v-for="(o, i) in p.outputs" :key="i" class="out">{{ outName(o) }}<small v-if="o.template"> · 양식 {{ o.template }}</small></span></dd></template>
             </dl>
             <div v-if="p.checkpoints?.length" class="cps">
@@ -219,6 +219,7 @@ defineExpose({ reload: load })
 
       <!-- 방법 후보 -->
       <OntoWays :task-key="taskKey" :admin="admin" @skill="skilled" />
+      <OntoSkillView v-if="skillOpen" :name="skillOpen.name || ''" :format="skillOpen.format || null" :admin="admin" @close="skillOpen = null" />
       <p v-if="err" class="err">{{ err }}</p>
       <small v-if="!admin && !hasDef" class="muted">일 정의는 관리자가 써요. 「{{ t.name || taskKey }}」{{ EUL(t.name || taskKey) }} 어떻게 할지 정해 두면 에이전트가 맡을 수 있어요.</small>
     </template>
@@ -278,6 +279,8 @@ h4 small { font-weight: 400; color: var(--text-tertiary); margin-left: 4px; }
 .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chips code { font: 12px ui-monospace, Menlo, monospace; padding: 2px 8px; border-radius: 9999px; background: var(--field-bg); }
+.chips .sk { font: 12px ui-monospace, Menlo, monospace; padding: 2px 9px; border-radius: 9999px; background: var(--field-bg); box-shadow: inset 0 0 0 1px var(--hairline); color: var(--color-info); }
+.chips .sk.fmt { font-family: inherit; color: var(--text-primary); }
 .out { display: block; }
 .out small { color: var(--text-tertiary); }
 .cps { margin-bottom: 10px; }

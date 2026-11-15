@@ -41,7 +41,8 @@ export async function procGraph(procKey, { validAt, found = false } = {}) {
   const base = { proc, tasks, edges, all: g }
   if (found) return base
   const cs = await q(`select id::text as id, op, args from pro_corrections where tenant_id=$1 and proc_key=$2 order by at, id`, [T(), procKey]).catch(() => [])
-  return cs.length ? refinedView(base, cs) : base
+  // 꼭 하는 단계(steprule.js): in this process's snapshot like a pinned step
+  return (await import('./steprule.js')).withRequirements(cs.length ? refinedView(base, cs) : base, procKey)
 }
 
 // the usual way from the proc's main entry to `entry` (most probable path) — what a case starting at `entry` skipped
@@ -206,7 +207,7 @@ export async function snapshot({ procKey, entry, theta, validAt, starterRole }) 
   if (!view.tasks.has(entry)) throw err(400, '그 일은 이 프로세스에 없어요.')
   const th = Number.isFinite(theta) ? theta : view.proc.theta ?? 0.05
   const structural = [...view.tasks.values()].map((t) => `${t.key}:${t.pinned ? 1 : 0}:${t.status}:${t.definition_md ? sha(t.definition_md).slice(0, 6) : ''}`).join('|') +
-    view.edges.map((e) => `${e.from}>${e.to}:${e.status}:${e.pinned ? 1 : 0}${e.decided ? ':d' : ''}`).join('|') + (view.refined ? `|refined:${t2(view.tasks)}` : '')
+    view.edges.map((e) => `${e.from}>${e.to}:${e.status}:${e.pinned ? 1 : 0}${e.decided ? ':d' : ''}`).join('|') + (view.refined ? `|refined:${t2(view.tasks)}` : '') + (view.requirements ? `|req:${view.requirements}` : '')
   const week = Math.floor(new Date(validAt || Date.now()).getTime() / (7 * 86_400_000))
   // a promoted process (자동, design-v0.3 §12): its people's steps arrive with a draft the agent made in the background
   const draft = view.proc.status === 'adopted'
@@ -423,6 +424,8 @@ async function checkOutputs(checkpoints, file) {
   try {
     const ExcelJS = (await import('exceljs')).default
     const buf = Buffer.from(await (await fetch(file.url)).arrayBuffer())
+    // a Word · PowerPoint · 한글 file (a form filled by stepdoc.js, a draft made a Word file): its paragraphs
+    if (/\.(docx|pptx|hwpx)$/i.test(file.name || '')) throw Object.assign(new Error('not xlsx'), { doc: (await (await import('./mailbody.js')).readFile(file.name, buf)).text })
     const wb = new ExcelJS.Workbook()
     try {
       await wb.xlsx.load(buf)
@@ -432,7 +435,7 @@ async function checkOutputs(checkpoints, file) {
       const { sheets } = await (await import('../mining/worker.js')).xlsxSheets(buf)
       text = sheets.map((sh) => sh.cells.map((c) => `${c.cell} ${c.value}`).join('\n')).join('\n\n')
     }
-  } catch (e) { text = '' }
+  } catch (e) { text = e.doc || '' }
   if (!text) return checkpoints.map((c) => ({ checkpoint: c, ok: null, note: '파일을 읽지 못했어요' }))
   try {
     const r = await chatJson('산출물이 점검 항목을 지키는지 봅니다. JSON {"results":[{"i":번호,"ok":true|false,"note":"근거 한 줄"}]} 로만 답하세요.', JSON.stringify({ checkpoints: checkpoints.map((c, i) => ({ i, c })), output: text.slice(0, 6000) }), { temperature: 0, timeoutMs: 60000 })
@@ -456,7 +459,7 @@ async function tick() {
     // 실행 방식(runmode.js): the step's gate reads the mode, the step's kind and the case's pause now — it may wait for a person
     await withTenant(row.tenant_id, async () => {
       const gate = await (await import('./runmode.js')).gateStep(row).catch((e) => { console.warn('[onto-worker] gate', e.message); return { act: 'run' } })
-      if (gate.act === 'wait') return
+      if (gate.act === 'wait' || gate.act === 'skip') return
       await runStep(row, gate)
     }).catch(async (e) => {
       console.warn('[onto-worker] failed', e.message)
@@ -467,13 +470,12 @@ async function tick() {
 
 // the task definition the skill follows on top of its own way of working: what the step does, the form the
 // company's mail shows for it (its cells as text, so the agent keeps the same labels and layout) and what to keep
-// the company's own file of the form this work uses (the one its definition names, else the most used one that has a file)
+// the company's own file of the form this work uses (formats.js chosenForm: the one a person picked, else the one its definition
+// names, else the most used one that has a file) — chosenBy says which
 async function formFileOf(name, act) {
-  const { templatesOf, templatePath } = await import('./taskdef.js')
-  const want = (act.outputs || []).find((o) => o.template)?.template
-  const all = (await templatesOf(name)).filter((x) => x.file)
-  const t = all.find((x) => x.name === want) || all[0]
-  return t ? { name: t.name, path: templatePath(t.file) } : null
+  const { templatePath } = await import('./taskdef.js')
+  const c = await (await import('./formats.js')).chosenForm(name, act)
+  return c?.form?.file ? { name: c.form.name, path: templatePath(c.form.file), chosenBy: c.chosenBy, type: c.form.type, ofTask: c.ofTask || null } : null
 }
 
 async function definitionText(name, act) {
@@ -536,7 +538,16 @@ async function runStep(row, gate = {}) {
   try {
     if (textOnly) {
       status(`${row.activity_name} 글로 만드는 중`)
-      r = await ONTO_SKILLS['doc-draft']({ row, act, kind: gate.draftFirst ? 'message' : isDraft ? 'note' : 'document' })
+      // a document step makes a file (stepdoc.js): from the work's form when it has a kept file, else the text as Word — no tools either
+      const kind = gate.draftFirst ? 'message' : isDraft ? 'note' : 'document'
+      r = await (await import('./stepdoc.js')).draftStep({ row, act, kind, owner, threadId, status, form: await formFileOf(row.activity_name, act).catch(() => null),
+        draftText: (k) => ONTO_SKILLS['doc-draft']({ row, act, kind: k }), extra: await definitionText(row.activity_name, act).catch(() => '') })
+    } else if (skill === 'form-fill') {
+      // the company's form, filled here without tools (stepdoc.js): an Excel form cell by cell, a Word · PowerPoint · 한글 form paragraph by
+      // paragraph — not handed to the agent, whose tools (mail · calendar · messenger) could act outside
+      const form = await formFileOf(row.activity_name, act)
+      if (!form) throw new Error('이 일의 회사 양식 파일이 없어요')
+      r = await (await import('./stepdoc.js')).formStep({ row, act, owner, threadId, status, form, extra: await definitionText(row.activity_name, act) })
     } else if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await W.earlier(row.proc_inst_id), status, extra: await definitionText(row.activity_name, act),
       template: await formFileOf(row.activity_name, act), step: row.activity_name })
     else {
