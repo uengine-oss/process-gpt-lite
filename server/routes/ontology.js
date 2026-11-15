@@ -87,6 +87,34 @@ export function ontologyRoutes(auth) {
     return r2
   }))
 
+  // 실행 방식(runmode.js): 사람이 지켜봄(자동 진행) · 단계마다 사람이 정함 — 보기는 누구나, 바꾸기는 관리자. 건 지켜보기 · 멈추기 ·
+  // 이어 가기 · 이 단계로 되감기 · 기다리는 단계 정하기(진행 · 다른 갈래 · 멈추기)는 건을 맡은 사람이나 관리자
+  const RM = () => import('../lib/ontology/runmode.js')
+  r.get('/ontology/run-mode', auth, h(async () => (await RM()).modesView()))
+  r.put('/ontology/run-mode', auth, h(async (req) => { await admin(req); return (await RM()).setDefaultMode(req.user, String(req.body?.mode || '')) }))
+  r.post('/ontology/processes/run-mode', auth, h(async (req) => { await admin(req); return (await RM()).setMode(req.user, String(req.body?.key || ''), req.body?.mode ? String(req.body.mode) : null, { name: req.body?.name }) }))
+  r.get('/ontology/processes/steps', auth, h(async (req) => {
+    const M = await RM(), key = String(req.query.key || '')
+    return { key, ...(await M.modeOf(key)), steps: [...(await M.stepFacts(key)).values()] }
+  }))
+  r.post('/ontology/processes/step-rule', auth, h(async (req) => { await admin(req); return (await RM()).setStepPolicy(req.user, String(req.body?.key || ''), String(req.body?.task || ''), req.body?.policy ? String(req.body.policy) : null) }))
+  r.get('/ontology/cases/:id/run', auth, h(async (req) => (await RM()).runView(req.user, req.params.id)))
+  r.post('/ontology/cases/:id/pause', auth, h(async (req) => (await RM()).pauseCase(req.user, req.params.id)))
+  r.post('/ontology/cases/:id/resume', auth, h(async (req) => (await RM()).resumeCase(req.user, req.params.id)))
+  r.post('/ontology/cases/:id/rewind', auth, h(async (req) => (await RM()).rewindCase(req.user, req.params.id, { task: String(req.body?.task || ''), confirm: req.body?.confirm === true })))
+  r.post('/ontology/steps/:id', auth, h(async (req) => (await RM()).decide(req.user, req.params.id, { action: String(req.body?.action || ''), to: String(req.body?.to || '') })))
+  // 시험용으로 들어온 메일(개발 · 시연 서버에서만): 진짜 메일이 들어올 때와 같은 길(run.js routeMail)로 건을 연다 — 이 기기에서, 관리자만,
+  // 보낸 사람은 예약된 시험용 도메인(.test · .example · .invalid · example.com/net/org)만. 실제 메일함에는 아무것도 읽거나 쓰지 않는다.
+  r.post('/ontology/simulate-mail', auth, h(async (req) => {
+    await admin(req)
+    const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)
+    if (process.env.PRO_DEMO_LOGIN === '0' || !local) throw S.err(404, '찾지 못했어요.')
+    const from = String(req.body?.from || '').slice(0, 200)
+    const addr = (from.match(/<([^>]+)>/)?.[1] || from).trim().toLowerCase()
+    if (!/@([a-z0-9-]+\.)*(test|example|invalid|localhost)$|@example\.(com|net|org)$/.test(addr)) throw S.err(400, '시험용 메일은 보낸 사람이 시험용 도메인(.test · .example · example.com)이어야 해요.')
+    return (await R.routeMail(req.user.id, { from, subject: String(req.body?.subject || '').slice(0, 300), text: String(req.body?.text || '').slice(0, 4000) })) || { routed: false }
+  }))
+
   // 일 정의
   r.get('/ontology/tasks/:key', auth, h((req) => D.getTask(req.params.key)))
   // 근거: the mails · chat messages · chat handovers this work was read from (subjects and originals: their owner only)

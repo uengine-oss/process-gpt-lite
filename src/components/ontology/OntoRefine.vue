@@ -40,6 +40,7 @@ const OPS = [
   { key: 'merge_task', ko: '다른 일과 합치기' },
   { key: 'add_task', ko: '기록에 없는 일 더하기' },
   { key: 'remove_task', ko: '일 빼기' },
+  { key: 'set_role', ko: '맡는 역할 바꾸기' },
 ]
 // 기획안 §4 다섯 가지(지도 색은 MapGraph mk-*)
 const CLASSES = [
@@ -170,6 +171,11 @@ const draft = computed(() => {
       if (f.after && f.after === f.before) return { hint: '앞뒤에 같은 일을 고를 수 없어요.' }
       return { args: { name, role: f.role.trim(), ...(f.after ? { after: f.after } : {}), ...(f.before ? { before: f.before } : {}) } }
     case 'remove_task': return f.task ? { args: { task: f.task } } : {}
+    case 'set_role': {
+      const role = f.role.trim()
+      if (!f.task || !role) return {}
+      return refined.value.tasks.find((t) => t.key === f.task)?.role === role ? { hint: '지금 맡는 역할과 같아요.' } : { args: { task: f.task, role } }
+    }
   }
   return {}
 })
@@ -202,7 +208,7 @@ function onPick(x) {
   if (f.op === 'add_edge') { if (!f.from || f.to) { f.from = k; f.to = '' } else f.to = k }
   else if (f.op === 'merge_task') { if (!f.task || f.into) { f.task = k; f.into = '' } else f.into = k }
   else if (f.op === 'add_task') { if (!f.after || f.before) { f.after = k; f.before = '' } else f.before = k }
-  else if (f.op === 'rename_task' || f.op === 'remove_task') f.task = k
+  else if (f.op === 'rename_task' || f.op === 'remove_task' || f.op === 'set_role') f.task = k
 }
 
 // 「AI가 생각하는 프로세스」: 차례대로, 기록에 없던 단계와 다음 단계가 바로 아래가 아닌 곳은 따로 적는다
@@ -435,6 +441,11 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer); document.removeEvent
                 <label>앞에 오는 일<select v-model="f.after" data-testid="onto-refine-fix-after"><option value="">없음</option><option v-for="k in rTasks" :key="k" :value="k">{{ k }}</option></select></label>
                 <label>뒤에 오는 일<select v-model="f.before" data-testid="onto-refine-fix-before"><option value="">없음</option><option v-for="k in rTasks" :key="k" :value="k">{{ k }}</option></select></label>
               </div>
+            </template>
+            <template v-else-if="f.op === 'set_role'">
+              <label>일<select v-model="f.task" data-testid="onto-refine-fix-task"><option value="" disabled>고르세요</option><option v-for="k in rTasks" :key="k" :value="k">{{ k }}</option></select></label>
+              <label>맡는 역할<input v-model="f.role" type="text" maxlength="40" list="onto-refine-roles" placeholder="예: 강사" data-testid="onto-refine-fix-role"></label>
+              <datalist id="onto-refine-roles"><option v-for="r in roles" :key="r" :value="r" /></datalist>
             </template>
             <label v-else-if="f.op === 'remove_task'">일<select v-model="f.task" data-testid="onto-refine-fix-task"><option value="" disabled>고르세요</option><option v-for="k in rTasks" :key="k" :value="k">{{ k }}</option></select></label>
             <label>왜 고치나요

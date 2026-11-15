@@ -64,7 +64,11 @@ export async function listFor(me) {
                         where n.tenant_id=$1 and coalesce(n.is_checked,false)=false and ${MINE}
                         order by n.time_stamp desc limit 30`, [T(), ids(me)])
   const out = []
+  // a step of the company's process map that waits for its owner's 「진행」(단계마다 사람이 정함, lib/ontology/runmode.js) is not theirs yet —
+  // left out, not checked off: it shows once the owner says go
+  const held = await import('./ontology/runmode.js').then((m) => m.heldTodos(rows.map((n) => n.todo_id).filter(Boolean))).catch(() => new Set())
   for (const n of rows) {
+    if (n.type?.startsWith('workitem') && n.todo_id && held.has(String(n.todo_id))) continue
     if (n.type?.startsWith('workitem')) {
       // a step someone already finished (or that was cancelled) is no longer anyone's action
       if (n.todo_status && !['IN_PROGRESS', 'TODO', 'NEW'].includes(n.todo_status)) {

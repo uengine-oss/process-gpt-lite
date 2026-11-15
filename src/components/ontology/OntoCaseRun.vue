@@ -1,0 +1,200 @@
+<script setup>
+// 건 지켜보기(server lib/ontology/runmode.js runView): 이 건의 실행 방식 · 멈춤, 단계마다 끝남 · 하는 중 · 사람 차례 · 기다림 · 다음과
+// 맡은 이(업무 에이전트, 또는 역할 · 사람), 되돌릴 수 있는지, 사람을 기다리면 그 까닭과 정할 것(진행 · 다른 갈래 · 멈추기).
+// 「멈추기」 · 「이어 가기」 · 「이 단계로 되감기」는 건을 맡은 사람이나 관리자. 바꾸면 emit changed(위 패널이 스냅샷을 다시 그린다).
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { api } from '../../api.js'
+import { dateTimeKo, pct } from './fmt.js'
+import { RUNMODE_KO, STEP_KO, WAIT_KO, holderText, RO, EUL, IEYO } from './ontoText.js'
+
+const props = defineProps({ caseId: { type: String, required: true } })
+const emit = defineEmits(['changed'])
+const run = ref(null)
+const err = ref('')
+const busy = ref('')
+const note = ref('')
+const ask = ref(null) // 되감기 확인: {task, lost, redo}
+const showOld = ref(false)
+
+let timer = 0, alive = true
+async function load() {
+  try { run.value = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/run`); err.value = '' } catch (e) { err.value = e.message }
+  clearTimeout(timer)
+  if (alive) timer = setTimeout(load, run.value?.status === 'running' ? 4000 : 15000)
+}
+watch(() => props.caseId, () => { run.value = null; ask.value = null; note.value = ''; load() }, { immediate: true })
+onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
+
+const current = computed(() => (run.value?.steps || []).filter((s) => s.current))
+const older = computed(() => (run.value?.steps || []).filter((s) => !s.current))
+const waiting = computed(() => current.value.find((s) => s.state === 'waiting') || null)
+const rewindOf = (task) => (run.value?.rewind || []).find((x) => x.task === task) || null
+const canRewind = (s) => run.value?.controls?.mine && !run.value?.paused && ['done', 'person', 'waiting', 'running'].includes(s.state) && !!rewindOf(s.task)
+const outward = computed(() => !!waiting.value?.why?.includes('irreversible'))
+
+async function act(path, body, msg) {
+  busy.value = path; err.value = ''; note.value = ''
+  try {
+    const r = await api(`/ontology/${path}`, { method: 'POST', body })
+    if (r?.run) run.value = r.run
+    else if (r?.steps) run.value = r
+    if (msg) note.value = typeof msg === 'function' ? msg(r) : msg
+    emit('changed', r)
+    return r
+  } catch (e) { err.value = e.message } finally { busy.value = '' }
+}
+const pause = () => act(`cases/${props.caseId}/pause`, {}, '멈췄어요. 에이전트가 다음 단계를 잡지 않아요(사람은 자기 단계를 할 수 있어요).')
+const resume = () => act(`cases/${props.caseId}/resume`, {}, '이어 가요. 멈춘 동안 기다리던 단계를 다시 봐요.')
+const decide = (action, to = '') => act(`steps/${waiting.value.stepId}`, { action, to }, (r) =>
+  action === 'stop' ? '멈췄어요. 「이어 가기」를 누르면 다시 물어요.' : r?.sent ? '보낸 것으로 기록했어요. 이 판에서는 실제로 보내지 않아요.' : action === 'other' ? `「${to}」${RO(to)} 옮겨 이어 가요.` : '진행해요.')
+async function rewind(task, confirm = false) {
+  const r = await act(`cases/${props.caseId}/rewind`, { task, confirm }, null)
+  if (!r) return
+  if (r.confirm) { ask.value = { task, lost: r.lost, redo: r.redo }; return }
+  ask.value = null
+  note.value = `「${task}」${RO(task)} 되감았어요. 그 단계부터 새 스냅샷으로 다시 해요 — 앞에서 한 것은 기록으로 남아요.`
+}
+const stateText = (s) => (s.state === 'person' ? `${(s.holder?.names || []).join(', ') || s.holder?.role || '사람'} 차례` : STEP_KO[s.state] || s.state)
+</script>
+
+<template>
+  <div class="cr" data-testid="onto-case-run" :data-mode="run?.mode" :data-paused="run?.paused ? '1' : '0'" :data-status="run?.status">
+    <p v-if="!run && !err" class="muted pulse">진행을 불러오는 중…</p>
+    <template v-if="run">
+      <div class="top">
+        <span class="mode" data-testid="onto-case-mode" :title="run.modeFrom === 'process' ? '이 프로세스에 정한 방식이에요' : '회사 기본값을 따라요'">{{ RUNMODE_KO[run.mode] || run.mode }}</span>
+        <span v-if="run.paused" class="pz" data-testid="onto-case-paused">멈춤</span>
+        <span class="sp" />
+        <button v-if="run.controls.pause" class="pill press" :disabled="!!busy" data-testid="onto-case-pause" @click="pause">멈추기</button>
+        <button v-if="run.controls.resume" class="pill go press" :disabled="!!busy" data-testid="onto-case-resume" @click="resume">이어 가기</button>
+      </div>
+      <small class="hint">{{ run.mode === 'hitl' ? '단계마다 「다음은 ○○예요 — 진행할까요?」라고 물어요.' : '저절로 진행해요. 사람이 책임지는 단계와 되돌릴 수 없는 단계에서만 멈춰 물어요.' }}</small>
+
+      <!-- 사람을 기다리는 단계 -->
+      <div v-if="waiting" class="wait" data-testid="onto-case-waiting" :data-task="waiting.task" :data-why="waiting.why.join(',')">
+        <b v-if="outward">「{{ waiting.task }}」 초안을 만들었어요 — 회사 밖으로 나가요. 보낼까요?</b>
+        <b v-else-if="waiting.why.includes('paused')">「{{ waiting.task }}」 차례인데 건이 멈춰 있어요.</b>
+        <b v-else-if="waiting.why.includes('hitl')">다음은 「{{ waiting.task }}」{{ IEYO(waiting.task) }} — 진행할까요?</b>
+        <b v-else>「{{ waiting.task }}」{{ EUL(waiting.task) }} 하기 전에 사람이 정해야 해요.</b>
+        <ul class="why"><li v-for="(w, i) in waiting.whyText" :key="i">{{ w }}</li></ul>
+        <p v-if="waiting.proposal?.why && !outward" class="prop" data-testid="onto-case-proposal">
+          <span class="cap">{{ waiting.proposal.from }}에서</span> {{ waiting.proposal.why }}<template v-if="waiting.proposal.p != null && waiting.proposal.split"> · {{ pct(waiting.proposal.p) }}</template>
+        </p>
+        <div v-if="waiting.preview" class="pv" data-testid="onto-case-preview">
+          <small v-if="waiting.preview.to">받는 사람 · {{ waiting.preview.to }}</small>
+          <small v-if="waiting.preview.subject">제목 · {{ waiting.preview.subject }}</small>
+          <p>{{ waiting.preview.text }}</p>
+        </div>
+        <small v-if="waiting.holder && !waiting.holder.agent" class="hold">넘어갈 사람 · {{ holderText(waiting.holder) }}</small>
+        <div v-if="run.controls.mine && !waiting.why.includes('paused')" class="btns">
+          <button class="pill go press" :disabled="!!busy || run.paused" data-testid="onto-case-step-go" @click="decide('go')">{{ outward ? '보내기' : '진행' }}</button>
+          <button v-for="o in waiting.proposal?.others || []" :key="o.to" class="chip press" :disabled="!!busy || run.paused" data-testid="onto-case-step-other" :title="o.cond || ''" @click="decide('other', o.to)">{{ o.to }}<small v-if="o.p != null"> {{ pct(o.p) }}</small></button>
+          <button class="pill press" :disabled="!!busy || run.paused" data-testid="onto-case-step-stop" @click="decide('stop')">멈추기</button>
+        </div>
+        <small v-if="outward" class="stub">이 판에서는 실제 메일이 나가지 않아요 — 보낼 내용만 건에 남겨요.</small>
+      </div>
+
+      <!-- 단계 -->
+      <ol class="steps">
+        <li v-for="s in current" :key="`${s.inst}:${s.task}`" :class="s.state" data-testid="onto-case-step" :data-task="s.task" :data-state="s.state" :data-kind="s.kind">
+          <span class="dot" />
+          <div class="main">
+            <div class="row1">
+              <b class="tn">{{ s.task }}</b>
+              <span class="st">{{ stateText(s) }}</span>
+            </div>
+            <div class="row2">
+              <span class="who" data-testid="onto-case-holder">{{ holderText(s.holder) }}</span>
+              <span class="tag" :class="s.reversible ? 'rv' : 'irv'" data-testid="onto-case-reversible" :data-reversible="s.reversible ? '1' : '0'" :title="s.reversibleWhy">{{ s.reversible ? '되돌릴 수 있음' : '되돌릴 수 없음' }}</span>
+              <span v-if="s.responsible" class="tag resp" data-testid="onto-case-responsible" :title="s.responsibleWhy.join(' · ')">책임 단계</span>
+              <span v-if="s.policy === 'auto'" class="tag" title="되돌릴 수 없어도 묻지 않고 진행하기로 정했어요">묻지 않고 진행</span>
+              <span v-if="s.state === 'waiting'" class="tag wt">{{ s.why.map((w) => WAIT_KO[w] || w).join(' · ') }}</span>
+            </div>
+            <small v-if="s.result" class="res">{{ s.result }}</small>
+            <small v-if="s.sent" class="sent" data-testid="onto-case-sent">보낸 것으로 기록 · {{ s.sent.to || '받는 사람' }} · {{ s.sent.subject }} (실제로는 보내지 않았어요)</small>
+          </div>
+          <button v-if="canRewind(s)" class="lnk press" :disabled="!!busy" data-testid="onto-case-rewind" @click="rewind(s.task)">이 단계로 되감기</button>
+        </li>
+      </ol>
+      <div v-if="ask" class="ask" data-testid="onto-case-rewind-ask">
+        <b>「{{ ask.task }}」{{ RO(ask.task) }} 되감을까요?</b>
+        <small>이미 회사 밖으로 보낸 「{{ ask.lost.join('」 · 「') }}」{{ EUL(ask.lost.at(-1)) }} 되돌아오지 않아요. 다시 그 단계를 지나면 한 번 더 보내게 돼요.</small>
+        <small v-if="ask.redo.length">다시 하는 일 · {{ ask.redo.join(' · ') }}</small>
+        <div class="btns">
+          <button class="pill press" :disabled="!!busy" @click="ask = null">그만두기</button>
+          <button class="pill go press" :disabled="!!busy" data-testid="onto-case-rewind-confirm" @click="rewind(ask.task, true)">그래도 되감기</button>
+        </div>
+      </div>
+      <div v-if="older.length" class="old">
+        <button class="lnk press" :aria-expanded="showOld" data-testid="onto-case-older" @click="showOld = !showOld">앞선 진행 {{ older.length }}단계 {{ showOld ? '접기' : '보기' }}</button>
+        <ol v-if="showOld" class="steps dim">
+          <li v-for="(s, i) in older" :key="`${s.inst}:${s.task}:${i}`" :class="s.state">
+            <span class="dot" />
+            <div class="main">
+              <div class="row1"><b class="tn">{{ s.task }}</b><span class="st">{{ STEP_KO[s.state] || s.state }}<template v-if="s.at"> · {{ dateTimeKo(s.at) }}</template></span></div>
+              <small v-if="s.sent" class="sent">보낸 것으로 기록 · {{ s.sent.to }} (실제로는 보내지 않았어요)</small>
+            </div>
+          </li>
+        </ol>
+      </div>
+      <small v-if="note" class="ok" data-testid="onto-case-note">{{ note }}</small>
+    </template>
+    <small v-if="err" class="err">{{ err }}</small>
+  </div>
+</template>
+
+<style scoped>
+.cr { display: flex; flex-direction: column; gap: 8px; min-width: 0; word-break: keep-all; overflow-wrap: anywhere; }
+.muted { margin: 0; font-size: 13.5px; color: var(--text-secondary); }
+.top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sp { flex: 1; }
+.mode { padding: 3px 11px; border-radius: 9999px; background: var(--ink); color: var(--ink-inverse); font-size: 13px; font-weight: 600; }
+.pz { padding: 3px 10px; border-radius: 9999px; background: color-mix(in srgb, var(--color-warning, #b26a00) 18%, transparent); color: var(--text-primary); font-size: 12.5px; font-weight: 600; }
+.hint { font-size: 12px; color: var(--text-tertiary); line-height: 1.45; }
+.pill { height: 32px; padding: 0 14px; border-radius: 9999px; font-size: 13.5px; font-weight: 500; background: var(--field-bg); color: var(--text-primary); }
+.pill.go { background: var(--ink); color: var(--ink-inverse); font-weight: 600; }
+.pill:disabled, .chip:disabled { opacity: .5; cursor: default; }
+.chip { height: 30px; padding: 0 12px; border-radius: 9999px; background: var(--field-bg); font-size: 13px; box-shadow: inset 0 0 0 1px var(--hairline); }
+.chip small { color: var(--text-secondary); }
+.wait { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; background: var(--bubble-agent-bg); box-shadow: inset 0 0 0 1px var(--hairline); }
+.wait b { font-size: 14.5px; font-weight: 600; line-height: 1.45; }
+.why { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+.prop { margin: 0; font-size: 13px; line-height: 1.5; }
+.cap { color: var(--text-tertiary); font-size: 12px; margin-right: 2px; }
+.pv { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--field-bg); }
+.pv small { font-size: 12px; color: var(--text-secondary); }
+.pv p { margin: 4px 0 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; max-height: 9.5em; overflow: auto; }
+.hold { font-size: 12.5px; color: var(--text-secondary); }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.stub { font-size: 12px; color: var(--text-tertiary); }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.steps li { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.row1 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.tn { font-size: 14px; font-weight: 600; }
+.st { font-size: 12.5px; color: var(--text-secondary); }
+.row2 { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.who { font-size: 12.5px; color: var(--text-secondary); margin-right: 2px; }
+.tag { font-size: 11.5px; padding: 1px 8px; border-radius: 9999px; background: var(--field-bg); color: var(--text-secondary); }
+.tag.irv { background: color-mix(in srgb, var(--color-error) 14%, transparent); color: var(--text-primary); }
+.tag.resp { background: color-mix(in srgb, var(--color-info) 16%, transparent); color: var(--text-primary); }
+.tag.wt { background: color-mix(in srgb, var(--color-warning, #b26a00) 18%, transparent); color: var(--text-primary); }
+.res { font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
+.sent { font-size: 12px; color: var(--text-tertiary); }
+.dot { flex: none; margin-top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); }
+li.done .dot { background: var(--color-success); }
+li.running .dot { background: var(--color-info); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-info) 22%, transparent); }
+li.person .dot { background: var(--text-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-primary) 15%, transparent); }
+li.waiting .dot { background: var(--color-warning, #b26a00); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning, #b26a00) 22%, transparent); }
+li.next .tn, li.closed .tn { color: var(--text-tertiary); font-weight: 500; }
+.lnk { flex: none; font-size: 12.5px; color: var(--color-info); }
+.lnk:disabled { opacity: .5; }
+.ask { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--field-bg); }
+.ask b { font-size: 14px; }
+.ask small { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+.old { display: flex; flex-direction: column; gap: 6px; }
+.old .lnk { align-self: flex-start; }
+.dim { opacity: .75; }
+.ok { font-size: 12.5px; color: var(--color-success); }
+.err { font-size: 12.5px; color: var(--color-error); }
+</style>

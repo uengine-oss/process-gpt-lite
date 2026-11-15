@@ -203,7 +203,7 @@ function flattenOutput(t) {
 }
 
 export async function myTodos(me) {
-  return q(
+  const rows = await q(
     `select t.id, t.proc_inst_id, t.proc_def_id, t.activity_id, t.activity_name, t.status, t.start_date, t.due_date, t.description,
             i.proc_inst_name, d.name as def_name
      from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id
@@ -214,6 +214,9 @@ export async function myTodos(me) {
        and (coalesce(t.agent_orch,'') = '' or upper(coalesce(t.agent_mode::text,'')) = 'DRAFT')
        and (t.user_id like '%'||$2||'%' or t.user_id like '%'||$3||'%')
      order by t.start_date desc nulls last limit 20`, [T(), me.email, me.id])
+  // a map process's step still waiting for its owner's 「진행」(lib/ontology/runmode.js) is not on anyone's list yet
+  const held = await import('./ontology/runmode.js').then((m) => m.heldTodos(rows.map((t) => t.id))).catch(() => new Set())
+  return held.size ? rows.filter((t) => !held.has(String(t.id))) : rows
 }
 
 export async function getTodo(todoId) {

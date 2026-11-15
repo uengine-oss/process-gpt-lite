@@ -23,6 +23,7 @@ import FollowupCard from './FollowupCard.vue'
 import OntoSummaryCard from './ontology/OntoSummaryCard.vue'
 import OntoEntryCard from './ontology/OntoEntryCard.vue'
 import OntoHabitCard from './ontology/OntoHabitCard.vue'
+import OntoStepCard from './ontology/OntoStepCard.vue'
 import OntoHabitShareCard from './ontology/OntoHabitShareCard.vue'
 import OntoTimerAskCard from './ontology/OntoTimerAskCard.vue'
 import { useRouter } from 'vue-router'
@@ -116,6 +117,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <OntoSummaryCard v-else-if="msg.kind === 'onto-summary'" :msg="msg" />
     <OntoEntryCard v-else-if="msg.kind === 'onto-entry'" :msg="msg" />
     <OntoHabitCard v-else-if="msg.kind === 'onto-habit'" :msg="msg" />
+    <OntoStepCard v-else-if="msg.kind === 'onto-step'" :msg="msg" />
     <OntoHabitShareCard v-else-if="msg.kind === 'habit-share'" :msg="msg" />
     <OntoTimerAskCard v-else-if="msg.kind === 'onto-timer'" :msg="msg" />
     <BriefCard v-else-if="msg.kind === 'brief'" :msg="msg" />

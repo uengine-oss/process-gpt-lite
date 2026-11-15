@@ -12,6 +12,8 @@ const jong = (w) => {
 export const RO = (w) => (jong(w) && jong(w) !== 8 ? '으로' : '로')
 export const EUL = (w) => (jong(w) ? '을' : '를')
 export const EUN = (w) => (jong(w) ? '은' : '는')
+// 「강의계획서 작성」이에요 · 「고객 회신」이에요 · 「강의 준비」예요
+export const IEYO = (w) => (jong(w) ? '이에요' : '예요')
 
 // 효력일: 오늘(또는 비어 있음)이면 「지금부터」(보내지 않음), 다른 날이면 그날 0시(이 기기 시간)
 export const today = () => ymd(new Date())
@@ -37,4 +39,16 @@ export const AUTONOMY_KO = { draft: '초안까지', review: '검토 받고', aut
 export const local = {
   get(k) { try { return JSON.parse(localStorage.getItem(`onto:${k}`) || 'null') } catch { return null } },
   set(k, v) { try { localStorage.setItem(`onto:${k}`, JSON.stringify(v)) } catch { /* private window */ } },
+}
+
+// 실행 방식(server lib/ontology/runmode.js)
+export const RUNMODE_KO = { hotl: '사람이 지켜봄(자동 진행)', hitl: '단계마다 사람이 정함' }
+export const STEP_KO = { done: '끝남', running: '에이전트가 하는 중', person: '사람 차례', waiting: '사람을 기다림', next: '다음', closed: '닫힘' }
+export const WAIT_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계' }
+// 맡은 이: 업무 에이전트, 또는 역할 · 사람(사람 단계의 초안은 에이전트가 먼저)
+export const holderText = (h) => {
+  if (!h) return ''
+  if (h.agent) return '업무 에이전트'
+  const who = [h.role, (h.names || []).join(', ')].filter(Boolean).join(' · ')
+  return `${who || '담당자'}${h.draft ? ' · 에이전트가 초안' : ''}`
 }

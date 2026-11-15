@@ -8,6 +8,7 @@ import { useRouter } from 'vue-router'
 import { api } from '../../api.js'
 import { pct, dateTimeKo } from './fmt.js'
 import BpmnView from '../BpmnView.vue'
+import OntoCaseRun from './OntoCaseRun.vue'
 import { TODO_KO, RO } from './ontoText.js'
 
 const props = defineProps({ caseId: { type: String, required: true }, tasks: { type: Array, default: null }, bpmnHeight: { type: Number, default: 300 }, hideHeader: Boolean })
@@ -26,7 +27,7 @@ const trig = computed(() => c.value?.trigger || {})
 const odds = computed(() => c.value?.entry_odds || null)
 const history = computed(() => c.value?.history || [])
 const skipped = computed(() => history.value.filter((h) => h.state === 'skipped'))
-const moves = computed(() => history.value.filter((h) => h.state === 'moved'))
+const moves = computed(() => history.value.filter((h) => h.state === 'moved' || h.state === 'rewound'))
 const curInst = computed(() => (c.value?.instances || []).at(-1) || null)
 const curInfo = computed(() => (c.value?.instancesInfo || []).find((i) => i.proc_inst_id === curInst.value) || null)
 const defId = computed(() => curInfo.value?.proc_def_id || (c.value?.snapshots || []).at(-1) || '')
@@ -87,6 +88,12 @@ defineExpose({ reload: load })
         <small class="sub"><template v-if="trig.from">{{ trig.from }} · </template>{{ startedHow }}<template v-if="c.created_at"> · {{ dateTimeKo(c.created_at) }}</template></small>
       </header>
 
+      <!-- 진행(실행 방식 · 단계마다 맡은 이 · 기다림 · 멈추기 · 되감기) -->
+      <div class="sec">
+        <h4>진행</h4>
+        <OntoCaseRun :case-id="caseId" @changed="load" />
+      </div>
+
       <!-- 시작 결정 -->
       <div class="sec">
         <h4>시작한 일</h4>
@@ -107,10 +114,10 @@ defineExpose({ reload: load })
 
       <!-- 옮긴 일 -->
       <div v-if="moves.length" class="sec">
-        <h4>옮긴 일</h4>
+        <h4>옮기거나 되감은 일</h4>
         <ol class="moves">
           <li v-for="(m, i) in moves" :key="i" data-testid="onto-case-move">
-            <b>→ {{ m.task }}</b>
+            <b>{{ m.state === 'rewound' ? '↺' : '→' }} {{ m.task }}</b>
             <small>{{ dateTimeKo(m.at) }}<template v-if="m.reason"> · {{ m.reason }}</template></small>
           </li>
         </ol>

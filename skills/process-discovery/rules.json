@@ -252,5 +252,32 @@
       "model": "claude-fable-5-2",
       "fallback": "gateway"
     }
+  },
+  "runMode": {
+    "default": "hotl",
+    "irreversible": {
+      "minRecords": 2,
+      "outwardShare": 0.6,
+      "words": [
+        "회신",
+        "답장",
+        "발송",
+        "송부",
+        "제출",
+        "납부",
+        "신고",
+        "이체",
+        "송금",
+        "입금",
+        "청구",
+        "계약 체결",
+        "게시",
+        "공지 발송"
+      ]
+    },
+    "draft": {
+      "timeoutMs": 120000,
+      "textChars": 2500
+    }
   }
 }

@@ -19,7 +19,7 @@ import { judge } from './judge.js'
 
 const T = () => config.tenantId
 export const END = '__end__'
-export const OPS = ['reverse_edge', 'remove_edge', 'add_edge', 'rename_task', 'merge_task', 'add_task', 'remove_task']
+export const OPS = ['reverse_edge', 'remove_edge', 'add_edge', 'rename_task', 'merge_task', 'add_task', 'remove_task', 'set_role']
 export const KINDS = ['order', 'mixed', 'artifact', 'missing']
 export const CLASSES = ['gate', 'human', 'ai', 'drop', 'skipped', 'none']
 export const CLASS_KO = { gate: '꼭 하는 관문', human: '사람이 꼭', ai: 'AI가 맡음', drop: '걷어냄', skipped: '건너뛰었지만 해야 함', none: '그대로' }
@@ -49,6 +49,8 @@ export function normFix(x) {
   if (op === 'rename_task') { const args = { task: word(a.task), name: word(a.name) }; return need(args.task, args.name) ? { op, args } : null }
   if (op === 'merge_task') { const args = { task: word(a.task), into: word(a.into) }; return need(args.task, args.into) ? { op, args } : null }
   if (op === 'remove_task') { const args = { task: word(a.task) }; return need(args.task) ? { op, args } : null }
+  // 맡는 역할 바로잡기: 지도가 기록에서 고른 역할이 틀렸을 때(그 일을 실제로 맡는 역할로)
+  if (op === 'set_role') { const args = { task: word(a.task), role: word(a.role) }; return need(args.task, args.role) ? { op, args } : null }
   const args = { name: word(a.name), role: word(a.role) }
   if (word(a.after)) args.after = word(a.after)
   if (word(a.before)) args.before = endOf(a.before)
@@ -64,6 +66,7 @@ export function labelOf({ op, args: a = {} }) {
     case 'rename_task': return `「${a.task}」${eul(a.task)} 「${a.name}」${ro(a.name)} 이름 바꿈`
     case 'merge_task': return `「${a.task}」${eul(a.task)} 「${a.into}」에 합침`
     case 'remove_task': return `「${a.task}」${eul(a.task)} 이 프로세스에서 뺌`
+    case 'set_role': return `「${a.task}」의 맡는 역할을 「${a.role}」${ro(a.role)} 바꿈`
     case 'add_task': {
       const it = `「${a.name}」${a.role ? `(${a.role})` : ''}`
       if (a.after && a.before) return `「${a.after}」${gwa(a.after)} 「${shown(a.before)}」 사이에 ${it} 더함`
@@ -153,6 +156,12 @@ export function applyCorrections(found, corrections = []) {
         for (const i of ins) for (const o of outs) if (i.from !== o.to && !find(i.from, o.to)) add(i.from, o.to, Math.min(i.n, o.n))
         return ''
       }
+      case 'set_role': {
+        if (!isTask(a.task)) return '그 일이 없어요.'
+        if (tasks.get(a.task).role === a.role) return '이미 그 역할이에요.'
+        tasks.get(a.task).role = a.role
+        return ''
+      }
       case 'add_task': {
         if (!a.name || a.name === END || isTask(a.name)) return '그 이름의 일이 이미 있어요.'
         if (a.after && !isTask(a.after)) return `「${a.after}」${iga(a.after)} 없어요.`
@@ -205,6 +214,39 @@ export function applyCorrections(found, corrections = []) {
     },
     origin, skipped,
   }
+}
+
+// The refined flow as a case runs it (run.js procGraph → snapshot · start task · run mode): {proc, tasks: Map, edges, all} in,
+// the same shape out, with the corrections laid on the found flow. A task keeps its map node (definition, pins, numbers) under
+// its new name; a step a person added is the company's work of that name when the map has it in another process (its
+// definition and records), else a bare step. A way keeps what the map knows of it (status, pins, parallel, condition) with the
+// refined share; a way the corrections made is one a person decided — `decided`, in the snapshot whatever θ. The starts are
+// the steps nothing leads into, then the found starts still there.
+export function refinedView(base, corrections) {
+  const found = {
+    tasks: [...base.tasks.values()].map((t) => ({ key: t.key, role: t.role || '', n: t.n || 0 })),
+    edges: base.edges.filter((e) => e.status !== 'retired').map((e) => ({ from: e.from, to: e.to, n: e.n || 0, p: e.p || 0 })),
+  }
+  const r = applyCorrections(found, corrections)
+  const global = new Map((base.all?.tasks || []).map((t) => [t.key, t]))
+  const tasks = new Map()
+  for (const t of r.tasks) {
+    const origin = r.origin[t.key] || null
+    const node = origin ? base.tasks.get(origin) : global.get(t.key)
+    tasks.set(t.key, { ...(node || { status: 'active' }), key: t.key, role: t.role || node?.role || '', n: t.n, origin, ...(origin ? {} : { added: true }) })
+  }
+  const keyOf = (k) => (k === END ? END : r.origin[k] || k)
+  const was = new Map(base.edges.map((e) => [`${e.from}\u0000${e.to}`, e]))
+  const edges = r.edges.map((e) => {
+    const w = was.get(`${keyOf(e.from)}\u0000${keyOf(e.to)}`)
+    if (w && !e.added) return { ...w, from: e.from, to: e.to, n: e.n, p: e.p }
+    return { from: e.from, to: e.to, n: e.n, p: e.p, status: 'active', decided: true, parallel: !!w?.parallel, cond: w?.cond || '' }
+  })
+  const into = new Set(r.edges.filter((e) => e.to !== END && e.from !== e.to).map((e) => e.to))
+  const heads = r.tasks.filter((t) => !into.has(t.key)).sort((a, b) => (b.n || 0) - (a.n || 0)).map((t) => t.key)
+  const renamed = (k) => Object.keys(r.origin).find((x) => r.origin[x] === k) || k
+  const entries = [...new Set([...heads, ...(base.proc.entries || []).map(renamed).filter((k) => tasks.has(k))])]
+  return { proc: { ...base.proc, tasks: [...tasks.keys()], entries }, tasks, edges, all: base.all, refined: { corrections: corrections.length, removed: r.removed, skipped: r.skipped } }
 }
 
 // why a correction would not apply on top of the others ('' when it would)

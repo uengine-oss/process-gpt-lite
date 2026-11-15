@@ -171,6 +171,7 @@ async function init() {
   if (status.value.mail?.status === 'running') return followMail(status.value.mail.id)
   if (status.value.build?.status === 'running') return followJob(status.value.build.id)
   try { await loadMap() } catch (e) { err.value = e.message; phase.value = 'error' }
+  loadRunModes()
 }
 async function retry() {
   busy.value = 'retry'
@@ -288,6 +289,28 @@ async function setTimer(key, st) {
   busy.value = 'timer'
   try { await call(`/ontology/timers/${encodeURIComponent(key)}`, { method: 'PUT', body: { status: st } }); await loadMap() } catch (e) { timerMsg.value = e.message } finally { busy.value = '' }
 }
+// 실행 방식(lib/ontology/runmode.js): 제안 · 자동이 된 프로세스의 건이 돌 때 사람이 어디서 끼는가. 단계마다 그때 읽으므로 바꾸면 돌던
+// 건의 다음 단계부터 바뀌고, 다시 바꾸면 돌아가요. 바꾼 것은 결정 기록에 남아요(관리자만).
+const RUNMODES = [
+  { key: 'hotl', ko: '사람이 지켜봄(자동 진행)', tip: '일이 오면 저절로 진행해요. 사람이 책임지는 단계와 되돌릴 수 없는 단계(회사 밖으로 나가는 일)에서만 멈춰 물어요. 지켜보다가 언제든 멈출 수 있어요.' },
+  { key: 'hitl', ko: '단계마다 사람이 정함', tip: '단계마다 「다음은 ○○예요 — 진행할까요?」라고 물어요. 진행 · 다른 갈래 · 멈추기 가운데 골라요.' },
+]
+const runModes = ref(null)
+const runModeMsg = ref('')
+const runMode = computed(() => (proc.value && runModes.value ? runModes.value.modes?.[proc.value.key] || runModes.value.default || 'hotl' : 'hotl'))
+const runModeOwn = computed(() => !!(proc.value && runModes.value?.modes?.[proc.value.key]))
+async function loadRunModes() { try { runModes.value = await call('/ontology/run-mode') } catch { runModes.value = null } }
+watch(procKey, () => { runModeMsg.value = '' })
+async function setRunMode(m) {
+  if (!proc.value) return
+  busy.value = 'runmode'; runModeMsg.value = ''
+  try {
+    const r = await call('/ontology/processes/run-mode', { method: 'POST', body: { key: proc.value.key, mode: m, name: proc.value.name } })
+    await loadRunModes()
+    const ko = RUNMODES.find((x) => x.key === m)?.ko || m
+    runModeMsg.value = `「${ko}」으로 바꿨어요. 진행 중인 건은 다음 단계부터 이 방식으로 가요.${r.released ? ` 확인을 기다리던 단계 ${r.released}개는 이어서 진행해요.` : ''}${proc.value.status === 'paused' ? ' 지금은 「관찰」 단계라 건이 시작되지 않아요 — 「제안」이나 「자동」일 때 쓰여요.' : ''}`
+  } catch (e) { err.value = e.message } finally { busy.value = '' }
+}
 async function adopt(status) {
   if (!proc.value) return
   busy.value = 'adopt'
@@ -394,6 +417,11 @@ onBeforeUnmount(() => {
             <button v-for="st in LADDER" :key="st.key" class="press" :class="{ on: proc.status === st.key }" :disabled="!status?.admin || !!busy || proc.status === st.key"
               :title="st.tip" :data-testid="`onto-ladder-${st.key}`" @click="adopt(st.key)">{{ st.ko }}</button>
           </div>
+          <!-- 실행 방식: 사람이 지켜봄(자동 진행) · 단계마다 사람이 정함 — 제안 · 자동인 프로세스의 건이 돌 때 -->
+          <div v-if="proc && !isRoutine && runModes" class="ladder glass runmode" role="group" aria-label="이 프로세스의 실행 방식" data-testid="onto-runmode" :data-mode="runMode" :data-own="runModeOwn ? '1' : '0'">
+            <button v-for="m in RUNMODES" :key="m.key" class="press" :class="{ on: runMode === m.key }" :disabled="!status?.admin || !!busy || runMode === m.key"
+              :title="`${m.tip}${runModeOwn ? '' : ' (지금은 회사 기본값을 따라요)'}`" :data-testid="`onto-runmode-${m.key}`" @click="setRunMode(m.key)">{{ m.ko }}</button>
+          </div>
           <button v-if="proc && !isRoutine && status?.admin" class="hbtn glass press" :class="{ on: timerOpen }" data-testid="onto-timer-button" @click="timerOpen = !timerOpen">타이머</button>
           <!-- 온보딩 다시: 새로 온 메일과, 스킬이 바뀐 뒤 아직 그 판으로 읽지 않은 스레드만 읽고 지도를 다시 그린다 -->
           <button class="hbtn glass press" data-testid="onto-reread" :disabled="!!busy || rebuilding" title="새로 온 메일과, 스킬이 바뀐 뒤 아직 읽지 않은 스레드만 읽어요" @click="startMail">
@@ -451,6 +479,7 @@ onBeforeUnmount(() => {
       </div>
 
       <p v-if="err" class="err">{{ err }}</p>
+      <p v-if="runModeMsg && phase === 'map'" class="rmnote" data-testid="onto-runmode-note">{{ runModeMsg }}</p>
 
       <p v-if="phase === 'loading'" class="loading pulse">불러오는 중…</p>
       <FirstRun v-else-if="phase !== 'map'" :phase="phase" :job="phase === 'build' ? job || status?.build : job" :busy="busy === 'mail' || busy === 'retry'" :note="note" @start="startMail" @retry="retry" />
@@ -577,6 +606,8 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .ladder button { border: 0; background: none; border-radius: 16px; padding: 0 13px; font-size: 13.5px; color: var(--text-secondary); }
 .ladder button.on { background: var(--ink); color: var(--text-primary-on); }
 .ladder button:disabled:not(.on) { opacity: .55; }
+.runmode button { padding: 0 12px; }
+.rmnote { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); line-height: 1.5; overflow-wrap: anywhere; word-break: keep-all; }
 .timers { display: flex; flex-direction: column; gap: 10px; }
 .timers label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
 .timers select { height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text-primary); padding: 0 8px; }
