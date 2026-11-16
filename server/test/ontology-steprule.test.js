@@ -2,7 +2,7 @@
 // 꼭 하는 단계는 스냅샷에 늘, 건너뛴 단계로 되감기, 꼭 하는 단계를 지나치는 옮기기. 모델 · DB 없이(글 조건의 확률은 넣어 준다).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normRule, ruleText, won, amountMatch, pickRequirement, reqLine, suggestionOf, requiredView, pathBetween, passedRequired, settingLines, needText, skipReason } from '../lib/ontology/steprule.js'
+import { normRule, ruleText, won, amountMatch, pickRequirement, reqLine, suggestionOf, throughOf, requiredView, pathBetween, passedRequired, settingLines, needText, skipReason } from '../lib/ontology/steprule.js'
 import { decideStep, rewindCheck, stepState, whyLines } from '../lib/ontology/runmode.js'
 import { unfold } from '../lib/ontology/run.js'
 import { END } from '../lib/ontology/refine.js'
@@ -181,6 +181,37 @@ test('AI 제안: 다듬기의 단계 분류에서(새 모델 호출 없이) — 
   assert.deepEqual([s.requirement, s.by], ['required', 'person'])
   // 정하지 않았으면 AI 의 판단(ai 칸)
   assert.equal(suggestionOf({ class: 'none', decided: false, ai: { class: 'drop', why: '전달' } }, R).requirement, 'optional')
+})
+
+// 다듬기 분류가 없거나 제안이 없는 분류(사람 · AI 단계)일 때: 고정한 단계는 꼭, 이 프로세스의 지난 건이 거의 다 거친 단계는 꼭, 많이 비껴간
+// 단계는 선택(rules.stepRules.fromCases) — 지도에 이미 있는 수(HAS_TASK n · share, 프로세스 건수)만, 새 모델 호출 없이(2026-11-16)
+test('AI 제안: 고정한 단계 · 지난 건이 거친 몫(다듬기 분류가 먼저)', () => {
+  const thru = (m, n) => ({ m, n })
+  assert.deepEqual(suggestionOf(null, R, { through: thru(19, 20) }), { requirement: 'required', from: 'cases', m: 19, n: 20, why: '지난 건 20건 중 19건이 이 단계를 거쳤어요', by: 'ai' })
+  const opt = suggestionOf({ class: 'ai', why: '에이전트가 함' }, R, { through: thru(3, 8) })
+  assert.equal(opt.requirement, 'optional')
+  assert.equal(opt.why, '지난 건 8건 중 3건만 이 단계를 거쳤어요 — 5건은 이 단계 없이 지나갔어요')
+  // 문턱 사이(0.8~0.9) · 드문 단계(0.2 아래) · 건이 적으면(5건 아래) 제안 없음
+  assert.equal(suggestionOf(null, R, { through: thru(7, 8) }), null)
+  assert.equal(suggestionOf(null, R, { through: thru(1, 10) }), null)
+  assert.equal(suggestionOf(null, R, { through: thru(4, 4) }), null)
+  // 문턱은 rules.json 에서
+  assert.equal(suggestionOf(null, { ...R, fromCases: { ...R.fromCases, minCases: 3 } }, { through: thru(4, 4) }).requirement, 'required')
+  // 고정한 단계는 꼭(지난 건의 몫보다 먼저), 다듬기 분류가 제안을 말하면 그것이 먼저
+  const pin = suggestionOf(null, R, { pinned: true, pinReason: '품질 관문', through: thru(3, 8) })
+  assert.deepEqual([pin.requirement, pin.from], ['required', 'pinned'])
+  assert.match(pin.why, /고정한 단계예요\(품질 관문\)/)
+  assert.deepEqual(suggestionOf({ class: 'drop', why: '전달만 함' }, R, { pinned: true, through: thru(20, 20) }), { requirement: 'optional', class: 'drop', why: '전달만 함', by: 'ai' })
+})
+
+test('지난 건이 거친 몫: 지도의 프로세스와 맞을 때만(남은 옛 셈은 버림)', () => {
+  const proc = { tasks: ['접수', '검토', '회신'], cases: 8 }
+  assert.deepEqual(throughOf(proc, { n: 7, share: 0.875 }, '검토'), { m: 7, n: 8 })
+  assert.equal(throughOf(proc, { n: 2, share: 1 }, '검토'), null)          // 옛 셈: 2 / 1 ≠ 8건
+  assert.equal(throughOf(proc, { n: 7, share: 0.875 }, '다른 일'), null)    // 프로세스 목록에 없는 단계
+  assert.equal(throughOf(proc, { n: 0, share: 0 }, '검토'), null)
+  assert.equal(throughOf(proc, null, '검토'), null)
+  assert.equal(throughOf(null, { n: 7, share: 0.875 }, '검토'), null)
 })
 
 test('패널의 설명 줄: 꼭 · 선택 · 지도대로와 사안에 따른 규칙', () => {

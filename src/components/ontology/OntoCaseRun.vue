@@ -146,7 +146,7 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
             </div>
             <small v-if="s.skipped" class="skp" data-testid="onto-case-skipped">건너뜀 — {{ s.skipped.reason || '까닭 없음' }}</small>
             <small v-if="s.matched && s.reqLine" class="rq" data-testid="onto-case-matched">{{ s.reqLine }}</small>
-            <small v-if="s.result" class="res">{{ s.result }}</small>
+            <small v-if="s.result && !s.skipped" class="res">{{ s.result }}</small>
             <div v-if="fileOf(s)" class="made" data-testid="onto-case-file" :data-file="fileOf(s).file?.name || ''" :data-form="fileOf(s).form?.name || ''">
               <div v-if="fileOf(s).file" class="fl">
                 <b>{{ fileOf(s).file.name }}</b><small v-if="fileOf(s).draft"> · 초안</small>

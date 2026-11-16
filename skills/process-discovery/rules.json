@@ -323,6 +323,12 @@
       "skipped": "required",
       "drop": "optional"
     },
+    "fromCases": {
+      "minCases": 5,
+      "requiredAt": 0.9,
+      "optionalFrom": 0.2,
+      "optionalTo": 0.8
+    },
     "questions": {
       "need": "이 건을 끝까지 처리하려면 회사가 「{task}」({what}) 단계를 해야 하나? 지금 당장 요청한 것만이 아니라 이 건 전체를 보고, 요청한 쪽이 이미 했다거나 필요 없다고 했으면 아니요.",
       "rule": "이 건은 다음 경우에 해당하나? 「{text}」"

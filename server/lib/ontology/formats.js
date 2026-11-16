@@ -415,27 +415,63 @@ export async function formsView(me, task) {
   }
 }
 
-// the company's other forms (an admin picks one for a work whose mail showed none — a work found in chats)
+// the company's other forms (an admin picks one for a work whose mail showed none — a work found in chats). A list: no model call
+// and nothing written — a form not named yet goes by the rule's name (unnamed) and is named when a person picks it (chooseForm)
 export async function companyForms(exceptTask = '') {
   const { templatesOf } = await import('./taskdef.js')
   const tasks = (await q(`select activity_label as task, count(*)::int n from pro_mail_history where tenant_id=$1 and artifacts::text like '%"file"%' group by 1 order by 2 desc limit 30`, [T()])).map((r) => r.task).filter((t) => t !== exceptTask)
   const out = []
-  for (const t of tasks) for (const f of await templatesOf(t)) if (f.file) out.push({ task: t, name: f.name, type: f.type, seen: f.seen, lastAt: [...f.sources].sort((a, b) => new Date(b.at) - new Date(a.at))[0]?.at || null })
+  for (const t of tasks) for (const f of await templatesOf(t, { model: false })) if (f.file) out.push({ task: t, name: f.name, type: f.type, seen: f.seen, keys: f.keys, ...(f.unnamed ? { unnamed: true } : {}), lastAt: [...f.sources].sort((a, b) => new Date(b.at) - new Date(a.at))[0]?.at || null })
   return out
 }
+// our own company in the forms' file names (「유엔진_바이켐_견적서」 — the sender, not the customer): the tenant's own company name when
+// one is kept (company: the billing subscription's · the org chart's top), else a name the file names of forms of two or more
+// different works share (byTask: [{task, forms: [{name, fileNames}]}])
+export function ownNamesOf(byTask = [], company = []) {
+  if (company.length) return company
+  const seen = new Map()
+  // (each file name by itself: a form's names all start with 유엔진솔루션즈_ — customersOf of them together would drop what they share)
+  for (const { task, forms = [] } of byTask) for (const f of forms) for (const w of new Set((f.fileNames || []).flatMap((n) => customersOf([n], f.name)))) {
+    if (!seen.has(w)) seen.set(w, new Set())
+    seen.get(w).add(task)
+  }
+  return [...seen].filter(([, ts]) => ts.size >= 2).map(([w]) => w)
+}
+// (the org chart's top is named after the tenant id until a person names it; 「Globex (영문 데모)」 → also 「Globex」)
+export async function ownNames() {
+  const [b] = await q(`select company_name from pro_billing_subscriptions where tenant_id=$1`, [T()]).catch(() => [])
+  const [o] = await q(`select value->'chart'->'data'->>'name' as name from configuration where key='organization' and tenant_id=$1`, [T()]).catch(() => [])
+  const company = [...new Set([b?.company_name, o?.name !== T() ? o?.name : null].map(clean).filter(Boolean).flatMap((n) => [n, clean(n.replace(/\s*[(（][^)）]*[)）]\s*$/, ''))]).filter(Boolean))]
+  if (company.length) return company
+  const { templatesOf } = await import('./taskdef.js')
+  const tasks = (await q(`select distinct activity_label as task from pro_mail_history where tenant_id=$1 and jsonb_array_length(coalesce(artifacts,'[]'::jsonb)) > 0 limit 80`, [T()]).catch(() => [])).map((r) => r.task).filter(Boolean)
+  const byTask = []
+  for (const t of tasks) byTask.push({ task: t, forms: (await templatesOf(t, { model: false }).catch(() => [])).map((f) => ({ name: f.name, fileNames: [...new Set(f.sources.map((s) => s.name))] })) })
+  return ownNamesOf(byTask)
+}
+// a work's form by its name — or by its file-name keys (the company list shows a form not named yet by the rule's name): read without
+// the model, then the model names that one form only (and keeps the name)
+async function pickedForm(task, form, keys = null) {
+  const { templatesOf } = await import('./taskdef.js')
+  const has = (x) => Array.isArray(keys) && keys.length && x.keys?.some((k) => keys.includes(k))
+  const list = await templatesOf(task, { model: false })
+  const f = list.find((x) => has(x)) || list.find((x) => x.name === form)
+  if (!f?.unnamed) return f || null
+  return (await templatesOf(task, { model: f.keys })).find((x) => x.keys?.some((k) => f.keys.includes(k))) || null
+}
 
-export async function chooseForm(me, task, { form = null, ofTask = null } = {}) {
+export async function chooseForm(me, task, { form = null, ofTask = null, keys = null } = {}) {
   const { ledger } = await import('./review.js')
   if (!form) {
     await q(`delete from pro_form_choices where tenant_id=$1 and task=$2`, [T(), task])
     await ledger(me, 'ontology.form.choose', `양식 고르기 풀기: ${task} (가장 많이 쓴 양식으로)`, { task, form: null })
     return formsView(me, task)
   }
-  const { templatesOf } = await import('./taskdef.js')
   const from = ofTask && ofTask !== task ? ofTask : task
-  const f = (await templatesOf(from)).find((x) => x.name === form)
+  const f = await pickedForm(from, form, keys)
   if (!f) throw err(404, '그 양식을 찾지 못했어요.')
   if (!f.file) throw err(400, '그 양식은 메일에서 남겨 둔 파일이 없어 문서를 만들 수 없어요.')
+  form = f.name   // (a form the list showed by the rule's name: the name the model gave it now)
   await q(`insert into pro_form_choices (tenant_id, task, form, of_task, by_user, by_email, at) values ($1,$2,$3,$4,$5,$6,now())
            on conflict (tenant_id, task) do update set form=excluded.form, of_task=excluded.of_task, by_user=excluded.by_user, by_email=excluded.by_email, at=now()`,
   [T(), task, form, from === task ? null : from, me.id, me.email || ''])

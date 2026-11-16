@@ -4,7 +4,7 @@ export function formRoutes(r, { auth, h, admin }) {
   const F = () => import('../lib/ontology/formats.js')
   const form = (req) => String(req.body?.form ?? req.query.form ?? '')
   r.get('/ontology/tasks/:key/forms', auth, h(async (req) => (await F()).formsView(req.user, req.params.key)))
-  r.put('/ontology/tasks/:key/form', auth, h(async (req) => { await admin(req); return (await F()).chooseForm(req.user, req.params.key, { form: req.body?.form ? String(req.body.form) : null, ofTask: req.body?.ofTask ? String(req.body.ofTask) : null }) }))
+  r.put('/ontology/tasks/:key/form', auth, h(async (req) => { await admin(req); return (await F()).chooseForm(req.user, req.params.key, { form: req.body?.form ? String(req.body.form) : null, ofTask: req.body?.ofTask ? String(req.body.ofTask) : null, keys: Array.isArray(req.body?.keys) ? req.body.keys.map(String).slice(0, 12) : null }) }))
   r.get('/ontology/forms/company', auth, h(async (req) => { await admin(req); return { forms: await (await F()).companyForms(String(req.query.except || '')) } }))
   r.post('/ontology/tasks/:key/forms/open', auth, h(async (req) => (await F()).openForm(req.user, req.params.key, form(req))))
   r.get('/ontology/tasks/:key/forms/format', auth, h(async (req) => (await F()).formatView(req.user, req.params.key, form(req))))

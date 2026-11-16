@@ -72,6 +72,7 @@ watch(() => [props.taskKey, props.procKey, list.value.map((p) => p.key).join('|'
 }, { immediate: true })
 
 const procName = computed(() => d.value?.proc?.name || list.value.find((p) => p.key === proc.value)?.name || '')
+const procLabel = (p) => (p ? `${p.name}${p.refinedOnly ? ' · 다듬기에서 더한 단계' : ''}` : '')
 const sugg = computed(() => d.value?.suggestion || null)
 const dirty = computed(() => !!d.value && (req.value !== (d.value.requirement || 'auto') || JSON.stringify(rules.value) !== JSON.stringify((d.value.rules || []).map((r) => ({ when: r.when, then: r.then }))) || reason.value.trim() !== (d.value.reason || '')))
 
@@ -116,8 +117,8 @@ async function save() {
   <section v-if="proc" class="sr" data-testid="onto-steprule" :data-requirement="d?.requirement || 'auto'">
     <div class="hd">
       <h4>이 단계는</h4>
-      <select v-if="list.length > 1" v-model="proc" class="sel" aria-label="프로세스" data-testid="onto-steprule-proc">
-        <option v-for="p in list" :key="p.key" :value="p.key">{{ p.name }}{{ p.refinedOnly ? ' · 다듬기에서 더한 단계' : '' }}</option>
+      <select v-if="list.length > 1" v-model="proc" class="sel pk" aria-label="프로세스" :title="procLabel(list.find((p) => p.key === proc))" data-testid="onto-steprule-proc">
+        <option v-for="p in list" :key="p.key" :value="p.key" :title="procLabel(p)">{{ procLabel(p) }}</option>
       </select>
       <small v-else-if="procName" class="ctx">「{{ procName }}」에서</small>
     </div>
@@ -129,7 +130,7 @@ async function save() {
           <b><i v-if="c.key === 'required'" class="lock" aria-hidden="true" />{{ c.ko }}</b><small>{{ c.tip }}</small>
         </button>
       </div>
-      <p v-if="sugg" class="ai" data-testid="onto-steprule-ai" :data-suggest="sugg.requirement">
+      <p v-if="sugg" class="ai" data-testid="onto-steprule-ai" :data-suggest="sugg.requirement" :data-from="sugg.from || 'refine'">
         <span class="cap">{{ sugg.by === 'person' ? '다듬기에서 정한 분류' : 'AI 제안' }}</span> {{ REQ_KO[sugg.requirement] }}<template v-if="sugg.why"> — {{ sugg.why }}</template>
         <button v-if="admin && req !== sugg.requirement" class="lnk press" :disabled="busy" data-testid="onto-steprule-ai-apply" @click="req = sugg.requirement">이걸로</button>
       </p>
@@ -185,7 +186,9 @@ async function save() {
 
 <style scoped>
 .sr { padding: 12px; border-radius: 16px; background: var(--cell-bg); min-width: 0; display: flex; flex-direction: column; gap: 10px; word-break: keep-all; overflow-wrap: anywhere; }
-.hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hd { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; }
+/* 프로세스 고르기: 제목 아래 한 줄을 다 쓰고, 긴 이름은 … 로 줄인다(전체 이름은 title) */
+.sel.pk { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
 .ctx { font-size: 12px; color: var(--text-tertiary); }
 .muted { margin: 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }

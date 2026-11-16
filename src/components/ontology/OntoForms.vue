@@ -34,10 +34,12 @@ const shown = computed(() => (all.value ? forms.value : forms.value.slice(0, 3))
 const kindOf = (t) => ({ xlsx: 'xls', docx: 'doc', hwpx: 'hwp', pptx: 'ppt' }[t] || 'etc')
 const BY_KO = { person: '관리자가 골랐어요', definition: '일 정의의 「내놓는 것」에 적혀 있어요', auto: '메일에 가장 많이 오간, 파일이 있는 양식이에요' }
 
-async function choose(form, ofTask = null) {
+// keys: a company form's file-name keys (one not named yet is listed by the rule's name — the server names it as it is picked)
+async function choose(form, ofTask = null, keys = null) {
   busy.value = `c:${form || ''}`; err.value = ''; note.value = ''
   try {
-    v.value = await api(`${base()}/form`, { method: 'PUT', body: { form, ofTask } })
+    v.value = await api(`${base()}/form`, { method: 'PUT', body: { form, ofTask, ...(keys ? { keys } : {}) } })
+    if (form && v.value?.chosen?.name) form = v.value.chosen.name
     note.value = form ? `「${form}」${ofTask ? `(「${ofTask}」의 양식)` : ''}을 이 일이 쓰는 양식으로 정했어요. 다음에 문서를 만들 때부터 이 양식에서 시작해요.` : '고르기를 풀었어요. 가장 많이 쓴 양식을 써요.'
     others.value = null
     emit('changed', { kind: 'form', key: props.taskKey, form })
@@ -107,8 +109,8 @@ const openLoad = (f) => () => api(`${base()}/forms/open`, { method: 'POST', body
         <div v-else class="others" data-testid="onto-form-others-list">
           <small class="cap">회사의 다른 양식(메일에서 남겨 둔 파일이 있는 것)</small>
           <p v-if="!others.length" class="muted">고를 수 있는 양식이 없어요.</p>
-          <button v-for="o in others" :key="`${o.task}:${o.name}`" class="chip press" :disabled="!!busy" @click="choose(o.name, o.task)">
-            {{ o.name }} <small>· {{ o.task }} · 메일 {{ o.seen }}번</small>
+          <button v-for="o in others" :key="`${o.task}:${o.name}`" class="chip press" :disabled="!!busy" :data-unnamed="o.unnamed ? '1' : '0'" :title="o.unnamed ? '파일 이름으로 부른 임시 이름이에요. 고르면 그때 이름을 붙여요.' : undefined" @click="choose(o.name, o.task, o.keys)">
+            {{ o.name }} <small>· {{ o.task }} · 메일 {{ o.seen }}번<template v-if="o.unnamed"> · 임시 이름</template></small>
           </button>
           <button class="lnk press" @click="others = null">닫기</button>
         </div>

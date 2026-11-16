@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import JSZip from 'jszip'
-import { paragraphsOf, clean, commonPattern, customersOf } from './formats.js'
+import { paragraphsOf, clean, commonPattern, customersOf, docFacts } from './formats.js'
 
 const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const SPEC = {
@@ -63,6 +63,8 @@ export async function docParagraphs(buf, kind, { max = 400, chars = 400, must } 
 // ---------- 앞 건의 값: a form file is the company's last case as it was sent — its customer's · people's names, dates and amounts ----------
 const DATE = /(?:\d{4}|\d{2})\s*[.\-/년]\s*\d{1,2}\s*[.\-/월]\s*\d{1,2}\s*일?/g
 const squash = (s) => String(s || '').replace(/\s+/g, '')
+// a company's name to compare (유엔진㈜ · (주)유엔진 · 주식회사 유엔진 · uEngine → one)
+export const coName = (s) => squash(s).replace(/㈜|\(주\)|（주）|주식회사/g, '').toLowerCase()
 const blankish = (s) => !/[\p{L}\p{N}]/u.test(s) || /_{3,}|□|☐|■|○○/.test(s)
 const LABELS = '기업명|회사명|업체명|고객명|고객사|기관명|대상기업|기업|회사|기관|학교|학과|대표자|설립|설립일|팀명|팀원|팀|담당자|작성자|요청자|신청자|진행자|기록자|응대자|성명|이름|작성일|제출일|요청일|방문일|일시|날짜|일자|기간|금액|합계|총액|과제명|프로젝트명|건명|사업명|강의명|과목명'
 // labels whose value is a case's own name even when it reads like plain words (과제명(잠정) | 물류 최적화)
@@ -82,8 +84,11 @@ function diffRuns(t, o) {
 // strings of the form file that belong to its own case, rule first: the customer part of the names the company gave the form's files and
 // of the template file's own name · what differs from the form's other kept files at the same place · a value next to a case label
 // (팀 명 | 1팀 · 작성일: 26.11.05) · a full date on the frame. Only what the template has, not what this case's request says too, and
-// (with other files) not what every file of the form has. lines: the template's paragraphs [{text, part, cell}]; others: docFacts.
-export function sourceCaseStrings({ form = '', templateName = '', lines = [], others = [], fileNames = [], caseText = '', R = {} } = {}) {
+// (with other files) not what every file of the form has. lines: the template's paragraphs [{text, part, cell}]; others: docFacts;
+// own: our own company's names (formats.js ownNames — a file name's sender, the 업체명 beside our quote: never the last case's);
+// sheet: a workbook's cells (xlsxLines) — a table's heading row reads like 「label | word」, so there a plain word beside a label is a
+// value only under a name · person label.
+export function sourceCaseStrings({ form = '', templateName = '', lines = [], others = [], fileNames = [], caseText = '', own = [], sheet = false, R = {} } = {}) {
   const label = new RegExp(`^[가-힣]{0,4}(?:${R.caseLabels || LABELS})$`)
   const generic = new RegExp(R.genericNames || GENERIC, 'i')
   const maxChars = R.caseValueChars || 40
@@ -92,9 +97,10 @@ export function sourceCaseStrings({ form = '', templateName = '', lines = [], ot
   const formStem = squash(String(form).replace(/\.[a-z0-9]+$/i, ''))
   const caseT = clean(caseText)
   const out = new Map()
+  const ours = new Set(own.map(coName).filter(Boolean))
   const add = (t, why) => {
     const s = clean(t).replace(/^[\s|·:：,;()[\]「」'"-]+|[\s|·:：,;([「'"-]+$/g, '')
-    if (s.length < 2 || s.length > maxChars || blankish(s) || out.has(s) || /^\d{1,3}$/.test(s)) return
+    if (s.length < 2 || s.length > maxChars || blankish(s) || out.has(s) || /^\d{1,3}$/.test(s) || ours.has(coName(s))) return
     if (generic.test(s) || formStem.includes(squash(s)) || !all.includes(s) || caseT.includes(s)) return
     if (otherTexts.length && otherTexts.every((o) => o.includes(s))) return
     out.set(s, why)
@@ -106,8 +112,9 @@ export function sourceCaseStrings({ form = '', templateName = '', lines = [], ot
   // a value, not a column heading beside another: a number or date, a company mark, a name the rules found, a short name-like word
   // (김현석 · 한빛정밀), or anything short under a name label
   const nameRule = () => [...out].filter(([, w]) => w === 'name').map(([t]) => t)
+  const personLabel = /(담당자|작성자|요청자|신청자|진행자|기록자|응대자|대표자|팀원)$/
   const valueLike = (v, labels) => /\d/.test(v) || /㈜|\(주\)|주식회사|\b(Inc|Co|Ltd|Corp)\b/i.test(v) || nameRule().some((n) => v.includes(n))
-    || /^[가-힣A-Za-z]{2,8}$/.test(v) || (labels.some((k) => nameLabel.test(k)) && v.length <= 24)
+    || (!sheet && /^[가-힣A-Za-z]{2,8}$/.test(v)) || (labels.some((k) => nameLabel.test(k) || (sheet && personLabel.test(k))) && v.length <= 24)
   const value = (v, lab, why) => {
     const s = clean(v)
     if (!s || isLabel(s) || blankish(s)) return
@@ -123,7 +130,7 @@ export function sourceCaseStrings({ form = '', templateName = '', lines = [], ot
     }
   }
   // 1) names: the customer part of the file names (customersOf: what is not the form's name nor shared by all of them) and of the
-  // template file's own name (forms/고모텍.docx)
+  // template file's own name (forms/고모텍.docx) — not our own company's name (「유엔진_바이켐_견적서」: 유엔진 sent it — add skips it)
   for (const w of customersOf(fileNames, form)) add(w, 'name')
   for (const w of String(templateName).replace(/\.[a-z0-9]+$/i, '').split(/[_\s()[\]·,]+/)) if (!/^[\d.\-v]+$/i.test(w) && !/^\d{2,4}(년|월|일)/.test(w)) add(w, 'name')
   // 2) what differs from the other kept files at the same place
@@ -257,7 +264,7 @@ export async function fillDocument({ template, kind, input, keep = [], ask, max 
   const parts = await readParts(zip, S)
   const lines = parts.flatMap((p) => p.paras.map((x) => ({ text: x.text, part: x.part, cell: x.cell, row: x.row, col: x.col })))
   const caseText = caseTextOf(input)
-  const rule = sourceCaseStrings({ form: template.name || input?.form || '', templateName: path.basename(template.path), lines, others: source.others || [], fileNames: source.fileNames || [], caseText, R: rules })
+  const rule = sourceCaseStrings({ form: template.name || input?.form || '', templateName: path.basename(template.path), lines, others: source.others || [], fileNames: source.fileNames || [], own: source.own || [], caseText, R: rules })
   const given = rule.map((x) => x.text)
   const holds = (p) => given.some((s) => clean(p.text).includes(s))
   const list = pickParagraphs(parts, { max, chars, empty: S.empty, must: holds })
@@ -295,6 +302,41 @@ export async function fillDocument({ template, kind, input, keep = [], ask, max 
     sourceCase: strings, sourceBy: given.length ? 'rule' : strings.length ? 'model' : null, retried,
     left: strings.filter((s) => left.some((x) => x.found.includes(s))), leftWhere: [...new Set(left.map((x) => partKo(x.part)))], leftFixed: left.some((x) => x.fixed) }
 }
+// ---------- 엑셀 양식: 칸 채우기(mining/worker.js) 뒤에 같은 점검 ----------
+// a workbook's text as the lines sourceCaseStrings reads: the header · footer, then every cell with its row and its place in the row
+// (col: the n-th cell with text, so a label's value is the next one even across merged or empty cells) — read from the sheet XML the
+// way the fill reads it (mining/worker.js xlsxSheets; ExcelJS cannot open some company files), formulas left out (a formula keeps its
+// last result until the file is opened and recalculated — not a value the fill left)
+const colNo = (ref) => [...String(ref).match(/^[A-Z]+/)[0]].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0)
+export async function xlsxLines(buf) {
+  const { xlsxSheets } = await import('../mining/worker.js')
+  const facts = await docFacts('x.xlsx', buf)
+  const { sheets } = await xlsxSheets(buf)
+  const lines = [...facts.header.map((text) => ({ text, part: 'header' })), ...facts.footer.map((text) => ({ text, part: 'footer' }))]
+  for (const [k, sh] of sheets.entries()) {
+    const rows = new Map()
+    for (const c of sh.cells) {
+      if (c.value.startsWith('=')) continue
+      const r = Number(c.cell.match(/\d+$/)[0])
+      if (!rows.has(r)) rows.set(r, [])
+      rows.get(r).push(c)
+    }
+    for (const r of [...rows.keys()].sort((a, b) => a - b)) {
+      rows.get(r).sort((a, b) => colNo(a.cell) - colNo(b.cell)).forEach((c, col) => { const text = clean(c.value); if (text) lines.push({ text, part: sh.name, cell: true, row: `${k}:${r}`, col }) })
+    }
+  }
+  return lines
+}
+// the filled workbook against the form's own case (the template's strings by the same rules as a document) → {sourceCase, left,
+// leftWhere, leftFixed} — what leftoverCheck reports; nothing is changed (a sheet is filled once, cell by cell)
+export async function xlsxLeftovers({ template, buf, source = {}, caseText = '', keep = [], rules = {} }) {
+  const lines = await xlsxLines(await fsp.readFile(template.path))
+  const strings = sourceCaseStrings({ form: template.name || '', templateName: path.basename(template.path), lines, others: source.others || [], fileNames: source.fileNames || [], own: source.own || [], sheet: true, caseText, R: rules }).map((x) => x.text)
+  const now = await xlsxLines(buf)
+  const left = leftoversOf([{ paras: now.map((l, i) => ({ i, part: l.part, text: l.text, cell: !!l.cell })) }], strings, keep)
+  return { sourceCase: strings, left: strings.filter((s) => left.some((x) => x.found.includes(s))), leftWhere: [...new Set(left.map((x) => (FRAME_PART.has(x.part) ? partKo(x.part) : `시트 ${x.part}`)))], leftFixed: left.some((x) => x.fixed) }
+}
+
 // the step's failed check when the last case's strings stayed (it goes on the format-rule list the run view shows)
 export function leftoverCheck(out) {
   if (!out?.left?.length) return null

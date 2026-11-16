@@ -30,7 +30,8 @@ export async function markForm(values, { task, form, buf = null, extra = [] }) {
   return { ...values, form: { name: form.name, chosenBy: form.chosenBy || null, label: F.CHOSEN_KO[form.chosenBy] || '' }, ...(rules.length ? { formatRules: rules } : {}) }
 }
 
-// where the form's own case shows (docfill.js sourceCaseStrings): the form's other kept files and the names its files came with
+// where the form's own case shows (docfill.js sourceCaseStrings): the form's other kept files, the names its files came with, and
+// our own company's names (formats.js ownNames — not a customer in those file names)
 export async function sourceOf(task, form) {
   const fs = await import('node:fs')
   const path = await import('node:path')
@@ -44,7 +45,8 @@ export async function sourceOf(task, form) {
     if (path.resolve(p) === path.resolve(form.path) || !fs.existsSync(p)) continue
     try { others.push(await F.docFacts(path.basename(p), fs.readFileSync(p))) } catch (e) { console.warn('[onto-step] other file', rel, e.message) }
   }
-  return { others, fileNames: [...new Set((f.sources || []).map((s) => s.name).filter(Boolean))] }
+  const own = await F.ownNames().catch((e) => { console.warn('[onto-step] own names', e.message); return [] })
+  return { others, fileNames: [...new Set((f.sources || []).map((s) => s.name).filter(Boolean))], own }
 }
 
 // the work's form filled for this case → {values:{document, form, formatRules, changedFromForm, result, …}}
@@ -53,10 +55,14 @@ export async function formStep({ row, act, owner, threadId, status, form, extra 
   const task = row.activity_name
   const W = await import('../mining/worker.js')
   if (kind === 'xlsx') {
-    const r = await W.SKILLS['form-fill']({ owner, threadId, prev: await W.earlier(row.proc_inst_id), status, extra, template: form, step: task })
-    const v = await markForm(r.values, { task, form })
+    const prev = await W.earlier(row.proc_inst_id)
+    const r = await W.SKILLS['form-fill']({ owner, threadId, prev, status, extra, template: form, step: task })
+    // the last case's values left in the filled sheet (the same check as a document's; the sheet is filled once — reported, not asked again)
+    const left = await xlsxLeft({ task, form, buf: r.buf, prev })
+    const v = await markForm(r.values, { task, form, extra: [left && (await import('./docfill.js')).leftoverCheck(left)] })
     return { values: { ...v, changedFromForm: `칸 ${r.values.cells || 0}개를 이 건의 값으로 바꿨어요${r.values.assumptions ? ` · 가정: ${String(r.values.assumptions).split('\n')[0].slice(0, 80)}` : ''}`,
-      result: v.result || `${form.name} 양식으로 만든 ${v.document?.name || '파일'}${r.values.assumptions ? `\n${r.values.assumptions}` : ''}` }, say: null }
+      result: v.result || `${form.name} 양식으로 만든 ${v.document?.name || '파일'}${r.values.assumptions ? `\n${r.values.assumptions}` : ''}`,
+      ...(left ? { sourceCase: { strings: left.sourceCase, by: left.sourceCase.length ? 'rule' : null, retried: 0, left: left.left } } : {}) }, say: null }
   }
   const DF = await import('./docfill.js')
   const F = await import('./formats.js')
@@ -81,6 +87,19 @@ export async function formStep({ row, act, owner, threadId, status, form, extra 
     { task, form, buf: out.buf, extra: [DF.leftoverCheck(out)] })
   return { values: { ...v, changedFromForm: out.summary || `문단 ${out.changed}개를 바꾸고 ${out.added}개를 더했어요`, paragraphs: { changed: out.changed, added: out.added, keptFixed: out.kept },
     sourceCase: { strings: out.sourceCase, by: out.sourceBy, retried: out.retried, left: out.left } }, say: null }
+}
+
+// the filled workbook against the form's own case (docfill.js xlsxLeftovers) — null when it cannot be read (the fill stands as it is)
+async function xlsxLeft({ task, form, buf, prev = {} }) {
+  if (!buf) return null
+  try {
+    const DF = await import('./docfill.js')
+    const F = await import('./formats.js')
+    const fr = await F.formatOf(task, form.name, form.ofTask || null)
+    const keep = (fr?.items || []).filter((x) => x.mandatory && !['image', 'filename'].includes(x.kind)).flatMap((x) => (x.fixed?.length ? x.fixed : [x.text]))
+    const caseText = [prev.subject, prev.body, prev.customer].filter(Boolean).join('\n')
+    return await DF.xlsxLeftovers({ template: form, buf, source: await sourceOf(task, form), caseText, keep, rules: (await rules()).formats || {} })
+  } catch (e) { console.warn('[onto-step] xlsx leftovers', e.message); return null }
 }
 
 // a text-only step (doc-draft · a draft): a document step makes a file — from the form when there is one, else the text as Word; a

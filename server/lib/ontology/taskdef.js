@@ -94,7 +94,10 @@ export async function getTask(key) {
 // (「견적서_달빛커피.xlsx」 → 견적서), or — a real mailbox names files by customer first (「바이켐_AI 도입_제안서.docx」) —
 // mostly the same labels (rules.forms.sameLabels). A form whose name is not a kind of document is named by the model
 // from its file names and labels (the skill's prompts/name-form.md).
-export async function templatesOf(key) {
+// model: true — every such form not named before is named by the model (and the name kept); false — none is (a list: the
+// kept name, else the rule's name with unnamed: true — no model call, nothing written); a list of keys — only those forms
+// (the one a person picks). Each form carries keys (its groups' file-name keys) so a form listed by the rule's name is found again.
+export async function templatesOf(key, { model = true } = {}) {
   const forms = (await skillRules()).forms
   const raws = (await q(`select raw from pro_onto_labels where tenant_id=$1 and task=$2`, [T(), key])).map((r) => r.raw)
   const rows = await q(`select mail_id, owner_id::text as owner_id, occurred_at, artifacts from pro_mail_history where tenant_id=$1 and (activity_label = $2 or activity_label = any($3))`, [T(), key, raws])
@@ -130,7 +133,9 @@ export async function templatesOf(key) {
     const fixture = its.find((it) => it.file && !it.file.startsWith('forms/'))
     const kept = its.filter((it) => it.file).at(-1)
     const fields = formFields(its.filter((it) => it.labels.size).map((it) => [...it.labels]), forms)
-    const name = fixture ? path.basename(fixture.file) : DOC_KIND.test(lead.stem) ? `${lead.stem}.${lead.kind}` : `${await formName(its, fields)}.${lead.kind}`
+    const k = namesKey(its)
+    const named = fixture || DOC_KIND.test(lead.stem) ? null : await formName(its, fields, { model: model === true || (Array.isArray(model) && model.includes(k)) })
+    const name = fixture ? path.basename(fixture.file) : DOC_KIND.test(lead.stem) ? `${lead.stem}.${lead.kind}` : `${named.name}.${lead.kind}`
     // the template file: one of these mails kept it, else the latest file of that form kept from another mail (forms/<key>)
     const kept1 = kept?.file || its.map((it) => `forms/${formKey(it.f.name)}`).find((rel) => fs.existsSync(path.join(formsDirOf(), rel.slice(6)))) || null
     // every kept file of the form (each name's latest file the company sent) and the mails it came in (formats.js)
@@ -138,34 +143,54 @@ export async function templatesOf(key) {
     const sources = its.map((it) => it.src)
     // groups the model named alike (a customer's file without labels beside the company's) are one form
     const same1 = out.find((x) => x.name === name)
-    if (same1) { same1.seen += its.length; same1.fileNames += new Set(its.map((it) => it.f.name)).size; same1.file ||= kept1; if (fields.length > same1.fields.length) same1.fields = fields; same1.files = [...new Set([...same1.files, ...files])]; same1.sources.push(...sources); continue }
-    out.push({ name, type: lead.kind, seen: its.length, file: kept1, example: lead.f.name, fileNames: new Set(its.map((it) => it.f.name)).size, fields, files, sources })
+    if (same1) { same1.seen += its.length; same1.fileNames += new Set(its.map((it) => it.f.name)).size; same1.file ||= kept1; if (fields.length > same1.fields.length) same1.fields = fields; same1.files = [...new Set([...same1.files, ...files])]; same1.sources.push(...sources); same1.keys.push(k); same1.unnamed ||= !!named?.unnamed; continue }
+    out.push({ name, type: lead.kind, seen: its.length, file: kept1, example: lead.f.name, fileNames: new Set(its.map((it) => it.f.name)).size, fields, files, sources, keys: [k], ...(named?.unnamed ? { unnamed: true } : {}) })
   }
   return out.sort((a, b) => b.seen - a.seen)
 }
 // a file name that already says what kind of document it is (「견적서_…」 · 「과거력조사_…」)
 const DOC_KIND = /(서|표|록|안|조사|양식|보고|계획|명세|내역|현황|목록|대장|일지|리포트|report|proposal|quote|invoice|form)$/i
 const formNames = new Map()
-async function formName(its, fields) {
-  const names = [...new Set(its.map((it) => it.f.name))].slice(0, 6)
+// a form's group of attachments by its file names (at most 6, sorted) — pro_form_names.names_key
+const fileNamesOf = (its) => [...new Set(its.map((it) => it.f.name))].slice(0, 6)
+const namesKey = (its) => fileNamesOf(its).slice().sort().join('|')
+// the rule's name for a form whose file names do not start with a kind of document (「바이켐_AI 도입_제안서.docx」): the part of its
+// file names that says one (제안서 — the most frequent), else the file's first part
+export function ruleFormName(names, stem = '') {
+  const n = new Map()
+  for (const x of names || []) for (const p of new Set(String(x).replace(/\.[a-z0-9]+$/i, '').split(/[_()[\]]+/).map((y) => y.trim()))) if (p.length >= 2 && DOC_KIND.test(p)) n.set(p, (n.get(p) || 0) + 1)
+  return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] || stem || String(names?.[0] || '').split(/[_\s(]/)[0].replace(/\.[a-z0-9]+$/i, '')
+}
+// the name a form goes by without asking the model: the name kept for these files (sql/043 pro_form_names — the same key, or most of
+// its files), else the rule's name, unnamed until the model names it
+export function formNameChoice({ names = [], known = [], stem = '' } = {}) {
   const k = names.slice().sort().join('|')
-  if (formNames.has(`${T()}\u0000${k}`)) return formNames.get(`${T()}\u0000${k}`)
+  const share = (a) => { const s = new Set(a || []); return names.filter((x) => s.has(x)).length / Math.max(1, Math.min(names.length, s.size)) }
+  const had = known.find((r) => r.names_key === k) || known.filter((r) => share(r.names) >= 0.5).sort((a, b) => share(b.names) - share(a.names))[0]
+  return had?.name ? { name: had.name, unnamed: false } : { name: ruleFormName(names, stem), unnamed: true }
+}
+// {name, unnamed} — model: false never asks the model nor writes (a list); true names a form not named before once and keeps it
+async function formName(its, fields, { model = true } = {}) {
+  const names = fileNamesOf(its)
+  const k = namesKey(its)
+  const ck = `${T()}\u0000${k}`
+  if (formNames.has(ck) && (!model || !formNames.get(ck).unnamed || formNames.get(ck).tried)) return formNames.get(ck)
   // a name once given stays (sql/043 pro_form_names): what a person chose and the form's format rules are kept by it, and every server
   // reads the same name — the model names a form only the first time (or a form none of whose files was named before)
   const known = await q(`select names_key, names, name from pro_form_names where tenant_id=$1`, [T()]).catch(() => [])
-  const share = (a) => { const s = new Set(a || []); return names.filter((x) => s.has(x)).length / Math.max(1, Math.min(names.length, s.size)) }
-  const had = known.find((r) => r.names_key === k) || known.filter((r) => share(r.names) >= 0.5).sort((a, b) => share(b.names) - share(a.names))[0]
-  if (had?.name) { formNames.set(`${T()}\u0000${k}`, had.name); return had.name }
+  const c = formNameChoice({ names, known, stem: its[0].stem })
+  if (!c.unnamed) { formNames.set(ck, c); return c }
+  if (!model) return c
   let n = ''
   try {
     const r = await chatJson(await prompt('name-form'), JSON.stringify({ file_names: names, labels: (fields.length ? fields : [...its[0].labels]).slice(0, 24) }), { timeoutMs: 90000, temperature: 0 })
     n = String(r?.name || '').replace(/[\\/:*?"<>|.]/g, ' ').trim().slice(0, 20)
   } catch (e) { console.warn('[ontology] form name', e.message) }
-  n ||= its[0].stem
-  formNames.set(`${T()}\u0000${k}`, n)
-  // (only a name the model gave is kept: a failed call names the form by its file for now and asks again next time)
-  if (n !== its[0].stem) await q(`insert into pro_form_names (tenant_id, names_key, names, name) values ($1,$2,$3,$4) on conflict (tenant_id, names_key) do nothing`, [T(), k, JSON.stringify(names), n]).catch(() => {})
-  return n
+  // (only a name the model gave is kept: a failed call names the form by the rule for now and asks again after a restart)
+  if (!n) { const v = { ...c, tried: true }; formNames.set(ck, v); return v }
+  formNames.set(ck, { name: n, unnamed: false })
+  await q(`insert into pro_form_names (tenant_id, names_key, names, name) values ($1,$2,$3,$4) on conflict (tenant_id, names_key) do nothing`, [T(), k, JSON.stringify(names), n]).catch(() => {})
+  return { name: n, unnamed: false }
 }
 
 // the template file behind an attachment name: the demo mailbox's archive names it (fixtures/ax-demo-templates);

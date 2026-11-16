@@ -2,13 +2,13 @@
 // 들어온 「외부 강의 요청」 메일은 시험용(보낸 사람 kim@example-univ.test, 진짜 메일이 들어올 때와 같은 run.js routeMail 길 —
 // POST /api/ontology/simulate-mail). 되돌릴 수 없는 단계(고객 회신)는 확인을 받아도 「보냈을 내용」만 건에 남는다(네트워크 없음).
 //
-//   cd server && node ../.scratch/runmode-lecture.mjs --all      # 준비 → HOTL → HITL → 방식 되돌리기 (건은 남겨 둔다: 지켜보기 화면)
-//   cd server && node ../.scratch/runmode-lecture.mjs --setup    # 다듬기 고침 · 단계 분류 · 일 정의 · 데모 동료 · 「자동」 · 사람이 지켜봄
-//   cd server && node ../.scratch/runmode-lecture.mjs --hotl     # 건 1: 저절로 진행 → 멈추기/이어 가기 → 고객 회신 확인(기록만) → 인계 → 되감기 → 끝까지
-//   cd server && node ../.scratch/runmode-lecture.mjs --hitl     # 건 2: 단계마다 확인(진행 · 멈추기 · 이어 가기) → 교육 진행에서 방식을 되돌리면 인계
-//   cd server && node ../.scratch/runmode-lecture.mjs --status   # 지금 건 · 방식 · 상태 파일
-//   cd server && node ../.scratch/runmode-lecture.mjs --drop-cases  # 이 스크립트가 연 건만 지운다(준비는 그대로 — 다시 --hotl · --hitl)
-//   cd server && node ../.scratch/runmode-lecture.mjs --reset    # 이 스크립트가 만든 모든 것을 지우고, 손댄 설정을 처음대로
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --all      # 준비 → HOTL → HITL → 방식 되돌리기 (건은 남겨 둔다: 지켜보기 화면)
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --setup    # 다듬기 고침 · 단계 분류 · 일 정의 · 데모 동료 · 「자동」 · 사람이 지켜봄
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --hotl     # 건 1: 저절로 진행 → 멈추기/이어 가기 → 고객 회신 확인(기록만) → 인계 → 되감기 → 끝까지
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --hitl     # 건 2: 단계마다 확인(진행 · 멈추기 · 이어 가기) → 교육 진행에서 방식을 되돌리면 인계
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --status   # 지금 건 · 방식 · 상태 파일
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --drop-cases  # 이 스크립트가 연 건만 지운다(준비는 그대로 — 다시 --hotl · --hitl)
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --reset    # 이 스크립트가 만든 모든 것을 지우고, 손댄 설정을 처음대로
 //
 // 환경: BFF :8790(PRO_TENANT_ID=jy-mail, PRO_BACKGROUND=0 — 단계 일꾼 · 건 훑기는 PRO_BACKGROUND 와 상관없이 돈다), completion :8099(공용, 그대로).
 // REC_PAUSE=초 : 장면마다 그만큼 쉰다(녹화용). 처음 --setup 이 손대기 전 상태를 .scratch/runmode-lecture.state.json 에 남기고, --reset 이 그대로 되돌린다.
@@ -16,17 +16,17 @@ process.env.DOTENV_CONFIG_QUIET = 'true'
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
 
-const { q, pool, admin } = await import('../server/lib/supa.js')
-const { withTenant } = await import('../server/lib/tenant.js')
-const { cypher } = await import('../server/lib/ontology/store.js')
+const { q, pool, admin } = await import('../lib/supa.js')
+const { withTenant } = await import('../lib/tenant.js')
+const { cypher } = await import('../lib/ontology/store.js')
 
 const API = process.env.API_URL || 'http://localhost:8790/api'
 const T = 'jy-mail'
 const PROC_NAME = '강의계획서 작성 · 보고'
 const BOSS = 'jyjang@uengine.org'
 const COLLEAGUE = { email: 'runmode-demo-instructor@example.com', name: '데모 강사(시험용)' }
-const STATE = new URL('./runmode-lecture.state.json', import.meta.url)
-const OUT = new URL('./runmode-lecture.out.json', import.meta.url)
+const STATE = new URL('../../.scratch/runmode-lecture.state.json', import.meta.url)
+const OUT = new URL('../../.scratch/runmode-lecture.out.json', import.meta.url)
 const TASKS = ['강의계획서 작성', '강의자료 준비', '고객 회신', '교육 진행']
 const AGENT_TASKS = ['강의계획서 작성', '강의자료 준비', '고객 회신']
 const MAIL = {
@@ -391,7 +391,7 @@ async function reset() {
     done.colleague = error ? `계정 지우기 실패: ${error.message}` : 'deleted'
   }
   log('되돌림', JSON.stringify(done))
-  fs.renameSync(STATE, new URL(`./runmode-lecture.state.${Date.now()}.done.json`, import.meta.url))
+  fs.renameSync(STATE, new URL(`../../.scratch/runmode-lecture.state.${Date.now()}.done.json`, import.meta.url))
 }
 
 try {

@@ -110,14 +110,30 @@ export function reqLine(res) {
   return res.checked?.length ? `맞는 규칙이 없어 지도대로 해요${tail}` : ''
 }
 
-// the AI's suggestion from 다듬기 ② 단계 가르기 (no new model call): a class a person decided there, else the AI's own reading
-export function suggestionOf(cls, R = {}) {
-  if (!cls) return null
+// the AI's suggestion, no new model call: 다듬기 ② 단계 가르기 — a class a person decided there, else the AI's own reading — when the
+// class says one; else a pinned step (꼭); else what this process's past cases did at the step (through: throughOf, rules.stepRules.fromCases):
+// almost every case went through it → 꼭, many went around it → 선택. A suggestion only — nothing is stored.
+export function suggestionOf(cls, R = {}, { pinned = false, pinReason = '', through = null } = {}) {
   const map = R.suggest || SUGGEST
-  const c = cls.decided ? cls : cls.ai || cls
+  const c = cls ? (cls.decided ? cls : cls.ai || cls) : null
   const requirement = map[c?.class]
-  if (!requirement) return null
-  return { requirement, class: c.class, why: c.why || '', by: cls.decided && cls.by === 'person' ? 'person' : 'ai' }
+  if (requirement) return { requirement, class: c.class, why: c.why || '', by: cls.decided && cls.by === 'person' ? 'person' : 'ai' }
+  if (pinned) return { requirement: 'required', from: 'pinned', why: `지도에서 고정한 단계예요${clean(pinReason) ? `(${clean(pinReason)})` : ''} — 건마다 늘 이 단계를 지나가요`, by: 'ai' }
+  const S = { minCases: 5, requiredAt: 0.9, optionalFrom: 0.2, optionalTo: 0.8, ...(R.fromCases || {}) }
+  if (!through || !(through.n >= S.minCases)) return null
+  const { m, n } = through, share = m / n
+  if (share >= S.requiredAt) return { requirement: 'required', from: 'cases', m, n, why: `지난 건 ${n}건 중 ${m}건이 이 단계를 거쳤어요`, by: 'ai' }
+  if (share >= S.optionalFrom && share <= S.optionalTo) return { requirement: 'optional', from: 'cases', m, n, why: `지난 건 ${n}건 중 ${m}건만 이 단계를 거쳤어요 — ${n - m}건은 이 단계 없이 지나갔어요`, by: 'ai' }
+  return null
+}
+// how many of this process's past cases went through the step (the HAS_TASK membership: n of them, share of the process's cases —
+// build.js structureOf) → {m, n}. Trusted only when it agrees with the process as the map shows it: the step is on its list and
+// n / share is its number of cases (a membership left from an earlier count says nothing — null)
+export function throughOf(proc, rel, key) {
+  if (!proc || !rel || !(proc.tasks || []).includes(key)) return null
+  const m = Number(rel.n), share = Number(rel.share), n = Number(proc.cases)
+  if (!Number.isFinite(m) || !(share > 0) || !(n > 0) || Math.abs(m / share - n) > 0.5 || m > n) return null
+  return { m, n }
 }
 
 // the view a case runs (run.js procGraph) with the requirements laid on: a step that is or may be 꼭(its own, or a rule's) is in
@@ -347,10 +363,15 @@ export async function requirementView(me, procKey, task) {
   const R = (await skillRules()).stepRules || {}
   const set = (await requirementsOf(procKey)).get(task) || (t.origin ? (await requirementsOf(procKey)).get(t.origin) : null) || null
   const cls = await classOf(procKey, t.key, t.origin)
+  const pinned = !!t.pinned && t.pin_reason !== REQ_PIN
+  // the found process (a step 다듬기 added has no past cases; a renamed one counts under its found name)
+  const found = view.all?.processes?.find((p) => p.key === procKey) || null
+  const key = t.origin || (t.added ? null : t.key)
+  const through = key ? throughOf(found, (view.all?.hasTask || []).find((h) => h.from === procKey && h.to === key), key) : null
   return {
     proc: { key: view.proc.key, name: view.proc.name }, task, step: t.key,
     requirement: set?.requirement || null, rules: (set?.rules || []).map((r) => ({ ...r, text: ruleText(r) })), reason: set?.reason || '', by: set?.by || '', at: set?.at || null,
-    suggestion: suggestionOf(cls, R), lines: settingLines(set || {}), pinned: !!t.pinned && t.pin_reason !== REQ_PIN, admin: await isAdmin(me).catch(() => false),
+    suggestion: suggestionOf(cls, R, { pinned, pinReason: t.pin_reason || '', through }), lines: settingLines(set || {}), pinned, admin: await isAdmin(me).catch(() => false),
   }
 }
 export async function setRequirement(me, procKey, task, body = {}) {

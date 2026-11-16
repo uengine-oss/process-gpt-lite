@@ -249,13 +249,14 @@ async function fillXlsx({ owner, threadId, prev, status, extra = '', template, s
   const rel = `/workspace/forms-out/${Date.now().toString(36)}/${name}`
   const host = await workspaceHostPath('/workspace') + rel.slice('/workspace'.length)
   await fsp.mkdir(path.dirname(host), { recursive: true })
-  await fsp.writeFile(host, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+  const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+  await fsp.writeFile(host, buf)
   const doc = await publish(owner, rel)
   await addMessage(owner, threadId, 'agent', 'file', { ...doc, path: rel })
   const assumed = (r.assumptions || []).map(String).slice(0, 8)
   const total = Number(r.total) > 0 ? Number(r.total) : null
   return { values: { document: { name: doc.name, url: doc.url }, form: template.name, cells: changed, ...(total ? { amount: String(total) } : {}),
-    assumptions: assumed.join('\n') }, say: null }
+    assumptions: assumed.join('\n') }, say: null, buf }   // (buf: the filled file, for a caller that checks it — ontology/stepdoc.js; not stored)
 }
 
 // "TOTAL: 51,216,000" (or "합계: 5,121만 6천 원" read by improve's numberOf) on its own line → the number,
