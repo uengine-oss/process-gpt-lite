@@ -41,10 +41,11 @@ export const local = {
   set(k, v) { try { localStorage.setItem(`onto:${k}`, JSON.stringify(v)) } catch { /* private window */ } },
 }
 
-// 실행 방식(server lib/ontology/runmode.js)
-export const RUNMODE_KO = { hotl: '사람이 지켜봄(자동 진행)', hitl: '단계마다 사람이 정함' }
+// 실행 방식(server lib/ontology/runmode.js): 따로 고르지 않고 프로세스의 단계가 정해요 — 제안: 단계마다 사람이 정함 · 자동: 사람이
+// 지켜봄. 건은 시작할 때의 방식대로 끝까지 가요(단계를 바꾸면 새 건부터).
+export const RUNMODE_KO = { hotl: '자동 단계 · 사람이 지켜봐요', hitl: '제안 단계 · 단계마다 사람이 정해요' }
 export const STEP_KO = { done: '끝남', running: '에이전트가 하는 중', person: '사람 차례', waiting: '사람을 기다림', next: '다음', closed: '닫힘', skipped: '건너뜀' }
-export const WAIT_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계', optional: '해도 되는 단계' }
+export const WAIT_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계', optional: '해도 되는 단계', unbound: '맡을 사람 정하기' }
 // 단계의 꼭 · 선택(server lib/ontology/steprule.js)
 export const REQ_KO = { required: '꼭 하는 단계', optional: '해도 되고 안 해도 되는 단계' }
 export const REQ_SHORT = { required: '꼭', optional: '선택' }
@@ -54,4 +55,11 @@ export const holderText = (h) => {
   if (h.agent) return '업무 에이전트'
   const who = [h.role, (h.names || []).join(', ')].filter(Boolean).join(' · ')
   return `${who || '담당자'}${h.draft ? ' · 에이전트가 초안' : ''}`
+}
+
+// 한 사건이 여러 프로세스의 일일 때 카드의 첫 줄(OntoEntryCard): 묻는 것 n가지와, 같은 사건으로 이미 저절로 시작한 자동 프로세스 started가지를
+// 함께 센다(시작한 것은 바로 위에 제 카드가 있다)
+export function entryManyText(who, n, started = 0) {
+  if (!started) return `${who} 회사의 업무 ${n}가지에 해당해요. 진행할 업무를 골라 주세요.`
+  return `${who} 회사의 업무 ${n + started}가지에 해당해요. 자동인 ${started}가지는 이미 시작했고, 나머지 ${n}가지는 진행할지 골라 주세요.`
 }

@@ -80,7 +80,7 @@ test('관문의 판단 표: 방식 × 꼭 · 선택 × 이 건에 필요한지 �
   const band = R.need
   assert.deepEqual(band, { skipBelow: 0.25, runAbove: 0.6 })
   const at = (o) => decideStep({ band, requirement: 'optional', ...o })
-  // 사람이 지켜봄 · 에이전트 단계
+  // 사람이 지켜봄(자동 단계의 건) · 에이전트 단계
   assert.deepEqual(at({ mode: 'hotl', kind: 'agent', need: 0.1 }), { act: 'skip', why: ['optional'] })
   assert.deepEqual(at({ mode: 'hotl', kind: 'agent', need: 0.4 }), { act: 'wait', why: ['optional'] })
   assert.deepEqual(at({ mode: 'hotl', kind: 'agent', need: null }), { act: 'wait', why: ['optional'] }) // 못 읽으면 묻는다
@@ -90,7 +90,7 @@ test('관문의 판단 표: 방식 × 꼭 · 선택 × 이 건에 필요한지 �
   assert.deepEqual(at({ mode: 'hotl', kind: 'person', need: 0.4 }), { act: 'wait', why: ['optional'], hold: true })
   assert.deepEqual(at({ mode: 'hotl', kind: 'person', need: 0.9 }), { act: 'person', why: [] })
   assert.deepEqual(at({ mode: 'hotl', kind: 'draft', need: 0.4 }), { act: 'wait', why: ['optional'], hold: true })
-  // 단계마다 사람이 정함: 필요해 보여도 · 아니어도 늘 진행 · 건너뛰기를 묻는다
+  // 단계마다 사람이 정함(제안 단계의 건): 필요해 보여도 · 아니어도 늘 진행 · 건너뛰기를 묻는다
   for (const need of [0.05, 0.5, 0.95, null]) {
     assert.deepEqual(at({ mode: 'hitl', kind: 'agent', need }), { act: 'wait', why: ['hitl', 'optional'] })
     assert.deepEqual(at({ mode: 'hitl', kind: 'person', need }), { act: 'wait', why: ['hitl', 'optional'], hold: true })
@@ -115,7 +115,7 @@ test('관문의 판단 표: 방식 × 꼭 · 선택 × 이 건에 필요한지 �
 })
 
 test('묻는 줄: 선택 단계는 이 건에 필요할 확률을, 건너뛴 까닭은 그 확률과 맞은 규칙을', () => {
-  assert.deepEqual(whyLines(['hitl', 'optional'], null, { need: { p: 0.45, measured: true } }), ['단계마다 사람이 정하는 방식이에요', '해도 되고 안 해도 되는 단계 — 이 건에 필요할 확률 45%'])
+  assert.deepEqual(whyLines(['hitl', 'optional'], null, { need: { p: 0.45, measured: true } }), ['「제안」 단계의 건이라 단계마다 사람이 정해요', '해도 되고 안 해도 되는 단계 — 이 건에 필요할 확률 45%'])
   assert.equal(needText({ p: null }), '이 건에 필요한지 읽지 못했어요')
   assert.equal(needText({ p: 1, forced: true, why: '사람이 이 단계로 되감아서 해요' }), '사람이 이 단계로 되감아서 해요')
   const req = { need: { p: 0.12, measured: true }, matched: { kind: 'amount' }, line: '이 건은 금액 300만원 < 1,000만원이라 해도 되고 안 해도 되는 단계예요' }

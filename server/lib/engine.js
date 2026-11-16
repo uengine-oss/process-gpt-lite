@@ -40,7 +40,8 @@ async function complete(input) {
   try { return JSON.parse(text) } catch { return { raw: text } }
 }
 
-export async function startProcess({ me, defId, values, messageId }) {
+// roles: role name → user id chosen for this instance (a case of the company's process map — lib/ontology/bindings.js); wins over the team's
+export async function startProcess({ me, defId, values, messageId, roles: picked = null }) {
   const [row] = await q('select definition from proc_def where id=$1 and tenant_id=$2', [defId, config.tenantId])
   if (!row) throw new Error('process not found')
   const def = await getDefinition(defId)
@@ -60,7 +61,8 @@ export async function startProcess({ me, defId, values, messageId }) {
   for (const x of roles) {
     const eps = [].concat(x.endpoint || []).map(String).filter(Boolean)
     if (eps.length && eps.every((e) => agents.has(e))) continue // agents keep their own endpoint
-    const who = assigned[roleKey(x.name)] || me.id
+    const mine = picked ? Object.entries(picked).find(([k]) => roleKey(k) === roleKey(x.name))?.[1] : null
+    const who = mine || assigned[roleKey(x.name)] || me.id
     x.endpoint = [who]; x.default = [who]
   }
 

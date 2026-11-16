@@ -51,7 +51,9 @@ export function ontologyRoutes(auth) {
   r.get('/ontology/settings', auth, h(() => S.habitSettings()))
   r.put('/ontology/settings', auth, h(async (req) => { await admin(req); return S.setHabitSettings(req.user, { mode: String(req.body?.mode || ''), min: req.body?.min }) }))
 
-  // 프로세스 채택(관리자): 채택한 프로세스만 들어오는 메일을 받는다
+  // 프로세스 채택(관리자): 채택한 프로세스만 들어오는 메일을 받는다. 단계는 건의 실행 방식도 정한다(runmode.js modeOfStage — 제안:
+  // 단계마다 사람이 정함 · 자동: 사람이 지켜봄). 건은 시작할 때의 방식을 지니므로(pro_po_cases.run_mode) 바꿔도 진행 중인 건은 그대로 —
+  // 새 건부터 바뀐다(running: 그대로 가는 진행 중인 건 수, 화면이 알려 준다)
   r.post('/ontology/processes/status', auth, h(async (req) => {
     await admin(req)
     const status = String(req.body?.status || '')
@@ -61,7 +63,8 @@ export function ontologyRoutes(auth) {
     if (!rows.length) throw S.err(404, '프로세스를 찾지 못했어요.')
     // 조직이 정한 일(design-v0.3 §12): 승격은 결정 원장에 남는다
     await V.ledger(req.user, status === 'adopted' ? 'ontology.promote' : 'ontology.demote', `${status === 'adopted' ? '자동으로 승격' : status === 'suggested' ? '제안으로' : '관찰로'}: ${req.body?.name || rows[0].key}`, { process: rows[0].key, status })
-    return rows[0]
+    const [run] = await q(`select count(*)::int as n from pro_po_cases where tenant_id=$1 and bundle=$2 and status='running'`, [config.tenantId, rows[0].key]).catch(() => [])
+    return { ...rows[0], running: run?.n || 0 }
   }))
 
   // 스냅샷 · 시작 일 · 건
@@ -70,19 +73,38 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/cases', auth, h(async (req) => {
     const r2 = await R.startCase(req.user, { procKey: String(req.body?.proc || ''), entry: String(req.body?.entry || ''), subject: req.body?.subject || '',
       body: req.body?.body || '', from: req.body?.from || '', customer: req.body?.customer || '', odds: req.body?.odds || null, kind: req.body?.kind || 'manual',
-      file: req.body?.file?.name ? { name: String(req.body.file.name).slice(0, 200) } : null })
+      file: req.body?.file?.name ? { name: String(req.body.file.name).slice(0, 200) } : null,
+      // who does each role, as the person left it on the ask card before 진행 (bindings.js — a role nobody could be found for must be chosen)
+      picks: (Array.isArray(req.body?.picks) ? req.body.picks : []).filter((p) => p?.role && p?.userId).slice(0, 30).map((p) => ({ role: String(p.role).slice(0, 120), userId: String(p.userId) })) })
     await keepOnCard(req.user, req.body?.messageId, { state: 'started', picked: true, choice: req.body?.odds || null, caseId: r2.caseId, instId: r2.instId,
-      skipped: r2.snapshot.skipped, nodes: r2.snapshot.nodes, procDefId: r2.snapshot.procDefId })
+      skipped: r2.snapshot.skipped, nodes: r2.snapshot.nodes, procDefId: r2.snapshot.procDefId, bindings: r2.bindings || null })
     return r2
   }))
   r.get('/ontology/cases', auth, h(() => q(`select id, bundle as proc, entry_task, trigger, status, instances, history, engine, map_pin, created_at from pro_po_cases where tenant_id=$1 order by created_at desc limit 30`, [config.tenantId])))
-  r.get('/ontology/cases/:id', auth, h((req) => R.getCase(req.params.id)))
+  r.get('/ontology/cases/:id', auth, h(async (req) => {
+    const c = await R.getCase(req.params.id)
+    // who does each role, as the case view shows it (bindings.js)
+    return { ...c, bindings: (await import('../lib/ontology/bindings.js')).bindingsView(Array.isArray(c.bindings) ? c.bindings : []) }
+  }))
   // 지도에서 바로 실행(mapengine.js): 실행 방식의 엔진(보기는 누구나, 바꾸기는 관리자) · 건의 흐름도(지금 지도 · 고정했으면 시작한 날의 지도로
   // 그때그때 그린다, 남기지 않음) · 건마다 지도 고정(관리자)
   const ME = () => import('../lib/ontology/mapengine.js')
   r.get('/ontology/engine', auth, h(async (req) => (await ME()).engineView(req.user)))
   r.put('/ontology/engine', auth, h(async (req) => { await admin(req); return (await ME()).setEngine(req.user, req.body?.engine ? String(req.body.engine) : null) }))
   r.get('/ontology/cases/:id/flow', auth, h(async (req) => (await ME()).flowOf(req.params.id)))
+  // 역할마다 맡을 사람(bindings.js): 시작하기 전(묻는 카드)에 이 프로세스를 그 일부터 시작하면 누가 맡는지 · 고를 수 있는 회사 사람 · 진행 중인 건에서
+  // 바꾸기(그 역할의 끝나지 않은 단계만 — 회사 설정은 그대로)
+  r.get('/ontology/start-bindings', auth, h(async (req) => {
+    const view = await R.procGraph(String(req.query.proc || ''))
+    const entry = String(req.query.entry || '')
+    if (!view.tasks.has(entry)) throw S.err(400, '그 일은 이 프로세스에 없어요.')
+    const B = await import('../lib/ontology/bindings.js')
+    return { proc: view.proc.key, entry, stage: view.proc.status || null, bindings: B.bindingsView(await B.resolveBindings(view, entry, { starter: req.user.id })) }
+  }))
+  r.get('/ontology/people', auth, h(() => q(`select u.id::text as id, coalesce(nullif(u.username,''), u.email) as name, u.email,
+      exists (select 1 from pro_team_members m where m.tenant_id=u.tenant_id and m.user_id=u.id) as team
+    from users u where u.tenant_id=$1 and not coalesce(u.is_agent,false) order by 4 desc, 2 limit 200`, [config.tenantId])))
+  r.put('/ontology/cases/:id/bindings', auth, h(async (req) => (await ME()).setBinding(req.user, req.params.id, { role: String(req.body?.role || ''), userId: String(req.body?.userId || '') })))
   r.put('/ontology/cases/:id/map-pin', auth, h(async (req) => { await admin(req); return (await ME()).setPin(req.user, req.params.id, req.body?.pin === true) }))
   // 채팅에 올린 파일도 사건이다(events.js onFile): 채팅 메시지와 함께 오면 서버가 보고(lib/agent.js), 여기로는 이미 올린 첨부(POST /api/attachments 의
   // path)를 다시 보낼 수 있다 — 자기 첨부만. 묻기만 하고 저절로 시작하지 않는다.
@@ -109,13 +131,16 @@ export function ontologyRoutes(auth) {
     return r2
   }))
 
-  // 실행 방식(runmode.js): 사람이 지켜봄(자동 진행) · 단계마다 사람이 정함 — 보기는 누구나, 바꾸기는 관리자. 건 지켜보기 · 멈추기 ·
-  // 이어 가기 · 이 단계로 되감기 · 기다리는 단계 정하기(진행 · 다른 갈래 · 멈추기)는 건을 맡은 사람이나 관리자
+  // 실행 방식(runmode.js): 사람이 지켜봄 · 단계마다 사람이 정함 — 따로 고르지 않는다: 프로세스의 단계(위 /ontology/processes/status 의
+  // 제안 · 자동)가 정하고, 건은 시작할 때의 방식을 지닌다. 보기(단계가 주는 방식)는 누구나. 예전의 방식 바꾸기(회사 기본값 · 프로세스마다)는
+  // 410 — 남은 pro_run_modes · default_mode 행은 읽지 않는다. 건 지켜보기 · 멈추기 · 이어 가기 · 이 단계로 되감기 · 기다리는 단계 정하기
+  // (진행 · 다른 갈래 · 멈추기)는 건을 맡은 사람이나 관리자
   const RM = () => import('../lib/ontology/runmode.js')
   const SR = () => import('../lib/ontology/steprule.js')
+  const noModeSwitch = h(async () => { throw S.err(410, '실행 방식은 따로 고르지 않아요 — 프로세스의 단계가 정해요(제안: 단계마다 사람이 정함 · 자동: 사람이 지켜봄). 지도의 「관찰 · 제안 · 자동」에서 바꿔 주세요.') })
   r.get('/ontology/run-mode', auth, h(async () => (await RM()).modesView()))
-  r.put('/ontology/run-mode', auth, h(async (req) => { await admin(req); return (await RM()).setDefaultMode(req.user, String(req.body?.mode || '')) }))
-  r.post('/ontology/processes/run-mode', auth, h(async (req) => { await admin(req); return (await RM()).setMode(req.user, String(req.body?.key || ''), req.body?.mode ? String(req.body.mode) : null, { name: req.body?.name }) }))
+  r.put('/ontology/run-mode', auth, noModeSwitch)
+  r.post('/ontology/processes/run-mode', auth, noModeSwitch)
   r.get('/ontology/processes/steps', auth, h(async (req) => {
     const M = await RM(), key = String(req.query.key || '')
     return { key, ...(await M.modeOf(key)), steps: [...(await M.stepFacts(key)).values()] }

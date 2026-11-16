@@ -1,8 +1,12 @@
 // 실행 방식(lib/ontology/runmode.js): 사람이 지켜봄(HOTL) · 단계마다 사람이 정함(HITL)의 멈춤 · 진행 판단(방식 × 단계 종류 × 되돌릴 수 있음),
-// 도중에 방식 바꾸기, 되감기 규칙, 「다음은 X예요」의 근거, 다듬은 흐름으로 스냅샷 펴기. 모델 · DB 없이.
+// 방식은 프로세스의 단계가 정하고 건은 시작할 때의 방식을 지님(따로 고르던 방식은 읽지 않음), 되감기 규칙, 「다음은 X예요」의 근거,
+// 다듬은 흐름으로 스냅샷 펴기. 모델 · DB 없이.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { decideStep, irreversibleOf, responsibleOf, afterSwitch, rewindCheck, proposalOf, stepState, whyLines } from '../lib/ontology/runmode.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { decideStep, irreversibleOf, responsibleOf, rewindCheck, proposalOf, stepState, whyLines, modeOfStage, caseModeOf, caseMode, STAGE_OF_MODE, STAGE_KO } from '../lib/ontology/runmode.js'
 import { refinedView, applyCorrections, normFix, labelOf, END } from '../lib/ontology/refine.js'
 import { unfold } from '../lib/ontology/run.js'
 import { defaultRules } from '../lib/ontology/discovery.js'
@@ -90,21 +94,58 @@ test('책임 단계: 다듬기에서 사람이 정한 분류가 조직의 말 �
   assert.equal(responsibleOf({ cls: { class: 'ai', decided: true }, human: [{ key: 'relationship', name: '직접 만나는 일' }] }).on, false)
 })
 
-test('도중에 방식 바꾸기: 단계마다 그때 읽는다 — 바꾸면 다음 단계부터, 기다리던 단계도 다시 본다, 다시 바꾸면 돌아간다', () => {
-  // 건 하나: 단계 A · B · C (모두 되돌릴 수 있는 에이전트 단계)
-  let mode = 'hotl'
-  const a = decideStep({ mode, kind: 'agent' })
-  assert.equal(a.act, 'run')
-  mode = 'hitl' // A 가 도는 동안 바꿈 → A 는 그대로, B 부터 묻는다
-  const b = decideStep({ mode, kind: 'agent' })
-  assert.deepEqual(b, { act: 'wait', why: ['hitl'] })
-  // 다시 사람이 지켜봄으로: 확인만 기다리던 B 는 그대로 진행, 다른 까닭도 있던 단계는 그 까닭으로 계속 기다린다
-  mode = 'hotl'
-  const back = afterSwitch([{ id: 'B', why: ['hitl'] }, { id: 'X', why: ['irreversible', 'hitl'] }, { id: 'Y', why: ['responsible'] }], mode)
-  assert.deepEqual(back, [{ id: 'B', release: true, why: [] }, { id: 'X', keep: true, why: ['irreversible'] }, { id: 'Y', keep: true, why: ['responsible'] }])
-  assert.equal(decideStep({ mode, kind: 'agent' }).act, 'run') // C
-  // 단계마다로 바꾸면 기다리던 것은 그대로(다음 단계가 묻는다)
-  assert.ok(afterSwitch([{ id: 'Y', why: ['responsible'] }], 'hitl').every((x) => x.keep))
+test('실행 방식은 프로세스의 단계가 정한다: 제안 → 단계마다 사람이 정함 · 자동 → 사람이 지켜봄, 관찰 · 모름은 묻는 쪽', () => {
+  assert.equal(modeOfStage('adopted'), 'hotl')
+  assert.equal(modeOfStage('suggested'), 'hitl')
+  // 관찰은 건을 시작하지 않는다 — 그래도 건이 있으면(단계를 못 읽음 · 없는 프로세스) 단계마다 묻는 쪽이 안전
+  for (const s of ['paused', 'gone', '', null, undefined]) assert.equal(modeOfStage(s), 'hitl', String(s))
+  assert.deepEqual(STAGE_OF_MODE, { hotl: 'adopted', hitl: 'suggested' })
+  assert.deepEqual([STAGE_KO.paused, STAGE_KO.suggested, STAGE_KO.adopted], ['관찰', '제안', '자동'])
+})
+
+test('건은 시작할 때의 방식을 지닌다 — 단계를 나중에 바꿔도 그대로, 그 전에 시작한 건(run_mode 없음)은 지금 단계로', async () => {
+  // 자동일 때 시작한 건(hotl): 프로세스를 제안으로 내려도 그대로 · 제안일 때 시작한 건(hitl): 자동으로 올려도 그대로
+  assert.deepEqual(caseModeOf('hotl', 'suggested'), { mode: 'hotl', from: 'case' })
+  assert.deepEqual(caseModeOf('hitl', 'adopted'), { mode: 'hitl', from: 'case' })
+  // sql/045 전에 시작한 건: 단계가 열릴 때마다 프로세스의 지금 단계로 읽는다(단계를 바꾸면 다음 단계부터 따라간다)
+  assert.deepEqual(caseModeOf(null, 'adopted'), { mode: 'hotl', from: 'stage', stage: 'adopted' })
+  assert.deepEqual(caseModeOf(null, 'suggested'), { mode: 'hitl', from: 'stage', stage: 'suggested' })
+  assert.deepEqual(caseModeOf(undefined, null), { mode: 'hitl', from: 'stage', stage: null })
+  // 방식이 아닌 값은 건의 방식으로 치지 않는다
+  assert.deepEqual(caseModeOf('auto', 'adopted'), { mode: 'hotl', from: 'stage', stage: 'adopted' })
+  // caseMode: 관문 · 지켜보기가 이미 가진 지도(view)의 단계를 쓴다 — 건의 방식이 먼저, DB 를 따로 읽지 않는다
+  const view = (status) => ({ proc: { key: 'p', status } })
+  assert.deepEqual(await caseMode({ run_mode: 'hitl', bundle: 'p' }, view('adopted')), { mode: 'hitl', from: 'case' })
+  assert.deepEqual(await caseMode({ run_mode: 'hotl', bundle: 'p' }, view('paused')), { mode: 'hotl', from: 'case' })
+  assert.deepEqual(await caseMode({ run_mode: null, bundle: 'p' }, view('adopted')), { mode: 'hotl', from: 'stage', stage: 'adopted' })
+  assert.deepEqual(await caseMode({ bundle: 'p' }, view('suggested')), { mode: 'hitl', from: 'stage', stage: 'suggested' })
+  // 관문은 단계마다 방식을 읽는다: 시작할 때 방식을 지닌 건은 단계가 바뀌어도 같은 판단, 그 전의 건은 바뀐 단계를 따른다
+  for (const stage of ['adopted', 'suggested', 'paused']) {
+    assert.deepEqual(decideStep({ mode: (await caseMode({ run_mode: 'hotl' }, view(stage))).mode, kind: 'agent' }), { act: 'run', why: [] }, stage)
+    assert.deepEqual(decideStep({ mode: (await caseMode({ run_mode: 'hitl' }, view(stage))).mode, kind: 'agent' }), { act: 'wait', why: ['hitl'] }, stage)
+  }
+  assert.deepEqual(decideStep({ mode: (await caseMode({ run_mode: null }, view('adopted'))).mode, kind: 'agent' }), { act: 'run', why: [] })
+  assert.deepEqual(decideStep({ mode: (await caseMode({ run_mode: null }, view('suggested'))).mode, kind: 'agent' }), { act: 'wait', why: ['hitl'] })
+  // 자동 단계의 건도 책임 · 되돌릴 수 없음 · 늘 묻는 단계에서는 그대로 기다린다
+  const hotl = (await caseMode({ run_mode: 'hotl' }, view('adopted'))).mode
+  assert.deepEqual(decideStep({ mode: hotl, kind: 'agent', responsible: true }), { act: 'wait', why: ['responsible'] })
+  assert.deepEqual(decideStep({ mode: hotl, kind: 'agent', policy: 'ask' }), { act: 'wait', why: ['ask'] })
+  assert.equal(decideStep({ mode: hotl, kind: 'agent', irreversible: true }).draftFirst, true)
+})
+
+test('예전에 따로 고르던 방식(pro_run_modes · pro_run_settings.default_mode)은 서버 어디서도 읽지 않는다 — 남은 행은 무시된다', () => {
+  const server = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const files = ['lib', 'routes'].flatMap((d) => fs.readdirSync(path.join(server, d), { recursive: true }).filter((f) => /\.(js|mjs)$/.test(f)).map((f) => path.join(server, d, f)))
+  assert.ok(files.length > 20)
+  const reads = []
+  for (const f of files) {
+    // (comments name the old tables to say they are not read — only code counts)
+    const code = fs.readFileSync(f, 'utf8').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/ .*$/gm, '')
+    for (const re of [/\b(from|join)\s+pro_run_modes\b/i, /\binto\s+pro_run_modes\b/i, /\bselect\b[^`;]*?\bdefault_mode\b/i, /\.default_mode\b/, /set\s+default_mode\s*=/i]) {
+      if (re.test(code)) reads.push(`${path.relative(server, f)} ${re}`)
+    }
+  }
+  assert.deepEqual(reads, [])
 })
 
 test('되감기: 이 건이 닿은 단계로만 · 요청 접수는 안 됨 · 그 뒤에 밖으로 보낸 단계가 있으면 확인을 받는다', () => {
@@ -141,7 +182,7 @@ test('「다음은 X예요」의 근거: 갈림길이면 갈림길 조건(자신
   const one = proposalOf({ from: '강의자료 준비', to: '고객 회신', outs: [{ to: '고객 회신', p: 0 }] })
   assert.deepEqual([one.split, one.others, one.why], [false, [], '이 흐름의 다음 단계예요'])
   assert.deepEqual(whyLines(['irreversible', 'hitl'], { irreversible: { why: '회사가 보낸 기록 10건 중 9건이 회사 밖(고객)으로 갔어요' } }),
-    ['되돌릴 수 없는 단계 — 회사가 보낸 기록 10건 중 9건이 회사 밖(고객)으로 갔어요', '단계마다 사람이 정하는 방식이에요'])
+    ['되돌릴 수 없는 단계 — 회사가 보낸 기록 10건 중 9건이 회사 밖(고객)으로 갔어요', '「제안」 단계의 건이라 단계마다 사람이 정해요'])
 })
 
 test('지켜보기의 단계 상태: 끝남 · 에이전트가 하는 중 · 사람 차례 · 기다림 · 닫힘 · 다음', () => {

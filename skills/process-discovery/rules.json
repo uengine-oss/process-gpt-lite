@@ -284,7 +284,6 @@
     }
   },
   "runMode": {
-    "default": "hotl",
     "irreversible": {
       "minRecords": 2,
       "outwardShare": 0.6,

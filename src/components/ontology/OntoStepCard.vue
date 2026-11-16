@@ -7,6 +7,7 @@ import { api } from '../../api.js'
 import { pct } from './fmt.js'
 import OntoSheet from './OntoSheet.vue'
 import OntoCasePanel from './OntoCasePanel.vue'
+import OntoBindings from './OntoBindings.vue'
 import { RO, EUL, EUN, IEYO, holderText } from './ontoText.js'
 
 const props = defineProps({ msg: Object })
@@ -15,6 +16,9 @@ const busy = ref('')
 const err = ref('')
 const sheet = ref(false)
 const outward = computed(() => (c.value.why || []).includes('irreversible'))
+// the step's role has nobody yet (server mapengine.js holdUnbound): the owner picks who does it — the step goes on then
+const unbound = computed(() => (c.value.why || []).includes('unbound'))
+const picked = ref(false)
 const others = computed(() => c.value.proposal?.others || [])
 const answered = computed(() => c.value.state !== 'ask')
 // 해도 되고 안 해도 되는 단계(server steprule.js): 진행 · 건너뛰기. 꼭 하는 단계를 다른 갈래로 지나치려 하면 서버가 먼저 알리고 까닭을 받는다
@@ -44,7 +48,8 @@ const result = computed(() => {
   <div class="os" data-testid="onto-case-ask" :data-state="c.state" :data-task="c.task" :data-why="(c.why || []).join(',')">
     <div class="q">
       <span v-if="c.subject" class="sub">{{ c.subject }}<template v-if="c.from"> · {{ c.from }}</template></span>
-      <template v-if="outward">「{{ c.task }}」 초안을 만들었어요. 회사 밖으로 나가는 단계라 되돌릴 수 없어요 — 보낼까요?</template>
+      <template v-if="unbound">「{{ c.task }}」{{ EUL(c.task) }} 하려면 「{{ c.role }}」{{ EUL(c.role || '') }} 맡을 사람을 정해야 해요.</template>
+      <template v-else-if="outward">「{{ c.task }}」 초안을 만들었어요. 회사 밖으로 나가는 단계라 되돌릴 수 없어요 — 보낼까요?</template>
       <template v-else-if="(c.why || []).includes('hitl')">다음은 「{{ c.task }}」{{ IEYO(c.task) }} — {{ optional ? '진행할까요, 건너뛸까요?' : '진행할까요?' }}</template>
       <template v-else-if="(c.why || []).includes('optional')">「{{ c.task }}」, 이 건에도 할까요? 해도 되고 안 해도 되는 단계라 건너뛸 수 있어요.</template>
       <template v-else>「{{ c.task }}」{{ EUL(c.task) }} 하기 전에 사람이 정해야 해요. 진행할까요?</template>
@@ -52,7 +57,7 @@ const result = computed(() => {
     <ul class="why"><li v-for="(w, i) in c.whyText || []" :key="i">{{ w }}</li></ul>
     <small v-if="c.reqLine" class="hold" data-testid="onto-case-ask-req" :data-requirement="c.requirement || ''">{{ c.reqLine }}</small>
     <p v-if="c.proposal?.why && !outward" class="prop">
-      <span class="cap">{{ c.proposal.from }}에서</span> {{ c.proposal.why }}<template v-if="c.proposal.split && c.proposal.p != null"> · {{ pct(c.proposal.p) }}</template>
+      <span v-if="c.proposal.from" class="cap">{{ c.proposal.from }}에서</span> {{ c.proposal.why }}<template v-if="c.proposal.split && c.proposal.p != null"> · {{ pct(c.proposal.p) }}</template>
     </p>
     <div v-if="c.preview" class="pv">
       <small v-if="c.preview.to">받는 사람 · {{ c.preview.to }}</small>
@@ -60,7 +65,12 @@ const result = computed(() => {
       <p>{{ c.preview.text }}</p>
     </div>
     <small v-if="c.holder && !c.holder.agent" class="hold">넘어갈 사람 · {{ holderText(c.holder) }}</small>
-    <template v-if="!answered">
+    <template v-if="!answered && unbound">
+      <OntoBindings v-if="c.binding && !picked" :bindings="[c.binding]" :case-id="c.caseId" :only="c.role" @changed="picked = true" />
+      <small v-if="picked" class="res" data-testid="onto-case-ask-bound">정했어요 — 「{{ c.task }}」{{ EUL(c.task) }} 이어서 해요.</small>
+      <div class="btns"><button class="lk press" data-testid="onto-case-ask-open" @click="sheet = true">건 보기</button></div>
+    </template>
+    <template v-else-if="!answered">
       <div class="btns">
         <button class="pill yes press" :disabled="!!busy" data-testid="onto-case-ask-go" @click="decide('go')">{{ busy === 'go' ? '…' : outward ? '보내기' : '진행' }}</button>
         <button v-for="o in others" :key="o.to" class="chip press" :disabled="!!busy" data-testid="onto-case-ask-other" :title="o.cond || ''" @click="decide('other', o.to)">{{ o.to }}<small v-if="o.p != null"> {{ pct(o.p) }}</small></button>

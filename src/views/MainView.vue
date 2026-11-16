@@ -60,6 +60,9 @@ async function syncRoute() {
   if (app.mode === 'chat') app.activeId = app.mainThread.id
   else if (route.params.instId) {
     await app.openInstance(route.params.instId)
+    // a case run from the company's process map (지도에서 바로) has no definition to draw here: its case view on the map instead
+    const mc = app.instance?.mapCase
+    if (mc?.id) { app.instance = null; return router.replace(`/process-map?proc=${encodeURIComponent(mc.proc)}&case=${encodeURIComponent(mc.id)}`) }
     // agents advance instances in the background; keep the timeline fresh while it runs
     poll = setInterval(() => app.instance?.inst.status === 'RUNNING' && app.refreshInstance(), 5000)
   } else if (route.params.id) await app.open(route.params.id)

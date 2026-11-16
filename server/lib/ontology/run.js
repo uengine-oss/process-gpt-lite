@@ -327,20 +327,29 @@ export const triggerOf = ({ kind = 'manual', subject = '', from = '', customer =
 }
 
 // engine: the tenant's (mapengine.js engineOf) unless given — 'bpm' runs a snapshot proc_def on the engine, 'map' runs the map itself
-export async function startCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', file = null, validAt, engine }) {
+// The case takes the mode its process's stage gives it (runmode.js modeOfStage — 제안: 단계마다 사람이 정함, 자동: 사람이 지켜봄) and keeps it,
+// and who does each role of its flow (bindings.js — picks: what the person changed on the ask card before 진행); a snapshot case's roles
+// go to the engine as its role mappings (engine.js startProcess roles).
+export async function startCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', file = null, validAt, engine, picks = [] }) {
   if (!ontologyEnabled()) throw err(503, 'Ontological DB 가 연결되지 않았어요.')
   const M = await import('./mapengine.js')
-  if ((engine || (await M.engineOf()).engine) === 'map') return M.startMapCase(me, { procKey, entry, subject, body, from, customer, odds, kind, file })
+  if ((engine || (await M.engineOf()).engine) === 'map') return M.startMapCase(me, { procKey, entry, subject, body, from, customer, odds, kind, file, picks })
   const starterRole = await roleOfPerson(me.id)
   const snap = await snapshot({ procKey, entry, starterRole, validAt })
+  const view = await procGraph(procKey, { validAt })
+  const B = await import('./bindings.js')
+  const bindings = await B.resolveBindings(view, entry, { starter: me.id, picks }).catch((e) => { console.warn('[ontology] bindings', e.message); return [] })
+  const { modeOfStage } = await import('./runmode.js')
   const { startProcess } = await import('../engine.js')
   const values = { subject, body: String(body).slice(0, 3000), customer, sender: from }
-  const [c] = await q(`insert into pro_po_cases (tenant_id, bundle, entry_task, started_by, trigger, entry_odds, snapshots, history, engine, request)
-                       values ($1,$2,$3,$4,$5,$6,$7,$8,'bpm',$9) returning *, bundle as proc`, [T(), procKey, entry, me.id, triggerOf({ kind, subject, from, customer, file }), odds, [snap.procDefId],
-    JSON.stringify(snap.skipped.map((t) => ({ task: t, state: 'skipped', at: isoDay() }))), values])
-  const { instId, instName } = await startProcess({ me, defId: snap.procDefId, values })
+  const [c] = await q(`insert into pro_po_cases (tenant_id, bundle, entry_task, started_by, trigger, entry_odds, snapshots, history, engine, request, run_mode, bindings)
+                       values ($1,$2,$3,$4,$5,$6,$7,$8,'bpm',$9,$10,$11) returning *, bundle as proc`, [T(), procKey, entry, me.id, triggerOf({ kind, subject, from, customer, file }), odds, [snap.procDefId],
+    JSON.stringify(snap.skipped.map((t) => ({ task: t, state: 'skipped', at: isoDay() }))), values, modeOfStage(view.proc.status), JSON.stringify(bindings)])
+  // (a role nobody could be found for goes as the engine would send it — to the starter: the snapshot path has no step that waits for it)
+  const roles = Object.fromEntries(bindings.filter((b) => b.userId && b.from !== 'agent').map((b) => [b.role, b.userId]))
+  const { instId, instName } = await startProcess({ me, defId: snap.procDefId, values, roles })
   await q(`update pro_po_cases set instances = array_append(instances, $2), updated_at=now() where id=$1`, [c.id, instId])
-  return { caseId: c.id, instId, instName, snapshot: snap }
+  return { caseId: c.id, instId, instName, snapshot: snap, bindings: B.bindingsView(bindings), runMode: c.run_mode }
 }
 
 export async function getCase(id) {
@@ -385,7 +394,9 @@ export async function moveCase(me, id, { task, reason = '', state = 'moved', lea
   const intake = await caseIntake(c)
   const { startProcess } = await import('../engine.js')
   const { instId, instName } = await startProcess({ me, defId: snap.procDefId, values: { subject: c.trigger?.subject || intake.subject || '', customer: c.trigger?.customer || intake.customer || '',
-    sender: c.trigger?.from || intake.sender || '', body: `${reason ? `옮긴 이유: ${reason}\n` : ''}${intake.body || ''}`.slice(0, 3000) } })
+    sender: c.trigger?.from || intake.sender || '', body: `${reason ? `옮긴 이유: ${reason}\n` : ''}${intake.body || ''}`.slice(0, 3000) },
+    // (the new instance keeps who does each role of this case — bindings.js)
+    roles: Object.fromEntries((Array.isArray(c.bindings) ? c.bindings : []).filter((b) => b.userId && b.from !== 'agent').map((b) => [b.role, b.userId])) })
   await q(`update pro_po_cases set instances = array_append(instances, $2), snapshots = array_append(snapshots, $3), status='running',
            history = history || $4::jsonb, updated_at=now() where id=$1`, [id, instId, snap.procDefId, JSON.stringify([{ task, state, at: isoDay(), reason }])])
   if (learn) await q(`insert into handover_events (tenant_id, case_id, source, is_explicit, from_user_id, from_user_name, to_user_id, activity_label, next_activity_label, reason, occurred_at)

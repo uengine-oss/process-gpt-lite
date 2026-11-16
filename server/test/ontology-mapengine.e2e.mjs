@@ -9,8 +9,11 @@
 //     c  건이 기다리는 동안 지도를 바꾼다(다듬기: 고객 회신 뒤에 「결과 보고」를 더함) — 따라가는 건은 새 지도로, 시작한 날의 지도에 고정한 건은 그대로
 //     d  메일 하나가 두 프로세스를: 자동인 강의 프로세스는 시작, 제안인 프로세스는 묻는다
 //     e  채팅에 올린 파일: 묻기만 하고 건을 열지 않는다
-//     h  단계마다 사람이 정함(HITL) · 해도 되고 안 해도 되는 단계: 지도에서 바로 도는 건도 관문이 묻고, 사람이 건너뛰면 지도가 다음 단계를 정한다
+//     h  「제안」 단계의 건(단계마다 사람이 정함 HITL) · 해도 되고 안 해도 되는 단계: 지도에서 바로 도는 건도 관문이 묻고, 사람이 건너뛰면 지도가 다음 단계를 정한다
+//     r  역할마다 맡는 사람: 시작 전에 바꿈 → 뒤에 생긴 단계도 그 사람에게, 진행 중에 바꿈 → 끝나지 않은 단계만, 여러 명인 역할 → 고를 때까지 기다림
 //     bpm 같은 메일을 프로세스 정의로(기존) 한 번 — engine-compare 로 나란히
+//   지도에서 바로 도는 건은 bpm_proc_inst 한 행(제목 · 시작한 사람 · 맡은 사람 · 지금 단계 · 상태)을 지니고, 되감아도 행이 늘지 않는다.
+//   지도 건의 단계들(a · b · c · d · e · h · r)은 proc_def · form_def 행을 하나도 만들지 않는다(흐름도의 BPMN 은 그때그때 만든다).
 //   끝나면 이 시험이 만든 건 · 할 일 · 단계 · 카드 · 스레드 · 원장 · 고친 기록 · 파일을 지우고 엔진 설정을 처음대로(--keep: 남겨 둔다).
 //   준비를 되돌리는 것은 runmode-lecture.mjs --reset (이 시험은 하지 않는다).
 process.env.DOTENV_CONFIG_QUIET = 'true'
@@ -33,7 +36,7 @@ const BOSS = 'jyjang@uengine.org'
 const MATE = 'runmode-demo-instructor@example.com'
 const WS = process.env.PRO_FORMS_OUT || '/Users/uengine/process-gpt/services/deepagents/workspace/jy-mail/forms-out'
 const argv = process.argv.slice(2)
-const phases = new Set((argv[argv.indexOf('--phase') + 1] && argv.includes('--phase') ? argv[argv.indexOf('--phase') + 1] : 'a,b,c,d,e,h,bpm').split(','))
+const phases = new Set((argv[argv.indexOf('--phase') + 1] && argv.includes('--phase') ? argv[argv.indexOf('--phase') + 1] : 'a,b,c,d,e,h,r,bpm').split(','))
 const keep = argv.includes('--keep')
 // --clean <iso>: only clean up what a kept run (--keep) made since then
 const cleanOnly = argv.includes('--clean') ? new Date(argv[argv.indexOf('--clean') + 1]) : null
@@ -86,6 +89,13 @@ const stepOf = async (caseId, task, states) => (await q(`select s.*, t.status::t
 const todoOf = async (caseId, task) => { const c = await caseRow(caseId); return (await q(`select id::text as id, status::text as status, user_id, draft, output from todolist where proc_inst_id = any($1) and activity_name=$2 order by start_date desc nulls last limit 1`, [c.instances, task]))[0] }
 const todosOf = async (who) => (await call(who.tok, 'GET', '/todos')).map((t) => ({ id: t.id, name: t.activity_name }))
 const procDefs = async () => Number((await q(`select count(*) n from proc_def where tenant_id=$1`, [T]))[0].n)
+const formDefs = async () => Number((await q(`select count(*) n from form_def where tenant_id=$1`, [T]))[0].n)
+// the case's one bpm_proc_inst row (mapengine.js syncInst)
+const instRow = async (inst) => (await q(`select proc_inst_id, proc_inst_name, proc_def_id, status::text as status, participants, role_bindings, current_activity_ids, variables_data, start_date, end_date, tenant_id from bpm_proc_inst where proc_inst_id=$1`, [inst]))[0]
+const crypto = await import('node:crypto')
+const actId = (task) => `t_${crypto.createHash('sha1').update(String(task)).digest('hex').slice(0, 10)}`
+// a timestamp-without-time-zone column read as this machine's (Korea's) clock: within minutes of now, not 9 hours off
+const nearNow = (d, min = 15) => !!d && Math.abs(Date.now() - new Date(d).getTime()) < min * 60_000
 async function facts(caseId) {
   const c = await caseRow(caseId)
   const todos = await q(`select activity_name, status::text as status from todolist where proc_inst_id = any($1) order by start_date`, [c.instances])
@@ -141,12 +151,30 @@ async function phaseA(boss, mate) {
   const first = await stepOf(id, c.entry_task)
   check('첫 단계 행: 지도에서 정함(entry) · map_at', first?.via?.how === 'entry' && !!first.map_at, JSON.stringify(first?.via))
   check('요청 접수 행이 없다', !(await q(`select 1 from todolist where proc_inst_id=$1 and activity_id='intake'`, [c.instances[0]])).length)
+  // the case's one row in the shared instance table: its title, its starter, its open step, no definition
+  const i0 = await instRow(c.instances[0])
+  check('bpm_proc_inst 한 행: 제목 · 정의 없음 · 진행 중 · 시작한 사람 · 지금 단계', !!i0 && i0.proc_inst_name.includes(MAIL_MID.subject) && i0.proc_def_id === null && i0.status === 'RUNNING' &&
+    i0.participants.includes(boss.id) && i0.current_activity_ids.includes(actId(c.entry_task)) && i0.tenant_id === T, JSON.stringify({ name: i0?.proc_inst_name, status: i0?.status, cur: i0?.current_activity_ids }))
+  check('인스턴스 행의 시작 시각은 한국 시각(9시간 어긋나지 않음)', nearNow(i0.start_date), String(i0.start_date))
+  check('인스턴스 행의 변수: 요청(제목 · 보낸 사람 · 고객)을 엔진의 모양으로', (i0.variables_data || []).some((v) => v.key === 'subject' && v.value === MAIL_MID.subject) && (i0.variables_data || []).some((v) => v.key === 'sender'),
+    JSON.stringify(i0.variables_data))
+  check('맡는 사람: 강사 → 데모 강사(설정) · 에이전트 단계는 업무 에이전트', (i0.role_bindings || []).some((b) => b.name === '강사' && (b.endpoint || []).includes(mate.id)) && (i0.role_bindings || []).some((b) => b.name === '업무 에이전트'),
+    JSON.stringify((i0.role_bindings || []).map((b) => `${b.name}:${[].concat(b.endpoint).join(',')}`)))
+  const list = await call(boss.tok, 'GET', '/instances')
+  const li = list.find((x) => x.proc_inst_id === c.instances[0])
+  check('Lite 인스턴스 목록에 지도 건: 제목 · 지도에서 바로 · 시작한 사람 · 건 id', li && li.engine === 'map' && li.case_id === id && !!li.starter_name && li.proc_inst_name === i0.proc_inst_name, JSON.stringify(li && { name: li.proc_inst_name, engine: li.engine, starter: li.starter_name }))
+  const opened = await call(boss.tok, 'GET', `/instances/${encodeURIComponent(c.instances[0])}`)
+  check('인스턴스를 열면 건 화면으로(mapCase)', opened.mapCase?.id === id && opened.mapCase?.proc === PROC, JSON.stringify(opened.mapCase))
   await waitFor('강의자료 준비 끝', async () => (await todoOf(id, '강의자료 준비'))?.status === 'DONE', { timeout: 360_000 })
+  const [d1] = await q(`select start_date, end_date from todolist where proc_inst_id=$1 and activity_name='강의자료 준비'`, [c.instances[0]])
+  check('할 일의 시작 · 끝 시각도 한국 시각(앞선 진행의 「끝남」이 9시간 이르지 않음)', nearNow(d1.start_date) && nearNow(d1.end_date), `${d1.start_date} ~ ${d1.end_date}`)
   const w = await sent(boss, id, '고객 회신')
   check('고객 회신: 지도가 정함(한 갈래, 강의자료 준비에서)', w.via?.how === 'single' && w.via?.from === '강의자료 준비', JSON.stringify(w.via))
   await waitFor('교육 진행이 강사에게', async () => (await todosOf(mate)).some((t) => t.name === '교육 진행'), { timeout: 240_000 })
   const f = await facts(id)
-  check('교육 진행 때까지 인스턴스 하나 · bpm_proc_inst 0 · 새 proc_def 0', f.instances === 1 && f.bpmProcInst === 0 && (await procDefs()) === defs0, JSON.stringify({ instances: f.instances, bpm: f.bpmProcInst, defs: (await procDefs()) - defs0 }))
+  check('교육 진행 때까지 인스턴스 하나 · bpm_proc_inst 1 · 새 proc_def 0', f.instances === 1 && f.bpmProcInst === 1 && (await procDefs()) === defs0, JSON.stringify({ instances: f.instances, bpm: f.bpmProcInst, defs: (await procDefs()) - defs0 }))
+  const i1 = await instRow(c.instances[0])
+  check('인스턴스 행: 지금 단계 교육 진행 · 강사도 참여자', i1.current_activity_ids.join() === actId('교육 진행') && i1.participants.includes(mate.id), JSON.stringify({ cur: i1.current_activity_ids, people: i1.participants.length }))
   OUT.a = f; save()
   return { id, defs0 }
 }
@@ -163,18 +191,28 @@ async function phaseB(boss, mate, { id, defs0 }) {
   check('강사 목록에서 빠짐', !(await todosOf(mate)).some((t) => t.id === old.id))
   const again = await stepOf(id, '강의자료 준비', ['planned', 'auto', 'go', 'waiting'])
   check('되감은 단계 행: via rewound', again?.via?.how === 'rewound', JSON.stringify(again?.via))
+  const ir = await instRow(c.instances[0])
+  check('되감아도 bpm_proc_inst 한 행 그대로 · 지금 단계는 강의자료 준비', Number((await q(`select count(*) n from bpm_proc_inst where proc_inst_id = any($1)`, [c.instances]))[0].n) === 1 && ir.status === 'RUNNING' && ir.current_activity_ids.join() === actId('강의자료 준비'),
+    JSON.stringify({ status: ir.status, cur: ir.current_activity_ids }))
+  const g = await waitFor('되감은 단계를 관문이 봄', async () => (await q(`select * from pro_case_steps where case_id=$1 and task='강의자료 준비' and via->>'how'='rewound' and proposal is not null order by created_at desc limit 1`, [id]))[0], { timeout: 120_000 })
+  check('되감은 단계의 근거: 요청 접수 · 시작 확률 없이 「되감았어요」', g.proposal.why.includes('되감았어요') && !g.proposal.from && g.proposal.p == null && !/요청 접수|%/.test(g.proposal.why), JSON.stringify(g.proposal))
   await waitFor('다시 한 강의자료 준비 끝', async () => (await q(`select count(*)::int n from todolist where proc_inst_id=$1 and activity_name='강의자료 준비' and status::text='DONE'`, [c.instances[0]]))[0].n === 2, { timeout: 360_000 })
   await sent(boss, id, '고객 회신')
   const t6 = await waitFor('교육 진행이 다시 강사에게', async () => { const t = await todoOf(id, '교육 진행'); return t?.status === 'IN_PROGRESS' && t.id !== old.id && (await todosOf(mate)).some((x) => x.id === t.id) ? t : null }, { timeout: 240_000 })
   await call(mate.tok, 'POST', `/todos/${t6.id}/submit`, { values: { result: '특강을 마쳤어요. 학생 40명 · 실습 2개 진행.' } })
   await waitFor('건 끝', async () => (await caseRow(id)).status === 'done', { timeout: 60_000 })
   const f = await facts(id)
-  check('끝까지 인스턴스 하나 · bpm_proc_inst 0 · 새 proc_def 0', f.instances === 1 && f.bpmProcInst === 0 && (await procDefs()) === defs0, JSON.stringify({ instances: f.instances, bpm: f.bpmProcInst, defs: (await procDefs()) - defs0 }))
+  check('끝까지 인스턴스 하나 · bpm_proc_inst 1 · 새 proc_def 0', f.instances === 1 && f.bpmProcInst === 1 && (await procDefs()) === defs0, JSON.stringify({ instances: f.instances, bpm: f.bpmProcInst, defs: (await procDefs()) - defs0 }))
+  const ie = await instRow(c.instances[0])
+  check('끝: 인스턴스 행 COMPLETED · 끝난 시각(한국 시각) · 열린 단계 없음', ie.status === 'COMPLETED' && nearNow(ie.end_date) && !ie.current_activity_ids.length, JSON.stringify({ status: ie.status, end: ie.end_date, cur: ie.current_activity_ids }))
   check('할 일 6행(강의자료 · 회신 · 교육(닫힘) · 강의자료 · 회신 · 교육)', f.todolist === 6, f.todos.join(' → '))
   check('되감기 1번이 기록에', f.moves.length === 1 && f.moves[0] === 'rewound:강의자료 준비', f.moves.join(','))
   const flow = await call(boss.tok, 'GET', `/ontology/cases/${id}/flow`)
   const st = Object.fromEntries(flow.nodes.map((n) => [n.key, n.state]))
   check('흐름도: 지금 지도로, 네 단계 끝남', !flow.pinned && ['강의자료 준비', '고객 회신', '교육 진행'].every((k) => st[k] === 'done'), JSON.stringify(st))
+  const x = flow.bpmn?.xml || ''
+  check('흐름도는 BPMN: 그때 만든 XML · 요청 접수 없음 · 단계마다 상태', x.includes('<bpmn:definitions') && !x.includes('요청 접수') && ['강의자료 준비', '고객 회신', '교육 진행'].every((k) => flow.bpmn.states[flow.bpmn.ids[k]] === 'done'),
+    JSON.stringify({ len: x.length, states: Object.keys(flow.bpmn?.states || {}).length }))
   const run = await call(boss.tok, 'GET', `/ontology/cases/${id}/run`)
   check('지켜보기: 엔진 map · 인스턴스 1', run.engine === 'map' && run.instances === 1, `${run.engine} ${run.instances}`)
   OUT.b = { ...f, flow: flow.nodes.map((n) => `${n.key}:${n.state}${n.runs > 1 ? `×${n.runs}` : ''}`) }; save()
@@ -225,6 +263,8 @@ async function phaseD(boss) {
   check('다른 프로세스도 같은 메일의 일로 — 제안이라 묻는다', (r.offered || []).length >= 1 && (r.offered || []).every((o) => o.status !== 'adopted'), (r.offered || []).map((o) => o.name).join(', '))
   const [m] = await q(`select content from pro_messages where id=$1`, [r.messageId])
   check('묻는 카드 하나에 프로세스들', m?.content?.state === 'ask' && ((m.content.choices || []).length === r.offered.length || (r.offered.length === 1 && m.content.choice?.proc === r.offered[0].proc)), `${(m?.content?.choices || [m?.content?.choice]).map((x) => x?.procName).join(', ')}`)
+  check('묻는 카드가 같은 메일로 이미 시작한 것도 안다(카드 첫 줄은 둘을 함께 센다)', (m.content.startedAlso || []).length === (r.started || []).length && (m.content.startedAlso || []).every((x) => x.caseId),
+    JSON.stringify({ startedAlso: (m.content.startedAlso || []).map((x) => x.procName), offered: (m.content.choices || [m.content.choice]).length }))
   for (const s of r.started || []) await call(boss.tok, 'POST', `/ontology/cases/${s.caseId}/pause`).catch(() => {})
   OUT.d = { started: r.started, offered: r.offered, reads: r.reads }; save()
 }
@@ -246,13 +286,15 @@ async function phaseE(boss) {
 
 async function phaseH(boss, mate) {
   log('— (h) 단계마다 사람이 정함 · 해도 되고 안 해도 되는 단계(지도에서 바로)')
-  const was = (await call(boss.tok, 'GET', `/ontology/processes/steps?key=${encodeURIComponent(PROC)}`)).mode
-  await call(boss.tok, 'POST', '/ontology/processes/run-mode', { key: PROC, mode: 'hitl', name: '강의계획서 작성 · 보고' })
+  // the process's stage decides the mode (제안 → 단계마다 사람이 정함); a case keeps the mode of its start
+  const [st0] = await withTenant(T, () => cypher(`MATCH (b:Process {key:$key}) RETURN b.status AS status`, { key: PROC }))
+  await call(boss.tok, 'POST', '/ontology/processes/status', { key: PROC, status: 'suggested', name: '강의계획서 작성 · 보고' })
   await call(boss.tok, 'PUT', `/ontology/processes/${encodeURIComponent(PROC)}/steps/${encodeURIComponent('강의계획서 작성')}/requirement`, { requirement: 'optional', rules: [], reason: 'e2e: 건너뛰기 시험' })
   try {
     const r = await call(boss.tok, 'POST', '/ontology/cases', { proc: PROC, entry: '강의계획서 작성', subject: '[특강] 단계마다 확인 시험', body: '강의계획서는 이미 있어요. 강의자료만 준비해 주세요.', from: FROM, customer: '김지원 교수', kind: 'manual' })
     track(r.caseId)
     OUT.cases.mapHitl = r.caseId
+    check('「제안」 단계에서 시작한 건은 단계마다 사람이 정함(hitl)을 지닌다', (await q(`select run_mode from pro_po_cases where id=$1`, [r.caseId]))[0].run_mode === 'hitl')
     const w = await waitFor('강의계획서 작성이 단계마다 확인을 기다림', async () => { const s = await stepOf(r.caseId, '강의계획서 작성', ['waiting']); return s?.message_id ? s : null }, { timeout: 60_000 })
     check('HITL: 첫 단계도 주인에게 묻는다(에이전트가 잡지 않음)', w.why.includes('hitl') && w.todo_status === 'IN_PROGRESS', w.why.join(','))
     check('해도 되고 안 해도 되는 단계로 읽음', w.requirement === 'optional', w.requirement)
@@ -273,8 +315,70 @@ async function phaseH(boss, mate) {
     OUT.h = { skip: await facts(r.caseId), person: await facts(r2.caseId) }; save()
   } finally {
     await call(boss.tok, 'PUT', `/ontology/processes/${encodeURIComponent(PROC)}/steps/${encodeURIComponent('강의계획서 작성')}/requirement`, { requirement: null, rules: [] }).catch((e) => log('  requirement back', e.message))
-    await call(boss.tok, 'POST', '/ontology/processes/run-mode', { key: PROC, mode: was || 'hotl', name: '강의계획서 작성 · 보고' }).catch((e) => log('  mode back', e.message))
+    await call(boss.tok, 'POST', '/ontology/processes/status', { key: PROC, status: st0?.status || 'adopted', name: '강의계획서 작성 · 보고' }).catch((e) => log('  stage back', e.message))
   }
+}
+
+async function phaseR(boss, mate) {
+  log('— (r) 역할마다 맡는 사람: 시작 전에 바꾸기 · 진행 중에 바꾸기 · 여러 명인 역할')
+  const sb = await call(boss.tok, 'GET', `/ontology/start-bindings?proc=${encodeURIComponent(PROC)}&entry=${encodeURIComponent('고객 회신')}`)
+  const k = sb.bindings.find((b) => b.role === '강사')
+  check('시작 전 풀이: 강사 → 데모 강사(설정의 팀 · 역할 담당자)', k?.userId === mate.id && k.from === 'settings', JSON.stringify(sb.bindings.map((b) => `${b.role}:${b.name}:${b.from}`)))
+  // 1) changed before 진행: the case keeps the pick, and the step made later (교육 진행) goes to that person — not a fresh lookup
+  const r = await call(boss.tok, 'POST', '/ontology/cases', { proc: PROC, entry: '고객 회신', subject: '[특강] 맡는 사람 시험(e2e)', body: MAIL_C.text, from: MAIL_C.from, customer: '김지원 교수', kind: 'manual',
+    picks: [{ role: '강사', userId: boss.id }] })
+  track(r.caseId)
+  OUT.cases.mapRoles = r.caseId
+  const b1 = r.bindings.find((b) => b.role === '강사')
+  check('시작 전에 바꿈: 강사 → 장진영(이 건에서 바꿈)', b1?.userId === boss.id && b1.from === 'picked', JSON.stringify(b1))
+  const c = await caseRow(r.caseId)
+  const i0 = await instRow(c.instances[0])
+  check('bpm_proc_inst.role_bindings 에도 바꾼 사람', (i0.role_bindings || []).some((b) => b.name === '강사' && b.endpoint.includes(boss.id)), JSON.stringify(i0.role_bindings))
+  const rs = (await q(`select user_id, role from pro_role_assignments where tenant_id=$1 and role='강사' and proc_def_id='*'`, [T]))[0]
+  check('회사 설정은 그대로(강사 → 데모 강사)', rs?.user_id === mate.id)
+  await sent(boss, r.caseId, '고객 회신')
+  const t6 = await waitFor('교육 진행이 만들어짐', async () => todoOf(r.caseId, '교육 진행'), { timeout: 60_000 })
+  await call(boss.tok, 'POST', `/ontology/cases/${r.caseId}/pause`).catch(() => {})
+  check('뒤에 생긴 단계도 이 건의 맡는 사람에게(강사 → 장진영)', String(t6.user_id).split(',').includes(boss.id) && !String(t6.user_id).split(',').includes(mate.id), t6.user_id)
+  // 2) changed mid-case: the open step goes to the new person, the done ones stay; a ledger line, no handover
+  const done0 = (await q(`select id::text as id, user_id from todolist where proc_inst_id=$1 and status::text='DONE'`, [c.instances[0]]))
+  const ch = await call(boss.tok, 'PUT', `/ontology/cases/${r.caseId}/bindings`, { role: '강사', userId: mate.id })
+  check('진행 중에 바꿈: 끝나지 않은 단계 하나만 넘김 · 회사 설정은 그대로라고', ch.reassigned === 1 && /회사 설정은 그대로/.test(ch.note), JSON.stringify({ reassigned: ch.reassigned, note: ch.note }))
+  const t6b = (await q(`select user_id from todolist where id=$1`, [t6.id]))[0]
+  check('열린 교육 진행은 이제 데모 강사', String(t6b.user_id).split(',').includes(mate.id) && !String(t6b.user_id).split(',').includes(boss.id), t6b.user_id)
+  const done1 = (await q(`select id::text as id, user_id from todolist where proc_inst_id=$1 and status::text='DONE'`, [c.instances[0]]))
+  check('끝난 단계의 사람은 그대로', JSON.stringify(done0) === JSON.stringify(done1))
+  check('결정 원장에 한 줄 · 인계 기록은 없음', (await q(`select count(*)::int n from pro_policy_decisions where tenant_id=$1 and action_kind='ontology.case.binding' and facts->>'case'=$2`, [T, r.caseId]))[0].n === 1 &&
+    (await q(`select count(*)::int n from handover_events where tenant_id=$1 and case_id=$2`, [T, `onto:${r.caseId}`]))[0].n === 0)
+  const i1 = await instRow(c.instances[0])
+  check('bpm_proc_inst: 강사 → 데모 강사 · 참여자', (i1.role_bindings || []).some((b) => b.name === '강사' && b.endpoint.includes(mate.id)) && i1.participants.includes(mate.id))
+  // 3) a role several people hold (and nobody company-wide): the case starts, its first step of that role waits for the owner to choose
+  const star = await q(`select * from pro_role_assignments where tenant_id=$1 and role='강사'`, [T])
+  try {
+    await q(`delete from pro_role_assignments where tenant_id=$1 and role='강사'`, [T])
+    for (const [pd, u] of [['e2e-roles-a', boss.id], ['e2e-roles-b', mate.id]]) await q(`insert into pro_role_assignments (tenant_id, proc_def_id, role, user_id, updated_by) values ($1,$2,'강사',$3,$4)`, [T, pd, u, boss.id])
+    const sb2 = await call(boss.tok, 'GET', `/ontology/start-bindings?proc=${encodeURIComponent(PROC)}&entry=${encodeURIComponent('교육 진행')}`)
+    check('여러 명인 역할: 「여러 명 · 정해야 해요」', sb2.bindings.find((b) => b.role === '강사')?.from === 'several' && sb2.bindings.find((b) => b.role === '강사').unbound, JSON.stringify(sb2.bindings))
+    const r3 = await call(boss.tok, 'POST', '/ontology/cases', { proc: PROC, entry: '교육 진행', subject: '[특강] 여러 명인 역할 시험(e2e)', body: '특강 진행 부탁드립니다.', from: FROM, customer: '김지원 교수', kind: 'manual' })
+    track(r3.caseId)
+    const w = await waitFor('교육 진행이 맡을 사람을 기다림', async () => { const s = await stepOf(r3.caseId, '교육 진행', ['waiting']); return s?.message_id ? s : null }, { timeout: 30_000 })
+    check('고를 때까지: 단계는 기다림(unbound) · 할 일은 TODO(누구의 목록에도 없음)', w.why.includes('unbound') && w.todo_status === 'TODO' && !(await todosOf(mate)).some((x) => x.id === String(w.todo_id)), `${w.why} · ${w.todo_status}`)
+    const [msg] = await q(`select content from pro_messages where id=$1`, [w.message_id])
+    check('주인에게 묻는 카드: 역할과 고를 사람들', msg?.content?.why?.includes('unbound') && msg.content.role === '강사' && msg.content.binding?.from === 'several', JSON.stringify({ role: msg?.content?.role, from: msg?.content?.binding?.from }))
+    const go = await call(boss.tok, 'POST', `/ontology/steps/${w.id}`, { action: 'go' }).catch((e) => e)
+    check('고르기 전에는 「진행」도 안 돼요', go.status === 409)
+    await call(boss.tok, 'POST', `/ontology/cases/${r3.caseId}/pause`).catch(() => {})
+    const ch3 = await call(boss.tok, 'PUT', `/ontology/cases/${r3.caseId}/bindings`, { role: '강사', userId: mate.id })
+    const t = (await q(`select status::text as status, user_id from todolist where id=$1`, [w.todo_id]))[0]
+    const s3 = await stepOf(r3.caseId, '교육 진행')
+    check('고르면 그 사람에게 열림(맡을 사람 기다림은 풀림)', ch3.reassigned === 1 && t.status === 'IN_PROGRESS' && String(t.user_id).split(',').includes(mate.id) && !(s3.why || []).includes('unbound'),
+      JSON.stringify({ status: t.status, user: t.user_id, state: s3.state, why: s3.why }))
+  } finally {
+    await q(`delete from pro_role_assignments where tenant_id=$1 and role='강사'`, [T])
+    for (const x of star) await q(`insert into pro_role_assignments (tenant_id, proc_def_id, role, user_id, updated_by, updated_at) values ($1,$2,$3,$4,$5,$6)`, [x.tenant_id, x.proc_def_id, x.role, x.user_id, x.updated_by, x.updated_at]).catch(async () =>
+      q(`insert into pro_role_assignments (tenant_id, proc_def_id, role, user_id, updated_by) values ($1,$2,$3,$4,$5)`, [x.tenant_id, x.proc_def_id, x.role, x.user_id, x.updated_by]))
+  }
+  OUT.r = { roles: await facts(r.caseId) }; save()
 }
 
 async function phaseBpm(boss, mate) {
@@ -286,8 +390,8 @@ async function phaseBpm(boss, mate) {
   check('건의 엔진은 프로세스 정의로(bpm)', (await caseRow(id)).engine === 'bpm')
   await waitFor('강의자료 준비 끝(bpm)', async () => (await todoOf(id, '강의자료 준비'))?.status === 'DONE', { timeout: 360_000 })
   await sent(boss, id, '고객 회신')
-  await waitFor('교육 진행이 강사에게(bpm)', async () => (await todosOf(mate)).some((t) => t.name === '교육 진행'), { timeout: 240_000 })
-  const old = await todoOf(id, '교육 진행')
+  // (this case's own 교육 진행 — other phases' cases may have one on the instructor's list too)
+  const old = await waitFor('교육 진행이 강사에게(bpm)', async () => { const t = await todoOf(id, '교육 진행'); return t && (await todosOf(mate)).some((x) => x.id === t.id) ? t : null }, { timeout: 240_000 })
   await call(boss.tok, 'POST', `/ontology/cases/${id}/rewind`, { task: '강의자료 준비', confirm: true })
   await waitFor('다시 한 강의자료 준비 끝(bpm)', async () => { const c = await caseRow(id); return (await q(`select count(*)::int n from todolist where proc_inst_id = any($1) and activity_name='강의자료 준비' and status::text='DONE'`, [c.instances]))[0].n === 2 }, { timeout: 360_000 })
   await sent(boss, id, '고객 회신')
@@ -339,7 +443,8 @@ async function cleanup() {
   }
   // the decision ledger: this test's case steps, rewinds, pins, the engine switches, the map change (and its undoing)
   done.ledger = (await q(`delete from pro_policy_decisions where tenant_id=$1 and created_at >= $2 and (
-      (action_kind like 'ontology.run.%' and facts->>'case' = any($3)) or action_kind in ('ontology.engine', 'ontology.case.pin', 'ontology.steprule', 'ontology.runmode') or (action_kind = 'ontology.refine' and created_at >= $2 and facts::text like '%결과 보고%')) returning 1`, [T, START, ids])).length
+      (action_kind like 'ontology.run.%' and facts->>'case' = any($3)) or action_kind in ('ontology.engine', 'ontology.case.pin', 'ontology.steprule', 'ontology.runmode') or (action_kind = 'ontology.case.binding' and facts->>'case' = any($3))
+      or (action_kind in ('ontology.promote', 'ontology.demote') and facts->>'process' = '${PROC}') or (action_kind = 'ontology.refine' and created_at >= $2 and facts::text like '%결과 보고%')) returning 1`, [T, START, ids])).length
   for (const id of made.corrections) await q(`delete from pro_corrections where tenant_id=$1 and id::text=$2`, [T, id])
   // files the steps made (drafts as Word files), and the test's upload
   // (only what was made since START; a list taken before the first run, when there is one, keeps anything older for sure)
@@ -378,12 +483,15 @@ try {
   const e = await call(boss.tok, 'PUT', '/ontology/engine', { engine: 'map' })
   check('엔진을 「지도에서 바로」로(관리자)', e.engine === 'map' && e.from === 'tenant', `${e.engine} · ${e.from}`)
   let a = null
+  const defs00 = await procDefs(), forms00 = await formDefs()
   if (phases.has('a') || phases.has('b')) a = await phaseA(boss, mate)
   if (phases.has('b')) await phaseB(boss, mate, a)
   if (phases.has('c')) await phaseC(boss)
   if (phases.has('d')) await phaseD(boss)
   if (phases.has('e')) await phaseE(boss)
   if (phases.has('h')) await phaseH(boss, mate)
+  if (phases.has('r')) await phaseR(boss, mate)
+  check('지도 건들은 proc_def · form_def 행을 하나도 만들지 않았다(흐름도 BPMN 은 그때그때)', (await procDefs()) === defs00 && (await formDefs()) === forms00, `proc_def ${(await procDefs()) - defs00} · form_def ${(await formDefs()) - forms00}`)
   if (phases.has('bpm')) await phaseBpm(boss, mate)
   // side by side (the video shows this)
   const list = [OUT.cases.mapA, OUT.cases.bpmA].filter(Boolean)

@@ -144,7 +144,9 @@ async function dispatch({ me, ev, r, threadId, extra = {} }) {
   for (const m of start) {
     const c = await startCase(me, { procKey: m.proc, entry: m.choice.task, subject: ev.subject || '', body, from: ev.from || '', customer, odds: m.choice, kind: ev.kind })
     await addMessage(me.id, threadId, 'agent', 'onto-entry', { state: 'started', ...(ev.kind === 'mail' ? {} : { source: ev.kind }), mail: { from: mail.from, subject: mail.subject }, customer, choice: m.choice,
-      caseId: c.caseId, instId: c.instId, skipped: c.snapshot.skipped, nodes: c.snapshot.nodes, procDefId: c.snapshot.procDefId, engine: c.engine || 'bpm', ...extra })
+      caseId: c.caseId, instId: c.instId, skipped: c.snapshot.skipped, nodes: c.snapshot.nodes, procDefId: c.snapshot.procDefId, engine: c.engine || 'bpm',
+      // who does each role (bindings.js) — the card shows them with 「바꾸기」, so a wrong person is caught now, not handed over later
+      bindings: c.bindings || null, ...extra })
     if (c.snapshot.procDefId) await addMessage(me.id, threadId, 'agent', 'process', { defId: c.snapshot.procDefId, name: c.instName, state: 'started', instId: c.instId, instName: c.instName })
     started.push({ caseId: c.caseId, instId: c.instId, proc: m.proc, task: m.choice.task, engine: c.engine || 'bpm' })
   }

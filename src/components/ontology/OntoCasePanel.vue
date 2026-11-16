@@ -10,6 +10,7 @@ import { pct, dateTimeKo } from './fmt.js'
 import BpmnView from '../BpmnView.vue'
 import OntoCaseRun from './OntoCaseRun.vue'
 import OntoCaseFlow from './OntoCaseFlow.vue'
+import OntoBindings from './OntoBindings.vue'
 import { TODO_KO, RO, EUL } from './ontoText.js'
 
 const props = defineProps({ caseId: { type: String, required: true }, tasks: { type: Array, default: null }, bpmnHeight: { type: Number, default: 300 }, hideHeader: Boolean })
@@ -113,6 +114,11 @@ defineExpose({ reload: load })
         <OntoCaseRun :case-id="caseId" @changed="load" />
       </div>
 
+      <!-- 역할마다 맡는 사람(server bindings.js): 시작할 때 풀어 둔 대로 — 바꾸면 끝나지 않은 단계만 그 사람에게 -->
+      <div v-if="c.bindings?.length" class="sec" data-testid="onto-case-bindings">
+        <OntoBindings :bindings="c.bindings" :case-id="caseId" :editable="c.status === 'running'" @changed="load" />
+      </div>
+
       <!-- 시작 결정 -->
       <div class="sec">
         <h4>시작한 일</h4>
@@ -146,7 +152,7 @@ defineExpose({ reload: load })
       <div v-if="isMap" class="sec snap" data-testid="onto-case-map">
         <div class="sh">
           <h4>지도에서 바로 도는 건</h4>
-          <small class="one" data-testid="onto-case-instances">인스턴스 {{ (c.instances || []).length }}개 · 프로세스 정의 없음</small>
+          <small class="one" data-testid="onto-case-instances">인스턴스 {{ (c.instances || []).length }}개(bpm_proc_inst 행 {{ (c.instancesInfo || []).length }}개) · 프로세스 정의 없음</small>
         </div>
         <OntoCaseFlow :case-id="caseId" :tick="tick" />
         <div class="pin" data-testid="onto-case-pin" :data-pinned="c.map_pin ? '1' : '0'">

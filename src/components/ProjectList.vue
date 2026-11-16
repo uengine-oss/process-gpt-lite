@@ -14,6 +14,10 @@ const shownInstances = computed(() => {
   const done = app.instances.filter((i) => i.status === 'COMPLETED')
   return [...open.sort((a, b) => b.needs_me - a.needs_me), ...(showDone.value ? done : done.slice(0, 3))]
 })
+// a case of the company's process map run straight from the map (server lib/ontology/mapengine.js) opens in its case view on the map
+const openInst = (i) => (i.engine === 'map' && i.case_id
+  ? router.push(`/process-map?proc=${encodeURIComponent(i.case_proc || '')}&case=${encodeURIComponent(i.case_id)}`)
+  : router.push(`/projects/p/${encodeURIComponent(i.proc_inst_id)}`))
 const hiddenDone = computed(() => Math.max(0, app.instances.filter((i) => i.status === 'COMPLETED').length - 3))
 </script>
 
@@ -31,8 +35,10 @@ const hiddenDone = computed(() => Math.max(0, app.instances.filter((i) => i.stat
       <div class="sec">프로세스 <router-link class="imp" to="/improve">개선 분석 →</router-link> <router-link class="imp" to="/process-map">프로세스 지도 →</router-link></div>
       <TransitionGroup name="arc" tag="div" class="items">
         <button v-for="i in shownInstances" :key="i.proc_inst_id" class="item proc" :class="{ on: route.params.instId === i.proc_inst_id, ended: i.status === 'COMPLETED' }"
-          @click="router.push(`/projects/p/${encodeURIComponent(i.proc_inst_id)}`)">
+          :data-testid="i.engine === 'map' ? 'instance-map-case' : 'instance-item'" :data-inst="i.proc_inst_id" @click="openInst(i)">
           {{ i.proc_inst_name || i.def_name }}
+          <!-- a case run straight from the company's process map (no definition): its case view on the map -->
+          <span v-if="i.engine === 'map'" class="by" data-testid="instance-map-tag"><span class="tag">지도에서 바로</span><template v-if="i.starter_name"> · {{ i.starter_name }} 시작</template></span>
           <span v-if="i.needs_me" class="badge attn"><Icon name="alert" :size="14" /> 입력 필요</span>
           <!-- the spinner is for an agent actually at work; a step waiting on a person (HITL) or a
                long-running process at rest gets a still badge -->
@@ -62,6 +68,8 @@ const hiddenDone = computed(() => Math.max(0, app.instances.filter((i) => i.stat
 .proc { font-size: 19px; }
 .proc.ended { opacity: .6; }
 .more { font-size: 14px; color: var(--text-secondary); padding: 10px 0; }
+.by { font-size: 13px; color: var(--text-tertiary); letter-spacing: 0; }
+.by .tag { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 9999px; background: color-mix(in srgb, var(--color-info) 16%, transparent); color: var(--text-primary); font-size: 12px; font-weight: 500; }
 .badge { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 9999px; font-size: 13px; font-weight: 500; letter-spacing: 0; background: var(--bubble-user-bg); color: var(--text-primary); }
 .badge.attn { background: #e0613f; color: #fff; }
 .badge.failed { background: var(--color-error); color: #fff; }

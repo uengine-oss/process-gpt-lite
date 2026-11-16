@@ -9,12 +9,15 @@
 // 지도」, 꼭 하는 단계가 있는 프로세스의 건은 시작한 날의 지도로 고정(map_pin — 관리자가 건마다 바꿀 수 있다).
 // 관문(runmode.js gateStep) · 실행 방식 · 기다림 · 단계 규칙 · 문서 단계 · 점검 항목은 그대로 쓴다: 스냅샷의 activities 에 있던 것(스킬 ·
 // 점검 · 지시 · 맡는 이 · 초안)은 행을 넣을 때 일 정의(taskDefinition)에서 뽑아 pro_case_steps.act 에 둔다.
-// 공용 표에 쓰는 것: todolist 행(단계마다 하나 — 넣기 · 끝내기 · 옮기며 닫기)뿐이다. bpm_proc_inst · proc_def 는 쓰지 않는다.
+// 공용 테이블에 쓰는 것: todolist 행(단계마다 하나 — 넣기 · 끝내기 · 옮기며 닫기)과 건마다 bpm_proc_inst 한 행(syncInst — 제목 · 시작한 사람과
+// 맡은 사람 · 지금 단계 · 상태 · 역할마다 맡은 사람, 옮기기 · 되감기도 같은 행). proc_def · form_def 는 쓰지 않는다(proc_def_id 는 비워 둔다 —
+// 본판 화면은 정의 없는 인스턴스를 칸반으로 연다, completion 은 정의를 인스턴스 id 의 앞부분으로 찾아 이 행을 돌리지 않는다).
+// 시각: todolist · bpm_proc_inst 의 날짜 열(timestamp without time zone)은 엔진(completion)처럼 한국 시각으로 쓴다(NOW_KST).
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
-import { mainThread, addMessage } from '../store.js'
+import { mainThread, addMessage, updateMessage } from '../store.js'
 import { rules as skillRules } from './discovery.js'
 import { ledger } from './review.js'
 import { END } from './stats.js'
@@ -28,8 +31,12 @@ const pct = (p) => `${Math.round((p || 0) * 100)}%`
 const fill = (tpl, vars) => String(tpl || '').replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '')
 const fin = (w) => { const c = String(w).trim().slice(-1).charCodeAt(0); return c >= 0xac00 && c <= 0xd7a3 ? (c - 0xac00) % 28 : 0 }
 const eul = (w) => (fin(w) ? '을' : '를')
+const eun = (w) => (fin(w) ? '은' : '는')
 const ro = (w) => { const f = fin(w); return f && f !== 8 ? '으로' : '로' }
 
+// the engine writes Korea's wall clock into these columns (completion: datetime.now(Asia/Seoul)); the database's own clock is UTC, so
+// now() there read 9 hours early in 「앞선 진행」(끝남 06:59 for 15:59)
+export const NOW_KST = `(now() at time zone 'Asia/Seoul')`
 export const ENGINES = ['bpm', 'map']
 export const ENGINE_KO = { bpm: '프로세스 정의로(기존)', map: '지도에서 바로' }
 export const MAP_PREFIX = 'onto-map.'
@@ -219,10 +226,17 @@ function locked(id, fn) {
   return run
 }
 
-async function personOf(role, starter) {
-  const { roleMap, roleKey } = await import('../team.js')
-  const m = await roleMap('*').catch(() => ({}))
-  return m[roleKey(role)] || String(starter)
+// who does a person's step of this role: the case's binding (bindings.js — resolved when the case started, changed on its cards); a role
+// the start's flow did not have (the map changed since) is resolved now, the same way, and kept on the case. → {userId, unbound, binding}
+async function personOf(c, role, view, task) {
+  const B = await import('./bindings.js')
+  let b = B.findBinding(c.bindings, role)
+  if (!b) {
+    ;[b] = await B.resolveBindings(view, null, { starter: c.started_by, roles: [{ role, tasks: [task], agent: false }] })
+    c.bindings = [...(Array.isArray(c.bindings) ? c.bindings : []), b]
+    await q(`update pro_po_cases set bindings=$2 where id=$1`, [c.id, JSON.stringify(c.bindings)])
+  }
+  return { userId: b.userId || (c.started_by ? String(c.started_by) : null), unbound: B.unbound(b), binding: b }
 }
 
 // the case's steps so far, oldest first, as nextOf reads them
@@ -234,9 +248,10 @@ async function caseRows(c) {
 }
 
 // One step's work item (todolist) and its row (pro_case_steps, planned): who does it (an agent's step: the agent; a person's step of an
-// adopted process: the person, with the agent's draft first; else the person who holds the role — Settings › 팀 · 역할 — or the case's
-// owner), what the task's definition says it does (act). An agent's item opens now (the step worker takes it); a person's opens when its
-// gate lets it (openPerson — HITL keeps it off their list until the owner says 진행).
+// adopted process: the person, with the agent's draft first; else the person the case bound to the role — bindings.js), what the task's
+// definition says it does (act). An agent's item opens now (the step worker takes it); a person's opens when its gate lets it (openPerson
+// — HITL keeps it off their list until the owner says 진행). A person's step whose role has nobody yet (several people hold it, or none)
+// waits for the case's owner to choose (holdUnbound) — its item stays TODO (off every list, nobody notified) until then.
 export async function createItem(c, task, { via = {}, par = null, mapAt = new Date(), view }) {
   const t = view.tasks.get(task) || [...view.tasks.values()].find((x) => x.origin === task)
   if (!t) throw err(400, `「${task}」${fin(task) ? '은' : '는'} 이 프로세스에 없어요.`)
@@ -245,29 +260,52 @@ export async function createItem(c, task, { via = {}, par = null, mapAt = new Da
   const draft = !runner && view.proc?.status === 'adopted'
   const kind = runner ? 'agent' : draft ? 'draft' : 'person'
   const agent = runner || draft ? await agentId() : null
-  const role = runner ? '업무 에이전트' : t.role || '담당자'
-  const person = runner ? null : await personOf(role, c.started_by)
+  const { roleOfTask } = await import('./bindings.js')
+  const role = roleOfTask(t, d.runner)
+  const who = runner ? { userId: null, unbound: false } : await personOf(c, role, view, t.key)
+  const person = who.userId
   const aid = actId(t.key), formId = `${MAP_PREFIX.replace(/\.$/, '')}_${aid}_form`
   const act = { id: aid, name: t.key, role, tool: `formHandler:${formId}`, skills: d.skills, checkpoints: d.checkpoints, outputs: d.outputs, description: d.description || '',
     instruction: d.instruction || '', runner: d.runner, ...(agent ? { agent, agentMode: runner ? 'complete' : 'draft', orchestration: ORCH } : { agentMode: 'none' }) }
-  const ids = kind === 'agent' ? [agent] : kind === 'draft' ? [agent, person] : [person]
+  const ids = (kind === 'agent' ? [agent] : kind === 'draft' ? [agent, person] : [person]).filter(Boolean)
   const names = new Map((await q(`select id::text as id, username from users where tenant_id=$1 and id::text = any($2)`, [T(), ids])).map((u) => [u.id, u.username]))
-  const assignees = [{ name: role, endpoint: ids, default: [person || agent], origin: 'created', resolutionRule: '프로세스 지도: 이 일을 해 온 역할' }]
+  const assignees = [{ name: role, endpoint: ids, default: [person || agent].filter(Boolean), origin: 'created', resolutionRule: `프로세스 지도: ${who.binding ? (await import('./bindings.js')).FROM_KO[who.binding.from] || '' : '에이전트가 해요'}` }]
   const inst = c.instances[0]
+  // a person's step opens when its gate lets it; a draft waits as TODO while its role has nobody (the agent would draft for nobody)
+  const status = kind === 'person' || who.unbound ? 'TODO' : 'IN_PROGRESS'
   const [row] = await q(`insert into todolist (id, tenant_id, user_id, username, proc_inst_id, root_proc_inst_id, execution_scope, proc_def_id, activity_id, activity_name,
                            status, tool, description, start_date, due_date, duration, assignees, reference_ids, agent_mode, agent_orch, adhoc)
-                         values (gen_random_uuid(), $1, $2, $3, $4, $4, '', null, $5, $6, $7::todo_status, $8, $9, now(), now() + interval '1 day', 1, $10, $11, $12::agent_mode, $13, false)
+                         values (gen_random_uuid(), $1, $2, $3, $4, $4, '', null, $5, $6, $7::todo_status, $8, $9, ${NOW_KST}, ${NOW_KST} + interval '1 day', 1, $10, $11, $12::agent_mode, $13, false)
                          returning *`,
-  [T(), ids.join(','), ids.map((i) => names.get(i) || '').join(','), inst, aid, t.key, kind === 'person' ? 'TODO' : 'IN_PROGRESS', act.tool, act.description,
+  [T(), ids.join(','), ids.map((i) => names.get(i) || '').join(','), inst, aid, t.key, status, act.tool, act.description,
     JSON.stringify(assignees), via.from ? [actId(via.from)] : [], kind === 'agent' ? 'COMPLETE' : kind === 'draft' ? 'DRAFT' : null, agent ? ORCH : null])
-  const { modeOf } = await import('./runmode.js')
-  const { mode } = await modeOf(c.bundle || c.proc)
+  // the case's mode is the one its process's stage gave it at the start (runmode.js caseMode — 제안: hitl, 자동: hotl)
+  const { caseMode } = await import('./runmode.js')
+  const { mode } = await caseMode(c, view)
   await q(`insert into pro_case_steps (tenant_id, case_id, proc_inst_id, todo_id, task, kind, mode, state, why, reversible, hold_item, map_at, via, act, par)
-           values ($1,$2,$3,$4,$5,$6,$7,'planned','{}',true,$8,$9,$10,$11,$12)`, [T(), c.id, inst, row.id, t.key, kind, mode, kind === 'person', mapAt, via, act, par])
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10,$11,$12,$13,$14)`,
+  [T(), c.id, inst, row.id, t.key, kind, mode, who.unbound ? 'waiting' : 'planned', who.unbound ? ['unbound'] : [], kind === 'person' || who.unbound, mapAt, via, act, par])
   await q(`update pro_po_cases set updated_at=now() where id=$1`, [c.id])
-  console.log(`[map] ${c.trigger?.subject || c.id} · 「${t.key}」(${kind}) — ${via.how || ''}${via.why ? `: ${via.why}` : ''}`)
+  console.log(`[map] ${c.trigger?.subject || c.id} · 「${t.key}」(${kind}${who.unbound ? ' · 맡을 사람 정하기 기다림' : ''}) — ${via.how || ''}${via.why ? `: ${via.why}` : ''}`)
   if (c.started_by) { emit(c.started_by, 'ontology', { caseId: c.id, made: t.key }); emit(c.started_by, 'process', { instId: inst, type: 'changed' }) }
-  return { todoId: row.id, kind, row }
+  return { todoId: row.id, kind, row, unbound: who.unbound, role }
+}
+
+// a step whose role has nobody yet: the owner is asked to choose (the step card shows the role's people — bindings.js); the step waits
+async function holdUnbound(c, made) {
+  const [s] = await q(`select * from pro_case_steps where todo_id=$1`, [made.todoId])
+  if (!s || !c.started_by) return
+  const B = await import('./bindings.js')
+  const [now] = await q(`select bindings from pro_po_cases where id=$1`, [c.id])
+  const b = B.findBinding(now?.bindings, made.role)
+  const RM = await import('./runmode.js')
+  await RM.askOwnerFor(c, { ...s, role: made.role, binding: b ? B.bindingsView([b])[0] : null })
+  console.log(`[map] 「${s.task}」: 「${made.role}」${eul(made.role)} 맡을 사람을 정할 때까지 기다려요(${b?.from || '?'})`)
+}
+// what comes of a step just made: a person's step goes through its gate, one whose role has nobody asks the owner
+async function afterMade(c, m) {
+  if (m.unbound) return holdUnbound(c, m)
+  if (m.kind === 'person') return openPerson(m.row)
 }
 
 // a person's step: its gate first (it may wait for the owner, or skip an optional step); when it is theirs, it opens on their list
@@ -301,7 +339,7 @@ export async function stillOpen(todoId) {
 // A step ends (an agent's result, a person's hand-in, a skip, a send recorded): its work item is done with its result, and the map says
 // what comes next. Nothing when it was already closed (a move closed it while the agent worked).
 export async function finishItem(todoId, payload) {
-  const [t] = await q(`update todolist set output=$2, status='DONE', consumer=null, end_date=now(),
+  const [t] = await q(`update todolist set output=$2, status='DONE', consumer=null, end_date=${NOW_KST},
                          draft_status = case when agent_orch is not null then 'COMPLETED'::draft_status else draft_status end
                        where id=$1 and status::text not in ('DONE','CANCELLED') returning id::text as id, proc_inst_id, activity_name`, [todoId, payload || {}])
   if (!t) return null
@@ -323,7 +361,9 @@ export async function submitPerson({ me, todo, payload }) {
 
 export async function advance(caseId, todoId) {
   const made = await locked(String(caseId), () => advanceIn(String(caseId), String(todoId)))
-  for (const m of made || []) if (m.kind === 'person') await openPerson(m.row).catch((e) => console.warn('[map] person step', e.message))
+  const [c] = await q(`select *, bundle as proc from pro_po_cases where id=$1`, [String(caseId)])
+  for (const m of made || []) await afterMade(c, m).catch((e) => console.warn('[map] person step', e.message))
+  if (c) await syncInst(c).catch((e) => console.warn('[map] instance row', e.message))
   return made
 }
 async function advanceIn(caseId, todoId) {
@@ -375,8 +415,38 @@ async function completeCase(c, row, dec) {
   }
 }
 
-// a case starts on the map: its row (the request on it, no 요청 접수 step), its one instance id, its conversation, and its first step
-export async function startMapCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', file = null }) {
+// the instance's name, as the engine names one: 「<process> · <the request's subject>」
+export const instNameOf = (procName, subject) => String(subject ? `${procName} · ${subject}` : procName || '').slice(0, 120)
+
+// The case's one row in bpm_proc_inst, kept current (start · each step made or ended · move · rewind · end · a binding changed): its open
+// steps (current_activity_ids — a step waiting for the owner is where the case is too: the 할 일 list leaves out held ones, runmode.js
+// heldTodos), its people (the starter, the people bound to its roles and everyone who got a step — not the agent), its roles in the
+// engine's shape, RUNNING · COMPLETED and when it ended. A paused case stays RUNNING (the BPM path does not mark a pause either).
+export async function syncInst(was) {
+  const inst = was?.instances?.[0]
+  if (!isMapInst(inst)) return null
+  // (read again: a step made a moment ago may have bound a new role, a rewind reopened the case)
+  const [c] = await q(`select started_by, status, bindings from pro_po_cases where id=$1`, [was.id])
+  if (!c) return null
+  const open = await q(`select activity_id from todolist where proc_inst_id=$1 and status::text not in ('DONE','CANCELLED','SUBMITTED') order by start_date nulls last`, [inst])
+  const got = await q(`select distinct unnest(string_to_array(coalesce(user_id,''), ',')) as id from todolist where proc_inst_id=$1`, [inst])
+  const B = await import('./bindings.js')
+  const bound = (Array.isArray(c.bindings) ? c.bindings : []).map((b) => b.userId).filter(Boolean)
+  const ids = [...new Set([String(c.started_by || ''), ...bound, ...got.map((r) => String(r.id || '').trim())].filter(Boolean))]
+  const people = ids.length ? new Set((await q(`select id::text as id from users where tenant_id=$1 and id::text = any($2) and not coalesce(is_agent,false)`, [T(), ids])).map((u) => u.id)) : new Set()
+  const done = c.status === 'done'
+  const agent = (c.bindings || []).some((b) => b.from === 'agent') ? await agentId() : null
+  const [r] = await q(`update bpm_proc_inst set current_activity_ids=$2, participants=$3, role_bindings=$4, status=$5,
+                         end_date = case when $6 then coalesce(end_date, ${NOW_KST}) else null end, updated_at=now()
+                       where proc_inst_id=$1 returning proc_inst_id`,
+  [inst, [...new Set(open.map((o) => o.activity_id))], ids.filter((i) => people.has(i)), JSON.stringify(B.roleBindingsOf(c.bindings || [], agent)), done ? 'COMPLETED' : 'RUNNING', done])
+  return r || null
+}
+
+// a case starts on the map: its row (the request on it, no 요청 접수 step), its one instance (one bpm_proc_inst row — no definition behind
+// it), the mode its process's stage gives it, who does each role (bindings — picks: what the person changed on the ask card), its
+// conversation, and its first step
+export async function startMapCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', file = null, picks = [] }) {
   const view = await procGraph(procKey)
   if (!view.tasks.has(entry)) throw err(400, '그 일은 이 프로세스에 없어요.')
   const R = await rulesOf()
@@ -385,16 +455,28 @@ export async function startMapCase(me, { procKey, entry, subject = '', body = ''
   const skipped = await skippedOf(view, entry)
   const instId = `${MAP_PREFIX}${crypto.randomUUID()}`
   const request = { subject, body: String(body).slice(0, 3000), customer, sender: from }
-  const [c] = await q(`insert into pro_po_cases (tenant_id, bundle, entry_task, started_by, trigger, entry_odds, instances, snapshots, history, engine, map_pin, request)
-                       values ($1,$2,$3,$4,$5,$6,$7,'{}',$8,'map',$9,$10) returning *, bundle as proc`,
-  [T(), procKey, entry, me.id, triggerOf({ kind, subject, from, customer, file }), odds, [instId], JSON.stringify(skipped.map((t) => ({ task: t, state: 'skipped', at: iso() }))), pin, request])
+  const B = await import('./bindings.js')
+  const bindings = await B.resolveBindings(view, entry, { starter: me.id, picks })
+  const { modeOfStage } = await import('./runmode.js')
+  const [c] = await q(`insert into pro_po_cases (tenant_id, bundle, entry_task, started_by, trigger, entry_odds, instances, snapshots, history, engine, map_pin, request, run_mode, bindings)
+                       values ($1,$2,$3,$4,$5,$6,$7,'{}',$8,'map',$9,$10,$11,$12) returning *, bundle as proc`,
+  [T(), procKey, entry, me.id, triggerOf({ kind, subject, from, customer, file }), odds, [instId], JSON.stringify(skipped.map((t) => ({ task: t, state: 'skipped', at: iso() }))), pin, request,
+    modeOfStage(view.proc.status), JSON.stringify(bindings)])
+  const instName = instNameOf(view.proc.name, subject)
+  // the request as process variables, in the engine's shape ([{key, name, value}] — 본판 reads them as the instance's variables and
+  // searches them); proc_def_id stays empty: no definition behind this instance
+  const vars = [['subject', '제목', subject], ['sender', '보낸 사람', from], ['customer', '고객', customer]].filter(([, , v]) => v).map(([key, name, value]) => ({ key, name, value: String(value).slice(0, 300) }))
+  await q(`insert into bpm_proc_inst (proc_inst_id, proc_inst_name, proc_def_id, tenant_id, status, start_date, actual_start_date, participants, role_bindings, current_activity_ids, variables_data, updated_at)
+           values ($1,$2,null,$3,'RUNNING',${NOW_KST},now(),$4,$5,'{}',$6,now())`, [instId, instName, T(), [String(me.id)], JSON.stringify(B.roleBindingsOf(bindings)), JSON.stringify(vars)])
   await q(`insert into pro_threads(user_id,kind,title,ref) values ($1,'process',$2,$3)`, [me.id, subject || view.proc.name, instId])
   const made = await locked(c.id, () => createItem(c, entry, { via: { how: 'entry', from: null, p: odds?.p ?? null,
     why: odds?.p != null ? `이 요청은 「${entry}」부터 하면 돼요(${odds.measured === false ? '모델이 고름' : pct(odds.p)})` : `「${entry}」부터 시작해요` }, mapAt: pin || now, view }))
-  if (made.kind === 'person') await openPerson(made.row)
+  await afterMade(c, made)
+  await syncInst(c)
   emit(me.id, 'process', { instId, type: 'started' })
   const th = view.proc.theta ?? 0.05
-  return { caseId: c.id, instId, instName: subject || view.proc.name, engine: 'map', snapshot: { skipped, nodes: unfold(view, entry, th).nodes, procDefId: null, engine: 'map', mapPin: pin } }
+  return { caseId: c.id, instId, instName, engine: 'map', bindings: B.bindingsView(c.bindings), runMode: c.run_mode,
+    snapshot: { skipped, nodes: unfold(view, entry, th).nodes, procDefId: null, engine: 'map', mapPin: pin } }
 }
 
 // 옮기기 · 되감기 on the map: the case's open work items close (CANCELLED) and the target step's item opens in the same instance; the move
@@ -414,7 +496,9 @@ export async function moveMap(me, c, { task, reason = '', state = 'moved', learn
   })
   if (learn) await q(`insert into handover_events (tenant_id, case_id, source, is_explicit, from_user_id, from_user_name, to_user_id, activity_label, next_activity_label, reason, occurred_at)
            values ($1,$2,'todolist',true,$3,$4,$3,$5,$5,$6,now())`, [T(), `onto:${c.id}`, String(me.id), me.email || '', task, reason || '옮기기']).catch((e) => console.warn('[map] move event', e.message))
-  if (made.kind === 'person') await openPerson(made.row)
+  await afterMade({ ...c, status: 'running' }, made)
+  // the same row as before: back to RUNNING when a rewind reopens an ended case, its open step now the target
+  await syncInst(c).catch((e) => console.warn('[map] instance row', e.message))
   if (c.started_by) emit(c.started_by, 'ontology', { caseId: c.id, moved: task })
   return { caseId: c.id, instId: inst, instName: c.trigger?.subject || view.proc.name, engine: 'map', snapshot: { skipped: [], nodes: unfold(view, task, view.proc.theta ?? 0.05).nodes, procDefId: null, engine: 'map' } }
 }
@@ -428,6 +512,77 @@ export async function setPin(me, caseId, pin) {
   await ledger(me, 'ontology.case.pin', `${c.trigger?.subject || '건'} · 다음 단계를 ${pin ? '시작한 날의 지도로' : '그때의 지도로'} 정해요`, { case: c.id, pin: !!pin, at: at ? iso(at) : null })
   if (c.started_by) emit(c.started_by, 'ontology', { caseId: c.id, pin: !!pin })
   return { caseId: c.id, mapPin: at ? iso(at) : null }
+}
+
+// 맡는 사람 바꾸기 (bindings.js): a role of a running case goes to another of the company's people — its steps not done yet go to them (an
+// open item's assignee changes and they are told — the database moves its notification; a step that waited for someone to be chosen
+// opens now), the steps made later take them too. A ledger line; no handover event (nobody had worked on it). The company's role
+// settings stay as they are. Both engines: a snapshot case's open items of that role and its instance's role binding change too.
+export async function setBinding(me, caseId, { role, userId } = {}) {
+  const c = await getCase(caseId)
+  const { isAdmin } = await import('./service.js')
+  if (String(c.started_by) !== String(me.id) && !(await isAdmin(me).catch(() => false))) throw err(403, '이 건을 맡은 사람이나 관리자만 바꿀 수 있어요.')
+  if (c.status !== 'running') throw err(409, '진행 중인 건만 맡는 사람을 바꿀 수 있어요.')
+  const B = await import('./bindings.js')
+  const { roleKey } = await import('../team.js')
+  const list = Array.isArray(c.bindings) ? c.bindings.map((b) => ({ ...b })) : []
+  const i = list.findIndex((b) => roleKey(b.role) === roleKey(role))
+  if (i < 0) throw err(404, '이 건에 그 역할이 없어요.')
+  if (list[i].from === 'agent') throw err(400, '에이전트가 하는 단계는 맡는 사람을 정하지 않아요.')
+  const [u] = await q(`select id::text as id, coalesce(nullif(username,''), email) as name from users where tenant_id=$1 and id::text=$2 and not coalesce(is_agent,false)`, [T(), String(userId || '')])
+  if (!u) throw err(400, '이 회사 사람 중에서 골라 주세요.')
+  const old = list[i]
+  if (old.userId === u.id) return { caseId: c.id, bindings: B.bindingsView(list), reassigned: 0 }
+  list[i] = { role: old.role, userId: u.id, name: u.name, from: 'picked', was: old.from, tasks: old.tasks || [], changedBy: me.email || String(me.id), changedAt: iso() }
+  await q(`update pro_po_cases set bindings=$2, updated_at=now() where id=$1`, [c.id, JSON.stringify(list)])
+  c.bindings = list
+  // the role's steps not done yet: a map case's from their own row (act.role), a snapshot case's from its definition's activity
+  const inst = c.instances.at(-1)
+  const open = await q(`select t.id::text as id, t.activity_id, t.activity_name, t.status::text as status, t.user_id, t.agent_orch, t.agent_mode::text as agent_mode, t.proc_inst_id,
+                               s.id::text as step_id, s.kind, s.state, s.why, s.act, s.message_id
+                        from todolist t left join pro_case_steps s on s.todo_id = t.id where t.proc_inst_id=$1 and t.status::text in ('NEW','TODO','IN_PROGRESS','PENDING')`, [inst])
+  let roleOf = (r) => r.act?.role || ''
+  if (c.engine !== 'map') {
+    const def = c.instancesInfo.find((x) => x.proc_inst_id === inst)?.proc_def_id
+    const [d] = def ? await q(`select definition from proc_def where id=$1 and tenant_id=$2`, [def, T()]) : []
+    const roles = new Map((d?.definition?.activities || []).map((a) => [a.id, a.role || '']))
+    roleOf = (r) => roles.get(r.activity_id) || ''
+  }
+  let reassigned = 0
+  for (const r of open.filter((x) => roleKey(roleOf(x)) === roleKey(old.role))) {
+    const agentOn = r.agent_orch && String(r.agent_mode || '').toUpperCase() === 'COMPLETE'
+    if (agentOn) continue
+    const draftAgent = r.agent_orch ? String(r.user_id || '').split(',').map((x) => x.trim()).find((x) => x && x !== old.userId && x !== String(c.started_by)) || r.act?.agent || null : null
+    const ids = [draftAgent, u.id].filter(Boolean)
+    const names = new Map((await q(`select id::text as id, username from users where tenant_id=$1 and id::text = any($2)`, [T(), ids])).map((x) => [x.id, x.username]))
+    await q(`update todolist set user_id=$2, username=$3 where id=$1`, [r.id, ids.join(','), ids.map((x) => names.get(x) || '').join(',')])
+    reassigned++
+    const was = String(r.user_id || '').split(',').map((x) => x.trim()).filter((x) => x && x !== draftAgent)
+    for (const id of [...was, u.id]) emit(id, 'notifications', {})
+    if ((r.why || []).includes('unbound') && r.state === 'waiting') {
+      // the step waited for someone to be chosen: it goes on now (a person's through its gate, a draft to the agent)
+      await q(`update pro_case_steps set state='released', why='{}', hold_item=false, updated_at=now() where id=$1`, [r.step_id])
+      if (r.message_id && c.started_by) await updateMessage(c.started_by, r.message_id, { state: 'released', note: `「${old.role}」${eun(old.role)} ${u.name}님이 맡아요` }).catch(() => {})
+      const [row] = await q(`select * from todolist where id=$1`, [r.id])
+      if (r.kind === 'person') await openPerson(row).catch((e) => console.warn('[map] person step', e.message))
+      else await q(`update todolist set status='IN_PROGRESS' where id=$1 and status::text='TODO'`, [r.id])
+    } else if (r.status === 'IN_PROGRESS' && c.started_by && String(c.started_by) === u.id) {
+      const th = await mainThread(c.started_by)
+      await addMessage(c.started_by, th.id, 'agent', 'todo', { todoId: r.id, name: r.activity_name })
+    }
+  }
+  if (c.engine === 'map') await syncInst(c)
+  else if (inst) {
+    // the snapshot's instance: the role's binding there too, so its next steps of the role go to the person
+    const [i0] = await q(`select role_bindings from bpm_proc_inst where proc_inst_id=$1`, [inst])
+    const rb = (Array.isArray(i0?.role_bindings) ? i0.role_bindings : []).map((x) => (roleKey(x.name) === roleKey(old.role) ? { ...x, endpoint: [u.id], default: [u.id] } : x))
+    if (rb.length) await q(`update bpm_proc_inst set role_bindings=$2, participants = (select array_agg(distinct p) from unnest(coalesce(participants,'{}') || array[$3::text]) p) where proc_inst_id=$1`, [inst, JSON.stringify(rb), u.id])
+  }
+  await ledger(me, 'ontology.case.binding', `${c.trigger?.subject || '건'} · 「${old.role}」 맡는 사람: ${old.name || B.FROM_KO[old.from] || '없음'} → ${u.name}`,
+    { case: c.id, role: old.role, from: old.userId || null, fromHow: old.from, to: u.id, reassigned })
+  if (c.started_by) { emit(c.started_by, 'ontology', { caseId: c.id, binding: old.role }); emit(c.started_by, 'process', { instId: inst, type: 'changed' }) }
+  console.log(`[map] ${c.trigger?.subject || c.id}: 「${old.role}」 → ${u.name} (열린 단계 ${reassigned}개)`)
+  return { caseId: c.id, bindings: B.bindingsView(list), reassigned, note: '회사 설정은 그대로예요' }
 }
 
 // a map case's work item as Lite's 할 일 opens it (processes.js getTodo): its activity and form from the task (the snapshot's per-step form)
@@ -455,7 +610,19 @@ export async function flowOf(caseId) {
   const rows = made.map((t) => ({ task: t.activity_name, show: RM.stepState(t, gates.get(t.id)), via: gates.get(t.id)?.via || null }))
   const before = (c.history || []).filter((h) => h.state === 'skipped' && !h.step).map((h) => h.task)
   const g = flowGraph(view, { entry: c.entry_task, theta: view.proc.theta ?? 0.05, rows, before })
-  return { caseId: c.id, engine: c.engine || 'bpm', proc: c.proc, procName: view.proc.name, status: c.status, pinned: !!validAt, mapAt: validAt || iso(), instances: c.instances.length, ...g }
+  // a map case's flowchart as a BPMN diagram made now (casebpmn.js — nothing stored): lanes per role with the person the case bound to each
+  // (bindings), the same splits and joins as a snapshot's, the text conditions of its splits (read only); without it the screen draws g
+  let bpmn = null
+  if (c.engine === 'map') {
+    try {
+      const splits = [...new Set(g.flows.map((f) => f.from))].filter((x) => g.flows.filter((f) => f.from === x).length > 1)
+      const texts = await (await import('./conditions.js')).textConditions(splits).catch(() => new Map())
+      const startName = { mail: '메일 도착', chat: '채팅 요청', file: '파일 도착', timer: '정한 때', manual: '직접 시작' }[c.trigger?.kind] || '요청 도착'
+      bpmn = (await import('./casebpmn.js')).caseBpmn(view, { entry: c.entry_task, theta: view.proc.theta ?? 0.05, rows, before, graph: g, texts,
+        bindings: Array.isArray(c.bindings) ? c.bindings : null, status: c.status, startName, id: `case_${String(c.id).slice(0, 8)}` })
+    } catch (e) { console.warn('[map] case bpmn', e.message) }
+  }
+  return { caseId: c.id, engine: c.engine || 'bpm', proc: c.proc, procName: view.proc.name, status: c.status, pinned: !!validAt, mapAt: validAt || iso(), instances: c.instances.length, ...g, ...(bpmn ? { bpmn } : {}) }
 }
 
 // ---------- the sweep (run.js sweepCases, every 5 s) ----------

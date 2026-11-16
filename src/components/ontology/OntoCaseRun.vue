@@ -32,6 +32,10 @@ const waiting = computed(() => current.value.find((s) => s.state === 'waiting') 
 const rewindOf = (task) => (run.value?.rewind || []).find((x) => x.task === task) || null
 const canRewind = (s) => run.value?.controls?.mine && !run.value?.paused && ['done', 'person', 'waiting', 'running', 'skipped'].includes(s.state) && !!rewindOf(s.task)
 const outward = computed(() => !!waiting.value?.why?.includes('irreversible'))
+// 이 건의 방식: 시작할 때 프로세스의 단계로 정해져 끝까지 가요(modeFrom case) · 그 전에 시작한 건은 프로세스의 지금 단계를 따라요(stage)
+const modeTitle = computed(() => (run.value?.modeFrom === 'case' ? '시작할 때 프로세스의 단계로 정한 방식이에요 — 단계를 바꿔도 이 건은 그대로예요' : '프로세스의 지금 단계를 따라요'))
+// 시작한 뒤 프로세스의 단계가 바뀌었으면(이 건은 그대로) 한 줄로 알려 줘요 — 관찰로 바꿨어도 돌던 건은 이어 가요
+const stageMoved = computed(() => { const r = run.value; return !!(r && r.status === 'running' && r.modeFrom === 'case' && r.stage && r.stageName && r.stage !== r.modeStage) })
 
 async function act(path, body, msg) {
   busy.value = path; err.value = ''; note.value = ''
@@ -83,14 +87,14 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
     <p v-if="!run && !err" class="muted pulse">진행을 불러오는 중…</p>
     <template v-if="run">
       <div class="top">
-        <span class="mode" data-testid="onto-case-mode" :title="run.modeFrom === 'process' ? '이 프로세스에 정한 방식이에요' : '회사 기본값을 따라요'">{{ RUNMODE_KO[run.mode] || run.mode }}</span>
+        <span class="mode" data-testid="onto-case-mode" :data-from="run.modeFrom" :title="modeTitle">{{ RUNMODE_KO[run.mode] || run.mode }}</span>
         <span v-if="run.paused" class="pz" data-testid="onto-case-paused">멈춤</span>
         <span v-if="run.engine === 'map'" class="eng" data-testid="onto-case-engine" :title="run.mapPin ? '시작한 날의 지도로 다음 단계를 정해요' : '단계가 끝날 때마다 그때의 지도로 다음 단계를 정해요'">지도에서 바로{{ run.mapPin ? ' · 지도 고정' : '' }}</span>
         <span class="sp" />
         <button v-if="run.controls.pause" class="pill press" :disabled="!!busy" data-testid="onto-case-pause" @click="pause">멈추기</button>
         <button v-if="run.controls.resume" class="pill go press" :disabled="!!busy" data-testid="onto-case-resume" @click="resume">이어 가기</button>
       </div>
-      <small class="hint">{{ run.mode === 'hitl' ? '단계마다 「다음은 ○○예요 — 진행할까요?」라고 물어요.' : '저절로 진행해요. 사람이 책임지는 단계와 되돌릴 수 없는 단계에서만 멈춰 물어요.' }}</small>
+      <small class="hint">{{ run.mode === 'hitl' ? '단계마다 「다음은 ○○예요 — 진행할까요?」라고 물어요.' : '저절로 진행해요. 사람이 책임지는 단계와 되돌릴 수 없는 단계에서만 멈춰 물어요.' }}<template v-if="stageMoved"> 프로세스는 지금 「{{ run.stageName }}」 단계예요 — 새 건부터 그렇게 가고, 이 건은 시작할 때 방식 그대로예요.</template></small>
 
       <!-- 사람을 기다리는 단계 -->
       <div v-if="waiting" class="wait" data-testid="onto-case-waiting" :data-task="waiting.task" :data-why="waiting.why.join(',')">
@@ -102,7 +106,7 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
         <ul class="why"><li v-for="(w, i) in waiting.whyText" :key="i">{{ w }}</li></ul>
         <small v-if="waiting.reqLine" class="rq" data-testid="onto-case-waiting-req">{{ waiting.reqLine }}</small>
         <p v-if="waiting.proposal?.why && !outward" class="prop" data-testid="onto-case-proposal">
-          <span class="cap">{{ waiting.proposal.from }}에서</span> {{ waiting.proposal.why }}<template v-if="waiting.proposal.p != null && waiting.proposal.split"> · {{ pct(waiting.proposal.p) }}</template>
+          <span v-if="waiting.proposal.from" class="cap">{{ waiting.proposal.from }}에서</span> {{ waiting.proposal.why }}<template v-if="waiting.proposal.p != null && waiting.proposal.split"> · {{ pct(waiting.proposal.p) }}</template>
         </p>
         <div v-if="waiting.preview" class="pv" data-testid="onto-case-preview">
           <small v-if="waiting.preview.to">받는 사람 · {{ waiting.preview.to }}</small>
@@ -111,7 +115,9 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
           <button v-if="waiting.preview.file?.url" class="lnk press" data-testid="onto-case-preview-file" @click="doc = waiting.preview.file">함께 갈 파일 · {{ waiting.preview.file.name }} 열어 보기</button>
         </div>
         <small v-if="waiting.holder && !waiting.holder.agent" class="hold">넘어갈 사람 · {{ holderText(waiting.holder) }}</small>
-        <div v-if="run.controls.mine && !waiting.why.includes('paused')" class="btns">
+        <!-- the step's role has nobody yet (server mapengine.js): chosen in 「맡는 사람」 of the case, then it goes on -->
+        <small v-if="waiting.why.includes('unbound')" class="hold" data-testid="onto-case-waiting-unbound">이 건의 「맡는 사람」에서 고르면 이어서 해요.</small>
+        <div v-else-if="run.controls.mine && !waiting.why.includes('paused')" class="btns">
           <button class="pill go press" :disabled="!!busy || run.paused" data-testid="onto-case-step-go" @click="decide('go')">{{ outward ? '보내기' : '진행' }}</button>
           <button v-for="o in waiting.proposal?.others || []" :key="o.to" class="chip press" :disabled="!!busy || run.paused" data-testid="onto-case-step-other" :title="o.cond || ''" @click="decide('other', o.to)">{{ o.to }}<small v-if="o.p != null"> {{ pct(o.p) }}</small></button>
           <button v-if="waiting.requirement === 'optional'" class="pill press" :disabled="!!busy || run.paused" data-testid="onto-case-step-skip" @click="decide('skip')">건너뛰기</button>

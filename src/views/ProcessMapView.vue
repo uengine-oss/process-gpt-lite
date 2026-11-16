@@ -172,7 +172,6 @@ async function init() {
   if (status.value.mail?.status === 'running') return followMail(status.value.mail.id)
   if (status.value.build?.status === 'running') return followJob(status.value.build.id)
   try { await loadMap() } catch (e) { err.value = e.message; phase.value = 'error' }
-  loadRunModes()
   if (status.value.admin) loadEngine()
 }
 async function retry() {
@@ -265,12 +264,14 @@ function toggleDocs() { const open = !docsOpen.value; closeSide(); sel.value = n
 // 일 패널의 역할 이름 · 역할 목록에서: 그 역할로
 function openRole(key) { closeSide(); sel.value = null; rolesOpen.value = true; roleKey.value = key || '' }
 const roleName = computed(() => (map.value?.roles || []).find((r) => r.key === roleKey.value)?.name || roleKey.value)
-// 프로세스 채택(관리자): 채택한 프로세스만 들어오는 메일을 받아 스냅샷으로 돈다
+// 프로세스 채택(관리자): 채택한 프로세스만 들어오는 메일을 받아 스냅샷으로 돈다. 단계가 시작과 진행을 함께 정해요(server
+// lib/ontology/runmode.js modeOfStage) — 제안: 단계마다 사람이 정함 · 자동: 사람이 지켜봄. 건은 시작할 때의 단계대로 끝까지 가요.
 const LADDER = [
-  { key: 'paused', ko: '관찰', tip: '지도에서 보기만 해요. 요청이 와도 묻지 않아요.' },
-  { key: 'suggested', ko: '제안', tip: '이 일로 보이는 메일 · 채팅 요청이 오면 「이 프로세스로 진행할까요?」라고 물어요.' },
-  { key: 'adopted', ko: '자동', tip: '메일 · 앞 일 · 타이머가 오면 저절로 시작하고, 사람 단계는 에이전트가 초안을 먼저 만들어 둬요.' },
+  { key: 'paused', ko: '관찰', to: '「관찰」로', tip: '지도에서 보기만 해요. 요청이 와도 시작하지 않고 묻지도 않아요.' },
+  { key: 'suggested', ko: '제안', to: '「제안」으로', tip: '이 일로 보이는 요청이 오면 진행할지 묻고, 시작한 뒤에도 단계마다 사람이 정해요.' },
+  { key: 'adopted', ko: '자동', to: '「자동」으로', tip: '요청이 오면 저절로 시작하고, 사람은 지켜봐요. 사람 단계는 에이전트가 초안을 먼저 만들어 둬요. 책임 · 되돌릴 수 없는 단계에서는 기다려요.' },
 ]
+const LADDER_NOTE = { paused: '새 요청은 시작하지 않고 묻지도 않아요.', suggested: '새 건부터 진행할지 묻고, 시작한 뒤에도 단계마다 사람이 정해요.', adopted: '새 건부터 저절로 시작하고, 사람은 지켜봐요.' }
 // 회사의 타이머(design-v0.3 §13): 정해 둔 시각에 이 프로세스를 시작한다(단계가 「자동」이면 바로, 「제안」이면 묻는다)
 const timerOpen = ref(false)
 const CRONS = [{ cron: '0 9 * * 1-5', ko: '평일 9시' }, { cron: '0 9 * * 1', ko: '매주 월 9시' }, { cron: '0 9 1 * *', ko: '매월 1일 9시' }, { cron: '0 17 * * 5', ko: '매주 금 17시' }]
@@ -291,28 +292,9 @@ async function setTimer(key, st) {
   busy.value = 'timer'
   try { await call(`/ontology/timers/${encodeURIComponent(key)}`, { method: 'PUT', body: { status: st } }); await loadMap() } catch (e) { timerMsg.value = e.message } finally { busy.value = '' }
 }
-// 실행 방식(lib/ontology/runmode.js): 제안 · 자동이 된 프로세스의 건이 돌 때 사람이 어디서 끼는가. 단계마다 그때 읽으므로 바꾸면 돌던
-// 건의 다음 단계부터 바뀌고, 다시 바꾸면 돌아가요. 바꾼 것은 결정 기록에 남아요(관리자만).
-const RUNMODES = [
-  { key: 'hotl', ko: '사람이 지켜봄(자동 진행)', tip: '일이 오면 저절로 진행해요. 사람이 책임지는 단계와 되돌릴 수 없는 단계(회사 밖으로 나가는 일)에서만 멈춰 물어요. 지켜보다가 언제든 멈출 수 있어요.' },
-  { key: 'hitl', ko: '단계마다 사람이 정함', tip: '단계마다 「다음은 ○○예요 — 진행할까요?」라고 물어요. 진행 · 다른 갈래 · 멈추기 가운데 골라요.' },
-]
-const runModes = ref(null)
+// 단계 · 엔진을 바꾼 뒤 지도 위에 한 줄로 알려 줘요(다른 프로세스로 옮기면 지워요)
 const runModeMsg = ref('')
-const runMode = computed(() => (proc.value && runModes.value ? runModes.value.modes?.[proc.value.key] || runModes.value.default || 'hotl' : 'hotl'))
-const runModeOwn = computed(() => !!(proc.value && runModes.value?.modes?.[proc.value.key]))
-async function loadRunModes() { try { runModes.value = await call('/ontology/run-mode') } catch { runModes.value = null } }
 watch(procKey, () => { runModeMsg.value = '' })
-async function setRunMode(m) {
-  if (!proc.value) return
-  busy.value = 'runmode'; runModeMsg.value = ''
-  try {
-    const r = await call('/ontology/processes/run-mode', { method: 'POST', body: { key: proc.value.key, mode: m, name: proc.value.name } })
-    await loadRunModes()
-    const ko = RUNMODES.find((x) => x.key === m)?.ko || m
-    runModeMsg.value = `「${ko}」으로 바꿨어요. 진행 중인 건은 다음 단계부터 이 방식으로 가요.${r.released ? ` 확인을 기다리던 단계 ${r.released}개는 이어서 진행해요.` : ''}${proc.value.status === 'paused' ? ' 지금은 「관찰」 단계라 건이 시작되지 않아요 — 「제안」이나 「자동」일 때 쓰여요.' : ''}`
-  } catch (e) { err.value = e.message } finally { busy.value = '' }
-}
 // 실행 방식의 엔진(server lib/ontology/mapengine.js, 회사마다 · 관리자): 프로세스 정의로(기존 — 건마다 지도를 펼쳐 프로세스 정의를 만들고
 // 엔진이 돌린다) · 지도에서 바로(정의 없이 단계가 끝날 때마다 그때의 지도를 읽어 다음 단계를 정한다). 건은 시작할 때의 엔진으로 끝까지 가요.
 const ENGINES = [
@@ -330,8 +312,13 @@ async function setEngine(k) {
 }
 async function adopt(status) {
   if (!proc.value) return
-  busy.value = 'adopt'
-  try { await call('/ontology/processes/status', { method: 'POST', body: { key: proc.value.key, status, name: proc.value.name } }); await loadMap() } catch (e) { err.value = e.message } finally { busy.value = '' }
+  busy.value = 'adopt'; runModeMsg.value = ''
+  try {
+    const r = await call('/ontology/processes/status', { method: 'POST', body: { key: proc.value.key, status, name: proc.value.name } })
+    await loadMap()
+    const st = LADDER.find((x) => x.key === status)
+    runModeMsg.value = `${st?.to || status} 바꿨어요. ${LADDER_NOTE[status] || ''}${r?.running ? ` 진행 중인 건 ${r.running}개는 시작할 때 방식 그대로 가요.` : ''}`
+  } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
 async function openLabels() {
   labelsOpen.value = true
@@ -442,15 +429,11 @@ onBeforeUnmount(() => {
           <button class="hbtn glass press" :class="{ on: candOpen }" data-testid="onto-candidates-button" @click="sel = null; candOpen = !candOpen">AI 후보</button>
           <button v-if="proc && !isRoutine" class="hbtn glass press" :class="{ on: snapOpen }" @click="toggleSnap">스냅샷 보기</button>
           <button v-if="proc && !isRoutine && !isSimple(proc)" class="hbtn glass press" :class="{ on: refineOpen }" title="찾은 순서를 바로잡고 단계를 나눠요" data-testid="onto-refine-button" @click="refineOpen = true">다듬기</button>
-          <!-- 승격 단계(design-v0.3 §12): 관찰 → 제안(요청이 오면 묻는다) → 자동(이벤트에 저절로 시작, 사람 단계는 초안이 먼저) -->
+          <!-- 승격 단계(design-v0.3 §12): 관찰 → 제안(요청이 오면 묻고, 단계마다 사람이 정한다) → 자동(저절로 시작, 사람은 지켜본다 ·
+               사람 단계는 초안이 먼저). 실행 방식은 따로 고르지 않아요 — 이 단계가 정해요(새 건부터). -->
           <div v-if="proc && !isRoutine" class="ladder glass" role="group" aria-label="이 프로세스의 단계" data-testid="onto-ladder" :data-status="proc.status">
             <button v-for="st in LADDER" :key="st.key" class="press" :class="{ on: proc.status === st.key }" :disabled="!status?.admin || !!busy || proc.status === st.key"
               :title="st.tip" :data-testid="`onto-ladder-${st.key}`" @click="adopt(st.key)">{{ st.ko }}</button>
-          </div>
-          <!-- 실행 방식: 사람이 지켜봄(자동 진행) · 단계마다 사람이 정함 — 제안 · 자동인 프로세스의 건이 돌 때 -->
-          <div v-if="proc && !isRoutine && runModes" class="ladder glass runmode" role="group" aria-label="이 프로세스의 실행 방식" data-testid="onto-runmode" :data-mode="runMode" :data-own="runModeOwn ? '1' : '0'">
-            <button v-for="m in RUNMODES" :key="m.key" class="press" :class="{ on: runMode === m.key }" :disabled="!status?.admin || !!busy || runMode === m.key"
-              :title="`${m.tip}${runModeOwn ? '' : ' (지금은 회사 기본값을 따라요)'}`" :data-testid="`onto-runmode-${m.key}`" @click="setRunMode(m.key)">{{ m.ko }}</button>
           </div>
           <!-- 실행 방식의 엔진(관리자, 회사 전체): 프로세스 정의로(기존) · 지도에서 바로 -->
           <div v-if="status?.admin && engine" class="ladder glass engine" role="group" aria-label="실행 방식의 엔진" data-testid="onto-engine" :data-engine="engine.engine" :data-from="engine.from">
@@ -651,7 +634,6 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .ladder button { border: 0; background: none; border-radius: 16px; padding: 0 13px; font-size: 13.5px; color: var(--text-secondary); }
 .ladder button.on { background: var(--ink); color: var(--text-primary-on); }
 .ladder button:disabled:not(.on) { opacity: .55; }
-.runmode button { padding: 0 12px; }
 .engine { align-items: center; }
 .engine .elbl { padding: 0 6px 0 10px; font-size: 12px; color: var(--text-tertiary); }
 .engine button { padding: 0 11px; font-size: 12.5px; }

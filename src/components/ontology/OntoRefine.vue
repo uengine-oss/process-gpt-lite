@@ -180,10 +180,20 @@ const draft = computed(() => {
   return {}
 })
 const formOk = computed(() => !!draft.value.args && !!f.why.trim())
+// the record just made (shown first and marked) · a task just added (selected, so the map brings it out from under the zoom buttons)
+const freshId = ref('')
+const corrections = computed(() => [...(d.value?.corrections || [])].sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))))
 async function submitFix() {
   if (!formOk.value) return
+  const had = new Set((d.value?.corrections || []).map((c) => c.id))
+  const added = f.op === 'add_task' ? draft.value.args.name : ''
   const r = await send('fix', '/corrections', { method: 'POST', body: { op: f.op, args: draft.value.args, why: f.why.trim() } })
-  if (r) { const op = f.op; Object.assign(f, { ...blank, op }) }
+  if (!r) return
+  const op = f.op; Object.assign(f, { ...blank, op })
+  freshId.value = (d.value?.corrections || []).find((c) => !had.has(c.id))?.id || ''
+  if (added) sel.value = { kind: 'task', id: added }
+  await nextTick()
+  setTimeout(() => root.value?.querySelector('[data-testid="onto-refine-correction"].fresh')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), added ? 700 : 0)
 }
 // an issue with no fix of its own: the form, with the issue as the reason
 function fixByHand(i) {
@@ -460,7 +470,7 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer); document.removeEvent
             <h4>고친 기록 <small v-if="d.corrections?.length">{{ d.corrections.length }}</small></h4>
             <p v-if="!d.corrections?.length" class="muted sm">아직 고친 것이 없어요. 찾은 지도는 고쳐도 그대로 남아요.</p>
             <ul>
-              <li v-for="c in d.corrections || []" :key="c.id" data-testid="onto-refine-correction" :data-source="c.source">
+              <li v-for="c in corrections" :key="c.id" data-testid="onto-refine-correction" :data-source="c.source" :class="{ fresh: c.id === freshId }">
                 <b>{{ c.label }}</b>
                 <span v-if="c.why" class="why">{{ c.why }}</span>
                 <small>{{ c.source === 'ai' ? 'AI 제안대로' : '직접 고침' }}<template v-if="c.by"> · {{ c.by }}</template><template v-if="c.at"> · {{ dateTimeKo(c.at) }}</template></small>
@@ -656,6 +666,7 @@ h4 small { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--tex
 .mine textarea { resize: vertical; line-height: 1.45; }
 .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .corr li { padding: 9px 11px; border-radius: 12px; background: var(--field-bg); display: flex; flex-direction: column; gap: 3px; }
+.corr li.fresh { box-shadow: inset 0 0 0 1.5px var(--color-info); }
 .corr li b { font-size: 13px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
 .corr li small { font-size: 11.5px; color: var(--text-tertiary); }
 .corr li[data-source='ai'] { border-left: 3px solid var(--green); }

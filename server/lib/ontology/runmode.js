@@ -1,21 +1,29 @@
 // 실행 방식(사람이 지켜봄 HOTL · 단계마다 사람이 정함 HITL): 찾은 프로세스의 건이 돌 때 사람이 어디서 끼는가. 따로 쓰는 실행 정책은
 // 없다 — 모두 지도에서 읽는다(다듬기의 단계 분류 · AI 후보의 「사람이 꼭」 · 관문 고정 · 일 정의 · 그 일의 기록).
 //
-// 관문(gateStep): 건의 단계가 열릴 때마다 — 에이전트가 할 단계 · 사람 단계의 초안은 단계 일꾼(run.js tick)이 집을 때, 사람 단계는
-// 건 훑기(sweepCases)가 볼 때 — 그때의 방식 · 단계의 종류 · 건의 멈춤을 읽어 「저절로 진행」 또는 「사람을 기다림」을 정한다.
-// 방식은 스냅샷에 굳히지 않는다: 바꾸면 돌던 건의 다음 단계부터 바뀌고(기다리던 단계도 다시 본다), 다시 바꾸면 돌아간다.
+// 방식은 따로 고르지 않는다 — 프로세스의 단계(지도의 관찰 · 제안 · 자동, Process.status)가 시작과 진행을 함께 정한다(modeOfStage):
+//   관찰(paused): 건이 시작되지 않고 묻지도 않는다. 제안(suggested): 시작을 묻고, 시작한 뒤에는 단계마다 사람이 정함(hitl).
+//   자동(adopted): 저절로 시작하고(손으로 · 채팅 · 파일로 연 건은 시작만 묻는다), 사람이 지켜봄(hotl).
+// 건은 시작할 때의 방식을 지닌다(pro_po_cases.run_mode, sql/045 — run.js startCase · mapengine.js startMapCase 가 적는다): 단계를
+// 나중에 바꿔도 돌던 건은 그대로고 새 건부터 바뀐다. 이 열 전에 시작한 건(run_mode 없음)은 단계가 열릴 때마다 프로세스의 단계로 읽는다.
+// 예전에 따로 고르던 방식(pro_run_modes · pro_run_settings.default_mode)은 더 읽지 않는다 — 표와 행은 지우지 않고 둔다.
 //
-//   사람이 지켜봄(hotl, 제품 기본): 일이 오면 저절로 — 에이전트 단계는 스스로 하고, 사람 단계는 그 사람의 할 일로 넘어간다(인계).
+// 관문(gateStep): 건의 단계가 열릴 때마다 — 에이전트가 할 단계 · 사람 단계의 초안은 단계 일꾼(run.js tick)이 집을 때, 사람 단계는
+// 건 훑기(sweepCases)가 볼 때 — 건의 방식(caseMode) · 단계의 종류 · 건의 멈춤을 읽어 「저절로 진행」 또는 「사람을 기다림」을 정한다.
+//
+//   사람이 지켜봄(hotl, 자동 단계): 일이 오면 저절로 — 에이전트 단계는 스스로 하고, 사람 단계는 그 사람의 할 일로 넘어간다(인계).
 //     멈춰 묻는 곳: 사람이 책임지기로 한 단계(responsible)를 에이전트가 하게 됐을 때, 되돌릴 수 없는 단계(irreversible: 회사 밖으로
 //     나가는 일 — 따로 「묻지 않고 진행(auto)」으로 정하지 않았으면). 되돌릴 수 없는 단계는 나갈 것을 초안으로 먼저 만들고 묻는다.
-//   단계마다 사람이 정함(hitl): 단계마다 건의 주인에게 「다음은 X예요 — 진행할까요?」(갈림길이면 갈림길 조건과 함께) — 진행 · 다른 갈래 ·
+//   단계마다 사람이 정함(hitl, 제안 단계): 단계마다 건의 주인에게 「다음은 X예요 — 진행할까요?」(갈림길이면 갈림길 조건과 함께) — 진행 · 다른 갈래 ·
 //     멈추기. 사람 단계는 정할 때까지 그 사람의 할 일 목록에 보이지 않는다(hold_item).
 //   멈추기: 에이전트가 다음 단계를 잡지 않는다(사람은 자기 단계를 할 수 있다). 이어 가기: 멈춤 때문에 기다리던 단계를 다시 본다.
 //   이 단계로 되감기: 이 건이 닿았던 단계로(run.js moveCase — 지금 인스턴스를 닫고 그 일부터 새 스냅샷, 앞 결과는 기록으로 남음).
 //
-// 바꾼 것(방식 · 단계 규칙 · 멈춤 · 이어 감 · 단계마다 정한 것 · 되감기)은 결정 원장(review.js ledger)에. 표는 sql/041.
+// 바꾼 것(단계 규칙 · 멈춤 · 이어 감 · 단계마다 정한 것 · 되감기)은 결정 원장(review.js ledger)에 — 프로세스의 단계는
+// routes/ontology.js(ontology.promote · ontology.demote). 표는 sql/041 · 045.
 import { config } from '../../config.js'
 import { q, admin } from '../supa.js'
+import { cypher } from './store.js'
 import { emit } from '../bus.js'
 import { mainThread, addMessage, updateMessage } from '../store.js'
 import { rules as skillRules } from './discovery.js'
@@ -24,6 +32,7 @@ import { parseDefinition } from './taskdef.js'
 import { END } from './stats.js'
 import { procGraph, getCase, moveCase, ORCH } from './run.js'
 import * as SR from './steprule.js'
+import { findBinding, bindingsView } from './bindings.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -33,8 +42,11 @@ const pct = (p) => `${Math.round((p || 0) * 100)}%`
 // 로 · 으로 by the last syllable (ㄹ takes 로)
 const ro = (w) => { const c = String(w).trim().slice(-1).charCodeAt(0); const f = c >= 0xac00 && c <= 0xd7a3 ? (c - 0xac00) % 28 : 0; return f && f !== 8 ? '으로' : '로' }
 export const MODES = ['hotl', 'hitl']
-export const MODE_KO = { hotl: '사람이 지켜봄(자동 진행)', hitl: '단계마다 사람이 정함' }
-export const WHY_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계', optional: '해도 되고 안 해도 되는 단계' }
+export const MODE_KO = { hotl: '사람이 지켜봄', hitl: '단계마다 사람이 정함' }
+// the ladder's stages (지도의 관찰 · 제안 · 자동) and the one that gives each mode
+export const STAGE_KO = { paused: '관찰', suggested: '제안', adopted: '자동' }
+export const STAGE_OF_MODE = { hotl: 'adopted', hitl: 'suggested' }
+export const WHY_KO = { responsible: '책임 단계', irreversible: '되돌릴 수 없는 단계', hitl: '단계마다 확인', paused: '멈춤', ask: '늘 묻는 단계', optional: '해도 되고 안 해도 되는 단계', unbound: '맡을 사람 정하기' }
 const GATE_PIN = '다듬기: 꼭 하는 관문'
 const INTAKE = '요청 접수'
 
@@ -113,16 +125,6 @@ export function decideStep({ mode = 'hotl', kind = 'agent', responsible = false,
   return { act: 'wait', why }
 }
 
-// a mode switch, for the steps already waiting: to HOTL, a step that waited only for the per-step check goes on, one that waits for
-// something else as well keeps waiting without that reason; to HITL, nothing waiting changes (the next steps will ask)
-export function afterSwitch(waiting, mode) {
-  return waiting.map((s) => {
-    if (mode !== 'hotl' || !(s.why || []).includes('hitl')) return { id: s.id, keep: true, why: s.why || [] }
-    const why = s.why.filter((w) => w !== 'hitl')
-    return why.length ? { id: s.id, keep: true, why } : { id: s.id, release: true, why }
-  })
-}
-
 // 이 단계로 되감기: to a step this case already reached (done, or the one at hand) — not 요청 접수, not a step it never reached (that is
 // 「다른 일로 옮기기」). What lies from it on is done again (the earlier outputs stay as history); a step from it on that already sent
 // something outside cannot call it back: the rewind needs the person to say so (confirm), and going through that step again sends again.
@@ -156,9 +158,15 @@ export function whyLines(why = [], facts = null, step = null) {
   return why.map((w) => {
     if (w === 'responsible') return `${WHY_KO.responsible} — ${facts?.responsible?.why?.[0] || '사람이 책임지기로 한 단계예요'}`
     if (w === 'irreversible') return `${WHY_KO.irreversible} — ${facts?.irreversible?.why || '회사 밖으로 나가는 일이에요'}`
-    if (w === 'hitl') return '단계마다 사람이 정하는 방식이에요'
+    if (w === 'hitl') return '「제안」 단계의 건이라 단계마다 사람이 정해요'
     if (w === 'ask') return '이 단계는 늘 물어보기로 정했어요'
     if (w === 'paused') return '건이 멈춰 있어요'
+    // (mapengine.js: the step's role has nobody yet — several people hold it, or none — bindings.js)
+    if (w === 'unbound') {
+      const r = step?.role || step?.act?.role || '이 역할'
+      const c = String(r).slice(-1).charCodeAt(0), f = c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28
+      return step?.binding?.from === 'several' ? `「${r}」${f ? '을' : '를'} 맡은 사람이 여러 명이에요 — 이 건은 누가 할지 골라 주세요` : `「${r}」${f ? '을' : '를'} 맡을 사람이 없어요 — 누가 할지 골라 주세요`
+    }
     if (w === 'optional') return `${WHY_KO.optional} — ${SR.needText(step?.need) || step?.matched?.line || '건마다 할지 정해요'}`
     return w
   })
@@ -179,52 +187,38 @@ export function stepState(t, g) {
   return 'next'
 }
 
-// ---------- the mode (read at each step) ----------
+// ---------- the mode: the process's stage decides it, the case keeps the one of its start ----------
+// 제안(suggested) → 단계마다 사람이 정함(hitl), 자동(adopted) → 사람이 지켜봄(hotl); 관찰(paused) starts nothing — a case that is
+// there anyway (a stage read when none could be: no process, a read that failed) asks at every step, the safe side.
+export const modeOfStage = (status) => (status === 'adopted' ? 'hotl' : 'hitl')
+// (pure) a case's mode: the one it took at its start (pro_po_cases.run_mode), else — a case started before sql/045 — the stage read
+// now. Nothing else counts: what the old toggle left in pro_run_modes · pro_run_settings.default_mode is not read anywhere.
+export function caseModeOf(runMode, stage) {
+  return MODES.includes(runMode) ? { mode: runMode, from: 'case' } : { mode: modeOfStage(stage), from: 'stage', stage: stage || null }
+}
+// a process's stage as the map has it now (null: no such process, or it could not be read)
+export async function stageOf(procKey) {
+  if (!procKey) return null
+  const [r] = await cypher('MATCH (b:Process {key:$key}) RETURN b.status AS status', { key: procKey }).catch(() => [])
+  return r?.status || null
+}
+// a case's mode at this step (gateStep · runView · mapengine.js): view is the case's procGraph when the caller has it (its proc.status
+// is the stage — for a case run from a map pinned to its start, the stage of that day); without it the stage is read now
+export async function caseMode(c, view = null) {
+  if (MODES.includes(c?.run_mode)) return caseModeOf(c.run_mode)
+  return caseModeOf(null, view?.proc ? view.proc.status : await stageOf(c?.bundle || c?.proc))
+}
+// a process's mode for a case that would start now: the stage's (kept for callers that ask by process; a case asks caseMode)
 export async function modeOf(procKey) {
-  const [r] = await q(`select mode from pro_run_modes where tenant_id=$1 and proc_key=$2`, [T(), procKey]).catch(() => [])
-  if (r?.mode) return { mode: r.mode, from: 'process' }
-  const [d] = await q(`select default_mode from pro_run_settings where tenant_id=$1`, [T()]).catch(() => [])
-  if (d?.default_mode) return { mode: d.default_mode, from: 'tenant' }
-  const R = (await skillRules()).runMode || {}
-  return { mode: MODES.includes(R.default) ? R.default : 'hotl', from: 'product' }
+  const stage = await stageOf(procKey)
+  return { mode: modeOfStage(stage), from: 'stage', stage }
 }
-
+// every process's mode as its stage gives it (GET /ontology/run-mode — there is no setting of its own any more)
 export async function modesView() {
-  const rows = await q(`select proc_key, mode from pro_run_modes where tenant_id=$1`, [T()]).catch(() => [])
-  const [d] = await q(`select default_mode from pro_run_settings where tenant_id=$1`, [T()]).catch(() => [])
-  const R = (await skillRules()).runMode || {}
-  const product = MODES.includes(R.default) ? R.default : 'hotl'
-  // (a row that only holds the engine — mapengine.js — leaves the mode to the product default)
-  return { product, default: d?.default_mode || product, tenantSet: !!d?.default_mode, modes: Object.fromEntries(rows.map((r) => [r.proc_key, r.mode])), names: MODE_KO }
-}
-
-export async function setDefaultMode(me, mode) {
-  if (!MODES.includes(mode)) throw err(400, 'mode 는 hotl 이나 hitl 이에요.')
-  const was = (await modesView()).default
-  await q(`insert into pro_run_settings (tenant_id, default_mode, updated_by, updated_at) values ($1,$2,$3,now())
-           on conflict (tenant_id) do update set default_mode=excluded.default_mode, updated_by=excluded.updated_by, updated_at=now()`, [T(), mode, me.id])
-  await ledger(me, 'ontology.runmode.default', `회사 기본 실행 방식: ${MODE_KO[mode]}`, { mode, was })
-  return modesView()
-}
-
-// a process's mode (null: back to the company's default). The steps of its running cases that wait now are looked at again.
-export async function setMode(me, procKey, mode, { name } = {}) {
-  if (mode !== null && !MODES.includes(mode)) throw err(400, 'mode 는 hotl · hitl 이거나 비워 두세요(회사 기본값).')
-  const { proc } = await procGraph(procKey, { found: true })
-  const was = (await modeOf(procKey)).mode
-  if (mode) await q(`insert into pro_run_modes (tenant_id, proc_key, mode, updated_by, updated_at) values ($1,$2,$3,$4,now())
-                     on conflict (tenant_id, proc_key) do update set mode=excluded.mode, updated_by=excluded.updated_by, updated_at=now()`, [T(), procKey, mode, me.id])
-  else await q(`delete from pro_run_modes where tenant_id=$1 and proc_key=$2`, [T(), procKey])
-  const now = await modeOf(procKey)
-  await ledger(me, 'ontology.runmode', `실행 방식: ${name || proc.name} — ${MODE_KO[now.mode]}${mode ? '' : '(회사 기본값)'}`, { process: procKey, mode: now.mode, was, set: mode })
-  const waiting = await q(`select s.* from pro_case_steps s join pro_po_cases c on c.id=s.case_id where s.tenant_id=$1 and c.bundle=$2 and c.status='running' and s.state='waiting'`, [T(), procKey])
-  let released = 0
-  for (const x of afterSwitch(waiting, now.mode)) {
-    const s = waiting.find((w) => w.id === x.id)
-    if (x.release) { await releaseStep(s, { reason: `실행 방식을 「${MODE_KO[now.mode]}」${ro(MODE_KO[now.mode].replace(/\(.*\)$/, ''))} 바꿨어요` }); released++ }
-    else if (x.why.join() !== (s.why || []).join()) await q(`update pro_case_steps set why=$2, updated_at=now() where id=$1`, [s.id, x.why])
-  }
-  return { key: procKey, mode: now.mode, from: now.from, was, released }
+  const rows = await cypher('MATCH (b:Process) RETURN b.key AS key, b.status AS status').catch(() => [])
+  const live = rows.filter((r) => r.key && r.status !== 'gone')
+  return { from: 'stage', byStage: { suggested: 'hitl', adopted: 'hotl' }, stages: Object.fromEntries(live.map((r) => [r.key, r.status || null])),
+    modes: Object.fromEntries(live.map((r) => [r.key, modeOfStage(r.status)])), names: MODE_KO, stageNames: STAGE_KO }
 }
 
 // one step's own rule in a process: auto (an outward step that need not ask) · ask (always ask) · null (as the map says)
@@ -317,8 +311,20 @@ function waysOut(view, from) {
   const pinned = (k) => !!view?.tasks.get(k)?.pinned
   return (view?.edges || []).filter((e) => e.from === from && e.status !== 'retired' && (e.p >= th || e.pinned || e.decided || (e.to !== END && pinned(e.to)))).map((e) => ({ to: e.to, p: e.p || 0 }))
 }
+// a map case's step that no way of the map led to (mapengine.js via.how entry · moved · rewound): what is true of it — the request
+// chose it (its odds are in the reason), or a person moved or rewound the case to it. No 「…에서」(from) and no other branches.
+export function mapStartProposal(task, via = {}) {
+  const how = via.how
+  const why = how === 'rewound' ? `사람이 「${task}」${ro(task)} 되감았어요 — 이 단계부터 다시 해요`
+    : how === 'moved' ? (clean(via.why) && via.why !== '사람이 이 단계로 옮겼어요' ? clean(via.why) : `사람이 「${task}」${ro(task)} 옮겼어요 — 이 단계부터 해요`)
+      : clean(via.why) || `이 건은 「${task}」부터 해요`
+  return { from: '', to: task, p: null, cond: '', confidence: null, why, split: false, others: [], end: false, how }
+}
 // via: how a case run from the map came to this step (mapengine.js — the step it came from and the map's reason)
 async function proposalFor(c, row, view, via = null) {
+  // a map case has no 요청 접수 step: its first step comes from the request, a moved or rewound step from the person who moved it (not
+  // from the start's odds — the waiting box said 「요청 접수에서 되감은 단계에서 이어서 해요 · 83%」)
+  if (via && ['entry', 'moved', 'rewound'].includes(via.how)) return mapStartProposal(row.activity_name, via)
   const [prev] = via ? [] : await q(`select activity_name, activity_id from todolist where proc_inst_id=$1 and status::text in ('DONE','SUBMITTED') and id <> $2 order by end_date desc nulls last, updated_at desc limit 1`, [row.proc_inst_id, row.id])
   const from = via ? (['entry', 'moved', 'rewound'].includes(via.how) ? INTAKE : via.from || INTAKE) : !prev || prev.activity_id === 'intake' ? INTAKE : prev.activity_name
   if (from === INTAKE) {
@@ -347,6 +353,8 @@ async function holderOf(todoId) {
   return { agent: false, names: people.map((p) => p.username || p.email), draft: !!t.agent_orch }
 }
 
+// a map case's step waiting for its role's person to be chosen (mapengine.js holdUnbound): the same card, the role's people to pick from
+export const askOwnerFor = (c, s) => askOwner(c, s)
 async function askOwner(c, s, { facts = null, preview = null } = {}) {
   const owner = c.started_by
   if (!owner) return null
@@ -355,7 +363,8 @@ async function askOwner(c, s, { facts = null, preview = null } = {}) {
     why: s.why || [], whyText: whyLines(s.why || [], facts, s), reversible: s.reversible, proposal: s.proposal || null, holder: await holderOf(s.todo_id),
     preview: preview || s.preview || null, subject: c.trigger?.subject || '', from: c.trigger?.from || '',
     // 꼭 · 선택(steprule.js): what the step is for this case and why (a rule that matched, with its evidence)
-    requirement: s.requirement || null, reqLine: s.matched?.line || '', matched: s.matched?.matched || null, need: s.need || null })
+    requirement: s.requirement || null, reqLine: s.matched?.line || '', matched: s.matched?.matched || null, need: s.need || null,
+    ...(s.binding ? { role: s.role || s.binding.role, binding: s.binding } : {}) })
   await q(`update pro_case_steps set message_id=$2 where id=$1`, [s.id, msg.id])
   return msg
 }
@@ -383,7 +392,8 @@ export async function gateStep(row) {
   const validAt = (await import('./mapengine.js')).mapTimeOf(c)
   const view = await procGraph(c.bundle, { validAt }).catch(() => null)
   const facts = view ? (await stepFacts(c.bundle, { view, validAt })).get(row.activity_name) || null : null
-  const { mode } = await modeOf(c.bundle)
+  // the case's mode: the one of its start, or (a case from before sql/045) its process's stage — changing the stage changes new cases only
+  const { mode } = await caseMode(c, view)
   const paused = await pausedOf(c.id)
   const approved = have?.state === 'go'
   // (a map case's step made by a move or a rewind says so on its own row — the case keeps one instance, so movedHere cannot tell)
@@ -480,6 +490,8 @@ export async function decide(me, stepId, { action, to = '', confirm = false, rea
   const c = await getCase(s.case_id)
   await mayControl(me, c)
   if (s.state !== 'waiting') throw err(409, '이미 정해진 단계예요.')
+  // (a step whose role has nobody yet goes on when someone is chosen — mapengine.js setBinding)
+  if ((s.why || []).includes('unbound') && action !== 'stop') throw err(409, '먼저 이 단계를 맡을 사람을 골라 주세요.')
   const [todo] = await q(`select id, status::text as status, draft, draft_status::text as draft_status, user_id, proc_inst_id from todolist where id=$1`, [s.todo_id])
   if (!todo || ['DONE', 'CANCELLED', 'SUBMITTED'].includes(todo.status)) throw err(409, '그 단계는 이미 닫혔어요.')
   const said = clean(reason).slice(0, 300)
@@ -590,7 +602,7 @@ export async function rewindCase(me, caseId, { task, confirm = false } = {}) {
 // the steps of a list kept off people's lists for now (home · 할 일: notify.js · processes.js)
 export async function heldTodos(ids) {
   if (!ids?.length) return new Set()
-  const rows = await q(`select todo_id::text as id from pro_case_steps where tenant_id=$1 and state='waiting' and hold_item and todo_id::text = any($2)`, [T(), ids.map(String)]).catch(() => [])
+  const rows = await q(`select todo_id::text as id from pro_case_steps where tenant_id=$1 and state in ('waiting','planned') and hold_item and todo_id::text = any($2)`, [T(), ids.map(String)]).catch(() => [])
   return new Set(rows.map((r) => r.id))
 }
 
@@ -603,7 +615,10 @@ export async function runView(me, caseId) {
   const validAt = (await import('./mapengine.js')).mapTimeOf(c)
   const view = await procGraph(c.proc, { validAt }).catch(() => null)
   const facts = view ? await stepFacts(c.proc, { view, validAt }).catch(() => new Map()) : new Map()
-  const { mode, from } = await modeOf(c.proc)
+  // the case's mode (from: case — taken at its start · stage — a case from before sql/045, read from the stage) and the process's stage
+  // now (the map's ladder: a case that started in another stage keeps going as it started)
+  const { mode, from } = await caseMode(c, view)
+  const stageNow = validAt || !view?.proc ? await stageOf(c.proc) : view.proc.status || null
   const paused = await pausedOf(c.id)
   const gates = await q(`select * from pro_case_steps where case_id=$1 order by created_at`, [c.id]).catch(() => [])
   const byTodo = new Map(gates.map((g) => [String(g.todo_id), g]))
@@ -626,7 +641,7 @@ export async function runView(me, caseId) {
       kind: g?.kind || (agentStep ? 'agent' : a.agentMode === 'draft' ? 'draft' : 'person'),
       holder: agentStep ? { agent: true, name: '업무 에이전트', role: a.role } : { agent: false, role: a.role || '', names: people, draft: a.agentMode === 'draft' },
       reversible: g ? g.reversible : !f?.irreversible?.on, reversibleWhy: f?.irreversible?.why || '', responsible: f?.responsible?.on || false, responsibleWhy: f?.responsible?.why || [],
-      policy: f?.policy || null, why: g?.state === 'waiting' ? g.why : [], whyText: g?.state === 'waiting' ? whyLines(g.why, f, g) : [], gate: g?.state || null, mode: g?.mode || null,
+      policy: f?.policy || null, why: g?.state === 'waiting' ? g.why : [], whyText: g?.state === 'waiting' ? whyLines(g.why, f, (g.why || []).includes('unbound') ? { ...g, binding: findBinding(c.bindings, g.act?.role) } : g) : [], gate: g?.state || null, mode: g?.mode || null,
       // 꼭 · 선택(steprule.js): what this case read for the step (before it came: the step's own setting), the rule that matched, a skip
       requirement: g ? g.requirement || null : f?.rule?.requirement || null, reqLine: g?.matched?.line || '', matched: g?.matched?.matched || null, need: g?.need || null,
       hasRules: !!f?.rule?.rules?.length, skipped: g?.state === 'skipped' ? g.skip || { reason: '' } : null,
@@ -670,8 +685,9 @@ export async function runView(me, caseId) {
   const rewind = reached.map((k) => ({ task: k, ...rewindCheck(k, steps) })).filter((x) => x.ok).map(({ task, confirm, lost, redo }) => ({ task, confirm, lost, redo }))
   const mine = String(c.started_by) === String(me.id) || (await isAdmin(me).catch(() => false))
   const waitingFor = steps.find((s) => s.current && s.state === 'waiting')
-  return { caseId: c.id, proc: c.proc, procName: view?.proc?.name || '', status: c.status, mode, modeFrom: from, modeName: MODE_KO[mode], paused, refined: !!view?.refined,
-    engine: c.engine || 'bpm', mapPin: c.map_pin || null, instances: c.instances.length,
+  return { caseId: c.id, proc: c.proc, procName: view?.proc?.name || '', status: c.status, mode, modeFrom: from, modeName: MODE_KO[mode], modeStage: STAGE_OF_MODE[mode],
+    stage: stageNow, stageName: STAGE_KO[stageNow] || '', paused, refined: !!view?.refined,
+    engine: c.engine || 'bpm', mapPin: c.map_pin || null, instances: c.instances.length, bindings: bindingsView(c.bindings || []),
     subject: c.trigger?.subject || '', from: c.trigger?.from || '', steps, history: c.history || [], rewind,
     waiting: waitingFor ? { task: waitingFor.task, stepId: waitingFor.stepId, why: waitingFor.why, whyText: waitingFor.whyText } : null,
     controls: { mine, pause: mine && c.status === 'running' && !paused, resume: mine && paused } }

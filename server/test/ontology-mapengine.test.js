@@ -189,3 +189,73 @@ test('스냅샷의 AND 갈림은 같은 규칙(parallelPair)으로 그대로다'
   assert.deepEqual(parallelPair(v.edges, flows, '준비'), { targets: ['계획서', '보고'], next: '회신' })
   assert.equal(typeof contractOf, 'function')
 })
+
+// ---------- 건마다 bpm_proc_inst 한 행 · 시각 · 되감은 단계의 문구 · 여러 업무 카드 · 역할마다 맡는 사람 ----------
+import { NOW_KST, instNameOf } from '../lib/ontology/mapengine.js'
+import { mapStartProposal } from '../lib/ontology/runmode.js'
+import { bindingFor, rolesOfFlow, roleBindingsOf, bindingsView, unbound, AGENT_ROLE } from '../lib/ontology/bindings.js'
+import { entryManyText } from '../../src/components/ontology/ontoText.js'
+
+test('시각: 할 일 · 인스턴스의 날짜 열은 엔진처럼 한국 시각으로 쓴다(DB 시계는 UTC — now() 는 9시간 이르게 읽혔다)', () => {
+  assert.match(NOW_KST, /now\(\) at time zone 'Asia\/Seoul'/)
+  // the instance's name, as the engine names one
+  assert.equal(instNameOf('강의계획서 작성 · 보고', '[특강] 강의자료 준비 부탁드립니다'), '강의계획서 작성 · 보고 · [특강] 강의자료 준비 부탁드립니다')
+  assert.equal(instNameOf('강의계획서 작성 · 보고', ''), '강의계획서 작성 · 보고')
+})
+
+test('되감은 · 옮긴 · 처음 단계의 근거: 지도 건에는 요청 접수가 없고, 시작 확률을 되감기에 붙이지 않는다', () => {
+  const r = mapStartProposal('강의자료 준비', { how: 'rewound', from: '고객 회신', why: '이 단계로 되감기' })
+  assert.equal(r.from, '')
+  assert.equal(r.p, null)
+  assert.equal(r.split, false)
+  assert.deepEqual(r.others, [])
+  assert.equal(r.why, '사람이 「강의자료 준비」로 되감았어요 — 이 단계부터 다시 해요')
+  assert.doesNotMatch(r.why, /요청 접수|%/)
+  assert.equal(mapStartProposal('교육 진행', { how: 'moved', why: '사람이 이 단계로 옮겼어요' }).why, '사람이 「교육 진행」으로 옮겼어요 — 이 단계부터 해요')
+  assert.equal(mapStartProposal('교육 진행', { how: 'moved', why: '사람이 다른 갈래(「교육 진행」)를 골랐어요' }).why, '사람이 다른 갈래(「교육 진행」)를 골랐어요')
+  // the first step: the request chose it — its odds stay in the reason, not as a branch share
+  const s = mapStartProposal('강의자료 준비', { how: 'entry', why: '이 요청은 「강의자료 준비」부터 하면 돼요(83%)' })
+  assert.equal(s.why, '이 요청은 「강의자료 준비」부터 하면 돼요(83%)')
+  assert.equal(s.from, '')
+  assert.equal(s.p, null)
+})
+
+test('여러 업무 카드: 같은 사건으로 이미 시작한 자동 프로세스도 세고, 시작한 것과 묻는 것을 나눠 말한다', () => {
+  assert.equal(entryManyText('이 메일은', 3, 0), '이 메일은 회사의 업무 3가지에 해당해요. 진행할 업무를 골라 주세요.')
+  assert.equal(entryManyText('이 메일은', 3, 1), '이 메일은 회사의 업무 4가지에 해당해요. 자동인 1가지는 이미 시작했고, 나머지 3가지는 진행할지 골라 주세요.')
+})
+
+test('맡는 사람 풀이: 설정의 담당자 하나 → 그 사람, 프로세스마다 정한 사람이 여럿 → 정해야 함, 아무도 없음 → 시작한 사람, 시작한 사람도 없음 → 없음', () => {
+  const names = new Map([['u1', '김강사'], ['u2', '이강사'], ['s', '장진영']])
+  assert.deepEqual(bindingFor('강사', { star: 'u1', names, starter: 's' }), { role: '강사', userId: 'u1', name: '김강사', from: 'settings' })
+  assert.deepEqual(bindingFor('강사', { others: ['u2', 'u2'], names, starter: 's' }), { role: '강사', userId: 'u2', name: '이강사', from: 'process' })
+  const many = bindingFor('강사', { others: ['u1', 'u2'], names, starter: 's' })
+  assert.equal(many.from, 'several')
+  assert.equal(many.userId, null)
+  assert.deepEqual(many.candidates.map((c) => c.name), ['김강사', '이강사'])
+  assert.equal(unbound(many), true)
+  assert.deepEqual(bindingFor('전무', { names, starter: 's' }), { role: '전무', userId: 's', name: '장진영', from: 'starter' })
+  const none = bindingFor('전무', { names })
+  assert.equal(none.from, 'none')
+  assert.equal(unbound(none), true)
+  assert.equal(unbound({ from: 'agent', userId: null }), false)
+})
+
+test('맡는 사람의 역할: 시작 일부터 펼친 흐름의 사람 단계만 역할마다 한 번, 에이전트 단계는 「업무 에이전트」 — bpm_proc_inst.role_bindings 는 엔진의 모양', async () => {
+  const agentDef = '---\nkind: task\nrunner: agent\n---\n자료를 만든다'
+  const v = view([task('계획서', { role: '강사' }), task('자료 준비', { role: '강사', definition_md: agentDef }), task('회신', { role: '전무' }), task('교육', { role: '강사' }), task('홍보', { role: '마케팅' })],
+    [e('계획서', '자료 준비', 1), e('자료 준비', '회신', 1), e('회신', '교육', 1), e('교육', END, 1), e('홍보', '계획서', 1)])
+  const roles = await rolesOfFlow(v, '계획서', 0.05)
+  assert.deepEqual(roles.map((r) => [r.role, r.tasks, r.agent]), [['강사', ['계획서', '교육'], false], [AGENT_ROLE, ['자료 준비'], true], ['전무', ['회신'], false]])
+  // (홍보 is before the start: its role is not asked)
+  const bs = [{ role: '강사', userId: 'u1', name: '김강사', from: 'settings' }, { role: AGENT_ROLE, userId: null, name: '', from: 'agent' }, { role: '전무', userId: null, name: '', from: 'several', candidates: [] }]
+  assert.deepEqual(roleBindingsOf(bs, 'a1'), [
+    { name: '강사', origin: 'created', default: ['u1'], endpoint: ['u1'], resolutionRule: '프로세스 지도: 설정의 팀 · 역할 담당자' },
+    { name: AGENT_ROLE, origin: 'used', default: 'a1', endpoint: 'a1', resolutionRule: '' },
+    { name: '전무', origin: 'created', default: [], endpoint: [], resolutionRule: '프로세스 지도: 여러 명 · 정해야 해요' },
+  ])
+  const shown = bindingsView(bs)
+  assert.equal(shown[0].fromKo, '설정의 팀 · 역할 담당자')
+  assert.equal(shown[2].unbound, true)
+  assert.equal(shown[1].unbound, false)
+})

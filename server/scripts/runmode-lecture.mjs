@@ -1,17 +1,20 @@
 // 실행 방식(사람이 지켜봄 HOTL · 단계마다 사람이 정함 HITL) 시연 — 실제 메일 테넌트 jy-mail 의 찾은 프로세스 「강의계획서 작성 · 보고」로.
+// 방식은 따로 고르지 않는다: 프로세스의 단계(지도의 관찰 · 제안 · 자동)가 정하고(자동 → 사람이 지켜봄, 제안 → 단계마다 사람이 정함),
+// 건은 시작할 때의 방식을 지닌다(pro_po_cases.run_mode — 단계를 바꾸면 새 건부터). --hotl · --hitl 은 단계를 자동 · 제안으로 둔다.
 // 들어온 「외부 강의 요청」 메일은 시험용(보낸 사람 kim@example-univ.test, 진짜 메일이 들어올 때와 같은 run.js routeMail 길 —
 // POST /api/ontology/simulate-mail). 되돌릴 수 없는 단계(고객 회신)는 확인을 받아도 「보냈을 내용」만 건에 남는다(네트워크 없음).
 //
-//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --all      # 준비 → HOTL → HITL → 방식 되돌리기 (건은 남겨 둔다: 지켜보기 화면)
-//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --setup    # 다듬기 고침 · 단계 분류 · 일 정의 · 데모 동료 · 「자동」 · 사람이 지켜봄
-//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --hotl     # 건 1: 저절로 진행 → 멈추기/이어 가기 → 고객 회신 확인(기록만) → 인계 → 되감기 → 끝까지
-//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --hitl     # 건 2: 단계마다 확인(진행 · 멈추기 · 이어 가기) → 교육 진행에서 방식을 되돌리면 인계
-//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --status   # 지금 건 · 방식 · 상태 파일
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --all      # 준비 → HOTL → HITL (건은 남겨 둔다: 지켜보기 화면)
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --setup    # 다듬기 고침 · 단계 분류 · 일 정의 · 데모 동료 · 단계 「자동」
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --hotl     # 단계 「자동」 · 건 1: 저절로 시작 · 진행 → 멈추기/이어 가기 → 고객 회신 확인(기록만) → 인계 → 되감기 → 끝까지
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --hitl     # 단계 「제안」 · 건 2: 시작을 물음 → 단계마다 확인(진행 · 멈추기 · 이어 가기) → 단계를 「자동」으로 되돌려도 이 건은 그대로 → 「진행」으로 인계
+//   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --status   # 지금 건 · 단계 · 건의 방식 · 상태 파일
 //   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --drop-cases  # 이 스크립트가 연 건만 지운다(준비는 그대로 — 다시 --hotl · --hitl)
 //   cd server && PRO_TENANT_ID=jy-mail node scripts/runmode-lecture.mjs --reset    # 이 스크립트가 만든 모든 것을 지우고, 손댄 설정을 처음대로
 //
 // 환경: BFF :8790(PRO_TENANT_ID=jy-mail, PRO_BACKGROUND=0 — 단계 일꾼 · 건 훑기는 PRO_BACKGROUND 와 상관없이 돈다), completion :8099(공용, 그대로).
-// REC_PAUSE=초 : 장면마다 그만큼 쉰다(녹화용). 처음 --setup 이 손대기 전 상태를 .scratch/runmode-lecture.state.json 에 남기고, --reset 이 그대로 되돌린다.
+// REC_PAUSE=초 : 장면마다 그만큼 쉰다(녹화용). 처음 --setup 이 손대기 전 상태(프로세스의 단계 포함)를 .scratch/runmode-lecture.state.json 에
+// 남기고, --reset 이 그대로 되돌린다(예전 판이 쓴 pro_run_modes 행도 처음대로 — 이 판은 그 표에 쓰지 않는다).
 process.env.DOTENV_CONFIG_QUIET = 'true'
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
@@ -89,6 +92,8 @@ const todoOf = async (caseId, task) => {
   return (await q(`select id, status::text as status, draft_status::text as ds, agent_mode::text as mode, user_id, output, draft from todolist where proc_inst_id=$1 and activity_name=$2 order by start_date desc nulls last limit 1`, [c.instances.at(-1), task]))[0]
 }
 const runOf = (who, caseId) => call(who.tok, 'GET', `/ontology/cases/${caseId}/run`)
+const caseMode = async (caseId) => (await q(`select run_mode from pro_po_cases where id=$1`, [caseId]))[0]?.run_mode ?? null
+const setStage = (boss, p, status) => call(boss.tok, 'POST', '/ontology/processes/status', { key: p.key, status, name: PROC_NAME })
 const brief = (run) => run.steps.filter((s) => s.current).map((s) => `${s.task}:${s.state}${s.why.length ? `(${s.why.join(',')})` : ''}${s.reversible ? '' : '[되돌릴 수 없음]'}${s.holder?.agent ? '@에이전트' : s.holder?.names?.length ? `@${s.holder.names.join(',')}` : ''}`).join(' → ')
 const hisHome = async (who) => (await call(who.tok, 'GET', '/notifications')).filter((n) => n.type === 'workitem').map((n) => n.title)
 const hisTodos = async (who) => (await call(who.tok, 'GET', '/todos')).map((t) => t.activity_name)
@@ -102,6 +107,7 @@ async function snapshotState(boss, p) {
     startedAt: new Date().toISOString(), proc: p, boss: boss.id,
     corrections: (await q(`select id::text as id from pro_corrections where tenant_id=$1 and proc_key=$2`, [T, p.key])).map((r) => r.id),
     refine: refine || null, tasks: taskNodes,
+    // (the old toggle's rows — this version writes none; --reset still puts back what an earlier version changed)
     runModes: await q(`select * from pro_run_modes where tenant_id=$1 and proc_key=$2`, [T, p.key]),
     runSettings: await q(`select * from pro_run_settings where tenant_id=$1`, [T]),
     stepRules: await q(`select * from pro_run_step_rules where tenant_id=$1 and proc_key=$2`, [T, p.key]),
@@ -162,11 +168,11 @@ async function setup() {
   if (!st.colleague) { st.colleague = { id: m.id, email: COLLEAGUE.email, created: !had }; saveState(st) }
   await call(boss.tok, 'PUT', '/roles', { role: '강사', userId: m.id })
   log(`  ${COLLEAGUE.name} <${COLLEAGUE.email}> · 강사 · ${m.id}`)
-  await scene('승격 「자동」 + 실행 방식 「사람이 지켜봄(자동 진행)」')
-  if (p.status !== 'adopted') await call(boss.tok, 'POST', '/ontology/processes/status', { key: p.key, status: 'adopted', name: PROC_NAME })
-  await call(boss.tok, 'POST', '/ontology/processes/run-mode', { key: p.key, mode: 'hotl', name: PROC_NAME })
+  await scene('승격 「자동」 — 실행 방식은 단계가 정해요(자동: 저절로 시작하고, 사람은 지켜봐요)')
+  if (p.status !== 'adopted') await setStage(boss, p, 'adopted')
   const steps = await call(boss.tok, 'GET', `/ontology/processes/steps?key=${encodeURIComponent(p.key)}`)
-  out.setup = { proc: p.key, mode: steps.mode, steps: steps.steps.map((s) => ({ task: s.task, role: s.role, runner: s.runner, responsible: s.responsible.on, responsibleWhy: s.responsible.why, irreversible: s.irreversible.on, irreversibleBy: s.irreversible.by, irreversibleWhy: s.irreversible.why })) }
+  assert.equal(steps.mode, 'hotl', `자동 단계인데 방식이 ${steps.mode}(${steps.from})`)
+  out.setup = { proc: p.key, stage: 'adopted', mode: steps.mode, steps: steps.steps.map((s) => ({ task: s.task, role: s.role, runner: s.runner, responsible: s.responsible.on, responsibleWhy: s.responsible.why, irreversible: s.irreversible.on, irreversibleBy: s.irreversible.by, irreversibleWhy: s.irreversible.why })) }
   for (const s of out.setup.steps) log(`  ${s.task}: ${s.runner || '정의 없음'} · ${s.responsible ? `책임 단계(${s.responsibleWhy[0]})` : '책임 단계 아님'} · ${s.irreversible ? `되돌릴 수 없음(${s.irreversibleWhy})` : '되돌릴 수 있음'}`)
   save()
 }
@@ -176,20 +182,22 @@ async function mailIn(boss, p, label) {
   const since = new Date()
   const r = await call(boss.tok, 'POST', '/ontology/simulate-mail', MAIL)
   log('  들어온 메일 →', JSON.stringify(r).slice(0, 160))
-  let caseId = r.caseId
+  let caseId = r.caseId, asked = false
   if (!caseId) {
-    // the start task was unsure (< 50%): the card asks and the person picks — the first option
+    // the card asks — a 제안 process (the start is always asked), or an adopted one whose start task was unsure (< 50%): the person
+    // says yes to the card's pick (the first option when it has none)
     const [m] = await q(`select m.id, m.content from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$1 and m.kind='onto-entry' and m.content->>'state'='ask' and m.created_at >= $2 order by m.created_at desc limit 1`, [boss.id, since])
     assert.ok(m, '건이 시작되지도, 묻지도 않았어요')
     const ch = m.content.choice
-    const r2 = await call(boss.tok, 'POST', '/ontology/cases', { proc: ch.proc, entry: ch.options[0].task, subject: MAIL.subject, body: MAIL.text, from: MAIL.from, odds: ch, kind: 'mail', messageId: m.id })
-    caseId = r2.caseId
-    log('  시작 일이 애매해서 카드에서 골랐어요:', ch.options[0].task)
+    const entry = ch.task || ch.options[0].task
+    const r2 = await call(boss.tok, 'POST', '/ontology/cases', { proc: ch.proc || p.key, entry, subject: MAIL.subject, body: MAIL.text, from: MAIL.from, odds: ch, kind: 'mail', messageId: m.id })
+    caseId = r2.caseId; asked = true
+    log(`  카드가 시작을 물어서 「진행」했어요: 「${entry}」부터${ch.p != null ? ` (${Math.round(ch.p * 100)}%)` : ''}`)
   }
-  const [c] = await q(`select id::text as id, entry_task, entry_odds, instances from pro_po_cases where id=$1`, [caseId])
-  out[label] = { caseId, entry: c.entry_task, odds: c.entry_odds?.p ?? null, measured: c.entry_odds?.measured ?? null, instances: c.instances, log: [] }
+  const [c] = await q(`select id::text as id, entry_task, entry_odds, instances, run_mode from pro_po_cases where id=$1`, [caseId])
+  out[label] = { caseId, asked, runMode: c.run_mode ?? null, entry: c.entry_task, odds: c.entry_odds?.p ?? null, measured: c.entry_odds?.measured ?? null, instances: c.instances, log: [] }
   save()
-  log(`  건 ${caseId} · 「${c.entry_task}」부터${c.entry_odds?.p != null ? ` (${Math.round(c.entry_odds.p * 100)}%)` : ''}`)
+  log(`  건 ${caseId} · 「${c.entry_task}」부터${c.entry_odds?.p != null ? ` (${Math.round(c.entry_odds.p * 100)}%)` : ''} · 방식 ${c.run_mode ?? '(없음)'}`)
   return caseId
 }
 const note = (label, line) => { out[label].log.push(line); save(); log('  ✓', line) }
@@ -197,10 +205,13 @@ const note = (label, line) => { out[label].log.push(line); save(); log('  ✓', 
 async function hotl() {
   const boss = await signIn(BOSS), mate = await signIn(COLLEAGUE.email)
   const p = await procOf()
+  // the stage decides how the case runs: 자동 → it starts by itself and runs 사람이 지켜봄
+  if (p.status !== 'adopted') { await scene('단계를 「자동」으로 — 새 건은 저절로 시작하고, 사람은 지켜봐요'); await setStage(boss, p, 'adopted') }
   await scene('HOTL: 시험용 「외부 강의 요청」 메일이 들어온다 — 건이 저절로 시작')
   const id = await mailIn(boss, p, 'hotl')
   // 강의계획서 작성: the agent takes it by itself (no question)
   assert.equal(out.hotl.entry, '강의계획서 작성', `시작 일이 ${out.hotl.entry} — --drop-cases 뒤 다시`)
+  assert.equal(out.hotl.runMode, 'hotl', `자동 단계에서 시작한 건의 방식이 ${out.hotl.runMode}`)
   const s1 = await waitFor('강의계획서 작성을 에이전트가 잡음', () => stepRow(id, '강의계획서 작성'), { every: 800 })
   assert.equal(s1.state, 'auto', `강의계획서 작성 ${s1.state}`)
   note('hotl', `강의계획서 작성: 묻지 않고 에이전트가 시작(관문 ${s1.state}, 방식 ${s1.mode})`)
@@ -259,11 +270,16 @@ async function hotl() {
 async function hitl() {
   const boss = await signIn(BOSS), mate = await signIn(COLLEAGUE.email)
   const p = await procOf()
-  await scene('방식을 「단계마다 사람이 정함」으로')
-  const m = await call(boss.tok, 'POST', '/ontology/processes/run-mode', { key: p.key, mode: 'hitl', name: PROC_NAME })
-  assert.equal(m.mode, 'hitl')
-  await scene('HITL: 같은 메일이 다시 들어온다')
+  await scene('단계를 「제안」으로 — 시작을 묻고, 시작한 뒤에도 단계마다 사람이 정해요')
+  const m = await setStage(boss, p, 'suggested')
+  assert.equal(m.status, 'suggested')
+  const steps = await call(boss.tok, 'GET', `/ontology/processes/steps?key=${encodeURIComponent(p.key)}`)
+  assert.equal(steps.mode, 'hitl', `제안 단계인데 방식이 ${steps.mode}(${steps.from})`)
+  await scene('HITL: 같은 메일이 다시 들어온다 — 「이 프로세스로 진행할까요?」')
   const id = await mailIn(boss, p, 'hitl')
+  assert.ok(out.hitl.asked, '제안 단계인데 시작을 묻지 않고 건이 열렸어요')
+  assert.equal(out.hitl.runMode, 'hitl', `제안 단계에서 시작한 건의 방식이 ${out.hitl.runMode}`)
+  note('hitl', `시작: 카드가 묻고 「진행」 · 건의 방식 ${out.hitl.runMode}`)
   const ask = async (task, why = 'hitl') => {
     const s = await waitFor(`${task} 확인을 기다림`, async () => { const x = await stepRow(id, task, 'waiting'); return x && x.why.includes(why) && x.message_id && (why !== 'irreversible' || x.preview) ? x : null }, { timeout: 300_000 })
     const [card] = await q(`select content from pro_messages where id=$1`, [s.message_id])
@@ -291,21 +307,30 @@ async function hitl() {
   const hidden = !(await hisTodos(mate)).includes('교육 진행') && !(await hisHome(mate)).includes('교육 진행')
   note('hitl', `교육 진행: 주인이 정하기 전이라 강사 목록에 ${hidden ? '안 보임' : '보임'} (hold ${e.hold_item})`)
   out.hitl.atHandover = brief(await runOf(boss, id)); save()
-  await scene('방식을 되돌린다(회사 기본값 = 사람이 지켜봄) — 확인만 기다리던 교육 진행이 그대로 넘어간다')
-  const back = await call(boss.tok, 'POST', '/ontology/processes/run-mode', { key: p.key, mode: null, name: PROC_NAME })
-  note('hitl', `방식 되돌림: ${back.mode}(${back.from}) · 이어서 진행한 단계 ${back.released}개`)
+  await scene('단계를 「자동」으로 되돌린다 — 이 건은 시작할 때 방식(단계마다 사람이 정함) 그대로: 교육 진행은 계속 기다린다')
+  const back = await setStage(boss, p, 'adopted')
+  note('hitl', `단계 되돌림: ${back.status} · 시작할 때 방식 그대로 가는 진행 중인 건 ${back.running ?? '?'}개`)
+  await sleep(6000)
+  const still = await stepRow(id, '교육 진행', 'waiting')
+  assert.ok(still, '단계를 바꿨더니 기다리던 교육 진행이 풀렸어요 — 건은 시작할 때 방식을 지녀야 해요')
+  const runB = await runOf(boss, id)
+  assert.equal(runB.mode, 'hitl', `단계를 바꾼 뒤 건의 방식이 ${runB.mode}`)
+  assert.equal(await caseMode(id), 'hitl')
+  const stillHidden = !(await hisTodos(mate)).includes('교육 진행')
+  note('hitl', `교육 진행: 여전히 기다림 · 건의 방식 ${runB.mode}(${runB.modeFrom}) · 프로세스는 지금 ${runB.stage} · 강사 목록에 ${stillHidden ? '안 보임' : '보임'}`)
+  await scene('「진행」 — 교육 진행이 강사의 할 일로 넘어간다')
+  await call(boss.tok, 'POST', `/ontology/steps/${e.id}`, { action: 'go' })
   await waitFor('교육 진행이 강사에게', async () => (await hisTodos(mate)).includes('교육 진행'), { timeout: 240_000 })
-  note('hitl', '교육 진행: 강사의 할 일로 넘어감')
+  note('hitl', '교육 진행: 「진행」 뒤 강사의 할 일로 넘어감')
   out.hitl.end = brief(await runOf(boss, id)); save()
 }
 
 async function status() {
   const st = loadState()
   const p = await procOf()
-  log('프로세스', p.key, p.status, '| 상태 파일', st ? st.startedAt : '없음')
-  const rows = await q(`select id::text as id, status, entry_task, created_at from pro_po_cases where tenant_id=$1 and bundle=$2 order by created_at`, [T, p.key])
-  for (const r of rows) log('  건', r.id, r.status, r.entry_task, r.created_at.toISOString())
-  log('  방식', JSON.stringify(await q(`select mode from pro_run_modes where tenant_id=$1 and proc_key=$2`, [T, p.key])))
+  log('프로세스', p.key, `단계 ${p.status} → 새 건의 방식 ${p.status === 'adopted' ? 'hotl(사람이 지켜봄)' : p.status === 'suggested' ? 'hitl(단계마다 사람이 정함)' : '없음(관찰: 시작하지 않음)'}`, '| 상태 파일', st ? st.startedAt : '없음')
+  const rows = await q(`select id::text as id, status, entry_task, run_mode, created_at from pro_po_cases where tenant_id=$1 and bundle=$2 order by created_at`, [T, p.key])
+  for (const r of rows) log('  건', r.id, r.status, r.entry_task, `방식 ${r.run_mode ?? '(없음: 지금 단계를 따름)'}`, r.created_at.toISOString())
 }
 
 // ---------- reset: everything this script made goes, everything it changed goes back ----------
@@ -369,7 +394,7 @@ async function reset() {
     }
     await cypher(`MATCH (b:Process {key:$key}) SET b.status=$status, b.owner=$owner`, { key: p.key, status: p.status, owner: p.owner ?? '' }, { actor: 'runmode-lecture reset', reason: '시연 전으로 되돌림' })
   })
-  // run modes · step rules · tenant default · the 강사 assignment
+  // the old toggle's run modes (an earlier version of this script set them) · step rules · tenant default · the 강사 assignment
   await q(`delete from pro_run_modes where tenant_id=$1 and proc_key=$2`, [T, p.key])
   for (const r of st.runModes) await q(`insert into pro_run_modes (tenant_id, proc_key, mode, updated_by, updated_at) values ($1,$2,$3,$4,$5)`, [r.tenant_id, r.proc_key, r.mode, r.updated_by, r.updated_at])
   await q(`delete from pro_run_step_rules where tenant_id=$1 and proc_key=$2`, [T, p.key])

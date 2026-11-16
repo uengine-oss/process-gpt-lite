@@ -11,7 +11,8 @@ import { api } from '../../api.js'
 import { pct } from './fmt.js'
 import OntoSheet from './OntoSheet.vue'
 import OntoCasePanel from './OntoCasePanel.vue'
-import { local, RO, EUN } from './ontoText.js'
+import OntoBindings from './OntoBindings.vue'
+import { local, RO, EUN, entryManyText } from './ontoText.js'
 
 const props = defineProps({ msg: Object })
 const saved = ref(local.get(`entry:${props.msg.id}`))
@@ -45,14 +46,22 @@ async function start(o, ch = choice.value) {
     const r = await api('/ontology/cases', { method: 'POST', body: {
       proc: ch.proc, entry: o.task, subject: m.subject || '', body: m.text || '', from: m.from || '', customer: v.value.customer || '',
       odds: { ...ch, task: o.task, p: o.p, picked: true }, kind: kindOf(), ...(v.value.file ? { file: v.value.file } : {}), messageId: props.msg.id,
+      picks: picks.value[ch.proc] || [],
     } })
     if (many.value) { persist({ starts: { ...(v.value.starts || {}), [ch.proc]: { caseId: r.caseId, task: o.task, engine: r.engine || 'bpm' } } }); return }
     persist({ state: 'started', picked: !ch.suggest || o.task !== ch.task, choice: { ...ch, task: o.task, p: o.p }, caseId: r.caseId, instId: r.instId,
-      skipped: r.snapshot?.skipped || [], nodes: r.snapshot?.nodes || [o.task], procDefId: r.snapshot?.procDefId })
+      skipped: r.snapshot?.skipped || [], nodes: r.snapshot?.nodes || [o.task], procDefId: r.snapshot?.procDefId, bindings: r.bindings || null })
   } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
+// 맡는 사람(OntoBindings · server bindings.js): 진행하기 전에 역할마다 누가 맡는지 보고 바꾼다 — 여러 명이거나 아무도 없는 역할은 골라야 진행
+const picks = ref({}) // proc → [{role, userId}]
+const ready = ref({}) // proc → false while a role has nobody
+const canStart = (ch = choice.value) => ready.value[ch.proc] !== false
 // 여러 프로세스: 프로세스마다 가장 그럴듯한 시작 일과 다른 후보
 const many = computed(() => (v.value.choices || []).length > 1)
+// the same event already started an adopted process (its own card is just above): counted, and said apart from what is offered here
+const startedAlso = computed(() => v.value.startedAlso || [])
+const manyText = computed(() => entryManyText(who.value, (v.value.choices || []).length, startedAlso.value.length))
 const topOf = (ch) => (ch.options || [])[0] || { task: ch.task, p: ch.p }
 const startedOf = (ch) => (v.value.starts || {})[ch.proc] || null
 const caseOpen = ref('')
@@ -93,7 +102,7 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
 
     <!-- 한 사건이 여러 프로세스의 일: 프로세스마다 묻는다(자동인 프로세스는 이미 시작한 건이 따로 카드로 와요) -->
     <template v-if="v.state === 'ask' && many">
-      <p class="q" data-testid="onto-entry-many" :data-count="v.choices.length">{{ who }} 회사의 업무 {{ v.choices.length }}가지에 해당해요. 진행할 업무를 골라 주세요.</p>
+      <p class="q" data-testid="onto-entry-many" :data-count="v.choices.length" :data-total="v.choices.length + startedAlso.length">{{ manyText }}</p>
       <p v-if="v.mail?.text && !timer" class="ex">{{ v.mail.text }}</p>
       <small v-for="x in v.startedAlso || []" :key="x.proc" class="okline" data-testid="onto-entry-started-also">「{{ x.procName }}」{{ EUN(x.procName) }} 자동이라 「{{ x.task }}」부터 이미 시작했어요.</small>
       <div v-for="ch in v.choices" :key="ch.proc" class="pc" data-testid="onto-entry-proc" :data-proc="ch.proc" :data-started="startedOf(ch) ? '1' : '0'">
@@ -101,12 +110,13 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
         <template v-if="startedOf(ch)">
           <small class="okline" data-testid="onto-entry-proc-started">「{{ startedOf(ch).task }}」부터 시작했어요 · <button class="link press" @click="caseOpen = startedOf(ch).caseId">건 보기</button></small>
         </template>
-        <div v-else class="opts">
-          <button class="opt press" :disabled="!!busy" data-testid="onto-entry-go" @click="start(topOf(ch), ch)">
+        <OntoBindings v-if="!startedOf(ch)" :proc="ch.proc" :entry="topOf(ch).task" compact @picks="(p) => (picks = { ...picks, [ch.proc]: p })" @ready="(r) => (ready = { ...ready, [ch.proc]: r })" />
+        <div v-if="!startedOf(ch)" class="opts">
+          <button class="opt press" :disabled="!!busy || !canStart(ch)" data-testid="onto-entry-go" @click="start(topOf(ch), ch)">
             <i :style="{ width: `${Math.max(3, Math.round((topOf(ch).p || 0) * 100))}%` }" />
             <span class="on">{{ busy === `${ch.proc}:${topOf(ch).task}` ? '시작하는 중…' : `「${topOf(ch).task}」부터 진행` }}</span><b>{{ pText(topOf(ch).p, ch.measured) }}</b>
           </button>
-          <button v-for="o in (ch.options || []).slice(1, 3)" :key="o.task" class="opt sm press" :disabled="!!busy" data-testid="onto-entry-option" @click="start(o, ch)">
+          <button v-for="o in (ch.options || []).slice(1, 3)" :key="o.task" class="opt sm press" :disabled="!!busy || !canStart(ch)" data-testid="onto-entry-option" @click="start(o, ch)">
             <span class="on">{{ busy === `${ch.proc}:${o.task}` ? '시작하는 중…' : `「${o.task}」부터` }}</span><b>{{ pText(o.p, ch.measured) }}</b>
           </button>
         </div>
@@ -121,18 +131,19 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
       <small v-for="x in v.startedAlso || []" :key="x.proc" class="okline" data-testid="onto-entry-started-also">「{{ x.procName }}」{{ EUN(x.procName) }} 자동이라 「{{ x.task }}」부터 이미 시작했어요.</small>
       <p v-if="v.mail?.text && !chat && !timer" class="ex">{{ v.mail.text }}</p>
       <small v-if="fileEv" class="why" data-testid="onto-entry-file">올린 파일 · {{ v.file?.name || v.mail?.subject }}</small>
+      <OntoBindings :proc="choice.proc" :entry="top.task" @picks="(p) => (picks = { ...picks, [choice.proc]: p })" @ready="(r) => (ready = { ...ready, [choice.proc]: r })" />
       <div class="opts">
-        <button class="opt press" :disabled="!!busy" data-testid="onto-entry-go" @click="start(top)">
+        <button class="opt press" :disabled="!!busy || !canStart()" data-testid="onto-entry-go" @click="start(top)">
           <i :style="{ width: `${Math.max(3, Math.round((top.p || 0) * 100))}%` }" />
           <span class="on">{{ busy === `${choice.proc}:${top.task}` ? '시작하는 중…' : `「${top.task}」부터 진행` }}</span><b>{{ pText(top.p) }}</b>
         </button>
-        <button v-for="o in options.slice(1)" :key="o.task" class="opt press" :disabled="!!busy" data-testid="onto-entry-option" @click="start(o)">
+        <button v-for="o in options.slice(1)" :key="o.task" class="opt press" :disabled="!!busy || !canStart()" data-testid="onto-entry-option" @click="start(o)">
           <i :style="{ width: `${Math.max(3, Math.round((o.p || 0) * 100))}%` }" />
           <span class="on">{{ busy === `${choice.proc}:${o.task}` ? '시작하는 중…' : `「${o.task}」부터` }}</span><b>{{ pText(o.p) }}</b>
         </button>
         <button class="link press" :disabled="!!busy" data-testid="onto-entry-decline" @click="decline">아니요, 이번엔 그냥 할게요</button>
       </div>
-      <small class="why">이 프로세스는 아직 「제안」 단계라 물어봐요. 관리자가 「자동으로 승격」하면 같은 요청이 오면 바로 시작해요.</small>
+      <small class="why">이 프로세스는 아직 「제안」 단계라 물어봐요 — 시작한 뒤에도 단계마다 사람이 정해요. 관리자가 「자동으로 승격」하면 같은 요청이 오면 바로 시작해요.</small>
     </template>
     <template v-else-if="v.state === 'declined'">
       <p class="q" data-testid="onto-entry-declined">이번 요청은 프로세스 없이 진행해요.</p>
@@ -141,8 +152,9 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
     <template v-else-if="v.state === 'ask'">
       <p class="q">{{ who }} 어디서 시작할지 확실하지 않아요. 어느 일부터 할까요?</p>
       <p v-if="v.mail?.text" class="ex">{{ v.mail.text }}</p>
+      <OntoBindings v-if="options[0]" :proc="choice.proc" :entry="options[0].task" @picks="(p) => (picks = { ...picks, [choice.proc]: p })" @ready="(r) => (ready = { ...ready, [choice.proc]: r })" />
       <div class="opts">
-        <button v-for="o in options" :key="o.task" class="opt press" :disabled="!!busy" data-testid="onto-entry-option" @click="start(o)">
+        <button v-for="o in options" :key="o.task" class="opt press" :disabled="!!busy || !canStart()" data-testid="onto-entry-option" @click="start(o)">
           <i :style="{ width: `${Math.max(3, Math.round((o.p || 0) * 100))}%` }" />
           <span class="on">{{ busy === `${choice.proc}:${o.task}` ? '시작하는 중…' : o.task }}</span><b>{{ pText(o.p) }}</b>
         </button>
@@ -166,6 +178,7 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
       <small v-if="options.length > 1 && !v.movedFrom" class="odds" data-testid="onto-entry-odds">
         <template v-for="(o, i) in options" :key="o.task"><template v-if="i"> · </template><span :class="{ top: o.task === task }">{{ o.task }} {{ pText(o.p) }}</span></template>
       </small>
+      <OntoBindings v-if="v.caseId && v.bindings?.length" :bindings="v.bindings" :case-id="v.caseId" @changed="(b) => persist({ bindings: b })" />
       <div class="foot">
         <button v-if="v.caseId" class="link press" data-testid="onto-entry-case" @click="sheet = true">건 보기</button>
         <button v-if="v.caseId && others.length" class="link sub press" :aria-expanded="menu" data-testid="onto-entry-move" @click="menu = !menu; target = ''">다른 일에서 시작</button>

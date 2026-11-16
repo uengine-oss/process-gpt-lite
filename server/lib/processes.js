@@ -106,6 +106,8 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
   return q(
     `select i.proc_inst_id, i.proc_inst_name, i.proc_def_id, i.status, i.current_activity_ids, i.start_date, i.end_date, i.updated_at,
             d.name as def_name,
+            -- a case of the company's process map (lib/ontology): its case, its engine (map: 지도에서 바로 — no definition) and who started it
+            oc.id as case_id, oc.engine, oc.bundle as case_proc, (select coalesce(nullif(u.username,''), u.email) from users u where u.id = oc.started_by and u.tenant_id = i.tenant_id) as starter_name,
             exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id
                     and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))
                     and (t.user_id like '%'||$2||'%' or t.user_id like '%'||$3||'%')) as needs_me,
@@ -115,6 +117,7 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
             exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id and t.agent_orch is not null
                     and t.status = 'IN_PROGRESS' and t.draft_status::text = 'FAILED') as agent_failed
      from bpm_proc_inst i left join proc_def d on d.id=i.proc_def_id and d.tenant_id=i.tenant_id
+     left join lateral (select c.id::text as id, c.engine, c.bundle, c.started_by from pro_po_cases c where c.tenant_id = i.tenant_id and i.proc_inst_id = any(c.instances) limit 1) oc on true
      where i.tenant_id=$1 and not coalesce(i.is_deleted,false) and ($4::text is null or i.status::text=$4)
        and ${INVOLVED}
      order by coalesce(i.updated_at, i.start_date::timestamptz) desc nulls last limit $5`,
@@ -125,6 +128,12 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
 export async function getInstance(instId, me) {
   const [inst] = await q('select * from bpm_proc_inst where proc_inst_id=$1 and tenant_id=$2', [instId, T()])
   if (!inst) return null
+  // a case run from the company's process map has no definition to draw: the screen opens its case view instead (lib/ontology/mapengine.js)
+  const M = await import('./ontology/mapengine.js')
+  if (M.isMapInst(instId)) {
+    const [c] = await q(`select id::text as id, bundle as proc from pro_po_cases where tenant_id=$1 and $2 = any(instances) limit 1`, [T(), instId])
+    return { inst, def: null, steps: [], todos: [], artifacts: [], mapCase: c || null }
+  }
   const def = await getDefinition(inst.proc_def_id)
   const todos = await q(
     // an agent's name as this tenant knows it: the same agent id can be in several tenants (the mining
@@ -222,14 +231,15 @@ export async function myTodos(me) {
 export async function getTodo(todoId) {
   const [t] = await q('select * from todolist where id=$1', [todoId])
   if (!t) return null
-  // a step of a case run from the company's process map (no process definition): its activity and form come from the map's task
+  const [inst] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [t.proc_inst_id])
+  // a step of a case run from the company's process map (no process definition): its activity and form come from the map's task; its
+  // instance has a row like any other (the name below)
   const M = await import('./ontology/mapengine.js')
-  if (M.isMapInst(t.proc_inst_id)) return M.todoView(t)
+  if (!t.proc_def_id && M.isMapInst(t.proc_inst_id)) return { ...(await M.todoView(t)), ...(inst?.proc_inst_name ? { instName: inst.proc_inst_name } : {}) }
   const def = await getDefinition(t.proc_def_id)
   const step = def?.steps.find((s) => s.id === t.activity_id)
   const form = await getForm(step?.formId)
   const vals = t.draft || t.output || {}
-  const [inst] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [t.proc_inst_id])
   return { todo: t, step, form, instName: inst?.proc_inst_name || def?.name, values: form ? (vals[form.id] || vals) : {} }
 }
 
