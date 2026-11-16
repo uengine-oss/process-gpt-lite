@@ -98,9 +98,10 @@ export function pickWay(outs, { amount = null, odds = new Map(), texts = new Map
     for (const o of pool) {
       const c = o.condInfo
       if (c?.attr !== 'amount' || !Number.isFinite(Number(c.threshold))) continue
-      const hi = /이상/.test(o.cond)
       const a = Number(amount), v = Number(c.threshold)
-      if (hi ? a >= v : a < v) return { to: o.to, how: 'amount', p: o.p, cond: o.cond, why: `${o.cond}이라 이쪽으로 가요(이 건 ${new Intl.NumberFormat('ko-KR').format(a)}원)` }
+      // a threshold a person said carries its comparison (refine.js condOfWhen); a learned one is 이상 on one way, 미만 on the other
+      const hit = c.op === '>=' ? a >= v : c.op === '>' ? a > v : c.op === '<=' ? a <= v : c.op === '<' ? a < v : /이상/.test(o.cond) ? a >= v : a < v
+      if (hit) return { to: o.to, how: 'amount', p: o.p, cond: o.cond, why: `${o.cond}이라 이쪽으로 가요(이 건 ${new Intl.NumberFormat('ko-KR').format(a)}원)` }
     }
   }
   const read = pool.filter((o) => odds.get(o.to)?.p != null).map((o) => ({ o, r: odds.get(o.to) })).sort((a, b) => b.r.p - a.r.p)

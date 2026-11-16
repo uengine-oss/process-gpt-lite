@@ -26,6 +26,7 @@ import OntoHabitCard from './ontology/OntoHabitCard.vue'
 import OntoStepCard from './ontology/OntoStepCard.vue'
 import OntoHabitShareCard from './ontology/OntoHabitShareCard.vue'
 import OntoTimerAskCard from './ontology/OntoTimerAskCard.vue'
+import OntoEditCard from './ontology/OntoEditCard.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -120,6 +121,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <OntoStepCard v-else-if="msg.kind === 'onto-step'" :msg="msg" />
     <OntoHabitShareCard v-else-if="msg.kind === 'habit-share'" :msg="msg" />
     <OntoTimerAskCard v-else-if="msg.kind === 'onto-timer'" :msg="msg" />
+    <!-- 말로 프로세스 지도 고치기: 고친 뒤 그림 · 적용 · 의견으로 남기기 -->
+    <OntoEditCard v-else-if="msg.kind === 'onto-edit'" :msg="msg" />
     <BriefCard v-else-if="msg.kind === 'brief'" :msg="msg" />
     <OptimizeCard v-else-if="msg.kind === 'optimize'" :msg="msg" />
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />

@@ -135,8 +135,13 @@ export async function map({ validAt, systemAt } = {}) {
   const triggers = g.triggers.filter((t) => !personal(t) || shownRoutine(t, settings))
   const routineTasks = new Set(triggers.filter(personal).map((t) => t.to))
   const shownRole = new Set(triggers.filter(personal).map((t) => String(t.scope || '').replace(/^role:/, '')))
+  // 말로 고치기 · 의견(editmap.js · opinions.js): which processes were made by words, and their open opinions · conflicts
+  const counts = await (await import('./opinions.js')).countsByProcess(g).catch((e) => { console.warn('[ontology] opinion counts', e.message); return {} })
   const procs = processes.filter((p) => p.kind !== 'routine' || shownRole.has(p.role))
     .map((p) => (p.kind === 'routine' ? { ...p, tasks: p.tasks.filter((t) => routineTasks.has(t)) } : p))
+    .map((p) => ({ ...p, said: String(p.key).startsWith('said:'), opinions: counts[p.key] || { open: 0, conflicts: 0 } }))
+  // the flow a case runs for the processes a person refined or made by words — the map draws it, not the found edges (design-v0.3 §30)
+  const refined = await (await import('./editmap.js')).refinedFlows(g, procs, { validAt }).catch((e) => { console.warn('[ontology] refined flows', e.message); return {} })
   const live = new Set(procs.map((p) => p.key))
   const routineKeys = new Set(procs.filter((p) => p.kind === 'routine').map((p) => p.key))
   const tasks = g.tasks.filter((t) => t.kind !== 'habit' || routineTasks.has(t.key))
@@ -147,7 +152,7 @@ export async function map({ validAt, systemAt } = {}) {
   return { at: validAt || null, tasks, edges: g.edges, processes: procs, events: g.events.filter((e) => !personalEvent(e) || triggers.some((t) => t.from === e.key)),
     triggers, raises: g.raises, startsOn: g.startsOn.filter((x) => live.has(x.from)), hasTask: g.hasTask.filter((x) => live.has(x.from) && (!routineKeys.has(x.from) || routineTasks.has(x.to))),
     roles: g.roles, performedBy: g.performedBy, performers: g.performers, plays: g.plays, ofRole: g.ofRole.filter((x) => live.has(x.from)), ways: g.ways,
-    habits: { ...settings, hidden }, meta: g.meta }
+    habits: { ...settings, hidden }, meta: g.meta, refined }
 }
 
 // 개인 습관을 지도에 보이는 설정(관리자): threshold(같은 역할 min 명 이상 · 본인이 공유한 것) | all(모두, 이름 없이) | off

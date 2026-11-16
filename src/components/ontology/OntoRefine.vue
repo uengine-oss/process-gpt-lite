@@ -103,8 +103,10 @@ function graphOf(tasks = [], edges = [], flags = true) {
     entries,
   }
 }
-const found = computed(() => d.value?.found || { tasks: [], edges: [] })
-const refined = computed(() => d.value?.refined || { tasks: [], edges: [], removed: { tasks: [], edges: [] } })
+// a process made by words (said:…) has no found flow, or a tiny one
+const found = computed(() => ({ tasks: d.value?.found?.tasks || [], edges: d.value?.found?.edges || [] }))
+const refined = computed(() => ({ ...(d.value?.refined || {}), tasks: d.value?.refined?.tasks || [], edges: d.value?.refined?.edges || [], removed: d.value?.refined?.removed || { tasks: [], edges: [] } }))
+const said = computed(() => String(props.proc.key || '').startsWith('said:') || !!d.value?.proc?.said || !!d.value?.said)
 const foundKeys = computed(() => new Set(found.value.tasks.map((t) => t.key)))
 const refinedKeys = computed(() => new Set(refined.value.tasks.map((t) => t.key)))
 const removedList = computed(() => ({ tasks: refined.value.removed?.tasks || [], edges: refined.value.removed?.edges || [] }))
@@ -183,6 +185,10 @@ const formOk = computed(() => !!draft.value.args && !!f.why.trim())
 // the record just made (shown first and marked) · a task just added (selected, so the map brings it out from under the zoom buttons)
 const freshId = ref('')
 const corrections = computed(() => [...(d.value?.corrections || [])].sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))))
+// who made it: AI 제안대로 · 직접 고침 · 말로 고침(edit/apply), and whose opinion an applied one was
+const SOURCE_KO = { ai: 'AI 제안대로', person: '직접 고침', said: '말로 고침' }
+const voicedText = (v) => `${v.name || '누군가'}${v.role ? `(${v.role})` : ''}의 의견`
+const hasVoiced = computed(() => (d.value?.corrections || []).some((c) => c.voiced))
 async function submitFix() {
   if (!formOk.value) return
   const had = new Set((d.value?.corrections || []).map((c) => c.id))
@@ -364,7 +370,7 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer); document.removeEvent
               <div class="mh"><b>찾은 대로</b><small>메일 · 대화에서 읽은 그대로 · 일 {{ foundG.tasks.length }} · 화살표 {{ foundG.edges.length }}</small></div>
               <div class="mapbox">
                 <MapGraph v-if="foundG.tasks.length" :tasks="foundG.tasks" :edges="foundG.edges" :entries="foundG.entries" :selected="sel" dir="TB" @select="onPick" />
-                <p v-else class="nomap">찾은 일이 없어요.</p>
+                <p v-else class="nomap" data-testid="onto-refine-found-empty">{{ said ? '말로 만든 프로세스라 찾은 대로가 없어요' : '찾은 일이 없어요.' }}</p>
               </div>
             </div>
             <div class="mapcol" data-testid="onto-refine-refined">
@@ -469,12 +475,17 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer); document.removeEvent
           <div class="sec corr">
             <h4>고친 기록 <small v-if="d.corrections?.length">{{ d.corrections.length }}</small></h4>
             <p v-if="!d.corrections?.length" class="muted sm">아직 고친 것이 없어요. 찾은 지도는 고쳐도 그대로 남아요.</p>
+            <p v-if="hasVoiced" class="sm" data-testid="onto-refine-voiced-note">고친 기록에서 되돌려도 의견은 다시 열리지 않아요</p>
             <ul>
-              <li v-for="c in corrections" :key="c.id" data-testid="onto-refine-correction" :data-source="c.source" :class="{ fresh: c.id === freshId }">
-                <b>{{ c.label }}</b>
+              <li v-for="c in corrections" :key="c.id" data-testid="onto-refine-correction" :data-source="c.source" :data-batch="c.batch || ''" :class="{ fresh: c.id === freshId }">
+                <b><span v-if="c.source === 'said'" class="tag said" data-testid="onto-refine-correction-said">말로</span>{{ c.label }}</b>
                 <span v-if="c.why" class="why">{{ c.why }}</span>
-                <small>{{ c.source === 'ai' ? 'AI 제안대로' : '직접 고침' }}<template v-if="c.by"> · {{ c.by }}</template><template v-if="c.at"> · {{ dateTimeKo(c.at) }}</template></small>
-                <button v-if="admin" class="lnk press" :disabled="!!busy" data-testid="onto-refine-correction-undo" @click="undo(c)">{{ busy === `undo:${c.id}` ? '되돌리는 중…' : '되돌리기' }}</button>
+                <span v-if="c.voiced" class="voiced" data-testid="onto-refine-correction-voiced">{{ voicedText(c.voiced) }}</span>
+                <small>{{ SOURCE_KO[c.source] || '직접 고침' }}<template v-if="c.by"> · {{ c.by }}</template><template v-if="c.at"> · {{ dateTimeKo(c.at) }}</template></small>
+                <template v-if="admin">
+                  <button class="lnk press" :disabled="!!busy || c.undo === false" :title="c.undo === false ? c.undoWhy || '' : ''" data-testid="onto-refine-correction-undo" :data-undo="c.undo === false ? '0' : '1'" @click="undo(c)">{{ busy === `undo:${c.id}` ? '되돌리는 중…' : '되돌리기' }}</button>
+                  <small v-if="c.undo === false && c.undoWhy" class="nound" data-testid="onto-refine-correction-noundo">{{ c.undoWhy }}</small>
+                </template>
               </li>
             </ul>
           </div>
@@ -670,7 +681,11 @@ h4 small { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--tex
 .corr li b { font-size: 13px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
 .corr li small { font-size: 11.5px; color: var(--text-tertiary); }
 .corr li[data-source='ai'] { border-left: 3px solid var(--green); }
+.corr li[data-source='said'] { border-left: 3px solid var(--color-info); }
 .corr .lnk { align-self: flex-end; margin: 0; }
+.tag.said { display: inline-block; margin-right: 6px; vertical-align: 1px; background: color-mix(in srgb, var(--color-info) 22%, transparent); color: var(--text-primary); }
+.voiced { font-size: 12px; color: var(--text-secondary); }
+.corr .nound { align-self: flex-end; text-align: right; }
 
 /* ② */
 .ccount { gap: 4px; }

@@ -55,8 +55,9 @@ const ROUTER_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          intent: { type: 'string', enum: ['start', 'view', 'catalog', 'instances', 'my_todos', 'create'], description: 'catalog = list which processes exist; create = design a NEW process definition from a description' },
-          query: { type: 'string', description: 'process name or keywords (start/view), or the full requirement for a new process (create)' },
+          intent: { type: 'string', enum: ['start', 'view', 'catalog', 'instances', 'my_todos', 'create', 'edit_map'], description: 'catalog = list which processes exist; create = design a NEW process definition from a description; edit_map = change one of the company process map\'s processes by words, or say an improvement for it («○○ 프로세스에서 … 바꿔 줘», «… 뒤에 …를 넣어 줘», «…는 에이전트가 하게», «… 바꾸면 좋겠어요»)' },
+          query: { type: 'string', description: 'process name or keywords (start/view), the full requirement for a new process (create), or the change in the user\'s own words (edit_map)' },
+          process: { type: 'string', description: 'edit_map: the name of the process on the company process map the change is for, as the user said it (empty when unsure)' },
           prefill: { type: 'object', description: 'form values the user already gave, keyed by meaning (e.g. customer, qty)' },
           ack: { type: 'string', description: '해요체 한 문장' },
         },
@@ -599,7 +600,10 @@ async function processCatalogHint() {
     const keys = (def?.startForm?.fields || []).map((f) => f.key).join(', ')
     lines.push(`${d.id} — ${d.name}${keys ? L(` (첫 단계 입력: ${keys})`, ` (first-step inputs: ${keys})`) : ''}`)
   }
-  catalogCache = { at: Date.now(), lang: isEn() ? 'en' : 'ko', text: lines.length ? `\n${L('주기적으로 시작할 수 있는 프로세스', 'Processes that can be started on a schedule')}: ${lines.join(' / ')}` : '' }
+  // the company process map's processes (lib/ontology/editmap.js chatEdit): what «○○ 프로세스에서 … 바꿔 줘» names
+  const mapped = await import('./ontology/store.js').then(async (S) => (S.ontologyEnabled() ? (await S.readGraph({})).processes.filter((p) => p.kind !== 'routine' && (p.tasks || []).length > 1).sort((a, b) => (b.cases || 0) - (a.cases || 0)).slice(0, 12).map((p) => p.name) : [])).catch(() => [])
+  catalogCache = { at: Date.now(), lang: isEn() ? 'en' : 'ko', text: (lines.length ? `\n${L('주기적으로 시작할 수 있는 프로세스', 'Processes that can be started on a schedule')}: ${lines.join(' / ')}` : '')
+    + (mapped.length ? `\n${L('회사 프로세스 지도의 프로세스(바꾸거나 의견을 말하면 process edit_map)', 'Processes on the company process map (changes or improvement ideas → process edit_map)')}: ${mapped.join(' / ')}` : '') }
   return catalogCache.text
 }
 
@@ -1119,6 +1123,12 @@ export function generationPrompt(threadId, text) {
 }
 
 async function processTurn(userId, threadId, args) {
+  // 말로 프로세스 지도 고치기(lib/ontology/editmap.js): a card with the preview — 적용 (admin) or 의견으로 남기기
+  if (args.intent === 'edit_map') {
+    const [p] = await q('select email from pro_profile where user_id=$1', [userId])
+    await (await import('./ontology/editmap.js')).chatEdit({ user: { id: userId, email: p?.email || '' }, threadId, query: args.query || '', process: args.process || '' })
+    return
+  }
   if (args.intent === 'create') {
     generating.set(threadId, args.query || '')
     const guide = await systemGuide().catch(() => '')

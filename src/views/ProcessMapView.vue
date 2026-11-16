@@ -7,6 +7,9 @@
 // v0.3(design-v0.3 §6): 프로세스는 흐름 · 루틴(한 역할이 결과물 뒤에 혼자 이어서 하는 일), 「사건 보기」로 일 사이의 사건
 // (메일 · 결과물 · 채팅)을 넣어 보고(루틴은 늘 사건으로), 「역할」로 역할마다 정의 · 역량 · 수행자 · 지표를 본다.
 // 고른 프로세스는 주소의 ?proc= 에 둔다.
+// 말로 고치기 · 더하기 · 의견: 지도 아래의 입력 칸(OntoEditBox)에 말하면 계획(POST /ontology/edit/plan)을 미리 보기 패널(OntoEditPreview)과
+// 지도(고친 뒤의 더함 · 뺌 · 바뀜)로 보여 주고, 적용(관리자) · 의견으로 남기기. 사람이 고친 프로세스는 다듬은 흐름이 기본(「다듬은 것 · 찾은 대로」),
+// 말로 만든 프로세스는 「말로 정함」. 남은 의견은 지도에 「의견 N」 · 「해소 필요」, 「의견 · 해소」 패널(OntoOpinions)에서 정한다.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
@@ -31,7 +34,11 @@ import OntoBranch from '../components/ontology/OntoBranch.vue'
 import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
 import OntoRefine from '../components/ontology/OntoRefine.vue'
 import OntoStepRule from '../components/ontology/OntoStepRule.vue'
-import { visibleGraph, eventGraph, edgeId, procsOf, inProc, isSimple, withoutSimple } from '../components/ontology/mapView.js'
+import MapLegend from '../components/ontology/MapLegend.vue'
+import OntoEditBox from '../components/ontology/OntoEditBox.vue'
+import OntoEditPreview from '../components/ontology/OntoEditPreview.vue'
+import OntoOpinions from '../components/ontology/OntoOpinions.vue'
+import { visibleGraph, eventGraph, flowView, edgeId, procsOf, inProc, isSimple, isSaid, withoutSimple } from '../components/ontology/mapView.js'
 import { BAND, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
 import { useApp } from '../stores/app.js'
 import { api } from '../api.js'
@@ -73,7 +80,8 @@ const labelsErr = ref('')
 const meta = computed(() => map.value?.meta || status.value?.meta || null)
 // 흐름(건이 많은 것부터) 다음에 루틴
 const routineOf = (b) => b?.kind === 'routine'
-const processes = computed(() => [...(map.value?.processes || [])].sort((a, b) => routineOf(a) - routineOf(b) || b.cases - a.cases || String(a.name || '').localeCompare(String(b.name || ''))))
+// (processes made by words come first among the flows — they have no cases yet, and they are what a person just drew)
+const processes = computed(() => [...(map.value?.processes || [])].sort((a, b) => routineOf(a) - routineOf(b) || (!!b.said - !!a.said) || b.cases - a.cases || String(a.name || '').localeCompare(String(b.name || ''))))
 const proc = computed(() => processes.value.find((b) => b.key === procKey.value) || null)
 const isRoutine = computed(() => routineOf(proc.value))
 // 루틴에는 다음 일(NEXT)이 없고 사건 → 일뿐이라 늘 사건으로 본다
@@ -86,7 +94,11 @@ const readHide = () => { try { return localStorage.getItem('onto.hideSimple') !=
 const hideSimple = ref(readHide())
 watch(hideSimple, (v) => { try { localStorage.setItem('onto.hideSimple', v ? '1' : '0') } catch { /* private window */ } })
 const shownMap = computed(() => (!procKey.value && hideSimple.value ? withoutSimple(map.value) : map.value))
-const view = computed(() => (eventsShown.value ? eventGraph : visibleGraph)(shownMap.value, { proc: procKey.value, mode: mode.value }))
+// 다듬은 것 · 찾은 대로: 사람이 고친 프로세스는 다듬은 흐름이 기본(말로 만든 프로세스에는 찾은 흐름이 없어 고르지 않는다)
+const flowMode = ref('refined') // 'refined' | 'found'
+const canFlow = computed(() => !!(procKey.value && map.value?.refined?.[procKey.value] && !isSaid(proc.value)))
+const view = computed(() => (eventsShown.value ? eventGraph : visibleGraph)(shownMap.value, { proc: procKey.value, mode: mode.value, flow: flowMode.value }))
+const bandName = (b) => (b?.band === 'said' ? '말로 정함' : BAND[b?.band] || b?.bandName)
 // 회사 전체 건 수: 지금은 meta 의 건 수(어느 흐름에도 들지 않은 건까지), 지난 시점에는 흐름들의 합(루틴은 건이 아니다)
 const flowCases = computed(() => processes.value.filter((b) => !routineOf(b)).reduce((a, b) => a + (b.cases || 0), 0))
 const allCases = computed(() => (at.value ? flowCases.value || meta.value?.cases : meta.value?.cases || flowCases.value) || 0)
@@ -94,9 +106,12 @@ const allCases = computed(() => (at.value ? flowCases.value || meta.value?.cases
 // (지도가 그 프로세스 안의 시작 비율 hasTask 를 주면 그대로)
 const shareScale = computed(() => (view.value.procShares ? 1 : proc.value?.cases ? allCases.value / proc.value.cases : 1))
 const counts = computed(() => {
-  const tasks = (shownMap.value?.tasks || []).filter((t) => inProc(t, procKey.value))
+  // a refined flow counts its own steps and ways (a said process has no found ways)
+  const F = view.value.refined && procKey.value ? map.value?.refined?.[procKey.value] : null
+  const tasks = F ? F.tasks || [] : (shownMap.value?.tasks || []).filter((t) => inProc(t, procKey.value))
   const keys = new Set(tasks.map((t) => t.key))
-  return { tasks: tasks.length, edges: (shownMap.value?.edges || []).filter((e) => keys.has(e.from)).length, shownTasks: view.value.tasks.length, shownEdges: view.value.edges.length, events: view.value.events?.length || 0 }
+  const edges = F ? (F.edges || []).length : (shownMap.value?.edges || []).filter((e) => keys.has(e.from)).length
+  return { tasks: tasks.length, edges, shownTasks: view.value.tasks.length, shownEdges: view.value.edges.length, events: view.value.events?.length || 0 }
 })
 // one string (the English-mode dictionary translates it whole)
 const countText = computed(() => {
@@ -245,17 +260,198 @@ async function rebuild() {
 const selEdge = computed(() => (sel.value?.kind === 'edge' ? (map.value?.edges || []).find((e) => edgeId(e) === sel.value.id) || null : null))
 const selTask = computed(() => (sel.value?.kind === 'task' ? (map.value?.tasks || []).find((t) => t.key === sel.value.id) || null : null))
 const selEvent = computed(() => (sel.value?.kind === 'event' ? (map.value?.events || []).find((e) => e.key === sel.value.id) || null : null))
+// a side panel covers the map's right (the map keeps room, the box moves left of it)
+const sideOpen = computed(() => !!(selEdge.value || selTask.value || selEvent.value || valuesOpen.value || reviewOpen.value || snapOpen.value || rolesOpen.value || docsOpen.value
+  || timerOpen.value || caseId.value || candOpen.value || plan.value || opinionsOpen.value))
 watch(procKey, (k) => {
   if (String(route.query.proc || '') === k) return
   const query = { ...route.query, proc: k || undefined }
   delete query.bundle
   router.replace({ query }).catch(() => {})
 })
-function pickProc(k) { procKey.value = k; sel.value = null }
+function pickProc(k) { procKey.value = k; sel.value = null; newMode.value = false }
 // 일 패널의 「프로세스」에서: 그 프로세스로 옮기고 그 일은 계속 고른 채로
 function openProc(k) { const id = sel.value?.kind === 'task' ? sel.value.id : null; pickProc(k); if (id) sel.value = { kind: 'task', id } }
-const closeSide = () => { valuesOpen.value = false; reviewOpen.value = false; snapOpen.value = false; rolesOpen.value = false; docsOpen.value = false; roleKey.value = ''; caseId.value = '' }
-function onSelect(x) { if (x) closeSide(); sel.value = x }
+const closeSide = () => {
+  valuesOpen.value = false; reviewOpen.value = false; snapOpen.value = false; rolesOpen.value = false; docsOpen.value = false; roleKey.value = ''; caseId.value = ''
+  plan.value = null; opinionsOpen.value = false; opPreview.value = null
+}
+// while a plan is previewed the map is the plan's drawing: a click there opens nothing
+function onSelect(x) { if (plan.value) return; if (x) closeSide(); sel.value = x }
+
+// ---------- 말로 고치기 · 더하기 ----------
+// 여러 개 고르기(Shift · Cmd + 누르기, Shift + 끌기): 말로 고치기의 범위 {tasks, ways(edge id)} — 프로세스를 골랐을 때만
+// (범위는 한 프로세스 안의 것), 미리 보기 동안은 쉰다(아직 없는 단계를 고르지 않게)
+const chosen = ref({ tasks: [], ways: [] })
+const chosenN = computed(() => chosen.value.tasks.length + chosen.value.ways.length)
+const clearChosen = () => { chosen.value = { tasks: [], ways: [] } }
+function onPick(x) { chosen.value = { tasks: [...(x?.tasks || [])], ways: [...(x?.ways || [])] }; if (chosenN.value) newMode.value = false }
+const newMode = ref(false) // 「＋ 새 프로세스」: no process, the box draws a new one
+const editWords = ref('')
+const editBusy = ref('') // '' | 'plan' | 'apply' | 'voice'
+const editErr = ref('')
+const plan = ref(null) // POST /ontology/edit/plan
+const planAsk = ref(null) // the body that plan answered (sent again with an answer)
+const pside = ref('after') // 고치기 전 · 고친 뒤
+const resolveCtx = ref(null) // 「말로 정리하기」 of a conflict: {opinions, note} sent with 적용
+const editNote = ref(null) // {text, proc, refine} — one line above the map
+const boxEl = ref(null)
+const eul = (w) => { const c = String(w || '').trim().slice(-1).charCodeAt(0); return c >= 0xac00 && c <= 0xd7a3 ? ((c - 0xac00) % 28 ? '을' : '를') : '을(를)' }
+const editScope = computed(() => (newMode.value || !proc.value ? 'new' : chosenN.value ? 'range' : 'process'))
+const editPlaceholder = computed(() => {
+  if (editScope.value === 'new') return '새 프로세스를 말로 그려 보세요 — 예: 견적 요청이 오면 영업이 견적서를 만들고, 500만 원 이상이면 대표 승인 후 고객에게 보내요'
+  if (editScope.value === 'range') return `고른 단계 ${chosen.value.tasks.length}개 · 관계 ${chosen.value.ways.length}개 안에서만 고쳐요 — 예: 이 단계는 에이전트가 하게`
+  return `「${proc.value.name}」${eul(proc.value.name)} 말로 고쳐 보세요 — 예: 고객 회신 뒤에 결과 보고를 넣어 줘`
+})
+const editContext = computed(() => (resolveCtx.value ? `엇갈린 의견 ${resolveCtx.value.opinions.length}개를 이 말로 정리해요` : ''))
+// the past map is for looking only
+const boxOn = computed(() => phase.value === 'map' && !at.value)
+const toWays = (ids) => ids.map((id) => { const [from, to] = String(id).split('\u0000'); return { from, to } })
+function startNew() { closeSide(); sel.value = null; procKey.value = ''; newMode.value = true; clearChosen(); boxEl.value?.focus() }
+async function askPlan(body) {
+  editBusy.value = 'plan'; editErr.value = ''
+  try {
+    const r = await call('/ontology/edit/plan', { method: 'POST', body })
+    closeSide(); sel.value = null
+    plan.value = r; planAsk.value = body; pside.value = 'after'
+    return true
+  } catch (e) { editErr.value = e.message; return false } finally { editBusy.value = '' }
+}
+async function submitEdit() {
+  const words = editWords.value.trim()
+  if (!words || editBusy.value) return
+  const body = { words }
+  if (editScope.value !== 'new') body.proc = proc.value.key
+  if (editScope.value === 'range') body.scope = { tasks: [...chosen.value.tasks], ways: toWays(chosen.value.ways) }
+  if (await askPlan(body)) editWords.value = ''
+}
+const answerPlan = (a) => planAsk.value && askPlan({ ...planAsk.value, answer: a })
+async function applyPlan() {
+  const p = plan.value
+  if (!p || editBusy.value) return
+  editBusy.value = 'apply'; editErr.value = ''
+  try {
+    const body = { proc: p.proc?.key || undefined, scope: p.range || undefined, words: p.words, ops: p.ops || [] }
+    if (resolveCtx.value) body.resolve = { opinions: [...resolveCtx.value.opinions], note: resolveCtx.value.note || '' }
+    const r = await call('/ontology/edit/apply', { method: 'POST', body })
+    const key = r?.proc?.key || p.proc?.key || ''
+    plan.value = null; planAsk.value = null; resolveCtx.value = null; newMode.value = false; clearChosen()
+    await loadMap()
+    if (key && map.value?.processes?.some((b) => b.key === key)) { procKey.value = key; sel.value = null }
+    flowMode.value = 'refined'
+    editNote.value = { text: '적용했어요 — 「고친 기록」에서 하나씩 되돌릴 수 있어요', proc: key, refine: true }
+    loadOpinions()
+  } catch (e) { editErr.value = e.message } finally { editBusy.value = '' }
+}
+async function voicePlan() {
+  const p = plan.value
+  const key = p?.proc?.key || procKey.value
+  if (!p || !key || editBusy.value) return
+  editBusy.value = 'voice'; editErr.value = ''
+  try {
+    const r = await call('/ontology/opinions', { method: 'POST', body: { proc: key, scope: p.range || undefined, words: p.words, ops: p.ops || [], source: 'map' } })
+    const agree = Number(r?.agree ?? r?.opinion?.agree ?? 1) || 1
+    plan.value = null; planAsk.value = null
+    editNote.value = { text: `의견으로 남겼어요(같은 의견 ${agree}명). 관리자가 정하면 알려 드려요.`, proc: key }
+    loadOpinions()
+    loadMap().catch(() => {})
+  } catch (e) { editErr.value = e.message } finally { editBusy.value = '' }
+}
+// 고쳐 말하기: the words back in the box (the range and a 말로 정리하기 stay)
+function rephrase() { editWords.value = plan.value?.words || editWords.value; plan.value = null; planAsk.value = null; boxEl.value?.focus() }
+function stopPlan() { plan.value = null; planAsk.value = null; resolveCtx.value = null; editErr.value = '' }
+// 고친 뒤(또는 고치기 전) 그림: 계획 · 고른 의견을 미리 볼 때 지도는 그 Flow 를 그린다(더함 · 뺌 · 바뀜)
+const opPreview = ref(null) // {id, before, after} of the opinion the 의견 패널 shows
+const preview = computed(() => (plan.value?.after ? { kind: 'plan', before: plan.value.before || null, after: plan.value.after, proc: plan.value.proc?.key || '' }
+  : opPreview.value?.after ? { kind: 'opinion', before: opPreview.value.before || null, after: opPreview.value.after, proc: procKey.value } : null))
+watch(preview, () => { pside.value = 'after' })
+const previewGraph = computed(() => {
+  const p = preview.value
+  const f = p && (pside.value === 'before' && p.before ? p.before : p.after)
+  // a plan with only a question (no steps yet) leaves the map as it is
+  return f?.tasks?.length ? flowView(f, map.value, { proc: p.proc }) : null
+})
+const graph = computed(() => previewGraph.value || view.value)
+// a preview keeps the readable size: bring its first 더함 · 뺌 · 바뀜 into view (after the map has laid out and gone home)
+const stageEl = ref(null)
+let pvT = 0
+watch(previewGraph, (g) => {
+  clearTimeout(pvT)
+  if (!g) return
+  pvT = setTimeout(() => {
+    const el = stageEl.value?.querySelector('svg.map g.node[class*="df-"]') || stageEl.value?.querySelector('svg.map g.lbl[class*="df-"]')
+    el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+  }, 450)
+})
+const planTitle = computed(() => (plan.value?.scope === 'new' ? plan.value.name || '새 프로세스' : plan.value?.proc?.name || proc.value?.name || ''))
+
+// 말로 만든 프로세스 지우기(관리자): 한 번 더 묻고 DELETE /ontology/said/:proc
+const delAsk = ref(false)
+async function delSaid() {
+  const p = proc.value
+  if (!p) return
+  busy.value = 'said'; err.value = ''
+  try {
+    await call(`/ontology/said/${encodeURIComponent(p.key)}`, { method: 'DELETE' })
+    delAsk.value = false
+    pickProc('')
+    await loadMap()
+    editNote.value = { text: `말로 만든 「${p.name}」${eul(p.name)} 지웠어요.`, proc: '' }
+  } catch (e) { err.value = e.message } finally { busy.value = '' }
+}
+
+// ---------- 의견 · 해소 ----------
+const opinionsOpen = ref(false)
+const opinions = ref(null) // GET /ontology/processes/:proc/opinions
+const opinionsErr = ref('')
+const onlyNotes = ref(false) // 해소 필요만
+let opSeq = 0
+async function loadOpinions() {
+  const k = procKey.value
+  const my = ++opSeq
+  if (opinions.value?.proc?.key !== k) opinions.value = null
+  opinionsErr.value = ''
+  if (!k) return
+  try {
+    const r = await call(`/ontology/processes/${encodeURIComponent(k)}/opinions`)
+    if (my === opSeq) opinions.value = r
+  } catch (e) { if (my === opSeq) { opinions.value = null; opinionsErr.value = e.message } }
+}
+const notes = computed(() => opinions.value?.marks || null)
+const notesOn = computed(() => !!notes.value && Object.keys(notes.value.tasks || {}).length + Object.keys(notes.value.ways || {}).length > 0)
+const conflictsN = computed(() => Number(opinions.value?.counts?.conflicts ?? proc.value?.opinions?.conflicts ?? 0))
+function toggleOpinions() { const open = !opinionsOpen.value; closeSide(); sel.value = null; opinionsOpen.value = open; if (open) loadOpinions() }
+function closeOpinions() { opinionsOpen.value = false; opPreview.value = null }
+function onResolved(v) {
+  if (v?.conflicts) opinions.value = v; else loadOpinions()
+  opPreview.value = null
+  flowMode.value = 'refined'
+  loadMap().catch((e) => { err.value = e.message })
+}
+// the steps a conflict's opinions touch (their ops' args), as the box's range — only what the map shows
+function opsScope(ops) {
+  const keys = new Set(view.value.tasks.map((t) => t.key)), ids = new Set(view.value.edges.map(edgeId))
+  const tasks = new Set(), raw = new Set(), ways = new Set()
+  for (const { args: a = {} } of ops) {
+    for (const k of [a.task, a.after, a.before, a.into, a.from, a.to]) if (k) { raw.add(k); if (keys.has(k)) tasks.add(k) }
+    if (a.from && a.to && ids.has(`${a.from}\u0000${a.to}`)) ways.add(`${a.from}\u0000${a.to}`)
+  }
+  return { tasks: [...(tasks.size ? tasks : raw)], ways: [...ways] }
+}
+// 말로 정리하기: the box opens on the conflict's steps; 적용 then closes those opinions as merged
+function speakConflict({ conflict, opinions: ids, note }) {
+  const s = opsScope((conflict?.opinions || []).flatMap((o) => o.ops || []))
+  closeOpinions(); newMode.value = false
+  chosen.value = s
+  resolveCtx.value = { opinions: ids || [], note: note || '' }
+  boxEl.value?.focus()
+}
+watch(procKey, (k) => {
+  flowMode.value = 'refined'; onlyNotes.value = false; delAsk.value = false
+  clearChosen(); resolveCtx.value = null; plan.value = null; planAsk.value = null; opPreview.value = null
+  if (editNote.value && editNote.value.proc !== k) editNote.value = null
+  loadOpinions()
+})
 function toggleValues() { const open = !valuesOpen.value; closeSide(); sel.value = null; valuesOpen.value = open }
 function toggleReview() { const open = !reviewOpen.value; closeSide(); sel.value = null; reviewOpen.value = open }
 function toggleSnap() { const open = !snapOpen.value; closeSide(); sel.value = null; snapOpen.value = open }
@@ -401,7 +597,7 @@ onMounted(async () => {
   init()
 })
 onBeforeUnmount(() => {
-  alive = false; clearTimeout(timer); clearTimeout(menuT)
+  alive = false; clearTimeout(timer); clearTimeout(menuT); clearTimeout(pvT)
   document.removeEventListener('keydown', onKey)
   document.removeEventListener('fullscreenchange', onFsChange)
   if (full.value && document.fullscreenElement) document.exitFullscreen().catch(() => {})
@@ -411,7 +607,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="pmap ontomap" :class="{ full }">
     <TopBar v-show="!full" />
-    <div class="content" :class="{ narrow, sheet: narrow && (sel || valuesOpen) }">
+    <div class="content" :class="{ narrow, sheet: narrow && (sel || valuesOpen || plan || opinionsOpen) }">
       <div v-if="full" class="hot" aria-hidden="true" @mouseenter="menuIn" />
       <div ref="menuEl" class="menu" :class="{ drawer: full, open: full && menuOpen, glass: full }" data-testid="onto-menu" @mouseenter="menuIn" @mouseleave="menuOut">
       <div class="head">
@@ -428,7 +624,19 @@ onBeforeUnmount(() => {
           <button class="hbtn glass press" :class="{ on: docsOpen }" data-testid="onto-docs-button" @click="toggleDocs">문서</button>
           <button class="hbtn glass press" :class="{ on: candOpen }" data-testid="onto-candidates-button" @click="sel = null; candOpen = !candOpen">AI 후보</button>
           <button v-if="proc && !isRoutine" class="hbtn glass press" :class="{ on: snapOpen }" @click="toggleSnap">스냅샷 보기</button>
-          <button v-if="proc && !isRoutine && !isSimple(proc)" class="hbtn glass press" :class="{ on: refineOpen }" title="찾은 순서를 바로잡고 단계를 나눠요" data-testid="onto-refine-button" @click="refineOpen = true">다듬기</button>
+          <button v-if="proc && !isRoutine && (!isSimple(proc) || isSaid(proc))" class="hbtn glass press" :class="{ on: refineOpen }" title="찾은 순서를 바로잡고 단계를 나눠요" data-testid="onto-refine-button" @click="refineOpen = true">다듬기</button>
+          <button v-if="proc" class="hbtn glass press" :class="{ on: opinionsOpen }" title="이 프로세스에 남은 의견을 보고 정해요" data-testid="onto-opinions-button" @click="toggleOpinions">
+            의견 · 해소<b v-if="conflictsN" class="hcf" data-testid="onto-opinions-conflicts">{{ conflictsN }}</b>
+          </button>
+          <!-- 말로 만든 프로세스(관리자): 한 번 더 묻고 지운다 -->
+          <template v-if="proc && isSaid(proc) && status?.admin">
+            <button v-if="!delAsk" class="hbtn glass press danger" data-testid="onto-said-delete" @click="delAsk = true">이 프로세스 지우기</button>
+            <span v-else class="ask glass" data-testid="onto-said-confirm">
+              「{{ proc.name }}」{{ eul(proc.name) }} 지울까요?
+              <button class="press yes" :disabled="!!busy" data-testid="onto-said-delete-yes" @click="delSaid">{{ busy === 'said' ? '지우는 중…' : '지우기' }}</button>
+              <button class="press" :disabled="!!busy" data-testid="onto-said-delete-no" @click="delAsk = false">그만두기</button>
+            </span>
+          </template>
           <!-- 승격 단계(design-v0.3 §12): 관찰 → 제안(요청이 오면 묻고, 단계마다 사람이 정한다) → 자동(저절로 시작, 사람은 지켜본다 ·
                사람 단계는 초안이 먼저). 실행 방식은 따로 고르지 않아요 — 이 단계가 정해요(새 건부터). -->
           <div v-if="proc && !isRoutine" class="ladder glass" role="group" aria-label="이 프로세스의 단계" data-testid="onto-ladder" :data-status="proc.status">
@@ -457,14 +665,18 @@ onBeforeUnmount(() => {
 
       <div v-if="phase === 'map'" class="bar">
         <div class="chips scroll">
-          <button class="bchip press" :class="{ on: !procKey }" @click="pickProc('')">전체 <small>건 {{ n(allCases) }}</small></button>
+          <button class="bchip newp press" :class="{ on: newMode }" title="말로 새 프로세스를 그려요" data-testid="onto-new-proc" @click="startNew">＋ 새 프로세스</button>
+          <button class="bchip press" :class="{ on: !procKey && !newMode }" @click="pickProc('')">전체 <small>건 {{ n(allCases) }}</small></button>
           <button v-if="proc && isSimple(proc)" class="bchip press on" data-testid="onto-simple-picked" @click="simpleOpen = !simpleOpen">
             {{ proc.name }} <span class="band simple">단순</span> <small>건 {{ n(proc.cases) }}</small>
           </button>
           <button v-for="b in flowProcs" :key="b.key" class="bchip press" :class="{ on: procKey === b.key, routine: b.kind === 'routine' }" :title="b.summary" data-testid="onto-proc-chip" :data-kind="b.kind || 'flow'" @click="pickProc(b.key)">
             {{ b.name }}
             <template v-if="b.kind === 'routine'"><span class="band routine">루틴</span> <small>{{ b.role }}</small></template>
-            <template v-else><span class="band" :class="b.band">{{ BAND[b.band] || b.bandName }}</span> <small>건 {{ n(b.cases) }}</small></template>
+            <template v-else><span class="band" :class="b.band" :data-band="b.band">{{ bandName(b) }}</span> <small>건 {{ n(b.cases) }}</small></template>
+            <!-- 의견: 엇갈린 것(해소 필요)은 눈에 띄게, 남은 의견 수는 조용히 -->
+            <small v-if="b.opinions?.open" class="ocnt" :title="`남은 의견 ${b.opinions.open}`" data-testid="onto-proc-opinions">의견 {{ b.opinions.open }}</small>
+            <b v-if="b.opinions?.conflicts" class="ocf" :title="`해소 필요 ${b.opinions.conflicts}`" data-testid="onto-proc-conflicts">{{ b.opinions.conflicts }}</b>
           </button>
         </div>
         <button v-if="simpleProcs.length" class="bchip simplebtn press" :class="{ open: simpleOpen }" :aria-expanded="simpleOpen" data-testid="onto-simple-button" @click="simpleOpen = !simpleOpen">
@@ -499,6 +711,11 @@ onBeforeUnmount(() => {
 
       <p v-if="err" class="err">{{ err }}</p>
       <p v-if="runModeMsg && phase === 'map'" class="rmnote" data-testid="onto-runmode-note">{{ runModeMsg }}</p>
+      <p v-if="editNote && phase === 'map'" class="rmnote enote" data-testid="onto-edit-note">
+        <span>{{ editNote.text }}</span>
+        <button v-if="editNote.refine && proc" class="nlk press" data-testid="onto-edit-note-refine" @click="refineOpen = true">고친 기록 보기</button>
+        <button class="nx press" aria-label="닫기" @click="editNote = null"><Icon name="close" :size="12" /></button>
+      </p>
 
       <p v-if="phase === 'loading'" class="loading pulse">불러오는 중…</p>
       <FirstRun v-else-if="phase !== 'map'" :phase="phase" :job="phase === 'build' ? job || status?.build : job" :busy="busy === 'mail' || busy === 'retry'" :note="note" @start="startMail" @retry="retry" />
@@ -508,6 +725,12 @@ onBeforeUnmount(() => {
           <div class="ctl">
             <ThetaControl v-if="!isRoutine" v-model:mode="mode" :proc="proc" />
             <p v-else class="rnote">「{{ proc.role }}」 역할에서 결과물이 나오면 혼자 이어서 하는 일이에요. 같은 역할 여러 사람의 습관을 셈했어요.</p>
+            <!-- 사람이 고친 프로세스: 다듬은 것(기본) · 찾은 대로 -->
+            <div v-if="canFlow && !previewGraph" class="seg2" role="group" aria-label="다듬은 것 · 찾은 대로" data-testid="onto-flow-switch" :data-flow="flowMode">
+              <button class="press" :class="{ on: flowMode === 'refined' }" title="사람이 고친 대로" data-testid="onto-flow-refined" @click="flowMode = 'refined'">다듬은 것</button>
+              <button class="press" :class="{ on: flowMode === 'found' }" title="메일 · 대화에서 읽은 그대로" data-testid="onto-flow-found" @click="flowMode = 'found'">찾은 대로</button>
+            </div>
+            <span v-if="previewGraph" class="pvtag" data-testid="onto-preview-tag" :data-kind="preview.kind">미리 보기 · {{ pside === 'before' && preview.before ? '고치기 전' : '고친 뒤' }} — 아직 지도는 그대로예요</span>
             <button class="evt press" role="switch" :aria-checked="eventsShown" :class="{ on: eventsShown }" :disabled="isRoutine" :title="isRoutine ? '루틴은 사건으로만 보여요' : '일 사이에 메일 · 결과물 같은 사건을 넣어 봐요'" data-testid="onto-events-toggle" @click="eventsOn = !eventsOn">
               <span class="knob" /> 사건 보기
             </button>
@@ -517,41 +740,53 @@ onBeforeUnmount(() => {
             <button v-if="!procKey && simpleProcs.length" class="evt press" role="switch" :aria-checked="hideSimple" :class="{ on: hideSimple }" :title="`일이 하나뿐인 프로세스 ${simpleProcs.length}개를 전체 지도에서 빼요(다른 흐름에도 든 일은 남아요)`" data-testid="onto-hide-simple" @click="hideSimple = !hideSimple">
               <span class="knob" /> 단순 프로세스 빼기
             </button>
+            <button v-if="proc && conflictsN && notes" class="evt press" role="switch" :aria-checked="onlyNotes" :class="{ on: onlyNotes }" title="의견이 엇갈린 단계 · 관계만 또렷하게 봐요" data-testid="onto-only-notes" @click="onlyNotes = !onlyNotes">
+              <span class="knob" /> 해소 필요만
+            </button>
             <small class="cnt">{{ countText }}<template v-if="!procKey && hideSimple && shownMap?.hidden"> · 단순 {{ shownMap.hidden }}개 뺌</template></small>
             <button class="fs press" :class="{ on: full }" :title="full ? '전체 화면 나가기 (Esc)' : '지도를 화면 가득 (F)'" data-testid="onto-fullscreen" @click="toggleFull">
               <Icon :name="full ? 'shrink' : 'expand'" :size="14" /> {{ full ? '나가기' : '전체 화면' }}
             </button>
           </div>
-          <div class="stage">
-          <p v-if="!view.tasks.length" class="none">{{ at ? '그날에는 아직 그린 지도가 없어요.' : '이 θ 로는 남는 일이 없어요.' }}</p>
-          <MapGraph v-else :whole="full" :marks="marks" :tasks="view.tasks" :edges="view.edges" :entries="view.entries" :events="view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="!!(selEdge || selTask || selEvent || valuesOpen || reviewOpen || snapOpen || rolesOpen || timerOpen || caseId || candOpen)" :scale="shareScale" @select="onSelect" />
-          <div v-if="view.tasks.length && eventsShown" class="legend">
+          <div ref="stageEl" class="stage" :data-preview="preview?.kind || ''" :data-side="pside" :data-flow="flowMode">
+          <p v-if="!graph.tasks.length" class="none">{{ at ? '그날에는 아직 그린 지도가 없어요.' : '이 θ 로는 남는 일이 없어요.' }}</p>
+          <MapGraph v-else :whole="full" :marks="marks" :tasks="graph.tasks" :edges="graph.edges" :entries="graph.entries" :events="previewGraph ? [] : view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="sideOpen" :scale="shareScale"
+            :picked="chosen" :pickable="!!procKey && !previewGraph" :notes="notes" :only-notes="onlyNotes && !!notes" @select="onSelect" @pick="onPick" />
+          <!-- 아래쪽: 말로 고치기 입력 칸(넓은 화면) 바로 밑에 범례 -->
+          <div class="dock" :class="{ side: sideOpen && !narrow }">
+          <OntoEditBox v-if="boxOn && !narrow" ref="boxEl" v-model="editWords" :placeholder="editPlaceholder" :scope="editScope" :pending="editBusy === 'plan'" :picked="chosenN" :context="editContext" :error="plan ? '' : editErr"
+            @submit="submitEdit" @clear-pick="clearChosen" @clear-context="resolveCtx = null" />
+          <div v-if="graph.tasks.length && eventsShown && !previewGraph" class="legend">
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--color-info)" stroke-width="1.6" /></svg>메일</span>
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--color-success)" stroke-width="1.6" /></svg>결과물</span>
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#a78bfa" stroke-width="1.6" /></svg>채팅</span>
             <span><b class="and">함께</b>한 사건 뒤 여러 일이 함께 열려요</span>
             <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="3.5" /></svg>굵을수록 자주</span>
           </div>
-          <div v-else-if="view.tasks.length && rulesOn" class="legend" data-testid="onto-steprule-legend">
+          <div v-else-if="graph.tasks.length && rulesOn" class="legend" data-testid="onto-steprule-legend">
             <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#7a4fd0" stroke-width="2.2" /><path d="M7.4 7V5.6a1.6 1.6 0 0 1 3.2 0V7h.9v4H6.5V7z" fill="#7a4fd0" /></svg>꼭 하는 단계</span>
             <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#2b7fbf" stroke-width="1.8" stroke-dasharray="4 3" /></svg>해도 되고 안 해도 되는 단계</span>
             <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#2b7fbf" stroke-width="1.8" stroke-dasharray="1.5 2.5" /></svg>사안에 따라</span>
             <span v-if="!marks.size">이 프로세스에는 정한 단계가 없어요 — 단계를 눌러 정해요</span>
           </div>
-          <div v-else-if="view.tasks.length && marks.size" class="legend" data-testid="onto-cand-legend">
+          <div v-else-if="graph.tasks.length && marks.size" class="legend" data-testid="onto-cand-legend">
             <span><i class="lg high" />AI가 맡을 수 있는 일</span>
             <span><i class="lg mid" />AI가 초안 · 사람이 확인</span>
             <span><i class="lg human" />사람이 꼭 해야 하는 일</span>
             <span><i class="lg dim" />그 밖 · 아직 안 본 일</span>
           </div>
-          <div v-else-if="view.tasks.length" class="legend">
-            <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="3.5" /></svg>굵을수록 자주</span>
-            <span><svg width="26" height="10"><path d="M1 5h24" stroke="#F0883E" stroke-width="2" stroke-dasharray="6 4" /></svg>은퇴 후보</span>
-            <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="2" stroke-dasharray="2 4" opacity=".5" /></svg>은퇴함</span>
-            <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="2" opacity=".35" /></svg>관찰 적음</span>
+          <MapLegend v-else-if="graph.tasks.length" :refined="!!(view.decided || previewGraph)" :preview="!!previewGraph" :notes="notesOn" />
           </div>
 
-          <SidePanel v-if="selEdge" kicker="관계" :title="`${taskName(selEdge.from)} → ${taskName(selEdge.to)}`" @close="sel = null">
+          <SidePanel v-if="plan" kicker="말로 고치기" :title="planTitle" @close="stopPlan">
+            <OntoEditPreview v-model:side="pside" :plan="plan" :admin="!!status?.admin" :busy="editBusy" :resolving="resolveCtx?.opinions?.length || 0" :error="editErr"
+              @answer="answerPlan" @apply="applyPlan" @voice="voicePlan" @rephrase="rephrase" @stop="stopPlan" />
+          </SidePanel>
+          <SidePanel v-else-if="opinionsOpen && proc" kicker="의견 · 해소" :title="proc.name" @close="closeOpinions">
+            <OntoOpinions :view="opinions" :proc="proc" :admin="!!status?.admin && opinions?.admin !== false" :call="call" :current="opPreview?.id || ''" :error="opinionsErr"
+              @preview="(p) => (opPreview = p)" @changed="onResolved" @speak="speakConflict" />
+          </SidePanel>
+          <SidePanel v-else-if="selEdge" kicker="관계" :title="`${taskName(selEdge.from)} → ${taskName(selEdge.to)}`" @close="sel = null">
             <EdgePanel :edge="selEdge">
               <template #actions><OntoBranch :edge="selEdge" :admin="!!status?.admin" /><OntoEdgeActions :edge="selEdge" :admin="!!status?.admin" @changed="loadMap" /></template>
             </EdgePanel>
@@ -611,12 +846,17 @@ onBeforeUnmount(() => {
             </template>
           </SidePanel>
           </div>
+          <!-- 폰: 입력 칸은 지도 아래 -->
+          <div v-if="boxOn && narrow" class="under">
+            <OntoEditBox ref="boxEl" v-model="editWords" :placeholder="editPlaceholder" :scope="editScope" :pending="editBusy === 'plan'" :picked="chosenN" :context="editContext" :error="plan ? '' : editErr"
+              @submit="submitEdit" @clear-pick="clearChosen" @clear-context="resolveCtx = null" />
+          </div>
         </div>
       </template>
     </div>
 
     <LabelsDrawer v-if="labelsOpen" :labels="labels" :loading="labelsLoading" :error="labelsErr" @close="labelsOpen = false" @task="showTask" />
-    <OntoRefine v-if="refineOpen && proc" :proc="proc" :admin="!!status?.admin" :call="call" @close="refineOpen = false" />
+    <OntoRefine v-if="refineOpen && proc" :proc="proc" :admin="!!status?.admin" :call="call" @close="refineOpen = false; loadMap().catch(() => {}); loadOpinions()" />
   </div>
 </template>
 
@@ -697,6 +937,35 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .lg.human { background: color-mix(in srgb, #d9822b 26%, transparent); border: 2px solid #d9822b; }
 .lg.dim { border: 1px solid var(--hairline); opacity: .5; }
 .legend .and { font-weight: 600; color: var(--color-info); }
+/* 아래쪽: 말로 고치기 입력 칸 + 범례(범례는 칸 바로 밑, 칸 높이와 상관없이) */
+.dock { position: absolute; z-index: 3; left: 16px; right: 170px; bottom: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
+.dock.side { right: 370px; }
+.dock .legend { position: static; }
+.dock .ebox { pointer-events: auto; }
+.under { padding: 8px 10px 10px; }
+.under .ebox { max-width: none; }
+/* 다듬은 것 · 찾은 대로 */
+.seg2 { display: inline-flex; height: 30px; padding: 2px; border-radius: 9999px; background: var(--field-bg); }
+.seg2 button { padding: 0 12px; border-radius: 9999px; font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; }
+.seg2 button.on { background: var(--ink); color: var(--text-primary-on); }
+.pvtag { height: 26px; padding: 0 11px; border-radius: 13px; display: inline-flex; align-items: center; font-size: 12.5px; font-weight: 500; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-primary); background: color-mix(in srgb, #2f9e6e 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, #2f9e6e 45%, transparent); }
+/* 프로세스 칩: 말로 정함 · 의견 · 해소 필요 · 새 프로세스 */
+.band.said { background: color-mix(in srgb, #17979a 22%, transparent); color: #17979a; }
+.bchip .ocnt { font-size: 11.5px; color: var(--text-tertiary); }
+.ocf, .hcf { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; background: #e8590c; color: #fff; }
+.hcf { margin-left: 2px; }
+.bchip.newp { color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--hairline); }
+.bchip.newp.on { box-shadow: none; color: var(--text-primary-on); }
+.hbtn.danger { color: var(--color-error); }
+.ask { height: 38px; padding: 0 6px 0 14px; border-radius: 19px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.ask button { height: 28px; padding: 0 11px; border-radius: 14px; font-size: 12.5px; color: var(--text-secondary); background: var(--button-bg); }
+.ask button.yes { background: var(--color-error); color: #fff; font-weight: 600; }
+.ask button:disabled { opacity: .5; }
+.enote { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.nlk { font-size: 13px; font-weight: 600; color: var(--color-info); }
+.nx { width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; color: var(--text-tertiary); }
+.nx:hover { color: var(--text-primary); background: var(--button-bg); }
 .simplebtn { flex: none; }
 .simplebtn .schev { rotate: 90deg; transition: rotate .2s; }
 .simplebtn.open .schev { rotate: -90deg; }
@@ -726,6 +995,8 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .narrow .cnt { margin-left: 0; }
 .content.narrow.sheet { padding-bottom: 52vh; }
 .narrow .legend { left: 12px; right: 140px; bottom: 10px; gap: 2px 10px; font-size: 11px; }
+.narrow .dock { left: 12px; right: 140px; bottom: 10px; }
+.narrow .ask { white-space: normal; height: auto; min-height: 34px; padding: 4px 6px 4px 12px; flex-wrap: wrap; }
 
 .menu { display: flex; flex-direction: column; gap: 10px; }
 .fs { flex: none; height: 30px; padding: 0 12px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); background: var(--field-bg); white-space: nowrap; }

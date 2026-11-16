@@ -322,6 +322,22 @@ async function describeTasks(st, meta) {
   if (rows.length) await cypher('UNWIND $rows AS r MATCH (t:Task {key:r.key}) SET t.description=r.description', { rows }, { actor: meta.actor, reason: '일 설명' })
 }
 
+// 말로 만든 프로세스(editmap.js, key said:…): a person's, not the count's — a build keeps it and its steps (their numbers grow when mail and
+// chat cases do the same work, on the same task nodes), and no mined cluster takes its key
+export const isSaid = (key) => String(key || '').startsWith('said:')
+// what a build leaves on the map: the processes still live (this count's, the routines', the said ones), the tasks to put away (no longer
+// counted, not pinned, not a live said process's step) and the tasks that come back (pure: processes [{key, status, tasks}], tasks [{key, kind,
+// status, pinned}], mined: this count's process keys, habitKeys, flowLive: this count's task keys, habitLive: the routines' (null: not counted))
+export function keptAfterBuild({ processes = [], tasks = [], mined = [], habitKeys = [], flowLive = new Set(), habitLive = null } = {}) {
+  const said = processes.filter((p) => isSaid(p.key) && p.status !== 'gone')
+  const saidTasks = new Set(said.flatMap((p) => p.tasks || []))
+  const live = [...new Set([...mined, ...habitKeys, ...said.map((p) => p.key)])]
+  const isLive = (t) => flowLive.has(t.key) || !!habitLive?.has(t.key) || (t.kind === 'habit' && !habitLive) || saidTasks.has(t.key)
+  const goneTasks = tasks.filter((t) => t.status !== 'gone' && !t.pinned && !isLive(t)).map((t) => t.key)
+  const backTasks = tasks.filter((t) => t.status === 'gone' && (flowLive.has(t.key) || habitLive?.has(t.key) || saidTasks.has(t.key))).map((t) => t.key)
+  return { live, goneTasks, backTasks }
+}
+
 let running = null
 export function rebuild(opts = {}) { return (running ||= doBuild(opts).finally(() => { running = null })) }
 
@@ -355,7 +371,7 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
     for (const b of st.processes) if (!names.has(b.key)) names.set(b.key, have.get(b.key)?.name && have.get(b.key).name !== b.entries[0] ? have.get(b.key) : await nameProcess(b.tasks, b.entries[0]))
   }
   // a proc keeps its key from week to week: a cluster takes the key of the known proc it overlaps most (Jaccard ≥ 0.5)
-  const known = new Map((await cypher('MATCH (b:Process) WHERE b.status <> \'gone\' RETURN b.key AS key, b.tasks AS tasks')).map((r) => [r.key, r.tasks || []]))
+  const known = new Map((await cypher('MATCH (b:Process) WHERE b.status <> \'gone\' RETURN b.key AS key, b.tasks AS tasks')).filter((r) => !isSaid(r.key)).map((r) => [r.key, r.tasks || []]))
   const stable = (st) => {
     for (const b of st.processes) {
       let best = null, score = 0
@@ -404,15 +420,13 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   for (const t of (timers || []).slice(0, 4)) await say(`정해진 때에 하는 일을 찾았어요: ${cronKo(t.cron)} · 「${t.task}」(기록 ${t.n}건)`, 'timer')
   if (habits.routines) await say(`개인 습관 ${habits.routines}개를 역할 루틴으로 모았어요(지도에는 설정한 기준만큼 보여요).`)
   // processes of earlier weeks that are not in today's picture are gone (kept in the history, hidden on the map)
-  const live = [...final.processes.map((b) => b.key), ...habits.keys]
-  await cypher(`MATCH (b:Process) WHERE NOT b.key IN $live AND b.status <> 'gone' SET b.status='gone'`, { live }, { ...meta, validFrom: iso(now) })
   // tasks no longer in today's count (a name merged into another, or corrected) are gone the same way — a pinned one stays;
-  // habit tasks only when the routines were counted this time. One that comes back is active again.
+  // habit tasks only when the routines were counted this time. One that comes back is active again. A process made by words stays (keptAfterBuild).
   const flowLive = new Set(final.g.tasks.keys()), habitLive = Array.isArray(habits.tasks) ? new Set(habits.tasks) : null
-  const isLive = (t) => flowLive.has(t.key) || !!habitLive?.has(t.key) || (t.kind === 'habit' && !habitLive)
   const allTasks = await cypher('MATCH (t:Task) RETURN t.key AS key, t.kind AS kind, t.status AS status, t.pinned AS pinned')
-  const goneTasks = allTasks.filter((t) => t.status !== 'gone' && !t.pinned && !isLive(t)).map((t) => t.key)
-  const backTasks = allTasks.filter((t) => t.status === 'gone' && (flowLive.has(t.key) || habitLive?.has(t.key))).map((t) => t.key)
+  const allProcs = await cypher('MATCH (b:Process) RETURN b.key AS key, b.status AS status, b.tasks AS tasks')
+  const { live, goneTasks, backTasks } = keptAfterBuild({ processes: allProcs, tasks: allTasks, mined: final.processes.map((b) => b.key), habitKeys: habits.keys, flowLive, habitLive })
+  await cypher(`MATCH (b:Process) WHERE NOT b.key IN $live AND b.status <> 'gone' SET b.status='gone'`, { live }, { ...meta, validFrom: iso(now) })
   if (goneTasks.length) await cypher(`UNWIND $keys AS k MATCH (t:Task {key:k}) SET t.status='gone'`, { keys: goneTasks }, { ...meta, validFrom: iso(now) })
   if (backTasks.length) await cypher(`UNWIND $keys AS k MATCH (t:Task {key:k}) SET t.status='active'`, { keys: backTasks }, { ...meta, validFrom: iso(now) })
   const sources = {}

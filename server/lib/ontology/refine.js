@@ -20,6 +20,15 @@ import { judge } from './judge.js'
 const T = () => config.tenantId
 export const END = '__end__'
 export const OPS = ['reverse_edge', 'remove_edge', 'add_edge', 'rename_task', 'merge_task', 'add_task', 'remove_task', 'set_role']
+// 말로 고치기(editmap.js) adds: overlay ops (move_task · set_cond · set_parallel · set_runner), side ops that live in their own tables
+// (set_requirement → pro_step_requirements, set_timer → a company timer; the overlay leaves them), and new_process (a process made by words:
+// its steps are on the map, its ways are this row)
+export const EDIT_OPS = [...OPS, 'move_task', 'set_cond', 'set_parallel', 'set_runner']
+export const SIDE_OPS = ['set_requirement', 'set_timer']
+export const ALL_OPS = [...EDIT_OPS, ...SIDE_OPS, 'new_process']
+export const RUNNERS = ['agent', 'person']
+export const REQUIREMENTS = ['required', 'optional']
+export const AMOUNT_OPS = { '>=': '이상', '>': '초과', '<=': '이하', '<': '미만' }
 export const KINDS = ['order', 'mixed', 'artifact', 'missing']
 export const CLASSES = ['gate', 'human', 'ai', 'drop', 'skipped', 'none']
 export const CLASS_KO = { gate: '꼭 하는 관문', human: '사람이 꼭', ai: 'AI가 맡음', drop: '걷어냄', skipped: '건너뛰었지만 해야 함', none: '그대로' }
@@ -43,7 +52,7 @@ const endOf = (s) => (['끝', 'end', END].includes(word(s)) ? END : word(s))
 // a correction's args as the overlay reads them (null when the shape is wrong)
 export function normFix(x) {
   const op = clean(x?.op), a = x?.args || {}
-  if (!OPS.includes(op)) return null
+  if (!ALL_OPS.includes(op)) return null
   const need = (...ks) => ks.every((k) => k)
   if (op === 'reverse_edge' || op === 'remove_edge' || op === 'add_edge') { const args = { from: word(a.from), to: endOf(a.to) }; return need(args.from, args.to) ? { op, args } : null }
   if (op === 'rename_task') { const args = { task: word(a.task), name: word(a.name) }; return need(args.task, args.name) ? { op, args } : null }
@@ -51,11 +60,71 @@ export function normFix(x) {
   if (op === 'remove_task') { const args = { task: word(a.task) }; return need(args.task) ? { op, args } : null }
   // 맡는 역할 바로잡기: 지도가 기록에서 고른 역할이 틀렸을 때(그 일을 실제로 맡는 역할로)
   if (op === 'set_role') { const args = { task: word(a.task), role: word(a.role) }; return need(args.task, args.role) ? { op, args } : null }
+  if (op === 'set_runner') { const args = { task: word(a.task), runner: clean(a.runner) }; return args.task && RUNNERS.includes(args.runner) ? { op, args } : null }
+  if (op === 'move_task') {
+    const args = { task: word(a.task) }
+    if (word(a.after)) args.after = word(a.after)
+    if (word(a.before)) args.before = endOf(a.before)
+    return args.task && (args.after || args.before) && args.after !== args.task && args.before !== args.task ? { op, args } : null
+  }
+  if (op === 'set_cond') {
+    const args = { from: word(a.from), to: endOf(a.to), when: normWhen(a.when) }
+    return need(args.from, args.to) && args.when !== undefined ? { op, args } : null
+  }
+  if (op === 'set_parallel') { const args = { a: word(a.a), b: word(a.b) }; return need(args.a, args.b) && args.a !== args.b ? { op, args } : null }
+  if (op === 'set_requirement') {
+    const r = a.requirement === null || a.requirement === '' || a.requirement === 'map' ? null : clean(a.requirement)
+    const args = { task: word(a.task), requirement: REQUIREMENTS.includes(r) ? r : null }
+    return args.task && (r === null || REQUIREMENTS.includes(r)) ? { op, args } : null
+  }
+  if (op === 'set_timer') {
+    const cron = clean(a.cron), args = { cron, entry: word(a.entry) }
+    return cron.split(' ').length === 5 && /^[\d*/,\- ]+$/.test(cron) ? { op, args } : null
+  }
+  if (op === 'new_process') {
+    const steps = []
+    for (const s of Array.isArray(a.steps) ? a.steps : []) {
+      const name = word(s?.name ?? s)
+      if (!name || name === END || steps.some((x) => x.name === name)) continue
+      steps.push({ name, role: word(s?.role), ...(RUNNERS.includes(clean(s?.runner)) ? { runner: clean(s.runner) } : {}) })
+    }
+    const names = new Set(steps.map((x) => x.name))
+    const ways = []
+    for (const w of Array.isArray(a.ways) ? a.ways : []) {
+      const from = word(w?.from), to = endOf(w?.to)
+      if (!names.has(from) || !(to === END || names.has(to)) || from === to || ways.some((x) => x.from === from && x.to === to)) continue
+      const when = normWhen(w?.when)
+      ways.push({ from, to, ...(when ? { when } : {}) })
+    }
+    const parallel = (Array.isArray(a.parallel) ? a.parallel : []).map((x) => [word(x?.[0] ?? x?.a), word(x?.[1] ?? x?.b)]).filter(([x, y]) => names.has(x) && names.has(y) && x !== y)
+    const start = names.has(word(a.start)) ? word(a.start) : steps[0]?.name || ''
+    const args = { name: clean(a.name).slice(0, 40), summary: clean(a.summary).slice(0, 200), start, steps, ways, ...(parallel.length ? { parallel } : {}) }
+    return args.name && steps.length ? { op, args } : null
+  }
   const args = { name: word(a.name), role: word(a.role) }
   if (word(a.after)) args.after = word(a.after)
   if (word(a.before)) args.before = endOf(a.before)
+  if (RUNNERS.includes(clean(a.runner))) args.runner = clean(a.runner)
   return need(args.name) ? { op, args } : null
 }
+
+// a split's condition as said: an amount ({amount: {op, value}}) or words ({text}); null clears it (undefined: unreadable)
+export function normWhen(w) {
+  if (w === null || w === '' || w?.clear) return null
+  const am = w?.amount
+  if (am && typeof am === 'object') {
+    const v = Math.round(Number(String(am.value).replace(/[,\s원]/g, '')))
+    return AMOUNT_OPS[am.op] && Number.isFinite(v) && v > 0 ? { amount: { op: am.op, value: v } } : undefined
+  }
+  const text = clean(w?.text ?? (typeof w === 'string' ? w : '')).slice(0, 120)
+  return text ? { text } : undefined
+}
+const won = (n) => new Intl.NumberFormat('ko-KR').format(n)
+// the condition as the engines read it: an amount the way the build writes a learned one (pickWay · the snapshot), or the words
+export const condOfWhen = (w) => (!w ? { cond: '', condInfo: null }
+  : w.amount ? { cond: `금액(amount)이 ${won(w.amount.value)}원 ${AMOUNT_OPS[w.amount.op]}`, condInfo: { attr: 'amount', threshold: w.amount.value, op: w.amount.op, said: true } }
+    : { cond: w.text, condInfo: null })
+export const whenKo = (w) => (!w ? '조건 없음' : w.amount ? `금액 ${won(w.amount.value)}원 ${AMOUNT_OPS[w.amount.op]}` : w.text)
 
 // what a correction did, in a line a person reads (「강의 준비 → 교육 진행」으로 뒤집음)
 export function labelOf({ op, args: a = {} }) {
@@ -67,8 +136,18 @@ export function labelOf({ op, args: a = {} }) {
     case 'merge_task': return `「${a.task}」${eul(a.task)} 「${a.into}」에 합침`
     case 'remove_task': return `「${a.task}」${eul(a.task)} 이 프로세스에서 뺌`
     case 'set_role': return `「${a.task}」의 맡는 역할을 「${a.role}」${ro(a.role)} 바꿈`
+    case 'set_runner': return `「${a.task}」${fin(a.task) ? '은' : '는'} ${a.runner === 'agent' ? '에이전트가' : '사람이'} 하게 함`
+    case 'move_task': {
+      if (a.after && a.before) return `「${a.task}」${eul(a.task)} 「${a.after}」${gwa(a.after)} 「${shown(a.before)}」 사이로 옮김`
+      return a.after ? `「${a.task}」${eul(a.task)} 「${a.after}」 뒤로 옮김` : `「${a.task}」${eul(a.task)} 「${shown(a.before)}」 앞으로 옮김`
+    }
+    case 'set_cond': return a.when ? `「${a.from} → ${shown(a.to)}」${ro(shown(a.to))} 가는 조건을 「${whenKo(a.when)}」${ro(whenKo(a.when))} 정함` : `「${a.from} → ${shown(a.to)}」의 조건을 지움`
+    case 'set_parallel': return `「${a.a}」${gwa(a.a)} 「${a.b}」${eul(a.b)} 나란히 하게 함`
+    case 'set_requirement': return a.requirement === 'required' ? `「${a.task}」${eul(a.task)} 꼭 하는 단계로 정함` : a.requirement === 'optional' ? `「${a.task}」${eul(a.task)} 해도 되고 안 해도 되는 단계로 정함` : `「${a.task}」${eul(a.task)} 지도대로 하게 함`
+    case 'set_timer': return `${a.when || a.cron}에 「${a.entry || '첫 일'}」부터 시작하게 함`
+    case 'new_process': return `새 프로세스 「${a.name}」${eul(a.name)} 만듦(일 ${(a.steps || []).length}개)`
     case 'add_task': {
-      const it = `「${a.name}」${a.role ? `(${a.role})` : ''}`
+      const it = `「${a.name}」${a.role || a.runner === 'agent' ? `(${[a.role, a.runner === 'agent' ? '에이전트' : ''].filter(Boolean).join(' · ')})` : ''}`
       if (a.after && a.before) return `「${a.after}」${gwa(a.after)} 「${shown(a.before)}」 사이에 ${it} 더함`
       if (a.after) return `「${a.after}」 뒤에 ${it} 더함`
       if (a.before) return `「${shown(a.before)}」 앞에 ${it} 더함`
@@ -91,11 +170,55 @@ export function applyCorrections(found, corrections = []) {
   const isNode = (k) => k === END || tasks.has(k)
   const find = (a, b) => edges.find((e) => e.from === a && e.to === b)
   const add = (from, to, n, p = 0) => {
-    if (from === to) return
-    const e = find(from, to)
-    if (e) e.n += n; else edges.push({ from, to, n, p })
+    if (from === to) return null
+    let e = find(from, to)
+    if (e) e.n += n; else { e = { from, to, n, p }; edges.push(e) }
     touched.add(from)
+    return e
   }
+  // a way a person decided (말로 고치기): in the run whatever θ
+  const decide = (e) => { if (e) e.dec = true; return e }
+  // put a step in (add_task · move_task): between two, right after one (what went out of it goes out of the step), or right before one
+  const insert = (name, { after, before }, mark = false) => {
+    const m = mark ? decide : (e) => e
+    if (after && before) {
+      const e = find(after, before)
+      if (e) cut((x) => x === e)
+      m(add(after, name, e?.n || 0)); m(add(name, before, e?.n || 0))
+    } else if (after) {
+      const outs = edges.filter((e) => e.from === after)
+      cut((e) => e.from === after)
+      for (const o of outs) { const x = add(name, o.to, o.n, o.p); if (x && o.dec) x.dec = true; if (x && o.condSet) Object.assign(x, { condSet: true, cond: o.cond, condInfo: o.condInfo }) }
+      m(add(after, name, outs.reduce((s, o) => s + o.n, 0)))
+    } else if (before) {
+      const ins = edges.filter((e) => e.to === before)
+      cut((e) => e.to === before)
+      for (const i of ins) { const x = add(i.from, name, i.n); if (x && i.dec) x.dec = true; if (x && i.condSet) Object.assign(x, { condSet: true, cond: i.cond, condInfo: i.condInfo }) }
+      m(add(name, before, ins.reduce((s, i) => s + i.n, 0)))
+    }
+  }
+  // take a step out with the way going on (remove_task · move_task)
+  const takeOut = (k) => {
+    const ins = edges.filter((e) => e.to === k && e.from !== k)
+    const outs = edges.filter((e) => e.from === k && e.to !== k)
+    cut((e) => e.from === k || e.to === k)
+    for (const i of ins) for (const o of outs) if (i.from !== o.to && !find(i.from, o.to)) { const x = add(i.from, o.to, Math.min(i.n, o.n)); if (x && (i.dec || o.dec)) x.dec = true }
+  }
+  // 나란히: what comes into the first comes into both, what goes out of the second goes out of both; the way between them is the marker
+  const sideBySide = (a, b) => {
+    let first = a, second = b
+    if (find(b, a) && !find(a, b)) { first = b; second = a }
+    const ins = edges.filter((e) => e.to === first && e.from !== second && e.from !== first)
+    if (!ins.length) return `「${first}」 앞에 오는 일이 있어야 나란히 할 수 있어요.`
+    const outs = edges.filter((e) => e.from === second && e.to !== first && e.to !== second)
+    cut((e) => e.from === second && e.to === first)
+    for (const i of ins) decide(add(i.from, second, 0))
+    for (const o of outs) decide(add(first, o.to, 0))
+    const m = find(first, second) || add(first, second, 0)
+    m.par = true; m.dec = true
+    return ''
+  }
+  const setCond = (e, when) => { const c = condOfWhen(when); Object.assign(e, { condSet: true, cond: c.cond, condInfo: c.condInfo, dec: true }) }
   const cut = (pred) => { edges = edges.filter((e) => { if (!pred(e)) return true; touched.add(e.from); return false }) }
   const step = ({ op, args: a = {} }) => {
     switch (op) {
@@ -147,13 +270,10 @@ export function applyCorrections(found, corrections = []) {
       }
       case 'remove_task': {
         if (!isTask(a.task)) return '그 일이 없어요.'
-        const ins = edges.filter((e) => e.to === a.task && e.from !== a.task)
-        const outs = edges.filter((e) => e.from === a.task && e.to !== a.task)
-        cut((e) => e.from === a.task || e.to === a.task)
+        // the way still goes on: what came in goes where it went out (only ways not there yet)
+        takeOut(a.task)
         tasks.delete(a.task)
         touched.delete(a.task)
-        // the way still goes on: what came in goes where it went out (only ways not there yet)
-        for (const i of ins) for (const o of outs) if (i.from !== o.to && !find(i.from, o.to)) add(i.from, o.to, Math.min(i.n, o.n))
         return ''
       }
       case 'set_role': {
@@ -167,25 +287,61 @@ export function applyCorrections(found, corrections = []) {
         if (a.after && !isTask(a.after)) return `「${a.after}」${iga(a.after)} 없어요.`
         if (a.before && !isNode(a.before)) return `「${a.before}」${iga(a.before)} 없어요.`
         if (a.before === END && !a.after) return '끝 앞에 더하려면 어느 일 뒤인지도 정하세요.'
-        tasks.set(a.name, { key: a.name, role: a.role || '', n: 0, origin: null })
-        if (a.after && a.before) {
-          const e = find(a.after, a.before)
-          if (e) cut((x) => x === e)
-          add(a.after, a.name, e?.n || 0); add(a.name, a.before, e?.n || 0)
-        } else if (a.after) {
-          // right after it: what went out of it now goes out of the new step
-          const outs = edges.filter((e) => e.from === a.after)
-          cut((e) => e.from === a.after)
-          for (const o of outs) add(a.name, o.to, o.n, o.p)
-          add(a.after, a.name, outs.reduce((s, o) => s + o.n, 0))
-        } else if (a.before) {
-          const ins = edges.filter((e) => e.to === a.before)
-          cut((e) => e.to === a.before)
-          for (const i of ins) add(i.from, a.name, i.n)
-          add(a.name, a.before, ins.reduce((s, i) => s + i.n, 0))
-        }
+        tasks.set(a.name, { key: a.name, role: a.role || '', n: 0, origin: null, ...(a.runner ? { runner: a.runner } : {}) })
+        // right after it: what went out of it now goes out of the new step
+        insert(a.name, a)
         return ''
       }
+      case 'move_task': {
+        if (!isTask(a.task)) return '그 일이 없어요.'
+        if (a.after && !isTask(a.after)) return `「${a.after}」${iga(a.after)} 없어요.`
+        if (a.before && !isNode(a.before)) return `「${a.before}」${iga(a.before)} 없어요.`
+        if (a.before === END && !a.after) return '끝 앞으로 옮기려면 어느 일 뒤인지도 정하세요.'
+        if (a.after && find(a.after, a.task) && (!a.before || find(a.task, a.before)) && edges.filter((e) => e.to === a.task).length === 1) return '이미 그 자리예요.'
+        takeOut(a.task)
+        insert(a.task, a, true)
+        tasks.get(a.task).dec = true
+        return ''
+      }
+      case 'set_cond': {
+        const e = find(a.from, a.to)
+        if (!e) return '그 화살표가 없어요.'
+        if (a.when && edges.filter((x) => x.from === a.from).length < 2) return `「${a.from}」 뒤에 갈림길이 없어요 — 먼저 다른 길을 이어 주세요.`
+        setCond(e, a.when)
+        return ''
+      }
+      case 'set_parallel': {
+        if (!isTask(a.a) || !isTask(a.b)) return '그 일이 없어요.'
+        return sideBySide(a.a, a.b)
+      }
+      case 'set_runner': {
+        if (!isTask(a.task)) return '그 일이 없어요.'
+        if (tasks.get(a.task).runner === a.runner) return a.runner === 'agent' ? '이미 에이전트가 해요.' : '이미 사람이 해요.'
+        tasks.get(a.task).runner = a.runner
+        tasks.get(a.task).dec = true
+        return ''
+      }
+      // a process made by words: its steps (on the map with it — a step the map lost comes back bare), their roles and who does them,
+      // and its ways, all decided
+      case 'new_process': {
+        for (const st of a.steps || []) {
+          if (!st?.name || st.name === END) continue
+          if (!isTask(st.name)) tasks.set(st.name, { key: st.name, role: st.role || '', n: 0, origin: null })
+          const t = tasks.get(st.name)
+          if (st.role) t.role = st.role
+          if (st.runner) t.runner = st.runner
+          t.dec = true; t.said = true
+        }
+        for (const w of a.ways || []) {
+          if (!isTask(w.from) || !isNode(w.to) || w.from === w.to) continue
+          const e = decide(find(w.from, w.to) || add(w.from, w.to, 0))
+          if (w.when) setCond(e, w.when)
+        }
+        for (const [x, y] of a.parallel || []) if (isTask(x) && isTask(y)) sideBySide(x, y)
+        return ''
+      }
+      // kept in their own tables (steprule.js · timers.js): the record is here, the flow is not changed
+      case 'set_requirement': case 'set_timer': return ''
       default: return '모르는 고치기예요.'
     }
   }
@@ -196,7 +352,8 @@ export function applyCorrections(found, corrections = []) {
   for (const from of touched) {
     const outs = edges.filter((e) => e.from === from)
     const tot = outs.reduce((s, e) => s + e.n, 0)
-    for (const e of outs) e.p = tot ? +(e.n / tot).toFixed(3) : 0
+    // (ways no case took yet — a process made by words: an even share)
+    for (const e of outs) e.p = tot ? +(e.n / tot).toFixed(3) : +(1 / outs.length).toFixed(3)
   }
   // what is new and what is gone, against found (a renamed task is the same task, so are its ways)
   const cur = new Map([...tasks.values()].filter((t) => t.origin).map((t) => [t.origin, t.key]))
@@ -206,14 +363,35 @@ export function applyCorrections(found, corrections = []) {
   const origin = {}
   for (const t of tasks.values()) if (t.origin) origin[t.key] = t.origin
   return {
-    tasks: [...tasks.values()].map((t) => ({ key: t.key, role: t.role, n: t.n, ...(t.origin ? {} : { added: true }) })),
-    edges: edges.map((e) => ({ from: e.from, to: e.to, n: e.n, p: e.p, ...(foundWays.has(`${e.from}\u0000${e.to}`) ? {} : { added: true }) })),
+    tasks: [...tasks.values()].map((t) => ({ key: t.key, role: t.role, n: t.n, ...(t.origin ? {} : { added: true }), ...(t.runner ? { runner: t.runner } : {}), ...(t.dec ? { decided: true } : {}), ...(t.said ? { said: true } : {}) })),
+    edges: edges.map((e) => ({ from: e.from, to: e.to, n: e.n, p: e.p, ...(foundWays.has(`${e.from}\u0000${e.to}`) ? {} : { added: true }),
+      ...(e.condSet ? { cond: e.cond, condInfo: e.condInfo } : {}), ...(e.par ? { parallel: true } : {}), ...(e.dec ? { decided: true } : {}) })),
     removed: {
       tasks: (found.tasks || []).filter((t) => !cur.has(t.key)).map((t) => t.key),
       edges: (found.edges || []).filter((e) => { const k = mapped(e); return !k || !now.has(k) }).map((e) => ({ from: e.from, to: e.to })),
     },
     origin, skipped,
   }
+}
+
+// A process made by words (editmap.js, key said:…) is its new_process row and the corrections after it: of the ways the mail and chat count
+// between its steps only those a person said are its own (their numbers are what was observed); the others belong to the mined processes
+export const isSaidKey = (key) => String(key || '').startsWith('said:')
+export function saidWays(cs = []) {
+  const out = new Set()
+  for (const c of cs) {
+    if (c.op === 'new_process') for (const w of c.args?.ways || []) out.add(`${w.from}\u0000${w.to}`)
+    if (c.op === 'add_edge' && c.args) out.add(`${c.args.from}\u0000${c.args.to}`)
+  }
+  return out
+}
+// the process as found on the map, from a graph read (readGraph): its tasks, the ways between them, the graph — what refinedView takes
+export function baseOf(g, proc, cs = []) {
+  const set = new Set(proc.tasks)
+  const tasks = new Map(g.tasks.filter((t) => set.has(t.key)).map((t) => [t.key, t]))
+  let edges = g.edges.filter((e) => set.has(e.from) && (e.to === END || set.has(e.to)))
+  if (isSaidKey(proc.key)) { const ways = saidWays(cs); edges = edges.filter((e) => ways.has(`${e.from}\u0000${e.to}`)) }
+  return { proc, tasks, edges, all: g }
 }
 
 // The refined flow as a case runs it (run.js procGraph → snapshot · start task · run mode): {proc, tasks: Map, edges, all} in,
@@ -233,14 +411,19 @@ export function refinedView(base, corrections) {
   for (const t of r.tasks) {
     const origin = r.origin[t.key] || null
     const node = origin ? base.tasks.get(origin) : global.get(t.key)
-    tasks.set(t.key, { ...(node || { status: 'active' }), key: t.key, role: t.role || node?.role || '', n: t.n, origin, ...(origin ? {} : { added: true }) })
+    // decided: a person added it, said it, renamed it, gave it another role or runner, or moved it
+    const decided = !origin || !!t.decided || origin !== t.key || (!!node && (t.role || '') !== (node.role || ''))
+    tasks.set(t.key, { ...(node || { status: 'active' }), key: t.key, role: t.role || node?.role || '', n: t.n, origin, ...(origin ? {} : { added: true }),
+      ...(t.runner ? { runner: t.runner } : {}), ...(decided ? { decided: true } : {}), ...(t.said ? { said: true } : {}) })
   }
   const keyOf = (k) => (k === END ? END : r.origin[k] || k)
   const was = new Map(base.edges.map((e) => [`${e.from}\u0000${e.to}`, e]))
+  // a condition or side by side a person set wins over what the map learned
+  const own = (e) => ({ ...(e.cond !== undefined ? { cond: e.cond, cond_cases: e.condInfo || null } : {}), ...(e.parallel ? { parallel: true } : {}) })
   const edges = r.edges.map((e) => {
     const w = was.get(`${keyOf(e.from)}\u0000${keyOf(e.to)}`)
-    if (w && !e.added) return { ...w, from: e.from, to: e.to, n: e.n, p: e.p }
-    return { from: e.from, to: e.to, n: e.n, p: e.p, status: 'active', decided: true, parallel: !!w?.parallel, cond: w?.cond || '' }
+    if (w && !e.added) return { ...w, from: e.from, to: e.to, n: e.n, p: e.p, ...own(e), ...(e.decided ? { decided: true } : {}) }
+    return { from: e.from, to: e.to, n: e.n, p: e.p, status: 'active', decided: true, parallel: !!w?.parallel, cond: w?.cond || '', ...(w?.cond_cases ? { cond_cases: w.cond_cases } : {}), ...own(e) }
   })
   const into = new Set(r.edges.filter((e) => e.to !== END && e.from !== e.to).map((e) => e.to))
   const heads = r.tasks.filter((t) => !into.has(t.key)).sort((a, b) => (b.n || 0) - (a.n || 0)).map((t) => t.key)
@@ -286,14 +469,15 @@ export async function foundOf(procKey) {
   const proc = g.processes.find((p) => p.key === procKey)
   if (!proc) throw err(404, '프로세스를 찾지 못했어요.')
   const set = new Set(proc.tasks)
-  const edges = g.edges.filter((e) => e.status !== 'retired' && set.has(e.from) && (e.to === END || set.has(e.to)))
+  const ways = isSaidKey(procKey) ? saidWays(await correctionsOf(procKey)) : null
+  const edges = g.edges.filter((e) => e.status !== 'retired' && set.has(e.from) && (e.to === END || set.has(e.to)) && (!ways || ways.has(`${e.from}\u0000${e.to}`)))
     .map((e) => ({ from: e.from, to: e.to, n: e.n || 0, p: +(e.p || 0).toFixed(3) }))
   const tasks = flowOrder(g.tasks.filter((t) => set.has(t.key)).map((t) => ({ key: t.key, role: t.role || '', n: t.n || 0 })), edges, proc.entries || [])
   return { proc, graph: g, found: { tasks, edges } }
 }
 
-async function correctionsOf(procKey) {
-  return q(`select id::text as id, op, args, why, source, issue_id, by_user, at from pro_corrections where tenant_id=$1 and proc_key=$2 order by at, id`, [T(), procKey])
+export async function correctionsOf(procKey) {
+  return q(`select id::text as id, op, args, why, source, issue_id, by_user, at, batch, opinion_id::text as opinion_id from pro_corrections where tenant_id=$1 and proc_key=$2 order by at, id`, [T(), procKey])
 }
 async function rowOf(procKey) {
   const [r] = await q(`select review, classes, model, version, facts_hash, made_at from pro_refine_reviews where tenant_id=$1 and proc_key=$2`, [T(), procKey])
@@ -321,6 +505,9 @@ export async function refineView(me, procKey) {
     if (c?.class) classes[t.key] = { class: c.class, why: c.why || '', by: c.by === 'person' ? 'person' : 'ai', decided: !!c.decided }
   }
   const entries = (proc.entries || []).map((k) => Object.keys(r.origin).find((x) => r.origin[x] === k) || k)
+  // whose opinion an applied change was (opinions.js)
+  const ops = [...new Set(cs.map((c) => c.opinion_id).filter(Boolean))]
+  const voiced = new Map((ops.length ? await q(`select id::text as id, by_name, role from pro_map_opinions where id::text = any($1)`, [ops]).catch(() => []) : []).map((o) => [o.id, { name: o.by_name || '', role: o.role || '' }]))
   return {
     proc: { key: proc.key, name: proc.name },
     found,
@@ -328,7 +515,8 @@ export async function refineView(me, procKey) {
     review: row?.review ? { summary: row.review.summary || '', issues: row.review.issues || [], proposed: row.review.proposed || { steps: [], flows: [] }, model: row.model, made_at: row.made_at } : null,
     classes,
     corrections: cs.map((c) => ({ id: c.id, op: c.op, args: c.args, label: labelOf(c) + (skipped.has(c.id) ? ` — 지금 지도에는 맞지 않아 빠졌어요(${skipped.get(c.id)})` : ''),
-      why: c.why, source: c.source, by: c.by_user, at: c.at })),
+      why: c.why, source: c.source, by: c.by_user, at: c.at, batch: c.batch || null, voiced: voiced.get(c.opinion_id) || null,
+      undo: c.op !== 'new_process', undoWhy: c.op === 'new_process' ? '이 프로세스를 만든 기록이에요 — 프로세스를 지우려면 지도에서 「이 프로세스 지우기」를 눌러 주세요.' : '' })),
     job: await jobOf(procKey),
   }
 }
@@ -381,7 +569,7 @@ export function shapeReview(r, { found, corrections, shownCases, before = null, 
     const title = clean(x?.title).slice(0, 60)
     if (!title) continue
     const kind = KINDS.includes(x.kind) ? x.kind : 'order'
-    const n = normFix(x.fix)
+    const n0 = normFix(x.fix), n = n0 && OPS.includes(n0.op) ? n0 : null
     const done = n && corrections.find((c) => sameFix(c, n))
     const fix = n && (done || !wontApply(found, corrections, n)) ? { ...n, label: labelOf(n) } : null
     let id = sha(`${kind}|${title}|${JSON.stringify(n)}`, 8)
@@ -505,9 +693,9 @@ const subject = (proc, text) => `다듬기 「${proc.name}」: ${text}`
 async function saveIssues(procKey, issues) {
   await q(`update pro_refine_reviews set review = jsonb_set(review, '{issues}', $3::jsonb) where tenant_id=$1 and proc_key=$2`, [T(), procKey, JSON.stringify(issues)])
 }
-async function insertCorrection(me, procKey, { op, args, why, source, issueId = null }) {
-  const [c] = await q(`insert into pro_corrections (tenant_id, proc_key, op, args, why, source, issue_id, by_user) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id::text as id`,
-    [T(), procKey, op, JSON.stringify(args), clean(why).slice(0, 300), source, issueId, me.email || String(me.id)])
+export async function insertCorrection(me, procKey, { op, args, why, source, issueId = null, batch = null, opinionId = null }) {
+  const [c] = await q(`insert into pro_corrections (tenant_id, proc_key, op, args, why, source, issue_id, by_user, batch, opinion_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id::text as id`,
+    [T(), procKey, op, JSON.stringify(args), clean(why).slice(0, 300), source, issueId, me.email || String(me.id), batch, opinionId])
   return c.id
 }
 
@@ -536,7 +724,7 @@ export async function decideIssue(me, procKey, issueId, { action } = {}) {
 // 내가 고침: one correction on top of the others (refused when it would not apply)
 export async function addCorrection(me, procKey, { op, args, why = '' } = {}) {
   const fix = normFix({ op, args })
-  if (!fix) throw err(400, `op 는 ${OPS.join(' · ')} 중 하나이고, 그에 맞는 args 가 있어야 해요.`)
+  if (!fix || !EDIT_OPS.includes(fix.op)) throw err(400, `op 는 ${EDIT_OPS.join(' · ')} 중 하나이고, 그에 맞는 args 가 있어야 해요.`)
   const { proc, found } = await foundOf(procKey)
   const cs = await correctionsOf(procKey)
   const no = wontApply(found, cs, fix)
@@ -550,6 +738,11 @@ export async function addCorrection(me, procKey, { op, args, why = '' } = {}) {
 export async function removeCorrection(me, procKey, id) {
   if (!/^[0-9a-f-]{36}$/i.test(String(id))) throw err(404, '그 고친 기록을 찾지 못했어요.')
   const { proc } = await foundOf(procKey)
+  const [row] = await q(`select op, args from pro_corrections where tenant_id=$1 and proc_key=$2 and id=$3`, [T(), procKey, id])
+  if (!row) throw err(404, '그 고친 기록을 찾지 못했어요.')
+  // a process made by words is removed as a whole (editmap.js removeSaid); a change kept in its own table is put back there first
+  if (row.op === 'new_process') throw err(409, '이 프로세스를 만든 기록이에요 — 프로세스를 지우려면 지도에서 「이 프로세스 지우기」를 눌러 주세요.')
+  if (SIDE_OPS.includes(row.op)) await (await import('./editmap.js')).undoSide(me, procKey, row)
   const [c] = await q(`delete from pro_corrections where tenant_id=$1 and proc_key=$2 and id=$3 returning op, args, issue_id`, [T(), procKey, id])
   if (!c) throw err(404, '그 고친 기록을 찾지 못했어요.')
   if (c.issue_id) {

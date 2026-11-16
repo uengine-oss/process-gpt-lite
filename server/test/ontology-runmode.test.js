@@ -241,7 +241,8 @@ test('다듬은 흐름으로 스냅샷: 고친 대로 한 줄 — 사람이 정�
   assert.match(v.tasks.get('고객 회신').definition_md, /runner: agent/)
   assert.equal(v.tasks.get('고객 회신').added, true)
   const added = v.edges.find((e) => e.from === '강의자료 준비' && e.to === '고객 회신')
-  assert.deepEqual([added.p, added.decided], [0, true])
+  // (the only way out, no case took it yet: the whole share — ways nobody took share evenly, refine.js applyCorrections)
+  assert.deepEqual([added.p, added.decided], [1, true])
   // 찾은 길은 지도가 아는 것(parallel 등)을 그대로, 몫만 다듬은 흐름의 것
   const kept = v.edges.find((e) => e.from === '강의계획서 작성' && e.to === '강의자료 준비')
   assert.deepEqual([kept.p, kept.decided], [1, undefined])

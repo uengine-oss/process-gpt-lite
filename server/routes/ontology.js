@@ -218,5 +218,23 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/tasks/:key/pin', auth, h(async (req) => { await admin(req); return V.pinTask(req.user, req.params.key, { pinned: req.body?.pinned !== false, validFrom: req.body?.validFrom, reason: req.body?.reason || '' }) }))
   r.post('/ontology/edges', auth, h(async (req) => { await admin(req); return V.setEdge(req.user, String(req.body?.from || ''), String(req.body?.to || ''), { status: req.body?.status, validFrom: req.body?.validFrom, reason: req.body?.reason || '' }) }))
   r.get('/ontology/decisions', auth, h(() => V.decisions()))
+
+  // 말로 고치기 · 더하기(editmap.js): 말 → 동작 → 미리 보기는 누구나, 적용 · 말로 만든 프로세스 지우기는 관리자(서버가 막는다).
+  // 채팅의 초안 카드 「지도에 넣기」 · 「○○ 프로세스에서 … 바꿔 줘」 카드. 의견(opinions.js): 남기기는 누구나, 해소는 관리자.
+  const EM = () => import('../lib/ontology/editmap.js')
+  const OP = () => import('../lib/ontology/opinions.js')
+  const arr = (v) => (Array.isArray(v) ? v.slice(0, 40) : [])
+  r.post('/ontology/edit/plan', auth, h(async (req) => (await EM()).planEdit(req.user, { proc: String(req.body?.proc || ''), scope: req.body?.scope || null, words: String(req.body?.words || ''), answer: String(req.body?.answer || '') })))
+  r.post('/ontology/edit/apply', auth, h(async (req) => (await EM()).applyEdit(req.user, { proc: String(req.body?.proc || ''), scope: req.body?.scope || null, words: String(req.body?.words || ''),
+    ops: arr(req.body?.ops), messageId: req.body?.messageId || null, resolve: req.body?.resolve?.opinions ? { opinions: arr(req.body.resolve.opinions).map(String), note: String(req.body.resolve.note || '') } : null })))
+  r.delete('/ontology/said/:proc', auth, h(async (req) => (await EM()).removeSaid(req.user, req.params.proc)))
+  r.post('/ontology/edit/from-draft/:msgId', auth, h(async (req) => (await EM()).fromDraft(req.user, req.params.msgId)))
+  r.post('/ontology/edit/chat/:msgId', auth, h(async (req) => (await EM()).chatEditAction(req.user, req.params.msgId, req.body || {})))
+  r.post('/ontology/opinions', auth, h(async (req) => (await OP()).voice(req.user, { proc: String(req.body?.proc || ''), scope: req.body?.scope || null, words: String(req.body?.words || ''), ops: arr(req.body?.ops),
+    source: String(req.body?.source || 'map'), caseId: req.body?.caseId || null, todoId: req.body?.todoId || null, task: req.body?.task || null, messageId: req.body?.messageId || null })))
+  r.get('/ontology/processes/:proc/opinions', auth, h(async (req) => (await OP()).opinionsView(req.user, req.params.proc)))
+  r.get('/ontology/opinions/:id/preview', auth, h(async (req) => (await OP()).opinionPreview(req.user, req.params.id)))
+  r.post('/ontology/processes/:proc/opinions/resolve', auth, h(async (req) => (await OP()).resolve(req.user, req.params.proc, { action: String(req.body?.action || ''), opinion: req.body?.opinion || null,
+    opinions: arr(req.body?.opinions).map(String), note: String(req.body?.note || '') })))
   return r
 }

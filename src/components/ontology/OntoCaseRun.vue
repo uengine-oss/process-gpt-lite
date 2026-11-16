@@ -2,11 +2,13 @@
 // 건 지켜보기(server lib/ontology/runmode.js runView): 이 건의 실행 방식 · 멈춤, 단계마다 끝남 · 하는 중 · 사람 차례 · 기다림 · 다음과
 // 맡은 이(업무 에이전트, 또는 역할 · 사람), 되돌릴 수 있는지, 사람을 기다리면 그 까닭과 정할 것(진행 · 다른 갈래 · 멈추기).
 // 「멈추기」 · 「이어 가기」 · 「이 단계로 되감기」는 건을 맡은 사람이나 관리자. 바꾸면 emit changed(위 패널이 스냅샷을 다시 그린다).
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+// 「이 단계에 의견」은 누구나: 말을 지도의 고침으로 옮겨 보고(edit/plan, 그 단계 범위) 의견으로 남긴다(opinions, source step) — 건은 그대로.
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { api } from '../../api.js'
 import { dateTimeKo, pct } from './fmt.js'
 import { RUNMODE_KO, STEP_KO, WAIT_KO, holderText, RO, EUL, EUN, IEYO } from './ontoText.js'
 import OntoDocSheet from './OntoDocSheet.vue'
+import OntoChangeList from './OntoChangeList.vue'
 
 const props = defineProps({ caseId: { type: String, required: true } })
 const emit = defineEmits(['changed'])
@@ -80,10 +82,44 @@ watch(run, async () => { try { files.value = (await api(`/ontology/cases/${encod
 const fileOf = (s) => (s?.todoId ? files.value[s.todoId] || null : null)
 const failedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === false)
 const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).length
+
+// ---------- 이 단계에 의견 ----------
+// one step's box at a time; kept apart from run (it reloads every few seconds)
+const rootEl = ref(null)
+const voice = ref(null) // {key, task, todoId, words, plan, busy, failed, err, done, agree}
+const stepKey = (s) => `${s.inst}:${s.task}`
+function openVoice(s) {
+  if (voice.value?.key === stepKey(s)) { voice.value = null; return }
+  voice.value = { key: stepKey(s), task: s.task, todoId: s.todoId || null, words: '', plan: null, busy: '', failed: '', err: '', done: false, agree: 0 }
+  nextTick(() => rootEl.value?.querySelector('[data-testid="onto-case-voice-words"]')?.focus())
+}
+async function planVoice() {
+  const v = voice.value
+  const words = v.words.trim()
+  if (!words || !run.value?.proc) return
+  v.busy = 'plan'; v.failed = ''; v.err = ''; v.plan = null
+  try { v.plan = await api('/ontology/edit/plan', { method: 'POST', body: { proc: run.value.proc, scope: { tasks: [v.task], ways: [] }, words } }) } catch (e) { v.failed = e.message } finally { v.busy = '' }
+}
+// an opinion the model could not turn into changes is left as words (ops [])
+async function sendVoice() {
+  const v = voice.value
+  v.busy = 'voice'; v.err = ''
+  try {
+    const r = await api('/ontology/opinions', { method: 'POST', body: {
+      proc: run.value.proc, scope: v.plan?.range || { tasks: [v.task], ways: [] }, words: v.plan?.words || v.words.trim(), ops: v.plan?.ops || [],
+      source: 'step', caseId: run.value.caseId || props.caseId, todoId: v.todoId || undefined, task: v.task,
+    } })
+    v.done = true; v.agree = Number(r?.agree ?? r?.opinion?.agree ?? 0)
+  } catch (e) { v.err = e.message } finally { v.busy = '' }
+}
+function resay() {
+  voice.value.plan = null
+  nextTick(() => rootEl.value?.querySelector('[data-testid="onto-case-voice-words"]')?.focus())
+}
 </script>
 
 <template>
-  <div class="cr" data-testid="onto-case-run" :data-mode="run?.mode" :data-paused="run?.paused ? '1' : '0'" :data-status="run?.status">
+  <div ref="rootEl" class="cr" data-testid="onto-case-run" :data-mode="run?.mode" :data-paused="run?.paused ? '1' : '0'" :data-status="run?.status">
     <p v-if="!run && !err" class="muted pulse">진행을 불러오는 중…</p>
     <template v-if="run">
       <div class="top">
@@ -145,6 +181,7 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
             <div class="row1">
               <b class="tn">{{ s.task }}</b>
               <span class="st">{{ stateText(s) }}</span>
+              <button v-if="run.proc" class="lnk quiet press" :aria-expanded="voice?.key === stepKey(s)" data-testid="onto-case-voice-open" @click="openVoice(s)">이 단계에 의견</button>
             </div>
             <div class="row2">
               <span class="who" data-testid="onto-case-holder">{{ holderText(s.holder) }}</span>
@@ -170,6 +207,29 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
               </small>
             </div>
             <small v-if="s.sent" class="sent" data-testid="onto-case-sent">보낸 것으로 기록 · {{ s.sent.to || '받는 사람' }} · {{ s.sent.subject }} (실제로는 보내지 않았어요)</small>
+            <!-- 이 단계에 의견: 말 → 지도로 옮겨 보기 → 의견으로 남기기 -->
+            <div v-if="voice?.key === stepKey(s)" class="vo" data-testid="onto-case-voice" :data-task="s.task" :data-done="voice.done ? '1' : '0'">
+              <template v-if="voice.done">
+                <small class="ok" data-testid="onto-case-voice-done">의견으로 남겼어요. 진행 중인 건은 그대로예요.</small>
+                <small v-if="voice.agree > 1" class="agree" data-testid="onto-case-voice-agree">같은 의견 {{ voice.agree }}명</small>
+              </template>
+              <template v-else>
+                <textarea v-if="!voice.plan" v-model="voice.words" class="ta" rows="2" maxlength="600" :disabled="voice.busy === 'plan'"
+                  :placeholder="`「${s.task}」${EUL(s.task)} 어떻게 바꾸면 좋을까요?`" data-testid="onto-case-voice-words" />
+                <p v-else class="said">“{{ voice.words.trim() }}”</p>
+                <p v-if="voice.busy === 'plan'" class="muted pulse" data-testid="onto-case-voice-pending">말을 지도로 옮기는 중…</p>
+                <OntoChangeList v-if="voice.plan" :plan="voice.plan" />
+                <small v-if="voice.plan && !(voice.plan.ops || []).length" class="hint">지도의 고침으로 옮기지 못했어요 — 말 그대로 의견으로 남길 수 있어요.</small>
+                <small v-if="voice.failed" class="err">지도로 옮기지 못했어요({{ voice.failed }}) — 말 그대로 의견으로 남길 수 있어요.</small>
+                <div class="btns">
+                  <button v-if="!voice.plan" class="pill go press" :disabled="!!voice.busy || !voice.words.trim()" data-testid="onto-case-voice-plan" @click="planVoice">지도로 옮겨 보기</button>
+                  <button v-if="voice.plan || voice.failed" class="pill press" :class="{ go: voice.plan }" :disabled="!!voice.busy || !voice.words.trim()" data-testid="onto-case-voice-send" @click="sendVoice">{{ voice.busy === 'voice' ? '남기는 중…' : '의견으로 남기기' }}</button>
+                  <button v-if="voice.plan" class="pill press" :disabled="!!voice.busy" data-testid="onto-case-voice-resay" @click="resay">고쳐 말하기</button>
+                  <button class="pill press" :disabled="voice.busy === 'voice'" @click="voice = null">그만두기</button>
+                </div>
+                <small v-if="voice.err" class="err">{{ voice.err }}</small>
+              </template>
+            </div>
           </div>
           <button v-if="canRewind(s)" class="lnk press" :disabled="!!busy" data-testid="onto-case-rewind" @click="rewind(s.task)">이 단계로 되감기</button>
         </li>
@@ -275,4 +335,12 @@ li.skipped .tn { color: var(--text-secondary); }
 .dim { opacity: .75; }
 .ok { font-size: 12.5px; color: var(--color-success); }
 .err { font-size: 12.5px; color: var(--color-error); }
+/* 이 단계에 의견 */
+.lnk.quiet { margin-left: auto; font-size: 12px; color: var(--text-tertiary); }
+.lnk.quiet:hover, .lnk.quiet[aria-expanded='true'] { color: var(--color-info); }
+.vo { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px 12px; border-radius: 12px; background: var(--field-bg); }
+.ta { width: 100%; min-width: 0; padding: 7px 10px; border-radius: 10px; border: 0; outline: 0; resize: vertical; background: var(--regular-solid-bg, var(--cell-bg)); font: inherit; font-size: 13px; line-height: 1.5; color: var(--text-primary); }
+.ta::placeholder { color: var(--text-tertiary); }
+.said { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.agree { font-size: 12.5px; font-weight: 600; color: var(--color-info); }
 </style>

@@ -82,3 +82,128 @@ test('단순 프로세스(일 하나짜리 흐름): 전체 지도에서 빼면 �
   assert.equal(m.hidden, 1)
   assert.deepEqual(m.processes.map((p) => p.key), ['p3', 'r'])
 })
+
+// 말로 프로세스 지도 고치기: 프로세스를 고르면 다듬은 흐름(map.refined[proc])을 그린다. 사람이 정한 관계는 θ 와 상관없이,
+// 본 관계는 θ 그대로. 사람이 더한 단계는 「정했지만 아직 본 적 없어요」(unseen), 뺀 단계는 안 보인다.
+const refinedMap = () => ({
+  processes: [{ key: 'b', theta: 0.2, summary_theta: 0.2 }],
+  tasks: [T('요청', { entry_share: 1, n_cases: 9 }), T('평면도', { n_cases: 7, candidate: true }), T('견적', { n_cases: 6 }), T('법무', { n_cases: 1 }), T('메모', { n_cases: 3 })],
+  edges: [E('요청', '평면도', 0.9, { n: 8 }), E('평면도', '견적', 0.6, { n: 4 }), E('평면도', '메모', 0.4, { n: 3 }), E('견적', '법무', 0.1, { n: 1 }), E('견적', '__end__', 0.9, { n: 5 })],
+  refined: {
+    b: {
+      said: false, corrections: 3, removed: { tasks: ['메모'], edges: [{ from: '평면도', to: '메모' }] },
+      tasks: [{ key: '요청', role: '영업', n: 9, origin: '요청' }, { key: '도면 작성', role: '설계', n: 7, origin: '평면도', decided: true },
+        { key: '견적', role: '', n: 6, origin: '견적' }, { key: '법무', role: '', n: 1, origin: '법무' },
+        { key: '검토', role: '팀장', n: 0, origin: null, added: true, decided: true, unseen: true, runner: 'agent' }],
+      edges: [{ from: '요청', to: '도면 작성', n: 8, p: 0.9 }, { from: '도면 작성', to: '견적', n: 0, p: 0.05, decided: true },
+        { from: '견적', to: '법무', n: 1, p: 0.1 }, { from: '견적', to: '검토', n: 0, p: 0, decided: true, added: true },
+        { from: '검토', to: '__end__', n: 0, p: 0, decided: true, added: true }],
+      entries: ['요청'],
+    },
+  },
+})
+const ids = (v) => v.edges.map((e) => `${e.from}>${e.to}`).sort()
+
+test('다듬은 흐름: 정한 관계는 θ 보다 드물어도, 본 관계는 θ 그대로 · 더한 단계는 unseen · 뺀 단계는 없음', () => {
+  const v = visibleGraph(refinedMap(), { proc: 'b', mode: 'auto' })
+  assert.equal(v.refined, true)
+  assert.ok(v.decided)
+  assert.deepEqual(v.tasks.map((t) => t.key).sort(), ['검토', '견적', '도면 작성', '요청'])
+  assert.deepEqual(ids(v), ['검토>__end__', '견적>검토', '도면 작성>견적', '요청>도면 작성'])
+  assert.ok(!ids(v).includes('견적>법무'), '본 관계는 θ 보다 드물면 빠진다')
+  assert.ok(!v.tasks.some((t) => t.key === '메모'), '뺀 단계')
+  const low = v.edges.find((e) => e.from === '도면 작성')
+  assert.ok(low.decided && low.unseen, 'θ 보다 드문 정한 관계 · 0건이라 아직 본 적 없음')
+  const seen = v.edges.find((e) => e.from === '요청')
+  assert.ok(!seen.decided && !seen.unseen)
+  const renamed = v.tasks.find((t) => t.key === '도면 작성')
+  assert.equal(renamed.origin, '평면도')
+  assert.equal(renamed.name, '도면 작성')
+  assert.equal(renamed.n_cases, 7, '지도의 일(origin)에서 건수')
+  assert.equal(renamed.candidate, true)
+  assert.equal(renamed.role, '설계')
+  assert.ok(renamed.decided && !renamed.unseen)
+  const added = v.tasks.find((t) => t.key === '검토')
+  assert.deepEqual({ name: added.name, role: added.role, n_cases: added.n_cases, added: added.added, decided: added.decided, unseen: added.unseen, procs: added.procs, runner: added.runner },
+    { name: '검토', role: '팀장', n_cases: 0, added: true, decided: true, unseen: true, procs: ['b'], runner: 'agent' })
+  assert.equal(v.entries[0], '요청')
+  assert.equal(v.tasks.find((t) => t.key === '요청').entry_share, 1)
+})
+
+test('다듬은 흐름: 찾은 대로(flow found)는 지금 그대로', () => {
+  const m = refinedMap()
+  const plain = { ...m, refined: undefined }
+  const f = visibleGraph(m, { proc: 'b', mode: 'auto', flow: 'found' })
+  assert.equal(f.refined, false)
+  assert.deepEqual(f, visibleGraph(plain, { proc: 'b', mode: 'auto' }))
+  assert.ok(f.tasks.some((t) => t.key === '평면도') && f.tasks.some((t) => t.key === '메모'))
+  assert.ok(!f.tasks.some((t) => t.key === '도면 작성'))
+  // the whole map: a refined process that was not made by words stays as found
+  assert.deepEqual(visibleGraph(m, { mode: 'auto' }), visibleGraph(plain, { mode: 'auto' }))
+})
+
+test('말로 만든 프로세스(said): 건이 없어도 전체 지도와 그 프로세스에 그려진다 · 칩 목록에서 단순으로 빠지지 않는다', async () => {
+  const { isSimple } = await import('../../src/components/ontology/mapView.js')
+  const m = refinedMap()
+  m.processes.push({ key: 'said:접수', said: true, band: 'said', status: 'suggested', cases: 0, kind: 'flow', tasks: ['접수'] })
+  m.tasks.push({ key: '접수', procs: ['said:접수'], proc: 'said:접수', kind: 'said', n: 0, n_cases: 0 }, { key: '확인', procs: ['said:접수'], proc: 'said:접수', kind: 'said', n: 0, n_cases: 0 })
+  m.refined['said:접수'] = {
+    said: true, corrections: 1, removed: { tasks: [], edges: [] },
+    tasks: [{ key: '접수', role: '영업', n: 0, origin: '접수', said: true, decided: true, unseen: true }, { key: '확인', role: '', n: 0, origin: '확인', said: true },
+      { key: '견적', role: '', n: 6, origin: '견적' }],
+    edges: [{ from: '접수', to: '확인', n: 0, p: 0, decided: true }, { from: '확인', to: '견적', n: 0, p: 0 }],
+    entries: ['접수'],
+  }
+  const w = visibleGraph(m, { mode: 'auto' })
+  assert.ok(w.decided)
+  assert.equal(w.refined, false)
+  assert.equal(w.tasks.filter((t) => t.key === '견적').length, 1, '회사에 이미 있는 일은 한 번만')
+  assert.ok(w.tasks.some((t) => t.key === '접수' && t.unseen && t.said))
+  assert.ok(w.tasks.some((t) => t.key === '확인' && t.decided && t.unseen))
+  assert.ok(ids(w).includes('접수>확인') && ids(w).includes('확인>견적'))
+  assert.ok(w.edges.find((e) => e.from === '확인').decided, '말로 정한 관계는 모두 정한 것')
+  assert.ok(w.entries.includes('접수'))
+  assert.ok(w.tasks.some((t) => t.key === '평면도') && !w.tasks.some((t) => t.key === '도면 작성'), '다른 다듬은 프로세스는 찾은 대로')
+  assert.ok(!visibleGraph(m, { mode: 'auto', flow: 'found' }).tasks.some((t) => t.key === '접수'))
+  const s = visibleGraph(m, { proc: 'said:접수', mode: 'auto' })
+  assert.deepEqual(s.tasks.map((t) => t.key).sort(), ['견적', '접수', '확인'])
+  assert.equal(s.entries[0], '접수')
+  assert.equal(isSimple(m.processes[1]), false)
+})
+
+test('flowView: 미리 보기 뒤(after)의 diff · change 를 그대로 넘기고, 뺀 것도 남긴다', async () => {
+  const { flowView } = await import('../../src/components/ontology/mapView.js')
+  const after = {
+    tasks: [{ key: '요청', role: '영업', n: 9, origin: '요청' }, { key: '평면도', role: '', n: 7, origin: '평면도', diff: 'remove' },
+      { key: '검토', role: '팀장', n: 0, origin: null, added: true, decided: true, unseen: true, diff: 'add' },
+      { key: '견적서 작성', role: '', n: 6, origin: '견적', decided: true, diff: 'change', change: '이름을 「견적」에서 바꿔요', was: '견적' }],
+    edges: [{ from: '요청', to: '평면도', n: 8, p: 0.9, diff: 'remove' }, { from: '요청', to: '검토', n: 0, p: 0, decided: true, diff: 'add' },
+      { from: '검토', to: '견적서 작성', n: 0, p: 0, decided: true, diff: 'add' }, { from: '견적서 작성', to: '__end__', n: 5, p: 1 }, { from: '없는 일', to: '요청', n: 1, p: 1 }],
+    entries: ['요청'],
+  }
+  const v = flowView(after, refinedMap(), { proc: 'b' })
+  assert.deepEqual(v.tasks.map((t) => [t.key, t.diff || '']), [['요청', ''], ['평면도', 'remove'], ['검토', 'add'], ['견적서 작성', 'change']])
+  const ch = v.tasks.find((t) => t.key === '견적서 작성')
+  assert.deepEqual([ch.change, ch.was, ch.n_cases, ch.name, ch.origin], ['이름을 「견적」에서 바꿔요', '견적', 6, '견적서 작성', '견적'])
+  assert.ok(v.tasks.find((t) => t.key === '검토').unseen)
+  assert.deepEqual(v.edges.map((e) => `${e.from}>${e.to}:${e.diff || ''}`), ['요청>평면도:remove', '요청>검토:add', '검토>견적서 작성:add', '견적서 작성>__end__:'])
+  assert.ok(v.edges[1].decided && v.edges[1].unseen)
+  assert.deepEqual(v.entries, ['요청'])
+  assert.equal(v.tasks[0].entry_share, 1)
+  // no map: names are keys, counts are the Flow's
+  const bare = flowView(after, null)
+  assert.equal(bare.tasks.find((t) => t.key === '견적서 작성').n_cases, 6)
+  assert.equal(bare.tasks[0].entry_share, 0)
+  assert.deepEqual(flowView({ tasks: [{ key: 'a', n: 0 }, { key: 'b', n: 0 }], edges: [{ from: 'a', to: 'b', n: 0, p: 0 }] }).entries, ['a'])
+  assert.deepEqual(flowView(null), { tasks: [], edges: [], entries: [] })
+})
+
+test('사건 보기: 다듬은 흐름에서 이름을 바꾼 일에도 사건이 이어진다', () => {
+  const m = refinedMap()
+  m.events = [{ key: 'artifact:평면도:drawing', kind: 'artifact', name: '평면도 결과물(도면)', n: 3 }]
+  m.raises = [{ from: '평면도', to: 'artifact:평면도:drawing', p: 1 }]
+  m.triggers = [{ from: 'artifact:평면도:drawing', to: '견적', p: 1 }]
+  const f = eventGraph(m, { proc: 'b', mode: 'auto' })
+  const got = f.edges.filter((e) => e.kind !== 'next').map((e) => `${e.kind}:${e.from.replace(EV, '@')}>${e.to.replace(EV, '@')}`).sort()
+  assert.deepEqual(got, ['raise:도면 작성>@artifact:평면도:drawing', 'trigger:@artifact:평면도:drawing>견적'])
+})

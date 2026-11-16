@@ -21,7 +21,8 @@ export const garbled = (s) => /[가-힣][a-z]{2,}|[a-z]{2,}[가-힣]/.test(Strin
 // prompt: the process-discovery skill's prompts/name-labels.md
 
 // [{raw, hint?}] → Map(raw → {task, act, how})
-export async function resolveLabels(items, { known = [] } = {}) {
+// keep: false — read the names without keeping them (a preview: nothing is written before a person applies it)
+export async function resolveLabels(items, { known = [], keep = true, timeoutMs = 120000, tries: most = 2 } = {}) {
   const out = new Map()
   const want = [...new Map(items.filter((x) => clean(x.raw)).map((x) => [clean(x.raw), x])).values()]
   if (!want.length) return out
@@ -39,9 +40,9 @@ export async function resolveLabels(items, { known = [] } = {}) {
   for (let i = 0; i < left.length; i += 10) {
     const part = left.slice(i, i + 10)
     let ans = null
-    for (let tries = 0; tries < 2 && !ans; tries++) {
+    for (let tries = 0; tries < most && !ans; tries++) {
       try {
-        const r = await chatJson(await prompt('name-labels'), JSON.stringify({ known_tasks: [...names], items: part.map((x, n) => ({ i: n, text: maskPii(clean(x.raw)).slice(0, 600), ...(x.hint ? { hint: x.hint } : {}) })) }), { timeoutMs: 120000, temperature: 0 })
+        const r = await chatJson(await prompt('name-labels'), JSON.stringify({ known_tasks: [...names], items: part.map((x, n) => ({ i: n, text: maskPii(clean(x.raw)).slice(0, 600), ...(x.hint ? { hint: x.hint } : {}) })) }), { timeoutMs, temperature: 0 })
         ans = Array.isArray(r?.items) ? r.items : null
       } catch (e) { console.warn('[ontology] names', e.message) }
     }
@@ -58,8 +59,8 @@ export async function resolveLabels(items, { known = [] } = {}) {
       const how = !task ? 'none' : names.has(task) ? (a.known ? 'alias' : 'same') : 'model'
       if (task) names.add(task)
       const raw = clean(part[n].raw)
-      out.set(raw, { task, act, how })
-      await q(`insert into pro_onto_labels (tenant_id, raw_hash, raw, task, act, how) values ($1,$2,$3,$4,$5,$6)
+      out.set(raw, { task, act, how, known: !!a.known })
+      if (keep) await q(`insert into pro_onto_labels (tenant_id, raw_hash, raw, task, act, how) values ($1,$2,$3,$4,$5,$6)
                on conflict (tenant_id, raw_hash) do update set task=excluded.task, act=excluded.act, how=excluded.how`, [T(), hashOf(raw), raw.slice(0, 2000), task, act, how])
     }
   }

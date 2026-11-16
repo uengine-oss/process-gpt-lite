@@ -358,5 +358,28 @@
     "maxRepeat": 3,
     "textMatch": 0.6,
     "question": "이 건은 다음 경우에 해당하나? 「{text}」"
+  },
+  "edit": {
+    "judge": {
+      "via": "claude-cli",
+      "model": "claude-fable-5-2",
+      "fallback": "gateway"
+    },
+    "timeoutMs": 240000,
+    "maxOps": 12,
+    "maxSteps": 16,
+    "wordsChars": 600,
+    "neighbours": 1,
+    "companySteps": 120,
+    "matchTimeoutMs": 30000
+  },
+  "opinions": {
+    "judge": {
+      "via": "claude-cli",
+      "model": "claude-fable-5-2",
+      "fallback": "gateway"
+    },
+    "timeoutMs": 120000,
+    "closedShown": 20
   }
 }

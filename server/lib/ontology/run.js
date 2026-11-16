@@ -16,7 +16,7 @@ import { saveGenerated } from '../generated.js'
 import { cypher, readGraph, ontologyEnabled } from './store.js'
 import { taskDefinition } from './taskdef.js'
 import { END } from './stats.js'
-import { refinedView } from './refine.js'
+import { refinedView, baseOf } from './refine.js'
 
 export const ORCH = 'pgpt-pro-onto'
 const T = () => config.tenantId
@@ -26,7 +26,7 @@ const err = (status, message) => Object.assign(new Error(message), { status })
 const fmtWon = (n) => new Intl.NumberFormat('ko-KR').format(n)
 const isoDay = (d = new Date()) => new Date(d).toISOString()
 // a refined flow's steps with their lanes (a corrected role makes another snapshot)
-const t2 = (tasks) => [...tasks.values()].map((t) => `${t.key}:${t.role || ''}`).join(',')
+const t2 = (tasks) => [...tasks.values()].map((t) => `${t.key}:${t.role || ''}${t.runner ? `:${t.runner}` : ''}`).join(',')
 
 // ---------- reading a proc ----------
 // found: the process as the map found it; otherwise as a person refined it (프로세스 다듬기, refine.js — the found flow with the
@@ -35,13 +35,11 @@ export async function procGraph(procKey, { validAt, found = false } = {}) {
   const g = await readGraph({ validAt })
   const proc = g.processes.find((b) => b.key === procKey)
   if (!proc) throw err(404, '프로세스를 찾지 못했어요.')
-  const set = new Set(proc.tasks)
-  const tasks = new Map(g.tasks.filter((t) => set.has(t.key)).map((t) => [t.key, t]))
-  const edges = g.edges.filter((e) => set.has(e.from) && (e.to === END || set.has(e.to)))
-  const base = { proc, tasks, edges, all: g }
-  if (found) return base
   // as of validAt: the corrections and requirements a person had made by then (the graph itself is read at that time)
   const cs = await q(`select id::text as id, op, args from pro_corrections where tenant_id=$1 and proc_key=$2 and ($3::timestamptz is null or at <= $3) order by at, id`, [T(), procKey, validAt || null]).catch(() => [])
+  // (a process made by words: only the ways a person said are its own — refine.js baseOf)
+  const base = baseOf(g, proc, cs)
+  if (found) return base
   // 꼭 하는 단계(steprule.js): in this process's snapshot like a pinned step
   return (await import('./steprule.js')).withRequirements(cs.length ? refinedView(base, cs) : base, procKey, { validAt })
 }
@@ -193,7 +191,7 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
     const g = `g_${node(x)}`
     const best = [...outs].sort((a, b) => b.p - a.p)[0]
     const conds = outs.filter((f) => condOf(f))
-    elements.push({ elementType: 'Gateway', id: g, name: outs.some((f) => f.cond) ? '금액 기준' : conds.length ? `${x} 뒤 갈림` : `${x} 다음`, role: laneOf(node(x)), type: 'ExclusiveGateway', gateWayType: 'bpmn:exclusiveGateway' })
+    elements.push({ elementType: 'Gateway', id: g, name: outs.some((f) => /금액\(amount\)/.test(f.cond || '')) ? '금액 기준' : conds.length ? `${x} 뒤 갈림` : `${x} 다음`, role: laneOf(node(x)), type: 'ExclusiveGateway', gateWayType: 'bpmn:exclusiveGateway' })
     seq(node(x), g)
     // a split with a learned condition uses it; without one, the most common branch is the default flow
     outs.forEach((f, i) => seq(g, node(f.to), {
@@ -222,7 +220,7 @@ export async function snapshot({ procKey, entry, theta, validAt, starterRole }) 
   if (!view.tasks.has(entry)) throw err(400, '그 일은 이 프로세스에 없어요.')
   const th = Number.isFinite(theta) ? theta : view.proc.theta ?? 0.05
   const structural = [...view.tasks.values()].map((t) => `${t.key}:${t.pinned ? 1 : 0}:${t.status}:${t.definition_md ? sha(t.definition_md).slice(0, 6) : ''}`).join('|') +
-    view.edges.map((e) => `${e.from}>${e.to}:${e.status}:${e.pinned ? 1 : 0}${e.decided ? ':d' : ''}`).join('|') + (view.refined ? `|refined:${t2(view.tasks)}` : '') + (view.requirements ? `|req:${view.requirements}` : '')
+    view.edges.map((e) => `${e.from}>${e.to}:${e.status}:${e.pinned ? 1 : 0}${e.decided ? `:d${e.cond ? sha(e.cond).slice(0, 6) : ''}${e.parallel ? 'p' : ''}` : ''}`).join('|') + (view.refined ? `|refined:${t2(view.tasks)}` : '') + (view.requirements ? `|req:${view.requirements}` : '')
   const week = Math.floor(new Date(validAt || Date.now()).getTime() / (7 * 86_400_000))
   // a promoted process (자동, design-v0.3 §12): its people's steps arrive with a draft the agent made in the background
   const draft = view.proc.status === 'adopted'
