@@ -337,5 +337,27 @@
       "yes": "예, 그렇다",
       "no": "아니요, 그렇지 않다"
     }
+  },
+  "events": {
+    "yes": 0.7,
+    "prefilterAbove": 6,
+    "chunk": 20,
+    "shortlist": 4,
+    "shortlistMin": 0.05,
+    "maxReads": 6,
+    "maxAdopted": 6,
+    "maxStarts": 3,
+    "textChars": 1500,
+    "fileChars": 1200,
+    "question": "이 {what}이 회사에 해 달라고 하는 일(받아서 확인하는 것 말고 회사가 해 줘야 하는 일)이 다음 단계 중 하나인가: {steps}? (「{name}」 업무) 하나라도 해당하면 예, 아무것도 아니면 아니요.",
+    "pick": "이 {what}은 회사의 어느 업무 흐름(프로세스)의 일인가?",
+    "none": "어느 업무 흐름의 일도 아니다(질문 · 잡담 · 알림 · 다른 일)"
+  },
+  "mapEngine": {
+    "default": "bpm",
+    "pinWhenRequired": true,
+    "maxRepeat": 3,
+    "textMatch": 0.6,
+    "question": "이 건은 다음 경우에 해당하나? 「{text}」"
   }
 }

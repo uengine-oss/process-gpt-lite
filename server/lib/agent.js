@@ -256,6 +256,12 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   }
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
   if (files.length) {
+    // 회사 프로세스 지도(lib/ontology/events.js): a file someone attaches is an event too — the processes it is the work of are offered
+    // (never started for them); it stands in for the chat request's offer of this turn
+    if (!habitId) {
+      if (store) store.fileEvent = true
+      import('./ontology/events.js').then((m) => m.onFile({ user, threadId, files, said: text })).catch((e) => console.warn('[ontology] file event', e.message))
+    }
     attached.set(threadId, files)
     // the router only needs to know there are files; a question about them is the agent's job
     context = [context, L(`(첨부: ${files.map((f) => f.name).join(', ')})`, `(attached: ${files.map((f) => f.name).join(', ')})`)].filter(Boolean).join('\n\n')
@@ -1035,7 +1041,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (tc?.said && !ended && !silent && !divider && mode !== 'skill' && !contract) {
     afterTurn({ user, threadId, msg, conv: turn.conv || routing?.conversation_id || pin?.conversationId || thread?.conversation_id || null, title: context?.title, said: tc.said, files, attached: uploads, fromHabit: tc.habitId, session }).catch((e) => console.warn('[followups]', e.message))
     // 회사 프로세스 지도(design-v0.3 §12): a new request that starts one of the company's processes is offered as that process
-    if (!tc.habitId) import('./ontology/run.js').then((m) => m.chatSuggest({ user, threadId, said: tc.said, conv: turn.conv || routing?.conversation_id || null })).catch((e) => console.warn('[ontology] chat suggest', e.message))
+    if (!tc.habitId && !tc.fileEvent) import('./ontology/run.js').then((m) => m.chatSuggest({ user, threadId, said: tc.said, conv: turn.conv || routing?.conversation_id || null })).catch((e) => console.warn('[ontology] chat suggest', e.message))
   }
   return msg
   }

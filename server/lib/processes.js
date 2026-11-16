@@ -222,6 +222,9 @@ export async function myTodos(me) {
 export async function getTodo(todoId) {
   const [t] = await q('select * from todolist where id=$1', [todoId])
   if (!t) return null
+  // a step of a case run from the company's process map (no process definition): its activity and form come from the map's task
+  const M = await import('./ontology/mapengine.js')
+  if (M.isMapInst(t.proc_inst_id)) return M.todoView(t)
   const def = await getDefinition(t.proc_def_id)
   const step = def?.steps.find((s) => s.id === t.activity_id)
   const form = await getForm(step?.formId)

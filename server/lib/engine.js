@@ -95,6 +95,15 @@ export async function submitTodo({ me, todoId, values, messageId }) {
   if (!d) throw new Error('work item not found')
   const t = d.todo
   const formId = d.form?.id || d.step?.formId || 'defaultform'
+  // a case of the company's process map run from the map itself (no process definition — lib/ontology/mapengine.js): the step is
+  // handed in there and the map says what comes next
+  const M = await import('./ontology/mapengine.js')
+  if (M.isMapInst(t.proc_inst_id)) {
+    await M.submitPerson({ me, todo: t, payload: { [formId]: values || {} } })
+    if (messageId) await updateMessage(me.id, messageId, { state: 'submitted' })
+    emit(me.id, 'process', { instId: t.proc_inst_id, type: 'submitted' })
+    return { ok: true }
+  }
   await complete({
     answer: '',
     form_values: { [formId]: values || {} },

@@ -9,6 +9,7 @@ import { api } from '../../api.js'
 import { pct, dateTimeKo } from './fmt.js'
 import BpmnView from '../BpmnView.vue'
 import OntoCaseRun from './OntoCaseRun.vue'
+import OntoCaseFlow from './OntoCaseFlow.vue'
 import { TODO_KO, RO, EUL } from './ontoText.js'
 
 const props = defineProps({ caseId: { type: String, required: true }, tasks: { type: Array, default: null }, bpmnHeight: { type: Number, default: 300 }, hideHeader: Boolean })
@@ -18,9 +19,20 @@ const c = ref(null)
 const err = ref('')
 const loading = ref(true)
 
+const tick = ref(0)
 async function load() {
   err.value = ''
-  try { c.value = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}`) } catch (e) { err.value = e.message } finally { loading.value = false }
+  try { c.value = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}`); tick.value++ } catch (e) { err.value = e.message } finally { loading.value = false }
+}
+// 지도에서 바로 도는 건(server mapengine.js): 프로세스 정의 · 스냅샷 없이 인스턴스 하나 — 흐름도는 볼 때마다 지도에서 그리고, 관리자는 다음 단계를
+// 시작한 날의 지도로 정할지(고정) 바꿀 수 있다
+const isMap = computed(() => c.value?.engine === 'map')
+const admin = ref(false)
+watch(isMap, async (m) => { if (m && !admin.value) { try { admin.value = !!(await api('/ontology/engine')).admin } catch { admin.value = false } } })
+const pinBusy = ref(false)
+async function setPin(on) {
+  pinBusy.value = true; err.value = ''
+  try { await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/map-pin`, { method: 'PUT', body: { pin: on } }); await load() } catch (e) { err.value = e.message } finally { pinBusy.value = false }
 }
 
 const trig = computed(() => c.value?.trigger || {})
@@ -35,7 +47,8 @@ const defId = computed(() => curInfo.value?.proc_def_id || (c.value?.snapshots |
 const curTodos = computed(() => (c.value?.todos || []).filter((t) => t.proc_inst_id === curInst.value || !t.proc_inst_id))
 const stateOf = (s) => (s === 'DONE' ? 'done' : s === 'CANCELLED' ? 'skipped' : 'active')
 const steps = computed(() => curTodos.value.filter((t) => t.activity_id).map((t) => ({ id: t.activity_id, state: stateOf(t.status) })))
-const startedHow = computed(() => (trig.value.kind === 'mail' ? '메일로 들어왔어요' : trig.value.kind === 'manual' ? '직접 시작했어요' : ''))
+const startedHow = computed(() => ({ mail: '메일로 들어왔어요', manual: '직접 시작했어요', chat: '채팅 요청으로 시작했어요', message: '채팅 요청으로 시작했어요', timer: '타이머로 시작했어요',
+  file: trig.value.file ? `올린 파일 「${trig.value.file}」${RO(trig.value.file)} 시작했어요` : '올린 파일로 시작했어요' }[trig.value.kind] || ''))
 const statusKo = computed(() => ({ running: '진행 중', done: '끝남', COMPLETED: '끝남' }[c.value?.status] || c.value?.status || ''))
 const prevCount = computed(() => Math.max(0, (c.value?.instances || []).length - 1))
 
@@ -72,7 +85,7 @@ async function move() {
     const r = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/move`, { method: 'POST', body: { task: moveTo.value, reason: reason.value.trim(), ...(passing.value ? { confirm: true } : {}) } })
     if (r?.confirm) { passing.value = r.required || []; return }
     passing.value = null
-    moved.value = `「${moveTo.value}」${RO(moveTo.value)} 옮겼어요. 새 스냅샷에서 이어서 해요.`
+    moved.value = `「${moveTo.value}」${RO(moveTo.value)} 옮겼어요. ${isMap.value ? '같은 인스턴스에서 이어서 해요.' : '새 스냅샷에서 이어서 해요.'}`
     moveOpen.value = false; moveTo.value = ''; reason.value = ''
     emit('moved', r)
     await load()
@@ -129,8 +142,21 @@ defineExpose({ reload: load })
         </ol>
       </div>
 
+      <!-- 지도에서 바로: 흐름도(볼 때마다 지도에서) · 지도 고정 -->
+      <div v-if="isMap" class="sec snap" data-testid="onto-case-map">
+        <div class="sh">
+          <h4>지도에서 바로 도는 건</h4>
+          <small class="one" data-testid="onto-case-instances">인스턴스 {{ (c.instances || []).length }}개 · 프로세스 정의 없음</small>
+        </div>
+        <OntoCaseFlow :case-id="caseId" :tick="tick" />
+        <div class="pin" data-testid="onto-case-pin" :data-pinned="c.map_pin ? '1' : '0'">
+          <small>{{ c.map_pin ? `다음 단계를 건을 시작한 날(${dateTimeKo(c.map_pin)})의 지도로 정해요 — 그 뒤에 바뀐 지도는 이 건에 쓰지 않아요.` : '끝난 단계는 그대로, 다음 단계는 그때의 지도로 정해요.' }}</small>
+          <button v-if="admin && c.status === 'running'" class="lnk press" :disabled="pinBusy" data-testid="onto-case-pin-toggle" @click="setPin(!c.map_pin)">{{ c.map_pin ? '그때의 지도를 따라가기' : '시작한 날의 지도로 고정' }}</button>
+        </div>
+      </div>
+
       <!-- 지금 스냅샷 -->
-      <div class="sec snap">
+      <div v-else class="sec snap">
         <div class="sh">
           <h4>지금 스냅샷</h4>
           <button v-if="curInst" class="lnk press" @click="router.push(`/projects/p/${encodeURIComponent(curInst)}`)">인스턴스 열기</button>
@@ -155,7 +181,7 @@ defineExpose({ reload: load })
             <option v-for="k in choices" :key="k" :value="k">{{ k }}</option>
           </select>
           <input v-model="reason" class="in" placeholder="옮기는 이유(선택)" maxlength="200" />
-          <small class="hint">지금 인스턴스는 닫고, 고른 일부터 새 스냅샷으로 이어요. 다음에 지도를 셈할 때 배워요.</small>
+          <small class="hint">{{ isMap ? '열린 단계는 닫고, 같은 인스턴스에서 고른 일부터 이어요. 다음에 지도를 셈할 때 배워요.' : '지금 인스턴스는 닫고, 고른 일부터 새 스냅샷으로 이어요. 다음에 지도를 셈할 때 배워요.' }}</small>
           <div v-if="passing" class="pass" data-testid="onto-case-move-pass">
             <b>꼭 하는 단계 「{{ passing.map((x) => x.task).join('」 · 「') }}」{{ EUL(passing.at(-1)?.task || '') }} 지나쳐요.</b>
             <small v-for="x in passing" :key="x.task">{{ x.task }} · {{ x.line }}</small>
@@ -212,6 +238,10 @@ h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text-secon
 .todos li.done .dot { background: var(--color-success); box-shadow: none; }
 .todos li.skipped { color: var(--text-tertiary); } .todos li.skipped .dot { background: var(--text-tertiary); box-shadow: none; }
 .prev { display: block; margin-top: 8px; font-size: 12px; color: var(--text-tertiary); }
+.one { font-size: 12px; color: var(--text-secondary); }
+.pin { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.pin small { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+.pin .lnk { align-self: flex-start; }
 .mvbtn { height: 34px; padding: 0 14px; border-radius: 9999px; font-size: 13.5px; font-weight: 500; background: var(--field-bg); }
 .mvform { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .sel, .in { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border-radius: 12px; border: 0; outline: 0; background: var(--field-bg); font-size: 14px; }

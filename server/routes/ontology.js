@@ -69,13 +69,31 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/entry', auth, h((req) => R.chooseEntry({ subject: req.body?.subject, text: req.body?.text, procKey: req.body?.proc })))
   r.post('/ontology/cases', auth, h(async (req) => {
     const r2 = await R.startCase(req.user, { procKey: String(req.body?.proc || ''), entry: String(req.body?.entry || ''), subject: req.body?.subject || '',
-      body: req.body?.body || '', from: req.body?.from || '', customer: req.body?.customer || '', odds: req.body?.odds || null, kind: req.body?.kind || 'manual' })
+      body: req.body?.body || '', from: req.body?.from || '', customer: req.body?.customer || '', odds: req.body?.odds || null, kind: req.body?.kind || 'manual',
+      file: req.body?.file?.name ? { name: String(req.body.file.name).slice(0, 200) } : null })
     await keepOnCard(req.user, req.body?.messageId, { state: 'started', picked: true, choice: req.body?.odds || null, caseId: r2.caseId, instId: r2.instId,
       skipped: r2.snapshot.skipped, nodes: r2.snapshot.nodes, procDefId: r2.snapshot.procDefId })
     return r2
   }))
-  r.get('/ontology/cases', auth, h(() => q(`select id, bundle as proc, entry_task, trigger, status, instances, history, created_at from pro_po_cases where tenant_id=$1 order by created_at desc limit 30`, [config.tenantId])))
+  r.get('/ontology/cases', auth, h(() => q(`select id, bundle as proc, entry_task, trigger, status, instances, history, engine, map_pin, created_at from pro_po_cases where tenant_id=$1 order by created_at desc limit 30`, [config.tenantId])))
   r.get('/ontology/cases/:id', auth, h((req) => R.getCase(req.params.id)))
+  // 지도에서 바로 실행(mapengine.js): 실행 방식의 엔진(보기는 누구나, 바꾸기는 관리자) · 건의 흐름도(지금 지도 · 고정했으면 시작한 날의 지도로
+  // 그때그때 그린다, 남기지 않음) · 건마다 지도 고정(관리자)
+  const ME = () => import('../lib/ontology/mapengine.js')
+  r.get('/ontology/engine', auth, h(async (req) => (await ME()).engineView(req.user)))
+  r.put('/ontology/engine', auth, h(async (req) => { await admin(req); return (await ME()).setEngine(req.user, req.body?.engine ? String(req.body.engine) : null) }))
+  r.get('/ontology/cases/:id/flow', auth, h(async (req) => (await ME()).flowOf(req.params.id)))
+  r.put('/ontology/cases/:id/map-pin', auth, h(async (req) => { await admin(req); return (await ME()).setPin(req.user, req.params.id, req.body?.pin === true) }))
+  // 채팅에 올린 파일도 사건이다(events.js onFile): 채팅 메시지와 함께 오면 서버가 보고(lib/agent.js), 여기로는 이미 올린 첨부(POST /api/attachments 의
+  // path)를 다시 보낼 수 있다 — 자기 첨부만. 묻기만 하고 저절로 시작하지 않는다.
+  r.post('/ontology/events/file', auth, h(async (req) => {
+    const own = `/workspace/uploads/${req.user.id}/`
+    const files = (Array.isArray(req.body?.files) ? req.body.files : []).filter((f) => f?.name && String(f.path || '').startsWith(own) && !String(f.path).includes('..')).slice(0, 5)
+    if (!files.length) throw S.err(400, '올린 파일(path)이 없어요 — 먼저 /api/attachments 로 올려 주세요.')
+    const { getThread } = await import('../lib/store.js')
+    const threadId = req.body?.threadId && (await getThread(req.user.id, String(req.body.threadId)).catch(() => null)) ? String(req.body.threadId) : null
+    return (await import('../lib/ontology/events.js')).onFile({ user: req.user, threadId, files, said: String(req.body?.text || '').slice(0, 2000) }) || { none: true }
+  }))
   r.post('/ontology/cases/:id/move', auth, h(async (req) => {
     // a move that passes a 꼭 하는 단계 only says so until the person confirms with a reason (steprule.js)
     const pass = await SR().then((m) => m.guardMove(req.user, req.params.id, { task: String(req.body?.task || ''), confirm: req.body?.confirm === true, reason: String(req.body?.reason || '') }))

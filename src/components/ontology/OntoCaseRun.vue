@@ -63,8 +63,11 @@ async function rewind(task, confirm = false) {
   if (!r) return
   if (r.confirm) { ask.value = { task, lost: r.lost, redo: r.redo }; return }
   ask.value = null
-  note.value = `「${task}」${RO(task)} 되감았어요. 그 단계부터 새 스냅샷으로 다시 해요 — 앞에서 한 것은 기록으로 남아요.`
+  note.value = `「${task}」${RO(task)} 되감았어요. ${run.value?.engine === 'map' ? '같은 인스턴스에서 그 단계부터 다시 해요' : '그 단계부터 새 스냅샷으로 다시 해요'} — 앞에서 한 것은 기록으로 남아요.`
 }
+// 지도에서 바로 도는 건(server mapengine.js): 단계마다 지도가 그 단계를 고른 까닭(한 갈래 · 금액 조건 · 글 조건 · 가장 흔한 길 · 나란히 · 합류 · 옮김)
+const VIA_KO = { entry: '시작', single: '한 갈래', amount: '금액 조건', text: '갈림길 조건', common: '가장 흔한 길', parallel: '나란히', join: '합류', moved: '옮김', rewound: '되감음' }
+const viaText = (s) => (s.via ? `지도로 정함 · ${VIA_KO[s.via.how] || s.via.how}${s.via.why ? ` — ${s.via.why}` : ''}` : '')
 const stateText = (s) => (s.state === 'person' ? `${(s.holder?.names || []).join(', ') || s.holder?.role || '사람'} 차례` : STEP_KO[s.state] || s.state)
 // 단계가 만든 파일(server stepdoc.js stepFiles, 할 일마다): 파일 · 쓴 양식(정해 둔 · 자동) · 양식에서 바꾼 것 · 형식 규칙 점검 — 이음오피스로 열어 보기
 const files = ref({})
@@ -82,6 +85,7 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
       <div class="top">
         <span class="mode" data-testid="onto-case-mode" :title="run.modeFrom === 'process' ? '이 프로세스에 정한 방식이에요' : '회사 기본값을 따라요'">{{ RUNMODE_KO[run.mode] || run.mode }}</span>
         <span v-if="run.paused" class="pz" data-testid="onto-case-paused">멈춤</span>
+        <span v-if="run.engine === 'map'" class="eng" data-testid="onto-case-engine" :title="run.mapPin ? '시작한 날의 지도로 다음 단계를 정해요' : '단계가 끝날 때마다 그때의 지도로 다음 단계를 정해요'">지도에서 바로{{ run.mapPin ? ' · 지도 고정' : '' }}</span>
         <span class="sp" />
         <button v-if="run.controls.pause" class="pill press" :disabled="!!busy" data-testid="onto-case-pause" @click="pause">멈추기</button>
         <button v-if="run.controls.resume" class="pill go press" :disabled="!!busy" data-testid="onto-case-resume" @click="resume">이어 가기</button>
@@ -145,6 +149,7 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
               <span v-if="s.requirement" class="tag" :class="`rq-${s.requirement}`" data-testid="onto-case-requirement" :data-requirement="s.requirement" :title="s.reqLine">{{ REQ_TAG[s.requirement] }}</span>
             </div>
             <small v-if="s.skipped" class="skp" data-testid="onto-case-skipped">건너뜀 — {{ s.skipped.reason || '까닭 없음' }}</small>
+            <small v-if="s.via && s.via.how !== 'entry'" class="via" data-testid="onto-case-via" :data-how="s.via.how">{{ viaText(s) }}</small>
             <small v-if="s.matched && s.reqLine" class="rq" data-testid="onto-case-matched">{{ s.reqLine }}</small>
             <small v-if="s.result && !s.skipped" class="res">{{ s.result }}</small>
             <div v-if="fileOf(s)" class="made" data-testid="onto-case-file" :data-file="fileOf(s).file?.name || ''" :data-form="fileOf(s).form?.name || ''">
@@ -199,6 +204,8 @@ const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).l
 .top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sp { flex: 1; }
 .mode { padding: 3px 11px; border-radius: 9999px; background: var(--ink); color: var(--ink-inverse); font-size: 13px; font-weight: 600; }
+.eng { padding: 3px 10px; border-radius: 9999px; background: color-mix(in srgb, var(--color-info) 16%, transparent); color: var(--text-primary); font-size: 12.5px; font-weight: 600; }
+.via { font-size: 12px; color: var(--text-tertiary); line-height: 1.45; }
 .pz { padding: 3px 10px; border-radius: 9999px; background: color-mix(in srgb, var(--color-warning, #b26a00) 18%, transparent); color: var(--text-primary); font-size: 12.5px; font-weight: 600; }
 .hint { font-size: 12px; color: var(--text-tertiary); line-height: 1.45; }
 .pill { height: 32px; padding: 0 14px; border-radius: 9999px; font-size: 13.5px; font-weight: 500; background: var(--field-bg); color: var(--text-primary); }

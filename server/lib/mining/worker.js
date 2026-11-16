@@ -28,7 +28,9 @@ export async function ownerOf(row) {
 export async function instanceThread(userId, instId) {
   let [t] = await q('select id from pro_threads where user_id=$1 and ref=$2', [userId, instId])
   if (!t) {
-    const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
+    // (a case run from the company's process map has no engine instance: its name is the case's request — lib/ontology/mapengine.js)
+    const [i] = await q(`select proc_inst_name from bpm_proc_inst where proc_inst_id=$1
+                         union all select trigger->>'subject' from pro_po_cases where $1 = any(instances) and engine='map' limit 1`, [instId])
     ;[t] = await q(`insert into pro_threads(user_id,kind,title,ref) values ($1,'process',$2,$3) returning id`, [userId, i?.proc_inst_name, instId])
   }
   return t.id

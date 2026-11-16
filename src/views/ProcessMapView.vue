@@ -173,6 +173,7 @@ async function init() {
   if (status.value.build?.status === 'running') return followJob(status.value.build.id)
   try { await loadMap() } catch (e) { err.value = e.message; phase.value = 'error' }
   loadRunModes()
+  if (status.value.admin) loadEngine()
 }
 async function retry() {
   busy.value = 'retry'
@@ -312,6 +313,21 @@ async function setRunMode(m) {
     runModeMsg.value = `「${ko}」으로 바꿨어요. 진행 중인 건은 다음 단계부터 이 방식으로 가요.${r.released ? ` 확인을 기다리던 단계 ${r.released}개는 이어서 진행해요.` : ''}${proc.value.status === 'paused' ? ' 지금은 「관찰」 단계라 건이 시작되지 않아요 — 「제안」이나 「자동」일 때 쓰여요.' : ''}`
   } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
+// 실행 방식의 엔진(server lib/ontology/mapengine.js, 회사마다 · 관리자): 프로세스 정의로(기존 — 건마다 지도를 펼쳐 프로세스 정의를 만들고
+// 엔진이 돌린다) · 지도에서 바로(정의 없이 단계가 끝날 때마다 그때의 지도를 읽어 다음 단계를 정한다). 건은 시작할 때의 엔진으로 끝까지 가요.
+const ENGINES = [
+  { key: 'bpm', ko: '프로세스 정의로(기존)', tip: '건이 들어오면 지도를 펼쳐 프로세스 정의(스냅샷)를 만들고, 그 정의로 엔진이 끝까지 돌려요. 옮기거나 되감으면 새 인스턴스로 이어요.' },
+  { key: 'map', ko: '지도에서 바로', tip: '프로세스 정의 없이, 단계가 끝날 때마다 지도를 읽어 다음 단계를 정해요. 건 하나는 처음부터 끝까지 인스턴스 하나예요. 꼭 하는 단계가 있으면 시작한 날의 지도로 고정해요.' },
+]
+const engine = ref(null)
+async function loadEngine() { try { engine.value = await call('/ontology/engine') } catch { engine.value = null } }
+async function setEngine(k) {
+  busy.value = 'engine'; runModeMsg.value = ''
+  try {
+    engine.value = await call('/ontology/engine', { method: 'PUT', body: { engine: k } })
+    runModeMsg.value = `실행 방식의 엔진: 「${ENGINES.find((x) => x.key === k)?.ko || k}」. 새로 들어오는 건부터 이 엔진으로 가요 — 진행 중인 건은 시작할 때의 엔진 그대로예요.${engine.value?.env ? ` (지금은 서버 설정 PRO_ONTO_ENGINE=${engine.value.env}이 우선해요.)` : ''}`
+  } catch (e) { err.value = e.message } finally { busy.value = '' }
+}
 async function adopt(status) {
   if (!proc.value) return
   busy.value = 'adopt'
@@ -435,6 +451,12 @@ onBeforeUnmount(() => {
           <div v-if="proc && !isRoutine && runModes" class="ladder glass runmode" role="group" aria-label="이 프로세스의 실행 방식" data-testid="onto-runmode" :data-mode="runMode" :data-own="runModeOwn ? '1' : '0'">
             <button v-for="m in RUNMODES" :key="m.key" class="press" :class="{ on: runMode === m.key }" :disabled="!status?.admin || !!busy || runMode === m.key"
               :title="`${m.tip}${runModeOwn ? '' : ' (지금은 회사 기본값을 따라요)'}`" :data-testid="`onto-runmode-${m.key}`" @click="setRunMode(m.key)">{{ m.ko }}</button>
+          </div>
+          <!-- 실행 방식의 엔진(관리자, 회사 전체): 프로세스 정의로(기존) · 지도에서 바로 -->
+          <div v-if="status?.admin && engine" class="ladder glass engine" role="group" aria-label="실행 방식의 엔진" data-testid="onto-engine" :data-engine="engine.engine" :data-from="engine.from">
+            <span class="elbl" title="실행 방식의 엔진 — 회사 전체에 적용돼요">엔진</span>
+            <button v-for="m in ENGINES" :key="m.key" class="press" :class="{ on: engine.engine === m.key }" :disabled="!!busy || engine.engine === m.key || !!engine.env"
+              :title="`${m.tip}${engine.env ? ` (서버 설정 PRO_ONTO_ENGINE=${engine.env}이 우선해요)` : engine.from === 'product' ? ' (지금은 제품 기본값을 따라요)' : ''}`" :data-testid="`onto-engine-${m.key}`" @click="setEngine(m.key)">{{ m.ko }}</button>
           </div>
           <button v-if="proc && !isRoutine && status?.admin" class="hbtn glass press" :class="{ on: timerOpen }" data-testid="onto-timer-button" @click="timerOpen = !timerOpen">타이머</button>
           <!-- 온보딩 다시: 새로 온 메일과, 스킬이 바뀐 뒤 아직 그 판으로 읽지 않은 스레드만 읽고 지도를 다시 그린다 -->
@@ -630,6 +652,9 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .ladder button.on { background: var(--ink); color: var(--text-primary-on); }
 .ladder button:disabled:not(.on) { opacity: .55; }
 .runmode button { padding: 0 12px; }
+.engine { align-items: center; }
+.engine .elbl { padding: 0 6px 0 10px; font-size: 12px; color: var(--text-tertiary); }
+.engine button { padding: 0 11px; font-size: 12.5px; }
 .rmnote { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); line-height: 1.5; overflow-wrap: anywhere; word-break: keep-all; }
 .timers { display: flex; flex-direction: column; gap: 10px; }
 .timers label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }

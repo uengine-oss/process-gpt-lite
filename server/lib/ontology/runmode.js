@@ -194,7 +194,8 @@ export async function modesView() {
   const [d] = await q(`select default_mode from pro_run_settings where tenant_id=$1`, [T()]).catch(() => [])
   const R = (await skillRules()).runMode || {}
   const product = MODES.includes(R.default) ? R.default : 'hotl'
-  return { product, default: d?.default_mode || product, tenantSet: !!d, modes: Object.fromEntries(rows.map((r) => [r.proc_key, r.mode])), names: MODE_KO }
+  // (a row that only holds the engine — mapengine.js — leaves the mode to the product default)
+  return { product, default: d?.default_mode || product, tenantSet: !!d?.default_mode, modes: Object.fromEntries(rows.map((r) => [r.proc_key, r.mode])), names: MODE_KO }
 }
 
 export async function setDefaultMode(me, mode) {
@@ -258,8 +259,8 @@ async function outwardRecords(tasks, outside) {
   return out
 }
 
-export async function stepFacts(procKey, { view } = {}) {
-  view ||= await procGraph(procKey)
+export async function stepFacts(procKey, { view, validAt } = {}) {
+  view ||= await procGraph(procKey, { validAt })
   const R = (await skillRules()).runMode || {}
   const tasks = [...view.tasks.values()]
   const origins = [...new Set(tasks.map((t) => t.origin || t.key))]
@@ -270,7 +271,7 @@ export async function stepFacts(procKey, { view } = {}) {
   const outside = new Set((view.all?.roles || []).filter((r) => r.outside).flatMap((r) => [r.key, r.name]).filter(Boolean))
   const records = await outwardRecords(origins, outside)
   // 꼭 · 선택(steprule.js): the step's own setting in this process (by the name the map shows, or the one it was found under)
-  const reqs = await SR.requirementsOf(procKey)
+  const reqs = await SR.requirementsOf(procKey, { validAt })
   const out = new Map()
   for (const t of tasks) {
     const o = t.origin || t.key
@@ -316,9 +317,10 @@ function waysOut(view, from) {
   const pinned = (k) => !!view?.tasks.get(k)?.pinned
   return (view?.edges || []).filter((e) => e.from === from && e.status !== 'retired' && (e.p >= th || e.pinned || e.decided || (e.to !== END && pinned(e.to)))).map((e) => ({ to: e.to, p: e.p || 0 }))
 }
-async function proposalFor(c, row, view) {
-  const [prev] = await q(`select activity_name, activity_id from todolist where proc_inst_id=$1 and status::text in ('DONE','SUBMITTED') and id <> $2 order by end_date desc nulls last, updated_at desc limit 1`, [row.proc_inst_id, row.id])
-  const from = !prev || prev.activity_id === 'intake' ? INTAKE : prev.activity_name
+// via: how a case run from the map came to this step (mapengine.js — the step it came from and the map's reason)
+async function proposalFor(c, row, view, via = null) {
+  const [prev] = via ? [] : await q(`select activity_name, activity_id from todolist where proc_inst_id=$1 and status::text in ('DONE','SUBMITTED') and id <> $2 order by end_date desc nulls last, updated_at desc limit 1`, [row.proc_inst_id, row.id])
+  const from = via ? (['entry', 'moved', 'rewound'].includes(via.how) ? INTAKE : via.from || INTAKE) : !prev || prev.activity_id === 'intake' ? INTAKE : prev.activity_name
   if (from === INTAKE) {
     const o = c.entry_odds || null
     const moved = (c.history || []).filter((h) => ['moved', 'rewound'].includes(h.state)).at(-1)
@@ -329,9 +331,11 @@ async function proposalFor(c, row, view) {
   const origin = view?.tasks.get(from)?.origin || from
   const rows = await q(`select to_task, cond, confidence from pro_branch_conditions where tenant_id=$1 and from_task=$2`, [T(), origin]).catch(() => [])
   const conds = new Map(rows.map((r) => [r.to_task, { cond: r.cond, confidence: r.confidence }]))
-  const [g] = await q(`select data from events where proc_inst_id=$1 and event_type::text='gateway_decision' order by timestamp desc limit 1`, [row.proc_inst_id]).catch(() => [])
+  const [g] = via ? [] : await q(`select data from events where proc_inst_id=$1 and event_type::text='gateway_decision' order by timestamp desc limit 1`, [row.proc_inst_id]).catch(() => [])
   const ev = (g?.data?.evaluations || []).find((e) => e.selected)
-  return proposalOf({ from, to: row.activity_name, outs: waysOut(view, from), conds, engineWhy: (ev?.reason || ev?.explanation || '').slice(0, 200) })
+  const p = proposalOf({ from, to: row.activity_name, outs: waysOut(view, from), conds, engineWhy: via ? via.why || '' : (ev?.reason || ev?.explanation || '').slice(0, 200) })
+  // two steps done side by side (and the one after both) are not one way out of several: there is no other branch to pick
+  return via && ['parallel', 'join'].includes(via.how) ? { ...p, split: false, others: [] } : p
 }
 
 async function holderOf(todoId) {
@@ -375,20 +379,25 @@ export async function gateStep(row) {
   const [have] = await q(`select * from pro_case_steps where todo_id=$1`, [row.id])
   if (have?.state === 'waiting') return { act: 'wait', why: have.why }
   if (have?.state === 'skipped') return { act: 'skip', why: have.why, done: true }
-  const view = await procGraph(c.bundle).catch(() => null)
-  const facts = view ? (await stepFacts(c.bundle, { view })).get(row.activity_name) || null : null
+  // a case run from the map pinned to the map of its start reads that map here too (mapengine.js)
+  const validAt = (await import('./mapengine.js')).mapTimeOf(c)
+  const view = await procGraph(c.bundle, { validAt }).catch(() => null)
+  const facts = view ? (await stepFacts(c.bundle, { view, validAt })).get(row.activity_name) || null : null
   const { mode } = await modeOf(c.bundle)
   const paused = await pausedOf(c.id)
   const approved = have?.state === 'go'
+  // (a map case's step made by a move or a rewind says so on its own row — the case keeps one instance, so movedHere cannot tell)
+  const via = c.engine === 'map' ? have?.via || null : null
+  const forced = via?.how === 'rewound' ? '사람이 이 단계로 되감아서 해요' : via?.how === 'moved' ? '사람이 이 단계로 옮겨서 해요' : via ? '' : await movedHere(c, row).catch(() => '')
   // 꼭 · 선택(steprule.js): what this step is for this case — its rules read against the case, an optional step's need of it; kept
   // as it was when a person said 「진행」. Nothing is read while the agent would wait for the pause anyway.
   const req = approved ? (have.requirement ? { requirement: have.requirement, ...(have.matched || {}), need: have.need } : null)
-    : await SR.forStep(c, row.activity_name, { set: facts?.rule, what: facts?.what }, { forced: await movedHere(c, row).catch(() => ''), read: !(paused && kind !== 'person') })
+    : await SR.forStep(c, row.activity_name, { set: facts?.rule, what: facts?.what }, { forced, read: !(paused && kind !== 'person') })
       .catch((e) => { console.warn('[runmode] requirement', e.message); return null })
   const band = (await skillRules()).stepRules?.need || {}
   const d = decideStep({ mode, kind, responsible: !!facts?.responsible.on, irreversible: !!facts?.irreversible.on, policy: facts?.policy || null, paused, approved,
     requirement: req?.requirement || null, need: req?.need?.p ?? null, band })
-  const proposal = await proposalFor(c, row, view).catch(() => null)
+  const proposal = await proposalFor(c, row, view, via).catch(() => null)
   const state = d.act === 'wait' ? 'waiting' : approved ? 'go' : 'auto'
   const matched = req ? { from: req.from, base: req.base, matched: req.matched, checked: req.checked, amount: req.amount, amountFrom: req.amountFrom, line: req.line } : null
   const [s] = await q(`insert into pro_case_steps (tenant_id, case_id, proc_inst_id, todo_id, task, kind, mode, state, why, reversible, hold_item, proposal, requirement, matched, need)
@@ -446,9 +455,11 @@ async function releaseStep(s, { reason = '' } = {}) {
   const c = await getCase(s.case_id).catch(() => null)
   if (s.message_id && c?.started_by) await updateMessage(c.started_by, s.message_id, { state: 'released', note: reason }).catch(() => {})
 }
-// a person's step that was kept off their list is there now
+// a person's step that was kept off their list is there now (a case run from the map: its work item opens only now — mapengine.js)
 async function tellPerson(todoId) {
-  const [t] = await q(`select user_id from todolist where id=$1`, [todoId])
+  const [t] = await q(`select user_id, proc_inst_id from todolist where id=$1`, [todoId])
+  const M = await import('./mapengine.js')
+  if (M.isMapInst(t?.proc_inst_id)) return M.toPerson(todoId)
   for (const id of String(t?.user_id || '').split(',').map((x) => x.trim()).filter(Boolean)) emit(id, 'notifications', {})
 }
 
@@ -498,8 +509,13 @@ export async function decide(me, stepId, { action, to = '', confirm = false, rea
       const sent = { to: v.mail?.to || s.preview?.to || '', subject: v.mail?.subject || s.preview?.subject || '', body: String(v.mail?.body || v.result || '').slice(0, 6000),
         at: iso(), by: me.email || String(me.id), stub: true, note: '이 판은 실제로 보내지 않아요 — 보냈을 내용만 건에 남겨요' }
       const payload = { [formId]: { ...v, sent } }
-      const { error } = await admin.rpc('save_task_result', { p_todo_id: s.todo_id, p_payload: payload, p_final: true })
-      if (error) throw new Error('save_task_result: ' + error.message)
+      // (a case run from the map ends the step here and the map says what comes next — mapengine.js finishItem; no engine to hand it to)
+      const M = await import('./mapengine.js')
+      if (M.isMapInst(todo.proc_inst_id)) await M.finishItem(s.todo_id, payload)
+      else {
+        const { error } = await admin.rpc('save_task_result', { p_todo_id: s.todo_id, p_payload: payload, p_final: true })
+        if (error) throw new Error('save_task_result: ' + error.message)
+      }
       const W = await import('../mining/worker.js')
       await W.events([
         { job_id: `send-${s.id}`, todo_id: s.todo_id, proc_inst_id: todo.proc_inst_id, crew_type: 'result', event_type: 'task_completed', data: payload },
@@ -584,8 +600,9 @@ export async function heldTodos(ids) {
 // whether it can be undone, what it made or would send; the case's mode, pause and what a rewind to each reached step would mean
 export async function runView(me, caseId) {
   const c = await getCase(caseId)
-  const view = await procGraph(c.proc).catch(() => null)
-  const facts = view ? await stepFacts(c.proc, { view }).catch(() => new Map()) : new Map()
+  const validAt = (await import('./mapengine.js')).mapTimeOf(c)
+  const view = await procGraph(c.proc, { validAt }).catch(() => null)
+  const facts = view ? await stepFacts(c.proc, { view, validAt }).catch(() => new Map()) : new Map()
   const { mode, from } = await modeOf(c.proc)
   const paused = await pausedOf(c.id)
   const gates = await q(`select * from pro_case_steps where case_id=$1 order by created_at`, [c.id]).catch(() => [])
@@ -597,31 +614,56 @@ export async function runView(me, caseId) {
   const defs = new Map()
   for (const i of c.instancesInfo) if (!defs.has(i.proc_def_id)) { const [d] = await q(`select definition from proc_def where id=$1 and tenant_id=$2`, [i.proc_def_id, T()]); defs.set(i.proc_def_id, d?.definition || {}) }
   const firstVal = (o) => Object.values(o || {}).find((x) => x && typeof x === 'object') || {}
+  // one step as the run view shows it: a = its activity (the snapshot's, or a map case's act), t = its work item (null: not yet), g = its gate's row
+  const stepOf = (a, t, inst, current) => {
+    const g = t ? byTodo.get(t.id) : null
+    const f = facts.get(a.name) || null
+    const agentStep = a.agentMode === 'complete' || (t?.agent_orch && String(t.agent_mode || '').toUpperCase() === 'COMPLETE')
+    const people = String(t?.user_id || '').split(',').map((x) => users.get(x.trim())).filter((u) => u && !u.is_agent).map((u) => u.username || u.email)
+    const v = firstVal(t?.output), d = firstVal(t?.draft)
+    return {
+      task: a.name, inst, current, todoId: t?.id || null, stepId: g?.id || null, state: stepState(t, g), at: t?.end_date || t?.updated_at || null,
+      kind: g?.kind || (agentStep ? 'agent' : a.agentMode === 'draft' ? 'draft' : 'person'),
+      holder: agentStep ? { agent: true, name: '업무 에이전트', role: a.role } : { agent: false, role: a.role || '', names: people, draft: a.agentMode === 'draft' },
+      reversible: g ? g.reversible : !f?.irreversible?.on, reversibleWhy: f?.irreversible?.why || '', responsible: f?.responsible?.on || false, responsibleWhy: f?.responsible?.why || [],
+      policy: f?.policy || null, why: g?.state === 'waiting' ? g.why : [], whyText: g?.state === 'waiting' ? whyLines(g.why, f, g) : [], gate: g?.state || null, mode: g?.mode || null,
+      // 꼭 · 선택(steprule.js): what this case read for the step (before it came: the step's own setting), the rule that matched, a skip
+      requirement: g ? g.requirement || null : f?.rule?.requirement || null, reqLine: g?.matched?.line || '', matched: g?.matched?.matched || null, need: g?.need || null,
+      hasRules: !!f?.rule?.rules?.length, skipped: g?.state === 'skipped' ? g.skip || { reason: '' } : null,
+      proposal: g?.proposal || null, preview: g?.state === 'waiting' ? g.preview || null : null, decision: g?.decision || null, sent: g?.sent ? { to: g.sent.to, subject: g.sent.subject, at: g.sent.at, stub: true } : null,
+      result: clean(v.summary || v.title || v.result || d.summary || '').slice(0, 160) || null, hasDraft: !!Object.keys(d).length,
+      // a map case: how the map decided this step and which map it read (mapengine.js)
+      ...(g?.via ? { via: { how: g.via.how, from: g.via.from || null, why: g.via.why || '', p: g.via.p ?? null }, mapAt: g.map_at || null } : {}),
+    }
+  }
   const steps = []
-  for (const inst of c.instances) {
+  if (c.engine === 'map') {
+    // one instance: its work items in the order they were made; before the last move or rewind is the earlier run (shown folded, as a
+    // snapshot case's closed instances are); after the open steps, what the map would do next (the most common way — nothing is made yet)
+    const moved = (c.history || []).filter((h) => ['moved', 'rewound'].includes(h.state)).at(-1)
+    const since = moved ? new Date(moved.at).getTime() - 1000 : 0
+    const inst = c.instances[0]
+    const made = todos.filter((t) => byTodo.has(t.id)).sort((a, b) => new Date(byTodo.get(a.id).created_at) - new Date(byTodo.get(b.id).created_at))
+    for (const t of made) {
+      const g = byTodo.get(t.id)
+      steps.push(stepOf({ ...(g.act || {}), name: t.activity_name, id: t.activity_id }, t, inst, new Date(g.created_at).getTime() >= since))
+    }
+    if (c.status === 'running' && view) {
+      const M = await import('./mapengine.js')
+      for (const k of M.likelyNext(view, made.filter((t) => !['DONE', 'CANCELLED'].includes(t.status)).map((t) => t.activity_name))) {
+        const f = facts.get(k)
+        steps.push(stepOf({ name: k, role: f?.runner === 'agent' ? '업무 에이전트' : f?.role || '', agentMode: f?.runner === 'agent' ? 'complete' : 'none' }, null, inst, true))
+      }
+    }
+  }
+  for (const inst of c.engine === 'map' ? [] : c.instances) {
     const info = c.instancesInfo.find((i) => i.proc_inst_id === inst)
     const acts = (defs.get(info?.proc_def_id)?.activities || []).filter((a) => a.id !== 'intake')
     const current = inst === c.instances.at(-1)
     for (const a of acts) {
       const t = todos.filter((x) => x.proc_inst_id === inst && x.activity_id === a.id).at(-1) || null
       if (!t && !current) continue
-      const g = t ? byTodo.get(t.id) : null
-      const f = facts.get(a.name) || null
-      const agentStep = a.agentMode === 'complete' || (t?.agent_orch && String(t.agent_mode || '').toUpperCase() === 'COMPLETE')
-      const people = String(t?.user_id || '').split(',').map((x) => users.get(x.trim())).filter((u) => u && !u.is_agent).map((u) => u.username || u.email)
-      const v = firstVal(t?.output), d = firstVal(t?.draft)
-      steps.push({
-        task: a.name, inst, current, todoId: t?.id || null, stepId: g?.id || null, state: stepState(t, g), at: t?.end_date || t?.updated_at || null,
-        kind: g?.kind || (agentStep ? 'agent' : a.agentMode === 'draft' ? 'draft' : 'person'),
-        holder: agentStep ? { agent: true, name: '업무 에이전트', role: a.role } : { agent: false, role: a.role || '', names: people, draft: a.agentMode === 'draft' },
-        reversible: g ? g.reversible : !f?.irreversible?.on, reversibleWhy: f?.irreversible?.why || '', responsible: f?.responsible?.on || false, responsibleWhy: f?.responsible?.why || [],
-        policy: f?.policy || null, why: g?.state === 'waiting' ? g.why : [], whyText: g?.state === 'waiting' ? whyLines(g.why, f, g) : [], gate: g?.state || null, mode: g?.mode || null,
-        // 꼭 · 선택(steprule.js): what this case read for the step (before it came: the step's own setting), the rule that matched, a skip
-        requirement: g ? g.requirement || null : f?.rule?.requirement || null, reqLine: g?.matched?.line || '', matched: g?.matched?.matched || null, need: g?.need || null,
-        hasRules: !!f?.rule?.rules?.length, skipped: g?.state === 'skipped' ? g.skip || { reason: '' } : null,
-        proposal: g?.proposal || null, preview: g?.state === 'waiting' ? g.preview || null : null, decision: g?.decision || null, sent: g?.sent ? { to: g.sent.to, subject: g.sent.subject, at: g.sent.at, stub: true } : null,
-        result: clean(v.summary || v.title || v.result || d.summary || '').slice(0, 160) || null, hasDraft: !!Object.keys(d).length,
-      })
+      steps.push(stepOf(a, t, inst, current))
     }
   }
   const reached = [...new Set(steps.filter((s) => REACHED.includes(s.state)).map((s) => s.task))]
@@ -629,6 +671,7 @@ export async function runView(me, caseId) {
   const mine = String(c.started_by) === String(me.id) || (await isAdmin(me).catch(() => false))
   const waitingFor = steps.find((s) => s.current && s.state === 'waiting')
   return { caseId: c.id, proc: c.proc, procName: view?.proc?.name || '', status: c.status, mode, modeFrom: from, modeName: MODE_KO[mode], paused, refined: !!view?.refined,
+    engine: c.engine || 'bpm', mapPin: c.map_pin || null, instances: c.instances.length,
     subject: c.trigger?.subject || '', from: c.trigger?.from || '', steps, history: c.history || [], rewind,
     waiting: waitingFor ? { task: waitingFor.task, stepId: waitingFor.stepId, why: waitingFor.why, whyText: waitingFor.whyText } : null,
     controls: { mine, pause: mine && c.status === 'running' && !paused, resume: mine && paused } }

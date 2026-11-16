@@ -195,13 +195,15 @@ export function settingLines({ requirement = null, rules = [] } = {}) {
 }
 
 // ---------- reading ----------
-export async function requirementsOf(procKey) {
-  const rows = await q(`select task, requirement, rules, reason, by_user, at from pro_step_requirements where tenant_id=$1 and proc_key=$2`, [T(), procKey]).catch(() => [])
+// validAt: as a case pinned to an earlier map reads them — a setting made after then is not there (a setting is kept as its last
+// version, so one changed after then reads as not set)
+export async function requirementsOf(procKey, { validAt } = {}) {
+  const rows = await q(`select task, requirement, rules, reason, by_user, at from pro_step_requirements where tenant_id=$1 and proc_key=$2 and ($3::timestamptz is null or at <= $3)`, [T(), procKey, validAt || null]).catch(() => [])
   return new Map(rows.map((r) => [r.task, { task: r.task, requirement: r.requirement || null, rules: (r.rules || []).map(normRule).filter(Boolean), reason: r.reason || '', by: r.by_user || '', at: r.at }]))
 }
 // run.js procGraph: the view with this process's requirements on it (no table yet, or an error: the view as it was)
-export async function withRequirements(view, procKey) {
-  try { return requiredView(view, await requirementsOf(procKey)) } catch { return view }
+export async function withRequirements(view, procKey, { validAt } = {}) {
+  try { return requiredView(view, await requirementsOf(procKey, { validAt })) } catch { return view }
 }
 
 // the case's amount: the latest a step of it stated (a quote's total), else the request's own (「합계 1,240만 원」) — null when none
@@ -223,7 +225,7 @@ export async function caseAmount(c) {
 }
 
 // what the case is about, for a yes/no reading: its request and what the earlier steps made
-async function caseState(c, chars = 1500) {
+export async function caseState(c, chars = 1500) {
   const { caseIntake } = await import('./run.js')
   const intake = await caseIntake(c)
   const earlier = await (await import('./runmode.js')).earlierOfCase(c).catch(() => [])
@@ -277,7 +279,16 @@ export async function skipStep({ c, todoId, stepId, reason, by = 'agent', me }) 
   if (!t || ['DONE', 'SUBMITTED', 'CANCELLED'].includes(t.status)) throw err(409, '그 단계는 이미 닫혔어요.')
   const at = iso()
   const values = { skipped: true, reason, by, at, result: `건너뜀 — ${reason}`, summary: '건너뜀' }
-  if (String(t.agent_mode || '').toUpperCase() === 'COMPLETE') {
+  const M = await import('./mapengine.js')
+  // a case run from the map (mapengine.js): the step ends here, as skipped, and the map says what comes next — no engine to hand it to
+  const map = M.isMapInst(t.proc_inst_id)
+  if (map) {
+    const act = await (await import('./run.js')).actOf(t)
+    const formId = String(act.tool || '').startsWith('formHandler:') ? act.tool.slice(12) : `${t.activity_id}_form`
+    // (the gate's row says skipped first: the next step's decision reads this one as skipped)
+    if (stepId) await q(`update pro_case_steps set state='skipped', skip=$2, hold_item=false, updated_at=now() where id=$1`, [stepId, { reason, by, at }])
+    await M.finishItem(t.id, { [formId]: values })
+  } else if (String(t.agent_mode || '').toUpperCase() === 'COMPLETE') {
     const [a] = await q(`select a as act from proc_def, jsonb_array_elements(definition->'activities') a where id=$1 and tenant_id=$2 and a->>'id'=$3`, [t.proc_def_id, t.tenant_id, t.activity_id])
     const tool = a?.act?.tool || ''
     const formId = tool.startsWith('formHandler:') ? tool.slice(12) : `${t.activity_id}_form`

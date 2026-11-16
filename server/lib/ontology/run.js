@@ -40,9 +40,29 @@ export async function procGraph(procKey, { validAt, found = false } = {}) {
   const edges = g.edges.filter((e) => set.has(e.from) && (e.to === END || set.has(e.to)))
   const base = { proc, tasks, edges, all: g }
   if (found) return base
-  const cs = await q(`select id::text as id, op, args from pro_corrections where tenant_id=$1 and proc_key=$2 order by at, id`, [T(), procKey]).catch(() => [])
+  // as of validAt: the corrections and requirements a person had made by then (the graph itself is read at that time)
+  const cs = await q(`select id::text as id, op, args from pro_corrections where tenant_id=$1 and proc_key=$2 and ($3::timestamptz is null or at <= $3) order by at, id`, [T(), procKey, validAt || null]).catch(() => [])
   // 꼭 하는 단계(steprule.js): in this process's snapshot like a pinned step
-  return (await import('./steprule.js')).withRequirements(cs.length ? refinedView(base, cs) : base, procKey)
+  return (await import('./steprule.js')).withRequirements(cs.length ? refinedView(base, cs) : base, procKey, { validAt })
+}
+
+// the steps a case starting at `entry` passes over (the usual way to it, the receipt left out: the snapshot has its own 요청 접수)
+export async function skippedOf(view, entry) {
+  const cases = (await cypher(`MATCH (m:Meta {key:'meta'}) RETURN m.cases AS cases`))[0]?.cases || 1
+  const isReceipt = (k) => { const t = view.tasks.get(k); return !!t?.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2 }
+  return skippedBefore(view.proc, view.edges, entry).filter((k) => !isReceipt(k))
+}
+
+// two parallel siblings out of x (edges between them marked parallel) and the step after both (the most common way out of them)
+export function parallelPair(edges, flows, x) {
+  const targets = flows.filter((f) => f.from === x).map((f) => f.to).filter((t) => t !== END)
+  const pair = targets.length >= 2 && targets.find((a) => targets.find((b) => a !== b && edges.some((e) => e.from === a && e.to === b && e.parallel)))
+  if (!pair) return null
+  const other = targets.find((b) => b !== pair && edges.some((e) => e.from === pair && e.to === b && e.parallel))
+  const two = [pair, other]
+  const after = flows.filter((f) => two.includes(f.from) && !two.includes(f.to)).map((f) => f.to)
+  const next = [...new Set(after)].sort((a, b) => after.filter((y) => y === b).length - after.filter((y) => y === a).length)[0] || END
+  return { targets: two, next }
 }
 
 // the usual way from the proc's main entry to `entry` (most probable path) — what a case starting at `entry` skipped
@@ -151,15 +171,10 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
   const parallel = new Map() // x → {targets, next}
   const sibling = new Set()
   for (const x of nodes) {
-    const targets = flows.filter((f) => f.from === x).map((f) => f.to).filter((t) => t !== END)
-    const pair = targets.length >= 2 && targets.find((a) => targets.find((b) => a !== b && view.edges.some((e) => e.from === a && e.to === b && e.parallel)))
-    if (!pair) continue
-    const other = targets.find((b) => b !== pair && view.edges.some((e) => e.from === pair && e.to === b && e.parallel))
-    const two = [pair, other]
-    const after = flows.filter((f) => two.includes(f.from) && !two.includes(f.to)).map((f) => f.to)
-    const next = [...new Set(after)].sort((a, b) => after.filter((y) => y === b).length - after.filter((y) => y === a).length)[0] || END
-    parallel.set(x, { targets: two, next })
-    two.forEach((t) => sibling.add(t))
+    const par = parallelPair(view.edges, flows, x)
+    if (!par) continue
+    parallel.set(x, par)
+    par.targets.forEach((t) => sibling.add(t))
   }
   for (const x of nodes) {
     if (sibling.has(x)) continue
@@ -213,9 +228,7 @@ export async function snapshot({ procKey, entry, theta, validAt, starterRole }) 
   const draft = view.proc.status === 'adopted'
   const key = `${T()}|${procKey}|${entry}|${th}|${sha(structural).slice(0, 12)}|${week}|${starterRole || ''}${draft ? '|draft' : ''}`
   const [have] = await cypher(`MATCH (s:Snapshot {key:$key}) RETURN s.proc_def_id AS pid, s.tasks AS tasks`, { key })
-  const cases = (await cypher(`MATCH (m:Meta {key:'meta'}) RETURN m.cases AS cases`))[0]?.cases || 1
-  const isReceipt = (k) => { const t = view.tasks.get(k); return !!t?.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2 }
-  const skipped = skippedBefore(view.proc, view.edges, entry).filter((k) => !isReceipt(k))
+  const skipped = await skippedOf(view, entry)
   if (have?.pid) {
     const [d] = await q('select 1 from proc_def where id=$1 and tenant_id=$2', [have.pid, T()])
     if (d) return { key, procDefId: have.pid, reused: true, nodes: have.tasks || [], skipped, theta: th, proc: view.proc, draft }
@@ -306,15 +319,25 @@ async function roleOfPerson(userId) {
   return r?.role || '담당자'
 }
 
-export async function startCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', validAt }) {
+// the event a case came from: mail · timer · chat (the entry card says 'message') · file · manual — a file keeps its name
+export const KINDS = ['mail', 'timer', 'chat', 'file', 'manual']
+export const triggerOf = ({ kind = 'manual', subject = '', from = '', customer = '', file = null } = {}) => {
+  const k = kind === 'message' ? 'chat' : KINDS.includes(kind) ? kind : 'manual'
+  return { kind: k, subject, from, customer, ...(k === 'file' && file?.name ? { file: String(file.name).slice(0, 200) } : {}) }
+}
+
+// engine: the tenant's (mapengine.js engineOf) unless given — 'bpm' runs a snapshot proc_def on the engine, 'map' runs the map itself
+export async function startCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', file = null, validAt, engine }) {
   if (!ontologyEnabled()) throw err(503, 'Ontological DB 가 연결되지 않았어요.')
+  const M = await import('./mapengine.js')
+  if ((engine || (await M.engineOf()).engine) === 'map') return M.startMapCase(me, { procKey, entry, subject, body, from, customer, odds, kind, file })
   const starterRole = await roleOfPerson(me.id)
   const snap = await snapshot({ procKey, entry, starterRole, validAt })
   const { startProcess } = await import('../engine.js')
   const values = { subject, body: String(body).slice(0, 3000), customer, sender: from }
-  const [c] = await q(`insert into pro_po_cases (tenant_id, bundle, entry_task, started_by, trigger, entry_odds, snapshots, history)
-                       values ($1,$2,$3,$4,$5,$6,$7,$8) returning *, bundle as proc`, [T(), procKey, entry, me.id, { kind, subject, from, customer }, odds, [snap.procDefId],
-    JSON.stringify(snap.skipped.map((t) => ({ task: t, state: 'skipped', at: isoDay() })))])
+  const [c] = await q(`insert into pro_po_cases (tenant_id, bundle, entry_task, started_by, trigger, entry_odds, snapshots, history, engine, request)
+                       values ($1,$2,$3,$4,$5,$6,$7,$8,'bpm',$9) returning *, bundle as proc`, [T(), procKey, entry, me.id, triggerOf({ kind, subject, from, customer, file }), odds, [snap.procDefId],
+    JSON.stringify(snap.skipped.map((t) => ({ task: t, state: 'skipped', at: isoDay() }))), values])
   const { instId, instName } = await startProcess({ me, defId: snap.procDefId, values })
   await q(`update pro_po_cases set instances = array_append(instances, $2), updated_at=now() where id=$1`, [c.id, instId])
   return { caseId: c.id, instId, instName, snapshot: snap }
@@ -333,12 +356,25 @@ export async function getCase(id) {
 // The new instance gets the case's request again (the first instance's 요청 접수 values: subject, body, customer, sender), so
 // the steps from `task` on read what the case is about. state: 'moved' | 'rewound' (이 단계로 되감기, runmode.js) · learn:
 // whether the move is a fact the next build learns from (a rewind corrects this run, it says nothing about how work flows)
+// (a case run from the map — mapengine.js — has no 요청 접수 step: its request is on the case's row)
 export async function caseIntake(c) {
+  if (c.engine === 'map') return c.request || {}
   const [r] = c.instances?.length ? await q(`select output from todolist where proc_inst_id = any($1) and activity_id='intake' and output is not null order by end_date nulls last limit 1`, [c.instances]) : []
-  return Object.values(r?.output || {}).find((v) => v && typeof v === 'object') || {}
+  return Object.values(r?.output || {}).find((v) => v && typeof v === 'object') || c.request || {}
+}
+// what a step's skill reads of the case so far, flat: the request (a map case has no 요청 접수 step to carry it) and the earlier steps' values
+export async function prevOf(row) {
+  const W = await import('../mining/worker.js')
+  const done = await W.earlier(row.proc_inst_id)
+  const { isMapInst } = await import('./mapengine.js')
+  if (!isMapInst(row.proc_inst_id)) return done
+  const RM = await import('./runmode.js')
+  const c = await RM.caseOfInstance(row.proc_inst_id)
+  return { ...(c?.request || {}), ...done }
 }
 export async function moveCase(me, id, { task, reason = '', state = 'moved', learn = true }) {
   const c = await getCase(id)
+  if (c.engine === 'map') return (await import('./mapengine.js')).moveMap(me, c, { task, reason, state, learn })
   const cur = c.instances.at(-1)
   if (cur) {
     await q(`update todolist set status='CANCELLED' where proc_inst_id=$1 and status::text not in ('DONE','CANCELLED')`, [cur])
@@ -357,64 +393,21 @@ export async function moveCase(me, id, { task, reason = '', state = 'moved', lea
   return { caseId: id, instId, instName, snapshot: snap }
 }
 
-// ---------- mail: an adopted proc takes the mail first (lib/mail.js), else process mining's registered flows ----------
-// which of the company's processes (if any) a request starts: one first-token reading over their names (design-v0.3 §12)
-export async function whichProcess(text, procs) {
-  const list = procs.slice(0, 8)
-  if (!list.length) return null
-  const options = [...list.map((p, i) => ({ key: `p${i}`, label: `${p.name} — ${p.summary || p.tasks.slice(0, 4).join(' · ')}` })),
-    { key: 'none', label: '어느 업무 흐름의 시작도 아니다(질문 · 잡담 · 다른 일)' }]
-  const r = await oddsOf(`회사에 들어온 요청:\n${String(text).slice(0, 1500)}`, '이 요청은 회사의 어느 업무 흐름(프로세스)을 시작하는 일인가?', options).catch(() => null)
-  if (!r || r.choice === 'none' || (r.confidence ?? 0) < 0.6) return null
-  return { ...list[Number(r.choice.slice(1))], p: r.confidence }
-}
-
-// a mail that came in: a promoted process (자동) starts on it by itself; a process that is only suggested (제안) is offered —
-// 「이 메일은 … 프로세스의 … 부터 할 수 있어요. 진행할까요?」
+// ---------- events: a mail (lib/mail.js), a request typed in chat, a file attached in chat → events.js routeEvent ----------
+// Every adopted and suggested process is read against the event (yes/no each, so two can both say yes, and none is an answer):
+// an adopted one starts on a mail by itself, a suggested one is offered; a chat request or a file is only ever offered.
 export async function routeMail(userId, mail) {
   if (!ontologyEnabled()) return false
-  const g = await readGraph({}).catch(() => null)
-  const flows = (g?.processes || []).filter((b) => b.kind !== 'routine')
-  if (!flows.some((b) => ['adopted', 'suggested'].includes(b.status))) return false
-  let choice = flows.some((b) => b.status === 'adopted') ? await chooseEntry({ subject: mail.subject, text: mail.text }) : null
-  if (!choice) {
-    const which = await whichProcess(`${mail.subject || ''}\n${mail.text || ''}`, flows.filter((b) => b.status === 'suggested'))
-    if (!which) return false
-    choice = await chooseEntry({ subject: mail.subject, text: mail.text, procKey: which.key })
-    if (!choice) return false
-    choice = { ...choice, suggest: true, ask: true, procName: which.name, procP: which.p }
-  }
-  const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
-  if (!p?.email) return false
-  const me = { id: userId, email: p.email }
-  const t = await mainThread(userId)
-  const customer = String(mail.from || '').split('<')[0].trim() || '고객'
-  if (choice.ask) {
-    await addMessage(userId, t.id, 'agent', 'onto-entry', { state: 'ask', mail: { from: mail.from, subject: mail.subject, text: String(mail.text || '').slice(0, 1500) }, customer, choice })
-    return { asked: true }
-  }
-  const r = await startCase(me, { procKey: choice.proc, entry: choice.task, subject: mail.subject, body: mail.text, from: mail.from, customer, odds: choice, kind: 'mail' })
-  await addMessage(userId, t.id, 'agent', 'onto-entry', { state: 'started', mail: { from: mail.from, subject: mail.subject }, customer, choice, caseId: r.caseId, instId: r.instId,
-    skipped: r.snapshot.skipped, nodes: r.snapshot.nodes, procDefId: r.snapshot.procDefId })
-  await addMessage(userId, t.id, 'agent', 'process', { defId: r.snapshot.procDefId, name: r.instName, state: 'started', instId: r.instId, instName: r.instName })
-  return { instId: r.instId, caseId: r.caseId }
+  return (await import('./events.js')).onMail(userId, mail)
 }
 
 // a new request typed in chat that is the start of one of the company's processes: offered, never started by itself (a person
 // typed it — the events that start promoted processes are mails and finished steps); once per conversation
 export async function chatSuggest({ user, threadId, said, conv }) {
   if (!ontologyEnabled() || String(said || '').trim().length < 12) return null
-  const g = await readGraph({}).catch(() => null)
-  const flows = (g?.processes || []).filter((b) => b.kind !== 'routine' && ['adopted', 'suggested'].includes(b.status))
-  if (!flows.length) return null
   const [asked] = await q(`select 1 from pro_messages where thread_id=$1 and kind='onto-entry' and content->>'source'='chat' and coalesce(content->>'conv','')=$2 and created_at > now() - interval '1 day' limit 1`, [threadId, conv || ''])
   if (asked) return null
-  const which = await whichProcess(said, flows)
-  if (!which) return null
-  const choice = await chooseEntry({ subject: '', text: said, procKey: which.key })
-  if (!choice) return null
-  return addMessage(user.id, threadId, 'agent', 'onto-entry', { state: 'ask', source: 'chat', conv: conv || '', suggest: true,
-    mail: { from: '', subject: String(said).split('\n')[0].slice(0, 80), text: String(said).slice(0, 1500) }, customer: '', choice: { ...choice, suggest: true, ask: true, procName: which.name, procP: which.p } })
+  return (await import('./events.js')).onChat({ user, threadId, said, conv })
 }
 
 // ---------- agent steps (orchestration pgpt-pro-onto) ----------
@@ -515,17 +508,31 @@ export const ONTO_SKILLS = {
   },
 }
 
+// a step's activity: the snapshot's (proc_def.definition.activities), or — a case run from the map (mapengine.js) — what was read
+// from the task's definition when its work item was made (pro_case_steps.act)
+export async function actOf(row) {
+  const { isMapInst } = await import('./mapengine.js')
+  if (isMapInst(row.proc_inst_id)) {
+    const [s] = await q(`select act from pro_case_steps where todo_id=$1`, [row.id])
+    return s?.act || {}
+  }
+  const [a] = await q(`select a as act from proc_def, jsonb_array_elements(definition->'activities') a where id=$1 and tenant_id=$2 and a->>'id'=$3`, [row.proc_def_id, row.tenant_id, row.activity_id])
+  return a?.act || {}
+}
+
 async function runStep(row, gate = {}) {
   const W = await import('../mining/worker.js')
+  const M = await import('./mapengine.js')
+  const map = M.isMapInst(row.proc_inst_id)
   const job = crypto.randomUUID()
   const base = { job_id: job, todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH }
-  const [a] = await q(`select a as act from proc_def, jsonb_array_elements(definition->'activities') a where id=$1 and tenant_id=$2 and a->>'id'=$3`, [row.proc_def_id, row.tenant_id, row.activity_id])
-  const act = a?.act || {}
+  const act = await actOf(row)
   // a draft (a person's step of a promoted process): the agent works for the person the step is for, in their thread, and
   // its result is the step's draft — the person checks it and submits (design-v0.3 §12)
   const isDraft = String(row.agent_mode || '').toUpperCase() === 'DRAFT'
   const assignee = isDraft ? String(row.user_id || '').split(',').map((x) => x.trim()).filter((x) => x && x !== act.agent)[0] : null
-  const owner = assignee || await W.ownerOf(row)
+  // (a map case has no 요청 접수 step by its starter: the case's owner is who the agent acts for)
+  const owner = assignee || (map ? (await (await import('./runmode.js')).caseOfInstance(row.proc_inst_id))?.started_by : await W.ownerOf(row))
   if (!owner) throw new Error('no human participant to act for')
   const threadId = await W.instanceThread(owner, row.proc_inst_id)
   const status = (text) => emit(owner, 'status', { threadId, text })
@@ -548,14 +555,14 @@ async function runStep(row, gate = {}) {
       const form = await formFileOf(row.activity_name, act)
       if (!form) throw new Error('이 일의 회사 양식 파일이 없어요')
       r = await (await import('./stepdoc.js')).formStep({ row, act, owner, threadId, status, form, extra: await definitionText(row.activity_name, act) })
-    } else if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await W.earlier(row.proc_inst_id), status, extra: await definitionText(row.activity_name, act),
+    } else if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await prevOf(row), status, extra: await definitionText(row.activity_name, act),
       template: await formFileOf(row.activity_name, act), step: row.activity_name })
     else {
       const { delegate } = await import('../agent.js')
       const { sessionFor } = await import('../supa.js')
       const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
       const { user, session } = await sessionFor(p.email, p.name)
-      const prev = await W.earlier(row.proc_inst_id)
+      const prev = await prevOf(row)
       const ask = isDraft
         ? `프로세스의 '${row.activity_name}' 단계를 맡은 사람(${act.role || '담당자'})이 받기 전에 초안을 만들어 두는 일이에요. ${act.description || ''} ${act.instruction || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ') || '없음'}\n담당자가 그대로 확인하고 낼 수 있게, 이 단계의 결과(판단 · 근거 · 다음에 할 일)를 다섯 줄 안으로 써 주세요. 파일은 만들지 마세요.`
         : `프로세스의 '${row.activity_name}' 단계예요. ${act.instruction || act.description || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ')}\n쓸 스킬: ${(act.skills || []).join(', ')}`
@@ -567,6 +574,8 @@ async function runStep(row, gate = {}) {
   const values = { ...r.values, ...(checks.length ? { checkpoints: checks } : {}) }
   const formId = (act.tool || '').startsWith('formHandler:') ? act.tool.slice(12) : `${row.activity_id}_form`
   const payload = { [formId]: values }
+  // a map case moved or rewound while this step ran: its work item is closed, what it made is not used
+  if (map && !(await M.stillOpen(row.id))) { console.log(`[onto-worker] ${row.activity_name}: 옮기며 닫힌 단계 — 결과를 쓰지 않음`); return }
   // 되돌릴 수 없는 단계: what would go out is kept as the step's draft and the step waits for a person (runmode.js decide)
   if (gate.draftFirst) {
     await (await import('./runmode.js')).holdForSend(row, payload, gate)
@@ -574,8 +583,13 @@ async function runStep(row, gate = {}) {
     emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
     return
   }
-  const { error } = await admin.rpc('save_task_result', { p_todo_id: row.id, p_payload: payload, p_final: true })
-  if (error) throw new Error('save_task_result: ' + error.message)
+  // the engine's save (an agent's step: SUBMITTED, the engine goes on; a draft: kept on the item) — a map case's agent step ends here and
+  // the map says what comes next (mapengine.js finishItem; a draft stays the engine's way: it only fills the item)
+  if (map && !isDraft) await M.finishItem(row.id, payload)
+  else {
+    const { error } = await admin.rpc('save_task_result', { p_todo_id: row.id, p_payload: payload, p_final: true })
+    if (error) throw new Error('save_task_result: ' + error.message)
+  }
   await W.events([
     { ...base, crew_type: 'result', event_type: 'task_completed', data: payload },
     { job_id: 'CREW_FINISHED', todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: 'crew', event_type: 'crew_completed', data: 'Task completed successfully' },
@@ -641,5 +655,7 @@ export async function sweepCases() {
     await withTenant(t, () => checkCases()).catch((e) => console.warn('[onto-worker] cases', e.message))
     // a person's step of a running case (no agent on it) passes the run mode's gate as it opens (runmode.js)
     await withTenant(t, async () => (await import('./runmode.js')).gatePersonSteps()).catch((e) => { if (!/pro_case_steps/.test(e.message)) console.warn('[onto-worker] person steps', e.message) })
+    // cases run from the map: a step handed in some other way (Process GPT's own screen) · a person's step its gate has not seen
+    await withTenant(t, async () => (await import('./mapengine.js')).sweepMap()).catch((e) => console.warn('[onto-worker] map', e.message))
   }
 }
