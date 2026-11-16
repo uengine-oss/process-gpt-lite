@@ -3,7 +3,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import JSZip from 'jszip'
 import { repeatedSentences, commonPattern, candidatesOf, resolveChosen, checkFormat, judgedItems, maskText, customersOf, docFacts, skillText, hfText } from '../lib/ontology/formats.js'
-import { setParagraphText, cloneParagraph, editsOf, applyEdits, docParagraphs, textDocx, markdownBody } from '../lib/ontology/docfill.js'
+import { setParagraphText, cloneParagraph, editsOf, applyEdits, docParagraphs, textDocx, markdownBody, pickParagraphs, sourceCaseStrings, leftoversOf, leftoverCheck, modelCaseStrings, fillDocument } from '../lib/ontology/docfill.js'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { outputFormat } from '../lib/ontology/stepdoc.js'
 import { defaultRules } from '../lib/ontology/discovery.js'
 
@@ -193,4 +196,104 @@ test('단계가 내놓는 문서 형식: 일 정의의 outputs 에서', () => {
   assert.equal(outputFormat({ outputs: [{ name: '강의계획서', format: 'DOCX' }] }), 'docx')
   assert.equal(outputFormat({ outputs: [{ name: '회신', format: 'mail' }] }), '')
   assert.equal(outputFormat({}), '')
+})
+
+// ---------- 앞 건의 값: 양식 파일에 남아 온 지난 건의 이름 · 날짜 ----------
+const W = (t) => `<w:p><w:r><w:t xml:space="preserve">${t}</w:t></w:r></w:p>`
+const row = (cells) => `<w:tr>${cells.map((c) => `<w:tc>${c ? W(c) : '<w:p/>'}</w:tc>`).join('')}</w:tr>`
+// a form file as the last case sent it: 고모텍's 과제 정의서, its header naming 고모텍, a long body that pushes the header past the cap
+async function lastCaseDocx({ filler = 0 } = {}) {
+  const zip = new JSZip()
+  const body = [W('고모텍 물류 최적화 PBL'), W('팀별 과제 정의서 작성 양식 | 2026년 11월 10일 수업용'), W('이 문서는 학생들이 직접 작성하는 제출 양식입니다.'),
+    `<w:tbl>${row(['팀명 / 분반', '1팀'])}${row(['팀원·학번·담당 역할', '김현석 / 강수용'])}${row(['과제명(잠정)', '물류 최적화'])}${row(['구분', '내용'])}${row(['대상 기업', '비교 시사점'])}${row(['제출일 / 버전', '26.11.10'])}</w:tbl>`,
+    ...Array.from({ length: filler }, (_, k) => W(`설명 문단 ${k + 1}번입니다.`))].join('')
+  zip.file('word/document.xml', `<w:document><w:body>${body}</w:body></w:document>`)
+  zip.file('word/header1.xml', `<w:hdr>${W('경남대학교 피지컬 AI PBL  |  고모텍 물류 최적화 과제 정의서')}</w:hdr>`)
+  zip.file('word/footer1.xml', `<w:ftr>${W('더웨이(The Way) | 문의 02-000-0000')}</w:ftr>`)
+  return zip.generateAsync({ type: 'nodebuffer' })
+}
+const linesOf = (parts) => parts.flatMap((p) => p.paras.map((x) => ({ text: x.text, part: x.part, cell: x.cell, row: x.row, col: x.col })))
+
+test('채울 문단: 머리글 · 바닥글과 앞 건의 값이 든 문단은 긴 본문에 밀리지 않는다(문서 순서는 그대로)', async () => {
+  const { parts } = await docParagraphs(await lastCaseDocx({ filler: 40 }), 'docx', { max: 5 })
+  const old = pickParagraphs(parts, { max: 5 }).map((x) => x.part)
+  assert.deepEqual([...new Set(old)], ['body', 'header', 'footer'], '머리글 · 바닥글은 max 를 넘어도 들어간다')
+  const list = pickParagraphs(parts, { max: 5, must: (p) => p.text.includes('설명 문단 40번') })
+  assert.ok(list.some((x) => x.text === '설명 문단 40번입니다.'))
+  assert.ok(list.length <= 5 + 3)
+  assert.deepEqual(list.map((x) => x.i), [...list.map((x) => x.i)].sort((a, b) => a - b))
+})
+
+test('앞 건의 값(규칙): 파일 이름의 고객 부분 · 다른 파일과 같은 자리에서 다른 글 · 칸 이름 옆의 값 · 첫 문단의 날짜 — 열 이름 · 틀 · 이 건의 말은 빠진다', async () => {
+  const { parts } = await docParagraphs(await lastCaseDocx(), 'docx')
+  const other = facts({ header: ['경남대학교 피지컬 AI PBL | 디케이 RPA 과제 정의서'], body: ['디케이 RPA PBL', '이 문서는 학생들이 직접 작성하는 제출 양식입니다.'] })
+  const got = sourceCaseStrings({ form: '과제 정의서.docx', templateName: '고모텍.docx', lines: linesOf(parts), others: [other], fileNames: ['고모텍 PBL 과제 정의서.docx', '디케이 PBL 과제 정의서.docx'], R })
+  const by = Object.fromEntries(got.map((x) => [x.text, x.why]))
+  assert.equal(by['고모텍'], 'name')
+  assert.equal(by['고모텍 물류 최적화'], 'differs', '머리글에서 디케이 파일과 다른 부분')
+  assert.equal(by['1팀'], 'label'); assert.equal(by['김현석'], 'label'); assert.equal(by['강수용'], 'label')
+  assert.equal(by['물류 최적화'], 'label', '과제명 칸의 값은 낱말이어도')
+  assert.equal(by['26.11.10'], 'label')
+  assert.equal(by['2026년 11월 10일'], 'date')
+  for (const no of ['디케이', 'PBL', '비교 시사점', '내용', '더웨이(The Way)', '이 문서는 학생들이 직접 작성하는 제출 양식입니다.']) assert.ok(!(no in by), no)
+  // 이 건의 요청에 있는 글은 앞 건의 값이 아니다 · 같은 양식의 모든 파일에 있는 글도
+  const same = sourceCaseStrings({ form: '과제 정의서.docx', templateName: '고모텍.docx', lines: linesOf(parts), fileNames: ['고모텍 PBL 과제 정의서.docx', '디케이 PBL 과제 정의서.docx'], caseText: '고모텍 1팀 후속 과제', R })
+  assert.ok(!same.some((x) => x.text === '고모텍' || x.text === '1팀'))
+  const everywhere = sourceCaseStrings({ form: '과제 정의서.docx', lines: linesOf(parts), others: [facts({ body: ['1팀 · 김현석 · 강수용 · 26.11.10'] })], R })
+  assert.ok(!everywhere.some((x) => ['1팀', '김현석', '26.11.10'].includes(x.text)))
+  // 「작성일: 26.11.05」 같은 한 줄 안의 칸
+  const inline = sourceCaseStrings({ form: '기업분석표.docx', lines: [{ text: '기업명: 한빛정밀     팀: 2팀     작성일: 26.11.05     작성자: ____', part: 'body' }], R })
+  assert.deepEqual(inline.map((x) => x.text), ['한빛정밀', '2팀', '26.11.05'])
+})
+
+test('남은 앞 건의 값: 그 글이 든 문단, 형식 규칙이 지키는 문단은 표시, 단계 결과의 못 지킨 점검 한 줄', () => {
+  const parts = [{ paras: [{ i: 0, part: 'body', text: '한빛정밀 공정 개선 PBL' }, { i: 1, part: 'header', text: '경남대 PBL | 고모텍 과제 정의서' }, { i: 2, part: 'footer', text: '더웨이 · 고모텍 협력' }] }]
+  const left = leftoversOf(parts, ['고모텍', '26.11.10'], ['더웨이 · 고모텍 협력'])
+  assert.deepEqual(left.map((x) => [x.i, x.found, x.fixed]), [[1, ['고모텍'], false], [2, ['고모텍'], true]])
+  assert.equal(leftoverCheck({ left: [] }), null)
+  const c = leftoverCheck({ left: ['고모텍'], leftWhere: ['머리글'], leftFixed: false })
+  assert.deepEqual([c.item, c.ok, c.kind], ['앞 건의 값', false, 'leftover'])
+  assert.equal(c.note, '앞 건의 이름이 남았어요: 고모텍 — 머리글')
+  assert.match(leftoverCheck({ left: ['고모텍'], leftWhere: ['바닥글'], leftFixed: true }).note, /형식 규칙의 꼭 지킬 글 안/)
+  // 규칙이 못 찾으면 모델이 적은 것: 양식에 있고 · 이 건의 말이 아니고 · 형식 규칙의 글이 아닌 것만
+  assert.deepEqual(modelCaseStrings(['고모텍', '없는 이름', '더웨이', '한빛정밀'], { lines: [{ text: '고모텍 과제 · 더웨이 · 한빛정밀' }], keep: ['더웨이(The Way)'], caseText: '한빛정밀 요청' }), ['고모텍'])
+})
+
+test('양식 채우기: 모델이 머리글을 두고 가면 그 문단만 한 번 더 묻고, 그래도 남으면 남았다고 — 형식 규칙의 글은 그대로', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docfill-'))
+  const p = path.join(dir, '고모텍.docx')
+  fs.writeFileSync(p, await lastCaseDocx({ filler: 30 }))
+  const input = { form: '과제 정의서.docx', case: { subject: '한빛정밀 공정 개선 과제', body: '한빛정밀 2팀', customer: '한빛정밀' } }
+  const source = { fileNames: ['고모텍 PBL 과제 정의서.docx', '디케이 PBL 과제 정의서.docx'] }
+  const asked = []
+  // first answer: only the body title (the header stays); asked again: it fixes what it is shown
+  const fixer = async (inp) => {
+    asked.push(inp)
+    if (!inp.left) return { paragraphs: [{ i: inp.paragraphs.find((x) => x.text === '고모텍 물류 최적화 PBL').i, text: '한빛정밀 공정 개선 PBL' }], summary: '제목을 바꿨어요' }
+    return { paragraphs: inp.paragraphs.map((x) => ({ i: x.i, text: x.text.replace(/고모텍 물류 최적화|고모텍/g, '한빛정밀 공정 개선').replace('1팀', '2팀').replace(/김현석|강수용/g, '____').replace('물류 최적화', '공정 개선').replace(/26\.11\.10|2026년 11월 10일/g, '____') })) }
+  }
+  const ok = await fillDocument({ template: { name: '과제 정의서.docx', path: p }, kind: 'docx', input, ask: fixer, max: 8, source, rules: R })
+  assert.ok(asked[0].source_case.includes('고모텍'), '모델에 앞 건의 값을 알린다')
+  assert.ok(asked[0].paragraphs.some((x) => x.part === 'header'), '머리글도 보낸다')
+  assert.ok(asked[1].left.includes('고모텍') && asked[1].paragraphs.some((x) => x.part === 'header'))
+  assert.deepEqual(ok.left, [])
+  assert.equal(ok.retried > 0, true)
+  const f = await docFacts('x.docx', ok.buf)
+  assert.ok(!/고모텍/.test([...f.header, ...f.body].join('\n')), f.header.join())
+  assert.equal(f.footer[0], '더웨이(The Way) | 문의 02-000-0000')
+  // a model that never changes the header: what stays is reported, never passed silently
+  const lazy = async (inp) => (inp.left ? { paragraphs: [] } : { paragraphs: [{ i: inp.paragraphs.find((x) => x.text === '고모텍 물류 최적화 PBL').i, text: '한빛정밀 공정 개선 PBL' }] })
+  const bad = await fillDocument({ template: { name: '과제 정의서.docx', path: p }, kind: 'docx', input, ask: lazy, max: 8, source, rules: R })
+  assert.ok(bad.left.includes('고모텍') && bad.leftWhere.includes('머리글'))
+  assert.match(leftoverCheck(bad).note, /^앞 건의 이름이 남았어요: .*고모텍/)
+  // a format rule's fixed text that holds the old name: kept as it is (not asked again) and reported
+  const keepHeader = ['경남대학교 피지컬 AI PBL | 고모텍 물류 최적화 과제 정의서']
+  const asked2 = []
+  const kept = await fillDocument({ template: { name: '과제 정의서.docx', path: p }, kind: 'docx', input, keep: keepHeader, ask: async (inp) => { asked2.push(inp); return fixer(inp) }, max: 8, source, rules: R })
+  const f2 = await docFacts('x.docx', kept.buf)
+  assert.equal(f2.header[0], '경남대학교 피지컬 AI PBL | 고모텍 물류 최적화 과제 정의서', '형식 규칙의 꼭 지킬 글은 그대로')
+  assert.ok(!(asked2[1]?.paragraphs || []).some((x) => x.part === 'header'), '지키는 문단은 다시 묻지 않는다')
+  assert.equal(kept.leftFixed, true)
+  assert.match(leftoverCheck(kept).note, /형식 규칙의 꼭 지킬 글 안/)
+  fs.rmSync(dir, { recursive: true, force: true })
 })

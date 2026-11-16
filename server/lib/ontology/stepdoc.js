@@ -1,7 +1,8 @@
 // 문서를 만드는 단계(run.js runStep): 이 일이 쓰는 양식(formats.js chosenForm)에 메일에서 남겨 둔 파일이 있으면 그 파일을 복사해 이 건으로
 // 채우고(엑셀: mining/worker.js 의 셀 채우기, 워드 · 파워포인트 · 한글: docfill.js 의 문단 채우기 — 둘 다 도구 없이), 없으면 doc-draft 가 쓴
 // 글을 워드 파일로 만든다 — 어느 쪽이든 이음오피스에서 열 수 있는 파일이 단계 결과에 남는다. 결과에는 쓴 양식(이름 · 누가 정했는지), 양식에서
-// 바꾼 것 한 줄, 형식 규칙 점검(꼭 지킬 것마다 ok · 까닭)이 함께 남는다. 양식은 출발점이고 내용은 이 건의 요청대로 바꾼다.
+// 바꾼 것 한 줄, 형식 규칙 점검(꼭 지킬 것마다 ok · 까닭)이 함께 남는다. 양식은 출발점이고 내용은 이 건의 요청대로 바꾼다. 양식 파일의
+// 지난 건 이름 · 날짜가 채운 파일에 남았으면(docfill.js) 같은 점검 목록에 못 지킨 것으로 「앞 건의 이름이 남았어요: …」가 들어간다.
 // 초안(사람 단계의 준비 · 되돌릴 수 없는 단계의 초안)도 같은 길이라 무엇도 보내거나 예약하지 않는다 — 파일만 만든다.
 import { chatJson } from '../llm.js'
 import { prompt, rules } from './discovery.js'
@@ -21,12 +22,29 @@ async function caseOf(row) {
   return { c, intake, earlier }
 }
 
-// what a form · its checks record on the step's result
-export async function markForm(values, { task, form, buf = null }) {
+// what a form · its checks record on the step's result (extra: other failed checks for the same list — the last case's names left)
+export async function markForm(values, { task, form, buf = null, extra = [] }) {
   const F = await import('./formats.js')
   const doc = values.document || values.quote || values.proposal || null
-  const rules = doc ? await F.checkFile(task, form.name, { name: doc.name, buf, url: doc.url, ofTask: form.ofTask || null }) : []
+  const rules = [...(doc ? await F.checkFile(task, form.name, { name: doc.name, buf, url: doc.url, ofTask: form.ofTask || null }) : []), ...extra.filter(Boolean)]
   return { ...values, form: { name: form.name, chosenBy: form.chosenBy || null, label: F.CHOSEN_KO[form.chosenBy] || '' }, ...(rules.length ? { formatRules: rules } : {}) }
+}
+
+// where the form's own case shows (docfill.js sourceCaseStrings): the form's other kept files and the names its files came with
+export async function sourceOf(task, form) {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const F = await import('./formats.js')
+  const { templatesOf, templatePath } = await import('./taskdef.js')
+  const f = (await templatesOf(form.ofTask || task).catch(() => [])).find((x) => x.name === form.name)
+  if (!f) return {}
+  const others = []
+  for (const rel of f.files || []) {
+    const p = templatePath(rel)
+    if (path.resolve(p) === path.resolve(form.path) || !fs.existsSync(p)) continue
+    try { others.push(await F.docFacts(path.basename(p), fs.readFileSync(p))) } catch (e) { console.warn('[onto-step] other file', rel, e.message) }
+  }
+  return { others, fileNames: [...new Set((f.sources || []).map((s) => s.name).filter(Boolean))] }
 }
 
 // the work's form filled for this case → {values:{document, form, formatRules, changedFromForm, result, …}}
@@ -52,15 +70,17 @@ export async function formStep({ row, act, owner, threadId, status, form, extra 
     definition: { description: act.description || '', instruction: String(act.instruction || '').slice(0, 2000), checkpoints: act.checkpoints || [], extra: String(extra || '').slice(0, 1500) },
     earlier: earlier.slice(-4).map((x) => ({ step: x.task, text: String(x.text || '').slice(0, 1200) })) }
   const R = (await rules()).formats || {}
-  const out = await DF.fillDocument({ template: form, kind, input, keep, max: R.fillParagraphs || 260, chars: R.fillChars || 240,
+  const out = await DF.fillDocument({ template: form, kind, input, keep, max: R.fillParagraphs || 260, chars: R.fillChars || 240, source: await sourceOf(task, form), rules: R,
     ask: async (inp) => chatJson(await prompt('fill-document'), JSON.stringify(inp), { timeoutMs: R.fillTimeoutMs || 300000, temperature: 0, ...(R.fillEffort ? { effort: R.fillEffort } : {}) }) })
   const who = safe(intake.customer || c?.trigger?.customer || '')
   const file = await DF.keepFile(owner, threadId, `${who ? `${who} ` : ''}${stem(form.name)}.${kind}`, out.buf)
   // what the next steps read of it: the filled document's own text
   const facts = await F.docFacts(file.name, out.buf).catch(() => null)
   const text = facts ? facts.body.join('\n').slice(0, 4000) : ''
-  const v = await markForm({ document: file, title: out.title || stem(form.name), summary: out.summary || `${form.name} 양식으로 만들었어요.`, result: text, assumptions: out.assumptions.join('\n') }, { task, form, buf: out.buf })
-  return { values: { ...v, changedFromForm: out.summary || `문단 ${out.changed}개를 바꾸고 ${out.added}개를 더했어요`, paragraphs: { changed: out.changed, added: out.added, keptFixed: out.kept } }, say: null }
+  const v = await markForm({ document: file, title: out.title || stem(form.name), summary: out.summary || `${form.name} 양식으로 만들었어요.`, result: text, assumptions: out.assumptions.join('\n') },
+    { task, form, buf: out.buf, extra: [DF.leftoverCheck(out)] })
+  return { values: { ...v, changedFromForm: out.summary || `문단 ${out.changed}개를 바꾸고 ${out.added}개를 더했어요`, paragraphs: { changed: out.changed, added: out.added, keptFixed: out.kept },
+    sourceCase: { strings: out.sourceCase, by: out.sourceBy, retried: out.retried, left: out.left } }, say: null }
 }
 
 // a text-only step (doc-draft · a draft): a document step makes a file — from the form when there is one, else the text as Word; a
