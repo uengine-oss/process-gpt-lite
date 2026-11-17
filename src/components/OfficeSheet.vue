@@ -217,7 +217,8 @@ async function saved({ url, name }) {
 /* an ArtCraft app beside the chat: clicks reach the chat column; the chat dims a little */
 .veil.side { pointer-events: none; background: linear-gradient(to right, rgba(20, 24, 32, .07), rgba(20, 24, 32, .07) calc(100% - var(--craft-side-w)), transparent 0); }
 .veil.side .sheet { pointer-events: auto; width: calc(var(--craft-side-w) - 32px); }
-@media (max-width: 760px) { .veil { padding: 60px 0 0; } .sheet { width: 100%; border-radius: 18px 18px 0 0; } }
+/* a phone: the sheet is the whole width even beside the chat (the .side width rule above would win otherwise and push the bar's close button off screen) */
+@media (max-width: 760px) { .veil { padding: 60px 0 0; } .sheet, .veil.side .sheet { width: 100%; border-radius: 18px 18px 0 0; } .veil.side { pointer-events: auto; background: rgba(20, 24, 32, .18); } }
 </style>
 
 <style>

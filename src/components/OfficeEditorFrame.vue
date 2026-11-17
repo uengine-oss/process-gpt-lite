@@ -192,15 +192,15 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <img class="ieum" :src="`${BASE}/brand/ieumoffice-logo.svg`" alt="IeumOffice" title="이음오피스 편집기" width="66" height="15" />
       <ShareButton v-if="!readOnly" :for-name="name" plain class="tb" />
       <button v-if="canMention" class="tb press" :class="{ on: mentionMode }" title="켜고 문서의 표·그림·문단(엑셀은 셀 범위)을 누르면 대화 입력창에 @멘션으로 들어가요 (⌥ 누른 채 클릭도 돼요)" @click="mentionMode = !mentionMode">
-        @ {{ mentionMode ? '가리키는 중' : '가리키기' }}
+        @<span class="lb"> {{ mentionMode ? '가리키는 중' : '가리키기' }}</span>
       </button>
       <button class="tb press" :title="ribbonOpen ? '리본 접기 (Ctrl+F1)' : '리본 펴기 (Ctrl+F1)'" @click="toggleRibbon">
-        <Icon :name="ribbonOpen ? 'up' : 'chevron'" :size="14" /> {{ ribbonOpen ? '리본 접기' : '리본 펴기' }}
+        <Icon :name="ribbonOpen ? 'up' : 'chevron'" :size="14" /><span class="lb"> {{ ribbonOpen ? '리본 접기' : '리본 펴기' }}</span>
       </button>
-      <button v-if="!fullscreen" class="tb press" @click="emit('update:maximized', !maximized)">
+      <button v-if="!fullscreen" class="tb opt press" @click="emit('update:maximized', !maximized)">
         <Icon :name="maximized ? 'shrink' : 'expand'" :size="15" /> {{ maximized ? '원래 크기' : '최대화' }}
       </button>
-      <button class="tb press" @click="toggleFullscreen">{{ fullscreen ? '전체 화면 끝내기' : '전체 화면' }}</button>
+      <button class="tb opt press" @click="toggleFullscreen">{{ fullscreen ? '전체 화면 끝내기' : '전체 화면' }}</button>
       <button class="tb ic press" title="닫기" @click="emit('close')"><Icon name="close" :size="16" /></button>
     </div>
     <div v-if="busy" class="glow" />
@@ -226,6 +226,8 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 /* a narrow side sheet keeps the buttons on one line; the logo goes first */
 @container (max-width: 640px) { .ieum { display: none; } }
 @media (max-width: 700px) { .ieum { display: none; } }
+/* a phone-wide sheet: the close button must stay in sight — size buttons go (the sheet is already the whole width), labels fold to icons */
+@container (max-width: 520px) { .bar .opt, .bar .lb, .bar .badge { display: none; } .bar { gap: 2px; padding: 0 4px 0 10px; } .bar .tb { padding: 0 8px; } .bar .tb.ic { padding: 0; } }
 .badge { padding: 1px 8px; border-radius: 10px; background: rgba(42, 120, 214, .12); color: #2a78d6; font-size: 11px; white-space: nowrap; flex: 0 0 auto; }
 .badge.live { display: inline-flex; align-items: center; gap: 6px; background: rgba(40, 160, 90, .12); color: #1e8a4c; }
 .badge.live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }

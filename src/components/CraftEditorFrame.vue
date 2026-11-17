@@ -237,10 +237,10 @@ onBeforeUnmount(() => {
       <span class="sp" />
       <ShareButton v-if="!returnLabel" :for-name="name" plain class="tb" />
       <button v-if="returnLabel" class="tb press primary" :disabled="!live" @click="emit('return')">{{ returnLabel }}</button>
-      <button v-if="!fullscreen && !returnLabel" class="tb press" @click="emit('update:maximized', !maximized)">
+      <button v-if="!fullscreen && !returnLabel" class="tb opt press" @click="emit('update:maximized', !maximized)">
         <Icon :name="maximized ? 'shrink' : 'expand'" :size="15" /> {{ maximized ? '원래 크기' : '최대화' }}
       </button>
-      <button class="tb press" @click="toggleFullscreen">{{ fullscreen ? '전체 화면 끝내기' : '전체 화면' }}</button>
+      <button class="tb opt press" @click="toggleFullscreen">{{ fullscreen ? '전체 화면 끝내기' : '전체 화면' }}</button>
       <button class="tb ic press" title="닫기" @click="emit('close')"><Icon name="close" :size="16" /></button>
     </div>
     <div v-if="busy" class="glow" />
@@ -273,6 +273,8 @@ onBeforeUnmount(() => {
 .sp { flex: 1; }
 .tb { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 15px; font-size: 13px; color: #c3c8cf; white-space: nowrap; flex: 0 0 auto; }
 .badge { flex: 0 0 auto; }
+/* a phone-wide sheet: the close button stays in sight */
+@media (max-width: 520px) { .bar .opt, .bar .badge { display: none; } .bar { gap: 2px; padding: 0 4px 0 10px; } }
 .name { min-width: 40px; }
 .tb:hover { background: rgba(255, 255, 255, .08); }
 .tb.ic { width: 30px; padding: 0; justify-content: center; }
