@@ -21,7 +21,7 @@ import { notifyMember } from './notify.js'
 import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, parseToolOutput, publish } from './office.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import * as turns from './turns.js'
-import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths } from './provenance.js'
+import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths, textDoc, workFile, checkoutFile } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
 import { liveOpen, liveHint } from './craftLive.js'
@@ -796,18 +796,26 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (art.skill) skillDraft = art.skill
       const room = j.type === 'file_artifact' && /^\/workspace\/\.bpmn\/[^/]+\//.exec(j.path || '')
       if (room) runDirs.add(room[0])
-      if (j.type === 'file_artifact' && j.path) { written.add(j.path); seen.add(j.path) }
+      // (a url event is deepagents collecting a path the answer named — not proof the turn wrote it)
+      if (j.type === 'file_artifact' && j.path && !j.replay && !j.url) { written.add(j.path); seen.add(j.path) }
       if (art.def) workDir = art.def
       if (art.gen) workDir ||= art.gen
       else if (art.def) { /* the definition (the draft card shows it) */ }
       else if (art.evalRun) { /* a skill's evaluation run (skill-creator), not the turn's output */ }
       else if (j.type === 'file_artifact' && /\/skills\/[^/]+\//.test(j.path || '')) { /* part of a skill draft */ }
-      else if (j.type === 'file_artifact' && j.name && !/\.(form|json|md)$/.test(j.name)) {
+      // deepagents sends every file of the folder again at the end of a generation (replay) — what this
+      // turn wrote already came as its own event; the rest are earlier turns' files
+      else if (j.type === 'file_artifact' && j.replay) { /* not this turn's document */ }
+      // a text document the agent's own work wrote (a skill, a process folder) is not a card
+      else if (j.type === 'file_artifact' && textDoc(j.path) && workFile(j.path)) { /* part of the work */ }
+      else if (j.type === 'file_artifact' && j.name && !/\.(form|json)$/.test(j.name)) {
         // deepagents keeps a turn's documents in storage and names them with a signed url (it
-        // expires): the card gets its own copy from there when this server cannot see the sandbox
-        const had = j.url && files.find((f) => f.path === j.path)
-        if (had) had.src = j.url
-        else files.push({ name: j.name, path: j.path, ext: j.ext, ...(j.url ? { src: j.url } : {}) })
+        // expires): the card gets its own copy from there when this server cannot see the sandbox.
+        // It also stores every document the answer names, read or not: those are checked at the end
+        // (collected). Written, then edited in the same turn: one card.
+        const had = files.find((f) => f.path === j.path)
+        if (had) { if (j.url) had.src = j.url; else delete had.collected }
+        else files.push({ name: j.name, path: j.path, ext: j.ext, ...(j.url ? { src: j.url, collected: true } : {}) })
       }
       // office-mcp / IeumOffice MCP results carry a storage URL: those open straight in the editor —
       // when they are this turn's output, not a document the agent only opened (checked at the end)
@@ -885,6 +893,24 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     // a republished copy keeps the name of the file it came from
     files.push(src ? { ...t.doc, name: src.split('/').pop(), path: src } : t.doc)
   }
+  // why a document found by its path (named in the answer, in the folder) is not this turn's output
+  const notOutput = async (p) => {
+    // the answer often lists the skill test step's outputs (<room>/.skill-evals/…/outputs/*.dxf): named,
+    // but test runs, not what the person asked for — the same as their file_artifact events above
+    if (evalRun(p)) return "a skill's test run"
+    // a text document: only a file this turn wrote or changed — not a note it read in this folder, not the
+    // other files of a shared folder's checkout, not a process folder's or a skill's own files
+    const text = textDoc(p)
+    if (text && (workFile(p) || (checkoutFile(p) && !written.has(p)))) return 'work file'
+    if (!(await isOutput(p, text ? { ...ctx, strict: true } : ctx))) return "not this turn's output"
+    return null
+  }
+  for (const f of [...files]) {
+    if (!f.collected) continue
+    delete f.collected
+    const why = written.has(f.path) ? null : await notOutput(f.path)
+    if (why) { console.log(`[delegate] not attached (${why}): ${f.path}`); files.splice(files.indexOf(f), 1) }
+  }
   if (!body && !files.length && !workDir) body = emptyText()
   const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
   if (preRouted) touchContext(user, routing, text, body)
@@ -894,10 +920,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     // office-mcp already published this one (store_and_render): one card per document
     const name = p.split('/').pop()
     if (files.some((f) => f.path === p || (f.url && f.name === name))) continue
-    // the answer often lists the skill test step's outputs (<room>/.skill-evals/…/outputs/*.dxf): named,
-    // but test runs, not what the person asked for — the same as their file_artifact events above
-    if (evalRun(p)) { console.log(`[delegate] not attached (a skill's test run): ${p}`); continue }
-    if (!(await isOutput(p, ctx))) { console.log(`[delegate] not attached (not this turn's output): ${p}`); continue }
+    const why = await notOutput(p)
+    if (why) { console.log(`[delegate] not attached (${why}): ${p}`); continue }
     files.push({ name, path: p })
   }
   // the script that built a document is scaffolding; the document is what the user asked for (and

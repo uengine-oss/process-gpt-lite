@@ -15,7 +15,8 @@ import { isEn } from './lang.js'
 // same table as process-gpt's src/utils/officeEditor.js EDITOR_BY_EXT
 export const EDITOR_BY_EXT = {
   docx: 'docs', odt: 'docs', xlsx: 'sheets', xlsm: 'sheets', xls: 'sheets', csv: 'sheets', pptx: 'slides',
-  pdf: 'pdf', hwp: 'hwp', hwpx: 'hwp',
+  pdf: 'pdf', hwp: 'hwp', hwpx: 'hwp', md: 'markdown', markdown: 'markdown', txt: 'markdown',
+  html: 'html', htm: 'html', xmind: 'mindmap',
   // ArtCraft web apps (src/craftEditor.js)
   dxf: 'cadcraft', dwg: 'cadcraft',
   svg: 'vectorcraft', vectorcraft: 'vectorcraft',
@@ -28,6 +29,9 @@ const MIME = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   pdf: 'application/pdf', hwpx: 'application/hwp+zip', hwp: 'application/x-hwp', csv: 'text/csv',
+  md: 'text/markdown; charset=utf-8', markdown: 'text/markdown; charset=utf-8',
+  txt: 'text/plain; charset=utf-8', html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8', xmind: 'application/vnd.xmind.workbook',
+  odt: 'application/vnd.oasis.opendocument.text', xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12', xls: 'application/vnd.ms-excel',
   dxf: 'image/vnd.dxf', dwg: 'image/vnd.dwg', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
   psd: 'image/vnd.adobe.photoshop', wav: 'audio/wav', mp3: 'audio/mpeg', flac: 'audio/flac', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
 }
@@ -82,7 +86,7 @@ export async function publish(userId, sandboxPath, src) {
 
 // Documents the agent wrote with its own scripts (docx/pptx/xlsx skills) never show up as
 // file_artifact events: look for them in the paths the answer names and in the run's folder.
-const EXT = '(?:docx|pptx|xlsx|xls|csv|pdf|hwpx|hwp|dxf|dwg|svg|vectorcraft|psd|psb|pcraft|png|jpe?g|webp|wav|mp3|flac|soundcraft|scraftz|mp4|mov|webm|fcproj)'
+const EXT = '(?:docx|odt|pptx|xlsx|xlsm|xls|csv|pdf|hwpx|hwp|markdown|md|txt|html?|xmind|dxf|dwg|svg|vectorcraft|psd|psb|pcraft|png|jpe?g|webp|wav|mp3|flac|soundcraft|scraftz|mp4|mov|webm|fcproj)'
 // a quoted path may hold spaces ("/workspace/11월 고객 세미나 예산표.xlsx"); a bare one may not
 const QUOTED_RE = new RegExp(`[\`*"'](\\/workspace\\/[^\`*"'\\n]+?\\.${EXT})[\`*"']`, 'g')
 const BARE_RE = new RegExp(`\\/workspace\\/[^\\s"'\`)\\]]+?\\.${EXT}\\b`, 'g')

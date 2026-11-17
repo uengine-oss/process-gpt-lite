@@ -6,7 +6,7 @@ import { BASE } from './base.js'
 
 const EDITOR_BY_EXT = {
   docx: 'docs', odt: 'docs', xlsx: 'sheets', xlsm: 'sheets', xls: 'sheets', csv: 'sheets', pptx: 'slides',
-  pdf: 'pdf', md: 'markdown', markdown: 'markdown', html: 'html', htm: 'html', xmind: 'mindmap', hwp: 'hwp', hwpx: 'hwp',
+  pdf: 'pdf', md: 'markdown', markdown: 'markdown', txt: 'markdown', html: 'html', htm: 'html', xmind: 'mindmap', hwp: 'hwp', hwpx: 'hwp',
   // ArtCraft web apps, not IeumOffice (CraftEditorFrame.vue)
   dxf: 'cadcraft', dwg: 'cadcraft',
   svg: 'vectorcraft', vectorcraft: 'vectorcraft',

@@ -47,12 +47,23 @@ const mtimeOf = async (p) => { try { return (await fs.stat(await workspaceHostPa
 
 // ctx: { rooms: [this conversation's folder, folders the turn wrote in], written: Set of paths
 // written this turn, since: turn start (ms), mtime?: (path) => ms|null for tests }
-export async function isOutput(p, { rooms = [], written = new Set(), since = 0, mtime = mtimeOf } = {}) {
+// strict: being in this conversation's folder is not enough when the disk can say — the file must
+// have changed in this turn (a Markdown note the agent only read sits in the same folder)
+export async function isOutput(p, { rooms = [], written = new Set(), since = 0, mtime = mtimeOf, strict = false } = {}) {
   if (!p) return false
-  if (written.has(p) || rooms.some((r) => inside(p, r))) return true
-  const t = await mtime(p)
+  if (written.has(p)) return true
+  const t = (strict || !rooms.some((r) => inside(p, r))) ? await mtime(p) : null
+  if (rooms.some((r) => inside(p, r)) && (!strict || t == null)) return true
   return t != null && t >= since
 }
+
+// Text documents (Markdown, plain text, HTML, CSV): documents like the others, but also what an
+// agent's own work is written in — a process definition's folder (process-*/), a skill (skills/<name>/,
+// a shared skill's skill/<name>/, any SKILL.md) and a shared folder's checkout (folders/<slug>/: every
+// file there is new on disk when the run starts; only the ones the agent wrote are its output) are not cards
+export const textDoc = (p) => /\.(md|markdown|txt|html?|csv)$/i.test(String(p || ''))
+export const workFile = (p) => /\/\.bpmn\/[^/]+\/(?:process-[^/]+|skills?)\//.test(String(p || '')) || /(^|\/)SKILL\.md$/i.test(String(p || ''))
+export const checkoutFile = (p) => /\/\.bpmn\/[^/]+\/folders\//.test(String(p || ''))
 
 // A document a tool result carried (storage URL): the turn's output, or a file it only opened?
 // tool '' = deepagents' own end-of-turn republish of a hwpx path; input = that tool call's arguments.
