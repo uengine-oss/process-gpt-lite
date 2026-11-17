@@ -33,16 +33,22 @@ const side = ref(window.innerWidth > 900)
 const tab = ref('claude')       // claude | shell
 const opened = ref({ shell: false, claude: false })
 const termState = ref({})
+const termWhy = ref({})         // mode -> why it failed (WorkroomTerminal 'state')
 const terms = ref({})
 const steerText = ref('')
 const steerNote = ref('')
 
 const isClaude = computed(() => room.value?.agent === 'claude-code')
+// a shared folder's room is a plain shell (no agent runs in it); only a deepagents run takes steering
+const agentLabel = computed(() => ({ 'claude-code': 'Claude Code', deepagents: 'deepagents' })[room.value?.agent] || '셸')
+const canSteer = computed(() => room.value?.agent === 'deepagents')
+// no terminal on this server for this tab (server/lib/workroom.js terminalStatus): its reason, not a terminal
+const termOff = (m) => { const t = room.value?.terminal; return !t ? '' : !t.ok ? t.reason : m === 'claude' && t.claude && !t.claude.ok ? t.claude.reason : '' }
 async function load() {
   err.value = ''
   try { room.value = await api(base.value) }
   catch (e) { err.value = e.status === 403 || /403|권한/.test(e.message) ? '이 작업실을 볼 권한이 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.' : '이 실행의 작업 폴더를 찾지 못했어요.'; return }
-  if (!isClaude.value) tab.value = 'shell'
+  if (!isClaude.value || termOff('claude')) tab.value = 'shell'
   opened.value[tab.value] = true
   if (route.query.open && !file.value) openFile(String(route.query.open))
 }
@@ -96,10 +102,14 @@ async function save(content) {
 
 function openTab(t) { tab.value = t; opened.value[t] = true; if (file.value) closeFile() }
 const live = computed(() => termState.value[tab.value] === 'live')
+const off = computed(() => (room.value ? termOff(tab.value) : ''))
+const failed = computed(() => !off.value && termState.value[tab.value] === 'failed')
 const statusText = computed(() => {
+  if (off.value) return '터미널 없음'
   const s = termState.value[tab.value]
-  return s === 'live' ? '연결됨' : s === 'denied' ? '열 수 없음' : s === 'exited' ? '끝남' : '연결 중'
+  return { live: '연결됨', failed: '연결 실패', exited: '끝남', reconnecting: '다시 연결 중' }[s] || '연결 중'
 })
+function retryTerm() { termWhy.value[tab.value] = ''; terms.value[tab.value]?.retry() }
 // "@path" into Claude Code: the agent reads that file as part of the next instruction
 async function mention() {
   const p = file.value?.path
@@ -113,18 +123,18 @@ async function sendSteer() {
   const text = steerText.value.trim()
   if (!text) return
   const r = await api(`${base.value}/steer`, { method: 'POST', body: { text } })
-  steerNote.value = r.ok ? '실행 중인 에이전트에 전달했어요 — 다음 단계부터 반영돼요.' : r.status === 409 || r.status === 404 ? '지금 진행 중인 실행이 없어요.' : `전달하지 못했어요 (${r.status})`
+  steerNote.value = r.ok ? '실행 중인 에이전트에 전달했어요 — 다음 단계부터 반영돼요.' : r.status === 409 || r.status === 404 ? '지금 진행 중인 실행이 없어요.' : r.status === 400 ? '이 작업실은 방향 지시를 받지 않아요.' : `전달하지 못했어요 (${r.status || '응답 없음'})`
   steerText.value = ''
 }
 </script>
 
 <template>
   <div class="wr">
-    <header class="hd">
+    <header class="hd" :class="{ tabs: isClaude }">
       <button class="ib" title="뒤로" @click="router.back()"><Icon name="back" :size="17" /></button>
-      <span class="brand"><b>&gt;_</b> {{ !room ? '작업실' : isClaude ? 'Claude Code' : 'deepagents' }}</span>
+      <span class="brand"><b>&gt;_</b> {{ !room ? '작업실' : agentLabel }}</span>
       <span v-if="room" class="chip" :title="room.cwd"><Icon name="doc" :size="13" /> {{ room.folder }}<template v-if="room.branch"> · {{ room.branch }}</template></span>
-      <span v-if="room" class="st" :class="{ on: live, bad: termState[tab] === 'denied' }"><i />{{ statusText }}</span>
+      <span v-if="room" class="st" :class="{ on: live && !off, bad: failed || !!off }" :title="off || (failed ? termWhy[tab] : '')"><i />{{ statusText }}</span>
       <span class="ttl">{{ room?.title }}<template v-if="room?.sub"> · {{ room.sub }}</template><b v-if="room?.running" class="run"> · 실행 중</b></span>
       <span class="sp" />
       <div v-if="isClaude" class="seg">
@@ -160,13 +170,19 @@ async function sendSteer() {
         <!-- the terminals stay connected while a file is open -->
         <div v-show="!file" class="terms">
           <template v-if="room">
-            <WorkroomTerminal v-for="m in ['claude', 'shell'].filter((x) => opened[x])" v-show="tab === m" :key="m"
+            <WorkroomTerminal v-for="m in ['claude', 'shell'].filter((x) => opened[x] && !termOff(x))" v-show="tab === m" :key="m"
               :ref="(c) => (terms[m] = c)" :kind="kind" :id="id" :mode="m" :active="tab === m && !file"
-              @state="(s) => (termState[m] = s)" />
+              @state="(s, why) => { termState[m] = s; termWhy[m] = why || '' }" />
           </template>
-          <p v-if="termState[tab] === 'denied'" class="deny">이 작업실의 터미널을 열 수 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.</p>
+          <!-- no terminal here, or it would not connect: the reason in its place (and a retry) -->
+          <div v-if="off || failed" class="deny" role="alert">
+            <b>{{ off ? '이 작업실에서는 터미널을 열 수 없어요' : '터미널에 연결하지 못했어요' }}</b>
+            <span>{{ off || termWhy[tab] }}</span>
+            <span v-if="off" class="sub">파일은 오른쪽 「파일」에서 그대로 보고 고칠 수 있어요.</span>
+            <button v-else class="fb main" @click="retryTerm">다시 시도</button>
+          </div>
         </div>
-        <form v-if="room && !isClaude" class="steer" @submit.prevent="sendSteer">
+        <form v-if="room && canSteer" class="steer" @submit.prevent="sendSteer">
           <input v-model="steerText" placeholder="실행 중인 에이전트에게 방향 지시 — 다음 단계부터 반영돼요" />
           <button class="fb main" :disabled="!steerText.trim()">보내기</button>
           <small v-if="steerNote">{{ steerNote }}</small>
@@ -217,7 +233,9 @@ async function sendSteer() {
 .terms { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .terms :deep(.wt) { flex: 1; min-height: 0; background: #1b1d24; }
 .terms :deep(.xt) { padding: 8px 6px 0 12px; }
-.deny { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); margin: 0; padding: 14px 18px; border-radius: 10px; background: #2a1f24; color: #f3b2b2; font-size: 13.5px; }
+.deny { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); width: min(460px, calc(100% - 32px)); box-sizing: border-box; margin: 0; padding: 16px 18px; border-radius: 10px; background: #2a1f24; color: #f3b2b2; font-size: 13.5px; line-height: 1.55;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; overflow-wrap: anywhere; }
+.deny b { color: #ffd6d6; } .deny .sub { color: #b99a9e; font-size: 12.5px; } .deny .fb { margin-top: 6px; }
 .fbox { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .fbar { display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 12px; border-bottom: 1px solid #2b2f3a; flex: none; }
 .fname { color: #f0f1f4; font-weight: 600; white-space: nowrap; }
@@ -247,5 +265,12 @@ async function sendSteer() {
   .body.side { grid-template-columns: 1fr; }
   .files { position: fixed; top: 48px; right: 0; bottom: 0; width: min(360px, 92vw); z-index: 2; box-shadow: -10px 0 30px rgba(0, 0, 0, .4); }
   .ttl, .chip { display: none; }
+}
+/* a phone: the two tabs already name the agent, so the brand goes and the buttons tighten */
+@media (max-width: 480px) {
+  .hd { gap: 6px; padding: 0 8px; }
+  .hd.tabs .brand { display: none; }
+  .seg button { padding: 0 9px; }
+  .hb { padding: 0 9px; }
 }
 </style>

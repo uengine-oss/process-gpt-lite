@@ -4,17 +4,23 @@
 // Modelled on agent-share (PTY + xterm.js over one JSON websocket, scrollback replay, several
 // viewers per session), inside pgpt-pro's auth.
 import fs from 'node:fs/promises'
-import { realpathSync, existsSync } from 'node:fs'
+import { realpathSync, existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import pty from 'node-pty'
+import { createRequire } from 'node:module'
 import { WebSocketServer } from 'ws'
 import { config } from '../config.js'
 import { q, admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
 import { folderRoom, folderRoomAccess } from './folders/rooms.js'
-import { L, isEn, ENGLISH_NOTE } from './lang.js'
+import { L, isEn, withLang, ENGLISH_NOTE } from './lang.js'
 import { withTenant } from './tenant.js'
+
+// node-pty is a native module: a build without it still serves the workroom's files, and the page
+// says why there is no terminal (terminalStatus)
+// (loaded synchronously: workroom.js sits in an import cycle, where a top-level await is best avoided)
+let pty = null
+try { pty = createRequire(import.meta.url)('node-pty') } catch (e) { console.warn('[workroom] no terminals: node-pty did not load:', e.message) }
 
 const T = () => config.tenantId
 const TEXT_MAX = 2 * 1024 * 1024
@@ -161,7 +167,8 @@ export async function writeFile(room, rel, content, expectedMtime) {
 // Live steering of a deepagents turn (process-gpt SDK POST /chat/steer: applied before the next
 // model call, never mid-tool).
 export async function steer(room, user, text) {
-  if (room.agent !== 'deepagents') return { ok: false, reason: 'claude-code' }
+  // (a Claude Code run is steered in its own terminal; a shared folder's shell has no agent to steer)
+  if (room.agent !== 'deepagents') return { ok: false, status: 400, reason: room.agent }
   const res = await fetch(`${config.deepagentsUrl}/chat/steer`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conversation_id: room.conversation, message: text, tenant_id: T(), user_uid: user.id, metadata: { source: 'pgpt-pro-workroom' } }),
@@ -177,15 +184,41 @@ const sessions = new Map()
 const SCROLLBACK = 400 * 1024
 const GRACE_MS = 15 * 60 * 1000
 
+// the login shell, else the first one this machine has (the Docker image has bash, not zsh)
+const shellPath = () => [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'].find((x) => x && existsSync(x)) || null
+const isDir = (p) => { try { return statSync(p).isDirectory() } catch { return false } }
+const onPath = (bin) => (String(bin).includes('/') ? existsSync(bin) : String(process.env.PATH || '').split(path.delimiter).some((d) => d && existsSync(path.join(d, bin))))
+
+// Whether a terminal can open in this room here, and if not why — the page shows the reason instead
+// of a terminal that never connects (status: what the ticket route answers).
+// PRO_TERMINAL_KEY ("no key → no terminals") was never wired: the one-time ticket became the lock, and
+// enforcing it now would turn terminals off on every install with an empty key. Behind the multi-tenant
+// gateway (PRO_TENANT_FROM_HEADER=1) it is the operator's opt-in: a shell there runs in the server
+// that holds every tenant's folders and the vault keyring.
+export function terminalStatus(room, mode = 'shell') {
+  const no = (reason, status = 503) => ({ ok: false, status, reason })
+  if (config.tenantFromHeader && !config.terminalKey) return no(L('여러 회사가 함께 쓰는 이 서버에서는 터미널을 열지 않아요', 'This server is shared by several companies, so it does not open terminals'))
+  if (!pty) return no(L('이 서버에 터미널 모듈(node-pty)이 설치돼 있지 않아요', 'The terminal module (node-pty) is not installed on this server'))
+  if (!shellPath()) return no(L('이 서버에 셸이 없어요', 'This server has no shell'))
+  if (!isDir(room.cwd)) return no(L('이 작업실의 폴더가 서버에 없어요', "This workroom's folder is not on the server"), 404)
+  if (mode === 'claude' && !onPath(config.claudeBin)) return no(L('이 서버에 Claude Code 가 설치돼 있지 않아요', 'Claude Code is not installed on this server'))
+  return { ok: true }
+}
+// what the room page gets: the shell's state, and Claude Code's for a Claude Code run
+export function terminalInfo(room) {
+  const { status, ...shell } = terminalStatus(room)
+  if (room.agent !== 'claude-code') return shell
+  const { status: _, ...claude } = terminalStatus(room, 'claude')
+  return { ...shell, claude }
+}
+
 function spawn(room, mode, lang = 'ko') {
   // nothing of the server's own context leaks in: no secrets, and no CLAUDE* markers (a resumed
   // Claude Code would otherwise think it is a child session and stop saving its transcript)
   // (GIT_CONFIG_* travel as a numbered set — dropping only the *_KEY_n ones breaks every git call)
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE') && !k.startsWith('PRO_') && !k.startsWith('GIT_CONFIG_') && !/KEY|SECRET|TOKEN|PASSWORD/.test(k)))
   Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: lang === 'en' ? 'en_US.UTF-8' : process.env.LANG || 'ko_KR.UTF-8' })
-  // the login shell, else the first one this machine has (the Docker image has bash, not zsh)
-  const shell = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'].find((x) => x && existsSync(x)) || '/bin/sh'
-  let file = shell, args = ['-i']
+  let file = shellPath() || '/bin/sh', args = ['-i']
   if (mode === 'claude') {
     file = config.claudeBin
     args = room.session ? ['--resume', room.session] : []
@@ -226,25 +259,41 @@ export function sameOrigin(req) {
   if (!origin) return false
   let host
   try { host = new URL(origin).host } catch { return false }
-  const mine = [req.headers.host, req.headers['x-forwarded-host'], (() => { try { return new URL(config.publicUrl).host } catch { return '' } })()]
-  return mine.includes(host) || TUNNEL.test(host.split(':')[0])
+  return knownHosts(req).includes(host) || TUNNEL.test(host.split(':')[0])
+}
+// (a proxy chain can append to X-Forwarded-Host: "a.example, b.example")
+const knownHosts = (req) => [req.headers.host, ...String(req.headers['x-forwarded-host'] || '').split(',').map((h) => h.trim()),
+  (() => { try { return new URL(config.publicUrl).host } catch { return '' } })()].filter(Boolean)
+// The page address vs the addresses this server knows, for a refused websocket's reason
+export const originWhy = (req) => L(`이 페이지의 주소(${(() => { try { return new URL(req.headers.origin).host } catch { return '없음' } })()})가 서버가 아는 주소(${knownHosts(req).join(', ')})와 달라요 — 서버 앞단이 Host·X-Forwarded-Host 를 넘겨 주는지 확인이 필요해요`,
+  `This page's address (${req.headers.origin || 'none'}) is not one this server knows (${knownHosts(req).join(', ')}) — check that the proxy in front passes Host / X-Forwarded-Host`)
+// A refused websocket is accepted and closed at once with 44xx, its reason sent first: a gateway in
+// front (Spring Cloud Gateway) answers a plain HTTP refusal with an open socket closed 1002, and the
+// page could not tell a refusal from a working link or learn why.
+export function refuse(wss, req, socket, head, code, reason) {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    ws.send(JSON.stringify({ type: 'denied', code, reason }))
+    ws.close(code, 'denied')
+  })
 }
 export function attachTerminal(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 })
   server.on('upgrade', async (req, socket, head) => {
     const url = new URL(req.url, 'http://x')
     if (url.pathname !== '/api/workroom/term') return
-    const deny = (code) => { socket.write(`HTTP/1.1 ${code} No\r\n\r\n`); socket.destroy() }
-    if (!sameOrigin(req)) return deny(403)
+    const deny = (code, reason) => refuse(wss, req, socket, head, code, reason)
+    if (!sameOrigin(req)) return deny(4403, originWhy(req))
     const ticket = spendTicket(String(url.searchParams.get('ticket') || ''))
-    if (!ticket) return deny(401)
+    if (!ticket) return deny(4401, L('터미널 연결 표가 없거나 만료됐어요', 'The terminal ticket is missing or expired'))
     // in the tenant the ticket was issued in (the upgrade is not an express request: no tenant of its own)
     const room = await withTenant(ticket.tenant, () => resolveRoom(ticket.kind, ticket.id)).catch(() => null)
-    if (!room || !(await fs.stat(room.cwd).catch(() => null))) return deny(404)
+    if (!room) return deny(4404, L('작업실을 찾지 못했어요', 'The workroom was not found'))
+    const st = withLang(ticket.lang, () => terminalStatus(room, ticket.mode))
+    if (!st.ok) return deny(st.status === 404 ? 4404 : 4503, st.reason)
     const mode = ticket.mode
     wss.handleUpgrade(req, socket, head, (ws) => {
       let s
-      try { s = sessionFor(room, mode, ticket.lang, ticket.tenant) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close() }
+      try { s = sessionFor(room, mode, ticket.lang, ticket.tenant) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close(4500, 'spawn') }
       clearTimeout(s.timer)
       s.viewers.add(ws)
       ws.send(JSON.stringify({ type: 'session', mode, cwd: room.cwd, session: room.session || null }))

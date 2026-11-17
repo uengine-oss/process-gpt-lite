@@ -17,13 +17,15 @@ import * as mail from './lib/mail.js'
 import { reviewFor, recordReview } from './lib/review.js'
 import { processRoutes } from './routes/process.js'
 import { startBrowserWorker } from './lib/browserWorker.js'
-import { mountConnectors, connectorStatus, ensureHubBinding } from './mcp/connectors.js'
+import { mountConnectors, connectorStatus, ensureHubBinding, CONNECTORS } from './mcp/connectors.js'
 import { mountCraft, craftStatus } from './mcp/craft.js'
 import { mountOffice } from './mcp/office.js'
 import { commitEdit } from './lib/team/worktree.js'
 import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
+import { threadFolderRoutes } from './routes/threadFolders.js'
+import * as TF from './lib/folders/threadFolders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
 import { meetingRoutes } from './routes/meetings.js'
@@ -328,8 +330,12 @@ app.get('/api/connectors', auth, async (req, res) => {
 })
 app.post('/api/connectors/:name/token', auth, async (req, res) => {
   const site = req.params.name
-  if (!['slack', 'github', 'notion'].includes(site)) return res.status(400).end()
-  await vault.putItem(req.user.id, 'apikey', site, { key: String(req.body.token || '').trim() })
+  if (!['slack', 'github', 'notion', 'youtube'].includes(site)) return res.status(400).end()
+  const key = String(req.body.token || '').trim()
+  // a key the connector can try first (YouTube) is not saved when it does not work
+  const bad = await CONNECTORS.find((c) => c.name === site)?.verify?.(key)
+  if (bad) return res.status(400).json({ error: bad })
+  await vault.putItem(req.user.id, 'apikey', site, { key })
   res.json({ ok: true, hub: await ensureHubBinding(req.user.id, config.tenantId) })
 })
 
@@ -362,15 +368,22 @@ app.get('/api/conversations', auth, async (req, res) => {
 
 // ---------- threads ----------
 app.get('/api/threads', auth, async (req, res) => {
-  if (req.query.kind !== 'project') return res.json([await mainThread(req.user.id)])
-  res.json(await q(`select * from pro_threads where user_id=$1 and kind='project' order by updated_at desc`, [req.user.id]))
+  // (each with its folder: lib/folders/threadFolders.js)
+  if (req.query.kind !== 'project') return res.json(await TF.withFolders([await mainThread(req.user.id)]).catch(async () => [await mainThread(req.user.id)]))
+  const rows = await q(`select * from pro_threads where user_id=$1 and kind='project' order by updated_at desc`, [req.user.id])
+  res.json(await TF.withFolders(rows).catch(() => rows))
 })
 app.post('/api/threads', auth, async (req, res) => {
+  // the folder the project works in (an existing one, or a new one by name) — checked first, so a refusal makes no project
+  let folder = null
+  try { folder = await TF.projectFolder(req.user, { folder: req.body.folder, newFolder: req.body.newFolder }) } catch (e) { return res.status(e.status || 500).json({ error: e.message }) }
   const t = await chat({ messages: [{ role: 'system', content: L('요청을 5~12자 한국어 프로젝트 제목으로. 제목만.', 'Turn the request into a 2-5 word English project title. Only the title.') }, { role: 'user', content: req.body.text }], temperature: 0.2 })
   const [row] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project',$2) returning *`, [req.user.id, t.content.replace(/["'.]/g, '').trim()])
+  if (folder) row.folder = await TF.linkProject(req.user, row, folder).catch((e) => { console.warn('[folders] project link', e.message); return null })
   emit(req.user.id, 'thread', row)
   res.json(row)
 })
+app.use('/api', threadFolderRoutes(auth))
 app.get('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
@@ -409,7 +422,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, onDelta: (d) => send('delta', { d }) })
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, openDoc: req.body.openDoc, onDelta: (d) => send('delta', { d }) })
     send('done', final)
   } catch (e) {
     console.error(e)
@@ -534,7 +547,7 @@ const fail = (res, e) => res.status(e.status || 500).json({ error: e.message, mt
 app.get('/api/workroom/:kind/:id', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
   const { root, ...info } = r
-  res.json({ ...info, folder: path.basename(root), terminal: true, files: await workroom.tree(r) })
+  res.json({ ...info, folder: path.basename(root), terminal: workroom.terminalInfo(r), files: await workroom.tree(r) })
 })
 app.get('/api/workroom/:kind/:id/file', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
@@ -562,6 +575,9 @@ app.post('/api/workroom/:kind/:id/publish', auth, async (req, res) => {
 })
 app.post('/api/workroom/:kind/:id/ticket', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
+  // no terminal here (no node-pty, no folder, a shared server): say why instead of a socket that never opens
+  const st = workroom.terminalStatus(r, req.body.mode === 'claude' ? 'claude' : 'shell')
+  if (!st.ok) return res.status(st.status).json({ error: st.reason })
   res.json({ ticket: workroom.issueTicket(req.user, r, req.body.mode) })
 })
 app.post('/api/workroom/:kind/:id/steer', auth, async (req, res) => {

@@ -55,6 +55,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && git config --system user.name "Process GPT" \
  && git config --system user.email "noreply@pgpt-lite.local" \
  && git config --system init.defaultBranch main
+# yt-dlp: YouTube transcripts and video details (mcp/connectors/youtube.js). The standalone release
+# binary (this image has no Python); it runs YouTube's player script with the image's node.
+ARG YTDLP_VERSION=2026.10.26
+ARG TARGETARCH
+RUN case "${TARGETARCH:-amd64}" in arm64) f=yt-dlp_linux_aarch64 ;; *) f=yt-dlp_linux ;; esac \
+ && curl -fsSL -o /usr/local/bin/yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/${f}" \
+ && chmod +x /usr/local/bin/yt-dlp \
+ && printf -- '--js-runtimes node\n' > /etc/yt-dlp.conf \
+ && yt-dlp --version
 WORKDIR /app/server
 COPY --from=server-deps /app/server/node_modules ./node_modules
 # headless shell only (the browser agent launches headless); ~300MB with its system libraries

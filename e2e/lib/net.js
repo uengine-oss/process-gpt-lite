@@ -6,12 +6,21 @@ import { execFileSync } from 'node:child_process'
 import { API_URL } from './env.js'
 
 const wsBase = () => API_URL.replace(/^http/, 'ws')
-// resolves {status} for a refused upgrade, or {ws} once open
+// resolves {status} for a refused upgrade, or {ws} once open. The BFF refuses by accepting and
+// closing at once with 44xx after a {type:'denied'} message (server/lib/workroom.js refuse — a gateway
+// in front hides an HTTP refusal): that counts as the HTTP status (4401 → 401), with its reason.
 export function upgrade(path, { origin = API_URL, headers = {} } = {}) {
   return new Promise((resolve) => {
     const ws = new WebSocket(`${wsBase()}${path}`, { headers: { Origin: origin, ...headers } })
+    let opened = false, wait = null
     ws.on('unexpected-response', (_req, res) => { resolve({ status: res.statusCode }); ws.terminate() })
-    ws.on('open', () => resolve({ status: 101, ws }))
+    ws.on('message', (raw) => {
+      let m; try { m = JSON.parse(raw) } catch { return }
+      if (m.type === 'denied' && m.code >= 4000) { clearTimeout(wait); resolve({ status: m.code - 4000, reason: m.reason }); ws.terminate() }
+    })
+    ws.on('close', (code) => { if (opened && code >= 4000) { clearTimeout(wait); resolve({ status: code - 4000 }) } })
+    // (a refusal comes right after the handshake; no word in that moment means the socket is open)
+    ws.on('open', () => { opened = true; wait = setTimeout(() => resolve({ status: 101, ws }), 400) })
     ws.on('error', (e) => resolve({ status: 0, error: e.message }))
   })
 }

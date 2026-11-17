@@ -68,7 +68,7 @@ export async function listFor(me) {
         continue
       }
       const d = n.todo_id ? await getTodo(n.todo_id) : null
-      out.push({ id: n.id, type: 'workitem', title: n.title, process: n.description, at: n.time_stamp, todoId: n.todo_id,
+      out.push({ id: n.id, type: 'workitem', title: n.title, process: n.description, at: n.time_stamp, todoId: n.todo_id, instId: n.proc_inst_id || null,
         context: n.proc_inst_id ? await contextLine(n.proc_inst_id) : '', choices: choicesOf(d?.form), role: d?.step?.role || '' })
     } else if (n.type === 'mention') {
       out.push({ id: n.id, type: 'mention', title: n.title, text: n.description, at: n.time_stamp, from: n.from_name || n.from_user_id })
@@ -89,7 +89,8 @@ async function check(n) {
   await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and user_id=$3', [T(), n.url, n.user_id])
 }
 
-// A button on the card: submit the step with that choice, or open it (no choice) in chat.
+// A button on the card: submit the step with that choice, or open it (no choice) on its instance page,
+// where the form is (InstanceHeader 「내 입력이 필요해요」) — no card is added to the chat.
 export async function act(me, id, { choice } = {}) {
   const n = await own(me, id)
   if (!n) return null
@@ -103,9 +104,7 @@ export async function act(me, id, { choice } = {}) {
       await check(n)
       return { submitted: true, choice }
     }
-    const t = await mainThread(me.id)
-    const m = await addMessage(me.id, t.id, 'agent', 'todo', { todoId, name: d.todo.activity_name, inst: d.instName })
-    return { opened: m.id }
+    return { instId: d.todo.proc_inst_id }
   }
   if (n.type === 'mention') {
     // the request lands in the recipient's own chat, where they can answer or act on it

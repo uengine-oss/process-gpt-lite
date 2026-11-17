@@ -19,6 +19,7 @@ import { RULES, rules } from './runner.js'
 import * as SK from './skills.js'
 import { L, asUser, withLang, langOf } from '../lang.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
+import { projectStepFolders } from './threadFolders.js'
 
 const T = () => config.tenantId
 const EDIT = /고쳐|고치|수정|다듬|바꿔|바꾸|변경|추가|넣어|빼|삭제|작성|만들어|정리|업데이트|반영해|번역|채워|보완|손봐/
@@ -159,6 +160,8 @@ async function instanceLine(folder, row, head) {
 }
 
 async function stepTick() {
+  // agent steps of instances started in a project with a folder get that folder first (threadFolders.js)
+  await projectStepFolders().catch((e) => console.warn('[folders] project steps', e.message))
   const rows = await q(`select id, status::text as status, agent_orch, agent_config, output, proc_inst_id, root_proc_inst_id, activity_name, query, user_id
                         from todolist where tenant_id=$1 and agent_config ? 'folder' and not (agent_config ? 'variation')
                         and agent_orch is not null and agent_orch <> 'pgpt-pro-folders'

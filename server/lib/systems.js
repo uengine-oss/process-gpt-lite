@@ -18,7 +18,8 @@ const RUNTIME_BASE = process.env.PRO_MCP_RUNTIME_BASE || 'http://localhost:8787'
 
 const META = {
   google: { name: 'Google Workspace', category: '협업·문서', link: 'https://workspace.google.com', desc: '사용자 본인 계정의 Gmail·Google 캘린더·Drive. 일정 조회·등록, 메일 검색·초안, 문서 검색·읽기.' },
-  youtube: { name: 'YouTube', category: '외부 정보원', link: 'https://www.youtube.com', desc: '채널의 최근 영상 목록, 영상 정보, 자막 트랜스크립트(공개 데이터).' },
+  youtube: { name: 'YouTube', category: '외부 정보원', link: 'https://www.youtube.com', desc: '지역 인기 영상·영상 검색(YouTube Data API: 사용자 API 키 → 서버 키 → Google 계정), 채널의 최근 영상(RSS, 키 불필요), 영상 정보, 자막 트랜스크립트.' },
+  browser: { name: '내장 브라우저', category: '웹', link: 'http://localhost:5180/', desc: 'API 가 없는 사이트를 사용자 대신 읽기(browser_task). 로그인은 사용자 보관함에서 서버가 채우고, 글 올리기·보내기·삭제·결제는 하지 않음.' },
   slack: { name: 'Slack', category: '협업·메신저', link: 'https://slack.com', desc: '채널 목록, 채널 메시지 읽기, 메시지 보내기(사용자 토큰).' },
   github: { name: 'GitHub', category: '개발', link: 'https://github.com', desc: '이슈·PR 검색, 내 PR 목록, 이슈 생성(사용자 토큰).' },
   notion: { name: 'Notion', category: '협업·문서', link: 'https://www.notion.so', desc: '페이지 검색·읽기·작성(통합 토큰).' },

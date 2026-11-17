@@ -5,10 +5,11 @@ import { config } from '../config.js'
 import { q, admin } from '../lib/supa.js'
 import * as proc from '../lib/processes.js'
 import * as engine from '../lib/engine.js'
-import { mainThread, addMessage, updateMessage } from '../lib/store.js'
+import { updateMessage } from '../lib/store.js'
 import { saveGenerated, installGeneratedSkills } from '../lib/generated.js'
 import { markOpened } from '../lib/improve/signal.js'
 import { retryNow } from '../lib/stepRetry.js'
+import { linkInstance } from '../lib/folders/threadFolders.js'
 
 export function processRoutes(auth) {
   const r = express.Router()
@@ -23,8 +24,12 @@ export function processRoutes(auth) {
     return xml ? res.type('application/xml').send(xml) : res.status(404).end()
   })
   r.post('/processes/:id/start', auth, async (req, res) => {
-    try { res.json(await engine.startProcess({ me: req.user, session: req.session, defId: req.params.id, values: req.body.values || {}, messageId: req.body.messageId })) }
-    catch (e) { console.warn('[start]', e.message); res.status(500).json({ error: e.message }) }
+    try {
+      const out = await engine.startProcess({ me: req.user, session: req.session, defId: req.params.id, values: req.body.values || {}, messageId: req.body.messageId })
+      // started from a project with a folder: its agent steps work on the project's variation (lib/folders/threadFolders.js)
+      await linkInstance(req.user.id, req.body.messageId, out?.instId).catch((e) => console.warn('[start] project folder', e.message))
+      res.json(out)
+    } catch (e) { console.warn('[start]', e.message); res.status(500).json({ error: e.message }) }
   })
 
   r.get('/instances', auth, async (req, res) => res.json(await proc.listInstances({ userEmail: req.user.email, userId: req.user.id, status: req.query.status })))
@@ -62,13 +67,11 @@ export function processRoutes(auth) {
     }
   })
 
-  // Home action → the form opens in the main chat
+  // Home action → the instance page, where the form is (no card in the chat)
   r.post('/todos/:id/open', auth, async (req, res) => {
     const d = await proc.getTodo(req.params.id)
     if (!d) return res.status(404).end()
-    const t = await mainThread(req.user.id)
-    const m = await addMessage(req.user.id, t.id, 'agent', 'todo', { todoId: d.todo.id, name: d.todo.activity_name, inst: d.instName })
-    res.json(m)
+    res.json({ instId: d.todo.proc_inst_id })
   })
   // What an agent did on a step: process-gpt's events log (tool calls, shell commands, notices).
   r.get('/todos/:id/events', auth, async (req, res) => {

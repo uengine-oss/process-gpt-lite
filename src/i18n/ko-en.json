@@ -1,5 +1,30 @@
 {
  "exact": {
+  "폴더 고르기": "Choose a folder",
+  "· 없어도 돼요": "· optional",
+  "· 새 폴더": "· new folder",
+  "· 이 폴더에서 작업": "· work here",
+  "· 변형 작업 중": "· variation in progress",
+  "· 참고": "· for reference",
+  "폴더 빼기": "Remove folder",
+  "폴더 떼기": "Detach folder",
+  "변형 보기": "View variation",
+  "프로젝트 폴더 고르기": "Choose the project's folder",
+  "폴더 붙이기": "Attach a folder",
+  "이 프로젝트가 작업할 폴더": "Folder this project works in",
+  "프로젝트는 이 폴더의 변형에서 작업하고, 「반영」해야 원본에 들어가요.": "The project works on a variation of this folder; changes reach the original only when you merge them.",
+  "에이전트가 이 폴더를 읽어요. 바꿔 달라고 할 때만 변형을 만들어요.": "The agent reads this folder. It makes a variation only when you ask for a change.",
+  "작업할 수 있는 폴더가 없어요. 새 폴더를 만들어 보세요.": "No folder you can work in yet. Make a new one.",
+  "쓸 수 있는 폴더가 없어요.": "No folders you can use.",
+  "새 폴더 이름": "New folder name",
+  "같은 이름의 폴더가 이미 있어요.": "A folder with that name already exists.",
+  "파일 첨부 · 폴더 붙이기": "Attach a file · attach a folder",
+  "첫 작업 때 변형을 만들어요": "A variation is made on the first task",
+  "에이전트가 작업하는 중": "Agent is working",
+  "반영하다 부딪친 곳이 있어요": "The merge hit a conflict",
+  "아직 바뀐 것 없음": "No changes yet",
+  "검토하고 원본에 반영해요": "Review and merge into the original",
+  "반영할 변경이 아직 없어요": "Nothing to merge yet",
   "50MB 보다 큰 파일은 올릴 수 없어요.": "You can't upload files larger than 50MB.",
   "올리지 못했어요.": "I couldn't upload it.",
   "한글": "Hangul",
@@ -67,6 +92,14 @@
   "다시 연결(권한 넓히기)": "Reconnect (widen permissions)",
   "토큰 바꾸기": "Change token",
   "토큰 만들기": "Create token",
+  "API 키 없이도 채널 새 영상·자막은 볼 수 있어요. 인기 영상·검색은 YouTube API 키나 Google 계정 연결이 필요해요.": "Channel uploads and captions work without an API key. Popular videos and search need a YouTube API key or a connected Google account.",
+  "API 키로 인기 영상·검색까지 써요. 채널 새 영상·자막은 키 없이도 돼요.": "With your API key, popular videos and search work too. Channel uploads and captions work without a key.",
+  "서버에 둔 API 키로 인기 영상·검색까지 써요. 내 키를 넣으면 그 키를 먼저 써요.": "The server's API key covers popular videos and search. A key of your own is used first.",
+  "Google 계정으로 인기 영상·검색까지 써요. 채널 새 영상·자막은 키 없이도 돼요.": "With your Google account, popular videos and search work too. Channel uploads and captions work without a key.",
+  "Google Cloud 콘솔에서 YouTube Data API v3 를 켜고 「사용자 인증 정보 › API 키」를 만들어 붙여 넣으세요.": "In the Google Cloud console, enable the YouTube Data API v3, create a key under \"Credentials › API key\" and paste it here.",
+  "API 키 넣기": "Add API key",
+  "API 키 바꾸기": "Change API key",
+  "키 만들기": "Create key",
   "저장": "Save",
   "대화": "Conversation",
   "전체 대화": "All conversations",
@@ -816,7 +849,6 @@
   "ago:d=>{const s=(Date.now()-new Date(d))/1000;return s<60?'방금':s<3600?Math.floor(s/60)+'분 전':s<86400?Math.floor(s/3600)+'시간 전':Math.floor(s/86400)+'일 전'},": "ago:d=>{const s=(Date.now()-new Date(d))/1000;return s<60?'just now':s<3600?Math.floor(s/60)+' min ago':s<86400?Math.floor(s/3600)+' hr ago':Math.floor(s/86400)+' days ago'},",
   "도움": "Help",
   "내 계정·내 에이전트로 해요 · 결과는 이 대화에 올라와요": "Runs with my account and agent · results appear in this conversation",
-  "에이전트가 작업하는 중": "Agent is working",
   "받는 사람": "Recipient",
   "보내면 에이전트가 아니라 이분께 가요 · 이 대화 요지와 최근 산출물이 함께 가요": "This goes to them, not to an agent · a summary of this conversation and recent outputs go along",
   "판단 모델이 이 일과 관계된 팀원을 고르는 중…": "The routing model is picking teammates related to this…",
@@ -1425,7 +1457,6 @@
   "폴더를 찾지 못했어요.": "I couldn't find that folder.",
   "이 폴더의 구성원이 아니에요.": "You aren't a member of this folder.",
   "폴더 이름을 적어 주세요.": "Please enter a folder name.",
-  "같은 이름의 폴더가 이미 있어요.": "A folder with that name already exists.",
   "폴더 만들기": "Create folder",
   "git 저장소가 아니에요.": "That isn't a git repository.",
   "권한은 owner·editor·runner·viewer 중 하나예요.": "The role is one of owner, editor, runner, viewer.",
@@ -1710,9 +1741,63 @@
   "대화로 조건 말하기": "Say the condition in the talk",
   "언제 건너뛰나요? 건너뛰지 않으면 필수": "When is it skipped? If never, it is required",
   "정할 때마다 새 버전으로 저장돼요": "Each decision is saved as a new version",
-  "모두 정해야 정식 등록돼요": "Decide them all to register"
+  "모두 정해야 정식 등록돼요": "Decide them all to register",
+  "다시 연결": "Reconnect",
+  "응답 없음": "no answer",
+  "터미널 없음": "No terminal",
+  "연결 실패": "Connection failed",
+  "다시 연결 중": "Reconnecting",
+  "이 작업실에서는 터미널을 열 수 없어요": "This workroom can't open a terminal",
+  "터미널에 연결하지 못했어요": "Couldn't connect to the terminal",
+  "파일은 오른쪽 「파일」에서 그대로 보고 고칠 수 있어요.": "You can still view and edit the files under \"Files\" on the right.",
+  "이 작업실은 방향 지시를 받지 않아요.": "This workroom doesn't take direction.",
+  "서버가 터미널 연결에 응답하지 않아요 — 서버 앞단(게이트웨이)이 웹소켓을 넘겨 주는지 확인이 필요해요": "The server isn't answering the terminal connection — check that the gateway in front passes websockets through",
+  "권한이 없어요 — 이 작업실의 담당자·참여자나 관리자만 열 수 있어요": "No permission — only this run's assignees, participants or an admin can open it",
+  "작업 폴더가 없어요": "The work folder is missing",
+  "이 서버에서 터미널을 쓰지 않아요": "This server doesn't run terminals",
+  "서버가 터미널 연결을 받지 않았어요": "The server didn't accept the terminal connection",
+  "터미널 연결 표가 없거나 만료됐어요": "The terminal ticket is missing or expired",
+  "연결 표가 없거나 만료됐어요": "The ticket is missing or expired",
+  "작업실을 찾지 못했어요": "The workroom was not found",
+  "연결 안 됨 · 다시 연결": "Not connected · Reconnect",
+  "문서와 연결 안 됨 ·": "Not linked to the document ·",
+  "문서와 연결하는 중…": "Linking to the document…",
+  "서버가 연결에 응답하지 않아요 — 서버 앞단(게이트웨이)이 웹소켓을 넘겨 주는지 확인이 필요해요": "The server isn't answering the connection — check that the gateway in front passes websockets through",
+  "서버가 연결을 받지 않았어요": "The server didn't accept the connection"
  },
  "patterns": [
+  [
+   "이 페이지의 주소({0})가 서버가 아는 주소({1})와 달라요 — 서버 앞단이 Host·X-Forwarded-Host 를 넘겨 주는지 확인이 필요해요",
+   "This page's address ({0}) is not one the server knows ({1}) — check that the proxy in front passes Host / X-Forwarded-Host"
+  ],
+  [
+   "대화와 연결되지 않았어요 — {0} · 눌러서 다시 연결",
+   "Not linked to the conversation — {0} · tap to reconnect"
+  ],
+  [
+   "이 서버에서 터미널을 쓰지 않아요 — {0}",
+   "This server doesn't run terminals — {0}"
+  ],
+  [
+   "터미널 연결 표를 받지 못했어요 ({0})",
+   "Couldn't get a terminal ticket ({0})"
+  ],
+  [
+   "연결 표를 받지 못했어요 ({0})",
+   "Couldn't get a connection ticket ({0})"
+  ],
+  [
+   "바뀐 것 {0}건 · 반영 전",
+   "{0} changes · not merged yet"
+  ],
+  [
+   "연결이 끊겼어요 ({0})",
+   "The connection dropped ({0})"
+  ],
+  [
+   "{0} 폴더 열기",
+   "Open the {0} folder"
+  ],
   [
    "같은 업무로 보이는 새 사례 {0}건 · 정하기 전에는 프로세스가 바뀌지 않아요",
    "{0} new case(s) that look like the same work · the process stays as it is until you decide"
@@ -1916,6 +2001,10 @@
   [
    "거절 {0}건: {1}",
    "{0} refused: {1}"
+  ],
+  [
+   "거절됨 ({0})",
+   "Refused ({0})"
   ],
   [
    "표 {0} ({1})",

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
 import { BASE } from '../base.js'
 import { syncLang } from '../i18n/lang.js'
+import { officeEditorFor, CRAFT_APPS } from '../officeEditor.js'
 
 export const useApp = defineStore('app', {
   state: () => ({
@@ -23,6 +24,8 @@ export const useApp = defineStore('app', {
     handoff: null,             // message id of a task shown full screen
     officeDoc: null,           // {msgId, url, name} open in the IeumOffice editor
     attachments: [],           // files waiting in the composer: {id, name, size, state, result, error}
+    newProjectFolder: null,    // 새 프로젝트: the folder it will work in — {id, slug, name} or {newName}
+    folderPicker: false,       // the composer's folder list is open (📎 폴더 붙이기, 새 프로젝트's chip)
     conversations: [],         // what the context router told apart in the main chat (context_threads)
     convFilter: null,          // conversation id the main chat is narrowed to (/chat/c/:cid)
     searchOpen: false,
@@ -120,9 +123,10 @@ export const useApp = defineStore('app', {
           if (d.role === 'agent' && (d.kind === 'text' || d.kind === 'doc')) this.drafts[d.thread_id] = null
         }
       } else if (type === 'thread') {
-        if (d.id === this.mainThread?.id) this.mainThread = d
+        // (merged: a status-only event carries no folder, the thread keeps the one it has)
+        if (d.id === this.mainThread?.id) this.mainThread = { ...this.mainThread, ...d }
         const i = this.projects.findIndex((p) => p.id === d.id)
-        if (i >= 0) this.projects[i] = d
+        if (i >= 0) this.projects[i] = { ...this.projects[i], ...d }
         else if (d.kind === 'project') this.projects.unshift(d)
         if (!d.status) this.status[d.id] = null
       } else if (type === 'action') {
@@ -192,10 +196,14 @@ export const useApp = defineStore('app', {
       // asked from inside one conversation's view: it continues that conversation
       const conv = this.convFilter && threadId === this.mainThread?.id ? this.convList.find((c) => c.id === this.convFilter) : null
       const conversation = conv ? { id: conv.id, title: conv.title } : this.convFilter && threadId === this.mainThread?.id ? { id: this.convFilter } : undefined
+      // an editable document open in the editor (OfficeSheet): the message is about it, even when its
+      // live link (src/liveLink.js) is down — the server still edits it in place (lib/agent.js delegate)
+      const d = this.officeDoc, ed = d && !d.readOnly ? officeEditorFor(d.name || d.url) : null
+      const openDoc = ed && !CRAFT_APPS.has(ed) && d.name ? { app: 'ieumoffice', file: d.name, name: d.name, editor: ed } : undefined
       this.drafts[threadId] = ''
       let ended = false
       try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation }, (ev, data) => {
+        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
         })
@@ -213,16 +221,33 @@ export const useApp = defineStore('app', {
       return r
     },
     async newProject(text) {
-      const t = await api('/threads', { method: 'POST', body: { text } })
+      // the folder chosen on the 새 프로젝트 screen: the project works on its own variation of it
+      const f = this.newProjectFolder
+      const t = await api('/threads', { method: 'POST', body: { text, ...(f?.newName ? { newFolder: f.newName } : f?.id ? { folder: f.id } : {}) } })
+      this.newProjectFolder = null
       this.messages[t.id] = []
       this.activeId = t.id
       this.send(text, t.id)
+    },
+    // 📎 폴더 붙이기: a folder for reference in this thread (the agent reads its main; a change goes to a variation)
+    async attachFolder(folder, threadId = this.activeId) {
+      const r = await api(`/threads/${threadId}/folder`, { method: 'POST', body: { folder: folder.id || folder.slug } })
+      this.setThreadFolder(threadId, r.folder)
+    },
+    async detachFolder(threadId = this.activeId) {
+      await api(`/threads/${threadId}/folder`, { method: 'DELETE' })
+      this.setThreadFolder(threadId, null)
+    },
+    setThreadFolder(threadId, folder) {
+      if (this.mainThread?.id === threadId) this.mainThread = { ...this.mainThread, folder }
+      const i = this.projects.findIndex((p) => p.id === threadId)
+      if (i >= 0) this.projects[i] = { ...this.projects[i], folder }
     },
     async open(id) {
       this.activeId = id
       if (!this.messages[id]) await this.load(id)
     },
-    // a card button: the step's choice is submitted right there (or, with no choice, opened in chat)
+    // a card button: the step's choice is submitted right there (with no choice the answer names the instance to open)
     async actNotification(n, choice) {
       this.notifications = this.notifications.filter((x) => x.id !== n.id || !choice)
       if (choice && n.todoId) this.handled.push(n.todoId)

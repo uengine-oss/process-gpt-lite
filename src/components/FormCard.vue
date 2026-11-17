@@ -3,6 +3,8 @@ import { reactive, ref, computed } from 'vue'
 import { marked } from 'marked'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
+import { useApp } from '../stores/app.js'
+import { inApp, openOutput } from '../artifacts.js'
 
 // Renders a process-gpt form (form_def.fields_json) as a glass card.
 // fields: [{key, text, type, items?: [{value: label}], readonly?}]
@@ -16,6 +18,7 @@ const props = defineProps({
   busy: Boolean,
 })
 const emit = defineEmits(['submit', 'cancel'])
+const app = useApp()
 const model = reactive(Object.fromEntries(props.fields.map((f) => [f.key, props.values?.[f.key] ?? (f.type === 'multiselect' || f.type === 'checkbox' && f.items ? [] : '')])))
 const uploading = ref({})
 const kind = (t) => String(t || 'text').replace(/-field$/, '')
@@ -62,7 +65,9 @@ async function upload(f, e) {
       <button v-else-if="kind(f.type) === 'boolean' || kind(f.type) === 'checkbox'" type="button" class="toggle" :class="{ on: model[f.key] === true || model[f.key] === 'true' }" :disabled="ro(f)"
         @click="model[f.key] = !(model[f.key] === true || model[f.key] === 'true')"><span /></button>
       <div v-else-if="kind(f.type) === 'file'" class="file">
-        <a v-if="model[f.key]?.url" :href="model[f.key].url" target="_blank" class="chip"><Icon name="doc" :size="16" /> {{ model[f.key].name }}</a>
+        <!-- looked at inside the app (artifacts.js openOutput), not downloaded into another app -->
+        <button v-if="model[f.key]?.url && inApp(model[f.key])" type="button" class="chip press" @click="openOutput(app, model[f.key])"><Icon name="doc" :size="16" /> {{ model[f.key].name }}</button>
+        <a v-else-if="model[f.key]?.url" :href="model[f.key].url" :download="model[f.key].name || ''" class="chip"><Icon name="doc" :size="16" /> {{ model[f.key].name }}</a>
         <label v-if="!ro(f)" class="pick press"><input type="file" hidden @change="upload(f, $event)" />{{ uploading[f.key] ? '올리는 중…' : model[f.key]?.url ? '바꾸기' : '파일 선택' }}</label>
       </div>
       <input v-else v-model="model[f.key]" class="in" :readonly="ro(f)"

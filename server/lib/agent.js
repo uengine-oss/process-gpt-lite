@@ -24,12 +24,13 @@ import * as turns from './turns.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths, textDoc, workFile, checkoutFile } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
-import { liveOpen, liveHint } from './craftLive.js'
+import { liveOpen, liveHint, openDocOf } from './craftLive.js'
 import { capture, reviewTurn } from './review.js'
 import { attachmentHint, indexForRoom, chatFiles } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
 import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folders/work.js'
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
+import * as TF from './folders/threadFolders.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 
@@ -60,7 +61,7 @@ const ROUTER_TOOLS = [
     type: 'function',
     function: {
       name: 'browser_task',
-      description: 'The request needs a real web browser: log in to a site, check an account balance, book, order, fill a web form, operate a web console. NOT for YouTube, Google (Gmail/Calendar/Drive), Slack, GitHub or Notion lookups — connector tools handle those, so answer without tools.',
+      description: 'The request needs a real web browser: log in to a site, check an account balance, book, order, fill a web form, operate a web console. NOT for YouTube, Google (Gmail/Calendar/Drive), Slack, GitHub or Notion lookups: answer those without tools — the agent tries their connector tools first and opens the browser itself when they fail.',
       parameters: { type: 'object', properties: { goal: { type: 'string' }, start_url: { type: 'string' }, ack: { type: 'string', description: '해요체 한두 문장으로 무엇을 할지 알림' } }, required: ['goal', 'ack'] },
     },
   },
@@ -184,7 +185,7 @@ export function runTurn(args) {
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
 const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, openDoc }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   // a key is only ever this person's own upload (lib/attachments.js); the page could send any other
@@ -193,6 +194,10 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
   const store = turnCtx.getStore()
   if (store) store.userMsgId = said.id
+  // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it
+  // as the open document even when the live link (lib/craftLive.js) is down
+  const doc = openDocOf(openDoc)
+  if (store && doc) store.openDoc = doc
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
   if (files.length) {
     attached.set(threadId, files)
@@ -227,7 +232,12 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // an app's folder is named after the app: "휴가 일수 관리에 … 추가해줘" is a record, not a folder change
   const namedApp = await PanelApps.appNamed(user, text).catch(() => null)
   // (a Home card that answers a mail — noFolder — is never a folder edit)
-  const sharedFolder = !noFolder && !namedApp && !generationPending(threadId) && !files.length ? await folderFor(user, text).catch(() => null) : null
+  const folderBlocked = noFolder || !!namedApp || generationPending(threadId) || !!files.length
+  // (a folder attached in chat is the one a change request means when it names none; a project's own
+  // folder is changed on the project's variation — delegate — not on a short one: lib/folders/threadFolders.js)
+  const folderLink = await TF.linkOf(threadId).catch(() => null)
+  const named = !folderBlocked ? await folderFor(user, text).catch(() => null) : null
+  const sharedFolder = await TF.chatFolderTarget({ user, link: folderLink, named, text, blocked: folderBlocked }).catch(() => named)
   if (sharedFolder) return folderTurn({ user, session, threadId, text, onDelta, folder: sharedFolder })
   // the author's own private skill is not installed: their run is pointed at its copy, and after the
   // first good run the chat asks once more whether to share it
@@ -251,7 +261,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // (mcp/craft.js); a router model reads "FilmCraft에서…" as a site to open in a browser.
   // (only plain schedule words count here: "처음 3초에 자막" is a time inside the video, not a schedule)
   // (an app open in the page — lib/craftLive.js — is the document a message like "제목을 노랗게" is about)
-  if ((craftAppsFor(text).length || liveOpen(userId)) && !/매일|매주|매달|마다|정기|반복|every|daily|weekly|monthly/i.test(text)) {
+  if ((craftAppsFor(text).length || liveOpen(userId) || doc) && !/매일|매주|매달|마다|정기|반복|every|daily|weekly|monthly/i.test(text)) {
     // (the context carries what the person pointed at in the open document: @표 2, @이미지 1 …)
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
@@ -387,24 +397,30 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
 // One run of the agent on a fresh variation of a shared folder, in its own conversation.
 async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
   const work = await startChatWork({ user, folder, text, threadId })
+  await TF.noteVariation(user, threadId, folder, work.v).catch(() => {})
   // (folder: the run's own room — the main chat does not move into it, so the next message is not
   // answered there: lib/agent.js delegate)
   pinned.set(threadId, { conversationId: work.room, title: folder.kind === 'skill' ? L(`${folder.name} 스킬 고치기`, `Fix the ${folder.name} skill`) : L(`${folder.name} 폴더 작업`, `${folder.name} folder work`), folder: true })
   const msg = await delegate({ user, session, threadId, text: work.message, onDelta })
   await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: !!msg?.content?.stopped }).catch((e) => console.warn('[folders] chat work', e.message))
+  await TF.announce(user.id, threadId).catch(() => {})
   return msg
 }
 
 // Delegate to process-gpt deepagents and stream its answer.
 // Steer the agent to connector tools when the request is plainly about one of those services;
 // smaller models otherwise tend to reach for generic web fetching among dozens of tools.
+// [words, its tools, the MCP server (mcp/connectors.js) that serves them]
 const CONNECTOR_HINTS = [
-  [/유튜브|youtube|채널|영상/i, 'youtube_channel_videos, youtube_video_info, youtube_transcript'],
-  [/캘린더|일정|gmail|메일함|구글 ?드라이브|drive|\bcalendar\b|\binbox\b/i, 'calendar_find_events, calendar_create_event, gmail_search, gmail_read, drive_search'],
-  [/slack|슬랙/i, 'slack_list_channels, slack_read_channel, slack_post_message'],
-  [/github|깃허브|\bPR\b/i, 'github_list_prs, github_search_issues, github_create_issue'],
-  [/notion|노션/i, 'notion_search, notion_read_page, notion_create_page'],
+  [/유튜브|youtube|채널|영상/i, 'youtube_trending, youtube_search, youtube_channel_videos, youtube_video_info, youtube_transcript', 'pgpt-youtube'],
+  [/캘린더|일정|gmail|메일함|구글 ?드라이브|drive|\bcalendar\b|\binbox\b/i, 'calendar_find_events, calendar_create_event, gmail_search, gmail_read, drive_search', 'pgpt-google'],
+  [/slack|슬랙/i, 'slack_list_channels, slack_read_channel, slack_post_message', 'pgpt-slack'],
+  [/github|깃허브|\bPR\b/i, 'github_list_prs, github_search_issues, github_create_issue', 'pgpt-github'],
+  [/notion|노션/i, 'notion_search, notion_read_page, notion_create_page', 'pgpt-notion'],
 ]
+// Where public YouTube data is when the YouTube tools are not there (a run in a sandbox can read these)
+const YT_PUBLIC = ' — YouTube 는 채널 새 영상: https://www.youtube.com/feeds/videos.xml?channel_id=UC…(채널 페이지 HTML 의 "externalId" 가 id), 오늘 많이 본 영상: https://www.youtube.com/results?search_query=<주제>&sp=CAMSBAgCEAE%3D (오늘 올라온 영상·조회수 순, HTML 안 ytInitialData 의 videoRenderer·lockupViewModel). 지역 인기 차트 자체는 API(youtube_trending)로만 볼 수 있어요(공개 인기 페이지는 2025년에 없어져 브라우저로도 못 보니 브라우저로 찾지 마세요)'
+const YT_PUBLIC_EN = ' — for YouTube, a channel\'s new videos: https://www.youtube.com/feeds/videos.xml?channel_id=UC… (the channel page HTML\'s "externalId" is the id); today\'s most viewed: https://www.youtube.com/results?search_query=<topic>&sp=CAMSBAgCEAE%3D (uploaded today, by view count; videoRenderer / lockupViewModel in the HTML\'s ytInitialData). The regional popular chart itself is only in the API (youtube_trending); the public Trending page was retired in 2025, so do not look for it in the browser'
 // Anything that sounds recurring is the router's call (schedule_task), never a one-off delegate.
 // the last line a scheduled skill run prints (lib/missions.js parseResult)
 const MISSION_LINE = '맨 마지막 줄에 MISSION_RESULT: {"changed": true|false, "summary": "결과 한 문장"} 를 한 줄로 출력'
@@ -516,9 +532,17 @@ async function connectorFirst(user, text) {
   const { connectorStatus } = await import('../mcp/connectors.js')
   return (await connectorStatus(user.id).catch(() => [])).some((c) => c.connected && c.tools.some((t) => hinted.includes(t)))
 }
-function connectorHint(text) {
-  const tools = CONNECTOR_HINTS.filter(([re]) => re.test(text)).map(([, t]) => t)
-  return tools.length ? L(`\n\n(연결된 커넥터 도구를 웹 조회보다 먼저 쓰세요: ${tools.join(', ')})`, `\n\n(Use the connected connector tools before searching the web: ${tools.join(', ')})`) : ''
+// The order for any outside service (a scheduled run included): its connector/API tools, then public
+// pages or feeds read in the sandbox, then the built-in browser; and when all of it fails, exactly what
+// is missing and where to connect it — never a bare "not connected".
+export function connectorHint(text) {
+  const hit = CONNECTOR_HINTS.filter(([re]) => re.test(text))
+  if (!hit.length) return ''
+  const tools = hit.map(([, t]) => t).join(', ')
+  const servers = hit.map(([, , s]) => s).join(', ')
+  const yt = hit.some(([, t]) => t.includes('youtube_'))
+  return L(`\n\n(외부 서비스 정보는 이 순서로 구하세요. ① 연결된 커넥터·API 도구를 웹 조회보다 먼저: ${tools}. ② 그 도구가 목록에 없거나 실패하면 공개 페이지·RSS 를 샌드박스에서 직접 읽기${yt ? YT_PUBLIC : ''}. ③ 그래도 안 되면 내장 브라우저(browser_task 도구가 있을 때, 읽기만). ④ 모두 안 되면 "연결되어 있지 않다"로 끝내지 말고 무엇이 없어서 못 했는지와 어디서 연결하는지를 정확히 쓰세요: 도구가 돌려준 missing·how_to_connect 를 그대로 옮기고, 도구가 아예 목록에 없으면 "이 회사 에이전트에 ${servers} 커넥터가 등록되어 있지 않아 관리자가 등록해야 해요"라고 쓰세요.)`,
+    `\n\n(Get outside-service information in this order. 1) The connected connector/API tools, before searching the web: ${tools}. 2) If those tools are not in your list or fail, read public pages or feeds yourself in the sandbox${yt ? YT_PUBLIC_EN : ''}. 3) If that fails too, the built-in browser (the browser_task tool, when you have it; reading only). 4) If everything fails, do not stop at "not connected": say exactly what was missing and where to connect it — copy the missing and how_to_connect a tool returned, and if the tools are not in your list at all, say "the ${servers} connector is not registered for this company's agents; an administrator has to register it".)`)
 }
 
 // While skill-creator works its raw output (test prompts, sample data, interleaved subagent
@@ -701,7 +725,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // tools that need no account (CADCraft) are bound once per user per server start
   if (!hubBound.has(user.id)) { hubBound.add(user.id); await ensureHubBinding(user.id, config.tenantId).catch(() => {}) }
   // the ArtCraft apps this message asks for list their tools to the agent (mcp/craft.js)
-  const live = !silent && !divider ? liveOpen(user.id) : null
+  // (or the document the page said is open with this message, when its live link is down)
+  const live = !silent && !divider ? liveOpen(user.id) || (adopted && store.openDoc) || null : null
+  if (live?.fromPage) console.log(`[delegate] open document from the page: '${live.file}' (${live.editor || '?'}) user=${user.id.slice(0, 8)} — live link down`)
   activateCraft(user.id, [...craftAppsFor(text), ...(live ? [live.app] : [])])
   if (live?.app === 'ieumoffice') activateOffice(user.id)
   // a stalled agent (no byte for STREAM_IDLE_MS) is cut off, so the chat never sits on "생각하는 중" for good
@@ -712,6 +738,18 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const before = live ? await capture({ userId: user.id, jwt: session.access_token, open: live }) : null
   const usedTools = new Set()
   let partial = ''
+  // a project with a folder works on its own variation of it; a chat with one attached reads its main
+  // (lib/folders/threadFolders.js) — not a shared folder's run room (folderTurn: its message says where)
+  let projectWork = null, failed = false
+  if (!pin?.folder && (thread?.kind === 'project' || thread?.kind === 'chat')) {
+    projectWork = await TF.prepareProjectWork({ user, thread }).catch((e) => { console.warn('[folders] project work', e.message); return null })
+    if (projectWork) { thread = { ...thread, conversation_id: projectWork.conv }; turn.setConv(projectWork.conv); text += projectWork.note }
+    else {
+      const ref = await TF.linkOf(threadId).catch(() => null)
+      const hint = ref ? await TF.refHint(ref).catch(() => '') : ''
+      if (hint) { text += hint; console.log(`[folders] reference hint: '${ref.slug}' thread=${String(threadId).slice(0, 8)}`) }
+    }
+  }
   try {
     const msg = await streamTurn()
     // an edit tool of the open app or document ran: check the result against the request
@@ -721,6 +759,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     }
     return msg
   } catch (e) {
+    failed = true
     if (!idle.signal.aborted && !turn.abort.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
     console.warn('[delegate]', turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
     await setThreadStatus(user.id, threadId, null)
@@ -728,14 +767,20 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     return addMessage(user.id, threadId, 'agent', 'text', { text: idle.signal.aborted
       ? L('에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.', "The agent didn't respond for a while, so I stopped waiting. Please send the same request again.")
       : L(`에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요. (${causeOf(e)})`, `I couldn't reach the agent. Please send it again in a moment. (${causeOf(e)})`) })
-  } finally { clearTimeout(idleTimer) }
+  } finally {
+    clearTimeout(idleTimer)
+    // what the agent changed goes into the project's variation (commit; no merge card — the header's 반영 merges)
+    if (projectWork) await TF.finishProjectWork(projectWork, { stopped: failed || turn.stopped || turn.abort.signal.aborted }).catch((e) => console.warn('[folders] project commit', e.message))
+  }
 
   async function streamTurn() {
   // attachments are indexed for the conversation they go to (lib/attachments.js), so a new
   // conversation gets its id here — the SDK keeps a conversation_id it is given. The router's
   // choice is not known yet, so routed turns send theirs by address only.
   let conv = turn.conv || pin?.conversationId || thread?.conversation_id || null
-  if (!conv && !routed && uploads.length) conv = crypto.randomUUID().replace(/-/g, '')
+  // (a scheduled run too: deepagents keeps the history of a chat sent without one under one shared key,
+  // so every such first turn would carry all the earlier ones — 270k tokens and other people's runs)
+  if (!conv && !routed && (uploads.length || divider)) conv = crypto.randomUUID().replace(/-/g, '')
   const sent = conv && !routed ? await indexForRoom(uploads, conv) : uploads
   const res = await connect(() => fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
     signal: AbortSignal.any([idle.signal, turn.abort.signal]),

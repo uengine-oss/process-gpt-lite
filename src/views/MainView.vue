@@ -13,6 +13,7 @@ import SettingsSheet from '../components/SettingsSheet.vue'
 import Typewriter from '../components/Typewriter.vue'
 import InstanceHeader from '../components/InstanceHeader.vue'
 import ConversationBar from '../components/ConversationBar.vue'
+import ProjectFolderBar from '../components/folders/ProjectFolderBar.vue'
 import ArtifactStack from '../components/ArtifactStack.vue'
 import Composer from '../components/Composer.vue'
 import { narrow } from '../viewport.js'
@@ -53,6 +54,8 @@ const clock = computed(() => {
 
 async function syncRoute() {
   app.mode = route.meta.mode || 'chat'
+  // 새 패널 만들기 belongs to 채팅: leaving it (a project, an instance) drops the mode
+  if (app.mode !== 'chat') app.panelMode = false
   if (!ready.value) return
   clearInterval(poll)
   if (!route.params.instId) app.instance = null
@@ -124,6 +127,7 @@ function onConnect() {
           :empty-text="newProject ? '' : ''" :keep-top="instMode" @send="onSend" @connect="onConnect">
           <template v-if="instMode && app.instance" #header><InstanceHeader :data="app.instance" @refresh="app.refreshInstance()" /></template>
           <template v-else-if="app.mode === 'chat' && app.activeId === app.mainThread?.id" #header><ConversationBar /></template>
+          <template v-else-if="app.mode === 'project' && app.active?.folder?.mode === 'project'" #header><ProjectFolderBar :thread="app.active" /></template>
         </ChatColumn>
         <!-- inside one conversation, the files it produced float in a stack (Dock-style) -->
         <ArtifactStack v-if="ready && app.mode === 'chat' && app.convFilter && !mobileHome && !app.officeDoc" />

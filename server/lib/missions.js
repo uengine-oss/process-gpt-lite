@@ -157,7 +157,8 @@ async function streamAgent({ user, session, message, agent, gitSkills }) {
     body: JSON.stringify({
       message, message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
-      conversation_id: null, stream: true,
+      // a fresh conversation of its own: deepagents files a chat sent without one under one shared history
+      conversation_id: crypto.randomUUID().replace(/-/g, ''), stream: true,
       metadata: cli
         ? { client: 'pgpt-pro-mission', agent_cli: agent.cli || 'claude-code', agent_model: agent.model || '', agent_permission: agent.permission || 'command_exec', ...(isEn() ? { language: 'en' } : {}),
             ...(gitSkills ? { skills: Object.keys(gitSkills), git_skills: gitSkills } : {}) }
@@ -276,10 +277,12 @@ async function runMissionAs(s, trigger) {
     // private or shared — from its skill folder's repository instead (cli-agent's git_skills), and only it
     const folder = cli ? await ensureSkillFolder(s.skill).catch((e) => { console.warn('[mission] skill folder', s.skill, e.message); return null }) : null
     const gitSkills = folder?.repo_path ? { [s.skill]: folder.repo_path } : null
+    // a skill that reads an outside service gets the same fallback order as a chat turn (API → public → browser → what is missing)
+    const { connectorHint } = await import('./agent.js')
     const message = (own ? L(`다음 스킬 문서의 절차대로 실행하세요: ${own.path} (같은 폴더의 파일도 참고). ${ask}`, `Follow the procedure in this skill document: ${own.path} (see the files in the same folder too). ${ask}`)
       : cli
       ? L(`프로젝트에 설치된 \`${s.skill}\` 스킬을 읽고 사용하세요. ${ask}`, `Read and use the \`${s.skill}\` skill installed in the project. ${ask}`)
-      : `/${s.skill} ${ask}`) + langInstruction()
+      : `/${s.skill} ${ask}`) + connectorHint(`${s.skill} ${JSON.stringify(s.params || {})}`) + langInstruction()
     const out = await streamAgent({ user, session, message, agent: s.agent, gitSkills })
     const result = parseResult(out.text)
     // no result line: the run still finished (or not) — read the answer itself

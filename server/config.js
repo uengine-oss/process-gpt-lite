@@ -89,6 +89,8 @@ export const config = {
     clientId: get('GOOGLE_CLIENT_ID'),
     clientSecret: get('GOOGLE_CLIENT_SECRET'),
   },
+  // a shared YouTube Data API v3 key, used after the person's own (mcp/connectors/youtube.js)
+  youtubeApiKey: get('PRO_YOUTUBE_API_KEY', ''),
   // Vault KEKs (32 bytes, base64), never stored in the database. Either PRO_VAULT_KEK (current) plus
   // PRO_VAULT_KEK_RETIRED (comma-separated older keys), or a 0600 keyring file created on first run
   // (importing the single-key server/.vault-kek of earlier versions).

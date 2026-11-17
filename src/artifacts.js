@@ -14,6 +14,16 @@ const loose = (p) => /^\/workspace\//.test(p || '') && !room(p)
 // what the card says it does
 export const openHint = (c) => (c.url ? '열기' : loose(c.path) ? '눌러서 열기' : '작업실에서 열기')
 
+// A step's output or a form's file (instance page, FormCard) is looked at inside the app, read-only: a
+// link to a .docx/.hwpx in a new tab makes a phone download it and hand it to another app (Android:
+// Google Docs, which asks for an account). inApp false: no viewer here, the caller offers a download.
+export const inApp = (f) => { const ed = officeEditorFor(f?.name || f?.url); return !!(f?.url && ed && !craftMissing(ed)) }
+export function openOutput(app, f) {
+  if (!inApp(f)) return false
+  app.officeDoc = { url: f.url, name: f.name || decodeURIComponent(f.url.split('?')[0].split('/').pop()), readOnly: true }
+  return true
+}
+
 // a document opens in the editor in place; anything else opens its URL
 export async function openArtifact(app, router, msg) {
   let c = msg.content || {}

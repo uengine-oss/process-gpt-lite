@@ -136,6 +136,10 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       {{ c.state === 'done' ? (c.doneText || '메일 연결됨') : c.text }}
     </button>
 
+    <!-- a chip about an instance (a step waiting for me, a finished run) opens its page (server lib/engine.js) -->
+    <button v-else-if="msg.kind === 'chip' && c.instId" class="chip link press" @click="router.push(`/projects/p/${encodeURIComponent(c.instId)}`)">
+      <Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
+    </button>
     <div v-else-if="msg.kind === 'chip'" class="chip"><Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> {{ c.text }}</div>
   </div>
 </template>
@@ -193,6 +197,9 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 .connect { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 9999px; background: var(--regular-solid-bg); font-size: 14px; font-weight: 500; box-shadow: 0 2px 12px rgba(0 0 0 / .06); }
 .connect.done { background: var(--bubble-user-bg); color: var(--text-primary); }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 14px; border-radius: 9999px; background: var(--bubble-user-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); font-size: 14px; }
+.chip.link { max-width: 100%; text-align: left; color: var(--text-primary); }
+.chip.link .ct { min-width: 0; word-break: keep-all; overflow-wrap: anywhere; }
+.chip.link > :deep(svg) { flex: none; }
 .replies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .reply { height: 36px; padding: 0 16px; border-radius: 9999px; background: var(--regular-solid-bg); font-size: 14px; font-weight: 500; box-shadow: 0 2px 10px rgba(0 0 0 / .06); animation: pop-in .4s var(--spring) both; }
 .list { width: 424px; max-width: 100%; border-radius: 24px; padding: 8px; display: flex; flex-direction: column; --regular-bg: var(--bubble-agent-bg); }

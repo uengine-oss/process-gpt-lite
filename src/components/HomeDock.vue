@@ -6,14 +6,21 @@ import PanelFrame from './PanelFrame.vue'
 import PanelAppCard from './panelApps/PanelAppCard.vue'
 import Icon from './Icon.vue'
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { useTeam } from '../stores/team.js'
 import { narrow } from '../viewport.js'
 
 const app = useApp()
 const team = useTeam()
+const router = useRouter()
 // a work item that already has a notification card is not listed twice
 const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id) && !app.notifications.some((n) => n.todoId === t.id)).slice(0, 3))
+// a to-do opens its instance page, where its form is (not a card in the chat)
+async function openTodo(t) {
+  const instId = t.proc_inst_id || (await app.openTodo(t).catch(() => null))?.instId
+  if (instId) router.push(`/projects/p/${encodeURIComponent(instId)}`)
+}
 </script>
 
 <template>
@@ -24,7 +31,7 @@ const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id)
         <Icon name="team" :size="20" /> 팀 메시지<i v-if="team.unread.total">{{ team.unread.total }}</i>
       </button>
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
-      <button v-for="t in todos" :key="'t' + t.id" class="act glass press" @click="app.openTodo(t)">
+      <button v-for="t in todos" :key="'t' + t.id" class="act glass press" @click="openTodo(t)">
         <span class="verb">{{ /결정|승인|검토|심사|판단/.test(t.activity_name) ? 'Review' : 'Submit' }}</span>
         <span class="txt">{{ t.activity_name }}</span>
         <span class="due">{{ t.proc_inst_name || t.def_name }}</span>

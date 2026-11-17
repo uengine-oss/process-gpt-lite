@@ -114,13 +114,35 @@ export async function submitTodo({ me, todoId, values, messageId }) {
   return { ok: true }
 }
 
+// Where a new step of mine shows up. An instance started from a chat thread (its ProcessCard, or a
+// scheduled run's card, carries the instId) keeps answering inline: the step's form card goes to that
+// thread. Anything else (started by a teammate, from Home, a team room, the miner) gets one line in the
+// main chat that opens the instance page, where the form is — at most one per instance a day, the Home
+// card already says it is waiting.
+async function originThread(userId, instId) {
+  const [m] = await q(`select m.thread_id from pro_messages m join pro_threads t on t.id=m.thread_id
+                       where t.user_id=$1 and m.kind='process' and m.content->>'instId'=$2 order by m.created_at limit 1`, [userId, instId])
+  return m?.thread_id || null
+}
+async function announceStep(me, instId, t, origin) {
+  if (origin) return addMessage(me.id, origin, 'agent', 'todo', { todoId: t.id, name: t.activity_name })
+  const th = await mainThread(me.id)
+  const [seen] = await q(`select 1 from pro_messages where thread_id=$1 and kind='chip' and content->>'instId'=$2 and content->>'icon'='bell'
+                          and created_at > now() - interval '1 day' limit 1`, [th.id, instId])
+  if (seen) return
+  const [n] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
+  const inst = n?.proc_inst_name || instId
+  return addMessage(me.id, th.id, 'agent', 'chip', { icon: 'bell', text: L(`입력이 필요해요 · ${t.activity_name} · ${inst}`, `Needs your input · ${t.activity_name} · ${inst}`), instId })
+}
+
 // Follow an instance while it runs: push changes to the client and surface new work
-// items assigned to the user in the main chat (hark-style "needs your input").
+// items assigned to the user (hark-style "needs your input", announceStep).
 const watching = new Map()
 export function watchInstance(me, instId) {
   if (watching.has(instId)) return
   let last = ''
   const announced = new Set()
+  let origin = null // chat thread the instance was started from (looked up again until found)
   let idle = 0
   const tick = async () => {
     try {
@@ -137,8 +159,8 @@ export function watchInstance(me, instId) {
           const mine = reached && !t.agent_orch && (String(t.user_id).includes(me.id) || String(t.user_id).includes(me.email))
           if (mine && !announced.has(t.id)) {
             announced.add(t.id)
-            const th = await mainThread(me.id)
-            await addMessage(me.id, th.id, 'agent', 'todo', { todoId: t.id, name: t.activity_name })
+            if (!origin) origin = await originThread(me.id, instId)
+            await announceStep(me, instId, t, origin)
           }
         }
         if (i?.status === 'COMPLETED') {
