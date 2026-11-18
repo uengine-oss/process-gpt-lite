@@ -1,20 +1,59 @@
-// Browser notifications while Lite is in a background tab or another window is in front (2026-11-18:
-// "채팅을 걸면 웹브라우저 노티가 들어오는지, 단톡일 때도"). What arrives on the Home cards arrives here too —
-// a teammate's message in a 1:1 or group room (process-gpt's chat trigger writes a 'chat' row for every
-// participant, whoever sent it from Lite or the ProcessGPT portal), a share or mention, a step waiting for
-// me, a meeting's action item, a process started or done. Nothing when the tab is in front: the Home card
-// and the messenger's own toast are there. Browsers ask for the permission only from a click (HomeDock).
+// System notifications for Lite (2026-11-18): "채팅을 걸면 웹브라우저 노티가 들어오는지, 단톡일 때도" and
+// "웹앱으로 설치했을 때도 노티가 들어오면 아이콘에 숫자가 나오면 좋겠다". What arrives on the Home cards arrives
+// as a system notification too — a teammate's message in a 1:1 or group room (process-gpt's chat trigger
+// writes a 'chat' row for every participant, whoever sent it), a share or mention, a step waiting for me,
+// a meeting's action item, a routine started or done.
+//   - Web Push (server/lib/webpush.js → public/sw.js): also with Lite closed; on Android the launcher shows
+//     the number on the installed app's icon. Turned on by the Home's 「브라우저 알림 켜기」 (a click — browsers
+//     ask for the permission only then); later visits renew the subscription quietly.
+//   - without push (no service worker, push refused): the open tab shows them while it is in the background,
+//     through the service worker when there is one (Android allows no other way), else new Notification().
+// The app badge (installed app, where the browser has it) is the number of Home cards waiting.
 import { BASE } from './base.js'
+import { api } from './api.js'
 
 const seen = new Set()
 let primed = false
+let pushOn = false
 
 export const supported = () => typeof window !== 'undefined' && 'Notification' in window
 export const permission = () => (supported() ? Notification.permission : 'unsupported')
+const swOk = () => typeof navigator !== 'undefined' && 'serviceWorker' in navigator && window.isSecureContext
+const pushOk = () => swOk() && 'PushManager' in window
+
+// the service worker (scope: the app's own address, /lite/ behind the gateway); a click on a notification
+// it showed comes back here as a message (MainView opens it)
+export function registerWorker() {
+  if (!swOk()) return
+  navigator.serviceWorker.register(`${BASE}/sw.js`, { scope: `${BASE}/` }).catch((e) => console.warn('[sw]', e.message))
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'pgl:open-notification') window.dispatchEvent(new CustomEvent('pgl:open-notification', { detail: e.data.detail }))
+  })
+  // permission given before (another visit): keep the subscription current
+  if (permission() === 'granted') subscribePush().catch(() => {})
+}
+
+const keyBytes = (b64) => Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (b64.length % 4)) % 4)), (c) => c.charCodeAt(0))
+export async function subscribePush() {
+  if (!pushOk() || permission() !== 'granted') return false
+  const reg = await navigator.serviceWorker.ready
+  const { publicKey } = await api('/push/key')
+  let sub = await reg.pushManager.getSubscription()
+  // a subscription made for another server key (a reinstalled server) cannot be used: made again
+  const same = sub && sub.options?.applicationServerKey && btoa(String.fromCharCode(...new Uint8Array(sub.options.applicationServerKey))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') === publicKey
+  if (sub && !same) { await sub.unsubscribe().catch(() => {}); sub = null }
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) })
+  await api('/push/subscriptions', { method: 'POST', body: { subscription: sub.toJSON() } })
+  pushOn = true
+  return true
+}
+
 export async function ask() {
   if (!supported()) return 'unsupported'
-  if (Notification.permission === 'default') { try { return await Notification.requestPermission() } catch { return Notification.permission } }
-  return Notification.permission
+  let p = Notification.permission
+  if (p === 'default') { try { p = await Notification.requestPermission() } catch { p = Notification.permission } }
+  if (p === 'granted') await subscribePush().catch((e) => console.warn('[push]', e.message))
+  return p
 }
 
 const front = () => document.visibilityState === 'visible' && document.hasFocus()
@@ -30,19 +69,31 @@ export function bodyOf(n) {
   return String(n.text || n.process || '').slice(0, 160)
 }
 
+// the installed app's badge: how many Home cards wait
+export function setBadge(n) {
+  try { if (!('setAppBadge' in navigator)) return; n ? navigator.setAppBadge(n) : navigator.clearAppBadge() } catch { /* not here */ }
+}
+
 // list: the Home's notifications as just loaded; open(n): what clicking does (MainView routes it)
 export function announce(list, open) {
+  setBadge((list || []).length)
   const fresh = (list || []).filter((n) => n?.id && !seen.has(n.id))
   for (const n of fresh) seen.add(n.id)
-  // the first load after opening the app is what was already waiting, not news
+  // the first load after opening the app is what was already waiting, not news; with push on, the server
+  // sends them (to this device too — showing them here as well would show each twice)
   if (!primed) { primed = true; return [] }
-  if (permission() !== 'granted' || front()) return []
+  if (pushOn || permission() !== 'granted' || front()) return []
   const shown = fresh.slice(0, 3)
   for (const n of shown) {
+    const opts = { body: bodyOf(n), tag: `pgl-${n.id}`, icon: `${BASE}/icons/icon-192.png`, badge: `${BASE}/icons/badge-72.png`, data: { id: n.id, type: n.type, url: n.url || null, instId: n.instId || null } }
+    if (swOk()) {
+      navigator.serviceWorker.ready.then((reg) => reg.showNotification(titleOf(n), opts)).catch(() => {})
+      continue
+    }
     try {
-      const x = new Notification(titleOf(n), { body: bodyOf(n), tag: `pgl-${n.id}`, icon: `${BASE}/favicon.svg` })
+      const x = new Notification(titleOf(n), opts)
       x.onclick = () => { try { x.close() } catch { /* closed */ } window.focus(); open(n) }
-    } catch { /* a browser that only allows them from a service worker (Android Chrome): the Home card stays */ }
+    } catch { /* the Home card stays */ }
   }
   return shown
 }

@@ -26,6 +26,7 @@ import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { threadFolderRoutes } from './routes/threadFolders.js'
 import { ssoInfo, refreshSso } from './lib/sso.js'
+import * as webpush from './lib/webpush.js'
 import * as TF from './lib/folders/threadFolders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
@@ -296,6 +297,12 @@ app.post('/api/mail/connect', auth, async (req, res) => {
   await onboardConnected(req.user.id, provider === 'demo' ? L('데모 메일함 연결됨', 'Demo mailbox connected') : L(`${username} 연결됨`, `${username} connected`))
   setTimeout(() => mail.pollUser(req.user.id, { announce: true }).catch((e) => console.warn('[mail]', e.message)), 6000)
 })
+// Web Push: the server's public key, and this browser's subscription (lib/webpush.js, public/sw.js)
+app.get('/api/push/key', auth, (req, res) => res.json({ publicKey: webpush.vapidKeys().publicKey, stats: webpush.stats }))
+app.post('/api/push/subscriptions', auth, async (req, res) => {
+  try { res.json(await webpush.subscribe(req.user, req.body?.subscription, req.headers['user-agent'])) } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+app.delete('/api/push/subscriptions', auth, async (req, res) => res.json(await webpush.unsubscribe(req.user, req.body?.endpoint)))
 app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUser(req.user.id, { announce: true })))
 // a demo mailbox only: a fictional message arrives (demos, tests) — never real mail
 // PRO_BACKGROUND=0: a second server for development (another port) that must not run the pollers,

@@ -147,12 +147,32 @@ export async function notifyUser(userId, { type, title, text, url }) {
 const lastByTenant = new Map() // tenant -> newest time_stamp seen (timestamptz text)
 export async function feedOnce() {
   const last = lastByTenant.get(T()) || new Date().toISOString()
-  const rows = await q(`select u.id as uid, (max(n.time_stamp) over ())::text as newest from notifications n
+  const rows = await q(`select u.id as uid, n.id, n.title, n.description, n.url, n.type, n.from_user_id as from, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
                         left join users u on (u.id::text = n.user_id or u.email = n.user_id) and u.tenant_id = n.tenant_id
-                        where n.tenant_id=$1 and n.time_stamp > $2::timestamptz`, [T(), last])
+                        left join todolist tl on n.url = '/todolist/' || tl.id::text
+                        where n.tenant_id=$1 and n.time_stamp > $2::timestamptz and coalesce(n.is_checked,false)=false
+                        order by n.time_stamp`, [T(), last])
   for (const uid of new Set(rows.map((r) => r.uid).filter(Boolean))) emit(uid, 'notifications', {})
   lastByTenant.set(T(), rows[0]?.newest || last)
+  // the same rows as system notifications on the person's devices, even with Lite closed (lib/webpush.js);
+  // the badge is how many Home cards wait
+  pushRows(rows).catch((e) => console.warn('[push]', e.message))
   return rows.length
+}
+const pushBody = (r) => String(r.type === 'chat' ? r.title : (r.description || '')).replace(/\s+/g, ' ').slice(0, 160)
+const pushTitle = (r) => String(r.type === 'chat' ? (r.from || '새 메시지') : r.type?.startsWith('workitem') ? `입력이 필요해요 · ${r.title}` : (r.title || 'process gpt')).slice(0, 120)
+async function pushRows(rows) {
+  const byUser = new Map()
+  for (const r of rows) if (r.uid) (byUser.get(r.uid) || byUser.set(r.uid, []).get(r.uid)).push(r)
+  if (!byUser.size) return
+  const { pushTo } = await import('./webpush.js')
+  for (const [uid, list] of byUser) {
+    // rows name a person by id or by email
+    const [u] = await q('select email from users where id::text=$1 and tenant_id=$2', [uid, T()]).catch(() => [])
+    const [c] = await q(`select count(*)::int as n from notifications where tenant_id=$1 and coalesce(is_checked,false)=false and user_id = any($2)`,
+      [T(), [uid, u?.email].filter(Boolean)]).catch(() => [])
+    for (const r of list.slice(-3)) await pushTo(uid, { id: r.id, type: r.type?.startsWith('workitem') ? 'workitem' : r.type, title: pushTitle(r), body: pushBody(r), url: r.url || null, instId: r.inst_id || null, badge: c?.n || list.length })
+  }
 }
 export function startNotificationFeed() {
   setInterval(() => eachTenant(() => feedOnce().catch((e) => console.warn('[notify feed]', e.message))), 4000)

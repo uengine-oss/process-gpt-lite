@@ -89,6 +89,10 @@ function openNotification({ detail: n }) {
 }
 onMounted(async () => {
   window.addEventListener('pgl:open-notification', openNotification)
+  // opened by a notification while the app was closed (public/sw.js: …/chat?notify=<the card>)
+  if (route.query.notify) {
+    try { const n = JSON.parse(String(route.query.notify)); router.replace({ query: {} }); setTimeout(() => openNotification({ detail: n }), 300) } catch { /* not ours */ }
+  }
   window.addEventListener('resize', onResize)
   await app.boot()
   ready.value = true

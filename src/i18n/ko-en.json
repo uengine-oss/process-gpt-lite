@@ -1775,7 +1775,14 @@
   "중지": "Stop",
   "원음": "Original",
   "끝내기": "End",
-  "꺼짐": "Off"
+  "꺼짐": "Off",
+  "당겨서 새로고침": "Pull to refresh",
+  "놓으면 새로고침": "Release to refresh",
+  "메일을 가져오는 중…": "Fetching mail…",
+  "새 메일이 없어요": "No new mail",
+  "메일을 가져오지 못했어요": "Couldn't fetch mail",
+  "메일은 뒤에서 계속 가져오고 있어요": "Still fetching mail in the background",
+  "새로고침했어요": "Refreshed"
  },
  "patterns": [
   [
@@ -4561,6 +4568,14 @@
   [
    "앱 안에서 열지 못했어요 ({0}). Google Drive 에서 열까요?",
    "Couldn't open it in the app ({0}). Open it in Google Drive?"
+  ],
+  [
+   "새 메일 {0}통 · 할 일 {1}개",
+   "New mail: {0} · to-dos: {1}"
+  ],
+  [
+   "새 메일 {0}통",
+   "New mail: {0}"
   ]
  ],
  "context": [

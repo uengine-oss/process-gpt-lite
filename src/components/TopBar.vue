@@ -30,10 +30,20 @@ function go(id) {
 
 const seg = ref(null)
 const thumb = ref({})
+// phone: the pill scrolls sideways when its tabs do not fit (2026-11-18 design rule: a full pill nav
+// scrolls, the last tab half shown, rather than squeezing the labels); the chosen tab is brought to the middle
+const more = ref({ left: false, right: false })
+function edges() {
+  const el = seg.value
+  if (!el) return
+  more.value = { left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 }
+}
 async function place() {
   await nextTick()
   const el = seg.value?.querySelector(`[data-tab="${tab.value}"]`)
   if (el) thumb.value = { left: `${el.offsetLeft}px`, width: `${el.offsetWidth}px` }
+  if (el && narrow.value && seg.value) seg.value.scrollTo({ left: Math.max(0, el.offsetLeft - (seg.value.clientWidth - el.offsetWidth) / 2), behavior: 'smooth' })
+  edges()
 }
 onMounted(place)
 watch([tab, narrow], place)
@@ -56,7 +66,7 @@ watch([tab, narrow], place)
       <Icon name="home" :size="22" />
     </button>
 
-    <nav ref="seg" class="seg glass-thin">
+    <nav ref="seg" class="seg glass-thin" :class="{ 'more-l': narrow && more.left, 'more-r': narrow && more.right }" @scroll.passive="edges">
       <span class="thumb" :style="thumb" />
       <button v-for="t in tabs" :key="t.id" :data-tab="t.id" :class="{ on: tab === t.id }" @click="go(t.id)">{{ t.label }}<i v-if="t.id === 'home' && team.unread.total" class="tdot" /></button>
     </nav>
@@ -80,13 +90,16 @@ watch([tab, narrow], place)
 .seg { position: absolute; left: calc(var(--chat-center, 50%)); translate: -50% 0; top: 10px; display: flex; padding: 2px; border-radius: 9999px; }
 .seg button { position: relative; z-index: 1; height: 44px; padding: 0 20px; border-radius: 9999px; font-size: 15px; font-weight: 500;
   color: var(--text-secondary); transition: color .3s; white-space: nowrap; }
-/* phone: five tabs (홈 · 채팅 · 프로젝트 · 루틴 · 폴더) share the room between the two round buttons
-   (16px edge + 48px button + 8px gap on each side) instead of centring past them — at 390px wide the
-   centred bar ran under both buttons; the extra room is spread over the tabs */
-.narrow .seg { left: 72px; right: 72px; translate: none; }
-.narrow .seg button { flex: 1 1 auto; min-width: 0; padding: 0 2px; }
-/* English (en.css: 13px with 10px sides, laid out for four tabs): five longer labels need a size less */
-html[lang='en'] .top.narrow .seg button { padding: 0 1px; font-size: 12px; letter-spacing: -0.01em; }
+/* phone: the pill sits between the two round buttons (16px edge + 48px button + 8px gap each side) and,
+   when its tabs do not fit, scrolls sideways — tabs keep their size, the side with more is faded so the
+   cut tab says "slide" (pill navigation on a phone, 2026-11-18; not squeezed labels) */
+.narrow .seg { left: 72px; right: 72px; translate: none; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  overscroll-behavior-x: contain; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+.narrow .seg::-webkit-scrollbar { display: none; }
+.narrow .seg button { flex: none; padding: 0 16px; scroll-snap-align: center; }
+.narrow .seg.more-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent); }
+.narrow .seg.more-l { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 30px), transparent); }
+.narrow .seg.more-l.more-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 30px, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(to right, transparent, #000 30px, #000 calc(100% - 30px), transparent); }
 .seg button.on { color: var(--text-primary-on); }
 .tdot { position: absolute; top: 8px; right: 7px; width: 8px; height: 8px; border-radius: 4px; background: #e5484d; }
 .thumb { position: absolute; top: 2px; bottom: 2px; border-radius: 9999px; background: var(--ink); transition: left .45s var(--spring), width .45s var(--spring); }

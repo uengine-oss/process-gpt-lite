@@ -6,6 +6,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './styles/base.css'
 import { auth, adoptHostSession } from './api.js'
+import { registerWorker } from './browserNotify.js'
 
 const routes = [
   { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
@@ -43,3 +44,5 @@ router.beforeEach((to) => {
 // English: the dictionary and the runtime translator go in before the first render
 const ready = isEnglish ? import('./i18n/english.js').then((m) => m.installEnglish()).catch((e) => console.error('english mode', e)) : Promise.resolve()
 ready.then(() => createApp(App).use(createPinia()).use(router).mount('#app'))
+// push notifications and the installed app's badge (public/sw.js)
+registerWorker()
