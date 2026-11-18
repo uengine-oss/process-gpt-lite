@@ -51,6 +51,25 @@ test('workroom: a proxy chain X-Forwarded-Host list is still this origin', () =>
   assert.equal(sameOrigin({ headers: { host: 'acme.process-gpt.io' } }), false)
 })
 
+test('workroom: behind the gateway a company address is this origin without any forwarded host', () => {
+  // what production sends (2026-11-18): Host process-gpt-lite-web, no X-Forwarded-Host
+  const req = (origin) => ({ headers: { origin, host: 'process-gpt-lite-web' } })
+  const was = [config.tenantFromHeader, config.publicUrl]
+  try {
+    config.tenantFromHeader = false; config.publicUrl = 'https://www.process-gpt.io/lite'
+    assert.equal(sameOrigin(req('https://uengine.process-gpt.io')), false)
+    config.tenantFromHeader = true
+    assert.equal(sameOrigin(req('https://uengine.process-gpt.io')), true)
+    assert.equal(sameOrigin(req('https://www.process-gpt.io')), true)
+    assert.equal(sameOrigin(req('https://process-gpt.io.evil.example')), false)
+    assert.equal(sameOrigin(req('https://evilprocess-gpt.io')), false)
+    assert.equal(sameOrigin(req('https://evil.example')), false)
+    // a public URL without a parent domain trusts only itself
+    config.publicUrl = 'http://localhost:5180'
+    assert.equal(sameOrigin(req('http://other.localhost:5180')), false)
+  } finally { [config.tenantFromHeader, config.publicUrl] = was }
+})
+
 test('a refused websocket arrives open, with the reason, then closes 44xx', async () => {
   const server = http.createServer()
   const wss = new WebSocketServer({ noServer: true })

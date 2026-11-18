@@ -259,7 +259,19 @@ export function sameOrigin(req) {
   if (!origin) return false
   let host
   try { host = new URL(origin).host } catch { return false }
-  return knownHosts(req).includes(host) || TUNNEL.test(host.split(':')[0])
+  return knownHosts(req).includes(host) || TUNNEL.test(host.split(':')[0]) || companyAddress(host)
+}
+// Behind the ProcessGPT gateway each company has its own address, <tenant>.process-gpt.io/lite, and the
+// gateway passes neither that Host nor X-Forwarded-Host (the server sees process-gpt-lite-web): there the
+// public URL's own host and its siblings under the same parent domain are this app (2026-11-18 운영 확인:
+// every terminal, ArtCraft/IeumOffice live link and meeting voice socket was refused 4403 before this).
+function companyAddress(host) {
+  if (!config.tenantFromHeader) return false
+  let pub
+  try { pub = new URL(config.publicUrl).hostname.toLowerCase() } catch { return false }
+  const h = host.split(':')[0].toLowerCase()
+  const parent = pub.split('.').slice(1).join('.')
+  return h === pub || (parent.includes('.') && h.endsWith('.' + parent))
 }
 // (a proxy chain can append to X-Forwarded-Host: "a.example, b.example")
 const knownHosts = (req) => [req.headers.host, ...String(req.headers['x-forwarded-host'] || '').split(',').map((h) => h.trim()),
