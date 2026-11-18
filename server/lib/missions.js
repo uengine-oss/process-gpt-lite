@@ -11,7 +11,7 @@ import { emit } from './bus.js'
 import { notifyUser } from './notify.js'
 import { mainThread, addMessage } from './store.js'
 import { createSchedule } from './scheduler.js'
-import { startProcess } from './engine.js'
+import { startProcess, instanceThread, notifyInstance } from './engine.js'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -133,9 +133,11 @@ async function runProcessSchedule(s, run) {
   const [done] = await q(`update pro_mission_runs set finished_at=now(), status='done', changed=true, summary=$2, result=$3, conversation_id=$4 where id=$1 returning *`,
     [run.id, L(`인스턴스 시작 · ${instName}`, `Instance started · ${instName}`), { instId, instName, process: s.process_id }, instId])
   emit(s.user_id, 'mission', { scheduleId: s.id, run: done })
-  const t = s.thread_id || (await mainThread(s.user_id)).id
-  await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id })
-  await addMessage(s.user_id, t, 'agent', 'process', { defId: s.process_id, name: instName, mode: 'start', state: 'started', instId, instName })
+  // the run lives with its instance (its page's conversation) and a Home card opens it; the chat the
+  // schedule was made in gets nothing per run (engine.js instanceThread, 2026-11-18)
+  const th = await instanceThread(s.user_id, instId, instName)
+  await addMessage(s.user_id, th, 'system', 'divider', { text: s.name, scheduleId: s.id })
+  await notifyInstance(s.user_id, instId, { type: 'process_started', title: L(`예약 실행 · ${instName}`, `Scheduled run · ${instName}`), text: s.name })
   return done
 }
 

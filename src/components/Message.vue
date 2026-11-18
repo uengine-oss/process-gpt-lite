@@ -100,10 +100,10 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       </button>
     </div>
     <div v-else-if="msg.kind === 'instances'" class="list glass">
-      <div class="lh">진행 중인 프로세스 {{ c.items.length }}건</div>
-      <button v-for="it in c.items" :key="it.proc_inst_id" class="li press" @click="router.push(`/projects/p/${encodeURIComponent(it.proc_inst_id)}`)">
-        <b>{{ it.proc_inst_name || it.def_name }}</b>
-        <small>{{ it.def_name }} · {{ instStatus[it.status] || it.status }}<span v-if="it.needs_me" class="me"> · 입력 필요</span></small>
+      <div class="lh">{{ c.title || `진행 중인 프로세스 ${c.items.length}건` }}</div>
+      <button v-for="it in c.items" :key="it.proc_inst_id + (it.activity || '')" class="li press" @click="router.push(`/projects/p/${encodeURIComponent(it.proc_inst_id)}`)">
+        <b>{{ it.activity || it.proc_inst_name || it.def_name }}</b>
+        <small><template v-if="it.activity">{{ it.proc_inst_name || it.def_name }}</template><template v-else>{{ it.def_name }} · {{ instStatus[it.status] || it.status }}</template><span v-if="it.needs_me" class="me"> · 입력 필요</span></small>
       </button>
       <p v-if="!c.items.length" class="empty">진행 중인 프로세스가 없어요.</p>
     </div>

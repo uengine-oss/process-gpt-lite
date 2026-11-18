@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { config } from '../config.js'
 import { q } from './supa.js'
 import { emit } from './bus.js'
-import { updateMessage, mainThread, addMessage } from './store.js'
+import { updateMessage } from './store.js'
 import { getDefinition, getTodo } from './processes.js'
 import { roleMap, roleKey } from './team.js'
 import { L, isEn } from './lang.js'
@@ -114,25 +114,25 @@ export async function submitTodo({ me, todoId, values, messageId }) {
   return { ok: true }
 }
 
-// Where a new step of mine shows up. An instance started from a chat thread (its ProcessCard, or a
-// scheduled run's card, carries the instId) keeps answering inline: the step's form card goes to that
-// thread. Anything else (started by a teammate, from Home, a team room, the miner) gets one line in the
-// main chat that opens the instance page, where the form is — at most one per instance a day, the Home
-// card already says it is waiting.
-async function originThread(userId, instId) {
-  const [m] = await q(`select m.thread_id from pro_messages m join pro_threads t on t.id=m.thread_id
-                       where t.user_id=$1 and m.kind='process' and m.content->>'instId'=$2 order by m.created_at limit 1`, [userId, instId])
-  return m?.thread_id || null
+// Where an instance lives for a person: its page (/projects/p/<instId>) and one conversation there (the
+// instance page's, routes/process.js GET /instances/:id) — what started it (a mail, a schedule) and talk
+// about it stay in that context. A step of mine is announced by the Home card process-gpt's todolist
+// trigger makes (lib/notify.js), which opens that page; nothing is added to the main chat (2026-11-18:
+// "전체 대화 목록에 어펜드되기보다는 해당 인스턴스 쪽에서 열리는 게 맞다").
+export async function instanceThread(userId, instId, title = null) {
+  let [t] = await q('select id from pro_threads where user_id=$1 and ref=$2 order by created_at limit 1', [userId, instId])
+  if (!t) {
+    const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
+    ;[t] = await q(`insert into pro_threads(user_id,kind,title,ref) values ($1,'process',$2,$3) returning id`, [userId, title || i?.proc_inst_name || instId, instId])
+  }
+  return t.id
 }
-async function announceStep(me, instId, t, origin) {
-  if (origin) return addMessage(me.id, origin, 'agent', 'todo', { todoId: t.id, name: t.activity_name })
-  const th = await mainThread(me.id)
-  const [seen] = await q(`select 1 from pro_messages where thread_id=$1 and kind='chip' and content->>'instId'=$2 and content->>'icon'='bell'
-                          and created_at > now() - interval '1 day' limit 1`, [th.id, instId])
-  if (seen) return
-  const [n] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
-  const inst = n?.proc_inst_name || instId
-  return addMessage(me.id, th.id, 'agent', 'chip', { icon: 'bell', text: L(`입력이 필요해요 · ${t.activity_name} · ${inst}`, `Needs your input · ${t.activity_name} · ${inst}`), instId })
+
+// A Home card that opens the instance page (started from a mail or a schedule, finished): the same
+// notifications table, so process-gpt's bell and phone push carry it too.
+export async function notifyInstance(userId, instId, { type, title, text }) {
+  const { notifyUser } = await import('./notify.js')
+  await notifyUser(userId, { type, title, text: text || '', url: `/projects/p/${instId}` })
 }
 
 // Follow an instance while it runs: push changes to the client and surface new work
@@ -141,8 +141,6 @@ const watching = new Map()
 export function watchInstance(me, instId) {
   if (watching.has(instId)) return
   let last = ''
-  const announced = new Set()
-  let origin = null // chat thread the instance was started from (looked up again until found)
   let idle = 0
   const tick = async () => {
     try {
@@ -153,20 +151,12 @@ export function watchInstance(me, instId) {
         last = sig
         idle = 0
         await keepEnglishName(instId)
+        // an open instance page (and its Home card) follow the change; a step of mine is the Home card's
         emit(me.id, 'process', { instId, type: 'changed', status: i?.status })
-        for (const t of todos) {
-          const reached = t.status === 'IN_PROGRESS' || (['TODO', 'NEW'].includes(t.status) && (i?.current_activity_ids || []).includes(t.activity_id))
-          const mine = reached && !t.agent_orch && (String(t.user_id).includes(me.id) || String(t.user_id).includes(me.email))
-          if (mine && !announced.has(t.id)) {
-            announced.add(t.id)
-            if (!origin) origin = await originThread(me.id, instId)
-            await announceStep(me, instId, t, origin)
-          }
-        }
         if (i?.status === 'COMPLETED') {
-          const th = await mainThread(me.id)
           const [n] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
-          await addMessage(me.id, th.id, 'agent', 'chip', { icon: 'check', text: L(`완료 · ${n?.proc_inst_name || instId}`, `Done · ${n?.proc_inst_name || instId}`), instId })
+          const name = n?.proc_inst_name || instId
+          await notifyInstance(me.id, instId, { type: 'process_done', title: L(`완료 · ${name}`, `Done · ${name}`) })
         }
       } else idle++
       if (i?.status === 'COMPLETED' || idle > 360) return stop()

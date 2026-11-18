@@ -37,10 +37,8 @@ export function processRoutes(auth) {
     if (!(await proc.canSeeInstance(req.params.id, req.user))) return res.status(403).json({ error: '이 프로세스를 볼 권한이 없어요.' })
     const d = await proc.getInstance(req.params.id, req.user)
     if (!d) return res.status(404).end()
-    // one conversation per instance, created on first view
-    let [t] = await q(`select id from pro_threads where user_id=$1 and ref=$2`, [req.user.id, req.params.id])
-    if (!t) [t] = await q(`insert into pro_threads(user_id,kind,title,ref) values ($1,'process',$2,$3) returning id`, [req.user.id, d.inst.proc_inst_name || d.def?.name, req.params.id])
-    res.json({ ...d, threadId: t.id })
+    // one conversation per instance and person, created on first view (or by a mail / schedule that started it)
+    res.json({ ...d, threadId: await engine.instanceThread(req.user.id, req.params.id, d.inst.proc_inst_name || d.def?.name) })
   })
 
   r.get('/todos', auth, async (req, res) => res.json(await proc.myTodos(req.user)))

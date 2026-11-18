@@ -33,15 +33,6 @@ async function ownerOf(row) {
   return (t?.user_id || '').split(',')[0].trim() || null
 }
 
-async function instanceThread(userId, instId) {
-  let [t] = await q('select id from pro_threads where user_id=$1 and ref=$2', [userId, instId])
-  if (!t) {
-    const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
-    ;[t] = await q(`insert into pro_threads(user_id,kind,title,ref) values ($1,'process',$2,$3) returning id`, [userId, i?.proc_inst_name, instId])
-  }
-  return t.id
-}
-
 async function formFor(row) {
   const id = (row.tool || '').startsWith('formHandler:') ? row.tool.slice(12) : null
   if (id) return getForm(id)
@@ -59,7 +50,7 @@ async function handle(row) {
 async function handleAs(row, owner) {
   const job = crypto.randomUUID()
   const base = { job_id: job, todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH }
-  const threadId = owner ? await instanceThread(owner, row.proc_inst_id) : null
+  const threadId = owner ? await (await import('./engine.js')).instanceThread(owner, row.proc_inst_id) : null
   await events([{ ...base, event_type: 'task_started', data: { goal: L(`${row.activity_name} 작업을 시작합니다.`, `Starting the ${row.activity_name} task.`), name: L('브라우저 에이전트', 'Browser agent'), role: row.activity_name } }])
 
   // the activity's full instruction lives in the definition; the work item carries only its summary

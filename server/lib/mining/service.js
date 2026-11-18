@@ -32,7 +32,7 @@ import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { chatJson } from '../llm.js'
 import { saveGenerated, previewGenerated } from '../generated.js'
-import { mainThread, addMessage } from '../store.js'
+import { addMessage } from '../store.js'
 import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
 import { caseClosed } from './recorder.js'
 import { L, isEn, lang, langOf, withLang } from '../lang.js'
@@ -898,17 +898,20 @@ async function routeMailIn(userId, mail, d) {
   if (!s) return false
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
   if (!p?.email) return false
-  const { startProcess } = await import('../engine.js')
+  const { startProcess, instanceThread, notifyInstance } = await import('../engine.js')
   const customer = d?.customer || (String(mail.from || '').split('<')[0].trim()) || L('고객', 'Customer')
   const values = { customer, sender: mail.from || '', subject: mail.subject || '', body: String(mail.text || '').slice(0, 3000), requested: (d?.items || []).map((i) => i.kind).join(L('·', ', ')) }
-  const t = await mainThread(userId)
-  await addMessage(userId, t.id, 'system', 'divider', { text: L(`메일 · ${customer} ${values.requested || '요청'}`, `Mail · ${customer} ${values.requested || 'request'}`) })
   const { instId, instName } = await startProcess({ me: { id: userId, email: p.email }, defId: s.proc_def_id, values })
   await q(`insert into pro_mining_runs (proc_inst_id, tenant_id, suggestion_id, user_id, mail) values ($1,$2,$3,$4,$5) on conflict do nothing`,
     [instId, T(), s.id, userId, { id: mail.id, from: mail.from, subject: mail.subject, text: String(mail.text || '').slice(0, 3000), customer, items: d?.items || [] }])
+  // the mail and what the process will do with it stay with the instance (its page's conversation), not
+  // in the main chat; a Home card opens that page (engine.js instanceThread, 2026-11-18)
   const { getDefinition } = await import('../processes.js')
-  await addMessage(userId, t.id, 'agent', 'text', { text: routeNote(customer, s.name, await getDefinition(s.proc_def_id).catch(() => null)), mail: { from: mail.from, subject: mail.subject } })
-  await addMessage(userId, t.id, 'agent', 'process', { defId: s.proc_def_id, name: s.name, state: 'started', instId, instName })
+  const note = routeNote(customer, s.name, await getDefinition(s.proc_def_id).catch(() => null))
+  const th = await instanceThread(userId, instId, instName)
+  await addMessage(userId, th, 'system', 'divider', { text: L(`메일 · ${customer} ${values.requested || '요청'}`, `Mail · ${customer} ${values.requested || 'request'}`) })
+  await addMessage(userId, th, 'agent', 'text', { text: note, mail: { from: mail.from, subject: mail.subject } })
+  await notifyInstance(userId, instId, { type: 'process_started', title: L(`메일로 시작 · ${instName}`, `Started from a mail · ${instName}`), text: note })
   console.log(`[mining] mail ${mail.id} → ${s.proc_def_id} ${instId}`)
   return { instId, suggestion: s.id }
 }

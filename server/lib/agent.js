@@ -1096,7 +1096,12 @@ async function processTurn(userId, threadId, args) {
     const [{ email }] = await q('select email from pro_profile where user_id=$1', [userId])
     const list = await myTodos({ id: userId, email })
     if (!list.length) await addMessage(userId, threadId, 'agent', 'text', { text: L('지금 기다리고 있는 할 일은 없어요.', 'No to-dos are waiting for you right now.') })
-    for (const t of list.slice(0, 3)) await addMessage(userId, threadId, 'agent', 'todo', { todoId: t.id, name: t.activity_name, inst: t.proc_inst_name })
+    // one list: each to-do opens its instance page, where its form is (not a form card per to-do in the
+    // chat — the work belongs to its instance's context, 2026-11-18)
+    else await addMessage(userId, threadId, 'agent', 'instances', {
+      title: L(`기다리는 내 할 일 ${list.length}건`, `${list.length} to-dos waiting for you`),
+      items: list.slice(0, 8).map((t) => ({ proc_inst_id: t.proc_inst_id, proc_inst_name: t.proc_inst_name, def_name: t.def_name, status: 'RUNNING', needs_me: true, activity: t.activity_name })),
+    })
   }
 }
 
