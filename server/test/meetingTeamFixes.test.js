@@ -68,3 +68,13 @@ test('팀원: 게이트웨이 뒤에서는 회사 사람이면 처음 볼 때 �
     assert.equal(await isMember('00000000-0000-0000-0000-000000000000'), false, '회사 사람이 아님')
   } finally { config.tenantFromHeader = was }
 })
+
+test('제안: 실패한 것은 요청받은 사람이 다시 시작할 수 있다', async () => {
+  const { view } = await import('../lib/team/assist.js')
+  const s = (state) => ({ id: 's', room_id: 'r', chat_uuid: 'minutes:m:0', audience: ['u'], dismissed: [], state, work: 'CreateDocument', title: '관련 자료 찾기', reason: '' })
+  assert.equal(view('u', s('failed')).canStart, true)
+  assert.equal(view('u', s('open')).canStart, true)
+  assert.equal(view('u', s('running')).canStart, false)
+  assert.equal(view('u', s('done')).canStart, false)
+  assert.equal(view('other', s('failed')).canStart, false, '요청받지 않은 사람')
+})

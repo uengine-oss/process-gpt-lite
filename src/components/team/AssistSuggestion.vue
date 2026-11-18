@@ -33,7 +33,10 @@ async function go() {
     </template>
     <p v-else-if="s.state === 'running'" class="run"><span class="shimmer-text">{{ team.assistStatus[s.id] || '에이전트가 작업하는 중' }}</span><small> · {{ elapsed }}</small></p>
     <p v-else-if="s.state === 'done'" class="fin">✓ {{ s.title }} — 결과가 아래에 올라왔어요</p>
-    <p v-else class="fin bad">{{ s.title }} — 작업하지 못했어요</p>
+    <div v-else class="fail">
+      <p class="fin bad">{{ s.title }} — 작업하지 못했어요</p>
+      <button v-if="s.canStart !== false" class="b press" :disabled="busy" @click="go">{{ busy ? '시작하는 중…' : '다시 시도' }}</button>
+    </div>
     <p v-if="err" class="err">{{ err }}</p>
   </div>
 </template>
@@ -52,6 +55,7 @@ async function go() {
 .b:disabled { opacity: .55; }
 .note { font-size: 11.5px; color: var(--text-tertiary); margin-left: 4px; }
 .run, .fin { margin: 0; font-size: 13.5px; }
+.fail { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .run small { color: var(--text-tertiary); }
 .fin { color: var(--text-secondary); }
 .fin.bad { color: #c62828; }

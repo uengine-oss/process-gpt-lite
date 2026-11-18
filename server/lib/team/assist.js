@@ -312,7 +312,7 @@ export function view(viewerId, s) {
   const messageId = s.anchor_uuid || s.chat_uuid
   if (s.state === 'open' && !offered) return { id: s.id, threadId: s.room_id, messageId, hidden: true }
   return { id: s.id, threadId: s.room_id, messageId, meetingId: s.meeting_id || null, work: s.work, kind: L(WORKS[s.work]?.badge || '도움', WORKS_EN[s.work]?.badge || 'Help'), title: s.title, reason: s.reason, state: s.state,
-    startedBy: s.started_by, resultMessageId: s.result_uuid, mine: s.started_by === viewerId, canStart: offered && s.state === 'open', judge: s.judge }
+    startedBy: s.started_by, resultMessageId: s.result_uuid, mine: s.started_by === viewerId, canStart: offered && ['open', 'failed'].includes(s.state), judge: s.judge }
 }
 
 export async function list(me, roomId) {
@@ -354,7 +354,9 @@ export async function start(me, id, run) {
   const s = await own(me, id)
   if (!s) throw new TeamError(404, L('제안을 찾지 못했어요.', "I couldn't find that suggestion."))
   if (!s.audience.includes(me.id)) throw new TeamError(403, L('이 제안은 요청받은 분이 시작할 수 있어요.', 'Only the people asked can start this suggestion.'))
-  const [c] = await q(`update pro_room_suggestions set state='running', started_by=$2, updated_at=now() where id=$1 and state='open' returning *`, [s.id, me.id])
+  // a failed one can be tried again (its card says 다시 시도 — 2026-11-18, a meeting's action items failed in
+  // production before the cause was fixed, and nothing could start them again)
+  const [c] = await q(`update pro_room_suggestions set state='running', started_by=$2, updated_at=now() where id=$1 and state in ('open','failed') returning *`, [s.id, me.id])
   if (!c) throw new TeamError(409, L('이미 시작된 제안이에요.', 'This suggestion has already been started.'))
   stats.started++
   await broadcast(c)
