@@ -20,7 +20,7 @@ export const useApp = defineStore('app', {
     panelAppTick: {},          // appId -> bumps when its rows change (another member, the sheet editor)
     frames: {},                // taskId -> {data,url}
     dockOpen: true,
-    mode: 'chat',              // chat | project
+    mode: 'chat',              // chat | project | routine (a process instance: /routines)
     panelMode: false,          // "새 패널 만들기" composer mode
     handoff: null,             // message id of a task shown full screen
     officeDoc: null,           // {msgId, url, name} open in the IeumOffice editor

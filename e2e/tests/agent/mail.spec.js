@@ -83,7 +83,7 @@ test('A-13 [flaky] 정식 등록된 프로세스와 맞는 메일 → 그 프로
   expect(inst, '인스턴스 대화').toBeTruthy()
   const note = (await since(db, inst.id, t0, 'text'))[0]
   expect(note?.content.mail?.subject).toBe(subject)
-  const n = (await u.get('/notifications')).body.find((x) => x.url === `/projects/p/${run.proc_inst_id}`)
+  const n = (await u.get('/notifications')).body.find((x) => x.url === `/routines/${run.proc_inst_id}`)
   expect(n?.type, '홈 카드 → 인스턴스 화면').toBe('process_started')
   expect(await since(db, th, t0, 'process'), '전체 채팅에는 붙지 않음').toEqual([])
 })

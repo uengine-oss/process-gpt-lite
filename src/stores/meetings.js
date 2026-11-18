@@ -17,7 +17,8 @@ async function postAudio(id, blob) {
   let r = await go()
   // a sign-in check or a gateway that did not answer in time loses a whole spoken piece (and its
   // interpretation): once more, a moment later
-  if (r.status === 401 || r.status === 502 || r.status === 503) { await new Promise((ok) => setTimeout(ok, 400)); r = await go() }
+  // (not 503: the server already tried a second transcription model before it said so)
+  if (r.status === 401 || r.status === 502) { await new Promise((ok) => setTimeout(ok, 400)); r = await go() }
   if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).error || '받아쓰지 못했어요.'), { status: r.status })
   return r.json()
 }
@@ -139,7 +140,12 @@ export const useMeetings = defineStore('meetings', {
         onPiece: async (blob) => {
           if (!this.m || !this.mic) return
           this.sending++
-          try { await postAudio(this.m.id, blob) } catch (e) { if (e.status === 403) this.error = e.message } finally { this.sending-- }
+          try { await postAudio(this.m.id, blob) } catch (e) {
+            // the reason a piece was not written down is said (before, anything but 403 vanished: a meeting
+            // without captions and no why — 2026-11-18); a passing one goes away by itself
+            if (e.status === 403) this.error = e.message
+            else { this.error = e.message || '받아쓰지 못했어요.'; clearTimeout(this._errT); this._errT = setTimeout(() => { if (this.error === e.message) this.error = '' }, 10000) }
+          } finally { this.sending-- }
         },
       })
     },

@@ -25,7 +25,7 @@ const go = (path) => router.push(path)
       </ol>
       <div v-if="m.process.outputs.length" class="chips">
         <span class="cap">단계 산출물</span>
-        <button v-for="(o, i) in m.process.outputs" :key="i" class="chip press" :title="o.text || o.name" @click="go(`/projects/p/${m.process.instId}`)">
+        <button v-for="(o, i) in m.process.outputs" :key="i" class="chip press" :title="o.text || o.name" @click="go(`/routines/${m.process.instId}`)">
           {{ o.label || o.name || o.field }}<small> · {{ o.activity }}</small>
         </button>
       </div>

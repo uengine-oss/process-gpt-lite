@@ -101,7 +101,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     </div>
     <div v-else-if="msg.kind === 'instances'" class="list glass">
       <div class="lh">{{ c.title || `진행 중인 프로세스 ${c.items.length}건` }}</div>
-      <button v-for="it in c.items" :key="it.proc_inst_id + (it.activity || '')" class="li press" @click="router.push(`/projects/p/${encodeURIComponent(it.proc_inst_id)}`)">
+      <button v-for="it in c.items" :key="it.proc_inst_id + (it.activity || '')" class="li press" @click="router.push(`/routines/${encodeURIComponent(it.proc_inst_id)}`)">
         <b>{{ it.activity || it.proc_inst_name || it.def_name }}</b>
         <small><template v-if="it.activity">{{ it.proc_inst_name || it.def_name }}</template><template v-else>{{ it.def_name }} · {{ instStatus[it.status] || it.status }}</template><span v-if="it.needs_me" class="me"> · 입력 필요</span></small>
       </button>
@@ -137,7 +137,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     </button>
 
     <!-- a chip about an instance (a step waiting for me, a finished run) opens its page (server lib/engine.js) -->
-    <button v-else-if="msg.kind === 'chip' && c.instId" class="chip link press" @click="router.push(`/projects/p/${encodeURIComponent(c.instId)}`)">
+    <button v-else-if="msg.kind === 'chip' && c.instId" class="chip link press" @click="router.push(`/routines/${encodeURIComponent(c.instId)}`)">
       <Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
     </button>
     <div v-else-if="msg.kind === 'chip'" class="chip"><Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> {{ c.text }}</div>

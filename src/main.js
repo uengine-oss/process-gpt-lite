@@ -15,7 +15,11 @@ const routes = [
   { path: '/chat', component: () => import('./views/MainView.vue'), meta: { mode: 'chat' } },
   // one conversation the context router told apart, inside the main chat
   { path: '/chat/c/:cid', component: () => import('./views/MainView.vue'), meta: { mode: 'chat' } },
-  { path: '/projects/p/:instId', component: () => import('./views/MainView.vue'), meta: { mode: 'project' } },
+  // 루틴: a process instance (2026-11-18: "프로세스 인스턴스는 프로젝트가 아니다") — the list, and one
+  // instance's page (InstanceHeader + its conversation). The old /projects/p/<instId> links (Home cards,
+  // chat cards, notifications already sent) land on the same page.
+  { path: '/routines/:instId?', name: 'routine', component: () => import('./views/MainView.vue'), meta: { mode: 'routine' } },
+  { path: '/projects/p/:instId', redirect: (to) => ({ name: 'routine', params: { instId: to.params.instId } }) },
   { path: '/projects/:id?', component: () => import('./views/MainView.vue'), meta: { mode: 'project' } },
   { path: '/settings/:page?/:sub?', component: () => import('./views/MainView.vue'), meta: { mode: 'chat', settings: true } },
   { path: '/workroom/:kind/:id', component: () => import('./views/WorkroomView.vue') },

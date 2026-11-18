@@ -237,16 +237,17 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
       </div>
 
       <footer class="bar">
-        <button class="ctl press" :class="{ off: !mt.mic }" data-test="mic" @click="mt.toggle('mic')">{{ mt.mic ? '🎙 마이크' : '🔇 음소거' }}</button>
-        <button class="ctl press" :class="{ off: !mt.cam }" @click="mt.toggle('cam')">{{ mt.cam ? '📷 카메라' : '📷 꺼짐' }}</button>
-        <button class="ctl press" :class="{ on: mt.screen }" @click="mt.toggleScreen()">🖥 {{ mt.screen ? '공유 중지' : '화면 공유' }}</button>
-        <button v-if="m.agent" class="ctl press" :class="{ on: m.me.consent }" data-test="consent-toggle" @click="mt.setConsent(!m.me.consent)">{{ m.me.consent ? '✓ 기록 동의' : '기록 동의 안 함' }}</button>
-        <button v-if="interp?.on && interp?.voice" class="ctl press" :class="{ on: mt.listen === 'interp' }" data-test="listen-toggle" @click="mt.setListen(mt.listen === 'interp' ? 'original' : 'interp')">{{ mt.listen === 'interp' ? '🎧 통역 듣는 중' : '🔊 원래 소리 듣는 중' }}</button>
+        <!-- phone: icon over a short name, every button on one row (2026-11-18: the long names broke one letter per line) -->
+        <button class="ctl press" :class="{ off: !mt.mic }" data-test="mic" @click="mt.toggle('mic')"><span class="ic">{{ mt.mic ? '🎙' : '🔇' }}</span><span class="lb">{{ mt.mic ? '마이크' : '음소거' }}</span></button>
+        <button class="ctl press" :class="{ off: !mt.cam }" @click="mt.toggle('cam')"><span class="ic">📷</span><span class="lb">{{ mt.cam ? '카메라' : '꺼짐' }}</span></button>
+        <button class="ctl press" :class="{ on: mt.screen }" @click="mt.toggleScreen()"><span class="ic">🖥</span><span class="lb">{{ mt.screen ? '공유 중지' : '화면 공유' }}</span><span class="lbs">{{ mt.screen ? '중지' : '화면' }}</span></button>
+        <button v-if="m.agent" class="ctl press" :class="{ on: m.me.consent }" data-test="consent-toggle" @click="mt.setConsent(!m.me.consent)"><span class="ic">{{ m.me.consent ? '✓' : '○' }}</span><span class="lb">{{ m.me.consent ? '기록 동의' : '기록 동의 안 함' }}</span><span class="lbs">{{ m.me.consent ? '기록' : '기록 안 함' }}</span></button>
+        <button v-if="interp?.on && interp?.voice" class="ctl press" :class="{ on: mt.listen === 'interp' }" data-test="listen-toggle" @click="mt.setListen(mt.listen === 'interp' ? 'original' : 'interp')"><span class="ic">{{ mt.listen === 'interp' ? '🎧' : '🔊' }}</span><span class="lb">{{ mt.listen === 'interp' ? '통역 듣는 중' : '원래 소리 듣는 중' }}</span><span class="lbs">{{ mt.listen === 'interp' ? '통역' : '원음' }}</span></button>
         <span class="sp" />
         <span v-if="mt.sending" class="send">받아쓰는 중…</span>
         <p v-if="mt.error" class="err">{{ mt.error }}</p>
-        <button class="ctl press" data-test="leave" @click="mt.leave()">나가기</button>
-        <button class="ctl red press" data-test="end" @click="mt.endAll()">회의 끝내기</button>
+        <button class="ctl press" data-test="leave" @click="mt.leave()"><span class="ic">↩</span><span class="lb">나가기</span></button>
+        <button class="ctl red press" data-test="end" @click="mt.endAll()"><span class="ic">■</span><span class="lb">회의 끝내기</span><span class="lbs">끝내기</span></button>
       </footer>
     </template>
   </div>
@@ -356,6 +357,9 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
 .type button { height: 36px; padding: 0 14px; border-radius: 18px; font-size: 13.5px; }
 .bar { height: 64px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
 .ctl { height: 40px; padding: 0 16px; border-radius: 20px; background: #2a2d35; color: #f2f3f5; font-size: 14px; }
+.ctl { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: none; }
+.ctl .ic { font-size: 15px; line-height: 1; }
+.ctl .lbs { display: none; }
 .ctl.off { background: #5c2629; color: #ffb3b5; }
 .ctl.on { background: #3d2f80; color: #e3dcff; }
 .ctl.red { background: #e5484d; color: #fff; }
@@ -367,4 +371,16 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
 .minibar span { flex: 1; }
 .minibar button { height: 30px; font-size: 12.5px; padding: 0 12px; }
 @media (max-width: 760px) { .body { flex-direction: column; } .side { width: auto; height: 45%; } .tiles { grid-template-columns: 1fr 1fr; } }
+/* phone: a call app's row — icon over a short name, all on one row; 받아쓰는 중 and an error float above it */
+@media (max-width: 760px) {
+  .bar { position: relative; height: 66px; gap: 4px; padding: 0 6px; justify-content: space-between; }
+  .bar .sp { display: none; }
+  .ctl { flex: 1 1 0; min-width: 0; max-width: 72px; height: 54px; padding: 4px 2px; border-radius: 14px; flex-direction: column; justify-content: center; gap: 3px; font-size: 11px; }
+  .ctl .ic { font-size: 17px; }
+  .ctl .lb, .ctl .lbs { max-width: 100%; overflow: hidden; text-overflow: ellipsis; word-break: keep-all; }
+  .ctl:has(.lbs) .lb { display: none; }
+  .ctl .lbs { display: block; }
+  .bar .send { position: absolute; left: 50%; bottom: 70px; translate: -50% 0; padding: 4px 10px; border-radius: 999px; background: rgba(20, 22, 28, .85); color: #c9ccd1; }
+  .bar .err { position: absolute; left: 8px; right: 8px; bottom: 70px; padding: 8px 10px; border-radius: 10px; background: rgba(92, 38, 41, .95); color: #ffd7d8; font-size: 12.5px; }
+}
 </style>

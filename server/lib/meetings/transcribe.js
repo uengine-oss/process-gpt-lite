@@ -9,6 +9,12 @@ import { normMain } from '../mainLang.js'
 
 const BASE = () => (process.env.PRO_TRANSCRIBE_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
 const MODEL = () => process.env.PRO_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe'
+// a second model when the first does not answer (2026-11-18 production: gpt-4o-mini-transcribe through LiteLLM
+// hung for 30 s on every piece, so a phone meeting had no captions); '' turns it off
+const FALLBACK = () => process.env.PRO_TRANSCRIBE_FALLBACK_MODEL ?? 'whisper-1'
+const TRY_MS = Number(process.env.PRO_TRANSCRIBE_TIMEOUT_MS || 15000)
+// the last failure, for /api/meetings/stats (what the operator checks first)
+export const lastError = { at: null, model: null, message: null }
 export const transcribeConfigured = () => !!apiKey()
 
 // what transcription models make up from noise or silence (they were trained on subtitled video)
@@ -24,21 +30,33 @@ export async function transcribe(buf, { prompt = '', type = 'audio/wav', languag
   if (!apiKey()) throw Object.assign(new Error(L('받아쓰기 키가 설정되지 않았어요.', 'No transcription key is set up.')), { status: 503 })
   const spoken = normMain(language) || 'ko'
   const t0 = Date.now()
-  const form = new FormData()
-  form.append('file', new Blob([buf], { type }), type.includes('webm') ? 'speech.webm' : 'speech.wav')
-  form.append('model', MODEL())
-  form.append('language', spoken)
-  form.append('response_format', 'json')
-  if (prompt) form.append('prompt', prompt.slice(0, 600))
-  const r = await fetch(`${BASE()}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey()}` }, body: form, signal: AbortSignal.timeout(30000) })
-  if (!r.ok) throw Object.assign(new Error(`transcription ${r.status}: ${(await r.text()).slice(0, 200)}`), { status: 502 })
-  const j = await r.json()
+  const call = async (model) => {
+    const form = new FormData()
+    form.append('file', new Blob([buf], { type }), type.includes('webm') ? 'speech.webm' : 'speech.wav')
+    form.append('model', model)
+    form.append('language', spoken)
+    form.append('response_format', 'json')
+    if (prompt) form.append('prompt', prompt.slice(0, 600))
+    const r = await fetch(`${BASE()}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey()}` }, body: form, signal: AbortSignal.timeout(TRY_MS) })
+    if (!r.ok) throw Object.assign(new Error(`transcription ${r.status}: ${(await r.text()).slice(0, 200)}`), { status: 502 })
+    return r.json()
+  }
+  let j, model = MODEL()
+  try { j = await call(model) } catch (e) {
+    Object.assign(lastError, { at: new Date().toISOString(), model, message: e.name === 'TimeoutError' ? `no answer in ${TRY_MS / 1000}s` : e.message })
+    if (!FALLBACK() || FALLBACK() === model) throw Object.assign(e, { status: 503 })
+    model = FALLBACK()
+    try { j = await call(model) } catch (e2) {
+      Object.assign(lastError, { at: new Date().toISOString(), model, message: e2.name === 'TimeoutError' ? `no answer in ${TRY_MS / 1000}s` : e2.message })
+      throw Object.assign(new Error(L('받아쓰기 서버가 응답하지 않아요. 잠시 뒤 다시 말씀하시거나, 말 대신 적어 주세요.', 'The transcription server is not answering. Try again in a moment, or type instead.')), { status: 503 })
+    }
+  }
   const text = String(j.text || '').replace(/\s+/g, ' ').trim()
   const made = (filters[spoken] || HALLUCINATED_ANY).test(text) || HALLUCINATED_ANY.test(text) || (spoken !== 'ko' && HALLUCINATED_EN.test(text))
   // the hint itself read back over silence ("회의 참석자: 장진영. 회의에 나올 수 있는 자료: ." became a line of the
   // 2026-11-18 meeting's record): text that is only a piece of the prompt is not speech
   const echo = promptEcho(text, prompt)
-  return { text: made || echo || text.length < 2 ? '' : text, ms: Date.now() - t0, model: MODEL(), language: spoken }
+  return { text: made || echo || text.length < 2 ? '' : text, ms: Date.now() - t0, model, language: spoken }
 }
 
 // text that is only a piece of the transcription hint (the model reading its prompt back over silence)

@@ -6,6 +6,7 @@ import { q, eachTenant } from '../lib/supa.js'
 import { canSeeInstance, getInstance } from '../lib/processes.js'
 import { mainThread, addMessage } from '../lib/store.js'
 import { L } from '../lib/lang.js'
+import { openDriveOutput } from '../lib/driveOutputs.js'
 
 // The outputs of a work item's instance (files the earlier steps produced), for whoever reviews it.
 // Only a participant or work-item holder of that instance may see or open them (canSeeInstance).
@@ -39,6 +40,8 @@ export function miningRoutes(auth) {
     const [have] = await q(`select * from pro_messages where thread_id=$1 and kind='file' and content->>'source_url'=$2 order by created_at desc limit 1`, [t.id, f.url])
     return have || addMessage(req.user.id, t.id, 'agent', 'file', { name: f.name, url: f.url, source_url: f.url, step: f.step })
   }))
+  // an output kept in the tenant's Google Drive, opened read-only in the app's viewer (lib/driveOutputs.js)
+  r.post('/outputs/drive', auth, h((req) => openDriveOutput(req.user, req.body?.url)))
   r.get('/mining/me', auth, h(async (req) => ({ admin: await M.isAdmin(req.user) })))
   r.get('/mining/suggestions', auth, h(async (req) => { await admin(req); return M.list() }))
   r.post('/mining/scan', auth, h(async (req) => { await admin(req); return { made: (await M.scanNow()).map((s) => s.id) } }))

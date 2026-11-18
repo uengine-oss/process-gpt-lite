@@ -361,7 +361,7 @@ onMounted(async () => {
             <section>
               <h2>이 프로세스로 처리 중인 메일</h2>
               <p v-if="!s.runs.length" class="muted">아직 없어요. 비슷한 메일이 오면 여기에 나와요.</p>
-              <button v-for="r in s.runs" :key="r.proc_inst_id" class="run glass press" @click="router.push(`/projects/p/${encodeURIComponent(r.proc_inst_id)}`)">
+              <button v-for="r in s.runs" :key="r.proc_inst_id" class="run glass press" @click="router.push(`/routines/${encodeURIComponent(r.proc_inst_id)}`)">
                 <span class="st" :class="r.status === 'COMPLETED' ? 'registered' : 'suggested'">{{ r.status === 'COMPLETED' ? '완료' : '진행 중' }}</span>
                 <b>{{ r.mail.customer }}</b><small>{{ r.mail.subject }}</small><Icon name="chevron" :size="14" />
               </button>

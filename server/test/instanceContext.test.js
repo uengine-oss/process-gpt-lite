@@ -1,5 +1,5 @@
 // Work of a process instance stays with the instance (2026-11-18): a step of mine, a mail or a schedule that
-// started it, its end — a Home card that opens the instance page (/projects/p/<instId>) and the instance's
+// started it, its end — a Home card that opens the instance page (/routines/<instId>) and the instance's
 // own conversation, never cards appended to the main chat. On the local database, without an engine run.
 // Run: node --test test/instanceContext.test.js
 import test, { after } from 'node:test'
@@ -33,7 +33,7 @@ test('홈 카드: 인스턴스 화면을 여는 알림(메일로 시작 · 예�
   made.notes.push(user)
   const instId = `test_instance_context.${user}`
   await notifyInstance(user, instId, { type: 'process_started', title: '메일로 시작 · 세미나 견적', text: '카페나무 메일은 …' })
-  const [n] = (await listFor({ id: user })).filter((x) => x.url === `/projects/p/${instId}`)
+  const [n] = (await listFor({ id: user })).filter((x) => x.url === `/routines/${instId}`)
   assert.equal(n?.type, 'process_started')
   assert.equal(n.title, '메일로 시작 · 세미나 견적')
 })

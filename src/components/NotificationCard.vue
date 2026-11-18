@@ -42,10 +42,10 @@ async function act(choice) {
   if (!choice && String(props.n.url || '').startsWith('/improve/')) return router.push(props.n.url)
   // a failed agent step (lib/stepRetry.js) opens its instance, where 「다시 시도」 is; a failed scheduled
   // run opens its task's run history (lib/missions.js)
-  if (!choice && /^\/(projects|settings)\//.test(String(props.n.url || ''))) { app.dismissNotification(props.n); return router.push(props.n.url) }
+  if (!choice && /^\/(projects|routines|settings)\//.test(String(props.n.url || ''))) { app.dismissNotification(props.n); return router.push(props.n.url) }
   // a work item opens its instance page, where its form is (InstanceHeader 「내 입력이 필요해요」); the
   // card stays until the step is done
-  const inst = (id) => router.push(`/projects/p/${encodeURIComponent(id)}`)
+  const inst = (id) => router.push(`/routines/${encodeURIComponent(id)}`)
   if (!choice && props.n.type === 'workitem' && props.n.instId) return inst(props.n.instId)
   busy.value = choice || 'open'
   try { const r = await app.actNotification(props.n, choice); if (r?.instId) inst(r.instId) } finally { busy.value = '' }

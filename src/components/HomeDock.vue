@@ -23,7 +23,7 @@ const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id)
 // a to-do opens its instance page, where its form is (not a card in the chat)
 async function openTodo(t) {
   const instId = t.proc_inst_id || (await app.openTodo(t).catch(() => null))?.instId
-  if (instId) router.push(`/projects/p/${encodeURIComponent(instId)}`)
+  if (instId) router.push(`/routines/${encodeURIComponent(instId)}`)
 }
 </script>
 

@@ -78,3 +78,39 @@ test('제안: 실패한 것은 요청받은 사람이 다시 시작할 수 있�
   assert.equal(view('u', s('done')).canStart, false)
   assert.equal(view('other', s('failed')).canStart, false, '요청받지 않은 사람')
 })
+
+test('받아쓰기: 첫 모델이 답하지 않으면 다른 모델로, 둘 다 안 되면 이유를 말한다', async () => {
+  const T = await import('../lib/meetings/transcribe.js')
+  const real = globalThis.fetch
+  process.env.PRO_TRANSCRIBE_API_KEY ||= 'test-key'
+  const models = []
+  try {
+    globalThis.fetch = async (url, opts) => {
+      const model = opts.body.get('model'); models.push(model)
+      if (model === 'gpt-4o-mini-transcribe') throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+      return { ok: true, json: async () => ({ text: '관련된 자료 좀 줘봐봐' }) }
+    }
+    const r = await T.transcribe(Buffer.alloc(4000), { prompt: '' })
+    assert.deepEqual(models, ['gpt-4o-mini-transcribe', 'whisper-1'])
+    assert.deepEqual([r.text, r.model], ['관련된 자료 좀 줘봐봐', 'whisper-1'])
+    assert.equal(T.lastError.model, 'gpt-4o-mini-transcribe')
+    assert.match(T.lastError.message, /no answer/)
+    globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => 'Incorrect API key provided' })
+    await assert.rejects(T.transcribe(Buffer.alloc(4000), {}), (e) => e.status === 503 && /응답하지 않아요|not answering/.test(e.message))
+    assert.match(T.lastError.message, /401/)
+  } finally { globalThis.fetch = real }
+})
+
+test('Drive 산출물: 링크에서 파일 ID, 저장된 자격 증명 읽기', async () => {
+  const { driveIdOf, parseCredentials } = await import('../lib/driveOutputs.js')
+  assert.equal(driveIdOf('https://docs.google.com/document/d/1XDEYzmxn5BA_uqsyE9gRxqrcWwWl-8dO/edit?usp=drivesdk&rtpof=true&sd=true'), '1XDEYzmxn5BA_uqsyE9gRxqrcWwWl-8dO')
+  assert.equal(driveIdOf('https://drive.google.com/file/d/1XDEYzmxn5BA_uqsyE9gRxqrcWwWl-8dO/view?usp=drivesdk'), '1XDEYzmxn5BA_uqsyE9gRxqrcWwWl-8dO')
+  assert.equal(driveIdOf('https://drive.google.com/open?id=1XDEYzmxn5BA_uqsyE9gRxqrcWwWl-8dO'), '1XDEYzmxn5BA_uqsyE9gRxqrcWwWl-8dO')
+  assert.equal(driveIdOf('https://evil.example/d/1XDEYzmxn5BA_uqsyE9gRxqrcWwWl-8dO'), null)
+  assert.equal(driveIdOf('https://gjdyydowgrinjjkfkwtl.supabase.co/storage/v1/object/public/files/a.docx'), null)
+  const inner = { refresh_token: 'r', client_id: 'c' }
+  assert.deepEqual(parseCredentials(JSON.stringify(JSON.stringify(inner))), inner, 'JSON 안의 JSON 문자열')
+  assert.deepEqual(parseCredentials(JSON.stringify(inner)), inner)
+  assert.deepEqual(parseCredentials(inner), inner)
+  assert.equal(parseCredentials('not json'), null)
+})

@@ -1763,7 +1763,19 @@
   "문서와 연결 안 됨 ·": "Not linked to the document ·",
   "문서와 연결하는 중…": "Linking to the document…",
   "서버가 연결에 응답하지 않아요 — 서버 앞단(게이트웨이)이 웹소켓을 넘겨 주는지 확인이 필요해요": "The server isn't answering the connection — check that the gateway in front passes websockets through",
-  "서버가 연결을 받지 않았어요": "The server didn't accept the connection"
+  "서버가 연결을 받지 않았어요": "The server didn't accept the connection",
+  "루틴": "Routines",
+  "루틴 목록": "Routine list",
+  "아직 루틴이 없어요. 채팅에서 등록된 프로세스를 시작하면 여기에 모여요.": "No routines yet. Start a registered process from the chat and it shows up here.",
+  "루틴은 정해진 절차를 따라 진행되는 일입니다.": "A routine is work that follows a set procedure.",
+  "브라우저 알림 켜기": "Turn on browser notifications",
+  "다른 창을 보고 있을 때도 메시지·할 일을 알려 드려요": "Get messages and to-dos even when you're looking at another window",
+  "받아쓰기 서버가 응답하지 않아요.": "The transcription server is not answering.",
+  "화면": "Screen",
+  "중지": "Stop",
+  "원음": "Original",
+  "끝내기": "End",
+  "꺼짐": "Off"
  },
  "patterns": [
   [
@@ -4537,6 +4549,18 @@
   [
    "팀원 대화방에서 요청받은 일을 해 주세요: {0}\n\n— 대화 (마지막 줄이 요청) —\n{1}\n\n결과는 대화방 사람들이 바로 읽을 수 있게 핵심만 짧게 정리하고, 표나 문서를 만들면 파일로 남겨 주세요.{2}",
    "Please do what was asked in a team room: {0}\n\n— conversation (the last line is the request) —\n{1}\n\nKeep the result short and to the point so the people in the room can read it at once, and leave any table or document you make as a file.{2}"
+  ],
+  [
+   "완료된 루틴 {0}개 더 보기",
+   "Show {0} more completed routines"
+  ],
+  [
+   "회의 할 일 · {0}",
+   "Action item · {0}"
+  ],
+  [
+   "앱 안에서 열지 못했어요 ({0}). Google Drive 에서 열까요?",
+   "Couldn't open it in the app ({0}). Open it in Google Drive?"
   ]
  ],
  "context": [

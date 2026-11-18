@@ -23,7 +23,7 @@ import * as A from '../team/assist.js'
 import * as R from './record.js'
 import * as I from './intent.js'
 import * as MAT from './materials.js'
-import { transcribe, wavMs, transcribeConfigured } from './transcribe.js'
+import { transcribe, wavMs, transcribeConfigured, lastError as transcribeLastError } from './transcribe.js'
 import { finalize } from './minutes.js'
 import { L, isEn, lang, withLang, langOf } from '../lang.js'
 import { mainLangOf, mainLangsOf, nativeName } from '../mainLang.js'
@@ -41,7 +41,7 @@ export function ice() {
   try { const v = JSON.parse(process.env.PRO_MEETING_ICE || ''); if (Array.isArray(v)) return v } catch { /* default */ }
   return [{ urls: 'stun:stun.l.google.com:19302' }]
 }
-export const tstats = { uploads: 0, rejected: {}, lines: 0, empty: 0, ms: [] }
+export const tstats = { uploads: 0, rejected: {}, lines: 0, empty: 0, failed: 0, ms: [] }
 const reject = (why) => { tstats.rejected[why] = (tstats.rejected[why] || 0) + 1 }
 
 const presenting = new Map() // meetingId -> {materialId, by, byName, at}
@@ -396,6 +396,10 @@ export async function audio(me, id, buf, type = 'audio/wav') {
     let t
     try {
       t = await transcribe(buf, { prompt: await hintFor(m, spoken), type: /webm|ogg/.test(type) ? type : 'audio/wav', language: spoken })
+    } catch (e) {
+      // counted, and said to the speaker (the page used to drop it silently: a meeting with no captions and no why)
+      tstats.failed++
+      throw e.status ? new TeamError(e.status, e.message.startsWith('transcription') ? L('받아쓰기 서버가 응답하지 않아요.', 'The transcription server is not answering.') : e.message) : e
     } finally { if (!t?.text) for (const w of Object.values(waits)) w.resolve(null) }
     tstats.ms.push(t.ms); if (tstats.ms.length > 300) tstats.ms.shift()
     if (!t.text) { tstats.empty++; return { text: '', ms: t.ms } }
@@ -628,7 +632,7 @@ export async function unpresent(me, id) {
 export function report() {
   const s = [...tstats.ms].sort((a, b) => a - b)
   const pct = (p) => (s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : null)
-  return { detection: I.report(), transcription: { ...tstats, ms: undefined, latency: { n: s.length, p50: pct(0.5), p90: pct(0.9) }, configured: transcribeConfigured() }, enabled: enabled(), agent: agentEnabled(),
+  return { detection: I.report(), transcription: { ...tstats, ms: undefined, latency: { n: s.length, p50: pct(0.5), p90: pct(0.9) }, configured: transcribeConfigured(), lastError: { ...transcribeLastError } }, enabled: enabled(), agent: agentEnabled(),
     interpretation: IP.report(), translation: TR.report() }
 }
 

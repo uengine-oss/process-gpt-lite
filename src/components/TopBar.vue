@@ -15,10 +15,14 @@ const initial = () => (app.me?.user?.name || '?').slice(0, 1)
 
 // On a phone Home is a tab of its own (hark's 홈 / 채팅 / 프로젝트); on a wide screen it is the
 // dock beside the chat, toggled by the round button.
-const tab = computed(() => (route.path.startsWith('/folders') ? 'folders' : app.mode === 'project' || route.path.startsWith('/improve') ? 'project' : narrow.value && app.dockOpen ? 'home' : 'chat'))
-const tabs = computed(() => [...(narrow.value ? [{ id: 'home', label: '홈' }] : []), { id: 'chat', label: '채팅' }, { id: 'project', label: '프로젝트' }, { id: 'folders', label: '폴더' }])
+// 루틴 (process instances, /routines) is a tab of its own, apart from 프로젝트; 개선 분석 is opened from it
+const tab = computed(() => (route.path.startsWith('/folders') ? 'folders'
+  : app.mode === 'routine' || route.path.startsWith('/routines') || route.path.startsWith('/improve') ? 'routine'
+  : app.mode === 'project' ? 'project' : narrow.value && app.dockOpen ? 'home' : 'chat'))
+const tabs = computed(() => [...(narrow.value ? [{ id: 'home', label: '홈' }] : []), { id: 'chat', label: '채팅' }, { id: 'project', label: '프로젝트' }, { id: 'routine', label: '루틴' }, { id: 'folders', label: '폴더' }])
 function go(id) {
   if (id === 'project') return router.push('/projects')
+  if (id === 'routine') return router.push('/routines')
   if (id === 'folders') return router.push('/folders')
   if (narrow.value) app.dockOpen = id === 'home'
   router.push('/chat')
@@ -37,8 +41,11 @@ watch([tab, narrow], place)
 
 <template>
   <header class="top" :class="{ narrow }">
-    <!-- phone: inside a project the left button is hark's ≡ back to the project list -->
-    <button v-if="narrow && app.mode === 'project' && (route.params.id || route.params.instId)" class="home press" aria-label="프로젝트 목록" @click="router.push('/projects')">
+    <!-- phone: inside a project (a routine) the left button is hark's ≡ back to the project (routine) list -->
+    <button v-if="narrow && app.mode === 'project' && route.params.id" class="home press" aria-label="프로젝트 목록" @click="router.push('/projects')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h7" /></svg>
+    </button>
+    <button v-else-if="narrow && app.mode === 'routine' && route.params.instId" class="home press" aria-label="루틴 목록" @click="router.push('/routines')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h7" /></svg>
     </button>
     <button v-else-if="narrow" class="home press" aria-label="페이지와 메일 검색" @click="app.searchOpen = true">
@@ -71,10 +78,15 @@ watch([tab, narrow], place)
 .home.on { background: #1d1d1f; color: #f5f5f7; }
 :root[data-theme="dark"] .home.on { background: #f5f5f7; color: #1d1d1f; }
 .seg { position: absolute; left: calc(var(--chat-center, 50%)); translate: -50% 0; top: 10px; display: flex; padding: 2px; border-radius: 9999px; }
-.narrow .seg { left: 50%; }
 .seg button { position: relative; z-index: 1; height: 44px; padding: 0 20px; border-radius: 9999px; font-size: 15px; font-weight: 500;
   color: var(--text-secondary); transition: color .3s; white-space: nowrap; }
-.narrow .seg button { padding: 0 16px; }
+/* phone: five tabs (홈 · 채팅 · 프로젝트 · 루틴 · 폴더) share the room between the two round buttons
+   (16px edge + 48px button + 8px gap on each side) instead of centring past them — at 390px wide the
+   centred bar ran under both buttons; the extra room is spread over the tabs */
+.narrow .seg { left: 72px; right: 72px; translate: none; }
+.narrow .seg button { flex: 1 1 auto; min-width: 0; padding: 0 2px; }
+/* English (en.css: 13px with 10px sides, laid out for four tabs): five longer labels need a size less */
+html[lang='en'] .top.narrow .seg button { padding: 0 1px; font-size: 12px; letter-spacing: -0.01em; }
 .seg button.on { color: var(--text-primary-on); }
 .tdot { position: absolute; top: 8px; right: 7px; width: 8px; height: 8px; border-radius: 4px; background: #e5484d; }
 .thumb { position: absolute; top: 2px; bottom: 2px; border-radius: 9999px; background: var(--ink); transition: left .45s var(--spring), width .45s var(--spring); }

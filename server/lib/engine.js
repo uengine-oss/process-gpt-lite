@@ -114,7 +114,7 @@ export async function submitTodo({ me, todoId, values, messageId }) {
   return { ok: true }
 }
 
-// Where an instance lives for a person: its page (/projects/p/<instId>) and one conversation there (the
+// Where an instance lives for a person: its page (/routines/<instId>, 루틴) and one conversation there (the
 // instance page's, routes/process.js GET /instances/:id) — what started it (a mail, a schedule) and talk
 // about it stay in that context. A step of mine is announced by the Home card process-gpt's todolist
 // trigger makes (lib/notify.js), which opens that page; nothing is added to the main chat (2026-11-18:
@@ -132,7 +132,7 @@ export async function instanceThread(userId, instId, title = null) {
 // notifications table, so process-gpt's bell and phone push carry it too.
 export async function notifyInstance(userId, instId, { type, title, text }) {
   const { notifyUser } = await import('./notify.js')
-  await notifyUser(userId, { type, title, text: text || '', url: `/projects/p/${instId}` })
+  await notifyUser(userId, { type, title, text: text || '', url: `/routines/${instId}` })
 }
 
 // Follow an instance while it runs: push changes to the client and surface new work
