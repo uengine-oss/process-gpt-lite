@@ -3,6 +3,7 @@ import { api, stream, events, auth, uploadAttachment } from '../api.js'
 import { BASE } from '../base.js'
 import { syncLang } from '../i18n/lang.js'
 import { officeEditorFor, CRAFT_APPS } from '../officeEditor.js'
+import { announce } from '../browserNotify.js'
 
 export const useApp = defineStore('app', {
   state: () => ({
@@ -97,7 +98,11 @@ export const useApp = defineStore('app', {
     async loadPanels() { this.panels = await api('/panels') },
     async loadPanelApps() { this.panelApps = await api('/panel-apps').catch(() => this.panelApps) },
     async loadConversations() { this.conversations = await api('/conversations').catch(() => []) },
-    async loadNotifications() { this.notifications = await api('/notifications') },
+    async loadNotifications() {
+      this.notifications = await api('/notifications')
+      // a background tab gets them as browser notifications (src/browserNotify.js); a click opens them (MainView)
+      announce(this.notifications, (n) => window.dispatchEvent(new CustomEvent('pgl:open-notification', { detail: n })))
+    },
     async loadProcesses() {
       ;[this.instances, this.todos] = await Promise.all([api('/instances'), api('/todos')])
     },

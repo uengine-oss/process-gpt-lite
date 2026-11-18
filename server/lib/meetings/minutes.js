@@ -13,9 +13,9 @@ import { isEn } from '../lang.js'
 import { WORKS_EN } from './intent.js'
 import { translate } from '../translate.js'
 import { mainLangsOf } from '../mainLang.js'
+import { judge, judgeAvailable } from '../judge.js'
 
 const T = () => config.tenantId
-const JUDGE_URL = process.env.PRO_JUDGE_URL ?? 'http://127.0.0.1:8896/judge'
 const hhmm = (d) => new Date(d).toLocaleTimeString(isEn() ? 'en-US' : 'ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul' })
 const KIND_WORD = { file: '파일', process: '진행 상황', panel: '앱 데이터', folder: '폴더 문서', result: '에이전트 결과' }
 
@@ -63,13 +63,11 @@ export function ruleSummary(lines, people, materials, tasks) {
 
 // which work an action item is (the judge, like assist.js stage 2b) — cheap, a guess is fine
 async function workOf(title) {
-  if (!JUDGE_URL) return 'CreateDocument'
+  if (!judgeAvailable()) return 'CreateDocument'
   try {
-    const r = await fetch(JUDGE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
-      body: JSON.stringify(isEn()
-        ? { state: `Action item: ${title}`, question: 'If the AI assistant helped with this action item, what kind of work would it be?', options: Object.keys(WORKS).filter((k) => k !== 'StartProcessInstance').map((key) => ({ key, label: WORKS_EN[key] || WORKS[key].label })) }
-        : { state: `할 일: ${title}`, question: '이 할 일을 AI 비서가 돕는다면 어떤 종류인가요?', options: Object.entries(WORKS).filter(([k]) => k !== 'StartProcessInstance').map(([key, w]) => ({ key, label: w.label })) }) })
-    const j = await r.json()
+    const j = await judge(isEn()
+      ? { state: `Action item: ${title}`, question: 'If the AI assistant helped with this action item, what kind of work would it be?', options: Object.keys(WORKS).filter((k) => k !== 'StartProcessInstance').map((key) => ({ key, label: WORKS_EN[key] || WORKS[key].label })) }
+      : { state: `할 일: ${title}`, question: '이 할 일을 AI 비서가 돕는다면 어떤 종류인가요?', options: Object.entries(WORKS).filter(([k]) => k !== 'StartProcessInstance').map(([key, w]) => ({ key, label: w.label })) })
     return Object.entries(j.probabilities || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || 'CreateDocument'
   } catch { return 'CreateDocument' }
 }
@@ -122,6 +120,17 @@ export async function finalize(m) {
   }
   const members = await q(`select p->>'id' as id from chat_rooms r, jsonb_array_elements(r.participants) p where r.id=$1 and p->>'id' ~ '^[0-9a-f-]{36}$'`, [m.room_id])
   for (const sg of made) for (const p of members) emit(p.id, 'team', { type: 'assist', threadId: m.room_id, suggestion: suggestionView(p.id, sg) })
+  // each action item is also on its people's Home (the owner the minutes named, else everyone who was in
+  // the meeting): the card opens the minutes in the room, where its 시작 is (2026-11-18 — before, it was
+  // only a card under the minutes, so whoever did not open the room never saw it)
+  const { notifyUser } = await import('../notify.js')
+  for (const sg of made) {
+    for (const uid of sg.audience || []) {
+      await notifyUser(uid, { type: 'meeting_action', title: (isEn() ? `Action item · ${sg.title}` : `회의 할 일 · ${sg.title}`).slice(0, 200),
+        text: isEn() ? `From the meeting ${hhmm(m.started_at)}–${hhmm(m.ended_at || new Date())}` : `${hhmm(m.started_at)}–${hhmm(m.ended_at || new Date())} 회의에서 나온 일`,
+        url: `/pro/team/${m.room_id}/${uuid}` }).catch((e) => console.warn('[meetings] action item notice', e.message))
+    }
+  }
   // (the meeting's language stays with it: lib/meetings/service.js meetingLang)
   await q('update pro_meetings set summary=$2 where id=$1', [m.id, { ...s, by, declined, minutes: mins, ...(lang ? { lang } : {}) }])
   return uuid

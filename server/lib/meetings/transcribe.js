@@ -35,7 +35,16 @@ export async function transcribe(buf, { prompt = '', type = 'audio/wav', languag
   const j = await r.json()
   const text = String(j.text || '').replace(/\s+/g, ' ').trim()
   const made = (filters[spoken] || HALLUCINATED_ANY).test(text) || HALLUCINATED_ANY.test(text) || (spoken !== 'ko' && HALLUCINATED_EN.test(text))
-  return { text: made || text.length < 2 ? '' : text, ms: Date.now() - t0, model: MODEL(), language: spoken }
+  // the hint itself read back over silence ("회의 참석자: 장진영. 회의에 나올 수 있는 자료: ." became a line of the
+  // 2026-11-18 meeting's record): text that is only a piece of the prompt is not speech
+  const echo = promptEcho(text, prompt)
+  return { text: made || echo || text.length < 2 ? '' : text, ms: Date.now() - t0, model: MODEL(), language: spoken }
+}
+
+// text that is only a piece of the transcription hint (the model reading its prompt back over silence)
+const bare = (x) => String(x || '').replace(/[\s.,·:;!?'"()\-–—]/g, '').toLowerCase()
+export function promptEcho(text, prompt) {
+  return !!prompt && bare(text).length >= 6 && bare(prompt).includes(bare(text))
 }
 
 // length of a PCM WAV in ms (the browser sends 16-bit mono); 0 if it is not one

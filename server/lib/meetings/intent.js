@@ -8,9 +8,8 @@
 import { prefilter as requestPrefilter, WORKS } from '../team/assist.js'
 import * as MAT from './materials.js'
 import { isEn } from '../lang.js'
+import { judge as ask, judgeAvailable } from '../judge.js'
 
-const JUDGE_URL = process.env.PRO_JUDGE_URL ?? 'http://127.0.0.1:8896/judge'
-const JUDGE_MS = Number(process.env.PRO_ASSIST_JUDGE_TIMEOUT_MS || 5000)
 export const DEBOUNCE_MS = Number(process.env.PRO_MEETING_DEBOUNCE_MS || 1200)
 const MIN_REQ = 0.7
 const MIN_MAT = 0.6
@@ -19,7 +18,8 @@ const PER_MIN = 6
 export const stats = { segments: 0, prefiltered: {}, judged: 0, judgeErrors: 0, materials: 0, suggested: 0, repeats: 0, bigModelCalls: 0, judgeMs: [], detectMs: [] }
 const count = (why) => { stats.prefiltered[why] = (stats.prefiltered[why] || 0) + 1 }
 const keep = (list, v) => { list.push(v); if (list.length > 300) list.shift() }
-export const judgeConfigured = () => !!JUDGE_URL
+// the judge server, else the LLM (lib/judge.js)
+export const judgeConfigured = () => judgeAvailable()
 
 // ---- stage 1: rules ----
 const CUE = /(견적|평면도|도면|설계|정산|출장|휴가|연차|일정|안내문|공문|제안서|보고서|수정한\s*버전|수정본|변형|자료|파일|문서|표|시트|보여|띄워|열어|다시\s*보|어디까지|진행\s*상황|현황|확인|상태)/
@@ -30,7 +30,7 @@ const CUE = /(견적|평면도|도면|설계|정산|출장|휴가|연차|일정|
 const ASK_EN = /\b(can\s+you|could\s+you|would\s+you|will\s+you|please|let'?s|i'?d\s+like|we\s+need|i\s+need|send\s+(me|us|it)|make\s+(me|us))\b|\?/i
 const WORK_EN = /\b(quotes?|quotations?|estimates?|budgets?|expenses?|spreadsheets?|excel|sheets?|tables?|reports?|documents?|docs?|plans?|notices?|proposals?|drafts?|summar(y|ies|ize|ise)|minutes|schedules?|meetings?|calendar|book|research|look\s+up|find|compare|analy[sz]e|reply|answer|e-?mail|mails?|announcement|translat(e|ion)|presentation|slides?|deck|ppt|materials?|request|approval|process|procedure|calculat(e|ion)|status|progress)\b/i
 const FIGURE_EN = /\b(amount|price|prices|pricing|unit\s+price|discount|quantity|quantities|cost|costs|total)\b/i
-const MAKE_EN = /\b(make|makes|making|create|redo|re-?do|remake|fix|change|revise|update|lower|reduce|cut|raise|increase|put\s+together|draft|write|prepare|calculate|work\s+out|turn\s+(it|this)\s+into)\b/i
+const MAKE_EN = /\b(make|makes|making|create|redo|re-?do|remake|fix|change|revise|update|lower|reduce|cut|raise|increase|put\s+together|draft|write|prepare|calculate|work\s+out|turn\s+(it|this)\s+into|find|look\s+up|research|search)\b/i
 const CUE_EN = /\b(quotes?|quotations?|estimates?|floor\s*plans?|drawings?|layouts?|designs?|expenses?|travel|leave|vacation|time\s+off|schedules?|notices?|letters?|reports?|revised|revision|new\s+version|versions?|variations?|materials?|files?|documents?|tables?|sheets?|show|pull\s+up|bring\s+up|put\s+up|open|look\s+at|look\s+again|take\s+a\s+look|where\s+are\s+we|how\s+far|progress|status|check)\b/i
 function cueEn(t) {
   const shaped = (ASK_EN.test(t) && WORK_EN.test(t)) || (FIGURE_EN.test(t) && ASK_EN.test(t))
@@ -46,26 +46,22 @@ export function cue(text) {
   if (isEn()) {
     const e = cueEn(t)
     const shapedKo = requestPrefilter(t).pass || (/(금액|가격|단가|할인|수량|비용)/.test(t) && /(줘|주세요|주실|부탁)/.test(t))
-    const req = e.req || (shapedKo && /(만들어|다시\s*만들|고쳐|바꿔|수정해|낮춰|올려|정리해|작성해|뽑아|계산해)/.test(t))
+    const req = e.req || (shapedKo && /(만들어|다시\s*만들|고쳐|바꿔|수정해|낮춰|올려|정리해|작성해|뽑아|계산해|찾아|알아봐|조사해|검색해)/.test(t))
     const mat = e.mat || CUE.test(t)
     return { material: mat, request: req, why: !mat && !req ? 'no-cue' : null }
   }
-  // assist's request rules, or a figure to change ("금액 5% 낮춰서") — speech is looser than typed chat
+  // assist's request rules, or a figure to change ("금액 5% 낮춰서") — speech is looser than typed chat;
+  // "관련 자료 좀 찾아줄래?" is a request to the assistant too (CompanyQuery), not only a material to show (2026-11-18)
   const shaped = requestPrefilter(t).pass || (/(금액|가격|단가|할인|수량|비용)/.test(t) && /(줘|주세요|주실|부탁)/.test(t))
-  const req = shaped && /(만들어|다시\s*만들|고쳐|바꿔|수정해|낮춰|올려|정리해|작성해|뽑아|계산해)/.test(t)
+  const req = shaped && /(만들어|다시\s*만들|고쳐|바꿔|수정해|낮춰|올려|정리해|작성해|뽑아|계산해|찾아|알아봐|조사해|검색해)/.test(t)
   const mat = CUE.test(t)
   return { material: mat, request: req, why: !mat && !req ? 'no-cue' : null }
 }
 
 async function judge(state, question, options) {
-  const t0 = Date.now()
-  const r = await fetch(JUDGE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(JUDGE_MS),
-    body: JSON.stringify({ state: state.slice(0, 1200), question: judgeQuestion(question), options: judgeOptions(options) }) })
-  if (!r.ok) throw new Error(`judge ${r.status}`)
-  const j = await r.json()
-  const ms = Date.now() - t0
-  stats.judged++; keep(stats.judgeMs, ms)
-  return { ...j, ms }
+  const j = await ask({ state: state.slice(0, 1200), question: judgeQuestion(question), options: judgeOptions(options) })
+  stats.judged++; keep(stats.judgeMs, j.ms)
+  return j
 }
 const top = (j) => Object.entries(j.probabilities || {}).sort((a, b) => b[1] - a[1])[0] || [null, 0]
 const line = (s) => `${s.speaker}: ${String(s.text).replace(/\s+/g, ' ').slice(0, 160)}`
@@ -90,7 +86,7 @@ export const WORKS_EN = {
 }
 const OPT_EN = {
   '참석한 사람에게 일을 맡기거나, 의견을 나누거나, 자료를 보자는 말': 'Giving work to someone at the meeting, sharing an opinion, or asking to look at material',
-  'AI 비서에게 문서·표 같은 결과물을 새로 만들거나 고쳐 달라는 부탁': 'Asking the AI assistant to make or revise a deliverable such as a document or a table',
+  'AI 비서에게 문서·표 같은 결과물을 만들거나 고치거나, 자료·정보를 찾아 달라는 부탁': 'Asking the AI assistant to make or revise a deliverable such as a document or a table, or to find material or information',
   '의견·잡담·결정처럼 자료를 찾을 필요가 없는 말': 'An opinion, small talk or a decision that needs no material looked up',
   '이미 있는 파일·문서·진행 상황·기록을 찾아서 보자는 말': 'Asking to find and look at an existing file, document, progress or record',
 }
@@ -120,7 +116,7 @@ export async function detect(seg, ctx) {
   const t0 = Date.now()
   const c = cue(seg.text)
   if (c.why) { count(c.why); return null }
-  if (!JUDGE_URL) { count('no-judge'); return null }
+  if (!judgeAvailable()) { count('no-judge'); return null }
   const prev = (ctx.prev || []).slice(-3).map(line)
   const state = isEn()
     ? `${prev.length ? `Earlier in the meeting:\n${prev.join('\n')}\n\n` : ''}Just said:\n${line(seg)}`
@@ -130,7 +126,7 @@ export async function detect(seg, ctx) {
   if (c.request) {
     const y = await judge(state, '방금 한 말은 어떤 말인가요?', [
       { key: 'no', label: '참석한 사람에게 일을 맡기거나, 의견을 나누거나, 자료를 보자는 말' },
-      { key: 'yes', label: 'AI 비서에게 문서·표 같은 결과물을 새로 만들거나 고쳐 달라는 부탁' }])
+      { key: 'yes', label: 'AI 비서에게 문서·표 같은 결과물을 만들거나 고치거나, 자료·정보를 찾아 달라는 부탁' }])
     ms += y.ms
     const yes = y.probabilities?.yes ?? 0
     if (yes >= MIN_REQ) {

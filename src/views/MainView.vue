@@ -20,6 +20,7 @@ import { narrow } from '../viewport.js'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
+import { useTeam } from '../stores/team.js'
 
 const app = useApp()
 const sky = useSky()
@@ -70,7 +71,19 @@ async function syncRoute() {
 }
 watch(() => route.fullPath, syncRoute)
 
+// a browser notification clicked (src/browserNotify.js): the room, the instance page or the card's own place
+const team = useTeam()
+function openNotification({ detail: n }) {
+  const room = /^\/chats\?id=([\w.:-]+)/.exec(String(n?.url || ''))
+  const msg = /^\/pro\/team\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(String(n?.url || ''))
+  if (msg) return team.openMessenger(msg[1], msg[2])
+  if (room) return team.openMessenger(room[1])
+  if (n?.type === 'workitem' && n.instId) return router.push(`/projects/p/${encodeURIComponent(n.instId)}`)
+  if (/^\/(projects|settings)\//.test(String(n?.url || ''))) return router.push(n.url)
+  app.dockOpen = true
+}
 onMounted(async () => {
+  window.addEventListener('pgl:open-notification', openNotification)
   window.addEventListener('resize', onResize)
   await app.boot()
   ready.value = true
@@ -82,7 +95,7 @@ onMounted(async () => {
   }
   if (app.me.profile?.place == null && sky.place) api('/profile', { method: 'POST', body: { lat: sky.place.lat, lon: sky.place.lon, place: sky.place.place } })
 })
-onBeforeUnmount(() => { window.removeEventListener('resize', onResize); clearInterval(poll) })
+onBeforeUnmount(() => { window.removeEventListener('resize', onResize); window.removeEventListener('pgl:open-notification', openNotification); clearInterval(poll) })
 
 async function onSend(text) {
   if (app.panelMode) return app.createPanel(text)

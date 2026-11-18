@@ -19,11 +19,10 @@ import * as M from './messenger.js'
 import { L, isEn, withLang, langOf } from '../lang.js'
 import * as TR from '../translate.js'
 import { mainLangOf, normMain } from '../mainLang.js'
+import { judge as askJudge, judgeAvailable } from '../judge.js'
 
 const T = () => config.tenantId
 const ON = () => process.env.PRO_TEAM_ASSIST !== '0'
-const JUDGE_URL = process.env.PRO_JUDGE_URL ?? 'http://127.0.0.1:8896/judge'
-const JUDGE_MS = Number(process.env.PRO_ASSIST_JUDGE_TIMEOUT_MS || 5000)
 const DEBOUNCE_MS = Number(process.env.PRO_ASSIST_DEBOUNCE_MS || 1200)
 const MIN_YES = 0.7 // stage 2a: "a request for work" must hold at least this much of the judge's probability
 const MIN_P = 0.5 // stage 2b: the chosen work at least this much
@@ -96,21 +95,16 @@ export function prefilter(body, hint = null) {
 }
 
 // ---- counters (GET /api/team/assist/stats) ----
-export const judgeConfigured = () => !!JUDGE_URL
+// the judge server, else the LLM (lib/judge.js)
+export const judgeConfigured = () => judgeAvailable()
 export const stats = { messages: 0, prefiltered: {}, judged: 0, suggested: 0, judgeMs: [], detectMs: [], judgeErrors: 0, bigModelCalls: 0, started: 0 }
 const count = (why) => { stats.prefiltered[why] = (stats.prefiltered[why] || 0) + 1 }
 const keep = (list, v) => { list.push(v); if (list.length > 200) list.shift() }
 
 async function judge(state, question, options) {
-  const t0 = Date.now()
-  const r = await fetch(JUDGE_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(JUDGE_MS),
-    body: JSON.stringify({ state: state.slice(0, 1400), question, options }),
-  })
-  if (!r.ok) throw new Error(`judge ${r.status}`)
-  const j = await r.json()
-  stats.judged++; keep(stats.judgeMs, Date.now() - t0)
-  return { ...j, ms: Date.now() - t0 }
+  const j = await askJudge({ state: state.slice(0, 1400), question, options })
+  stats.judged++; keep(stats.judgeMs, j.ms)
+  return j
 }
 
 // the minimal excerpt: the last few messages of the room, names and text only (no file contents, no ids,
@@ -218,8 +212,8 @@ export function watchRooms() {
     if (!ON()) return count('tenant-off')
     const pf = prefilter(m.content, await mainLangOf(author.id).catch(() => null))
     if (!pf.pass && !pf.translate) return count(pf.why)
-    // an install without a judge server (PRO_JUDGE_URL empty, e.g. the Docker bundle): rules only, no suggestions
-    if (!JUDGE_URL) return count('no-judge')
+    // no judge server and no LLM (lib/judge.js): rules only, no suggestions
+    if (!judgeAvailable()) return count('no-judge')
     clearTimeout(timers.get(row.id))
     // the latest message of a burst is judged with the ones before it
     timers.set(row.id, setTimeout(() => {

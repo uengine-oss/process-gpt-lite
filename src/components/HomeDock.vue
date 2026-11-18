@@ -5,16 +5,20 @@ import WeatherPanel from './WeatherPanel.vue'
 import PanelFrame from './PanelFrame.vue'
 import PanelAppCard from './panelApps/PanelAppCard.vue'
 import Icon from './Icon.vue'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { useTeam } from '../stores/team.js'
 import { narrow } from '../viewport.js'
+import { permission as notifyPermission, ask as askNotify } from '../browserNotify.js'
 
 const app = useApp()
 const team = useTeam()
 const router = useRouter()
 // a work item that already has a notification card is not listed twice
+// browser notifications for a background tab: offered until the person answers the browser's question
+const notify = ref(notifyPermission())
+async function enableNotify() { notify.value = await askNotify() }
 const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id) && !app.notifications.some((n) => n.todoId === t.id)).slice(0, 3))
 // a to-do opens its instance page, where its form is (not a card in the chat)
 async function openTodo(t) {
@@ -29,6 +33,9 @@ async function openTodo(t) {
       <!-- phone: the team messenger's entry (the top bar has no room for it) -->
       <button v-if="narrow" key="team" class="msgs glass press" @click="team.openMessenger()">
         <Icon name="team" :size="20" /> 팀 메시지<i v-if="team.unread.total">{{ team.unread.total }}</i>
+      </button>
+      <button v-if="notify === 'default'" key="notify" class="notify glass press" @click="enableNotify">
+        <Icon name="bell" :size="18" /> 브라우저 알림 켜기 <small>다른 창을 보고 있을 때도 메시지·할 일을 알려 드려요</small>
       </button>
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
       <button v-for="t in todos" :key="'t' + t.id" class="act glass press" @click="openTodo(t)">
@@ -57,6 +64,8 @@ async function openTodo(t) {
 .act .verb { display: inline-block; height: 34px; line-height: 34px; padding: 0 8px; border-radius: 8px; background: var(--color-attention); color: #fff; margin-right: 8px; font-weight: 450; vertical-align: top; }
 .act .txt { line-height: 1.75; }
 .act .due { display: block; color: var(--text-secondary); line-height: 1.6; }
+.notify { border-radius: 22px; padding: 14px 18px; text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 15px; color: var(--text-primary); }
+.notify small { flex-basis: 100%; color: var(--text-secondary); font-size: 12.5px; }
 .msgs { height: 56px; border-radius: 22px; display: flex; align-items: center; gap: 8px; padding: 0 20px; font-size: 16px; color: var(--text-primary); }
 .msgs i { margin-left: auto; font-style: normal; min-width: 22px; height: 22px; line-height: 22px; padding: 0 6px; border-radius: 11px; background: #e5484d; color: #fff; font-size: 12px; text-align: center; }
 .new { height: 64px; border-radius: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 17px; color: var(--text-primary); }
