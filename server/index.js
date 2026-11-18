@@ -25,6 +25,7 @@ import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { threadFolderRoutes } from './routes/threadFolders.js'
+import { ssoInfo, refreshSso } from './lib/sso.js'
 import * as TF from './lib/folders/threadFolders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
@@ -124,7 +125,9 @@ async function finishLogin(email, name) {
 
 // craft: which ArtCraft apps this install has ({web, cli} flags only); contextRouter: whether messages are routed
 // to conversations (services/context-router) — flags only
-app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
+// sso: behind the ProcessGPT gateway, Google sign-in through ProcessGPT's own Supabase project when its
+// Google provider is on (lib/sso.js) — google stays Lite's own OAuth (mail.js), off there
+app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
 
 app.get('/api/auth/google/start', (req, res) => {
   // an old tab or a kept link: the app shows no Google button when this is off
@@ -813,6 +816,8 @@ app.get('/api/search', auth, async (req, res) => {
 
 const server = app.listen(config.port, async () => {
   console.log(`pgpt-pro server on :${config.port}`)
+  // the first sign-in page after a start already knows whether Google sign-in is there (lib/sso.js)
+  refreshSso().then((on) => config.tenantFromHeader && console.log(`[sso] Google through Supabase: ${on ? 'on' : 'off'}`))
   // a second development server shares the database: it must not reset the main server's tasks either
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume

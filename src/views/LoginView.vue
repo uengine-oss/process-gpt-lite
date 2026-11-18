@@ -33,6 +33,11 @@ onMounted(async () => {
 })
 
 function google() {
+  // behind the ProcessGPT gateway: ProcessGPT's own Google sign-in, back to this address (server/lib/sso.js)
+  if (!cfg.value.google && cfg.value.sso?.google) {
+    location.href = `${cfg.value.sso.google}&redirect_to=${encodeURIComponent(location.origin + BASE + '/auth/done')}`
+    return
+  }
   if (!cfg.value.google) {
     error.value = 'Google OAuth가 아직 설정되지 않았어요. 이메일로 계속해 주세요.'
     return
