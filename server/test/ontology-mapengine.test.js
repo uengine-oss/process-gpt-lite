@@ -2,9 +2,9 @@
 // 가장 흔한 길) · 나란히 하는 두 일과 합류 · 꼭 하는 단계 · 은퇴한 길 · 끝 · 지도가 바뀐 뒤(따라감 · 고정) · 중간에서 시작. 모델 · DB 없이.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { waysOut, pickWay, nextOf, joinNext, likelyNext, pinOnStart, flowGraph, mapTimeOf, isMapInst } from '../lib/ontology/mapengine.js'
+import { waysOut, pickWay, nextOf, joinNext, likelyNext, flowGraph, mapTimeOf, isMapInst } from '../lib/ontology/mapengine.js'
 import { unfold, skippedBefore, parallelPair, contractOf } from '../lib/ontology/run.js'
-import { requiredView } from '../lib/ontology/steprule.js'
+import { edgeRequiredView } from '../lib/ontology/edgecond.js'
 import { END } from '../lib/ontology/stats.js'
 
 const task = (key, x = {}) => [key, { key, role: '담당', status: 'active', ...x }]
@@ -88,15 +88,24 @@ test('은퇴한 길 · θ 아래의 길은 지도에서 빠진다(unfold 와 같
   assert.equal((await nextOf(v, row('A'))).creates[0].task, 'C')
 })
 
-test('꼭 하는 단계: 그 일로 갈 수 있는 갈림길은 그 일을 지나간다(고정과 같다) — 흔한 길이 다른 쪽이어도', async () => {
-  const base = view(['검토', '동료 검토', '발송'], [e('검토', '동료 검토', 0.1), e('검토', '발송', 0.9), e('동료 검토', '발송', 1), e('발송', END, 1)])
+// 간선 설정(edge-step-condition): 꼭은 그 일로 들어오는 간선(앞 일 → 그 일)에 걸린다 — 그 앞 일의 갈림길만 그 일을 지나간다
+test('꼭 하는 간선: 그 간선의 앞 일에서 갈리면 그 일을 지나간다 — 흔한 길이 다른 쪽이어도, 다른 길로 오는 건은 강제하지 않는다', async () => {
+  const base = { ...view(['검토', '확인', '동료 검토', '발송'], [e('검토', '동료 검토', 0.1), e('검토', '발송', 0.9), e('확인', '동료 검토', 0.1), e('확인', '발송', 0.9), e('동료 검토', '발송', 1), e('발송', END, 1)]),
+    all: { triggers: [] } }
   assert.equal((await nextOf(base, row('검토'))).creates[0].task, '발송')
-  const req = requiredView(base, [{ task: '동료 검토', requirement: 'required', rules: [] }])
-  assert.equal(pinOnStart(base), false)
-  assert.equal(pinOnStart(req), true)
+  const req = edgeRequiredView(base, [{ event: 'done:검토', task: '동료 검토', requirement: 'required', rules: [] }])
+  assert.ok(req.requirements)
   const d = await nextOf(req, row('검토'))
   assert.equal(d.creates[0].task, '동료 검토')
   assert.equal(d.creates[0].via.how, 'single')
+  // 「확인」에서 갈리는 건은 그대로 흔한 길
+  assert.equal((await nextOf(req, row('확인'))).creates[0].task, '발송')
+  // 사안에 따라 꼭이 될 수 있는 규칙도 그 간선을 지나간다(그 건에서 선택이면 단계가 열릴 때 건너뛸 수 있다)
+  const rule = edgeRequiredView(base, [{ event: 'done:검토', task: '동료 검토', requirement: 'optional', rules: [{ when: { field: 'amount', op: '>=', value: 1 }, then: 'required' }] }])
+  assert.equal((await nextOf(rule, row('검토'))).creates[0].task, '동료 검토')
+  // 선택만이면 지나가지 않는다
+  const opt = edgeRequiredView(base, [{ event: 'done:검토', task: '동료 검토', requirement: 'optional', rules: [] }])
+  assert.equal((await nextOf(opt, row('검토'))).creates[0].task, '발송')
 })
 
 test('나란히 하는 두 일: 둘 다 넣고, 합류 다음 일은 둘 다 끝나야(어느 쪽이 먼저 끝나든) — 하나를 건너뛰어도 합류한다', async () => {
@@ -258,4 +267,21 @@ test('맡는 사람의 역할: 시작 일부터 펼친 흐름의 사람 단계�
   assert.equal(shown[0].fromKo, '설정의 팀 · 역할 담당자')
   assert.equal(shown[2].unbound, true)
   assert.equal(shown[1].unbound, false)
+})
+
+// 되돌아가는 길이 있어 펼치기가 다른 갈래를 남겨도, 다음 단계는 꼭 하는 간선을 먼저 고른다 — 확정된 꼭이 규칙에 따른 꼭보다 먼저
+test('꼭 하는 간선: 갈래가 남아도 꼭 하는 간선을 먼저(확정 → 사안에 따라 → 흔한 길), 글 조건은 읽지 않는다', async () => {
+  const outs = [{ to: '재무 검토', p: 0.14 }, { to: '견적서 검토', p: 0.38, required: true }, { to: '계약서 검토', p: 0.09, required: 'maybe' }, { to: '고객 회신', p: 0.5 }]
+  const a = pickWay(outs)
+  assert.deepEqual([a.to, a.how], ['견적서 검토', 'required'])
+  const b = pickWay(outs.map((o) => (o.required === true ? { ...o, required: undefined } : o)))
+  assert.deepEqual([b.to, b.how], ['계약서 검토', 'required'])
+  assert.equal(pickWay(outs.map((o) => ({ ...o, required: undefined }))).to, '고객 회신')
+  // nextOf: a 꼭 way out is taken without reading text conditions
+  const v = { ...view(['A', 'B', 'C'], [e('A', 'B', 0.2), e('A', 'C', 0.8), e('B', 'A', 0.9), e('C', 'A', 0.5), e('C', END, 0.5), e('B', END, 0.1)]), all: { triggers: [] } }
+  // (C 는 A 로 되돌아가는 길이 있어 펼치기가 남긴다)
+  assert.deepEqual(waysOut(edgeRequiredView(v, [{ event: 'done:A', task: 'B', requirement: 'required', rules: [] }]), 'A', 0.05).outs.map((o) => o.to).sort(), ['B', 'C'])
+  const req = edgeRequiredView(v, [{ event: 'done:A', task: 'B', requirement: 'required', rules: [] }])
+  const d = await nextOf(req, row('A'), { texts: new Map([['C', '고객이 급하다']]), judge: async () => { throw new Error('꼭 하는 간선이면 글 조건을 읽지 않아요') } })
+  assert.deepEqual([d.creates[0].task, d.creates[0].via.how], ['B', 'required'])
 })

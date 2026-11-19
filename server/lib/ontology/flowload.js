@@ -74,15 +74,20 @@ async function candidates() {
   const rows = await q(`select task, fit, how, status from pro_ai_candidates where tenant_id=$1`, [T()]).catch(() => [])
   return new Map(rows.map((r) => [r.task, { fit: r.fit, how: r.how, status: r.status }]))
 }
-async function classesOf(procKey) {
-  if (!procKey) return {}
-  const [r] = await q(`select classes from pro_refine_reviews where tenant_id=$1 and proc_key=$2`, [T(), procKey]).catch(() => [])
-  return r?.classes || {}
+// 꼭 · 선택과 분류는 그 단계로 들어오는 간선마다(edgecond.js, 이 프로세스의 간선 설정): 단계의 분류는 들어오는 간선들의 분류(확정한
+// 「사람이 꼭」이 먼저 — classOfEdges), 해도 되는 단계는 들어오는 간선이 「해도 되고 안 해도 되는 단계」이고 꼭이 될 수 없는 단계
+async function classesOf(view) {
+  if (!view) return {}
+  const EC = await import('./edgecond.js')
+  const set = await EC.edgeConditionsOf(view.proc.key).catch(() => new Map())
+  const by = new Map()
+  for (const e of EC.entryEdgesOf(view)) { if (!by.has(e.step)) by.set(e.step, []); by.get(e.step).push({ setting: set.get(EC.edgeKey(e.event, e.task)) || null }) }
+  return Object.fromEntries([...by].map(([step, list]) => [step, EC.classOfEdges(list)]).filter(([, c]) => c))
 }
-async function optionalSteps(procKey) {
-  if (!procKey) return new Set()
-  const m = await (await import('./steprule.js')).requirementMarks(procKey).catch(() => ({ steps: [] }))
-  return new Set((m.steps || []).filter((s) => s.mark === 'opt').map((s) => s.task))
+async function optionalSteps(view) {
+  if (!view) return new Set()
+  const m = await (await import('./edgecond.js')).stepRequirementsOf(view.proc.key, view).catch(() => new Map())
+  return new Set([...m].filter(([, r]) => r.requirement === 'optional').map(([step]) => step))
 }
 
 const heatOf = (wip, max) => (!wip || !max ? 0 : Math.max(1, Math.ceil((3 * wip) / max)))
@@ -117,8 +122,8 @@ export async function flowView(me, { proc = '', validAt } = {}) {
   const times = new Map(tasks.map((t) => [t.key, F.taskTime(mined.by.get(t.key) || [], runBy.get(t.key)?.length ? runBy.get(t.key) : agentBy.get(t.key) || [])]))
   const usual = new Map(tasks.map((t) => [t.key, F.minedBacklog(mined.by.get(t.key) || [], mined.span || {})]))
   const cands = await candidates()
-  const classes = await classesOf(view?.proc.key)
-  const optional = await optionalSteps(view?.proc.key)
+  const classes = await classesOf(view)
+  const optional = await optionalSteps(view)
 
   // a task's kind of step: an outside role's (waiting outside), an agent's (by its definition or its run records), or our people's
   const isAgentTask = (t) => t.runner === 'agent' || agentRole(t.role) || ((L.by.get(t.key)?.rows || 0) > 0 && (L.by.get(t.key).agentRows / L.by.get(t.key).rows) > 0.5)

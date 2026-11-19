@@ -1,11 +1,11 @@
 <script setup>
 // 프로세스 다듬기(pgpt-pro/docs/auto-ax-onboarding/plan-process-refinement.md): 찾은 지도를 조직이 합의한 프로세스로.
-// 여섯 걸음 가운데 지금은 ① 바로잡기 · ② 단계 가르기(③~⑥은 「준비 중」). 걸음마다 「AI 제안 → 살펴보기 → 정하기」 세 칸.
+// 걸음 가운데 지금은 ① 바로잡기(나머지는 「준비 중」). 걸음마다 「AI 제안 → 살펴보기 → 정하기」 세 칸.
 //   ① 바로잡기: 「찾은 대로」와 「다듬은 것」을 나란히(다듬은 쪽의 더한 일 · 화살표는 파랑 점선, 찾은 쪽의 뺀 것은 빨강 점선),
 //      AI가 찾은 문제(순서 · 섞인 일 · 기록 탓 · 빠진 단계)마다 「제안대로 고침」 · 「그대로 둠」, 「내가 고침」, 고친 기록과 「되돌리기」.
-//   ② 단계 가르기: 다듬은 지도를 다섯 가지 색으로(꼭 하는 관문 · 사람이 꼭 · AI가 맡음 · 걷어냄 · 건너뛰었지만 해야 함), 일마다 정하기.
+//   (단계 분류 · 꼭 하는 단계는 여기서 정하지 않는다 — 지도의 사건 보기에서 사건 → 일 간선을 눌러 정한다. edge-step-condition)
 // 찾은 것은 지우지 않는다 — 고친 것은 서버가 따로 기록한다. 관리자만 고치고 정한다(다른 사람은 읽기만).
-// 서버: GET /ontology/refine/:proc · POST …/review · …/issues/:id · …/corrections · …/classes({task, class} — class null 은 AI 제안으로 되돌림)
+// 서버: GET /ontology/refine/:proc · POST …/review · …/issues/:id · …/corrections
 //   · DELETE …/corrections/:id.
 // 지도 페이지 위를 덮는 창(닫기 · Esc). ?mock 개발 화면에서는 페이지의 가짜 응답(mock.js → mock-refine.js)을 쓴다.
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
@@ -25,11 +25,10 @@ const emit = defineEmits(['close'])
 
 const STEPS = [
   { key: 'fix', no: '①', ko: '바로잡기', q: '이 순서가 맞나요?', sub: 'AI가 이상한 곳을 찾아 제안하면, 지도를 나란히 살펴보고 정해요.', live: true },
-  { key: 'classify', no: '②', ko: '단계 가르기', q: '단계마다 어떤 단계인가요?', sub: 'AI가 다섯 가지로 나눠 제안하면, 지도 색으로 살펴보고 일마다 정해요.', live: true },
-  { key: 'compare', no: '③', ko: '견주기' },
-  { key: 'redraw', no: '④', ko: '새 그림' },
-  { key: 'agree', no: '⑤', ko: '합의' },
-  { key: 'run', no: '⑥', ko: '시행 · 지켜보기' },
+  { key: 'compare', no: '②', ko: '견주기' },
+  { key: 'redraw', no: '③', ko: '새 그림' },
+  { key: 'agree', no: '④', ko: '합의' },
+  { key: 'run', no: '⑤', ko: '시행 · 지켜보기' },
 ]
 const KIND = { order: '순서', mixed: '섞인 일', artifact: '기록 탓', missing: '빠진 단계' }
 const OPS = [
@@ -42,16 +41,6 @@ const OPS = [
   { key: 'remove_task', ko: '일 빼기' },
   { key: 'set_role', ko: '맡는 역할 바꾸기' },
 ]
-// 기획안 §4 다섯 가지(지도 색은 MapGraph mk-*)
-const CLASSES = [
-  { key: 'gate', ko: '꼭 하는 관문', tip: '건너뛰면 안 되는 확인 · 승인 · 검토예요(품질 · 돈 · 법 · 보안). 실행에서 고정돼요.' },
-  { key: 'human', ko: '사람이 꼭', tip: '사람의 판단 · 책임 · 대면이 필요한 일이에요. AI는 자료만 챙겨요.' },
-  { key: 'ai', ko: 'AI가 맡음', tip: '글 · 양식 작성, 자료 모으기처럼 에이전트가 할 수 있는 일이에요.' },
-  { key: 'drop', ko: '걷어냄', tip: '수작업 때문에 필요했던 일이에요(전달 · 취합 · 옮겨 적기 · 확인 재촉). 쓰지 않게 돼요.' },
-  { key: 'skipped', ko: '건너뛰었지만 해야 함', tip: '기록에서는 자주 빠지지만 해야 하는 단계예요. 관문으로 올려요.' },
-]
-const CLASS_KO = { ...Object.fromEntries(CLASSES.map((c) => [c.key, c.ko])), none: '그 밖' }
-const MARKED = new Set(CLASSES.map((c) => c.key))
 
 const root = ref(null)
 const formEl = ref(null)
@@ -244,46 +233,6 @@ const leftOut = computed(() => {
   return inProp.size ? rTasks.value.filter((k) => !inProp.has(k)) : []
 })
 
-// ---------- ② 단계 가르기 ----------
-function flowOrder(g) {
-  const keys = new Set(g.tasks.map((t) => t.key))
-  const es = g.edges.filter((e) => e.from !== e.to && keys.has(e.from) && keys.has(e.to))
-  const ins = new Set(es.map((e) => e.to))
-  const q = g.tasks.filter((t) => !ins.has(t.key)).map((t) => t.key)
-  if (!q.length && g.tasks.length) q.push(g.tasks[0].key)
-  const seen = new Set(), out = []
-  while (q.length) {
-    const k = q.shift()
-    if (seen.has(k)) continue
-    seen.add(k); out.push(k)
-    for (const e of es.filter((x) => x.from === k).sort((a, b) => (b.p || 0) - (a.p || 0))) if (!seen.has(e.to)) q.push(e.to)
-  }
-  for (const t of g.tasks) if (!seen.has(t.key)) out.push(t.key)
-  return out
-}
-const classRows = computed(() => {
-  const by = new Map(refined.value.tasks.map((t) => [t.key, t]))
-  return flowOrder(refined.value).map((k) => {
-    const c = d.value?.classes?.[k] || null
-    return { key: k, role: by.get(k)?.role || '', n: by.get(k)?.n || 0, cls: c?.class || '', why: c?.why || '', by: c?.by || '', decided: !!c?.decided }
-  })
-})
-const classTotal = computed(() => classRows.value.length)
-const classed = computed(() => classRows.value.filter((r) => r.cls).length)
-const decidedCount = computed(() => classRows.value.filter((r) => r.decided).length)
-const countBy = computed(() => classRows.value.reduce((a, r) => ({ ...a, [r.cls]: (a[r.cls] || 0) + 1 }), {}))
-const classMarks = computed(() => new Map(classRows.value.filter((r) => MARKED.has(r.cls)).map((r) => [r.key, r.cls])))
-const classG = computed(() => graphOf(refined.value.tasks, refined.value.edges, false))
-const setClass = (task, cls) => send(`class:${task}`, '/classes', { method: 'POST', body: { task, class: cls } })
-function onPickClass(x) {
-  sel.value = x
-  if (x?.kind !== 'task') return
-  nextTick(() => {
-    const row = [...(root.value?.querySelectorAll('[data-testid="onto-refine-class-row"]') || [])].find((el) => el.dataset.task === x.id)
-    row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  })
-}
-
 function pickStep(k) { step.value = k; sel.value = null; focus.value = '' }
 
 // Esc: out of a text field first, then closes (the map page leaves its own keys alone while this is open)
@@ -320,7 +269,6 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer); document.removeEvent
         <i>{{ s.no }}</i><span>{{ s.ko }}</span>
         <small v-if="!s.live">준비 중</small>
         <small v-else-if="s.key === 'fix' && openIssues">{{ openIssues }}개 남음</small>
-        <small v-else-if="s.key === 'classify' && classed">정함 {{ decidedCount }}/{{ classTotal }}</small>
       </button>
     </nav>
 
@@ -492,63 +440,6 @@ onBeforeUnmount(() => { alive = false; clearTimeout(timer); document.removeEvent
         </div>
       </section>
 
-      <!-- ② 단계 가르기 -->
-      <section v-else-if="step === 'classify'" class="grid" data-testid="onto-refine-classify">
-        <div class="area ai">
-          <h3 class="ah"><i>1</i>AI 제안</h3>
-          <template v-if="classed">
-            <ul class="ccount" data-testid="onto-refine-class-counts">
-              <li v-for="c in CLASSES" :key="c.key" :title="c.tip"><i class="sw" :class="c.key" /><span>{{ c.ko }}</span><b>{{ countBy[c.key] || 0 }}</b></li>
-              <li v-if="countBy.none"><i class="sw none" /><span>그 밖</span><b>{{ countBy.none }}</b></li>
-            </ul>
-            <p class="sm">{{ classTotal }}단계 가운데 {{ decidedCount }}개를 정했어요. 아직 정하지 않은 것은 AI 제안이에요.</p>
-          </template>
-          <p v-else class="muted">아직 AI가 단계를 나누지 않았어요. AI가 살펴보면 단계마다 다섯 가지 가운데 하나를 까닭과 함께 제안해요.</p>
-          <p v-if="running" class="feed pulse" data-testid="onto-refine-feed">{{ feed || 'AI가 지도를 살펴보고 있어요…' }}</p>
-          <button v-else-if="admin" class="go press" :disabled="!!busy" data-testid="onto-refine-review" @click="startReview">
-            {{ busy === 'review' ? '시작하는 중…' : review ? '다시 살펴보기' : 'AI로 살펴보기' }}</button>
-          <p class="sm caution">「걷어냄」은 조심해서 정해요. 그 일로 오가던 정보를 누가 대신 받는지 까닭을 꼭 보세요.</p>
-          <p v-if="review" class="meta">{{ review.model || 'AI' }} 판단<template v-if="review.made_at"> · {{ dateTimeKo(review.made_at) }}</template></p>
-        </div>
-
-        <div class="area look">
-          <h3 class="ah"><i>2</i>살펴보기 <small>다듬은 것 기준</small></h3>
-          <div class="mapbox big" data-testid="onto-refine-class-map">
-            <MapGraph v-if="classG.tasks.length" :tasks="classG.tasks" :edges="classG.edges" :entries="classG.entries" :marks="classMarks" :selected="sel" :dir="narrow ? 'TB' : 'LR'" @select="onPickClass" />
-            <p v-else class="nomap">남은 일이 없어요.</p>
-          </div>
-          <div class="legend" data-testid="onto-refine-class-legend">
-            <span v-for="c in CLASSES" :key="c.key"><i class="sw" :class="c.key" />{{ c.ko }}</span>
-            <span><i class="sw none" />그 밖 · 아직 안 나눔</span>
-          </div>
-        </div>
-
-        <div class="area decide">
-          <h3 class="ah"><i>3</i>정하기</h3>
-          <p v-if="!admin" class="muted sm">관리자만 정할 수 있어요.</p>
-          <ul class="clist">
-            <li v-for="t in classRows" :key="t.key" class="crow" :class="[`c-${t.cls || 'unset'}`, { on: sel?.kind === 'task' && sel.id === t.key, decided: t.decided }]"
-              data-testid="onto-refine-class-row" :data-task="t.key" :data-class="t.cls" :data-decided="t.decided">
-              <button class="chead press" title="지도에서 보기" @click="sel = { kind: 'task', id: t.key }">
-                <b>{{ t.key }}</b><small>{{ t.role }}<template v-if="t.n"> · {{ t.n }}건</template></small>
-                <span v-if="t.decided" class="state ok">정함</span>
-              </button>
-              <p v-if="t.cls" class="cwhy">
-                <span class="badge"><i class="sw" :class="t.cls" />{{ CLASS_KO[t.cls] || t.cls }}</span>
-                <small>{{ !t.decided ? 'AI 제안' : t.by === 'person' ? '사람이 정함' : 'AI 제안대로 정함' }}</small>
-                <button v-if="admin && t.decided" class="lnk press" :disabled="!!busy" data-testid="onto-refine-class-reset" @click="setClass(t.key, null)">AI 제안으로 되돌리기</button>
-              </p>
-              <p v-else class="muted sm">아직 나누지 않았어요.</p>
-              <p v-if="t.why" class="why">{{ t.why }}</p>
-              <div v-if="admin" class="cbtns" role="group" :aria-label="`${t.key} 나누기`">
-                <button v-for="c in CLASSES" :key="c.key" class="cb press" :class="{ on: t.decided && t.cls === c.key, sug: !t.decided && t.cls === c.key }" :title="c.tip"
-                  :aria-pressed="t.decided && t.cls === c.key" :disabled="!!busy" :data-testid="`onto-refine-class-${c.key}`" @click="setClass(t.key, c.key)">
-                  <i class="sw" :class="c.key" />{{ c.ko }}</button>
-              </div>
-            </li>
-          </ul>
-        </div>
-      </section>
     </main>
   </div>
   </Teleport>

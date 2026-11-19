@@ -367,7 +367,7 @@ export async function planEdit(me, { proc: procKey = '', scope = null, words = '
   if (kind !== 'new') {
     ctx = await viewOf(g, procKey)
     runners = await runnersOf(ctx.view)
-    requirements = await (await import('./steprule.js')).requirementsOf(procKey)
+    requirements = await (await import('./edgecond.js')).stepRequirementsOf(procKey, ctx.view).catch(() => new Map())
     if (range) for (const k of range.tasks) if (!ctx.view.tasks.has(k)) throw err(400, `고른 「${k}」${iga(k)} 이 프로세스의 흐름에 없어요.`)
   }
   const input = await modelInput({ kind, proc: ctx?.proc, view: ctx?.view, range, words: said, answer: clean(answer).slice(0, 300), roles, company: companyByN, runners, requirements, R })
@@ -426,12 +426,6 @@ async function createSaid(me, args) {
   return key
 }
 
-// the current rules of a step (a 꼭 · 선택 change keeps them, and puts back the setting it replaced on undo)
-async function requirementRow(procKey, task) {
-  const [r] = await q(`select requirement, rules from pro_step_requirements where tenant_id=$1 and proc_key=$2 and task=$3`, [T(), procKey, task])
-  return r ? { requirement: r.requirement || null, rules: r.rules || [] } : null
-}
-
 export async function applyEdit(me, { proc: procKey = '', scope = null, words = '', ops = [], messageId = null, resolve = null, opinionId = null, source = 'said' } = {}) {
   const { isAdmin } = await import('./service.js')
   if (!(await isAdmin(me))) throw err(403, ADMIN_ONLY)
@@ -452,8 +446,8 @@ export async function applyEdit(me, { proc: procKey = '', scope = null, words = 
     for (const x of plan.ops) {
       let args = x.args
       if (x.op === 'set_requirement') {
-        const was = await requirementRow(key, args.task)
-        await (await import('./steprule.js')).setRequirement(me, key, args.task, { requirement: args.requirement, rules: was?.rules || [], reason: why })
+        // 꼭 · 선택 lives on the ways into the step (edge settings, edgecond.js) — every way into it in this process, each keeping its rules
+        const was = await (await import('./edgecond.js')).setStepRequirement(me, key, args.task, args.requirement, { reason: why })
         args = { ...args, was }
       } else if (x.op === 'set_timer') {
         const t = await (await import('./timers.js')).addProcessTimer(me, { proc: key, entry: args.entry, cron: args.cron })
@@ -474,9 +468,8 @@ export async function applyEdit(me, { proc: procKey = '', scope = null, words = 
 export async function undoSide(me, procKey, row) {
   const a = row.args || {}
   if (row.op === 'set_requirement') {
-    const now = await requirementRow(procKey, a.task)
-    if ((now?.requirement || null) !== (a.requirement || null)) throw err(409, '그 뒤에 이 단계의 꼭 · 선택이 다시 바뀌어서 되돌리지 않았어요.')
-    await (await import('./steprule.js')).setRequirement(me, procKey, a.task, { requirement: a.was?.requirement || null, rules: a.was?.rules || now?.rules || [], reason: '말로 고친 것을 되돌림' })
+    // (a change made before edge settings kept one step row in `was` — nothing on the edges to put back)
+    if (Array.isArray(a.was)) await (await import('./edgecond.js')).restoreStepRequirement(me, procKey, { task: a.task, requirement: a.requirement, was: a.was }, { reason: '말로 고친 것을 되돌림' })
   }
   if (row.op === 'set_timer' && a.event) await (await import('./timers.js')).setTimerStatus(me, a.event, 'gone').catch((e) => { if (e.status !== 404) throw e })
 }
@@ -498,6 +491,7 @@ export async function removeSaid(me, procKey) {
   for (const s of g.startsOn.filter((x) => x.from === procKey && String(x.to).startsWith('timer:'))) await (await import('./timers.js')).setTimerStatus(me, s.to, 'gone').catch(() => {})
   await q(`delete from pro_corrections where tenant_id=$1 and proc_key=$2`, [T(), procKey])
   await q(`delete from pro_step_requirements where tenant_id=$1 and proc_key=$2`, [T(), procKey])
+  await q(`delete from pro_edge_conditions where tenant_id=$1 and proc_key=$2`, [T(), procKey]).catch(() => {})
   await q(`update pro_map_opinions set state='declined', note='프로세스를 지웠어요', decided_by=$3, decided_at=now(), updated_at=now() where tenant_id=$1 and proc_key=$2 and state='open'`, [T(), procKey, String(me.id)]).catch(() => {})
   await ledger(me, 'ontology.edit', `말로 만든 프로세스 지움: ${p.name}`, { proc: procKey, tasks: mine })
   return { removed: procKey, tasks: mine }

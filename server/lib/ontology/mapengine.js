@@ -6,7 +6,8 @@
 //     글로 쓴 갈림길 조건(단계 규칙과 같은 읽기, steprule.js readYes) → 가장 흔한 길, 나란히 하는 두 일(parallel)은 둘 다 넣고 둘 다
 //     끝나야 그다음(합류), 나갈 길이 없거나 끝이면 건이 끝난다. 건 하나 = 인스턴스 하나(옮기기 · 되감기도 같은 인스턴스 안에서).
 // 단계마다 어느 지도로 정했는지(pro_case_steps.map_at)와 어떻게 정했는지(via)가 남는다. 기본은 「끝난 단계는 그대로, 다음 단계는 그때의
-// 지도」, 꼭 하는 단계가 있는 프로세스의 건은 시작한 날의 지도로 고정(map_pin — 관리자가 건마다 바꿀 수 있다).
+// 지도」, 관리자가 건마다 시작한 날의 지도로 고정할 수 있다(map_pin). 꼭 · 선택 · 단계 분류(간선 설정, edgecond.js)는 고정과 상관없이
+// 단계가 열릴 때의 설정을 읽는다 — 설정을 바꾸면 이미 실행 중인 건의 다음 단계부터 적용된다(edge-step-condition).
 // 관문(runmode.js gateStep) · 실행 방식 · 기다림 · 단계 규칙 · 문서 단계 · 점검 항목은 그대로 쓴다: 스냅샷의 activities 에 있던 것(스킬 ·
 // 점검 · 지시 · 맡는 이 · 초안)은 행을 넣을 때 일 정의(taskDefinition)에서 뽑아 pro_case_steps.act 에 둔다.
 // 공용 테이블에 쓰는 것: todolist 행(단계마다 하나 — 넣기 · 끝내기 · 옮기며 닫기)과 건마다 bpm_proc_inst 한 행(syncInst — 제목 · 시작한 사람과
@@ -78,7 +79,8 @@ export async function setEngine(me, engine) {
 // parallel pair out of x when there is one (run.js parallelPair, the snapshot's AND split)
 export function waysOut(view, x, theta) {
   const { flows } = unfold(view, x, theta)
-  const outs = flows.filter((f) => f.from === x).map((f) => ({ to: f.to, p: f.p || 0, cond: f.cond || '', condInfo: f.cond_cases || null, pinned: !!f.pinned, decided: !!f.decided, synthetic: !!f.synthetic }))
+  const outs = flows.filter((f) => f.from === x).map((f) => ({ to: f.to, p: f.p || 0, cond: f.cond || '', condInfo: f.cond_cases || null, pinned: !!f.pinned, decided: !!f.decided, synthetic: !!f.synthetic,
+    ...(f.required ? { required: f.required } : {}) }))
   return { outs, par: parallelPair(view.edges, flows, x) }
 }
 
@@ -94,6 +96,14 @@ export function joinNext(view, siblings, theta) {
 export function pickWay(outs, { amount = null, odds = new Map(), texts = new Map(), textMatch = 0.6, done = new Map(), maxRepeat = 3 } = {}) {
   const live = outs.filter((o) => o.to === END || (done.get(o.to) || 0) < maxRepeat)
   const pool = live.length ? live : outs
+  // 꼭 하는 간선(edge settings — edgecond.js edgeRequiredView): the way into a 꼭 step from here is taken first — a sure 꼭 before one a
+  // rule may make 꼭 (that one is read when the step opens and may still be skipped there), the most common among them
+  const must = pool.filter((o) => o.required === true)
+  const maybe = must.length ? must : pool.filter((o) => o.required === 'maybe')
+  if (maybe.length) {
+    const o = [...maybe].sort((a, b) => b.p - a.p)[0]
+    return { to: o.to, how: 'required', p: o.p, why: o.required === true ? `「${o.to}」은(는) 이 길로 오면 꼭 하는 단계예요` : `「${o.to}」은(는) 이 길로 오면 사안에 따라 꼭 하는 단계예요` }
+  }
   if (amount != null && Number.isFinite(Number(amount))) {
     for (const o of pool) {
       const c = o.condInfo
@@ -153,7 +163,7 @@ export async function nextOf(view, row, { rows = [], theta, amount = null, judge
   const opts = { amount, texts, done, maxRepeat, textMatch: R.textMatch ?? 0.6 }
   let pick = pickWay(outs, opts)
   // text conditions are read only when the amount did not decide it, and only for the ways that have one
-  if (pick.how !== 'amount' && judge && outs.some((o) => texts.has(o.to))) {
+  if (pick.how !== 'amount' && pick.how !== 'required' && judge && outs.some((o) => texts.has(o.to))) {
     const odds = new Map()
     for (const o of outs) if (texts.has(o.to)) odds.set(o.to, (await judge(texts.get(o.to), o).catch(() => null)) || { p: null })
     pick = pickWay(outs, { ...opts, odds })
@@ -177,8 +187,6 @@ export function likelyNext(view, open = [], theta, max = 6) {
 
 // the map a case's next step is decided on: the one of its start when pinned (validAt), else the map as it is then (undefined)
 export const mapTimeOf = (c) => (c?.engine === 'map' && c?.map_pin ? new Date(c.map_pin).toISOString() : undefined)
-// a case is pinned to the map of its start when its process has a step it must go through (꼭, steprule.js requiredView)
-export const pinOnStart = (view) => [...(view?.tasks?.values?.() || [])].some((t) => t.required)
 
 // the flowchart of a case (nothing stored): the map unfolded from the case's start as of now (or its pin), each step with the state
 // of its latest work item; a step the case went to that this map does not reach is drawn too, joined by the way the case took.
@@ -450,9 +458,10 @@ export async function syncInst(was) {
 export async function startMapCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', file = null, picks = [] }) {
   const view = await procGraph(procKey)
   if (!view.tasks.has(entry)) throw err(400, '그 일은 이 프로세스에 없어요.')
-  const R = await rulesOf()
+  // (a case is no longer pinned to the map of its start because its process has a 꼭 step: the edge settings are read as each step opens —
+  // edge-step-condition; an admin can still pin a case's map by hand)
   const now = new Date()
-  const pin = R.pinWhenRequired !== false && pinOnStart(view) ? now : null
+  const pin = null
   const skipped = await skippedOf(view, entry)
   const instId = `${MAP_PREFIX}${crypto.randomUUID()}`
   const request = { subject, body: String(body).slice(0, 3000), customer, sender: from }

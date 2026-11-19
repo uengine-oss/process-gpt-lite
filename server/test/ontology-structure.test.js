@@ -32,6 +32,18 @@ test('사건: 요청 메일 · 채팅 요청에서 첫 일, 결과물이 다음 
   assert.ok(Math.abs(toFin.p - 2 / 3) < 1e-9)
 })
 
+test('사건: 결과물 없이 다음 일로 가면 「앞 단계 완료」가 다음 일을 일으킨다', () => {
+  const done = 'done:요청 접수'
+  const e = S.events.find((x) => x.key === done)
+  assert.equal(e.kind, 'done'); assert.equal(e.name, '요청 접수 완료'); assert.equal(e.n, 3)
+  assert.equal(find(S.raises, '요청 접수', done).n, 3)
+  assert.equal(find(S.triggers, done, '견적서 작성').n, 3)
+  assert.equal(find(S.triggers, 'done:재무 검토', '고객 회신').n, 2)
+  // 결과물이 다음 일로 가는 단계 · 마지막 단계에는 「완료」가 없다
+  assert.ok(!S.events.some((x) => x.key === 'done:견적서 작성'))
+  assert.ok(!S.events.some((x) => x.key === 'done:고객 회신'))
+})
+
 test('사건: 같은 결과물 뒤 두 일이 서로 앞뒤로 다 나오면 함께(and)', () => {
   const evs = [ev('d1', '계약 확정', 0, '영업', sales, ['doc']), ev('d1', '자재 발주', 1, '영업', sales), ev('d1', '일정 조정', 2, '영업', sales),
     ev('d2', '계약 확정', 10, '영업', sales, ['doc']), ev('d2', '일정 조정', 11, '영업', sales), ev('d2', '자재 발주', 12, '영업', sales)]

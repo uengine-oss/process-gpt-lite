@@ -1,6 +1,7 @@
-// 단계의 꼭 · 선택: 프로세스의 단계마다 조직이 약속한 단계(꼭 하는 단계 — 품질)와 건에 따라 해도 되고 안 해도 되는 단계(선택)를 정하고,
-// 사안에 따라(금액 · 글로 쓴 조건) 그 정책이 바뀌게 한다. 지도에서 단계를 눌러 정한다(관리자, 결정 원장에). 표는 sql/042.
-//   꼭(required): 이 프로세스의 스냅샷이 늘 지나가고(procGraph → withRequirements: 고정과 같다), 에이전트가 건너뛰지 않는다. 사람이 지나치려
+// 단계의 꼭 · 선택을 읽고 적용하는 곳: 조직이 약속한 단계(꼭 하는 단계 — 품질)와 건에 따라 해도 되고 안 해도 되는 단계(선택), 사안에 따라
+// (금액 · 글로 쓴 조건) 바뀌는 규칙. 정하는 곳은 사건 보기의 간선 하나다(edgecond.js 간선 설정, edge-step-condition — 프로세스 × 이벤트 → 태스크
+// 간선마다). 예전의 단계 단위 설정(sql/042 pro_step_requirements · 지도의 「단계 규칙」)은 간선 설정으로 옮겼고 더 읽지 않는다.
+//   꼭(required): 그 간선의 앞 일에서 스냅샷이 늘 그 일로 가고(procGraph → withRequirements), 에이전트가 건너뛰지 않는다. 사람이 지나치려
 //     하면(다른 갈래 · 다른 일로 옮기기 · 건너뛰기) 알리고 까닭을 받아 원장에 남긴다. 꼭은 「사람이 해야 함」이 아니다 — 누가 하는지는
 //     지도 · 일 정의대로(책임 단계는 runmode.js responsibleOf 가 따로 본다).
 //   선택(optional): 단계가 열릴 때(runmode.js gateStep) — 사람이 지켜봄이면 이 건에 필요한지(요청 · 앞 단계가 만든 것 · 단계 설명, 첫 토큰
@@ -136,23 +137,6 @@ export function throughOf(proc, rel, key) {
   return { m, n }
 }
 
-// the view a case runs (run.js procGraph) with the requirements laid on: a step that is or may be 꼭(its own, or a rule's) is in
-// the snapshot like a pinned one; `requirements` keys the snapshot (a change makes a new one)
-export function requiredView(view, rows) {
-  const list = rows instanceof Map ? [...rows.values()] : rows || []
-  if (!list.length) return view
-  const by = new Map(list.map((r) => [r.task, r]))
-  const tasks = new Map(), keys = []
-  for (const [k, t] of view.tasks) {
-    const r = by.get(k) || (t.origin ? by.get(t.origin) : null)
-    if (!r) { tasks.set(k, t); continue }
-    const may = r.requirement === 'required' || (r.rules || []).some((x) => x.then === 'required')
-    keys.push(`${k}=${r.requirement || '-'}${(r.rules || []).map((x) => `,${x.when.field === 'amount' ? `${x.when.op}${x.when.value}` : x.when.text}>${x.then}`).join('')}`)
-    tasks.set(k, may ? { ...t, pinned: true, required: true, pin_reason: t.pinned ? t.pin_reason : REQ_PIN } : { ...t })
-  }
-  return { ...view, tasks, requirements: keys.sort().join('|') }
-}
-
 // the most likely way from `from` to `to` (the steps before `to`, `from` first); null when there is none
 export function pathBetween(edges, from, to) {
   if (!from || !to || from === to) return null
@@ -194,16 +178,13 @@ export function settingLines({ requirement = null, rules = [] } = {}) {
   return out
 }
 
-// ---------- reading ----------
-// validAt: as a case pinned to an earlier map reads them — a setting made after then is not there (a setting is kept as its last
-// version, so one changed after then reads as not set)
-export async function requirementsOf(procKey, { validAt } = {}) {
-  const rows = await q(`select task, requirement, rules, reason, by_user, at from pro_step_requirements where tenant_id=$1 and proc_key=$2 and ($3::timestamptz is null or at <= $3)`, [T(), procKey, validAt || null]).catch(() => [])
-  return new Map(rows.map((r) => [r.task, { task: r.task, requirement: r.requirement || null, rules: (r.rules || []).map(normRule).filter(Boolean), reason: r.reason || '', by: r.by_user || '', at: r.at }]))
-}
-// run.js procGraph: the view with this process's requirements on it (no table yet, or an error: the view as it was)
-export async function withRequirements(view, procKey, { validAt } = {}) {
-  try { return requiredView(view, await requirementsOf(procKey, { validAt })) } catch { return view }
+// run.js procGraph: the view with this process's 꼭 on it — read from the edge settings (edgecond.js, edge-step-condition), as of
+// settingsAt (a bpm case's snapshot) or now; no table yet, or an error: the view as it was
+export async function withRequirements(view, procKey, { settingsAt } = {}) {
+  try {
+    const EC = await import('./edgecond.js')
+    return EC.edgeRequiredView(view, await EC.edgeConditionsOf(procKey, { asOf: settingsAt }))
+  } catch { return view }
 }
 
 // the case's amount: the latest a step of it stated (a quote's total), else the request's own (「합계 1,240만 원」) — null when none
@@ -330,8 +311,9 @@ export async function ownerOf(c) {
 export async function guardMove(me, caseId, { task, confirm = false, reason = '' } = {}) {
   const { getCase, procGraph } = await import('./run.js')
   const c = await getCase(caseId)
-  const reqs = await requirementsOf(c.proc)
-  if (!reqs.size) return null
+  const EC = await import('./edgecond.js')
+  const settings = await EC.edgeConditionsOf(c.proc).catch(() => new Map())
+  if (![...settings.values()].some(EC.mayRequire)) return null
   const view = await procGraph(c.proc).catch(() => null)
   if (!view?.tasks.has(task)) return null
   const RM = await import('./runmode.js')
@@ -341,86 +323,25 @@ export async function guardMove(me, caseId, { task, confirm = false, reason = ''
   if (done.includes(task)) return null // back to a step it did: nothing is passed
   const at = cur.find((s) => ['running', 'waiting', 'person'].includes(s.state))?.task || done.at(-1) || c.entry_task
   const facts = await RM.stepFacts(c.proc, { view }).catch(() => new Map())
-  const path = (pathBetween(view.edges, at, task) || []).filter((k) => !done.includes(k))
+  // each step on the way is read by the way the case would come into it (edge settings: after the step before it on the way)
+  const full = pathBetween(view.edges, at, task) || []
+  const entries = EC.entryEdgesOf(view)
   const passed = []
-  for (const k of path) {
-    const f = facts.get(k)
-    if (!f?.rule) continue
-    const r = await forStep(c, k, { set: f.rule, what: f.what }, { read: true }).catch(() => null)
-    if (r?.requirement === 'required') passed.push({ task: k, line: r.line || '꼭 하는 단계예요' })
+  for (let i = 0; i < full.length; i++) {
+    const k = full[i]
+    if (done.includes(k)) continue
+    const prev = i > 0 ? full[i - 1] : done.at(-1) || null
+    const ways = EC.caseEntryEdges(view, entries, { task: k, prev, start: EC.startEventOf(c.trigger) })
+    for (const w of ways) {
+      const s = settings.get(EC.edgeKey(w.event, w.task))
+      if (!EC.mayRequire(s)) continue
+      const r = await forStep(c, k, { set: { requirement: s.requirement, rules: s.rules }, what: facts.get(k)?.what || '' }, { read: true }).catch(() => null)
+      if (r?.requirement === 'required') { passed.push({ task: k, line: r.line || '꼭 하는 단계예요' }); break }
+    }
   }
   if (!passed.length) return null
   const why = clean(reason).slice(0, 300)
   if (!confirm || !why) return { confirm: true, required: passed, task }
   await ledger(me, 'ontology.run.pass', `${c.trigger?.subject || '건'} · 꼭 하는 단계 「${passed.map((x) => x.task).join('」 · 「')}」${eul(passed.at(-1).task)} 지나 「${task}」로`, { case: c.id, task, passed: passed.map((x) => x.task), reason: why, via: 'move' })
   return null
-}
-
-// ---------- the side panel: 「이 단계는」 ----------
-async function isAdmin(me) { return (await import('./service.js')).isAdmin(me) }
-async function classOf(procKey, task, origin) {
-  const [row] = await q(`select classes from pro_refine_reviews where tenant_id=$1 and proc_key=$2`, [T(), procKey]).catch(() => [])
-  return row?.classes?.[task] ?? (origin ? row?.classes?.[origin] : null) ?? null
-}
-async function stepOf(procKey, task) {
-  const { procGraph } = await import('./run.js')
-  const view = await procGraph(procKey)
-  const t = view.tasks.get(task) || [...view.tasks.values()].find((x) => x.origin === task)
-  if (!t) throw err(404, '이 프로세스에 그 단계가 없어요.')
-  return { view, t }
-}
-export async function requirementView(me, procKey, task) {
-  const { view, t } = await stepOf(procKey, task)
-  const R = (await skillRules()).stepRules || {}
-  const set = (await requirementsOf(procKey)).get(task) || (t.origin ? (await requirementsOf(procKey)).get(t.origin) : null) || null
-  const cls = await classOf(procKey, t.key, t.origin)
-  const pinned = !!t.pinned && t.pin_reason !== REQ_PIN
-  // the found process (a step 다듬기 added has no past cases; a renamed one counts under its found name)
-  const found = view.all?.processes?.find((p) => p.key === procKey) || null
-  const key = t.origin || (t.added ? null : t.key)
-  const through = key ? throughOf(found, (view.all?.hasTask || []).find((h) => h.from === procKey && h.to === key), key) : null
-  return {
-    proc: { key: view.proc.key, name: view.proc.name }, task, step: t.key,
-    requirement: set?.requirement || null, rules: (set?.rules || []).map((r) => ({ ...r, text: ruleText(r) })), reason: set?.reason || '', by: set?.by || '', at: set?.at || null,
-    suggestion: suggestionOf(cls, R, { pinned, pinReason: t.pin_reason || '', through }), lines: settingLines(set || {}), pinned, admin: await isAdmin(me).catch(() => false),
-  }
-}
-export async function setRequirement(me, procKey, task, body = {}) {
-  const want = body.requirement == null || body.requirement === '' || body.requirement === 'auto' ? null : String(body.requirement)
-  if (want !== null && !REQS.includes(want)) throw err(400, 'requirement 는 required · optional 이거나 비워 두세요(지도대로).')
-  const R = (await skillRules()).stepRules || {}
-  const raw = Array.isArray(body.rules) ? body.rules : []
-  if (raw.length > (R.maxRules || 8)) throw err(400, `사안에 따른 규칙은 ${R.maxRules || 8}개까지예요.`)
-  const rules = raw.map((x, i) => { const r = normRule(x); if (!r) throw err(400, `${i + 1}번째 규칙을 읽지 못했어요 — 금액(이상 · 초과 · 이하 · 미만과 값)이나 글로 쓴 조건, 그리고 꼭 · 선택이 있어야 해요.`); return r })
-  const { view } = await stepOf(procKey, task)
-  const was = (await requirementsOf(procKey)).get(task) || null
-  const why = clean(body.reason).slice(0, 300)
-  if (!want && !rules.length) await q(`delete from pro_step_requirements where tenant_id=$1 and proc_key=$2 and task=$3`, [T(), procKey, task])
-  else await q(`insert into pro_step_requirements (tenant_id, proc_key, task, requirement, rules, reason, by_user, at) values ($1,$2,$3,$4,$5,$6,$7,now())
-                on conflict (tenant_id, proc_key, task) do update set requirement=excluded.requirement, rules=excluded.rules, reason=excluded.reason, by_user=excluded.by_user, at=now()`,
-  [T(), procKey, task, want, JSON.stringify(rules), why || null, me.email || String(me.id)])
-  await ledger(me, 'ontology.steprule', `「${view.proc.name}」의 「${task}」: ${want ? REQ_KO[want] : '지도대로'}${rules.length ? ` · 사안에 따라 ${rules.length}가지(${rules.map(ruleText).join(' · ')})` : ''}`,
-    { process: procKey, task, requirement: want, rules, reason: why || null, was: was ? { requirement: was.requirement, rules: was.rules } : null })
-  return requirementView(me, procKey, task)
-}
-// the processes whose flow as a case runs it (refined) has this step — the map draws processes as found, so a step 다듬기 added
-// (add_task) is not on that process's map, and one it took out is there but not run: the panel's process picker uses this
-export async function stepProcesses(task) {
-  const { readGraph } = await import('./store.js')
-  const { procGraph } = await import('./run.js')
-  const g = await readGraph({})
-  const found = g.processes.filter((p) => p.kind !== 'routine' && (p.tasks || []).includes(task)).map((p) => p.key)
-  const added = (await q(`select distinct proc_key from pro_corrections where tenant_id=$1 and op in ('add_task','rename_task') and args->>'name'=$2`, [T(), task]).catch(() => [])).map((r) => r.proc_key)
-  const procs = []
-  for (const key of [...new Set([...found, ...added])]) {
-    const v = await procGraph(key).catch(() => null)
-    if (v && (v.tasks.has(task) || [...v.tasks.values()].some((t) => t.origin === task))) procs.push({ key, name: v.proc.name, refinedOnly: !found.includes(key) })
-  }
-  return { task, procs }
-}
-
-// the map's 「단계 규칙」 marks: 꼭 · 선택 · 사안에 따라(기본은 지도대로)
-export async function requirementMarks(procKey) {
-  const rows = [...(await requirementsOf(procKey)).values()]
-  return { proc: procKey, steps: rows.map((r) => ({ task: r.task, requirement: r.requirement, rules: r.rules.map((x) => ({ ...x, text: ruleText(x) })), mark: r.requirement === 'required' ? 'req' : r.requirement === 'optional' ? 'opt' : 'cond' })) }
 }

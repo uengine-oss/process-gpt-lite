@@ -140,6 +140,7 @@ export function ontologyRoutes(auth) {
   // (진행 · 다른 갈래 · 멈추기)는 건을 맡은 사람이나 관리자
   const RM = () => import('../lib/ontology/runmode.js')
   const SR = () => import('../lib/ontology/steprule.js')
+  const EC = () => import('../lib/ontology/edgecond.js')
   const noModeSwitch = h(async () => { throw S.err(410, '실행 방식은 따로 고르지 않아요 — 프로세스의 단계가 정해요(제안: 단계마다 사람이 정함 · 자동: 사람이 지켜봄). 지도의 「관찰 · 제안 · 자동」에서 바꿔 주세요.') })
   r.get('/ontology/run-mode', auth, h(async () => (await RM()).modesView()))
   r.put('/ontology/run-mode', auth, noModeSwitch)
@@ -154,11 +155,11 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/cases/:id/resume', auth, h(async (req) => (await RM()).resumeCase(req.user, req.params.id)))
   r.post('/ontology/cases/:id/rewind', auth, h(async (req) => (await RM()).rewindCase(req.user, req.params.id, { task: String(req.body?.task || ''), confirm: req.body?.confirm === true })))
   r.post('/ontology/steps/:id', auth, h(async (req) => (await RM()).decide(req.user, req.params.id, { action: String(req.body?.action || ''), to: String(req.body?.to || ''), confirm: req.body?.confirm === true, reason: String(req.body?.reason || '') })))
-  // 단계의 꼭 · 선택(steprule.js): 꼭 하는 단계 · 해도 되고 안 해도 되는 단계 · 지도대로, 사안에 따라(금액 · 글로 쓴 조건) — 보기는 누구나, 바꾸기는 관리자
-  r.get('/ontology/processes/:proc/requirements', auth, h(async (req) => (await SR()).requirementMarks(req.params.proc)))
-  r.get('/ontology/tasks/:key/step-processes', auth, h(async (req) => (await SR()).stepProcesses(req.params.key)))
-  r.get('/ontology/processes/:proc/steps/:task/requirement', auth, h(async (req) => (await SR()).requirementView(req.user, req.params.proc, req.params.task)))
-  r.put('/ontology/processes/:proc/steps/:task/requirement', auth, h(async (req) => { await admin(req); return (await SR()).setRequirement(req.user, req.params.proc, req.params.task, req.body || {}) }))
+  // 간선 설정(edgecond.js): 이벤트 → 태스크 간선마다, 프로세스마다 조건(꼭 · 선택 · 사안에 따라)과 단계 분류 — 보기는 누구나, 바꾸기는 관리자.
+  // 이벤트 key 에 「:」가 들어 있어 간선은 쿼리(event · task)로 고른다.
+  r.get('/ontology/processes/:proc/edge-conditions', auth, h(async (req) => (await EC()).edgeList(req.user, req.params.proc)))
+  r.get('/ontology/processes/:proc/edge-condition', auth, h(async (req) => (await EC()).edgeView(req.user, req.params.proc, { event: String(req.query.event || ''), task: String(req.query.task || '') })))
+  r.put('/ontology/processes/:proc/edge-condition', auth, h(async (req) => { await admin(req); return (await EC()).setEdgeCondition(req.user, req.params.proc, req.body || {}) }))
   // 시험용으로 들어온 메일(개발 · 시연 서버에서만): 진짜 메일이 들어올 때와 같은 길(run.js routeMail)로 건을 연다 — 이 기기에서, 관리자만,
   // 보낸 사람은 예약된 시험용 도메인(.test · .example · .invalid · example.com/net/org)만. 실제 메일함에는 아무것도 읽거나 쓰지 않는다.
   r.post('/ontology/simulate-mail', auth, h(async (req) => {
@@ -192,7 +193,6 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/refine/:proc/issues/:id', auth, h(async (req) => { await admin(req); return (await RF()).decideIssue(req.user, req.params.proc, req.params.id, { action: String(req.body?.action || '') }) }))
   r.post('/ontology/refine/:proc/corrections', auth, h(async (req) => { await admin(req); return (await RF()).addCorrection(req.user, req.params.proc, { op: req.body?.op, args: req.body?.args, why: String(req.body?.why || '') }) }))
   r.delete('/ontology/refine/:proc/corrections/:id', auth, h(async (req) => { await admin(req); return (await RF()).removeCorrection(req.user, req.params.proc, req.params.id) }))
-  r.post('/ontology/refine/:proc/classes', auth, h(async (req) => { await admin(req); return (await RF()).setClass(req.user, req.params.proc, { task: String(req.body?.task || ''), class: req.body?.class ?? null }) }))
   r.get('/ontology/tasks/:key/evidence', auth, h(async (req) => (await import('../lib/ontology/evidence.js')).taskEvidence(req.user, req.params.key, {
     limit: Math.min(100, Math.max(5, Number(req.query.limit) || 40)), before: req.query.before || null })))
   r.post('/ontology/tasks/:key/draft', auth, h(async (req) => { await admin(req); return D.draftDefinition(req.params.key, { template: req.body?.template }) }))

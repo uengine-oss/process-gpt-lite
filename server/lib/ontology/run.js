@@ -31,7 +31,9 @@ const t2 = (tasks) => [...tasks.values()].map((t) => `${t.key}:${t.role || ''}${
 // ---------- reading a proc ----------
 // found: the process as the map found it; otherwise as a person refined it (프로세스 다듬기, refine.js — the found flow with the
 // corrections laid on it in order), which is what a case runs
-export async function procGraph(procKey, { validAt, found = false } = {}) {
+// settingsAt: the edge settings as of then (a bpm case's snapshot reads those it was made with); without it, now — a map case reads
+// the settings now even when its map is pinned to its start (edge-step-condition)
+export async function procGraph(procKey, { validAt, found = false, settingsAt } = {}) {
   const g = await readGraph({ validAt })
   const proc = g.processes.find((b) => b.key === procKey)
   if (!proc) throw err(404, '프로세스를 찾지 못했어요.')
@@ -40,8 +42,8 @@ export async function procGraph(procKey, { validAt, found = false } = {}) {
   // (a process made by words: only the ways a person said are its own — refine.js baseOf)
   const base = baseOf(g, proc, cs)
   if (found) return base
-  // 꼭 하는 단계(steprule.js): in this process's snapshot like a pinned step
-  return (await import('./steprule.js')).withRequirements(cs.length ? refinedView(base, cs) : base, procKey, { validAt })
+  // 꼭(edge settings, edgecond.js): a way into a 꼭 step is kept and taken at its split — only from the step it comes out of
+  return (await import('./steprule.js')).withRequirements(cs.length ? refinedView(base, cs) : base, procKey, { settingsAt })
 }
 
 // the steps a case starting at `entry` passes over (the usual way to it, the receipt left out: the snapshot has its own 요청 접수)
@@ -89,11 +91,12 @@ export function unfold({ proc, tasks, edges }, entry, theta) {
   const retiredTask = (k) => tasks.get(k)?.status === 'retired'
   const pinnedTask = (k) => !!tasks.get(k)?.pinned
   // a way a person decided (a correction made it, refine.js) is in whatever θ, like a pinned one
-  let ok = edges.filter((e) => e.status !== 'retired' && !retiredTask(e.from) && !(e.to !== END && retiredTask(e.to)) && (e.p >= theta || e.pinned || e.decided || (e.to !== END && pinnedTask(e.to))))
-  // 고정: a split that can reach a pinned task goes through it — the ways around it are dropped
+  let ok = edges.filter((e) => e.status !== 'retired' && !retiredTask(e.from) && !(e.to !== END && retiredTask(e.to)) && (e.p >= theta || e.pinned || e.decided || e.required || (e.to !== END && pinnedTask(e.to))))
+  // 고정 · 꼭: a split that can reach a pinned task, or whose way out is 꼭 (edge settings — edgecond.js edgeRequiredView), goes through it —
+  // the ways around it are dropped
   for (const x of new Set(ok.map((e) => e.from))) {
     const outs = ok.filter((e) => e.from === x)
-    const pin = outs.find((e) => e.to !== END && pinnedTask(e.to))
+    const pin = outs.find((e) => e.to !== END && e.required === true) || outs.find((e) => e.to !== END && e.required) || outs.find((e) => e.to !== END && pinnedTask(e.to))
     if (pin && outs.length > 1) ok = ok.filter((e) => e.from !== x || e === pin || (e.to !== END && isUpstream(ok, e.to, x)))
   }
   if (proc.band === 'open') ok = ok.filter((e) => e.from === entry && e.to === END)

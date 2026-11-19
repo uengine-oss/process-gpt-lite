@@ -34,7 +34,7 @@ import OntoBranch from '../components/ontology/OntoBranch.vue'
 import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
 import OntoFlowPanel from '../components/ontology/OntoFlowPanel.vue'
 import OntoRefine from '../components/ontology/OntoRefine.vue'
-import OntoStepRule from '../components/ontology/OntoStepRule.vue'
+import OntoEdgeRule from '../components/ontology/OntoEdgeRule.vue'
 import MapLegend from '../components/ontology/MapLegend.vue'
 import OntoEditBox from '../components/ontology/OntoEditBox.vue'
 import OntoEditPreview from '../components/ontology/OntoEditPreview.vue'
@@ -261,8 +261,27 @@ async function rebuild() {
 const selEdge = computed(() => (sel.value?.kind === 'edge' ? (map.value?.edges || []).find((e) => edgeId(e) === sel.value.id) || null : null))
 const selTask = computed(() => (sel.value?.kind === 'task' ? (map.value?.tasks || []).find((t) => t.key === sel.value.id) || null : null))
 const selEvent = computed(() => (sel.value?.kind === 'event' ? (map.value?.events || []).find((e) => e.key === sel.value.id) || null : null))
+// 간선 설정(edge-step-condition): 사건 보기에서 프로세스를 골랐을 때 사건 → 일 간선을 누르면 그 간선의 설정(OntoEdgeRule)
+const triggerPick = computed(() => eventsShown.value && !!procKey.value && !isRoutine.value)
+const selTrigger = computed(() => {
+  if (sel.value?.kind !== 'trigger' || !triggerPick.value) return null
+  const [event, task] = String(sel.value.id).split('\u0000')
+  const ev = (view.value.events || []).find((e) => e.ev?.key === event)?.ev
+  return { event, task, name: ev?.name || event }
+})
+const edgeMarks = ref(new Map())
+async function loadEdgeMarks() {
+  if (!triggerPick.value) { edgeMarks.value = new Map(); return }
+  const key = procKey.value
+  try {
+    const r = await call(`/ontology/processes/${encodeURIComponent(key)}/edge-conditions`)
+    if (key === procKey.value) edgeMarks.value = new Map((r.edges || []).filter((e) => e.mark || e.cls).map((e) => [`${e.event}\u0000${e.step}`, { mark: e.mark, cls: e.cls }]))
+  } catch { edgeMarks.value = new Map() }
+}
+watch(triggerPick, loadEdgeMarks)
+watch(procKey, () => { if (triggerPick.value) loadEdgeMarks() })
 // a side panel covers the map's right (the map keeps room, the box moves left of it)
-const sideOpen = computed(() => !!(selEdge.value || selTask.value || selEvent.value || valuesOpen.value || reviewOpen.value || snapOpen.value || rolesOpen.value || docsOpen.value
+const sideOpen = computed(() => !!(selEdge.value || selTask.value || selEvent.value || selTrigger.value || valuesOpen.value || reviewOpen.value || snapOpen.value || rolesOpen.value || docsOpen.value
   || timerOpen.value || caseId.value || candOpen.value || flowOpen.value || plan.value || opinionsOpen.value))
 watch(procKey, (k) => {
   if (String(route.query.proc || '') === k) return
@@ -542,32 +561,19 @@ const full = ref(false)
 // AI 후보: the panel hands the map what to paint (일 → high · mid · human)
 const candOpen = ref(false)
 const marks = ref(new Map())
-watch(candOpen, (on) => { if (on) { rulesOn.value = false; flowOpen.value = false } else if (!rulesOn.value && !flowOpen.value) marks.value = new Map() })
+watch(candOpen, (on) => { if (on) flowOpen.value = false; else if (!flowOpen.value) marks.value = new Map() })
 // 병목 보기(OntoFlowPanel): 지금 쌓인 할 일로 일을 칠하고(병목 · 많고 적음 · 에이전트 구간 · 바깥 대기), 꼬리표를 달고, 흔한 길을 굵게
 const flowOpen = ref(false)
 const flowHeat = ref({ badges: new Map(), ways: new Set() })
 const NO_BADGES = new Map(), NO_WAYS = new Set()
 function onFlowHeat(h) { if (!flowOpen.value) return; marks.value = h.marks; flowHeat.value = { badges: h.badges, ways: h.ways } }
 watch(flowOpen, (on) => {
-  if (on) { candOpen.value = false; rulesOn.value = false; return }
+  if (on) { candOpen.value = false; return }
   flowHeat.value = { badges: new Map(), ways: new Set() }
-  if (!candOpen.value && !rulesOn.value) marks.value = new Map()
+  if (!candOpen.value) marks.value = new Map()
 })
 function toggleFlow() { sel.value = null; flowOpen.value = !flowOpen.value }
-// 단계 규칙(server lib/ontology/steprule.js): 이 프로세스에서 꼭 하는 단계(자물쇠) · 해도 되는 단계(점선) · 사안에 따라 바뀌는 단계를 지도에 칠한다
-const rulesOn = ref(false)
-async function loadRuleMarks() {
-  if (!rulesOn.value || !proc.value) { if (!candOpen.value) marks.value = new Map(); return }
-  try {
-    const r = await call(`/ontology/processes/${encodeURIComponent(proc.value.key)}/requirements`)
-    if (rulesOn.value) marks.value = new Map((r.steps || []).map((s) => [s.task, s.mark]))
-  } catch (e) { err.value = e.message }
-}
-function toggleRules() { rulesOn.value = !rulesOn.value; if (rulesOn.value) { candOpen.value = false; flowOpen.value = false } loadRuleMarks() }
-watch(procKey, () => { if (rulesOn.value) loadRuleMarks() })
-// 일 패널의 「이 단계는」: 그 일이 든 흐름(루틴은 건이 돌지 않는다)
-const selTaskProcs = computed(() => (selTask.value ? procsOf(selTask.value).map((k) => processes.value.find((p) => p.key === k)).filter((p) => p && p.kind !== 'routine') : []))
-// 프로세스 다듬기(① 바로잡기 · ② 단계 가르기): 지도 위를 덮는 창 — 열려 있는 동안 이 페이지의 F · Esc 는 쉰다
+// 프로세스 다듬기(바로잡기): 지도 위를 덮는 창 — 열려 있는 동안 이 페이지의 F · Esc 는 쉰다
 const refineOpen = ref(false)
 const menuOpen = ref(false)
 const menuEl = ref(null)
@@ -747,9 +753,6 @@ onBeforeUnmount(() => {
             <button class="evt press" role="switch" :aria-checked="eventsShown" :class="{ on: eventsShown }" :disabled="isRoutine" :title="isRoutine ? '루틴은 사건으로만 보여요' : '일 사이에 메일 · 결과물 같은 사건을 넣어 봐요'" data-testid="onto-events-toggle" @click="eventsOn = !eventsOn">
               <span class="knob" /> 사건 보기
             </button>
-            <button v-if="proc && !isRoutine" class="evt press" role="switch" :aria-checked="rulesOn" :class="{ on: rulesOn }" title="꼭 하는 단계 · 해도 되는 단계 · 사안에 따라 바뀌는 단계를 지도에 표시해요" data-testid="onto-steprule-toggle" @click="toggleRules">
-              <span class="knob" /> 단계 규칙
-            </button>
             <button v-if="!procKey && simpleProcs.length" class="evt press" role="switch" :aria-checked="hideSimple" :class="{ on: hideSimple }" :title="`일이 하나뿐인 프로세스 ${simpleProcs.length}개를 전체 지도에서 빼요(다른 흐름에도 든 일은 남아요)`" data-testid="onto-hide-simple" @click="hideSimple = !hideSimple">
               <span class="knob" /> 단순 프로세스 빼기
             </button>
@@ -763,7 +766,7 @@ onBeforeUnmount(() => {
           </div>
           <div ref="stageEl" class="stage" :data-preview="preview?.kind || ''" :data-side="pside" :data-flow="flowMode">
           <p v-if="!graph.tasks.length" class="none">{{ at ? '그날에는 아직 그린 지도가 없어요.' : '이 θ 로는 남는 일이 없어요.' }}</p>
-          <MapGraph v-else :whole="full" :marks="marks" :tasks="graph.tasks" :edges="graph.edges" :entries="graph.entries" :events="previewGraph ? [] : view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="sideOpen" :scale="shareScale"
+          <MapGraph v-else :whole="full" :marks="marks" :edge-marks="previewGraph ? new Map() : edgeMarks" :trigger-pick="triggerPick && !previewGraph" :tasks="graph.tasks" :edges="graph.edges" :entries="graph.entries" :events="previewGraph ? [] : view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="sideOpen" :scale="shareScale"
             :picked="chosen" :pickable="!!procKey && !previewGraph" :notes="notes" :only-notes="onlyNotes && !!notes"
             :badges="flowOpen && !previewGraph ? flowHeat.badges : NO_BADGES" :hot-ways="flowOpen && !previewGraph ? flowHeat.ways : NO_WAYS" @select="onSelect" @pick="onPick" />
           <!-- 아래쪽: 말로 고치기 입력 칸(넓은 화면) 바로 밑에 범례 -->
@@ -776,12 +779,12 @@ onBeforeUnmount(() => {
             <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#a78bfa" stroke-width="1.6" /></svg>채팅</span>
             <span><b class="and">함께</b>한 사건 뒤 여러 일이 함께 열려요</span>
             <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="3.5" /></svg>굵을수록 자주</span>
-          </div>
-          <div v-else-if="graph.tasks.length && rulesOn" class="legend" data-testid="onto-steprule-legend">
-            <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#7a4fd0" stroke-width="2.2" /><path d="M7.4 7V5.6a1.6 1.6 0 0 1 3.2 0V7h.9v4H6.5V7z" fill="#7a4fd0" /></svg>꼭 하는 단계</span>
-            <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#2b7fbf" stroke-width="1.8" stroke-dasharray="4 3" /></svg>해도 되고 안 해도 되는 단계</span>
-            <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#2b7fbf" stroke-width="1.8" stroke-dasharray="1.5 2.5" /></svg>사안에 따라</span>
-            <span v-if="!marks.size">이 프로세스에는 정한 단계가 없어요 — 단계를 눌러 정해요</span>
+            <template v-if="triggerPick">
+              <span><svg width="26" height="10"><path d="M1 5h24" stroke="#7a4fd0" stroke-width="3.2" /></svg>꼭 하는 단계</span>
+              <span><svg width="26" height="10"><path d="M1 5h24" stroke="#2b7fbf" stroke-width="2" stroke-dasharray="6 4" /></svg>해도 되고 안 해도 되는 단계</span>
+              <span><svg width="26" height="10"><path d="M1 5h24" stroke="#2b7fbf" stroke-width="2" stroke-dasharray="1.5 3" /></svg>사안에 따라</span>
+              <span>사건 → 일 간선을 눌러 정해요</span>
+            </template>
           </div>
           <div v-else-if="graph.tasks.length && flowOpen" class="legend" data-testid="onto-flow-legend">
             <span><i class="lg bott" />병목(할 일이 가장 많이 쌓인 사람 단계)</span>
@@ -812,12 +815,15 @@ onBeforeUnmount(() => {
               <template #actions><OntoBranch :edge="selEdge" :admin="!!status?.admin" /><OntoEdgeActions :edge="selEdge" :admin="!!status?.admin" @changed="loadMap" /></template>
             </EdgePanel>
           </SidePanel>
+          <SidePanel v-else-if="selTrigger" kicker="간선" :title="`${selTrigger.name} → ${selTrigger.task}`" @close="sel = null">
+            <OntoEdgeRule :proc-key="procKey" :event="selTrigger.event" :task="selTrigger.task" :admin="!!status?.admin" @changed="loadEdgeMarks" />
+          </SidePanel>
           <SidePanel v-else-if="selEvent" kicker="사건" :title="selEvent.name" @close="sel = null">
             <EventPanel :event="selEvent" :triggers="map.triggers || []" :raises="map.raises || []" :tasks="map.tasks" :processes="map.processes || []" :admin="!!status?.admin" @task="showTask" @changed="loadMap" />
           </SidePanel>
           <SidePanel v-else-if="selTask" kicker="일" :title="selTask.name" @close="sel = null">
             <TaskPanel :task="selTask" :edges="map.edges" :processes="processes" @edge="(e) => onSelect({ kind: 'edge', id: edgeId(e) })" @role="openRole" @proc="openProc">
-              <template #actions><OntoTaskPanel :task-key="selTask.key" :admin="!!status?.admin" hide-header @changed="loadMap"><template #step><OntoStepRule :task-key="selTask.key" :proc-key="procKey" :procs="selTaskProcs" :admin="!!status?.admin" @changed="loadRuleMarks" /></template></OntoTaskPanel></template>
+              <template #actions><OntoTaskPanel :task-key="selTask.key" :admin="!!status?.admin" hide-header @changed="loadMap"></OntoTaskPanel></template>
             </TaskPanel>
           </SidePanel>
           <SidePanel v-else-if="reviewOpen" kicker="학습 순환" title="검토 안건" @close="reviewOpen = false">

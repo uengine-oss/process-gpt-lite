@@ -72,7 +72,7 @@ async function rewind(task, confirm = false) {
   note.value = `「${task}」${RO(task)} 되감았어요. ${run.value?.engine === 'map' ? '같은 인스턴스에서 그 단계부터 다시 해요' : '그 단계부터 새 스냅샷으로 다시 해요'} — 앞에서 한 것은 기록으로 남아요.`
 }
 // 지도에서 바로 도는 건(server mapengine.js): 단계마다 지도가 그 단계를 고른 까닭(한 갈래 · 금액 조건 · 글 조건 · 가장 흔한 길 · 나란히 · 합류 · 옮김)
-const VIA_KO = { entry: '시작', single: '한 갈래', amount: '금액 조건', text: '갈림길 조건', common: '가장 흔한 길', parallel: '나란히', join: '합류', moved: '옮김', rewound: '되감음' }
+const VIA_KO = { entry: '시작', single: '한 갈래', amount: '금액 조건', text: '갈림길 조건', common: '가장 흔한 길', required: '꼭 하는 간선', parallel: '나란히', join: '합류', moved: '옮김', rewound: '되감음' }
 const viaText = (s) => (s.via ? `지도로 정함 · ${VIA_KO[s.via.how] || s.via.how}${s.via.why ? ` — ${s.via.why}` : ''}` : '')
 const stateText = (s) => (s.state === 'person' ? `${(s.holder?.names || []).join(', ') || s.holder?.role || '사람'} 차례` : STEP_KO[s.state] || s.state)
 // 단계가 만든 파일(server stepdoc.js stepFiles, 할 일마다): 파일 · 쓴 양식(정해 둔 · 자동) · 양식에서 바꾼 것 · 형식 규칙 점검 — 이음오피스로 열어 보기

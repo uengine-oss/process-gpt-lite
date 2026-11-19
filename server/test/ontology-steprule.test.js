@@ -2,7 +2,8 @@
 // 꼭 하는 단계는 스냅샷에 늘, 건너뛴 단계로 되감기, 꼭 하는 단계를 지나치는 옮기기. 모델 · DB 없이(글 조건의 확률은 넣어 준다).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normRule, ruleText, won, amountMatch, pickRequirement, reqLine, suggestionOf, throughOf, requiredView, pathBetween, passedRequired, settingLines, needText, skipReason } from '../lib/ontology/steprule.js'
+import { edgeRequiredView } from '../lib/ontology/edgecond.js'
+import { normRule, ruleText, won, amountMatch, pickRequirement, reqLine, suggestionOf, throughOf, pathBetween, passedRequired, settingLines, needText, skipReason } from '../lib/ontology/steprule.js'
 import { decideStep, rewindCheck, stepState, whyLines } from '../lib/ontology/runmode.js'
 import { unfold } from '../lib/ontology/run.js'
 import { END } from '../lib/ontology/refine.js'
@@ -122,29 +123,33 @@ test('묻는 줄: 선택 단계는 이 건에 필요할 확률을, 건너뛴 까
   assert.equal(skipReason(req), '이 건에는 하지 않아도 돼 보여요(이 건에 필요할 확률 12%) — 이 건은 금액 300만원 < 1,000만원이라 해도 되고 안 해도 되는 단계예요')
 })
 
-test('꼭 하는 단계는 스냅샷에 늘(이 프로세스에서는 고정과 같다) — 꼭이 될 수 있는 규칙만 있어도, 정한 것이 바뀌면 스냅샷 열쇠도', () => {
+// 간선 설정(edge-step-condition): 꼭은 그 일로 들어오는 간선(앞 일의 「완료」 · 결과물 → 일)에 걸린다 — edgecond.js edgeRequiredView
+test('꼭 하는 간선은 스냅샷에 늘(그 앞 일에서) — 꼭이 될 수 있는 규칙만 있어도, 정한 것이 바뀌면 스냅샷 열쇠도', () => {
   const t = (key, extra = {}) => ({ key, role: '담당', n: 5, status: 'active', ...extra })
   const e = (from, to, p) => ({ from, to, n: Math.round(p * 100), p, status: 'active' })
   const view = { proc: { key: 'p', name: 'P', tasks: ['A', 'B', 'C'], entries: ['A'], theta: 0.05 }, tasks: new Map([['A', t('A')], ['B', t('B')], ['C', t('C', { pin_reason: '' })]]),
-    edges: [e('A', 'B', 0.97), e('A', 'C', 0.03), e('B', END, 1), e('C', END, 1)] }
+    edges: [e('A', 'B', 0.97), e('A', 'C', 0.03), e('B', END, 1), e('C', END, 1)], all: { triggers: [] } }
+  const way = (requirement, rules = []) => [{ event: 'done:A', task: 'C', requirement, rules }]
   assert.deepEqual(unfold(view, 'A', 0.05).nodes, ['A', 'B']) // 드문 C 는 θ 아래
-  const req = requiredView(view, [{ task: 'C', requirement: 'required', rules: [] }])
-  assert.ok(unfold(req, 'A', 0.05).nodes.includes('C'))
-  assert.deepEqual([req.tasks.get('C').pinned, req.tasks.get('C').required, req.tasks.get('C').pin_reason], [true, true, '꼭 하는 단계'])
-  assert.equal(view.tasks.get('C').pinned, undefined) // 지도의 일은 그대로
+  const req = edgeRequiredView(view, way('required'))
+  assert.deepEqual(unfold(req, 'A', 0.05).nodes, ['A', 'C']) // A 의 갈림길은 C 로(돌아가는 B 는 빠진다)
+  assert.equal(req.edges.find((x) => x.from === 'A' && x.to === 'C').required, true)
+  assert.equal(req.tasks.get('C').pinned, undefined) // 일을 고정하지 않는다 — 다른 길로 오는 건에는 걸리지 않는다
+  assert.equal(view.edges.find((x) => x.to === 'C').required, undefined) // 지도의 관계는 그대로
   // 기본은 선택이어도 「금액 … 이상이면 꼭」 규칙이 있으면 스냅샷에 든다(그 건에서 선택이면 열릴 때 건너뛸 수 있다)
-  const cond = requiredView(view, [{ task: 'C', requirement: 'optional', rules: [amt('>=', 10000000)] }])
+  const cond = edgeRequiredView(view, way('optional', [amt('>=', 10000000)]))
   assert.ok(unfold(cond, 'A', 0.05).nodes.includes('C'))
   // 선택만이면 지도대로 θ 를 따른다
-  const opt = requiredView(view, [{ task: 'C', requirement: 'optional', rules: [] }])
+  const opt = edgeRequiredView(view, way('optional'))
   assert.deepEqual(unfold(opt, 'A', 0.05).nodes, ['A', 'B'])
   // 정한 것이 바뀌면 열쇠가 바뀐다(새 스냅샷)
   assert.ok(req.requirements && cond.requirements && opt.requirements)
   assert.equal(new Set([req.requirements, cond.requirements, opt.requirements]).size, 3)
-  assert.equal(requiredView(view, []), view)
-  // 다듬은 흐름에서 이름이 바뀐 단계: 찾은 이름(origin)으로 정한 것도 맞는다
-  const renamed = { ...view, tasks: new Map([...view.tasks].map(([k, x]) => (k === 'C' ? ['C2', { ...x, key: 'C2', origin: 'C' }] : [k, x]))) }
-  assert.equal(requiredView(renamed, [{ task: 'C', requirement: 'required', rules: [] }]).tasks.get('C2').required, true)
+  assert.equal(edgeRequiredView(view, []), view)
+  // 다듬은 흐름에서 이름이 바뀐 단계: 지도의 일 key(origin)로 정한 것도 맞는다
+  const renamed = { ...view, tasks: new Map([...view.tasks].map(([k, x]) => (k === 'C' ? ['C2', { ...x, key: 'C2', origin: 'C' }] : [k, x]))),
+    edges: view.edges.map((x) => (x.to === 'C' ? { ...x, to: 'C2' } : x.from === 'C' ? { ...x, from: 'C2' } : x)) }
+  assert.equal(edgeRequiredView(renamed, way('required')).edges.find((x) => x.to === 'C2').required, true)
 })
 
 test('건너뛴 단계: 지켜보기에 「건너뜀」, 이 단계로 되감기로 다시 할 수 있다', () => {

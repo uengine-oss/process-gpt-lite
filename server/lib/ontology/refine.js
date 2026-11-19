@@ -3,8 +3,9 @@
 // 한 줄씩 쌓아 그 위에 차례로 얹는다(applyCorrections, 모델 없음 — 줄을 지우면 되돌아간다). ① AI(rules.refine.judge, 기본 Fable)가
 // 일 · 넘어감과 실제 건 몇 개(날짜 · 읽힌 말 · 메일 · 대화 앞부분, 개인정보 가림)를 prompts/review-sequence.md 로 보고 고칠 곳(순서 ·
 // 섞인 일 · 기록 탓 · 빠진 단계)마다 동작 하나를 제안하고 「사실은 이럴 것」을 그린다. 사람이 받아들인 것만 고친 기록이 된다.
-// ② 다듬은 흐름의 단계마다 관문 · 사람이 꼭 · AI · 걷어냄 · 건너뛰었지만 해야 함을 prompts/classify-steps.md 로 가르고(AI 후보 판단 ·
-// 「사람이 꼭」 규칙과 어긋나지 않게), 사람이 정한다. 관문으로 정하면 지도에서 그 일을 고정한다(review.js pinTask). 결정은 모두 결정 원장에.
+// ② 다듬은 흐름의 단계마다 관문 · 사람이 꼭 · AI · 걷어냄 · 건너뛰었지만 해야 함을 prompts/classify-steps.md 로 가르는 AI 제안을 만든다(AI 후보
+// 판단 · 「사람이 꼭」 규칙과 어긋나지 않게). 제안은 그 단계로 들어오는 간선의 설정에 남고, 정하는 것은 사건 보기의 간선에서 한다
+// (edgecond.js, edge-step-condition — 다듬기 화면에서 분류를 정하던 「단계 가르기」는 없앴다). 결정은 모두 결정 원장에.
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
@@ -14,14 +15,14 @@ import { loadEvents } from './build.js'
 import { stepsOf, textsOf } from './conditions.js'
 import { taskFacts, humanByRule } from './candidates.js'
 import { prompt, rules as skillRules, discoverySkill } from './discovery.js'
-import { ledger, pinTask } from './review.js'
+import { ledger } from './review.js'
 import { judge } from './judge.js'
 
 const T = () => config.tenantId
 export const END = '__end__'
 export const OPS = ['reverse_edge', 'remove_edge', 'add_edge', 'rename_task', 'merge_task', 'add_task', 'remove_task', 'set_role']
 // 말로 고치기(editmap.js) adds: overlay ops (move_task · set_cond · set_parallel · set_runner), side ops that live in their own tables
-// (set_requirement → pro_step_requirements, set_timer → a company timer; the overlay leaves them), and new_process (a process made by words:
+// (set_requirement → the edge settings of the ways into the step, edgecond.js; set_timer → a company timer; the overlay leaves them), and new_process (a process made by words:
 // its steps are on the map, its ways are this row)
 export const EDIT_OPS = [...OPS, 'move_task', 'set_cond', 'set_parallel', 'set_runner']
 export const SIDE_OPS = ['set_requirement', 'set_timer']
@@ -32,7 +33,6 @@ export const AMOUNT_OPS = { '>=': '이상', '>': '초과', '<=': '이하', '<': 
 export const KINDS = ['order', 'mixed', 'artifact', 'missing']
 export const CLASSES = ['gate', 'human', 'ai', 'drop', 'skipped', 'none']
 export const CLASS_KO = { gate: '꼭 하는 관문', human: '사람이 꼭', ai: 'AI가 맡음', drop: '걷어냄', skipped: '건너뛰었지만 해야 함', none: '그대로' }
-const PIN_REASON = '다듬기: 꼭 하는 관문'
 const sha = (s, n = 12) => crypto.createHash('sha1').update(String(s)).digest('hex').slice(0, n)
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim()
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -499,11 +499,6 @@ export async function refineView(me, procKey) {
   const r = applyCorrections(found, cs)
   const row = await rowOf(procKey)
   const skipped = new Map(r.skipped.map((s) => [s.id, s.why]))
-  const classes = {}
-  for (const t of r.tasks) {
-    const c = row?.classes?.[t.key] ?? row?.classes?.[r.origin[t.key]]
-    if (c?.class) classes[t.key] = { class: c.class, why: c.why || '', by: c.by === 'person' ? 'person' : 'ai', decided: !!c.decided }
-  }
   const entries = (proc.entries || []).map((k) => Object.keys(r.origin).find((x) => r.origin[x] === k) || k)
   // whose opinion an applied change was (opinions.js)
   const ops = [...new Set(cs.map((c) => c.opinion_id).filter(Boolean))]
@@ -513,7 +508,6 @@ export async function refineView(me, procKey) {
     found,
     refined: { tasks: flowOrder(r.tasks, r.edges, entries), edges: r.edges, removed: r.removed },
     review: row?.review ? { summary: row.review.summary || '', issues: row.review.issues || [], proposed: row.review.proposed || { steps: [], flows: [] }, model: row.model, made_at: row.made_at } : null,
-    classes,
     corrections: cs.map((c) => ({ id: c.id, op: c.op, args: c.args, label: labelOf(c) + (skipped.has(c.id) ? ` — 지금 지도에는 맞지 않아 빠졌어요(${skipped.get(c.id)})` : ''),
       why: c.why, source: c.source, by: c.by_user, at: c.at, batch: c.batch || null, voiced: voiced.get(c.opinion_id) || null,
       undo: c.op !== 'new_process', undoWhy: c.op === 'new_process' ? '이 프로세스를 만든 기록이에요 — 프로세스를 지우려면 지도에서 「이 프로세스 지우기」를 눌러 주세요.' : '' })),
@@ -671,19 +665,19 @@ export async function runReview(me, procKey, { say = async () => {} } = {}) {
   const KO = { order: '순서', mixed: '섞인 일', artifact: '기록 탓', missing: '빠진 단계' }
   await say(review.issues.length ? `고칠 곳 ${review.issues.length}개를 찾았어요 — ${KINDS.filter(count).map((k) => `${KO[k]} ${count(k)}`).join(' · ')}.` : '순서에서 고칠 곳은 찾지 못했어요.')
   if (review.proposed.steps.length) await say(`사실은 이렇게 흐를 거예요: ${review.proposed.steps.map((s) => s.task).join(' → ')}`)
-  await say('단계마다 관문 · 사람이 꼭 · AI · 걷어냄을 가려요.')
+  // the AI's class for each step — a suggestion on the ways into it (edge settings, edgecond.js); a person decides on the edge
+  await say('단계마다 관문 · 사람이 꼭 · AI · 걷어냄 제안을 만들어요.')
   let classed = 0, classModel = ''
   try {
     const { classes, model: m } = await classifySteps(proc, found, cs, review, graph, R)
-    const have = (await rowOf(procKey))?.classes || {}
-    const merged = mergeClasses(have, classes)
-    await q(`update pro_refine_reviews set classes=$3 where tenant_id=$1 and proc_key=$2`, [T(), procKey, JSON.stringify(merged)])
+    const { procGraph } = await import('./run.js')
+    const ways = await (await import('./edgecond.js')).putAiClasses(procKey, await procGraph(procKey), classes)
     classed = Object.keys(classes).length; classModel = m
     const n = (c) => Object.values(classes).filter((x) => x.class === c).length
-    await say(`단계 ${classed}개를 갈랐어요 — 관문 ${n('gate')} · 사람이 꼭 ${n('human')} · AI ${n('ai')} · 걷어냄 ${n('drop')} · 해야 함 ${n('skipped')}.`)
+    await say(`단계 ${classed}개에 제안을 남겼어요 — 관문 ${n('gate')} · 사람이 꼭 ${n('human')} · AI ${n('ai')} · 걷어냄 ${n('drop')} · 해야 함 ${n('skipped')}. 사건 보기에서 간선을 눌러 정해요(바뀐 간선 ${ways}개).`)
   } catch (e) {
     console.warn('[ontology] refine classes', e.message)
-    await say('단계 가르기는 이번에 하지 못했어요 — 다시 점검하면 다시 해요.')
+    await say('단계 분류 제안은 이번에 만들지 못했어요 — 다시 점검하면 다시 해요.')
   }
   return { proc: procKey, issues: review.issues.length, cases: cases.length, classes: classed, model, classModel }
 }
@@ -753,35 +747,4 @@ export async function removeCorrection(me, procKey, id) {
   return refineView(me, procKey)
 }
 
-// 분류 확정: class (null = back to the AI's suggestion, undecided). A decided gate pins the task on the map (when it was not
-// pinned already); a gate that is no longer one is unpinned only when that pin was this screen's.
-export async function setClass(me, procKey, { task, class: cls } = {}) {
-  if (cls !== null && cls !== undefined && cls !== '' && !CLASSES.includes(cls)) throw err(400, `class 는 ${CLASSES.join(' · ')} 중 하나예요.`)
-  const want = CLASSES.includes(cls) ? cls : null
-  const { proc, found, graph } = await foundOf(procKey)
-  const r = applyCorrections(found, await correctionsOf(procKey))
-  if (!r.tasks.some((t) => t.key === task)) throw err(404, '다듬은 흐름에 그 일이 없어요.')
-  const origin = r.origin[task] || null
-  await q(`insert into pro_refine_reviews (tenant_id, proc_key) values ($1,$2) on conflict do nothing`, [T(), procKey])
-  const classes = { ...((await rowOf(procKey))?.classes || {}) }
-  const prev = classes[task] ?? (origin ? classes[origin] : undefined)
-  if (origin && origin !== task) delete classes[origin]
-  const ai = prev?.ai || null
-  let next = null
-  if (want) next = { class: want, why: ai?.class === want ? ai.why : `사람이 「${CLASS_KO[want]}」${ro(CLASS_KO[want])} 정했어요.`, by: ai?.class === want ? 'ai' : 'person', decided: true, ai, by_user: me.email || String(me.id), at: new Date().toISOString() }
-  else if (ai) next = { class: ai.class, why: ai.why, by: 'ai', decided: false, ai }
-  const g = origin ? graph.tasks.find((t) => t.key === origin) : null
-  let pinnedHere = !!prev?.pinned_here
-  if (next?.class === 'gate' && next.decided) {
-    if (g && !g.pinned) { await pinTask(me, origin, { pinned: true, reason: PIN_REASON }); pinnedHere = true }
-  } else if (pinnedHere) {
-    if (g?.pinned && g.pin_reason === PIN_REASON) await pinTask(me, origin, { pinned: false, reason: '다듬기: 관문에서 뺌' })
-    pinnedHere = false
-  }
-  if (next) classes[task] = { ...next, ...(pinnedHere ? { pinned_here: true } : {}) }
-  else delete classes[task]
-  await q(`update pro_refine_reviews set classes=$3 where tenant_id=$1 and proc_key=$2`, [T(), procKey, JSON.stringify(classes)])
-  await ledger(me, 'ontology.refine', subject(proc, `「${task}」 ${want ? CLASS_KO[want] : 'AI 제안으로 되돌림'}`),
-    { proc: procKey, action: 'class', task, class: want, was: prev?.class || null, pinned: pinnedHere })
-  return refineView(me, procKey)
-}
+// (분류 확정은 간선 설정으로 옮겼다 — edgecond.js setEdgeCondition, edge-step-condition)

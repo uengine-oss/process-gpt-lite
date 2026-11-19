@@ -199,6 +199,13 @@ async function writeStructure(S, w) {
   const now = { actor: w.actor, reason: w.reason }
   await upsertNodes('Event', S.events.map((e) => ({ key: e.key, kind: e.kind, cls: e.cls, name: e.name, n: e.n })), ['kind', 'cls', 'name', 'n'], [], now)
   await upsertRel('TRIGGERS', 'Event', 'Task', S.triggers, ['n', 'p', 'split', 'cond', 'source', 'scope', 'people'], w, ["status:'active'", 'pinned:false', 'shared:0'])
+  // 「앞 단계 완료」 edges this count no longer sees (the step now raises a result, or the way is gone) are gone; seen again → active
+  const liveDone = new Set(S.triggers.filter((t) => t.from.startsWith('done:')).map((t) => `${t.from}>${t.to}`))
+  const doneRels = await cypher(`MATCH (e:Event)-[t:TRIGGERS]->(x:Task) WHERE e.kind = 'done' RETURN e.key AS from, x.key AS to, t.status AS status`).catch(() => [])
+  for (const x of doneRels) {
+    const want = liveDone.has(`${x.from}>${x.to}`) ? 'active' : 'gone'
+    if (x.status !== want) await cypher('MATCH (e:Event {key:$from})-[t:TRIGGERS]->(x:Task {key:$to}) SET t.status=$status RETURN e.key AS key', { from: x.from, to: x.to, status: want }, w)
+  }
   await upsertRel('RAISES', 'Task', 'Event', S.raises, ['n', 'p'], w)
   await upsertRel('HAS_TASK', 'Process', 'Task', S.hasTask, ['n', 'share', 'entry_share'], w)
   await upsertRel('STARTS_ON', 'Process', 'Event', S.startsOn, ['n', 'share'], w)
@@ -359,6 +366,8 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   const events = await loadEvents()
   if (!events.length) return { empty: true, events: 0 }
   if (merged.length) await say(`같은 일을 다르게 부른 이름을 맞췄어요: ${merged.slice(0, 3).map((x) => `「${x.from}」→「${x.to}」`).join(' · ')}${merged.length > 3 ? ` 외 ${merged.length - 3}개` : ''}`)
+  // 간선 설정(edgecond.js)의 일 · 사건 키도 남는 이름으로 옮긴다 — 정한 꼭 · 선택 · 분류가 떨어지지 않게
+  if (merged.length) await (await import('./edgecond.js')).renameTaskKeys(merged).catch((e) => console.warn('[ontology] edge settings rename', e.message))
   const now = Date.now()
   const assigned = await membersOf()
   const final = stateAt(events, now, { assigned })

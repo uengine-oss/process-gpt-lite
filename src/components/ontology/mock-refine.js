@@ -1,4 +1,4 @@
-// 개발용 가짜 응답(?mock=…): 프로세스 다듬기 ① 바로잡기 · ② 단계 가르기 — /ontology/refine/:proc 의 GET · POST · DELETE.
+// 개발용 가짜 응답(?mock=…): 프로세스 다듬기 ① 바로잡기(단계 분류는 간선 설정으로 옮겼다 — 남은 classes 는 쓰이지 않는다) — /ontology/refine/:proc 의 GET · POST · DELETE.
 // mock.js 가 부른다(개발 서버에서만 불러오므로 운영 빌드에는 들어가지 않는다).
 //   「계약 · 시공 준비」(proc:계약 요청 접수): 손으로 만든 예. 순서가 뒤바뀐 곳 하나(착공 안내 → 자재 발주), 빠진 단계 하나
 //     (계약 체결 뒤 계약금 입금 확인 — 처음부터 「제안대로 고침」을 눌러 둔 상태), 기록 탓 하나, 섞인 일 하나. 직접 고친 것 하나.
@@ -249,7 +249,6 @@ export function refineMock(map) {
       found: clone(s.found),
       refined,
       review: s.reviewed ? { summary: s.summary, issues: clone(s.issues), proposed: clone(s.proposed), model: 'Fable', made_at: s.made_at } : null,
-      classes: Object.fromEntries(Object.entries(s.classes).map(([k, { ai, ...c }]) => [k, clone(c)])),
       corrections: s.corrections.map(({ issue, ...c }) => clone(c)),
       job: s.job ? clone({ id: s.job.id, status: s.job.status, detail: s.job.detail }) : null,
     }
@@ -257,7 +256,7 @@ export function refineMock(map) {
 
   // → the response, or undefined when the path is not ours
   return function refine(path, method, body = {}) {
-    const m = /^\/ontology\/refine\/([^/]+)(?:\/(review|issues|corrections|classes)(?:\/([^/]+))?)?$/.exec(path)
+    const m = /^\/ontology\/refine\/([^/]+)(?:\/(review|issues|corrections)(?:\/([^/]+))?)?$/.exec(path)
     if (!m) return undefined
     const s = stateOf(decodeURIComponent(m[1]))
     const [, , what, id] = m
@@ -289,14 +288,6 @@ export function refineMock(map) {
       if (!c) fail('그런 고침이 없어요.', 404)
       s.corrections = s.corrections.filter((x) => x !== c)
       if (c.issue) { const i = s.issues.find((x) => x.id === c.issue); if (i) i.status = 'open' }
-      return view(s)
-    }
-    if (what === 'classes' && method === 'POST') {
-      // like the server: the AI's own suggestion is kept; class null goes back to it
-      const prev = s.classes[body.task] || {}
-      const ai = prev.ai || (prev.class && prev.by === 'ai' ? { class: prev.class, why: prev.why } : null)
-      if (body.class == null) { if (ai) s.classes[body.task] = { ...ai, by: 'ai', decided: false, ai }; else delete s.classes[body.task] }
-      else s.classes[body.task] = { class: body.class, why: ai?.class === body.class ? ai.why : `사람이 「${CLASS_KO[body.class] || body.class}」(으)로 정했어요.`, by: ai?.class === body.class ? 'ai' : 'person', decided: true, ai }
       return view(s)
     }
     fail(`mock: ${method} ${path}`, 404)

@@ -45,7 +45,8 @@ test('여러 프로세스에 든 일은 어느 프로세스를 골라도 보이�
   assert.deepEqual(b.tasks.map((t) => t.key).sort(), ['요청', '평면도'])
 })
 
-test('사건 보기: 루틴은 사건 → 일, 결과물이 있는 넘어감은 일 → 사건 → 일, 없는 넘어감은 일 → 일', () => {
+// 간선 설정(edge-step-condition): 프로세스를 고르면 결과물이 없는 넘어감도 「앞 단계 완료」 사건을 거친다 — 모든 진입이 사건 → 일 간선
+test('사건 보기: 루틴은 사건 → 일, 결과물이 있는 넘어감은 일 → 사건 → 일, 없는 넘어감은 일 → 「완료」 → 일', () => {
   const m = {
     processes: [{ key: 'b', kind: 'flow', theta: 0, summary_theta: 0 }, { key: 'r', kind: 'routine', role: '영업', theta: 0, summary_theta: 0 }],
     tasks: [T('요청', { entry_share: 1 }), T('평면도'), T('제안서'), T('직인', { procs: ['r'], proc: 'r', kind: 'habit' })],
@@ -60,8 +61,14 @@ test('사건 보기: 루틴은 사건 → 일, 결과물이 있는 넘어감은 
   assert.deepEqual(r.edges.map((e) => `${e.kind}:${e.from}>${e.to}`), [`trigger:${EV}artifact:@영업:sheet>직인`])
   const f = eventGraph(m, { proc: 'b', mode: 'summary' })
   const ids = f.edges.map((e) => `${e.kind}:${e.from.replace(EV, '@')}>${e.to.replace(EV, '@')}`).sort()
-  assert.deepEqual(ids, ['next:요청>평면도', 'raise:평면도>@artifact:평면도:drawing', 'trigger:@artifact:평면도:drawing>제안서', 'trigger:@mail>요청'])
+  assert.deepEqual(ids, ['raise:요청>@done:요청', 'raise:평면도>@artifact:평면도:drawing', 'trigger:@artifact:평면도:drawing>제안서', 'trigger:@done:요청>평면도', 'trigger:@mail>요청'])
   assert.equal(f.entries[0], `${EV}mail`)
+  assert.ok(!f.entries.includes(`${EV}done:요청`), '「완료」는 일이 일으키므로 시작이 아니다')
+  const done = f.events.find((e) => e.ev.key === 'done:요청')
+  assert.equal(done.ev.kind, 'done'); assert.equal(done.label, '요청 완료')
+  assert.ok(f.edges.find((e) => e.kind === 'trigger' && e.event === 'done:요청').virtual, '지도에 아직 없는 「완료」 간선')
+  // 전체 지도(프로세스를 고르지 않음)에는 「완료」를 만들어 넣지 않는다
+  assert.ok(!eventGraph(m, { proc: '', mode: 'summary' }).events.some((e) => e.ev.kind === 'done'))
   assert.ok(f.events.find((e) => e.ev.key === 'artifact:평면도:drawing').and)
   assert.equal(f.events.find((e) => e.ev.key === 'artifact:평면도:drawing').label, '결과물(도면)')
 })
@@ -205,5 +212,5 @@ test('사건 보기: 다듬은 흐름에서 이름을 바꾼 일에도 사건이
   m.triggers = [{ from: 'artifact:평면도:drawing', to: '견적', p: 1 }]
   const f = eventGraph(m, { proc: 'b', mode: 'auto' })
   const got = f.edges.filter((e) => e.kind !== 'next').map((e) => `${e.kind}:${e.from.replace(EV, '@')}>${e.to.replace(EV, '@')}`).sort()
-  assert.deepEqual(got, ['raise:도면 작성>@artifact:평면도:drawing', 'trigger:@artifact:평면도:drawing>견적'])
+  assert.deepEqual(got, ['raise:견적>@done:견적', 'raise:도면 작성>@artifact:평면도:drawing', 'raise:요청>@done:요청', 'trigger:@artifact:평면도:drawing>견적', 'trigger:@done:견적>검토', 'trigger:@done:요청>도면 작성'])
 })

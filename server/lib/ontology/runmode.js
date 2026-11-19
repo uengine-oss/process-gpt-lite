@@ -253,29 +253,34 @@ async function outwardRecords(tasks, outside) {
   return out
 }
 
-export async function stepFacts(procKey, { view, validAt } = {}) {
-  view ||= await procGraph(procKey, { validAt })
+// a step's facts in a process. 꼭 · 선택 and the class come from the edge settings (edgecond.js, edge-step-condition): `edges` lists the ways
+// into the step with their settings; `rule` · `cls` · `responsible` here are the process-wide view (any way in) — a case reads its own way in
+// (gateStep → caseStepSettings). settingsAt: a bpm case's snapshot time (the settings it was made with); without it, now.
+export async function stepFacts(procKey, { view, validAt, settingsAt } = {}) {
+  view ||= await procGraph(procKey, { validAt, settingsAt })
   const R = (await skillRules()).runMode || {}
   const tasks = [...view.tasks.values()]
   const origins = [...new Set(tasks.map((t) => t.origin || t.key))]
-  const [row] = await q(`select classes from pro_refine_reviews where tenant_id=$1 and proc_key=$2`, [T(), procKey]).catch(() => [])
-  const classes = row?.classes || {}
+  const EC = await import('./edgecond.js')
+  const settings = await EC.edgeConditionsOf(procKey, { asOf: settingsAt }).catch(() => new Map())
+  const entries = EC.entryEdgesOf(view)
   const cands = new Map((await q(`select task, human from pro_ai_candidates where tenant_id=$1 and task = any($2)`, [T(), origins]).catch(() => [])).map((x) => [x.task, x.human || []]))
   const rules = new Map((await q(`select task, policy from pro_run_step_rules where tenant_id=$1 and proc_key=$2`, [T(), procKey]).catch(() => [])).map((x) => [x.task, x.policy]))
   const outside = new Set((view.all?.roles || []).filter((r) => r.outside).flatMap((r) => [r.key, r.name]).filter(Boolean))
   const records = await outwardRecords(origins, outside)
-  // 꼭 · 선택(steprule.js): the step's own setting in this process (by the name the map shows, or the one it was found under)
-  const reqs = await SR.requirementsOf(procKey, { validAt })
   const out = new Map()
   for (const t of tasks) {
     const o = t.origin || t.key
     const { front } = parseDefinition(t.definition_md || '')
     const runner = t.definition_md ? (front.runner === 'agent' ? 'agent' : 'person') : null
-    const cls = classes[t.key] ?? classes[o] ?? null
-    const set = reqs.get(t.key) || reqs.get(o) || null
+    const edges = entries.filter((e) => e.step === t.key).map((e) => ({ edge: e, setting: settings.get(EC.edgeKey(e.event, e.task)) || null }))
+    const cls = EC.classOfEdges(edges)
+    // process-wide: the first way in that is or may be 꼭, else the first with a setting (a case reads its own way — gateStep)
+    const set = (edges.find((x) => EC.mayRequire(x.setting)) || edges.find((x) => x.setting?.requirement || x.setting?.rules?.length))?.setting || null
+    const human = cands.get(o) || [], pinnedGate = !!t.pinned && t.pin_reason === GATE_PIN
     out.set(t.key, { task: t.key, origin: o, role: t.role || '', runner, cls: cls ? { class: cls.class, decided: !!cls.decided } : null, policy: rules.get(t.key) || null,
-      responsible: responsibleOf({ cls, human: cands.get(o) || [], pinnedGate: !!t.pinned && t.pin_reason === GATE_PIN, runner }),
-      irreversible: irreversibleOf({ name: t.key, front, records: records.get(o) }, R),
+      responsible: responsibleOf({ cls, human, pinnedGate, runner }), duty: { human, pinnedGate, runner },
+      irreversible: irreversibleOf({ name: t.key, front, records: records.get(o) }, R), edges,
       rule: set ? { requirement: set.requirement, rules: set.rules } : null, what: clean(front.description || t.description || '') || (t.role ? `${t.role}의 일` : '') })
   }
   return out
@@ -388,10 +393,19 @@ export async function gateStep(row) {
   const [have] = await q(`select * from pro_case_steps where todo_id=$1`, [row.id])
   if (have?.state === 'waiting') return { act: 'wait', why: have.why }
   if (have?.state === 'skipped') return { act: 'skip', why: have.why, done: true }
-  // a case run from the map pinned to the map of its start reads that map here too (mapengine.js)
+  // a case run from the map pinned to the map of its start reads that map here too (mapengine.js); the edge settings: a map case reads
+  // them now, a bpm case those its instance's snapshot was made with (edge-step-condition)
   const validAt = (await import('./mapengine.js')).mapTimeOf(c)
-  const view = await procGraph(c.bundle, { validAt }).catch(() => null)
-  const facts = view ? (await stepFacts(c.bundle, { view, validAt })).get(row.activity_name) || null : null
+  const settingsAt = c.engine === 'map' ? undefined : snapshotTimeOf(c, row.proc_inst_id)
+  const view = await procGraph(c.bundle, { validAt, settingsAt }).catch(() => null)
+  const facts0 = view ? (await stepFacts(c.bundle, { view, validAt, settingsAt })).get(row.activity_name) || null : null
+  // this case's way into the step (after the step that ended before it, or its start) and what is set on it
+  const EC = await import('./edgecond.js')
+  const prev = c.engine === 'map' && have?.via?.from ? have.via.from : (await earlierOfCase(c).catch(() => [])).filter((x) => x.task).at(-1)?.task || null
+  const ways = view ? await EC.caseStepSettings(c, view, row.activity_name, { prev, asOf: settingsAt }).catch(() => []) : []
+  const wayCls = EC.classOfEdges(ways)
+  const facts = facts0 && { ...facts0, ways, cls: wayCls ? { class: wayCls.class, decided: !!wayCls.decided } : null,
+    responsible: responsibleOf({ cls: wayCls, ...facts0.duty }) }
   // the case's mode: the one of its start, or (a case from before sql/045) its process's stage — changing the stage changes new cases only
   const { mode } = await caseMode(c, view)
   const paused = await pausedOf(c.id)
@@ -401,15 +415,16 @@ export async function gateStep(row) {
   const forced = via?.how === 'rewound' ? '사람이 이 단계로 되감아서 해요' : via?.how === 'moved' ? '사람이 이 단계로 옮겨서 해요' : via ? '' : await movedHere(c, row).catch(() => '')
   // 꼭 · 선택(steprule.js): what this step is for this case — its rules read against the case, an optional step's need of it; kept
   // as it was when a person said 「진행」. Nothing is read while the agent would wait for the pause anyway.
+  // (several ways in — e.g. two results of the step before — : each is read, and one that comes out 꼭 makes the step 꼭)
   const req = approved ? (have.requirement ? { requirement: have.requirement, ...(have.matched || {}), need: have.need } : null)
-    : await SR.forStep(c, row.activity_name, { set: facts?.rule, what: facts?.what }, { forced, read: !(paused && kind !== 'person') })
+    : await readWays(c, row.activity_name, ways, { what: facts?.what, forced, read: !(paused && kind !== 'person') })
       .catch((e) => { console.warn('[runmode] requirement', e.message); return null })
   const band = (await skillRules()).stepRules?.need || {}
   const d = decideStep({ mode, kind, responsible: !!facts?.responsible.on, irreversible: !!facts?.irreversible.on, policy: facts?.policy || null, paused, approved,
     requirement: req?.requirement || null, need: req?.need?.p ?? null, band })
   const proposal = await proposalFor(c, row, view, via).catch(() => null)
   const state = d.act === 'wait' ? 'waiting' : approved ? 'go' : 'auto'
-  const matched = req ? { from: req.from, base: req.base, matched: req.matched, checked: req.checked, amount: req.amount, amountFrom: req.amountFrom, line: req.line } : null
+  const matched = req ? { from: req.from, base: req.base, matched: req.matched, checked: req.checked, amount: req.amount, amountFrom: req.amountFrom, line: req.line, edge: req.edge || null } : null
   const [s] = await q(`insert into pro_case_steps (tenant_id, case_id, proc_inst_id, todo_id, task, kind, mode, state, why, reversible, hold_item, proposal, requirement, matched, need)
                        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                        on conflict (todo_id) do update set mode=excluded.mode, state=excluded.state, why=excluded.why, reversible=excluded.reversible,
@@ -434,6 +449,30 @@ export async function gateStep(row) {
   } else console.log(`[runmode] ${row.activity_name}: ${d.draftFirst ? '초안 먼저' : approved ? '사람이 정해 진행' : d.act === 'person' ? '사람 차례' : '저절로'} · ${mode}`)
   emit(c.started_by, 'ontology', { caseId: c.id, step: s.id, state: s.state })
   return { ...d, stepId: s.id, caseId: c.id, facts }
+}
+
+// a bpm case's instance: when its snapshot was made — the case's start for its first instance, the move or rewind that opened a later one
+export function snapshotTimeOf(c, instId) {
+  const i = (c.instances || []).indexOf(instId)
+  const opened = (c.history || []).filter((h) => h.state === 'moved' || h.state === 'rewound')
+  const at = i > 0 ? opened[i - 1]?.at : null
+  const t = at || c.created_at
+  return t ? new Date(t).toISOString() : undefined
+}
+// 꼭 · 선택 of a step for this case from its ways in ([{edge, setting}], edgecond.js caseStepSettings): every way with a setting is read
+// (steprule.js forStep — rules against the case); a 꼭 one wins, else the first read. → forStep's answer + edge {event, task} | null
+async function readWays(c, task, ways, { what = '', forced = '', read = true } = {}) {
+  let first = null
+  for (const w of ways) {
+    const s = w.setting
+    if (!s || (!s.requirement && !s.rules?.length)) continue
+    const r = await SR.forStep(c, task, { set: { requirement: s.requirement, rules: s.rules }, what }, { forced, read })
+    if (!r) continue
+    const x = { ...r, edge: { event: w.edge.event, task: w.edge.task } }
+    if (r.requirement === 'required') return x
+    first ||= x
+  }
+  return first
 }
 
 // a person's step of a running case (no agent on it) as it opens — the agent steps and drafts come through the step worker

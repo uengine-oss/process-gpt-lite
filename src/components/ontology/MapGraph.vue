@@ -30,7 +30,11 @@ const props = defineProps({
   dir: { type: String, default: 'LR' },
   side: Boolean, // a side panel covers the right: keep room so the map can move out from under it
   scale: { type: Number, default: 1 }, // entry shares are of all cases; × this = of the shown proc's cases
-  marks: { type: Map, default: () => new Map() }, // 일 → high · mid · human (AI 후보) | gate · human · ai · drop · skipped (단계 가르기) | req · opt · cond (단계 규칙) — 칠하고, 나머지는 흐리게
+  // 간선 설정(edge-step-condition): 사건 → 일 간선(event \u0000 일) → {mark: req · opt · cond, cls: human · ai · drop · skipped} — 칠한다.
+  // triggerPick 이면 사건 → 일 간선을 누를 때 그 사건 대신 간선을 고른다(select {kind: 'trigger', id: event \u0000 일})
+  edgeMarks: { type: Map, default: () => new Map() },
+  triggerPick: Boolean,
+  marks: { type: Map, default: () => new Map() }, // 일 → high · mid · human (AI 후보) — 칠하고, 나머지는 흐리게
   whole: Boolean, // 전체 화면: the whole map on the screen, also after the map changes (smaller sizes allowed)
   picked: { type: Object, default: null }, // {tasks: [task key], ways: [edge id]} — outlined
   pickable: Boolean, // shift / cmd(ctrl) + click toggles, shift + drag picks a box → pick {tasks, ways}
@@ -88,6 +92,8 @@ const isAnd = (e) => e.kind === 'trigger' && e.split === 'and'
 // a role routine's step: how many people of the role do it
 const people = (e) => (e.kind === 'trigger' && String(e.scope || '').startsWith('role:') ? `${e.people || 0}명` : '')
 const DIFF_KO = { add: '더함', remove: '뺌', change: '바뀜' }
+const EM_KO = { req: '꼭 하는 단계', opt: '해도 되고 안 해도 되는 단계', cond: '사안에 따라' }
+const CLS_KO = { human: '사람이 꼭', ai: 'AI가 맡음', drop: '걷어냄', skipped: '건너뛰었지만 해야 함' }
 const DECIDED = '사람이 정했어요', UNSEEN = '정했지만 아직 본 적 없어요'
 const isWay = (e) => !e.kind || e.kind === 'next'
 // 다듬으며 더한 관계는 아직 지나간 건이 없으면 비율 대신 「더함」 · 정했지만 아직 본 적 없는 관계는 「정함」 · 미리 보기는 더함 · 뺌 · 바뀜
@@ -167,14 +173,20 @@ const drawn = computed(() => L.value.edges.map((g) => {
   if (e.added && !e.decided) tips.push('다듬으며 더함')
   if (e.removed) tips.push('다듬으며 뺌')
   if (nt) tips.push(`의견 ${nt.n || 0}${nt.conflict ? ' · 해소 필요' : ''}`)
+  const em = e.kind === 'trigger' ? props.edgeMarks.get(`${e.event}\u0000${e.to}`) || null : null
+  if (em?.mark) tips.push(EM_KO[em.mark])
+  if (em?.cls) tips.push(CLS_KO[em.cls])
+  if (e.virtual) tips.push('지도에 아직 없는 「완료」 간선')
   return {
     id: g.id, d, tip, e, back: g.back, label: g.label, w: width(e), tl: tipLen(e), title: tips.join(' · '),
     head: head(e), ics: icons(e), note: nt && { text: noteText(nt), n: nt.n || 0, conflict: !!nt.conflict },
     cls: { stale: stale(e), retired, thin: e.thin, back: g.back, and: isAnd(e), evt: e.kind === 'raise' || e.kind === 'trigger',
       added: !!e.added && !e.decided && !e.diff, removed: !!e.removed && !e.diff, decided: !!e.decided && !e.unseen, unseen: !!e.unseen,
       [`df-${e.diff}`]: !!DIFF_KO[e.diff], picked: isWay(e) && pickedW.value.has(g.id), nconf: !!nt?.conflict, nd: props.onlyNotes && !nt?.conflict,
-      sel: props.selected?.kind === 'edge' && props.selected.id === g.id, near: !!selKey.value && (e.from === selKey.value || e.to === selKey.value),
-      hot: props.hotWays.has(g.id), cool: props.hotWays.size > 0 && !props.hotWays.has(g.id) && isWay(e) },
+      sel: (props.selected?.kind === 'edge' && props.selected.id === g.id) || (props.selected?.kind === 'trigger' && e.kind === 'trigger' && props.selected.id === `${e.event}\u0000${e.to}`),
+      near: !!selKey.value && (e.from === selKey.value || e.to === selKey.value),
+      hot: props.hotWays.has(g.id), cool: props.hotWays.size > 0 && !props.hotWays.has(g.id) && isWay(e),
+      virt: !!e.virtual, [`em-${em?.mark}`]: !!em?.mark },
   }
 }))
 
@@ -412,6 +424,7 @@ function onTask(ev, key) {
 }
 // in the events view a line into or out of an event opens that event (its panel lists what it opens and what raises it)
 function pickEdge(x, ev) {
+  if (props.triggerPick && x.e.kind === 'trigger') return choose('trigger', `${x.e.event}\u0000${x.e.to}`)
   if (x.e.event) return choose('event', x.e.event)
   if (moved) { moved = false; return }
   if (ev && toggleKey(ev) && isWay(x.e)) return toggle('way', x.id)
@@ -466,8 +479,6 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
             <text class="nm" :clip-path="`url(#${clipId})`"><tspan v-for="(l, i) in n.lines" :key="i" x="11" :y="22 + i * 17">{{ l }}</tspan></text>
             <!-- 걷어냄(단계 가르기) · 미리 보기에서 뺌: 이름에 줄 -->
             <template v-if="n.strike"><line v-for="(l, i) in n.lines" :key="`x${i}`" class="strike" x1="10" :x2="Math.min(n.w - 10, 12 + textW(l, NAME))" :y1="17 + i * 17" :y2="17 + i * 17" /></template>
-            <!-- 단계 규칙: 꼭 하는 단계는 자물쇠 -->
-            <path v-if="marks.get(n.key) === 'req'" class="lock" :transform="`translate(${n.w - 21},6)`" d="M3 6V4a3 3 0 0 1 6 0v2h1.5v8h-9V6zm1.5 0h3V4a1.5 1.5 0 0 0-3 0z" />
             <text class="sm" x="11" :y="n.h - 11" :clip-path="`url(#${clipId})`">{{ n.foot.role }}<tspan v-if="n.foot.ai" class="ai">{{ n.foot.ai }}</tspan></text>
             <!-- 사람이 정했어요: 건수 앞에 사람-확인 -->
             <g v-if="n.foot.gx != null" class="dec" :transform="`translate(${n.foot.gx},${n.h - 21.5})`"><circle cx="3.6" cy="2.8" r="2.3" /><path d="M0.5,10.2 C0.5,7.1 2,5.7 3.6,5.7 C5.2,5.7 6.7,7.1 6.7,10.2" /><path d="M8,6.6 L9.8,8.5 L13,4.6" /></g>
@@ -534,6 +545,14 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .edge.retired .tip { fill: var(--text-tertiary); }
 .edge:hover .line, .edge.near .line { stroke: var(--text-primary); opacity: 1; }
 .edge:hover .tip, .edge.near .tip { fill: var(--text-primary); opacity: 1; }
+/* 간선 설정: 꼭 = 보라 굵게 · 선택 = 파랑 점선 · 사안에 따라 = 파랑 잔 점선, 지도에 아직 없는 「완료」 간선 = 흐린 점선 */
+.edge.virt .line { stroke-dasharray: 2 4; opacity: .7; }
+.edge.em-req .line { stroke: #7a4fd0; stroke-dasharray: none; opacity: 1; stroke-width: 3.2px; }
+.edge.em-req .tip { fill: #7a4fd0; }
+.edge.em-opt .line { stroke: #2b7fbf; stroke-dasharray: 6 4; opacity: 1; }
+.edge.em-opt .tip { fill: #2b7fbf; }
+.edge.em-cond .line { stroke: #2b7fbf; stroke-dasharray: 1.5 3; opacity: 1; }
+.edge.em-cond .tip { fill: #2b7fbf; }
 .edge.sel .line { stroke: var(--sel); opacity: 1; }
 .edge.sel .tip { fill: var(--sel); opacity: 1; }
 

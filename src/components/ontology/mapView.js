@@ -243,10 +243,28 @@ export function eventGraph(map, { proc = '', mode = 'summary', flow = 'refined' 
   const rais = raises.filter((r) => shown.has(r.from) && trig.some((t) => t.from === r.to) && (r.p || 0) >= th(r.from) - EPS)
   const raisedShown = new Set(rais.map((r) => r.to))
   trig = trig.filter((t) => raisedShown.has(t.from) || !raisedAny.has(t.from))
-  const used = new Set(trig.map((t) => t.from))
   const covered = new Set()
   for (const r of rais) for (const t of trig) if (t.from === r.to) covered.add(`${r.from}\u0000${t.to}`)
-  const next = (base.edges || []).filter((e) => !covered.has(edgeId(e)))
+  let next = (base.edges || []).filter((e) => !covered.has(edgeId(e)))
+  // 간선 설정(edge-step-condition): with a process picked, a way that no event covers gets its 「앞 단계 완료」 event (the map may not have
+  // one yet — a way 다듬기 made, or a map counted before 완료 events), so every way into a task is an event → task edge to set
+  if (proc && !routine) {
+    const extra = { events: new Map(), rais: [], trig: [] }
+    for (const e of next) {
+      if (e.to === END) continue
+      const from = shown.get(e.from)?.origin || e.from
+      const key = `done:${from}`
+      if (!evBy.has(key)) extra.events.set(key, { key, kind: 'done', cls: '', name: `${e.from} 완료`, n: 0, virtual: true })
+      if (!rais.some((r) => r.from === e.from && r.to === key) && !extra.rais.some((r) => r.from === e.from && r.to === key)) extra.rais.push({ from: e.from, to: key, n: e.n || 0, p: 1, virtual: true })
+      extra.trig.push({ from: key, to: e.to, n: e.n || 0, p: e.p || 0, split: '', virtual: !trig.some((t) => t.from === key && t.to === e.to) })
+    }
+    for (const [k, v] of extra.events) evBy.set(k, v)
+    rais.push(...extra.rais)
+    for (const r of extra.rais) raisedShown.add(r.to)
+    trig = [...trig, ...extra.trig]
+    next = next.filter((e) => e.to === END)
+  }
+  const used = new Set(trig.map((t) => t.from))
 
   const events = [...used].map((k) => {
     const e = evBy.get(k) || { key: k, kind: 'artifact', name: k, n: 0 }

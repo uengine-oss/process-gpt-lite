@@ -131,8 +131,6 @@ defineExpose({ reload: load })
 
       <!-- AI 판단: 맡길 수 있는지 · 사람이 꼭 해야 하는지(지도 색과 같은 말) -->
       <OntoTaskAi :task-key="taskKey" :admin="admin" @changed="emit('changed', { kind: 'candidate', key: taskKey })" />
-      <!-- 이 단계는(꼭 · 선택 · 사안에 따라): 프로세스를 아는 바깥(지도 화면)이 OntoStepRule 을 넣는다 -->
-      <slot name="step" />
 
       <!-- 근거: 이 일로 읽힌 메일 · 대화 하나하나 -->
       <OntoEvidence :task-key="taskKey" />

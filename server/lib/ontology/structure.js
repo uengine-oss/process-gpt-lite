@@ -17,6 +17,11 @@ export function clsOf(name) {
 }
 export const startEvent = (kind) => (kind === 'mail' ? { key: 'mail', kind: 'mail', cls: '', name: '요청 메일 도착' } : { key: 'message', kind: 'message', cls: '', name: '채팅 요청' })
 export const artifactEvent = (task, cls) => ({ key: `artifact:${task || '*'}:${cls}`, kind: 'artifact', cls, name: task ? `${task} 결과물(${CLS_KO[cls] || cls})` : `${CLS_KO[cls] || cls} 결과물` })
+// 「앞 단계 완료」(edge-step-condition): a step that raised no result still sets off the next one — so every way into a task has an
+// event → task edge to hold its condition (pro_edge_conditions)
+export const doneEvent = (task) => ({ key: `done:${task}`, kind: 'done', cls: '', name: `${task} 완료` })
+// the task an event comes out of (a result or a 완료), null for a start event (mail · chat · timer)
+export const raiserOf = (key) => { const m = /^(artifact|done):([^:]+)/.exec(String(key || '')); return m && m[2] !== '*' ? m[2] : null }
 const IGNORE_ROLES = new Set(['', '담당자'])
 // people outside the company who still show up in the flow (a customer's review, a partner's schedule)
 const OUTSIDE = /고객|거래처|협력|외부|customer|client|partner/i
@@ -37,14 +42,16 @@ export function structureOf(cases, g, processes, { assigned = new Map() } = {}) 
     caseStart.set(c.id, start.key)
     trig(start.key, first.task, c.id)
     c.steps.forEach((s, i) => {
-      for (const cls of s.arts || []) {
-        const e = ev(artifactEvent(s.task, cls))
+      const nx = c.steps[i + 1]
+      const raise = (e) => {
         e.n++
         const r = bump(raises, `${s.task}\u0000${e.key}`, () => ({ from: s.task, to: e.key, n: 0 }))
         r.n++
-        const nx = c.steps[i + 1]
         if (nx) trig(e.key, nx.task, c.id)
       }
+      for (const cls of s.arts || []) raise(ev(artifactEvent(s.task, cls)))
+      // no result on the way to the next step: 「앞 단계 완료」
+      if (nx && !(s.arts?.size || s.arts?.length)) raise(ev(doneEvent(s.task)))
     })
   }
   const edge = (a, b) => g.edges.get(`${a}\u0000${b}`)
@@ -60,7 +67,7 @@ export function structureOf(cases, g, processes, { assigned = new Map() } = {}) 
       return ab > 0 && ba > 0 && Math.min(ab, ba) >= 0.3 * Math.max(ab, ba)
     })
     // the condition the split learned (the raising task's NEXT edge to this target)
-    const raiser = e.kind === 'artifact' ? t.from.split(':')[1] : null
+    const raiser = raiserOf(t.from)
     const cond = raiser ? edge(raiser, t.to)?.cond || '' : ''
     return { from: t.from, to: t.to, n: t.n, p: t.n / e.n, split: outs.length > 1 ? (and ? 'and' : 'xor') : '', cond, source: 'mined', scope: 'company', people: 0 }
   })
