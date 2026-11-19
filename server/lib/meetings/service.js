@@ -558,6 +558,25 @@ export async function searchMaterials(me, id, text) {
   const { m } = await forMember(me, id)
   return inMeeting(m, async () => ({ results: await MAT.search(text, { roomId: m.room_id, speaker: me }) }))
 }
+// 자료 띄우기 › 내 컴퓨터에서: the file becomes my own file card (my home thread, like a chat attachment)
+// and goes on the panel as my file — 모두에게 띄우기 then shares it with the room the usual way (grantForRoom)
+export async function uploadMaterial(me, id, rawName, type, buf) {
+  const { m } = await forMember(me, id)
+  if (m.state !== 'live') throw new TeamError(409, L('이미 끝난 회의예요.', "This meeting has already ended."))
+  if (!(await active(m.id)).some((p) => p.id === me.id)) throw new TeamError(403, L('회의에 참여 중인 분만 자료를 올릴 수 있어요.', "Only people in the meeting can add material."))
+  if (!Buffer.isBuffer(buf) || !buf.length) throw new TeamError(400, L('빈 파일이에요.', 'The file is empty.'))
+  const { saveAttachment } = await import('../attachments.js')
+  const { mainThread, addMessage } = await import('../store.js')
+  return inMeeting(m, async () => {
+    const f = await saveAttachment(me, rawName, type, buf)
+    const t = await mainThread(me.id)
+    const card = await addMessage(me.id, t.id, 'user', 'file', { name: f.name, url: f.url, ...(f.path ? { path: f.path } : {}), attached: true, meeting: m.id })
+    const cand = { kind: 'file', id: card.id, title: f.name, ref: { sourceId: card.id, ownerId: me.id } }
+    const mat = await putMaterial(m, { ...cand, key: `file:${card.id}` }, me, { reason: L(`${me.name}님이 내 컴퓨터에서 올렸어요`, `${me.name} uploaded it from their computer`), byAgent: false })
+    return { material: await MAT.view(me, mat) }
+  })
+}
+
 export async function pickMaterial(me, id, key) {
   const { m } = await forMember(me, id)
   if (m.state !== 'live') throw new TeamError(409, L('이미 끝난 회의예요.', "This meeting has already ended."))
@@ -667,6 +686,12 @@ export async function present(me, id, mid) {
   return inMeeting(m, () => presentIn(me, m, mat, live))
 }
 async function presentIn(me, m, mat, live) {
+  // a folder document someone in the room cannot open: shown as the presenter's copy (materials.folderToFile)
+  if (mat.kind === 'folder' && mat.ref?.path) {
+    let lacking = false
+    for (const p of await M.membersOf(m.room_id)) if (p.id !== me.id && !(await MAT.canSee(p, mat))) { lacking = true; break }
+    if (lacking) mat = await MAT.folderToFile(me, mat)
+  }
   let ref = mat.ref
   if (mat.kind === 'file' && ref?.ownerId === me.id) {
     const g = await MAT.grantForRoom(me, mat, await M.membersOf(m.room_id), { roomId: m.room_id, chatUuid: mat.chat_uuid, note: `${L('회의 자료', 'Meeting material')} · ${mat.title}` })
@@ -676,7 +701,10 @@ async function presentIn(me, m, mat, live) {
   presenting.set(m.id, { materialId: mat.id, by: me.id, byName: me.name, at: Date.now() })
   for (const p of live) {
     const ok = await MAT.canSee(p, upd)
-    emit(p.id, 'meeting', { meetingId: m.id, type: 'present', by: me.name, byId: me.id, material: ok ? await MAT.view(p, upd) : null, hidden: !ok })
+    const view = ok ? await MAT.view(p, upd) : null
+    // the panel entry too: now visible to those it was just shared with (or a folder document turned copy)
+    if (ok) emit(p.id, 'meeting', { meetingId: m.id, type: 'material', material: view, quiet: true })
+    emit(p.id, 'meeting', { meetingId: m.id, type: 'present', by: me.name, byId: me.id, material: view, hidden: !ok })
   }
   await R.materialCard(m, upd, { presentedBy: me.name, quiet: quietOf(live) })
   return { ok: true }

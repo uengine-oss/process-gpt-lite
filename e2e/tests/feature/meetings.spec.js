@@ -182,12 +182,50 @@ test.describe('대화방 원격 회의 (spec pgpt-pro-meetings)', () => {
       expect(said.for).toBe(a.id)
     }
 
-    // 「모두에게 띄우기」 from 자료 찾기: on the panel, presented by a (b sees that it is hidden from b)
+    // 「모두에게 띄우기」 from 자료 찾기: b is not in the folder, so it is shown as a's copy and b opens its own copy
+    // (2026-11-19 recording: b saw 「볼 권한이 없어요」 before)
     const picked = await a.post(`/meetings/${id}/materials/pick`, { key: found[0].key })
     expect(picked.status, picked.text).toBe(200)
     expect(picked.body.material).toMatchObject({ kind: 'folder', folder: { file: true, slug: f.body.slug } })
-    expect((await a.post(`/meetings/${id}/materials/${picked.body.material.id}/present`)).status).toBe(200)
-    expect((await b.post(`/meetings/${id}/materials/${picked.body.material.id}/open`)).status).toBe(404)
+    const pmid = picked.body.material.id
+    expect((await b.post(`/meetings/${id}/materials/${pmid}/open`)).status).toBe(404)
+    expect((await a.post(`/meetings/${id}/materials/${pmid}/present`)).status).toBe(200)
+    const asB = (await b.get(`/meetings/${id}`)).body
+    expect(asB.presenting?.material || asB.materials.find((x) => x.id === pmid)).toMatchObject({ kind: 'file', title: 'SAP_ERP_소개서.pdf' })
+    const bOpen = await b.post(`/meetings/${id}/materials/${pmid}/open`)
+    expect(bOpen.status, bOpen.text).toBe(200)
+    expect(bOpen.body.message.content).toMatchObject({ name: 'SAP_ERP_소개서.pdf', shared: expect.anything() })
+    // a still opens a's own card (made from the folder document)
+    expect((await a.post(`/meetings/${id}/materials/${pmid}/open`)).body.message.content).toMatchObject({ name: 'SAP_ERP_소개서.pdf', from: { path: 'SAP_ERP_소개서.pdf' } })
+    for (const x of [a, b]) await x.post(`/meetings/${id}/leave`)
+  })
+
+  test('F-MT-08 자료 띄우기 › 내 컴퓨터에서: 올린 파일이 내 파일로 자료에 오르고, 모두에게 띄우면 상대는 자기 사본으로 연다', async ({ as, db, cleanup }) => {
+    const a = await member(await as('mt-owner')), b = await member(await as('mt-mate')), o = await member(await as('mt-outsider'))
+    const g = await room(a, [b], db, cleanup)
+    const id = (await a.post(`/meetings/room/${g.id}/start`, { consent: true })).body.id
+    expect((await b.post(`/meetings/${id}/join`, { consent: true })).status).toBe(200)
+    const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n')
+    const up = (c, name) => api.call(c.token(), 'POST', `/meetings/${id}/materials/upload`, PDF, { headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(name), 'X-File-Type': 'application/pdf' } })
+    // only people in the meeting
+    expect((await up(o, '밖.pdf')).status).toBe(404)
+    const r = await up(a, '회귀_도입_제안서.pdf')
+    expect(r.status, r.text).toBe(200)
+    expect(r.body.material).toMatchObject({ kind: 'file', title: '회귀_도입_제안서.pdf', byAgent: false, file: { own: true } })
+    expect(JSON.stringify(r.body)).not.toMatch(/storage\/v1\/object/)
+    // a's own file card (a chat attachment in a's thread)
+    const [card] = await db.q(`select m.content from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$1 and m.kind='file' and m.content->>'meeting'=$2`, [a.id, id])
+    expect(card.content).toMatchObject({ name: '회귀_도입_제안서.pdf', attached: true })
+    // a's own file until a shows it: b neither sees nor opens it; after 모두에게 띄우기 b has it and opens a copy
+    const mid = r.body.material.id
+    expect((await b.get(`/meetings/${id}`)).body.materials.map((m) => m.id)).not.toContain(mid)
+    expect((await b.post(`/meetings/${id}/materials/${mid}/open`)).status).toBe(404)
+    expect((await a.post(`/meetings/${id}/materials/${mid}/present`)).status).toBe(200)
+    await expect.poll(async () => (await b.get(`/meetings/${id}`)).body.materials.map((m) => m.id), { timeout: 8000 }).toContain(mid)
+    const opened = await b.post(`/meetings/${id}/materials/${mid}/open`)
+    expect(opened.status, opened.text).toBe(200)
+    expect(opened.body.message.content.shared).toBeTruthy()
+    expect(opened.body.message.content.name).toBe('회귀_도입_제안서.pdf')
     for (const x of [a, b]) await x.post(`/meetings/${id}/leave`)
   })
 

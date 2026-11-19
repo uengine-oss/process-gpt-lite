@@ -22,7 +22,9 @@ const UUID = /^[0-9a-f-]{36}$/i
 // ---- matching an utterance against candidate names (no model) ----
 const STOP = new Set(['xlsx', 'xls', 'dxf', 'hwpx', 'hwp', 'docx', 'pdf', 'svg', 'png', '파일', '최종', '초안', 'v1', 'v2', 'v3', '신청', '프로세스'])
 const SYN = { 평면도: ['도면', '평면'], 견적서: ['견적'], 안내문: ['안내'], 정산: ['정산서'], 휴가: ['연차', '휴가'], 출장비: ['출장'], 제안서: ['제안'] }
-export const nameTokens = (name) => String(name || '').replace(/\.[a-z0-9]{2,5}$/i, '').split(/[\s_\-·.,()[\]/]+/).filter((t) => t.length >= 2 && !STOP.has(t.toLowerCase()))
+// a Latin word and the Korean particle after it are two words ("SAP Cloud ERP에 대한 …" → ERP · 에)
+export const nameTokens = (name) => String(name || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/([A-Za-z0-9])([가-힣])/g, '$1 $2').replace(/([가-힣])([A-Za-z])/g, '$1 $2')
+  .split(/[\s_\-·.,()[\]/]+/).filter((t) => t.length >= 2 && !STOP.has(t.toLowerCase()))
 const EXT_CUE = [[/견적|정산표|예산/, /\.(xlsx|xls|csv)$/i], [/평면도|도면|설계도/, /\.(dxf|dwg)$/i], [/안내문|공문|제안서|보고서/, /\.(hwpx|hwp|docx)$/i]]
 // English meetings: names and speech are compared without case ("the Quote" → "Moonlight Coffee quote.xlsx"),
 // with English filler words and synonyms
@@ -183,6 +185,29 @@ export async function search(text, ctx, limit = 12) {
   }
   return out.map(pickView)
 }
+// 모두에게 띄우기 of a shared folder's document when someone in the room is not in that folder (2026-11-19
+// recording: the other person saw 「볼 권한이 없어요」): the presenter's own copy of it — a file card in their
+// home thread, like a chat attachment — so the room gets it the way any file of theirs is shown (grantForRoom
+// shares a copy each). The material row becomes that file; where it came from stays in ref.folder.
+const DOC_TYPE = { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  hwpx: 'application/hwp+zip', hwp: 'application/x-hwp', csv: 'text/csv', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' }
+export async function folderToFile(user, mat) {
+  const r = mat.ref || {}
+  const { folder } = await F.access(r.slug, user)
+  const buf = await F.readBlob(folder, 'main', r.path)
+  const { saveAttachment } = await import('../attachments.js')
+  const { mainThread, addMessage } = await import('../store.js')
+  const name = baseOf(r.path)
+  const f = await saveAttachment(user, name, DOC_TYPE[name.split('.').pop().toLowerCase()] || 'application/octet-stream', buf)
+  const t = await mainThread(user.id)
+  const card = await addMessage(user.id, t.id, 'user', 'file', { name: f.name, url: f.url, ...(f.path ? { path: f.path } : {}), attached: true,
+    meeting: mat.meeting_id, from: { folder: folder.name, path: r.path } })
+  const [upd] = await q(`update pro_meeting_materials set kind='file', ref=$2 where id=$1 returning *`,
+    [mat.id, { sourceId: card.id, ownerId: user.id, folder: { folderId: r.folderId, slug: r.slug, path: r.path } }])
+  return upd
+}
+
 // a key the person picked, checked again against their own access (never a ref from the page)
 export async function resolve(key, ctx) {
   const k = String(key || '')

@@ -49,6 +49,10 @@ export function meetingRoutes(auth) {
   // 자료 찾기: look for material myself (what I may see), and put the one I picked on the panel
   r.get('/meetings/:id/materials/search', auth, h((req) => S.searchMaterials(req.user, id(req), String(req.query.q || ''))))
   r.post('/meetings/:id/materials/pick', auth, h((req) => S.pickMaterial(req.user, id(req), String(req.body?.key || ''))))
+  // 자료 띄우기 › 내 컴퓨터에서 (raw body sent as octet-stream so no body parser takes it; the name in
+  // X-File-Name and the file's own type in X-File-Type)
+  r.post('/meetings/:id/materials/upload', express.raw({ type: () => true, limit: '50mb' }), auth, h((req) => S.uploadMaterial(req.user, id(req),
+    decodeURIComponent(String(req.headers['x-file-name'] || 'file')), String(req.headers['x-file-type'] || ''), req.body)))
   // materials: open (my card or my copy), present to everyone, take it down
   r.post('/meetings/:id/materials/:mid/open', auth, h((req) => S.openMaterial(req.user, id(req), req.params.mid)))
   r.post('/meetings/:id/materials/:mid/present', auth, h((req) => S.present(req.user, id(req), req.params.mid)))

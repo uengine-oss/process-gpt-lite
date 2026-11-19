@@ -8,7 +8,7 @@ import { useRouter } from 'vue-router'
 import { useMeetings } from '../../stores/meetings.js'
 import { useApp } from '../../stores/app.js'
 import { useTeam } from '../../stores/team.js'
-import { openArtifact, kindOf, kindLabel } from '../../artifacts.js'
+import { openArtifact } from '../../artifacts.js'
 import { officeEditorFor, CRAFT_APPS } from '../../officeEditor.js'
 
 import { api } from '../../api.js'
@@ -16,6 +16,7 @@ import VideoTile from './VideoTile.vue'
 import { MAIN_LANGS, langLabel } from '../../i18n/mainLangs.js'
 import MaterialBody from './MaterialBody.vue'
 import FolderDocStage from './FolderDocStage.vue'
+import MaterialPicker from './MaterialPicker.vue'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
 import CraftEditorFrame from '../CraftEditorFrame.vue'
 
@@ -80,21 +81,11 @@ async function saved(msg, { url, name }) {
 }
 const back = () => { mt.mini = false; app.officeDoc = null }
 
-// ---- 자료 찾기: find material myself (when speech did not work, or to be sure) ----
-const findQ = ref('')
-const found = ref(null)     // null: not searched yet · [] : nothing
-const finding = ref(false)
-let findSeq = 0
-async function find() {
-  const seq = ++findSeq
-  finding.value = true
-  try { const r = await mt.searchMaterials(findQ.value.trim()); if (seq === findSeq) found.value = r } catch (e) { mt.error = e.message } finally { if (seq === findSeq) finding.value = false }
-}
-const onFindKey = (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); find() } }
-const pick = (x, then) => run(`k${then}${x.key}`, async () => { await mt.pickMaterial(x.key, then); found.value = null; findQ.value = '' })
+// ---- 자료 찾기 (자료 tab) and 자료 띄우기 (the bottom bar's sheet, like 화면 공유): MaterialPicker ----
+const finder = ref(null)
+const picking = ref(false)
 // the list of what was found opens with the room's files when the tab is first opened
-watch(() => mt.tab, (t) => { if (t === 'materials' && found.value === null && !mt.materials.length) find() })
-const KEXT = (t) => String(t || '').split('.').pop().toUpperCase().slice(0, 4)
+watch(() => mt.tab, (t) => { if (t === 'materials' && !mt.materials.length) nextTick(() => finder.value?.find()) })
 onMounted(() => mt.boot())
 
 // ---- languages (통역) ----
@@ -237,25 +228,8 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
           </div>
           <div v-else class="mats scroll" data-test="materials">
             <!-- 자료 찾기: the same materials the helper looks in, found by me (name, document card or text) -->
-            <div class="find" data-test="find">
-              <div class="frow">
-                <input v-model="findQ" placeholder="자료 찾기 · 파일 이름이나 내용 (예: ERP PDF)" data-test="find-input" @keydown="onFindKey">
-                <button class="main press" :disabled="finding" data-test="find-go" @click="find">{{ finding ? '찾는 중…' : '찾기' }}</button>
-              </div>
-              <template v-if="found">
-                <p v-if="!found.length" class="fnone">내가 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 다른 검색어로 찾아보세요.</p>
-                <div v-for="x in found" :key="x.key" class="fhit" data-test="find-hit">
-                  <span class="fx" :class="x.kind === 'file' || x.folderFile ? kindOf(x.title) : x.kind">{{ x.kind === 'file' || x.folderFile ? kindLabel[kindOf(x.title)] || KEXT(x.title) : KIND[x.kind] }}</span>
-                  <span class="ft"><b>{{ x.title }}</b><small>{{ x.where }}</small></span>
-                  <div class="fb">
-                    <button class="press" :disabled="busy === `kopen${x.key}`" data-test="find-open" @click="pick(x, 'open')">보기</button>
-                    <button class="main press" :disabled="busy === `kpresent${x.key}`" data-test="find-present" @click="pick(x, 'present')">모두에게 띄우기</button>
-                  </div>
-                </div>
-                <button v-if="found.length" class="fclose press" @click="found = null">닫기</button>
-              </template>
-            </div>
-            <p v-if="!mt.materials.length && !found" class="empty">회의 중에 "지난번 견적서 다시 보자"처럼 말하면 도우미가 자료를 찾아 여기에 띄워요. 말로 자료를 찾지 못하면 위 칸에서 직접 찾아 띄울 수 있어요.</p>
+            <MaterialPicker ref="finder" />
+            <p v-if="!mt.materials.length" class="empty">회의 중에 "지난번 견적서 다시 보자"처럼 말하면 도우미가 자료를 찾아 여기에 띄워요. 말로 자료를 찾지 못하면 위 칸에서 직접 찾아 띄울 수 있어요.</p>
             <article v-for="x in [...mt.materials].reverse()" :key="x.id" class="mat" :class="{ flash: mt.flash === x.id, on: shown?.material?.id === x.id }" :data-kind="x.kind" data-test="material">
               <p class="mk">{{ KIND[x.kind] }}<template v-if="x.presentedBy"> · 띄웠어요</template></p>
               <MaterialBody :m="x" @open-share="openShare" />
@@ -273,11 +247,19 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
         </aside>
       </div>
 
+      <!-- 자료 띄우기: pick a file myself (my materials or my computer) and show it, like 화면 공유 -->
+      <div v-if="picking" class="pickveil" @click.self="picking = false">
+        <section class="picksheet" role="dialog" aria-label="자료 띄우기" data-test="pick-sheet">
+          <header class="pkh"><b>자료 띄우기</b><small>내가 볼 수 있는 자료나 내 컴퓨터에 있는 파일을 골라 회의에 띄워요</small><button class="pkx press" aria-label="닫기" @click="picking = false">✕</button></header>
+          <MaterialPicker sheet @close="picking = false" />
+        </section>
+      </div>
       <footer class="bar">
         <!-- phone: icon over a short name, every button on one row (2026-11-18: the long names broke one letter per line) -->
         <button class="ctl press" :class="{ off: !mt.mic }" data-test="mic" @click="mt.toggle('mic')"><span class="ic">{{ mt.mic ? '🎙' : '🔇' }}</span><span class="lb">{{ mt.mic ? '마이크' : '음소거' }}</span></button>
         <button class="ctl press" :class="{ off: !mt.cam }" @click="mt.toggle('cam')"><span class="ic">📷</span><span class="lb">{{ mt.cam ? '카메라' : '꺼짐' }}</span></button>
         <button class="ctl press" :class="{ on: mt.screen }" @click="mt.toggleScreen()"><span class="ic">🖥</span><span class="lb">{{ mt.screen ? '공유 중지' : '화면 공유' }}</span><span class="lbs">{{ mt.screen ? '중지' : '화면' }}</span></button>
+        <button class="ctl press" :class="{ on: picking }" data-test="pick-material" @click="picking = !picking"><span class="ic">📎</span><span class="lb">자료 띄우기</span><span class="lbs">자료</span></button>
         <button v-if="m.agent" class="ctl press" :class="{ on: m.me.consent }" data-test="consent-toggle" @click="mt.setConsent(!m.me.consent)"><span class="ic">{{ m.me.consent ? '✓' : '○' }}</span><span class="lb">{{ m.me.consent ? '기록 동의' : '기록 동의 안 함' }}</span><span class="lbs">{{ m.me.consent ? '기록' : '기록 안 함' }}</span></button>
         <button v-if="interp?.on && interp?.voice" class="ctl press" :class="{ on: mt.listen === 'interp' }" data-test="listen-toggle" @click="mt.setListen(mt.listen === 'interp' ? 'original' : 'interp')"><span class="ic">{{ mt.listen === 'interp' ? '🎧' : '🔊' }}</span><span class="lb">{{ mt.listen === 'interp' ? '통역 듣는 중' : '원래 소리 듣는 중' }}</span><span class="lbs">{{ mt.listen === 'interp' ? '통역' : '원음' }}</span></button>
         <span class="sp" />
@@ -350,22 +332,12 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
 .say.long { white-space: normal; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; line-height: 1.45; font-size: 13.5px; color: #fff; }
 .ln.agent { background: #f6f3ff; border-radius: 10px; border-bottom-color: transparent; margin: 3px 0; padding: 7px 8px; }
 .ln.agent .sp { color: #7a5af5; }
-.find { margin: 2px 0 10px; }
-.frow { display: flex; gap: 6px; }
-.frow input { flex: 1; min-width: 0; height: 36px; border-radius: 18px; border: 1px solid #dfe1e5; padding: 0 14px; font-size: 14px; }
-.frow button { height: 36px; padding: 0 14px; border-radius: 18px; font-size: 13.5px; background: #7a5af5; color: #fff; }
-.fnone { font-size: 12.5px; color: #8a8f98; margin: 8px 4px; line-height: 1.45; }
-.fhit { display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'x t' 'b b'; gap: 6px 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid #f0f1f3; }
-.fhit .fx { grid-area: x; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: #fff; background: #6b6b66; }
-.fhit .fx.hwp { background: #1f6fd1; } .fhit .fx.doc { background: #2b579a; } .fhit .fx.xls { background: #217346; } .fhit .fx.ppt { background: #c43e1c; } .fhit .fx.pdf { background: #d93025; } .fhit .fx.img { background: #7b3fbf; }
-.fhit .fx.process, .fhit .fx.panel, .fhit .fx.folder { background: #7a5af5; font-size: 9px; }
-.fhit .ft { grid-area: t; display: flex; flex-direction: column; min-width: 0; font-size: 13.5px; }
-.fhit .ft b { font-weight: 500; word-break: break-all; }
-.fhit .ft small { font-size: 11.5px; color: #8a8f98; }
-.fhit .fb { grid-area: b; display: flex; gap: 6px; padding-left: 44px; }
-.fhit .fb button { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12.5px; background: #e9ebef; }
-.fhit .fb button.main { background: #7a5af5; color: #fff; }
-.fclose { margin-top: 6px; font-size: 12.5px; color: #6b6f76; }
+.pickveil { position: absolute; inset: 0; z-index: 30; background: rgba(10, 10, 16, .45); display: flex; align-items: flex-end; justify-content: center; padding: 16px 16px 84px; }
+.picksheet { width: min(560px, 100%); max-height: calc(100% - 20px); overflow: auto; background: #fff; color: #1d1d1f; border-radius: 18px; padding: 14px 16px 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, .35); animation: pop-in .25s var(--spring); }
+.pkh { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin-bottom: 10px; }
+.pkh b { font-size: 16px; }
+.pkh small { grid-row: 2; font-size: 12.5px; color: #6b6f76; }
+.pkx { grid-row: 1 / 3; grid-column: 2; width: 32px; height: 32px; border-radius: 16px; background: #f0f1f3; color: #3c3c43; }
 .orb { display: flex; gap: 6px; height: 36px; align-items: center; }
 .orb span { width: 10px; height: 22px; border-radius: 5px; background: #a996ff; animation: wave 1.2s ease-in-out infinite; }
 .orb span:nth-child(2) { animation-delay: .2s; } .orb span:nth-child(3) { animation-delay: .4s; }

@@ -1,5 +1,14 @@
 {
  "exact": {
+  "자료 띄우기": "Show material",
+  "내가 볼 수 있는 자료나 내 컴퓨터에 있는 파일을 골라 회의에 띄워요": "Pick something you can see, or a file on your computer, and show it in the meeting",
+  "내 컴퓨터에서 파일 고르기": "Choose a file on my computer",
+  "고른 파일을 바로 모두에게 띄워요 · 끌어다 놓아도 돼요": "Shown to everyone right away · you can drag it here too",
+  "나만 보기": "Just for me",
+  "띄우는 중…": "Showing…",
+  "새 버전이 나왔어요. 새로 고침하면 바로 적용돼요.": "A new version is out. Reload to use it.",
+  "새로 고침": "Reload",
+  "50MB보다 큰 파일은 올릴 수 없어요.": "Files over 50 MB can't be uploaded.",
   "자료 찾기 · 파일 이름이나 내용 (예: ERP PDF)": "Find material · file name or content (e.g. ERP PDF)",
   "찾기": "Find",
   "내가 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 다른 검색어로 찾아보세요.": "Nothing found in the room's files, shared folders or work in progress you can see. Try other words.",

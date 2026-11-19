@@ -23,6 +23,9 @@ test('받아쓴 영어 낱말: 셉 → SAP, 피디에프 → PDF 를 이름과 �
   assert.equal(MAT.score(SAID, '회의록.docx'), 0)
   // 대소문자는 가리지 않는다("erp 자료")
   assert.ok(MAT.score('erp 자료 보여 줘', 'SAP_ERP_소개서.pdf') > 0)
+  // 영어 낱말 뒤에 붙은 조사는 떼어 본다(운영 파일 이름 「SAP Cloud ERP에 대한 5가지 오해와 진실_261008.pdf」)
+  assert.deepEqual(MAT.nameTokens('SAP Cloud ERP에 대한 5가지 오해와 진실_261008.pdf'), ['SAP', 'Cloud', 'ERP', '대한', '가지', '오해와', '진실', '261008'])
+  assert.ok(MAT.score(SAID, 'SAP Cloud ERP에 대한 5가지 오해와 진실_261008.pdf') > MAT.score(SAID, 'SAP Cloud 소개.pptx'))
 }))
 
 test('문서 카드 키워드로도 찾는다(이름보다 조금 낮게)', () => ko(() => {

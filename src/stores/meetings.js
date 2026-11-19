@@ -293,6 +293,20 @@ export const useMeetings = defineStore('meetings', {
     async searchMaterials(text) {
       return (await api(`/meetings/${this.m.id}/materials/search?q=${encodeURIComponent(text || '')}`)).results || []
     },
+    // 자료 띄우기 › 내 컴퓨터에서: my file goes on the panel as my own file, then opens for me or for everyone
+    async uploadMaterial(file, then = 'present') {
+      const go = async () => fetch(`${BASE}/api/meetings/${this.m.id}/materials/upload`, { method: 'POST', body: file,
+        headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), 'X-File-Type': file.type || '', Authorization: `Bearer ${await freshToken()}` } })
+      let r = await go()
+      if (r.status === 401 && await refreshToken().catch(() => null)) r = await go()
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(r.status === 413 ? '50MB보다 큰 파일은 올릴 수 없어요.' : j.error || '올리지 못했어요.')
+      const i = this.m.materials.findIndex((x) => x.id === j.material.id)
+      if (i >= 0) this.m.materials[i] = j.material; else this.m.materials.push(j.material)
+      if (then === 'present') await this.present(j.material)
+      else await this.openMine(j.material)
+      return j.material
+    },
     // the one I picked goes on the panel (everyone who may see it gets it), then opens for me or for everyone
     async pickMaterial(key, then = 'open') {
       const { material } = await api(`/meetings/${this.m.id}/materials/pick`, { method: 'POST', body: { key } })
@@ -353,6 +367,8 @@ export const useMeetings = defineStore('meetings', {
       } else if (d.type === 'material') {
         const i = m.materials.findIndex((x) => x.id === d.material.id)
         if (i >= 0) m.materials[i] = d.material; else m.materials.push(d.material)
+        // an entry brought up to date as it is shown to everyone: no announcement of its own
+        if (d.quiet) return
         this.agentSay = d.material.byAgent === false ? `자료를 올렸어요 · ${d.material.title}` : `자료를 찾았어요 · ${d.material.title}`
         this.flash = d.material.id
         // "…열어볼래?": opened at once for the one who asked (only for me; others see it on the panel)
