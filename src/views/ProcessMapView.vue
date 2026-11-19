@@ -327,6 +327,15 @@ const editContext = computed(() => (resolveCtx.value ? `엇갈린 의견 ${resol
 // the past map is for looking only
 const boxOn = computed(() => phase.value === 'map' && !at.value)
 const toWays = (ids) => ids.map((id) => { const [from, to] = String(id).split('\u0000'); return { from, to } })
+// 프로세스 칩 줄: a mouse wheel turns up and down only — rolled over the chips it moves them sideways (a trackpad's sideways swipe is left alone)
+function chipsWheel(e) {
+  const el = e.currentTarget
+  if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
+  const max = el.scrollWidth - el.clientWidth
+  if ((e.deltaY < 0 && el.scrollLeft <= 0) || (e.deltaY > 0 && el.scrollLeft >= max - 1)) return
+  e.preventDefault()
+  el.scrollLeft += e.deltaY
+}
 function startNew() { closeSide(); sel.value = null; procKey.value = ''; newMode.value = true; clearChosen(); boxEl.value?.focus() }
 async function askPlan(body) {
   editBusy.value = 'plan'; editErr.value = ''
@@ -683,7 +692,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="phase === 'map'" class="bar">
-        <div class="chips scroll">
+        <div class="chips scroll" @wheel="chipsWheel">
           <button class="bchip newp press" :class="{ on: newMode }" title="말로 새 프로세스를 그려요" data-testid="onto-new-proc" @click="startNew">＋ 새 프로세스</button>
           <button class="bchip press" :class="{ on: !procKey && !newMode }" @click="pickProc('')">전체 <small>건 {{ n(allCases) }}</small></button>
           <button v-if="proc && isSimple(proc)" class="bchip press on" data-testid="onto-simple-picked" @click="simpleOpen = !simpleOpen">

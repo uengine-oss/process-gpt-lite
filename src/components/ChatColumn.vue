@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
 import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
@@ -39,22 +39,43 @@ function toPending() {
 }
 
 let stick = !props.keepTop
+// kept at the bottom until the person scrolls up: the list growing under it (it moves the bottom away, not the scroll) does not let go
+let lastTop = 0
 function onScroll() {
   const el = scroller.value
-  stick = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) stick = true
+  else if (el.scrollTop < lastTop - 2) stick = false
+  lastTop = el.scrollTop
 }
 // A draft bubble turning into its message shrinks and regrows the list in the middle of a smooth scroll, which then stops
 // short of the bottom: once it has run, finish it.
 let settle
+let smoothAt = 0
 async function toBottom(force) {
   await nextTick()
   const el = scroller.value
   if (!el || !(stick || force)) return
+  if (force) stick = true
+  if (!force) smoothAt = Date.now()
   el.scrollTo({ top: el.scrollHeight, behavior: force ? 'instant' : 'smooth' })
   clearTimeout(settle)
   settle = setTimeout(() => { if (stick && el.scrollHeight - el.scrollTop - el.clientHeight > 2) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }) }, 500)
 }
-watch(() => [list.value.length, draft.value], () => toBottom(false))
+// Cards that fill in after they are drawn (a start card, a case, a file) grow the list once the conversation is open: kept at the
+// bottom at once, not chased by a smooth scroll that shakes the screen and stops short — unless a new message is scrolling there now
+const inner = ref(null)
+let grown
+onMounted(() => {
+  grown = new ResizeObserver(() => {
+    const el = scroller.value
+    if (!el || !stick || Date.now() - smoothAt < 600) return
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) el.scrollTop = el.scrollHeight
+  })
+  if (inner.value) grown.observe(inner.value)
+})
+onBeforeUnmount(() => grown?.disconnect())
+// a conversation's messages arriving (none before) go straight to the bottom; a new message after that scrolls there
+watch(() => [list.value.length, draft.value], ([n], old) => toBottom(!props.keepTop && !old?.[0] && n > 0))
 watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 </script>
 
@@ -62,7 +83,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
   <section class="col">
     <EdgeBlur side="top" />
     <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode }" @scroll="onScroll">
-      <div class="inner">
+      <div ref="inner" class="inner">
         <slot name="header" />
         <RoomRuleBar v-if="app.active?.kind === 'project' && app.activeId" :thread="app.activeId" />
         <p v-if="!list.length && emptyText" class="empty serif">{{ emptyText }}</p>
