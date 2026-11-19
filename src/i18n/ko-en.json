@@ -2359,7 +2359,39 @@
   "새 메일이 없어요": "No new mail",
   "메일을 가져오지 못했어요": "Couldn't fetch mail",
   "메일은 뒤에서 계속 가져오고 있어요": "Still fetching mail in the background",
-  "새로고침했어요": "Refreshed"
+  "새로고침했어요": "Refreshed",
+  "클래식 개선 분석": "Classic improvement analysis",
+  "루틴 종류": "Routine kinds",
+  "모두": "All",
+  "클래식": "Classic",
+  "아직 루틴이 없어요. 채팅에서 등록된 프로세스를 시작하거나 프로세스 지도에서 건을 시작하면 여기에 모여요.": "No routines yet. Start a registered process from the chat, or a case on the process map, and it shows up here.",
+  "운영": "Manage",
+  "스냅샷 보기": "Snapshot",
+  "병목 보기": "Bottlenecks",
+  "다듬기": "Refine",
+  "의견 · 해소": "Opinions",
+  "검토 안건": "Review agenda",
+  "AI 후보": "AI candidates",
+  "이 프로세스 지우기": "Delete this process",
+  "지도가 스스로 정한 θ · 반감기 · 띠와 그 근거": "The θ, half-life and bands the map chose itself, and why",
+  "메일 · 인계 글이 어느 일 이름으로 맞춰졌는지": "Which task name each mail or handover note was matched to",
+  "규정 · 업무 정의서를 올려 실제 흐름과 나란히 봐요": "Upload rules or job definitions and see them next to the real flow",
+  "이 일부터 시작하면 엔진이 돌릴 프로세스 정의": "The process definition the engine would run from this task",
+  "지금 쌓인 할 일로 병목 · 회사의 제약 · 흔한 길 — 고쳐 보기 · 개선안도 여기서": "Bottleneck, company constraint and common path from today's open work — what-if and plans live here too",
+  "찾은 순서를 바로잡고 단계를 나눠요": "Correct the found order and split steps",
+  "이 프로세스에 남은 의견을 보고 정해요 — 엇갈린 것 먼저": "See and settle the opinions left on this process — conflicting ones first",
+  "프로세스를 하나 고르면 다듬기 · 의견도 여기 나와요.": "Pick a process to see Refine and Opinions here too.",
+  "말로 만든 프로세스를 지도에서 지워요": "Remove a process made by description from the map",
+  "은퇴 후보 · 굳어진 길처럼 사람이 정할 것": "What people decide, such as retire candidates and settled paths",
+  "역할마다 정의 · 역량 · 맡은 사람과 에이전트 · 지표": "Each role's definition, skills, people and agents, and metrics",
+  "AI 에게 맡길 만한 일과 사람이 해야 할 일": "Work AI can take, and work people must do",
+  "이 프로세스의 단계": "This process's stage",
+  "새 건부터 적용돼요": "Applies to new cases",
+  "관리자가 바꿔요": "An admin changes it",
+  "실행 방식의 엔진": "Execution engine",
+  "회사 전체": "Whole company",
+  "정해 둔 시각(평일 9시 · 매주 월 9시…)에 이 프로세스를 시작해요": "Start this process at a set time (weekdays 9:00, Mondays 9:00…)",
+  "읽어 둔 메일 · 기록으로 지도를 처음부터 다시 셈해요": "Recount the map from scratch with the mail and records already read"
  },
  "patterns": [
   [
@@ -5637,6 +5669,18 @@
   [
    "새 메일 {0}통",
    "New mail: {0}"
+  ],
+  [
+   "진행 중인 루틴 {0}",
+   "Routines in progress {0}"
+  ],
+  [
+   "내 입력이 필요한 루틴 {0}개",
+   "{0} routines need your input"
+  ],
+  [
+   "· {0} 시작",
+   "· started by {0}"
   ]
  ],
  "context": [

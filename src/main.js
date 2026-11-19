@@ -7,6 +7,7 @@ import App from './App.vue'
 import './styles/base.css'
 import { api, auth, adoptHostSession } from './api.js'
 import { registerWorker } from './browserNotify.js'
+import { useApp } from './stores/app.js'
 
 const routes = [
   { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
@@ -54,9 +55,14 @@ router.beforeEach((to) => {
 // 개선 분석은 회사 프로세스 지도로 합쳤어요(pgpt-pro/docs/auto-ax-onboarding/design-improve-on-map.md §7, 결정 4): /improve(목록)는 지도의
 // 병목 보기로, 지도 프로세스의 스냅샷 정의(/improve/:defId)는 그 프로세스의 병목 보기로 넘기고(server routes/improve.js GET /improve/:defId/map),
 // 지도에 없는 정의(손으로 그린 · 생성한 프로세스)는 옛 개선 화면 그대로 — 알림의 /improve/… 주소, 인스턴스 머리글의 링크도 이 규칙을 따른다
+// The classic screen opens only when asked (?classic=1 — the routine list's 「클래식 개선 분석」, 2026-11-19), and stays classic while
+// one moves inside it; a company without the map (no Ontological DB, /api/me ontology false) has only the classic one.
 const IMPROVE = (r) => r.matched.some((m) => m.path === '/improve/:defId?')
 router.beforeEach(async (to, from) => {
   if (!IMPROVE(to)) return
+  if (to.query.classic) return
+  if (IMPROVE(from) && from.query.classic) return { path: to.path, query: { ...to.query, classic: '1' }, hash: to.hash, replace: true }
+  if (useApp().me?.ontology === false) return
   if (!to.params.defId) return { path: '/process-map', query: { view: 'flow' }, replace: true }
   // (the old screen's own tab · version changes stay on the same definition)
   if (IMPROVE(from) && from.params.defId === to.params.defId) return

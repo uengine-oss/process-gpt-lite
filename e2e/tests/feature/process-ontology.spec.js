@@ -123,6 +123,12 @@ test('F-PO-07 일 정의 — SKILL.md 형식을 읽고 쓰기가 되돌아온다
   expect((await taskDefinition('x', {})).runner).toBe('person')
 })
 
+// 머리 단추는 세 칸(보기 · 고치기 · 운영)으로 접혀 있어요: 칸을 열고 항목을 누른다
+const tool = async (page, group, name) => {
+  await page.getByTestId(`onto-group-${group}`).click()
+  await page.getByTestId(`onto-group-${group}-menu`).getByRole('menuitem', { name }).click()
+}
+
 test('F-PO-08 화면 — 지도 · θ · 값 보기 · 검토 안건 · 스냅샷이 오류 없이', async ({ pageAs }) => {
   const page = await pageAs('po-user')
   const r = await page.user.get('/ontology/map')
@@ -131,12 +137,12 @@ test('F-PO-08 화면 — 지도 · θ · 값 보기 · 검토 안건 · 스냅�
   await expect(page.getByRole('heading', { name: '회사 프로세스 지도' })).toBeVisible()
   const nodes = page.locator('svg g.node, svg [data-task]')
   await expect.poll(async () => nodes.count(), { timeout: 15000 }).toBeGreaterThan(2)
-  await page.getByRole('button', { name: '값 보기' }).click()
+  await tool(page, 'view', '값 보기')
   await expect(page.getByText('입도 θ').first()).toBeVisible()
-  await page.getByRole('button', { name: '검토 안건' }).click()
+  await tool(page, 'run', '검토 안건')
   // (the map's edge tooltips also say 은퇴 후보, in hidden <title>s — look in the agenda itself)
   await expect(page.getByTestId('onto-review-item').first()).toContainText(/0건/, { timeout: 15000 })
-  await page.getByRole('button', { name: '스냅샷 보기' }).click()
+  await tool(page, 'view', '스냅샷 보기')
   await expect(page.locator('.djs-container, .bjs-container').first()).toBeVisible({ timeout: 60000 })
   expect(page.errors).toEqual([])
 })
@@ -174,7 +180,8 @@ test('F-PO-11 개인 습관을 지도에 보이는 설정 — 관리자만 바�
   cleanup(() => a.put('/ontology/settings', was))
   expect((await a.put('/ontology/settings', { mode: 'off', min: 3 })).status).toBe(200)
   const off = (await a.get('/ontology/map')).body
-  expect(off.triggers.filter((t) => ['habit', 'told', 'rule'].includes(t.source))).toEqual([])
+  // (a company timer is not a person's habit — it stays on the map whatever the setting)
+  expect(off.triggers.filter((t) => ['habit', 'told', 'rule'].includes(t.source) && t.scope !== 'company')).toEqual([])
   expect(off.processes.filter((p) => p.kind === 'routine')).toEqual([])
   for (const t of m.triggers.filter((x) => x.source === 'habit')) { expect(t.scope).toMatch(/^role:/); expect(typeof t.people).toBe('number') }
   expect(JSON.stringify(m)).not.toMatch(/user_id|followup/)
@@ -238,6 +245,10 @@ test('F-PO-15 화면 — 승격 단계 · 타이머 · 사건 보기', async ({ 
   test.skip(!r.body?.tasks?.length, '셈한 지도가 없다')
   const p = r.body.processes.find((x) => x.kind !== 'routine')
   await page.goto(`/process-map?proc=${encodeURIComponent(p.key)}`)
+  // the 운영 group shows the process's stage on its button, and holds the ladder · the timer
+  const LV = { paused: '관찰', suggested: '제안', adopted: '자동' }
+  await expect(page.getByTestId('onto-group-run-level')).toHaveText(LV[p.status], { timeout: 15000 })
+  await page.getByTestId('onto-group-run').click()
   await expect(page.getByTestId('onto-ladder')).toHaveAttribute('data-status', p.status, { timeout: 15000 })
   await expect(page.getByTestId(`onto-ladder-${p.status}`)).toBeDisabled()
   await page.getByTestId('onto-timer-button').click()
@@ -283,8 +294,11 @@ test('F-PO-17 화면 — 병목 보기: 패널(병목 · 회사의 제약 · 흔
   test.skip(!r.body?.tasks?.length, '셈한 지도가 없다')
   const p = r.body.processes.filter((x) => x.kind !== 'routine' && (x.tasks || []).length > 2).sort((a, b) => (b.cases || 0) - (a.cases || 0))[0]
   await page.goto(`/process-map?proc=${encodeURIComponent(p.key)}`)
+  await page.getByTestId('onto-group-fix').click()
   await page.getByTestId('onto-flow-button').click()
   await expect(page.getByTestId('onto-flow')).toBeVisible({ timeout: 20000 })
+  // the open panel colours its group
+  await expect(page.getByTestId('onto-group-fix')).toHaveClass(/\bon\b/)
   await expect(page.getByTestId('onto-flow-legend')).toBeVisible()
   await expect(page.getByTestId('onto-flow-path')).toBeVisible()
   const f = (await page.user.get(`/ontology/flow?proc=${encodeURIComponent(p.key)}`)).body
@@ -293,6 +307,7 @@ test('F-PO-17 화면 — 병목 보기: 패널(병목 · 회사의 제약 · 흔
     if (f.bottleneck.wip) await expect(page.locator('[data-testid=onto-flow-badge][data-kind=bott]')).toHaveCount(1)
   }
   // 닫으면 지도의 칠 · 꼬리표가 사라진다
+  await page.getByTestId('onto-group-fix').click()
   await page.getByTestId('onto-flow-button').click()
   await expect(page.getByTestId('onto-flow-badge')).toHaveCount(0)
   expect(page.errors).toEqual([])
@@ -319,7 +334,7 @@ const reseedFlow = () => {
   const r = spawnSync(process.execPath, ['scripts/seed-flow-demo.mjs'], { cwd: SERVER_DIR, encoding: 'utf8' })
   if (r.status) console.warn('[seed-flow-demo]', String(r.stderr || '').slice(0, 200))
 }
-test('F-PO-18 화면 — 건 화면에서 내 단계 내기: 김민지가 프로세스 목록에서 건을 열면 자기 단계(평면도 작성)의 양식이 있고, 내면 지도 엔진이 다음 단계(제안서 작성)를 연다', async ({ browser, db, cleanup }) => {
+test('F-PO-18 화면 — 건 화면에서 내 단계 내기: 김민지가 루틴 탭(지도) › 진행 중인 루틴에서 건을 열면 자기 단계(평면도 작성)의 양식이 있고, 내면 지도 엔진이 다음 단계(제안서 작성)를 연다', async ({ browser, db, cleanup }) => {
   test.skip(TENANT !== 'ax-demo', '데모 테넌트(ax-demo)의 시드 자료로 돈다')
   const [{ n }] = await db.q(`select count(*)::int as n from pro_po_cases where tenant_id=$1 and request->>'seed'='flow-demo'`, [TENANT])
   test.skip(n < 20, '시드가 없다(node server/scripts/seed-flow-demo.mjs)')
@@ -335,11 +350,19 @@ test('F-PO-18 화면 — 건 화면에서 내 단계 내기: 김민지가 프로
   const T0 = open.find((t) => listed.has(t.proc_inst_id))
   test.skip(!T0, '김민지의 열린 단계가 없다')
 
-  // 프로젝트 › 프로세스: the case (지도에서 바로 · 입력 필요) opens its case screen on the map; the routine screen links only the map
-  await page.goto('/projects')
-  await expect(page.getByRole('link', { name: '프로세스 지도 →' })).toBeVisible({ timeout: 20000 })
+  // 루틴 tab → the company's process map; its 「진행 중인 루틴」 → the routine list (Lite and classic side by side) → the case
+  // (Lite · 입력 필요) opens its case screen on the map. The classic 개선 분석 is only a link there.
+  await page.goto('/chat')
+  await page.locator('nav.seg button[data-tab=routine]').click()
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe('/process-map')
+  await page.getByTestId('onto-routines-link').click()
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe('/routines')
+  await expect(page.getByTestId('routine-map-link')).toBeVisible({ timeout: 20000 })
   await expect(page.getByRole('link', { name: '개선 분석 →' })).toHaveCount(0)
-  await page.locator(`[data-testid=instance-map-case][data-inst="${T0.proc_inst_id}"]`).click()
+  await expect(page.getByTestId('routine-classic-improve')).toHaveText('클래식 개선 분석')
+  const item = page.locator(`[data-testid=instance-map-case][data-inst="${T0.proc_inst_id}"]`)
+  await expect(item.getByTestId('instance-kind')).toHaveText('Lite')
+  await item.click()
   await expect.poll(() => new URL(page.url()).searchParams.get('case'), { timeout: 15000 }).toBe(T0.case_id)
   expect(new URL(page.url()).pathname).toBe('/process-map')
   const mine = page.locator(`[data-testid=onto-case-step][data-todo="${T0.id}"]`)
@@ -400,5 +423,115 @@ test('F-PO-19 /improve 넘기기 — 목록은 지도의 병목 보기로, 지�
   expect(new URL(page.url()).pathname).toBe(`/improve/${DEF}`)
   await page.getByRole('button', { name: '프로세스 개선' }).click()
   await expect.poll(at(false), { timeout: 15000 }).toBe('/process-map?view=flow')
+  expect(page.errors).toEqual([])
+})
+
+// 루틴 탭(2026-11-19 「루틴 메뉴를 누르면 프로세스 지도가 떠야」 · 「클래식에서 넘어온 손님도 있으니 둘의 인스턴스를 모두」 · 「클래식은 보고자 할 때만」):
+// 루틴 → 회사 프로세스 지도, 「진행 중인 루틴」 → 목록에 Lite 건(지도의 건 화면으로)과 클래식 인스턴스(인스턴스 화면으로)가 함께, 종류 칩으로 거르고,
+// 클래식 개선 분석은 목록의 링크(?classic=1)로만 — 그냥 /improve 는 지도의 병목 보기. 클래식 인스턴스는 시험이 만들고 지운다(정의 없는 행 하나).
+test('F-PO-22 루틴 탭 — 지도가 뜨고, 진행 중인 루틴에 Lite · 클래식 둘 다, 클래식 개선 분석은 물을 때만', async ({ browser, db, cleanup }) => {
+  test.skip(TENANT !== 'ax-demo', '데모 테넌트(ax-demo)의 시드 자료로 돈다')
+  const page = await castPage(browser, 'pro-ax-minji@uengine.org')
+  cleanup(() => page.context().close())
+  const lite = ((await page.user.get('/instances')).body || []).filter((i) => i.case_id && i.status !== 'COMPLETED')
+  test.skip(!lite.length, '김민지의 Lite 건이 없다(node server/scripts/seed-flow-demo.mjs)')
+  const CLASSIC = `rt_po_classic_${RUN}`
+  await db.q(`insert into bpm_proc_inst (proc_inst_id, proc_inst_name, proc_def_id, status, participants, tenant_id, start_date, updated_at)
+              values ($1, $2, $3, 'RUNNING', array[$4::text], $5, now() at time zone 'utc', now())`, [CLASSIC, `회귀 클래식 루틴 ${RUN}`, `rt_po_classic_def_${RUN}`, page.user.id, TENANT])
+  cleanup(() => db.q('delete from bpm_proc_inst where proc_inst_id=$1', [CLASSIC]))
+
+  // 루틴 → the map, with its 「진행 중인 루틴 n」
+  await page.goto('/chat')
+  await page.locator('nav.seg button[data-tab=routine]').click()
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe('/process-map')
+  await expect(page.locator('nav.seg button[data-tab=routine]')).toHaveClass(/\bon\b/)
+  const link = page.getByTestId('onto-routines-link')
+  await expect(link).toContainText('진행 중인 루틴', { timeout: 20000 })
+  await expect(link).toContainText(/진행 중인 루틴 \d+/)
+  await link.click()
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe('/routines')
+
+  // both kinds, told apart; the chips filter
+  const classicItem = page.locator(`[data-testid=instance-item][data-inst="${CLASSIC}"]`)
+  await expect(classicItem).toBeVisible({ timeout: 20000 })
+  await expect(classicItem.getByTestId('instance-kind')).toHaveText('클래식')
+  await expect(page.locator('[data-testid=instance-map-case]').first()).toBeVisible()
+  await expect(page.locator('[data-testid=instance-map-case]').first().getByTestId('instance-kind')).toHaveText('Lite')
+  const kinds = page.getByTestId('routine-kinds')
+  await kinds.locator('[data-kind=classic]').click()
+  await expect(page.locator('[data-testid=instance-map-case]')).toHaveCount(0)
+  await expect(classicItem).toBeVisible()
+  await kinds.locator('[data-kind=lite]').click()
+  await expect(classicItem).toHaveCount(0)
+  await expect(page.locator('[data-testid=instance-map-case]').first()).toBeVisible()
+  await kinds.locator('[data-kind=all]').click()
+  expect(page.errors).toEqual([])
+
+  // a classic one opens its instance page (still under 루틴)
+  await classicItem.click()
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe(`/routines/${CLASSIC}`)
+  await expect(page.locator('nav.seg button[data-tab=routine]')).toHaveClass(/\bon\b/)
+
+  // 개선 분석: plain /improve is the map's 병목 보기; the classic screen only from the list's 「클래식 개선 분석」, and it stays classic
+  await page.goto('/improve')
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe('/process-map')
+  await page.goto('/routines')
+  await page.getByTestId('routine-classic-improve').click()
+  await expect(page.getByRole('heading', { name: '프로세스 개선' })).toBeVisible({ timeout: 15000 })
+  await page.waitForTimeout(800)
+  const u = new URL(page.url())
+  expect(`${u.pathname}?classic=${u.searchParams.get('classic')}`).toBe('/improve?classic=1')
+})
+
+// 머리 단추 세 묶음(2026-11-20): 한 줄에 열세 개이던 단추를 보기 · 고치기 · 운영 세 칸으로 접고, 칸의 항목마다 한 줄 설명.
+// 칸은 다시 누르거나 · Esc · 바깥을 누르면 닫히고, 휴대폰 폭에서도 목록이 화면 안에 들어온다.
+test('F-PO-23 화면 — 머리 단추는 보기 · 고치기 · 운영 세 칸, 항목마다 한 줄 설명, 휴대폰 폭에서도 화면 안에', async ({ pageAs }) => {
+  const page = await pageAs('po-user')
+  const r = await page.user.get('/ontology/map')
+  test.skip(!r.body?.tasks?.length, '셈한 지도가 없다')
+  const p = r.body.processes.filter((x) => x.kind !== 'routine' && (x.tasks || []).length > 2).sort((a, b) => (b.cases || 0) - (a.cases || 0))[0]
+  await page.goto(`/process-map?proc=${encodeURIComponent(p.key)}`)
+  const tools = page.getByTestId('onto-tools')
+  await expect(tools).toBeVisible({ timeout: 20000 })
+  // the row: three groups and 메일 다시 읽기 — no loose panel buttons
+  await expect(tools.locator(':scope > button.hbtn')).toHaveCount(1)
+  await expect(tools.locator(':scope > .tgrp')).toHaveCount(3)
+  const WANT = { view: ['값 보기', '이름 맞춘 기록', '문서', '스냅샷 보기'], fix: ['병목 보기', '다듬기', '의견 · 해소'], run: ['검토 안건', '역할', 'AI 후보'] }
+  for (const [g, names] of Object.entries(WANT)) {
+    await page.getByTestId(`onto-group-${g}`).click()
+    const menu = page.getByTestId(`onto-group-${g}-menu`)
+    await expect(menu).toBeVisible()
+    for (const name of names) {
+      const it = menu.getByRole('menuitem', { name })
+      await expect(it, `${g} · ${name}`).toBeVisible()
+      await expect(it.locator('small'), `${g} · ${name} 설명`).not.toBeEmpty()
+    }
+    // pressing it again closes it
+    await page.getByTestId(`onto-group-${g}`).click()
+    await expect(menu).toHaveCount(0)
+  }
+  // Esc and a press outside close it too
+  await page.getByTestId('onto-group-view').click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('onto-group-view-menu')).toHaveCount(0)
+  await page.getByTestId('onto-group-run').click()
+  await expect(page.getByTestId('onto-ladder')).toHaveAttribute('data-status', p.status)
+  await page.getByRole('heading', { name: '회사 프로세스 지도' }).click()
+  await expect(page.getByTestId('onto-group-run-menu')).toHaveCount(0)
+  // a panel picked from a group colours that group and closes the list
+  await page.getByTestId('onto-group-view').click()
+  await page.getByTestId('onto-group-view-menu').getByRole('menuitem', { name: '값 보기' }).click()
+  await expect(page.getByTestId('onto-group-view-menu')).toHaveCount(0)
+  await expect(page.getByTestId('onto-group-view')).toHaveClass(/\bon\b/)
+  await expect(page.getByText('입도 θ').first()).toBeVisible()
+  // phone width: the row fits, and each list stays inside the screen
+  await page.setViewportSize({ width: 390, height: 844 })
+  for (const g of ['view', 'fix', 'run']) {
+    await page.getByTestId(`onto-group-${g}`).click()
+    const box = await page.getByTestId(`onto-group-${g}-menu`).boundingBox()
+    expect(box.x, g).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width, g).toBeLessThanOrEqual(390)
+    await page.getByTestId(`onto-group-${g}`).click()
+  }
   expect(page.errors).toEqual([])
 })

@@ -236,8 +236,10 @@ app.get('/api/me', auth, async (req, res) => {
   // admin: the team and tenant-wide role controls are editable (TeamRoles); otherwise read-only
   // lang: the saved language (null = never chosen); reqLang: the one this request ran in
   // mainLang: the language I speak and read in (meetings, messages); mainLangSet: whether I chose it
+  // ontology: the company's process map is there (Ontological DB connected) — the 루틴 tab opens it, otherwise the routine list
+  const { ontologyEnabled } = await import('./lib/ontology/store.js')
   res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang,
-    mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null })
+    mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null, ontology: ontologyEnabled() })
 })
 // my main language (Settings › Accounts › Main language, the meeting lobby): what meetings transcribe me
 // in and translate others into for me, and what messages read in; the screens follow it (ko → Korean,

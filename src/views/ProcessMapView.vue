@@ -79,6 +79,9 @@ const labelsLoading = ref(false)
 const labelsErr = ref('')
 
 const meta = computed(() => map.value?.meta || status.value?.meta || null)
+// 「진행 중인 루틴」: every open routine I am part of, Lite's and classic (src/components/RoutineList.vue)
+const openRoutines = computed(() => app.instances.filter((i) => i.status !== 'COMPLETED').length)
+const routinesMine = computed(() => app.instances.filter((i) => i.status !== 'COMPLETED' && i.needs_me).length)
 // 흐름(건이 많은 것부터) 다음에 루틴
 const routineOf = (b) => b?.kind === 'routine'
 // (processes made by words come first among the flows — they have no cases yet, and they are what a person just drew)
@@ -184,7 +187,8 @@ async function loadMap() {
 async function init() {
   await ready
   try { status.value = await call('/ontology/status') } catch (e) { err.value = e.message; phase.value = 'error'; return }
-  if (!status.value.enabled) { phase.value = 'off'; return }
+  // no map in this company (no Ontological DB): the 루틴 tab's list instead — its classic routines and 개선 분석
+  if (!status.value.enabled) { phase.value = 'off'; if (app.me) app.me.ontology = false; router.replace('/routines'); return }
   if (status.value.mail?.status === 'running') return followMail(status.value.mail.id)
   if (status.value.build?.status === 'running') return followJob(status.value.build.id)
   try { await loadMap() } catch (e) { err.value = e.message; phase.value = 'error' }
@@ -588,6 +592,22 @@ const refineOpen = ref(false)
 const menuOpen = ref(false)
 const menuEl = ref(null)
 let menuT = 0
+// 머리 단추 세 묶음(2026-11-20): 보기(지도와 그 근거) · 고치기(흐름을 바로잡고 줄이기) · 운영(사람이 정하는 것과 설정). 한 줄에
+// 열세 개이던 단추를 칸으로 접고, 칸 안의 항목마다 한 줄 설명을 달았어요. 열린 패널이 있는 칸은 칠해지고, 운영 칸은 이 프로세스의 단계를 보여요.
+const toolGroup = ref('')
+const toolsEl = ref(null)
+const flip = (g) => { toolGroup.value = toolGroup.value === g ? '' : g }
+function pick(fn) { toolGroup.value = ''; fn() }
+function toggleCand() { sel.value = null; candOpen.value = !candOpen.value }
+function openRefine() { refineOpen.value = true }
+function toggleTimer() { timerOpen.value = !timerOpen.value }
+const viewOn = computed(() => valuesOpen.value || labelsOpen.value || docsOpen.value || snapOpen.value)
+const fixOn = computed(() => flowOpen.value || refineOpen.value || opinionsOpen.value)
+const runOn = computed(() => reviewOpen.value || rolesOpen.value || candOpen.value || timerOpen.value)
+const ladderKo = computed(() => (proc.value && !isRoutine.value ? LADDER.find((s) => s.key === proc.value.status)?.ko : '') || '')
+function toolsOutside(e) { if (toolGroup.value && !toolsEl.value?.contains(e.target)) toolGroup.value = '' }
+watch(menuOpen, (o) => { if (!o) toolGroup.value = '' })
+watch(procKey, () => { toolGroup.value = '' })
 async function enterFull() {
   full.value = true; menuOpen.value = false
   try { if (document.fullscreenEnabled && !document.fullscreenElement) await document.documentElement.requestFullscreen() } catch { /* the page fills the window instead */ }
@@ -601,6 +621,7 @@ const toggleFull = () => (full.value ? exitFull() : enterFull())
 // the browser left full screen (Esc): leave ours too
 function onFsChange() { if (!document.fullscreenElement) exitFull() }
 function onKey(e) {
+  if (e.key === 'Escape' && toolGroup.value) { toolGroup.value = ''; return }
   const t = e.target
   if (refineOpen.value || e.metaKey || e.ctrlKey || e.altKey || t?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName || '')) return
   if (e.key === 'Escape' && full.value) exitFull()
@@ -620,14 +641,18 @@ function menuOut() {
 onMounted(async () => {
   document.addEventListener('keydown', onKey)
   document.addEventListener('fullscreenchange', onFsChange)
+  document.addEventListener('pointerdown', toolsOutside, true)
   app.mode = 'process-map'
   if (!app.me) app.me = await api('/me').catch(() => null)
   init()
+  // the routines (Lite's cases and the classic ones) behind 「진행 중인 루틴」 in the header
+  app.loadProcesses().catch(() => {})
 })
 onBeforeUnmount(() => {
   alive = false; clearTimeout(timer); clearTimeout(menuT); clearTimeout(pvT)
   document.removeEventListener('keydown', onKey)
   document.removeEventListener('fullscreenchange', onFsChange)
+  document.removeEventListener('pointerdown', toolsOutside, true)
   if (full.value && document.fullscreenElement) document.exitFullscreen().catch(() => {})
 })
 </script>
@@ -637,55 +662,92 @@ onBeforeUnmount(() => {
     <TopBar v-show="!full" />
     <div class="content" :class="{ narrow, sheet: narrow && (sel || valuesOpen || plan || opinionsOpen) }">
       <div v-if="full" class="hot" aria-hidden="true" @mouseenter="menuIn" />
-      <div ref="menuEl" class="menu" :class="{ drawer: full, open: full && menuOpen, glass: full }" data-testid="onto-menu" @mouseenter="menuIn" @mouseleave="menuOut">
+      <div ref="menuEl" class="menu" :class="{ drawer: full, open: full && menuOpen, glass: full, tg: !!toolGroup }" data-testid="onto-menu" @mouseenter="menuIn" @mouseleave="menuOut">
       <div class="head">
         <div class="ttl">
           <h1>회사 프로세스 지도</h1>
+          <!-- the 루틴 tab lands here; its list — Lite's cases and the classic ones — is one step away -->
+          <router-link class="rtn press" to="/routines" data-testid="onto-routines-link">
+            진행 중인 루틴 {{ openRoutines }}<b v-if="routinesMine" class="rmine" :title="`내 입력이 필요한 루틴 ${routinesMine}개`">{{ routinesMine }}</b> ›
+          </router-link>
           <span v-if="phase === 'map'" class="src"><template v-for="(x, i) in sourceParts" :key="i"><i v-if="i"> · </i><span>{{ x }}</span></template></span>
         </div>
         <span class="sp" />
-        <div v-if="phase === 'map'" class="tools">
-          <button class="hbtn glass press" :class="{ on: valuesOpen }" @click="toggleValues">값 보기</button>
-          <button class="hbtn glass press" @click="openLabels">이름 맞춘 기록</button>
-          <button class="hbtn glass press" :class="{ on: reviewOpen }" @click="toggleReview">검토 안건</button>
-          <button class="hbtn glass press" :class="{ on: rolesOpen }" data-testid="onto-roles-button" @click="toggleRoles">역할</button>
-          <button class="hbtn glass press" :class="{ on: docsOpen }" data-testid="onto-docs-button" @click="toggleDocs">문서</button>
-          <button class="hbtn glass press" :class="{ on: candOpen }" data-testid="onto-candidates-button" @click="sel = null; candOpen = !candOpen">AI 후보</button>
-          <button class="hbtn glass press" :class="{ on: flowOpen }" title="지금 쌓인 할 일로 병목 · 회사의 제약 · 흔한 길을 봐요" data-testid="onto-flow-button" @click="toggleFlow">병목 보기</button>
-          <button v-if="proc && !isRoutine" class="hbtn glass press" :class="{ on: snapOpen }" @click="toggleSnap">스냅샷 보기</button>
-          <button v-if="proc && !isRoutine && (!isSimple(proc) || isSaid(proc))" class="hbtn glass press" :class="{ on: refineOpen }" title="찾은 순서를 바로잡고 단계를 나눠요" data-testid="onto-refine-button" @click="refineOpen = true">다듬기</button>
-          <button v-if="proc" class="hbtn glass press" :class="{ on: opinionsOpen }" title="이 프로세스에 남은 의견을 보고 정해요" data-testid="onto-opinions-button" @click="toggleOpinions">
-            의견 · 해소<b v-if="conflictsN" class="hcf" data-testid="onto-opinions-conflicts">{{ conflictsN }}</b>
-          </button>
-          <!-- 말로 만든 프로세스(관리자): 한 번 더 묻고 지운다 -->
-          <template v-if="proc && isSaid(proc) && status?.admin">
-            <button v-if="!delAsk" class="hbtn glass press danger" data-testid="onto-said-delete" @click="delAsk = true">이 프로세스 지우기</button>
-            <span v-else class="ask glass" data-testid="onto-said-confirm">
-              「{{ proc.name }}」{{ eul(proc.name) }} 지울까요?
-              <button class="press yes" :disabled="!!busy" data-testid="onto-said-delete-yes" @click="delSaid">{{ busy === 'said' ? '지우는 중…' : '지우기' }}</button>
-              <button class="press" :disabled="!!busy" data-testid="onto-said-delete-no" @click="delAsk = false">그만두기</button>
-            </span>
-          </template>
-          <!-- 승격 단계(design-v0.3 §12): 관찰 → 제안(요청이 오면 묻고, 단계마다 사람이 정한다) → 자동(저절로 시작, 사람은 지켜본다 ·
-               사람 단계는 초안이 먼저). 실행 방식은 따로 고르지 않아요 — 이 단계가 정해요(새 건부터). -->
-          <div v-if="proc && !isRoutine" class="ladder glass" role="group" aria-label="이 프로세스의 단계" data-testid="onto-ladder" :data-status="proc.status">
-            <button v-for="st in LADDER" :key="st.key" class="press" :class="{ on: proc.status === st.key }" :disabled="!status?.admin || !!busy || proc.status === st.key"
-              :title="st.tip" :data-testid="`onto-ladder-${st.key}`" @click="adopt(st.key)">{{ st.ko }}</button>
+        <div v-if="phase === 'map'" ref="toolsEl" class="tools" data-testid="onto-tools">
+          <!-- 보기: 지도가 스스로 정한 값과, 지도를 만든 근거 -->
+          <div class="tgrp">
+            <button class="hbtn glass press" :class="{ on: viewOn, open: toolGroup === 'view' }" aria-haspopup="menu" :aria-expanded="toolGroup === 'view'" data-testid="onto-group-view" @click="flip('view')">
+              보기 <Icon name="chevron" :size="12" class="dn" />
+            </button>
+            <div v-if="toolGroup === 'view'" class="tpop" role="menu" data-testid="onto-group-view-menu">
+              <button role="menuitem" class="titem press" :class="{ on: valuesOpen }" @click="pick(toggleValues)"><b>값 보기</b><small>지도가 스스로 정한 θ · 반감기 · 띠와 그 근거</small></button>
+              <button role="menuitem" class="titem press" :class="{ on: labelsOpen }" @click="pick(openLabels)"><b>이름 맞춘 기록</b><small>메일 · 인계 글이 어느 일 이름으로 맞춰졌는지</small></button>
+              <button role="menuitem" class="titem press" :class="{ on: docsOpen }" data-testid="onto-docs-button" @click="pick(toggleDocs)"><b>문서</b><small>규정 · 업무 정의서를 올려 실제 흐름과 나란히 봐요</small></button>
+              <button v-if="proc && !isRoutine" role="menuitem" class="titem press" :class="{ on: snapOpen }" @click="pick(toggleSnap)"><b>스냅샷 보기</b><small>이 일부터 시작하면 엔진이 돌릴 프로세스 정의</small></button>
+            </div>
           </div>
-          <!-- 실행 방식의 엔진(관리자, 회사 전체): 프로세스 정의로(기존) · 지도에서 바로 -->
-          <div v-if="status?.admin && engine" class="ladder glass engine" role="group" aria-label="실행 방식의 엔진" data-testid="onto-engine" :data-engine="engine.engine" :data-from="engine.from">
-            <span class="elbl" title="실행 방식의 엔진 — 회사 전체에 적용돼요">엔진</span>
-            <button v-for="m in ENGINES" :key="m.key" class="press" :class="{ on: engine.engine === m.key }" :disabled="!!busy || engine.engine === m.key || !!engine.env"
-              :title="`${m.tip}${engine.env ? ` (서버 설정 PRO_ONTO_ENGINE=${engine.env}이 우선해요)` : engine.from === 'product' ? ' (지금은 제품 기본값을 따라요)' : ''}`" :data-testid="`onto-engine-${m.key}`" @click="setEngine(m.key)">{{ m.ko }}</button>
+          <!-- 고치기: 지금 막힌 곳을 보고, 흐름을 바로잡고, 남은 의견을 정한다 -->
+          <div class="tgrp">
+            <button class="hbtn glass press" :class="{ on: fixOn, open: toolGroup === 'fix' }" aria-haspopup="menu" :aria-expanded="toolGroup === 'fix'" data-testid="onto-group-fix" @click="flip('fix')">
+              고치기<b v-if="conflictsN" class="hcf" :title="`해소 필요 ${conflictsN}`">{{ conflictsN }}</b> <Icon name="chevron" :size="12" class="dn" />
+            </button>
+            <div v-if="toolGroup === 'fix'" class="tpop" role="menu" data-testid="onto-group-fix-menu">
+              <button role="menuitem" class="titem press" :class="{ on: flowOpen }" data-testid="onto-flow-button" @click="pick(toggleFlow)"><b>병목 보기</b><small>지금 쌓인 할 일로 병목 · 회사의 제약 · 흔한 길 — 고쳐 보기 · 개선안도 여기서</small></button>
+              <button v-if="proc && !isRoutine && (!isSimple(proc) || isSaid(proc))" role="menuitem" class="titem press" :class="{ on: refineOpen }" data-testid="onto-refine-button" @click="pick(openRefine)"><b>다듬기</b><small>찾은 순서를 바로잡고 단계를 나눠요</small></button>
+              <button v-if="proc" role="menuitem" class="titem press" :class="{ on: opinionsOpen }" data-testid="onto-opinions-button" @click="pick(toggleOpinions)">
+                <b>의견 · 해소<i v-if="conflictsN" class="hcf" data-testid="onto-opinions-conflicts">{{ conflictsN }}</i></b><small>이 프로세스에 남은 의견을 보고 정해요 — 엇갈린 것 먼저</small>
+              </button>
+              <p v-if="!proc" class="tnote">프로세스를 하나 고르면 다듬기 · 의견도 여기 나와요.</p>
+              <!-- 말로 만든 프로세스(관리자): 한 번 더 묻고 지운다 -->
+              <template v-if="proc && isSaid(proc) && status?.admin">
+                <button v-if="!delAsk" role="menuitem" class="titem press danger" data-testid="onto-said-delete" @click="delAsk = true"><b>이 프로세스 지우기</b><small>말로 만든 프로세스를 지도에서 지워요</small></button>
+                <span v-else class="ask" data-testid="onto-said-confirm">
+                  「{{ proc.name }}」{{ eul(proc.name) }} 지울까요?
+                  <button class="press yes" :disabled="!!busy" data-testid="onto-said-delete-yes" @click="delSaid">{{ busy === 'said' ? '지우는 중…' : '지우기' }}</button>
+                  <button class="press" :disabled="!!busy" data-testid="onto-said-delete-no" @click="delAsk = false">그만두기</button>
+                </span>
+              </template>
+            </div>
           </div>
-          <button v-if="proc && !isRoutine && status?.admin" class="hbtn glass press" :class="{ on: timerOpen }" data-testid="onto-timer-button" @click="timerOpen = !timerOpen">타이머</button>
+          <!-- 운영: 사람이 정할 안건 · 역할 · AI 에게 맡길 일, 그리고 이 프로세스의 단계 · 엔진 · 타이머(관리자) -->
+          <div class="tgrp">
+            <button class="hbtn glass press" :class="{ on: runOn, open: toolGroup === 'run' }" aria-haspopup="menu" :aria-expanded="toolGroup === 'run'" data-testid="onto-group-run" @click="flip('run')">
+              운영<span v-if="ladderKo" class="tlvl" :data-status="proc?.status" title="이 프로세스의 단계" data-testid="onto-group-run-level">{{ ladderKo }}</span> <Icon name="chevron" :size="12" class="dn" />
+            </button>
+            <div v-if="toolGroup === 'run'" class="tpop" role="menu" data-testid="onto-group-run-menu">
+              <button role="menuitem" class="titem press" :class="{ on: reviewOpen }" @click="pick(toggleReview)"><b>검토 안건</b><small>은퇴 후보 · 굳어진 길처럼 사람이 정할 것</small></button>
+              <button role="menuitem" class="titem press" :class="{ on: rolesOpen }" data-testid="onto-roles-button" @click="pick(toggleRoles)"><b>역할</b><small>역할마다 정의 · 역량 · 맡은 사람과 에이전트 · 지표</small></button>
+              <button role="menuitem" class="titem press" :class="{ on: candOpen }" data-testid="onto-candidates-button" @click="pick(toggleCand)"><b>AI 후보</b><small>AI 에게 맡길 만한 일과 사람이 해야 할 일</small></button>
+              <!-- 승격 단계(design-v0.3 §12): 관찰 → 제안(요청이 오면 묻고, 단계마다 사람이 정한다) → 자동(저절로 시작, 사람은 지켜본다 ·
+                   사람 단계는 초안이 먼저). 실행 방식은 따로 고르지 않아요 — 이 단계가 정해요(새 건부터). -->
+              <template v-if="proc && !isRoutine">
+                <div class="tsec">이 프로세스의 단계 <small>{{ status?.admin ? '새 건부터 적용돼요' : '관리자가 바꿔요' }}</small></div>
+                <div class="ladder glass" role="group" aria-label="이 프로세스의 단계" data-testid="onto-ladder" :data-status="proc.status">
+                  <button v-for="st in LADDER" :key="st.key" class="press" :class="{ on: proc.status === st.key }" :disabled="!status?.admin || !!busy || proc.status === st.key"
+                    :title="st.tip" :data-testid="`onto-ladder-${st.key}`" @click="adopt(st.key)">{{ st.ko }}</button>
+                </div>
+                <p class="tnote">{{ LADDER.find((s) => s.key === proc.status)?.tip }}</p>
+              </template>
+              <!-- 실행 방식의 엔진(관리자, 회사 전체): 프로세스 정의로(기존) · 지도에서 바로 -->
+              <template v-if="status?.admin && engine">
+                <div class="tsec">실행 방식의 엔진 <small>회사 전체</small></div>
+                <div class="ladder glass engine" role="group" aria-label="실행 방식의 엔진" data-testid="onto-engine" :data-engine="engine.engine" :data-from="engine.from">
+                  <button v-for="m in ENGINES" :key="m.key" class="press" :class="{ on: engine.engine === m.key }" :disabled="!!busy || engine.engine === m.key || !!engine.env"
+                    :title="`${m.tip}${engine.env ? ` (서버 설정 PRO_ONTO_ENGINE=${engine.env}이 우선해요)` : engine.from === 'product' ? ' (지금은 제품 기본값을 따라요)' : ''}`" :data-testid="`onto-engine-${m.key}`" @click="setEngine(m.key)">{{ m.ko }}</button>
+                </div>
+              </template>
+              <template v-if="status?.admin">
+                <div class="tsec">관리자</div>
+                <button v-if="proc && !isRoutine" role="menuitem" class="titem press" :class="{ on: timerOpen }" data-testid="onto-timer-button" @click="pick(toggleTimer)"><b>타이머</b><small>정해 둔 시각(평일 9시 · 매주 월 9시…)에 이 프로세스를 시작해요</small></button>
+                <button role="menuitem" class="titem press" :disabled="!!busy || rebuilding" data-testid="onto-rebuild" @click="pick(rebuild)"><b>다시 셈하기</b><small>읽어 둔 메일 · 기록으로 지도를 처음부터 다시 셈해요</small></button>
+              </template>
+            </div>
+          </div>
           <!-- 온보딩 다시: 새로 온 메일과, 스킬이 바뀐 뒤 아직 그 판으로 읽지 않은 스레드만 읽고 지도를 다시 그린다 -->
-          <button class="hbtn glass press" data-testid="onto-reread" :disabled="!!busy || rebuilding" title="새로 온 메일과, 스킬이 바뀐 뒤 아직 읽지 않은 스레드만 읽어요" @click="startMail">
-            <Icon name="mail" :size="15" /> 메일 다시 읽기
+          <button class="hbtn glass press reread" data-testid="onto-reread" :disabled="!!busy || rebuilding" aria-label="메일 다시 읽기" title="새로 온 메일과, 스킬이 바뀐 뒤 아직 읽지 않은 스레드만 읽어요" @click="startMail">
+            <Icon name="mail" :size="15" /> <span class="lbl">메일 다시 읽기</span>
           </button>
-          <button v-if="status?.admin" class="hbtn glass press" :disabled="!!busy || rebuilding" @click="rebuild">
-            <Icon name="refresh" :size="15" :class="{ spin: rebuilding }" /> {{ rebuilding ? '셈하는 중…' : '다시 셈하기' }}
-          </button>
+          <span v-if="rebuilding" class="hbtn glass busyl"><Icon name="refresh" :size="15" class="spin" /> 셈하는 중…</span>
         </div>
         <button v-else-if="phase === 'empty' && status?.admin" class="hbtn glass press" :disabled="!!busy" @click="rebuild">
           <Icon name="refresh" :size="15" /> 다시 셈하기
@@ -906,6 +968,9 @@ onBeforeUnmount(() => {
 .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ttl { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
+.rtn { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--text-secondary); text-decoration: none; }
+.rtn:hover { color: var(--text-primary); }
+.rmine { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #e0613f; color: #fff; font-size: 11px; font-weight: 600; display: inline-grid; place-items: center; }
 .src { font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .src i { font-style: normal; }
 .sp { flex: 1; }
@@ -915,7 +980,6 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .ladder button.on { background: var(--ink); color: var(--text-primary-on); }
 .ladder button:disabled:not(.on) { opacity: .55; }
 .engine { align-items: center; }
-.engine .elbl { padding: 0 6px 0 10px; font-size: 12px; color: var(--text-tertiary); }
 .engine button { padding: 0 11px; font-size: 12.5px; }
 .rmnote { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); line-height: 1.5; overflow-wrap: anywhere; word-break: keep-all; }
 .timers { display: flex; flex-direction: column; gap: 10px; }
@@ -930,6 +994,28 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .hbtn { height: 38px; padding: 0 15px; border-radius: 19px; font-size: 13.5px; display: inline-flex; align-items: center; gap: 6px; color: var(--text-primary); }
 .hbtn.on { background: var(--ink); color: var(--text-primary-on); }
 .hbtn:disabled { opacity: .6; }
+/* 머리 단추 세 묶음(보기 · 고치기 · 운영): 칸을 누르면 항목과 한 줄 설명이 아래로 */
+.tgrp { position: relative; }
+.hbtn .dn { rotate: 90deg; opacity: .55; transition: rotate .2s; }
+.hbtn.open .dn { rotate: -90deg; }
+.tlvl { margin-left: 2px; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: rgba(127 127 127 / .16); color: var(--text-secondary); }
+.hbtn.on .tlvl { background: rgba(127 127 127 / .35); color: inherit; }
+.menu.tg:not(.drawer) { position: relative; z-index: 25; }
+.tpop { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; width: 330px; max-width: calc(100vw - 32px); max-height: calc(100vh - 150px); overflow-y: auto; padding: 6px; border-radius: 18px; display: flex; flex-direction: column; gap: 1px;
+  background: var(--regular-solid-bg); border: 1px solid var(--hairline, rgba(127 127 127 / .25)); box-shadow: 0 14px 44px rgba(0 0 0 / .2); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); animation: pop-in .22s var(--spring); }
+.titem { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 9px 12px; border: 0; border-radius: 12px; background: none; text-align: left; color: var(--text-primary); }
+.titem b { font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.titem small { font-size: 12.5px; line-height: 1.4; color: var(--text-secondary); }
+.titem:hover:not(:disabled) { background: rgba(127 127 127 / .1); }
+.titem.on { background: rgba(127 127 127 / .16); }
+.titem.danger b { color: var(--color-error); }
+.titem:disabled { opacity: .5; }
+.tsec { display: flex; align-items: baseline; gap: 6px; margin: 9px 12px 5px; padding-top: 9px; border-top: 1px solid var(--hairline, rgba(127 127 127 / .2)); font-size: 12px; font-weight: 600; color: var(--text-tertiary); }
+.tsec small { font-weight: 400; }
+.tpop .ladder { align-self: flex-start; margin: 0 8px; }
+.tpop .tnote { margin: 6px 12px 4px; font-size: 12px; line-height: 1.45; color: var(--text-tertiary); }
+.tpop .ask { height: auto; margin: 4px 6px; padding: 8px 10px; flex-wrap: wrap; white-space: normal; }
+.busyl { color: var(--text-secondary); }
 .spin { animation: spin 1s linear infinite; }
 .err { margin: 0; color: var(--color-error); font-size: 13.5px; }
 .loading { color: var(--text-secondary); text-align: center; margin-top: 60px; }
@@ -1029,7 +1115,13 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .content.narrow { padding: 0 12px 24px; overflow-y: auto; display: block; scrollbar-width: none; }
 .content.narrow > * + * { margin-top: 10px; }
 .narrow h1 { font-size: 23px; }
-.narrow .tools { width: 100%; }
+.narrow .tools { width: 100%; position: relative; }
+/* 휴대폰: 칸의 목록은 단추 줄 아래 가로 전체로 */
+.narrow .tgrp { position: static; }
+.narrow .tpop { left: 0; right: 0; width: auto; max-width: none; }
+/* 휴대폰: 세 칸과 메일 다시 읽기(그림만)가 한 줄에 */
+.narrow .reread { width: 34px; padding: 0; justify-content: center; }
+.narrow .reread .lbl { display: none; }
 .narrow .hbtn { height: 34px; padding: 0 12px; font-size: 13px; }
 .narrow .src { font-size: 12.5px; line-height: 1.5; }
 .narrow .bar { flex-wrap: wrap; gap: 8px; }

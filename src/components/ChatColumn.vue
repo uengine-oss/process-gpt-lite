@@ -43,6 +43,8 @@ let stick = !props.keepTop
 let lastTop = 0
 function onScroll() {
   const el = scroller.value
+  // (a scroll can land after the column is gone — leaving the chat for another tab mid-scroll)
+  if (!el) return
   if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) stick = true
   else if (el.scrollTop < lastTop - 2) stick = false
   lastTop = el.scrollTop

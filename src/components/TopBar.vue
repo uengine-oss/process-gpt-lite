@@ -23,7 +23,9 @@ const tab = computed(() => (route.path.startsWith('/team-activity') ? 'team' : r
 const tabs = computed(() => [...(narrow.value ? [{ id: 'home', label: '홈' }] : []), { id: 'chat', label: '채팅' }, { id: 'project', label: '프로젝트' }, { id: 'routine', label: '루틴' }, { id: 'folders', label: '폴더' }, { id: 'team', label: '팀' }])
 function go(id) {
   if (id === 'project') return router.push('/projects')
-  if (id === 'routine') return router.push('/routines')
+  // 루틴 opens the company's process map (Lite's processes are seen and improved there); the routine list — Lite's cases and the
+  // classic ones (Process GPT 본판) — is a link on it. A company without the map (no Ontological DB) gets the list.
+  if (id === 'routine') return router.push(app.me?.ontology === false ? '/routines' : '/process-map')
   if (id === 'folders') return router.push('/folders')
   if (id === 'team') return router.push('/team-activity')
   if (narrow.value) app.dockOpen = id === 'home'

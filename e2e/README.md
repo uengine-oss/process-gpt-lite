@@ -478,13 +478,15 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 흔한 길(크리티컬 패스): 엔진처럼 매번 가장 흔한 길, 지난 건의 시간 · 지금 줄이 선 곳은 쌓인 것 치우는 시간(리틀의 법칙), 가장 긴 고리 = 병목, 시간 몫(기대 방문) | `ontology-flow.e2e.mjs` S2, F-PO-16·17, `ontology-flowtime.test.js` | HTTP·feature·단위 | ✅ |
 | 회사의 제약: 모든 프로세스의 할 일을 역할로 · 한 사람당, 두 프로세스에 걸친 디자이너 | `ontology-flow.e2e.mjs` S3, `ontology-flowtime.test.js` | HTTP·단위 | ✅ |
 | 실시간: 할 일에서 내면 지도 엔진이 다음 단계를 열고 할 일 수가 따라 움직임 · 관리자만 건 제목 · 지난 날짜는 그때 열린 것 | `ontology-flow.e2e.mjs` S4·S5, F-PO-16 | HTTP·feature | ✅ |
-| 건 화면에서 내 단계 내기: 맡은 사람에게만 그 단계의 양식(runView `mine` — 사람 차례이고 todolist.user_id 쉼표 목록에 그 사람, 건의 주인 · 다른 사람에게는 없음), 프로세스 목록 · `/projects/p/<instId>` 에서 지도의 건 화면으로, 내면 지도 엔진이 다음 단계(제안서 작성)를 열고 건 화면에 보임(데모 출연진 김민지, 시드 다시 씀) | `ontology-case-submit.e2e.mjs` C1~C4, F-PO-18 | HTTP·feature | ✅ |
-| `/improve` 넘기기(설계 `design-improve-on-map.md` §7 · 결정 4): 목록 → 지도의 병목 보기(`?view=flow`), 지도 프로세스의 스냅샷 정의 → 그 프로세스의 병목 보기(`GET /improve/:defId/map`), 지도에 없는 정의는 옛 개선 화면 그대로, 루틴 화면에는 「프로세스 지도 →」만 | F-PO-18·19, `improve.spec.js` F-IM-01~07 | feature | ✅ |
+| 건 화면에서 내 단계 내기: 맡은 사람에게만 그 단계의 양식(runView `mine` — 사람 차례이고 todolist.user_id 쉼표 목록에 그 사람, 건의 주인 · 다른 사람에게는 없음), 루틴 탭(지도) › 진행 중인 루틴 · `/projects/p/<instId>` 에서 지도의 건 화면으로, 내면 지도 엔진이 다음 단계(제안서 작성)를 열고 건 화면에 보임(데모 출연진 김민지, 시드 다시 씀) | `ontology-case-submit.e2e.mjs` C1~C4, F-PO-18 | HTTP·feature | ✅ |
+| `/improve` 넘기기(설계 `design-improve-on-map.md` §7 · 결정 4): 목록 → 지도의 병목 보기(`?view=flow`), 지도 프로세스의 스냅샷 정의 → 그 프로세스의 병목 보기(`GET /improve/:defId/map`), 지도에 없는 정의는 옛 개선 화면 그대로, 루틴 목록에는 「프로세스 지도 →」와 「클래식 개선 분석」(`?classic=1`, 그 안에서는 클래식에 머묾) | F-PO-18·19, `improve.spec.js` F-IM-01~07 | feature | ✅ |
 | 고쳐 보기(what-if, 설계 §5): 지도의 수단(에이전트 · AI 초안 먼저 · 건너뛰기 · 빼기 · 나란히 · 다른 역할 · 사람 더하기 · 들어오는 건)을 얹으면 앞 · 뒤(지금 들어오면 · 보통 건 · 병목 할 일 · 역할 가동률 · 한 달 사람 시간), 앞 = 병목 보기의 흔한 길, 아무것도 쓰지 않음, 지도 꼬리표 「할 일 8 → n」, 규칙은 옛 what-if(얼랭 C · 같음 시험) | `ontology-improve.e2e.mjs` S6, F-PO-20·21, `ontology-flowplan.test.js` | HTTP·feature·단위 | ✅ |
 | 개선안: 앞 · 뒤를 지닌 채 저장 · 나란히 · 합의에 올림(의견) · 같은 의견 · 상충(하는 이) · 관리자가 고르면 정함(고친 기록 한 묶음 · 역할 구성원 · 효력일 · 결정 원장), 관리자 아니면 403 | `ontology-improve.e2e.mjs` S7·S8, F-PO-20·21 | HTTP·feature | ✅ |
 | 한 단계만 AI 초안 먼저(set_runner draft): 정한 뒤 지도 엔진이 그 단계를 초안 단계로 엶 · 말로 고치기 미리 보기의 예상 효과 | `ontology-improve.e2e.mjs` S9, `ontology-flowplan.test.js` | HTTP·단위 | ◐ 말로 고치기의 예상 효과는 모델이 필요해 회귀에 없음(손으로 · 영상으로 확인) |
 | 시행 전후: 효력일 뒤 실행 기록으로 다시 재서 전 · 예상 · 실측 · 견준 말, 병목이 옮겨 가면 알림(시험용 `seed-flow-demo.mjs --after`) | `ontology-improve.e2e.mjs` S10, `ontology-flowplan.test.js` | HTTP·단위 | ✅ |
 | 근무 시간에서 공휴일 · 회사의 쉬는 날(`PRO_HOLIDAYS`) 뺌 | `ontology-flowplan.test.js` | 단위 | ✅ |
+| 루틴 탭(2026-11-19): 「루틴」 → 회사 프로세스 지도(지도 없는 회사는 루틴 목록), 지도 머리 「진행 중인 루틴 n」 → 목록에 Lite 건(지도의 건 화면으로)과 클래식 인스턴스(인스턴스 화면으로)가 꼬리표와 함께 · 「모두 · Lite · 클래식」 칩, 그냥 `/improve` 는 지도의 병목 보기 · 클래식 개선 분석은 목록의 링크로만 | F-PO-18 · 22 | feature | ✅ |
+| 머리 단추 세 칸(2026-11-20): 보기 · 고치기 · 운영, 칸의 항목마다 한 줄 설명, 운영 칸 단추에 이 프로세스의 단계, 열린 패널의 칸이 칠해짐, 다시 누르기 · Esc · 바깥 누르기로 닫힘, 휴대폰 폭(390)에서 목록이 화면 안 | F-PO-23 | feature | ✅ |
 | P5(정의 프로세스를 지도에 올리기 · 견주기에 시간 몫 · 튜토리얼 20~22장 다시 쓰기), 머리 숫자를 그래프 속성으로, 채팅의 개선 질문(improveTurn)을 지도 프로세스로 | — | — | ✗ 남은 것 |
 | 습관(열린 일 프로세스에서 다음 일 묻기)이 굳은 길에서 실제로 묻는 장면, 실제 Gmail 메일함, 설치판 Ontological(소스 공개 결정 대기), 메일 보관함 보관 기간 · 연결 끊기 | — | — | ✗ |
 ### 21. ProcessGPT 포털에서 넘어온 휴대폰 — 데스크톱 화면으로 돌아가기 (process-gpt 스펙 `gateway_mobile-web-access`, 결정 D-1112-30)
@@ -502,9 +504,9 @@ ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「�
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (29개) | 185 (프로세스 지도 F-PO-01…21, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
-| agent | `tests/agent/*.spec.js` (7개) | 18 (회의 A-14, 후행 습관 A-FU-01) |
-| 합계 | | 277 (`npx playwright test --list` 로 센 수 256 + F-PO 21, 2026-11-19) |
+| feature | `tests/feature/*.spec.js` (30개) | 193 (프로세스 지도 F-PO-01…23, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…08, 팀 맥락 공유 F-TC-01…10, 포털에서 넘어온 휴대폰 F-PT-01…03) |
+| agent | `tests/agent/*.spec.js` (14개) | 33 (회의 A-14, 후행 습관 A-FU-01) |
+| 합계 | | 300 (`npx playwright test --list` 로 센 수, main 병합 뒤 2026-11-20) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
