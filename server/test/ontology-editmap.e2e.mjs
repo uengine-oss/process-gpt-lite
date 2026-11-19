@@ -300,6 +300,7 @@ async function cleanup(boss) {
     await G('MATCH (b:Process {key:$key}) DETACH DELETE b', { key }).catch((e) => log('  process node', e.message))
     await q(`delete from pro_corrections where tenant_id=$1 and proc_key=$2`, [T, key])
     await q(`delete from pro_step_requirements where tenant_id=$1 and proc_key=$2`, [T, key])
+    await q(`delete from pro_edge_conditions where tenant_id=$1 and proc_key=$2`, [T, key])
     await q(`delete from pro_map_opinions where tenant_id=$1 and proc_key=$2`, [T, key])
   }
   done.procs = made.procs.size

@@ -289,7 +289,15 @@ async function phaseH(boss, mate) {
   // the process's stage decides the mode (제안 → 단계마다 사람이 정함); a case keeps the mode of its start
   const [st0] = await withTenant(T, () => cypher(`MATCH (b:Process {key:$key}) RETURN b.status AS status`, { key: PROC }))
   await call(boss.tok, 'POST', '/ontology/processes/status', { key: PROC, status: 'suggested', name: '강의계획서 작성 · 보고' })
-  await call(boss.tok, 'PUT', `/ontology/processes/${encodeURIComponent(PROC)}/steps/${encodeURIComponent('강의계획서 작성')}/requirement`, { requirement: 'optional', rules: [], reason: 'e2e: 건너뛰기 시험' })
+  // 꼭 · 선택은 그 단계로 들어오는 간선마다(edgecond.js): 강의계획서 작성으로 들어오는 간선을 모두 「해도 되고 안 해도 되는 단계」로, 끝나면 처음대로
+  const P = `/ontology/processes/${encodeURIComponent(PROC)}`
+  const into = (await call(boss.tok, 'GET', `${P}/edge-conditions`)).edges.filter((e) => e.task === '강의계획서 작성')
+  const was = []
+  for (const e of into) {
+    const v = await call(boss.tok, 'GET', `${P}/edge-condition?event=${encodeURIComponent(e.event)}&task=${encodeURIComponent(e.task)}`)
+    was.push(v)
+    await call(boss.tok, 'PUT', `${P}/edge-condition`, { event: e.event, task: e.task, requirement: 'optional', rules: [], class: v.class?.decided ? v.class.class : null, reason: 'e2e: 건너뛰기 시험' })
+  }
   try {
     const r = await call(boss.tok, 'POST', '/ontology/cases', { proc: PROC, entry: '강의계획서 작성', subject: '[특강] 단계마다 확인 시험', body: '강의계획서는 이미 있어요. 강의자료만 준비해 주세요.', from: FROM, customer: '김지원 교수', kind: 'manual' })
     track(r.caseId)
@@ -314,7 +322,8 @@ async function phaseH(boss, mate) {
     await call(boss.tok, 'POST', `/ontology/cases/${r.caseId}/pause`)
     OUT.h = { skip: await facts(r.caseId), person: await facts(r2.caseId) }; save()
   } finally {
-    await call(boss.tok, 'PUT', `/ontology/processes/${encodeURIComponent(PROC)}/steps/${encodeURIComponent('강의계획서 작성')}/requirement`, { requirement: null, rules: [] }).catch((e) => log('  requirement back', e.message))
+    for (const v of was) await call(boss.tok, 'PUT', `${P}/edge-condition`, { event: v.event, task: v.task, requirement: v.requirement || null, rules: (v.rules || []).map((r) => ({ when: r.when, then: r.then })),
+      class: v.class?.decided ? v.class.class : null, reason: 'e2e: 원래대로' }).catch((e) => log('  edge back', e.message))
     await call(boss.tok, 'POST', '/ontology/processes/status', { key: PROC, status: st0?.status || 'adopted', name: '강의계획서 작성 · 보고' }).catch((e) => log('  stage back', e.message))
   }
 }
