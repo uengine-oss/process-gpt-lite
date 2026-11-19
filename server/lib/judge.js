@@ -18,6 +18,8 @@ const LLM_MS = Number(process.env.PRO_JUDGE_LLM_TIMEOUT_MS || 12000)
 let downUntil = 0
 
 export const judgeAvailable = () => !!JUDGE_URL || (LLM_ON && !!config.llm?.apiKey)
+// the LLM can stand in when the judge server is missing (tests skip the judged steps without either)
+export const judgeLlm = () => LLM_ON && !!config.llm?.apiKey
 
 async function viaServer({ state, question, options }) {
   const r = await fetch(JUDGE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(SERVER_MS),

@@ -10,7 +10,8 @@ import { API_URL } from '../../lib/env.js'
 
 const member = async (c) => { await c.get('/team'); return c }
 const judgeUp = async () => fetch((process.env.PRO_JUDGE_URL || 'http://127.0.0.1:8896/judge').replace(/\/judge$/, '/health')).then((r) => r.ok).catch(() => false)
-const judgeOn = async (c) => { const st = (await c.get('/meetings/stats')).body; return st?.detection?.judge === false ? false : judgeUp() }
+// the judge server, or the LLM in its place (lib/judge.js — production has no judge server)
+const judgeOn = async (c) => { const st = (await c.get('/meetings/stats')).body; return st?.detection?.judge === false ? false : (await judgeUp()) || !!st?.detection?.judgeLlm }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 async function room(a, others, db, cleanup) {
   const g = (await a.post('/team/threads', { members: others.map((o) => o.id), title: '회귀 회의방' })).body
@@ -132,6 +133,61 @@ test.describe('대화방 원격 회의 (spec pgpt-pro-meetings)', () => {
     expect(after.bigModelCalls).toBe(0)
     expect(after.judged).toBeGreaterThan(before.judged)
     expect(after.prefiltered['no-cue'] || 0).toBeGreaterThan(before.prefiltered['no-cue'] || 0)
+    for (const x of [a, b]) await x.post(`/meetings/${id}/leave`)
+  })
+
+  test('F-MT-07 공유 폴더 문서도 자료: 말로 찾고(받아쓴 영어 낱말·파일 종류), 못 찾으면 도우미가 말하고, 「자료 찾기」로 직접 찾아 띄운다', async ({ as, db, cleanup }) => {
+    // 2026-11-19 운영: "폴더에 있는 내용 중에 셉 ERP 관련 PDF 좀 열어볼래?" → 반응 없이 「듣고 있어요」만
+    const a = await member(await as('mt-owner')), b = await member(await as('mt-mate'))
+    const g = await room(a, [b], db, cleanup)
+    const f = await a.post('/folders', { name: `회귀 회의 폴더 ${Date.now().toString(36)}` })
+    expect(f.status, f.text).toBe(200)
+    cleanup(() => db.q('delete from pro_folders where id=$1', [f.body.id]))
+    const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n')
+    for (const [name, body] of [['SAP_ERP_소개서.pdf', PDF], ['SAP_ERP_소개서.pptx', Buffer.from('PK')]]) {
+      const up = await api.call(a.token(), 'POST', `/folders/${f.body.slug}/files?path=${encodeURIComponent(name)}`, body, { headers: { 'Content-Type': 'application/octet-stream' } })
+      expect(up.status, up.text).toBe(200)
+    }
+    const id = (await a.post(`/meetings/room/${g.id}/start`, { consent: true })).body.id
+    expect((await b.post(`/meetings/${id}/join`, { consent: true })).status).toBe(200)
+
+    // 자료 찾기: only what I may see — a (folder member) finds it, b (not a member) does not
+    const found = (await a.get(`/meetings/${id}/materials/search?q=${encodeURIComponent('ERP PDF')}`)).body.results
+    expect(found[0]).toMatchObject({ kind: 'folder', title: 'SAP_ERP_소개서.pdf', folderFile: true })
+    expect((await b.get(`/meetings/${id}/materials/search?q=${encodeURIComponent('ERP PDF')}`)).body.results.filter((x) => x.folderFile)).toHaveLength(0)
+    // b cannot put a's folder document on the panel by its key either
+    expect((await b.post(`/meetings/${id}/materials/pick`, { key: found[0].key })).status).toBe(404)
+
+    if (await judgeOn(a)) {
+      const seq = await pollFrom(a)
+      // the heard words ("셉" for SAP, "PDF") pick the PDF, opened at once for the one who asked
+      expect((await a.post(`/meetings/${id}/lines`, { text: '폴더에 있는 내용 중에 셉 ERP 관련 PDF 좀 열어볼래?' })).status).toBe(200)
+      let mats
+      await expect.poll(async () => { mats = (await a.get(`/meetings/${id}`)).body.materials; return mats.length }, { timeout: 30000 }).toBeGreaterThan(0)
+      expect(mats[0]).toMatchObject({ kind: 'folder', title: 'SAP_ERP_소개서.pdf', byAgent: true, folder: { file: true, path: 'SAP_ERP_소개서.pdf' } })
+      const ev = (await api.call(a.token(), 'GET', `/events/poll?after=${seq}&token=${a.token()}`)).body.events
+      expect(ev.find((e) => e.type === 'meeting' && e.data.meetingId === id && e.data.type === 'material')?.data.open).toBe(true)
+      // b is not in the folder: b gets neither the card nor its name
+      expect((await b.get(`/meetings/${id}`)).body.materials).toHaveLength(0)
+      // nothing of that name anywhere: the helper says so (it used to stay silent)
+      const seq2 = await pollFrom(a)
+      expect((await a.post(`/meetings/${id}/lines`, { text: '그 달빛커피 계약서 파일 좀 열어 줄래?' })).status).toBe(200)
+      let said
+      await expect.poll(async () => {
+        const evs = (await api.call(a.token(), 'GET', `/events/poll?after=${seq2}&token=${a.token()}`)).body.events
+        said = evs.find((e) => e.type === 'meeting' && e.data.meetingId === id && e.data.type === 'agent')?.data
+        return !!said
+      }, { timeout: 30000 }).toBe(true)
+      expect(said.text).toMatch(/죄송해요|이해하지 못했어요/)
+      expect(said.for).toBe(a.id)
+    }
+
+    // 「모두에게 띄우기」 from 자료 찾기: on the panel, presented by a (b sees that it is hidden from b)
+    const picked = await a.post(`/meetings/${id}/materials/pick`, { key: found[0].key })
+    expect(picked.status, picked.text).toBe(200)
+    expect(picked.body.material).toMatchObject({ kind: 'folder', folder: { file: true, slug: f.body.slug } })
+    expect((await a.post(`/meetings/${id}/materials/${picked.body.material.id}/present`)).status).toBe(200)
+    expect((await b.post(`/meetings/${id}/materials/${picked.body.material.id}/open`)).status).toBe(404)
     for (const x of [a, b]) await x.post(`/meetings/${id}/leave`)
   })
 

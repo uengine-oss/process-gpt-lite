@@ -40,6 +40,11 @@ const go = (path) => router.push(path)
       <small v-if="m.panel.total > m.panel.rows.length" class="more">외 {{ m.panel.total - m.panel.rows.length }}건</small>
     </div>
 
+    <div v-else-if="m.kind === 'folder' && m.folder?.file" class="file">
+      <span class="fic" :class="kindOf(m.title)">{{ kindLabel[kindOf(m.title)] || 'FILE' }}</span>
+      <span class="fn">{{ m.title }}<small>{{ m.folder.name }} 폴더<template v-if="m.folder.abstract"> · {{ m.folder.abstract.slice(0, 60) }}</template></small></span>
+    </div>
+
     <div v-else-if="m.kind === 'folder' && m.folder" class="fold">
       <p class="pn">{{ m.folder.name }} <i>{{ m.folder.statusLabel }}</i></p>
       <ul><li v-for="(c, i) in m.folder.changes" :key="i"><code>{{ c.status }}</code> {{ c.path }}</li></ul>

@@ -485,32 +485,92 @@ async function detectOne(m0, seg, me) {
   const prev = await q('select speaker, text from pro_meeting_segments where meeting_id=$1 and id < $2 order by id desc limit 3', [m.id, seg.id])
   const shownRows = await q('select key, created_at from pro_meeting_materials where meeting_id=$1', [m.id])
   const lastMinute = shownRows.filter((r) => Date.now() - new Date(r.created_at) < 60000).length
-  const r = await I.detect(seg, { roomId: m.room_id, speaker: me, prev: prev.reverse(), shown: new Set(shownRows.map((x) => x.key)), lastMinute })
-  if (!r) return
-  if (r.repeat) {
-    const [mat] = await q('select id from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, r.repeat])
-    if (mat) await tell(m.id, { type: 'mentioned', materialId: mat.id })
+  const asked = I.addressed(seg.text)
+  let r
+  try {
+    r = await I.detect(seg, { roomId: m.room_id, speaker: me, prev: prev.reverse(), shown: new Set(shownRows.map((x) => x.key)), lastMinute })
+  } catch (e) {
+    // the judge (model) did not answer: a remark said to the helper still gets an honest answer
+    if (asked && I.namesFile(seg.text)) await agentSays(m, L(`죄송해요, ${me.name}님. 지금 판단 모델이 응답하지 않아 부탁을 처리하지 못했어요. 자료 탭의 「자료 찾기」에서 이름으로 찾아 띄울 수 있어요.`,
+      `Sorry, ${me.name}. The model that reads requests isn't answering right now, so I couldn't do that. You can find it by name with "Find material" on the Materials tab.`), { for: me.id })
+    throw e
+  }
+  if (!r) {
+    // judged as not a request (or no cue) though plainly said to the helper about a file: say so
+    // ("민지님 화면 좀 보여 줘" is for a person: no file word, the helper stays quiet)
+    if (asked && I.namesFile(seg.text)) await agentSays(m,L(`${me.name}님, 어떤 자료를 열어야 할지 이해하지 못했어요. 파일 이름을 한 번 더 말해 주시거나 자료 탭의 「자료 찾기」에 적어 주세요.`,
+      `${me.name}, I didn't catch what to open. Say the file's name once more, or type it in "Find material" on the Materials tab.`), { for: me.id })
     return
   }
-  if (r.material) await addMaterial(m, r.material, seg, me)
+  if (r.notFound) {
+    const said = seg.text.replace(/\s+/g, ' ').trim().slice(0, 40)
+    await agentSays(m, L(`죄송해요, ${me.name}님. "${said}"에 맞는 자료를 ${me.name}님이 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 자료 탭의 「자료 찾기」에서 다른 이름으로 찾아보세요.`,
+      `Sorry, ${me.name}. I couldn't find anything matching "${said}" in the room's files, shared folders or work in progress you can see. Try another name with "Find material" on the Materials tab.`), { for: me.id })
+    return
+  }
+  if (r.repeat) {
+    const [mat] = await q('select id from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, r.repeat])
+    if (mat) await tell(m.id, { type: 'mentioned', materialId: mat.id, open: asked && I.wantsOpen(seg.text) ? me.id : undefined })
+    return
+  }
+  if (r.material) await addMaterial(m, r.material, seg, me, { open: I.wantsOpen(seg.text) })
   if (r.request) await addRequest(m, r.request, seg, me)
 }
 
-async function addMaterial(m, cand, seg, me) {
+// what the helper says on its tile and in the subtitles (not a line of the record): everyone in the
+// meeting sees it — it names who asked — and `for` marks whose request it answers
+async function agentSays(m, text, { for: forId } = {}) {
+  await tell(m.id, { type: 'agent', text, for: forId || null, at: new Date().toISOString() })
+}
+
+async function addMaterial(m, cand, seg, me, { open = false } = {}) {
   const said = `"${seg.text.replace(/\s+/g, ' ').slice(0, 40)}${seg.text.length > 40 ? '…' : ''}"`
   const reason = isEn() ? `${me.name}: ${said}` : `${me.name}님 ${said}`
-  const [mat] = await q(`insert into pro_meeting_materials(meeting_id, room_id, kind, ref, key, title, reason, segment_id, by_agent, found_for, judge)
-                         values ($1,$2,$3,$4,$5,$6,$7,$8,true,$9,$10) on conflict (meeting_id, key) do nothing returning *`,
-  [m.id, m.room_id, cand.kind, cand.ref, cand.key, String(cand.title).slice(0, 200), reason, seg.id, me.id, cand.judge])
-  if (!mat) return
+  const mat = await putMaterial(m, cand, me, { reason, segmentId: seg.id, byAgent: true, judge: cand.judge, open })
+  if (!mat) {
+    // already on the panel: point at it (and open it for the one who asked to see it)
+    const [was] = await q('select id from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, cand.key])
+    if (was) await tell(m.id, { type: 'mentioned', materialId: was.id, open: open ? me.id : undefined })
+    return
+  }
   I.stats.materials++
-  for (const p of await active(m.id)) if (await MAT.canSee(p, mat)) emit(p.id, 'meeting', { meetingId: m.id, type: 'material', material: await MAT.view(p, mat) })
-  // into the room's record only if everyone in the room may see it (a private thing's name stays private)
+  console.log(`[meetings] material ${mat.kind} · ${mat.title} · judge ${cand.judge?.ms}ms`)
+}
+// one material on the meeting's panel: told to each person who may see it (opened at once for the one
+// who asked to see it), and into the room's record only if everyone in the room may see it (a private
+// thing's name stays private). Null when it is already there.
+async function putMaterial(m, cand, me, { reason, segmentId = null, byAgent, judge = null, open = false }) {
+  const [mat] = await q(`insert into pro_meeting_materials(meeting_id, room_id, kind, ref, key, title, reason, segment_id, by_agent, found_for, judge)
+                         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict (meeting_id, key) do nothing returning *`,
+  [m.id, m.room_id, cand.kind, cand.ref, cand.key || `${cand.kind}:${cand.id}`, String(cand.title).slice(0, 200), reason, segmentId, byAgent, me.id, judge])
+  if (!mat) return null
+  for (const p of await active(m.id)) if (await MAT.canSee(p, mat)) emit(p.id, 'meeting', { meetingId: m.id, type: 'material', material: await MAT.view(p, mat), open: open && p.id === me.id })
   const members = await M.membersOf(m.room_id)
   let all = true
   for (const p of members) if (!(await MAT.canSee(p, mat))) { all = false; break }
   if (all) await R.materialCard(m, mat, { quiet: quietOf(await active(m.id)) })
-  console.log(`[meetings] material ${mat.kind} · ${mat.title} · judge ${cand.judge?.ms}ms`)
+  return mat
+}
+
+// 자료 찾기: a person looks for material themselves (when speech did not work, or to be sure) — only
+// what they may see — and puts what they picked on the panel (then opens it or shows it to everyone)
+export async function searchMaterials(me, id, text) {
+  const { m } = await forMember(me, id)
+  return inMeeting(m, async () => ({ results: await MAT.search(text, { roomId: m.room_id, speaker: me }) }))
+}
+export async function pickMaterial(me, id, key) {
+  const { m } = await forMember(me, id)
+  if (m.state !== 'live') throw new TeamError(409, L('이미 끝난 회의예요.', "This meeting has already ended."))
+  const live = await active(m.id)
+  if (!live.some((p) => p.id === me.id)) throw new TeamError(403, L('회의에 참여 중인 분만 자료를 올릴 수 있어요.', "Only people in the meeting can add material."))
+  return inMeeting(m, async () => {
+    const cand = await MAT.resolve(key, { roomId: m.room_id, speaker: me })
+    if (!cand) throw new TeamError(404, L('자료를 찾지 못했어요.', "I couldn't find the material."))
+    const k = `${cand.kind}:${cand.id}`
+    const made = await putMaterial(m, { ...cand, key: k }, me, { reason: L(`${me.name}님이 찾아서 올렸어요`, `${me.name} found and added it`), byAgent: false })
+    const [mat] = made ? [made] : await q('select * from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, k])
+    return { material: await MAT.view(me, mat) }
+  })
 }
 
 const NOUNS = ['견적서', '정산표', '예산표', '보고서', '계획서', '안내문', '제안서', '일정표', '회의록', '평면도', '체크리스트']

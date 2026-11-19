@@ -46,6 +46,9 @@ export function meetingRoutes(auth) {
   r.put('/meetings/:id/listen', auth, h((req) => S.setListen(req.user, id(req), String(req.body?.mode || ''))))
   r.post('/meetings/:id/speaking', auth, h((req) => S.speakingNow(req.user, id(req))))
   r.post('/meetings/:id/voice/ticket', auth, h((req) => S.voiceTicket(req.user, id(req))))
+  // 자료 찾기: look for material myself (what I may see), and put the one I picked on the panel
+  r.get('/meetings/:id/materials/search', auth, h((req) => S.searchMaterials(req.user, id(req), String(req.query.q || ''))))
+  r.post('/meetings/:id/materials/pick', auth, h((req) => S.pickMaterial(req.user, id(req), String(req.body?.key || ''))))
   // materials: open (my card or my copy), present to everyone, take it down
   r.post('/meetings/:id/materials/:mid/open', auth, h((req) => S.openMaterial(req.user, id(req), req.params.mid)))
   r.post('/meetings/:id/materials/:mid/present', auth, h((req) => S.present(req.user, id(req), req.params.mid)))

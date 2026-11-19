@@ -90,7 +90,8 @@ test('material names match English speech without case; Korean scores are the sa
     assert.equal(MAT.score('지난번달빛커피견적서다시볼까요?', '달빛커피_견적서.xlsx'), 5)
     assert.equal(MAT.score('평면도도 같이 봐요', '달빛커피_평면도.dxf'), 2.75)
     assert.equal(MAT.score('견적서 다시', '달빛커피_견적서_수정.xlsx'), 2.5)
-    assert.equal(MAT.score("Let's look at the Quote again", 'Moonlight_Coffee_quote.xlsx'), 0)
+    // since 2026-11-19 a Korean meeting matches Latin name words without case too ("셉 ERP 관련 PDF" → SAP_ERP_….pdf)
+    assert.ok(MAT.score("Let's look at the Quote again", 'Moonlight_Coffee_quote.xlsx') > 0)
   })
 })
 

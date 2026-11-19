@@ -26,7 +26,7 @@ export function adoptHostSession() {
   return true
 }
 
-async function refreshToken() {
+export async function refreshToken() {
   // a token taken from ProcessGPT is kept fresh by ProcessGPT: take its newer pair rather than
   // spending the shared refresh token here (rotation would sign the other tab out)
   if (auth.get()?.host) {

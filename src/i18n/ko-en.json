@@ -1,5 +1,11 @@
 {
  "exact": {
+  "자료 찾기 · 파일 이름이나 내용 (예: ERP PDF)": "Find material · file name or content (e.g. ERP PDF)",
+  "찾기": "Find",
+  "내가 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 다른 검색어로 찾아보세요.": "Nothing found in the room's files, shared folders or work in progress you can see. Try other words.",
+  "회의 중에 \"지난번 견적서 다시 보자\"처럼 말하면 도우미가 자료를 찾아 여기에 띄워요. 말로 자료를 찾지 못하면 위 칸에서 직접 찾아 띄울 수 있어요.": "Say something like \"let's look at the last quote again\" and the helper finds the material and puts it here. If speech doesn't work, find it yourself in the box above.",
+  "도우미": "Helper",
+  "로그인이 만료되어 말을 보내지 못했어요. 페이지를 새로 고친 뒤 다시 참여해 주세요.": "Your sign-in ended, so your speech wasn't sent. Reload the page and join again.",
   "폴더 고르기": "Choose a folder",
   "· 없어도 돼요": "· optional",
   "· 새 폴더": "· new folder",

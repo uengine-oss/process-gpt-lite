@@ -8,13 +8,14 @@ import { useRouter } from 'vue-router'
 import { useMeetings } from '../../stores/meetings.js'
 import { useApp } from '../../stores/app.js'
 import { useTeam } from '../../stores/team.js'
-import { openArtifact } from '../../artifacts.js'
+import { openArtifact, kindOf, kindLabel } from '../../artifacts.js'
 import { officeEditorFor, CRAFT_APPS } from '../../officeEditor.js'
 
 import { api } from '../../api.js'
 import VideoTile from './VideoTile.vue'
 import { MAIN_LANGS, langLabel } from '../../i18n/mainLangs.js'
 import MaterialBody from './MaterialBody.vue'
+import FolderDocStage from './FolderDocStage.vue'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
 import CraftEditorFrame from '../CraftEditorFrame.vue'
 
@@ -78,6 +79,22 @@ async function saved(msg, { url, name }) {
   await api(`/messages/${msg.id}/file`, { method: 'POST', body: { url, name } }).catch(() => {})
 }
 const back = () => { mt.mini = false; app.officeDoc = null }
+
+// ---- 자료 찾기: find material myself (when speech did not work, or to be sure) ----
+const findQ = ref('')
+const found = ref(null)     // null: not searched yet · [] : nothing
+const finding = ref(false)
+let findSeq = 0
+async function find() {
+  const seq = ++findSeq
+  finding.value = true
+  try { const r = await mt.searchMaterials(findQ.value.trim()); if (seq === findSeq) found.value = r } catch (e) { mt.error = e.message } finally { if (seq === findSeq) finding.value = false }
+}
+const onFindKey = (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); find() } }
+const pick = (x, then) => run(`k${then}${x.key}`, async () => { await mt.pickMaterial(x.key, then); found.value = null; findQ.value = '' })
+// the list of what was found opens with the room's files when the tab is first opened
+watch(() => mt.tab, (t) => { if (t === 'materials' && found.value === null && !mt.materials.length) find() })
+const KEXT = (t) => String(t || '').split('.').pop().toUpperCase().slice(0, 4)
 onMounted(() => mt.boot())
 
 // ---- languages (통역) ----
@@ -169,6 +186,7 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
                 </template>
                 <p v-else class="hidden">여는 중…</p>
               </template>
+              <FolderDocStage v-else-if="shown.material?.kind === 'folder' && shown.material.folder?.file" :key="shown.material.id" :folder="shown.material.folder" />
               <div v-else-if="shown.material" class="pad"><MaterialBody :m="shown.material" big @open-share="openShare" /></div>
             </div>
           </section>
@@ -180,7 +198,7 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
             <div v-if="m.agent" class="tile agent" data-test="agent-tile">
               <div class="orb"><span /><span /><span /></div>
               <b>프로세스 GPT 라이트 도우미</b>
-              <small class="say">{{ mt.agentSay }}</small>
+              <small class="say" :class="{ long: mt.agentSay.length > 24 }" data-test="agent-say">{{ mt.agentSay }}</small>
             </div>
           </div>
         </main>
@@ -207,7 +225,7 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
             <p v-if="!m.agent" class="empty">이 회의는 도우미가 꺼져 있어 자막이 없어요.</p>
             <p v-else-if="!mt.lines.length" class="empty">말하면 여기에 화자별 자막이 떠요. 동의한 분의 말만 받아써요.</p>
             <button v-if="interp?.mixed && mt.lines.some(trOf)" class="origtog press" data-test="subs-original" @click="mt.showOriginal = !mt.showOriginal">{{ mt.showOriginal ? '내 언어로 먼저 보기' : '원문 먼저 보기' }}</button>
-            <div v-for="l in mt.lines" :key="l.id" class="ln" :class="{ me: l.userId === m.me.id, tr: !!trOf(l) }" :data-lang="l.lang" data-test="line">
+            <div v-for="l in mt.lines" :key="l.id" class="ln" :class="{ me: l.userId === m.me.id, tr: !!trOf(l), agent: l.agent }" :data-lang="l.lang" :data-test="l.agent ? 'agent-line' : 'line'">
               <span class="sp">{{ l.speaker }}</span>
               <span class="tx" data-no-i18n>
                 <template v-if="trOf(l) && !mt.showOriginal"><span class="mtx" data-test="line-tr">{{ trOf(l) }}</span><span class="orig" data-test="line-orig"><i>{{ langLabel(l.lang) }}</i> {{ l.text }}</span></template>
@@ -218,7 +236,26 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
             </div>
           </div>
           <div v-else class="mats scroll" data-test="materials">
-            <p v-if="!mt.materials.length" class="empty">회의 중에 "지난번 견적서 다시 보자" 처럼 말하면, 도우미가 볼 수 있는 자료를 찾아 여기에 띄워요.</p>
+            <!-- 자료 찾기: the same materials the helper looks in, found by me (name, document card or text) -->
+            <div class="find" data-test="find">
+              <div class="frow">
+                <input v-model="findQ" placeholder="자료 찾기 · 파일 이름이나 내용 (예: ERP PDF)" data-test="find-input" @keydown="onFindKey">
+                <button class="main press" :disabled="finding" data-test="find-go" @click="find">{{ finding ? '찾는 중…' : '찾기' }}</button>
+              </div>
+              <template v-if="found">
+                <p v-if="!found.length" class="fnone">내가 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 다른 검색어로 찾아보세요.</p>
+                <div v-for="x in found" :key="x.key" class="fhit" data-test="find-hit">
+                  <span class="fx" :class="x.kind === 'file' || x.folderFile ? kindOf(x.title) : x.kind">{{ x.kind === 'file' || x.folderFile ? kindLabel[kindOf(x.title)] || KEXT(x.title) : KIND[x.kind] }}</span>
+                  <span class="ft"><b>{{ x.title }}</b><small>{{ x.where }}</small></span>
+                  <div class="fb">
+                    <button class="press" :disabled="busy === `kopen${x.key}`" data-test="find-open" @click="pick(x, 'open')">보기</button>
+                    <button class="main press" :disabled="busy === `kpresent${x.key}`" data-test="find-present" @click="pick(x, 'present')">모두에게 띄우기</button>
+                  </div>
+                </div>
+                <button v-if="found.length" class="fclose press" @click="found = null">닫기</button>
+              </template>
+            </div>
+            <p v-if="!mt.materials.length && !found" class="empty">회의 중에 "지난번 견적서 다시 보자"처럼 말하면 도우미가 자료를 찾아 여기에 띄워요. 말로 자료를 찾지 못하면 위 칸에서 직접 찾아 띄울 수 있어요.</p>
             <article v-for="x in [...mt.materials].reverse()" :key="x.id" class="mat" :class="{ flash: mt.flash === x.id, on: shown?.material?.id === x.id }" :data-kind="x.kind" data-test="material">
               <p class="mk">{{ KIND[x.kind] }}<template v-if="x.presentedBy"> · 띄웠어요</template></p>
               <MaterialBody :m="x" @open-share="openShare" />
@@ -309,6 +346,26 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
 .strip .tile.agent .orb { transform: scale(.6); margin: -8px 0; }
 .say { font-size: 12.5px; color: #cfc3ff; max-width: 90%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .strip .say { display: none; }
+/* the helper's answer (nothing found, could not hear): read in full, not cut to one line */
+.say.long { white-space: normal; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; line-height: 1.45; font-size: 13.5px; color: #fff; }
+.ln.agent { background: #f6f3ff; border-radius: 10px; border-bottom-color: transparent; margin: 3px 0; padding: 7px 8px; }
+.ln.agent .sp { color: #7a5af5; }
+.find { margin: 2px 0 10px; }
+.frow { display: flex; gap: 6px; }
+.frow input { flex: 1; min-width: 0; height: 36px; border-radius: 18px; border: 1px solid #dfe1e5; padding: 0 14px; font-size: 14px; }
+.frow button { height: 36px; padding: 0 14px; border-radius: 18px; font-size: 13.5px; background: #7a5af5; color: #fff; }
+.fnone { font-size: 12.5px; color: #8a8f98; margin: 8px 4px; line-height: 1.45; }
+.fhit { display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'x t' 'b b'; gap: 6px 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid #f0f1f3; }
+.fhit .fx { grid-area: x; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: #fff; background: #6b6b66; }
+.fhit .fx.hwp { background: #1f6fd1; } .fhit .fx.doc { background: #2b579a; } .fhit .fx.xls { background: #217346; } .fhit .fx.ppt { background: #c43e1c; } .fhit .fx.pdf { background: #d93025; } .fhit .fx.img { background: #7b3fbf; }
+.fhit .fx.process, .fhit .fx.panel, .fhit .fx.folder { background: #7a5af5; font-size: 9px; }
+.fhit .ft { grid-area: t; display: flex; flex-direction: column; min-width: 0; font-size: 13.5px; }
+.fhit .ft b { font-weight: 500; word-break: break-all; }
+.fhit .ft small { font-size: 11.5px; color: #8a8f98; }
+.fhit .fb { grid-area: b; display: flex; gap: 6px; padding-left: 44px; }
+.fhit .fb button { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12.5px; background: #e9ebef; }
+.fhit .fb button.main { background: #7a5af5; color: #fff; }
+.fclose { margin-top: 6px; font-size: 12.5px; color: #6b6f76; }
 .orb { display: flex; gap: 6px; height: 36px; align-items: center; }
 .orb span { width: 10px; height: 22px; border-radius: 5px; background: #a996ff; animation: wave 1.2s ease-in-out infinite; }
 .orb span:nth-child(2) { animation-delay: .2s; } .orb span:nth-child(3) { animation-delay: .4s; }
