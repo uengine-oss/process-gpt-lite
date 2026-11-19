@@ -102,9 +102,10 @@ function roleBase(r, tasksHere) {
   const mine = tasksHere.filter((t) => t.role === r.role && !t.agent && !t.outside && workOf(t) != null && t.inPerDay > 0)
   const lamMine = mine.reduce((s, t) => s + t.inPerDay, 0)
   const avgWork = lamMine ? mine.reduce((s, t) => s + t.inPerDay * workOf(t), 0) / lamMine : null
-  // capacity (items per working day): a role with a queue that grows works flat out — what it hands on is what it can do;
-  // otherwise its people's hours over the work per item (and never less than what comes in)
-  const saturated = wip >= F.QUEUE * c || lam > done * 1.05
+  // capacity (items per working day): a role with a real queue (QUEUE open items a person, or more coming in than handed on while every
+  // person holds one) works flat out — what it hands on is what it can do; otherwise its people's hours over the work per item (and never
+  // less than what comes in). Two weeks with a few more arrivals than hand-offs is not a queue for a role with people to spare.
+  const saturated = wip >= F.QUEUE * c || (lam > done * 1.05 && wip >= c)
   const byWork = avgWork ? (c * F.WORK_H) / avgWork : 0
   const cap = saturated ? Math.max(done, 1e-3) : Math.max(byWork, lam * 1.15, done, 1e-3)
   return { role: r.role, c, lam, done, wip, cap, saturated, avgWork, items: r.items.map((x) => ({ ...x })) }
