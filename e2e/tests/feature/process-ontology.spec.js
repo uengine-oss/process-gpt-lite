@@ -244,3 +244,55 @@ test('F-PO-15 화면 — 승격 단계 · 타이머 · 사건 보기', async ({ 
   await expect(page.getByTestId('onto-timer-cron')).toBeVisible()
   expect(page.errors).toEqual([])
 })
+
+// 병목 보기(server lib/ontology/flowload.js · flowtime.js): 원천은 지도 — 지도 엔진 · 스냅샷 건의 todolist 행을 일(activity_id)마다 센 할 일,
+// 지도의 길(θ), 메일 · 대화 기록의 응답 시간. 시나리오(시드 · 실시간 내기 · 시점)는 server/test/ontology-flow.e2e.mjs,
+// 셈은 server/test/ontology-flowtime.test.js. 시드(node server/scripts/seed-flow-demo.mjs)가 없어도 돈다(할 일 0이면 기록으로 추정).
+const actId = async (task) => { const { createHash } = await import('node:crypto'); return `t_${createHash('sha1').update(String(task)).digest('hex').slice(0, 10)}` }
+test('F-PO-16 병목 보기 — 일마다 할 일 = todolist 를 activity_id 로 센 수, 병목은 우리 쪽 사람 단계, 제약은 역할로, 건 제목은 관리자만', async ({ as, db }) => {
+  const u = await as('po-user')
+  const m = await mapOf(u)
+  const p = m.processes.filter((x) => x.kind !== 'routine' && (x.tasks || []).length > 2).sort((a, b) => (b.cases || 0) - (a.cases || 0))[0]
+  test.skip(!p, '흐름이 있는 프로세스가 없다')
+  const r = await u.get(`/ontology/flow?proc=${encodeURIComponent(p.key)}`)
+  expect(r.status).toBe(200)
+  const f = r.body
+  const rows = await db.q(`select t.activity_id, count(*)::int as n from pro_po_cases c join todolist t on t.proc_inst_id = any(c.instances)
+                            where c.tenant_id=$1 and c.bundle=$2 and t.status::text in ('NEW','TODO','IN_PROGRESS','PENDING') and coalesce(t.activity_id,'') <> 'intake' group by 1`, [process.env.PGPT_TENANT || 'ax-demo', p.key])
+  const direct = new Map(rows.map((x) => [x.activity_id, x.n]))
+  for (const t of f.tasks) expect(t.wip, t.key).toBe(direct.get(await actId(t.key)) || 0)
+  if (f.bottleneck?.by === 'wip') {
+    const ours = f.tasks.filter((t) => !t.agent && !t.outside)
+    expect(f.bottleneck.wip).toBe(Math.max(...ours.map((t) => t.wip)))
+    expect(f.tasks.find((t) => t.key === f.bottleneck.key).outside).toBe(false)
+  }
+  expect(f.path.steps.length).toBeGreaterThan(1)
+  expect(p.entries).toContain(f.path.steps[0].key)
+  expect(f.path.nowH).toBeGreaterThanOrEqual(f.path.pastH)
+  const outside = new Set((m.roles || []).filter((r2) => r2.outside).map((r2) => r2.key))
+  expect(f.constraint.roles.some((r2) => outside.has(r2.role))).toBe(false)
+  // 관리자가 아니면 열린 할 일의 건 제목 · 맡은 사람이 없다
+  expect(f.admin).toBe(false)
+  expect(f.tasks.every((t) => t.open.every((o) => !o.subject && !o.who))).toBe(true)
+})
+
+test('F-PO-17 화면 — 병목 보기: 패널(병목 · 회사의 제약 · 흔한 길) · 지도에 꼬리표와 범례', async ({ pageAs }) => {
+  const page = await pageAs('po-user')
+  const r = await page.user.get('/ontology/map')
+  test.skip(!r.body?.tasks?.length, '셈한 지도가 없다')
+  const p = r.body.processes.filter((x) => x.kind !== 'routine' && (x.tasks || []).length > 2).sort((a, b) => (b.cases || 0) - (a.cases || 0))[0]
+  await page.goto(`/process-map?proc=${encodeURIComponent(p.key)}`)
+  await page.getByTestId('onto-flow-button').click()
+  await expect(page.getByTestId('onto-flow')).toBeVisible({ timeout: 20000 })
+  await expect(page.getByTestId('onto-flow-legend')).toBeVisible()
+  await expect(page.getByTestId('onto-flow-path')).toBeVisible()
+  const f = (await page.user.get(`/ontology/flow?proc=${encodeURIComponent(p.key)}`)).body
+  if (f.bottleneck) {
+    await expect(page.getByTestId('onto-flow-bottleneck')).toHaveAttribute('data-task', f.bottleneck.key)
+    if (f.bottleneck.wip) await expect(page.locator('[data-testid=onto-flow-badge][data-kind=bott]')).toHaveCount(1)
+  }
+  // 닫으면 지도의 칠 · 꼬리표가 사라진다
+  await page.getByTestId('onto-flow-button').click()
+  await expect(page.getByTestId('onto-flow-badge')).toHaveCount(0)
+  expect(page.errors).toEqual([])
+})

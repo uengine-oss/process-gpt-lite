@@ -32,6 +32,7 @@ import OntoRolePanel from '../components/ontology/OntoRolePanel.vue'
 import OntoDocsPanel from '../components/ontology/OntoDocsPanel.vue'
 import OntoBranch from '../components/ontology/OntoBranch.vue'
 import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
+import OntoFlowPanel from '../components/ontology/OntoFlowPanel.vue'
 import OntoRefine from '../components/ontology/OntoRefine.vue'
 import OntoStepRule from '../components/ontology/OntoStepRule.vue'
 import MapLegend from '../components/ontology/MapLegend.vue'
@@ -262,7 +263,7 @@ const selTask = computed(() => (sel.value?.kind === 'task' ? (map.value?.tasks |
 const selEvent = computed(() => (sel.value?.kind === 'event' ? (map.value?.events || []).find((e) => e.key === sel.value.id) || null : null))
 // a side panel covers the map's right (the map keeps room, the box moves left of it)
 const sideOpen = computed(() => !!(selEdge.value || selTask.value || selEvent.value || valuesOpen.value || reviewOpen.value || snapOpen.value || rolesOpen.value || docsOpen.value
-  || timerOpen.value || caseId.value || candOpen.value || plan.value || opinionsOpen.value))
+  || timerOpen.value || caseId.value || candOpen.value || flowOpen.value || plan.value || opinionsOpen.value))
 watch(procKey, (k) => {
   if (String(route.query.proc || '') === k) return
   const query = { ...route.query, proc: k || undefined }
@@ -541,7 +542,18 @@ const full = ref(false)
 // AI 후보: the panel hands the map what to paint (일 → high · mid · human)
 const candOpen = ref(false)
 const marks = ref(new Map())
-watch(candOpen, (on) => { if (on) rulesOn.value = false; else if (!rulesOn.value) marks.value = new Map() })
+watch(candOpen, (on) => { if (on) { rulesOn.value = false; flowOpen.value = false } else if (!rulesOn.value && !flowOpen.value) marks.value = new Map() })
+// 병목 보기(OntoFlowPanel): 지금 쌓인 할 일로 일을 칠하고(병목 · 많고 적음 · 에이전트 구간 · 바깥 대기), 꼬리표를 달고, 흔한 길을 굵게
+const flowOpen = ref(false)
+const flowHeat = ref({ badges: new Map(), ways: new Set() })
+const NO_BADGES = new Map(), NO_WAYS = new Set()
+function onFlowHeat(h) { if (!flowOpen.value) return; marks.value = h.marks; flowHeat.value = { badges: h.badges, ways: h.ways } }
+watch(flowOpen, (on) => {
+  if (on) { candOpen.value = false; rulesOn.value = false; return }
+  flowHeat.value = { badges: new Map(), ways: new Set() }
+  if (!candOpen.value && !rulesOn.value) marks.value = new Map()
+})
+function toggleFlow() { sel.value = null; flowOpen.value = !flowOpen.value }
 // 단계 규칙(server lib/ontology/steprule.js): 이 프로세스에서 꼭 하는 단계(자물쇠) · 해도 되는 단계(점선) · 사안에 따라 바뀌는 단계를 지도에 칠한다
 const rulesOn = ref(false)
 async function loadRuleMarks() {
@@ -551,7 +563,7 @@ async function loadRuleMarks() {
     if (rulesOn.value) marks.value = new Map((r.steps || []).map((s) => [s.task, s.mark]))
   } catch (e) { err.value = e.message }
 }
-function toggleRules() { rulesOn.value = !rulesOn.value; if (rulesOn.value) candOpen.value = false; loadRuleMarks() }
+function toggleRules() { rulesOn.value = !rulesOn.value; if (rulesOn.value) { candOpen.value = false; flowOpen.value = false } loadRuleMarks() }
 watch(procKey, () => { if (rulesOn.value) loadRuleMarks() })
 // 일 패널의 「이 단계는」: 그 일이 든 흐름(루틴은 건이 돌지 않는다)
 const selTaskProcs = computed(() => (selTask.value ? procsOf(selTask.value).map((k) => processes.value.find((p) => p.key === k)).filter((p) => p && p.kind !== 'routine') : []))
@@ -623,6 +635,7 @@ onBeforeUnmount(() => {
           <button class="hbtn glass press" :class="{ on: rolesOpen }" data-testid="onto-roles-button" @click="toggleRoles">역할</button>
           <button class="hbtn glass press" :class="{ on: docsOpen }" data-testid="onto-docs-button" @click="toggleDocs">문서</button>
           <button class="hbtn glass press" :class="{ on: candOpen }" data-testid="onto-candidates-button" @click="sel = null; candOpen = !candOpen">AI 후보</button>
+          <button class="hbtn glass press" :class="{ on: flowOpen }" title="지금 쌓인 할 일로 병목 · 회사의 제약 · 흔한 길을 봐요" data-testid="onto-flow-button" @click="toggleFlow">병목 보기</button>
           <button v-if="proc && !isRoutine" class="hbtn glass press" :class="{ on: snapOpen }" @click="toggleSnap">스냅샷 보기</button>
           <button v-if="proc && !isRoutine && (!isSimple(proc) || isSaid(proc))" class="hbtn glass press" :class="{ on: refineOpen }" title="찾은 순서를 바로잡고 단계를 나눠요" data-testid="onto-refine-button" @click="refineOpen = true">다듬기</button>
           <button v-if="proc" class="hbtn glass press" :class="{ on: opinionsOpen }" title="이 프로세스에 남은 의견을 보고 정해요" data-testid="onto-opinions-button" @click="toggleOpinions">
@@ -751,7 +764,8 @@ onBeforeUnmount(() => {
           <div ref="stageEl" class="stage" :data-preview="preview?.kind || ''" :data-side="pside" :data-flow="flowMode">
           <p v-if="!graph.tasks.length" class="none">{{ at ? '그날에는 아직 그린 지도가 없어요.' : '이 θ 로는 남는 일이 없어요.' }}</p>
           <MapGraph v-else :whole="full" :marks="marks" :tasks="graph.tasks" :edges="graph.edges" :entries="graph.entries" :events="previewGraph ? [] : view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="sideOpen" :scale="shareScale"
-            :picked="chosen" :pickable="!!procKey && !previewGraph" :notes="notes" :only-notes="onlyNotes && !!notes" @select="onSelect" @pick="onPick" />
+            :picked="chosen" :pickable="!!procKey && !previewGraph" :notes="notes" :only-notes="onlyNotes && !!notes"
+            :badges="flowOpen && !previewGraph ? flowHeat.badges : NO_BADGES" :hot-ways="flowOpen && !previewGraph ? flowHeat.ways : NO_WAYS" @select="onSelect" @pick="onPick" />
           <!-- 아래쪽: 말로 고치기 입력 칸(넓은 화면) 바로 밑에 범례 -->
           <div class="dock" :class="{ side: sideOpen && !narrow }">
           <OntoEditBox v-if="boxOn && !narrow" ref="boxEl" v-model="editWords" :placeholder="editPlaceholder" :scope="editScope" :pending="editBusy === 'plan'" :picked="chosenN" :context="editContext" :error="plan ? '' : editErr"
@@ -768,6 +782,13 @@ onBeforeUnmount(() => {
             <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#2b7fbf" stroke-width="1.8" stroke-dasharray="4 3" /></svg>해도 되고 안 해도 되는 단계</span>
             <span><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="4" fill="none" stroke="#2b7fbf" stroke-width="1.8" stroke-dasharray="1.5 2.5" /></svg>사안에 따라</span>
             <span v-if="!marks.size">이 프로세스에는 정한 단계가 없어요 — 단계를 눌러 정해요</span>
+          </div>
+          <div v-else-if="graph.tasks.length && flowOpen" class="legend" data-testid="onto-flow-legend">
+            <span><i class="lg bott" />병목(할 일이 가장 많이 쌓인 사람 단계)</span>
+            <span><i class="lg heat" />할 일이 쌓인 일 — 짙을수록 많아요</span>
+            <span><i class="lg agent" />에이전트 구간</span>
+            <span><i class="lg out" />바깥 대기(고객)</span>
+            <span><svg width="26" height="10"><path d="M1 5h24" stroke="#d6336c" stroke-width="3.5" /></svg>흔한 길(크리티컬 패스)</span>
           </div>
           <div v-else-if="graph.tasks.length && marks.size" class="legend" data-testid="onto-cand-legend">
             <span><i class="lg high" />AI가 맡을 수 있는 일</span>
@@ -808,6 +829,9 @@ onBeforeUnmount(() => {
           </SidePanel>
           <SidePanel v-else-if="docsOpen" kicker="규정 · 업무 정의서" title="문서대로와 실제" @close="docsOpen = false">
             <OntoDocsPanel :tasks="map.tasks" @task="showTask" @proc="(k) => { docsOpen = false; pickProc(k) }" @changed="loadMap" />
+          </SidePanel>
+          <SidePanel v-else-if="flowOpen" kicker="병목 보기" :title="proc ? proc.name : '회사 전체'" @close="flowOpen = false">
+            <OntoFlowPanel :proc-key="procKey" :at="at" :admin="!!status?.admin" @heat="onFlowHeat" @task="showTask" @role="openRole" @candidates="flowOpen = false; candOpen = true" />
           </SidePanel>
           <SidePanel v-else-if="candOpen" kicker="AI 후보" title="AI에 맡길 일 · 사람이 꼭 할 일" @close="candOpen = false">
             <OntoCandidatesPanel :admin="!!status?.admin" @marks="(m) => (marks = m)" @task="showTask" />
@@ -936,6 +960,10 @@ h1 { margin: 0; font-size: 27px; font-weight: 500; letter-spacing: -0.02em; }
 .lg.mid { background: color-mix(in srgb, #2f9e6e 14%, transparent); border: 1.5px dashed #2f9e6e; }
 .lg.human { background: color-mix(in srgb, #d9822b 26%, transparent); border: 2px solid #d9822b; }
 .lg.dim { border: 1px solid var(--hairline); opacity: .5; }
+.lg.bott { background: color-mix(in srgb, #d6336c 30%, transparent); border: 2.5px solid #d6336c; }
+.lg.heat { background: linear-gradient(90deg, color-mix(in srgb, #e8590c 9%, transparent), color-mix(in srgb, #e8590c 34%, transparent)); border: 2px solid #e8590c; }
+.lg.agent { background: color-mix(in srgb, #2f9e6e 14%, transparent); border: 1.5px dashed #2f9e6e; }
+.lg.out { border: 1.5px dotted var(--text-tertiary); }
 .legend .and { font-weight: 600; color: var(--color-info); }
 /* 아래쪽: 말로 고치기 입력 칸 + 범례(범례는 칸 바로 밑, 칸 높이와 상관없이) */
 .dock { position: absolute; z-index: 3; left: 16px; right: 170px; bottom: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }

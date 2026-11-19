@@ -465,6 +465,11 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 승격 단계(관찰 · 제안 · 자동, 관리자만, 결정 원장), 제안 단계의 메일 · 채팅 제안 카드 | `ontology-triggers.e2e.mjs` 1~3, F-PO-13 | HTTP·feature | ✅ |
 | 자동 단계의 사람 단계는 초안 모드(에이전트 초안이 먼저) | `ontology-run.e2e.mjs` 7 | agent | ✅ |
 | 타이머 사건: 사람의 예약 → 역할 루틴 단계, 그래프에서 멈추면 실행 안 함, 회사 타이머(제안이면 묻고 자동이면 시작), 메일의 「예약 걸까요?」 | `ontology-triggers.e2e.mjs` 4~9, F-PO-14·15 | HTTP·feature | ✅ |
+| 병목 보기: 일마다 할 일 = 지도 엔진 · 스냅샷 건의 todolist 행을 activity_id 로 센 수, 병목 = 할 일이 가장 많은 우리 쪽 사람 단계(에이전트 · 바깥 역할 제외) | `ontology-flow.e2e.mjs` S1, F-PO-16, `ontology-flowtime.test.js` | HTTP·feature·단위 | ✅ |
+| 흔한 길(크리티컬 패스): 엔진처럼 매번 가장 흔한 길, 지난 건의 시간 · 지금 줄이 선 곳은 쌓인 것 치우는 시간(리틀의 법칙), 가장 긴 고리 = 병목, 시간 몫(기대 방문) | `ontology-flow.e2e.mjs` S2, F-PO-16·17, `ontology-flowtime.test.js` | HTTP·feature·단위 | ✅ |
+| 회사의 제약: 모든 프로세스의 할 일을 역할로 · 한 사람당, 두 프로세스에 걸친 디자이너 | `ontology-flow.e2e.mjs` S3, `ontology-flowtime.test.js` | HTTP·단위 | ✅ |
+| 실시간: 할 일에서 내면 지도 엔진이 다음 단계를 열고 할 일 수가 따라 움직임 · 관리자만 건 제목 · 지난 날짜는 그때 열린 것 | `ontology-flow.e2e.mjs` S4·S5, F-PO-16 | HTTP·feature | ✅ |
+| 병목 보기의 what-if(고칠 동작을 얹은 예상) · 개선안 합의 · 시행 전후 비교 · 근무 시간 달력의 휴일(설계 P3~P4) | — | — | ✗ |
 | 습관(열린 일 프로세스에서 다음 일 묻기)이 굳은 길에서 실제로 묻는 장면, 실제 Gmail 메일함, 설치판 Ontological(소스 공개 결정 대기), 메일 보관함 보관 기간 · 연결 끊기 | — | — | ✗ |
 
 ## 단계별 시험 수
@@ -472,9 +477,9 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (28개) | 179 (프로세스 지도 F-PO-01…15, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
+| feature | `tests/feature/*.spec.js` (28개) | 181 (프로세스 지도 F-PO-01…17, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…06, 팀 맥락 공유 F-TC-01…10) |
 | agent | `tests/agent/*.spec.js` (7개) | 18 (회의 A-14, 후행 습관 A-FU-01) |
-| 합계 | | 271 (`npx playwright test --list` 로 센 수 256 + F-PO 15, 2026-11-13) |
+| 합계 | | 273 (`npx playwright test --list` 로 센 수 256 + F-PO 17, 2026-11-19) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 

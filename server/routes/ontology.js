@@ -47,6 +47,9 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/build', auth, h(async (req) => { await admin(req); return S.startBuild(req.user) }))
   r.get('/ontology/map', auth, h((req) => S.map({ validAt: req.query.at || undefined, systemAt: req.query.system || undefined })))
   r.get('/ontology/labels', auth, h(() => S.labels()))
+  // 흐름 분석(flowload.js): 일마다 지금 쌓인 할 일(지도 엔진 · 스냅샷 건의 todolist 행) · 걸린 시간 · 병목 · 흔한 길 · 회사의 제약(역할) — 보기는 누구나,
+  // 열린 할 일의 건 제목 · 맡은 사람은 관리자만
+  r.get('/ontology/flow', auth, h(async (req) => (await import('../lib/ontology/flowload.js')).flowView(req.user, { proc: String(req.query.proc || ''), validAt: req.query.at || undefined })))
   // 개인 습관을 지도에 보이는 기준(관리자가 정하고, 보기는 누구나)
   r.get('/ontology/settings', auth, h(() => S.habitSettings()))
   r.put('/ontology/settings', auth, h(async (req) => { await admin(req); return S.setHabitSettings(req.user, { mode: String(req.body?.mode || ''), min: req.body?.min }) }))

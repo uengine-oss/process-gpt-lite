@@ -14,6 +14,8 @@
 // 의견(notes): 조용한 「의견 N」, 의견이 엇갈리면 「해소 필요」; onlyNotes 는 해소 필요가 없는 것을 흐리게.
 // 여러 개 고르기(pickable): Shift · Cmd(Ctrl) + 누르기로 일 · 관계를 넣고 빼고, Shift + 끌기는 상자 안의 일과 고른 일 사이의
 // 관계를 더한다 → pick {tasks, ways}. 그냥 끌기는 옮기기, 그냥 누르기는 select 그대로.
+// 흐름 분석(OntoFlowPanel): marks 의 heat1~3(지금 쌓인 할 일의 많고 적음) · bott(병목) · agent(에이전트 구간) · out(바깥 대기)으로 칠하고,
+// badges 는 일의 위 오른쪽 꼬리표(「할 일 7」 · 「병목 · 할 일 7」), hotWays 는 흔한 길(크리티컬 패스)의 관계를 굵게 · 나머지는 흐리게.
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, useId } from 'vue'
 import { layoutGraph } from './layout.js'
 import { END, pct, taskName, SPLIT_KO, condText } from './fmt.js'
@@ -34,6 +36,8 @@ const props = defineProps({
   pickable: Boolean, // shift / cmd(ctrl) + click toggles, shift + drag picks a box → pick {tasks, ways}
   notes: { type: Object, default: null }, // 의견: {tasks: {[key]: {n, conflict}}, ways: {[edge id]: {n, conflict}}}
   onlyNotes: Boolean, // 해소 필요만: dim what has no conflict
+  badges: { type: Map, default: () => new Map() }, // 흐름 분석: 일 → {text, kind: bott · hot · agent · out}
+  hotWays: { type: Set, default: () => new Set() }, // 흐름 분석: 흔한 길의 관계(edge id)
 })
 const emit = defineEmits(['select', 'pick'])
 
@@ -169,7 +173,8 @@ const drawn = computed(() => L.value.edges.map((g) => {
     cls: { stale: stale(e), retired, thin: e.thin, back: g.back, and: isAnd(e), evt: e.kind === 'raise' || e.kind === 'trigger',
       added: !!e.added && !e.decided && !e.diff, removed: !!e.removed && !e.diff, decided: !!e.decided && !e.unseen, unseen: !!e.unseen,
       [`df-${e.diff}`]: !!DIFF_KO[e.diff], picked: isWay(e) && pickedW.value.has(g.id), nconf: !!nt?.conflict, nd: props.onlyNotes && !nt?.conflict,
-      sel: props.selected?.kind === 'edge' && props.selected.id === g.id, near: !!selKey.value && (e.from === selKey.value || e.to === selKey.value) },
+      sel: props.selected?.kind === 'edge' && props.selected.id === g.id, near: !!selKey.value && (e.from === selKey.value || e.to === selKey.value),
+      hot: props.hotWays.has(g.id), cool: props.hotWays.size > 0 && !props.hotWays.has(g.id) && isWay(e) },
   }
 }))
 
@@ -221,6 +226,8 @@ const nodes = computed(() => L.value.nodes.map((n) => {
   x.strike = mk === 'drop' || (t.removed && !diff) || diff === 'remove'
   x.dtag = diff && { text: DIFF_KO[diff], w: tagW(DIFF_KO[diff]) }
   x.ntag = nt && { text: noteText(nt), w: tagW(noteText(nt), 10, nt.conflict ? 17 : 14), conflict: !!nt.conflict }
+  const bd = props.badges.get(n.key)
+  x.btag = !x.dtag && bd?.text ? { text: bd.text, w: tagW(bd.text), kind: bd.kind || 'hot' } : null
   x.picked = pickedT.value.has(n.key)
   x.cls = {
     [`mk-${mk}`]: props.marks.has(n.key), dim: props.marks.size && !props.marks.has(n.key), cand: t.candidate,
@@ -467,6 +474,8 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
             <text class="sm ct" :x="n.w - 11" :y="n.h - 11" text-anchor="end">{{ n.foot.ct }}</text>
             <!-- 미리 보기: 더함 · 뺌 · 바뀜 (위 오른쪽) -->
             <g v-if="n.dtag" class="dtag" :transform="`translate(${n.w - n.dtag.w - 6},-12)`"><rect :width="n.dtag.w" height="18" rx="9" /><text :x="n.dtag.w / 2" y="13" text-anchor="middle">{{ n.dtag.text }}</text></g>
+            <!-- 흐름 분석: 지금 쌓인 할 일 · 병목 (위 오른쪽) -->
+            <g v-if="n.btag" class="btag" :class="n.btag.kind" :transform="`translate(${n.w - n.btag.w - 6},-12)`" data-testid="onto-flow-badge" :data-kind="n.btag.kind"><rect :width="n.btag.w" height="18" rx="9" /><text :x="n.btag.w / 2" y="13" text-anchor="middle">{{ n.btag.text }}</text></g>
             <!-- 의견 N · 해소 필요 (아래 오른쪽, 테두리에 걸쳐) -->
             <g v-if="n.ntag" class="ntag" :class="{ conf: n.ntag.conflict }" :transform="`translate(${n.w - n.ntag.w - 8},${n.h - 6})`"><rect :width="n.ntag.w" height="16" rx="8" /><text :x="n.ntag.w / 2" y="11.5" text-anchor="middle">{{ n.ntag.text }}</text></g>
           </template>
@@ -552,6 +561,25 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .node.mk-req > rect { fill: color-mix(in srgb, #7a4fd0 16%, var(--regular-solid-bg)); stroke: #7a4fd0; stroke-width: 3; }
 .node .lock { fill: #7a4fd0; pointer-events: none; }
 .node.mk-opt > rect { fill: color-mix(in srgb, #2b7fbf 8%, var(--regular-solid-bg)); stroke: #2b7fbf; stroke-width: 2; stroke-dasharray: 6 4; }
+.node.mk-heat1 > rect { fill: color-mix(in srgb, #e8590c 9%, var(--regular-solid-bg)); stroke: #e8590c; stroke-width: 1.6; }
+.node.mk-heat2 > rect { fill: color-mix(in srgb, #e8590c 20%, var(--regular-solid-bg)); stroke: #e8590c; stroke-width: 2.2; }
+.node.mk-heat3 > rect { fill: color-mix(in srgb, #e8590c 32%, var(--regular-solid-bg)); stroke: #e8590c; stroke-width: 2.8; }
+.node.mk-bott > rect { fill: color-mix(in srgb, #d6336c 30%, var(--regular-solid-bg)); stroke: #d6336c; stroke-width: 4.5; }
+.node.mk-bott .nm { font-weight: 800; }
+.node.mk-agent > rect { fill: color-mix(in srgb, #2f9e6e 14%, var(--regular-solid-bg)); stroke: #2f9e6e; stroke-width: 1.8; stroke-dasharray: 5 3; }
+.node.mk-out > rect { fill: color-mix(in srgb, var(--text-primary) 4%, var(--regular-solid-bg)); stroke: var(--text-tertiary); stroke-width: 1.5; stroke-dasharray: 2 3; }
+.node.mk-calm > rect { stroke-width: 1.2; }
+.edge.hot .line { stroke: #d6336c; opacity: 1; }
+.edge.hot .tip { fill: #d6336c; opacity: 1; }
+.edge.cool { opacity: .32; }
+.lbl.cool { opacity: .45; }
+.lbl.hot rect { stroke: #d6336c; stroke-width: 1.5; }
+.btag { pointer-events: none; }
+.btag rect { fill: #e8590c; }
+.btag.bott rect { fill: #d6336c; }
+.btag.agent rect { fill: #2f9e6e; }
+.btag.out rect { fill: var(--text-tertiary); }
+.btag text { font-size: 10.5px; font-weight: 700; fill: #fff; }
 .node.mk-cond > rect { stroke: #2b7fbf; stroke-width: 2; stroke-dasharray: 1.5 3; stroke-linecap: round; }
 /* 프로세스 다듬기 ①: 더한 일 · 관계는 파랑 점선, 뺀 것(찾은 대로 쪽)은 빨강 점선 */
 .node.added > rect { stroke: var(--color-info); stroke-width: 2.2; stroke-dasharray: 6 3; }
