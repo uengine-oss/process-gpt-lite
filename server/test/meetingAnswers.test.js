@@ -49,6 +49,11 @@ test('도우미에게 한 말인지 · 열어 달라는지 · 파일 이야기�
   assert.equal(I.cue(SAID).material, true)
 }))
 
+test('찾은 목록: 같은 이름은 한 줄, 그 자리에 폴더 원본을 남긴다', () => {
+  const list = [{ key: 'file:1', title: 'ERP_일정.xlsx' }, { key: 'file:2', title: '회의록.docx' }, { key: 'folder:f:ERP_일정.xlsx', title: 'ERP_일정.xlsx', folderFile: true }, { key: 'file:3', title: 'erp_일정.XLSX' }]
+  assert.deepEqual(MAT.oncePerName(list).map((x) => x.key), ['folder:f:ERP_일정.xlsx', 'file:2'])
+})
+
 test('찾은 것의 모양: 열쇠는 종류:아이디, 폴더 문서는 folderFile', () => ko(() => {
   const v = MAT.pickView({ kind: 'folder', id: 'f1:docs/a.pdf', title: 'a.pdf', folderFile: true, where: '영업 폴더', score: 2 })
   assert.deepEqual(v, { key: 'folder:f1:docs/a.pdf', kind: 'folder', title: 'a.pdf', where: '영업 폴더', folderFile: true, score: 2 })

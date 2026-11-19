@@ -159,14 +159,29 @@ export function scoreOf(utter, c) {
 // every kind, scored against what was said; best first
 export async function ranked(utter, ctx, kinds = ['file', 'process', 'panel', 'folder']) {
   const all = (await Promise.all(kinds.map((k) => candidates(k, ctx).catch(() => [])))).flat()
-  return all.map((c) => ({ ...c, score: scoreOf(utter, c) })).filter((c) => c.score > 0).sort((a, b) => b.score - a.score)
+  // a copy of a folder document (shown in an earlier meeting) does not stand in for the folder's own one
+  return oncePerName(all.map((c) => ({ ...c, score: scoreOf(utter, c) })).filter((c) => c.score > 0).sort((a, b) => b.score - a.score))
 }
 
 // ---- found by the person (자료 찾기 in the meeting's 자료 tab) ----
 const WHERE = { file: ['파일', 'File'], process: ['진행 상황', 'Progress'], panel: ['앱 데이터', 'App data'], folder: ['폴더 문서 수정본', 'Folder revision'] }
 export const pickView = (c) => ({ key: `${c.kind}:${c.id}`, kind: c.kind, title: c.title, where: c.where || L(...(WHERE[c.kind] || WHERE.file)), folderFile: !!c.folderFile, score: c.score ?? null })
 // what a person typed: names first, then the folder index (document cards and full text) for words not in any name
+// one line per document name: a folder document shown in a meeting is also my copy and the room's file
+// (folderToFile) — the list showed it two or three times (2026-11-19 recording). The better-ranked place
+// stays, holding the folder's own document when there is one (the original I can open in the folder)
+export function oncePerName(list) {
+  const out = [], at = new Map()
+  for (const c of list) {
+    const k = String(c.title).toLowerCase()
+    if (!at.has(k)) { at.set(k, out.length); out.push(c) } else if (c.folderFile && !out[at.get(k)].folderFile) out[at.get(k)] = c
+  }
+  return out
+}
 export async function search(text, ctx, limit = 12) {
+  return oncePerName(await searchAll(text, ctx, limit * 2)).slice(0, limit)
+}
+async function searchAll(text, ctx, limit) {
   const t = String(text || '').trim().slice(0, 120)
   if (!t) {
     // nothing typed: what is nearest — this room's files, then the newest folder documents
