@@ -668,15 +668,21 @@ export async function runView(me, caseId) {
   const defs = new Map()
   for (const i of c.instancesInfo) if (!defs.has(i.proc_def_id)) { const [d] = await q(`select definition from proc_def where id=$1 and tenant_id=$2`, [i.proc_def_id, T()]); defs.set(i.proc_def_id, d?.definition || {}) }
   const firstVal = (o) => Object.values(o || {}).find((x) => x && typeof x === 'object') || {}
+  const meIds = [String(me?.id || ''), String(me?.email || '')].filter(Boolean)
   // one step as the run view shows it: a = its activity (the snapshot's, or a map case's act), t = its work item (null: not yet), g = its gate's row
   const stepOf = (a, t, inst, current) => {
     const g = t ? byTodo.get(t.id) : null
     const f = facts.get(a.name) || null
     const agentStep = a.agentMode === 'complete' || (t?.agent_orch && String(t.agent_mode || '').toUpperCase() === 'COMPLETE')
-    const people = String(t?.user_id || '').split(',').map((x) => users.get(x.trim())).filter((u) => u && !u.is_agent).map((u) => u.username || u.email)
+    const holders = String(t?.user_id || '').split(',').map((x) => x.trim()).filter(Boolean)
+    const people = holders.map((x) => users.get(x)).filter((u) => u && !u.is_agent).map((u) => u.username || u.email)
     const v = firstVal(t?.output), d = firstVal(t?.draft)
+    const state = stepState(t, g)
     return {
-      task: a.name, inst, current, todoId: t?.id || null, stepId: g?.id || null, state: stepState(t, g), at: t?.end_date || t?.updated_at || null,
+      task: a.name, inst, current, todoId: t?.id || null, stepId: g?.id || null, state, at: t?.end_date || t?.updated_at || null,
+      // the viewer's own turn: the step's work item is open and theirs (a comma list — a draft step lists the agent, then the person), not
+      // waiting for the owner nor being drafted — the case view shows its form there (OntoCaseRun → TodoCard, POST /todos/:id/submit)
+      mine: state === 'person' && holders.some((x) => meIds.includes(x)),
       kind: g?.kind || (agentStep ? 'agent' : a.agentMode === 'draft' ? 'draft' : 'person'),
       holder: agentStep ? { agent: true, name: '업무 에이전트', role: a.role } : { agent: false, role: a.role || '', names: people, draft: a.agentMode === 'draft' },
       reversible: g ? g.reversible : !f?.irreversible?.on, reversibleWhy: f?.irreversible?.why || '', responsible: f?.responsible?.on || false, responsibleWhy: f?.responsible?.why || [],

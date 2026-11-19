@@ -51,8 +51,8 @@ test('1·2·3 ProcessGPT 로그인 → /lite 가 그 계정·테넌트로 열림
   expect(me.status).toBe(200)
   expect(me.body.user?.email || me.body.email).toBe(A.email)
 
-  // a deep link opened directly, and a reload of it
-  for (const p of ['/chat', '/improve']) {
+  // a deep link opened directly, and a reload of it (not /improve: it now moves on to the process map — src/main.js)
+  for (const p of ['/chat', '/mining']) {
     const r = await page.goto(`${LITE}${p}`)
     expect(r.status(), p).toBe(200)
     expect(await isLite(page)).toBe(true)

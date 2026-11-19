@@ -3,8 +3,9 @@
 // server/test/ontology-{map,run,review}.e2e.mjs, 판단 사례는 server/test/ontology-cases.json(server/test/ontology-stats.test.js).
 // 데모 테넌트에서 돈다: PGPT_URL=http://ax.localhost:5191 API_URL=http://ax.localhost:8790 PGPT_TENANT=ax-demo, 지도가 셈해진 뒤
 // (node server/scripts/ax-demo.mjs --reset --seed → ontology-map.e2e.mjs). 지도가 없으면 건너뛴다. 모델은 부르지 않는다.
-import { test, expect } from '../../lib/fixtures.js'
-import { hasServerSource, SERVER_DIR } from '../../lib/env.js'
+import { test, expect, RUN, api } from '../../lib/fixtures.js'
+import { hasServerSource, SERVER_DIR, API_URL, LOGIN_CODE, TENANT } from '../../lib/env.js'
+import { spawnSync } from 'node:child_process'
 
 const nextMonthFirst = () => { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString().slice(0, 10) }
 async function mapOf(u) {
@@ -294,5 +295,110 @@ test('F-PO-17 화면 — 병목 보기: 패널(병목 · 회사의 제약 · 흔
   // 닫으면 지도의 칠 · 꼬리표가 사라진다
   await page.getByTestId('onto-flow-button').click()
   await expect(page.getByTestId('onto-flow-badge')).toHaveCount(0)
+  expect(page.errors).toEqual([])
+})
+
+// 건 화면에서 내 단계 내기(server lib/ontology/runmode.js runView 의 mine → OntoCaseRun 의 TodoCard): 시드(seed-flow-demo.mjs)가 데모 출연진
+// 김민지(pro-ax-minji, 디자이너)에게 맡긴 열린 평면도 작성을 그 사람으로 연다 — 회귀 계정(pro-rt-*)이 아니라 시드가 단계를 맡긴 출연진이라
+// 데모 테넌트(ax-demo)에서만 돈다. HTTP 쪽(길 · mine · 남에게는 아님 · 내기)은 server/test/ontology-case-submit.e2e.mjs. 끝나면 시드를 다시 쓴다.
+const CAST = /^pro-ax-[a-z]+@uengine\.org$/
+async function castPage(browser, email) {
+  if (!CAST.test(email)) throw new Error(`데모 출연진 계정만 열어요: ${email}`)
+  const r = await fetch(`${API_URL}/api/auth/email/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, code: LOGIN_CODE }) })
+  const s = await r.json()
+  if (!s?.session?.access_token) throw new Error(`로그인 ${email}: ${r.status}`)
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1, locale: 'ko-KR' })
+  await ctx.addInitScript((x) => { if (window.top === window) localStorage.setItem('pgpt-pro-session', x) }, JSON.stringify(s))
+  const page = await ctx.newPage()
+  page.errors = []
+  page.on('pageerror', (e) => page.errors.push(String(e?.message || e)))
+  page.user = api.client(s)
+  return page
+}
+const reseedFlow = () => {
+  const r = spawnSync(process.execPath, ['scripts/seed-flow-demo.mjs'], { cwd: SERVER_DIR, encoding: 'utf8' })
+  if (r.status) console.warn('[seed-flow-demo]', String(r.stderr || '').slice(0, 200))
+}
+test('F-PO-18 화면 — 건 화면에서 내 단계 내기: 김민지가 프로세스 목록에서 건을 열면 자기 단계(평면도 작성)의 양식이 있고, 내면 지도 엔진이 다음 단계(제안서 작성)를 연다', async ({ browser, db, cleanup }) => {
+  test.skip(TENANT !== 'ax-demo', '데모 테넌트(ax-demo)의 시드 자료로 돈다')
+  const [{ n }] = await db.q(`select count(*)::int as n from pro_po_cases where tenant_id=$1 and request->>'seed'='flow-demo'`, [TENANT])
+  test.skip(n < 20, '시드가 없다(node server/scripts/seed-flow-demo.mjs)')
+  if (hasServerSource()) cleanup(reseedFlow)
+  const page = await castPage(browser, 'pro-ax-minji@uengine.org')
+  cleanup(() => page.context().close())
+  // her open step of a map case — 평면도 작성 when she has one (a decided 개선안 that added a designer can leave her only 현장 실측) — whose
+  // case is in her 프로세스 list (the list shows her newest 30, the ones waiting on her first)
+  const listed = new Set(((await page.user.get('/instances')).body || []).map((i) => i.proc_inst_id))
+  const open = await db.q(`select t.id::text as id, t.proc_inst_id, t.activity_name as task, c.id::text as case_id from todolist t join pro_po_cases c on t.proc_inst_id = any(c.instances)
+                           where c.tenant_id=$1 and c.engine='map' and t.status='IN_PROGRESS' and coalesce(t.agent_orch,'')='' and t.user_id like '%'||$2||'%'
+                           order by (t.activity_name='평면도 작성') desc, t.start_date`, [TENANT, page.user.id])
+  const T0 = open.find((t) => listed.has(t.proc_inst_id))
+  test.skip(!T0, '김민지의 열린 단계가 없다')
+
+  // 프로젝트 › 프로세스: the case (지도에서 바로 · 입력 필요) opens its case screen on the map; the routine screen links only the map
+  await page.goto('/projects')
+  await expect(page.getByRole('link', { name: '프로세스 지도 →' })).toBeVisible({ timeout: 20000 })
+  await expect(page.getByRole('link', { name: '개선 분석 →' })).toHaveCount(0)
+  await page.locator(`[data-testid=instance-map-case][data-inst="${T0.proc_inst_id}"]`).click()
+  await expect.poll(() => new URL(page.url()).searchParams.get('case'), { timeout: 15000 }).toBe(T0.case_id)
+  expect(new URL(page.url()).pathname).toBe('/process-map')
+  const mine = page.locator(`[data-testid=onto-case-step][data-todo="${T0.id}"]`)
+  await expect(mine).toHaveAttribute('data-state', 'person', { timeout: 20000 })
+  await expect(mine).toHaveAttribute('data-mine', '1')
+  // only her step carries the form
+  await expect(page.getByTestId('onto-case-todo')).toHaveCount(1)
+  const card = mine.getByTestId('onto-case-todo')
+  await expect(card).toHaveAttribute('data-todo', T0.id)
+  await card.locator('textarea').fill(`${T0.task} 했어요(F-PO-18, 건 화면에서)`)
+  await page.screenshot({ path: test.info().outputPath('f-po-18-form.png') })
+  await card.getByRole('button', { name: '제출' }).click()
+
+  // handed in: the step is done, the map engine opened the map's next step (after 평면도 작성: 제안서 작성) and the case screen shows it
+  await expect(mine).toHaveAttribute('data-state', 'done', { timeout: 20000 })
+  await expect(mine.getByTestId('onto-case-todo')).toHaveCount(0)
+  await expect(page.getByTestId('onto-case-note')).toContainText('냈어요')
+  const [next] = await db.q(`select t.id::text as id, t.activity_name from pro_case_steps s join todolist t on t.id = s.todo_id where s.case_id=$1 and s.via->>'fromTodo' = $2`, [T0.case_id, T0.id])
+  expect(next, '지도 엔진이 다음 단계를 열었다').toBeTruthy()
+  if (T0.task === '평면도 작성') expect(next.activity_name).toBe('제안서 작성')
+  await expect(page.locator(`[data-testid=onto-case-step][data-todo="${next.id}"]`)).toHaveAttribute('data-task', next.activity_name, { timeout: 20000 })
+  await page.screenshot({ path: test.info().outputPath('f-po-18-next.png') })
+  // the instance's address (/projects/p/<instId>) lands on the same case screen
+  await page.goto(`/projects/p/${encodeURIComponent(T0.proc_inst_id)}`)
+  await expect.poll(() => new URL(page.url()).searchParams.get('case'), { timeout: 15000 }).toBe(T0.case_id)
+  expect(page.errors).toEqual([])
+})
+
+// 개선 분석은 지도로 합쳤다(pgpt-pro/docs/auto-ax-onboarding/design-improve-on-map.md §7 · 결정 4 — src/main.js 의 넘기기, server routes/improve.js
+// GET /improve/:defId/map): /improve 는 지도의 병목 보기로, 지도 프로세스의 스냅샷 정의는 그 프로세스의 병목 보기로, 지도에 없는 정의(손으로 그린 ·
+// 생성한 프로세스)는 옛 개선 화면 그대로(그 회귀는 improve.spec.js F-IM-*). 알림의 /improve/… 주소와 인스턴스 머리글의 링크도 같은 넘기기를 지난다.
+test('F-PO-19 /improve 넘기기 — 목록은 지도의 병목 보기로, 지도 프로세스의 스냅샷 정의는 그 프로세스로, 지도에 없는 정의는 옛 개선 화면 그대로', async ({ pageAs, db, cleanup }) => {
+  const page = await pageAs('po-user')
+  const m = await mapOf(page.user)
+  const A = m.processes.find((b) => b.kind !== 'routine' && b.tasks.includes('견적서 작성'))
+  test.skip(!A, '견적서 작성이 있는 프로세스가 없다')
+  const snap = (await page.user.get(`/ontology/snapshot?proc=${encodeURIComponent(A.key)}&entry=${encodeURIComponent('견적서 작성')}`)).body
+  expect(snap.procDefId).toBeTruthy()
+  expect((await page.user.get(`/improve/${encodeURIComponent(snap.procDefId)}/map`)).body).toMatchObject({ proc: A.key })
+  // a definition that is not on the map (drawn by hand / generated)
+  const DEF = `rt_po_improve_${RUN}`.toLowerCase()
+  await db.q(`insert into proc_def (id, name, definition, type, tenant_id, owner, isdeleted) values ($1,$2,$3,'bpmn',$4,$5,false)`,
+    [DEF, `회귀 정의 ${RUN}`, { processDefinitionId: DEF, processDefinitionName: `회귀 정의 ${RUN}`, activities: [], sequences: [], gateways: [], roles: [] }, db.tenant, page.user.id])
+  cleanup(() => db.q('delete from proc_def where id=$1', [DEF]))
+  expect((await page.user.get(`/improve/${DEF}/map`)).body).toEqual({ proc: null })
+  // where the page is: path · view (· proc) — the map may add the process it opens to the address (?proc=) once it has loaded
+  const at = (withProc) => () => { const u = new URL(page.url()); return `${u.pathname}?view=${u.searchParams.get('view')}${withProc ? `&proc=${u.searchParams.get('proc')}` : ''}` }
+
+  // the list → the map's 병목 보기
+  await page.goto('/improve')
+  await expect.poll(at(false), { timeout: 15000 }).toBe('/process-map?view=flow')
+  // a snapshot of a map process (the instance header's 「병목 · 크리티컬 패스 보기」 and a notice's address look like this) → that process
+  await page.goto(`/improve/${encodeURIComponent(snap.procDefId)}?tab=path`)
+  await expect.poll(at(true), { timeout: 15000 }).toBe(`/process-map?view=flow&proc=${A.key}`)
+  // not on the map: the old improve screen, unchanged — and its 「프로세스 개선」(back to the list) goes to the map, in the app
+  await page.goto(`/improve/${DEF}`)
+  await expect(page.getByRole('button', { name: '프로세스 개선' })).toBeVisible({ timeout: 15000 })
+  expect(new URL(page.url()).pathname).toBe(`/improve/${DEF}`)
+  await page.getByRole('button', { name: '프로세스 개선' }).click()
+  await expect.poll(at(false), { timeout: 15000 }).toBe('/process-map?view=flow')
   expect(page.errors).toEqual([])
 })

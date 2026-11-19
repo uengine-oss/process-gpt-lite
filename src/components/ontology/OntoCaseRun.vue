@@ -3,12 +3,14 @@
 // 맡은 이(업무 에이전트, 또는 역할 · 사람), 되돌릴 수 있는지, 사람을 기다리면 그 까닭과 정할 것(진행 · 다른 갈래 · 멈추기).
 // 「멈추기」 · 「이어 가기」 · 「이 단계로 되감기」는 건을 맡은 사람이나 관리자. 바꾸면 emit changed(위 패널이 스냅샷을 다시 그린다).
 // 「이 단계에 의견」은 누구나: 말을 지도의 고침으로 옮겨 보고(edit/plan, 그 단계 범위) 의견으로 남긴다(opinions, source step) — 건은 그대로.
+// 보는 사람이 맡은 사람 차례의 단계(runView mine)에는 채팅의 할 일 카드(TodoCard)를 그대로 두어 여기서 바로 낸다 — 내면 진행을 다시 읽는다.
 import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { api } from '../../api.js'
 import { dateTimeKo, pct } from './fmt.js'
 import { RUNMODE_KO, STEP_KO, WAIT_KO, holderText, RO, EUL, EUN, IEYO } from './ontoText.js'
 import OntoDocSheet from './OntoDocSheet.vue'
 import OntoChangeList from './OntoChangeList.vue'
+import TodoCard from '../TodoCard.vue'
 
 const props = defineProps({ caseId: { type: String, required: true } })
 const emit = defineEmits(['changed'])
@@ -63,6 +65,12 @@ async function decide(action, to = '', extra = {}, stepId = waiting.value?.stepI
   else if (r) pass.value = null
 }
 const passGo = () => decide(pass.value.action, pass.value.to || '', { confirm: true, reason: pass.value.reason.trim() }, pass.value.stepId)
+// 내 차례인 단계를 여기서 냈으면(TodoCard): 진행을 다시 읽어 다음 단계를 보이고, 위 패널도 다시 그린다
+async function submitted(s) {
+  note.value = `「${s.task}」${EUL(s.task)} 냈어요. ${run.value?.engine === 'map' ? '지도가 다음 단계를 정해요.' : '다음 단계로 넘어가요.'}`
+  await load()
+  emit('changed')
+}
 const REQ_TAG = { required: '꼭 하는 단계', optional: '해도 되는 단계' }
 async function rewind(task, confirm = false) {
   const r = await act(`cases/${props.caseId}/rewind`, { task, confirm }, null)
@@ -175,7 +183,7 @@ function resay() {
 
       <!-- 단계 -->
       <ol class="steps">
-        <li v-for="s in current" :key="`${s.inst}:${s.task}`" :class="s.state" data-testid="onto-case-step" :data-task="s.task" :data-state="s.state" :data-kind="s.kind">
+        <li v-for="s in current" :key="`${s.inst}:${s.task}`" :class="s.state" data-testid="onto-case-step" :data-task="s.task" :data-state="s.state" :data-kind="s.kind" :data-todo="s.todoId || ''" :data-mine="s.mine ? '1' : '0'">
           <span class="dot" />
           <div class="main">
             <div class="row1">
@@ -207,6 +215,10 @@ function resay() {
               </small>
             </div>
             <small v-if="s.sent" class="sent" data-testid="onto-case-sent">보낸 것으로 기록 · {{ s.sent.to || '받는 사람' }} · {{ s.sent.subject }} (실제로는 보내지 않았어요)</small>
+            <!-- 내 차례인 단계(runView mine): 채팅의 할 일 카드와 같은 양식을 여기서 바로 내요 -->
+            <div v-if="s.mine && s.todoId" class="mytodo" data-testid="onto-case-todo" :data-todo="s.todoId">
+              <TodoCard :key="s.todoId" :todo-id="s.todoId" @submitted="submitted(s)" />
+            </div>
             <!-- 이 단계에 의견: 말 → 지도로 옮겨 보기 → 의견으로 남기기 -->
             <div v-if="voice?.key === stepKey(s)" class="vo" data-testid="onto-case-voice" :data-task="s.task" :data-done="voice.done ? '1' : '0'">
               <template v-if="voice.done">
@@ -311,6 +323,7 @@ function resay() {
 .made .fr { font-size: 12px; color: var(--color-success); line-height: 1.45; }
 .made .fr.bad { color: var(--color-warning, #b26a00); }
 .sent { font-size: 12px; color: var(--text-tertiary); }
+.mytodo { margin-top: 6px; min-width: 0; max-width: 100%; }
 .dot { flex: none; margin-top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); }
 li.done .dot { background: var(--color-success); }
 li.running .dot { background: var(--color-info); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-info) 22%, transparent); }

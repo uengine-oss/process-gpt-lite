@@ -32,7 +32,8 @@ const hiddenDone = computed(() => Math.max(0, app.instances.filter((i) => i.stat
       </button>
     </TransitionGroup>
     <template v-if="app.instances.length">
-      <div class="sec">프로세스 <router-link class="imp" to="/improve">개선 분석 →</router-link> <router-link class="imp" to="/process-map">프로세스 지도 →</router-link></div>
+      <!-- (개선 분석은 지도의 「병목 보기」로 합쳤어요 — /improve 는 지도로 넘어가요, src/main.js) -->
+      <div class="sec">프로세스 <router-link class="imp" to="/process-map">프로세스 지도 →</router-link></div>
       <TransitionGroup name="arc" tag="div" class="items">
         <button v-for="i in shownInstances" :key="i.proc_inst_id" class="item proc" :class="{ on: route.params.instId === i.proc_inst_id, ended: i.status === 'COMPLETED' }"
           :data-testid="i.engine === 'map' ? 'instance-map-case' : 'instance-item'" :data-inst="i.proc_inst_id" @click="openInst(i)">

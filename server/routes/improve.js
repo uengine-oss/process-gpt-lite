@@ -10,6 +10,21 @@ const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   res.status(e.status || 500).json({ error: e.message })
 })
 
+// 개선 분석은 회사 프로세스 지도로 합쳤어요(pgpt-pro/docs/auto-ax-onboarding/design-improve-on-map.md §7, 결정 4): 이 정의가 지도 프로세스의
+// 스냅샷이면 그 프로세스 키 — 화면(src/main.js)이 /improve/:defId 를 지도의 병목 보기(/process-map?proc=…&view=flow)로 넘긴다. 스냅샷은
+// 프로세스 키를 두 곳에 남긴다: 그 스냅샷으로 시작한 건(pro_po_cases.bundle · snapshots)과 그래프의 Snapshot 노드(proc · proc_def_id,
+// lib/ontology/run.js snapshot). 지도에 없는 정의(손으로 그린 · 생성한 프로세스)나 지도에서 없어진 프로세스는 proc 없음 — 옛 개선 화면 그대로.
+async function mapProcOf(defId) {
+  const id = String(defId || '')
+  const [c] = await q(`select bundle from pro_po_cases where tenant_id=$1 and $2 = any(snapshots) and coalesce(bundle,'') <> '' order by created_at desc limit 1`, [config.tenantId, id]).catch(() => [])
+  const { cypher } = await import('../lib/ontology/store.js')
+  const [s] = c?.bundle ? [] : await cypher('MATCH (s:Snapshot {proc_def_id:$pid}) RETURN s.proc AS proc', { pid: id }).catch(() => [])
+  const proc = c?.bundle || s?.proc || null
+  if (!proc) return { proc: null }
+  const [b] = await cypher('MATCH (b:Process {key:$key}) RETURN b.key AS key, b.name AS name', { key: proc }).catch(() => [])
+  return b ? { proc: b.key, name: b.name || '' } : { proc: null }
+}
+
 export function improveRoutes(auth) {
   const r = express.Router()
   // processes with a history to analyse (the ones this person may look at)
@@ -25,6 +40,8 @@ export function improveRoutes(auth) {
                           order by count(i.*) filter (where i.status='COMPLETED') desc, max(i.updated_at) desc nulls last limit 50`, [config.tenantId, admin, String(req.user.id), req.user.email || '(none)'])
     return rows
   })()))
+  // read-only: { proc, name } of the map process this definition is a snapshot of, or { proc: null } (see mapProcOf)
+  r.get('/improve/:defId/map', auth, (req, res) => send(res, mapProcOf(req.params.defId)))
   r.get('/improve/:defId', auth, (req, res) => send(res, S.overview(req.user, req.params.defId, { version: req.query.version, basis: req.query.basis })))
   r.get('/improve/:defId/instances/:instId', auth, (req, res) => send(res, S.instance(req.user, req.params.defId, req.params.instId)))
   r.post('/improve/:defId/whatif', auth, (req, res) => send(res, S.simulateChanges(req.user, req.params.defId, req.body || {})))
