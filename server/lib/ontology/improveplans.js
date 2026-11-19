@@ -1,5 +1,5 @@
 // 개선안의 한살이(설계 docs/auto-ax-onboarding/design-improve-on-map.md §5.3): 고쳐 보기(flowplan.js) → 개선안 → 합의에 올림(의견,
-// opinions.js) → 관리자가 정함(효력일) → 시행 → 지켜보기(예상과 실측). Supabase pro_improve_plans(sql/047). The map's changes a plan makes are
+// opinions.js) → 관리자가 정함(효력일) → 시행 → 지켜보기(예상과 실측). Supabase pro_improve_plans(sql/048). The map's changes a plan makes are
 // the same corrections 말로 고치기 keeps (editmap.js applyEdit — 고친 기록, one batch, undone one by one there); 사람 더하기 adds the people to
 // the role (Settings › 팀 · 역할, pro_role_members). New cases follow the decided map; running cases go on as they started (D-1116).
 // 시행 전후 is measured again whenever it is read (flowload.js flowModel since the effective day) — nothing measured is kept.
