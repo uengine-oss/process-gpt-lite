@@ -263,7 +263,7 @@ const when = (s) => (s ? new Date(s).toLocaleString('ko-KR', { month: 'numeric',
               <tr v-for="r in reviews[p.id].rows" :key="r.key" data-testid="onto-plan-review-row" :data-key="r.key" :data-verdict="r.verdict || ''">
                 <th>{{ r.label }}<small v-if="r.verdict">{{ VERDICT[r.verdict] }}</small></th>
                 <td>{{ r.unit === 'h' ? fmtH(r.before) : `${n1(r.before)}건` }}</td><td>{{ r.unit === 'h' ? fmtH(r.predicted) : `${n1(r.predicted)}건` }}</td>
-                <td :class="r.verdict">{{ r.unit === 'h' ? fmtH(r.actual) : `${n1(r.actual)}건` }}</td>
+                <td :class="r.verdict">{{ r.actual == null ? '—' : r.unit === 'h' ? fmtH(r.actual) : `${n1(r.actual)}건` }}</td>
               </tr>
             </tbody>
           </table>

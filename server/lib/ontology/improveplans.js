@@ -209,6 +209,8 @@ export async function reviewPlan(me, id) {
   const after = (await runRows({})).filter((x) => x.proc === r.proc_key && x.start >= since)
   const days = F.workMs(since, Date.now()) / (F.WORK_H * F.HOUR)
   const rv = reviewOf({ baseline: r.baseline, predicted: r.predicted }, now)
+  // nothing ran since the effective day: today's numbers are not a measurement of the plan yet
+  if (!after.length) { rv.rows = rv.rows.map((x) => ({ ...x, actual: null, verdict: null })); rv.moved = null }
   return {
     plan: await shape(me, r), ...rv, verdictKo: VERDICT_KO,
     since: { at: r.effective_at, workDays: Math.round(days * 10) / 10, items: after.length, cases: new Set(after.map((x) => x.caseId)).size, timed: now.tasks.filter((t) => t.since).map((t) => t.key) },
