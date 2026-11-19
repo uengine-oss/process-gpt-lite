@@ -10,7 +10,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "MIT",
+  "license": "SEE LICENSE IN ../LICENSE",
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

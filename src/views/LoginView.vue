@@ -5,7 +5,7 @@ import SkyCanvas from '../sky/SkyCanvas.vue'
 import Wordmark from '../components/Wordmark.vue'
 import Typewriter from '../components/Typewriter.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
-import { auth } from '../api.js'
+import { auth, api } from '../api.js'
 import { BASE } from '../base.js'
 
 const router = useRouter()
@@ -33,6 +33,11 @@ onMounted(async () => {
 })
 
 function google() {
+  // behind the ProcessGPT gateway: ProcessGPT's own Google sign-in, back to this address (server/lib/sso.js)
+  if (!cfg.value.google && cfg.value.sso?.google) {
+    location.href = `${cfg.value.sso.google}&redirect_to=${encodeURIComponent(location.origin + BASE + '/auth/done')}`
+    return
+  }
   if (!cfg.value.google) {
     error.value = 'Google OAuth가 아직 설정되지 않았어요. 이메일로 계속해 주세요.'
     return
@@ -67,7 +72,9 @@ async function verify() {
   busy.value = false
   if (!r.ok) { error.value = '코드가 맞지 않아요.'; code.value = ['', '', '', '', '', '']; codeEls.value[0]?.focus(); return }
   auth.set(await r.json())
-  router.replace('/welcome/age')
+  // the birth date is asked once; returning people go straight in
+  const me = await api('/me')
+  router.replace(me.profile?.onboarded_at || me.profile?.birth ? '/chat' : '/welcome/age')
 }
 </script>
 

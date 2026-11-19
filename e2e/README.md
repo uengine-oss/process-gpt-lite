@@ -272,6 +272,8 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 의도 → 자료(규칙 → 판단 모델, 잡담은 건너뜀, 큰 모델 0회), 볼 수 있는 사람에게만·저장소 URL 없음, 열면 내 사본, 부탁 → 시작/아니요 제안(회의록 블록 아래) | F-MT-04 | feature | ✅ (판단 모델 없으면 건너뜀) |
 | 회의록 블록: 문장마다 행을 만들지 않고 한 행 갱신, 회의 끝내기 → 최종 회의록(참여자·시간·줄 수)·끝 카드, 기록은 process-gpt 모양(assistant 행 + 글) | F-MT-05 | feature | ✅ |
 | 방별 도우미 끄기: 영상 회의만(소리·글 403), 방엔 시작·끝 카드만 | F-MT-06 | feature | ✅ |
+| 공유 폴더 문서도 자료: 받아쓴 영어 낱말(셉→SAP)·파일 종류(PDF)로 골라 말한 사람에게 바로 열기, 폴더 밖 사람에겐 이름도 안 감, 못 찾으면 도우미가 말함, 「자료 찾기」로 직접 찾아 띄우기(남의 폴더 문서는 404) | F-MT-07 | feature | ✅ (말 단계는 판단 모델·LLM 없으면 건너뜀) |
+| 자료 띄우기 › 내 컴퓨터에서: 올린 파일이 내 파일 카드로 자료에 오르고(회의 밖 사람 404), 띄우기 전엔 상대가 못 보고, 모두에게 띄우면 상대는 자기 사본으로 연다 · 폴더 문서를 띄우면 폴더 밖 사람에게 띄운 사람의 사본으로 | F-MT-08 · F-MT-07 | feature | ✅ |
 | 가짜 카메라·마이크 두 브라우저: 메시 연결, 화자별 자막, 자료가 둘 모두에게, 모두에게 띄우기 동기화, 부탁 시작 → 결과 자료, 끝 → 방에 회의록 | A-14 | agent | ✅ (OpenAI TTS 로 시험 말소리를 만듦 — 키 없으면 건너뜀) |
 | 세 사람·평면도(CAD)·프로세스 진행 상황(단계 산출물 칩)·발표자 무대·회의록 스크롤 | — | — | ◐ (시연 녹화 스크립트로 확인, 자동 시험 ✗) |
 | TURN 이 필요한 망(대칭 NAT), 7명 이상(SFU) | — | — | ✗ (운영 후속) |
@@ -288,6 +290,12 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 다음 메일 라우팅 기준(형식 2개·낱말 2개) | F-MN-03 | feature | ✅ |
 | 등록된 프로세스와 맞는 메일 → 그 프로세스로 시작(프로세스 카드·`pro_mining_runs`) | A-13 | agent | ✅ (등록된 추천이 없으면 건너뜀) |
 | 관리자 화면(MiningView)에서 흐름 보기·정식 등록 | — | — | ✗ (관리자 계정이 필요 — 시험 계정은 관리자가 아님) |
+| 관리자가 추천 화면의 대화로 근거를 묻고, 단계를 옵션으로 정하면 언제 건너뛰는지 되묻고 조건을 들으면 정식 등록 정의에 배타 게이트웨이와 두 흐름의 조건(관리자 조건과 그 반대)을 넣어 새 버전으로 저장 · ProcessGPT 엔진이 그 조건대로 분기 · 다시 찾아도 그대로 · 새 사례는 제안으로 · 사례 옮기기 · 관리자가 정한 범주가 다음 판단에 이어짐 (단계 구성이 다른 정식 등록 프로세스 두 개) | A-MN-10 (`mining-admin-talk.spec.js`) | agent | 8088/lite 에서 (시험 계정 `pro-rt-mining-admin` 을 관리자로 바꿈, 테넌트의 기존 추천 세 개를 씀. 엔진 분기는 `process-gpt-completion/polling_service` 가 옆에 있을 때) |
+| 관리자가 대화로 택일 갈래(견적서 작성)의 조건을 고치면 새 버전으로 저장 · 모든 분기 흐름에 조건, 기본 흐름 없음 · 데모 메일이 업무 범주로 정식 등록 프로세스를 시작 · 폴링 서비스가 저장된 조건대로 갈래를 골라 인스턴스를 진행 (고객 회신 제외) | A-MN-11 (`mining-branch-run.spec.js`) | agent | 8088/lite + 폴링 서비스 |
+| 구성이 다른 두 정식 등록 프로세스(행사 견적·고객 회신: 계약서 요청 여부 / 설계 제안·견적 대응: 견적 합계 5천만 원)에서 갈래마다 데모 메일 한 통 · 업무 범주로 그 프로세스가 시작 · 에이전트 단계 뒤 엔진이 저장된 조건대로 참인 흐름 하나로 감 (합계 갈래는 그 인스턴스의 견적 합계로 판정) | A-MN-12 (`mining-branch-run-others.spec.js`) | agent | 8088/lite + 폴링 서비스 + deepagents·office-mcp |
+| 관리자가 대화로 행사 견적(계약 검토)·설계 제안(재무 검토)의 옵션 조건을 같은 뜻의 다른 말로 고치면 새 버전 하나로 저장(`by:'admin'`, 반대 조건은 업무 말) · 다음 메일이 그 새 버전으로 시작되고 엔진이 그 문장으로 판정 | A-MN-13 (`mining-branch-admin-others.spec.js`) | agent | 8088/lite + 폴링 서비스 + deepagents·office-mcp·cadcraft-cli |
+| 연습 메일로 새 업무 사례를 쌓아(일부만 검토 공유) 마이닝이 만든 추천에서, 업무 흐름이 정하지 못한 분기가 확인 필요로 남음(초안과 맞은 건수 또는 "초안 없음", 정식 등록 막힘) · 확정 전 미리보기 BPMN 에 조건 없음 · "초안대로" 또는 대화로 확정하면 `by:'admin'`, 반대쪽도 업무 말 조건 · 이미 닫힌 같은 사례는 이어 씀 | A-MN-14 (`mining-undecided-admin.spec.js`) | agent | 8088/lite + deepagents (시험 계정 `pro-rt-mining-finance` 를 검토자로) |
+| 정의에서 필수·옵션 읽기·게이트웨이 넣고 빼기·저장 전 이벤트 정리 / 경계·제안 계산·말에서 단계·사례 가리기 | `server/test/mining-shape.test.js` · `server/test/mining-admin.test.js` · process-miner `tests/test_lite_admin_boundary.py` | unit | ✅ |
 
 ### 13d. 프로세스 개선 — 병목·가치 흐름·제약 이론·크리티컬 패스·개선 실행 (`lib/improve/*`, 설계 `process-gpt/openspec/changes/pgpt-pro-process-improvement`)
 
@@ -479,6 +487,15 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 근무 시간에서 공휴일 · 회사의 쉬는 날(`PRO_HOLIDAYS`) 뺌 | `ontology-flowplan.test.js` | 단위 | ✅ |
 | P5(정의 프로세스를 지도에 올리기 · 견주기에 시간 몫 · 튜토리얼 20~22장 다시 쓰기), 머리 숫자를 그래프 속성으로, 채팅의 개선 질문(improveTurn)을 지도 프로세스로 | — | — | ✗ 남은 것 |
 | 습관(열린 일 프로세스에서 다음 일 묻기)이 굳은 길에서 실제로 묻는 장면, 실제 Gmail 메일함, 설치판 Ontological(소스 공개 결정 대기), 메일 보관함 보관 기간 · 연결 끊기 | — | — | ✗ |
+### 21. ProcessGPT 포털에서 넘어온 휴대폰 — 데스크톱 화면으로 돌아가기 (process-gpt 스펙 `gateway_mobile-web-access`, 결정 D-1112-30)
+
+ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「라이트 모드」를 고른 휴대폰은 같은 주소의 `/lite/`(이 앱)로 이동합니다. `/lite` 아래에서 열린 앱을 대상으로 실행해야 F-PT-03이 실행됩니다(`PGPT_URL=http://…/lite`). 그 밖의 설치 환경에서는 해당 항목이 없는지만 확인합니다.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 설정 시트에 「Process GPT 데스크톱 화면으로」 줄은 `/lite` 아래에서 떴고 포털에서 라이트 모드로 넘어온 휴대폰(`mobileView=lite`)일 때만 보임 — 넘어온 휴대폰이 아니면 없음 | D-1112-30 (`SettingsSheet.vue`) | F-PT-01 | feature | ✅ |
+| 따로 설치한 Lite(루트에서 뜸)에서는 `mobileView=lite` 가 남아 있어도 줄이 없음 | D-1112-30 | F-PT-02 | feature | ✅ |
+| 줄을 누르면 포털 `/definition-map?mobileView=desktop` 으로 감(휴대폰 390×844) — 포털이 그 값을 받아 데스크톱 버전으로 바꾸는 것은 process-gpt-vue3 F-MV-20 | D-1112-30 | F-PT-03 | feature | ✅ |
 
 ## 단계별 시험 수
 

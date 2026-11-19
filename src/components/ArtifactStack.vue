@@ -94,7 +94,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 .name { font-size: 12px; color: var(--text-secondary); text-shadow: 0 1px 6px rgba(255, 255, 255, .35); }
 .count { position: absolute; top: -6px; right: -6px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: #1d1d1f; color: #fff; font-size: 12px; line-height: 22px; text-align: center; z-index: 5; }
 .tile { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; background: #6b6b66; box-shadow: 0 3px 10px rgba(0, 0, 0, .18); }
-.tile.hwp { background: #1f6fd1; } .tile.doc { background: #2b579a; } .tile.xls { background: #217346; } .tile.ppt { background: #c43e1c; } .tile.pdf { background: #d93025; } .tile.cad { background: #0b6f88; } .tile.vec { background: #c2570c; } .tile.img { background: #7b3fbf; } .tile.snd { background: #0f8a5f; } .tile.vid { background: #b0223c; }
+.tile.hwp { background: #1f6fd1; } .tile.doc { background: #2b579a; } .tile.xls { background: #217346; } .tile.ppt { background: #c43e1c; } .tile.pdf { background: #d93025; } .tile.md { background: #3d4451; } .tile.txt { background: #5f6670; } .tile.web { background: #e44d26; } .tile.map { background: #b8860b; } .tile.cad { background: #0b6f88; } .tile.vec { background: #c2570c; } .tile.img { background: #7b3fbf; } .tile.snd { background: #0f8a5f; } .tile.vid { background: #b0223c; }
 .layer { position: absolute; transition: transform .3s var(--spring); }
 
 /* fan */

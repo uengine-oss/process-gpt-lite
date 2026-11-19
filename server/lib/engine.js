@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { config } from '../config.js'
 import { q } from './supa.js'
 import { emit } from './bus.js'
-import { updateMessage, mainThread, addMessage } from './store.js'
+import { updateMessage } from './store.js'
 import { getDefinition, getTodo } from './processes.js'
 import { roleMap, roleKey } from './team.js'
 import { L, isEn } from './lang.js'
@@ -125,13 +125,33 @@ export async function submitTodo({ me, todoId, values, messageId }) {
   return { ok: true }
 }
 
+// Where an instance lives for a person: its page (/routines/<instId>, 루틴) and one conversation there (the
+// instance page's, routes/process.js GET /instances/:id) — what started it (a mail, a schedule) and talk
+// about it stay in that context. A step of mine is announced by the Home card process-gpt's todolist
+// trigger makes (lib/notify.js), which opens that page; nothing is added to the main chat (2026-11-18:
+// "전체 대화 목록에 어펜드되기보다는 해당 인스턴스 쪽에서 열리는 게 맞다").
+export async function instanceThread(userId, instId, title = null) {
+  let [t] = await q('select id from pro_threads where user_id=$1 and ref=$2 order by created_at limit 1', [userId, instId])
+  if (!t) {
+    const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
+    ;[t] = await q(`insert into pro_threads(user_id,kind,title,ref) values ($1,'process',$2,$3) returning id`, [userId, title || i?.proc_inst_name || instId, instId])
+  }
+  return t.id
+}
+
+// A Home card that opens the instance page (started from a mail or a schedule, finished): the same
+// notifications table, so process-gpt's bell and phone push carry it too.
+export async function notifyInstance(userId, instId, { type, title, text }) {
+  const { notifyUser } = await import('./notify.js')
+  await notifyUser(userId, { type, title, text: text || '', url: `/routines/${instId}` })
+}
+
 // Follow an instance while it runs: push changes to the client and surface new work
-// items assigned to the user in the main chat (hark-style "needs your input").
+// items assigned to the user (hark-style "needs your input", announceStep).
 const watching = new Map()
 export function watchInstance(me, instId) {
   if (watching.has(instId)) return
   let last = ''
-  const announced = new Set()
   let idle = 0
   const tick = async () => {
     try {
@@ -142,20 +162,12 @@ export function watchInstance(me, instId) {
         last = sig
         idle = 0
         await keepEnglishName(instId)
+        // an open instance page (and its Home card) follow the change; a step of mine is the Home card's
         emit(me.id, 'process', { instId, type: 'changed', status: i?.status })
-        for (const t of todos) {
-          const reached = t.status === 'IN_PROGRESS' || (['TODO', 'NEW'].includes(t.status) && (i?.current_activity_ids || []).includes(t.activity_id))
-          const mine = reached && !t.agent_orch && (String(t.user_id).includes(me.id) || String(t.user_id).includes(me.email))
-          if (mine && !announced.has(t.id)) {
-            announced.add(t.id)
-            const th = await mainThread(me.id)
-            await addMessage(me.id, th.id, 'agent', 'todo', { todoId: t.id, name: t.activity_name })
-          }
-        }
         if (i?.status === 'COMPLETED') {
-          const th = await mainThread(me.id)
           const [n] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
-          await addMessage(me.id, th.id, 'agent', 'chip', { icon: 'check', text: L(`완료 · ${n?.proc_inst_name || instId}`, `Done · ${n?.proc_inst_name || instId}`), instId })
+          const name = n?.proc_inst_name || instId
+          await notifyInstance(me.id, instId, { type: 'process_done', title: L(`완료 · ${name}`, `Done · ${name}`) })
         }
       } else idle++
       if (i?.status === 'COMPLETED' || idle > 360) return stop()

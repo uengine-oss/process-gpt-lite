@@ -11,14 +11,16 @@ import { emit } from './bus.js'
 import { notifyUser } from './notify.js'
 import { mainThread, addMessage } from './store.js'
 import { createSchedule } from './scheduler.js'
-import { startProcess } from './engine.js'
+import { startProcess, instanceThread, notifyInstance } from './engine.js'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { privateSkillFor, ensureSkillFolder } from './folders/skills.js'
 import { PGPT_ROOT } from './paths.js'
+import { fetchRoomDir, rmRoomCopy } from './roomStore.js'
 import { L, isEn, locale, asUser, langInstruction } from './lang.js'
+import { withTenant } from './tenant.js'
 
 const PGPT = PGPT_ROOT
 
@@ -37,9 +39,18 @@ export async function workspaceHostPath(dir) {
 }
 
 // Save a skill-creator draft (a folder in the deepagents workspace) as a tenant skill through
-// deepagents' own POST /skills/upload, exactly like the process-gpt UI's save button.
+// deepagents' own POST /skills/upload, exactly like the process-gpt UI's save button. Where the
+// workspace is not on this machine (the agent's pods), the room's copy in storage (lib/roomStore.js).
 export async function saveSkillDraft({ dir, name, jwt, ownerId }) {
-  const host = await workspaceHostPath(dir)
+  let copy = null
+  const host = await workspaceHostPath(dir).catch(async (e) => {
+    copy = await fetchRoomDir(dir)
+    if (!copy) throw e
+    return copy
+  })
+  try { return await uploadSkillDir({ host, name, jwt, ownerId }) } finally { if (copy) await rmRoomCopy(copy) }
+}
+async function uploadSkillDir({ host, name, jwt, ownerId }) {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'pro-skill-'))
   const zip = path.join(tmp, `${name}.zip`)
   try {
@@ -122,9 +133,11 @@ async function runProcessSchedule(s, run) {
   const [done] = await q(`update pro_mission_runs set finished_at=now(), status='done', changed=true, summary=$2, result=$3, conversation_id=$4 where id=$1 returning *`,
     [run.id, L(`인스턴스 시작 · ${instName}`, `Instance started · ${instName}`), { instId, instName, process: s.process_id }, instId])
   emit(s.user_id, 'mission', { scheduleId: s.id, run: done })
-  const t = s.thread_id || (await mainThread(s.user_id)).id
-  await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id })
-  await addMessage(s.user_id, t, 'agent', 'process', { defId: s.process_id, name: instName, mode: 'start', state: 'started', instId, instName })
+  // the run lives with its instance (its page's conversation) and a Home card opens it; the chat the
+  // schedule was made in gets nothing per run (engine.js instanceThread, 2026-11-18)
+  const th = await instanceThread(s.user_id, instId, instName)
+  await addMessage(s.user_id, th, 'system', 'divider', { text: s.name, scheduleId: s.id })
+  await notifyInstance(s.user_id, instId, { type: 'process_started', title: L(`예약 실행 · ${instName}`, `Scheduled run · ${instName}`), text: s.name })
   return done
 }
 
@@ -146,7 +159,8 @@ async function streamAgent({ user, session, message, agent, gitSkills }) {
     body: JSON.stringify({
       message, message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
-      conversation_id: null, stream: true,
+      // a fresh conversation of its own: deepagents files a chat sent without one under one shared history
+      conversation_id: crypto.randomUUID().replace(/-/g, ''), stream: true,
       metadata: cli
         ? { client: 'pgpt-pro-mission', agent_cli: agent.cli || 'claude-code', agent_model: agent.model || '', agent_permission: agent.permission || 'command_exec', ...(isEn() ? { language: 'en' } : {}),
             ...(gitSkills ? { skills: Object.keys(gitSkills), git_skills: gitSkills } : {}) }
@@ -193,10 +207,14 @@ async function runPromptSchedule(s, run) {
   const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
   const { user, session } = await sessionFor(p.email, p.name)
   const threadId = s.thread_id || (await mainThread(s.user_id)).id
-  const text = L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`,
+  // a reminder is meant to arrive every time; "no change" only suits a schedule that watches something
+  const reminder = s.notify === 'always'
+  const text = reminder ? L(`${s.prompt}\n\n(예약 실행입니다. 사용자에게 알릴 내용을 과정 설명 없이 답하세요.)`,
+    `${s.prompt}\n\n(This is a scheduled run. Answer with what the user should be told, without describing the process.)`) : L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`,
     `${s.prompt}\n\n(This is a scheduled run. If nothing differs from what you shared in the previous run, answer exactly "No change" and nothing else. When you share, write only the result, without describing the process.)`)
   const { delegate } = await import('./agent.js')
-  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, quietIfUnchanged: true })
+  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, quietIfUnchanged: !reminder })
+  if (reminder && msg) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: String(msg.content?.text || '').slice(0, 300), url: `/pro/threads/${threadId}` })
   const body = String(msg?.content?.text || '')
   const out = msg ? outcomeOf(body) : { ok: true, summary: L('변동 없음', 'No change') }
   // the answer is already in the chat: a failure is announced by the caller, not repeated here
@@ -239,7 +257,17 @@ export async function runMission(scheduleId, trigger = 'cron') {
   if (!s || (s.paused && trigger !== 'manual')) return null
   // the company's process map is the record of every timer (lib/ontology/timers.js): stopped or removed there → not run
   if (trigger !== 'manual' && !s.params?.onto_event && !(await import('./ontology/timers.js').then((m) => m.timerOn(s.id)).catch(() => true))) return null
-  return asUser(s.user_id, () => runMissionAs(s, trigger))
+  // pauses before the run: a retry after a failed start must not make it fire twice
+  if (s.state?.once && trigger !== 'manual') await q('update pro_schedules set paused=true where id=$1', [s.id])
+  return inScheduleTenant(s, () => runMissionAs(s, trigger))
+}
+
+// a run happens in the tenant its schedule was made in (sql/022): the agent checks X-Tenant-Id against
+// the person, and the run's chat lines and notification belong there. Older schedules without one: the
+// person's own tenant (lib/tenant.js asTenantOf)
+export function inScheduleTenant(s, fn) {
+  const run = () => asUser(s.user_id, fn)
+  return s.tenant_id ? withTenant(s.tenant_id, run) : run()
 }
 async function runMissionAs(s, trigger) {
   const [run] = await q(`insert into pro_mission_runs(schedule_id, trigger) values ($1,$2) returning *`, [s.id, trigger])
@@ -263,10 +291,12 @@ async function runMissionAs(s, trigger) {
     // private or shared — from its skill folder's repository instead (cli-agent's git_skills), and only it
     const folder = cli ? await ensureSkillFolder(s.skill).catch((e) => { console.warn('[mission] skill folder', s.skill, e.message); return null }) : null
     const gitSkills = folder?.repo_path ? { [s.skill]: folder.repo_path } : null
+    // a skill that reads an outside service gets the same fallback order as a chat turn (API → public → browser → what is missing)
+    const { connectorHint } = await import('./agent.js')
     const message = (own ? L(`다음 스킬 문서의 절차대로 실행하세요: ${own.path} (같은 폴더의 파일도 참고). ${ask}`, `Follow the procedure in this skill document: ${own.path} (see the files in the same folder too). ${ask}`)
       : cli
       ? L(`프로젝트에 설치된 \`${s.skill}\` 스킬을 읽고 사용하세요. ${ask}`, `Read and use the \`${s.skill}\` skill installed in the project. ${ask}`)
-      : `/${s.skill} ${ask}`) + langInstruction()
+      : `/${s.skill} ${ask}`) + connectorHint(`${s.skill} ${JSON.stringify(s.params || {})}`) + langInstruction()
     const out = await streamAgent({ user, session, message, agent: s.agent, gitSkills })
     const result = parseResult(out.text)
     // no result line: the run still finished (or not) — read the answer itself

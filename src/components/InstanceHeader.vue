@@ -9,10 +9,13 @@ import TodoCard from './TodoCard.vue'
 import BpmnView from './BpmnView.vue'
 import Icon from './Icon.vue'
 import { BASE } from '../base.js'
+import { useApp } from '../stores/app.js'
+import { inApp, openOutput } from '../artifacts.js'
 
 // Top of an instance page: title, live flow, my pending inputs, and produced artifacts.
 const props = defineProps({ data: Object })
 const emit = defineEmits(['refresh'])
+const app = useApp()
 const openDoc = ref(null)
 const view = ref('list')
 const detail = ref(null)
@@ -65,7 +68,9 @@ const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', da
       <div class="ch out">산출물 {{ data.artifacts.length }}</div>
       <div class="arts">
         <template v-for="(a, k) in data.artifacts" :key="k">
-          <a v-if="a.kind === 'file'" :href="a.url" target="_blank" class="file press"><Icon name="doc" :size="18" /> {{ a.name }}</a>
+          <!-- opens over this page (OfficeSheet, read-only), not as a download handed to another app -->
+          <button v-if="a.kind === 'file' && inApp(a)" class="file press" @click="openOutput(app, a)"><Icon name="doc" :size="18" /> <span class="fn">{{ a.name }}</span></button>
+          <a v-else-if="a.kind === 'file'" :href="a.url" :download="a.name" class="file press"><Icon name="doc" :size="18" /> <span class="fn">{{ a.name }}</span></a>
           <div v-else-if="a.kind === 'video'" class="video">
             <div class="dh"><span class="serif">구현 시연 영상</span><small>{{ a.activity }}</small></div>
             <video :src="fileUrl(a)" controls preload="metadata" playsinline />
@@ -113,7 +118,9 @@ h2 { font-size: 30px; font-weight: 300; line-height: 1.25; margin: 10px 0 6px; l
 .ch.attn { color: var(--color-attention); font-weight: 500; }
 .ch.out { margin: 8px 0 0 6px; }
 .arts { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
-.file { display: inline-flex; align-items: center; gap: 10px; height: 56px; padding: 0 20px; border-radius: 20px; background: #1d1d1f; color: #f5f5f7; font-size: 15px; font-weight: 500; text-decoration: none; }
+.file { display: inline-flex; align-items: center; gap: 10px; height: 56px; max-width: 100%; padding: 0 20px; border-radius: 20px; background: #1d1d1f; color: #f5f5f7; font-size: 15px; font-weight: 500; text-decoration: none; }
+.file .fn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file > :deep(svg) { flex: none; }
 .doc { position: relative; width: 100%; border-radius: 24px; padding: 8px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); box-shadow: var(--shadow-card); margin-bottom: 8px; }
 .dh { display: flex; flex-direction: column; margin: 10px 12px 12px; }
 .dh .serif { font-size: 20px; text-transform: capitalize; }

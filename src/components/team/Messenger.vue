@@ -14,6 +14,7 @@ import { useMeetings } from '../../stores/meetings.js'
 import { langLabel } from '../../i18n/mainLangs.js'
 // (an agent's reply in a room names sandbox paths too: they read as file names, as in the chat — src/paths.js)
 import { hidePaths } from '../../paths.js'
+import ConflictChoice from './ConflictChoice.vue'
 
 const app = useApp()
 const team = useTeam()
@@ -59,7 +60,30 @@ async function run(key, fn) {
   try { await fn() } catch (e) { err.value = e.message || '처리하지 못했어요.' } finally { busy.value = '' }
 }
 const openFile = (a) => run(`f${a.shareId}`, () => team.openShared(a.shareId, router))
-const cont = (m) => run(`c${m.id}`, () => team.continueWork(m.id, router))
+// on my own share, "이어서 작업" gathers what came back; a conflict is picked here first
+const conflictOf = ref({}) // messageId → conflicts
+const cont = (m, choices) => run(`c${m.id}`, async () => {
+  try { await team.continueWork(m.id, router, choices); delete conflictOf.value[m.id] } catch (e) {
+    if (!e.conflicts) throw e
+    conflictOf.value = { ...conflictOf.value, [m.id]: e.conflicts }
+  }
+})
+// my shares: what each recipient's branch did since (lib/team/worktree.js branchStatus)
+const branchesOf = ref({})
+async function loadBranches() {
+  for (const m of list.value) {
+    if (!m.mine || m.kind !== 'share' || branchesOf.value[m.id]) continue
+    branchesOf.value[m.id] = []
+    team.branches(m.id).then((b) => { branchesOf.value = { ...branchesOf.value, [m.id]: b } }).catch(() => {})
+  }
+}
+watch(() => [team.active, list.value.length], loadBranches, { immediate: true })
+const changedFiles = (b) => [...b.modified, ...b.added]
+const branchLine = (b) => {
+  const parts = [b.modified.length && `${b.modified.length}개 고침`, b.added.length && `${b.added.length}개 추가`, b.removed.length && `${b.removed.length}개 지움`].filter(Boolean)
+  return parts.length ? `${parts.join(' · ')} · ${when(b.at)}` : '아직 그대로'
+}
+const openBranch = (b, path) => run(`b${b.room}${path}`, () => team.openBranchFile(b.room, path))
 const reply = (m) => { team.tab = 'threads'; team.openThread(m.threadId, m.id) }
 async function send() {
   const text = draft.value.trim()
@@ -167,7 +191,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                     <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span>{{ a.name }}
                   </button>
                 </div>
-                <button v-if="!m.mine && (m.kind === 'share' || m.kind === 'mention')" class="b main press cont" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
+                <div v-if="branchesOf[m.id]?.length" class="brs">
+                  <div v-for="b in branchesOf[m.id]" :key="b.room" class="br" :data-room="b.room">
+                    <span class="av xs" :title="b.by === 'agent' ? '에이전트가 고침' : ''">{{ initial(b.recipient.name) }}</span>
+                    <span class="bl"><b>{{ b.recipient.name }}</b> {{ branchLine(b) }}</span>
+                    <button v-for="f in changedFiles(b)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" @click="openBranch(b, f)">
+                      <Icon name="eye" :size="13" />{{ f.split('/').pop() }}
+                    </button>
+                  </div>
+                </div>
+                <ConflictChoice v-if="conflictOf[m.id]" :conflicts="conflictOf[m.id]" :busy="busy === `c${m.id}`" @pick="(c) => cont(m, c)" @cancel="delete conflictOf[m.id]" />
+                <button v-if="(!m.mine && (m.kind === 'share' || m.kind === 'mention')) || (m.mine && branchesOf[m.id]?.some((b) => b.at))" class="b main press cont" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
                 <small class="t">{{ when(m.at) }}</small>
               </div>
             </div>
@@ -294,4 +328,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
   .back { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 15px; align-self: center; }
   .blank { display: none; }
 }
+.brs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.br { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; }
+.br .bl { color: var(--text-secondary); } .br .bl b { color: var(--text-primary); font-weight: 600; }
+.av.xs { width: 20px; height: 20px; border-radius: 10px; font-size: 11px; }
+.art.sm { height: 26px; padding: 0 9px; font-size: 12px; gap: 4px; }
 </style>

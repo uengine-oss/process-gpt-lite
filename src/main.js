@@ -6,6 +6,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './styles/base.css'
 import { api, auth, adoptHostSession } from './api.js'
+import { registerWorker } from './browserNotify.js'
 
 const routes = [
   { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
@@ -15,7 +16,11 @@ const routes = [
   { path: '/chat', component: () => import('./views/MainView.vue'), meta: { mode: 'chat' } },
   // one conversation the context router told apart, inside the main chat
   { path: '/chat/c/:cid', component: () => import('./views/MainView.vue'), meta: { mode: 'chat' } },
-  { path: '/projects/p/:instId', component: () => import('./views/MainView.vue'), meta: { mode: 'project' } },
+  // 루틴: a process instance (2026-11-18: "프로세스 인스턴스는 프로젝트가 아니다") — the list, and one
+  // instance's page (InstanceHeader + its conversation). The old /projects/p/<instId> links (Home cards,
+  // chat cards, notifications already sent) land on the same page.
+  { path: '/routines/:instId?', name: 'routine', component: () => import('./views/MainView.vue'), meta: { mode: 'routine' } },
+  { path: '/projects/p/:instId', redirect: (to) => ({ name: 'routine', params: { instId: to.params.instId } }) },
   { path: '/projects/:id?', component: () => import('./views/MainView.vue'), meta: { mode: 'project' } },
   { path: '/settings/:page?/:sub?', component: () => import('./views/MainView.vue'), meta: { mode: 'chat', settings: true } },
   { path: '/workroom/:kind/:id', component: () => import('./views/WorkroomView.vue') },
@@ -62,3 +67,5 @@ router.beforeEach(async (to, from) => {
 // English: the dictionary and the runtime translator go in before the first render
 const ready = isEnglish ? import('./i18n/english.js').then((m) => m.installEnglish()).catch((e) => console.error('english mode', e)) : Promise.resolve()
 ready.then(() => createApp(App).use(createPinia()).use(router).mount('#app'))
+// push notifications and the installed app's badge (public/sw.js)
+registerWorker()

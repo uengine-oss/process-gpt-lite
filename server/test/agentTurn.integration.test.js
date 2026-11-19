@@ -268,3 +268,85 @@ test('정의를 쓰지 않은 턴(초안 제안)에는 새 프로세스 초안 �
   assert.equal(rows.filter((m) => m.kind === 'process_draft').length, 0)
   assert.match(rows.filter((m) => m.role === 'agent').at(-1).content.text, /Shall I proceed/)
 })
+
+test('마크다운: 이번 턴에 쓰거나 고친 것만 카드(한 파일 한 장, 그 턴 사본 주소) — 읽은 메모·재전송·공유 폴더의 다른 파일은 아님', { skip: !up }, async () => {
+  const conv = `fxa-md-${stamp}`
+  rooms.push(conv)
+  const tid = await thread(conv)
+  const dir = path.join(WS, '.bpmn', conv)
+  const base = `/workspace/.bpmn/${conv}`
+  await fs.mkdir(path.join(dir, 'folders', 'team-docs'), { recursive: true })
+  const old = new Date(Date.now() - 3600_000)
+  // a note from an earlier turn (read now), another one deepagents only sends again, a shared folder's checkout
+  for (const f of ['지난 메모.md', '다른 메모.md']) { await fs.writeFile(path.join(dir, f), '# 지난\n'); await fs.utimes(path.join(dir, f), old, old) }
+  const n0 = streams.length
+  const p = runTurn({ user, session, threadId: tid, text: '주간 보고를 마크다운으로 써 줘' })
+  const h = await nth(n0 + 1)
+  // the checkout is laid down as the run starts: new on disk, but not the agent's work
+  await fs.writeFile(path.join(dir, 'folders', 'team-docs', '안내.md'), '# 안내\n')
+  await fs.writeFile(path.join(dir, '주간 보고.md'), '# 주간 보고\n\n- 첫 줄\n')
+  h.push('message', { type: 'file_artifact', op: 'create', path: `${base}/주간 보고.md`, name: '주간 보고.md', ext: '.md', content: '# 주간 보고\n' })
+  await fs.writeFile(path.join(dir, '주간 보고.md'), '# 주간 보고\n\n- 첫 줄\n- 고친 줄\n')
+  h.push('message', { type: 'file_artifact', op: 'edit', path: `${base}/주간 보고.md`, name: '주간 보고.md', ext: '.md', content: '# 주간 보고\n' })
+  await fs.writeFile(path.join(dir, 'folders', 'team-docs', '고친 안내.md'), '# 고친 안내\n')
+  h.push('message', { type: 'file_artifact', op: 'edit', path: `${base}/folders/team-docs/고친 안내.md`, name: '고친 안내.md', ext: '.md', content: '# 고친 안내\n' })
+  h.push('message', { type: 'file_artifact', op: 'edit', path: `${base}/다른 메모.md`, name: '다른 메모.md', ext: '.md', content: '# 지난\n', replay: true })
+  h.push('message', { type: 'token', content: `\`${base}/지난 메모.md\` 를 참고해 \`${base}/주간 보고.md\` 를 썼어요.` })
+  h.end()
+  await p
+  const cards = (await msgs(tid)).filter((m) => m.kind === 'file').map((m) => m.content)
+  assert.deepEqual(cards.map((c) => c.name).sort(), ['고친 안내.md', '주간 보고.md'], JSON.stringify(cards))
+  const report = cards.find((c) => c.name === '주간 보고.md')
+  assert.match(report.url || '', /^https?:\/\/.+\.md$/, '받은 사람도 여는 사본 주소')
+  const copy = await realFetch(report.url).then((r) => r.text())
+  assert.match(copy, /고친 줄/, '그 턴 끝의 내용')
+})
+
+test('html·txt·xmind 도 그 턴 사본으로 카드 — 재전송된 지난 파일(csv·html)과 읽기만 한 txt 는 아님', { skip: !up }, async () => {
+  const conv = `fxa-web-${stamp}`
+  rooms.push(conv)
+  const tid = await thread(conv)
+  const dir = path.join(WS, '.bpmn', conv)
+  const base = `/workspace/.bpmn/${conv}`
+  await fs.mkdir(dir, { recursive: true })
+  const old = new Date(Date.now() - 3600_000)
+  for (const f of ['지난 표.csv', '지난 안내.html', '참고.txt']) { await fs.writeFile(path.join(dir, f), 'old'); await fs.utimes(path.join(dir, f), old, old) }
+  const n0 = streams.length
+  const p = runTurn({ user, session, threadId: tid, text: '소개 페이지와 메모, 마인드맵을 만들어 줘' })
+  const h = await nth(n0 + 1)
+  await fs.writeFile(path.join(dir, '소개.html'), '<h1>소개</h1>')
+  h.push('message', { type: 'file_artifact', op: 'create', path: `${base}/소개.html`, name: '소개.html', ext: '.html', content: '<h1>소개</h1>' })
+  await fs.writeFile(path.join(dir, '메모.txt'), '메모')
+  h.push('message', { type: 'file_artifact', op: 'create', path: `${base}/메모.txt`, name: '메모.txt', ext: '.txt', content: '메모' })
+  // a script made the mind map (binary: no file_artifact event)
+  await fs.writeFile(path.join(dir, '구조.xmind'), Buffer.from('PK\x03\x04xmind'))
+  for (const f of ['지난 표.csv', '지난 안내.html']) h.push('message', { type: 'file_artifact', op: 'edit', path: `${base}/${f}`, name: f, ext: path.extname(f), content: 'old', replay: true })
+  h.push('message', { type: 'token', content: `\`${base}/참고.txt\` 를 보고 만들었어요.` })
+  h.end()
+  await p
+  const cards = (await msgs(tid)).filter((m) => m.kind === 'file').map((m) => m.content)
+  assert.deepEqual(cards.map((c) => c.name).sort(), ['구조.xmind', '메모.txt', '소개.html'], JSON.stringify(cards))
+  for (const c of cards) assert.match(c.url || '', /^https?:\/\//, `${c.name}: 받은 사람도 여는 사본 주소`)
+})
+
+test('답에 적힌 경로를 deepagents 가 거둬 올린 문서(주소 있는 file_artifact)도 이번 턴 것만 카드 — 지난 메모·표는 아님', { skip: !up }, async () => {
+  const conv = `fxa-col-${stamp}`
+  rooms.push(conv)
+  const tid = await thread(conv)
+  const dir = path.join(WS, '.bpmn', conv)
+  const base = `/workspace/.bpmn/${conv}`
+  await fs.mkdir(dir, { recursive: true })
+  const old = new Date(Date.now() - 3600_000)
+  for (const f of ['지난 메모.md', '지난 표.csv']) { await fs.writeFile(path.join(dir, f), 'old'); await fs.utimes(path.join(dir, f), old, old) }
+  const n0 = streams.length
+  const p = runTurn({ user, session, threadId: tid, text: '정산표를 엑셀로 만들어 줘' })
+  const h = await nth(n0 + 1)
+  // a script made the workbook this turn (no write_file event)
+  await fs.writeFile(path.join(dir, '정산표.xlsx'), Buffer.from('PK\x03\x04xlsx'))
+  for (const f of ['지난 메모.md', '지난 표.csv', '정산표.xlsx']) h.push('message', { type: 'file_artifact', op: 'create', path: `${base}/${f}`, name: f, ext: path.extname(f), content: '', url: `http://127.0.0.1:9/${encodeURIComponent(f)}` })
+  h.push('message', { type: 'token', content: `\`${base}/지난 메모.md\`, \`${base}/지난 표.csv\` 를 참고해 \`${base}/정산표.xlsx\` 를 만들었어요.` })
+  h.end()
+  await p
+  const cards = (await msgs(tid)).filter((m) => m.kind === 'file').map((m) => m.content)
+  assert.deepEqual(cards.map((c) => c.name), ['정산표.xlsx'], JSON.stringify(cards))
+})

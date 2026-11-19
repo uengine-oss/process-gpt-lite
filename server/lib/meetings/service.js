@@ -23,7 +23,7 @@ import * as A from '../team/assist.js'
 import * as R from './record.js'
 import * as I from './intent.js'
 import * as MAT from './materials.js'
-import { transcribe, wavMs, transcribeConfigured } from './transcribe.js'
+import { transcribe, wavMs, transcribeConfigured, lastError as transcribeLastError } from './transcribe.js'
 import { finalize } from './minutes.js'
 import { L, isEn, lang, withLang, langOf } from '../lang.js'
 import { mainLangOf, mainLangsOf, nativeName } from '../mainLang.js'
@@ -41,7 +41,7 @@ export function ice() {
   try { const v = JSON.parse(process.env.PRO_MEETING_ICE || ''); if (Array.isArray(v)) return v } catch { /* default */ }
   return [{ urls: 'stun:stun.l.google.com:19302' }]
 }
-export const tstats = { uploads: 0, rejected: {}, lines: 0, empty: 0, ms: [] }
+export const tstats = { uploads: 0, rejected: {}, lines: 0, empty: 0, failed: 0, ms: [] }
 const reject = (why) => { tstats.rejected[why] = (tstats.rejected[why] || 0) + 1 }
 
 const presenting = new Map() // meetingId -> {materialId, by, byName, at}
@@ -396,6 +396,10 @@ export async function audio(me, id, buf, type = 'audio/wav') {
     let t
     try {
       t = await transcribe(buf, { prompt: await hintFor(m, spoken), type: /webm|ogg/.test(type) ? type : 'audio/wav', language: spoken })
+    } catch (e) {
+      // counted, and said to the speaker (the page used to drop it silently: a meeting with no captions and no why)
+      tstats.failed++
+      throw e.status ? new TeamError(e.status, e.message.startsWith('transcription') ? L('받아쓰기 서버가 응답하지 않아요.', 'The transcription server is not answering.') : e.message) : e
     } finally { if (!t?.text) for (const w of Object.values(waits)) w.resolve(null) }
     tstats.ms.push(t.ms); if (tstats.ms.length > 300) tstats.ms.shift()
     if (!t.text) { tstats.empty++; return { text: '', ms: t.ms } }
@@ -481,32 +485,111 @@ async function detectOne(m0, seg, me) {
   const prev = await q('select speaker, text from pro_meeting_segments where meeting_id=$1 and id < $2 order by id desc limit 3', [m.id, seg.id])
   const shownRows = await q('select key, created_at from pro_meeting_materials where meeting_id=$1', [m.id])
   const lastMinute = shownRows.filter((r) => Date.now() - new Date(r.created_at) < 60000).length
-  const r = await I.detect(seg, { roomId: m.room_id, speaker: me, prev: prev.reverse(), shown: new Set(shownRows.map((x) => x.key)), lastMinute })
-  if (!r) return
-  if (r.repeat) {
-    const [mat] = await q('select id from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, r.repeat])
-    if (mat) await tell(m.id, { type: 'mentioned', materialId: mat.id })
+  const asked = I.addressed(seg.text)
+  let r
+  try {
+    r = await I.detect(seg, { roomId: m.room_id, speaker: me, prev: prev.reverse(), shown: new Set(shownRows.map((x) => x.key)), lastMinute })
+  } catch (e) {
+    // the judge (model) did not answer: a remark said to the helper still gets an honest answer
+    if (asked && I.namesFile(seg.text)) await agentSays(m, L(`죄송해요, ${me.name}님. 지금 판단 모델이 응답하지 않아 부탁을 처리하지 못했어요. 자료 탭의 「자료 찾기」에서 이름으로 찾아 띄울 수 있어요.`,
+      `Sorry, ${me.name}. The model that reads requests isn't answering right now, so I couldn't do that. You can find it by name with "Find material" on the Materials tab.`), { for: me.id })
+    throw e
+  }
+  if (!r) {
+    // judged as not a request (or no cue) though plainly said to the helper about a file: say so
+    // ("민지님 화면 좀 보여 줘" is for a person: no file word, the helper stays quiet)
+    if (asked && I.namesFile(seg.text)) await agentSays(m,L(`${me.name}님, 어떤 자료를 열어야 할지 이해하지 못했어요. 파일 이름을 한 번 더 말해 주시거나 자료 탭의 「자료 찾기」에 적어 주세요.`,
+      `${me.name}, I didn't catch what to open. Say the file's name once more, or type it in "Find material" on the Materials tab.`), { for: me.id })
     return
   }
-  if (r.material) await addMaterial(m, r.material, seg, me)
+  if (r.notFound) {
+    const said = seg.text.replace(/\s+/g, ' ').trim().slice(0, 40)
+    await agentSays(m, L(`죄송해요, ${me.name}님. "${said}"에 맞는 자료를 ${me.name}님이 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 자료 탭의 「자료 찾기」에서 다른 이름으로 찾아보세요.`,
+      `Sorry, ${me.name}. I couldn't find anything matching "${said}" in the room's files, shared folders or work in progress you can see. Try another name with "Find material" on the Materials tab.`), { for: me.id })
+    return
+  }
+  if (r.repeat) {
+    const [mat] = await q('select id from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, r.repeat])
+    if (mat) await tell(m.id, { type: 'mentioned', materialId: mat.id, open: asked && I.wantsOpen(seg.text) ? me.id : undefined })
+    return
+  }
+  if (r.material) await addMaterial(m, r.material, seg, me, { open: I.wantsOpen(seg.text) })
   if (r.request) await addRequest(m, r.request, seg, me)
 }
 
-async function addMaterial(m, cand, seg, me) {
+// what the helper says on its tile and in the subtitles (not a line of the record): everyone in the
+// meeting sees it — it names who asked — and `for` marks whose request it answers
+async function agentSays(m, text, { for: forId } = {}) {
+  await tell(m.id, { type: 'agent', text, for: forId || null, at: new Date().toISOString() })
+}
+
+async function addMaterial(m, cand, seg, me, { open = false } = {}) {
   const said = `"${seg.text.replace(/\s+/g, ' ').slice(0, 40)}${seg.text.length > 40 ? '…' : ''}"`
   const reason = isEn() ? `${me.name}: ${said}` : `${me.name}님 ${said}`
-  const [mat] = await q(`insert into pro_meeting_materials(meeting_id, room_id, kind, ref, key, title, reason, segment_id, by_agent, found_for, judge)
-                         values ($1,$2,$3,$4,$5,$6,$7,$8,true,$9,$10) on conflict (meeting_id, key) do nothing returning *`,
-  [m.id, m.room_id, cand.kind, cand.ref, cand.key, String(cand.title).slice(0, 200), reason, seg.id, me.id, cand.judge])
-  if (!mat) return
+  const mat = await putMaterial(m, cand, me, { reason, segmentId: seg.id, byAgent: true, judge: cand.judge, open })
+  if (!mat) {
+    // already on the panel: point at it (and open it for the one who asked to see it)
+    const [was] = await q('select id from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, cand.key])
+    if (was) await tell(m.id, { type: 'mentioned', materialId: was.id, open: open ? me.id : undefined })
+    return
+  }
   I.stats.materials++
-  for (const p of await active(m.id)) if (await MAT.canSee(p, mat)) emit(p.id, 'meeting', { meetingId: m.id, type: 'material', material: await MAT.view(p, mat) })
-  // into the room's record only if everyone in the room may see it (a private thing's name stays private)
+  console.log(`[meetings] material ${mat.kind} · ${mat.title} · judge ${cand.judge?.ms}ms`)
+}
+// one material on the meeting's panel: told to each person who may see it (opened at once for the one
+// who asked to see it), and into the room's record only if everyone in the room may see it (a private
+// thing's name stays private). Null when it is already there.
+async function putMaterial(m, cand, me, { reason, segmentId = null, byAgent, judge = null, open = false }) {
+  const [mat] = await q(`insert into pro_meeting_materials(meeting_id, room_id, kind, ref, key, title, reason, segment_id, by_agent, found_for, judge)
+                         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict (meeting_id, key) do nothing returning *`,
+  [m.id, m.room_id, cand.kind, cand.ref, cand.key || `${cand.kind}:${cand.id}`, String(cand.title).slice(0, 200), reason, segmentId, byAgent, me.id, judge])
+  if (!mat) return null
+  for (const p of await active(m.id)) if (await MAT.canSee(p, mat)) emit(p.id, 'meeting', { meetingId: m.id, type: 'material', material: await MAT.view(p, mat), open: open && p.id === me.id })
   const members = await M.membersOf(m.room_id)
   let all = true
   for (const p of members) if (!(await MAT.canSee(p, mat))) { all = false; break }
   if (all) await R.materialCard(m, mat, { quiet: quietOf(await active(m.id)) })
-  console.log(`[meetings] material ${mat.kind} · ${mat.title} · judge ${cand.judge?.ms}ms`)
+  return mat
+}
+
+// 자료 찾기: a person looks for material themselves (when speech did not work, or to be sure) — only
+// what they may see — and puts what they picked on the panel (then opens it or shows it to everyone)
+export async function searchMaterials(me, id, text) {
+  const { m } = await forMember(me, id)
+  return inMeeting(m, async () => ({ results: await MAT.search(text, { roomId: m.room_id, speaker: me }) }))
+}
+// 자료 띄우기 › 내 컴퓨터에서: the file becomes my own file card (my home thread, like a chat attachment)
+// and goes on the panel as my file — 모두에게 띄우기 then shares it with the room the usual way (grantForRoom)
+export async function uploadMaterial(me, id, rawName, type, buf) {
+  const { m } = await forMember(me, id)
+  if (m.state !== 'live') throw new TeamError(409, L('이미 끝난 회의예요.', "This meeting has already ended."))
+  if (!(await active(m.id)).some((p) => p.id === me.id)) throw new TeamError(403, L('회의에 참여 중인 분만 자료를 올릴 수 있어요.', "Only people in the meeting can add material."))
+  if (!Buffer.isBuffer(buf) || !buf.length) throw new TeamError(400, L('빈 파일이에요.', 'The file is empty.'))
+  const { saveAttachment } = await import('../attachments.js')
+  const { mainThread, addMessage } = await import('../store.js')
+  return inMeeting(m, async () => {
+    const f = await saveAttachment(me, rawName, type, buf)
+    const t = await mainThread(me.id)
+    const card = await addMessage(me.id, t.id, 'user', 'file', { name: f.name, url: f.url, ...(f.path ? { path: f.path } : {}), attached: true, meeting: m.id })
+    const cand = { kind: 'file', id: card.id, title: f.name, ref: { sourceId: card.id, ownerId: me.id } }
+    const mat = await putMaterial(m, { ...cand, key: `file:${card.id}` }, me, { reason: L(`${me.name}님이 내 컴퓨터에서 올렸어요`, `${me.name} uploaded it from their computer`), byAgent: false })
+    return { material: await MAT.view(me, mat) }
+  })
+}
+
+export async function pickMaterial(me, id, key) {
+  const { m } = await forMember(me, id)
+  if (m.state !== 'live') throw new TeamError(409, L('이미 끝난 회의예요.', "This meeting has already ended."))
+  const live = await active(m.id)
+  if (!live.some((p) => p.id === me.id)) throw new TeamError(403, L('회의에 참여 중인 분만 자료를 올릴 수 있어요.', "Only people in the meeting can add material."))
+  return inMeeting(m, async () => {
+    const cand = await MAT.resolve(key, { roomId: m.room_id, speaker: me })
+    if (!cand) throw new TeamError(404, L('자료를 찾지 못했어요.', "I couldn't find the material."))
+    const k = `${cand.kind}:${cand.id}`
+    const made = await putMaterial(m, { ...cand, key: k }, me, { reason: L(`${me.name}님이 찾아서 올렸어요`, `${me.name} found and added it`), byAgent: false })
+    const [mat] = made ? [made] : await q('select * from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, k])
+    return { material: await MAT.view(me, mat) }
+  })
 }
 
 const NOUNS = ['견적서', '정산표', '예산표', '보고서', '계획서', '안내문', '제안서', '일정표', '회의록', '평면도', '체크리스트']
@@ -603,6 +686,12 @@ export async function present(me, id, mid) {
   return inMeeting(m, () => presentIn(me, m, mat, live))
 }
 async function presentIn(me, m, mat, live) {
+  // a folder document someone in the room cannot open: shown as the presenter's copy (materials.folderToFile)
+  if (mat.kind === 'folder' && mat.ref?.path) {
+    let lacking = false
+    for (const p of await M.membersOf(m.room_id)) if (p.id !== me.id && !(await MAT.canSee(p, mat))) { lacking = true; break }
+    if (lacking) mat = await MAT.folderToFile(me, mat)
+  }
   let ref = mat.ref
   if (mat.kind === 'file' && ref?.ownerId === me.id) {
     const g = await MAT.grantForRoom(me, mat, await M.membersOf(m.room_id), { roomId: m.room_id, chatUuid: mat.chat_uuid, note: `${L('회의 자료', 'Meeting material')} · ${mat.title}` })
@@ -612,7 +701,10 @@ async function presentIn(me, m, mat, live) {
   presenting.set(m.id, { materialId: mat.id, by: me.id, byName: me.name, at: Date.now() })
   for (const p of live) {
     const ok = await MAT.canSee(p, upd)
-    emit(p.id, 'meeting', { meetingId: m.id, type: 'present', by: me.name, byId: me.id, material: ok ? await MAT.view(p, upd) : null, hidden: !ok })
+    const view = ok ? await MAT.view(p, upd) : null
+    // the panel entry too: now visible to those it was just shared with (or a folder document turned copy)
+    if (ok) emit(p.id, 'meeting', { meetingId: m.id, type: 'material', material: view, quiet: true })
+    emit(p.id, 'meeting', { meetingId: m.id, type: 'present', by: me.name, byId: me.id, material: view, hidden: !ok })
   }
   await R.materialCard(m, upd, { presentedBy: me.name, quiet: quietOf(live) })
   return { ok: true }
@@ -628,7 +720,7 @@ export async function unpresent(me, id) {
 export function report() {
   const s = [...tstats.ms].sort((a, b) => a - b)
   const pct = (p) => (s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : null)
-  return { detection: I.report(), transcription: { ...tstats, ms: undefined, latency: { n: s.length, p50: pct(0.5), p90: pct(0.9) }, configured: transcribeConfigured() }, enabled: enabled(), agent: agentEnabled(),
+  return { detection: I.report(), transcription: { ...tstats, ms: undefined, latency: { n: s.length, p50: pct(0.5), p90: pct(0.9) }, configured: transcribeConfigured(), lastError: { ...transcribeLastError } }, enabled: enabled(), agent: agentEnabled(),
     interpretation: IP.report(), translation: TR.report() }
 }
 

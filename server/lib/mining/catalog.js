@@ -155,12 +155,32 @@ for (const r of REVIEWS_EN) {
 }
 export const reviewsIn = (l = lang()) => (normLang(l) === 'en' ? REVIEWS_EN : REVIEWS)
 
+// What a review is named after: the document that was shared. A role names many different reviews
+// (one person's work came back as 계약 검토 5, 재무 검토 5, 제안서 검토 4), so the same review ends up
+// under different names and the mined flows differ for no reason. The document is the same every time.
+// Decided 2026-11-09; the role-named reviews above stay in the catalog so older records still read.
+export const DOC_REVIEWS = [
+  { label: '평면도 검토', exts: ['dxf'] },
+  { label: '제안서 검토', exts: ['hwpx', 'docx'] },
+  { label: '견적서 검토', exts: ['xlsx'] },
+]
+for (const r of DOC_REVIEWS) {
+  STEPS[r.label] ||= { kind: 'human', role: '검토 담당', tool: '팀 공유', skill: 'team-share-review', key: null,
+    description: `공유받은 초안을 확인하고 승인하거나 수정을 요청해요(${r.label}).`, fields: REVIEW_FIELDS }
+}
+// the review a shared set of files is: the first kind whose format is among them
+export function docReview(names = []) {
+  const exts = new Set(names.map((n) => String(n || '').toLowerCase().split('.').pop()).filter(Boolean))
+  return DOC_REVIEWS.find((r) => r.exts.some((e) => exts.has(e)))?.label || ''
+}
+
 // a step label in the other language (the code names steps by their Korean label; an English case
 // records the English one)
 const PAIRS = [
   ['요청 메일 접수', 'Receive request mail'], ['평면도 작성', 'Draw floor plan'], ['제안서 작성', 'Write proposal'],
   ['견적서 작성', 'Prepare quote'], ['재무 검토', 'Finance review'], ['고객 회신', 'Reply to customer'],
   ['디자인 검토', 'Design review'], ['계약 검토', 'Contract review'], ['제안서 검토', 'Proposal review'], ['팀원 검토', 'Teammate review'],
+  ['평면도 검토', 'Floor plan review'], ['견적서 검토', 'Quote review'],
 ]
 const TO_EN = new Map(PAIRS), TO_KO = new Map(PAIRS.map(([k, e]) => [e, k]))
 export function labelIn(label, l = lang()) {

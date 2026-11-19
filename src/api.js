@@ -26,7 +26,7 @@ export function adoptHostSession() {
   return true
 }
 
-async function refreshToken() {
+export async function refreshToken() {
   // a token taken from ProcessGPT is kept fresh by ProcessGPT: take its newer pair rather than
   // spending the shared refresh token here (rotation would sign the other tab out)
   if (auth.get()?.host) {
@@ -99,9 +99,9 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
   if (!r.ok) {
     // a JSON error body ({error}) shows its message, not the raw JSON
     const t = await r.text()
-    let m = t
-    try { m = JSON.parse(t).error || t } catch { /* plain text */ }
-    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.status })
+    let m = t, extra = {}
+    try { const j = JSON.parse(t); m = j.error || t; if (j.conflicts) extra = { conflicts: j.conflicts } } catch { /* plain text */ }
+    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.status, ...extra })
   }
   return r.json()
 }

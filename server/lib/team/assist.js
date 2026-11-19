@@ -19,11 +19,10 @@ import * as M from './messenger.js'
 import { L, isEn, withLang, langOf } from '../lang.js'
 import * as TR from '../translate.js'
 import { mainLangOf, normMain } from '../mainLang.js'
+import { judge as askJudge, judgeAvailable } from '../judge.js'
 
 const T = () => config.tenantId
 const ON = () => process.env.PRO_TEAM_ASSIST !== '0'
-const JUDGE_URL = process.env.PRO_JUDGE_URL ?? 'http://127.0.0.1:8896/judge'
-const JUDGE_MS = Number(process.env.PRO_ASSIST_JUDGE_TIMEOUT_MS || 5000)
 const DEBOUNCE_MS = Number(process.env.PRO_ASSIST_DEBOUNCE_MS || 1200)
 const MIN_YES = 0.7 // stage 2a: "a request for work" must hold at least this much of the judge's probability
 const MIN_P = 0.5 // stage 2b: the chosen work at least this much
@@ -96,21 +95,16 @@ export function prefilter(body, hint = null) {
 }
 
 // ---- counters (GET /api/team/assist/stats) ----
-export const judgeConfigured = () => !!JUDGE_URL
+// the judge server, else the LLM (lib/judge.js)
+export const judgeConfigured = () => judgeAvailable()
 export const stats = { messages: 0, prefiltered: {}, judged: 0, suggested: 0, judgeMs: [], detectMs: [], judgeErrors: 0, bigModelCalls: 0, started: 0 }
 const count = (why) => { stats.prefiltered[why] = (stats.prefiltered[why] || 0) + 1 }
 const keep = (list, v) => { list.push(v); if (list.length > 200) list.shift() }
 
 async function judge(state, question, options) {
-  const t0 = Date.now()
-  const r = await fetch(JUDGE_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(JUDGE_MS),
-    body: JSON.stringify({ state: state.slice(0, 1400), question, options }),
-  })
-  if (!r.ok) throw new Error(`judge ${r.status}`)
-  const j = await r.json()
-  stats.judged++; keep(stats.judgeMs, Date.now() - t0)
-  return { ...j, ms: Date.now() - t0 }
+  const j = await askJudge({ state: state.slice(0, 1400), question, options })
+  stats.judged++; keep(stats.judgeMs, j.ms)
+  return j
 }
 
 // the minimal excerpt: the last few messages of the room, names and text only (no file contents, no ids,
@@ -218,8 +212,8 @@ export function watchRooms() {
     if (!ON()) return count('tenant-off')
     const pf = prefilter(m.content, await mainLangOf(author.id).catch(() => null))
     if (!pf.pass && !pf.translate) return count(pf.why)
-    // an install without a judge server (PRO_JUDGE_URL empty, e.g. the Docker bundle): rules only, no suggestions
-    if (!JUDGE_URL) return count('no-judge')
+    // no judge server and no LLM (lib/judge.js): rules only, no suggestions
+    if (!judgeAvailable()) return count('no-judge')
     clearTimeout(timers.get(row.id))
     // the latest message of a burst is judged with the ones before it
     timers.set(row.id, setTimeout(() => {
@@ -318,7 +312,7 @@ export function view(viewerId, s) {
   const messageId = s.anchor_uuid || s.chat_uuid
   if (s.state === 'open' && !offered) return { id: s.id, threadId: s.room_id, messageId, hidden: true }
   return { id: s.id, threadId: s.room_id, messageId, meetingId: s.meeting_id || null, work: s.work, kind: L(WORKS[s.work]?.badge || '도움', WORKS_EN[s.work]?.badge || 'Help'), title: s.title, reason: s.reason, state: s.state,
-    startedBy: s.started_by, resultMessageId: s.result_uuid, mine: s.started_by === viewerId, canStart: offered && s.state === 'open', judge: s.judge }
+    startedBy: s.started_by, resultMessageId: s.result_uuid, mine: s.started_by === viewerId, canStart: offered && ['open', 'failed'].includes(s.state), judge: s.judge }
 }
 
 export async function list(me, roomId) {
@@ -360,7 +354,9 @@ export async function start(me, id, run) {
   const s = await own(me, id)
   if (!s) throw new TeamError(404, L('제안을 찾지 못했어요.', "I couldn't find that suggestion."))
   if (!s.audience.includes(me.id)) throw new TeamError(403, L('이 제안은 요청받은 분이 시작할 수 있어요.', 'Only the people asked can start this suggestion.'))
-  const [c] = await q(`update pro_room_suggestions set state='running', started_by=$2, updated_at=now() where id=$1 and state='open' returning *`, [s.id, me.id])
+  // a failed one can be tried again (its card says 다시 시도 — 2026-11-18, a meeting's action items failed in
+  // production before the cause was fixed, and nothing could start them again)
+  const [c] = await q(`update pro_room_suggestions set state='running', started_by=$2, updated_at=now() where id=$1 and state in ('open','failed') returning *`, [s.id, me.id])
   if (!c) throw new TeamError(409, L('이미 시작된 제안이에요.', 'This suggestion has already been started.'))
   stats.started++
   await broadcast(c)

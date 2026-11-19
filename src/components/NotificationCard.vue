@@ -19,7 +19,7 @@ const ctxText = computed(() => String(props.n.context || props.n.text || '').rep
 // a teammate's 'team' notice is a share or a mention; its title is in the recipient's language
 // (lib/team/messenger.js notifyMembers: "…를 공유했어요" / "… shared …", "…나를 언급했어요" / "… mentioned you")
 const teamVerb = (title) => (/나를 언급했어요|\bmentioned you\b/.test(title || '') ? '멘션' : /공유했어요|\sshared\s/.test(title || '') ? '공유' : '멘션')
-const verb = computed(() => props.n.type === 'context_access' ? '참고 요청' : props.n.type === 'context_sensitive' ? '민감 제안' : String(props.n.type || '').startsWith('context_access') ? '공유' : props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+const verb = computed(() => props.n.type === 'context_access' ? '참고 요청' : props.n.type === 'context_sensitive' ? '민감 제안' : String(props.n.type || '').startsWith('context_access') ? '공유' : props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : props.n.type === 'meeting_action' ? '할 일' : props.n.type === 'chat' ? '메시지' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
 const kinds = { context_access: '팀 맥락 공유', context_access_result: '팀 맥락 공유', context_access_digest: '팀 맥락 공유', context_sensitive: '팀 맥락 공유', agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선' }
 const when = computed(() => {
@@ -32,6 +32,9 @@ async function act(choice) {
   // a teammate's share or mention (components/team): opens our thread at that message
   const m = /^\/pro\/team\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(String(props.n.url || ''))
   if (!choice && m) { app.dismissNotification(props.n); return team.openMessenger(m[1], m[2]) }
+  // a message in a 1:1 or group room (process-gpt's chat trigger: '/chats?id=<room>') opens that room
+  const room = /^\/chats\?id=([\w.:-]+)/.exec(String(props.n.url || ''))
+  if (!choice && room) { app.dismissNotification(props.n); return team.openMessenger(room[1]) }
   // a shared-folder notice (반영 요청, 인계) opens the variation to review
   if (!choice && String(props.n.url || '').startsWith('/folders/')) { app.dismissNotification(props.n); return router.push(props.n.url) }
   // a process-mining recommendation opens the mined flow (views/MiningView.vue); it stays until decided
@@ -40,9 +43,13 @@ async function act(choice) {
   if (!choice && String(props.n.url || '').startsWith('/improve/')) return router.push(props.n.url)
   // a failed agent step (lib/stepRetry.js) opens its instance, where 「다시 시도」 is; a failed scheduled
   // run opens its task's run history (lib/missions.js)
-  if (!choice && /^\/(projects|settings)\//.test(String(props.n.url || ''))) { app.dismissNotification(props.n); return router.push(props.n.url) }
+  if (!choice && /^\/(projects|routines|settings)\//.test(String(props.n.url || ''))) { app.dismissNotification(props.n); return router.push(props.n.url) }
+  // a work item opens its instance page, where its form is (InstanceHeader 「내 입력이 필요해요」); the
+  // card stays until the step is done
+  const inst = (id) => router.push(`/routines/${encodeURIComponent(id)}`)
+  if (!choice && props.n.type === 'workitem' && props.n.instId) return inst(props.n.instId)
   busy.value = choice || 'open'
-  try { await app.actNotification(props.n, choice) } finally { busy.value = '' }
+  try { const r = await app.actNotification(props.n, choice); if (r?.instId) inst(r.instId) } finally { busy.value = '' }
 }
 </script>
 

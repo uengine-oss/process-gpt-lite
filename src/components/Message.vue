@@ -138,10 +138,10 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       </button>
     </div>
     <div v-else-if="msg.kind === 'instances'" class="list glass">
-      <div class="lh">진행 중인 프로세스 {{ c.items.length }}건</div>
-      <button v-for="it in c.items" :key="it.proc_inst_id" class="li press" @click="router.push(`/projects/p/${encodeURIComponent(it.proc_inst_id)}`)">
-        <b>{{ it.proc_inst_name || it.def_name }}</b>
-        <small>{{ it.def_name }} · {{ instStatus[it.status] || it.status }}<span v-if="it.needs_me" class="me"> · 입력 필요</span></small>
+      <div class="lh">{{ c.title || `진행 중인 프로세스 ${c.items.length}건` }}</div>
+      <button v-for="it in c.items" :key="it.proc_inst_id + (it.activity || '')" class="li press" @click="router.push(`/routines/${encodeURIComponent(it.proc_inst_id)}`)">
+        <b>{{ it.activity || it.proc_inst_name || it.def_name }}</b>
+        <small><template v-if="it.activity">{{ it.proc_inst_name || it.def_name }}</template><template v-else>{{ it.def_name }} · {{ instStatus[it.status] || it.status }}</template><span v-if="it.needs_me" class="me"> · 입력 필요</span></small>
       </button>
       <p v-if="!c.items.length" class="empty">진행 중인 프로세스가 없어요.</p>
     </div>
@@ -161,7 +161,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
         {{ c.skill ? `스킬 ${c.skill}` : c.folderName }} · 새 변형</span>
       <b>{{ c.title }}</b>
       <small v-if="c.summary">{{ c.summary }}</small>
-      <span class="fvf">{{ (c.files || []).map((f) => f.path.split('/').pop()).join(', ') }}</span>
+      <span class="fvf">{{ (c.files || []).map((f) => f.name || f.path?.split('/').pop()).join(', ') }}</span>
       <span class="fvgo">{{ c.requested ? `반영 요청을 보냈어요 · ${c.requested.to} 님 검토 대기 →` : '검토하고 반영하기 →' }}</span>
     </button>
     <!-- process improvement numbers the assistant explained (lib/agent.js improveTurn) -->
@@ -174,6 +174,10 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       {{ c.state === 'done' ? (c.doneText || '메일 연결됨') : c.text }}
     </button>
 
+    <!-- a chip about an instance (a step waiting for me, a finished run) opens its page (server lib/engine.js) -->
+    <button v-else-if="msg.kind === 'chip' && c.instId" class="chip link press" @click="router.push(`/routines/${encodeURIComponent(c.instId)}`)">
+      <Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
+    </button>
     <div v-else-if="msg.kind === 'chip'" class="chip"><Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> {{ c.text }}</div>
     <!-- 팀 맥락 공유: 관계있지만 아직 볼 수 없는 팀원의 맥락(답 아래 요청 후보) -->
     <ReferChips v-if="msg.role === 'agent' && c.refer_id" part="requestable" :refer-id="c.refer_id" :thread="msg.thread_id" />
@@ -232,13 +236,16 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 .fvf { font-size: 12.5px; color: var(--text-tertiary); }
 .fvgo { margin-top: 6px; font-size: 13.5px; font-weight: 500; color: var(--color-info); }
 .fic { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; background: #6b6b66; }
-.fic.hwp { background: #1f6fd1; } .fic.doc { background: #2b579a; } .fic.xls { background: #217346; } .fic.ppt { background: #c43e1c; } .fic.pdf { background: #d93025; } .fic.cad { background: #0b6f88; } .fic.vec { background: #c2570c; } .fic.img { background: #7b3fbf; } .fic.snd { background: #0f8a5f; } .fic.vid { background: #b0223c; }
+.fic.hwp { background: #1f6fd1; } .fic.doc { background: #2b579a; } .fic.xls { background: #217346; } .fic.ppt { background: #c43e1c; } .fic.pdf { background: #d93025; } .fic.md { background: #3d4451; } .fic.txt { background: #5f6670; } .fic.web { background: #e44d26; } .fic.map { background: #b8860b; } .fic.cad { background: #0b6f88; } .fic.vec { background: #c2570c; } .fic.img { background: #7b3fbf; } .fic.snd { background: #0f8a5f; } .fic.vid { background: #b0223c; }
 .fmeta { display: flex; flex-direction: column; min-width: 0; }
 .fmeta b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fmeta small { color: rgba(245, 245, 247, .62); font-size: 12.5px; }
 .connect { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 9999px; background: var(--regular-solid-bg); font-size: 14px; font-weight: 500; box-shadow: 0 2px 12px rgba(0 0 0 / .06); }
 .connect.done { background: var(--bubble-user-bg); color: var(--text-primary); }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 14px; border-radius: 9999px; background: var(--bubble-user-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); font-size: 14px; }
+.chip.link { max-width: 100%; text-align: left; color: var(--text-primary); }
+.chip.link .ct { min-width: 0; word-break: keep-all; overflow-wrap: anywhere; }
+.chip.link > :deep(svg) { flex: none; }
 .replies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .reply { height: 36px; padding: 0 16px; border-radius: 9999px; background: var(--regular-solid-bg); font-size: 14px; font-weight: 500; box-shadow: 0 2px 10px rgba(0 0 0 / .06); animation: pop-in .4s var(--spring) both; }
 .list { width: 424px; max-width: 100%; border-radius: 24px; padding: 8px; display: flex; flex-direction: column; --regular-bg: var(--bubble-agent-bg); }

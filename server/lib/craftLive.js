@@ -18,7 +18,7 @@ import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import express from 'express'
 import { WebSocketServer } from 'ws'
-import { sameOrigin } from './workroom.js'
+import { sameOrigin, originWhy, refuse } from './workroom.js'
 
 // how each app's CLI reaches a running app, and how its control port authenticates
 export const LIVE_APPS = {
@@ -50,6 +50,14 @@ export function liveOpen(userId) {
   let best = null
   for (const l of lives.values()) if (l.userId === userId && (!best || l.since > best.since)) best = l
   return best ? { app: best.app, title: LIVE_APPS[best.app].title, file: best.file, editor: best.editor || null } : null
+}
+// the document the page says is open (a chat message's openDoc), for when its live link is down:
+// the same shape as liveOpen, so the turn still edits it in place — office_live_* go through
+// office-host's own sessions and do not need this server's socket
+export function openDocOf(x) {
+  if (!x || x.app !== 'ieumoffice') return null
+  const file = String(x.file || x.name || '').slice(0, 200)
+  return file ? { app: 'ieumoffice', title: LIVE_APPS.ieumoffice.title, file, editor: OFFICE_KIND[x.editor] ? x.editor : null, fromPage: true } : null
 }
 
 // ---- tickets (spent on use, a minute to live) ----
@@ -213,10 +221,11 @@ export function attachCraftLive(server) {
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://x')
     if (url.pathname !== '/api/craft/live') return
-    const deny = (code) => { socket.write(`HTTP/1.1 ${code} No\r\n\r\n`); socket.destroy() }
-    if (!sameOrigin(req)) return deny(403)
+    // (accepted and closed with 44xx and the reason: a gateway in front hides an HTTP refusal — workroom.js refuse)
+    const deny = (code, reason) => refuse(wss, req, socket, head, code, reason)
+    if (!sameOrigin(req)) return deny(4403, originWhy(req))
     const ticket = spendTicket(String(url.searchParams.get('ticket') || ''))
-    if (!ticket) return deny(401)
+    if (!ticket) return deny(4401, '연결 표가 없거나 만료됐어요')
     wss.handleUpgrade(req, socket, head, (ws) => {
       let live = null
       const ping = setInterval(() => { if (ws.readyState === 1) ws.ping() }, 25_000)
@@ -274,6 +283,8 @@ export function liveHint(open) {
     return `\n\n(사용자가 지금 이음오피스 ${kind} 편집기에서 '${open.file || '문서'}' 을 열어 두었어요. 이 메시지는 그 열린 문서에 대한 것이에요. ` +
       (editable
         ? `office_live_documents 로 그 문서의 session_id 를 찾고 office_live_read 로 지금 내용을 읽은 뒤, 사람이 보는 화면에서 바로 고치세요: ` +
+          // (the page said what is open, but the editor may not be reachable: no new file in its place)
+          `office_live_documents 도구가 없거나 그 목록에 이 문서가 없으면 편집기와 연결되지 않은 것이에요 — 새 문서를 만들지 말고(파일·다운로드 링크도 금지), "편집기와 연결되지 않아 열린 문서를 바로 고치지 못했어요" 라고 먼저 알린 뒤 넣을 내용을 답 안에 글로만 보여 주세요. ` +
           mention + (open.editor === 'hwp'
             ? `한글은 표를 office_live_hwp_table(action read·fill·add_rows·remove_rows, 표·행·열 번호는 1부터, add_rows 뒤에는 새 줄을 fill 로 채우기), 글은 office_live_hwp_text(replace·insert)로 고치세요. 합계·소계 칸이 있으면 숫자를 다시 계산해 함께 고치세요. 그림은 이 도구로 고치지 않아요(그림 편집은 포토크래프트가 맡아요). `
             : open.editor === 'docs'

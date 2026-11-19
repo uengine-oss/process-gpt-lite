@@ -76,7 +76,7 @@ export async function listFor(me) {
         continue
       }
       const d = n.todo_id ? await getTodo(n.todo_id) : null
-      out.push({ id: n.id, type: 'workitem', title: n.title, process: n.description, at: n.time_stamp, todoId: n.todo_id,
+      out.push({ id: n.id, type: 'workitem', title: n.title, process: n.description, at: n.time_stamp, todoId: n.todo_id, instId: n.proc_inst_id || null,
         context: n.proc_inst_id ? await contextLine(n.proc_inst_id) : '', choices: choicesOf(d?.form), role: d?.step?.role || '' })
     } else if (n.type === 'mention') {
       out.push({ id: n.id, type: 'mention', title: n.title, text: n.description, at: n.time_stamp, from: n.from_name || n.from_user_id })
@@ -97,7 +97,8 @@ async function check(n) {
   await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and user_id=$3', [T(), n.url, n.user_id])
 }
 
-// A button on the card: submit the step with that choice, or open it (no choice) in chat.
+// A button on the card: submit the step with that choice, or open it (no choice) on its instance page,
+// where the form is (InstanceHeader 「내 입력이 필요해요」) — no card is added to the chat.
 export async function act(me, id, { choice } = {}) {
   const n = await own(me, id)
   if (!n) return null
@@ -111,9 +112,7 @@ export async function act(me, id, { choice } = {}) {
       await check(n)
       return { submitted: true, choice }
     }
-    const t = await mainThread(me.id)
-    const m = await addMessage(me.id, t.id, 'agent', 'todo', { todoId, name: d.todo.activity_name, inst: d.instName })
-    return { opened: m.id }
+    return { instId: d.todo.proc_inst_id }
   }
   if (n.type === 'mention') {
     // the request lands in the recipient's own chat, where they can answer or act on it
@@ -151,19 +150,38 @@ export async function notifyUser(userId, { type, title, text, url }) {
 
 // New rows reach open clients without a reload: one tenant-wide check every few seconds,
 // fanned out to the users the rows are for (rows may name a user by id or by email).
-const lastByTenant = new Map() // tenant -> time of the newest row seen
+// The position is the database's own text of the newest time_stamp: a JS Date keeps milliseconds
+// and the column microseconds, so the newest row was "new" again on every pass.
+const lastByTenant = new Map() // tenant -> newest time_stamp seen (timestamptz text)
+export async function feedOnce() {
+  const last = lastByTenant.get(T()) || new Date().toISOString()
+  const rows = await q(`select u.id as uid, n.id, n.title, n.description, n.url, n.type, n.from_user_id as from, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
+                        left join users u on (u.id::text = any(string_to_array(replace(n.user_id, ' ', ''), ',')) or u.email = n.user_id) and u.tenant_id = n.tenant_id
+                        left join todolist tl on n.url = '/todolist/' || tl.id::text
+                        where n.tenant_id=$1 and n.time_stamp > $2::timestamptz and coalesce(n.is_checked,false)=false
+                        order by n.time_stamp`, [T(), last])
+  for (const uid of new Set(rows.map((r) => r.uid).filter(Boolean))) emit(uid, 'notifications', {})
+  lastByTenant.set(T(), rows[0]?.newest || last)
+  // the same rows as system notifications on the person's devices, even with Lite closed (lib/webpush.js);
+  // the badge is how many Home cards wait
+  pushRows(rows).catch((e) => console.warn('[push]', e.message))
+  return rows.length
+}
+const pushBody = (r) => String(r.type === 'chat' ? r.title : (r.description || '')).replace(/\s+/g, ' ').slice(0, 160)
+const pushTitle = (r) => String(r.type === 'chat' ? (r.from || '새 메시지') : r.type?.startsWith('workitem') ? `입력이 필요해요 · ${r.title}` : (r.title || 'process gpt')).slice(0, 120)
+async function pushRows(rows) {
+  const byUser = new Map()
+  for (const r of rows) if (r.uid) (byUser.get(r.uid) || byUser.set(r.uid, []).get(r.uid)).push(r)
+  if (!byUser.size) return
+  const { pushTo } = await import('./webpush.js')
+  for (const [uid, list] of byUser) {
+    // rows name a person by id or by email
+    const [u] = await q('select email from users where id::text=$1 and tenant_id=$2', [uid, T()]).catch(() => [])
+    const [c] = await q(`select count(*)::int as n from notifications where tenant_id=$1 and coalesce(is_checked,false)=false and user_id = any($2)`,
+      [T(), [uid, u?.email].filter(Boolean)]).catch(() => [])
+    for (const r of list.slice(-3)) await pushTo(uid, { id: r.id, type: r.type?.startsWith('workitem') ? 'workitem' : r.type, title: pushTitle(r), body: pushBody(r), url: r.url || null, instId: r.inst_id || null, badge: c?.n || list.length })
+  }
+}
 export function startNotificationFeed() {
-  setInterval(() => eachTenant(async () => {
-    let last = lastByTenant.get(T()) || new Date()
-    try {
-      const rows = await q(`select n.user_id, n.time_stamp, u.id as uid from notifications n
-                            left join users u on (u.id::text = any(string_to_array(replace(n.user_id, ' ', ''), ',')) or u.email = n.user_id) and u.tenant_id = n.tenant_id
-                            where n.tenant_id=$1 and n.time_stamp > $2`, [T(), last])
-      for (const r of rows) {
-        if (r.time_stamp > last) last = r.time_stamp
-        if (r.uid) emit(r.uid, 'notifications', {})
-      }
-      lastByTenant.set(T(), last)
-    } catch (e) { console.warn('[notify feed]', e.message) }
-  }), 4000)
+  setInterval(() => eachTenant(() => feedOnce().catch((e) => console.warn('[notify feed]', e.message))), 4000)
 }

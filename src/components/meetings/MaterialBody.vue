@@ -25,7 +25,7 @@ const go = (path) => router.push(path)
       </ol>
       <div v-if="m.process.outputs.length" class="chips">
         <span class="cap">단계 산출물</span>
-        <button v-for="(o, i) in m.process.outputs" :key="i" class="chip press" :title="o.text || o.name" @click="go(`/projects/p/${m.process.instId}`)">
+        <button v-for="(o, i) in m.process.outputs" :key="i" class="chip press" :title="o.text || o.name" @click="go(`/routines/${m.process.instId}`)">
           {{ o.label || o.name || o.field }}<small> · {{ o.activity }}</small>
         </button>
       </div>
@@ -38,6 +38,11 @@ const go = (path) => router.push(path)
         <tbody><tr v-for="(r, i) in m.panel.rows" :key="i"><td v-for="f in m.panel.fields" :key="f.key">{{ r[f.key] }}</td></tr></tbody>
       </table>
       <small v-if="m.panel.total > m.panel.rows.length" class="more">외 {{ m.panel.total - m.panel.rows.length }}건</small>
+    </div>
+
+    <div v-else-if="m.kind === 'folder' && m.folder?.file" class="file">
+      <span class="fic" :class="kindOf(m.title)">{{ kindLabel[kindOf(m.title)] || 'FILE' }}</span>
+      <span class="fn">{{ m.title }}<small>{{ m.folder.name }} 폴더<template v-if="m.folder.abstract"> · {{ m.folder.abstract.slice(0, 60) }}</template></small></span>
     </div>
 
     <div v-else-if="m.kind === 'folder' && m.folder" class="fold">

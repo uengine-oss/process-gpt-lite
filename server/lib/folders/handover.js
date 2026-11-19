@@ -9,7 +9,7 @@
 // receiver's room; the result is committed and the todo closes with the variation in its output.
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
-import { q, pool } from '../supa.js'
+import { q, pool, ENGINE_NOW } from '../supa.js'
 import { emit } from '../bus.js'
 import * as S from './service.js'
 import { changeCard } from './indexer.js'
@@ -86,7 +86,7 @@ export async function handover(folder, v, from, { to, mode = 'continue', done = 
     // an ad-hoc item has no process instance, but the todolist trigger (task_execution_properties)
     // needs one: the handover chain stands in for it, so one case's items stay together
     await tq(`insert into todolist (id, user_id, username, activity_id, activity_name, status, description, tenant_id, adhoc, reference_ids, query, start_date, agent_config, agent_orch, proc_inst_id, tool)
-             values ($1,$2,$3,$4,$5,'TODO',$6,$7,true,$8,$9,now(),$10,$11,$12,'formHandler:defaultform')`, [
+             values ($1,$2,$3,$4,$5,'TODO',$6,$7,true,$8,$9,${ENGINE_NOW},$10,$11,$12,'formHandler:defaultform')`, [
       toTaskId, String(to.id), to.name, `handover_${toTaskId}`, next, next, T(), v.source?.room_id ? [v.source.room_id] : [], query,
       { folder: folder.id, variation: target.id, base_ref: `var:${target.branch}` }, to.isAgent ? 'pgpt-pro-folders' : null, `handover.${caseId}`])
 
@@ -135,7 +135,7 @@ When you are done, say briefly what you changed.`)
   await S.release(folder, cur)
   const after = await S.variationById(v.id)
   await changeCard(folder, after).catch(() => {})
-  await q(`update todolist set status='DONE', end_date=now(), output=$2 where id=$1`, [toTaskId,
+  await q(`update todolist set status='DONE', end_date=${ENGINE_NOW}, output=$2 where id=$1`, [toTaskId,
     { folder_variation: { folder: folder.slug, variation: v.id, branch: v.branch, commit: after.head_commit, url: `/folders/${folder.slug}/v/${v.id}` }, text: note.slice(0, 4000) }])
   await q(`update handover_events set returned_at=now() where to_task_id=$1`, [toTaskId])
   emit(from.id, 'folders', { slug: folder.slug, variation: v.id })

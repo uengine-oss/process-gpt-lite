@@ -60,7 +60,7 @@ test.describe('다국어 회의 여정 (spec pgpt-pro-meeting-interpretation)', 
     await info.attach('timeline.json', { body: JSON.stringify(timeline, null, 1), contentType: 'application/json' })
 
     const open = async (c) => {
-      const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${path.join(dir, `${c.key}.wav`)}%noloop`, '--autoplay-policy=no-user-gesture-required'] })
+      const browser = await chromium.launch({ channel: 'chrome', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${path.join(dir, `${c.key}.wav`)}%noloop`, '--autoplay-policy=no-user-gesture-required'] })
       cleanup(() => browser.close())
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: c.locale, permissions: ['camera', 'microphone'], baseURL: PGPT_URL })
       await ctx.addInitScript(([s, l]) => { if (window.top === window) { localStorage.setItem('pgpt-pro-session', s); localStorage.setItem('pgl-lang', l) } }, [JSON.stringify(c.s), c.ui])

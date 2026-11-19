@@ -57,7 +57,7 @@ test.describe('대화방 원격 회의 여정 (spec pgpt-pro-meetings)', () => {
     timelineWav(path.join(dir, 'b.wav'), [{ at: 14, samples: s1 }], 40)
     timelineWav(path.join(dir, 'a.wav'), [{ at: 28, samples: s2 }], 40)
     const open = async (c, mic, other) => {
-      const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${mic}%noloop`, '--autoplay-policy=no-user-gesture-required'] })
+      const browser = await chromium.launch({ channel: 'chrome', args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${mic}%noloop`, '--autoplay-policy=no-user-gesture-required'] })
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: 'ko-KR', permissions: ['camera', 'microphone'], baseURL: PGPT_URL })
       await ctx.addInitScript((s) => { if (window.top === window) localStorage.setItem('pgpt-pro-session', s) }, JSON.stringify(c.s))
       const page = await ctx.newPage()

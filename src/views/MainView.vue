@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import HomeDock from '../components/HomeDock.vue'
 import ProjectList from '../components/ProjectList.vue'
+import RoutineList from '../components/RoutineList.vue'
 import ChatColumn from '../components/ChatColumn.vue'
 import SearchOverlay from '../components/SearchOverlay.vue'
 import HandoffView from '../components/HandoffView.vue'
@@ -13,12 +14,14 @@ import SettingsSheet from '../components/SettingsSheet.vue'
 import Typewriter from '../components/Typewriter.vue'
 import InstanceHeader from '../components/InstanceHeader.vue'
 import ConversationBar from '../components/ConversationBar.vue'
+import ProjectFolderBar from '../components/folders/ProjectFolderBar.vue'
 import ArtifactStack from '../components/ArtifactStack.vue'
 import Composer from '../components/Composer.vue'
 import { narrow } from '../viewport.js'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
+import { useTeam } from '../stores/team.js'
 
 const app = useApp()
 const sky = useSky()
@@ -30,16 +33,20 @@ const wide = ref(window.innerWidth > 1000)
 const onResize = () => { wide.value = window.innerWidth > 1000 }
 
 const settings = computed(() => !!route.meta.settings)
-const leftOpen = computed(() => wide.value && (app.mode === 'project' || app.dockOpen))
-// Phone: Home is a full-width tab with the composer under it; Projects shows its list first.
+// 프로젝트 and 루틴 (process instances, /routines) each keep their list in the left column
+const listMode = computed(() => app.mode === 'project' || app.mode === 'routine')
+const leftOpen = computed(() => wide.value && (listMode.value || app.dockOpen))
+// Phone: Home is a full-width tab with the composer under it; Projects and Routines show their list first.
 const mobileHome = computed(() => narrow.value && app.mode === 'chat' && app.dockOpen)
-const mobileList = computed(() => narrow.value && app.mode === 'project' && !route.params.id && !route.params.instId)
+const mobileList = computed(() => narrow.value && listMode.value && !route.params.id && !route.params.instId)
 function sendFromHome(text) {
   if (!app.panelMode) app.dockOpen = false
   onSend(text)
 }
-const newProject = computed(() => app.mode === 'project' && !route.params.id && !route.params.instId)
+const newProject = computed(() => app.mode === 'project' && !route.params.id)
 const instMode = computed(() => !!route.params.instId)
+// /routines with none picked (wide screen): a line about what a routine is beside the list
+const noRoutine = computed(() => app.mode === 'routine' && !route.params.instId)
 let poll
 
 const clock = computed(() => {
@@ -53,6 +60,8 @@ const clock = computed(() => {
 
 async function syncRoute() {
   app.mode = route.meta.mode || 'chat'
+  // 새 패널 만들기 belongs to 채팅: leaving it (a project, an instance) drops the mode
+  if (app.mode !== 'chat') app.panelMode = false
   if (!ready.value) return
   clearInterval(poll)
   if (!route.params.instId) app.instance = null
@@ -70,7 +79,23 @@ async function syncRoute() {
 }
 watch(() => route.fullPath, syncRoute)
 
+// a browser notification clicked (src/browserNotify.js): the room, the instance page or the card's own place
+const team = useTeam()
+function openNotification({ detail: n }) {
+  const room = /^\/chats\?id=([\w.:-]+)/.exec(String(n?.url || ''))
+  const msg = /^\/pro\/team\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(String(n?.url || ''))
+  if (msg) return team.openMessenger(msg[1], msg[2])
+  if (room) return team.openMessenger(room[1])
+  if (n?.type === 'workitem' && n.instId) return router.push(`/routines/${encodeURIComponent(n.instId)}`)
+  if (/^\/(projects|routines|settings)\//.test(String(n?.url || ''))) return router.push(n.url)
+  app.dockOpen = true
+}
 onMounted(async () => {
+  window.addEventListener('pgl:open-notification', openNotification)
+  // opened by a notification while the app was closed (public/sw.js: …/chat?notify=<the card>)
+  if (route.query.notify) {
+    try { const n = JSON.parse(String(route.query.notify)); router.replace({ query: {} }); setTimeout(() => openNotification({ detail: n }), 300) } catch { /* not ours */ }
+  }
   window.addEventListener('resize', onResize)
   await app.boot()
   ready.value = true
@@ -82,7 +107,7 @@ onMounted(async () => {
   }
   if (app.me.profile?.place == null && sky.place) api('/profile', { method: 'POST', body: { lat: sky.place.lat, lon: sky.place.lon, place: sky.place.place } })
 })
-onBeforeUnmount(() => { window.removeEventListener('resize', onResize); clearInterval(poll) })
+onBeforeUnmount(() => { window.removeEventListener('resize', onResize); window.removeEventListener('pgl:open-notification', openNotification); clearInterval(poll) })
 
 async function onSend(text) {
   if (app.panelMode) return app.createPanel(text)
@@ -114,6 +139,9 @@ function onConnect() {
       <Transition name="fade">
         <ProjectList v-if="ready && app.mode === 'project' && (wide || mobileList)" :class="{ mobile: narrow }" />
       </Transition>
+      <Transition name="fade">
+        <RoutineList v-if="ready && app.mode === 'routine' && (wide || mobileList)" :class="{ mobile: narrow }" />
+      </Transition>
 
       <Transition name="fade">
         <div v-if="app.mode === 'chat' && !app.dockOpen && !narrow" class="clock">
@@ -127,11 +155,15 @@ function onConnect() {
           :empty-text="newProject ? '' : ''" :keep-top="instMode" @send="onSend" @connect="onConnect">
           <template v-if="instMode && app.instance" #header><InstanceHeader :data="app.instance" @refresh="app.refreshInstance()" /></template>
           <template v-else-if="app.mode === 'chat' && app.activeId === app.mainThread?.id" #header><ConversationBar /></template>
+          <template v-else-if="app.mode === 'project' && app.active?.folder?.mode === 'project'" #header><ProjectFolderBar :thread="app.active" /></template>
         </ChatColumn>
         <!-- inside one conversation, the files it produced float in a stack (Dock-style) -->
         <ArtifactStack v-if="ready && app.mode === 'chat' && app.convFilter && !mobileHome && !app.officeDoc" />
         <div v-if="newProject && !narrow" class="np serif">
           <Typewriter text="프로젝트는 장기적인 작업과 경험을 정리하기 위한 공간입니다." :cps="18" />
+        </div>
+        <div v-if="ready && noRoutine && !narrow" class="np serif">
+          <Typewriter text="루틴은 정해진 절차를 따라 진행되는 일입니다." :cps="18" />
         </div>
         <div v-if="ready && mobileHome" class="mfoot">
           <Composer :placeholder="app.panelMode ? '만들 패널을 설명해 주세요' : 'process gpt에 메시지 보내기'" @send="sendFromHome" />
@@ -155,5 +187,5 @@ function onConnect() {
 .center.shifted { left: 420px; }
 .clock { position: absolute; left: 32px; bottom: 40px; font-size: 44px; line-height: 1.12; letter-spacing: -0.03em; font-weight: 500; color: var(--text-primary); z-index: 7; pointer-events: none; }
 .mfoot { position: absolute; z-index: 6; left: 16px; right: 16px; bottom: 24px; }
-.np { position: absolute; left: 50%; top: 40%; translate: -50% -50%; width: min(560px, 80%); font-size: clamp(26px, 3vw, 40px); line-height: 1.3; color: var(--text-primary); pointer-events: none; font-weight: 300; }
+.np { position: absolute; left: 50%; top: 40%; translate: -50% -50%; width: min(560px, 80%); font-size: clamp(26px, 3vw, 40px); line-height: 1.3; color: var(--text-primary); pointer-events: none; font-weight: 300; word-break: keep-all; }
 </style>

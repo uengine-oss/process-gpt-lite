@@ -123,7 +123,7 @@ const ix = computed(() => folder.value?.index_state || {})
         <button class="back press" title="폴더 목록" @click="router.push('/folders')"><Icon name="back" :size="18" /></button>
         <span class="fic folder" :class="{ linked: folder.kind === 'linked', skill: isSkill }"><FIcon :name="folder.kind === 'linked' ? 'link' : isSkill ? 'agent' : 'folder'" :size="22" /></span>
         <div class="ttl">
-          <h1>{{ folder.name }} <span v-if="isSkill" class="kb" :class="skill?.visibility">{{ skill?.visibility === 'private' ? '내 스킬' : '전사 공유 스킬' }}</span></h1>
+          <h1><span class="hn">{{ folder.name }}</span> <span v-if="isSkill" class="kb" :class="skill?.visibility">{{ skill?.visibility === 'private' ? '내 스킬' : '전사 공유 스킬' }}</span></h1>
           <small v-if="isSkill">작성자 {{ skill?.author?.name || '—' }} · {{ canMerge ? '반영할 수 있어요' : '고칠 점은 변형으로 제안해요' }}</small>
           <small v-else>{{ folder.description }} · 내 권한 {{ roleLabel[folder.role] }}</small>
         </div>
@@ -291,13 +291,16 @@ const ix = computed(() => folder.value?.index_state || {})
 .fd { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 0 24px 16px; max-width: 1400px; margin: 0 auto; }
 .missing { text-align: center; color: var(--text-secondary); margin-top: 80px; }
 .head { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
-.back { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; background: var(--button-bg); }
+.back { flex: none; width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; background: var(--button-bg); }
 .ttl { display: flex; flex-direction: column; min-width: 0; }
-h1 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
-.ttl small { color: var(--text-secondary); font-size: 13px; }
+/* a long name ends in "…" on one line (the skill badge stays whole); Korean never breaks inside a word */
+h1 { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
+h1 .hn { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: keep-all; }
+h1 .kb { flex: none; align-items: center; line-height: 1; }
+.ttl small { color: var(--text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sp { flex: 1; }
-.mem { display: flex; } .mem > * + * { margin-left: -8px; }
-.hbtn { height: 40px; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
+.mem { flex: none; display: flex; } .mem > * + * { margin-left: -8px; }
+.hbtn { flex: none; white-space: nowrap; height: 40px; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
 .fic { flex: none; width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; font-size: 10.5px; font-weight: 700; color: #fff; background: #6b6b66; }
 .fic.sm { width: 28px; height: 28px; border-radius: 8px; font-size: 9px; }
 .fic.folder { background: #e2a93b; } .fic.folder.linked { background: #4a5f9a; }
@@ -315,10 +318,10 @@ dl.sk { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; margin: 8
 .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 14px; }
 .pane, .vars { border-radius: 22px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .ph, .vh { display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--hairline); flex: none; }
-.seg { display: flex; background: var(--button-bg); border-radius: 18px; padding: 3px; }
-.seg button { height: 30px; padding: 0 14px; border-radius: 15px; font-size: 13.5px; color: var(--text-secondary); }
+.seg { flex: none; display: flex; background: var(--button-bg); border-radius: 18px; padding: 3px; }
+.seg button { flex: none; white-space: nowrap; height: 30px; padding: 0 14px; border-radius: 15px; font-size: 13.5px; color: var(--text-secondary); }
 .seg button.on { background: var(--ink); color: var(--ink-inverse); }
-.ref { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.ref { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; font-size: 12.5px; color: var(--text-secondary); }
 .up { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--color-info); max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 code { font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
 .tb { height: 32px; padding: 0 12px; border-radius: 16px; font-size: 13px; font-weight: 500; background: var(--button-bg); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -382,4 +385,38 @@ code { font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
 .dark-btn { background: var(--ink); color: var(--ink-inverse); }
 .toast { position: fixed; left: 50%; bottom: 28px; translate: -50% 0; padding: 12px 18px; border-radius: 14px; background: #1d1d1f; color: #f5f5f7; font-size: 14px; z-index: 50; max-width: 90vw; }
 @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; overflow-y: auto; } .fd { overflow-y: auto; } }
+/* phone (src/viewport.js): the title gets the first line, members and 공유·작업실 the next; the tab row
+   scrolls sideways instead of wrapping; file rows drop the date column */
+@media (max-width: 760px) {
+  .fd { padding: 0 12px 12px; }
+  .head { flex-wrap: wrap; gap: 6px 10px; margin-bottom: 12px; }
+  .back { width: 36px; height: 36px; }
+  .head > .fic { width: 36px; height: 36px; border-radius: 11px; }
+  .ttl { flex: 1 1 0; }
+  h1 { font-size: 20px; }
+  .head > .sp { flex-basis: 100%; height: 0; }
+  .mem { margin-right: auto; }
+  .hbtn { height: 36px; font-size: 13.5px; }
+  .banner { flex-wrap: wrap; padding: 10px 12px; }
+  .banner > span:not(.sp) { flex: 1 1 220px; word-break: keep-all; }
+  .pane, .vars { border-radius: 18px; }
+  .ph { gap: 8px; padding: 0 10px; overflow-x: auto; scrollbar-width: none; }
+  .ph::-webkit-scrollbar { display: none; }
+  .ph .ref { display: none; }
+  .up { max-width: 120px; }
+  .fr { grid-template-columns: minmax(0, 1fr) auto; padding: 4px 6px; }
+  .fr > :nth-child(2) { display: none; }
+  .fn.in { padding-left: 14px; }
+  .del { opacity: .6; }
+  .hr { grid-template-columns: 64px minmax(0, 1fr); row-gap: 4px; padding: 10px 6px; }
+  .hr .hm { word-break: keep-all; overflow-wrap: anywhere; }
+  .hr .by { grid-column: 2; }
+  .ist { flex-wrap: wrap; }
+  .none, .exp, .drop { word-break: keep-all; overflow-wrap: anywhere; }
+  .cat { overflow-wrap: anywhere; }
+  dl.sk { grid-template-columns: 76px 1fr; }
+  .vc { padding: 10px 6px 10px 4px; }
+  .vf span { word-break: keep-all; }
+  .vf .dark-btn { flex: none; white-space: nowrap; }
+}
 </style>

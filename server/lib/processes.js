@@ -1,7 +1,8 @@
 // Read side of process-gpt BPM: definitions, forms, instances, work items, artifacts.
-import { q } from './supa.js'
+import { q, ENGINE_TZ } from './supa.js'
 import { config } from '../config.js'
 import { failures } from './stepRetry.js'
+import { L } from './lang.js'
 
 const T = () => config.tenantId
 
@@ -120,7 +121,7 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
      left join lateral (select c.id::text as id, c.engine, c.bundle, c.started_by from pro_po_cases c where c.tenant_id = i.tenant_id and i.proc_inst_id = any(c.instances) limit 1) oc on true
      where i.tenant_id=$1 and not coalesce(i.is_deleted,false) and ($4::text is null or i.status::text=$4)
        and ${INVOLVED}
-     order by coalesce(i.updated_at, i.start_date::timestamptz) desc nulls last limit $5`,
+     order by coalesce(i.updated_at, i.start_date at time zone '${ENGINE_TZ}') desc nulls last limit $5`,
     [T(), userEmail, userId, status || null, limit])
 }
 
@@ -142,7 +143,7 @@ export async function getInstance(instId, me) {
             coalesce((select u.username from users u where u.is_agent and u.id::text = t.user_id and u.tenant_id = t.tenant_id), username) as username,
             start_date, end_date, updated_at, output, draft,
             output_url, agent_mode, agent_orch, log, description, draft_status::text as draft_status, consumer, lease_until
-     from todolist t where proc_inst_id=$1 order by coalesce(start_date, updated_at::timestamp) asc`, [instId])
+     from todolist t where proc_inst_id=$1 order by coalesce(start_date, updated_at at time zone '${ENGINE_TZ}') asc`, [instId])
   const byAct = new Map()
   for (const t of todos) byAct.set(t.activity_id, t) // latest wins
   const current = new Set(inst.current_activity_ids || [])
@@ -182,6 +183,16 @@ export async function getInstance(instId, me) {
   return { inst, def, steps, todos, artifacts }
 }
 
+// A file's name from its link: the last path part when it names a file (…/견적서.xlsx), else the fallback —
+// process-gpt keeps each step's result document in Google Docs (…/document/d/<id>/edit?usp=drivesdk),
+// whose last part would show as "edit?usp=drivesdk&ouid=…" on the reviewer's card
+export function urlName(url, fallback) {
+  try {
+    const seg = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || '')
+    return /\.[a-z0-9]{2,5}$/i.test(seg) ? seg : fallback
+  } catch { return fallback }
+}
+
 // todolist.output is {formId: {field: value}} (sometimes flat). Pull out documents and files.
 function flattenOutput(t) {
   const out = []
@@ -199,7 +210,7 @@ function flattenOutput(t) {
       else if (typeof v === 'string' && v.length > 280) out.push({ kind: 'doc', field: k, text: v, activity: t.activity_name, todoId: t.id, formId })
     }
   }
-  if (t.output_url) out.push({ kind: 'file', name: t.output_url.split('/').pop(), url: t.output_url, activity: t.activity_name, todoId: t.id })
+  if (t.output_url) out.push({ kind: 'file', name: urlName(t.output_url, L(`${t.activity_name} 결과 문서`, `${t.activity_name} result document`)), url: t.output_url, activity: t.activity_name, todoId: t.id })
   if (worktree?.commit) out.push({ kind: 'branch', ...worktree, activity: t.activity_name, todoId: t.id })
   // media a CLI agent left in its run workspace (demo video and the like), served through cli-agent
   for (const m of all.media || []) {
@@ -246,8 +257,9 @@ export async function getTodo(todoId) {
 // Same lookup order as the process-gpt frontend's getRawDefinition({type:'bpmn'}):
 // latest proc_def_version snapshot, then proc_def.bpmn.
 export async function getBpmn(defId) {
+  // the newest saved version: by when it was saved — version is text, and '9.0' sorts after '10.0'
   const [v] = await q(`select snapshot from proc_def_version where proc_def_id=$1 and tenant_id=$2 and coalesce(snapshot,'') <> ''
-                       order by version desc limit 1`, [defId, T()]).catch(() => [])
+                       order by "timeStamp" desc nulls last limit 1`, [defId, T()]).catch(() => [])
   if (v?.snapshot) return v.snapshot
   const [d] = await q('select bpmn from proc_def where id=$1 and tenant_id=$2', [defId, T()])
   return d?.bpmn || null

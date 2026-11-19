@@ -2,7 +2,7 @@
 // lib/provenance.js — 모델·DB 없이.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { isOutput, keepToolDoc, roomOf, slug, sourcesOf, workspaceHint, workspacePaths } from '../lib/provenance.js'
+import { isOutput, keepToolDoc, roomOf, slug, sourcesOf, workspaceHint, workspacePaths, textDoc, workFile, checkoutFile } from '../lib/provenance.js'
 
 const ROOM = roomOf('12593ce0fd6d474482650bc294f7a3eb')
 const OLD = Date.parse('2026-10-20T00:00:00Z')
@@ -64,4 +64,18 @@ test('에이전트에게: 새 파일은 이 대화 폴더에, 참고는 내 첨�
   assert.match(h, /\/workspace\/\.bpmn\/12593ce0fd6d474482650bc294f7a3eb\//)
   assert.match(h, /\/workspace\/uploads\/u-1\//)
   assert.match(h, /다른 사람/)
+})
+
+test('마크다운: 대화 폴더에 있어도 이번 턴에 바뀐 것만, 작업 파일·공유 폴더 체크아웃은 따로', async () => {
+  const md = { [`${ROOM}/회의 메모.md`]: OLD, [`${ROOM}/주간 보고.md`]: START + 3000 }
+  const c = { ...ctx, mtime: async (p) => md[p] ?? null, strict: true }
+  assert.equal(await isOutput(`${ROOM}/회의 메모.md`, c), false, '읽기만 한 메모')
+  assert.equal(await isOutput(`${ROOM}/주간 보고.md`, c), true, '이번 턴에 쓴 보고')
+  assert.equal(await isOutput(`${ROOM}/디스크에 없음.md`, c), true, '디스크를 못 보면 대화 폴더 규칙')
+  assert.equal(await isOutput(`${ROOM}/회의 메모.md`, { ...c, strict: false }), true, '다른 형식은 예전 규칙 그대로')
+  assert.ok(textDoc('a/b.md') && textDoc('x.MARKDOWN') && textDoc('a.txt') && textDoc('a.html') && textDoc('a.htm') && textDoc('a.csv') && !textDoc('x.docx') && !textDoc('m.xmind'))
+  assert.ok(workFile(`${ROOM}/process-휴가/README.md`))
+  assert.ok(workFile(`${ROOM}/skills/report/SKILL.md`) && workFile(`${ROOM}/skill/report/guide.md`) && workFile('/workspace/x/SKILL.md'))
+  assert.ok(!workFile(`${ROOM}/주간 보고.md`))
+  assert.ok(checkoutFile(`${ROOM}/folders/team-docs/안내.md`) && !checkoutFile(`${ROOM}/안내.md`))
 })

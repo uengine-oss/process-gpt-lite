@@ -5,7 +5,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { userFromJwt } from '../lib/supa.js'
+import { userFromJwt, q } from '../lib/supa.js'
 import { catalog } from '../lib/folders/indexer.js'
 import * as S from '../lib/folders/service.js'
 import { L, asUser } from '../lib/lang.js'
@@ -21,7 +21,13 @@ const TOOLS = [
     description: '[공유 폴더] 한 폴더의 기준본(main) 파일 목록(경로·크기·수정자·문서 카드 요약). path 를 주면 그 아래만. 파일 내용을 바꾸려면 사용자에게 "<폴더 이름> 폴더의 … 고쳐줘" 처럼 요청하게 하세요 — 변형이 만들어지고 사람이 검토해 반영합니다.',
     inputSchema: { type: 'object', properties: { folder: { type: 'string', description: '폴더 이름 또는 slug' }, path: { type: 'string', description: '하위 경로(선택)' } }, required: ['folder'] },
   },
+  {
+    name: 'folder_read',
+    description: '[공유 폴더] 한 폴더의 기준본(main)에 있는 파일 하나의 내용을 읽습니다(읽기 전용). 텍스트 파일은 본문을, 문서·이미지 같은 파일은 문서 카드 요약(전문 색인이 켜진 폴더는 추출한 본문)을 돌려줍니다. 채팅에 붙인 폴더를 참고할 때 쓰세요.',
+    inputSchema: { type: 'object', properties: { folder: { type: 'string', description: '폴더 이름 또는 slug' }, path: { type: 'string', description: '파일 경로(folder_files 의 path)' } }, required: ['folder', 'path'] },
+  },
 ]
+const BINARY = /\.(docx|xlsx|pptx|hwpx?|pdf|png|jpe?g|gif|webp|psd|mp4|mov|webm|wav|mp3|zip|dxf)$/i
 
 const text = (o) => ({ content: [{ type: 'text', text: typeof o === 'string' ? o : JSON.stringify(o, null, 1) }] })
 
@@ -38,6 +44,21 @@ async function callTool(user, name, args = {}) {
     if (!f || !ids.length) return text(L(`'${key}' 폴더를 찾지 못했어요(구성원인 폴더만 보여요).`, `I couldn't find the folder '${key}' (only folders you are a member of are shown).`))
     const prefix = String(args.path || '').replace(/^\/+/, '')
     return text({ folder: f.name, slug: f.slug, files: f.files.filter((x) => !prefix || x.path.startsWith(prefix)) })
+  }
+  if (name === 'folder_read') {
+    // only folders this user is a member of (S.access), only main
+    const key = String(args.folder || '').trim()
+    const slug = (await catalog(user.id, '')).find((x) => x.slug === key || x.name === key)?.slug
+    if (!slug) return text(L(`'${key}' 폴더를 찾지 못했어요(구성원인 폴더만 보여요).`, `I couldn't find the folder '${key}' (only folders you are a member of are shown).`))
+    const { folder } = await S.access(slug, user)
+    const p = S.safeRel(args.path)
+    const buf = await S.readBlob(folder, 'main', p)
+    if (BINARY.test(p) || buf.subarray(0, 8000).includes(0)) {
+      const [row] = await q('select card, body from pro_folder_files where folder_id=$1 and path=$2', [folder.id, p]).catch(() => [])
+      return text({ folder: folder.name, path: p, binary: true, summary: row?.card?.abstract || null, keywords: row?.card?.keywords || [], text: row?.body ? String(row.body).slice(0, 30000) : null })
+    }
+    const s = buf.toString('utf8')
+    return text({ folder: folder.name, path: p, text: s.slice(0, 30000), truncated: s.length > 30000 })
   }
   return { isError: true, ...text(`unknown tool ${name}`) }
 }

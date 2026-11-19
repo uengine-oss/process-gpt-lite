@@ -11,7 +11,7 @@ import { resources } from '../lib/improve/toc.js'
 import { focusingSteps, dur } from '../lib/improve/focus.js'
 import { whatIf } from '../lib/improve/whatif.js'
 import { describeChange, fmtNum, changeTypes, CHANGE_TYPES } from '../lib/improve/transform.js'
-import { buildContract, matches, patternLang } from '../lib/mining/service.js'
+import { buildContract, registeredFor, patternLang } from '../lib/mining/service.js'
 
 const HANGUL = /[가-힣]/
 const noHangul = (v, what) => assert.ok(!HANGUL.test(JSON.stringify(v)), `${what}: ${JSON.stringify(v).match(/.{0,40}[가-힣].{0,40}/)?.[0]}`)
@@ -68,19 +68,16 @@ test('mining: a flow recorded in English is named and registered in English; a K
   assert.match(kc.processDefinition.description, /프로세스 마이닝이 인계 기록 24건\(케이스 4건\)에서 찾은 흐름을 정식 등록했어요\.$/)
 })
 
-test('mining: the next English mail matches by English keywords (any case) and by the drawing words; Korean rules unchanged', () => {
-  const m = { formats: ['dxf', 'docx', 'xlsx'], keywords: ['interior', 'design', 'proposal', 'quote'] }
-  assert.equal(matches(m, { subject: 'Store Design Proposal and Quote request', text: '' }, { items: [] }), true)
-  assert.equal(matches(m, { subject: 'Snacks price list', text: 'in Excel please' }, { items: [{ format: 'xlsx' }] }), false)
-  assert.equal(matches(m, { subject: 'Documents', text: 'please send them with a floor plan' }, { items: [{ format: 'xlsx' }] }), true)
-  // a mail that asks for a 한글 proposal matches a flow whose proposal is a Word document, and back
-  assert.equal(matches({ formats: ['dxf', 'docx', 'xlsx'], keywords: [] }, { subject: 'x', text: '' }, { items: [{ format: 'hwpx' }, { format: 'xlsx' }] }), true)
-  // the Korean cases of e2e F-MN-03
-  const k = { formats: ['dxf', 'hwpx', 'xlsx'], keywords: ['인테리어', '설계', '제안서', '견적'] }
-  assert.equal(matches(k, { subject: '카페 인테리어 설계 제안서 요청', text: '' }, { items: [{ format: 'hwpx' }] }), true)
-  assert.equal(matches(k, { subject: '행사 다과 단가', text: '엑셀로 주세요' }, { items: [{ format: 'xlsx' }] }), false)
-  assert.equal(matches(k, { subject: '자료', text: '평면도와 함께 보내 주세요' }, { items: [{ format: 'xlsx' }] }), true)
-  assert.equal(matches(null, { subject: '인테리어 설계', text: '' }, {}), false)
+test('mining: the next mail goes to the registered process of its 업무 범주 — not by step words (2026-11-11)', () => {
+  const regs = [
+    { name: '요청 메일·견적서 작성', pattern: { category: '교육 일정표' } },
+    { name: '행사 견적·고객 회신', pattern: { category: '행사 견적' } },
+    { name: '다과 견적·재무 검토', pattern: { category: '행사 견적' } },
+  ]
+  assert.equal(registeredFor(regs, '교육 일정표')?.name, '요청 메일·견적서 작성', '견적서·단가 같은 낱말이 없는 교육 일정표 메일도')
+  assert.equal(registeredFor(regs, '행사 견적')?.name, '행사 견적·고객 회신', '같은 범주가 둘이면 나중에 등록한 것 (regs 순서)')
+  assert.equal(registeredFor(regs, '매장 설계'), null, '범주가 맞는 등록 프로세스가 없으면 맡지 않는다')
+  assert.equal(registeredFor(regs, ''), null)
 })
 
 test('improve demo: the English definition and history have the same ids, timings and numbers, and no Hangul', () => {

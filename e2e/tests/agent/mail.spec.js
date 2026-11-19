@@ -57,7 +57,7 @@ test('A-12 [flaky] 고객 메일이 엑셀 문서를 요청하면 → 홈 "초�
   expect((await db.q('select 1 from pro_mining_cases where user_id=$1 and mail_id=$2', [u.id, mail.mail_id])).length).toBe(1)
 })
 
-test('A-13 [flaky] 정식 등록된 프로세스와 맞는 메일 → 그 프로세스로 시작(프로세스 카드), 초안을 따로 만들지 않음', async ({ as, db, cleanup }) => {
+test('A-13 [flaky] 정식 등록된 프로세스와 맞는 메일 → 그 프로세스로 시작(인스턴스 화면 · 홈 카드), 초안을 따로 만들지 않음', async ({ as, db, cleanup }) => {
   test.setTimeout(15 * 60_000)
   const [reg] = await db.q(`select id, name, match from pro_mining_suggestions where tenant_id=$1 and status='registered' and proc_def_id is not null order by decided_at desc limit 1`, [db.tenant])
   test.skip(!reg, '정식 등록된 마이닝 프로세스가 없음 (관리자가 추천을 등록한 뒤에만 확인)')
@@ -72,11 +72,18 @@ test('A-13 [flaky] 정식 등록된 프로세스와 맞는 메일 → 그 프로
     text: `안녕하세요, 카페나무 박서준입니다. 12m × 8m 매장 인테리어 설계 제안서(한글)와 견적서(엑셀), 평면도를 요청드립니다. ${words}`,
   }, { timeout: 180_000 })
   expect(r.status, r.text).toBe(200)
-  const card = await waitFor(async () => (await since(db, th, t0, 'process')).find((m) => m.content.state === 'started'), { timeout: 8 * 60_000 })
-  expect(card, '프로세스 카드').toBeTruthy()
-  cleanup(() => retireInstance(card.content.instId))
-  expect(card.content.name).toBe(reg.name)
-  const [run] = await db.q('select suggestion_id from pro_mining_runs where proc_inst_id=$1', [card.content.instId])
-  expect(run?.suggestion_id).toBe(reg.id)
-  cleanup(() => db.q('delete from pro_mining_runs where proc_inst_id=$1', [card.content.instId]))
+  // the instance lives on its own page (2026-11-18): the mail and the note go to the instance's conversation,
+  // a Home card opens it, and the main chat gets nothing
+  const run = await waitFor(async () => (await db.q('select proc_inst_id, suggestion_id from pro_mining_runs where user_id=$1 and created_at >= $2', [u.id, t0]))[0], { timeout: 8 * 60_000 })
+  expect(run, '등록 프로세스로 시작').toBeTruthy()
+  cleanup(() => retireInstance(run.proc_inst_id))
+  cleanup(() => db.q('delete from pro_mining_runs where proc_inst_id=$1', [run.proc_inst_id]))
+  expect(run.suggestion_id).toBe(reg.id)
+  const [inst] = await db.q('select id from pro_threads where user_id=$1 and ref=$2', [u.id, run.proc_inst_id])
+  expect(inst, '인스턴스 대화').toBeTruthy()
+  const note = (await since(db, inst.id, t0, 'text'))[0]
+  expect(note?.content.mail?.subject).toBe(subject)
+  const n = (await u.get('/notifications')).body.find((x) => x.url === `/routines/${run.proc_inst_id}`)
+  expect(n?.type, '홈 카드 → 인스턴스 화면').toBe('process_started')
+  expect(await since(db, th, t0, 'process'), '전체 채팅에는 붙지 않음').toEqual([])
 })

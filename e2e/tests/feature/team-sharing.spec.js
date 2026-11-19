@@ -19,7 +19,7 @@ async function fileCard(db, u, name = '공유 견적.xlsx') {
 }
 
 test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
-  test('F-TS-01 산출물 공유 → 받은 편지함·알림, 받는 사람은 자기 사본 카드로 열고, 원본 주소는 내려가지 않는다', async ({ as, db, cleanup }) => {
+  test('F-TS-01 산출물 공유 → 받은 편지함·알림, 받는 사람은 자기 작업 대화의 브랜치 카드로 열고, 원본 주소는 내려가지 않는다', async ({ as, db, cleanup }) => {
     const a = await member(await as('ts-sender')), b = await member(await as('ts-mate'))
     const card = await fileCard(db, a)
     const note = uniq('검토 부탁')
@@ -36,7 +36,7 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     expect(inboxText).not.toContain(card.content.url)
     expect(inboxText).not.toContain('object_key')
     expect((await b.get('/notifications')).body.some((n) => /공유했어요/.test(n.title || ''))).toBe(true)
-    // open: a copy card in the recipient's chat (same copy on the second open); the raw bytes
+    // open: the recipient's card in their work conversation (no copy; the same card on the second open); the raw bytes
     const shareId = item.artifacts[0].shareId
     const o1 = await b.post(`/team/shares/${shareId}/open`)
     expect(o1.status, o1.text).toBe(200)
@@ -183,5 +183,24 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     await page.waitForTimeout(7000)
     await expect(item).toBeVisible()
     expect(page.errors).toEqual([])
+  })
+
+  test('F-TS-08 Lite 대화 브랜치(pro:)에는 화면 키로 직접 쓸 수 없다 — 공유 당사자도 BFF 를 거쳐야 한다', async ({ as, db, cleanup }) => {
+    const a = await member(await as('ts-sender')), b = await member(await as('ts-mate'))
+    const card = await fileCard(db, a, `직접쓰기-${uniq('x')}.xlsx`)
+    const r = await a.post('/team/share', { to: [{ type: 'user', id: b.id }], messageIds: [card.id], note: uniq('직접쓰기') })
+    expect(r.status, r.text).toBe(200)
+    cleanup(() => db.q('delete from chat_rooms where id=$1', [r.body.sent[0].threadId]))
+    const [row] = await db.q('select branch_room_id from pro_shares where source_message_id=$1 and recipient_id=$2', [card.id, b.id])
+    const [h] = await db.q('select head_commit_id from artifact_branches where room_id=$1', [row.branch_room_id])
+    const key = process.env.ANON_KEY
+    test.skip(!key, 'ANON_KEY 없음')
+    // the recipient's own token, straight to PostgREST: refused (not a chat_rooms participant)
+    const res = await fetch(`${process.env.PRO_SUPABASE_URL || 'http://127.0.0.1:54321'}/rest/v1/rpc/commit_branch`, {
+      method: 'POST', headers: { apikey: key, Authorization: `Bearer ${b.token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_room_id: row.branch_room_id, p_expected_head: h.head_commit_id, p_tree: {}, p_reason: 'edit' }),
+    })
+    expect(res.status, await res.text()).toBe(403)
+    expect((await db.q('select head_commit_id from artifact_branches where room_id=$1', [row.branch_room_id]))[0].head_commit_id).toBe(h.head_commit_id)
   })
 })

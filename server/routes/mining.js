@@ -1,10 +1,12 @@
 // HTTP routes for process mining: recommendations from repeated ad-hoc work and the admin's decision.
 import express from 'express'
 import * as M from '../lib/mining/service.js'
+import * as Talk from '../lib/mining/talk.js'
 import { q, eachTenant } from '../lib/supa.js'
 import { canSeeInstance, getInstance } from '../lib/processes.js'
 import { mainThread, addMessage } from '../lib/store.js'
 import { L } from '../lib/lang.js'
+import { openDriveOutput } from '../lib/driveOutputs.js'
 
 // The outputs of a work item's instance (files the earlier steps produced), for whoever reviews it.
 // Only a participant or work-item holder of that instance may see or open them (canSeeInstance).
@@ -38,16 +40,43 @@ export function miningRoutes(auth) {
     const [have] = await q(`select * from pro_messages where thread_id=$1 and kind='file' and content->>'source_url'=$2 order by created_at desc limit 1`, [t.id, f.url])
     return have || addMessage(req.user.id, t.id, 'agent', 'file', { name: f.name, url: f.url, source_url: f.url, step: f.step })
   }))
+  // an output kept in the tenant's Google Drive, opened read-only in the app's viewer (lib/driveOutputs.js)
+  r.post('/outputs/drive', auth, h((req) => openDriveOutput(req.user, req.body?.url)))
   r.get('/mining/me', auth, h(async (req) => ({ admin: await M.isAdmin(req.user) })))
   r.get('/mining/suggestions', auth, h(async (req) => { await admin(req); return M.list() }))
-  r.post('/mining/scan', auth, h(async (req) => { await admin(req); return { made: (await M.scan()).map((s) => s.id) } }))
+  r.post('/mining/scan', auth, h(async (req) => { await admin(req); return { made: (await M.scanNow()).map((s) => s.id) } }))
+  // work the miner could not place: the admin says which kind of work it is (case_id in the body —
+  // a case id contains ':', so it is not a path segment)
+  r.get('/mining/unclassified', auth, h(async (req) => { await admin(req); return M.unclassified() }))
+  r.post('/mining/cases/category', auth, h((req) => M.setCategory(req.user, req.body?.case_id, req.body?.category)))
   r.get('/mining/suggestions/:id', auth, h(async (req) => {
     await admin(req)
     const s = await M.get(req.params.id)
     if (!s) throw Object.assign(new Error(L('추천을 찾지 못했어요.', "I couldn't find that recommendation.")), { status: 404 })
     return s
   }))
-  r.post('/mining/suggestions/:id/register', auth, h((req) => M.register(req.user, req.params.id)))
+  // the admin's conversation about one recommendation: why it is grouped so, and what they confirm
+  // (steps 필수·옵션, which process a case belongs to, the proposal) — lib/mining/talk.js
+  r.get('/mining/suggestions/:id/talk', auth, h((req) => Talk.history(req.user, req.params.id)))
+  r.post('/mining/suggestions/:id/talk', auth, h((req) => Talk.say(req.user, req.params.id, req.body?.text)))
+  // the admin decides one branch from the screen (확인 필요: 초안대로 · 필수로), the same as in the talk
+  r.post('/mining/suggestions/:id/steps', auth, h(async (req) => {
+    const b = req.body || {}
+    await M.setStep(req.user, req.params.id, b.activity, b.kind, b.kind === 'choice' ? b.when : b.kind === 'loop' ? b.redo_when : b.skip_when)
+    return M.get(req.params.id)
+  }))
+  // 정식 등록 전 미리보기: the BPMN XML 정식 등록 would save, nothing written (M.preview)
+  r.get('/mining/suggestions/:id/bpmn', auth, async (req, res) => {
+    try {
+      const { bpmn, token } = await M.preview(req.user, req.params.id)
+      res.set('X-Preview-Token', token).set('Cache-Control', 'no-store').type('application/xml').send(bpmn)
+    } catch (e) {
+      if (!e.status) console.warn('[mining]', req.method, req.path, e.message)
+      res.status(e.status || 500).json({ error: e.status ? e.message : L('BPMN 을 그리지 못했어요.', "I couldn't draw the BPMN.") })
+    }
+  })
+  // (preview: the token of the preview the admin saw — 정식 등록 saves only that same definition)
+  r.post('/mining/suggestions/:id/register', auth, h((req) => M.register(req.user, req.params.id, { preview: req.body?.preview || '' })))
   r.post('/mining/suggestions/:id/hold', auth, h((req) => M.hold(req.user, req.params.id)))
   return r
 }

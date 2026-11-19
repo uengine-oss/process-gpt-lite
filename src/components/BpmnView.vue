@@ -19,14 +19,18 @@ import { laidOutBpmn } from '../lib/bpmnLayout.js'
 //   wheel: false leaves the wheel to the page (a fitted diagram in a scrolling panel) — 크게 보기 takes it back
 //   the box is as tall as the diagram fitted to its width (never zoomed past 1), at most height
 //   emits failed (the XML could not be shown) · ready (imported and painted)
+// src: an API path that answers BPMN XML in place of a saved definition's (a recommendation's preview
+// before 정식 등록 — nothing saved yet); a new src draws again
 const props = defineProps({
-  defId: String, steps: { type: Array, default: () => [] }, height: { type: Number, default: 360 },
+  defId: String, src: String, steps: { type: Array, default: () => [] }, height: { type: Number, default: 360 },
   xml: { type: String, default: null }, bigXml: { type: String, default: null }, markers: { type: Object, default: null }, attrs: { type: Object, default: null },
   wheel: { type: Boolean, default: true }, emptyText: { type: String, default: '' },
 })
-const emit = defineEmits(['failed', 'ready'])
+const emit = defineEmits(['failed', 'ready', 'loaded'])
 const host = ref(null)
 const empty = ref(false)
+const loading = ref(false)
+const failed = ref('')
 // (a given diagram may be allowed to grow tall: it starts at a usual height until its aspect is known)
 const h = ref(props.xml != null ? Math.min(props.height, 320) : props.height)
 const big = ref(false)
@@ -69,13 +73,23 @@ let seq = 0
 async function load() {
   const my = ++seq
   empty.value = false
+  failed.value = ''
   let xml
   const given = props.xml != null
   if (given) xml = big.value && props.bigXml ? props.bigXml : props.xml
   else {
-    const r = await api(`/processes/${encodeURIComponent(props.defId)}/bpmn`, { raw: true })
-    if (!r.ok) { empty.value = true; return }
+    loading.value = true
+    const r = await api(props.src || `/processes/${encodeURIComponent(props.defId)}/bpmn`, { raw: true }).catch((e) => ({ ok: false, e }))
+    loading.value = false
+    if (my !== seq) return
+    if (!r.ok) {
+      if (props.src) failed.value = (await r.json?.().catch(() => null))?.error || r.e?.message || 'BPMN 을 그리지 못했어요.'
+      empty.value = true
+      return
+    }
     xml = await r.text()
+    // (a preview says which definition it drew: 정식 등록 saves only that one)
+    emit('loaded', { token: r.headers.get('x-preview-token') || '' })
   }
   if (!xml) { empty.value = true; return }
   try {
@@ -111,6 +125,7 @@ onBeforeUnmount(() => { gone = true; viewer?.destroy() })
 watch(() => props.steps.map((s) => s.state + s.mine).join(), paint)
 watch(() => [props.markers, props.attrs], paint, { deep: true })
 watch(() => props.defId, () => { if (props.xml == null) load() })
+watch(() => props.src, () => { if (props.xml == null) load() })
 watch(() => props.xml, (x, was) => { if (x !== was) load() })
 watch(() => props.bigXml, (x, was) => { if (x !== was && big.value) load() })
 const fit = () => { viewer?.get('canvas').resized(); viewer?.get('canvas').zoom('fit-viewport', 'auto') }
@@ -131,7 +146,8 @@ defineExpose({ fit })
   <div v-if="big" class="scrim" @click="toggleBig" />
   <div class="bpmn" :class="{ big }" :style="{ height: big ? null : h + 'px' }">
     <div ref="host" class="host" />
-    <p v-if="empty" class="none">{{ emptyText || '이 프로세스에는 저장된 BPMN 다이어그램이 없어요.' }}</p>
+    <p v-if="loading" class="none wait"><span class="shimmer-text">그리는 중</span></p>
+    <p v-else-if="empty" class="none">{{ failed || emptyText || '이 프로세스에는 저장된 BPMN 다이어그램이 없어요.' }}</p>
     <div v-else class="tools">
       <button class="press" aria-label="화면에 맞추기" @click="fit">맞춤</button>
       <button class="press" :aria-label="big ? '작게 보기' : '크게 보기'" @click="toggleBig">{{ big ? '닫기' : '크게 보기' }}</button>
@@ -144,6 +160,8 @@ defineExpose({ fit })
 .bpmn { position: relative; border-radius: 18px; overflow: hidden; background: var(--field-bg); }
 .host { position: absolute; inset: 0; }
 .none { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--text-secondary); font-size: 14px; }
+/* drawing again: the old diagram is covered, not read as the new one */
+.none.wait { background: var(--field-bg); z-index: 1; }
 .bpmn { transition: height .35s var(--spring); }
 .spacer { border-radius: 18px; background: var(--field-bg); }
 .scrim { position: fixed; inset: 0; z-index: 59; background: rgba(5 7 13 / .45); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: fade-in .3s both; }

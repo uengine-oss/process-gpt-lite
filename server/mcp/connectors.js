@@ -8,8 +8,9 @@ import { userFromJwt } from '../lib/supa.js'
 import { google } from './connectors/google.js'
 import { youtube } from './connectors/youtube.js'
 import { slackConnector, githubConnector, notionConnector } from './connectors/saas.js'
+import { browserConnector } from './connectors/browser.js'
 
-export const CONNECTORS = [google, youtube, slackConnector, githubConnector, notionConnector]
+export const CONNECTORS = [google, youtube, slackConnector, githubConnector, notionConnector, browserConnector]
 
 const HUB = process.env.PRO_MCP_HUB_URL || 'http://127.0.0.1:8500'
 export const hubServerName = (connector) => `pgpt-${connector}`
@@ -42,7 +43,8 @@ export async function ensureHubBinding(userId, tenantId) {
 }
 
 export async function connectorStatus(userId) {
-  return Promise.all(CONNECTORS.map(async (c) => ({ name: c.name, title: c.title, connected: await c.connected(userId).catch(() => false), tools: c.tools.map((t) => t.name) })))
+  return Promise.all(CONNECTORS.map(async (c) => ({ name: c.name, title: c.title, connected: await c.connected(userId).catch(() => false), tools: c.tools.map((t) => t.name),
+    ...(c.status ? { status: await c.status(userId).catch(() => null) } : {}) })))
 }
 
 // user = null: anonymous catalog (mcp-hub validation, health checks, tool cache). Every tool is
@@ -64,7 +66,8 @@ async function buildServer(user, only) {
           const out = await t.run(user.id, args || {})
           return { content: [{ type: 'text', text: JSON.stringify(out, null, 1) }] }
         } catch (e) {
-          return { isError: true, content: [{ type: 'text', text: e.message }] }
+          // (a tool that cannot work without a setup step says which one, as data: mcp/connectors/youtube.js)
+          return { isError: true, content: [{ type: 'text', text: e.detail ? JSON.stringify(e.detail, null, 1) : e.message }] }
         }
       })
     }

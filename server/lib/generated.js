@@ -7,6 +7,7 @@ import { config } from '../config.js'
 import fs from 'node:fs/promises'
 import { workspaceHostPath, saveSkillDraft } from './missions.js'
 import { PGPT_ROOT } from './paths.js'
+import { L } from './lang.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const PGPT = PGPT_ROOT
@@ -16,29 +17,66 @@ const PGPT = PGPT_ROOT
 async function viaBridge(action, contract, workHost) {
   const root = `${PGPT}/services/deepagents/workspace`
   const workRel = workHost.startsWith(`${root}/`) ? workHost.slice(root.length) : ''
+  // the bridge writes with the service_role key and asks for the same key; one bridge serves every
+  // tenant of a multi-tenant install, so each request names this request's tenant
   const r = await fetch(`${config.bridgeUrl}/${action}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contract, work_rel: workRel }), signal: AbortSignal.timeout(620_000),
-  })
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(config.serviceKey ? { Authorization: `Bearer ${config.serviceKey}` } : {}) },
+    body: JSON.stringify({ contract, work_rel: workRel, tenant_id: config.tenantId }), signal: AbortSignal.timeout(620_000),
+  }).catch((e) => { console.warn('[process] bridge', e.cause?.code || e.message); throw saveUnavailable() })
   const out = await r.json().catch(() => ({ error: `bridge ${r.status}` }))
   if (!r.ok) throw new Error(out.error || `bridge ${r.status}`)
   return out
 }
 
-export async function saveGenerated(contract, workDir) {
+// No bridge (PRO_BRIDGE_URL) and no deepagents venv on this host (a server image deployed without the
+// bridge service): saving cannot run. The caller gets this error (500 — not 502/503, which Cloudflare in
+// front of production replaces with its own page) instead of the server process dying on the spawn's
+// unhandled 'error' event (ENOENT), which took every user's session down with it.
+export const saveUnavailable = () => Object.assign(
+  new Error(L('프로세스 정의를 저장할 곳이 설정되지 않아 저장하지 못했어요. 관리자에게 알려 주세요.',
+    "There is nowhere set up to save process definitions, so it wasn't saved. Please tell your administrator.")),
+  { status: 500, code: 'SAVE_UNAVAILABLE' })
+
+export async function saveGenerated(contract, workDir, { python = `${PGPT}/services/deepagents/.venv/bin/python` } = {}) {
   const workHost = workDir ? await workspaceHostPath(workDir).catch(() => '') : ''
   if (config.bridgeUrl) return viaBridge('save', contract, workHost)
   return new Promise((resolve, reject) => {
-    const py = spawn(`${PGPT}/services/deepagents/.venv/bin/python`, [path.join(here, '..', 'bridge', 'save_generated.py')], {
+    const py = spawn(python, [path.join(here, '..', 'bridge', 'save_generated.py')], {
       env: { ...process.env, PGPT_ROOT: PGPT, TENANT_ID: config.tenantId, SUPABASE_URL: config.supabaseUrl, SERVICE_ROLE_KEY: config.serviceKey,
         WORK_DIR: workHost },
     })
     let out = '', err = ''
+    py.on('error', (e) => {
+      console.warn('[process] save', e.code || e.message)
+      reject(e.code === 'ENOENT' ? saveUnavailable() : e)
+    })
+    // (writing the contract to a process that never started fails too: that is the 'error' above)
+    py.stdin.on('error', () => {})
     py.stdout.on('data', (d) => { out += d })
     py.stderr.on('data', (d) => { err += d })
     py.on('close', (code) => {
       if (code !== 0) return reject(new Error(err.split('\n').filter(Boolean).slice(-3).join(' | ')))
       try { resolve({ ...JSON.parse(out.trim().split('\n').pop()), warn: err.trim() || undefined }) } catch { reject(new Error(out + err)) }
+    })
+    py.stdin.end(JSON.stringify(contract))
+  })
+}
+
+// The BPMN saving would store for this contract (save_generated.py PREVIEW_ONLY: the same process-gpt
+// generator on the same processDefinition), without writing anything — a recommendation's preview.
+// Docker bundle: the bridge's /preview runs it.
+export async function previewGenerated(contract, { python = `${PGPT}/services/deepagents/.venv/bin/python` } = {}) {
+  if (config.bridgeUrl) return (await viaBridge('preview', contract, '')).bpmn || ''
+  return new Promise((resolve, reject) => {
+    const py = spawn(python, [path.join(here, '..', 'bridge', 'save_generated.py')], { env: { ...process.env, PGPT_ROOT: PGPT, PREVIEW_ONLY: '1', WORK_DIR: '' } })
+    let out = '', err = ''
+    py.on('error', (e) => reject(e.code === 'ENOENT' ? saveUnavailable() : e))
+    py.stdin.on('error', () => {})
+    py.stdout.on('data', (d) => { out += d })
+    py.stderr.on('data', (d) => { err += d })
+    py.on('close', (code) => {
+      if (code !== 0) return reject(new Error(err.split('\n').filter(Boolean).slice(-3).join(' | ')))
+      try { resolve(JSON.parse(out.trim().split('\n').pop()).bpmn || '') } catch { reject(new Error(out + err)) }
     })
     py.stdin.end(JSON.stringify(contract))
   })

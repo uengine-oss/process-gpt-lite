@@ -76,6 +76,7 @@ export const config = {
   // IeumOffice editor host (process-gpt office-host): its MCP (/office/mcp) edits the documents open in the page
   officeHostUrl: get('PRO_OFFICE_HOST_URL', 'http://127.0.0.1:5390'),
   completionUrl: get('PRO_COMPLETION_URL', 'http://127.0.0.1:8099'),
+  mementoUrl: get('PRO_MEMENTO_URL', 'http://127.0.0.1:8005'),
   llm: {
     baseUrl: get('PRO_LLM_BASE_URL', get('LLM_PROXY_URL', 'https://api.openai.com/v1')),
     apiKey: get('PRO_LLM_API_KEY', get('OPENAI_API_KEY')),
@@ -99,6 +100,8 @@ export const config = {
     // server on another client (a second app on the same database) keeps its own (PRO_GOOGLE_VAULT_SITE=google-lite)
     vaultSite: get('PRO_GOOGLE_VAULT_SITE', 'google'),
   },
+  // a shared YouTube Data API v3 key, used after the person's own (mcp/connectors/youtube.js)
+  youtubeApiKey: get('PRO_YOUTUBE_API_KEY', ''),
   // Vault KEKs (32 bytes, base64), never stored in the database. Either PRO_VAULT_KEK (current) plus
   // PRO_VAULT_KEK_RETIRED (comma-separated older keys), or a 0600 keyring file created on first run
   // (importing the single-key server/.vault-kek of earlier versions).
@@ -109,5 +112,7 @@ export const config = {
   mailPollSeconds: Number(get('PRO_MAIL_POLL_SECONDS', 300)),
   // pg_cron fires schedules by calling back into this server through pg_net.
   cronCallbackBase: get('PRO_CRON_CALLBACK', 'http://host.docker.internal:8787'),
+  // 'server': this server checks the schedules every minute instead (lib/scheduler.js)
+  cronMode: get('PRO_CRON_MODE', 'pg_cron') === 'server' ? 'server' : 'pg_cron',
   cronSecret: get('PRO_CRON_SECRET', 'pgpt-pro-cron'),
 }

@@ -9,7 +9,10 @@ import { hidePaths } from '../paths.js'
 import Composer from './Composer.vue'
 import { useApp } from '../stores/app.js'
 
-const props = defineProps({ title: { type: String, default: '' }, live: Boolean })
+// doc: an IeumOffice document — what is sent is about it even while its live link is down (the
+// message says which document is open: stores/app.js send); the band then says so and offers 다시 연결
+const props = defineProps({ title: { type: String, default: '' }, live: Boolean, doc: Boolean, linkFail: { type: String, default: '' } })
+const emit = defineEmits(['reconnect'])
 const app = useApp()
 const open = ref(false)
 const composer = ref(null)
@@ -54,8 +57,12 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeo
       <div v-if="open" class="band" @click.self="open = false">
         <div class="col">
           <Transition name="pill"><div v-if="working" :key="working" class="working"><span class="shimmer-text">{{ working }}</span></div></Transition>
-          <Composer ref="composer" overlay :placeholder="live ? `${title}에서 고칠 내용을 적어 주세요` : 'process gpt에 메시지 보내기'" @send="send" @escape="open = false" />
-          <div class="hint">{{ live ? `보내면 ${title} 화면에 바로 적용돼요 · Esc 로 접기` : 'Esc 로 접기' }}</div>
+          <Composer ref="composer" overlay :placeholder="live || doc ? `${title}에서 고칠 내용을 적어 주세요` : 'process gpt에 메시지 보내기'" @send="send" @escape="open = false" />
+          <div v-if="doc && !live" class="hint off" :title="linkFail">
+            <template v-if="linkFail">문서와 연결 안 됨 · <button class="relink" @click="emit('reconnect')">다시 연결</button></template>
+            <template v-else>문서와 연결하는 중…</template>
+          </div>
+          <div v-else class="hint">{{ live ? `보내면 ${title} 화면에 바로 적용돼요 · Esc 로 접기` : 'Esc 로 접기' }}</div>
         </div>
       </div>
     </Transition>
@@ -90,6 +97,8 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeo
 .col { position: relative; width: 560px; max-width: calc(100% - 32px); }
 .col :deep(.box) { box-shadow: 0 10px 36px rgba(0, 0, 0, .35); }
 .hint { margin-top: 9px; text-align: center; font-size: 12.5px; color: rgba(235, 237, 242, .78); }
+.hint.off { color: rgba(255, 205, 200, .92); }
+.relink { padding: 0; font: inherit; color: #fff; text-decoration: underline; text-underline-offset: 2px; }
 .working { height: 38px; padding: 0 18px; border-radius: 19px; display: inline-flex; align-items: center; font-size: 14.5px; white-space: nowrap;
   --text-primary: rgb(245 245 247); --text-tertiary: rgba(245 245 247 / .45);
   border: 1px solid rgba(255, 255, 255, .14); background: rgba(34, 38, 48, .82); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: 0 4px 16px rgba(0, 0, 0, .3); }

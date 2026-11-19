@@ -51,8 +51,9 @@ async function giveUp(t, err, transient) {
   const who = await starterOf(t.proc_inst_id)
   if (!who) return
   const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [t.proc_inst_id])
-  const url = `/projects/p/${encodeURIComponent(t.proc_inst_id)}`
-  await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and type=$3', [T(), url, 'agent_failed'])
+  // the instance page is a 루틴 (/routines, 2026-11-18); a card sent before that carries /projects/p/
+  const url = `/routines/${encodeURIComponent(t.proc_inst_id)}`
+  await q('update notifications set is_checked=true where tenant_id=$1 and url = any($2) and type=$3', [T(), [url, `/projects/p/${encodeURIComponent(t.proc_inst_id)}`], 'agent_failed'])
   // in the starter's language (they read it on Home)
   const en = (await langOf(who)) === 'en'
   await q(`insert into notifications (id, user_id, title, type, description, url, tenant_id) values (gen_random_uuid(),$1,$2,'agent_failed',$3,$4,$5)`,
@@ -102,7 +103,7 @@ export async function retryNow(me, todoId, canSee) {
   await requeue(t.id)
   await q(`insert into pro_step_retries (todo_id, tenant_id, proc_inst_id, manual, retried_at, updated_at) values ($1,$2,$3,1,now(),now())
            on conflict (todo_id) do update set manual=pro_step_retries.manual+1, attempts=0, gave_up_at=null, retried_at=now(), updated_at=now()`, [t.id, T(), t.proc_inst_id])
-  await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and type=$3', [T(), `/projects/p/${encodeURIComponent(t.proc_inst_id)}`, 'agent_failed'])
+  await q('update notifications set is_checked=true where tenant_id=$1 and url = any($2) and type=$3', [T(), [`/routines/${encodeURIComponent(t.proc_inst_id)}`, `/projects/p/${encodeURIComponent(t.proc_inst_id)}`], 'agent_failed'])
   emit(me.id, 'process', { instId: t.proc_inst_id, type: 'changed' })
   return { ok: true, todoId: t.id }
 }

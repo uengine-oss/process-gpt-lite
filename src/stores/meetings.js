@@ -4,7 +4,7 @@
 // on the window by api.js events(), like the team store.
 import { defineStore } from 'pinia'
 import { markRaw } from 'vue'
-import { api, auth } from '../api.js'
+import { api, auth, freshToken, refreshToken } from '../api.js'
 import { Mesh } from '../components/meetings/rtc.js'
 import { startCapture } from '../components/meetings/capture.js'
 import { Interpreter } from '../components/meetings/interp.js'
@@ -12,12 +12,16 @@ import { useTeam } from './team.js'
 import { useApp } from './app.js'
 import { BASE } from '../base.js'
 
+// one spoken piece: with a token that is not about to run out, and on 401 a renewed one — a page open
+// for over an hour sent every piece with an expired token and showed only "unauthorized" (2026-11-19).
+// A sign-in check or a gateway that did not answer in time is tried once more, a moment later
+// (not 503 from transcription: the server already tried a second model before it said so).
 async function postAudio(id, blob) {
-  const go = () => fetch(`${BASE}/api/meetings/${id}/audio`, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/wav', Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` } })
+  const go = async () => fetch(`${BASE}/api/meetings/${id}/audio`, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/wav', Authorization: `Bearer ${await freshToken()}` } })
   let r = await go()
-  // a sign-in check or a gateway that did not answer in time loses a whole spoken piece (and its
-  // interpretation): once more, a moment later
-  if (r.status === 401 || r.status === 502 || r.status === 503) { await new Promise((ok) => setTimeout(ok, 400)); r = await go() }
+  if (r.status === 401) { if (await refreshToken().catch(() => null)) r = await go() }
+  else if (r.status === 502 || (r.status === 503 && r.headers.get('X-Auth-Retry'))) { await new Promise((ok) => setTimeout(ok, 800)); r = await go() }
+  if (r.status === 401) throw Object.assign(new Error('로그인이 만료되어 말을 보내지 못했어요. 페이지를 새로 고친 뒤 다시 참여해 주세요.'), { status: 401 })
   if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).error || '받아쓰지 못했어요.'), { status: r.status })
   return r.json()
 }
@@ -139,7 +143,15 @@ export const useMeetings = defineStore('meetings', {
         onPiece: async (blob) => {
           if (!this.m || !this.mic) return
           this.sending++
-          try { await postAudio(this.m.id, blob) } catch (e) { if (e.status === 403) this.error = e.message } finally { this.sending-- }
+          try { await postAudio(this.m.id, blob) } catch (e) {
+            // the reason a piece was not written down is said (before, anything but 403 vanished: a meeting
+            // without captions and no why — 2026-11-18); a passing one goes away by itself. The helper's
+            // tile says it too: it heard nothing, so it must not keep saying 듣고 있어요 (2026-11-19)
+            const msg = e.message || '받아쓰지 못했어요.'
+            this.agentSay = `죄송해요, 방금 하신 말을 받아 적지 못했어요 · ${msg}`
+            if (e.status === 403 || e.status === 401) this.error = msg
+            else { this.error = msg; clearTimeout(this._errT); this._errT = setTimeout(() => { if (this.error === msg) this.error = '' }, 10000) }
+          } finally { this.sending-- }
         },
       })
     },
@@ -266,6 +278,8 @@ export const useMeetings = defineStore('meetings', {
 
     // ---- materials ----
     async openFor(material, { me = true } = {}) {
+      // a shared folder's document opens from the folder (MeetingView's FileView): nothing to fetch first
+      if (material.kind === 'folder' && material.folder?.file) return { material, me }
       if (material.kind === 'file') {
         const r = await api(`/meetings/${this.m.id}/materials/${material.id}/open`, { method: 'POST' })
         return { material, message: r.message }
@@ -275,6 +289,33 @@ export const useMeetings = defineStore('meetings', {
       return { material: r.material || material, me }
     },
     async openMine(material) { this.mine = await this.openFor(material) },
+    // 자료 찾기: what I may see, by name or content (empty: this room's files and the newest folder documents)
+    async searchMaterials(text) {
+      return (await api(`/meetings/${this.m.id}/materials/search?q=${encodeURIComponent(text || '')}`)).results || []
+    },
+    // 자료 띄우기 › 내 컴퓨터에서: my file goes on the panel as my own file, then opens for me or for everyone
+    async uploadMaterial(file, then = 'present') {
+      const go = async () => fetch(`${BASE}/api/meetings/${this.m.id}/materials/upload`, { method: 'POST', body: file,
+        headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), 'X-File-Type': file.type || '', Authorization: `Bearer ${await freshToken()}` } })
+      let r = await go()
+      if (r.status === 401 && await refreshToken().catch(() => null)) r = await go()
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(r.status === 413 ? '50MB보다 큰 파일은 올릴 수 없어요.' : j.error || '올리지 못했어요.')
+      const i = this.m.materials.findIndex((x) => x.id === j.material.id)
+      if (i >= 0) this.m.materials[i] = j.material; else this.m.materials.push(j.material)
+      if (then === 'present') await this.present(j.material)
+      else await this.openMine(j.material)
+      return j.material
+    },
+    // the one I picked goes on the panel (everyone who may see it gets it), then opens for me or for everyone
+    async pickMaterial(key, then = 'open') {
+      const { material } = await api(`/meetings/${this.m.id}/materials/pick`, { method: 'POST', body: { key } })
+      const i = this.m.materials.findIndex((x) => x.id === material.id)
+      if (i >= 0) this.m.materials[i] = material; else this.m.materials.push(material)
+      if (then === 'present') await this.present(material)
+      else await this.openMine(material)
+      return material
+    },
     async present(material) { await api(`/meetings/${this.m.id}/materials/${material.id}/present`, { method: 'POST' }) },
     async clearStage() { await api(`/meetings/${this.m.id}/present/clear`, { method: 'POST' }) },
     async loadStageFile(st) {
@@ -326,11 +367,22 @@ export const useMeetings = defineStore('meetings', {
       } else if (d.type === 'material') {
         const i = m.materials.findIndex((x) => x.id === d.material.id)
         if (i >= 0) m.materials[i] = d.material; else m.materials.push(d.material)
-        this.agentSay = `자료를 찾았어요 · ${d.material.title}`
+        // an entry brought up to date as it is shown to everyone: no announcement of its own
+        if (d.quiet) return
+        this.agentSay = d.material.byAgent === false ? `자료를 올렸어요 · ${d.material.title}` : `자료를 찾았어요 · ${d.material.title}`
         this.flash = d.material.id
-        if (this.tab !== 'materials') this.unseen = (this.unseen || 0) + 1
+        // "…열어볼래?": opened at once for the one who asked (only for me; others see it on the panel)
+        if (d.open && !this.stage) this.openMine(d.material).catch((e) => { this.error = e.message })
+        else if (this.tab !== 'materials') this.unseen = (this.unseen || 0) + 1
       } else if (d.type === 'mentioned') {
         this.flash = d.materialId
+        const x = d.open === m.me.id && m.materials.find((y) => y.id === d.materialId)
+        if (x && !this.stage) this.openMine(x).catch((e) => { this.error = e.message })
+      } else if (d.type === 'agent') {
+        // the helper answers (nothing found, the model did not answer): on its tile and in the subtitles
+        this.agentSay = d.text
+        m.lines.push({ id: `agent-${Date.now()}`, agent: true, userId: null, speaker: '도우미', text: d.text, at: d.at || new Date().toISOString(), tr: {} })
+        if (m.lines.length > 200) m.lines.splice(0, m.lines.length - 200)
       } else if (d.type === 'present') {
         if (!d.material && !d.hidden) { this.stage = null; return }
         this.stage = { material: d.material, hidden: !!d.hidden, by: d.by, byId: d.byId }

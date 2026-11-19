@@ -130,17 +130,21 @@ ensure_sources() {
       [ -d "$root/backends/office-host" ] && git -C "$root/backends/office-host" submodule update --init ieumoffice 2>/dev/null || true
     fi
   fi
-  # process-miner (mining profile): process-gpt's feat/pgpt-lite-mining, only services/process-miner
+  # process-miner (mining profile): process-gpt at a pinned commit of feat/pgpt-lite-mining, only services/process-miner
   if [ "$(getenv LITE_MINING)" = 1 ] && [ -z "$(getenv PROCESS_MINER_SRC)" ]; then
     local mr="$HERE/.src/process-gpt-mining"
     if [ ! -d "$mr/.git" ]; then
       say "$(t 'process-miner 소스를 받습니다(process-gpt feat/pgpt-lite-mining, services/process-miner 만)' 'Fetching the process-miner source (process-gpt feat/pgpt-lite-mining, services/process-miner only)')"
       mkdir -p "$HERE/.src"
-      git clone -q --depth 1 --branch "${MINER_BRANCH:-feat/pgpt-lite-mining}" --filter=blob:none --sparse \
-        https://github.com/uengine-oss/process-gpt.git "$mr" || die "$(t 'process-miner 소스를 받지 못했습니다.' 'Could not fetch the process-miner source.')"
-      git -C "$mr" sparse-checkout set services/process-miner
+      # 브랜치가 아니라 정해 둔 커밋을 받는다. 브랜치는 내용이 바뀔 수 있다.
+      local miner_ref="${MINER_REF:-0fe31f12cb5f5aab2f1b79a9188b24d4d946b408}"
+      { git init -q "$mr" && git -C "$mr" remote add origin https://github.com/uengine-oss/process-gpt.git \
+        && git -C "$mr" sparse-checkout set services/process-miner \
+        && git -C "$mr" fetch -q --depth 1 --filter=blob:none origin "$miner_ref" \
+        && git -C "$mr" -c advice.detachedHead=false checkout -q FETCH_HEAD; } \
+        || die "$(t 'process-miner 소스를 받지 못했습니다.' 'Could not fetch the process-miner source.')"
     elif [ "$ACTION" = upgrade ] && [ "$NO_GIT" = 0 ]; then
-      git -C "$mr" pull -q --ff-only || warn "$(t 'process-miner 소스 git pull 실패 — 지금 소스로 계속합니다.' 'git pull of the process-miner source failed — continuing with the current source.')"
+      git -C "$mr" fetch -q --depth 1 --filter=blob:none origin "${MINER_REF:-0fe31f12cb5f5aab2f1b79a9188b24d4d946b408}" && git -C "$mr" -c advice.detachedHead=false checkout -q FETCH_HEAD || warn "$(t 'process-miner 소스 갱신 실패 — 지금 소스로 계속합니다.' 'Updating the process-miner source failed — continuing with the current source.')"
     fi
     [ -f "$mr/services/process-miner/Dockerfile" ] || die "$(t 'process-miner 소스가 없습니다' 'The process-miner source is missing') ($mr)."
   fi

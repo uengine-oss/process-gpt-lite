@@ -15,6 +15,8 @@ import { api } from '../../api.js'
 import VideoTile from './VideoTile.vue'
 import { MAIN_LANGS, langLabel } from '../../i18n/mainLangs.js'
 import MaterialBody from './MaterialBody.vue'
+import FolderDocStage from './FolderDocStage.vue'
+import MaterialPicker from './MaterialPicker.vue'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
 import CraftEditorFrame from '../CraftEditorFrame.vue'
 
@@ -78,6 +80,12 @@ async function saved(msg, { url, name }) {
   await api(`/messages/${msg.id}/file`, { method: 'POST', body: { url, name } }).catch(() => {})
 }
 const back = () => { mt.mini = false; app.officeDoc = null }
+
+// ---- 자료 찾기 (자료 tab) and 자료 띄우기 (the bottom bar's sheet, like 화면 공유): MaterialPicker ----
+const finder = ref(null)
+const picking = ref(false)
+// the list of what was found opens with the room's files when the tab is first opened
+watch(() => mt.tab, (t) => { if (t === 'materials' && !mt.materials.length) nextTick(() => finder.value?.find()) })
 onMounted(() => mt.boot())
 
 // ---- languages (통역) ----
@@ -169,6 +177,7 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
                 </template>
                 <p v-else class="hidden">여는 중…</p>
               </template>
+              <FolderDocStage v-else-if="shown.material?.kind === 'folder' && shown.material.folder?.file" :key="shown.material.id" :folder="shown.material.folder" />
               <div v-else-if="shown.material" class="pad"><MaterialBody :m="shown.material" big @open-share="openShare" /></div>
             </div>
           </section>
@@ -180,7 +189,7 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
             <div v-if="m.agent" class="tile agent" data-test="agent-tile">
               <div class="orb"><span /><span /><span /></div>
               <b>프로세스 GPT 라이트 도우미</b>
-              <small class="say">{{ mt.agentSay }}</small>
+              <small class="say" :class="{ long: mt.agentSay.length > 24 }" data-test="agent-say">{{ mt.agentSay }}</small>
             </div>
           </div>
         </main>
@@ -207,7 +216,7 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
             <p v-if="!m.agent" class="empty">이 회의는 도우미가 꺼져 있어 자막이 없어요.</p>
             <p v-else-if="!mt.lines.length" class="empty">말하면 여기에 화자별 자막이 떠요. 동의한 분의 말만 받아써요.</p>
             <button v-if="interp?.mixed && mt.lines.some(trOf)" class="origtog press" data-test="subs-original" @click="mt.showOriginal = !mt.showOriginal">{{ mt.showOriginal ? '내 언어로 먼저 보기' : '원문 먼저 보기' }}</button>
-            <div v-for="l in mt.lines" :key="l.id" class="ln" :class="{ me: l.userId === m.me.id, tr: !!trOf(l) }" :data-lang="l.lang" data-test="line">
+            <div v-for="l in mt.lines" :key="l.id" class="ln" :class="{ me: l.userId === m.me.id, tr: !!trOf(l), agent: l.agent }" :data-lang="l.lang" :data-test="l.agent ? 'agent-line' : 'line'">
               <span class="sp">{{ l.speaker }}</span>
               <span class="tx" data-no-i18n>
                 <template v-if="trOf(l) && !mt.showOriginal"><span class="mtx" data-test="line-tr">{{ trOf(l) }}</span><span class="orig" data-test="line-orig"><i>{{ langLabel(l.lang) }}</i> {{ l.text }}</span></template>
@@ -218,7 +227,9 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
             </div>
           </div>
           <div v-else class="mats scroll" data-test="materials">
-            <p v-if="!mt.materials.length" class="empty">회의 중에 "지난번 견적서 다시 보자" 처럼 말하면, 도우미가 볼 수 있는 자료를 찾아 여기에 띄워요.</p>
+            <!-- 자료 찾기: the same materials the helper looks in, found by me (name, document card or text) -->
+            <MaterialPicker ref="finder" />
+            <p v-if="!mt.materials.length" class="empty">회의 중에 "지난번 견적서 다시 보자"처럼 말하면 도우미가 자료를 찾아 여기에 띄워요. 말로 자료를 찾지 못하면 위 칸에서 직접 찾아 띄울 수 있어요.</p>
             <article v-for="x in [...mt.materials].reverse()" :key="x.id" class="mat" :class="{ flash: mt.flash === x.id, on: shown?.material?.id === x.id }" :data-kind="x.kind" data-test="material">
               <p class="mk">{{ KIND[x.kind] }}<template v-if="x.presentedBy"> · 띄웠어요</template></p>
               <MaterialBody :m="x" @open-share="openShare" />
@@ -236,17 +247,26 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
         </aside>
       </div>
 
+      <!-- 자료 띄우기: pick a file myself (my materials or my computer) and show it, like 화면 공유 -->
+      <div v-if="picking" class="pickveil" @click.self="picking = false">
+        <section class="picksheet" role="dialog" aria-label="자료 띄우기" data-test="pick-sheet">
+          <header class="pkh"><b>자료 띄우기</b><small>내가 볼 수 있는 자료나 내 컴퓨터에 있는 파일을 골라 회의에 띄워요</small><button class="pkx press" aria-label="닫기" @click="picking = false">✕</button></header>
+          <MaterialPicker sheet @close="picking = false" />
+        </section>
+      </div>
       <footer class="bar">
-        <button class="ctl press" :class="{ off: !mt.mic }" data-test="mic" @click="mt.toggle('mic')">{{ mt.mic ? '🎙 마이크' : '🔇 음소거' }}</button>
-        <button class="ctl press" :class="{ off: !mt.cam }" @click="mt.toggle('cam')">{{ mt.cam ? '📷 카메라' : '📷 꺼짐' }}</button>
-        <button class="ctl press" :class="{ on: mt.screen }" @click="mt.toggleScreen()">🖥 {{ mt.screen ? '공유 중지' : '화면 공유' }}</button>
-        <button v-if="m.agent" class="ctl press" :class="{ on: m.me.consent }" data-test="consent-toggle" @click="mt.setConsent(!m.me.consent)">{{ m.me.consent ? '✓ 기록 동의' : '기록 동의 안 함' }}</button>
-        <button v-if="interp?.on && interp?.voice" class="ctl press" :class="{ on: mt.listen === 'interp' }" data-test="listen-toggle" @click="mt.setListen(mt.listen === 'interp' ? 'original' : 'interp')">{{ mt.listen === 'interp' ? '🎧 통역 듣는 중' : '🔊 원래 소리 듣는 중' }}</button>
+        <!-- phone: icon over a short name, every button on one row (2026-11-18: the long names broke one letter per line) -->
+        <button class="ctl press" :class="{ off: !mt.mic }" data-test="mic" @click="mt.toggle('mic')"><span class="ic">{{ mt.mic ? '🎙' : '🔇' }}</span><span class="lb">{{ mt.mic ? '마이크' : '음소거' }}</span></button>
+        <button class="ctl press" :class="{ off: !mt.cam }" @click="mt.toggle('cam')"><span class="ic">📷</span><span class="lb">{{ mt.cam ? '카메라' : '꺼짐' }}</span></button>
+        <button class="ctl press" :class="{ on: mt.screen }" @click="mt.toggleScreen()"><span class="ic">🖥</span><span class="lb">{{ mt.screen ? '공유 중지' : '화면 공유' }}</span><span class="lbs">{{ mt.screen ? '중지' : '화면' }}</span></button>
+        <button class="ctl press" :class="{ on: picking }" data-test="pick-material" @click="picking = !picking"><span class="ic">📎</span><span class="lb">자료 띄우기</span><span class="lbs">자료</span></button>
+        <button v-if="m.agent" class="ctl press" :class="{ on: m.me.consent }" data-test="consent-toggle" @click="mt.setConsent(!m.me.consent)"><span class="ic">{{ m.me.consent ? '✓' : '○' }}</span><span class="lb">{{ m.me.consent ? '기록 동의' : '기록 동의 안 함' }}</span><span class="lbs">{{ m.me.consent ? '기록' : '기록 안 함' }}</span></button>
+        <button v-if="interp?.on && interp?.voice" class="ctl press" :class="{ on: mt.listen === 'interp' }" data-test="listen-toggle" @click="mt.setListen(mt.listen === 'interp' ? 'original' : 'interp')"><span class="ic">{{ mt.listen === 'interp' ? '🎧' : '🔊' }}</span><span class="lb">{{ mt.listen === 'interp' ? '통역 듣는 중' : '원래 소리 듣는 중' }}</span><span class="lbs">{{ mt.listen === 'interp' ? '통역' : '원음' }}</span></button>
         <span class="sp" />
         <span v-if="mt.sending" class="send">받아쓰는 중…</span>
         <p v-if="mt.error" class="err">{{ mt.error }}</p>
-        <button class="ctl press" data-test="leave" @click="mt.leave()">나가기</button>
-        <button class="ctl red press" data-test="end" @click="mt.endAll()">회의 끝내기</button>
+        <button class="ctl press" data-test="leave" @click="mt.leave()"><span class="ic">↩</span><span class="lb">나가기</span></button>
+        <button class="ctl red press" data-test="end" @click="mt.endAll()"><span class="ic">■</span><span class="lb">회의 끝내기</span><span class="lbs">끝내기</span></button>
       </footer>
     </template>
   </div>
@@ -308,6 +328,16 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
 .strip .tile.agent .orb { transform: scale(.6); margin: -8px 0; }
 .say { font-size: 12.5px; color: #cfc3ff; max-width: 90%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .strip .say { display: none; }
+/* the helper's answer (nothing found, could not hear): read in full, not cut to one line */
+.say.long { white-space: normal; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; line-height: 1.45; font-size: 13.5px; color: #fff; }
+.ln.agent { background: #f6f3ff; border-radius: 10px; border-bottom-color: transparent; margin: 3px 0; padding: 7px 8px; }
+.ln.agent .sp { color: #7a5af5; }
+.pickveil { position: absolute; inset: 0; z-index: 30; background: rgba(10, 10, 16, .45); display: flex; align-items: flex-end; justify-content: center; padding: 16px 16px 84px; }
+.picksheet { width: min(560px, 100%); max-height: calc(100% - 20px); overflow: auto; background: #fff; color: #1d1d1f; border-radius: 18px; padding: 14px 16px 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, .35); animation: pop-in .25s var(--spring); }
+.pkh { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin-bottom: 10px; }
+.pkh b { font-size: 16px; }
+.pkh small { grid-row: 2; font-size: 12.5px; color: #6b6f76; }
+.pkx { grid-row: 1 / 3; grid-column: 2; width: 32px; height: 32px; border-radius: 16px; background: #f0f1f3; color: #3c3c43; }
 .orb { display: flex; gap: 6px; height: 36px; align-items: center; }
 .orb span { width: 10px; height: 22px; border-radius: 5px; background: #a996ff; animation: wave 1.2s ease-in-out infinite; }
 .orb span:nth-child(2) { animation-delay: .2s; } .orb span:nth-child(3) { animation-delay: .4s; }
@@ -356,6 +386,9 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
 .type button { height: 36px; padding: 0 14px; border-radius: 18px; font-size: 13.5px; }
 .bar { height: 64px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
 .ctl { height: 40px; padding: 0 16px; border-radius: 20px; background: #2a2d35; color: #f2f3f5; font-size: 14px; }
+.ctl { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: none; }
+.ctl .ic { font-size: 15px; line-height: 1; }
+.ctl .lbs { display: none; }
 .ctl.off { background: #5c2629; color: #ffb3b5; }
 .ctl.on { background: #3d2f80; color: #e3dcff; }
 .ctl.red { background: #e5484d; color: #fff; }
@@ -367,4 +400,16 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
 .minibar span { flex: 1; }
 .minibar button { height: 30px; font-size: 12.5px; padding: 0 12px; }
 @media (max-width: 760px) { .body { flex-direction: column; } .side { width: auto; height: 45%; } .tiles { grid-template-columns: 1fr 1fr; } }
+/* phone: a call app's row — icon over a short name, all on one row; 받아쓰는 중 and an error float above it */
+@media (max-width: 760px) {
+  .bar { position: relative; height: 66px; gap: 4px; padding: 0 6px; justify-content: space-between; }
+  .bar .sp { display: none; }
+  .ctl { flex: 1 1 0; min-width: 0; max-width: 72px; height: 54px; padding: 4px 2px; border-radius: 14px; flex-direction: column; justify-content: center; gap: 3px; font-size: 11px; }
+  .ctl .ic { font-size: 17px; }
+  .ctl .lb, .ctl .lbs { max-width: 100%; overflow: hidden; text-overflow: ellipsis; word-break: keep-all; }
+  .ctl:has(.lbs) .lb { display: none; }
+  .ctl .lbs { display: block; }
+  .bar .send { position: absolute; left: 50%; bottom: 70px; translate: -50% 0; padding: 4px 10px; border-radius: 999px; background: rgba(20, 22, 28, .85); color: #c9ccd1; }
+  .bar .err { position: absolute; left: 8px; right: 8px; bottom: 70px; padding: 8px 10px; border-radius: 10px; background: rgba(92, 38, 41, .95); color: #ffd7d8; font-size: 12.5px; }
+}
 </style>

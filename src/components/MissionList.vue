@@ -114,7 +114,7 @@ async function remove() {
         <div v-for="r in runs" :key="r.id" class="run glass">
           <div class="rh"><b :class="r.status">{{ statusText[r.status] }}</b> – {{ when(r.started_at) }}<span v-if="r.result?.agent" class="tag">{{ agents.find((a) => a.id === r.result.agent)?.label || r.result.agent }}</span><span v-if="r.trigger === 'manual'" class="tag">수동</span><span v-if="r.changed" class="tag hi">변경 있음</span><span v-else-if="r.status === 'done' && r.changed === null && !open.process_id" class="tag" title="스킬이 결과 줄(MISSION_RESULT)을 남기지 않아 바뀐 게 있는지 알 수 없어요">변동 여부 모름</span><span v-else-if="r.status === 'done' && r.changed === false" class="tag">변동 없음</span></div>
           <div class="md" v-html="md(r.summary)" />
-          <button v-if="r.result?.instId" class="inst" @click="router.push(`/projects/p/${encodeURIComponent(r.result.instId)}`)">인스턴스 보기 <Icon name="chevron" :size="13" /></button>
+          <button v-if="r.result?.instId" class="inst" @click="router.push(`/routines/${encodeURIComponent(r.result.instId)}`)">인스턴스 보기 <Icon name="chevron" :size="13" /></button>
           <div v-if="r.result?.created?.length" class="created">
             <div v-for="(c, i) in r.result.created" :key="i"><Icon name="clock" :size="12" /> {{ c.date }} {{ c.summary }}</div>
           </div>

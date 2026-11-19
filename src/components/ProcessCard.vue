@@ -35,7 +35,10 @@ async function start(values = {}) {
   busy.value = true
   err.value = ''
   try {
-    await api(`/processes/${encodeURIComponent(c.value.defId)}/start`, { method: 'POST', body: { values, messageId: props.msg.id } })
+    const out = await api(`/processes/${encodeURIComponent(c.value.defId)}/start`, { method: 'POST', body: { values, messageId: props.msg.id } })
+    // the instance's page is where it goes on (its steps, my forms, its own conversation); this card
+    // stays as the link to it (2026-11-18)
+    if (out?.instId) router.push(`/routines/${encodeURIComponent(out.instId)}`)
   } catch (e) { err.value = '시작하지 못했어요. ' + e.message.slice(0, 80) } finally { busy.value = false }
 }
 </script>
@@ -60,7 +63,7 @@ async function start(values = {}) {
     </div>
 
     <template v-if="c.state === 'started'">
-      <button class="go press" @click="router.push(`/projects/p/${encodeURIComponent(c.instId)}`)">
+      <button class="go press" @click="router.push(`/routines/${encodeURIComponent(c.instId)}`)">
         <Icon name="check" :size="16" /> 시작됨 · {{ c.instName }} <Icon name="chevron" :size="14" />
       </button>
     </template>

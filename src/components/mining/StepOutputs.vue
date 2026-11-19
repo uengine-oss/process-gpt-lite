@@ -6,7 +6,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../../api.js'
 import { useApp } from '../../stores/app.js'
-import { openArtifact, kindOf, kindLabel } from '../../artifacts.js'
+import { openArtifact, openDrive, isDrive, kindOf, kindLabel } from '../../artifacts.js'
 
 const props = defineProps({ todoId: String })
 const app = useApp()
@@ -16,7 +16,11 @@ const busy = ref('')
 onMounted(async () => { try { files.value = (await api(`/todos/${props.todoId}/outputs`)).files } catch { files.value = [] } })
 async function open(f) {
   busy.value = f.url
-  try { openArtifact(app, router, await api(`/todos/${props.todoId}/outputs/open`, { method: 'POST', body: { url: f.url } })) } finally { busy.value = '' }
+  try {
+    // a Drive output is looked at read-only in the viewer, without a card in the chat (artifacts.js openDrive)
+    if (isDrive(f.url)) return await openDrive(app, f.url, f.name)
+    openArtifact(app, router, await api(`/todos/${props.todoId}/outputs/open`, { method: 'POST', body: { url: f.url } }))
+  } finally { busy.value = '' }
 }
 </script>
 

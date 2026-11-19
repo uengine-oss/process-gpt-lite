@@ -13,6 +13,24 @@ export class TeamError extends Error {
 export async function isMember(userId) {
   if (!/^[0-9a-f-]{36}$/i.test(String(userId || ''))) return false
   const [r] = await q('select 1 from pro_team_members where tenant_id=$1 and user_id=$2', [T(), userId])
+  if (r) return true
+  return admitTenantPerson(userId)
+}
+
+// Behind the ProcessGPT gateway the team is the tenant's people (public.users): a ProcessGPT room holds
+// colleagues who never opened Lite, and someone joined the team only on their first Lite visit
+// (team.ensureMember) — so posting into such a room was refused ("…님은 더 이상 팀원이 아니에요"), and a
+// meeting's 시작 failed before its agent ran (2026-11-18, the uengine 「단체」 room: 2 of 8 on the team).
+// A person of the tenant is admitted on first sight there, unless an administrator removed them.
+async function admitTenantPerson(userId) {
+  if (!config.tenantFromHeader) return false
+  const [a] = await q(`insert into pro_team_members(tenant_id,user_id,added_by)
+                       select $1, u.id, u.id from users u
+                       where u.id::text=$2 and u.tenant_id=$1 and not coalesce(u.is_agent,false)
+                         and not exists (select 1 from pro_team_removed x where x.tenant_id=$1 and x.user_id=u.id)
+                       on conflict do nothing returning user_id`, [T(), String(userId)])
+  if (a) return true
+  const [r] = await q('select 1 from pro_team_members where tenant_id=$1 and user_id=$2', [T(), userId])
   return !!r
 }
 

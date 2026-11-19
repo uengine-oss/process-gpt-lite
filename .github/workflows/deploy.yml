@@ -1,6 +1,6 @@
 name: process-gpt-lite-build-and-deploy
 
-# main → the two images behind <tenant>.process-gpt.io/lite (process-gpt-vue3 gateway route /lite/**)
+# main → the images behind <tenant>.process-gpt.io/lite (process-gpt-vue3 gateway route /lite/**)
 # → their tags in process-gpt-k8s, which Argo CD applies. Database changes are not applied here:
 # install/db/prod-sql.sh writes the SQL for the operator to run.
 on:
@@ -33,6 +33,7 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "WEB_IMAGE=ghcr.io/uengine-oss/process-gpt-lite-web:$IMAGE_TAG" >> $GITHUB_ENV
           echo "SERVER_IMAGE=ghcr.io/uengine-oss/process-gpt-lite-server:$IMAGE_TAG" >> $GITHUB_ENV
+          echo "BRIDGE_IMAGE=ghcr.io/uengine-oss/process-gpt-lite-bridge:$IMAGE_TAG" >> $GITHUB_ENV
 
       # the SPA served under /lite/ (src/base.js); nginx gets its upstreams from the Deployment
       - name: Build and push web image
@@ -62,6 +63,35 @@ jobs:
             ${{ env.SERVER_IMAGE }}
             ghcr.io/uengine-oss/process-gpt-lite-server:latest
 
+      # the bridge (install/docker/bridge.Dockerfile): process-gpt's save path, from the two repositories
+      # backends/process-gpt pins (its own submodules) — save_to_supabase.py and bpmn_xml_generator.py
+      - name: Fetch the process-gpt files the bridge uses
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PIN=$(git ls-tree HEAD backends/process-gpt | awk '{print $3}')
+          SKILL=$(gh api "repos/uengine-oss/process-gpt/contents/skills/bpmn-process-generation-skill?ref=$PIN" --jq .sha)
+          EXTRACTOR=$(gh api "repos/uengine-oss/process-gpt/contents/services/bpmn-extractor?ref=$PIN" --jq .sha)
+          echo "process-gpt $PIN · skill $SKILL · bpmn-extractor $EXTRACTOR"
+          for r in "bpmn-process-generation-skill $SKILL /tmp/bridge-skill" "process-gpt-bpmn-extractor $EXTRACTOR /tmp/bridge-extractor"; do
+            set -- $r
+            git init -q "$3" && git -C "$3" fetch -q --depth 1 "https://github.com/uengine-oss/$1.git" "$2" && git -C "$3" checkout -q FETCH_HEAD
+          done
+
+      - name: Build and push bridge image
+        uses: docker/build-push-action@v6
+        with:
+          context: server/bridge
+          file: install/docker/bridge.Dockerfile
+          build-contexts: |
+            skill=/tmp/bridge-skill
+            extractor=/tmp/bridge-extractor
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.BRIDGE_IMAGE }}
+            ghcr.io/uengine-oss/process-gpt-lite-bridge:latest
+
       - name: Checkout GitOps repository
         uses: actions/checkout@v4
         with:
@@ -79,7 +109,8 @@ jobs:
           cd gitops-repo
           yq eval -i '
             (select(.kind == "Deployment" and .metadata.name == "process-gpt-lite-web") | .spec.template.spec.containers[0].image) = "'$WEB_IMAGE'" |
-            (select(.kind == "Deployment" and .metadata.name == "process-gpt-lite-server") | .spec.template.spec.containers[0].image) = "'$SERVER_IMAGE'"
+            (select(.kind == "Deployment" and .metadata.name == "process-gpt-lite-server") | .spec.template.spec.containers[0].image) = "'$SERVER_IMAGE'" |
+            (select(.kind == "Deployment" and .metadata.name == "process-gpt-lite-bridge") | .spec.template.spec.containers[0].image) = "'$BRIDGE_IMAGE'"
           ' deployments/process-gpt-lite.yaml
           grep -n "image:" deployments/process-gpt-lite.yaml
 
@@ -100,6 +131,7 @@ jobs:
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| **Web** | \`${{ env.WEB_IMAGE }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Server** | \`${{ env.SERVER_IMAGE }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Bridge** | \`${{ env.BRIDGE_IMAGE }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **GitOps Repo** | [process-gpt-k8s](https://github.com/uengine-oss/process-gpt-k8s) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ ArgoCD will sync the changes. New server/sql files: run install/db/prod-sql.sh and hand the SQL to the operator." >> $GITHUB_STEP_SUMMARY

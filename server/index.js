@@ -10,19 +10,24 @@ import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
-import { listSchedules, deleteSchedule, ontoTimer } from './lib/scheduler.js'
+import { listSchedules, deleteSchedule, ontoTimer, startScheduleTicker } from './lib/scheduler.js'
 import { generatePanel, revisePanel, savePanelData, proxyFetch } from './lib/panels.js'
 import { chat } from './lib/llm.js'
 import * as mail from './lib/mail.js'
 import { reviewFor, recordReview } from './lib/review.js'
 import { processRoutes } from './routes/process.js'
 import { startBrowserWorker } from './lib/browserWorker.js'
-import { mountConnectors, connectorStatus, ensureHubBinding } from './mcp/connectors.js'
+import { mountConnectors, connectorStatus, ensureHubBinding, CONNECTORS } from './mcp/connectors.js'
 import { mountCraft, craftStatus } from './mcp/craft.js'
 import { mountOffice } from './mcp/office.js'
+import { commitEdit } from './lib/team/worktree.js'
 import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
+import { threadFolderRoutes } from './routes/threadFolders.js'
+import { ssoInfo, refreshSso } from './lib/sso.js'
+import * as webpush from './lib/webpush.js'
+import * as TF from './lib/folders/threadFolders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
 import { contextRoutes } from './routes/context.js'
@@ -58,6 +63,7 @@ import * as notify from './lib/notify.js'
 import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { saveAttachment } from './lib/attachments.js'
+import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
 import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser, forEachTenant } from './lib/tenant.js'
 import { withUsage, featureOf } from './lib/usage.js'
@@ -138,10 +144,13 @@ async function finishLogin(email, name) {
 
 // craft: which ArtCraft apps this install has ({web, cli} flags only); contextRouter: whether messages are routed
 // to conversations (services/context-router) — flags only
-app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
+// sso: behind the ProcessGPT gateway, Google sign-in through ProcessGPT's own Supabase project when its
+// Google provider is on (lib/sso.js) — google stays Lite's own OAuth (mail.js), off there
+app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
 
 app.get('/api/auth/google/start', (req, res) => {
-  if (!mail.googleEnabled()) return res.status(400).send('Google OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).')
+  // an old tab or a kept link: the app shows no Google button when this is off
+  if (!mail.googleEnabled()) return res.redirect(config.publicUrl || '/')
   for (const [key, value] of oauthStates) {
     if (Date.now() - value.at > 10 * 60 * 1000) oauthStates.delete(key)
   }
@@ -219,7 +228,10 @@ app.post('/api/auth/refresh', async (req, res) => {
 
 // ---------- profile / onboarding ----------
 app.get('/api/me', auth, async (req, res) => {
-  const [p] = await q('select * from pro_profile where user_id=$1', [req.user.id])
+  // teammates find a new account from its first visit, not from when it opens the team settings
+  await team.ensureMember(req.user).catch((e) => console.warn('[team] admit', e.message))
+  // birth goes out as the calendar date: a pg date parses to local midnight, which JSON shifts to the day before in UTC
+  const [p] = await q(`select *, to_char(birth, 'YYYY-MM-DD') as birth from pro_profile where user_id=$1`, [req.user.id])
   const [m] = await q('select provider, address, last_poll from pro_mail_accounts where user_id=$1', [req.user.id])
   // admin: the team and tenant-wide role controls are editable (TeamRoles); otherwise read-only
   // lang: the saved language (null = never chosen); reqLang: the one this request ran in
@@ -310,6 +322,12 @@ app.post('/api/mail/connect', auth, async (req, res) => {
     await readMailAndBuild({ id: req.user.id, email: req.user.email }, { days: 90 })
   }).catch((e) => console.warn('[ontology] onboarding', e.message))
 })
+// Web Push: the server's public key, and this browser's subscription (lib/webpush.js, public/sw.js)
+app.get('/api/push/key', auth, (req, res) => res.json({ publicKey: webpush.vapidKeys().publicKey, stats: webpush.stats }))
+app.post('/api/push/subscriptions', auth, async (req, res) => {
+  try { res.json(await webpush.subscribe(req.user, req.body?.subscription, req.headers['user-agent'])) } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+app.delete('/api/push/subscriptions', auth, async (req, res) => res.json(await webpush.unsubscribe(req.user, req.body?.endpoint)))
 app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUser(req.user.id, { announce: true })))
 // a demo mailbox only: a fictional message arrives (demos, tests) — never real mail
 // PRO_BACKGROUND=0: a second server for development (another port) that must not run the pollers,
@@ -388,8 +406,12 @@ app.get('/api/connectors', auth, async (req, res) => {
 })
 app.post('/api/connectors/:name/token', auth, async (req, res) => {
   const site = req.params.name
-  if (!['slack', 'github', 'notion'].includes(site)) return res.status(400).end()
-  await vault.putItem(req.user.id, 'apikey', site, { key: String(req.body.token || '').trim() })
+  if (!['slack', 'github', 'notion', 'youtube'].includes(site)) return res.status(400).end()
+  const key = String(req.body.token || '').trim()
+  // a key the connector can try first (YouTube) is not saved when it does not work
+  const bad = await CONNECTORS.find((c) => c.name === site)?.verify?.(key)
+  if (bad) return res.status(400).json({ error: bad })
+  await vault.putItem(req.user.id, 'apikey', site, { key })
   res.json({ ok: true, hub: await ensureHubBinding(req.user.id, config.tenantId) })
 })
 
@@ -422,10 +444,15 @@ app.get('/api/conversations', auth, async (req, res) => {
 
 // ---------- threads ----------
 app.get('/api/threads', auth, async (req, res) => {
-  if (req.query.kind !== 'project') return res.json([await mainThread(req.user.id)])
-  res.json(await q(`select * from pro_threads where user_id=$1 and kind='project' order by updated_at desc`, [req.user.id]))
+  // (each with its folder: lib/folders/threadFolders.js)
+  if (req.query.kind !== 'project') return res.json(await TF.withFolders([await mainThread(req.user.id)]).catch(async () => [await mainThread(req.user.id)]))
+  const rows = await q(`select * from pro_threads where user_id=$1 and kind='project' order by updated_at desc`, [req.user.id])
+  res.json(await TF.withFolders(rows).catch(() => rows))
 })
 app.post('/api/threads', auth, async (req, res) => {
+  // the folder the project works in (an existing one, or a new one by name) — checked first, so a refusal makes no project
+  let folder = null
+  try { folder = await TF.projectFolder(req.user, { folder: req.body.folder, newFolder: req.body.newFolder }) } catch (e) { return res.status(e.status || 500).json({ error: e.message }) }
   // a usage limit (lib/llmKeys.js) answers as such, not as a server error
   const t = await chat({ messages: [{ role: 'system', content: L('요청을 5~12자 한국어 프로젝트 제목으로. 제목만.', 'Turn the request into a 2-5 word English project title. Only the title.') }, { role: 'user', content: req.body.text }], temperature: 0.2 }).catch((e) => e)
   if (t instanceof Error) {
@@ -433,9 +460,11 @@ app.post('/api/threads', auth, async (req, res) => {
     throw t
   }
   const [row] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project',$2) returning *`, [req.user.id, t.content.replace(/["'.]/g, '').trim()])
+  if (folder) row.folder = await TF.linkProject(req.user, row, folder).catch((e) => { console.warn('[folders] project link', e.message); return null })
   emit(req.user.id, 'thread', row)
   res.json(row)
 })
+app.use('/api', threadFolderRoutes(auth))
 app.get('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
@@ -471,10 +500,10 @@ app.post('/api/threads/:id/note', auth, async (req, res) => {
 app.post('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
-  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
-  const send = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`)
+  // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
+  const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, onDelta: (d) => send('delta', { d }) })
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, onDelta: (d) => send('delta', { d }) })
     send('done', final)
   } catch (e) {
     console.error(e)
@@ -488,7 +517,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     }).catch(() => {})
     send('error', { message: e.message })
   }
-  res.end()
+  end()
 })
 // 멈추기: the answer being written in this thread (deepagents /chat/stop), or its browser task.
 // Messages waiting their turn (대기) then go ahead.
@@ -580,6 +609,8 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
                        from pro_threads t where m.id=$1 and t.id=m.thread_id and t.user_id=$2 and m.kind='file' returning m.*`,
   [req.params.id, req.user.id, url, name])
   if (!m) return res.status(404).end()
+  // a file of a received share: the save is a commit on this conversation's branch (lib/team/worktree.js)
+  if (m.content.branch) await commitEdit(req.user, m).catch((e) => console.warn('[worktree] edit', e.message))
   // the last 검수 of this document travels with its edited copy (lib/review.js)
   const rv = reviewFor(req.user.id, m.content.name) || reviewFor(req.user.id, name)
   if (rv && Date.now() - rv.at < 2 * 3600_000) {
@@ -602,7 +633,7 @@ const fail = (res, e) => res.status(e.status || 500).json({ error: e.message, mt
 app.get('/api/workroom/:kind/:id', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
   const { root, ...info } = r
-  res.json({ ...info, folder: path.basename(root), terminal: true, files: await workroom.tree(r) })
+  res.json({ ...info, folder: path.basename(root), terminal: workroom.terminalInfo(r), files: await workroom.tree(r) })
 })
 app.get('/api/workroom/:kind/:id/file', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
@@ -630,6 +661,9 @@ app.post('/api/workroom/:kind/:id/publish', auth, async (req, res) => {
 })
 app.post('/api/workroom/:kind/:id/ticket', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
+  // no terminal here (no node-pty, no folder, a shared server): say why instead of a socket that never opens
+  const st = workroom.terminalStatus(r, req.body.mode === 'claude' ? 'claude' : 'shell')
+  if (!st.ok) return res.status(st.status).json({ error: st.reason })
   res.json({ ticket: workroom.issueTicket(req.user, r, req.body.mode) })
 })
 app.post('/api/workroom/:kind/:id/steer', auth, async (req, res) => {
@@ -664,16 +698,18 @@ app.delete('/api/schedules/:id', auth, async (req, res) => { await deleteSchedul
 // A short interval (every minute) can fire again while the last run is still working; that tick
 // is skipped rather than stacking runs of the same task.
 const firing = new Set()
-app.post('/api/cron/fire', async (req, res) => {
-  if (req.body.secret !== config.cronSecret) return res.status(403).end()
-  res.json({ ok: true })
-  const id = req.body.id
+function fire(id) {
   if (firing.has(id)) return console.log(`[cron] ${id.slice(0, 8)} still running, tick skipped`)
   firing.add(id)
   // skills, processes and plain prompts alike (lib/missions.js): every run is in the task's run history,
   // a failure is announced in chat and on Home, a run that found nothing new posts nothing, and a tick
   // the database could not even record is tried again a little later
   fireSchedule(id).catch((e) => console.warn('[cron]', e.message)).finally(() => firing.delete(id))
+}
+app.post('/api/cron/fire', async (req, res) => {
+  if (req.body.secret !== config.cronSecret) return res.status(403).end()
+  res.json({ ok: true })
+  fire(req.body.id)
 })
 
 // ---------- missions (scheduled skills) ----------
@@ -864,6 +900,8 @@ app.get('/api/search', auth, async (req, res) => {
 
 const server = app.listen(config.port, async () => {
   console.log(`pgpt-pro server on :${config.port}`)
+  // the first sign-in page after a start already knows whether Google sign-in is there (lib/sso.js)
+  refreshSso().then((on) => config.tenantFromHeader && console.log(`[sso] Google through Supabase: ${on ? 'on' : 'off'}`))
   // a second development server shares the database: it must not reset the main server's tasks either
   // the usage event consumer (lib/plans/meter.js): one server reads at a time (advisory lock), so a development
   // server may run it too (PRO_BILLING_METER=1)
@@ -890,6 +928,7 @@ const server = app.listen(config.port, async () => {
   // behind the ProcessGPT gateway, where the tenants are ProcessGPT's own
   if (!config.tenantFromHeader) startSystemRegistry()
   notify.startNotificationFeed()
+  startScheduleTicker(fire)
   startFolderSteps()
   startConstraintSweep()
   // agent steps stopped by a passing error are queued again (lib/stepRetry.js)

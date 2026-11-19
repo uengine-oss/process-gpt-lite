@@ -21,8 +21,17 @@ const craft = computed(() => !!app.officeDoc && CRAFT_APPS.has(officeEditorFor(a
 const office = computed(() => !!app.officeDoc && !craft.value && !app.officeDoc.readOnly)
 const craftTitle = computed(() => office.value ? '문서' : ({ cadcraft: 'CADCraft', vectorcraft: 'VectorCraft', photocraft: 'PhotoCraft', soundcraft: 'SoundCraft', filmcraft: 'FilmCraft' })[officeEditorFor(app.officeDoc?.name || app.officeDoc?.url || '')] || '')
 const live = ref(false)
+const linkFail = ref('') // the document's live link gave up (OfficeEditorFrame 'linkfail')
 const side = computed(() => (craft.value || office.value) && !maximized.value)
 const overlay = ref(null)
+// a phone: the sheet is the whole screen with the chat behind it (and no 최대화), so the dial is
+// the way to talk to the open document, as when maximized
+const phoneMq = window.matchMedia?.('(max-width: 760px)')
+const phone = ref(!!phoneMq?.matches)
+const onPhone = (e) => (phone.value = e.matches)
+phoneMq?.addEventListener?.('change', onPhone)
+onBeforeUnmount(() => phoneMq?.removeEventListener?.('change', onPhone))
+const dial = computed(() => (craft.value || office.value) && (maximized.value || phone.value))
 // The editor's own AI 도우미 (one assistant): its buttons come here. A preset (요약·다듬기…) is sent as
 // a chat message about the open document; the 도우미 entry opens the same input — the dial's band
 // when maximized, the chat composer beside it otherwise.
@@ -32,14 +41,14 @@ function assistant({ prompt, selection }) {
     app.send(sel ? `${prompt}\n\n(선택한 부분: "${sel.slice(0, 600)}")` : prompt)
     return
   }
-  if (maximized.value) return overlay.value?.expand()
+  if (dial.value) return overlay.value?.expand()
   if (selection) app.prefill = `선택한 부분 "${selection.slice(0, 120)}"을 `
   else app.focusTick++
 }
 // Click to mention: the editor tells what was pointed at; it waits in the input as a chip
 function mention(m) {
   app.addMention(m)
-  if (maximized.value) overlay.value?.expand()
+  if (dial.value) overlay.value?.expand()
   else app.focusTick++
 }
 
@@ -183,7 +192,7 @@ async function saved({ url, name }) {
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        :assistant="office" v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" @assistant="assistant" @mention="mention" />
+        :assistant="office" v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" />
       <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
       <Transition name="pic">
         <div v-if="pic" class="pic">
@@ -192,7 +201,8 @@ async function saved({ url, name }) {
             @return="putBack" @saved="putBack" @close="pic = null" @live="(v) => (picLive = v)" />
         </div>
       </Transition>
-      <CraftLiveOverlay v-if="(craft || office) && maximized" ref="overlay" :title="pic ? 'PhotoCraft' : craftTitle" :live="pic ? picLive : live" />
+      <CraftLiveOverlay v-if="dial" ref="overlay" :title="pic ? 'PhotoCraft' : craftTitle" :live="pic ? picLive : live"
+        :doc="office && !pic" :link-fail="linkFail" @reconnect="officeFrame?.reconnect()" />
       <Transition name="fade"><div v-if="note" class="pnote" :class="note.kind">{{ note.text }}</div></Transition>
     </div>
   </div>

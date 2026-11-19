@@ -109,8 +109,8 @@ const CARD_PROMPT = `다음은 어떤 문서의 앞부분과 마지막 부분이
 // English mode: the card in English (the same prompt otherwise)
 const CARD_PROMPT_EN = `Below are the start and the end of a document. Answer with JSON only:
 {"abstract": "what this document is, in 1-2 plain English sentences. Add no fact that is not here", "keywords": ["3-6 key words to find the document by"]}`
-const CHANGE_PROMPT = '공유 폴더의 변형이 기준본(main)에서 무엇을 바꿨는지 알려 준다. JSON 으로만: {"title": "무엇을 바꿨는지 8~24자 명사구(예: 안내문 사전 신청 문구 추가)", "summary": "전체 한 문장(해요체)", "files": {"<경로>": "그 파일에서 바뀐 점 한 문장(해요체)"}}. 차이에 없는 내용은 지어내지 마라.'
-const CHANGE_PROMPT_EN = 'Say what a variation of a shared folder changed compared with main. JSON only: {"title": "what changed, a 3-8 word English noun phrase (e.g. Pre-registration line added to the notice)", "summary": "one English sentence for the whole change", "files": {"<path>": "one English sentence on what changed in that file"}}. Make up nothing that is not in the diff.'
+const CHANGE_PROMPT = '공유 폴더의 변형이 기준본(main)에서 무엇을 바꿨는지 알려 준다. JSON 으로만: {"title": "무엇을 바꿨는지 8~24자 명사구(예: 안내문 사전 신청 문구 추가)", "summary": "전체 한 문장(해요체)", "files": {"<경로>": "그 파일에서 바뀐 점 한 문장(해요체)"}}. 이 변형은 폴더 주인이 반영하기 전의 변경안이다: summary 와 files 는 \'삭제했어요\', \'추가했어요\'처럼 이미 끝난 일로 쓰지 말고 반영하면 일어날 일로 써라(예: \'반영하면 공지.md 가 지워져요\', \'안내문에 사전 신청 문구를 추가하는 변경안이에요\'). 차이에 없는 내용은 지어내지 마라.'
+const CHANGE_PROMPT_EN = 'Say what a variation of a shared folder changed compared with main. JSON only: {"title": "what changed, a 3-8 word English noun phrase (e.g. Pre-registration line added to the notice)", "summary": "one English sentence for the whole change", "files": {"<path>": "one English sentence on what changed in that file"}}. The variation is a proposal the folder owner has not merged yet: do not write summary and files as done ("deleted", "added") — say what merging it does (e.g. "Merging removes notice.md", "Proposes adding a pre-registration line to the notice"). Make up nothing that is not in the diff.'
 
 async function makeCard(folder, row) {
   const buf = await G.git(folder.repo_path, ['cat-file', 'blob', row.sha], { buffer: true })

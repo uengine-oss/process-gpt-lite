@@ -4,6 +4,8 @@ import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import ComposerTeam from './team/ComposerTeam.vue'
 import { useTeammateMention } from './team/useTeammateMention.js'
+import ComposerClip from './ComposerClip.vue'
+import FolderAttach from './folders/FolderAttach.vue'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
 const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean })
@@ -123,6 +125,7 @@ defineExpose({ focus: () => ta.value?.focus() })
         <button class="x" aria-label="빼기" @click="app.removeAttachment(a.id)">×</button>
       </span>
     </div>
+    <FolderAttach v-if="!overlay && !app.panelMode" />
     <Teleport to="body">
       <Transition name="fade"><div v-if="dragging" class="dropzone"><div><Icon name="clip" :size="34" /><p>여기에 놓으면 첨부돼요</p></div></div></Transition>
     </Teleport>
@@ -130,10 +133,11 @@ defineExpose({ focus: () => ta.value?.focus() })
       <input ref="picker" type="file" multiple hidden @change="picked" />
       <span v-if="app.panelMode && !text" :key="si" class="icons blur-in"><i v-for="(ic, k) in suggestions[si].icons" :key="k">{{ ic }}</i></span>
       <textarea ref="ta" v-model="text" rows="1" :placeholder="ph" @keydown="onKey" @paste="onPaste" />
-      <button v-if="!app.panelMode" class="ic press" aria-label="파일 첨부" title="파일 첨부 (끌어다 놓기·붙여넣기도 돼요)" @click="picker.click()"><Icon name="clip" :size="19" /></button>
+      <ComposerClip v-if="!app.panelMode" :folders="!overlay" @files="picker.click()" />
       <button v-if="text || app.panelMode || app.attachments.length" class="send press" aria-label="보내기" @click="submit"><Icon name="up" :size="20" /></button>
       <template v-else>
-        <button v-if="!overlay" class="ic press" aria-label="새 패널 만들기" @click="app.panelMode = true"><Icon name="plus" :size="22" /></button>
+        <!-- panels are made from 채팅 only, not from a project, 새 프로젝트 or an instance page -->
+        <button v-if="!overlay && app.mode === 'chat'" class="ic press" aria-label="새 패널 만들기" @click="app.panelMode = true"><Icon name="plus" :size="22" /></button>
         <button class="ic press" :class="{ rec: listening }" aria-label="받아쓰기 시작" @click="dictate"><Icon name="mic" :size="20" /></button>
       </template>
     </div>
