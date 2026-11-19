@@ -9,21 +9,27 @@
 // 가장 많이 짊어진 역할. 흔한 길 = 보통 건이 지나는 길(−log p 가 가장 작은 길) 위에서 일마다 걸린 시간 + 그 앞에 쌓인 할 일을 치우는
 // 데 드는 시간(리틀의 법칙: 쌓인 양 ÷ 하루 처리량)을 더한 것 — 병목이 그 길 위에 있으면 그 일의 기다림이 리드타임을 정한다.
 
+import { daysOff } from './holidays.js'
+
 export const END = '__end__'
 export const HOUR = 3_600_000
 export const DAY = 86_400_000
 export const KST = 9 * HOUR
-// 근무 시간(설계 §4.1 · 결정 1 권고): 평일 9~18시, 한국 시각 — 금요일 저녁 메일에 월요일 아침 답한 것은 62시간이 아니라 근무 1시간
-export const WORK = { from: 9, to: 18 }
+// 근무 시간(설계 §4.1 · 결정 1 권고): 평일 9~18시, 한국 시각 — 금요일 저녁 메일에 월요일 아침 답한 것은 62시간이 아니라 근무 1시간.
+// 공휴일(대체공휴일 · 선거일 포함)과 회사의 쉬는 날(PRO_HOLIDAYS)도 뺀다(holidays.js)
+export const WORK = { from: 9, to: 18, off: daysOff() }
 export const WORK_H = WORK.to - WORK.from
 export const MIN_RUN = 5 // 실행 건이 이만큼 있으면 실행 기록으로 잰다(stats.js MIN_HOLDOUT 과 같은 수)
 export const OPEN = ['NEW', 'TODO', 'IN_PROGRESS', 'PENDING']
 export const ENDED = ['DONE', 'SUBMITTED']
 
 const ms = (t) => (typeof t === 'number' ? t : new Date(t).getTime())
+// a day (its midnight in Korea's clock, as a UTC instant) is off: a weekend or a day in W.off
+const dayKey = (d) => new Date(d + KST).toISOString().slice(0, 10)
+export const isOff = (d, W = WORK) => { const wd = new Date(d + KST).getUTCDay(); return wd === 0 || wd === 6 || !!W.off?.has(dayKey(d)) }
 
 // ---------- 근무 시간 ----------
-// working milliseconds between a and b (weekdays WORK.from–WORK.to, Korea's clock; no holidays)
+// working milliseconds between a and b (weekdays WORK.from–WORK.to, Korea's clock; holidays off)
 export function workMs(a, b, W = WORK) {
   let x = ms(a), y = ms(b)
   if (!(y > x)) return 0
@@ -31,8 +37,7 @@ export function workMs(a, b, W = WORK) {
   // walk day by day in Korea's clock
   let d = Math.floor((x + KST) / DAY) * DAY - KST
   for (let i = 0; d < y && i < 4000; i++, d += DAY) {
-    const wd = new Date(d + KST).getUTCDay()
-    if (wd === 0 || wd === 6) continue
+    if (isOff(d, W)) continue
     const s = Math.max(x, d + W.from * HOUR), e = Math.min(y, d + W.to * HOUR)
     if (e > s) out += e - s
   }
@@ -44,9 +49,8 @@ export function addWork(from, hours, W = WORK) {
   let t = ms(from)
   for (let i = 0; i < 4000; i++) {
     const d = Math.floor((t + KST) / DAY) * DAY - KST
-    const wd = new Date(d + KST).getUTCDay()
     const s = d + W.from * HOUR, e = d + W.to * HOUR
-    if (wd !== 0 && wd !== 6 && t < e) {
+    if (!isOff(d, W) && t < e) {
       const start = Math.max(t, s)
       if (start + left <= e) return start + left
       left -= e - start
@@ -115,6 +119,8 @@ export function taskTime(mined = [], run = [], { min = MIN_RUN } = {}) {
   return {
     grade, estimated: grade !== 'run', n: pick.length, nRun: run.length, nMined: mined.length,
     medH: round(quantile(h(pick), 0.5)), p80H: round(quantile(h(pick), 0.8)), meanH: round(mean(h(pick))),
+    // the fast cases' time — close to the work itself, with little waiting (what-if splits a step's time into work and waiting with it)
+    p20H: round(quantile(h(pick), 0.2)),
     wallMedH: round(quantile(wall(pick), 0.5)), wallMeanH: round(mean(wall(pick))),
   }
 }

@@ -572,7 +572,8 @@ const candOpen = ref(false)
 const marks = ref(new Map())
 watch(candOpen, (on) => { if (on) flowOpen.value = false; else if (!flowOpen.value) marks.value = new Map() })
 // 병목 보기(OntoFlowPanel): 지금 쌓인 할 일로 일을 칠하고(병목 · 많고 적음 · 에이전트 구간 · 바깥 대기), 꼬리표를 달고, 흔한 길을 굵게
-const flowOpen = ref(false)
+// ?view=flow (옛 /improve 주소가 넘어오는 곳) — 지도를 열면 병목 보기부터
+const flowOpen = ref(String(route.query.view || '') === 'flow')
 const flowHeat = ref({ badges: new Map(), ways: new Set() })
 const NO_BADGES = new Map(), NO_WAYS = new Set()
 function onFlowHeat(h) { if (!flowOpen.value) return; marks.value = h.marks; flowHeat.value = { badges: h.badges, ways: h.ways } }

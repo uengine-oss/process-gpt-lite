@@ -376,7 +376,22 @@ export async function planEdit(me, { proc: procKey = '', scope = null, words = '
   const out = m.unmask(r || {})
   const raw = Array.isArray(out.ops) ? out.ops : []
   const checked = await checkOps({ kind, raw, found: ctx?.found || null, cs: ctx?.cs || [], view: ctx?.view || null, range, company, R, match: modelMatch })
-  return shapePlan(me, { kind, ctx, range, words: said, checked, g, question: clean(out.question).slice(0, 200), note: clean(out.note).slice(0, 300), model, ms: Date.now() - t0 })
+  const plan = await shapePlan(me, { kind, ctx, range, words: said, checked, g, question: clean(out.question).slice(0, 200), note: clean(out.note).slice(0, 300), model, ms: Date.now() - t0 })
+  if (kind !== 'new' && plan.ops.length) plan.effect = await effectOf(me, plan.proc.key, plan.ops)
+  return plan
+}
+
+// 예상 효과(설계 §5.2 끝): the plan's operations as levers on the map's numbers (flowplan.js) — 지금 들어오면 · 보통 건 · 병목, before → after.
+// null when none of the operations is one the arithmetic reads (이름 · 순서만 바꾸는 고침) or the map has no run records yet
+export async function effectOf(me, procKey, ops = []) {
+  try {
+    const { normLever } = await import('./flowplan.js')
+    const levers = ops.map(normLever).filter(Boolean)
+    if (!levers.length) return null
+    const w = await (await import('./flowload.js')).whatIfView(me, { proc: procKey, levers })
+    const side = (s) => ({ pastH: s.pastH, nowH: s.nowH, bottleneck: s.bottleneck, constraint: s.constraint ? { role: s.constraint.role, perPerson: s.constraint.perPerson, rho: s.constraint.rho } : null })
+    return { before: side(w.before), after: side(w.after), levers: w.levers.map((l) => l.label), moved: w.moved, notes: w.notes, estimated: true }
+  } catch (e) { console.warn('[ontology] effect', e.message); return null }
 }
 
 async function shapePlan(me, { kind, ctx, range, words, checked, g, question = '', note = '', model = '', ms = 0 }) {

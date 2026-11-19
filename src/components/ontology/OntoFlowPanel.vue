@@ -10,10 +10,13 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { api } from '../../api.js'
 import { edgeId } from './mapView.js'
+import OntoFlowPlan from './OntoFlowPlan.vue'
 
 const props = defineProps({ procKey: { type: String, default: '' }, at: { type: String, default: '' }, admin: Boolean })
 const emit = defineEmits(['heat', 'task', 'role', 'candidates'])
 const d = ref(null)
+// 고쳐 보기의 결과(OntoFlowPlan): 지도에 「할 일 8 → 1」로 그린다 — 고쳐 보는 동안만
+const preview = ref(null)
 const err = ref('')
 const busy = ref(false)
 const showAll = ref(false)
@@ -48,7 +51,7 @@ async function load(quiet = false) {
 const onFocus = () => { if (!props.at && document.visibilityState !== 'hidden') load(true) }
 onMounted(() => { load(); window.addEventListener('focus', onFocus); document.addEventListener('visibilitychange', onFocus) })
 onBeforeUnmount(() => { alive = false; clearTimeout(timer); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) })
-watch(() => [props.procKey, props.at], () => load())
+watch(() => [props.procKey, props.at], () => { preview.value = null; load() })
 defineExpose({ load })
 
 const tasks = computed(() => d.value?.tasks || [])
@@ -62,14 +65,17 @@ const shownTasks = computed(() => (showAll.value ? tasks.value : tasks.value.fil
 const wipMax = computed(() => Math.max(1, ...tasks.value.map((t) => t.wip || 0)))
 
 // what the map paints: the bottleneck, the heat of the open items, an agent's steps, an outside role's steps; the usual way bold
-watch(d, (v) => {
+watch([d, preview], ([v, w]) => {
   const marks = new Map(), badges = new Map()
+  // 고쳐 본 뒤 그 일이 짊어질 할 일(예상): 바뀌는 일만 「8 → 1」
+  const after = new Map((w?.after?.steps || []).map((s) => [s.key, s]))
+  const arrow = (t) => { const s = after.get(t.key); if (!s) return ''; const n = Math.round((s.ahead ?? 0) * 10) / 10; return Math.abs(n - (t.wip || 0)) >= 0.5 ? ` → ${s.agent && !t.agent ? '에이전트' : n}` : '' }
   for (const t of v?.tasks || []) {
-    if (t.key === v.bottleneck?.key) { marks.set(t.key, 'bott'); badges.set(t.key, { text: `병목 · 할 일 ${t.wip}`, kind: 'bott' }); continue }
+    if (t.key === v.bottleneck?.key) { marks.set(t.key, 'bott'); badges.set(t.key, { text: `병목 · 할 일 ${t.wip}${arrow(t)}`, kind: 'bott' }); continue }
     if (t.outside) { marks.set(t.key, 'out'); if (t.wip) badges.set(t.key, { text: `바깥 대기 ${t.wip}`, kind: 'out' }); continue }
     if (t.agent) { marks.set(t.key, 'agent'); badges.set(t.key, { text: t.wip ? `에이전트 · ${t.wip}` : '에이전트', kind: 'agent' }); continue }
     marks.set(t.key, t.heat ? `heat${t.heat}` : 'calm')
-    if (t.wip) badges.set(t.key, { text: `할 일 ${t.wip}`, kind: 'hot' })
+    if (t.wip) badges.set(t.key, { text: `할 일 ${t.wip}${arrow(t)}`, kind: 'hot' })
   }
   const ways = new Set()
   const keys = (v?.path?.steps || []).map((s) => s.key)
@@ -195,6 +201,8 @@ const taskOf = (k) => tasks.value.find((t) => t.key === k)
           <li v-for="(s, i) in d.suggestions" :key="i"><b>{{ STEP_KO[s.step] }}</b><span>{{ s.text }}</span></li>
         </ol>
       </section>
+      <!-- 고쳐 보기 · 개선안 · 시행 전후(한 프로세스, 지금 지도에서만) -->
+      <OntoFlowPlan v-if="procKey && !d.at" :proc-key="procKey" :flow="d" :admin="admin" @preview="preview = $event" @changed="load()" />
       <p class="foot">할 일 = 지도에서 돈 건이 단계마다 넣은 할 일 목록(todolist)의 행 가운데 아직 끝나지 않은 것을 일(activity_id)마다 센 수예요. 기다림 = 할 일 ÷ 근무일마다 넘긴 수(리틀의 법칙).</p>
     </template>
     <p v-if="err" class="err">{{ err }}</p>

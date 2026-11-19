@@ -93,7 +93,13 @@ async function optionalSteps(view) {
 const heatOf = (wip, max) => (!wip || !max ? 0 : Math.max(1, Math.ceil((3 * wip) / max)))
 
 // GET /ontology/flow?proc=&at= — one process (its tasks as a case runs them: refined), or the whole company (proc empty)
-export async function flowView(me, { proc = '', validAt } = {}) {
+export async function flowView(me, opts = {}) { return (await compute(me, opts)).view }
+
+// the numbers 고쳐 보기 (flowplan.js whatIfFlow) works on, with the view they came from. since: time the steps by their runs since that
+// instant (시행 전후 — the run records after a plan's effective day; a step with fewer than 3 such runs keeps its usual time)
+export async function flowModel(me, opts = {}) { return compute(me, { ...opts, model: true }) }
+
+async function compute(me, { proc = '', validAt, since = null, model: wantModel = false } = {}) {
   const g = await readGraph({ validAt })
   if (!g.tasks.length) throw err(404, '아직 그린 지도가 없어요.')
   const { isAdmin } = await import('./service.js')
@@ -119,7 +125,10 @@ export async function flowView(me, { proc = '', validAt } = {}) {
   const agentBy = new Map()
   for (const s of F.runSamples(mine.filter((r) => r.agent))) { if (!agentBy.has(s.task)) agentBy.set(s.task, []); agentBy.get(s.task).push(s) }
   // an agent's step is timed by its own runs (minutes, no queue); our people's by theirs, else by the records
-  const times = new Map(tasks.map((t) => [t.key, F.taskTime(mined.by.get(t.key) || [], runBy.get(t.key)?.length ? runBy.get(t.key) : agentBy.get(t.key) || [])]))
+  const usualTime = (k) => F.taskTime(mined.by.get(k) || [], runBy.get(k)?.length ? runBy.get(k) : agentBy.get(k) || [])
+  const sinceMs = since ? new Date(since).getTime() : null
+  const afterOf = (k) => (sinceMs ? (runBy.get(k)?.length ? runBy.get(k) : agentBy.get(k) || []).filter((x) => x.from >= sinceMs) : [])
+  const times = new Map(tasks.map((t) => { const a = afterOf(t.key); return [t.key, a.length >= 3 ? { ...F.taskTime([], a, { min: 3 }), since: true } : usualTime(t.key)] }))
   const usual = new Map(tasks.map((t) => [t.key, F.minedBacklog(mined.by.get(t.key) || [], mined.span || {})]))
   const cands = await candidates()
   const classes = await classesOf(view)
@@ -197,7 +206,7 @@ export async function flowView(me, { proc = '', validAt } = {}) {
   const bRole = b ? C.roles.find((r) => r.role === b.role) || null : null
   const suggestions = F.suggestionsOf({ bott: b, cand: b?.cand, cls: b?.cls, optional: b?.optional, onPath: !!path?.bottOnPath, role: bRole, constraint: C.key })
   const runCases = new Set(mine.map((r) => r.caseId)).size
-  return {
+  const result = {
     proc: view ? { key: view.proc.key, name: view.proc.name, status: view.proc.status, cases: view.proc.cases, theta: view.proc.theta } : null,
     at: validAt || null, now: new Date(now).toISOString(), admin,
     window: { days: L.days, workDays: L.workDays },
@@ -212,4 +221,24 @@ export async function flowView(me, { proc = '', validAt } = {}) {
     outsideSteps: out.filter((x) => x.outside && x.wip).map((x) => ({ key: x.key, role: x.role, wip: x.wip })),
     suggestions,
   }
+  if (!wantModel) return { view: result }
+  const agentMed = F.quantile(out.filter((x) => x.agentRun).map((x) => x.agentRun.medH), 0.5)
+  const model = {
+    proc: result.proc || { key: '', name: '' },
+    tasks: out.map((x) => ({ key: x.key, role: x.role, outside: x.outside, agent: x.agent, wip: x.wip, inPerDay: x.inPerDay || 0, perDay: x.perDay || 0, clearH: x.clearH,
+      pastH: x.time?.medH ?? null, fastH: x.time?.p20H ?? null, grade: x.time?.grade || 'none' })),
+    path: path ? { steps: path.steps.map((s) => s.key), parallel: path.parallel || [] } : { steps: [], parallel: [] },
+    roles: C.roles.map((r) => ({ role: r.role, members: r.members, items: items.filter((it) => it.role === r.role) })),
+    agentH: agentMed ?? 0.25,
+  }
+  return { view: result, model }
+}
+
+// POST /ontology/flow/whatif {proc, levers} — the plan's before · after on today's map (nothing is written)
+export async function whatIfView(me, { proc = '', levers = [] } = {}) {
+  if (!proc) throw err(400, '어느 프로세스를 고쳐 볼지 골라 주세요.')
+  const { view, model } = await flowModel(me, { proc })
+  const { whatIfFlow } = await import('./flowplan.js')
+  const r = whatIfFlow(model, Array.isArray(levers) ? levers.slice(0, 12) : [])
+  return { proc: view.proc, at: view.now, window: view.window, ...r }
 }

@@ -157,7 +157,7 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
       checkpoints: d.checkpoints, skills: d.skills, outputs: d.outputs, description: d.description || '', instruction: d.instruction || '' }
     // an agent's step completes itself; a person's step of a promoted process gets the agent's draft first (Process GPT's
     // draft mode: the agent is put beside the person on the work item, its result lands in the item's draft)
-    elements.push(runner ? { ...base, agent, agentMode: 'complete', orchestration: ORCH } : draft ? { ...base, agent, agentMode: 'draft', orchestration: ORCH } : { ...base, agentMode: 'none' })
+    elements.push(runner ? { ...base, agent, agentMode: 'complete', orchestration: ORCH } : draft || d.runner === 'draft' ? { ...base, agent, agentMode: 'draft', orchestration: ORCH } : { ...base, agentMode: 'none' })
   }
   elements.push({ elementType: 'Event', id: 'end', name: '끝', role: starterRole, type: 'EndEvent' })
   const node = (k) => (k === END ? 'end' : actId(k))

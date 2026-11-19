@@ -43,6 +43,9 @@ function reply() {
   if (a && !props.busy) emit('answer', a)
 }
 const secs = computed(() => (p.value.ms ? `${(p.value.ms / 1000).toFixed(1)}초` : ''))
+// 예상 효과(server editmap.js effectOf → flowplan.js): 고친 뒤 지금 들어오는 건 · 자리 잡은 뒤 보통 건 · 병목이 어떻게 되는지(추정)
+const fx = computed(() => p.value.effect || null)
+const dayH = (h) => (h == null ? '—' : h < 9 ? `${Math.round(h * 10) / 10}시간` : `${Math.round((h / 9) * 10) / 10}일`)
 </script>
 
 <template>
@@ -59,6 +62,13 @@ const secs = computed(() => (p.value.ms ? `${(p.value.ms / 1000).toFixed(1)}초`
     <p v-if="busy === 'plan'" class="pend pulse" data-testid="onto-edit-preview-pending">말을 지도로 옮기는 중…</p>
     <template v-else>
       <OntoChangeList :plan="plan" />
+      <div v-if="fx" class="fx" data-testid="onto-edit-preview-effect">
+        <small class="cap">예상 효과 · 추정</small>
+        <span data-testid="onto-edit-preview-effect-now">지금 들어오면 {{ dayH(fx.before.nowH) }} → <b>{{ dayH(fx.after.nowH) }}</b></span>
+        <span>자리 잡은 뒤 보통 건 {{ dayH(fx.before.pastH) }} → <b>{{ dayH(fx.after.pastH) }}</b></span>
+        <span v-if="fx.moved">병목이 「{{ fx.moved.from }}」에서 「{{ fx.moved.to }}」로 옮겨 가요</span>
+        <span v-else-if="fx.before.bottleneck">병목 「{{ fx.before.bottleneck.key }}」 할 일 {{ fx.before.bottleneck.wip }} → {{ fx.after.bottleneck?.wip ?? 0 }}건(예상)</span>
+      </div>
       <form v-if="p.question" class="ans" @submit.prevent="reply">
         <input v-model="answer" class="in" maxlength="300" placeholder="답을 적어 주세요" data-testid="onto-edit-preview-answer" />
         <button class="ghost press" type="submit" :disabled="!!busy || !answer.trim()" data-testid="onto-edit-preview-answer-send">답하기</button>
@@ -100,6 +110,8 @@ const secs = computed(() => (p.value.ms ? `${(p.value.ms / 1000).toFixed(1)}초`
 .ans { display: flex; gap: 6px; }
 .in { flex: 1; min-width: 0; height: 34px; padding: 0 12px; border-radius: 12px; border: 0; outline: 0; background: var(--field-bg); font-size: 13.5px; color: var(--text-primary); }
 .in::placeholder { color: var(--text-tertiary); }
+.fx { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, #0a84ff 9%, transparent); font-size: 13px; line-height: 1.5; color: var(--text-primary); }
+.fx b { font-weight: 700; }
 .said { display: flex; flex-direction: column; gap: 3px; padding-top: 8px; border-top: 1px solid var(--hairline); }
 .cap { font-size: 11.5px; color: var(--text-tertiary); }
 .said q { font-size: 13.5px; line-height: 1.55; color: var(--text-primary); quotes: '「' '」'; }

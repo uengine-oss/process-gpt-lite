@@ -11,11 +11,13 @@ import { L } from '../lang.js'
 
 const RHO_MAX = 0.97
 
-function erlangWq(lambda, mu, c) {
+// cut: at or over RHO_MAX the queue is read at RHO_MAX and stretched linearly — once (RHO_MAX·c·μ/μ/c can round to just over
+// RHO_MAX, which recursed for ever)
+export function erlangWq(lambda, mu, c, cut = true) {
   if (!mu || !lambda) return 0
   const a = lambda / mu
   const rho = a / c
-  if (rho >= RHO_MAX) return erlangWq(RHO_MAX * c * mu, mu, c) * (1 + 4 * (rho - RHO_MAX))
+  if (cut && rho >= RHO_MAX) return erlangWq(RHO_MAX * c * mu, mu, c, false) * (1 + 4 * (rho - RHO_MAX))
   let sum = 0, term = 1
   for (let k = 0; k < c; k++) { if (k) term *= a / k; sum += term }
   const last = term * (a / c) // a^c / c!

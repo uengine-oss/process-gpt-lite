@@ -10,7 +10,7 @@
 - set_cond {"from","to","when"}: 갈림길에서 그 길로 가는 조건. 금액이면 when = {"amount":{"op":">=" | ">" | "<=" | "<","value":원 단위 정수}}, 그 밖이면 {"text":"~하면"}. 조건을 지우면 when = null.
   금액 갈림길은 보통 두 길에 짝으로 건다(예: 승인으로 가는 길 ≥ 3000000, 바로 보내는 길 < 3000000). 길이 없으면 add_edge 를 먼저.
 - set_parallel {"a","b"}: 두 단계를 나란히(둘 다 끝나야 다음으로).
-- rename_task {"task","name"} · set_role {"task","role"} · set_runner {"task","runner"}: 이름 · 맡는 역할 · 하는 이(person|agent) 바꾸기.
+- rename_task {"task","name"} · set_role {"task","role"} · set_runner {"task","runner"}: 이름 · 맡는 역할 · 하는 이(person|agent|draft) 바꾸기. draft 는 「AI가 초안을 먼저 쓰고 사람이 마무리」.
 - set_requirement {"task","requirement"}: 꼭 하는 단계 required · 해도 되고 안 해도 되는 단계 optional · 지도대로 null.
 - set_timer {"cron","entry"}: 정해 둔 때에 entry 부터 시작(5칸 cron, 한국 시각. 예: 평일 9시 "0 9 * * 1-5").
 - new_process {"name","summary","start","steps":[{"name","role","runner"}],"ways":[{"from","to","when"}],"parallel":[["a","b"]]}: scope 가 new 일 때만. 말한 순서대로 단계를 놓고, 갈림길은 ways 의 when 으로, 마지막 단계는 to 「끝」으로. name 은 프로세스 이름(「견적 작성 · 승인」처럼 「무엇 · 어떻게」 8~16자, 단계 이름과 다르게), summary 는 한 문장. 단계마다 이름이 달라야 한다(「견적서 작성」과 「견적서 발송」은 다른 단계).

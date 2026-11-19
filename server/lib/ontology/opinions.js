@@ -350,6 +350,8 @@ export async function closeAs(me, procKey, ids = [], { state, note = '', batch =
   return rows
 }
 
+const plansClosed = async (me, ids, o) => (await import('./improveplans.js')).onOpinionClosed(me, ids, o).catch((e) => console.warn('[ontology] plans', e.message))
+
 // the admin's decision: apply (one opinion, the others of its conflict superseded) · decline (one) · keep (a conflict: all declined)
 export async function resolve(me, procKey, { action = '', opinion = null, opinions = [], note = '' } = {}) {
   const { isAdmin } = await import('./service.js')
@@ -363,12 +365,17 @@ export async function resolve(me, procKey, { action = '', opinion = null, opinio
     await closeAs(me, procKey, [r.id], { state: 'applied', note: n, batch: res.batch, procName: res.proc.name })
     const others = (opinions || []).map(String).filter((x) => x !== r.id)
     if (others.length) await closeAs(me, procKey, others, { state: 'superseded', note: n || '다른 의견으로 정했어요', batch: res.batch, procName: res.proc.name })
+    // an improvement plan that went to the opinions (improveplans.js): applied → decided (effective now, its people join their roles)
+    await plansClosed(me, [r.id], { state: 'applied', batch: res.batch, note: n })
+    await plansClosed(me, others, { state: 'superseded', note: n })
   } else if (action === 'decline') {
     if (!n) throw err(400, '거절하는 까닭을 한 줄 적어 주세요.')
     await closeAs(me, procKey, [opinion], { state: 'declined', note: n })
+    await plansClosed(me, [opinion], { state: 'declined', note: n })
   } else if (action === 'keep') {
     if (!n) throw err(400, '그대로 두는 까닭을 한 줄 적어 주세요.')
     await closeAs(me, procKey, opinions, { state: 'declined', note: n })
+    await plansClosed(me, opinions, { state: 'declined', note: n })
   } else throw err(400, 'action 은 apply · decline · keep 이에요.')
   return opinionsView(me, procKey)
 }

@@ -27,7 +27,8 @@ export const OPS = ['reverse_edge', 'remove_edge', 'add_edge', 'rename_task', 'm
 export const EDIT_OPS = [...OPS, 'move_task', 'set_cond', 'set_parallel', 'set_runner']
 export const SIDE_OPS = ['set_requirement', 'set_timer']
 export const ALL_OPS = [...EDIT_OPS, ...SIDE_OPS, 'new_process']
-export const RUNNERS = ['agent', 'person']
+// draft: the person does it with the agent's draft first (AI 초안 먼저 — the step alone, as an adopted process does for all its people's steps)
+export const RUNNERS = ['agent', 'person', 'draft']
 export const REQUIREMENTS = ['required', 'optional']
 export const AMOUNT_OPS = { '>=': '이상', '>': '초과', '<=': '이하', '<': '미만' }
 export const KINDS = ['order', 'mixed', 'artifact', 'missing']
@@ -136,7 +137,7 @@ export function labelOf({ op, args: a = {} }) {
     case 'merge_task': return `「${a.task}」${eul(a.task)} 「${a.into}」에 합침`
     case 'remove_task': return `「${a.task}」${eul(a.task)} 이 프로세스에서 뺌`
     case 'set_role': return `「${a.task}」의 맡는 역할을 「${a.role}」${ro(a.role)} 바꿈`
-    case 'set_runner': return `「${a.task}」${fin(a.task) ? '은' : '는'} ${a.runner === 'agent' ? '에이전트가' : '사람이'} 하게 함`
+    case 'set_runner': return a.runner === 'draft' ? `「${a.task}」${fin(a.task) ? '은' : '는'} AI가 초안을 먼저 쓰고 사람이 마무리하게 함` : `「${a.task}」${fin(a.task) ? '은' : '는'} ${a.runner === 'agent' ? '에이전트가' : '사람이'} 하게 함`
     case 'move_task': {
       if (a.after && a.before) return `「${a.task}」${eul(a.task)} 「${a.after}」${gwa(a.after)} 「${shown(a.before)}」 사이로 옮김`
       return a.after ? `「${a.task}」${eul(a.task)} 「${a.after}」 뒤로 옮김` : `「${a.task}」${eul(a.task)} 「${shown(a.before)}」 앞으로 옮김`
@@ -316,7 +317,7 @@ export function applyCorrections(found, corrections = []) {
       }
       case 'set_runner': {
         if (!isTask(a.task)) return '그 일이 없어요.'
-        if (tasks.get(a.task).runner === a.runner) return a.runner === 'agent' ? '이미 에이전트가 해요.' : '이미 사람이 해요.'
+        if (tasks.get(a.task).runner === a.runner) return a.runner === 'agent' ? '이미 에이전트가 해요.' : a.runner === 'draft' ? '이미 AI가 초안을 먼저 써요.' : '이미 사람이 해요.'
         tasks.get(a.task).runner = a.runner
         tasks.get(a.task).dec = true
         return ''

@@ -266,7 +266,8 @@ export async function createItem(c, task, { via = {}, par = null, mapAt = new Da
   if (!t) throw err(400, `「${task}」${fin(task) ? '은' : '는'} 이 프로세스에 없어요.`)
   const d = await taskDefinition(t.key, t)
   const runner = d.runner === 'agent'
-  const draft = !runner && view.proc?.status === 'adopted'
+  // a person's step with the agent's draft first: the step's own say (set_runner draft — AI 초안 먼저), or every person's step of an adopted process
+  const draft = !runner && (d.runner === 'draft' || view.proc?.status === 'adopted')
   const kind = runner ? 'agent' : draft ? 'draft' : 'person'
   const agent = runner || draft ? await agentId() : null
   const { roleOfTask } = await import('./bindings.js')

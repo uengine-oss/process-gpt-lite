@@ -71,7 +71,7 @@ export async function taskDefinition(key, task) {
   const { front, body } = parseDefinition(task?.definition_md || '')
   return {
     // who does it: a process's own say (말로 고치기 set_runner — refine.js puts it on the step), else the definition
-    runner: task?.runner === 'agent' || task?.runner === 'person' ? task.runner : front.runner === 'agent' ? 'agent' : 'person',
+    runner: ['agent', 'person', 'draft'].includes(task?.runner) ? task.runner : front.runner === 'agent' ? 'agent' : 'person',
     skills: Array.isArray(front.skills) ? front.skills : [],
     checkpoints: Array.isArray(front.checkpoints) ? front.checkpoints.map(String) : [],
     outputs: Array.isArray(front.outputs) ? front.outputs : [],

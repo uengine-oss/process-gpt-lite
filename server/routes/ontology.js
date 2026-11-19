@@ -50,6 +50,19 @@ export function ontologyRoutes(auth) {
   // 흐름 분석(flowload.js): 일마다 지금 쌓인 할 일(지도 엔진 · 스냅샷 건의 todolist 행) · 걸린 시간 · 병목 · 흔한 길 · 회사의 제약(역할) — 보기는 누구나,
   // 열린 할 일의 건 제목 · 맡은 사람은 관리자만
   r.get('/ontology/flow', auth, h(async (req) => (await import('../lib/ontology/flowload.js')).flowView(req.user, { proc: String(req.query.proc || ''), validAt: req.query.at || undefined })))
+  // 고쳐 보기 · 개선안(flowplan.js · improveplans.js, 설계 §5): 계산은 누구나, 안은 누구나 만들고 합의에 올림, 정하기 · 하지 않기는 관리자
+  const IP = () => import('../lib/ontology/improveplans.js')
+  r.post('/ontology/flow/whatif', auth, h(async (req) => (await import('../lib/ontology/flowload.js')).whatIfView(req.user, { proc: String(req.body?.proc || ''), levers: Array.isArray(req.body?.levers) ? req.body.levers : [] })))
+  r.get('/ontology/flow/people', auth, h(async (req) => (await IP()).peopleFor(req.user, String(req.query.role || ''))))
+  r.get('/ontology/plans', auth, h(async (req) => (await IP()).listPlans(req.user, String(req.query.proc || ''))))
+  r.post('/ontology/plans', auth, h(async (req) => (await IP()).savePlan(req.user, { proc: String(req.body?.proc || ''), name: String(req.body?.name || ''), levers: Array.isArray(req.body?.levers) ? req.body.levers : [], words: String(req.body?.words || '') })))
+  r.get('/ontology/plans/:id', auth, h(async (req) => (await IP()).getPlan(req.user, req.params.id)))
+  r.delete('/ontology/plans/:id', auth, h(async (req) => (await IP()).removePlan(req.user, req.params.id)))
+  r.post('/ontology/plans/:id/vote', auth, h(async (req) => (await IP()).votePlan(req.user, req.params.id)))
+  r.post('/ontology/plans/:id/agree', auth, h(async (req) => (await IP()).agreePlan(req.user, req.params.id)))
+  r.post('/ontology/plans/:id/decide', auth, h(async (req) => (await IP()).decidePlan(req.user, req.params.id, { note: String(req.body?.note || '') })))
+  r.post('/ontology/plans/:id/decline', auth, h(async (req) => (await IP()).declinePlan(req.user, req.params.id, { note: String(req.body?.note || '') })))
+  r.get('/ontology/plans/:id/review', auth, h(async (req) => (await IP()).reviewPlan(req.user, req.params.id)))
   // 개인 습관을 지도에 보이는 기준(관리자가 정하고, 보기는 누구나)
   r.get('/ontology/settings', auth, h(() => S.habitSettings()))
   r.put('/ontology/settings', auth, h(async (req) => { await admin(req); return S.setHabitSettings(req.user, { mode: String(req.body?.mode || ''), min: req.body?.min }) }))
