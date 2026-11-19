@@ -152,12 +152,23 @@ export async function addProcessTimer(me, { proc, entry, cron, name }) {
   if (cronKo(cron) === cron && String(cron).trim().split(/\s+/).length !== 5) throw err(400, '주기를 읽지 못했어요(분 시 일 월 요일).')
   const key = `timer:proc:${shaOf(`${proc}|${start}|${cron}`)}`
   const w = { validFrom: new Date().toISOString(), actor: me.email || String(me.id), reason: `프로세스 타이머 — ${p.name}` }
+  const [was] = await cypher('MATCH (e:Event {key:$key}) RETURN e.status AS status, e.schedule AS schedule', { key }).catch(() => [])
   await putNode('Event', key, { kind: 'timer', cls: '', name: cronKo(cron), n: 0, cron, tz: TZ, status: 'active', scope: 'company', schedule: '' }, { actor: w.actor, reason: w.reason })
   await putRel('TRIGGERS', ['Event', key], ['Task', start], { n: 0, p: 1, split: '', cond: '', source: 'told', scope: 'company', people: 0, shared: 0, status: 'active', pinned: true, autonomy: 'process' }, w)
   await putRel('STARTS_ON', ['Process', proc], ['Event', key], { n: 0, share: 0 }, w)
-  // the clock: one pg_cron job that only says which event rang
-  const s = await createSchedule({ userId: me.id, name: name || `${p.name} · ${cronKo(cron)}`, cron, prompt: `(타이머 사건 ${key})`, threadId: null })
-  await q(`update pro_schedules set params = coalesce(params, '{}'::jsonb) || $2::jsonb, notify='never' where id=$1`, [s.id, JSON.stringify({ onto_event: key, proc, entry: start })])
+  // the clock: one pg_cron job that only says which event rang. If it cannot be set, the timer the graph just got is taken back
+  // (a timer with no clock would sit on the map, starting nothing) — or, re-adding one that already ran, it keeps its old clock.
+  let s
+  try {
+    s = await createSchedule({ userId: me.id, name: name || `${p.name} · ${cronKo(cron)}`, cron, prompt: `(타이머 사건 ${key})`, threadId: null })
+    await q(`update pro_schedules set params = coalesce(params, '{}'::jsonb) || $2::jsonb, notify='never' where id=$1`, [s.id, JSON.stringify({ onto_event: key, proc, entry: start })])
+  } catch (e) {
+    const back = was?.schedule && was.status !== 'gone' ? { status: was.status, schedule: was.schedule } : { status: 'gone', schedule: '' }
+    const undo = { actor: w.actor, reason: `${w.reason} — 예약을 걸지 못해 되돌림` }
+    await cypher('MATCH (e:Event {key:$key}) SET e.status=$status, e.schedule=$schedule RETURN e.key AS key', { key, ...back }, undo).catch(() => [])
+    await cypher('MATCH (e:Event {key:$key})-[t:TRIGGERS]->(x:Task) SET t.status=$status RETURN e.key AS key', { key, status: back.status }, { ...w, ...undo }).catch(() => [])
+    throw e
+  }
   await cypher('MATCH (e:Event {key:$key}) SET e.schedule=$id RETURN e.key AS key', { key, id: s.id }, { actor: w.actor, reason: w.reason })
   const { ledger } = await import('./review.js')
   await ledger(me, 'ontology.timer', `타이머: ${p.name} — ${cronKo(cron)}에 「${start}」부터`, { process: proc, entry: start, cron, event: key })
