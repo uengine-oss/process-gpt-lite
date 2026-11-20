@@ -7,7 +7,7 @@
 //   write    — on request only: a throwaway graph, 200 nodes MERGEd in one UNWIND, read back, dropped
 // The outside-engine procedures exist only on ontological-outside; on the in-database engine they are reported missing.
 import { q } from '../supa.js'
-import { boltDriver, readGraph, graphName, ontologyEnabled, ontologyConfig, cypherTimer, ensureGraphOverBolt } from './store.js'
+import { boltDriver, readGraph, graphName, ontologyEnabled, ontologyConfig, cypherTimer, ensureGraph, ensureGraphOverBolt } from './store.js'
 
 const summary = (xs) => {
   const s = [...xs].sort((a, b) => a - b)
@@ -32,6 +32,8 @@ export async function diag({ n = 20, mapRuns = 3, write = false } = {}) {
   await step('db', async () => { const xs = []; for (let i = 0; i < n; i++) xs.push(await timed(() => q('select 1'))); return summary(xs) })
   if (!ontologyEnabled()) return out
   const g = graphName()
+  // the company's graph first (made now on a company's first visit: that time is reported apart from the reads)
+  await step('ensure', async () => ({ ms: Math.round(await timed(() => ensureGraph())) }))
   await step('bolt', async () => {
     const first = await timed(() => boltRun(g, 'RETURN 1 AS one')) // a new session may open a connection
     const xs = []; for (let i = 0; i < n; i++) xs.push(await timed(() => boltRun(g, 'RETURN 1 AS one')))
