@@ -9,6 +9,7 @@
 // Ontological's own node id — a task's identity is `key`.
 import neo4j from 'neo4j-driver'
 import pg from 'pg'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { config } from '../../config.js'
 
 const env = (k, d = '') => process.env[k] ?? d
@@ -17,7 +18,13 @@ export const ontologyConfig = () => ({
   user: env('PRO_ONTOLOGY_USER', 'ogadmin'),
   password: env('PRO_ONTOLOGY_PASSWORD'),
   admin: env('PRO_ONTOLOGY_ADMIN_URL'), // install-time only (postgres://…/pgpt_onto)
+  // 'bolt': the engine runs outside Postgres (ontological-outside, a database without the extension, e.g. hosted
+  // Supabase) and the gateway makes a company's graph itself — CALL og_outside.ensure_graph — instead of the SQL above
+  install: env('PRO_ONTOLOGY_INSTALL'),
 })
+
+// a request's Cypher statements and their time (Server-Timing on the ontology routes, the diag route)
+export const cypherTimer = new AsyncLocalStorage()
 export const ontologyEnabled = () => !!ontologyConfig().bolt
 export const graphName = (tenant = config.tenantId) => `pgpt_${String(tenant).toLowerCase().replace(/[^a-z0-9_]/g, '_')}`
 
@@ -26,10 +33,14 @@ function bolt() {
   if (driver) return driver
   const c = ontologyConfig()
   if (!c.bolt) throw Object.assign(new Error('Ontological DB 가 설정되지 않았어요(PRO_ONTOLOGY_BOLT_URL).'), { status: 503 })
-  driver = neo4j.driver(c.bolt, neo4j.auth.basic(c.user, c.password), { disableLosslessIntegers: true, maxConnectionPoolSize: 8 })
+  // each Bolt connection holds one Postgres connection on the outside engine (a session-mode pooler counts them):
+  // PRO_ONTOLOGY_POOL keeps the two in step with the gateway's OG_BOLT_MAX_SESSIONS
+  const pool = Math.max(1, Number(env('PRO_ONTOLOGY_POOL', '8')) || 8)
+  driver = neo4j.driver(c.bolt, neo4j.auth.basic(c.user, c.password), { disableLosslessIntegers: true, maxConnectionPoolSize: pool })
   return driver
 }
 export async function closeOntology() { if (driver) { await driver.close(); driver = null } }
+export const boltDriver = () => bolt()
 
 const toPlain = (v) => {
   if (v && typeof v === 'object' && 'properties' in v && ('labels' in v || 'type' in v)) return { ...v.properties }
@@ -45,6 +56,7 @@ export async function cypher(query, params = {}, meta = {}, tenant = config.tena
   await ensureGraph(tenant)
   const s = bolt().session({ database: graphName(tenant) })
   const metadata = Object.fromEntries(Object.entries({ source: 'pgpt-lite', ...meta }).filter(([, v]) => v !== undefined && v !== null && v !== ''))
+  const t0 = performance.now()
   try {
     const r = await s.run(query, params, { metadata })
     return r.records.map((rec) => Object.fromEntries(rec.keys.map((k) => [k, toPlain(rec.get(k))])))
@@ -52,7 +64,11 @@ export async function cypher(query, params = {}, meta = {}, tenant = config.tena
     if (again && goneGraph(e)) { made.delete(graphName(tenant)); await s.close(); return cypher(query, params, meta, tenant, false) }
     e.message = `${e.message} — in: ${query.replace(/\s+/g, ' ').slice(0, 90)}${metadata.validFrom ? ` (validFrom ${metadata.validFrom})` : ''}`
     throw e
-  } finally { await s.close().catch(() => {}) }
+  } finally {
+    const t = cypherTimer.getStore()
+    if (t) { t.n += 1; t.ms += performance.now() - t0 }
+    await s.close().catch(() => {})
+  }
 }
 
 // ---------- install-time: the company's graph ----------
@@ -104,10 +120,27 @@ export const SCHEMA = [
 ]
 
 const made = new Set()
+const making = new Map() // graph → the install under way (the first requests of a company arrive together)
 export async function ensureGraph(tenant = config.tenantId) {
   const g = graphName(tenant)
   if (made.has(g)) return g
+  if (!making.has(g)) making.set(g, installGraph(g).finally(() => making.delete(g)))
+  return making.get(g)
+}
+
+// the outside engine's gateway answers this itself, in one transaction: the graph, the types and properties it lacks
+// (a key only on a fresh type), time switched on — the same as the SQL below
+export async function ensureGraphOverBolt(g, schema = SCHEMA) {
+  const s = bolt().session({ database: g })
+  try {
+    const r = await s.run('CALL og_outside.ensure_graph($graph, $schema)', { graph: g, schema })
+    return r.records[0] ? Object.fromEntries(r.records[0].keys.map((k) => [k, r.records[0].get(k)])) : null
+  } finally { await s.close().catch(() => {}) }
+}
+
+async function installGraph(g) {
   const c = ontologyConfig()
+  if (!c.admin && c.install === 'bolt') { await ensureGraphOverBolt(g); made.add(g); return g }
   if (!c.admin) { made.add(g); return g } // an install whose graphs were made by its installer
   const db = new pg.Client({ connectionString: c.admin })
   await db.connect()
@@ -133,6 +166,12 @@ export async function dropGraph(tenant = config.tenantId) {
   const g = graphName(tenant)
   const c = ontologyConfig()
   made.delete(g)
+  if (!c.admin && c.install === 'bolt') {
+    const s = bolt().session({ database: g })
+    try { await s.run('CALL og_outside.admin($fn, $args)', { fn: 'og_drop_graph', args: [g] }); return true }
+    catch (e) { if (/does not exist|no graph|not found/i.test(e.message || '')) return false; throw e }
+    finally { await s.close().catch(() => {}) }
+  }
   if (!c.admin) return false
   const db = new pg.Client({ connectionString: c.admin })
   await db.connect()

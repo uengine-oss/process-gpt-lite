@@ -9,7 +9,8 @@ import * as RL from '../lib/ontology/roles.js'
 import * as W from '../lib/ontology/ways.js'
 import * as TM from '../lib/ontology/timers.js'
 import * as DOC from '../lib/ontology/documents.js'
-import { cypher } from '../lib/ontology/store.js'
+import { cypher, cypherTimer } from '../lib/ontology/store.js'
+import { diag } from '../lib/ontology/diag.js'
 import { q } from '../lib/supa.js'
 import { updateMessage } from '../lib/store.js'
 import { config } from '../config.js'
@@ -17,8 +18,15 @@ import { formRoutes } from './ontologyForms.js'
 
 export function ontologyRoutes(auth) {
   const r = express.Router()
+  // Server-Timing: how many Cypher statements the route ran and their time, and the route's own time (the map's latency
+  // is read in the browser's network panel, ontology diag)
   const h = (fn) => async (req, res) => {
-    try { res.json(await fn(req)) } catch (e) {
+    const t = { n: 0, ms: 0 }, t0 = performance.now()
+    try {
+      const body = await cypherTimer.run(t, () => fn(req))
+      if (!res.headersSent) res.set('Server-Timing', `onto;desc="cypher x${t.n}";dur=${t.ms.toFixed(1)}, app;dur=${(performance.now() - t0).toFixed(1)}`)
+      res.json(body)
+    } catch (e) {
       if (!e.status) console.warn('[ontology]', req.method, req.path, e.message)
       res.status(e.status || 500).json({ error: e.status ? e.message : '처리하지 못했어요.' })
     }
@@ -34,6 +42,11 @@ export function ontologyRoutes(auth) {
 
   // 지도
   r.get('/ontology/status', auth, h((req) => S.status(req.user)))
+  // where the map's time goes, from inside the server pod (administrators): ?n=20&map=3&write=1
+  r.get('/ontology/diag', auth, h(async (req) => {
+    await admin(req)
+    return diag({ n: num(req.query.n), mapRuns: num(req.query.map) ?? 3, write: req.query.write === '1' })
+  }))
   r.post('/ontology/mail-history', auth, h((req) => S.readMailAndBuild(req.user, { days: Math.min(180, Math.max(7, Number(req.body?.days) || 90)) })))
   r.get('/ontology/jobs/:id', auth, h((req) => S.job(req.params.id)))
   // 규정 · 업무 정의서(design-v0.3 §17): 파일 그대로 올리면 process-gpt 의 문서 읽기로 절차를 뽑아 지도 곁에 둔다
