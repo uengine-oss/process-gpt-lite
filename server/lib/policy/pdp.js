@@ -17,14 +17,21 @@ const get = (o, path) => String(path).split('.').reduce((v, k) => (v == null ? v
 const catalogById = new Map(CATALOG.map((s) => [s.id, s]))
 const latestText = (r) => (r.version === 1 && catalogById.has(r.id) ? { ...r, spec: { ...r.spec, explain: catalogById.get(r.id).explain } } : r)
 
+// the demo scenarios' policies (mail · payment · purchase · release · data actions): every one but the team context's
+// (context.access). With the scenarios off (config.scenarios, PRO_SCENARIOS=off) a company is not seeded with them and the
+// catalog does not list them; team context sharing keeps its own.
+export const isScenarioPolicy = (s) => !(s?.scope?.action || []).every((a) => String(a).startsWith('context.'))
+const inUse = (s) => config.scenarios || !isScenarioPolicy(s)
+
 // the company's policies; the catalog seeds a company the first time (new catalog entries join later ones too)
 export async function policiesOf(tenant = T(), { all = false } = {}) {
   const have = await q('select id from pro_policies where tenant_id=$1', [tenant])
   const known = new Set(have.map((r) => r.id))
-  for (const spec of CATALOG.filter((s) => !known.has(s.id))) {
+  for (const spec of CATALOG.filter((s) => !known.has(s.id) && inUse(s))) {
     await q('insert into pro_policies(tenant_id, id, spec) values ($1,$2,$3) on conflict do nothing', [tenant, spec.id, spec])
   }
   const rows = (await q(`select id, version, enabled, spec, updated_at from pro_policies where tenant_id=$1 ${all ? '' : 'and enabled'} order by id`, [tenant])).map(latestText)
+    .filter((r) => inUse(r.spec))
   return all ? rows : rows.map((r) => r.spec)
 }
 

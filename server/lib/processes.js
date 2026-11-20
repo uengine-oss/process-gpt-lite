@@ -1,5 +1,6 @@
 // Read side of process-gpt BPM: definitions, forms, instances, work items, artifacts.
 import { q, ENGINE_TZ } from './supa.js'
+import { statusSql } from './enums.js'
 import { config } from '../config.js'
 import { failures } from './stepRetry.js'
 import { L } from './lang.js'
@@ -139,7 +140,8 @@ export async function getInstance(instId, me) {
   const todos = await q(
     // an agent's name as this tenant knows it: the same agent id can be in several tenants (the mining
     // agents are), and the engine wrote whichever row it found first (Korean names in English tenants)
-    `select id, activity_id, activity_name, status, user_id,
+    // (status: a work item a move cancelled on a database without CANCELLED is DONE with Lite's mark — read back as CANCELLED, lib/enums.js)
+    `select id, activity_id, activity_name, ${statusSql('t.')} as status, user_id,
             coalesce((select u.username from users u where u.is_agent and u.id::text = t.user_id and u.tenant_id = t.tenant_id), username) as username,
             start_date, end_date, updated_at, output, draft,
             output_url, agent_mode, agent_orch, log, description, draft_status::text as draft_status, consumer, lease_until

@@ -96,6 +96,15 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
     auth.clear(); location.href = BASE + '/login'; throw new Error('unauthorized')
   }
   if (raw) return r
+  // a long answer (server lib/longJson.js: 200 committed early so a proxy does not cut it, X-Long-Json) carries its error in
+  // the body: {"error", "status" ≥ 400} is the failure it would have been
+  if (r.ok && r.headers.get('X-Long-Json')) {
+    const j = await r.json()
+    if (j && typeof j === 'object' && !Array.isArray(j) && j.error && Number(j.status) >= 400) {
+      throw Object.assign(new Error(String(j.error).slice(0, 300)), { status: Number(j.status), ...(j.conflicts ? { conflicts: j.conflicts } : {}) })
+    }
+    return j
+  }
   if (!r.ok) {
     // a JSON error body ({error}) shows its message, not the raw JSON
     const t = await r.text()

@@ -18,6 +18,7 @@ import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
+import { cancelSet, statusSql, notCancelledSql } from '../enums.js'
 import { mainThread, addMessage, updateMessage } from '../store.js'
 import { rules as skillRules } from './discovery.js'
 import { ledger } from './review.js'
@@ -250,7 +251,7 @@ async function personOf(c, role, view, task) {
 
 // the case's steps so far, oldest first, as nextOf reads them
 async function caseRows(c) {
-  const rows = await q(`select s.id::text as step_id, s.todo_id::text as todo_id, s.kind, s.state as gate, s.via, s.par, s.created_at, t.status::text as status, t.activity_name
+  const rows = await q(`select s.id::text as step_id, s.todo_id::text as todo_id, s.kind, s.state as gate, s.via, s.par, s.created_at, ${statusSql('t.')} as status, t.activity_name
                         from pro_case_steps s join todolist t on t.id = s.todo_id where s.case_id=$1 order by s.created_at`, [c.id])
   return rows.map((r) => ({ todoId: r.todo_id, stepId: r.step_id, task: r.activity_name, kind: r.kind, via: r.via, par: r.par, gate: r.gate, at: r.created_at,
     state: r.status === 'CANCELLED' ? 'closed' : r.gate === 'skipped' ? 'skipped' : ['DONE', 'SUBMITTED'].includes(r.status) ? 'done' : 'open' }))
@@ -498,9 +499,10 @@ export async function moveMap(me, c, { task, reason = '', state = 'moved', learn
   if (!view.tasks.has(task)) throw err(400, '그 일은 이 프로세스에 없어요.')
   const inst = c.instances[0]
   const made = await locked(String(c.id), async () => {
-    const open = await q(`update todolist set status='CANCELLED' where proc_inst_id=$1 and status::text not in ('DONE','CANCELLED') returning id::text as id, activity_name`, [inst])
+    // (a database whose todo_status has no CANCELLED: DONE with Lite's cancel mark, read back as CANCELLED — lib/enums.js)
+    const open = await q(`update todolist set ${await cancelSet()} where proc_inst_id=$1 and status::text not in ('DONE','CANCELLED') returning id::text as id, activity_name`, [inst])
     if (open.length) await q(`update pro_case_steps set state='moved', hold_item=false, updated_at=now() where todo_id::text = any($1) and state not in ('skipped','moved')`, [open.map((o) => o.id)])
-    const [last] = await q(`select t.activity_name from pro_case_steps s join todolist t on t.id=s.todo_id where s.case_id=$1 and t.status::text='DONE' order by s.created_at desc limit 1`, [c.id])
+    const [last] = await q(`select t.activity_name from pro_case_steps s join todolist t on t.id=s.todo_id where s.case_id=$1 and t.status::text='DONE' and ${notCancelledSql('t.')} order by s.created_at desc limit 1`, [c.id])
     await q(`update pro_po_cases set status='running', history = history || $2::jsonb, updated_at=now() where id=$1`, [c.id, JSON.stringify([{ task, state, at: iso(), reason }])])
     return createItem({ ...c, status: 'running' }, task, { via: { how: state === 'rewound' ? 'rewound' : 'moved', from: open[0]?.activity_name || last?.activity_name || null,
       why: reason || (state === 'rewound' ? '이 단계로 되감았어요' : '사람이 이 단계로 옮겼어요') }, mapAt: validAt ? new Date(validAt) : new Date(), view })
@@ -615,7 +617,7 @@ export async function flowOf(caseId) {
   const view = await procGraph(c.proc, { validAt })
   const RM = await import('./runmode.js')
   const gates = new Map((await q(`select * from pro_case_steps where case_id=$1 order by created_at`, [c.id])).map((g) => [String(g.todo_id), g]))
-  const todos = c.instances.length ? await q(`select id::text as id, activity_id, activity_name, status::text as status, agent_orch::text as agent_orch, agent_mode::text as agent_mode,
+  const todos = c.instances.length ? await q(`select id::text as id, activity_id, activity_name, ${statusSql()} as status, agent_orch::text as agent_orch, agent_mode::text as agent_mode,
       draft_status::text as draft_status, start_date from todolist where proc_inst_id = any($1) and activity_id <> 'intake' order by start_date nulls last`, [c.instances]) : []
   const made = c.engine === 'map' ? [...todos].sort((a, b) => new Date(gates.get(a.id)?.created_at || 0) - new Date(gates.get(b.id)?.created_at || 0)) : todos
   const rows = made.map((t) => ({ task: t.activity_name, show: RM.stepState(t, gates.get(t.id)), via: gates.get(t.id)?.via || null }))
@@ -648,7 +650,7 @@ export async function sweepMap() {
   for (const r of planned) await openPerson(r).catch((e) => console.warn('[map] person step', e.message))
   // a running case whose steps all ended with nothing after the last (the map could not be read then): decide it again
   const stalled = await q(`select c.id::text as case_id, l.todo_id::text as todo_id from pro_po_cases c
-                           join lateral (select s.todo_id from pro_case_steps s join todolist t on t.id=s.todo_id where s.case_id=c.id and t.status::text='DONE'
+                           join lateral (select s.todo_id from pro_case_steps s join todolist t on t.id=s.todo_id where s.case_id=c.id and t.status::text='DONE' and ${notCancelledSql('t.')}
                                          order by s.created_at desc limit 1) l on true
                            where c.tenant_id=$1 and c.engine='map' and c.status='running' and c.updated_at < now() - interval '30 seconds' and c.updated_at > now() - interval '2 days'
                              and not exists (select 1 from todolist o where o.proc_inst_id = c.instances[1] and o.status::text not in ('DONE','CANCELLED')) limit 3`, [T()])

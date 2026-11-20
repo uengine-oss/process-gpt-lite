@@ -357,7 +357,8 @@ export async function getCase(id) {
   const [c] = await q('select *, bundle as proc from pro_po_cases where id=$1 and tenant_id=$2', [id, T()])
   if (!c) throw err(404, '건을 찾지 못했어요.')
   const insts = c.instances.length ? await q(`select proc_inst_id, proc_inst_name, status, proc_def_id from bpm_proc_inst where proc_inst_id = any($1)`, [c.instances]) : []
-  const todos = c.instances.length ? await q(`select id, proc_inst_id, activity_id, activity_name, status::text as status, user_id, agent_orch, end_date from todolist where proc_inst_id = any($1) order by start_date nulls last`, [c.instances]) : []
+  const { statusSql } = await import('../enums.js')
+  const todos = c.instances.length ? await q(`select id, proc_inst_id, activity_id, activity_name, ${statusSql()} as status, user_id, agent_orch, end_date from todolist where proc_inst_id = any($1) order by start_date nulls last`, [c.instances]) : []
   return { ...c, instancesInfo: insts, todos }
 }
 
@@ -387,7 +388,9 @@ export async function moveCase(me, id, { task, reason = '', state = 'moved', lea
   if (c.engine === 'map') return (await import('./mapengine.js')).moveMap(me, c, { task, reason, state, learn })
   const cur = c.instances.at(-1)
   if (cur) {
-    await q(`update todolist set status='CANCELLED' where proc_inst_id=$1 and status::text not in ('DONE','CANCELLED')`, [cur])
+    // (a database whose todo_status has no CANCELLED: DONE with Lite's cancel mark — lib/enums.js)
+    const { cancelSet } = await import('../enums.js')
+    await q(`update todolist set ${await cancelSet()} where proc_inst_id=$1 and status::text not in ('DONE','CANCELLED')`, [cur])
     await q(`update bpm_proc_inst set status='COMPLETED' where proc_inst_id=$1`, [cur])
   }
   const starterRole = await roleOfPerson(me.id)
@@ -649,7 +652,7 @@ export async function answerHabit(me, caseId, { to, accepted, p, from }) {
 const asked = new Set()
 async function checkCases() {
   const rows = await q(`select c.id, c.started_by, c.instances, i.status from pro_po_cases c join bpm_proc_inst i on i.proc_inst_id = c.instances[array_length(c.instances,1)]
-                        where c.tenant_id=$1 and c.status='running' and i.status='COMPLETED' and c.updated_at > now() - interval '2 days' limit 5`, [T()])
+                        where c.tenant_id=$1 and c.status='running' and i.status::text='COMPLETED' and c.updated_at > now() - interval '2 days' limit 5`, [T()])
   for (const r of rows) {
     const k = `${r.id}:${r.instances.length}`
     if (asked.has(k)) continue
@@ -661,13 +664,20 @@ async function checkCases() {
     emit(r.started_by, 'ontology', { caseId: r.id, habit: h })
   }
 }
+// every tenant this server serves, each in its own context (lib/tenant.js forEachTenant — behind the ProcessGPT gateway the
+// tenants whose people use Lite, as the other background loops go round them; one tenant: as it is)
+let sweeping = false
 export async function sweepCases() {
-  const { tenants, withTenant } = await import('../tenant.js')
-  for (const t of tenants()) {
-    await withTenant(t, () => checkCases()).catch((e) => console.warn('[onto-worker] cases', e.message))
-    // a person's step of a running case (no agent on it) passes the run mode's gate as it opens (runmode.js)
-    await withTenant(t, async () => (await import('./runmode.js')).gatePersonSteps()).catch((e) => { if (!/pro_case_steps/.test(e.message)) console.warn('[onto-worker] person steps', e.message) })
-    // cases run from the map: a step handed in some other way (Process GPT's own screen) · a person's step its gate has not seen
-    await withTenant(t, async () => (await import('./mapengine.js')).sweepMap()).catch((e) => console.warn('[onto-worker] map', e.message))
-  }
+  if (sweeping) return
+  sweeping = true
+  try {
+    const { forEachTenant } = await import('../tenant.js')
+    await forEachTenant(async () => {
+      await checkCases().catch((e) => console.warn('[onto-worker] cases', e.message))
+      // a person's step of a running case (no agent on it) passes the run mode's gate as it opens (runmode.js)
+      await (await import('./runmode.js')).gatePersonSteps().catch((e) => { if (!/pro_case_steps/.test(e.message)) console.warn('[onto-worker] person steps', e.message) })
+      // cases run from the map: a step handed in some other way (Process GPT's own screen) · a person's step its gate has not seen
+      await (await import('./mapengine.js')).sweepMap().catch((e) => console.warn('[onto-worker] map', e.message))
+    }, 'onto-worker')
+  } finally { sweeping = false }
 }

@@ -5,6 +5,7 @@
 // 문서의 절차는 셈으로 찾은 Process 와 섞지 않는다(다시 셈해도 그대로 남는다). 화면은 절차마다 「문서대로 · 실제로」를 나란히 보여 준다:
 // 문서의 단계 중 메일에서도 보이는 것, 문서에만 있는 것, 그 절차와 가장 많이 겹치는 실제 프로세스에서 문서에 없는 일.
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
@@ -37,19 +38,42 @@ export function chunksOf(text, size = 6000, max = 20) {
   return out.slice(0, max)
 }
 
-// process-gpt's document reader on the chunks (Lite's own model endpoint), with each chunk's progress
-export function readWithPdf2bpmn(chunks, existing, onChunk) {
+// Where process-gpt's document reader runs: bridge/extract_doc.py in the deepagents venv, with bpmn-extractor beside it. The
+// production server image has no Python (and no process-gpt checkout): there a plain-text document (txt · md · csv — the text
+// is read here as it is) goes through the same PDF2BPMN prompt with Lite's model (docreader.js); a format whose reading needs
+// the Python reader is refused before any job starts. (A chat export — 카카오톡 CSV · TXT — never comes here: chatlog.js reads it.)
+export const TEXT_KINDS = ['txt', 'md', 'csv']
+const PYTHON = `${PGPT_ROOT}/services/deepagents/.venv/bin/python`
+const EXTRACTOR = path.join(PGPT_ROOT, 'services', 'bpmn-extractor', 'src', 'pdf2bpmn', 'extractors', 'entity_extractor.py')
+export const pythonReader = () => fs.existsSync(PYTHON) && fs.existsSync(EXTRACTOR)
+// 'python' | 'node' | null (this server cannot read that kind)
+export const readerFor = (kind, { python = pythonReader() } = {}) => (python ? 'python' : TEXT_KINDS.includes(kind) ? 'node' : null)
+// (500 like generated.js saveUnavailable, not 503: Cloudflare in front of production replaces 502/503 with its own page)
+export const readerUnavailable = (kind) => Object.assign(new Error(`이 서버에서는 이 형식의 문서를 읽을 수 없어요${kind ? `(${kind})` : ''}. ${TEXT_KINDS.join(' · ')} 로 바꿔 올려 주세요.`),
+  { status: 500, code: 'DOC_READER_UNAVAILABLE' })
+
+// process-gpt's document reader on the chunks (Lite's own model endpoint), with each chunk's progress. A Python that cannot start
+// (ENOENT — no venv on this server) is the reader being unavailable, never an unhandled 'error' event that ends the server.
+export function readWithPdf2bpmn(chunks, existing, onChunk, { python = PYTHON } = {}) {
   return new Promise((resolve, reject) => {
-    const py = spawn(`${PGPT_ROOT}/services/deepagents/.venv/bin/python`, [path.join(here, '..', '..', 'bridge', 'extract_doc.py')], {
+    const py = spawn(python, [path.join(here, '..', '..', 'bridge', 'extract_doc.py')], {
       env: { ...process.env, PGPT_ROOT, OPENAI_API_KEY: config.llm.apiKey || '', LLM_BASE_URL: config.llm.baseUrl || '', LLM_MODEL: config.llm.model || '' },
     })
-    let out = '', err = ''
+    let out = '', err = '', failed = false
+    py.on('error', (e) => {
+      failed = true
+      console.warn('[ontology] document reader', e.code || e.message)
+      reject(e.code === 'ENOENT' || e.code === 'EACCES' ? readerUnavailable() : e)
+    })
+    // (writing the chunks to a process that never started fails too: that is the 'error' above)
+    py.stdin.on('error', () => {})
     py.stdout.on('data', (d) => { out += d })
     py.stderr.on('data', (d) => {
       err += d
       for (const m of String(d).matchAll(/chunk (\d+)\/(\d+)/g)) onChunk?.(Number(m[1]), Number(m[2]))
     })
     py.on('close', (code) => {
+      if (failed) return
       if (code !== 0) return reject(new Error(err.split('\n').filter((l) => l && !/^\s*⏱️/.test(l)).slice(-3).join(' | ') || `exit ${code}`))
       try { resolve(JSON.parse(out.trim().split('\n').pop())) } catch { reject(new Error((out + err).slice(-400))) }
     })
@@ -127,6 +151,7 @@ export async function startDocument(me, { name, buf }) {
   const kind = kindOf(name)
   if (!KINDS.includes(kind)) throw Object.assign(new Error(`${KINDS.join(' · ')} 문서만 읽을 수 있어요.`), { status: 400 })
   if (!buf?.length) throw Object.assign(new Error('빈 파일이에요.'), { status: 400 })
+  if (!readerFor(kind)) throw readerUnavailable(kind)
   const [job] = await q(`insert into pro_onto_jobs (tenant_id, user_id, kind, detail) values ($1,$2,'document',$3) returning id`, [T(), me.id, { name }])
   const tenant = T()
   readDocument(me, job.id, name, buf).catch(async (e) => {
@@ -140,6 +165,8 @@ export async function readDocument(me, jobId, name, buf) {
   const say = sayer(jobId, 30)
   const update = (set, args) => q(`update pro_onto_jobs set ${set} where id=$1`, [jobId, ...args])
   const R = (await skillRules()).documents || {}
+  const reader = readerFor(kindOf(name))
+  if (!reader) throw readerUnavailable(kindOf(name))
   await ensureGraph()
   const { text, pages } = await extract(name, buf)
   if (!clean(text)) throw new Error('문서에서 글자를 읽지 못했어요(스캔한 그림만 있는 PDF 일 수 있어요).')
@@ -153,10 +180,12 @@ export async function readDocument(me, jobId, name, buf) {
     tasks: (await cypher('MATCH (t:Task) RETURN t.name AS n, t.role AS role').catch(() => [])).map((r) => ({ name: r.n, role: r.role || '' })).filter((t) => t.name),
   }
   if (existing.tasks.length) await say(`지도에 있는 일 ${existing.tasks.length}개 · 역할 ${existing.roles.length}개의 이름을 함께 넘겨, 같은 일이면 같은 이름으로 읽게 해요.`)
-  const ent = await readWithPdf2bpmn(chunks, existing, (i, n) => {
+  const onChunk = (i, n) => {
     update('done=$2', [i - 1]).catch(() => {})
     say(`${n}부분 중 ${i}번째를 읽는 중이에요 — process-gpt 의 문서 읽기(PDF2BPMN).`, 'chunk')
-  })
+  }
+  const ent = reader === 'python' ? await readWithPdf2bpmn(chunks, existing, onChunk)
+    : await (await import('./docreader.js')).readInNode(chunks, existing, onChunk, { timeoutMs: R.timeoutMs || 240000 })
   await update('done=$2', [chunks.length])
   const procs = proceduresOf(ent, name)
   if (!procs.length) throw new Error('문서에서 업무 절차를 찾지 못했어요.')

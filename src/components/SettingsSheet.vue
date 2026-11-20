@@ -28,7 +28,15 @@ const app = useApp()
 const sky = useSky()
 const page = computed(() => route.params.page)
 const sub = computed(() => route.params.sub)
-const titles = { sharing: '공유와 허락', policies: '정책·가드레일', approvals: '승인함', usage: '사용량·요금제', schedules: '예약된 작업', team: '팀·역할', skills: '스킬', habits: '습관', accounts: '계정', wallet: '지갑', system: '시스템 설정', security: '보안', profile: '프로필' }
+const ALL_TITLES = { sharing: '공유와 허락', policies: '정책·가드레일', approvals: '승인함', usage: '사용량·요금제', schedules: '예약된 작업', team: '팀·역할', skills: '스킬', habits: '습관', accounts: '계정', wallet: '지갑', system: '시스템 설정', security: '보안', profile: '프로필' }
+// what this server turns on (GET /api/me features): the demo scenarios' tabs (PRO_SCENARIOS) and 사용량·요금제 (billing on, or
+// PRO_PLAN_SCREEN=1). Until /api/me answers they stay hidden (no flash of a tab the server has off).
+const offTabs = computed(() => {
+  const f = app.me?.features
+  if (!f) return ['policies', 'approvals', 'usage']
+  return [...(f.scenarios ? [] : ['policies', 'approvals']), ...(f.planScreen ? [] : ['usage'])]
+})
+const titles = computed(() => Object.fromEntries(Object.entries(ALL_TITLES).filter(([k]) => !offTabs.value.includes(k))))
 
 const schedules = ref([])
 const vault = ref([])
@@ -190,11 +198,11 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
       <SharingCenter v-if="page === 'sharing'" />
 
       <!-- usage windows, plans, seats (server lib/plans) -->
-      <UsagePlan v-if="page === 'usage'" />
+      <UsagePlan v-if="page === 'usage' && !offTabs.includes('usage')" />
 
-      <!-- Agentic BPM: the policy catalog and decision ledger; approvals ordered by the critical path -->
-      <PolicyCenter v-if="page === 'policies'" />
-      <ApprovalInbox v-if="page === 'approvals'" />
+      <!-- Agentic BPM: the policy catalog and decision ledger; approvals ordered by the critical path (the demo scenarios: PRO_SCENARIOS) -->
+      <PolicyCenter v-if="page === 'policies' && !offTabs.includes('policies')" />
+      <ApprovalInbox v-if="page === 'approvals' && !offTabs.includes('approvals')" />
 
       <!-- tenant skills -->
       <SkillList v-if="page === 'skills'" :name="sub" />

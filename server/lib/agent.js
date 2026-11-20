@@ -401,7 +401,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     model: config.llm.fastModel,
     temperature: 0,
     // with no apps to name, a small router model still reaches for panel_record ("'문서 작성' 패널을 찾지 못했어요")
-    tools: routerTools(appHint ? ROUTER_TOOLS : ROUTER_TOOLS.filter((t) => t.function.name !== 'panel_record')),
+    // (send_mail is the demo scenarios' — the demo outbox, config.scenarios; off, a mail request goes where it went before them)
+    tools: routerTools(ROUTER_TOOLS.filter((t) => (appHint || t.function.name !== 'panel_record') && (config.scenarios || t.function.name !== 'send_mail'))),
     messages: [
       { role: 'system', content: isEn()
         ? PERSONA_EN.replace('{now}', now) + skillHint + processHint + teamHint + appHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
@@ -488,6 +489,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       break
     }
     case 'send_mail': {
+      // (never offered with the scenarios off; a call named anyway is not sent to the demo outbox)
+      if (!config.scenarios) break
       // the policy card (and the demo outbox's note) follow in this chat; a recipient without an address is said here
       // (request: the person's own words, so a file they named is attached even when the arguments left it out)
       await sendMail(user, { ...args, request: text }, { threadId, files: attached.get(threadId) || [] })
@@ -618,9 +621,12 @@ async function teamCatalogHint(userId) {
 }
 
 // Recent processes with their start-form fields, so a schedule can name one and fill its first step.
-let catalogCache = { at: 0, text: '', lang: 'ko' }
+// (per company and language: the definitions and the map's process names are the company's own)
+const catalogCache = new Map() // `${tenant}:${lang}` → {at, text}
 async function processCatalogHint() {
-  if (Date.now() - catalogCache.at < 60000 && catalogCache.lang === (isEn() ? 'en' : 'ko')) return catalogCache.text
+  const key = `${config.tenantId}:${isEn() ? 'en' : 'ko'}`
+  const hit = catalogCache.get(key)
+  if (hit && Date.now() - hit.at < 60000) return hit.text
   const defs = (await listDefinitions()).slice(0, 12)
   const lines = []
   for (const d of defs) {
@@ -630,9 +636,10 @@ async function processCatalogHint() {
   }
   // the company process map's processes (lib/ontology/editmap.js chatEdit): what «○○ 프로세스에서 … 바꿔 줘» names
   const mapped = await import('./ontology/store.js').then(async (S) => (S.ontologyEnabled() ? (await S.readGraph({})).processes.filter((p) => p.kind !== 'routine' && (p.tasks || []).length > 1).sort((a, b) => (b.cases || 0) - (a.cases || 0)).slice(0, 12).map((p) => p.name) : [])).catch(() => [])
-  catalogCache = { at: Date.now(), lang: isEn() ? 'en' : 'ko', text: (lines.length ? `\n${L('주기적으로 시작할 수 있는 프로세스', 'Processes that can be started on a schedule')}: ${lines.join(' / ')}` : '')
-    + (mapped.length ? `\n${L('회사 프로세스 지도의 프로세스(바꾸거나 의견을 말하면 process edit_map)', 'Processes on the company process map (changes or improvement ideas → process edit_map)')}: ${mapped.join(' / ')}` : '') }
-  return catalogCache.text
+  const text = (lines.length ? `\n${L('주기적으로 시작할 수 있는 프로세스', 'Processes that can be started on a schedule')}: ${lines.join(' / ')}` : '')
+    + (mapped.length ? `\n${L('회사 프로세스 지도의 프로세스(바꾸거나 의견을 말하면 process edit_map)', 'Processes on the company process map (changes or improvement ideas → process edit_map)')}: ${mapped.join(' / ')}` : '')
+  catalogCache.set(key, { at: Date.now(), text })
+  return text
 }
 
 // The one-off connector shortcut. Someone who keeps records in panel apps ("할 일", "팀 일정") may

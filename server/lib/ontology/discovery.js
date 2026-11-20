@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { config } from '../../config.js'
 
 export const NAME = 'process-discovery'
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -42,10 +43,12 @@ export function bundled() {
   return { ...bundledCache, source: 'bundled' }
 }
 
-// the company's version (a short cache: a job asks for it many times)
-let cached = null
+// the company's version (a short cache per company: a job asks for it many times)
+const cached = new Map() // tenant → {at, skill}
 export async function discoverySkill() {
-  if (cached && Date.now() - cached.at < 30_000) return cached.skill
+  const tenant = config.tenantId
+  const hit = cached.get(tenant)
+  if (hit && Date.now() - hit.at < 30_000) return hit.skill
   const base = bundled()
   let skill = base
   try {
@@ -58,10 +61,11 @@ export async function discoverySkill() {
       break
     }
   } catch { /* a database or folder error: the bundled version */ }
-  cached = { at: Date.now(), skill }
+  cached.set(tenant, { at: Date.now(), skill })
   return skill
 }
-export const forgetSkill = () => { cached = null }
+// (every company's: a save may come from outside the company's own request)
+export const forgetSkill = () => { cached.clear() }
 
 export async function prompt(name) {
   const p = (await discoverySkill()).prompts[name]

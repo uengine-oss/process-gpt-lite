@@ -9,7 +9,7 @@
 import { q } from '../supa.js'
 import { config } from '../../config.js'
 import { chatJson } from '../llm.js'
-import { vectors, cosine } from './embed.js'
+import { vectors, cosine, embeddingsOn } from './embed.js'
 import { viewerOf, contextsFor, contextView, ContextError } from './items.js'
 import { atLeast } from './visibility.js'
 
@@ -107,6 +107,8 @@ async function turnsByOwner(owners) {
  * userMsgId: 지금 사람 메시지(그 앞 요청을 다시 보낸 것이면 보지 않는다).
  */
 export async function findRepeat(me, { threadId, message, userMsgId = null }) {
+  // no embedding server (PRO_EMBED_URL='') or one that just failed (embed.js): nothing to compare with — the turn goes on at once
+  if (!embeddingsOn()) return null
   const t0 = Date.now()
   const work = (async () => {
     const vc = await viewerOf(me)

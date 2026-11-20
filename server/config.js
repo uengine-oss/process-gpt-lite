@@ -91,6 +91,13 @@ export const config = {
     adminKey: get('PRO_LITELLM_ADMIN_KEY', ''),
     secret: get('PRO_LLM_KEY_SECRET', ''),
   },
+  // Settings › 사용량·요금제 is shown when the usage limits above are on, or with PRO_PLAN_SCREEN=1 (the plan screen
+  // without billing — a business decision still open, so off by default)
+  planScreen: get('PRO_PLAN_SCREEN', '0') === '1',
+  // the Agentic BPM PoC's demo scenarios: send_mail in the chat router (the demo outbox), the purchase and release
+  // scenarios with their sweep, the settings tabs 정책·가드레일 and 승인함, and the scenario policies seeded for a
+  // company. On unless PRO_SCENARIOS=off (development and recordings keep them; production turns them off)
+  scenarios: !/^(off|0|false|no)$/i.test(String(get('PRO_SCENARIOS', 'on')).trim()),
   llmTrace: get('PRO_LLM_TRACE', ''), // file to append model request text to (see lib/llm.js)
 
   google: {

@@ -255,11 +255,14 @@ export async function fireSchedule(scheduleId, attempt = 0) {
 export async function runMission(scheduleId, trigger = 'cron') {
   const [s] = await q('update pro_schedules set last_run=now() where id=$1 returning *', [scheduleId])
   if (!s || (s.paused && trigger !== 'manual')) return null
-  // the company's process map is the record of every timer (lib/ontology/timers.js): stopped or removed there → not run
-  if (trigger !== 'manual' && !s.params?.onto_event && !(await import('./ontology/timers.js').then((m) => m.timerOn(s.id)).catch(() => true))) return null
-  // pauses before the run: a retry after a failed start must not make it fire twice
-  if (s.state?.once && trigger !== 'manual') await q('update pro_schedules set paused=true where id=$1', [s.id])
-  return inScheduleTenant(s, () => runMissionAs(s, trigger))
+  // in the schedule's tenant from here: the timer is read from that tenant's process map, not the default tenant's
+  return inScheduleTenant(s, async () => {
+    // the company's process map is the record of every timer (lib/ontology/timers.js): stopped or removed there → not run
+    if (trigger !== 'manual' && !s.params?.onto_event && !(await import('./ontology/timers.js').then((m) => m.timerOn(s.id)).catch(() => true))) return null
+    // pauses before the run: a retry after a failed start must not make it fire twice
+    if (s.state?.once && trigger !== 'manual') await q('update pro_schedules set paused=true where id=$1', [s.id])
+    return runMissionAs(s, trigger)
+  })
 }
 
 // a run happens in the tenant its schedule was made in (sql/022): the agent checks X-Tenant-Id against

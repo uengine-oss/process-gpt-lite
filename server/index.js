@@ -238,8 +238,12 @@ app.get('/api/me', auth, async (req, res) => {
   // mainLang: the language I speak and read in (meetings, messages); mainLangSet: whether I chose it
   // ontology: the company's process map is there (Ontological DB connected) — the 루틴 tab opens it, otherwise the routine list
   const { ontologyEnabled } = await import('./lib/ontology/store.js')
+  // features: what this server turns on that the screens follow — the demo scenarios' settings tabs (PRO_SCENARIOS) and
+  // 사용량·요금제 (usage limits on — PRO_LLM_KEYS — or PRO_PLAN_SCREEN=1)
+  const { enabled: billingOn } = await import('./lib/llmKeys.js')
   res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang,
-    mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null, ontology: ontologyEnabled() })
+    mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null, ontology: ontologyEnabled(),
+    features: { scenarios: config.scenarios, planScreen: billingOn() || config.planScreen } })
 })
 // my main language (Settings › Accounts › Main language, the meeting lobby): what meetings transcribe me
 // in and translate others into for me, and what messages read in; the screens follow it (ko → Korean,
@@ -391,9 +395,12 @@ app.use('/api', ontologyRoutes(auth))
 // the ontology's agent steps (orchestration pgpt-pro-onto) and habit questions run here even with PRO_BACKGROUND=0:
 // no other server polls that orchestration, so nothing races for them (PRO_ONTOLOGY_WORKER=0 turns it off)
 import('./lib/ontology/run.js').then((m) => m.startOntologyWorker()).catch((e) => console.warn('[onto-worker]', e.message))
-app.use('/api', scenarioMailRoutes(auth))
-app.use('/api', scenarioPurchaseRoutes(auth))
-app.use('/api', scenarioReleaseRoutes(auth))
+// the demo scenarios (demo outbox mail, purchase with its sweep, release): PRO_SCENARIOS=off leaves them out (config.scenarios)
+if (config.scenarios) {
+  app.use('/api', scenarioMailRoutes(auth))
+  app.use('/api', scenarioPurchaseRoutes(auth))
+  app.use('/api', scenarioReleaseRoutes(auth))
+} else console.log('PRO_SCENARIOS=off: the demo scenarios (mail outbox, purchase, release) are off')
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
@@ -902,6 +909,11 @@ app.get('/api/search', auth, async (req, res) => {
 
 const server = app.listen(config.port, async () => {
   console.log(`pgpt-pro server on :${config.port}`)
+  // the folders this server writes to on a volume that starts empty (production: the PVC at /data) — the map's form files
+  // (PRO_FORMS_DIR, one folder per tenant inside: lib/ontology/history.js formsDirOf)
+  for (const dir of [process.env.PRO_FORMS_DIR].filter(Boolean)) {
+    try { nodeFs.mkdirSync(dir, { recursive: true }) } catch (e) { console.warn(`[startup] could not make ${dir}: ${e.message}`) }
+  }
   // the first sign-in page after a start already knows whether Google sign-in is there (lib/sso.js)
   refreshSso().then((on) => config.tenantFromHeader && console.log(`[sso] Google through Supabase: ${on ? 'on' : 'off'}`))
   // a second development server shares the database: it must not reset the main server's tasks either

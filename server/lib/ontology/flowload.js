@@ -5,6 +5,7 @@
 // Nothing is written. Who holds an open item and the case's subject are shown to an administrator only (설계 결정 2).
 import { config } from '../../config.js'
 import { q } from '../supa.js'
+import { statusSql } from '../enums.js'
 import { readGraph } from './store.js'
 import { procGraph, parallelPair, unfold } from './run.js'
 import { toCases } from './stats.js'
@@ -37,7 +38,7 @@ async function minedByTask(meta, validAt) {
 // every step of a map case and of a snapshot case (the snapshot's own 요청 접수 is not a task of the map), with its case's process
 export async function runRows({ validAt } = {}) {
   const rows = await q(`select c.id::text as case_id, c.bundle as proc, c.status as case_status, c.engine, c.trigger->>'subject' as subject,
-                               t.id::text as id, t.activity_id, t.activity_name as task, t.status::text as status, t.user_id, t.username,
+                               t.id::text as id, t.activity_id, t.activity_name as task, ${statusSql('t.')} as status, t.user_id, t.username,
                                extract(epoch from (t.start_date at time zone 'Asia/Seoul')) * 1000 as start_ms,
                                extract(epoch from (t.end_date at time zone 'Asia/Seoul')) * 1000 as end_ms,
                                s.kind, s.state as gate, t.agent_mode::text as agent_mode

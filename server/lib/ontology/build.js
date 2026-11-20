@@ -345,8 +345,13 @@ export function keptAfterBuild({ processes = [], tasks = [], mined = [], habitKe
   return { live, goneTasks, backTasks }
 }
 
-let running = null
-export function rebuild(opts = {}) { return (running ||= doBuild(opts).finally(() => { running = null })) }
+// one count at a time per company (tenant → its build): another company's count neither waits for it nor takes its result
+const running = new Map()
+export function rebuild(opts = {}) {
+  const t = T()
+  if (!running.has(t)) running.set(t, doBuild(opts).finally(() => running.delete(t)))
+  return running.get(t)
+}
 
 async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하기', job } = {}) {
   const say = sayer(job, 20)

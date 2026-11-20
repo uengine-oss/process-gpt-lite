@@ -5,7 +5,7 @@
 import { q } from '../supa.js'
 import { config } from '../../config.js'
 import { chatJson } from '../llm.js'
-import { vectors, cosine } from './embed.js'
+import { vectors, cosine, embeddingsOn } from './embed.js'
 import { viewerOf, contextsFor, turnsOf, ContextError } from './items.js'
 import { atLeast, DEPTH_LABEL } from './visibility.js'
 
@@ -124,11 +124,15 @@ const pubReq = (c) => ({ id: c.id, title: c.title, owner: c.owner, owner_name: c
 export async function refer(me, { threadId = null, message = '', current = null, via = 'jwt', turnTitle = '' } = {}) {
   const text = String(message || '').trim()
   if (!text) throw new ContextError(422, '메시지가 필요합니다')
+  // no embedding server (PRO_EMBED_URL='') or one that just failed: nothing to choose with — no wait, no row, no chip
+  if (!embeddingsOn()) return { refer_id: null, used: [], requestable: [], context: '', skipped: 'no-embeddings', ms: 0 }
   const vc = await viewerOf(me, via)
   if (await autoOff(vc.viewer, threadId)) return { refer_id: null, used: [], requestable: [], context: '', off: true }
   const t0 = Date.now()
   const r = await withTimeout(compute(vc, { threadId, message: text, current }).catch((e) => ({ error: e })), PARAMS.timeoutMs)
   const ms = Date.now() - t0
+  // the embedding call failed (embed.js stops calling it for a minute): this turn goes without, and leaves no row behind
+  if (r.error?.code === 'EMBED_UNAVAILABLE') return { refer_id: null, used: [], requestable: [], context: '', skipped: 'no-embeddings', ms }
   if (r.timeout || r.error) {
     if (r.error) console.warn('[context] refer', r.error.message)
     const [row] = await q(`insert into pro_refers (tenant_id, user_id, thread_id, message, skipped, ms) values ($1,$2,$3,$4,$5,$6) returning id`, [T(), vc.viewer, threadId, text.slice(0, 2000), r.timeout ? 'timeout' : 'error', ms])

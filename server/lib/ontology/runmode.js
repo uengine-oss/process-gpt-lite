@@ -23,6 +23,7 @@
 // routes/ontology.js(ontology.promote · ontology.demote). 표는 sql/041 · 045.
 import { config } from '../../config.js'
 import { q, admin } from '../supa.js'
+import { statusSql, notCancelledSql, humanAsked } from '../enums.js'
 import { cypher } from './store.js'
 import { emit } from '../bus.js'
 import { mainThread, addMessage, updateMessage } from '../store.js'
@@ -298,7 +299,7 @@ async function pausedOf(caseId) {
 }
 // what the case's steps made so far, in order, across its instances (a rewound case's later steps read the earlier ones)
 export async function earlierOfCase(c) {
-  const rows = c.instances?.length ? await q(`select activity_name, activity_id, output from todolist where proc_inst_id = any($1) and status::text in ('DONE','SUBMITTED') and activity_id <> 'intake' and output is not null order by end_date nulls last, updated_at`, [c.instances]) : []
+  const rows = c.instances?.length ? await q(`select activity_name, activity_id, output from todolist where proc_inst_id = any($1) and status::text in ('DONE','SUBMITTED') and ${notCancelledSql()} and activity_id <> 'intake' and output is not null order by end_date nulls last, updated_at`, [c.instances]) : []
   return rows.map((r) => {
     const v = Object.values(r.output || {}).find((x) => x && typeof x === 'object') || {}
     return { task: r.activity_name, text: v.result || v.summary || v.assumptions || '', title: v.title || '' }
@@ -330,7 +331,7 @@ async function proposalFor(c, row, view, via = null) {
   // a map case has no 요청 접수 step: its first step comes from the request, a moved or rewound step from the person who moved it (not
   // from the start's odds — the waiting box said 「요청 접수에서 되감은 단계에서 이어서 해요 · 83%」)
   if (via && ['entry', 'moved', 'rewound'].includes(via.how)) return mapStartProposal(row.activity_name, via)
-  const [prev] = via ? [] : await q(`select activity_name, activity_id from todolist where proc_inst_id=$1 and status::text in ('DONE','SUBMITTED') and id <> $2 order by end_date desc nulls last, updated_at desc limit 1`, [row.proc_inst_id, row.id])
+  const [prev] = via ? [] : await q(`select activity_name, activity_id from todolist where proc_inst_id=$1 and status::text in ('DONE','SUBMITTED') and ${notCancelledSql()} and id <> $2 order by end_date desc nulls last, updated_at desc limit 1`, [row.proc_inst_id, row.id])
   const from = via ? (['entry', 'moved', 'rewound'].includes(via.how) ? INTAKE : via.from || INTAKE) : !prev || prev.activity_id === 'intake' ? INTAKE : prev.activity_name
   if (from === INTAKE) {
     const o = c.entry_odds || null
@@ -443,7 +444,8 @@ export async function gateStep(row) {
     }
   }
   if (d.act === 'wait') {
-    if (kind !== 'person') await q(`update todolist set draft_status='HUMAN_ASKED', consumer=null where id=$1`, [row.id])
+    // (draft_status HUMAN_ASKED, or COMPLETED where the database has none — lib/enums.js: off the step pool either way)
+    if (kind !== 'person') await q(`update todolist set draft_status=$2::draft_status, consumer=null where id=$1`, [row.id, await humanAsked()])
     if (!d.why.every((w) => w === 'paused')) await askOwner(c, s, { facts })
     console.log(`[runmode] ${row.activity_name}: 기다림(${d.why.join(',')}) · ${mode}`)
   } else console.log(`[runmode] ${row.activity_name}: ${d.draftFirst ? '초안 먼저' : approved ? '사람이 정해 진행' : d.act === 'person' ? '사람 차례' : '저절로'} · ${mode}`)
@@ -478,7 +480,7 @@ async function readWays(c, task, ways, { what = '', forced = '', read = true } =
 // a person's step of a running case (no agent on it) as it opens — the agent steps and drafts come through the step worker
 export async function gatePersonSteps() {
   const rows = await q(`select t.* from todolist t join pro_po_cases c on c.tenant_id=$1 and c.status='running' and t.proc_inst_id = c.instances[array_length(c.instances, 1)]
-                        where t.tenant_id=$1 and t.status='IN_PROGRESS' and t.agent_orch is null and t.activity_id <> 'intake' and t.updated_at > now() - interval '1 hour'
+                        where t.tenant_id=$1 and t.status::text='IN_PROGRESS' and t.agent_orch is null and t.activity_id <> 'intake' and t.updated_at > now() - interval '1 hour'
                           and not exists (select 1 from pro_case_steps s where s.todo_id = t.id) order by t.start_date limit 10`, [T()])
   for (const r of rows) await gateStep(r).catch((e) => console.warn('[runmode] person step', e.message))
 }
@@ -488,7 +490,7 @@ export async function holdForSend(row, payload, gate = {}) {
   const v = Object.values(payload)[0] || {}
   const file = v.document || v.quote || v.proposal || null
   const preview = { to: v.mail?.to || '', subject: v.mail?.subject || v.title || '', text: String(v.mail?.body || v.result || '').slice(0, 2000), summary: v.summary || '', file: file?.url ? { name: file.name, url: file.url } : null }
-  await q(`update todolist set draft=$2, draft_status='HUMAN_ASKED', consumer=null where id=$1`, [row.id, payload])
+  await q(`update todolist set draft=$2, draft_status=$3::draft_status, consumer=null where id=$1`, [row.id, payload, await humanAsked()])
   const [s] = await q(`update pro_case_steps set state='waiting', why=$2, preview=$3, updated_at=now() where todo_id=$1 returning *`, [row.id, gate.why || ['irreversible'], preview])
   const c = await caseOfInstance(row.proc_inst_id)
   if (c && s) await askOwner(c, s, { facts: gate.facts, preview })
@@ -499,7 +501,7 @@ export async function holdForSend(row, payload, gate = {}) {
 // a waiting step goes on: an agent's work item back to the step pool (the gate looks again), a person's step onto their list
 async function releaseStep(s, { reason = '' } = {}) {
   await q(`update pro_case_steps set state='released', hold_item=false, updated_at=now() where id=$1`, [s.id])
-  if (s.kind !== 'person') await q(`update todolist set draft_status=null, consumer=null where id=$1 and draft_status='HUMAN_ASKED' and draft is null`, [s.todo_id])
+  if (s.kind !== 'person') await q(`update todolist set draft_status=null, consumer=null where id=$1 and draft_status::text=$2 and draft is null`, [s.todo_id, await humanAsked()])
   else await tellPerson(s.todo_id)
   const c = await getCase(s.case_id).catch(() => null)
   if (s.message_id && c?.started_by) await updateMessage(c.started_by, s.message_id, { state: 'released', note: reason }).catch(() => {})
@@ -578,7 +580,7 @@ export async function decide(me, stepId, { action, to = '', confirm = false, rea
       out = { sent }
     } else {
       await q(`update pro_case_steps set state='go', decision='go', decided_by=$2, decided_at=now(), hold_item=false, updated_at=now() where id=$1`, [s.id, me.id])
-      if (s.kind !== 'person') await q(`update todolist set draft_status=null, consumer=null where id=$1 and draft_status='HUMAN_ASKED'`, [s.todo_id])
+      if (s.kind !== 'person') await q(`update todolist set draft_status=null, consumer=null where id=$1 and draft_status::text=$2`, [s.todo_id, await humanAsked()])
       else await tellPerson(s.todo_id)
       out = { going: true }
     }
@@ -661,7 +663,7 @@ export async function runView(me, caseId) {
   const paused = await pausedOf(c.id)
   const gates = await q(`select * from pro_case_steps where case_id=$1 order by created_at`, [c.id]).catch(() => [])
   const byTodo = new Map(gates.map((g) => [String(g.todo_id), g]))
-  const todos = c.instances.length ? await q(`select id::text as id, proc_inst_id, activity_id, activity_name, status::text as status, user_id, agent_orch::text as agent_orch, agent_mode::text as agent_mode,
+  const todos = c.instances.length ? await q(`select id::text as id, proc_inst_id, activity_id, activity_name, ${statusSql()} as status, user_id, agent_orch::text as agent_orch, agent_mode::text as agent_mode,
       draft_status::text as draft_status, output, draft, start_date, end_date, updated_at from todolist where proc_inst_id = any($1) order by start_date nulls last, updated_at`, [c.instances]) : []
   const ids = [...new Set(todos.flatMap((t) => String(t.user_id || '').split(',').map((x) => x.trim()).filter(Boolean)))]
   const users = new Map((ids.length ? await q(`select id::text as id, username, email, coalesce(is_agent,false) as is_agent from users where tenant_id=$1 and id::text = any($2)`, [T(), ids]) : []).map((u) => [u.id, u]))

@@ -15,6 +15,8 @@ export function claudeJson(system, user, { model, timeoutMs = 300000 } = {}) {
     const t = setTimeout(() => { p.kill('SIGKILL'); reject(new Error('claude cli timed out')) }, timeoutMs)
     p.stdout.on('data', (d) => { out += d }); p.stderr.on('data', (d) => { errText += d })
     p.on('error', (e) => { clearTimeout(t); reject(e) })
+    // (no claude CLI on this server: writing the prompt to a process that never started fails as well — that is the 'error' above)
+    p.stdin.on('error', () => {})
     p.on('close', () => {
       clearTimeout(t)
       try {

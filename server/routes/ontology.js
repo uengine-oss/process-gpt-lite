@@ -14,6 +14,7 @@ import { diag } from '../lib/ontology/diag.js'
 import { q } from '../lib/supa.js'
 import { updateMessage } from '../lib/store.js'
 import { config } from '../config.js'
+import { longJson } from '../lib/longJson.js'
 import { formRoutes } from './ontologyForms.js'
 
 export function ontologyRoutes(auth) {
@@ -30,6 +31,19 @@ export function ontologyRoutes(auth) {
       if (!e.status) console.warn('[ontology]', req.method, req.path, e.message)
       res.status(e.status || 500).json({ error: e.status ? e.message : '처리하지 못했어요.' })
     }
+  }
+  // h for a route that waits on model calls for minutes (갈림길 조건 · 말로 고치기 계획 · 형식 규칙 찾기): the same answer and errors as h
+  // when it is done within 15 s; after that the response is under way at once and its JSON follows (lib/longJson.js — Cloudflare
+  // in front of production cuts a response with no headers after 100 s: 524)
+  const hl = (fn) => (req, res) => {
+    const t = { n: 0, ms: 0 }, t0 = performance.now()
+    return longJson(res, () => cypherTimer.run(t, () => fn(req)), {
+      fail: (e) => {
+        if (!e.status) console.warn('[ontology]', req.method, req.path, e.message)
+        return { status: e.status || 500, body: { error: e.status ? e.message : '처리하지 못했어요.' } }
+      },
+      onQuick: (r) => r.set('Server-Timing', `onto;desc="cypher x${t.n}";dur=${t.ms.toFixed(1)}, app;dur=${(performance.now() - t0).toFixed(1)}`),
+    })
   }
   const admin = async (req) => { if (!(await S.isAdmin(req.user))) throw S.err(403, '관리자만 할 수 있어요.') }
   const num = (v) => (v === undefined || v === null || v === '' ? undefined : Number(v))
@@ -203,7 +217,7 @@ export function ontologyRoutes(auth) {
   // 근거: the mails · chat messages · chat handovers this work was read from (subjects and originals: their owner only)
   // 갈림길 조건(§25): 한 일 뒤 갈래마다 「어떤 경우에 이쪽으로」 — 보기 · 한 갈림길 뽑기(관리자) · 모두 뽑기(관리자, 작업)
   r.get('/ontology/branches/:task', auth, h(async (req) => (await import('../lib/ontology/conditions.js')).branchView(req.user, req.params.task)))
-  r.post('/ontology/branches/:task', auth, h(async (req) => { await admin(req); const C = await import('../lib/ontology/conditions.js'); await C.judgeConditions({ task: req.params.task }); return C.branchView(req.user, req.params.task) }))
+  r.post('/ontology/branches/:task', auth, hl(async (req) => { await admin(req); const C = await import('../lib/ontology/conditions.js'); await C.judgeConditions({ task: req.params.task }); return C.branchView(req.user, req.params.task) }))
   r.post('/ontology/conditions', auth, h(async (req) => { await admin(req); return S.startConditions(req.user, { force: !!req.body?.force }) }))
   r.get('/ontology/conditions', auth, h(async () => ({ job: await (await import('../lib/ontology/history.js')).latestJob('conditions') })))
   // AI 후보(§24): 일마다 AI 가 맡을 수 있는지 · 사람이 꼭 해야 하는지
@@ -224,7 +238,7 @@ export function ontologyRoutes(auth) {
   r.post('/ontology/tasks/:key/draft', auth, h(async (req) => { await admin(req); return D.draftDefinition(req.params.key, { template: req.body?.template }) }))
   r.put('/ontology/tasks/:key/definition', auth, h(async (req) => { await admin(req); return D.saveDefinition(req.user, req.params.key, String(req.body?.definition || '')) }))
   // 일이 쓰는 양식 · 형식 규칙 · 스킬 보기 · 건의 단계가 만든 파일(routes/ontologyForms.js)
-  formRoutes(r, { auth, h, admin })
+  formRoutes(r, { auth, h, hl, admin })
 
   // 역할: 보기는 누구나, 정의 초안 · 확정은 관리자
   r.get('/ontology/roles/:key', auth, h((req) => RL.roleView(req.params.key)))
@@ -253,7 +267,7 @@ export function ontologyRoutes(auth) {
   const EM = () => import('../lib/ontology/editmap.js')
   const OP = () => import('../lib/ontology/opinions.js')
   const arr = (v) => (Array.isArray(v) ? v.slice(0, 40) : [])
-  r.post('/ontology/edit/plan', auth, h(async (req) => (await EM()).planEdit(req.user, { proc: String(req.body?.proc || ''), scope: req.body?.scope || null, words: String(req.body?.words || ''), answer: String(req.body?.answer || '') })))
+  r.post('/ontology/edit/plan', auth, hl(async (req) => (await EM()).planEdit(req.user, { proc: String(req.body?.proc || ''), scope: req.body?.scope || null, words: String(req.body?.words || ''), answer: String(req.body?.answer || '') })))
   r.post('/ontology/edit/apply', auth, h(async (req) => (await EM()).applyEdit(req.user, { proc: String(req.body?.proc || ''), scope: req.body?.scope || null, words: String(req.body?.words || ''),
     ops: arr(req.body?.ops), messageId: req.body?.messageId || null, resolve: req.body?.resolve?.opinions ? { opinions: arr(req.body.resolve.opinions).map(String), note: String(req.body.resolve.note || '') } : null })))
   r.delete('/ontology/said/:proc', auth, h(async (req) => (await EM()).removeSaid(req.user, req.params.proc)))

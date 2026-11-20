@@ -21,6 +21,10 @@ const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
 const bad = (msg) => Object.assign(new Error(msg), { status: 400 })
 const T = () => config.tenantId
 
+// usage limits off (PRO_LLM_KEYS): there is no plan, seat or request to change — said so, not a failed write (409)
+function mustBeOn() {
+  if (!K.enabled()) throw Object.assign(new Error(L('이 서버는 사용량·요금제를 쓰지 않아 바꿀 수 없어요.', "This server doesn't use usage plans, so there is nothing to change.")), { status: 409, code: 'BILLING_OFF' })
+}
 async function mustAdmin(me) {
   if (!(await isAdmin(me))) throw Object.assign(new Error(L('관리자만 바꿀 수 있어요.', 'Only administrators can change this.')), { status: 403 })
 }
@@ -47,6 +51,7 @@ export function billingRoutes(auth) {
 
   // the company's plan: {plan, billing, extraUsageUsd} — applied to LiteLLM at once
   r.put('/billing/plan', auth, (req, res) => send(res, (async () => {
+    mustBeOn()
     await mustAdmin(req.user)
     const sub = await subscriptionOf(T())
     const name = req.body.catalog || sub.catalog || catalogName()
@@ -71,6 +76,7 @@ export function billingRoutes(auth) {
 
   // a person's seat (and an admin's monthly limit for them): {seat, limitUsd}
   r.put('/billing/seats/:userId', auth, (req, res) => send(res, (async () => {
+    mustBeOn()
     await mustAdmin(req.user)
     const sub = await subscriptionOf(T())
     const seat = String(req.body.seat || '')
@@ -86,6 +92,7 @@ export function billingRoutes(auth) {
 
   // asking for more: {kind: plan|seat|extra_usage, wanted, note} → every administrator is notified
   r.post('/billing/requests', auth, (req, res) => send(res, (async () => {
+    mustBeOn()
     const kind = String(req.body.kind || '')
     if (!['plan', 'seat', 'extra_usage'].includes(kind)) throw bad('kind: plan | seat | extra_usage')
     const wanted = String(req.body.wanted || '').slice(0, 40), note = String(req.body.note || '').slice(0, 500)
@@ -103,6 +110,7 @@ export function billingRoutes(auth) {
   })()))
 
   r.post('/billing/requests/:id/decline', auth, (req, res) => send(res, (async () => {
+    mustBeOn()
     await mustAdmin(req.user)
     await q(`update pro_billing_requests set status='declined', decided_by=$3, decided_at=now() where tenant_id=$1 and id=$2`, [T(), req.params.id, req.user.id])
     return { ok: true }

@@ -9,11 +9,17 @@ import { load, list, choose, rerun, stop, cardOf } from '../lib/optimize/index.j
 import { canApprove } from '../lib/policy/pep.js'
 import { MODEL } from '../lib/optimize/simulate.js'
 import { WEIGHTS } from '../lib/optimize/score.js'
+import { longJson } from '../lib/longJson.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[release]', e.stack || e.message)
   res.status(e.status || 500).json({ error: e.message })
 })
+// the same error answer, for a long answer (lib/longJson.js)
+const fail = (e) => {
+  if (!e.status) console.warn('[release]', e.stack || e.message)
+  return { status: e.status || 500, body: { error: e.message } }
+}
 
 // what a screen needs of one optimization: the card's view plus the full alternatives (sims, score parts, phases)
 async function view(o, me) {
@@ -29,7 +35,8 @@ export function scenarioReleaseRoutes(auth) {
     const plan = await planOf(req.query.id || DEMO_PLAN.id)
     return { plan, findings: await findingsOf(plan.id), deployments: await deployments(), accountable: ACCOUNTABLE }
   })()))
-  r.post('/release/requests', auth, (req, res) => send(res, requestRelease(req.user, req.body || {})))
+  // (the QA agent and the optimizer ask the model: the answer is under way after 15 s, lib/longJson.js)
+  r.post('/release/requests', auth, (req, res) => longJson(res, () => requestRelease(req.user, req.body || {}), { fail }))
 
   // optimizations (newest first) and one of them
   r.get('/release/optimizations', auth, (req, res) => send(res, (async () => {

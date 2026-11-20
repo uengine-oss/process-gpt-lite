@@ -12,12 +12,18 @@ import { inbox, briefFor, decideOption, placeOrder, follow, startSweep, factsOf 
 import { ordersOf, orderView } from '../lib/scenarios/purchase/orders.js'
 import { measure } from '../lib/scenarios/purchase/measure.js'
 import { canSeeInstance } from '../lib/processes.js'
+import { longJson } from '../lib/longJson.js'
 
 const T = () => config.tenantId
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[purchase]', e.stack || e.message)
   res.status(e.status || 500).json({ error: e.message, ...(e.policy ? { policy: e.policy } : {}) })
 })
+// the same error answer as send, for a long answer (lib/longJson.js)
+const fail = (e) => {
+  if (!e.status) console.warn('[purchase]', e.stack || e.message)
+  return { status: e.status || 500, body: { error: e.message, ...(e.policy ? { policy: e.policy } : {}) } }
+}
 const bad = (m) => Object.assign(new Error(m), { status: 400 })
 
 export function scenarioPurchaseRoutes(auth) {
@@ -63,7 +69,8 @@ export function scenarioPurchaseRoutes(auth) {
   // the approval inbox: my open approvals in live critical-path order, each with its brief
   r.get('/purchase/inbox', auth, (req, res) => send(res, inbox(req.user)))
   // one brief (the work item card and the chat card read it); ?open=1 by the assignee marks the item opened
-  r.get('/purchase/briefs/:todoId', auth, (req, res) => send(res, briefFor(req.user, req.params.todoId, { open: req.query.open === '1' })))
+  // (making a brief asks the model — about 70 s: the answer is under way after 15 s, lib/longJson.js)
+  r.get('/purchase/briefs/:todoId', auth, (req, res) => longJson(res, () => briefFor(req.user, req.params.todoId, { open: req.query.open === '1' }), { fail }))
   r.post('/purchase/briefs/:todoId/decide', auth, (req, res) => send(res, decideOption(req.user, req.params.todoId, req.body || {})))
   // the order from the draft (purchase.order through the policies: allowed only once approved)
   r.post('/purchase/orders/:instId/place', auth, (req, res) => send(res, placeOrder(req.user, req.params.instId, req.body || {})))
