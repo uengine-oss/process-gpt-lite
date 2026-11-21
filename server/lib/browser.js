@@ -395,10 +395,53 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   const startedAt = s.page.url()
   await pushFrame(userId, s)
 
-  const messages = [{
-    role: 'system',
-    content: `You operate a Chromium browser for the user. Goal: ${goal}
-Plan steps: ${p.steps.map((x, i) => `${i + 1}. ${x}`).join(' ')}
+  const messages = [{ role: 'system', content: agentPrompt({ goal, steps: p.steps, files }) }]
+  // what the agent may know about a site comes from browser skills, by name and description only: the
+  // body is read when the task uses it (read_skill), never written into the prompt
+  const skills = skillNote(sk)
+  if (skills) messages.push({ role: 'user', content: skills })
+
+  let { result, ended } = await drive(s, task, { messages, onAction })
+  if (task.cancelled) result = { state: 'cancelled', summary: L('작업을 취소했어요.', 'I canceled the task.') }
+  else if (result.state === 'done' && !ended) {
+    const reason = L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래의 작업 내용을 보고, 카드의 「직접 제어」로 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
+      `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on with "Take control" on the card or ask again more specifically.`)
+    result = { state: 'needs_review', need: 'stuck', reason, summary: reason }
+  }
+  // finished without saying the result: one closing call for it (the person reads the result first)
+  if (result.state === 'done' && !String(result.summary || '').trim() && task.log.some((e) => e.ok)) {
+    result.summary = await closingSummary(messages, task).catch((e) => { console.warn('[browser] closing summary', e.message); return '' })
+  }
+  // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
+  // the person to check, and what they read is what the action log shows
+  try {
+    result = honest(result, task, { moved: s.page.url() !== startedAt })
+    const shot = await pushFrame(userId, s)
+    s.task = null
+    // keep the last screen on the card so it survives reloads; a card that stopped says why and what to do
+    const host = hostOf(s.page.url())
+    const why = result.state === 'failed' || result.state === 'needs_review'
+      ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: result.site || host, siteName: result.siteName || nameOn(task, host) } : { need: null, reason: '' }
+    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url(), shot, ...why })
+    say(task, null)
+    await setThreadStatus(userId, threadId, null)
+    result.url = s.page.url()
+    result.notes = task.notes
+    result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
+    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s · ${task.stats.turns} turns · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}`)
+    result.pageText = hide(task, await within(s.page.evaluate(() => document.body.innerText.slice(0, 6000)), EVAL_MS, ''))
+    return result
+  } finally {
+    if (s.task === task) s.task = null
+    // the next task in line gets the browser
+    s.queue.shift()?.go()
+  }
+}
+
+// The agent's first message: the goal, its steps and the rules every browser task keeps.
+function agentPrompt({ goal, steps = [], files = [] }) {
+  return `You operate a Chromium browser for the user. Goal: ${goal}
+Plan steps: ${steps.map((x, i) => `${i + 1}. ${x}`).join(' ')}
 Each turn you get a page snapshot with numbered elements. Call exactly one tool per turn.
 For any login field (username, email, password) and any card field ALWAYS use fill_secret, even if credentials are printed on the page or you could guess them. The server asks the user for missing credentials (and which account or card to use) automatically.
 Secret fields appear in the snapshot as secret:true with no value. If the site rejects a login you filled, call login_failed. For a one-time code (SMS, e-mail, OTP, 2FA) call need_secret with the input's index; never ask for it in text.
@@ -406,15 +449,15 @@ Before submitting a payment, sending a message or deleting anything, call approv
 Do only what the goal asks. ${asksToBuy(goal) ? 'Buy or order only what the goal names, and only after approve.' : 'The goal does not ask to buy anything: never click reorder, buy, add-to-cart, checkout, pay, subscribe or booking controls — the server refuses them.'}
 When an action completes a plan step, give that step's number as done on the action itself; use step_done only for a step that needs no action of its own. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for (one or two sentences) and contains all collected facts.
 Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.
-${files.length ? `The person attached these files for this task: ${files.map((f) => f.name).join(', ')}.\n` : ''}`.trimEnd(),
-  }]
-  // what the agent may know about a site comes from browser skills, by name and description only: the
-  // body is read when the task uses it (read_skill), never written into the prompt
-  const skills = skillNote(sk)
-  if (skills) messages.push({ role: 'user', content: skills })
-  // the first answer without a single browser action is sent back once: do the steps first
-  const NUDGE = 'You have not performed any browser action yet (no goto/click/type/fill_secret/note). Do the plan steps with the tools now. Call finish only after you have actually done them; if the page already shows what the goal asks, record it with note first.'
+${files.length ? `The person attached these files for this task: ${files.map((f) => f.name).join(', ')}.\n` : ''}`.trimEnd()
+}
+// the first answer without a single browser action is sent back once: do the steps first
+const NUDGE = 'You have not performed any browser action yet (no goto/click/type/fill_secret/note). Do the plan steps with the tools now. Call finish only after you have actually done them; if the page already shows what the goal asks, record it with note first.'
 
+// Model turns on the page, one action each, until the agent finishes, a wall or an error ends it, or
+// stop(snap) says the caller's own end has come (a Google connection settled by its callback).
+// → { result, ended }: ended is false only when the turns ran out.
+async function drive(s, task, { messages, onAction, stop = () => false }) {
   let result = { state: 'done', summary: '' }
   let ended = false
   try {
@@ -424,6 +467,7 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
     let t = Date.now()
     let snap = await look(s)
     tm.snap = Date.now() - t
+    if (stop(snap)) { result = { state: 'stopped', summary: '' }; ended = true; break }
     task.page = { host: hostOf(snap.url), name: pageName(snap) }
     let hint = ''
     // a sign-in wall, a bot check, a site refusing this browser: the person's turn, not the model's.
@@ -460,7 +504,7 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
       messages.push({ role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${shot.toString('base64')}` } }] })
       // the same picture is the live view's newest frame (no second screenshot after the action)
       s.frame = shot.toString('base64')
-      emit(userId, 'browser.frame', { taskId: task.id, data: s.frame, url: s.page.url() })
+      emit(task.userId, 'browser.frame', { taskId: task.id, data: s.frame, url: s.page.url() })
     }
     t = Date.now()
     const msg = await chat({ messages, tools: TOOLS })
@@ -505,40 +549,7 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
     const reason = failReason(e)
     result = { state: 'failed', need: 'other', reason, summary: reason }
   }
-  if (task.cancelled) result = { state: 'cancelled', summary: L('작업을 취소했어요.', 'I canceled the task.') }
-  else if (result.state === 'done' && !ended) {
-    const reason = L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래의 작업 내용을 보고, 카드의 「직접 제어」로 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
-      `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on with "Take control" on the card or ask again more specifically.`)
-    result = { state: 'needs_review', need: 'stuck', reason, summary: reason }
-  }
-  // finished without saying the result: one closing call for it (the person reads the result first)
-  if (result.state === 'done' && !String(result.summary || '').trim() && task.log.some((e) => e.ok)) {
-    result.summary = await closingSummary(messages, task).catch((e) => { console.warn('[browser] closing summary', e.message); return '' })
-  }
-  // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
-  // the person to check, and what they read is what the action log shows
-  try {
-    result = honest(result, task, { moved: s.page.url() !== startedAt })
-    const shot = await pushFrame(userId, s)
-    s.task = null
-    // keep the last screen on the card so it survives reloads; a card that stopped says why and what to do
-    const host = hostOf(s.page.url())
-    const why = result.state === 'failed' || result.state === 'needs_review'
-      ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: result.site || host, siteName: result.siteName || nameOn(task, host) } : { need: null, reason: '' }
-    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url(), shot, ...why })
-    say(task, null)
-    await setThreadStatus(userId, threadId, null)
-    result.url = s.page.url()
-    result.notes = task.notes
-    result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
-    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s · ${task.stats.turns} turns · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}`)
-    result.pageText = hide(task, await within(s.page.evaluate(() => document.body.innerText.slice(0, 6000)), EVAL_MS, ''))
-    return result
-  } finally {
-    if (s.task === task) s.task = null
-    // the next task in line gets the browser
-    s.queue.shift()?.go()
-  }
+  return { result, ended }
 }
 
 // What one turn took: reading the page, the model's picture, the model, the action.
@@ -765,7 +776,7 @@ export async function judgeWall(snap, task = null, needs = WALL_NEED) {
 // is not judged again.
 async function wallOn(task, snap) {
   if (task.judged && task.judged.url === snap.url) return task.judged.wall
-  const wall = await judgeWall(snap, task)
+  const wall = await judgeWall(snap, task, task.wallNeeds)
   task.judged = { url: snap.url, wall }
   return wall
 }
@@ -810,8 +821,9 @@ async function atWall(s, task, wall, snap) {
     task.notes.push(wall.need === 'captcha' ? L(`${site}: 로봇 확인 화면이 나와 진행하지 못함`, `${site}: stopped at a bot check`) : L(`${site}: 로그인이 필요해 진행하지 못함`, `${site}: needs a sign-in`))
     return { hint: `\n[page check: this page is a ${wall.need === 'captcha' ? 'bot check' : 'sign-in wall'} and nobody is available to get past it. Do not try; use the alternative source in the goal, or finish with what you have]` }
   }
-  // a site whose login the vault keeps is the model's: it fills the saved one
-  if (wall.need === 'login' && (await candidates(task.userId, 'login', site).catch(() => [])).length) return null
+  // a site whose login the vault keeps is the model's: it fills the saved one. A task that asks the vault
+  // first (Google connect) lets the model ask for the login on the card when none is saved yet
+  if (wall.need === 'login' && (task.vaultFirst || (await candidates(task.userId, 'login', site).catch(() => [])).length)) return null
   const n = task.walls[key] = (task.walls[key] || 0) + 1
   const name = wall.name || site
   if (n > WALL_WAITS) {
@@ -878,6 +890,7 @@ async function waitForPage(s, task, a) {
   try {
     for (;;) {
       if (task.cancelled) return 'cancelled'
+      if (task.over?.()) return 'done: this task is over'
       const text = await s.page.locator('body').innerText({ timeout: 5000 }).catch(() => '')
       if (until && text.includes(until)) return `done: "${until}" is on the page now`
       if (gone && !text.includes(gone)) return `done: "${gone}" is no longer on the page`
@@ -1271,7 +1284,9 @@ export function cancel(userId, taskId) {
 const started = new Map() // `${userId}:${threadId}` → tasks begun and not yet over (planning, in line or running)
 export const runningIn = (userId, threadId) => (started.get(`${userId}:${threadId}`) || 0) > 0 || sessions.get(userId)?.task?.threadId === threadId
 
-// ---- Google 연결 in this browser (lib/googleConnect.js): no model, the person signs in themselves ----
+// ---- Google 연결 in this browser (lib/googleConnect.js): the agent signs in with the vault's Google login (or
+// asks for it on the card) and leaves a second step to the person; what it cannot get past is the person's ----
+const GOOGLE_SKILL = 'google-sign-in'
 // The card goes up as a task (「Google 연결」), the browser gets the state cookie and opens Google's consent
 // address, and the person is asked at once to sign in with 「직접 로그인」. Signing in here leaves this
 // browser signed in to Google as well, so NotebookLM and the other Google sites work in later tasks. The
@@ -1321,9 +1336,14 @@ export async function connectGoogle({ userId, threadId, url, cookie, ours = () =
   try {
     card = await addMessage(userId, threadId, 'agent', 'task', { title, goal: title, steps: steps.map((t) => ({ text: t, done: false })), state: 'running', url, connect: 'google' })
   } catch (e) { if (s.task?.connect && s.task.id === null) s.task = null; throw e }
-  const task = { id: card.id, userId, threadId, goal: L('Google 계정을 연결해 메일을 읽고, 이 브라우저도 Google에 로그인해요', 'Connect the Google account for mail, and sign this browser in to Google'),
-    title, steps, cancelled: false, waiting: null, notes: [], log: [], unattended: false, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
-    walls: {}, judged: null, connect: true, stats: { turns: 0, llm: 0, walls: 0, wall_checks: [], skills_read: [], decisions: [] } }
+  const task = { id: card.id, userId, threadId, title, steps, files: [], connect: true,
+    goal: L('Google 계정 연결: Google 계정으로 로그인하고, 이 연결이 요청한 권한을 허용해 메일을 연결한다. 이 브라우저도 Google에 로그인된 채로 남는다',
+      'Connect the Google account: sign in to Google and allow the access this connection asks for, so the mail is connected. This browser stays signed in to Google'),
+    cancelled: false, waiting: null, notes: [], log: [], unattended: false, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
+    gates: null, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: GOOGLE_SKILL,
+    // a site error page ends it like a refusal; a sign-in screen is the agent's (the vault is asked first)
+    wallNeeds: CONNECT_NEED, vaultFirst: true,
+    stats: { turns: 0, llm: 0, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, walls: 0, stuck: 0, early_finish: false, decisions: [], plan_ms: 0, turn_ms: [], wall_checks: [], skills_read: [] } }
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
@@ -1336,7 +1356,17 @@ async function runConnect(s, task, { url, cookie, ours }) {
   const t0 = Date.now()
   let outcome = null
   const settle = (o) => { if (outcome) return; outcome = o; task.waiting?.(CONNECTED) }
+  task.over = () => !!outcome
   connects.set(userId, { taskId: task.id, settle })
+  // our own callback page means it ended there without a result (a stale or foreign state: a good one goes
+  // on to the done page) — its own text says why. Our pages are never judged
+  const onOurs = (snap) => {
+    if (!ours(snap?.url)) return false
+    let path = ''
+    try { path = new URL(snap.url).pathname } catch { /* not an address */ }
+    if (path.endsWith('/api/auth/google/callback')) settle({ state: 'error', error: String(snap.text || '').trim().slice(0, 300) || L('Google 연결 요청이 만료됐어요.', 'The Google connection request expired.') })
+    return true
+  }
   const timer = setTimeout(() => settle({ state: 'timeout' }), CONNECT.ms)
   timer.unref?.()
   try {
@@ -1345,6 +1375,17 @@ async function runConnect(s, task, { url, cookie, ours }) {
     say(task, L('Google 여는 중', 'Opening Google'))
     await s.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
     const site = hostOf(url)
+    // the agent first: the google-sign-in skill (read when used) knows Google's screens; a login is filled
+    // from the vault or asked for on the card, a second step goes to the person (a code on the card, a
+    // prompt on their phone). When it finishes, gives up or gets stuck, the person takes it on below
+    if (!outcome && !task.cancelled) {
+      const messages = [{ role: 'system', content: agentPrompt({ goal: task.goal, steps: task.steps }) }]
+      const skills = skillNote(browserSkill(GOOGLE_SKILL))
+      if (skills) messages.push({ role: 'user', content: skills })
+      const d = await drive(s, task, { messages, stop: (snap) => { onOurs(snap); return !!outcome } })
+      task.stats.agent = d.result.state
+      if (!outcome && !task.cancelled && d.result.need === 'blocked') outcome = { state: 'blocked' }
+    }
     let seen = null, moved = null
     while (!outcome && !task.cancelled) {
       const answer = await waitForUser(s, task, {
@@ -1353,14 +1394,7 @@ async function runConnect(s, task, { url, cookie, ours }) {
         // refusing this browser ends the wait; our own callback and done page are left to the callback
         watch: async (snap) => {
           if (outcome) return CONNECTED
-          // our own callback page means it ended there without a result (a stale or foreign state: a good one
-          // goes on to the done page) — its own text says why
-          if (ours(snap.url)) {
-            let path = ''
-            try { path = new URL(snap.url).pathname } catch { /* not an address */ }
-            if (path.endsWith('/api/auth/google/callback')) settle({ state: 'error', error: String(snap.text || '').trim().slice(0, 300) || L('Google 연결 요청이 만료됐어요.', 'The Google connection request expired.') })
-            return outcome ? CONNECTED : null
-          }
+          if (onOurs(snap)) return outcome ? CONNECTED : null
           const k = screenKey(snap)
           if (k === seen) { moved = null; return null }
           if (k !== moved) { moved = k; return null }

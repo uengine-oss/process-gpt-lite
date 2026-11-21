@@ -11,13 +11,13 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
 
-export const SPOTS = { email: { x: 640, y: 300 }, allow: { x: 640, y: 420 } }
+export const SPOTS = { email: { x: 640, y: 300 }, password: { x: 640, y: 365 }, allow: { x: 640, y: 430 } }
 export const TITLES = { consent: 'Fake Google 로그인', refused: 'Fake Google 로그인할 수 없음', error: 'Fake Google Error 400 (Bad Request)' }
 
 export async function startFakeGoogle({ clients = {} } = {}) {
   const codes = new Map() // code -> { email, client_id, redirect_uri, challenge, scope }
   const tokens = new Map() // access token -> email
-  const log = { auth: [], token: [], userinfo: 0 }
+  const log = { auth: [], token: [], userinfo: 0, approve: [] }
   const state = { refuse: false, error: false, scope: null, deny: false }
   const page = (title, body) => `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="margin:0;font-family:sans-serif;background:#fff;height:800px;overflow:hidden">${body}</body>`
   const consent = (q) => page(TITLES.consent, `
@@ -26,6 +26,7 @@ export async function startFakeGoogle({ clients = {} } = {}) {
 <form method="post" action="/approve">
 ${['client_id', 'redirect_uri', 'state', 'code_challenge', 'scope'].map((k) => `<input type="hidden" name="${k}" value="${(q.get(k) || '').replace(/"/g, '&quot;')}">`).join('')}
 <input name="email" type="email" autocomplete="username" placeholder="이메일" style="position:absolute;left:${SPOTS.email.x - 200}px;top:${SPOTS.email.y - 30}px;width:400px;height:60px;font-size:20px;border:2px solid #888;background:#e8f0fe">
+<input name="password" type="password" autocomplete="current-password" placeholder="비밀번호" style="position:absolute;left:${SPOTS.password.x - 200}px;top:${SPOTS.password.y - 25}px;width:400px;height:50px;font-size:20px;border:2px solid #888">
 <button style="position:absolute;left:${SPOTS.allow.x - 100}px;top:${SPOTS.allow.y - 30}px;width:200px;height:60px;border:0;background:#1a73e8;color:#fff;font-size:20px">허용</button>
 </form>`)
   const refused = () => page(TITLES.refused, `<h1 style="position:absolute;left:300px;top:200px;font-size:28px">로그인할 수 없음</h1>
@@ -42,6 +43,7 @@ ${['client_id', 'redirect_uri', 'state', 'code_challenge', 'scope'].map((k) => `
     }
     if (u.pathname === '/approve' && req.method === 'POST') {
       const f = await body(req)
+      log.approve.push({ email: f.get('email') || '', password: f.get('password') ? 'given' : '' })
       const back = new URL(f.get('redirect_uri'))
       if (state.deny) back.searchParams.set('error', 'access_denied')
       else {

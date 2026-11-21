@@ -1,11 +1,11 @@
 ◇ injected env (9) from .env
-[team] b8decab5 is the first administrator of pro-gc-gw
+[team] 7d1a0ed6 is the first administrator of pro-gc-gw
 pgpt-pro server on :8796
 PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off
 [team] deepagents worktree: no — continue hands the branch files over as attachments
 [sso] Google through Supabase: off
-✔ 운영처럼: env 클라이언트가 없으면 꺼져 있고, 관리자가 넣은 회사 값은 그 회사에만 · 로그인은 ProcessGPT 그대로 (1318.593708ms)
+✔ 운영처럼: env 클라이언트가 없으면 꺼져 있고, 관리자가 넣은 회사 값은 그 회사에만 · 로그인은 ProcessGPT 그대로 (1588.717208ms)
 [google connect] phone 다른 작업 공간에서 시작한 연결 요청이에요. 처음부터 다시 시도해 주세요.
-✔ 휴대폰에서 연결: 회사 주소의 리디렉션·쿠키 경로(/lite/api/auth/google), 다른 사이트에서 시작 불가, 다른 회사로 온 콜백 거부 (140.702958ms)
-[browser] google connect 6a1166e9-e2a8-4855-9842-e5c196ab70a2 connected in 0s · 0 page checks
-✔ 서버 브라우저에서 연결: 회사 주소로 돌아와 카드 완료, 서버 브라우저는 (가짜) Google 에 로그인된 채 (559.371917ms)
+✔ 휴대폰에서 연결: 회사 주소의 리디렉션·쿠키 경로(/lite/api/auth/google), 다른 사이트에서 시작 불가, 다른 회사로 온 콜백 거부 (126.736792ms)
+[browser] google connect b9b117f4-59d5-4050-8f05-42c503ee8d37 connected in 0s · 1 page checks
+✔ 서버 브라우저에서 연결: 회사 주소로 돌아와 카드 완료, 서버 브라우저는 (가짜) Google 에 로그인된 채 (500.42925ms)

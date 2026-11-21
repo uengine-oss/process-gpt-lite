@@ -7,6 +7,10 @@
 
 ### 추가
 
+- **Google 연결은 보관함의 로그인으로 — 화면을 직접 조작하지 않고** (2026-11-22 사용자 「그런데 왜 직접 화면 제어를 하게하지?? vault 에 넣어서 처리하지 않고」. 스펙 `openspec/specs/google-connect`, 결정 process-gpt `docs/decisions/2026-11.md` D-1122-03):
+  - 서버 브라우저 연결은 이제 브라우저 에이전트가 먼저 합니다. 보관함에 Google 로그인 정보가 있으면 이메일과 비밀번호를 넣고 권한 요청을 허용합니다. 없으면 카드에서 로그인 정보를 묻고, 저장하면 바로 이어서 진행합니다. 사용자는 2단계 인증만 합니다(코드는 카드에 입력하고, 알림은 휴대폰에서 확인합니다). 에이전트가 끝내지 못하면 「직접 로그인」으로 넘깁니다.
+  - Google 화면 관련 지식은 새 브라우저 스킬 `skills/google-sign-in`에 있습니다(이름과 설명만 먼저 제공하고, 본문은 필요할 때 읽습니다). NotebookLM 스킬도 Google 로그인 화면에서는 이 스킬을 따릅니다.
+  - 브라우저 작업을 순서대로 진행하는 코드를 `drive()`로 분리해 Google 연결에도 씁니다. 시험은 `server/test/google-connect.e2e.mjs`의 「보관함 먼저」 두 가지입니다(대본 모델).
 - **Google 연결을 운영에서 — 회사별 OAuth 클라이언트, 서버 브라우저에서 한 번에** (스펙 `openspec/specs/google-connect`, 결정 process-gpt `docs/decisions/2026-11.md` D-1122-01):
   - 회사 관리자가 「설정 › 시스템 설정 › 회사 Google 연결」에서 Client ID · Client secret을 넣는다(보관함 봉투 암호화, secret은 다시 보여 주지 않음, 등록할 리디렉션 URI와 복사). 적용 순서는 회사 값 → `GOOGLE_CLIENT_ID`/`SECRET`. 새 SQL은 없다(보관함 테이블에 회사 주체로 저장한다).
   - 메일 연결은 로그인한 Lite 사용자에게 붙는다(`POST /api/auth/google/connect`, Google 계정 주소가 달라도). 상태 쿠키는 회사 주소의 공개 경로(`/lite/api/auth/google`), 리디렉션 URI는 회사 주소 기준 — 게이트웨이 뒤에서 쿠키·콜백이 맞지 않던 문제를 고쳤다.
@@ -87,7 +91,7 @@
 
 ### 고침
 
-- **운영에서 Google 연결 카드가 Google 오류 화면 앞에서 「로그인하세요」로 멈춰 있던 것** (2026-11-22 운영: uengine 회사 클라이언트를 등록하고 서버 브라우저에서 연결하자 Google이 로그인 화면 대신 「400. 요청 형식이 잘못되어 … 다시 시도하지 마세요」를 표시했습니다. 같은 주소가 이 맥의 브라우저(맥·리눅스 headless, 운영과 같은 Playwright 1.64.1)에서는 열리므로, Google이 운영 서버(데이터센터 주소)의 자동 브라우저 로그인을 허용하지 않는 것으로 봅니다. 테스트 `server/test/browserWalls.test.js`, `server/test/google-connect.e2e.mjs`):
+- **운영에서 Google 연결 카드가 Google 오류 화면 앞에서 「로그인하세요」로 멈춰 있던 것** (2026-11-22 운영: uengine 회사 클라이언트를 등록하고 서버 브라우저에서 연결하자 Google이 로그인 화면 대신 「400. 요청 형식이 잘못되어 … 다시 시도하지 마세요」를 표시했습니다. 같은 주소가 이 맥의 브라우저(맥·리눅스 headless, 운영과 같은 Playwright 1.64.1)에서는 열렸습니다. 배포 뒤 새 서버에서는 운영 서버 브라우저에서도 로그인 화면과 비밀번호 화면까지 열렸습니다. 그래서 원인은 확인하지 못했습니다(이전부터 열려 있던 브라우저의 상태 때문으로 보입니다). 테스트 `server/test/browserWalls.test.js`, `server/test/google-connect.e2e.mjs`):
   - 막힌 화면 판정에 「사이트 오류」 보기를 추가했습니다. Google 연결에서는 거절과 같은 방식으로 끝내고 「휴대폰에서 연결」을 안내합니다. 일반 작업에서는 전처럼 에이전트가 진행합니다.
   - 실제 판정 모델(frentis)로 확인했습니다. 오류 화면은 site_error 0.97, 거절 화면은 refused 0.95, Google 로그인 화면은 login_needed 0.97, 일반 페이지는 ok 0.98입니다.
 - **회의 도우미가 말한 부탁에 답하지 않던 것** (2026-11-19 운영: 「폴더에 있는 내용 중에 셉 ERP 관련 PDF 좀 열어볼래?」에 「듣고 있어요」만 뜨고, 말 조각이 `unauthorized`로 사라졌습니다. 시험 `server/test/meetingAnswers.test.js`, e2e F-MT-04·F-MT-07):
