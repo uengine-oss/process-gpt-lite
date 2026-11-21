@@ -135,7 +135,7 @@ test('로그인 필요(판정): 모델 턴 없이 카드에 할 일을 쓰고, �
   assert.equal(waiting.content.need, 'login')
   assert.equal(waiting.content.site, 'studio.example')
   assert.equal(waiting.content.siteName, '스튜디오', '카드 알약의 이름은 페이지 자신의 것(og:site_name)')
-  assert.equal(waiting.content.reason, '스튜디오를 쓰려면 이 브라우저에서 로그인이 한 번 필요해요. 카드의 「직접 로그인」을 눌러 로그인하면 이어서 진행해요. 로그인은 다음에도 남아요.')
+  assert.equal(waiting.content.reason, '이 브라우저에서 스튜디오에 한 번 로그인해야 이어서 할 수 있어요. 카드의 「직접 로그인」을 눌러 로그인하면 이어서 진행해요. 로그인은 다음에도 남아요.')
   assert.equal(scripts[goal].i, 0, '로그인 벽에서 모델을 부르지 않는다')
   assert.equal(judged(TITLES.front), 1, '첫 화면을 한 번 판정')
   await sleep(1500) // watch 를 다섯 번쯤 돈다: 화면이 그대로면 묻지 않는다
@@ -190,7 +190,7 @@ test('로그인하던 중 사이트가 이 브라우저를 거절하면(판정 r
   assert.equal(c.need, 'blocked')
   assert.equal(c.site, 'id.example')
   assert.equal(c.siteName, '스튜디오', '거절은 로그인 서비스 화면에서 났어도 카드는 이 작업의 사이트 이름')
-  assert.equal(c.reason, '스튜디오가 이 서버 브라우저의 로그인을 받아 주지 않아요. 그래서 이 브라우저로는 스튜디오 작업을 할 수 없어요. 그 사이트에서 직접 만든 결과 파일을 이 방에 올려 주면 이어서 할게요.')
+  assert.equal(c.reason, '스튜디오 쪽에서 이 서버 브라우저의 로그인을 받아 주지 않아요. 그래서 이 브라우저로는 스튜디오 작업을 할 수 없어요. 그 사이트에서 직접 만든 결과 파일을 이 방에 올려 주면 이어서 할게요.')
   assert.equal(r.summary, c.reason, '채팅에 올라가는 요약도 같은 말')
   assert.equal(scripts[goal].i, 0, '모델 턴을 쓰지 않았다')
   app.refuse = false

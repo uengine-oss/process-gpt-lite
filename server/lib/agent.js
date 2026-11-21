@@ -313,7 +313,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       const set = await ruleAction(text)
       // (the action on a line of its own: the model's sentence may end without a stop)
       const ok = [L('알겠습니다. 이 방에 올리시는 링크와 파일은 앞으로 바로 처리할게요.', 'Got it. Links and files you put in this room will be handled right away.'), set.action,
-        set.skill ? L(`서버의 내장 브라우저에서 ${set.skill} 스킬로 진행해요.`, `I'll do it in the server's built-in browser with the ${set.skill} skill.`) : ''].filter(Boolean).join('\n')
+        set.skill ? L('서버의 내장 브라우저에서 진행해요.', "I'll do it in the server's built-in browser.") : ''].filter(Boolean).join('\n')
       onDelta?.(ok)
       return addMessage(userId, threadId, 'agent', 'text', { text: ok, roomRule: { said: String(text).trim().slice(0, 400), action: set.action, skill: set.skill, runs: 0 } })
     }

@@ -166,7 +166,7 @@ test('방 판정이 다른 지름길보다 먼저: 규칙을 정하는 말은 �
   assert.match(call.state, /첨부한 파일: 없음/)
   assert.deepEqual(ack.content.roomRule, { said, action: '이 링크로 시험용 노트 사이트에서 요약 카드를 만든다', skill: 'fake-notes', runs: 0 })
   assert.ok(ack.content.text.includes('이 링크로 시험용 노트 사이트에서 요약 카드를 만든다'))
-  assert.deepEqual(ack.content.text.split('\n'), ['알겠습니다. 이 방에 올리시는 링크와 파일은 앞으로 바로 처리할게요.', '이 링크로 시험용 노트 사이트에서 요약 카드를 만든다', '서버의 내장 브라우저에서 fake-notes 스킬로 진행해요.'])
+  assert.deepEqual(ack.content.text.split('\n'), ['알겠습니다. 이 방에 올리시는 링크와 파일은 앞으로 바로 처리할게요.', '이 링크로 시험용 노트 사이트에서 요약 카드를 만든다', '서버의 내장 브라우저에서 진행해요.'])
   assert.equal(streams.length, n0, '에이전트에 가지 않는다')
   const rule = await R.ruleOf(user.id, tid)
   assert.equal(rule.skill, 'fake-notes')

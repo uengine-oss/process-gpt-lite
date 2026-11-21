@@ -59,7 +59,17 @@ watch(() => [list.value.length, draft.value], () => toBottom(false))
 // under the composer while the card above it said 「로그인 필요」 (2026-11-21) — keep it in sight (again once the frame loads)
 const settled = computed(() => list.value.filter((m) => m.kind === 'task' && ['needs_input', 'failed', 'needs_review', 'done'].includes(m.content?.state))
   .map((m) => `${m.id}:${m.content.state}:${m.content.need || ''}`).join(','))
-watch(settled, (now, before) => { if (now && now !== before) { toBottom(false); setTimeout(() => toBottom(false), 450) } })
+// (only a card already in the chat that changed state — not the first load, whose own scroll and a tap on the
+// waiting ring must not be pulled back down)
+watch(settled, (now, before) => {
+  const was = new Map((before || '').split(',').filter(Boolean).map((x) => [x.split(':')[0], x]))
+  const changed = (now || '').split(',').filter(Boolean).some((x) => was.has(x.split(':')[0]) ? was.get(x.split(':')[0]) !== x : false)
+  const shownBefore = (now || '').split(',').filter(Boolean).some((x) => !was.has(x.split(':')[0]) && runningSeen.has(x.split(':')[0]))
+  if (changed || shownBefore) { toBottom(false); setTimeout(() => toBottom(false), 450) }
+})
+// cards seen while still running: their first settled state is a change the person is watching
+const runningSeen = new Set()
+watch(() => list.value.filter((m) => m.kind === 'task' && m.content?.state === 'running').map((m) => m.id).join(','), (ids) => { for (const id of ids.split(',').filter(Boolean)) runningSeen.add(id) }, { immediate: true })
 watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 </script>
 

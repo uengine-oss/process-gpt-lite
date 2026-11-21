@@ -760,20 +760,13 @@ async function wallOn(task, snap) {
 // a screen to compare while waiting: the address and what is on it, without what is typed into fields
 const screenKey = (snap) => crypto.createHash('sha1').update(`${snap.url}\n${snap.title}\n${snap.text}\n${(snap.els || []).filter((e) => !['input', 'textarea', 'select'].includes(e.tag)).map((e) => `${e.tag}:${e.text}`).join('|')}`).digest('hex')
 
-// 「스튜디오를」 / 「example.com을(를)」: the particle that fits the name's last syllable
-const josa = (name, withFinal, without) => {
-  const c = String(name).trim().slice(-1).charCodeAt(0)
-  if (c >= 0xAC00 && c <= 0xD7A3) return `${name}${(c - 0xAC00) % 28 ? withFinal : without}`
-  return `${name}${withFinal}(${without})`
-}
-
 // What the person reads on the card when the task stops at a wall, and what to do about it.
 function wallReason(wall, again) {
   const name = wall.name || wall.site
   if (wall.need === 'login') {
     return again
       ? L(`아직 ${name} 로그인이 끝나지 않았어요. 카드의 「직접 로그인」을 눌러 로그인을 마치면 이어서 진행해요.`, `The sign-in to ${name} is not done yet. Press "Sign in yourself" on the card and finish signing in — I'll go on from there.`)
-      : L(`${josa(name, '을', '를')} 쓰려면 이 브라우저에서 로그인이 한 번 필요해요. 카드의 「직접 로그인」을 눌러 로그인하면 이어서 진행해요. 로그인은 다음에도 남아요.`,
+      : L(`이 브라우저에서 ${name}에 한 번 로그인해야 이어서 할 수 있어요. 카드의 「직접 로그인」을 눌러 로그인하면 이어서 진행해요. 로그인은 다음에도 남아요.`,
         `To use ${name}, this browser needs a one-time sign-in. Press "Sign in yourself" on the card and sign in — I'll go on from there. The sign-in stays for next time.`)
   }
   return L(`${name}에서 사람인지 확인하는 화면이 나왔어요. 카드의 「직접 제어」로 확인을 마치면 이어서 진행해요.`,
@@ -783,7 +776,7 @@ function wallReason(wall, again) {
 // The site refused this browser: no waiting helps, so the task ends saying so and what else works.
 function blockedEnd(task, wall) {
   const name = wall.name || wall.site
-  const reason = L(`${josa(name, '이', '가')} 이 서버 브라우저의 로그인을 받아 주지 않아요. 그래서 이 브라우저로는 ${name} 작업을 할 수 없어요. 그 사이트에서 직접 만든 결과 파일을 이 방에 올려 주면 이어서 할게요.`,
+  const reason = L(`${name} 쪽에서 이 서버 브라우저의 로그인을 받아 주지 않아요. 그래서 이 브라우저로는 ${name} 작업을 할 수 없어요. 그 사이트에서 직접 만든 결과 파일을 이 방에 올려 주면 이어서 할게요.`,
     `${name} won't accept a sign-in from this server's browser, so it can't be used from here. Do it on ${name} yourself and put the result files in this room — I'll take it from there.`)
   task.notes.push(reason)
   return { state: 'failed', need: 'blocked', reason, summary: reason, site: wall.site, siteName: name }
