@@ -15,10 +15,12 @@ import { L } from './lang.js'
 
 // plain text opens as text in the browser (markup too — never rendered from the storage origin)
 const TEXT = new Set(['txt', 'md', 'markdown', 'log', 'json', 'csv', 'tsv', 'yaml', 'yml', 'xml', 'html', 'htm', 'js', 'ts', 'py', 'sh', 'sql', 'css'])
+// (sound and video keep their own type so phones play them in place — iOS Safari will not play octet-stream)
+const MEDIA = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg', flac: 'audio/flac', mp4: 'video/mp4', webm: 'video/webm' }
 async function publishPlain(userId, buf, name) {
   const ext = extOf(name).replace(/[^a-z0-9]/g, '') || 'bin'
   const key = `pgpt-pro/${userId}/ws/${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 32)}.${ext}`
-  const type = TEXT.has(ext) ? 'text/plain; charset=utf-8' : 'application/octet-stream'
+  const type = TEXT.has(ext) ? 'text/plain; charset=utf-8' : MEDIA[ext] || 'application/octet-stream'
   const { error } = await admin.storage.from('files').upload(key, buf, { contentType: type, upsert: true })
   if (error) throw error
   return { name, url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, ext }

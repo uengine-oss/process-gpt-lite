@@ -18,6 +18,22 @@ const openId = ref(null)
 const shown = computed(() => openId.value && app.thread.find((m) => m.id === openId.value))
 const thumb = ref(null)
 const card = ref(null)
+const mini = ref(null)
+// the agent's click, small: a ring swelling on the thumbnail's page too (the card has its own: TaskCard)
+const rings = ref([])
+let rid = 0
+watch(() => task.value && app.clicks[task.value.id]?.n, () => {
+  const k = task.value && app.clicks[task.value.id]
+  const box = mini.value?.getBoundingClientRect()
+  if (!k || !box?.width) return
+  const img = mini.value.querySelector('img'), iw = img?.naturalWidth || 16, ih = img?.naturalHeight || 10
+  const s = Math.max(box.width / iw, box.height / ih) // object-fit: cover from the top left
+  const x = (k.x / (k.w || 1280)) * iw * s, y = (k.y / (k.h || 800)) * ih * s
+  if (!(x >= 0 && y >= 0 && x <= box.width && y <= box.height)) return
+  const id = ++rid
+  rings.value.push({ id, left: `${(x / box.width) * 100}%`, top: `${(y / box.height) * 100}%` })
+  setTimeout(() => { rings.value = rings.value.filter((r) => r.id !== id) }, 900)
+})
 const SPRING = 'cubic-bezier(.22, .8, .24, 1.02)'
 
 // the card from the thumbnail's box to its own (FLIP): a 46px circle at the composer → the card
@@ -53,7 +69,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 <template>
   <Transition name="dock">
     <button v-if="task" ref="thumb" class="dock press" :class="{ attn: needs, hide: openId }" :aria-label="needs ? '브라우저 작업 · 조치 필요' : '브라우저 작업 보기'" @click="show">
-      <img v-if="frame" :src="`data:image/jpeg;base64,${frame}`" alt="" />
+      <span v-if="frame" ref="mini" class="mini"><img :src="`data:image/jpeg;base64,${frame}`" alt="" /><i v-for="r in rings" :key="r.id" class="rip" :style="{ left: r.left, top: r.top }" /></span>
       <span v-else class="dots"><i /><i /><i /></span>
     </button>
   </Transition>
@@ -71,7 +87,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .dock { position: absolute; right: calc(100% + 10px); bottom: 6px; width: 46px; height: 46px; border-radius: 50%; overflow: hidden; padding: 0;
   display: grid; place-items: center; background: rgba(255 255 255 / .94); box-shadow: 0 4px 16px rgba(0 0 0 / .18); transition: opacity .2s, scale .12s ease-out; }
 /* the whole page as a small screen inside the circle (a slice of a white page reads as nothing) */
-.dock img { width: 74%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; border-radius: 3px; box-shadow: 0 0 0 .5px rgba(0 0 0 / .25); display: block; }
+.mini { position: relative; display: block; width: 74%; aspect-ratio: 16 / 10; }
+.mini img { width: 100%; height: 100%; object-fit: cover; object-position: top left; border-radius: 3px; box-shadow: 0 0 0 .5px rgba(0 0 0 / .25); display: block; }
+.rip { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid rgba(26 115 232 / .95); background: rgba(26 115 232 / .25); pointer-events: none; animation: rip .8s cubic-bezier(.2, .7, .3, 1) forwards; }
+@keyframes rip { 0% { transform: scale(.3); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
 /* at work: an arc running round the edge */
 .dock::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0 62%, #1d1d1f 100%);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px)); mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));

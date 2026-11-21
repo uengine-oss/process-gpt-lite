@@ -21,22 +21,28 @@ const md = (t) => marked.parse(hidePaths(t || '').replace(/</g, '&lt;'), { break
 const dayOf = (m) => new Date(m.created_at).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })
 const newDay = (i) => i > 0 && dayOf(list.value[i]) !== dayOf(list.value[i - 1])
 const lastUser = computed(() => [...list.value].reverse().find((m) => m.role === 'user')?.id)
-const seen = (m) => m.id === lastUser.value && (status.value || draft.value != null || list.value[list.value.length - 1]?.id !== m.id)
+// (not under a message the server has not saved yet: 새 프로젝트's first message while its room is made)
+const seen = (m) => m.id === lastUser.value && !m.content?.local && (status.value || draft.value != null || list.value[list.value.length - 1]?.id !== m.id)
 const needsInput = computed(() => app.active?.status === 'needs_input')
 // a browser task at work: its thumbnail takes the place left of the composer (BrowserDock), 조치 필요 included
 const browsing = computed(() => list.value.some((m) => m.kind === 'task' && ['running', 'needs_input'].includes(m.content?.state)))
 const working = computed(() => status.value || (draft.value === '' ? '생각하는 중' : null))
 // 멈추기: an answer is being written (streaming here, or the thread is working) — not while it only waits for input
-const stoppable = computed(() => !needsInput.value && (draft.value != null || app.active?.status === 'working'))
+// (nothing to stop yet while 새 프로젝트's room is still being made)
+const stoppable = computed(() => !needsInput.value && app.activeId !== app.draftProject?.tmp && (draft.value != null || app.active?.status === 'working'))
 const stopping = ref(false)
 async function stop() {
   stopping.value = true
   try { await app.stopTurn(app.activeId) } finally { setTimeout(() => { stopping.value = false }, 1500) }
 }
-function toPending() {
-  const el = scroller.value?.querySelector('.k-vault, .k-choice, .needs')
+// task: the browser task that waits (BrowserDock's orange ring) — its card says what to do
+function toPending(task) {
+  const el = (task === true && scroller.value?.querySelector('.k-task.needs')) || scroller.value?.querySelector('.k-vault, .k-choice, .needs')
   el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
+// a notice over the composer goes by itself after a while
+let noticeTimer
+watch(() => app.notice, (v) => { clearTimeout(noticeTimer); if (v) noticeTimer = setTimeout(() => { if (app.notice === v) app.notice = null }, 9000) })
 
 let stick = !props.keepTop
 function onScroll() {
@@ -71,10 +77,13 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
     <EdgeBlur side="bottom" :height="120" />
     <div class="foot">
       <!-- what the agent is doing right now, above the composer (hark's "패널 만드는 중") -->
-      <Transition name="pill"><div v-if="working" :key="working" class="working"><span class="shimmer-text">{{ working }}</span></div></Transition>
+      <Transition name="pill">
+        <div v-if="app.notice" key="notice" class="notice" role="alert" data-testid="chat-notice">{{ app.notice.text }}</div>
+        <div v-else-if="working" :key="working" class="working" data-testid="chat-working"><span class="shimmer-text">{{ working }}</span></div>
+      </Transition>
       <button v-if="stoppable" class="stop press" :disabled="stopping" aria-label="답 멈추기" title="답 멈추기" @click="stop"><span class="sq" />{{ stopping ? '멈추는 중' : '멈추기' }}</button>
       <button v-if="needsInput && !browsing" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
-      <BrowserDock @pending="toPending" />
+      <BrowserDock @pending="toPending(true)" />
       <Composer :placeholder="placeholder" @send="(t) => emit('send', t)" />
     </div>
   </section>
@@ -96,6 +105,8 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 @media (max-width: 760px) { .foot:has(.attn), .foot:has(.dock) { padding-left: 56px; } .attn { right: auto; left: 0; } }
 .working { position: absolute; left: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 18px; border-radius: 19px; display: inline-flex; align-items: center;
   border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: rgba(127, 127, 127, .06); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14.5px; color: var(--text-tertiary); white-space: nowrap; }
+.notice { position: absolute; left: 4px; right: 4px; bottom: calc(100% + 12px); padding: 10px 16px; border-radius: 18px; font-size: 14px; line-height: 1.45; color: #fff;
+  background: var(--color-attention); box-shadow: 0 4px 16px rgba(0 0 0 / .14); word-break: keep-all; overflow-wrap: anywhere; }
 .stop { position: absolute; right: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 16px 0 14px; border-radius: 19px; display: inline-flex; align-items: center; gap: 8px;
   border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: var(--thin-bg, rgba(127, 127, 127, .06)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14px; color: var(--text-primary); }
 .stop .sq { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }

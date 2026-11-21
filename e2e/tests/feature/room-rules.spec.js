@@ -1,4 +1,4 @@
-// 방 규칙 — 규칙 표시와 끄기 (spec pgpt-pro_room-rules, 모델 없음)
+// 방 규칙 — 규칙 표시와 끄기 (spec room-rules, 모델 없음). 규칙은 그 방의 안내 메시지(content.roomRule)에 있다(2026-11-21)
 // (src/components/RoomRuleBar.vue, server/lib/roomRules.js)
 // 규칙을 말로 정하고 링크로 실행하는 것은 server/test/room-rules.e2e.mjs, 직접 제어는 server/test/takeover.e2e.mjs
 import { test, expect } from '../../lib/fixtures.js'
@@ -9,7 +9,7 @@ async function room(db, u, title = '방 규칙 방') {
   return id
 }
 async function rule(db, u, thread, runs = 0) {
-  await db.q(`insert into pro_room_rules(tenant_id,user_id,thread_id,said,action,runs) values ($1,$2,$3,$4,$5,$6)`, [db.tenant, u.id, thread, '앞으로 이 방에 올리는 링크는 곧바로 만들어 줘', ACTION, runs])
+  await db.q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2)`, [thread, { text: `알겠습니다. ${ACTION}`, roomRule: { said: '앞으로 이 방에 올리는 링크는 곧바로 만들어 줘', action: ACTION, runs } }])
 }
 
 test.describe('방 규칙 (spec pgpt-pro_room-rules)', () => {
@@ -33,7 +33,7 @@ test.describe('방 규칙 (spec pgpt-pro_room-rules)', () => {
     await page.goto(`/projects/${id}`)
     await page.getByTestId('room-rule-off').click()
     await expect(page.getByTestId('room-rule')).toHaveCount(0)
-    await expect.poll(async () => (await db.q('select 1 from pro_room_rules where thread_id=$1', [id])).length).toBe(0)
+    await expect.poll(async () => (await db.q(`select 1 from pro_messages where thread_id=$1 and jsonb_typeof(content->'roomRule')='object' and coalesce(content->'roomRule'->>'off','')=''`, [id])).length).toBe(0)
     await page.reload()
     await expect(page.getByPlaceholder(/.+/).first()).toBeVisible()
     await expect(page.getByTestId('room-rule')).toHaveCount(0)

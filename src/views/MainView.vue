@@ -38,7 +38,13 @@ const listMode = computed(() => app.mode === 'project' || app.mode === 'routine'
 const leftOpen = computed(() => wide.value && (listMode.value || app.dockOpen))
 // Phone: Home is a full-width tab with the composer under it; Projects and Routines show their list first.
 const mobileHome = computed(() => narrow.value && app.mode === 'chat' && app.dockOpen)
-const mobileList = computed(() => narrow.value && listMode.value && !route.params.id && !route.params.instId)
+// 새 프로젝트 just sent: its room is being made, and the chat with the message shows meanwhile
+const drafting = computed(() => !!app.draftProject && app.activeId === app.draftProject.tmp)
+const mobileList = computed(() => narrow.value && listMode.value && !route.params.id && !route.params.instId && !drafting.value)
+// the chat stays the same one from 새 프로젝트 through the room being made to the room: nothing blinks
+// (gen: leaving that room for a fresh 새 프로젝트 gives a fresh chat)
+const gen = ref(0)
+const colKey = computed(() => (app.draftProject && [app.draftProject.tmp, app.draftProject.id].includes(app.activeId) ? `new-${gen.value}` : app.activeId || `new-${gen.value}`))
 function sendFromHome(text) {
   if (!app.panelMode) app.dockOpen = false
   onSend(text)
@@ -74,6 +80,7 @@ async function syncRoute() {
   instError.value = ''
   instLoading.value = false
   app.convFilter = app.mode === 'chat' && route.params.cid ? decodeURIComponent(route.params.cid) : null
+  if (app.draftProject && route.params.id !== app.draftProject.id) { app.draftProject = null; gen.value++ }
   if (app.mode === 'chat') app.activeId = app.mainThread.id
   else if (route.params.instId) {
     const id = String(route.params.instId)
@@ -132,9 +139,14 @@ onBeforeUnmount(() => { window.removeEventListener('resize', onResize); window.r
 
 async function onSend(text) {
   if (app.panelMode) return app.createPanel(text)
-  if (newProject.value) {
-    await app.newProject(text)
-    return router.replace(`/projects/${app.activeId}`)
+  app.notice = null
+  // a second message while the room is still being made: shown now, to that room once it exists
+  if (drafting.value) return app.queueDraft(text)
+  if (newProject.value && !app.activeId) {
+    // the message and "생각하는 중" are on screen at once; the address follows when the room exists
+    const id = await app.newProject(text)
+    if (id && app.activeId === id && newProject.value) router.replace(`/projects/${id}`)
+    return
   }
   // (the instance is still loading or failed: nothing to send it to yet)
   if (instMode.value && !app.instance) return
@@ -173,8 +185,8 @@ function onConnect() {
       </Transition>
 
       <div class="center" :class="{ shifted: leftOpen }">
-        <ChatColumn v-if="ready && !mobileHome && (app.activeId || newProject)" :key="app.activeId || 'new'"
-          :placeholder="newProject ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : 'process gpt에 메시지 보내기'"
+        <ChatColumn v-if="ready && !mobileHome && (app.activeId || newProject)" :key="colKey"
+          :placeholder="newProject && !app.activeId ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : 'process gpt에 메시지 보내기'"
           :empty-text="newProject ? '' : ''" :keep-top="instMode" @send="onSend" @connect="onConnect">
           <template v-if="instMode && app.instance" #header><InstanceHeader :data="app.instance" @refresh="app.refreshInstance()" /></template>
           <template v-else-if="app.mode === 'chat' && app.activeId === app.mainThread?.id" #header><ConversationBar /></template>
@@ -182,7 +194,7 @@ function onConnect() {
         </ChatColumn>
         <!-- inside one conversation, the files it produced float in a stack (Dock-style) -->
         <ArtifactStack v-if="ready && app.mode === 'chat' && app.convFilter && !mobileHome && !app.officeDoc" />
-        <div v-if="newProject && !narrow" class="np serif">
+        <div v-if="newProject && !app.activeId && !narrow" class="np serif">
           <Typewriter text="프로젝트는 장기적인 작업과 경험을 정리하기 위한 공간입니다." :cps="18" />
         </div>
         <div v-if="ready && instMode && !app.instance && (instLoading || instError)" class="iload" data-test="instance-loading">

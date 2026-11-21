@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { marked } from 'marked'
+import { api } from '../api.js'
 // (sandbox and host paths in an answer read as file names: src/paths.js)
 import { hidePaths } from '../paths.js'
 import SkillShareCard from './SkillShareCard.vue'
@@ -60,10 +61,22 @@ const ctx = computed(() => (c.value.context && c.value.context.action !== 'stay'
 const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinned: '대화에서 직접', trivial: '', none: '' }
 const ctxBy = computed(() => (ctx.value ? (ctx.value.rechecked ? '판단 모델 재확인→logprob' : ctx.value.escalated ? '판단 모델→logprob' : byName[ctx.value.strategy] ?? ctx.value.strategy) : ''))
 const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 대화로 시작' : '이 대화로 이어감'} · ${ctxBy.value} 확신도 ${ctx.value.confidence ?? '-'}` : ''))
+
+// a sound file gets a player under its card. One the agent left in its workspace has no address yet: it is
+// published once (POST /messages/:id/open-file, as opening it does) so the player is ready before it is pressed.
+const SOUND = /\.(mp3|m4a|wav|ogg|oga|opus|aac|flac)$/i
+const sound = computed(() => props.msg.kind === 'file' && SOUND.test(String(c.value.name || c.value.url || '').split('?')[0]))
+const resolved = ref('')
+const soundErr = ref('')
+const soundUrl = computed(() => c.value.url || resolved.value)
+onMounted(async () => {
+  if (!sound.value || c.value.url || !c.value.path) return
+  try { resolved.value = (await api(`/messages/${encodeURIComponent(props.msg.id)}/open-file`, { method: 'POST' }))?.url || '' } catch (e) { soundErr.value = `재생할 파일을 가져오지 못했어요 · ${e.message}` }
+})
 </script>
 
 <template>
-  <div class="row" :class="[`r-${msg.role}`, `k-${msg.kind}`, { pinned: msg.kind === 'task' && c.state === 'running', needs: c.state === 'needs_input' || c.state === 'pending' }]">
+  <div class="row" :data-id="msg.id" :class="[`r-${msg.role}`, `k-${msg.kind}`, { pinned: msg.kind === 'task' && c.state === 'running', needs: c.state === 'needs_input' || c.state === 'pending' }]">
     <span v-if="msg.kind !== 'divider'" class="ts">{{ time }}</span>
 
     <!-- which context this answer belongs to, as the context-router decided (hark-style threads) -->
@@ -128,13 +141,18 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       <p v-if="!c.items.length" class="empty">진행 중인 프로세스가 없어요.</p>
     </div>
 
-    <div v-else-if="msg.kind === 'file'" class="filerow">
-      <button class="file press" @click="openFile">
-        <span class="fic" :class="kindOf(c.name)">{{ kindLabel[kindOf(c.name)] || 'FILE' }}</span>
-        <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c) }}</small></span>
-      </button>
-      <!-- 팀원에게 공유 (components/team) -->
-      <ShareButton :msg="msg" compact />
+    <div v-else-if="msg.kind === 'file'" class="filecol" :class="{ sound }">
+      <div class="filerow">
+        <button class="file press" @click="openFile">
+          <span class="fic" :class="sound ? 'snd' : kindOf(c.name)">{{ sound ? kindLabel.snd : kindLabel[kindOf(c.name)] || 'FILE' }}</span>
+          <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c) }}</small></span>
+        </button>
+        <!-- 팀원에게 공유 (components/team) -->
+        <ShareButton :msg="msg" compact />
+      </div>
+      <!-- hark: a sound the work made plays right here, on the phone too (recording 2026-11-21) -->
+      <audio v-if="sound && soundUrl" class="player" controls preload="none" :src="soundUrl" data-testid="file-audio" />
+      <small v-else-if="sound && soundErr" class="playerr">{{ soundErr }}</small>
     </div>
 
     <!-- an agent's change in a shared folder: a variation to review and merge (lib/folders/work.js) -->
@@ -219,6 +237,11 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 .file { text-align: left; }
 .filerow { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
 .filerow .file { min-width: 0; }
+.filecol { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; }
+.filecol.sound { width: 424px; }
+/* the browser's own controls (play, seek, volume, download) — big enough for a thumb */
+.player { display: block; width: 100%; height: 54px; border-radius: 27px; }
+.playerr { font-size: 12.5px; color: var(--text-tertiary); margin-left: 6px; }
 .fvar { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 424px; max-width: 100%; padding: 14px 18px; border-radius: 22px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); text-align: left; }
 .fvh { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
 .fvar b { font-size: 16px; font-weight: 500; line-height: 1.35; }
