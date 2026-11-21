@@ -60,7 +60,9 @@ export async function waitTurn(t, onQueued) {
     const same = t.conv ? before.filter((x) => x.conv === t.conv) : []
     if (!unsure.length && !same.length) { t.started = true; return waited }
     if (!waited) { waited = true; await onQueued?.() }
-    await Promise.race([...same.map((x) => x.done), ...unsure.map((x) => x.convReady)])
+    if (t.abort.signal.aborted) { t.started = true; return waited }
+    await Promise.race([...same.map((x) => x.done), ...unsure.map((x) => x.convReady),
+      new Promise((r) => t.abort.signal.addEventListener('abort', r, { once: true }))])
   }
 }
 
@@ -69,6 +71,33 @@ export function running({ userId, threadId, conv }) {
   return [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && x.started && !x.finished && (!conv || x.conv === conv))
 }
 export const waiting = ({ userId, threadId }) => [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && !x.started && !x.finished)
+
+// A browser task started by a correction ("do it on that site instead") replaces the agent turn of the
+// request it corrects: left running, that turn came back first with "완료했습니다" and files of its own
+// while the site's work had not even started (recording 2026-11-21).
+// The agent turns (delegate marks them: t.agent) of this thread still in flight — running or waiting
+// their turn — that came before the given one:
+export const agentTurnsAhead = ({ userId, threadId, before = null }) => [...live.values()].filter((x) =>
+  x.agent && x.fromUser && !x.finished && !x.stopped && x.userId === userId && x.threadId === threadId && x !== before && (!before || x.seq < before.seq))
+
+// Does a new browser request replace them?
+//   'ask'  — whether it corrects one of them is the judge's call (pickReplaced), in a project room as in the main
+//            chat: a room can hold a report being written and a link handed in for something else
+//   'keep' — nothing ahead
+export const CORRECTION_BAR = 0.7
+export function replaceRule({ room, ahead = [] }) {
+  if (!ahead.length) return 'keep'
+  return 'ask'
+}
+// the judge's answer (option t<i> per turn ahead, 'new' for a separate request) → the turns to stop
+export const JUDGE_AHEAD = 3
+export const judgedAhead = (ahead) => ahead.slice(-JUDGE_AHEAD)
+export function pickReplaced(shown, probabilities, bar = CORRECTION_BAR) {
+  const p = probabilities || {}
+  const best = Object.keys(p).filter((k) => k !== 'new').sort((a, b) => p[b] - p[a])[0]
+  const i = best ? Number(best.slice(1)) : -1
+  return best && p[best] >= bar && shown[i] ? [shown[i]] : []
+}
 
 // tests
 export const _live = live

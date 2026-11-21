@@ -10,7 +10,6 @@ import crypto from 'node:crypto'
 import http from 'node:http'
 import path from 'node:path'
 import fs from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { startShop } from './fixtures/shop.mjs'
 
 // ---- scripted model: the plan, then per goal a list of moves (a tool call, or plain text) ----
@@ -59,7 +58,7 @@ after(async () => {
   llm.close()
   await q('delete from pro_threads where user_id=$1', [user])
   await pool.end()
-  fs.rmSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.browser-profiles', user), { recursive: true, force: true })
+  fs.rmSync(path.join(browser.PROFILES, user), { recursive: true, force: true })
 })
 
 test('도구를 하나도 쓰지 않고 끝내려는 작업: 한 번 되돌려 보내고, 그래도 안 하면 "확인 필요"', async () => {

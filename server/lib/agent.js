@@ -4,7 +4,7 @@ import { config } from '../config.js'
 import { chat } from './llm.js'
 import { q } from './supa.js'
 import { addMessage, history, getThread, setThreadStatus } from './store.js'
-import { runBrowserTask } from './browser.js'
+import { runBrowserTask, runningIn } from './browser.js'
 import { createSchedule, nextRun, cronAfter, dueAt, listSchedules } from './scheduler.js'
 import { createMission, createProcessSchedule, listSkills, workspaceHostPath, runMission } from './missions.js'
 import { wantsRunNow, telegramIntent, pickSchedule, recentScheduleIds, channelsOf } from './scheduleIntent.js'
@@ -24,6 +24,9 @@ import { notifyMember } from './notify.js'
 import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, parseToolOutput, publish } from './office.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import * as turns from './turns.js'
+import { ranRule, readRoom, roomGoal, ruleAction, ruleOf } from './roomRules.js'
+import { browserSkill, browserSkills } from './browserSkills.js'
+import { judge } from './judge.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths, textDoc, workFile, checkoutFile } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
@@ -64,8 +67,12 @@ const ROUTER_TOOLS = [
     type: 'function',
     function: {
       name: 'browser_task',
-      description: 'The request needs a real web browser: log in to a site, check an account balance, book, order, fill a web form, operate a web console. NOT for YouTube, Google (Gmail/Calendar/Drive), Slack, GitHub or Notion lookups: answer those without tools — the agent tries their connector tools first and opens the browser itself when they fail.',
-      parameters: { type: 'object', properties: { goal: { type: 'string' }, start_url: { type: 'string' }, ack: { type: 'string', description: '해요체 한두 문장으로 무엇을 할지 알림' } }, required: ['goal', 'ack'] },
+      description: 'The request needs a real web browser: log in to a site, check an account balance, book, order, fill a web form, operate a web console — or the person wants the work done on a site that one of the browser skills (listed in the system message) is for, even when what they hand over is a link to another service. NOT for YouTube, Google (Gmail/Calendar/Drive), Slack, GitHub or Notion lookups: answer those without tools — the agent tries their connector tools first and opens the browser itself when they fail.',
+      parameters: { type: 'object', properties: {
+        goal: { type: 'string', description: 'Self-contained: what to do and on what, with the links (and the names of files) the person gave for it — from earlier messages too when this message refers to them' },
+        start_url: { type: 'string', description: 'An address to open first. With a skill, leave it out unless the person gave a page on that site: the skill knows where to start' },
+        skill: { type: 'string', description: 'The exact name of the browser skill (listed in the system message) for this work, if one is for it' },
+        ack: { type: 'string', description: '해요체 한두 문장으로 무엇을 할지 알림' } }, required: ['goal', 'ack'] },
     },
   },
   {
@@ -196,11 +203,76 @@ export function runTurn(args) {
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
 const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
 
+// A turn the browser agent answers: said now, its result posted when it ends. Nothing runs in the agent service.
+// asked: the message as the person sent it ({text, files}); skill: the browser skill (lib/browserSkills.js) the task uses
+async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill, files, onDelta, ack, room, asked, replaces = true }) {
+  noAgentTurn()
+  const msg = await addMessage(user.id, threadId, 'agent', 'text', { text: ack })
+  onDelta?.(ack)
+  runBrowser({ user, session, threadId, goal, startUrl, skill, files, room, asked, replaces })
+  return msg
+}
+// the browser tasks this server started, newest last (what the tests read: the skill is passed on as chosen)
+export const browserStarts = []
+// (the ack is already in the chat; the turn it replaces stops alongside — the card need not wait for that)
+function runBrowser({ user, session, threadId, goal, startUrl, skill, files = [], room, asked, replaces = true }) {
+  const userId = user.id
+  if (replaces) replaceEarlier({ user, session, threadId, room, text: asked?.text ?? goal, why: replacedText(startUrl) })
+    .catch((e) => console.warn('[replace]', e.message))
+  console.log(`[browser] start thread=${String(threadId).slice(0, 8)} skill=${skill || '-'} url=${startUrl || '-'} files=${files.length}`)
+  browserStarts.push({ threadId, goal, startUrl: startUrl || '', skill: skill || '', files: files.map((f) => f.name) })
+  if (browserStarts.length > 20) browserStarts.shift()
+  runBrowserTask({ userId, threadId, goal, startUrl, files, skill })
+    .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
+    .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment."), failed: true }) })
+}
+
+// 바로잡는 말 ("그 사이트에 들어가서 생성해야"): a browser task that starts while an agent turn of the same
+// room is still being answered may take its place when the judge says the new message corrects that request
+// (lib/turns.js replaceRule). The turn ahead is stopped the way 멈추기 stops it
+// (deepagents /chat/stop) and its answer says why instead of "완료했습니다"; what it already made stays where it is.
+function replacedText(url) {
+  let host = ''
+  try { host = new URL(url).hostname } catch { /* no address */ }
+  return host
+    ? L(`${host}에서 하는 브라우저 작업으로 바꿔서 이전 작업은 멈췄어요.`, `I switched to the browser task on ${host} and stopped the earlier work.`)
+    : L('브라우저 작업으로 바꿔서 이전 작업은 멈췄어요.', 'I switched to the browser task and stopped the earlier work.')
+}
+export async function replaceEarlier({ user, session, threadId, room, text, why }) {
+  const ahead = turns.agentTurnsAhead({ userId: user.id, threadId, before: turnCtx.getStore()?.turn })
+  const rule = turns.replaceRule({ room, ahead })
+  if (rule === 'keep') return []
+  let list = ahead
+  if (rule === 'ask') {
+    const shown = turns.judgedAhead(ahead)
+    const r = await judge({
+      state: L(`진행 중인 요청:\n${shown.map((t, i) => `t${i}. ${t.title}`).join('\n')}\n\n사용자가 새로 한 말: ${String(text).slice(0, 400)}`,
+        `Requests in progress:\n${shown.map((t, i) => `t${i}. ${t.title}`).join('\n')}\n\nWhat the person said now: ${String(text).slice(0, 400)}`),
+      question: L('새로 한 말은 진행 중인 요청 하나를 바로잡는 말(그 일을 다른 방법·다른 곳에서 하라는 말)인가?', 'Does the new remark correct one of the requests in progress (do that work another way or somewhere else)?'),
+      options: [...shown.map((t, i) => ({ key: `t${i}`, label: L(`「${t.title}」 요청을 바로잡는 말이다`, `It corrects the request "${t.title}"`) })),
+        { key: 'new', label: L('앞의 요청과 따로, 새로 시키는 일이다', 'It is a new request, separate from those') }],
+    }).catch((e) => { console.warn('[replace] judge', e.message); return null })
+    console.log(`[replace] judged ${JSON.stringify(r?.probabilities || {})} via ${r?.via || '-'} ${r?.ms ?? '-'} ms`)
+    list = turns.pickReplaced(shown, r?.probabilities)
+  }
+  for (const t of list) {
+    console.log(`[replace] stopping the turn ahead ('${t.title}') thread=${String(threadId).slice(0, 8)} (${rule})`)
+    await stopTurn(t, session, why)
+  }
+  return list
+}
+
+const hostOf = (u) => { try { return new URL(u).host } catch { return '' } }
+const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
+
 async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, openDoc }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
-  // a key is only ever this person's own upload (lib/attachments.js); the page could send any other
-  files = (files || []).filter((f) => f?.url).map((f) => (f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { ...f, key: undefined } : f)).slice(0, 10)
+  // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
+  const ownPath = (p) => typeof p === 'string' && p.startsWith(`/workspace/uploads/${user.id}/`) && !p.split('/').includes('..')
+  files = (files || []).filter((f) => f?.url).map((f) => ({ ...f,
+    ...(f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { key: undefined } : {}),
+    ...(f.path && !ownPath(f.path) ? { path: undefined } : {}) })).slice(0, 10)
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
   const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
   const store = turnCtx.getStore()
@@ -214,6 +286,32 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     attached.set(threadId, files)
     // the router only needs to know there are files; a question about them is the agent's job
     context = [context, L(`(첨부: ${files.map((f) => f.name).join(', ')})`, `(attached: ${files.map((f) => f.name).join(', ')})`)].filter(Boolean).join('\n\n')
+  }
+  // 방 판정(lib/roomRules.js): a project room's message is read once by the judge before any other shortcut —
+  // it may set what this room does with the links and files put in it (set_rule), or be one of those (run_rule).
+  // (recording 2026-11-21: the rule's first sentence went down a shortcut to the agent first and came back as
+  // "PowerPoint 를 만든다") A reply to a process draft the room is waiting on is that draft's, not the room's.
+  const room = (await getThread(userId, threadId))?.kind === 'project'
+  if (room && !generationPending(threadId)) {
+    const rule = await ruleOf(userId, threadId).catch(() => null)
+    const read = await readRoom({ rule, text, files })
+    console.log(`[room] ${read.pick} ${JSON.stringify(read.probabilities)} via ${read.via} ${read.ms} ms thread=${String(threadId).slice(0, 8)}${read.error ? ` (${read.error})` : ''}`)
+    if (read.pick === 'set_rule') {
+      noAgentTurn()
+      const set = await ruleAction(text)
+      // (the action on a line of its own: the model's sentence may end without a stop)
+      const ok = [L('알겠습니다. 이 방에 올리시는 링크와 파일은 앞으로 바로 처리할게요.', 'Got it. Links and files you put in this room will be handled right away.'), set.action,
+        set.skill ? L('서버의 내장 브라우저에서 진행해요.', "I'll do it in the server's built-in browser.") : ''].filter(Boolean).join('\n')
+      onDelta?.(ok)
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok, roomRule: { said: String(text).trim().slice(0, 400), action: set.action, skill: set.skill, runs: 0 } })
+    }
+    if (read.pick === 'run_rule') {
+      ranRule(rule.id).catch(() => {})
+      const goal = roomGoal(rule.action, text, files)
+      const skill = rule.skill ? browserSkill(rule.skill) : null
+      if (skill) return startBrowserTurn({ user, session, threadId, goal, startUrl: skill.startUrl || undefined, skill: skill.name, files, onDelta, room, asked: { text, files }, replaces: false, ack: L('이 방의 규칙대로 시작할게요.', 'Starting, as this room is set up to.') })
+      return delegate({ user, session, threadId, text: goal, onDelta })
+    }
   }
   const hist = toLlmHistory(await history(threadId, 12))
   if (context) hist[hist.length - 1] = { role: 'user', content: `${text}\n\n${context}` }
@@ -305,17 +403,13 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // model sometimes answers these itself, and the agent's sandbox cannot reach the site
   const siteUrl = /https?:\/\/[^\s)'"]+/i.exec(text)?.[0]
   if (!namedApp && siteUrl && SITE_ACTION.test(text) && !files.length && !RECURRING.test(text) && !generationPending(threadId)) {
-    noAgentTurn()
-    const ack = L('사이트에서 직접 처리할게요.', "I'll do it on the site.")
-    const msg = await addMessage(userId, threadId, 'agent', 'text', { text: ack })
-    onDelta?.(ack)
-    runBrowserTask({ userId, threadId, goal: text, startUrl: siteUrl })
-      .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
-      .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment.") }) })
-    return msg
+    return startBrowserTurn({ user, session, threadId, goal: text, startUrl: siteUrl, onDelta, room, asked: { text, files }, ack: L('사이트에서 직접 처리할게요.', "I'll do it on the site.") })
   }
   const skillList = await listSkills(session.access_token)
   const skillHint = skillList.length ? `\n${L('사용 가능한 스킬(주기 작업에 쓸 수 있음)', 'Available skills (usable for recurring tasks)')}: ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
+  // the browser skills, the same way: name and description only (lib/browserSkills.js — a body is read when a task uses it)
+  const browserList = browserSkills()
+  const browserHint = browserList.length ? `\n${L('브라우저 스킬(그 사이트에서 하는 일, browser_task 의 skill)', 'Browser skills (work done on that site; browser_task skill)')}: ${browserList.map((k) => `${k.name} — ${k.description.slice(0, 200)}`).join(' / ')}` : ''
   const processHint = await processCatalogHint()
   const teamHint = await teamCatalogHint(userId)
   const appHint = await panelAppHint(user)
@@ -327,8 +421,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     tools: routerTools(appHint ? ROUTER_TOOLS : ROUTER_TOOLS.filter((t) => t.function.name !== 'panel_record')),
     messages: [
       { role: 'system', content: isEn()
-        ? PERSONA_EN.replace('{now}', now) + skillHint + processHint + teamHint + appHint + schedHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
-        : PERSONA.replace('{now}', now) + skillHint + processHint + teamHint + appHint + schedHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
+        ? PERSONA_EN.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
+        : PERSONA.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
       ...hist.slice(-8),
     ],
   })
@@ -344,11 +438,15 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   onDelta?.(args.ack)
 
   switch (call.function.name) {
-    case 'browser_task':
-      runBrowserTask({ userId, threadId, goal: args.goal, startUrl: args.start_url })
-        .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
-        .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment.") }) })
+    case 'browser_task': {
+      // a skill the router named starts where the skill says: an address of the router's own counts only as a page on
+      // that site (the real router named the skill and also guessed the site's address, on another host: 2026-11-21)
+      const skill = args.skill ? browserSkill(String(args.skill).trim()) : null
+      if (args.skill && !skill) console.warn(`[router] browser skill '${args.skill}' is not installed`)
+      const startUrl = skill?.startUrl ? (sameHost(args.start_url, skill.startUrl) ? args.start_url : skill.startUrl) : args.start_url
+      runBrowser({ user, session, threadId, goal: args.goal || text, startUrl: startUrl || undefined, skill: skill?.name, files, room, asked: { text, files } })
       break
+    }
     case 'schedule_task': {
       // the ack is already in the chat: a schedule that cannot be made has to say so
       try {
@@ -749,28 +847,32 @@ async function touchContext(user, routing, text, answer) {
 // it does not know (already over, or held elsewhere) is cut off here. With no turn in flight here
 // (e.g. after a restart of this server) the thread's conversation is still asked to stop, so a
 // turn left running in deepagents cannot keep the conversation busy.
+async function askStop(session, conv) {
+  if (!conv) return false
+  const r = await fetch(`${config.deepagentsUrl}/chat/stop`, {
+    method: 'POST', signal: AbortSignal.timeout(20_000),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
+    body: JSON.stringify({ conversation_id: conv, tenant_id: config.tenantId }),
+  }).then((x) => x.json()).catch((e) => ({ stopped: false, error: e.message }))
+  return !!r.stopped
+}
+// why: what its answer says instead (a turn replaced by a correction); a turn still waiting its turn
+// never reaches the agent (delegate)
+async function stopTurn(t, session, why) {
+  t.stopped = true
+  if (why) t.reason = why
+  // the stream ends with "turn cancelled" once deepagents stops it; if it does not, stop waiting
+  const ok = t.started ? await askStop(session, t.conv) : false
+  if (!ok) t.abort.abort()
+  else setTimeout(() => { if (!t.finished) t.abort.abort() }, 8000).unref?.()
+}
 export async function stopTurns({ user, session, threadId, conversation }) {
   const list = turns.running({ userId: user.id, threadId, conv: conversation || null })
-  const ask = async (conv) => {
-    if (!conv) return false
-    const r = await fetch(`${config.deepagentsUrl}/chat/stop`, {
-      method: 'POST', signal: AbortSignal.timeout(20_000),
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
-      body: JSON.stringify({ conversation_id: conv, tenant_id: config.tenantId }),
-    }).then((x) => x.json()).catch((e) => ({ stopped: false, error: e.message }))
-    return !!r.stopped
-  }
-  for (const t of list) {
-    t.stopped = true
-    // the stream ends with "turn cancelled" once deepagents stops it; if it does not, stop waiting
-    const ok = await ask(t.conv)
-    if (!ok) t.abort.abort()
-    else setTimeout(() => { if (!t.finished) t.abort.abort() }, 8000).unref?.()
-  }
+  for (const t of list) await stopTurn(t, session)
   if (!list.length) {
     const thread = await getThread(user.id, threadId)
     const conv = conversation || thread?.conversation_id
-    const ok = await ask(conv)
+    const ok = await askStop(session, conv)
     await setThreadStatus(user.id, threadId, null)
     return { stopped: ok ? 1 : 0, waiting: turns.waiting({ userId: user.id, threadId }).length }
   }
@@ -801,11 +903,17 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (adopted) store.adopted = true
   const turn = adopted ? store.turn : turns.enqueue({ userId: user.id, threadId, conv: conv0 })
   turn.setConv(conv0)
+  // an agent turn: a correction that goes to the browser may replace it (replaceEarlier) — only one answering a
+  // person's message in this thread, never a schedule, a mission or a team run delegated here
+  turn.agent = true
+  turn.fromUser = !!adopted
   turn.title = String(text || '').trim().split('\n')[0].slice(0, 60)
   // a shared folder's run room (folderTurn) is never offered to the router as a conversation in progress
   turn.folder = !!pin?.folder
   // the user's message this turn answers (runTurn), marked 대기 while it waits
   const userMsgId = adopted ? store.userMsgId : null
+  // a turn replaced by a browser task does not mark the thread idle under that task
+  const idleStatus = () => (turn.reason && runningIn(user.id, threadId) ? 'working' : null)
   let routing = null
   let preRouted = false
   try {
@@ -836,6 +944,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (m) emit(user.id, 'message', m)
       thread = await getThread(user.id, threadId)
     }
+    // replaced while it waited (replaceEarlier): it never goes to the agent
+    if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason || `(${stoppedText()})`, stopped: true, ...(turn.reason ? { superseded: true, replaced: true } : {}), silent })
     return await runDelegated()
   } finally { turn.finish() }
 
@@ -885,8 +995,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   } catch (e) {
     failed = true
     if (!idle.signal.aborted && !turn.abort.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
-    console.warn('[delegate]', turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
-    await setThreadStatus(user.id, threadId, null)
+    console.warn('[delegate]', turn.reason ? 'replaced by a browser task' : turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
+    await setThreadStatus(user.id, threadId, idleStatus())
+    if (turn.abort.signal.aborted && turn.reason) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason, stopped: true, superseded: true, replaced: true, partial: partial.trim().slice(0, 4000), silent })
     if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent })
     return addMessage(user.id, threadId, 'agent', 'text', { text: idle.signal.aborted
       ? L('에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.', "The agent didn't respond for a while, so I stopped waiting. Please send the same request again.")
@@ -1015,7 +1126,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       }
     }
   }
-  await setThreadStatus(user.id, threadId, null)
+  await setThreadStatus(user.id, threadId, idleStatus())
   let body = out.trim()
   const ended = cancelled || turn.stopped
   // a turn that wrote a process definition ends with its draft card, not a skill card for a skill
@@ -1033,7 +1144,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   if (quietIfUnchanged && !ended && /^(변동\s*없음|no changes?)[.!]?$/i.test(body.replace(/[*_`"]/g, '').trim())) return null
   if (divider) await addMessage(user.id, threadId, 'system', 'divider', typeof divider === 'string' ? { text: divider } : divider)
-  if (ended) body = [body, `(${turn.stopped ? stoppedText() : supersededText()})`].filter(Boolean).join('\n\n')
+  // (replaced by a correction: the reason alone — what the agent had written so far is kept, not shown)
+  const partialText = ended && turn.reason ? body.slice(0, 4000) : ''
+  if (ended) body = turn.reason || [body, `(${turn.stopped ? stoppedText() : supersededText()})`].filter(Boolean).join('\n\n')
   let kind = /^#\s/.test(body) ? 'doc' : 'text'
   const structured = (body.match(/^\s*([-*]|\d+\.)\s/gm) || []).length >= 4
   if (kind === 'text' && !ended && body.length > 600 && structured) {
@@ -1085,7 +1198,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   if (!body && !files.length && !workDir) body = emptyText()
   const work = trail.list()
-  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
+  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}),
+    ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
   if (preRouted) touchContext(user, routing, text, body)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
   for (const f of files) if (f.url && !f.path) f.name = displayName(f, body)

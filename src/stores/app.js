@@ -5,6 +5,9 @@ import { syncLang } from '../i18n/lang.js'
 import { officeEditorFor, CRAFT_APPS } from '../officeEditor.js'
 import { announce } from '../browserNotify.js'
 
+// the room 새 프로젝트 is making (newProject): resolves to its id, or null
+let draftJob = Promise.resolve(null)
+
 export const useApp = defineStore('app', {
   state: () => ({
     me: null,
@@ -19,6 +22,10 @@ export const useApp = defineStore('app', {
     panelApps: [],             // data apps (lib/panelApps) of folders I belong to
     panelAppTick: {},          // appId -> bumps when its rows change (another member, the sheet editor)
     frames: {},                // taskId -> {data,url}
+    clicks: {},                // taskId -> {x,y,w,h,kind,n}: where the browser agent is about to click (the live screen's ripple)
+    takeover: null,            // task id whose full view opens with 직접 제어 already on (직접 로그인)
+    draftProject: null,        // 새 프로젝트 sent, its room still being made: {tmp, id} — the chat shows the message meanwhile
+    notice: null,              // a short line over the composer: {text} (새 프로젝트 could not be made, the text is back in the box)
     dockOpen: true,
     mode: 'chat',              // chat | project | routine (a process instance: /routines)
     panelMode: false,          // "새 패널 만들기" composer mode
@@ -127,7 +134,10 @@ export const useApp = defineStore('app', {
       if (type === 'message') {
         const list = (this.messages[d.thread_id] ||= [])
         const i = list.findIndex((m) => m.id === d.id)
+        // the server's copy of a message shown before it was saved (새 프로젝트) takes its place
+        const mine = i < 0 && d.role === 'user' && d.kind === 'text' ? list.findIndex((m) => m.content?.local) : -1
         if (i >= 0) list[i] = d
+        else if (mine >= 0) list[mine] = d
         else {
           list.push(d)
           if (d.role === 'agent' && (d.kind === 'text' || d.kind === 'doc')) this.drafts[d.thread_id] = null
@@ -171,6 +181,9 @@ export const useApp = defineStore('app', {
         this.status[d.threadId] = d.text
       } else if (type === 'browser.frame') {
         this.frames[d.taskId] = d
+      } else if (type === 'browser.click') {
+        // hark: a ring where the agent is about to click, drawn on every view of its live screen (TaskCard, BrowserDock)
+        this.clicks[d.taskId] = { ...d, n: (this.clicks[d.taskId]?.n || 0) + 1 }
       }
     },
 
@@ -190,7 +203,8 @@ export const useApp = defineStore('app', {
       this.mentions = [...this.mentions.filter((x) => !(x.label === m.label && x.file === m.file)), m].slice(-4)
     },
     removeMention(i) { this.mentions = this.mentions.filter((_, k) => k !== i) },
-    async send(text, threadId = this.activeId, context) {
+    // attachments: the files this message carries when they were taken earlier (a message queued while 새 프로젝트's room is made)
+    async send(text, threadId = this.activeId, context, attachments) {
       // mentions: the chips read first in the message; where each one is goes to the agent
       const mentions = this.mentions
       if (mentions.length) {
@@ -199,8 +213,8 @@ export const useApp = defineStore('app', {
         text = `${mentions.map((m) => `@${m.label}`).join(' ')} ${text}`
         context = [context, `(사용자가 열린 문서에서 가리킨 대상: ${mentions.map((m) => `@${m.label} = ${JSON.stringify(m)}`).join(' ; ')})`].filter(Boolean).join('\n\n')
       }
-      const pending = this.attachments
-      this.attachments = []
+      const pending = attachments || this.attachments
+      if (!attachments) this.attachments = []
       await Promise.all(pending.map((a) => a.job))
       const files = pending.filter((a) => a.result).map((a) => a.result)
       // asked from inside one conversation's view: it continues that conversation
@@ -230,14 +244,64 @@ export const useApp = defineStore('app', {
       if (r && !r.waiting) { this.status[threadId] = null }
       return r
     },
-    async newProject(text) {
+    // 새 프로젝트: the message and "생각하는 중" show at once, in a room that is not made yet — making it
+    // (POST /threads, a title from the model) can take a while (recording 2026-11-21: 20 s of nothing).
+    // → the new room's id, or null when it could not be made (the text goes back into the composer).
+    newProject(text) {
       // the folder chosen on the 새 프로젝트 screen: the project works on its own variation of it
       const f = this.newProjectFolder
-      const t = await api('/threads', { method: 'POST', body: { text, ...(f?.newName ? { newFolder: f.newName } : f?.id ? { folder: f.id } : {}) } })
-      this.newProjectFolder = null
-      this.messages[t.id] = []
-      this.activeId = t.id
-      this.send(text, t.id)
+      // the files attached for this message go with it, not with whatever is sent next while the room is made
+      const att = this.attachments
+      this.attachments = []
+      const tmp = `draft-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+      this.messages[tmp] = [{ id: `${tmp}-1`, thread_id: tmp, role: 'user', kind: 'text', content: { text, local: true }, created_at: new Date().toISOString() }]
+      this.drafts[tmp] = ''
+      // more: what was sent after it while the room is made (queueDraft) — shown, and sent in order once it exists
+      const more = []
+      this.draftProject = { tmp, id: null, more }
+      this.notice = null
+      this.activeId = tmp
+      draftJob = (async () => {
+        let t
+        try {
+          t = await api('/threads', { method: 'POST', body: { text, ...(f?.newName ? { newFolder: f.newName } : f?.id ? { folder: f.id } : {}) } })
+        } catch (e) {
+          delete this.messages[tmp]
+          delete this.drafts[tmp]
+          // still on that screen: the text goes back into the composer (elsewhere it would land in another chat)
+          const here = this.activeId === tmp
+          if (here) { this.activeId = null; this.prefill = [text, ...more.map((m) => m.text)].join('\n'); this.attachments = [...att, ...more.flatMap((m) => m.att), ...this.attachments] }
+          this.draftProject = null
+          // a refusal the server explains (the folder) is said as it is; anything else plainly
+          const why = e.status && e.status < 500 && /[가-힣]/.test(e.message || '') ? e.message : '프로젝트를 만들지 못했어요'
+          this.notice = { text: here ? `${why} · 보낸 글은 입력창에 돌려놓았어요. 다시 보내 주세요.` : `${why} · 다시 보내 주세요.` }
+          return null
+        }
+        this.newProjectFolder = null
+        // what is on screen moves into the new room as it is (the server's copy replaces the message: onEvent)
+        this.messages[t.id] = (this.messages[tmp] || []).map((m) => ({ ...m, thread_id: t.id }))
+        this.drafts[t.id] = ''
+        delete this.messages[tmp]
+        delete this.drafts[tmp]
+        if (!this.projects.some((p) => p.id === t.id)) this.projects.unshift(t)
+        if (this.draftProject?.tmp === tmp) this.draftProject = { tmp, id: t.id, more }
+        if (this.activeId === tmp) this.activeId = t.id
+        this.send(text, t.id, undefined, att)
+        // (a moment apart: the server keeps them in the order sent and answers them in turn — lib/turns.js)
+        more.forEach((m, i) => setTimeout(() => this.send(m.text, t.id, undefined, m.att), 400 * (i + 1)))
+        return t.id
+      })()
+      return draftJob
+    },
+    // a second message sent while the room is still being made: on screen now, to the room once it exists
+    queueDraft(text) {
+      const d = this.draftProject
+      if (!d || d.id || !this.messages[d.tmp]) return this.send(text)
+      // (its own files, taken now: a file attached for it must not leave with the first message)
+      d.more.push({ text, att: this.attachments })
+      this.attachments = []
+      this.messages[d.tmp].push({ id: `${d.tmp}-${d.more.length + 1}`, thread_id: d.tmp, role: 'user', kind: 'text', content: { text, local: true }, created_at: new Date().toISOString() })
+      return draftJob
     },
     // 📎 폴더 붙이기: a folder for reference in this thread (the agent reads its main; a change goes to a variation)
     async attachFolder(folder, threadId = this.activeId) {

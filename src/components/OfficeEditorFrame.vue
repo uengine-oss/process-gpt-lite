@@ -69,7 +69,101 @@ function toggleRibbon() {
   // dispatched on the document it bubbles to window too, wherever the editor listens
   w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'F1', code: 'F1', ctrlKey: true, bubbles: true }))
   ribbonOpen.value = !ribbonOpen.value
+  syncSoon()
 }
+// the editor marks a folded ribbon .ribbon-collapsed (IeumOffice ribbon-collapse.tsx); pressing its
+// selected tab folds it too, so the button follows what the editor shows
+function syncRibbon() {
+  if (editor() === 'hwp') return
+  const r = frame.value?.contentDocument?.querySelector('.ribbon-collapsible')
+  if (r) ribbonOpen.value = !r.classList.contains('ribbon-collapsed')
+  if (deckTimer) readDeck()
+}
+const syncSoon = () => setTimeout(syncRibbon, 80)
+
+// A phone (a narrow sheet or a touch screen). A folded ribbon takes the editor's tab row with it
+// (파일·저장·홈·삽입… — on a portrait phone the tab names came out one letter per line), so the
+// document gets that room; 리본 펴기 brings both back. A deck opens without its thumbnail rail (the
+// editor re-fits the slide to the wider stage), with big previous/next buttons over its sides and
+// 슬라이드 목록 to bring the rail back; on a short (landscape) screen the notes step aside.
+// office-host and the IeumOffice editors stay as they are: this is one style sheet and two classes on
+// the editor page's <html>, and the buttons press the editor's own thumbnails and notes button.
+const COMPACT_CSS = [
+  'html.pgpt-compact .ribbon-collapsible.ribbon-collapsed > .ribbon-tabs { display: none !important; }',
+  // unfolded: tab names stay whole and the row wraps (no room kept for desktop window buttons)
+  'html.pgpt-compact .ribbon-tabs { flex-wrap: wrap; padding-left: 10px !important; padding-right: 10px !important; }',
+  'html.pgpt-compact .ribbon-tab { white-space: nowrap; }',
+  // the status bar keeps "슬라이드 3/9" whole
+  'html.pgpt-compact .status-bar .zoom-slider { width: 64px; }',
+  'html.pgpt-no-thumbs .slide-list, html.pgpt-no-thumbs .thumb-resizer { display: none !important; }',
+].join('\n')
+const coarseMq = window.matchMedia?.('(pointer: coarse)')
+const coarse = ref(!!coarseMq?.matches)
+const onCoarse = (e) => (coarse.value = e.matches)
+const box = ref({ w: 0, h: 0 })
+let boxObserver = null
+const compact = computed(() => coarse.value || (box.value.w > 0 && box.value.w <= 640))
+const short = computed(() => compact.value && box.value.h > 0 && box.value.h < 520)
+const deck = computed(() => editor() === 'slides')
+const thumbsOpen = ref(false)
+const slidePos = ref({ cur: 0, total: 0, mid: 0 })
+// (with the rail open, the rail is the way through the deck)
+const slideNav = computed(() => compact.value && deck.value && !thumbsOpen.value && slidePos.value.total > 1)
+function dressEditor() {
+  const doc = frame.value?.contentDocument
+  if (!doc?.head || editor() === 'hwp') return
+  if (!doc.getElementById('pgpt-compact')) {
+    const st = doc.createElement('style')
+    st.id = 'pgpt-compact'
+    st.textContent = COMPACT_CSS
+    doc.head.appendChild(st)
+    for (const ev of ['click', 'dblclick', 'keydown']) doc.addEventListener(ev, syncSoon, true)
+  }
+  doc.documentElement.classList.toggle('pgpt-compact', compact.value)
+  doc.documentElement.classList.toggle('pgpt-no-thumbs', compact.value && deck.value && !thumbsOpen.value)
+}
+watch([compact, thumbsOpen], () => { dressEditor(); syncSoon() })
+// where the deck is ("슬라이드 3/9" in its status bar) and the middle of its stage, for the buttons
+let deckTimer = null
+function readDeck() {
+  const doc = frame.value?.contentDocument
+  const m = /(\d+)\D+(\d+)/.exec(doc?.querySelector('.status-bar .status-left .status-item')?.textContent || '')
+  const stage = doc?.querySelector('.stage-wrap')?.getBoundingClientRect()
+  const next = m ? { cur: +m[1], total: +m[2], mid: stage ? Math.round((frame.value.offsetTop || 0) + stage.top + stage.height / 2) : 0 } : { cur: 0, total: 0, mid: 0 }
+  const was = slidePos.value
+  if (next.cur !== was.cur || next.total !== was.total || next.mid !== was.mid) slidePos.value = next
+  fitNotes()
+}
+function goSlide(step) {
+  const doc = frame.value?.contentDocument
+  const w = frame.value?.contentWindow
+  if (!doc || !w) return
+  readDeck()
+  const to = slidePos.value.cur + step
+  if (to < 1 || to > slidePos.value.total) return
+  // the editor's own thumbnail (hidden or not); without the rail, its page keys
+  const thumb = doc.querySelector(`.slide-list .thumb[data-index="${to - 1}"]`)
+  if (thumb) thumb.click()
+  else {
+    doc.activeElement?.blur?.()
+    doc.dispatchEvent(new w.KeyboardEvent('keydown', { key: step > 0 ? 'PageDown' : 'PageUp', bubbles: true }))
+  }
+  setTimeout(readDeck, 60)
+}
+// notes off while the screen is short, back on when it is tall again (only if we turned them off)
+let notesFor = null
+let notesHidden = false
+function fitNotes() {
+  if (!deck.value || notesFor === short.value) return
+  const btn = frame.value?.contentDocument?.querySelector('.status-notes-btn')
+  if (!btn) return
+  const on = btn.classList.contains('on')
+  if (short.value) { if (on) { btn.click(); notesHidden = true } }
+  else if (notesHidden) { if (!on) btn.click(); notesHidden = false }
+  notesFor = short.value
+}
+watch(short, fitNotes)
+function stopDeck() { clearInterval(deckTimer); deckTimer = null; slidePos.value = { cur: 0, total: 0, mid: 0 }; notesFor = null; notesHidden = false }
 
 function startLive() {
   if (link || props.readOnly || !props.assistant) return
@@ -123,6 +217,8 @@ async function load() {
   const key = RIBBON_KEYS[editor()]
   if (key) try { localStorage.setItem(key, '1') } catch { /* private mode: the editor opens unfolded */ }
   ribbonOpen.value = false
+  stopDeck()
+  thumbsOpen.value = false
 }
 function show(kind, text) {
   clearTimeout(timer)
@@ -148,7 +244,11 @@ function hideAiDock(tries = 20) {
 function onMessage(event) {
   if (!isOfficeEditorMessage(event, frame.value?.contentWindow)) return
   const m = event.data
-  if (m.type === 'ready') { ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly) hideAiDock(); startLive() }
+  if (m.type === 'ready') {
+    ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly) hideAiDock(); startLive()
+    dressEditor(); syncSoon()
+    if (deck.value && !deckTimer) deckTimer = setInterval(readDeck, 600)
+  }
   else if (m.type === 'assistant') emit('assistant', { label: m.label || '', prompt: m.prompt || null, selection: m.selection || '' })
   else if (m.type === 'mention' && m.mention) emit('mention', { ...m.mention, file: props.name })
   else if (m.type === 'page-live') pagePictures.value = !!m.pictures
@@ -182,8 +282,16 @@ const onFs = () => { fullscreen.value = document.fullscreenElement === root.valu
 watch(() => props.fileUrl, (u) => { if (u && !savedUrls.has(u)) load() })
 watch(() => props.readOnly, load)
 watch(() => props.context, sendContext, { deep: true })
-onMounted(() => { window.addEventListener('message', onMessage); document.addEventListener('fullscreenchange', onFs); load() })
-onBeforeUnmount(() => { window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive() })
+onMounted(() => {
+  window.addEventListener('message', onMessage); document.addEventListener('fullscreenchange', onFs); load()
+  coarseMq?.addEventListener?.('change', onCoarse)
+  boxObserver = new ResizeObserver(([e]) => { box.value = { w: e.contentRect.width, h: e.contentRect.height } })
+  boxObserver.observe(root.value)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive()
+  coarseMq?.removeEventListener?.('change', onCoarse); boxObserver?.disconnect(); stopDeck()
+})
 </script>
 
 <template>
@@ -201,7 +309,10 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <button v-if="canMention" class="tb press" :class="{ on: mentionMode }" title="켜고 문서의 표·그림·문단(엑셀은 셀 범위)을 누르면 대화 입력창에 @멘션으로 들어가요 (⌥ 누른 채 클릭도 돼요)" @click="mentionMode = !mentionMode">
         @<span class="lb"> {{ mentionMode ? '가리키는 중' : '가리키기' }}</span>
       </button>
-      <button class="tb press" :title="ribbonOpen ? '리본 접기 (Ctrl+F1)' : '리본 펴기 (Ctrl+F1)'" @click="toggleRibbon">
+      <button v-if="compact && deck" class="tb press" :class="{ on: thumbsOpen }" data-testid="oef-thumbs" :title="thumbsOpen ? '슬라이드 목록 닫기' : '슬라이드 목록 열기'" @click="thumbsOpen = !thumbsOpen">
+        <Icon name="plan" :size="15" /><span class="lb"> 슬라이드 목록</span>
+      </button>
+      <button class="tb press" data-testid="oef-ribbon" :title="ribbonOpen ? '리본 접기 (Ctrl+F1)' : '리본 펴기 (Ctrl+F1)'" @click="toggleRibbon">
         <Icon :name="ribbonOpen ? 'up' : 'chevron'" :size="14" /><span class="lb"> {{ ribbonOpen ? '리본 접기' : '리본 펴기' }}</span>
       </button>
       <button v-if="!fullscreen" class="tb opt press" @click="emit('update:maximized', !maximized)">
@@ -211,8 +322,14 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
       <button class="tb ic press" title="닫기" @click="emit('close')"><Icon name="close" :size="16" /></button>
     </div>
     <div v-if="busy" class="glow" />
-    <iframe v-if="frameSrc" ref="frame" :src="frameSrc" :title="name || '문서 편집기'" class="frm" allow="clipboard-read; clipboard-write; fullscreen" />
+    <iframe v-if="frameSrc" ref="frame" :src="frameSrc" :title="name || '문서 편집기'" class="frm" allow="clipboard-read; clipboard-write; fullscreen" @load="dressEditor" />
     <div v-else class="empty">{{ emptyText }}</div>
+    <template v-if="slideNav">
+      <button class="snav prev press" data-testid="oef-prev" title="이전 슬라이드" aria-label="이전 슬라이드" :style="slidePos.mid ? { top: `${slidePos.mid}px` } : null"
+        :disabled="slidePos.cur <= 1" @click="goSlide(-1)"><Icon name="back" :size="22" /></button>
+      <button class="snav next press" data-testid="oef-next" title="다음 슬라이드" aria-label="다음 슬라이드" :style="slidePos.mid ? { top: `${slidePos.mid}px` } : null"
+        :disabled="slidePos.cur >= slidePos.total" @click="goSlide(1)"><Icon name="chevron" :size="22" /></button>
+    </template>
     <Transition name="fade">
       <div v-if="notice" class="notice" :class="notice.kind">{{ notice.text }}</div>
     </Transition>
@@ -232,6 +349,8 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 .ieum { flex: none; height: 15px; width: auto; margin: 0 6px; opacity: .72; }
 /* a narrow side sheet keeps the buttons on one line; the logo goes first */
 @container (max-width: 640px) { .ieum { display: none; } }
+/* a phone on its side (the sheet beside the chat): button labels fold to icons so 닫기 stays in sight */
+@container (max-width: 640px) { .bar .lb { display: none; } }
 @media (max-width: 700px) { .ieum { display: none; } }
 /* a phone-wide sheet: the close button must stay in sight — size buttons go (the sheet is already the whole width), labels fold to icons */
 /* (the live state stays, as its dot alone) */
@@ -253,6 +372,11 @@ onBeforeUnmount(() => { window.removeEventListener('message', onMessage); docume
 .tb.ic { width: 30px; padding: 0; justify-content: center; }
 .tb.on { background: rgba(110, 90, 230, .14); color: #5b47d6; font-weight: 600; }
 .frm { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; }
+/* a deck on a phone: previous / next over the sides of the slide */
+.snav { position: absolute; top: 50%; z-index: 3; width: 42px; height: 42px; margin-top: -21px; border-radius: 50%; display: grid; place-items: center; color: #1d1d1f; background: rgba(255, 255, 255, .9); box-shadow: 0 2px 10px rgba(0, 0, 0, .2); }
+.snav.prev { left: 6px; }
+.snav.next { right: 6px; }
+.snav:disabled { opacity: .35; }
 .empty { margin: auto; color: var(--text-secondary); font-size: 14px; }
 .notice { position: absolute; right: 16px; bottom: 32px; padding: 8px 14px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); }
 .notice.success { background: #2e7d32; }

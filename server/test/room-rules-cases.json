@@ -1,0 +1,141 @@
+[
+ {
+  "name": "규칙을 정하는 말: 0.7 이상이면 따른다",
+  "kind": "pick",
+  "rule": false,
+  "probabilities": {
+   "set_rule": 0.82,
+   "other": 0.18
+  },
+  "expect": "set_rule"
+ },
+ {
+  "name": "경계: 딱 0.7 이면 따른다",
+  "kind": "pick",
+  "rule": false,
+  "probabilities": {
+   "set_rule": 0.7,
+   "other": 0.3
+  },
+  "expect": "set_rule"
+ },
+ {
+  "name": "경계: 0.7 미만이면 그 밖의 말",
+  "kind": "pick",
+  "rule": false,
+  "probabilities": {
+   "set_rule": 0.69,
+   "other": 0.31
+  },
+  "expect": "other"
+ },
+ {
+  "name": "규칙이 있는 방: 규칙의 대상으로 준 것",
+  "kind": "pick",
+  "rule": true,
+  "probabilities": {
+   "set_rule": 0.05,
+   "run_rule": 0.9,
+   "other": 0.05
+  },
+  "expect": "run_rule"
+ },
+ {
+  "name": "규칙이 없는 방에서는 run_rule 을 따르지 않는다(보기에도 없다)",
+  "kind": "pick",
+  "rule": false,
+  "probabilities": {
+   "set_rule": 0.05,
+   "run_rule": 0.9,
+   "other": 0.05
+  },
+  "expect": "other"
+ },
+ {
+  "name": "규칙이 있는 방에서 새 규칙을 정하는 말",
+  "kind": "pick",
+  "rule": true,
+  "probabilities": {
+   "set_rule": 0.75,
+   "run_rule": 0.2,
+   "other": 0.05
+  },
+  "expect": "set_rule"
+ },
+ {
+  "name": "어느 쪽도 0.7 에 못 미치면 그 밖의 말",
+  "kind": "pick",
+  "rule": true,
+  "probabilities": {
+   "set_rule": 0.4,
+   "run_rule": 0.45,
+   "other": 0.15
+  },
+  "expect": "other"
+ },
+ {
+  "name": "그 밖의 말이 크면 그 밖의 말",
+  "kind": "pick",
+  "rule": true,
+  "probabilities": {
+   "set_rule": 0.02,
+   "run_rule": 0.08,
+   "other": 0.9
+  },
+  "expect": "other"
+ },
+ {
+  "name": "판정이 확률을 주지 못하면 그 밖의 말",
+  "kind": "pick",
+  "rule": true,
+  "probabilities": null,
+  "expect": "other"
+ },
+ {
+  "name": "보기: 규칙이 없으면 set_rule · other",
+  "kind": "options",
+  "rule": false,
+  "expect": [
+   "set_rule",
+   "other"
+  ]
+ },
+ {
+  "name": "보기: 규칙이 있으면 set_rule · run_rule · other",
+  "kind": "options",
+  "rule": true,
+  "expect": [
+   "set_rule",
+   "run_rule",
+   "other"
+  ]
+ },
+ {
+  "name": "대신하기: 앞에 에이전트 턴이 없으면 그대로",
+  "kind": "replace",
+  "room": true,
+  "ahead": 0,
+  "expect": "keep"
+ },
+ {
+  "name": "대신하기: 프로젝트 방도 판정에 묻는다 — 방 안의 관계없는 일까지 멈추지 않게",
+  "kind": "replace",
+  "room": true,
+  "ahead": 1,
+  "expect": "ask"
+ },
+ {
+  "name": "대신하기: 메인 채팅은 판정에 묻는다",
+  "kind": "replace",
+  "room": false,
+  "ahead": 2,
+  "expect": "ask"
+ },
+ {
+  "name": "대신하기: 메인 채팅에서도 앞에 턴이 없으면 묻지 않는다",
+  "kind": "replace",
+  "room": false,
+  "ahead": 0,
+  "expect": "keep"
+ }
+]
