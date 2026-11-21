@@ -3,6 +3,7 @@
 //   - 회사 OAuth 클라이언트: 관리자만 넣고 지우고(아니면 403), 비밀값은 다시 보여 주지 않고 DB 행에도 평문이 없다. 회사 값 → env 값
 //   - 휴대폰에서 연결: 로그인한 사람에게(구글 이메일이 달라도) 토큰을 저장, 상태 쿠키 경로, 다른 브라우저·다른 상태 거부, 한 번만
 //   - 서버 브라우저에서 연결: 카드 need login → 직접 제어(휴대폰 화면)로 가짜 동의 → 카드 완료 · 토큰 · 같은 브라우저에 가짜 Google 쿠키
+//   - 보관함 먼저(11-22): 저장된 Google 로그인이면 에이전트(대본 모델)가 넣고 허용까지, 없으면 카드로 묻고 저장하면 이어서 — 직접 제어 없이
 //   - 거절 화면(판정 refused) → 카드에 「휴대폰에서 연결」 → 그 단추로 이 기기에서 연결
 //   - 시간 제한 · 바쁜 브라우저 · 허용 안 함 · 설치형 「Google로 계속하기」 로그인 회귀
 //   node test/google-connect.e2e.mjs        (사진: GC_SHOTS 폴더, 기본 $TMPDIR/gc-shots)
@@ -39,8 +40,37 @@ const judge = await startJudge({
   [TITLES.refused]: { login_needed: 0.05, refused: 0.9, human_check: 0.02, ok: 0.03 },
   [TITLES.error]: { login_needed: 0.04, refused: 0.06, human_check: 0.01, site_error: 0.86, ok: 0.03 },
 })
-// no model is needed; anything that asks one gets an empty answer
-const llm = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '{}' } }] })) }) })
+// the model: a script per goal (the agent's moves), and an empty answer for anything else — with nothing
+// scripted the connect agent gives up at once and the person takes it on
+const scripts = {} // goal prefix → { i, moves }
+const llm = http.createServer((req, res) => {
+  let raw = ''
+  req.on('data', (c) => { raw += c })
+  req.on('end', () => {
+    let body = {}
+    try { body = JSON.parse(raw) } catch { /* empty */ }
+    const goal = /Goal: (.*)/.exec(body.messages?.[0]?.content || '')?.[1] || ''
+    const sc = Object.entries(scripts).find(([g]) => goal.startsWith(g))?.[1]
+    let message = { role: 'assistant', content: '{}' }
+    if (sc) {
+      const move = sc.moves[Math.min(sc.i++, sc.moves.length - 1)]
+      const [name, args] = typeof move === 'function' ? move(body) : move
+      message = { role: 'assistant', content: null, tool_calls: [{ id: 'call_' + Math.random().toString(36).slice(2, 10), type: 'function', function: { name, arguments: JSON.stringify(args) } }] }
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ choices: [{ message }] }))
+  })
+})
+const CONNECT_GOAL = 'Google 계정 연결'
+const lastSnap = (body) => JSON.parse([...body.messages].reverse().find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('{')).content.split('\n')[0])
+const elOf = (body, test, what) => { const el = lastSnap(body).els.find(test); if (!el) throw new Error(`no element: ${what}`); return el.i }
+// fill the e-mail and password from the vault, then 허용
+const SIGN_IN = [
+  (b) => ['fill_secret', { i: elOf(b, (e) => e.name === 'email', 'email'), field: 'username' }],
+  (b) => ['fill_secret', { i: elOf(b, (e) => e.name === 'password', 'password'), field: 'password' }],
+  (b) => ['click', { i: elOf(b, (e) => e.text === '허용', '허용'), done: 2 }],
+  ['finish', { summary: '연결했어요' }],
+]
 await new Promise((r) => llm.listen(0, '127.0.0.1', r))
 const profiles = fs.mkdtempSync(path.join(os.tmpdir(), 'pro-gc-profiles-'))
 Object.assign(process.env, {
@@ -271,6 +301,62 @@ async function inBrowser() {
   await shot(p, 'gc-connect-done-390.png')
   await ctx.close()
 }
+
+test('보관함 먼저: 저장된 Google 로그인이면 에이전트가 이메일 · 비밀번호를 넣고 허용까지 — 직접 제어 없이', async () => {
+  const uid = users.member.user.id
+  const saved = await (await call('member', '/vault', { method: 'POST', body: { kind: 'login', site: '127.0.0.1', data: { username: GOOGLE.member, password: `pw-${Date.now()}` } } })).json()
+  assert.ok(saved.id, '보관함에 저장')
+  scripts[CONNECT_GOAL] = { i: 0, moves: SIGN_IN }
+  const approved = fake.log.approve.length
+  try {
+    const r = await call('member', '/auth/google/connect', { method: 'POST', body: { mode: 'browser', origin: web } })
+    assert.equal(r.status, 200)
+    const { taskId } = await r.json()
+    const end = await until(async () => { const c = await cardOf(taskId); return c.state === 'done' && c }, '저절로 연결', 30000)
+    assert.ok(end.summary.includes(GOOGLE.member), end.summary)
+    assert.deepEqual(fake.log.approve.slice(approved), [{ email: GOOGLE.member, password: 'given' }], '보관함의 이메일 · 비밀번호로 허용까지')
+    const used = await q(`select action, detail from pro_vault_audit where user_id=$1 and item_id=$2 and action='fill'`, [uid, saved.id])
+    assert.deepEqual(used.map((u) => u.detail.field).sort(), ['password', 'username'], '보관함에서 두 칸을 채웠다(감사 기록)')
+    assert.ok(scripts[CONNECT_GOAL].i >= 3, '에이전트가 넣고 눌렀다')
+    assert.equal((await getSecret(uid, 'oauth', 'google'))?.username, GOOGLE.member)
+  } finally {
+    delete scripts[CONNECT_GOAL]
+    await call('member', `/vault/${saved.id}`, { method: 'DELETE' })
+  }
+})
+
+test('보관함 먼저: 저장된 로그인이 없으면 카드로 묻고(직접 제어가 아니라), 카드에 저장하면 이어서 연결 (휴대폰 390)', async () => {
+  const uid = users.member.user.id
+  scripts[CONNECT_GOAL] = { i: 0, moves: SIGN_IN }
+  let itemId = null
+  try {
+    const r = await call('member', '/auth/google/connect', { method: 'POST', body: { mode: 'browser', origin: web } })
+    const { taskId, threadId } = await r.json()
+    const ask = await until(async () => (await q(`select id, content from pro_messages where thread_id=$1 and kind='vault' and content->>'mode'='request' and content->>'state'='pending' order by created_at desc limit 1`, [threadId]))[0], '로그인 요청 카드')
+    assert.equal(ask.content.kind, 'login')
+    const waiting = await cardOf(taskId)
+    assert.equal(waiting.need, 'login')
+    assert.match(waiting.reason, /로그인 정보를 저장/)
+    const ctx = await phone('member')
+    const p = await ctx.newPage()
+    await p.goto(`${web}/chat`)
+    await p.locator('[data-tab="chat"]').click()
+    const form = p.locator('form.vault').last()
+    await form.waitFor({ timeout: 15000 })
+    await form.scrollIntoViewIfNeeded()
+    await sleep(300)
+    await shot(p, 'gc-vault-request-390.png')
+    await ctx.close()
+    const saved = await (await call('member', '/vault', { method: 'POST', body: { kind: 'login', site: ask.content.site, data: { username: GOOGLE.member, password: 'pw-card' }, messageId: ask.id } })).json()
+    itemId = saved.id
+    const end = await until(async () => { const c = await cardOf(taskId); return c.state === 'done' && c }, '카드에 저장한 뒤 연결', 30000)
+    assert.ok(end.summary.includes(GOOGLE.member))
+    assert.equal((await q(`select count(*)::int n from pro_vault_audit where user_id=$1 and item_id=$2 and action='fill'`, [uid, itemId]))[0].n, 2)
+  } finally {
+    delete scripts[CONNECT_GOAL]
+    if (itemId) await call('member', `/vault/${itemId}`, { method: 'DELETE' })
+  }
+})
 
 test('Google 이 오류 화면(400)으로 답하면(판정 site_error) 거절과 같이 끝나고 「휴대폰에서 연결」', async () => {
   fake.state.error = true
