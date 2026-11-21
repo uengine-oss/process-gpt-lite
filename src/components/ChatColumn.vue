@@ -55,6 +55,11 @@ async function toBottom(force) {
   if (el && (stick || force)) el.scrollTo({ top: el.scrollHeight, behavior: force ? 'instant' : 'smooth' })
 }
 watch(() => [list.value.length, draft.value], () => toBottom(false))
+// a task card that starts waiting or ends grows by its reason and the button that answers it: on a phone that part fell
+// under the composer while the card above it said 「로그인 필요」 (2026-11-21) — keep it in sight (again once the frame loads)
+const settled = computed(() => list.value.filter((m) => m.kind === 'task' && ['needs_input', 'failed', 'needs_review', 'done'].includes(m.content?.state))
+  .map((m) => `${m.id}:${m.content.state}:${m.content.need || ''}`).join(','))
+watch(settled, (now, before) => { if (now && now !== before) { toBottom(false); setTimeout(() => toBottom(false), 450) } })
 watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 </script>
 
