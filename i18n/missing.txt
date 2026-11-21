@@ -1,5 +1,5 @@
 # 108 extracted string(s) not translated by src/i18n/ko-en.json
-# (1959 extracted: 1546 exact, 413 patterns; 995 skipped by rules; 682 dictionary entries not extracted — runtime data, fragments or stale)
+# (1960 extracted: 1547 exact, 413 patterns; 997 skipped by rules; 682 dictionary entries not extracted — runtime data, fragments or stale)
 # kind<TAB>text<TAB>first source   ([new] = not in the previous strings.json)
 
 exact	새 메시지	src/browserNotify.js:62

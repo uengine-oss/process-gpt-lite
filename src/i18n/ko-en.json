@@ -1824,7 +1824,8 @@
   "연결 끊기": "Disconnect",
   "한 번 더 누르면 끊어요": "Press again to disconnect",
   "루틴을 열지 못했어요": "Couldn't open the routine",
-  "루틴 여는 중…": "Opening the routine…"
+  "루틴 여는 중…": "Opening the routine…",
+  "봇을 이름으로 찾아 누른 시작은 받지 않아요. 여기의 「봇 열기」로 열어 시작을 눌러 주세요.": "A Start pressed after finding the bot by name is not accepted. Open it with \"Open the bot\" here and press Start."
  },
  "patterns": [
   [
