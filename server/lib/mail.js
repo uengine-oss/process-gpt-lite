@@ -13,10 +13,13 @@ import { getSecret, putItem } from './vault.js'
 import { emit } from './bus.js'
 import { mainThread, addMessage } from './store.js'
 import { L, isEn, asUser, langInstruction } from './lang.js'
+import { clientFor, clientById } from './googleClient.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
 // ---------- Google OAuth (login + Gmail) ----------
+// The client is the company's own when its administrator saved one, else this install's
+// (lib/googleClient.js); the redirect URI is the address the person started from (lib/googleConnect.js).
 export const GOOGLE_SCOPES = [
   'openid', 'email', 'profile',
   'https://www.googleapis.com/auth/gmail.readonly',
@@ -25,32 +28,35 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/youtube.readonly',
 ]
-export const googleEnabled = () => !!(config.google.clientId && config.google.clientSecret)
-const redirectUri = () => `${config.publicUrl}/api/auth/google/callback`
+// whether this request's (or job's) tenant can connect Google
+export const googleEnabled = async (tenant = config.tenantId) => !!(await clientFor(tenant))
 
-export function googleAuthUrl(state, { connectMail = false, verifier } = {}) {
+// connectMail: Gmail and the rest (consent, offline); otherwise sign-in only. hint: the account to offer first.
+export function googleAuthUrl(state, { client, redirectUri, connectMail = false, verifier, hint } = {}) {
   const p = new URLSearchParams({
-    client_id: config.google.clientId, redirect_uri: redirectUri(), response_type: 'code',
+    client_id: client.clientId, redirect_uri: redirectUri, response_type: 'code',
     scope: (connectMail ? GOOGLE_SCOPES : GOOGLE_SCOPES.slice(0, 3)).join(' '),
     prompt: connectMail ? 'consent' : 'select_account', state,
     ...(connectMail ? { include_granted_scopes: 'true' } : {}),
     ...(connectMail ? { access_type: 'offline' } : {}),
+    ...(hint ? { login_hint: hint } : {}),
     ...(verifier ? { code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' } : {}),
   })
-  return `https://accounts.google.com/o/oauth2/v2/auth?${p}`
+  return `${config.google.authUrl}?${p}`
 }
 
-export async function googleExchange(code, verifier) {
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+// the same client and redirect URI the consent was asked with
+export async function googleExchange(code, verifier, { client, redirectUri }) {
+  const res = await fetch(config.google.tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ code, client_id: config.google.clientId, client_secret: config.google.clientSecret, redirect_uri: redirectUri(), grant_type: 'authorization_code', ...(verifier ? { code_verifier: verifier } : {}) }),
+    body: new URLSearchParams({ code, client_id: client.clientId, client_secret: client.clientSecret, redirect_uri: redirectUri, grant_type: 'authorization_code', ...(verifier ? { code_verifier: verifier } : {}) }),
   })
-  const tok = await res.json()
-  if (!res.ok || !tok.access_token) throw new Error('Google 인증 코드를 확인하지 못했어요. 다시 로그인해 주세요.')
-  const info = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${tok.access_token}` } })
-  const me = await info.json()
-  if (!info.ok || !me.sub || !me.email || me.email_verified !== true) throw new Error('Google에서 확인된 이메일 계정이 필요해요.')
+  const tok = await res.json().catch(() => ({}))
+  if (!res.ok || !tok.access_token) throw new Error(L('Google 인증 코드를 확인하지 못했어요. 다시 시도해 주세요.', "Google's authorization code couldn't be checked. Please try again."))
+  const info = await fetch(config.google.userinfoUrl, { headers: { Authorization: `Bearer ${tok.access_token}` } })
+  const me = await info.json().catch(() => ({}))
+  if (!info.ok || !me.sub || !me.email || me.email_verified !== true) throw new Error(L('Google에서 확인된 이메일 계정이 필요해요.', 'A Google account with a verified e-mail address is needed.'))
   return { tok, me }
 }
 
@@ -58,13 +64,16 @@ export async function googleAccessToken(userId) {
   const sec = await getSecret(userId, 'oauth', 'google')
   if (!sec) throw new Error('google not connected')
   if (sec.expires_at > Date.now() + 60000) return sec.access_token
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  // refreshed with the client that issued it, in the tenant it was connected in
+  const client = await clientById(sec.tenant || config.tenantId, sec.client_id)
+  if (!client) throw new Error(L('Google 연결에 쓰던 클라이언트가 바뀌었어요. 메일을 다시 연결해 주세요.', 'The Google client this connection used has changed. Please connect your mail again.'))
+  const res = await fetch(config.google.tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: sec.refresh_token, grant_type: 'refresh_token' }),
+    body: new URLSearchParams({ client_id: client.clientId, client_secret: client.clientSecret, refresh_token: sec.refresh_token, grant_type: 'refresh_token' }),
   })
-  const tok = await res.json()
-  if (!res.ok || !tok.access_token) throw new Error('Google 연결이 만료됐어요. 메일을 다시 연결해 주세요.')
+  const tok = await res.json().catch(() => ({}))
+  if (!res.ok || !tok.access_token) throw new Error(L('Google 연결이 만료됐어요. 메일을 다시 연결해 주세요.', 'The Google connection has expired. Please connect your mail again.'))
   const { id, site, ...saved } = sec
   await putItem(userId, 'oauth', 'google', { ...saved, access_token: tok.access_token, expires_at: Date.now() + tok.expires_in * 1000 }, { actor: 'mail' })
   return tok.access_token
@@ -73,7 +82,7 @@ export async function googleAccessToken(userId) {
 // ---------- fetchers: each returns [{id, from, subject, date, text}] ----------
 async function fetchGmail(userId) {
   const at = await googleAccessToken(userId)
-  const api = (p) => fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
+  const api = (p) => fetch(`${config.google.gmailUrl}/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
   const list = await api('messages?maxResults=20&q=' + encodeURIComponent('newer_than:2d -category:promotions -category:social'))
   const out = []
   for (const m of list.messages || []) {

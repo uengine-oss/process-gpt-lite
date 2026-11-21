@@ -4,6 +4,7 @@ import Icon from './Icon.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { isEnglish } from '../i18n/lang.js'
+import { connectInBrowser, connectOnPhone } from '../googleConnect.js'
 
 const props = defineProps({ msg: Object, full: Boolean })
 const app = useApp()
@@ -117,10 +118,22 @@ const cancel = () => api('/browser/cancel', { method: 'POST', body: { taskId: pr
 const takeOver = () => { app.takeover = props.msg.id; app.handoff = props.msg.id }
 const toAnswer = () => document.querySelector(`.row[data-id="${answerCard.value?.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 const retry = () => app.send(isEnglish ? `Try again: ${c.value.title}` : `다시 시도해 줘: ${c.value.title}`, props.msg.thread_id)
+// 「Google 연결」 (server lib/browser.js connectGoogle): again in the server browser, or on this device for the mail alone
+const google = computed(() => c.value.connect === 'google')
+const err = ref('')
+const viaGoogle = (fn) => async () => { err.value = ''; try { await fn() } catch (e) { err.value = e.message } }
+const phone = { key: 'phone', label: '휴대폰에서 연결', icon: 'chevron', run: viaGoogle(connectOnPhone) }
+const again = { key: 'again', label: '다시 연결', icon: 'refresh', run: viaGoogle(() => connectInBrowser(app)) }
+// connected: the full view steps aside for the chat, where the result is said
+watch(() => c.value.state, (s) => {
+  if (props.full && google.value && s === 'done') setTimeout(() => { if (app.handoff === props.msg.id) app.handoff = null }, 1500)
+})
 // the first button is the one that gets it going again, made big; the second is the way out
 const acts = computed(() => {
   const stop = { key: 'stop', label: '멈추기', run: cancel }
+  if (google.value && ended.value) return need.value === 'blocked' ? [phone, again] : [again, phone]
   if (needs.value) {
+    if (need.value === 'login' && google.value) return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, phone, stop]
     if (need.value === 'login') return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, stop]
     if (need.value === 'blocked') return [{ ...stop, icon: 'close' }, { key: 'look', label: '직접 확인', run: takeOver }]
     if (answerCard.value && ['choice', 'approve'].includes(need.value)) return [{ key: 'answer', label: need.value === 'approve' ? '승인하러 가기' : '고르러 가기', icon: 'chevron', run: toAnswer }, stop]
@@ -185,6 +198,7 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
       <div v-if="acts.length" class="acts">
         <button v-for="(a, i) in acts" :key="a.key" class="press" :class="i ? 'sub' : 'go'" :data-testid="`task-${a.key}`" @click="a.run"><Icon v-if="a.icon && !i" :name="a.icon" :size="18" />{{ a.label }}</button>
       </div>
+      <p v-if="err" class="aerr" data-testid="task-error">{{ err }}</p>
     </div>
     <div v-if="full" class="bar">
       <button class="pill press" :aria-label="`계획, ${c.steps?.length}단계 중 ${done} 완료`" @click="showPlan = !showPlan"><Icon name="plan" :size="16" /> 계획 {{ done }}/{{ c.steps?.length }}</button>
@@ -235,6 +249,7 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
 .acts button { height: 48px; padding: 0 18px; border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 600; }
 .acts .go { flex: 1 1 180px; background: var(--color-attention); color: #fff; box-shadow: 0 4px 14px rgba(255 77 0 / .28); }
 .acts .sub { flex: 0 1 auto; background: rgba(127 127 127 / .13); color: var(--text-primary); font-weight: 500; }
+.aerr { margin: 10px 2px 0; font-size: 13.5px; line-height: 1.45; color: var(--color-error); }
 .meta { display: flex; justify-content: space-between; align-items: center; padding: 8px 6px 0; font-size: 14px; color: var(--text-secondary); }
 .steps { font-size: 13px; color: var(--text-tertiary); }
 .plan { position: absolute; inset: 16px; border-radius: 18px; padding: 18px 22px; overflow: auto; color: #1d1d1f; --regular-bg: rgba(255 255 255 / .82); cursor: default; }

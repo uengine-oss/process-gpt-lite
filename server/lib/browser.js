@@ -1267,6 +1267,139 @@ export function cancel(userId, taskId) {
 const started = new Map() // `${userId}:${threadId}` → tasks begun and not yet over (planning, in line or running)
 export const runningIn = (userId, threadId) => (started.get(`${userId}:${threadId}`) || 0) > 0 || sessions.get(userId)?.task?.threadId === threadId
 
+// ---- Google 연결 in this browser (lib/googleConnect.js): no model, the person signs in themselves ----
+// The card goes up as a task (「Google 연결」), the browser gets the state cookie and opens Google's consent
+// address, and the person is asked at once to sign in with 「직접 로그인」. Signing in here leaves this
+// browser signed in to Google as well, so NotebookLM and the other Google sites work in later tasks. The
+// callback (server/index.js) reports the result (googleConnected); a screen Google uses to refuse this
+// browser is told apart by the usual wall judgment (judgeWall → refused), and the card then offers
+// 「휴대폰에서 연결」, the person's own browser, for the mail alone. Nothing finished in 15 minutes ends it.
+// (tests shorten it)
+export const CONNECT = { ms: 15 * 60 * 1000 }
+const CONNECTED = '__connected__'
+const connects = new Map() // userId -> { taskId, settle(outcome) }
+
+// what holds this person's browser now ('' when nothing does)
+export function browserBusy(userId) {
+  const s = sessions.get(userId)
+  if (!s || s.ctx._closed) return ''
+  return s.task?.title || s.queue.at(-1)?.task?.title || (s.planning.size ? L('새 작업', 'a new task') : '')
+}
+
+// The callback's result for this person: { ok, email, via } or { ok: false, error }. Ends the connect
+// flow that is waiting (true) — taskId: only when it is that one (its own consent screen).
+export function googleConnected(userId, result, taskId = null) {
+  const c = connects.get(userId)
+  if (!c || (taskId && c.taskId !== taskId)) return false
+  c.settle(result.ok ? { state: 'connected', email: result.email, via: result.via } : { state: 'error', error: result.error })
+  return true
+}
+
+const connectReason = () => L('Google 계정으로 로그인하고 「허용」을 누르면 메일이 연결되고, 이 브라우저도 Google 에 로그인돼 NotebookLM 같은 Google 사이트를 바로 쓸 수 있어요. 화면은 「직접 로그인」으로 직접 다뤄요.',
+  'Sign in with your Google account and press "Allow": your mail gets connected, and this browser is signed in to Google too, so Google sites such as NotebookLM work right away. "Sign in yourself" lets you work the screen.')
+const PHONE_NEXT = () => L('「휴대폰에서 연결」을 누르면 지금 쓰는 기기에서 Google 에 로그인해 메일만 연결해요(NotebookLM 같은 Google 사이트는 이 브라우저에서 따로 로그인해야 해요).',
+  'Press "Connect on phone" to sign in to Google on the device you are using and connect the mail only (Google sites such as NotebookLM then need their own sign-in in this browser).')
+
+// url: Google's consent address; cookie: the state cookie (lib/googleConnect.js cookieFor);
+// ours(url): whether an address is this app's own (the callback, the done page) — those are not judged
+export async function connectGoogle({ userId, threadId, url, cookie, ours = () => false }) {
+  const s = await sessionOf(userId)
+  const busy = browserBusy(userId)
+  if (busy) {
+    throw Object.assign(new Error(L(`서버 브라우저가 지금 다른 작업('${busy}')을 하고 있어요. 그 작업이 끝나거나 멈춘 뒤 다시 연결하거나, 「휴대폰에서 연결」로 연결해 주세요.`,
+      `The server browser is busy with another task ('${busy}'). Connect again when it is done or stopped, or use "Connect on phone".`)), { status: 409 })
+  }
+  const title = L('Google 연결', 'Connect Google')
+  const steps = [L('Google 계정으로 로그인', 'Sign in with your Google account'), L('권한 허용', 'Allow access'), L('연결 확인', 'Connection confirmed')]
+  const card = await addMessage(userId, threadId, 'agent', 'task', { title, goal: title, steps: steps.map((t) => ({ text: t, done: false })), state: 'running', url, connect: 'google' })
+  const task = { id: card.id, userId, threadId, goal: L('Google 계정을 연결해 메일을 읽고, 이 브라우저도 Google 에 로그인한다', 'Connect the Google account for mail, and sign this browser in to Google'),
+    title, steps, cancelled: false, waiting: null, notes: [], log: [], unattended: false, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
+    walls: {}, judged: null, connect: true, stats: { turns: 0, llm: 0, walls: 0, wall_checks: [], skills_read: [], decisions: [] } }
+  s.task = task
+  s.threadId = threadId
+  await setThreadStatus(userId, threadId, 'working')
+  runConnect(s, task, { url, cookie, ours }).catch((e) => console.warn('[browser] google connect', e.message))
+  return { taskId: card.id }
+}
+
+async function runConnect(s, task, { url, cookie, ours }) {
+  const { userId } = task
+  const t0 = Date.now()
+  let outcome = null
+  const settle = (o) => { if (outcome) return; outcome = o; task.waiting?.(CONNECTED) }
+  connects.set(userId, { taskId: task.id, settle })
+  const timer = setTimeout(() => settle({ state: 'timeout' }), CONNECT.ms)
+  timer.unref?.()
+  try {
+    await s.ctx.addCookies([{ name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path, httpOnly: true, secure: cookie.secure,
+      sameSite: cookie.sameSite, expires: Math.floor((Date.now() + cookie.maxAgeMs) / 1000) }])
+    say(task, L('Google 여는 중', 'Opening Google'))
+    await s.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    const site = hostOf(url)
+    let seen = null, moved = null
+    while (!outcome && !task.cancelled) {
+      const answer = await waitForUser(s, task, {
+        need: 'login', site, siteName: 'Google', reason: connectReason(),
+        // a screen that changed and then stayed for one look is judged once (never on a timer): Google
+        // refusing this browser ends the wait; our own callback and done page are left to the callback
+        watch: async (snap) => {
+          if (outcome) return CONNECTED
+          if (ours(snap.url)) return null
+          const k = screenKey(snap)
+          if (k === seen) { moved = null; return null }
+          if (k !== moved) { moved = k; return null }
+          seen = k
+          moved = null
+          const verdict = await judgeWall(snap, task)
+          return verdict?.need === 'blocked' ? BLOCKED : null
+        },
+      })
+      if (answer === BLOCKED) { outcome ||= { state: 'blocked' }; break }
+      // 제어 돌려주기 before Google came back to us: the person is asked again (the card says what is left)
+    }
+  } catch (e) {
+    outcome ||= { state: 'error', error: failReason(e) }
+  } finally {
+    clearTimeout(timer)
+    if (connects.get(userId)?.taskId === task.id) connects.delete(userId)
+  }
+  const o = task.cancelled && !outcome ? { state: 'cancelled' } : outcome || { state: 'cancelled' }
+  const end = {
+    connected: () => ({ state: 'done', need: null, reason: '', steps: task.steps.map((t) => ({ text: t, done: true })),
+      summary: o.via === 'phone'
+        ? L(`휴대폰에서 Google 을 연결했어요(${o.email}). 메일은 연결됐지만 이 서버 브라우저는 아직 Google 에 로그인되지 않았어요.`, `Google was connected on the phone (${o.email}). The mail is connected; this server browser is not signed in to Google yet.`)
+        : L(`Google 에 연결했어요(${o.email}). 메일을 읽기 시작하고, 이 브라우저도 Google 에 로그인돼 있어서 NotebookLM 같은 Google 사이트를 바로 쓸 수 있어요.`, `Google is connected (${o.email}). I'm starting on your mail, and this browser is signed in to Google too, so Google sites such as NotebookLM work right away.`) }),
+    blocked: () => {
+      const reason = `${L('Google 이 이 서버 브라우저에서의 로그인을 받아 주지 않았어요.', "Google won't accept a sign-in from this server's browser.")} ${PHONE_NEXT()}`
+      return { state: 'failed', need: 'blocked', reason, summary: reason }
+    },
+    timeout: () => {
+      const reason = `${L(`${Math.max(1, Math.round(CONNECT.ms / 60000))}분 안에 Google 연결이 끝나지 않아 멈췄어요. 「다시 연결」로 처음부터 하거나,`, `Google wasn't connected within ${Math.max(1, Math.round(CONNECT.ms / 60000))} minutes, so I stopped. Start over with "Connect again", or`)} ${PHONE_NEXT()}`
+      return { state: 'failed', need: 'other', reason, summary: reason }
+    },
+    error: () => {
+      const reason = `${String(o.error || L('Google 연결에 실패했어요.', 'Connecting Google failed.')).trim()} ${PHONE_NEXT()}`
+      return { state: 'failed', need: 'other', reason, summary: reason }
+    },
+    cancelled: () => ({ state: 'cancelled', need: null, reason: '', summary: L('Google 연결을 멈췄어요.', 'I stopped connecting Google.') }),
+  }[o.state]()
+  try {
+    const shot = await pushFrame(userId, s)
+    if (s.task === task) s.task = null
+    await updateMessage(userId, task.id, { ...end, url: s.page.url(), shot, connect: 'google', site: hostOf(url), siteName: 'Google' })
+    // the card of a finished task shows no text of its own: the result is said in the chat (a stopped one
+    // says why on the card itself)
+    if (end.state === 'done') await addMessage(userId, task.threadId, 'agent', 'text', { text: end.summary })
+    say(task, null)
+    await setThreadStatus(userId, task.threadId, null)
+    console.log(`[browser] google connect ${task.id} ${o.state} in ${Math.round((Date.now() - t0) / 1000)}s · ${task.stats.wall_checks.length} page checks`)
+  } finally {
+    if (s.task === task) s.task = null
+    s.queue.shift()?.go()
+  }
+  return o
+}
+
 // Takeover: raw input forwarded from the live view (coords are 0..1 of the viewport).
 export async function input(userId, ev) {
   const s = sessions.get(userId)
