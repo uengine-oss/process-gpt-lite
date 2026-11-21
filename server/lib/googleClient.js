@@ -100,14 +100,14 @@ const oneWord = (v) => v.length > 0 && v.length <= 512 && !/\s/.test(v)
 export async function saveClient(tenant, { clientId, clientSecret } = {}, by = null) {
   const id = clean(clientId)
   let secret = clean(clientSecret)
-  if (!oneWord(id)) throw new VaultError(L('Client ID 를 확인해 주세요.', 'Please check the Client ID.'))
+  if (!oneWord(id)) throw new VaultError(L('Client ID를 확인해 주세요.', 'Please check the Client ID.'))
   // (no new secret: the saved one is kept only for the same Client ID — a secret belongs to one client)
   if (!secret) {
     const prev = await getSecret(companySubject(tenant), KIND, SITE)
-    if (prev?.client_id && prev.client_id !== id) throw new VaultError(L('Client ID 를 바꾸면 그 클라이언트의 Client secret 도 함께 넣어 주세요.', 'A new Client ID needs its own Client secret too.'))
+    if (prev?.client_id && prev.client_id !== id) throw new VaultError(L('Client ID를 바꾸면 그 클라이언트의 Client secret도 함께 넣어 주세요.', 'A new Client ID needs its own Client secret too.'))
     secret = prev?.client_secret || ''
   }
-  if (!oneWord(secret)) throw new VaultError(L('Client secret 을 넣어 주세요.', 'Please enter the Client secret.'))
+  if (!oneWord(secret)) throw new VaultError(L('Client secret을 넣어 주세요.', 'Please enter the Client secret.'))
   await putItem(companySubject(tenant), KIND, SITE, { username: id, client_id: id, client_secret: secret, saved_at: new Date().toISOString() },
     { actor: 'admin', detail: { tenant: String(tenant), by } })
   // one client per company: a previous one (another Client ID) goes, its secret with it — connections made

@@ -44,9 +44,9 @@ async function connect(provider) {
       <div class="h"><span>메일 연결</span><button aria-label="닫기" @click="emit('close')"><Icon name="close" :size="18" /></button></div>
       <template v-if="mode === 'pick'">
         <button class="opt press" :disabled="!cfg.google || busy" data-testid="mail-google" @click="google('browser')">
-          <b>Google 계정</b><small>{{ cfg.google ? '서버 브라우저에서 Google 에 로그인해 연결해요. NotebookLM 같은 Google 사이트도 함께 로그인돼요' : '회사 관리자가 설정 › 시스템 설정에서 Google 연결을 켜야 해요' }}</small>
+          <b>Google 계정</b><small>{{ cfg.google ? '서버 브라우저에서 Google에 로그인해 연결해요. NotebookLM 같은 Google 사이트도 함께 로그인돼요' : '회사 관리자가 설정 › 시스템 설정에서 Google 연결을 켜야 해요' }}</small>
         </button>
-        <button v-if="cfg.google" class="alt press" :disabled="busy" data-testid="mail-google-phone" @click="google('phone')"><u>휴대폰에서 연결</u> <small>· 이 기기에서 Google 에 로그인해 메일만 연결해요</small></button>
+        <button v-if="cfg.google" class="alt press" :disabled="busy" data-testid="mail-google-phone" @click="google('phone')"><u>휴대폰에서 연결</u> <small>· 이 기기에서 Google에 로그인해 메일만 연결해요</small></button>
         <p v-if="err" class="err">{{ err }}</p>
         <button class="opt press" @click="mode = 'imap'"><b>IMAP</b><small>앱 비밀번호로 연결 (Gmail·Naver·사내 메일)</small></button>
         <button class="opt press" :disabled="busy" @click="connect('demo')"><b>데모 메일함</b><small>가상의 거래처 메일 5통으로 흐름을 체험해요</small></button>

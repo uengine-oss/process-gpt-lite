@@ -134,7 +134,7 @@ async function saveName() {
 // 계정 › 연결 › 메일: switch Gmail ↔ IMAP ↔ 데모 메일함 with the onboarding sheet (MailConnect)
 const mailSheet = ref(false)
 // back from Google's consent on this device (휴대폰에서 연결, server/index.js callback): what came of it
-const googleBack = computed(() => (route.query.google === 'connected' ? { ok: true, text: 'Google 을 연결했어요. 메일을 읽기 시작해요.' }
+const googleBack = computed(() => (route.query.google === 'connected' ? { ok: true, text: 'Google을 연결했어요. 메일을 읽기 시작해요.' }
   : route.query.google_error ? { ok: false, text: String(route.query.google_error) } : null))
 const mailLabel = { gmail: 'Gmail', imap: 'IMAP', demo: '데모 메일함' }
 async function mailClosed() {

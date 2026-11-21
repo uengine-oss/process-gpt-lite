@@ -7,6 +7,14 @@
 
 ### 추가
 
+- **Google 연결을 운영에서 — 회사별 OAuth 클라이언트, 서버 브라우저에서 한 번에** (스펙 `openspec/specs/google-connect`, 결정 process-gpt `docs/decisions/2026-11.md` D-1122-01):
+  - 회사 관리자가 「설정 › 시스템 설정 › 회사 Google 연결」에서 Client ID · Client secret을 넣는다(보관함 봉투 암호화, secret은 다시 보여 주지 않음, 등록할 리디렉션 URI와 복사). 적용 순서는 회사 값 → `GOOGLE_CLIENT_ID`/`SECRET`. 새 SQL은 없다(보관함 테이블에 회사 주체로 저장한다).
+  - 메일 연결은 로그인한 Lite 사용자에게 붙는다(`POST /api/auth/google/connect`, Google 계정 주소가 달라도). 상태 쿠키는 회사 주소의 공개 경로(`/lite/api/auth/google`), 리디렉션 URI는 회사 주소 기준 — 게이트웨이 뒤에서 쿠키·콜백이 맞지 않던 문제를 고쳤다.
+  - 기본적으로 서버 브라우저에서 연결한다: 채팅의 「Google 연결」 카드 → 「직접 로그인」으로 로그인 · 허용 → 메일 토큰과 서버 브라우저의 Google 로그인이 함께 생겨 NotebookLM 같은 Google 사이트에 따로 로그인하지 않고 쓴다. Google이 거절하면 「휴대폰에서 연결」(메일만).
+  - 설치형 「Google로 계속하기」 로그인은 그대로다. Google 엔드포인트는 시험용으로 `PRO_GOOGLE_*_URL`로 바꿀 수 있다.
+  - 시험: `server/test/google-connect.test.js`, `google-connect.e2e.mjs`(7), `google-connect-gateway.e2e.mjs`(3), 가짜 Google `server/test/fixtures/fake-google.mjs`.
+  - 운영에서 사람이 할 일: GCP 클라이언트에 `https://<회사>.process-gpt.io/lite/api/auth/google/callback` 등록, 관리 화면에 값 넣기. 남은 위험: Google이 서버 브라우저(headless) 로그인을 거절할 수 있다(그때는 휴대폰에서 연결한다).
+
 - **휴대폰 녹화(2026-11-21) 반영 — 방 규칙으로 NotebookLM 슬라이드·팟캐스트** (spec `openspec/changes/notebooklm-room-review`, 결정 process-gpt `docs/decisions/2026-11.md` D-1121-08~11):
   - **방 규칙**: 프로젝트 방에서 「이 방에서 내가 주는 url이 있으면 … 노트북엘엠으로 슬라이드를 만들고 팟캐스트를 하나 만들어 주면 돼」처럼 말하면 그 방의 규칙이 된다. 그 뒤로는 링크만 올려도 서버 브라우저가 NotebookLM에서 작업을 시작한다. 규칙은 방 맨 위에 보이고 바로 끌 수 있다. 프로젝트 방의 메시지는 다른 처리보다 먼저 방 판정(모델, 0.7)을 받아 규칙을 정하는 말인지, 규칙의 대상인지를 가린다. 사이트에서 하는 일은 브라우저 스킬(`skills/notebooklm/SKILL.md`, 이름·설명만 먼저 보이고 본문은 `read_skill`)로 하고, 사이트 지식을 코드·시스템 프롬프트에 넣지 않는다. 규칙은 그 방의 안내 메시지에 저장하므로 운영 DB 작업이 없다(11-04의 `pro_room_rules` 테이블은 쓰지 않는다).
   - **작업 독**(11-01 구현을 이번에 반영): 일하는 브라우저 화면이 입력창 왼쪽 원으로 보이고, 누르면 가운데 카드로 커진다.

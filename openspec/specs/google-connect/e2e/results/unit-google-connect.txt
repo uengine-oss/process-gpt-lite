@@ -1,0 +1,18 @@
+◇ injected env (16) from .env
+✔ 회사 주체: 테넌트마다 다르고 늘 같은 UUID, 사람의 v4 UUID 와 겹치지 않는 v5 꼴 (0.736625ms)
+✔ 게이트웨이: 회사 주소에서만 시작하고, 리디렉션·쿠키 경로는 공개 경로(/lite) 기준 (0.7945ms)
+✔ 설치형: 페이지 주소와 상관없이 이 설치의 주소(PRO_PUBLIC_URL) (0.089917ms)
+✔ 상태: 같은 브라우저의 쿠키와 같은 테넌트일 때 한 번만 쓰인다 (0.376042ms)
+✔ 회사 클라이언트: 보관함에 봉투 암호화, 비밀값은 화면에도 DB 행에도 없고, 회사 값 → env 순서 (140.85775ms)
+◇ injected env (16) from .env
+✔ login requests identity only and binds authorization to PKCE (1.030083ms)
+✔ mail connection explicitly requests offline Gmail access (0.117709ms)
+✔ code exchange rejects unverified identity and forwards PKCE verifier (1.383042ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 818.399333

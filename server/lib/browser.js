@@ -1295,9 +1295,9 @@ export function googleConnected(userId, result, taskId = null) {
   return true
 }
 
-const connectReason = () => L('Google 계정으로 로그인하고 「허용」을 누르면 메일이 연결되고, 이 브라우저도 Google 에 로그인돼 NotebookLM 같은 Google 사이트를 바로 쓸 수 있어요. 화면은 「직접 로그인」으로 직접 다뤄요.',
+const connectReason = () => L('Google 계정으로 로그인하고 「허용」을 누르면 메일이 연결되고, 이 브라우저도 Google에 로그인돼 NotebookLM 같은 Google 사이트를 바로 쓸 수 있어요. 화면은 「직접 로그인」으로 직접 조작해요.',
   'Sign in with your Google account and press "Allow": your mail gets connected, and this browser is signed in to Google too, so Google sites such as NotebookLM work right away. "Sign in yourself" lets you work the screen.')
-const PHONE_NEXT = () => L('「휴대폰에서 연결」을 누르면 지금 쓰는 기기에서 Google 에 로그인해 메일만 연결해요(NotebookLM 같은 Google 사이트는 이 브라우저에서 따로 로그인해야 해요).',
+const PHONE_NEXT = () => L('「휴대폰에서 연결」을 누르면 지금 쓰는 기기에서 Google에 로그인해 메일만 연결해요(NotebookLM 같은 Google 사이트는 이 브라우저에서 따로 로그인해야 해요).',
   'Press "Connect on phone" to sign in to Google on the device you are using and connect the mail only (Google sites such as NotebookLM then need their own sign-in in this browser).')
 
 // url: Google's consent address; cookie: the state cookie (lib/googleConnect.js cookieFor);
@@ -1317,7 +1317,7 @@ export async function connectGoogle({ userId, threadId, url, cookie, ours = () =
   try {
     card = await addMessage(userId, threadId, 'agent', 'task', { title, goal: title, steps: steps.map((t) => ({ text: t, done: false })), state: 'running', url, connect: 'google' })
   } catch (e) { if (s.task?.connect && s.task.id === null) s.task = null; throw e }
-  const task = { id: card.id, userId, threadId, goal: L('Google 계정을 연결해 메일을 읽고, 이 브라우저도 Google 에 로그인한다', 'Connect the Google account for mail, and sign this browser in to Google'),
+  const task = { id: card.id, userId, threadId, goal: L('Google 계정을 연결해 메일을 읽고, 이 브라우저도 Google에 로그인해요', 'Connect the Google account for mail, and sign this browser in to Google'),
     title, steps, cancelled: false, waiting: null, notes: [], log: [], unattended: false, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     walls: {}, judged: null, connect: true, stats: { turns: 0, llm: 0, walls: 0, wall_checks: [], skills_read: [], decisions: [] } }
   s.task = task
@@ -1379,8 +1379,8 @@ async function runConnect(s, task, { url, cookie, ours }) {
   const end = {
     connected: () => ({ state: 'done', need: null, reason: '', steps: task.steps.map((t) => ({ text: t, done: true })),
       summary: o.via === 'phone'
-        ? L(`휴대폰에서 Google 을 연결했어요(${o.email}). 메일은 연결됐지만 이 서버 브라우저는 아직 Google 에 로그인되지 않았어요.`, `Google was connected on the phone (${o.email}). The mail is connected; this server browser is not signed in to Google yet.`)
-        : L(`Google 에 연결했어요(${o.email}). 메일을 읽기 시작하고, 이 브라우저도 Google 에 로그인돼 있어서 NotebookLM 같은 Google 사이트를 바로 쓸 수 있어요.`, `Google is connected (${o.email}). I'm starting on your mail, and this browser is signed in to Google too, so Google sites such as NotebookLM work right away.`) }),
+        ? L(`휴대폰에서 Google을 연결했어요(${o.email}). 메일은 연결됐지만 이 서버 브라우저는 아직 Google에 로그인되지 않았어요.`, `Google was connected on the phone (${o.email}). The mail is connected; this server browser is not signed in to Google yet.`)
+        : L(`Google에 연결했어요(${o.email}). 메일을 읽기 시작하고, 이 브라우저도 Google에 로그인돼 있어서 NotebookLM 같은 Google 사이트를 바로 쓸 수 있어요.`, `Google is connected (${o.email}). I'm starting on your mail, and this browser is signed in to Google too, so Google sites such as NotebookLM work right away.`) }),
     blocked: () => {
       const reason = `${L('Google 이 이 서버 브라우저에서의 로그인을 받아 주지 않았어요.', "Google won't accept a sign-in from this server's browser.")} ${PHONE_NEXT()}`
       return { state: 'failed', need: 'blocked', reason, summary: reason }

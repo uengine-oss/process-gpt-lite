@@ -234,7 +234,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
     }
     try {
       if (refused) throw new Error(refused)
-      if (req.query.error) throw new Error(req.query.error === 'access_denied' ? L('Google 에서 허용하지 않았어요.', 'Access was not allowed on Google.') : L('Google 로그인에 실패했어요.', 'Google sign-in failed.'))
+      if (req.query.error) throw new Error(req.query.error === 'access_denied' ? L('Google에서 허용하지 않았어요.', 'Access was not allowed on Google.') : L('Google 로그인에 실패했어요.', 'Google sign-in failed.'))
       if (typeof req.query.code !== 'string') throw new Error(L('Google 인증 코드가 없어요.', 'There is no Google authorization code.'))
       const client = await googleClient.clientFor(st.tenant)
       if (!client) throw new Error(L('이 회사의 Google 연결 설정이 지워졌어요. 관리자에게 알려 주세요.', "This company's Google connection settings were removed. Please tell an administrator."))
@@ -244,7 +244,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
         return res.redirect(`${st.base}/auth/done#${encodeURIComponent(JSON.stringify(login))}`)
       }
       const granted = new Set((tok.scope || '').split(' '))
-      if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error(L('메일 연결에 Gmail 읽기 권한이 필요해요. 다시 연결하면서 Gmail 을 허용해 주세요.', 'Connecting mail needs permission to read Gmail. Connect again and allow Gmail.'))
+      if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error(L('메일을 연결하려면 Gmail 읽기 권한이 필요해요. 다시 연결하면서 Gmail을 허용해 주세요.', 'Connecting mail needs permission to read Gmail. Connect again and allow Gmail.'))
       // the person who started it, in the tenant they started it in — whichever Google account they picked
       const userId = st.userId
       const previous = await vault.getSecret(userId, 'oauth', 'google')
@@ -271,7 +271,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
 // The server browser's last page after the consent (the card says the rest)
 app.get('/api/auth/google/done', (req, res) => withLang(resolveLang({ header: req.query.lang }), () => {
   // (fixed sentences only: the reason is on the card — a link must not put its own words on this app's page)
-  googlePage(res, req.query.error ? { ok: false, text: L('Lite 로 돌아가면 카드에 이유와 다른 방법이 보여요.', 'Back in Lite, the card shows why and what else you can do.') } : { ok: true, text: L('Lite 로 돌아가면 카드에 결과가 보여요. 이 브라우저는 Google 에 로그인돼 있어요.', 'Back in Lite, the card shows the result. This browser is signed in to Google.') })
+  googlePage(res, req.query.error ? { ok: false, text: L('Lite로 돌아가면 카드에 이유와 다른 방법이 보여요.', 'Back in Lite, the card shows why and what else you can do.') } : { ok: true, text: L('Lite로 돌아가면 카드에 결과가 보여요. 이 브라우저는 Google에 로그인돼 있어요.', 'Back in Lite, the card shows the result. This browser is signed in to Google.') })
 }))
 
 // The company's own Google OAuth client (decision ①, lib/googleClient.js): administrators only; the

@@ -1,0 +1,17 @@
+◇ injected env (9) from .env
+pgpt-pro server on :8796
+PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off
+[team] deepagents worktree: no — continue hands the branch files over as attachments
+[team] 29795c8c is the first administrator of pro-gc-e2e
+✔ 설치형 「Google로 계속하기」 로그인은 그대로: 이 설치의 클라이언트, 신원 범위만, 콜백이 로그인시킨다 (3220.509666ms)
+✔ 회사 OAuth 클라이언트: 관리자만(아니면 403), 리디렉션 URI 와 복사, 비밀값은 다시 보여 주지 않음 (휴대폰 390) (2141.384417ms)
+✔ 휴대폰에서 연결: 로그인한 사람에게 붙고(구글 이메일이 달라도), 다른 브라우저·다른 상태는 거부, 한 번만 (92.414792ms)
+[browser] google connect e466515b-51e6-4445-917e-32a606d4b417 connected in 2s · 1 page checks
+✔ 서버 브라우저에서 연결: 카드가 곧바로 직접 로그인을 기다리고, 휴대폰 화면의 직접 제어로 동의하면 완료 · 같은 브라우저에 Google 쿠키 (7030.208125ms)
+[browser] google connect 2820b119-43f9-42e2-b12d-be70970eafa1 blocked in 1s · 1 page checks
+✔ Google 이 서버 브라우저를 거절하면(판정 refused) 카드에 「휴대폰에서 연결」, 그 단추로 이 기기에서 연결 (4533.990291ms)
+[google connect] browser Google에서 허용하지 않았어요.
+[browser] google connect a5a8d1c7-ed90-44c4-9f1c-be5fd248229e error in 3s · 1 page checks
+[browser] google connect 22df7489-f4cd-40d3-9017-cbe3419d2b55 timeout in 2s · 1 page checks
+✔ 허용하지 않으면 카드가 그 이유와 다른 방법을 말한다 · 바쁜 브라우저는 409 · 15분(시험은 짧게) 안에 끝나지 않으면 끝낸다 (4965.808458ms)
+✔ 영어 화면: 관리 화면 · 연결 카드 · 작업 카드의 새 문구가 영어로 (ko-en.json) (6696.255375ms)

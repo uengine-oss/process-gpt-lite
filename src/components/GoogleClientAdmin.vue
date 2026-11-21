@@ -23,7 +23,7 @@ async function load() {
 }
 onMounted(load)
 
-const using = computed(() => ({ company: '회사 값을 쓰고 있어요', env: '설치 기본값(서버 설정)을 쓰고 있어요', null: '아직 없어요 · 사람들이 Google 을 연결할 수 없어요' })[String(info.value?.using ?? null)])
+const using = computed(() => ({ company: '회사 값을 쓰고 있어요', env: '설치 기본값(서버 설정)을 쓰고 있어요', null: '아직 없어요 · 사람들이 Google을 연결할 수 없어요' })[String(info.value?.using ?? null)])
 // a Client secret belongs to one Client ID: a new ID (or a first save) needs its secret
 const canSave = computed(() => !!clientId.value.trim() && !!secret.value.trim())
 
@@ -38,7 +38,7 @@ async function save() {
   } catch (e) { err.value = e.message } finally { busy.value = false }
 }
 async function remove() {
-  if (!confirm('회사 Google 연결 값을 지울까요? 지우면 설치 기본값이 없을 때 사람들이 Google 을 새로 연결할 수 없어요.')) return
+  if (!confirm('회사 Google 연결 값을 지울까요? 지우면 설치 기본값이 없을 때 사람들이 Google을 새로 연결할 수 없어요.')) return
   busy.value = true
   err.value = ''
   try {
@@ -64,7 +64,7 @@ const when = (iso) => (iso ? new Date(iso).toLocaleDateString('ko-KR') : '')
   <p class="cap">회사 Google 연결</p>
   <div class="list glass gca" data-testid="google-client-admin">
     <div class="li col">
-      <div class="main"><b>OAuth 클라이언트</b><small>이 회사 사람들이 메일·캘린더를 Google 로 연결할 때 써요. Google Cloud 콘솔의 「API 및 서비스 › 사용자 인증 정보」에서 만든 웹 애플리케이션용 OAuth 클라이언트 값을 넣어요.</small></div>
+      <div class="main"><b>OAuth 클라이언트</b><small>이 회사 사람들이 메일·캘린더를 Google로 연결할 때 써요. Google Cloud 콘솔의 「API 및 서비스 › 사용자 인증 정보」에서 만든 웹 애플리케이션용 OAuth 클라이언트 값을 넣어요.</small></div>
       <small class="state" :class="info?.using ? 'ok' : 'off'" data-testid="google-client-using">{{ using }}</small>
       <small v-if="info?.company?.savedAt" class="dim">{{ when(info.company.savedAt) }}에 저장했어요</small>
     </div>
@@ -76,7 +76,7 @@ const when = (iso) => (iso ? new Date(iso).toLocaleDateString('ko-KR') : '')
     <form class="li col" @submit.prevent="save">
       <input v-model="clientId" class="in" placeholder="Client ID (…apps.googleusercontent.com)" autocomplete="off" spellcheck="false" aria-label="Client ID" data-testid="google-client-id" />
       <input v-model="secret" class="in" type="password" :placeholder="info?.company ? 'Client secret (바꿀 때만)' : 'Client secret'" autocomplete="new-password" aria-label="Client secret" data-testid="google-client-secret" />
-      <small v-if="info?.company" class="hint">저장한 Client secret 은 다시 보여 주지 않아요. 바꿀 때만 새 값을 넣어요.</small>
+      <small v-if="info?.company" class="hint">저장한 Client secret은 다시 보여 주지 않아요. 바꿀 때만 새 값을 넣어요.</small>
       <p v-if="err" class="ferr" data-testid="google-client-error">{{ err }}</p>
       <div class="btns">
         <button v-if="info?.company" type="button" class="pill-btn sm danger" :disabled="busy" data-testid="google-client-remove" @click="remove">지우기</button>
