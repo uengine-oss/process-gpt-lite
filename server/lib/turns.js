@@ -70,5 +70,37 @@ export function running({ userId, threadId, conv }) {
 }
 export const waiting = ({ userId, threadId }) => [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && !x.started && !x.finished)
 
+// A browser task started by a correction ("노트북엘엠 사이트에 들어가서 생성해야") replaces the agent turn
+// of the request it corrects: left running, that turn came back first with "완료했습니다 · PowerPoint ·
+// MP3" while NotebookLM had not even started (recording 2026-11-21).
+// The agent turns (delegate marks them: t.agent) of this thread still in flight — running or waiting
+// their turn — that came before the given one:
+export const agentTurnsAhead = ({ userId, threadId, before = null }) => [...live.values()].filter((x) =>
+  x.agent && !x.finished && !x.stopped && x.userId === userId && x.threadId === threadId && x !== before && (!before || x.seq < before.seq))
+
+// Does a new browser request replace them?
+//   'stop' — a project room is one conversation: a new browser request there takes the place of the turn ahead
+//   'ask'  — the main chat runs several things side by side: a short message with no link or file of its
+//            own may be a correction of one of them; the judge decides (pickReplaced)
+//   'keep' — nothing ahead, or a request of its own
+export const CORRECTION_BAR = 0.7
+export const CORRECTION_MAX = 80
+export function replaceRule({ room, text, files = [], ahead = [] }) {
+  if (!ahead.length) return 'keep'
+  if (room) return 'stop'
+  const s = String(text || '').trim()
+  if (files.length || /https?:\/\//i.test(s) || s.length > CORRECTION_MAX) return 'keep'
+  return 'ask'
+}
+// the judge's answer (option t<i> per turn ahead, 'new' for a separate request) → the turns to stop
+export const JUDGE_AHEAD = 3
+export const judgedAhead = (ahead) => ahead.slice(-JUDGE_AHEAD)
+export function pickReplaced(shown, probabilities, bar = CORRECTION_BAR) {
+  const p = probabilities || {}
+  const best = Object.keys(p).filter((k) => k !== 'new').sort((a, b) => p[b] - p[a])[0]
+  const i = best ? Number(best.slice(1)) : -1
+  return best && p[best] >= bar && shown[i] ? [shown[i]] : []
+}
+
 // tests
 export const _live = live

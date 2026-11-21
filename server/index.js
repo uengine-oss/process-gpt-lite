@@ -390,12 +390,32 @@ app.post('/api/threads', auth, async (req, res) => {
   // the folder the project works in (an existing one, or a new one by name) — checked first, so a refusal makes no project
   let folder = null
   try { folder = await TF.projectFolder(req.user, { folder: req.body.folder, newFolder: req.body.newFolder }) } catch (e) { return res.status(e.status || 500).json({ error: e.message }) }
-  const t = await chat({ messages: [{ role: 'system', content: L('요청을 5~12자 한국어 프로젝트 제목으로. 제목만.', 'Turn the request into a 2-5 word English project title. Only the title.') }, { role: 'user', content: req.body.text }], temperature: 0.2 })
-  const [row] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project',$2) returning *`, [req.user.id, t.content.replace(/["'.]/g, '').trim()])
+  // the room is made at once under the request's first words, and the model's title replaces them when it
+  // comes: waiting for it first left a new project with nothing on screen for 20 s (recording 2026-11-21)
+  const text = String(req.body.text || '')
+  const draft = projectDraftTitle(text)
+  const [row] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project',$2) returning *`, [req.user.id, draft])
   if (folder) row.folder = await TF.linkProject(req.user, row, folder).catch((e) => { console.warn('[folders] project link', e.message); return null })
   emit(req.user.id, 'thread', row)
   res.json(row)
+  chat({ messages: [{ role: 'system', content: L('요청을 5~12자 한국어 프로젝트 제목으로. 제목만.', 'Turn the request into a 2-5 word English project title. Only the title.') }, { role: 'user', content: text }], temperature: 0.2 })
+    .then(async (t) => {
+      // (a model that answered the request instead — "링크된 영상은 … 로 판단했습니다" — leaves the first words)
+      const title = String(t.content || '').split('\n').map((s) => s.replace(/["'.*#`“”‘’]/g, '').trim()).find(Boolean) || ''
+      if (!title || title.length > L(30, 60) || title === draft) return
+      // (unless it was renamed meanwhile)
+      const [named] = await q(`update pro_threads set title=$2 where id=$1 and title=$3 returning *`, [row.id, title, draft])
+      if (named) emit(req.user.id, 'thread', named)
+    })
+    .catch((e) => console.warn('[threads] title', e.message))
 })
+// a new project's title until the model names it: the first line of the request, cut short
+const DRAFT_TITLE_MAX = 24
+function projectDraftTitle(text) {
+  const line = String(text || '').trim().split('\n')[0].replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim()
+  if (!line) return L('새 프로젝트', 'New project')
+  return line.length > DRAFT_TITLE_MAX ? `${line.slice(0, DRAFT_TITLE_MAX).trim()}…` : line
+}
 app.use('/api', threadFolderRoutes(auth))
 // 방 규칙(lib/roomRules.js): 이 방에 걸린 약속을 보고 끈다
 app.get('/api/threads/:id/rule', auth, async (req, res) => res.json({ rule: await ruleOf(req.user.id, req.params.id).catch(() => null) }))
