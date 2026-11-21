@@ -37,6 +37,7 @@ const fake = await startFakeGoogle({ clients: { [ENV_CLIENT]: 'env-secret', [COM
 const judge = await startJudge({
   [TITLES.consent]: { login_needed: 0.92, refused: 0.03, human_check: 0.02, ok: 0.03 },
   [TITLES.refused]: { login_needed: 0.05, refused: 0.9, human_check: 0.02, ok: 0.03 },
+  [TITLES.error]: { login_needed: 0.04, refused: 0.06, human_check: 0.01, site_error: 0.86, ok: 0.03 },
 })
 // no model is needed; anything that asks one gets an empty answer
 const llm = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '{}' } }] })) }) })
@@ -270,6 +271,20 @@ async function inBrowser() {
   await shot(p, 'gc-connect-done-390.png')
   await ctx.close()
 }
+
+test('Google 이 오류 화면(400)으로 답하면(판정 site_error) 거절과 같이 끝나고 「휴대폰에서 연결」', async () => {
+  fake.state.error = true
+  try {
+    const r = await call('member', '/auth/google/connect', { method: 'POST', body: { mode: 'browser', origin: web } })
+    assert.equal(r.status, 200)
+    const { taskId } = await r.json()
+    const end = await until(async () => { const c = await cardOf(taskId); return c.state === 'failed' && c }, '오류 화면으로 끝남', 20000)
+    assert.deepEqual([end.need, end.connect], ['blocked', 'google'])
+    assert.match(end.reason, /받아 주지 않았어요/)
+    assert.match(end.reason, /휴대폰에서 연결/)
+    assert.ok(judge.calls[TITLES.error] >= 1, '오류 화면은 판정으로 알아봤다')
+  } finally { fake.state.error = false }
+})
 
 test('Google 이 서버 브라우저를 거절하면(판정 refused) 카드에 「휴대폰에서 연결」, 그 단추로 이 기기에서 연결', async () => {
   fake.state.refuse = true

@@ -19,7 +19,8 @@ e2e 는 끝에서 `process.exit` 를 하므로 성패는 출력의 ✔/✖ 줄�
 | 다른 회사 주소 | `google-connect-gateway.e2e.mjs` 「휴대폰에서 연결」 |
 | 서버 브라우저에서 동의 | `google-connect.e2e.mjs` 「서버 브라우저에서 연결」, `google-connect-gateway.e2e.mjs` |
 | Google 이 거절한다 | `google-connect.e2e.mjs` 「Google 이 서버 브라우저를 거절하면」 |
+| Google 이 오류 화면으로 답한다 | `google-connect.e2e.mjs` 「Google 이 오류 화면(400)으로 답하면」, `browserWalls.test.js` 「사이트 오류 화면」, 실제 판정 모델 `results/live-wall-judge.txt` |
 | 허용하지 않는다 · 바쁘다 · 시간이 지난다 | `google-connect.e2e.mjs` 「허용하지 않으면」 |
 | 설치형 로그인은 그대로 | `google-connect.e2e.mjs` 「설치형 「Google로 계속하기」」 |
 
-결과(`results/`): 단위 8/8, 설치형 e2e 7/7, 게이트웨이 e2e 3/3. 실제 Google 에는 로그인을 시도하지 않았다 — 운영 확인 칸.
+결과(`results/`): 단위 8/8, 설치형 e2e 8/8, 게이트웨이 e2e 3/3. 시험에서는 실제 Google 에 로그인하지 않았다. 운영(11-22)에서는 Google 이 서버 브라우저에 400 오류 화면을 냈다 — 결정 D-1122-02.
