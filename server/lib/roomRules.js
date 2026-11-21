@@ -1,20 +1,29 @@
-// 방 규칙(spec pgpt-pro_room-rules): "앞으로 이 방에 붙여넣는 링크나 파일은 바로 NotebookLM 슬라이드와 팟캐스트로". 한 프로젝트 방의 약속이다.
-// 후행 습관(lib/followups.js)과 달리 사람이 "곧바로"라고 말한 것이므로 묻지 않고 실행하고, 그래서 방 맨 위에 늘 보이며 끌 수 있다.
-// 말을 읽는 것은 모델(첫 토큰 확률)이고, 이번 메시지가 "올린 것"인지는 규칙이 정한다.
+// 방 규칙(spec pgpt-pro_room-rules): "이 방에 내가 주는 링크는 NotebookLM 으로 슬라이드와 팟캐스트로". 한 프로젝트 방의 약속이다.
+// 사람이 "주면 돼"라고 정한 것이므로 묻지 않고 실행하고, 그래서 방 맨 위에 늘 보이며 끌 수 있다.
+// 말을 읽는 것은 모델(판정 lib/judge.js)이고, 이번 메시지가 "올린 것"인지는 규칙이 정한다.
+//
+// 규칙은 따로 테이블을 두지 않고, 규칙을 받아 적은 그 방의 안내 메시지(content.roomRule)에 둔다(2026-11-21).
+// 운영 DB 에 SQL 을 따로 돌리지 않아도 되고, 방을 지우면 규칙도 함께 사라진다. 방마다 마지막 규칙 하나만 쓴다.
 import { config } from '../config.js'
 import { q } from './supa.js'
 import { L } from './lang.js'
 import { chatJson } from './llm.js'
-import { oddsOf } from './decide.js'
+import { judge } from './judge.js'
 
 export const RULE_BAR = 0.7
 export const LEFT_WORDS_MAX = 30
-const T = () => config.tenantId
 const URLS = /https?:\/\/[^\s)'"<>]+/gi
 const cap = (t, n = 400) => String(t || '').trim().slice(0, n)
 
-// only words like these are worth a model read
-const ROOM_WORDS = /(앞으로|이제부터|다음부터|from now on).*(이\s*방|여기|이\s*프로젝트|붙여\s*넣|올리|링크|url|첨부|파일|this room|here|link|file)|(이\s*방|여기에|this room).*(앞으로|이제부터|올리면|붙여\s*넣으면|from now on)/i
+// only words like these are worth a model read:
+//   "앞으로 이 방에 올리는 링크는 …", "이 방에서 내가 주는 url이 있으면 …", "여기에 링크 보내면 …"
+const ROOM_WORDS = new RegExp([
+  /(앞으로|이제부터|다음부터|from now on).*(이\s*방|여기|이\s*프로젝트|붙여\s*넣|올리|링크|url|첨부|파일|this room|here|link|file)/.source,
+  /(이\s*방|여기에|this room).*(앞으로|이제부터|올리면|붙여\s*넣으면|from now on)/.source,
+  /(이\s*방|여기|이\s*프로젝트).{0,20}(주는|올리는|붙이는|보내는|넣는|던지는|준|올린|보낸)\s*(url|링크|주소|파일|영상|문서|자료)/.source,
+  /(url|링크|주소|파일)\s*(을|를|이|가)?\s*(주면|올리면|보내면|붙이면|넣으면|던지면|있으면|오면)/.source,
+  /(any|every|each)\s+(link|url|file)s?\s+(i|you)\s+(send|post|put|share|drop)/.source,
+].join('|'), 'i')
 export const maybeRoomRule = (text) => ROOM_WORDS.test(String(text || '')) && String(text).length <= 400
 
 // Is this message something handed in, rather than something said? A link with few words around it, or a file.
@@ -32,31 +41,39 @@ export function roomGoal(action, input) {
 
 export const ROOM_QUESTION = () => L('이 말은 무엇인가?', 'What is this message?')
 export const ROOM_OPTIONS = () => [
-  { key: 'rule', label: L('앞으로 이 방에 올라오는 링크나 파일로 무엇을 할지 정하는 말이다', 'It sets what to do with the links or files put in this room from now on') },
+  { key: 'rule', label: L('앞으로 이 방에 올라오는(주는) 링크나 파일로 무엇을 할지 정하는 말이다', 'It sets what to do with the links or files put in this room from now on') },
   { key: 'not', label: L('지금 한 번 시키는 일이거나, 일반적인 말투·취향이거나, 정해진 시각의 예약이거나, 질문이다', 'One piece of work now, a general style preference, a schedule at set times, or a question') },
 ]
 export const roomState = (text) => L(`프로젝트 방에서 사용자가 한 말: ${cap(text)}`, `What the person said in a project room: ${cap(text)}`)
 
+// What the rule does, as the assistant writes it down. The service the person named stays in it:
+// "노트북 lm으로" must not turn into "PowerPoint 를 만든다" (recording 2026-11-21).
 export async function ruleAction(text) {
   const j = await chatJson(
-    L('사용자가 앞으로 이 방에 올라오는 링크나 파일로 할 일을 정했다. "노트북 lm"은 구글 NotebookLM 이다. 그 일을 비서가 받아 적은 한 문장으로 JSON 으로만 답한다: {"action": "이 링크나 파일로 …한다"}', 'The person set what to do with the links or files put in this room from now on. Answer only in JSON, one sentence: {"action": "With this link or file, …"}'),
+    L('사용자가 앞으로 이 방에 올라오는 링크나 파일로 할 일을 정했다. "노트북 lm"·"노트북엘엠"은 구글 NotebookLM 이다. 사용자가 이름을 댄 서비스·도구는 그대로 넣는다. 그 일을 비서가 받아 적은 한 문장으로 JSON 으로만 답한다: {"action": "이 링크나 파일로 …한다"}',
+      'The person set what to do with the links or files put in this room from now on. Keep any service or tool they named. Answer only in JSON, one sentence: {"action": "With this link or file, …"}'),
     cap(text), { model: config.llm.fastModel, temperature: 0, think: false }).catch(() => null)
   return String(j?.action || '').trim() ? cap(j.action) : cap(text)
 }
 
-export const ruleOf = async (userId, threadId) => (await q('select * from pro_room_rules where thread_id=$1 and user_id=$2', [threadId, userId]))[0] || null
-// → the rule just set, or null when this message does not set one
+// The rule a message set reads as {id: message id, said, action, runs}
+const asRule = (row) => (row ? { id: row.id, said: row.content.roomRule.said, action: row.content.roomRule.action, runs: Number(row.content.roomRule.runs) || 0, at: row.created_at } : null)
+export async function ruleOf(userId, threadId) {
+  const [row] = await q(`select m.id, m.content, m.created_at from pro_messages m join pro_threads t on t.id = m.thread_id
+    where m.thread_id=$1 and t.user_id=$2 and jsonb_typeof(m.content->'roomRule') = 'object' and coalesce(m.content->'roomRule'->>'off', '') = ''
+    order by m.created_at desc limit 1`, [threadId, userId])
+  return asRule(row)
+}
+// → {said, action} when this message sets a rule (the caller posts the message that holds it), or null
 export async function readRoomRule(user, threadId, text) {
   if (!maybeRoomRule(text)) return null
-  const r = await oddsOf(roomState(text), ROOM_QUESTION(), ROOM_OPTIONS())
-  if (!r || r.choice !== 'rule' || r.confidence < RULE_BAR) return null
-  const action = await ruleAction(text)
-  const [row] = await q(`insert into pro_room_rules(tenant_id,user_id,thread_id,said,action) values ($1,$2,$3,$4,$5)
-    on conflict (thread_id) do update set said=excluded.said, action=excluded.action, runs=0, created_at=now() returning *`, [T(), user.id, threadId, cap(text), action])
-  return row
+  const r = await judge({ state: roomState(text), question: ROOM_QUESTION(), options: ROOM_OPTIONS() })
+  if ((r?.probabilities?.rule ?? 0) < RULE_BAR) return null
+  return { said: cap(text), action: await ruleAction(text) }
 }
-export const ranRule = (id) => q('update pro_room_rules set runs=runs+1 where id=$1', [id])
+export const ranRule = (id) => q(`update pro_messages set content = jsonb_set(content, '{roomRule,runs}', to_jsonb(coalesce((content->'roomRule'->>'runs')::int, 0) + 1)) where id=$1`, [id])
 export async function removeRule(userId, threadId) {
-  const rows = await q('delete from pro_room_rules where thread_id=$1 and user_id=$2 returning id', [threadId, userId])
+  const rows = await q(`update pro_messages m set content = jsonb_set(m.content, '{roomRule,off}', 'true'::jsonb) from pro_threads t
+    where t.id = m.thread_id and m.thread_id=$1 and t.user_id=$2 and jsonb_typeof(m.content->'roomRule') = 'object' and coalesce(m.content->'roomRule'->>'off', '') = '' returning m.id`, [threadId, userId])
   return { removed: rows.length }
 }

@@ -8,6 +8,7 @@ import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail } from './
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
+import { ruleOf, removeRule } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
 import { listSchedules, deleteSchedule, startScheduleTicker } from './lib/scheduler.js'
@@ -396,6 +397,9 @@ app.post('/api/threads', auth, async (req, res) => {
   res.json(row)
 })
 app.use('/api', threadFolderRoutes(auth))
+// 방 규칙(lib/roomRules.js): 이 방에 걸린 약속을 보고 끈다
+app.get('/api/threads/:id/rule', auth, async (req, res) => res.json({ rule: await ruleOf(req.user.id, req.params.id).catch(() => null) }))
+app.delete('/api/threads/:id/rule', auth, async (req, res) => res.json(await removeRule(req.user.id, req.params.id)))
 app.get('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()

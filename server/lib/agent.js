@@ -236,7 +236,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       noAgentTurn()
       const ok = L(`알겠습니다. 이 방에 올리시는 링크와 파일은 앞으로 바로 처리할게요. ${set.action}`, `Got it. Links and files you put in this room will be handled right away. ${set.action}`)
       onDelta?.(ok)
-      return addMessage(userId, threadId, 'agent', 'text', { text: ok, roomRule: set.id })
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok, roomRule: { said: set.said, action: set.action, runs: 0 } })
     }
     const rule = await ruleOf(userId, threadId).catch(() => null)
     const input = rule && roomInput(text, files)
