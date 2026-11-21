@@ -263,13 +263,19 @@ export async function runMission(scheduleId, trigger = 'cron', opts = {}) {
 // connect it, once per run. The outcome is kept in the run's result.
 async function deliverTelegram(s, text, threadId) {
   if (!sendsToTelegram(s) || !String(text || '').trim()) return null
+  const flag = (on) => q(`update pro_schedules set state = coalesce(state,'{}'::jsonb) || $2::jsonb where id=$1`, [s.id, JSON.stringify({ telegram_warned: on })]).catch(() => {})
   try {
     const { sendTelegram } = await import('./telegram.js')
     await sendTelegram(s.user_id, String(text), { title: s.name })
+    if (s.state?.telegram_warned) await flag(false)
     return 'sent'
   } catch (e) {
     const code = e.code || 'failed'
     console.warn(`[mission] telegram ${s.id.slice(0, 8)}: ${code} ${e.message}`)
+    // not connected yet: said once for the task, not under every hourly result
+    const notSetUp = code === 'telegram_not_connected' || code === 'telegram_not_linked'
+    if (notSetUp && s.state?.telegram_warned) return code
+    if (notSetUp) await flag(true)
     if (threadId) {
       await addMessage(s.user_id, threadId, 'agent', 'chip', { icon: 'bell', scheduleId: s.id, text: code === 'telegram_not_connected' || code === 'telegram_not_linked'
         ? L('텔레그램이 연결되지 않아 보내지 못했어요 · 설정 › 연결에서 텔레그램 봇을 연결해 주세요', "Couldn't send to Telegram: no bot connected · connect it in Settings › Connections")
@@ -291,7 +297,8 @@ async function runMissionAs(s, trigger, opts = {}) {
   emit(s.user_id, 'mission', { scheduleId: s.id, run })
   try {
     if (s.process_id) return await runProcessSchedule(s, run)
-    if (!s.skill) return await runPromptSchedule(s, run, { ...opts, manual: trigger === 'manual' })
+    // (test: "지금 한 번 실행해 봐" from chat — the page's 「지금 실행」 keeps the task's own rules)
+    if (!s.skill) return await runPromptSchedule(s, run, { ...opts, manual: trigger === 'manual' && !!opts.test })
     const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
     const { user, session } = await sessionFor(p.email, p.name)
     const input = { ...s.params, seen: s.state?.seen || [], now: now() }
@@ -330,14 +337,14 @@ async function runMissionAs(s, trigger, opts = {}) {
     if (!ok) { await announceFailure(s, done); return done }
     // hark-style: stay quiet only when the run says nothing changed (unknown → the person hears about it);
     // a run asked for now (manual) always answers, in the conversation that asked
-    if (trigger === 'manual' || s.notify === 'always' || (s.notify !== 'never' && changed !== false)) {
+    if ((trigger === 'manual' && opts.test) || s.notify === 'always' || (s.notify !== 'never' && changed !== false)) {
       const t = opts.threadId || s.thread_id || (await mainThread(s.user_id)).id
       await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id })
       const created = (result?.created || []).map((c) => `- ${c.date} ${c.summary}`).join('\n')
       const said = `${summary}${created ? `\n\n${created}` : ''}`
       await addMessage(s.user_id, t, 'agent', 'text', { text: said, ...(out.tools?.length ? { work: [...new Set(out.tools)].slice(0, 12).map((tool) => ({ tool })) } : {}) })
       // a skill run is the owner's own job: only the person who set it up hears about it
-      if (trigger !== 'manual') await notifyUser(s.user_id, { type: 'mission', title: s.name, text: summary, url: `/pro/threads/${t}` })
+      if (!(trigger === 'manual' && opts.test)) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: summary, url: `/pro/threads/${t}` })
       const telegram = await deliverTelegram(s, said, t)
       if (telegram) await q(`update pro_mission_runs set result = coalesce(result,'{}'::jsonb) || $2::jsonb where id=$1`, [run.id, JSON.stringify({ telegram })])
     }

@@ -107,13 +107,14 @@ test('long text goes in numbered pieces of at most 4096 characters, nothing lost
   assert.ok(hard.every((p) => !/[\ud800-\udbff](?![\udc00-\udfff])/.test(p)), 'no lone surrogate')
 })
 
-test('the chat is the one that sent /start <nonce>, else the newest private /start since connecting', () => {
+test('the chat is only the one that sent /start <nonce> — a plain /start (anyone who knows the bot) is not linked', () => {
   const now = 1_800_000_000
   const msg = (id, chat, text, date = now, type = 'private') => ({ update_id: id, message: { chat: { id: chat, type, first_name: `사람${chat}` }, from: { id: chat, first_name: `사람${chat}` }, text, date } })
   const ups = [msg(1, 11, '/start abc123'), msg(2, 22, '/start'), msg(3, 33, '/start', now, 'group'), msg(4, 44, '안녕하세요')]
   assert.deepEqual(T.findStartChat(ups, 'abc123', { since: now }), { chatId: 11, chatName: '사람11' })
-  assert.deepEqual(T.findStartChat(ups, 'other', { since: now }), { chatId: 22, chatName: '사람22' })
-  assert.equal(T.findStartChat([msg(5, 55, '/start', now - 3600)], 'x', { since: now }), null, 'a /start from before connecting is not taken')
+  assert.equal(T.findStartChat(ups, 'other', { since: now }), null, 'a plain /start is never linked')
+  assert.equal(T.plainStartSeen(ups, { since: now }), true, 'but the card is told to use the link')
+  assert.equal(T.plainStartSeen([msg(5, 55, '/start', now - 3600)], { since: now }), false, 'a /start from before connecting does not count')
   assert.equal(T.findStartChat([msg(6, 66, '/start', now, 'group'), msg(7, 77, 'hi')], 'x', { since: now }), null)
   assert.equal(T.findStartChat([], 'x'), null)
   const named = { message: { chat: { id: 9, type: 'private', first_name: '지윤', last_name: '김' }, text: '/start@my_lite_alert_bot n1', date: now } }

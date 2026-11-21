@@ -20,6 +20,7 @@ const timedOut = ref(false)
 const tested = ref('')
 const sureOff = ref(false)
 let timer = null, deadline = 0, inFlight = false, offTimer = null
+const hint = ref('')
 
 const phase = computed(() => (!st.value ? 'loading' : !st.value.connected ? 'token' : !st.value.linked ? 'start' : 'linked'))
 const stateText = computed(() => ({ loading: '', token: '연결 안 됨', start: '시작 기다림', linked: '' })[phase.value])
@@ -32,7 +33,9 @@ const subText = computed(() => ({
 
 async function load() {
   try { st.value = await api('/telegram') } catch (e) { st.value = { connected: false }; err.value = e.message }
-  if (phase.value === 'start') { open.value = true; watchStart() }
+  // a card that comes up already waiting (a second card in the chat, the settings row) does not poll on its
+  // own — 「봇 열기」 or 「다시 확인」 starts it (one loop, not one per card)
+  if (phase.value === 'start') { open.value = true; timedOut.value = true }
 }
 onMounted(() => { load(); document.addEventListener('visibilitychange', onVisible) })
 onBeforeUnmount(() => { stop(); clearTimeout(offTimer); document.removeEventListener('visibilitychange', onVisible) })
@@ -65,6 +68,7 @@ async function tick() {
   inFlight = true
   try {
     const r = await api('/telegram/link', { method: 'POST' })
+    hint.value = r.hint === 'use_link' ? '봇을 이름으로 찾아 누른 시작은 받지 않아요. 여기의 「봇 열기」로 열어 시작을 눌러 주세요.' : ''
     if (r.linked) {
       stop()
       st.value = { ...st.value, linked: true, chatName: r.chatName, link: undefined }
@@ -157,6 +161,7 @@ async function disconnect({ sure = false } = {}) {
             <a class="dark-btn sm link-btn" :href="st.link" target="_blank" rel="noopener" data-test="tg-open-bot" @click="openedBot">봇 열기</a>
             <span v-if="waiting" class="wait" data-test="tg-waiting"><i class="dot" /> 기다리는 중…</span>
           </div>
+          <p v-if="hint" class="late" data-test="tg-hint">{{ hint }}</p>
           <p v-if="timedOut" class="late">아직 시작 신호가 없어요. <button class="txt" data-test="tg-recheck" @click="watchStart">다시 확인</button></p>
         </div>
       </div>

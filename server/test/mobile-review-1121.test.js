@@ -107,3 +107,26 @@ test('R-1121-09 a stock task keeps the names as said: no guessed listing codes',
   // not a stock request: untouched
   assert.equal(stripInventedCodes('회의(ABC1) 정리', '회의 정리해줘'), '회의(ABC1) 정리')
 })
+
+// pre-merge review (2026-11-21): the words must not take over other requests
+test('R-1121-10 Telegram words are ours only with a clear ask — a how-to question or a new recurring job goes to the router', () => {
+  assert.equal(telegramIntent('텔레그램 봇 만드는 방법 알려줘'), null)
+  assert.equal(telegramIntent('매일 아침 텔레그램 채널 요약해서 알려줘'), null)
+  assert.equal(telegramIntent('텔레그램 좋아?'), null)
+  assert.equal(telegramIntent('텔레그램으로도 알려줘'), 'alerts')
+})
+
+test('R-1121-11 "run it now" is not taken when the message names something else to run', () => {
+  assert.equal(wantsRunNow('휴가 신청 프로세스 바로 실행해줘'), false)
+  assert.equal(wantsRunNow('이 스크립트 먼저 실행해 봐'), false)
+  assert.equal(wantsRunNow('곧바로 하나 정도 한번 실행해 봐'), true)
+})
+
+test('R-1121-12 only listing-shaped codes are taken out of a stock task; units and abbreviations stay', () => {
+  const out = stripInventedCodes('KODEX 200(ETF) 종가를 매일 9시(KST) 기준, 테슬라(TSLA), AST모바일(031440), 상위 (10)개', '주가 알려줘')
+  assert.equal(out, 'KODEX 200(ETF) 종가를 매일 9시(KST) 기준, 테슬라, AST모바일, 상위 (10)개')
+})
+
+test('R-1121-13 a sentence after an inline JSON snippet is not cut from a notice', () => {
+  assert.equal(noticeText('설정 {"a":1} 을 저장했고 결과는 목록 [1]'), '설정 {"a":1} 을 저장했고 결과는 목록 [1]')
+})

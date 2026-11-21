@@ -33,5 +33,9 @@ export function stripInventedCodes(prompt, said) {
   const p = String(prompt || '')
   if (!MARKET_WORDS.test(`${p} ${said || ''}`)) return p
   const heard = String(said || '').toLowerCase()
-  return p.replace(/\s*[(（]\s*([A-Za-z0-9.:-]{2,12})\s*[)）]/g, (m, code) => (/\d|^[A-Z.]{2,6}$/.test(code) && !heard.includes(code.toLowerCase()) ? '' : m))
+  // only what is shaped like a listing code: six digits (국내), or a ticker (TSLA, ASTS.O) — never units or
+  // common abbreviations ("(ETF)", "(KST)", "(USD)", "(10)")
+  const COMMON = /^(ETF|ETN|KST|UTC|USD|KRW|JPY|EUR|CNY|PER|PBR|ROE|EPS|AI|IPO|CEO|API|GDP|CPI|FOMC|YOY|QOQ|MAX|MIN|AVG)$/
+  const listing = (c) => /^\d{6}$/.test(c) || (/^[A-Z]{2,5}(\.[A-Z]{1,2})?$/.test(c) && !COMMON.test(c))
+  return p.replace(/\s*[(（]\s*([A-Za-z0-9.:-]{2,12})\s*[)）]/g, (m, code) => (listing(code) && !heard.includes(code.toLowerCase()) ? '' : m))
 }

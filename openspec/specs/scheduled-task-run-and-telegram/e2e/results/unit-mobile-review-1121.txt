@@ -1,17 +1,21 @@
-✔ R-1121-01 a notice title drops the JSON an agent answer carried, and stays short (0.833625ms)
-✔ R-1121-02 a cut-off fence, a bare JSON tail and markdown marks (0.195666ms)
-✔ R-1121-03 **bold** closes before a Korean particle (18.838833ms)
-✔ R-1121-04 "run it now" is not a new schedule; a delay or a time is (0.616958ms)
-✔ R-1121-05 Telegram words: alerts · send · off · connect (0.403125ms)
-✔ R-1121-06 which task: named, else the one this conversation just set up or ran (1.065583ms)
-✔ R-1121-07 the work trail names steps and sites, never a command or a key (0.695375ms)
-✔ R-1121-08 a stock request gets where prices are and how to find the listing (0.338041ms)
-✔ R-1121-09 a stock task keeps the names as said: no guessed listing codes (0.167541ms)
-ℹ tests 9
+✔ R-1121-01 a notice title drops the JSON an agent answer carried, and stays short (0.891833ms)
+✔ R-1121-02 a cut-off fence, a bare JSON tail and markdown marks (0.18725ms)
+✔ R-1121-03 **bold** closes before a Korean particle (19.605083ms)
+✔ R-1121-04 "run it now" is not a new schedule; a delay or a time is (0.89025ms)
+✔ R-1121-05 Telegram words: alerts · send · off · connect (0.66475ms)
+✔ R-1121-06 which task: named, else the one this conversation just set up or ran (0.779125ms)
+✔ R-1121-07 the work trail names steps and sites, never a command or a key (0.476833ms)
+✔ R-1121-08 a stock request gets where prices are and how to find the listing (0.314583ms)
+✔ R-1121-09 a stock task keeps the names as said: no guessed listing codes (0.218666ms)
+✔ R-1121-10 Telegram words are ours only with a clear ask — a how-to question or a new recurring job goes to the router (0.237334ms)
+✔ R-1121-11 "run it now" is not taken when the message names something else to run (0.043ms)
+✔ R-1121-12 only listing-shaped codes are taken out of a stock task; units and abbreviations stay (0.089666ms)
+✔ R-1121-13 a sentence after an inline JSON snippet is not cut from a notice (0.074541ms)
+ℹ tests 13
 ℹ suites 0
-ℹ pass 9
+ℹ pass 13
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 99.094042
+ℹ duration_ms 102.603459

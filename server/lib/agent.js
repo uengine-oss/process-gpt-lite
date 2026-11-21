@@ -263,7 +263,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // now — not a new schedule a minute later (2026-11-21 phone review). It has to be named or be the one
   // this conversation just set up or ran; otherwise the words may be about a process and go on as before.
   if (!files.length && wantsRunNow(text) && !generationPending(threadId)) {
-    const s = pickSchedule(await listSchedules(userId), text, recentScheduleIds(await history(threadId, 16)), { only: false })
+    // (the last exchange only: an hourly task's own run lines further up are not "the one we were talking about")
+    const s = pickSchedule(await listSchedules(userId), text, recentScheduleIds((await history(threadId, 6)).slice(-5)), { only: false })
     if (s) { noAgentTurn(); return runScheduleNowTurn({ userId, threadId, s, onDelta }) }
   }
   // Telegram: a task's alerts there too ("급등락이 감지되면 내 텔레그램 봇으로 알려줘"), an answer sent
@@ -445,7 +446,7 @@ async function runScheduleNowTurn({ userId, threadId, s, onDelta, acked = false 
   }
   await addMessage(userId, threadId, 'agent', 'chip', { icon: 'clock', text: L(`지금 실행 · ${s.name}`, `Running now · ${s.name}`), scheduleId: s.id })
   // the run is its own agent turn, outside this message's place in line (lib/turns.js)
-  turnCtx.exit(() => runMission(s.id, 'manual', { threadId })).catch((e) => console.warn('[schedule] run now', e.message))
+  turnCtx.exit(() => runMission(s.id, 'manual', { threadId, test: true })).catch((e) => console.warn('[schedule] run now', e.message))
   return msg
 }
 
@@ -472,7 +473,8 @@ async function telegramTurn({ userId, threadId, text, kind, onDelta }) {
     await card(null)
     return m
   }
-  const s = pickSchedule(await listSchedules(userId), text, recentScheduleIds(await history(threadId, 16)))
+  const all = await listSchedules(userId)
+  const s = pickSchedule(all, text, recentScheduleIds((await history(threadId, 10)).slice(-8)), { only: false })
   if (kind === 'off') {
     if (!s) return say(L('어느 예약 작업의 텔레그램 알림을 끌지 찾지 못했어요. 작업 이름을 알려 주세요.', "I couldn't tell which scheduled task's Telegram alerts to turn off. Tell me its name."))
     await setChannel(s, 'telegram', false)
@@ -480,7 +482,12 @@ async function telegramTurn({ userId, threadId, text, kind, onDelta }) {
     await chip(L(`텔레그램 알림 끔 · ${s.name}`, `Telegram alerts off · ${s.name}`), s)
     return m
   }
-  if (kind === 'alerts' && s) {
+  if (kind === 'alerts' && !s) {
+    if (!all.length) return say(L('텔레그램으로 알려 드릴 예약 작업이 아직 없어요. 무엇을 언제 확인할지 먼저 말해 주세요.', "There's no scheduled task to alert you about yet. Tell me what to check and when first."))
+    return say(L(`어느 예약 작업의 알림을 텔레그램으로 보낼까요? ${all.slice(0, 5).map((x) => `「${x.name}」`).join(', ')} 중에서 이름을 말해 주세요.`,
+      `Which scheduled task should alert you on Telegram? Name one of: ${all.slice(0, 5).map((x) => `"${x.name}"`).join(', ')}.`))
+  }
+  if (kind === 'alerts') {
     await setChannel(s, 'telegram', true)
     if (ready) {
       const m = await say(L(`좋아요. 「${s.name}」에서 알릴 일이 생기면 채팅과 함께 텔레그램(@${status.bot})으로도 보내 드릴게요.`,

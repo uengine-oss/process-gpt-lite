@@ -136,6 +136,8 @@ async function onSend(text) {
     await app.newProject(text)
     return router.replace(`/projects/${app.activeId}`)
   }
+  // (the instance is still loading or failed: nothing to send it to yet)
+  if (instMode.value && !app.instance) return
   if (instMode.value && app.instance) {
     // questions on an instance page carry its state so the agent can answer about it
     const i = app.instance

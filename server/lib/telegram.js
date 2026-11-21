@@ -95,9 +95,14 @@ export function findStartChat(updates, nonce, { since = 0 } = {}) {
   const starts = (updates || [])
     .map((u) => u?.message)
     .filter((m) => m?.chat?.type === 'private' && typeof m.text === 'string' && /^\/start(@\w+)?(\s|$)/.test(m.text))
-  const pick = (nonce && starts.findLast((m) => m.text.trim().split(/\s+/)[1] === nonce)) ||
-    starts.findLast((m) => (m.date || 0) >= since - 300)
+  // only the chat that opened this connection's link (/start <nonce>): a bot's name is public, so a plain
+  // /start may be anyone's (2026-11-21 review: a stranger pressing Start first would get the alerts)
+  const pick = nonce && starts.findLast((m) => m.text.trim().split(/\s+/)[1] === nonce)
   return pick ? { chatId: pick.chat.id, chatName: nameOf(pick.chat, pick.from) } : null
+}
+// a plain /start since connecting (the bot opened by searching its name, not by the link): the card asks for the link
+export function plainStartSeen(updates, { since = 0 } = {}) {
+  return (updates || []).some((u) => u?.message?.chat?.type === 'private' && /^\/start(@\w+)?\s*$/.test(String(u.message.text || '')) && (u.message.date || 0) >= since - 300)
 }
 
 // ---------- Bot API ----------
@@ -164,7 +169,7 @@ async function doLink(userId) {
     throw e
   }
   const found = findStartChat(updates, sec.nonce, { since: sec.since || 0 })
-  if (!found) return { linked: false }
+  if (!found) return { linked: false, ...(plainStartSeen(updates, { since: sec.since || 0 }) ? { hint: 'use_link' } : {}) }
   await save(userId, { ...stripId(sec), chat_id: found.chatId, chat_name: found.chatName })
   // what was read is acknowledged, so an old /start is never taken for a later connection
   const last = updates.reduce((m, u) => Math.max(m, u.update_id || 0), 0)

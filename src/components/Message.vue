@@ -161,6 +161,13 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
       <Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
     </button>
     <div v-else-if="msg.kind === 'chip'" class="chip"><Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> {{ c.text }}</div>
+    <!-- a document answer's trail too (its card is above; the text answer has it under its bubble) -->
+    <div v-if="workLine && msg.kind === 'doc'" class="work" :class="{ open: workOpen }" data-test="work-trail">
+      <button class="wl press" :aria-expanded="workOpen" @click="workOpen = !workOpen">{{ workLine }} <span class="car">{{ workOpen ? '▴' : '▾' }}</span></button>
+      <ol v-if="workOpen">
+        <li v-for="(w, i) in work" :key="i"><b>{{ w.phase || w.tool }}</b><template v-if="w.n > 1"> ×{{ w.n }}</template><small v-if="workWhere(w)">{{ workWhere(w) }}</small></li>
+      </ol>
+    </div>
   </div>
 </template>
 
