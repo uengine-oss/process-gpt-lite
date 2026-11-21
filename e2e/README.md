@@ -400,6 +400,22 @@ ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「�
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
+
+### 18. 휴대폰 녹화 11-21 — NotebookLM 방 규칙 · 브라우저 스킬 · 멈춘 이유와 할 일 (스펙 `room-rules` · `browser-handoff` · `project-room` · `office-mobile`, 결정 D-1121-08~11)
+
+모델 판정은 가짜 판정 서버(`PRO_JUDGE_URL`)로 모델 없이 보고, 실제 사내 모델 확인은 `server/test/room-rules.e2e.mjs` · `browser-walls.live.mjs` 로 따로. 증거 표는 `openspec/specs/room-rules/e2e/README.md`.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 프로젝트 방의 말은 다른 지름길보다 먼저 방 판정(set_rule · run_rule · other, 0.7), 규칙은 안내 메시지에 | D-1121-08 | `room-rules.test.js` · `browser-replaces-turn.test.js` | 단위 | ✅ |
+| 규칙 막대 · 끄기 · 다른 사람은 못 봄 | D-1121-08 | F-RR-01~04 · F-NB-06 | feature | ✅ |
+| 사이트 지식은 `skills/<이름>/SKILL.md`, 본문은 read_skill 로만(시스템 프롬프트에 없음) | D-1121-08 | `browser-long-work.test.js` · `browser-walls.e2e.mjs` | 단위 · e2e | ✅ |
+| 막힌 화면은 새 페이지마다 판정 → 로그인 필요면 모델 턴 없이 「로그인 필요 · <사이트>」 · 「직접 로그인」 | D-1121-10 | `browser-walls.e2e.mjs` · F-NB-01·02 | e2e · feature | ✅ |
+| 누르는 자리 물결 · 요소 이름 알약 · 새 탭 따라가기 · 헛돎 5턴 · 프로필 /data · 잠금 정리 | D-1121-10 | `browser-walls.e2e.mjs` · F-NB-03 | e2e · feature | ✅ |
+| 바로잡는 말이면(판정 0.7) 앞 작업을 멈추고 이유, 규칙 실행은 아무것도 대신하지 않음, 앞 첨부는 따라가지 않음 | D-1121-09 | `browser-replaces-turn.test.js` | 단위 | ✅ |
+| 새 프로젝트 즉시 응답 · 실패 시 글 돌려주기 · 소리 파일 플레이어 | D-1121-09·10 | `new-project-fast.test.js` · F-NB-04·05 | 단위 · feature | ✅ |
+| 휴대폰에서 접힌 리본은 탭 줄도 숨김 · PPT 폭 맞춤 · ‹ › | D-1121-11 | F-OM-01~04 | feature | ✅ |
+| 운영에서 사람이 직접 로그인한 뒤 NotebookLM 슬라이드 · 오디오가 끝까지 만들어져 카드로 옴 | D-1121-10 | — (사람의 구글 로그인 필요) | — | ✗ |
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash
