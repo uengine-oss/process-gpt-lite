@@ -7,7 +7,6 @@ import crypto from 'node:crypto'
 import http from 'node:http'
 import path from 'node:path'
 import fs from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { startStudio } from './fixtures/studio.mjs'
 
 const scripts = {}
@@ -72,7 +71,7 @@ after(async () => {
   llm.close()
   await q('delete from pro_threads where user_id=$1', [user])
   await pool.end()
-  fs.rmSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.browser-profiles', user), { recursive: true, force: true })
+  fs.rmSync(path.join(browser.PROFILES, user), { recursive: true, force: true })
 })
 
 test('생성을 기다렸다가 받은 파일이 파일 카드로 온다. 기다림은 동작 하나다', async () => {

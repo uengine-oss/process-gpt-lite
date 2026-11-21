@@ -6,22 +6,55 @@
 import { chromium } from 'playwright'
 import path from 'node:path'
 import fs from 'node:fs'
+import os from 'node:os'
+import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { chat } from './llm.js'
 import { emit } from './bus.js'
 import { candidates, useItem, putItem, setStatus, audit, normSite } from './vault.js'
 import { addMessage, updateMessage, setThreadStatus } from './store.js'
-import { q } from './supa.js'
+import { q, admin } from './supa.js'
 import { decide, sure } from './decide.js'
 import { config } from '../config.js'
 import { L, isEn } from './lang.js'
 import { saveAttachment } from './attachments.js'
 import { workspaceHostPath } from './missions.js'
-import { guideFor } from './browserGuides.js'
+import { guideFor, wallOf, siteName } from './browserGuides.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const PROFILES = path.join(here, '..', '.browser-profiles')
+
+// Where the profiles (and so the sign-ins people made in them) live: PRO_BROWSER_PROFILES, else the
+// data volume when there is one (production mounts an empty PVC at /data — a profile inside the
+// container is lost on every deploy), else next to the server.
+export function profilesDir(env = process.env, data = '/data') {
+  if (env.PRO_BROWSER_PROFILES) return path.resolve(env.PRO_BROWSER_PROFILES)
+  try {
+    if (fs.statSync(data).isDirectory()) { fs.accessSync(data, fs.constants.W_OK); return path.join(data, 'browser-profiles') }
+  } catch { /* no data volume here */ }
+  return path.join(here, '..', '.browser-profiles')
+}
+export const PROFILES = profilesDir()
+try { fs.mkdirSync(PROFILES, { recursive: true }) } catch (e) { console.warn('[browser] profiles', PROFILES, e.message) }
+
+// Chromium's lock links in a profile. A pod replaced by a new one (Recreate) leaves them on the volume,
+// naming a host that is gone, and Chromium may refuse a profile it thinks another machine holds. They
+// are cleared before a launch, unless they name a Chromium still running on this machine.
+const LOCKS = ['SingletonLock', 'SingletonSocket', 'SingletonCookie']
+const alive = (pid) => { try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' } }
+export function clearStaleLocks(dir) {
+  let holder = ''
+  try { holder = fs.readlinkSync(path.join(dir, 'SingletonLock')) } catch { /* no lock, or not a link */ }
+  const m = /^(.+)-(\d+)$/.exec(holder)
+  if (m && m[1] === os.hostname() && alive(Number(m[2]))) return []
+  const cleared = []
+  for (const f of LOCKS) {
+    try { fs.unlinkSync(path.join(dir, f)); cleared.push(f) } catch { /* not there */ }
+  }
+  return cleared
+}
+
 const sessions = new Map() // userId -> { ctx, page, cdp, frame, task, threadId }
+const launching = new Map() // userId -> the launch in progress (two tasks at once share it)
 
 // Fields whose value must never reach the model or the live view.
 const SECRET_SELECTOR = 'input[type=password], [data-pro-secret], input[autocomplete^="cc-"], input[autocomplete="one-time-code"]'
@@ -72,41 +105,93 @@ const PAGE_GUARD = () => {
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') report(scopeOf(e.target)) }, true)
 }
 
-// A file the page downloads during a task goes to the person as a file card.
+// The type a downloaded file is stored with, so its link plays (audio, video) or opens (PDF, images) in
+// the person's browser. Markup is left as a download: it is never rendered from the storage origin.
+const MEDIA = {
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm',
+  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+  txt: 'text/plain; charset=utf-8', md: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+}
+export const mediaType = (name) => MEDIA[String(name).split('.').pop().toLowerCase()] || ''
+
+// A file the page downloads during a task goes to the person as a file card. Its link is the storage
+// copy (lib/attachments.js), which opens from anywhere: the agent's pods and this server share no disk.
 async function keepDownload(userId, s, d) {
   const task = s.task
   if (!task) return d.cancel().catch(() => {})
   const name = d.suggestedFilename()
   try {
-    const saved = await saveAttachment({ id: userId }, name, '', await fs.promises.readFile(await d.path()))
-    await addMessage(userId, task.threadId, 'agent', 'file', { name: saved.name, url: saved.url, path: saved.path })
+    const type = mediaType(name)
+    const saved = await saveAttachment({ id: userId }, name, type, await fs.promises.readFile(await d.path()))
+    await addMessage(userId, task.threadId, 'agent', 'file', { name: saved.name, url: saved.url, size: saved.size, ...(type ? { type } : {}), ...(saved.path ? { path: saved.path } : {}), taskId: task.id })
     ;(task.downloads ||= []).push(saved.name)
     task.log.push({ kind: 'download', text: L(`${saved.name} 받기`, `Download ${saved.name}`), ok: true })
   } catch (e) {
     console.warn('[browser] download', e.message)
-    task.notes.push(L(`${name} 파일을 받지 못했어요(${e.message.slice(0, 60)})`, `Could not keep ${name} (${e.message.slice(0, 60)})`))
+    const why = e.status === 413 ? L('50MB보다 커서', 'it is over 50 MB') : e.message.slice(0, 60)
+    task.notes.push(L(`${name} 파일을 받지 못했어요(${why})`, `Could not keep ${name} (${why})`))
+    // the person hears it now, not only in the summary at the end
+    await addMessage(userId, task.threadId, 'agent', 'text', { text: L(`사이트에서 받은 「${name}」 파일을 채팅에 올리지 못했어요(${why}). 그 사이트에서 직접 받아 주세요.`, `I couldn't put the file "${name}" from the site in the chat (${why}). Please download it from the site yourself.`) }).catch(() => {})
   }
 }
 
+const VIEW = { width: 1280, height: 800 }
+// the data volume is shared with other features: Chromium's cache stays small
+const LAUNCH_ARGS = ['--disk-cache-size=52428800']
+
 async function sessionOf(userId) {
-  let s = sessions.get(userId)
+  const s = sessions.get(userId)
   if (s && !s.ctx._closed) return s
-  fs.mkdirSync(PROFILES, { recursive: true })
-  const ctx = await chromium.launchPersistentContext(path.join(PROFILES, userId), {
-    headless: true, viewport: { width: 1280, height: 800 }, locale: 'ko-KR',
-  })
+  // two tasks asked for at once share one launch (a second launch on the same profile would fail)
+  if (!launching.has(userId)) launching.set(userId, launch(userId).finally(() => launching.delete(userId)))
+  return launching.get(userId)
+}
+
+async function launch(userId) {
+  const dir = path.join(PROFILES, userId)
+  fs.mkdirSync(dir, { recursive: true })
+  const cleared = clearStaleLocks(dir) // no live session of this person here (sessionOf checked)
+  if (cleared.length) console.log('[browser] cleared stale profile locks', userId, cleared.join(','))
+  const ctx = await chromium.launchPersistentContext(dir, { headless: true, viewport: VIEW, locale: 'ko-KR', args: LAUNCH_ARGS })
   ctx.on('close', () => { ctx._closed = true })
-  s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [], planning: new Map() }
+  const s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [], planning: new Map() }
   await ctx.addInitScript(PAGE_GUARD)
   await ctx.exposeBinding('__proVaultCapture', (_src, payload) => onCapture(userId, s, payload).catch((e) => console.warn('[vault capture]', e.message)))
   const watchDownloads = (page) => page.on('download', (d) => keepDownload(userId, s, d).catch((e) => console.warn('[browser] download', e.message)))
-  ctx.on('page', watchDownloads)
+  // a link that opens a new tab, a sign-in popup: the work (and the live view) moves there, and back when it closes
+  ctx.on('page', (p) => { watchDownloads(p); if (s.page) follow(userId, s, p).catch((e) => console.warn('[browser] new page', e.message)) })
   s.page = ctx.pages()[0] || await ctx.newPage()
   watchDownloads(s.page)
   await s.page.evaluate(PAGE_GUARD).catch(() => {})
   sessions.set(userId, s)
   await startScreencast(userId, s)
   return s
+}
+
+async function follow(userId, s, p) {
+  if (p === s.page || p.isClosed()) return
+  const from = s.page
+  p.once('close', () => {
+    if (s.page !== p || s.ctx._closed) return
+    const back = !from.isClosed() ? from : s.ctx.pages().filter((x) => !x.isClosed()).at(-1)
+    if (back) usePage(userId, s, back).catch((e) => console.warn('[browser] back to page', e.message))
+  })
+  await usePage(userId, s, p)
+  await p.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {})
+}
+
+async function usePage(userId, s, p) {
+  s.page = p
+  await p.bringToFront().catch(() => {})
+  const old = s.cdp
+  s.cdp = null
+  await old?.send('Page.stopScreencast').catch(() => {})
+  await old?.detach().catch(() => {})
+  await startScreencast(userId, s).catch((e) => console.warn('[browser] screencast', e.message))
+  if (s.task) say(s.task, L(`${hostOf(p.url()) || '새 탭'}에서 이어서 하는 중`, `Going on in ${hostOf(p.url()) || 'the new tab'}`))
 }
 
 // A login or card the user typed (takeover) is sealed into the vault at once as 'captured';
@@ -128,17 +213,26 @@ async function onCapture(userId, s, p) {
 }
 
 async function startScreencast(userId, s) {
-  s.cdp = await s.ctx.newCDPSession(s.page)
-  s.cdp.on('Page.screencastFrame', async (f) => {
-    s.frame = f.data
-    if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data: f.data, url: s.page.url() })
-    await s.cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {})
+  const page = s.page
+  const cdp = await s.ctx.newCDPSession(page)
+  s.cdp = cdp
+  cdp.on('Page.screencastFrame', async (f) => {
+    if (s.page === page) {
+      s.frame = f.data
+      if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data: f.data, url: page.url() })
+    }
+    await cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {})
   })
-  await s.cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 800, everyNthFrame: 2 })
+  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: VIEW.width, maxHeight: VIEW.height, everyNthFrame: 2 })
 }
 
+// A page busy with its own scripts must not hold a task for minutes: every look at it has a limit.
+const SHOT_MS = 6000
+const EVAL_MS = 8000
+const within = (p, ms, fallback) => Promise.race([p, new Promise((r) => setTimeout(() => r(fallback), ms).unref?.())]).catch(() => fallback)
+
 async function pushFrame(userId, s) {
-  const shot = await s.page.screenshot({ type: 'jpeg', quality: 55 }).catch(() => null)
+  const shot = await s.page.screenshot({ type: 'jpeg', quality: 55, timeout: SHOT_MS }).catch(() => null)
   if (!shot) return null
   s.frame = shot.toString('base64')
   if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data: s.frame, url: s.page.url() })
@@ -169,8 +263,9 @@ const SNAPSHOT_JS = () => {
 }
 
 // Slow work on a page (a report, an audio file being made) is waited for here, without spending the model's turns.
-export const WAIT = { everyMs: 15000, maxMinutes: 30, taskMaxMinutes: 60 }
+export const WAIT = { everyMs: 15000, maxMinutes: 30, taskMaxMinutes: 60, watchMs: 2000, settleMs: 500 }
 
+const STEP_TOOLS = new Set(['goto', 'click', 'type', 'fill_secret', 'scroll', 'wait_for_page', 'attach_file', 'note'])
 const TOOLS = [
   ['goto', 'Open a URL', { url: 'string' }],
   ['click', 'Click element by index', { i: 'number' }],
@@ -194,7 +289,11 @@ const TOOLS = [
     name, description,
     parameters: {
       type: 'object',
-      properties: Object.fromEntries(Object.entries(props).map(([k, t]) => [k, t === 'array' ? { type: 'array', items: { type: 'string' } } : { type: t }])),
+      properties: {
+        ...Object.fromEntries(Object.entries(props).map(([k, t]) => [k, t === 'array' ? { type: 'array', items: { type: 'string' } } : { type: t }])),
+        // a step finished by this very action is marked with it: no turn spent on step_done alone
+        ...(STEP_TOOLS.has(name) ? { done: { type: 'number', description: 'Number of the plan step this action completes, if it does' } } : {}),
+      },
       required: Object.keys(props).filter((k) => !['enter', 'note', 'options', 'until_text', 'gone_text', 'name'].includes(k)),
     },
   },
@@ -234,6 +333,11 @@ export async function runBrowserTask({ userId, threadId, goal, startUrl, onActio
   // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
   const card = await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '' })
   s.planning.set(card.id, false)
+  // an idle browser opens the start page while the plan is being made (the page is not anyone else's)
+  const early = startUrl && !s.task && !s.queue.length && s.planning.size === 1
+    ? (emit(userId, 'status', { threadId, text: L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`) }),
+      s.page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).then(() => true, () => true))
+    : null
   const p = await plan(goal).catch((e) => { console.warn('[browser] plan', e.message); return { title: firstLine(goal), steps: [] } })
   const cancelledEarly = s.planning.get(card.id)
   s.planning.delete(card.id)
@@ -243,7 +347,9 @@ export async function runBrowserTask({ userId, threadId, goal, startUrl, onActio
     ...(ahead ? { reason: L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`) } : {}),
   })
   const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
-    gates, gatedUrl: null, stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, early_finish: false, decisions: [] } }
+    gates, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0,
+    stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, walls: 0, stuck: 0, early_finish: false, decisions: [], plan_ms: 0, turn_ms: [] } }
+  task.stats.plan_ms = Date.now() - t0
   task.cancelled = cancelledEarly
   if (ahead && !task.cancelled) {
     await addMessage(userId, threadId, 'agent', 'text', { text: L(`브라우저는 한 번에 한 작업만 해요. 앞 작업 '${ahead.title}'이(가) 끝나거나 취소되면 '${p.title}' 작업을 이어서 시작할게요.${s.task?.waiting ? ' 앞 작업은 지금 입력을 기다리고 있어요 — 그 카드에 답하거나 작업을 취소해 주세요.' : ''}`,
@@ -258,7 +364,11 @@ export async function runBrowserTask({ userId, threadId, goal, startUrl, onActio
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
-  if (startUrl) await s.page.goto(startUrl, { waitUntil: 'domcontentloaded' }).catch(() => {})
+  if (early && !ahead) await early
+  else if (startUrl) {
+    say(task, L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`))
+    await s.page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+  }
   const startedAt = s.page.url()
   await pushFrame(userId, s)
 
@@ -271,7 +381,7 @@ For any login field (username, email, password) and any card field ALWAYS use fi
 Secret fields appear in the snapshot as secret:true with no value. If the site rejects a login you filled, call login_failed. For a one-time code (SMS, e-mail, OTP, 2FA) call need_secret with the input's index; never ask for it in text.
 Before submitting a payment, sending a message or deleting anything, call approve and act only if the user approves.
 Do only what the goal asks. ${asksToBuy(goal) ? 'Buy or order only what the goal names, and only after approve.' : 'The goal does not ask to buy anything: never click reorder, buy, add-to-cart, checkout, pay, subscribe or booking controls — the server refuses them.'}
-Mark steps with step_done as you complete them. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for (one or two sentences) and contains all collected facts.
+When an action completes a plan step, give that step's number as done on the action itself; use step_done only for a step that needs no action of its own. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for (one or two sentences) and contains all collected facts.
 Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.
 ${files.length ? `The person attached these files for this task: ${files.map((f) => f.name).join(', ')}.\n` : ''}${guideFor(goal, startUrl)}`,
   }]
@@ -283,32 +393,66 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
   try {
   for (let turn = 0; turn < MAX_TURNS && !task.cancelled; turn++) {
     say(task, L('페이지 읽는 중', 'Reading the page'))
-    task.stats.turns++
-    let snap = await s.page.evaluate(SNAPSHOT_JS).catch(() => ({ url: s.page.url(), els: [], text: '' }))
+    const tm = { snap: 0, shot: 0, llm: 0, act: 0 }
+    let t = Date.now()
+    let snap = await look(s)
+    tm.snap = Date.now() - t
     let hint = ''
-    if (task.gates && snap.url !== task.gatedUrl && /^https?:/.test(snap.url)) ({ snap, hint } = await pageGate(s, task, snap))
+    // a sign-in wall, a bot check, Google refusing the sign-in: the person's turn, not the model's
+    const wall = wallOf(snap)
+    const w = wall && await atWall(s, task, wall)
+    if (w?.end) { result = w.end; ended = true; break }
+    if (w?.waited) { turn--; task.prev = null; continue }
+    if (w?.hint) hint += w.hint
+    // the same screen, action after action, with nothing changing: the person is asked before more turns go by
+    const key = pageKey(snap)
+    if (task.prev) task.stale = key !== task.prev.key || task.prev.progress ? 0 : task.stale + (task.prev.acted ? 1 : 0)
+    if (task.stale >= STUCK_TURNS) {
+      const st = await whenStuck(s, task, snap)
+      if (st.end) { result = st.end; ended = true; break }
+      turn--; continue
+    }
+    task.stats.turns++
+    if (task.gates && snap.url !== task.gatedUrl && /^https?:/.test(snap.url)) {
+      const g = await pageGate(s, task, snap)
+      snap = g.snap
+      hint += g.hint
+    }
     // a file the page downloaded since the last look
     const got = (task.downloads || []).splice(0)
     if (got.length) hint += `\nDownloaded and shown to the person as file cards: ${got.join(', ')}`
     messages.push({ role: 'user', content: hide(task, JSON.stringify(snap)) + hint })
-    const shot = await s.page.screenshot({ type: 'jpeg', quality: 50, mask: [s.page.locator(SECRET_SELECTOR)], maskColor: '#1d1d1f' }).catch(() => null)
-    if (shot) messages.push({ role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${shot.toString('base64')}` } }] })
+    t = Date.now()
+    const shot = await s.page.screenshot({ type: 'jpeg', quality: 50, mask: [s.page.locator(SECRET_SELECTOR)], maskColor: '#1d1d1f', timeout: SHOT_MS }).catch(() => null)
+    tm.shot = Date.now() - t
+    if (shot) {
+      messages.push({ role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${shot.toString('base64')}` } }] })
+      // the same picture is the live view's newest frame (no second screenshot after the action)
+      s.frame = shot.toString('base64')
+      emit(userId, 'browser.frame', { taskId: task.id, data: s.frame, url: s.page.url() })
+    }
+    t = Date.now()
     const msg = await chat({ messages, tools: TOOLS })
+    tm.llm = Date.now() - t
     task.stats.llm++
     messages.splice(messages.length - (shot ? 2 : 1), shot ? 2 : 1, { role: 'user', content: `[page ${snap.url}] ${snap.title || ''}` })
     messages.push(msg)
     const call = msg.tool_calls?.[0]
-    if (!call && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); continue }
-    if (!call) { result = { state: 'done', summary: msg.content || '' }; ended = true; break }
-    const args = JSON.parse(call.function.arguments || '{}')
+    if (!call && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); timing(task, tm); continue }
+    if (!call) { result = { state: 'done', summary: msg.content || '' }; ended = true; timing(task, tm); break }
+    let args = {}
+    try { args = JSON.parse(call.function.arguments || '{}') } catch { /* answered below as an error */ }
     task.lastSnap = snap
     let out = 'ok'
+    t = Date.now()
     try {
       out = await act(s, task, call.function.name, args)
     } catch (e) { out = 'error: ' + e.message.slice(0, 200) }
+    tm.act = Date.now() - t
+    timing(task, tm, call.function.name)
+    task.prev = { key, acted: ACTING.has(call.function.name) || /^error/.test(String(out)), progress: ['note', 'step_done'].includes(call.function.name) }
     messages.push({ role: 'tool', tool_call_id: call.id, content: hide(task, String(out)) })
     await onAction?.(call.function.name, args, String(out))
-    await pushFrame(userId, s)
     // one action per turn; any extra calls get an explicit skip so the transcript stays valid
     for (const extra of msg.tool_calls.slice(1)) messages.push({ role: 'tool', tool_call_id: extra.id, content: 'skipped: one action per turn' })
     if (out === '__finish__' && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); continue }
@@ -327,10 +471,15 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
   }
   } catch (e) {
     console.warn('[browser]', e.message)
-    result = { state: 'failed', summary: L('브라우저 작업을 끝내지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't finish the browser task. Please try again in a moment.") }
+    const reason = failReason(e)
+    result = { state: 'failed', need: 'other', reason, summary: reason }
   }
   if (task.cancelled) result = { state: 'cancelled', summary: L('작업을 취소했어요.', 'I canceled the task.') }
-  else if (result.state === 'done' && !ended) result = { state: 'needs_review', summary: L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래 한 일을 확인해 주세요.`, `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below.`) }
+  else if (result.state === 'done' && !ended) {
+    const reason = L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래 한 일을 보고, 카드의 「직접 제어」로 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
+      `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on with "Take control" on the card or ask again more specifically.`)
+    result = { state: 'needs_review', need: 'stuck', reason, summary: reason }
+  }
   // finished without saying the result: one closing call for it (the person reads the result first)
   if (result.state === 'done' && !String(result.summary || '').trim() && task.log.some((e) => e.ok)) {
     result.summary = await closingSummary(messages, task).catch((e) => { console.warn('[browser] closing summary', e.message); return '' })
@@ -341,14 +490,18 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
     result = honest(result, task, { moved: s.page.url() !== startedAt })
     const shot = await pushFrame(userId, s)
     s.task = null
-    // keep the last screen on the card so it survives reloads
-    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url(), shot })
+    // keep the last screen on the card so it survives reloads; a card that stopped says why and what to do
+    const host = hostOf(s.page.url())
+    const why = result.state === 'failed' || result.state === 'needs_review'
+      ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: host, siteName: siteName(host, goal) } : { need: null, reason: '' }
+    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url(), shot, ...why })
     say(task, null)
     await setThreadStatus(userId, threadId, null)
     result.url = s.page.url()
     result.notes = task.notes
-    result.stats = { ...task.stats, ms: Date.now() - t0 }
-    result.pageText = hide(task, await s.page.evaluate(() => document.body.innerText.slice(0, 6000)).catch(() => ''))
+    result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
+    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s · ${task.stats.turns} turns · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}`)
+    result.pageText = hide(task, await within(s.page.evaluate(() => document.body.innerText.slice(0, 6000)), EVAL_MS, ''))
     return result
   } finally {
     if (s.task === task) s.task = null
@@ -356,6 +509,16 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
     s.queue.shift()?.go()
   }
 }
+
+// What one turn took: reading the page, the model's picture, the model, the action.
+function timing(task, tm, tool = '') {
+  task.stats.turn_ms.push({ ...tm, tool })
+  if (task.stats.turn_ms.length > MAX_TURNS) task.stats.turn_ms.shift()
+  const slow = Object.entries(tm).filter(([k, v]) => k !== 'llm' && v > 10000)
+  if (slow.length) console.warn(`[browser] slow turn (${tool}): ${slow.map(([k, v]) => `${k} ${v}ms`).join(', ')}`)
+}
+const averages = (list) => Object.fromEntries(['snap', 'shot', 'llm', 'act'].map((k) => [k, list.length ? Math.round(list.reduce((a, x) => a + (x[k] || 0), 0) / list.length) : 0]))
+const firstPara = (text) => String(text || '').split('\n\n')[0].slice(0, 400)
 
 // Fast checks before spending an agent turn, answered by the router's typed decision (judge model
 // → logprob → JSON) and acted on only when the answer is measured and sure.
@@ -396,7 +559,7 @@ async function pageGate(s, task, snap) {
       task.stats.waits++
       say(task, L('페이지 기다리는 중', 'Waiting for the page'))
       await s.page.waitForTimeout(1500)
-      snap = await s.page.evaluate(SNAPSHOT_JS).catch(() => snap)
+      snap = await look(s)
       continue
     }
     task.gatedUrl = snap.url
@@ -439,7 +602,8 @@ function logAction(task, name, a, out) {
   const line = {
     goto: () => L(`${hostOf(a.url)} 열기`, `Open ${hostOf(a.url)}`),
     click: () => L(`'${label(a.i)}' 누르기`, `Click '${label(a.i)}'`),
-    type: () => L(`'${label(a.i)}'에 입력`, `Type into '${label(a.i)}'`),
+    // a field by its label from the page, not its snapshot text (which may be what was typed in it)
+    type: () => { const n = task.target?.i === a.i && task.target.name ? task.target.name : label(a.i); return L(`'${n}'에 입력`, `Type into '${n}'`) },
     fill_secret: () => L(`보관함의 ${{ username: '아이디', password: '비밀번호', card_number: '카드 번호', card_exp: '카드 만료일', card_cvv: 'CVC', card_name: '카드 소유자' }[a.field] || a.field} 입력`,
       `Fill in the ${{ username: 'username', password: 'password', card_number: 'card number', card_exp: 'card expiry', card_cvv: 'CVC', card_name: 'cardholder name' }[a.field] || a.field} from the Vault`),
     need_secret: () => L(`${a.label || '인증 코드'}를 받아 입력`, `Get and enter the ${a.label || 'verification code'}`),
@@ -469,8 +633,10 @@ export function honest(result, task, { moved = false } = {}) {
   const facts = task.notes.length
   if (result.state === 'done' && !acted && !facts && !moved) {
     const planned = (task.steps || []).map((x, i) => `${i + 1}. ${x}`).join('\n')
-    return { ...result, state: 'needs_review', summary: L(`브라우저에서 아무 동작도 하지 못한 채 작업이 끝났어요. 계획한 단계는 하나도 진행되지 않았어요.${planned ? `\n\n계획했던 단계\n${planned}` : ''}\n\n다시 시키거나, 작업 카드에서 직접 제어로 확인해 주세요.`,
-      `The task ended without any action in the browser. None of the planned steps was done.${planned ? `\n\nPlanned steps\n${planned}` : ''}\n\nAsk again, or check it yourself with Take control on the task card.`) }
+    return { ...result, state: 'needs_review', need: 'other',
+      reason: L('브라우저에서 아무 동작도 하지 못하고 끝났어요. 같은 말로 다시 시키거나, 카드의 「직접 제어」로 화면을 확인해 주세요.', 'The task ended without doing anything in the browser. Ask again, or check the screen with "Take control" on the card.'),
+      summary: L(`브라우저에서 아무 동작도 하지 못한 채 작업이 끝났어요. 계획한 단계는 하나도 진행되지 않았어요.${planned ? `\n\n계획했던 단계\n${planned}` : ''}\n\n다시 시키거나, 작업 카드에서 직접 제어로 확인해 주세요.`,
+        `The task ended without any action in the browser. None of the planned steps was done.${planned ? `\n\nPlanned steps\n${planned}` : ''}\n\nAsk again, or check it yourself with Take control on the task card.`) }
   }
   if (result.state !== 'done' && result.state !== 'needs_review') return result
   const said = String(result.summary || '').trim()
@@ -479,6 +645,105 @@ export function honest(result, task, { moved = false } = {}) {
   const refused = task.log.filter((e) => e.kind === 'click' && e.refusedPurchase).map((e) => `• ${e.text}`)
   return { ...result, summary: [head, done.length ? `${L('실제로 한 일', 'What I actually did')}\n${done.slice(-12).join('\n')}` : '',
     refused.length ? `${L('요청하지 않은 구매라 누르지 않은 것', "Not pressed — a purchase you didn't ask for")}\n${refused.slice(-4).join('\n')}` : ''].filter(Boolean).join('\n\n') }
+}
+
+// ---- the page as the agent reads it, and when the person has to step in ----
+
+const BLANK = (s) => ({ title: '', url: s.page.url(), text: '', els: [] })
+const look = (s) => within(s.page.evaluate(SNAPSHOT_JS), EVAL_MS, BLANK(s)).then((x) => x || BLANK(s))
+// the same address and the same things on screen
+const pageKey = (snap) => crypto.createHash('sha1').update(`${snap.url}\n${snap.text}\n${(snap.els || []).map((e) => `${e.tag}:${e.text}:${e.filled ? 1 : 0}`).join('|')}`).digest('hex')
+// tools whose effect shows on the page; when it does not, turn after turn, the task is stuck
+const ACTING = new Set(['goto', 'click', 'type', 'scroll', 'fill_secret', 'attach_file'])
+export const STUCK_TURNS = 5 // "4턴 넘게": the fifth action in a row that changes nothing hands over
+const WALL_WAITS = 3
+const BLOCKED = '__blocked__'
+
+// What the person reads on the card when the task stops at a wall, and what to do about it.
+function wallReason(task, wall, again) {
+  const name = siteName(wall.site, task.goal)
+  if (wall.need === 'login' && wall.google) {
+    return again
+      ? L('아직 구글 로그인이 끝나지 않았어요. 카드의 「직접 로그인」을 눌러 로그인을 마치면 이어서 진행해요.', 'The Google sign-in is not done yet. Press "Sign in yourself" on the card and finish signing in — I\'ll go on from there.')
+      : L(`${name === 'NotebookLM' ? 'NotebookLM을' : '이 구글 서비스를'} 쓰려면 이 브라우저에서 구글 로그인이 한 번 필요해요. 카드의 「직접 로그인」을 눌러 로그인하면 이어서 진행해요. 로그인은 다음에도 남아요.`,
+        `To use ${name === 'NotebookLM' ? 'NotebookLM' : 'this Google service'}, this browser needs a one-time Google sign-in. Press "Sign in yourself" on the card and sign in — I'll go on from there. The sign-in stays for next time.`)
+  }
+  if (wall.need === 'login') {
+    return L(`${name}에 로그인해야 이어서 할 수 있어요. 카드에서 로그인 정보를 저장하거나, 「직접 로그인」을 눌러 직접 로그인하면 이어서 진행해요.`,
+      `${name} needs you to sign in. Save the login on the card, or press "Sign in yourself" and sign in — I'll go on from there.`)
+  }
+  return L(`${name}에서 사람인지 확인하는 화면(로봇 확인)이 나왔어요. 카드의 「직접 제어」로 확인을 마치면 이어서 진행해요.`,
+    `${name} is asking to check you're human (a bot check). Finish it with "Take control" on the card — I'll go on from there.`)
+}
+
+// Google refused the sign-in in this browser: no waiting helps, so the task ends saying so and what else works.
+function blockedEnd(task, wall) {
+  const name = siteName(wall.site, task.goal)
+  const nb = name === 'NotebookLM'
+  const reason = L(`구글이 이 서버의 브라우저에서 하는 구글 로그인을 막았어요(「이 브라우저 또는 앱은 안전하지 않을 수 있습니다」). 그래서 이 브라우저로는 ${nb ? 'NotebookLM' : '이 구글 서비스'} 작업을 할 수 없어요. ${nb ? '휴대폰이나 PC의 NotebookLM에서 직접 만든 슬라이드·오디오 파일을 이 방에 올려 주면 이어서 정리해 드릴게요.' : '그 사이트에서 직접 한 결과(파일)를 이 방에 올려 주면 이어서 할게요.'}`,
+    `Google blocked signing in from this server's browser ("This browser or app may not be secure"), so ${nb ? 'NotebookLM' : 'this Google service'} can't be used from here. ${nb ? 'Make the slides and audio in NotebookLM on your phone or PC and put the files in this room — I\'ll take it from there.' : 'Do it on that site yourself and put the result (files) in this room — I\'ll take it from there.'}`)
+  task.notes.push(reason)
+  return { state: 'failed', need: 'blocked', reason, summary: reason }
+}
+
+// A wall on the page: the person is asked (a card that says what to do) and the task waits, without
+// spending a model turn. Signing in is noticed by itself: the wait ends when the wall is gone.
+// → { waited } after the wait, { end } to stop the task, { hint } for a task nobody watches, or null (the model goes on).
+async function atWall(s, task, wall) {
+  if (wall.need === 'blocked') return { end: blockedEnd(task, wall) }
+  const site = normSite(wall.site)
+  const key = `${wall.need}:${site}`
+  if (task.unattended) {
+    if (task.walls[key]) return null
+    task.walls[key] = 1
+    task.stats.hints++
+    task.notes.push(wall.need === 'captcha' ? L(`${site}: 로봇 확인 화면이 나와 진행하지 못함`, `${site}: stopped at a bot check`) : L(`${site}: 로그인이 필요해 진행하지 못함`, `${site}: needs a sign-in`))
+    return { hint: `\n[page check: this page is a ${wall.need === 'captcha' ? 'bot check' : 'sign-in wall'} and nobody is available to get past it. Do not try; use the alternative source in the goal, or finish with what you have]` }
+  }
+  if (wall.generic) {
+    // a site whose login the vault keeps (or the person declined to give) is the model's: it fills the saved one
+    if (task.walls[key] || task.declined.has(site)) return null
+    if ((await candidates(task.userId, 'login', site).catch(() => [])).length) return null
+  }
+  const n = task.walls[key] = (task.walls[key] || 0) + 1
+  if (n > WALL_WAITS) {
+    const reason = wall.need === 'captcha'
+      ? L(`${site}의 로봇 확인이 풀리지 않아 멈췄어요. 카드의 「직접 제어」로 확인을 마친 뒤 다시 시켜 주세요.`, `The bot check on ${site} wasn't passed, so I stopped. Finish it with "Take control" on the card, then ask again.`)
+      : L(`${site} 로그인이 끝나지 않아 멈췄어요. 카드의 「직접 로그인」으로 로그인한 뒤 다시 시켜 주세요.`, `The sign-in on ${site} wasn't finished, so I stopped. Sign in with "Sign in yourself" on the card, then ask again.`)
+    return { end: { state: 'failed', need: wall.need, reason, summary: reason } }
+  }
+  task.stats.walls++
+  const answer = await waitForUser(s, task, {
+    need: wall.need, reason: wallReason(task, wall, n > 1), site,
+    message: wall.generic ? ['vault', { kind: 'login', site, mode: 'request' }] : null,
+    watch: (snap) => { const now = wallOf(snap); return now?.need === 'blocked' ? BLOCKED : !now || now.need !== wall.need ? 'the person got past it (the page changed); continue' : null },
+  })
+  if (answer === BLOCKED) return { end: blockedEnd(task, wallOf(await look(s)) || wall) }
+  if (wall.generic && /closed the request/.test(String(answer))) task.declined.add(site)
+  return { waited: true }
+}
+
+// Several actions on the same screen and nothing changed: the person takes a look before more turns go by.
+async function whenStuck(s, task, snap) {
+  task.stats.stuck++
+  const site = hostOf(snap.url)
+  const last = task.log.filter((e) => ACTING.has(e.kind)).at(-1)?.text
+  const reason = L(`${site}의 같은 화면에서 ${task.stale}번 해 봤지만 화면이 바뀌지 않아 멈췄어요${last ? `(마지막: ${last})` : ''}. 카드의 「직접 제어」로 다음 화면까지 넘긴 뒤 「제어 돌려주기」를 누르면 이어서 해요. 필요 없으면 작업을 취소해 주세요.`,
+    `I tried ${task.stale} times on the same ${site} screen and nothing changed${last ? ` (last: ${last})` : ''}, so I stopped. Get it to the next screen with "Take control" on the card and press "Give control back" — I'll go on. Cancel the task if it's not needed.`)
+  task.stale = 0
+  task.prev = null
+  if (task.unattended || ++task.stuckWaits > 2) return { end: { state: 'failed', need: 'stuck', reason, summary: reason } }
+  await waitForUser(s, task, { need: 'stuck', reason, site })
+  return {}
+}
+
+// An error that ended the task, in words the person can act on.
+function failReason(e) {
+  const m = String(e?.message || '')
+  if (/^LLM |aborted|timed? ?out/i.test(m)) return L('AI 모델이 제때 답하지 않아 브라우저 작업을 멈췄어요. 잠시 후 같은 말로 다시 시켜 주세요.', "The AI model didn't answer in time, so I stopped the browser task. Ask again in a moment.")
+  if (/has been closed|Target closed|browser has disconnected/i.test(m)) return L('브라우저가 닫혀 작업을 멈췄어요. 같은 말로 다시 시키면 브라우저를 새로 열어 시작해요.', 'The browser closed, so I stopped. Ask again and I\'ll start in a fresh browser.')
+  return L(`브라우저 작업 중 오류가 나서 멈췄어요(${m.replace(/\s+/g, ' ').slice(0, 80)}). 잠시 후 같은 말로 다시 시켜 주세요. 계속 안 되면 카드의 「직접 제어」로 마지막 화면을 확인해 주세요.`,
+    `The browser task stopped on an error (${m.replace(/\s+/g, ' ').slice(0, 80)}). Ask again in a moment; if it keeps failing, check the last screen with "Take control" on the card.`)
 }
 
 async function waitForPage(s, task, a) {
@@ -491,7 +756,7 @@ async function waitForPage(s, task, a) {
   try {
     for (;;) {
       if (task.cancelled) return 'cancelled'
-      const text = await s.page.locator('body').innerText().catch(() => '')
+      const text = await s.page.locator('body').innerText({ timeout: 5000 }).catch(() => '')
       if (until && text.includes(until)) return `done: "${until}" is on the page now`
       if (gone && !text.includes(gone)) return `done: "${gone}" is no longer on the page`
       if (passed() >= minutes) return `still waiting after ${minutes} minutes: it has not finished. Wait again, or tell the person where it stands`
@@ -502,24 +767,78 @@ async function waitForPage(s, task, a) {
   } finally { task.waitedMinutes = (task.waitedMinutes || 0) + passed() }
 }
 
+// The element an action is about, as the person would name it: a button by its text, a field by its
+// label or placeholder (never its value), a secret field only by its kind. `what` is for the purchase gate.
+const DESCRIBE_JS = (e) => {
+  const tag = e.tagName.toLowerCase()
+  const field = tag === 'input' || tag === 'textarea' || tag === 'select' || e.isContentEditable
+  const auto = e.autocomplete || ''
+  const id = `${e.name || ''} ${e.id || ''}`
+  const secret = e.type === 'password' ? 'password' : /^cc-number/.test(auto) || /card.?(no|num)|cardnumber/i.test(id) ? 'card'
+    : /^cc-csc/.test(auto) || /cvc|cvv|csc/i.test(id) ? 'cvc' : /^cc-exp/.test(auto) ? 'exp' : /one-time-code/.test(auto) || /otp/i.test(id) ? 'otp'
+      : e.hasAttribute('data-pro-secret') || /^cc-/.test(auto) ? 'secret' : ''
+  const label = e.getAttribute('aria-label') || (e.labels && e.labels[0] && e.labels[0].innerText) || e.placeholder || e.getAttribute('title') || ''
+  const button = tag === 'input' && /^(submit|button|reset)$/.test(e.type) ? e.value : ''
+  const name = (field && !button ? label || e.name || '' : e.innerText || label || button || e.getAttribute('alt') || '').replace(/\s+/g, ' ').trim()
+  const what = field && !button ? '' : [e.innerText, e.value, e.getAttribute('aria-label'), e.getAttribute('title')].filter(Boolean).join(' ').trim().slice(0, 80)
+  return { name: name.length > 30 ? `${name.slice(0, 29)}…` : name, field: !!field && !button, secret, what }
+}
+const SECRET_KIND = { password: ['비밀번호 칸', 'the password field'], card: ['카드 번호 칸', 'the card number field'], cvc: ['CVC 칸', 'the CVC field'], exp: ['카드 만료일 칸', 'the card expiry field'], otp: ['인증 코드 칸', 'the code field'], secret: ['비밀 칸', 'a secret field'] }
+// The live line while acting: 「새 노트북」 누르는 중 · 「검색」 칸에 입력 중 · 비밀번호 칸에 입력 중
+export function actionLine(kind, target = {}, host = '') {
+  const n = String(target.name || '').trim()
+  if (kind === 'click') return n ? L(`「${n}」 누르는 중`, `Clicking "${n}"`) : L(`${host}에서 누르는 중`, `Clicking on ${host}`)
+  const sk = SECRET_KIND[target.secret]
+  if (sk) return L(`${sk[0]}에 입력 중`, `Typing in ${sk[1]}`)
+  return n ? L(`「${n}」 칸에 입력 중`, `Typing in "${n}"`) : L(`${host}에서 입력 중`, `Typing on ${host}`)
+}
+
+// Where the agent is about to press or type, in page pixels of the live view (1280×800), so the card
+// can draw a circle there. The element is scrolled into view first, as the click itself would.
+async function point(s, task, locator, kind) {
+  try {
+    await locator.scrollIntoViewIfNeeded({ timeout: 2000 })
+    const b = await locator.boundingBox({ timeout: 2000 })
+    if (!b) return
+    const { width: w, height: h } = s.page.viewportSize() || VIEW
+    emit(task.userId, 'browser.click', { taskId: task.id, x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), w, h, kind })
+  } catch { /* the action itself reports what is wrong */ }
+}
+
+// After a press: a short pause for the page to react, and the new page's load when it navigated.
+async function settle(page) {
+  await page.waitForTimeout(WAIT.settleMs)
+  await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {})
+}
+
 async function act(s, task, name, a) {
   const out = await doAct(s, task, name, a)
   logAction(task, name, a, out)
+  if (STEP_TOOLS.has(name) && Number(a.done) > 0 && !/^(error|refused|not pressed)/.test(String(out))) await markStep(task, Number(a.done))
   return out
+}
+
+// The plan on the card: steps up to n are done.
+async function markStep(task, n, note) {
+  if (!task.steps[n - 1]) return
+  await updateMessage(task.userId, task.id, { steps: task.steps.map((t, i) => ({ text: t, done: i < n, note: i === n - 1 ? note : undefined })) })
 }
 
 async function doAct(s, task, name, a) {
   const el = (i) => s.page.locator(`[data-pro-idx="${i}"]`).first()
   const host = (() => { try { return new URL(name === 'goto' ? a.url : s.page.url()).hostname.replace(/^www\./, '') } catch { return '' } })()
   const live = (isEn() ? { goto: `Opening ${host}`, click: `Clicking on ${host}`, type: `Typing on ${host}`, fill_secret: `Typing on ${host}`, scroll: 'Looking at the page', note: 'Taking notes', step_done: 'On to the next step' }
-    : { goto: `${host} 여는 중`, click: `${host}에서 클릭 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로' })[name]
-  if (live) say(task, live)
+    : { goto: `${host} 여는 중`, click: `${host}에서 누르는 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로' })[name]
+  // what is being pressed or typed into, by its name on the page (never the value in it)
+  task.target = ['click', 'type', 'fill_secret'].includes(name) ? { i: a.i, ...await within(el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 3000 }), 4000, {}) } : null
+  const line = task.target ? actionLine(name === 'click' ? 'click' : 'type', task.target, host) : live
+  if (line) say(task, line)
   switch (name) {
-    case 'goto': await s.page.goto(a.url, { waitUntil: 'domcontentloaded' }); return 'ok'
+    case 'goto': await s.page.goto(a.url, { waitUntil: 'domcontentloaded', timeout: 30000 }); return 'ok'
     case 'click': {
       // the purchase gate: a control that orders or pays is pressed only when the goal asks to buy, and
       // one that commits money only after the person approved (the approve card) — whatever the model says
-      const what = await el(a.i).evaluate((e) => [e.innerText, e.value, e.getAttribute('aria-label'), e.getAttribute('title')].filter(Boolean).join(' ').trim().slice(0, 80)).catch(() => '')
+      const what = task.target.what || ''
       if (isPurchaseControl(what)) {
         if (!asksToBuy(task.goal)) return `${REFUSED_PURCHASE} '${what}' starts a purchase or order, and the goal does not ask to buy anything. Do not press it; do what the goal asks and finish.`
         if (isPaymentControl(what) && !task.approved) {
@@ -527,14 +846,19 @@ async function doAct(s, task, name, a) {
           if (!/approved: do it now/.test(String(ok))) return `not pressed: ${ok}`
         }
       }
-      await el(a.i).click({ timeout: 8000 }); await s.page.waitForTimeout(800); return 'ok'
+      await point(s, task, el(a.i), 'click')
+      await el(a.i).click({ timeout: 8000 })
+      await settle(s.page)
+      return 'ok'
     }
     case 'type': {
       // the model never types into a secret field, even text it found on the page
-      if (await el(a.i).evaluate((e, sel) => e.matches(sel) || /card.?(no|num)|cardnumber|cvc|cvv|csc|otp/i.test(`${e.name} ${e.id}`), SECRET_SELECTOR)) {
+      if (task.target.secret || await el(a.i).evaluate((e, sel) => e.matches(sel) || /card.?(no|num)|cardnumber|cvc|cvv|csc|otp/i.test(`${e.name} ${e.id}`), SECRET_SELECTOR, { timeout: 3000 })) {
         return 'refused: this is a secret field; use fill_secret (saved login/card) or need_secret (one-time code)'
       }
-      await el(a.i).fill(a.text); if (a.enter) await el(a.i).press('Enter'); return 'ok'
+      await point(s, task, el(a.i), 'type')
+      await el(a.i).fill(a.text, { timeout: 8000 }); if (a.enter) { await el(a.i).press('Enter', { timeout: 8000 }); await settle(s.page) }
+      return 'ok'
     }
     case 'scroll': await s.page.mouse.wheel(0, a.dy || 600); return 'ok'
     case 'wait_for_page': return waitForPage(s, task, a)
@@ -542,11 +866,14 @@ async function doAct(s, task, name, a) {
     case 'attach_file': {
       const f = (task.files || []).find((x) => x.name === a.name) || task.files?.[0]
       if (!f) return 'error: no file was attached to this task'
-      const file = await workspaceHostPath(f.path)
-      if (await el(a.i).evaluate((e) => e.tagName === 'INPUT' && e.type === 'file')) { await el(a.i).setInputFiles(file); return `attached ${f.name}` }
-      const [chooser] = await Promise.all([s.page.waitForEvent('filechooser', { timeout: 8000 }), el(a.i).click({ timeout: 8000 })])
-      await chooser.setFiles(file)
-      return `attached ${f.name}`
+      const { file, done } = await localCopy(f)
+      try {
+        await point(s, task, el(a.i), 'click')
+        if (await el(a.i).evaluate((e) => e.tagName === 'INPUT' && e.type === 'file', undefined, { timeout: 3000 })) { await el(a.i).setInputFiles(file); return `attached ${f.name}` }
+        const [chooser] = await Promise.all([s.page.waitForEvent('filechooser', { timeout: 8000 }), el(a.i).click({ timeout: 8000 })])
+        await chooser.setFiles(file)
+        return `attached ${f.name}`
+      } finally { await done() }
     }
     case 'fill_secret': {
       const site = normSite(new URL(s.page.url()).hostname)
@@ -557,6 +884,7 @@ async function doAct(s, task, name, a) {
       const val = { username: sec.username || sec.email, password: sec.password, card_number: sec.number, card_exp: sec.exp,
         card_cvv: sec.cvv, card_name: sec.name }[a.field]
       if (!val) return `the saved ${kind} has no ${a.field}`
+      await point(s, task, el(a.i), 'type')
       await fillSecret(el(a.i), val, task)
       if (kind === 'login') task.used[site] = item.id
       return 'filled ' + a.field
@@ -572,7 +900,8 @@ async function doAct(s, task, name, a) {
       }
       const [row] = (await candidates(task.userId, 'login', site)).filter((r) => r.id === id)
       await waitForUser(s, task, {
-        reason: L(`${site}에서 저장된 비밀번호를 받아들이지 않았어요`, `${site} didn't accept the saved password`), site,
+        need: 'login', site,
+        reason: L(`${site}에서 저장된 비밀번호를 받아들이지 않았어요. 카드에서 비밀번호를 고쳐 저장하면 다시 로그인해 이어서 해요.`, `${site} didn't accept the saved password. Fix it on the card and save — I'll sign in again and go on.`),
         message: ['vault', { kind: 'login', site, mode: 'update', itemId: id, label: row?.label || '', reason: a.reason || '' }],
       })
       const [now] = (await candidates(task.userId, 'login', site)).filter((r) => r.id === id)
@@ -588,7 +917,8 @@ async function doAct(s, task, name, a) {
       }
       task.secretSlot = { i: a.i, label: a.label || L('인증 코드', 'verification code') }
       const answer = await waitForUser(s, task, {
-        reason: L(`${a.label || '인증 코드'} 입력이 필요해요`, `The ${a.label || 'verification code'} is needed`), site,
+        need: 'login', site,
+        reason: L(`${site} 로그인에 ${a.label || '인증 코드'}가 필요해요. 받은 값을 카드에 넣으면 이어서 해요.`, `${site} needs the ${a.label || 'verification code'} to sign in. Enter it on the card and I'll go on.`),
         message: ['vault', { kind: 'secret', site, mode: 'request', label: a.label || L('인증 코드', 'verification code') }],
       })
       task.secretSlot = null
@@ -602,19 +932,15 @@ async function doAct(s, task, name, a) {
       }
       const card = task.picked.wallet && (await candidates(task.userId, 'card', 'wallet')).find((r) => r.id === task.picked.wallet)
       const answer = await waitForUser(s, task, {
-        reason: a.summary || L('승인이 필요해요', 'Approval is needed'), site,
+        need: 'approve', site,
+        reason: `${a.summary || L('이 단계는 승인이 필요해요.', 'This step needs your approval.')} ${L('카드에서 「승인」을 누르면 진행하고, 「취소」를 누르면 하지 않아요.', 'Press "Approve" on the card to go ahead, or "Cancel" to skip it.')}`,
         message: ['choice', { site, approval: true, question: `${a.summary || ''}${card ? L(`\n결제 카드: ${card.label}`, `\nPayment card: ${card.label}`) : ''}`.trim(), options: L(['승인', '취소'], ['Approve', 'Cancel']) }],
       })
       const yes = /chose: (승인|Approve)\./.test(String(answer))
       if (yes) task.approved = true
       return yes ? 'the user approved: do it now' : 'the user declined: do not do it; finish and say it was not done'
     }
-    case 'step_done': {
-      task.steps[a.step - 1] && await updateMessage(task.userId, task.id, {
-        steps: task.steps.map((t, i) => ({ text: t, done: i < a.step, note: i === a.step - 1 ? a.note : undefined })),
-      })
-      return 'ok'
-    }
+    case 'step_done': await markStep(task, a.step, a.note); return 'ok'
     case 'need_login':
     case 'need_user': {
       const site = a.site || new URL(s.page.url()).hostname
@@ -627,16 +953,37 @@ async function doAct(s, task, name, a) {
           : 'nobody is available to approve this; do not do it, record it in a note and continue'
       }
       if (name === 'need_login' && task.declined.has(normSite(site))) return 'the user declined to give a login for this site; do not ask again'
+      const choice = name === 'need_user' && Array.isArray(a.options) && a.options.length > 1
       const message = name === 'need_login'
         ? ['vault', { kind: 'login', site: normSite(site), mode: 'request' }]
         // a pick-one question is answered in place (hark's account chooser) rather than by takeover
-        : Array.isArray(a.options) && a.options.length > 1 ? ['choice', { site, question: a.reason || '', options: a.options.slice(0, 6) }] : null
-      return waitForUser(s, task, { reason: a.reason || '', site, message })
+        : choice ? ['choice', { site, question: a.reason || '', options: a.options.slice(0, 6) }] : null
+      const need = name === 'need_login' ? 'login' : choice ? 'choice' : needOf(a.reason, wallOf(task.lastSnap || {}))
+      return waitForUser(s, task, { need, reason: askReason(need, a.reason, normSite(site), name === 'need_login'), site, message })
     }
     case 'note': task.notes.push(a.text); return 'noted'
     case 'finish': return '__finish__'
   }
   return 'unknown tool'
+}
+
+// A file the person attached, as a path on this machine for the page's file input: the workspace copy
+// where this server has the workspace (local, Docker bundle), else the person's storage copy fetched into
+// a temporary folder (production: the agent's pods and this server share no disk).
+async function localCopy(f) {
+  const there = f.path && await workspaceHostPath(f.path).catch(() => null)
+  if (there) return { file: there, done: async () => {} }
+  let buf
+  const pub = `${config.supabaseUrl}/storage/v1/object/public/files/`
+  const key = f.key || (String(f.url || '').startsWith(pub) ? decodeURIComponent(f.url.slice(pub.length)) : '')
+  if (!key) throw new Error('the attached file has no stored copy to give the page')
+  const { data, error } = await admin.storage.from('files').download(key)
+  if (error) throw new Error(`could not read the attached file (${error.message})`)
+  buf = Buffer.from(await data.arrayBuffer())
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pro-attach-'))
+  const file = path.join(dir, path.basename(String(f.name || 'file')) || 'file')
+  await fs.promises.writeFile(file, buf)
+  return { file, done: () => fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}) }
 }
 
 // Fill a vault value into the page: the element remembers it (so the page guard does not
@@ -663,18 +1010,54 @@ function hide(task, text) {
 
 // Puts the task in "needs input", optionally posts a card (vault request, choice), and waits for
 // the user's answer (saved credential, choice, takeover done, cancel).
-async function waitForUser(s, task, { reason, site, message }) {
+// What the model's own request to the person is about, and the sentence the card shows: its words,
+// then what pressing what does.
+const needOf = (why, wall) => wall?.need === 'login' || wall?.need === 'captcha' ? wall.need
+  : /captcha|캡차|로봇|robot|사람인지|human/i.test(String(why || '')) ? 'captcha'
+    : /로그인|log ?in|sign ?in|인증|비밀번호|password/i.test(String(why || '')) ? 'login' : 'other'
+function askReason(need, why, site, vault = false) {
+  const said = String(why || '').trim()
+  const head = said ? (/[.!?。요]$/.test(said) ? said : `${said}.`) : {
+    login: L(`${site}에 로그인해야 이어서 할 수 있어요.`, `${site} needs you to sign in.`),
+    captcha: L(`${site}에서 로봇 확인 화면이 나왔어요.`, `${site} is showing a bot check.`),
+    choice: L('골라 주셔야 할 것이 있어요.', 'There is something to choose.'),
+  }[need] || L(`${site}에서 사람의 손이 필요해요.`, `${site} needs a person's hand.`)
+  const next = vault ? L('카드에서 로그인 정보를 저장하거나, 「직접 로그인」을 눌러 직접 로그인하면 이어서 진행해요.', 'Save the login on the card, or press "Sign in yourself" and sign in — I\'ll go on from there.') : {
+    login: L('카드의 「직접 로그인」을 눌러 로그인하면 이어서 진행해요.', 'Press "Sign in yourself" on the card and sign in — I\'ll go on from there.'),
+    captcha: L('카드의 「직접 제어」로 확인을 마치면 이어서 진행해요.', 'Finish it with "Take control" on the card — I\'ll go on from there.'),
+    choice: L('카드에서 하나를 고르면 이어서 해요.', 'Pick one on the card and I\'ll go on.'),
+  }[need] || L('카드의 「직접 제어」로 처리한 뒤 「제어 돌려주기」를 누르면 이어서 해요.', 'Do it with "Take control" on the card, then press "Give control back" — I\'ll go on.')
+  return `${head} ${next}`
+}
+
+// need (what kind of help: login | blocked | captcha | choice | approve | stuck | other) and reason (what
+// stopped it and what to do) go on the task card, which draws its pill and button from them.
+// watch(snapshot) → a text ends the wait by itself (a sign-in finished in takeover), checked every few seconds.
+async function waitForUser(s, task, { reason, site, message, need = 'other', watch }) {
+  // listening before anything is posted: an answer that comes at once (the card answered the moment
+  // it shows) is not lost
+  let answered
+  const answer$ = new Promise((resolve) => { answered = resolve })
+  task.waiting = answered
   // the card goes up first, so whoever sees "needs input" also finds what to answer
   const posted = message ? await addMessage(task.userId, task.threadId, 'agent', message[0], { ...message[1], taskId: task.id, state: 'pending' }) : null
-  await updateMessage(task.userId, task.id, { state: 'needs_input', reason: reason || '', site })
+  // siteName: what the person calls the site (NotebookLM, not accounts.google.com), for the card's pill
+  await updateMessage(task.userId, task.id, { state: 'needs_input', need, reason: reason || '', site, siteName: siteName(site, task.goal) })
   say(task, null)
   await setThreadStatus(task.userId, task.threadId, 'needs_input')
   await pushFrame(task.userId, s)
-  const answer = await new Promise((resolve) => { task.waiting = resolve })
+  let checking = false
+  const timer = watch && setInterval(async () => {
+    if (checking || !task.waiting) return
+    checking = true
+    try { const v = watch(await look(s)); if (v) task.waiting?.(v) } catch { /* the next look */ } finally { checking = false }
+  }, WAIT.watchMs)
+  const answer = await answer$
   task.waiting = null
+  if (timer) clearInterval(timer)
   // a card the user never answered (cancel, takeover) should not stay actionable
   if (posted) await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where id=$1 and content->>'state'='pending'`, [posted.id])
-  await updateMessage(task.userId, task.id, { state: 'running', reason: '' })
+  await updateMessage(task.userId, task.id, { state: 'running', need: null, reason: '' })
   await setThreadStatus(task.userId, task.threadId, 'working')
   return answer
 }
@@ -689,7 +1072,9 @@ async function pickItem(s, task, kind, site) {
   if (!list.length) {
     if (task.unattended) { task.notes.push(L(`${site}: 저장된 ${kind === 'card' ? '카드' : '로그인'}가 없어 건너뜀`, `${site}: skipped, no saved ${kind === 'card' ? 'card' : 'login'}`)); return null }
     await waitForUser(s, task, {
-      reason: kind === 'card' ? L('결제에 사용할 카드가 필요해요', 'A card to pay with is needed') : L(`${site} 로그인이 필요해요`, `A ${site} login is needed`), site,
+      need: kind === 'card' ? 'other' : 'login', site,
+      reason: kind === 'card' ? L('결제에 쓸 카드가 필요해요. 카드에서 결제 카드를 저장하면 이어서 해요.', 'A card to pay with is needed. Save one on the card and I\'ll go on.')
+        : L(`${site}에 로그인해야 이어서 할 수 있어요. 카드에서 로그인 정보를 저장하거나, 「직접 로그인」을 눌러 직접 로그인하면 이어서 진행해요.`, `${site} needs you to sign in. Save the login on the card, or press "Sign in yourself" and sign in — I'll go on from there.`),
       message: ['vault', { kind, site, mode: 'request' }],
     })
     list = await candidates(task.userId, kind, site)
@@ -698,7 +1083,8 @@ async function pickItem(s, task, kind, site) {
   let chosen = list[0]
   if (list.length > 1 && !task.unattended) {
     const answer = await waitForUser(s, task, {
-      reason: kind === 'card' ? L('어떤 카드를 쓸지 골라 주세요', 'Choose which card to use') : L('어떤 계정을 쓸지 골라 주세요', 'Choose which account to use'), site,
+      need: 'choice', site,
+      reason: kind === 'card' ? L('저장된 카드가 여러 장이에요. 카드에서 쓸 카드를 고르면 이어서 해요.', 'There are several saved cards. Pick one on the card and I\'ll go on.') : L(`${site}에 저장된 계정이 여러 개예요. 카드에서 쓸 계정을 고르면 이어서 해요.`, `There are several saved accounts for ${site}. Pick one on the card and I'll go on.`),
       message: ['choice', {
         site, vault: true,
         question: kind === 'card' ? L('저장된 카드가 여러 장이에요. 어떤 카드로 결제할까요?', 'There are several saved cards. Which card should I pay with?') : L(`${site}에 저장된 계정이 여러 개예요. 어떤 계정으로 로그인할까요?`, `There are several saved accounts for ${site}. Which one should I log in with?`),
@@ -769,3 +1155,6 @@ export function lastFrame(userId) {
   const s = sessions.get(userId)
   return s ? { data: s.frame, url: s.page.url(), running: !!s.task, taskId: s.task?.id || null } : null
 }
+
+// The person's browser (launched if it is not running): tests route made-up sites through it.
+export const contextFor = async (userId) => (await sessionOf(userId)).ctx

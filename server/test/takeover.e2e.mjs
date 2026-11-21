@@ -104,7 +104,7 @@ after(async () => {
   await ctx?.browser()?.close().catch(() => {})
   vite?.kill()
   site?.close(); llm?.close()
-  if (userId) fs.rmSync(path.resolve(here, '../.browser-profiles', userId), { recursive: true, force: true })
+  if (userId) fs.rmSync(path.join(browser.PROFILES, userId), { recursive: true, force: true })
   await pool?.end().catch(() => {})
   setTimeout(() => process.exit(process.exitCode || 0), 300)
 })
