@@ -18,7 +18,7 @@ import ShareButton from './team/ShareButton.vue'
 import ImproveCard from './improve/ImproveCard.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
-import { officeEditorFor } from '../officeEditor.js'
+import { officeEditorFor, craftMissing } from '../officeEditor.js'
 import { kindOf, kindLabel, openArtifact, openHint } from '../artifacts.js'
 import { parseReplies } from '../replies.js'
 
@@ -145,7 +145,7 @@ onMounted(async () => {
       <div class="filerow">
         <button class="file press" @click="openFile">
           <span class="fic" :class="sound ? 'snd' : kindOf(c.name)">{{ sound ? kindLabel.snd : kindLabel[kindOf(c.name)] || 'FILE' }}</span>
-          <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c) }}</small></span>
+          <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url && !craftMissing(officeEditorFor(c.name)) ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c) }}</small></span>
         </button>
         <!-- 팀원에게 공유 (components/team) -->
         <ShareButton :msg="msg" compact />
