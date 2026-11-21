@@ -61,6 +61,13 @@ async function togglePause() {
   open.value = { ...open.value, paused: r.paused }
   load()
 }
+// results to the person's Telegram bot too (state.channels; connecting the bot is Settings › 연결)
+const toTelegram = (s) => (s?.state?.channels || []).includes('telegram')
+async function toggleTelegram() {
+  const r = await api(`/missions/${open.value.id}/channels`, { method: 'POST', body: { telegram: !toTelegram(open.value) } })
+  open.value = { ...open.value, state: { ...(open.value.state || {}), channels: r.channels } }
+  load()
+}
 async function remove() {
   await api(`/schedules/${open.value.id}`, { method: 'DELETE' })
   open.value = null
@@ -94,6 +101,9 @@ async function remove() {
       </div>
       <div class="row"><span>일정</span><b>Custom schedule ({{ open.cron }})<small class="next">다음 실행 {{ nextText(open) }}</small></b></div>
       <div class="row"><span>전달</span><b>{{ target(open) }}</b></div>
+      <div class="row"><span>텔레그램으로도</span>
+        <button class="switch" :class="{ on: toTelegram(open) }" role="switch" :aria-checked="toTelegram(open)" aria-label="텔레그램으로도 보내기" data-test="mission-telegram" @click="toggleTelegram"><i /></button>
+      </div>
       <div v-if="open.skill" class="row"><span>스킬</span><b>{{ open.skill }}</b></div>
       <div v-if="open.process_id" class="row"><span>프로세스</span><b>{{ open.process_id }}</b></div>
       <div v-if="managed(open) && open.params && Object.keys(open.params).length" class="row"><span>입력</span><b class="mono">{{ JSON.stringify(open.params) }}</b></div>
@@ -112,7 +122,7 @@ async function remove() {
       <p class="cap">이전 실행</p>
       <div class="runs">
         <div v-for="r in runs" :key="r.id" class="run glass">
-          <div class="rh"><b :class="r.status">{{ statusText[r.status] }}</b> – {{ when(r.started_at) }}<span v-if="r.result?.agent" class="tag">{{ agents.find((a) => a.id === r.result.agent)?.label || r.result.agent }}</span><span v-if="r.trigger === 'manual'" class="tag">수동</span><span v-if="r.changed" class="tag hi">변경 있음</span><span v-else-if="r.status === 'done' && r.changed === null && !open.process_id" class="tag" title="스킬이 결과 줄(MISSION_RESULT)을 남기지 않아 바뀐 게 있는지 알 수 없어요">변동 여부 모름</span><span v-else-if="r.status === 'done' && r.changed === false" class="tag">변동 없음</span></div>
+          <div class="rh"><b :class="r.status">{{ statusText[r.status] }}</b> – {{ when(r.started_at) }}<span v-if="r.result?.agent" class="tag">{{ agents.find((a) => a.id === r.result.agent)?.label || r.result.agent }}</span><span v-if="r.trigger === 'manual'" class="tag">수동</span><span v-if="r.result?.telegram === 'sent'" class="tag">텔레그램 보냄</span><span v-else-if="r.result?.telegram" class="tag" :title="r.result.telegram">텔레그램 못 보냄</span><span v-if="r.changed" class="tag hi">변경 있음</span><span v-else-if="r.status === 'done' && r.changed === null && !open.process_id" class="tag" title="스킬이 결과 줄(MISSION_RESULT)을 남기지 않아 바뀐 게 있는지 알 수 없어요">변동 여부 모름</span><span v-else-if="r.status === 'done' && r.changed === false" class="tag">변동 없음</span></div>
           <div class="md" v-html="md(r.summary)" />
           <button v-if="r.result?.instId" class="inst" @click="router.push(`/routines/${encodeURIComponent(r.result.instId)}`)">인스턴스 보기 <Icon name="chevron" :size="13" /></button>
           <div v-if="r.result?.created?.length" class="created">

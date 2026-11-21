@@ -80,6 +80,13 @@ async function openTodo(t) {
 /* the pull belongs to this list: a drag past its top does not reach the page (a browser tab's own
    pull-to-refresh would reload everything) */
 .dock { overscroll-behavior-y: contain; }
+/* never sideways: one card wider than the phone (a notice carrying a long id) made the whole Home
+   slide left under a finger and hid that card's ✕ off screen (2026-11-21 phone review) */
+.dock { overflow-x: hidden; }
+.stack > * { min-width: 0; max-width: 100%; }
+/* a card going away keeps its width while it fades (position: absolute alone shrinks it to its text),
+   and the cards under it slide up into the gap (arc-move) */
+.stack > .arc-leave-active { left: 0; right: 0; }
 .stack { display: flex; flex-direction: column; gap: 10px; position: relative; }
 .stack:not(.live) { transition: transform .32s var(--spring); }
 .ptr { position: absolute; top: 84px; left: 0; right: 0; display: flex; align-items: flex-end; justify-content: center; gap: 10px;
@@ -93,7 +100,7 @@ async function openTodo(t) {
   .stack:not(.live), .ptr, .ptr .arrow { transition: none; }
   .ptr .ring { animation-duration: 2.4s; }
 }
-.act { display: block; width: 100%; text-align: left; border-radius: 24px; padding: 17px 16px 19px 22px; font-size: 16px; line-height: 34px; color: var(--text-primary); }
+.act { display: block; width: 100%; text-align: left; overflow-wrap: anywhere; border-radius: 24px; padding: 17px 16px 19px 22px; font-size: 16px; line-height: 34px; color: var(--text-primary); }
 .act .verb { display: inline-block; height: 34px; line-height: 34px; padding: 0 8px; border-radius: 8px; background: var(--color-attention); color: #fff; margin-right: 8px; font-weight: 450; vertical-align: top; }
 .act .txt { line-height: 1.75; }
 .act .due { display: block; color: var(--text-secondary); line-height: 1.6; }

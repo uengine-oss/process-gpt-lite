@@ -81,7 +81,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 .inner { width: 512px; max-width: calc(100% - 32px); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .empty { text-align: center; color: var(--text-secondary); font-size: 22px; margin-top: 30vh; line-height: 1.4; }
 .row { animation: blur-in .4s var(--spring) both; }
-.bubble { max-width: 424px; border-radius: 24px; padding: 13px 18px; line-height: 1.6; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
+.bubble { max-width: min(424px, 100%); min-width: 0; border-radius: 24px; padding: 13px 18px; line-height: 1.6; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
 .md :deep(p) { margin: 0 0 .6em; } .md :deep(p:last-child) { margin: 0; }
 .status { font-size: 15px; padding: 4px 6px; color: var(--text-tertiary); }
 .day { text-align: center; font-size: 12.5px; color: var(--text-tertiary); margin: 6px 0 -4px; }
