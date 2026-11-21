@@ -414,7 +414,9 @@ const DRAFT_TITLE_MAX = 24
 function projectDraftTitle(text) {
   const line = String(text || '').trim().split('\n')[0].trim()
   if (!line) return L('새 프로젝트', 'New project')
-  return line.length > DRAFT_TITLE_MAX ? `${line.slice(0, DRAFT_TITLE_MAX).trim()}…` : line
+  // (cut by characters, not UTF-16 units: an emoji is never split in two)
+  const chars = [...line]
+  return chars.length > DRAFT_TITLE_MAX ? `${chars.slice(0, DRAFT_TITLE_MAX).join('').trim()}…` : line
 }
 app.use('/api', threadFolderRoutes(auth))
 // 방 규칙(lib/roomRules.js): 이 방에 걸린 약속을 보고 끈다

@@ -205,19 +205,19 @@ const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv
 
 // A turn the browser agent answers: said now, its result posted when it ends. Nothing runs in the agent service.
 // asked: the message as the person sent it ({text, files}); skill: the browser skill (lib/browserSkills.js) the task uses
-async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill, files, onDelta, ack, room, asked }) {
+async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill, files, onDelta, ack, room, asked, replaces = true }) {
   noAgentTurn()
   const msg = await addMessage(user.id, threadId, 'agent', 'text', { text: ack })
   onDelta?.(ack)
-  runBrowser({ user, session, threadId, goal, startUrl, skill, files, room, asked })
+  runBrowser({ user, session, threadId, goal, startUrl, skill, files, room, asked, replaces })
   return msg
 }
 // the browser tasks this server started, newest last (what the tests read: the skill is passed on as chosen)
 export const browserStarts = []
 // (the ack is already in the chat; the turn it replaces stops alongside — the card need not wait for that)
-function runBrowser({ user, session, threadId, goal, startUrl, skill, files = [], room, asked }) {
+function runBrowser({ user, session, threadId, goal, startUrl, skill, files = [], room, asked, replaces = true }) {
   const userId = user.id
-  replaceEarlier({ user, session, threadId, room, text: asked?.text ?? goal, why: replacedText(startUrl) })
+  if (replaces) replaceEarlier({ user, session, threadId, room, text: asked?.text ?? goal, why: replacedText(startUrl) })
     .catch((e) => console.warn('[replace]', e.message))
   console.log(`[browser] start thread=${String(threadId).slice(0, 8)} skill=${skill || '-'} url=${startUrl || '-'} files=${files.length}`)
   browserStarts.push({ threadId, goal, startUrl: startUrl || '', skill: skill || '', files: files.map((f) => f.name) })
@@ -228,8 +228,8 @@ function runBrowser({ user, session, threadId, goal, startUrl, skill, files = []
 }
 
 // 바로잡는 말 ("그 사이트에 들어가서 생성해야"): a browser task that starts while an agent turn of the same
-// room is still being answered may take its place (lib/turns.js replaceRule — a project room always, the main chat
-// when the judge says the new message corrects that request). The turn ahead is stopped the way 멈추기 stops it
+// room is still being answered may take its place when the judge says the new message corrects that request
+// (lib/turns.js replaceRule). The turn ahead is stopped the way 멈추기 stops it
 // (deepagents /chat/stop) and its answer says why instead of "완료했습니다"; what it already made stays where it is.
 function replacedText(url) {
   let host = ''
@@ -262,29 +262,17 @@ export async function replaceEarlier({ user, session, threadId, room, text, why 
   return list
 }
 
-// A browser task the router starts from a message with no file of its own (「그 사이트에 들어가서 생성해야」)
-// takes the files the person attached here just before — told by the message kind ('file'), not by reading words.
-// (the links are in the router's goal: it reads the conversation) A project room's last few messages; the main
-// chat's last three, from the last half hour.
 const hostOf = (u) => { try { return new URL(u).host } catch { return '' } }
 const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
-export async function earlierFiles(threadId, { except, room }) {
-  const rows = await q(`select content from pro_messages where thread_id=$1 and role='user' and kind='file' and created_at >= coalesce(
-      (select created_at from pro_messages where thread_id=$1 and role='user' and kind='text' and id<>$2 order by created_at desc offset $3 limit 1), '-infinity'::timestamptz)
-    ${room ? '' : "and created_at > now() - interval '30 minutes'"} order by created_at`, [threadId, except, (room ? 6 : 3) - 1])
-  const files = []
-  for (const r of rows) {
-    const f = r.content || {}
-    if (f.url && !files.some((x) => x.url === f.url)) files.push({ name: f.name, url: f.url, path: f.path, ...(f.key ? { key: f.key } : {}), ...(f.type ? { type: f.type } : {}) })
-  }
-  return files.slice(-5)
-}
 
 async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, openDoc }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
-  // a key is only ever this person's own upload (lib/attachments.js); the page could send any other
-  files = (files || []).filter((f) => f?.url).map((f) => (f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { ...f, key: undefined } : f)).slice(0, 10)
+  // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
+  const ownPath = (p) => typeof p === 'string' && p.startsWith(`/workspace/uploads/${user.id}/`) && !p.split('/').includes('..')
+  files = (files || []).filter((f) => f?.url).map((f) => ({ ...f,
+    ...(f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { key: undefined } : {}),
+    ...(f.path && !ownPath(f.path) ? { path: undefined } : {}) })).slice(0, 10)
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
   const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
   const store = turnCtx.getStore()
@@ -321,7 +309,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       ranRule(rule.id).catch(() => {})
       const goal = roomGoal(rule.action, text, files)
       const skill = rule.skill ? browserSkill(rule.skill) : null
-      if (skill) return startBrowserTurn({ user, session, threadId, goal, startUrl: skill.startUrl || undefined, skill: skill.name, files, onDelta, room, asked: { text, files }, ack: L('이 방의 규칙대로 시작할게요.', 'Starting, as this room is set up to.') })
+      if (skill) return startBrowserTurn({ user, session, threadId, goal, startUrl: skill.startUrl || undefined, skill: skill.name, files, onDelta, room, asked: { text, files }, replaces: false, ack: L('이 방의 규칙대로 시작할게요.', 'Starting, as this room is set up to.') })
       return delegate({ user, session, threadId, text: goal, onDelta })
     }
   }
@@ -456,8 +444,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       const skill = args.skill ? browserSkill(String(args.skill).trim()) : null
       if (args.skill && !skill) console.warn(`[router] browser skill '${args.skill}' is not installed`)
       const startUrl = skill?.startUrl ? (sameHost(args.start_url, skill.startUrl) ? args.start_url : skill.startUrl) : args.start_url
-      const carry = files.length ? files : await earlierFiles(threadId, { except: said.id, room }).catch(() => [])
-      runBrowser({ user, session, threadId, goal: args.goal || text, startUrl: startUrl || undefined, skill: skill?.name, files: carry, room, asked: { text, files } })
+      runBrowser({ user, session, threadId, goal: args.goal || text, startUrl: startUrl || undefined, skill: skill?.name, files, room, asked: { text, files } })
       break
     }
     case 'schedule_task': {
@@ -916,8 +903,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (adopted) store.adopted = true
   const turn = adopted ? store.turn : turns.enqueue({ userId: user.id, threadId, conv: conv0 })
   turn.setConv(conv0)
-  // an agent turn: a correction that goes to the browser may replace it (replaceEarlier)
+  // an agent turn: a correction that goes to the browser may replace it (replaceEarlier) — only one answering a
+  // person's message in this thread, never a schedule, a mission or a team run delegated here
   turn.agent = true
+  turn.fromUser = !!adopted
   turn.title = String(text || '').trim().split('\n')[0].slice(0, 60)
   // a shared folder's run room (folderTurn) is never offered to the router as a conversation in progress
   turn.folder = !!pin?.folder

@@ -339,7 +339,12 @@ async function plan(goal) {
 // skill: the browser skill (skills/<name>/SKILL.md, lib/browserSkills.js) the work was routed to, if any —
 // the agent is told its name and description and reads the body itself (read_skill); its start_url is
 // where the task opens when no startUrl is given.
-export async function runBrowserTask({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates, files = [], skill }) {
+export async function runBrowserTask(args) {
+  const k = `${args.userId}:${args.threadId}`
+  started.set(k, (started.get(k) || 0) + 1)
+  try { return await runBrowserTaskNow(args) } finally { const n = (started.get(k) || 1) - 1; if (n > 0) started.set(k, n); else started.delete(k) }
+}
+async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates, files = [], skill }) {
   const sk = skill ? browserSkill(skill) : null
   if (skill && !sk) console.warn('[browser] no browser skill named', skill)
   startUrl = startUrl || sk?.startUrl || ''
@@ -353,6 +358,7 @@ export async function runBrowserTask({ userId, threadId, goal, startUrl, onActio
     ? (emit(userId, 'status', { threadId, text: L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`) }),
       s.page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).then(() => true, () => true))
     : null
+  if (early) { s.early = early; early.then(() => { if (s.early === early) s.early = null }) }
   const p = await plan(goal).catch((e) => { console.warn('[browser] plan', e.message); return { title: firstLine(goal), steps: [] } })
   const cancelledEarly = s.planning.get(card.id)
   s.planning.delete(card.id)
@@ -376,6 +382,8 @@ export async function runBrowserTask({ userId, threadId, goal, startUrl, onActio
     return { state: 'cancelled', summary: '', notes: [], stats: task.stats }
   }
   if (ahead) await updateMessage(userId, card.id, { state: 'running', reason: '' })
+  // another task's start page, opened while it planned, lands before this one drives the page
+  if (s.early && s.early !== early) await s.early
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
@@ -948,6 +956,12 @@ async function doAct(s, task, name, a) {
     case 'click': {
       // the purchase gate: a control that orders or pays is pressed only when the goal asks to buy, and
       // one that commits money only after the person approved (the approve card) — whatever the model says
+      // (the description timed out: read it again before pressing — an unread control must not slip past the gate)
+      if (!('what' in task.target)) {
+        const again = await el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 8000 }).catch(() => null)
+        if (!again) return 'error: could not read what this control is; look at the page again before pressing it'
+        task.target = { i: a.i, ...again }
+      }
       const what = task.target.what || ''
       if (isPurchaseControl(what)) {
         if (!asksToBuy(task.goal)) return `${REFUSED_PURCHASE} '${what}' starts a purchase or order, and the goal does not ask to buy anything. Do not press it; do what the goal asks and finish.`
@@ -974,8 +988,9 @@ async function doAct(s, task, name, a) {
     case 'wait_for_page': return waitForPage(s, task, a)
     case 'tell_user': await addMessage(task.userId, task.threadId, 'agent', 'text', { text: String(a.text || '').slice(0, 600) }); return 'told'
     case 'attach_file': {
-      const f = (task.files || []).find((x) => x.name === a.name) || task.files?.[0]
-      if (!f) return 'error: no file was attached to this task'
+      const list = task.files || []
+      const f = list.find((x) => x.name === a.name) || (!a.name && list.length === 1 ? list[0] : null)
+      if (!f) return list.length ? `error: no attached file is named '${a.name || ''}' — the files are: ${list.map((x) => x.name).join(', ')}` : 'error: no file was attached to this task'
       const { file, done } = await localCopy(f)
       try {
         await point(s, task, el(a.i), 'click')
@@ -1081,9 +1096,13 @@ async function doAct(s, task, name, a) {
 // A file the person attached, as a path on this machine for the page's file input: the workspace copy
 // where this server has the workspace (local, Docker bundle), else the person's storage copy fetched into
 // a temporary folder (production: the agent's pods and this server share no disk).
+// a file the page names by path is used only when it is under the workspace's uploads (lib/attachments.js) and
+// resolves inside it — anything else (a server file, "../") goes by its stored copy or not at all
+const ownUploadPath = (p) => typeof p === 'string' && p.startsWith('/workspace/uploads/') && !p.split('/').includes('..')
 async function localCopy(f) {
-  const there = f.path && await workspaceHostPath(f.path).catch(() => null)
-  if (there) return { file: there, done: async () => {} }
+  const root = ownUploadPath(f.path) && await workspaceHostPath('/workspace').catch(() => null)
+  const there = root && await workspaceHostPath(f.path).catch(() => null)
+  if (there && path.resolve(there).startsWith(path.resolve(root) + path.sep)) return { file: there, done: async () => {} }
   let buf
   const pub = `${config.supabaseUrl}/storage/v1/object/public/files/`
   const key = f.key || (String(f.url || '').startsWith(pub) ? decodeURIComponent(f.url.slice(pub.length)) : '')
@@ -1234,14 +1253,19 @@ export function resume(userId, text = 'user resolved it, continue') {
 // 작업 취소: the task holding the browser, or (by its card id) one waiting in line
 export function cancel(userId, taskId) {
   const s = sessions.get(userId)
-  if (taskId && s?.planning.has(taskId)) { s.planning.set(taskId, true); return true } // its card is up, the plan is not back yet
+  if (taskId && s?.planning.has(taskId)) { // its card is up, the plan is not back yet
+    s.planning.set(taskId, true)
+    updateMessage(userId, taskId, { state: 'cancelled', reason: '', summary: L('시작하기 전에 취소했어요.', 'Canceled before it started.') }).catch(() => {})
+    return true
+  }
   const inLine = taskId && s?.queue.find((x) => x.task.id === taskId)
   if (inLine) { s.queue.splice(s.queue.indexOf(inLine), 1); inLine.task.cancelled = true; inLine.go(); return true }
   const t = s?.task
   if (t && (!taskId || t.id === taskId)) { t.cancelled = true; t.waiting?.('cancelled'); return true }
   return false
 }
-export const runningIn = (userId, threadId) => sessions.get(userId)?.task?.threadId === threadId
+const started = new Map() // `${userId}:${threadId}` → tasks begun and not yet over (planning, in line or running)
+export const runningIn = (userId, threadId) => (started.get(`${userId}:${threadId}`) || 0) > 0 || sessions.get(userId)?.task?.threadId === threadId
 
 // Takeover: raw input forwarded from the live view (coords are 0..1 of the viewport).
 export async function input(userId, ev) {

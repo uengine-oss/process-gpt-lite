@@ -203,7 +203,8 @@ export const useApp = defineStore('app', {
       this.mentions = [...this.mentions.filter((x) => !(x.label === m.label && x.file === m.file)), m].slice(-4)
     },
     removeMention(i) { this.mentions = this.mentions.filter((_, k) => k !== i) },
-    async send(text, threadId = this.activeId, context) {
+    // attachments: the files this message carries when they were taken earlier (a message queued while 새 프로젝트's room is made)
+    async send(text, threadId = this.activeId, context, attachments) {
       // mentions: the chips read first in the message; where each one is goes to the agent
       const mentions = this.mentions
       if (mentions.length) {
@@ -212,8 +213,8 @@ export const useApp = defineStore('app', {
         text = `${mentions.map((m) => `@${m.label}`).join(' ')} ${text}`
         context = [context, `(사용자가 열린 문서에서 가리킨 대상: ${mentions.map((m) => `@${m.label} = ${JSON.stringify(m)}`).join(' ; ')})`].filter(Boolean).join('\n\n')
       }
-      const pending = this.attachments
-      this.attachments = []
+      const pending = attachments || this.attachments
+      if (!attachments) this.attachments = []
       await Promise.all(pending.map((a) => a.job))
       const files = pending.filter((a) => a.result).map((a) => a.result)
       // asked from inside one conversation's view: it continues that conversation
@@ -249,6 +250,9 @@ export const useApp = defineStore('app', {
     newProject(text) {
       // the folder chosen on the 새 프로젝트 screen: the project works on its own variation of it
       const f = this.newProjectFolder
+      // the files attached for this message go with it, not with whatever is sent next while the room is made
+      const att = this.attachments
+      this.attachments = []
       const tmp = `draft-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
       this.messages[tmp] = [{ id: `${tmp}-1`, thread_id: tmp, role: 'user', kind: 'text', content: { text, local: true }, created_at: new Date().toISOString() }]
       this.drafts[tmp] = ''
@@ -266,7 +270,7 @@ export const useApp = defineStore('app', {
           delete this.drafts[tmp]
           // still on that screen: the text goes back into the composer (elsewhere it would land in another chat)
           const here = this.activeId === tmp
-          if (here) { this.activeId = null; this.prefill = [text, ...more].join('\n') }
+          if (here) { this.activeId = null; this.prefill = [text, ...more.map((m) => m.text)].join('\n'); this.attachments = [...att, ...more.flatMap((m) => m.att), ...this.attachments] }
           this.draftProject = null
           // a refusal the server explains (the folder) is said as it is; anything else plainly
           const why = e.status && e.status < 500 && /[가-힣]/.test(e.message || '') ? e.message : '프로젝트를 만들지 못했어요'
@@ -282,9 +286,9 @@ export const useApp = defineStore('app', {
         if (!this.projects.some((p) => p.id === t.id)) this.projects.unshift(t)
         if (this.draftProject?.tmp === tmp) this.draftProject = { tmp, id: t.id, more }
         if (this.activeId === tmp) this.activeId = t.id
-        this.send(text, t.id)
+        this.send(text, t.id, undefined, att)
         // (a moment apart: the server keeps them in the order sent and answers them in turn — lib/turns.js)
-        more.forEach((m, i) => setTimeout(() => this.send(m, t.id), 400 * (i + 1)))
+        more.forEach((m, i) => setTimeout(() => this.send(m.text, t.id, undefined, m.att), 400 * (i + 1)))
         return t.id
       })()
       return draftJob
@@ -293,7 +297,9 @@ export const useApp = defineStore('app', {
     queueDraft(text) {
       const d = this.draftProject
       if (!d || d.id || !this.messages[d.tmp]) return this.send(text)
-      d.more.push(text)
+      // (its own files, taken now: a file attached for it must not leave with the first message)
+      d.more.push({ text, att: this.attachments })
+      this.attachments = []
       this.messages[d.tmp].push({ id: `${d.tmp}-${d.more.length + 1}`, thread_id: d.tmp, role: 'user', kind: 'text', content: { text, local: true }, created_at: new Date().toISOString() })
       return draftJob
     },

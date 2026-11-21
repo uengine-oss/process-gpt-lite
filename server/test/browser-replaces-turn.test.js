@@ -243,7 +243,7 @@ test('규칙은 그 방 주인만 보고 끄며, 끈 방에서는 판정이 run_
 })
 
 // ---------- 바로잡는 말: 규칙 없는 프로젝트 방 ----------
-test('규칙 없는 프로젝트 방: 긴 작업 중 바로잡는 말 → 라우터가 skill 을 고른 browser_task → 앞 턴은 멈추고 이유를 말하며, 시작 주소는 스킬의 것, 앞서 올린 파일이 따라간다', { skip: !up }, async () => {
+test('규칙 없는 프로젝트 방: 긴 작업 중 바로잡는 말 → 라우터가 skill 을 고른 browser_task → 판정이 바로잡는 말이라 하면 앞 턴은 멈추고 이유를 말하며, 시작 주소는 스킬의 것 — 앞서 올린 파일은 따라가지 않는다', { skip: !up }, async () => {
   const conv = `rt-p-${stamp}`
   const tid = await thread('project', conv)
   const n0 = streams.length
@@ -253,6 +253,7 @@ test('규칙 없는 프로젝트 방: 긴 작업 중 바로잡는 말 → 라우
   h1.push('message', { type: 'token', content: '슬라이드 파일을 만들고 있어요.' })
   const goal = '노트 사이트에서 https://youtu.be/rt1121abc 영상으로 슬라이드와 팟캐스트를 만든다'
   routes.push({ goal, skill: 'fake-notes', ack: '노트 사이트에서 직접 할게요.' })
+  aheadJudged.push({ t0: 0.92, new: 0.08 })
   const r0 = routerCalls.length
   const ack = await runTurn({ user, session, threadId: tid, text: '노트북엘엠 사이트에 들어가서 생성해야' })
   assert.equal(ack.content.text, '노트 사이트에서 직접 할게요.')
@@ -270,14 +271,14 @@ test('규칙 없는 프로젝트 방: 긴 작업 중 바로잡는 말 → 라우
   assert.equal(first.content.replaced, true)
   assert.match(first.content.partial, /슬라이드 파일을 만들고 있어요/)
   const started = browserStarts.at(-1)
-  assert.deepEqual({ ...started, threadId: undefined }, { threadId: undefined, goal, startUrl: START, skill: 'fake-notes', files: ['자료.pdf'] })
+  assert.deepEqual({ ...started, threadId: undefined }, { threadId: undefined, goal, startUrl: START, skill: 'fake-notes', files: [] })
   const card = await cardOf(tid)
   assert.equal(card.content.url, START)
   const answers = (await msgs(tid)).filter((m) => m.role === 'agent' && m.kind === 'text').map((m) => m.content.text)
   assert.ok(!answers.some((t) => /완료했습니다/.test(t)), JSON.stringify(answers))
 })
 
-test('프로젝트 방: 기다리던 에이전트 턴도 에이전트에 가지 않고 이유로 끝난다', { skip: !up }, async () => {
+test('프로젝트 방: 판정이 기다리던 턴을 고르면 그 턴은 에이전트에 가지 않고 바로 이유로 끝나고, 돌던 턴은 그대로 끝난다', { skip: !up }, async () => {
   const conv = `rt-w-${stamp}`
   const tid = await thread('project', conv)
   const n0 = streams.length
@@ -286,14 +287,16 @@ test('프로젝트 방: 기다리던 에이전트 턴도 에이전트에 가지 
   const p2 = runTurn({ user, session, threadId: tid, text: '그 보고서 문서도 하나 더 만들어 줘' })
   await until(async () => (await msgs(tid)).find((m) => m.role === 'user' && m.content.queued))
   routes.push({ goal: '노트 사이트에서 https://a.example/w1 로 보고서를 만든다', skill: 'fake-notes', ack: '사이트에서 할게요.' })
-  await runTurn({ user, session, threadId: tid, text: '노트 사이트에서 해 줘' })
-  const [a, b] = await Promise.all([p1, p2])
-  assert.equal(a.content.text, REPLACED)
+  aheadJudged.push({ t0: 0.05, t1: 0.9, new: 0.05 })
+  await runTurn({ user, session, threadId: tid, text: '그건 노트 사이트에서 해 줘' })
+  const b = await p2
   assert.equal(b.content.text, REPLACED)
   assert.equal(b.content.replaced, true)
   assert.equal(streams.length, n0 + 1, '기다리던 턴은 deepagents 에 가지 않음')
-  assert.ok(h1.closed)
-  assert.deepEqual(browserStarts.at(-1).files, [], '앞서 올린 파일이 없으면 없음')
+  h1.push('message', { type: 'token', content: '보고서를 만들었어요.' }); h1.end()
+  const a = await p1
+  assert.notEqual(a.content.text, REPLACED)
+  assert.deepEqual(browserStarts.at(-1).files, [], '앞서 올린 파일은 따라가지 않음')
   await cardOf(tid)
 })
 
