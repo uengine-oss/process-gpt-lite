@@ -412,7 +412,7 @@ app.post('/api/threads', auth, async (req, res) => {
 // a new project's title until the model names it: the first line of the request, cut short
 const DRAFT_TITLE_MAX = 24
 function projectDraftTitle(text) {
-  const line = String(text || '').trim().split('\n')[0].replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim()
+  const line = String(text || '').trim().split('\n')[0].trim()
   if (!line) return L('새 프로젝트', 'New project')
   return line.length > DRAFT_TITLE_MAX ? `${line.slice(0, DRAFT_TITLE_MAX).trim()}…` : line
 }

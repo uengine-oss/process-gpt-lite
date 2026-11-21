@@ -1,70 +1,113 @@
-// 브라우저 에이전트가 혼자 넘을 수 없는 화면(로그인 벽 · 구글의 로그인 거절 · 로봇 확인)을 규칙으로 알아보고,
-// 카드에 무엇을 하면 이어지는지 쓰기 위한 조각들, 프로필 자리와 남은 잠금 파일 — 브라우저·모델 없이.
+// 브라우저 에이전트가 혼자 넘을 수 없는 화면(로그인 벽 · 사이트의 거절 · 사람 확인)은 문구 규칙이 아니라 판정(lib/judge.js)으로,
+// 사이트 지식은 브라우저 스킬(이름·설명만 먼저)로 — 그 조각들과 프로필 자리 · 남은 잠금 파일. 브라우저·모델 없이(가짜 판정 서버).
 //   cd server && node --test test/browserWalls.test.js
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
+import http from 'node:http'
 import path from 'node:path'
-import { wallOf, siteName, guideFor } from '../lib/browserGuides.js'
-import { profilesDir, clearStaleLocks, actionLine, mediaType, STUCK_TURNS } from '../lib/browser.js'
 
-// notebook.google.com 을 로그인 없이 열면 보이는 첫 화면(2026-11-21 실제 화면에서 옮김)
-const NB_FRONT = {
-  url: 'https://notebook.google.com/trynow', title: 'Gemini Notebook',
-  text: 'notebook.google.com 은(는) 쿠키를 사용합니다.\n동의함\n나중에\n로그인\n무엇이든\n이해할 수 있습니다\nGemini Notebook에 로그인\n파일을\n슬라이드 자료\n로 바꾸기',
-  els: [{ text: '자세히 알아보세요' }, { text: '동의함' }, { text: '나중에' }, { text: 'Gemini Notebook 홈' }, { text: '로그인' }, { text: 'Gemini Notebook에 로그인' }, { text: '쿠키 관리' }],
-}
+// ---- 가짜 판정 서버: 상태 글의 제목 줄로 확률을 돌려준다. 모델(LLM)로 넘어가지 않게 PRO_JUDGE_LLM=0 ----
+const answers = {} // page title → probabilities, or 'down'
+const asked = []
+const judgeServer = http.createServer((req, res) => {
+  let raw = ''
+  req.on('data', (c) => { raw += c })
+  req.on('end', () => {
+    const body = JSON.parse(raw)
+    asked.push(body)
+    const title = /^Page title: (.*)$/m.exec(body.state)?.[1]
+    const a = answers[title]
+    if (a === 'down') { res.writeHead(500); return res.end('{}') }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ probabilities: a || { login_needed: 0.1, refused: 0.05, human_check: 0.05, ok: 0.8 }, model: 'fake-judge', ms: 1 }))
+  })
+})
+await new Promise((r) => judgeServer.listen(0, '127.0.0.1', r))
+const skillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pro-bskills-'))
+fs.mkdirSync(path.join(skillsDir, 'unit-studio'))
+fs.writeFileSync(path.join(skillsDir, 'unit-studio', 'SKILL.md'), `---
+name: unit-studio
+description: 시험용 스튜디오 사이트에서 보고서를 만든다.
+metadata:
+  runs_in: browser
+  start_url: https://studio.example/
+---
 
-test('NotebookLM 첫 화면(로그인 단추만 있는 화면)은 로그인 벽', () => {
-  assert.deepEqual(wallOf(NB_FRONT), { need: 'login', site: 'notebook.google.com', google: true })
-  assert.equal(wallOf({ ...NB_FRONT, url: 'https://notebook.google.com/' }).need, 'login', '주소가 / 여도 로그인 단추만 있으면 벽')
-  assert.equal(wallOf({ ...NB_FRONT, url: 'https://notebooklm.google.com/' }).need, 'login')
+# 본문-표식-UNIT
+「생성」을 누른다.
+`)
+Object.assign(process.env, { PRO_JUDGE_URL: `http://127.0.0.1:${judgeServer.address().port}/judge`, PRO_JUDGE_LLM: '0', PRO_BROWSER_SKILLS_DIR: skillsDir })
+
+const { profilesDir, clearStaleLocks, actionLine, mediaType, STUCK_TURNS, judgeWall, wallState, pageName, skillNote, WALL_BAR } = await import('../lib/browser.js')
+const { browserSkill } = await import('../lib/browserSkills.js')
+after(() => { judgeServer.close(); fs.rmSync(skillsDir, { recursive: true, force: true }) })
+
+const page = (title, extra = {}) => ({ url: 'https://app.example/start', title, text: '내용', els: [], fields: { password: false, signIn: false }, ...extra })
+
+test('판정이 0.7 이상일 때만 벽: 로그인 필요 → login, 거절 → blocked, 사람 확인 → captcha', async () => {
+  answers['로그인 앞'] = { login_needed: 0.91, refused: 0.03, human_check: 0.02, ok: 0.04 }
+  answers['거절'] = { login_needed: 0.1, refused: 0.86, human_check: 0.02, ok: 0.02 }
+  answers['확인'] = { login_needed: 0.05, refused: 0.02, human_check: 0.9, ok: 0.03 }
+  answers['애매'] = { login_needed: 0.62, refused: 0.03, human_check: 0.05, ok: 0.3 }
+  assert.deepEqual(await judgeWall(page('로그인 앞', { site: 'App Example' })), { need: 'login', site: 'app.example', name: 'App Example', key: 'login_needed', p: 0.91 })
+  assert.equal((await judgeWall(page('거절'))).need, 'blocked')
+  assert.equal((await judgeWall(page('확인'))).need, 'captcha')
+  assert.equal(await judgeWall(page('애매')), null, `${WALL_BAR} 미만은 벽으로 보지 않는다(에이전트가 평소대로)`)
+  assert.equal(await judgeWall(page('보통 페이지')), null, 'ok')
+  assert.equal(WALL_BAR, 0.7)
 })
 
-test('로그인한 NotebookLM 화면은 벽이 아니다', () => {
-  assert.equal(wallOf({ url: 'https://notebook.google.com/', title: 'Gemini Notebook', text: '최근 노트북', els: [{ text: '새 노트북' }, { text: 'Google 계정: 홍길동' }] }), null)
-  assert.equal(wallOf({ url: 'https://notebook.google.com/notebook/abc', text: '', els: [{ text: '소스 추가' }, { text: '로그인' }] }), null, '앱 단추가 있으면 벽이 아님')
+test('판정에 묻는 것: 제목 · 호스트 · 비밀번호/로그인 칸(구조) · 단추 이름 · 보이는 글 앞부분 — 칸에 친 값은 없다', async () => {
+  const n = asked.length
+  await judgeWall(page('상태', {
+    text: `첫 줄\n\n\n둘째 줄 ${'긴 글 '.repeat(400)}`,
+    fields: { password: true, signIn: true },
+    els: [{ tag: 'button', text: '다음' }, { tag: 'a', text: '도움말' }, { tag: 'input', type: 'email', text: 'typed-value@example.com' }, { tag: 'input', type: 'submit', text: '보내기' }],
+  }))
+  const { state, question, options } = asked[n]
+  assert.match(state, /^Page title: 상태$/m)
+  assert.match(state, /^Site address: app\.example$/m)
+  assert.match(state, /^Has a password field: yes$/m)
+  assert.match(state, /^Has a sign-in field \(e-mail or username\): yes$/m)
+  assert.match(state, /^Buttons and links: 다음 \| 도움말 \| 보내기$/m)
+  assert.ok(!state.includes('typed-value@example.com'), '칸의 값은 판정에 보내지 않는다')
+  assert.ok(state.length < 1400, '보이는 글은 앞부분만')
+  assert.ok(question.length > 0)
+  assert.deepEqual(options.map((o) => o.key), ['login_needed', 'refused', 'human_check', 'ok'])
+  assert.equal(wallState(page('x')).includes('Has a password field: no'), true)
 })
 
-test('accounts.google.com 은 로그인, 구글이 거절한 화면은 blocked', () => {
-  assert.equal(wallOf({ url: 'https://accounts.google.com/v3/signin/identifier?continue=x', text: '로그인\nGoogle 계정 사용' }).need, 'login')
-  for (const text of ['로그인할 수 없음\n이 브라우저 또는 앱은 안전하지 않을 수 있습니다. 자세히 알아보기', "Couldn't sign you in\nThis browser or app may not be secure. Try using a different browser."]) {
-    assert.deepEqual(wallOf({ url: 'https://accounts.google.com/v3/signin/challenge/x', text }), { need: 'blocked', site: 'accounts.google.com', google: true }, text)
-  }
-  assert.equal(wallOf({ url: 'https://accounts.google.com/v3/signin/rejected?x=1', text: '' }).need, 'blocked', '주소만으로도')
-  assert.equal(wallOf({ url: 'https://www.google.com/search?q=This+browser+or+app+may+not+be+secure', text: 'This browser or app may not be secure 해결 방법' }), null, '검색 결과의 같은 문구는 벽이 아님')
+test('http(s) 가 아닌 화면은 묻지 않는다', async () => {
+  const n = asked.length
+  assert.equal(await judgeWall({ url: 'about:blank', title: '', text: '', els: [] }), null)
+  assert.equal(asked.length, n)
 })
 
-test('로봇 확인 화면', () => {
-  assert.equal(wallOf({ url: 'https://www.google.com/sorry/index?continue=x', text: 'Our systems have detected unusual traffic from your computer network.' }).need, 'captcha')
-  assert.equal(wallOf({ url: 'https://shop.example/', text: '잠시만요. 사람인지 확인하는 중입니다' }).need, 'captcha')
+test('카드에 쓰는 사이트 이름은 페이지 자신에게서: og:site_name / application-name → 제목 → 호스트', () => {
+  assert.equal(pageName({ url: 'https://www.a.example/x', site: 'A 스튜디오', title: '첫 화면 - A' }), 'A 스튜디오')
+  assert.equal(pageName({ url: 'https://www.a.example/x', site: '', title: '  첫 화면\n- A  ' }), '첫 화면 - A')
+  assert.equal(pageName({ url: 'https://www.a.example/x', site: '', title: '' }), 'a.example')
+  assert.equal(pageName({ url: 'https://a.example/', title: '가'.repeat(60) }).length, 40)
 })
 
-test('다른 사이트는 로그인을 요구할 때만(로그인 칸이 있거나 읽을 것이 거의 없을 때) 벽', () => {
-  assert.deepEqual(wallOf({ url: 'https://members.example/a', text: '회원 전용\n로그인이 필요합니다.', els: [{ text: '로그인' }] }), { need: 'login', site: 'members.example', generic: true })
-  assert.equal(wallOf({ url: 'https://shop.example/login', text: `${'긴 본문 '.repeat(100)} 로그인해 주세요`, els: [{ text: '', type: 'password', secret: true }] }).need, 'login')
-  assert.equal(wallOf({ url: 'https://news.example/', text: `${'기사 본문 '.repeat(100)}\n로그인하세요`, els: [{ text: '로그인' }] }), null, '읽을 본문이 있는 페이지의 로그인 링크는 벽이 아님')
-  assert.equal(wallOf({ url: 'http://127.0.0.1:5000/login', text: '테스트 상점 로그인\n이메일\n비밀번호', els: [{ text: '', type: 'password', secret: true }] }), null, '로그인 칸만 있고 요구하는 말이 없으면 모델이 보관함으로 채운다')
-  assert.equal(wallOf({ url: 'about:blank', text: '', els: [] }), null)
-})
-
-test('카드에 쓰는 사이트 이름', () => {
-  assert.equal(siteName('notebook.google.com'), 'NotebookLM')
-  assert.equal(siteName('accounts.google.com', '노트북 lm으로 슬라이드 만들어 줘'), 'NotebookLM')
-  assert.equal(siteName('accounts.google.com', '메일 정리'), 'accounts.google.com')
-  assert.equal(siteName('www.example.com'), 'example.com')
-})
-
-test('NotebookLM 안내는 로그인 단추를 누르지 말라고 한다', () => {
-  const g = guideFor('노트북엘엠으로 슬라이드', '')
-  assert.match(g, /never type a Google password/)
-  assert.match(g, /do not press those sign-in buttons/)
+test('브라우저 스킬: 맡은 스킬이 있으면 이름·설명과 read_skill 만, 없으면 목록(이름·설명)만 — 본문은 넣지 않는다', () => {
+  const sk = browserSkill('unit-studio')
+  assert.equal(sk.startUrl, 'https://studio.example/')
+  const one = skillNote(sk)
+  assert.match(one, /unit-studio — 시험용 스튜디오 사이트에서 보고서를 만든다\./)
+  assert.match(one, /read_skill\("unit-studio"\)/)
+  assert.doesNotMatch(one, /본문-표식-UNIT/)
+  const all = skillNote(null)
+  assert.match(all, /- unit-studio: 시험용 스튜디오 사이트에서 보고서를 만든다\. \(start: https:\/\/studio\.example\/\)/)
+  assert.match(all, /read_skill\(name\)/)
+  assert.doesNotMatch(all, /본문-표식-UNIT/)
 })
 
 test('누르는 중·입력 중 문구는 요소 이름으로, 값은 넣지 않는다', () => {
-  assert.equal(actionLine('click', { name: '새 노트북' }, 'notebook.google.com'), '「새 노트북」 누르는 중')
-  assert.equal(actionLine('click', {}, 'notebook.google.com'), 'notebook.google.com에서 누르는 중')
+  assert.equal(actionLine('click', { name: '새 노트북' }, 'app.example'), '「새 노트북」 누르는 중')
+  assert.equal(actionLine('click', {}, 'app.example'), 'app.example에서 누르는 중')
   assert.equal(actionLine('type', { name: '검색', field: true }), '「검색」 칸에 입력 중')
   assert.equal(actionLine('type', { name: '비밀번호', secret: 'password' }), '비밀번호 칸에 입력 중')
   assert.equal(actionLine('type', { name: '', secret: 'card' }), '카드 번호 칸에 입력 중')
@@ -117,4 +160,11 @@ test('다른 호스트(바뀐 파드)가 남긴 잠금 파일은 지우고, 이 
     assert.equal(clearStaleLocks(dir).length, 3, '이 기계지만 끝난 프로세스의 잠금')
     assert.deepEqual(clearStaleLocks(dir), [], '없으면 할 일 없음')
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+// 마지막에: 판정 서버가 쓰러지면 1분 동안 다시 묻지 않으므로(lib/judge.js)
+test('판정을 받지 못하면(서버 오류, 모델 판정 꺼짐) 벽으로 보지 않는다 — 에이전트가 평소대로 진행', async () => {
+  answers['쓰러짐'] = 'down'
+  assert.equal(await judgeWall(page('쓰러짐')), null)
+  assert.equal(await judgeWall(page('로그인 앞')), null, '쓰러진 동안에는 묻지 않고 지나간다')
 })

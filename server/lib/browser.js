@@ -19,7 +19,8 @@ import { config } from '../config.js'
 import { L, isEn } from './lang.js'
 import { saveAttachment } from './attachments.js'
 import { workspaceHostPath } from './missions.js'
-import { guideFor, wallOf, siteName } from './browserGuides.js'
+import { browserSkill, browserSkills, readBrowserSkill, browserSkillCatalog } from './browserSkills.js'
+import { judge } from './judge.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -239,10 +240,14 @@ async function pushFrame(userId, s) {
   return s.frame
 }
 
-// Numbered interactive elements, the agent's view of the page.
+// Numbered interactive elements, the agent's view of the page. Also what the page calls itself (its
+// og:site_name / application-name meta) and, from the visible fields alone, whether it has a password or
+// a sign-in field: what the wall check reads besides the text.
 const SNAPSHOT_JS = () => {
   const els = [...document.querySelectorAll('a,button,input,textarea,select,[role=button],[role=link],[contenteditable=true]')]
   const out = []
+  const fields = { password: false, signIn: false }
+  const meta = (n) => (document.querySelector(`meta[property="${n}"], meta[name="${n}"]`)?.content || '').trim()
   let i = 0
   for (const el of els) {
     const r = el.getBoundingClientRect()
@@ -254,12 +259,15 @@ const SNAPSHOT_JS = () => {
     const secret = el.type === 'password' || el.hasAttribute('data-pro-secret') || /^cc-|one-time-code/.test(el.autocomplete || '') ||
       /card.?(no|num)|cardnumber|cvc|cvv|csc|otp/i.test(`${el.name || ''} ${el.id || ''}`)
     const label = el.placeholder || el.getAttribute('aria-label') || ''
+    if (el.type === 'password') fields.password = true
+    if (el.tagName === 'INPUT' && (el.type === 'email' || String(el.autocomplete || '').split(/\s+/).some((t) => t === 'username' || t === 'email'))) fields.signIn = true
     out.push({ i, tag: el.tagName.toLowerCase(), type: el.type || '', name: el.name || '',
       text: (secret ? label : (el.innerText || el.value || label)).trim().slice(0, 60),
       ...(secret ? { secret: true, filled: !!el.value } : {}) })
     if (++i >= 120) break
   }
-  return { title: document.title, url: location.href, text: document.body.innerText.slice(0, 2500), els: out }
+  return { title: document.title, url: location.href, site: meta('og:site_name') || meta('application-name'), fields,
+    text: document.body.innerText.slice(0, 2500), els: out }
 }
 
 // Slow work on a page (a report, an audio file being made) is waited for here, without spending the model's turns.
@@ -281,7 +289,8 @@ const TOOLS = [
   ['note', 'Record facts you found (names, prices, URLs) so they survive leaving this page', { text: 'string' }],
   ['need_login', 'No saved credential for this site; ask the user to save one', { site: 'string' }],
   ['approve', 'Ask the user to approve an irreversible step (submitting a payment, sending, deleting) right before doing it. Say exactly what will happen (amount, item, recipient)', { summary: 'string' }],
-  ['need_user', 'Ask the user to intervene (captcha, manual step they must do themselves). When the user only has to pick one of a few choices (which account, which plan), list them in options', { reason: 'string', options: 'array' }],
+  ['need_user', 'Ask the user to intervene (captcha, manual step they must do themselves). Say in need what it is: login (they have to sign in themselves), captcha (a check that they are human), or other. When the user only has to pick one of a few choices (which account, which plan), list them in options', { reason: 'string', options: 'array', need: { type: 'string', enum: ['login', 'captcha', 'other'] } }],
+  ['read_skill', 'Read the full instructions of a browser skill named in this task (what to press on that site, how long things take) and follow them', { name: 'string' }],
   ['finish', 'Task complete', { summary: 'string' }],
 ].map(([name, description, props]) => ({
   type: 'function',
@@ -290,11 +299,11 @@ const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        ...Object.fromEntries(Object.entries(props).map(([k, t]) => [k, t === 'array' ? { type: 'array', items: { type: 'string' } } : { type: t }])),
+        ...Object.fromEntries(Object.entries(props).map(([k, t]) => [k, t === 'array' ? { type: 'array', items: { type: 'string' } } : typeof t === 'object' ? t : { type: t }])),
         // a step finished by this very action is marked with it: no turn spent on step_done alone
         ...(STEP_TOOLS.has(name) ? { done: { type: 'number', description: 'Number of the plan step this action completes, if it does' } } : {}),
       },
-      required: Object.keys(props).filter((k) => !['enter', 'note', 'options', 'until_text', 'gone_text', 'name'].includes(k)),
+      required: Object.keys(props).filter((k) => !['enter', 'note', 'options', 'until_text', 'gone_text', 'need'].includes(k) && !(k === 'name' && name !== 'read_skill')),
     },
   },
 }))
@@ -327,7 +336,13 @@ async function plan(goal) {
 // is still running (or waiting for the person) waits in line — its card says so, and the person can
 // still answer or cancel the one in front (cards and 작업 취소 reach the task that holds the page).
 // Runs a browser task; posts a task card into the thread and keeps it updated.
-export async function runBrowserTask({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates, files = [] }) {
+// skill: the browser skill (skills/<name>/SKILL.md, lib/browserSkills.js) the work was routed to, if any —
+// the agent is told its name and description and reads the body itself (read_skill); its start_url is
+// where the task opens when no startUrl is given.
+export async function runBrowserTask({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates, files = [], skill }) {
+  const sk = skill ? browserSkill(skill) : null
+  if (skill && !sk) console.warn('[browser] no browser skill named', skill)
+  startUrl = startUrl || sk?.startUrl || ''
   const s = await sessionOf(userId)
   const t0 = Date.now()
   // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
@@ -347,8 +362,8 @@ export async function runBrowserTask({ userId, threadId, goal, startUrl, onActio
     ...(ahead ? { reason: L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`) } : {}),
   })
   const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
-    gates, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0,
-    stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, walls: 0, stuck: 0, early_finish: false, decisions: [], plan_ms: 0, turn_ms: [] } }
+    gates, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: sk?.name || null,
+    stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, walls: 0, stuck: 0, early_finish: false, decisions: [], plan_ms: 0, turn_ms: [], wall_checks: [], skills_read: [] } }
   task.stats.plan_ms = Date.now() - t0
   task.cancelled = cancelledEarly
   if (ahead && !task.cancelled) {
@@ -383,8 +398,12 @@ Before submitting a payment, sending a message or deleting anything, call approv
 Do only what the goal asks. ${asksToBuy(goal) ? 'Buy or order only what the goal names, and only after approve.' : 'The goal does not ask to buy anything: never click reorder, buy, add-to-cart, checkout, pay, subscribe or booking controls — the server refuses them.'}
 When an action completes a plan step, give that step's number as done on the action itself; use step_done only for a step that needs no action of its own. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for (one or two sentences) and contains all collected facts.
 Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.
-${files.length ? `The person attached these files for this task: ${files.map((f) => f.name).join(', ')}.\n` : ''}${guideFor(goal, startUrl)}`,
+${files.length ? `The person attached these files for this task: ${files.map((f) => f.name).join(', ')}.\n` : ''}`.trimEnd(),
   }]
+  // what the agent may know about a site comes from browser skills, by name and description only: the
+  // body is read when the task uses it (read_skill), never written into the prompt
+  const skills = skillNote(sk)
+  if (skills) messages.push({ role: 'user', content: skills })
   // the first answer without a single browser action is sent back once: do the steps first
   const NUDGE = 'You have not performed any browser action yet (no goto/click/type/fill_secret/note). Do the plan steps with the tools now. Call finish only after you have actually done them; if the page already shows what the goal asks, record it with note first.'
 
@@ -393,14 +412,18 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
   try {
   for (let turn = 0; turn < MAX_TURNS && !task.cancelled; turn++) {
     say(task, L('페이지 읽는 중', 'Reading the page'))
-    const tm = { snap: 0, shot: 0, llm: 0, act: 0 }
+    const tm = { snap: 0, judge: 0, shot: 0, llm: 0, act: 0 }
     let t = Date.now()
     let snap = await look(s)
     tm.snap = Date.now() - t
+    task.page = { host: hostOf(snap.url), name: pageName(snap) }
     let hint = ''
-    // a sign-in wall, a bot check, Google refusing the sign-in: the person's turn, not the model's
-    const wall = wallOf(snap)
-    const w = wall && await atWall(s, task, wall)
+    // a sign-in wall, a bot check, a site refusing this browser: the person's turn, not the model's.
+    // Judged once per page (a new address, or after the person stepped in), not by any wording
+    t = Date.now()
+    const wall = await wallOn(task, snap)
+    tm.judge = Date.now() - t
+    const w = wall && await atWall(s, task, wall, snap)
     if (w?.end) { result = w.end; ended = true; break }
     if (w?.waited) { turn--; task.prev = null; continue }
     if (w?.hint) hint += w.hint
@@ -493,7 +516,7 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
     // keep the last screen on the card so it survives reloads; a card that stopped says why and what to do
     const host = hostOf(s.page.url())
     const why = result.state === 'failed' || result.state === 'needs_review'
-      ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: host, siteName: siteName(host, goal) } : { need: null, reason: '' }
+      ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: result.site || host, siteName: result.siteName || nameOn(task, host) } : { need: null, reason: '' }
     await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url(), shot, ...why })
     say(task, null)
     await setThreadStatus(userId, threadId, null)
@@ -517,7 +540,7 @@ function timing(task, tm, tool = '') {
   const slow = Object.entries(tm).filter(([k, v]) => k !== 'llm' && v > 10000)
   if (slow.length) console.warn(`[browser] slow turn (${tool}): ${slow.map(([k, v]) => `${k} ${v}ms`).join(', ')}`)
 }
-const averages = (list) => Object.fromEntries(['snap', 'shot', 'llm', 'act'].map((k) => [k, list.length ? Math.round(list.reduce((a, x) => a + (x[k] || 0), 0) / list.length) : 0]))
+const averages = (list) => Object.fromEntries(['snap', 'judge', 'shot', 'llm', 'act'].map((k) => [k, list.length ? Math.round(list.reduce((a, x) => a + (x[k] || 0), 0) / list.length) : 0]))
 const firstPara = (text) => String(text || '').split('\n\n')[0].slice(0, 400)
 
 // Fast checks before spending an agent turn, answered by the router's typed decision (judge model
@@ -617,6 +640,7 @@ function logAction(task, name, a, out) {
     need_user: () => L(`확인 요청: ${String(a.reason || '').slice(0, 60)}`, `Ask to check: ${String(a.reason || '').slice(0, 60)}`),
     note: () => null,
     step_done: () => null,
+    read_skill: () => null,
   }[name]?.()
   if (line) task.log.push({ kind: name, text: line, ok, ...(String(out).startsWith(REFUSED_PURCHASE) ? { refusedPurchase: true } : {}) })
 }
@@ -651,6 +675,8 @@ export function honest(result, task, { moved = false } = {}) {
 
 const BLANK = (s) => ({ title: '', url: s.page.url(), text: '', els: [] })
 const look = (s) => within(s.page.evaluate(SNAPSHOT_JS), EVAL_MS, BLANK(s)).then((x) => x || BLANK(s))
+// the agent's view of any Playwright page (the live wall check, test/browser-walls.live.mjs)
+export const snapshotOf = (page) => look({ page })
 // the same address and the same things on screen
 const pageKey = (snap) => crypto.createHash('sha1').update(`${snap.url}\n${snap.text}\n${(snap.els || []).map((e) => `${e.tag}:${e.text}:${e.filled ? 1 : 0}`).join('|')}`).digest('hex')
 // tools whose effect shows on the page; when it does not, turn after turn, the task is stuck
@@ -658,38 +684,117 @@ const ACTING = new Set(['goto', 'click', 'type', 'scroll', 'fill_secret', 'attac
 export const STUCK_TURNS = 5 // "4턴 넘게": the fifth action in a row that changes nothing hands over
 const WALL_WAITS = 3
 const BLOCKED = '__blocked__'
+const CLEARED = '__cleared__'
 
-// What the person reads on the card when the task stops at a wall, and what to do about it.
-function wallReason(task, wall, again) {
-  const name = siteName(wall.site, task.goal)
-  if (wall.need === 'login' && wall.google) {
-    return again
-      ? L('아직 구글 로그인이 끝나지 않았어요. 카드의 「직접 로그인」을 눌러 로그인을 마치면 이어서 진행해요.', 'The Google sign-in is not done yet. Press "Sign in yourself" on the card and finish signing in — I\'ll go on from there.')
-      : L(`${name === 'NotebookLM' ? 'NotebookLM을' : '이 구글 서비스를'} 쓰려면 이 브라우저에서 구글 로그인이 한 번 필요해요. 카드의 「직접 로그인」을 눌러 로그인하면 이어서 진행해요. 로그인은 다음에도 남아요.`,
-        `To use ${name === 'NotebookLM' ? 'NotebookLM' : 'this Google service'}, this browser needs a one-time Google sign-in. Press "Sign in yourself" on the card and sign in — I'll go on from there. The sign-in stays for next time.`)
+// ---- browser skills: site know-how as modules (lib/browserSkills.js), names first, bodies on use ----
+
+// The first thing the agent reads after its instructions: the skill this task was routed to (name and
+// description, to be read with read_skill), else the list of skills it may read when one fits.
+export function skillNote(sk) {
+  if (sk) {
+    return `Browser skill for this task: ${sk.name} — ${sk.description}\nBefore you act, read it with read_skill("${sk.name}") and follow it.`
   }
-  if (wall.need === 'login') {
-    return L(`${name}에 로그인해야 이어서 할 수 있어요. 카드에서 로그인 정보를 저장하거나, 「직접 로그인」을 눌러 직접 로그인하면 이어서 진행해요.`,
-      `${name} needs you to sign in. Save the login on the card, or press "Sign in yourself" and sign in — I'll go on from there.`)
-  }
-  return L(`${name}에서 사람인지 확인하는 화면(로봇 확인)이 나왔어요. 카드의 「직접 제어」로 확인을 마치면 이어서 진행해요.`,
-    `${name} is asking to check you're human (a bot check). Finish it with "Take control" on the card — I'll go on from there.`)
+  const list = browserSkillCatalog()
+  return list ? `Browser skills you can read with read_skill(name) when one fits this task (site know-how), then follow it:\n${list}` : ''
+}
+function readSkill(task, name) {
+  const body = readBrowserSkill(String(name || '').trim())
+  if (!body) return `error: no browser skill named "${name}". The skills are: ${browserSkills().map((x) => x.name).join(', ') || 'none'}`
+  task.stats.skills_read.push(name)
+  return body
 }
 
-// Google refused the sign-in in this browser: no waiting helps, so the task ends saying so and what else works.
+// ---- walls: pages the agent cannot get past by itself, told apart by a judgment of the page ----
+
+// What the page calls itself (og:site_name or application-name), else its title, else its address.
+export function pageName(snap) {
+  const name = String(snap?.site || snap?.title || '').replace(/\s+/g, ' ').trim() || hostOf(snap?.url || '')
+  return name.length > 40 ? `${name.slice(0, 39)}…` : name
+}
+// the name of the site at host, as its page gave it when the task was last on it
+const nameOn = (task, host) => (task.page?.host === host && task.page.name) || host
+
+// What the judge reads: the task, and the page as a person would size it up, plus structural facts. The
+// task matters: a site's front page with only sign-in buttons reads fine on its own, but its tools are not there.
+export function wallState(snap, goal = '') {
+  const buttons = (snap.els || []).filter((e) => ['a', 'button'].includes(e.tag) || /^(submit|button)$/.test(e.type || '')).map((e) => e.text).filter(Boolean)
+  const text = String(snap.text || '').replace(/\n{2,}/g, '\n').slice(0, 800)
+  return [`Page title: ${snap.title || '(none)'}`, `Task: ${String(goal || '(not given)').replace(/\s+/g, ' ').slice(0, 300)}`, `Site address: ${hostOf(snap.url)}`,
+    `Has a password field: ${snap.fields?.password ? 'yes' : 'no'}`, `Has a sign-in field (e-mail or username): ${snap.fields?.signIn ? 'yes' : 'no'}`,
+    `Buttons and links: ${[...new Set(buttons)].slice(0, 30).join(' | ') || '(none)'}`, `Visible text (start):\n${text || '(none)'}`].join('\n')
+}
+const WALL_QUESTION = 'A browser agent is doing the task above for a person and has reached this page. Can it go on with the task by itself, or does the person have to step in first?'
+const WALL_OPTIONS = [
+  { key: 'login_needed', label: 'The person has to sign in first: the page is a sign-in form, or it shows an introduction with sign-in buttons instead of the tools or content the task needs' },
+  { key: 'refused', label: 'The site refuses this browser: it says it will not let this browser or app sign in or use the site, so signing in here cannot work' },
+  { key: 'human_check', label: 'The site shows a check that the visitor is a human (a captcha or robot check) instead of the page' },
+  { key: 'ok', label: 'The agent can go on: what the task needs is on this page or reachable from it without signing in (a sign-in button beside it does not count)' },
+]
+const WALL_NEED = { login_needed: 'login', refused: 'blocked', human_check: 'captcha' }
+export const WALL_BAR = 0.7
+
+// One judgment of the page → { need, site, name, key, p } when it is a wall the judge is sure of (0.7),
+// else null (no answer, unsure, or the page is fine: the agent goes on as usual).
+export async function judgeWall(snap, task = null) {
+  let u
+  try { u = new URL(snap?.url || '') } catch { return null }
+  if (!/^https?:$/.test(u.protocol)) return null
+  const t0 = Date.now()
+  let r = null
+  const state = wallState(snap, task?.goal)
+  try { r = await judge({ state: task ? hide(task, state) : state, question: WALL_QUESTION, options: WALL_OPTIONS }) } catch (e) { console.warn('[browser] wall check', e.message) }
+  const [key, p] = Object.entries(r?.probabilities || {}).sort((a, b) => b[1] - a[1])[0] || ['', 0]
+  const check = { host: hostOf(snap.url), key, p: Math.round(p * 100) / 100, ms: Date.now() - t0, via: r?.via || 'none' }
+  if (task) task.stats.wall_checks.push(check)
+  const need = p >= WALL_BAR ? WALL_NEED[key] : null
+  return need ? { need, site: hostOf(snap.url), name: pageName(snap), key, p: check.p } : null
+}
+// The wall on this page, judged when the address is new (or the person stepped in since); the same page
+// is not judged again.
+async function wallOn(task, snap) {
+  if (task.judged && task.judged.url === snap.url) return task.judged.wall
+  const wall = await judgeWall(snap, task)
+  task.judged = { url: snap.url, wall }
+  return wall
+}
+// a screen to compare while waiting: the address and what is on it, without what is typed into fields
+const screenKey = (snap) => crypto.createHash('sha1').update(`${snap.url}\n${snap.title}\n${snap.text}\n${(snap.els || []).filter((e) => !['input', 'textarea', 'select'].includes(e.tag)).map((e) => `${e.tag}:${e.text}`).join('|')}`).digest('hex')
+
+// 「스튜디오를」 / 「example.com을(를)」: the particle that fits the name's last syllable
+const josa = (name, withFinal, without) => {
+  const c = String(name).trim().slice(-1).charCodeAt(0)
+  if (c >= 0xAC00 && c <= 0xD7A3) return `${name}${(c - 0xAC00) % 28 ? withFinal : without}`
+  return `${name}${withFinal}(${without})`
+}
+
+// What the person reads on the card when the task stops at a wall, and what to do about it.
+function wallReason(wall, again) {
+  const name = wall.name || wall.site
+  if (wall.need === 'login') {
+    return again
+      ? L(`아직 ${name} 로그인이 끝나지 않았어요. 카드의 「직접 로그인」을 눌러 로그인을 마치면 이어서 진행해요.`, `The sign-in to ${name} is not done yet. Press "Sign in yourself" on the card and finish signing in — I'll go on from there.`)
+      : L(`${josa(name, '을', '를')} 쓰려면 이 브라우저에서 로그인이 한 번 필요해요. 카드의 「직접 로그인」을 눌러 로그인하면 이어서 진행해요. 로그인은 다음에도 남아요.`,
+        `To use ${name}, this browser needs a one-time sign-in. Press "Sign in yourself" on the card and sign in — I'll go on from there. The sign-in stays for next time.`)
+  }
+  return L(`${name}에서 사람인지 확인하는 화면이 나왔어요. 카드의 「직접 제어」로 확인을 마치면 이어서 진행해요.`,
+    `${name} is asking to check you're human. Finish it with "Take control" on the card — I'll go on from there.`)
+}
+
+// The site refused this browser: no waiting helps, so the task ends saying so and what else works.
 function blockedEnd(task, wall) {
-  const name = siteName(wall.site, task.goal)
-  const nb = name === 'NotebookLM'
-  const reason = L(`구글이 이 서버 브라우저의 구글 로그인을 막았어요(「이 브라우저 또는 앱은 안전하지 않을 수 있습니다」). 그래서 이 브라우저로는 ${nb ? 'NotebookLM' : '이 구글 서비스'} 작업을 할 수 없어요. ${nb ? '휴대폰이나 PC의 NotebookLM에서 직접 만든 슬라이드·오디오 파일을 이 방에 올려 주면 이어서 정리해 드릴게요.' : '그 사이트에서 직접 한 결과(파일)를 이 방에 올려 주면 이어서 할게요.'}`,
-    `Google blocked signing in from this server's browser ("This browser or app may not be secure"), so ${nb ? 'NotebookLM' : 'this Google service'} can't be used from here. ${nb ? 'Make the slides and audio in NotebookLM on your phone or PC and put the files in this room — I\'ll take it from there.' : 'Do it on that site yourself and put the result (files) in this room — I\'ll take it from there.'}`)
+  const name = wall.name || wall.site
+  const reason = L(`${josa(name, '이', '가')} 이 서버 브라우저의 로그인을 받아 주지 않아요. 그래서 이 브라우저로는 ${name} 작업을 할 수 없어요. 그 사이트에서 직접 만든 결과 파일을 이 방에 올려 주면 이어서 할게요.`,
+    `${name} won't accept a sign-in from this server's browser, so it can't be used from here. Do it on ${name} yourself and put the result files in this room — I'll take it from there.`)
   task.notes.push(reason)
-  return { state: 'failed', need: 'blocked', reason, summary: reason }
+  return { state: 'failed', need: 'blocked', reason, summary: reason, site: wall.site, siteName: name }
 }
 
 // A wall on the page: the person is asked (a card that says what to do) and the task waits, without
-// spending a model turn. Signing in is noticed by itself: the wait ends when the wall is gone.
+// spending a model turn. Signing in is noticed by itself: when the screen changes and settles, the page is
+// judged once more (never on a timer), and the wait ends when the wall is gone. Giving control back
+// ends it too, and the next turn judges the page again.
 // → { waited } after the wait, { end } to stop the task, { hint } for a task nobody watches, or null (the model goes on).
-async function atWall(s, task, wall) {
+async function atWall(s, task, wall, snap) {
   if (wall.need === 'blocked') return { end: blockedEnd(task, wall) }
   const site = normSite(wall.site)
   const key = `${wall.need}:${site}`
@@ -700,26 +805,38 @@ async function atWall(s, task, wall) {
     task.notes.push(wall.need === 'captcha' ? L(`${site}: 로봇 확인 화면이 나와 진행하지 못함`, `${site}: stopped at a bot check`) : L(`${site}: 로그인이 필요해 진행하지 못함`, `${site}: needs a sign-in`))
     return { hint: `\n[page check: this page is a ${wall.need === 'captcha' ? 'bot check' : 'sign-in wall'} and nobody is available to get past it. Do not try; use the alternative source in the goal, or finish with what you have]` }
   }
-  if (wall.generic) {
-    // a site whose login the vault keeps (or the person declined to give) is the model's: it fills the saved one
-    if (task.walls[key] || task.declined.has(site)) return null
-    if ((await candidates(task.userId, 'login', site).catch(() => [])).length) return null
-  }
+  // a site whose login the vault keeps is the model's: it fills the saved one
+  if (wall.need === 'login' && (await candidates(task.userId, 'login', site).catch(() => [])).length) return null
   const n = task.walls[key] = (task.walls[key] || 0) + 1
+  const name = wall.name || site
   if (n > WALL_WAITS) {
     const reason = wall.need === 'captcha'
-      ? L(`${site}의 로봇 확인이 풀리지 않아 멈췄어요. 카드의 「직접 제어」로 확인을 마친 뒤 다시 시켜 주세요.`, `The bot check on ${site} wasn't passed, so I stopped. Finish it with "Take control" on the card, then ask again.`)
-      : L(`${site} 로그인이 끝나지 않아 멈췄어요. 카드의 「직접 로그인」으로 로그인한 뒤 다시 시켜 주세요.`, `The sign-in on ${site} wasn't finished, so I stopped. Sign in with "Sign in yourself" on the card, then ask again.`)
-    return { end: { state: 'failed', need: wall.need, reason, summary: reason } }
+      ? L(`${name}의 로봇 확인이 풀리지 않아 멈췄어요. 카드의 「직접 제어」로 확인을 마친 뒤 다시 시켜 주세요.`, `The bot check on ${name} wasn't passed, so I stopped. Finish it with "Take control" on the card, then ask again.`)
+      : L(`${name} 로그인이 끝나지 않아 멈췄어요. 카드의 「직접 로그인」으로 로그인한 뒤 다시 시켜 주세요.`, `The sign-in to ${name} wasn't finished, so I stopped. Sign in with "Sign in yourself" on the card, then ask again.`)
+    return { end: { state: 'failed', need: wall.need, reason, summary: reason, site: wall.site, siteName: name } }
   }
   task.stats.walls++
+  let seen = screenKey(snap), moved = null, verdict
   const answer = await waitForUser(s, task, {
-    need: wall.need, reason: wallReason(task, wall, n > 1), site,
-    message: wall.generic ? ['vault', { kind: 'login', site, mode: 'request' }] : null,
-    watch: (snap) => { const now = wallOf(snap); return now?.need === 'blocked' ? BLOCKED : !now || now.need !== wall.need ? 'the person got past it (the page changed); continue' : null },
+    need: wall.need, reason: wallReason(wall, n > 1), site, siteName: name,
+    // the screen changed (an address, what is on it) and then stayed so for one look: judged once more
+    watch: async (snap) => {
+      const k = screenKey(snap)
+      if (k === seen) { moved = null; return null }
+      if (k !== moved) { moved = k; return null }
+      seen = k
+      moved = null
+      verdict = await judgeWall(snap, task)
+      if (!task.waiting) return null // given back meanwhile: the next turn judges it
+      task.judged = { url: snap.url, wall: verdict }
+      if (verdict?.need === 'blocked') return BLOCKED
+      return verdict?.need === wall.need ? null : CLEARED
+    },
   })
-  if (answer === BLOCKED) return { end: blockedEnd(task, wallOf(await look(s)) || wall) }
-  if (wall.generic && /closed the request/.test(String(answer))) task.declined.add(site)
+  // the refusal came while signing in for this site: the card still names the site the task is for
+  if (answer === BLOCKED) return { end: blockedEnd(task, { ...verdict, name }) }
+  // given back by the person (not seen by the watch): the next turn judges the page again
+  if (answer !== CLEARED) task.judged = null
   return { waited: true }
 }
 
@@ -827,8 +944,8 @@ async function markStep(task, n, note) {
 async function doAct(s, task, name, a) {
   const el = (i) => s.page.locator(`[data-pro-idx="${i}"]`).first()
   const host = (() => { try { return new URL(name === 'goto' ? a.url : s.page.url()).hostname.replace(/^www\./, '') } catch { return '' } })()
-  const live = (isEn() ? { goto: `Opening ${host}`, click: `Clicking on ${host}`, type: `Typing on ${host}`, fill_secret: `Typing on ${host}`, scroll: 'Looking at the page', note: 'Taking notes', step_done: 'On to the next step' }
-    : { goto: `${host} 여는 중`, click: `${host}에서 누르는 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로' })[name]
+  const live = (isEn() ? { goto: `Opening ${host}`, click: `Clicking on ${host}`, type: `Typing on ${host}`, fill_secret: `Typing on ${host}`, scroll: 'Looking at the page', note: 'Taking notes', step_done: 'On to the next step', read_skill: `Reading the ${a.name || ''} skill` }
+    : { goto: `${host} 여는 중`, click: `${host}에서 누르는 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로', read_skill: `${a.name || ''} 스킬 읽는 중` })[name]
   // what is being pressed or typed into, by its name on the page (never the value in it)
   task.target = ['click', 'type', 'fill_secret'].includes(name) ? { i: a.i, ...await within(el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 3000 }), 4000, {}) } : null
   const line = task.target ? actionLine(name === 'click' ? 'click' : 'type', task.target, host) : live
@@ -958,10 +1075,11 @@ async function doAct(s, task, name, a) {
         ? ['vault', { kind: 'login', site: normSite(site), mode: 'request' }]
         // a pick-one question is answered in place (hark's account chooser) rather than by takeover
         : choice ? ['choice', { site, question: a.reason || '', options: a.options.slice(0, 6) }] : null
-      const need = name === 'need_login' ? 'login' : choice ? 'choice' : needOf(a.reason, wallOf(task.lastSnap || {}))
+      const need = name === 'need_login' ? 'login' : choice ? 'choice' : needOf(a.need, task)
       return waitForUser(s, task, { need, reason: askReason(need, a.reason, normSite(site), name === 'need_login'), site, message })
     }
     case 'note': task.notes.push(a.text); return 'noted'
+    case 'read_skill': return readSkill(task, a.name)
     case 'finish': return '__finish__'
   }
   return 'unknown tool'
@@ -1012,9 +1130,10 @@ function hide(task, text) {
 // the user's answer (saved credential, choice, takeover done, cancel).
 // What the model's own request to the person is about, and the sentence the card shows: its words,
 // then what pressing what does.
-const needOf = (why, wall) => wall?.need === 'login' || wall?.need === 'captcha' ? wall.need
-  : /captcha|캡차|로봇|robot|사람인지|human/i.test(String(why || '')) ? 'captcha'
-    : /로그인|log ?in|sign ?in|인증|비밀번호|password/i.test(String(why || '')) ? 'login' : 'other'
+// The model says which (need_user's need); else what this page was judged to be.
+const ASKS = new Set(['login', 'captcha'])
+const needOf = (said, task) => ASKS.has(said) ? said
+  : task.judged && task.judged.url === task.lastSnap?.url && ASKS.has(task.judged.wall?.need) ? task.judged.wall.need : 'other'
 function askReason(need, why, site, vault = false) {
   const said = String(why || '').trim()
   const head = said ? (/[.!?。요]$/.test(said) ? said : `${said}.`) : {
@@ -1032,8 +1151,9 @@ function askReason(need, why, site, vault = false) {
 
 // need (what kind of help: login | blocked | captcha | choice | approve | stuck | other) and reason (what
 // stopped it and what to do) go on the task card, which draws its pill and button from them.
-// watch(snapshot) → a text ends the wait by itself (a sign-in finished in takeover), checked every few seconds.
-async function waitForUser(s, task, { reason, site, message, need = 'other', watch }) {
+// watch(snapshot) → a text ends the wait by itself (a sign-in finished in takeover), looked at every few seconds.
+// siteName: what the person calls the site, for the card's pill (the page's own name; the host when unknown).
+async function waitForUser(s, task, { reason, site, siteName, message, need = 'other', watch }) {
   // listening before anything is posted: an answer that comes at once (the card answered the moment
   // it shows) is not lost
   let answered
@@ -1041,8 +1161,7 @@ async function waitForUser(s, task, { reason, site, message, need = 'other', wat
   task.waiting = answered
   // the card goes up first, so whoever sees "needs input" also finds what to answer
   const posted = message ? await addMessage(task.userId, task.threadId, 'agent', message[0], { ...message[1], taskId: task.id, state: 'pending' }) : null
-  // siteName: what the person calls the site (NotebookLM, not accounts.google.com), for the card's pill
-  await updateMessage(task.userId, task.id, { state: 'needs_input', need, reason: reason || '', site, siteName: siteName(site, task.goal) })
+  await updateMessage(task.userId, task.id, { state: 'needs_input', need, reason: reason || '', site, siteName: siteName || nameOn(task, normSite(site)) })
   say(task, null)
   await setThreadStatus(task.userId, task.threadId, 'needs_input')
   await pushFrame(task.userId, s)
@@ -1050,7 +1169,7 @@ async function waitForUser(s, task, { reason, site, message, need = 'other', wat
   const timer = watch && setInterval(async () => {
     if (checking || !task.waiting) return
     checking = true
-    try { const v = watch(await look(s)); if (v) task.waiting?.(v) } catch { /* the next look */ } finally { checking = false }
+    try { const v = await watch(await look(s)); if (v) task.waiting?.(v) } catch { /* the next look */ } finally { checking = false }
   }, WAIT.watchMs)
   const answer = await answer$
   task.waiting = null

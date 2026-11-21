@@ -434,7 +434,6 @@
   "직접 로그인": "Sign in yourself",
   "화면의 칸을 누르고 여기에 입력해요": "Tap a field on the screen, then type here",
   "직접 확인": "Check it yourself",
-  "구글이 로그인을 막음": "Google blocked the sign-in",
   "같은 화면에서 멈춤": "Stuck on the same screen",
   "고르러 가기": "Go choose",
   "승인하러 가기": "Go approve",
@@ -2567,10 +2566,7 @@
    "승인 필요 · {0}",
    "Approval needed · {0}"
   ],
-  [
-   "{0}에서 막힘",
-   "Blocked on {0}"
-  ],
+  ["로그인을 막음 · {0}", "Sign-in refused · {0}"],
   [
    "하지 못했어요 · {0}",
    "Couldn't do it · {0}"

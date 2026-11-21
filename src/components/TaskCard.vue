@@ -39,16 +39,14 @@ const live = computed(() => (running.value && app.status[props.msg.thread_id]) |
 // What it waits on, in a few words (server lib/browser.js content.need): "확인 필요 · <title>" read as a failure
 // with nothing to do about it (recording 2026-11-21). The reason under the screen says what to do.
 const host = computed(() => String(c.value.site || c.value.url || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split(/[/?#]/)[0])
-const NAMES = [[/notebooklm\.|^notebook\.google\./, 'NotebookLM'], [/^accounts\.google\./, 'Google'], [/^mail\.google\./, 'Gmail'], [/^drive\.google\./, 'Google Drive'], [/^docs\.google\./, 'Google Docs']]
-// the server names the site the task is for (content.siteName: a Google sign-in wall met on the way to NotebookLM is still NotebookLM's)
-const site = computed(() => c.value.siteName || NAMES.find(([re]) => re.test(host.value))?.[1] || host.value)
-const google = computed(() => /(^|\.)google\.[a-z.]+$/.test(host.value))
+// the server names the site as its page calls itself (content.siteName, lib/browser.js); else its address
+const site = computed(() => c.value.siteName || host.value)
 const need = computed(() => (needs.value || ended.value ? c.value.need || null : null))
 const label = computed(() => {
   const n = site.value || c.value.title
   switch (need.value) {
     case 'login': return `로그인 필요 · ${n}`
-    case 'blocked': return google.value ? '구글이 로그인을 막음' : `${n}에서 막힘`
+    case 'blocked': return `로그인을 막음 · ${n}`
     case 'captcha': return `사람 확인 필요 · ${n}`
     case 'choice': return `선택 필요 · ${n}`
     case 'approve': return `승인 필요 · ${n}`

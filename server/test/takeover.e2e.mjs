@@ -38,7 +38,8 @@ let typed = { n: 0, x: '' }
 const secret = `Tz9!kQ#2mX$7vB@4nR%8wL^1pF&6hJ*3-${crypto.randomUUID().slice(0, 8)}`
 const pasted = `Pa5te-${crypto.randomUUID().slice(0, 12)}!`
 
-const moves = [['need_user', { reason: '직접 로그인해 주세요' }], ['finish', { summary: '이어서 끝냈습니다' }]]
+// the model says what it needs (need_user's need), the server does not guess it from the words
+const moves = [['need_user', { reason: '직접 로그인해 주세요', need: 'login' }], ['finish', { summary: '이어서 끝냈습니다' }]]
 let llmCalls = 0
 const logs = []
 // what the server itself logs (the test runner prints its expected values to the same streams)
@@ -73,7 +74,7 @@ before(async () => {
   })
   const bff = await freePort()
   const port = await freePort()
-  Object.assign(process.env, { PRO_LLM_BASE_URL: `http://127.0.0.1:${llm.address().port}`, PRO_LLM_API_KEY: 'test', PRO_PORT: String(bff), PRO_BACKGROUND: '0', PRO_PUBLIC_URL: `http://localhost:${port}` })
+  Object.assign(process.env, { PRO_LLM_BASE_URL: `http://127.0.0.1:${llm.address().port}`, PRO_LLM_API_KEY: 'test', PRO_PORT: String(bff), PRO_BACKGROUND: '0', PRO_PUBLIC_URL: `http://localhost:${port}`, PRO_JUDGE_URL: '' })
   process.chdir(path.resolve(here, '..'))
   await import('../index.js')
   browser = await import('../lib/browser.js')

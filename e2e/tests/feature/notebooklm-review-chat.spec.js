@@ -53,7 +53,7 @@ test.describe('녹화 검토 11-21 · 채팅 화면', () => {
     cleanup(() => db.q('delete from pro_threads where id=$1', [id]))
     const [, task] = await db.addMessages(id, [
       { role: 'user', kind: 'text', content: { text: '노트북엘엠 사이트에 들어가서 생성해야' } },
-      { role: 'agent', kind: 'task', content: { title: 'NotebookLM 슬라이드·팟캐스트 만들기', goal: 'g', steps, state: 'needs_input', need: 'login', site: 'notebooklm.google.com', reason: REASON, shot: shot() } },
+      { role: 'agent', kind: 'task', content: { title: 'NotebookLM 슬라이드·팟캐스트 만들기', goal: 'g', steps, state: 'needs_input', need: 'login', site: 'notebooklm.google.com', siteName: 'NotebookLM', reason: REASON, shot: shot() } },
       // what came after: the card has scrolled away when the orange ring is pressed
       ...Array.from({ length: 10 }, (_, i) => ({ role: 'agent', kind: 'text', content: { text: `뒤에 온 메시지 ${i + 1}\n\n줄을 채우는 문장이에요.` } })),
     ])
@@ -119,16 +119,16 @@ test.describe('녹화 검토 11-21 · 채팅 화면', () => {
     cleanup(() => db.q('delete from pro_threads where id=$1', [id]))
     const base = { goal: 'g', steps, shot: shot() }
     const rows = await db.addMessages(id, [
-      { role: 'agent', kind: 'task', content: { ...base, title: '구글 로그인', state: 'needs_input', need: 'blocked', site: 'accounts.google.com', reason: '구글이 이 브라우저에서의 로그인을 막았어요(「안전하지 않은 브라우저」). 여기서는 더 할 수 없어요. 멈추고, 구글 로그인이 된 내 컴퓨터에서 해 주세요.' } },
+      { role: 'agent', kind: 'task', content: { ...base, title: '구글 로그인', state: 'needs_input', need: 'blocked', site: 'accounts.google.com', siteName: 'NotebookLM', reason: '구글이 이 브라우저에서의 로그인을 막았어요(「안전하지 않은 브라우저」). 여기서는 더 할 수 없어요. 멈추고, 구글 로그인이 된 내 컴퓨터에서 해 주세요.' } },
       { role: 'agent', kind: 'task', content: { ...base, title: '노트북 만들기', state: 'needs_input', need: 'stuck', site: 'notebooklm.google.com', reason: '같은 화면에서 같은 단추를 세 번 눌렀는데 바뀌지 않았어요. 화면을 직접 보고 다음 단추를 눌러 주세요.' } },
       { role: 'agent', kind: 'task', content: { ...base, title: '잔액 확인', state: 'needs_input', reason: '' } },
       { role: 'agent', kind: 'task', content: { ...base, title: '팟캐스트 만들기', state: 'failed', summary: '브라우저 작업을 끝내지 못했어요. 잠시 후 다시 시도해 주세요.' } },
-      { role: 'agent', kind: 'task', content: { ...base, title: 'NotebookLM 슬라이드', state: 'needs_review', need: 'login', site: 'notebooklm.google.com', reason: '로그인 화면에서 멈췄어요. 다시 시도한 뒤 「직접 로그인」으로 한 번 로그인해 주세요.' } },
+      { role: 'agent', kind: 'task', content: { ...base, title: 'NotebookLM 슬라이드', state: 'needs_review', need: 'login', site: 'notebooklm.google.com', siteName: 'NotebookLM', reason: '로그인 화면에서 멈췄어요. 다시 시도한 뒤 「직접 로그인」으로 한 번 로그인해 주세요.' } },
     ])
     await page.goto(`/projects/${id}`)
     const at = (m) => page.locator(`.row[data-id="${m.id}"]`)
     const want = [
-      [rows[0], '구글이 로그인을 막음', 'task-stop', '멈추기'],
+      [rows[0], '로그인을 막음 · NotebookLM', 'task-stop', '멈추기'],
       [rows[1], '같은 화면에서 멈춤', 'task-look', '직접 확인'],
       [rows[2], '조치 필요', 'task-look', '직접 확인'],
       [rows[3], '하지 못했어요 · 팟캐스트 만들기', 'task-retry', '다시 시도'],

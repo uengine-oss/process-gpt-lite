@@ -27,7 +27,7 @@ const llm = http.createServer((req, res) => {
   })
 })
 let server, api, tok, me
-const EMAIL = `pro-nb1121-route-np${Date.now()}@uengine.org`
+const EMAIL = `pro-nb1121-route2-np${Date.now()}@uengine.org`
 const call = (method, p, body) => fetch(`${api}${p}`, { method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json', 'X-PGL-Lang': 'ko' }, body: body && JSON.stringify(body) })
   .then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }))
 
@@ -84,11 +84,13 @@ test('새 프로젝트는 모델이 5초 걸려도 1초 안에 오고, 제목은
   assert.equal(title, '느린 모델 제목')
 })
 
-test('링크뿐인 요청은 링크를 뺀 말로, 아무 말도 없으면 「새 프로젝트」로 임시 제목', { skip: !up }, async () => {
-  const a = await call('POST', '/threads', { text: 'https://youtu.be/abc 영상 정리' })
-  assert.equal(a.body.title, '영상 정리')
+test('임시 제목은 첫 줄을 그대로 잘라 쓴다(링크도 글자 그대로), 아무 말도 없으면 「새 프로젝트」', { skip: !up }, async () => {
+  const a = await call('POST', '/threads', { text: 'https://youtu.be/abc 영상 정리해서 슬라이드로\n둘째 줄' })
+  assert.equal(a.body.title, 'https://youtu.be/abc 영상…')
   const b = await call('POST', '/threads', { text: 'https://youtu.be/abc' })
-  assert.equal(b.body.title, '새 프로젝트')
+  assert.equal(b.body.title, 'https://youtu.be/abc')
+  const c = await call('POST', '/threads', { text: '   ' })
+  assert.equal(c.body.title, '새 프로젝트')
 })
 
 test('제목 대신 답을 늘어놓은 모델 말은 제목이 되지 않고 임시 제목이 남는다', { skip: !up }, async () => {

@@ -1,6 +1,7 @@
 // 브라우저 에이전트의 오래 걸리는 일(spec pgpt-pro_room-rules): 실제 Chromium, 작은 스튜디오 사이트, 대본대로 움직이는 모델.
 //   - 생성이 끝날 때까지 동작 수를 쓰지 않고 기다린다 / 끝내 안 끝나면 그렇게 말한다 / 취소하면 바로 멈춘다
-//   - 사이트가 내려 주는 파일이 파일 카드로 온다 / 사람이 올린 파일을 사이트에 넣는다 / 진행을 말한다 / 사이트 안내가 모델에게 간다
+//   - 사이트가 내려 주는 파일이 파일 카드로 온다 / 사람이 올린 파일을 사이트에 넣는다 / 진행을 말한다
+//   - 사이트 지식은 브라우저 스킬로: 모델은 이름·설명만 먼저 보고 본문은 read_skill 로 읽는다(프롬프트에 넣지 않음)
 import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
@@ -8,6 +9,7 @@ import http from 'node:http'
 import path from 'node:path'
 import fs from 'node:fs'
 import { startStudio } from './fixtures/studio.mjs'
+import { dropFiles } from './fixtures/walls.mjs'
 
 const scripts = {}
 const bodies = []
@@ -46,6 +48,8 @@ const llm = http.createServer((req, res) => {
 await new Promise((r) => llm.listen(0, '127.0.0.1', r))
 process.env.PRO_LLM_BASE_URL = `http://127.0.0.1:${llm.address().port}`
 process.env.PRO_LLM_API_KEY = 'test'
+// like production: no judge server, the page check asks the (scripted) model — it gives no sure answer here
+process.env.PRO_JUDGE_URL = ''
 
 const browser = await import('../lib/browser.js')
 const { saveAttachment } = await import('../lib/attachments.js')
@@ -57,7 +61,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const rows = (kind) => q(`select content from pro_messages where thread_id=$1 and kind=$2 order by created_at`, [threadId, kind])
 const task = (goal, moves, extra = {}) => {
   scripts[goal] = { i: 0, moves }
-  return browser.runBrowserTask({ userId: user, threadId, goal, startUrl: `${site.url}${extra.query || ''}`, files: extra.files || [] })
+  return browser.runBrowserTask({ userId: user, threadId, goal, startUrl: `${site.url}${extra.query || ''}`, files: extra.files || [], skill: extra.skill })
 }
 
 before(async () => {
@@ -70,6 +74,7 @@ after(async () => {
   await site.close()
   llm.close()
   await q('delete from pro_threads where user_id=$1', [user])
+  await dropFiles(user)
   await pool.end()
   fs.rmSync(path.join(browser.PROFILES, user), { recursive: true, force: true })
 })
@@ -187,9 +192,18 @@ test('올린 파일이 없으면 넣지 못한다고 답한다', async () => {
   await task('없는 파일', [(b) => ['attach_file', { i: pick(b, '파일 고르기') }], ['finish', { summary: '없어요.' }]])
   assert.ok(bodies.flatMap((b) => b.messages || []).some((m) => m.role === 'tool' && /no file was attached/.test(m.content)))
 })
-test('NotebookLM 일에는 사이트 안내가 모델에게 간다', async () => {
-  await task('노트북 lm으로 슬라이드 만들기', [['finish', { summary: '끝.' }], ['finish', { summary: '끝.' }]])
-  const sys = bodies.map((b) => b.messages?.[0]?.content).find((c) => typeof c === 'string' && c.includes('Goal: 노트북 lm'))
-  assert.match(sys, /Google NotebookLM/)
-  assert.match(sys, /never type a Google password/)
+test('스킬로 맡긴 일(skills/notebooklm): 모델은 이름·설명만 먼저 보고, 본문은 read_skill 로 읽는다 — 시스템 프롬프트에는 없다', async () => {
+  const { browserSkill, readBrowserSkill } = await import('../lib/browserSkills.js')
+  const sk = browserSkill('notebooklm')
+  assert.ok(sk, 'skills/notebooklm 이 브라우저 스킬로 읽힌다')
+  const body = readBrowserSkill('notebooklm')
+  const n = bodies.length
+  const r = await task('스킬로 슬라이드 만들기', [['read_skill', { name: 'notebooklm' }], ['note', { text: '읽었어요' }], ['finish', { summary: '끝.' }]], { skill: 'notebooklm' })
+  assert.equal(r.state, 'done', JSON.stringify(r))
+  const asks = bodies.slice(n).filter((b) => b.tools && /Goal: 스킬로 슬라이드/.test(b.messages?.[0]?.content))
+  const [sys, first] = asks[0].messages
+  assert.ok(!sys.content.includes(body.slice(0, 40)) && !sys.content.includes('notebooklm'), '스킬은 시스템 프롬프트에 없다')
+  assert.equal(first.content, `Browser skill for this task: notebooklm — ${sk.description}\nBefore you act, read it with read_skill("notebooklm") and follow it.`)
+  assert.equal(asks[1].messages.filter((m) => m.role === 'tool').at(-1).content, body, 'read_skill 이 본문을 돌려준다')
+  assert.deepEqual(r.stats.skills_read, ['notebooklm'])
 })
