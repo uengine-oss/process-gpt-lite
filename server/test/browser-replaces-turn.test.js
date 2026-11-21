@@ -87,7 +87,7 @@ async function thread(kind, conv) {
   return t.id
 }
 const msgs = (tid) => q('select id, role, kind, content from pro_messages where thread_id=$1 order by created_at', [tid])
-const REPLACED = 'NotebookLM 에서 하라는 말씀에 따라 앞의 작업은 멈췄어요.'
+const REPLACED = 'NotebookLM에서 하라는 말씀에 따라 앞의 작업은 멈췄어요.'
 // the browser task a message started: its card, then cancelled before its plan is back (no page is opened)
 async function cardOf(tid) {
   const card = await until(async () => (await msgs(tid)).filter((m) => m.kind === 'task' && m.content.state !== 'cancelled').at(-1))

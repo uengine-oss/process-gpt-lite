@@ -338,7 +338,7 @@ test.describe('녹화 검토 11-21 · 채팅 화면', () => {
     await box2.fill('두 번째 프로젝트')
     await box2.press('Enter')
     await expect(page.locator('.bubble.user', { hasText: '두 번째 프로젝트' })).toBeVisible({ timeout: 1500 })
-    await expect(page.getByTestId('chat-notice')).toContainText('보낸 글은 입력창에 돌려 두었어요', { timeout: 5000 })
+    await expect(page.getByTestId('chat-notice')).toContainText('보낸 글은 입력창에 돌려놓았어요', { timeout: 5000 })
     await expect(page.locator('.bubble.user')).toHaveCount(0)
     await expect(page.getByPlaceholder('새 프로젝트에서 할 일을 적어 주세요')).toHaveValue('두 번째 프로젝트')
     await expect(page).toHaveURL(/\/projects$/)

@@ -223,7 +223,7 @@ function runBrowser({ user, session, threadId, goal, startUrl, files = [], room,
 // stops it (deepagents /chat/stop) and its answer says why instead of "완료했습니다"; what it already
 // made stays where it is.
 const replacedText = (goal, url) => (isNotebookJob(goal) || isNotebookJob(url)
-  ? L('NotebookLM 에서 하라는 말씀에 따라 앞의 작업은 멈췄어요.', 'I stopped the earlier work, as you asked for it to be done in NotebookLM.')
+  ? L('NotebookLM에서 하라는 말씀에 따라 앞의 작업은 멈췄어요.', 'I stopped the earlier work, as you asked for it to be done in NotebookLM.')
   : L('사이트에서 직접 하라는 말씀에 따라 앞의 작업은 멈췄어요.', 'I stopped the earlier work, as you asked for it to be done on the site.'))
 export async function replaceEarlier({ user, session, threadId, room, text, files = [], why }) {
   const ahead = turns.agentTurnsAhead({ userId: user.id, threadId, before: turnCtx.getStore()?.turn })

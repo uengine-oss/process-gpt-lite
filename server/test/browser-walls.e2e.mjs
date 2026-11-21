@@ -139,7 +139,7 @@ test('구글이 이 브라우저의 로그인을 거절하면 need blocked 로 �
   assert.equal(c.state, 'failed')
   assert.equal(c.need, 'blocked')
   assert.equal(c.siteName, 'NotebookLM')
-  assert.match(c.reason, /구글이 이 서버의 브라우저에서 하는 구글 로그인을 막았어요/)
+  assert.match(c.reason, /구글이 이 서버 브라우저의 구글 로그인을 막았어요/)
   assert.match(c.reason, /NotebookLM에서 직접 만든 슬라이드·오디오 파일을 이 방에 올려 주면/)
   assert.equal(r.summary, c.reason, '채팅에 올라가는 요약도 같은 말')
   assert.equal(scripts[goal].i, 0, '모델 턴을 쓰지 않았다')

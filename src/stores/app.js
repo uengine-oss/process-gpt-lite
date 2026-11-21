@@ -270,7 +270,7 @@ export const useApp = defineStore('app', {
           this.draftProject = null
           // a refusal the server explains (the folder) is said as it is; anything else plainly
           const why = e.status && e.status < 500 && /[가-힣]/.test(e.message || '') ? e.message : '프로젝트를 만들지 못했어요'
-          this.notice = { text: here ? `${why} · 보낸 글은 입력창에 돌려 두었어요. 다시 보내 주세요.` : `${why} · 다시 보내 주세요.` }
+          this.notice = { text: here ? `${why} · 보낸 글은 입력창에 돌려놓았어요. 다시 보내 주세요.` : `${why} · 다시 보내 주세요.` }
           return null
         }
         this.newProjectFolder = null

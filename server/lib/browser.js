@@ -476,7 +476,7 @@ ${files.length ? `The person attached these files for this task: ${files.map((f)
   }
   if (task.cancelled) result = { state: 'cancelled', summary: L('작업을 취소했어요.', 'I canceled the task.') }
   else if (result.state === 'done' && !ended) {
-    const reason = L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래 한 일을 보고, 카드의 「직접 제어」로 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
+    const reason = L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래의 작업 내용을 보고, 카드의 「직접 제어」로 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
       `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on with "Take control" on the card or ask again more specifically.`)
     result = { state: 'needs_review', need: 'stuck', reason, summary: reason }
   }
@@ -680,7 +680,7 @@ function wallReason(task, wall, again) {
 function blockedEnd(task, wall) {
   const name = siteName(wall.site, task.goal)
   const nb = name === 'NotebookLM'
-  const reason = L(`구글이 이 서버의 브라우저에서 하는 구글 로그인을 막았어요(「이 브라우저 또는 앱은 안전하지 않을 수 있습니다」). 그래서 이 브라우저로는 ${nb ? 'NotebookLM' : '이 구글 서비스'} 작업을 할 수 없어요. ${nb ? '휴대폰이나 PC의 NotebookLM에서 직접 만든 슬라이드·오디오 파일을 이 방에 올려 주면 이어서 정리해 드릴게요.' : '그 사이트에서 직접 한 결과(파일)를 이 방에 올려 주면 이어서 할게요.'}`,
+  const reason = L(`구글이 이 서버 브라우저의 구글 로그인을 막았어요(「이 브라우저 또는 앱은 안전하지 않을 수 있습니다」). 그래서 이 브라우저로는 ${nb ? 'NotebookLM' : '이 구글 서비스'} 작업을 할 수 없어요. ${nb ? '휴대폰이나 PC의 NotebookLM에서 직접 만든 슬라이드·오디오 파일을 이 방에 올려 주면 이어서 정리해 드릴게요.' : '그 사이트에서 직접 한 결과(파일)를 이 방에 올려 주면 이어서 할게요.'}`,
     `Google blocked signing in from this server's browser ("This browser or app may not be secure"), so ${nb ? 'NotebookLM' : 'this Google service'} can't be used from here. ${nb ? 'Make the slides and audio in NotebookLM on your phone or PC and put the files in this room — I\'ll take it from there.' : 'Do it on that site yourself and put the result (files) in this room — I\'ll take it from there.'}`)
   task.notes.push(reason)
   return { state: 'failed', need: 'blocked', reason, summary: reason }

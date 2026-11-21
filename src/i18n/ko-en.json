@@ -438,7 +438,7 @@
   "같은 화면에서 멈춤": "Stuck on the same screen",
   "고르러 가기": "Go choose",
   "승인하러 가기": "Go approve",
-  "프로젝트를 만들지 못했어요 · 보낸 글은 입력창에 돌려 두었어요. 다시 보내 주세요.": "Couldn't create the project · your message is back in the box. Please send it again.",
+  "프로젝트를 만들지 못했어요 · 보낸 글은 입력창에 돌려놓았어요. 다시 보내 주세요.": "Couldn't create the project · your message is back in the box. Please send it again.",
   "프로젝트를 만들지 못했어요 · 다시 보내 주세요.": "Couldn't create the project · please send it again.",
   "제어 돌려주기": "Give control back",
   "불러오는 중": "Loading",
@@ -2580,7 +2580,7 @@
    "Couldn't get the file to play · {0}"
   ],
   [
-   "{0} · 보낸 글은 입력창에 돌려 두었어요. 다시 보내 주세요.",
+   "{0} · 보낸 글은 입력창에 돌려놓았어요. 다시 보내 주세요.",
    "{0} · your message is back in the box. Please send it again."
   ],
   [

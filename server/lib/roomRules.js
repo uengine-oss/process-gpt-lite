@@ -51,7 +51,7 @@ export const roomState = (text) => L(`프로젝트 방에서 사용자가 한 �
 // "노트북 lm으로" must not turn into "PowerPoint 를 만든다" (recording 2026-11-21).
 export async function ruleAction(text) {
   const j = await chatJson(
-    L('사용자가 앞으로 이 방에 올라오는 링크나 파일로 할 일을 정했다. "노트북 lm"·"노트북엘엠"은 구글 NotebookLM 이고, "NotebookLM"이라고 적는다. 사용자가 이름을 댄 서비스·도구는 그대로 넣는다. 그 일을 비서가 받아 적은 한 문장으로 JSON 으로만 답한다: {"action": "이 링크나 파일로 …한다"}',
+    L('사용자가 앞으로 이 방에 올라오는 링크나 파일로 할 일을 정했다. "노트북 lm"·"노트북엘엠"은 구글 NotebookLM이고, "NotebookLM"이라고 적는다. 사용자가 이름을 댄 서비스·도구는 그대로 넣는다. 그 일을 비서가 받아 적은 한 문장을 JSON으로만 답한다: {"action": "이 링크나 파일로 …한다"}',
       'The person set what to do with the links or files put in this room from now on. Keep any service or tool they named. Answer only in JSON, one sentence: {"action": "With this link or file, …"}'),
     cap(text), { model: config.llm.fastModel, temperature: 0, think: false }).catch(() => null)
   return String(j?.action || '').trim() ? keepNamed(text, cap(j.action)) : cap(text)
@@ -64,7 +64,7 @@ const MISHEARD = [[isNotebookJob, /노트북\s*(엘|앨|el)\S*?(?=으로|에서|
 export function keepNamed(said, action) {
   for (const [is, re, name] of MISHEARD) if (is(said) && !is(action)) action = String(action).replace(re, name)
   const left = NAMED.filter(([is]) => is(said) && !is(action)).map(([, name]) => name)
-  return left.length ? `${String(action).replace(/[.。]\s*$/, '')} (${L(`${left.join(', ')} 에서`, `in ${left.join(', ')}`)})` : action
+  return left.length ? `${String(action).replace(/[.。]\s*$/, '')} (${L(`${left.join(', ')}에서`, `in ${left.join(', ')}`)})` : action
 }
 
 // The rule a message set reads as {id: message id, said, action, runs}
