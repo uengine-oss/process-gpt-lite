@@ -7,6 +7,7 @@ import SkillShareCard from './SkillShareCard.vue'
 import Icon from './Icon.vue'
 import TaskCard from './TaskCard.vue'
 import VaultCard from './VaultCard.vue'
+import TelegramConnect from './TelegramConnect.vue'
 import ProcessCard from './ProcessCard.vue'
 import TodoCard from './TodoCard.vue'
 import ProcessDraftCard from './ProcessDraftCard.vue'
@@ -44,6 +45,17 @@ const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text |
 // (src/replies.js: only a real choice list — a report's bullet lines stay text)
 const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
 const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell' }
+// what the answer did on the way (server lib/workTrail.js): folded to one line of the sites it read
+const workOpen = ref(false)
+const work = computed(() => (Array.isArray(c.value.work) ? c.value.work : []))
+const workHosts = computed(() => [...new Set(work.value.flatMap((w) => w.hosts || []))])
+const workLine = computed(() => {
+  if (!work.value.length) return ''
+  const steps = work.value.reduce((n, w) => n + (w.n || 1), 0)
+  const where = workHosts.value.length ? ` · 조회한 곳 ${workHosts.value.slice(0, 2).join(', ')}${workHosts.value.length > 2 ? ` 외 ${workHosts.value.length - 2}곳` : ''}` : ''
+  return `어떻게 했나요 · ${steps}단계${where}`
+})
+const workWhere = (w) => [w.hosts?.join(', '), w.query && `「${w.query}」`, w.file].filter(Boolean).join(' · ')
 const ctx = computed(() => (c.value.context && c.value.context.action !== 'stay' && c.value.context.title ? c.value.context : null))
 const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinned: '대화에서 직접', trivial: '', none: '' }
 const ctxBy = computed(() => (ctx.value ? (ctx.value.rechecked ? '판단 모델 재확인→logprob' : ctx.value.escalated ? '판단 모델→logprob' : byName[ctx.value.strategy] ?? ctx.value.strategy) : ''))
@@ -72,6 +84,12 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     </template>
     <template v-else-if="msg.kind === 'text'">
       <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <div v-if="workLine" class="work" :class="{ open: workOpen }" data-test="work-trail">
+        <button class="wl press" :aria-expanded="workOpen" @click="workOpen = !workOpen">{{ workLine }} <span class="car">{{ workOpen ? '▴' : '▾' }}</span></button>
+        <ol v-if="workOpen">
+          <li v-for="(w, i) in work" :key="i"><b>{{ w.phase || w.tool }}</b><template v-if="w.n > 1"> ×{{ w.n }}</template><small v-if="workWhere(w)">{{ workWhere(w) }}</small></li>
+        </ol>
+      </div>
       <div v-if="replies" class="replies">
         <button v-for="o in replies.options" :key="o.label" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id)">{{ o.label }}</button>
       </div>
@@ -87,6 +105,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 
     <TaskCard v-else-if="msg.kind === 'task'" :msg="msg" />
     <VaultCard v-else-if="msg.kind === 'vault'" :msg="msg" />
+    <!-- 「텔레그램으로 알려줘」 before a bot is connected: connect it right here (server lib/agent.js telegramTurn) -->
+    <div v-else-if="msg.kind === 'telegram_connect'" class="tgc"><TelegramConnect :schedule-name="c.scheduleName || ''" /></div>
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
     <ProcessCard v-else-if="msg.kind === 'process'" :msg="msg" />
     <ProcessDraftCard v-else-if="msg.kind === 'process_draft'" :msg="msg" />
@@ -148,7 +168,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 /* the last 검수 of an edited copy (lib/review.js) */
 .reviewed { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; background: rgba(60, 190, 120, .22); color: #8fe0a8; }
 .reviewed.warn { background: rgba(240, 160, 40, .22); color: #ffc46b; }
-.row { position: relative; display: flex; flex-direction: column; align-items: flex-start; animation: blur-in .5s var(--spring) both; }
+.row { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 100%; animation: blur-in .5s var(--spring) both; }
 .row.r-user { align-items: flex-end; }
 /* a running browser task stays in view while the conversation scrolls under it */
 .row.pinned { position: sticky; top: 0; z-index: 4; }
@@ -158,7 +178,17 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 .row:hover .ts { opacity: 1; }
 .req { font-size: 14px; color: var(--text-secondary); margin: 0 6px 6px 0; }
 .queue { display: block; text-align: right; font-size: 12.5px; color: var(--text-tertiary); margin: 4px 8px 0 0; }
-.bubble { max-width: 424px; border-radius: 24px; padding: 13px 18px; font-size: 16px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; transition: background-color 1s; }
+.work { max-width: min(424px, 100%); margin-top: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.work .wl { text-align: left; padding: 4px 8px; border-radius: 10px; color: var(--text-secondary); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.work .car { font-size: 10px; }
+.work ol { margin: 4px 0 0; padding: 8px 12px 8px 28px; border-radius: 14px; background: var(--bubble-agent-bg); }
+.work li { margin: 2px 0; line-height: 1.45; overflow-wrap: anywhere; }
+.work li b { font-weight: 500; color: var(--text-primary); }
+.work li small { display: block; color: var(--text-tertiary); }
+.tgc { width: min(424px, 100%); }
+/* never wider than the column: a phone's column is narrower than 424px, and a wide table inside used to push
+   the bubble past the screen's right edge (2026-11-21 recording) */
+.bubble { max-width: min(424px, 100%); min-width: 0; border-radius: 24px; padding: 13px 18px; font-size: 16px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; transition: background-color 1s; }
 .bubble.agent { background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
 .bubble.user { background: var(--bubble-user-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); max-width: 512px; white-space: pre-wrap; }
 .md :deep(p) { margin: 0 0 .6em; } .md :deep(p:last-child) { margin: 0; }
@@ -210,7 +240,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 .li small { color: var(--text-secondary); font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .me { color: var(--color-attention); font-weight: 500; }
 .empty { margin: 4px 12px 10px; font-size: 14px; color: var(--text-secondary); }
-.ctx { cursor: pointer; display: inline-flex; align-items: center; gap: 7px; max-width: 424px; min-height: 28px; padding: 3px 5px 3px 11px; border-radius: 9999px; background: var(--bubble-user-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); font-size: 13px; color: var(--text-primary); margin: 0 0 6px 2px; animation: blur-in .4s var(--spring) both; }
+.ctx { cursor: pointer; display: inline-flex; align-items: center; gap: 7px; max-width: min(424px, 100%); min-height: 28px; padding: 3px 5px 3px 11px; border-radius: 9999px; background: var(--bubble-user-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); font-size: 13px; color: var(--text-primary); margin: 0 0 6px 2px; animation: blur-in .4s var(--spring) both; }
 .ctx .arrow { color: var(--text-secondary); }
 .ctx .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ctx .by { flex: none; font-size: 11.5px; padding: 2px 8px; border-radius: 9999px; color: #fff; background: #64748b; font-family: ui-monospace, Menlo, monospace; }

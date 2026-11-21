@@ -7,6 +7,13 @@
 
 ### 추가
 
+- **휴대폰 검토 반영(2026-11-21) — 예약 작업 지금 실행 · 텔레그램 알림 · 「어떻게 했나요」 · 시세 출처** (스펙 `openspec/specs/scheduled-task-run-and-telegram`, 결정 process-gpt `docs/decisions/2026-11.md` D-1121-03~06):
+  - 「곧바로 하나 정도 한번 실행해 봐」처럼 지금 실행해 달라고 하면 새 예약(1분 뒤)을 만들지 않고, 그 대화에서 다룬 예약 작업을 바로 한 번 돌립니다(`manual`, 결과는 요청한 대화에, 조건에 안 걸려도 값을 보여 줌). 라우터에는 `run_schedule_now` 도구와 내 예약 목록이 갑니다.
+  - 텔레그램 봇 알림: 설정 › 연결의 「텔레그램으로 알림 받기」(BotFather 토큰 → 봇에서 시작 → 연결, 토큰은 보관함에만), `/api/telegram*`. 「급등락이 감지되면 내 텔레그램 봇으로 알려줘」는 그 작업의 전달에 텔레그램을 켜고(`pro_schedules.state.channels`), 봇이 없으면 대화에 연결 카드를 띄웁니다. 결과를 알린 실행은 텔레그램으로도 보내고 실행 기록에 `telegram` 을 남깁니다. 예약된 작업 상세에 「텔레그램으로도」 스위치(`POST /api/missions/:id/channels`). 시험용 모의 Bot API `scripts/mock-telegram.mjs`(`PRO_TELEGRAM_API`).
+  - 에이전트 답 아래 「어떻게 했나요 · N단계 · 조회한 곳 …」(읽은 호스트 · 검색어 · 파일 이름만, 명령 · 키는 안 보임).
+  - 주가 · 지수 요청에 네이버 증권 공개 JSON 과 종목 찾는 법(이름 → ASTS 같은 해외 종목까지)을 알려 주고 출처 줄을 붙이게 합니다. 예약 지시에 짐작한 종목 코드를 넣지 않습니다. `**굵게**` 뒤 한국어 조사도 굵게.
+  - 시험: `server/test/mobile-review-1121.test.js`(9) · `server/test/telegram.test.js`(9) · `e2e/tests/feature/mobile-review-1121.spec.js` F-MR-06 · 07.
+- **휴대폰 검토 반영(2026-11-21) — 홈 알림 카드 · 루틴 열기/닫기 · 말풍선 폭** (스펙 `openspec/specs/phone-home-and-routine`, 결정 D-1121-01 · 02 · 07): 알림 제목의 ```json · 긴 id 를 걷고 두 줄로, 홈이 옆으로 밀리지 않게, 옆으로 밀어 닫기, 닫을 때 아래 카드가 제자리에서 올라옴. 루틴은 열리는 동안 앞 채팅을 비추지 않고(「루틴 여는 중…」 · 실패 시 다시 시도/닫기), 휴대폰 왼쪽 위 ‹ 로 연 곳에 돌아갑니다. 브라우저가 그린 뒤로 가기에는 앱 전환을 겹치지 않습니다. 넓은 표가 든 답도 말풍선이 휴대폰 폭 안. 시험 F-MR-01~05 · 08(고치기 전 main 에서 모두 실패).
 - **ProcessGPT 포털에서 넘어온 휴대폰 — 데스크톱 화면으로 돌아가기**: ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「라이트 모드」를 고른 휴대폰은 같은 주소의 `/lite/`로 이동합니다. 그 휴대폰의 설정 시트에 「Process GPT 데스크톱 화면으로」 항목이 보이고, 누르면 포털 `/definition-map?mobileView=desktop`으로 이동해 포털이 데스크톱 버전으로 바꿉니다. `/lite` 아래에서 열리지 않았거나 포털에서 넘어온 휴대폰이 아니면 항목이 보이지 않습니다. 시험: `e2e/tests/feature/portal-link.spec.js`(F-PT-01~03). 결정 process-gpt `docs/decisions/2026-11.md` D-1112-30.
 - **다국어 협업 — 회의 실시간 AI 통역 · 메신저 자동 번역** (설계 process-gpt `openspec/changes/pgpt-pro-meeting-interpretation`):
   - **주 언어**: 사람마다 말하고 읽는 언어(`pro_profile.main_lang`, `server/sql/020_interpretation.sql`)를 화면 언어(ko|en)와 따로 둡니다. ko·en·ja·zh·es·fr·de·pt·it·ru·hi·vi·id·th·ar·tr·nl·pl 중에서 고르고, 그 밖의 언어는 영어 화면이 됩니다. 설정 › 계정 › 주 언어, 회의 로비, `PUT /api/me/main-lang`.

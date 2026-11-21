@@ -1797,7 +1797,34 @@
   "새 메일이 없어요": "No new mail",
   "메일을 가져오지 못했어요": "Couldn't fetch mail",
   "메일은 뒤에서 계속 가져오고 있어요": "Still fetching mail in the background",
-  "새로고침했어요": "Refreshed"
+  "새로고침했어요": "Refreshed",
+  "텔레그램으로도": "Also to Telegram",
+  "텔레그램으로도 보내기": "Also send to Telegram",
+  "텔레그램 못 보냄": "Telegram not sent",
+  "텔레그램 보냄": "Sent to Telegram",
+  "시작 기다림": "Waiting for Start",
+  "확인하는 중…": "Checking…",
+  "예약 작업 알림을 내 텔레그램 봇으로 받아요": "Get scheduled task alerts from your own Telegram bot",
+  "보냈어요. 텔레그램을 확인해 보세요.": "Sent. Check Telegram.",
+  "텔레그램": "Telegram",
+  "텔레그램으로 알림 받기": "Get alerts on Telegram",
+  "BotFather 에서": "In BotFather,",
+  "으로 봇을 만들고 받은 토큰을 붙여 넣으세요.": "make a bot, then paste the token you get.",
+  "봇 토큰": "Bot token",
+  "토큰은 암호화된 보관함에만 저장돼요.": "The token is kept only in your encrypted vault.",
+  "봇 화면에서 시작(Start)을 누르면 자동으로 확인해요.": "Press Start in the bot and it is confirmed automatically.",
+  "봇 열기": "Open the bot",
+  "기다리는 중…": "Waiting…",
+  "다시 확인": "Check again",
+  "아직 시작 신호가 없어요.": "No Start yet.",
+  "다른 봇으로 바꾸기": "Use another bot",
+  "연결됐어요 ·": "Connected ·",
+  "」 알림도 이제 텔레그램으로 가요": "\" alerts now go to Telegram too",
+  "시험 메시지 보내기": "Send a test message",
+  "연결 끊기": "Disconnect",
+  "한 번 더 누르면 끊어요": "Press again to disconnect",
+  "루틴을 열지 못했어요": "Couldn't open the routine",
+  "루틴 여는 중…": "Opening the routine…"
  },
  "patterns": [
   [
@@ -1821,12 +1848,28 @@
    "Couldn't get a connection ticket ({0})"
   ],
   [
+   "@{0} 에서 시작을 누르면 끝나요",
+   "Press Start in @{0} to finish"
+  ],
+  [
    "바뀐 것 {0}건 · 반영 전",
    "{0} changes · not merged yet"
   ],
   [
+   "어떻게 했나요 · {0}단계{1}",
+   "How it was done · {0} steps{1}"
+  ],
+  [
    "연결이 끊겼어요 ({0})",
    "The connection dropped ({0})"
+  ],
+  [
+   "@{0} 봇을 찾았어요.",
+   "Found the bot @{0}."
+  ],
+  [
+   "· 조회한 곳 {0}",
+   "· looked at {0}"
   ],
   [
    "{0} 폴더 열기",
@@ -2091,6 +2134,10 @@
   [
    "나: {0}",
    "Me: {0}"
+  ],
+  [
+   "외 {0}곳",
+   "and {0} more"
   ],
   [
    "시작{0}",

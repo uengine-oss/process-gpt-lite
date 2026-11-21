@@ -106,10 +106,15 @@ export const useApp = defineStore('app', {
     async loadProcesses() {
       ;[this.instances, this.todos] = await Promise.all([api('/instances'), api('/todos')])
     },
-    async openInstance(id) {
-      this.instance = await api(`/instances/${encodeURIComponent(id)}`)
-      this.activeId = this.instance.threadId
-      if (!this.messages[this.activeId]) await this.load(this.activeId)
+    // current(): still on this instance's page once the answer comes (the person may have closed it)
+    async openInstance(id, current = () => true) {
+      const inst = await api(`/instances/${encodeURIComponent(id)}`)
+      if (!current()) return null
+      if (!this.messages[inst.threadId]) await this.load(inst.threadId)
+      if (!current()) return null
+      this.instance = inst
+      this.activeId = inst.threadId
+      return inst
     },
     async refreshInstance() {
       if (!this.instance) return

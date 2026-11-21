@@ -8,6 +8,7 @@ import MissionList from './MissionList.vue'
 import SkillList from './SkillList.vue'
 import TeamRoles from './TeamRoles.vue'
 import MailConnect from './MailConnect.vue'
+import TelegramConnect from './TelegramConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
 import { MAIN_LANGS, uiLangFor } from '../i18n/mainLangs.js'
@@ -208,6 +209,7 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
             <div class="main"><b>연습 메일 받기</b><small>가상의 거래처 메일을 데모 메일함으로 보내요</small></div>
             <DemoMailPractice />
           </div>
+          <TelegramConnect compact />
         </div>
         <ConnectorCards />
         <p class="cap">로그인 · API 키</p>

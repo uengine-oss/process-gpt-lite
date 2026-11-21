@@ -1,0 +1,23 @@
+◇ injected env (16) from .env
+✔ markdown the agents write becomes plain text (1.520833ms)
+✔ long text goes in numbered pieces of at most 4096 characters, nothing lost (0.8435ms)
+✔ the chat is the one that sent /start <nonce>, else the newest private /start since connecting (0.29375ms)
+✔ a pasted token is cleaned; anything that could leave the request path is refused (0.158792ms)
+✔ connect → link → send → status, and the token never comes back (153.408334ms)
+[telegram] getMe 401 Unauthorized
+✔ a wrong token is refused in plain words and the saved bot stays (11.506959ms)
+[telegram] sendMessage 403 Forbidden: bot was blocked by the user
+[telegram] sendMessage 403 Forbidden: bot was blocked by the user
+[telegram] send telegram_blocked
+✔ a blocked bot says so (11.935833ms)
+[telegram] getMe 401 Unauthorized
+✔ HTTP routes: status, test message, wrong token, disconnect (34.622834ms)
+✔ disconnect removes the bot; deliveries then skip Telegram quietly (15.860541ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 458.51775

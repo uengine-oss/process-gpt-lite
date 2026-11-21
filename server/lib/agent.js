@@ -5,8 +5,11 @@ import { chat } from './llm.js'
 import { q } from './supa.js'
 import { addMessage, history, getThread, setThreadStatus } from './store.js'
 import { runBrowserTask } from './browser.js'
-import { createSchedule, nextRun, cronAfter, dueAt } from './scheduler.js'
-import { createMission, createProcessSchedule, listSkills, workspaceHostPath } from './missions.js'
+import { createSchedule, nextRun, cronAfter, dueAt, listSchedules } from './scheduler.js'
+import { createMission, createProcessSchedule, listSkills, workspaceHostPath, runMission } from './missions.js'
+import { wantsRunNow, telegramIntent, pickSchedule, recentScheduleIds, channelsOf } from './scheduleIntent.js'
+import { createTrail } from './workTrail.js'
+import { marketHint, stripInventedCodes } from './marketHint.js'
 import { summarizeSkill, listFolder } from './skills.js'
 import { generatedContract } from './generated.js'
 import fs from 'node:fs/promises'
@@ -69,7 +72,7 @@ const ROUTER_TOOLS = [
     type: 'function',
     function: {
       name: 'schedule_task',
-      description: 'User wants something done repeatedly or at a time (매일, 매주, 30분마다, 장중에, 내일 아침…).',
+      description: 'User wants something NEW done repeatedly or at a time (매일, 매주, 30분마다, 장중에, 내일 아침…). NOT for running a task that is already scheduled (listed in the system message) right now — that is run_schedule_now.',
       parameters: {
         type: 'object',
         properties: {
@@ -78,7 +81,7 @@ const ROUTER_TOOLS = [
           in_minutes: { type: 'integer', description: 'For one run a number of minutes from now ("3분 뒤에 한 번만"): the minutes. It runs once' },
           once: { type: 'boolean', description: 'true when it should run only one time at the cron moment ("내일 오전 9시에 한 번")' },
           notify: { type: 'string', enum: ['always', 'on_change'], description: "always: the user is told at every run (reminders, reports). on_change: only when something changed since the last run (watching for news, prices, new items)" },
-          prompt: { type: 'string', description: 'Self-contained instruction executed at each run' },
+          prompt: { type: 'string', description: 'Self-contained instruction executed at each run. Keep every name (stocks, companies, people, products) exactly as the user wrote it; never add codes, tickers or ids the user did not give — the run looks them up' },
           skill: { type: 'string', description: 'If one of the available skills (listed in the system message) does this job, its exact name. The run then executes that skill as a mission. A skill is one person\'s job done by one agent: results go only to the person who set it up.' },
           process: { type: 'string', description: 'If one of the processes (listed in the system message) is the job to run on this schedule, its exact id. Each run then starts a new instance of that process. Use a process (not a skill) when the work passes between people or roles (검토·승인·결정을 다른 사람/역할이 함), branches on a decision, or chains several agents/skills — each step then goes to whoever holds its role.' },
           params: { type: 'object', description: 'Inputs taken from the request. For a skill, what the skill needs, e.g. {"channel":"@경제사냥꾼","sectors":["코스피","반도체"]}. For a process, its first-step fields (listed with the process), e.g. {"sources":"Facebook","topics":"AI 업무 자동화"}' },
@@ -86,6 +89,14 @@ const ROUTER_TOOLS = [
         },
         required: ['name', 'prompt', 'ack'],
       },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_schedule_now',
+      description: 'Run one of the user\'s existing scheduled tasks (listed in the system message) right now, once, to try it: "지금 한 번 실행해 봐", "곧바로 돌려 봐", "테스트로 실행해 줘". Never make a new schedule for this.',
+      parameters: { type: 'object', properties: { schedule: { type: 'string', description: 'the id or exact name of the scheduled task' }, ack: { type: 'string', description: '해요체 한 문장' } }, required: ['schedule', 'ack'] },
     },
   },
   {
@@ -248,6 +259,17 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     if (msg && !msg.content?.stopped && msg.content?.text !== EMPTY_TEXT && msg.content?.text !== EMPTY_TEXT_EN && !/오류|실패|\(error:/i.test(msg.content?.text || '')) await askShareAfterUse(user, threadId, ownSkill.name).catch(() => {})
     return msg
   }
+  // A task already on a schedule, asked to run now ("곧바로 하나 정도 한번 실행해 봐"): that task runs once,
+  // now — not a new schedule a minute later (2026-11-21 phone review). It has to be named or be the one
+  // this conversation just set up or ran; otherwise the words may be about a process and go on as before.
+  if (!files.length && wantsRunNow(text) && !generationPending(threadId)) {
+    const s = pickSchedule(await listSchedules(userId), text, recentScheduleIds(await history(threadId, 16)), { only: false })
+    if (s) { noAgentTurn(); return runScheduleNowTurn({ userId, threadId, s, onDelta }) }
+  }
+  // Telegram: a task's alerts there too ("급등락이 감지되면 내 텔레그램 봇으로 알려줘"), an answer sent
+  // there, or connecting the bot — handled here, the agent has no Telegram tool
+  const tg = !files.length ? telegramIntent(text) : null
+  if (tg) { noAgentTurn(); return telegramTurn({ userId, threadId, text, kind: tg, onDelta }) }
   // A one-off question about a connected service (YouTube, Calendar, Slack…) goes straight to
   // deepagents, which holds the connector tools; small router models tend to pick browser_task.
   // (a request about one of the user's panel apps — "팀 공유 캘린더에서 …" — is not a Google Calendar question)
@@ -296,6 +318,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const processHint = await processCatalogHint()
   const teamHint = await teamCatalogHint(userId)
   const appHint = await panelAppHint(user)
+  const schedHint = await scheduleCatalogHint(userId)
   const route = await chat({
     model: config.llm.fastModel,
     temperature: 0,
@@ -303,8 +326,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     tools: routerTools(appHint ? ROUTER_TOOLS : ROUTER_TOOLS.filter((t) => t.function.name !== 'panel_record')),
     messages: [
       { role: 'system', content: isEn()
-        ? PERSONA_EN.replace('{now}', now) + skillHint + processHint + teamHint + appHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
-        : PERSONA.replace('{now}', now) + skillHint + processHint + teamHint + appHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
+        ? PERSONA_EN.replace('{now}', now) + skillHint + processHint + teamHint + appHint + schedHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
+        : PERSONA.replace('{now}', now) + skillHint + processHint + teamHint + appHint + schedHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
       ...hist.slice(-8),
     ],
   })
@@ -344,7 +367,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
           : useSkill
           // keep the user's own words with the inputs so the skill can recover anything the router missed
           ? await createMission({ userId, name: args.name, cron, skill: args.skill, params: { ...(args.params || {}), request: text } })
-          : await createSchedule({ userId, name: args.name, cron, prompt: args.prompt, threadId, notify: args.notify === 'on_change' ? 'on_change' : 'always', once: !!(args.in_minutes || args.once) })
+          : await createSchedule({ userId, name: args.name, cron, prompt: stripInventedCodes(args.prompt, text), threadId, notify: args.notify === 'on_change' ? 'on_change' : 'always', once: !!(args.in_minutes || args.once) })
         const next = nextRun(s.cron)
         const when = next ? next.toLocaleString(locale(), { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit' }) : ''
         await addMessage(userId, threadId, 'agent', 'chip', { icon: 'clock', text: L(`예약됨 · ${s.name}${useSkill ? ` · 스킬 ${args.skill}` : proc ? ` · 프로세스 ${proc.name}` : ''}${when ? ` · 다음 실행 ${when}` : ''}`,
@@ -353,6 +376,14 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
         console.warn('[schedule]', e.message)
         await addMessage(userId, threadId, 'agent', 'text', { text: L('예약을 걸지 못했어요. 시각을 다시 알려 주세요.', "I couldn't set that schedule. Please tell me the time again.") })
       }
+      break
+    }
+    case 'run_schedule_now': {
+      const list = await listSchedules(userId)
+      const s = list.find((x) => x.id === args.schedule || x.id.startsWith(String(args.schedule || '')) && String(args.schedule || '').length >= 8)
+        || pickSchedule(list, `${args.schedule || ''} ${text}`, recentScheduleIds(await history(threadId, 16)))
+      if (!s) { await addMessage(userId, threadId, 'agent', 'text', { text: L('어느 예약 작업인지 찾지 못했어요. 작업 이름을 알려 주세요.', "I couldn't tell which scheduled task you mean. Tell me its name.") }); break }
+      await runScheduleNowTurn({ userId, threadId, s, acked: true })
       break
     }
     case 'create_panel':
@@ -392,6 +423,92 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     }
   }
   return ack
+}
+
+// the person's scheduled tasks, for the router (run_schedule_now names one of these)
+async function scheduleCatalogHint(userId) {
+  const list = await listSchedules(userId).catch(() => [])
+  if (!list.length) return ''
+  const items = list.slice(0, 12).map((s) => `${s.id.slice(0, 8)} ${s.name}${s.paused ? L('(멈춤)', ' (paused)') : ''}`).join(' / ')
+  return L(`\n내 예약 작업(지금 한 번 실행은 run_schedule_now, 새 예약이 아님): ${items}`, `\nMy scheduled tasks (run one now with run_schedule_now, not a new schedule): ${items}`)
+}
+
+// A scheduled task, run once now (lib/missions.js runMission 'manual'): its result comes to this
+// conversation like a scheduled run's, under its divider — even when nothing crossed its condition.
+async function runScheduleNowTurn({ userId, threadId, s, onDelta, acked = false }) {
+  let msg = null
+  if (!acked) {
+    const said = L(`「${s.name}」 작업을 지금 바로 한 번 실행할게요. 새 예약은 만들지 않고, 결과는 곧 여기에 올라와요.`,
+      `I'll run "${s.name}" once, right now. No new schedule — the result will show up here shortly.`)
+    msg = await addMessage(userId, threadId, 'agent', 'text', { text: said })
+    onDelta?.(said)
+  }
+  await addMessage(userId, threadId, 'agent', 'chip', { icon: 'clock', text: L(`지금 실행 · ${s.name}`, `Running now · ${s.name}`), scheduleId: s.id })
+  // the run is its own agent turn, outside this message's place in line (lib/turns.js)
+  turnCtx.exit(() => runMission(s.id, 'manual', { threadId })).catch((e) => console.warn('[schedule] run now', e.message))
+  return msg
+}
+
+// where a task's results go besides the chat (pro_schedules.state.channels)
+async function setChannel(s, channel, on) {
+  const next = [...new Set([...channelsOf(s).filter((c) => c !== channel), ...(on ? [channel] : [])])]
+  await q(`update pro_schedules set state = jsonb_set(coalesce(state,'{}'::jsonb), '{channels}', $2::jsonb) where id=$1 and user_id=$3`, [s.id, JSON.stringify(next), s.user_id])
+  return next
+}
+
+// Telegram (lib/telegram.js): a task's alerts there too, the last answer sent there now, or connecting
+// the person's bot. Not connected yet: a card in the chat connects it (src/components/TelegramConnect.vue),
+// and a task already marked sends there from its next result on.
+async function telegramTurn({ userId, threadId, text, kind, onDelta }) {
+  const tg = await import('./telegram.js')
+  const status = await tg.telegramStatus(userId).catch(() => ({ connected: false, linked: false }))
+  const ready = status.connected && status.linked
+  const say = async (t) => { const m = await addMessage(userId, threadId, 'agent', 'text', { text: t }); onDelta?.(t); return m }
+  const card = (s) => addMessage(userId, threadId, 'agent', 'telegram_connect', { scheduleId: s?.id || null, scheduleName: s?.name || '' })
+  const chip = (t, s) => addMessage(userId, threadId, 'agent', 'chip', { icon: 'bell', text: t, ...(s ? { scheduleId: s.id } : {}) })
+  if (kind === 'connect') {
+    if (ready) return say(L(`텔레그램 봇 @${status.bot} 이 이미 연결돼 있어요.`, `Your Telegram bot @${status.bot} is already connected.`))
+    const m = await say(L('내 텔레그램 봇을 연결해 볼게요. 아래 카드 순서대로 하면 1분이면 돼요.', "Let's connect your Telegram bot. Follow the card below — it takes about a minute."))
+    await card(null)
+    return m
+  }
+  const s = pickSchedule(await listSchedules(userId), text, recentScheduleIds(await history(threadId, 16)))
+  if (kind === 'off') {
+    if (!s) return say(L('어느 예약 작업의 텔레그램 알림을 끌지 찾지 못했어요. 작업 이름을 알려 주세요.', "I couldn't tell which scheduled task's Telegram alerts to turn off. Tell me its name."))
+    await setChannel(s, 'telegram', false)
+    const m = await say(L(`「${s.name}」 결과는 이제 텔레그램으로 보내지 않아요.`, `"${s.name}" results won't go to Telegram any more.`))
+    await chip(L(`텔레그램 알림 끔 · ${s.name}`, `Telegram alerts off · ${s.name}`), s)
+    return m
+  }
+  if (kind === 'alerts' && s) {
+    await setChannel(s, 'telegram', true)
+    if (ready) {
+      const m = await say(L(`좋아요. 「${s.name}」에서 알릴 일이 생기면 채팅과 함께 텔레그램(@${status.bot})으로도 보내 드릴게요.`,
+        `Done. When "${s.name}" has something to tell you, it goes to Telegram (@${status.bot}) as well as this chat.`))
+      await chip(L(`텔레그램 알림 켬 · ${s.name}`, `Telegram alerts on · ${s.name}`), s)
+      return m
+    }
+    const m = await say(L(`「${s.name}」 알림을 텔레그램으로도 보내도록 해 둘게요. 먼저 내 텔레그램 봇을 연결해 주세요 — 아래 카드에서 1분이면 돼요. 연결되면 다음 알림부터 텔레그램으로 가요.`,
+      `I've set "${s.name}" to alert you on Telegram too. First connect your Telegram bot with the card below — about a minute. Alerts go there from the next one on.`))
+    await card(s)
+    return m
+  }
+  // the last answer of this conversation, now
+  const rows = await history(threadId, 14)
+  const last = [...rows].reverse().find((r) => r.role === 'agent' && (r.kind === 'text' || r.kind === 'doc') && r.content?.text)
+  if (!last) return say(L('텔레그램으로 보낼 답을 찾지 못했어요. 보낼 내용을 알려 주세요.', "I couldn't find an answer to send to Telegram. Tell me what to send."))
+  if (!ready) {
+    const m = await say(L('먼저 내 텔레그램 봇을 연결해 주세요. 연결하면 바로 보낼 수 있어요.', 'Connect your Telegram bot first — then I can send it right away.'))
+    await card(null)
+    return m
+  }
+  try {
+    await tg.sendTelegram(userId, last.content.text)
+    const m = await say(L(`텔레그램(@${status.bot})으로 보냈어요.`, `Sent to Telegram (@${status.bot}).`))
+    return m
+  } catch (e) {
+    return say(L(`텔레그램으로 보내지 못했어요: ${e.message}`, `I couldn't send it to Telegram: ${e.message}`))
+  }
 }
 
 // One run of the agent on a fresh variation of a shared folder, in its own conversation.
@@ -788,7 +905,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
     body: JSON.stringify({
       // English mode: the language instruction goes last, after what the person said and the hints
-      message: text + connectorHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+      message: text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       files: chatFiles(sent),
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
       conversation_id: conv, stream: true,
@@ -815,6 +932,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const seen = new Set()
   const toolDocs = []
   const inputs = new Map() // tool -> arguments of its last call
+  // what this answer did on the way, shown under it (lib/workTrail.js: steps and the sites read, no commands)
+  const trail = createTrail()
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -876,6 +995,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         const tool = j.tool || j.tool_name || j.name || ''
         usedTools.add(tool)
         inputs.set(tool, j.input ?? null)
+        trail.add(tool, j.input, toolPhase(tool))
         for (const p of workspacePaths(j.input)) seen.add(p)
         steps += 1
         emit(user.id, 'status', { threadId, text: mode === 'skill' ? skillStatus(tool, steps) : toolPhase(tool) })
@@ -957,7 +1077,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (why) { console.log(`[delegate] not attached (${why}): ${f.path}`); files.splice(files.indexOf(f), 1) }
   }
   if (!body && !files.length && !workDir) body = emptyText()
-  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
+  const work = trail.list()
+  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
   if (preRouted) touchContext(user, routing, text, body)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
   for (const f of files) if (f.url && !f.path) f.name = displayName(f, body)

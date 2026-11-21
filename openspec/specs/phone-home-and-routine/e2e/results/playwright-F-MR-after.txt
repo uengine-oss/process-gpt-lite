@@ -1,0 +1,9 @@
+Running 7 tests using 1 worker
+  ✓  1 [feature] › tests/feature/mobile-review-1121.spec.js:38:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-01 날 JSON 이 든 알림: 카드가 화면 안에 맞고 ✕ 가 보이며, 홈이 옆으로 밀리지 않는다 (1.0s)
+  ✓  2 [feature] › tests/feature/mobile-review-1121.spec.js:59:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-02 ✕ 로 닫으면 아래 카드가 제자리(왼쪽 여백 그대로)에서 위로 올라온다 (1.5s)
+  ✓  3 [feature] › tests/feature/mobile-review-1121.spec.js:80:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-03 손가락으로 옆으로 밀면 카드가 닫힌다(위아래는 목록 스크롤) (2.5s)
+  ✓  4 [feature] › tests/feature/mobile-review-1121.spec.js:130:3 › 휴대폰 검토 11-21 — 루틴 열기 · 닫기 › F-MR-04 홈 카드로 루틴을 열면 앞 채팅이 비치지 않고 「루틴 여는 중」 → 루틴, ‹ 로 닫으면 홈 (1.2s)
+  ✓  5 [feature] › tests/feature/mobile-review-1121.spec.js:153:3 › 휴대폰 검토 11-21 — 루틴 열기 · 닫기 › F-MR-05 없는 루틴은 오류와 「닫기」, 주소로 바로 열었을 때 ‹ 는 루틴 목록으로 (832ms)
+  ✓  6 [feature] › tests/feature/mobile-review-1121.spec.js:165:3 › 휴대폰 검토 11-21 — 채팅 말풍선 › F-MR-08 넓은 표가 든 답도 말풍선이 휴대폰 폭을 넘지 않고, 표만 그 안에서 옆으로 스크롤된다 (944ms)
+  ✓  7 [feature] › tests/feature/mobile-review-1121.spec.js:215:3 › 휴대폰 검토 11-21 — 예약 작업 › F-MR-07 「급등락이 감지되면 내 텔레그램 봇으로 알려줘」: 그 작업에 텔레그램 전달을 켜고, 봇이 없으면 연결 카드 (429ms)
+  7 passed (9.2s)

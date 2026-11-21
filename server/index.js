@@ -35,6 +35,7 @@ import { attachVoice } from './lib/meetings/voice.js'
 import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang.js'
 import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { improveRoutes } from './routes/improve.js'
+import { telegramRoutes } from './routes/telegram.js'
 import { mountImprove } from './mcp/improve.js'
 import { startConstraintSweep } from './lib/improve/service.js'
 import { startStepRetry } from './lib/stepRetry.js'
@@ -326,6 +327,7 @@ app.use('/api', meetingRoutes(auth))
 app.use('/api', miningRoutes(auth))
 // 프로세스 개선: 병목·가치 흐름·제약·크리티컬 패스·what-if·개선 적용 (lib/improve)
 app.use('/api', improveRoutes(auth))
+app.use('/api', telegramRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
@@ -698,6 +700,15 @@ app.post('/api/missions/:id/agent', auth, async (req, res) => {
   const agent = MISSION_AGENTS[id] ? { orch: 'cliagents', cli: id, model: req.body.model || '', permission: 'command_exec' } : { orch: 'deepagents' }
   const [s] = await q('update pro_schedules set agent=$2 where id=$1 returning agent', [req.params.id, agent])
   res.json(s)
+})
+// where a task's results go besides the chat: the person's Telegram bot (lib/telegram.js)
+app.post('/api/missions/:id/channels', auth, async (req, res) => {
+  const s = await ownSchedule(req)
+  if (!s) return res.status(404).end()
+  const cur = Array.isArray(s.state?.channels) ? s.state.channels : []
+  const next = [...new Set([...cur.filter((c) => c !== 'telegram'), ...(req.body?.telegram ? ['telegram'] : [])])]
+  await q(`update pro_schedules set state = jsonb_set(coalesce(state,'{}'::jsonb), '{channels}', $2::jsonb) where id=$1`, [s.id, JSON.stringify(next)])
+  res.json({ channels: next })
 })
 app.post('/api/missions/:id/pause', auth, async (req, res) => {
   if (!(await ownSchedule(req))) return res.status(404).end()
