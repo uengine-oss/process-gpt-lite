@@ -2,16 +2,18 @@
 pgpt-pro server on :8796
 PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off
 [team] deepagents worktree: no — continue hands the branch files over as attachments
-[team] 29795c8c is the first administrator of pro-gc-e2e
-✔ 설치형 「Google로 계속하기」 로그인은 그대로: 이 설치의 클라이언트, 신원 범위만, 콜백이 로그인시킨다 (3220.509666ms)
-✔ 회사 OAuth 클라이언트: 관리자만(아니면 403), 리디렉션 URI 와 복사, 비밀값은 다시 보여 주지 않음 (휴대폰 390) (2141.384417ms)
-✔ 휴대폰에서 연결: 로그인한 사람에게 붙고(구글 이메일이 달라도), 다른 브라우저·다른 상태는 거부, 한 번만 (92.414792ms)
-[browser] google connect e466515b-51e6-4445-917e-32a606d4b417 connected in 2s · 1 page checks
-✔ 서버 브라우저에서 연결: 카드가 곧바로 직접 로그인을 기다리고, 휴대폰 화면의 직접 제어로 동의하면 완료 · 같은 브라우저에 Google 쿠키 (7030.208125ms)
-[browser] google connect 2820b119-43f9-42e2-b12d-be70970eafa1 blocked in 1s · 1 page checks
-✔ Google 이 서버 브라우저를 거절하면(판정 refused) 카드에 「휴대폰에서 연결」, 그 단추로 이 기기에서 연결 (4533.990291ms)
+[team] 729b3d83 is the first administrator of pro-gc-e2e
+✔ 설치형 「Google로 계속하기」 로그인은 그대로: 이 설치의 클라이언트, 신원 범위만, 콜백이 로그인시킨다 (3331.540917ms)
+✔ 회사 OAuth 클라이언트: 관리자만(아니면 403), 리디렉션 URI 와 복사, 비밀값은 다시 보여 주지 않음 (휴대폰 390) (2572.582292ms)
+✔ 휴대폰에서 연결: 로그인한 사람에게 붙고(구글 이메일이 달라도), 다른 브라우저·다른 상태는 거부, 한 번만 (69.598917ms)
+[browser] google connect b3d27925-9628-4513-a19f-4ea64014f406 connected in 2s · 1 page checks
+✔ 서버 브라우저에서 연결: 카드가 곧바로 직접 로그인을 기다리고, 휴대폰 화면의 직접 제어로 동의하면 완료 · 같은 브라우저에 Google 쿠키 (7067.497541ms)
+[browser] google connect dee9eab9-b07c-4725-ab51-b4fcb836cb98 blocked in 1s · 1 page checks
+✔ Google 이 오류 화면(400)으로 답하면(판정 site_error) 거절과 같이 끝나고 「휴대폰에서 연결」 (891.537333ms)
+[browser] google connect ce6b725d-3c3e-4cd0-83dd-5b2beeee91f0 blocked in 1s · 1 page checks
+✔ Google 이 서버 브라우저를 거절하면(판정 refused) 카드에 「휴대폰에서 연결」, 그 단추로 이 기기에서 연결 (4964.490625ms)
 [google connect] browser Google에서 허용하지 않았어요.
-[browser] google connect a5a8d1c7-ed90-44c4-9f1c-be5fd248229e error in 3s · 1 page checks
-[browser] google connect 22df7489-f4cd-40d3-9017-cbe3419d2b55 timeout in 2s · 1 page checks
-✔ 허용하지 않으면 카드가 그 이유와 다른 방법을 말한다 · 바쁜 브라우저는 409 · 15분(시험은 짧게) 안에 끝나지 않으면 끝낸다 (4965.808458ms)
-✔ 영어 화면: 관리 화면 · 연결 카드 · 작업 카드의 새 문구가 영어로 (ko-en.json) (6696.255375ms)
+[browser] google connect f5867a5a-19ff-474c-b783-e00a310dccc2 error in 3s · 1 page checks
+[browser] google connect 53577bb4-053c-4dee-b3de-fcf8dc0cb46e timeout in 2s · 1 page checks
+✔ 허용하지 않으면 카드가 그 이유와 다른 방법을 말한다 · 바쁜 브라우저는 409 · 15분(시험은 짧게) 안에 끝나지 않으면 끝낸다 (5156.314375ms)
+✔ 영어 화면: 관리 화면 · 연결 카드 · 작업 카드의 새 문구가 영어로 (ko-en.json) (6835.187083ms)

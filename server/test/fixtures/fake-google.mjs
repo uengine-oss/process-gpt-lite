@@ -1,7 +1,8 @@
 // A fake Google OAuth on 127.0.0.1 for the Google 연결 tests (PRO_GOOGLE_AUTH_URL / _TOKEN_URL / _USERINFO_URL /
 // _GMAIL_URL point here). Nothing here talks to Google.
 //   GET  /o/oauth2/v2/auth   the consent screen: an e-mail field and 「허용」 (or, with refuse on, a screen
-//                            refusing this browser). 허용 sets this "Google"'s own sign-in cookie (SID) and
+//                            refusing this browser; with error on, Google's own 400 page — what the real one
+//                            answered the production server's browser on 11-22). 허용 sets this "Google"'s own sign-in cookie (SID) and
 //                            sends the browser to redirect_uri with a code and the state.
 //   POST /token              authorization_code (client, secret, redirect_uri, PKCE checked) and refresh_token
 //   GET  /userinfo           the account the code was given for
@@ -11,13 +12,13 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 
 export const SPOTS = { email: { x: 640, y: 300 }, allow: { x: 640, y: 420 } }
-export const TITLES = { consent: 'Fake Google 로그인', refused: 'Fake Google 로그인할 수 없음' }
+export const TITLES = { consent: 'Fake Google 로그인', refused: 'Fake Google 로그인할 수 없음', error: 'Fake Google Error 400 (Bad Request)' }
 
 export async function startFakeGoogle({ clients = {} } = {}) {
   const codes = new Map() // code -> { email, client_id, redirect_uri, challenge, scope }
   const tokens = new Map() // access token -> email
   const log = { auth: [], token: [], userinfo: 0 }
-  const state = { refuse: false, scope: null, deny: false }
+  const state = { refuse: false, error: false, scope: null, deny: false }
   const page = (title, body) => `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="margin:0;font-family:sans-serif;background:#fff;height:800px;overflow:hidden">${body}</body>`
   const consent = (q) => page(TITLES.consent, `
 <h1 style="position:absolute;left:440px;top:120px;font-size:28px;margin:0">Google 계정으로 로그인</h1>
@@ -29,14 +30,15 @@ ${['client_id', 'redirect_uri', 'state', 'code_challenge', 'scope'].map((k) => `
 </form>`)
   const refused = () => page(TITLES.refused, `<h1 style="position:absolute;left:300px;top:200px;font-size:28px">로그인할 수 없음</h1>
 <p style="position:absolute;left:300px;top:260px;width:680px;font-size:18px">이 브라우저 또는 앱은 안전하지 않을 수 있습니다. 다른 브라우저를 사용해 보세요.</p>`)
+  const failed = () => page(TITLES.error, `<p style="position:absolute;left:340px;top:200px;width:380px;font-size:15px"><b>400.</b> 오류가 발생했습니다.<br><br>요청 형식이 잘못되어 서버에서 요청을 처리할 수 없습니다. 다시 시도하지 마세요. 다른 원인은 확인할 수 없습니다.</p>`)
   const body = (req) => new Promise((r) => { let raw = ''; req.on('data', (c) => { raw += c }); req.on('end', () => r(new URLSearchParams(raw))) })
   const json = (res, code, j) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(j)) }
   const server = http.createServer(async (req, res) => {
     const u = new URL(req.url, 'http://x')
     if (u.pathname === '/o/oauth2/v2/auth') {
       log.auth.push(Object.fromEntries(u.searchParams))
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      return res.end(state.refuse ? refused() : consent(u.searchParams))
+      res.writeHead(state.error ? 400 : 200, { 'Content-Type': 'text/html; charset=utf-8' })
+      return res.end(state.error ? failed() : state.refuse ? refused() : consent(u.searchParams))
     }
     if (u.pathname === '/approve' && req.method === 'POST') {
       const f = await body(req)

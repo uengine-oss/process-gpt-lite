@@ -736,14 +736,18 @@ const WALL_OPTIONS = [
   { key: 'login_needed', label: 'The person has to sign in first: the page is a sign-in form, or it shows an introduction with sign-in buttons instead of the tools or content the task needs' },
   { key: 'refused', label: 'The site refuses this browser: it says it will not let this browser or app sign in or use the site, so signing in here cannot work' },
   { key: 'human_check', label: 'The site shows a check that the visitor is a human (a captcha or robot check) instead of the page' },
+  { key: 'site_error', label: 'The site shows its own error page instead of the page (for example a bad or rejected request, or something went wrong) with nothing on it to sign in to or go on from' },
   { key: 'ok', label: 'The agent can go on: what the task needs is on this page or reachable from it without signing in (a sign-in button beside it does not count)' },
 ]
 const WALL_NEED = { login_needed: 'login', refused: 'blocked', human_check: 'captcha' }
+// (a task goes on past a site's error page as before: the agent can go back or try another way. Google
+// connecting has no other way in this browser, so there it ends the wait like a refusal — runConnect)
+export const CONNECT_NEED = { ...WALL_NEED, site_error: 'blocked' }
 export const WALL_BAR = 0.7
 
 // One judgment of the page → { need, site, name, key, p } when it is a wall the judge is sure of (0.7),
 // else null (no answer, unsure, or the page is fine: the agent goes on as usual).
-export async function judgeWall(snap, task = null) {
+export async function judgeWall(snap, task = null, needs = WALL_NEED) {
   let u
   try { u = new URL(snap?.url || '') } catch { return null }
   if (!/^https?:$/.test(u.protocol)) return null
@@ -754,7 +758,7 @@ export async function judgeWall(snap, task = null) {
   const [key, p] = Object.entries(r?.probabilities || {}).sort((a, b) => b[1] - a[1])[0] || ['', 0]
   const check = { host: hostOf(snap.url), key, p: Math.round(p * 100) / 100, ms: Date.now() - t0, via: r?.via || 'none' }
   if (task) task.stats.wall_checks.push(check)
-  const need = p >= WALL_BAR ? WALL_NEED[key] : null
+  const need = p >= WALL_BAR ? needs[key] : null
   return need ? { need, site: hostOf(snap.url), name: pageName(snap), key, p: check.p } : null
 }
 // The wall on this page, judged when the address is new (or the person stepped in since); the same page
@@ -1362,7 +1366,7 @@ async function runConnect(s, task, { url, cookie, ours }) {
           if (k !== moved) { moved = k; return null }
           seen = k
           moved = null
-          const verdict = await judgeWall(snap, task)
+          const verdict = await judgeWall(snap, task, CONNECT_NEED)
           return verdict?.need === 'blocked' ? BLOCKED : null
         },
       })
@@ -1382,7 +1386,7 @@ async function runConnect(s, task, { url, cookie, ours }) {
         ? L(`휴대폰에서 Google을 연결했어요(${o.email}). 메일은 연결됐지만 이 서버 브라우저는 아직 Google에 로그인되지 않았어요.`, `Google was connected on the phone (${o.email}). The mail is connected; this server browser is not signed in to Google yet.`)
         : L(`Google에 연결했어요(${o.email}). 메일을 읽기 시작하고, 이 브라우저도 Google에 로그인돼 있어서 NotebookLM 같은 Google 사이트를 바로 쓸 수 있어요.`, `Google is connected (${o.email}). I'm starting on your mail, and this browser is signed in to Google too, so Google sites such as NotebookLM work right away.`) }),
     blocked: () => {
-      const reason = `${L('Google 이 이 서버 브라우저에서의 로그인을 받아 주지 않았어요.', "Google won't accept a sign-in from this server's browser.")} ${PHONE_NEXT()}`
+      const reason = `${L('Google이 이 서버 브라우저에서 하는 로그인을 받아 주지 않았어요.', "Google won't accept a sign-in from this server's browser.")} ${PHONE_NEXT()}`
       return { state: 'failed', need: 'blocked', reason, summary: reason }
     },
     timeout: () => {

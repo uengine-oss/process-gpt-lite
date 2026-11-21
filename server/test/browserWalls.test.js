@@ -40,7 +40,7 @@ metadata:
 `)
 Object.assign(process.env, { PRO_JUDGE_URL: `http://127.0.0.1:${judgeServer.address().port}/judge`, PRO_JUDGE_LLM: '0', PRO_BROWSER_SKILLS_DIR: skillsDir })
 
-const { profilesDir, clearStaleLocks, actionLine, mediaType, STUCK_TURNS, judgeWall, wallState, pageName, skillNote, WALL_BAR } = await import('../lib/browser.js')
+const { profilesDir, clearStaleLocks, actionLine, mediaType, STUCK_TURNS, judgeWall, wallState, pageName, skillNote, WALL_BAR, CONNECT_NEED } = await import('../lib/browser.js')
 const { browserSkill } = await import('../lib/browserSkills.js')
 after(() => { judgeServer.close(); fs.rmSync(skillsDir, { recursive: true, force: true }) })
 
@@ -59,6 +59,16 @@ test('판정이 0.7 이상일 때만 벽: 로그인 필요 → login, 거절 →
   assert.equal(WALL_BAR, 0.7)
 })
 
+test('사이트 오류 화면(site_error): 보통 작업은 벽이 아니고(에이전트가 다른 길로), Google 연결에서는 거절과 같다', async () => {
+  answers['오류'] = { login_needed: 0.04, refused: 0.05, human_check: 0.01, site_error: 0.87, ok: 0.03 }
+  assert.equal(await judgeWall(page('오류')), null)
+  assert.deepEqual(await judgeWall(page('오류'), null, CONNECT_NEED), { need: 'blocked', site: 'app.example', name: '오류', key: 'site_error', p: 0.87 })
+  // 선택지에 오류 화면이 있다(판정이 고를 수 있게)
+  const before = asked.length
+  await judgeWall(page('보통 페이지'))
+  assert.ok(asked.slice(before)[0].options.some((o) => o.key === 'site_error'))
+})
+
 test('판정에 묻는 것: 제목 · 호스트 · 비밀번호/로그인 칸(구조) · 단추 이름 · 보이는 글 앞부분 — 칸에 친 값은 없다', async () => {
   const n = asked.length
   await judgeWall(page('상태', {
@@ -75,7 +85,7 @@ test('판정에 묻는 것: 제목 · 호스트 · 비밀번호/로그인 칸(�
   assert.ok(!state.includes('typed-value@example.com'), '칸의 값은 판정에 보내지 않는다')
   assert.ok(state.length < 1400, '보이는 글은 앞부분만')
   assert.ok(question.length > 0)
-  assert.deepEqual(options.map((o) => o.key), ['login_needed', 'refused', 'human_check', 'ok'])
+  assert.deepEqual(options.map((o) => o.key), ['login_needed', 'refused', 'human_check', 'site_error', 'ok'])
   assert.equal(wallState(page('x')).includes('Has a password field: no'), true)
 })
 
