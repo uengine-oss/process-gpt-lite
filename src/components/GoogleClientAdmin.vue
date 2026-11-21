@@ -24,7 +24,8 @@ async function load() {
 onMounted(load)
 
 const using = computed(() => ({ company: '회사 값을 쓰고 있어요', env: '설치 기본값(서버 설정)을 쓰고 있어요', null: '아직 없어요 · 사람들이 Google 을 연결할 수 없어요' })[String(info.value?.using ?? null)])
-const canSave = computed(() => !!clientId.value.trim() && (!!secret.value.trim() || (!!info.value?.company && clientId.value.trim() !== info.value.company.clientId)))
+// a Client secret belongs to one Client ID: a new ID (or a first save) needs its secret
+const canSave = computed(() => !!clientId.value.trim() && !!secret.value.trim())
 
 async function save() {
   busy.value = true

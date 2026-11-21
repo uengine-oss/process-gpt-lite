@@ -1310,8 +1310,13 @@ export async function connectGoogle({ userId, threadId, url, cookie, ours = () =
       `The server browser is busy with another task ('${busy}'). Connect again when it is done or stopped, or use "Connect on phone".`)), { status: 409 })
   }
   const title = L('Google 연결', 'Connect Google')
+  // (claimed before anything is awaited: a task whose plan comes back meanwhile must see the browser taken)
+  s.task = { id: null, threadId, title, connect: true, cancelled: false, waiting: null }
   const steps = [L('Google 계정으로 로그인', 'Sign in with your Google account'), L('권한 허용', 'Allow access'), L('연결 확인', 'Connection confirmed')]
-  const card = await addMessage(userId, threadId, 'agent', 'task', { title, goal: title, steps: steps.map((t) => ({ text: t, done: false })), state: 'running', url, connect: 'google' })
+  let card
+  try {
+    card = await addMessage(userId, threadId, 'agent', 'task', { title, goal: title, steps: steps.map((t) => ({ text: t, done: false })), state: 'running', url, connect: 'google' })
+  } catch (e) { if (s.task?.connect && s.task.id === null) s.task = null; throw e }
   const task = { id: card.id, userId, threadId, goal: L('Google 계정을 연결해 메일을 읽고, 이 브라우저도 Google 에 로그인한다', 'Connect the Google account for mail, and sign this browser in to Google'),
     title, steps, cancelled: false, waiting: null, notes: [], log: [], unattended: false, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     walls: {}, judged: null, connect: true, stats: { turns: 0, llm: 0, walls: 0, wall_checks: [], skills_read: [], decisions: [] } }
@@ -1344,7 +1349,14 @@ async function runConnect(s, task, { url, cookie, ours }) {
         // refusing this browser ends the wait; our own callback and done page are left to the callback
         watch: async (snap) => {
           if (outcome) return CONNECTED
-          if (ours(snap.url)) return null
+          // our own callback page means it ended there without a result (a stale or foreign state: a good one
+          // goes on to the done page) — its own text says why
+          if (ours(snap.url)) {
+            let path = ''
+            try { path = new URL(snap.url).pathname } catch { /* not an address */ }
+            if (path.endsWith('/api/auth/google/callback')) settle({ state: 'error', error: String(snap.text || '').trim().slice(0, 300) || L('Google 연결 요청이 만료됐어요.', 'The Google connection request expired.') })
+            return outcome ? CONNECTED : null
+          }
           const k = screenKey(snap)
           if (k === seen) { moved = null; return null }
           if (k !== moved) { moved = k; return null }

@@ -33,19 +33,21 @@ export function companySubject(tenant) {
 const TTL_MS = 30_000
 const cache = new Map() // tenant -> { at, value }
 const loading = new Map() // tenant -> { gen, read } in progress
-let generation = 0
-// (a read begun before a save must not put the old value back: it is of an older generation)
-const forget = (tenant) => { cache.delete(String(tenant)); loading.delete(String(tenant)); generation++ }
+const generations = new Map() // tenant -> n
+const genOf = (k) => generations.get(k) || 0
+// (a read begun before a save must not put the old value back: it is of an older generation — per tenant, so
+// one company's save does not keep another's read out of the cache)
+const forget = (tenant) => { const k = String(tenant); cache.delete(k); loading.delete(k); generations.set(k, genOf(k) + 1) }
 
 function load(tenant) {
   const k = String(tenant)
   if (!loading.has(k)) {
-    const gen = generation
+    const gen = genOf(k)
     const read = getSecret(companySubject(tenant), KIND, SITE)
       .then((sec) => {
         const value = sec?.client_id && sec?.client_secret
           ? { clientId: sec.client_id, clientSecret: sec.client_secret, source: 'company', savedAt: sec.saved_at || null } : null
-        if (gen === generation) cache.set(k, { at: Date.now(), value })
+        if (gen === genOf(k)) cache.set(k, { at: Date.now(), value })
         return value
       })
       .finally(() => { if (loading.get(k)?.read === read) loading.delete(k) })
@@ -99,10 +101,19 @@ export async function saveClient(tenant, { clientId, clientSecret } = {}, by = n
   const id = clean(clientId)
   let secret = clean(clientSecret)
   if (!oneWord(id)) throw new VaultError(L('Client ID 를 확인해 주세요.', 'Please check the Client ID.'))
-  if (!secret) secret = (await getSecret(companySubject(tenant), KIND, SITE))?.client_secret || ''
+  // (no new secret: the saved one is kept only for the same Client ID — a secret belongs to one client)
+  if (!secret) {
+    const prev = await getSecret(companySubject(tenant), KIND, SITE)
+    if (prev?.client_id && prev.client_id !== id) throw new VaultError(L('Client ID 를 바꾸면 그 클라이언트의 Client secret 도 함께 넣어 주세요.', 'A new Client ID needs its own Client secret too.'))
+    secret = prev?.client_secret || ''
+  }
   if (!oneWord(secret)) throw new VaultError(L('Client secret 을 넣어 주세요.', 'Please enter the Client secret.'))
   await putItem(companySubject(tenant), KIND, SITE, { username: id, client_id: id, client_secret: secret, saved_at: new Date().toISOString() },
     { actor: 'admin', detail: { tenant: String(tenant), by } })
+  // one client per company: a previous one (another Client ID) goes, its secret with it — connections made
+  // with it have to be made again (the admin screen says so)
+  const subject = companySubject(tenant)
+  for (const row of await candidates(subject, KIND, SITE)) if (row.username && row.username !== id) await deleteItem(subject, row.id, { actor: 'admin', detail: { tenant: String(tenant), by, replaced: row.username } })
   forget(tenant)
   return clientInfo(tenant)
 }

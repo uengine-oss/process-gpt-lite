@@ -39,11 +39,14 @@ export function pageBase(origin) {
     if (!/^https?:$/.test(u.protocol) || !companyAddress(u.host)) return null
     return `${u.origin}${publicPath()}`
   }
-  return String(urlOf(config.tenantId) || config.publicUrl).replace(/\/+$/, '')
+  // (urlOf gives the tenant's origin only: the app's path under it is the public URL's, as in the cookie path)
+  const own = urlOf(config.tenantId)
+  return own ? `${String(own).replace(/\/+$/, '')}${publicPath()}` : String(config.publicUrl).replace(/\/+$/, '')
 }
 export const redirectUriOf = (base) => `${base}/api/auth/google/callback`
 export const doneUrlOf = (base, { error, lang } = {}) => {
-  const p = new URLSearchParams({ ...(error ? { error } : {}), ...(lang ? { lang } : {}) })
+  // (the reason itself is on the card: the page only says that it did not work — a link cannot put words on it)
+  const p = new URLSearchParams({ ...(error ? { error: '1' } : {}), ...(lang ? { lang } : {}) })
   return `${base}/api/auth/google/done${String(p) ? `?${p}` : ''}`
 }
 

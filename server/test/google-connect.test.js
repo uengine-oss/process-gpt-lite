@@ -78,9 +78,14 @@ test('회사 클라이언트: 보관함에 봉투 암호화, 비밀값은 화면
     const rows = await q('select * from pro_vault_items where user_id=$1', [subject])
     assert.equal(rows.length, 1)
     assert.ok(!JSON.stringify(rows).includes(secret) && !JSON.stringify(rows).includes(Buffer.from(secret).toString('base64')))
-    // the id alone can change; the secret stays
-    await saveClient(TENANT, { clientId: 'second.apps.googleusercontent.com', clientSecret: '' })
-    assert.equal((await clientFor(TENANT)).clientSecret, secret)
+    // a new Client ID needs its own secret (a secret belongs to one client) — with it, the previous client goes
+    await assert.rejects(saveClient(TENANT, { clientId: 'second.apps.googleusercontent.com', clientSecret: '' }), /Client secret/)
+    await saveClient(TENANT, { clientId: 'second.apps.googleusercontent.com', clientSecret: 'second-secret-123456' }, 'admin-1')
+    assert.deepEqual([(await clientFor(TENANT)).clientId, (await clientFor(TENANT)).clientSecret], ['second.apps.googleusercontent.com', 'second-secret-123456'])
+    assert.equal((await q('select 1 from pro_vault_items where user_id=$1', [subject])).length, 1, 'one client per company')
+    // the same id without a secret keeps the saved one
+    await saveClient(TENANT, { clientId: 'second.apps.googleusercontent.com', clientSecret: '' }, 'admin-1')
+    assert.equal((await clientFor(TENANT)).clientSecret, 'second-secret-123456')
     // another company sees its own (none) → the install's
     assert.equal((await clientFor('pro-gc-unit-other')).source, 'env')
     // a token issued by the env client is refreshed with that one
@@ -88,7 +93,9 @@ test('회사 클라이언트: 보관함에 봉투 암호화, 비밀값은 화면
     assert.equal(await clientById(TENANT, 'gone-client'), null)
     await assert.rejects(saveClient(TENANT, { clientId: 'has space', clientSecret: 'x' }), /Client ID/)
     const audit = await q('select action, actor, detail from pro_vault_audit where user_id=$1 order by id', [subject])
-    assert.deepEqual(audit.map((a) => [a.action, a.actor]), [['create', 'admin'], ['update', 'admin']])
+    assert.deepEqual(audit.map((a) => a.actor), audit.map(() => 'admin'))
+    // (a new Client ID takes the same vault row: the previous secret is overwritten, not left behind)
+    assert.deepEqual(audit.map((a) => a.action), ['create', 'update', 'update'])
     assert.equal(audit[0].detail.by, 'admin-1')
     const gone = await removeClient(TENANT)
     assert.deepEqual([gone.company, gone.using], [null, 'env'])

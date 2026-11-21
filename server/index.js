@@ -144,7 +144,11 @@ const stateCookie = (res, base, state, mode) => {
   const c = gconnect.cookieFor(base, state, mode)
   res.cookie(c.name, c.value, { httpOnly: true, sameSite: 'lax', secure: c.secure, maxAge: c.maxAgeMs, path: c.path })
 }
-const clearStateCookie = (res) => res.clearCookie(gconnect.STATE_COOKIE, { path: gconnect.cookiePath() })
+// (cleared with what it was set with — a clear without the domain is another, host-only cookie)
+const clearStateCookie = (res, base) => {
+  const c = base ? gconnect.cookieFor(base, '', 'phone') : null
+  res.clearCookie(gconnect.STATE_COOKIE, { path: gconnect.cookiePath(), ...(c ? { httpOnly: true, sameSite: 'lax', secure: c.secure } : {}) })
+}
 // the app's address for the page that asked (gateway: its company address, by the Origin header the
 // browser sets, else the one the page says — checked by the same rule)
 const baseOf = (req) => [req.headers.origin, req.body?.origin, req.query?.origin].map((o) => o && gconnect.pageBase(o)).find(Boolean) || (config.tenantFromHeader ? null : gconnect.pageBase())
@@ -215,7 +219,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
     st = e.st
     refused = e.message
   }
-  clearStateCookie(res)
+  clearStateCookie(res, st.base)
   res.set('Cache-Control', 'no-store')
   res.set('Referrer-Policy', 'no-referrer')
   await withLang(st.lang || 'ko', async () => {
@@ -266,8 +270,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // The server browser's last page after the consent (the card says the rest)
 app.get('/api/auth/google/done', (req, res) => withLang(resolveLang({ header: req.query.lang }), () => {
-  const error = typeof req.query.error === 'string' ? req.query.error.slice(0, 300) : ''
-  googlePage(res, error ? { ok: false, text: error } : { ok: true, text: L('Lite 로 돌아가면 카드에 결과가 보여요. 이 브라우저는 Google 에 로그인돼 있어요.', 'Back in Lite, the card shows the result. This browser is signed in to Google.') })
+  // (fixed sentences only: the reason is on the card — a link must not put its own words on this app's page)
+  googlePage(res, req.query.error ? { ok: false, text: L('Lite 로 돌아가면 카드에 이유와 다른 방법이 보여요.', 'Back in Lite, the card shows why and what else you can do.') } : { ok: true, text: L('Lite 로 돌아가면 카드에 결과가 보여요. 이 브라우저는 Google 에 로그인돼 있어요.', 'Back in Lite, the card shows the result. This browser is signed in to Google.') })
 }))
 
 // The company's own Google OAuth client (decision ①, lib/googleClient.js): administrators only; the
