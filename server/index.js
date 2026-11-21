@@ -53,7 +53,9 @@ import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { saveAttachment } from './lib/attachments.js'
 import { openStream } from './lib/sse.js'
-import { resolveLang, withLang, rememberLang, saveLang, L } from './lib/lang.js'
+import { resolveLang, withLang, rememberLang, saveLang, L, isEn, asUser } from './lib/lang.js'
+import * as gconnect from './lib/googleConnect.js'
+import * as googleClient from './lib/googleClient.js'
 import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser } from './lib/tenant.js'
 
 const app = express()
@@ -95,7 +97,6 @@ app.use(tenantMiddleware())
 // is in recovery mode) is logged, not fatal: the server keeps answering and the job retries later.
 process.on('unhandledRejection', (e) => console.warn('[unhandled]', e?.message || e))
 const demoLogin = process.env.PRO_DEMO_LOGIN !== '0'
-const oauthStates = new Map()
 
 async function auth(req, res, next) {
   const jwt = (req.headers.authorization || '').replace(/^Bearer /, '') || req.query.token
@@ -128,56 +129,168 @@ async function finishLogin(email, name) {
 
 // craft: which ArtCraft apps this install has ({web, cli} flags only); contextRouter: whether messages are routed
 // to conversations (services/context-router) — flags only
-// sso: behind the ProcessGPT gateway, Google sign-in through ProcessGPT's own Supabase project when its
-// Google provider is on (lib/sso.js) — google stays Lite's own OAuth (mail.js), off there
-app.get('/api/config', (req, res) => res.json({ google: mail.googleEnabled(), sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl }))
-
-app.get('/api/auth/google/start', (req, res) => {
-  // an old tab or a kept link: the app shows no Google button when this is off
-  if (!mail.googleEnabled()) return res.redirect(config.publicUrl || '/')
-  for (const [key, value] of oauthStates) {
-    if (Date.now() - value.at > 10 * 60 * 1000) oauthStates.delete(key)
-  }
-  const state = crypto.randomBytes(32).toString('hex')
-  const verifier = crypto.randomBytes(32).toString('base64url')
-  const connectMail = req.query.mail === '1'
-  oauthStates.set(state, { at: Date.now(), verifier, connectMail })
-  res.cookie('pgpt-oauth-state', state, { httpOnly: true, sameSite: 'lax', secure: config.publicUrl.startsWith('https:'), maxAge: 10 * 60 * 1000, path: '/api/auth/google' })
-  res.redirect(mail.googleAuthUrl(state, { connectMail, verifier }))
+// google: whether this request's company can connect Google (its own OAuth client from the admin
+// settings, else this install's — lib/googleClient.js); googleLogin: whether 「Google로 계속하기」 signs in
+// with it — an installed Lite only. sso: behind the ProcessGPT gateway, Google sign-in through
+// ProcessGPT's own Supabase project when its Google provider is on (lib/sso.js)
+app.get('/api/config', async (req, res) => {
+  // (the pod's probe too: a database that does not answer makes it "off" for this answer, not a failed probe)
+  const google = await Promise.race([mail.googleEnabled().catch(() => false), new Promise((r) => setTimeout(() => r(false), 1500).unref?.())])
+  res.json({ google, googleLogin: google && !config.tenantFromHeader, sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl })
 })
 
-app.get('/api/auth/google/callback', async (req, res) => {
+// ---------- Google: the installed sign-in, and connecting a signed-in person's account (lib/googleConnect.js) ----------
+const stateCookie = (res, base, state, mode) => {
+  const c = gconnect.cookieFor(base, state, mode)
+  res.cookie(c.name, c.value, { httpOnly: true, sameSite: 'lax', secure: c.secure, maxAge: c.maxAgeMs, path: c.path })
+}
+// (cleared with what it was set with — a clear without the domain is another, host-only cookie)
+const clearStateCookie = (res, base) => {
+  const c = base ? gconnect.cookieFor(base, '', 'phone') : null
+  res.clearCookie(gconnect.STATE_COOKIE, { path: gconnect.cookiePath(), ...(c ? { httpOnly: true, sameSite: 'lax', secure: c.secure } : {}) })
+}
+// the app's address for the page that asked (gateway: its company address, by the Origin header the
+// browser sets, else the one the page says — checked by the same rule)
+const baseOf = (req) => [req.headers.origin, req.body?.origin, req.query?.origin].map((o) => o && gconnect.pageBase(o)).find(Boolean) || (config.tenantFromHeader ? null : gconnect.pageBase())
+// a page of its own for where no app screen can take the person (the server browser, a request gone stale)
+function googlePage(res, { ok, text, status = 200 }) {
+  const esc = (t) => String(t).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch])
+  res.status(status).set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Content-Type': 'text/html; charset=utf-8' })
+  res.send(`<!doctype html><html lang="${isEn() ? 'en' : 'ko'}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(ok ? L('Google 연결됨', 'Google connected') : L('Google 연결', 'Connect Google'))}</title>
+<body style="margin:0;min-height:100vh;display:grid;place-items:center;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;background:#f5f5f7;color:#1d1d1f">
+<main style="max-width:420px;padding:32px;text-align:center"><p style="font-size:44px;margin:0">${ok ? '✓' : '!'}</p><h1 style="font-size:22px;font-weight:600;margin:12px 0">${esc(ok ? L('Google 에 연결했어요', 'Google is connected') : L('Google 연결을 마치지 못했어요', "Google couldn't be connected"))}</h1>
+<p style="font-size:16px;line-height:1.55;color:#515154">${esc(text)}</p></main></body></html>`)
+}
+
+// 「Google로 계속하기」 on an installed Lite (LoginView). Behind the gateway the sign-in is ProcessGPT's (sso).
+app.get('/api/auth/google/start', async (req, res) => {
+  // (behind the gateway: back on the same company address, by path)
+  const here = config.tenantFromHeader ? gconnect.publicPath() : gconnect.pageBase()
+  // a kept link from before connecting needed a signed-in start (POST /connect): the settings screen has the buttons
+  if (req.query.mail === '1') return res.redirect(`${here}/settings/accounts`)
+  const client = config.tenantFromHeader ? null : await googleClient.clientFor()
+  if (!client) return res.redirect(`${here}/login`)
+  const base = here
+  const { state, verifier } = gconnect.newState({ mode: 'login', tenant: config.tenantId, base, lang: isEn() ? 'en' : 'ko' })
+  stateCookie(res, base, state, 'login')
+  res.redirect(mail.googleAuthUrl(state, { client, redirectUri: gconnect.redirectUriOf(base), verifier }))
+})
+
+// Connect Google for the signed-in person: mode 'browser' (default) in their server browser, 'phone' in this
+// browser (→ {url} of the consent screen, the state cookie set on this response)
+app.post('/api/auth/google/connect', auth, async (req, res) => {
   try {
-    const st = oauthStates.get(req.query.state)
-    const cookieState = (req.headers.cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith('pgpt-oauth-state='))?.slice('pgpt-oauth-state='.length)
-    if (!st || cookieState !== req.query.state || Date.now() - st.at > 10 * 60 * 1000) throw new Error(L('로그인 요청이 만료됐어요. 다시 시도해 주세요.', 'The sign-in request expired. Please try again.'))
-    oauthStates.delete(req.query.state)
-    res.clearCookie('pgpt-oauth-state', { path: '/api/auth/google' })
-    if (req.query.error) throw new Error(req.query.error === 'access_denied' ? L('Google 로그인이 취소됐어요.', 'Google sign-in was canceled.') : L('Google 로그인에 실패했어요.', 'Google sign-in failed.'))
-    if (typeof req.query.code !== 'string') throw new Error(L('Google 인증 코드가 없어요.', 'There is no Google authorization code.'))
-    const { tok, me } = await mail.googleExchange(req.query.code, st.verifier)
-    const login = await finishLogin(me.email, me.name)
-    if (st.connectMail) {
-      const granted = new Set((tok.scope || '').split(' '))
-      if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error(L('메일 연결에 Gmail 읽기 권한이 필요해요. 다시 연결해 주세요.', 'Connecting mail needs permission to read Gmail. Please connect again.'))
-      const previous = await vault.getSecret(login.user.id, 'oauth', 'google')
-      await vault.putItem(login.user.id, 'oauth', 'google', {
-        username: me.email, access_token: tok.access_token, refresh_token: tok.refresh_token || previous?.refresh_token,
-        expires_at: Date.now() + tok.expires_in * 1000, scope: tok.scope,
-      })
-      ensureHubBinding(login.user.id, config.tenantId).catch(() => {})
-      await q(`insert into pro_mail_accounts(user_id,provider,address) values ($1,'gmail',$2)
-               on conflict (user_id) do update set provider='gmail', address=$2`, [login.user.id, me.email])
-      onboardConnected(login.user.id, L('Google에 로그인됨', 'Signed in with Google')).catch(() => {})
-      setTimeout(() => mail.pollUser(login.user.id, { announce: true }).catch((e) => console.warn('[mail]', e.message)), 6000)
+    const mode = req.body?.mode === 'phone' ? 'phone' : 'browser'
+    const base = baseOf(req)
+    if (!base) return res.status(400).json({ error: L('이 주소에서는 Google 연결을 시작할 수 없어요.', "A Google connection can't be started from this address.") })
+    const client = await googleClient.clientFor()
+    if (!client) return res.status(409).json({ error: L('이 회사에는 아직 Google 연결이 설정되지 않았어요. 관리자가 설정 › 시스템 설정 › 회사 Google 연결에 OAuth 클라이언트를 넣어야 해요.', "Google connections aren't set up for this company yet. An administrator has to add the OAuth client in Settings › System › Company Google connection.") })
+    if (mode === 'browser') {
+      const busy = browser.browserBusy(req.user.id)
+      if (busy) return res.status(409).json({ error: L(`서버 브라우저가 지금 다른 작업('${busy}')을 하고 있어요. 그 작업이 끝나거나 멈춘 뒤 다시 연결하거나, 「휴대폰에서 연결」로 연결해 주세요.`, `The server browser is busy with another task ('${busy}'). Connect again when it is done or stopped, or use "Connect on phone".`), busy: true })
     }
-    res.set('Cache-Control', 'no-store')
-    res.set('Referrer-Policy', 'no-referrer')
-    const frag = encodeURIComponent(JSON.stringify(login))
-    res.redirect(`${config.publicUrl}/auth/done#${frag}`)
+    const { state, verifier } = gconnect.newState({ mode, userId: req.user.id, tenant: config.tenantId, base, lang: req.lang })
+    const url = mail.googleAuthUrl(state, { client, redirectUri: gconnect.redirectUriOf(base), connectMail: true, verifier, hint: req.user.email })
+    if (mode === 'phone') {
+      stateCookie(res, base, state, mode)
+      return res.json({ url })
+    }
+    const t = await mainThread(req.user.id)
+    const own = (u) => { try { return String(u).startsWith(`${base}/api/auth/google/`) } catch { return false } }
+    try {
+      const { taskId } = await browser.connectGoogle({ userId: req.user.id, threadId: t.id, url, cookie: gconnect.cookieFor(base, state, mode), ours: own })
+      gconnect.setTask(state, taskId)
+      res.json({ taskId, threadId: t.id })
+    } catch (e) {
+      gconnect.dropState(state)
+      throw e
+    }
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+
+// Where Google comes back: the installed sign-in (mode login), or a connection for the person who started it
+app.get('/api/auth/google/callback', async (req, res) => {
+  let st = null, refused = ''
+  try {
+    st = gconnect.takeState(req.query.state, req.headers.cookie, config.tenantId)
   } catch (e) {
-    res.redirect(`${config.publicUrl}/login?error=${encodeURIComponent(e.message)}`)
+    // (no state of ours, or not this browser's: there is nobody to tell but this page)
+    if (!e.st) return googlePage(res, { ok: false, status: 400, text: e.message })
+    st = e.st
+    refused = e.message
   }
+  clearStateCookie(res, st.base)
+  res.set('Cache-Control', 'no-store')
+  res.set('Referrer-Policy', 'no-referrer')
+  await withLang(st.lang || 'ko', async () => {
+    const fail = (message) => {
+      if (st.mode === 'login') return res.redirect(`${st.base}/login?error=${encodeURIComponent(message)}`)
+      // (a failed try on the phone leaves a server-browser connection that is still waiting alone)
+      if (st.mode === 'browser') {
+        browser.googleConnected(st.userId, { ok: false, error: message }, st.taskId)
+        return res.redirect(gconnect.doneUrlOf(st.base, { error: message, lang: st.lang }))
+      }
+      return res.redirect(`${st.base}/settings/accounts?google_error=${encodeURIComponent(message)}`)
+    }
+    try {
+      if (refused) throw new Error(refused)
+      if (req.query.error) throw new Error(req.query.error === 'access_denied' ? L('Google에서 허용하지 않았어요.', 'Access was not allowed on Google.') : L('Google 로그인에 실패했어요.', 'Google sign-in failed.'))
+      if (typeof req.query.code !== 'string') throw new Error(L('Google 인증 코드가 없어요.', 'There is no Google authorization code.'))
+      const client = await googleClient.clientFor(st.tenant)
+      if (!client) throw new Error(L('이 회사의 Google 연결 설정이 지워졌어요. 관리자에게 알려 주세요.', "This company's Google connection settings were removed. Please tell an administrator."))
+      const { tok, me } = await mail.googleExchange(req.query.code, st.verifier, { client, redirectUri: st.redirectUri })
+      if (st.mode === 'login') {
+        const login = await finishLogin(me.email, me.name)
+        return res.redirect(`${st.base}/auth/done#${encodeURIComponent(JSON.stringify(login))}`)
+      }
+      const granted = new Set((tok.scope || '').split(' '))
+      if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error(L('메일을 연결하려면 Gmail 읽기 권한이 필요해요. 다시 연결하면서 Gmail을 허용해 주세요.', 'Connecting mail needs permission to read Gmail. Connect again and allow Gmail.'))
+      // the person who started it, in the tenant they started it in — whichever Google account they picked
+      const userId = st.userId
+      const previous = await vault.getSecret(userId, 'oauth', 'google')
+      await vault.putItem(userId, 'oauth', 'google', {
+        username: me.email, access_token: tok.access_token, refresh_token: tok.refresh_token || previous?.refresh_token,
+        expires_at: Date.now() + tok.expires_in * 1000, scope: tok.scope, client_id: client.clientId, tenant: st.tenant,
+      })
+      ensureHubBinding(userId, st.tenant).catch(() => {})
+      await q(`insert into pro_mail_accounts(user_id,provider,address) values ($1,'gmail',$2)
+               on conflict (user_id) do update set provider='gmail', address=$2`, [userId, me.email])
+      onboardConnected(userId, L(`${me.email} 연결됨`, `${me.email} connected`)).catch(() => {})
+      setTimeout(() => asUser(userId, () => mail.pollUser(userId, { announce: true })).catch((e) => console.warn('[mail]', e.message)), 6000)
+      // done on the phone, too, ends a server-browser connection still waiting: the mail is connected
+      browser.googleConnected(userId, { ok: true, email: me.email, via: st.mode }, st.mode === 'browser' ? st.taskId : null)
+      if (st.mode === 'browser') return res.redirect(gconnect.doneUrlOf(st.base, { lang: st.lang }))
+      res.redirect(`${st.base}/settings/accounts?google=connected`)
+    } catch (e) {
+      console.warn('[google connect]', st.mode, e.message)
+      fail(e.message)
+    }
+  })
+})
+
+// The server browser's last page after the consent (the card says the rest)
+app.get('/api/auth/google/done', (req, res) => withLang(resolveLang({ header: req.query.lang }), () => {
+  // (fixed sentences only: the reason is on the card — a link must not put its own words on this app's page)
+  googlePage(res, req.query.error ? { ok: false, text: L('Lite로 돌아가면 카드에 이유와 다른 방법이 보여요.', 'Back in Lite, the card shows why and what else you can do.') } : { ok: true, text: L('Lite로 돌아가면 카드에 결과가 보여요. 이 브라우저는 Google에 로그인돼 있어요.', 'Back in Lite, the card shows the result. This browser is signed in to Google.') })
+}))
+
+// The company's own Google OAuth client (decision ①, lib/googleClient.js): administrators only; the
+// secret is write-only. redirectUri: what to register with that client, for the page's address.
+const adminOnly = async (req, res, next) => (await team.isAdmin(req.user)) ? next() : res.status(403).json({ error: L('회사 관리자만 바꿀 수 있어요.', 'Only a company administrator can change this.') })
+const googleSetup = async (req) => {
+  const base = baseOf(req)
+  return { ...await googleClient.clientInfo(), redirectUri: base ? gconnect.redirectUriOf(base) : null }
+}
+app.get('/api/admin/google-client', auth, adminOnly, async (req, res) => res.json(await googleSetup(req)))
+app.put('/api/admin/google-client', auth, adminOnly, async (req, res) => {
+  try {
+    await googleClient.saveClient(config.tenantId, req.body || {}, req.user.id)
+    res.json(await googleSetup(req))
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
+})
+app.delete('/api/admin/google-client', auth, adminOnly, async (req, res) => {
+  await googleClient.removeClient(config.tenantId, req.user.id)
+  res.json(await googleSetup(req))
 })
 
 // Email OTP through Supabase GoTrue (needs SMTP on the auth service).
@@ -270,7 +383,7 @@ app.post('/api/onboard/intro', auth, async (req, res) => {
     await addMessage(req.user.id, t.id, 'agent', 'text', { text })
     await new Promise((r) => setTimeout(r, 900))
   }
-  await addMessage(req.user.id, t.id, 'agent', 'connect', { text: mail.googleEnabled() ? L('Google에 로그인', 'Sign in with Google') : L('메일 연결하기', 'Connect mail'), state: 'pending' })
+  await addMessage(req.user.id, t.id, 'agent', 'connect', { text: (await mail.googleEnabled().catch(() => false)) ? L('Google 연결하기', 'Connect Google') : L('메일 연결하기', 'Connect mail'), state: 'pending' })
   res.json({ ok: true })
 })
 

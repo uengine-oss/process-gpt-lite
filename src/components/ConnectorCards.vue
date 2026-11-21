@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
-import { BASE } from '../base.js'
+import { useApp } from '../stores/app.js'
+import { connectInBrowser, connectOnPhone } from '../googleConnect.js'
 
 // hark-style "연결" cards. Each connector is also a process-gpt system (systems registry) reached
 // through its own mcp-hub server, so connecting here makes its tools usable by agents and skills.
@@ -14,7 +16,7 @@ const token = ref('')
 const busy = ref(false)
 const err = ref('')
 const how = {
-  google: { kind: 'oauth', hint: 'Gmail·캘린더·Drive·YouTube 권한으로 연결합니다. 캘린더 등록이 안 되면 다시 연결해 권한을 넓히세요.' },
+  google: { kind: 'oauth', hint: 'Gmail·캘린더·Drive·YouTube 권한으로 연결해요. 서버 브라우저에서 로그인하면 NotebookLM 같은 Google 사이트도 함께 로그인돼요. 캘린더 등록이 안 되면 다시 연결해 권한을 넓혀요.' },
   // public data without a key; the API key (or the Google account) adds popular videos and search
   youtube: { kind: 'key', ph: 'AIza…', link: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com', linkText: '키 만들기',
     keyHint: 'Google Cloud 콘솔에서 YouTube Data API v3 를 켜고 「사용자 인증 정보 › API 키」를 만들어 붙여 넣으세요.' },
@@ -43,8 +45,20 @@ async function load() {
 }
 onMounted(load)
 
+const app = useApp()
+const router = useRouter()
+const gErr = ref('')
+// Google: in the server browser by default (lib/googleConnect.js), 휴대폰에서 연결 for the mail alone
+async function connectGoogle(where) {
+  gErr.value = ''
+  busy.value = true
+  try {
+    if (where === 'phone') await connectOnPhone()
+    else await connectInBrowser(app, router)
+  } catch (e) { gErr.value = e.message } finally { busy.value = false }
+}
 function connect(c) {
-  if (how[c.name].kind === 'oauth') { window.location.href = BASE + '/api/auth/google/start?mail=1'; return }
+  if (how[c.name].kind === 'oauth') return connectGoogle('browser')
   editing.value = c.name
   token.value = ''
   err.value = ''
@@ -67,8 +81,13 @@ async function saveToken() {
         <img :src="`https://www.google.com/s2/favicons?domain=${favicon[c.name]}&sz=64`" alt="" />
         <div class="t"><b>{{ c.title }}</b><small>{{ hintOf(c) }}</small></div>
         <span v-if="c.connected" class="state"><Icon name="check" :size="14" /> 연결됨</span>
-        <button v-else-if="how[c.name]?.kind !== 'public'" class="pill-btn press" :disabled="how[c.name]?.kind === 'oauth' && !google" :title="how[c.name]?.kind === 'oauth' && !google ? '이 서버에는 Google 연결이 설정되어 있지 않아요' : undefined" @click="connect(c)">연결</button>
+        <button v-else-if="how[c.name]?.kind !== 'public'" class="pill-btn press" :disabled="(how[c.name]?.kind === 'oauth' && !google) || busy" :title="how[c.name]?.kind === 'oauth' && !google ? '회사 관리자가 설정 › 시스템 설정에서 Google 연결을 켜야 해요' : undefined" :data-testid="`connect-${c.name}`" @click="connect(c)">연결</button>
       </div>
+      <template v-if="how[c.name]?.kind === 'oauth'">
+        <small v-if="!google" class="key-hint" data-testid="google-off">회사 관리자가 설정 › 시스템 설정 › 회사 Google 연결에 OAuth 클라이언트를 넣으면 연결할 수 있어요.</small>
+        <button v-else class="re" :disabled="busy" data-testid="connect-google-phone" @click="connectGoogle('phone')">휴대폰에서 연결 · 메일만</button>
+        <small v-if="gErr" class="key-err" data-testid="google-err">{{ gErr }}</small>
+      </template>
       <div class="tools">
         <span v-for="t in c.tools" :key="t" class="tool">{{ t }}</span>
       </div>
@@ -104,7 +123,8 @@ async function saveToken() {
 .tok a { font-size: 13px; color: var(--text-secondary); }
 .tok .dark-btn { height: 40px; }
 .tok small { flex-basis: 100%; font-size: 12.5px; line-height: 1.45; color: var(--text-secondary); padding: 0 6px; }
-.tok .key-err { color: var(--color-error); }
+.card > .key-hint, .card > .key-err { font-size: 12.5px; line-height: 1.45; color: var(--text-secondary); }
+.tok .key-err, .card > .key-err { color: var(--color-error); }
 :root[data-theme="dark"] .dark-btn { background: #f5f5f7; color: #1d1d1f; }
 .hub { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text-secondary); margin: 2px 6px; }
 </style>

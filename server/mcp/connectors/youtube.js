@@ -77,8 +77,8 @@ function failure(status, body) {
 }
 
 // What is missing and where to connect it, for a run that has no credential that works.
-function setupDetail(tried, have) {
-  const google = deps.googleEnabled()
+async function setupDetail(tried, have) {
+  const google = await deps.googleEnabled()
   const missing = []
   if (!have.has('vault_key') && !have.has('server_key')) missing.push(L('YouTube API 키(YouTube Data API v3)', 'a YouTube API key (YouTube Data API v3)'))
   if (google && !have.has('google_oauth')) missing.push(L('YouTube 읽기 권한이 있는 Google 계정 연결', 'a connected Google account with YouTube read access'))
@@ -122,7 +122,7 @@ async function api(userId, endpoint, params) {
     if (!f.next) throw new Error(`YouTube API ${f.text}`)
     tried.push({ via: c.via, reason: f.text })
   }
-  throw new YouTubeSetupError(setupDetail(tried, new Set(creds.map((c) => c.via))))
+  throw new YouTubeSetupError(await setupDetail(tried, new Set(creds.map((c) => c.via))))
 }
 
 const num = (v) => (v == null || v === '' ? null : Number(v))
