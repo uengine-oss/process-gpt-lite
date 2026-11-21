@@ -66,15 +66,16 @@ test('패널 검증: "견적금액: 3,800만 원" 이 숫자 칸 "견적 금액"
   assert.throws(() => X.validate(def, { customer: '해솔', amount: '많이' }), /숫자로 적어 주세요/)
 })
 
-test('미션 결과: 결과 줄이 없어도 정상으로 끝나면 성공(요약은 경로가 아닌 마지막 문장), 오류·빈 답은 실패', () => {
+test('미션 결과: 결과 줄이 없어도 정상으로 끝나면 성공(요약은 경로가 아닌 마지막 문장), 스트림의 오류 표시·빈 답은 실패', () => {
   assert.deepEqual(M.parseResult('끝났어요.\nMISSION_RESULT: {"changed": true, "summary": "새 견적 1건"}'), { changed: true, summary: '새 견적 1건' })
   assert.equal(M.parseResult('점검표를 만들었어요.'), null)
   assert.deepEqual(M.outcomeOf('점검표를 만들었어요.\n요약을 저장했어요.\n/workspace/quote-check/summary.md'), { ok: true, summary: '요약을 저장했어요.' })
-  assert.equal(M.outcomeOf('(오류: the database system is in recovery mode)').ok, false)
-  assert.match(M.outcomeOf('(오류: the database system is in recovery mode)').summary, /recovery mode/)
+  // failed or not is the stream's error event (a field), never the answer's wording
+  assert.equal(M.outcomeOf('중간까지 썼어요', { error: 'the database system is in recovery mode' }).ok, false)
+  assert.match(M.outcomeOf('', { error: 'the database system is in recovery mode' }).summary, /recovery mode/)
   assert.equal(M.outcomeOf('').ok, false)
-  // a long answer that mentions an error along the way still finished
-  assert.equal(M.outcomeOf(`견적서 3건을 확인했어요. 단가 누락 1건을 표시했어요.\n(오류: 한 파일은 열지 못함)\n${'가'.repeat(60)}`).ok, true)
+  // an answer that only mentions an error, with no error event, finished
+  assert.equal(M.outcomeOf('견적서 3건을 확인했어요. (오류: 한 파일은 열지 못함)').ok, true)
   assert.match(M.RESULT_LINE, /MISSION_RESULT/)
 })
 

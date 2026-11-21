@@ -29,7 +29,9 @@ process.env.PRO_LLM_BASE_URL = `http://127.0.0.1:${llm.address().port}`
 process.env.PRO_LLM_API_KEY = 'test'
 
 const { withLang } = await import('../lib/lang.js')
-const { craftAppsFor } = await import('../lib/office.js')
+// (agent.js first: it loads the live-edit module in the order the server does)
+await import('../lib/agent.js')
+const { liveSkillOf, livePin } = await import('../lib/craftLive.js')
 const { namedIn } = await import('../lib/team/assist.js')
 const X = await import('../lib/panelApps/sheet.js')
 const llmMod = await import('../lib/llm.js')
@@ -40,18 +42,14 @@ after(() => llm.close())
 
 const hangul = (v) => /[가-힣]/.test(v)
 
-test('Craft tools: naming the app turns it on, in English and Korean; a video summary does not', () => {
-  const cases = {
-    'Open the floor plan in CADCraft': ['cadcraft'],
-    'Recolor it in PhotoCraft': ['photocraft'],
-    'Use SoundCraft for a short jingle': ['soundcraft'],
-    'Put the clips together in FilmCraft': ['filmcraft'],
-    'Make a logo in VectorCraft': ['vectorcraft'],
-    '포토크래프트로 열어 줘': ['photocraft'],
-    'CADCraft로 평면도 그려 줘': ['cadcraft'],
-  }
-  for (const [t, want] of Object.entries(cases)) assert.deepEqual(craftAppsFor(t), want, t)
-  for (const t of ['Summarise this YouTube video', '유튜브 영상 요약해 줘', 'Where is the craft fair?']) assert.deepEqual(craftAppsFor(t), [], t)
+test('Craft tools: the app open in the page names the skill that edits it (pinned as /name), never the message words', () => {
+  assert.equal(liveSkillOf({ app: 'cadcraft', title: 'CADCraft', file: 'plan.dxf' }), 'cadcraft-drawing')
+  assert.equal(liveSkillOf({ app: 'ieumoffice', title: '이음오피스', file: 'a.docx', editor: 'docs' }), 'ieumoffice-live-edit')
+  assert.equal(liveSkillOf(null), null)
+  assert.equal(livePin({ app: 'photocraft', title: 'PhotoCraft', file: 'x.psd' }, 'Recolor it'), '/photocraft-image-edit ')
+  // a message with its own command keeps it
+  assert.equal(livePin({ app: 'photocraft', title: 'PhotoCraft', file: 'x.psd' }, '/my-skill do it'), '')
+  assert.equal(livePin(null, 'Open the floor plan in CADCraft'), '')
 })
 
 test('room helper: a teammate named by English given name, family name or full name (any case); Korean as before', () => {
@@ -111,13 +109,12 @@ test('panel design: low reasoning effort and room for the thinking on top of the
   assert.ok(seen[1].max_tokens >= 1000, 'the kind call is not capped at 60 tokens')
 })
 
-test('browser: purchase controls and buying goals; "주문 내역" / "My orders" only show orders', () => {
-  for (const t of ['다시 주문하기', 'Order again', 'Reorder', 'Buy again', 'Add to cart', '89,000원 결제하기', 'Pay ₩89,000', 'Place order', 'Checkout']) assert.equal(B.isPurchaseControl(t), true, t)
-  for (const t of ['주문 내역', 'My orders', 'Order history', '결제 내역', '로그인', 'Sign in', '확인', 'Verify']) assert.equal(B.isPurchaseControl(t), false, t)
-  for (const t of ['89,000원 결제하기', 'Pay ₩89,000', 'Place order']) assert.equal(B.isPaymentControl(t), true, t)
-  assert.equal(B.isPaymentControl('Order again'), false)
-  for (const g of ['테스트 상점에서 무선 이어폰을 결제해줘', '테스트 상점에서 한 번 더 결제해줘', '이어폰 주문해 줘', 'Buy the wireless earbuds', 'Reorder my last order', 'Pay for the earbuds']) assert.equal(B.asksToBuy(g), true, g)
-  for (const g of ['테스트 상점에 로그인해서 최근 주문을 알려줘', 'Sign in to the test shop and tell me my latest order', 'Check my order status']) assert.equal(B.asksToBuy(g), false, g)
+test('browser: the policy words on a control (policies/purchase.json) — "주문 내역" / "My orders" only show orders', () => {
+  for (const t of ['다시 주문하기', 'Order again', 'Reorder', 'Buy again', 'Add to cart', 'Checkout']) assert.equal(B.levelOfLabel(t), 'purchase', t)
+  for (const t of ['89,000원 결제하기', 'Pay ₩89,000', 'Place order']) assert.equal(B.levelOfLabel(t), 'payment', t)
+  for (const t of ['주문 내역', 'My orders', 'Order history', '결제 내역', '로그인', 'Sign in', '확인', 'Verify', 'Display options', 'Payment methods']) assert.equal(B.levelOfLabel(t), 'none', t)
+  // whether a goal buys is the planner's answer (plan.buys), never words in the goal: no asksToBuy
+  assert.equal(B.asksToBuy, undefined)
 })
 
 test('browser summary: always a result first — a refused purchase is listed apart, an empty account gets a plain sentence', () => {

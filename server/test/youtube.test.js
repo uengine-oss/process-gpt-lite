@@ -56,7 +56,7 @@ test('trending: the Google account (Bearer) when there is no key, with region an
   const calls = stub({ google: { scoped: true, token: async () => 'AT' } }, [
     [/\/videos\?/, () => Response.json({ items: [item('c3', 5, 1)] })],
   ])
-  const out = await tool('youtube_trending')('u1', { region: 'us', category: '음악', max: 3 })
+  const out = await tool('youtube_trending')('u1', { region: 'us', category: '10', max: 3 })
   assert.equal(calls.length, 1)
   assert.equal(calls[0].auth, 'Bearer AT')
   assert.equal(calls[0].key, null)
@@ -85,11 +85,12 @@ test('trending without any credential and no public page: says exactly what is m
 })
 
 test('trending without any credential: the public approximation, labelled, with what is missing', async () => {
-  const pages = { 뉴스: [renderer('n1', '조회수 9,000회', '2시간 전'), renderer('m1', '조회수 3,000회', '1시간 전')], 음악: [renderer('m1', '조회수 3,000회', '1시간 전'), renderer('m2', '조회수 12만회', '5시간 전')] }
+  const pages = { '뉴스·정치': [renderer('n1', '조회수 9,000회', '2시간 전'), renderer('m1', '조회수 3,000회', '1시간 전')], 음악: [renderer('m1', '조회수 3,000회', '1시간 전'), renderer('m2', '조회수 12만회', '5시간 전')] }
   const calls = stub({}, [[/youtube\.com\/results/, (url) => new Response(resultsPage(pages[new URL(url).searchParams.get('search_query')] || []))]])
   const out = await tool('youtube_trending')('u1', { max: 3 })
   const queries = calls.map((c) => new URL(c.url).searchParams.get('search_query'))
-  assert.deepEqual(queries.sort(), ['게임', '뉴스', '스포츠', '예능', '음악'].sort())
+  // (the broad spread is the category table's own labels, not a word list)
+  assert.deepEqual(queries.sort(), ['게임', '뉴스·정치', '스포츠', '엔터테인먼트', '음악'].sort())
   assert.equal(new URL(calls[0].url).searchParams.get('sp'), searchFilter('viewCount', new Date(Date.now() - 86400e3)))
   assert.equal(out.source, 'public_search_page')
   assert.equal(out.exact_chart, false)
@@ -99,7 +100,7 @@ test('trending without any credential: the public approximation, labelled, with 
   assert.deepEqual(out.videos.map((v) => [v.rank, v.id, v.views]), [[1, 'm2', 120000], [2, 'n1', 9000], [3, 'm1', 3000]])
   // a category asked for is the one search
   const one = stub({}, [[/youtube\.com\/results/, () => new Response(resultsPage(pages.음악))]])
-  await tool('youtube_trending')('u1', { category: '음악' })
+  await tool('youtube_trending')('u1', { category: '10' })
   assert.deepEqual(one.map((c) => new URL(c.url).searchParams.get('search_query')), ['음악'])
 })
 
@@ -224,16 +225,16 @@ test('helpers: results filter, relative dates, counts, categories, embedded JSON
   assert.equal(searchFilter('relevance', new Date(now.getTime() - 3 * 86400e3), now), 'EgQIAxAB')
   assert.equal(sinceOf('7d', now).toISOString(), '2026-11-11T03:00:00.000Z')
   assert.equal(sinceOf('2026-11-18').toISOString(), '2026-11-17T15:00:00.000Z')
-  assert.equal(sinceOf('today', now).toISOString(), '2026-11-17T15:00:00.000Z')
+  assert.equal(sinceOf('today', now), null, 'words are the model\'s to turn into the format')
   assert.equal(sinceOf('nonsense'), null)
   assert.equal(countOf('조회수 1,103,049회'), 1103049)
   assert.equal(countOf('조회수 3.4만회'), 34000)
   assert.equal(countOf('1.2M views'), 1200000)
   assert.equal(countOf('조회수 없음'), 0)
-  assert.equal(categoryId('게임'), '20')
-  assert.equal(categoryId('News'), '25')
+  assert.equal(categoryId('게임'), null, 'a word is not an id: the tool description lists the ids')
+  assert.equal(categoryId('25'), '25')
   assert.equal(categoryId('17'), '17')
-  assert.equal(categoryId('없는 분류'), null)
+  assert.equal(categoryId('99'), null)
   assert.deepEqual(jsonAfter('x var a = {"s":"}{\\"","n":{"m":1}}; var b', 'var a = '), { s: '}{"', n: { m: 1 } })
   assert.equal(parseFeed('<feed><title>t</title></feed>').videos.length, 0)
   assert.deepEqual(pageVideos({ a: [{ lockupViewModel: { contentId: 'L1', contentType: 'LOCKUP_CONTENT_TYPE_VIDEO', metadata: { lockupMetadataViewModel: { title: { content: '록업' },

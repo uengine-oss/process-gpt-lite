@@ -19,6 +19,7 @@ import { EventEmitter } from 'node:events'
 import express from 'express'
 import { WebSocketServer } from 'ws'
 import { sameOrigin, originWhy, refuse } from './workroom.js'
+import { isEn } from './lang.js'
 
 // how each app's CLI reaches a running app, and how its control port authenticates
 export const LIVE_APPS = {
@@ -37,6 +38,7 @@ export const LIVE_APPS = {
   ieumoffice: { title: '이음오피스', presence: true },
 }
 const OFFICE_KIND = { docs: '워드', sheets: '엑셀', slides: '파워포인트', pdf: 'PDF', hwp: '한글', markdown: '마크다운', html: 'HTML', mindmap: '마인드맵' }
+const OFFICE_KIND_EN = { docs: 'Word', sheets: 'Excel', slides: 'PowerPoint', pdf: 'PDF', hwp: 'Hangul', markdown: 'Markdown', html: 'HTML', mindmap: 'mind map' }
 const CALL_MS = 58_000 // under the CLIs' own 55–60 s waits, so their error is the one the agent sees
 const MAX_LINE = 4 * 1024 * 1024
 const MAX_CONN = 4
@@ -261,40 +263,25 @@ export function attachCraftLive(server) {
   })
 }
 
-// what the agent is told while an app is open in the page (lib/agent.js delegate)
-const LIVE_TOOLS = {
-  photocraft: 'photocraft_doc_inspect 로 레이어를 확인하고, photocraft_command_run(예: 글자 레이어 색·내용 바꾸기, 새 글자 레이어)으로 고치세요. ' +
-    // line art (a CAD render, a diagram): a luminance map (gradientMap) sends strokes as dark as the background
-    // into the background — the plan's red furniture vanished. Colour by distance from the background instead.
-    '선 그림·도면처럼 바탕 위에 선이 그려진 그림의 색을 문서 색조에 맞출 때는 밝기로 바꾸는 gradientMap·hueSaturation 을 쓰지 말고(바탕과 밝기가 비슷한 선이 사라져요) 바탕색을 기준으로 칠하세요: ' +
-    'photocraft_command_batch steps=[{"id":"select.magicWand","params":{"x":3,"y":3,"tolerance":14,"contiguous":false,"antiAlias":false}},{"id":"edit.fill","params":{"contents":"color","color":"<바탕색, 예 #eef5fc>"}},{"id":"select.inverse"},{"id":"select.modify.expand","params":{"radius":1}},{"id":"edit.fill","params":{"contents":"color","color":"<선 색, 예 #1f3a6e>"}},{"id":"select.deselect"}]. ' +
-    '다시 조정하라고 하면 먼저 select.all → edit.fillHistory 로 원래 그림으로 되돌린 뒤 select.deselect 하고 같은 순서로 새 색을 칠하세요',
-  vectorcraft: 'vectorcraft_inspect 계열로 객체를 확인하고, vectorcraft_add_text·vectorcraft_set_paint·vectorcraft_command_run 으로 고치세요',
-  filmcraft: 'filmcraft_project_inspect·filmcraft_sequence_inspect 로 확인하고 filmcraft_command_run 으로 고치세요(file.newProject·가져오기 금지, 자막 글꼴은 웹에도 있는 NanumGothic)',
-  cadcraft: 'cadcraft_inspect_drawing·cadcraft_find_text·cadcraft_query_entities 로 확인하고, cadcraft_command_line·cadcraft_script·cadcraft_execute 로 고친 뒤 cadcraft_render 로 직접 보세요(cadcraft_new_drawing·cadcraft_open 금지)',
-  soundcraft: 'soundcraft_inspect_session 으로 트랙·클립을 확인하고, soundcraft_execute·soundcraft_batch(soundcraft_list_commands 의 명령: mix.volume·mix.pan·track.rename·track.new 등)로 고치세요(soundcraft_new_session·soundcraft_open_session 금지)',
+// What the agent is told while an app or document is open in the page (lib/agent.js delegate): that it is
+// open — a system fact, one sentence — and, pinned at the front of the message as /name, the agent skill
+// that edits that kind of document (deepagents loads a leading /skill-name before its first call). How to
+// edit it with which tool is in that skill (design 4.1–4.2), not here.
+const LIVE_SKILL = {
+  ieumoffice: 'ieumoffice-live-edit', cadcraft: 'cadcraft-drawing', vectorcraft: 'vectorcraft-graphics',
+  photocraft: 'photocraft-image-edit', soundcraft: 'soundcraft-audio', filmcraft: 'filmcraft-video',
 }
-export function liveHint(open) {
+export const liveSkillOf = (open) => (open ? LIVE_SKILL[open.app] || null : null)
+// the pin, unless the message already starts with a command of its own
+export function livePin(open, text) {
+  const skill = liveSkillOf(open)
+  return skill && !String(text || '').trimStart().startsWith('/') ? `/${skill} ` : ''
+}
+export function liveFact(open) {
   if (!open) return ''
-  if (open.app === 'ieumoffice') {
-    const kind = OFFICE_KIND[open.editor] || '문서'
-    const editable = open.editor === 'docs' || open.editor === 'sheets' || open.editor === 'hwp'
-    const mention = '사용자가 문서에서 가리킨 대상(@표 N, @이미지 N, @문단, @범위)이 메시지 끝에 붙어 오면 바로 그 대상만 고치세요(표 번호·행·열·범위가 적혀 있어요). '
-    return `\n\n(사용자가 지금 이음오피스 ${kind} 편집기에서 '${open.file || '문서'}' 을 열어 두었어요. 이 메시지는 그 열린 문서에 대한 것이에요. ` +
-      (editable
-        ? `office_live_documents 로 그 문서의 session_id 를 찾고 office_live_read 로 지금 내용을 읽은 뒤, 사람이 보는 화면에서 바로 고치세요: ` +
-          // (the page said what is open, but the editor may not be reachable: no new file in its place)
-          `office_live_documents 도구가 없거나 그 목록에 이 문서가 없으면 편집기와 연결되지 않은 것이에요 — 새 문서를 만들지 말고(파일·다운로드 링크도 금지), "편집기와 연결되지 않아 열린 문서를 바로 고치지 못했어요" 라고 먼저 알린 뒤 넣을 내용을 답 안에 글로만 보여 주세요. ` +
-          mention + (open.editor === 'hwp'
-            ? `한글은 표를 office_live_hwp_table(action read·fill·add_rows·remove_rows, 표·행·열 번호는 1부터, add_rows 뒤에는 새 줄을 fill 로 채우기), 글은 office_live_hwp_text(replace·insert)로 고치세요. 합계·소계 칸이 있으면 숫자를 다시 계산해 함께 고치세요. 그림은 이 도구로 고치지 않아요(그림 편집은 포토크래프트가 맡아요). `
-            : open.editor === 'docs'
-            ? `글 일부(표 칸 안의 글 포함)를 바꿀 때는 서식이 그대로 남는 office_live_apply_ops 의 findReplace 연산([{"op":"findReplace","find":"…","replace":"…"}])을 먼저 쓰세요. ` +
-              `문단 하나를 통째로 바꿀 때만 office_live_replace 에 match_text(바꿀 블록에 든 글)를 주세요(블록 번호는 앞 변경에 밀려요, 표 블록은 통째로 바꾸지 마세요). ` +
-              `새 문단은 office_live_write(after_block_index 로 위치 지정), 그 밖의 서식은 office_live_apply_ops(연산은 office_guide). `
-            : `셀 값은 office_live_apply_ops 의 set_cell, 수식은 set_formula(수식을 type:"text" 로 쓰지 마세요), 행을 더할 때는 insert_rows 로 끼운 뒤(뒤 주소가 밀려요) 값·수식을 넣고 합계 범위를 넓히세요. 이미 있는 표 서식은 바꾸지 마세요(연산은 office_guide xlsx 참고). `)
-        : `이 형식은 열린 화면을 직접 고치는 도구가 없어요: 내용을 읽어(office_read_document) 답하고, 고쳐야 하면 무엇을 바꿀지 알려 주세요. `) +
-      `새 문서를 만들거나 파일로 내려받지 말고, 저장은 사용자가 해요(office_live_save 를 부르지 마세요). 다 고치면 무엇을 바꿨는지 짧게 답하세요.)`
-  }
-  return `\n\n(사용자가 지금 ${open.title} 에서 '${open.file || '문서'}' 을 열어 두었어요. ${open.app}_ 도구는 그 화면에 바로 적용돼요. ` +
-    `새 문서를 만들거나 다른 파일을 열지 말고 열린 문서를 그대로 고치세요: ${LIVE_TOOLS[open.app]}. 저장은 사용자가 해요(doc_save·save_file·export 를 부르지 마세요). 다 고치면 무엇을 바꿨는지 짧게 답하세요.)`
+  const where = open.app === 'ieumoffice' ? `${open.title} ${OFFICE_KIND[open.editor] || '문서'} 편집기` : open.title
+  const whereEn = open.app === 'ieumoffice' ? `the ${open.title} ${OFFICE_KIND_EN[open.editor] || 'document'} editor` : open.title
+  return isEn()
+    ? `\n\n(The user has '${open.file || 'a document'}' open in ${whereEn} next to the chat right now; this message may be about that open document.)`
+    : `\n\n(사용자가 지금 채팅 옆 ${where}에서 '${open.file || '문서'}' 을 열어 두었어요. 이 메시지는 그 열린 문서에 대한 것일 수 있어요.)`
 }

@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "goal": {
+      "type": "string",
+      "description": "what to get done on the site, with the values the user gave"
+    },
+    "start_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "the address the user gave, if any"
+    }
+  },
+  "required": []
+}

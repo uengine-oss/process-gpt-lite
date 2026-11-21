@@ -1,6 +1,6 @@
 // Production meeting and team-room fixes (2026-11-18), without a model or a judge server where possible:
 //   - a judge without its server: the LLM's pick becomes the server's probability shape (lib/judge.js)
-//   - "관련 자료 좀 찾아줄래?" in a meeting is a request to the assistant; a task for people is not
+//   - a meeting line reaches the judge unless its format alone says it is nothing (2026-11-21: no word cues)
 //   - the transcription hint read back over silence is not a line of the record
 //   - behind the gateway a person of the tenant is a teammate on first sight (a ProcessGPT room holds people
 //     who never opened Lite) unless an administrator removed them — on the local database, cleaned up
@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 
 const { spread } = await import('../lib/judge.js')
 const { cue } = await import('../lib/meetings/intent.js')
+const { voiced, spokenText } = await import('../lib/meetings/transcribe.js')
 const { promptEcho } = await import('../lib/meetings/transcribe.js')
 
 test('판정: LLM 이 고른 답을 판정 서버와 같은 확률 모양으로', () => {
@@ -23,12 +24,31 @@ test('판정: LLM 이 고른 답을 판정 서버와 같은 확률 모양으로'
   assert.equal(spread(opts, 'yes', 7).yes, 1)
 })
 
-test('회의: 자료를 찾아 달라는 말은 비서에게 하는 부탁, 사람에게 맡기는 말은 아님', () => {
-  assert.equal(cue('관련돼서 자료 좀 찾아줄래?').request, true)
-  assert.equal(cue('경쟁사 사례 좀 조사해 줘').request, true)
-  assert.equal(cue('견적서 5% 낮춰서 다시 만들어줘').request, true)
-  assert.equal(cue('내일 아침까지 그 AI 관련 그루비어 관련 기획서를 다 제출해 주시기 바랍니다.').request, false)
-  assert.equal(cue('제 화면 보이세요?').why, 'no-cue')
+test('회의: 말의 형식만 거르고(빈 말·이모지·자모·한 글자), 나머지는 모두 판단 모델에게', () => {
+  for (const t of ['', '👏👏', 'ㅎㅎ', '음']) assert.notEqual(cue(t).why, null, t)
+  for (const t of ['관련돼서 자료 좀 찾아줄래?', '제 화면 보이세요?', 'ok']) assert.equal(cue(t).why, null, t)
+})
+
+test('받아쓰기: 문구 목록 없이 신호로 — 소리가 없는 조각은 보내지 않고, 모델이 말이 없다고 한 부분은 버린다', () => {
+  const wav = (fill) => {
+    const n = 16000, b = Buffer.alloc(44 + n * 2)
+    b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8); b.write('fmt ', 12); b.writeUInt32LE(16, 16)
+    b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34)
+    b.write('data', 36); b.writeUInt32LE(n * 2, 40)
+    for (let i = 0; i < n; i++) b.writeInt16LE(fill(i), 44 + i * 2)
+    return b
+  }
+  assert.equal(voiced(wav(() => 0)), false, '무음')
+  assert.equal(voiced(wav((i) => (i % 7) - 3)), false, '아주 작은 잡음')
+  assert.equal(voiced(wav((i) => Math.round(6000 * Math.sin(i / 8)))), true, '말소리 크기')
+  assert.equal(voiced(Buffer.from('not a wav')), null, 'WAV 가 아니면 판단하지 않음')
+  // whisper verbose_json: a segment both signals call no speech is dropped (whisper's own thresholds)
+  const v = spokenText({ text: 'x', segments: [{ text: '회의 시작할게요', no_speech_prob: 0.05, avg_logprob: -0.3 }, { text: '끝인사', no_speech_prob: 0.92, avg_logprob: -1.4 }, { text: '반복 반복 반복', no_speech_prob: 0.1, avg_logprob: -0.2, compression_ratio: 3.1 }] })
+  assert.deepEqual([v.text, v.dropped, v.signal], ['회의 시작할게요', 2, 'segments'])
+  // gpt-4o-transcribe with logprobs: a very unsure piece is no line
+  assert.equal(spokenText({ text: '어쩌고', logprobs: [{ logprob: -2.1 }, { logprob: -1.9 }] }).text, '')
+  assert.equal(spokenText({ text: '다음 안건으로 넘어가죠', logprobs: [{ logprob: -0.1 }, { logprob: -0.3 }] }).text, '다음 안건으로 넘어가죠')
+  assert.equal(spokenText({ text: '그대로' }).signal, 'none')
 })
 
 test('받아쓰기: 힌트를 그대로 읽은 것은 말이 아님', () => {

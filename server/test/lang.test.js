@@ -3,7 +3,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { normLang, resolveLang, lang, isEn, L, locale, withLang, langInstruction, inLanguage, ENGLISH_NOTE } from '../lib/lang.js'
 import { inLanguageMessages } from '../lib/llm.js'
-import { craftAppsFor, officeHint } from '../lib/office.js'
+// (agent.js first: it loads the live-edit module in the order the server does)
+const { templateFact } = await import('../lib/agent.js')
+const { liveFact } = await import('../lib/craftLive.js')
 
 test('normLang reads the usual spellings and nothing else', () => {
   for (const v of ['en', 'EN', 'en-US', 'en_GB', ' en ']) assert.equal(normLang(v), 'en', v)
@@ -82,21 +84,17 @@ test('English mode: the agents get an [Instruction] line after the message, aski
   })
 })
 
-test('ArtCraft asks are found in English as in Korean', () => {
-  assert.deepEqual(craftAppsFor('Draw a floor plan for Moonlight Coffee Store #2'), ['cadcraft'])
-  assert.deepEqual(craftAppsFor('make a logo for the cafe'), ['vectorcraft'])
-  assert.deepEqual(craftAppsFor('trim the first 3 seconds of the video'), ['filmcraft'])
-  assert.deepEqual(craftAppsFor('평면도 그려줘'), ['cadcraft'])
-  assert.deepEqual(craftAppsFor('summarize this YouTube video'), [])
-})
-
-test('office hints: Korean unchanged, English names English example files', () => {
-  const ko = officeHint('평면도 그려줘', '')
-  assert.match(ko, /<base>\/평면도\.dxf/)
+test('the open document is one sentence of fact, in the person\'s language; the hwpx template is a fact when set', () => {
+  const open = { app: 'ieumoffice', title: '이음오피스', file: '회의록.docx', editor: 'docs' }
+  assert.match(liveFact(open), /회의록\.docx/)
+  assert.match(liveFact(open), /워드/)
   withLang('en', () => {
-    const en = officeHint('Draw a floor plan and write the proposal as a Word document', '')
-    assert.match(en, /<base>\/floor-plan\.dxf/)
-    assert.match(en, /English file names/)
-    assert.ok(!/[가-힣]/.test(en), 'no Hangul in the English hint')
+    const en = liveFact(open)
+    assert.match(en, /회의록\.docx/)
+    assert.match(en, /Word editor/)
+    assert.ok(!/[가-힣]/.test(en.replace('회의록', '').replace('이음오피스', '')), 'no Hangul in the English fact but the names')
+    assert.match(templateFact('http://127.0.0.1:8796/t.hwpx'), /host\.docker\.internal:8796/)
   })
+  assert.equal(liveFact(null), '')
+  assert.equal(templateFact(''), '')
 })

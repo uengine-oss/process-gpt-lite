@@ -1,0 +1,135 @@
+{
+  "name": "store-design",
+  "version": "1.0.0",
+  "title": { "ko": "매장 설계 제안", "en": "Store design proposals" },
+  "summary": {
+    "ko": "매장·사무실 인테리어 설계를 요청하는 고객 메일에 평면도(캐드크래프트)·설계 제안서·견적서 초안을 만들고, 그 일을 프로세스 마이닝 단계(평면도 작성·제안서 작성·견적서 작성·검토)로 기록해요.",
+    "en": "Drafts the floor plan (CADCraft), the design proposal and the quote for customer mails asking for a store or office interior design, and records that work as process mining steps (floor plan, proposal, quote, reviews)."
+  },
+  "skills": {
+    "cadcraft-floor-plan": {
+      "output": { "ko": "dxf", "en": "dxf" },
+      "runner": { "dxf": "floor-plan" },
+      "app": { "id": "cadcraft", "name": { "ko": "캐드크래프트", "en": "CADCraft" } }
+    },
+    "store-design-proposal": {
+      "output": { "ko": "hwpx", "en": "docx" },
+      "runner": { "hwpx": "hwpx-template", "docx": "agent" },
+      "requires": ["cadcraft-floor-plan"],
+      "picture": "floor_plan",
+      "aliases": ["hwpx-proposal", "docx-proposal"]
+    },
+    "quote-xlsx": {
+      "output": { "ko": "xlsx", "en": "xlsx" },
+      "runner": { "xlsx": "agent" },
+      "after": ["cadcraft-floor-plan"]
+    }
+  },
+  "mining": {
+    "roles": {
+      "intake": { "ko": "영업 담당", "en": "Sales" },
+      "reply": { "ko": "영업 담당", "en": "Sales" },
+      "reviewer": { "ko": "검토 담당", "en": "Reviewer" }
+    },
+    "core": {
+      "reply": { "description": { "ko": "제안서와 견적서를 붙여 고객에게 회신해요.", "en": "Replies to the customer with the proposal and the quote attached." } }
+    },
+    "agents": {
+      "drawing": {
+        "id": "3a6f0c1e-8d2b-4f4a-9c61-0d5e7b2a9f11", "alias": "pro-drawing-agent",
+        "name": { "ko": "도면 에이전트", "en": "Drawing agent" },
+        "goal": { "ko": "고객 요구사항으로 캐드크래프트에서 평면도를 그리고 실별 면적을 정리해요.", "en": "Draws the floor plan in CADCraft from the customer's requirements and lists the area of each room." },
+        "persona": { "ko": "치수·면적은 메일에 적힌 값을 그대로 써요.", "en": "Uses the dimensions and areas exactly as the mail gives them." }
+      },
+      "proposal": {
+        "id": "4b7e1d2f-9e3c-4a5b-8d72-1e6f8c3b0a22", "alias": "pro-proposal-agent",
+        "name": { "ko": "제안서 에이전트", "en": "Proposal agent" },
+        "goal": { "ko": "평면도를 넣은 아래아한글 제안서를 회사 양식으로 채워요.", "en": "Writes the proposal as a Word document with the floor plan in it." },
+        "persona": { "ko": "양식의 표와 그림 칸을 그대로 두고 내용만 채워요.", "en": "Keeps the company proposal's layout and fills in the content only." }
+      },
+      "quote": {
+        "id": "5c8f2e30-af4d-4b6c-9e83-2f7a9d4c1b33", "alias": "pro-quote-agent",
+        "name": { "ko": "견적 에이전트", "en": "Quote agent" },
+        "goal": { "ko": "실별 면적으로 엑셀 견적서를 수식과 함께 만들어요.", "en": "Builds the Excel quote with formulas from the room areas." },
+        "persona": { "ko": "금액은 모두 수식으로, 가정한 단가는 따로 적어요.", "en": "Every amount is a formula; the unit prices it assumed are listed separately." }
+      }
+    },
+    "steps": [
+      {
+        "key": "plan", "kind": "agent", "agent": "drawing", "skill": "cadcraft-floor-plan",
+        "label": { "ko": "평면도 작성", "en": "Draw floor plan" },
+        "document": { "ko": "평면도", "en": "floor plan" },
+        "tool": { "ko": "캐드크래프트", "en": "CADCraft" },
+        "format": { "ko": "dxf", "en": "dxf" },
+        "description": { "ko": "요청의 치수·실 구성으로 캐드크래프트에서 평면도(DXF)를 그려요.", "en": "Draws the floor plan (DXF) in CADCraft from the requested dimensions and rooms." },
+        "instruction": { "ko": "요청 메일의 가로·세로 치수와 필요한 실(홀·주방·창고·화장실 등), 출입문 방향으로 평면도를 그린다. 캐드크래프트 MCP 로 벽·문·실 이름·치수를 넣고 DXF 로 저장한 뒤 실별 면적을 정리한다.", "en": "Draw the floor plan from the width and depth in the request mail, the rooms it needs (hall, kitchen, storage, restroom …) and the side of the entrance. Put in the walls, doors, room names and dimensions with the CADCraft MCP, save it as DXF and list the area of each room." },
+        "fields": {
+          "ko": [{ "key": "floor_plan", "text": "평면도(DXF)", "type": "file" }, { "key": "rooms", "text": "실별 면적", "type": "textarea" }],
+          "en": [{ "key": "floor_plan", "text": "Floor plan (DXF)", "type": "file" }, { "key": "rooms", "text": "Room areas", "type": "textarea" }]
+        }
+      },
+      {
+        "key": "proposal", "kind": "agent", "agent": "proposal", "skill": "store-design-proposal",
+        "label": { "ko": "제안서 작성", "en": "Write proposal" },
+        "document": { "ko": "제안서", "en": "proposal" },
+        "tool": { "ko": "아래아한글", "en": "Word" },
+        "format": { "ko": "hwpx", "en": "docx" },
+        "description": { "ko": "평면도를 넣어 회사 양식의 아래아한글 제안서를 채워요.", "en": "Writes the proposal as a Word document with the floor plan in it." },
+        "instruction": { "ko": "앞 단계 평면도를 제안서 양식의 설계 평면도 그림 칸에 넣고, 공간 구성 표를 실별 면적으로 채운다. 메일의 요구사항을 모두 반영한다.", "en": "Put the floor plan from the previous step into the proposal, fill the space plan table with the room areas and cover everything the mail asks for." },
+        "fields": {
+          "ko": [{ "key": "proposal", "text": "제안서(한글)", "type": "file" }],
+          "en": [{ "key": "proposal", "text": "Proposal (Word)", "type": "file" }]
+        }
+      },
+      {
+        "key": "quote", "kind": "agent", "agent": "quote", "skill": "quote-xlsx", "total_field": "amount",
+        "label": { "ko": "견적서 작성", "en": "Prepare quote" },
+        "document": { "ko": "견적서", "en": "quote" },
+        "tool": { "ko": "엑셀", "en": "Excel" },
+        "format": { "ko": "xlsx", "en": "xlsx" },
+        "description": { "ko": "실별 면적으로 엑셀 견적서를 수식과 함께 만들어요.", "en": "Builds the Excel quote with formulas from the room areas." },
+        "instruction": { "ko": "설계비, 실별 인테리어 공사(면적 × ㎡당 단가), 가구·집기, 전기·설비 행과 공급가액·부가세·합계를 모두 수식으로 넣은 견적서를 만든다. 가정한 단가를 적는다.", "en": "Build a quote with rows for the design fee, interior work per room (area × price per ㎡), furniture and fixtures, and electrical and equipment, then subtotal, VAT and total — all as formulas. List the unit prices you assumed." },
+        "fields": {
+          "ko": [{ "key": "quote", "text": "견적서(엑셀)", "type": "file" }, { "key": "amount", "text": "견적 합계(부가세 포함, 원)", "type": "text" }, { "key": "assumptions", "text": "가정한 단가", "type": "textarea" }],
+          "en": [{ "key": "quote", "text": "Quote (Excel)", "type": "file" }, { "key": "amount", "text": "Quote total incl. VAT (KRW)", "type": "text" }, { "key": "assumptions", "text": "Assumed unit prices", "type": "textarea" }]
+        }
+      },
+      {
+        "key": "finance", "kind": "human", "review": "role",
+        "label": { "ko": "재무 검토", "en": "Finance review" },
+        "role": { "ko": "재무 담당", "en": "Finance" },
+        "description": { "ko": "견적 금액과 조건을 확인하고 승인하거나 수정을 요청해요.", "en": "Checks the quoted amounts and terms and approves or asks for changes." },
+        "judge": { "ko": "금액·단가·예산·세금 같은 돈 문제를 확인하는 검토", "en": "a review of money matters: amounts, unit prices, budget, tax" }
+      },
+      {
+        "key": "design", "kind": "human", "review": "role",
+        "label": { "ko": "디자인 검토", "en": "Design review" },
+        "role": { "ko": "디자인 담당", "en": "Design" },
+        "judge": { "ko": "도면·배치·인테리어 디자인을 확인하는 검토", "en": "a review of the drawing, the layout or the interior design" }
+      },
+      {
+        "key": "contract", "kind": "human", "review": "role",
+        "label": { "ko": "계약 검토", "en": "Contract review" },
+        "role": { "ko": "법무 담당", "en": "Legal" },
+        "judge": { "ko": "계약 조건·약관을 확인하는 검토", "en": "a review of contract terms and clauses" }
+      },
+      {
+        "key": "proposal_review", "kind": "human", "review": "role", "formats": ["hwpx", "docx"],
+        "label": { "ko": "제안서 검토", "en": "Proposal review" },
+        "role": { "ko": "제안 담당", "en": "Proposals" },
+        "judge": { "ko": "제안서 문안·표현·오탈자를 확인하는 검토", "en": "a review of the proposal's wording and typos" }
+      },
+      {
+        "key": null, "kind": "human", "formats": ["dxf"],
+        "label": { "ko": "평면도 검토", "en": "Floor plan review" },
+        "role": { "ko": "검토 담당", "en": "Reviewer" }
+      },
+      {
+        "key": null, "kind": "human", "formats": ["xlsx"],
+        "label": { "ko": "견적서 검토", "en": "Quote review" },
+        "role": { "ko": "검토 담당", "en": "Reviewer" }
+      }
+    ],
+    "doc_reviews": ["평면도 검토", "제안서 검토", "견적서 검토"]
+  }
+}

@@ -1,0 +1,5025 @@
+[
+  {
+    "id": "t-h-001",
+    "context": [
+      "권나래: 연말 행사 장소 후보 세 군데 받았어요",
+      "권나래: 가격이랑 수용 인원이 다 달라서 헷갈리네요"
+    ],
+    "author": "한도윤",
+    "text": "세 군데 가격·인원·교통 비교표로 한눈에 보이게 만들어 줄 수 있어요?",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "spreadsheet",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "t-h-002",
+    "context": [
+      "Dana Whitfield: Oct: compute 41k, storage 12k, observability 7.5k",
+      "Theo Grant: Sep was compute 38k, storage 11k, observability 7.9k"
+    ],
+    "author": "Kofi Mensah",
+    "text": "can someone turn these numbers into a proper sheet? monthly cloud spend by team, Jan–Oct",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "spreadsheet",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "context",
+      "register"
+    ]
+  },
+  {
+    "id": "t-h-003",
+    "context": [],
+    "author": "藤井 美咲",
+    "text": "部署ごとの備品の数、表にまとめてもらえると助かります",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "spreadsheet",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-004",
+    "context": [],
+    "author": "표은결",
+    "text": "ㅇ이번분기 판촉비 집행내역 엑셀로정리좀 해주실분~~",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "spreadsheet",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "typo",
+      "spacing",
+      "register"
+    ]
+  },
+  {
+    "id": "t-h-005",
+    "context": [],
+    "author": "Jordan Park",
+    "text": "Q4 hiring plan 표로 만들어줘, 팀별 headcount랑 예상 입사월 넣어서",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "spreadsheet",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "terse"
+    ]
+  },
+  {
+    "id": "t-h-006",
+    "context": [],
+    "author": "서태오",
+    "text": "나래님, 지난주 박람회에서 받은 명함 목록 엑셀로 정리 부탁드려도 될까요?",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "spreadsheet",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "register"
+    ]
+  },
+  {
+    "id": "t-h-007",
+    "context": [
+      "임하준: 내년 예산 시트 열어 보니까 인건비 항목이 빠져 있네요"
+    ],
+    "author": "윤채원",
+    "text": "그럼 인건비 항목 넣어서 시트 고쳐 줘요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "spreadsheet",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "t-h-008",
+    "context": [],
+    "author": "王丽娜",
+    "text": "帮我把这个月各部门的采购金额做成一张表",
+    "processes": [
+      "请假申请",
+      "采购申请审批",
+      "报销申请",
+      "用印申请"
+    ],
+    "expect": "spreadsheet",
+    "process": null,
+    "lang": "zh",
+    "axis": []
+  },
+  {
+    "id": "t-h-009",
+    "context": [],
+    "author": "문가온",
+    "text": "신규 대리점 대상 제품 교육 계획서 초안 잡아 줄 수 있어요?",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "document",
+    "process": null,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "t-h-010",
+    "context": [],
+    "author": "Priya Raman",
+    "text": "We need a one-pager for the board on why we're switching freight carriers. Anyone able to draft it?",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "document",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-011",
+    "context": [],
+    "author": "小林 悠真",
+    "text": "来週のクライアント向け提案資料、スライド5枚くらいで叩き台作ってほしいです",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "document",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-012",
+    "context": [],
+    "author": "정바다",
+    "text": "투자자 월간 업데이트 이번 달은 누가 대신 써 주면 소원이 없겠다…",
+    "processes": [],
+    "expect": "document",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-013",
+    "context": [],
+    "author": "오하늘",
+    "text": "이번 incident 회고 리포트 draft 좀 써 줄 수 있어? timeline 위주로",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "document",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "register"
+    ]
+  },
+  {
+    "id": "t-h-014",
+    "context": [],
+    "author": "권나래",
+    "text": "도윤 씨, 고객사에 보낼 납기 지연 사과 공문 좀 써 줄래요?",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "document",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-015",
+    "context": [
+      "황보은: 채용 브랜딩 기획안 2페이지에 수정 포인트 댓글 달아 놨어요"
+    ],
+    "author": "백승호",
+    "text": "댓글 반영해서 기획안 고쳐 주세요",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "document",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "t-h-016",
+    "context": [],
+    "author": "Dana Whitfield",
+    "text": "draft the Q1 roadmap doc pls",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "document",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "terse",
+      "abbrev"
+    ]
+  },
+  {
+    "id": "t-h-017",
+    "context": [
+      "남궁솔: 그래서 결론은 가격 정책을 두 단계로 나누자는 거고",
+      "정바다: 아니 근데 무료 플랜은 유지해야 한다니까요",
+      "남궁솔: 유지하되 기능 제한을 더 걸자고요"
+    ],
+    "author": "이로운",
+    "text": "위에 얘기 너무 길어서 못 따라왔어요ㅠ 핵심만 세 줄로 추려 줄 수 있나요?",
+    "processes": [],
+    "expect": "summary",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "t-h-018",
+    "context": [],
+    "author": "Hannah Cole",
+    "text": "tl;dr this thread for me? I've been in back-to-backs all morning",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "summary",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "abbrev"
+    ]
+  },
+  {
+    "id": "t-h-019",
+    "context": [],
+    "author": "石川 陸",
+    "text": "このスレッドで決まったことだけ箇条書きで整理してもらえますか",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "summary",
+    "process": null,
+    "lang": "ja",
+    "axis": []
+  },
+  {
+    "id": "t-h-020",
+    "context": [],
+    "author": "진해람",
+    "text": "첨부한 신입사원 인터뷰 녹취 12건, 공통으로 나온 불만만 묶어서 정리해 주세요",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "summary",
+    "process": null,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "t-h-021",
+    "context": [],
+    "author": "Mia Chen",
+    "text": "어제 vendor call 내용 recap 좀 해줘 action item 중심으로",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "summary",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "terse"
+    ]
+  },
+  {
+    "id": "t-h-022",
+    "context": [],
+    "author": "배지환",
+    "text": "채원님 오늘 논의된 거 정리 좀 해서 올려 주실 수 있어요?",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "summary",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-023",
+    "context": [],
+    "author": "한도윤",
+    "text": "다음 주 목요일 오전 10시에 디자인팀이랑 한 시간짜리 리뷰 잡아 주세요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "schedule",
+    "process": null,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "t-h-024",
+    "context": [],
+    "author": "Owen Fletcher",
+    "text": "Put a 30-min sync with Harrow's ops lead on everyone's calendar sometime Friday",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "schedule",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "terse"
+    ]
+  },
+  {
+    "id": "t-h-025",
+    "context": [],
+    "author": "高橋 葵",
+    "text": "月曜の朝、チーム全員で15分の朝会を毎週入れておいてください",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "schedule",
+    "process": null,
+    "lang": "ja",
+    "axis": []
+  },
+  {
+    "id": "t-h-026",
+    "context": [],
+    "author": "차윤슬",
+    "text": "이번 달 안에 셋이 한번 모여야 할 것 같은데 다들 비는 시간 맞춰서 잡아 주면 좋겠어요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "schedule",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-027",
+    "context": [],
+    "author": "윤슬기",
+    "text": "kickoff 미팅 12/3 2pm으로 캘린더에 박아줘",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "schedule",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "terse",
+      "register"
+    ]
+  },
+  {
+    "id": "t-h-028",
+    "context": [],
+    "author": "陈浩",
+    "text": "下周三下午帮我们约一个和供应商的会议，放到日历上",
+    "processes": [
+      "请假申请",
+      "采购申请审批",
+      "报销申请",
+      "用印申请"
+    ],
+    "expect": "schedule",
+    "process": null,
+    "lang": "zh",
+    "axis": []
+  },
+  {
+    "id": "t-h-029",
+    "context": [],
+    "author": "임하준",
+    "text": "구매 요청 결재 올린 거 지금 누구 단계에 걸려 있는지 확인해 줄 수 있어요?",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-030",
+    "context": [],
+    "author": "Marisol Vega",
+    "text": "Does anyone know the policy for expensing home internet? can someone check the handbook",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "question"
+    ]
+  },
+  {
+    "id": "t-h-031",
+    "context": [],
+    "author": "中村 彩花",
+    "text": "取引先のネクサ工業って、うちの担当誰でしたっけ？調べてもらえます？",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "question"
+    ]
+  },
+  {
+    "id": "t-h-032",
+    "context": [],
+    "author": "탁건우",
+    "text": "작년 국내 협동로봇 시장 규모 대충이라도 좀 알아봐 줘",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "register"
+    ]
+  },
+  {
+    "id": "t-h-033",
+    "context": [],
+    "author": "노을",
+    "text": "재직증명서 발급 보통 며칠 걸리는지 찾아봐 줄 수 있어요?",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-034",
+    "context": [],
+    "author": "서태오",
+    "text": "법무팀 담당자가 이번에 바뀌었다던데 누군지 확인 좀 부탁",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "terse"
+    ]
+  },
+  {
+    "id": "t-h-035",
+    "context": [],
+    "author": "Priya Raman",
+    "text": "What's the status on the Harrow Logistics vendor onboarding? can someone look it up?",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-036",
+    "context": [
+      "오세린: 신규 라인에 RV-40E 감속기로 3대 들어가요"
+    ],
+    "author": "강현서",
+    "text": "이 감속기 단종 예정인지 알 수 있으면 좋겠는데…",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "indirect",
+      "context"
+    ]
+  },
+  {
+    "id": "t-h-037",
+    "context": [],
+    "author": "고은채",
+    "text": "재택근무 신청은 어디서 어떻게 하는 거예요? 처음이라 ㅠ",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "lookup",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "boundary",
+      "question"
+    ]
+  },
+  {
+    "id": "t-h-038",
+    "context": [],
+    "author": "문가온",
+    "text": "고객사에서 납기 당겨 달라는 메일 왔는데 정중하게 거절하는 답장 초안 좀 써 줘요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "reply",
+    "process": null,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "t-h-039",
+    "context": [],
+    "author": "Lena Hart",
+    "text": "Draft a polite no-thanks reply to the agency that pitched us last week",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "reply",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "terse"
+    ]
+  },
+  {
+    "id": "t-h-040",
+    "context": [],
+    "author": "森田 蓮",
+    "text": "お客様からの問い合わせメール、返信の下書きをお願いできますか",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "reply",
+    "process": null,
+    "lang": "ja",
+    "axis": []
+  },
+  {
+    "id": "t-h-041",
+    "context": [],
+    "author": "류재민",
+    "text": "전사에 시스템 점검 공지 메일 보내야 하는데 문구 좀 뽑아 줄래?",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "reply",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "register"
+    ]
+  },
+  {
+    "id": "t-h-042",
+    "context": [],
+    "author": "오하늘",
+    "text": "이 컴플레인 메일 reply 초안 써줘, 톤은 apologetic하게",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "reply",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "register"
+    ]
+  },
+  {
+    "id": "t-h-043",
+    "context": [],
+    "author": "한도윤",
+    "text": "태오님, 파트너사 문의에 회신 메일 좀 대신 써 주실 수 있나요?",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "reply",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-044",
+    "context": [],
+    "author": "신예준",
+    "text": "다음 주 금요일 연차 쓰려고요. 신청 좀 넣어 주세요",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "start_process",
+    "process": "연차 사용 신청",
+    "lang": "ko",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-045",
+    "context": [],
+    "author": "주시우",
+    "text": "노트북 화면 반이 나갔어요 ㅠ 바꿔야 할 것 같은데 그거 진행 좀 해 주세요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "start_process",
+    "process": "노트북 교체 요청",
+    "lang": "ko",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-046",
+    "context": [],
+    "author": "Owen Fletcher",
+    "text": "I need to get reimbursed for the client dinner last night — can you start that for me?",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "start_process",
+    "process": "Expense reimbursement",
+    "lang": "en",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-047",
+    "context": [],
+    "author": "藤井 美咲",
+    "text": "来週の木曜、在宅にしたいので申請しておいてもらえますか",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "start_process",
+    "process": "在宅勤務申請",
+    "lang": "ja",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-048",
+    "context": [],
+    "author": "Jordan Park",
+    "text": "샘플 출고 요청 하나 start 해줘, Nexa 쪽에 3박스",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "start_process",
+    "process": "샘플 출고 요청",
+    "lang": "mixed",
+    "axis": [
+      "terse"
+    ]
+  },
+  {
+    "id": "t-h-049",
+    "context": [
+      "오세린: 입고된 볼트 측정해 보니까 전부 규격 미달이에요",
+      "오세린: 라인에 이미 들어간 것도 있어요"
+    ],
+    "author": "탁건우",
+    "text": "그럼 그거 바로 보고 올려 주세요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "start_process",
+    "process": "품질 이상 보고",
+    "lang": "ko",
+    "axis": [
+      "context",
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-050",
+    "context": [],
+    "author": "Dana Whitfield",
+    "text": "Theo, can you kick off production access for the new contractor? he starts monday",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "start_process",
+    "process": "Production access request",
+    "lang": "en",
+    "axis": [
+      "teammate",
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-051",
+    "context": [],
+    "author": "刘洋",
+    "text": "我想下周一请一天假，帮我提交一下",
+    "processes": [
+      "请假申请",
+      "采购申请审批",
+      "报销申请",
+      "用印申请"
+    ],
+    "expect": "start_process",
+    "process": "请假申请",
+    "lang": "zh",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-052",
+    "context": [],
+    "author": "배지환",
+    "text": "법카 영수증 이번달꺼 제출해야되는데 그거 시작해줘",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "start_process",
+    "process": "법인카드 사용 내역 제출",
+    "lang": "ko",
+    "axis": [
+      "typo",
+      "abbrev",
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-053",
+    "context": [],
+    "author": "김도하",
+    "text": "備品購入申請 좀 올려 주세요, 모니터 암 2개요",
+    "processes": [
+      "연차 사용 신청",
+      "経費精算",
+      "備品購入申請",
+      "출장 경비 청구"
+    ],
+    "expect": "start_process",
+    "process": "備品購入申請",
+    "lang": "mixed",
+    "axis": []
+  },
+  {
+    "id": "t-h-054",
+    "context": [],
+    "author": "류재민",
+    "text": "신규 입사자 장비 지급하는 절차가 지금 없잖아요. 신청부터 수령까지 프로세스로 하나 만들어 주세요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "new_process",
+    "process": null,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "t-h-055",
+    "context": [],
+    "author": "Marisol Vega",
+    "text": "We keep handling NDA requests over DMs. Can we get a proper approval workflow defined for those?",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "new_process",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-056",
+    "context": [],
+    "author": "中村 彩花",
+    "text": "外部講師の招聘手続き、ワークフローとして新しく定義してほしいです",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "new_process",
+    "process": null,
+    "lang": "ja",
+    "axis": []
+  },
+  {
+    "id": "t-h-057",
+    "context": [],
+    "author": "윤슬기",
+    "text": "고객 데이터 삭제 요청 처리 flow가 없어서 매번 헤매요. workflow로 새로 하나 정의해 주세요",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "new_process",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "t-h-058",
+    "context": [],
+    "author": "강현서",
+    "text": "2라인 오늘 오전 가동률 92% 나왔어요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-059",
+    "context": [],
+    "author": "엄다솔",
+    "text": "다들 야간조 고생 많으셨어요 🙏",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "thanks",
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-060",
+    "context": [],
+    "author": "탁건우",
+    "text": "금형 교체는 제가 내일 아침에 직접 할게요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-061",
+    "context": [],
+    "author": "오세린",
+    "text": "품질 이상 보고 어제 올린 건 반려됐더라고요. 사진이 부족하대요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "boundary",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-062",
+    "context": [
+      "오세린: 볼트 샘플 측정값 시트에 올려놨어요"
+    ],
+    "author": "강현서",
+    "text": "시트 봤는데 3번 샘플 값이 좀 튀네요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-063",
+    "context": [],
+    "author": "엄다솔",
+    "text": "세린님 오늘 몇 시 퇴근하세요?",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-064",
+    "context": [],
+    "author": "탁건우",
+    "text": "ㅋㅋㅋ 아까 지게차 후진음 노래인 줄",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "joke"
+    ]
+  },
+  {
+    "id": "t-h-065",
+    "context": [],
+    "author": "오세린",
+    "text": "자재 긴급 발주 넣을 정도는 아닌 것 같아요. 재고 이틀치 남았어요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "boundary",
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-066",
+    "context": [],
+    "author": "강현서",
+    "text": "현장 사진 공유합니다 https://drive.chungsol.co.kr/s/press-03",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "link"
+    ]
+  },
+  {
+    "id": "t-h-067",
+    "context": [],
+    "author": "탁건우",
+    "text": "그럼 다음 주부터 2교대로 가는 걸로 확정합시다",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "decision"
+    ]
+  },
+  {
+    "id": "t-h-068",
+    "context": [],
+    "author": "엄다솔",
+    "text": "냉각수 온도 센서 또 튀네… 진짜 왜 이러지",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-069",
+    "context": [],
+    "author": "오세린",
+    "text": "작업 허가서 발행은 제가 오후에 할게요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-070",
+    "context": [],
+    "author": "강현서",
+    "text": "건우님 이 공정 개선안 어떻게 생각하세요?",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "opinion",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-071",
+    "context": [
+      "탁건우: 검사 성적서 표 양식 바꿀까 하는데"
+    ],
+    "author": "엄다솔",
+    "text": "지금 양식도 괜찮은 것 같아요 굳이?",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-072",
+    "context": [],
+    "author": "탁건우",
+    "text": "세린님 내일 고객사 감사 같이 들어가 주실 수 있어요?",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-073",
+    "context": [],
+    "author": "강현서",
+    "text": "어제설비점검끝나고바로퇴근했어요ㅋㅋ",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "spacing",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-074",
+    "context": [
+      "엄다솔: 야근 식대 청구 이번 주 거 같이 올릴까요?"
+    ],
+    "author": "탁건우",
+    "text": "아뇨 저는 이번엔 안 할래요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "t-h-075",
+    "context": [],
+    "author": "오세린",
+    "text": "보고서 쓰기 싫다…",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "complaint",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-076",
+    "context": [],
+    "author": "엄다솔",
+    "text": "내일 아침 조회는 제가 진행할게요",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self"
+    ]
+  },
+  {
+    "id": "t-h-077",
+    "context": [],
+    "author": "오세린",
+    "text": "현서님 아까 말한 거 그거 맞아요 ㅇㅇ",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "abbrev"
+    ]
+  },
+  {
+    "id": "t-h-078",
+    "context": [],
+    "author": "엄다솔",
+    "text": "그 표 만든 사람 누구예요? 너무 잘 만들었는데",
+    "processes": [
+      "설비 고장 신고",
+      "자재 긴급 발주",
+      "품질 이상 보고",
+      "작업 허가서 발행",
+      "연차 사용 신청",
+      "야근 식대 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "boundary",
+      "question"
+    ]
+  },
+  {
+    "id": "t-h-079",
+    "context": [],
+    "author": "윤채원",
+    "text": "법인카드 사용 내역 제출 마감 내일이에요~ 다들 잊지 마세요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-080",
+    "context": [],
+    "author": "배지환",
+    "text": "저는 어제 지출결의서 상신 끝냈습니다",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-081",
+    "context": [],
+    "author": "임하준",
+    "text": "예산 시트 탭이 왜 이렇게 많아요 ㅋㅋ 길 잃었어요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "boundary",
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-082",
+    "context": [],
+    "author": "표은결",
+    "text": "넵 확인했습니다!",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "ack"
+    ]
+  },
+  {
+    "id": "t-h-083",
+    "context": [],
+    "author": "윤채원",
+    "text": "세금계산서 발행 요청은 거래처가 사업자번호 다시 보내 주면 제가 할게요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "self"
+    ]
+  },
+  {
+    "id": "t-h-084",
+    "context": [],
+    "author": "배지환",
+    "text": "하준님 혹시 그 결산 보고서 한번 읽어 봐 주실 수 있어요? 이상한 데 없는지",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "boundary",
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-085",
+    "context": [],
+    "author": "임하준",
+    "text": "다음 달부터 경비 규정 바뀐대요. 택시비 한도가 올라간다던데",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-086",
+    "context": [],
+    "author": "표은결",
+    "text": "와 오늘 엄청 춥네요 출근길에 얼 뻔",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "chitchat"
+    ]
+  },
+  {
+    "id": "t-h-087",
+    "context": [],
+    "author": "윤채원",
+    "text": "엑셀 또 응답 없음 떴어요 진짜…😇",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "complaint",
+      "emoji",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-088",
+    "context": [
+      "윤채원: 거래처 등록 서류 다 받았어요"
+    ],
+    "author": "배지환",
+    "text": "오 빠르네요 👍",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-089",
+    "context": [],
+    "author": "임하준",
+    "text": "제가 이번 달 비용 표는 퇴근 전에 업데이트해 둘게요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-090",
+    "context": [],
+    "author": "표은결",
+    "text": "구매 요청 결재 왜 이렇게 오래 걸리나 몰라",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-091",
+    "context": [],
+    "author": "윤채원",
+    "text": "회계법인 미팅은 결국 취소됐어요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-092",
+    "context": [],
+    "author": "배지환",
+    "text": "하준님 혹시 월요일에 연차세요?",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-093",
+    "context": [],
+    "author": "표은결",
+    "text": "아 맞다 그 표 어제 제가 고쳐놨어요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "past",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-094",
+    "context": [],
+    "author": "윤채원",
+    "text": "은결님 요즘 일 많아 보이는데 괜찮아요?",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-095",
+    "context": [
+      "배지환: 비용 분석 보고서 이번엔 누가 쓸래요?"
+    ],
+    "author": "임하준",
+    "text": "제가 할게요 🙋",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "self"
+    ]
+  },
+  {
+    "id": "t-h-096",
+    "context": [],
+    "author": "배지환",
+    "text": "거래처 신규 등록하는 법 아는 사람~? 아 아니다 찾았어요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-097",
+    "context": [],
+    "author": "윤채원",
+    "text": "세금계산서 발행 요청 누가 올렸는지는 모르겠는데 일단 처리됐어요",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-098",
+    "context": [],
+    "author": "윤채원",
+    "text": "이 보고서 누가 썼는지 진짜 잘 썼다",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "opinion",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-099",
+    "context": [],
+    "author": "배지환",
+    "text": "엑셀에 VLOOKUP 쓰면 되긴 하는데... 다들 그렇게 해요?",
+    "processes": [
+      "법인카드 사용 내역 제출",
+      "구매 요청 결재",
+      "거래처 신규 등록",
+      "지출결의서 상신",
+      "출장 경비 청구",
+      "세금계산서 발행 요청",
+      "연차 사용 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-100",
+    "context": [],
+    "author": "류재민",
+    "text": "VPN 서버 패치 완료했습니다. 재접속해 보세요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-101",
+    "context": [],
+    "author": "차윤슬",
+    "text": "보안 예외 승인은 제가 지난주에 받아 뒀어요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-102",
+    "context": [],
+    "author": "주시우",
+    "text": "와이파이 또 끊겼다 ㅠㅠ",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-103",
+    "context": [],
+    "author": "류재민",
+    "text": "시우님 3층 프린터 토너 좀 갈아 주실 수 있어요?",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-104",
+    "context": [],
+    "author": "차윤슬",
+    "text": "노트북 교체 요청 프로세스는 진짜 결재 단계가 너무 많아요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-105",
+    "context": [],
+    "author": "주시우",
+    "text": "로그 보니까 새벽 3시에 배치가 두 번 돌았네요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-106",
+    "context": [],
+    "author": "류재민",
+    "text": "이번 장애 원인 분석은 제가 맡을게요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self"
+    ]
+  },
+  {
+    "id": "t-h-107",
+    "context": [],
+    "author": "차윤슬",
+    "text": "ㄱㅅㄱㅅ",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "abbrev",
+      "thanks"
+    ]
+  },
+  {
+    "id": "t-h-108",
+    "context": [
+      "류재민: 디자인툴 라이선스 다음 달 만료예요"
+    ],
+    "author": "주시우",
+    "text": "벌써요? 작년에 산 것 같은데",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "t-h-109",
+    "context": [],
+    "author": "주시우",
+    "text": "재민님 이 스크립트 한번 검토해 주실래요?",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-110",
+    "context": [],
+    "author": "차윤슬",
+    "text": "ㅇㅋㅇㅋ 그렇게 해요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "ack",
+      "abbrev"
+    ]
+  },
+  {
+    "id": "t-h-111",
+    "context": [],
+    "author": "류재민",
+    "text": "시스템 계정 권한 신청 양식 또 바뀌었네요 ㅎㅎ",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process"
+    ]
+  },
+  {
+    "id": "t-h-112",
+    "context": [],
+    "author": "주시우",
+    "text": "백업 서버 디스크 87% 찼어요. 다음 주에 증설할게요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status",
+      "self"
+    ]
+  },
+  {
+    "id": "t-h-113",
+    "context": [],
+    "author": "류재민",
+    "text": "이번 달 장애 0건! 👏",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status",
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-114",
+    "context": [],
+    "author": "차윤슬",
+    "text": "오늘 오후에 보안 교육 있는 거 아시죠? 3시예요",
+    "processes": [
+      "노트북 교체 요청",
+      "시스템 계정 권한 신청",
+      "보안 예외 승인",
+      "소프트웨어 라이선스 구매",
+      "VPN 접속 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-115",
+    "context": [],
+    "author": "권나래",
+    "text": "어제 넥사공업에 샘플 3종 보냈어요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-116",
+    "context": [],
+    "author": "서태오",
+    "text": "가온님 내일 대전 미팅 몇 시 기차예요?",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-117",
+    "context": [],
+    "author": "한도윤",
+    "text": "계약서 법무 검토 요청은 나래님이 이미 올렸대요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-118",
+    "context": [],
+    "author": "문가온",
+    "text": "이번 달 목표 달성했다!!! 🎉🎉",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-119",
+    "context": [],
+    "author": "권나래",
+    "text": "제가 쓴 제안서 초안 공유드려요. 의견 주세요 → https://docs.danbi.kr/p/88",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "link",
+      "boundary",
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-120",
+    "context": [],
+    "author": "서태오",
+    "text": "고객 불만 접수된 거 오늘 해결 완료",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-121",
+    "context": [],
+    "author": "한도윤",
+    "text": "특별 할인 승인은 이번 건엔 안 쓰는 걸로 하죠",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "decision"
+    ]
+  },
+  {
+    "id": "t-h-122",
+    "context": [],
+    "author": "문가온",
+    "text": "저 오늘 반차라 먼저 나가볼게요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-123",
+    "context": [],
+    "author": "권나래",
+    "text": "샘플 출고 요청 하는 김에 견본 반납 처리도 같이 하면 좋은데 그건 제가 할게요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-124",
+    "context": [],
+    "author": "서태오",
+    "text": "도윤님 이 메일 톤 괜찮아 보여요? 너무 딱딱한가",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "opinion",
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-125",
+    "context": [],
+    "author": "문가온",
+    "text": "나래님 이 제안서 표지 시안 A랑 B 중에 뭐가 나아요?",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "opinion",
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-126",
+    "context": [],
+    "author": "서태오",
+    "text": "고객사 담당자 바뀌었대요. 새로 오신 분 이름은 아직 몰라요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-127",
+    "context": [],
+    "author": "한도윤",
+    "text": "이번 주 금요일 회식 장소 투표 마감합니다",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-128",
+    "context": [
+      "서태오: 회신 메일 초안 써 드릴까요?"
+    ],
+    "author": "권나래",
+    "text": "괜찮아요 이미 보냈어요!",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-129",
+    "context": [],
+    "author": "문가온",
+    "text": "견본 반납 처리 다 끝났습니다 👌",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-130",
+    "context": [],
+    "author": "문가온",
+    "text": "오늘 미팅룸 에어컨 왜 이렇게 세요 ㅋㅋ 다들 겉옷 챙기세요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "chitchat"
+    ]
+  },
+  {
+    "id": "t-h-131",
+    "context": [],
+    "author": "서태오",
+    "text": "도윤님 고객사에 전화 한 통만 해 주실 수 있어요? 급해요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-132",
+    "context": [],
+    "author": "권나래",
+    "text": "그럼 B안으로 확정할게요",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "decision"
+    ]
+  },
+  {
+    "id": "t-h-133",
+    "context": [],
+    "author": "한도윤",
+    "text": "제가 지금 외근이라 답장이 늦어요, 양해 부탁",
+    "processes": [
+      "계약서 법무 검토 요청",
+      "샘플 출고 요청",
+      "특별 할인 승인",
+      "고객 불만 접수",
+      "견본 반납 처리",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-134",
+    "context": [],
+    "author": "진해람",
+    "text": "재직증명서 발급은 인트라넷에서 셀프로 할 수 있어요!",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process"
+    ]
+  },
+  {
+    "id": "t-h-135",
+    "context": [],
+    "author": "백승호",
+    "text": "채용 공고 오늘 올라갔습니다",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-136",
+    "context": [],
+    "author": "노을",
+    "text": "면접 일정 다 잡혔어요, 이번 주 수목금",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "past",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-137",
+    "context": [],
+    "author": "황보은",
+    "text": "승호님 다음 주 교육 때 발표 맡아 주실 수 있어요?",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-138",
+    "context": [],
+    "author": "진해람",
+    "text": "경조금 신청 서류에 가족관계증명서가 필요하더라고요",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process"
+    ]
+  },
+  {
+    "id": "t-h-139",
+    "context": [],
+    "author": "노을",
+    "text": "ㅠㅠ 오늘 면접자 두 명 노쇼",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-140",
+    "context": [],
+    "author": "백승호",
+    "text": "사내 추천 채용 접수 이번 달은 벌써 5건이나 들어왔어요",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-141",
+    "context": [],
+    "author": "황보은",
+    "text": "평가 시즌이라 다들 예민하네요 ㅎㅎ",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "chitchat"
+    ]
+  },
+  {
+    "id": "t-h-142",
+    "context": [
+      "황보은: 온보딩 자료 개편안 올려 뒀어요"
+    ],
+    "author": "진해람",
+    "text": "오 훨씬 깔끔해졌네요",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-143",
+    "context": [],
+    "author": "노을",
+    "text": "저는 교육 만족도 설문 결과 정리 중이에요. 내일 공유할게요",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-144",
+    "context": [],
+    "author": "백승호",
+    "text": "다음 주 채용박람회 부스 위치 받았어요. B-12래요",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-145",
+    "context": [],
+    "author": "노을",
+    "text": "평가 결과 보고서는 제가 금요일까지 쓸게요",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-146",
+    "context": [],
+    "author": "진해람",
+    "text": "보은님 오늘 신입 OT 몇 명 왔어요?",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-147",
+    "context": [],
+    "author": "황보은",
+    "text": "교육비 지원 신청 이번 분기에 엄청 많이 들어왔네요 ㅎㅎ",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process"
+    ]
+  },
+  {
+    "id": "t-h-148",
+    "context": [],
+    "author": "노을",
+    "text": "ㅋㅋㅋㅋㅋㅋ",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-149",
+    "context": [],
+    "author": "백승호",
+    "text": "보은님이 주신 자료 덕분에 살았어요 ㅠㅠ 감사합니다",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "thanks"
+    ]
+  },
+  {
+    "id": "t-h-150",
+    "context": [],
+    "author": "황보은",
+    "text": "그럼 신입 교육은 2주로 줄이는 방향으로 가죠",
+    "processes": [
+      "연차 사용 신청",
+      "재직증명서 발급",
+      "교육비 지원 신청",
+      "사내 추천 채용 접수",
+      "경조금 신청",
+      "재택근무 신청"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "decision"
+    ]
+  },
+  {
+    "id": "t-h-151",
+    "context": [],
+    "author": "이로운",
+    "text": "투자사 미팅 생각보다 분위기 좋았어요",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-152",
+    "context": [],
+    "author": "정바다",
+    "text": "솔님 내일 판교 오세요?",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-153",
+    "context": [],
+    "author": "남궁솔",
+    "text": "우리 로고 새로 바꾼 거 어때요? 솔직하게 ㅋㅋ",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-154",
+    "context": [],
+    "author": "정바다",
+    "text": "피치덱은 제가 주말에 손볼게요",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-155",
+    "context": [],
+    "author": "이로운",
+    "text": "아 서버비 너무 많이 나온다…",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-156",
+    "context": [
+      "이로운: IR 자료 숫자 몇 개 업데이트해야 돼요"
+    ],
+    "author": "남궁솔",
+    "text": "그거 제가 알아서 할게요",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "self"
+    ]
+  },
+  {
+    "id": "t-h-157",
+    "context": [],
+    "author": "정바다",
+    "text": "😂😂😂",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-158",
+    "context": [],
+    "author": "이로운",
+    "text": "https://www.notion.so/haenim/roadmap-2027 일단 링크만 던져 둡니다",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "link"
+    ]
+  },
+  {
+    "id": "t-h-159",
+    "context": [],
+    "author": "정바다",
+    "text": "IR 덱 최종본 올렸어요. 이걸로 갑니다",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-160",
+    "context": [],
+    "author": "이로운",
+    "text": "다음 주부터 저 육아휴직 들어가요. 그동안 잘 부탁드려요!",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-161",
+    "context": [],
+    "author": "남궁솔",
+    "text": "바다님 내일 데모 때 노트북 하나 더 챙겨 와 주실 수 있어요?",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-162",
+    "context": [],
+    "author": "이로운",
+    "text": "와 이 뉴스 봤어요? 경쟁사 시리즈B 받았대요",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "chitchat"
+    ]
+  },
+  {
+    "id": "t-h-163",
+    "context": [],
+    "author": "정바다",
+    "text": "와 벌써 금요일이네",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "chitchat"
+    ]
+  },
+  {
+    "id": "t-h-164",
+    "context": [],
+    "author": "남궁솔",
+    "text": "표 정리는 내가 할게 걱정 ㄴㄴ",
+    "processes": [],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self",
+      "abbrev",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-165",
+    "context": [],
+    "author": "신예준",
+    "text": "회의실 장기 예약 다음 분기 것도 미리 해 뒀어요",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-166",
+    "context": [],
+    "author": "고은채",
+    "text": "명함 신청 했는데 아직 안 왔네요",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-167",
+    "context": [],
+    "author": "김하람",
+    "text": "재택근무 신청 다음 주부터 자율로 바뀐대요!",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process"
+    ]
+  },
+  {
+    "id": "t-h-168",
+    "context": [],
+    "author": "신예준",
+    "text": "은채님 내일 재택이세요?",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-169",
+    "context": [],
+    "author": "고은채",
+    "text": "오늘 엘리베이터 점검이라 계단 써야 한대요 ㅠ",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "chitchat"
+    ]
+  },
+  {
+    "id": "t-h-170",
+    "context": [],
+    "author": "김하람",
+    "text": "다들 고생했어요 이번 프로젝트 진짜 끝!",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "thanks"
+    ]
+  },
+  {
+    "id": "t-h-171",
+    "context": [],
+    "author": "신예준",
+    "text": "연차 사용 신청은 제가 직접 올릴게요, 괜찮아요",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-172",
+    "context": [
+      "김하람: 법카 내역 제출 이번 주까지래요"
+    ],
+    "author": "고은채",
+    "text": "넵 내일 할게요",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "context",
+      "self"
+    ]
+  },
+  {
+    "id": "t-h-173",
+    "context": [],
+    "author": "김하람",
+    "text": "노트북 교체 요청 했던 거 오늘 새 거 받았어요 ㅎㅎ",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-174",
+    "context": [],
+    "author": "고은채",
+    "text": "예준님 그 보고서 다 쓰셨어요?",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-175",
+    "context": [],
+    "author": "신예준",
+    "text": "사내 추천 채용 접수 어제 했는데 확인 메일이 안 오네",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-176",
+    "context": [],
+    "author": "김하람",
+    "text": "다들 오늘 고생 많았어요. 푹 쉬세요~",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "chitchat"
+    ]
+  },
+  {
+    "id": "t-h-177",
+    "context": [],
+    "author": "고은채",
+    "text": "명함 신청 할 때 영문 직함 뭐로 쓰셨어요?",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "question"
+    ]
+  },
+  {
+    "id": "t-h-178",
+    "context": [],
+    "author": "신예준",
+    "text": "구매요청결재는 이미 팀장님이 승인하셨어요",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "spacing",
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-179",
+    "context": [],
+    "author": "김하람",
+    "text": "다음 주 일정은 제가 캘린더에 직접 넣을게요",
+    "processes": [
+      "연차 사용 신청",
+      "재택근무 신청",
+      "구매 요청 결재",
+      "법인카드 사용 내역 제출",
+      "노트북 교체 요청",
+      "회의실 장기 예약",
+      "명함 신청",
+      "사내 추천 채용 접수"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-180",
+    "context": [],
+    "author": "Owen Fletcher",
+    "text": "Morning all ☀️",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "greeting",
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-181",
+    "context": [],
+    "author": "Marisol Vega",
+    "text": "The Harrow vendor onboarding got approved yesterday btw",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-182",
+    "context": [],
+    "author": "Priya Raman",
+    "text": "I'll handle the PTO calendar update myself, no worries",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-183",
+    "context": [],
+    "author": "Owen Fletcher",
+    "text": "Does this deck look too busy to you, Marisol?",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "opinion",
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-184",
+    "context": [],
+    "author": "Marisol Vega",
+    "text": "ugh, the expense tool logged me out again",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-185",
+    "context": [],
+    "author": "Priya Raman",
+    "text": "We're going with the 3-year lease. Final answer.",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "decision"
+    ]
+  },
+  {
+    "id": "t-h-186",
+    "context": [],
+    "author": "Owen Fletcher",
+    "text": "Can someone grab the spare monitor from storage room B?",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-187",
+    "context": [],
+    "author": "Marisol Vega",
+    "text": "Equipment loan forms are in the shared drive if anyone needs them",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process"
+    ]
+  },
+  {
+    "id": "t-h-188",
+    "context": [],
+    "author": "Priya Raman",
+    "text": "thx!!",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "thanks",
+      "abbrev"
+    ]
+  },
+  {
+    "id": "t-h-189",
+    "context": [
+      "Priya Raman: Shall I draft the carrier comparison?"
+    ],
+    "author": "Owen Fletcher",
+    "text": "nah I already did it last night",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "context",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-190",
+    "context": [],
+    "author": "Marisol Vega",
+    "text": "Purchase request approval is taking forever this month lol",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process",
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-191",
+    "context": [],
+    "author": "Priya Raman",
+    "text": "Owen, are you joining the offsite in person or remote?",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-192",
+    "context": [],
+    "author": "Priya Raman",
+    "text": "signing off a bit early today, ping me if anything's on fire",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-193",
+    "context": [],
+    "author": "Owen Fletcher",
+    "text": "New hire onboarding for Tomasz starts Monday, I've got the checklist covered",
+    "processes": [
+      "Purchase request approval",
+      "Vendor onboarding",
+      "PTO request",
+      "Expense reimbursement",
+      "Equipment loan",
+      "New hire onboarding"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process",
+      "self"
+    ]
+  },
+  {
+    "id": "t-h-194",
+    "context": [],
+    "author": "Kofi Mensah",
+    "text": "deployed v2.14 to staging, smoke tests green ✅",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-195",
+    "context": [],
+    "author": "Dana Whitfield",
+    "text": "Release sign-off for 2.14 is on me, I'll do it after standup",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-196",
+    "context": [],
+    "author": "Theo Grant",
+    "text": "That incident postmortem from last week was really well written, Kofi",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "opinion",
+      "process"
+    ]
+  },
+  {
+    "id": "t-h-197",
+    "context": [],
+    "author": "Kofi Mensah",
+    "text": "brb, fire drill",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "status",
+      "abbrev"
+    ]
+  },
+  {
+    "id": "t-h-198",
+    "context": [],
+    "author": "Dana Whitfield",
+    "text": "lol who named this branch 'final-final-v3'",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "joke"
+    ]
+  },
+  {
+    "id": "t-h-199",
+    "context": [],
+    "author": "Theo Grant",
+    "text": "Are we still doing the bug bash on Thursday or did that move?",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "question"
+    ]
+  },
+  {
+    "id": "t-h-200",
+    "context": [],
+    "author": "Kofi Mensah",
+    "text": "Customer refund request for ticket 4471 was closed yesterday",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-201",
+    "context": [],
+    "author": "Dana Whitfield",
+    "text": "I think we should drop IE support entirely. thoughts?",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-202",
+    "context": [
+      "Kofi Mensah: the flaky test is back"
+    ],
+    "author": "Theo Grant",
+    "text": "of course it is 🙃",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "context",
+      "joke",
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-203",
+    "context": [],
+    "author": "Dana Whitfield",
+    "text": "Bug triage intake form has a new severity field now fyi",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process"
+    ]
+  },
+  {
+    "id": "t-h-204",
+    "context": [],
+    "author": "Theo Grant",
+    "text": "we decided to push the database migration to January",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "decision"
+    ]
+  },
+  {
+    "id": "t-h-205",
+    "context": [],
+    "author": "Kofi Mensah",
+    "text": "I wrote the rollback runbook over the weekend, it's in the wiki",
+    "processes": [
+      "Bug triage intake",
+      "Release sign-off",
+      "Production access request",
+      "Incident postmortem",
+      "Customer refund request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "past",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-206",
+    "context": [],
+    "author": "Lena Hart",
+    "text": "Press release went out at 9am, already picked up by two outlets!",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-207",
+    "context": [],
+    "author": "Ravi Menon",
+    "text": "I'll write the newsletter copy this time",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-208",
+    "context": [],
+    "author": "Hannah Cole",
+    "text": "Lena what did you think of the new brand colors?",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "opinion",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-209",
+    "context": [],
+    "author": "Ravi Menon",
+    "text": "Campaign budget approval came back with a 10% cut 😬",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process",
+      "status",
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-210",
+    "context": [],
+    "author": "Lena Hart",
+    "text": "Here's the moodboard: https://www.figma.com/file/k8Qw2/winter-campaign",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "link"
+    ]
+  },
+  {
+    "id": "t-h-211",
+    "context": [],
+    "author": "Hannah Cole",
+    "text": "Happy Friday everyone!",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "greeting"
+    ]
+  },
+  {
+    "id": "t-h-212",
+    "context": [],
+    "author": "Ravi Menon",
+    "text": "honestly the keynote was the best part of the expo",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-213",
+    "context": [],
+    "author": "Lena Hart",
+    "text": "I sent the sponsorship deck to Orbis yesterday",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-214",
+    "context": [],
+    "author": "Hannah Cole",
+    "text": "Could you hold the door for the courier, Ravi? I'm stuck on a call",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-215",
+    "context": [],
+    "author": "Hannah Cole",
+    "text": "Ravi, did you end up talking to the printing vendor?",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-216",
+    "context": [],
+    "author": "Lena Hart",
+    "text": "why does every brand asset request need three sign-offs 🙄",
+    "processes": [
+      "Campaign budget approval",
+      "Press release review",
+      "Event sponsorship request",
+      "Brand asset request"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "process",
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-217",
+    "context": [],
+    "author": "森田 蓮",
+    "text": "おはようございます！今日もよろしくお願いします",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "greeting"
+    ]
+  },
+  {
+    "id": "t-h-218",
+    "context": [],
+    "author": "藤井 美咲",
+    "text": "経費精算、今月は25日締めです。お忘れなく〜",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "process",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-219",
+    "context": [],
+    "author": "中村 彩花",
+    "text": "名刺発注は私がやっておきますね",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-220",
+    "context": [],
+    "author": "森田 蓮",
+    "text": "コピー機また紙詰まりしてる…",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "complaint"
+    ]
+  },
+  {
+    "id": "t-h-221",
+    "context": [],
+    "author": "藤井 美咲",
+    "text": "中村さん、明日は在宅ですか？",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-222",
+    "context": [],
+    "author": "中村 彩花",
+    "text": "昨日、備品購入申請出しました",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-223",
+    "context": [],
+    "author": "森田 蓮",
+    "text": "了解です🙆‍♂️",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "ack",
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-224",
+    "context": [
+      "森田 蓮: 会議室の椅子、何脚か壊れてます"
+    ],
+    "author": "藤井 美咲",
+    "text": "あー、あれ前からですよね",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "t-h-225",
+    "context": [],
+    "author": "中村 彩花",
+    "text": "忘年会の場所、A案でいきましょう",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "decision"
+    ]
+  },
+  {
+    "id": "t-h-226",
+    "context": [],
+    "author": "森田 蓮",
+    "text": "その表、すごく見やすいですね！",
+    "processes": [
+      "有給休暇申請",
+      "経費精算",
+      "備品購入申請",
+      "名刺発注",
+      "在宅勤務申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "opinion",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-227",
+    "context": [],
+    "author": "石川 陸",
+    "text": "検証環境、今日の午後メンテです",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-228",
+    "context": [],
+    "author": "高橋 葵",
+    "text": "リリース承認は私が明日出します",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-229",
+    "context": [],
+    "author": "小林 悠真",
+    "text": "このPRのレビュー、高橋さんどう思います？",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "opinion",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-230",
+    "context": [],
+    "author": "石川 陸",
+    "text": "障害報告はさっき出しておきました",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-231",
+    "context": [],
+    "author": "高橋 葵",
+    "text": "笑 そのエラーメッセージ秀逸すぎる",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "joke"
+    ]
+  },
+  {
+    "id": "t-h-232",
+    "context": [],
+    "author": "小林 悠真",
+    "text": "ログイン画面のデザイン、正直ちょっと古い気がする",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-233",
+    "context": [],
+    "author": "高橋 葵",
+    "text": "議事録は私がまとめておきますね",
+    "processes": [
+      "障害報告",
+      "リリース承認",
+      "アカウント発行依頼",
+      "検証環境の利用申請"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-234",
+    "context": [],
+    "author": "윤슬기",
+    "text": "오늘 standup skip하고 async로 갈게요",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "decision"
+    ]
+  },
+  {
+    "id": "t-h-235",
+    "context": [],
+    "author": "Jordan Park",
+    "text": "하늘님 그 deck 봤어요? 어떤 것 같아요",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "opinion",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-236",
+    "context": [],
+    "author": "오하늘",
+    "text": "release sign-off 오늘 제가 받아올게요",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-237",
+    "context": [],
+    "author": "Mia Chen",
+    "text": "lol 이 bug 진짜 웃기다",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "joke"
+    ]
+  },
+  {
+    "id": "t-h-238",
+    "context": [],
+    "author": "윤슬기",
+    "text": "어제 client한테 contract 보냈어요",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-239",
+    "context": [],
+    "author": "Jordan Park",
+    "text": "출장 경비 청구 approval 났어요 finally 🙌",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "process",
+      "past",
+      "emoji"
+    ]
+  },
+  {
+    "id": "t-h-240",
+    "context": [],
+    "author": "오하늘",
+    "text": "Mia, are you OOO tomorrow?",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "en",
+    "axis": [
+      "question",
+      "teammate",
+      "abbrev"
+    ]
+  },
+  {
+    "id": "t-h-241",
+    "context": [],
+    "author": "Mia Chen",
+    "text": "어제 demo 반응 좋았어요 👍 특히 dashboard 부분",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-242",
+    "context": [],
+    "author": "윤슬기",
+    "text": "그 spreadsheet 너무 무거워서 laptop이 죽어요 ㅋㅋ",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "complaint",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-243",
+    "context": [],
+    "author": "Jordan Park",
+    "text": "연차 사용 신청 내가 할게, no worries",
+    "processes": [
+      "연차 사용 신청",
+      "Purchase request approval",
+      "샘플 출고 요청",
+      "출장 경비 청구",
+      "Release sign-off"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-244",
+    "context": [],
+    "author": "山口 結衣",
+    "text": "도하さん、明日の打ち合わせ何時からでしたっけ？",
+    "processes": [
+      "연차 사용 신청",
+      "経費精算",
+      "備品購入申請",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "question",
+      "teammate"
+    ]
+  },
+  {
+    "id": "t-h-245",
+    "context": [],
+    "author": "김도하",
+    "text": "結衣さん 오늘 자료 감사합니다 🙏",
+    "processes": [
+      "연차 사용 신청",
+      "経費精算",
+      "備品購入申請",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "thanks"
+    ]
+  },
+  {
+    "id": "t-h-246",
+    "context": [],
+    "author": "佐々木 健",
+    "text": "経費精算は自分でやります、大丈夫です",
+    "processes": [
+      "연차 사용 신청",
+      "経費精算",
+      "備品購入申請",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ja",
+    "axis": [
+      "process",
+      "self",
+      "boundary"
+    ]
+  },
+  {
+    "id": "t-h-247",
+    "context": [],
+    "author": "박서진",
+    "text": "도쿄 출장 일정 확정됐어요! 12월 9일~11일",
+    "processes": [
+      "연차 사용 신청",
+      "経費精算",
+      "備品購入申請",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "ko",
+    "axis": [
+      "status"
+    ]
+  },
+  {
+    "id": "t-h-248",
+    "context": [],
+    "author": "박서진",
+    "text": "健さん 자료 확인했어요! ありがとうございます",
+    "processes": [
+      "연차 사용 신청",
+      "経費精算",
+      "備品購入申請",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "thanks"
+    ]
+  },
+  {
+    "id": "t-h-249",
+    "context": [],
+    "author": "김도하",
+    "text": "그 資料 너무 좋았어요 ㅎㅎ 次回もお願いします",
+    "processes": [
+      "연차 사용 신청",
+      "経費精算",
+      "備品購入申請",
+      "출장 경비 청구"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "mixed",
+    "axis": [
+      "opinion"
+    ]
+  },
+  {
+    "id": "t-h-250",
+    "context": [],
+    "author": "陈浩",
+    "text": "大家早上好！",
+    "processes": [
+      "请假申请",
+      "采购申请审批",
+      "报销申请",
+      "用印申请"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "zh",
+    "axis": [
+      "greeting"
+    ]
+  },
+  {
+    "id": "t-h-251",
+    "context": [],
+    "author": "刘洋",
+    "text": "报销申请我昨天已经提交了",
+    "processes": [
+      "请假申请",
+      "采购申请审批",
+      "报销申请",
+      "用印申请"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "zh",
+    "axis": [
+      "process",
+      "past"
+    ]
+  },
+  {
+    "id": "t-h-252",
+    "context": [],
+    "author": "王丽娜",
+    "text": "这个方案我觉得还可以，你们觉得呢？",
+    "processes": [
+      "请假申请",
+      "采购申请审批",
+      "报销申请",
+      "用印申请"
+    ],
+    "expect": "none",
+    "process": null,
+    "lang": "zh",
+    "axis": [
+      "opinion"
+    ]
+  }
+]

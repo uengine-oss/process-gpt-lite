@@ -1,10 +1,16 @@
-// English mode in meetings (lib/meetings): a meeting's language, English cues for the rules-first detector,
-// English judge labels with the same keys, English name matching, and the room record / minutes texts —
-// with Korean meetings exactly as they were.
-import test from 'node:test'
+// English mode in meetings (lib/meetings): a meeting's language, the judge's question and options in the
+// meeting's language with the same keys (the options are skill descriptions — lib/offers.js), which
+// material a line means picked by the judge from candidate names, the card title the judge wrote, and the
+// room record / minutes texts — with Korean meetings as they were. A stand-in judge server answers.
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
+import { startJudge } from './fixtures/judgeStub.mjs'
 // the modules pull in the DB client through their imports; a checkout without server/.env still runs these
 process.env.SERVICE_ROLE_KEY ||= 'unit-test'
+let answer = () => 'none'
+const J = await startJudge((body, n) => answer(body, n))
+process.env.PRO_JUDGE_URL = J.url
+after(() => J.close())
 const { withLang } = await import('../lib/lang.js')
 const R = await import('../lib/meetings/record.js')
 const I = await import('../lib/meetings/intent.js')
@@ -24,75 +30,40 @@ test('a meeting is in the language it was started in (summary.lang), Korean othe
   assert.equal(R.meetingLang(null), 'ko')
 })
 
-test('English cues: materials and requests said in English, in an English meeting only', () => {
-  const lines = {
-    quote: 'Shall we look at the Moonlight Coffee quote we sent last time again?',
-    plan: "Sure. Let's look at the floor plan too. They asked us to move the bar counter.",
-    trip: "And how far has last week's Busan travel expense settlement got?",
-    redo: 'Then please redo the quote with the amount 5% lower.',
-    chat: 'Sounds good to me, thanks everyone',
-  }
-  en(() => {
-    assert.deepEqual(I.cue(lines.quote), { material: true, request: false, why: null })
-    assert.equal(I.cue(lines.plan).material, true)
-    assert.equal(I.cue(lines.trip).material, true)
-    assert.deepEqual(I.cue(lines.redo), { material: true, request: true, why: null })
-    assert.equal(I.cue(lines.chat).why, 'no-cue')
-    assert.equal(I.cue('ok').why, 'short')
-    // a Korean line in an English meeting still counts
-    assert.equal(I.cue('견적서 금액 5% 낮춰서 다시 만들어 주세요.').request, true)
-  })
-  ko(() => {
-    // a Korean meeting is judged by the Korean rules only, as before
-    for (const t of Object.values(lines)) assert.equal(I.cue(t).why, 'no-cue', t)
-    assert.deepEqual(I.cue('견적서 금액 5% 낮춰서 다시 만들어 주세요.'), { material: true, request: true, why: null })
-    assert.deepEqual(I.cue('지난번 달빛커피 견적서 다시 볼까요?'), { material: true, request: false, why: null })
-  })
+test('the judge reads its question and options in the meeting\'s language; the keys never change', () => {
+  const e = en(() => I.options()), k = ko(() => I.options())
+  assert.deepEqual(e.map((o) => o.key), k.map((o) => o.key))
+  assert.deepEqual(e.slice(0, 3).map((o) => o.key), ['none', 'show', 'find'])
+  for (const o of e) assert.doesNotMatch(o.label, /[가-힣]/, o.key)
+  for (const o of k) assert.match(o.label, /[가-힣]/, o.key)
+  // the kinds of work are the meeting's offer skills (no process start or definition in a meeting)
+  assert.ok(e.some((o) => o.key === 'CreateSpreadsheet'))
+  assert.ok(!e.some((o) => o.key === 'StartProcessInstance' || o.key === 'CreateProcessDefinition'))
+  // format only before the judge
+  assert.equal(I.cue('ok').why, null)
+  assert.equal(I.cue('…').why, 'emoji')
 })
 
-test('the judge reads English questions and labels in an English meeting; the keys never change', () => {
-  const opts = [
-    { key: 'no', label: '의견·잡담·결정처럼 자료를 찾을 필요가 없는 말' },
-    { key: 'yes', label: '이미 있는 파일·문서·진행 상황·기록을 찾아서 보자는 말' },
-  ]
-  const works = [{ key: 'CreateSpreadsheet', label: '견적서·예산표·정산표 같은 표나 엑셀 파일 만들기' }, { key: 'DraftReply', label: '메일·답장·공지 초안 쓰기' }]
-  const cands = [{ key: 'c0', label: 'Moonlight_Coffee_quote.xlsx' }]
-  en(() => {
-    const o = I.judgeOptions(opts)
-    assert.deepEqual(o.map((x) => x.key), ['no', 'yes'])
-    for (const x of o) assert.doesNotMatch(x.label, /[가-힣]/)
-    assert.deepEqual(I.judgeOptions(works).map((x) => x.key), ['CreateSpreadsheet', 'DraftReply'])
-    assert.match(I.judgeOptions(works)[0].label, /spreadsheet/i)
-    assert.deepEqual(I.judgeOptions(cands), cands)
-    assert.equal(I.judgeQuestion('방금 한 말은 어떤 말인가요?'), 'What kind of remark was just made?')
-  })
-  ko(() => {
-    assert.equal(I.judgeOptions(opts), opts)
-    assert.equal(I.judgeOptions(works), works)
-    assert.equal(I.judgeQuestion('방금 한 말은 어떤 말인가요?'), '방금 한 말은 어떤 말인가요?')
-  })
-})
-
-test('material names match English speech without case; Korean scores are the same as before', () => {
-  en(() => {
-    const said = "Let's look at the Quote again"
-    const quote = MAT.score(said, 'Moonlight_Coffee_quote.xlsx')
-    const revised = MAT.score(said, 'Moonlight_Coffee_quote_revised.xlsx')
-    const plan = MAT.score(said, 'Moonlight_Coffee_floor_plan.dxf')
-    assert.ok(quote > 0)
-    assert.ok(quote > revised, 'the name with fewer unsaid words wins')
-    assert.equal(plan, 0)
-    assert.ok(MAT.score('pull up the floor plan', 'Moonlight_Coffee_floor_plan.dxf') > 0)
-    assert.ok(MAT.score('can we see the drawing', 'Moonlight_Coffee_floor_plan.dxf') > 0, 'a synonym')
-  })
-  ko(() => {
-    // the values the Korean matcher gave before English mode existed
-    assert.equal(MAT.score('지난번달빛커피견적서다시볼까요?', '달빛커피_견적서.xlsx'), 5)
-    assert.equal(MAT.score('평면도도 같이 봐요', '달빛커피_평면도.dxf'), 2.75)
-    assert.equal(MAT.score('견적서 다시', '달빛커피_견적서_수정.xlsx'), 2.5)
-    // since 2026-11-19 a Korean meeting matches Latin name words without case too ("셉 ERP 관련 PDF" → SAP_ERP_….pdf)
-    assert.ok(MAT.score("Let's look at the Quote again", 'Moonlight_Coffee_quote.xlsx') > 0)
-  })
+test('a line the judge calls a request: the work and the title it wrote; a material: the candidate it picked', async () => {
+  const ctx = { roomId: 'r', speaker: { id: 'u', name: 'Kim' }, prev: [], shown: new Set() }
+  answer = () => 'CreateDocument'
+  J.calls.length = 0
+  const r = await en(() => I.detect({ speaker: 'Kim', text: 'somebody should turn this into a one-pager for the board' }, ctx))
+  assert.equal(r.request.work, 'CreateDocument')
+  assert.equal(r.request.title, null, 'the judge server writes no title: the offer\'s title is used')
+  assert.equal(J.calls[0].question, 'Does the remark just made hold something for the AI assistant listening in to do? If so, what?')
+  answer = () => 'none'
+  assert.equal(await ko(() => I.detect({ speaker: '김', text: '그건 제가 금요일까지 해 올게요' }, ctx)), null)
+  // a material: the judge picks among the names the speaker can see (given here as the list)
+  const list = [{ kind: 'file', id: 'f1', title: 'Q3_partner_rebates.xlsx' }, { kind: 'file', id: 'f2', title: 'Q3_partner_rebates.pdf' }, { kind: 'process', id: 'p9', title: 'Vendor onboarding #12' }]
+  answer = (body) => (body.question.startsWith('Which material') ? 'c1' : 'show')
+  J.calls.length = 0
+  const pick = await en(() => MAT.pick('pull up the rebate pdf', null, { list }))
+  assert.equal(pick.pick.id, 'f2')
+  assert.deepEqual(J.calls[0].options.map((o) => o.key), ['none', 'c0', 'c1', 'c2'])
+  assert.match(J.calls[0].options[2].label, /^\[file\] Q3_partner_rebates\.pdf/)
+  answer = () => 'none'
+  assert.equal((await en(() => MAT.pick('the old contract', null, { list }))).pick, null)
 })
 
 const meeting = { id: 'm1', started_at: '2026-10-28T05:00:00Z', ended_at: '2026-10-28T05:12:00Z', started_by: 'u', agent: true }
@@ -117,11 +88,10 @@ test('room record and minutes: English in an English meeting, Korean exactly as 
   })
 })
 
-test('a request heard in an English meeting gets an English card title', () => {
-  assert.equal(S.requestTitleEn('CreateSpreadsheet', 'Then please redo the quote with the amount 5% lower.'), 'Draft the quote')
-  assert.equal(S.requestTitleEn('CreateSpreadsheet', 'Can you make the revised quote?'), 'Draft the revised quote')
-  assert.equal(S.requestTitleEn('CreateDocument', 'please update the floor plan notes'), 'Draft the floor plan')
-  assert.equal(S.requestTitleEn('SummarizeChat', 'can you sum this up'), 'Summarize the meeting')
-  assert.equal(S.requestTitleEn('DraftReply', 'could you write back to them'), 'Draft the reply')
-  assert.equal(S.requestTitleEn('ScheduleRegistration', 'please book a follow-up'), 'Schedule the meeting')
+test('a request card without a title from the judge gets its offer\'s title in the meeting\'s language', async () => {
+  const { offerOf } = await import('../lib/offers.js')
+  assert.equal(en(() => offerOf('CreateSpreadsheet').title), 'Draft the table')
+  assert.equal(ko(() => offerOf('CreateSpreadsheet').title), '표 초안 만들기')
+  assert.equal(en(() => offerOf('SummarizeChat').badge), 'Summary')
+  assert.equal(offerOf('NoSuchWork'), null)
 })

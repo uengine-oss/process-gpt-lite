@@ -1,0 +1,346 @@
+[
+  {
+    "id": "p-01",
+    "path": "/ja/products/cast-iron-skillet-26",
+    "html": "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>南部鉄器スキレット 26cm</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/ja/\">ホーム</a><a href=\"/ja/login\">ログイン</a></header><h1>南部鉄器スキレット 26cm</h1><p class=\"price\">¥8,800 <span class=\"muted\">税込</span></p><label>数量<select name=\"qty\"><option>1</option><option>2</option></select></label><div class=\"row\"><button id=\"b1\" class=\"ghost\">♡ お気に入り</button><button id=\"b2\" class=\"main\">カートに入れる</button></div><p><a href=\"/ja/reviews/new?sku=skl26\">レビューを書く</a></p></body></html>",
+    "target": "#b2",
+    "expect": "purchase",
+    "why": "Japanese add-to-cart label (カートに入れる) on a kitchenware product page"
+  },
+  {
+    "id": "p-02",
+    "path": "/item/88213",
+    "html": "<!doctype html><html lang=\"zh\"><head><meta charset=\"utf-8\"><title>城市通勤车尾灯</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">首页</a><a href=\"/category/lights\">车灯</a></header><h1>城市通勤车尾灯 USB 充电</h1><p class=\"price\">¥129.00</p><p class=\"muted\">已售 2.3万件</p><div class=\"row\"><button data-k=\"k1\" class=\"ghost\">收藏</button><button data-k=\"x7\" class=\"cta\">加入购物车</button><button data-k=\"k3\" class=\"ghost\">分享</button></div></body></html>",
+    "target": "[data-k='x7']",
+    "expect": "purchase",
+    "why": "Chinese add-to-cart (加入购物车) next to favourite/share buttons"
+  },
+  {
+    "id": "p-03",
+    "path": "/tienda/plantas/monstera-grande",
+    "html": "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Monstera grande</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/tienda\">Tienda</a><a href=\"/tienda/plantas\">Plantas</a></header><h1>Monstera deliciosa · maceta 24 cm</h1><p class=\"price\">39,90 €</p><p><a href=\"/guias/monstera\">Guía de cuidados</a></p><div class=\"row\"><button id=\"b3\" class=\"ghost\">Avisarme si baja de precio</button><button id=\"b4\" class=\"btn main\">Añadir a la cesta</button></div></body></html>",
+    "target": "#b4",
+    "expect": "purchase",
+    "why": "Spanish add-to-basket (Añadir a la cesta)"
+  },
+  {
+    "id": "p-04",
+    "path": "/de/fahrrad/helm-urban-m",
+    "html": "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><title>Stadthelm Urban M</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/de/\">Start</a><a href=\"/de/fahrrad\">Fahrrad</a></header><h1>Stadthelm Urban, Größe M</h1><p class=\"price\">69,00 €</p><label>Größe<select name=\"size\"><option>S</option><option selected>M</option><option>L</option></select></label><div class=\"row\"><button id=\"w7\" class=\"ghost\">Zur Wunschliste</button><button id=\"k9\" class=\"cta\">In den Warenkorb</button></div></body></html>",
+    "target": "#k9",
+    "expect": "purchase",
+    "why": "German add-to-cart (In den Warenkorb); the wishlist button beside it is not the target"
+  },
+  {
+    "id": "p-05",
+    "path": "/fr/papeterie/carnet-a5-pointille",
+    "html": "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><title>Carnet A5 pointillé</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/fr/\">Accueil</a><a href=\"/fr/papeterie\">Papeterie</a></header><h1>Carnet A5 pointillé, couverture lin</h1><p class=\"price\">14,50 €</p><div class=\"row\"><button id=\"a2\" class=\"ghost\">Ajouter aux favoris</button><button id=\"a1\" class=\"main\">Acheter maintenant</button></div><p><a href=\"/fr/papeterie/carnet-a5-pointille/avis\">Lire les avis (38)</a></p></body></html>",
+    "target": "#a1",
+    "expect": "purchase",
+    "why": "French buy-now (Acheter maintenant) on a stationery page"
+  },
+  {
+    "id": "p-06",
+    "path": "/vn/san-pham/noi-chien-khong-dau-5l",
+    "html": "<!doctype html><html lang=\"vi\"><head><meta charset=\"utf-8\"><title>Nồi chiên không dầu 5L</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/vn/\">Trang chủ</a><a href=\"/vn/dang-nhap\">Đăng nhập</a></header><h1>Nồi chiên không dầu 5L</h1><p class=\"price\">1.290.000₫</p><div class=\"row\"><button data-k=\"m1\" class=\"ghost\">Thêm vào yêu thích</button><button data-k=\"m2\" class=\"cta\">Mua ngay</button></div><p><a href=\"/vn/san-pham/noi-chien-khong-dau-5l/thong-so\">Xem thông số</a></p></body></html>",
+    "target": "[data-k='m2']",
+    "expect": "purchase",
+    "why": "Vietnamese buy-now (Mua ngay)"
+  },
+  {
+    "id": "p-07",
+    "path": "/th/products/yoga-mat-6mm",
+    "html": "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><title>เสื่อโยคะ 6 มม.</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/th/\">หน้าแรก</a><a href=\"/th/login\">เข้าสู่ระบบ</a></header><h1>เสื่อโยคะ 6 มม. สีเขียวมะกอก</h1><p class=\"price\">฿590</p><p><a href=\"/th/products/yoga-mat-6mm/details\">ดูรายละเอียดเพิ่มเติม</a></p><button id=\"t5\" class=\"main\">หยิบใส่ตะกร้า</button></body></html>",
+    "target": "#t5",
+    "expect": "purchase",
+    "why": "Thai add-to-cart (หยิบใส่ตะกร้า, 'put in basket')"
+  },
+  {
+    "id": "p-08",
+    "path": "/p/ceramic-planter-set",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Ceramic planter set</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Home</a><a href=\"/plants\">Plants</a></header><h1>Speckled ceramic planter, set of 3</h1><p class=\"price\">$54.00</p><div class=\"row\"><button class=\"ic\" data-k=\"c1\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\"><path d=\"M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button class=\"ic main\" data-k=\"c2\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\"><path d=\"M6 7h12l-1 13H7L6 7z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M9 7a3 3 0 0 1 6 0\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button><button class=\"ic\" data-k=\"c3\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\"><circle cx=\"6\" cy=\"12\" r=\"2.5\" fill=\"currentColor\"/><circle cx=\"18\" cy=\"6\" r=\"2.5\" fill=\"currentColor\"/><circle cx=\"18\" cy=\"18\" r=\"2.5\" fill=\"currentColor\"/><path d=\"M8 11l8-4M8 13l8 4\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></div></body></html>",
+    "target": "button[data-k='c2']",
+    "expect": "purchase",
+    "why": "Icon-only shopping-bag button, no text, title or aria-label; heart and share icons beside it are not purchases"
+  },
+  {
+    "id": "p-09",
+    "path": "/goods/fountain-pen-medium",
+    "html": "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>만년필 M닙</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">홈</a><a href=\"/goods\">문구</a></header><h1>만년필 M닙 · 블루블랙</h1><p class=\"price\">₩58,000</p><div class=\"row\"><button id=\"g1\" class=\"ic\"><img alt=\"img_0412\" src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7\" width=\"20\" height=\"20\"></button><button id=\"g3\" class=\"ic main\"><img alt=\"\" src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7\" width=\"22\" height=\"22\"></button></div><p class=\"muted\">무료 각인 서비스 가능</p></body></html>",
+    "target": "#g3",
+    "expect": "purchase",
+    "why": "Cart button made only of an <img> with empty alt; the other image button (irrelevant alt) zooms the photo"
+  },
+  {
+    "id": "p-10",
+    "path": "/products/chef-knife-21cm",
+    "html": "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>셰프 나이프 21cm</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">홈</a><a href=\"/kitchen\">주방</a><a href=\"/cart\">장바구니</a></header><h1>다마스커스 셰프 나이프 21cm</h1><p class=\"muted\">정가 ₩159,000 · 오늘 특가</p><div class=\"row\"><button id=\"b6\" class=\"ghost\">찜</button><button id=\"b7\" class=\"main\">₩129,000</button></div><p><a href=\"/products/chef-knife-21cm/care\">관리 방법 보기</a></p></body></html>",
+    "target": "#b7",
+    "expect": "purchase",
+    "why": "Buy-now button whose label is only the price, on a product page (one-click buy)"
+  },
+  {
+    "id": "p-11",
+    "path": "/cart",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Your cart</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Hollow Pine Bikes</a></header><h1>Your cart (2)</h1><ul><li>Gravel tyre 700x40c ×2 — $78.00 <button class=\"ghost\" data-k=\"r1\">Remove</button></li><li>Bar tape, cork — $19.00 <button class=\"ghost\" data-k=\"r2\">Remove</button></li></ul><p>Subtotal <b>$97.00</b></p><div class=\"row\"><a id=\"cs\" href=\"/shop\">Continue shopping</a><button id=\"n1\" class=\"main\">Continue</button></div></body></html>",
+    "target": "#n1",
+    "expect": "purchase",
+    "why": "Generic 'Continue' on /cart moves from the cart into checkout"
+  },
+  {
+    "id": "p-12",
+    "path": "/cart",
+    "html": "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>장바구니</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">초록서랍</a></header><h1>장바구니</h1><ul><li>스투키 소형 화분 1개 ₩18,000</li><li>배양토 5L 1개 ₩6,500</li></ul><p>합계 <b>₩24,500</b></p><div class=\"row\"><button id=\"s1\" class=\"ghost\">선택 삭제</button><button id=\"s2\" class=\"main\">다음</button></div></body></html>",
+    "target": "#s2",
+    "expect": "purchase",
+    "why": "'다음' (next) on the cart page starts checkout; same word as the search pagination negative"
+  },
+  {
+    "id": "p-13",
+    "path": "/pricing",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>LinguaLeaf plans</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">LinguaLeaf</a><a href=\"/login\">Log in</a></header><h1>Pick a plan</h1><div class=\"row\"><section><h2>Free</h2><p>5 lessons a week</p><a class=\"btn\" id=\"pl1\" href=\"/signup\">Start free</a></section><section><h2>Plus</h2><p class=\"price\">₩9,900 / month</p><p>Unlimited lessons, live tutor once a week</p><a class=\"btn main\" id=\"pl2\" href=\"/billing/start?plan=plus\">Let's go</a></section></div></body></html>",
+    "target": "#pl2",
+    "expect": "purchase",
+    "why": "Link styled as a button, label 'Let's go', starts a paid monthly subscription"
+  },
+  {
+    "id": "p-14",
+    "path": "/ja/hotels/umikaze-inn/rooms",
+    "html": "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>海風イン 客室</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/ja/\">トップ</a><a href=\"/ja/hotels/umikaze-inn\">海風イン</a></header><h1>和室ツイン（オーシャンビュー）</h1><p class=\"price\">1泊 ¥18,400</p><p>12月20日〜21日 · 大人2名</p><div class=\"row\"><a href=\"/ja/hotels/umikaze-inn/rooms/washitsu\">部屋の詳細</a><button data-k=\"r1\" class=\"main\">この部屋で予約</button></div></body></html>",
+    "target": "[data-k='r1']",
+    "expect": "purchase",
+    "why": "Japanese hotel booking button (この部屋で予約, reserve this room)"
+  },
+  {
+    "id": "p-15",
+    "path": "/account/purchases",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Past purchases</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Copperleaf Kitchen</a><a href=\"/account\">Account</a></header><h1>Past purchases</h1><ul><li>Linen apron — $32.00 <a href=\"/receipts/7711\">View receipt</a> <button class=\"ghost\" data-k=\"ra1\">Buy it again</button></li><li>Enamel dutch oven 4.7L — $189.00 <a href=\"/receipts/7690\">View receipt</a> <button class=\"ghost\" data-k=\"ra2\">Buy it again</button></li></ul></body></html>",
+    "target": "[data-k='ra2']",
+    "expect": "purchase",
+    "why": "'Buy it again' (reorder) on a purchase-history page; the receipt links next to it are not purchases"
+  },
+  {
+    "id": "p-16",
+    "path": "/es/conciertos/neon-harbor-2026/asientos",
+    "html": "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Elige tus asientos</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/es/\">Inicio</a><a href=\"/es/conciertos\">Conciertos</a></header><h1>Neon Harbor · 14 dic 2026</h1><p>2 entradas · Fila F, asientos 11-12</p><p class=\"price\">96,00 €</p><div class=\"row\"><button id=\"c6\" class=\"ghost\">Cambiar asientos</button><button id=\"c7\" class=\"main\">Continuar</button></div></body></html>",
+    "target": "#c7",
+    "expect": "purchase",
+    "why": "Spanish 'Continuar' after picking concert seats starts the ticket checkout"
+  },
+  {
+    "id": "p-17",
+    "path": "/checkout",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Checkout</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Copperleaf Kitchen</a></header><h1>Checkout</h1><p>Bamboo cutting board ×1 — $42.00<br>Shipping — $6.00<br><b>Total $48.00</b></p><p><a href=\"/cart\">Edit cart</a></p><div class=\"row\"><input name=\"promo\" placeholder=\"Promo code\"><button id=\"c0\" type=\"button\" class=\"ghost\">Apply</button></div><form id=\"f1\"><input autocomplete=\"cc-name\" name=\"nm\" placeholder=\"Name on card\"><input autocomplete=\"cc-number\" name=\"n\" inputmode=\"numeric\" placeholder=\"1234 1234 1234 1234\"><input autocomplete=\"cc-exp\" name=\"e\" placeholder=\"MM / YY\"><input autocomplete=\"cc-csc\" name=\"c\" placeholder=\"CVC\"><button id=\"c1\" type=\"submit\" class=\"main\">Confirm</button></form></body></html>",
+    "target": "#c1",
+    "expect": "payment",
+    "why": "'Confirm' submits a card form (autocomplete cc-number/cc-exp/cc-csc) with the total above"
+  },
+  {
+    "id": "p-18",
+    "path": "/checkout/payment",
+    "html": "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>결제</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">초록서랍</a></header><h1>카드로 결제</h1><p>총 <b>₩24,500</b></p><form id=\"pf\"><input name=\"holder\" placeholder=\"카드 소유자\"><input name=\"pan\" placeholder=\"0000 0000 0000 0000\"><div class=\"row\"><input name=\"exp\" placeholder=\"MM/YY\"><input name=\"cvv\" placeholder=\"***\"></div><button type=\"button\" data-k=\"d3\" class=\"ghost\">쿠폰 적용</button><button type=\"submit\" data-k=\"d4\" class=\"main\">완료</button></form></body></html>",
+    "target": "[data-k='d4']",
+    "expect": "payment",
+    "why": "'완료' (done) submits card fields named pan/exp/cvv, no autocomplete hints"
+  },
+  {
+    "id": "p-19",
+    "path": "/checkout/pay",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Pay</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Hollow Pine Bikes</a></header><h1>Card details</h1><p>Order total <b>$212.80</b></p><iframe title=\"secure-field\" width=\"320\" height=\"60\" srcdoc=\"&lt;input placeholder=&quot;Card number&quot; style=&quot;width:280px;padding:8px&quot;&gt;\"></iframe><div class=\"row\"><button id=\"x1\" class=\"ghost\">Back</button><button id=\"x2\" class=\"main\">Done</button></div></body></html>",
+    "target": "#x2",
+    "expect": "payment",
+    "why": "'Done' under an iframe card field (srcdoc placeholder) finishes the payment"
+  },
+  {
+    "id": "p-20",
+    "path": "/ja/checkout/confirm",
+    "html": "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>ご注文内容の確認</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/ja/\">ホーム</a></header><h1>ご注文内容の確認</h1><p>南部鉄器スキレット 26cm ×1 ¥8,800<br>送料 ¥660<br>手数料 ¥3,300<br><b>合計 ¥12,760</b></p><p><a href=\"/ja/checkout/address\">お届け先を変更</a></p><button id=\"j8\" class=\"main\">注文を確定する</button></body></html>",
+    "target": "#j8",
+    "expect": "payment",
+    "why": "Japanese place-order (注文を確定する) on the order confirmation step"
+  },
+  {
+    "id": "p-21",
+    "path": "/zh/order/confirm",
+    "html": "<!doctype html><html lang=\"zh\"><head><meta charset=\"utf-8\"><title>确认订单</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/zh/\">首页</a></header><h1>确认订单</h1><p>城市通勤车尾灯 ×2<br>运费 ¥0<br><b>实付 ¥356.00</b></p><p><a href=\"/zh/address\">修改地址</a></p><div class=\"row\"><button id=\"z2\" class=\"ghost\">返回购物车</button><button id=\"z3\" class=\"cta\">提交订单</button></div></body></html>",
+    "target": "#z3",
+    "expect": "payment",
+    "why": "Chinese submit-order (提交订单) with the amount to pay"
+  },
+  {
+    "id": "p-22",
+    "path": "/es/checkout/pago",
+    "html": "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Pago</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/es/\">Inicio</a></header><h1>Pago con tarjeta</h1><p>Total <b>39,90 €</b></p><form><input autocomplete=\"cc-number\" name=\"num\" placeholder=\"Número de tarjeta\"><div class=\"row\"><input autocomplete=\"cc-exp\" name=\"cad\" placeholder=\"MM/AA\"><input autocomplete=\"cc-csc\" name=\"cod\" placeholder=\"CVV\"></div><a href=\"/es/cesta\">Volver a la cesta</a> <button id=\"e5\" class=\"main\">Pagar ahora</button></form></body></html>",
+    "target": "#e5",
+    "expect": "payment",
+    "why": "Spanish pay-now (Pagar ahora) on a card form"
+  },
+  {
+    "id": "p-23",
+    "path": "/de/kasse/pruefen",
+    "html": "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><title>Bestellung prüfen</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/de/\">Start</a></header><h1>Bestellung prüfen</h1><p>Stadthelm Urban M ×1 69,00 €<br>Rücklicht ×2 60,90 €<br><b>Gesamtsumme 129,90 €</b></p><div class=\"row\"><input name=\"gutschein\" placeholder=\"Gutscheincode\"><button id=\"k1\" class=\"ghost\">Gutschein einlösen</button></div><button id=\"k2\" class=\"cta\">Zahlungspflichtig bestellen</button></body></html>",
+    "target": "#k2",
+    "expect": "payment",
+    "why": "German legally required order button (Zahlungspflichtig bestellen) commits the payment"
+  },
+  {
+    "id": "p-24",
+    "path": "/fr/commande/recapitulatif",
+    "html": "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><title>Récapitulatif</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/fr/\">Accueil</a></header><h1>Récapitulatif de commande</h1><p>Carnet A5 pointillé ×3<br>Livraison 4,80 €<br><b>Total TTC 87,30 €</b></p><div class=\"row\"><button data-k=\"v0\" class=\"ghost\">Modifier</button><button data-k=\"v1\" class=\"main\">Valider ma commande</button></div></body></html>",
+    "target": "[data-k='v1']",
+    "expect": "payment",
+    "why": "French confirm-my-order (Valider ma commande)"
+  },
+  {
+    "id": "p-25",
+    "path": "/vn/thanh-toan",
+    "html": "<!doctype html><html lang=\"vi\"><head><meta charset=\"utf-8\"><title>Thanh toán</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/vn/\">Trang chủ</a></header><h1>Thanh toán</h1><p>Giao đến: Quận 3, TP. Hồ Chí Minh</p><label><input type=\"radio\" name=\"pm\" checked> Thanh toán khi nhận hàng</label><p><b>Tổng cộng 1.320.000₫</b></p><div class=\"row\"><a href=\"/vn/gio-hang\">Quay lại giỏ hàng</a><button id=\"v9\" class=\"cta\">Đặt hàng</button></div></body></html>",
+    "target": "#v9",
+    "expect": "payment",
+    "why": "Vietnamese place-order (Đặt hàng) on the final payment step"
+  },
+  {
+    "id": "p-26",
+    "path": "/th/checkout/payment",
+    "html": "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><title>ชำระเงิน</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/th/\">หน้าแรก</a></header><h1>ข้อมูลบัตร</h1><p>ยอดรวม <b>฿1,180</b></p><form><input name=\"card_no\" placeholder=\"หมายเลขบัตร\"><div class=\"row\"><input name=\"mmyy\" placeholder=\"ดด/ปป\"><input name=\"sec\" placeholder=\"CVV\"></div><button type=\"button\" id=\"th1\" class=\"ghost\">ย้อนกลับ</button><button type=\"submit\" id=\"th2\" class=\"main\">ชำระเงิน</button></form></body></html>",
+    "target": "#th2",
+    "expect": "payment",
+    "why": "Thai pay button (ชำระเงิน) submitting card fields with plain names"
+  },
+  {
+    "id": "p-27",
+    "path": "/checkout/review",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Review order</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Paper Moth Stationery</a></header><h1>Review your order</h1><p>Brass pen ×1 $96.00<br>Ink cartridges ×4 $24.00<br>Tax $8.40</p><p><a href=\"/checkout/shipping\">Edit shipping</a></p><div class=\"row\"><button id=\"r3\" class=\"ghost\">Use gift card</button><button id=\"r4\" class=\"main\">$128.40</button></div></body></html>",
+    "target": "#r4",
+    "expect": "payment",
+    "why": "Button labelled only with the order total on the review step places the order"
+  },
+  {
+    "id": "p-28",
+    "path": "/checkout/card",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Card</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Fernhaus</a></header><h1>Pay by card</h1><p>Total <b>€73.50</b></p><form id=\"cf\"><input autocomplete=\"cc-number\" name=\"a\"><div class=\"row\"><input autocomplete=\"cc-exp\" name=\"b\"><input autocomplete=\"cc-csc\" name=\"d\"><button type=\"button\" class=\"ic\" data-k=\"hp\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></div><button type=\"submit\" class=\"ic main\" data-k=\"lk\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"9\" rx=\"2\" fill=\"currentColor\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></form></body></html>",
+    "target": "button[data-k='lk']",
+    "expect": "payment",
+    "why": "Icon-only padlock submit on a card form; the '?' icon is help, not the target"
+  },
+  {
+    "id": "p-29",
+    "path": "/pay",
+    "html": "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>카드 결제</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">말랑공방</a></header><h1>카드 정보</h1><p>도자기 원데이 클래스 2인 <b>₩64,500</b></p><form><div class=\"row\"><input name=\"card1\" maxlength=\"4\"><input name=\"card2\" maxlength=\"4\"><input name=\"card3\" maxlength=\"4\"><input name=\"card4\" maxlength=\"4\"></div><div class=\"row\"><input name=\"exp_mm\" placeholder=\"월\"><input name=\"exp_yy\" placeholder=\"년\"><input name=\"cvc\" placeholder=\"CVC\"></div><div class=\"row\"><button type=\"button\" id=\"p0\" class=\"ghost\">취소</button><button type=\"submit\" id=\"p1\" class=\"main\">확인</button></div></form></body></html>",
+    "target": "#p1",
+    "expect": "payment",
+    "why": "'확인' (OK) submits split card-number fields on /pay"
+  },
+  {
+    "id": "p-30",
+    "path": "/ja/checkout/step3",
+    "html": "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>お支払い</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/ja/\">ホーム</a></header><h1>ステップ 3 / 3</h1><p>メモ帳 B6 ×6 <b>合計 ¥4,320</b>（登録済みカード **** 4417）</p><form action=\"/ja/checkout/step3\" method=\"post\"><input type=\"hidden\" name=\"t\" value=\"a91f\"><a href=\"/ja/checkout/step2\">戻る</a> <input type=\"submit\" id=\"go\" class=\"btn main\" value=\"→\"></form></body></html>",
+    "target": "#go",
+    "expect": "payment",
+    "why": "Arrow-only submit input on the last checkout step with a saved card commits the payment"
+  },
+  {
+    "id": "p-31",
+    "path": "/ja/account",
+    "html": "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>マイページ</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/ja/\">ホーム</a></header><h1>マイページ</h1><ul><li><a id=\"o1\" class=\"btn\" href=\"/ja/account/orders\">注文履歴</a></li><li><a href=\"/ja/account/addresses\">住所録</a></li><li><a href=\"/ja/logout\">ログアウト</a></li></ul></body></html>",
+    "target": "#o1",
+    "expect": "none",
+    "why": "Japanese order history (注文履歴) link only shows past orders"
+  },
+  {
+    "id": "p-32",
+    "path": "/es/mi-cuenta",
+    "html": "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Mi cuenta</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/es/\">Inicio</a></header><h1>Mi cuenta</h1><div class=\"row\"><a class=\"btn\" data-k=\"mp\" href=\"/es/mi-cuenta/pedidos\">Mis pedidos</a><a class=\"btn\" href=\"/es/mi-cuenta/datos\">Datos personales</a><a href=\"/es/salir\">Cerrar sesión</a></div></body></html>",
+    "target": "[data-k='mp']",
+    "expect": "none",
+    "why": "Spanish view-my-orders (Mis pedidos) only lists orders"
+  },
+  {
+    "id": "p-33",
+    "path": "/checkout/login",
+    "html": "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>로그인</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">초록서랍</a></header><h1>주문을 계속하려면 로그인해 주세요</h1><form><input type=\"email\" name=\"email\" placeholder=\"이메일\"><input type=\"password\" name=\"pw\" placeholder=\"비밀번호\"><button type=\"submit\" id=\"l1\" class=\"main\">로그인</button></form><p><a href=\"/checkout/guest\">비회원으로 진행</a></p></body></html>",
+    "target": "#l1",
+    "expect": "none",
+    "why": "Sign-in button on a /checkout URL; signing in starts no purchase even though the heading mentions an order"
+  },
+  {
+    "id": "p-34",
+    "path": "/search",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Search</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Paper Moth Stationery</a><a class=\"ic\" href=\"/cart\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\"><path d=\"M3 4h2l2 11h11l2-8H6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"9\" cy=\"19\" r=\"1.5\" fill=\"currentColor\"/><circle cx=\"17\" cy=\"19\" r=\"1.5\" fill=\"currentColor\"/></svg></a></header><form action=\"/search\" class=\"row\"><input name=\"q\" placeholder=\"Search pens, paper, ink\"><button type=\"submit\" class=\"ic\" data-k=\"q\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\"><circle cx=\"10\" cy=\"10\" r=\"6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M15 15l5 5\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button></form></body></html>",
+    "target": "button[data-k='q']",
+    "expect": "none",
+    "why": "Icon-only magnifier search button; the cart icon in the header is a different element"
+  },
+  {
+    "id": "p-35",
+    "path": "/search?q=%ED%99%94%EB%B6%84&page=1",
+    "html": "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>검색 결과</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">초록서랍</a></header><h1>\"화분\" 검색 결과 48개</h1><ul><li>테라코타 화분 S <a href=\"/goods/301\">자세히</a></li><li>유약 화분 M <a href=\"/goods/302\">자세히</a></li></ul><nav class=\"row\"><a href=\"/search?q=%ED%99%94%EB%B6%84&page=0\">이전</a><a id=\"pg-next\" class=\"btn\" href=\"/search?q=%ED%99%94%EB%B6%84&page=2\">다음</a></nav></body></html>",
+    "target": "#pg-next",
+    "expect": "none",
+    "why": "'다음' here is the next page of search results, not checkout"
+  },
+  {
+    "id": "p-36",
+    "path": "/tienda/plantas",
+    "html": "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Plantas</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/tienda\">Tienda</a></header><h1>Plantas de interior</h1><ul><li>Pothos dorado 12,00 € <a class=\"btn\" data-k=\"d1\" href=\"/tienda/plantas/pothos\">Ver detalles</a></li><li>Calathea 18,50 € <a class=\"btn\" data-k=\"d2\" href=\"/tienda/plantas/calathea\">Ver detalles</a></li></ul></body></html>",
+    "target": "[data-k='d2']",
+    "expect": "none",
+    "why": "Spanish product details link (Ver detalles) styled as a button"
+  },
+  {
+    "id": "p-37",
+    "path": "/products/cast-iron-skillet-26",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Cast-iron skillet 26 cm</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Home</a><div class=\"row\"><button id=\"lang-en\" class=\"ghost\">English</button><button id=\"lang-ja\" class=\"ghost\">日本語</button><button id=\"lang-ko\" class=\"ghost\">한국어</button></div></header><h1>Cast-iron skillet 26 cm</h1><p class=\"price\">$62.00</p><button id=\"b2\" class=\"main\">Add to cart</button></body></html>",
+    "target": "#lang-ja",
+    "expect": "none",
+    "why": "Language switcher (日本語) on a product page that also has an add-to-cart button"
+  },
+  {
+    "id": "p-38",
+    "path": "/blog/repotting-in-autumn",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Repotting in autumn</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Fernhaus Journal</a></header><article><h1>Repotting in autumn</h1><p>Most houseplants slow down when the days get shorter, which makes October a calm month to…</p><a id=\"cr1\" class=\"btn\" href=\"/blog/repotting-in-autumn?full=1\">Continue reading</a></article><aside><a href=\"/shop/pots\">Browse pots</a></aside></body></html>",
+    "target": "#cr1",
+    "expect": "none",
+    "why": "'Continue reading' expands a blog post"
+  },
+  {
+    "id": "p-39",
+    "path": "/ja/orders/40981",
+    "html": "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>注文 40981</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/ja/account\">マイページ</a></header><h1>注文番号 40981</h1><p>発送済み · 12月2日お届け予定</p><div class=\"row\"><button id=\"tr\" class=\"main\">配送状況を確認</button><button id=\"rb\" class=\"ghost\">もう一度購入</button></div></body></html>",
+    "target": "#tr",
+    "expect": "none",
+    "why": "Track-package button (配送状況を確認); the buy-again button beside it is a different element"
+  },
+  {
+    "id": "p-40",
+    "path": "/account/profile",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Profile</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/account\">Account</a></header><h1>Edit profile</h1><form><input name=\"display\" value=\"hana.w\"><input type=\"email\" name=\"mail\" value=\"hana@example.org\"><label><input type=\"checkbox\" name=\"tips\"> Send me care tips</label><button type=\"submit\" id=\"pf\" class=\"main\">Done</button></form></body></html>",
+    "target": "#pf",
+    "expect": "none",
+    "why": "'Done' saves a profile form, no money involved"
+  },
+  {
+    "id": "p-41",
+    "path": "/de/fahrrad/helm-urban-m",
+    "html": "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><title>Stadthelm Urban M</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/de/\">Start</a></header><h1>Stadthelm Urban, Größe M</h1><p class=\"price\">69,00 €</p><div class=\"row\"><button id=\"w7\" class=\"ghost\">Zur Wunschliste</button><button id=\"k9\" class=\"cta\">In den Warenkorb</button></div></body></html>",
+    "target": "#w7",
+    "expect": "none",
+    "why": "Add to wishlist (Zur Wunschliste) only saves the item; it starts no purchase (judgement call: wishlist is not a cart)"
+  },
+  {
+    "id": "p-42",
+    "path": "/account",
+    "html": "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>내 정보</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">말랑공방</a></header><h1>내 정보</h1><div class=\"row\"><a id=\"h2\" class=\"btn\" href=\"/account/history\">구매 내역 보기</a><a class=\"btn\" href=\"/account/edit\">회원 정보 수정</a><a href=\"/logout\">로그아웃</a></div></body></html>",
+    "target": "#h2",
+    "expect": "none",
+    "why": "Korean view-purchase-history link (구매 내역 보기) only lists purchases"
+  },
+  {
+    "id": "p-43",
+    "path": "/cart",
+    "html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Your cart</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fff;color:#222}header,footer{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}button,.btn{padding:10px 16px;border-radius:8px;border:1px solid #888;background:#f4f4f4;cursor:pointer;font-size:15px;text-decoration:none;color:#222;display:inline-block}.main,.cta{background:#1f6f4a;color:#fff;border-color:#1f6f4a}.ghost{background:#fff}.ic{width:44px;height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}input,select{padding:8px;margin:4px 0;display:block}.row{display:flex;gap:8px;align-items:center}.price{font-size:22px;font-weight:700}.muted{color:#777;font-size:13px}</style></head><body><header><a href=\"/\">Hollow Pine Bikes</a></header><h1>Your cart (2)</h1><ul><li>Gravel tyre 700x40c ×2 — $78.00</li><li>Bar tape, cork — $19.00</li></ul><p>Subtotal <b>$97.00</b></p><div class=\"row\"><a id=\"cs\" class=\"btn\" href=\"/shop\">Continue shopping</a><button id=\"n1\" class=\"main\">Continue</button></div></body></html>",
+    "target": "#cs",
+    "expect": "none",
+    "why": "'Continue shopping' on /cart goes back to the catalogue; boundary with the 'Continue' checkout button"
+  }
+]

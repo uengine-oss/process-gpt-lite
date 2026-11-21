@@ -35,9 +35,12 @@ const dial = computed(() => (craft.value || office.value) && (maximized.value ||
 // The editor's own AI 도우미 (one assistant): its buttons come here. A preset (요약·다듬기…) is sent as
 // a chat message about the open document; the 도우미 entry opens the same input — the dial's band
 // when maximized, the chat composer beside it otherwise.
-function assistant({ prompt, selection }) {
+// (a preset whose prompt already carries the selection — the editor says so with usesSelection, or the
+// selected text is in it — does not get it twice; never read off the prompt's words)
+function assistant({ prompt, selection, usesSelection }) {
   if (prompt) {
-    const sel = selection && !/선택/.test(prompt) ? selection : ''
+    const inPrompt = usesSelection ?? (!!selection && String(prompt).includes(selection))
+    const sel = selection && !inPrompt ? selection : ''
     app.send(sel ? `${prompt}\n\n(선택한 부분: "${sel.slice(0, 600)}")` : prompt)
     return
   }
@@ -56,14 +59,17 @@ function mention(m) {
 // picture itself goes to PhotoCraft — the picture is taken out of the open document, opened live in
 // PhotoCraft over the document (the agent and the dial edit it there), and "한글/워드 문서에 넣기" (or ⌘S)
 // puts it back in place of the same picture. Requests that move or delete the picture stay with the
-// document. Word pictures need an office host that answers for them (page-live.mjs 'pictures').
+// document. Which of the two a request is, the server's judge says (routes/officePicture.js); unsure or
+// unreachable, it stays with the document. Word pictures need an office host that answers for them
+// (page-live.mjs 'pictures').
 // Screen words stay Korean here (the English mode translates them, src/i18n); what the agent and the
 // file names get is written in the screen's language.
 const officeFrame = ref(null)
 const picFrame = ref(null)
 const pic = ref(null) // { url, name, n, docName, editor, pending }
 const picLive = ref(false)
-const NOT_IMAGE_EDIT = /(지워|삭제|빼\s*줘|없애|옮겨|위치|캡션|크기를\s*줄|문단|표\b)|\b(delete|remove|take (it )?out|move|position|caption|smaller|resize|paragraph|table)\b/i
+// the judge's answer: 'image' (PhotoCraft) or 'document' (stays)
+const pictureEdit = (text, m) => api('/office/picture-intent', { method: 'POST', body: { text, picture: m.label || '' } }).then((r) => r.edit === 'image').catch(() => false)
 const PIC_EDITORS = new Set(['hwp', 'docs'])
 const docWord = (editor) => (editor === 'docs' ? '워드' : '한글')
 function flash(kind, text, ms = 6000) { note.value = { kind, text }; setTimeout(() => { if (note.value?.text === text) note.value = null }, ms) }
@@ -125,7 +131,8 @@ watch(() => [...(app.thread || [])].reverse().find((m) => m.role === 'agent')?.i
 app.beforeSend = async (text, mentions) => {
   const m = mentions.find((x) => x.kind === 'image' && PIC_EDITORS.has(x.editor))
   // no PhotoCraft in this install, or an office host that cannot hand out Word pictures: the request stays with the document
-  if (!m || !office.value || pic.value || NOT_IMAGE_EDIT.test(text) || craftMissing('photocraft') || !officeFrame.value?.canPictures(m.editor)) return false
+  if (!m || !office.value || pic.value || craftMissing('photocraft') || !officeFrame.value?.canPictures(m.editor)) return false
+  if (!(await pictureEdit(text, m))) return false
   try { await openPicture(m, text); return true } catch (e) { flash('err', `그림을 꺼내지 못했어요: ${e.message}`); return false }
 }
 // PhotoCraft joined the chat: now the request goes, about the picture open there

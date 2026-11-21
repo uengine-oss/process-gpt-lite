@@ -1,0 +1,63 @@
+{
+ "n": 24,
+ "accuracy": 100,
+ "macro_f1": 100,
+ "per_label_f1": {
+  "finance": 100,
+  "design": 100,
+  "contract": 100,
+  "proposal_review": 100,
+  "none": 100
+ },
+ "confusion": {
+  "finance": {
+   "finance": 5
+  },
+  "design": {
+   "design": 5
+  },
+  "contract": {
+   "contract": 5
+  },
+  "proposal_review": {
+   "proposal_review": 5
+  },
+  "none": {
+   "none": 4
+  }
+ },
+ "by_category": {
+  "positive": {
+   "n": 14,
+   "ok": 14
+  },
+  "boundary": {
+   "n": 10,
+   "ok": 10
+  }
+ },
+ "by_lang": {
+  "en": {
+   "n": 5,
+   "ok": 5
+  },
+  "ko": {
+   "n": 13,
+   "ok": 13
+  },
+  "ja": {
+   "n": 3,
+   "ok": 3
+  },
+  "zh": {
+   "n": 2,
+   "ok": 2
+  },
+  "mix": {
+   "n": 1,
+   "ok": 1
+  }
+ },
+ "flips": 0,
+ "failed_calls": 0
+}

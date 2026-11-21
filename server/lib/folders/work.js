@@ -1,6 +1,6 @@
 // Agents working in shared folders.
-// 1) Chat: "11월 세미나 폴더의 안내문 고쳐줘" — the request names a folder the user can use and asks
-//    for a change: a new variation (one per run) is checked out inside the deepagents conversation's
+// 1) Chat: a change asked of a folder (the router's folder-change skill, skills/actions/folder-change,
+//    picks the folder from the person's folders): a new variation (one per run) is checked out inside the deepagents conversation's
 //    run folder, the agent edits there, the server commits, and the chat gets a card that opens the
 //    variation for review and merge.
 // 2) Process steps: a step whose agent_config names a folder runs on a variation too —
@@ -22,53 +22,10 @@ import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { projectStepFolders } from './threadFolders.js'
 
 const T = () => config.tenantId
-const EDIT = /고쳐|고치|수정|다듬|바꿔|바꾸|변경|추가|넣어|빼|삭제|작성|만들어|정리|업데이트|반영해|번역|채워|보완|손봐/
-// the same request in English ("fix the notice in the November seminar folder")
-const EDIT_EN = /\b(fix|edit|revise|update|change|add|insert|remove|delete|write|rewrite|correct|translate|fill( in)?|polish|improve|tidy|clean up|amend|draft)\b/i
 // What the agent changes here is a proposal (the variation), not the original: the folder's owner
 // reviews it and merges it. Saying "삭제했어요" made people think the file was already gone.
 export const CHANGE_TALK = "끝나면 무엇을 바꿨는지 해요체로 짧게 알려 주세요. 여기서 바꾼 것은 원본이 아니라 변경안에 담기고, 폴더 주인이 검토해 반영해야 원본에 들어가요. 그래서 '삭제했어요', '수정했어요'처럼 이미 끝난 일로 말하지 말고 '○○ 파일 삭제를 요청했어요', '○○ 수정을 요청했어요'처럼 요청으로 말하고, 반영 전까지 원본은 그대로라고 덧붙여 주세요."
 export const CHANGE_TALK_EN = "When you are done, say briefly in English what you changed. What you change here goes into a proposal, not the original: the folder's owner reviews it and merges it. So do not say \"I deleted\" or \"I updated\" as if it were done — say \"I requested deleting …\", \"I requested an update to …\", and add that the original stays as it is until it is merged."
-const words = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter((w) => w.length >= 2)
-
-// the folder a chat request is about, if it asks for a change in one
-export async function folderFor(user, text) {
-  if (!EDIT.test(text) && !EDIT_EN.test(text)) return null
-  // "○○ 스킬 이렇게 고쳐줘": the skill's folder (made from its files the first time)
-  if (/스킬|skill/i.test(text)) {
-    const norm = (x) => String(x).toLowerCase().replace(/[-_\s]+/g, '')
-    const said = norm(text)
-    const hit = (await SK.listSkills(user)).filter((k) => said.includes(norm(k.name))).sort((a, b) => b.name.length - a.name.length)[0]
-    if (hit) {
-      const f = await SK.ensureSkillFolder(hit.name)
-      const role = await S.roleOf(f, user)
-      if (role && S.RANK[role] >= S.RANK.runner) return f
-    }
-  }
-  const rows = await q(`select f.* from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
-                        where f.tenant_id=$1 and f.kind='managed' and m.role in ('owner','editor','runner')`, [T(), String(user.id)])
-  return folderMatch(text, rows)
-}
-
-// The folder (of `folders`) a change request names. It has to point at the folder: its whole name,
-// or the word 폴더/folder with most of the name. Part of the name alone is not enough — a folder named
-// after a customer ("Moonlight Coffee Store 2") shares words with every request about that customer
-// ("…drafts for Moonlight Coffee. Please write a draft reply mail."), and those are not folder edits.
-export function folderMatch(text, folders) {
-  const said = words(text)
-  const saysFolder = /폴더|\bfolders?\b/i.test(text)
-  const low = String(text).toLowerCase()
-  let best = null
-  for (const f of folders || []) {
-    const name = words(f.name)
-    const hit = name.filter((w) => said.some((s) => s === w || (w.length >= 3 && s.startsWith(w)) || (s.length >= 3 && w.startsWith(s)))).length
-    const full = low.includes(String(f.name).toLowerCase()) || (!!f.slug && text.includes(f.slug))
-    const score = full ? 99 : hit / Math.max(1, name.length)
-    if ((full || (saysFolder && ((hit >= 2 && score >= 0.5) || (name.length === 1 && hit === 1)))) && (!best || score > best.score)) best = { f, score }
-  }
-  return best?.f || null
-}
-
 // a shared folder's run room (startChatWork): one variation's work, never the main chat's conversation
 export async function isFolderRoom(conversationId) {
   if (!conversationId) return false

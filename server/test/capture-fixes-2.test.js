@@ -1,16 +1,23 @@
 // Fixes from the English tutorial capture and product-video recordings, second round (i18n/CAPTURE-LOG.md,
 // 2026-10-29), each checked in Korean and English — no database, no model (the translation is stubbed):
-//   - a team-room message is a process's start card only when it names the process: whole words, not
-//     function words, a meaningful part of the name; Korean as before (team/assist.js processMatch)
+//   - which registered process a team-room request starts is the judge's pick among the registered
+//     processes, never a match of words against names (team/assist.js classify — 2026-11-21 skill routing)
 //   - the skill test step's outputs (<room>/.skill-evals/…) that an answer lists are no file cards (agent.js evalRun)
-//   - a request in Japanese (any main language but Korean or English) is read through its translation, not
-//     dropped by the Korean/English word rules (team/assist.js prefilter, otherLang, readable)
+//   - a request in Japanese (any language) goes to the judge as written; only its format keeps a message
+//     out (emoji, jamo, a bare link) — team/assist.js formatGate
 //   - an agent's row in a room and a meeting result name whose agent it is in the reader's language, not
 //     the starter's (team/messenger.js view, meetings/materials.js reasonFor)
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
+import { startJudge } from './fixtures/judgeStub.mjs'
 
+// the judge's answers come from the test (a stand-in judge server); the modules read PRO_JUDGE_URL on import
+let answer = () => 'none'
+const J = await startJudge((body, n) => answer(body, n))
+process.env.PRO_JUDGE_URL = J.url
+after(() => J.close())
 const A = await import('../lib/team/assist.js')
+const { offers } = await import('../lib/offers.js')
 const { evalRun, generationArtifact } = await import('../lib/agent.js')
 const M = await import('../lib/team/messenger.js')
 const { reasonFor } = await import('../lib/meetings/materials.js')
@@ -19,32 +26,41 @@ const { withLang } = await import('../lib/lang.js')
 const en = (fn) => withLang('en', fn)
 const ko = (fn) => withLang('ko', fn)
 
-test('room assist: an English message names a process only by whole, meaningful words of its name', () => {
-  // what the recordings got "Start …" cards for (CAPTURE-LOG 12:19, the room suggestions of en-demo)
-  const no = [
-    ['Could you also look at an option that moves the bar counter to the window side on the floor plan? The owner wants window seats.', 'Moonlight Coffee proposal'],
-    ["Here's the Store #2 quote. Please check that the total including VAT and the per-㎡ unit price assumptions are right.", 'Supplier catalog price survey'],
-    ["Here are the quote and the floor plan I made after last week's Moonlight Coffee meeting. Let's go over them in the meeting.", 'Moonlight Coffee proposal'],
-    ['Can you put together the notice on the opening schedule?', 'Moonlight Coffee New Store Proposal'],
-    ['Could you write a proposal for the client?', 'Moonlight Coffee proposal'],
-  ]
-  for (const [b, n] of no) assert.equal(A.processMatch(b, n), false, `${b.slice(0, 40)} → ${n}`)
-  const yes = [
-    ['Can you start the Moonlight Coffee proposal for Store #3?', 'Moonlight Coffee proposal'],
-    ['Please start a travel expense settlement for my Busan trip', 'Travel expense settlement'],
-    ['I need to settle my travel expenses from Busan', 'Travel expense settlement'],
-    ['Start the travel expense process for the Busan trip, please', 'Travel expense settlement'],
-    ['Could you run the daily SNS trend response now?', 'Daily SNS trend response'],
-    ['Moonlight Coffee proposal 시작해 주세요', 'Moonlight Coffee proposal'],
-  ]
-  for (const [b, n] of yes) assert.equal(A.processMatch(b, n), true, `${b.slice(0, 40)} → ${n}`)
+test('room assist: the registered process a request starts is the judge\'s pick; no process fits → a lookup', async () => {
+  const procs = [{ id: 'p-travel', name: 'Travel expense settlement' }, { id: 'p-leave', name: '휴가 신청' }, { id: 'p-buy', name: 'Purchase request approval' }]
+  const opts = await en(() => offers('team'))
+  // 1st call: which offer; 2nd: which process (the options are the registered names, as given)
+  answer = (body, n) => (n === 1 ? 'StartProcessInstance' : 'p-travel')
+  J.calls.length = 0
+  const r = await en(() => A.classify(['Kim: I spent two nights in the field office'], 'can you file the claim for those nights?', { offers: opts, processes: async () => procs }))
+  assert.equal(r.work, 'StartProcessInstance')
+  assert.equal(r.proc.id, 'p-travel')
+  assert.equal(r.title, 'Start Travel expense settlement')
+  assert.deepEqual(J.calls[1].options.map((o) => o.key), ['none', 'p-travel', 'p-leave', 'p-buy'])
+  assert.deepEqual(J.calls[1].options.slice(1).map((o) => o.label), procs.map((x) => x.name), 'the names are shown, not matched')
+  // the judge finds no registered process for it: the agent answers it instead
+  answer = (body, n) => (n % 2 === 1 ? 'StartProcessInstance' : 'none')
+  J.calls.length = 0
+  const n = await en(() => A.classify([], 'start whatever we use for this', { offers: opts, processes: async () => procs }))
+  assert.equal(n.work, 'CompanyQuery')
+  // a sheet the judge picked stays a sheet when no process is meant
+  answer = (body, k) => (k === 1 ? 'CreateSpreadsheet' : 'none')
+  J.calls.length = 0
+  const t = await ko(() => A.classify([], '다음 분기 부서별 예산을 한 장으로 볼 수 있게 해 줄래요', { offers: offers('team'), processes: async () => procs }))
+  assert.equal(t.work, 'CreateSpreadsheet')
+  assert.equal(t.title, '표 초안 만들기', 'no title from the judge server: the offer\'s own title')
 })
 
-test('room assist: a Korean message matches process names exactly as before', () => {
-  const before = (body, name) => body.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2).some((w) => name.includes(w))
-  const names = ['휴가 신청', '출장비 정산', '달빛커피 제안 프로세스', '공급사 카탈로그 가격 조사', '일일 SNS 트렌드 대응']
-  const bodies = ['휴가 신청 좀 올려줄래요?', '출장비 정산해 주세요', '달빛커피 제안서 견적 만들어 줄 수 있어요?', '공급사 가격 조사 부탁해요', '점심 뭐 먹을까요', '견적서 초안 만들어 줄 수 있어요?', '오늘 SNS 트렌드 정리해줘']
-  for (const b of bodies) for (const n of names) assert.equal(A.processMatch(b, n), before(b, n), `${b} → ${n}`)
+test('room assist: unsure or none from the judge is no card; the options are the offer skills plus none', async () => {
+  answer = () => ['CreateDocument', 0.4]
+  J.calls.length = 0
+  const r = await ko(() => A.classify([], '이번 주 안에 정리해야 할 것 같긴 한데', { processes: async () => [] }))
+  assert.deepEqual([r.none, r.why], [true, 'judge-unsure'])
+  const keys = J.calls[0].options.map((o) => o.key)
+  assert.equal(keys[0], 'none')
+  for (const k of keys.slice(1)) assert.ok(offers('team').some((o) => o.key === k), k)
+  answer = () => 'none'
+  assert.equal((await ko(() => A.classify([], '오늘 다들 고생 많았어요', { processes: async () => [] }))).why, 'judge-none')
 })
 
 test('process chat: the skill test step files an answer names are not file cards', () => {
@@ -61,44 +77,16 @@ test('process chat: the skill test step files an answer names are not file cards
   for (const p of [`${ROOM}/Moonlight Coffee floor plan.dxf`, `${ROOM}/process-6c8bf96/forms/quote.form`, '/workspace/11월 고객 세미나 예산표.xlsx', `${ROOM}/skills-evals.xlsx`]) assert.equal(evalRun(p), false, p)
 })
 
-test('room assist: a request in Japanese (or another main language) goes to its translation, Korean and English as before', () => {
-  for (const t of ['見積書を作ってもらえますか？照明の費用も入れてください。', '照明プランを木曜までにまとめてください', '见积单请做一下，谢谢', 'Пожалуйста, подготовьте смету'])
-    assert.deepEqual(A.prefilter(t), { pass: false, why: 'other-lang', translate: true }, t)
-  // a Latin-script language needs its writer's main language to tell it from English
-  assert.equal(A.prefilter('¿Puedes preparar el presupuesto para la tienda?', 'es').translate, true)
-  assert.equal(A.prefilter('Could you draft the quote for the store?', 'ja').pass, true, 'English from a Japanese teammate is read as English')
-  assert.equal(A.prefilter('了解', 'ja').why, 'short')
-  assert.equal(A.prefilter('👍👍👍👍', 'ja').why, 'emoji')
-  // unchanged: Korean and English rules
-  assert.equal(A.prefilter('견적서 초안 만들어 줄 수 있어요?').pass, true)
-  assert.equal(A.prefilter('점심 뭐 먹을까요 다들').why, 'smalltalk')
-  assert.equal(A.prefilter('Can you draft the quote for Moonlight Coffee Store #2?').pass, true)
-  assert.equal(A.prefilter('heading home now, see you tomorrow').why, 'no-work')
-})
-
-test('room assist: the translation is what the rules read, in the language of the card', async () => {
-  const prev = process.env.PRO_TRANSLATE
-  process.env.PRO_TRANSLATE = '1'
-  TR.setDb(false)
-  TR._cache.clear()
-  const asked = []
-  TR.setModelCall(async ({ text, to }) => { asked.push(to); return { text: to === 'en' ? 'Could you make the quote? Please include the lighting costs.' : '견적서 만들어 줄 수 있어요? 조명 비용도 넣어 주세요.', lang: 'ja', ms: 5, model: 'fake' } })
-  try {
-    if (!TR.enabled()) return // no OpenAI key here: readable() is null and the message is left alone (no card)
-    const JA = '見積書を作ってもらえますか？照明の費用も入れてください。'
-    const e = await en(() => A.readable(JA, { hint: 'ja' }))
-    assert.equal(A.prefilter(e).pass, true, e)
-    const k = await ko(() => A.readable(JA, { hint: 'ja' }))
-    assert.equal(A.prefilter(k).pass, true, k)
-    assert.deepEqual(asked, ['en', 'ko'])
-    // the model failed: no card rather than a guess
-    TR._cache.clear()
-    TR.setModelCall(async () => { throw new Error('translate 500') })
-    assert.equal(await en(() => A.readable(JA, { hint: 'ja' })), null)
-  } finally {
-    TR.setModelCall(null); TR.setDb(true); TR._cache.clear()
-    if (prev == null) delete process.env.PRO_TRANSLATE; else process.env.PRO_TRANSLATE = prev
-  }
+test('room assist: a message in any language goes to the judge as written; only its format keeps one out', async () => {
+  for (const [t, why] of [['', 'empty'], ['👍👍👍', 'emoji'], ['ㅋㅋㅋㅋ', 'emoji'], ['ㅠㅠ!!', 'emoji'], ['https://example.com/deck', 'link'], ['네', 'short']]) assert.equal(A.formatGate(t).why, why, t)
+  for (const t of ['見積書を作ってもらえますか？', '了解', 'ok', '¿Puedes preparar el presupuesto?', '요약?']) assert.equal(A.formatGate(t).pass, true, t)
+  answer = () => 'CreateSpreadsheet'
+  J.calls.length = 0
+  const JA = '来月の展示会の費用、表にまとめてもらえますか'
+  const r = await en(() => A.classify(['Sato: 展示会の件です'], JA, { processes: async () => [] }))
+  assert.equal(r.work, 'CreateSpreadsheet')
+  assert.ok(J.calls[0].state.includes(JA), 'the judge reads the message itself, not a translation')
+  assert.ok(J.calls[0].state.startsWith('Earlier messages:\nSato: 展示会の件です\n\nNew message:'))
 })
 
 test("team rooms: an agent's row names whose agent in the reader's language", () => {

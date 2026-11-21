@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "member": {
+      "type": "string",
+      "description": "name, e-mail or role of the teammate (facts)",
+      "x-enum-from": "members"
+    },
+    "title": {
+      "type": "string",
+      "description": "one-line notification title: what to look at",
+      "x-lang": "title"
+    },
+    "message": {
+      "type": "string",
+      "description": "self-contained request for the teammate, who has not seen this chat: what to look at and why, with the facts they need"
+    }
+  },
+  "required": [
+    "member"
+  ]
+}

@@ -116,15 +116,15 @@ const FIND = `프로세스의 한 분기에서 업무들이 서로 다른 흐름
 업무마다 고객의 요청(메일 제목·본문·요청한 문서)과 분기 전에 만든 문서만 있습니다.
 무엇이 흐름을 갈랐는지 찾아, name 에 있는 흐름마다 그 흐름으로 가는 조건을 한 문장으로 쓰세요.
 JSON {"conditions": {"<흐름>": "<조건>"}} 으로 답하세요.
-- 조건은 업무가 분기 시점에 가진 것(요청 내용·요청 문서·앞 단계 문서)으로 판단할 수 있어야 합니다. 예: "고객이 메일에서 제안서를 요청했으면"
-- 흐름의 이름(단계 이름)을 조건으로 바꾸지 마세요. "이번 일에 '제안서 작성'이 필요하면"은 조건이 아닙니다
+- 조건은 업무가 분기 시점에 가진 것(요청 내용·요청 문서·앞 단계 문서)으로 판단할 수 있어야 합니다. 예: "고객이 메일에서 <어떤 문서>를 요청했으면"
+- 흐름의 이름(단계 이름)을 조건으로 바꾸지 마세요. "이번 일에 '<단계 이름>'이 필요하면"은 조건이 아닙니다
 - 업무들 사이에 가를 만한 차이가 보이지 않으면 {"conditions": {}} 로 답하세요. 지어내지 마세요`
 const FIND_EN = `At one split of a process, pieces of work went different ways. \`branches\` lists, per way, the work that went there.
 Each piece has only the customer's request (mail subject, body, the documents asked for) and the documents made before the split.
 Find what set the ways apart and write, for each way in \`name\`, the condition for going that way, in one sentence.
 Answer with JSON {"conditions": {"<way>": "<condition>"}}.
-- A condition must be judged from what the work holds at the split (the request, the documents asked for, earlier documents). E.g. "the customer asked for a proposal in the mail"
-- Never turn the way's name (a step name) into the condition. "This work needs 'Write proposal'" is not a condition
+- A condition must be judged from what the work holds at the split (the request, the documents asked for, earlier documents). E.g. "the customer asked for <a document> in the mail"
+- Never turn the way's name (a step name) into the condition. "This work needs '<step name>'" is not a condition
 - If nothing sets them apart, answer {"conditions": {}}. Do not invent one`
 const CHECK = `업무마다 아래 조건 중 어느 것에 맞는지 고르세요. 맞는 것이 없으면 "none" 입니다.
 JSON {"assign": {"<업무 id>": "<조건 글자 또는 none>"}} 으로 모든 업무에 답하세요.
@@ -140,11 +140,11 @@ Each piece has only the customer's request and the documents made before the spl
 // or no different from it, is not taken: the wrapped form (shape.js notHolds) stays.
 const OPP = `아래 조건이 맞지 않는 경우를 조건 한 문장으로 쓰세요. JSON {"opposite": "<조건>"} 으로 답하세요.
 - 같은 기준과 같은 숫자만 쓰세요. 새 조건·숫자·사실을 더하지 마세요
-- 부정을 겹치지 말고 바로 읽히게 쓰세요. 예: "견적 합계가 5천만 원 미만이면" → "견적 합계가 5천만 원 이상이면", "고객이 계약서를 요청하지 않았으면" → "고객이 계약서를 요청했으면"
+- 부정을 겹치지 말고 바로 읽히게 쓰세요. 예: "<금액 항목>이 <기준 금액> 미만이면" → "<금액 항목>이 <기준 금액> 이상이면", "고객이 <문서>를 요청하지 않았으면" → "고객이 <문서>를 요청했으면"
 - 조건과 같은 말투로 "~면"으로 끝내세요`
 const OPP_EN = `Write, as one condition, the case where the condition below does not hold. Answer with JSON {"opposite": "<condition>"}.
 - Use the same measure and the same numbers only. Add no new condition, number or fact
-- No double negatives; make it read at once. E.g. "the quote total is under 50M" → "the quote total is 50M or more"`
+- No double negatives; make it read at once. E.g. "<an amount> is under <a limit>" → "<an amount> is <the limit> or more"`
 const numbers = (t) => (String(t || '').replace(/,/g, '').match(/\d+(?:\.\d+)?\s*(?:천|만|억|조)*/g) || []).map((x) => x.replace(/\s+/g, ''))
 /** the opposite says nothing the condition does not: no number it lacks, and not the same sentence */
 export function sameFacts(cond, opposite) {

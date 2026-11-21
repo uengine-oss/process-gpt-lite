@@ -1,182 +1,44 @@
-// Turn orchestration. A quick routing call picks what the turn needs; general work is
-// delegated to process-gpt's deepagents (/chat/stream) and streamed back verbatim.
+// Turn orchestration. The chat router (lib/skills/router.js) reads the action skills (skills/actions) and
+// the person's facts and picks what the turn needs: one of this server's actions, or the general agent —
+// process-gpt's deepagents (/chat/stream), whose answer is streamed back verbatim. What a message means
+// is decided there, by a model reading skill descriptions, or by a structured field the page sent
+// (intent, reply); nothing here reads the words (docs/mobile-review-1121/skill-routing-design.md).
 import { config } from '../config.js'
 import { chat } from './llm.js'
 import { q } from './supa.js'
 import { addMessage, history, getThread, setThreadStatus } from './store.js'
-import { runBrowserTask } from './browser.js'
-import { createSchedule, nextRun, cronAfter, dueAt, listSchedules } from './scheduler.js'
-import { createMission, createProcessSchedule, listSkills, workspaceHostPath, runMission } from './missions.js'
-import { wantsRunNow, telegramIntent, pickSchedule, recentScheduleIds, channelsOf } from './scheduleIntent.js'
+import { listSkills, workspaceHostPath, runMission, parseResult } from './missions.js'
 import { createTrail } from './workTrail.js'
-import { marketHint, stripInventedCodes } from './marketHint.js'
-import { summarizeSkill, listFolder } from './skills.js'
+import { summarizeSkill, listFolder, getSkill } from './skills.js'
 import { generatedContract } from './generated.js'
 import fs from 'node:fs/promises'
-import { generatePanel } from './panels.js'
-import * as PanelApps from './panelApps/service.js'
-import { valuesFromText } from './panelApps/sheet.js'
 import { emit } from './bus.js'
-import { listDefinitions, listInstances, myTodos, getDefinition } from './processes.js'
+import { listDefinitions } from './processes.js'
 import { systemGuide } from './systems.js'
-import { listTeam, listAssignments, resolveMember } from './team.js'
-import { notifyMember } from './notify.js'
-import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, parseToolOutput, publish } from './office.js'
+import { displayName, documentFrom, documentsOfRun, editable, parseToolOutput, publish } from './office.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import * as turns from './turns.js'
 import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths, textDoc, workFile, checkoutFile } from './provenance.js'
-import { activateCraft } from '../mcp/craft.js'
+import { activateCraft, CRAFT_APPS } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
-import { liveOpen, liveHint, openDocOf } from './craftLive.js'
+import { liveOpen, liveFact, livePin, openDocOf } from './craftLive.js'
 import { capture, reviewTurn } from './review.js'
 import { attachmentHint, indexForRoom, chatFiles } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
-import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folders/work.js'
+import { isFolderRoom, startChatWork, finishChatWork } from './folders/work.js'
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
 import * as TF from './folders/threadFolders.js'
-import { resolveProcess, brief as improveBrief } from './improve/service.js'
-import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
+import { L, isEn, locale, langInstruction } from './lang.js'
+import { skillNamed } from './skills/registry.js'
+import { decide, choiceDecision } from './skills/router.js'
+import { gatherFacts } from './skills/facts.js'
+import { HANDLERS } from './skills/handlers.js'
+import { startActionSkills } from './skills/index.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
 const attached = new Map() // threadId -> [{name, path, url, type, size}]
 // A turn sent from inside one conversation's view goes to that conversation, not to the router.
 const pinned = new Map() // threadId -> {conversationId, title}
-
-const ROUTER_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'process',
-      description: 'Business processes (프로세스, 업무 절차, 결재, 신청, 접수, 심사 …): start one, show what a process looks like, list running instances, or show my pending work items (할 일, 결재 대기). NOT for creating a skill (스킬 만들어줘) — skill requests are answered without tools.',
-      parameters: {
-        type: 'object',
-        properties: {
-          intent: { type: 'string', enum: ['start', 'view', 'catalog', 'instances', 'my_todos', 'create'], description: 'catalog = list which processes exist; create = design a NEW process definition from a description' },
-          query: { type: 'string', description: 'process name or keywords (start/view), or the full requirement for a new process (create)' },
-          prefill: { type: 'object', description: 'form values the user already gave, keyed by meaning (e.g. customer, qty)' },
-          ack: { type: 'string', description: '해요체 한 문장' },
-        },
-        required: ['intent', 'ack'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_task',
-      description: 'The request needs a real web browser: log in to a site, check an account balance, book, order, fill a web form, operate a web console. NOT for YouTube, Google (Gmail/Calendar/Drive), Slack, GitHub or Notion lookups: answer those without tools — the agent tries their connector tools first and opens the browser itself when they fail.',
-      parameters: { type: 'object', properties: { goal: { type: 'string' }, start_url: { type: 'string' }, ack: { type: 'string', description: '해요체 한두 문장으로 무엇을 할지 알림' } }, required: ['goal', 'ack'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'schedule_task',
-      description: 'User wants something NEW done repeatedly or at a time (매일, 매주, 30분마다, 장중에, 내일 아침…). NOT for running a task that is already scheduled (listed in the system message) right now — that is run_schedule_now.',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: '짧은 작업 이름' },
-          cron: { type: 'string', description: '5-field cron in Asia/Seoul local time. Leave out when in_minutes is given' },
-          in_minutes: { type: 'integer', description: 'For one run a number of minutes from now ("3분 뒤에 한 번만"): the minutes. It runs once' },
-          once: { type: 'boolean', description: 'true when it should run only one time at the cron moment ("내일 오전 9시에 한 번")' },
-          notify: { type: 'string', enum: ['always', 'on_change'], description: "always: the user is told at every run (reminders, reports). on_change: only when something changed since the last run (watching for news, prices, new items)" },
-          prompt: { type: 'string', description: 'Self-contained instruction executed at each run. Keep every name (stocks, companies, people, products) exactly as the user wrote it; never add codes, tickers or ids the user did not give — the run looks them up' },
-          skill: { type: 'string', description: 'If one of the available skills (listed in the system message) does this job, its exact name. The run then executes that skill as a mission. A skill is one person\'s job done by one agent: results go only to the person who set it up.' },
-          process: { type: 'string', description: 'If one of the processes (listed in the system message) is the job to run on this schedule, its exact id. Each run then starts a new instance of that process. Use a process (not a skill) when the work passes between people or roles (검토·승인·결정을 다른 사람/역할이 함), branches on a decision, or chains several agents/skills — each step then goes to whoever holds its role.' },
-          params: { type: 'object', description: 'Inputs taken from the request. For a skill, what the skill needs, e.g. {"channel":"@경제사냥꾼","sectors":["코스피","반도체"]}. For a process, its first-step fields (listed with the process), e.g. {"sources":"Facebook","topics":"AI 업무 자동화"}' },
-          ack: { type: 'string', description: '해요체 확인 문장 한두 개. 첫 실행 시각은 말하지 말 것(시스템이 따로 표시)' },
-        },
-        required: ['name', 'prompt', 'ack'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'run_schedule_now',
-      description: 'Run one of the user\'s existing scheduled tasks (listed in the system message) right now, once, to try it: "지금 한 번 실행해 봐", "곧바로 돌려 봐", "테스트로 실행해 줘". Never make a new schedule for this.',
-      parameters: { type: 'object', properties: { schedule: { type: 'string', description: 'the id or exact name of the scheduled task' }, ack: { type: 'string', description: '해요체 한 문장' } }, required: ['schedule', 'ack'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'notify_member',
-      description: 'Ask a teammate to look at or handle something: "김민지님께 알려줘", "제품 책임자한테 봐달라고 해", "@민지 확인 부탁", "팀장님께 전달해줘". The member may be a name, an e-mail or a role (listed in the system message). Sends them a notification on their Home.',
-      parameters: {
-        type: 'object',
-        properties: {
-          member: { type: 'string', description: 'name, e-mail or role of the teammate' },
-          title: { type: 'string', description: '알림 제목 한 줄(무엇을 봐 달라는지)' },
-          message: { type: 'string', description: 'Self-contained request for the teammate: what to look at and why, with the facts they need. They have NOT seen this chat, so never refer to "this conversation"' },
-          ack: { type: 'string', description: '해요체 한 문장' },
-        },
-        required: ['member', 'title', 'message', 'ack'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'create_panel',
-      description: 'User wants a NEW panel / widget / mini-app on Home: a live widget (주식 추적, 날씨, 환율) or a small data app people register and manage records in, kept in a spreadsheet and shareable with the team (리드 관리, 휴가 일수 관리, 비품 대장, 할일 목록, 고객 명단…). Not for adding a record to an app that already exists (panel_record). NOT for writing a document or file (안내문·보고서·제안서, docx/hwpx/xlsx/pptx) — answer those without tools.',
-      parameters: { type: 'object', properties: { description: { type: 'string', description: 'what the panel is for, with any fields, rules and first records the user mentioned' }, ack: { type: 'string', description: '만들기 시작했다는 해요체 한 문장(완료됐다고 말하지 말 것)' } }, required: ['description', 'ack'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'panel_record',
-      description: 'Add, change or look up records in one of the user\'s existing panel apps (listed in the system message), e.g. "휴가 일수 관리에 이준호 15일 추가해줘", "리드 관리에서 한빛상사 단계를 제안으로 바꿔줘", "리드 몇 건이야?".',
-      parameters: {
-        type: 'object',
-        properties: {
-          app: { type: 'string', description: 'exact app title from the list' },
-          action: { type: 'string', enum: ['add', 'update', 'list'] },
-          values: { type: 'object', description: 'field label → value for add/update' },
-          match: { type: 'string', description: 'update: text that identifies the row (e.g. the name in its title column); for a cancel/correction in a record-keeping app: text that identifies the original record' },
-          event: { type: 'string', description: 'record-keeping (event) apps: which record to add, e.g. 휴가 신청, 휴가 취소, 휴가 부여' },
-          ack: { type: 'string', description: '해요체 한 문장' },
-        },
-        required: ['app', 'action', 'ack'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_action',
-      description: 'Save a reminder / to-do as an action button on Home.',
-      parameters: {
-        type: 'object',
-        properties: { verb: { type: 'string', enum: ['Remind', 'Add', 'Reply', 'Pay', 'Review', 'Call'] }, text: { type: 'string' }, due: { type: 'string' }, ack: { type: 'string' } },
-        required: ['verb', 'text', 'ack'],
-      },
-    },
-  },
-]
-
-// English mode: the argument descriptions a person's words come from (ack, name, title) ask for English
-const ARG_EN = {
-  ack: 'One or two short English sentences to the user, first person, saying what you will do',
-  name: 'Short task name in English', title: 'One-line notification title in English (what to look at)',
-  event: 'record-keeping (event) apps: which record to add, as the app names it',
-}
-function routerTools(list) {
-  if (!isEn()) return list
-  return list.map((t) => {
-    const props = Object.fromEntries(Object.entries(t.function.parameters.properties).map(([k, v]) => [k, ARG_EN[k] && /[가-힣]/.test(v.description || '') ? { ...v, description: ARG_EN[k] } : v]))
-    return { ...t, function: { ...t.function, parameters: { ...t.function.parameters, properties: props } } }
-  })
-}
-
-const PERSONA = `너는 사용자의 개인 운영체제 같은 업무 비서야. 한국어 해요체로 짧고 따뜻하게 답해.
-불필요한 서론 없이 핵심만. 지금 시각: ${'{now}'}.`
-// English mode (lib/lang.js): the same assistant, in English; tool arguments a person reads (ack,
-// titles, names) are written in English too
-const PERSONA_EN = `You are the user's work assistant, like a personal operating system. Answer in English, short and warm,
-first person ("I'll…"), no preamble. Write every tool argument a person will read (ack, name, title, message, text) in English. Current time: ${'{now}'}.`
 
 function toLlmHistory(rows) {
   return rows.filter((r) => r.kind === 'text' || r.kind === 'doc').map((r) => ({
@@ -196,13 +58,34 @@ export function runTurn(args) {
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
 const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, openDoc }) {
+// What the page says a message is, as fields (never read off its words): the button it came from
+// (intent) or the offered choice it answers (reply). A Home card's run (index.js) is the server's own.
+const INTENTS = ['create_panel', 'skill', 'home_action']
+function structuredOf({ intent, reply }) {
+  const out = {}
+  if (intent && typeof intent === 'object' && INTENTS.includes(intent.kind)) {
+    out.intent = intent.kind === 'skill'
+      ? { kind: 'skill', skill: String(intent.skill || ''), args: intent.args && typeof intent.args === 'object' ? intent.args : {} }
+      : intent.kind === 'home_action' ? { kind: 'home_action', verb: String(intent.verb || '').slice(0, 20) } : { kind: intent.kind }
+  }
+  if (reply && typeof reply === 'object' && /^[0-9a-f-]{36}$/.test(String(reply.messageId || '')) && Number.isInteger(reply.index) && reply.index >= 0 && reply.index < 10) {
+    out.reply = { messageId: String(reply.messageId), index: reply.index }
+  }
+  return out
+}
+const withContext = (text, context) => (context ? `${text}\n\n${context}` : text)
+
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, openDoc, intent, reply }) {
+  startActionSkills()
   const userId = user.id
-  if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
+  const pin = conversation?.id ? { conversationId: String(conversation.id), title: String(conversation.title || '') } : null
+  if (pin) pinned.set(threadId, pin)
   // a key is only ever this person's own upload (lib/attachments.js); the page could send any other
   files = (files || []).filter((f) => f?.url).map((f) => (f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { ...f, key: undefined } : f)).slice(0, 10)
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
-  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
+  text = String(text || '')
+  const shape = structuredOf({ intent, reply })
+  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(shape.intent ? { intent: shape.intent } : {}), ...(shape.reply ? { reply: shape.reply } : {}) })
   const store = turnCtx.getStore()
   if (store) store.userMsgId = said.id
   // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it
@@ -210,233 +93,147 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const doc = openDocOf(openDoc)
   if (store && doc) store.openDoc = doc
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
-  if (files.length) {
-    attached.set(threadId, files)
-    // the router only needs to know there are files; a question about them is the agent's job
-    context = [context, L(`(첨부: ${files.map((f) => f.name).join(', ')})`, `(attached: ${files.map((f) => f.name).join(', ')})`)].filter(Boolean).join('\n\n')
-  }
+  if (files.length) attached.set(threadId, files)
   const hist = toLlmHistory(await history(threadId, 12))
   if (context) hist[hist.length - 1] = { role: 'user', content: `${text}\n\n${context}` }
-  const now = new Date().toLocaleString(locale(), { timeZone: 'Asia/Seoul' })
+  const turn = { user, session, threadId, text, context, onDelta, files, noFolder, doc, ackMsg: null, pin }
+  const toAgent = (t = withContext(text, context), extra = {}) => delegate({ user, session, threadId, text: t, onDelta, ...extra })
 
-  // Skill authoring belongs to deepagents' own skill-creator (its root prompt routes '스킬 만들어줘'
-  // there); pass such requests through untouched instead of classifying them here.
-  // ("…점검 방법을 스킬로 만들어 줘" and "아까 만들던 … 스킬을 마무리해 줘" — the tutorial's own wording — are too)
-  if (/(스킬|skill)\s*(을|를|로|으로)?\s*(새로\s*)?(만들|생성|작성)|만들던\s.{0,40}(스킬|skill)|(스킬|skill)\s*(을|를)?\s*(마무리|이어서?\s*(만들|해)|완성)/i.test(text) || SKILL_REQUEST_EN.test(text)) {
-    generationDone(threadId)
-    // a skill meant to run on a schedule reports its outcome the way missions read it (lib/missions.js)
-    return delegate({ user, session, threadId, text: RECURRING.test(text) || /예약|미션|schedul|mission/i.test(text) ? L(`${text}\n\n(이 스킬은 예약 실행(미션)으로도 돌아요: SKILL.md 절차의 마지막 단계로 "${MISSION_LINE}" 을 넣어 주세요.)`, `${text}\n\n(This skill also runs on a schedule (as a mission): add "${MISSION_LINE_EN}" as the last step of the SKILL.md procedure.)`) : text, onDelta, mode: 'skill' })
+  // 1. an offered choice, tapped
+  if (shape.reply) {
+    const r = await replyTurn(turn, shape.reply)
+    if (r !== undefined) return r
   }
-  // A change asked for in a shared folder ("11월 세미나 폴더의 안내문 고쳐줘") runs on a new
-  // variation of that folder (lib/folders/work.js); the person reviews and merges it.
-  // "새 패널 만들기: …" (Home button) always makes a panel, without asking the router
-  // so does a plain "…패널 만들어줘" (a router model sometimes hands it to the general agent)
-  if ((/^새 패널 만들기\s*[:：]/.test(text) || /패널\s*(을|를|하나|좀)?\s*(새로\s*)?(만들어|만들자|생성해|추가해\s*줘)/.test(text) || PANEL_REQUEST_EN.test(text)) && !files.length) {
-    const description = text.replace(/^새 패널 만들기\s*[:：]\s*/, '').replace(/^New panel\s*[:：]\s*/i, '')
+  // 2. the button the message came from
+  if (shape.intent?.kind === 'create_panel' && !files.length) {
+    return runAction(turn, { route: 'skill', skill: 'panel-create', args: { description: text }, ack: L('패널을 설계하고 있어요.', "I'm designing the panel.") })
+  }
+  if (shape.intent?.kind === 'home_action') return toAgent()
+  if (shape.intent?.kind === 'skill') {
+    const facts = await factsFor(turn)
+    const d = choiceDecision({ skill: shape.intent.skill, args: shape.intent.args }, facts)
+    if (d) return runAction({ ...turn, facts }, d)
+  }
+  // 3. "/name" at the front names a skill (a command's format): the author's own unshared skill is read
+  // from its copy; an installed one is pinned by deepagents from the same prefix
+  const cmd = /^\/([\w.-]+)(\s|$)/.exec(text.trim())?.[1]
+  if (cmd && !generationPending(threadId)) {
+    const own = await privateSkillFor(user, text).catch(() => null)
+    if (own) return ownSkillTurn(turn, own)
+    if ((await listSkills(session.access_token)).some((k) => k.name === cmd)) return toAgent()
+  }
+  // 4. a process being designed: the agent's turn, told what is being designed
+  if (generationPending(threadId)) return toAgent(generationPrompt(threadId, text))
+  // 5. the router
+  const facts = await factsFor(turn)
+  const decision = await decide({ messages: hist.slice(-8), facts, onAck: (ack) => showAck(turn, ack) })
+    .catch((e) => { console.warn('[router]', e.message); return { route: 'delegate', skill: null } })
+  console.log(`[router] ${decision.route}${decision.skill ? ` ${decision.skill}` : ''}${decision.args ? ` ${JSON.stringify(decision.args).slice(0, 160)}` : ''} · ${decision.timings?.stage1 ?? '-'}ms${decision.stage2 ? ` + ${decision.timings.stage2}ms` : ''}`)
+  return dispatch({ ...turn, facts }, decision)
+}
+
+async function factsFor(turn) {
+  return gatherFacts({ user: turn.user, session: turn.session, threadId: turn.threadId, files: turn.files, openDoc: turn.doc || liveOpen(turn.user.id), generation: generationPending(turn.threadId) ? { pending: true } : null, noFolder: turn.noFolder })
+}
+
+// the router's confirmation sentence, in the chat at once (a staged skill's, before its second stage)
+async function showAck(turn, ack) {
+  if (turn.ackMsg || !ack) return turn.ackMsg
+  turn.ackMsg = await addMessage(turn.user.id, turn.threadId, 'agent', 'text', { text: ack })
+  turn.onDelta?.(ack)
+  return turn.ackMsg
+}
+
+// a conversation pin this turn set and no agent turn used does not carry over to the next message
+const unpin = (turn) => { if (turn.pin && pinned.get(turn.threadId) === turn.pin) pinned.delete(turn.threadId) }
+
+async function dispatch(turn, d) {
+  const { user, session, threadId, text, context, onDelta } = turn
+  if (d.route === 'ask') {
+    unpin(turn)
     noAgentTurn()
-    const designing = L('패널을 설계하고 있어요.', "I'm designing the panel.")
-    const ack = await addMessage(userId, threadId, 'agent', 'text', { text: designing })
-    onDelta?.(designing)
-    await makePanel({ user: { ...user, jwt: session?.access_token }, threadId, description })
-    return ack
+    const m = await addMessage(user.id, threadId, 'agent', 'text', { text: d.question, choices: d.choices || [] })
+    onDelta?.(d.question)
+    return turn.ackMsg || m
   }
-  // an app's folder is named after the app: "휴가 일수 관리에 … 추가해줘" is a record, not a folder change
-  const namedApp = await PanelApps.appNamed(user, text).catch(() => null)
-  // (a Home card that answers a mail — noFolder — is never a folder edit)
-  const folderBlocked = noFolder || !!namedApp || generationPending(threadId) || !!files.length
-  // (a folder attached in chat is the one a change request means when it names none; a project's own
-  // folder is changed on the project's variation — delegate — not on a short one: lib/folders/threadFolders.js)
-  const folderLink = await TF.linkOf(threadId).catch(() => null)
-  const named = !folderBlocked ? await folderFor(user, text).catch(() => null) : null
-  const sharedFolder = await TF.chatFolderTarget({ user, link: folderLink, named, text, blocked: folderBlocked }).catch(() => named)
-  if (sharedFolder) return folderTurn({ user, session, threadId, text, onDelta, folder: sharedFolder })
-  // the author's own private skill is not installed: their run is pointed at its copy, and after the
-  // first good run the chat asks once more whether to share it
-  // (attached files go along: the skill's run reads them like any other turn's attachments)
-  const ownSkill = !generationPending(threadId) ? await privateSkillFor(user, text).catch(() => null) : null
-  if (ownSkill) {
-    const msg = await delegate({ user, session, threadId, onDelta, text: `${text.replace(`/${ownSkill.name}`, '').trim() || text}\n\n${L(`(내 스킬 '${ownSkill.name}' 로 처리하세요. 아직 공유하지 않은 개인 스킬이라 설치 목록에는 없어요 — 이 문서를 읽고 그 절차대로 하세요: ${ownSkill.path}, 같은 폴더의 파일도 참고)`, `(Handle this with my skill '${ownSkill.name}'. It is a personal skill not shared yet, so it is not in the installed list — read this document and follow its procedure: ${ownSkill.path}, and see the files in the same folder)`)}` })
-    if (msg && !msg.content?.stopped && msg.content?.text !== EMPTY_TEXT && msg.content?.text !== EMPTY_TEXT_EN && !/오류|실패|\(error:/i.test(msg.content?.text || '')) await askShareAfterUse(user, threadId, ownSkill.name).catch(() => {})
-    return msg
+  if (d.route === 'skill' && skillNamed(d.skill)) return runAction(turn, d)
+  // the agent's turn; a skill the router named: the author's own unshared skill is read from its copy,
+  // and the app tools an installed skill declares (metadata.include_tools) are listed for this turn
+  let tools = null
+  if (d.skill) {
+    if (turn.facts.mySkills.some((k) => k.name === d.skill)) {
+      const own = await privateSkillFor(user, `/${d.skill}`).catch(() => null)
+      if (own) return ownSkillTurn(turn, own)
+    }
+    tools = await skillTools(session, d.skill)
   }
-  // A task already on a schedule, asked to run now ("곧바로 하나 정도 한번 실행해 봐"): that task runs once,
-  // now — not a new schedule a minute later (2026-11-21 phone review). It has to be named or be the one
-  // this conversation just set up or ran; otherwise the words may be about a process and go on as before.
-  if (!files.length && wantsRunNow(text) && !generationPending(threadId)) {
-    // (the last exchange only: an hourly task's own run lines further up are not "the one we were talking about")
-    const s = pickSchedule(await listSchedules(userId), text, recentScheduleIds((await history(threadId, 6)).slice(-5)), { only: false })
-    if (s) { noAgentTurn(); return runScheduleNowTurn({ userId, threadId, s, onDelta }) }
+  return delegate({ user, session, threadId, text: withContext(text, context), onDelta, tools })
+}
+
+// One action skill, run: its ack (already shown for a staged skill), then its handler
+async function runAction(turn, d) {
+  const s = skillNamed(d.skill)
+  const agentTurn = s.metadata.agent_turn
+  if (agentTurn === false) noAgentTurn()
+  let ackMsg = turn.ackMsg
+  if (!ackMsg && d.ack) ackMsg = await showAck(turn, d.ack)
+  const ctx = { ...turn, facts: turn.facts || await factsFor(turn), acked: !!ackMsg, ackText: ackMsg?.content?.text || null, noAgentTurn }
+  const out = await HANDLERS[s.metadata.handler](ctx, d.args || {})
+  unpin(turn)
+  return ackMsg || out
+}
+
+// A choice from a message's stored choices (src/components/Message.vue sends its message id and place):
+// a router's ask runs the skill it carries, a process draft's "go ahead" goes on with the generation,
+// an agent's question goes back to the agent. undefined: route the label like any message.
+async function replyTurn(turn, reply) {
+  const [m] = await q('select content from pro_messages where id=$1 and thread_id=$2 and role=$3', [reply.messageId, turn.threadId, 'agent']).catch(() => [])
+  const choice = m?.content?.choices?.[reply.index]
+  if (!choice) return undefined
+  const { user, session, threadId, text, onDelta } = turn
+  if (choice.reply?.kind === 'approve' && generationPending(threadId)) return delegate({ user, session, threadId, text: generationPrompt(threadId, text, { approved: true }), onDelta })
+  if (choice.skill) {
+    const facts = await factsFor(turn)
+    const d = choiceDecision(choice, facts)
+    if (d) return runAction({ ...turn, facts }, d)
+    return undefined
   }
-  // Telegram: a task's alerts there too ("급등락이 감지되면 내 텔레그램 봇으로 알려줘"), an answer sent
-  // there, or connecting the bot — handled here, the agent has no Telegram tool
-  const tg = !files.length ? telegramIntent(text) : null
-  if (tg) { noAgentTurn(); return telegramTurn({ userId, threadId, text, kind: tg, onDelta }) }
-  // A one-off question about a connected service (YouTube, Calendar, Slack…) goes straight to
-  // deepagents, which holds the connector tools; small router models tend to pick browser_task.
-  // (a request about one of the user's panel apps — "팀 공유 캘린더에서 …" — is not a Google Calendar question)
-  if (!namedApp && await connectorFirst(user, text) && !RECURRING.test(text) && !/브라우저|사이트에\s*접속|\bbrowser\b|log\s*in to/i.test(text) && !generationPending(threadId)) {
+  if (choice.to === 'agent') {
+    // the answer goes to the conversation the question came from
+    const conv = m.content.context?.conversationId
+    if (conv && !pinned.has(threadId)) pinned.set(threadId, { conversationId: String(conv), title: String(m.content.context?.title || '') })
     return delegate({ user, session, threadId, text, onDelta })
   }
-  if (generationPending(threadId)) {
-    return delegate({ user, session, threadId, text: generationPrompt(threadId, text), onDelta })
-  }
-  // Making or editing a drawing, picture, sound or video: deepagents has the ArtCraft apps' tools
-  // (mcp/craft.js); a router model reads "FilmCraft에서…" as a site to open in a browser.
-  // (only plain schedule words count here: "처음 3초에 자막" is a time inside the video, not a schedule)
-  // (an app open in the page — lib/craftLive.js — is the document a message like "제목을 노랗게" is about)
-  if ((craftAppsFor(text).length || liveOpen(userId) || doc) && !/매일|매주|매달|마다|정기|반복|every|daily|weekly|monthly/i.test(text)) {
-    // (the context carries what the person pointed at in the open document: @표 2, @이미지 1 …)
-    return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
-  }
-  // "달빛커피 제안 프로세스 어디가 병목이야? 어떻게 줄여?" — a process with a history, asked about its speed:
-  // the numbers come from the deterministic analysis (lib/improve), the model only explains them
-  if (!files.length && (IMPROVE_Q.test(text) || IMPROVE_Q_EN.test(text)) && !generationPending(threadId)) {
-    const proc = await resolveProcess(text).catch(() => null)
-    if (proc) { noAgentTurn(); return improveTurn({ user, threadId, text, onDelta, proc }) }
-  }
-  // Writing a document is the agent's job (office-mcp); a router model reads "안내문을 … 만들어줘" as a panel app.
-  // (a process that names documents among its steps — "…제안서를 만들어" — is still the router's create;
-  // "Make a process for the Moonlight Coffee proposal: …" is a new process, not a document: the router's
-  // process tool designs it, as the Korean request always went)
-  if (!namedApp && (DOC_REQUEST.test(text) || (DOC_REQUEST_EN.test(text) && !PROCESS_REQUEST_EN.test(text))) && !/패널|위젯|앱|프로세스|\b(panel|widget|app)\b/i.test(text) && !RECURRING.test(text)) {
-    return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
-  }
-  // An address plus a site action ("테스트 상점(http://…/login)에 로그인해서 …") is the browser agent's: the router
-  // model sometimes answers these itself, and the agent's sandbox cannot reach the site
-  const siteUrl = /https?:\/\/[^\s)'"]+/i.exec(text)?.[0]
-  if (!namedApp && siteUrl && SITE_ACTION.test(text) && !files.length && !RECURRING.test(text) && !generationPending(threadId)) {
-    noAgentTurn()
-    const ack = L('사이트에서 직접 처리할게요.', "I'll do it on the site.")
-    const msg = await addMessage(userId, threadId, 'agent', 'text', { text: ack })
-    onDelta?.(ack)
-    runBrowserTask({ userId, threadId, goal: text, startUrl: siteUrl })
-      .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
-      .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment.") }) })
-    return msg
-  }
-  const skillList = await listSkills(session.access_token)
-  const skillHint = skillList.length ? `\n${L('사용 가능한 스킬(주기 작업에 쓸 수 있음)', 'Available skills (usable for recurring tasks)')}: ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
-  const processHint = await processCatalogHint()
-  const teamHint = await teamCatalogHint(userId)
-  const appHint = await panelAppHint(user)
-  const schedHint = await scheduleCatalogHint(userId)
-  const route = await chat({
-    model: config.llm.fastModel,
-    temperature: 0,
-    // with no apps to name, a small router model still reaches for panel_record ("'문서 작성' 패널을 찾지 못했어요")
-    tools: routerTools(appHint ? ROUTER_TOOLS : ROUTER_TOOLS.filter((t) => t.function.name !== 'panel_record')),
-    messages: [
-      { role: 'system', content: isEn()
-        ? PERSONA_EN.replace('{now}', now) + skillHint + processHint + teamHint + appHint + schedHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
-        : PERSONA.replace('{now}', now) + skillHint + processHint + teamHint + appHint + schedHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
-      ...hist.slice(-8),
-    ],
-  })
-  const call = route.tool_calls?.[0]
-  // a panel only when the words ask for one; the router otherwise turns "안내문 … 만들어줘" follow-ups into apps
-  const strayPanel = call?.function.name === 'create_panel' && !PANEL_WORDS.test(text) && !PANEL_WORDS_EN.test(text)
-  if (!call || strayPanel) return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
-
-  const args = JSON.parse(call.function.arguments || '{}')
-  // only designing a new process goes on to the agent; the other tools answer here
-  if (!(call.function.name === 'process' && args.intent === 'create')) noAgentTurn()
-  const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack })
-  onDelta?.(args.ack)
-
-  switch (call.function.name) {
-    case 'browser_task':
-      runBrowserTask({ userId, threadId, goal: args.goal, startUrl: args.start_url })
-        .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
-        .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment.") }) })
-      break
-    case 'schedule_task': {
-      // the ack is already in the chat: a schedule that cannot be made has to say so
-      try {
-        const cron = args.in_minutes ? cronAfter(args.in_minutes) : args.cron
-        dueAt(cron, new Date()) // throws on an expression that is not a cron
-        const skills = await listSkills(session.access_token)
-        const useSkill = args.skill && skills.some((k) => k.name === args.skill)
-        // the router sometimes names the process only inside its prompt; match ids and names as well
-        let procId = !useSkill ? args.process : null
-        if (!useSkill && !procId) {
-          const said = `${args.prompt || ''} ${args.name || ''} ${text}`
-          procId = (await listDefinitions()).slice(0, 40).find((d) => said.includes(d.id) || (d.name && d.name.length >= 6 && said.includes(d.name)))?.id
-        }
-        const proc = procId ? await getDefinition(procId) : null
-        const s = proc
-          ? await createProcessSchedule({ userId, name: args.name, cron, processId: proc.id, params: { ...(args.params || {}), request: text }, threadId })
-          : useSkill
-          // keep the user's own words with the inputs so the skill can recover anything the router missed
-          ? await createMission({ userId, name: args.name, cron, skill: args.skill, params: { ...(args.params || {}), request: text } })
-          : await createSchedule({ userId, name: args.name, cron, prompt: stripInventedCodes(args.prompt, text), threadId, notify: args.notify === 'on_change' ? 'on_change' : 'always', once: !!(args.in_minutes || args.once) })
-        const next = nextRun(s.cron)
-        const when = next ? next.toLocaleString(locale(), { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit' }) : ''
-        await addMessage(userId, threadId, 'agent', 'chip', { icon: 'clock', text: L(`예약됨 · ${s.name}${useSkill ? ` · 스킬 ${args.skill}` : proc ? ` · 프로세스 ${proc.name}` : ''}${when ? ` · 다음 실행 ${when}` : ''}`,
-          `Scheduled · ${s.name}${useSkill ? ` · skill ${args.skill}` : proc ? ` · process ${proc.name}` : ''}${when ? ` · next run ${when}` : ''}`), cron: s.cron, scheduleId: s.id })
-      } catch (e) {
-        console.warn('[schedule]', e.message)
-        await addMessage(userId, threadId, 'agent', 'text', { text: L('예약을 걸지 못했어요. 시각을 다시 알려 주세요.', "I couldn't set that schedule. Please tell me the time again.") })
-      }
-      break
-    }
-    case 'run_schedule_now': {
-      const list = await listSchedules(userId)
-      const s = list.find((x) => x.id === args.schedule || x.id.startsWith(String(args.schedule || '')) && String(args.schedule || '').length >= 8)
-        || pickSchedule(list, `${args.schedule || ''} ${text}`, recentScheduleIds(await history(threadId, 16)))
-      if (!s) { await addMessage(userId, threadId, 'agent', 'text', { text: L('어느 예약 작업인지 찾지 못했어요. 작업 이름을 알려 주세요.', "I couldn't tell which scheduled task you mean. Tell me its name.") }); break }
-      await runScheduleNowTurn({ userId, threadId, s, acked: true })
-      break
-    }
-    case 'create_panel':
-      await makePanel({ user: { ...user, jwt: session?.access_token }, threadId, description: args.description || text })
-      break
-    case 'panel_record':
-      await panelRecord({ user: { ...user, jwt: session?.access_token }, threadId, args, text })
-      break
-    case 'process':
-      await processTurn(userId, threadId, args)
-      break
-    case 'notify_member': {
-      const member = await resolveMember(args.member)
-      if (!member || member.id === userId) {
-        await addMessage(userId, threadId, 'agent', 'text', { text: member ? L('본인에게는 알림을 보내지 않아요.', "I don't send notifications to yourself.") : L(`'${args.member}' 팀원을 찾지 못했어요. 설정 → 팀·역할에서 팀원을 추가해 주세요.`, `I couldn't find a teammate called '${args.member}'. Add them in Settings → Team & roles.`) })
-        break
-      }
-      // the teammate never saw this chat: what was said just before the request goes along
-      // (earlier "알려줘" exchanges — a request followed by its bell chip — are not context)
-      const rows = await history(threadId, 12)
-      const pinged = new Set()
-      rows.forEach((r, i) => { if (r.kind === 'chip' && r.content?.icon === 'bell') { pinged.add(i - 1); pinged.add(i - 2) } })
-      // the excerpt's labels are in the teammate's language (they read it), the excerpt itself as it was said
-      const theirs = await langOf(member.id).catch(() => 'ko')
-      const T = (ko, en) => (theirs === 'en' ? en : ko)
-      const said = [...new Set(rows.filter((r, i) => ['text', 'doc'].includes(r.kind) && r.content?.text && r.content.text !== text && r.content.text !== args.ack && !pinged.has(i))
-        .slice(-3).map((r) => `${r.role === 'user' ? user.name || T('요청자', 'Requester') : T('비서', 'Assistant')}: ${r.content.text.replace(/\s+/g, ' ').slice(0, 220)}`))]
-      await withLang(theirs, () => notifyMember(user, member, { title: args.title, text: [args.message.replace(/[^.。!?]*이 대화[^.。!?]*[.。!?]?/g, '').replace(/[^.!?]*\bthis (conversation|chat)\b[^.!?]*[.!?]?/gi, '').trim(), said.length ? `${T('— 대화 발췌 —', '— Conversation excerpt —')}\n${said.join('\n')}` : ''].filter(Boolean).join('\n\n') }))
-      await addMessage(userId, threadId, 'agent', 'chip', { icon: 'bell', text: L(`${member.name}님께 알림 보냄${member.via === 'role' ? ` · ${member.role}` : ''} · ${args.title}`, `Notified ${member.name}${member.via === 'role' ? ` · ${member.role}` : ''} · ${args.title}`) })
-      break
-    }
-    case 'add_action': {
-      const [a] = await q(`insert into pro_actions(user_id,verb,text,due,prompt) values ($1,$2,$3,$4,$5) returning *`,
-        [userId, args.verb, args.text, args.due || null, args.text])
-      emit(userId, 'action', a)
-      break
-    }
-  }
-  return ack
+  return undefined
 }
 
-// the person's scheduled tasks, for the router (run_schedule_now names one of these)
-async function scheduleCatalogHint(userId) {
-  const list = await listSchedules(userId).catch(() => [])
-  if (!list.length) return ''
-  const items = list.slice(0, 12).map((s) => `${s.id.slice(0, 8)} ${s.name}${s.paused ? L('(멈춤)', ' (paused)') : ''}`).join(' / ')
-  return L(`\n내 예약 작업(지금 한 번 실행은 run_schedule_now, 새 예약이 아님): ${items}`, `\nMy scheduled tasks (run one now with run_schedule_now, not a new schedule): ${items}`)
+// the author's own private skill is not installed: their run is pointed at its copy, and after the first
+// good run the chat asks once more whether to share it (attached files go along like any turn's)
+async function ownSkillTurn(turn, own) {
+  const { user, session, threadId, text, onDelta } = turn
+  const msg = await delegate({ user, session, threadId, onDelta, text: `${text.replace(`/${own.name}`, '').trim() || text}\n\n${L(`(내 스킬 '${own.name}' 로 처리하세요. 아직 공유하지 않은 개인 스킬이라 설치 목록에는 없어요 — 이 문서를 읽고 그 절차대로 하세요: ${own.path}, 같은 폴더의 파일도 참고)`, `(Handle this with my skill '${own.name}'. It is a personal skill not shared yet, so it is not in the installed list — read this document and follow its procedure: ${own.path}, and see the files in the same folder)`)}` })
+  // (the stream says whether the run failed or ended empty: lib/agent.js streamTurn)
+  if (msg && !msg.content?.stopped && !msg.content?.error && !msg.content?.empty) await askShareAfterUse(user, threadId, own.name).catch(() => {})
+  return msg
 }
+
+// The app tools an installed agent skill declares (its frontmatter metadata.include_tools): an ArtCraft
+// app's (`<app>_…`) or the open-document editor's (`office_live_…`) — tool names' prefixes
+const toolCache = new Map() // skill → { at, apps, office }
+async function skillTools(session, name) {
+  const hit = toolCache.get(name)
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit
+  const declared = await getSkill(session.access_token, name).then((s) => s.tools || []).catch(() => [])
+  const apps = Object.keys(CRAFT_APPS).filter((app) => declared.some((t) => String(t).startsWith(`${app}_`)))
+  const out = { at: Date.now(), apps, office: declared.some((t) => String(t).startsWith('office_live_')) }
+  toolCache.set(name, out)
+  return out
+}
+
 
 // A scheduled task, run once now (lib/missions.js runMission 'manual'): its result comes to this
 // conversation like a scheduled run's, under its divider — even when nothing crossed its condition.
-async function runScheduleNowTurn({ userId, threadId, s, onDelta, acked = false }) {
+export async function runScheduleNowTurn({ userId, threadId, s, onDelta, acked = false }) {
   let msg = null
   if (!acked) {
     const said = L(`「${s.name}」 작업을 지금 바로 한 번 실행할게요. 새 예약은 만들지 않고, 결과는 곧 여기에 올라와요.`,
@@ -450,76 +247,8 @@ async function runScheduleNowTurn({ userId, threadId, s, onDelta, acked = false 
   return msg
 }
 
-// where a task's results go besides the chat (pro_schedules.state.channels)
-async function setChannel(s, channel, on) {
-  const next = [...new Set([...channelsOf(s).filter((c) => c !== channel), ...(on ? [channel] : [])])]
-  await q(`update pro_schedules set state = jsonb_set(coalesce(state,'{}'::jsonb), '{channels}', $2::jsonb) where id=$1 and user_id=$3`, [s.id, JSON.stringify(next), s.user_id])
-  return next
-}
-
-// Telegram (lib/telegram.js): a task's alerts there too, the last answer sent there now, or connecting
-// the person's bot. Not connected yet: a card in the chat connects it (src/components/TelegramConnect.vue),
-// and a task already marked sends there from its next result on.
-async function telegramTurn({ userId, threadId, text, kind, onDelta }) {
-  const tg = await import('./telegram.js')
-  const status = await tg.telegramStatus(userId).catch(() => ({ connected: false, linked: false }))
-  const ready = status.connected && status.linked
-  const say = async (t) => { const m = await addMessage(userId, threadId, 'agent', 'text', { text: t }); onDelta?.(t); return m }
-  const card = (s) => addMessage(userId, threadId, 'agent', 'telegram_connect', { scheduleId: s?.id || null, scheduleName: s?.name || '' })
-  const chip = (t, s) => addMessage(userId, threadId, 'agent', 'chip', { icon: 'bell', text: t, ...(s ? { scheduleId: s.id } : {}) })
-  if (kind === 'connect') {
-    if (ready) return say(L(`텔레그램 봇 @${status.bot} 이 이미 연결돼 있어요.`, `Your Telegram bot @${status.bot} is already connected.`))
-    const m = await say(L('내 텔레그램 봇을 연결해 볼게요. 아래 카드 순서대로 하면 1분이면 돼요.', "Let's connect your Telegram bot. Follow the card below — it takes about a minute."))
-    await card(null)
-    return m
-  }
-  const all = await listSchedules(userId)
-  const s = pickSchedule(all, text, recentScheduleIds((await history(threadId, 10)).slice(-8)), { only: false })
-  if (kind === 'off') {
-    if (!s) return say(L('어느 예약 작업의 텔레그램 알림을 끌지 찾지 못했어요. 작업 이름을 알려 주세요.', "I couldn't tell which scheduled task's Telegram alerts to turn off. Tell me its name."))
-    await setChannel(s, 'telegram', false)
-    const m = await say(L(`「${s.name}」 결과는 이제 텔레그램으로 보내지 않아요.`, `"${s.name}" results won't go to Telegram any more.`))
-    await chip(L(`텔레그램 알림 끔 · ${s.name}`, `Telegram alerts off · ${s.name}`), s)
-    return m
-  }
-  if (kind === 'alerts' && !s) {
-    if (!all.length) return say(L('텔레그램으로 알려 드릴 예약 작업이 아직 없어요. 무엇을 언제 확인할지 먼저 말해 주세요.', "There's no scheduled task to alert you about yet. Tell me what to check and when first."))
-    return say(L(`어느 예약 작업의 알림을 텔레그램으로 보낼까요? ${all.slice(0, 5).map((x) => `「${x.name}」`).join(', ')} 중에서 이름을 말해 주세요.`,
-      `Which scheduled task should alert you on Telegram? Name one of: ${all.slice(0, 5).map((x) => `"${x.name}"`).join(', ')}.`))
-  }
-  if (kind === 'alerts') {
-    await setChannel(s, 'telegram', true)
-    if (ready) {
-      const m = await say(L(`좋아요. 「${s.name}」에서 알릴 일이 생기면 채팅과 함께 텔레그램(@${status.bot})으로도 보내 드릴게요.`,
-        `Done. When "${s.name}" has something to tell you, it goes to Telegram (@${status.bot}) as well as this chat.`))
-      await chip(L(`텔레그램 알림 켬 · ${s.name}`, `Telegram alerts on · ${s.name}`), s)
-      return m
-    }
-    const m = await say(L(`「${s.name}」 알림을 텔레그램으로도 보내도록 해 둘게요. 먼저 내 텔레그램 봇을 연결해 주세요 — 아래 카드에서 1분이면 돼요. 연결되면 다음 알림부터 텔레그램으로 가요.`,
-      `I've set "${s.name}" to alert you on Telegram too. First connect your Telegram bot with the card below — about a minute. Alerts go there from the next one on.`))
-    await card(s)
-    return m
-  }
-  // the last answer of this conversation, now
-  const rows = await history(threadId, 14)
-  const last = [...rows].reverse().find((r) => r.role === 'agent' && (r.kind === 'text' || r.kind === 'doc') && r.content?.text)
-  if (!last) return say(L('텔레그램으로 보낼 답을 찾지 못했어요. 보낼 내용을 알려 주세요.', "I couldn't find an answer to send to Telegram. Tell me what to send."))
-  if (!ready) {
-    const m = await say(L('먼저 내 텔레그램 봇을 연결해 주세요. 연결하면 바로 보낼 수 있어요.', 'Connect your Telegram bot first — then I can send it right away.'))
-    await card(null)
-    return m
-  }
-  try {
-    await tg.sendTelegram(userId, last.content.text)
-    const m = await say(L(`텔레그램(@${status.bot})으로 보냈어요.`, `Sent to Telegram (@${status.bot}).`))
-    return m
-  } catch (e) {
-    return say(L(`텔레그램으로 보내지 못했어요: ${e.message}`, `I couldn't send it to Telegram: ${e.message}`))
-  }
-}
-
 // One run of the agent on a fresh variation of a shared folder, in its own conversation.
-async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
+export async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
   const work = await startChatWork({ user, folder, text, threadId })
   await TF.noteVariation(user, threadId, folder, work.v).catch(() => {})
   // (folder: the run's own room — the main chat does not move into it, so the next message is not
@@ -529,144 +258,6 @@ async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
   await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: !!msg?.content?.stopped }).catch((e) => console.warn('[folders] chat work', e.message))
   await TF.announce(user.id, threadId).catch(() => {})
   return msg
-}
-
-// Delegate to process-gpt deepagents and stream its answer.
-// Steer the agent to connector tools when the request is plainly about one of those services;
-// smaller models otherwise tend to reach for generic web fetching among dozens of tools.
-// [words, its tools, the MCP server (mcp/connectors.js) that serves them]
-const CONNECTOR_HINTS = [
-  [/유튜브|youtube|채널|영상/i, 'youtube_trending, youtube_search, youtube_channel_videos, youtube_video_info, youtube_transcript', 'pgpt-youtube'],
-  [/캘린더|일정|gmail|메일함|구글 ?드라이브|drive|\bcalendar\b|\binbox\b/i, 'calendar_find_events, calendar_create_event, gmail_search, gmail_read, drive_search', 'pgpt-google'],
-  [/slack|슬랙/i, 'slack_list_channels, slack_read_channel, slack_post_message', 'pgpt-slack'],
-  [/github|깃허브|\bPR\b/i, 'github_list_prs, github_search_issues, github_create_issue', 'pgpt-github'],
-  [/notion|노션/i, 'notion_search, notion_read_page, notion_create_page', 'pgpt-notion'],
-]
-// Where public YouTube data is when the YouTube tools are not there (a run in a sandbox can read these)
-const YT_PUBLIC = ' — YouTube 는 채널 새 영상: https://www.youtube.com/feeds/videos.xml?channel_id=UC…(채널 페이지 HTML 의 "externalId" 가 id), 오늘 많이 본 영상: https://www.youtube.com/results?search_query=<주제>&sp=CAMSBAgCEAE%3D (오늘 올라온 영상·조회수 순, HTML 안 ytInitialData 의 videoRenderer·lockupViewModel). 지역 인기 차트 자체는 API(youtube_trending)로만 볼 수 있어요(공개 인기 페이지는 2025년에 없어져 브라우저로도 못 보니 브라우저로 찾지 마세요)'
-const YT_PUBLIC_EN = ' — for YouTube, a channel\'s new videos: https://www.youtube.com/feeds/videos.xml?channel_id=UC… (the channel page HTML\'s "externalId" is the id); today\'s most viewed: https://www.youtube.com/results?search_query=<topic>&sp=CAMSBAgCEAE%3D (uploaded today, by view count; videoRenderer / lockupViewModel in the HTML\'s ytInitialData). The regional popular chart itself is only in the API (youtube_trending); the public Trending page was retired in 2025, so do not look for it in the browser'
-// Anything that sounds recurring is the router's call (schedule_task), never a one-off delegate.
-// the last line a scheduled skill run prints (lib/missions.js parseResult)
-const MISSION_LINE = '맨 마지막 줄에 MISSION_RESULT: {"changed": true|false, "summary": "결과 한 문장"} 를 한 줄로 출력'
-const MISSION_LINE_EN = 'print on the very last line, as one line: MISSION_RESULT: {"changed": true|false, "summary": "one sentence with the result"}'
-const RECURRING = /매일|매주|매달|매시|마다|주기|정기|반복|한\s*번씩|한번씩|\d+\s*(초|분|시간|일)\s*(에|간격|마다)|every|hourly|daily|weekly|monthly|on a schedule|recurring/i
-// Something to do on a site the message gives the address of: signing in, paying, ordering, booking, submitting.
-const SITE_ACTION = /로그인|결제|주문|구매|예약|발행|신청|제출|\b(log\s*in|sign\s*in|check\s*out|pay|order|purchase|book|submit)\b/i
-// A document or file to write: a kind of document (or a file format) followed closely by a verb of making.
-const DOC_REQUEST = /(docx|hwpx|pptx|xlsx|워드|한글\s*(파일|문서)|파워포인트|문서|보고서|안내문|제안서|기획서|공문|견적서|회의록)[^.?!\n]{0,20}(작성|만들|써\s*줘|뽑아)/i
-// the same in English ("write a proposal", "make me a Word document", "draft the quote as xlsx")
-const DOC_REQUEST_EN = /\b(write|make|create|draft|prepare|put together|generate|produce)\b[^.?!\n]{0,40}\b(docx|hwpx|pptx|xlsx|word|powerpoint|excel|document|doc|report|notice|announcement|proposal|plan|letter|quote|quotation|estimate|minutes|memo|slides?|deck|spreadsheet|brochure|flyer)\b/i
-// English requests the Korean shortcuts above recognise in Korean
-// a new process (definition) to design: "make a process for …", "create a workflow …"
-export const PROCESS_REQUEST_EN = /\b(make|create|build|design|set up|model)\b[^.?!\n]{0,30}\b(process|workflow)\b/i
-const SKILL_REQUEST_EN = /\b(make|create|build|write|author|set up)\s+(me\s+)?(a|an|the|my)?\s*(new\s+)?([\w'-]+\s+){0,3}skill\b/i
-const PANEL_REQUEST_EN = /^New panel\s*[:：]|\b(make|create|build|add|set up)\s+(me\s+)?(a|an|the|my)?\s*(new\s+)?([\w'-]+\s+){0,3}panel\b/i
-// What a request for a Home panel / data app says (create_panel's own examples)
-const IMPROVE_Q = /병목|크리티컬\s*패스|임계\s*경로|리드\s*타임|흐름\s*효율|가치\s*흐름|제약|오래\s*걸|느려|밀려|지연|단축|줄이|줄여|줄일|개선/
-const IMPROVE_Q_EN = /bottleneck|critical path|lead\s*time|flow efficiency|value stream|constraint|tak(e|es|ing) (so |too )?long|\bslow|delay|speed (it |this )?up|shorten|reduce|cut (down )?the time|improve/i
-
-const IMPROVE_PROMPT_EN = `You are a business process improvement consultant. Answer the user's question in English, using only the 'analysis result (JSON)' below.
-Rules:
-- Copy numbers exactly as they are in the JSON. Do not calculate new ones or make any up. Do not mention numbers the JSON does not have.
-- Order: (1) where the bottleneck/constraint is (step, owner, utilization, share of lead time spent waiting) (2) why (arrivals per day vs capacity, trend of items waiting) (3) how to reduce it — the 2-3 actions from five_focusing_steps that cut lead time the most, each with before → after numbers (4) a last line: on the Improve screen you can try changes and preview them, and create a new version with "Apply proposal".
-- 8-12 lines. Lists with '- '. Don't blame people; explain it through the flow of work.`
-const IMPROVE_PROMPT = `너는 업무 프로세스 개선 컨설턴트야. 사용자의 질문에 아래 '계산 결과(JSON)'만 근거로 한국어 해요체로 답해.
-규칙:
-- 숫자는 JSON 에 있는 값을 그대로 옮겨 써. 새로 계산하거나 지어내지 마. JSON 에 없는 숫자는 말하지 마.
-- 순서: ① 병목·제약이 어디인지(단계·담당·가동률·리드타임 중 대기 비중) ② 왜 그런지(하루 도착 건수 vs 처리 능력, 대기 건수 추세) ③ 어떻게 줄일지 — five_focusing_steps 의 행동 중 리드타임을 가장 많이 줄이는 2~3개를 전→후 숫자와 함께 ④ 마지막 한 줄: 개선 화면에서 바꿔 보며 미리 계산하고 「개선안 적용」으로 새 버전을 만들 수 있다고 안내.
-- 8~12줄. 목록은 '- ' 로. 사람을 탓하지 말고 일의 흐름으로 설명해.`
-
-// the explanation without a model (the model is down or slow): the same facts, in a fixed shape
-function improveTemplate(b) {
-  const c = b.constraint
-  const acts = b.five_focusing_steps.flatMap((s) => s.actions || []).filter((x) => x.lead_time).slice(0, 3)
-  if (isEn()) return [
-    `The ${b.process} process (${b.completed} completed) has a median lead time of ${b.lead_time.median} and a flow efficiency of ${b.flow_efficiency}.`,
-    c ? `The bottleneck is the ${c.step} step (${c.who}). Utilization is ${c.utilization} (${c.arrivals_per_day} arriving a day, capacity ${c.capacity_per_day ?? '-'} a day), and waiting before this step takes ${c.wait_share_of_lead_time} of the lead time.` : '',
-    ...acts.map((x) => `- ${x.title}: lead time ${x.lead_time}`),
-    '',
-    'On the Improve screen you can try changes and preview them, then create a new version with "Apply proposal".',
-  ].filter((x) => x != null).join('\n')
-  return [
-    `${b.process} 프로세스(완료 ${b.completed}건)의 리드타임 중앙값은 ${b.lead_time.median}, 흐름 효율은 ${b.flow_efficiency}예요.`,
-    c ? `병목은 ${c.step}(${c.who}) 단계예요. 가동률 ${c.utilization}(하루 ${c.arrivals_per_day}건 도착, 처리 능력 ${c.capacity_per_day ?? '-'}건)이고, 이 단계 앞 대기가 리드타임의 ${c.wait_share_of_lead_time}를 차지해요.` : '',
-    ...acts.map((x) => `- ${x.title}: 리드타임 ${x.lead_time}`),
-    '',
-    '개선 화면에서 바꿔 보며 미리 계산하고, 「개선안 적용」으로 새 버전을 만들 수 있어요.',
-  ].filter((x) => x != null).join('\n')
-}
-
-async function improveTurn({ user, threadId, text, onDelta, proc }) {
-  let b
-  try { b = await improveBrief(user, proc.id) } catch (e) {
-    const say = e.status === 403 ? L(`${proc.name} 프로세스는 참여한 사람과 관리자만 분석을 볼 수 있어요.`, `Only the people who took part in the ${proc.name} process and administrators can see its analysis.`) : L(`${proc.name} 프로세스를 분석하지 못했어요: ${e.message}`, `I couldn't analyze the ${proc.name} process: ${e.message}`)
-    onDelta?.(say)
-    return addMessage(user.id, threadId, 'agent', 'text', { text: say })
-  }
-  let say = ''
-  try {
-    // a slow or absent model must not hold the answer: after 25 s the same facts go out in a fixed shape
-    const r = await chat({ model: config.llm.fastModel, temperature: 0.2, signal: AbortSignal.timeout(Number(process.env.PRO_IMPROVE_EXPLAIN_MS || 25000)),
-      messages: isEn() ? [{ role: 'system', content: IMPROVE_PROMPT_EN }, { role: 'user', content: `Question: ${text}\n\nAnalysis result (JSON):\n${JSON.stringify(b)}` }]
-        : [{ role: 'system', content: IMPROVE_PROMPT }, { role: 'user', content: `질문: ${text}\n\n계산 결과(JSON):\n${JSON.stringify(b)}` }] })
-    say = String(r.content || '').trim()
-  } catch (e) { console.warn('[improve] explain', e.message) }
-  if (!say) say = improveTemplate(b)
-  onDelta?.(say)
-  const m = await addMessage(user.id, threadId, 'agent', 'text', { text: say })
-  const acts = b.five_focusing_steps.flatMap((s) => (s.actions || []).map((x) => ({ ...x, stage: s.stage }))).filter((x) => x.lead_time).slice(0, 3)
-  await addMessage(user.id, threadId, 'agent', 'improve', { defId: b.id, name: b.process, url: b.link, completed: b.completed, lead: b.lead_time, flow: b.flow_efficiency, constraint: b.constraint,
-    path: b.critical_path.path, actions: acts.map((x) => ({ title: x.title, lead: x.lead_time, flow: x.flow_efficiency })) })
-  return m
-}
-
-const PANEL_WORDS = /패널|위젯|앱|홈에|대시보드|관리|대장|목록|명단|추적|트래커|현황판|날씨|환율|주가|주식/
-const PANEL_WORDS_EN = /\b(panel|widget|app|on home|dashboard|manage|management|tracker|track|list|roster|register|ledger|log|board|weather|exchange rate|stock|stocks|share price)\b/i
-// Teammates and who holds which role, so "제품 책임자한테 알려줘" can name someone.
-async function teamCatalogHint(userId) {
-  const team = (await listTeam()).filter((m) => m.id !== userId)
-  if (!team.length) return ''
-  const roles = await listAssignments(null)
-  const held = (id) => roles.filter((r) => r.user_id === id && r.proc_def_id === '*').map((r) => r.role)
-  return `\n${L('팀원(알림 대상)', 'Teammates (can be notified)')}: ${team.map((m) => `${m.name}${held(m.id).length ? `(${held(m.id).join(', ')})` : ''}`).join(', ')}`
-}
-
-// Recent processes with their start-form fields, so a schedule can name one and fill its first step.
-let catalogCache = { at: 0, text: '', lang: 'ko' }
-async function processCatalogHint() {
-  if (Date.now() - catalogCache.at < 60000 && catalogCache.lang === (isEn() ? 'en' : 'ko')) return catalogCache.text
-  const defs = (await listDefinitions()).slice(0, 12)
-  const lines = []
-  for (const d of defs) {
-    const def = await getDefinition(d.id).catch(() => null)
-    const keys = (def?.startForm?.fields || []).map((f) => f.key).join(', ')
-    lines.push(`${d.id} — ${d.name}${keys ? L(` (첫 단계 입력: ${keys})`, ` (first-step inputs: ${keys})`) : ''}`)
-  }
-  catalogCache = { at: Date.now(), lang: isEn() ? 'en' : 'ko', text: lines.length ? `\n${L('주기적으로 시작할 수 있는 프로세스', 'Processes that can be started on a schedule')}: ${lines.join(' / ')}` : '' }
-  return catalogCache.text
-}
-
-// The one-off connector shortcut. Someone who keeps records in panel apps ("할 일", "팀 일정") may
-// mean one of those by "일정 추가": then only a connector they actually connected takes the
-// message; otherwise the router sees their apps (panel_record) and decides.
-async function connectorFirst(user, text) {
-  const hinted = CONNECTOR_HINTS.filter(([re]) => re.test(text)).flatMap(([, t]) => t.split(', '))
-  if (!hinted.length) return false
-  if (!(await PanelApps.listApps(user).catch(() => [])).length) return true
-  const { connectorStatus } = await import('../mcp/connectors.js')
-  return (await connectorStatus(user.id).catch(() => [])).some((c) => c.connected && c.tools.some((t) => hinted.includes(t)))
-}
-// The order for any outside service (a scheduled run included): its connector/API tools, then public
-// pages or feeds read in the sandbox, then the built-in browser; and when all of it fails, exactly what
-// is missing and where to connect it — never a bare "not connected".
-export function connectorHint(text) {
-  const hit = CONNECTOR_HINTS.filter(([re]) => re.test(text))
-  if (!hit.length) return ''
-  const tools = hit.map(([, t]) => t).join(', ')
-  const servers = hit.map(([, , s]) => s).join(', ')
-  const yt = hit.some(([, t]) => t.includes('youtube_'))
-  return L(`\n\n(외부 서비스 정보는 이 순서로 구하세요. ① 연결된 커넥터·API 도구를 웹 조회보다 먼저: ${tools}. ② 그 도구가 목록에 없거나 실패하면 공개 페이지·RSS 를 샌드박스에서 직접 읽기${yt ? YT_PUBLIC : ''}. ③ 그래도 안 되면 내장 브라우저(browser_task 도구가 있을 때, 읽기만). ④ 모두 안 되면 "연결되어 있지 않다"로 끝내지 말고 무엇이 없어서 못 했는지와 어디서 연결하는지를 정확히 쓰세요: 도구가 돌려준 missing·how_to_connect 를 그대로 옮기고, 도구가 아예 목록에 없으면 "이 회사 에이전트에 ${servers} 커넥터가 등록되어 있지 않아 관리자가 등록해야 해요"라고 쓰세요.)`,
-    `\n\n(Get outside-service information in this order. 1) The connected connector/API tools, before searching the web: ${tools}. 2) If those tools are not in your list or fail, read public pages or feeds yourself in the sandbox${yt ? YT_PUBLIC_EN : ''}. 3) If that fails too, the built-in browser (the browser_task tool, when you have it; reading only). 4) If everything fails, do not stop at "not connected": say exactly what was missing and where to connect it — copy the missing and how_to_connect a tool returned, and if the tools are not in your list at all, say "the ${servers} connector is not registered for this company's agents; an administrator has to register it".)`)
 }
 
 // While skill-creator works its raw output (test prompts, sample data, interleaved subagent
@@ -777,7 +368,10 @@ export async function stopTurns({ user, session, threadId, conversation }) {
   return { stopped: list.length, waiting: turns.waiting({ userId: user.id, threadId }).length }
 }
 
-export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag }) {
+// quietIfUnchanged: a scheduled run whose result line (MISSION_RESULT, lib/missions.js) says nothing changed
+// posts nothing; resultLine: the answer ends with that line, which is taken off what the chat shows and
+// handed to onResult; tools: the app tools a skill the router named declares (skillTools)
+export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, resultLine, onResult, hwpxTemplateUrl, fileTag, tools }) {
   let thread = await getThread(user.id, threadId)
   // a main chat left standing in a shared folder's run room (as folder turns used to leave it) does
   // not answer the next message there
@@ -848,12 +442,13 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   await setThreadStatus(user.id, threadId, 'working')
   // tools that need no account (CADCraft) are bound once per user per server start
   if (!hubBound.has(user.id)) { hubBound.add(user.id); await ensureHubBinding(user.id, config.tenantId).catch(() => {}) }
-  // the ArtCraft apps this message asks for list their tools to the agent (mcp/craft.js)
+  // the app open in the page lists its tools to the agent (mcp/craft.js), and so do the apps a skill the
+  // router named declares (metadata.include_tools) — a state and a skill's data, never the message's words
   // (or the document the page said is open with this message, when its live link is down)
   const live = !silent && !divider ? liveOpen(user.id) || (adopted && store.openDoc) || null : null
   if (live?.fromPage) console.log(`[delegate] open document from the page: '${live.file}' (${live.editor || '?'}) user=${user.id.slice(0, 8)} — live link down`)
-  activateCraft(user.id, [...craftAppsFor(text), ...(live ? [live.app] : [])])
-  if (live?.app === 'ieumoffice') activateOffice(user.id)
+  activateCraft(user.id, [...(tools?.apps || []), ...(live ? [live.app] : [])])
+  if (live?.app === 'ieumoffice' || tools?.office) activateOffice(user.id)
   // a stalled agent (no byte for STREAM_IDLE_MS) is cut off, so the chat never sits on "생각하는 중" for good
   const idle = new AbortController()
   let idleTimer = setTimeout(() => idle.abort(), STREAM_IDLE_MS)
@@ -888,7 +483,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     console.warn('[delegate]', turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
     await setThreadStatus(user.id, threadId, null)
     if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent })
-    return addMessage(user.id, threadId, 'agent', 'text', { text: idle.signal.aborted
+    const why = idle.signal.aborted ? 'agent stream idle' : causeOf(e)
+    onResult?.({ result: null, error: why, ended: false })
+    return addMessage(user.id, threadId, 'agent', 'text', { error: true, text: idle.signal.aborted
       ? L('에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.', "The agent didn't respond for a while, so I stopped waiting. Please send the same request again.")
       : L(`에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요. (${causeOf(e)})`, `I couldn't reach the agent. Please send it again in a moment. (${causeOf(e)})`) })
   } finally {
@@ -911,8 +508,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
     body: JSON.stringify({
-      // English mode: the language instruction goes last, after what the person said and the hints
-      message: text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+      // what the person said, then only system facts: the open document (and the skill that edits it,
+      // pinned by deepagents from a leading /name), the attachments, the workspace, the company's hwpx
+      // template, and — English mode — the language instruction last. How to use a tool or a site is
+      // in the agent's skills, not here (design 4).
+      message: livePin(live, text) + text + liveFact(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + templateFact(hwpxTemplateUrl || config.hwpxTemplateUrl) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       files: chatFiles(sent),
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
       conversation_id: conv, stream: true,
@@ -933,6 +533,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   let skillDraft = null
   let steps = 0
   let cancelled = false
+  // the stream's own signals: an error event (not a cancel), a question asked through the agent's
+  // human-input tool (its options become the answer's choices), skill-creator at work
+  let streamError = null
+  let hitl = null
+  let skillMode = mode === 'skill'
   // provenance (lib/provenance.js): what this turn wrote, every workspace path it touched, and the
   // documents tool results carried, kept apart until the end
   const written = new Set()
@@ -962,7 +567,12 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         turn.setConv(j.conversation_id)
         if (!thread?.conversation_id && !pin?.folder) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
       }
-      if (j.type === 'token' && j.content) { out += j.content; partial = out; if (mode !== 'skill') onDelta?.(j.content) }
+      if (j.type === 'token' && j.content) { out += j.content; partial = out; if (!skillMode) onDelta?.(j.content) }
+      // deepagents ends a turn that waits for the person with a done event whose content is its
+      // human_input_required payload (core/chat/hitl.py): the question and its options
+      if (j.type === 'done' && typeof j.content === 'string' && j.content.trimStart().startsWith('{')) {
+        try { const h = JSON.parse(j.content); if (h?.type === 'human_input_required') hitl = h } catch { /* a plain final answer */ }
+      }
       const art = j.type === 'file_artifact' ? generationArtifact(j.path) : {}
       if (art.skill) skillDraft = art.skill
       const room = j.type === 'file_artifact' && /^\/workspace\/\.bpmn\/[^/]+\//.exec(j.path || '')
@@ -1000,18 +610,21 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (j.type === 'process_result' && j.data?.processDefinition) processResult = j.data
       if (j.type === 'tool_start') {
         const tool = j.tool || j.tool_name || j.name || ''
+        // skill-creator's SKILL.md read (a path of the system skill's folder): its raw output is not for
+        // reading — the chat shows the step it is on and, at the end, a summary card
+        if (!skillMode && workspacePaths(j.input).concat(String(j.input?.file_path || j.input?.path || '')).some((p) => /\/skill-creator\/SKILL\.md$/.test(p))) skillMode = true
         usedTools.add(tool)
         inputs.set(tool, j.input ?? null)
         trail.add(tool, j.input, toolPhase(tool))
         for (const p of workspacePaths(j.input)) seen.add(p)
         steps += 1
-        emit(user.id, 'status', { threadId, text: mode === 'skill' ? skillStatus(tool, steps) : toolPhase(tool) })
+        emit(user.id, 'status', { threadId, text: skillMode ? skillStatus(tool, steps) : toolPhase(tool) })
       }
       if (j.type === 'error') {
         const why = String(j.message || j.error || '')
         // the SDK ended the turn: our own 멈추기, or another request on this conversation
         if (/turn cancelled/i.test(why)) cancelled = true
-        else out += L(`\n\n(오류: ${why})`, `\n\n(error: ${why})`)
+        else { streamError = why || 'error'; out += L(`\n\n(오류: ${why})`, `\n\n(error: ${why})`) }
       }
     }
   }
@@ -1031,7 +644,13 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     })
     return draft
   }
-  if (quietIfUnchanged && !ended && /^(변동\s*없음|no changes?)[.!]?$/i.test(body.replace(/[*_`"]/g, '').trim())) return null
+  // a scheduled run's result line (our own output contract): parsed, and not part of what the chat shows
+  const result = resultLine ? parseResult(body) : null
+  if (resultLine) body = body.replace(/^.*MISSION_RESULT:.*$/gm, '').trim()
+  onResult?.({ result, error: streamError, ended })
+  if (quietIfUnchanged && !ended && !streamError && result && result.changed === false) return null
+  // the agent asked through its human-input tool: its question is the answer when nothing else was written
+  if (hitl && !body.trim()) body = [hitl.question, hitl.context].filter(Boolean).join('\n\n')
   if (divider) await addMessage(user.id, threadId, 'system', 'divider', typeof divider === 'string' ? { text: divider } : divider)
   if (ended) body = [body, `(${turn.stopped ? stoppedText() : supersededText()})`].filter(Boolean).join('\n\n')
   let kind = /^#\s/.test(body) ? 'doc' : 'text'
@@ -1083,9 +702,15 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     const why = written.has(f.path) ? null : await notOutput(f.path)
     if (why) { console.log(`[delegate] not attached (${why}): ${f.path}`); files.splice(files.indexOf(f), 1) }
   }
-  if (!body && !files.length && !workDir) body = emptyText()
+  const empty = !body && !files.length && !workDir
+  if (empty) body = emptyText()
   const work = trail.list()
-  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}) })
+  // choices under the answer: the options of the agent's own question, or — a process draft waiting for
+  // the person (the generation is still pending and no definition came) — going ahead with it
+  const choices = hitl?.options?.length ? hitl.options.filter((o) => o?.label).slice(0, 6).map((o) => ({ label: String(o.label).slice(0, 80), ...(o.description ? { hint: String(o.description).slice(0, 120) } : {}), to: 'agent' }))
+    : generationPending(threadId) && !workDir && !ended && !streamError ? [{ label: L('이대로 진행', 'Go ahead as is'), reply: { kind: 'approve' } }] : []
+  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(ended ? { stopped: true, ...(turn.stopped ? {} : { superseded: true }) } : {}),
+    ...(streamError ? { error: true } : {}), ...(empty ? { empty: true } : {}), ...(choices.length ? { choices } : {}), ...(result ? { result } : {}) })
   if (preRouted) touchContext(user, routing, text, body)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
   for (const f of files) if (f.url && !f.path) f.name = displayName(f, body)
@@ -1155,43 +780,34 @@ export async function draftContract(workDir, streamed, rebuild = generatedContra
   return { type: 'process-definition-result', processDefinition: pd, forms: [], agents: [], skills: [] }
 }
 
-// Find the definition the user means; the catalogue is small enough to let the model pick.
-async function pickDefinition(query) {
-  const defs = await listDefinitions()
-  if (!defs.length) return null
-  const m = await chat({
-    model: config.llm.fastModel, temperature: 0, json: true,
-    messages: [
-      { role: 'system', content: 'Pick the process the user means. Reply JSON {"id": "<id or null>"}' },
-      { role: 'user', content: `${L('요청', 'Request')}: ${query}\n\n${L('목록', 'List')}:\n${defs.map((d) => `${d.id} | ${d.name}`).join('\n')}` },
-    ],
-  })
-  const id = JSON.parse(m.content).id
-  return defs.find((d) => d.id === id) || null
+
+// The company's hwpx template (settings): a fact the agent's hwpx skill uses whenever it is set. A
+// sandbox reaches this server's own address by the Docker host name (an address's format).
+export function templateFact(url) {
+  if (!url) return ''
+  const inSandbox = url.replace(/\/\/(127\.0\.0\.1|localhost)(?=[:/])/, '//host.docker.internal')
+  return L(`\n\n(회사 한글(hwpx) 양식: ${url}${inSandbox !== url ? ` — 샌드박스에서는 ${inSandbox}` : ''})`, `\n\n(Company Hangul (hwpx) template: ${url}${inSandbox !== url ? ` — from the sandbox: ${inSandbox}` : ''})`)
 }
 
 // Process design runs on process-gpt's own bpmn-process-generation-skill in deepagents.
-// The skill pauses for a draft review; when the user agrees we restate the requirement and the
-// remaining steps, since gpt-4.1 otherwise tends to stop or skip writing the definition file.
+// The skill pauses for a draft review. When the person agrees — the draft card's "go ahead" choice — the
+// requirement is restated with that agreement; an answer in words goes to the agent with what is being
+// designed, and the agent (the skill's review step) reads whether it agrees.
 const generating = new Map() // threadId -> requirement
-// deepagents (feat/pgpt-lite) validates and assembles the folder itself when the turn ends; it has no
-// validate/complete tools any more, so asking for them only makes the agent stop and explain
-const GEN_STEPS = 'bpmn-process-generation-skill 절차대로 진행해 주세요: 합의된 흐름으로 references 의 02-generate-definition 규격을 read_file 로 읽고 process-definition.json 을 write_file 로 작성 → 사용자 활동마다 forms/<activity_id>.form 파일 작성(process-gpt 폼 태그 형식, .html 아님) → 에이전트·스킬·manifest 파일까지 이번 턴에 모두 씁니다. 검증과 통합은 턴이 끝나면 시스템이 자동으로 하니 다시 확인을 묻지 말고 끝까지 진행합니다. 후보 선택이 필요하면 추천안으로 정합니다.'
-// English mode: the same steps, and every name a person sees in the definition is English
-const GEN_STEPS_EN = 'Follow the bpmn-process-generation-skill procedure: with the agreed flow, read the 02-generate-definition spec in references with read_file and write process-definition.json with write_file → write forms/<activity_id>.form for every user activity (process-gpt form tag format, not .html), all in this turn. Where a choice between candidates is needed, take the recommended one. '
-  + 'Every name and text a person sees is in English: the process name and description, lane/role names, activity, event and gateway names, sequence-flow conditions, form titles, field labels and choices, and agent names, roles, goals and instructions (agents answer in English).'
+// what the person agreed to, as a fact: the steps after the review are the skill's own (its SKILL.md and
+// references), not repeated here (design 4.3); English mode: the names a person sees are English too
+const GEN_STEPS = '사용자가 흐름 초안에 동의했어요. bpmn-process-generation-skill 의 나머지 단계를 이번 턴에 끝까지 진행하세요.'
+const GEN_STEPS_EN = 'The user agreed to the draft flow. Carry out the remaining steps of bpmn-process-generation-skill in this turn, to the end. Every name and text a person sees in the definition is in English.'
 
 export function generationPending(threadId) { return generating.get(threadId) }
 export function generationDone(threadId) { generating.delete(threadId) }
-export function generationPrompt(threadId, text) {
+export function generationPrompt(threadId, text, { approved = false } = {}) {
   const req = generating.get(threadId)
-  if (/^(네|예|좋아|진행|ok|yes)/i.test(text.trim()) || /이대로 진행/.test(text) || /^(sure|go ahead|sounds good|looks good|proceed|let'?s go|do it|great|perfect)\b/i.test(text.trim()) || /\b(go ahead|proceed) (with|as)\b/i.test(text)) {
-    return L(`${text}\n\n요구사항(다시 확인): ${req}\n${GEN_STEPS}`, `${text}\n\nRequirements (restated): ${req}\n${GEN_STEPS_EN}`)
-  }
+  if (approved) return L(`${text}\n\n요구사항(다시 확인): ${req}\n${GEN_STEPS}`, `${text}\n\nRequirements (restated): ${req}\n${GEN_STEPS_EN}`)
   return L(`${text}\n\n(프로세스 설계 중 — 요구사항: ${req})`, `${text}\n\n(designing a process — requirements: ${req})`)
 }
 
-async function processTurn(userId, threadId, args) {
+export async function processTurn(userId, threadId, args) {
   if (args.intent === 'create') {
     generating.set(threadId, args.query || '')
     const guide = await systemGuide().catch(() => '')
@@ -1204,17 +820,14 @@ async function processTurn(userId, threadId, args) {
         : `bpmn-process-generation-skill 을 사용해서 새 프로세스 정의를 설계해 주세요. 먼저 흐름 초안을 제안하고 확인을 받아 주세요.\n요구사항: ${args.query}${guide ? `\n\n### 외부 시스템 가이드 (systems 레지스트리)\n${guide}\n외부 시스템과 연결되는 단계는 serviceTask 로 두고 tool 을 "mcp:<도구명>" 으로 지정한다.` : ''}` })
     return
   }
-  if (args.intent === 'catalog' || ((args.intent === 'start' || args.intent === 'view') && !args.query)) {
-    await addMessage(userId, threadId, 'agent', 'catalog', { items: (await listDefinitions()).slice(0, 12) })
+  // start / view: the process the router picked from the facts (its id); none — the catalogue to choose from
+  const defs = args.intent === 'instances' || args.intent === 'my_todos' ? [] : await listDefinitions()
+  const d = args.process ? defs.find((x) => x.id === args.process) : null
+  if (args.intent === 'catalog' || ((args.intent === 'start' || args.intent === 'view') && !d)) {
+    await addMessage(userId, threadId, 'agent', 'catalog', { items: defs.slice(0, 12) })
     return
   }
   if (args.intent === 'start' || args.intent === 'view') {
-    const d = await pickDefinition(args.query || '')
-    if (!d) {
-      const defs = await listDefinitions()
-      await addMessage(userId, threadId, 'agent', 'catalog', { items: defs.slice(0, 12) })
-      return
-    }
     await addMessage(userId, threadId, 'agent', 'process', { defId: d.id, name: d.name, mode: args.intent, prefill: args.prefill || {} })
   } else if (args.intent === 'instances') {
     const [{ email }] = await q('select email from pro_profile where user_id=$1', [userId])
@@ -1231,113 +844,6 @@ async function processTurn(userId, threadId, args) {
       items: list.slice(0, 8).map((t) => ({ proc_inst_id: t.proc_inst_id, proc_inst_name: t.proc_inst_name, def_name: t.def_name, status: 'RUNNING', needs_me: true, activity: t.activity_name })),
     })
   }
-}
-
-// ---------- panel apps (lib/panelApps) ----------
-// A data app (records kept in a shared folder's spreadsheet) or, for live widgets, a generated panel.
-async function makePanel({ user, threadId, description }) {
-  const userId = user.id
-  const status = (t) => emit(userId, 'status', { threadId, text: t })
-  status(L('패널 설계하는 중', 'Designing the panel'))
-  try {
-    const d = await PanelApps.design(description)
-    if (d.kind === 'live') {
-      status(L('패널 만드는 중', 'Making the panel'))
-      const p = await generatePanel({ userId, description })
-      await addMessage(userId, threadId, 'agent', 'chip', { icon: 'panel', text: L(`'${p.title}' 패널이 Home에 올라갔어요`, `'${p.title}' is now on Home`), panelId: p.id })
-      return
-    }
-    status(L('시트 만드는 중', 'Making the sheet'))
-    const app = await PanelApps.createApp(user, { description, def: d.def, rows: d.rows, folderHint: description })
-    const n = d.rows.length
-    const where = isEn() ? whereEn(app) : app.kind === 'events' ? `모든 변경은 기록(${app.def.events.map((e) => e.label).join('·')})으로 쌓이고, ${app.def.projections.map((p) => p.label).join('·')}은(는) 기록을 다시 계산해 보여 줘요. ${app.tier === 'db' ? '데이터는 데이터베이스에 저장돼요.' : `기록은 '${app.folder.name}' 폴더의 ${app.sheetPath.split('/').pop()} '이벤트' 탭에 쌓여요.`}` : app.tier === 'db' ? `데이터는 데이터베이스에 행 단위 권한으로 저장돼요(정의는 '${app.folder.name}' 폴더의 ${app.defPath.split('/').pop()}).\n권한: ${app.rules.map((r) => `${r.label} — ${r.text}`).join(' / ')}` : `데이터는 '${app.folder.name}' 폴더의 ${app.sheetPath.split('/').pop()} 시트에 쌓여요.`
-    await addMessage(userId, threadId, 'agent', 'text', { text: L(`'${app.title}' 패널을 Home에 올렸어요. ${where}\n항목: ${PanelApps.describe(app.def)}${n ? `\n말씀하신 ${n}건을 먼저 넣어 두었어요.` : ''}\n패널에서 바로 등록하거나 "시트 열기"로 스프레드시트에서 고칠 수 있고, 패널 메뉴의 "공유하기"로 팀원과 함께 쓸 수 있어요.`,
-      `I put the '${app.title}' panel on Home. ${where}\nFields: ${PanelApps.describe(app.def)}${n ? `\nI added the ${n} you mentioned first.` : ''}\nYou can add records right in the panel or edit them in the spreadsheet with "Open sheet", and use them with teammates through "Share" in the panel menu.`) })
-    // secure by default: the defaults in words, before anyone else is invited
-    await addMessage(userId, threadId, 'agent', 'text', { text: L(`보안·개인정보 기본값\n${app.privacy.map((l) => `• ${l.text}`).join('\n')}\nHome 패널 위의 카드에서 확인하거나 "권한 규칙"에서 조정할 수 있어요.`,
-      `Security & privacy defaults\n${app.privacy.map((l) => `• ${l.text}`).join('\n')}\nYou can check them on the card above the panel on Home or adjust them in "Access rules".`) })
-    await addMessage(userId, threadId, 'agent', 'chip', { icon: 'panel', text: L(`'${app.title}' 패널이 Home에 올라갔어요 · ${app.folder.name} 폴더`, `'${app.title}' is now on Home · ${app.folder.name} folder`), panelAppId: app.id })
-  } catch (e) {
-    console.warn('[panelApps] create', e.message)
-    await addMessage(userId, threadId, 'agent', 'text', { text: L(`패널을 만들지 못했어요: ${e.message}`, `I couldn't make the panel: ${e.message}`) })
-  } finally { status(null) }
-}
-// where a new app keeps its data, in English (makePanel)
-function whereEn(app) {
-  if (app.kind === 'events') return `Every change is kept as a record (${app.def.events.map((e) => e.label).join(' · ')}), and ${app.def.projections.map((p) => p.label).join(' · ')} ${app.def.projections.length > 1 ? 'are' : 'is'} recalculated from the records. ${app.tier === 'db' ? 'The data is stored in the database.' : `The records go to the 'Events' tab of ${app.sheetPath.split('/').pop()} in the '${app.folder.name}' folder.`}`
-  if (app.tier === 'db') return `The data is stored in the database with row-level access (the definition is ${app.defPath.split('/').pop()} in the '${app.folder.name}' folder).\nAccess: ${app.rules.map((r) => `${r.label} — ${r.text}`).join(' / ')}`
-  return `The data goes to the ${app.sheetPath.split('/').pop()} sheet in the '${app.folder.name}' folder.`
-}
-
-async function panelRecord({ user, threadId, args, text }) {
-  const userId = user.id
-  const say = (t) => addMessage(userId, threadId, 'agent', 'text', { text: t })
-  const app = (await PanelApps.listApps(user, { all: true })).find((a) => a.title === args.app) || await PanelApps.appNamed(user, `${args.app} ${text}`)
-  if (!app) return say(L(`'${args.app}' 패널을 찾지 못했어요.`, `I couldn't find the '${args.app}' panel.`))
-  const def = app.def
-  if (app.kind === 'events') return panelEvent({ user, threadId, args, app, say })
-  // each column once (a list whose title is also a subtitle would name the customer twice)
-  const fmt = (r) => [...new Set([def.views.list.title, ...def.views.list.subtitle, def.views.list.value].filter(Boolean))].map((k) => [...def.fields, ...def.computed].find((f) => f.key === k)).filter(Boolean).map((f) => `${f.label} ${r[f.key] === '' ? '-' : typeof r[f.key] === 'number' ? r[f.key].toLocaleString(locale()) : r[f.key]}`).join(' · ')
-  emit(userId, 'status', { threadId, text: L('시트 고치는 중', 'Updating the sheet') })
-  try {
-    if (args.action === 'list') {
-      const { rows } = await PanelApps.rows(user, app.id)
-      return say(rows.length ? L(`${app.title} — ${rows.length}건\n${rows.slice(0, 20).map((r) => `• ${fmt(r)}`).join('\n')}`, `${app.title} — ${rows.length}\n${rows.slice(0, 20).map((r) => `• ${fmt(r)}`).join('\n')}`) : L(`${app.title}에 아직 행이 없어요.`, `${app.title} has no rows yet.`))
-    }
-    // a number or date the model left out of its arguments ("견적 금액 2,450만 원" with the key
-    // "견적 금액(숫자)" or none at all) is read from the request itself
-    const fromText = () => { const given = args.values || {}; const t = valuesFromText(def, text); for (const f of def.fields) if (Object.keys(given).some((k) => k === f.key || k.replace(/\s|\*|\([^)]*\)/g, '').toLowerCase() === String(f.label).replace(/\s/g, '').toLowerCase())) delete t[f.key]; return { ...t, ...given } }
-    if (args.action === 'add') {
-      const r = await PanelApps.write(user, app.id, { add: fromText() })
-      return say(L(`${app.title}에 넣었어요: ${fmt(r.row)} (모두 ${r.rows.length}건)`, `Added to ${app.title}: ${fmt(r.row)} (${r.rows.length} in all)`))
-    }
-    const { rows } = await PanelApps.rows(user, app.id)
-    const m = String(args.match || '').trim()
-    const hits = rows.filter((r) => m && def.fields.some((f) => String(r[f.key]).includes(m)))
-    if (hits.length !== 1) return say(hits.length ? L(`'${m}'에 맞는 행이 ${hits.length}개예요. 더 구체적으로 말씀해 주세요.`, `${hits.length} rows match '${m}'. Please be more specific.`) : L(`'${m}'에 맞는 행을 찾지 못했어요.`, `I couldn't find a row matching '${m}'.`))
-    const r = await PanelApps.write(user, app.id, { update: { id: hits[0]._id, v: hits[0]._v, vals: args.values || {} } })
-    return say(L(`${app.title}에서 고쳤어요: ${fmt(r.row)}`, `Updated in ${app.title}: ${fmt(r.row)}`))
-  } catch (e) {
-    return say(e.status === 403 ? (app.tier === 'db' ? `${e.message.replace(/\.$/, '')} — ${L(`'${app.title}'의 권한 규칙`, `access rule of '${app.title}'`)}: ${(app.rules || []).find((r) => r.action === (args.action === 'add' ? 'create' : 'update'))?.text || ''}` : L(`'${app.title}'은(는) 보기 권한만 있어서 고칠 수 없어요.`, `You can only view '${app.title}', so I can't change it.`)) : L(`고치지 못했어요: ${e.message}`, `I couldn't change it: ${e.message}`))
-  } finally { emit(userId, 'status', { threadId, text: null }) }
-}
-
-async function panelAppHint(user) {
-  const apps = await PanelApps.listApps(user, { all: true }).catch(() => [])
-  return apps.length ? `\n${L('사용자의 패널 앱(행 추가·수정은 panel_record)', "The user's panel apps (add/change rows with panel_record)")}: ${apps.map((a) => `${a.title} [${PanelApps.describe(a.def)}]`).join(' / ')}` : ''
-}
-
-// record-keeping (event) apps: every change is a new record; a cancellation points at the original
-async function panelEvent({ user, threadId, args, app, say }) {
-  const def = app.def
-  const userId = user.id
-  emit(userId, 'status', { threadId, text: L('기록 더하는 중', 'Adding the record') })
-  try {
-    const r = await PanelApps.rows(user, app.id)
-    const nm = (id) => r.people.find((p) => p.id === id)?.name || id
-    const main = def.projections.find((p) => p.key === def.views.main)
-    if (args.action === 'list' || !args.event) {
-      const lines = main ? r.projections[main.key].map((x) => `• ${nm(x.entity)}: ${[...main.columns, ...main.computed].map((c) => `${c.label} ${x[c.key] === null ? L('비공개', 'Private') : x[c.key]}`).join(' · ')}`) : []
-      return say(L(`${app.title} — 기록 ${r.events.length}개\n${lines.join('\n') || '아직 기록이 없어요.'}`, `${app.title} — ${r.events.length} records\n${lines.join('\n') || 'No records yet.'}`))
-    }
-    const t = def.events.find((e) => e.label === args.event || e.type === args.event) || def.events.find((e) => String(args.event).includes(e.label) || e.label.includes(String(args.event)))
-    if (!t) return say(L(`'${app.title}'에는 ${def.events.map((e) => e.label).join(', ')} 기록만 있어요.`, `'${app.title}' only has these records: ${def.events.map((e) => e.label).join(', ')}.`))
-    const vals = Object.fromEntries(def.fields.filter((f) => t.fields.includes(f.key)).map((f) => [f.key, args.values?.[f.label] ?? args.values?.[f.key]]).filter(([, v]) => v !== undefined))
-    let ref = null, entity = args.values?.[def.entity.label] ?? args.values?.[def.entity.key] ?? null
-    if (t.ref) {
-      const m = String(args.match || entity || '').trim()
-      const open = r.events.filter((e) => t.ref.types.includes(e.type) && !e.closedBy && e.amend.includes(t.type))
-      const hits = open.filter((e) => !m || nm(e.entity).includes(m) || def.fields.some((f) => String(e[f.key] ?? '').includes(m)))
-      if (hits.length !== 1) return say(hits.length ? L(`'${m}'에 맞는 기록이 ${hits.length}개예요. 더 구체적으로 말씀해 주세요.`, `${hits.length} records match '${m}'. Please be more specific.`) : L(`'${t.label}'할 수 있는 기록을 찾지 못했어요.`, `I couldn't find a record that '${t.label}' applies to.`))
-      ref = hits[0].id
-    } else if (!entity && t.who.includes('subject_is_me')) entity = user.id
-    const out = await PanelApps.appendEvent(user, app.id, { type: t.type, entity, ref, values: vals })
-    const row = main ? out.projections[main.key].find((x) => x.entity === out.event.entity) : null
-    const rowText = row ? ` — ${nm(row.entity)}: ${[...main.columns, ...main.computed].map((c) => `${c.label} ${row[c.key] === null ? L('비공개', 'Private') : row[c.key]}`).join(' · ')}` : ''
-    return say(L(`${app.title}에 '${t.label}' 기록을 더했어요${rowText}. 이전 기록은 그대로 남아요.`, `Added a '${t.label}' record to ${app.title}${rowText}. Earlier records stay as they were.`))
-  } catch (e) {
-    return say(e.status === 403 ? `${e.message.replace(/\.$/, '')} — ${L(`'${app.title}'의 기록 권한`, `record permissions of '${app.title}'`)}: ${(app.eventRules || []).map((x) => `${x.label}: ${x.who}`).join(' / ')}` : L(`기록하지 못했어요: ${e.message}`, `I couldn't record it: ${e.message}`))
-  } finally { emit(userId, 'status', { threadId, text: null }) }
 }
 
 // Reaching the agent for a turn: a refused connection or a gateway that has no agent to hand the turn to

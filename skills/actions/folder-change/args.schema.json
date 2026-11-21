@@ -1,0 +1,7 @@
+{
+  "type": "object",
+  "properties": {
+    "folder": { "type": "string", "description": "slug of the folder (facts), skill:<name> for a skill's folder, or attached for the folder attached to this chat", "x-enum-from": "folders" }
+  },
+  "required": ["folder"]
+}

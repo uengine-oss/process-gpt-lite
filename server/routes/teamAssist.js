@@ -49,7 +49,8 @@ export function runAs(me, session) {
     // the person's own work room for this run, tied to the chat room: conversation_id = room id
     const [t] = await q(`insert into pro_threads(user_id,kind,title,ref,conversation_id) values ($1,'team',$2,$3,$4) returning *`, [me.id, L(`팀 대화 · ${s.title}`, `Team conversation · ${s.title}`), `assist:${s.id}`, s.room_id])
     const started = new Date()
-    await tick(`${me.name}님의 에이전트가 ${s.title.replace(/하기$/, '')} 중`, `${me.name}'s agent is working on: ${s.title}`)
+    // (the title as the judge wrote it — no word of it cut off)
+    await tick(`${me.name}님의 에이전트가 일하는 중 · ${s.title}`, `${me.name}'s agent is working on: ${s.title}`)
     const task = L(`팀원 대화방에서 요청받은 일을 해 주세요: ${s.title}\n\n— 대화 (마지막 줄이 요청) —\n${lines.join('\n')}\n\n결과는 대화방 사람들이 바로 읽을 수 있게 핵심만 짧게 정리하고, 표나 문서를 만들면 파일로 남겨 주세요.${attachmentHint(files)}`,
       `Please do what was asked in a team room: ${s.title}\n\n— conversation (the last line is the request) —\n${lines.join('\n')}\n\nKeep the result short and to the point so the people in the room can read it at once, and leave any table or document you make as a file.${attachmentHint(files)}`)
     await delegate({ user: me, session, threadId: t.id, text: task, silent: true })

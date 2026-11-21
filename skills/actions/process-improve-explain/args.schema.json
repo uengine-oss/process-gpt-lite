@@ -1,0 +1,7 @@
+{
+  "type": "object",
+  "properties": {
+    "process": { "type": "string", "description": "id of a process with a run history (facts)", "x-enum-from": "improvable" }
+  },
+  "required": ["process"]
+}

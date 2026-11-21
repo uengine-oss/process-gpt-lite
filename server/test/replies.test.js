@@ -1,31 +1,25 @@
-// 보고문의 글머리 목록이 빠른 답 버튼이 되지 않게 (tutorial-findings #30). src/replies.js — 화면 없이.
+// Quick replies are fields, not words (docs/mobile-review-1121/skill-routing-design.md 5.4): the choices the
+// server stored with an answer (content.choices — the router's ask, the agent's own question, a process
+// draft's "go ahead") are the buttons; an answer's bullet lines never are. src/replies.js — no page.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseReplies } from '../../src/replies.js'
+import { choicesOf } from '../../src/replies.js'
 
-test('질문으로 끝나는 짧은 선택지는 버튼', () => {
-  const r = parseReplies('흐름 초안을 만들었어요.\n이대로 진행할까요?\n- 네, 이대로 진행 (폼까지 만들어요)\n- 단계를 고칠게요')
-  assert.deepEqual(r.options.map((o) => o.label), ['네, 이대로 진행', '단계를 고칠게요'])
-  assert.equal(r.options[0].hint, '폼까지 만들어요')
-  assert.equal(r.body, '흐름 초안을 만들었어요.\n이대로 진행할까요?')
-  // the question may come after the list
-  assert.equal(parseReplies('두 가지 방법이 있어요.\n- 엑셀로 받기\n- 한글로 받기\n어느 쪽으로 할까요?').options.length, 2)
-  assert.equal(parseReplies('아래에서 골라 주세요:\n- A안\n- B안\n- C안').options.length, 3)
+const agent = (content) => ({ role: 'agent', kind: 'text', content })
+
+test('저장된 선택지가 버튼 — 순서(index)와 설명(hint)을 그대로', () => {
+  const c = choicesOf(agent({ text: '어느 작업으로 할까요?', choices: [{ label: '환율 변동 감시', skill: 'schedule-run-now', args: { schedule: 'a3f1c9e2' } }, { label: '아침 뉴스 요약', hint: '매일 7시' }] }))
+  assert.deepEqual(c, [{ label: '환율 변동 감시', hint: undefined, index: 0 }, { label: '아침 뉴스 요약', hint: '매일 7시', index: 1 }])
 })
 
-test('보고문의 글머리 목록은 버튼이 아님 (브라우저 작업 요약)', () => {
-  const report = '결제를 마쳤어요.\n- 무선 이어폰을 장바구니에 담았습니다\n- 카드 •••• 4242를 자동으로 **선택**·입력했습니다\n- 결제 버튼을 눌렀습니다'
-  assert.equal(parseReplies(report), null)
-  // "선택" appearing somewhere is not a question
-  assert.equal(parseReplies('어떤 항목을 선택했는지 정리했어요.\n- 대관료\n- 다과비'), null)
-  // a question earlier in the text, then a report list at the end
-  assert.equal(parseReplies('견적이 맞나요? 확인해 봤어요.\n\n정리\n- 홀 단가 수정\n- 비고 추가'), null)
+test('글머리 목록이 있어도 선택지 필드가 없으면 버튼이 아님 — 어떤 말로 끝나든', () => {
+  assert.equal(choicesOf(agent({ text: '흐름 초안을 만들었어요.\n이대로 진행할까요?\n- 네\n- 아니요' })), null)
+  assert.equal(choicesOf(agent({ text: 'Done.\n- added the row\n- shared it' })), null)
 })
 
-test('긴 문장이나 완료형 항목, 목록 뒤에 다른 문단이 있으면 버튼이 아님', () => {
-  assert.equal(parseReplies('어떻게 할까요?\n- 이번 주 금요일까지 고객에게 보낼 견적서를 먼저 만들고 그다음에 평면도를 다시 그리는 방법\n- 아니요'), null)
-  assert.equal(parseReplies('진행할까요?\n- 저장했어요\n- 보냈습니다'), null)
-  assert.equal(parseReplies('진행할까요?\n- 네\n- 아니요\n\n참고로 내일 다시 알려 드릴게요. 그때 확인해 주세요.'), null)
-  assert.equal(parseReplies('진행할까요?\n- 네'), null, '하나뿐이면 아님')
-  assert.equal(parseReplies(''), null)
+test('멈춘 답 · 사람 메시지 · 빈 선택지는 버튼이 없음, 이름 없는 항목은 빠짐', () => {
+  assert.equal(choicesOf(agent({ text: 'x', choices: [{ label: 'A' }], stopped: true })), null)
+  assert.equal(choicesOf({ role: 'user', kind: 'text', content: { text: 'x', choices: [{ label: 'A' }] } }), null)
+  assert.equal(choicesOf(agent({ text: 'x', choices: [] })), null)
+  assert.deepEqual(choicesOf(agent({ text: 'x', choices: [{ label: ' ' }, { label: 'B' }] })).map((o) => [o.label, o.index]), [['B', 1]])
 })

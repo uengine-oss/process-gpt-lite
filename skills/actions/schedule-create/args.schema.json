@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "짧은 작업 이름",
+      "x-lang": "name"
+    },
+    "cron": {
+      "type": "string",
+      "description": "5-field cron in Asia/Seoul local time. Leave out when in_minutes is given"
+    },
+    "in_minutes": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "one run this many minutes from now"
+    },
+    "once": {
+      "type": "boolean",
+      "description": "true when it runs only one time at the cron moment"
+    },
+    "notify": {
+      "type": "string",
+      "enum": [
+        "always",
+        "on_change"
+      ],
+      "description": "always: told at every run. on_change: only when something changed since the last run"
+    },
+    "prompt": {
+      "type": "string",
+      "description": "self-contained instruction executed at each run; names exactly as the user wrote them"
+    },
+    "skill": {
+      "type": "string",
+      "description": "an agent skill or one of my skills (facts) that does exactly this job",
+      "x-enum-from": "mission_skills"
+    },
+    "process": {
+      "type": "string",
+      "description": "a process id (facts) started at each run",
+      "x-enum-from": "processes"
+    },
+    "params": {
+      "type": "object",
+      "description": "inputs for the skill, or the process's first-step fields"
+    }
+  },
+  "required": [
+    "name",
+    "prompt"
+  ]
+}

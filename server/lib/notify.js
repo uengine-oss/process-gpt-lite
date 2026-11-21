@@ -6,17 +6,18 @@
 import { config } from '../config.js'
 import { q, eachTenant } from './supa.js'
 import { emit } from './bus.js'
-import { getTodo } from './processes.js'
+import { getTodo, getDefinition, getForm } from './processes.js'
 import { submitTodo } from './engine.js'
 import { mainThread, addMessage } from './store.js'
 
 const T = () => config.tenantId
 const ids = (me) => [me.id, me.email].filter(Boolean)
 
-// One line of what the run found so far, for the card. A step's own gist field (접목 방안,
-// 요약, 근거) from the last two finished steps reads best; otherwise the newest step's first plain
-// sentence, markdown stripped. Identifiers, JSON and links are never the line.
-const GIST = /fit_reason|summary|reason|rationale|gist/i
+// One line of what the run found so far, for the card. Which value is the gist is the form's say, not
+// its field names': a field the form marks as the summary (`summary: true` in its fields — the designer
+// or the generator sets it) from the last two finished steps reads best; otherwise the newest step's
+// first text field (in the form's order) that holds a plain sentence; otherwise its first sentence in
+// any field. Markdown is stripped; identifiers, JSON and links are never the line.
 function sentence(v) {
   if (typeof v !== 'string' || /^\s*[{[]/.test(v)) return ''
   for (const line of v.split('\n')) {
@@ -26,17 +27,29 @@ function sentence(v) {
   }
   return ''
 }
+const TEXT_TYPES = new Set(['text', 'textarea', 'longtext', 'string', 'markdown', 'richtext'])
+async function formFieldsOf(r) {
+  try {
+    const def = await getDefinition(r.proc_def_id)
+    const step = def?.steps?.find((x) => x.id === r.activity_id)
+    return (await getForm(step?.formId))?.fields || []
+  } catch { return [] }
+}
 async function contextLine(procInstId) {
-  const rows = await q(`select activity_name, output from todolist where proc_inst_id=$1 and status='DONE' and output is not null
+  const rows = await q(`select activity_name, activity_id, proc_def_id, output from todolist where proc_inst_id=$1 and status='DONE' and output is not null
                         order by end_date desc nulls last limit 2`, [procInstId])
-  const fields = (r) => Object.values(r.output || {}).flatMap((v) => (v && typeof v === 'object' ? Object.entries(v) : []))
-  for (const r of rows) {
-    const g = fields(r).find(([k, v]) => GIST.test(k) && sentence(v))
-    if (g) return sentence(g[1]).slice(0, 140)
+  const values = (r) => Object.assign({}, ...Object.values(r.output || {}).filter((v) => v && typeof v === 'object' && !Array.isArray(v)))
+  const forms = await Promise.all(rows.map(formFieldsOf))
+  for (const [i, r] of rows.entries()) {
+    const marked = forms[i].find((f) => f.summary === true && sentence(values(r)[f.key]))
+    if (marked) return sentence(values(r)[marked.key]).slice(0, 140)
   }
-  for (const r of rows) {
-    for (const [, v] of fields(r)) {
-      const t = sentence(v)
+  for (const [i, r] of rows.entries()) {
+    const v = values(r)
+    const first = forms[i].find((f) => TEXT_TYPES.has(String(f.type || '').toLowerCase()) && sentence(v[f.key]))
+    if (first) return `${r.activity_name}: ${sentence(v[first.key])}`.slice(0, 140)
+    for (const x of Object.values(v)) {
+      const t = sentence(x)
       if (t) return `${r.activity_name}: ${t}`.slice(0, 140)
     }
   }
@@ -53,10 +66,12 @@ function choicesOf(form) {
 }
 
 export async function listFor(me) {
-  const rows = await q(`select n.*, t.id as todo_id, t.status as todo_status, t.proc_inst_id, fu.username as from_name
+  // (a teammate's notice says what it is — share · mention — in its own row: lib/team/messenger.js)
+  const rows = await q(`select n.*, t.id as todo_id, t.status as todo_status, t.proc_inst_id, fu.username as from_name, ns.subtype
                         from notifications n
                         left join todolist t on n.url = '/todolist/' || t.id::text
                         left join users fu on fu.email = n.from_user_id and fu.tenant_id = n.tenant_id
+                        left join pro_notification_subtypes ns on ns.notification_id = n.id
                         where n.tenant_id=$1 and coalesce(n.is_checked,false)=false and n.user_id = any($2)
                         order by n.time_stamp desc limit 30`, [T(), ids(me)])
   const out = []
@@ -73,7 +88,7 @@ export async function listFor(me) {
     } else if (n.type === 'mention') {
       out.push({ id: n.id, type: 'mention', title: n.title, text: n.description, at: n.time_stamp, from: n.from_name || n.from_user_id })
     } else {
-      out.push({ id: n.id, type: n.type, title: n.title, text: n.description, at: n.time_stamp, url: n.url, ...(n.from_user_id ? { from: n.from_name || n.from_user_id } : {}) })
+      out.push({ id: n.id, type: n.type, title: n.title, text: n.description, at: n.time_stamp, url: n.url, ...(n.subtype ? { subtype: n.subtype } : {}), ...(n.from_user_id ? { from: n.from_name || n.from_user_id } : {}) })
     }
   }
   return out

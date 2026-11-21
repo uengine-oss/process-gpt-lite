@@ -5,7 +5,7 @@
 //   what the agent changed after the turn; the project header's 반영 is the merge point. Process
 //   instances started in the project get the folder for their agent steps (projectStepFolders).
 // - chat (mode 'ref'): the folder is attached for reference — the agent reads main. A change asked of it
-//   runs on a short variation (work.js startChatWork), the folder need not be named in the text.
+//   runs on a short variation (work.js startChatWork), the folder need not be named (the router's facts).
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
@@ -22,41 +22,10 @@ const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
 const LIVE = ['open', 'ready', 'conflicted']
 
-// ---------- decisions (pure) ----------
-// A change asked of the files ("안내문 고쳐줘", "폴더에 회의록 만들어 줘") — not a question about them
-// ("바뀐 게 뭐야?", "어디를 고쳐야 해?") and not a document the chat writes from them ("이 폴더 내용으로 보고서 작성해 줘").
-const CHANGE = /(고쳐|수정해|수정\s*(좀|부탁)|다듬어|바꿔|변경해|추가해|넣어|빼\s*(줘|주세요)|삭제해|지워|업데이트해|채워|보완해|손봐|덮어써)(?!야)/
-const MAKE_IN = /(폴더|파일)\s*(에|안에|속에)\s*[^.?!\n]{0,30}(만들어|작성해|저장해|써\s*(줘|주세요)|올려|넣어)|(만들어|작성해|저장해)[^.?!\n]{0,12}(폴더|파일)\s*(에|안에)/
-const CHANGE_EN = /\b(fix|edit|revise|update|change|insert|remove|delete|rewrite|correct|amend|rename|append)\b|\badd\b[^.?!\n]{0,40}\b(to|in|into)\b/i
-const MAKE_IN_EN = /\b(write|create|save|put|make|draft)\b[^.?!\n]{0,40}\b(in|into|to) (the|this|that) (folder|file)\b/i
-const QUESTION_EN = /^\s*(what|which|where|why|how|should|do|does|did|is|are|can you tell)\b[^?]*\?\s*$/i
-export function asksChange(text) {
-  const t = String(text || '')
-  if (CHANGE.test(t) || MAKE_IN.test(t)) return true
-  return (CHANGE_EN.test(t) || MAKE_IN_EN.test(t)) && !QUESTION_EN.test(t)
-}
-
-// The folder a chat turn changes on a short variation (folderTurn), or null:
-// - a folder the text names (work.js folderFor) — except the project's own folder: a project changes
-//   that one on its own variation (prepareProjectWork), never on a short one
-// - else the chat's attached folder when the text asks for a change and the person may propose one
-export function folderTarget({ link, named, text, blocked = false, canChange = false }) {
-  if (link?.mode === 'project' && named && named.id === link.folder_id) return null
-  if (named) return named
-  if (blocked || link?.mode !== 'ref' || !canChange || !asksChange(text)) return null
-  return { id: link.folder_id, slug: link.slug, name: link.name, attached: true }
-}
-
-// folderTarget with the person's role in the attached folder (a viewer only reads it): a folder row or null
-export async function chatFolderTarget({ user, link, named, text, blocked = false }) {
-  let canChange = false
-  if (link?.mode === 'ref' && !named && !blocked && asksChange(text)) {
-    const role = await S.roleOf(await S.folderById(link.folder_id), user)
-    canChange = !!role && S.RANK[role] >= S.RANK.runner
-  }
-  const t = folderTarget({ link, named, text, blocked, canChange })
-  return t?.attached ? S.folderById(t.id) : t
-}
+// ---------- the attached folder in a chat ----------
+// A change asked of the attached folder is the router's folder-change skill (skills/actions/folder-change):
+// the facts it reads say a folder is attached and whether this person may propose a change to it
+// (lib/skills/facts.js); a project's own folder is changed on the project's variation (prepareProjectWork).
 
 // the label the composer chip shows: 참고, or 변형 작업 중 while a variation of it is open
 export const chipState = (p) => (p?.mode === 'ref' && p.working ? 'working' : p?.mode === 'ref' ? 'ref' : p?.mode === 'project' ? 'project' : null)

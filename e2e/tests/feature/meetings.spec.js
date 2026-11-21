@@ -1,5 +1,5 @@
 // 대화방 원격 회의 — 방 구성원만 회의·신호·소리·자막·자료, 신호는 참여자끼리만, 동의 없으면 소리·글 거절,
-// 말의 의도 → 자료(규칙 → 판단 모델, 큰 모델 0회)와 부탁 제안, 회의 기록이 대화방에 저절로(회의록 블록 하나에
+// 말의 의도 → 자료(형식 거름 → 판단 모델, 큰 모델 0회)와 부탁 제안, 회의 기록이 대화방에 저절로(회의록 블록 하나에
 // 말 차례를 모아 제자리 갱신, 끝나면 최종 회의록·할 일 제안·동의 안 한 사람), 방별 도우미 스위치.
 // 말은 소리 대신 "말 대신 적기"(POST /meetings/:id/lines — 받아쓰기 뒤와 같은 길)로 넣는다. 가짜 마이크로 말하는
 // 실제 브라우저 여정은 agent 단계 A-14(tests/agent/meetings.spec.js).
@@ -97,7 +97,7 @@ test.describe('대화방 원격 회의 (spec pgpt-pro-meetings)', () => {
     expect(block.messages.content).not.toContain('기록되면 안 돼요')
   })
 
-  test('F-MT-04 의도 → 자료(규칙 → 판단 모델, 큰 모델 0회), 부탁 → 시작/아니요 제안, 볼 권한 있는 사람에게만', async ({ as, db, cleanup }) => {
+  test('F-MT-04 의도 → 자료(형식 거름 → 판단 모델, 큰 모델 0회), 부탁 → 시작/아니요 제안, 볼 권한 있는 사람에게만', async ({ as, db, cleanup }) => {
     const a = await member(await as('mt-owner')), b = await member(await as('mt-mate'))
     test.skip(!(await judgeOn(a)), '판단 모델(judge) 서버가 없음 — 이 스택에 PRO_JUDGE_URL 이 없으면 자막만, 자료·제안 없음')
     const g = await room(a, [b], db, cleanup)
@@ -125,14 +125,15 @@ test.describe('대화방 원격 회의 (spec pgpt-pro-meetings)', () => {
     let sg
     await expect.poll(async () => { sg = (await a.get(`/meetings/${id}`)).body.suggestions[0]; return !!sg }, { timeout: 20000 }).toBe(true)
     expect(sg).toMatchObject({ work: 'CreateSpreadsheet', state: 'open', canStart: true, meetingId: id })
-    expect(sg.title).toContain('견적서')
+    expect(sg.title).toMatch(/견적/)
     // the suggestion hangs under the 회의록 block in the room
     const block = (await roomRows(db, g.id, 'meeting-transcript'))[0]
     expect(sg.messageId).toBe(block.uuid)
     const after = (await a.get('/meetings/stats')).body.detection
     expect(after.bigModelCalls).toBe(0)
     expect(after.judged).toBeGreaterThan(before.judged)
-    expect(after.prefiltered['no-cue'] || 0).toBeGreaterThan(before.prefiltered['no-cue'] || 0)
+    // small talk reaches the judge (no word cues) and the judge says none
+    expect(after.prefiltered['judge-none'] || 0).toBeGreaterThan(before.prefiltered['judge-none'] || 0)
     for (const x of [a, b]) await x.post(`/meetings/${id}/leave`)
   })
 

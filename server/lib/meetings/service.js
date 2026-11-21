@@ -23,6 +23,7 @@ import * as A from '../team/assist.js'
 import * as R from './record.js'
 import * as I from './intent.js'
 import * as MAT from './materials.js'
+import { offerOf } from '../offers.js'
 import { transcribe, wavMs, transcribeConfigured, lastError as transcribeLastError } from './transcribe.js'
 import { finalize } from './minutes.js'
 import { L, isEn, lang, withLang, langOf } from '../lang.js'
@@ -485,24 +486,24 @@ async function detectOne(m0, seg, me) {
   const prev = await q('select speaker, text from pro_meeting_segments where meeting_id=$1 and id < $2 order by id desc limit 3', [m.id, seg.id])
   const shownRows = await q('select key, created_at from pro_meeting_materials where meeting_id=$1', [m.id])
   const lastMinute = shownRows.filter((r) => Date.now() - new Date(r.created_at) < 60000).length
-  const asked = I.addressed(seg.text)
   let r
   try {
     r = await I.detect(seg, { roomId: m.room_id, speaker: me, prev: prev.reverse(), shown: new Set(shownRows.map((x) => x.key)), lastMinute })
   } catch (e) {
-    // the judge (model) did not answer: a remark said to the helper still gets an honest answer
-    if (asked && I.namesFile(seg.text)) await agentSays(m, L(`죄송해요, ${me.name}님. 지금 판단 모델이 응답하지 않아 부탁을 처리하지 못했어요. 자료 탭의 「자료 찾기」에서 이름으로 찾아 띄울 수 있어요.`,
-      `Sorry, ${me.name}. The model that reads requests isn't answering right now, so I couldn't do that. You can find it by name with "Find material" on the Materials tab.`), { for: me.id })
+    // the judge (model) did not answer: said once in a while (not per line) so the room knows why the
+    // helper is quiet, and how to find a material by hand
+    if (Date.now() - (judgeDownSaid.get(m.id) || 0) > JUDGE_DOWN_EVERY_MS) {
+      judgeDownSaid.set(m.id, Date.now())
+      await agentSays(m, L(`죄송해요, ${me.name}님. 지금 판단 모델이 응답하지 않아 회의 중 부탁을 읽지 못하고 있어요. 자료 탭의 「자료 찾기」에서 이름으로 찾아 띄울 수 있어요.`,
+        `Sorry, ${me.name}. The model that reads requests isn't answering right now, so I can't act on what is said. You can find material by name with "Find material" on the Materials tab.`), { for: me.id })
+    }
     throw e
   }
-  if (!r) {
-    // judged as not a request (or no cue) though plainly said to the helper about a file: say so
-    // ("민지님 화면 좀 보여 줘" is for a person: no file word, the helper stays quiet)
-    if (asked && I.namesFile(seg.text)) await agentSays(m,L(`${me.name}님, 어떤 자료를 열어야 할지 이해하지 못했어요. 파일 이름을 한 번 더 말해 주시거나 자료 탭의 「자료 찾기」에 적어 주세요.`,
-      `${me.name}, I didn't catch what to open. Say the file's name once more, or type it in "Find material" on the Materials tab.`), { for: me.id })
-    return
-  }
+  if (!r) return
   if (r.notFound) {
+    // asked of the helper and nothing of that name anywhere the speaker can look: said so (it used to end
+    // in silence). Not said to the helper: it stays quiet
+    if (!r.addressed) return
     const said = seg.text.replace(/\s+/g, ' ').trim().slice(0, 40)
     await agentSays(m, L(`죄송해요, ${me.name}님. "${said}"에 맞는 자료를 ${me.name}님이 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 자료 탭의 「자료 찾기」에서 다른 이름으로 찾아보세요.`,
       `Sorry, ${me.name}. I couldn't find anything matching "${said}" in the room's files, shared folders or work in progress you can see. Try another name with "Find material" on the Materials tab.`), { for: me.id })
@@ -510,12 +511,14 @@ async function detectOne(m0, seg, me) {
   }
   if (r.repeat) {
     const [mat] = await q('select id from pro_meeting_materials where meeting_id=$1 and key=$2', [m.id, r.repeat])
-    if (mat) await tell(m.id, { type: 'mentioned', materialId: mat.id, open: asked && I.wantsOpen(seg.text) ? me.id : undefined })
+    if (mat) await tell(m.id, { type: 'mentioned', materialId: mat.id, open: r.open ? me.id : undefined })
     return
   }
-  if (r.material) await addMaterial(m, r.material, seg, me, { open: I.wantsOpen(seg.text) })
+  if (r.material) await addMaterial(m, r.material, seg, me, { open: r.open })
   if (r.request) await addRequest(m, r.request, seg, me)
 }
+const judgeDownSaid = new Map() // meetingId -> when the helper last said the judge is not answering
+const JUDGE_DOWN_EVERY_MS = 5 * 60_000
 
 // what the helper says on its tile and in the subtitles (not a line of the record): everyone in the
 // meeting sees it — it names who asked — and `for` marks whose request it answers
@@ -592,28 +595,11 @@ export async function pickMaterial(me, id, key) {
   })
 }
 
-const NOUNS = ['견적서', '정산표', '예산표', '보고서', '계획서', '안내문', '제안서', '일정표', '회의록', '평면도', '체크리스트']
-// English meetings: the thing asked for, by the words said, and a title per kind of work
-const NOUNS_EN = [['revised quote', /revised\s+quote/i], ['quote', /\b(quote|quotation|estimate)\b/i], ['expense sheet', /\bexpense/i], ['budget', /\bbudget/i],
-  ['report', /\breport/i], ['plan', /\bplan\b(?!\s*\w*\s*drawing)/i], ['notice', /\bnotice/i], ['proposal', /\bproposal/i], ['schedule', /\bschedule/i],
-  ['minutes', /\bminutes\b/i], ['floor plan', /floor\s*plan/i], ['checklist', /checklist/i]]
-export const NOUN_EN = { CreateSpreadsheet: 'spreadsheet', CreateDocument: 'document', SummarizeChat: 'meeting', ScheduleRegistration: 'meeting', CompanyQuery: 'information', DraftReply: 'reply', StartProcessInstance: 'process', CreateProcessDefinition: 'process definition' }
-export function requestTitleEn(work, text) {
-  if (work === 'SummarizeChat') return 'Summarize the meeting'
-  const found = NOUNS_EN.filter(([, re]) => re.test(String(text || ''))).map(([n]) => n)
-  // "floor plan" beats "plan", "revised quote" beats "quote"
-  const noun = found.find((n) => found.some((o) => o !== n && n.endsWith(o))) || found[0] || NOUN_EN[work] || 'document'
-  if (work === 'ScheduleRegistration') return `Schedule the ${noun}`
-  if (work === 'CompanyQuery') return `Look up the ${noun}`
-  if (work === 'StartProcessInstance') return `Start the ${noun}`
-  if (work === 'CreateProcessDefinition') return `Create the ${noun}`
-  return `Draft the ${noun}`
-}
 async function addRequest(m, req, seg, me) {
-  const w = A.WORKS[req.work]
+  const w = offerOf(req.work)
   if (!w) return
-  const noun = NOUNS.find((n) => seg.text.replace(/\s/g, '').includes(n)) || w.noun
-  const title = isEn() ? requestTitleEn(req.work, seg.text) : req.work === 'SummarizeChat' ? '회의 내용 요약하기' : `${noun} ${w.verb}`
+  // the card's title is what the judge wrote for this request, else the offer's own title
+  const title = String(req.title || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 40) || w.title
   const audience = (await active(m.id)).map((p) => p.id)
   const reason = isEn()
     ? `${me.name}'s request "${seg.text.replace(/\s+/g, ' ').slice(0, 60)}" · routing model ${Math.round(req.yes * 100)}%`

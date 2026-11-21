@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "app": { "type": "string", "description": "id of the panel app (facts)", "x-enum-from": "apps" },
+    "action": { "type": "string", "enum": ["add", "update", "list"] },
+    "values": { "type": "object", "description": "field label → value for add/update" },
+    "match": { "type": "string", "description": "update: text that identifies the row; a cancellation in a record-keeping app: text that identifies the original record" },
+    "event": { "type": "string", "description": "record-keeping apps: which kind of record to add, as the app names it" }
+  },
+  "required": ["app", "action"]
+}

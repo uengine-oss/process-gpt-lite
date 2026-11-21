@@ -1,0 +1,22 @@
+[
+  {"id":"pp-dev-001","picture":"그림 1","text":"이 사진이 전체적으로 좀 더 밝았으면 좋겠는데요","mode":"ko","expect":"image","category":"positive","axis":{"style":"indirect","lang":"ko","quality":"clean"}},
+  {"id":"pp-dev-002","picture":"그림 2","text":"배경 싹 지우고 흰 바탕만 남겨 줘","mode":"ko","expect":"image","category":"positive","axis":{"style":"banmal","lang":"ko","quality":"clean"}},
+  {"id":"pp-dev-003","picture":"Picture 1","text":"Blur the faces of the two people standing in the back.","mode":"en","expect":"image","category":"positive","axis":{"style":"command","lang":"en","quality":"clean"}},
+  {"id":"pp-dev-004","picture":"그림 3","text":"この写真を白黒にしてください。","mode":"ko","expect":"image","category":"positive","axis":{"style":"plain","lang":"ja","quality":"clean"}},
+  {"id":"pp-dev-005","picture":"그림 2","text":"사진 톤 좀 warm하게 바꿔 줄래?","mode":"ko","expect":"image","category":"positive","axis":{"style":"question","lang":"mix","quality":"clean"}},
+  {"id":"pp-dev-006","picture":"그림 4","text":"그림위에빨간화살표하나넣어서입구위치표시해줘","mode":"ko","expect":"image","category":"positive","axis":{"style":"command","lang":"ko","quality":"nospace"}},
+  {"id":"pp-dev-007","picture":"그림 3","text":"이 그림을 아래 표 밑으로 옮겨 주시기 바랍니다.","mode":"ko","expect":"document","category":"positive","axis":{"style":"formal","lang":"ko","quality":"clean"}},
+  {"id":"pp-dev-008","picture":"그림 5","text":"그림 밑에 '그림 5. 1층 매장 전경'이라고 캡션 달아 줘","mode":"ko","expect":"document","category":"positive","axis":{"style":"banmal","lang":"ko","quality":"clean"}},
+  {"id":"pp-dev-009","picture":"Picture 2","text":"Center this image on the page and leave a little space above it.","mode":"en","expect":"document","category":"positive","axis":{"style":"command","lang":"en","quality":"clean"}},
+  {"id":"pp-dev-010","picture":"그림 1","text":"この図のすぐ下にある段落を、二文くらいに短くまとめてください。","mode":"ko","expect":"document","category":"positive","axis":{"style":"plain","lang":"ja","quality":"clean"}},
+  {"id":"pp-dev-011","picture":"그림 6","text":"이그림 다른사진으로 바꿔주세요 어제 새로 찍은걸루요","mode":"ko","expect":"document","category":"positive","axis":{"style":"plain","lang":"ko","quality":"typo"}},
+  {"id":"pp-dev-012","picture":"그림 2","text":"어 그 그림 있잖아요 그거 오른쪽으로 붙이고 글이 그림 옆으로 흘러가게 해 주세요","mode":"ko","expect":"document","category":"positive","axis":{"style":"monologue","lang":"ko","quality":"dictation"}},
+  {"id":"pp-dev-013","picture":"그림 4","text":"사진 속에 찍힌 전봇대만 지워 줘. 그림은 문서에 그대로 두고","mode":"ko","expect":"image","category":"boundary","axis":{"style":"command","lang":"ko","quality":"clean"}},
+  {"id":"pp-dev-014","picture":"그림 3","text":"사진 오른쪽 아래 구석에 촬영 날짜를 사진에 직접 박아 넣어 줘. 캡션 말고","mode":"ko","expect":"image","category":"boundary","axis":{"style":"command","lang":"ko","quality":"clean"}},
+  {"id":"pp-dev-015","picture":"그림 1","text":"Remove the coffee cup from the photo — it shouldn't be sitting on the desk.","mode":"ko","expect":"image","category":"boundary","axis":{"style":"plain","lang":"en","quality":"clean"}},
+  {"id":"pp-dev-016","picture":"그림 7","text":"사진 속 간판 글씨가 '준비중'으로 찍혔는데 그 글씨를 '영업중'으로 바꿔 줘","mode":"ko","expect":"image","category":"boundary","axis":{"style":"banmal","lang":"ko","quality":"clean"}},
+  {"id":"pp-dev-017","picture":"그림 2","text":"이 그림 지워 주세요. 이 페이지에는 필요 없어요.","mode":"ko","expect":"document","category":"boundary","axis":{"style":"plain","lang":"ko","quality":"clean"}},
+  {"id":"pp-dev-018","picture":"그림 5","text":"把图片缩小一半，让它和旁边那张图并排放在同一行。","mode":"ko","expect":"document","category":"boundary","axis":{"style":"command","lang":"zh","quality":"clean"}},
+  {"id":"pp-dev-019","picture":"그림 3","text":"Change this photo to the one we used in last year's brochure.","mode":"ko","expect":"document","category":"boundary","axis":{"style":"command","lang":"en","quality":"clean"}},
+  {"id":"pp-dev-020","picture":"그림 4","text":"그림 아래 캡션에 적힌 '2025년'을 '2026년'으로 고쳐 주세요","mode":"ko","expect":"document","category":"boundary","axis":{"style":"plain","lang":"ko","quality":"clean"}}
+]

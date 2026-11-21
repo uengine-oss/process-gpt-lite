@@ -1,12 +1,17 @@
 // 검수 (lib/review.js) without a model: the stroke coverage of a CAD-style picture (dark ground, strokes in
 // layer colours), a brightness map that drops strokes as dark as the ground (the plan's red tables), and a
-// recolour by distance from the background that keeps every stroke.
+// recolour by distance from the background that keeps every stroke. What the request asks (remove,
+// recolour, other) is the model's structured answer (requestIntent) — given here as that answer.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import zlib from 'node:zlib'
 // the module pulls in the DB client through its imports; a checkout without server/.env still runs these
 process.env.SERVICE_ROLE_KEY ||= 'unit-test'
-const { decodePng, strokeCoverage, losses } = await import('../lib/review.js')
+// lib/craftLive.js and mcp/craft.js import each other through lib/missions.js: loaded first, the cycle
+// settles the way the server loads it (main 84bd318 failed this file on its own import)
+await import('../lib/missions.js')
+const { decodePng, strokeCoverage, losses, requestIntent } = await import('../lib/review.js')
+const RECOLOR = { kind: 'recolor', removes: false }, OTHER = { kind: 'other', removes: false }, REMOVE = { kind: 'remove', removes: true }
 
 const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
 const crc = (b) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
@@ -56,19 +61,39 @@ test('a brightness map loses the tables; the review flags it', () => {
   const after = { kind: 'image', ...strokeCoverage(png(200, 120, byBrightness)) }
   const kept = after.strokes / before.strokes
   assert.ok(kept < 0.7, `tables vanished: ${Math.round(kept * 100)}% of the strokes left`)
-  assert.equal(losses('설계도 색을 제안서 색상에 맞춰줘', before, after).out.length, 1)
+  assert.equal(losses(RECOLOR, before, after).out.length, 1)
 })
 
 test('a recolour by distance from the background keeps every stroke', () => {
   const before = { kind: 'image', ...strokeCoverage(png(200, 120, plan)) }
   const after = { kind: 'image', ...strokeCoverage(png(200, 120, byDistance)) }
   assert.equal(after.strokes, before.strokes)
-  const r = losses('설계도 색을 제안서 색상에 맞춰줘', before, after)
+  const r = losses(RECOLOR, before, after)
   assert.equal(r.out.length, 0); assert.match(r.ok.join(), /선 100% 유지/)
 })
 
 test('documents and drawings: counts that drop are losses unless the request removes something', () => {
-  assert.deepEqual(losses('단가를 바꿔줘', { kind: 'sheet', formulas: 13, filled: 80 }, { kind: 'sheet', formulas: 9, filled: 80 }).out, ['수식 13→9'])
-  assert.equal(losses('창고 행을 지워줘', { kind: 'doc', tables: 2, rows: { 1: 5 }, length: 900 }, { kind: 'doc', tables: 2, rows: { 1: 4 }, length: 880 }).out.length, 0)
-  assert.deepEqual(losses('화분을 그려줘', { kind: 'cad', counts: { Circle: 30, Line: 9 }, total: 39 }, { kind: 'cad', counts: { Circle: 31, Line: 8 }, total: 39 }).out, ['Line 9→8'])
+  assert.deepEqual(losses(OTHER, { kind: 'sheet', formulas: 13, filled: 80 }, { kind: 'sheet', formulas: 9, filled: 80 }).out, ['수식 13→9'])
+  assert.equal(losses(REMOVE, { kind: 'doc', tables: 2, rows: { 1: 5 }, length: 900 }, { kind: 'doc', tables: 2, rows: { 1: 4 }, length: 880 }).out.length, 0)
+  assert.deepEqual(losses(OTHER, { kind: 'cad', counts: { Circle: 30, Line: 9 }, total: 39 }, { kind: 'cad', counts: { Circle: 31, Line: 8 }, total: 39 }).out, ['Line 9→8'])
+  // no answer at all (no model): nothing counts as an asked-for removal
+  assert.deepEqual(losses(null, { kind: 'sheet', formulas: 2, filled: 10 }, { kind: 'sheet', formulas: 1, filled: 10 }).out, ['수식 2→1'])
+})
+
+test('what the request asks is the model\'s structured answer; colours only in #rrggbb form', async () => {
+  const http = await import('node:http')
+  let reply = {}
+  const srv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => { b += c }); req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify(reply) }, finish_reason: 'stop' }] })) }) })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  const { config } = await import('../config.js')
+  const was = { ...config.llm }
+  Object.assign(config.llm, { baseUrl: `http://127.0.0.1:${srv.address().port}`, apiKey: 'test' })
+  try {
+    reply = { kind: 'recolor', line_hex: '#112233', ground_hex: 'white' }
+    assert.deepEqual(await requestIntent('도면 선은 짙은 남색, 바탕은 흰색으로'), { kind: 'recolor', removes: false, line_hex: '#112233', ground_hex: null })
+    reply = { kind: 'remove' }
+    assert.equal((await requestIntent('take the second table out')).removes, true)
+    reply = { kind: 'something else' }
+    assert.equal((await requestIntent('make it nicer')).kind, 'other')
+  } finally { Object.assign(config.llm, was); srv.close() }
 })

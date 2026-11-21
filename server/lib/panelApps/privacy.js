@@ -1,7 +1,12 @@
 // Panel apps: secure by default (기본 보안·개인정보).
-// Every field gets a sensitivity — public | internal | personal | sensitive. The designer (model)
-// proposes it; this module applies a deterministic floor (keywords and types), so a field can be
-// classified higher than proposed but never lower. Who may read a restricted field follows from it:
+// Every field gets a sensitivity — public | internal | personal | sensitive. The final level is the
+// strictest of three (decision 1, 2026-11-21):
+//   1. the model's proposal — the designer's own "sensitivity", and a reviewer model's (proposeLevels)
+//   2. the policy words (policies/privacy.json: every language, a company can add words — data, not code)
+//   3. the field type floor: email · phone · person are personal whatever the label says
+// so a field can be classified higher than proposed but never lower; lowering is the folder owner's
+// explicit act (panelApps/service.js setSensitivity: confirmed and audited). Who may read a restricted
+// field follows from its level:
 //   public / internal → every folder member
 //   personal          → the subject (the person the record is about), the record's author, folder owner
 //   sensitive         → the subject and the folder owner (the author only when there is no subject)
@@ -10,19 +15,16 @@
 // Any restricted field puts the app in the database tier: a shared xlsx cannot hide a column from
 // the members who can open it. Aggregates over restricted numbers are shown as a team total only when
 // at least K_ANON different subjects contribute.
+import { config } from '../../config.js'
 import { L, isEn } from '../lang.js'
+import * as POL from '../policies.js'
 
 export const LEVELS = ['public', 'internal', 'personal', 'sensitive']
 export const K_ANON = 3
 const RANK = Object.fromEntries(LEVELS.map((l, i) => [l, i]))
-const SENSITIVE = /급여|연봉|월급|보수|상여|성과급|평가|고과|건강|질병|병명|진단|병가|사유|주민|계좌|통장|카드\s*번호|가족|징계|상벌|장애|종교|비밀번호|정치|노조/
-const PERSONAL = /연락처|전화|휴대폰|핸드폰|이메일|메일|주소|생년월일|생일|나이|사번|사원\s*번호|개인|자택|집\s*주소/
-const NOTE = /메모|비고|사유|내용|설명|코멘트|의견/
-// the same floor for an English label (an English-mode app); a label with Hangul keeps the Korean words only
-const SENSITIVE_EN = /salary|wage|pay\b|payroll|compensation|bonus|incentive|evaluation|appraisal|review score|performance|health|illness|\bsick\b|medical|diagnos|reason|resident (registration )?no|ssn|social security|\bbank\b|account (no|number)|card (no|number)|family|disciplin|disabilit|religio|password|politic|\bunion\b/i
-const PERSONAL_EN = /contact|phone|mobile|\bcell\b|e-?mail|address|birth|birthday|\bage\b|employee (id|no|number)|staff (id|no)|personal|\bhome\b/i
-const NOTE_EN = /note|memo|remark|reason|detail|description|comment|opinion/i
-const hangul = (s) => /[가-힣]/.test(s)
+// a type that holds a person or a way to reach one (a schema fact, not a word)
+const PERSON_TYPES = new Set(['email', 'phone', 'person'])
+const said = (list, text) => POL.anyWord('privacy', 'words', list, text, { tenant: config.tenantId })
 
 export const levelOf = (f) => (LEVELS.includes(f?.sensitivity) ? f.sensitivity : 'internal')
 export const restricted = (f) => RANK[levelOf(f)] >= RANK.personal
@@ -34,26 +36,50 @@ export function subjectOf(def) {
   return (named || def.fields.find((f) => f.type === 'person'))?.key || null
 }
 
-// the floor: what a field is at least, whatever the model said
+// the floor: what a field is at least, whatever the model said — the policy words read the label
+// and the key in every language, the type floor reads no words
 export function floorOf(def, f, subject) {
-  const text = `${f.label} ${f.key}`
-  const en = !hangul(String(f.label || ''))
-  if (SENSITIVE.test(f.label) || (en && SENSITIVE_EN.test(f.label))) return 'sensitive'
+  const text = `${f.label || ''} ${f.key || ''}`
+  if (said('sensitive', text)) return 'sensitive'
   if (f.key === subject) return 'internal'
-  if (PERSONAL.test(f.label) || (en && PERSONAL_EN.test(f.label)) || ['email', 'phone'].includes(f.type)) return 'personal'
-  if (f.type === 'person') return 'personal'
-  if (subject && (f.type === 'longtext' || NOTE.test(text) || (en && NOTE_EN.test(text)))) return 'personal'
+  if (said('personal', text) || PERSON_TYPES.has(f.type)) return 'personal'
+  if (subject && (f.type === 'longtext' || said('note', text))) return 'personal'
   return 'public'
 }
 
-export function classify(def) {
+export function classify(def, { proposals = {} } = {}) {
   const subject = subjectOf(def)
   const fields = def.fields.map((f) => {
-    const proposed = LEVELS.includes(f.sensitivity) ? f.sensitivity : 'internal'
+    const own = LEVELS.includes(f.sensitivity) ? f.sensitivity : 'internal'
+    const review = LEVELS.includes(proposals[f.key]) ? proposals[f.key] : 'public'
     const floor = floorOf(def, f, subject)
-    return { ...f, sensitivity: RANK[floor] > RANK[proposed] ? floor : proposed }
+    return { ...f, sensitivity: [own, review, floor].reduce((a, b) => (RANK[b] > RANK[a] ? b : a)) }
   })
   return { ...def, fields, subject: subject || undefined }
+}
+
+// A second model's proposal, field by field (the designer named the fields and proposed levels in one
+// go; a label the policy words do not know is caught here). One call for
+// the whole app; {} when no model answers (the designer's proposal and the floors still hold).
+export async function proposeLevels(def, { timeoutMs = 20000 } = {}) {
+  if (!config.llm?.apiKey || !def?.fields?.length) return {}
+  const { chatJson } = await import('../llm.js')
+  const list = def.fields.map((f) => `- ${f.key}: "${String(f.label || '').slice(0, 80)}" (${f.type || 'text'})`).join('\n')
+  const system = 'You classify the fields of a team app by how private the data in them is. Levels: '
+    + 'public (nothing about a person), internal (work data for the team), personal (identifies or reaches a person: contact, address, birth date, employee or personal number, age), '
+    + 'sensitive (pay and money a person receives, evaluations, health or medical facts and the reasons for an absence, national or bank or card numbers, family, discipline, criminal record, disability, religion, politics, union, sexual orientation, biometrics, passwords). '
+    + 'Judge by what a value would reveal about a person, in any language: part of an identifier (its last digits) counts as the identifier, and a field telling whether a person is under a disciplinary or similar personal proceeding counts as that proceeding. '
+    + 'When torn between two levels, choose the higher. Answer JSON only: {"levels": {"<field key>": "<level>"}}.'
+  try {
+    const j = await chatJson(system, `App: ${String(def.title || '').slice(0, 80)}\nFields:\n${list}`, { model: config.llm.fastModel, temperature: 0, timeoutMs, maxTokens: 2048, effort: 'low' })
+    const out = {}
+    for (const f of def.fields) if (LEVELS.includes(j?.levels?.[f.key])) out[f.key] = j.levels[f.key]
+    return out
+  } catch (e) { console.warn('[privacy] proposeLevels', e.message); return {} }
+}
+// the classification with the reviewer's proposal in it (what a new or changed design should go through)
+export async function classifyReviewed(def) {
+  return classify(def, { proposals: await proposeLevels(def) })
 }
 
 // who may read a field, as rule terms (the database compiles the same terms)

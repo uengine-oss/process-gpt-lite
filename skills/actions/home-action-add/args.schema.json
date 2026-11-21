@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "verb": {
+      "type": "string",
+      "enum": [
+        "Remind",
+        "Add",
+        "Reply",
+        "Pay",
+        "Review",
+        "Call"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "description": "the to-do in one line",
+      "x-lang": "text"
+    },
+    "due": {
+      "type": "string",
+      "description": "the deadline as the user said it, if any (the card does not alert at that time)"
+    }
+  },
+  "required": [
+    "verb",
+    "text"
+  ]
+}

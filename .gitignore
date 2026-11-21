@@ -46,3 +46,6 @@ artcraft/fonts-ko/fonts/*.ttf
 .idea/
 .vscode/*
 !.vscode/extensions.json
+# per-question model outputs of evaluation runs (kept locally; the .score.json summaries are committed)
+server/eval/results/*.jsonl
+server/test/eval/results/*.raw.json

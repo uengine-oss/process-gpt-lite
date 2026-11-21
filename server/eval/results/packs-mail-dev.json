@@ -1,0 +1,66 @@
+{
+ "n": 24,
+ "exact": 100,
+ "documents": 100,
+ "macro_f1": 100,
+ "per_skill": {
+  "cadcraft-floor-plan": {
+   "precision": 100,
+   "recall": 100,
+   "f1": 100
+  },
+  "store-design-proposal": {
+   "precision": 100,
+   "recall": 100,
+   "f1": 100
+  },
+  "quote-xlsx": {
+   "precision": 100,
+   "recall": 100,
+   "f1": 100
+  }
+ },
+ "by_category": {
+  "positive": {
+   "n": 10,
+   "ok": 10
+  },
+  "boundary": {
+   "n": 7,
+   "ok": 7
+  },
+  "plain": {
+   "n": 4,
+   "ok": 4
+  },
+  "none": {
+   "n": 3,
+   "ok": 3
+  }
+ },
+ "by_lang": {
+  "ko": {
+   "n": 17,
+   "ok": 17
+  },
+  "en": {
+   "n": 4,
+   "ok": 4
+  },
+  "ja": {
+   "n": 2,
+   "ok": 2
+  },
+  "mix": {
+   "n": 1,
+   "ok": 1
+  }
+ },
+ "flips": 0,
+ "misses": [],
+ "without_pack": {
+  "pack_skill_picked": 0,
+  "documents": 95.8
+ },
+ "failed_calls": 0
+}

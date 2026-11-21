@@ -7,10 +7,10 @@ import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { chatJson } from '../llm.js'
-import { WORKS, view as suggestionView } from '../team/assist.js'
+import { view as suggestionView } from '../team/assist.js'
+import { offers } from '../offers.js'
 import * as R from './record.js'
-import { isEn } from '../lang.js'
-import { WORKS_EN } from './intent.js'
+import { isEn, L } from '../lang.js'
 import { translate } from '../translate.js'
 import { mainLangsOf } from '../mainLang.js'
 import { judge, judgeAvailable } from '../judge.js'
@@ -65,9 +65,9 @@ export function ruleSummary(lines, people, materials, tasks) {
 async function workOf(title) {
   if (!judgeAvailable()) return 'CreateDocument'
   try {
-    const j = await judge(isEn()
-      ? { state: `Action item: ${title}`, question: 'If the AI assistant helped with this action item, what kind of work would it be?', options: Object.keys(WORKS).filter((k) => k !== 'StartProcessInstance').map((key) => ({ key, label: WORKS_EN[key] || WORKS[key].label })) }
-      : { state: `할 일: ${title}`, question: '이 할 일을 AI 비서가 돕는다면 어떤 종류인가요?', options: Object.entries(WORKS).filter(([k]) => k !== 'StartProcessInstance').map(([key, w]) => ({ key, label: w.label })) })
+    // the kinds are skill descriptions (lib/offers.js, surface 'minutes'), in the meeting's language
+    const j = await judge({ state: L(`할 일: ${title}`, `Action item: ${title}`), question: L('이 할 일을 AI 비서가 돕는다면 어떤 종류인가요?', 'If the AI assistant helped with this action item, what kind of work would it be?'),
+      options: offers('minutes').map((o) => ({ key: o.key, label: o.label })) })
     return Object.entries(j.probabilities || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || 'CreateDocument'
   } catch { return 'CreateDocument' }
 }

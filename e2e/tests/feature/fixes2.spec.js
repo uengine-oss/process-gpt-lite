@@ -235,24 +235,30 @@ test.describe('튜토리얼 결함 수정 2 — 프로세스 엔진·정의', ()
 })
 
 test.describe('튜토리얼 결함 수정 2 — 마이닝 기록', () => {
-  test('F-FX2-05 팀 공유는 받는 사람의 역할·공유 메모로 단계 이름, 회신 뒤 공유는 사례에 넣지 않음, 같은 사례는 추천 하나', async ({ as, db, lib, cleanup }) => {
+  test('F-FX2-05 팀 공유의 검토 이름: 문서가 정하지 못하면 역할·메모를 판정(업무 팩의 검토 종류), 팩이 없으면 역할 이름 그대로, 회신 뒤 공유는 사례에 넣지 않음, 같은 사례는 추천 하나', async ({ as, db, lib, cleanup }) => {
     const me = await as('fx2-owner'), designer = await as('fx2-designer'), plain = await as('fx2-plain')
     const rec = await lib('lib/mining/recorder.js')
     const svc = await lib('lib/mining/service.js')
+    const { setEnabledPacks } = await lib('lib/skillInstallCatalog.js')
+    const { judgeAvailable } = await lib('lib/judge.js')
+    test.skip(!judgeAvailable(), '판정 모델이 없음')
     const mail = { id: `rt-fx2-${RUN}`, subject: `회귀 설계 요청 ${RUN}` }
     const caseId = rec.caseOf(mail.id)
-    const file = `회귀-${RUN}-평면도.dxf`
+    // a file whose format no pack names a review after: the review is judged from the role and the note
+    const file = `회귀-${RUN}-메모.txt`
     const role = `디자이너`
     const roleDef = `rt_fx2_role_${RUN}`.toLowerCase()
     cleanup(async () => {
-      await db.q('delete from handover_events where tenant_id=$1 and case_id=$2', [db.tenant, caseId])
-      await db.q('delete from pro_mining_cases where case_id=$1', [caseId])
+      setEnabledPacks(db.tenant, [])
+      await db.q('delete from handover_events where tenant_id=$1 and case_id = any($2)', [db.tenant, [caseId, rec.caseOf(`${mail.id}-plain`)]])
+      await db.q('delete from pro_mining_cases where case_id = any($1)', [[caseId, rec.caseOf(`${mail.id}-plain`)]])
       await db.q('delete from pro_role_assignments where tenant_id=$1 and proc_def_id=$2', [db.tenant, roleDef])
     })
     await db.q(`insert into pro_role_assignments(tenant_id,proc_def_id,role,user_id,updated_by) values ($1,$2,$3,$4,$4)`, [db.tenant, roleDef, role, designer.id])
+    // the company has the store-design pack on (its review kinds are the judge's options)
+    setEnabledPacks(db.tenant, ['store-design'])
     await rec.openCase({ userId: me.id, mail, customer: '회귀 고객', files: [file] })
     await rec.recordStep(caseId, '요청 메일 접수', { to: { id: me.id, name: '회귀 영업' } })
-    // a designer (role 디자이너) → 디자인 검토; someone without a role, asked about the amounts → 재무 검토
     await rec.recordShare({ id: me.id }, [{ name: file }], [{ id: designer.id, name: '회귀 디자이너' }], '도면 봐 주세요')
     await rec.recordShare({ id: me.id }, [{ name: file }], [{ id: plain.id, name: '회귀 동료' }], '견적 금액과 부가세 확인 부탁해요')
     await rec.recordReply({ id: me.id, email: me.email }, { source: { mail_id: mail.id } })
@@ -261,6 +267,15 @@ test.describe('튜토리얼 결함 수정 2 — 마이닝 기록', () => {
     const evs = await db.q(`select norm_activity_label as l, to_role from handover_events where tenant_id=$1 and case_id=$2 order by occurred_at`, [db.tenant, caseId])
     expect(evs.map((e) => e.l)).toEqual(['요청 메일 접수', '디자인 검토', '재무 검토', '고객 회신'])
     expect(evs[1].to_role).toBe(role)
+    // without the pack: no trade review kinds — the role names the review as it is, no role is a teammate's review
+    setEnabledPacks(db.tenant, [])
+    const plainCase = rec.caseOf(`${mail.id}-plain`)
+    await rec.openCase({ userId: me.id, mail: { id: `${mail.id}-plain`, subject: mail.subject }, customer: '회귀 고객', files: [`${file}.2.txt`] })
+    await rec.recordStep(plainCase, '요청 메일 접수', { to: { id: me.id, name: '회귀 영업' } })
+    await rec.recordShare({ id: me.id }, [{ name: `${file}.2.txt` }], [{ id: designer.id, name: '회귀 디자이너' }], '도면 봐 주세요')
+    await rec.recordShare({ id: me.id }, [{ name: `${file}.2.txt` }], [{ id: plain.id, name: '회귀 동료' }], '견적 금액과 부가세 확인 부탁해요')
+    const evs2 = await db.q(`select norm_activity_label as l from handover_events where tenant_id=$1 and case_id=$2 order by occurred_at`, [db.tenant, plainCase])
+    expect(evs2.map((e) => e.l)).toEqual(['요청 메일 접수', '디자이너 검토', '팀원 검토'])
     // a group found again with more cases is the recommendation those cases already make
     const sid = crypto.randomUUID()
     cleanup(() => db.q('delete from pro_mining_suggestions where id=$1', [sid]))

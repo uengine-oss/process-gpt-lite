@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "what the panel is for, with any fields, rules and first records the user mentioned"
+    }
+  },
+  "required": []
+}

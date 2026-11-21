@@ -16,6 +16,7 @@ import { startShop, SHOP } from './fixtures/shop.mjs'
 
 // ---- scripted model: decides from the latest page snapshot, records every request ----
 const llmBodies = []
+const BUYING = new Set(['테스트 상점에서 무선 이어폰을 결제해줘', '테스트 상점에서 한 번 더 결제해줘'])
 let brain = null
 const llm = http.createServer((req, res) => {
   let raw = ''
@@ -24,8 +25,13 @@ const llm = http.createServer((req, res) => {
     const body = JSON.parse(raw)
     llmBodies.push(body)
     let message
-    if (body.response_format) {
-      message = { role: 'assistant', content: JSON.stringify({ title: '테스트 상점 작업', steps: ['사이트 열기', '로그인 또는 결제', '결과 확인'] }) }
+    if (body.response_format && /Break a web task/.test(body.messages[0].content)) {
+      // the planner's reading of the goal (server/lib/browser.js plan): the checkout goals buy
+      const goal = body.messages[1].content
+      message = { role: 'assistant', content: JSON.stringify({ title: '테스트 상점 작업', steps: ['사이트 열기', '로그인 또는 결제', '결과 확인'], buys: BUYING.has(goal) }) }
+    } else if (body.response_format) {
+      // the purchase gate's second look at a click (browser.js clickJudge): this stand-in has no opinion
+      message = { role: 'assistant', content: JSON.stringify({ effect: 'none', confidence: 0 }) }
     } else {
       const snap = JSON.parse([...body.messages].reverse().find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('{')).content)
       const [name, args] = brain(snap)

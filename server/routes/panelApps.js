@@ -11,7 +11,10 @@ export function panelAppRoutes(auth) {
   const h = (fn) => async (req, res) => {
     try { const out = await fn(req, res); if (out !== undefined && !res.headersSent) res.json(out) } catch (e) {
       if (!e.status) console.warn('[panelApps]', req.method, req.path, e.message)
-      if (!res.headersSent) res.status(e.status || 500).json({ error: e.message, problems: e.problems, needConfirm: e.needConfirm })
+      // code: what the screen acts on (it never reads the message): NEEDS_CONFIRM — the change waits for the
+      // person's yes; ROW_CHANGED / ROW_GONE — someone else changed or deleted the row first (lib/panelApps)
+      const code = e.code || (e.needConfirm ? 'NEEDS_CONFIRM' : undefined)
+      if (!res.headersSent) res.status(e.status || 500).json({ error: e.message, ...(code ? { code } : {}), problems: e.problems, needConfirm: e.needConfirm })
     }
   }
   // the JWT goes along: a db app's reads and writes run as this person in the database (RLS)
@@ -21,7 +24,8 @@ export function panelAppRoutes(auth) {
   // design + create from a description (the Home button and the chat use the same function)
   r.post('/panel-apps', auth, h(async (req) => {
     const d = await P.design(req.body.description)
-    if (d.kind === 'live') return { kind: 'live', panel: await generatePanel({ userId: req.user.id, description: req.body.description }) }
+    // (the design said the panel shows live outside values: the panel's references come with the first call)
+    if (d.kind === 'live') return { kind: 'live', panel: await generatePanel({ userId: req.user.id, description: req.body.description, live: true }) }
     return { kind: 'data', app: await P.createApp(me(req), { description: req.body.description, def: d.def, rows: d.rows, folderHint: req.body.folder || '' }) }
   }))
   r.get('/panel-apps/:id/rows', auth, h((req) => P.rows(me(req), req.params.id)))

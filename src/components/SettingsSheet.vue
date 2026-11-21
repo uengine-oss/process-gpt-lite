@@ -6,6 +6,7 @@ import Wordmark from './Wordmark.vue'
 import ConnectorCards from './ConnectorCards.vue'
 import MissionList from './MissionList.vue'
 import SkillList from './SkillList.vue'
+import SkillPacks from './SkillPacks.vue'
 import TeamRoles from './TeamRoles.vue'
 import MailConnect from './MailConnect.vue'
 import TelegramConnect from './TelegramConnect.vue'
@@ -175,7 +176,8 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
       <!-- teammates and process role holders -->
       <TeamRoles v-if="page === 'team'" />
 
-      <!-- tenant skills -->
+      <!-- tenant skills (and the business packs an admin turns on for the company) -->
+      <SkillPacks v-if="page === 'skills' && !sub" />
       <SkillList v-if="page === 'skills'" :name="sub" />
 
       <!-- accounts (vault) -->

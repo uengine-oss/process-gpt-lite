@@ -242,6 +242,8 @@ try {
   } else {
     await withLang(LANG, async () => {
       const { ids, names } = await accounts()
+      // the demo company's trade knowledge is a business pack: on for this tenant (skills/packs/store-design)
+      await (await import('../lib/skillInstall.js')).enablePackAs(PEOPLE.jang[0], 'store-design', PEOPLE.jang[1])
       const def = await definition(ids)
       await seedHistory(ids, names, def)
       const { checkConstraint } = await import('../lib/improve/service.js')

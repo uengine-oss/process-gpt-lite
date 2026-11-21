@@ -5,7 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config } from '../config.js'
 import fs from 'node:fs/promises'
-import { workspaceHostPath, saveSkillDraft } from './missions.js'
+import { workspaceHostPath } from './missions.js'
+import { uploadSkillFolder } from './skillInstall.js'
 import { PGPT_ROOT } from './paths.js'
 import { L } from './lang.js'
 
@@ -109,8 +110,9 @@ export async function generatedContract(workDir) {
 
 // The skills a process generation wrote (<work>/skills/<name>/SKILL.md) are installed for the tenant
 // through deepagents' own upload (the process-gpt UI's skill save), so the agent steps that name them
-// find them. A skill that already exists is left as it is.
-export async function installGeneratedSkills(workDir, { jwt, ownerId }) {
+// find them. A skill that already exists is left as it is (the upload answers 409 — the status says so,
+// not the wording of its message).
+export async function installGeneratedSkills(workDir, { jwt, ownerId, api } = {}) {
   if (!workDir) return []
   const host = await workspaceHostPath(workDir).catch(() => '')
   if (!host) return []
@@ -118,9 +120,8 @@ export async function installGeneratedSkills(workDir, { jwt, ownerId }) {
   const out = []
   for (const name of names) {
     if (!(await fs.access(path.join(host, 'skills', name, 'SKILL.md')).then(() => true, () => false))) continue
-    const dir = `${workDir.replace(/\/$/, '')}/skills/${name}`
-    try { await saveSkillDraft({ dir, name, jwt, ownerId }); out.push({ name, installed: true }) } catch (e) {
-      out.push({ name, installed: false, ...(/already exists|이미/.test(e.message) ? { exists: true } : { error: e.message.slice(0, 160) }) })
+    try { await uploadSkillFolder({ dir: path.join(host, 'skills', name), name, jwt, ownerId, ...(api ? { api } : {}) }); out.push({ name, installed: true }) } catch (e) {
+      out.push({ name, installed: false, ...(e.status === 409 ? { exists: true } : { error: String(e.message).slice(0, 160) }) })
     }
   }
   return out

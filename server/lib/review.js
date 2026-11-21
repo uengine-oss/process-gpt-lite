@@ -9,7 +9,8 @@
 //   워드 · 한글                text length, blocks/tables (and table rows), pictures
 //   엑셀                      filled cells and formulas in the used range
 // Deterministic checks flag losses (strokes under 70%, fewer entities/rows/formulas, much shorter
-// text) unless the request asked to remove something. For pictures the in-house model, which reads
+// text) unless the request asked to remove something — what the request asks (remove, recolour and to
+// which colours, or other) is read by the model as a structured answer (requestIntent), never by words. For pictures the in-house model, which reads
 // images, also compares before/after with the request; for documents it compares the texts.
 // A failed picture recolour is redone once by the background-mask method; if it still fails it is
 // put back as it was. The outcome is a short note in the chat (and the dial), kept for the card.
@@ -23,7 +24,6 @@ import { emit } from './bus.js'
 import { L, isEn } from './lang.js'
 
 const clip = (t, n = 70) => { const s = String(t).replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n)}…` : s }
-const REMOVE = /(지워|삭제|빼\s*줘|없애|제거|줄여|합쳐)|\b(delete|remove|erase|drop|take out|get rid of|shorten|merge|combine)\b/i
 const lastReview = new Map() // `${userId}:${file}` → { ok, summary, at }
 export const reviewFor = (userId, file) => lastReview.get(`${userId}:${file}`) || null
 export function recordReview(userId, file, r) { if (file) lastReview.set(`${userId}:${file}`, { ...r, at: Date.now() }) }
@@ -160,10 +160,30 @@ async function textCheck(request, before, after) {
   return askModel(ask(request, L(`편집 전 내용:\n${String(before.text).slice(0, 3000)}\n\n편집 후 내용:\n${String(after.text).slice(0, 3000)}`, `Content before the edit:\n${String(before.text).slice(0, 3000)}\n\nContent after the edit:\n${String(after.text).slice(0, 3000)}`)))
 }
 
-// ---- deterministic comparison
-export function losses(request, b, a) {
+// What the request asks, as structure (the model reads it, in any language):
+//   kind      remove (take something out, shorten, merge) | recolor (change colours) | other
+//   line_hex  the colour asked for the drawn lines/strokes, ground_hex for the background (#rrggbb or null)
+// No model → {kind:'other'}: nothing counts as asked-for removal (losses are flagged), no repaint.
+const HEX = /^#[0-9a-f]{6}$/i
+export async function requestIntent(request) {
+  const none = { kind: 'other', removes: false, line_hex: null, ground_hex: null }
+  if (!config.llm?.apiKey || !String(request || '').trim()) return none
+  try {
+    const { chatJson } = await import('./llm.js')
+    const j = await chatJson('You read an edit request for a picture, drawing or document. Answer JSON only: '
+      + '{"kind": "remove" | "recolor" | "other", "line_hex": "#rrggbb or null", "ground_hex": "#rrggbb or null"}. '
+      + 'remove: the request asks to delete, take out, shorten, reduce or merge content, so fewer elements are expected. '
+      + 'recolor: it asks to change colours or tones. line_hex: the colour it wants for lines, strokes or shapes; ground_hex: the colour it wants for the background — only when the request names or implies one.',
+    `Request: ${String(request).slice(0, 600)}`, { model: config.llm.fastModel, temperature: 0, timeoutMs: 20000, maxTokens: 1024, effort: 'low' })
+    const kind = ['remove', 'recolor', 'other'].includes(j?.kind) ? j.kind : 'other'
+    return { kind, removes: kind === 'remove', line_hex: HEX.test(j?.line_hex || '') ? j.line_hex : null, ground_hex: HEX.test(j?.ground_hex || '') ? j.ground_hex : null }
+  } catch (e) { console.warn('[review] intent', e.message); return none }
+}
+
+// ---- deterministic comparison (intent: requestIntent's answer)
+export function losses(intent, b, a) {
   const out = [], ok = []
-  const removing = REMOVE.test(request)
+  const removing = !!intent?.removes
   if (b.kind === 'image') {
     const kept = b.strokes ? a.strokes / b.strokes : 1
     ;(kept < 0.7 ? out : ok).push(L(`선 ${Math.round(kept * 100)}% 유지`, `lines kept: ${Math.round(kept * 100)}%`))
@@ -187,11 +207,12 @@ export function losses(request, b, a) {
   return { out, ok }
 }
 
-// colour by distance from the background (gradientMap-style recolours drop strokes as dark as the ground)
-const RECOLOR = /(색|톤|컬러|color|색상|칠)|\b(colou?r|tone|tint|paint)\b/i
-async function maskRecolor(live, request) {
-  const navy = /검정|검은|\bblack\b/i.test(request) ? '#222222' : '#1f3a6e'
-  const ground = /흰|하얀|white/i.test(request) ? '#ffffff' : '#eef5fc'
+// colour by distance from the background (gradientMap-style recolours drop strokes as dark as the ground):
+// the background to the colour asked for it, every stroke to the colour asked for lines (the model read
+// both from the request; without one, a light ground and dark navy lines)
+async function maskRecolor(live, intent) {
+  const navy = intent?.line_hex || '#1f3a6e'
+  const ground = intent?.ground_hex || '#eef5fc'
   for (const [command, params] of [['select.all'], ['edit.fillHistory'], ['select.deselect'],
     ['select.magicWand', { x: 3, y: 3, tolerance: 14, contiguous: false, antiAlias: false }], ['edit.fill', { contents: 'color', color: ground }],
     ['select.inverse'], ['select.modify.expand', { radius: 1 }], ['edit.fill', { contents: 'color', color: navy }], ['select.deselect']]) {
@@ -208,20 +229,21 @@ export async function reviewTurn({ user, session, threadId, request, open, befor
   const status = (t) => emit(user.id, 'status', { threadId, text: t })
   status(L('결과 검수하는 중', 'Reviewing the result'))
   try {
-    let after = await capture({ userId: user.id, jwt: session.access_token, open })
+    const [first, intent] = await Promise.all([capture({ userId: user.id, jwt: session.access_token, open }), requestIntent(request)])
+    let after = first
     if (!after) return null
-    const det = () => losses(request, before, after)
+    const det = () => losses(intent, before, after)
     let { out, ok } = det()
     let look = null, how = L('픽셀·개수 검사', 'pixel and count check')
     if (after.kind === 'image') { look = await visionCheck(request, before, after).catch(() => null); if (look) how = L('그림 비교(사내 모델)·픽셀 검사', 'in-house model picture comparison and pixel check') }
     else if (after.kind === 'doc' || after.kind === 'sheet') { look = await textCheck(request, before, after).catch(() => null); if (look) how = L('내용 비교(사내 모델)·개수 검사', 'in-house model content comparison and count check') }
     const missing = () => [...out, ...(look?.missing || []).filter(Boolean).map((x) => L(`${x} 사라짐`, `${x} disappeared`))]
     let fixed = ''
-    if (missing().length && after.kind === 'image' && open.app === 'photocraft' && RECOLOR.test(request)) {
+    if (missing().length && after.kind === 'image' && open.app === 'photocraft' && intent.kind === 'recolor') {
       // once more, by the background mask, then look again
       const live = liveFor(user.id, open.app)
       status(L('검수: 다시 칠하는 중', 'Review: repainting'))
-      await maskRecolor(live, request)
+      await maskRecolor(live, intent)
       after = await capture({ userId: user.id, jwt: session.access_token, open })
       ;({ out, ok } = det())
       look = await visionCheck(request, before, after).catch(() => null)

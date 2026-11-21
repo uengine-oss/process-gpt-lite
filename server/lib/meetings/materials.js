@@ -14,70 +14,11 @@ import * as F from '../folders/service.js'
 import * as IX from '../folders/indexer.js'
 import * as S from '../team/shares.js'
 import { view as messageView } from '../team/messenger.js'
-import { isEn, L } from '../lang.js'
+import { L } from '../lang.js'
+import * as EM from '../embed.js'
 
 const T = () => config.tenantId
 const UUID = /^[0-9a-f-]{36}$/i
-
-// ---- matching an utterance against candidate names (no model) ----
-const STOP = new Set(['xlsx', 'xls', 'dxf', 'hwpx', 'hwp', 'docx', 'pdf', 'svg', 'png', '파일', '최종', '초안', 'v1', 'v2', 'v3', '신청', '프로세스'])
-const SYN = { 평면도: ['도면', '평면'], 견적서: ['견적'], 안내문: ['안내'], 정산: ['정산서'], 휴가: ['연차', '휴가'], 출장비: ['출장'], 제안서: ['제안'] }
-// a Latin word and the Korean particle after it are two words ("SAP Cloud ERP에 대한 …" → ERP · 에)
-export const nameTokens = (name) => String(name || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/([A-Za-z0-9])([가-힣])/g, '$1 $2').replace(/([가-힣])([A-Za-z])/g, '$1 $2')
-  .split(/[\s_\-·.,()[\]/]+/).filter((t) => t.length >= 2 && !STOP.has(t.toLowerCase()))
-const EXT_CUE = [[/견적|정산표|예산/, /\.(xlsx|xls|csv)$/i], [/평면도|도면|설계도/, /\.(dxf|dwg)$/i], [/안내문|공문|제안서|보고서/, /\.(hwpx|hwp|docx)$/i]]
-// English meetings: names and speech are compared without case ("the Quote" → "Moonlight Coffee quote.xlsx"),
-// with English filler words and synonyms
-const STOP_EN = new Set(['the', 'and', 'for', 'final', 'draft', 'file', 'process', 'request', 'copy', 'new', 'of', 'to'])
-const SYN_EN = { quote: ['estimate', 'quotation', 'pricing'], floor: ['drawing', 'layout'], plan: ['drawing', 'layout'], notice: ['announcement'],
-  expense: ['expenses', 'settlement'], leave: ['vacation', 'time off'], travel: ['trip'], proposal: ['pitch'] }
-const EXT_CUE_EN = [[/quote|estimate|budget|expense|pricing/, /\.(xlsx|xls|csv)$/i], [/floor\s*plan|drawing|layout/, /\.(dxf|dwg)$/i], [/notice|letter|proposal|report/, /\.(hwpx|hwp|docx)$/i]]
-function scoreEn(utter, name) {
-  const said = String(utter || '').toLowerCase()
-  const u = said.replace(/\s+/g, '')
-  let s = 0, missed = 0
-  for (const t0 of nameTokens(name)) {
-    const t = t0.toLowerCase()
-    if (STOP_EN.has(t)) continue
-    if (u.includes(t)) { s += t.length >= 3 ? 2 : 1; continue }
-    if (Object.entries(SYN_EN).some(([k, alts]) => t.includes(k) && alts.some((a) => said.includes(a)))) { s += 1; continue }
-    // Korean names in an English meeting still match the Korean way
-    if (Object.entries(SYN).some(([k, alts]) => t.includes(k) && alts.some((a) => u.includes(a)))) { s += 1; continue }
-    missed++
-  }
-  if (s) for (const [cue, ext] of [...EXT_CUE_EN, ...EXT_CUE]) if (cue.test(said) && ext.test(String(name))) { s += 1; break }
-  return s ? s - missed * 0.25 : 0
-}
-
-// English words as Korean speech is transcribed ("셉 ERP 관련 PDF" for "SAP ERP … .pdf", 2026-11-19): the
-// utterance gets the spelled word beside the heard one, so a name's Latin token still matches
-const HEARD = [[/셉|샙|쌥|에스에이피/g, 'sap'], [/이알피/g, 'erp'], [/피디에프/g, 'pdf'], [/엑셀/g, 'excel'], [/피피티|파워포인트/g, 'ppt'],
-  [/워드/g, 'word'], [/씨알엠/g, 'crm'], [/엠이에스/g, 'mes'], [/에이피아이/g, 'api'], [/에이아이/g, 'ai'], [/비피엠/g, 'bpm']]
-export function heard(utter) {
-  const u = String(utter || '')
-  const extra = HEARD.filter(([re]) => { re.lastIndex = 0; return re.test(u) }).map(([, w]) => w)
-  return extra.length ? `${u} ${extra.join(' ')}` : u
-}
-// the kind of file said ("PDF 좀 열어볼래?", "그 엑셀") picks among names that match the same words
-const EXT_SAID = [[/pdf/, /\.pdf$/i], [/excel|엑셀|스프레드시트/, /\.(xlsx|xls|csv)$/i], [/ppt|발표\s*자료|슬라이드/, /\.(pptx|ppt)$/i],
-  [/word|워드/, /\.(docx|doc)$/i], [/한글\s*(파일|문서)|hwp/, /\.(hwpx|hwp)$/i], [/사진|이미지|그림/, /\.(png|jpe?g|gif|webp)$/i]]
-
-export function score(utter, name) {
-  if (isEn()) return scoreEn(utter, name)
-  const said = heard(utter).toLowerCase()
-  const u = said.replace(/\s+/g, '')
-  let s = 0, missed = 0
-  for (const t0 of nameTokens(name)) {
-    const t = t0.toLowerCase()
-    if (u.includes(t)) { s += t.length >= 3 ? 2 : 1; continue }
-    if (Object.entries(SYN).some(([k, alts]) => t.includes(k) && alts.some((a) => u.includes(a)))) { s += 1; continue }
-    missed++
-  }
-  if (s) for (const [cue, ext] of EXT_CUE) if (cue.test(u) && ext.test(String(name))) s += 1
-  if (s) for (const [cue, ext] of EXT_SAID) if (cue.test(said) && ext.test(String(name))) { s += 1; break }
-  // of two names that match the same words, the one with fewer words nobody said ("견적서" → 견적서, not 견적서_수정)
-  return s ? s - missed * 0.25 : 0
-}
 
 // ---- candidates, in the speaker's access ----
 async function fileCandidates(roomId, speaker) {
@@ -149,18 +90,38 @@ export async function candidates(kind, { roomId, speaker }) {
   if (kind === 'folder') return [...await folderFileCandidates(speaker), ...await folderCandidates(speaker)]
   return []
 }
-// a name's score, or (a little less) its document card's keywords' — "ERP 관련 자료" finds a file whose card says ERP
-export function scoreOf(utter, c) {
-  const s = score(utter, c.title)
-  if (s > 0 || !c.keywords?.length) return s
-  const k = score(utter, c.keywords.join(' '))
-  return k > 0 ? Math.max(0.5, k - 1) : 0
+// ---- which candidate a spoken line means: the model picks (no word lists, no synonyms) ----
+// All the candidates the speaker can see, one line per name. With embeddings, the nearest few by
+// meaning (name, where it is, its document card's keywords); without, the newest of each kind up to a
+// cap — and the judge reads the names and picks one, or none. A company's own words for things belong
+// in its glossary data, never here.
+const KIND_WORD = { file: ['파일', 'file'], process: ['진행 중인 업무', 'work in progress'], panel: ['팀 앱', 'team app'], folder: ['폴더 문서', 'folder document'] }
+const kindWord = (c) => L(...(c.folderFile ? KIND_WORD.folder : KIND_WORD[c.kind] || KIND_WORD.file))
+const describe = (c) => `[${kindWord(c)}] ${String(c.title).slice(0, 90)}${c.where ? ` · ${String(c.where).slice(0, 40)}` : ''}${c.keywords?.length ? ` · ${c.keywords.slice(0, 6).join(', ')}` : ''}`
+const CAP = { file: 60, folder: 60, process: 20, panel: 20 }
+const SHORTLIST = 8
+const MIN_PICK = 0.5
+export async function allCandidates(ctx, kinds = ['file', 'process', 'panel', 'folder']) {
+  const all = (await Promise.all(kinds.map((k) => candidates(k, ctx).then((l) => l.slice(0, CAP[k] || 40)).catch(() => [])))).flat()
+  return oncePerName(all)
 }
-// every kind, scored against what was said; best first
-export async function ranked(utter, ctx, kinds = ['file', 'process', 'panel', 'folder']) {
-  const all = (await Promise.all(kinds.map((k) => candidates(k, ctx).catch(() => [])))).flat()
-  // a copy of a folder document (shown in an earlier meeting) does not stand in for the folder's own one
-  return oncePerName(all.map((c) => ({ ...c, score: scoreOf(utter, c) })).filter((c) => c.score > 0).sort((a, b) => b.score - a.score))
+// the shortlist the judge reads: nearest by embeddings, else everything (newest first per kind)
+export async function shortlist(utter, list, k = SHORTLIST) {
+  if (list.length <= k) return { list, by: 'all' }
+  const r = await EM.rank(utter, list.map((c, i) => ({ key: i, text: describe(c) })), k)
+  return r ? { list: r.map((x) => list[x.key]), by: 'embedding' } : { list, by: 'all' }
+}
+// utter + ctx → {pick, p, ms, shortlist} — pick null when nothing fits (or nothing is there)
+export async function pick(utter, ctx, { state = null, judge, list = null } = {}) {
+  const all = list || await allCandidates(ctx)
+  if (!all.length) return { pick: null, p: 0, ms: 0, shortlist: 'empty' }
+  const s = await shortlist(utter, all)
+  const ask = judge || (async (st, question, options) => (await import('../judge.js')).judge({ state: st, question, options }))
+  const j = await ask(state || utter, L('방금 한 말이 가리키는 자료는 어느 것인가요?', 'Which material does the remark just made point to?'),
+    [{ key: 'none', label: L('목록에 맞는 자료가 없음', 'None of these fits') }, ...s.list.map((c, i) => ({ key: `c${i}`, label: describe(c) }))])
+  const [key, p] = Object.entries(j?.probabilities || {}).sort((a, b) => b[1] - a[1])[0] || [null, 0]
+  const c = key && key !== 'none' && p >= MIN_PICK ? s.list[Number(String(key).slice(1))] : null
+  return { pick: c || null, p, ms: j?.ms || 0, shortlist: s.by }
 }
 
 // ---- found by the person (자료 찾기 in the meeting's 자료 tab) ----
@@ -188,7 +149,20 @@ async function searchAll(text, ctx, limit) {
     const [files, docs] = await Promise.all([fileCandidates(ctx.roomId, ctx.speaker).catch(() => []), folderFileCandidates(ctx.speaker)])
     return [...files.slice(0, 6), ...docs.slice(0, limit - Math.min(6, files.length))].map(pickView)
   }
-  const out = (await ranked(t, ctx)).slice(0, limit)
+  // what a person typed into the search box is a query: names holding every typed word (any case),
+  // then the nearest by embeddings, then the folder index for words not in any name
+  const all = await allCandidates(ctx)
+  const words = t.toLowerCase().split(/\s+/).filter(Boolean)
+  const hit = all.filter((c) => { const n = `${c.title} ${(c.keywords || []).join(' ')}`.toLowerCase(); return words.every((w) => n.includes(w)) })
+  const out = hit.slice(0, limit).map((c) => ({ ...c, score: 2 }))
+  if (out.length < limit) {
+    const near = await EM.rank(t, all.map((c, i) => ({ key: i, text: describe(c) })), limit)
+    for (const x of near || []) {
+      const c = all[x.key]
+      if (out.length >= limit || x.sim < 0.3 || out.some((o) => o.kind === c.kind && o.id === c.id)) continue
+      out.push({ ...c, score: Math.round(x.sim * 100) / 100 })
+    }
+  }
   if (out.length < limit) {
     const seen = new Set(out.map((c) => `${c.kind}:${c.id}`))
     const hits = await IX.search(ctx.speaker.id, t, 20).catch(() => [])

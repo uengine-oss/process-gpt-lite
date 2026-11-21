@@ -57,7 +57,8 @@ async function openTodo(t) {
       </button>
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
       <button v-for="t in todos" :key="'t' + t.id" class="act glass press" @click="openTodo(t)">
-        <span class="verb">{{ /결정|승인|검토|심사|판단/.test(t.activity_name) ? 'Review' : 'Submit' }}</span>
+        <!-- the verb follows the step's form: a choice to make is a review (server myTodos 'decides') -->
+        <span class="verb">{{ t.decides ? 'Review' : 'Submit' }}</span>
         <span class="txt">{{ t.activity_name }}</span>
         <span class="due">{{ t.proc_inst_name || t.def_name }}</span>
       </button>

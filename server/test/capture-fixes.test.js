@@ -3,15 +3,11 @@
 //   - the New process draft card is the definition this turn wrote, read from its folder — not the skill's
 //     schema sample ("휴가 신청 프로세스") or another saved process the agent read; a process folder's
 //     own skills (process-*/skills/xlsx) are not a skill draft (agent.js generationArtifact, draftContract)
-//   - an English request to make a process goes to the process tool (its own conversation), not to the
-//     document shortcut "make … proposal" (agent.js PROCESS_REQUEST_EN)
-//   - a chat message or a Home card that only shares words with a shared folder's name ("…drafts for
-//     Moonlight Coffee" vs the folder "Moonlight Coffee Store 2") is not a folder edit (folders/work.js folderMatch)
+//   (which message is a new process, a folder edit or a panel app record is the chat router's — skills/actions,
+//   measured by the evaluation sets in server/eval, not by sentences here)
 //   - a mined optional Finance review after the quote: no threshold nobody gave on its flows (2026-11-11:
 //     a branch's conditions come from the work or the admin — mining/branch.js, shape.js)
 //   - the quote step's total on its last line (mining/worker.js quoteTotal)
-//   - a panel app named in chat in another case ("quote tracker" for "Quote Tracker"), but no single
-//     ordinary word (panelApps/service.js titleIn)
 //   - a workroom terminal ticket carries the tenant it was issued in (the websocket has none: workroom.js)
 //   - the test shop's order history, linked from the account menu, in the shop's language
 import test from 'node:test'
@@ -20,13 +16,13 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-const { generationArtifact, draftContract, PROCESS_REQUEST_EN } = await import('../lib/agent.js')
-const { folderMatch } = await import('../lib/folders/work.js')
+const { generationArtifact, draftContract } = await import('../lib/agent.js')
 const { buildContract } = await import('../lib/mining/service.js')
 const { quoteTotal } = await import('../lib/mining/worker.js')
 const { withLang } = await import('../lib/lang.js')
+const { setEnabledPacks } = await import('../lib/skillInstallCatalog.js')
+const { config } = await import('../config.js')
 const { startShop, SHOP } = await import('./fixtures/shop.mjs')
-const { titleIn } = await import('../lib/panelApps/service.js')
 const { issueTicket } = await import('../lib/workroom.js')
 
 const hangul = (v) => /[가-힣]/.test(typeof v === 'string' ? v : JSON.stringify(v))
@@ -47,12 +43,6 @@ test('process draft: which written files are the definition, its folder, a skill
   assert.equal(generationArtifact(`${ROOM}/.skill-evals/cafe-quotation/iteration-1/case/without_skill/outputs/quote.docx`).evalRun, true)
   // reading the skill's own files writes nothing: no file_artifact, and its paths are not a generation's
   assert.deepEqual(generationArtifact('/skills/process-gpt-system/bpmn-process-generation-skill/assets/templates/process-definition.schema.json'), { def: null, gen: null, skill: null })
-})
-
-test('process draft: an English request for a new process is not a document request', () => {
-  for (const t of ['Make a process for the Moonlight Coffee proposal: Receive request mail, Draw floor plan (Designer), Write Word proposal, Prepare quote, Finance review (Finance), Reply to customer.',
-    'Create a Moonlight Coffee proposal process. When Moonlight Coffee emails a design request …', 'Build a workflow for travel expense approval']) assert.ok(PROCESS_REQUEST_EN.test(t), t.slice(0, 50))
-  for (const t of ['Write a Word proposal for Moonlight Coffee Store #2', 'Make an Excel budget for getting Moonlight Coffee Store #2 ready', 'Write the definition document of the Moonlight Coffee proposal process']) assert.ok(!PROCESS_REQUEST_EN.test(t), t.slice(0, 50))
 })
 
 test('process draft: the card shows the definition in the folder, not the streamed one when it is another process', async () => {
@@ -76,26 +66,6 @@ test('process draft: the card shows the definition in the folder, not the stream
   } finally { await fs.rm(dir, { recursive: true, force: true }) }
 })
 
-test('folders: only a request that points at the folder is a folder edit, in English and Korean', () => {
-  const en = [{ name: 'Moonlight Coffee Store 2', slug: 'moonlight-coffee-store-2' }]
-  const ko = [{ name: '달빛커피 2호점', slug: 'dalbit-2' }, { name: '11월 고객 세미나', slug: 'seminar-11' }]
-  // the requests from the capture log that went into the folder by mistake
-  for (const t of [
-    "Review: the floor plan, design proposal, quote drafts for Moonlight Coffee and reply\n\nI've reviewed the floor plan, design proposal, quote drafts for Moonlight Coffee. Please write a draft reply mail.",
-    "I've reviewed the floor plan, design proposal, quote drafts for Moonlight Coffee. Please write a draft reply mail.",
-    'The New process draft card shows a leave request process, not the Moonlight Coffee proposal. Please finish the process generation with the Moonlight Coffee proposal.',
-    'Create a Moonlight Coffee proposal process: Receive request mail, Draw floor plan (Designer), Write Word proposal, Prepare quote, Finance review (Finance), Reply to customer.',
-  ]) assert.equal(folderMatch(t, en), null, t.slice(0, 60))
-  // what the folders chapter asks for
-  assert.equal(folderMatch('Update customer_requirements.md in the Moonlight Coffee Store 2 folder with what the owner said on the phone', en), en[0])
-  assert.equal(folderMatch('Add a new file design_concept.md to the Moonlight Coffee Store 2 folder.', en), en[0])
-  assert.equal(folderMatch('Fix the notes in the moonlight coffee store folder', en), en[0], 'the word "folder" with most of the name')
-  // Korean, as before
-  assert.equal(folderMatch('달빛커피 도면·제안서·견적서 초안을 검토했어요. 회신 메일 초안을 써 줘.', ko), null)
-  assert.equal(folderMatch('달빛커피 2호점 폴더의 고객_요구사항.md에 사장님 통화 내용을 반영해 줘', ko), ko[0])
-  assert.equal(folderMatch('11월 고객 세미나 폴더의 안내문(마크다운)에 사전 신청 필수 문구를 넣어서 고쳐줘', ko), ko[1])
-  assert.equal(folderMatch('고객 세미나 폴더 안내문 고쳐줘', ko), ko[1], '폴더 with most of the name')
-})
 
 // the mined definition the miner hands back for Receive → … → Prepare quote → xor(Finance review, skip) → Reply
 function mined(lang) {
@@ -134,9 +104,13 @@ test('mining: a mined optional Finance review gets no threshold nobody gave — 
       assert.ok(!JSON.parse(s.properties || '{}').default, `${l}: no default flow`)
     }
   }
-  // the quote step's form still has the amount an admin's condition can read
-  const c = withLang('en', () => buildContract(mined('en')))
-  assert.match(c.forms.find((f) => f.activity_id === 'activity_02').html, /name='amount' alias='Quote total incl\. VAT \(KRW\)'/)
+  // the quote step's form still has the amount an admin's condition can read — the form is the business
+  // pack's (skills/packs/store-design), so with the pack on for the company
+  setEnabledPacks(config.tenantId, ['store-design'])
+  try {
+    const c = withLang('en', () => buildContract(mined('en')))
+    assert.match(c.forms.find((f) => f.activity_id === 'activity_02').html, /name='amount' alias='Quote total incl\. VAT \(KRW\)'/)
+  } finally { setEnabledPacks(config.tenantId, []) }
 })
 
 test('mining: the quote step reads its total off the agent\'s last line', () => {
@@ -164,19 +138,6 @@ test('test shop: an order history page from the account menu, in English and Kor
       assert.equal((await fetch(`${shop.url}/orders`, { redirect: 'manual' })).headers.get('location'), '/login')
     } finally { await shop.close() }
   }
-})
-
-test('panel apps: an English app name in any case names it; a one-word title or a part of the name does not', () => {
-  assert.equal(titleIn('Quote Tracker', 'Add Store #2 to the quote tracker: ₩51M, sent'), true)
-  assert.equal(titleIn('Quote Tracker', 'Add Store #2 to the Quote Tracker'), true)
-  assert.equal(titleIn('Quote Tracker', 'quote trackers are nice'), false)
-  assert.equal(titleIn('Quote Tracker', 'Prepare the quote. Tracker later'), false)
-  assert.equal(titleIn('Budget', 'update the budget numbers'), false, 'one ordinary word never names an app')
-  assert.equal(titleIn('Budget', 'Budget: add 5M'), true, 'as written, as before')
-  assert.equal(titleIn('Leave schedule', 'Minji is on leave, schedule a call'), false)
-  // Korean, as before: spaces aside
-  assert.equal(titleIn('휴가 일수 관리', '휴가일수관리에 민지 3일 추가해줘'), true)
-  assert.equal(titleIn('휴가 일수 관리', '휴가 신청해줘'), false)
 })
 
 test('workroom: a terminal ticket remembers the tenant it was issued in', async () => {

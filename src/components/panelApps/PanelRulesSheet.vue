@@ -86,7 +86,8 @@ async function setLevel(f, level, confirmed = false) {
     await api(`/panel-apps/${props.app.id}/sensitivity`, { method: 'PUT', body: { field: f.key, level, confirm: confirmed } })
     emit('saved')
   } catch (e) {
-    if (/확인 후/.test(e.message) && !confirmed && confirm(`${e.message}\n\n그래도 낮출까요? 이 변경은 감사 기록에 남아요.`)) return setLevel(f, level, true)
+    // the server waits for a yes (code NEEDS_CONFIRM, routes/panelApps.js) — its message is only shown
+    if (e.code === 'NEEDS_CONFIRM' && !confirmed && confirm(`${e.message}\n\n그래도 낮출까요? 이 변경은 감사 기록에 남아요.`)) return setLevel(f, level, true)
     err.value = e.message
   }
 }
@@ -127,7 +128,7 @@ async function saveFields(confirmDrop = false) {
     await api(`/panel-apps/${props.app.id}/fields`, { method: 'PUT', body: { fields: fields.value, confirmDrop } })
     emit('saved')
   } catch (e) {
-    if (/데이터가 사라져요/.test(e.message) && !confirmDrop) {
+    if (e.code === 'NEEDS_CONFIRM' && !confirmDrop) {
       busy.value = false
       if (confirm(`${e.message}\n\n정말 지울까요? 이 작업은 되돌릴 수 없어요.`)) return saveFields(true)
       return

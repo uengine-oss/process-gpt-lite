@@ -100,8 +100,9 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
     // a JSON error body ({error}) shows its message, not the raw JSON
     const t = await r.text()
     let m = t, extra = {}
-    try { const j = JSON.parse(t); m = j.error || t; if (j.conflicts) extra = { conflicts: j.conflicts } } catch { /* plain text */ }
-    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.status, ...extra })
+    // the body's structured fields go along (code, conflicts, needConfirm …): a screen acts on those, never on the message
+    try { const j = JSON.parse(t); m = j.error || t; const { error: _e, message: _m, status: _s, stack: _st, ...rest } = j; extra = rest } catch { /* plain text */ }
+    throw Object.assign(new Error(String(m).slice(0, 300)), { ...extra, status: r.status })
   }
   return r.json()
 }

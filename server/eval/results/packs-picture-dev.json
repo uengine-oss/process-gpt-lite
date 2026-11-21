@@ -1,0 +1,50 @@
+{
+ "n": 20,
+ "accuracy": 100,
+ "macro_f1": 100,
+ "per_label_f1": {
+  "image": 100,
+  "document": 100
+ },
+ "confusion": {
+  "image": {
+   "image": 10
+  },
+  "document": {
+   "document": 10
+  }
+ },
+ "by_category": {
+  "positive": {
+   "n": 12,
+   "ok": 12
+  },
+  "boundary": {
+   "n": 8,
+   "ok": 8
+  }
+ },
+ "by_lang": {
+  "ko": {
+   "n": 12,
+   "ok": 12
+  },
+  "en": {
+   "n": 4,
+   "ok": 4
+  },
+  "ja": {
+   "n": 2,
+   "ok": 2
+  },
+  "mix": {
+   "n": 1,
+   "ok": 1
+  },
+  "zh": {
+   "n": 1,
+   "ok": 1
+  }
+ },
+ "flips": 0
+}

@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "action": { "type": "string", "enum": ["connect", "alerts_on", "alerts_off", "send_last_answer"] },
+    "schedule": { "type": "string", "description": "alerts_on / alerts_off: id of the scheduled task (facts). Leave out when it is not clear which one", "x-enum-from": "schedules" }
+  },
+  "required": ["action"]
+}

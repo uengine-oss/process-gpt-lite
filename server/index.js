@@ -8,6 +8,10 @@ import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail } from './
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
+import { startActionSkills } from './lib/skills/index.js'
+// the router's action skills (skills/actions): a skill naming a handler, fact or condition this server
+// does not have stops the start here
+startActionSkills()
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
 import { listSchedules, deleteSchedule, startScheduleTicker } from './lib/scheduler.js'
@@ -36,6 +40,7 @@ import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang
 import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { improveRoutes } from './routes/improve.js'
 import { telegramRoutes } from './routes/telegram.js'
+import { policyRoutes } from './routes/policies.js'
 import { mountImprove } from './mcp/improve.js'
 import { startConstraintSweep } from './lib/improve/service.js'
 import { startStepRetry } from './lib/stepRetry.js'
@@ -328,6 +333,7 @@ app.use('/api', miningRoutes(auth))
 // 프로세스 개선: 병목·가치 흐름·제약·크리티컬 패스·what-if·개선 적용 (lib/improve)
 app.use('/api', improveRoutes(auth))
 app.use('/api', telegramRoutes(auth))
+app.use('/api', policyRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
@@ -434,7 +440,10 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, openDoc: req.body.openDoc, onDelta: (d) => send('delta', { d }) })
+    // what the page knows about the message as fields: the button it came from (intent) or the offered
+    // choice it answers (reply) — lib/agent.js; a Home card's run is the server's own (actions below)
+    const intent = req.body.intent?.kind === 'home_action' ? undefined : req.body.intent
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, openDoc: req.body.openDoc, intent, reply: req.body.reply, onDelta: (d) => send('delta', { d }) })
     send('done', final)
   } catch (e) {
     console.error(e)
@@ -464,8 +473,9 @@ app.post('/api/actions/:id/run', auth, async (req, res) => {
   emit(req.user.id, 'action', a)
   res.json(a)
   const t = await mainThread(req.user.id)
-  // a card that answers a customer mail reviews that mail's drafts: never a shared-folder edit
-  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, noFolder: !!a.source?.mail_id })
+  // a Home card is the agent's to do (lib/agent.js, intent home_action): it is not routed, so it never
+  // becomes a shared-folder edit or another action of its own
+  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, intent: { kind: 'home_action', verb: a.verb }, noFolder: !!a.source?.mail_id })
     .then(async () => {
       const [d] = await q(`update pro_actions set status='done' where id=$1 returning *`, [a.id])
       if (a.verb === 'Review') import('./lib/mining/recorder.js').then((m) => m.recordReply(req.user, a)).catch((e) => console.warn('[mining] reply', e.message))

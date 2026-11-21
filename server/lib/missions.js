@@ -21,8 +21,6 @@ import { PGPT_ROOT } from './paths.js'
 import { fetchRoomDir, rmRoomCopy } from './roomStore.js'
 import { L, isEn, locale, asUser, langInstruction } from './lang.js'
 import { withTenant } from './tenant.js'
-import { sendsToTelegram } from './scheduleIntent.js'
-import { marketHint } from './marketHint.js'
 
 const PGPT = PGPT_ROOT
 
@@ -95,14 +93,13 @@ export async function ensureResultLine(hostDir) {
   return true
 }
 
-// An agent's answer without a result line, read as a run's outcome: an error or nothing at all is a
-// failure; any other answer finished the job (changed unknown). Summary: the last sentence that says
-// something (not a bare path, link or code line).
-export function outcomeOf(text) {
+// An agent's answer without a result line, read as a run's outcome: the stream said it failed (its error
+// event — error), or nothing came at all: a failure; any other answer finished the job (changed unknown).
+// Summary: the last line that says something (not a bare path, link or code line — formats).
+export function outcomeOf(text, { error = null } = {}) {
   const t = String(text || '').trim()
+  if (error) return { ok: false, summary: L(`실행 중 오류: ${String(error === true ? '' : error).trim() || '원인 미상'}`, `Error while running: ${String(error === true ? '' : error).trim() || 'unknown cause'}`).slice(0, 300) }
   if (!t) return { ok: false, summary: L('에이전트가 아무 답도 남기지 않고 끝났어요.', 'The agent finished without leaving any answer.') }
-  const err = /\((?:오류|error):\s*([^)]*)\)/.exec(t)
-  if (err && t.replace(err[0], '').trim().length < 40) return { ok: false, summary: L(`실행 중 오류: ${err[1].trim() || '원인 미상'}`, `Error while running: ${err[1].trim() || 'unknown cause'}`).slice(0, 300) }
   const lines = t.replace(/```[\s\S]*?```/g, '').split('\n').map((l) => l.replace(/^[\s#>*\-•\d.]+/, '').replace(/\*\*|`/g, '').trim())
     .filter((l) => l.length >= 6 && !/^(\/|~\/|https?:\/\/)\S*$/.test(l) && !/^[\w./-]+\.\w{1,5}$/.test(l) && /[가-힣a-zA-Z]{2}/.test(l))
   return { ok: true, summary: (lines.at(-1) || t.split('\n').filter(Boolean).at(-1) || '').slice(0, 300) }
@@ -172,7 +169,7 @@ async function streamAgent({ user, session, message, agent, gitSkills }) {
   if (!res.ok) throw new Error(`${cli ? 'cli-agent' : 'deepagents'} ${res.status}`)
   const reader = res.body.getReader()
   const dec = new TextDecoder()
-  let buf = '', text = '', final = '', conversationId = null
+  let buf = '', text = '', final = '', conversationId = null, error = null
   const tools = []
   for (;;) {
     const { done, value } = await reader.read()
@@ -188,35 +185,45 @@ async function streamAgent({ user, session, message, agent, gitSkills }) {
       if ((j.type === 'token' || j.type === 'text') && j.content) text += j.content
       if (j.type === 'done' && j.content) final = j.content
       if (j.type === 'tool_start') tools.push(j.tool_name || j.name || j.tool)
-      if (j.type === 'error') text += L(`\n(오류: ${j.message || j.error || ''})`, `\n(error: ${j.message || j.error || ''})`)
+      if (j.type === 'error') { error = String(j.message || j.error || 'error'); text += L(`\n(오류: ${j.message || j.error || ''})`, `\n(error: ${j.message || j.error || ''})`) }
     }
   }
-  return { text: final || text, conversationId, tools }
+  return { text: final || text, conversationId, tools, error }
 }
 
-// A plain prompt on a schedule ("매일 아침 8시에 …"): the answer goes to the chat as an agent turn; a run
-// that found nothing new posts nothing, but every run — and every failure — is in the run history.
+// A plain prompt on a schedule ("매일 아침 8시에 …"): the answer goes to the chat as an agent turn. Every
+// run ends with the same result line as a skill's (MISSION_RESULT); a watching task whose line says
+// nothing changed posts nothing, but every run — and every failure — is in the run history.
 async function runPromptSchedule(s, run, { threadId: asked, manual = false } = {}) {
   const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
   const { user, session } = await sessionFor(p.email, p.name)
   const threadId = asked || s.thread_id || (await mainThread(s.user_id)).id
-  // a reminder is meant to arrive every time; "no change" only suits a schedule that watches something
+  // a reminder is meant to arrive every time; staying quiet only suits a schedule that watches something
   const reminder = s.notify === 'always'
+  // the person's own words when the task was made (lib/skills/handlers.js createSchedule): what the
+  // standing instruction may have left out
+  const asked0 = String(s.params?.request || '').trim()
+  const said = asked0 && asked0 !== s.prompt ? L(`\n\n(이 작업을 만들 때 사용자가 한 말: ${asked0})`, `\n\n(What the user said when setting up this task: ${asked0})`) : ''
   // run now, to try it: the person wants to see what it found, even when nothing crossed the line
-  const text = manual ? L(`${s.prompt}\n\n(지금 바로 한 번 시험으로 실행합니다. 조건에 해당하는 게 없어도 확인한 값과 판단을 짧게 보여 주세요. 과정 설명은 빼고 결과만 쓰세요.)`,
-    `${s.prompt}\n\n(This is a test run, right now. Even if nothing meets the condition, briefly show the values you checked and your conclusion. Write only the result, without describing the process.)`) : reminder ? L(`${s.prompt}\n\n(예약 실행입니다. 사용자에게 알릴 내용을 과정 설명 없이 답하세요.)`,
-    `${s.prompt}\n\n(This is a scheduled run. Answer with what the user should be told, without describing the process.)`) : L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`,
-    `${s.prompt}\n\n(This is a scheduled run. If nothing differs from what you shared in the previous run, answer exactly "No change" and nothing else. When you share, write only the result, without describing the process.)`)
+  const how = manual ? L('(지금 바로 한 번 시험으로 실행합니다. 조건에 해당하는 게 없어도 확인한 값과 판단을 짧게 보여 주세요. 과정 설명은 빼고 결과만 쓰세요.)',
+    '(This is a test run, right now. Even if nothing meets the condition, briefly show the values you checked and your conclusion. Write only the result, without describing the process.)')
+    : reminder ? L('(예약 실행입니다. 사용자에게 알릴 내용을 과정 설명 없이 답하세요.)', '(This is a scheduled run. Answer with what the user should be told, without describing the process.)')
+    : L('(예약 실행입니다. 알릴 것이 있으면 과정 설명 없이 결과만 쓰세요.)', '(This is a scheduled run. If there is something to tell, write only the result, without describing the process.)')
+  const text = `${s.prompt}${said}\n\n${how}\n${L(RESULT_LINE, RESULT_LINE_EN)}`
   const { delegate } = await import('./agent.js')
-  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, quietIfUnchanged: !reminder && !manual })
+  let outcome = null
+  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, resultLine: true, quietIfUnchanged: !reminder && !manual, onResult: (o) => { outcome = o } })
   if (reminder && msg && !manual) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: String(msg.content?.text || '').slice(0, 300), url: `/pro/threads/${threadId}` })
   const body = String(msg?.content?.text || '')
-  const out = msg ? outcomeOf(body) : { ok: true, summary: L('변동 없음', 'No change') }
+  const result = outcome?.result || null
+  const error = outcome?.error || (msg?.content?.error ? true : null)
+  const out = error ? outcomeOf(body, { error }) : result ? { ok: true, summary: String(result.summary || '').slice(0, 300) || outcomeOf(body).summary } : msg ? outcomeOf(body) : { ok: true, summary: L('변동 없음', 'No change') }
   // the answer is already in the chat: a failure is announced by the caller, not repeated here
   // the same answer to Telegram when the task is marked for it (only a run that had something to say)
   const telegram = msg && out.ok ? await deliverTelegram(s, body, threadId) : null
+  const changed = !out.ok ? null : result ? !!result.changed : !!msg
   const [done] = await q(`update pro_mission_runs set finished_at=now(), status=$2, changed=$3, summary=$4, result=$5 where id=$1 returning *`,
-    [run.id, out.ok ? 'done' : 'failed', out.ok ? !!msg : null, out.summary, { agent: 'deepagents', posted: !!msg, ...(telegram ? { telegram } : {}) }])
+    [run.id, out.ok ? 'done' : 'failed', changed, out.summary, { agent: 'deepagents', posted: !!msg, ...(result ? { result_line: true } : { result_line: false }), ...(telegram ? { telegram } : {}) }])
   emit(s.user_id, 'mission', { scheduleId: s.id, run: done })
   if (!out.ok) await announceFailure(s, done, { posted: !!msg })
   return done
@@ -258,7 +265,11 @@ export async function runMission(scheduleId, trigger = 'cron', opts = {}) {
   return inScheduleTenant(s, () => runMissionAs(s, trigger, opts))
 }
 
-// A task marked to send its results to Telegram too (state.channels, lib/agent.js telegramTurn): what
+// where a task's results go besides the chat (pro_schedules.state.channels)
+export const channelsOf = (s) => (Array.isArray(s?.state?.channels) ? s.state.channels : [])
+export const sendsToTelegram = (s) => channelsOf(s).includes('telegram')
+
+// A task marked to send its results to Telegram too (state.channels, lib/skills/handlers.js telegram): what
 // the chat got goes to the person's bot. Not connected (yet): a line under the result says where to
 // connect it, once per run. The outcome is kept in the run's result.
 async function deliverTelegram(s, text, threadId) {
@@ -314,16 +325,15 @@ async function runMissionAs(s, trigger, opts = {}) {
     // private or shared — from its skill folder's repository instead (cli-agent's git_skills), and only it
     const folder = cli ? await ensureSkillFolder(s.skill).catch((e) => { console.warn('[mission] skill folder', s.skill, e.message); return null }) : null
     const gitSkills = folder?.repo_path ? { [s.skill]: folder.repo_path } : null
-    // a skill that reads an outside service gets the same fallback order as a chat turn (API → public → browser → what is missing)
-    const { connectorHint } = await import('./agent.js')
+    // (how to read an outside service — connectors, public pages, the browser — is the agent's skills' to say)
     const message = (own ? L(`다음 스킬 문서의 절차대로 실행하세요: ${own.path} (같은 폴더의 파일도 참고). ${ask}`, `Follow the procedure in this skill document: ${own.path} (see the files in the same folder too). ${ask}`)
       : cli
       ? L(`프로젝트에 설치된 \`${s.skill}\` 스킬을 읽고 사용하세요. ${ask}`, `Read and use the \`${s.skill}\` skill installed in the project. ${ask}`)
-      : `/${s.skill} ${ask}`) + connectorHint(`${s.skill} ${JSON.stringify(s.params || {})}`) + marketHint(`${s.skill} ${JSON.stringify(s.params || {})}`) + langInstruction()
+      : `/${s.skill} ${ask}`) + langInstruction()
     const out = await streamAgent({ user, session, message, agent: s.agent, gitSkills })
     const result = parseResult(out.text)
     // no result line: the run still finished (or not) — read the answer itself
-    const plain = result ? null : outcomeOf(out.text)
+    const plain = result ? null : outcomeOf(out.text, { error: out.error })
     const ok = !!result || plain.ok
     const changed = result ? !!result.changed : null // null: unknown
     const summary = result?.summary || plain?.summary || L('결과를 확인하지 못했어요.', "I couldn't check the result.")

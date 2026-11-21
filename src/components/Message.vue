@@ -19,7 +19,7 @@ import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor } from '../officeEditor.js'
 import { kindOf, kindLabel, openArtifact, openHint } from '../artifacts.js'
-import { parseReplies } from '../replies.js'
+import { choicesOf } from '../replies.js'
 
 const props = defineProps({ msg: Object })
 const emit = defineEmits(['connect'])
@@ -40,10 +40,10 @@ const doc = computed(() => {
   return { title: first.replace(/^#\s*/, ''), body: md(rest.join('\n')) }
 })
 const time = computed(() => new Date(props.msg.created_at).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }))
-const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text || '') ? c.value.text.replace(/^새 패널 만들기:\s*/, '') : null))
-// "- 네, 이대로 진행 (설명)" style options closing an agent question become tappable replies
-// (src/replies.js: only a real choice list — a report's bullet lines stay text)
-const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
+// the button a message came from (its intent field, server lib/agent.js): a panel request says so above it
+const panelReq = computed(() => c.value.intent?.kind === 'create_panel')
+// the choices the server stored with an answer become tappable replies (src/replies.js)
+const replies = computed(() => (props.msg.kind === 'text' ? choicesOf(props.msg) : null))
 const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell' }
 // what the answer did on the way (server lib/workTrail.js): folded to one line of the sites it read
 const workOpen = ref(false)
@@ -77,13 +77,13 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 
     <template v-else-if="msg.kind === 'text' && msg.role === 'user'">
       <span v-if="panelReq" class="req">새 패널 만들기</span>
-      <div class="bubble user">{{ panelReq ?? c.text }}</div>
+      <div class="bubble user">{{ c.text }}</div>
       <!-- sent while an answer of the same conversation was still coming: it waits its turn (lib/turns.js) -->
       <small v-if="c.queued" class="queue">대기 · 앞 답이 끝나면 이어서 답해요</small>
       <small v-else-if="c.dropped" class="queue">서버가 다시 시작되어 이 요청은 답하지 못했어요 · 다시 보내 주세요</small>
     </template>
     <template v-else-if="msg.kind === 'text'">
-      <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <div class="bubble agent md" v-html="md(c.text)" />
       <div v-if="workLine" class="work" :class="{ open: workOpen }" data-test="work-trail">
         <button class="wl press" :aria-expanded="workOpen" @click="workOpen = !workOpen">{{ workLine }} <span class="car">{{ workOpen ? '▴' : '▾' }}</span></button>
         <ol v-if="workOpen">
@@ -91,7 +91,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
         </ol>
       </div>
       <div v-if="replies" class="replies">
-        <button v-for="o in replies.options" :key="o.label" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id)">{{ o.label }}</button>
+        <button v-for="o in replies" :key="o.index" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id, undefined, { reply: { messageId: msg.id, index: o.index } })">{{ o.label }}</button>
       </div>
     </template>
 
@@ -115,7 +115,7 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
 
     <div v-else-if="msg.kind === 'catalog'" class="list glass">
       <div class="lh">시작할 수 있는 프로세스 {{ c.items.length }}개</div>
-      <button v-for="d in c.items" :key="d.id" class="li press" @click="app.send(`'${d.name}' 프로세스 보여줘`)">
+      <button v-for="d in c.items" :key="d.id" class="li press" @click="app.send(`'${d.name}' 프로세스 보여줘`, undefined, undefined, { intent: { kind: 'skill', skill: 'process-work', args: { intent: 'view', process: d.id } } })">
         <b>{{ d.name }}</b><small v-if="d.description">{{ d.description }}</small>
       </button>
     </div>

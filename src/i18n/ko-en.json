@@ -1825,7 +1825,18 @@
   "한 번 더 누르면 끊어요": "Press again to disconnect",
   "루틴을 열지 못했어요": "Couldn't open the routine",
   "루틴 여는 중…": "Opening the routine…",
-  "봇을 이름으로 찾아 누른 시작은 받지 않아요. 여기의 「봇 열기」로 열어 시작을 눌러 주세요.": "A Start pressed after finding the bot by name is not accepted. Open it with \"Open the bot\" here and press Start."
+  "봇을 이름으로 찾아 누른 시작은 받지 않아요. 여기의 「봇 열기」로 열어 시작을 눌러 주세요.": "A Start pressed after finding the bot by name is not accepted. Open it with \"Open the bot\" here and press Start.",
+  "업무 팩 · 업종 지식을 묶은 스킬이에요. 기본 설치에는 없고, 켜면 이 회사의 에이전트가 쓸 수 있게 설치돼요.": "Business packs · skills that bundle one trade's know-how. They are not part of the basic install; turning one on installs it for this company's agents.",
+  "켜짐": "On",
+  "바꾸는 중…": "Changing…",
+  "설치됨": "Installed",
+  "회사가 고친 스킬 · 그대로 둠": "Changed by the company · kept as is",
+  "같은 이름의 스킬이 있어 설치하지 않음": "Not installed: a skill of the same name exists",
+  "설치 실패": "Install failed",
+  "설치 안 됨": "Not installed",
+  "업무 팩을 불러오지 못했어요.": "Couldn't load the business packs.",
+  "관리자만 업무 팩을 켜고 끌 수 있어요.": "Only an administrator can turn business packs on or off.",
+  "바꾸지 못했어요. 잠시 뒤 다시 해 주세요.": "Couldn't change it. Please try again in a moment."
  },
  "patterns": [
   [

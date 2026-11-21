@@ -1,4 +1,4 @@
-// A thread's folder (lib/folders/threadFolders.js): which turns change files and where, and — on the
+// A thread's folder (lib/folders/threadFolders.js): where a change goes, and — on the
 // local database, without an agent — a project's own variation: made on the first turn, checked out
 // in the project's conversation folder, the agent's change committed to it, main untouched.
 // Run: PRO_TENANT_ID=en-demo node --test test/threadFolders.test.js
@@ -6,37 +6,9 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { asksChange, folderTarget, chipState } from '../lib/folders/threadFolders.js'
-
-test('바꿔 달라는 말만 변경으로 본다', () => {
-  for (const t of ['안내문 고쳐줘', '일정표에 3일 추가해 줘', '오타 수정해 주세요', '첫 줄 지워 줘', '폴더에 회의록 만들어 줘', '요약을 작성해서 폴더에 저장해 줘',
-    'Fix the typo in notice.md', 'Add a line to the notice', 'Please update the schedule', 'Write the minutes into the folder'])
-    assert.ok(asksChange(t), t)
-  for (const t of ['안내문에 뭐라고 써 있어?', '바뀐 게 뭐야?', '어디를 고쳐야 할까?', '이 폴더 내용으로 보고서 작성해 줘', '변경된 내용 알려줘', '파일 몇 개야?',
-    'What changed in the folder?', 'Which file should I fix?', 'Summarize the notice'])
-    assert.ok(!asksChange(t), t)
-})
-
-test('붙인 폴더: 이름을 안 적은 변경 요청이 그 폴더로, 읽기는 아니고, 이름을 적은 폴더가 먼저', () => {
-  const link = { mode: 'ref', folder_id: 'f1', slug: 'seminar', name: '세미나' }
-  assert.deepEqual(folderTarget({ link, named: null, text: '안내문 고쳐줘', canChange: true }), { id: 'f1', slug: 'seminar', name: '세미나', attached: true })
-  assert.equal(folderTarget({ link, named: null, text: '안내문에 뭐라고 써 있어?', canChange: true }), null)
-  // a viewer only reads it
-  assert.equal(folderTarget({ link, named: null, text: '안내문 고쳐줘', canChange: false }), null)
-  // a Home card answering a mail, an app record, attached files: never a folder edit
-  assert.equal(folderTarget({ link, named: null, text: '안내문 고쳐줘', canChange: true, blocked: true }), null)
-  const other = { id: 'f2', name: '예산' }
-  assert.equal(folderTarget({ link, named: other, text: '예산 폴더의 표 고쳐줘', canChange: true }), other)
-  assert.equal(folderTarget({ link: null, named: null, text: '안내문 고쳐줘', canChange: true }), null)
-})
-
-test('프로젝트의 폴더는 짧은 변형으로 가지 않는다(프로젝트 변형에서 바뀜), 다른 폴더는 그대로', () => {
-  const link = { mode: 'project', folder_id: 'f1', slug: 'seminar', name: '세미나' }
-  assert.equal(folderTarget({ link, named: { id: 'f1' }, text: '세미나 폴더의 안내문 고쳐줘', canChange: true }), null)
-  assert.equal(folderTarget({ link, named: null, text: '안내문 고쳐줘', canChange: true }), null)
-  const other = { id: 'f2' }
-  assert.equal(folderTarget({ link, named: other, text: '예산 폴더 고쳐줘', canChange: true }), other)
-})
+import { chipState } from '../lib/folders/threadFolders.js'
+// (which message is a change to the attached folder is the router's folder-change skill: its facts say a
+// folder is attached and whether this person may change it — test/actionSkills.test.js, eval/sets)
 
 test('칩: 참고 · 변형 작업 중 · 프로젝트', () => {
   assert.equal(chipState({ mode: 'ref', working: false }), 'ref')

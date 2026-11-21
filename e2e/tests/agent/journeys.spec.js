@@ -39,7 +39,8 @@ test('A-02 "새 패널 만들기" 로 데이터 패널 앱이 생긴다 (youtu.b
   const u = await as('ag-panel')
   await db.clearMain(u.id)
   const before = new Set((await u.get('/panel-apps')).body.map((a) => a.id))
-  const r = await ask(u, db, `새 패널 만들기: 회귀 휴가 일수 관리 ${RUN} — 팀원 이름, 부여일수, 사용일수, 남은 일수(부여일수-사용일수)`)
+  // the Home button / composer mode sends what it is as a field (intent), the words are the description only
+  const r = await ask(u, db, `회귀 휴가 일수 관리 ${RUN} — 팀원 이름, 부여일수, 사용일수, 남은 일수(부여일수-사용일수)`, { extra: { intent: { kind: 'create_panel' } } })
   expect(r.error).toBeNull()
   const app = await waitFor(async () => (await u.get('/panel-apps')).body.find((a) => !before.has(a.id)), { timeout: 10 * 60_000 })
   expect(app, '새 앱').toBeTruthy()

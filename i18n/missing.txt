@@ -1,5 +1,5 @@
-# 108 extracted string(s) not translated by src/i18n/ko-en.json
-# (1960 extracted: 1547 exact, 413 patterns; 997 skipped by rules; 682 dictionary entries not extracted — runtime data, fragments or stale)
+# 107 extracted string(s) not translated by src/i18n/ko-en.json
+# (1893 extracted: 1480 exact, 413 patterns; 963 skipped by rules; 758 dictionary entries not extracted — runtime data, fragments or stale)
 # kind<TAB>text<TAB>first source   ([new] = not in the previous strings.json)
 
 exact	새 메시지	src/browserNotify.js:62
@@ -7,10 +7,10 @@ pattern	입력이 필요해요 · {0}	src/browserNotify.js:63
 exact	BPMN 을 그리지 못했어요.	src/components/BpmnView.vue:41
 exact	그리는 중	src/components/BpmnView.vue:86
 exact	이 서버에는 Google 연결이 설정되어 있지 않아요	src/components/ConnectorCards.vue:70
-pattern	(이 요청은 {0} 문서 '{1}' 의 그림 {2} 에 대한 것이에요. 그 그림을 지금 포토크래프트에 '{3}' 으로 열어 두었으니 열린 포토크래프트에서 고치세요. 다 고치면 사용자가 '{4} 문서에 넣기' 로 문서에 다시 넣어요.)	src/components/OfficeSheet.vue:140
-pattern	고친 그림을 {0} 문서의 그림 {1} 자리에 넣었어요 · ⌘S 로 저장하세요	src/components/OfficeSheet.vue:154
-pattern	{0} 문서 · 그림 {1}	src/components/OfficeSheet.vue:199
-pattern	{0} 문서에 넣기	src/components/OfficeSheet.vue:200
+pattern	(이 요청은 {0} 문서 '{1}' 의 그림 {2} 에 대한 것이에요. 그 그림을 지금 포토크래프트에 '{3}' 으로 열어 두었으니 열린 포토크래프트에서 고치세요. 다 고치면 사용자가 '{4} 문서에 넣기' 로 문서에 다시 넣어요.)	src/components/OfficeSheet.vue:147
+pattern	고친 그림을 {0} 문서의 그림 {1} 자리에 넣었어요 · ⌘S 로 저장하세요	src/components/OfficeSheet.vue:161
+pattern	{0} 문서 · 그림 {1}	src/components/OfficeSheet.vue:206
+pattern	{0} 문서에 넣기	src/components/OfficeSheet.vue:207
 pattern	{0} 폴더	src/components/meetings/MaterialBody.vue:45
 exact	참여	src/components/meetings/MeetingRoomCard.vue:92
 exact	AI 번역 ·	src/components/meetings/MeetingRoomCard.vue:97
@@ -59,36 +59,34 @@ exact	BPMN 미리보기	src/views/MiningView.vue:332
 exact	정식 등록하면 이대로 저장돼요	src/views/MiningView.vue:332
 pattern	정식 등록하면 이대로 저장돼요 · 정하지 않은 분기 {0}개는 조건 없이 그려져요	src/views/MiningView.vue:332
 exact	이 추천과 대화	src/views/MiningView.vue:377
+[new] pattern	{0} {1} 편집기	server/lib/craftLive.js:282
+[new] pattern	(사용자가 지금 채팅 옆 {0}에서 '{1}' 을 열어 두었어요. 이 메시지는 그 열린 문서에 대한 것일 수 있어요.)	server/lib/craftLive.js:286
 exact	새 요청은 급한 건부터 순서를 정해 받아요	server/lib/improve/focus.js:86
 pattern	새 요청의 {0}은(는) 급한 건부터 순서를 정해 시작해요	server/lib/improve/focus.js:86
+exact	은/는	server/lib/mail.js:405
+exact	이/가	server/lib/mail.js:405
 exact	한국어	server/lib/mainLang.js:15
-exact	(주가·지수는 네이버 증권의 공개 JSON 을 샌드박스에서 직접 읽으세요. 키는 필요 없고 요청 헤더에 User-Agent: Mozilla/5.0 만 넣으면 돼요.	server/lib/marketHint.js:11
-exact	이름이 그대로 안 나오면 띄어쓰기·영문·약칭·티커로 바꿔 다시 찾으세요(예: \"AST 모바일\" → \"AST\" → AST 스페이스모바일, ASTS · NASDAQ). 국내·해외 둘 다 볼 것. 그래도 없으면 코드를 지어내지 말고 후보와 함께 못 찾았다고 쓰세요.	server/lib/marketHint.js:13
-exact	/day?… — 응답은 [{localDate, closePrice, …}] 이고 거래일만 있어요. \"5거래일 누적\"은 가장 최근 종가와 그 5거래일 전 종가로 계산하세요.	server/lib/marketHint.js:14
-exact	③ 결과에는 고른 종목(이름 · 시장 · 코드)과 기준 날짜를 밝히고, 맨 끝에 \"출처: 네이버 증권(…)\" 한 줄을 붙이세요.)	server/lib/marketHint.js:15
-exact	참석한 사람(이름이나 님으로 부르는 사람)에게 일을 맡기거나, 스스로 하겠다고 하거나, 의견을 나누는 말	server/lib/meetings/intent.js:87
-exact	사람 이름 없이 결과물(문서·표)을 만들거나 고치거나, 자료·정보를 찾아 달라는 부탁 — 회의를 함께 듣는 AI 비서가 할 수 있는 일	server/lib/meetings/intent.js:88
-exact	폴더 문서 수정본	server/lib/meetings/materials.js:167
+[new] exact	진행 중인 업무	server/lib/meetings/materials.js:98
+[new] exact	팀 앱	server/lib/meetings/materials.js:98
+exact	폴더 문서 수정본	server/lib/meetings/materials.js:128
 pattern	{0}–{1} 회의에서 나온 일	server/lib/meetings/minutes.js:130
-exact	견적 합계(부가세 포함, 원)	server/lib/mining/catalog.js:60
-exact	초안을 만들지 못했어요.	server/lib/mining/recorder.js:106
-pattern	{0}에 같은 업무의 새 사례가 있어요	server/lib/mining/service.js:442
-pattern	새 사례 {0}건이 같은 업무로 보여요. 넣을지 정하기 전에는 프로세스가 바뀌지 않아요.	server/lib/mining/service.js:444
-exact	은/는	server/lib/mining/service.js:567
-exact	과/와	server/lib/mining/service.js:569
-exact	으로/로	server/lib/mining/service.js:589
-exact	이/가	server/lib/mining/service.js:936
+[new] exact	메일이 요청한 문서의 초안을 만들어요.	server/lib/mining/catalog.js:33
+[new] exact	요청에 적힌 값을 그대로 쓰고, 가정한 값은 따로 적어요.	server/lib/mining/catalog.js:34
+[new] exact	만든 문서를 붙여 고객에게 회신해요.	server/lib/mining/catalog.js:47
+[new] pattern	{0} 작성	server/lib/mining/catalog.js:131
+[new] pattern	요청한 {0} 초안을 만들어요.	server/lib/mining/catalog.js:133
+exact	초안을 만들지 못했어요.	server/lib/mining/recorder.js:116
+[new] exact	해당 없음: 일반 확인·일정 확인·참고용	server/lib/mining/recorder.js:127
+[new] exact	이 공유가 받는 사람에게 부탁하는 검토는 어느 종류인가? 메모가 부탁한 일이고, 역할은 받는 사람이 누구인지일 뿐이다.	server/lib/mining/recorder.js:129
+pattern	{0}에 같은 업무의 새 사례가 있어요	server/lib/mining/service.js:443
+pattern	새 사례 {0}건이 같은 업무로 보여요. 넣을지 정하기 전에는 프로세스가 바뀌지 않아요.	server/lib/mining/service.js:445
+exact	과/와	server/lib/mining/service.js:571
+exact	으로/로	server/lib/mining/service.js:591
 exact	다음 어느 것에도 해당하지 않으면:	server/lib/mining/shape.js:52
 exact	다음에 해당하지 않으면:	server/lib/mining/shape.js:52
 pattern	{0} 여부	server/lib/mining/shape.js:410
 pattern	'{0}' 은(는) {1} 건너뜀	server/lib/mining/shape.js:417
-pattern	평면도의 실별 면적: {0}	server/lib/mining/worker.js:139
-pattern	프로세스 '견적서 작성' 단계예요. 고객 메일({0})에 회신할 견적서를 만드세요.{1}\n메일 본문: {2}	server/lib/mining/worker.js:139
-exact	설계비(평면·마감 설계, 1식), 실별 인테리어 공사(면적 ㎡ × ㎡당 단가, 실마다 한 줄), 가구·집기(좌석 수 기준), 전기·설비(1식)	server/lib/mining/worker.js:141
-exact	메일이 요청한 품목을 한 줄씩(메일에 적힌 인원·수량·기간으로 수량을 정하고, 요청하지 않은 공사·설계 항목은 넣지 마세요)	server/lib/mining/worker.js:142
-exact	, 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 천 단위 쉼표, 머리글 색 구분. 단가는 합리적인 가정값.	server/lib/mining/worker.js:143
-pattern	({0}는 앞 단계에서 이미 만들었으니 만들지 마세요.)	server/lib/mining/worker.js:144
-exact	와	server/lib/mining/worker.js:144
+[new] pattern	서명은 \"{0} 드림\".	server/lib/mining/worker.js:126
 exact	지역 인기 영상·영상 검색(YouTube Data API: 사용자 API 키 → 서버 키 → Google 계정), 채널의 최근 영상(RSS, 키 불필요), 영상 정보, 자막 트랜스크립트.	server/lib/systems.js:21
 exact	API 가 없는 사이트를 사용자 대신 읽기(browser_task). 로그인은 사용자 보관함에서 서버가 채우고, 글 올리기·보내기·삭제·결제는 하지 않음.	server/lib/systems.js:22
 exact	내장 브라우저	server/lib/systems.js:22
@@ -103,10 +101,11 @@ pattern	'{0}' 의 원본 파일이 더 이상 없어요.	server/lib/team/worktre
 pattern	'{0}' 은(는) 내용을 찾을 수 없어 공유할 수 없어요.	server/lib/team/worktree.js:167
 exact	내 대화	server/lib/team/worktree.js:230
 exact	같은 파일을 서로 다르게 고친 갈래가 있어요. 어느 쪽을 쓸지 골라 주세요.	server/lib/team/worktree.js:237
-exact	파일을 찾지 못했어요.	server/routes/team.js:106
-exact	공유한 대화를 찾지 못했어요.	server/routes/team.js:207
-pattern	모은 결과 · {0}	server/routes/team.js:219
-pattern	팀원들이 돌려준 결과를 모아 이어서 할게요{0}	server/routes/team.js:225
-pattern	(모은 갈래 {0}개의 결과가 작업 폴더에 있어요.)	server/routes/team.js:227
-exact	갈래를 찾지 못했어요.	server/routes/team.js:236
-exact	이 공유에 참여하지 않았어요.	server/routes/team.js:239
+exact	파일을 찾지 못했어요.	server/routes/team.js:107
+exact	공유한 대화를 찾지 못했어요.	server/routes/team.js:208
+pattern	모은 결과 · {0}	server/routes/team.js:220
+pattern	팀원들이 돌려준 결과를 모아 이어서 할게요{0}	server/routes/team.js:226
+pattern	(모은 갈래 {0}개의 결과가 작업 폴더에 있어요.)	server/routes/team.js:228
+exact	갈래를 찾지 못했어요.	server/routes/team.js:237
+exact	이 공유에 참여하지 않았어요.	server/routes/team.js:240
+[new] pattern	{0}님의 에이전트가 일하는 중 · {1}	server/routes/teamAssist.js:53

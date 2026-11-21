@@ -10,6 +10,7 @@ import * as R from '../lib/panelApps/rules.js'
 import * as X from '../lib/panelApps/sheet.js'
 import * as P from '../lib/panelApps/service.js'
 import * as A from '../lib/team/assist.js'
+import * as O from '../lib/offers.js'
 import * as S from '../lib/folders/service.js'
 import { rules, RULES } from '../lib/folders/runner.js'
 
@@ -135,18 +136,18 @@ test('panel-app design prompts: English examples in en, the Korean prompt untouc
   assert.equal(ko(() => P.describe(def)), 'Stage(New/Won)*, Amount(숫자)')
 })
 
-test('room assist: English requests pass the rules, chit-chat does not; Korean exactly as before', () => {
-  for (const t of ['Can you draft the quote for Moonlight Coffee Store #2?', 'Please summarize this conversation for me', 'Could you set up a meeting with Minji next week?'])
-    assert.equal(A.prefilter(t).pass, true, t)
-  for (const [t, why] of [['thanks!', 'short'], ['ok sounds good to me', 'chat'], ['lunch at 12, anyone?', 'smalltalk'], ['I finished the floor plan yesterday', 'not-a-request'], ['heading home now, see you tomorrow', 'no-work']])
-    assert.equal(A.prefilter(t).why, why, t)
-  assert.equal(A.prefilter('견적서 초안 만들어 줄 수 있어요?').pass, true)
-  assert.equal(A.prefilter('점심 뭐 먹을까요 다들').why, 'smalltalk')
+test('room assist: the offers (skill descriptions) read in English in en, in Korean in ko, with the same keys', () => {
+  const e = en(() => O.offers('team')), k = ko(() => O.offers('team'))
+  assert.ok(e.length >= 6)
+  assert.deepEqual(e.map((o) => o.key), k.map((o) => o.key))
+  for (const o of e) assert.ok(!hangul(o), JSON.stringify(o))
+  for (const o of k) assert.ok(hangul(o.label), o.label)
+  // the card's badge follows the reader's language
   const s = { id: 's', room_id: 'r', chat_uuid: 'c', work: 'CreateSpreadsheet', title: 'Draft the quote', reason: '', state: 'open', audience: ['u'], dismissed: [], judge: {} }
   assert.equal(en(() => A.view('u', s)).kind, 'Table')
   assert.equal(ko(() => A.view('u', s)).kind, '표')
-  for (const w of Object.values(A.WORKS_EN)) assert.ok(!hangul(w), JSON.stringify(w))
-  assert.deepEqual(Object.keys(A.WORKS_EN), Object.keys(A.WORKS))
+  // format only: no words decide what reaches the judge
+  for (const t of ['thanks!', 'lunch at 12, anyone?', '점심 뭐 먹을까요 다들', 'Can you draft the quote?']) assert.equal(A.formatGate(t).pass, true, t)
 })
 
 test('shared folders: status words and the agent rules follow the language', () => {

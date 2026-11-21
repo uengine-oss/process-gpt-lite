@@ -213,10 +213,19 @@ function flattenOutput(t) {
   return out
 }
 
+// decides: the step's form asks the person to choose one of a few answers (a radio or select field) — a
+// fact of the form, which the Home card's verb follows (HomeDock: Review · Submit), not the step's name
 export async function myTodos(me) {
   return q(
     `select t.id, t.proc_inst_id, t.proc_def_id, t.activity_id, t.activity_name, t.status, t.start_date, t.due_date, t.description,
-            i.proc_inst_name, d.name as def_name
+            i.proc_inst_name, d.name as def_name,
+            exists (select 1 from form_def f
+                    cross join lateral jsonb_array_elements(case when jsonb_typeof(f.fields_json) = 'array' then f.fields_json else '[]'::jsonb end) x
+                    where f.tenant_id = t.tenant_id
+                      and (f.id = (select substring(a->>'tool' from '^formHandler:(.+)$') from jsonb_array_elements(coalesce(d.definition->'activities', '[]'::jsonb)) a
+                                   where a->>'id' = t.activity_id limit 1)
+                           or (f.proc_def_id = t.proc_def_id and f.activity_id = t.activity_id))
+                      and x->>'type' in ('radio', 'select')) as decides
      from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id
      left join proc_def d on d.id=t.proc_def_id and d.tenant_id=t.tenant_id
      where t.tenant_id=$1

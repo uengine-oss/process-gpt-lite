@@ -185,8 +185,11 @@ async function notifyMembers(me, t, row, kind, files, context, recipients) {
     // process-gpt's chat trigger already made a plain 'chat' notice for this row: the 'team' one replaces it
     await q(`update notifications set is_checked=true where tenant_id=$1 and type='chat' and url=$2 and user_id = any($3) and title=$4 and coalesce(is_checked,false)=false`,
       [T(), `/chats?id=${t.id}`, [r.email, r.id], row.messages.content])
-    await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id)
-             values (gen_random_uuid(),$1,$2,'team',$3,$4,$5,$6)`, [r.id, title.slice(0, 200), text, `/pro/team/${t.id}/${row.uuid}`, me.email, T()])
+    const [n] = await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id)
+             values (gen_random_uuid(),$1,$2,'team',$3,$4,$5,$6) returning id`, [r.id, title.slice(0, 200), text, `/pro/team/${t.id}/${row.uuid}`, me.email, T()])
+    // what kind of 'team' notice it is (share · mention), as a field the screen reads — not its title's wording
+    if (n) await q(`insert into pro_notification_subtypes (notification_id, tenant_id, subtype) values ($1,$2,$3) on conflict (notification_id) do update set subtype=excluded.subtype`,
+      [n.id, T(), kind]).catch((e) => console.warn('[team] notice kind', e.message))
     emit(r.id, 'notifications', {})
   }
 }

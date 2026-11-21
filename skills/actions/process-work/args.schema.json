@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "intent": { "type": "string", "enum": ["start", "view", "catalog", "instances", "my_todos", "create"] },
+    "process": { "type": "string", "description": "start/view: the process id (facts). Leave out when it is not clear which one", "x-enum-from": "processes" },
+    "query": { "type": "string", "description": "create: the full requirement for the new process" },
+    "prefill": { "type": "object", "description": "start: form values the user already gave, keyed by the process's first-step input keys" }
+  },
+  "required": ["intent"]
+}

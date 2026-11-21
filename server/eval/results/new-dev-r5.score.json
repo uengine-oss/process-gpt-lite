@@ -1,0 +1,292 @@
+{
+ "new:dev": {
+  "items": 490,
+  "accuracy": 96.5,
+  "macro_f1": 95.6,
+  "per_route": {
+   "schedule-create": {
+    "precision": 100,
+    "recall": 77.4,
+    "f1": 87.3,
+    "support": 31
+   },
+   "schedule-run-now": {
+    "precision": 94.7,
+    "recall": 94.7,
+    "f1": 94.7,
+    "support": 19
+   },
+   "telegram-delivery": {
+    "precision": 100,
+    "recall": 95,
+    "f1": 97.4,
+    "support": 20
+   },
+   "panel-create": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 21
+   },
+   "panel-record": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 22
+   },
+   "folder-change": {
+    "precision": 100,
+    "recall": 94.4,
+    "f1": 97.1,
+    "support": 18
+   },
+   "process-work": {
+    "precision": 92.6,
+    "recall": 96.2,
+    "f1": 94.3,
+    "support": 26
+   },
+   "process-improve-explain": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 18
+   },
+   "browser-task": {
+    "precision": 100,
+    "recall": 84.2,
+    "f1": 91.4,
+    "support": 19
+   },
+   "teammate-notify": {
+    "precision": 96,
+    "recall": 100,
+    "f1": 98,
+    "support": 24
+   },
+   "home-action-add": {
+    "precision": 92.3,
+    "recall": 100,
+    "f1": 96,
+    "support": 24
+   },
+   "delegate": {
+    "precision": 98.6,
+    "recall": 99.1,
+    "f1": 98.8,
+    "support": 215
+   },
+   "ask": {
+    "precision": 80,
+    "recall": 97,
+    "f1": 87.7,
+    "support": 33
+   }
+  },
+  "arg_match": 100,
+  "cost_weighted_misroute": 0.043,
+  "high_grade_wrong_execution": 0.6,
+  "delegate_wrong_execution": 0.5,
+  "ask_rate": 8.2,
+  "errors": 0,
+  "overfit": {
+   "ko_plain_accuracy": 92.1,
+   "other_accuracy": 97.2,
+   "ko_plain_minus_other": -5.1,
+   "flip_rate": null,
+   "runs_compared": 0
+  },
+  "groups": {
+   "group:ko-plain": {
+    "n": 63,
+    "accuracy": 92.1
+   },
+   "group:other": {
+    "n": 427,
+    "accuracy": 97.2
+   },
+   "lang:en": {
+    "n": 93,
+    "accuracy": 96.8
+   },
+   "lang:ja": {
+    "n": 33,
+    "accuracy": 100
+   },
+   "lang:ko": {
+    "n": 300,
+    "accuracy": 95.3
+   },
+   "lang:mix": {
+    "n": 31,
+    "accuracy": 100
+   },
+   "lang:zh": {
+    "n": 33,
+    "accuracy": 100
+   },
+   "mode:en": {
+    "n": 48,
+    "accuracy": 97.9
+   },
+   "mode:ko": {
+    "n": 442,
+    "accuracy": 96.4
+   },
+   "quality:clean": {
+    "n": 417,
+    "accuracy": 96.2
+   },
+   "quality:dictation": {
+    "n": 21,
+    "accuracy": 100
+   },
+   "quality:nospace": {
+    "n": 17,
+    "accuracy": 94.1
+   },
+   "quality:typo": {
+    "n": 35,
+    "accuracy": 100
+   },
+   "style:banmal": {
+    "n": 100,
+    "accuracy": 98
+   },
+   "style:command": {
+    "n": 117,
+    "accuracy": 95.7
+   },
+   "style:formal": {
+    "n": 34,
+    "accuracy": 100
+   },
+   "style:indirect": {
+    "n": 33,
+    "accuracy": 93.9
+   },
+   "style:monologue": {
+    "n": 23,
+    "accuracy": 91.3
+   },
+   "style:plain": {
+    "n": 74,
+    "accuracy": 93.2
+   },
+   "style:question": {
+    "n": 109,
+    "accuracy": 99.1
+   }
+  },
+  "cells": {
+   "ask": {
+    "n": 33,
+    "accuracy": 97
+   },
+   "browser-task·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "browser-task·positive": {
+    "n": 16,
+    "accuracy": 81.3
+   },
+   "delegate": {
+    "n": 103,
+    "accuracy": 100
+   },
+   "folder-change·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "folder-change·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "home-action-add·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "home-action-add·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "panel-create·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "panel-create·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "panel-record·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "panel-record·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "process-improve-explain·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "process-improve-explain·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "process-work·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "process-work·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "schedule-create·boundary": {
+    "n": 18,
+    "accuracy": 94.4
+   },
+   "schedule-create·positive": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "schedule-run-now·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "schedule-run-now·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "teammate-notify·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "teammate-notify·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "telegram-delivery·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "telegram-delivery·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   }
+  },
+  "latency_ms": {
+   "first_p50": 4774,
+   "first_p95": 9157,
+   "total_p50": 5055,
+   "total_p95": 11984
+  },
+  "stage2_rate": 12,
+  "tokens": {
+   "in_avg": 4745,
+   "out_avg": 66
+  },
+  "calls_avg": 1.12
+ }
+}

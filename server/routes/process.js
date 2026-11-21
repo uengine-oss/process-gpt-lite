@@ -10,9 +10,15 @@ import { saveGenerated, installGeneratedSkills } from '../lib/generated.js'
 import { markOpened } from '../lib/improve/signal.js'
 import { retryNow } from '../lib/stepRetry.js'
 import { linkInstance } from '../lib/folders/threadFolders.js'
+import { packRoutes } from './packs.js'
+import { officePictureRoutes } from './officePicture.js'
 
 export function processRoutes(auth) {
   const r = express.Router()
+  // business packs (routes/packs.js) and the editor's picture request (routes/officePicture.js): mounted here
+  // under /api until index.js mounts them itself
+  r.use(packRoutes(auth))
+  r.use(officePictureRoutes(auth))
 
   r.get('/processes', auth, async (req, res) => res.json(await proc.listDefinitions(req.query.q)))
   r.get('/processes/:id', auth, async (req, res) => {

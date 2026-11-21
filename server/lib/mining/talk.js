@@ -90,7 +90,8 @@ const TOOL = {
         steps: { type: 'array', items: { type: 'object', properties: {
           step: { type: 'string', description: 'step name as in facts.steps' },
           kind: { type: 'string', enum: ['required', 'optional', 'choice', 'loop'], description: 'required = every path passes it; optional = it can be skipped (an exclusive gateway in the BPMN); choice = the condition on which a branch of a choice (facts.to_decide need "when") is taken; loop = the condition on which the step is done again (facts.to_decide need "redo")' },
-          skip_when: { type: 'string', description: 'optional: WHEN the step is skipped; choice: WHEN its branch is taken; loop: WHEN the step is done again — in the admin\'s own words (e.g. "견적 합계가 5천만 원 미만이면"). Leave empty if the admin did not say it — never invent it' },
+          skip_when: { type: 'string', description: 'optional: WHEN the step is skipped; choice: WHEN its branch is taken; loop: WHEN the step is done again — the condition as the admin said it. Leave empty if the admin did not say it — never invent it' },
+          skip_when_quote: { type: 'string', description: 'the exact words of the admin\'s LAST message that state this condition, copied character for character (a part of that message). Empty when the last message does not state it' },
           accept_draft: { type: 'boolean', description: 'true when the admin says to go with the draft condition shown in facts.to_decide (e.g. "초안대로 해", "그대로 진행")' },
         }, required: ['step', 'kind'] } },
         moves: { type: 'array', items: { type: 'object', properties: {
@@ -113,6 +114,7 @@ const PROMPT = `당신은 프로세스 마이닝 추천을 관리자와 함께 �
 - facts.to_decide 는 아직 정해지지 않은 분기입니다. 초안은 사례의 요청·문서에서 찾은 기준이고 draft_fits 가 맞은 건수입니다. 이것이 남아 있으면 정식 등록할 수 없습니다. 관리자가 "초안대로"·"그대로 진행"이라고 하면 그 단계마다 accept_draft: true 로 change 를 부르세요(초안이 '없음'이면 초안대로 할 수 없으니 조건이나 필수를 물으세요). 관리자가 정할 것을 물으면 to_decide 를 단계마다 초안과 함께 알려 주세요.
 - facts 의 키 이름(영어 낱말)을 답에 쓰지 마세요. 화면의 말로 바꿔 말하세요.
 - 옵션으로 정할 때 skip_when 에는 관리자가 말한 "언제 건너뛰는지"만 넣으세요. 관리자가 말하지 않았으면 비워 두세요. 지어내지 마세요. 앞 대화에서 시스템이 조건을 물었고 관리자가 이번에 조건만 답했다면, 그 단계를 옵션으로 정하고 그 답을 skip_when 에 넣으세요.
+- skip_when 을 넣을 때는 그 조건을 말한 관리자의 마지막 메시지 부분을 skip_when_quote 에 한 글자도 바꾸지 말고 그대로 옮겨 적으세요. 서버는 그 인용이 마지막 메시지에 있을 때만 조건을 받습니다.
 - 관리자가 사례를 이 프로세스로 넣거나 빼라고 하면, 이미 들어 있는지 스스로 판단하지 말고 change.moves 로 넘기세요. 같은 제목의 사례가 여럿이어도 서버가 아직 이 프로세스에 없는 사례만 골라 옮기고, 이미 있으면 그렇다고 답합니다.
 - 무엇을 바꾸라는 것인지 가릴 수 없으면 도구 없이 되물으세요.
 - 용어는 화면의 말만 쓰세요: 프로세스, 사례, 단계, 추천, 정식 등록, 보류, 필수 단계, 옵션 단계, 업무 범주, 제안, 빈도 초안, 관리자 확정. '카테고리'·'핵심 단계'·'케이스'라고 하지 마세요.`
@@ -126,6 +128,7 @@ const PROMPT_EN = `You help an administrator review a process mining recommendat
 - facts.to_decide are the branches not decided yet; a draft is what the cases' requests and documents suggest, draft_fits how many cases it sorted right; registration waits for them. If the admin says to go with the draft ("as drafted", "go ahead"), call change with accept_draft: true for each (a draft of 'none' can't be taken: ask for the condition or required). If asked what is left to decide, list to_decide with each draft.
 - Never use the key names in facts in your answer; say it in the screen's words.
 - For optional, skip_when is only WHEN the admin said it is skipped. If they did not say, leave it empty — never invent it. If the system asked for the condition and the admin now answers with just the condition, make that step optional with their answer as skip_when.
+- Whenever you fill skip_when, copy the part of the admin's last message that states it into skip_when_quote, character for character. The server takes the condition only when that quote is in the last message.
 - When the admin asks to bring cases into this process or take them out, do not decide yourself whether they are already in: pass them in change.moves. Even when several cases share a subject, the server moves only those not in this process yet, and says so if they already are.
 - If you cannot tell what to change, ask back without tools.`
 
@@ -140,13 +143,13 @@ function plain(b) {
 }
 
 // The condition must come from what the admin has just said — not from an earlier turn (the admin may have
-// changed their mind since) and not from the model. Most of its words have to be in the latest message.
-export function saidNow(condition, words) {
+// changed their mind since) and not from the model. The model quotes the admin's words for it
+// (skip_when_quote); the server checks only that the quote is in the latest message (spacing and case aside):
+// a check of the text's form, not of what it means.
+export function saidNow(quote, words) {
   const norm = (t) => String(t || '').toLowerCase().replace(/\s+/g, '')
-  const parts = String(condition || '').split(/[\s,·]+/).map((w) => norm(w).replace(/(이면|면|이|가|을|를|은|는|에|의|으로|로)$/, '')).filter((w) => w.length >= 2)
-  if (!parts.length) return false
-  const said = norm(words)
-  return parts.filter((w) => said.includes(w)).length * 10 >= parts.length * 6
+  const qt = norm(quote)
+  return qt.length >= 2 && norm(words).includes(qt)
 }
 
 // run what the model read from the admin's words; every line said back is fixed text
@@ -159,7 +162,7 @@ async function apply(me, s, call, words = '') {
     if (!step) { said.push(L(`'${x.step}' 단계를 이 추천에서 하나로 가리지 못했어요. 단계: ${stepNames.join(', ')}`, `I couldn't tell which step '${x.step}' is. Steps: ${stepNames.join(', ')}`)); continue }
     // the draft as it is, when the admin said to go with it (to_decide: what mining wrote)
     const draft = (s.undecided || []).find((u) => u.step === step)?.draft || ''
-    const skipWhen = x.accept_draft && draft ? draft : saidNow(x.skip_when, words) ? String(x.skip_when || '').trim() : ''
+    const skipWhen = x.accept_draft && draft ? draft : String(x.skip_when || '').trim() && saidNow(x.skip_when_quote, words) ? String(x.skip_when).trim() : ''
     // a choice's branch is not the admin's word's to change (the server says why); optional in BPMN = a way
     // around the task, when it is taken is the admin's to say
     const now = (s.decided || []).find((d) => d.activity === step)
@@ -174,8 +177,8 @@ async function apply(me, s, call, words = '') {
       continue
     }
     if (x.kind === 'optional' && !skipWhen && now?.kind !== 'choice') {
-      said.push(L(`${quoted(step, '을/를')} 언제 건너뛰나요? 조건을 알려 주세요. 예: "견적 합계가 5천만 원 미만이면". 프로세스 정의에는 '${step}' 앞에 배타 게이트웨이로 들어가, 조건이 맞으면 건너뛰고 아니면 ${quoted(step, '으로/로')} 가요.`,
-        `When is '${step}' skipped? Tell me the condition, e.g. "when the quote total is under 50M". It goes into the process definition as an exclusive gateway before '${step}': skipped when the condition holds, otherwise it runs.`))
+      said.push(L(`${quoted(step, '을/를')} 언제 건너뛰나요? 조건을 알려 주세요(무엇이 어떤 값일 때인지). 프로세스 정의에는 '${step}' 앞에 배타 게이트웨이로 들어가, 조건이 맞으면 건너뛰고 아니면 ${quoted(step, '으로/로')} 가요.`,
+        `When is '${step}' skipped? Tell me the condition (what has which value). It goes into the process definition as an exclusive gateway before '${step}': skipped when the condition holds, otherwise it runs.`))
       continue
     }
     let r
@@ -236,6 +239,9 @@ async function apply(me, s, call, words = '') {
   }
   return { said, done }
 }
+
+// the prompt and the change tool as a turn sends them (tests, evaluation)
+export const talkContract = () => ({ prompt: isEn() ? PROMPT_EN : PROMPT, tool: TOOL })
 
 export async function say(me, id, text) {
   if (!(await M.isAdmin(me))) throw Object.assign(new Error(L('관리자만 바꿀 수 있어요.', 'Only an administrator can change this.')), { status: 403 })

@@ -1,0 +1,1129 @@
+{
+ "mode": "floors",
+ "model": null,
+ "purchase": {
+  "items": 43,
+  "positives": 30,
+  "blocked": 28,
+  "missed": [
+   "p-14",
+   "p-16"
+  ],
+  "paymentUnderRated": [],
+  "negatives": 13,
+  "falseBlocks": [
+   "p-34(purchase:no name)"
+  ],
+  "msP50": 14,
+  "rows": [
+   {
+    "id": "p-01",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "purchase",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 53,
+    "label": "カートに入れる"
+   },
+   {
+    "id": "p-02",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "purchase",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 34,
+    "label": "加入购物车"
+   },
+   {
+    "id": "p-03",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "purchase",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 27,
+    "label": "Añadir a la cesta"
+   },
+   {
+    "id": "p-04",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "purchase",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 19,
+    "label": "In den Warenkorb"
+   },
+   {
+    "id": "p-05",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "purchase",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 18,
+    "label": "Acheter maintenant"
+   },
+   {
+    "id": "p-06",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "purchase",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 19,
+    "label": "Mua ngay"
+   },
+   {
+    "id": "p-07",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "purchase",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 22,
+    "label": "หยิบใส่ตะกร้า"
+   },
+   {
+    "id": "p-08",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "none",
+    "structure": "purchase",
+    "why": "no name, price on the page",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": ""
+   },
+   {
+    "id": "p-09",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "none",
+    "structure": "purchase",
+    "why": "no name, price on the page",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": ""
+   },
+   {
+    "id": "p-10",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "none",
+    "structure": "purchase",
+    "why": "money amount",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 19,
+    "label": "₩129,000"
+   },
+   {
+    "id": "p-11",
+    "expect": "purchase",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "cart or checkout address",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 18,
+    "label": "Continue"
+   },
+   {
+    "id": "p-12",
+    "expect": "purchase",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "cart or checkout address",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 16,
+    "label": "다음"
+   },
+   {
+    "id": "p-13",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "none",
+    "structure": "purchase",
+    "why": "goes to cart or checkout",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "Let's go"
+   },
+   {
+    "id": "p-14",
+    "expect": "purchase",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": false,
+    "ms": 14,
+    "label": "この部屋で予約"
+   },
+   {
+    "id": "p-15",
+    "expect": "purchase",
+    "level": "purchase",
+    "words": "purchase",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "Buy it again"
+   },
+   {
+    "id": "p-16",
+    "expect": "purchase",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": false,
+    "ms": 13,
+    "label": "Continuar"
+   },
+   {
+    "id": "p-17",
+    "expect": "payment",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "payment fields",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "Confirm"
+   },
+   {
+    "id": "p-18",
+    "expect": "payment",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "payment fields",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "완료"
+   },
+   {
+    "id": "p-19",
+    "expect": "payment",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "payment fields",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "Done"
+   },
+   {
+    "id": "p-20",
+    "expect": "payment",
+    "level": "payment",
+    "words": "payment",
+    "structure": "payment",
+    "why": "cart or checkout address",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "注文を確定する"
+   },
+   {
+    "id": "p-21",
+    "expect": "payment",
+    "level": "payment",
+    "words": "payment",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "提交订单"
+   },
+   {
+    "id": "p-22",
+    "expect": "payment",
+    "level": "payment",
+    "words": "payment",
+    "structure": "payment",
+    "why": "payment fields",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "Pagar ahora"
+   },
+   {
+    "id": "p-23",
+    "expect": "payment",
+    "level": "payment",
+    "words": "payment",
+    "structure": "payment",
+    "why": "cart or checkout address",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "Zahlungspflichtig bestellen"
+   },
+   {
+    "id": "p-24",
+    "expect": "payment",
+    "level": "payment",
+    "words": "payment",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "Valider ma commande"
+   },
+   {
+    "id": "p-25",
+    "expect": "payment",
+    "level": "payment",
+    "words": "payment",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "Đặt hàng"
+   },
+   {
+    "id": "p-26",
+    "expect": "payment",
+    "level": "payment",
+    "words": "payment",
+    "structure": "payment",
+    "why": "payment fields",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "ชำระเงิน"
+   },
+   {
+    "id": "p-27",
+    "expect": "payment",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "cart or checkout address",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "$128.40"
+   },
+   {
+    "id": "p-28",
+    "expect": "payment",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "payment fields",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 15,
+    "label": ""
+   },
+   {
+    "id": "p-29",
+    "expect": "payment",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "payment fields",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 15,
+    "label": "확인"
+   },
+   {
+    "id": "p-30",
+    "expect": "payment",
+    "level": "payment",
+    "words": "none",
+    "structure": "payment",
+    "why": "cart or checkout address",
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 15,
+    "label": "→"
+   },
+   {
+    "id": "p-31",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 16,
+    "label": "注文履歴"
+   },
+   {
+    "id": "p-32",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 15,
+    "label": "Mis pedidos"
+   },
+   {
+    "id": "p-33",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 15,
+    "label": "로그인"
+   },
+   {
+    "id": "p-34",
+    "expect": "none",
+    "level": "purchase",
+    "words": "none",
+    "structure": "none",
+    "why": "no name",
+    "judged": "none",
+    "confidence": 0,
+    "ok": false,
+    "ms": 15,
+    "label": ""
+   },
+   {
+    "id": "p-35",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 13,
+    "label": "다음"
+   },
+   {
+    "id": "p-36",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "Ver detalles"
+   },
+   {
+    "id": "p-37",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "日本語"
+   },
+   {
+    "id": "p-38",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "Continue reading"
+   },
+   {
+    "id": "p-39",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 15,
+    "label": "配送状況を確認"
+   },
+   {
+    "id": "p-40",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 15,
+    "label": "Done"
+   },
+   {
+    "id": "p-41",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "Zur Wunschliste"
+   },
+   {
+    "id": "p-42",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "구매 내역 보기"
+   },
+   {
+    "id": "p-43",
+    "expect": "none",
+    "level": "none",
+    "words": "none",
+    "structure": "none",
+    "why": null,
+    "judged": "none",
+    "confidence": 0,
+    "ok": true,
+    "ms": 14,
+    "label": "Continue shopping"
+   }
+  ]
+ },
+ "privacy": {
+  "items": 64,
+  "positives": 49,
+  "held": 23,
+  "missed": [
+   "v-02(sensitive→internal)",
+   "v-03(sensitive→personal)",
+   "v-05(sensitive→internal)",
+   "v-06(sensitive→personal)",
+   "v-07(sensitive→personal)",
+   "v-09(sensitive→internal)",
+   "v-12(sensitive→internal)",
+   "v-15(sensitive→internal)",
+   "v-17(sensitive→internal)",
+   "v-18(sensitive→internal)",
+   "v-19(sensitive→internal)",
+   "v-20(sensitive→internal)",
+   "v-21(sensitive→internal)",
+   "v-24(sensitive→personal)",
+   "v-25(sensitive→personal)",
+   "v-26(sensitive→internal)",
+   "v-27(sensitive→internal)",
+   "v-28(sensitive→internal)",
+   "v-29(sensitive→internal)",
+   "v-30(sensitive→personal)",
+   "v-35(personal→internal)",
+   "v-40(personal→internal)",
+   "v-41(personal→internal)",
+   "v-42(personal→internal)",
+   "v-43(personal→internal)",
+   "v-46(personal→internal)"
+  ],
+  "negatives": 15,
+  "overClassified": [],
+  "rows": [
+   {
+    "id": "v-01",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 39,
+    "label": "月の手取り"
+   },
+   {
+    "id": "v-02",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "목표 달성 리워드(원)"
+   },
+   {
+    "id": "v-03",
+    "expect": "sensitive",
+    "level": "personal",
+    "ok": false,
+    "ms": 1,
+    "label": "오신 이유"
+   },
+   {
+    "id": "v-04",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 7,
+    "label": "Daily medication we should know about"
+   },
+   {
+    "id": "v-05",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "드시면 탈 나는 식재료"
+   },
+   {
+    "id": "v-06",
+    "expect": "sensitive",
+    "level": "personal",
+    "ok": false,
+    "ms": 0,
+    "label": "자리 비운 까닭"
+   },
+   {
+    "id": "v-07",
+    "expect": "sensitive",
+    "level": "personal",
+    "ok": false,
+    "ms": 1,
+    "label": "休職に至った背景"
+   },
+   {
+    "id": "v-08",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 0,
+    "label": "マイナンバー"
+   },
+   {
+    "id": "v-09",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "Tax ID (last four)"
+   },
+   {
+    "id": "v-10",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 0,
+    "label": "환급받을 통장"
+   },
+   {
+    "id": "v-11",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 0,
+    "label": "IBAN"
+   },
+   {
+    "id": "v-12",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "결제한 카드 끝자리"
+   },
+   {
+    "id": "v-13",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 0,
+    "label": "함께 사는 부양가족 수"
+   },
+   {
+    "id": "v-14",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 0,
+    "label": "Where does your partner work?"
+   },
+   {
+    "id": "v-15",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "위원회 회부 여부"
+   },
+   {
+    "id": "v-16",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 0,
+    "label": "障害者手帳の等級"
+   },
+   {
+    "id": "v-17",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "Faith-based dietary rule"
+   },
+   {
+    "id": "v-18",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "평소 마음이 가는 정당"
+   },
+   {
+    "id": "v-19",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "Gewerkschaftsmitglied"
+   },
+   {
+    "id": "v-20",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "처음 켤 때 넣을 숫자 6자리"
+   },
+   {
+    "id": "v-21",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "Joining the Pride (LGBTQ+) circle?"
+   },
+   {
+    "id": "v-22",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 0,
+    "label": "형사 처벌 받은 적"
+   },
+   {
+    "id": "v-23",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 0,
+    "label": "지문 템플릿"
+   },
+   {
+    "id": "v-24",
+    "expect": "sensitive",
+    "level": "personal",
+    "ok": false,
+    "ms": 1,
+    "label": "顔特徴量"
+   },
+   {
+    "id": "v-25",
+    "expect": "sensitive",
+    "level": "personal",
+    "ok": false,
+    "ms": 1,
+    "label": "리더 소견"
+   },
+   {
+    "id": "v-26",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "Calibration bucket"
+   },
+   {
+    "id": "v-27",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "아기 만나는 날(예정)"
+   },
+   {
+    "id": "v-28",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "二次検査の要否"
+   },
+   {
+    "id": "v-29",
+    "expect": "sensitive",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "내년 희망 처우(만원)"
+   },
+   {
+    "id": "v-30",
+    "expect": "sensitive",
+    "level": "personal",
+    "ok": false,
+    "ms": 0,
+    "label": "What came up with the counsellor"
+   },
+   {
+    "id": "v-31",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 1,
+    "label": "实发工资"
+   },
+   {
+    "id": "v-32",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "퇴근 후 연락 가능한 번호"
+   },
+   {
+    "id": "v-33",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "택배 받을 곳(집)"
+   },
+   {
+    "id": "v-34",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "お誕生日"
+   },
+   {
+    "id": "v-35",
+    "expect": "personal",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "Badge no."
+   },
+   {
+    "id": "v-36",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 1,
+    "label": "Personalnummer"
+   },
+   {
+    "id": "v-37",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "工号"
+   },
+   {
+    "id": "v-38",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "社員番号"
+   },
+   {
+    "id": "v-39",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "회사 밖에서 쓰는 메일"
+   },
+   {
+    "id": "v-40",
+    "expect": "personal",
+    "level": "internal",
+    "ok": false,
+    "ms": 1,
+    "label": "카카오톡 아이디"
+   },
+   {
+    "id": "v-41",
+    "expect": "personal",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "차량 번호"
+   },
+   {
+    "id": "v-42",
+    "expect": "personal",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "Instagram"
+   },
+   {
+    "id": "v-43",
+    "expect": "personal",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "Fecha de nacimiento"
+   },
+   {
+    "id": "v-44",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 1,
+    "label": "Số điện thoại"
+   },
+   {
+    "id": "v-45",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "Where should we mail your card?"
+   },
+   {
+    "id": "v-46",
+    "expect": "personal",
+    "level": "internal",
+    "ok": false,
+    "ms": 0,
+    "label": "LINE ID"
+   },
+   {
+    "id": "v-47",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 1,
+    "label": "만 나이"
+   },
+   {
+    "id": "v-48",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "手机号码"
+   },
+   {
+    "id": "v-49",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 0,
+    "label": "Postcode where you work from home"
+   },
+   {
+    "id": "v-50",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "프로젝트명"
+   },
+   {
+    "id": "v-51",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 1,
+    "label": "Due date"
+   },
+   {
+    "id": "v-52",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "優先度"
+   },
+   {
+    "id": "v-53",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "수량"
+   },
+   {
+    "id": "v-54",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "회의실 호수"
+   },
+   {
+    "id": "v-55",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 1,
+    "label": "SKU"
+   },
+   {
+    "id": "v-56",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "Unit price (KRW)"
+   },
+   {
+    "id": "v-57",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "배포일"
+   },
+   {
+    "id": "v-58",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "Wiki page"
+   },
+   {
+    "id": "v-59",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 1,
+    "label": "ロット番号"
+   },
+   {
+    "id": "v-60",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "분류"
+   },
+   {
+    "id": "v-61",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "予定工数(h)"
+   },
+   {
+    "id": "v-62",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "Bin location"
+   },
+   {
+    "id": "v-63",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 1,
+    "label": "과제 예산(원)"
+   },
+   {
+    "id": "v-64",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 0,
+    "label": "Capacity"
+   }
+  ]
+ }
+}

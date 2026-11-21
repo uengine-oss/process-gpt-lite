@@ -1,20 +1,17 @@
-// A floor plan a customer mail asks for (lib/mail.js design drafts): the model lays the rooms out
-// from the mail (sizes, rooms, door), and the plan is drawn in CADCraft through its own MCP tools —
-// the user's CADCraft session, step by step (new drawing, layers, walls, rooms, door, windows,
-// tables, names and areas, dimensions), then saved as a .dxf in the workspace.
+// A drawing a pack skill asks for (business pack "store-design", skill cadcraft-floor-plan — runner
+// 'floor-plan', lib/mining/runners.js): the model lays the rooms out from the request by the skill's own
+// rules (references/layout.md), and the plan is drawn in CADCraft through its own MCP tools — the user's
+// CADCraft session, step by step (new drawing, layers, walls, rooms, door, windows, tables, names and
+// areas, dimensions), then saved as a .dxf in the workspace. Only the drawing's input shape and the
+// coordinate system are here; how to lay a space out is the skill's.
 import { chatJson } from './llm.js'
 import { callCraft } from '../mcp/craft.js'
 import { L, isEn } from './lang.js'
+import { referenceText, referenceJson } from './skillInstallCatalog.js'
 
-const LAYOUT = `You lay out a small commercial interior (a cafe, office, shop) from a customer's mail.
-Return JSON {"width","depth","rooms":[{"name","use","x","y","w","h"}],"door":{"x","w"},"windows":[{"wall":"N"|"E"|"S"|"W","from","to"}],"seats"}.
-Meters; origin bottom-left; y up; the south wall is y=0. Rooms tile the whole width×depth rectangle exactly
-(no gaps, no overlaps; the main hall is the largest). Room names and uses in Korean. The door sits on
-the wall the mail says (default south): x is its left edge from the west wall, w about 1.2. 2-3 windows
-on outside walls, not across the door. seats = the number the mail asks for (else 0).`
-
-// English mode: the same layout with English room names and uses (they are drawn on the plan)
-const layoutPrompt = () => (isEn() ? LAYOUT.replace('Room names and uses in Korean.', 'Room names and uses in English (short, e.g. "Hall", "Bar", "Storage").') : LAYOUT)
+// the drawing's input (drawFloorPlan below) and its coordinate system
+const SHAPE = `Return JSON {"width","depth","rooms":[{"name","use","x","y","w","h"}],"door":{"x","w"},"windows":[{"wall":"N"|"E"|"S"|"W","from","to"}],"seats"}.
+Meters; origin bottom-left; y up; the south wall is y=0. door.x is the door's left edge measured from the west wall.`
 
 const r2 = (n) => Math.round(Number(n) * 100) / 100
 
@@ -29,32 +26,38 @@ function validLayout(l) {
   return Math.abs(area - W * D) < 0.5
 }
 
-/** the rooms the mail asks for, laid out; a plain fallback when the model's does not add up */
-export async function layoutFromMail(mail) {
-  try {
-    const l = await chatJson(layoutPrompt(), `${mail.subject}\n${mail.text}`)
-    if (validLayout(l)) return l
-    console.warn('[floor-plan] layout did not add up, using the fallback')
-  } catch (e) { console.warn('[floor-plan] layout', e.message) }
-  const m = /(\d+(?:\.\d+)?)\s*m?\s*[×x*]\s*(\d+(?:\.\d+)?)/.exec(mail.text || '') || []
-  const W = Number(m[1]) || 12, D = Number(m[2]) || 8
-  const side = Math.min(4, W / 3)
+// The skill's fallback (references/fallback-layout.json): one main room and a column of side rooms.
+// Only the overall size is read from the request — "W × D" is a dimension (a number format).
+export function fallbackLayout(brief, plan) {
+  const lg = isEn() ? 'en' : 'ko'
+  const m = /(\d+(?:\.\d+)?)\s*m?\s*[×x*]\s*(\d+(?:\.\d+)?)/.exec(brief?.text || '') || []
+  const W = Number(m[1]) || plan?.default_size_m?.width || 12, D = Number(m[2]) || plan?.default_size_m?.depth || 8
+  const side = Math.min(plan?.side_width?.max_m || 4, W * (plan?.side_width?.share_of_width || 1 / 3))
+  const rooms = [{ name: plan?.main?.name?.[lg] || L('실 1', 'Room 1'), use: plan?.main?.use?.[lg] || '', x: 0, y: 0, w: W - side, h: D }]
+  let top = D
+  for (const s of plan?.side || []) {
+    const h = D * (Number(s.share_of_depth) || 0)
+    rooms.push({ name: s.name?.[lg] || '', use: s.use?.[lg] || '', x: W - side, y: top - h, w: side, h })
+    top -= h
+  }
+  if (!plan?.side?.length) rooms[0].w = W
   return {
-    width: W, depth: D, seats: Number((/(\d+)\s*석/.exec(mail.text || '') || /(\d+)\s*seats/i.exec(mail.text || '') || [])[1]) || 0,
-    rooms: isEn() ? [
-      { name: 'Hall', use: 'Seating & waiting', x: 0, y: 0, w: W - side, h: D },
-      { name: 'Bar & kitchen', use: 'Drink making', x: W - side, y: D / 2, w: side, h: D / 2 },
-      { name: 'Storage', use: 'Stock', x: W - side, y: D / 4, w: side, h: D / 4 },
-      { name: 'Restroom', use: '1', x: W - side, y: 0, w: side, h: D / 4 },
-    ] : [
-      { name: '홀', use: '좌석·대기', x: 0, y: 0, w: W - side, h: D },
-      { name: '바·주방', use: '음료 제조', x: W - side, y: D / 2, w: side, h: D / 2 },
-      { name: '창고', use: '재고 보관', x: W - side, y: D / 4, w: side, h: D / 4 },
-      { name: '화장실', use: '1개', x: W - side, y: 0, w: side, h: D / 4 },
-    ],
+    width: W, depth: D, seats: 0, rooms,
     door: { x: (W - side) / 2 - 0.6, w: 1.2 },
     windows: [{ wall: 'S', from: 1, to: (W - side) / 2 - 1.2 }, { wall: 'W', from: 2, to: D - 2 }],
   }
+}
+
+/** the rooms the request asks for, laid out by the skill's rules; its fallback when the model's does not add up */
+export async function layoutFromBrief(brief, skill) {
+  const rules = referenceText(skill, 'references/layout.md')
+  if (!rules) throw new Error(`${skill?.name || 'skill'}: references/layout.md is missing`)
+  try {
+    const l = await chatJson(`${rules}\n\n${SHAPE}\nRoom names and uses in ${isEn() ? 'English' : 'Korean'}.`, `${brief.subject || ''}\n${brief.text || ''}`)
+    if (validLayout(l)) return l
+    console.warn('[floor-plan] layout did not add up, using the fallback')
+  } catch (e) { console.warn('[floor-plan] layout', e.message) }
+  return fallbackLayout(brief, referenceJson(skill, 'references/fallback-layout.json'))
 }
 
 /** draw it; returns the sandbox path of the saved .dxf and the room schedule */
@@ -63,7 +66,7 @@ export async function drawFloorPlan(userId, layout, fileName, onStep = () => {})
   const W = r2(layout.width), D = r2(layout.depth), t = 0.15
   onStep(L('새 도면', 'New drawing'))
   await callCraft(userId, 'cadcraft', 'cadcraft_new_drawing', { metric: true })
-  // the house style for metre drawings (lib/office.js CRAFT_HINTS): small dimension text
+  // dimension text small enough for a metre drawing
   await run('dimstyle', { name: 'M', current: true, DIMTXT: 0.25, DIMASZ: 0.15, DIMEXO: 0.1, DIMEXE: 0.1, DIMGAP: 0.05, DIMSCALE: 1, DIMDEC: 1 })
   for (const [name, color] of [['WALL', 7], ['ROOM', 8], ['DOOR', 3], ['WINDOW', 4], ['FURN', 6], ['TEXT', 2], ['DIM', 1]]) await run('layer.new', { name, color })
   onStep(L('벽', 'Walls'))

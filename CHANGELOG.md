@@ -7,6 +7,15 @@
 
 ### 추가
 
+- **스킬 기반 라우팅 — 사람 말을 규칙으로 읽지 않는다** (스펙 `openspec/specs/skill-routing`, 설계 `pgpt-pro/docs/mobile-review-1121/skill-routing-design.md`, 결정 D-1121-08~12):
+  - 채팅: 라우터 앞의 정규식 갈래 13개(스킬 만들기·패널·폴더 변경·커넥터·문서·사이트 작업·개선 질문·지금 실행·텔레그램 등)를 지우고 행동 스킬 11개(`skills/actions/*`: SKILL.md + args.schema.json)를 이름·설명 → 본문 → references 순서로 읽는 라우터(`server/lib/skills/`)로 바꿨다. UI 의도는 `intent`·`reply`, 빠른 답은 `choices` 필드.
+  - 에이전트에 덧붙이던 도메인 hint(주가·유튜브·커넥터 순서·한글 양식·ArtCraft·이음오피스 사용법)를 지우고 deepagents 시스템 스킬 10개로 옮겼다(process-gpt-deepagents `system-skills/process-gpt-system/*`). `scheduleIntent.js`·`marketHint.js` 삭제.
+  - 업종 지식(매장 설계 제안서·견적서·평면 배치)은 업무 팩 `skills/packs/store-design` 으로 분리, 관리자가 켤 때만 테넌트 스킬로 설치(원장 `pro_skill_installs`, `028_skill_packs.sql`, 설정 › 스킬 「업무 팩」, `GET/PUT /api/packs`).
+  - 회의·팀 대화: 정규식 1차 거름·명사 사전·동의어 사전을 지우고 판단 모델 한 번(+ 형식 거름)으로. 일 종류는 `skills/offers/*`. 받아쓰기 헛말은 문구 목록 대신 에너지·no_speech·logprob.
+  - 안전: 구매·결제·민감 필드 낱말을 `policies/*.json`(회사 추가·이력, `029_policies.sql`, `/api/policies/*`)으로 옮기고 구조 하한·모델 판정과 가장 엄한 쪽을 쓴다.
+  - 화면·오류: Review/Submit 은 폼 사실, 알림 멘션·공유는 하위 종류 필드, 서버 오류 문구 대신 오류 코드.
+  - 재발 방지: `scripts/check-nl-rules.mjs` + `scripts/format-rules-allowlist.json`(형식 해석 83개, 사람 말을 읽는 식 0개).
+  - 평가(실제 모델, 녹화·시험 문장을 뺀 개발/보류 세트): 라우터 보류 매크로 F1 93.8(옛 구현 72.7), 회의·팀 부탁 재현율 0.965/1.000, 지식 스킬 읽음 0.985·잘못 읽음 0.030, 업무 팩 판단 100, 안전 우회 세트 모두 막음. 미달: 라우터 높음 등급 오실행 1.8%(기준 1%)·결정 뒤집힘 2.8%(2%), 지식 스킬 2개(connected-services·youtube-public-data)의 잘못 읽음.
 - **휴대폰 검토 반영(2026-11-21) — 예약 작업 지금 실행 · 텔레그램 알림 · 「어떻게 했나요」 · 시세 출처** (스펙 `openspec/specs/scheduled-task-run-and-telegram`, 결정 process-gpt `docs/decisions/2026-11.md` D-1121-03~06):
   - 「곧바로 하나 정도 한번 실행해 봐」처럼 지금 실행해 달라고 하면 새 예약(1분 뒤)을 만들지 않고, 그 대화에서 다룬 예약 작업을 바로 한 번 실행한다(`manual`, 결과는 요청한 대화에, 조건을 충족하지 않아도 값을 보여 줌). 라우터에는 `run_schedule_now` 도구와 내 예약 목록을 제공한다.
   - 텔레그램 봇 알림: 설정 › 연결의 「텔레그램으로 알림 받기」(BotFather 토큰 → 봇에서 시작 → 연결, 토큰은 보관함에만), `/api/telegram*`. 「급등락이 감지되면 내 텔레그램 봇으로 알려줘」는 그 작업의 텔레그램 전달을 켜고(`pro_schedules.state.channels`), 봇이 없으면 대화에 연결 카드를 띄운다. 대화에 알린 실행 결과는 텔레그램으로도 보내고 실행 기록에 `telegram`을 남긴다. 예약된 작업 상세에 「텔레그램으로도」 스위치를 둔다(`POST /api/missions/:id/channels`). 시험용 모의 Bot API `scripts/mock-telegram.mjs`(`PRO_TELEGRAM_API`).

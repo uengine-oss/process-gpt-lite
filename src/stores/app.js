@@ -190,7 +190,9 @@ export const useApp = defineStore('app', {
       this.mentions = [...this.mentions.filter((x) => !(x.label === m.label && x.file === m.file)), m].slice(-4)
     },
     removeMention(i) { this.mentions = this.mentions.filter((_, k) => k !== i) },
-    async send(text, threadId = this.activeId, context) {
+    // opts: what the message is as fields — intent (the button it came from, e.g. { kind: 'create_panel' }) or
+    // reply (the offered choice it answers: { messageId, index }); the server never reads them off the words
+    async send(text, threadId = this.activeId, context, opts = {}) {
       // mentions: the chips read first in the message; where each one is goes to the agent
       const mentions = this.mentions
       if (mentions.length) {
@@ -213,7 +215,7 @@ export const useApp = defineStore('app', {
       this.drafts[threadId] = ''
       let ended = false
       try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc }, (ev, data) => {
+        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(opts.intent ? { intent: opts.intent } : {}), ...(opts.reply ? { reply: opts.reply } : {}) }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
         })
@@ -274,7 +276,7 @@ export const useApp = defineStore('app', {
     dismissAction(a) { return api(`/actions/${a.id}/dismiss`, { method: 'POST' }) },
     async createPanel(description) {
       this.panelMode = false
-      await this.send(`새 패널 만들기: ${description}`, this.mainThread.id)
+      await this.send(description, this.mainThread.id, undefined, { intent: { kind: 'create_panel' } })
     },
     logout() { auth.clear(); location.href = BASE + '/login' },
   },

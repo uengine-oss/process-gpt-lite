@@ -1,0 +1,1162 @@
+{
+ "new:dev": {
+  "items": 490,
+  "accuracy": 97.1,
+  "macro_f1": 96.5,
+  "per_route": {
+   "schedule-create": {
+    "precision": 100,
+    "recall": 80.6,
+    "f1": 89.3,
+    "support": 31
+   },
+   "schedule-run-now": {
+    "precision": 95,
+    "recall": 100,
+    "f1": 97.4,
+    "support": 19
+   },
+   "telegram-delivery": {
+    "precision": 95.2,
+    "recall": 100,
+    "f1": 97.6,
+    "support": 20
+   },
+   "panel-create": {
+    "precision": 100,
+    "recall": 95.2,
+    "f1": 97.6,
+    "support": 21
+   },
+   "panel-record": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 22
+   },
+   "folder-change": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 18
+   },
+   "process-work": {
+    "precision": 100,
+    "recall": 96.2,
+    "f1": 98,
+    "support": 26
+   },
+   "process-improve-explain": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 18
+   },
+   "browser-task": {
+    "precision": 94.4,
+    "recall": 89.5,
+    "f1": 91.9,
+    "support": 19
+   },
+   "teammate-notify": {
+    "precision": 96,
+    "recall": 100,
+    "f1": 98,
+    "support": 24
+   },
+   "home-action-add": {
+    "precision": 85.7,
+    "recall": 100,
+    "f1": 92.3,
+    "support": 24
+   },
+   "delegate": {
+    "precision": 98.6,
+    "recall": 98.6,
+    "f1": 98.6,
+    "support": 215
+   },
+   "ask": {
+    "precision": 91.4,
+    "recall": 97,
+    "f1": 94.1,
+    "support": 33
+   }
+  },
+  "arg_match": 100,
+  "cost_weighted_misroute": 0.046,
+  "high_grade_wrong_execution": 0.6,
+  "delegate_wrong_execution": 0.9,
+  "ask_rate": 7.1,
+  "errors": 0,
+  "overfit": {
+   "ko_plain_accuracy": 93.7,
+   "other_accuracy": 97.7,
+   "ko_plain_minus_other": -4,
+   "flip_rate": 2.7,
+   "runs_compared": 490
+  },
+  "groups": {
+   "group:ko-plain": {
+    "n": 63,
+    "accuracy": 93.7
+   },
+   "group:other": {
+    "n": 427,
+    "accuracy": 97.7
+   },
+   "lang:en": {
+    "n": 93,
+    "accuracy": 97.8
+   },
+   "lang:ja": {
+    "n": 33,
+    "accuracy": 100
+   },
+   "lang:ko": {
+    "n": 300,
+    "accuracy": 96
+   },
+   "lang:mix": {
+    "n": 31,
+    "accuracy": 100
+   },
+   "lang:zh": {
+    "n": 33,
+    "accuracy": 100
+   },
+   "mode:en": {
+    "n": 48,
+    "accuracy": 97.9
+   },
+   "mode:ko": {
+    "n": 442,
+    "accuracy": 97.1
+   },
+   "quality:clean": {
+    "n": 417,
+    "accuracy": 97.1
+   },
+   "quality:dictation": {
+    "n": 21,
+    "accuracy": 100
+   },
+   "quality:nospace": {
+    "n": 17,
+    "accuracy": 100
+   },
+   "quality:typo": {
+    "n": 35,
+    "accuracy": 94.3
+   },
+   "style:banmal": {
+    "n": 100,
+    "accuracy": 97
+   },
+   "style:command": {
+    "n": 117,
+    "accuracy": 97.4
+   },
+   "style:formal": {
+    "n": 34,
+    "accuracy": 100
+   },
+   "style:indirect": {
+    "n": 33,
+    "accuracy": 97
+   },
+   "style:monologue": {
+    "n": 23,
+    "accuracy": 100
+   },
+   "style:plain": {
+    "n": 74,
+    "accuracy": 94.6
+   },
+   "style:question": {
+    "n": 109,
+    "accuracy": 97.2
+   }
+  },
+  "cells": {
+   "ask": {
+    "n": 33,
+    "accuracy": 97
+   },
+   "browser-task·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "browser-task·positive": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "delegate": {
+    "n": 103,
+    "accuracy": 100
+   },
+   "folder-change·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "folder-change·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "home-action-add·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "home-action-add·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "panel-create·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "panel-create·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "panel-record·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "panel-record·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "process-improve-explain·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "process-improve-explain·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "process-work·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "process-work·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "schedule-create·boundary": {
+    "n": 18,
+    "accuracy": 100
+   },
+   "schedule-create·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "schedule-run-now·boundary": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "schedule-run-now·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "teammate-notify·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "teammate-notify·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "telegram-delivery·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "telegram-delivery·positive": {
+    "n": 16,
+    "accuracy": 100
+   }
+  },
+  "latency_ms": {
+   "first_p50": 1501,
+   "first_p95": 6051,
+   "total_p50": 1622,
+   "total_p95": 6963
+  },
+  "stage2_rate": 12.9,
+  "tokens": {
+   "in_avg": 4810,
+   "out_avg": 67
+  },
+  "calls_avg": 1.13
+ },
+ "new:holdout": {
+  "items": 500,
+  "accuracy": 95,
+  "macro_f1": 93.8,
+  "per_route": {
+   "schedule-create": {
+    "precision": 100,
+    "recall": 68.8,
+    "f1": 81.5,
+    "support": 32
+   },
+   "schedule-run-now": {
+    "precision": 90.9,
+    "recall": 100,
+    "f1": 95.2,
+    "support": 20
+   },
+   "telegram-delivery": {
+    "precision": 95.2,
+    "recall": 100,
+    "f1": 97.6,
+    "support": 20
+   },
+   "panel-create": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 21
+   },
+   "panel-record": {
+    "precision": 100,
+    "recall": 95.5,
+    "f1": 97.7,
+    "support": 22
+   },
+   "folder-change": {
+    "precision": 95,
+    "recall": 100,
+    "f1": 97.4,
+    "support": 19
+   },
+   "process-work": {
+    "precision": 94.1,
+    "recall": 100,
+    "f1": 97,
+    "support": 32
+   },
+   "process-improve-explain": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 20
+   },
+   "browser-task": {
+    "precision": 73.9,
+    "recall": 100,
+    "f1": 85,
+    "support": 17
+   },
+   "teammate-notify": {
+    "precision": 100,
+    "recall": 96.4,
+    "f1": 98.2,
+    "support": 28
+   },
+   "home-action-add": {
+    "precision": 85.7,
+    "recall": 100,
+    "f1": 92.3,
+    "support": 24
+   },
+   "delegate": {
+    "precision": 99,
+    "recall": 98,
+    "f1": 98.5,
+    "support": 205
+   },
+   "ask": {
+    "precision": 81.6,
+    "recall": 77.5,
+    "f1": 79.5,
+    "support": 40
+   }
+  },
+  "arg_match": 100,
+  "cost_weighted_misroute": 0.089,
+  "high_grade_wrong_execution": 1.8,
+  "delegate_wrong_execution": 1,
+  "ask_rate": 7.6,
+  "errors": 0,
+  "overfit": {
+   "ko_plain_accuracy": 97,
+   "other_accuracy": 94.9,
+   "ko_plain_minus_other": 2.1,
+   "flip_rate": 2.8,
+   "runs_compared": 500
+  },
+  "groups": {
+   "group:ko-plain": {
+    "n": 33,
+    "accuracy": 97
+   },
+   "group:other": {
+    "n": 467,
+    "accuracy": 94.9
+   },
+   "lang:en": {
+    "n": 96,
+    "accuracy": 93.8
+   },
+   "lang:ja": {
+    "n": 31,
+    "accuracy": 93.5
+   },
+   "lang:ko": {
+    "n": 308,
+    "accuracy": 95.5
+   },
+   "lang:mix": {
+    "n": 33,
+    "accuracy": 97
+   },
+   "lang:zh": {
+    "n": 32,
+    "accuracy": 93.8
+   },
+   "mode:en": {
+    "n": 52,
+    "accuracy": 94.2
+   },
+   "mode:ko": {
+    "n": 448,
+    "accuracy": 95.1
+   },
+   "quality:clean": {
+    "n": 412,
+    "accuracy": 94.2
+   },
+   "quality:dictation": {
+    "n": 27,
+    "accuracy": 100
+   },
+   "quality:nospace": {
+    "n": 28,
+    "accuracy": 96.4
+   },
+   "quality:typo": {
+    "n": 33,
+    "accuracy": 100
+   },
+   "style:banmal": {
+    "n": 115,
+    "accuracy": 93.9
+   },
+   "style:command": {
+    "n": 179,
+    "accuracy": 92.7
+   },
+   "style:formal": {
+    "n": 18,
+    "accuracy": 100
+   },
+   "style:indirect": {
+    "n": 34,
+    "accuracy": 100
+   },
+   "style:monologue": {
+    "n": 14,
+    "accuracy": 100
+   },
+   "style:plain": {
+    "n": 39,
+    "accuracy": 97.4
+   },
+   "style:question": {
+    "n": 101,
+    "accuracy": 96
+   }
+  },
+  "cells": {
+   "ask": {
+    "n": 35,
+    "accuracy": 77.1
+   },
+   "browser-task·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "browser-task·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "delegate": {
+    "n": 110,
+    "accuracy": 100
+   },
+   "folder-change·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "folder-change·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "home-action-add·boundary": {
+    "n": 16,
+    "accuracy": 81.3
+   },
+   "home-action-add·positive": {
+    "n": 17,
+    "accuracy": 100
+   },
+   "panel-create·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "panel-create·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "panel-record·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "panel-record·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "process-improve-explain·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "process-improve-explain·positive": {
+    "n": 17,
+    "accuracy": 100
+   },
+   "process-work·boundary": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "process-work·positive": {
+    "n": 17,
+    "accuracy": 100
+   },
+   "schedule-create·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "schedule-create·positive": {
+    "n": 17,
+    "accuracy": 82.4
+   },
+   "schedule-run-now·boundary": {
+    "n": 16,
+    "accuracy": 68.8
+   },
+   "schedule-run-now·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "teammate-notify·boundary": {
+    "n": 15,
+    "accuracy": 100
+   },
+   "teammate-notify·positive": {
+    "n": 17,
+    "accuracy": 100
+   },
+   "telegram-delivery·boundary": {
+    "n": 15,
+    "accuracy": 100
+   },
+   "telegram-delivery·positive": {
+    "n": 16,
+    "accuracy": 100
+   }
+  },
+  "latency_ms": {
+   "first_p50": 1222,
+   "first_p95": 3594,
+   "total_p50": 1289,
+   "total_p95": 4331
+  },
+  "stage2_rate": 11.8,
+  "tokens": {
+   "in_avg": 4786,
+   "out_avg": 67
+  },
+  "calls_avg": 1.12
+ },
+ "legacy:dev": {
+  "items": 490,
+  "accuracy": 81.4,
+  "macro_f1": 76,
+  "per_route": {
+   "schedule-create": {
+    "precision": 96.6,
+    "recall": 90.3,
+    "f1": 93.3,
+    "support": 31
+   },
+   "schedule-run-now": {
+    "precision": 95,
+    "recall": 100,
+    "f1": 97.4,
+    "support": 19
+   },
+   "telegram-delivery": {
+    "precision": 100,
+    "recall": 30,
+    "f1": 46.2,
+    "support": 20
+   },
+   "panel-create": {
+    "precision": 100,
+    "recall": 85.7,
+    "f1": 92.3,
+    "support": 21
+   },
+   "panel-record": {
+    "precision": 84.6,
+    "recall": 100,
+    "f1": 91.7,
+    "support": 22
+   },
+   "folder-change": {
+    "precision": 87.5,
+    "recall": 38.9,
+    "f1": 53.8,
+    "support": 18
+   },
+   "process-work": {
+    "precision": 59.1,
+    "recall": 100,
+    "f1": 74.3,
+    "support": 26
+   },
+   "process-improve-explain": {
+    "precision": 90.9,
+    "recall": 55.6,
+    "f1": 69,
+    "support": 18
+   },
+   "browser-task": {
+    "precision": 90,
+    "recall": 94.7,
+    "f1": 92.3,
+    "support": 19
+   },
+   "teammate-notify": {
+    "precision": 85.2,
+    "recall": 95.8,
+    "f1": 90.2,
+    "support": 24
+   },
+   "home-action-add": {
+    "precision": 95.8,
+    "recall": 95.8,
+    "f1": 95.8,
+    "support": 24
+   },
+   "delegate": {
+    "precision": 80.9,
+    "recall": 94.4,
+    "f1": 87.1,
+    "support": 215
+   },
+   "ask": {
+    "precision": 16.7,
+    "recall": 3,
+    "f1": 5.1,
+    "support": 33
+   }
+  },
+  "arg_match": 95.6,
+  "cost_weighted_misroute": 0.309,
+  "high_grade_wrong_execution": 5.5,
+  "delegate_wrong_execution": 4.2,
+  "ask_rate": 1.2,
+  "errors": 0,
+  "overfit": {
+   "ko_plain_accuracy": 84.1,
+   "other_accuracy": 81,
+   "ko_plain_minus_other": 3.1,
+   "flip_rate": null,
+   "runs_compared": 0
+  },
+  "groups": {
+   "group:ko-plain": {
+    "n": 63,
+    "accuracy": 84.1
+   },
+   "group:other": {
+    "n": 427,
+    "accuracy": 81
+   },
+   "lang:en": {
+    "n": 93,
+    "accuracy": 79.6
+   },
+   "lang:ja": {
+    "n": 33,
+    "accuracy": 81.8
+   },
+   "lang:ko": {
+    "n": 300,
+    "accuracy": 81.7
+   },
+   "lang:mix": {
+    "n": 31,
+    "accuracy": 83.9
+   },
+   "lang:zh": {
+    "n": 33,
+    "accuracy": 81.8
+   },
+   "mode:en": {
+    "n": 48,
+    "accuracy": 77.1
+   },
+   "mode:ko": {
+    "n": 442,
+    "accuracy": 81.9
+   },
+   "quality:clean": {
+    "n": 417,
+    "accuracy": 81.5
+   },
+   "quality:dictation": {
+    "n": 21,
+    "accuracy": 76.2
+   },
+   "quality:nospace": {
+    "n": 17,
+    "accuracy": 82.4
+   },
+   "quality:typo": {
+    "n": 35,
+    "accuracy": 82.9
+   },
+   "style:banmal": {
+    "n": 100,
+    "accuracy": 81
+   },
+   "style:command": {
+    "n": 117,
+    "accuracy": 76.1
+   },
+   "style:formal": {
+    "n": 34,
+    "accuracy": 79.4
+   },
+   "style:indirect": {
+    "n": 33,
+    "accuracy": 81.8
+   },
+   "style:monologue": {
+    "n": 23,
+    "accuracy": 91.3
+   },
+   "style:plain": {
+    "n": 74,
+    "accuracy": 82.4
+   },
+   "style:question": {
+    "n": 109,
+    "accuracy": 85.3
+   }
+  },
+  "cells": {
+   "ask": {
+    "n": 33,
+    "accuracy": 3
+   },
+   "browser-task·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "browser-task·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "delegate": {
+    "n": 103,
+    "accuracy": 99
+   },
+   "folder-change·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "folder-change·positive": {
+    "n": 16,
+    "accuracy": 43.8
+   },
+   "home-action-add·boundary": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "home-action-add·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "panel-create·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "panel-create·positive": {
+    "n": 16,
+    "accuracy": 81.3
+   },
+   "panel-record·boundary": {
+    "n": 16,
+    "accuracy": 75
+   },
+   "panel-record·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "process-improve-explain·boundary": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "process-improve-explain·positive": {
+    "n": 16,
+    "accuracy": 50
+   },
+   "process-work·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "process-work·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "schedule-create·boundary": {
+    "n": 18,
+    "accuracy": 94.4
+   },
+   "schedule-create·positive": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "schedule-run-now·boundary": {
+    "n": 16,
+    "accuracy": 81.3
+   },
+   "schedule-run-now·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "teammate-notify·boundary": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "teammate-notify·positive": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "telegram-delivery·boundary": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "telegram-delivery·positive": {
+    "n": 16,
+    "accuracy": 6.3
+   }
+  },
+  "latency_ms": {
+   "first_p50": 12518,
+   "first_p95": 37613,
+   "total_p50": 12980,
+   "total_p95": 37614
+  },
+  "stage2_rate": 0,
+  "tokens": {
+   "in_avg": 2780,
+   "out_avg": 491
+  },
+  "calls_avg": 0.92
+ },
+ "legacy:holdout": {
+  "items": 500,
+  "accuracy": 78,
+  "macro_f1": 72.7,
+  "per_route": {
+   "schedule-create": {
+    "precision": 100,
+    "recall": 75,
+    "f1": 85.7,
+    "support": 32
+   },
+   "schedule-run-now": {
+    "precision": 100,
+    "recall": 100,
+    "f1": 100,
+    "support": 20
+   },
+   "telegram-delivery": {
+    "precision": 87.5,
+    "recall": 35,
+    "f1": 50,
+    "support": 20
+   },
+   "panel-create": {
+    "precision": 100,
+    "recall": 81,
+    "f1": 89.5,
+    "support": 21
+   },
+   "panel-record": {
+    "precision": 91.3,
+    "recall": 95.5,
+    "f1": 93.3,
+    "support": 22
+   },
+   "folder-change": {
+    "precision": 90,
+    "recall": 47.4,
+    "f1": 62.1,
+    "support": 19
+   },
+   "process-work": {
+    "precision": 55.2,
+    "recall": 100,
+    "f1": 71.1,
+    "support": 32
+   },
+   "process-improve-explain": {
+    "precision": 75,
+    "recall": 30,
+    "f1": 42.9,
+    "support": 20
+   },
+   "browser-task": {
+    "precision": 72.2,
+    "recall": 76.5,
+    "f1": 74.3,
+    "support": 17
+   },
+   "teammate-notify": {
+    "precision": 96.2,
+    "recall": 89.3,
+    "f1": 92.6,
+    "support": 28
+   },
+   "home-action-add": {
+    "precision": 85.2,
+    "recall": 95.8,
+    "f1": 90.2,
+    "support": 24
+   },
+   "delegate": {
+    "precision": 76.4,
+    "recall": 94.6,
+    "f1": 84.5,
+    "support": 205
+   },
+   "ask": {
+    "precision": 28.6,
+    "recall": 5,
+    "f1": 8.5,
+    "support": 40
+   }
+  },
+  "arg_match": 97.4,
+  "cost_weighted_misroute": 0.371,
+  "high_grade_wrong_execution": 7,
+  "delegate_wrong_execution": 4.4,
+  "ask_rate": 1.4,
+  "errors": 1,
+  "overfit": {
+   "ko_plain_accuracy": 75.8,
+   "other_accuracy": 78.2,
+   "ko_plain_minus_other": -2.4,
+   "flip_rate": null,
+   "runs_compared": 0
+  },
+  "groups": {
+   "group:ko-plain": {
+    "n": 33,
+    "accuracy": 75.8
+   },
+   "group:other": {
+    "n": 467,
+    "accuracy": 78.2
+   },
+   "lang:en": {
+    "n": 96,
+    "accuracy": 79.2
+   },
+   "lang:ja": {
+    "n": 31,
+    "accuracy": 77.4
+   },
+   "lang:ko": {
+    "n": 308,
+    "accuracy": 77.6
+   },
+   "lang:mix": {
+    "n": 33,
+    "accuracy": 84.8
+   },
+   "lang:zh": {
+    "n": 32,
+    "accuracy": 71.9
+   },
+   "mode:en": {
+    "n": 52,
+    "accuracy": 73.1
+   },
+   "mode:ko": {
+    "n": 448,
+    "accuracy": 78.6
+   },
+   "quality:clean": {
+    "n": 412,
+    "accuracy": 77.7
+   },
+   "quality:dictation": {
+    "n": 27,
+    "accuracy": 85.2
+   },
+   "quality:nospace": {
+    "n": 28,
+    "accuracy": 82.1
+   },
+   "quality:typo": {
+    "n": 33,
+    "accuracy": 72.7
+   },
+   "style:banmal": {
+    "n": 115,
+    "accuracy": 78.3
+   },
+   "style:command": {
+    "n": 179,
+    "accuracy": 75.4
+   },
+   "style:formal": {
+    "n": 18,
+    "accuracy": 83.3
+   },
+   "style:indirect": {
+    "n": 34,
+    "accuracy": 79.4
+   },
+   "style:monologue": {
+    "n": 14,
+    "accuracy": 85.7
+   },
+   "style:plain": {
+    "n": 39,
+    "accuracy": 76.9
+   },
+   "style:question": {
+    "n": 101,
+    "accuracy": 80.2
+   }
+  },
+  "cells": {
+   "ask": {
+    "n": 35,
+    "accuracy": 5.7
+   },
+   "browser-task·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "browser-task·positive": {
+    "n": 16,
+    "accuracy": 81.3
+   },
+   "delegate": {
+    "n": 110,
+    "accuracy": 99.1
+   },
+   "folder-change·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "folder-change·positive": {
+    "n": 16,
+    "accuracy": 50
+   },
+   "home-action-add·boundary": {
+    "n": 16,
+    "accuracy": 68.8
+   },
+   "home-action-add·positive": {
+    "n": 17,
+    "accuracy": 100
+   },
+   "panel-create·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "panel-create·positive": {
+    "n": 16,
+    "accuracy": 81.3
+   },
+   "panel-record·boundary": {
+    "n": 16,
+    "accuracy": 81.3
+   },
+   "panel-record·positive": {
+    "n": 16,
+    "accuracy": 87.5
+   },
+   "process-improve-explain·boundary": {
+    "n": 16,
+    "accuracy": 75
+   },
+   "process-improve-explain·positive": {
+    "n": 17,
+    "accuracy": 29.4
+   },
+   "process-work·boundary": {
+    "n": 16,
+    "accuracy": 75
+   },
+   "process-work·positive": {
+    "n": 17,
+    "accuracy": 100
+   },
+   "schedule-create·boundary": {
+    "n": 16,
+    "accuracy": 93.8
+   },
+   "schedule-create·positive": {
+    "n": 17,
+    "accuracy": 76.5
+   },
+   "schedule-run-now·boundary": {
+    "n": 16,
+    "accuracy": 81.3
+   },
+   "schedule-run-now·positive": {
+    "n": 16,
+    "accuracy": 100
+   },
+   "teammate-notify·boundary": {
+    "n": 15,
+    "accuracy": 80
+   },
+   "teammate-notify·positive": {
+    "n": 17,
+    "accuracy": 94.1
+   },
+   "telegram-delivery·boundary": {
+    "n": 15,
+    "accuracy": 73.3
+   },
+   "telegram-delivery·positive": {
+    "n": 16,
+    "accuracy": 18.8
+   }
+  },
+  "latency_ms": {
+   "first_p50": 12625,
+   "first_p95": 37624,
+   "total_p50": 13604,
+   "total_p95": 38765
+  },
+  "stage2_rate": 0,
+  "tokens": {
+   "in_avg": 2769,
+   "out_avg": 508
+  },
+  "calls_avg": 0.93
+ }
+}

@@ -274,16 +274,19 @@ export function startConstraintSweep() {
   setInterval(run, 30 * 60000)
 }
 
-/** a process named in a question or a tool call ("달빛커피 제안", an id) among the ones with a history */
+/** the processes with a run history (the chat router's facts, lib/skills/facts.js), most runs first */
+export async function processesWithHistory() {
+  return q(`select d.id, d.name, count(i.*)::int as n from proc_def d join bpm_proc_inst i on lower(i.proc_def_id)=lower(d.id) and i.tenant_id=d.tenant_id
+            where d.tenant_id=$1 and not coalesce(d.isdeleted,false) group by d.id, d.name order by n desc`, [T()])
+}
+/** a process a tool call names (its id, or its name exactly as listed) among the ones with a history —
+ *  the model picks it from improve_processes; the code only checks it is on that list */
 export async function resolveProcess(key) {
   const k = String(key || '').trim()
   if (!k) return null
-  const rows = await q(`select d.id, d.name, count(i.*)::int as n from proc_def d join bpm_proc_inst i on lower(i.proc_def_id)=lower(d.id) and i.tenant_id=d.tenant_id
-                        where d.tenant_id=$1 and not coalesce(d.isdeleted,false) group by d.id, d.name order by n desc`, [T()])
+  const rows = await processesWithHistory()
   const norm = (s) => String(s || '').replace(/\s+/g, '').toLowerCase()
-  const nk = norm(k)
-  return rows.find((r) => r.id.toLowerCase() === k.toLowerCase()) || rows.find((r) => norm(r.name) === nk)
-    || rows.find((r) => r.name && nk.includes(norm(r.name))) || rows.find((r) => r.name && norm(r.name).includes(nk)) || null
+  return rows.find((r) => r.id.toLowerCase() === k.toLowerCase()) || rows.find((r) => norm(r.name) === norm(k)) || null
 }
 
 // compact, number-first summaries for tools and the chat (the model explains these; it never computes them)

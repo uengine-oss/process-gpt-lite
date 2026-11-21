@@ -1,0 +1,562 @@
+[
+ {
+  "id": "server/lib/agent.js#114b44a77d",
+  "file": "server/lib/agent.js",
+  "category": "도구 이름",
+  "reason": "딥에이전트 도구 이름 → 진행 표시 · 읽기 전용 도구 판별(사람 말 아님)",
+  "text": "hwpx|docx|pptx|xlsx|office|document|render_hwp"
+ },
+ {
+  "id": "server/lib/agent.js#fcd4c74d81",
+  "file": "server/lib/agent.js",
+  "category": "도구 이름",
+  "reason": "딥에이전트 도구 이름 → 진행 표시 · 읽기 전용 도구 판별(사람 말 아님)",
+  "text": "slack|notion|github|drive"
+ },
+ {
+  "id": "server/lib/agent.js#d4f516dc14",
+  "file": "server/lib/agent.js",
+  "category": "도구 이름",
+  "reason": "딥에이전트 도구 이름 → 진행 표시 · 읽기 전용 도구 판별(사람 말 아님)",
+  "text": "search|web|fetch|browse|tavily"
+ },
+ {
+  "id": "server/lib/agent.js#49e720bd44",
+  "file": "server/lib/agent.js",
+  "category": "도구 이름",
+  "reason": "딥에이전트 도구 이름 → 진행 표시 · 읽기 전용 도구 판별(사람 말 아님)",
+  "text": "^(ls|glob|grep|read_file|read)$"
+ },
+ {
+  "id": "server/lib/agent.js#a4b15956a8",
+  "file": "server/lib/agent.js",
+  "category": "도구 이름",
+  "reason": "딥에이전트 도구 이름 → 진행 표시 · 읽기 전용 도구 판별(사람 말 아님)",
+  "text": "execute|shell|bash|python|run_code"
+ },
+ {
+  "id": "server/lib/agent.js#01ce1bc55e",
+  "file": "server/lib/agent.js",
+  "category": "도구 이름",
+  "reason": "딥에이전트 도구 이름 → 진행 표시 · 읽기 전용 도구 판별(사람 말 아님)",
+  "text": "process|bpmn|instance|workitem"
+ },
+ {
+  "id": "server/lib/agent.js#f399a8c7a0",
+  "file": "server/lib/agent.js",
+  "category": "도구 이름",
+  "reason": "딥에이전트 도구 이름 → 진행 표시 · 읽기 전용 도구 판별(사람 말 아님)",
+  "text": "(inspect|read|list|render|preview|find|query|guide|documents)"
+ },
+ {
+  "id": "server/lib/agent.js#5ec3ebebb7",
+  "file": "server/lib/agent.js",
+  "category": "오류 분류",
+  "reason": "네트워크·서비스 오류 코드",
+  "text": "fetch failed|ECONNREFUSED|deepagents \\d"
+ },
+ {
+  "id": "server/lib/agent.js#2d5f0ed219",
+  "file": "server/lib/agent.js",
+  "category": "확장자",
+  "reason": "실행 파일 확장자",
+  "text": "\\.(py|js|mjs|ts|sh)$"
+ },
+ {
+  "id": "server/lib/agent.js#40c2c78aed",
+  "file": "server/lib/agent.js",
+  "category": "오류 분류",
+  "reason": "네트워크·서비스 오류 코드",
+  "text": "fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up"
+ },
+ {
+  "id": "server/lib/browser.js#9099d11fbf",
+  "file": "server/lib/browser.js",
+  "category": "HTML 관례",
+  "reason": "input type · 로그인/카드 칸 name·autocomplete 관례(가리기·캡처)",
+  "text": "^(text|email|tel)$"
+ },
+ {
+  "id": "server/lib/browser.js#4e0fe48a6b",
+  "file": "server/lib/browser.js",
+  "category": "HTML 관례",
+  "reason": "input type · 로그인/카드 칸 name·autocomplete 관례(가리기·캡처)",
+  "text": "user|email|login|id|account"
+ },
+ {
+  "id": "server/lib/browser.js#66bf43b68e",
+  "file": "server/lib/browser.js",
+  "category": "HTML 관례",
+  "reason": "input type · 로그인/카드 칸 name·autocomplete 관례(가리기·캡처)",
+  "text": "cvc|cvv|csc"
+ },
+ {
+  "id": "server/lib/browser.js#b9dddf1324",
+  "file": "server/lib/browser.js",
+  "category": "HTML 관례",
+  "reason": "input type · 로그인/카드 칸 name·autocomplete 관례(가리기·캡처)",
+  "text": "card.?(no|num)|cardnumber|cvc|cvv|csc|otp"
+ },
+ {
+  "id": "server/lib/browser.js#20fcd2173e",
+  "file": "server/lib/browser.js",
+  "category": "금액 형식",
+  "reason": "통화 기호·코드 + 숫자",
+  "text": "[$€£¥₩₹₽฿₫]\\s?\\d|\\d[\\d,.\\s]*\\s?(?:[$€£¥₩₹₽฿₫원円元]|\\b[A-Z]{3}\\b)"
+ },
+ {
+  "id": "server/lib/browser.js#51965d6745",
+  "file": "server/lib/browser.js",
+  "category": "마크업",
+  "reason": "SVG·인라인 속성 덜어 내기",
+  "text": "\\s(d|points|viewBox|style|src)=\"[^\"]*\""
+ },
+ {
+  "id": "server/lib/browser.js#e800d940fd",
+  "file": "server/lib/browser.js",
+  "category": "출력 계약",
+  "reason": "우리 도구가 돌려준 결과 문자열",
+  "text": "^(error|refused|not pressed|no (card|credential)|the saved)"
+ },
+ {
+  "id": "server/lib/browser.js#ab796206fe",
+  "file": "server/lib/browser.js",
+  "category": "출력 계약",
+  "reason": "선택 카드 답 계약",
+  "text": "chose: (승인|Approve)\\."
+ },
+ {
+  "id": "server/lib/folders/git.js#ec330fe5a3",
+  "file": "server/lib/folders/git.js",
+  "category": "환경 변수 이름",
+  "reason": "git 환경 변수",
+  "text": "^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|NAMESPACE|CEILING)"
+ },
+ {
+  "id": "server/lib/folders/indexer.js#590a70d2b3",
+  "file": "server/lib/folders/indexer.js",
+  "category": "확장자",
+  "reason": "파일 확장자",
+  "text": "\\.(md|markdown|txt|csv|docx|xlsx|pptx|hwpx|pdf)$"
+ },
+ {
+  "id": "server/lib/folders/indexer.js#76f9fa45c3",
+  "file": "server/lib/folders/indexer.js",
+  "category": "마크업",
+  "reason": "OOXML/HWPX 문단 태그",
+  "text": "<\\/(w:p|a:p|hp:p|si|row)>"
+ },
+ {
+  "id": "server/lib/folders/merge.js#fe6dd5172e",
+  "file": "server/lib/folders/merge.js",
+  "category": "확장자",
+  "reason": "파일 확장자",
+  "text": "\\.(docx|xlsx|pptx|hwpx?|pdf|png|jpe?g|psd|mp4|wav|mp3)$"
+ },
+ {
+  "id": "server/lib/folders/service.js#4b4c32b4d0",
+  "file": "server/lib/folders/service.js",
+  "category": "확장자",
+  "reason": "파일 확장자",
+  "text": "\\.(docx|xlsx|pptx|hwpx?|pdf|png|jpe?g|psd|mp4|wav|mp3|dxf|svg)$"
+ },
+ {
+  "id": "server/lib/google.js#87ece9f198",
+  "file": "server/lib/google.js",
+  "category": "MIME 형식",
+  "reason": "MIME 타입",
+  "text": "^text|json|csv"
+ },
+ {
+  "id": "server/lib/improve/analyze.js#3b22b33325",
+  "file": "server/lib/improve/analyze.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "[,\\s원₩]"
+ },
+ {
+  "id": "server/lib/improve/analyze.js#d9dc283b76",
+  "file": "server/lib/improve/analyze.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "^(-?\\d+(?:\\.\\d+)?)(억|천만|백만|만)?$"
+ },
+ {
+  "id": "server/lib/improve/demoProcess.js#0c5eebeced",
+  "file": "server/lib/improve/demoProcess.js",
+  "category": "시연 데이터",
+  "reason": "seed-improve-demo 시드와 시험만 쓰는 샘플 값 — 프롬프트·판정에 쓰이지 않음",
+  "text": "가구·집기 단가가 지난 매장보다 높아요. 다시 확인해 주세요.|전기 증설 비용이 빠졌어요.|설계비 비율을 표준(7%)에 맞춰 주세요."
+ },
+ {
+  "id": "server/lib/improve/demoProcess.js#7ebbbcaeb2",
+  "file": "server/lib/improve/demoProcess.js",
+  "category": "시연 데이터",
+  "reason": "seed-improve-demo 시드와 시험만 쓰는 샘플 값 — 프롬프트·판정에 쓰이지 않음",
+  "text": "승인합니다.|조건 확인했어요. 승인.|단가 적정, 승인합니다."
+ },
+ {
+  "id": "server/lib/improve/demoProcess.js#4103b4b60e",
+  "file": "server/lib/improve/demoProcess.js",
+  "category": "시연 데이터",
+  "reason": "seed-improve-demo 시드와 시험만 쓰는 샘플 값 — 프롬프트·판정에 쓰이지 않음",
+  "text": "성수|판교|광교|송도|마곡|문정|하남|일산|분당|평촌|동탄|청라|위례|상암|여의도|잠실|목동|서초|역삼|합정|연남|망원|부천|안양|수원역|영통|산본|김포|파주|의정부|구리|남양주|용인|기흥|죽전|인천|부평|제물포|대"
+ },
+ {
+  "id": "server/lib/meetings/interpret.js#8f64f5ceb6",
+  "file": "server/lib/meetings/interpret.js",
+  "category": "오류 분류",
+  "reason": "외부 API·DB 오류 코드/메시지 분류",
+  "text": "quota|billing|insufficient"
+ },
+ {
+  "id": "server/lib/meetings/materials.js#3200e82d31",
+  "file": "server/lib/meetings/materials.js",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "^(?:(.+?)님의 에이전트가 만들었어요|Made by (.+?)'s agent)$"
+ },
+ {
+  "id": "server/lib/mining/branch.js#29dbfc5340",
+  "file": "server/lib/mining/branch.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "\\d+(?:\\.\\d+)?\\s*(?:천|만|억|조)*"
+ },
+ {
+  "id": "server/lib/mining/runners.js#7c85b05991",
+  "file": "server/lib/mining/runners.js",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "^\\s*[*_`]*\\s*(?:TOTAL|Total|합계)\\s*[:：]\\s*[*_`]*\\s*(?:₩|KRW\\s*)?([^*_`]+?)\\s*(?:원|KRW|won)?\\s*[*_`]*\\s*$"
+ },
+ {
+  "id": "server/lib/mining/service.js#f2acd48ed4",
+  "file": "server/lib/mining/service.js",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "^조건\\s*\\d+$"
+ },
+ {
+  "id": "server/lib/panelApps/db.js#0fd9d0bd22",
+  "file": "server/lib/panelApps/db.js",
+  "category": "SQL 문법",
+  "reason": "SQL 키워드",
+  "text": "^\\s*(create|alter|drop)\\b"
+ },
+ {
+  "id": "server/lib/panelApps/events.js#74cefeec8f",
+  "file": "server/lib/panelApps/events.js",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "ID|시각|기록한 사람|종류"
+ },
+ {
+  "id": "server/lib/panelApps/rules.js#b36802d2c6",
+  "file": "server/lib/panelApps/rules.js",
+  "category": "규칙 문법",
+  "reason": "패널 규칙 식 문법",
+  "text": "^role>=(viewer|runner|editor|owner)$"
+ },
+ {
+  "id": "server/lib/panelApps/service.js#d6f2415972",
+  "file": "server/lib/panelApps/service.js",
+  "category": "오류 분류",
+  "reason": "외부 API·DB 오류 코드/메시지 분류",
+  "text": "abort|timeout|timed out"
+ },
+ {
+  "id": "server/lib/panelApps/sheet.js#a479647baf",
+  "file": "server/lib/panelApps/sheet.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "^(about|approx\\.?|around|roughly|total|~|krw|usd)"
+ },
+ {
+  "id": "server/lib/panelApps/sheet.js#a5189f0274",
+  "file": "server/lib/panelApps/sheet.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "(won|krw|usd|days?|pcs|items?|people|persons?|hours?|hrs?|times|%|percent)$"
+ },
+ {
+  "id": "server/lib/panelApps/sheet.js#d6346da452",
+  "file": "server/lib/panelApps/sheet.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "^([-+]?\\d+(?:\\.\\d+)?)(k|thousand|mn|mil|million|m|bn|billion|b)?$"
+ },
+ {
+  "id": "server/lib/panelApps/sheet.js#b7a13ebcea",
+  "file": "server/lib/panelApps/sheet.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "^(약|대략|총|금)"
+ },
+ {
+  "id": "server/lib/panelApps/sheet.js#37667539fa",
+  "file": "server/lib/panelApps/sheet.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "(원정?|원|일|개|명|건|회|대|권|시간|%|퍼센트)$"
+ },
+ {
+  "id": "server/lib/panelApps/sheet.js#bc01c926fe",
+  "file": "server/lib/panelApps/sheet.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "(\\d+(?:\\.\\d+)?)|([조억만천백십])|(.)"
+ },
+ {
+  "id": "server/lib/panelApps/sheet.js#b7cfc90d10",
+  "file": "server/lib/panelApps/sheet.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "^(true|1|y|yes|예|o|✓|☑)$"
+ },
+ {
+  "id": "server/lib/panelApps/sheet.js#2dca9165a9",
+  "file": "server/lib/panelApps/sheet.js",
+  "category": "숫자·단위·날짜 형식",
+  "reason": "셀·값의 숫자·단위·참거짓·날짜 표기 해석(값 형식, 의도 판정 아님)",
+  "text": "^(\\d{4})[-./년\\s]+(\\d{1,2})[-./월\\s]+(\\d{1,2})"
+ },
+ {
+  "id": "server/lib/processes.js#b3157ce768",
+  "file": "server/lib/processes.js",
+  "category": "폼 필드 타입",
+  "reason": "폼 필드 타입 이름",
+  "text": "select|radio|checkbox|multiselect"
+ },
+ {
+  "id": "server/lib/provenance.js#562039c144",
+  "file": "server/lib/provenance.js",
+  "category": "확장자",
+  "reason": "파일 확장자",
+  "text": "\\.(md|markdown|txt|html?|csv)$"
+ },
+ {
+  "id": "server/lib/skills.js#021e2fe080",
+  "file": "server/lib/skills.js",
+  "category": "도구 이름",
+  "reason": "도구·메서드 이름",
+  "text": "\\b(?:youtube|calendar|gmail|drive|slack|github|notion)_[a-z_]+\\b"
+ },
+ {
+  "id": "server/lib/stepRetry.js#12d80dbf71",
+  "file": "server/lib/stepRetry.js",
+  "category": "오류 분류",
+  "reason": "외부 API·DB 오류 코드/메시지 분류",
+  "text": "recovery mode|57P03|terminat(ed|ing) (unexpectedly|connection)|connection (refused|reset|closed|error|timed out)|could n"
+ },
+ {
+  "id": "server/lib/team/messenger.js#dcc20f90fe",
+  "file": "server/lib/team/messenger.js",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "^(.*?)(?:님의 에이전트|'s agent)$"
+ },
+ {
+  "id": "server/lib/workTrail.js#fae69563bf",
+  "file": "server/lib/workTrail.js",
+  "category": "비밀 이름 형식",
+  "reason": "인자 키 이름의 비밀 표시",
+  "text": "(key|token|secret|password|passwd|auth|bearer|cookie|session|jwt)"
+ },
+ {
+  "id": "server/lib/workTrail.js#7f29d1c1d9",
+  "file": "server/lib/workTrail.js",
+  "category": "도구 이름",
+  "reason": "도구·메서드 이름",
+  "text": "^(write_todos|ls|glob|think|todo)"
+ },
+ {
+  "id": "server/lib/workroom.js#f3a5119e0d",
+  "file": "server/lib/workroom.js",
+  "category": "확장자",
+  "reason": "파일 확장자",
+  "text": "\\.(md|markdown|txt|json|ya?ml|toml|ini|env\\.example|csv|tsv|py|js|mjs|cjs|ts|tsx|jsx|vue|html?|css|scss|sh|bash|zsh|sql|"
+ },
+ {
+  "id": "server/lib/workroom.js#911d8e34de",
+  "file": "server/lib/workroom.js",
+  "category": "비밀 이름 형식",
+  "reason": "환경 변수 이름의 비밀 표시",
+  "text": "KEY|SECRET|TOKEN|PASSWORD"
+ },
+ {
+  "id": "server/lib/workroom.js#ebf9db5a2a",
+  "file": "server/lib/workroom.js",
+  "category": "호스트 이름",
+  "reason": "터널 호스트",
+  "text": "\\.(trycloudflare\\.com|ngrok-free\\.app|ngrok\\.app|ngrok\\.io)$"
+ },
+ {
+  "id": "server/routes/folders.js#7849342529",
+  "file": "server/routes/folders.js",
+  "category": "확장자",
+  "reason": "파일 확장자",
+  "text": "^(html?|svg|xml)$"
+ },
+ {
+  "id": "server/mcp/connectors/browser.js#18ef310743",
+  "file": "server/mcp/connectors/browser.js",
+  "category": "HTML 관례",
+  "reason": "input type · 로그인/카드 칸 name·autocomplete 관례(가리기·캡처)",
+  "text": "(^|\\.)(localhost|local|internal|svc|cluster\\.local)$"
+ },
+ {
+  "id": "server/mcp/connectors/youtube.js#1c08ca6562",
+  "file": "server/mcp/connectors/youtube.js",
+  "category": "오류 분류",
+  "reason": "YouTube API 오류 코드",
+  "text": "quota|dailyLimit|rateLimit"
+ },
+ {
+  "id": "server/mcp/connectors/youtube.js#f072f7ccfc",
+  "file": "server/mcp/connectors/youtube.js",
+  "category": "오류 분류",
+  "reason": "YouTube API 오류 코드",
+  "text": "accessNotConfigured|SERVICE_DISABLED|ACCESS_DENIED|API_KEY_SERVICE_BLOCKED|has not been used|is disabled"
+ },
+ {
+  "id": "server/mcp/connectors/youtube.js#adbedc01d0",
+  "file": "server/mcp/connectors/youtube.js",
+  "category": "외부 페이지 형식",
+  "reason": "YouTube 결과 페이지의 조회수·게시 시각 표기 해석",
+  "text": "없음|no views"
+ },
+ {
+  "id": "server/mcp/connectors/youtube.js#1882cf3827",
+  "file": "server/mcp/connectors/youtube.js",
+  "category": "외부 페이지 형식",
+  "reason": "YouTube 결과 페이지의 조회수·게시 시각 표기 해석",
+  "text": "(\\d[\\d,.]*)\\s*(천|만|억|[KMB](?![a-z]))?"
+ },
+ {
+  "id": "server/mcp/connectors/youtube.js#8cb75f6f6a",
+  "file": "server/mcp/connectors/youtube.js",
+  "category": "외부 페이지 형식",
+  "reason": "YouTube 결과 페이지의 조회수·게시 시각 표기 해석",
+  "text": "조회수|views?\\b|시청"
+ },
+ {
+  "id": "server/mcp/connectors/youtube.js#1e57ee569a",
+  "file": "server/mcp/connectors/youtube.js",
+  "category": "외부 페이지 형식",
+  "reason": "YouTube 결과 페이지의 조회수·게시 시각 표기 해석",
+  "text": "전$|ago$"
+ },
+ {
+  "id": "server/mcp/connectors/youtube.js#006c3955cc",
+  "file": "server/mcp/connectors/youtube.js",
+  "category": "URL 경로",
+  "reason": "채널 URL 경로",
+  "text": "\\/(videos|streams|shorts)$"
+ },
+ {
+  "id": "server/mcp/craft.js#7519d9f60a",
+  "file": "server/mcp/craft.js",
+  "category": "도구 이름",
+  "reason": "도구·메서드 이름",
+  "text": "^(ui_|jobs_)|^(screenshot|control_call|session_list|parity|click|drag|key|menu_invoke|select_tool|pointer_gesture|press_"
+ },
+ {
+  "id": "server/mcp/folders.js#291f1d3940",
+  "file": "server/mcp/folders.js",
+  "category": "확장자",
+  "reason": "파일 확장자",
+  "text": "\\.(docx|xlsx|pptx|hwpx?|pdf|png|jpe?g|gif|webp|psd|mp4|mov|webm|wav|mp3|zip|dxf)$"
+ },
+ {
+  "id": "server/index.js#21a759813e",
+  "file": "server/index.js",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "^최근 요청:"
+ },
+ {
+  "id": "server/index.js#904c44ae2f",
+  "file": "server/index.js",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "^최근 답:"
+ },
+ {
+  "id": "server/index.js#a94d46e606",
+  "file": "server/index.js",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "진행 중인 요청"
+ },
+ {
+  "id": "server/index.js#3cf50f0f71",
+  "file": "server/index.js",
+  "category": "확장자",
+  "reason": "파일 확장자",
+  "text": "\\.(html?|svg|xml)$"
+ },
+ {
+  "id": "src/components/ActionCard.vue#6f6595aac3",
+  "file": "src/components/ActionCard.vue",
+  "category": "호스트 이름",
+  "reason": "사설·예시 도메인",
+  "text": "(^|\\.)(example|test|invalid|localhost)$|(^|\\.)example\\.(com|net|org)$"
+ },
+ {
+  "id": "src/components/ConversationBar.vue#0177666d70",
+  "file": "src/components/ConversationBar.vue",
+  "category": "출력 계약",
+  "reason": "우리 시스템이 만든 문구·머리글·자리표시 형식",
+  "text": "^최근 요청:\\s*"
+ },
+ {
+  "id": "src/components/CraftEditorFrame.vue#83ae408b3e",
+  "file": "src/components/CraftEditorFrame.vue",
+  "category": "도구 이름",
+  "reason": "도구·메서드 이름",
+  "text": "^(ui\\.inspect|ui\\.elements|ui\\.render|engine\\.commands|ui\\.screenshot|jobs\\.list|ui\\.menu\\.list|cmdline\\.state|control\\."
+ },
+ {
+  "id": "src/components/NotificationCard.vue#9b37c33069",
+  "file": "src/components/NotificationCard.vue",
+  "category": "URL 경로",
+  "reason": "앱 경로 · 샌드박스 경로 접두어",
+  "text": "^\\/(projects|routines|settings)\\/"
+ },
+ {
+  "id": "src/components/folders/fileKind.js#b72abb5643",
+  "file": "src/components/folders/fileKind.js",
+  "category": "코드 문법",
+  "reason": "코드 미리 보기 강조용 키워드",
+  "text": "\\b(def|class|return|if|elif|else|for|while|in|not|and|or|import|from|as|with|try|except|raise|None|True|False|const|let|"
+ },
+ {
+  "id": "src/components/improve/HeatBpmn.vue#aca2bf762a",
+  "file": "src/components/improve/HeatBpmn.vue",
+  "category": "BPMN 형식",
+  "reason": "BPMN 요소 타입",
+  "text": "Participant|Lane|Process|Collaboration"
+ },
+ {
+  "id": "src/paths.js#6a13127552",
+  "file": "src/paths.js",
+  "category": "URL 경로",
+  "reason": "앱 경로 · 샌드박스 경로 접두어",
+  "text": "\\/(workspace|Users|home|private|tmp)\\b"
+ },
+ {
+  "id": "src/views/LoginView.vue#edef54a719",
+  "file": "src/views/LoginView.vue",
+  "category": "화면 문구",
+  "reason": "로그인 화면의 예시 문장 표시(입력 판정 아님)",
+  "text": "노스윈드 견적 요청 메일에 작년 조건으로 회신 초안 써줘|매일 아침 8시에 국제 경제 브리핑을 메일로 보내줘|파트너포털에 로그인해서 세금계산서 발행해줘|코스피랑 우리 고객사 주가 추적하는 패널 만들어줘"
+ },
+ {
+  "id": "src/views/MainView.vue#9b37c33069",
+  "file": "src/views/MainView.vue",
+  "category": "URL 경로",
+  "reason": "앱 경로 · 샌드박스 경로 접두어",
+  "text": "^\\/(projects|routines|settings)\\/"
+ }
+]

@@ -131,7 +131,7 @@ export async function remove(user, app, id, v) {
 async function explain(c, app, id, v, verb) {
   const seen = await c.query(`select updated_at::text as _v from ${R.qualified(app.id)} where id = $1::uuid`, [id])
   if (!seen.rows.length) throw err(404, L('그 행이 없거나 볼 수 없어요.', "That row isn't there, or you can't see it."))
-  if (v && seen.rows[0]._v !== v) throw err(409, L('다른 사람이 먼저 고쳤어요. 새로 불러온 값을 확인해 주세요.', 'Someone else changed it first. Please check the values just loaded.'))
+  if (v && seen.rows[0]._v !== v) throw Object.assign(err(409, L('다른 사람이 먼저 고쳤어요. 새로 불러온 값을 확인해 주세요.', 'Someone else changed it first. Please check the values just loaded.')), { code: 'ROW_CHANGED' })
   throw err(403, L(`이 행을 ${verb} 권한이 없어요(데이터베이스가 거절했어요).`, `You may not ${verb} this row (the database refused).`))
 }
 

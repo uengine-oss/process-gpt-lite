@@ -50,8 +50,19 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   // mcp-hub bindings (agent.js binds tools once per user): nothing bound in this test
   if (/\/servers$|\/bindings$/.test(u)) return new Response('[]', { headers: { 'Content-Type': 'application/json' } })
+  // the chat router's model (lib/skills/router.js): it answers with the function the test scripted next
+  // (delegate when none) — what a message means is measured by the evaluation sets, not here
+  if (u === `${config.llm.baseUrl}/chat/completions`) {
+    const body = opts.body ? JSON.parse(opts.body) : {}
+    routerCalls.push(body)
+    const next = body.tools ? routerScript.shift() || ['delegate', {}] : null
+    const message = next ? { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: next[0], arguments: JSON.stringify(next[1]) } }] } : { role: 'assistant', content: '시험 제목' }
+    return new Response(JSON.stringify({ choices: [{ message, finish_reason: next ? 'tool_calls' : 'stop' }], usage: {} }), { headers: { 'Content-Type': 'application/json' } })
+  }
   return realFetch(url, opts)
 }
+const routerCalls = []
+const routerScript = []
 const nth = async (n) => { while (streams.length < n) await new Promise((r) => wake.push(r)); return streams[n - 1] }
 const until = async (fn, ms = 5000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) return v; await new Promise((r) => setTimeout(r, 30)) } }
 
@@ -177,6 +188,67 @@ test('아무 내용 없이 끝난 답은 안내 문장으로', { skip: !up }, as
   h.end()
   const m = await p
   assert.equal(m.content.text, EMPTY_TEXT)
+  // (a field says so: lib/agent.js ownSkillTurn reads it, not the sentence)
+  assert.equal(m.content.empty, true)
+})
+
+// ---- the router's turn (lib/skills): one call, then a handler or the agent; structured fields from the page ----
+test('라우터: 한 번 부르고 delegate 면 에이전트로 — 메시지에는 사람이 한 말과 시스템 사실만(도메인 안내 없음)', { skip: !up }, async () => {
+  const tid = await thread(`fxa-r-${stamp}`)
+  const n0 = streams.length
+  const c0 = routerCalls.length
+  const p = runTurn({ user, session, threadId: tid, text: '다음 분기 지수 흐름을 표로 정리해 줘' })
+  const h = await nth(n0 + 1)
+  const calls = routerCalls.slice(c0).filter((b) => b.tools)
+  assert.equal(calls.length, 1, 'one router call')
+  assert.ok(calls[0].tools.some((t) => t.function.name === 'schedule_create') && calls[0].tools.some((t) => t.function.name === 'delegate'))
+  // what the agent receives: the words, then facts — no site, API or tool instructions
+  assert.ok(h.body.message.startsWith('다음 분기 지수 흐름을 표로 정리해 줘'))
+  for (const s of ['stock.naver.com', 'youtube.com/feeds', 'cadcraft_', 'office_live_documents', 'connector']) assert.ok(!h.body.message.includes(s), s)
+  h.push('message', { type: 'token', content: '정리했어요.' }); h.end()
+  await p
+})
+
+test('라우터의 되묻기: 선택지가 메시지에 저장되고, 누른 선택지(reply)는 그 스킬을 바로 실행', { skip: !up }, async () => {
+  const tid = await thread(`fxa-ask-${stamp}`)
+  const [s1] = await q(`insert into pro_schedules(user_id,name,cron,prompt) values ($1,'시험 감시 하나','0 9 * * *','x') returning id`, [user.id])
+  const [s2] = await q(`insert into pro_schedules(user_id,name,cron,prompt) values ($1,'시험 감시 둘','0 10 * * *','y') returning id`, [user.id])
+  try {
+    routerScript.push(['telegram_delivery', { action: 'alerts_on', ack: '텔레그램으로 보내 드릴게요.' }])
+    const asked = await runTurn({ user, session, threadId: tid, text: '그거 결과도 텔레그램으로 받을래' })
+    const rows = await msgs(tid)
+    const q1 = rows.find((m) => m.role === 'agent' && Array.isArray(m.content.choices))
+    assert.ok(q1, 'a question with choices')
+    assert.deepEqual(q1.content.choices.map((c) => c.args.schedule).sort(), [s1.id.slice(0, 8), s2.id.slice(0, 8)].sort())
+    void asked
+    // the second choice, tapped: the skill runs with it (no router call)
+    const c0 = routerCalls.length
+    const i = q1.content.choices.findIndex((c) => c.args.schedule === s2.id.slice(0, 8))
+    await runTurn({ user, session, threadId: tid, text: q1.content.choices[i].label, reply: { messageId: q1.id, index: i } })
+    assert.equal(routerCalls.slice(c0).filter((b) => b.tools).length, 0)
+    const [st] = await q('select state from pro_schedules where id=$1', [s2.id])
+    assert.deepEqual(st.state?.channels, ['telegram'])
+    assert.ok((await msgs(tid)).some((m) => m.kind === 'telegram_connect'), 'no bot yet: the connect card')
+  } finally { await q('delete from pro_schedules where id = any($1)', [[s1.id, s2.id]]) }
+})
+
+test('에이전트가 묻는 질문(HITL)의 선택지는 답의 choices, 누르면 라우터 없이 에이전트로 · 스트림 오류는 error 표시', { skip: !up }, async () => {
+  const tid = await thread(`fxa-h-${stamp}`)
+  const n0 = streams.length
+  const p = runTurn({ user, session, threadId: tid, text: '보고서 형식 정해서 써 줘' })
+  const h = await nth(n0 + 1)
+  h.push('message', { type: 'done', content: JSON.stringify({ type: 'human_input_required', question: '어느 형식으로 쓸까요?', context: '', options: [{ label: '워드' }, { label: '한글', description: 'hwpx' }] }) })
+  h.end()
+  const m = await p
+  assert.equal(m.content.text, '어느 형식으로 쓸까요?')
+  assert.deepEqual(m.content.choices, [{ label: '워드', to: 'agent' }, { label: '한글', hint: 'hwpx', to: 'agent' }])
+  const c0 = routerCalls.length
+  const p2 = runTurn({ user, session, threadId: tid, text: '한글', reply: { messageId: m.id, index: 1 } })
+  const h2 = await nth(n0 + 2)
+  assert.equal(routerCalls.slice(c0).filter((b) => b.tools).length, 0, 'the answer goes back to the agent')
+  h2.push('message', { type: 'error', error: 'sandbox crashed' }); h2.end()
+  const m2 = await p2
+  assert.equal(m2.content.error, true)
 })
 
 // what deepagents sent before it read results only from the process folder: the first definition-shaped

@@ -1,0 +1,11 @@
+{
+  "about": "배치 모델의 답이 맞지 않을 때(실 면적의 합이 전체와 다를 때) 쓰는 기본 배치. 홀 하나와 옆 열의 실들. 치수가 없으면 default_size_m.",
+  "default_size_m": { "width": 12, "depth": 8 },
+  "side_width": { "max_m": 4, "share_of_width": 0.3333 },
+  "main": { "name": { "ko": "홀", "en": "Hall" }, "use": { "ko": "좌석·대기", "en": "Seating & waiting" } },
+  "side": [
+    { "name": { "ko": "바·주방", "en": "Bar & kitchen" }, "use": { "ko": "음료 제조", "en": "Drink making" }, "share_of_depth": 0.5 },
+    { "name": { "ko": "창고", "en": "Storage" }, "use": { "ko": "재고 보관", "en": "Stock" }, "share_of_depth": 0.25 },
+    { "name": { "ko": "화장실", "en": "Restroom" }, "use": { "ko": "1개", "en": "1" }, "share_of_depth": 0.25 }
+  ]
+}

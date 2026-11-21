@@ -197,13 +197,16 @@ test.describe('휴대폰 검토 11-21 — 예약 작업', () => {
     return { s, main }
   }
 
-  test('F-MR-06 「곧바로 하나 정도 한번 실행해 봐」는 새 예약이 아니라 그 작업을 지금 한 번 실행한다', async ({ as, db, cleanup }) => {
+  // Which words mean "run it now" or "alerts to Telegram" is the chat router's (skills/actions, measured by
+  // server/eval's sets with the real model). These two check what the action does once chosen — the same
+  // skill and arguments the router or a tapped choice gives (intent { kind: 'skill' }), without a model.
+  test('F-MR-06 지금 실행(schedule-run-now): 새 예약 없이 그 작업을 지금 한 번 실행하고 이 대화에 「지금 실행」 칩', async ({ as, db, cleanup }) => {
     test.setTimeout(120_000)
     const u = await as('mr-runnow')
     const name = uniq('회귀 주가 감시')
     const { s, main } = await seedTask(db, u, cleanup, name)
     const before = (await db.q('select count(*)::int as n from pro_schedules where user_id=$1', [u.id]))[0].n
-    const r = await u.post(`/threads/${main}/messages`, { text: '곧바로 하나 정도 한번 실행해 봐' })
+    const r = await u.post(`/threads/${main}/messages`, { text: '지금 한 번 실행', intent: { kind: 'skill', skill: 'schedule-run-now', args: { schedule: s.id.slice(0, 8) } } })
     expect(r.status, r.text).toBeLessThan(300)
     await expect.poll(async () => (await db.q(`select trigger from pro_mission_runs where schedule_id=$1`, [s.id])).map((x) => x.trigger), { timeout: 20_000 }).toContain('manual')
     expect((await db.q('select count(*)::int as n from pro_schedules where user_id=$1', [u.id]))[0].n, '새 예약을 만들지 않는다').toBe(before)
@@ -212,13 +215,13 @@ test.describe('휴대폰 검토 11-21 — 예약 작업', () => {
     await db.q('delete from pro_mission_runs where schedule_id=$1', [s.id])
   })
 
-  test('F-MR-07 「급등락이 감지되면 내 텔레그램 봇으로 알려줘」: 그 작업에 텔레그램 전달을 켜고, 봇이 없으면 연결 카드', async ({ as, db, cleanup }) => {
+  test('F-MR-07 텔레그램 전달(telegram-delivery alerts_on): 그 작업에 텔레그램 전달을 켜고, 봇이 없으면 연결 카드', async ({ as, db, cleanup }) => {
     test.setTimeout(120_000)
     const u = await as('mr-telegram')
     await u.del('/telegram').catch(() => {})
     const name = uniq('회귀 급등락 감시')
     const { s, main } = await seedTask(db, u, cleanup, name)
-    const r = await u.post(`/threads/${main}/messages`, { text: '급등락이 감지되면 내 텔레그램 봇으로 알려줘' })
+    const r = await u.post(`/threads/${main}/messages`, { text: '이 작업 결과를 텔레그램으로도', intent: { kind: 'skill', skill: 'telegram-delivery', args: { action: 'alerts_on', schedule: s.id.slice(0, 8) } } })
     expect(r.status, r.text).toBeLessThan(300)
     await expect.poll(async () => (await db.q('select state from pro_schedules where id=$1', [s.id]))[0].state?.channels, { timeout: 15_000 }).toEqual(['telegram'])
     await expect.poll(async () => (await db.q(`select count(*)::int as n from pro_messages where thread_id=$1 and kind='telegram_connect'`, [main]))[0].n).toBe(1)

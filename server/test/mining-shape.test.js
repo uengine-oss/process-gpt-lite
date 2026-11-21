@@ -94,12 +94,16 @@ test('경계의 필수 단계는 정의에서 읽는다 — 정의에 없는 단
   assert.equal(requiredIn(null), null, '정의가 없으면 초안을 쓴다')
 })
 
-test('건너뛰는 조건은 관리자가 방금 한 말에서만 받는다 (지난 대화의 조건을 다시 쓰지 않는다)', async () => {
+test('건너뛰는 조건은 관리자가 방금 한 말에서만 받는다 — 모델이 옮겨 적은 인용이 그 말의 일부인지만 본다', async () => {
   const { saidNow } = await import('../lib/mining/talk.js')
-  assert.ok(saidNow('견적 합계가 5천만 원 미만이면', '견적 합계가 5천만 원 미만이면 건너뛰어'))
-  assert.ok(saidNow('고객이 메일에서 계약서를 요청하지 않았으면', '계약 검토는 옵션이야. 고객이 메일에서 계약서를 요청하지 않았으면 건너뛰어'))
-  assert.ok(!saidNow('견적 합계가 5천만 원 미만이면', '재무 검토는 옵션 단계로 해 줘'))
-  assert.ok(!saidNow('', '아무 말'))
+  const last = '그 단계는 옵션으로 하자.   주문 수량이 열 개 이하이면 넘어가도 돼'
+  assert.ok(saidNow('주문 수량이 열 개 이하이면', last), '마지막 말의 일부')
+  assert.ok(saidNow('주문수량이 열 개 이하이면', last), '띄어쓰기는 보지 않는다')
+  assert.ok(saidNow('ORDER  QTY', 'skip it when order qty is 10 or less'), '대소문자·공백은 형식일 뿐')
+  assert.ok(!saidNow('주문 수량이 스무 개 이하이면', last), '바꿔 쓴 조건은 인용이 아니다')
+  assert.ok(!saidNow('주문 수량이 열 개 이하이면', '그 단계는 옵션으로 해 줘'), '조건을 말하지 않은 메시지')
+  assert.ok(!saidNow('', last))
+  assert.ok(!saidNow('이', last), '한 글자 인용은 근거가 아니다')
 })
 
 test('게이트웨이는 바로 앞 단계의 레인에 둔다 — 역할이 없으면 BPMN 생성기가 모두 한 구석에 겹쳐 그린다', async () => {

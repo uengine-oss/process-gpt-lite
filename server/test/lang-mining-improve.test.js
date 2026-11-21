@@ -3,7 +3,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { withLang } from '../lib/lang.js'
-import { STEPS, STEPS_EN, AGENTS, AGENTS_EN, agentsIn, labelIn, labelsOf, labelLang, stepOf, TOOL_FORMAT } from '../lib/mining/catalog.js'
+import { stepsIn, agentsIn, labelIn, labelsOf, labelLang, stepOf, formatOfTool } from '../lib/mining/catalog.js'
+import { setEnabledPacks } from '../lib/skillInstallCatalog.js'
+import { config } from '../config.js'
 import { contract, simulate, DEF_NAME, defName, fieldLabels, FIELD_LABELS } from '../lib/improve/demoProcess.js'
 import { engineRows } from '../lib/improve/shape.js'
 import { analyze } from '../lib/improve/analyze.js'
@@ -19,53 +21,83 @@ const people = { jang: 'u1', minji: 'u2', seoyeon: 'u3' }
 const NAMES = { ko: { jang: '장진영', minji: '김민지', seoyeon: '박서연' }, en: { jang: 'Jinyoung Jang', minji: 'Minji Kim', seoyeon: 'Seoyeon Park' } }
 const range = { from: Date.UTC(2026, 7, 3), to: Date.UTC(2026, 9, 27, 3) }
 
-test('mining catalog: every step has an English twin (same key, skill kind, agent id); labels map both ways', () => {
-  for (const [ko, st] of Object.entries(STEPS)) {
-    const en = labelIn(ko, 'en')
-    assert.notEqual(en, ko, `${ko} has an English label`)
-    assert.equal(labelIn(en, 'ko'), ko)
-    assert.equal(stepOf(en).key, st.key)
-    assert.equal(stepOf(en).kind, st.kind)
-    assert.deepEqual(stepOf(en).fields.map((f) => f.key), st.fields.map((f) => f.key))
-  }
-  noHangul(STEPS_EN, 'STEPS_EN')
-  noHangul(AGENTS_EN, 'AGENTS_EN')
-  for (const k of Object.keys(AGENTS)) assert.equal(AGENTS_EN[k].id, AGENTS[k].id)
-  assert.equal(agentsIn('en').drawing.name, 'Drawing agent')
-  assert.equal(agentsIn('ko').drawing.name, '도면 에이전트')
-  assert.equal(withLang('en', () => agentsIn()).quote.name, 'Quote agent')
-  assert.deepEqual(labelsOf('고객 회신'), ['고객 회신', 'Reply to customer'])
-  assert.equal(labelLang('Finance review'), 'en')
-  assert.equal(labelLang('재무 검토'), 'ko')
-  // a '<role> review' outside the known kinds
-  assert.equal(labelIn('Operations review', 'en'), 'Operations review')
-  assert.match(stepOf('Operations review').description, /Operations side/)
-  assert.equal(TOOL_FORMAT[stepOf('Write proposal').tool], 'docx')
-  assert.equal(TOOL_FORMAT[stepOf('제안서 작성').tool], 'hwpx')
+// the store-design steps come from its business pack (skills/packs/store-design): on for these tests
+const packOn = () => setEnabledPacks(config.tenantId, ['store-design'])
+const packOff = () => setEnabledPacks(config.tenantId, [])
+
+test('mining catalog: every step has an English twin (same key, kind, form keys, agent id); labels map both ways', () => {
+  packOn()
+  try {
+    const ko = stepsIn('ko'), en = stepsIn('en')
+    assert.equal(ko.length, en.length)
+    for (const st of ko) {
+      const e = labelIn(st.label, 'en')
+      assert.notEqual(e, st.label, `${st.label} has an English label`)
+      assert.equal(labelIn(e, 'ko'), st.label)
+      assert.equal(stepOf(e).key, st.key)
+      assert.equal(stepOf(e).kind, st.kind)
+      assert.deepEqual((stepOf(e).fields || []).map((f) => f.key), (st.fields || []).map((f) => f.key))
+    }
+    noHangul(en, 'English steps')
+    noHangul(agentsIn('en'), 'English agents')
+    for (const k of Object.keys(agentsIn('ko'))) assert.equal(agentsIn('en')[k].id, agentsIn('ko')[k].id)
+    assert.equal(agentsIn('en').drawing.name, 'Drawing agent')
+    assert.equal(agentsIn('ko').drawing.name, '도면 에이전트')
+    assert.equal(withLang('en', () => agentsIn()).quote.name, 'Quote agent')
+    assert.deepEqual(labelsOf('고객 회신'), ['고객 회신', 'Reply to customer'])
+    assert.equal(labelLang('Finance review'), 'en')
+    assert.equal(labelLang('재무 검토'), 'ko')
+    // a label no catalog has is kept as recorded
+    assert.equal(labelIn('Operations review', 'en'), 'Operations review')
+    assert.equal(formatOfTool(stepOf('Write proposal').tool), 'docx')
+    assert.equal(formatOfTool(stepOf('제안서 작성').tool), 'hwpx')
+    assert.equal(formatOfTool('xlsx'), 'xlsx', 'a draft step records its format as its tool')
+  } finally { packOff() }
 })
 
 test('mining: a flow recorded in English is named and registered in English; a Korean one as before', () => {
+  packOn()
+  try {
+    const s = {
+      process_id: 'rt_mined_en', name: 'Design proposal & quote', summary: 'A store design request answered with a floor plan, a proposal and a quote.',
+      pattern: { case_count: 4, event_count: 24, main_variant: ['Receive request mail', 'Draw floor plan', 'Write proposal', 'Prepare quote', 'Finance review', 'Reply to customer'] },
+      definition: {
+        roles: [{ name: 'Sales' }, { name: 'Finance' }],
+        events: [{ id: 'start', type: 'startEvent' }, { id: 'end', type: 'endEvent' }],
+        activities: ['Receive request mail', 'Draw floor plan', 'Write proposal', 'Prepare quote', 'Finance review', 'Reply to customer'].map((name, i) => ({ id: `a${i}`, name })),
+        gateways: [], sequences: [{ id: 's0', source: 'start', target: 'a0' }],
+      },
+    }
+    assert.equal(patternLang(s.pattern), 'en')
+    const c = withLang(patternLang(s.pattern), () => buildContract(s))
+    noHangul(c, 'English contract')
+    assert.ok(c.processDefinition.elements.some((e) => e.agent === agentsIn('ko').drawing.id))
+    assert.ok(c.skills.includes('store-design-proposal'), 'the proposal step runs the pack skill')
+    assert.equal(c.processDefinition.roles.find((r) => r.name === 'Sales')?.origin, 'created', "the pack's role name for the mail steps")
+    // Korean: unchanged words
+    const ko = { ...s, pattern: { ...s.pattern, main_variant: ['요청 메일 접수', '고객 회신'] }, definition: { ...s.definition, activities: [{ id: 'a0', name: '요청 메일 접수' }, { id: 'a1', name: '고객 회신' }] } }
+    assert.equal(patternLang(ko.pattern), 'ko')
+    const kc = buildContract(ko)
+    assert.equal(kc.processDefinition.elements.find((e) => e.id === 'start').name, '요청 메일 도착')
+    assert.match(kc.processDefinition.description, /프로세스 마이닝이 인계 기록 24건\(케이스 4건\)에서 찾은 흐름을 정식 등록했어요\.$/)
+  } finally { packOff() }
+})
+
+test('mining without the pack: the same contract has no trade agents, skills or wording — the steps keep the mined roles', () => {
+  packOff()
   const s = {
-    process_id: 'rt_mined_en', name: 'Design proposal & quote', summary: 'A store design request answered with a floor plan, a proposal and a quote.',
-    pattern: { case_count: 4, event_count: 24, main_variant: ['Receive request mail', 'Draw floor plan', 'Write proposal', 'Prepare quote', 'Finance review', 'Reply to customer'] },
-    definition: {
-      roles: [{ name: 'Sales' }, { name: 'Finance' }],
-      events: [{ id: 'start', type: 'startEvent' }, { id: 'end', type: 'endEvent' }],
-      activities: ['Receive request mail', 'Draw floor plan', 'Write proposal', 'Prepare quote', 'Finance review', 'Reply to customer'].map((name, i) => ({ id: `a${i}`, name })),
-      gateways: [], sequences: [{ id: 's0', source: 'start', target: 'a0' }],
-    },
+    process_id: 'rt_mined_plain', name: 'n', summary: '',
+    pattern: { case_count: 4, event_count: 24, main_variant: ['요청 메일 접수', '평면도 작성', '고객 회신'] },
+    definition: { roles: [{ name: '영업' }], events: [{ id: 'start', type: 'startEvent' }, { id: 'end', type: 'endEvent' }],
+      activities: [{ id: 'a0', name: '요청 메일 접수' }, { id: 'a1', name: '평면도 작성', role: '디자이너' }, { id: 'a2', name: '고객 회신' }], gateways: [], sequences: [] },
   }
-  assert.equal(patternLang(s.pattern), 'en')
-  const c = withLang(patternLang(s.pattern), () => buildContract(s))
-  noHangul(c, 'English contract')
-  assert.ok(c.processDefinition.elements.some((e) => e.agent === AGENTS.drawing.id))
-  assert.ok(c.skills.includes('docx-proposal'))
-  // Korean: unchanged words
-  const ko = { ...s, pattern: { ...s.pattern, main_variant: ['요청 메일 접수', '고객 회신'] }, definition: { ...s.definition, activities: [{ id: 'a0', name: '요청 메일 접수' }, { id: 'a1', name: '고객 회신' }] } }
-  assert.equal(patternLang(ko.pattern), 'ko')
-  const kc = buildContract(ko)
-  assert.equal(kc.processDefinition.elements.find((e) => e.id === 'start').name, '요청 메일 도착')
-  assert.match(kc.processDefinition.description, /프로세스 마이닝이 인계 기록 24건\(케이스 4건\)에서 찾은 흐름을 정식 등록했어요\.$/)
+  const c = buildContract(s)
+  assert.ok(!c.processDefinition.elements.some((e) => e.agent === '3a6f0c1e-8d2b-4f4a-9c61-0d5e7b2a9f11'), 'no pack agent')
+  assert.deepEqual(c.skills, [], 'no pack skills')
+  const plan = c.processDefinition.elements.find((e) => e.id === 'a1')
+  assert.equal(plan.role, '디자이너', 'the role the cases recorded')
+  assert.equal(plan.instruction, '', 'no pack instruction')
+  assert.doesNotMatch(JSON.stringify(c.forms), /실별 면적|캐드크래프트|견적 합계/)
 })
 
 test('mining: the next mail goes to the registered process of its 업무 범주 — not by step words (2026-11-11)', () => {

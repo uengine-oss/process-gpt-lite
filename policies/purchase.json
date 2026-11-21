@@ -1,0 +1,372 @@
+{
+  "name": "purchase",
+  "version": "2026.11.21",
+  "about": "구매·결제 안전 하한(브라우저 에이전트, server/lib/browser.js). 결정 1(2026-11-21): 최종 수준은 이 정책의 낱말, 모델 제안(계획 단계 buys, 클릭마다 판정), 낱말에 기대지 않는 구조 하한 중 가장 엄한 쪽이다. 여기 낱말 목록은 「코드에 낱말 규칙 금지」의 명시적 예외이고, 수준을 올리기만 한다. 회사는 낱말을 더할 수 있다(pro_policy_changes). 기본 낱말을 빼거나 구조 하한을 끄는 것은 관리자의 명시적 행위로만 하고 이력이 남는다. 단계: none < purchase(구매·주문·구독·예약을 시작) < payment(돈을 내거나 주문을 확정).",
+  "levels": [
+    "none",
+    "purchase",
+    "payment"
+  ],
+  "words": {
+    "purchase": {
+      "ko": [
+        "주문하기",
+        "바로 주문",
+        "다시 주문",
+        "재주문",
+        "바로 구매",
+        "바로구매",
+        "구매하기",
+        "구입하기",
+        "장바구니 담기",
+        "장바구니에 담기",
+        "장바구니 추가",
+        "카트 담기",
+        "구독하기",
+        "정기 결제 시작",
+        "예약하기",
+        "예매하기",
+        "예약 확정",
+        "결제 단계로",
+        "주문서 작성",
+        "선물하기",
+        "체크아웃",
+        "=구매",
+        "=주문",
+        "=구입"
+      ],
+      "en": [
+        "buy",
+        "buy now",
+        "buy again",
+        "buy it now",
+        "buy it again",
+        "order now",
+        "order again",
+        "reorder",
+        "re-order",
+        "add to cart",
+        "add to bag",
+        "add to basket",
+        "add to trolley",
+        "checkout",
+        "check out",
+        "proceed to checkout",
+        "subscribe",
+        "start subscription",
+        "start trial",
+        "book now",
+        "reserve",
+        "=purchase",
+        "get tickets",
+        "rent now",
+        "=order"
+      ],
+      "ja": [
+        "カートに入れる",
+        "カートに追加",
+        "買い物かごに入れる",
+        "購入する",
+        "今すぐ購入",
+        "購入手続き",
+        "レジに進む",
+        "注文する",
+        "再注文",
+        "もう一度購入",
+        "予約する",
+        "定期購入",
+        "登録して購入"
+      ],
+      "zh": [
+        "加入购物车",
+        "加入購物車",
+        "立即购买",
+        "立即購買",
+        "=购买",
+        "=購買",
+        "下单",
+        "再次购买",
+        "去结算",
+        "=结算",
+        "結帳",
+        "=预订",
+        "=預訂",
+        "订阅",
+        "訂閱",
+        "立即预订",
+        "立即預訂"
+      ],
+      "es": [
+        "añadir al carrito",
+        "añadir a la cesta",
+        "agregar al carrito",
+        "=comprar",
+        "comprar ahora",
+        "volver a comprar",
+        "reservar",
+        "suscribirse",
+        "tramitar pedido",
+        "finalizar compra"
+      ],
+      "de": [
+        "in den warenkorb",
+        "jetzt kaufen",
+        "=kaufen",
+        "erneut kaufen",
+        "zur kasse",
+        "buchen",
+        "jetzt buchen",
+        "abonnieren",
+        "reservieren"
+      ],
+      "fr": [
+        "ajouter au panier",
+        "=acheter",
+        "acheter maintenant",
+        "=commander",
+        "racheter",
+        "réserver",
+        "s'abonner",
+        "passer à la caisse"
+      ],
+      "vi": [
+        "thêm vào giỏ",
+        "thêm vào giỏ hàng",
+        "mua ngay",
+        "mua lại",
+        "đặt mua",
+        "đặt chỗ",
+        "đăng ký gói"
+      ],
+      "th": [
+        "ใส่ตะกร้า",
+        "หยิบใส่ตะกร้า",
+        "ซื้อเลย",
+        "=ซื้อ",
+        "=สั่งซื้อ",
+        "=จอง"
+      ],
+      "id": [
+        "tambah ke keranjang",
+        "beli sekarang",
+        "=beli",
+        "pesan sekarang"
+      ],
+      "pt": [
+        "adicionar ao carrinho",
+        "comprar agora",
+        "finalizar compra",
+        "assinar"
+      ]
+    },
+    "payment": {
+      "ko": [
+        "결제하기",
+        "결제 진행",
+        "결제 완료",
+        "원 결제",
+        "주문 확정",
+        "구매 확정",
+        "주문 완료하기",
+        "지금 결제",
+        "=결제",
+        "카드 결제",
+        "송금하기",
+        "이체하기"
+      ],
+      "en": [
+        "pay",
+        "pay now",
+        "make payment",
+        "complete payment",
+        "submit payment",
+        "place order",
+        "place your order",
+        "place the order",
+        "confirm order",
+        "confirm purchase",
+        "confirm payment",
+        "complete purchase",
+        "complete order",
+        "submit order",
+        "buy and pay",
+        "authorize payment",
+        "send money",
+        "transfer now",
+        "=pay"
+      ],
+      "ja": [
+        "支払う",
+        "支払いを確定",
+        "お支払いへ進む",
+        "注文を確定",
+        "注文を確定する",
+        "購入を確定",
+        "決済する",
+        "=決済",
+        "=お支払い"
+      ],
+      "zh": [
+        "提交订单",
+        "提交訂單",
+        "立即支付",
+        "=支付",
+        "=付款",
+        "确认付款",
+        "確認付款",
+        "确认订单"
+      ],
+      "es": [
+        "pagar",
+        "pagar ahora",
+        "realizar pedido",
+        "confirmar pedido",
+        "confirmar compra",
+        "completar compra"
+      ],
+      "de": [
+        "zahlungspflichtig bestellen",
+        "jetzt bezahlen",
+        "bezahlen",
+        "kaufen und bezahlen",
+        "bestellung abschicken"
+      ],
+      "fr": [
+        "payer",
+        "payer maintenant",
+        "valider ma commande",
+        "valider la commande",
+        "confirmer la commande",
+        "confirmer le paiement"
+      ],
+      "vi": [
+        "=thanh toán",
+        "=đặt hàng",
+        "xác nhận đặt hàng",
+        "xác nhận thanh toán",
+        "tiến hành thanh toán"
+      ],
+      "th": [
+        "=ชำระเงิน",
+        "ยืนยันคำสั่งซื้อ",
+        "ยืนยันการชำระเงิน"
+      ],
+      "id": [
+        "=bayar",
+        "bayar sekarang",
+        "buat pesanan"
+      ],
+      "pt": [
+        "=pagar",
+        "finalizar pedido",
+        "confirmar pedido"
+      ]
+    }
+  },
+  "paths": {
+    "payment": [
+      "checkout",
+      "check-out",
+      "payment",
+      "payments",
+      "pay",
+      "billing",
+      "purchase",
+      "kasse",
+      "pago",
+      "paiement",
+      "zahlung",
+      "thanh-toan",
+      "pagamento",
+      "order-confirm",
+      "orderform"
+    ],
+    "cart": [
+      "cart",
+      "basket",
+      "bag",
+      "trolley",
+      "warenkorb",
+      "panier",
+      "carrito",
+      "cesta",
+      "gio-hang",
+      "carrinho",
+      "keranjang"
+    ]
+  },
+  "fields": {
+    "names": [
+      "cardnumber",
+      "card-number",
+      "card_number",
+      "ccnumber",
+      "cc-number",
+      "cc_number",
+      "creditcard",
+      "credit-card",
+      "cardno",
+      "card_no",
+      "pan",
+      "cvc",
+      "cvv",
+      "cvv2",
+      "csc",
+      "cardcvc",
+      "card_cvc",
+      "expiry",
+      "card-expiry",
+      "ccexp",
+      "cc-exp",
+      "exp-date"
+    ],
+    "words": [
+      "card number",
+      "카드 번호",
+      "카드번호",
+      "유효기간",
+      "cvc",
+      "cvv",
+      "security code",
+      "カード番号",
+      "セキュリティコード",
+      "有効期限",
+      "卡号",
+      "安全码",
+      "número de tarjeta",
+      "kartennummer",
+      "numéro de carte",
+      "số thẻ",
+      "หมายเลขบัตร"
+    ]
+  },
+  "hosts": {
+    "payment": [
+      "js.stripe.com",
+      "checkout.stripe.com",
+      "pay.google.com",
+      "www.paypal.com",
+      "paypal.com",
+      "checkout.tosspayments.com",
+      "js.tosspayments.com",
+      "pay.toss.im",
+      "service.iamport.kr",
+      "cdn.iamport.kr",
+      "pay.kakao.com",
+      "pay.naver.com",
+      "js.braintreegateway.com",
+      "assets.braintreegateway.com",
+      "checkoutshopper-live.adyen.com",
+      "js.squareup.com",
+      "pay.amazon.com"
+    ]
+  },
+  "history": [
+    {
+      "version": "2026.11.21",
+      "by": "process-gpt-lite",
+      "change": "browser.js 의 PURCHASE_CONTROL·PAYMENT_CONTROL 정규식을 정책 데이터로 옮기고 일본어·중국어·유럽어·동남아 언어를 더함. 결제 주소·결제 칸 이름·결제 창 주소를 구조 하한의 데이터로 둠."
+    }
+  ],
+  "matching": "낱말 맞추기(형식): 대소문자·전각/반각·여러 칸 띄어쓰기를 같게 본다. 라틴 문자 낱말은 낱말 전체로만 맞추고(display 안의 pay 는 아님), '*' 로 끝나는 항목은 그 낱말로 시작하는 낱말까지. 한글·한자·가나·타이 문자는 띄어쓰기를 지우고 부분 일치. '=' 로 시작하는 항목은 라벨 전체가 그 낱말일 때만(결제 내역의 결제는 아님)."
+}

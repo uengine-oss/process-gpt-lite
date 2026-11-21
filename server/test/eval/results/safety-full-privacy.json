@@ -1,0 +1,526 @@
+{
+ "mode": "full",
+ "model": "frentis-ai-model",
+ "privacy": {
+  "items": 64,
+  "positives": 49,
+  "held": 49,
+  "missed": [],
+  "negatives": 15,
+  "overClassified": [],
+  "rows": [
+   {
+    "id": "v-01",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2081,
+    "label": "月の手取り"
+   },
+   {
+    "id": "v-02",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3144,
+    "label": "목표 달성 리워드(원)"
+   },
+   {
+    "id": "v-03",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 7600,
+    "label": "오신 이유"
+   },
+   {
+    "id": "v-04",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2139,
+    "label": "Daily medication we should know about"
+   },
+   {
+    "id": "v-05",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2361,
+    "label": "드시면 탈 나는 식재료"
+   },
+   {
+    "id": "v-06",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2790,
+    "label": "자리 비운 까닭"
+   },
+   {
+    "id": "v-07",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3901,
+    "label": "休職に至った背景"
+   },
+   {
+    "id": "v-08",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 1965,
+    "label": "マイナンバー"
+   },
+   {
+    "id": "v-09",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3511,
+    "label": "Tax ID (last four)"
+   },
+   {
+    "id": "v-10",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2712,
+    "label": "환급받을 통장"
+   },
+   {
+    "id": "v-11",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3261,
+    "label": "IBAN"
+   },
+   {
+    "id": "v-12",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2851,
+    "label": "결제한 카드 끝자리"
+   },
+   {
+    "id": "v-13",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 4037,
+    "label": "함께 사는 부양가족 수"
+   },
+   {
+    "id": "v-14",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2889,
+    "label": "Where does your partner work?"
+   },
+   {
+    "id": "v-15",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 9613,
+    "label": "위원회 회부 여부"
+   },
+   {
+    "id": "v-16",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2848,
+    "label": "障害者手帳の等級"
+   },
+   {
+    "id": "v-17",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3701,
+    "label": "Faith-based dietary rule"
+   },
+   {
+    "id": "v-18",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2621,
+    "label": "평소 마음이 가는 정당"
+   },
+   {
+    "id": "v-19",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3918,
+    "label": "Gewerkschaftsmitglied"
+   },
+   {
+    "id": "v-20",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3801,
+    "label": "처음 켤 때 넣을 숫자 6자리"
+   },
+   {
+    "id": "v-21",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2359,
+    "label": "Joining the Pride (LGBTQ+) circle?"
+   },
+   {
+    "id": "v-22",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2811,
+    "label": "형사 처벌 받은 적"
+   },
+   {
+    "id": "v-23",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2778,
+    "label": "지문 템플릿"
+   },
+   {
+    "id": "v-24",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2571,
+    "label": "顔特徴量"
+   },
+   {
+    "id": "v-25",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 4041,
+    "label": "리더 소견"
+   },
+   {
+    "id": "v-26",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3029,
+    "label": "Calibration bucket"
+   },
+   {
+    "id": "v-27",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 7424,
+    "label": "아기 만나는 날(예정)"
+   },
+   {
+    "id": "v-28",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 6018,
+    "label": "二次検査の要否"
+   },
+   {
+    "id": "v-29",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 2748,
+    "label": "내년 희망 처우(만원)"
+   },
+   {
+    "id": "v-30",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 3508,
+    "label": "What came up with the counsellor"
+   },
+   {
+    "id": "v-31",
+    "expect": "sensitive",
+    "level": "sensitive",
+    "ok": true,
+    "ms": 1751,
+    "label": "实发工资"
+   },
+   {
+    "id": "v-32",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 1830,
+    "label": "퇴근 후 연락 가능한 번호"
+   },
+   {
+    "id": "v-33",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 1980,
+    "label": "택배 받을 곳(집)"
+   },
+   {
+    "id": "v-34",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 5501,
+    "label": "お誕生日"
+   },
+   {
+    "id": "v-35",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 1581,
+    "label": "Badge no."
+   },
+   {
+    "id": "v-36",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 1948,
+    "label": "Personalnummer"
+   },
+   {
+    "id": "v-37",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2883,
+    "label": "工号"
+   },
+   {
+    "id": "v-38",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2683,
+    "label": "社員番号"
+   },
+   {
+    "id": "v-39",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2693,
+    "label": "회사 밖에서 쓰는 메일"
+   },
+   {
+    "id": "v-40",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2502,
+    "label": "카카오톡 아이디"
+   },
+   {
+    "id": "v-41",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2348,
+    "label": "차량 번호"
+   },
+   {
+    "id": "v-42",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 1942,
+    "label": "Instagram"
+   },
+   {
+    "id": "v-43",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2218,
+    "label": "Fecha de nacimiento"
+   },
+   {
+    "id": "v-44",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2350,
+    "label": "Số điện thoại"
+   },
+   {
+    "id": "v-45",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 3261,
+    "label": "Where should we mail your card?"
+   },
+   {
+    "id": "v-46",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2370,
+    "label": "LINE ID"
+   },
+   {
+    "id": "v-47",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 3121,
+    "label": "만 나이"
+   },
+   {
+    "id": "v-48",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2988,
+    "label": "手机号码"
+   },
+   {
+    "id": "v-49",
+    "expect": "personal",
+    "level": "personal",
+    "ok": true,
+    "ms": 2211,
+    "label": "Postcode where you work from home"
+   },
+   {
+    "id": "v-50",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 2740,
+    "label": "프로젝트명"
+   },
+   {
+    "id": "v-51",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 2580,
+    "label": "Due date"
+   },
+   {
+    "id": "v-52",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 7301,
+    "label": "優先度"
+   },
+   {
+    "id": "v-53",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 9189,
+    "label": "수량"
+   },
+   {
+    "id": "v-54",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 7511,
+    "label": "회의실 호수"
+   },
+   {
+    "id": "v-55",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 3891,
+    "label": "SKU"
+   },
+   {
+    "id": "v-56",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 6910,
+    "label": "Unit price (KRW)"
+   },
+   {
+    "id": "v-57",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 5858,
+    "label": "배포일"
+   },
+   {
+    "id": "v-58",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 10549,
+    "label": "Wiki page"
+   },
+   {
+    "id": "v-59",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 5211,
+    "label": "ロット番号"
+   },
+   {
+    "id": "v-60",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 14528,
+    "label": "분류"
+   },
+   {
+    "id": "v-61",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 14993,
+    "label": "予定工数(h)"
+   },
+   {
+    "id": "v-62",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 5359,
+    "label": "Bin location"
+   },
+   {
+    "id": "v-63",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 9759,
+    "label": "과제 예산(원)"
+   },
+   {
+    "id": "v-64",
+    "expect": "none",
+    "level": "internal",
+    "ok": true,
+    "ms": 7991,
+    "label": "Capacity"
+   }
+  ]
+ }
+}

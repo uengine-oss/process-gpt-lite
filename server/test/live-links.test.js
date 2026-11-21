@@ -13,7 +13,7 @@ import http from 'node:http'
 
 const { config } = await import('../config.js')
 const { terminalStatus, terminalInfo, sameOrigin, refuse } = await import('../lib/workroom.js')
-const { openDocOf, liveHint } = await import('../lib/craftLive.js')
+const { openDocOf, liveFact, livePin } = await import('../lib/craftLive.js')
 const { WebSocketServer, WebSocket } = await import('ws')
 
 test('workroom: terminal availability and its reason', () => {
@@ -95,8 +95,8 @@ test('openDoc: the document the page says is open stands in for a live link that
   assert.deepEqual(d, { app: 'ieumoffice', title: '이음오피스', file: '회의록.docx', editor: 'docs', fromPage: true })
   assert.equal(openDocOf({ app: 'ieumoffice', name: 'x'.repeat(300), editor: '<script>' }).file.length, 200)
   assert.equal(openDocOf({ app: 'ieumoffice', name: 'a.docx', editor: '<script>' }).editor, null)
-  const hint = liveHint(d)
-  assert.match(hint, /회의록\.docx/)
-  assert.match(hint, /office_live_documents 도구가 없거나 그 목록에 이 문서가 없으면/)
-  assert.match(hint, /새 문서를 만들지 말고/)
+  // the agent is told what is open (a fact) and the edit skill is pinned; how to edit is that skill's
+  assert.match(liveFact(d), /회의록\.docx/)
+  assert.ok(!/office_live_/.test(liveFact(d)), 'no tool instructions in the message')
+  assert.equal(livePin(d, '표의 합계를 고쳐 줘'), '/ieumoffice-live-edit ')
 })

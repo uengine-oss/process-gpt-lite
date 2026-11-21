@@ -168,12 +168,18 @@ export async function keepPrivate(folder, user) {
   await q(`update pro_skill_visibility set asked_at=coalesce(asked_at, now()) where tenant_id=$1 and skill_name=$2 and author_id=$3`, [T(), folder.settings.skill_name, user.id])
 }
 
-// a private skill the author names in chat ("/이름" or the name itself): where their run reads it
+// the author's own skills that are not shared yet (the router's facts: lib/skills/facts.js)
+export async function privateSkills(user) {
+  return (await q(`select skill_name from pro_skill_visibility where tenant_id=$1 and author_id=$2 and visibility='private' order by skill_name`, [T(), user.id])).map((r) => ({ name: r.skill_name }))
+}
+// a private skill named by its command at the front of a message ("/이름 …", a command's format): where
+// the author's run reads it. Named in words, the router points at it from the facts (lib/agent.js dispatch).
 export async function privateSkillFor(user, text) {
-  const mine = await q(`select skill_name from pro_skill_visibility where tenant_id=$1 and author_id=$2 and visibility='private'`, [T(), user.id])
-  const t = String(text || '')
-  const hit = mine.find((r) => t.includes(`/${r.skill_name}`) || (/스킬|skill/i.test(t) && (t.includes(r.skill_name) || t.includes(r.skill_name.replace(/-/g, ' ')))))
+  const cmd = /^\/([\w.-]+)(\s|$)/.exec(String(text || '').trim())?.[1]
+  if (!cmd) return null
+  const hit = (await privateSkills(user)).find((r) => r.name === cmd)
   if (!hit) return null
+  hit.skill_name = hit.name
   const f = await skillFolder(hit.skill_name)
   if (f) await materialize(f)
   return { name: hit.skill_name, path: `${privateContainer(user.id, hit.skill_name)}/SKILL.md`, folder: f }

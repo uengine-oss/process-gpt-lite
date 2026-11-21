@@ -93,8 +93,16 @@ ${EVENTS_PART.replace('kind 가 events 이면 fields/computed/views/form/rows �
 보안 기본값: 모든 필드에 "sensitivity":"public|internal|personal|sensitive" 를 붙인다(금액·수량은 internal, 사유·개인 정보는 personal 이상).
 - 사용자가 앱 이름을 말했으면 title 은 그 이름 그대로. 필드는 3~7개, 이벤트는 2~4개, 프로젝션은 1~2개로 짧게.`
 const LIST_DESIGN = DESIGN.slice(0, EVENTS_START) + DESIGN.slice(DESIGN.indexOf('규칙:\n- 사용자가'))
-const looksEvents = (t) => /쌓|잔액|재고|포인트|예산|장부|부여|배정|지출|입출|대여|적립|차감|취소.*기록|기록.*취소/.test(t)
-  || /\b(balance|stock|inventory|points?|budget|ledger|grant(ed)?|allocat\w*|spend\w*|expens\w*|rent\w*|lend\w*|borrow\w*|accru\w*|deduct\w*)\b|cancel\w*.*record|record.*cancel/i.test(t)
+// the kind of app, as the model says it: asked once more when the answer is not one of the three, then
+// the plain list app (a list holds any data; the events kind is the model's to pick, never read off words)
+const KINDS = ['live', 'events', 'data']
+async function kindOf(text) {
+  for (let i = 0; i < 2; i++) {
+    const k = await chatJson(KIND, text, { ...DESIGN_OPTS, temperature: 0, timeoutMs: 45000, maxTokens: 2000 }).catch(() => null)
+    if (KINDS.includes(k?.kind)) return k.kind
+  }
+  return 'data'
+}
 
 // English mode (lib/lang.js): the same prompts with their Korean examples in English, so the app's
 // title, labels, choices, record and view names come out in English (llm.js adds the English note)
@@ -124,8 +132,7 @@ const inLang = (p) => (isEn() ? EN_SWAP.reduce((s, [a, b]) => s.split(a).join(b)
 export const designPrompts = () => ({ design: inLang(DESIGN), list: inLang(LIST_DESIGN), events: inLang(EVENTS_DESIGN) })
 
 async function designInSteps(text) {
-  const k = await chatJson(KIND, text, { ...DESIGN_OPTS, temperature: 0, timeoutMs: 45000, maxTokens: 2000 }).catch(() => null)
-  const kind = ['live', 'events', 'data'].includes(k?.kind) ? k.kind : looksEvents(text) ? 'events' : 'data'
+  const kind = await kindOf(text)
   if (kind === 'live') return { kind: 'live' }
   const out = await chatJson(inLang(kind === 'events' ? EVENTS_DESIGN : LIST_DESIGN), text, { ...DESIGN_OPTS, temperature: 0.2, timeoutMs: DESIGN_MS(), maxTokens: 10000 })
   return kind === 'events' ? { ...out, kind: 'events' } : { ...out, kind: 'list' }
@@ -172,6 +179,9 @@ async function pickFolder(user, text, title) {
 }
 
 export async function createApp(user, { description, def, rows = [], folderHint = '' }) {
+  // who may read each field: the stricter of the policy words, the field type, the designer's proposal
+  // and a reviewer model's proposal (lib/panelApps/privacy.js — decision 1, 2026-11-21)
+  if (def.fields?.length) Object.assign(def, await PV.classifyReviewed(def))
   const folder = await pickFolder(user, `${folderHint} ${description || ''}`, def.title)
   const base = fileSafe(def.title)
   let defPath = `apps/${base}.panel.json`, sheetPath = `apps/${base}.xlsx`
@@ -246,26 +256,7 @@ export async function appFor(user, id, need = 'viewer') {
   return { app, folder, role }
 }
 
-// an app the person names in chat ("휴가 일수 관리에 … 추가해줘")
-export async function appNamed(user, text) {
-  const apps = await listApps(user, { all: true })
-  return apps.filter((a) => titleIn(a.title, text)).sort((a, b) => b.title.length - a.title.length)[0] || null
-}
-
-// Does the message name this app? As written (spaces aside: "휴가일수관리" for "휴가 일수 관리"), or — an
-// English title — in any case, as whole words ("quote tracker" for "Quote Tracker"). Only a title of
-// two words or more is matched without its case, so one ordinary word ("Budget", "notes") in a
-// sentence never names an app.
-const escapeRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-export function titleIn(title, text) {
-  const t = String(text || '')
-  const name = String(title || '').trim()
-  if (!name) return false
-  if (t.replace(/\s+/g, '').includes(name.replace(/\s+/g, ''))) return true
-  const words = name.split(/\s+/)
-  if (words.length < 2 || !/[A-Za-z]/.test(name)) return false
-  return new RegExp(`(^|[^\\p{L}\\p{N}])${words.map(escapeRe).join('\\s+')}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(t)
-}
+// (an app is named in chat by the router, from the person's apps by id: lib/skills/facts.js, skills/actions/panel-record)
 
 // ---------- rows ----------
 const sheetFile = (folder, app) => path.join(folder.repo_path, app.sheet_path)

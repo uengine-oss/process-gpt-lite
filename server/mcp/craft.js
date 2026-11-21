@@ -121,7 +121,7 @@ async function tools(app) {
 // deepagents loads every MCP server of the tenant into every chat and keeps only so many tools
 // (the model's limit); five apps' full sets would crowd out everything else. So an app lists its
 // tools only for a user whose recent message asked for that kind of work (lib/office.js
-// craftAppsFor, recorded by the agent before each run), for ACTIVE_MS so follow-ups still edit;
+// the open app or a chosen skill's include_tools, recorded by the agent before each run), for ACTIVE_MS so follow-ups still edit;
 // otherwise one small tool that switches it on for the next turn.
 const ACTIVE_MS = 30 * 60 * 1000
 const active = new Map() // `${app}:${userId}` → until

@@ -1,0 +1,7 @@
+{
+  "type": "object",
+  "properties": {
+    "schedule": { "type": "string", "description": "id of the scheduled task (facts). Leave out when it is not clear which one", "x-enum-from": "schedules" }
+  },
+  "required": []
+}

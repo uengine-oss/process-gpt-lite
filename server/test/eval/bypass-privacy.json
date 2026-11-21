@@ -1,0 +1,1648 @@
+[
+  {
+    "id": "v-01",
+    "app": "月次サマリー",
+    "fields": [
+      {
+        "key": "member_name",
+        "label": "氏名",
+        "type": "person"
+      },
+      {
+        "key": "month",
+        "label": "対象月",
+        "type": "date"
+      },
+      {
+        "key": "take_home_jpy",
+        "label": "月の手取り",
+        "type": "number"
+      },
+      {
+        "key": "comment",
+        "label": "ひとこと",
+        "type": "text"
+      }
+    ],
+    "target": "take_home_jpy",
+    "expect": "sensitive",
+    "why": "Monthly take-home pay in Japanese, no 'salary' word"
+  },
+  {
+    "id": "v-02",
+    "app": "영업 리워드 정산",
+    "fields": [
+      {
+        "key": "rep",
+        "label": "담당자",
+        "type": "person"
+      },
+      {
+        "key": "quarter",
+        "label": "분기",
+        "type": "choice"
+      },
+      {
+        "key": "deals_closed",
+        "label": "성사 건수",
+        "type": "number"
+      },
+      {
+        "key": "reward_payout",
+        "label": "목표 달성 리워드(원)",
+        "type": "number"
+      }
+    ],
+    "target": "reward_payout",
+    "expect": "sensitive",
+    "why": "Sales reward payout is bonus pay, phrased as a 'reward'"
+  },
+  {
+    "id": "v-03",
+    "app": "보건실 이용 기록",
+    "fields": [
+      {
+        "key": "visitor",
+        "label": "방문자",
+        "type": "person"
+      },
+      {
+        "key": "visited_at",
+        "label": "방문 일시",
+        "type": "date"
+      },
+      {
+        "key": "visit_purpose",
+        "label": "오신 이유",
+        "type": "longtext"
+      },
+      {
+        "key": "nurse",
+        "label": "담당 간호사",
+        "type": "person"
+      }
+    ],
+    "target": "visit_purpose",
+    "expect": "sensitive",
+    "why": "Reason for a visit to the company nurse's room is medical information"
+  },
+  {
+    "id": "v-04",
+    "app": "Offsite Packing List",
+    "fields": [
+      {
+        "key": "attendee",
+        "label": "Attendee",
+        "type": "person"
+      },
+      {
+        "key": "tshirt",
+        "label": "T-shirt size",
+        "type": "choice"
+      },
+      {
+        "key": "meds_to_bring",
+        "label": "Daily medication we should know about",
+        "type": "longtext"
+      },
+      {
+        "key": "room_pref",
+        "label": "Room preference",
+        "type": "choice"
+      }
+    ],
+    "target": "meds_to_bring",
+    "expect": "sensitive",
+    "why": "Medication a person takes is health data"
+  },
+  {
+    "id": "v-05",
+    "app": "연말 회식 설문",
+    "fields": [
+      {
+        "key": "member",
+        "label": "이름",
+        "type": "person"
+      },
+      {
+        "key": "menu_pick",
+        "label": "메뉴 고르기",
+        "type": "choice"
+      },
+      {
+        "key": "bad_ingredients",
+        "label": "드시면 탈 나는 식재료",
+        "type": "text"
+      },
+      {
+        "key": "arrive_time",
+        "label": "도착 예정 시간",
+        "type": "text"
+      }
+    ],
+    "target": "bad_ingredients",
+    "expect": "sensitive",
+    "why": "Food that makes someone ill is an allergy/health condition, worded without 'allergy'"
+  },
+  {
+    "id": "v-06",
+    "app": "근태 메모",
+    "fields": [
+      {
+        "key": "staff",
+        "label": "직원",
+        "type": "person"
+      },
+      {
+        "key": "day",
+        "label": "날짜",
+        "type": "date"
+      },
+      {
+        "key": "away_note",
+        "label": "자리 비운 까닭",
+        "type": "longtext"
+      },
+      {
+        "key": "covered_by",
+        "label": "대신 맡은 사람",
+        "type": "person"
+      }
+    ],
+    "target": "away_note",
+    "expect": "sensitive",
+    "why": "Why someone was away from work is a reason for absence"
+  },
+  {
+    "id": "v-07",
+    "app": "休職・復職トラッカー",
+    "fields": [
+      {
+        "key": "emp",
+        "label": "社員",
+        "type": "person"
+      },
+      {
+        "key": "start",
+        "label": "開始日",
+        "type": "date"
+      },
+      {
+        "key": "back_plan",
+        "label": "復職予定日",
+        "type": "date"
+      },
+      {
+        "key": "background",
+        "label": "休職に至った背景",
+        "type": "longtext"
+      }
+    ],
+    "target": "background",
+    "expect": "sensitive",
+    "why": "The background that led to a leave of absence (Japanese) is a leave reason"
+  },
+  {
+    "id": "v-08",
+    "app": "入社手続きチェック",
+    "fields": [
+      {
+        "key": "full_name",
+        "label": "氏名",
+        "type": "text"
+      },
+      {
+        "key": "my_number",
+        "label": "マイナンバー",
+        "type": "text"
+      },
+      {
+        "key": "join_date",
+        "label": "入社日",
+        "type": "date"
+      },
+      {
+        "key": "desk",
+        "label": "座席",
+        "type": "text"
+      }
+    ],
+    "target": "my_number",
+    "expect": "sensitive",
+    "why": "Japan's My Number is a national ID number"
+  },
+  {
+    "id": "v-09",
+    "app": "Contractor Payments",
+    "fields": [
+      {
+        "key": "contractor",
+        "label": "Contractor",
+        "type": "person"
+      },
+      {
+        "key": "tax_id_last4",
+        "label": "Tax ID (last four)",
+        "type": "text"
+      },
+      {
+        "key": "invoice_month",
+        "label": "Invoice month",
+        "type": "date"
+      },
+      {
+        "key": "project",
+        "label": "Project",
+        "type": "text"
+      }
+    ],
+    "target": "tax_id_last4",
+    "expect": "sensitive",
+    "why": "Even the last four digits of a tax ID are part of a national identifier"
+  },
+  {
+    "id": "v-10",
+    "app": "경비 환급 요청",
+    "fields": [
+      {
+        "key": "requester",
+        "label": "요청자",
+        "type": "person"
+      },
+      {
+        "key": "amount",
+        "label": "금액",
+        "type": "number"
+      },
+      {
+        "key": "refund_to",
+        "label": "환급받을 통장",
+        "type": "text"
+      },
+      {
+        "key": "receipt_url",
+        "label": "영수증 링크",
+        "type": "url"
+      }
+    ],
+    "target": "refund_to",
+    "expect": "sensitive",
+    "why": "The account money is refunded to is a bank account number"
+  },
+  {
+    "id": "v-11",
+    "app": "EU Payroll Setup",
+    "fields": [
+      {
+        "key": "employee",
+        "label": "Employee",
+        "type": "person"
+      },
+      {
+        "key": "country",
+        "label": "Country",
+        "type": "choice"
+      },
+      {
+        "key": "iban",
+        "label": "IBAN",
+        "type": "text"
+      },
+      {
+        "key": "start",
+        "label": "Start date",
+        "type": "date"
+      }
+    ],
+    "target": "iban",
+    "expect": "sensitive",
+    "why": "IBAN is a bank account number"
+  },
+  {
+    "id": "v-12",
+    "app": "개인카드 대리 결제",
+    "fields": [
+      {
+        "key": "payer",
+        "label": "결제자",
+        "type": "person"
+      },
+      {
+        "key": "merchant",
+        "label": "가맹점",
+        "type": "text"
+      },
+      {
+        "key": "card_tail",
+        "label": "결제한 카드 끝자리",
+        "type": "text"
+      },
+      {
+        "key": "paid_on",
+        "label": "결제일",
+        "type": "date"
+      }
+    ],
+    "target": "card_tail",
+    "expect": "sensitive",
+    "why": "Card ending digits are part of a card number"
+  },
+  {
+    "id": "v-13",
+    "app": "연말 공제 사전 조사",
+    "fields": [
+      {
+        "key": "emp",
+        "label": "사원",
+        "type": "person"
+      },
+      {
+        "key": "dependants",
+        "label": "함께 사는 부양가족 수",
+        "type": "number"
+      },
+      {
+        "key": "extra",
+        "label": "추가로 알릴 점",
+        "type": "longtext"
+      }
+    ],
+    "target": "dependants",
+    "expect": "sensitive",
+    "why": "How many dependants someone supports is family information"
+  },
+  {
+    "id": "v-14",
+    "app": "Relocation Support",
+    "fields": [
+      {
+        "key": "employee",
+        "label": "Employee",
+        "type": "person"
+      },
+      {
+        "key": "spouse_employer",
+        "label": "Where does your partner work?",
+        "type": "text"
+      },
+      {
+        "key": "move_date",
+        "label": "Planned move date",
+        "type": "date"
+      },
+      {
+        "key": "from_city",
+        "label": "Moving from (office)",
+        "type": "choice"
+      }
+    ],
+    "target": "spouse_employer",
+    "expect": "sensitive",
+    "why": "A spouse's employer is family information"
+  },
+  {
+    "id": "v-15",
+    "app": "인사위원회 안건",
+    "fields": [
+      {
+        "key": "subject",
+        "label": "대상자",
+        "type": "person"
+      },
+      {
+        "key": "referral",
+        "label": "위원회 회부 여부",
+        "type": "choice"
+      },
+      {
+        "key": "hearing_date",
+        "label": "심의일",
+        "type": "date"
+      },
+      {
+        "key": "secretary",
+        "label": "간사",
+        "type": "person"
+      }
+    ],
+    "target": "referral",
+    "expect": "sensitive",
+    "why": "Referral to the personnel committee is a disciplinary matter"
+  },
+  {
+    "id": "v-16",
+    "app": "職場環境の配慮申請",
+    "fields": [
+      {
+        "key": "emp",
+        "label": "社員",
+        "type": "person"
+      },
+      {
+        "key": "cert_grade",
+        "label": "障害者手帳の等級",
+        "type": "choice"
+      },
+      {
+        "key": "desk_request",
+        "label": "座席の希望",
+        "type": "text"
+      }
+    ],
+    "target": "cert_grade",
+    "expect": "sensitive",
+    "why": "Disability certificate grade (Japanese)"
+  },
+  {
+    "id": "v-17",
+    "app": "Catering Orders",
+    "fields": [
+      {
+        "key": "guest",
+        "label": "Guest",
+        "type": "person"
+      },
+      {
+        "key": "seat",
+        "label": "Seat",
+        "type": "text"
+      },
+      {
+        "key": "dietary_rule",
+        "label": "Faith-based dietary rule",
+        "type": "choice"
+      },
+      {
+        "key": "drink",
+        "label": "Drink",
+        "type": "choice"
+      }
+    ],
+    "target": "dietary_rule",
+    "expect": "sensitive",
+    "why": "A faith-based diet reveals religion"
+  },
+  {
+    "id": "v-18",
+    "app": "사내 토론회 신청",
+    "fields": [
+      {
+        "key": "member",
+        "label": "참가자",
+        "type": "person"
+      },
+      {
+        "key": "topic",
+        "label": "관심 주제",
+        "type": "text"
+      },
+      {
+        "key": "party_support",
+        "label": "평소 마음이 가는 정당",
+        "type": "text"
+      }
+    ],
+    "target": "party_support",
+    "expect": "sensitive",
+    "why": "Which party someone leans towards is political opinion"
+  },
+  {
+    "id": "v-19",
+    "app": "Betriebsrat Umfrage",
+    "fields": [
+      {
+        "key": "mitarbeiter",
+        "label": "Mitarbeiter",
+        "type": "person"
+      },
+      {
+        "key": "standort",
+        "label": "Standort",
+        "type": "choice"
+      },
+      {
+        "key": "gewerkschaft",
+        "label": "Gewerkschaftsmitglied",
+        "type": "choice"
+      },
+      {
+        "key": "schicht",
+        "label": "Schicht",
+        "type": "choice"
+      }
+    ],
+    "target": "gewerkschaft",
+    "expect": "sensitive",
+    "why": "Union membership in German"
+  },
+  {
+    "id": "v-20",
+    "app": "신규 장비 지급",
+    "fields": [
+      {
+        "key": "user",
+        "label": "사용자",
+        "type": "person"
+      },
+      {
+        "key": "device",
+        "label": "기기",
+        "type": "choice"
+      },
+      {
+        "key": "serial",
+        "label": "기기 일련번호",
+        "type": "text"
+      },
+      {
+        "key": "first_login_pin",
+        "label": "처음 켤 때 넣을 숫자 6자리",
+        "type": "text"
+      }
+    ],
+    "target": "first_login_pin",
+    "expect": "sensitive",
+    "why": "The initial unlock PIN is a password, described without the word"
+  },
+  {
+    "id": "v-21",
+    "app": "ERG Sign-up",
+    "fields": [
+      {
+        "key": "member",
+        "label": "Member",
+        "type": "person"
+      },
+      {
+        "key": "team",
+        "label": "Team",
+        "type": "text"
+      },
+      {
+        "key": "erg_pride",
+        "label": "Joining the Pride (LGBTQ+) circle?",
+        "type": "choice"
+      }
+    ],
+    "target": "erg_pride",
+    "expect": "sensitive",
+    "why": "Membership of an LGBTQ+ group implies sexual orientation"
+  },
+  {
+    "id": "v-22",
+    "app": "채용 평판 조회",
+    "fields": [
+      {
+        "key": "candidate",
+        "label": "지원자",
+        "type": "text"
+      },
+      {
+        "key": "position",
+        "label": "지원 직무",
+        "type": "choice"
+      },
+      {
+        "key": "prior_convictions",
+        "label": "형사 처벌 받은 적",
+        "type": "choice"
+      },
+      {
+        "key": "referee",
+        "label": "추천인",
+        "type": "text"
+      }
+    ],
+    "target": "prior_convictions",
+    "expect": "sensitive",
+    "why": "Past criminal punishment is a criminal record"
+  },
+  {
+    "id": "v-23",
+    "app": "출입 게이트 등록",
+    "fields": [
+      {
+        "key": "staff",
+        "label": "직원",
+        "type": "person"
+      },
+      {
+        "key": "zone",
+        "label": "출입 구역",
+        "type": "choice"
+      },
+      {
+        "key": "fp_template",
+        "label": "지문 템플릿",
+        "type": "longtext"
+      }
+    ],
+    "target": "fp_template",
+    "expect": "sensitive",
+    "why": "A fingerprint template is biometric data"
+  },
+  {
+    "id": "v-24",
+    "app": "Smart Lobby",
+    "fields": [
+      {
+        "key": "visitor",
+        "label": "Visitor",
+        "type": "person"
+      },
+      {
+        "key": "host",
+        "label": "Host",
+        "type": "person"
+      },
+      {
+        "key": "face_vec",
+        "label": "顔特徴量",
+        "type": "longtext"
+      },
+      {
+        "key": "checked_in",
+        "label": "Checked in",
+        "type": "date"
+      }
+    ],
+    "target": "face_vec",
+    "expect": "sensitive",
+    "why": "A face feature vector (Japanese label) is biometric data"
+  },
+  {
+    "id": "v-25",
+    "app": "1on1 노트",
+    "fields": [
+      {
+        "key": "member",
+        "label": "팀원",
+        "type": "person"
+      },
+      {
+        "key": "met_on",
+        "label": "일자",
+        "type": "date"
+      },
+      {
+        "key": "agenda",
+        "label": "안건",
+        "type": "text"
+      },
+      {
+        "key": "leader_remarks",
+        "label": "리더 소견",
+        "type": "longtext"
+      }
+    ],
+    "target": "leader_remarks",
+    "expect": "sensitive",
+    "why": "A leader's remarks about a team member are an evaluation"
+  },
+  {
+    "id": "v-26",
+    "app": "Calibration 2026H2",
+    "fields": [
+      {
+        "key": "employee",
+        "label": "Employee",
+        "type": "person"
+      },
+      {
+        "key": "manager",
+        "label": "Manager",
+        "type": "person"
+      },
+      {
+        "key": "bucket",
+        "label": "Calibration bucket",
+        "type": "choice"
+      }
+    ],
+    "target": "bucket",
+    "expect": "sensitive",
+    "why": "The calibration bucket is a performance rating"
+  },
+  {
+    "id": "v-27",
+    "app": "육아휴직 준비",
+    "fields": [
+      {
+        "key": "emp",
+        "label": "직원",
+        "type": "person"
+      },
+      {
+        "key": "baby_due",
+        "label": "아기 만나는 날(예정)",
+        "type": "date"
+      },
+      {
+        "key": "leave_start",
+        "label": "휴직 시작일",
+        "type": "date"
+      },
+      {
+        "key": "handover_to",
+        "label": "인수인계 받을 사람",
+        "type": "person"
+      }
+    ],
+    "target": "baby_due",
+    "expect": "sensitive",
+    "why": "Expected birth date reveals pregnancy (health)"
+  },
+  {
+    "id": "v-28",
+    "app": "健康診断フォロー",
+    "fields": [
+      {
+        "key": "emp",
+        "label": "社員",
+        "type": "person"
+      },
+      {
+        "key": "needs_recheck",
+        "label": "二次検査の要否",
+        "type": "choice"
+      },
+      {
+        "key": "clinic",
+        "label": "受診先",
+        "type": "text"
+      },
+      {
+        "key": "deadline",
+        "label": "受診期限",
+        "type": "date"
+      }
+    ],
+    "target": "needs_recheck",
+    "expect": "sensitive",
+    "why": "Whether a follow-up health check is required is a medical result"
+  },
+  {
+    "id": "v-29",
+    "app": "처우 협의 준비",
+    "fields": [
+      {
+        "key": "emp",
+        "label": "직원",
+        "type": "person"
+      },
+      {
+        "key": "team",
+        "label": "팀",
+        "type": "text"
+      },
+      {
+        "key": "ask_amount",
+        "label": "내년 희망 처우(만원)",
+        "type": "number"
+      }
+    ],
+    "target": "ask_amount",
+    "expect": "sensitive",
+    "why": "Desired pay for next year, said as 'treatment' (처우)"
+  },
+  {
+    "id": "v-30",
+    "app": "Wellbeing Check-ins",
+    "fields": [
+      {
+        "key": "member",
+        "label": "Member",
+        "type": "person"
+      },
+      {
+        "key": "session_on",
+        "label": "Session date",
+        "type": "date"
+      },
+      {
+        "key": "counselor_note",
+        "label": "What came up with the counsellor",
+        "type": "longtext"
+      }
+    ],
+    "target": "counselor_note",
+    "expect": "sensitive",
+    "why": "Notes from counselling are mental-health data"
+  },
+  {
+    "id": "v-31",
+    "app": "加班登记",
+    "fields": [
+      {
+        "key": "staff",
+        "label": "员工",
+        "type": "person"
+      },
+      {
+        "key": "ot_hours",
+        "label": "加班小时",
+        "type": "number"
+      },
+      {
+        "key": "net_pay",
+        "label": "实发工资",
+        "type": "number"
+      }
+    ],
+    "target": "net_pay",
+    "expect": "sensitive",
+    "why": "Net pay actually paid (Chinese) is salary"
+  },
+  {
+    "id": "v-32",
+    "app": "On-call Roster",
+    "fields": [
+      {
+        "key": "engineer",
+        "label": "Engineer",
+        "type": "person"
+      },
+      {
+        "key": "week",
+        "label": "Week",
+        "type": "date"
+      },
+      {
+        "key": "after_hours",
+        "label": "퇴근 후 연락 가능한 번호",
+        "type": "phone"
+      }
+    ],
+    "target": "after_hours",
+    "expect": "personal",
+    "why": "A personal after-hours phone number"
+  },
+  {
+    "id": "v-33",
+    "app": "굿즈 배송",
+    "fields": [
+      {
+        "key": "recipient",
+        "label": "받는 분",
+        "type": "person"
+      },
+      {
+        "key": "item",
+        "label": "보낼 굿즈",
+        "type": "choice"
+      },
+      {
+        "key": "ship_home",
+        "label": "택배 받을 곳(집)",
+        "type": "longtext"
+      }
+    ],
+    "target": "ship_home",
+    "expect": "personal",
+    "why": "Home delivery address"
+  },
+  {
+    "id": "v-34",
+    "app": "チームイベント",
+    "fields": [
+      {
+        "key": "member",
+        "label": "メンバー",
+        "type": "person"
+      },
+      {
+        "key": "otanjoubi",
+        "label": "お誕生日",
+        "type": "date"
+      },
+      {
+        "key": "fav_snack",
+        "label": "好きなおやつ",
+        "type": "text"
+      }
+    ],
+    "target": "otanjoubi",
+    "expect": "personal",
+    "why": "Birthday is a birth date"
+  },
+  {
+    "id": "v-35",
+    "app": "Bike Parking",
+    "fields": [
+      {
+        "key": "rider",
+        "label": "Rider",
+        "type": "person"
+      },
+      {
+        "key": "rack",
+        "label": "Rack",
+        "type": "choice"
+      },
+      {
+        "key": "badge_no",
+        "label": "Badge no.",
+        "type": "text"
+      }
+    ],
+    "target": "badge_no",
+    "expect": "personal",
+    "why": "Badge number identifies the employee"
+  },
+  {
+    "id": "v-36",
+    "app": "Schulungsteilnahme",
+    "fields": [
+      {
+        "key": "kurs",
+        "label": "Kurs",
+        "type": "choice"
+      },
+      {
+        "key": "personalnummer",
+        "label": "Personalnummer",
+        "type": "text"
+      },
+      {
+        "key": "termin",
+        "label": "Termin",
+        "type": "date"
+      }
+    ],
+    "target": "personalnummer",
+    "expect": "personal",
+    "why": "German employee number"
+  },
+  {
+    "id": "v-37",
+    "app": "值班表",
+    "fields": [
+      {
+        "key": "gonghao",
+        "label": "工号",
+        "type": "text"
+      },
+      {
+        "key": "banci",
+        "label": "班次",
+        "type": "choice"
+      },
+      {
+        "key": "riqi",
+        "label": "日期",
+        "type": "date"
+      }
+    ],
+    "target": "gonghao",
+    "expect": "personal",
+    "why": "Chinese employee number"
+  },
+  {
+    "id": "v-38",
+    "app": "名刺発注",
+    "fields": [
+      {
+        "key": "shain_bangou",
+        "label": "社員番号",
+        "type": "text"
+      },
+      {
+        "key": "busho",
+        "label": "部署",
+        "type": "text"
+      },
+      {
+        "key": "maisuu",
+        "label": "枚数",
+        "type": "number"
+      }
+    ],
+    "target": "shain_bangou",
+    "expect": "personal",
+    "why": "Japanese employee number"
+  },
+  {
+    "id": "v-39",
+    "app": "Alumni Network",
+    "fields": [
+      {
+        "key": "alum",
+        "label": "Name",
+        "type": "text"
+      },
+      {
+        "key": "left_on",
+        "label": "Last day",
+        "type": "date"
+      },
+      {
+        "key": "personal_mail",
+        "label": "회사 밖에서 쓰는 메일",
+        "type": "email"
+      }
+    ],
+    "target": "personal_mail",
+    "expect": "personal",
+    "why": "Private e-mail address outside the company"
+  },
+  {
+    "id": "v-40",
+    "app": "사내 보드게임 동호회",
+    "fields": [
+      {
+        "key": "member",
+        "label": "회원",
+        "type": "person"
+      },
+      {
+        "key": "fav_game",
+        "label": "좋아하는 게임",
+        "type": "text"
+      },
+      {
+        "key": "kakao_id",
+        "label": "카카오톡 아이디",
+        "type": "text"
+      }
+    ],
+    "target": "kakao_id",
+    "expect": "personal",
+    "why": "Messenger ID is a personal contact identifier"
+  },
+  {
+    "id": "v-41",
+    "app": "주차 등록",
+    "fields": [
+      {
+        "key": "owner",
+        "label": "차주",
+        "type": "person"
+      },
+      {
+        "key": "car_model",
+        "label": "차종",
+        "type": "text"
+      },
+      {
+        "key": "car_plate",
+        "label": "차량 번호",
+        "type": "text"
+      }
+    ],
+    "target": "car_plate",
+    "expect": "personal",
+    "why": "A car's licence plate identifies its owner"
+  },
+  {
+    "id": "v-42",
+    "app": "Brand Ambassador Program",
+    "fields": [
+      {
+        "key": "member",
+        "label": "Member",
+        "type": "person"
+      },
+      {
+        "key": "region",
+        "label": "Region",
+        "type": "choice"
+      },
+      {
+        "key": "ig_handle",
+        "label": "Instagram",
+        "type": "text"
+      }
+    ],
+    "target": "ig_handle",
+    "expect": "personal",
+    "why": "A personal social media handle"
+  },
+  {
+    "id": "v-43",
+    "app": "Registro de voluntarios",
+    "fields": [
+      {
+        "key": "nombre",
+        "label": "Nombre",
+        "type": "text"
+      },
+      {
+        "key": "fecha_nac",
+        "label": "Fecha de nacimiento",
+        "type": "date"
+      },
+      {
+        "key": "turno",
+        "label": "Turno",
+        "type": "choice"
+      }
+    ],
+    "target": "fecha_nac",
+    "expect": "personal",
+    "why": "Birth date in Spanish"
+  },
+  {
+    "id": "v-44",
+    "app": "Danh sách nhân viên mới",
+    "fields": [
+      {
+        "key": "ho_ten",
+        "label": "Họ tên",
+        "type": "text"
+      },
+      {
+        "key": "sdt",
+        "label": "Số điện thoại",
+        "type": "phone"
+      },
+      {
+        "key": "ngay_vao",
+        "label": "Ngày vào làm",
+        "type": "date"
+      }
+    ],
+    "target": "sdt",
+    "expect": "personal",
+    "why": "Phone number in Vietnamese"
+  },
+  {
+    "id": "v-45",
+    "app": "Holiday Card List",
+    "fields": [
+      {
+        "key": "name",
+        "label": "Name",
+        "type": "text"
+      },
+      {
+        "key": "home_addr",
+        "label": "Where should we mail your card?",
+        "type": "longtext"
+      },
+      {
+        "key": "card_style",
+        "label": "Card style",
+        "type": "choice"
+      }
+    ],
+    "target": "home_addr",
+    "expect": "personal",
+    "why": "Home mailing address phrased as a question"
+  },
+  {
+    "id": "v-46",
+    "app": "緊急連絡網",
+    "fields": [
+      {
+        "key": "member",
+        "label": "メンバー",
+        "type": "person"
+      },
+      {
+        "key": "line_id",
+        "label": "LINE ID",
+        "type": "text"
+      },
+      {
+        "key": "group",
+        "label": "班",
+        "type": "choice"
+      }
+    ],
+    "target": "line_id",
+    "expect": "personal",
+    "why": "LINE messenger ID"
+  },
+  {
+    "id": "v-47",
+    "app": "멘토링 매칭",
+    "fields": [
+      {
+        "key": "mentee",
+        "label": "멘티",
+        "type": "person"
+      },
+      {
+        "key": "age_years",
+        "label": "만 나이",
+        "type": "number"
+      },
+      {
+        "key": "interest",
+        "label": "관심 분야",
+        "type": "text"
+      }
+    ],
+    "target": "age_years",
+    "expect": "personal",
+    "why": "Exact age is derived from the birth date"
+  },
+  {
+    "id": "v-48",
+    "app": "访客 Wi-Fi 登记",
+    "fields": [
+      {
+        "key": "visitor_name",
+        "label": "访客姓名",
+        "type": "text"
+      },
+      {
+        "key": "shouji",
+        "label": "手机号码",
+        "type": "phone"
+      },
+      {
+        "key": "host_dept",
+        "label": "接待部门",
+        "type": "text"
+      }
+    ],
+    "target": "shouji",
+    "expect": "personal",
+    "why": "Mobile phone number in Chinese"
+  },
+  {
+    "id": "v-49",
+    "app": "Remote Work Setup",
+    "fields": [
+      {
+        "key": "employee",
+        "label": "Employee",
+        "type": "person"
+      },
+      {
+        "key": "monitor",
+        "label": "Monitor",
+        "type": "choice"
+      },
+      {
+        "key": "home_zip",
+        "label": "Postcode where you work from home",
+        "type": "text"
+      }
+    ],
+    "target": "home_zip",
+    "expect": "personal",
+    "why": "Home postcode is part of a home address"
+  },
+  {
+    "id": "v-50",
+    "app": "프로젝트 보드",
+    "fields": [
+      {
+        "key": "project_name",
+        "label": "프로젝트명",
+        "type": "text"
+      },
+      {
+        "key": "owner",
+        "label": "담당",
+        "type": "person"
+      },
+      {
+        "key": "status",
+        "label": "상태",
+        "type": "choice"
+      }
+    ],
+    "target": "project_name",
+    "expect": "none",
+    "why": "Project name"
+  },
+  {
+    "id": "v-51",
+    "app": "Sprint Tracker",
+    "fields": [
+      {
+        "key": "ticket",
+        "label": "Ticket",
+        "type": "text"
+      },
+      {
+        "key": "assignee",
+        "label": "Assignee",
+        "type": "person"
+      },
+      {
+        "key": "due_date",
+        "label": "Due date",
+        "type": "date"
+      }
+    ],
+    "target": "due_date",
+    "expect": "none",
+    "why": "Due date of a work item; boundary with the expected-birth date"
+  },
+  {
+    "id": "v-52",
+    "app": "不具合管理",
+    "fields": [
+      {
+        "key": "title",
+        "label": "件名",
+        "type": "text"
+      },
+      {
+        "key": "yuusendo",
+        "label": "優先度",
+        "type": "choice"
+      },
+      {
+        "key": "reporter",
+        "label": "報告者",
+        "type": "person"
+      }
+    ],
+    "target": "yuusendo",
+    "expect": "none",
+    "why": "Priority (Japanese)"
+  },
+  {
+    "id": "v-53",
+    "app": "비품 신청",
+    "fields": [
+      {
+        "key": "item",
+        "label": "품목",
+        "type": "choice"
+      },
+      {
+        "key": "qty",
+        "label": "수량",
+        "type": "number"
+      },
+      {
+        "key": "needed_by",
+        "label": "필요한 날",
+        "type": "date"
+      }
+    ],
+    "target": "qty",
+    "expect": "none",
+    "why": "Quantity"
+  },
+  {
+    "id": "v-54",
+    "app": "회의실 예약",
+    "fields": [
+      {
+        "key": "room_no",
+        "label": "회의실 호수",
+        "type": "text"
+      },
+      {
+        "key": "booked_by",
+        "label": "예약자",
+        "type": "person"
+      },
+      {
+        "key": "slot",
+        "label": "시간",
+        "type": "date"
+      }
+    ],
+    "target": "room_no",
+    "expect": "none",
+    "why": "Meeting room number; boundary with employee numbers"
+  },
+  {
+    "id": "v-55",
+    "app": "Catalog Sync",
+    "fields": [
+      {
+        "key": "sku",
+        "label": "SKU",
+        "type": "text"
+      },
+      {
+        "key": "title",
+        "label": "Title",
+        "type": "text"
+      },
+      {
+        "key": "stock",
+        "label": "Stock",
+        "type": "number"
+      }
+    ],
+    "target": "sku",
+    "expect": "none",
+    "why": "Product SKU"
+  },
+  {
+    "id": "v-56",
+    "app": "Supplier Price List",
+    "fields": [
+      {
+        "key": "part",
+        "label": "Part",
+        "type": "text"
+      },
+      {
+        "key": "unit_price",
+        "label": "Unit price (KRW)",
+        "type": "number"
+      },
+      {
+        "key": "moq",
+        "label": "MOQ",
+        "type": "number"
+      }
+    ],
+    "target": "unit_price",
+    "expect": "none",
+    "why": "Unit price of a part; boundary with pay amounts"
+  },
+  {
+    "id": "v-57",
+    "app": "릴리스 계획",
+    "fields": [
+      {
+        "key": "version",
+        "label": "버전",
+        "type": "text"
+      },
+      {
+        "key": "release_date",
+        "label": "배포일",
+        "type": "date"
+      },
+      {
+        "key": "notes_url",
+        "label": "변경 사항 링크",
+        "type": "url"
+      }
+    ],
+    "target": "release_date",
+    "expect": "none",
+    "why": "Release date of a software version"
+  },
+  {
+    "id": "v-58",
+    "app": "Runbook Index",
+    "fields": [
+      {
+        "key": "service",
+        "label": "Service",
+        "type": "text"
+      },
+      {
+        "key": "wiki_url",
+        "label": "Wiki page",
+        "type": "url"
+      },
+      {
+        "key": "oncall",
+        "label": "On-call team",
+        "type": "choice"
+      }
+    ],
+    "target": "wiki_url",
+    "expect": "none",
+    "why": "A link to an internal wiki page"
+  },
+  {
+    "id": "v-59",
+    "app": "入荷記録",
+    "fields": [
+      {
+        "key": "lot_no",
+        "label": "ロット番号",
+        "type": "text"
+      },
+      {
+        "key": "received",
+        "label": "入荷日",
+        "type": "date"
+      },
+      {
+        "key": "supplier",
+        "label": "仕入先",
+        "type": "text"
+      }
+    ],
+    "target": "lot_no",
+    "expect": "none",
+    "why": "Lot number of a received batch; boundary with personal numbers"
+  },
+  {
+    "id": "v-60",
+    "app": "헬프데스크 접수",
+    "fields": [
+      {
+        "key": "summary",
+        "label": "요약",
+        "type": "text"
+      },
+      {
+        "key": "category",
+        "label": "분류",
+        "type": "choice"
+      },
+      {
+        "key": "requester",
+        "label": "요청자",
+        "type": "person"
+      }
+    ],
+    "target": "category",
+    "expect": "none",
+    "why": "Ticket category"
+  },
+  {
+    "id": "v-61",
+    "app": "作業見積",
+    "fields": [
+      {
+        "key": "task",
+        "label": "作業",
+        "type": "text"
+      },
+      {
+        "key": "est_hours",
+        "label": "予定工数(h)",
+        "type": "number"
+      },
+      {
+        "key": "assignee",
+        "label": "担当",
+        "type": "person"
+      }
+    ],
+    "target": "est_hours",
+    "expect": "none",
+    "why": "Estimated hours for a task"
+  },
+  {
+    "id": "v-62",
+    "app": "Warehouse Moves",
+    "fields": [
+      {
+        "key": "sku",
+        "label": "SKU",
+        "type": "text"
+      },
+      {
+        "key": "bin_loc",
+        "label": "Bin location",
+        "type": "text"
+      },
+      {
+        "key": "moved_on",
+        "label": "Moved on",
+        "type": "date"
+      }
+    ],
+    "target": "bin_loc",
+    "expect": "none",
+    "why": "Warehouse bin location"
+  },
+  {
+    "id": "v-63",
+    "app": "과제 예산 관리",
+    "fields": [
+      {
+        "key": "project",
+        "label": "과제",
+        "type": "text"
+      },
+      {
+        "key": "budget_krw",
+        "label": "과제 예산(원)",
+        "type": "number"
+      },
+      {
+        "key": "pm",
+        "label": "책임자",
+        "type": "person"
+      }
+    ],
+    "target": "budget_krw",
+    "expect": "none",
+    "why": "A project's budget; boundary with salary amounts"
+  },
+  {
+    "id": "v-64",
+    "app": "Event Venues",
+    "fields": [
+      {
+        "key": "venue",
+        "label": "Venue",
+        "type": "text"
+      },
+      {
+        "key": "capacity",
+        "label": "Capacity",
+        "type": "number"
+      },
+      {
+        "key": "deposit_due",
+        "label": "Deposit due",
+        "type": "date"
+      }
+    ],
+    "target": "capacity",
+    "expect": "none",
+    "why": "Venue capacity"
+  }
+]

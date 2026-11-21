@@ -4,9 +4,11 @@ import assert from 'node:assert/strict'
 import { marked } from 'marked'
 import { noticeText } from '../../src/noticeText.js'
 import { installCjkMarkdown } from '../../src/markdownCjk.js'
-import { wantsRunNow, telegramIntent, pickSchedule, recentScheduleIds, sendsToTelegram } from '../lib/scheduleIntent.js'
 import { createTrail, hostsIn, trailEntry } from '../lib/workTrail.js'
-import { marketHint, stripInventedCodes } from '../lib/marketHint.js'
+import { decide, choiceDecision } from '../lib/skills/router.js'
+import { loadSkills } from '../lib/skills/registry.js'
+import { recentScheduleIds } from '../lib/skills/facts.js'
+import { sendsToTelegram, channelsOf } from '../lib/missions.js'
 
 // the notice from the recording: an agent answer with its ```json block copied into the title
 const LEAVE = '휴가 신청이 성공적으로 완료되었습니다. 이번 주 목요일(12월 28일)부터 금요일(12월 29일)까지 휴가를 신청하셨습니다. 상사와 인사팀의 승인을 기다리시면 됩니다. 추가로 궁금한 점이 있거나 다른 요청이 있으시면 언제든지 말씀해 주세요! 😊 ```json { "action": "process_executed", "status": "success", "message": "휴가 신청이 성공적으로 완료되었습니다.", "data": { "instance_id": "leave_request_and_approval_process.ae1d7b9d-41d2-4209-b919-d8285a0f13d3" }, "next_actions": ["휴가 신청 상태 확인", "다른 프로세스 실행"] } ```'
@@ -41,33 +43,82 @@ test('R-1121-03 **bold** closes before a Korean particle', () => {
   assert.match(marked.parse('** 띄움 **'), /\*\* 띄움 \*\*/)
 })
 
-test('R-1121-04 "run it now" is not a new schedule; a delay or a time is', () => {
-  for (const t of ['곧바로 하나 정도 한번 실행해 봐', '지금 바로 돌려 봐', '한번 실행해봐', '테스트로 실행해 줘', 'run it now'])
-    assert.equal(wantsRunNow(t), true, t)
-  for (const t of ['10분 뒤에 한 번 실행해 줘', '내일 오전 9시에 실행해 줘', '매일 아침 8시에 바로 실행해줘', '이렇게 지시를 했는데 이게 되는지 확인을 좀 해봐야겠죠', '휴가 신청 프로세스 실행해줘'])
-    assert.equal(wantsRunNow(t), false, t)
+// What a message means is the router's (lib/skills/router.js, model + skills/actions); these check what the
+// server does with its answer — the ids it accepts, the asks it makes — with a scripted model. Whether the
+// model reads a message right is measured by the evaluation sets (server/eval, design 7), not here.
+const SKILLS = loadSkills()
+const FACTS = {
+  schedules: [{ id: 'a1111111', name: '환율 감시', paused: false }, { id: 'b2222222', name: '아침 브리핑', paused: false }, { id: 'c3333333', name: '지난 작업', paused: true }],
+  recentSchedules: [], telegram: { connected: false, linked: false, bot: null }, apps: [], folders: [], attachedFolder: null,
+  processes: [], improvable: [], team: [], agentSkills: [], mySkills: [], files: [], openDoc: null, generation: null, noFolder: false,
+}
+// a model that answers with these function calls, in order, and records what it was asked
+function scripted(...calls) {
+  const seen = []
+  const llm = async (req) => { seen.push(req); const c = calls[Math.min(seen.length - 1, calls.length - 1)]; return { content: '', tool_calls: c ? [{ id: 'x', type: 'function', function: { name: c[0], arguments: JSON.stringify(c[1]) } }] : [] } }
+  return { llm, seen }
+}
+const run = (facts, ...calls) => { const m = scripted(...calls); return decide({ messages: [{ role: 'user', content: '…' }], facts, skills: SKILLS, llm: m.llm }).then((d) => ({ d, seen: m.seen })) }
+
+test('R-1121-04 run now: an id from the facts runs that task once — the router never makes a new schedule for it', async () => {
+  const { d, seen } = await run(FACTS, ['schedule_run_now', { schedule: 'a1111111', ack: '지금 한 번 돌려 볼게요.' }])
+  assert.equal(d.route, 'skill')
+  assert.equal(d.skill, 'schedule-run-now')
+  assert.deepEqual(d.args, { schedule: 'a1111111' })
+  assert.equal(d.stage2, false, 'an inline skill answers in one call')
+  assert.equal(seen.length, 1)
+  // the first call offers run-now with the tasks' ids, and the facts name them
+  const tool = seen[0].tools.find((t) => t.function.name === 'schedule_run_now')
+  assert.deepEqual(tool.function.parameters.properties.schedule.enum, ['a1111111', 'b2222222', 'c3333333'])
+  assert.match(seen[0].messages[0].content, /a1111111 환율 감시/)
 })
 
-test('R-1121-05 Telegram words: alerts · send · off · connect', () => {
-  assert.equal(telegramIntent('급등락이 감지되면 내 텔레그램 봇으로 알려줘'), 'alerts')
-  assert.equal(telegramIntent('이거 텔레그램으로 보내줘'), 'send')
-  assert.equal(telegramIntent('텔레그램 알림 꺼 줘'), 'off')
-  assert.equal(telegramIntent('텔레그램 봇 연결해 줘'), 'connect')
-  assert.equal(telegramIntent('주가 알려줘'), null)
+test('R-1121-05 an id that is not one of the tasks: its skill is read once more, then the server asks which task', async () => {
+  const { d, seen } = await run(FACTS, ['schedule_run_now', { schedule: 'zzz', ack: '…' }], ['schedule_run_now', { schedule: 'still-wrong' }])
+  assert.equal(seen.length, 2, 'stage 2 read the skill body')
+  assert.match(seen[1].messages[0].content, /# schedule-run-now/)
+  assert.equal(d.route, 'ask')
+  // the active tasks to choose from, each choice the action with its id
+  assert.deepEqual(d.choices.map((c) => [c.label, c.skill, c.args.schedule]), [['환율 감시', 'schedule-run-now', 'a1111111'], ['아침 브리핑', 'schedule-run-now', 'b2222222']])
+  // only one active task: that one
+  const one = await run({ ...FACTS, schedules: [FACTS.schedules[0], FACTS.schedules[2]] }, ['schedule_run_now', { ack: '…' }])
+  assert.deepEqual([one.d.route, one.d.args.schedule], ['skill', 'a1111111'])
+  // no task at all: run-now is not offered, and an empty router answer is the agent's
+  const none = await run({ ...FACTS, schedules: [] }, null)
+  assert.ok(!none.seen[0].tools.some((t) => t.function.name === 'schedule_run_now'))
+  assert.equal(none.d.route, 'delegate')
 })
 
-test('R-1121-06 which task: named, else the one this conversation just set up or ran', () => {
-  const a = { id: 'a1111111-0000', name: '주식 5일 누적 5% 급등락 감시' }
-  const b = { id: 'b2222222-0000', name: '매일 아침 인기 유튜브 영상 브리핑' }
-  const rows = [{ kind: 'chip', content: { scheduleId: b.id } }, { kind: 'text', content: { text: '…' } }, { kind: 'chip', content: { scheduleId: a.id } }]
-  assert.deepEqual(recentScheduleIds(rows), [a.id, b.id])
-  assert.equal(pickSchedule([a, b], '매일 아침 인기 유튜브 영상 브리핑 지금 돌려 봐', recentScheduleIds(rows)).id, b.id)
-  assert.equal(pickSchedule([a, b], '곧바로 하나 정도 한번 실행해 봐', recentScheduleIds(rows)).id, a.id)
-  // run-now never falls back to "the only task" — the words may be about a process
-  assert.equal(pickSchedule([a], '바로 실행해 줘', [], { only: false }), null)
-  assert.equal(pickSchedule([a], '텔레그램으로 알려줘', []).id, a.id)
+test('R-1121-06 Telegram: alerts for which task — asked when it is not clear; connecting needs no task', async () => {
+  const a = await run(FACTS, ['telegram_delivery', { action: 'alerts_on', ack: '…' }])
+  assert.equal(a.d.route, 'ask')
+  assert.deepEqual(a.d.choices.map((c) => c.args), [{ action: 'alerts_on', schedule: 'a1111111' }, { action: 'alerts_on', schedule: 'b2222222' }])
+  const c = await run(FACTS, ['telegram_delivery', { action: 'connect', ack: '…' }])
+  assert.deepEqual([c.d.route, c.d.args], ['skill', { action: 'connect' }])
+  // the choice tapped later runs only while it is still right
+  assert.equal(choiceDecision(a.d.choices[0], FACTS).skill, 'telegram-delivery')
+  assert.equal(choiceDecision(a.d.choices[0], { ...FACTS, schedules: [] }), null)
+  // which task a conversation just made or ran: its chips' ids, newest first
+  const rows = [{ kind: 'chip', content: { scheduleId: 'b2' } }, { kind: 'text', content: { text: '…' } }, { kind: 'chip', content: { scheduleId: 'a1' } }]
+  assert.deepEqual(recentScheduleIds(rows), ['a1', 'b2'])
   assert.equal(sendsToTelegram({ state: { channels: ['telegram'] } }), true)
   assert.equal(sendsToTelegram({ state: {} }), false)
+  assert.deepEqual(channelsOf({ state: { channels: 'x' } }), [])
+})
+
+test('R-1121-08 the router asks only to pick a target of an action that has one; any other question is not its to ask', async () => {
+  // an ask about an action without targets (a new schedule) is not offered as an ask: the action runs
+  const s = await run(FACTS, ['ask', { skill: 'schedule-create', question: '몇 시에요?' }])
+  assert.notEqual(s.d.route, 'ask')
+  const ask = s.seen[0].tools.find((t) => t.function.name === 'ask')
+  assert.ok(!ask.function.parameters.properties.skill.enum.includes('schedule-create'))
+  assert.ok(ask.function.parameters.properties.skill.enum.includes('schedule-run-now'))
+  // an ask with ids the facts do not have lists the real candidates
+  const r = await run(FACTS, ['ask', { skill: 'schedule-run-now', question: '어느 것?', options: ['nope'] }])
+  assert.deepEqual(r.d.choices.map((c) => c.args.schedule), ['a1111111', 'b2222222'])
+  // one named target: no question, the action with it
+  const one = await run(FACTS, ['ask', { skill: 'schedule-run-now', question: '?', options: ['b2222222'] }])
+  assert.deepEqual([one.d.route, one.d.args.schedule], ['skill', 'b2222222'])
 })
 
 test('R-1121-07 the work trail names steps and sites, never a command or a key', () => {
@@ -86,45 +137,6 @@ test('R-1121-07 the work trail names steps and sites, never a command or a key',
   assert.equal(list.some((e) => e.tool === 'write_todos'), false)
   assert.deepEqual(hostsIn('http://localhost:8787/x https://www.youtube.com/watch?v=1'), ['youtube.com'])
   assert.deepEqual(trailEntry('fetch', '{"url":"https://m.stock.naver.com/api"}', '찾아보는 중').hosts, ['m.stock.naver.com'])
-})
-
-test('R-1121-08 a stock request gets where prices are and how to find the listing', () => {
-  const h = marketHint('코스피 코스닥 그리고 테슬라, ast 모바일 주가를 1시간 주기로 파악해서 5일 누적 급락과 급등(5프로)가 있으면 내게 알려줘')
-  assert.match(h, /ac\.stock\.naver\.com/)
-  assert.match(h, /ASTS/)
-  assert.match(h, /출처/)
-  assert.equal(marketHint('회의록 정리해 줘'), '')
-})
-
-test('R-1121-09 a stock task keeps the names as said: no guessed listing codes', () => {
-  const said = '코스피 코스닥 그리고 테슬라, ast 모바일 주가를 1시간 주기로 파악해서 5일 누적 급락과 급등(5프로)가 있으면 내게 알려줘'
-  const p = '코스피, 코스닥, 테슬라(TSLA), AST모바일(031440)의 현재 지수/주가를 조회하고 5일 누적 변동률(5%)을 계산해'
-  const out = stripInventedCodes(p, said)
-  assert.ok(!out.includes('031440') && !out.includes('TSLA'), out)
-  assert.ok(out.includes('AST모바일의 현재') && out.includes('(5%)'), out)
-  // a code the person gave stays
-  assert.ok(stripInventedCodes('삼성전자(005930) 주가 알려줘', '삼성전자(005930) 주가 매일 알려줘').includes('005930'))
-  // not a stock request: untouched
-  assert.equal(stripInventedCodes('회의(ABC1) 정리', '회의 정리해줘'), '회의(ABC1) 정리')
-})
-
-// pre-merge review (2026-11-21): the words must not take over other requests
-test('R-1121-10 Telegram words are ours only with a clear ask — a how-to question or a new recurring job goes to the router', () => {
-  assert.equal(telegramIntent('텔레그램 봇 만드는 방법 알려줘'), null)
-  assert.equal(telegramIntent('매일 아침 텔레그램 채널 요약해서 알려줘'), null)
-  assert.equal(telegramIntent('텔레그램 좋아?'), null)
-  assert.equal(telegramIntent('텔레그램으로도 알려줘'), 'alerts')
-})
-
-test('R-1121-11 "run it now" is not taken when the message names something else to run', () => {
-  assert.equal(wantsRunNow('휴가 신청 프로세스 바로 실행해줘'), false)
-  assert.equal(wantsRunNow('이 스크립트 먼저 실행해 봐'), false)
-  assert.equal(wantsRunNow('곧바로 하나 정도 한번 실행해 봐'), true)
-})
-
-test('R-1121-12 only listing-shaped codes are taken out of a stock task; units and abbreviations stay', () => {
-  const out = stripInventedCodes('KODEX 200(ETF) 종가를 매일 9시(KST) 기준, 테슬라(TSLA), AST모바일(031440), 상위 (10)개', '주가 알려줘')
-  assert.equal(out, 'KODEX 200(ETF) 종가를 매일 9시(KST) 기준, 테슬라, AST모바일, 상위 (10)개')
 })
 
 test('R-1121-13 a sentence after an inline JSON snippet is not cut from a notice', () => {

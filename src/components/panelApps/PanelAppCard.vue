@@ -109,7 +109,8 @@ async function save() {
     editing.value = null
   } catch (e) {
     problems.value = e.message
-    if (/먼저 고쳤|지웠을/.test(e.message)) load()
+    // someone else changed or deleted the row first (code ROW_CHANGED · ROW_GONE): the rows again
+    if (['ROW_CHANGED', 'ROW_GONE'].includes(e.code) || e.status === 409) load()
   } finally { saving.value = false }
 }
 async function removeRow() {

@@ -33,7 +33,7 @@ import { emit } from '../bus.js'
 import { chatJson } from '../llm.js'
 import { saveGenerated, previewGenerated } from '../generated.js'
 import { addMessage } from '../store.js'
-import { agentsIn, ORCH, STEPS, STEPS_EN, TOOL_FORMAT, stepOf, labelLang } from './catalog.js'
+import { agentsIn, ORCH, stepOf, stepByRole, formatOfTool, labelLang, packsReady } from './catalog.js'
 import { caseClosed } from './recorder.js'
 import { L, isEn, lang, langOf, withLang } from '../lang.js'
 import { boundaryOf, boundaryOrder, frequencyOf, keepFound, requiredIn, sameCases, stepsView } from './boundary.js'
@@ -267,6 +267,7 @@ export async function scanNow() {
 
 async function doScan() {
   if (!MINER) return []
+  await packsReady()
   await ensureCategories()
   const categories = Object.fromEntries((await q(
     'select case_id, category from pro_mining_cases where tenant_id=$1 and category is not null', [T()])).map((r) => [r.case_id, r.category]))
@@ -306,7 +307,7 @@ async function scanPatterns(patterns, byKey) {
     // of the work (the cases' recorded language). The process is saved on 정식 등록 (registerIn).
     // (a new recommendation's 필수/옵션 is the draft from the counts; the admin confirms it in the talk)
     const mined = await miner('/discover', { tenant_id: T(), process_id: p.process_id, name: named.name, case_ids: p.case_ids, lang: patternLang(p) })
-    const formats = [...new Set(p.steps.flatMap((s) => s.tools.map((t) => TOOL_FORMAT[t]).filter(Boolean)))]
+    const formats = [...new Set(p.steps.flatMap((s) => s.tools.map((t) => formatOfTool(t)).filter(Boolean)))]
     const pattern = { ...p }
     delete pattern.new_case_ids
     delete pattern.proposed
@@ -473,6 +474,7 @@ async function casesOf(ids, required = []) {
 }
 
 export async function get(id) {
+  await packsReady()
   const [s] = await q('select * from pro_mining_suggestions where id=$1 and tenant_id=$2', [id, T()])
   if (!s) return null
   // 필수·옵션 per step: the draft from the counts, the admin's word over it (boundary.js)
@@ -766,6 +768,7 @@ export function buildContract(s) {
 
 // the agents' user rows, named in the language of the work (same ids in both languages)
 export async function ensureAgents() {
+  await packsReady()
   for (const a of Object.values(agentsIn())) {
     await q(`insert into users (id, username, email, tenant_id, is_agent, is_admin, is_draft, agent_type, alias, goal, persona, permission_ids)
              values ($1,$2,$3,$4,true,false,false,'agent',$5,$6,$7,'{}')
@@ -794,6 +797,7 @@ export async function preview(me, id) {
   const [s] = await q('select * from pro_mining_suggestions where id=$1 and tenant_id=$2', [id, T()])
   if (!s) throw err(404, L('추천을 찾지 못했어요.', "I couldn't find that recommendation."))
   if (s.status === 'registered') throw err(409, L('이미 정식 등록된 프로세스예요. 등록된 BPMN 을 보세요.', 'This process is already registered. See its saved BPMN.'))
+  await packsReady()
   return withLang(patternLang(s.pattern), async () => {
     const again = await rediscover(s)
     if (again) s.definition = again
@@ -839,7 +843,7 @@ async function registerIn(me, id, s, seen) {
   }
   // people roles go to whoever did that step before (when they are on the team)
   for (const r of s.definition.roles || []) {
-    const c = Object.values(STEPS).find((x) => x.role === r.name) || Object.values(STEPS_EN).find((x) => x.role === r.name) || null
+    const c = stepByRole(r.name)
     const roleName = c?.role || r.name
     if (!r.endpoint || c?.kind === 'agent') continue
     const [m] = await q('select 1 from pro_team_members where tenant_id=$1 and user_id::text=$2', [T(), String(r.endpoint)])

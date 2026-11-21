@@ -1,0 +1,6451 @@
+[
+  {
+    "id": "m-h-001",
+    "prev": [],
+    "speaker": "차은호",
+    "text": "어 잠깐만요 소리가 자꾸 끊기는데 저만 그래요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "audio-check",
+      "filler"
+    ]
+  },
+  {
+    "id": "m-h-002",
+    "prev": [
+      "차은호: 어 잠깐만요 소리가 자꾸 끊기는데 저만 그래요"
+    ],
+    "speaker": "류지안",
+    "text": "저도 조금 끊기는데 일단 진행해요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "audio-check"
+    ]
+  },
+  {
+    "id": "m-h-003",
+    "prev": [
+      "차은호: 어 잠깐만요 소리가 자꾸 끊기는데 저만 그래요",
+      "류지안: 저도 조금 끊기는데 일단 진행해요"
+    ],
+    "speaker": "차은호",
+    "text": "네 그럼 시월 리드타임부터 보죠 엑셀 그거 화면에 올려 줘요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "입출고_리드타임_10월.xlsx",
+    "open": true,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "distractor-month",
+      "format"
+    ]
+  },
+  {
+    "id": "m-h-004",
+    "prev": [
+      "차은호: 어 잠깐만요 소리가 자꾸 끊기는데 저만 그래요",
+      "류지안: 저도 조금 끊기는데 일단 진행해요",
+      "차은호: 네 그럼 시월 리드타임부터 보죠 엑셀 그거 화면에 올려 줘요"
+    ],
+    "speaker": "성다빈",
+    "text": "평균 이틀 반이면 지난달보다 반나절 줄었네요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "discussion"
+    ]
+  },
+  {
+    "id": "m-h-005",
+    "prev": [
+      "류지안: 저도 조금 끊기는데 일단 진행해요",
+      "차은호: 네 그럼 시월 리드타임부터 보죠 엑셀 그거 화면에 올려 줘요",
+      "성다빈: 평균 이틀 반이면 지난달보다 반나절 줄었네요"
+    ],
+    "speaker": "류지안",
+    "text": "근데 다빈 씨 지게차 고장 난 건 수리 요청 들어갔어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "question",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-006",
+    "prev": [
+      "차은호: 네 그럼 시월 리드타임부터 보죠 엑셀 그거 화면에 올려 줘요",
+      "성다빈: 평균 이틀 반이면 지난달보다 반나절 줄었네요",
+      "류지안: 근데 다빈 씨 지게차 고장 난 건 수리 요청 들어갔어요"
+    ],
+    "speaker": "성다빈",
+    "text": "네 제가 월요일에 올렸어요 어디까지 갔는지 그거 좀 띄워 주세요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "지게차 수리 요청 #2871 (성다빈)",
+    "open": true,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "distractor-requester",
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-007",
+    "prev": [
+      "성다빈: 평균 이틀 반이면 지난달보다 반나절 줄었네요",
+      "류지안: 근데 다빈 씨 지게차 고장 난 건 수리 요청 들어갔어요",
+      "성다빈: 네 제가 월요일에 올렸어요 어디까지 갔는지 그거 좀 띄워 주세요"
+    ],
+    "speaker": "차은호",
+    "text": "안전수칙 개정된 거 현장 교육 때 피피티로 쓸 거예요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "phonetic",
+      "format",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-008",
+    "prev": [
+      "류지안: 근데 다빈 씨 지게차 고장 난 건 수리 요청 들어갔어요",
+      "성다빈: 네 제가 월요일에 올렸어요 어디까지 갔는지 그거 좀 띄워 주세요",
+      "차은호: 안전수칙 개정된 거 현장 교육 때 피피티로 쓸 거예요"
+    ],
+    "speaker": "류지안",
+    "text": "음 이번 주 출고 지연 건들을 거래처별로 묶어서 표로 하나 만들어 주세요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "request",
+    "work": "spreadsheet",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "filler"
+    ]
+  },
+  {
+    "id": "m-h-009",
+    "prev": [
+      "성다빈: 네 제가 월요일에 올렸어요 어디까지 갔는지 그거 좀 띄워 주세요",
+      "차은호: 안전수칙 개정된 거 현장 교육 때 피피티로 쓸 거예요",
+      "류지안: 음 이번 주 출고 지연 건들을 거래처별로 묶어서 표로 하나 만들어 주세요"
+    ],
+    "speaker": "성다빈",
+    "text": "그건 제가 해도 되는데 도우미가 하는 게 빠르겠네요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_9월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "입출고_리드타임_10월_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "물류센터 안전수칙_2026.pptx"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2871 (성다빈)"
+      },
+      {
+        "kind": "process",
+        "title": "지게차 수리 요청 #2864 (차은호)"
+      },
+      {
+        "kind": "panel",
+        "title": "파렛트 대여 기록"
+      },
+      {
+        "kind": "panel",
+        "title": "차량 출입 기록"
+      },
+      {
+        "kind": "file",
+        "title": "3PL_계약조건_비교.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_센터운영_메모.docx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "opinion",
+      "boundary",
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-010",
+    "prev": [],
+    "speaker": "임하윤",
+    "text": "오늘 캠페인 회고 겸 다음 달 계획 얘기하려고요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "agenda"
+    ]
+  },
+  {
+    "id": "m-h-011",
+    "prev": [
+      "임하윤: 오늘 캠페인 회고 겸 다음 달 계획 얘기하려고요"
+    ],
+    "speaker": "백승우",
+    "text": "어제 대표님께 성과 리포트 피디에프로 보내 드렸어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "past",
+      "phonetic",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-012",
+    "prev": [
+      "임하윤: 오늘 캠페인 회고 겸 다음 달 계획 얘기하려고요",
+      "백승우: 어제 대표님께 성과 리포트 피디에프로 보내 드렸어요"
+    ],
+    "speaker": "주예린",
+    "text": "반응은 어떠셨어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-013",
+    "prev": [
+      "임하윤: 오늘 캠페인 회고 겸 다음 달 계획 얘기하려고요",
+      "백승우: 어제 대표님께 성과 리포트 피디에프로 보내 드렸어요",
+      "주예린: 반응은 어떠셨어요"
+    ],
+    "speaker": "백승우",
+    "text": "전환율은 좋다고 하셨는데 단가가 높대요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-014",
+    "prev": [
+      "백승우: 어제 대표님께 성과 리포트 피디에프로 보내 드렸어요",
+      "주예린: 반응은 어떠셨어요",
+      "백승우: 전환율은 좋다고 하셨는데 단가가 높대요"
+    ],
+    "speaker": "임하윤",
+    "text": "그럼 예린 씨가 고친 톤앤매너 가이드로 한번 볼까요 원본 말고요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "브랜드 톤앤매너 가이드 (주예린 수정).docx",
+    "open": false,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "version",
+      "proposal",
+      "distractor"
+    ]
+  },
+  {
+    "id": "m-h-015",
+    "prev": [
+      "주예린: 반응은 어떠셨어요",
+      "백승우: 전환율은 좋다고 하셨는데 단가가 높대요",
+      "임하윤: 그럼 예린 씨가 고친 톤앤매너 가이드로 한번 볼까요 원본 말고요"
+    ],
+    "speaker": "주예린",
+    "text": "네 문구 톤을 조금 더 캐주얼하게 바꿨어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-016",
+    "prev": [
+      "백승우: 전환율은 좋다고 하셨는데 단가가 높대요",
+      "임하윤: 그럼 예린 씨가 고친 톤앤매너 가이드로 한번 볼까요 원본 말고요",
+      "주예린: 네 문구 톤을 조금 더 캐주얼하게 바꿨어요"
+    ],
+    "speaker": "임하윤",
+    "text": "인플루언서 섭외 현황 지금 바로 보여 주세요 몇 명 확정됐는지",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "인플루언서 섭외 현황",
+    "open": true,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "panel"
+    ]
+  },
+  {
+    "id": "m-h-017",
+    "prev": [
+      "임하윤: 그럼 예린 씨가 고친 톤앤매너 가이드로 한번 볼까요 원본 말고요",
+      "주예린: 네 문구 톤을 조금 더 캐주얼하게 바꿨어요",
+      "임하윤: 인플루언서 섭외 현황 지금 바로 보여 주세요 몇 명 확정됐는지"
+    ],
+    "speaker": "백승우",
+    "text": "다음 달 캠페인 기획안 초안 하나 써 줄 수 있을까요 이번 성과 반영해서",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "request",
+    "work": "document",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-018",
+    "prev": [
+      "주예린: 네 문구 톤을 조금 더 캐주얼하게 바꿨어요",
+      "임하윤: 인플루언서 섭외 현황 지금 바로 보여 주세요 몇 명 확정됐는지",
+      "백승우: 다음 달 캠페인 기획안 초안 하나 써 줄 수 있을까요 이번 성과 반영해서"
+    ],
+    "speaker": "주예린",
+    "text": "와 기획안까지 나오면 진짜 편하겠다 ㅋㅋ",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_성과리포트.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v3.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "겨울캠페인_예산안_v2.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "브랜드 톤앤매너 가이드 (주예린 수정).docx"
+      },
+      {
+        "kind": "panel",
+        "title": "인플루언서 섭외 현황"
+      },
+      {
+        "kind": "process",
+        "title": "광고비 집행 품의 #7745 (백승우)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "opinion",
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-019",
+    "prev": [],
+    "speaker": "고태린",
+    "text": "다음 주부터 면접 시작이라 오늘 일정 좀 맞춰 봐요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "2027 채용 계획.docx"
+      },
+      {
+        "kind": "file",
+        "title": "면접 평가 양식.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "지원자 현황_백엔드.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3320 (고태린)"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3315 (소민혁)"
+      },
+      {
+        "kind": "panel",
+        "title": "면접실 예약 현황"
+      },
+      {
+        "kind": "file",
+        "title": "직무기술서_데이터엔지니어.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "agenda"
+    ]
+  },
+  {
+    "id": "m-h-020",
+    "prev": [
+      "고태린: 다음 주부터 면접 시작이라 오늘 일정 좀 맞춰 봐요"
+    ],
+    "speaker": "소민혁",
+    "text": "백엔드 지원자는 서류 통과가 일곱 명이에요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "2027 채용 계획.docx"
+      },
+      {
+        "kind": "file",
+        "title": "면접 평가 양식.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "지원자 현황_백엔드.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3320 (고태린)"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3315 (소민혁)"
+      },
+      {
+        "kind": "panel",
+        "title": "면접실 예약 현황"
+      },
+      {
+        "kind": "file",
+        "title": "직무기술서_데이터엔지니어.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-021",
+    "prev": [
+      "고태린: 다음 주부터 면접 시작이라 오늘 일정 좀 맞춰 봐요",
+      "소민혁: 백엔드 지원자는 서류 통과가 일곱 명이에요"
+    ],
+    "speaker": "탁유나",
+    "text": "민혁 씨가 올린 채용 품의는 승인 났어요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "2027 채용 계획.docx"
+      },
+      {
+        "kind": "file",
+        "title": "면접 평가 양식.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "지원자 현황_백엔드.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3320 (고태린)"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3315 (소민혁)"
+      },
+      {
+        "kind": "panel",
+        "title": "면접실 예약 현황"
+      },
+      {
+        "kind": "file",
+        "title": "직무기술서_데이터엔지니어.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "question",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-022",
+    "prev": [
+      "고태린: 다음 주부터 면접 시작이라 오늘 일정 좀 맞춰 봐요",
+      "소민혁: 백엔드 지원자는 서류 통과가 일곱 명이에요",
+      "탁유나: 민혁 씨가 올린 채용 품의는 승인 났어요"
+    ],
+    "speaker": "소민혁",
+    "text": "아직요 그거 어디까지 갔는지 같이 봐요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "2027 채용 계획.docx"
+      },
+      {
+        "kind": "file",
+        "title": "면접 평가 양식.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "지원자 현황_백엔드.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3320 (고태린)"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3315 (소민혁)"
+      },
+      {
+        "kind": "panel",
+        "title": "면접실 예약 현황"
+      },
+      {
+        "kind": "file",
+        "title": "직무기술서_데이터엔지니어.pdf"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "채용 품의 #3315 (소민혁)",
+    "open": false,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "context",
+      "proposal",
+      "distractor-requester"
+    ]
+  },
+  {
+    "id": "m-h-023",
+    "prev": [
+      "소민혁: 백엔드 지원자는 서류 통과가 일곱 명이에요",
+      "탁유나: 민혁 씨가 올린 채용 품의는 승인 났어요",
+      "소민혁: 아직요 그거 어디까지 갔는지 같이 봐요"
+    ],
+    "speaker": "고태린",
+    "text": "면접관 세 명이랑 다음 주 화수 중에 한 시간씩 면접 일정 잡아 주세요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "2027 채용 계획.docx"
+      },
+      {
+        "kind": "file",
+        "title": "면접 평가 양식.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "지원자 현황_백엔드.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3320 (고태린)"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3315 (소민혁)"
+      },
+      {
+        "kind": "panel",
+        "title": "면접실 예약 현황"
+      },
+      {
+        "kind": "file",
+        "title": "직무기술서_데이터엔지니어.pdf"
+      }
+    ],
+    "expect": "request",
+    "work": "schedule",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-024",
+    "prev": [
+      "탁유나: 민혁 씨가 올린 채용 품의는 승인 났어요",
+      "소민혁: 아직요 그거 어디까지 갔는지 같이 봐요",
+      "고태린: 면접관 세 명이랑 다음 주 화수 중에 한 시간씩 면접 일정 잡아 주세요"
+    ],
+    "speaker": "탁유나",
+    "text": "면접실 예약은 제가 직접 할게요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "2027 채용 계획.docx"
+      },
+      {
+        "kind": "file",
+        "title": "면접 평가 양식.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "지원자 현황_백엔드.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3320 (고태린)"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3315 (소민혁)"
+      },
+      {
+        "kind": "panel",
+        "title": "면접실 예약 현황"
+      },
+      {
+        "kind": "file",
+        "title": "직무기술서_데이터엔지니어.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "self-do",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-025",
+    "prev": [
+      "소민혁: 아직요 그거 어디까지 갔는지 같이 봐요",
+      "고태린: 면접관 세 명이랑 다음 주 화수 중에 한 시간씩 면접 일정 잡아 주세요",
+      "탁유나: 면접실 예약은 제가 직접 할게요"
+    ],
+    "speaker": "고태린",
+    "text": "데이터 엔지니어 직무기술서는 작년 거라 요건을 좀 고쳐야 돼요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "2027 채용 계획.docx"
+      },
+      {
+        "kind": "file",
+        "title": "면접 평가 양식.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "지원자 현황_백엔드.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3320 (고태린)"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3315 (소민혁)"
+      },
+      {
+        "kind": "panel",
+        "title": "면접실 예약 현황"
+      },
+      {
+        "kind": "file",
+        "title": "직무기술서_데이터엔지니어.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-026",
+    "prev": [
+      "고태린: 면접관 세 명이랑 다음 주 화수 중에 한 시간씩 면접 일정 잡아 주세요",
+      "탁유나: 면접실 예약은 제가 직접 할게요",
+      "고태린: 데이터 엔지니어 직무기술서는 작년 거라 요건을 좀 고쳐야 돼요"
+    ],
+    "speaker": "소민혁",
+    "text": "그건 제가 이번 주에 고칠게요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "2027 채용 계획.docx"
+      },
+      {
+        "kind": "file",
+        "title": "면접 평가 양식.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "지원자 현황_백엔드.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3320 (고태린)"
+      },
+      {
+        "kind": "process",
+        "title": "채용 품의 #3315 (소민혁)"
+      },
+      {
+        "kind": "panel",
+        "title": "면접실 예약 현황"
+      },
+      {
+        "kind": "file",
+        "title": "직무기술서_데이터엔지니어.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "self-do"
+    ]
+  },
+  {
+    "id": "m-h-027",
+    "prev": [],
+    "speaker": "엄도현",
+    "text": "제출 마감이 다음 주 금요일이에요 시간 별로 없어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-028",
+    "prev": [
+      "엄도현: 제출 마감이 다음 주 금요일이에요 시간 별로 없어요"
+    ],
+    "speaker": "기서준",
+    "text": "알에프피 요구사항 표로 된 거 그거 열어 주세요 원문 피디에프 말고",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "RFP_스마트도서관_요구사항표.xlsx",
+    "open": true,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "phonetic",
+      "format",
+      "distractor"
+    ]
+  },
+  {
+    "id": "m-h-029",
+    "prev": [
+      "엄도현: 제출 마감이 다음 주 금요일이에요 시간 별로 없어요",
+      "기서준: 알에프피 요구사항 표로 된 거 그거 열어 주세요 원문 피디에프 말고"
+    ],
+    "speaker": "방채린",
+    "text": "기능 요구사항이 백이십 개네 생각보다 많다",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "musing"
+    ]
+  },
+  {
+    "id": "m-h-030",
+    "prev": [
+      "엄도현: 제출 마감이 다음 주 금요일이에요 시간 별로 없어요",
+      "기서준: 알에프피 요구사항 표로 된 거 그거 열어 주세요 원문 피디에프 말고",
+      "방채린: 기능 요구사항이 백이십 개네 생각보다 많다"
+    ],
+    "speaker": "엄도현",
+    "text": "서준 씨 목차 고친 거 있죠 그거 기준으로 가요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "decision",
+      "version",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-031",
+    "prev": [
+      "기서준: 알에프피 요구사항 표로 된 거 그거 열어 주세요 원문 피디에프 말고",
+      "방채린: 기능 요구사항이 백이십 개네 생각보다 많다",
+      "엄도현: 서준 씨 목차 고친 거 있죠 그거 기준으로 가요"
+    ],
+    "speaker": "기서준",
+    "text": "네 그럼 제 수정본 제가 띄울게요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "self-do",
+      "version",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-032",
+    "prev": [
+      "방채린: 기능 요구사항이 백이십 개네 생각보다 많다",
+      "엄도현: 서준 씨 목차 고친 거 있죠 그거 기준으로 가요",
+      "기서준: 네 그럼 제 수정본 제가 띄울게요"
+    ],
+    "speaker": "방채린",
+    "text": "목차 기준으로 사업 이해 부분 초안 좀 써 주세요 한두 쪽 정도로",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "request",
+    "work": "document",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-033",
+    "prev": [
+      "엄도현: 서준 씨 목차 고친 거 있죠 그거 기준으로 가요",
+      "기서준: 네 그럼 제 수정본 제가 띄울게요",
+      "방채린: 목차 기준으로 사업 이해 부분 초안 좀 써 주세요 한두 쪽 정도로"
+    ],
+    "speaker": "엄도현",
+    "text": "보증보험 발급 요청은 제가 어제 넣어 놨어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "past",
+      "self-do",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-034",
+    "prev": [
+      "기서준: 네 그럼 제 수정본 제가 띄울게요",
+      "방채린: 목차 기준으로 사업 이해 부분 초안 좀 써 주세요 한두 쪽 정도로",
+      "엄도현: 보증보험 발급 요청은 제가 어제 넣어 놨어요"
+    ],
+    "speaker": "기서준",
+    "text": "그거 보통 하루면 나와요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-035",
+    "prev": [
+      "방채린: 목차 기준으로 사업 이해 부분 초안 좀 써 주세요 한두 쪽 정도로",
+      "엄도현: 보증보험 발급 요청은 제가 어제 넣어 놨어요",
+      "기서준: 그거 보통 하루면 나와요"
+    ],
+    "speaker": "방채린",
+    "text": "아 다행이다",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_구축.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "RFP_스마트도서관_요구사항표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "제안서_목차_초안 (기서준 수정본).docx"
+      },
+      {
+        "kind": "file",
+        "title": "투입인력_계획.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "입찰 보증보험 발급 요청 #1033 (엄도현)"
+      },
+      {
+        "kind": "panel",
+        "title": "협력사 연락 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "small-talk"
+    ]
+  },
+  {
+    "id": "m-h-036",
+    "prev": [],
+    "speaker": "석하준",
+    "text": "십일월 마감 이슈부터 볼게요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "11월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "10월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_손익_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "월마감 체크리스트.docx"
+      },
+      {
+        "kind": "process",
+        "title": "법인카드 한도 상향 요청 #612 (표하은)"
+      },
+      {
+        "kind": "process",
+        "title": "지출결의 #9934 (남윤재)"
+      },
+      {
+        "kind": "panel",
+        "title": "선급금 관리 대장"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "agenda"
+    ]
+  },
+  {
+    "id": "m-h-037",
+    "prev": [
+      "석하준: 십일월 마감 이슈부터 볼게요"
+    ],
+    "speaker": "표하은",
+    "text": "피앤엘 엑셀 십일월 거 띄워 주세요 요약 장표 말고요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "11월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "10월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_손익_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "월마감 체크리스트.docx"
+      },
+      {
+        "kind": "process",
+        "title": "법인카드 한도 상향 요청 #612 (표하은)"
+      },
+      {
+        "kind": "process",
+        "title": "지출결의 #9934 (남윤재)"
+      },
+      {
+        "kind": "panel",
+        "title": "선급금 관리 대장"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "11월_손익_P&L.xlsx",
+    "open": true,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "phonetic",
+      "format",
+      "distractor-month"
+    ]
+  },
+  {
+    "id": "m-h-038",
+    "prev": [
+      "석하준: 십일월 마감 이슈부터 볼게요",
+      "표하은: 피앤엘 엑셀 십일월 거 띄워 주세요 요약 장표 말고요"
+    ],
+    "speaker": "남윤재",
+    "text": "원재료비가 전월 대비 칠 퍼센트 올랐네요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "11월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "10월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_손익_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "월마감 체크리스트.docx"
+      },
+      {
+        "kind": "process",
+        "title": "법인카드 한도 상향 요청 #612 (표하은)"
+      },
+      {
+        "kind": "process",
+        "title": "지출결의 #9934 (남윤재)"
+      },
+      {
+        "kind": "panel",
+        "title": "선급금 관리 대장"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-039",
+    "prev": [
+      "석하준: 십일월 마감 이슈부터 볼게요",
+      "표하은: 피앤엘 엑셀 십일월 거 띄워 주세요 요약 장표 말고요",
+      "남윤재: 원재료비가 전월 대비 칠 퍼센트 올랐네요"
+    ],
+    "speaker": "석하준",
+    "text": "음 작년 감사 때 지적받은 항목 정리한 문서 그거 같이 보죠",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "11월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "10월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_손익_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "월마감 체크리스트.docx"
+      },
+      {
+        "kind": "process",
+        "title": "법인카드 한도 상향 요청 #612 (표하은)"
+      },
+      {
+        "kind": "process",
+        "title": "지출결의 #9934 (남윤재)"
+      },
+      {
+        "kind": "panel",
+        "title": "선급금 관리 대장"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": null,
+    "open": false,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "not-found",
+      "proposal",
+      "filler"
+    ]
+  },
+  {
+    "id": "m-h-040",
+    "prev": [
+      "표하은: 피앤엘 엑셀 십일월 거 띄워 주세요 요약 장표 말고요",
+      "남윤재: 원재료비가 전월 대비 칠 퍼센트 올랐네요",
+      "석하준: 음 작년 감사 때 지적받은 항목 정리한 문서 그거 같이 보죠"
+    ],
+    "speaker": "표하은",
+    "text": "그건 재무팀 폴더에 없을 거예요 감사팀이 갖고 있어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "11월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "10월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_손익_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "월마감 체크리스트.docx"
+      },
+      {
+        "kind": "process",
+        "title": "법인카드 한도 상향 요청 #612 (표하은)"
+      },
+      {
+        "kind": "process",
+        "title": "지출결의 #9934 (남윤재)"
+      },
+      {
+        "kind": "panel",
+        "title": "선급금 관리 대장"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-041",
+    "prev": [
+      "남윤재: 원재료비가 전월 대비 칠 퍼센트 올랐네요",
+      "석하준: 음 작년 감사 때 지적받은 항목 정리한 문서 그거 같이 보죠",
+      "표하은: 그건 재무팀 폴더에 없을 거예요 감사팀이 갖고 있어요"
+    ],
+    "speaker": "남윤재",
+    "text": "선급금 대장 보면 아직 정산 안 된 건 다섯 건이에요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "11월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "10월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_손익_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "월마감 체크리스트.docx"
+      },
+      {
+        "kind": "process",
+        "title": "법인카드 한도 상향 요청 #612 (표하은)"
+      },
+      {
+        "kind": "process",
+        "title": "지출결의 #9934 (남윤재)"
+      },
+      {
+        "kind": "panel",
+        "title": "선급금 관리 대장"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "boundary",
+      "panel"
+    ]
+  },
+  {
+    "id": "m-h-042",
+    "prev": [
+      "석하준: 음 작년 감사 때 지적받은 항목 정리한 문서 그거 같이 보죠",
+      "표하은: 그건 재무팀 폴더에 없을 거예요 감사팀이 갖고 있어요",
+      "남윤재: 선급금 대장 보면 아직 정산 안 된 건 다섯 건이에요"
+    ],
+    "speaker": "석하준",
+    "text": "그 다섯 건 거래처랑 금액이랑 경과일을 표로 정리해 줘요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "11월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "10월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_손익_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "월마감 체크리스트.docx"
+      },
+      {
+        "kind": "process",
+        "title": "법인카드 한도 상향 요청 #612 (표하은)"
+      },
+      {
+        "kind": "process",
+        "title": "지출결의 #9934 (남윤재)"
+      },
+      {
+        "kind": "panel",
+        "title": "선급금 관리 대장"
+      }
+    ],
+    "expect": "request",
+    "work": "spreadsheet",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-043",
+    "prev": [
+      "표하은: 그건 재무팀 폴더에 없을 거예요 감사팀이 갖고 있어요",
+      "남윤재: 선급금 대장 보면 아직 정산 안 된 건 다섯 건이에요",
+      "석하준: 그 다섯 건 거래처랑 금액이랑 경과일을 표로 정리해 줘요"
+    ],
+    "speaker": "표하은",
+    "text": "하준님 그건 제가 이미 만들어 놨어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "11월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "10월_손익_P&L.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "11월_손익_요약.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "월마감 체크리스트.docx"
+      },
+      {
+        "kind": "process",
+        "title": "법인카드 한도 상향 요청 #612 (표하은)"
+      },
+      {
+        "kind": "process",
+        "title": "지출결의 #9934 (남윤재)"
+      },
+      {
+        "kind": "panel",
+        "title": "선급금 관리 대장"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "past",
+      "self-do"
+    ]
+  },
+  {
+    "id": "m-h-044",
+    "prev": [],
+    "speaker": "염가온",
+    "text": "다들 오셨으면 바로 시작할게요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_9월.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "상담 응대 스크립트_v5.docx"
+      },
+      {
+        "kind": "panel",
+        "title": "고객 VOC 접수 대장"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3876 (마준서)"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3881 (설아린)"
+      },
+      {
+        "kind": "file",
+        "title": "요금제_개편안.pptx"
+      },
+      {
+        "kind": "panel",
+        "title": "상담원 근무표"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "small-talk"
+    ]
+  },
+  {
+    "id": "m-h-045",
+    "prev": [
+      "염가온: 다들 오셨으면 바로 시작할게요"
+    ],
+    "speaker": "마준서",
+    "text": "도우미 그 시월 브이오씨 분석 원본 엑셀로 있는 거 열어 줘",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_9월.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "상담 응대 스크립트_v5.docx"
+      },
+      {
+        "kind": "panel",
+        "title": "고객 VOC 접수 대장"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3876 (마준서)"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3881 (설아린)"
+      },
+      {
+        "kind": "file",
+        "title": "요금제_개편안.pptx"
+      },
+      {
+        "kind": "panel",
+        "title": "상담원 근무표"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "VOC_분석_10월.xlsx",
+    "open": true,
+    "addressed": true,
+    "lang": "ko",
+    "axis": [
+      "addressed",
+      "phonetic",
+      "format",
+      "distractor-month"
+    ]
+  },
+  {
+    "id": "m-h-046",
+    "prev": [
+      "염가온: 다들 오셨으면 바로 시작할게요",
+      "마준서: 도우미 그 시월 브이오씨 분석 원본 엑셀로 있는 거 열어 줘"
+    ],
+    "speaker": "설아린",
+    "text": "요금 문의가 전체의 사십 퍼센트네요 생각보다 많다",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_9월.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "상담 응대 스크립트_v5.docx"
+      },
+      {
+        "kind": "panel",
+        "title": "고객 VOC 접수 대장"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3876 (마준서)"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3881 (설아린)"
+      },
+      {
+        "kind": "file",
+        "title": "요금제_개편안.pptx"
+      },
+      {
+        "kind": "panel",
+        "title": "상담원 근무표"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-047",
+    "prev": [
+      "염가온: 다들 오셨으면 바로 시작할게요",
+      "마준서: 도우미 그 시월 브이오씨 분석 원본 엑셀로 있는 거 열어 줘",
+      "설아린: 요금 문의가 전체의 사십 퍼센트네요 생각보다 많다"
+    ],
+    "speaker": "염가온",
+    "text": "아린 씨가 올린 보상 지급 건 어디까지 처리됐는지 찾아봐 줄래요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_9월.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "상담 응대 스크립트_v5.docx"
+      },
+      {
+        "kind": "panel",
+        "title": "고객 VOC 접수 대장"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3876 (마준서)"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3881 (설아린)"
+      },
+      {
+        "kind": "file",
+        "title": "요금제_개편안.pptx"
+      },
+      {
+        "kind": "panel",
+        "title": "상담원 근무표"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "보상 지급 요청 #3881 (설아린)",
+    "open": false,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "process",
+      "distractor-requester",
+      "find-only"
+    ]
+  },
+  {
+    "id": "m-h-048",
+    "prev": [
+      "마준서: 도우미 그 시월 브이오씨 분석 원본 엑셀로 있는 거 열어 줘",
+      "설아린: 요금 문의가 전체의 사십 퍼센트네요 생각보다 많다",
+      "염가온: 아린 씨가 올린 보상 지급 건 어디까지 처리됐는지 찾아봐 줄래요"
+    ],
+    "speaker": "설아린",
+    "text": "그거 오늘 오전에 승인 났다고 들었어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_9월.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "상담 응대 스크립트_v5.docx"
+      },
+      {
+        "kind": "panel",
+        "title": "고객 VOC 접수 대장"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3876 (마준서)"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3881 (설아린)"
+      },
+      {
+        "kind": "file",
+        "title": "요금제_개편안.pptx"
+      },
+      {
+        "kind": "panel",
+        "title": "상담원 근무표"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-049",
+    "prev": [
+      "설아린: 요금 문의가 전체의 사십 퍼센트네요 생각보다 많다",
+      "염가온: 아린 씨가 올린 보상 지급 건 어디까지 처리됐는지 찾아봐 줄래요",
+      "설아린: 그거 오늘 오전에 승인 났다고 들었어요"
+    ],
+    "speaker": "마준서",
+    "text": "요금 문의 고객들한테 보낼 사과 답변 메일 초안 좀 써 줘요 할인 쿠폰 안내도 넣어서",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_9월.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "상담 응대 스크립트_v5.docx"
+      },
+      {
+        "kind": "panel",
+        "title": "고객 VOC 접수 대장"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3876 (마준서)"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3881 (설아린)"
+      },
+      {
+        "kind": "file",
+        "title": "요금제_개편안.pptx"
+      },
+      {
+        "kind": "panel",
+        "title": "상담원 근무표"
+      }
+    ],
+    "expect": "request",
+    "work": "reply",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-050",
+    "prev": [
+      "염가온: 아린 씨가 올린 보상 지급 건 어디까지 처리됐는지 찾아봐 줄래요",
+      "설아린: 그거 오늘 오전에 승인 났다고 들었어요",
+      "마준서: 요금 문의 고객들한테 보낼 사과 답변 메일 초안 좀 써 줘요 할인 쿠폰 안내도 넣어서"
+    ],
+    "speaker": "염가온",
+    "text": "상담 스크립트 v5 진짜 잘 만들었더라 준서 씨",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_9월.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "상담 응대 스크립트_v5.docx"
+      },
+      {
+        "kind": "panel",
+        "title": "고객 VOC 접수 대장"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3876 (마준서)"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3881 (설아린)"
+      },
+      {
+        "kind": "file",
+        "title": "요금제_개편안.pptx"
+      },
+      {
+        "kind": "panel",
+        "title": "상담원 근무표"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "opinion",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-051",
+    "prev": [
+      "설아린: 그거 오늘 오전에 승인 났다고 들었어요",
+      "마준서: 요금 문의 고객들한테 보낼 사과 답변 메일 초안 좀 써 줘요 할인 쿠폰 안내도 넣어서",
+      "염가온: 상담 스크립트 v5 진짜 잘 만들었더라 준서 씨"
+    ],
+    "speaker": "마준서",
+    "text": "감사합니다 ㅎㅎ",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_10월.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "VOC_분석_9월.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "상담 응대 스크립트_v5.docx"
+      },
+      {
+        "kind": "panel",
+        "title": "고객 VOC 접수 대장"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3876 (마준서)"
+      },
+      {
+        "kind": "process",
+        "title": "보상 지급 요청 #3881 (설아린)"
+      },
+      {
+        "kind": "file",
+        "title": "요금제_개편안.pptx"
+      },
+      {
+        "kind": "panel",
+        "title": "상담원 근무표"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "small-talk"
+    ]
+  },
+  {
+    "id": "m-h-052",
+    "prev": [],
+    "speaker": "피승현",
+    "text": "피오씨 끝난 지 일주일 됐는데 결과 정리가 아직이죠",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.docx"
+      },
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_11월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_10월.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "설비 수리 요청 #2045 (육나래)"
+      },
+      {
+        "kind": "panel",
+        "title": "공구 대여 기록"
+      },
+      {
+        "kind": "folder",
+        "title": "스마트팩토리 로드맵.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "phonetic",
+      "question"
+    ]
+  },
+  {
+    "id": "m-h-053",
+    "prev": [
+      "피승현: 피오씨 끝난 지 일주일 됐는데 결과 정리가 아직이죠"
+    ],
+    "speaker": "육나래",
+    "text": "초안은 워드로 있어요 제가 어제 올렸어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.docx"
+      },
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_11월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_10월.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "설비 수리 요청 #2045 (육나래)"
+      },
+      {
+        "kind": "panel",
+        "title": "공구 대여 기록"
+      },
+      {
+        "kind": "folder",
+        "title": "스마트팩토리 로드맵.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "past",
+      "format",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-054",
+    "prev": [
+      "피승현: 피오씨 끝난 지 일주일 됐는데 결과 정리가 아직이죠",
+      "육나래: 초안은 워드로 있어요 제가 어제 올렸어요"
+    ],
+    "speaker": "국태민",
+    "text": "어 그 피오씨 결과 보고 초안 워드 파일 열어 줘요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.docx"
+      },
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_11월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_10월.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "설비 수리 요청 #2045 (육나래)"
+      },
+      {
+        "kind": "panel",
+        "title": "공구 대여 기록"
+      },
+      {
+        "kind": "folder",
+        "title": "스마트팩토리 로드맵.pptx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "PoC_결과보고_초안.docx",
+    "open": true,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "phonetic",
+      "format",
+      "filler",
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-055",
+    "prev": [
+      "피승현: 피오씨 끝난 지 일주일 됐는데 결과 정리가 아직이죠",
+      "육나래: 초안은 워드로 있어요 제가 어제 올렸어요",
+      "국태민: 어 그 피오씨 결과 보고 초안 워드 파일 열어 줘요"
+    ],
+    "speaker": "피승현",
+    "text": "가동률이 팔십일에서 팔십칠로 올랐다 이거 꽤 크네",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.docx"
+      },
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_11월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_10월.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "설비 수리 요청 #2045 (육나래)"
+      },
+      {
+        "kind": "panel",
+        "title": "공구 대여 기록"
+      },
+      {
+        "kind": "folder",
+        "title": "스마트팩토리 로드맵.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "musing"
+    ]
+  },
+  {
+    "id": "m-h-056",
+    "prev": [
+      "육나래: 초안은 워드로 있어요 제가 어제 올렸어요",
+      "국태민: 어 그 피오씨 결과 보고 초안 워드 파일 열어 줘요",
+      "피승현: 가동률이 팔십일에서 팔십칠로 올랐다 이거 꽤 크네"
+    ],
+    "speaker": "국태민",
+    "text": "AI 지금까지 얘기한 거 핵심만 다섯 줄로 요약해 줘",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.docx"
+      },
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_11월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_10월.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "설비 수리 요청 #2045 (육나래)"
+      },
+      {
+        "kind": "panel",
+        "title": "공구 대여 기록"
+      },
+      {
+        "kind": "folder",
+        "title": "스마트팩토리 로드맵.pptx"
+      }
+    ],
+    "expect": "request",
+    "work": "summary",
+    "pick": null,
+    "open": null,
+    "addressed": true,
+    "lang": "ko",
+    "axis": [
+      "addressed"
+    ]
+  },
+  {
+    "id": "m-h-057",
+    "prev": [
+      "국태민: 어 그 피오씨 결과 보고 초안 워드 파일 열어 줘요",
+      "피승현: 가동률이 팔십일에서 팔십칠로 올랐다 이거 꽤 크네",
+      "국태민: AI 지금까지 얘기한 거 핵심만 다섯 줄로 요약해 줘"
+    ],
+    "speaker": "육나래",
+    "text": "로드맵 장표는 다음 회의 때 볼게요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.docx"
+      },
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_11월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_10월.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "설비 수리 요청 #2045 (육나래)"
+      },
+      {
+        "kind": "panel",
+        "title": "공구 대여 기록"
+      },
+      {
+        "kind": "folder",
+        "title": "스마트팩토리 로드맵.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "boundary",
+      "decision"
+    ]
+  },
+  {
+    "id": "m-h-058",
+    "prev": [
+      "피승현: 가동률이 팔십일에서 팔십칠로 올랐다 이거 꽤 크네",
+      "국태민: AI 지금까지 얘기한 거 핵심만 다섯 줄로 요약해 줘",
+      "육나래: 로드맵 장표는 다음 회의 때 볼게요"
+    ],
+    "speaker": "피승현",
+    "text": "음 대시보드 시월 거랑 비교하게 시월 거 좀 찾아 놔요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.docx"
+      },
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_11월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_10월.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "설비 수리 요청 #2045 (육나래)"
+      },
+      {
+        "kind": "panel",
+        "title": "공구 대여 기록"
+      },
+      {
+        "kind": "folder",
+        "title": "스마트팩토리 로드맵.pptx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "설비가동률_대시보드_10월.pdf",
+    "open": false,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "distractor-month",
+      "find-only"
+    ]
+  },
+  {
+    "id": "m-h-059",
+    "prev": [
+      "국태민: AI 지금까지 얘기한 거 핵심만 다섯 줄로 요약해 줘",
+      "육나래: 로드맵 장표는 다음 회의 때 볼게요",
+      "피승현: 음 대시보드 시월 거랑 비교하게 시월 거 좀 찾아 놔요"
+    ],
+    "speaker": "국태민",
+    "text": "좋아요 오늘은 여기까지",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.docx"
+      },
+      {
+        "kind": "file",
+        "title": "PoC_결과보고_초안.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_11월.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "설비가동률_대시보드_10월.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "설비 수리 요청 #2045 (육나래)"
+      },
+      {
+        "kind": "panel",
+        "title": "공구 대여 기록"
+      },
+      {
+        "kind": "folder",
+        "title": "스마트팩토리 로드맵.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "small-talk"
+    ]
+  },
+  {
+    "id": "m-h-060",
+    "prev": [],
+    "speaker": "남다인",
+    "text": "이번 달 안전교육 이수율이 칠십 퍼센트밖에 안 돼요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "안전교육_이수현황.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "교육비 지원 신청 #881 (권율)"
+      },
+      {
+        "kind": "panel",
+        "title": "보호구 지급 기록"
+      },
+      {
+        "kind": "file",
+        "title": "협력업체_안전점검표.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-061",
+    "prev": [
+      "남다인: 이번 달 안전교육 이수율이 칠십 퍼센트밖에 안 돼요"
+    ],
+    "speaker": "권율",
+    "text": "현장 소장님들이 바빠서 그래요 어쩔 수 없죠",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "안전교육_이수현황.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "교육비 지원 신청 #881 (권율)"
+      },
+      {
+        "kind": "panel",
+        "title": "보호구 지급 기록"
+      },
+      {
+        "kind": "file",
+        "title": "협력업체_안전점검표.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "opinion"
+    ]
+  },
+  {
+    "id": "m-h-062",
+    "prev": [
+      "남다인: 이번 달 안전교육 이수율이 칠십 퍼센트밖에 안 돼요",
+      "권율: 현장 소장님들이 바빠서 그래요 어쩔 수 없죠"
+    ],
+    "speaker": "송하람",
+    "text": "보호구 지급 기록에서 안전화 받은 인원 화면에 띄워 주세요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "안전교육_이수현황.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "교육비 지원 신청 #881 (권율)"
+      },
+      {
+        "kind": "panel",
+        "title": "보호구 지급 기록"
+      },
+      {
+        "kind": "file",
+        "title": "협력업체_안전점검표.xlsx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "보호구 지급 기록",
+    "open": true,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "panel"
+    ]
+  },
+  {
+    "id": "m-h-063",
+    "prev": [
+      "남다인: 이번 달 안전교육 이수율이 칠십 퍼센트밖에 안 돼요",
+      "권율: 현장 소장님들이 바빠서 그래요 어쩔 수 없죠",
+      "송하람: 보호구 지급 기록에서 안전화 받은 인원 화면에 띄워 주세요"
+    ],
+    "speaker": "남다인",
+    "text": "음 미이수자 대상으로 보충 교육 다음 주 목요일 오후 두 시로 잡아 주세요 현장 사무실에서",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "안전교육_이수현황.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "교육비 지원 신청 #881 (권율)"
+      },
+      {
+        "kind": "panel",
+        "title": "보호구 지급 기록"
+      },
+      {
+        "kind": "file",
+        "title": "협력업체_안전점검표.xlsx"
+      }
+    ],
+    "expect": "request",
+    "work": "schedule",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "filler"
+    ]
+  },
+  {
+    "id": "m-h-064",
+    "prev": [
+      "권율: 현장 소장님들이 바빠서 그래요 어쩔 수 없죠",
+      "송하람: 보호구 지급 기록에서 안전화 받은 인원 화면에 띄워 주세요",
+      "남다인: 음 미이수자 대상으로 보충 교육 다음 주 목요일 오후 두 시로 잡아 주세요 현장 사무실에서"
+    ],
+    "speaker": "권율",
+    "text": "하람 씨 교안 피디에프로 변환해서 소장님들께 보내 줄 수 있어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "안전교육_이수현황.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "교육비 지원 신청 #881 (권율)"
+      },
+      {
+        "kind": "panel",
+        "title": "보호구 지급 기록"
+      },
+      {
+        "kind": "file",
+        "title": "협력업체_안전점검표.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "teammate",
+      "phonetic",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-065",
+    "prev": [
+      "송하람: 보호구 지급 기록에서 안전화 받은 인원 화면에 띄워 주세요",
+      "남다인: 음 미이수자 대상으로 보충 교육 다음 주 목요일 오후 두 시로 잡아 주세요 현장 사무실에서",
+      "권율: 하람 씨 교안 피디에프로 변환해서 소장님들께 보내 줄 수 있어요"
+    ],
+    "speaker": "송하람",
+    "text": "넵 점심 먹고 바로 돌릴게요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "안전교육_이수현황.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "교육비 지원 신청 #881 (권율)"
+      },
+      {
+        "kind": "panel",
+        "title": "보호구 지급 기록"
+      },
+      {
+        "kind": "file",
+        "title": "협력업체_안전점검표.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "self-do"
+    ]
+  },
+  {
+    "id": "m-h-066",
+    "prev": [
+      "남다인: 음 미이수자 대상으로 보충 교육 다음 주 목요일 오후 두 시로 잡아 주세요 현장 사무실에서",
+      "권율: 하람 씨 교안 피디에프로 변환해서 소장님들께 보내 줄 수 있어요",
+      "송하람: 넵 점심 먹고 바로 돌릴게요"
+    ],
+    "speaker": "남다인",
+    "text": "협력업체 점검표는 지난주에 다 받았어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "안전교육_이수현황.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "교육비 지원 신청 #881 (권율)"
+      },
+      {
+        "kind": "panel",
+        "title": "보호구 지급 기록"
+      },
+      {
+        "kind": "file",
+        "title": "협력업체_안전점검표.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "past",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-067",
+    "prev": [
+      "권율: 하람 씨 교안 피디에프로 변환해서 소장님들께 보내 줄 수 있어요",
+      "송하람: 넵 점심 먹고 바로 돌릴게요",
+      "남다인: 협력업체 점검표는 지난주에 다 받았어요"
+    ],
+    "speaker": "권율",
+    "text": "음 AI 비서는 여기서 꺼도 될 것 같은데요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "안전교육_이수현황.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pptx"
+      },
+      {
+        "kind": "folder",
+        "title": "현장 안전교육 교안.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "교육비 지원 신청 #881 (권율)"
+      },
+      {
+        "kind": "panel",
+        "title": "보호구 지급 기록"
+      },
+      {
+        "kind": "file",
+        "title": "협력업체_안전점검표.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "boundary",
+      "about-helper"
+    ]
+  },
+  {
+    "id": "m-h-068",
+    "prev": [],
+    "speaker": "맹수아",
+    "text": "복지 포인트 개편안 오늘 결론 내려고요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "복지포인트_운영기준_2026.docx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_3분기.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_2분기.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "제도 개정 품의 #417 (맹수아)"
+      },
+      {
+        "kind": "panel",
+        "title": "동호회 지원금 신청 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "agenda"
+    ]
+  },
+  {
+    "id": "m-h-069",
+    "prev": [
+      "맹수아: 복지 포인트 개편안 오늘 결론 내려고요"
+    ],
+    "speaker": "연태경",
+    "text": "삼분기 사용 현황 보면 대부분 식비로 쓰더라고요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "복지포인트_운영기준_2026.docx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_3분기.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_2분기.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "제도 개정 품의 #417 (맹수아)"
+      },
+      {
+        "kind": "panel",
+        "title": "동호회 지원금 신청 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-070",
+    "prev": [
+      "맹수아: 복지 포인트 개편안 오늘 결론 내려고요",
+      "연태경: 삼분기 사용 현황 보면 대부분 식비로 쓰더라고요"
+    ],
+    "speaker": "차윤슬",
+    "text": "도우미 다른 회사들 복지 포인트 운영 사례 정리해 둔 자료 있으면 띄워 줘",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "복지포인트_운영기준_2026.docx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_3분기.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_2분기.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "제도 개정 품의 #417 (맹수아)"
+      },
+      {
+        "kind": "panel",
+        "title": "동호회 지원금 신청 현황"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": null,
+    "open": true,
+    "addressed": true,
+    "lang": "ko",
+    "axis": [
+      "addressed",
+      "not-found"
+    ]
+  },
+  {
+    "id": "m-h-071",
+    "prev": [
+      "맹수아: 복지 포인트 개편안 오늘 결론 내려고요",
+      "연태경: 삼분기 사용 현황 보면 대부분 식비로 쓰더라고요",
+      "차윤슬: 도우미 다른 회사들 복지 포인트 운영 사례 정리해 둔 자료 있으면 띄워 줘"
+    ],
+    "speaker": "맹수아",
+    "text": "그건 우리가 따로 모은 적이 없어요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "복지포인트_운영기준_2026.docx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_3분기.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_2분기.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "제도 개정 품의 #417 (맹수아)"
+      },
+      {
+        "kind": "panel",
+        "title": "동호회 지원금 신청 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-072",
+    "prev": [
+      "연태경: 삼분기 사용 현황 보면 대부분 식비로 쓰더라고요",
+      "차윤슬: 도우미 다른 회사들 복지 포인트 운영 사례 정리해 둔 자료 있으면 띄워 줘",
+      "맹수아: 그건 우리가 따로 모은 적이 없어요"
+    ],
+    "speaker": "연태경",
+    "text": "동호회 지원금도 이번에 같이 손보면 좋겠어요",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "복지포인트_운영기준_2026.docx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_3분기.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_2분기.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "제도 개정 품의 #417 (맹수아)"
+      },
+      {
+        "kind": "panel",
+        "title": "동호회 지원금 신청 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "opinion",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-073",
+    "prev": [
+      "차윤슬: 도우미 다른 회사들 복지 포인트 운영 사례 정리해 둔 자료 있으면 띄워 줘",
+      "맹수아: 그건 우리가 따로 모은 적이 없어요",
+      "연태경: 동호회 지원금도 이번에 같이 손보면 좋겠어요"
+    ],
+    "speaker": "차윤슬",
+    "text": "그건 다음 분기에 따로 얘기하죠",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "복지포인트_운영기준_2026.docx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_3분기.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "복지포인트_사용현황_2분기.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "제도 개정 품의 #417 (맹수아)"
+      },
+      {
+        "kind": "panel",
+        "title": "동호회 지원금 신청 현황"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "decision"
+    ]
+  },
+  {
+    "id": "m-h-074",
+    "prev": [],
+    "speaker": "위서진",
+    "text": "에어 루프 엑스 투 출시가 이제 한 달 남았어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "에어루프X2_출시일정.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책_검토.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "에어루프X2_상세페이지_카피.docx"
+      },
+      {
+        "kind": "process",
+        "title": "인증 시험 의뢰 #6630 (호준영)"
+      },
+      {
+        "kind": "panel",
+        "title": "체험단 신청자 목록"
+      },
+      {
+        "kind": "file",
+        "title": "경쟁제품_사양비교.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "phonetic"
+    ]
+  },
+  {
+    "id": "m-h-075",
+    "prev": [
+      "위서진: 에어 루프 엑스 투 출시가 이제 한 달 남았어요"
+    ],
+    "speaker": "봉하늘",
+    "text": "인증 시험은 아직 결과 안 나왔죠",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "에어루프X2_출시일정.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책_검토.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "에어루프X2_상세페이지_카피.docx"
+      },
+      {
+        "kind": "process",
+        "title": "인증 시험 의뢰 #6630 (호준영)"
+      },
+      {
+        "kind": "panel",
+        "title": "체험단 신청자 목록"
+      },
+      {
+        "kind": "file",
+        "title": "경쟁제품_사양비교.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "question",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-076",
+    "prev": [
+      "위서진: 에어 루프 엑스 투 출시가 이제 한 달 남았어요",
+      "봉하늘: 인증 시험은 아직 결과 안 나왔죠"
+    ],
+    "speaker": "호준영",
+    "text": "네 다음 주 초에 나온대요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "에어루프X2_출시일정.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책_검토.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "에어루프X2_상세페이지_카피.docx"
+      },
+      {
+        "kind": "process",
+        "title": "인증 시험 의뢰 #6630 (호준영)"
+      },
+      {
+        "kind": "panel",
+        "title": "체험단 신청자 목록"
+      },
+      {
+        "kind": "file",
+        "title": "경쟁제품_사양비교.xlsx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-077",
+    "prev": [
+      "위서진: 에어 루프 엑스 투 출시가 이제 한 달 남았어요",
+      "봉하늘: 인증 시험은 아직 결과 안 나왔죠",
+      "호준영: 네 다음 주 초에 나온대요"
+    ],
+    "speaker": "위서진",
+    "text": "전파 인증 받는 데 보통 며칠 걸리는지 알아봐 줄 수 있어요 국립전파연구원 기준으로",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "에어루프X2_출시일정.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책_검토.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "에어루프X2_상세페이지_카피.docx"
+      },
+      {
+        "kind": "process",
+        "title": "인증 시험 의뢰 #6630 (호준영)"
+      },
+      {
+        "kind": "panel",
+        "title": "체험단 신청자 목록"
+      },
+      {
+        "kind": "file",
+        "title": "경쟁제품_사양비교.xlsx"
+      }
+    ],
+    "expect": "request",
+    "work": "lookup",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "research"
+    ]
+  },
+  {
+    "id": "m-h-078",
+    "prev": [
+      "봉하늘: 인증 시험은 아직 결과 안 나왔죠",
+      "호준영: 네 다음 주 초에 나온대요",
+      "위서진: 전파 인증 받는 데 보통 며칠 걸리는지 알아봐 줄 수 있어요 국립전파연구원 기준으로"
+    ],
+    "speaker": "봉하늘",
+    "text": "에어 루프 가격 정책 그 피디에프로 된 거 좀 띄워 봐요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "에어루프X2_출시일정.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "에어루프X2_가격정책_검토.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "에어루프X2_상세페이지_카피.docx"
+      },
+      {
+        "kind": "process",
+        "title": "인증 시험 의뢰 #6630 (호준영)"
+      },
+      {
+        "kind": "panel",
+        "title": "체험단 신청자 목록"
+      },
+      {
+        "kind": "file",
+        "title": "경쟁제품_사양비교.xlsx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "에어루프X2_가격정책.pdf",
+    "open": true,
+    "addressed": false,
+    "lang": "ko",
+    "axis": [
+      "phonetic",
+      "format",
+      "distractor"
+    ]
+  },
+  {
+    "id": "m-h-079",
+    "prev": [],
+    "speaker": "Ethan Brooks",
+    "text": "uh is Rahul joining or is he still at the plant",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_412.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_409.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist (Mei's revision).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Release sign-off #318 (Ethan Brooks)"
+      },
+      {
+        "kind": "panel",
+        "title": "Test device checkout"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log_summary.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "question",
+      "filler"
+    ]
+  },
+  {
+    "id": "m-h-080",
+    "prev": [
+      "Ethan Brooks: uh is Rahul joining or is he still at the plant"
+    ],
+    "speaker": "Mei Tanaka",
+    "text": "he said he'd dial in from the car",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_412.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_409.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist (Mei's revision).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Release sign-off #318 (Ethan Brooks)"
+      },
+      {
+        "kind": "panel",
+        "title": "Test device checkout"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log_summary.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": []
+  },
+  {
+    "id": "m-h-081",
+    "prev": [
+      "Ethan Brooks: uh is Rahul joining or is he still at the plant",
+      "Mei Tanaka: he said he'd dial in from the car"
+    ],
+    "speaker": "Ethan Brooks",
+    "text": "okay so let's put the regression report for build four twelve on screen",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_412.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_409.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist (Mei's revision).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Release sign-off #318 (Ethan Brooks)"
+      },
+      {
+        "kind": "panel",
+        "title": "Test device checkout"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log_summary.pptx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "QA_regression_report_build_412.pdf",
+    "open": true,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "distractor-version",
+      "numbers-spoken"
+    ]
+  },
+  {
+    "id": "m-h-082",
+    "prev": [
+      "Ethan Brooks: uh is Rahul joining or is he still at the plant",
+      "Mei Tanaka: he said he'd dial in from the car",
+      "Ethan Brooks: okay so let's put the regression report for build four twelve on screen"
+    ],
+    "speaker": "Rahul Desai",
+    "text": "sorry I'm here the gripper timeout failures are back in that build",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_412.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_409.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist (Mei's revision).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Release sign-off #318 (Ethan Brooks)"
+      },
+      {
+        "kind": "panel",
+        "title": "Test device checkout"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log_summary.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-083",
+    "prev": [
+      "Mei Tanaka: he said he'd dial in from the car",
+      "Ethan Brooks: okay so let's put the regression report for build four twelve on screen",
+      "Rahul Desai: sorry I'm here the gripper timeout failures are back in that build"
+    ],
+    "speaker": "Mei Tanaka",
+    "text": "I tightened a few steps in the release checklist we should go through my version later",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_412.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_409.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist (Mei's revision).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Release sign-off #318 (Ethan Brooks)"
+      },
+      {
+        "kind": "panel",
+        "title": "Test device checkout"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log_summary.pptx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "Release checklist (Mei's revision).docx",
+    "open": false,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "version",
+      "proposal"
+    ]
+  },
+  {
+    "id": "m-h-084",
+    "prev": [
+      "Ethan Brooks: okay so let's put the regression report for build four twelve on screen",
+      "Rahul Desai: sorry I'm here the gripper timeout failures are back in that build",
+      "Mei Tanaka: I tightened a few steps in the release checklist we should go through my version later"
+    ],
+    "speaker": "Ethan Brooks",
+    "text": "hey assistant quick recap of the blockers so far like three bullets",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_412.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_409.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist (Mei's revision).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Release sign-off #318 (Ethan Brooks)"
+      },
+      {
+        "kind": "panel",
+        "title": "Test device checkout"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log_summary.pptx"
+      }
+    ],
+    "expect": "request",
+    "work": "summary",
+    "pick": null,
+    "open": null,
+    "addressed": true,
+    "lang": "en",
+    "axis": [
+      "addressed",
+      "terse"
+    ]
+  },
+  {
+    "id": "m-h-085",
+    "prev": [
+      "Rahul Desai: sorry I'm here the gripper timeout failures are back in that build",
+      "Mei Tanaka: I tightened a few steps in the release checklist we should go through my version later",
+      "Ethan Brooks: hey assistant quick recap of the blockers so far like three bullets"
+    ],
+    "speaker": "Rahul Desai",
+    "text": "I'll take the gripper bug it's probably the firmware",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_412.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "QA_regression_report_build_409.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Release checklist (Mei's revision).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Release sign-off #318 (Ethan Brooks)"
+      },
+      {
+        "kind": "panel",
+        "title": "Test device checkout"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Field_failure_log_summary.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "self-do"
+    ]
+  },
+  {
+    "id": "m-h-086",
+    "prev": [],
+    "speaker": "Grace Whitfield",
+    "text": "we're about two hundred k short of the Q4 target",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Pricing guideline 2026.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1452 (Tom Becker)"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1460 (Aisha Rahman)"
+      },
+      {
+        "kind": "panel",
+        "title": "Trade show lead list"
+      },
+      {
+        "kind": "file",
+        "title": "Competitor_matrix.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": []
+  },
+  {
+    "id": "m-h-087",
+    "prev": [
+      "Grace Whitfield: we're about two hundred k short of the Q4 target"
+    ],
+    "speaker": "Tom Becker",
+    "text": "the Harlow deal should close next week that covers half of it",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Pricing guideline 2026.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1452 (Tom Becker)"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1460 (Aisha Rahman)"
+      },
+      {
+        "kind": "panel",
+        "title": "Trade show lead list"
+      },
+      {
+        "kind": "file",
+        "title": "Competitor_matrix.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": []
+  },
+  {
+    "id": "m-h-088",
+    "prev": [
+      "Grace Whitfield: we're about two hundred k short of the Q4 target",
+      "Tom Becker: the Harlow deal should close next week that covers half of it"
+    ],
+    "speaker": "Aisha Rahman",
+    "text": "Tom do you know if finance signed off your discount yet",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Pricing guideline 2026.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1452 (Tom Becker)"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1460 (Aisha Rahman)"
+      },
+      {
+        "kind": "panel",
+        "title": "Trade show lead list"
+      },
+      {
+        "kind": "file",
+        "title": "Competitor_matrix.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "teammate",
+      "question",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-089",
+    "prev": [
+      "Grace Whitfield: we're about two hundred k short of the Q4 target",
+      "Tom Becker: the Harlow deal should close next week that covers half of it",
+      "Aisha Rahman: Tom do you know if finance signed off your discount yet"
+    ],
+    "speaker": "Grace Whitfield",
+    "text": "can you find the trade show lead list I want to go through it after the call",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Pricing guideline 2026.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1452 (Tom Becker)"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1460 (Aisha Rahman)"
+      },
+      {
+        "kind": "panel",
+        "title": "Trade show lead list"
+      },
+      {
+        "kind": "file",
+        "title": "Competitor_matrix.pptx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "Trade show lead list",
+    "open": false,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "panel",
+      "find-only"
+    ]
+  },
+  {
+    "id": "m-h-090",
+    "prev": [
+      "Tom Becker: the Harlow deal should close next week that covers half of it",
+      "Aisha Rahman: Tom do you know if finance signed off your discount yet",
+      "Grace Whitfield: can you find the trade show lead list I want to go through it after the call"
+    ],
+    "speaker": "Tom Becker",
+    "text": "could we get a table of every open deal over fifty k with stage and next step",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Pricing guideline 2026.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1452 (Tom Becker)"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1460 (Aisha Rahman)"
+      },
+      {
+        "kind": "panel",
+        "title": "Trade show lead list"
+      },
+      {
+        "kind": "file",
+        "title": "Competitor_matrix.pptx"
+      }
+    ],
+    "expect": "request",
+    "work": "spreadsheet",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": []
+  },
+  {
+    "id": "m-h-091",
+    "prev": [
+      "Aisha Rahman: Tom do you know if finance signed off your discount yet",
+      "Grace Whitfield: can you find the trade show lead list I want to go through it after the call",
+      "Tom Becker: could we get a table of every open deal over fifty k with stage and next step"
+    ],
+    "speaker": "Aisha Rahman",
+    "text": "nice that'd save me an hour",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Pipeline_Q4_forecast.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "Pricing guideline 2026.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1452 (Tom Becker)"
+      },
+      {
+        "kind": "process",
+        "title": "Discount approval #1460 (Aisha Rahman)"
+      },
+      {
+        "kind": "panel",
+        "title": "Trade show lead list"
+      },
+      {
+        "kind": "file",
+        "title": "Competitor_matrix.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "opinion",
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-092",
+    "prev": [],
+    "speaker": "Natalie Wu",
+    "text": "assistant bring up the flu season vaccination roster",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Dec.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Nov.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses (Fatima's edits).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Equipment purchase #4471 (James O'Connor)"
+      },
+      {
+        "kind": "panel",
+        "title": "Wheelchair loan log"
+      },
+      {
+        "kind": "file",
+        "title": "Patient_survey_results_Q3.pdf"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": null,
+    "open": true,
+    "addressed": true,
+    "lang": "en",
+    "axis": [
+      "addressed",
+      "not-found"
+    ]
+  },
+  {
+    "id": "m-h-093",
+    "prev": [
+      "Natalie Wu: assistant bring up the flu season vaccination roster"
+    ],
+    "speaker": "James O'Connor",
+    "text": "I don't think we've made one this year yet",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Dec.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Nov.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses (Fatima's edits).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Equipment purchase #4471 (James O'Connor)"
+      },
+      {
+        "kind": "panel",
+        "title": "Wheelchair loan log"
+      },
+      {
+        "kind": "file",
+        "title": "Patient_survey_results_Q3.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-094",
+    "prev": [
+      "Natalie Wu: assistant bring up the flu season vaccination roster",
+      "James O'Connor: I don't think we've made one this year yet"
+    ],
+    "speaker": "Fatima Zahra",
+    "text": "the December staffing plan is short two night nurses",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Dec.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Nov.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses (Fatima's edits).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Equipment purchase #4471 (James O'Connor)"
+      },
+      {
+        "kind": "panel",
+        "title": "Wheelchair loan log"
+      },
+      {
+        "kind": "file",
+        "title": "Patient_survey_results_Q3.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-095",
+    "prev": [
+      "Natalie Wu: assistant bring up the flu season vaccination roster",
+      "James O'Connor: I don't think we've made one this year yet",
+      "Fatima Zahra: the December staffing plan is short two night nurses"
+    ],
+    "speaker": "Natalie Wu",
+    "text": "let's get a call with the agency on the calendar Thursday at ten to fill those shifts",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Dec.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Nov.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses (Fatima's edits).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Equipment purchase #4471 (James O'Connor)"
+      },
+      {
+        "kind": "panel",
+        "title": "Wheelchair loan log"
+      },
+      {
+        "kind": "file",
+        "title": "Patient_survey_results_Q3.pdf"
+      }
+    ],
+    "expect": "request",
+    "work": "schedule",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": []
+  },
+  {
+    "id": "m-h-096",
+    "prev": [
+      "James O'Connor: I don't think we've made one this year yet",
+      "Fatima Zahra: the December staffing plan is short two night nurses",
+      "Natalie Wu: let's get a call with the agency on the calendar Thursday at ten to fill those shifts"
+    ],
+    "speaker": "James O'Connor",
+    "text": "thanks helper that's all for now",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Dec.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "Clinic_staffing_plan_Nov.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Onboarding guide for nurses (Fatima's edits).docx"
+      },
+      {
+        "kind": "process",
+        "title": "Equipment purchase #4471 (James O'Connor)"
+      },
+      {
+        "kind": "panel",
+        "title": "Wheelchair loan log"
+      },
+      {
+        "kind": "file",
+        "title": "Patient_survey_results_Q3.pdf"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": true,
+    "lang": "en",
+    "axis": [
+      "addressed",
+      "thanks"
+    ]
+  },
+  {
+    "id": "m-h-097",
+    "prev": [],
+    "speaker": "Liam Foster",
+    "text": "Orbis sent their comments on the NDA back last night",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "Mutual NDA - Kestrel x Orbis.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Mutual NDA - Kestrel x Orbis (legal redline).docx"
+      },
+      {
+        "kind": "file",
+        "title": "Partnership_term_sheet.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "Content_licensing_fees.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "Contract review #2214 (Chloe Martin)"
+      },
+      {
+        "kind": "panel",
+        "title": "Partner contact log"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "past",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-098",
+    "prev": [
+      "Liam Foster: Orbis sent their comments on the NDA back last night"
+    ],
+    "speaker": "Chloe Martin",
+    "text": "can you open the version legal redlined not the clean one",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "Mutual NDA - Kestrel x Orbis.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Mutual NDA - Kestrel x Orbis (legal redline).docx"
+      },
+      {
+        "kind": "file",
+        "title": "Partnership_term_sheet.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "Content_licensing_fees.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "Contract review #2214 (Chloe Martin)"
+      },
+      {
+        "kind": "panel",
+        "title": "Partner contact log"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "Mutual NDA - Kestrel x Orbis (legal redline).docx",
+    "open": true,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "version",
+      "distractor",
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-099",
+    "prev": [
+      "Liam Foster: Orbis sent their comments on the NDA back last night",
+      "Chloe Martin: can you open the version legal redlined not the clean one"
+    ],
+    "speaker": "Yusuf Demir",
+    "text": "the non-solicit clause is way too broad for us",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "Mutual NDA - Kestrel x Orbis.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Mutual NDA - Kestrel x Orbis (legal redline).docx"
+      },
+      {
+        "kind": "file",
+        "title": "Partnership_term_sheet.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "Content_licensing_fees.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "Contract review #2214 (Chloe Martin)"
+      },
+      {
+        "kind": "panel",
+        "title": "Partner contact log"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "opinion"
+    ]
+  },
+  {
+    "id": "m-h-100",
+    "prev": [
+      "Liam Foster: Orbis sent their comments on the NDA back last night",
+      "Chloe Martin: can you open the version legal redlined not the clean one",
+      "Yusuf Demir: the non-solicit clause is way too broad for us"
+    ],
+    "speaker": "Liam Foster",
+    "text": "write a reply to Orbis saying we accept everything except clause seven and suggest a call",
+    "candidates": [
+      {
+        "kind": "folder",
+        "title": "Mutual NDA - Kestrel x Orbis.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "Mutual NDA - Kestrel x Orbis (legal redline).docx"
+      },
+      {
+        "kind": "file",
+        "title": "Partnership_term_sheet.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "Content_licensing_fees.xlsx"
+      },
+      {
+        "kind": "process",
+        "title": "Contract review #2214 (Chloe Martin)"
+      },
+      {
+        "kind": "panel",
+        "title": "Partner contact log"
+      }
+    ],
+    "expect": "request",
+    "work": "reply",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": []
+  },
+  {
+    "id": "m-h-101",
+    "prev": [],
+    "speaker": "Rebecca Hall",
+    "text": "board meeting's on the third so the deck has to be locked by Monday",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Board_deck_Nov.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "Board_deck_Oct.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "Cash_runway_model.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Investor FAQ.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Wire transfer approval #5508 (Omar Haddad)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": []
+  },
+  {
+    "id": "m-h-102",
+    "prev": [
+      "Rebecca Hall: board meeting's on the third so the deck has to be locked by Monday"
+    ],
+    "speaker": "Omar Haddad",
+    "text": "Jun can you redo the runway slide with the new burn rate",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Board_deck_Nov.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "Board_deck_Oct.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "Cash_runway_model.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Investor FAQ.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Wire transfer approval #5508 (Omar Haddad)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "teammate",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-103",
+    "prev": [
+      "Rebecca Hall: board meeting's on the third so the deck has to be locked by Monday",
+      "Omar Haddad: Jun can you redo the runway slide with the new burn rate"
+    ],
+    "speaker": "Jun Seo",
+    "text": "sure give me till tomorrow",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Board_deck_Nov.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "Board_deck_Oct.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "Cash_runway_model.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Investor FAQ.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Wire transfer approval #5508 (Omar Haddad)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "self-do"
+    ]
+  },
+  {
+    "id": "m-h-104",
+    "prev": [
+      "Rebecca Hall: board meeting's on the third so the deck has to be locked by Monday",
+      "Omar Haddad: Jun can you redo the runway slide with the new burn rate",
+      "Jun Seo: sure give me till tomorrow"
+    ],
+    "speaker": "Rebecca Hall",
+    "text": "also look up the current feed-in tariff for commercial solar in Spain one of the board members asked",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "Board_deck_Nov.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "Board_deck_Oct.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "Cash_runway_model.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "Investor FAQ.docx"
+      },
+      {
+        "kind": "process",
+        "title": "Wire transfer approval #5508 (Omar Haddad)"
+      }
+    ],
+    "expect": "request",
+    "work": "lookup",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "en",
+    "axis": [
+      "research"
+    ]
+  },
+  {
+    "id": "m-h-105",
+    "prev": [],
+    "speaker": "佐々木 葵",
+    "text": "お疲れさまですえーと今日は第2フェーズの話から",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "要件定義書_v2.docx"
+      },
+      {
+        "kind": "file",
+        "title": "要件定義書_v1.docx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第2フェーズ.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第1フェーズ.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "API設計ガイドライン.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8812 (中村)"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8790 (佐々木)"
+      },
+      {
+        "kind": "panel",
+        "title": "検証端末 貸出台帳"
+      },
+      {
+        "kind": "file",
+        "title": "進捗報告_11月第3週.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "filler",
+      "agenda"
+    ]
+  },
+  {
+    "id": "m-h-106",
+    "prev": [
+      "佐々木 葵: お疲れさまですえーと今日は第2フェーズの話から"
+    ],
+    "speaker": "中村 大輔",
+    "text": "要件定義書はv2が最新です先週お客さんの確認もらいました",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "要件定義書_v2.docx"
+      },
+      {
+        "kind": "file",
+        "title": "要件定義書_v1.docx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第2フェーズ.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第1フェーズ.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "API設計ガイドライン.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8812 (中村)"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8790 (佐々木)"
+      },
+      {
+        "kind": "panel",
+        "title": "検証端末 貸出台帳"
+      },
+      {
+        "kind": "file",
+        "title": "進捗報告_11月第3週.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "version",
+      "past",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-107",
+    "prev": [
+      "佐々木 葵: お疲れさまですえーと今日は第2フェーズの話から",
+      "中村 大輔: 要件定義書はv2が最新です先週お客さんの確認もらいました"
+    ],
+    "speaker": "小林 千尋",
+    "text": "ヘルパーさん去年の保守契約の請求書出してください",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "要件定義書_v2.docx"
+      },
+      {
+        "kind": "file",
+        "title": "要件定義書_v1.docx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第2フェーズ.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第1フェーズ.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "API設計ガイドライン.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8812 (中村)"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8790 (佐々木)"
+      },
+      {
+        "kind": "panel",
+        "title": "検証端末 貸出台帳"
+      },
+      {
+        "kind": "file",
+        "title": "進捗報告_11月第3週.pptx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": null,
+    "open": true,
+    "addressed": true,
+    "lang": "ja",
+    "axis": [
+      "addressed",
+      "not-found"
+    ]
+  },
+  {
+    "id": "m-h-108",
+    "prev": [
+      "佐々木 葵: お疲れさまですえーと今日は第2フェーズの話から",
+      "中村 大輔: 要件定義書はv2が最新です先週お客さんの確認もらいました",
+      "小林 千尋: ヘルパーさん去年の保守契約の請求書出してください"
+    ],
+    "speaker": "佐々木 葵",
+    "text": "あそれはたぶん経理のフォルダですね",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "要件定義書_v2.docx"
+      },
+      {
+        "kind": "file",
+        "title": "要件定義書_v1.docx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第2フェーズ.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第1フェーズ.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "API設計ガイドライン.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8812 (中村)"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8790 (佐々木)"
+      },
+      {
+        "kind": "panel",
+        "title": "検証端末 貸出台帳"
+      },
+      {
+        "kind": "file",
+        "title": "進捗報告_11月第3週.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-109",
+    "prev": [
+      "中村 大輔: 要件定義書はv2が最新です先週お客さんの確認もらいました",
+      "小林 千尋: ヘルパーさん去年の保守契約の請求書出してください",
+      "佐々木 葵: あそれはたぶん経理のフォルダですね"
+    ],
+    "speaker": "中村 大輔",
+    "text": "私が出した外注の発注申請どこまで行ってるか画面に出してもらえますか",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "要件定義書_v2.docx"
+      },
+      {
+        "kind": "file",
+        "title": "要件定義書_v1.docx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第2フェーズ.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第1フェーズ.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "API設計ガイドライン.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8812 (中村)"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8790 (佐々木)"
+      },
+      {
+        "kind": "panel",
+        "title": "検証端末 貸出台帳"
+      },
+      {
+        "kind": "file",
+        "title": "進捗報告_11月第3週.pptx"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "外注発注申請 #8812 (中村)",
+    "open": true,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "process",
+      "distractor-requester"
+    ]
+  },
+  {
+    "id": "m-h-110",
+    "prev": [
+      "小林 千尋: ヘルパーさん去年の保守契約の請求書出してください",
+      "佐々木 葵: あそれはたぶん経理のフォルダですね",
+      "中村 大輔: 私が出した外注の発注申請どこまで行ってるか画面に出してもらえますか"
+    ],
+    "speaker": "小林 千尋",
+    "text": "顧客向けに第2フェーズの変更点を説明する資料用意してもらえると助かります",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "要件定義書_v2.docx"
+      },
+      {
+        "kind": "file",
+        "title": "要件定義書_v1.docx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第2フェーズ.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第1フェーズ.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "API設計ガイドライン.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8812 (中村)"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8790 (佐々木)"
+      },
+      {
+        "kind": "panel",
+        "title": "検証端末 貸出台帳"
+      },
+      {
+        "kind": "file",
+        "title": "進捗報告_11月第3週.pptx"
+      }
+    ],
+    "expect": "request",
+    "work": "document",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "indirect"
+    ]
+  },
+  {
+    "id": "m-h-111",
+    "prev": [
+      "佐々木 葵: あそれはたぶん経理のフォルダですね",
+      "中村 大輔: 私が出した外注の発注申請どこまで行ってるか画面に出してもらえますか",
+      "小林 千尋: 顧客向けに第2フェーズの変更点を説明する資料用意してもらえると助かります"
+    ],
+    "speaker": "佐々木 葵",
+    "text": "じゃあ今日はこのへんで",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "要件定義書_v2.docx"
+      },
+      {
+        "kind": "file",
+        "title": "要件定義書_v1.docx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第2フェーズ.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "工数見積_第1フェーズ.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "API設計ガイドライン.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8812 (中村)"
+      },
+      {
+        "kind": "process",
+        "title": "外注発注申請 #8790 (佐々木)"
+      },
+      {
+        "kind": "panel",
+        "title": "検証端末 貸出台帳"
+      },
+      {
+        "kind": "file",
+        "title": "進捗報告_11月第3週.pptx"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "small-talk"
+    ]
+  },
+  {
+    "id": "m-h-112",
+    "prev": [],
+    "speaker": "山本 紗季",
+    "text": "北斗さんの件来週プレゼンです",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "見積比較表_北斗案件.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "値引き承認ルール.docx"
+      },
+      {
+        "kind": "process",
+        "title": "値引き承認 #5091 (松田)"
+      },
+      {
+        "kind": "panel",
+        "title": "訪問記録"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": []
+  },
+  {
+    "id": "m-h-113",
+    "prev": [
+      "山本 紗季: 北斗さんの件来週プレゼンです"
+    ],
+    "speaker": "松田 翔",
+    "text": "提案資料はパワポで直しておきました",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "見積比較表_北斗案件.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "値引き承認ルール.docx"
+      },
+      {
+        "kind": "process",
+        "title": "値引き承認 #5091 (松田)"
+      },
+      {
+        "kind": "panel",
+        "title": "訪問記録"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "past",
+      "boundary",
+      "format"
+    ]
+  },
+  {
+    "id": "m-h-114",
+    "prev": [
+      "山本 紗季: 北斗さんの件来週プレゼンです",
+      "松田 翔: 提案資料はパワポで直しておきました"
+    ],
+    "speaker": "岡田 理恵",
+    "text": "あの北斗電材の去年の売上高ってどれくらいでしたっけ調べてもらえます",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "見積比較表_北斗案件.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "値引き承認ルール.docx"
+      },
+      {
+        "kind": "process",
+        "title": "値引き承認 #5091 (松田)"
+      },
+      {
+        "kind": "panel",
+        "title": "訪問記録"
+      }
+    ],
+    "expect": "request",
+    "work": "lookup",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "filler",
+      "research"
+    ]
+  },
+  {
+    "id": "m-h-115",
+    "prev": [
+      "山本 紗季: 北斗さんの件来週プレゼンです",
+      "松田 翔: 提案資料はパワポで直しておきました",
+      "岡田 理恵: あの北斗電材の去年の売上高ってどれくらいでしたっけ調べてもらえます"
+    ],
+    "speaker": "山本 紗季",
+    "text": "訪問記録で先方の担当者が誰だったか探しておいてください",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "見積比較表_北斗案件.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "値引き承認ルール.docx"
+      },
+      {
+        "kind": "process",
+        "title": "値引き承認 #5091 (松田)"
+      },
+      {
+        "kind": "panel",
+        "title": "訪問記録"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "訪問記録",
+    "open": false,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "panel",
+      "find-only"
+    ]
+  },
+  {
+    "id": "m-h-116",
+    "prev": [
+      "松田 翔: 提案資料はパワポで直しておきました",
+      "岡田 理恵: あの北斗電材の去年の売上高ってどれくらいでしたっけ調べてもらえます",
+      "山本 紗季: 訪問記録で先方の担当者が誰だったか探しておいてください"
+    ],
+    "speaker": "松田 翔",
+    "text": "値引きは10パーセントまでならルール上いけますよね",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "見積比較表_北斗案件.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "値引き承認ルール.docx"
+      },
+      {
+        "kind": "process",
+        "title": "値引き承認 #5091 (松田)"
+      },
+      {
+        "kind": "panel",
+        "title": "訪問記録"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "question",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-117",
+    "prev": [
+      "岡田 理恵: あの北斗電材の去年の売上高ってどれくらいでしたっけ調べてもらえます",
+      "山本 紗季: 訪問記録で先方の担当者が誰だったか探しておいてください",
+      "松田 翔: 値引きは10パーセントまでならルール上いけますよね"
+    ],
+    "speaker": "岡田 理恵",
+    "text": "はいそれ以上は部長決裁です",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "見積比較表_北斗案件.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pptx"
+      },
+      {
+        "kind": "file",
+        "title": "提案資料_北斗電材.pdf"
+      },
+      {
+        "kind": "folder",
+        "title": "値引き承認ルール.docx"
+      },
+      {
+        "kind": "process",
+        "title": "値引き承認 #5091 (松田)"
+      },
+      {
+        "kind": "panel",
+        "title": "訪問記録"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ja",
+    "axis": [
+      "context"
+    ]
+  },
+  {
+    "id": "m-h-118",
+    "prev": [],
+    "speaker": "Kevin Moon",
+    "text": "오늘 audit prep 위주로 갈게요 다들 ready?",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "ISMS_점검표_2026.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v4.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v3.docx"
+      },
+      {
+        "kind": "file",
+        "title": "침투테스트_결과보고서.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "보안 예외 승인 #2290 (한예준)"
+      },
+      {
+        "kind": "process",
+        "title": "계정 권한 신청 #2301 (진서아)"
+      },
+      {
+        "kind": "panel",
+        "title": "외부 반입 장비 기록"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "agenda",
+      "code-switch"
+    ]
+  },
+  {
+    "id": "m-h-119",
+    "prev": [
+      "Kevin Moon: 오늘 audit prep 위주로 갈게요 다들 ready?"
+    ],
+    "speaker": "한예준",
+    "text": "넵 저는 pen test 결과 위주로 말씀드릴게요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "ISMS_점검표_2026.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v4.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v3.docx"
+      },
+      {
+        "kind": "file",
+        "title": "침투테스트_결과보고서.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "보안 예외 승인 #2290 (한예준)"
+      },
+      {
+        "kind": "process",
+        "title": "계정 권한 신청 #2301 (진서아)"
+      },
+      {
+        "kind": "panel",
+        "title": "외부 반입 장비 기록"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "self-do",
+      "code-switch"
+    ]
+  },
+  {
+    "id": "m-h-120",
+    "prev": [
+      "Kevin Moon: 오늘 audit prep 위주로 갈게요 다들 ready?",
+      "한예준: 넵 저는 pen test 결과 위주로 말씀드릴게요"
+    ],
+    "speaker": "진서아",
+    "text": "보안정책 개정안 latest 버전 띄워 주세요 v4로요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "ISMS_점검표_2026.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v4.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v3.docx"
+      },
+      {
+        "kind": "file",
+        "title": "침투테스트_결과보고서.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "보안 예외 승인 #2290 (한예준)"
+      },
+      {
+        "kind": "process",
+        "title": "계정 권한 신청 #2301 (진서아)"
+      },
+      {
+        "kind": "panel",
+        "title": "외부 반입 장비 기록"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "보안정책_개정안_v4.docx",
+    "open": true,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "version",
+      "code-switch",
+      "distractor"
+    ]
+  },
+  {
+    "id": "m-h-121",
+    "prev": [
+      "Kevin Moon: 오늘 audit prep 위주로 갈게요 다들 ready?",
+      "한예준: 넵 저는 pen test 결과 위주로 말씀드릴게요",
+      "진서아: 보안정책 개정안 latest 버전 띄워 주세요 v4로요"
+    ],
+    "speaker": "Kevin Moon",
+    "text": "critical 이슈가 두 개나 있네 이거 audit 전에 꼭 막아야 돼",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "ISMS_점검표_2026.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v4.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v3.docx"
+      },
+      {
+        "kind": "file",
+        "title": "침투테스트_결과보고서.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "보안 예외 승인 #2290 (한예준)"
+      },
+      {
+        "kind": "process",
+        "title": "계정 권한 신청 #2301 (진서아)"
+      },
+      {
+        "kind": "panel",
+        "title": "외부 반입 장비 기록"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "opinion",
+      "code-switch"
+    ]
+  },
+  {
+    "id": "m-h-122",
+    "prev": [
+      "한예준: 넵 저는 pen test 결과 위주로 말씀드릴게요",
+      "진서아: 보안정책 개정안 latest 버전 띄워 주세요 v4로요",
+      "Kevin Moon: critical 이슈가 두 개나 있네 이거 audit 전에 꼭 막아야 돼"
+    ],
+    "speaker": "한예준",
+    "text": "서아 씨 그 권한 신청 건 approve 났어요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "ISMS_점검표_2026.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v4.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v3.docx"
+      },
+      {
+        "kind": "file",
+        "title": "침투테스트_결과보고서.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "보안 예외 승인 #2290 (한예준)"
+      },
+      {
+        "kind": "process",
+        "title": "계정 권한 신청 #2301 (진서아)"
+      },
+      {
+        "kind": "panel",
+        "title": "외부 반입 장비 기록"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "teammate",
+      "question",
+      "code-switch",
+      "boundary"
+    ]
+  },
+  {
+    "id": "m-h-123",
+    "prev": [
+      "진서아: 보안정책 개정안 latest 버전 띄워 주세요 v4로요",
+      "Kevin Moon: critical 이슈가 두 개나 있네 이거 audit 전에 꼭 막아야 돼",
+      "한예준: 서아 씨 그 권한 신청 건 approve 났어요"
+    ],
+    "speaker": "진서아",
+    "text": "아직이요 manager가 휴가라서",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "ISMS_점검표_2026.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v4.docx"
+      },
+      {
+        "kind": "folder",
+        "title": "보안정책_개정안_v3.docx"
+      },
+      {
+        "kind": "file",
+        "title": "침투테스트_결과보고서.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "보안 예외 승인 #2290 (한예준)"
+      },
+      {
+        "kind": "process",
+        "title": "계정 권한 신청 #2301 (진서아)"
+      },
+      {
+        "kind": "panel",
+        "title": "외부 반입 장비 기록"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "code-switch"
+    ]
+  },
+  {
+    "id": "m-h-124",
+    "prev": [],
+    "speaker": "石井 拓海",
+    "text": "すみません 한국어 조금만 할 수 있어요 ゆっくりお願いします",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "共同開発スケジュール.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "공동개발_일정표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "技術移転契約_ドラフト.docx"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_2차.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_1차.pdf"
+      },
+      {
+        "kind": "panel",
+        "title": "시제품 대여 대장"
+      },
+      {
+        "kind": "process",
+        "title": "해외 송금 요청 #7012 (우지민)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "code-switch",
+      "small-talk"
+    ]
+  },
+  {
+    "id": "m-h-125",
+    "prev": [
+      "石井 拓海: すみません 한국어 조금만 할 수 있어요 ゆっくりお願いします"
+    ],
+    "speaker": "우지민",
+    "text": "괜찮아요 じゃあ 시제품 테스트 결과 2차 거 열어 주세요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "共同開発スケジュール.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "공동개발_일정표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "技術移転契約_ドラフト.docx"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_2차.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_1차.pdf"
+      },
+      {
+        "kind": "panel",
+        "title": "시제품 대여 대장"
+      },
+      {
+        "kind": "process",
+        "title": "해외 송금 요청 #7012 (우지민)"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "시제품_테스트결과_2차.pdf",
+    "open": true,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "code-switch",
+      "distractor-version"
+    ]
+  },
+  {
+    "id": "m-h-126",
+    "prev": [
+      "石井 拓海: すみません 한국어 조금만 할 수 있어요 ゆっくりお願いします",
+      "우지민: 괜찮아요 じゃあ 시제품 테스트 결과 2차 거 열어 주세요"
+    ],
+    "speaker": "石井 拓海",
+    "text": "耐久テストの結果思ったより良いですね 좋아요",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "共同開発スケジュール.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "공동개발_일정표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "技術移転契約_ドラフト.docx"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_2차.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_1차.pdf"
+      },
+      {
+        "kind": "panel",
+        "title": "시제품 대여 대장"
+      },
+      {
+        "kind": "process",
+        "title": "해외 송금 요청 #7012 (우지민)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "opinion",
+      "code-switch"
+    ]
+  },
+  {
+    "id": "m-h-127",
+    "prev": [
+      "石井 拓海: すみません 한국어 조금만 할 수 있어요 ゆっくりお願いします",
+      "우지민: 괜찮아요 じゃあ 시제품 테스트 결과 2차 거 열어 주세요",
+      "石井 拓海: 耐久テストの結果思ったより良いですね 좋아요"
+    ],
+    "speaker": "하도윤",
+    "text": "오늘 나온 얘기 한국어랑 일본어로 정리해 주세요 양쪽 팀에 공유하게",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "共同開発スケジュール.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "공동개발_일정표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "技術移転契約_ドラフト.docx"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_2차.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_1차.pdf"
+      },
+      {
+        "kind": "panel",
+        "title": "시제품 대여 대장"
+      },
+      {
+        "kind": "process",
+        "title": "해외 송금 요청 #7012 (우지민)"
+      }
+    ],
+    "expect": "request",
+    "work": "summary",
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "ko",
+    "axis": []
+  },
+  {
+    "id": "m-h-128",
+    "prev": [
+      "우지민: 괜찮아요 じゃあ 시제품 테스트 결과 2차 거 열어 주세요",
+      "石井 拓海: 耐久テストの結果思ったより良いですね 좋아요",
+      "하도윤: 오늘 나온 얘기 한국어랑 일본어로 정리해 주세요 양쪽 팀에 공유하게"
+    ],
+    "speaker": "石井 拓海",
+    "text": "ありがとうございます 감사합니다",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "共同開発スケジュール.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "공동개발_일정표.xlsx"
+      },
+      {
+        "kind": "folder",
+        "title": "技術移転契約_ドラフト.docx"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_2차.pdf"
+      },
+      {
+        "kind": "file",
+        "title": "시제품_테스트결과_1차.pdf"
+      },
+      {
+        "kind": "panel",
+        "title": "시제품 대여 대장"
+      },
+      {
+        "kind": "process",
+        "title": "해외 송금 요청 #7012 (우지민)"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "mixed",
+    "axis": [
+      "small-talk",
+      "code-switch"
+    ]
+  },
+  {
+    "id": "m-h-129",
+    "prev": [],
+    "speaker": "李娜",
+    "text": "嗯 把十二月的出货计划打开看一下",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "出货计划_12月.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "出货计划_11月.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "质检报告_批次0931.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "采购申请 #4410 (赵强)"
+      },
+      {
+        "kind": "panel",
+        "title": "样品借出记录"
+      }
+    ],
+    "expect": "material",
+    "work": null,
+    "pick": "出货计划_12月.xlsx",
+    "open": true,
+    "addressed": false,
+    "lang": "zh",
+    "axis": [
+      "distractor-month",
+      "filler"
+    ]
+  },
+  {
+    "id": "m-h-130",
+    "prev": [
+      "李娜: 嗯 把十二月的出货计划打开看一下"
+    ],
+    "speaker": "赵强",
+    "text": "好的 这个月的量比上个月多了百分之二十",
+    "candidates": [
+      {
+        "kind": "file",
+        "title": "出货计划_12月.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "出货计划_11月.xlsx"
+      },
+      {
+        "kind": "file",
+        "title": "质检报告_批次0931.pdf"
+      },
+      {
+        "kind": "process",
+        "title": "采购申请 #4410 (赵强)"
+      },
+      {
+        "kind": "panel",
+        "title": "样品借出记录"
+      }
+    ],
+    "expect": "none",
+    "work": null,
+    "pick": null,
+    "open": null,
+    "addressed": false,
+    "lang": "zh",
+    "axis": [
+      "context"
+    ]
+  }
+]

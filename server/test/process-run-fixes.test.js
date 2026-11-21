@@ -54,16 +54,31 @@ test('안내 문장은 그 프로세스의 단계와 역할로 쓴다', async ()
 })
 
 // 3) 견적 단계 지시문 — 평면도 없는 프로세스(송년회 다과 비용표)에도 "설계비·실별 인테리어 공사·화장실…" 견적을 시켜
-//    다과 견적이 인테리어 공사 견적(65,890,000원)으로 나왔다. 앞 단계가 남긴 값(평면도의 실별 면적)이 있을 때만 그 틀을 쓴다.
-test('견적 단계는 평면도가 있을 때만 인테리어 견적 틀을 쓴다', async () => {
-  const { quotePrompt } = await import('../lib/mining/worker.js')
-  const snack = quotePrompt({ subject: '송년회 다과 비용표 부탁드립니다', body: '12월 송년회(80명) 다과·음료 비용' }, '한빛이벤트 견적서.xlsx')
-  assert.doesNotMatch(snack, /인테리어|설계비|평면도|제안서/)
-  assert.match(snack, /메일이 요청한 품목/)
-  const design = quotePrompt({ subject: '매장 설계 제안', body: '30평', rooms: '홀 | 40㎡ | 좌석\n주방 | 12㎡ | 조리', floor_plan: { name: 'a.dxf' }, proposal: { name: 'b.hwpx' } }, 'x.xlsx')
-  assert.match(design, /평면도의 실별 면적: 홀 \| 40㎡ \| 좌석 \/ 주방 \| 12㎡ \| 조리/)
-  assert.match(design, /실별 인테리어 공사/)
-  assert.match(design, /\(평면도와 제안서는 앞 단계에서 이미 만들었으니 만들지 마세요\.\)/)
+//    다과 견적이 인테리어 공사 견적(65,890,000원)으로 나왔다. 이제 무엇으로 견적하는지는 업무 팩의 스킬(quote-xlsx)이
+//    정하고(앞 단계가 남긴 실별 면적이 있을 때만 인테리어 견적), 코드는 사실(메일·앞 단계 값·만들 파일·결과 줄)만 넘긴다.
+test('견적 단계 요청: 스킬을 고정하고 사실만 넘긴다 — 인테리어 견적 틀은 스킬 본문에만 있다', async () => {
+  const fs = await import('node:fs')
+  const { config } = await import('../config.js')
+  const { setEnabledPacks, packSkill } = await import('../lib/skillInstallCatalog.js')
+  const { stepForSkill, stepsIn } = await import('../lib/mining/catalog.js')
+  const { agentRequest, fieldLabels } = await import('../lib/mining/runners.js')
+  setEnabledPacks(config.tenantId, ['store-design'])
+  try {
+    const skill = packSkill('quote-xlsx')
+    const step = stepForSkill('quote-xlsx', 'ko')
+    const labels = fieldLabels(stepsIn('ko'))
+    const snack = agentRequest({ items: [{ skill, step, kind: '견적서', name: '한빛이벤트 견적서.xlsx' }], labels,
+      prev: { customer: '한빛이벤트', subject: '송년회 다과 비용표 부탁드립니다', body: '12월 송년회(80명) 다과·음료 비용' } })
+    assert.match(snack, /^\/quote-xlsx\n/, '스킬을 고정한다')
+    assert.doesNotMatch(snack, /인테리어|설계비|평면도|제안서/, '앞 단계 값이 없으면 업종 문구가 없다')
+    assert.match(snack, /TOTAL: 51216000/, '결과 줄(시스템 계약)')
+    const design = agentRequest({ items: [{ skill, step, kind: '견적서', name: 'x.xlsx' }], labels,
+      prev: { subject: '매장 설계 제안', body: '30평', rooms: '홀 | 40㎡ | 좌석\n주방 | 12㎡ | 조리', floor_plan: { name: 'a.dxf', url: 'u1' }, proposal: { name: 'b.hwpx', url: 'u2' } } })
+    assert.match(design, /실별 면적: 홀 \| 40㎡ \| 좌석 \/ 주방 \| 12㎡ \| 조리/, '앞 단계 값은 그 필드 이름으로')
+    assert.match(design, /\(a\.dxf, b\.hwpx 는 이미 만들었으니 다시 만들지 마세요\.\)/)
+    assert.doesNotMatch(design, /인테리어 공사|설계비/, '틀은 코드가 아니라 스킬에')
+    assert.match(fs.readFileSync(`${skill.dir}/SKILL.md`, 'utf8'), /실별 면적이 있을 때[\s\S]*인테리어 공사 견적[\s\S]*없을 때[\s\S]*요청이 말한 품목만/)
+  } finally { setEnabledPacks(config.tenantId, []) }
 })
 
 // 4) 검토 카드의 앞 단계 산출물 — 운영 completion 은 단계 결과 문서를 Google Docs 링크(output_url)로 남긴다.

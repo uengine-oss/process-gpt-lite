@@ -1,0 +1,94 @@
+{
+ "set": "holdout",
+ "model": "frentis-ai-model",
+ "at": "2026-11-21T05:53:22.825Z",
+ "runs": [
+  {
+   "teamScore": {
+    "n": 252,
+    "errors": 0,
+    "recall": 0.9649122807017544,
+    "falseOffer": 0,
+    "workAccuracy": 0.9818181818181818,
+    "processAccuracy": 0.9,
+    "byLang": {
+     "ko": {
+      "n": 150,
+      "recall": 0.926,
+      "falseOffer": 0
+     },
+     "en": {
+      "n": 49,
+      "recall": 1,
+      "falseOffer": 0
+     },
+     "ja": {
+      "n": 26,
+      "recall": 1,
+      "falseOffer": 0
+     },
+     "mixed": {
+      "n": 21,
+      "recall": 1,
+      "falseOffer": 0
+     },
+     "zh": {
+      "n": 6,
+      "recall": 1,
+      "falseOffer": 0
+     }
+    },
+    "msP50": 2305,
+    "msP95": 5730,
+    "callsPerMessage": 1.09,
+    "promptTokensPerMessage": 659,
+    "completionTokensPerMessage": 228,
+    "usdPer1000Messages": 0.628
+   },
+   "meetingScore": {
+    "n": 130,
+    "errors": 0,
+    "recall": 1,
+    "falseOffer": 0.011494252873563218,
+    "kindAccuracy": 1,
+    "pickAccuracy": 1,
+    "openAccuracy": 0.9545454545454546,
+    "workAccuracy": 1,
+    "byLang": {
+     "ko": {
+      "n": 79,
+      "recall": 1,
+      "falseOffer": 0.019
+     },
+     "en": {
+      "n": 26,
+      "recall": 1,
+      "falseOffer": 0
+     },
+     "ja": {
+      "n": 13,
+      "recall": 1,
+      "falseOffer": 0
+     },
+     "mixed": {
+      "n": 10,
+      "recall": 1,
+      "falseOffer": 0
+     },
+     "zh": {
+      "n": 2,
+      "recall": 1,
+      "falseOffer": 0
+     }
+    },
+    "msP50": 3149,
+    "msP95": 8526,
+    "callsPerMessage": 1.2,
+    "promptTokensPerMessage": 782,
+    "completionTokensPerMessage": 359,
+    "usdPer1000Messages": 0.888
+   }
+  }
+ ],
+ "note": "holdout: scores only — the items are not looked at one by one (skill-routing-design 7.5)"
+}

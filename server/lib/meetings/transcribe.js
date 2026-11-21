@@ -6,6 +6,7 @@
 import { lang, L } from '../lang.js'
 import { transcribeKey as apiKey } from '../openai.js'
 import { normMain } from '../mainLang.js'
+import { parseWav } from './pcm.js'
 
 const BASE = () => (process.env.PRO_TRANSCRIBE_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
 const MODEL = () => process.env.PRO_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe'
@@ -17,29 +18,75 @@ const TRY_MS = Number(process.env.PRO_TRANSCRIBE_TIMEOUT_MS || 15000)
 export const lastError = { at: null, model: null, message: null }
 export const transcribeConfigured = () => !!apiKey()
 
-// what transcription models make up from noise or silence (they were trained on subtitled video)
-const HALLUCINATED = /^(감사합니다|고맙습니다|시청해\s*주셔서\s*감사합니다|구독과\s*좋아요|좋아요와\s*구독|MBC\s*뉴스|자막\s*제공|다음\s*영상에서\s*만나요|안녕하세요)[.!\s]*$/
-// the same in an English meeting
-const HALLUCINATED_EN = /^(thank\s*you|thanks|thanks\s*for\s*watching|thank\s*you\s*for\s*watching|please\s*subscribe|like\s*and\s*subscribe|see\s*you\s*(next\s*time|in\s*the\s*next\s*video)|subtitles\s*by.*|you|bye|hello)[.!\s]*$/i
-// … and in the other main languages (the subtitle-trained phrases they come up with most)
-const HALLUCINATED_ANY = /^(ご視聴ありがとうございました|ありがとうございました|チャンネル登録.*|谢谢观看|谢谢大家|请不吝点赞.*|字幕由.*提供|gracias por ver(el video)?|merci d'avoir regardé|danke fürs zuschauen|untertitel.*|cảm ơn các bạn đã xem|terima kasih telah menonton|ขอบคุณที่รับชม)[.!。！\s]*$/i
-const filters = { ko: HALLUCINATED, en: HALLUCINATED_EN }
+// What transcription models make up from noise or silence (they were trained on subtitled video) is
+// caught by signals, never by a list of phrases:
+//   1. the sound itself: a 16-bit PCM piece with almost no frame above the voice level is not sent
+//   2. whisper (verbose_json): each segment's no_speech_prob and avg_logprob — dropped when both say
+//      "no speech" (whisper's own decoding thresholds: no_speech 0.6, logprob -1.0), or when the text
+//      repeats itself (compression ratio above 2.4)
+//   3. gpt-4o(-mini)-transcribe (json + include[]=logprobs): the mean token log-probability
+// A model or proxy that refuses a parameter (400) is remembered and asked without it.
+const NO_SPEECH = Number(process.env.PRO_TRANSCRIBE_NO_SPEECH || 0.6)
+const LOGPROB_MIN = Number(process.env.PRO_TRANSCRIBE_LOGPROB_MIN || -1.0)
+const MEAN_LOGPROB_MIN = Number(process.env.PRO_TRANSCRIBE_MEAN_LOGPROB_MIN || -1.2)
+const COMPRESSION_MAX = 2.4
+// voice level: a 30 ms frame whose RMS is above -45 dBFS; a piece needs about 0.1 s of such frames
+const FRAME_MS = 30, VOICE_RMS = 32768 * 10 ** (-45 / 20), VOICE_FRAMES = 3
+export function voiced(buf) {
+  const w = parseWav(buf)
+  if (!w || !w.samples.length) return null // not a PCM WAV (webm/ogg): no opinion
+  const n = Math.max(1, Math.round((w.rate * FRAME_MS) / 1000))
+  let frames = 0
+  for (let o = 0; o + n <= w.samples.length; o += n) {
+    let sum = 0
+    for (let i = o; i < o + n; i++) sum += w.samples[i] * w.samples[i]
+    if (Math.sqrt(sum / n) > VOICE_RMS && ++frames >= VOICE_FRAMES) return true
+  }
+  return false
+}
+// the text of an answer without what the model's own signals call no speech
+export function spokenText(j) {
+  const segs = Array.isArray(j?.segments) ? j.segments : null
+  if (segs) {
+    const kept = segs.filter((g) => !((g.no_speech_prob ?? 0) > NO_SPEECH && (g.avg_logprob ?? 0) < LOGPROB_MIN) && !((g.compression_ratio ?? 0) > COMPRESSION_MAX))
+    return { text: kept.map((g) => g.text).join(' '), dropped: segs.length - kept.length, signal: 'segments' }
+  }
+  if (Array.isArray(j?.logprobs) && j.logprobs.length) {
+    const mean = j.logprobs.reduce((a, t) => a + (Number(t.logprob) || 0), 0) / j.logprobs.length
+    return { text: mean < MEAN_LOGPROB_MIN ? '' : String(j.text || ''), dropped: mean < MEAN_LOGPROB_MIN ? 1 : 0, signal: 'logprobs', mean }
+  }
+  return { text: String(j?.text || ''), dropped: 0, signal: 'none' }
+}
+// per model: which answer shape it takes (learned from a 400, as lib/llm.js does for chat)
+const shapes = new Map() // model -> 'verbose' | 'logprobs' | 'plain'
+const SHAPES = ['verbose', 'logprobs', 'plain']
 
 // the spoken language: the speaker's main language (service.js), else the meeting's
 export async function transcribe(buf, { prompt = '', type = 'audio/wav', language = lang() } = {}) {
   if (!apiKey()) throw Object.assign(new Error(L('받아쓰기 키가 설정되지 않았어요.', 'No transcription key is set up.')), { status: 503 })
   const spoken = normMain(language) || 'ko'
   const t0 = Date.now()
-  const call = async (model) => {
+  // silence or a breath: not worth a call (and a call is what makes up a sentence)
+  if (voiced(buf) === false) return { text: '', ms: Date.now() - t0, model: null, language: spoken, signal: 'silence' }
+  const once = async (model, shape) => {
     const form = new FormData()
     form.append('file', new Blob([buf], { type }), type.includes('webm') ? 'speech.webm' : 'speech.wav')
     form.append('model', model)
     form.append('language', spoken)
-    form.append('response_format', 'json')
+    form.append('response_format', shape === 'verbose' ? 'verbose_json' : 'json')
+    if (shape === 'logprobs') form.append('include[]', 'logprobs')
     if (prompt) form.append('prompt', prompt.slice(0, 600))
     const r = await fetch(`${BASE()}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey()}` }, body: form, signal: AbortSignal.timeout(TRY_MS) })
-    if (!r.ok) throw Object.assign(new Error(`transcription ${r.status}: ${(await r.text()).slice(0, 200)}`), { status: 502 })
+    if (!r.ok) throw Object.assign(new Error(`transcription ${r.status}: ${(await r.text()).slice(0, 200)}`), { status: 502, http: r.status })
     return r.json()
+  }
+  const call = async (model) => {
+    for (let i = SHAPES.indexOf(shapes.get(model) || 'verbose'); ; i++) {
+      try { const j = await once(model, SHAPES[i]); shapes.set(model, SHAPES[i]); return j } catch (e) {
+        // a refused parameter: the next plainer shape; anything else is the model not answering
+        if (e.http !== 400 || i >= SHAPES.length - 1) throw e
+      }
+    }
   }
   let j, model = MODEL()
   try { j = await call(model) } catch (e) {
@@ -51,12 +98,12 @@ export async function transcribe(buf, { prompt = '', type = 'audio/wav', languag
       throw Object.assign(new Error(L('받아쓰기 서버가 응답하지 않아요. 잠시 뒤 다시 말씀하시거나, 말 대신 적어 주세요.', 'The transcription server is not answering. Try again in a moment, or type instead.')), { status: 503 })
     }
   }
-  const text = String(j.text || '').replace(/\s+/g, ' ').trim()
-  const made = (filters[spoken] || HALLUCINATED_ANY).test(text) || HALLUCINATED_ANY.test(text) || (spoken !== 'ko' && HALLUCINATED_EN.test(text))
+  const heard = spokenText(j)
+  const text = heard.text.replace(/\s+/g, ' ').trim()
   // the hint itself read back over silence ("회의 참석자: 장진영. 회의에 나올 수 있는 자료: ." became a line of the
   // 2026-11-18 meeting's record): text that is only a piece of the prompt is not speech
   const echo = promptEcho(text, prompt)
-  return { text: made || echo || text.length < 2 ? '' : text, ms: Date.now() - t0, model, language: spoken }
+  return { text: echo || text.length < 2 ? '' : text, ms: Date.now() - t0, model, language: spoken, signal: heard.signal, dropped: heard.dropped }
 }
 
 // text that is only a piece of the transcription hint (the model reading its prompt back over silence)

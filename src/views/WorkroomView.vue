@@ -47,7 +47,8 @@ const termOff = (m) => { const t = room.value?.terminal; return !t ? '' : !t.ok 
 async function load() {
   err.value = ''
   try { room.value = await api(base.value) }
-  catch (e) { err.value = e.status === 403 || /403|권한/.test(e.message) ? '이 작업실을 볼 권한이 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.' : '이 실행의 작업 폴더를 찾지 못했어요.'; return }
+  // (the answer's status says why, never its wording)
+  catch (e) { err.value = e.status === 403 ? '이 작업실을 볼 권한이 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.' : '이 실행의 작업 폴더를 찾지 못했어요.'; return }
   if (!isClaude.value || termOff('claude')) tab.value = 'shell'
   opened.value[tab.value] = true
   if (route.query.open && !file.value) openFile(String(route.query.open))
@@ -96,7 +97,7 @@ async function save(content) {
     file.value = { ...file.value, content, mtime: r.mtime }
     note.value = '저장했어요 — 에이전트가 다음에 이 파일을 읽을 때 반영돼요.'
   } catch (e) {
-    note.value = /409/.test(e.message) ? '에이전트가 그사이 이 파일을 바꿨어요. 다시 열어 확인해 주세요.' : '저장하지 못했어요.'
+    note.value = e.status === 409 ? '에이전트가 그사이 이 파일을 바꿨어요. 다시 열어 확인해 주세요.' : '저장하지 못했어요.'
   } finally { saving.value = false }
 }
 

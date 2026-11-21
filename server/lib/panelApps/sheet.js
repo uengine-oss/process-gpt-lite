@@ -409,8 +409,8 @@ export function applyOp(wb, def, op) {
   }
   const target = op.update || op.remove
   const row = rows.find((x) => x._id === target.id || (target.id?.startsWith('row:') && x._row === Number(target.id.slice(4))))
-  if (!row) throw err(409, L('그 행이 없어요. 다른 사람이 지웠을 수 있어요.', "That row isn't there. Someone may have deleted it."))
-  if (target.v && target.v !== row._v) throw err(409, L('다른 사람이 먼저 고쳤어요. 새로 불러온 값을 확인해 주세요.', 'Someone else changed it first. Please check the values just loaded.'))
+  if (!row) throw Object.assign(err(409, L('그 행이 없어요. 다른 사람이 지웠을 수 있어요.', "That row isn't there. Someone may have deleted it.")), { code: 'ROW_GONE' })
+  if (target.v && target.v !== row._v) throw Object.assign(err(409, L('다른 사람이 먼저 고쳤어요. 새로 불러온 값을 확인해 주세요.', 'Someone else changed it first. Please check the values just loaded.')), { code: 'ROW_CHANGED' })
   if (op.update) {
     const cur = Object.fromEntries(def.fields.map((f) => [f.key, row[f.key]]))
     writeCells(ws, def, layout, row._row, row._id, { ...cur, ...op.update.vals })

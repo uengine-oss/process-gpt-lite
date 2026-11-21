@@ -75,7 +75,8 @@ export function teamRoutes(auth) {
       sent.push({ to: { id: p.id, name: p.name, via: p.via }, threadId: t.id, messageId: m.id })
     }
     // a share of a mail case's drafts is that case's next handover (process mining, lib/mining)
-    import('../lib/mining/recorder.js').then((m) => m.recordShare(req.user, files, recipients, note, forked)).catch((e) => console.warn('[mining] share', e.message))
+    // (review: the kind of review the share asks for, when the screen sends one — a structured field)
+    import('../lib/mining/recorder.js').then((m) => m.recordShare(req.user, files, recipients, note, forked, { review: String(req.body?.review || '') })).catch((e) => console.warn('[mining] share', e.message))
     return { sent, batch: forked ? { id: forked.batchId, baseCommitId: forked.baseCommitId } : null }
   }))
   r.get('/team/shares/:id/raw', async (req, res, next) => {

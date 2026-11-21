@@ -135,22 +135,26 @@ export const shapeVideo = (v, i) => ({
   published_at: v.snippet?.publishedAt ?? null, duration: v.contentDetails?.duration ?? null, url: watch(v.id), thumbnail: bestThumb(v.snippet?.thumbnails),
 })
 
-// category names people use → YouTube's video category ids (they are the same in every region)
-const CATEGORIES = [
-  [/^(1|영화|애니|film|animation|movie)/i, '1'], [/^(2|자동차|autos?|cars?|vehicles?)/i, '2'], [/^(10|음악|music)/i, '10'], [/^(15|동물|반려|pets?|animals?)/i, '15'],
-  [/^(17|스포츠|sports?)/i, '17'], [/^(19|여행|travel)/i, '19'], [/^(20|게임|gaming|games?)/i, '20'], [/^(22|인물|블로그|people|blogs?|vlog)/i, '22'],
-  [/^(23|코미디|comedy)/i, '23'], [/^(24|엔터|예능|entertainment)/i, '24'], [/^(25|뉴스|정치|news|politics)/i, '25'], [/^(26|노하우|스타일|howto|style)/i, '26'],
-  [/^(27|교육|education)/i, '27'], [/^(28|과학|기술|science|tech)/i, '28'],
-]
-export const categoryId = (c) => (c == null || c === '' ? null : /^\d+$/.test(String(c)) ? String(c) : CATEGORIES.find(([re]) => re.test(String(c).trim()))?.[1] ?? null)
+// YouTube's video categories (the same ids in every region). The tool takes the id — the model reads the
+// labels in the tool's input description and picks one; the code never guesses a category from words.
+export const CATEGORIES = {
+  1: { ko: '영화·애니메이션', en: 'film & animation' }, 2: { ko: '자동차', en: 'autos & vehicles' }, 10: { ko: '음악', en: 'music' },
+  15: { ko: '반려동물·동물', en: 'pets & animals' }, 17: { ko: '스포츠', en: 'sports' }, 19: { ko: '여행·이벤트', en: 'travel & events' },
+  20: { ko: '게임', en: 'gaming' }, 22: { ko: '인물·블로그', en: 'people & blogs' }, 23: { ko: '코미디', en: 'comedy' },
+  24: { ko: '엔터테인먼트', en: 'entertainment' }, 25: { ko: '뉴스·정치', en: 'news & politics' }, 26: { ko: '노하우·스타일', en: 'howto & style' },
+  27: { ko: '교육', en: 'education' }, 28: { ko: '과학·기술', en: 'science & technology' },
+}
+const CATEGORY_IDS = Object.keys(CATEGORIES)
+const CATEGORY_HELP = Object.entries(CATEGORIES).map(([id, c]) => `${id} ${c.en}`).join(', ')
+export const categoryId = (c) => (c == null || c === '' ? null : CATEGORY_IDS.includes(String(c).trim()) ? String(c).trim() : null)
 
-// "24h", "7d", "2026-11-18" (a Seoul day) or an ISO time → Date
+// the tool's time format: "24h" / "7d" (hours or days back), "2026-11-18" (a Seoul day) or an ISO time → Date
+// (a format the tool's description defines — the model turns "오늘", "this week" into one of these)
 export function sinceOf(v, now = new Date()) {
   if (!v) return null
   const s = String(v).trim()
-  const rel = /^(\d+)\s*(h|d|시간|일)$/i.exec(s)
-  if (rel) return new Date(now.getTime() - Number(rel[1]) * (/^(h|시간)$/i.test(rel[2]) ? 3600e3 : 86400e3))
-  if (/^(today|오늘)$/i.test(s)) return new Date(new Date(now.getTime() + 9 * 3600e3).toISOString().slice(0, 10) + 'T00:00:00+09:00')
+  const rel = /^(\d+)\s*([hd])$/i.exec(s)
+  if (rel) return new Date(now.getTime() - Number(rel[1]) * (rel[2].toLowerCase() === 'h' ? 3600e3 : 86400e3))
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00+09:00`)
   const d = new Date(s)
   return Number.isNaN(d.getTime()) ? null : d
@@ -263,9 +267,11 @@ async function publicSearch({ query, order, since, max, region = 'KR' }) {
 
 // No API for the chart: the closest public view — the last day's uploads by view count over a few broad
 // topics (or the one category asked for), merged. Labelled as an approximation, never as the chart.
-const BROAD = { KR: ['뉴스', '음악', '게임', '예능', '스포츠'], other: ['news', 'music', 'gaming', 'entertainment', 'sports'] }
+// (with a category: its label; without: a spread of broad categories — the category table, not words to match)
+const BROAD = [25, 10, 20, 24, 17]
 async function publicPopular({ region, category, max }) {
-  const words = category ? [String(category)] : BROAD[region] || BROAD.other
+  const label = (id) => CATEGORIES[id]?.[region === 'KR' ? 'ko' : 'en']
+  const words = (category ? [label(category)] : BROAD.map(label)).filter(Boolean)
   const since = new Date(Date.now() - 86400e3)
   const lists = await Promise.allSettled(words.map((w) => publicSearch({ query: w, order: 'viewCount', since, max: 20, region })))
   const ok = lists.filter((r) => r.status === 'fulfilled').flatMap((r) => r.value)
@@ -360,11 +366,11 @@ export const youtube = {
   tools: [
     {
       name: 'youtube_trending',
-      description: 'Most popular YouTube videos right now in a region (YouTube Data API chart=mostPopular): "오늘 인기 영상", "조회수 1위". region is a 2-letter code (default KR); category optional (e.g. 음악, 게임, 뉴스, 스포츠 or a category id). Returns rank, title, channel, views, likes, published time, url, thumbnail. Without an API key or Google account it returns the closest public approximation (exact_chart: false) together with what is missing and where to connect it — tell the user both; there is nothing more to find in the browser.',
-      input: { region: z.string().optional(), category: z.string().optional(), max: z.number().int().min(1).max(50).optional() },
+      description: `Most popular YouTube videos right now in a region (YouTube Data API chart=mostPopular). region is a 2-letter code (default KR); category is optional, one of these ids: ${CATEGORY_HELP}. Returns rank, title, channel, views, likes, published time, url, thumbnail. Without an API key or Google account it returns the closest public approximation (exact_chart: false) together with what is missing and where to connect it — tell the user both; there is nothing more to find in the browser.`,
+      input: { region: z.string().optional(), category: z.enum(CATEGORY_IDS).optional(), max: z.number().int().min(1).max(50).optional() },
       run: async (u, { region = 'KR', category, max = 10 }) => {
         const cat = categoryId(category)
-        if (category && !cat) throw new Error(L(`모르는 카테고리예요: ${category} (음악, 게임, 뉴스, 스포츠, 엔터, 코미디, 교육, 과학 … 또는 숫자 id)`, `Unknown category: ${category} (music, gaming, news, sports, entertainment, comedy, education, science … or a numeric id)`))
+        if (category && !cat) throw new Error(L(`모르는 카테고리 id 예요: ${category} (${CATEGORY_HELP})`, `Unknown category id: ${category} (${CATEGORY_HELP})`))
         const regionCode = String(region).trim().toUpperCase().slice(0, 2)
         try {
           const { body, via } = await api(u, 'videos', { part: 'snippet,statistics,contentDetails', chart: 'mostPopular', regionCode, maxResults: String(max), hl: 'ko', ...(cat ? { videoCategoryId: cat } : {}) })
@@ -372,7 +378,7 @@ export const youtube = {
         } catch (e) {
           if (!(e instanceof YouTubeSetupError)) throw e
           let found
-          try { found = await publicPopular({ region: regionCode, category: category && !/^\d+$/.test(String(category)) ? category : null, max }) } catch (pe) {
+          try { found = await publicPopular({ region: regionCode, category: cat, max }) } catch (pe) {
             throw new YouTubeSetupError({ ...e.detail, public_page_error: pe.message })
           }
           return {
@@ -388,7 +394,7 @@ export const youtube = {
     },
     {
       name: 'youtube_search',
-      description: 'Search YouTube videos. order: viewCount (most viewed first, default), date (newest first), relevance. publishedAfter: "24h", "7d", "today", a date (YYYY-MM-DD, Seoul) or an ISO time. Uses the YouTube Data API; without a key it reads the public results page (views as shown there, no likes) and says what is missing for the API.',
+      description: 'Search YouTube videos. order: viewCount (most viewed first, default), date (newest first), relevance. publishedAfter: hours or days back ("24h", "7d"), a Seoul day (YYYY-MM-DD — for "today" give the date of today) or an ISO time. Uses the YouTube Data API; without a key it reads the public results page (views as shown there, no likes) and says what is missing for the API.',
       input: { query: z.string(), order: z.enum(['viewCount', 'date', 'relevance']).optional(), publishedAfter: z.string().optional(), region: z.string().optional(), max: z.number().int().min(1).max(50).optional() },
       run: async (u, { query, order = 'viewCount', publishedAfter, region = 'KR', max = 10 }) => {
         const since = sinceOf(publishedAfter)

@@ -149,14 +149,15 @@ test('F-FX-A05 이메일 로그인 사용자의 표시 이름: 설정 › 계정
   expect(page.errors).toEqual([])
 })
 
-test('F-FX-A06 빠른 답 버튼은 질문으로 끝나는 짧은 선택지에만 — 보고문의 글머리 목록은 그대로', async ({ pageAs, db }) => {
+test('F-FX-A06 빠른 답 버튼은 답에 저장된 선택지(choices)만 — 보고문의 글머리 목록은 그대로', async ({ pageAs, db }) => {
   const page = await pageAs('fxa-replies')
   const th = await db.clearMain(page.user.id)
   await db.addMessages(th, [
     { role: 'user', kind: 'text', content: { text: '결제해 줘' } },
     { role: 'agent', kind: 'text', content: { text: '결제를 마쳤어요.\n- 무선 이어폰을 장바구니에 담았습니다\n- 카드 •••• 4242를 자동으로 **선택**·입력했습니다\n- 결제 버튼을 눌렀습니다' } },
     { role: 'user', kind: 'text', content: { text: '프로세스 만들어 줘' } },
-    { role: 'agent', kind: 'text', content: { text: '흐름 초안을 만들었어요.\n이대로 진행할까요?\n- 네, 이대로 진행 (폼까지 만들어요)\n- 단계를 고칠게요' } },
+    // the server stores the choices with the answer (the agent's own question, a draft's "go ahead": lib/agent.js)
+    { role: 'agent', kind: 'text', content: { text: '흐름 초안을 만들었어요.\n이대로 진행할까요?', choices: [{ label: '네, 이대로 진행', hint: '폼까지 만들어요', to: 'agent' }, { label: '단계를 고칠게요', to: 'agent' }] } },
   ])
   await page.goto('/chat')
   await expect(page.getByText('결제 버튼을 눌렀습니다')).toBeVisible({ timeout: 20_000 })

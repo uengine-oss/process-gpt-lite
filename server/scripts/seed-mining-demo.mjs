@@ -15,6 +15,7 @@ import { openCase, recordStep } from '../lib/mining/recorder.js'
 import { ensureAgents } from '../lib/mining/service.js'
 import { withLang } from '../lib/lang.js'
 import { enterSeedTenant } from '../lib/seedTenant.js'
+import { enablePackAs } from '../lib/skillInstall.js'
 
 // --lang en writes to the English demo tenant (lib/seedTenant.js); mining case ids there name the tenant
 const T = enterSeedTenant()
@@ -55,6 +56,8 @@ if (reset) {
 if (sales) await withLang(LANG, async () => {
   const S = await user(sales), F = await user(fin), A = await user(adm)
   await q('update users set is_admin=true where id::text=$1 and tenant_id=$2', [A.id, T])
+  // the demo company's trade knowledge is a business pack: on for this tenant (skills/packs/store-design)
+  await enablePackAs(adm, 'store-design', A.name)
   for (const u of [S, F, A]) await q('insert into pro_team_members(tenant_id,user_id,added_by) values ($1,$2,$2) on conflict do nothing', [T, u.id])
   // the English edition's accounts work in English (needs sql/019_lang.sql)
   if (EN) for (const u of [S, F, A]) await q(`update pro_profile set lang='en' where user_id::text=$1`, [u.id]).catch((e) => console.warn('lang', e.message))

@@ -32,6 +32,7 @@ test.describe('패널 앱 · 시트 단계', () => {
     expect(first.body.row.left).toBe(9)
     const stale = await o.put(`/panel-apps/${app.id}/rows/${row._id}`, { _v: row._v, values: { used: 1 } })
     expect(stale.status, '같은 버전으로 두 번째 수정은 충돌').toBe(409)
+    expect(stale.body.code, '화면은 문구가 아니라 코드를 읽는다(PanelAppCard)').toBe('ROW_CHANGED')
     expect((await o.get(`/panel-apps/${app.id}/rows`)).body.rows[0].used).toBe(6)
   })
 
@@ -165,6 +166,7 @@ test.describe('패널 앱 · 보안 기본값 확인', () => {
     const low = await o.put(`/panel-apps/${app.id}/sensitivity`, { field: 'reason', level: 'internal' })
     expect(low.status).toBe(409)
     expect(low.body.needConfirm).toBe(true)
+    expect(low.body.code, '확인을 기다리는 변경(PanelRulesSheet)').toBe('NEEDS_CONFIRM')
     expect((await o.put(`/panel-apps/${app.id}/sensitivity`, { field: 'reason', level: 'internal', confirm: true })).status).toBe(200)
     const [a] = await db.q(`select count(*)::int as n from pro_panel_app_audit where app_id=$1 and action='loosen'`, [app.id])
     expect(a.n).toBe(1)
