@@ -1,0 +1,41 @@
+◇ injected env (13) from .env
+[browser] cleared stale profile locks 7cfefd64-62f1-4d4e-b915-3c38c4dcfbca SingletonLock,SingletonSocket,SingletonCookie
+✔ 프로필은 PRO_BROWSER_PROFILES 에 두고, 옛 파드가 남긴 잠금 파일을 지운 뒤 실제로 뜬다 (177.60375ms)
+[browser] task 09e7e90d-5e06-4585-b4bf-007bbcb723c0 done in 4s · 2 turns · plan 93ms · per turn snap 2ms, judge 0ms, shot 16ms, llm 2ms, act 0ms
+✔ 로그인 필요(판정): 모델 턴 없이 카드에 할 일을 쓰고, 기다리는 동안 판정을 되풀이하지 않으며, 직접 로그인하면 저절로 이어진다 (3834.597166ms)
+[browser] task 104c9efd-703a-4114-b90e-11777baccb1f cancelled in 0s · 0 turns · plan 6ms · per turn snap 0ms, judge 0ms, shot 0ms, llm 0ms, act 0ms
+✔ 직접 제어를 돌려주면 한 번 다시 판정하고, 여전히 로그인 화면이면 다시 기다린다 (232.364125ms)
+[browser] task 924c03aa-8244-4e44-b4dc-fdc5fbff44ce failed in 1s · 0 turns · plan 11ms · per turn snap 0ms, judge 0ms, shot 0ms, llm 0ms, act 0ms
+✔ 로그인하던 중 사이트가 이 브라우저를 거절하면(판정 refused) need blocked 로 끝내고, 할 수 있는 다른 방법을 말한다 (1298.535125ms)
+[browser] task 1953e991-c06a-4fdb-8b96-5b205df2a9d8 cancelled in 0s · 0 turns · plan 8ms · per turn snap 0ms, judge 0ms, shot 0ms, llm 0ms, act 0ms
+✔ 사람 확인 화면(판정 human_check)은 need captcha, 이름은 제목에서 (131.450542ms)
+[browser] task 05315b8b-91e4-4e71-8390-8109ebabf35d done in 0s · 2 turns · plan 5ms · per turn snap 2ms, judge 0ms, shot 24ms, llm 1ms, act 0ms
+✔ 판정이 0.7 미만이면 벽으로 보지 않고 에이전트가 평소대로 진행한다 (104.272459ms)
+[browser] task 5d0808b2-31bc-4ab5-ba45-f82ea31d0c19 done in 0s · 3 turns · plan 6ms · per turn snap 1ms, judge 0ms, shot 20ms, llm 1ms, act 0ms
+✔ 브라우저 스킬: 맡은 스킬은 이름·설명과 read_skill 만 먼저 보이고, 본문은 read_skill 이 돌려준다. 시작 주소는 스킬의 것 (123.682541ms)
+[browser] task 606ed3fa-857b-4a69-a1a2-55b33459d3de done in 0s · 3 turns · plan 7ms · per turn snap 1ms, judge 0ms, shot 20ms, llm 1ms, act 0ms
+✔ 맡은 스킬이 없으면 스킬 목록(이름·설명)만 보이고, 없는 이름은 목록과 함께 오류로 답한다 (119.337833ms)
+[browser] task 3fcd09d7-7dc0-4648-b6ad-fcbecbf277a1 done in 1s · 4 turns · plan 8ms · per turn snap 4ms, judge 1ms, shot 28ms, llm 1ms, act 284ms
+✔ 새 탭이 열리면 그 탭에서 일하고 화면도 옮기며, 닫히면 돌아온다 · 누르는 자리와 요소 이름 (1343.653833ms)
+[browser] task 1471f97d-c012-49fa-9f75-05a175c82adb done in 0s · 2 turns · plan 7ms · per turn snap 1ms, judge 1ms, shot 23ms, llm 1ms, act 17ms
+✔ 입력 중 문구는 칸 이름만, 입력한 값은 어디에도 없다(판정에 보낸 글에도) (155.988083ms)
+[browser] task 9194bcb7-b2f3-4961-9ffb-08e97c69f17b done in 4s · 3 turns · plan 5ms · per turn snap 1ms, judge 0ms, shot 23ms, llm 1ms, act 1191ms
+✔ 받은 오디오는 파일 카드로 오고, 그 링크는 재생되는 형식으로 열린다 (3754.400708ms)
+[browser] task a284f0a3-ce1a-4098-bc8f-215a6631de9d done in 0s · 3 turns · plan 13ms · per turn snap 1ms, judge 0ms, shot 23ms, llm 1ms, act 30ms
+✔ 작업 폴더를 나눠 쓰지 않는 운영에서도(path 없이 보관소 사본만) 사람이 올린 파일을 사이트에 넣는다 (312.407208ms)
+[browser] task 5ecfad8f-be76-41ac-adcd-fa5343e5aadb cancelled in 3s · 5 turns · plan 6ms · per turn snap 3ms, judge 0ms, shot 17ms, llm 1ms, act 565ms
+✔ 같은 화면에서 아무것도 바뀌지 않으면 4번 넘게 헛돌지 않고 사람에게 넘긴다(need stuck) (3053.567541ms)
+[browser] task 2876b2be-9f24-47b8-9cba-81b75659362a cancelled in 0s · 1 turns · plan 5ms · per turn snap 2ms, judge 1ms, shot 31ms, llm 0ms, act 44ms
+[browser] task f3985505-1b11-4316-8b27-2521236dd5bb cancelled in 0s · 1 turns · plan 6ms · per turn snap 2ms, judge 0ms, shot 31ms, llm 1ms, act 45ms
+✔ 모델이 사람에게 부탁할 때 무엇인지(need)는 모델이 말한다: 낱말로 짐작하지 않는다 (272.212417ms)
+[browser] wall check judge 500
+[browser] task 52338929-7c5a-4d60-9b44-1f457256d79e done in 0s · 2 turns · plan 5ms · per turn snap 2ms, judge 1ms, shot 23ms, llm 1ms, act 0ms
+✔ 판정을 받지 못하면(판정 서버 오류, 모델 판정 꺼짐) 에이전트가 평소대로 진행한다 (118.456333ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 15188.34775
