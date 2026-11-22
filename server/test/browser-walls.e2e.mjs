@@ -348,6 +348,20 @@ test('받은 오디오는 파일 카드로 오고, 그 링크는 재생되는 �
   assert.match(res.headers.get('content-type'), /^audio\/mpeg/)
 })
 
+test('이름 없이 받은 파일(NotebookLM 오디오 개요)은 내용으로 형식을 알아 이름 · 형식을 붙이고, 그 링크는 재생된다', async () => {
+  const goal = '이름 없는 파일 받기'
+  const r = await run(goal, [(b) => ['click', { i: pick(b, '이름 없는 파일 받기') }], ['wait_for_page', { minutes: 0.05 }], ['finish', { summary: '받았어요.' }]], `${site.url}/`)
+  assert.equal(r.state, 'done')
+  const file = await until(async () => (await q(`select content from pro_messages where thread_id=$1 and kind='file' and content->>'name' like 'download%' order by created_at desc limit 1`, [threadId]))[0]?.content, '파일 카드')
+  assert.equal(file.name, 'download.m4a')
+  assert.equal(file.type, 'audio/mp4')
+  assert.match(file.url, /\.m4a$/, '보관소 키도 .m4a(예전엔 .bin)')
+  const res = await fetch(file.url)
+  assert.equal(res.status, 200)
+  assert.match(res.headers.get('content-type'), /^audio\/mp4/)
+  assert.match(r.summary, /download\.m4a 받기/)
+})
+
 test('작업 폴더를 나눠 쓰지 않는 운영에서도(path 없이 보관소 사본만) 사람이 올린 파일을 사이트에 넣는다', async () => {
   const { saveAttachment } = await import('../lib/attachments.js')
   const { path: _local, ...stored } = await saveAttachment({ id: user }, '회의록.pdf', 'application/pdf', Buffer.from('%PDF-1.4 walls test'))

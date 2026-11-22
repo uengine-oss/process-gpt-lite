@@ -18,6 +18,7 @@ import { decide, sure } from './decide.js'
 import { config } from '../config.js'
 import { L, isEn } from './lang.js'
 import { saveAttachment } from './attachments.js'
+import { nameByContent } from './fileSniff.js'
 import { workspaceHostPath } from './missions.js'
 import { browserSkill, browserSkills, readBrowserSkill, browserSkillCatalog } from './browserSkills.js'
 import { judge } from './judge.js'
@@ -109,7 +110,7 @@ const PAGE_GUARD = () => {
 // The type a downloaded file is stored with, so its link plays (audio, video) or opens (PDF, images) in
 // the person's browser. Markup is left as a download: it is never rendered from the storage origin.
 const MEDIA = {
-  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm',
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
   pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
   txt: 'text/plain; charset=utf-8', md: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -123,10 +124,13 @@ export const mediaType = (name) => MEDIA[String(name).split('.').pop().toLowerCa
 async function keepDownload(userId, s, d) {
   const task = s.task
   if (!task) return d.cancel().catch(() => {})
-  const name = d.suggestedFilename()
+  let name = d.suggestedFilename()
   try {
+    const data = await fs.promises.readFile(await d.path())
+    // a site that names nothing ("download"): the type its bytes show, so the card plays or opens it in place
+    name = await nameByContent(name, data, (ext) => !!MEDIA[ext])
     const type = mediaType(name)
-    const saved = await saveAttachment({ id: userId }, name, type, await fs.promises.readFile(await d.path()))
+    const saved = await saveAttachment({ id: userId }, name, type, data)
     await addMessage(userId, task.threadId, 'agent', 'file', { name: saved.name, url: saved.url, size: saved.size, ...(type ? { type } : {}), ...(saved.path ? { path: saved.path } : {}), taskId: task.id })
     ;(task.downloads ||= []).push(saved.name)
     task.log.push({ kind: 'download', text: L(`${saved.name} 받기`, `Download ${saved.name}`), ok: true })
