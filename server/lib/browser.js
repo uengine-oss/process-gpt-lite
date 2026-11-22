@@ -368,7 +368,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     ...(ahead ? { reason: L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`) } : {}),
   })
   const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
-    gates, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: sk?.name || null,
+    gates, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: sk?.name || null, signIn: sk?.signIn || '',
     stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, walls: 0, stuck: 0, early_finish: false, decisions: [], plan_ms: 0, turn_ms: [], wall_checks: [], skills_read: [] } }
   task.stats.plan_ms = Date.now() - t0
   task.cancelled = cancelledEarly
@@ -821,9 +821,11 @@ async function atWall(s, task, wall, snap) {
     task.notes.push(wall.need === 'captcha' ? L(`${site}: 로봇 확인 화면이 나와 진행하지 못함`, `${site}: stopped at a bot check`) : L(`${site}: 로그인이 필요해 진행하지 못함`, `${site}: needs a sign-in`))
     return { hint: `\n[page check: this page is a ${wall.need === 'captcha' ? 'bot check' : 'sign-in wall'} and nobody is available to get past it. Do not try; use the alternative source in the goal, or finish with what you have]` }
   }
-  // a site whose login the vault keeps is the model's: it fills the saved one. A task that asks the vault
-  // first (Google connect) lets the model ask for the login on the card when none is saved yet
-  if (wall.need === 'login' && (task.vaultFirst || (await candidates(task.userId, 'login', site).catch(() => [])).length)) return null
+  // a site whose login the vault keeps is the model's: it fills the saved one — also when the site signs
+  // people in elsewhere and the vault keeps that one (its browser skill says where: NotebookLM → Google). A task
+  // that asks the vault first (Google connect) lets the model ask for the login on the card when none is saved
+  const saved = async (host) => !!host && (await candidates(task.userId, 'login', host).catch(() => [])).length > 0
+  if (wall.need === 'login' && (task.vaultFirst || await saved(site) || await saved(normSite(task.signIn || '')))) return null
   const n = task.walls[key] = (task.walls[key] || 0) + 1
   const name = wall.name || site
   if (n > WALL_WAITS) {
@@ -1240,6 +1242,18 @@ async function pickItem(s, task, kind, site) {
       }],
     })
     chosen = list.find((r) => String(answer).includes(`chose: ${r.label}.`)) || list[0]
+  }
+  // a login the site turned down last time is not tried again as it is (a wrong password, again and again,
+  // gets an account locked): the person fixes it on the card first
+  if (kind === 'login' && chosen.status === 'rejected') {
+    if (task.unattended) { task.notes.push(L(`${site}: 저장된 로그인이 지난번에 거부돼 쓰지 않음`, `${site}: the saved login was rejected last time, not used`)); return null }
+    await waitForUser(s, task, {
+      need: 'login', site,
+      reason: L(`${site}에서 지난번에 저장된 비밀번호를 받아들이지 않았어요. 카드에서 비밀번호를 고쳐 저장하면 그 비밀번호로 로그인해 이어서 해요.`, `${site} didn't accept the saved password last time. Fix it on the card and save — I'll sign in with it and go on.`),
+      message: ['vault', { kind: 'login', site, mode: 'update', itemId: chosen.id, label: chosen.label || '', reason: '' }],
+    })
+    const [now] = (await candidates(task.userId, kind, site)).filter((r) => r.id === chosen.id)
+    if (!now || now.status === 'rejected') { task.declined.add(key); return null }
   }
   task.picked[key] = chosen.id
   return chosen

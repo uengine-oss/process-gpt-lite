@@ -31,7 +31,9 @@ export function parseSkill(md = '') {
 }
 
 let cache = null
-// [{ name, description, startUrl, file }] — the skills that run in the browser
+// [{ name, description, startUrl, signIn, file }] — the skills that run in the browser. signIn: the host the
+// site sends people to for signing in (metadata.sign_in, e.g. a Google site's accounts.google.com) — a login
+// the vault keeps for that host is the agent's to use on the site's own sign-in wall
 export function browserSkills() {
   if (cache && Date.now() - cache.at < 60_000) return cache.list
   const list = []
@@ -44,7 +46,7 @@ export function browserSkills() {
       try { md = fs.readFileSync(file, 'utf8') } catch { continue }
       const { fields } = parseSkill(md)
       if (fields.metadata?.runs_in !== 'browser' || !fields.name || list.some((s) => s.name === fields.name)) continue
-      list.push({ name: fields.name, description: fields.description || '', startUrl: fields.metadata.start_url || '', file })
+      list.push({ name: fields.name, description: fields.description || '', startUrl: fields.metadata.start_url || '', signIn: fields.metadata.sign_in || '', file })
     }
   }
   cache = { at: Date.now(), list }

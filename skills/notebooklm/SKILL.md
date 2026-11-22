@@ -4,6 +4,7 @@ description: Google NotebookLM(노트북 LM, Gemini Notebook) 웹사이트에서
 metadata:
   runs_in: browser
   start_url: https://notebook.google.com/
+  sign_in: accounts.google.com
 ---
 
 # NotebookLM 에서 슬라이드와 오디오 오버뷰 만들기
