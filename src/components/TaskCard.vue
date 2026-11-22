@@ -20,6 +20,10 @@ const queued = computed(() => c.value.state === 'queued')
 const review = computed(() => c.value.state === 'needs_review')
 const failed = computed(() => c.value.state === 'failed')
 const ended = computed(() => review.value || failed.value)
+// finished with no picture of its last screen (an older card, a page that could not be photographed): a short
+// bar with its pill, not an empty screen whose shimmering title read as still loading (2026-11-22 phone
+// screenshot). The pill still opens the plan, at full size.
+const bare = computed(() => !props.full && !frame.value?.data && !running.value && !needs.value && !queued.value && !showPlan.value)
 // 직접 로그인 / 직접 확인 open the full view with 직접 제어 already on (app.takeover)
 const takeover = ref(false)
 // frames come when the page changes: a card opened while it waits still has to show the page, or nobody can take over
@@ -167,9 +171,9 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
 
 <template>
   <div class="task" :class="{ full }">
-    <div ref="screen" class="screen" :class="{ live: running, takeover }" tabindex="0" @click="onClick" @keydown="onKey" @paste="onPaste">
+    <div ref="screen" class="screen" :class="{ live: running, takeover, bare }" tabindex="0" @click="onClick" @keydown="onKey" @paste="onPaste">
       <img v-if="frame?.data" :src="`data:image/jpeg;base64,${frame.data}`" alt="" />
-      <div v-else class="blank"><span class="shimmer-text">{{ running ? '브라우저 여는 중' : queued ? (c.reason || '앞 작업이 끝나면 시작해요') : c.title }}</span></div>
+      <div v-else class="blank"><span v-if="!bare" :class="running || queued ? 'shimmer-text' : 'still'">{{ running ? '브라우저 여는 중' : queued ? (c.reason || '앞 작업이 끝나면 시작해요') : c.title }}</span></div>
       <div class="rings" aria-hidden="true"><i v-for="r in ripples" :key="r.id" class="ring" :class="r.kind" :style="{ left: r.left, top: r.top }" data-testid="click-ring" /></div>
       <Transition name="fade">
         <div v-if="showPlan" class="plan glass" @click.stop>
@@ -218,6 +222,8 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
 .screen img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
 .screen.takeover { box-shadow: 0 0 0 3px var(--color-attention), var(--shadow-card); cursor: crosshair; }
 .blank { position: absolute; inset: 0; display: grid; place-items: center; background: #f3f5fa; font-size: 15px; --text-tertiary: rgba(29 29 31 / .3); --text-primary: #1d1d1f; }
+.blank .still { color: rgba(29 29 31 / .45); }
+.screen.bare { aspect-ratio: auto; height: 64px; }
 /* where the agent clicks: a ring that swells and fades (0.8 s), a dot at its middle */
 .rings { position: absolute; inset: 0; pointer-events: none; }
 .ring { position: absolute; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; border: 3px solid rgba(26 115 232 / .95); background: rgba(26 115 232 / .16);
