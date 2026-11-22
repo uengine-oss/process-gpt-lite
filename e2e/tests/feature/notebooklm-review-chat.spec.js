@@ -5,6 +5,7 @@
 //   F-NB-04 소리 파일 카드 아래 바로 재생되는 플레이어 — 공개 주소·서명 주소·작업 공간 파일, Range 206
 //   F-NB-05 새 프로젝트: 방을 만드는 요청이 늦어도 내 메시지와 「생각하는 중」이 바로, 실패하면 글이 입력창으로
 //   F-NB-06 방 규칙 막대(새 API 모양: 안내 메시지의 content.roomRule) — 휴대폰 폭
+//   F-NB-07 이름 없이 받은 파일(NotebookLM 오디오 개요 「download」, 2026-11-22): 형식만으로 플레이어 · 영상 플레이어 · 문서는 편집기
 // (src/components/TaskCard.vue · BrowserDock.vue · ChatColumn.vue · Message.vue · RoomRuleBar.vue, src/stores/app.js, src/views/MainView.vue)
 // 휴대폰 사진: NB_SHOTS=<폴더> 를 주면 거기에, 아니면 시험 결과 폴더에 남긴다.
 import fs from 'node:fs'
@@ -380,7 +381,80 @@ test.describe('녹화 검토 11-21 · 채팅 화면', () => {
     await expect(page.getByTestId('room-rule')).toHaveCount(0)
     expect(page.errors).toEqual([])
   })
+
+  test('F-NB-07 이름 없이 받은 파일(NotebookLM 오디오 개요): 형식만으로 카드 아래 플레이어, 영상은 영상 플레이어, PDF · 슬라이드는 편집기로', async ({ pageAs, db, lib, cleanup }, testInfo) => {
+    const page = await pageAs(AREA, PHONE)
+    const { admin } = await lib('lib/supa.js')
+    const keys = []
+    cleanup(() => admin.storage.from('files').remove(keys))
+    const up = async (buf, type, name) => {
+      const r = await page.user.post('/attachments', buf, { headers: { 'Content-Type': type, 'X-File-Name': encodeURIComponent(name) } })
+      expect(r.status).toBe(200)
+      keys.push(r.body.key)
+      return r.body
+    }
+    const m4a = await up(MEDIA('m4a'), 'audio/mp4', 'download.m4a')
+    const bare = await up(MEDIA('m4a'), 'audio/mp4', 'download')
+    const mp4 = await up(MEDIA('mp4'), 'video/mp4', '영상 개요.mp4')
+    const id = await room(db, page.user)
+    cleanup(() => db.q('delete from pro_threads where id=$1', [id]))
+    const rows = await db.addMessages(id, [
+      // what the server now keeps for NotebookLM's nameless download (server lib/fileSniff.js)
+      { role: 'agent', kind: 'file', content: { name: m4a.name, url: m4a.url, type: 'audio/mp4' } },
+      // a card whose name still says nothing: its stored type is enough
+      { role: 'agent', kind: 'file', content: { name: 'download', url: bare.url, type: 'audio/mp4' } },
+      { role: 'agent', kind: 'file', content: { name: mp4.name, url: mp4.url, type: 'video/mp4' } },
+      { role: 'agent', kind: 'file', content: { name: '슬라이드.pdf', url: `${m4a.url.replace(/[^/]+$/, '')}x.pdf`, type: 'application/pdf' } },
+      { role: 'agent', kind: 'file', content: { name: '슬라이드.pptx', url: `${m4a.url.replace(/[^/]+$/, '')}x.pptx` } },
+    ])
+    await page.goto(`/projects/${id}`)
+    const plays = (el) => el.evaluate((a) => new Promise((ok) => {
+      a.muted = true
+      const t = setTimeout(() => ok({ err: `timeout ${a.networkState}/${a.readyState} ${a.error?.code || ''}` }), 15000)
+      a.addEventListener('timeupdate', () => { if (a.currentTime > 0.1) { clearTimeout(t); a.pause(); ok({ duration: a.duration }) } })
+      a.play().catch((e) => ok({ err: e.message }))
+    }))
+    for (const m of rows.slice(0, 2)) {
+      const audio = page.locator(`.row[data-id="${m.id}"]`).getByTestId('file-audio')
+      await expect(audio).toBeVisible({ timeout: 20_000 })
+      const played = await plays(audio)
+      expect(played.err).toBeUndefined()
+      expect(played.duration).toBeGreaterThan(0.5)
+      await expect(page.locator(`.row[data-id="${m.id}"] .fic`)).toHaveText('AUD')
+      const b = await audio.boundingBox()
+      expect(b.x + b.width).toBeLessThanOrEqual(390.5)
+    }
+    const video = page.locator(`.row[data-id="${rows[2].id}"]`).getByTestId('file-video')
+    await expect(video).toBeVisible({ timeout: 20_000 })
+    await expect(video).toHaveAttribute('playsinline', '')
+    const vplayed = await plays(video)
+    expect(vplayed.err).toBeUndefined()
+    const vb = await video.boundingBox()
+    expect(vb.x + vb.width).toBeLessThanOrEqual(390.5)
+    expect(vb.height).toBeGreaterThan(100)
+    // documents: the card opens the editor (IeumOffice), no player
+    for (const m of rows.slice(3)) {
+      await expect(page.locator(`.row[data-id="${m.id}"] .file`)).toContainText('눌러서 바로 편집')
+      await expect(page.locator(`.row[data-id="${m.id}"]`).getByTestId('file-audio')).toHaveCount(0)
+      await expect(page.locator(`.row[data-id="${m.id}"]`).getByTestId('file-video')).toHaveCount(0)
+    }
+    await page.locator(`.row[data-id="${rows[0].id}"]`).scrollIntoViewIfNeeded()
+    await photo(page, testInfo, 'nb07-nameless-audio-390')
+    await page.locator(`.row[data-id="${rows[2].id}"]`).scrollIntoViewIfNeeded()
+    await photo(page, testInfo, 'nb07-video-390')
+    expect(page.errors).toEqual([])
+  })
 })
+
+// a short real M4A (AAC) or MP4 (H.264 + AAC) from ffmpeg — the formats NotebookLM hands out
+function MEDIA(kind, seconds = 2) {
+  const out = path.join(os.tmpdir(), `rt-nb-${process.pid}-${Date.now()}.${kind}`)
+  const args = kind === 'mp4'
+    ? ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc=size=320x240:rate=15:duration=${seconds}`, '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart', out]
+    : ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`, '-c:a', 'aac', '-b:a', '64k', out]
+  execFileSync('ffmpeg', args)
+  const b = fs.readFileSync(out); fs.rmSync(out, { force: true }); return b
+}
 
 // a short real MP3 (ffmpeg on PATH), else MPEG-1 Layer III frames of silence (decoders take them as 1 s of quiet)
 function MP3(seconds = 2) {

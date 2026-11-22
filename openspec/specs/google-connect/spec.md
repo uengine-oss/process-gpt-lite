@@ -54,6 +54,11 @@
 - **WHEN** 보관함에 Google 로그인 정보가 없는 사용자가 「Google 연결」을 누른다
 - **THEN** 카드에 로그인 정보 입력 양식이 표시되고, 사용자가 저장하면 연결을 이어서 진행한다
 
+#### Scenario: 한 번 로그인하면 다른 Google 사이트도
+- **GIVEN** 서버 브라우저가 Google에 한 번 로그인했다(「Google 연결」 카드에서 또는 Google 사이트 작업 중 보관함의 로그인 정보로)
+- **WHEN** NotebookLM · Gemini · Drive 웹을 서버 브라우저로 연다
+- **THEN** 로그인 화면이나 2단계 인증 없이 해당 사용자의 계정으로 열린다(운영 확인 `e2e/results/prod-google-sites-1122.txt`)
+
 #### Scenario: Google 이 거절한다
 - **WHEN** 서버 브라우저에서 Google이 로그인을 받아 주지 않는 화면이 나온다
 - **THEN** 카드가 `need: blocked`로 끝나고 「휴대폰에서 연결」이 보이며, 그 단추로 이 기기에서 연결할 수 있다
