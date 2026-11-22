@@ -99,6 +99,9 @@ before(async () => {
   site = await startWalls()
   fs.mkdirSync(path.join(skillsDir, 'walls-studio'))
   fs.writeFileSync(path.join(skillsDir, 'walls-studio', 'SKILL.md'), `---\nname: walls-studio\ndescription: 시험 사이트에서 검색하고 메모한다.\nmetadata:\n  runs_in: browser\n  start_url: ${site.url}/\n---\n\n# ${SKILL_BODY_MARK}\n검색 칸에 쓰고 메모한다.\n`)
+  // a site that signs people in elsewhere (as NotebookLM → Google): sign_in names that host
+  fs.mkdirSync(path.join(skillsDir, 'walls-app'))
+  fs.writeFileSync(path.join(skillsDir, 'walls-app', 'SKILL.md'), `---\nname: walls-app\ndescription: 스튜디오에서 최근 문서를 본다. 로그인은 아이디 서비스에서 한다.\nmetadata:\n  runs_in: browser\n  start_url: https://studio.example/\n  sign_in: id.example\n---\n\n# 스튜디오\n첫 화면의 「로그인」을 누르고 아이디 서비스에 저장된 로그인으로 들어간다.\n`)
   _resetBrowserSkills()
   ;[{ id: threadId }] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project','browser walls e2e') returning id`, [user])
 })
@@ -215,6 +218,46 @@ test('판정이 0.7 미만이면 벽으로 보지 않고 에이전트가 평소�
   assert.equal(scripts[goal].i, 2, '모델이 일했다')
   assert.equal(r.stats.walls, 0)
   assert.deepEqual(r.stats.wall_checks.map((w) => [w.key, w.p]), [['login_needed', 0.55]])
+})
+
+test('로그인을 다른 곳에서 받는 사이트(스킬 sign_in): 그 로그인이 보관함에 있으면 첫 화면에서 기다리지 않고 에이전트가 보관함으로 로그인한다', async () => {
+  app.signedIn = false
+  const vault = await import('../lib/vault.js')
+  const item = await vault.putItem(user, 'login', 'id.example', { username: 'tester@id.example', password: 'pw-1' })
+  const fills = async () => (await q(`select count(*)::int n from pro_vault_audit where user_id=$1 and item_id=$2 and action='fill'`, [user, item.id]))[0].n
+  const SIGN_IN_MOVES = [
+    (b) => ['click', { i: pick(b, '로그인') }],
+    (b) => ['fill_secret', { i: lastSnap(b).els.find((e) => e.type === 'email').i, field: 'username' }],
+    (b) => ['click', { i: pick(b, '다음') }],
+    ['note', { text: '최근 문서 목록이 보여요' }],
+    ['finish', { summary: '보관함의 로그인으로 들어가 최근 문서를 확인했어요.' }],
+  ]
+  try {
+    const goal = '스튜디오에 로그인해서 최근 문서를 봐 줘'
+    const r = await run(goal, SIGN_IN_MOVES, undefined, { skill: 'walls-app' })
+    assert.equal(r.state, 'done', JSON.stringify(r))
+    assert.equal(r.stats.walls, 0, '첫 화면 · 로그인 화면 어디서도 사람을 기다리지 않았다')
+    assert.ok(app.signedIn, '로그인됐다')
+    assert.equal(await fills(), 1, '보관함에서 채웠다')
+
+    // 지난번에 거부된 비밀번호는 그대로 다시 넣지 않는다: 카드에서 고친 뒤에 넣는다
+    app.signedIn = false
+    await vault.setStatus(user, item.id, 'rejected')
+    const goal2 = '스튜디오에 다시 로그인해서 최근 문서를 봐 줘'
+    const running = run(goal2, SIGN_IN_MOVES, undefined, { skill: 'walls-app' })
+    const ask = await until(async () => (await q(`select id, content from pro_messages where thread_id=$1 and kind='vault' and content->>'mode'='update' and content->>'state'='pending' order by created_at desc limit 1`, [threadId]))[0], '비밀번호 고침 요청')
+    assert.equal(ask.content.itemId, item.id)
+    assert.match((await card(goal2)).content.reason, /지난번에 저장된 비밀번호를 받아들이지 않았어요/)
+    assert.equal(await fills(), 1, '고치기 전에는 넣지 않는다')
+    await vault.updateItem(user, item.id, { username: 'tester@id.example', password: 'pw-2' })
+    browser.resume(user, 'the user updated the saved login for id.example; use fill_secret again')
+    const r2 = await running
+    assert.equal(r2.state, 'done', JSON.stringify(r2))
+    assert.equal(await fills(), 2, '고친 비밀번호로 채웠다')
+  } finally {
+    await vault.deleteItem(user, item.id).catch(() => {})
+    await q(`delete from pro_messages where thread_id=$1 and kind='vault'`, [threadId]).catch(() => {})
+  }
 })
 
 test('브라우저 스킬: 맡은 스킬은 이름·설명과 read_skill 만 먼저 보이고, 본문은 read_skill 이 돌려준다. 시작 주소는 스킬의 것', async () => {
