@@ -1,0 +1,23 @@
+◇ injected env (9) from .env
+pgpt-pro server on :8796
+PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off
+[team] deepagents worktree: no — continue hands the branch files over as attachments
+[team] 43aa0c48 is the first administrator of pro-gc-e2e
+✔ 설치형 「Google로 계속하기」 로그인은 그대로: 이 설치의 클라이언트, 신원 범위만, 콜백이 로그인시킨다 (3439.024166ms)
+✔ 회사 OAuth 클라이언트: 관리자만(아니면 403), 리디렉션 URI 와 복사, 비밀값은 다시 보여 주지 않음 (휴대폰 390) (2247.074083ms)
+✔ 휴대폰에서 연결: 로그인한 사람에게 붙고(구글 이메일이 달라도), 다른 브라우저·다른 상태는 거부, 한 번만 (81.594042ms)
+[browser] google connect 044dd2b4-eb73-446c-a652-1a456918efa7 connected in 2s · 2 page checks
+✔ 서버 브라우저에서 연결: 카드가 곧바로 직접 로그인을 기다리고, 휴대폰 화면의 직접 제어로 동의하면 완료 · 같은 브라우저에 Google 쿠키 (7283.879917ms)
+[browser] google connect 19c47d5a-68df-4a07-a211-201fbc146d3c connected in 1s · 1 page checks
+✔ 보관함 먼저: 저장된 Google 로그인이면 에이전트가 이메일 · 비밀번호를 넣고 허용까지 — 직접 제어 없이 (1096.480167ms)
+[browser] google connect 91b6b902-72b7-4455-9d44-8bd362028ba3 connected in 3s · 1 page checks
+✔ 보관함 먼저: 저장된 로그인이 없으면 카드로 묻고(직접 제어가 아니라), 카드에 저장하면 이어서 연결 (휴대폰 390) (2761.536667ms)
+[browser] google connect c58669b6-90fb-412a-a9e3-979ab7316609 blocked in 0s · 1 page checks
+✔ Google 이 오류 화면(400)으로 답하면(판정 site_error) 거절과 같이 끝나고 「휴대폰에서 연결」 (173.498875ms)
+[browser] google connect 95749c1b-961f-4317-b207-288aec438e10 blocked in 0s · 1 page checks
+✔ Google 이 서버 브라우저를 거절하면(판정 refused) 카드에 「휴대폰에서 연결」, 그 단추로 이 기기에서 연결 (3933.160166ms)
+[google connect] browser Google에서 허용하지 않았어요.
+[browser] google connect 9e149d03-d26d-43fb-b19d-8d60f40f647e error in 4s · 2 page checks
+[browser] google connect 4a5985c3-23d6-47e9-98dd-c9fab4f78aa2 timeout in 2s · 2 page checks
+✔ 허용하지 않으면 카드가 그 이유와 다른 방법을 말한다 · 바쁜 브라우저는 409 · 15분(시험은 짧게) 안에 끝나지 않으면 끝낸다 (5568.475458ms)
+✔ 영어 화면: 관리 화면 · 연결 카드 · 작업 카드의 새 문구가 영어로 (ko-en.json) (6954.117542ms)

@@ -1,0 +1,28 @@
+# 운영(uengine.process-gpt.io/lite)에서 본 Google 사이트 바로 쓰기 — 2026-11-22 (UTC, 사람 jyjang@uengine.org)
+# 배포: PR #12 77315c8. 판정·에이전트 모델 frentis-ai-model. 노트북·파일 이름은 적지 않는다(개인 자료).
+
+## 앞 상태
+05:08  Google 연결 카드(서버 브라우저) — 보관함의 Google 비밀번호가 지난번 거부(rejected) → 고치기 카드 → 15분 안에 안 고쳐 시간 초과
+05:23  사람이 「휴대폰에서 연결」로 메일만 연결(커넥터 google connected). 서버 브라우저는 아직 Google 에 로그인 안 됨
+
+## 1. 보관함의 비밀번호로 NotebookLM 로그인 (사람 말 「노트북엘엠에 연결해봐」)
+05:25:21  사람 메시지 → 작업 「노트북LM Google 로그인」(스킬 notebooklm → sign_in accounts.google.com)
+05:25:27  Google 로그인 벽 → 보관함 로그인이 rejected 라 넣지 않고 고치기 카드(update/pending), 작업 needs_input
+05:26:20  사람이 카드에서 비밀번호를 고쳐 저장(update/saved) → 에이전트가 이어서 진행
+          실제로 한 일: '로그인' 누르기 · 보관함의 아이디 입력 · '다음' · 'Google Workspace 계정' 누르기 · 보관함의 비밀번호 입력 · '다음'
+05:26:26  Google 이 비밀번호를 받음 → 2단계 인증(challenge/dp, 휴대폰 알림)
+05:26:27  에이전트 안내 「Galaxy Note20 Ultra 5G의 알림에서 「예」를 탭한 뒤 휴대전화에서 숫자 2를 탭해 주세요」(tell_user)
+05:26:37  사람이 휴대폰에서 승인 → notebook.google.com 홈
+05:26:59  완료(1분 32초, 사람이 한 일: 비밀번호 고치기 1번 · 휴대폰 승인 1번)
+
+## 2. NotebookLM 목록 — 로그인 없이 (「(시험) NotebookLM 에서 내 노트북 목록만 확인해 줘. 새로 만들거나 바꾸지는 마.」)
+05:25:38  작업 「노트북LM 노트북 목록 확인」 — 1 이 끝날 때까지 대기(브라우저는 한 번에 한 작업)
+05:26:59  시작 → 05:27:27 완료(28초). 로그인 화면 없음, 계정 jyjang@uengine.org, 노트북 25개를 읽기만 함
+
+## 3. Gemini · Drive 웹 — 로그인 없이 (「(시험) 서버 브라우저로 gemini.google.com 과 drive.google.com 을 차례로 열어서 각각 내 계정으로 로그인된 채 열리는지만 봐 줘. …」)
+05:29:16  작업 시작 → gemini.google.com/app(장진영, 업무 · Pro) → drive.google.com/drive/home(jyjang@uengine.org)
+05:29:43  완료(27초). 로그인 화면 · 2단계 인증 없음. 실제로 한 일: gemini.google.com 열기 · drive.google.com 열기
+
+## 참고 — 「브라우저」를 말하지 않은 Drive 질문은 커넥터로
+05:27:50  「Google Drive(drive.google.com)와 Gemini(gemini.google.com)를 … 확인해 줘」 → 커넥터 우선 경로(deepagents, drive_find_files)로 Drive 는 「내 계정으로 연결」,
+          Gemini 는 「확인할 수 있는 커넥터·브라우저 도구가 없어」 — deepagents 쪽에는 browser_task 가 없다(브라우저로 넘기는 길은 결정 대기)

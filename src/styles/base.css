@@ -134,6 +134,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .arc-move { transition: transform .6s var(--spring); }
 .fade-enter-active, .fade-leave-active { transition: opacity .4s, filter .4s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; filter: blur(6px); }
+/* a history step the browser animated itself (src/uaTransition.js): no second animation on top */
+.ua-nav .fade-enter-active, .ua-nav .fade-leave-active, .ua-nav .arc-enter-active, .ua-nav .arc-leave-active { transition: none !important; animation: none !important; }
 
 /* scrollbars stay out of the way */
 .scroll { overflow-y: auto; scrollbar-width: none; }

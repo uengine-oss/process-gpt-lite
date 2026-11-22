@@ -248,7 +248,7 @@ async function writeState(st, validFrom, names, meta) {
   await writeStructure(st.structure, w)
 }
 
-// personal habits (후행 습관 pro_followups · 방 규칙 pro_room_rules) → role routines (design-v0.3 §3.4): every habit is
+// personal habits (후행 습관 pro_followups · 방 규칙 — 그 방 안내 메시지의 roomRule) → role routines (design-v0.3 §3.4): every habit is
 // counted — the setting only decides what the map shows (service.js) — and the graph gets the role, the task and how many
 // people, never a name or the words. A role's routine is a process of its own (kind routine) hung on the role.
 // 이/가 after a Korean word (받침)
@@ -259,7 +259,12 @@ const roleEvent = (role, cls) => (cls === 'link' ? { key: `link:@${role}`, kind:
 async function habitRoutines(final, meta, assigned) {
   const rows = await q(`select id::text as id, user_id::text as user_id, event_cls as cls, action, seen, origin from pro_followups
                           where tenant_id=$1 and (seen >= 2 or origin = 'told')`, [T()]).catch(() => [])
-  const rules = await q(`select id::text as id, user_id::text as user_id, action from pro_room_rules where tenant_id=$1`, [T()]).catch(() => [])
+  // a room's rule is kept on the room's notice message (lib/roomRules.js content.roomRule), the person is the room's owner
+  const rules = await q(`select m.id::text as id, t.user_id::text as user_id, m.content->'roomRule'->>'action' as action
+                           from pro_messages m join pro_threads t on t.id = m.thread_id
+                           join users u on u.id::text = t.user_id::text and u.tenant_id = $1
+                          where jsonb_typeof(m.content->'roomRule') = 'object' and coalesce(m.content->'roomRule'->>'off', '') = ''
+                            and coalesce(m.content->'roomRule'->>'action', '') <> ''`, [T()]).catch(() => [])
   const shared = new Set((await q(`select followup_id::text as id from pro_habit_shares where tenant_id=$1 and answer='shared' and status <> 'withdrawn'`, [T()]).catch(() => [])).map((r) => r.id))
   // each person's role: the assignment, else the role they performed most in the cases
   const played = new Map()

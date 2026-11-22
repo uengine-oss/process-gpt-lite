@@ -13,7 +13,9 @@ import ApprovalInbox from './ApprovalInbox.vue'
 import FollowupList from './FollowupList.vue'
 import SharingCenter from './context/SharingCenter.vue'
 import MailConnect from './MailConnect.vue'
+import TelegramConnect from './TelegramConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
+import GoogleClientAdmin from './GoogleClientAdmin.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
 import { MAIN_LANGS, uiLangFor } from '../i18n/mainLangs.js'
 import { lang as uiLang, setLang } from '../i18n/lang.js'
@@ -151,6 +153,9 @@ async function saveName() {
 }
 // 계정 › 연결 › 메일: switch Gmail ↔ IMAP ↔ 데모 메일함 with the onboarding sheet (MailConnect)
 const mailSheet = ref(false)
+// back from Google's consent on this device (휴대폰에서 연결, server/index.js callback): what came of it
+const googleBack = computed(() => (route.query.google === 'connected' ? { ok: true, text: 'Google을 연결했어요. 메일을 읽기 시작해요.' }
+  : route.query.google_error ? { ok: false, text: String(route.query.google_error) } : null))
 const mailLabel = { gmail: 'Gmail', imap: 'IMAP', demo: '데모 메일함' }
 async function mailClosed() {
   mailSheet.value = false
@@ -212,6 +217,7 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
 
       <!-- accounts (vault) -->
       <template v-if="page === 'accounts' && !sub">
+        <p v-if="googleBack" class="gback" :class="googleBack.ok ? 'ok' : 'bad'" data-testid="google-back">{{ googleBack.text }}</p>
         <p class="cap">내 정보</p>
         <form class="list glass" @submit.prevent="saveName">
           <div class="li">
@@ -241,6 +247,7 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
             <div class="main"><b>연습 메일 받기</b><small>가상의 거래처 메일을 데모 메일함으로 보내요</small></div>
             <DemoMailPractice />
           </div>
+          <TelegramConnect compact />
         </div>
         <ConnectorCards />
         <p class="cap">로그인 · API 키</p>
@@ -332,6 +339,8 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
             <DemoMailPractice />
           </div>
         </div>
+        <!-- administrators: the company's own Google OAuth client -->
+        <GoogleClientAdmin v-if="app.me?.admin" />
       </template>
 
       <!-- security -->
@@ -425,6 +434,9 @@ b.sm { font-size: 15px; }
 .brand { min-width: 64px; height: 40px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 600; color: #fff; background: #5b6170; }
 .brand.visa { background: #1a1f71; } .brand.mastercard { background: #eb001b; } .brand.amex { background: #2e77bc; } .brand.jcb { background: #0b7a3e; }
 .ferr { margin: 0; color: var(--color-error); font-size: 14px; }
+.gback { margin: 0 0 16px; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.5; background: var(--cell-bg); }
+.gback.ok { color: #1f8a4c; }
+.gback.bad { color: var(--color-error); }
 .hint { margin: 0; color: var(--text-secondary); font-size: 13px; }
 .fav { width: 22px; height: 22px; border-radius: 6px; }
 .fav.mailic { display: grid; place-items: center; color: var(--text-secondary); }

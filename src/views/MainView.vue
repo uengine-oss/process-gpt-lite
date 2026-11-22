@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, onMounted, ref, watch, onBeforeUnmount, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import HomeDock from '../components/HomeDock.vue'
@@ -38,7 +38,13 @@ const listMode = computed(() => app.mode === 'project' || app.mode === 'routine'
 const leftOpen = computed(() => wide.value && (listMode.value || app.dockOpen))
 // Phone: Home is a full-width tab with the composer under it; Projects and Routines show their list first.
 const mobileHome = computed(() => narrow.value && app.mode === 'chat' && app.dockOpen)
-const mobileList = computed(() => narrow.value && listMode.value && !route.params.id && !route.params.instId)
+// 새 프로젝트 just sent: its room is being made, and the chat with the message shows meanwhile
+const drafting = computed(() => !!app.draftProject && app.activeId === app.draftProject.tmp)
+const mobileList = computed(() => narrow.value && listMode.value && !route.params.id && !route.params.instId && !drafting.value)
+// the chat stays the same one from 새 프로젝트 through the room being made to the room: nothing blinks
+// (gen: leaving that room for a fresh 새 프로젝트 gives a fresh chat)
+const gen = ref(0)
+const colKey = computed(() => (app.draftProject && [app.draftProject.tmp, app.draftProject.id].includes(app.activeId) ? `new-${gen.value}` : app.activeId || `new-${gen.value}`))
 function sendFromHome(text) {
   if (!app.panelMode) app.dockOpen = false
   onSend(text)
@@ -58,17 +64,36 @@ const clock = computed(() => {
   }
 })
 
+// an instance page while its data comes: nothing of the conversation before it (2026-11-21: Home's card
+// showed the main chat under 「이 프로세스에 대해 물어보기」 first, and stayed there when the load was slow)
+const instLoading = ref(false)
+const instError = ref('')
+let routeSeq = 0
 async function syncRoute() {
+  const seq = ++routeSeq
   app.mode = route.meta.mode || 'chat'
   // 새 패널 만들기 belongs to 채팅: leaving it (a project, an instance) drops the mode
   if (app.mode !== 'chat') app.panelMode = false
   if (!ready.value) return
   clearInterval(poll)
   if (!route.params.instId) app.instance = null
+  instError.value = ''
+  instLoading.value = false
   app.convFilter = app.mode === 'chat' && route.params.cid ? decodeURIComponent(route.params.cid) : null
+  if (app.draftProject && route.params.id !== app.draftProject.id) { app.draftProject = null; gen.value++ }
   if (app.mode === 'chat') app.activeId = app.mainThread.id
   else if (route.params.instId) {
-    await app.openInstance(route.params.instId)
+    const id = String(route.params.instId)
+    if (app.instance?.inst?.proc_inst_id !== id) { app.instance = null; app.activeId = null }
+    instLoading.value = !app.instance
+    try {
+      await app.openInstance(id, () => seq === routeSeq)
+    } catch (e) {
+      if (seq === routeSeq) instError.value = e.message || '루틴을 열지 못했어요'
+    } finally {
+      if (seq === routeSeq) instLoading.value = false
+    }
+    if (seq !== routeSeq) return
     // a case run from the company's process map (지도에서 바로) has no definition to draw here: its case view on the map instead
     const mc = app.instance?.mapCase
     if (mc?.id) { app.instance = null; return router.replace(`/process-map?proc=${encodeURIComponent(mc.proc)}&case=${encodeURIComponent(mc.id)}`) }
@@ -77,7 +102,13 @@ async function syncRoute() {
   } else if (route.params.id) await app.open(route.params.id)
   else app.activeId = null
 }
+// 닫기 on an instance page: back where it was opened from (Home, a chat card, the list), else the list
+function closeInstance() {
+  if (window.history.state?.back) router.back()
+  else router.push('/routines')
+}
 watch(() => route.fullPath, syncRoute)
+provide('closeInstance', closeInstance)
 
 // a browser notification clicked (src/browserNotify.js): the room, the instance page or the card's own place
 const team = useTeam()
@@ -111,10 +142,17 @@ onBeforeUnmount(() => { window.removeEventListener('resize', onResize); window.r
 
 async function onSend(text) {
   if (app.panelMode) return app.createPanel(text)
-  if (newProject.value) {
-    await app.newProject(text)
-    return router.replace(`/projects/${app.activeId}`)
+  app.notice = null
+  // a second message while the room is still being made: shown now, to that room once it exists
+  if (drafting.value) return app.queueDraft(text)
+  if (newProject.value && !app.activeId) {
+    // the message and "생각하는 중" are on screen at once; the address follows when the room exists
+    const id = await app.newProject(text)
+    if (id && app.activeId === id && newProject.value) router.replace(`/projects/${id}`)
+    return
   }
+  // (the instance is still loading or failed: nothing to send it to yet)
+  if (instMode.value && !app.instance) return
   if (instMode.value && app.instance) {
     // questions on an instance page carry its state so the agent can answer about it
     const i = app.instance
@@ -150,8 +188,8 @@ function onConnect() {
       </Transition>
 
       <div class="center" :class="{ shifted: leftOpen }">
-        <ChatColumn v-if="ready && !mobileHome && (app.activeId || newProject)" :key="app.activeId || 'new'"
-          :placeholder="newProject ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : 'process gpt에 메시지 보내기'"
+        <ChatColumn v-if="ready && !mobileHome && (app.activeId || newProject)" :key="colKey"
+          :placeholder="newProject && !app.activeId ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : 'process gpt에 메시지 보내기'"
           :empty-text="newProject ? '' : ''" :keep-top="instMode" @send="onSend" @connect="onConnect">
           <template v-if="instMode && app.instance" #header><InstanceHeader :data="app.instance" @refresh="app.refreshInstance()" /></template>
           <template v-else-if="app.mode === 'chat' && app.activeId === app.mainThread?.id" #header><ConversationBar /></template>
@@ -159,8 +197,18 @@ function onConnect() {
         </ChatColumn>
         <!-- inside one conversation, the files it produced float in a stack (Dock-style) -->
         <ArtifactStack v-if="ready && app.mode === 'chat' && app.convFilter && !mobileHome && !app.officeDoc" />
-        <div v-if="newProject && !narrow" class="np serif">
+        <div v-if="newProject && !app.activeId && !narrow" class="np serif">
           <Typewriter text="프로젝트는 장기적인 작업과 경험을 정리하기 위한 공간입니다." :cps="18" />
+        </div>
+        <div v-if="ready && instMode && !app.instance && (instLoading || instError)" class="iload" data-test="instance-loading">
+          <template v-if="instError">
+            <p>{{ instError }}</p>
+            <div class="ibtns">
+              <button class="pill-btn" @click="syncRoute">다시 시도</button>
+              <button class="pill-btn" @click="closeInstance">닫기</button>
+            </div>
+          </template>
+          <p v-else class="shimmer-text">루틴 여는 중…</p>
         </div>
         <div v-if="ready && noRoutine && !narrow" class="np serif">
           <Typewriter text="루틴은 정해진 절차를 따라 진행되는 일입니다." :cps="18" />
@@ -187,5 +235,7 @@ function onConnect() {
 .center.shifted { left: 420px; }
 .clock { position: absolute; left: 32px; bottom: 40px; font-size: 44px; line-height: 1.12; letter-spacing: -0.03em; font-weight: 500; color: var(--text-primary); z-index: 7; pointer-events: none; }
 .mfoot { position: absolute; z-index: 6; left: 16px; right: 16px; bottom: 24px; }
+.iload { position: absolute; left: 50%; top: 42%; translate: -50% -50%; width: min(420px, calc(100% - 32px)); text-align: center; font-size: 17px; color: var(--text-secondary); }
+.iload .ibtns { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
 .np { position: absolute; left: 50%; top: 40%; translate: -50% -50%; width: min(560px, 80%); font-size: clamp(26px, 3vw, 40px); line-height: 1.3; color: var(--text-primary); pointer-events: none; font-weight: 300; word-break: keep-all; }
 </style>

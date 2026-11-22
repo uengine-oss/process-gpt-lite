@@ -5,6 +5,9 @@ import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './styles/base.css'
+// **굵게** right before a Korean particle (src/markdownCjk.js): every marked.parse in the app
+import { installCjkMarkdown } from './markdownCjk.js'
+import { watchUaTransitions } from './uaTransition.js'
 import { api, auth, adoptHostSession } from './api.js'
 import { registerWorker } from './browserNotify.js'
 import { useApp } from './stores/app.js'
@@ -49,6 +52,8 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL), routes })
 adoptHostSession()
+installCjkMarkdown()
+watchUaTransitions()
 router.beforeEach((to) => {
   if (!to.meta.public && !auth.get()?.session) return '/login'
 })

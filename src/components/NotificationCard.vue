@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router'
 import { useTeam } from '../stores/team.js'
 import StepOutputs from './mining/StepOutputs.vue'
 import AccessDecide from './context/AccessDecide.vue'
+import { noticeText } from '../noticeText.js'
 
 const props = defineProps({ n: Object })
 const app = useApp()
@@ -15,6 +16,48 @@ const team = useTeam()
 const busy = ref('')
 // an earlier step's summary can carry a sandbox link ("[견적서.xlsx](/workspace/…)"): its chip below opens the file
 const ctxText = computed(() => String(props.n.context || props.n.text || '').replace(/\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g, '$1'))
+// the card's words: an agent answer copied into a notice can end in a ```json block (noticeText.js)
+const titleText = computed(() => noticeText(props.n.title, 160) || props.n.title)
+const ctxShown = computed(() => noticeText(ctxText.value, 400))
+
+// phone: a sideways swipe puts the card away, the way a phone's own notifications go (2026-11-21:
+// the person swiped the card before finding its ✕). Up and down stay the list's scroll.
+const card = ref(null)
+const dx = ref(0)
+const leaving = ref(0)
+let start = null
+let sideways = null
+function down(e) {
+  if (e.pointerType === 'mouse' || e.target.closest('button, a, input, textarea, select')) return
+  start = { x: e.clientX, y: e.clientY, id: e.pointerId }
+  sideways = null
+}
+function move(e) {
+  if (!start || e.pointerId !== start.id) return
+  const mx = e.clientX - start.x
+  const my = e.clientY - start.y
+  if (sideways === null && Math.hypot(mx, my) > 10) sideways = Math.abs(mx) > Math.abs(my) * 1.3
+  if (sideways) dx.value = mx
+}
+function up() {
+  if (!start) return
+  const w = card.value?.offsetWidth || 320
+  if (sideways && Math.abs(dx.value) > w * 0.33) {
+    leaving.value = dx.value > 0 ? 1 : -1
+    setTimeout(() => app.dismissNotification(props.n), 160)
+  } else if (dx.value) {
+    dx.value = 0
+    snap.value = true
+    setTimeout(() => { snap.value = false }, 220)
+  }
+  start = null
+  sideways = null
+}
+const snap = ref(false)
+// (transitions only while swiping: the list's own move animation — TransitionGroup arc-move — stays as it is)
+const swipeStyle = computed(() => leaving.value ? { transform: `translateX(${leaving.value * 110}%)`, opacity: 0, transition: 'transform .18s ease-out, opacity .18s ease-out' }
+  : dx.value ? { transform: `translateX(${dx.value}px)`, opacity: Math.max(0.3, 1 - Math.abs(dx.value) / 400) }
+  : snap.value ? { transform: 'translateX(0)', transition: 'transform .2s ease-out, opacity .2s ease-out' } : null)
 
 // a teammate's 'team' notice is a share or a mention; its title is in the recipient's language
 // (lib/team/messenger.js notifyMembers: "…를 공유했어요" / "… shared …", "…나를 언급했어요" / "… mentioned you")
@@ -54,17 +97,18 @@ async function act(choice) {
 </script>
 
 <template>
-  <div class="nc glass" :class="n.type">
+  <div ref="card" class="nc glass" :class="[n.type, { swiping: !!dx }]" :style="swipeStyle" data-test="notice-card"
+    @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up">
     <div class="head">
       <span class="verb">{{ verb }}</span>
-      <span class="title">{{ n.title }}</span>
-      <button class="x press" title="닫기" @click="app.dismissNotification(n)">×</button>
+      <span class="title" :title="n.title">{{ titleText }}</span>
+      <button class="x press" title="닫기" aria-label="닫기" data-test="notice-close" @click="app.dismissNotification(n)">×</button>
     </div>
     <p v-if="n.type === 'team'" class="who">{{ n.from }}님 · {{ when }}</p>
     <p v-else-if="n.type === 'mention'" class="who">{{ n.from }}님 · {{ when }}</p>
     <p v-else-if="n.type !== 'workitem'" class="who">{{ kinds[n.type] || 'process-gpt' }} · {{ when }}</p>
     <p v-else class="who">{{ n.process }}<template v-if="n.role"> · {{ n.role }}</template> · {{ when }}</p>
-    <p v-if="n.context || n.text" class="ctx">{{ ctxText }}</p>
+    <p v-if="ctxShown" class="ctx">{{ ctxShown }}</p>
     <!-- a step to decide: the earlier steps' outputs open right here (IeumOffice · ArtCraft) -->
     <StepOutputs v-if="n.type === 'workitem' && n.todoId" :todo-id="n.todoId" />
     <!-- 팀 맥락 공유: 팀원의 참고 요청은 이 카드에서 바로 허락·거절(깊이·기간·뺄 턴) -->
@@ -80,7 +124,9 @@ async function act(choice) {
 </template>
 
 <style scoped>
-.nc { border-radius: 24px; padding: 16px 16px 14px 20px; color: var(--text-primary); }
+.nc { border-radius: 24px; padding: 16px 16px 14px 20px; color: var(--text-primary); min-width: 0; max-width: 100%; overflow: hidden;
+  touch-action: pan-y; }
+.nc.swiping { user-select: none; }
 .head { display: flex; align-items: flex-start; gap: 8px; }
 .verb { flex: none; height: 30px; line-height: 30px; padding: 0 9px; border-radius: 8px; background: var(--color-attention); color: #fff; font-size: 15px; font-weight: 500; }
 .mention .verb, .team .verb { background: #2a78d6; }
@@ -89,10 +135,11 @@ async function act(choice) {
 .context_access_result .verb, .context_access_digest .verb { background: #2a78d6; }
 .mission .verb { background: #3d3d3a; }
 .agent_failed .verb, .mission_failed .verb { background: var(--color-error); }
-.title { flex: 1; font-size: 16px; line-height: 30px; font-weight: 500; }
+.title { flex: 1; min-width: 0; font-size: 16px; line-height: 1.45; padding-top: 3px; font-weight: 500; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .x { flex: none; width: 28px; height: 28px; border-radius: 14px; color: var(--text-tertiary); font-size: 20px; line-height: 26px; }
-.who { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
-.ctx { margin: 8px 0 0; font-size: 14px; line-height: 1.55; color: var(--text-primary);
+.who { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.ctx { margin: 8px 0 0; font-size: 14px; line-height: 1.55; color: var(--text-primary); overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .b { height: 36px; padding: 0 16px; border-radius: 18px; font-size: 15px; background: rgba(0, 0, 0, .06); color: var(--text-primary); }

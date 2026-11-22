@@ -16,7 +16,7 @@ import { L } from './lang.js'
 
 export const KINDS = ['login', 'card', 'apikey', 'oauth']
 // fields that must never appear outside the ciphertext (usernames are labels, not secrets)
-const SECRET_FIELDS = ['password', 'number', 'cvv', 'key', 'access_token', 'refresh_token']
+const SECRET_FIELDS = ['password', 'number', 'cvv', 'key', 'access_token', 'refresh_token', 'client_secret']
 
 export class VaultError extends Error {
   constructor(message, status = 400) { super(message); this.status = status }
@@ -181,7 +181,7 @@ export async function audit(userId, action, { item, kind, site, actor = 'user', 
 
 // Create, or update the same account (same site + username, same card number).
 // status 'captured' = taken from a form the user typed into; kept sealed until they confirm it.
-export async function putItem(userId, kind, site, data, { actor = 'user', taskId, status = null } = {}) {
+export async function putItem(userId, kind, site, data, { actor = 'user', taskId, status = null, detail } = {}) {
   site = kind === 'card' ? 'wallet' : normSite(site)
   validate(kind, site, data)
   if (kind === 'card') data = { ...data, number: digits(data.number) }
@@ -209,7 +209,7 @@ export async function putItem(userId, kind, site, data, { actor = 'user', taskId
                       values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, [userId, kind, site, label, secret, key, meta, status, version])
   }
   const item = { id: row.id, kind, site, label, status, created }
-  await audit(userId, status === 'captured' ? 'capture' : created ? 'create' : 'update', { item, actor, taskId })
+  await audit(userId, status === 'captured' ? 'capture' : created ? 'create' : 'update', { item, actor, taskId, detail })
   return item
 }
 
@@ -287,10 +287,10 @@ export async function confirmItem(userId, id) {
   await audit(userId, 'confirm', { item: row, detail: old ? { replaced: old.id } : {} })
 }
 
-export async function deleteItem(userId, id, { actor = 'user' } = {}) {
+export async function deleteItem(userId, id, { actor = 'user', detail } = {}) {
   const row = await rowOf(userId, id)
   await q('delete from pro_vault_items where id=$1', [id])
-  await audit(userId, row.status === 'captured' ? 'discard' : 'delete', { item: row, actor })
+  await audit(userId, row.status === 'captured' ? 'discard' : 'delete', { item: row, actor, detail })
 }
 
 export const listAudit = (userId, limit = 50) =>

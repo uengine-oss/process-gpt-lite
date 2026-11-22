@@ -1,0 +1,34 @@
+  ✘  1 [feature] › tests/feature/mobile-review-1121.spec.js:38:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-01 날 JSON 이 든 알림: 카드가 화면 안에 맞고 ✕ 가 보이며, 홈이 옆으로 밀리지 않는다 (1.1s)
+  ✘  2 [feature] › tests/feature/mobile-review-1121.spec.js:59:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-02 ✕ 로 닫으면 아래 카드가 제자리(왼쪽 여백 그대로)에서 위로 올라온다 (1.7s)
+  ✘  3 [feature] › tests/feature/mobile-review-1121.spec.js:80:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-03 손가락으로 옆으로 밀면 카드가 닫힌다(위아래는 목록 스크롤) (7.7s)
+  ✘  4 [feature] › tests/feature/mobile-review-1121.spec.js:130:3 › 휴대폰 검토 11-21 — 루틴 열기 · 닫기 › F-MR-04 홈 카드로 루틴을 열면 앞 채팅이 비치지 않고 「루틴 여는 중」 → 루틴, ‹ 로 닫으면 홈 (6.5s)
+  ✘  5 [feature] › tests/feature/mobile-review-1121.spec.js:153:3 › 휴대폰 검토 11-21 — 루틴 열기 · 닫기 › F-MR-05 없는 루틴은 오류와 「닫기」, 주소로 바로 열었을 때 ‹ 는 루틴 목록으로 (16.0s)
+  ✘  6 [feature] › tests/feature/mobile-review-1121.spec.js:165:3 › 휴대폰 검토 11-21 — 채팅 말풍선 › F-MR-08 넓은 표가 든 답도 말풍선이 휴대폰 폭을 넘지 않고, 표만 그 안에서 옆으로 스크롤된다 (1.3s)
+    Error: expect(received).not.toContain(expected) // indexOf
+    Expected substring: not "instance_id"
+    Received string:        "휴가 신청이 성공적으로 완료되었습니다. 이번 주 목요일(12월 28일)부터 금요일(12월 29일)까지 휴가를 신청하셨습니다. 상사와 인사팀의 승인을 기다리시면 됩니다. 추가로 궁금한 점이 있거나 다른 요청이 있으시면 언제든지 말씀해 주세요! 😊 ```json { \"action\": \"process_executed\", \"status\": \"success\", \"message\": \"휴가 신청이 성공적으로 완료되었습니다.\", \"data\": { \"instance_id\": \"leave_request_and_approval_process.ae1d7b9d-41d2-4209-b919-d8285a0f13d3\" }, \"next_actions\": [\"휴가 신청 상태 확인\", \"다른 프로세스 실행\"] } ```"
+    reports/m1121-before/artifacts/mobile-review-1121-휴대폰-검토--7cf2c-에-맞고-✕-가-보이며-홈이-옆으로-밀리지-않는다-feature/test-failed-1.png
+    Error: x: -89,-89,-89,-88,-87,-85,-83,-82,-79,-77,-77,-77
+    Expected: <= 2
+    Received:    105
+    > 75 |     expect(Math.max(...xs.map((v) => Math.abs(v - x0))), `x: ${xs.join(',')}`).toBeLessThanOrEqual(2)
+    reports/m1121-before/artifacts/mobile-review-1121-휴대폰-검토--0b728-드가-제자리-왼쪽-여백-그대로-에서-위로-올라온다-feature/test-failed-1.png
+    Error: expect(locator).toHaveCount(expected) failed
+    Expected: 0
+    Received: 1
+       96 |     await swipe(page, { x: bb.x + bb.width - 30, y }, { x: bb.x - 150, y }, 10)
+    reports/m1121-before/artifacts/mobile-review-1121-휴대폰-검토--37479-옆으로-밀면-카드가-닫힌다-위아래는-목록-스크롤--feature/test-failed-1.png
+    Error: expect(locator).toBeVisible() failed
+    Expected: visible
+    Error: element(s) not found
+    reports/m1121-before/artifacts/mobile-review-1121-휴대폰-검토--65fbb-않고-「루틴-여는-중」-→-루틴-‹-로-닫으면-홈-feature/test-failed-1.png
+    Error: expect(locator).toBeVisible() failed
+    Expected: visible
+    Error: element(s) not found
+    reports/m1121-before/artifacts/mobile-review-1121-휴대폰-검토--3c2ea-기」-주소로-바로-열었을-때-‹-는-루틴-목록으로-feature/test-failed-1.png
+    Error: bubble right edge 440
+    Expected: <= 382
+    Received:    440
+    > 178 |     expect(bb.x + bb.width, `bubble right edge ${bb.x + bb.width}`).toBeLessThanOrEqual(PHONE.width - 8)
+    reports/m1121-before/artifacts/mobile-review-1121-휴대폰-검토--63f0b-폭을-넘지-않고-표만-그-안에서-옆으로-스크롤된다-feature/test-failed-1.png
+  6 failed

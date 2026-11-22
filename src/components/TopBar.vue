@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, inject } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 import TeamLayer from './team/TeamLayer.vue'
@@ -12,6 +12,9 @@ const team = useTeam()
 const router = useRouter()
 const route = useRoute()
 const initial = () => (app.me?.user?.name || '?').slice(0, 1)
+// MainView's: back where the instance was opened from (history), else the routine list
+const closeInstance = inject('closeInstance', null)
+const close = () => (closeInstance ? closeInstance() : router.push('/routines'))
 
 // On a phone Home is a tab of its own (hark's 홈 / 채팅 / 프로젝트); on a wide screen it is the
 // dock beside the chat, toggled by the round button.
@@ -59,8 +62,10 @@ watch([tab, narrow], place)
     <button v-if="narrow && app.mode === 'project' && route.params.id" class="home press" aria-label="프로젝트 목록" @click="router.push('/projects')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h7" /></svg>
     </button>
-    <button v-else-if="narrow && app.mode === 'routine' && route.params.instId" class="home press" aria-label="루틴 목록" @click="router.push('/routines')">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h7" /></svg>
+    <!-- a routine (one instance) opened from Home, a chat card or the list: ‹ closes it, back to where it was
+         opened (2026-11-21: with 홈 scrolled out of the pill there was no way back but guessing a tab) -->
+    <button v-else-if="narrow && app.mode === 'routine' && route.params.instId" class="home press" aria-label="닫기" data-test="instance-close" @click="close">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
     </button>
     <button v-else-if="narrow" class="home press" aria-label="페이지와 메일 검색" @click="app.searchOpen = true">
       <Icon name="search" :size="22" />

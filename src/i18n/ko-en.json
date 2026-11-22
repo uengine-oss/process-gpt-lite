@@ -2391,9 +2391,76 @@
   "실행 방식의 엔진": "Execution engine",
   "회사 전체": "Whole company",
   "정해 둔 시각(평일 9시 · 매주 월 9시…)에 이 프로세스를 시작해요": "Start this process at a set time (weekdays 9:00, Mondays 9:00…)",
-  "읽어 둔 메일 · 기록으로 지도를 처음부터 다시 셈해요": "Recount the map from scratch with the mail and records already read"
+  "읽어 둔 메일 · 기록으로 지도를 처음부터 다시 셈해요": "Recount the map from scratch with the mail and records already read",
+  "Client secret (바꿀 때만)": "Client secret (only to change it)",
+  "저장한 Client secret은 다시 보여 주지 않아요. 바꿀 때만 새 값을 넣어요.": "The saved Client secret is never shown again. Enter a new one only to change it.",
+  "서버 브라우저에서 Google에 로그인해 연결해요. NotebookLM 같은 Google 사이트도 함께 로그인돼요": "Sign in to Google in the server browser. Google sites such as NotebookLM get signed in too",
+  "회사 관리자가 설정 › 시스템 설정에서 Google 연결을 켜야 해요": "A company administrator has to turn on Google connections in Settings › System",
+  "휴대폰에서 연결": "Connect on phone",
+  "· 이 기기에서 Google에 로그인해 메일만 연결해요": "· sign in to Google on this device and connect the mail only",
+  "Gmail·캘린더·Drive·YouTube 권한으로 연결해요. 서버 브라우저에서 로그인하면 NotebookLM 같은 Google 사이트도 함께 로그인돼요. 캘린더 등록이 안 되면 다시 연결해 권한을 넓혀요.": "Connects with Gmail, Calendar, Drive and YouTube access. Signing in in the server browser signs Google sites such as NotebookLM in too. If adding calendar events fails, connect again to widen the permissions.",
+  "회사 관리자가 설정 › 시스템 설정 › 회사 Google 연결에 OAuth 클라이언트를 넣으면 연결할 수 있어요.": "You can connect once a company administrator adds the OAuth client in Settings › System › Company Google connection.",
+  "휴대폰에서 연결 · 메일만": "Connect on phone · mail only",
+  "Google을 연결했어요. 메일을 읽기 시작해요.": "Google is connected. I'm starting on your mail.",
+  "회사 Google 연결": "Company Google connection",
+  "OAuth 클라이언트": "OAuth client",
+  "이 회사 사람들이 메일·캘린더를 Google로 연결할 때 써요. Google Cloud 콘솔의 「API 및 서비스 › 사용자 인증 정보」에서 만든 웹 애플리케이션용 OAuth 클라이언트 값을 넣어요.": "Used when people in this company connect their mail and calendar with Google. Enter the web application OAuth client you made in the Google Cloud console under \"APIs & Services › Credentials\".",
+  "회사 값을 쓰고 있어요": "Using the company's own",
+  "설치 기본값(서버 설정)을 쓰고 있어요": "Using this install's default (server settings)",
+  "아직 없어요 · 사람들이 Google을 연결할 수 없어요": "None yet · people can't connect Google",
+  "등록해야 할 리디렉션 URI": "Redirect URI to register",
+  "그 OAuth 클라이언트의 「승인된 리디렉션 URI」에 이 주소를 그대로 추가해요.": "Add this address as it is to that OAuth client's \"Authorized redirect URIs\".",
+  "복사": "Copy",
+  "복사했어요": "Copied",
+  "회사 Google 연결 값을 지울까요? 지우면 설치 기본값이 없을 때 사람들이 Google을 새로 연결할 수 없어요.": "Remove the company Google connection values? Without an install default, people then can't connect Google anew.",
+  "Google 연결하기": "Connect Google",
+  "슬라이드 목록": "Slides",
+  "슬라이드 목록 열기": "Show the slide list",
+  "슬라이드 목록 닫기": "Hide the slide list",
+  "이전 슬라이드": "Previous slide",
+  "다음 슬라이드": "Next slide",
+  "직접 로그인": "Sign in yourself",
+  "화면의 칸을 누르고 여기에 입력해요": "Tap a field on the screen, then type here",
+  "직접 확인": "Check it yourself",
+  "같은 화면에서 멈춤": "Stuck on the same screen",
+  "고르러 가기": "Go choose",
+  "승인하러 가기": "Go approve",
+  "프로젝트를 만들지 못했어요 · 보낸 글은 입력창에 돌려놓았어요. 다시 보내 주세요.": "Couldn't create the project · your message is back in the box. Please send it again.",
+  "프로젝트를 만들지 못했어요 · 다시 보내 주세요.": "Couldn't create the project · please send it again.",
+  "텔레그램으로도": "Also to Telegram",
+  "텔레그램으로도 보내기": "Also send to Telegram",
+  "텔레그램 못 보냄": "Telegram not sent",
+  "텔레그램 보냄": "Sent to Telegram",
+  "시작 기다림": "Waiting for Start",
+  "확인하는 중…": "Checking…",
+  "예약 작업 알림을 내 텔레그램 봇으로 받아요": "Get scheduled task alerts from your own Telegram bot",
+  "보냈어요. 텔레그램을 확인해 보세요.": "Sent. Check Telegram.",
+  "텔레그램": "Telegram",
+  "텔레그램으로 알림 받기": "Get alerts on Telegram",
+  "BotFather 에서": "In BotFather,",
+  "으로 봇을 만들고 받은 토큰을 붙여 넣으세요.": "make a bot, then paste the token you get.",
+  "봇 토큰": "Bot token",
+  "토큰은 암호화된 보관함에만 저장돼요.": "The token is kept only in your encrypted vault.",
+  "봇 화면에서 시작(Start)을 누르면 자동으로 확인해요.": "Press Start in the bot and it is confirmed automatically.",
+  "봇 열기": "Open the bot",
+  "기다리는 중…": "Waiting…",
+  "다시 확인": "Check again",
+  "아직 시작 신호가 없어요.": "No Start yet.",
+  "다른 봇으로 바꾸기": "Use another bot",
+  "연결됐어요 ·": "Connected ·",
+  "」 알림도 이제 텔레그램으로 가요": "\" alerts now go to Telegram too",
+  "시험 메시지 보내기": "Send a test message",
+  "연결 끊기": "Disconnect",
+  "한 번 더 누르면 끊어요": "Press again to disconnect",
+  "루틴을 열지 못했어요": "Couldn't open the routine",
+  "루틴 여는 중…": "Opening the routine…",
+  "봇을 이름으로 찾아 누른 시작은 받지 않아요. 여기의 「봇 열기」로 열어 시작을 눌러 주세요.": "A Start pressed after finding the bot by name is not accepted. Open it with \"Open the bot\" here and press Start."
  },
  "patterns": [
+  [
+   "{0}에 저장했어요",
+   "Saved on {0}"
+  ],
   [
    "{0}님의 방법을 「{1}」 스킬로 만들어 「{2}」의 일 정의에 붙였어요. 스냅샷 실행과 에이전트가 이 스킬을 써요.",
    "Made {0}'s way into the skill “{1}” and added it to the definition of “{2}”. Snapshot runs and agents use this skill."
@@ -3031,6 +3098,10 @@
    "Me: {0}"
   ],
   [
+   "외 {0}곳",
+   "and {0} more"
+  ],
+  [
    "${0}/월",
    "${0}/mo"
   ],
@@ -3457,6 +3528,50 @@
   [
    "확인 필요 · {0}",
    "Needs confirmation · {0}"
+  ],
+  [
+   "로그인 필요 · {0}",
+   "Sign-in needed · {0}"
+  ],
+  [
+   "조치 필요 · {0}",
+   "Action needed · {0}"
+  ],
+  [
+   "사람 확인 필요 · {0}",
+   "Human check needed · {0}"
+  ],
+  [
+   "선택 필요 · {0}",
+   "Choice needed · {0}"
+  ],
+  [
+   "승인 필요 · {0}",
+   "Approval needed · {0}"
+  ],
+  [
+   "로그인을 막음 · {0}",
+   "Sign-in refused · {0}"
+  ],
+  [
+   "하지 못했어요 · {0}",
+   "Couldn't do it · {0}"
+  ],
+  [
+   "재생할 파일을 가져오지 못했어요 · {0}",
+   "Couldn't get the file to play · {0}"
+  ],
+  [
+   "{0} · 보낸 글은 입력창에 돌려놓았어요. 다시 보내 주세요.",
+   "{0} · your message is back in the box. Please send it again."
+  ],
+  [
+   "{0} · 다시 보내 주세요.",
+   "{0} · please send it again."
+  ],
+  [
+   "정한 말: {0}",
+   "Set by: {0}"
   ],
   [
    "{0}, 계획 {1}/{2}",
@@ -5591,12 +5706,28 @@
    "Couldn't get a connection ticket ({0})"
   ],
   [
+   "@{0} 에서 시작을 누르면 끝나요",
+   "Press Start in @{0} to finish"
+  ],
+  [
    "바뀐 것 {0}건 · 반영 전",
    "{0} changes · not merged yet"
   ],
   [
+   "어떻게 했나요 · {0}단계{1}",
+   "How it was done · {0} steps{1}"
+  ],
+  [
    "연결이 끊겼어요 ({0})",
    "The connection dropped ({0})"
+  ],
+  [
+   "@{0} 봇을 찾았어요.",
+   "Found the bot @{0}."
+  ],
+  [
+   "· 조회한 곳 {0}",
+   "· looked at {0}"
   ],
   [
    "{0} 폴더 열기",

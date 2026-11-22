@@ -100,12 +100,18 @@ export const config = {
   scenarios: !/^(off|0|false|no)$/i.test(String(get('PRO_SCENARIOS', 'on')).trim()),
   llmTrace: get('PRO_LLM_TRACE', ''), // file to append model request text to (see lib/llm.js)
 
+  // this install's own Google OAuth client: the default when a company has not saved its own in the
+  // admin settings (lib/googleClient.js). The endpoints move only for tests (a fake Google on 127.0.0.1).
   google: {
     clientId: get('GOOGLE_CLIENT_ID'),
     clientSecret: get('GOOGLE_CLIENT_SECRET'),
     // the vault site a person's Google token is kept under: a token belongs to the OAuth client that issued it, so a
     // server on another client (a second app on the same database) keeps its own (PRO_GOOGLE_VAULT_SITE=google-lite)
     vaultSite: get('PRO_GOOGLE_VAULT_SITE', 'google'),
+    authUrl: get('PRO_GOOGLE_AUTH_URL', 'https://accounts.google.com/o/oauth2/v2/auth'),
+    tokenUrl: get('PRO_GOOGLE_TOKEN_URL', 'https://oauth2.googleapis.com/token'),
+    userinfoUrl: get('PRO_GOOGLE_USERINFO_URL', 'https://openidconnect.googleapis.com/v1/userinfo'),
+    gmailUrl: get('PRO_GOOGLE_GMAIL_URL', 'https://gmail.googleapis.com/gmail/v1'),
   },
   // a shared YouTube Data API v3 key, used after the person's own (mcp/connectors/youtube.js)
   youtubeApiKey: get('PRO_YOUTUBE_API_KEY', ''),

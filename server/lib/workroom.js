@@ -265,7 +265,8 @@ export function sameOrigin(req) {
 // gateway passes neither that Host nor X-Forwarded-Host (the server sees process-gpt-lite-web): there the
 // public URL's own host and its siblings under the same parent domain are this app (2026-11-18 운영 확인:
 // every terminal, ArtCraft/IeumOffice live link and meeting voice socket was refused 4403 before this).
-function companyAddress(host) {
+// (also where a Google connection may start and come back to: lib/googleConnect.js)
+export function companyAddress(host) {
   if (!config.tenantFromHeader) return false
   let pub
   try { pub = new URL(config.publicUrl).hostname.toLowerCase() } catch { return false }

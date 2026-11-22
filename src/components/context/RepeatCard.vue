@@ -48,7 +48,7 @@ async function ask(h, i) {
 async function fresh() {
   chose.value = 'fresh'
   await api(`/context/repeats/${c.value.repeat_id}/choice`, { method: 'POST', body: { choice: 'fresh' } }).catch(() => {})
-  app.send(c.value.request, props.msg.thread_id, undefined, { fresh: true })
+  app.send(c.value.request, props.msg.thread_id, undefined, undefined, { fresh: true })
 }
 </script>
 

@@ -52,7 +52,8 @@ function demoArchive(email) {
 // Gmail: every mail of `days` (received and sent — Gmail's search leaves out only spam and trash) with its whole body, the
 // newly written part of it, and its attachments. The company's own attachments (sent by someone inside) are opened: their
 // labels make the form a reply uses (templatesOf), and the latest file of each form is kept as that form's template.
-export const gmailApi = () => process.env.PRO_GMAIL_API || 'https://gmail.googleapis.com/gmail/v1/users/me'
+// PRO_GMAIL_API (a whole …/users/me address, tests) or the server's Gmail address (PRO_GOOGLE_GMAIL_URL, config.google.gmailUrl)
+export const gmailApi = () => process.env.PRO_GMAIL_API || `${config.google.gmailUrl}/users/me`
 export async function gmailMails(token, days, { inside = new Map(), onPage, onBusy, formsDir = null, archived = null, forms = defaultRules().forms, fetchAtOnce = 4 } = {}) {
   const OFFICE = new Set(forms.openKinds)
   // Gmail's per-minute quota per person: a refusal for it is waited out (longer each time), not a failed read

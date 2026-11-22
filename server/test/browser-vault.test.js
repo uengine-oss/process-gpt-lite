@@ -11,7 +11,6 @@ import http from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { startShop, SHOP } from './fixtures/shop.mjs'
 
 // ---- scripted model: decides from the latest page snapshot, records every request ----
@@ -74,7 +73,7 @@ after(async () => {
   for (const t of ['pro_vault_items', 'pro_vault_keys', 'pro_vault_audit', 'pro_threads']) await q(`delete from ${t} where user_id=$1`, [user])
   await pool.end()
   fs.rmSync(dir, { recursive: true, force: true })
-  fs.rmSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.browser-profiles', user), { recursive: true, force: true })
+  fs.rmSync(path.join(browser.PROFILES, user), { recursive: true, force: true })
 })
 
 // The user in the chat: answers vault/choice cards and plain "needs input" pauses.
