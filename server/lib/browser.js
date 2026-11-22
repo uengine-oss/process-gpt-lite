@@ -652,7 +652,7 @@ function logAction(task, name, a, out) {
     approve: () => L(`승인 요청: ${String(a.summary || '').slice(0, 80)} → ${/approved/.test(String(out)) ? '승인됨' : '승인 안 됨'}`, `Approval request: ${String(a.summary || '').slice(0, 80)} → ${/approved/.test(String(out)) ? 'approved' : 'not approved'}`),
     login_failed: () => L('로그인 거부 확인', 'Login rejected'),
     scroll: () => L('화면 내리기', 'Scroll down'),
-    wait_for_page: () => L(`생성 기다리기(${Math.round(Number(a.minutes) || 0)}분까지)`, `Wait for it to finish (up to ${Math.round(Number(a.minutes) || 0)} min)`),
+    wait_for_page: () => L(`화면이 바뀌기를 기다리기(${Math.round(Number(a.minutes) || 0)}분까지)`, `Wait for the page to change (up to ${Math.round(Number(a.minutes) || 0)} min)`),
     attach_file: () => L(`${a.name || '첨부 파일'} 올리기`, `Upload ${a.name || 'the attached file'}`),
     tell_user: () => null,
     need_login: () => L(`${a.site || ''} 로그인 정보 요청`, `Ask for the ${a.site || ''} login`),
