@@ -61,7 +61,19 @@ export async function ensureUser(email, name) {
 
 // Ensure the user exists, then return a fresh session (access_token is what deepagents expects
 // as user_jwt).
+// One person's sessions are minted one at a time: a new sign-in link makes the one before it invalid, so two
+// routines starting in the same minute failed with otp_expired (production 11-22, 08:00 and 09:00 KST). Each
+// caller still gets a session of its own (a login and a job never share refresh tokens). A link spent by
+// someone else meanwhile (another server minting for the same person) is tried once more.
+const minting = new Map() // email → the mint in progress
 export async function sessionFor(email, name) {
+  const key = String(email || '').trim().toLowerCase()
+  const before = minting.get(key) || Promise.resolve()
+  const mine = before.catch(() => {}).then(() => mintSession(email, name))
+  minting.set(key, mine)
+  try { return await mine } finally { if (minting.get(key) === mine) minting.delete(key) }
+}
+async function mintSession(email, name, retried = false) {
   const user = await ensureUser(email, name)
   const { data: link, error: linkErr } = await admin.auth.admin.generateLink({ type: 'magiclink', email })
   if (linkErr) throw linkErr
@@ -71,6 +83,7 @@ export async function sessionFor(email, name) {
     body: JSON.stringify({ type: 'magiclink', token_hash: link.properties.hashed_token }),
   })
   const session = await res.json()
+  if (!session.access_token && session.error_code === 'otp_expired' && !retried) return mintSession(email, name, true)
   if (!session.access_token) throw new Error('session mint failed: ' + JSON.stringify(session).slice(0, 200))
   return { user: { id: user.id, email, name: name || email.split('@')[0] }, session }
 }
