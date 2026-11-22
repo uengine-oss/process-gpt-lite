@@ -389,6 +389,9 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   if (ahead) await updateMessage(userId, card.id, { state: 'running', reason: '' })
   // another task's start page, opened while it planned, lands before this one drives the page
   if (s.early && s.early !== early) await s.early
+  // from here the browser is this task's: anything a site sends from now on answers what this task did
+  // (a code mailed for an earlier sign-in is not this one's — lib/mailCode.js watchForCode since)
+  task.drivingSince = Date.now()
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
@@ -1066,7 +1069,7 @@ async function doAct(s, task, name, a) {
       const watch = await mailCode.enabledFor(task.userId).catch(() => false)
       const names = watch ? mailCode.namesOf(await s.page.title().catch(() => '')) : []
       if (task.unattended) {
-        const found = watch && await mailCode.watchForCode(task.userId, { site: host, names, timeoutMs: 120000 })
+        const found = watch && await mailCode.watchForCode(task.userId, { site: host, names, since: task.drivingSince, timeoutMs: 120000 })
         if (found) {
           task.secretSlot = { i: a.i, label }
           await fillFromMail(s, task, found, null)
@@ -1079,7 +1082,7 @@ async function doAct(s, task, name, a) {
       const ctl = new AbortController()
       task.secretSlot = { i: a.i, label, stopWatch: () => ctl.abort() }
       if (watch) {
-        mailCode.watchForCode(task.userId, { site: host, names, signal: ctl.signal })
+        mailCode.watchForCode(task.userId, { site: host, names, since: task.drivingSince, signal: ctl.signal })
           .then((found) => found && task.secretSlot && task.waiting && fillFromMail(s, task, found, task.waiting))
           .catch((e) => console.warn('[mail-code]', e.message))
       }

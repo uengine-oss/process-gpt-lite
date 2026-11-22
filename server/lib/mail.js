@@ -181,7 +181,7 @@ export async function recentMail(userId, sinceMs) {
   const since = new Date(sinceMs)
   if (acc.provider === 'gmail') {
     const at = await googleAccessToken(userId)
-    const api = (p) => fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
+    const api = (p) => fetch(`${config.google.gmailUrl}/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
     const list = await api(`messages?maxResults=10&q=${encodeURIComponent(`after:${Math.floor(sinceMs / 1000)}`)}`)
     const out = []
     for (const m of list.messages || []) {
@@ -199,10 +199,12 @@ export async function recentMail(userId, sinceMs) {
     const out = []
     const lock = await client.getMailboxLock('INBOX')
     try {
-      for await (const msg of client.fetch({ since }, { source: true, uid: true })) {
+      // when the server received it (INTERNALDATE), not the sender's clock in its Date header
+      for await (const msg of client.fetch({ since }, { source: true, uid: true, internalDate: true })) {
         const p = await simpleParser(msg.source)
-        if (p.date && p.date < since) continue
-        out.push({ id: `imap-${msg.uid}`, from: p.from?.text, subject: p.subject, date: p.date?.toISOString(), text: (p.text || '').slice(0, 4000) })
+        const got = msg.internalDate ? new Date(msg.internalDate) : p.date
+        if (got && got < since) continue
+        out.push({ id: `imap-${msg.uid}`, from: p.from?.text, subject: p.subject, date: got?.toISOString(), text: (p.text || '').slice(0, 4000) })
       }
     } finally { lock.release(); await client.logout() }
     return out.reverse().slice(0, 10)

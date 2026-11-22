@@ -167,6 +167,29 @@ test("another site's code is not used: the card stays with the person", async ()
   assert.deepEqual(audit.map((a) => a.actor), ['user'])
 })
 
+// 2026-11-22: the site's own mail with an older code (a late copy for the sign-in before) was entered into this one's field
+test("the site's code mailed before this task started is not used: the card stays with the person", async () => {
+  mailOn = false; mailDelay = 0
+  const before = shop.state.otps.length
+  await mail.demoInbound({ to: ADDRESS, from: '테스트 상점 <no-reply@shop.example>', subject: '[테스트 상점] 로그인 인증 코드', text: '로그인 인증 코드는 424242 입니다. 10분 안에 입력해 주세요.' })
+  await sleep(50)
+  let stateAfterWatch
+  const { result, card, audit } = await signIn({
+    person: async (m) => {
+      await sleep(7000)   // the watcher has looked more than once by now
+      stateAfterWatch = (await q('select content from pro_messages where id=$1', [m.id]))[0].content.state
+      await browser.provideSecret(user, shop.state.mailed.at(-1).code)
+      await q(`update pro_messages set content=content||'{"state":"used"}' where id=$1`, [m.id])
+    },
+  })
+  mailOn = true
+  assert.equal(stateAfterWatch, 'pending')
+  assert.equal(result.state, 'done', result.summary)
+  assert.deepEqual(shop.state.otps.slice(before).map((o) => o.ok), [true])
+  assert.equal(card.state, 'used')
+  assert.deepEqual(audit.map((a) => a.actor), ['user'])
+})
+
 test('turned off: the card does not watch the mailbox', async () => {
   await q(`insert into pro_profile(user_id, email, mail_codes) values ($1,$2,false) on conflict (user_id) do update set mail_codes=false`, [user, ADDRESS])
   mailDelay = 500

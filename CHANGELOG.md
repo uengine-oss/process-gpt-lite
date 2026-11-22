@@ -173,6 +173,7 @@
 
 ### 고침
 
+- **메일로 온 인증 코드: 앞선 로그인 때 늦게 온 같은 사이트의 코드를 이번 로그인 칸에 넣던 것** (2026-11-22 main 병합 뒤 시험에서 찾음): 3분 전부터 온 메일을 확인해, 이전 로그인 코드가 늦게 도착하면 이번 로그인 칸에 넣었습니다. 이제는 브라우저 작업 시작 후 도착한 메일만 확인합니다. IMAP 메일은 발신자가 적은 시각 대신 메일 서버의 수신 시각을 기준으로 확인합니다. 시험은 `server/test/browser-mail-otp.test.js`의 「the site's code mailed before this task started is not used」입니다.
 - **지도 브랜치에서 RLS 없이 생성하던 테이블 24개도 다른 `pro_*` 테이블처럼 RLS를 활성화합니다** (2026-11-22 운영 반영 준비): 요금제 · Agentic BPM · 데모 시나리오 · AI 후보 · 갈림길 조건 테이블입니다. 정책을 설정하지 않아 서버에서만 읽고 쓸 수 있으며, anon · authenticated 키로는 아무것도 조회할 수 없습니다. `server/sql/049_rls_branch_tables.sql`은 여러 번 실행해도 됩니다.
 - **NotebookLM 오디오 개요가 「download」(형식 없음)로 와서 재생되지 않던 것** (2026-11-22 사용자 「그 파일 확장자가 제대로 남지 않고 … 음성 파일이나 뭐 이런 뮤직이면은 그 플레이어가 내부에서 바로 플레이가 돼야 돼」. 스펙 `openspec/specs/browser-handoff` · `openspec/specs/project-room`):
   - 사이트가 파일 이름을 주지 않으면 서버가 파일 앞부분을 보고 형식을 알아내 파일 이름에 확장자를 붙입니다(`server/lib/fileSniff.js`, 소리 · 영상 · PDF · Office · HWPX · 그림). 오디오 개요는 `download.m4a`(`audio/mp4`)로 올라와 카드 아래 플레이어로 바로 들을 수 있습니다.

@@ -88,13 +88,17 @@ const sleep = (ms, signal) => new Promise((r) => { const t = setTimeout(r, ms); 
 
 // Watches the mailbox until the site's code comes, the wait is over, or the signal aborts (the person typed it,
 // the task ended). Resolves { code, from, how, at } or null.
-export async function watchForCode(userId, { site, names = [], since = Date.now(), timeoutMs = 180000, every = 3000, signal } = {}) {
+// since: the earliest a mail can be this code's — the browser task's start (lib/browser.js drivingSince): a mail
+// from before it answers an earlier sign-in, and its code (one the person may have typed, a late copy) is not this
+// one's (2026-11-22: a code mailed late for the sign-in before was entered here). Without it: the last few minutes.
+export async function watchForCode(userId, { site, names = [], since, timeoutMs = 180000, every = 3000, signal } = {}) {
   const used = usedBy.get(userId) || usedBy.set(userId, new Set()).get(userId)
+  const from = since ?? Date.now() - SLACK
   const end = Date.now() + timeoutMs
   while (!signal?.aborted && Date.now() < end) {
     let mails = []
-    try { mails = await recentMail(userId, since - SLACK) } catch (e) { console.warn('[mail-code]', e.message) }
-    const found = pickCode(mails, { site, names, since: since - SLACK, used })
+    try { mails = await recentMail(userId, from) } catch (e) { console.warn('[mail-code]', e.message) }
+    const found = pickCode(mails, { site, names, since: from, used })
     if (found && !signal?.aborted) { used.add(found.id); return found }
     await sleep(every, signal)
   }
