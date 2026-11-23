@@ -81,6 +81,9 @@ export const config = {
     apiKey: get('PRO_LLM_API_KEY', get('OPENAI_API_KEY')),
     model: get('PRO_LLM_MODEL', 'gpt-6-luna'),
     fastModel: get('PRO_LLM_FAST_MODEL', 'gpt-4.1-mini'),
+    // the model of the readings that take next-token probabilities (llm.js firstTokenTop — decide.js oddsOf: which process an event is,
+    // a step's yes/no): one that gives log-probabilities (empty: the agent model)
+    readModel: get('PRO_LLM_READ_MODEL', ''),
   },
   // LiteLLM budgets as the quota (lib/llmKeys.js): PRO_LLM_KEYS=litellm sends each call with the person's key
   // in their company (LiteLLM team pgpt-<tenant>), PRO_LLM_BASE_URL being that LiteLLM; off: PRO_LLM_API_KEY
