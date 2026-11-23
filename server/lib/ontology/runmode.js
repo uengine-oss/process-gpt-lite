@@ -181,6 +181,8 @@ export function stepState(t, g) {
   if (s === 'CANCELLED') return 'closed'
   if (g?.state === 'waiting') return 'waiting'
   if (s === 'IN_PROGRESS') {
+    // the agent could not do it (run.js tick): the step stays open, the case does not go on until a person rewinds to it
+    if (t.agent_orch && String(t.draft_status || '') === 'FAILED') return 'failed'
     if (t.agent_orch && String(t.draft_status || '') === 'STARTED') return 'running'
     return String(t.agent_mode || '').toUpperCase() === 'COMPLETE' ? 'running' : 'person'
   }
@@ -662,7 +664,7 @@ export async function runView(me, caseId) {
   const gates = await q(`select * from pro_case_steps where case_id=$1 order by created_at`, [c.id]).catch(() => [])
   const byTodo = new Map(gates.map((g) => [String(g.todo_id), g]))
   const todos = c.instances.length ? await q(`select id::text as id, proc_inst_id, activity_id, activity_name, status::text as status, user_id, agent_orch::text as agent_orch, agent_mode::text as agent_mode,
-      draft_status::text as draft_status, output, draft, start_date, end_date, updated_at from todolist where proc_inst_id = any($1) order by start_date nulls last, updated_at`, [c.instances]) : []
+      draft_status::text as draft_status, log, output, draft, start_date, end_date, updated_at from todolist where proc_inst_id = any($1) order by start_date nulls last, updated_at`, [c.instances]) : []
   const ids = [...new Set(todos.flatMap((t) => String(t.user_id || '').split(',').map((x) => x.trim()).filter(Boolean)))]
   const users = new Map((ids.length ? await q(`select id::text as id, username, email, coalesce(is_agent,false) as is_agent from users where tenant_id=$1 and id::text = any($2)`, [T(), ids]) : []).map((u) => [u.id, u]))
   const defs = new Map()
@@ -690,6 +692,7 @@ export async function runView(me, caseId) {
       // 꼭 · 선택(steprule.js): what this case read for the step (before it came: the step's own setting), the rule that matched, a skip
       requirement: g ? g.requirement || null : f?.rule?.requirement || null, reqLine: g?.matched?.line || '', matched: g?.matched?.matched || null, need: g?.need || null,
       hasRules: !!f?.rule?.rules?.length, skipped: g?.state === 'skipped' ? g.skip || { reason: '' } : null,
+      failure: state === 'failed' ? clean(t?.log || '') || '에이전트가 이 단계를 하지 못했어요' : null,
       proposal: g?.proposal || null, preview: g?.state === 'waiting' ? g.preview || null : null, decision: g?.decision || null, sent: g?.sent ? { to: g.sent.to, subject: g.sent.subject, at: g.sent.at, stub: true } : null,
       result: clean(v.summary || v.title || v.result || d.summary || '').slice(0, 160) || null, hasDraft: !!Object.keys(d).length,
       // a map case: how the map decided this step and which map it read (mapengine.js)

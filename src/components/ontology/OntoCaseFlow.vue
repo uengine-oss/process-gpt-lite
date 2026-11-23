@@ -28,7 +28,7 @@ onMounted(() => { boxW.value = host.value?.clientWidth || 0; ro = new ResizeObse
 onBeforeUnmount(() => { alive = false; clearTimeout(timer); ro?.disconnect() })
 const dir = computed(() => (boxW.value && boxW.value < 640 ? 'TB' : 'LR'))
 
-const STATE_KO = { done: '끝남', running: '하는 중', person: '사람 차례', waiting: '기다림', skipped: '건너뜀', next: '다음', closed: '닫힘' }
+const STATE_KO = { done: '끝남', running: '하는 중', failed: '하지 못함', person: '사람 차례', waiting: '기다림', skipped: '건너뜀', next: '다음', closed: '닫힘' }
 const title = computed(() => (flow.value?.pinned ? '시작한 날의 지도로 그린 흐름' : '지금 지도로 그린 흐름'))
 const tip = (n) => `${n.key === END ? '끝' : n.key}${n.role ? ` · ${n.role}` : ''}${n.state ? ` · ${STATE_KO[n.state] || n.state}` : ''}${n.runs > 1 ? ` · ${n.runs}번 함` : ''}${n.inMap === false ? ' · 이 지도로 펼친 흐름 밖(옮기거나 되감아 간 일)' : ''}`
 
@@ -152,6 +152,8 @@ svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--cell-bg); box-shadow: inset 0 0 0 1px var(--hairline); }
 .legend i.done { background: color-mix(in srgb, var(--color-success) 35%, transparent); }
 .legend i.running { background: color-mix(in srgb, var(--color-info) 35%, transparent); }
+.node.failed rect { fill: color-mix(in srgb, var(--color-error) 16%, var(--cell-bg)); stroke: var(--color-error); stroke-width: 2; }
+.legend i.failed { background: color-mix(in srgb, var(--color-error) 35%, transparent); }
 .legend i.person { background: color-mix(in srgb, var(--color-info) 14%, transparent); box-shadow: inset 0 0 0 1.5px var(--color-info); }
 .legend i.waiting { background: color-mix(in srgb, var(--color-warning, #b26a00) 35%, transparent); }
 .legend i.skipped { background: transparent; box-shadow: inset 0 0 0 1px var(--text-tertiary); }

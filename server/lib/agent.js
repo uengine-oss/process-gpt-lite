@@ -851,9 +851,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     console.warn('[delegate]', turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
     await setThreadStatus(user.id, threadId, null)
     if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent })
+    // failed: the agent did not do the turn — a caller that keeps the answer as work (a process step, lib/ontology/run.js) must not take this text for it
     return addMessage(user.id, threadId, 'agent', 'text', { text: idle.signal.aborted
       ? L('에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.', "The agent didn't respond for a while, so I stopped waiting. Please send the same request again.")
-      : L('에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't reach the agent. Please send it again in a moment.") })
+      : L('에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't reach the agent. Please send it again in a moment."),
+      failed: idle.signal.aborted ? 'idle' : 'unreachable', ...(idle.signal.aborted ? {} : { cause: e.message }) })
   } finally { clearTimeout(idleTimer) }
 
   async function streamTurn() {

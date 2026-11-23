@@ -34,7 +34,7 @@ const current = computed(() => (run.value?.steps || []).filter((s) => s.current)
 const older = computed(() => (run.value?.steps || []).filter((s) => !s.current))
 const waiting = computed(() => current.value.find((s) => s.state === 'waiting') || null)
 const rewindOf = (task) => (run.value?.rewind || []).find((x) => x.task === task) || null
-const canRewind = (s) => run.value?.controls?.mine && !run.value?.paused && ['done', 'person', 'waiting', 'running', 'skipped'].includes(s.state) && !!rewindOf(s.task)
+const canRewind = (s) => run.value?.controls?.mine && !run.value?.paused && ['done', 'person', 'waiting', 'running', 'failed', 'skipped'].includes(s.state) && !!rewindOf(s.task)
 const outward = computed(() => !!waiting.value?.why?.includes('irreversible'))
 // 이 건의 방식: 시작할 때 프로세스의 단계로 정해져 끝까지 가요(modeFrom case) · 그 전에 시작한 건은 프로세스의 지금 단계를 따라요(stage)
 const modeTitle = computed(() => (run.value?.modeFrom === 'case' ? '시작할 때 프로세스의 단계로 정한 방식이에요 — 단계를 바꿔도 이 건은 그대로예요' : '프로세스의 지금 단계를 따라요'))
@@ -200,6 +200,7 @@ function resay() {
               <span v-if="s.requirement" class="tag" :class="`rq-${s.requirement}`" data-testid="onto-case-requirement" :data-requirement="s.requirement" :title="s.reqLine">{{ REQ_TAG[s.requirement] }}</span>
             </div>
             <small v-if="s.skipped" class="skp" data-testid="onto-case-skipped">건너뜀 — {{ s.skipped.reason || '까닭 없음' }}</small>
+            <small v-if="s.failure" class="err" data-testid="onto-case-failed">{{ s.failure }} — 원인을 없앤 뒤 「이 단계로 되감기」로 다시 해요</small>
             <small v-if="s.via && s.via.how !== 'entry'" class="via" data-testid="onto-case-via" :data-how="s.via.how">{{ viaText(s) }}</small>
             <small v-if="s.matched && s.reqLine" class="rq" data-testid="onto-case-matched">{{ s.reqLine }}</small>
             <small v-if="s.result && !s.skipped" class="res">{{ s.result }}</small>
@@ -329,6 +330,7 @@ li.done .dot { background: var(--color-success); }
 li.running .dot { background: var(--color-info); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-info) 22%, transparent); }
 li.person .dot { background: var(--text-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-primary) 15%, transparent); }
 li.waiting .dot { background: var(--color-warning, #b26a00); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning, #b26a00) 22%, transparent); }
+li.failed .dot { background: var(--color-error); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 22%, transparent); }
 li.next .tn, li.closed .tn { color: var(--text-tertiary); font-weight: 500; }
 /* 단계의 꼭 · 선택(steprule): 건너뜀 · 맞은 규칙 · 꼭 하는 단계를 지나치기 전 확인 */
 li.skipped .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-tertiary); }

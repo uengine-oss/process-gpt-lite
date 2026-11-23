@@ -383,6 +383,15 @@ export async function prevOf(row) {
   const c = await RM.caseOfInstance(row.proc_inst_id)
   return mapPrev(c?.request, done, c ? await RM.earlierOfCase(c).catch(() => []) : [])
 }
+// why the agent did not do a step, from what delegate (lib/agent.js) answered — null when it did
+export function agentFailure(msg) {
+  const c = msg?.content || {}
+  if (c.stopped) return '에이전트 작업이 중간에 멈췄어요'
+  if (c.failed === 'idle') return '에이전트가 한동안 응답하지 않았어요'
+  if (c.failed) return `에이전트에 연결하지 못했어요${c.cause ? ` (${String(c.cause).slice(0, 120)})` : ''}`
+  if (!msg) return '에이전트가 아무 답도 내지 않았어요'
+  return null
+}
 // a map case's person steps all answer in one field (mapengine.js: `result`), so the flat merge keeps only the last one's:
 // what each step made goes first, step by step, and the flat `result` (whichever step wrote last) is left out
 export function mapPrev(request, done, earlier) {
@@ -476,7 +485,14 @@ async function tick() {
       await runStep(row, gate)
     }).catch(async (e) => {
       console.warn('[onto-worker] failed', e.message)
-      await admin.from('todolist').update({ draft_status: 'FAILED', consumer: null }).eq('id', row.id)
+      // the step stays open (its case does not go on) and the case view shows it failed with why (runmode.js stepState · log)
+      await admin.from('todolist').update({ draft_status: 'FAILED', consumer: null, log: String(e.message || '').slice(0, 500) }).eq('id', row.id)
+      // the error record stepRetry.js reads: a passing failure is queued again by itself, else the case's starter is told why
+      const W = await import('../mining/worker.js')
+      await W.events([{ job_id: crypto.randomUUID(), todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH, event_type: 'error',
+        data: { raw_error: String(e.raw || e.message || '').slice(0, 500), friendly: String(e.message || '').slice(0, 300) } }]).catch(() => {})
+      const c = await withTenant(row.tenant_id, async () => (await import('./runmode.js')).caseOfInstance(row.proc_inst_id)).catch(() => null)
+      if (c?.started_by) emit(String(c.started_by), 'process', { instId: row.proc_inst_id, type: 'changed' })
     })
   } catch (e) { console.warn('[onto-worker]', e.message) } finally { busy = false }
 }
@@ -587,6 +603,10 @@ async function runStep(row, gate = {}) {
         ? `프로세스의 '${row.activity_name}' 단계를 맡은 사람(${act.role || '담당자'})이 받기 전에 초안을 만들어 두는 일이에요. ${act.description || ''} ${act.instruction || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ') || '없음'}\n담당자가 그대로 확인하고 낼 수 있게, 이 단계의 결과(판단 · 근거 · 다음에 할 일)를 다섯 줄 안으로 써 주세요. 파일은 만들지 마세요.`
         : `프로세스의 '${row.activity_name}' 단계예요. ${act.instruction || act.description || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ')}\n쓸 스킬: ${(act.skills || []).join(', ')}`
       const msg = await delegate({ user, session, threadId, silent: true, text: ask })
+      // the agent did not do the step (unreachable · no answer · stopped): the step fails and waits — its notice is not the step's result
+      const why = agentFailure(msg)
+      // raw: what stepRetry.js reads to tell a passing failure (retried by itself) from one a person must look at
+      if (why) throw Object.assign(new Error(why), { raw: msg?.content?.failed === 'idle' ? 'agent stream idle timeout' : msg?.content?.cause || why })
       r = { values: { result: String(msg?.content?.text || '').slice(0, 3000) }, say: null }
     }
   } finally { status(null) }

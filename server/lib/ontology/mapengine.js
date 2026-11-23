@@ -223,7 +223,7 @@ export function flowGraph(view, { entry, theta, rows = [], before = [] } = {}) {
     const par = parallelPair(view.edges, flows, x)
     if (par) for (const f of out) if (f.from === x && par.targets.includes(f.to)) f.and = true
   }
-  const open = rows.filter((r) => ['running', 'person', 'waiting', 'next'].includes(r.show)).map((r) => r.task)
+  const open = rows.filter((r) => ['running', 'failed', 'person', 'waiting', 'next'].includes(r.show)).map((r) => r.task)
   const next = new Set(likelyNext(view, open, th, 3).slice(0, 2))
   const ns = keys.map((k) => {
     const t = view.tasks.get(k)
