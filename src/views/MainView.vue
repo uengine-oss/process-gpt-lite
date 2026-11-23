@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch, onBeforeUnmount, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import HomeDock from '../components/HomeDock.vue'
+import MailReplySheet from '../components/MailReplySheet.vue'
 import ProjectList from '../components/ProjectList.vue'
 import RoutineList from '../components/RoutineList.vue'
 import ChatColumn from '../components/ChatColumn.vue'
@@ -223,6 +224,8 @@ function onConnect() {
     <Transition name="fade"><SearchOverlay v-if="app.searchOpen" /></Transition>
     <HandoffView v-if="app.handoff" />
     <Transition name="fade"><OfficeSheet v-if="app.officeDoc" /></Transition>
+    <!-- a mail's card, from Home or 팀 메시지 › 받은 편지함: the mail and its reply (MailReplySheet) -->
+    <MailReplySheet v-if="app.mailCard" :key="app.mailCard.id" :action="app.mailCard" @close="app.mailCard = null" />
     <MailConnect v-if="connecting" @close="connecting = false" />
   </div>
 </template>

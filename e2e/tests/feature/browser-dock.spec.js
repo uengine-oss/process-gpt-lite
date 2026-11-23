@@ -58,3 +58,28 @@ test('F-BD-02 끝난 작업에는 독이 없고, 조치가 필요한 작업은 �
   expect(done.id).toBeTruthy()
   expect(page.errors).toEqual([])
 })
+
+test('F-BD-03 끝났는데 마지막 화면이 없는 카드: 빈 화면에 반짝이는 제목(불러오는 중처럼 보임) 대신 알약만 있는 짧은 줄, 알약을 누르면 계획', async ({ pageAs, db }) => {
+  const page = await pageAs('bd-dock', { viewport: { width: 390, height: 844 } })
+  const th = await db.clearMain(page.user.id)
+  const { shot: _none, ...noShot } = running
+  await db.addMessages(th, [{ role: 'agent', kind: 'task', content: { ...noShot, title: '기존 오디오 개요 다운로드', state: 'done', url: '' } }])
+  await page.goto('/chat')
+  // a phone opens on 홈: the chat is its own tab
+  await page.locator('button, a').filter({ hasText: /^채팅$/ }).first().click()
+  const card = page.locator('.task').first()
+  await expect(card.locator('.title .tt')).toHaveText('기존 오디오 개요 다운로드', { timeout: 20_000 })
+  const screen = card.locator('.screen')
+  await expect(screen).toHaveClass(/\bbare\b/)
+  await expect(card.locator('.shimmer-text')).toHaveCount(0)
+  expect((await screen.boundingBox()).height).toBeLessThan(80)
+  await expect(page.locator('.foot .dock')).toHaveCount(0)
+  await page.waitForTimeout(800) // the chat slides in: the picture after it settles
+  await page.screenshot({ path: test.info().outputPath('bare-390.png') })
+  // the plan still opens, at full size
+  await card.locator('.title').click()
+  await expect(card.locator('.plan li')).toHaveCount(2)
+  await expect(screen).not.toHaveClass(/\bbare\b/)
+  expect((await screen.boundingBox()).height).toBeGreaterThan(150)
+  expect(page.errors).toEqual([])
+})

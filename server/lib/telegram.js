@@ -106,14 +106,30 @@ export function plainStartSeen(updates, { since = 0 } = {}) {
 }
 
 // ---------- Bot API ----------
+// Failures are answered with 503, not 502: in production Cloudflare stands in front and puts its own HTML
+// error page in place of a 502 or 504, so the card showed that page's markup instead of the reason.
+const host = () => { try { return new URL(apiBase()).host } catch { return 'api.telegram.org' } }
+export function netCause(e, token = '') {
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return `timeout ${host()}`
+  const c = e?.cause
+  const codes = [c?.code, ...(c?.errors || []).map((x) => x?.code)].filter(Boolean)
+  // no code (fetch refusing a port, a certificate it does not trust): its words, without anything of the token
+  const words = String(c?.message || e?.message || 'error').split(token || '\0').join('…').replace(/\s+/g, ' ').slice(0, 80)
+  return `${[...new Set(codes)].join('/') || words} ${host()}`
+}
 async function call(token, method, params = {}) {
   let res
   try {
     res = await fetch(`${apiBase()}/bot${token}/${method}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params), signal: AbortSignal.timeout(15000),
     })
-  } catch {
-    throw tgError(L('텔레그램 서버에 닿지 못했어요. 잠시 뒤 다시 해 주세요.', "Couldn't reach Telegram. Please try again in a moment."), 502, 'telegram_unreachable')
+  } catch (e) {
+    // why the request never got an answer — the error code and the host, never the address (it holds the token).
+    // Into the log and the answer: on 2026-11-23 every connect in production failed here and nothing said why.
+    const why = netCause(e, token)
+    console.warn(`[telegram] ${method} unreachable: ${why}`)
+    throw Object.assign(tgError(L(`이 서버에서 텔레그램에 연결하지 못했어요 (${why}). 잠시 후 다시 시도해 보고, 문제가 계속되면 관리자에게 알려 주세요.`,
+      `This server couldn't reach Telegram (${why}). Try again shortly; if it keeps happening, tell your administrator.`), 503, 'telegram_unreachable'), { detail: why })
   }
   const j = await res.json().catch(() => ({}))
   if (j.ok) return j.result
@@ -125,7 +141,9 @@ async function call(token, method, params = {}) {
   if (status === 400 && /chat not found/i.test(desc)) throw notLinked()
   if (status === 409 && /webhook/i.test(desc)) throw tgError(L('이 봇은 웹훅을 쓰고 있어 확인할 수 없어요. 알림용 봇을 새로 만들어 연결해 주세요.', 'This bot uses a webhook, so it cannot be checked. Make a new bot for notifications and connect it.'), 409, 'telegram_webhook')
   if (status === 429) throw Object.assign(tgError(L('텔레그램이 잠시 쉬어 가래요. 조금 뒤 다시 해 주세요.', 'Telegram asks to slow down. Please try again shortly.'), 429, 'telegram_rate_limited'), { retryAfter: j.parameters?.retry_after })
-  throw tgError(L('텔레그램이 요청을 받지 않았어요.', 'Telegram did not accept the request.') + (desc ? ` (${desc.slice(0, 120)})` : ''), 502, 'telegram_error')
+  // an answer that is not Telegram's (a proxy's page, a 5xx): its status in the answer too, as for no answer
+  const detail = `HTTP ${res.status}${j.error_code ? ` ${j.error_code}` : ''} ${host()}`
+  throw Object.assign(tgError(L('텔레그램이 요청을 받지 않았어요.', 'Telegram did not accept the request.') + ` (${desc ? desc.slice(0, 120) : detail})`, 503, 'telegram_error'), { detail })
 }
 
 const linkOf = (sec) => `https://t.me/${sec.bot}?start=${sec.nonce}`

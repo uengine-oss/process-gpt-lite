@@ -50,6 +50,8 @@ import { scenarioReleaseRoutes } from './routes/scenario-release.js'
 import { startPlanSync } from './lib/plans/apply.js'
 import { startMeter } from './lib/plans/meter.js'
 import { telegramRoutes } from './routes/telegram.js'
+import { mailReplyRoutes } from './routes/mailReply.js'
+import { isReplyCard } from './lib/mailReply.js'
 import { mountImprove } from './mcp/improve.js'
 import { startConstraintSweep } from './lib/improve/service.js'
 import { startStepRetry } from './lib/stepRetry.js'
@@ -428,7 +430,8 @@ async function onboardConnected(userId, label) {
 
 app.post('/api/mail/connect', auth, async (req, res) => {
   const { provider, host, username, password } = req.body
-  if (provider === 'imap') await vault.putItem(req.user.id, 'login', 'imap', { host, username, password })
+  // (the tenant it is connected in: its background mail work runs there — lib/mail.js pollInTenant)
+  if (provider === 'imap') await vault.putItem(req.user.id, 'login', 'imap', { host, username, password, tenant: config.tenantId })
   await q(`insert into pro_mail_accounts(user_id,provider,address) values ($1,$2,$3)
            on conflict (user_id) do update set provider=$2, address=$3`, [req.user.id, provider, username || req.user.email])
   await q('delete from pro_mail_seen where user_id=$1', [req.user.id])
@@ -517,6 +520,8 @@ if (config.scenarios) {
   app.use('/api', scenarioReleaseRoutes(auth))
 } else console.log('PRO_SCENARIOS=off: the demo scenarios (mail outbox, purchase, release) are off')
 app.use('/api', telegramRoutes(auth))
+// a mail's Home card: the mail as it arrived, a reply draft, the send on 보내기 (routes/mailReply.js)
+app.use('/api', mailReplyRoutes(auth))
 mountCraft(app)
 mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
@@ -678,6 +683,10 @@ app.post('/api/threads/:id/stop', auth, async (req, res) => {
 app.get('/api/actions', auth, async (req, res) =>
   res.json(await q(`select * from pro_actions where user_id=$1 and status in ('open','running') order by created_at desc limit 12`, [req.user.id])))
 app.post('/api/actions/:id/run', auth, async (req, res) => {
+  // a mail's reply is written and sent in its card (routes/mailReply.js) — an older screen still asking
+  // the agent to reply gets a refusal, not a sent mail
+  const [card] = await q('select * from pro_actions where id=$1 and user_id=$2', [req.params.id, req.user.id])
+  if (card && isReplyCard(card)) return res.status(409).json({ error: L('이 카드는 열어서 답장을 확인하고 보내 주세요.', 'Open this card to check the reply and send it.'), code: 'reply_in_card' })
   const [a] = await q(`update pro_actions set status='running' where id=$1 and user_id=$2 returning *`, [req.params.id, req.user.id])
   if (!a) return res.status(404).end()
   emit(req.user.id, 'action', a)

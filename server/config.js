@@ -112,6 +112,8 @@ export const config = {
     tokenUrl: get('PRO_GOOGLE_TOKEN_URL', 'https://oauth2.googleapis.com/token'),
     userinfoUrl: get('PRO_GOOGLE_USERINFO_URL', 'https://openidconnect.googleapis.com/v1/userinfo'),
     gmailUrl: get('PRO_GOOGLE_GMAIL_URL', 'https://gmail.googleapis.com/gmail/v1'),
+    // sending a reply with its attachments (lib/mailReply.js): Gmail's upload endpoint for messages.send
+    gmailUploadUrl: get('PRO_GOOGLE_GMAIL_UPLOAD_URL', 'https://gmail.googleapis.com/upload/gmail/v1'),
   },
   // a shared YouTube Data API v3 key, used after the person's own (mcp/connectors/youtube.js)
   youtubeApiKey: get('PRO_YOUTUBE_API_KEY', ''),

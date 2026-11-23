@@ -362,6 +362,24 @@ test('이름 없이 받은 파일(NotebookLM 오디오 개요)은 내용으로 �
   assert.match(r.summary, /download\.m4a 받기/)
 })
 
+test('새 탭에서 받은 파일: 받기만 한 빈 탭은 닫고(크롬처럼) 원래 화면으로 돌아와, 끝난 카드에 마지막 화면이 남는다', async () => {
+  const goal = '새 탭에서 받기'
+  const seen = []
+  const r = await run(goal, [
+    (b) => ['click', { i: pick(b, '새 탭에서 받기') }],
+    ['wait_for_page', { minutes: 0.05 }],
+    (b) => { seen.push(pageUrl(b)); return ['finish', { summary: '받았어요.' }] },
+  ], `${site.url}/`)
+  assert.equal(r.state, 'done', JSON.stringify(r))
+  const c = await card(goal)
+  const file = (await q(`select content from pro_messages where thread_id=$1 and kind='file' and content->>'taskId'=$2`, [threadId, c.id]))[0]?.content
+  assert.equal(file?.name, 'download.m4a', '새 탭에서 받은 파일도 채팅에 올라온다')
+  assert.equal(seen[0], `${site.url}/`, '받기만 한 탭은 닫히고 처음 탭에서 이어서 한다')
+  assert.equal(r.url, `${site.url}/`)
+  assert.equal(c.content.url, `${site.url}/`, '카드 주소가 비지 않는다')
+  assert.ok(c.content.shot, '끝난 카드에 마지막 화면이 있다(예전엔 빈 탭이라 null)')
+})
+
 test('작업 폴더를 나눠 쓰지 않는 운영에서도(path 없이 보관소 사본만) 사람이 올린 파일을 사이트에 넣는다', async () => {
   const { saveAttachment } = await import('../lib/attachments.js')
   const { path: _local, ...stored } = await saveAttachment({ id: user }, '회의록.pdf', 'application/pdf', Buffer.from('%PDF-1.4 walls test'))

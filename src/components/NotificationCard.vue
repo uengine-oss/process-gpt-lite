@@ -8,6 +8,7 @@ import { useTeam } from '../stores/team.js'
 import StepOutputs from './mining/StepOutputs.vue'
 import AccessDecide from './context/AccessDecide.vue'
 import { noticeText } from '../noticeText.js'
+import { useSwipeAway } from '../swipeAway.js'
 
 const props = defineProps({ n: Object })
 const app = useApp()
@@ -18,46 +19,15 @@ const busy = ref('')
 const ctxText = computed(() => String(props.n.context || props.n.text || '').replace(/\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g, '$1'))
 // the card's words: an agent answer copied into a notice can end in a ```json block (noticeText.js)
 const titleText = computed(() => noticeText(props.n.title, 160) || props.n.title)
-const ctxShown = computed(() => noticeText(ctxText.value, 400))
+// (a teammate's message names its room below the writer; a 1:1 room named after the writer adds nothing)
+const ctxShown = computed(() => props.n.type === 'chat' && ctxText.value.trim() === String(props.n.from || '').trim() ? '' : noticeText(ctxText.value, 400))
 
-// phone: a sideways swipe puts the card away, the way a phone's own notifications go (2026-11-21:
-// the person swiped the card before finding its ✕). Up and down stay the list's scroll.
-const card = ref(null)
-const dx = ref(0)
-const leaving = ref(0)
-let start = null
-let sideways = null
-function down(e) {
-  if (e.pointerType === 'mouse' || e.target.closest('button, a, input, textarea, select')) return
-  start = { x: e.clientX, y: e.clientY, id: e.pointerId }
-  sideways = null
-}
-function move(e) {
-  if (!start || e.pointerId !== start.id) return
-  const mx = e.clientX - start.x
-  const my = e.clientY - start.y
-  if (sideways === null && Math.hypot(mx, my) > 10) sideways = Math.abs(mx) > Math.abs(my) * 1.3
-  if (sideways) dx.value = mx
-}
-function up() {
-  if (!start) return
-  const w = card.value?.offsetWidth || 320
-  if (sideways && Math.abs(dx.value) > w * 0.33) {
-    leaving.value = dx.value > 0 ? 1 : -1
-    setTimeout(() => app.dismissNotification(props.n), 160)
-  } else if (dx.value) {
-    dx.value = 0
-    snap.value = true
-    setTimeout(() => { snap.value = false }, 220)
-  }
-  start = null
-  sideways = null
-}
-const snap = ref(false)
-// (transitions only while swiping: the list's own move animation — TransitionGroup arc-move — stays as it is)
-const swipeStyle = computed(() => leaving.value ? { transform: `translateX(${leaving.value * 110}%)`, opacity: 0, transition: 'transform .18s ease-out, opacity .18s ease-out' }
-  : dx.value ? { transform: `translateX(${dx.value}px)`, opacity: Math.max(0.3, 1 - Math.abs(dx.value) / 400) }
-  : snap.value ? { transform: 'translateX(0)', transition: 'transform .2s ease-out, opacity .2s ease-out' } : null)
+// phone: a sideways swipe puts the card away (src/swipeAway.js)
+const sw = useSwipeAway(() => app.dismissNotification(props.n))
+const card = sw.el
+const dx = sw.dx
+const swipeStyle = sw.style
+const { down, move, up } = sw
 
 // a teammate's 'team' notice is a share or a mention; its title is in the recipient's language
 // (lib/team/messenger.js notifyMembers: "…를 공유했어요" / "… shared …", "…나를 언급했어요" / "… mentioned you")
@@ -106,6 +76,8 @@ async function act(choice) {
     </div>
     <p v-if="n.type === 'team'" class="who">{{ n.from }}님 · {{ when }}</p>
     <p v-else-if="n.type === 'mention'" class="who">{{ n.from }}님 · {{ when }}</p>
+    <!-- a teammate's message: who wrote it (the server finds the writer when the notice names no one) -->
+    <p v-else-if="n.type === 'chat' && n.from" class="who" data-test="notice-from">{{ n.from }}님 · {{ when }}</p>
     <p v-else-if="n.type !== 'workitem'" class="who">{{ kinds[n.type] || 'process-gpt' }} · {{ when }}</p>
     <p v-else class="who">{{ n.process }}<template v-if="n.role"> · {{ n.role }}</template> · {{ when }}</p>
     <p v-if="ctxShown" class="ctx">{{ ctxShown }}</p>

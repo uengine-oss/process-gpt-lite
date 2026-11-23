@@ -166,7 +166,7 @@ async function launch(userId) {
   const s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [], planning: new Map() }
   await ctx.addInitScript(PAGE_GUARD)
   await ctx.exposeBinding('__proVaultCapture', (_src, payload) => onCapture(userId, s, payload).catch((e) => console.warn('[vault capture]', e.message)))
-  const watchDownloads = (page) => page.on('download', (d) => keepDownload(userId, s, d).catch((e) => console.warn('[browser] download', e.message)))
+  const watchDownloads = (page) => page.on('download', (d) => keepDownload(userId, s, d).catch((e) => console.warn('[browser] download', e.message)).finally(() => dropDownloadTabs(s, page)))
   // a link that opens a new tab, a sign-in popup: the work (and the live view) moves there, and back when it closes
   ctx.on('page', (p) => { watchDownloads(p); if (s.page) follow(userId, s, p).catch((e) => console.warn('[browser] new page', e.message)) })
   s.page = ctx.pages()[0] || await ctx.newPage()
@@ -175,6 +175,17 @@ async function launch(userId) {
   sessions.set(userId, s)
   await startScreencast(userId, s)
   return s
+}
+
+// A link that downloads into a new tab leaves that tab with no page of its own (the download is the opener's);
+// Chrome closes it. Kept open, the work and the live view stayed on a blank tab, and the finished card had no
+// last screen to show (2026-11-22, NotebookLM audio overview). Once the file is kept, the tabs this page opened
+// that never got a page close, and follow() goes back.
+async function dropDownloadTabs(s, from) {
+  for (const p of s.ctx._closed ? [] : s.ctx.pages()) {
+    if (p === from || p.isClosed() || (p.url() && p.url() !== 'about:blank')) continue
+    if ((await p.opener().catch(() => null)) === from) await p.close().catch(() => {})
+  }
 }
 
 async function follow(userId, s, p) {
@@ -424,13 +435,14 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // the person to check, and what they read is what the action log shows
   try {
     result = honest(result, task, { moved: s.page.url() !== startedAt })
-    const shot = await pushFrame(userId, s)
+    // a page that cannot be photographed now keeps the last screen the live view showed
+    const shot = (await pushFrame(userId, s)) || s.frame
     s.task = null
     // keep the last screen on the card so it survives reloads; a card that stopped says why and what to do
     const host = hostOf(s.page.url())
     const why = result.state === 'failed' || result.state === 'needs_review'
       ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: result.site || host, siteName: result.siteName || nameOn(task, host) } : { need: null, reason: '' }
-    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url(), shot, ...why })
+    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url() || undefined, shot, ...why })
     say(task, null)
     await setThreadStatus(userId, threadId, null)
     result.url = s.page.url()

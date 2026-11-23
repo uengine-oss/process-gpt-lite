@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useApp } from '../stores/app.js'
+import { useSwipeAway } from '../swipeAway.js'
 
 const props = defineProps({ action: Object })
 const app = useApp()
@@ -23,16 +24,29 @@ const due = computed(() => {
   const t = new Date(d)
   return isNaN(t) ? d : t.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
 })
+// a card made from a mail opens that mail and its reply (MailReplySheet): nothing runs, nothing is sent
+// until 보내기 — the agent once sent a card's reply the moment the card was tapped (2026-11-23)
+// Home is notifications: the card is put away with its ✕ or a sideways swipe; a mail's card stays in
+// 팀 메시지 › 받은 편지함 (2026-11-23)
+const sw = useSwipeAway(() => app.dismissAction(props.action))
+const card = sw.el
+const { down, move, up } = sw
+function tap() {
+  if (sw.swiped()) return
+  if (props.action.source?.mail_id) app.mailCard = props.action
+  else if (props.action.status === 'open') app.runAction(props.action)
+}
 </script>
 
 <template>
-  <button class="act glass press" :class="{ running: action.status === 'running' }" @click="action.status === 'open' && app.runAction(action)">
+  <button ref="card" class="act glass press" :class="{ running: action.status === 'running', swiping: sw.swiping.value }" :style="sw.style.value" data-test="action-card"
+    @click="tap" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up">
     <span class="verb" :title="verbs[action.verb] || ''">{{ action.verb }}</span>
     <img v-if="icon && !iconFailed" :src="icon" class="ico" alt="" @error="iconFailed = true" />
     <span v-else-if="tile" class="ico letter">{{ letter }}</span>
     <span class="txt" :class="{ 'shimmer-text': action.status === 'running' }">{{ action.text }}</span>
     <span v-if="due" class="due">{{ due }}</span>
-    <span class="x" role="button" aria-label="닫기" @click.stop="app.dismissAction(action)">×</span>
+    <span class="x" role="button" aria-label="닫기" data-test="action-close" @click.stop="app.dismissAction(action)">×</span>
   </button>
 </template>
 
@@ -45,5 +59,10 @@ const due = computed(() => {
 .due { display: block; color: var(--text-secondary); line-height: 1.6; }
 .x { position: absolute; top: 8px; right: 12px; width: 24px; height: 24px; border-radius: 9999px; display: grid; place-items: center; color: var(--text-tertiary); opacity: 0; transition: opacity .2s; font-size: 18px; line-height: 1; }
 .act:hover .x { opacity: 1; }
+/* a phone has no hover: the ✕ is always there (and the card swipes away) */
+@media (hover: none) { .x { opacity: 1; } }
+.act { touch-action: pan-y; }
+.act.swiping { user-select: none; }
+.act { padding-right: 40px; }
 .running { cursor: default; }
 </style>
