@@ -435,6 +435,19 @@ openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 1
 | Home 의 메일 · 업무 카드도 닫음: 휴대폰에서 ✕ 늘 보임, 밀어서 닫기(여는 누름 아님), 업무는 새로 열어도 Home 에 없고 루틴 「내 입력이 필요해요」에 남음, 메일은 받은 편지함 › 메일에서 다시 열기, 워크아이템 알림을 닫으면 「Submit」 카드로 안 돌아옴 | D-1123-04 | F-HD-01~03 · `server/test/homeCards.integration.test.js` | feature · 단위 | ✅ |
 | 실제 Gmail 로 보내기 · IMAP 임시 보관함 | D-1123-02 | — (Gmail 은 가짜 fetch 로 요청 모양만 확인) | — | ◐ |
 
+### 23. 운영 화면 11-23 — 공유 폴더 파일을 붙이지 않아도 찾고, 채팅에서 이음오피스로 바로 열기 (스펙 `folder-find-open`, 결정 D-1123-05)
+
+에이전트 없이: 서버 시험은 `folder_*` 도구를 직접 부르고, 화면 시험은 보내기를 가로채고 파일 카드를 실시간 이벤트로 넣는다.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 폴더를 붙이지 않아도 구성원인 모든 폴더에서 낱말마다 따로 찾고, 많이 맞은 파일부터(「장진영 이력서」 → `이력서/장진영_프로필.docx`) | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
+| 맞는 이름이 없으면 쓸 수 있는 폴더 전체를 돌려 에이전트가 고름 | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
+| docx · pptx · xlsx · hwpx 본문을 unzip 없이 읽음, `folder_read` 가 본문을 돌려줌, 예전에 못 읽은 문서는 시작할 때 다시 | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
+| `folder_open` → 파일 카드(open), 같은 판은 같은 사본, 구성원이 아니면 못 엶 | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
+| 말을 보낸 화면은 카드가 오자마자 이음오피스를 엶 · 다른 기기는 카드만 · 만들어 준 문서는 눌러야 열림 | D-1123-05 | F-FO-01~03 | feature | ✅ |
+| 실제 에이전트가 「장진영 이력서를 열어줘」에 `folder_catalog` → `folder_open` 을 고름 | D-1123-05 | — (운영 확인) | — | ◐ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash
