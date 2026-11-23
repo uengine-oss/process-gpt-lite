@@ -18,6 +18,7 @@ export const useApp = defineStore('app', {
     drafts: {},                // threadId -> streaming text
     status: {},                // threadId -> live status text
     actions: [],
+    mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
     panels: [],
     panelApps: [],             // data apps (lib/panelApps) of folders I belong to
     panelAppTick: {},          // appId -> bumps when its rows change (another member, the sheet editor)
@@ -335,6 +336,10 @@ export const useApp = defineStore('app', {
       await api(`/notifications/${n.id}/dismiss`, { method: 'POST' })
     },
     runAction(a) { return api(`/actions/${a.id}/run`, { method: 'POST' }) },
+    // a mail's card: the mail, a reply draft, the send — only on 보내기 (routes/mailReply.js)
+    mailOfCard(id) { return api(`/actions/${id}/mail`) },
+    draftReply(id) { return api(`/actions/${id}/reply-draft`, { method: 'POST' }) },
+    sendReply(id, body) { return api(`/actions/${id}/reply`, { method: 'POST', body }) },
     dismissAction(a) { return api(`/actions/${a.id}/dismiss`, { method: 'POST' }) },
     async createPanel(description) {
       this.panelMode = false

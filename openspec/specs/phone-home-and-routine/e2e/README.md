@@ -19,5 +19,6 @@ cd e2e && PGPT_URL=http://127.0.0.1:5192 API_URL=http://127.0.0.1:8792 npx playw
 | 연결한 뒤 실행 결과 | 영상 `mobile-review-1121-ko` 녹화 단언(telegram sent) |
 | 주가 조회 결과 · 「ast 모바일」 | R-1121-07·08·09·12, 녹화 |
 | 괄호 뒤 조사 | R-1121-03 |
+| 보낸 사람이 적혀 있지 않은 알림 / 단체 방의 메시지 (11-23) | F-MS-01 · F-MS-02 · `noticeSender.integration.test.js` |
 
 `results/`: 고치기 전(main 0d32fe9) 실패 출력, 고친 뒤 통과 출력, 단위 시험 출력.

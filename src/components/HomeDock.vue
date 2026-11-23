@@ -1,5 +1,6 @@
 <script setup>
 import ActionCard from './ActionCard.vue'
+import MailReplySheet from './MailReplySheet.vue'
 import NotificationCard from './NotificationCard.vue'
 import WeatherPanel from './WeatherPanel.vue'
 import PanelFrame from './PanelFrame.vue'
@@ -69,6 +70,7 @@ async function openTodo(t) {
         <Icon name="plus" :size="22" /> 새 패널 만들기
       </button>
     </TransitionGroup>
+    <MailReplySheet v-if="app.mailCard" :key="app.mailCard.id" :action="app.mailCard" @close="app.mailCard = null" />
   </aside>
 </template>
 

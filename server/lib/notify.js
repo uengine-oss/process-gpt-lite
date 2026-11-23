@@ -52,6 +52,20 @@ function choicesOf(form) {
   return { field: f.key, options: f.items.map(opt) }
 }
 
+// Who wrote a teammate's message (a 'chat' notice from process-gpt's chat trigger, which puts the writer's
+// name in from_user_id): that, a member's name for an address, or — when the notice names no one — the
+// writer of the room's newest message with that text. The Home card and the phone's notification said
+// only 「process-gpt 채팅」 / 「새 메시지」 (2026-11-23: 「직원에게서 메시지를 받았을때 누구한테서 온건지가 표시가 없음」).
+export async function senderOf(n) {
+  if (n.from_name || n.from_user_id) return n.from_name || n.from_user_id
+  const room = /^\/chats\?id=([\w.:-]+)/.exec(String(n.url || ''))?.[1]
+  if (!room) return null
+  const [m] = await q(`select coalesce(nullif(c.messages->>'name',''), u.username, c.messages->>'email') as who from chats c
+                       left join users u on u.email = c.messages->>'email' and u.tenant_id = $3
+                       where c.id=$1 and c.messages->>'content' = $2 order by public.pro_chat_ts(c.messages) desc limit 1`, [room, String(n.title || ''), T()]).catch(() => [])
+  return m?.who || null
+}
+
 export async function listFor(me) {
   const rows = await q(`select n.*, t.id as todo_id, t.status as todo_status, t.proc_inst_id, fu.username as from_name
                         from notifications n
@@ -73,7 +87,8 @@ export async function listFor(me) {
     } else if (n.type === 'mention') {
       out.push({ id: n.id, type: 'mention', title: n.title, text: n.description, at: n.time_stamp, from: n.from_name || n.from_user_id })
     } else {
-      out.push({ id: n.id, type: n.type, title: n.title, text: n.description, at: n.time_stamp, url: n.url, ...(n.from_user_id ? { from: n.from_name || n.from_user_id } : {}) })
+      const from = n.type === 'chat' ? await senderOf(n) : n.from_user_id ? n.from_name || n.from_user_id : null
+      out.push({ id: n.id, type: n.type, title: n.title, text: n.description, at: n.time_stamp, url: n.url, ...(from ? { from } : {}) })
     }
   }
   return out
@@ -147,8 +162,9 @@ export async function notifyUser(userId, { type, title, text, url }) {
 const lastByTenant = new Map() // tenant -> newest time_stamp seen (timestamptz text)
 export async function feedOnce() {
   const last = lastByTenant.get(T()) || new Date().toISOString()
-  const rows = await q(`select u.id as uid, n.id, n.title, n.description, n.url, n.type, n.from_user_id as from, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
+  const rows = await q(`select u.id as uid, n.id, n.title, n.description, n.url, n.type, n.from_user_id, fu.username as from_name, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
                         left join users u on (u.id::text = n.user_id or u.email = n.user_id) and u.tenant_id = n.tenant_id
+                        left join users fu on fu.email = n.from_user_id and fu.tenant_id = n.tenant_id
                         left join todolist tl on n.url = '/todolist/' || tl.id::text
                         where n.tenant_id=$1 and n.time_stamp > $2::timestamptz and coalesce(n.is_checked,false)=false
                         order by n.time_stamp`, [T(), last])
@@ -166,6 +182,7 @@ async function pushRows(rows) {
   for (const r of rows) if (r.uid) (byUser.get(r.uid) || byUser.set(r.uid, []).get(r.uid)).push(r)
   if (!byUser.size) return
   const { pushTo } = await import('./webpush.js')
+  for (const r of rows) if (r.type === 'chat') r.from = await senderOf(r)
   for (const [uid, list] of byUser) {
     // rows name a person by id or by email
     const [u] = await q('select email from users where id::text=$1 and tenant_id=$2', [uid, T()]).catch(() => [])

@@ -23,10 +23,16 @@ const due = computed(() => {
   const t = new Date(d)
   return isNaN(t) ? d : t.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
 })
+// a card made from a mail opens that mail and its reply (MailReplySheet): nothing runs, nothing is sent
+// until 보내기 — the agent once sent a card's reply the moment the card was tapped (2026-11-23)
+function tap() {
+  if (props.action.source?.mail_id) app.mailCard = props.action
+  else if (props.action.status === 'open') app.runAction(props.action)
+}
 </script>
 
 <template>
-  <button class="act glass press" :class="{ running: action.status === 'running' }" @click="action.status === 'open' && app.runAction(action)">
+  <button class="act glass press" :class="{ running: action.status === 'running' }" data-test="action-card" @click="tap">
     <span class="verb" :title="verbs[action.verb] || ''">{{ action.verb }}</span>
     <img v-if="icon && !iconFailed" :src="icon" class="ico" alt="" @error="iconFailed = true" />
     <span v-else-if="tile" class="ico letter">{{ letter }}</span>

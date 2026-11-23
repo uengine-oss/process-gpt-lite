@@ -17,7 +17,8 @@ const busy = ref('')
 const ctxText = computed(() => String(props.n.context || props.n.text || '').replace(/\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g, '$1'))
 // the card's words: an agent answer copied into a notice can end in a ```json block (noticeText.js)
 const titleText = computed(() => noticeText(props.n.title, 160) || props.n.title)
-const ctxShown = computed(() => noticeText(ctxText.value, 400))
+// (a teammate's message names its room below the writer; a 1:1 room named after the writer adds nothing)
+const ctxShown = computed(() => props.n.type === 'chat' && ctxText.value.trim() === String(props.n.from || '').trim() ? '' : noticeText(ctxText.value, 400))
 
 // phone: a sideways swipe puts the card away, the way a phone's own notifications go (2026-11-21:
 // the person swiped the card before finding its ✕). Up and down stay the list's scroll.
@@ -105,6 +106,8 @@ async function act(choice) {
     </div>
     <p v-if="n.type === 'team'" class="who">{{ n.from }}님 · {{ when }}</p>
     <p v-else-if="n.type === 'mention'" class="who">{{ n.from }}님 · {{ when }}</p>
+    <!-- a teammate's message: who wrote it (the server finds the writer when the notice names no one) -->
+    <p v-else-if="n.type === 'chat' && n.from" class="who" data-test="notice-from">{{ n.from }}님 · {{ when }}</p>
     <p v-else-if="n.type !== 'workitem'" class="who">{{ kinds[n.type] || 'process-gpt' }} · {{ when }}</p>
     <p v-else class="who">{{ n.process }}<template v-if="n.role"> · {{ n.role }}</template> · {{ when }}</p>
     <p v-if="ctxShown" class="ctx">{{ ctxShown }}</p>
