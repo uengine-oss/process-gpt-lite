@@ -100,9 +100,10 @@ test('꼭 하는 간선: 그 간선의 앞 일에서 갈리면 그 일을 지나
   assert.equal(d.creates[0].via.how, 'single')
   // 「확인」에서 갈리는 건은 그대로 흔한 길
   assert.equal((await nextOf(req, row('확인'))).creates[0].task, '발송')
-  // 사안에 따라 꼭이 될 수 있는 규칙도 그 간선을 지나간다(그 건에서 선택이면 단계가 열릴 때 건너뛸 수 있다)
-  const rule = edgeRequiredView(base, [{ event: 'done:검토', task: '동료 검토', requirement: 'optional', rules: [{ when: { field: 'amount', op: '>=', value: 1 }, then: 'required' }] }])
-  assert.equal((await nextOf(rule, row('검토'))).creates[0].task, '동료 검토')
+  // 사안에 따라 꼭이 될 수 있는 규칙은 그 길의 갈림 조건이다(gallimgil-merge): 이 건에 맞으면 그 길, 아니면 흔한 길
+  const rule = edgeRequiredView(base, [{ event: 'done:검토', task: '동료 검토', requirement: 'optional', rules: [{ when: { field: 'amount', op: '>=', value: 1_000_000 }, then: 'required' }] }])
+  assert.equal((await nextOf(rule, row('검토'), { amount: 2_000_000 })).creates[0].task, '동료 검토')
+  assert.equal((await nextOf(rule, row('검토'), { amount: 500_000 })).creates[0].task, '발송')
   // 선택만이면 지나가지 않는다
   const opt = edgeRequiredView(base, [{ event: 'done:검토', task: '동료 검토', requirement: 'optional', rules: [] }])
   assert.equal((await nextOf(opt, row('검토'))).creates[0].task, '발송')
@@ -270,13 +271,19 @@ test('맡는 사람의 역할: 시작 일부터 펼친 흐름의 사람 단계�
 })
 
 // 되돌아가는 길이 있어 펼치기가 다른 갈래를 남겨도, 다음 단계는 꼭 하는 간선을 먼저 고른다 — 확정된 꼭이 규칙에 따른 꼭보다 먼저
-test('꼭 하는 간선: 갈래가 남아도 꼭 하는 간선을 먼저(확정 → 사안에 따라 → 흔한 길), 글 조건은 읽지 않는다', async () => {
-  const outs = [{ to: '재무 검토', p: 0.14 }, { to: '견적서 검토', p: 0.38, required: true }, { to: '계약서 검토', p: 0.09, required: 'maybe' }, { to: '고객 회신', p: 0.5 }]
-  const a = pickWay(outs)
+test('꼭 하는 간선: 갈래가 남아도 꼭 하는 간선을 먼저(확정 → 이 건에 맞는 사안에 따라 → 흔한 길), 글 조건은 읽지 않는다', async () => {
+  const outs = [{ to: '재무 검토', p: 0.14 }, { to: '견적서 검토', p: 0.38, required: true }, { to: '계약서 검토', p: 0.09, required: 'maybe' }, { to: '고객 회신', p: 0.5 }, { to: END, p: 0.2 }]
+  const ruled = new Map([['계약서 검토', { then: 'required', line: '금액 1,200만원 ≥ 1,000만원', rule: '금액 1,000만원 이상 → 꼭' }], [END, { then: 'required', line: '「거절하면」 80%' }]])
+  const a = pickWay(outs, { ruled })
   assert.deepEqual([a.to, a.how], ['견적서 검토', 'required'])
-  const b = pickWay(outs.map((o) => (o.required === true ? { ...o, required: undefined } : o)))
-  assert.deepEqual([b.to, b.how], ['계약서 검토', 'required'])
-  assert.equal(pickWay(outs.map((o) => ({ ...o, required: undefined }))).to, '고객 회신')
+  // 사안에 따라: the rule read for this case decides (a step before 끝 — 꼭 comes before ending)
+  const noMust = outs.map((o) => (o.required === true ? { ...o, required: undefined } : o))
+  const b = pickWay(noMust, { ruled })
+  assert.deepEqual([b.to, b.how], ['계약서 검토', 'rule'])
+  const c2 = pickWay(noMust, { ruled: new Map([[END, ruled.get(END)]]) })
+  assert.deepEqual([c2.to, c2.how], [END, 'rule'])
+  // a rule that may make a way 꼭 does not take it by itself (no rule matched → the most common)
+  assert.deepEqual([pickWay(noMust, { ruled: new Map() }).to, pickWay(noMust).to], ['고객 회신', '고객 회신'])
   // nextOf: a 꼭 way out is taken without reading text conditions
   const v = { ...view(['A', 'B', 'C'], [e('A', 'B', 0.2), e('A', 'C', 0.8), e('B', 'A', 0.9), e('C', 'A', 0.5), e('C', END, 0.5), e('B', END, 0.1)]), all: { triggers: [] } }
   // (C 는 A 로 되돌아가는 길이 있어 펼치기가 남긴다)

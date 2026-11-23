@@ -50,8 +50,9 @@ test('진입 간선: 결과물이 없으면 「앞 단계 완료」, 지도에 �
   assert.equal(find('done:팀장 승인', '고객 회신').virtual, true)
 })
 
-test('진입 간선: 끝 · 사라진 간선 · 흐름 밖 일의 결과물은 넣지 않는다', () => {
-  assert.ok(!E.some((x) => x.step === END))
+test('진입 간선: 끝으로 가는 길은 「X 완료 → 끝」(kind end) 하나, 사라진 간선 · 흐름 밖 일의 결과물은 넣지 않는다', () => {
+  const ends = E.filter((x) => x.step === END)
+  assert.deepEqual(ends.map((x) => [x.event, x.task, x.kind]), [['done:고객 회신', END, 'end']])
   assert.ok(!E.some((x) => x.event === 'done:옛 단계'))
   assert.ok(!E.some((x) => x.event === 'artifact:다른 일:doc'))
   assert.equal(new Set(E.map((x) => `${x.event}>${x.task}`)).size, E.length)

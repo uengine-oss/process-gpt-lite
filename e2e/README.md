@@ -464,7 +464,9 @@ E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `n
 | 일의 방법 공유 → 실제 실행의 걸린 시간 → 가장 빠른 방법을 스킬로, 새 사람에게 회사가 고른 방법 | `ontology-roles.e2e.mjs` 7~10, F-PO-12 | agent·feature | ✅ |
 | 승격 단계(관찰 · 제안 · 자동, 관리자만, 결정 원장), 제안 단계의 메일 · 채팅 제안 카드 | `ontology-triggers.e2e.mjs` 1~3, F-PO-13 | HTTP·feature | ✅ |
 | 자동 단계의 사람 단계는 초안 모드(에이전트 초안이 먼저) | `ontology-run.e2e.mjs` 7 | agent | ✅ |
-| 꼭 · 선택을 이벤트 → 태스크 간선에서 프로세스마다: 저장 · 다시 열기 · 이력 · 원장, 같은 태스크를 쓰는 다른 프로세스는 그대로, map 엔진이 실행 중에 바꾼 간선 · 중간 시작에도 따름(꼭이면 건너뛰기는 까닭만 물음) | `server/test/ontology-edgecond.e2e.mjs` 1~4(로컬 Lite, 19개), `ontology-edgecond.test.js` | HTTP·단위 | ✅ |
+| 꼭 · 선택을 이벤트 → 태스크 간선에서 프로세스마다: 저장 · 다시 열기 · 이력 · 원장, 같은 태스크를 쓰는 다른 프로세스는 그대로, 「지도에서 바로」 실행이 실행 중에 바꾼 간선 · 중간 시작에도 따름(꼭이면 건너뛰기는 까닭만 물음), 갈림길 조건 = 간선의 사안에 따라(1,200만원 건은 규칙대로 드문 갈래, 50만원 건은 「끝」 규칙으로 끝남) | `server/test/ontology-edgecond.e2e.mjs` 1~5(로컬 Lite, 23개), `ontology-edgecond.test.js` | HTTP·단위 | ✅ |
+| 「지도에서 바로」 실행을 로컬 Lite 프로세스로: 중간 시작 · 인스턴스 하나 · 스냅샷 0 · bpm_proc_inst 한 행, 건너뛰며 끝까지(COMPLETED · 새 proc_def 0), 되감기(같은 인스턴스 · 뒤 단계 닫힘), 단계마다 사람이 정함(묻고 · 선택 · 건너뛰기 · 사람 단계는 목록에서 빠짐) — jy-mail 준비 없이 `ontology-mapengine.e2e.mjs` a · b · h 를 옮김 | `server/test/ontology-mapengine-local.e2e.mjs`(로컬 Lite, 24개) | HTTP | ✅ |
+| 화면: 「꼭 · 선택 보기」를 켰을 때만 단계(테두리 꼭 · 선택 · 사안에 따라, 채움 분류)와 관계 선 표시, 사건 보기 없이 관계(끝으로 가는 길 포함)의 「자세히」로 간선 패널을 열어 저장 → 사건 보기의 간선 표시 · 패널과 같은 값, 끝으로 가는 길은 사안에 따라만(끝나면 처음대로) | F-PO-22(로컬 Lite 는 `PGPT_URL=http://localhost:8088/lite`) | feature | ✅ |
 | 타이머 사건: 사람의 예약 → 역할 루틴 단계, 그래프에서 멈추면 실행 안 함, 회사 타이머(제안이면 묻고 자동이면 시작), 메일의 「예약 걸까요?」 | `ontology-triggers.e2e.mjs` 4~9, F-PO-14·15 | HTTP·feature | ✅ |
 | 병목 보기: 일마다 할 일 = 지도 엔진 · 스냅샷 건의 todolist 행을 activity_id 로 센 수, 병목 = 할 일이 가장 많은 우리 쪽 사람 단계(에이전트 · 바깥 역할 제외) | `ontology-flow.e2e.mjs` S1, F-PO-16, `ontology-flowtime.test.js` | HTTP·feature·단위 | ✅ |
 | 흔한 길(크리티컬 패스): 엔진처럼 매번 가장 흔한 길, 지난 건의 시간 · 지금 줄이 선 곳은 쌓인 것 치우는 시간(리틀의 법칙), 가장 긴 고리 = 병목, 시간 몫(기대 방문) | `ontology-flow.e2e.mjs` S2, F-PO-16·17, `ontology-flowtime.test.js` | HTTP·feature·단위 | ✅ |

@@ -30,17 +30,18 @@ import OntoSnapshotPanel from '../components/ontology/OntoSnapshotPanel.vue'
 import EventPanel from '../components/ontology/EventPanel.vue'
 import OntoRolePanel from '../components/ontology/OntoRolePanel.vue'
 import OntoDocsPanel from '../components/ontology/OntoDocsPanel.vue'
-import OntoBranch from '../components/ontology/OntoBranch.vue'
 import OntoCandidatesPanel from '../components/ontology/OntoCandidatesPanel.vue'
 import OntoFlowPanel from '../components/ontology/OntoFlowPanel.vue'
 import OntoRefine from '../components/ontology/OntoRefine.vue'
 import OntoEdgeRule from '../components/ontology/OntoEdgeRule.vue'
+import OntoStepEdges from '../components/ontology/OntoStepEdges.vue'
+import OntoWaySummary from '../components/ontology/OntoWaySummary.vue'
 import MapLegend from '../components/ontology/MapLegend.vue'
 import OntoEditBox from '../components/ontology/OntoEditBox.vue'
 import OntoEditPreview from '../components/ontology/OntoEditPreview.vue'
 import OntoOpinions from '../components/ontology/OntoOpinions.vue'
 import { visibleGraph, eventGraph, flowView, edgeId, procsOf, inProc, isSimple, isSaid, withoutSimple } from '../components/ontology/mapView.js'
-import { BAND, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
+import { BAND, END, dateKo, dateTimeKo, ymd, taskName } from '../components/ontology/fmt.js'
 import { useApp } from '../stores/app.js'
 import { api } from '../api.js'
 import { narrow } from '../viewport.js'
@@ -180,6 +181,7 @@ async function loadMap() {
   if (sel.value?.kind === 'task' && !m.tasks.some((t) => t.key === sel.value.id)) sel.value = null
   if (sel.value?.kind === 'edge' && !m.edges.some((e) => edgeId(e) === sel.value.id)) sel.value = null
   if (sel.value?.kind === 'event' && !(m.events || []).some((e) => e.key === sel.value.id)) sel.value = null
+  loadEdgeMarks()
 }
 async function init() {
   await ready
@@ -269,19 +271,74 @@ const selTrigger = computed(() => {
   const ev = (view.value.events || []).find((e) => e.ev?.key === event)?.ev
   return { event, task, name: ev?.name || event }
 })
-const edgeMarks = ref(new Map())
+// 이 프로세스의 간선 설정 목록(사건 보기 · 기본 지도가 함께 쓴다): 프로세스를 골랐을 때 읽는다(루틴은 건이 돌지 않아 없다)
+const edgeConds = ref([])
+const condsFor = computed(() => (procKey.value && !isRoutine.value && !at.value ? procKey.value : ''))
 async function loadEdgeMarks() {
-  if (!triggerPick.value) { edgeMarks.value = new Map(); return }
-  const key = procKey.value
+  const key = condsFor.value
+  if (!key) { edgeConds.value = []; return }
   try {
     const r = await call(`/ontology/processes/${encodeURIComponent(key)}/edge-conditions`)
-    if (key === procKey.value) edgeMarks.value = new Map((r.edges || []).filter((e) => e.mark || e.cls).map((e) => [`${e.event}\u0000${e.step}`, { mark: e.mark, cls: e.cls }]))
-  } catch { edgeMarks.value = new Map() }
+    if (key === condsFor.value) edgeConds.value = r.edges || []
+  } catch { if (key === condsFor.value) edgeConds.value = [] }
 }
-watch(triggerPick, loadEdgeMarks)
-watch(procKey, () => { if (triggerPick.value) loadEdgeMarks() })
+watch(condsFor, loadEdgeMarks)
+// 사건 보기: 사건 → 일 간선마다
+const edgeMarks = computed(() => (triggerPick.value ? new Map(edgeConds.value.filter((e) => e.mark || e.cls).map((e) => [`${e.event}\u0000${e.step}`, { mark: e.mark, cls: e.cls }])) : new Map()))
+// 「꼭 · 선택 보기」(켰을 때만): 단계마다 — 그 단계로 들어오는 간선 설정을 모은다. 모두 같으면 그 값, 간선마다 다르면 「사안에 따라」(들어온 길에 따라 바뀐다).
+// 분류는 실행처럼 확정한 「사람이 꼭」이 먼저, 그다음 처음 확정한 것. 풍선 도움말에 간선마다 무엇인지.
+const MARK_KO = { req: '꼭', opt: '선택', cond: '사안에 따라' }
+const CLS_KO = { human: '사람이 꼭', ai: 'AI가 맡음', drop: '걷어냄', skipped: '건너뛰었지만 해야 함' }
+const intoStep = (key) => edgeConds.value.filter((e) => e.step === key || e.task === key)
+const stepsOn = ref(false)
+const stepMarks = computed(() => {
+  const out = new Map()
+  if (!stepsOn.value || !condsFor.value) return out
+  const keys = new Set(edgeConds.value.flatMap((e) => [e.step, e.task]))
+  for (const k of keys) {
+    const list = intoStep(k)
+    if (!list.some((e) => e.mark || e.cls)) continue
+    const ms = new Set(list.map((e) => e.mark || ''))
+    const mark = ms.size === 1 ? [...ms][0] || null : 'cond'
+    const cs = list.map((e) => e.cls).filter(Boolean)
+    const cls = cs.includes('human') ? 'human' : cs[0] || null
+    const tip = list.map((e) => `${e.name} → ${[MARK_KO[e.mark] || '정하지 않음', CLS_KO[e.cls]].filter(Boolean).join(' · ')}`).join('\n')
+    out.set(k, { mark, cls, tip })
+  }
+  return out
+})
+// 범례: 지도에 있는 표시만(지도에 그려진 단계 기준)
+const stepKinds = computed(() => {
+  const shown = new Set(graph.value.tasks.map((t) => t.key)), out = new Set()
+  for (const [k, m] of stepMarks.value) if (shown.has(k)) { if (m.mark) out.add(m.mark); if (m.cls) out.add(m.cls) }
+  return [...out]
+})
+// 길(관계 X → Y, X → 끝)에 든 간선: X 의 결과물 · 「X 완료」 → Y(끝이면 「X 완료 → 끝」) — 관계 패널의 요약 · 「자세히」의 간선 패널이 쓴다
+const raiser = (ev) => { const m = /^(artifact|done):([^:]+)/.exec(String(ev || '')); return m ? m[2] : null }
+const originOf = (k) => graph.value.tasks.find((t) => t.key === k)?.origin || k
+const wayEdges = (from, to) => (condsFor.value ? edgeConds.value.filter((e) => e.kind !== 'start' && [from, originOf(from)].includes(raiser(e.event)) && (to === END ? e.kind === 'end' : e.kind !== 'end' && (e.step === to || e.task === to))) : [])
+// 「꼭 · 선택 보기」: 관계 선도 그 길의 간선 설정대로(모두 같으면 그 값, 다르면 사안에 따라) — 사건 보기의 간선과 같은 색 · 꼴
+const wayMarks = computed(() => {
+  const out = new Map()
+  if (!stepsOn.value || !condsFor.value || eventsShown.value) return out
+  for (const e of graph.value.edges) {
+    const list = wayEdges(e.from, e.to)
+    if (!list.some((x) => x.mark)) continue
+    const ms = new Set(list.map((x) => x.mark || ''))
+    out.set(edgeId(e), { mark: ms.size === 1 ? [...ms][0] : 'cond' })
+  }
+  return out
+})
+const selWayEdges = computed(() => (selEdge.value ? wayEdges(selEdge.value.from, selEdge.value.to) : []))
+// 「자세히」: 그 길의 간선 패널(sel {kind: 'way', id: edge id, event})
+const selWay = computed(() => {
+  if (sel.value?.kind !== 'way') return null
+  const [from, to] = String(sel.value.id).split('\u0000')
+  const edges = wayEdges(from, to)
+  return edges.length ? { from, to, edges, event: sel.value.event || edges[0].event } : null
+})
 // a side panel covers the map's right (the map keeps room, the box moves left of it)
-const sideOpen = computed(() => !!(selEdge.value || selTask.value || selEvent.value || selTrigger.value || valuesOpen.value || reviewOpen.value || snapOpen.value || rolesOpen.value || docsOpen.value
+const sideOpen = computed(() => !!(selEdge.value || selTask.value || selEvent.value || selTrigger.value || selWay.value || valuesOpen.value || reviewOpen.value || snapOpen.value || rolesOpen.value || docsOpen.value
   || timerOpen.value || caseId.value || candOpen.value || flowOpen.value || plan.value || opinionsOpen.value))
 watch(procKey, (k) => {
   if (String(route.query.proc || '') === k) return
@@ -763,6 +820,9 @@ onBeforeUnmount(() => {
             <button class="evt press" role="switch" :aria-checked="eventsShown" :class="{ on: eventsShown }" :disabled="isRoutine" :title="isRoutine ? '루틴은 사건으로만 보여요' : '일 사이에 메일 · 결과물 같은 사건을 넣어 봐요'" data-testid="onto-events-toggle" @click="eventsOn = !eventsOn">
               <span class="knob" /> 사건 보기
             </button>
+            <button v-if="proc && !isRoutine" class="evt press" role="switch" :aria-checked="stepsOn" :class="{ on: stepsOn }" title="단계마다 꼭 · 선택 · 사안에 따라와 분류를 지도에 표시해요" data-testid="onto-steps-toggle" @click="stepsOn = !stepsOn">
+              <span class="knob" /> 꼭 · 선택 보기
+            </button>
             <button v-if="!procKey && simpleProcs.length" class="evt press" role="switch" :aria-checked="hideSimple" :class="{ on: hideSimple }" :title="`일이 하나뿐인 프로세스 ${simpleProcs.length}개를 전체 지도에서 빼요(다른 흐름에도 든 일은 남아요)`" data-testid="onto-hide-simple" @click="hideSimple = !hideSimple">
               <span class="knob" /> 단순 프로세스 빼기
             </button>
@@ -776,7 +836,7 @@ onBeforeUnmount(() => {
           </div>
           <div ref="stageEl" class="stage" :data-preview="preview?.kind || ''" :data-side="pside" :data-flow="flowMode">
           <p v-if="!graph.tasks.length" class="none">{{ at ? '그날에는 아직 그린 지도가 없어요.' : '이 θ 로는 남는 일이 없어요.' }}</p>
-          <MapGraph v-else :whole="full" :marks="marks" :edge-marks="previewGraph ? new Map() : edgeMarks" :trigger-pick="triggerPick && !previewGraph" :tasks="graph.tasks" :edges="graph.edges" :entries="graph.entries" :events="previewGraph ? [] : view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="sideOpen" :scale="shareScale"
+          <MapGraph v-else :whole="full" :marks="marks" :edge-marks="previewGraph ? new Map() : edgeMarks" :step-marks="previewGraph ? NO_BADGES : stepMarks" :way-marks="previewGraph ? NO_BADGES : wayMarks" :trigger-pick="triggerPick && !previewGraph" :tasks="graph.tasks" :edges="graph.edges" :entries="graph.entries" :events="previewGraph ? [] : view.events || []" :selected="sel" :dir="narrow ? 'TB' : 'LR'" :side="sideOpen" :scale="shareScale"
             :picked="chosen" :pickable="!!procKey && !previewGraph" :notes="notes" :only-notes="onlyNotes && !!notes"
             :badges="flowOpen && !previewGraph ? flowHeat.badges : NO_BADGES" :hot-ways="flowOpen && !previewGraph ? flowHeat.ways : NO_WAYS" @select="onSelect" @pick="onPick" />
           <!-- 아래쪽: 말로 고치기 입력 칸(넓은 화면) 바로 밑에 범례 -->
@@ -809,7 +869,7 @@ onBeforeUnmount(() => {
             <span><i class="lg human" />사람이 꼭 해야 하는 일</span>
             <span><i class="lg dim" />그 밖 · 아직 안 본 일</span>
           </div>
-          <MapLegend v-else-if="graph.tasks.length" :refined="!!(view.decided || previewGraph)" :preview="!!previewGraph" :notes="notesOn" />
+          <MapLegend v-else-if="graph.tasks.length" :refined="!!(view.decided || previewGraph)" :preview="!!previewGraph" :notes="notesOn" :steps="previewGraph ? [] : stepKinds" />
           </div>
 
           <SidePanel v-if="plan" kicker="말로 고치기" :title="planTitle" @close="stopPlan">
@@ -822,8 +882,11 @@ onBeforeUnmount(() => {
           </SidePanel>
           <SidePanel v-else-if="selEdge" kicker="관계" :title="`${taskName(selEdge.from)} → ${taskName(selEdge.to)}`" @close="sel = null">
             <EdgePanel :edge="selEdge">
-              <template #actions><OntoBranch :edge="selEdge" :admin="!!status?.admin" /><OntoEdgeActions :edge="selEdge" :admin="!!status?.admin" @changed="loadMap" /></template>
+              <template #actions><OntoWaySummary v-if="selWayEdges.length" :proc-key="procKey" :edges="selWayEdges" :end="selEdge.to === END" @open="(ev) => onSelect({ kind: 'way', id: edgeId(selEdge), event: ev })" /><OntoEdgeActions :edge="selEdge" :admin="!!status?.admin" @changed="loadMap" /></template>
             </EdgePanel>
+          </SidePanel>
+          <SidePanel v-else-if="selWay" kicker="간선" :title="`${taskName(selWay.from)} → ${selWay.to === END ? '끝' : taskName(selWay.to)}`" @close="onSelect({ kind: 'edge', id: `${selWay.from}\u0000${selWay.to}` })">
+            <OntoStepEdges :proc-key="procKey" :edges="selWay.edges" :pick="selWay.event" :admin="!!status?.admin" @changed="loadEdgeMarks" />
           </SidePanel>
           <SidePanel v-else-if="selTrigger" kicker="간선" :title="`${selTrigger.name} → ${selTrigger.task}`" @close="sel = null">
             <OntoEdgeRule :proc-key="procKey" :event="selTrigger.event" :task="selTrigger.task" :admin="!!status?.admin" @changed="loadEdgeMarks" />

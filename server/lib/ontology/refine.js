@@ -24,8 +24,9 @@ export const OPS = ['reverse_edge', 'remove_edge', 'add_edge', 'rename_task', 'm
 // 말로 고치기(editmap.js) adds: overlay ops (move_task · set_cond · set_parallel · set_runner), side ops that live in their own tables
 // (set_requirement → the edge settings of the ways into the step, edgecond.js; set_timer → a company timer; the overlay leaves them), and new_process (a process made by words:
 // its steps are on the map, its ways are this row)
-export const EDIT_OPS = [...OPS, 'move_task', 'set_cond', 'set_parallel', 'set_runner']
-export const SIDE_OPS = ['set_requirement', 'set_timer']
+export const EDIT_OPS = [...OPS, 'move_task', 'set_parallel', 'set_runner']
+// set_cond: the split's condition is the 사안에 따라 of the ways in (edge settings, edgecond.js setWayCondition — gallimgil-merge)
+export const SIDE_OPS = ['set_requirement', 'set_timer', 'set_cond']
 export const ALL_OPS = [...EDIT_OPS, ...SIDE_OPS, 'new_process']
 // draft: the person does it with the agent's draft first (AI 초안 먼저 — the step alone, as an adopted process does for all its people's steps)
 export const RUNNERS = ['agent', 'person', 'draft']
@@ -219,7 +220,6 @@ export function applyCorrections(found, corrections = []) {
     m.par = true; m.dec = true
     return ''
   }
-  const setCond = (e, when) => { const c = condOfWhen(when); Object.assign(e, { condSet: true, cond: c.cond, condInfo: c.condInfo, dec: true }) }
   const cut = (pred) => { edges = edges.filter((e) => { if (!pred(e)) return true; touched.add(e.from); return false }) }
   const step = ({ op, args: a = {} }) => {
     switch (op) {
@@ -308,7 +308,7 @@ export function applyCorrections(found, corrections = []) {
         const e = find(a.from, a.to)
         if (!e) return '그 화살표가 없어요.'
         if (a.when && edges.filter((x) => x.from === a.from).length < 2) return `「${a.from}」 뒤에 갈림길이 없어요 — 먼저 다른 길을 이어 주세요.`
-        setCond(e, a.when)
+        // kept on the edge settings (the way's 사안에 따라); a row made before that (no `was`) is moved there by the migration script
         return ''
       }
       case 'set_parallel': {
@@ -335,8 +335,7 @@ export function applyCorrections(found, corrections = []) {
         }
         for (const w of a.ways || []) {
           if (!isTask(w.from) || !isNode(w.to) || w.from === w.to) continue
-          const e = decide(find(w.from, w.to) || add(w.from, w.to, 0))
-          if (w.when) setCond(e, w.when)
+          decide(find(w.from, w.to) || add(w.from, w.to, 0))
         }
         for (const [x, y] of a.parallel || []) if (isTask(x) && isTask(y)) sideBySide(x, y)
         return ''

@@ -5,6 +5,7 @@ defineProps({
   refined: Boolean, // 사람이 정했어요 · 정했지만 아직 본 적 없어요
   preview: Boolean, // 더함 · 뺌 · 바뀜
   notes: Boolean, // 의견 N · 해소 필요
+  steps: { type: Array, default: () => [] }, // 단계 표시(지도에 있는 것만): req · opt · cond · human · ai · drop · skipped
 })
 </script>
 
@@ -18,6 +19,15 @@ defineProps({
       <span data-testid="onto-legend-unseen">
         <svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="2" stroke-dasharray="6 4" opacity=".55" /></svg><b class="word">정함</b>정했지만 아직 본 적 없어요
       </span>
+    </template>
+    <template v-if="steps.length">
+      <span v-if="steps.includes('req')" data-testid="onto-legend-req"><i class="box req"><svg width="7" height="8" viewBox="0 0 12 14"><path d="M3 6V4a3 3 0 0 1 6 0v2h1.5v8h-9V6zm1.5 0h3V4a1.5 1.5 0 0 0-3 0z" /></svg></i>꼭</span>
+      <span v-if="steps.includes('opt')" data-testid="onto-legend-opt"><i class="box opt" />선택</span>
+      <span v-if="steps.includes('cond')" data-testid="onto-legend-cond"><i class="box cond" />사안에 따라</span>
+      <span v-if="steps.includes('human')"><i class="box fill human" />사람이 꼭</span>
+      <span v-if="steps.includes('ai')"><i class="box fill ai" />AI가 맡음</span>
+      <span v-if="steps.includes('skipped')"><i class="box fill skipped" />건너뛰었지만 해야 함</span>
+      <span v-if="steps.includes('drop')"><i class="box fill drop"><s /></i>걷어냄</span>
     </template>
     <span><svg width="26" height="10"><path d="M1 5h24" stroke="#F0883E" stroke-width="2" stroke-dasharray="6 4" /></svg>은퇴 후보</span>
     <span><svg width="26" height="10"><path d="M1 5h24" stroke="currentColor" stroke-width="2" stroke-dasharray="2 4" opacity=".5" /></svg>은퇴함</span>
@@ -45,6 +55,16 @@ defineProps({
 .box.add { border: 2px solid var(--d-add); background: color-mix(in srgb, var(--d-add) 14%, transparent); }
 .box.rm { border: 1.5px dashed var(--d-rm); opacity: .8; }
 .box.rm s { position: absolute; left: 2px; right: 2px; top: 50%; height: 1.5px; margin-top: -0.75px; background: var(--d-rm); }
+.box.req { border: 2.5px solid #7a4fd0; background: color-mix(in srgb, #7a4fd0 12%, transparent); display: grid; place-items: center; }
+.box.req svg { fill: #7a4fd0; }
+.box.opt { border: 1.8px dashed #2b7fbf; }
+.box.cond { border: 1.8px dotted #2b7fbf; }
+.box.fill { border: 1px solid var(--hairline); }
+.box.human { background: color-mix(in srgb, #d9822b 30%, transparent); }
+.box.ai { background: color-mix(in srgb, #2f9e6e 30%, transparent); }
+.box.skipped { background: color-mix(in srgb, #d9822b 12%, transparent); }
+.box.drop { background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.box.drop s { position: absolute; left: 2px; right: 2px; top: 50%; height: 1.5px; margin-top: -0.75px; background: var(--text-secondary); }
 .box.ch { border: 2px solid var(--d-ch); background: color-mix(in srgb, var(--d-ch) 14%, transparent); }
 .chip { display: inline-flex; align-items: center; height: 16px; padding: 0 7px; border-radius: 8px; font-size: 10px; font-weight: 500; color: var(--text-secondary);
   background: var(--regular-solid-bg); border: 1px solid color-mix(in srgb, var(--text-primary) 22%, transparent); box-sizing: border-box; }

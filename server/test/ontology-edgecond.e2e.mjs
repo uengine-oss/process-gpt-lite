@@ -1,4 +1,4 @@
-// 간선 조건(lib/ontology/edgecond.js) HTTP e2e — 꼭 · 선택을 이벤트 → 태스크 간선에서 프로세스마다 정하고, map 엔진(「지도에서 바로」)이 그대로 따르는지.
+// 간선 조건(lib/ontology/edgecond.js) HTTP e2e — 꼭 · 선택을 이벤트 → 태스크 간선에서 프로세스마다 정하고, 「지도에서 바로」 실행이 그대로 따르는지.
 // 돌고 있는 Lite 서버에 화면이 부르는 API 그대로(간선 설정 패널 · 시작 카드 · 단계 카드의 진행/건너뛰기)를 부른다. 메일 · 에이전트 작업은 하지 않는다
 // (건은 「제안」 단계라 단계마다 사람을 기다리고, 넘길 때는 건너뛰기만 쓴다).
 //
@@ -6,8 +6,10 @@
 //     기본: 간선이 가장 많은 프로세스(P)와, P 와 같은 태스크를 쓰는 다른 프로세스(Q)를 간선 목록에서 고른다
 //   1  간선 설정 저장 · 다시 열기: P 의 한 간선에 「해도 되고 안 해도 되는 단계」 + 「금액 100만원 이상 → 꼭」을 저장하면 다시 읽어도 그대로, 이력 · 결정 원장에 남는다
 //   2  다른 프로세스: 1 과 3 에서 P 의 간선을 바꾸는 동안 같은 태스크를 쓰는 Q 의 간선 설정 · 표시는 하나도 바뀌지 않는다
-//   3  map 엔진, 실행 중에 바꾼 설정: 건을 W 에서 시작해 기다리는 동안 W → Y 간선을 꼭으로 바꾸고 W 를 건너뛰면, 지도가 Y 를 「꼭 하는 간선」으로 고른다
-//   4  map 엔진, 중간 시작: Y 로 들어오는 간선이 꼭이면 Y 부터 시작한 건도 Y 가 꼭이고, 건너뛰려 하면 까닭을 묻기만 하고 건너뛰지 않는다
+//   3  「지도에서 바로」 실행, 실행 중에 바꾼 설정: 건을 W 에서 시작해 기다리는 동안 W → Y 간선을 꼭으로 바꾸고 W 를 건너뛰면, 지도가 Y 를 「꼭 하는 간선」으로 고른다
+//   4  「지도에서 바로」 실행, 중간 시작: Y 로 들어오는 간선이 꼭이면 Y 부터 시작한 건도 Y 가 꼭이고, 건너뛰려 하면 까닭을 묻기만 하고 건너뛰지 않는다
+//   5  갈림길 조건 = 간선의 사안에 따라: W → Y 에 「금액 1,000만원 이상 → 꼭」, W → 끝에 「미만이면 여기서 끝」 — 1,200만원 건은 Y(규칙),
+//      50만원 건은 끝(끝 길이 없으면 Y 로 가지 않음)
 //   끝나면 바꾼 간선 설정 · 프로세스 단계 · 엔진을 처음대로 되돌린다(되돌린 것도 이력에 남는다). 만든 건은 멈춰 두고 지우지 않는다.
 process.env.DOTENV_CONFIG_QUIET = 'true'
 import fs from 'node:fs'
@@ -114,11 +116,11 @@ async function main() {
   const listOf = async (k) => { if (!lists.has(k)) lists.set(k, await edgesOf(boss, k).catch(() => null)); return lists.get(k) }
   if (!P) { let best = 0; for (const k of procs) { const l = await listOf(k); if (l && l.edges.length > best) { best = l.edges.length; P = k } } }
   const pl = await listOf(P)
-  const tasksP = new Set(pl.edges.filter((e) => e.kind !== 'start').map((e) => e.task))
-  if (!Q) for (const k of procs) { if (k === P) continue; const l = await listOf(k); if (l?.edges.some((e) => e.kind !== 'start' && tasksP.has(e.task))) { Q = k; break } }
+  const tasksP = new Set(pl.edges.filter((e) => !['start', 'end'].includes(e.kind)).map((e) => e.task))
+  if (!Q) for (const k of procs) { if (k === P) continue; const l = await listOf(k); if (l?.edges.some((e) => !['start', 'end'].includes(e.kind) && tasksP.has(e.task))) { Q = k; break } }
   check('같은 태스크를 쓰는 두 프로세스', P && Q, `${P} · ${Q}`)
   const ql0 = await edgesOf(boss, Q)
-  const X = ql0.edges.find((e) => e.kind !== 'start' && tasksP.has(e.task)).task
+  const X = ql0.edges.find((e) => !['start', 'end'].includes(e.kind) && tasksP.has(e.task)).task
   log(`P 「${pl.proc.name}」 · Q 「${ql0.proc.name}」 · 같은 태스크 「${X}」`)
   OUT.p = P; OUT.q = Q; OUT.shared = X
 
@@ -128,7 +130,7 @@ async function main() {
   if (st0.status !== 'suggested') await call(boss.tok, 'POST', '/ontology/processes/status', { key: P, status: 'suggested', name: st0.name })
   try {
     log('— 1 간선 설정 저장 · 다시 열기')
-    const e1 = pl.edges.find((e) => e.kind !== 'start' && e.task === X)
+    const e1 = pl.edges.find((e) => !['start', 'end'].includes(e.kind) && e.task === X)
     const rows0 = Number((await q(`select count(*) n from pro_edge_conditions where tenant_id=$1 and proc_key=$2 and event=$3 and task=$4`, [T, P, e1.event, e1.task]))[0].n)
     const saved = await setEdges(boss, P, [e1], { requirement: 'optional', rules: [{ when: { field: 'amount', op: '>=', value: 1000000 }, then: 'required' }] }, 'e2e: 저장 · 다시 열기')
     check('저장한 화면이 돌려준 설정', saved.requirement === 'optional' && saved.rules?.[0]?.then === 'required', JSON.stringify(saved.rules))
@@ -142,13 +144,13 @@ async function main() {
     const led = await q(`select 1 from pro_policy_decisions where tenant_id=$1 and action_kind='ontology.edgecond' and created_at >= $2 and facts->>'process'=$3 and facts->>'task'=$4 limit 1`, [T, START, P, e1.task])
     check('결정 원장에 남음', led.length === 1)
 
-    log('— 3 map 엔진: 실행 중에 바꾼 설정')
+    log('— 3 「지도에서 바로」 실행: 실행 중에 바꾼 설정')
     // W: a task of P with two or more next tasks to choose between (not opened side by side — run.js parallelPair), none of them 꼭 yet;
     // Y: one of them (not the first listed)
     const view = await withTenant(T, () => procGraph(P))
     const sideBySide = (ys) => (view.edges || []).some((e) => e.parallel && ys.includes(e.from) && ys.includes(e.to))
     const next = new Map()
-    for (const e of pl.edges) { const m = e.event.match(/^(?:artifact|done):([^:]+)/); if (m && m[1] !== e.task) { if (!next.has(m[1])) next.set(m[1], []); next.get(m[1]).push(e) } }
+    for (const e of pl.edges) { if (e.kind === 'end') continue; const m = e.event.match(/^(?:artifact|done):([^:]+)/); if (m && m[1] !== e.task) { if (!next.has(m[1])) next.set(m[1], []); next.get(m[1]).push(e) } }
     // (the ways the map engine itself sees from W — mapengine.js waysOut, after θ — must still be two or more)
     const seen = (w) => waysOut(view, w, view.proc?.theta ?? 0.05).outs.map((o) => o.to)
     const [W, outs] = [...next].find(([w, es]) => { const ys = [...new Set(es.map((e) => e.task))].filter((y) => seen(w).includes(y)); return ys.length >= 2 && !sideBySide(ys) && !es.some((e) => ['req', 'cond'].includes(e.mark)) && pl.edges.some((x) => x.task === w) }) || []
@@ -158,11 +160,11 @@ async function main() {
     const ys = [...new Set(outs.map((e) => e.task))].filter((y) => seen(W).includes(y))
     const Y = [...ys].sort((a, b) => (ways0.find((o) => o.to === a)?.p || 0) - (ways0.find((o) => o.to === b)?.p || 0))[0]
     log(`  W 「${W}」 → ${ways0.map((o) => `${o.to} ${Math.round((o.p || 0) * 100)}%`).join(' · ')} · Y 「${Y}」`)
-    await setEdges(boss, P, pl.edges.filter((e) => e.task === W), { requirement: 'optional', rules: [] }, 'e2e: 건너뛸 수 있게')
+    await setEdges(boss, P, pl.edges.filter((e) => e.task === W && e.kind !== 'end'), { requirement: 'optional', rules: [] }, 'e2e: 건너뛸 수 있게')
     const c1 = await startCase(boss, P, W, `[e2e] 실행 중에 바꾼 간선 조건 ${START.toISOString().slice(11, 16)}`)
     const w1 = await waiting(c1, W)
     const caseRow = (await q(`select engine, run_mode from pro_po_cases where id=$1`, [c1]))[0]
-    check('건은 map 엔진 · 단계마다 사람이 정함', caseRow.engine === 'map' && caseRow.run_mode === 'hitl', JSON.stringify(caseRow))
+    check('건은 「지도에서 바로」 실행 · 단계마다 사람이 정함', caseRow.engine === 'map' && caseRow.run_mode === 'hitl', JSON.stringify(caseRow))
     check(`「${W}」: 해도 되고 안 해도 되는 단계로 읽음`, w1.requirement === 'optional', w1.requirement)
     // the case is already running: now W → Y becomes 꼭
     await setEdges(boss, P, outs.filter((e) => e.task === Y), { requirement: 'required', rules: [] }, 'e2e: 실행 중에 꼭으로')
@@ -178,7 +180,7 @@ async function main() {
     check('단계는 그대로 기다림', (await stepOf(c1, Y)).state === 'waiting')
     await call(boss.tok, 'POST', `/ontology/cases/${c1}/pause`).catch(() => {})
 
-    log('— 4 map 엔진: 중간 시작')
+    log('— 4 「지도에서 바로」 실행: 중간 시작')
     const intoY = pl.edges.filter((e) => e.task === Y)
     await setEdges(boss, P, intoY, { requirement: 'required', rules: [] }, 'e2e: 중간 시작 시험')
     const c2 = await startCase(boss, P, Y, `[e2e] 중간 시작 간선 조건 ${START.toISOString().slice(11, 16)}`)
@@ -189,6 +191,35 @@ async function main() {
     const try2 = await call(boss.tok, 'POST', `/ontology/steps/${y2.id}`, { action: 'skip' })
     check('중간 시작한 건도 건너뛰지 않고 까닭을 물음', try2.confirm === true && try2.required === true, JSON.stringify(try2))
     await call(boss.tok, 'POST', `/ontology/cases/${c2}/pause`).catch(() => {})
+
+    log('— 5 갈림길 조건 = 간선의 사안에 따라(「지도에서 바로」 실행)')
+    // W → Y: 「금액 1,000만원 이상 → 꼭」(정하는 곳은 간선 하나), W → 끝(있으면): 「금액 1,000만원 미만 → 여기서 끝」.
+    // 1,200만원 건은 가장 드문 Y 로, 50만원 건은 끝나거나(끝 규칙) Y 로 가지 않는다
+    const big = { field: 'amount', op: '>=', value: 10_000_000 }
+    await setEdges(boss, P, outs.filter((e) => e.task === Y), { requirement: null, rules: [{ when: big, then: 'required' }] }, 'e2e: 갈림 조건')
+    const endWay = (await edgesOf(boss, P)).edges.find((e) => e.kind === 'end' && e.event === `done:${W}`)
+    if (endWay) await setEdges(boss, P, [endWay], { requirement: null, rules: [{ when: { field: 'amount', op: '<', value: 10_000_000 }, then: 'required' }] }, 'e2e: 끝 조건')
+    const panel = await call(boss.tok, 'GET', `/ontology/processes/${enc(P)}/edge-condition?event=${enc(outs.find((e) => e.task === Y).event)}&task=${enc(Y)}`)
+    check('간선 패널: 갈림의 한 길로 읽고, 정한 규칙은 AI 제안에서 빠짐', panel.split === true && !panel.suggestions.some((x) => JSON.stringify(x.rule.when) === JSON.stringify(big)), JSON.stringify(panel.suggestions.map((x) => x.rule.text)))
+    const c3 = await startCase(boss, P, W, `[e2e] 갈림 조건 합계 12,000,000원 ${START.toISOString().slice(11, 16)}`)
+    const w3 = await waiting(c3, W)
+    await call(boss.tok, 'POST', `/ontology/steps/${w3.id}`, { action: 'skip', reason: 'e2e: 건너뜀' })
+    const y3 = await waiting(c3, Y)
+    check(`1,200만원 건: 규칙이 맞아 가장 드문 「${Y}」로 감`, y3.via?.from === W && y3.via?.how === 'rule', `${y3.via?.how} · ${y3.via?.why}`)
+    check(`「${Y}」: 이 길의 규칙으로 꼭 하는 단계`, y3.requirement === 'required', y3.requirement)
+    await call(boss.tok, 'POST', `/ontology/cases/${c3}/pause`).catch(() => {})
+    const c4 = await startCase(boss, P, W, `[e2e] 갈림 조건 합계 500,000원 ${START.toISOString().slice(11, 16)}`)
+    const w4 = await waiting(c4, W)
+    await call(boss.tok, 'POST', `/ontology/steps/${w4.id}`, { action: 'skip', reason: 'e2e: 건너뜀' })
+    const after = await waitFor('50만원 건의 다음', async () => {
+      const c = (await q(`select status from pro_po_cases where id=$1`, [c4]))[0]
+      if (c?.status === 'done') return { end: true }
+      const s = (await q(`select task, via from pro_case_steps where case_id=$1 and task <> $2 order by created_at desc limit 1`, [c4, W]))[0]
+      return s ? { task: s.task, how: s.via?.how } : null
+    }, { timeout: 60_000 })
+    if (endWay) check('50만원 건: 끝 규칙이 맞아 여기서 끝남', after.end === true, JSON.stringify(after))
+    else check(`50만원 건: 규칙이 맞지 않아 「${Y}」로 가지 않음`, after.end || (after.task !== Y && after.how !== 'rule'), JSON.stringify(after))
+    if (!after.end) await call(boss.tok, 'POST', `/ontology/cases/${c4}/pause`).catch(() => {})
 
     log('— 2 다른 프로세스')
     const ql1 = await edgesOf(boss, Q)

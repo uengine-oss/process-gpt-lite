@@ -48,7 +48,8 @@ function parseWon(s) {
   if (!t || !m || (!m[1] && !m[2] && !m[3])) return NaN
   return Math.round((+m[1] || 0) * 1e8 + (+m[2] || 0) * 1e4 + (+m[3] || 0))
 }
-const ruleLine = (r) => `${r.when.field === 'amount' ? `금액 ${won(r.when.value)} ${opKo(r.when.op)}` : `「${r.when.text}」`} → ${REQ_SHORT[r.then]}`
+const whenLine = (w) => (w.field === 'amount' ? `금액 ${won(w.value)} ${opKo(w.op)}` : `「${w.text}」`)
+const ruleLine = (r) => `${whenLine(r.when)} → ${isEnd.value ? '여기서 끝' : REQ_SHORT[r.then]}`
 const url = () => `/ontology/processes/${encodeURIComponent(props.procKey)}/edge-condition`
 
 async function load() {
@@ -68,6 +69,22 @@ function reset() {
 }
 watch(() => [props.procKey, props.event, props.task], load, { immediate: true })
 
+// 끝으로 가는 길(「X 완료 → 끝」): 사안에 따라만 — 맞으면 여기서 끝(꼭 · 선택 · 분류 · 같은 단계 간선은 없다)
+const isEnd = computed(() => d.value?.kind === 'end')
+// 갈림길 조건 = 사안에 따라(gallimgil-merge): AI가 뽑은 조건 · 건에서 배운 금액 조건은 제안 — 「이걸로」면 규칙이 된다
+const SUGG_FROM = { learned: '건에서 배운 금액', said: '말로 정한 금액', ai: 'AI가 뽑은 조건' }
+const CONF = { high: '뚜렷함', mid: '대체로', low: '짐작' }
+const sameRule = (a, b) => JSON.stringify(a.when) === JSON.stringify(b.when)
+const ruleSugg = computed(() => (d.value?.suggestions || []).filter((x) => !rules.value.some((r) => sameRule(r, x.rule))))
+function adopt(x) { rules.value.push({ when: { ...x.rule.when }, then: 'required' }) }
+const judging = ref(false)
+async function judgeNow() {
+  if (!d.value?.from) return
+  judging.value = true; err.value = ''
+  // (rules being edited stay as they are)
+  const keep = dirty.value ? rules.value.map((r) => ({ when: { ...r.when }, then: r.then })) : null
+  try { await api(`/ontology/branches/${encodeURIComponent(d.value.from)}`, { method: 'POST', body: {} }); await load(); if (keep) rules.value = keep } catch (e) { err.value = e.message } finally { judging.value = false }
+}
 const sugg = computed(() => (d.value?.class?.ai && !d.value.class.decided ? d.value.class.ai : null))
 const dirty = computed(() => !!d.value && (req.value !== (d.value.requirement || 'auto') || cls.value !== decidedCls(d.value.class)
   || JSON.stringify(rules.value) !== JSON.stringify((d.value.rules || []).map((r) => ({ when: r.when, then: r.then }))) || reason.value.trim() !== (d.value.reason || '') || also.value.length > 0))
@@ -86,12 +103,12 @@ function addRule() {
   if (addKind.value === 'amount') {
     const v = parseWon(addValue.value)
     if (!Number.isFinite(v)) { addErr.value = '금액을 숫자로 적어 주세요(예: 1000만, 5,000,000).'; return }
-    rules.value.push({ when: { field: 'amount', op: addOp.value, value: v }, then: addThen.value })
+    rules.value.push({ when: { field: 'amount', op: addOp.value, value: v }, then: isEnd.value ? 'required' : addThen.value })
     addValue.value = ''
   } else {
     const t = addText.value.replace(/\s+/g, ' ').trim()
     if (!t) { addErr.value = '조건을 글로 적어 주세요.'; return }
-    rules.value.push({ when: { text: t }, then: addThen.value })
+    rules.value.push({ when: { text: t }, then: isEnd.value ? 'required' : addThen.value })
     addText.value = ''
   }
 }
@@ -114,13 +131,13 @@ async function save() {
 <template>
   <section class="sr" data-testid="onto-edgerule" :data-requirement="d?.requirement || 'auto'" :data-class="decidedCls(d?.class)">
     <div class="hd">
-      <h4>이 간선으로 들어오면</h4>
-      <small v-if="d" class="ctx">「{{ d.proc.name }}」에서만 · 「{{ d.step }}」은(는)</small>
+      <h4>{{ isEnd ? '이 길로 끝나는 경우' : '이 간선으로 들어오면' }}</h4>
+      <small v-if="d" class="ctx">「{{ d.proc.name }}」에서만 · {{ isEnd ? `「${d.name.replace(/ 완료$/, '')}」에서 끝나요` : `「${d.step}」은(는)` }}</small>
     </div>
     <p v-if="!d && !err" class="muted pulse">불러오는 중…</p>
     <template v-if="d">
       <p v-if="d.virtual" class="muted" data-testid="onto-edgerule-virtual">지도에 아직 없는 「완료」 간선이에요. 지도를 다시 세면 생기고, 정한 것은 그대로 이어져요.</p>
-      <div class="opts" role="radiogroup" aria-label="이 간선으로 들어오면">
+      <div v-if="!isEnd" class="opts" role="radiogroup" aria-label="이 간선으로 들어오면">
         <button v-for="c in CHOICES" :key="c.key" class="opt press" role="radio" :aria-checked="req === c.key" :class="[c.key, { on: req === c.key }]" :disabled="!admin || busy"
           :data-testid="`onto-edgerule-opt-${c.key}`" @click="req = c.key">
           <b><i v-if="c.key === 'required'" class="lock" aria-hidden="true" />{{ c.ko }}</b><small>{{ c.tip }}</small>
@@ -128,7 +145,7 @@ async function save() {
       </div>
 
       <div class="rules">
-        <div class="rh"><b>사안에 따라</b><small>위에서부터 맞는 첫 규칙을 따라요. 맞는 게 없으면 위에서 고른 대로예요.</small></div>
+        <div class="rh"><b>사안에 따라</b><small>{{ isEnd ? '맞으면 여기서 끝나요. 위에서부터 맞는 첫 규칙을 따라요.' : '위에서부터 맞는 첫 규칙을 따라요. 맞는 게 없으면 위에서 고른 대로예요.' }}</small></div>
         <ol v-if="rules.length" class="rl">
           <li v-for="(r, i) in rules" :key="i" data-testid="onto-edgerule-rule" :data-then="r.then">
             <span class="n">{{ i + 1 }}</span><span class="t">{{ ruleLine(r) }}</span>
@@ -152,16 +169,25 @@ async function save() {
             <span class="w">이면</span>
           </template>
           <input v-else v-model="addText" class="in" maxlength="200" placeholder="예: 외부 고객에게 처음 나가는 제안이면" aria-label="조건" data-testid="onto-edgerule-add-text" @keydown.enter.prevent="addRule" />
-          <select v-model="addThen" class="sel sm" aria-label="그러면" data-testid="onto-edgerule-add-then">
+          <span v-if="isEnd" class="w">여기서 끝</span>
+          <select v-else v-model="addThen" class="sel sm" aria-label="그러면" data-testid="onto-edgerule-add-then">
             <option value="required">꼭</option><option value="optional">선택</option>
           </select>
           <button class="ghost2 press" :disabled="busy" data-testid="onto-edgerule-add" @click="addRule">더하기</button>
         </div>
         <small v-if="admin && addKind === 'amount' && addValueWon" class="muted">{{ addValueWon }}</small>
         <small v-if="addErr" class="err">{{ addErr }}</small>
+        <!-- 갈림길: AI가 뽑은 조건 · 건에서 배운 금액은 제안 — 「이걸로」면 위 규칙에 더해요 -->
+        <ul v-if="ruleSugg.length" class="sg" data-testid="onto-edgerule-suggestions">
+          <li v-for="(x, i) in ruleSugg" :key="i" data-testid="onto-edgerule-suggestion" :data-kind="x.kind">
+            <span class="cap">AI 제안</span><span class="t">{{ whenLine(x.rule.when) }}<small> · {{ SUGG_FROM[x.from] }}<template v-if="x.kind === 'text'"> · {{ CONF[x.confidence] }}</template></small></span>
+            <button v-if="admin" class="lnk press" :disabled="busy" data-testid="onto-edgerule-adopt" @click="adopt(x)">이걸로</button>
+          </li>
+        </ul>
+        <button v-if="admin && d.split" class="lnk press judge" :disabled="busy || judging" data-testid="onto-edgerule-judge" @click="judgeNow">{{ judging ? '뽑는 중…' : (d.suggestions || []).some((x) => x.kind === 'text') ? '조건 다시 뽑기' : '조건 뽑기' }}</button>
       </div>
 
-      <div class="rules">
+      <div v-if="!isEnd" class="rules">
         <div class="rh"><b>단계 분류</b></div>
         <div class="chips" role="radiogroup" aria-label="단계 분류">
           <button v-for="c in CLASSES" :key="c.key" class="chip press" role="radio" :aria-checked="cls === c.key" :class="{ on: cls === c.key }" :disabled="!admin || busy" :title="c.tip"
@@ -243,6 +269,11 @@ h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-secondary);
 .chip.on { box-shadow: inset 0 0 0 2px var(--ink); font-weight: 600; }
 .chip:disabled { cursor: default; }
 .chip:disabled:not(.on) { opacity: .6; }
+.sg { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.sg li { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 10px; border: 1px dashed var(--hairline); font-size: 13px; }
+.sg .t { flex: 1; min-width: 0; line-height: 1.4; }
+.sg small { font-size: 11.5px; color: var(--text-tertiary); }
+.judge { align-self: flex-start; margin-left: 0; }
 .lines { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; display: flex; flex-direction: column; gap: 2px; }
 .sib { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; background: var(--field-bg); font-size: 13px; }
 .sib .t { flex: 1; min-width: 0; }

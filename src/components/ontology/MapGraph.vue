@@ -34,6 +34,11 @@ const props = defineProps({
   // triggerPick 이면 사건 → 일 간선을 누를 때 그 사건 대신 간선을 고른다(select {kind: 'trigger', id: event \u0000 일})
   edgeMarks: { type: Map, default: () => new Map() },
   triggerPick: Boolean,
+  // 단계 표시(「꼭 · 선택 보기」): 일 → {mark: req · opt · cond, cls: human · ai · drop · skipped, tip} — 그 단계로 들어오는 간선 설정을 모은 것.
+  // 규칙은 테두리(간선과 같은 색 · 꼴, 꼭은 자물쇠), 분류는 채움색. marks(AI 후보 · 병목)가 있으면 그쪽이 칠한다.
+  stepMarks: { type: Map, default: () => new Map() },
+  // 「꼭 · 선택 보기」의 관계 선(edge id → {mark}): 그 길에 든 간선 설정 — 사건 보기의 간선과 같은 색 · 꼴
+  wayMarks: { type: Map, default: () => new Map() },
   marks: { type: Map, default: () => new Map() }, // 일 → high · mid · human (AI 후보) — 칠하고, 나머지는 흐리게
   whole: Boolean, // 전체 화면: the whole map on the screen, also after the map changes (smaller sizes allowed)
   picked: { type: Object, default: null }, // {tasks: [task key], ways: [edge id]} — outlined
@@ -73,7 +78,8 @@ function wrap(name, max, size = NAME) {
 const W = computed(() => (props.dir === 'LR' ? 126 : 128))
 const nodeDefs = computed(() => {
   const list = props.tasks.map((t) => {
-    const lines = wrap(t.name || t.key, W.value - 22)
+    const lock = !props.marks.size && props.stepMarks.get(t.key)?.mark === 'req'
+    const lines = wrap(t.name || t.key, W.value - 22 - (lock ? 14 : 0))
     return { key: t.key, w: W.value, h: lines.length > 1 ? 74 : 58, lines, t }
   })
   // an event: a small circle, its name under it (LR) or beside it (TB); edges meet the circle (port), not the box
@@ -173,7 +179,7 @@ const drawn = computed(() => L.value.edges.map((g) => {
   if (e.added && !e.decided) tips.push('다듬으며 더함')
   if (e.removed) tips.push('다듬으며 뺌')
   if (nt) tips.push(`의견 ${nt.n || 0}${nt.conflict ? ' · 해소 필요' : ''}`)
-  const em = e.kind === 'trigger' ? props.edgeMarks.get(`${e.event}\u0000${e.to}`) || null : null
+  const em = e.kind === 'trigger' ? props.edgeMarks.get(`${e.event}\u0000${e.to}`) || null : isWay(e) ? props.wayMarks.get(g.id) || null : null
   if (em?.mark) tips.push(EM_KO[em.mark])
   if (em?.cls) tips.push(CLS_KO[em.cls])
   if (e.virtual) tips.push('지도에 아직 없는 「완료」 간선')
@@ -233,9 +239,11 @@ const nodes = computed(() => L.value.nodes.map((n) => {
   const x = { ...n, ...def, x0: n.x - n.w / 2, y0: n.y - n.h / 2, share: entryShare.value.get(n.key) }
   if (!x.t) return x
   const t = x.t, mk = props.marks.get(n.key), nt = taskNote(n.key), diff = DIFF_KO[t.diff] ? t.diff : ''
-  x.tip = nodeTip(t)
+  const sm = !props.marks.size && !diff ? props.stepMarks.get(n.key) || null : null
+  x.tip = sm?.tip ? `${nodeTip(t)}\n${sm.tip}` : nodeTip(t)
   x.foot = foot(x)
-  x.strike = mk === 'drop' || (t.removed && !diff) || diff === 'remove'
+  x.lock = sm?.mark === 'req'
+  x.strike = mk === 'drop' || sm?.cls === 'drop' || (t.removed && !diff) || diff === 'remove'
   x.dtag = diff && { text: DIFF_KO[diff], w: tagW(DIFF_KO[diff]) }
   x.ntag = nt && { text: noteText(nt), w: tagW(noteText(nt), 10, nt.conflict ? 17 : 14), conflict: !!nt.conflict }
   const bd = props.badges.get(n.key)
@@ -246,6 +254,7 @@ const nodes = computed(() => L.value.nodes.map((n) => {
     sel: props.selected?.kind === 'task' && props.selected.id === n.key, entry: x.share, habit: t.kind === 'habit',
     added: t.added && !t.decided && !diff, removed: t.removed && !diff, decided: t.decided, unseen: t.unseen && !diff,
     [`df-${diff}`]: !!diff, picked: x.picked, nd: props.onlyNotes && !nt?.conflict,
+    [`sm-${sm?.mark}`]: !!sm?.mark, [`sc-${sm?.cls}`]: !!sm?.cls,
   }
   return x
 }))
@@ -477,7 +486,9 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
             <g v-if="n.picked" class="pk"><rect x="-4.5" y="-4.5" :width="n.w + 9" :height="n.h + 9" rx="16" /></g>
             <rect :width="n.w" :height="n.h" rx="13" />
             <text class="nm" :clip-path="`url(#${clipId})`"><tspan v-for="(l, i) in n.lines" :key="i" x="11" :y="22 + i * 17">{{ l }}</tspan></text>
-            <!-- 걷어냄(단계 가르기) · 미리 보기에서 뺌: 이름에 줄 -->
+            <!-- 꼭 하는 단계: 위 오른쪽 자물쇠 -->
+            <path v-if="n.lock" class="lock" :transform="`translate(${n.w - 21},7)`" d="M3 6V4a3 3 0 0 1 6 0v2h1.5v8h-9V6zm1.5 0h3V4a1.5 1.5 0 0 0-3 0z" />
+            <!-- 걷어냄 · 미리 보기에서 뺌: 이름에 줄 -->
             <template v-if="n.strike"><line v-for="(l, i) in n.lines" :key="`x${i}`" class="strike" x1="10" :x2="Math.min(n.w - 10, 12 + textW(l, NAME))" :y1="17 + i * 17" :y2="17 + i * 17" /></template>
             <text class="sm" x="11" :y="n.h - 11" :clip-path="`url(#${clipId})`">{{ n.foot.role }}<tspan v-if="n.foot.ai" class="ai">{{ n.foot.ai }}</tspan></text>
             <!-- 사람이 정했어요: 건수 앞에 사람-확인 -->
@@ -568,18 +579,18 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .node.mk-mid > rect { fill: color-mix(in srgb, #2f9e6e 14%, var(--regular-solid-bg)); stroke: #2f9e6e; stroke-width: 1.5; stroke-dasharray: 5 3; }
 .node.mk-human > rect { fill: color-mix(in srgb, #d9822b 26%, var(--regular-solid-bg)); stroke: #d9822b; stroke-width: 2.5; }
 .node.cand > rect { stroke-dasharray: 4 3; stroke: var(--text-secondary); }
-/* 단계 가르기(프로세스 다듬기 ②): 꼭 하는 관문 = 주황 굵게 · 사람이 꼭 = 주황(mk-human) · AI가 맡음 = 초록 · 걷어냄 = 회색 줄 · 건너뛰었지만 해야 함 = 주황 점선 */
-.node.mk-gate > rect { fill: color-mix(in srgb, #d9822b 40%, var(--regular-solid-bg)); stroke: #d9822b; stroke-width: 4.5; }
-.node.mk-gate .nm { font-weight: 800; }
-.node.mk-ai > rect { fill: color-mix(in srgb, #2f9e6e 30%, var(--regular-solid-bg)); stroke: #2f9e6e; stroke-width: 2.5; }
-.node.mk-drop > rect { fill: color-mix(in srgb, var(--text-primary) 5%, var(--regular-solid-bg)); stroke: var(--text-tertiary); stroke-width: 1.5; }
-.node.mk-drop .nm, .node.mk-drop .sm { fill: var(--text-tertiary); }
-.node.mk-skipped > rect { fill: color-mix(in srgb, #d9822b 10%, var(--regular-solid-bg)); stroke: #d9822b; stroke-width: 2.2; stroke-dasharray: 6 4; }
-.node .strike { stroke: var(--text-secondary); stroke-width: 1.6; stroke-linecap: round; pointer-events: none; }
-/* 단계 규칙(steprule): 꼭 하는 단계 = 보라 굵게 + 자물쇠 · 해도 되는 단계 = 파랑 점선 · 사안에 따라 = 파랑 잔 점선 */
-.node.mk-req > rect { fill: color-mix(in srgb, #7a4fd0 16%, var(--regular-solid-bg)); stroke: #7a4fd0; stroke-width: 3; }
+/* 단계 표시(「꼭 · 선택 보기」, stepMarks): 들어오는 간선 설정을 모은 것. 규칙은 테두리 — 간선과 같은 색 · 꼴(꼭 = 보라 굵게 + 자물쇠 · 선택 = 파랑 점선 ·
+   사안에 따라 = 파랑 잔 점선), 분류는 채움 — 사람이 꼭 = 주황 · AI가 맡음 = 초록(AI 후보와 같은 색) · 걷어냄 = 회색 + 이름에 줄 · 건너뛰었지만 해야 함 = 옅은 주황 */
+.map .node.sm-req > rect { fill: color-mix(in srgb, #7a4fd0 12%, var(--regular-solid-bg)); stroke: #7a4fd0; stroke-width: 3; stroke-dasharray: none; }
+.map .node.sm-opt > rect { stroke: #2b7fbf; stroke-width: 2; stroke-dasharray: 6 4; }
+.map .node.sm-cond > rect { stroke: #2b7fbf; stroke-width: 2; stroke-dasharray: 1.5 3; stroke-linecap: round; }
 .node .lock { fill: #7a4fd0; pointer-events: none; }
-.node.mk-opt > rect { fill: color-mix(in srgb, #2b7fbf 8%, var(--regular-solid-bg)); stroke: #2b7fbf; stroke-width: 2; stroke-dasharray: 6 4; }
+.map .node.sc-human > rect { fill: color-mix(in srgb, #d9822b 24%, var(--regular-solid-bg)); }
+.map .node.sc-ai > rect { fill: color-mix(in srgb, #2f9e6e 24%, var(--regular-solid-bg)); }
+.map .node.sc-skipped > rect { fill: color-mix(in srgb, #d9822b 10%, var(--regular-solid-bg)); }
+.map .node.sc-drop > rect { fill: color-mix(in srgb, var(--text-primary) 6%, var(--regular-solid-bg)); }
+.node.sc-drop .nm, .node.sc-drop .sm { fill: var(--text-tertiary); }
+.node .strike { stroke: var(--text-secondary); stroke-width: 1.6; stroke-linecap: round; pointer-events: none; }
 .node.mk-heat1 > rect { fill: color-mix(in srgb, #e8590c 9%, var(--regular-solid-bg)); stroke: #e8590c; stroke-width: 1.6; }
 .node.mk-heat2 > rect { fill: color-mix(in srgb, #e8590c 20%, var(--regular-solid-bg)); stroke: #e8590c; stroke-width: 2.2; }
 .node.mk-heat3 > rect { fill: color-mix(in srgb, #e8590c 32%, var(--regular-solid-bg)); stroke: #e8590c; stroke-width: 2.8; }
@@ -599,7 +610,6 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .btag.agent rect { fill: #2f9e6e; }
 .btag.out rect { fill: var(--text-tertiary); }
 .btag text { font-size: 10.5px; font-weight: 700; fill: #fff; }
-.node.mk-cond > rect { stroke: #2b7fbf; stroke-width: 2; stroke-dasharray: 1.5 3; stroke-linecap: round; }
 /* 프로세스 다듬기 ①: 더한 일 · 관계는 파랑 점선, 뺀 것(찾은 대로 쪽)은 빨강 점선 */
 .node.added > rect { stroke: var(--color-info); stroke-width: 2.2; stroke-dasharray: 6 3; }
 .node.added .ct { fill: var(--color-info); font-weight: 600; }
@@ -611,7 +621,7 @@ const evTitle = (n) => `${n.ev.ev.name} · ${n.ev.ev.n || 0}번${n.ev.and ? ' ·
 .edge.removed .line { stroke: var(--color-error); stroke-dasharray: 3 4; stroke-linecap: butt; opacity: .75; }
 .edge.removed .tip { fill: var(--color-error); opacity: .75; }
 /* a coloured node keeps its colour when picked: a glow shows the pick */
-.node.sel[class*='mk-'] > rect, .node.sel.added > rect, .node.sel.removed > rect { filter: drop-shadow(0 0 3px var(--sel)) drop-shadow(0 0 1px var(--sel)); }
+.node.sel[class*='mk-'] > rect, .node.sel[class*='sm-'] > rect, .node.sel[class*='sc-'] > rect, .node.sel.added > rect, .node.sel.removed > rect { filter: drop-shadow(0 0 3px var(--sel)) drop-shadow(0 0 1px var(--sel)); }
 .node.end { cursor: default; }
 .node.end > rect { fill: var(--ink); stroke: none; }
 .endt { fill: var(--text-primary-on); font-size: 13.5px; font-weight: 600; }

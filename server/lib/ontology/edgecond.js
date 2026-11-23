@@ -10,7 +10,7 @@ import { q } from '../supa.js'
 import { ledger } from './review.js'
 import { END } from './stats.js'
 import { raiserOf } from './structure.js'
-import { REQS, REQ_KO, normRule, ruleText, settingLines } from './steprule.js'
+import { REQS, REQ_KO, normRule, ruleText, whenText, settingLines, pickRequirement } from './steprule.js'
 import { rules as skillRules } from './discovery.js'
 
 const T = () => config.tenantId
@@ -18,6 +18,7 @@ const err = (status, message) => Object.assign(new Error(message), { status })
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim()
 const fin = (w) => { const c = String(w).trim().slice(-1).charCodeAt(0); return c >= 0xac00 && c <= 0xd7a3 ? (c - 0xac00) % 28 : 0 }
 const ro = (w) => (fin(w) && fin(w) !== 8 ? '으로' : '로')
+const OPS_KO = { '>=': '이상', '>': '초과', '<=': '이하', '<': '미만' }
 
 export const EDGE_CLASSES = ['human', 'ai', 'drop', 'skipped']
 export const CLASS_KO = { human: '사람이 꼭', ai: 'AI가 맡음', drop: '걷어냄', skipped: '건너뛰었지만 해야 함' }
@@ -42,6 +43,12 @@ export function entryEdgesOf(view) {
     put({ event: t.from, task: mapKey(step), step, kind: 'start', virtual: false, n: t.n || 0, p: t.p || 0 })
   }
   for (const e of view.edges || []) {
+    // a way out to 끝: 「X 완료 → 끝」 — only 사안에 따라 is set on it (when a case ends here: the split's condition, gallimgil-merge)
+    if (e.to === END && e.status !== 'retired' && view.tasks.has(e.from)) {
+      const from = mapKey(e.from)
+      put({ event: `done:${from}`, task: END, step: END, kind: 'end', virtual: false, n: e.n || 0, p: e.p || 0 })
+      continue
+    }
     if (e.to === END || e.status === 'retired' || !view.tasks.has(e.from) || !view.tasks.has(e.to)) continue
     const from = mapKey(e.from), to = mapKey(e.to)
     const arts = triggers.filter((t) => String(t.from).startsWith('artifact:') && raiserOf(t.from) === from && stepOf.get(t.to) === e.to)
@@ -76,15 +83,27 @@ export function edgeRequiredView(view, settings) {
   const steps = stepsOf(view)
   // required: true — 꼭 itself; 'maybe' — only a rule can make it 꼭 (a split takes a sure 꼭 first)
   const ways = new Map()
+  // the split's condition of a way (gallimgil-merge): its first 「…이면 → 꼭」 rule, in the shape the engines read a condition (an amount the
+  // way the build writes a learned one — refine.js condOfWhen —, else the words): it replaces the learned one on that way. 끝 too.
+  const conds = new Map()
   const keys = []
   for (const s of list) {
     keys.push(`${s.event}>${s.task}=${s.requirement || '-'}${(s.rules || []).map((x) => `,${x.when.field === 'amount' ? `${x.when.op}${x.when.value}` : x.when.text}>${x.then}`).join('')}`)
-    if (!mayRequire(s)) continue
     const from = raiserOf(s.event)
-    const a = from && steps.get(from), b = steps.get(s.task)
-    if (a && b && ways.get(edgeKey(a, b)) !== true) ways.set(edgeKey(a, b), s.requirement === 'required' ? true : 'maybe')
+    const a = from && steps.get(from), b = s.task === END ? END : steps.get(s.task)
+    if (!a || !b) continue
+    const r = (s.rules || []).find((x) => x.then === 'required')
+    if (r && !conds.has(edgeKey(a, b))) conds.set(edgeKey(a, b), r.when.field === 'amount'
+      ? { cond: `금액(amount)이 ${new Intl.NumberFormat('ko-KR').format(r.when.value)}원 ${OPS_KO[r.when.op]}`, cond_cases: { attr: 'amount', threshold: r.when.value, op: r.when.op, said: true } }
+      : { cond: r.when.text, cond_cases: null })
+    if (b === END || !mayRequire(s)) continue
+    if (ways.get(edgeKey(a, b)) !== true) ways.set(edgeKey(a, b), s.requirement === 'required' ? true : 'maybe')
   }
-  const edges = (view.edges || []).map((e) => (ways.has(edgeKey(e.from, e.to)) ? { ...e, required: ways.get(edgeKey(e.from, e.to)) } : e))
+  const edges = (view.edges || []).map((e) => {
+    const k = edgeKey(e.from, e.to)
+    if (!ways.has(k) && !conds.has(k)) return e
+    return { ...e, ...(ways.has(k) ? { required: ways.get(k) } : {}), ...(conds.get(k) || {}) }
+  })
   return { ...view, edges, requirements: keys.sort().join('|') }
 }
 
@@ -144,6 +163,92 @@ export async function restoreStepRequirement(me, procKey, { task, requirement, w
   }
   await ledger(me, 'ontology.edgecond', `「${task}」로 들어오는 간선의 꼭 · 선택을 되돌림`, { process: procKey, task, was })
 }
+// ---------- 갈림길 조건 = 간선의 「사안에 따라」(gallimgil-merge) ----------
+// 「X 다음 Y로 가는 조건」은 X 에서 Y 로 들어오는 간선(X 의 결과물 · 「X 완료」 → Y, 끝이면 「X 완료 → 끝」)의 규칙 「…이면 → 꼭」이다:
+// 갈림에서 그 규칙이 이 건에 맞으면 그 길로 가고(끝이면 여기서 끝), Y 는 꼭 하는 단계가 된다. 말로 고치기의 set_cond 와 말로 만든 프로세스의
+// 길 조건이 여기에 쓴다. when: refine.js normWhen 꼴 {amount: {op, value}} | {text} | null(지움)
+export const ruleOfWhen = (w) => (!w ? null : w.amount ? normRule({ when: { field: 'amount', op: w.amount.op, value: w.amount.value }, then: 'required' }) : normRule({ when: { text: w.text }, then: 'required' }))
+// the ways in from `from` to `to` (a flow name or 끝) in this process's view
+export function waysBetween(view, from, to) {
+  const fromKey = view.tasks.get(from)?.origin || from
+  return entryEdgesOf(view).filter((e) => raiserOf(e.event) === fromKey && (to === END ? e.kind === 'end' : e.step === to || e.task === to))
+}
+// → was: [{event, task, rules}] (for undo)
+export async function setWayCondition(me, procKey, from, to, when, { reason = '' } = {}) {
+  const view = await viewOf(procKey)
+  const ways = waysBetween(view, from, to)
+  if (!ways.length) throw err(404, `이 프로세스에 「${from} → ${to === END ? '끝' : to}」 길이 없어요.`)
+  const rule = ruleOfWhen(when)
+  const set = await edgeConditionsOf(procKey)
+  const was = []
+  for (const e of ways) {
+    const s = set.get(edgeKey(e.event, e.task)) || null
+    was.push({ event: e.event, task: e.task, rules: s?.rules || [] })
+    await writeRow(me, procKey, e, { requirement: e.kind === 'end' ? null : s?.requirement || null, rules: rule ? [rule] : [], class: e.kind === 'end' ? null : s?.class || null, reason })
+  }
+  await ledger(me, 'ontology.edgecond', `「${view.proc.name}」 「${from} → ${to === END ? '끝' : to}」 사안에 따라: ${rule ? ruleText(rule) : '지움'}`, { process: procKey, from, to, rule, ways: ways.length, reason: reason || null })
+  return was
+}
+export async function restoreWayCondition(me, procKey, { was = [] } = {}, { reason = '' } = {}) {
+  const set = await edgeConditionsOf(procKey)
+  for (const w of was) {
+    const s = set.get(edgeKey(w.event, w.task)) || null
+    await writeRow(me, procKey, w, { requirement: s?.requirement || null, rules: w.rules || [], class: s?.class || null, reason })
+  }
+  await ledger(me, 'ontology.edgecond', `길 조건을 되돌림(간선 ${was.length}개)`, { process: procKey, was })
+}
+
+// At a split after x (map engine): each way's 사안에 따라 read against this case — the ways in from x to it (끝: 「x 완료 → 끝」), the first rule
+// that matches on each (steprule.js pickRequirement; amount: the case's, readText(text) → {p, measured}). → Map(to → {then, line, event})
+// for the ways with a matching rule. A way's own 꼭 is not here (the view's `required` takes it first).
+export async function wayRulesAt(view, x, outs, { settings, amount = null, readText = null, R = {} } = {}) {
+  const out = new Map()
+  for (const o of outs) {
+    for (const e of waysBetween(view, x, o.to)) {
+      const s = settings.get(edgeKey(e.event, e.task))
+      if (!s?.rules?.length) continue
+      const odds = []
+      let res
+      for (;;) {
+        res = pickRequirement({ requirement: null, rules: s.rules }, { amount, odds }, R)
+        if (!('pending' in res)) break
+        odds[res.pending] = readText ? await readText(s.rules[res.pending].when.text).catch(() => null) : null
+      }
+      if (res.matched && (!out.has(o.to) || res.requirement === 'required')) out.set(o.to, { then: res.requirement, line: res.matched.text, rule: res.matched.rule, event: e.event })
+      if (out.get(o.to)?.then === 'required') break
+    }
+  }
+  return out
+}
+
+// The AI's suggestions for the 사안에 따라 of a way X → Y (or X → 끝) where X has two or more ways out: the amount condition learned from the
+// cases (stats.js — on the flow's way) and the condition read from the cases (conditions.js, pro_branch_conditions, per task: the same for
+// every process with X — a suggestion only; what a person adopts is this process's rule). Rules already on the edge are left out.
+export async function waySuggestions(view, e, rules = []) {
+  const from = raiserOf(e.event)
+  if (!from) return { split: false, from: null, list: [] }
+  const step = [...view.tasks.entries()].find(([k, t]) => k === from || t.origin === from)?.[0] || from
+  const outs = (view.edges || []).filter((x) => x.from === step && x.status !== 'retired')
+  if (outs.length < 2) return { split: false, from, step, list: [] }
+  const toFlow = e.kind === 'end' ? END : e.step
+  const way = outs.find((x) => x.to === toFlow)
+  const have = new Set((rules || []).map((r) => (r.when.field === 'amount' ? `a${r.when.op}${r.when.value}` : `t${r.when.text}`)))
+  const list = []
+  const ci = way?.cond_cases
+  if (ci?.attr === 'amount' && Number.isFinite(Number(ci.threshold))) {
+    const op = ci.op || (/미만/.test(way.cond || '') ? '<' : '>=')
+    const r = normRule({ when: { field: 'amount', op, value: Number(ci.threshold) }, then: 'required' })
+    if (r && !have.has(`a${r.when.op}${r.when.value}`)) list.push({ kind: 'amount', rule: { ...r, text: ruleText(r) }, from: ci.said ? 'said' : 'learned', confidence: 'high' })
+  }
+  const toKey = e.kind === 'end' ? END : e.task
+  const [row] = await q(`select cond, signals, confidence, examples, model, made_at from pro_branch_conditions where tenant_id=$1 and from_task=$2 and to_task=$3`, [T(), from, toKey]).catch(() => [])
+  if (row?.cond) {
+    const r = normRule({ when: { text: row.cond }, then: 'required' })
+    if (r && !have.has(`t${r.when.text}`)) list.push({ kind: 'text', rule: { ...r, text: ruleText(r) }, from: 'ai', confidence: row.confidence || 'low', signals: row.signals || [], examples: (row.examples || []).length, model: row.model || '' })
+  }
+  return { split: true, from, step, others: outs.filter((x) => x.to !== toFlow).map((x) => x.to), list }
+}
+
 async function writeRow(me, procKey, e, { requirement, rules, class: c, reason }) {
   const cleared = !requirement && !(rules || []).length && !c
   await q(`insert into pro_edge_conditions (tenant_id, proc_key, event, task, requirement, rules, class, cleared, reason, by_user) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
@@ -194,7 +299,7 @@ export async function stepRequirementsOf(procKey, view) {
   const out = new Map()
   for (const e of entryEdgesOf(view)) {
     const s = set.get(edgeKey(e.event, e.task))
-    if (!s) continue
+    if (!s || e.kind === 'end') continue
     const cur = out.get(e.step)
     const r = mayRequire(s) ? 'required' : s.requirement === 'optional' ? 'optional' : null
     if (r && cur?.requirement !== 'required') out.set(e.step, { requirement: r })
@@ -249,9 +354,10 @@ async function viewOf(procKey) {
 // an event's name; a 「완료」 the map has no node for yet is named after the step it comes out of, as the flow names it
 function eventName(view, e) {
   const node = (view.all?.events || []).find((x) => x.key === e.event)
-  if (node?.name && e.kind !== 'done') return node.name
+  const done = e.kind === 'done' || e.kind === 'end'
+  if (node?.name && !done) return node.name
   const from = raiserOf(e.event)
-  if (e.kind !== 'done' || !from) return node?.name || e.event
+  if (!done || !from) return node?.name || e.event
   const step = [...view.tasks.values()].find((t) => t.origin === from)?.key || from
   return `${step} 완료`
 }
@@ -275,17 +381,38 @@ function findEdge(view, event, task) {
   return { e, all }
 }
 
+// what an edge's setting does, read in the panel — at a split also which way the case takes (a 꼭 way first, then a rule that matches, then
+// the AI's suggestions, then the most common way); a way to 끝 has only its rules (a case ends here when one matches, unless a way is 꼭)
+export function wayLines(s, { end = false, split = false, from = '' } = {}) {
+  if (end) {
+    const out = []
+    if (s.rules?.length) out.push(`사안에 따라(위에서부터 맞는 첫 규칙): ${s.rules.map((r, i) => `${i + 1}. ${whenText(r.when)}`).join(' · ')} — 맞으면 「${from}」에서 끝나요.`)
+    else out.push('정한 조건이 없어요 — 지도대로(흔한 길) 끝나거나 이어 가요.')
+    out.push('다른 갈래가 꼭 하는 단계면 그쪽이 먼저예요.')
+    return out
+  }
+  const out = settingLines(s).map((l) => l.replace('이 프로세스의 건은 늘 이 단계를 지나고', '이 간선으로 들어오면 이 프로세스의 건은 늘 이 단계를 하고'))
+  if (split) {
+    if (s.requirement === 'required') out.push(`「${from}」 뒤 갈래 중 이 길로 먼저 가요 — 다른 갈래의 조건보다 꼭이 먼저예요.`)
+    else if (s.rules?.some((r) => r.then === 'required')) out.push(`「${from}」 뒤 갈림에서 「꼭」 규칙이 이 건에 맞으면 이 길로 가요. 맞는 길이 없으면 AI 제안, 그다음 흔한 길로 가요.`)
+  }
+  return out
+}
+
 // one edge's panel: its setting, what it means, and the other ways into the same task (to copy the setting to)
 export async function edgeView(me, procKey, { event, task } = {}) {
   const view = await viewOf(procKey)
   const { e, all } = findEdge(view, String(event || ''), String(task || ''))
   const set = await edgeConditionsOf(procKey)
   const s = set.get(edgeKey(e.event, e.task)) || null
-  const siblings = all.filter((x) => x.task === e.task && x.event !== e.event).map((x) => { const t = set.get(edgeKey(x.event, x.task)) || null; return { event: x.event, name: eventName(view, x), kind: x.kind, setting: shown(t), mark: markOf(t), cls: t?.class?.decided ? t.class.class : null } })
+  const end = e.kind === 'end'
+  const siblings = end ? [] : all.filter((x) => x.task === e.task && x.event !== e.event).map((x) => { const t = set.get(edgeKey(x.event, x.task)) || null; return { event: x.event, name: eventName(view, x), kind: x.kind, setting: shown(t), mark: markOf(t), cls: t?.class?.decided ? t.class.class : null } })
+  const sugg = await waySuggestions(view, e, s?.rules || [])
   return {
-    proc: { key: view.proc.key, name: view.proc.name }, event: e.event, task: e.task, step: e.step, kind: e.kind, virtual: e.virtual, name: eventName(view, e), n: e.n, p: e.p,
+    proc: { key: view.proc.key, name: view.proc.name }, event: e.event, task: e.task, step: end ? '끝' : e.step, kind: e.kind, virtual: e.virtual, name: eventName(view, e), n: e.n, p: e.p,
     requirement: s?.requirement || null, rules: (s?.rules || []).map((r) => ({ ...r, text: ruleText(r) })), class: s?.class || null, reason: s?.reason || '', by: s?.by || '', at: s?.at || null,
-    lines: settingLines(s || {}).map((l) => l.replace('이 프로세스의 건은 늘 이 단계를 지나고', `이 간선으로 들어오면 이 프로세스의 건은 늘 이 단계를 하고`)),
+    lines: wayLines(s || {}, { end, split: sugg.split, from: sugg.step }),
+    split: sugg.split, from: sugg.from, others: sugg.others || [], suggestions: sugg.list,
     siblings, admin: await isAdmin(me).catch(() => false),
   }
 }
@@ -303,7 +430,9 @@ export async function setEdgeCondition(me, procKey, body = {}) {
   const rules = raw.map((x, i) => { const r = normRule(x); if (!r) throw err(400, `${i + 1}번째 규칙을 읽지 못했어요 — 금액(이상 · 초과 · 이하 · 미만과 값)이나 글로 쓴 조건, 그리고 꼭 · 선택이 있어야 해요.`); return r })
   const view = await viewOf(procKey)
   const { e, all } = findEdge(view, String(body.event || ''), String(body.task || ''))
-  const also = [...new Set((Array.isArray(body.also) ? body.also : []).map(String))].filter((ev) => ev !== e.event)
+  // a way to 끝: only 사안에 따라, each rule ending the case here
+  if (e.kind === 'end' && (want || cls || rules.some((r) => r.then !== 'required'))) throw err(400, '끝으로 가는 길에는 「사안에 따라」(맞으면 여기서 끝)만 정해요.')
+  const also =[...new Set((Array.isArray(body.also) ? body.also : []).map(String))].filter((ev) => ev !== e.event)
   const targets = [e, ...also.map((ev) => { const x = all.find((y) => y.event === ev && y.task === e.task); if (!x) throw err(404, `같은 단계로 들어오는 간선이 아니에요: ${ev}`); return x })]
   const set = await edgeConditionsOf(procKey)
   const why = clean(body.reason).slice(0, 300) || null
@@ -315,7 +444,7 @@ export async function setEdgeCondition(me, procKey, body = {}) {
     await q(`insert into pro_edge_conditions (tenant_id, proc_key, event, task, requirement, rules, class, cleared, reason, by_user) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [T(), procKey, x.event, x.task, want, JSON.stringify(rules), c ? JSON.stringify(c) : null, cleared, why, by])
     await ledger(me, 'ontology.edgecond',
-      `「${view.proc.name}」 「${eventName(view, x)} → ${x.step}」: ${want ? REQ_KO[want] : '지도대로'}${rules.length ? ` · 사안에 따라 ${rules.length}가지(${rules.map(ruleText).join(' · ')})` : ''}${c?.decided ? ` · ${CLASS_KO[c.class]}` : ''}`,
+      `「${view.proc.name}」 「${eventName(view, x)} → ${x.kind === 'end' ? '끝' : x.step}」: ${want ? REQ_KO[want] : '지도대로'}${rules.length ? ` · 사안에 따라 ${rules.length}가지(${rules.map(ruleText).join(' · ')})` : ''}${c?.decided ? ` · ${CLASS_KO[c.class]}` : ''}`,
       { process: procKey, event: x.event, task: x.task, requirement: want, rules, class: c?.decided ? c.class : null, reason: why,
         was: was ? { requirement: was.requirement, rules: was.rules, class: was.class?.decided ? was.class.class : null } : null })
   }

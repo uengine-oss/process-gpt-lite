@@ -93,10 +93,11 @@ export function unfold({ proc, tasks, edges }, entry, theta) {
   // a way a person decided (a correction made it, refine.js) is in whatever θ, like a pinned one
   let ok = edges.filter((e) => e.status !== 'retired' && !retiredTask(e.from) && !(e.to !== END && retiredTask(e.to)) && (e.p >= theta || e.pinned || e.decided || e.required || (e.to !== END && pinnedTask(e.to))))
   // 고정 · 꼭: a split that can reach a pinned task, or whose way out is 꼭 (edge settings — edgecond.js edgeRequiredView), goes through it —
-  // the ways around it are dropped
+  // the ways around it are dropped. A way only a rule may make 꼭 (required 'maybe') stays in at any θ with its rule as the split's condition
+  // (gallimgil-merge): the other ways stay too
   for (const x of new Set(ok.map((e) => e.from))) {
     const outs = ok.filter((e) => e.from === x)
-    const pin = outs.find((e) => e.to !== END && e.required === true) || outs.find((e) => e.to !== END && e.required) || outs.find((e) => e.to !== END && pinnedTask(e.to))
+    const pin = outs.find((e) => e.to !== END && e.required === true) || outs.find((e) => e.to !== END && pinnedTask(e.to))
     if (pin && outs.length > 1) ok = ok.filter((e) => e.from !== x || e === pin || (e.to !== END && isUpstream(ok, e.to, x)))
   }
   if (proc.band === 'open') ok = ok.filter((e) => e.from === entry && e.to === END)

@@ -93,13 +93,22 @@ export function joinNext(view, siblings, theta) {
 // a split: the learned amount condition (no model) → a text condition read for this case (odds: to → {p, measured}) at or over
 // textMatch → the most common way. A way to a step this case already did maxRepeat times is left out while there are others.
 // → {to, how: amount | text | common, p, why, cond?, unsure?}
-export function pickWay(outs, { amount = null, odds = new Map(), texts = new Map(), textMatch = 0.6, done = new Map(), maxRepeat = 3 } = {}) {
+export function pickWay(outs, { amount = null, odds = new Map(), texts = new Map(), textMatch = 0.6, done = new Map(), maxRepeat = 3, ruled = undefined } = {}) {
   const live = outs.filter((o) => o.to === END || (done.get(o.to) || 0) < maxRepeat)
   const pool = live.length ? live : outs
-  // 꼭 하는 간선(edge settings — edgecond.js edgeRequiredView): the way into a 꼭 step from here is taken first — a sure 꼭 before one a
-  // rule may make 꼭 (that one is read when the step opens and may still be skipped there), the most common among them
+  // 꼭 하는 간선(edge settings — edgecond.js edgeRequiredView): the way into a 꼭 step from here is taken first, the most common among them
   const must = pool.filter((o) => o.required === true)
-  const maybe = must.length ? must : pool.filter((o) => o.required === 'maybe')
+  // then the ways' 사안에 따라 read for this case (ruled: edgecond.js wayRulesAt — the split's conditions are the edges' rules): a way whose
+  // 「꼭」 rule matches is taken (a step before 끝 — a 꼭 step comes before ending); 끝's rule ends the case here
+  if (!must.length && ruled) {
+    const hit = pool.filter((o) => ruled.get(o.to)?.then === 'required').sort((a, b) => (a.to === END) - (b.to === END) || b.p - a.p)
+    if (hit.length) {
+      const o = hit[0], r = ruled.get(o.to)
+      return { to: o.to, how: 'rule', p: o.p, cond: r.rule || '', why: o.to === END ? `이 건은 ${r.line}이라 여기서 끝나요` : `이 건은 ${r.line}이라 「${o.to}」${ro(o.to)} 가요 — 꼭 하는 단계예요` }
+    }
+  }
+  // (a way a rule may make 꼭 is not taken first: its rules are read above, and an amount rule is also the way's condition below)
+  const maybe = must
   if (maybe.length) {
     const o = [...maybe].sort((a, b) => b.p - a.p)[0]
     return { to: o.to, how: 'required', p: o.p, why: o.required === true ? `「${o.to}」은(는) 이 길로 오면 꼭 하는 단계예요` : `「${o.to}」은(는) 이 길로 오면 사안에 따라 꼭 하는 단계예요` }
@@ -128,7 +137,7 @@ export function pickWay(outs, { amount = null, odds = new Map(), texts = new Map
 // skipped | open | closed, par: {group, siblings}, via}] (row among them) · judge(cond): a text condition read for this case → {p, measured}
 // · texts: to → text condition of the ways out of row.task · amount: the case's amount (null: none).
 // → {creates: [{task, via, par?}]} | {wait: 'join', pending} | {end: true, how}
-export async function nextOf(view, row, { rows = [], theta, amount = null, judge = null, texts = new Map(), R = {} } = {}) {
+export async function nextOf(view, row, { rows = [], theta, amount = null, judge = null, texts = new Map(), R = {}, wayRules = null } = {}) {
   const th = Number.isFinite(theta) ? theta : view.proc?.theta ?? 0.05
   const x = row.task
   const ended = (r) => r.state === 'done' || r.state === 'skipped'
@@ -160,10 +169,12 @@ export async function nextOf(view, row, { rows = [], theta, amount = null, judge
     if ((done.get(to) || 0) >= maxRepeat) return { end: true, how: 'loop', why: `「${to}」${eul(to)} 이미 ${done.get(to)}번 했어요` }
     return { creates: [{ task: to, via: { how: 'single', from: x, p: outs[0].p, why: '이 흐름의 다음 단계예요', outs: list } }] }
   }
-  const opts = { amount, texts, done, maxRepeat, textMatch: R.textMatch ?? 0.6 }
+  // the ways' 사안에 따라(edge settings) read for this case — not when a way is 꼭 anyway
+  const ruled = wayRules && !outs.some((o) => o.required === true) ? await wayRules(outs).catch(() => new Map()) : undefined
+  const opts = { amount, texts, done, maxRepeat, textMatch: R.textMatch ?? 0.6, ruled }
   let pick = pickWay(outs, opts)
   // text conditions are read only when the amount did not decide it, and only for the ways that have one
-  if (pick.how !== 'amount' && pick.how !== 'required' && judge && outs.some((o) => texts.has(o.to))) {
+  if (pick.how !== 'amount' && pick.how !== 'required' && pick.how !== 'rule' && judge && outs.some((o) => texts.has(o.to))) {
     const odds = new Map()
     for (const o of outs) if (texts.has(o.to)) odds.set(o.to, (await judge(texts.get(o.to), o).catch(() => null)) || { p: null })
     pick = pickWay(outs, { ...opts, odds })
@@ -394,7 +405,11 @@ async function advanceIn(caseId, todoId) {
   const SRR = (await skillRules()).stepRules || {}
   let state = null
   const judge = async (cond) => SR.readYes(state ??= await SR.caseState(c, SRR.textChars || 1500), fill(R.question || SRR.questions?.rule || '이 건은 다음 경우에 해당하나? 「{text}」', { text: cond }), SRR)
-  const dec = await nextOf(view, row, { rows, amount, judge, texts, R })
+  // the split's conditions are the ways' 사안에 따라 in this process (edge settings, read now)
+  const EC = await import('./edgecond.js')
+  const settings = await EC.edgeConditionsOf(c.bundle).catch(() => new Map())
+  const wayRules = settings.size ? async (outs) => EC.wayRulesAt(view, row.task, outs, { settings, amount: amount ?? (await SR.caseAmount(c).catch(() => ({ amount: null }))).amount, readText: judge, R: SRR }) : null
+  const dec = await nextOf(view, row, { rows, amount, judge, texts, R, wayRules })
   if (dec.wait) { console.log(`[map] 「${row.task}」 끝 — 「${dec.pending.join('」 · 「')}」${eul(dec.pending.at(-1))} 기다려요(합류)`); return [] }
   if (dec.end) {
     if (rows.some((r) => r.state === 'open' && r.todoId !== row.todoId)) return []

@@ -306,6 +306,8 @@ export async function checkOps({ kind, raw = [], found, cs = [], view = null, ra
       fix.args.when = cronKo(fix.args.cron)
     }
     if (fix.op === 'set_requirement' && !inProc.has(fix.args.task)) { refuse(fix, '그 단계가 이 프로세스에 없어요.'); continue }
+    // a split's condition (kept on the edge settings): the way must be there, after a split
+    if (fix.op === 'set_cond' && found) { const why = wontApply(found, [...cs, ...overlay], fix); if (why) { refuse(fix, why); continue } }
     // applies on top of what is there and what came before (the overlay, no model)
     if (EDIT_OPS.includes(fix.op) && found) {
       const why = wontApply(found, [...cs, ...overlay], fix)
@@ -456,6 +458,9 @@ export async function applyEdit(me, { proc: procKey = '', scope = null, words = 
     name = np.args.name
     const id = await insertCorrection(me, key, { op: 'new_process', args: np.args, why, source, batch, opinionId })
     applied.push({ id, op: 'new_process', label: np.label })
+    // the conditions said on its ways: the 사안에 따라 of those ways (edge settings), as set_cond
+    const EC = await import('./edgecond.js')
+    for (const w of np.args.ways || []) if (w.when) await EC.setWayCondition(me, key, w.from, w.to, w.when, { reason: why }).catch((e) => console.warn('[ontology] said way condition', w.from, w.to, e.message))
     await ledger(me, 'ontology.edit', `말로 만든 프로세스 「${name}」: ${np.label}`, { proc: key, op: 'new_process', words: why, batch, id, steps: np.args.steps.map((s) => s.name) })
   } else {
     for (const x of plan.ops) {
@@ -463,6 +468,10 @@ export async function applyEdit(me, { proc: procKey = '', scope = null, words = 
       if (x.op === 'set_requirement') {
         // 꼭 · 선택 lives on the ways into the step (edge settings, edgecond.js) — every way into it in this process, each keeping its rules
         const was = await (await import('./edgecond.js')).setStepRequirement(me, key, args.task, args.requirement, { reason: why })
+        args = { ...args, was }
+      } else if (x.op === 'set_cond') {
+        // 갈림길 조건 lives on the ways in from `from` to `to` (edge settings: 사안에 따라 「…이면 → 꼭」, 끝: 「…이면 여기서 끝」)
+        const was = await (await import('./edgecond.js')).setWayCondition(me, key, args.from, args.to, args.when, { reason: why })
         args = { ...args, was }
       } else if (x.op === 'set_timer') {
         const t = await (await import('./timers.js')).addProcessTimer(me, { proc: key, entry: args.entry, cron: args.cron })
@@ -486,6 +495,7 @@ export async function undoSide(me, procKey, row) {
     // (a change made before edge settings kept one step row in `was` — nothing on the edges to put back)
     if (Array.isArray(a.was)) await (await import('./edgecond.js')).restoreStepRequirement(me, procKey, { task: a.task, requirement: a.requirement, was: a.was }, { reason: '말로 고친 것을 되돌림' })
   }
+  if (row.op === 'set_cond' && Array.isArray(a.was)) await (await import('./edgecond.js')).restoreWayCondition(me, procKey, { was: a.was }, { reason: '말로 고친 것을 되돌림' })
   if (row.op === 'set_timer' && a.event) await (await import('./timers.js')).setTimerStatus(me, a.event, 'gone').catch((e) => { if (e.status !== 404) throw e })
 }
 

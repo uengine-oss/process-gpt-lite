@@ -9,6 +9,9 @@ import { keptAfterBuild } from '../lib/ontology/build.js'
 import { unfold, parallelPair, contractOf } from '../lib/ontology/run.js'
 import { pickWay, waysOut, nextOf } from '../lib/ontology/mapengine.js'
 import { taskDefinition } from '../lib/ontology/taskdef.js'
+import { waysBetween, wayRulesAt, ruleOfWhen, edgeKey, edgeRequiredView } from '../lib/ontology/edgecond.js'
+// the conditions said on a process's ways, as applyEdit keeps them: the 사안에 따라 of the ways in (edgecond.js setWayCondition)
+const saidSettings = (v, ways) => { const m = new Map(); for (const w of ways) if (w.when) for (const e of waysBetween(v, w.from, w.to)) m.set(edgeKey(e.event, e.task), { event: e.event, task: e.task, requirement: null, rules: [ruleOfWhen(w.when)] }); return m }
 import { END } from '../lib/ontology/stats.js'
 
 // the lecture process as found (refine.test.js)
@@ -66,17 +69,25 @@ test('갈림길 조건 · 나란히 · 하는 이: 흐름에 얹히고 엔진이
     c('3', 'set_runner', { task: '강의자료 준비', runner: 'agent' }),
   ]
   const v = refinedView(lectureBase(cs), cs)
+  // the split's condition is not drawn on the flow any more: it is the 사안에 따라 of the ways in (edge settings — editmap.js applyEdit
+  // → edgecond.js setWayCondition), 「…이면 → 꼭」 on 고객 회신 → 교육 진행, 「…이면 여기서 끝」 on 「고객 회신 완료 → 끝」
   const big = v.edges.find((e) => e.from === '고객 회신' && e.to === '교육 진행')
-  assert.equal(big.cond, '금액(amount)이 3,000,000원 이상')
-  assert.equal(big.decided, true)
-  assert.equal(big.cond_cases.op, '>=')
+  assert.ok(!big.cond)
   assert.equal(v.tasks.get('강의자료 준비').runner, 'agent')
   assert.equal(v.tasks.get('강의자료 준비').decided, true)
   assert.equal((await taskDefinition('강의자료 준비', v.tasks.get('강의자료 준비'))).runner, 'agent')
-  // the map engine picks the way by the said threshold (no model), on both sides
+  const settings = new Map()
+  for (const x of cs.filter((y) => y.op === 'set_cond')) for (const e of waysBetween(v, x.args.from, x.args.to)) settings.set(edgeKey(e.event, e.task), { event: e.event, task: e.task, requirement: null, rules: [ruleOfWhen(x.args.when)] })
+  assert.deepEqual([...settings.keys()].sort(), [edgeKey('done:고객 회신', END), edgeKey('done:고객 회신', '교육 진행')].sort())
+  // the map engine picks the way by the rule read for the case (no model), on both sides
   const outs = waysOut(v, '고객 회신', 0.05).outs
-  assert.equal(pickWay(outs, { amount: 1_200_000 }).to, END)
-  assert.equal(pickWay(outs, { amount: 3_000_000 }).to, '교육 진행')
+  const pick = async (amount) => pickWay(outs, { ruled: await wayRulesAt(v, '고객 회신', outs, { settings, amount }) })
+  const small = await pick(1_200_000)
+  assert.deepEqual([small.to, small.how], [END, 'rule'])
+  assert.match(small.why, /여기서 끝나요/)
+  assert.equal((await pick(3_000_000)).to, '교육 진행')
+  // no amount: no rule matches → the most common way
+  assert.equal((await pick(null)).how, 'common')
   // a condition on a task with one way out is refused (there is no split)
   assert.match(applyCorrections(found(), [c('x', 'set_cond', { from: '강의자료 준비', to: '고객 회신', when: { text: '급하면' } })]).skipped[0].why, /갈림길이 없어요/)
   // side by side: both open after what came before the first, and the step after both waits for both
@@ -169,7 +180,8 @@ test('말로 만든 프로세스: 단계는 지도의 일, 길은 새 프로세�
   // all ways in at any θ; the amount split decides
   const { nodes } = unfold(v, '견적 요청 접수', 0.99)
   assert.deepEqual(nodes.sort(), ['견적 요청 접수', '견적서 발송', '견적서 작성', '대표 승인'])
-  const outs = waysOut(v, '견적서 작성', 0.5).outs
+  // the amounts said on its ways are those ways' 사안에 따라; the view a case runs has them as the split's conditions
+  const outs = waysOut(edgeRequiredView(v, saidSettings(v, np.args.ways)), '견적서 작성', 0.5).outs
   assert.equal(pickWay(outs, { amount: 6_200_000 }).to, '대표 승인')
   assert.equal(pickWay(outs, { amount: 1_000_000 }).to, '견적서 발송')
   // a build keeps it and its steps; a mined cluster does not take its key
@@ -193,7 +205,7 @@ test('스냅샷(프로세스 정의로)도 말로 만든 흐름을 그대로: �
   const v = refinedView(baseOf(g, proc, [{ id: 'n', ...np }]), [{ id: 'n', ...np }])
   const prev = process.env.PRO_ONTOLOGY_BOLT_URL
   // contractOf reads text conditions (none here) and the agent's id: it needs the database, so only the unfold is checked when there is none
-  const { flows } = unfold(v, '견적서 작성', 0.05)
+  const { flows } = unfold(edgeRequiredView(v, saidSettings(v, np.args.ways)), '견적서 작성', 0.05)
   assert.equal(flows.filter((f) => f.from === '견적서 작성').length, 2)
   assert.ok(flows.filter((f) => f.from === '견적서 작성').every((f) => /금액\(amount\)/.test(f.cond)))
   assert.equal(v.tasks.get('견적서 작성').runner, 'agent')

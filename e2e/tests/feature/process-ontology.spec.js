@@ -402,3 +402,79 @@ test('F-PO-19 /improve 넘기기 — 목록은 지도의 병목 보기로, 지�
   await expect.poll(at(false), { timeout: 15000 }).toBe('/process-map?view=flow')
   expect(page.errors).toEqual([])
 })
+
+// 꼭 · 선택 보기와 길에서 여는 간선 설정(edge-step-condition · gallimgil-merge): 「꼭 · 선택 보기」를 켰을 때만 단계마다 들어오는 간선 설정을
+// 테두리(꼭 · 선택 · 사안에 따라) · 채움(분류)으로, 관계 선도 같은 색 · 꼴로 보인다. 사건 보기 없이 관계(X → Y, X → 끝)를 누르면 관계 패널에
+// 그 길의 간선 요약과 「자세히」 — 간선 패널을 연다. 갈림길 조건은 간선의 사안에 따라라 따로 정하는 곳이 없다. 저장한 값은 사건 보기의 간선과 API 에
+// 그대로. 끝으로 가는 길은 사안에 따라만(맞으면 여기서 끝). 끝나면 처음대로.
+test('F-PO-22 화면 — 꼭 · 선택 보기, 관계에서 여는 간선 설정(끝으로 가는 길 포함)', async ({ pageAs, db, cleanup }) => {
+  const { PGPT_URL } = await import('../../lib/env.js')
+  const page = await pageAs('po-step-admin', { viewport: { width: 1500, height: 900 } })
+  await db.q('update users set is_admin=true where id=$1', [page.user.id]); cleanup(() => db.q('update users set is_admin=false where id=$1', [page.user.id]))
+  const u = page.user
+  const m = (await u.get('/ontology/map')).body
+  test.skip(!m?.tasks?.length, '셈한 지도가 없다')
+  const conds = async (k) => (await u.get(`/ontology/processes/${encodeURIComponent(k)}/edge-conditions`)).body.edges || []
+  const raiser = (ev) => (/^(?:artifact|done):([^:]+)/.exec(ev) || [])[1]
+  const lbl = (title) => page.locator('svg.map g.lbl', { has: page.locator('title', { hasText: title }) }).first()
+  // 설정이 없는 길 X → Y(사건 → 일)와 X → 끝이 지도에 그려진 프로세스
+  let P = null, way = null, end = null
+  for (const p of m.processes.filter((x) => x.kind !== 'routine')) {
+    const es = await conds(p.key)
+    const w = es.find((e) => ['artifact', 'done'].includes(e.kind) && !e.virtual && !e.mark && !e.cls && !e.setting && raiser(e.event) !== e.step)
+    const en = es.find((e) => e.kind === 'end' && !e.setting)
+    if (w && en) { P = p; way = w; end = en; break }
+  }
+  test.skip(!P, '설정이 없는 길과 끝으로 가는 길이 함께 있는 프로세스가 없다')
+  const url = `/ontology/processes/${encodeURIComponent(P.key)}/edge-condition`
+  for (const e of [way, end]) cleanup(() => u.put(url, { event: e.event, task: e.task, requirement: null, rules: [], class: null, reason: 'e2e F-PO-22 되돌림' }))
+
+  await page.goto(new URL(`process-map?proc=${encodeURIComponent(P.key)}`, `${PGPT_URL}/`).href)
+  const toggle = page.getByTestId('onto-steps-toggle')
+  await expect(toggle).toHaveAttribute('aria-checked', 'false', { timeout: 20000 })
+  // 꺼져 있으면 단계 표시가 없다, 켜면 들어오는 간선 설정대로(모두 같으면 그 값, 다르면 사안에 따라)
+  await expect(page.locator('svg.map g.node[class*="sm-"]')).toHaveCount(0)
+  await toggle.click()
+  const all = await conds(P.key)
+  const want = (es) => { const ms = new Set(es.map((e) => e.mark || '')); return ms.size === 1 ? [...ms][0] || null : 'cond' }
+  const marked = [...new Set(all.filter((e) => e.kind !== 'end').map((e) => e.step))].map((k) => [k, all.filter((e) => e.step === k)]).filter(([, l]) => l.some((e) => e.mark))
+  for (const [k, l] of marked) {
+    const node = page.locator(`svg.map g.node[data-task="${k}"]`)
+    if (await node.count()) await expect(node).toHaveClass(new RegExp(`\\bsm-${want(l)}\\b`))
+  }
+  await toggle.click()
+  await expect(page.locator('svg.map g.node[class*="sm-"]')).toHaveCount(0)
+
+  // 사건 보기 없이: 관계 X → Y → 「이 길로 가면」 요약 → 자세히 → 간선 패널, 꼭으로 저장
+  const X = raiser(way.event), Y = way.step
+  await lbl(`${X} → ${Y}`).dispatchEvent('click')
+  await expect(page.getByTestId('onto-way-summary')).toBeVisible()
+  await page.locator(`[data-testid=onto-way-edge][data-event="${way.event}"] [data-testid=onto-way-open]`).click()
+  await expect(page.getByTestId('onto-edgerule')).toHaveAttribute('data-requirement', 'auto')
+  await page.getByTestId('onto-edgerule-opt-required').click()
+  await page.getByTestId('onto-edgerule-save').click()
+  await expect(page.getByTestId('onto-edgerule-note')).toBeVisible()
+  expect((await conds(P.key)).find((e) => e.event === way.event && e.task === way.task)?.mark).toBe('req')
+
+  // 끝으로 가는 길: 사안에 따라만(꼭 · 선택 · 분류가 없다), 금액 규칙 「1000만 이상이면 여기서 끝」을 더해 저장
+  await lbl(`${raiser(end.event)} → 끝`).dispatchEvent('click')
+  await page.locator(`[data-testid=onto-way-edge][data-event="${end.event}"] [data-testid=onto-way-open]`).click()
+  await expect(page.getByTestId('onto-edgerule')).toBeVisible()
+  await expect(page.getByTestId('onto-edgerule-opt-required')).toHaveCount(0)
+  await expect(page.getByTestId('onto-edgerule-cls-human')).toHaveCount(0)
+  await page.getByTestId('onto-edgerule-add-value').fill('1000만')
+  await page.getByTestId('onto-edgerule-add').click()
+  await expect(page.getByTestId('onto-edgerule-rule')).toHaveCount(1)
+  await page.getByTestId('onto-edgerule-save').click()
+  await expect(page.getByTestId('onto-edgerule-note')).toBeVisible()
+  const endNow = (await conds(P.key)).find((e) => e.event === end.event && e.task === end.task)
+  expect([endNow.mark, endNow.setting?.rules?.[0]?.when?.value, endNow.setting?.rules?.[0]?.then]).toEqual(['cond', 10_000_000, 'required'])
+
+  // 사건 보기: 관계에서 저장한 같은 간선이 꼭으로 칠해지고, 그 간선의 패널도 꼭
+  await page.getByTestId('onto-events-toggle').click()
+  const line = page.locator('svg.map g.edge', { has: page.locator('title', { hasText: `${way.name} → ${Y}` }) }).first()
+  await expect(line).toHaveClass(/\bem-req\b/, { timeout: 15000 })
+  await line.locator('path.hit').dispatchEvent('click')
+  await expect(page.getByTestId('onto-edgerule')).toHaveAttribute('data-requirement', 'required')
+  expect(page.errors).toEqual([])
+})
