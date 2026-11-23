@@ -1,0 +1,138 @@
+{
+ "about": "자동 참고 고르기 사례(spec pgpt-pro_context-auto-reference). score = 보이는 깊이의 글과 메시지의 유사도, p = 회색 구간 판정 확률(null = 판정 실패·시간 초과).",
+ "cases": [
+  {
+   "id": "A01",
+   "item": {
+    "depth": "summary",
+    "score": 0.55
+   },
+   "expect": "used",
+   "note": "기준 그 값"
+  },
+  {
+   "id": "A02",
+   "item": {
+    "depth": "summary",
+    "score": 0.549,
+    "p": 0.2
+   },
+   "expect": "none",
+   "note": "기준 바로 아래, 판정이 아니라고 함"
+  },
+  {
+   "id": "A03",
+   "item": {
+    "depth": "summary",
+    "score": 0.5,
+    "p": 0.49
+   },
+   "expect": "none",
+   "note": "회색 구간, 판정 확률 0.49"
+  },
+  {
+   "id": "A04",
+   "item": {
+    "depth": "summary",
+    "score": 0.5,
+    "p": 0.5
+   },
+   "expect": "used",
+   "note": "회색 구간, 판정 확률 0.50"
+  },
+  {
+   "id": "A05",
+   "item": {
+    "depth": "summary",
+    "score": 0.45,
+    "p": 0.9
+   },
+   "expect": "used",
+   "note": "회색 구간의 아래 끝"
+  },
+  {
+   "id": "A06",
+   "item": {
+    "depth": "summary",
+    "score": 0.449,
+    "p": 0.9
+   },
+   "expect": "none",
+   "note": "회색 구간 바로 아래는 판정도 부르지 않는다"
+  },
+  {
+   "id": "A07",
+   "item": {
+    "depth": "summary",
+    "score": 0.5,
+    "p": null
+   },
+   "expect": "none",
+   "note": "판정 실패면 붙이지 않는다"
+  },
+  {
+   "id": "A08",
+   "item": {
+    "depth": "summary",
+    "score": 0.2,
+    "pinned": true
+   },
+   "expect": "used",
+   "note": "고정은 관련도와 관계없이"
+  },
+  {
+   "id": "A10",
+   "item": {
+    "depth": "summary",
+    "score": 0.9,
+    "dropped": true
+   },
+   "expect": "none",
+   "note": "뺀 항목은 다시 붙지 않는다"
+  },
+  {
+   "id": "A11",
+   "item": {
+    "depth": "summary",
+    "score": 0.58,
+    "bump": 0.05,
+    "p": 0.1
+   },
+   "expect": "none",
+   "note": "세 방에서 뺀 항목은 기준이 0.60, 회색 구간에서 판정이 아니라고 함"
+  },
+  {
+   "id": "A12",
+   "item": {
+    "depth": "title",
+    "score": 0.7
+   },
+   "expect": "requestable",
+   "note": "제목만 보이는 남의 항목은 요청 후보"
+  },
+  {
+   "id": "A13",
+   "item": {
+    "depth": "title",
+    "score": 0.49
+   },
+   "expect": "none",
+   "note": "요청 후보 기준(0.5) 아래"
+  },
+  {
+   "id": "A14",
+   "item": {
+    "depth": "title",
+    "score": 0.9,
+    "mine": true
+   },
+   "expect": "none",
+   "note": "내 항목은 요청 후보가 아니다"
+  }
+ ],
+ "limits": {
+  "contexts": 3,
+  "requestable": 2,
+  "judged": 3
+ }
+}

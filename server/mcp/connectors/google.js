@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import * as g from '../../lib/google.js'
 import { getSecret } from '../../lib/vault.js'
+import { config } from '../../config.js'
 
 const has = (sec, scope) => String(sec?.scope || '').includes(scope)
 
@@ -8,7 +9,7 @@ export const google = {
   name: 'google',
   title: 'Google (Gmail·캘린더·Drive)',
   connected: async (userId) => {
-    const sec = await getSecret(userId, 'oauth', 'google')
+    const sec = await getSecret(userId, 'oauth', config.google.vaultSite)
     return !!sec?.refresh_token || !!sec?.access_token
   },
   // tools whose scope the user has not granted are hidden instead of failing at call time
@@ -19,7 +20,7 @@ export const google = {
   allowed: async (userId, tool) => {
     const need = google.scopes[tool]
     if (!need) return true
-    return has(await getSecret(userId, 'oauth', 'google'), need)
+    return has(await getSecret(userId, 'oauth', config.google.vaultSite), need)
   },
   tools: [
     {

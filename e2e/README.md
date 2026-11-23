@@ -199,7 +199,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 경로 탈출 거절 | S-22 | smoke | ✅ |
 | SSE 를 막는 프록시 뒤에서도 실시간 | F-RS-02 | feature | ✅ |
 
-### 10. 보관함·브라우저 에이전트 (spec `pgpt-pro_credential-vault` · `pgpt-pro_vault-key-management` · `pgpt-pro_browser-credential-handoff` · `pgpt-pro_browser-decision-gates`, 영상 `n5SBj_iRbig`)
+### 10. 보관함·브라우저 에이전트 (spec `pgpt-pro_credential-vault` · `pgpt-pro_vault-key-management` · `pgpt-pro_browser-credential-handoff` · `pgpt-pro_browser-decision-gates`, 영상 `n5SBj_iRbig` · 작업 독 `X_tziV39e2M` · 메일로 온 인증 코드 `OqXlJt5n27M`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -214,6 +214,8 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | KEK 교체 · 폐기된 KEK 정리 · DEK 교체 · 전수 검증 | F-UT-01 (`server/test/vault.test.js`) | feature | ✅ |
 | 브라우저 작업 독: 일하는 동안 입력창 옆 원형 실시간 썸네일 → 누르면 가운데 카드(작업 카드 그대로, 계획·확장·취소), Esc·✕ 로 닫힘, 끝나면 사라짐, 조치가 필요하면 주황 테두리 → 답할 카드로 | F-BD-01, F-BD-02 | feature | ✅ |
 | 작업 카드 알약: 일하는 동안 지금 하는 일(status 이벤트)로 바뀜 | — | — | ◐ (실제 브라우저 작업 영상으로 확인) |
+| 메일로 온 인증 코드: 카드로 묻는 동안 메일함에서 그 사이트의 메일을 찾아 서버가 바로 입력, 사람이 먼저면 사람 값, 다른 사이트 메일은 안 씀, 끄기, 무인 실행, 모델에 코드 없음 | `server/test/browser-mail-otp.test.js` (5), `mail-code.test.js` (19, 사례 `mail-code-cases.json`) | 서버 | ✅ |
+| 인증 코드 카드: 「메일함에서 … 인증 메일을 찾고 있어요」, 「메일에서 찾은 인증 코드 입력됨 · 도메인」(코드 없이), 설정 › 보안 스위치, 시험용 사이트 메일 → 그 주소의 데모 메일함 | F-MO-01…03 | feature | ✅ |
 | 업그레이드 후 기존 데이터 유지(단일 키 파일→키링) · 메모리 안의 DEK 수명 · 키 작업 기록 | — | — | ✗ |
 | 로그인·결제 카드 요구를 보관함으로, 여러 항목 선택, 비밀 값을 모델에 노출하지 않는 서버 측 입력, 거부된 비밀번호 갱신, 일회용 값 직접 전달, 요청 닫기, 직접 제어 중 입력 감지, 결제 직전 승인 (9개 요구사항) | F-UT-03 (`server/test/browser-vault.test.js`, 모델 대역 서버가 받은 요청에 비밀 0건) | feature | ✅ (부하가 크면 흔들림 — 재시도 2회) |
 | 사람이 없는 실행 · 응답 없는 요청의 만료(서버 재시작) | — | — | ✗ |
@@ -321,6 +323,15 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 영어 모드 다듬기: 워드 그림 ↔ 포토크래프트(영어·한국어), 앱 이름으로 Craft 도구, 영어 이름 지목, 패널 설계 토큰·금액(한·영), 브라우저 구매 차단·결과 문장, 테스트 상점 영어판, 설치 스크립트 언어 | `english-fixes.spec.js`, `server/test/en-fix.test.js`, `browser-tasks.test.js` | F-EN-01…04, S-53 | feature·smoke | ✅ (F-EN-04 는 모델 호출) |
 | 설치 스택에 대고 전체 스위트 | `PGPT_URL=http://localhost:18080` | (전체) | 모두 | ◐ |
 
+### 13e. 사용량·요금제 (`lib/plans/*`, 설계 `pgpt-pro/docs/billing/tenant-billing-design.md`, 영상 `bpYwayg_6Co` · 요금제 화면 `d3UtRrwus7M`)
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 요금제 탭: 지금 요금제의 다음 것을 먼저, 큰 가격·사용량 배지·할 수 있는 일(잰 값으로 센 수)·맨 아래 안내, 팀원은 「바꿔 달라고 요청」, 지금 요금제는 누를 수 없음 | `UsagePlan.vue`, `lib/plans/equivalents.js` | F-PL-01 | feature | ✅ (PRO_LLM_KEYS=litellm 서버) |
+| 할 수 있는 일의 수 = 요금제 사용량 ÷ 실제로 시켜 본 일의 비용(2자리로 내림), 쓴 만큼 요금제는 일 하나의 값 | `jobs.json` (`scripts/measure-plan-jobs.mjs`) | `server/test/plans-equivalents.test.js` | 단위 | ✅ |
+| 일의 비용을 다시 재기(모델·프롬프트가 바뀌면) | `scripts/measure-plan-jobs.mjs --write` | — | — | ✗ (실제 모델 호출, 수동) |
+| 한도·일할 정산·이벤트 소비자 | `server/test/plans.e2e.mjs`, `plans-prorate.test.js`, `llm-keys.e2e.mjs` | — | 서버 | ✅ |
+
 ### 14. 튜토리얼 결함 고침 — 개인정보·채팅·브라우저·메일·프로필 (`docs/tutorial-findings.md`)
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -356,7 +367,129 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 스킬 변형 검증은 20분 기한, 기한을 넘긴 'running'(서버 재시작 등)은 실패로 닫혀 다시 검증 가능, 화면은 경과 분·연결 끊김을 표시 | 결함 #19 (`lib/folders/skills.js`) | F-FX2-09 | feature | ✅ |
 | CADCraft 도면 글자의 ㎡·㎥ 는 m²·m³ 로(웹 글꼴에 단위 기호가 없음) | 결함 #10 (`mcp/craft.js plainUnits`, `lib/floorPlan.js`) | F-UT-07 | feature | ✅ |
 
-### 16. ProcessGPT 포털에서 넘어온 휴대폰 — 데스크톱 화면으로 돌아가기 (process-gpt 스펙 `gateway_mobile-web-access`, 결정 D-1112-30)
+### 16. Agentic BPM — 정책·가드레일·결정 원장·대안 경로 최적화 (spec `pgpt-pro_agentic-guardrails`, 설계 `pgpt-pro/docs/agentic-bpm/plan.md`, 영상 메일 `-1VuYuna3EA` · 결정 브리프 `zsqKdt57lU0` · 출시 대안 `Pws7Y-HNSHk` · 리포트 `wpwh7QEoRXM`)
+
+판단 사례 30개(`server/test/agentic-cases.json` → `agentic-regression.test.js`)와 시나리오 E2E(`server/test/scenario-{mail,release,purchase}.e2e.mjs`)는 서버 시험으로 돈다.
+`cd server && node --test test/policy.test.js test/agentic-regression.test.js`, 시나리오는 BFF 를 띄우고 `node test/scenario-mail.e2e.mjs` 다.
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 정책 카탈로그: 근거·승인자 역할, 켜고 끄기는 관리자만(403), 틀린 정책은 400 | F-AG-01 | feature | ✅ |
+| 가장 엄격한 판단·허용 오차·정책 없는 행위는 허용, 시험해 보기는 원장에 남지 않음 | F-AG-02, 판단 사례 30 | feature, 서버 | ✅ |
+| 하루 21번째 외부 메일 → 팀장 승인(시간 창 한도) | `policy.test.js`, 메일 E2E 7단계 | 서버 | ✅ |
+| 외부 메일: 실행 후 기록, 10분 안 회수, 두 번째 회수 409, 남이 회수 403 | F-AG-03 | feature | ✅ |
+| 개인정보 든 외부 메일: 보관(보낸편지함에 없음), 본인 승인 403(관리자여도), 역할 없는 사람 403, 다른 승인자가 승인 → 요청자 이름으로 실행, 처리된 요청 409, 원장에는 건수·종류만 | F-AG-04 | feature | ✅ |
+| 원장 공개 범위(팀원은 자기 판단만), 리포트는 관리자만 | F-AG-05 | feature | ✅ |
+| 채팅 메일 요청(send_mail): 사내 허용·외부 기록·명단 승인·명단 전체 차단·대외비 보안 담당자, 카드와 승인 뒤 카드 바뀜 | 메일 E2E(`--no-chat` 없이) | 서버 | ✅ |
+| 금요일 출시: 막힘 → 대안 넷(사전 판단·시뮬레이션·점수), 필수 제약 위반 제외, 릴리스 책임자의 선택이 곧 승인, 요청자는 고를 수 없음(403), 우선순위 바꾸면 순위 바뀜·다시 실행, 보안 점검 실패 → 예외 권한자·없으면 멈춤 | 릴리스 E2E 6단계 | 서버 | ✅ |
+| 구매 승인: 결정 브리프(선택지별 추가 승인·남은 리드타임·근거), 승인 전 초안·재고 확인, 승인 전 발주 409·요청자 발주 403, 두 승인 뒤 인계 꾸러미 발주, 반려 보상(초안 취소·원장 되돌림), 주공정 여유 순 승인함 | 구매 E2E 26개(`server/test/scenario-purchase.e2e.mjs --reset`) | 서버 | ✅ (전후 측정의 "후"는 스크립트 승인자라 동작 확인만) |
+| 원장에서 배우는 정책 조정(완화·강화·대안), 적용하면 결정이 바뀌고 버전이 오름, 리포트 집계 | `server/test/agentic-insights.test.js` | 서버 | ✅ |
+| 화면: 정책·가드레일 세 탭, 승인자 알림 → 원장 줄 강조 → 승인, 전략맵 | 영상(녹화 중 단언) | — | ◐ (Playwright 화면 시험 ✗) |
+
+### 17. 팀 맥락 공유 — 자동 참고·참고 요청·팀 활동·공개 등급 (설계 `process-gpt/openspec/changes/pgpt-pro-team-context`, 영상 ① `Cm6MyQ_h8qE`(2판, 1판 `7jat7FFJeKw`) · ② `VJpa1aKFbUo` · ③ `2zOfxuP5zEU`)
+
+판정 사례(`server/test/context-visibility-cases.json` 39 · `refer-cases.json` 16)와 HTTP E2E(시드 회사 team-demo, 실제 임베딩·모델)는 서버 시험으로 돈다.
+`cd server && node --test test/context-visibility.test.js test/refer.test.js test/context-grade.test.js test/team-activity.test.js test/context-policy.test.js test/repeat.test.js`(92),
+E2E 는 BFF 를 `PRO_TENANT_HOSTS=…,team.localhost=team-demo` 로 띄우고 `node scripts/seed-team-context.mjs --reset` 뒤 `node test/{context-share,context-grade,team-activity,context-policy,repeat,guard-reading}.e2e.mjs` 다. 글을 읽는 품질의 하한은 `node test/guard-eval.e2e.mjs`(사례 `test/guard-eval/`, 실제 모델, 스펙 `pgpt-pro_guardrail-reading`).
+팀원 맥락 참고의 결정은 회사 정책(`context-policy-cases.json` 14 — 실제 정책 엔진), 같은 요청 판별은 `repeat-cases.json` 10(실제 게이트웨이 모델, `repeat.e2e.mjs` ④).
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 공개 등급 판정: 범위(팀·부서·회사)×깊이(제목·요약·원문), 장·관리자 덧씌움, 민감, 조직도 밖, 두 팀, 허락 만료 직전·직후·회수·다른 대화 | 판정 사례 39 | 서버 | ✅ |
+| 자동 참고 고르기: 기준 0.55·회색 0.45~0.55 판정 0.5·판정 실패·고정·빼기·세 대화 빼기 학습·요청 후보 0.5·상한, 인용 블록 | 고르기 사례 16 | 서버 | ✅ |
+| 글 읽기: 돌려 말한 글은 모델이 읽어 묻기, 낱말만 같은 글은 자동 허용, 주민번호 형식은 모델 없이 묻기, 계좌·전화 형식은 모델이 읽음, 같은 글은 다시 안 부름, 정책 끄면 안 읽음, 모델이 끊기면 낱말·`regex` 기록과 낱말에 안 걸려도 묻기(`unread`), 복귀 후 다시 읽음, 확률을 주지 않는 모델은 낱말로 운영 | `guard-reading.test.js` 14, `guard-reading.e2e.mjs` 15단계, F-TC-09·10 | 서버·feature | ✅ |
+| 읽는 품질 하한: 맥락 잡음 95%↑·오탐 25%↓, 메일 잡음 90%↑·오탐 20%↓, 낱말 먼저보다 나쁘지 않음 | `guard-eval.e2e.mjs`(고정 사례) | 서버 | ✅ |
+| 경쟁사 가격 → 내 맥락(원문)+같은 팀 요약, 박하늘 원문 표지 0, 「분기 정리」 후보 아님, 관계없는 질문, 빼기, 끄기, 2초 안 | `context-share.e2e.mjs` 1–4 | 서버 | ✅ |
+| 같은 팀 자동 허용·다른 대화는 요약·하루 모음 카드, 다른 팀 묻기→홈 카드→원문·7일·턴 빼고 허락·409, 민감 묻기, 비공개 404(관리자 포함), 30건 429, 3일 만료, 쓰인 곳·회수 | `context-share.e2e.mjs` 5–8 | 서버 | ✅ |
+| 등급 바꾸기·422(민감 전체 공개)·주인 아니면 404, 민감 제안·승인·무시, 미리보기(새로·장·관리자·허락), 열람 기록, 기본 등급 | `context-grade.e2e.mjs` 16단계(확인 63), `context-grade.test.js` 11 | 서버 | ✅ |
+| 팀 활동 카드(팀장·다른 팀·관리자 차이, 문장 없음), 시간순 깊이, 원문 보기 자동 허용, 조직도 403/모아 보기, 겹침(보는 사람의 글로만), 관리자 눈, 비공개로 바꾸면 바로 빠짐(진행 중 작업 줄 제목 누출 고침) | `team-activity.e2e.mjs` 12단계, `team-activity.test.js` 16 | 서버 | ✅ |
+| 칩(주인·깊이·원문 요청·빼기·고정·자동 참고 끄기), 요청 후보 상태(요청함·허락됨·다시 답하기), 홈 카드에서 허락 → 카드 내려감·요청자 결과 | F-TC-01…03 | feature | ✅ |
+| 팀 탭·설정 › 공유와 허락 화면 | F-TC-04·05 | feature | ✅ |
+| 회사 정책: 카탈로그 정책 셋(민감 표시 → 주인, 민감할 수 있는 주제 → 주인, 기록), 주제 목록 검증(깨진 패턴·빈 이름 400), 낱말 경계(인사이트 ≠ 인사), 무시한 제안은 주제 없음, 원장 한 줄 제목 가림, 정책 끄기·주제 목록 바꾸기 | `context-policy.test.js` 5(판정 사례 14) | 서버 | ✅ |
+| 참고 요청 ↔ 정책·원장: 자동 허락 「기록」→ 회수 「회수함」, 주제(성과급→급여)면 같은 팀도 묻기·요청자에게 주제 없음·홈 카드 정책 줄, 원장 승인 단추 없음·승인 API 404, 주인 허락·거절이 원장에(승인자), 무시한 제안은 규칙대로, 주제 정책 끄면 규칙대로·고정 줄 바뀜, 3일 만료 「만료」, 요약 때 민감 제안 + 홈 카드 한 장 | `context-policy.e2e.mjs` 13단계(확인 35) | 서버 | ✅ |
+| 같은 요청 알아보기: 후보는 보는 깊이의 글만(예문은 원문 깊이에서만), 좁히기 0.8/0.6·같은 문장 하나·최근 답 먼저, 모델 답 → 카드(stale 제외·맥락마다 하나·최대 2), 카드에 답 본문 없음 | `repeat.test.js` 5 | 서버 | ✅ |
+| 이미 한 요청 → 카드(에이전트 안 부름) → 그 답 보기 → 새로 하기(fresh, 에이전트 답) → 30분 안 같은 문장은 다시 시켜 보기, 표 ↔ 그래프 다름, 같은 팀 제목 깊이 → 403 → 요청하기(자동 허락·원장) → 팀원 답·본 기록 → 회수 뒤 403, 비공개 맥락 후보 아님, 판별 사례 10 | `repeat.e2e.mjs` 11단계(확인 22) | 서버 | ✅ |
+| 설정 › 정책 팀원 맥락 참고 셋(주제 칩·주인이 홈 카드에서)·원장 「주인 결정 대기」 승인 단추 없음, 홈 카드 정책·주제 줄·민감 표시 제안 카드·공유와 허락 고정 줄 둘, 「이미 한 요청」 카드(그 답 보기·요청하기·새로 하기 fresh) | F-TC-06…08 | feature | ✅ |
+| 실제 턴: 라우터는 원래 메시지로 맥락을 고르고, 에이전트가 [1]·[2] 로 인용, 허락 뒤 다시 답하면 원문 내용 반영, 말만 바꾼 같은 요청 → 카드·그 답 보기, 같은 팀이 한 일 → 요청하기 → 그 답 | 영상 ①(녹화 중 단언) | — | ◐ |
+| 실제 턴: 성과급 정리 → 요약 때 민감 제안 카드 → 같은 팀 원문 요청이 묻기 → 홈 카드 정책 줄 → 거절 → 민감 승인 → 원장 | 영상 ③(녹화 중 단언) | — | ◐ |
+
+### 18. 후행 습관 — 결과물 뒤에 늘 시키는 일을 배워 먼저 묻기 (spec `pgpt-pro_followup-habits`, 영상 `l2urEzo6zko`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 슬라이드 → 후행 작업 2회 → 세 번째에 묻고, 네를 누르면 그 대화에서 실행(실제 에이전트) | A-FU-01 | agent | ✅ |
+| 후행 작업 기록, 감사·내용 질문 제외, 다른 말로 같은 일 | `server/test/followups.e2e.mjs` 3·5·6 | HTTP | ✅ |
+| 결과물에 대한 말은 그 대화의 에이전트로(라우터 우회, 「이미 한 요청」 제외) | `followups.e2e.mjs` 4, A-FU-01 | HTTP·agent | ✅ |
+| 묻는 조건: 2회, 한 대화 한 번, 같은 종류, 후행 결과로는 안 물음 | `followups.e2e.mjs` 7·8·11, `followups-cases.json` | HTTP·단위 | ✅ |
+| 카드: 질문, 세 버튼, 근거 한 줄 | F-FU-01 | feature | ✅ |
+| 네·아니요·다시 묻지 않기, 연달아 3회 거절이면 끔(경계) | F-FU-02·03·04·05, `followups.test.js` | feature·단위 | ✅ |
+| 말로 수락·사양·다른 말 | `followups.e2e.mjs` 10·12·13, `eval` answer | HTTP | ✅ |
+| 직접 말한 습관(에이전트 없이), 예약·말투는 제외 | `followups.e2e.mjs` 18·19, `eval` explicit | HTTP | ✅ |
+| 빠른 답도 화면 아래까지(수정 전 실패 확인) | F-FU-10 | feature | ✅ |
+| 설정 › 습관: 끄기·켜기·지우기, 남의 것 404 | F-FU-05·06·07, `followups.e2e.mjs` 14·15·17 | feature·HTTP | ✅ |
+| 모델이 못 읽으면 배우지 않고 규칙으로 묻기 | `followups.e2e.mjs` 20 | HTTP | ✅ |
+| 판단 품질 하한(사례 260건) | `node scripts/eval-followups.mjs all test --check` | 측정 | ✅ |
+| 물어봐도 되는가: 묻지 않아도 될 때 묻는 경우가 남음(test 85~88%, dev 67~75%) | `eval` fits | 측정 | ◐ |
+| 영어 모드 | F-FU-09, `followups.test.js` | feature·단위 | ◐ (영어 모델 판단은 재지 않음) |
+| 수락 뒤 이어지는 둘째 후행 작업, 메일 수신 같은 다른 사건, 자동 실행, 프로세스 승격 | — | — | ✗ |
+
+### 19. 방 규칙 — 약속 한 번, 링크만 붙이면 내장 브라우저가 실행 (spec `pgpt-pro_room-rules`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 규칙을 말하면 에이전트 없이 기억, 규칙이 아닌 말 제외, 다른 말로 해도 규칙(실제 모델), 프로젝트 방에서만 | `server/test/room-rules.e2e.mjs` 1·2·3·8 | HTTP | ✅ |
+| 링크만 붙이면 묻지 않고 내장 브라우저가 NotebookLM 에서 시작, 취소, 끄면 안 돈다, 사이트 일이 아니면 에이전트로 | `room-rules.e2e.mjs` 5·6·7·9 | HTTP | ✅ |
+| 규칙 표시·끄기·없는 방·다른 사람 | F-RR-01·02·03·04 | feature | ✅ |
+| 어떤 말을 모델에게 읽힐지, 링크·파일·덧붙인 말 나누기, 사이트 안내 | `room-rules.test.js`, `room-rules-cases.json` | 단위 | ✅ |
+| 카드 먼저(계획이 느려도·실패해도·취소), 기다리기(동작 수 안 씀)·안 끝남·취소, 파일 받기·올리기, 진행 알리기 | `browser-long-work.test.js`(실제 Chromium, 작은 사이트) | 단위 | ✅ |
+| 직접 제어로 로그인: 화면 전체, 보이는 자리 클릭, 입력 순서, 붙여넣기, 입력기 키, 로그 미기록, 돌려주기 | `takeover.e2e.mjs`(실제 화면) | HTTP·화면 | ✅ |
+| 로그인 뒤 실제 NotebookLM: 소스·슬라이드·오디오 생성, 파일 카드 | 사람이 로그인한 프로필로 실행 | 수동 | ✗ 미확인 |
+
+### 20. 회사 프로세스 지도 — 메일 이력 · 채팅 인계로 Ontological 에 프로세스 온톨로지, 스냅샷 실행, 고정 · 은퇴 (spec `pgpt-pro_process-ontology`, 설계 `pgpt-pro/docs/auto-ax-onboarding/design-v0.2.md` · `design-v0.3.md`, 영상 지도 `onto-map-ko`(glG1BW1LMb4) · 실행 `onto-run-ko`(ueqW6Hk1l80) · 검토 `onto-review-ko`(upi0oXxPWMI) · 역할과 습관 `onto-roles-ko`(EqtVqj_e_us) · 사건과 타이머 `onto-triggers-ko`(NsZcm2Z3i_k))
+
+데모 테넌트 `ax-demo`(`node server/scripts/ax-demo.mjs --reset --seed`)에서 돈다: `PGPT_URL=http://ax.localhost:5191 API_URL=http://ax.localhost:8790 PGPT_TENANT=ax-demo PGPT_DB_URL=…`. F-PO 는 지도가 셈해진 뒤(S1) 돌고, 지도가 없으면 건너뛴다.
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 지난 메일 90일 깔때기(규칙 거르기 · 스레드마다 한 번 읽기 · 결과물 메일은 보낸 사람의 일 · 검토는 역할), 지도에는 문장 없음 | `server/test/ontology-map.e2e.mjs` 1~3 | HTTP | ✅ |
+| 메일 보관함: 읽은 메일은 주인 몫으로 본문 · 첨부 목록까지, 다른 사람 404, 메일 이력 · 지도에 문장 없음, 다시 읽을 때 메일 서버 안 부름 | `ontology-archive.e2e.mjs`(S1b), `ontology-gmail.test.js` | HTTP·단위 | ✅ |
+| 메일 본문 전체(인용 자르기) · 보낸 첨부의 양식 칸(늘 있는 칸) · Gmail(모의 서버) | `ontology-mailbody.test.js` · `ontology-gmail.test.js`, `ontology-map.e2e.mjs` 「메일에서 찾은 정해진 때」 | 단위·HTTP | ✅ |
+| 정해진 때: 메일 날짜의 주기 + 메일이 말한 주기(반복되는 그 일에만), 건이 이끄는 일은 아님 → 시계 없는 타이머 사건 | `ontology-map.e2e.mjs` 「메일에서 찾은 정해진 때」, `ontology-mailbody.test.js` | HTTP·단위 | ✅ |
+| 채팅 핸드오버와 메일 이력을 같은 건으로, 긴 지시문도 일 이름 하나로 | `ontology-map.e2e.mjs` 4·10 | HTTP | ✅ |
+| 지도(일 · 관계 · 묶음) · 시점 고르기(주마다 다시 셈) | `ontology-map.e2e.mjs` 4·9, F-PO-01·03 | HTTP·feature | ✅ |
+| 배운 조건(견적 합계 1천만 원, 하나씩 빼고 맞히기 > 늘 많은 쪽) | `ontology-map.e2e.mjs` 5, F-PO-02, `ontology-stats.test.js` | HTTP·feature·단위 | ✅ |
+| 드문 경로는 θ 기본에서 빠지고 은퇴 후보가 아님, 은퇴 후보(조건부 포아송, 「최근 N일」) | `ontology-map.e2e.mjs` 6·7, F-PO-02, `ontology-cases.json` | HTTP·feature·단위 | ✅ |
+| 자동 값(θ 재생 적합도 무릎 · 반감기 로그 우도 · 띠 1위 맞히기) | `ontology-map.e2e.mjs` 8, F-PO-01, `ontology-cases.json` | HTTP·feature·단위 | ✅ |
+| 온보딩 요약 카드, 빈 그래프(서버가 도는 중 초기화 포함)는 오류가 아니라 빈 지도 | `ontology-map.e2e.mjs` 1·12 | HTTP | ✅ |
+| 정답 대비 되찾음(데모 메일함의 정답 흐름) | `ontology-map.e2e.mjs` 11(재현율 0.99, 같은 이름 0.86) | 측정 | ✅ |
+| 묶음 채택 · 일 정의 초안(메일의 양식 칸 → 점검 항목) · SKILL.md 형식 왕복 | `ontology-run.e2e.mjs` 1·2, F-PO-07 | HTTP·feature | ✅ |
+| 시작 일(주 경로의 일마다 예/아니오) · 앞 일 건너뜀 · 스냅샷(요청 접수 맨 앞, 같은 키 다시 씀) | `ontology-run.e2e.mjs` 3·4, F-PO-04 | HTTP·feature | ✅ |
+| 업무 에이전트가 양식대로 새 견적서 · 점검 항목마다 판단(rich text 칸 포함) · 엔진이 배운 조건으로 재무 검토 | `ontology-run.e2e.mjs` 5·6, `ontology-taskdef.test.js` | agent·단위 | ✅ |
+| 검토 안건 · 은퇴(관리자만) · 지난 시점에는 살아 있음 · 앞날짜 고정 · 결정 원장 · 되돌리기 | `ontology-review.e2e.mjs` 1~6, F-PO-05·06 | HTTP·feature | ✅ |
+| 화면: 지도 · θ · 값 보기 · 검토 안건 · 스냅샷 | F-PO-08 | feature | ✅ |
+| 사건 · 프로세스 소속(한 일이 여러 프로세스에) · 역할(사람 · 지표, 정의 초안은 관리자만) | `ontology-map.e2e.mjs` 「사건 · 소속 · 역할」, F-PO-09·10, `ontology-structure.test.js` | HTTP·feature·단위 | ✅ |
+| 개인 습관 → 역할 루틴, 공개 설정(관리자만, 이름 · 말 없이), 역할 정의 확정, 영업 4명 | `ontology-roles.e2e.mjs` 1~6, F-PO-11 | HTTP·feature | ✅ |
+| 일의 방법 공유 → 실제 실행의 걸린 시간 → 가장 빠른 방법을 스킬로, 새 사람에게 회사가 고른 방법 | `ontology-roles.e2e.mjs` 7~10, F-PO-12 | agent·feature | ✅ |
+| 승격 단계(관찰 · 제안 · 자동, 관리자만, 결정 원장), 제안 단계의 메일 · 채팅 제안 카드 | `ontology-triggers.e2e.mjs` 1~3, F-PO-13 | HTTP·feature | ✅ |
+| 자동 단계의 사람 단계는 초안 모드(에이전트 초안이 먼저) | `ontology-run.e2e.mjs` 7 | agent | ✅ |
+| 꼭 · 선택을 이벤트 → 태스크 간선에서 프로세스마다: 저장 · 다시 열기 · 이력 · 원장, 같은 태스크를 쓰는 다른 프로세스는 그대로, map 엔진이 실행 중에 바꾼 간선 · 중간 시작에도 따름(꼭이면 건너뛰기는 까닭만 물음) | `server/test/ontology-edgecond.e2e.mjs` 1~4(로컬 Lite, 19개), `ontology-edgecond.test.js` | HTTP·단위 | ✅ |
+| 타이머 사건: 사람의 예약 → 역할 루틴 단계, 그래프에서 멈추면 실행 안 함, 회사 타이머(제안이면 묻고 자동이면 시작), 메일의 「예약 걸까요?」 | `ontology-triggers.e2e.mjs` 4~9, F-PO-14·15 | HTTP·feature | ✅ |
+| 병목 보기: 일마다 할 일 = 지도 엔진 · 스냅샷 건의 todolist 행을 activity_id 로 센 수, 병목 = 할 일이 가장 많은 우리 쪽 사람 단계(에이전트 · 바깥 역할 제외) | `ontology-flow.e2e.mjs` S1, F-PO-16, `ontology-flowtime.test.js` | HTTP·feature·단위 | ✅ |
+| 흔한 길(크리티컬 패스): 엔진처럼 매번 가장 흔한 길, 지난 건의 시간 · 지금 줄이 선 곳은 쌓인 것 치우는 시간(리틀의 법칙), 가장 긴 고리 = 병목, 시간 몫(기대 방문) | `ontology-flow.e2e.mjs` S2, F-PO-16·17, `ontology-flowtime.test.js` | HTTP·feature·단위 | ✅ |
+| 회사의 제약: 모든 프로세스의 할 일을 역할로 · 한 사람당, 두 프로세스에 걸친 디자이너 | `ontology-flow.e2e.mjs` S3, `ontology-flowtime.test.js` | HTTP·단위 | ✅ |
+| 실시간: 할 일에서 내면 지도 엔진이 다음 단계를 열고 할 일 수가 따라 움직임 · 관리자만 건 제목 · 지난 날짜는 그때 열린 것 | `ontology-flow.e2e.mjs` S4·S5, F-PO-16 | HTTP·feature | ✅ |
+| 건 화면에서 내 단계 내기: 맡은 사람에게만 그 단계의 양식(runView `mine` — 사람 차례이고 todolist.user_id 쉼표 목록에 그 사람, 건의 주인 · 다른 사람에게는 없음), 루틴 탭(지도) › 진행 중인 루틴 · `/projects/p/<instId>` 에서 지도의 건 화면으로, 내면 지도 엔진이 다음 단계(제안서 작성)를 열고 건 화면에 보임(데모 출연진 김민지, 시드 다시 씀) | `ontology-case-submit.e2e.mjs` C1~C4, F-PO-18 | HTTP·feature | ✅ |
+| `/improve` 넘기기(설계 `design-improve-on-map.md` §7 · 결정 4): 목록 → 지도의 병목 보기(`?view=flow`), 지도 프로세스의 스냅샷 정의 → 그 프로세스의 병목 보기(`GET /improve/:defId/map`), 지도에 없는 정의는 옛 개선 화면 그대로, 루틴 목록에는 「프로세스 지도 →」와 「클래식 개선 분석」(`?classic=1`, 그 안에서는 클래식에 머묾) | F-PO-18·19, `improve.spec.js` F-IM-01~07 | feature | ✅ |
+| 고쳐 보기(what-if, 설계 §5): 지도의 수단(에이전트 · AI 초안 먼저 · 건너뛰기 · 빼기 · 나란히 · 다른 역할 · 사람 더하기 · 들어오는 건)을 얹으면 앞 · 뒤(지금 들어오면 · 보통 건 · 병목 할 일 · 역할 가동률 · 한 달 사람 시간), 앞 = 병목 보기의 흔한 길, 아무것도 쓰지 않음, 지도 꼬리표 「할 일 8 → n」, 규칙은 옛 what-if(얼랭 C · 같음 시험) | `ontology-improve.e2e.mjs` S6, F-PO-20·21, `ontology-flowplan.test.js` | HTTP·feature·단위 | ✅ |
+| 개선안: 앞 · 뒤를 지닌 채 저장 · 나란히 · 합의에 올림(의견) · 같은 의견 · 상충(하는 이) · 관리자가 고르면 정함(고친 기록 한 묶음 · 역할 구성원 · 효력일 · 결정 원장), 관리자 아니면 403 | `ontology-improve.e2e.mjs` S7·S8, F-PO-20·21 | HTTP·feature | ✅ |
+| 한 단계만 AI 초안 먼저(set_runner draft): 정한 뒤 지도 엔진이 그 단계를 초안 단계로 엶 · 말로 고치기 미리 보기의 예상 효과 | `ontology-improve.e2e.mjs` S9, `ontology-flowplan.test.js` | HTTP·단위 | ◐ 말로 고치기의 예상 효과는 모델이 필요해 회귀에 없음(손으로 · 영상으로 확인) |
+| 시행 전후: 효력일 뒤 실행 기록으로 다시 재서 전 · 예상 · 실측 · 견준 말, 병목이 옮겨 가면 알림(시험용 `seed-flow-demo.mjs --after`) | `ontology-improve.e2e.mjs` S10, `ontology-flowplan.test.js` | HTTP·단위 | ✅ |
+| 근무 시간에서 공휴일 · 회사의 쉬는 날(`PRO_HOLIDAYS`) 뺌 | `ontology-flowplan.test.js` | 단위 | ✅ |
+| 루틴 탭(2026-11-19): 「루틴」 → 회사 프로세스 지도(지도 없는 회사는 루틴 목록), 지도 머리 「진행 중인 루틴 n」 → 목록에 Lite 건(지도의 건 화면으로)과 클래식 인스턴스(인스턴스 화면으로)가 꼬리표와 함께 · 「모두 · Lite · 클래식」 칩, 그냥 `/improve` 는 지도의 병목 보기 · 클래식 개선 분석은 목록의 링크로만 | F-PO-18 · 22 | feature | ✅ |
+| 머리 단추 세 칸(2026-11-20): 보기 · 고치기 · 운영, 칸의 항목마다 한 줄 설명, 운영 칸 단추에 이 프로세스의 단계, 열린 패널의 칸이 칠해짐, 다시 누르기 · Esc · 바깥 누르기로 닫힘, 휴대폰 폭(390)에서 목록이 화면 안 | F-PO-23 | feature | ✅ |
+| P5(정의 프로세스를 지도에 올리기 · 견주기에 시간 몫 · 튜토리얼 20~22장 다시 쓰기), 머리 숫자를 그래프 속성으로, 채팅의 개선 질문(improveTurn)을 지도 프로세스로 | — | — | ✗ 남은 것 |
+| 습관(열린 일 프로세스에서 다음 일 묻기)이 굳은 길에서 실제로 묻는 장면, 실제 Gmail 메일함, 설치판 Ontological(소스 공개 결정 대기), 메일 보관함 보관 기간 · 연결 끊기 | — | — | ✗ |
+### 21. ProcessGPT 포털에서 넘어온 휴대폰 — 데스크톱 화면으로 돌아가기 (process-gpt 스펙 `gateway_mobile-web-access`, 결정 D-1112-30)
 
 ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「라이트 모드」를 고른 휴대폰은 같은 주소의 `/lite/`(이 앱)로 이동합니다. `/lite` 아래에서 열린 앱을 대상으로 실행해야 F-PT-03이 실행됩니다(`PGPT_URL=http://…/lite`). 그 밖의 설치 환경에서는 해당 항목이 없는지만 확인합니다.
 
@@ -394,10 +527,10 @@ ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「�
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| smoke | `tests/smoke/*.spec.js` (5개) | 57 |
-| feature | `tests/feature/*.spec.js` (15개) | 92 (서버 단위 시험 4묶음 포함, 회의 F-MT-01…06) — 이 표 뒤에 더한 묶음: 휴대폰 검토 F-MR-01…08(8개, 17절) |
-| agent | `tests/agent/*.spec.js` (4개) | 14 (회의 A-14) |
-| 합계 | | 163 (+8) |
+| smoke | `tests/smoke/*.spec.js` (6개) | 74 |
+| feature | `tests/feature/*.spec.js` (30개) | 193 (프로세스 지도 F-PO-01…23, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…08, 팀 맥락 공유 F-TC-01…10, 포털에서 넘어온 휴대폰 F-PT-01…03) |
+| agent | `tests/agent/*.spec.js` (14개) | 33 (회의 A-14, 후행 습관 A-FU-01) |
+| 합계 | | 300 (`npx playwright test --list` 로 센 수, main 병합 뒤 2026-11-20) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 

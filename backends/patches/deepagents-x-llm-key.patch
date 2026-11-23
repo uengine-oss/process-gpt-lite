@@ -1,0 +1,75 @@
+--- a/core/observability/llm_headers.py	2026-09-01 12:43:52
++++ b/core/observability/llm_headers.py	2026-10-30 13:59:17
+@@ -9,6 +9,7 @@
+ """
+ from __future__ import annotations
+ 
++import contextvars
+ import logging
+ 
+ from .mcp_trace import correlation_headers
+@@ -17,11 +18,28 @@
+ 
+ _HEADER = "x-processgpt-trace"
+ 
++# 요청한 사람의 LiteLLM 키와 기능 태그(Process GPT Lite 의 X-LLM-Key / X-LLM-Tags). 들어온 요청마다
++# server.py 의 미들웨어가 정하고, 이 요청에서 나가는 LLM 호출이 모두 그 키로 나간다 — 그 사람·회사의
++# 예산이 막고, 사용량이 그 사람·회사·기능에 쌓인다. 없으면 LLM_PROXY_API_KEY 그대로.
++_llm_key: contextvars.ContextVar[str | None] = contextvars.ContextVar("llm_key", default=None)
++_llm_tags: contextvars.ContextVar[str | None] = contextvars.ContextVar("llm_tags", default=None)
+ 
++
++def set_llm_auth(key: str | None, tags: str | None = None) -> None:
++    _llm_key.set(key)
++    _llm_tags.set(tags)
++
++
+ def _attach(request) -> None:
+     try:
+         for key, value in correlation_headers().items():
+             request.headers[key] = value
++        k = _llm_key.get()
++        if k:
++            request.headers["Authorization"] = f"Bearer {k}"
++            t = _llm_tags.get()
++            if t:
++                request.headers["x-litellm-tags"] = t
+     except Exception as exc:  # noqa: BLE001
+         logger.debug("상관키 헤더 주입 실패: %s", exc)
+ 
+--- a/server.py	2026-10-22 19:53:07
++++ b/server.py	2026-10-30 13:59:17
+@@ -50,6 +50,24 @@
+     "false", "0", "no",
+ )
+ 
++class LlmKeyMiddleware:
++    """X-LLM-Key / X-LLM-Tags 가 있으면 이 요청의 LLM 호출을 그 키·태그로(core/observability/llm_headers.py)."""
++
++    def __init__(self, app):
++        self.app = app
++
++    async def __call__(self, scope, receive, send):
++        if scope.get("type") == "http":
++            h = dict(scope.get("headers") or [])
++            key = h.get(b"x-llm-key")
++            if key:
++                from core.observability.llm_headers import set_llm_auth
++
++                tags = h.get(b"x-llm-tags")
++                set_llm_auth(key.decode(), tags.decode() if tags else None)
++        await self.app(scope, receive, send)
++
++
+ async def main() -> None:
+     # DB_* 가 설정됐는데 체크포인트 저장소에 붙지 못하면 기동하지 않는다. 메모리
+     # 저장으로 뜨면 재개·사람 답변이 다른 파드에서 반영되지 않는다(조용한 고장).
+@@ -87,7 +105,7 @@
+     )
+ 
+     uvicorn_server = uvicorn.Server(
+-        uvicorn.Config(app, host=HOST, port=PORT, log_level="info")
++        uvicorn.Config(LlmKeyMiddleware(app), host=HOST, port=PORT, log_level="info")
+     )
+ 
+     logger.info(

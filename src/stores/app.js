@@ -213,7 +213,8 @@ export const useApp = defineStore('app', {
     },
     removeMention(i) { this.mentions = this.mentions.filter((_, k) => k !== i) },
     // attachments: the files this message carries when they were taken earlier (a message queued while 새 프로젝트's room is made)
-    async send(text, threadId = this.activeId, context, attachments) {
+    // opts.fresh: 「이미 한 요청」 카드의 「그래도 새로 하기」·허락 뒤 다시 답하기 — 서버가 같은 요청 알아보기를 건너뛴다
+    async send(text, threadId = this.activeId, context, attachments, opts = {}) {
       // mentions: the chips read first in the message; where each one is goes to the agent
       const mentions = this.mentions
       if (mentions.length) {
@@ -237,7 +238,7 @@ export const useApp = defineStore('app', {
       const asked = this.askedAt[threadId] = Date.now()
       let ended = false
       try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc }, (ev, data) => {
+        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(opts.fresh ? { fresh: true } : {}) }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
         })

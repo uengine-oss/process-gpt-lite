@@ -196,6 +196,15 @@ async function streamAgent({ user, session, message, agent, gitSkills }) {
 
 // A plain prompt on a schedule ("매일 아침 8시에 …"): the answer goes to the chat as an agent turn; a run
 // that found nothing new posts nothing, but every run — and every failure — is in the run history.
+// a company timer: which process it starts, and whether it starts by itself, is read from the graph when it rings
+async function runTimerSchedule(s, run) {
+  const out = await (await import('./ontology/timers.js')).fireTimer(s)
+  const [done] = await q(`update pro_mission_runs set finished_at=now(), status=$2, changed=$3, summary=$4, result=$5 where id=$1 returning *`,
+    [run.id, out.ok ? 'done' : 'failed', !!out.changed, out.summary, { agent: 'ontology', caseId: out.caseId || null }])
+  emit(s.user_id, 'mission', { scheduleId: s.id, run: done })
+  return done
+}
+
 async function runPromptSchedule(s, run, { threadId: asked, manual = false } = {}) {
   const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
   const { user, session } = await sessionFor(p.email, p.name)
@@ -253,9 +262,14 @@ export async function fireSchedule(scheduleId, attempt = 0) {
 export async function runMission(scheduleId, trigger = 'cron', opts = {}) {
   const [s] = await q('update pro_schedules set last_run=now() where id=$1 returning *', [scheduleId])
   if (!s || (s.paused && trigger !== 'manual')) return null
-  // pauses before the run: a retry after a failed start must not make it fire twice
-  if (s.state?.once && trigger !== 'manual') await q('update pro_schedules set paused=true where id=$1', [s.id])
-  return inScheduleTenant(s, () => runMissionAs(s, trigger, opts))
+  // in the schedule's tenant from here: the timer is read from that tenant's process map, not the default tenant's
+  return inScheduleTenant(s, async () => {
+    // the company's process map is the record of every timer (lib/ontology/timers.js): stopped or removed there → not run
+    if (trigger !== 'manual' && !s.params?.onto_event && !(await import('./ontology/timers.js').then((m) => m.timerOn(s.id)).catch(() => true))) return null
+    // pauses before the run: a retry after a failed start must not make it fire twice
+    if (s.state?.once && trigger !== 'manual') await q('update pro_schedules set paused=true where id=$1', [s.id])
+    return runMissionAs(s, trigger, opts)
+  })
 }
 
 // A task marked to send its results to Telegram too (state.channels, lib/agent.js telegramTurn): what
@@ -296,6 +310,7 @@ async function runMissionAs(s, trigger, opts = {}) {
   const [run] = await q(`insert into pro_mission_runs(schedule_id, trigger) values ($1,$2) returning *`, [s.id, trigger])
   emit(s.user_id, 'mission', { scheduleId: s.id, run })
   try {
+    if (s.params?.onto_event) return await runTimerSchedule(s, run)
     if (s.process_id) return await runProcessSchedule(s, run)
     // (test: "지금 한 번 실행해 봐" from chat — the page's 「지금 실행」 keeps the task's own rules)
     if (!s.skill) return await runPromptSchedule(s, run, { ...opts, manual: trigger === 'manual' && !!opts.test })

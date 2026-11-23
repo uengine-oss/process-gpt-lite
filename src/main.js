@@ -8,8 +8,9 @@ import './styles/base.css'
 // **굵게** right before a Korean particle (src/markdownCjk.js): every marked.parse in the app
 import { installCjkMarkdown } from './markdownCjk.js'
 import { watchUaTransitions } from './uaTransition.js'
-import { auth, adoptHostSession } from './api.js'
+import { api, auth, adoptHostSession } from './api.js'
 import { registerWorker } from './browserNotify.js'
+import { useApp } from './stores/app.js'
 
 const routes = [
   { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
@@ -33,8 +34,19 @@ const routes = [
   { path: '/folders/:slug/v/:variation', component: () => import('./views/FoldersView.vue') },
   // 프로세스 마이닝 추천 (관리자): 반복되는 흐름 → 정식 등록
   { path: '/mining/:id?', component: () => import('./views/MiningView.vue') },
-  // 프로세스 개선: 병목 · 가치 흐름 · 제약 · 크리티컬 패스 · 개선 실행(what-if → 새 버전)
+  // 프로세스 개선: 병목 · 가치 흐름 · 제약 · 크리티컬 패스 · 개선 실행(what-if → 새 버전) — 지도에 없는 정의 프로세스만(아래 넘기기)
   { path: '/improve/:defId?', component: () => import('./views/ImproveView.vue') },
+  { path: '/process-map', component: () => import('./views/ProcessMapView.vue') },
+  // 전략맵: 목표·우선순위·위험 허용·제약, 단계·기능·정책의 기여 (Agentic BPM)
+  { path: '/strategy', component: () => import('./views/StrategyView.vue') },
+  // Agentic BPM 리포트 (관리자): 원장에서 배우는 것 — 판단·승인 대기·막은 일·최적화, 정책 조정 제안
+  { path: '/agentic', component: () => import('./views/AgenticReportView.vue') },
+  // 빌링 백오피스 (운영자): 회사마다 요금제 · 이번 달 사용 · 청구서 · 충전 크레딧
+  { path: '/backoffice/:tenant?', component: () => import('./views/BackofficeView.vue') },
+  // 팀 활동 (팀 맥락 공유): 공유된 작업만, 보는 사람의 깊이로 — 사람마다 지금 하는 일·주로 하는 일·프롬프트 유형, 장·관리자는 조직도로
+  { path: '/team-activity', component: () => import('./views/TeamActivityView.vue') },
+  // 다른 사람(또는 내) 대화 맥락 하나를 보는 사람의 깊이로 — 볼 수 없는 깊이는 「요청하기」
+  { path: '/context/:conv', component: () => import('./views/ContextView.vue') },
   { path: '/', redirect: '/chat' },
 ]
 
@@ -44,6 +56,23 @@ installCjkMarkdown()
 watchUaTransitions()
 router.beforeEach((to) => {
   if (!to.meta.public && !auth.get()?.session) return '/login'
+})
+// 개선 분석은 회사 프로세스 지도로 합쳤어요(pgpt-pro/docs/auto-ax-onboarding/design-improve-on-map.md §7, 결정 4): /improve(목록)는 지도의
+// 병목 보기로, 지도 프로세스의 스냅샷 정의(/improve/:defId)는 그 프로세스의 병목 보기로 넘기고(server routes/improve.js GET /improve/:defId/map),
+// 지도에 없는 정의(손으로 그린 · 생성한 프로세스)는 옛 개선 화면 그대로 — 알림의 /improve/… 주소, 인스턴스 머리글의 링크도 이 규칙을 따른다
+// The classic screen opens only when asked (?classic=1 — the routine list's 「클래식 개선 분석」, 2026-11-19), and stays classic while
+// one moves inside it; a company without the map (no Ontological DB, /api/me ontology false) has only the classic one.
+const IMPROVE = (r) => r.matched.some((m) => m.path === '/improve/:defId?')
+router.beforeEach(async (to, from) => {
+  if (!IMPROVE(to)) return
+  if (to.query.classic) return
+  if (IMPROVE(from) && from.query.classic) return { path: to.path, query: { ...to.query, classic: '1' }, hash: to.hash, replace: true }
+  if (useApp().me?.ontology === false) return
+  if (!to.params.defId) return { path: '/process-map', query: { view: 'flow' }, replace: true }
+  // (the old screen's own tab · version changes stay on the same definition)
+  if (IMPROVE(from) && from.params.defId === to.params.defId) return
+  const r = await api(`/improve/${encodeURIComponent(to.params.defId)}/map`).catch(() => null)
+  if (r?.proc) return { path: '/process-map', query: { proc: r.proc, view: 'flow' }, replace: true }
 })
 
 // English: the dictionary and the runtime translator go in before the first render

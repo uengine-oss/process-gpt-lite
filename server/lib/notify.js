@@ -53,6 +53,10 @@ function choicesOf(form) {
   return { field: f.key, options: f.items.map(opt) }
 }
 
+// a step with several people — the engine writes them as one comma list (a draft step: 'agent,person') and the
+// notification trigger copies that list as is — is each of theirs
+const MINE = `(n.user_id = any($2) or string_to_array(replace(n.user_id, ' ', ''), ',') && $2::text[])`
+
 // Who wrote a teammate's message (a 'chat' notice from process-gpt's chat trigger, which puts the writer's
 // name in from_user_id): that, a member's name for an address, or — when the notice names no one — the
 // writer of the room's newest message with that text. The Home card and the phone's notification said
@@ -77,10 +81,14 @@ export async function listFor(me) {
                         from notifications n
                         left join todolist t on n.url = '/todolist/' || t.id::text
                         left join users fu on fu.email = n.from_user_id and fu.tenant_id = n.tenant_id
-                        where n.tenant_id=$1 and coalesce(n.is_checked,false)=false and n.user_id = any($2)
+                        where n.tenant_id=$1 and coalesce(n.is_checked,false)=false and ${MINE}
                         order by n.time_stamp desc limit 30`, [T(), ids(me)])
   const out = []
+  // a step of the company's process map that waits for its owner's 「진행」(단계마다 사람이 정함, lib/ontology/runmode.js) is not theirs yet —
+  // left out, not checked off: it shows once the owner says go
+  const held = await import('./ontology/runmode.js').then((m) => m.heldTodos(rows.map((n) => n.todo_id).filter(Boolean))).catch(() => new Set())
   for (const n of rows) {
+    if (n.type?.startsWith('workitem') && n.todo_id && held.has(String(n.todo_id))) continue
     if (n.type?.startsWith('workitem')) {
       // a step someone already finished (or that was cancelled) is no longer anyone's action
       if (n.todo_status && !['IN_PROGRESS', 'TODO', 'NEW'].includes(n.todo_status)) {
@@ -101,7 +109,7 @@ export async function listFor(me) {
 }
 
 async function own(me, id) {
-  const [n] = await q('select * from notifications where id=$1 and tenant_id=$2 and user_id = any($3)', [id, T(), ids(me)])
+  const [n] = await q(`select * from notifications n where id=$1 and tenant_id=$2 and ${MINE.replaceAll('$2', '$3')}`, [id, T(), ids(me)])
   return n || null
 }
 
@@ -173,7 +181,7 @@ const lastByTenant = new Map() // tenant -> newest time_stamp seen (timestamptz 
 export async function feedOnce() {
   const last = lastByTenant.get(T()) || new Date().toISOString()
   const rows = await q(`select u.id as uid, n.id, n.title, n.description, n.url, n.type, n.from_user_id, fu.username as from_name, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
-                        left join users u on (u.id::text = n.user_id or u.email = n.user_id) and u.tenant_id = n.tenant_id
+                        left join users u on (u.id::text = any(string_to_array(replace(n.user_id, ' ', ''), ',')) or u.email = n.user_id) and u.tenant_id = n.tenant_id
                         left join users fu on fu.email = n.from_user_id and fu.tenant_id = n.tenant_id
                         left join todolist tl on n.url = '/todolist/' || tl.id::text
                         where n.tenant_id=$1 and n.time_stamp > $2::timestamptz and coalesce(n.is_checked,false)=false

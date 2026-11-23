@@ -66,6 +66,8 @@ const dismiss = () => run(() => (mode.value === 'capture'
 
 const done = computed(() => {
   if (c.value.state === 'used') return `${head.value} 전달됨 · 저장하지 않음`
+  // found in the person's own mailbox (server lib/mailCode.js): where it came from, never the code
+  if (c.value.state === 'mail') return `메일에서 찾은 인증 코드 입력됨 · ${c.value.mailFrom || title.value} · 저장하지 않음`
   if (c.value.state !== 'saved') return ''
   if (kind.value === 'card') return `카드 저장됨${c.value.label ? ` · ${c.value.label}` : ''}`
   return mode.value === 'update' ? `${title.value} 비밀번호 갱신됨` : `${title.value} 로그인 저장됨`
@@ -97,6 +99,7 @@ const muted = { expired: '요청이 만료됐어요', dismissed: '요청을 닫�
     <template v-else-if="kind === 'secret'">
       <p>{{ title }}에서 {{ head }}가 필요해요. 입력한 값은 이 단계에만 쓰이고 저장되지 않아요.</p>
       <input v-model="secret" class="in" inputmode="numeric" autocomplete="one-time-code" :placeholder="head" />
+      <p v-if="c.mailWatch" class="watch"><Icon name="mail" :size="16" /><span>메일함에서 {{ c.mailName || title }}의 인증 메일을 찾고 있어요. 오면 바로 넣을게요</span><i class="dots"><b /><b /><b /></i></p>
       <div class="go"><button class="dark-btn" :disabled="!ready || busy">입력</button></div>
     </template>
 
@@ -135,6 +138,13 @@ const muted = { expired: '요청이 만료됐어요', dismissed: '요청을 닫�
 .h .x { margin-left: auto; width: 28px; height: 28px; border-radius: 9999px; display: grid; place-items: center; color: var(--text-secondary); }
 p { margin: 0 0 4px; font-size: 14px; line-height: 1.45; color: var(--text-secondary); }
 p b { color: var(--text-primary); font-weight: 500; }
+.watch { display: flex; align-items: center; gap: 8px; margin: 2px 2px 0; font-size: 13.5px; line-height: 1.45; color: var(--text-primary); }
+/* still looking: three dots in turn */
+.watch .dots { display: inline-flex; gap: 3px; flex: none; }
+.watch .dots b { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .25; animation: blink 1.2s infinite; }
+.watch .dots b:nth-child(2) { animation-delay: .2s; } .watch .dots b:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 40% { opacity: 1; } }
+.watch :deep(svg) { flex: none; }
 .in { width: 100%; height: 44px; border-radius: 9999px; border: 0; outline: 0; padding: 0 16px; background: var(--cell-bg); font-size: 15px; }
 .in:focus { box-shadow: 0 0 0 1.5px var(--text-primary) inset; }
 .in.ro { display: flex; align-items: center; color: var(--text-secondary); }

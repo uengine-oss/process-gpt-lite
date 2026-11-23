@@ -1,0 +1,683 @@
+// 스냅샷 실행(design-v0.2 §4): the ontology is not run as such. When a case comes in, its start task is chosen, and the
+// proc's graph is unfolded from there into an ordinary process definition (a snapshot: lanes per role, XOR splits
+// with the learned conditions, AND splits for parallel work, pinned steps always in) that Process GPT's own engine
+// runs. A snapshot with the same key (proc · start task · θ · last structural change · statistics week) is reused.
+// A case that jumps somewhere its snapshot does not go is moved: the running instance is closed and a new snapshot
+// from the target task continues the same case. Agent steps run here (orchestration pgpt-pro-onto): the step's skills,
+// and its checkpoints checked against what it produced.
+import crypto from 'node:crypto'
+import { config } from '../../config.js'
+import { q, admin } from '../supa.js'
+import { emit } from '../bus.js'
+import { oddsOf } from '../decide.js'
+import { chatJson } from '../llm.js'
+import { mainThread, addMessage } from '../store.js'
+import { saveGenerated } from '../generated.js'
+import { cypher, readGraph, ontologyEnabled } from './store.js'
+import { taskDefinition } from './taskdef.js'
+import { END } from './stats.js'
+import { refinedView, baseOf } from './refine.js'
+
+export const ORCH = 'pgpt-pro-onto'
+const T = () => config.tenantId
+const sha = (s) => crypto.createHash('sha1').update(String(s)).digest('hex')
+export const actId = (task) => `t_${sha(task).slice(0, 10)}`
+const err = (status, message) => Object.assign(new Error(message), { status })
+const fmtWon = (n) => new Intl.NumberFormat('ko-KR').format(n)
+const isoDay = (d = new Date()) => new Date(d).toISOString()
+// a refined flow's steps with their lanes (a corrected role makes another snapshot)
+const t2 = (tasks) => [...tasks.values()].map((t) => `${t.key}:${t.role || ''}${t.runner ? `:${t.runner}` : ''}`).join(',')
+
+// ---------- reading a proc ----------
+// found: the process as the map found it; otherwise as a person refined it (프로세스 다듬기, refine.js — the found flow with the
+// corrections laid on it in order), which is what a case runs
+// settingsAt: the edge settings as of then (a bpm case's snapshot reads those it was made with); without it, now — a map case reads
+// the settings now even when its map is pinned to its start (edge-step-condition)
+export async function procGraph(procKey, { validAt, found = false, settingsAt } = {}) {
+  const g = await readGraph({ validAt })
+  const proc = g.processes.find((b) => b.key === procKey)
+  if (!proc) throw err(404, '프로세스를 찾지 못했어요.')
+  // as of validAt: the corrections and requirements a person had made by then (the graph itself is read at that time)
+  const cs = await q(`select id::text as id, op, args from pro_corrections where tenant_id=$1 and proc_key=$2 and ($3::timestamptz is null or at <= $3) order by at, id`, [T(), procKey, validAt || null]).catch(() => [])
+  // (a process made by words: only the ways a person said are its own — refine.js baseOf)
+  const base = baseOf(g, proc, cs)
+  if (found) return base
+  // 꼭(edge settings, edgecond.js): a way into a 꼭 step is kept and taken at its split — only from the step it comes out of
+  return (await import('./steprule.js')).withRequirements(cs.length ? refinedView(base, cs) : base, procKey, { settingsAt })
+}
+
+// the steps a case starting at `entry` passes over (the usual way to it, the receipt left out: the snapshot has its own 요청 접수)
+export async function skippedOf(view, entry) {
+  const cases = (await cypher(`MATCH (m:Meta {key:'meta'}) RETURN m.cases AS cases`))[0]?.cases || 1
+  const isReceipt = (k) => { const t = view.tasks.get(k); return !!t?.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2 }
+  return skippedBefore(view.proc, view.edges, entry).filter((k) => !isReceipt(k))
+}
+
+// two parallel siblings out of x (edges between them marked parallel) and the step after both (the most common way out of them)
+export function parallelPair(edges, flows, x) {
+  const targets = flows.filter((f) => f.from === x).map((f) => f.to).filter((t) => t !== END)
+  const pair = targets.length >= 2 && targets.find((a) => targets.find((b) => a !== b && edges.some((e) => e.from === a && e.to === b && e.parallel)))
+  if (!pair) return null
+  const other = targets.find((b) => b !== pair && edges.some((e) => e.from === pair && e.to === b && e.parallel))
+  const two = [pair, other]
+  const after = flows.filter((f) => two.includes(f.from) && !two.includes(f.to)).map((f) => f.to)
+  const next = [...new Set(after)].sort((a, b) => after.filter((y) => y === b).length - after.filter((y) => y === a).length)[0] || END
+  return { targets: two, next }
+}
+
+// the usual way from the proc's main entry to `entry` (most probable path) — what a case starting at `entry` skipped
+export function skippedBefore(proc, edges, entry) {
+  const start = proc.entries?.[0]
+  if (!start || start === entry) return []
+  const dist = new Map([[start, 0]]), prev = new Map(), todo = new Set([start])
+  while (todo.size) {
+    const x = [...todo].sort((a, b) => dist.get(a) - dist.get(b))[0]
+    todo.delete(x)
+    if (x === entry) break
+    for (const e of edges.filter((y) => y.from === x && y.to !== END && y.p > 0)) {
+      const d = dist.get(x) - Math.log(e.p)
+      if (d < (dist.get(e.to) ?? Infinity)) { dist.set(e.to, d); prev.set(e.to, x); todo.add(e.to) }
+    }
+  }
+  if (!prev.has(entry)) return []
+  const path = []
+  for (let x = prev.get(entry); x; x = prev.get(x)) path.unshift(x)
+  return path
+}
+
+// ---------- unfolding ----------
+// → {nodes:[task], flows:[{from,to,cond,p,default}], gateways, band}
+export function unfold({ proc, tasks, edges }, entry, theta) {
+  const retiredTask = (k) => tasks.get(k)?.status === 'retired'
+  const pinnedTask = (k) => !!tasks.get(k)?.pinned
+  // a way a person decided (a correction made it, refine.js) is in whatever θ, like a pinned one
+  let ok = edges.filter((e) => e.status !== 'retired' && !retiredTask(e.from) && !(e.to !== END && retiredTask(e.to)) && (e.p >= theta || e.pinned || e.decided || e.required || (e.to !== END && pinnedTask(e.to))))
+  // 고정 · 꼭: a split that can reach a pinned task, or whose way out is 꼭 (edge settings — edgecond.js edgeRequiredView), goes through it —
+  // the ways around it are dropped
+  for (const x of new Set(ok.map((e) => e.from))) {
+    const outs = ok.filter((e) => e.from === x)
+    const pin = outs.find((e) => e.to !== END && e.required === true) || outs.find((e) => e.to !== END && e.required) || outs.find((e) => e.to !== END && pinnedTask(e.to))
+    if (pin && outs.length > 1) ok = ok.filter((e) => e.from !== x || e === pin || (e.to !== END && isUpstream(ok, e.to, x)))
+  }
+  if (proc.band === 'open') ok = ok.filter((e) => e.from === entry && e.to === END)
+  const nodes = [], seen = new Set([entry]), queue = [entry]
+  while (queue.length) {
+    const x = queue.shift()
+    nodes.push(x)
+    for (const e of ok.filter((y) => y.from === x)) if (e.to !== END && !seen.has(e.to)) { seen.add(e.to); queue.push(e.to) }
+  }
+  const flows = ok.filter((e) => seen.has(e.from))
+  // a task with no way out in the snapshot ends there
+  for (const x of nodes) if (!flows.some((f) => f.from === x)) flows.push({ from: x, to: END, p: 1, synthetic: true })
+  return { nodes, flows }
+}
+function isUpstream(edges, a, b) {
+  // is `a` before `b` (a path a → … → b)? then an edge b → a is a loop back, not a way around
+  const seen = new Set([a]), st = [a]
+  while (st.length) { const x = st.pop(); if (x === b) return true; for (const e of edges.filter((y) => y.from === x && y.to !== END)) if (!seen.has(e.to)) { seen.add(e.to); st.push(e.to) } }
+  return false
+}
+
+const tag = { text: 'text-field', textarea: 'textarea-field' }
+const formHtml = (id, alias, fields) => `<section>\n${fields.map((f) => `  <row-layout name="${id}" alias="${alias}" is_multidata_mode="false" v-model="formValues" v-slot="slotProps"><div class="row"><div class="col-sm-12"><${tag[f.type] || 'text-field'} name='${f.key}' alias='${f.text}'${(tag[f.type] || 'text-field') === 'text-field' ? " type='text'" : ''} disabled='false' readonly='false' v-model="slotProps.modelValue['${f.key}']"></${tag[f.type] || 'text-field'}></div></div></row-layout>`).join('\n')}\n</section>`
+
+export async function agentId() {
+  const id = `${sha(`${T()}:onto-agent`).slice(0, 8)}-${sha('onto').slice(0, 4)}-4${sha(T()).slice(0, 3)}-a${sha('agent').slice(0, 3)}-${sha(`${T()}agent`).slice(0, 12)}`
+  await q(`insert into users (id, username, email, tenant_id, is_agent, is_admin, is_draft, agent_type, alias, goal, persona, permission_ids)
+           values ($1,'업무 에이전트',$2,$3,true,false,false,'agent','onto-agent','회사 프로세스 지도의 일 정의대로 에이전트 단계를 처리한다','일 정의의 스킬과 점검 항목을 따른다','{}')
+           on conflict (id, tenant_id) do nothing`, [id, `onto-agent@${T()}`, T()])
+  return id
+}
+
+// the snapshot's process definition contract (process-gpt's generation contract, saved with its own save path)
+export async function contractOf(view, entry, theta, { starterRole = '담당자', key, draft = false }) {
+  const { nodes, flows } = unfold(view, entry, theta)
+  const pid = `onto_${sha(key).slice(0, 12)}`
+  const roles = new Map()
+  const elements = [], forms = []
+  const agent = await agentId()
+  const role = (name, endpoint = '') => { if (!roles.has(name)) roles.set(name, { name, endpoint, default: endpoint, resolutionRule: endpoint ? '' : '프로세스 지도: 이 일을 해 온 역할', origin: endpoint ? 'used' : 'created' }) }
+  role(starterRole)
+  elements.push({ elementType: 'Event', id: 'start', name: '요청 도착', role: starterRole, type: 'StartEvent' })
+  const intakeForm = `${pid}_intake_form`
+  forms.push({ activity_id: 'intake', form_id: intakeForm, html: formHtml(intakeForm, '요청 접수', [{ key: 'subject', text: '제목' }, { key: 'body', text: '요청 내용', type: 'textarea' }]) })
+  elements.push({ elementType: 'Activity', id: 'intake', name: '요청 접수', role: starterRole, type: 'UserActivity', tool: `formHandler:${intakeForm}`, duration: 1, inputData: [], outputData: ['요청'],
+    checkpoints: [], skills: [], description: '들어온 메일 · 요청을 확인하고 이 건을 시작합니다.', instruction: '', agentMode: 'none' })
+  const defs = new Map()
+  for (const k of nodes) defs.set(k, await taskDefinition(k, view.tasks.get(k)))
+  for (const k of nodes) {
+    const t = view.tasks.get(k), d = defs.get(k)
+    const id = actId(k)
+    const fid = `${pid}_${id}_form`
+    const runner = d.runner === 'agent'
+    const r = runner ? '업무 에이전트' : (t?.role || '담당자')
+    role(r, runner ? agent : '')
+    forms.push({ activity_id: id, form_id: fid, html: formHtml(fid, k, [{ key: 'result', text: `${k} 결과`, type: 'textarea' }]) })
+    const base = { elementType: 'Activity', id, name: k, role: r, type: 'UserActivity', tool: `formHandler:${fid}`, duration: 1, inputData: [], outputData: [k],
+      checkpoints: d.checkpoints, skills: d.skills, outputs: d.outputs, description: d.description || '', instruction: d.instruction || '' }
+    // an agent's step completes itself; a person's step of a promoted process gets the agent's draft first (Process GPT's
+    // draft mode: the agent is put beside the person on the work item, its result lands in the item's draft)
+    elements.push(runner ? { ...base, agent, agentMode: 'complete', orchestration: ORCH } : draft || d.runner === 'draft' ? { ...base, agent, agentMode: 'draft', orchestration: ORCH } : { ...base, agentMode: 'none' })
+  }
+  elements.push({ elementType: 'Event', id: 'end', name: '끝', role: starterRole, type: 'EndEvent' })
+  const node = (k) => (k === END ? 'end' : actId(k))
+  // 갈림길 조건(conditions.js): a split without a learned amount condition uses the conditions read from its cases
+  const texts = await (await import('./conditions.js')).textConditions([...new Set(flows.map((f) => f.from))].filter((x) => flows.filter((f) => f.from === x).length > 1))
+  const condOf = (f) => f.cond || texts.get(`${f.from}\u0000${f.to}`) || ''
+  const seq = (source, target, extra = {}) => elements.push({ elementType: 'Sequence', id: `s_${source}_${target}`, source, target, condition: extra.condition || '', ...(extra.condition ? { name: extra.name || extra.condition } : {}), ...(extra.properties ? { properties: extra.properties } : {}) })
+  seq('start', 'intake'); seq('intake', node(nodes[0]))
+  // a gateway sits in the lane of the step it decides after (a join: the step it leads to), so the diagram's lanes hold every node
+  const laneOf = (id) => elements.find((e) => e.id === id)?.role || ''
+  // splits: two parallel siblings → AND (their links to each other dropped, a join waits for both), else XOR
+  const parallel = new Map() // x → {targets, next}
+  const sibling = new Set()
+  for (const x of nodes) {
+    const par = parallelPair(view.edges, flows, x)
+    if (!par) continue
+    parallel.set(x, par)
+    par.targets.forEach((t) => sibling.add(t))
+  }
+  for (const x of nodes) {
+    if (sibling.has(x)) continue
+    const par = parallel.get(x)
+    if (par) {
+      const g = `g_and_${node(x)}`, j = `j_and_${node(x)}`
+      elements.push({ elementType: 'Gateway', id: g, name: '', role: laneOf(node(x)), type: 'ParallelGateway', gateWayType: 'bpmn:parallelGateway' })
+      elements.push({ elementType: 'Gateway', id: j, name: '', role: laneOf(node(par.next)) || laneOf(node(x)), type: 'ParallelGateway', gateWayType: 'bpmn:parallelGateway' })
+      seq(node(x), g)
+      for (const a of par.targets) { seq(g, node(a)); seq(node(a), j) }
+      seq(j, node(par.next))
+      continue
+    }
+    const outs = flows.filter((f) => f.from === x)
+    if (outs.length === 1) { seq(node(x), node(outs[0].to)); continue }
+    const g = `g_${node(x)}`
+    const best = [...outs].sort((a, b) => b.p - a.p)[0]
+    const conds = outs.filter((f) => condOf(f))
+    elements.push({ elementType: 'Gateway', id: g, name: outs.some((f) => /금액\(amount\)/.test(f.cond || '')) ? '금액 기준' : conds.length ? `${x} 뒤 갈림` : `${x} 다음`, role: laneOf(node(x)), type: 'ExclusiveGateway', gateWayType: 'bpmn:exclusiveGateway' })
+    seq(node(x), g)
+    // a split with a learned condition uses it; without one, the most common branch is the default flow
+    outs.forEach((f, i) => seq(g, node(f.to), {
+      condition: conds.length ? condOf(f) : '',
+      name: condOf(f) || (f === best ? `가장 흔함 ${Math.round(f.p * 100)}%` : `${Math.round(f.p * 100)}%`),
+      properties: JSON.stringify({ priority: f === best ? 0 : i + 1, ...(f === best ? { default: true } : {}) }),
+    }))
+  }
+  const els = elements
+  return {
+    pid, nodes, flows,
+    contract: {
+      type: 'process-definition-result',
+      processDefinition: { processDefinitionId: pid, processDefinitionName: `${view.proc.name} · ${entry}부터`, isHorizontal: true, data: [],
+        description: `회사 프로세스 지도에서 뽑은 스냅샷(θ ${theta}, ${entry}부터). 일 ${nodes.length}개.`, roles: [...roles.values()], elements: els },
+      forms,
+      agents: [{ id: agent, skills: [...new Set(nodes.flatMap((k) => defs.get(k).runner === 'agent' ? defs.get(k).skills : []))] }],
+      skills: [...new Set(nodes.flatMap((k) => defs.get(k).skills))],
+    },
+  }
+}
+
+// a snapshot for (proc, entry, θ) as of validAt — reused when the key is the same
+export async function snapshot({ procKey, entry, theta, validAt, starterRole }) {
+  const view = await procGraph(procKey, { validAt })
+  if (!view.tasks.has(entry)) throw err(400, '그 일은 이 프로세스에 없어요.')
+  const th = Number.isFinite(theta) ? theta : view.proc.theta ?? 0.05
+  const structural = [...view.tasks.values()].map((t) => `${t.key}:${t.pinned ? 1 : 0}:${t.status}:${t.definition_md ? sha(t.definition_md).slice(0, 6) : ''}`).join('|') +
+    view.edges.map((e) => `${e.from}>${e.to}:${e.status}:${e.pinned ? 1 : 0}${e.decided ? `:d${e.cond ? sha(e.cond).slice(0, 6) : ''}${e.parallel ? 'p' : ''}` : ''}`).join('|') + (view.refined ? `|refined:${t2(view.tasks)}` : '') + (view.requirements ? `|req:${view.requirements}` : '')
+  const week = Math.floor(new Date(validAt || Date.now()).getTime() / (7 * 86_400_000))
+  // a promoted process (자동, design-v0.3 §12): its people's steps arrive with a draft the agent made in the background
+  const draft = view.proc.status === 'adopted'
+  const key = `${T()}|${procKey}|${entry}|${th}|${sha(structural).slice(0, 12)}|${week}|${starterRole || ''}${draft ? '|draft' : ''}`
+  const [have] = await cypher(`MATCH (s:Snapshot {key:$key}) RETURN s.proc_def_id AS pid, s.tasks AS tasks`, { key })
+  const skipped = await skippedOf(view, entry)
+  if (have?.pid) {
+    const [d] = await q('select 1 from proc_def where id=$1 and tenant_id=$2', [have.pid, T()])
+    if (d) return { key, procDefId: have.pid, reused: true, nodes: have.tasks || [], skipped, theta: th, proc: view.proc, draft }
+  }
+  const { pid, nodes, flows, contract } = await contractOf(view, entry, th, { starterRole, key, draft })
+  const saved = await saveGenerated(contract)
+  const defId = saved.proc_def_id || pid
+  // save_contract keeps the activities' own fields, but make sure each carries its skills, checkpoints and runner
+  const byId = Object.fromEntries(contract.processDefinition.elements.filter((e) => e.elementType === 'Activity').map((e) => [e.id, e]))
+  const [row] = await q('select definition from proc_def where id=$1 and tenant_id=$2', [defId, T()])
+  if (row?.definition?.activities) {
+    const acts = row.definition.activities.map((a) => ({ ...a, skills: byId[a.id]?.skills || [], checkpoints: byId[a.id]?.checkpoints || a.checkpoints || [], instruction: byId[a.id]?.instruction || a.instruction || '',
+      ...(byId[a.id]?.agent ? { orchestration: ORCH, agentMode: byId[a.id].agentMode || 'complete', agent: byId[a.id].agent } : {}) }))
+    await q(`update proc_def set definition = jsonb_set(definition, '{activities}', $3::jsonb) where id=$1 and tenant_id=$2`, [defId, T(), JSON.stringify(acts)])
+  }
+  // (two statements: Ontological does not take MERGE … WITH … MERGE of a relationship in one)
+  await cypher(`MERGE (s:Snapshot {key:$key}) ON CREATE SET s.proc=$proc, s.entry=$entry, s.theta=$theta, s.made_at=$at, s.onto_at=$onto, s.proc_def_id=$pid, s.tasks=$tasks
+                ON MATCH SET s.proc=$proc, s.entry=$entry, s.theta=$theta, s.made_at=$at, s.onto_at=$onto, s.proc_def_id=$pid, s.tasks=$tasks`,
+  { key, proc: procKey, entry, theta: th, at: isoDay(), onto: validAt || isoDay(), pid: defId, tasks: nodes })
+  const [linked] = await cypher('MATCH (b:Process {key:$proc})-[r:HAS_SNAPSHOT]->(s:Snapshot {key:$key}) RETURN s.key AS key', { proc: procKey, key })
+  if (!linked) await cypher('MATCH (b:Process {key:$proc}), (s:Snapshot {key:$key}) CREATE (b)-[:HAS_SNAPSHOT]->(s)', { proc: procKey, key }).catch((e) => console.warn('[ontology] snapshot link', e.message))
+  return { key, procDefId: defId, reused: false, nodes, flows, skipped, theta: th, proc: view.proc, draft }
+}
+
+// ---------- the start task ----------
+// the request's text → which task it starts at: the model's first-token odds over the proc's tasks, weighted by how
+// often cases start there (smoothed); unsure (top < 0.5) → the person picks from the two best
+// The start task (design §4.4): walk the proc's usual way (from its receipt, the most likely next step each time) and ask,
+// task by task, whether this request needs it done anew — the first "yes" is where the case starts. A yes/no reading per
+// step (first-token odds) is what this model answers reliably; one pick out of eight was not (measured: 「견적만 다시」
+// read as 고객 회신 87%). The probability is P(yes here) × Π P(no before); under 0.5 the person picks.
+export function mainPath(proc, tasks, edges, receipt) {
+  const inB = new Set(proc.tasks)
+  const start = [...receipt].find((r) => inB.has(r)) || proc.entries?.[0]
+  const path = [], seen = new Set([start])
+  let x = start
+  for (;;) {
+    const next = edges.filter((e) => e.from === x && e.to !== END && inB.has(e.to) && !seen.has(e.to) && e.status !== 'retired').sort((a, b) => b.p - a.p)[0]
+    if (!next) break
+    path.push(next.to); seen.add(next.to); x = next.to
+  }
+  return { start, path }
+}
+
+export async function chooseEntry({ subject = '', text = '', procKey } = {}) {
+  const g = await readGraph({})
+  const adopted = g.processes.filter((b) => (procKey ? b.key === procKey : b.status === 'adopted')).sort((a, b) => b.cases - a.cases)
+  if (!adopted.length) return null
+  // the process as it runs: refined when a person corrected it (its steps, order and starts)
+  const view = await procGraph(adopted[0].key).catch(() => null)
+  const proc = view?.proc || adopted[0]
+  const vtasks = view ? [...view.tasks.values()] : g.tasks
+  const cases = g.meta?.cases || 1
+  // the receipt (a task that is nearly always a case's first step, like 요청 메일 접수) is the snapshot's own 요청 접수
+  const receipt = new Set(g.tasks.filter((t) => t.n && (t.entry_share * cases) / t.n >= 0.9 && t.entry_share >= 0.2).map((t) => t.key))
+  const main = mainPath(proc, vtasks, view?.edges || g.edges, receipt)
+  // the walk starts after the receipt (the snapshot's own 요청 접수); a process whose first step is real work (no receipt, as a
+  // refined flow often is) asks about that first step too — else it would always be skipped
+  const path = main.start && !receipt.has(main.start) ? [main.start, ...main.path] : main.path
+  const byKey = new Map(vtasks.map((t) => [t.key, t]))
+  const state = `회사에 들어온 요청\n제목: ${String(subject).slice(0, 200)}\n내용: ${String(text).slice(0, 1500)}`
+  const reads = []
+  let measured = true, noBefore = 1
+  for (const k of path) {
+    const t = byKey.get(k)
+    const what = t?.description || `${t?.role || '담당자'}의 일`
+    const r = await oddsOf(state, `이 요청에 답하려면 회사가 「${k}」(${what})를 이번에 새로 해야 하나? 고객이 이미 받았고 그대로 두라는 것은 다시 하지 않는다.`,
+      [{ key: 'yes', label: '예, 새로 해야 한다' }, { key: 'no', label: '아니요, 이번에는 하지 않아도 된다' }]).catch(() => null)
+    let yes = r?.probabilities?.yes
+    if (yes == null) {
+      measured = false
+      const j = await chatJson('JSON {"needed": true|false} 로만 답하세요.', JSON.stringify({ request: state, question: `「${k}」를 이번에 새로 해야 하나?` }), { temperature: 0 }).catch(() => ({}))
+      yes = j.needed ? 0.7 : 0.3
+    }
+    reads.push({ task: k, yes, p: yes * noBefore })
+    if (yes >= 0.5) break
+    noBefore *= 1 - yes
+  }
+  const ranked = [...reads].sort((a, b) => b.p - a.p)
+  const top = reads.find((x) => x.yes >= 0.5) || ranked[0]
+  if (!top) return null
+  return { task: top.task, p: top.p, ask: top.p < 0.5, options: ranked.slice(0, 3).map(({ task, p }) => ({ task, p })), reads, proc: proc.key, procName: proc.name, measured, receipt: [...receipt] }
+}
+
+// ---------- cases ----------
+async function roleOfPerson(userId) {
+  const [r] = await q(`select role from pro_role_assignments where tenant_id=$1 and proc_def_id='*' and user_id::text=$2 limit 1`, [T(), String(userId)])
+  return r?.role || '담당자'
+}
+
+// the event a case came from: mail · timer · chat (the entry card says 'message') · file · manual — a file keeps its name
+export const KINDS = ['mail', 'timer', 'chat', 'file', 'manual']
+export const triggerOf = ({ kind = 'manual', subject = '', from = '', customer = '', file = null } = {}) => {
+  const k = kind === 'message' ? 'chat' : KINDS.includes(kind) ? kind : 'manual'
+  return { kind: k, subject, from, customer, ...(k === 'file' && file?.name ? { file: String(file.name).slice(0, 200) } : {}) }
+}
+
+// engine: the tenant's (mapengine.js engineOf) unless given — 'bpm' runs a snapshot proc_def on the engine, 'map' runs the map itself
+// The case takes the mode its process's stage gives it (runmode.js modeOfStage — 제안: 단계마다 사람이 정함, 자동: 사람이 지켜봄) and keeps it,
+// and who does each role of its flow (bindings.js — picks: what the person changed on the ask card before 진행); a snapshot case's roles
+// go to the engine as its role mappings (engine.js startProcess roles).
+export async function startCase(me, { procKey, entry, subject = '', body = '', from = '', customer = '', odds = null, kind = 'manual', file = null, validAt, engine, picks = [] }) {
+  if (!ontologyEnabled()) throw err(503, 'Ontological DB 가 연결되지 않았어요.')
+  const M = await import('./mapengine.js')
+  if ((engine || (await M.engineOf()).engine) === 'map') return M.startMapCase(me, { procKey, entry, subject, body, from, customer, odds, kind, file, picks })
+  const starterRole = await roleOfPerson(me.id)
+  const snap = await snapshot({ procKey, entry, starterRole, validAt })
+  const view = await procGraph(procKey, { validAt })
+  const B = await import('./bindings.js')
+  const bindings = await B.resolveBindings(view, entry, { starter: me.id, picks }).catch((e) => { console.warn('[ontology] bindings', e.message); return [] })
+  const { modeOfStage } = await import('./runmode.js')
+  const { startProcess } = await import('../engine.js')
+  const values = { subject, body: String(body).slice(0, 3000), customer, sender: from }
+  const [c] = await q(`insert into pro_po_cases (tenant_id, bundle, entry_task, started_by, trigger, entry_odds, snapshots, history, engine, request, run_mode, bindings)
+                       values ($1,$2,$3,$4,$5,$6,$7,$8,'bpm',$9,$10,$11) returning *, bundle as proc`, [T(), procKey, entry, me.id, triggerOf({ kind, subject, from, customer, file }), odds, [snap.procDefId],
+    JSON.stringify(snap.skipped.map((t) => ({ task: t, state: 'skipped', at: isoDay() }))), values, modeOfStage(view.proc.status), JSON.stringify(bindings)])
+  // (a role nobody could be found for goes as the engine would send it — to the starter: the snapshot path has no step that waits for it)
+  const roles = Object.fromEntries(bindings.filter((b) => b.userId && b.from !== 'agent').map((b) => [b.role, b.userId]))
+  const { instId, instName } = await startProcess({ me, defId: snap.procDefId, values, roles })
+  await q(`update pro_po_cases set instances = array_append(instances, $2), updated_at=now() where id=$1`, [c.id, instId])
+  return { caseId: c.id, instId, instName, snapshot: snap, bindings: B.bindingsView(bindings), runMode: c.run_mode }
+}
+
+export async function getCase(id) {
+  const [c] = await q('select *, bundle as proc from pro_po_cases where id=$1 and tenant_id=$2', [id, T()])
+  if (!c) throw err(404, '건을 찾지 못했어요.')
+  const insts = c.instances.length ? await q(`select proc_inst_id, proc_inst_name, status, proc_def_id from bpm_proc_inst where proc_inst_id = any($1)`, [c.instances]) : []
+  const { statusSql } = await import('../enums.js')
+  const todos = c.instances.length ? await q(`select id, proc_inst_id, activity_id, activity_name, ${statusSql()} as status, user_id, agent_orch, end_date from todolist where proc_inst_id = any($1) order by start_date nulls last`, [c.instances]) : []
+  return { ...c, instancesInfo: insts, todos }
+}
+
+// 옮기기: the case continues at `task` — the running instance is closed (its open work items cancelled) and a new
+// snapshot from `task` takes over; the move is a fact the next build learns from (a todolist handover)
+// The new instance gets the case's request again (the first instance's 요청 접수 values: subject, body, customer, sender), so
+// the steps from `task` on read what the case is about. state: 'moved' | 'rewound' (이 단계로 되감기, runmode.js) · learn:
+// whether the move is a fact the next build learns from (a rewind corrects this run, it says nothing about how work flows)
+// (a case run from the map — mapengine.js — has no 요청 접수 step: its request is on the case's row)
+export async function caseIntake(c) {
+  if (c.engine === 'map') return c.request || {}
+  const [r] = c.instances?.length ? await q(`select output from todolist where proc_inst_id = any($1) and activity_id='intake' and output is not null order by end_date nulls last limit 1`, [c.instances]) : []
+  return Object.values(r?.output || {}).find((v) => v && typeof v === 'object') || c.request || {}
+}
+// what a step's skill reads of the case so far, flat: the request (a map case has no 요청 접수 step to carry it) and the earlier steps' values
+export async function prevOf(row) {
+  const W = await import('../mining/worker.js')
+  const done = await W.earlier(row.proc_inst_id)
+  const { isMapInst } = await import('./mapengine.js')
+  if (!isMapInst(row.proc_inst_id)) return done
+  const RM = await import('./runmode.js')
+  const c = await RM.caseOfInstance(row.proc_inst_id)
+  return { ...(c?.request || {}), ...done }
+}
+export async function moveCase(me, id, { task, reason = '', state = 'moved', learn = true }) {
+  const c = await getCase(id)
+  if (c.engine === 'map') return (await import('./mapengine.js')).moveMap(me, c, { task, reason, state, learn })
+  const cur = c.instances.at(-1)
+  if (cur) {
+    // (a database whose todo_status has no CANCELLED: DONE with Lite's cancel mark — lib/enums.js)
+    const { cancelSet } = await import('../enums.js')
+    await q(`update todolist set ${await cancelSet()} where proc_inst_id=$1 and status::text not in ('DONE','CANCELLED')`, [cur])
+    await q(`update bpm_proc_inst set status='COMPLETED' where proc_inst_id=$1`, [cur])
+  }
+  const starterRole = await roleOfPerson(me.id)
+  const snap = await snapshot({ procKey: c.proc, entry: task, starterRole })
+  const intake = await caseIntake(c)
+  const { startProcess } = await import('../engine.js')
+  const { instId, instName } = await startProcess({ me, defId: snap.procDefId, values: { subject: c.trigger?.subject || intake.subject || '', customer: c.trigger?.customer || intake.customer || '',
+    sender: c.trigger?.from || intake.sender || '', body: `${reason ? `옮긴 이유: ${reason}\n` : ''}${intake.body || ''}`.slice(0, 3000) },
+    // (the new instance keeps who does each role of this case — bindings.js)
+    roles: Object.fromEntries((Array.isArray(c.bindings) ? c.bindings : []).filter((b) => b.userId && b.from !== 'agent').map((b) => [b.role, b.userId])) })
+  await q(`update pro_po_cases set instances = array_append(instances, $2), snapshots = array_append(snapshots, $3), status='running',
+           history = history || $4::jsonb, updated_at=now() where id=$1`, [id, instId, snap.procDefId, JSON.stringify([{ task, state, at: isoDay(), reason }])])
+  if (learn) await q(`insert into handover_events (tenant_id, case_id, source, is_explicit, from_user_id, from_user_name, to_user_id, activity_label, next_activity_label, reason, occurred_at)
+           values ($1,$2,'todolist',true,$3,$4,$3,$5,$5,$6,now())`, [T(), `onto:${id}`, String(me.id), me.email || '', task, reason || '옮기기']).catch((e) => console.warn('[ontology] move event', e.message))
+  return { caseId: id, instId, instName, snapshot: snap }
+}
+
+// ---------- events: a mail (lib/mail.js), a request typed in chat, a file attached in chat → events.js routeEvent ----------
+// Every adopted and suggested process is read against the event (yes/no each, so two can both say yes, and none is an answer):
+// an adopted one starts on a mail by itself, a suggested one is offered; a chat request or a file is only ever offered.
+export async function routeMail(userId, mail) {
+  if (!ontologyEnabled()) return false
+  return (await import('./events.js')).onMail(userId, mail)
+}
+
+// a new request typed in chat that is the start of one of the company's processes: offered, never started by itself (a person
+// typed it — the events that start promoted processes are mails and finished steps); once per conversation
+export async function chatSuggest({ user, threadId, said, conv }) {
+  if (!ontologyEnabled() || String(said || '').trim().length < 12) return null
+  const [asked] = await q(`select 1 from pro_messages where thread_id=$1 and kind='onto-entry' and content->>'source'='chat' and coalesce(content->>'conv','')=$2 and created_at > now() - interval '1 day' limit 1`, [threadId, conv || ''])
+  if (asked) return null
+  return (await import('./events.js')).onChat({ user, threadId, said, conv })
+}
+
+// ---------- agent steps (orchestration pgpt-pro-onto) ----------
+async function checkOutputs(checkpoints, file) {
+  if (!checkpoints?.length || !file?.url) return []
+  let text = ''
+  try {
+    const ExcelJS = (await import('exceljs')).default
+    const buf = Buffer.from(await (await fetch(file.url)).arrayBuffer())
+    // a Word · PowerPoint · 한글 file (a form filled by stepdoc.js, a draft made a Word file): its paragraphs
+    if (/\.(docx|pptx|hwpx)$/i.test(file.name || '')) throw Object.assign(new Error('not xlsx'), { doc: (await (await import('./mailbody.js')).readFile(file.name, buf)).text })
+    const wb = new ExcelJS.Workbook()
+    try {
+      await wb.xlsx.load(buf)
+      text = (await import('./taskdef.js')).sheetText(wb)
+    } catch {
+      // a company's own file ExcelJS cannot open (its comments part, an external link): its cells straight from the sheet XML
+      const { sheets } = await (await import('../mining/worker.js')).xlsxSheets(buf)
+      text = sheets.map((sh) => sh.cells.map((c) => `${c.cell} ${c.value}`).join('\n')).join('\n\n')
+    }
+  } catch (e) { text = e.doc || '' }
+  if (!text) return checkpoints.map((c) => ({ checkpoint: c, ok: null, note: '파일을 읽지 못했어요' }))
+  try {
+    const r = await chatJson('산출물이 점검 항목을 지키는지 봅니다. JSON {"results":[{"i":번호,"ok":true|false,"note":"근거 한 줄"}]} 로만 답하세요.', JSON.stringify({ checkpoints: checkpoints.map((c, i) => ({ i, c })), output: text.slice(0, 6000) }), { temperature: 0, timeoutMs: 60000 })
+    return checkpoints.map((c, i) => { const x = (r.results || []).find((y) => Number(y.i) === i) || {}; return { checkpoint: c, ok: x.ok === true ? true : x.ok === false ? false : null, note: String(x.note || '') } })
+  } catch { return checkpoints.map((c) => ({ checkpoint: c, ok: null, note: '점검하지 못했어요' })) }
+}
+
+let busy = false
+const CONSUMER = `pgpt-pro-onto-${process.pid}`
+async function tick() {
+  if (busy) return
+  busy = true
+  try {
+    const { data, error } = await admin.rpc('fetch_pending_task', { p_agent_orch: ORCH, p_consumer: CONSUMER, p_limit: 1, p_env: 'dev' })
+    if (error) throw new Error(error.message)
+    const row = data?.[0]
+    if (!row) return
+    const { servesTenant, withTenant } = await import('../tenant.js')
+    if (!servesTenant(row.tenant_id)) { await admin.from('todolist').update({ draft_status: null, consumer: null }).eq('id', row.id); return }
+    console.log('[onto-worker] claimed', row.id, row.activity_name)
+    // 실행 방식(runmode.js): the step's gate reads the mode, the step's kind and the case's pause now — it may wait for a person
+    await withTenant(row.tenant_id, async () => {
+      const gate = await (await import('./runmode.js')).gateStep(row).catch((e) => { console.warn('[onto-worker] gate', e.message); return { act: 'run' } })
+      if (gate.act === 'wait' || gate.act === 'skip') return
+      await runStep(row, gate)
+    }).catch(async (e) => {
+      console.warn('[onto-worker] failed', e.message)
+      await admin.from('todolist').update({ draft_status: 'FAILED', consumer: null }).eq('id', row.id)
+    })
+  } catch (e) { console.warn('[onto-worker]', e.message) } finally { busy = false }
+}
+
+// the task definition the skill follows on top of its own way of working: what the step does, the form the
+// company's mail shows for it (its cells as text, so the agent keeps the same labels and layout) and what to keep
+// the company's own file of the form this work uses (formats.js chosenForm: the one a person picked, else the one its definition
+// names, else the most used one that has a file) — chosenBy says which
+async function formFileOf(name, act) {
+  const { templatePath } = await import('./taskdef.js')
+  const c = await (await import('./formats.js')).chosenForm(name, act)
+  return c?.form?.file ? { name: c.form.name, path: templatePath(c.form.file), chosenBy: c.chosenBy, type: c.form.type, ofTask: c.ofTask || null } : null
+}
+
+async function definitionText(name, act) {
+  const { templatesOf, templateText } = await import('./taskdef.js')
+  const out = (act.outputs || []).find((o) => o.template)
+  const t = out ? (await templatesOf(name)).find((x) => x.name === out.template && (x.file || x.fields?.length)) : null
+  // the form's file (a demo template, or the latest one the company sent from a real mailbox), else its labels
+  const form = t?.file ? await templateText(t.file).catch(() => (t.fields || []).join(' | ')) : (t?.fields || []).join(' | ')
+  return [
+    act.instruction ? `이 일의 정의(회사 업무 지도에서):\n${act.instruction}` : '',
+    form ? `회사가 메일로 주고받아 온 양식 「${t.name}」의 칸이에요. 위의 품목 표 안내와 다르면 이 양식을 따르세요 — 머리 칸 · 표의 열 이름 · 안내 문구를 그대로 두고 채우세요:\n${form}` : '',
+    act.checkpoints?.length ? `만든 파일은 다음을 모두 지켜야 해요(빠짐없이 파일 안에 적으세요):\n${act.checkpoints.map((c) => `- ${c}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n')
+}
+
+// 글로 만드는 단계(doc-draft): the step's document, an outward step's message or a person's step's note, written by the Lite's
+// own model from the case's request, what the earlier steps made and the task's definition — no tools: nothing is sent,
+// booked or drafted in anyone's mailbox (prompts/draft-step.md)
+export const ONTO_SKILLS = {
+  async 'doc-draft'({ row, act, kind = 'document' }) {
+    const { prompt, rules: skillRules } = await import('./discovery.js')
+    const R = (await skillRules()).runMode?.draft || {}
+    const RM = await import('./runmode.js')
+    const c = await RM.caseOfInstance(row.proc_inst_id)
+    const intake = c ? await caseIntake(c) : {}
+    const earlier = c ? await RM.earlierOfCase(c) : []
+    const chars = R.textChars || 2500
+    const input = { today: new Date().toLocaleDateString('sv-SE', { timeZone: process.env.PRO_TZ || 'Asia/Seoul' }), step: row.activity_name, role: act.role || '', kind,
+      definition: { description: act.description || '', instruction: String(act.instruction || '').slice(0, 2000), checkpoints: act.checkpoints || [] },
+      request: { subject: intake.subject || c?.trigger?.subject || '', body: String(intake.body || '').slice(0, chars), from: intake.sender || c?.trigger?.from || '' },
+      earlier: earlier.slice(-4).map((x) => ({ step: x.task, text: String(x.text || '').slice(0, 1200) })) }
+    const r = await chatJson(await prompt('draft-step'), JSON.stringify(input), { temperature: 0.2, timeoutMs: R.timeoutMs || 120000 })
+    const text = String(r.text || '').slice(0, 6000)
+    const values = { result: text, title: String(r.title || row.activity_name).slice(0, 120), summary: String(r.summary || '').slice(0, 200) }
+    if (kind === 'message') values.mail = { to: intake.sender || c?.trigger?.from || '', subject: String(r.subject || `Re: ${intake.subject || ''}`).slice(0, 200), body: text }
+    return { values, say: null }
+  },
+}
+
+// a step's activity: the snapshot's (proc_def.definition.activities), or — a case run from the map (mapengine.js) — what was read
+// from the task's definition when its work item was made (pro_case_steps.act)
+export async function actOf(row) {
+  const { isMapInst } = await import('./mapengine.js')
+  if (isMapInst(row.proc_inst_id)) {
+    const [s] = await q(`select act from pro_case_steps where todo_id=$1`, [row.id])
+    return s?.act || {}
+  }
+  const [a] = await q(`select a as act from proc_def, jsonb_array_elements(definition->'activities') a where id=$1 and tenant_id=$2 and a->>'id'=$3`, [row.proc_def_id, row.tenant_id, row.activity_id])
+  return a?.act || {}
+}
+
+async function runStep(row, gate = {}) {
+  const W = await import('../mining/worker.js')
+  const M = await import('./mapengine.js')
+  const map = M.isMapInst(row.proc_inst_id)
+  const job = crypto.randomUUID()
+  const base = { job_id: job, todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH }
+  const act = await actOf(row)
+  // a draft (a person's step of a promoted process): the agent works for the person the step is for, in their thread, and
+  // its result is the step's draft — the person checks it and submits (design-v0.3 §12)
+  const isDraft = String(row.agent_mode || '').toUpperCase() === 'DRAFT'
+  const assignee = isDraft ? String(row.user_id || '').split(',').map((x) => x.trim()).filter((x) => x && x !== act.agent)[0] : null
+  // (a map case has no 요청 접수 step by its starter: the case's owner is who the agent acts for)
+  const owner = assignee || (map ? (await (await import('./runmode.js')).caseOfInstance(row.proc_inst_id))?.started_by : await W.ownerOf(row))
+  if (!owner) throw new Error('no human participant to act for')
+  const threadId = await W.instanceThread(owner, row.proc_inst_id)
+  const status = (text) => emit(owner, 'status', { threadId, text })
+  const skill = (act.skills || []).find((k) => W.SKILLS[k])
+  // text only (no tools): the task's own doc-draft skill; an outward step with no skill of its own (its message is drafted here and
+  // waits for a person — runmode.js); a person's step's draft (a draft must not act: a draft made with tools could already have)
+  const textOnly = (act.skills || []).includes('doc-draft') || (gate.draftFirst && !skill) || (isDraft && !skill)
+  await W.events([{ ...base, event_type: 'task_started', data: { goal: `${row.activity_name} — 일 정의(스킬 ${(act.skills || []).join(', ') || '없음'} · 점검 ${(act.checkpoints || []).length}개)`, name: '업무 에이전트', role: row.activity_name } }])
+  let r
+  try {
+    if (textOnly) {
+      status(`${row.activity_name} 글로 만드는 중`)
+      // a document step makes a file (stepdoc.js): from the work's form when it has a kept file, else the text as Word — no tools either
+      const kind = gate.draftFirst ? 'message' : isDraft ? 'note' : 'document'
+      r = await (await import('./stepdoc.js')).draftStep({ row, act, kind, owner, threadId, status, form: await formFileOf(row.activity_name, act).catch(() => null),
+        draftText: (k) => ONTO_SKILLS['doc-draft']({ row, act, kind: k }), extra: await definitionText(row.activity_name, act).catch(() => '') })
+    } else if (skill === 'form-fill') {
+      // the company's form, filled here without tools (stepdoc.js): an Excel form cell by cell, a Word · PowerPoint · 한글 form paragraph by
+      // paragraph — not handed to the agent, whose tools (mail · calendar · messenger) could act outside
+      const form = await formFileOf(row.activity_name, act)
+      if (!form) throw new Error('이 일의 회사 양식 파일이 없어요')
+      r = await (await import('./stepdoc.js')).formStep({ row, act, owner, threadId, status, form, extra: await definitionText(row.activity_name, act) })
+    } else if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await prevOf(row), status, extra: await definitionText(row.activity_name, act),
+      template: await formFileOf(row.activity_name, act), step: row.activity_name })
+    else {
+      const { delegate } = await import('../agent.js')
+      const { sessionFor } = await import('../supa.js')
+      const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
+      const { user, session } = await sessionFor(p.email, p.name)
+      const prev = await prevOf(row)
+      const ask = isDraft
+        ? `프로세스의 '${row.activity_name}' 단계를 맡은 사람(${act.role || '담당자'})이 받기 전에 초안을 만들어 두는 일이에요. ${act.description || ''} ${act.instruction || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ') || '없음'}\n담당자가 그대로 확인하고 낼 수 있게, 이 단계의 결과(판단 · 근거 · 다음에 할 일)를 다섯 줄 안으로 써 주세요. 파일은 만들지 마세요.`
+        : `프로세스의 '${row.activity_name}' 단계예요. ${act.instruction || act.description || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ')}\n쓸 스킬: ${(act.skills || []).join(', ')}`
+      const msg = await delegate({ user, session, threadId, silent: true, text: ask })
+      r = { values: { result: String(msg?.content?.text || '').slice(0, 3000) }, say: null }
+    }
+  } finally { status(null) }
+  const checks = await checkOutputs(act.checkpoints || [], r.values.quote || r.values.proposal || r.values.document || null)
+  const values = { ...r.values, ...(checks.length ? { checkpoints: checks } : {}) }
+  const formId = (act.tool || '').startsWith('formHandler:') ? act.tool.slice(12) : `${row.activity_id}_form`
+  const payload = { [formId]: values }
+  // a map case moved or rewound while this step ran: its work item is closed, what it made is not used
+  if (map && !(await M.stillOpen(row.id))) { console.log(`[onto-worker] ${row.activity_name}: 옮기며 닫힌 단계 — 결과를 쓰지 않음`); return }
+  // 되돌릴 수 없는 단계: what would go out is kept as the step's draft and the step waits for a person (runmode.js decide)
+  if (gate.draftFirst) {
+    await (await import('./runmode.js')).holdForSend(row, payload, gate)
+    await addMessage(owner, threadId, 'agent', 'text', { text: `업무 에이전트 · ${row.activity_name}: 회사 밖으로 나갈 초안을 만들었어요. 되돌릴 수 없는 단계라 사람이 정할 때까지 기다려요.` })
+    emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
+    return
+  }
+  // the engine's save (an agent's step: SUBMITTED, the engine goes on; a draft: kept on the item) — a map case's agent step ends here and
+  // the map says what comes next (mapengine.js finishItem; a draft stays the engine's way: it only fills the item)
+  if (map && !isDraft) await M.finishItem(row.id, payload)
+  else {
+    const { error } = await admin.rpc('save_task_result', { p_todo_id: row.id, p_payload: payload, p_final: true })
+    if (error) throw new Error('save_task_result: ' + error.message)
+  }
+  await W.events([
+    { ...base, crew_type: 'result', event_type: 'task_completed', data: payload },
+    { job_id: 'CREW_FINISHED', todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: 'crew', event_type: 'crew_completed', data: 'Task completed successfully' },
+  ])
+  const passed = checks.filter((c) => c.ok === true).length
+  const amount = values.amount ? ` 합계 ${fmtWon(Number(values.amount))}원.` : ''
+  await addMessage(owner, threadId, 'agent', 'text', { text: isDraft
+    ? `업무 에이전트 · ${row.activity_name}: 초안을 만들어 두었어요. 확인하고 고칠 곳만 고쳐 내 주세요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`
+    : `업무 에이전트 · ${row.activity_name}: 일 정의대로 만들었어요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`, checks, ...(isDraft ? { draftOf: row.id } : {}) })
+  emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
+}
+
+export function startOntologyWorker() {
+  if (!ontologyEnabled() || process.env.PRO_ONTOLOGY_WORKER === '0') return
+  setInterval(tick, 4000)
+  setInterval(() => sweepCases().catch(() => {}), 5000)
+  console.log(`[onto-worker] polling agent_orch=${ORCH} as ${CONSUMER}`)
+}
+
+// ---------- 습관: when a case's snapshot runs out (an open-band case, one step at a time), the most common next task
+// is asked about — "지난번처럼 재무 검토로 넘길까요?" — when the person is more likely to say yes than no (calibrated
+// on earlier answers; the follow-up habit's bar 0.5 until there are 20 answers) ----------
+export async function habitFor(caseId) {
+  const c = await getCase(caseId)
+  const done = c.todos.filter((t) => t.status === 'DONE' && t.activity_id !== 'intake').at(-1)
+  if (!done) return null
+  const view = await procGraph(c.proc)
+  const outs = view.edges.filter((e) => e.from === done.activity_name && e.to !== END && e.status !== 'retired').sort((a, b) => b.p - a.p)
+  if (!outs.length) return null
+  const { calibrate } = await import('./stats.js')
+  const answers = await q(`select p, accepted from pro_onto_answers where tenant_id=$1 order by created_at desc limit 200`, [T()])
+  const cal = calibrate(answers)
+  const top = outs[0]
+  const accept = cal ? cal.accept(top.p) : top.p
+  return { from: done.activity_name, to: top.to, p: top.p, accept, calibrated: !!cal, ask: accept >= 0.5, others: outs.slice(1, 3).map((e) => ({ to: e.to, p: e.p })) }
+}
+
+export async function answerHabit(me, caseId, { to, accepted, p, from }) {
+  await q(`insert into pro_onto_answers (tenant_id, user_id, case_id, from_task, to_task, p, accepted) values ($1,$2,$3,$4,$5,$6,$7)`, [T(), me.id, caseId, from || '', to, Number(p) || 0, !!accepted])
+  if (!accepted) return { moved: false }
+  return { moved: true, ...(await moveCase(me, caseId, { task: to, reason: '지난번처럼(습관)' })) }
+}
+
+// a running case whose current instance has finished: ask the habit question once
+const asked = new Set()
+async function checkCases() {
+  const rows = await q(`select c.id, c.started_by, c.instances, i.status from pro_po_cases c join bpm_proc_inst i on i.proc_inst_id = c.instances[array_length(c.instances,1)]
+                        where c.tenant_id=$1 and c.status='running' and i.status::text='COMPLETED' and c.updated_at > now() - interval '2 days' limit 5`, [T()])
+  for (const r of rows) {
+    const k = `${r.id}:${r.instances.length}`
+    if (asked.has(k)) continue
+    asked.add(k)
+    const h = await habitFor(r.id).catch(() => null)
+    if (!h) { await q(`update pro_po_cases set status='done', updated_at=now() where id=$1`, [r.id]); continue }
+    const t = await mainThread(r.started_by)
+    await addMessage(r.started_by, t.id, 'agent', 'onto-habit', { caseId: r.id, ...h, state: h.ask ? 'ask' : 'quiet' })
+    emit(r.started_by, 'ontology', { caseId: r.id, habit: h })
+  }
+}
+// every tenant this server serves, each in its own context (lib/tenant.js forEachTenant — behind the ProcessGPT gateway the
+// tenants whose people use Lite, as the other background loops go round them; one tenant: as it is)
+let sweeping = false
+export async function sweepCases() {
+  if (sweeping) return
+  sweeping = true
+  try {
+    const { forEachTenant } = await import('../tenant.js')
+    await forEachTenant(async () => {
+      await checkCases().catch((e) => console.warn('[onto-worker] cases', e.message))
+      // a person's step of a running case (no agent on it) passes the run mode's gate as it opens (runmode.js)
+      await (await import('./runmode.js')).gatePersonSteps().catch((e) => { if (!/pro_case_steps/.test(e.message)) console.warn('[onto-worker] person steps', e.message) })
+      // cases run from the map: a step handed in some other way (Process GPT's own screen) · a person's step its gate has not seen
+      await (await import('./mapengine.js')).sweepMap().catch((e) => console.warn('[onto-worker] map', e.message))
+    }, 'onto-worker')
+  } finally { sweeping = false }
+}

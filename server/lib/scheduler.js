@@ -97,7 +97,8 @@ export async function createSchedule({ userId, name, cron, prompt, threadId, not
     `insert into pro_schedules(user_id,name,cron,prompt,thread_id,notify,state,tenant_id) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
     // the tenant the request is in: the minute ticker has no request to tell it (sql/022)
     [userId, name, cron, prompt, threadId, notify, once ? { once: true } : {}, config.tenantId])
-  if (config.cronMode === 'server') return s
+  // (the minute ticker needs no pg_cron job; the map's timer event is made all the same)
+  if (config.cronMode === 'server') { ontoTimer(s.id); return s }
   const jobBase = `pro_${s.id.slice(0, 8)}`
   const url = `${config.cronCallbackBase}/api/cron/fire`
   const body = JSON.stringify({ id: s.id, secret: config.cronSecret })
@@ -109,6 +110,7 @@ export async function createSchedule({ userId, name, cron, prompt, threadId, not
     names.push(job)
   }
   await q('update pro_schedules set job_name=$2 where id=$1', [s.id, names.join(',')])
+  ontoTimer(s.id)
   return { ...s, job_name: names.join(',') }
 }
 
@@ -117,6 +119,13 @@ export async function deleteSchedule(userId, id) {
   if (!s) return
   for (const job of (s.job_name || '').split(',').filter(Boolean)) await q('select cron.unschedule($1)', [job]).catch(() => {})
   await q('delete from pro_schedules where id=$1', [id])
+  ontoTimer(id)
+}
+
+// the company's process map keeps every schedule as a timer event (lib/ontology/timers.js) — the graph is the record
+// (unref: the server keeps running anyway; a script or a test that made a schedule is not held open by it)
+export function ontoTimer(id) {
+  setTimeout(() => import('./ontology/timers.js').then((m) => m.syncSchedule(id)).catch((e) => console.warn('[ontology] timer', e.message)), 1500).unref?.()
 }
 
 export const listSchedules = async (userId) =>

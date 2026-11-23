@@ -11,7 +11,7 @@ import { runTurn, delegate, stopTurns } from './lib/agent.js'
 import { ruleOf, removeRule } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
-import { listSchedules, deleteSchedule, startScheduleTicker } from './lib/scheduler.js'
+import { listSchedules, deleteSchedule, ontoTimer, startScheduleTicker } from './lib/scheduler.js'
 import { generatePanel, revisePanel, savePanelData, proxyFetch } from './lib/panels.js'
 import { chat } from './lib/llm.js'
 import * as mail from './lib/mail.js'
@@ -31,11 +31,24 @@ import * as webpush from './lib/webpush.js'
 import * as TF from './lib/folders/threadFolders.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
+import { contextRoutes } from './routes/context.js'
+import { teamActivityRoutes } from './routes/teamActivity.js'
+import { contextGradeRoutes } from './routes/contextGrade.js'
 import { meetingRoutes } from './routes/meetings.js'
 import { attachVoice } from './lib/meetings/voice.js'
 import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang.js'
 import { miningRoutes, startMiningScan } from './routes/mining.js'
 import { improveRoutes } from './routes/improve.js'
+import { billingRoutes } from './routes/billing.js'
+import { backofficeRoutes } from './routes/backoffice.js'
+import { agenticRoutes } from './routes/agentic.js'
+import { followupRoutes } from './routes/followups.js'
+import { ontologyRoutes } from './routes/ontology.js'
+import { scenarioMailRoutes } from './routes/scenario-mail.js'
+import { scenarioPurchaseRoutes } from './routes/scenario-purchase.js'
+import { scenarioReleaseRoutes } from './routes/scenario-release.js'
+import { startPlanSync } from './lib/plans/apply.js'
+import { startMeter } from './lib/plans/meter.js'
 import { telegramRoutes } from './routes/telegram.js'
 import { mailReplyRoutes } from './routes/mailReply.js'
 import { isReplyCard } from './lib/mailReply.js'
@@ -59,7 +72,10 @@ import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L, isEn, asUser } from './lib/lang.js'
 import * as gconnect from './lib/googleConnect.js'
 import * as googleClient from './lib/googleClient.js'
-import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser } from './lib/tenant.js'
+import { tenantMiddleware, withTenant, multiTenant, tenantOfAuthUser, forEachTenant } from './lib/tenant.js'
+import { withUsage, featureOf } from './lib/usage.js'
+import * as llmKeys from './lib/llmKeys.js'
+import * as llmUsage from './lib/llmUsage.js'
 
 const app = express()
 // ArtCraft web apps (static WebAssembly builds) on this origin: their postMessage bridge only
@@ -119,7 +135,9 @@ async function auth(req, res, next) {
   // header > saved > ko; everything this request starts (agent turns, drafts, timers) keeps it
   req.lang = resolveLang({ header: langAsked(req), saved: p?.lang })
   // entered again: a body parser in the route's own chain runs outside the request's async context
-  withLang(req.lang, () => (req.tenantId ? withTenant(req.tenantId, next) : next()))
+  // model calls it makes are the person's, under the feature of the path (lib/usage.js, lib/llmKeys.js)
+  withLang(req.lang, () => withUsage({ userId: u.id, feature: featureOf(req.path) },
+    () => (req.tenantId ? withTenant(req.tenantId, next) : next())))
 }
 
 async function finishLogin(email, name) {
@@ -250,8 +268,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
       if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error(L('메일을 연결하려면 Gmail 읽기 권한이 필요해요. 다시 연결하면서 Gmail을 허용해 주세요.', 'Connecting mail needs permission to read Gmail. Connect again and allow Gmail.'))
       // the person who started it, in the tenant they started it in — whichever Google account they picked
       const userId = st.userId
-      const previous = await vault.getSecret(userId, 'oauth', 'google')
-      await vault.putItem(userId, 'oauth', 'google', {
+      const previous = await vault.getSecret(userId, 'oauth', config.google.vaultSite)
+      await vault.putItem(userId, 'oauth', config.google.vaultSite, {
         username: me.email, access_token: tok.access_token, refresh_token: tok.refresh_token || previous?.refresh_token,
         expires_at: Date.now() + tok.expires_in * 1000, scope: tok.scope, client_id: client.clientId, tenant: st.tenant,
       })
@@ -336,8 +354,14 @@ app.get('/api/me', auth, async (req, res) => {
   // admin: the team and tenant-wide role controls are editable (TeamRoles); otherwise read-only
   // lang: the saved language (null = never chosen); reqLang: the one this request ran in
   // mainLang: the language I speak and read in (meetings, messages); mainLangSet: whether I chose it
+  // ontology: the company's process map is there (Ontological DB connected) — the 루틴 tab opens it, otherwise the routine list
+  const { ontologyEnabled } = await import('./lib/ontology/store.js')
+  // features: what this server turns on that the screens follow — the demo scenarios' settings tabs (PRO_SCENARIOS) and
+  // 사용량·요금제 (usage limits on — PRO_LLM_KEYS — or PRO_PLAN_SCREEN=1)
+  const { enabled: billingOn } = await import('./lib/llmKeys.js')
   res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang,
-    mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null })
+    mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null, ontology: ontologyEnabled(),
+    features: { scenarios: config.scenarios, planScreen: billingOn() || config.planScreen } })
 })
 // my main language (Settings › Accounts › Main language, the meeting lobby): what meetings transcribe me
 // in and translate others into for me, and what messages read in; the screens follow it (ko → Korean,
@@ -415,6 +439,13 @@ app.post('/api/mail/connect', auth, async (req, res) => {
   res.json({ ok: true })
   await onboardConnected(req.user.id, provider === 'demo' ? L('데모 메일함 연결됨', 'Demo mailbox connected') : L(`${username} 연결됨`, `${username} connected`))
   setTimeout(() => mail.pollUser(req.user.id, { announce: true }).catch((e) => console.warn('[mail]', e.message)), 6000)
+
+  // 오토 AX 온보딩: the promised ideas — the past mail is read and the company's process map drawn (lib/ontology)
+  import('./lib/ontology/store.js').then(async ({ ontologyEnabled }) => {
+    if (!ontologyEnabled()) return
+    const { readMailAndBuild } = await import('./lib/ontology/service.js')
+    await readMailAndBuild({ id: req.user.id, email: req.user.email }, { days: 90 })
+  }).catch((e) => console.warn('[ontology] onboarding', e.message))
 })
 // Web Push: the server's public key, and this browser's subscription (lib/webpush.js, public/sw.js)
 app.get('/api/push/key', auth, (req, res) => res.json({ publicKey: webpush.vapidKeys().publicKey, stats: webpush.stats }))
@@ -430,8 +461,31 @@ const background = process.env.PRO_BACKGROUND !== '0'
 if (background) setTimeout(() => mail.resumeDrafts().catch((e) => console.warn('[mail] resume', e.message)), 5000)
 // 연습 메일 받기 (Settings): the fictional mails a demo mailbox can be sent ({template: id} below)
 app.get('/api/mail/demo-templates', auth, (req, res) => res.json(mail.demoTemplates().map(({ id, label, hint, from, subject }) => ({ id, label, hint, from, subject }))))
+// 메일 보관함(lib/mailArchive.js): 읽은 메일 — 주인만 보고 지운다
+app.get('/api/mail/archive', auth, async (req, res) => {
+  const { listArchive } = await import('./lib/mailArchive.js')
+  res.json(await listArchive(req.user.id, { search: req.query.q || '', limit: req.query.limit, before: req.query.before || null }))
+})
+app.get('/api/mail/archive/:id', auth, async (req, res) => {
+  const m = await (await import('./lib/mailArchive.js')).readArchived(req.user.id, req.params.id)
+  return m ? res.json(m) : res.status(404).json({ error: '보관함에 없는 메일이에요.' })
+})
+app.delete('/api/mail/archive', auth, async (req, res) => res.json(await (await import('./lib/mailArchive.js')).clearArchive(req.user.id)))
 app.post('/api/mail/demo-arrive', auth, async (req, res) => {
   try { res.json(await mail.demoArrive(req.user.id, req.body || {})) } catch (e) { res.status(400).json({ error: e.message }) }
+})
+// a test site on this machine mails a demo mailbox (the test shop's e-mailed sign-in code): only while demo login is on
+// (development and test servers) and only from this machine — never a way in for real mail
+app.post('/api/mail/demo-inbound', async (req, res) => {
+  const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)
+  if (!demoLogin || !local) return res.status(404).end()
+  try { res.json(await mail.demoInbound(req.body || {})) } catch (e) { res.status(400).json({ error: e.message }) }
+})
+// 메일로 온 인증 코드 자동 입력 (Settings › 보안): on unless turned off (lib/mailCode.js)
+app.put('/api/me/mail-codes', auth, async (req, res) => {
+  await q(`insert into pro_profile(user_id,email) values ($1,$2) on conflict (user_id) do nothing`, [req.user.id, req.user.email])
+  await q('update pro_profile set mail_codes=$2 where user_id=$1', [req.user.id, req.body?.on !== false])
+  res.json({ on: req.body?.on !== false })
 })
 
 app.use('/api', processRoutes(auth))
@@ -439,12 +493,33 @@ app.use('/api', folderRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
 // team sharing and messenger (routes/team.js)
 app.use('/api', teamRoutes(auth))
+app.use('/api', contextRoutes(auth))
+app.use('/api', teamActivityRoutes(auth))
+app.use('/api', contextGradeRoutes(auth))
 // meetings in a team room: mesh WebRTC signalling, transcription, materials, minutes (routes/meetings.js)
 app.use('/api', meetingRoutes(auth))
 // process mining over ad-hoc work → recommended processes (routes/mining.js)
 app.use('/api', miningRoutes(auth))
 // 프로세스 개선: 병목·가치 흐름·제약·크리티컬 패스·what-if·개선 적용 (lib/improve)
 app.use('/api', improveRoutes(auth))
+// usage windows, plans and seats (PRO_LLM_KEYS=litellm, lib/plans)
+app.use('/api', billingRoutes(auth))
+// the operators' billing back office: every company's plan, usage, invoices (PRO_BILLING_OPERATORS)
+app.use('/api', backofficeRoutes(auth))
+// Agentic BPM PoC (pgpt-pro/docs/agentic-bpm/plan.md): policies·decisions·approvals·strategy, then the three scenarios
+app.use('/api', agenticRoutes(auth))
+app.use('/api', followupRoutes(auth))
+// 프로세스 온톨로지: 메일 이력 + 채팅 핸드오버 → Ontological 의 회사 프로세스 지도, 스냅샷 실행, 고정 · 노화 (lib/ontology)
+app.use('/api', ontologyRoutes(auth))
+// the ontology's agent steps (orchestration pgpt-pro-onto) and habit questions run here even with PRO_BACKGROUND=0:
+// no other server polls that orchestration, so nothing races for them (PRO_ONTOLOGY_WORKER=0 turns it off)
+import('./lib/ontology/run.js').then((m) => m.startOntologyWorker()).catch((e) => console.warn('[onto-worker]', e.message))
+// the demo scenarios (demo outbox mail, purchase with its sweep, release): PRO_SCENARIOS=off leaves them out (config.scenarios)
+if (config.scenarios) {
+  app.use('/api', scenarioMailRoutes(auth))
+  app.use('/api', scenarioPurchaseRoutes(auth))
+  app.use('/api', scenarioReleaseRoutes(auth))
+} else console.log('PRO_SCENARIOS=off: the demo scenarios (mail outbox, purchase, release) are off')
 app.use('/api', telegramRoutes(auth))
 // a mail's Home card: the mail as it arrived, a reply draft, the send on 보내기 (routes/mailReply.js)
 app.use('/api', mailReplyRoutes(auth))
@@ -579,13 +654,18 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, openDoc: req.body.openDoc, onDelta: (d) => send('delta', { d }) })
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, onDelta: (d) => send('delta', { d }) })
     send('done', final)
   } catch (e) {
     console.error(e)
-    // a message never goes unanswered: the failure is said in the chat, not only in this stream
+    // a message never goes unanswered: the failure is said in the chat, not only in this stream; a usage
+    // limit (lib/llmKeys.js) says which one and when it opens again, with the way to Settings › Usage & plan
     await setThreadStatus(req.user.id, t.id, null).catch(() => {})
-    await addMessage(req.user.id, t.id, 'agent', 'text', { text: L('이 요청을 처리하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't handle this request. Please send it again in a moment."), failed: true }).catch(() => {})
+    const limit = ['quota_exceeded', 'rate_limited', 'model_not_allowed'].includes(e.code)
+    await addMessage(req.user.id, t.id, 'agent', 'text', {
+      text: limit ? e.message : L('이 요청을 처리하지 못했어요. 잠시 후 다시 보내 주세요.', "I couldn't handle this request. Please send it again in a moment."),
+      failed: true, ...(limit ? { limit: { code: e.code, scope: e.scope || null, resetsAt: e.resetsAt || null } } : {}),
+    }).catch(() => {})
     send('error', { message: e.message })
   }
   end()
@@ -862,6 +942,7 @@ app.post('/api/missions/:id/channels', auth, async (req, res) => {
 app.post('/api/missions/:id/pause', auth, async (req, res) => {
   if (!(await ownSchedule(req))) return res.status(404).end()
   const [s] = await q('update pro_schedules set paused=$2 where id=$1 returning paused', [req.params.id, !!req.body.paused])
+  ontoTimer(req.params.id)
   res.json(s)
 })
 
@@ -983,9 +1064,17 @@ app.get('/api/search', auth, async (req, res) => {
 
 const server = app.listen(config.port, async () => {
   console.log(`pgpt-pro server on :${config.port}`)
+  // the folders this server writes to on a volume that starts empty (production: the PVC at /data) — the map's form files
+  // (PRO_FORMS_DIR, one folder per tenant inside: lib/ontology/history.js formsDirOf)
+  for (const dir of [process.env.PRO_FORMS_DIR].filter(Boolean)) {
+    try { nodeFs.mkdirSync(dir, { recursive: true }) } catch (e) { console.warn(`[startup] could not make ${dir}: ${e.message}`) }
+  }
   // the first sign-in page after a start already knows whether Google sign-in is there (lib/sso.js)
   refreshSso().then((on) => config.tenantFromHeader && console.log(`[sso] Google through Supabase: ${on ? 'on' : 'off'}`))
   // a second development server shares the database: it must not reset the main server's tasks either
+  // the usage event consumer (lib/plans/meter.js): one server reads at a time (advisory lock), so a development
+  // server may run it too (PRO_BILLING_METER=1)
+  if (background || process.env.PRO_BILLING_METER === '1') startMeter()
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb
@@ -999,6 +1088,8 @@ const server = app.listen(config.port, async () => {
   // turns wait their turn in memory (lib/turns.js): a message still marked 대기 will not be answered now
   await q(`update pro_messages set content = (content - 'queued') || '{"dropped":true}'::jsonb where role='user' and content ? 'queued'`)
   mail.startPoller()
+  // every company's plan, re-applied to LiteLLM every ten minutes (lib/plans/apply.js)
+  startPlanSync(forEachTenant)
   startBrowserWorker()
   startSkillWorker()
   startMiningScan()

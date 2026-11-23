@@ -100,6 +100,7 @@ export async function generatedContract(workDir) {
     py.stdout.on('data', (d) => { out += d })
     py.stderr.on('data', () => {})
     py.on('error', () => resolve(null))
+    py.stdin.on('error', () => {})
     py.on('close', () => {
       try { const c = JSON.parse(out.trim().split('\n').pop()); resolve(c?.processDefinition ? c : null) } catch { resolve(null) }
     })

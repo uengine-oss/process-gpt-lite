@@ -8,6 +8,9 @@ import SkillShareCard from './SkillShareCard.vue'
 import Icon from './Icon.vue'
 import TaskCard from './TaskCard.vue'
 import VaultCard from './VaultCard.vue'
+import PolicyCard from './PolicyCard.vue'
+import BriefCard from './BriefCard.vue'
+import OptimizeCard from './OptimizeCard.vue'
 import TelegramConnect from './TelegramConnect.vue'
 import ProcessCard from './ProcessCard.vue'
 import TodoCard from './TodoCard.vue'
@@ -16,6 +19,16 @@ import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
 import ShareButton from './team/ShareButton.vue'
 import ImproveCard from './improve/ImproveCard.vue'
+import ReferChips from './context/ReferChips.vue'
+import RepeatCard from './context/RepeatCard.vue'
+import FollowupCard from './FollowupCard.vue'
+import OntoSummaryCard from './ontology/OntoSummaryCard.vue'
+import OntoEntryCard from './ontology/OntoEntryCard.vue'
+import OntoHabitCard from './ontology/OntoHabitCard.vue'
+import OntoStepCard from './ontology/OntoStepCard.vue'
+import OntoHabitShareCard from './ontology/OntoHabitShareCard.vue'
+import OntoTimerAskCard from './ontology/OntoTimerAskCard.vue'
+import OntoEditCard from './ontology/OntoEditCard.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
@@ -45,7 +58,7 @@ const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text |
 // "- 네, 이대로 진행 (설명)" style options closing an agent question become tappable replies
 // (src/replies.js: only a real choice list — a report's bullet lines stay text)
 const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
-const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell' }
+const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell', refresh: 'refresh' }
 // what the answer did on the way (server lib/workTrail.js): folded to one line of the sites it read
 const workOpen = ref(false)
 const work = computed(() => (Array.isArray(c.value.work) ? c.value.work : []))
@@ -97,11 +110,19 @@ onMounted(async () => {
       <span v-if="panelReq" class="req">새 패널 만들기</span>
       <div class="bubble user">{{ panelReq ?? c.text }}</div>
       <!-- sent while an answer of the same conversation was still coming: it waits its turn (lib/turns.js) -->
+      <small v-if="c.fresh" class="queue">새로 하기 · 이전 답 대신 새로 만들어요</small>
+      <small v-if="c.fromHabit" class="queue" data-testid="from-habit">습관 · 제안을 수락했어요</small>
       <small v-if="c.queued" class="queue">대기 · 앞 답이 끝나면 이어서 답해요</small>
       <small v-else-if="c.dropped" class="queue">서버가 다시 시작되어 이 요청은 답하지 못했어요 · 다시 보내 주세요</small>
+      <!-- 팀 맥락 공유: 이 요청에 붙인 다른 대화 맥락(답 위 칩) -->
+      <ReferChips v-if="c.refer" part="used" :refer="c.refer" :thread="msg.thread_id" :key="c.refer.refer_id || 'off'" />
     </template>
     <template v-else-if="msg.kind === 'text'">
       <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <!-- 회사 프로세스 지도의 업무 에이전트: 일 정의의 점검 항목마다 지켰는지(근거는 마우스를 올리면) -->
+      <ul v-if="c.checks?.length" class="checks" data-testid="onto-checks">
+        <li v-for="(x, i) in c.checks" :key="i" :class="x.ok === true ? 'ok' : x.ok === false ? 'no' : 'na'" :title="x.note"><b>{{ x.ok === true ? '✓' : x.ok === false ? '✗' : '?' }}</b><span>{{ x.checkpoint }}</span></li>
+      </ul>
       <div v-if="workLine" class="work" :class="{ open: workOpen }" data-test="work-trail">
         <button class="wl press" :aria-expanded="workOpen" @click="workOpen = !workOpen">{{ workLine }} <span class="car">{{ workOpen ? '▴' : '▾' }}</span></button>
         <ol v-if="workOpen">
@@ -123,6 +144,23 @@ onMounted(async () => {
 
     <TaskCard v-else-if="msg.kind === 'task'" :msg="msg" />
     <VaultCard v-else-if="msg.kind === 'vault'" :msg="msg" />
+    <!-- Agentic BPM (docs/agentic-bpm): a policy decision, a decision brief, the alternatives of a blocked action -->
+    <PolicyCard v-else-if="msg.kind === 'policy'" :msg="msg" />
+    <!-- 같은 요청 알아보기: 이미 한 요청이면 에이전트 대신 이 카드 -->
+    <RepeatCard v-else-if="msg.kind === 'repeat'" :msg="msg" />
+    <!-- 후행 습관: 결과물 뒤에 평소 하던 다음 일을 먼저 묻는다 -->
+    <FollowupCard v-else-if="msg.kind === 'followup'" :msg="msg" />
+    <!-- 회사 프로세스 지도: 지도 요약 · 들어온 메일의 시작 일 · 열린 일의 다음 걸음 -->
+    <OntoSummaryCard v-else-if="msg.kind === 'onto-summary'" :msg="msg" />
+    <OntoEntryCard v-else-if="msg.kind === 'onto-entry'" :msg="msg" />
+    <OntoHabitCard v-else-if="msg.kind === 'onto-habit'" :msg="msg" />
+    <OntoStepCard v-else-if="msg.kind === 'onto-step'" :msg="msg" />
+    <OntoHabitShareCard v-else-if="msg.kind === 'habit-share'" :msg="msg" />
+    <OntoTimerAskCard v-else-if="msg.kind === 'onto-timer'" :msg="msg" />
+    <!-- 말로 프로세스 지도 고치기: 고친 뒤 그림 · 적용 · 의견으로 남기기 -->
+    <OntoEditCard v-else-if="msg.kind === 'onto-edit'" :msg="msg" />
+    <BriefCard v-else-if="msg.kind === 'brief'" :msg="msg" />
+    <OptimizeCard v-else-if="msg.kind === 'optimize'" :msg="msg" />
     <!-- 「텔레그램으로 알려줘」 before a bot is connected: connect it right here (server lib/agent.js telegramTurn) -->
     <div v-else-if="msg.kind === 'telegram_connect'" class="tgc"><TelegramConnect :schedule-name="c.scheduleName || ''" /></div>
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
@@ -185,6 +223,8 @@ onMounted(async () => {
       <Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
     </button>
     <div v-else-if="msg.kind === 'chip'" class="chip"><Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> {{ c.text }}</div>
+    <!-- 팀 맥락 공유: 관계있지만 아직 볼 수 없는 팀원의 맥락(답 아래 요청 후보) -->
+    <ReferChips v-if="msg.role === 'agent' && c.refer_id" part="requestable" :refer-id="c.refer_id" :thread="msg.thread_id" />
     <!-- a document answer's trail too (its card is above; the text answer has it under its bubble) -->
     <div v-if="workLine && msg.kind === 'doc'" class="work" :class="{ open: workOpen }" data-test="work-trail">
       <button class="wl press" :aria-expanded="workOpen" @click="workOpen = !workOpen">{{ workLine }} <span class="car">{{ workOpen ? '▴' : '▾' }}</span></button>
@@ -196,6 +236,12 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.checks { list-style: none; margin: 6px 0 0; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 5px; font-size: 13px; max-width: 560px; }
+.checks li { display: flex; gap: 8px; line-height: 1.45; color: var(--text-secondary); }
+.checks b { flex: none; width: 14px; text-align: center; }
+.checks .ok b { color: var(--color-success, #1a7f37); }
+.checks .no b { color: var(--color-danger, #d1242f); }
+.checks .no span { color: var(--text-primary); }
 /* the last 검수 of an edited copy (lib/review.js) */
 .reviewed { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; background: rgba(60, 190, 120, .22); color: #8fe0a8; }
 .reviewed.warn { background: rgba(240, 160, 40, .22); color: #ffc46b; }

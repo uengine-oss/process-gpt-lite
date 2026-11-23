@@ -66,8 +66,10 @@ export async function saveLang(userId, l) {
 // run fn in the saved language of the person the work is for — and in their tenant (lib/tenant.js)
 export async function asUser(userId, fn) {
   const { asTenantOf } = await import('./tenant.js')
+  const { withUsage } = await import('./usage.js')
   const l = await langOf(userId)
-  return asTenantOf(userId, () => withLang(l, fn))
+  // and their model calls are theirs (lib/llmKeys.js)
+  return asTenantOf(userId, () => withLang(l, () => withUsage({ userId }, fn)))
 }
 
 // What every model call is told in English mode. The prompts of this app (and of the agents' skills)
