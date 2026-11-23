@@ -16,6 +16,7 @@ export const useApp = defineStore('app', {
     activeId: null,            // thread shown in the center column
     messages: {},              // threadId -> []
     drafts: {},                // threadId -> streaming text
+    askedAt: {},               // threadId -> when this screen last sent a message there (a file the agent opens on request opens here)
     status: {},                // threadId -> live status text
     actions: [],
     mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
@@ -142,6 +143,12 @@ export const useApp = defineStore('app', {
         else {
           list.push(d)
           if (d.role === 'agent' && (d.kind === 'text' || d.kind === 'doc')) this.drafts[d.thread_id] = null
+          // a document the person asked to see (folder_open: "장진영 이력서 열어 줘") opens in the editor at
+          // once — on the screen that asked, not on their other devices
+          if (d.role === 'agent' && d.kind === 'file' && d.content?.open && d.content.url && Date.now() - (this.askedAt[d.thread_id] || 0) < 15 * 60_000) {
+            const ed = officeEditorFor(d.content.name || d.content.url)
+            if (ed && !CRAFT_APPS.has(ed)) this.officeDoc = { msgId: d.id, url: d.content.url, name: d.content.name }
+          }
         }
       } else if (type === 'thread') {
         // (merged: a status-only event carries no folder, the thread keeps the one it has)
@@ -226,6 +233,7 @@ export const useApp = defineStore('app', {
       const d = this.officeDoc, ed = d && !d.readOnly ? officeEditorFor(d.name || d.url) : null
       const openDoc = ed && !CRAFT_APPS.has(ed) && d.name ? { app: 'ieumoffice', file: d.name, name: d.name, editor: ed } : undefined
       this.drafts[threadId] = ''
+      this.askedAt[threadId] = Date.now()
       let ended = false
       try {
         await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc }, (ev, data) => {

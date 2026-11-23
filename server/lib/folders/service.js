@@ -8,7 +8,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import os from 'node:os'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, admin } from '../supa.js'
 import * as G from './git.js'
 import { PGPT_ROOT } from '../paths.js'
 import { L } from '../lang.js'
@@ -216,6 +216,31 @@ export async function readBlob(folder, ref, rel) {
   const p = safeRel(rel)
   const v = ref && ref !== 'main' ? await variation(folder, ref) : null
   return G.show(folder.repo_path, v ? v.branch : folder.default_branch, p).catch(() => { throw err(404, L('파일이 없어요.', "That file isn't there.")) })
+}
+// IeumOffice and the ArtCraft apps load documents only from storage: a copy of one version of a file
+// (content-addressed, so the same blob is uploaded once) — the folder screen's 열기 and an agent's
+// folder_open share it
+export const MIME = {
+  md: 'text/markdown; charset=utf-8', txt: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8', json: 'application/json', py: 'text/plain; charset=utf-8', js: 'text/plain; charset=utf-8',
+  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', wav: 'audio/wav', mp3: 'audio/mpeg',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', hwpx: 'application/hwp+zip', hwp: 'application/x-hwp', dxf: 'image/vnd.dxf', psd: 'image/vnd.adobe.photoshop',
+}
+export async function publishFile(folder, rel, ref) {
+  const p = safeRel(rel)
+  const v = ref && ref !== 'main' ? await variation(folder, ref) : null
+  const r = v ? v.branch : folder.default_branch
+  const sha = (await G.git(folder.repo_path, ['rev-parse', `${r}:${p}`], { check: false })).trim()
+  if (!sha) throw err(404, L('파일이 없어요.', "That file isn't there."))
+  const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
+  const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
+  const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })
+  if (!there?.length) {
+    const { error } = await admin.storage.from('files').upload(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), { contentType: MIME[ext] || 'application/octet-stream', upsert: true })
+    if (error) throw error
+  }
+  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: path.basename(p) }
 }
 export async function history(folder, limit = 40) {
   return G.log(folder.repo_path, folder.default_branch, limit)

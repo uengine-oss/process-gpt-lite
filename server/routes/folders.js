@@ -12,13 +12,7 @@ import { handover } from '../lib/folders/handover.js'
 import { listTeam } from '../lib/team.js'
 import * as SK from '../lib/folders/skills.js'
 
-const MIME = {
-  md: 'text/markdown; charset=utf-8', txt: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8', json: 'application/json', py: 'text/plain; charset=utf-8', js: 'text/plain; charset=utf-8',
-  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', wav: 'audio/wav', mp3: 'audio/mpeg',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', hwpx: 'application/hwp+zip', hwp: 'application/x-hwp', dxf: 'image/vnd.dxf', psd: 'image/vnd.adobe.photoshop',
-}
+const MIME = S.MIME
 
 export function folderRoutes(auth) {
   const r = express.Router()
@@ -139,19 +133,7 @@ export function folderRoutes(auth) {
   // version (content-addressed, so the same blob is uploaded once) and hand back its URL
   r.post('/folders/:slug/publish', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    const p = S.safeRel(req.body.path)
-    const v = req.body.ref && req.body.ref !== 'main' ? await S.variation(folder, req.body.ref) : null
-    const ref = v ? v.branch : folder.default_branch
-    const sha = (await G.git(folder.repo_path, ['rev-parse', `${ref}:${p}`], { check: false })).trim()
-    if (!sha) throw Object.assign(new Error(L('파일이 없어요.', "That file isn't there.")), { status: 404 })
-    const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
-    const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
-    const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })
-    if (!there?.length) {
-      const { error } = await admin.storage.from('files').upload(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), { contentType: MIME[ext] || 'application/octet-stream', upsert: true })
-      if (error) throw error
-    }
-    return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: path.basename(p) }
+    return S.publishFile(folder, req.body.path, req.body.ref)
   }))
   r.post('/folders/:slug/files', express.raw({ type: () => true, limit: '200mb' }), auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')

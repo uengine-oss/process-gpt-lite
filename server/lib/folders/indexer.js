@@ -7,6 +7,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
+import JSZip from 'jszip'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { chat } from '../llm.js'
@@ -24,30 +25,38 @@ const MEMENTO = process.env.PRO_MEMENTO_URL || 'http://127.0.0.1:8005'
 const run = (cmd, args, opts = {}) => new Promise((resolve) => execFile(cmd, args, { maxBuffer: 64 * 1024 * 1024, timeout: 60000, ...opts }, (e, out) => resolve(e ? '' : String(out))))
 const strip = (xml) => xml.replace(/<\/(w:p|a:p|hp:p|si|row)>/g, '\n').replace(/<[^>]+>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/[ \t]+/g, ' ').replace(/\n\s+/g, '\n').trim()
 
-// plain text of a document blob, with a page count where the format has one
+// plain text of a document blob, with a page count where the format has one. The Office and
+// Hangul formats are zip packages read with jszip (the server image has no unzip: before, every
+// docx/pptx/xlsx/hwpx came out empty in production — no card, no keywords, "바이너리"); PDF needs
+// poppler's pdftotext (in the image since 2026-11-23).
+const PARTS = {
+  docx: (n) => n === 'word/document.xml',
+  pptx: (n) => /^ppt\/slides\/slide\d+\.xml$/.test(n),
+  xlsx: (n) => n === 'xl/sharedStrings.xml',
+  hwpx: (n) => /^Contents\/section\d+\.xml$/.test(n),
+}
+const num = (n) => Number(/(\d+)\.xml$/.exec(n)?.[1] || 0)
 export async function extract(name, buf) {
   const ext = kindOf(name)
   if (['md', 'markdown', 'txt', 'csv'].includes(ext)) { const t = buf.toString('utf8'); return { text: t, pages: Math.max(1, Math.ceil(t.length / 1800)) } }
+  if (PARTS[ext]) {
+    const zip = await JSZip.loadAsync(buf).catch(() => null)
+    if (!zip) return { text: '', pages: 1 }
+    const names = Object.keys(zip.files).filter(PARTS[ext]).sort((a, b) => num(a) - num(b))
+    let text = ''
+    for (const n of names) text += strip(await zip.files[n].async('string')) + '\n\n'
+    text = text.trim()
+    const pages = ext === 'pptx' ? Math.max(1, names.length) : Math.max(1, Math.ceil(text.length / 1800))
+    return { text, pages }
+  }
+  if (ext !== 'pdf') return { text: '', pages: 1 }
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'pro-fold-'))
-  const f = path.join(tmp, `doc.${ext}`)
+  const f = path.join(tmp, 'doc.pdf')
   try {
     await fs.writeFile(f, buf)
-    if (ext === 'pdf') {
-      const text = await run('pdftotext', ['-layout', f, '-'])
-      const info = await run('pdfinfo', [f])
-      return { text, pages: Number(/Pages:\s+(\d+)/.exec(info)?.[1]) || 1 }
-    }
-    const list = await run('unzip', ['-Z1', f])
-    const parts = {
-      docx: list.split('\n').filter((x) => /^word\/document\.xml$/.test(x)),
-      pptx: list.split('\n').filter((x) => /^ppt\/slides\/slide\d+\.xml$/.test(x)).sort((a, b) => Number(a.match(/\d+/)) - Number(b.match(/\d+/))),
-      xlsx: list.split('\n').filter((x) => /^xl\/sharedStrings\.xml$/.test(x)),
-      hwpx: list.split('\n').filter((x) => /^Contents\/section\d+\.xml$/.test(x)),
-    }[ext] || []
-    let text = ''
-    for (const p of parts) text += strip(await run('unzip', ['-p', f, p])) + '\n\n'
-    const pages = ext === 'pptx' ? parts.length : Math.max(1, Math.ceil(text.length / 1800))
-    return { text: text.trim(), pages }
+    const text = await run('pdftotext', ['-layout', f, '-'])
+    const info = await run('pdfinfo', [f])
+    return { text, pages: Number(/Pages:\s+(\d+)/.exec(info)?.[1]) || 1 }
   } finally { fs.rm(tmp, { recursive: true, force: true }).catch(() => {}) }
 }
 
@@ -181,26 +190,43 @@ function textDiff(a, b) {
   return [...A.filter((l) => l.trim() && !setB.has(l)).map((l) => `- ${l}`), ...B.filter((l) => l.trim() && !setA.has(l)).map((l) => `+ ${l}`)].join('\n')
 }
 
-// search: folder names, file paths, card abstracts and keywords; full text where it is on.
-// Only folders the user can read.
+// The words of a query, each looked for on its own: "장진영 이력서" is not in any one name, but
+// 장진영 is in 장진영_프로필.docx and 이력서 is its folder's name (2026-11-23: the agent found nothing
+// until the person attached the folder). Words of one letter only when nothing longer is given.
+export function words(text) {
+  const all = [...new Set(String(text || '').split(/[\s,;|/·]+/).map((w) => w.trim()).filter(Boolean))]
+  const long = all.filter((w) => [...w].length >= 2)
+  return (long.length ? long : all).slice(0, 8)
+}
+const likeOf = (w) => `%${w.replace(/[%_\\]/g, (c) => '\\' + c)}%`
+
+// search: folder names, file paths, card abstracts and keywords; full text where it is on. A file
+// matches when any word does — in its path, its card, its text or its folder's name — and ranks by how
+// many words it matched (then a name match, then the newest). Only folders the user can read.
 export async function search(userId, text, limit = 20) {
-  const k = String(text || '').trim()
-  if (!k) return []
+  const ws = words(text)
+  if (!ws.length) return []
   const ids = await readableFolderIds(userId)
   if (!ids.length) return []
-  const like = `%${k.replace(/[%_\\]/g, (c) => '\\' + c)}%`
-  const folders = await q(`select id, slug, name, description, kind from pro_folders where id = any($1) and (name ilike $2 or description ilike $2) limit 10`, [ids, like])
-  const files = await q(`select f.folder_id, p.slug, p.name as folder_name, f.path, f.kind, f.size, f.card,
-                           case when f.path ilike $2 then 'name' when (f.card->>'abstract') ilike $2 or (f.card->>'keywords') ilike $2 then 'card' else 'text' end as by,
-                           case when f.body ilike $2 then substr(f.body, greatest(1, position(lower($3) in lower(f.body)) - 60), 180) end as snippet
-                         from pro_folder_files f join pro_folders p on p.id=f.folder_id
-                         where f.folder_id = any($1) and (f.path ilike $2 or (f.card->>'abstract') ilike $2 or (f.card->>'keywords') ilike $2
-                           or ((p.index_state->>'fulltext')::boolean and f.body ilike $2))
-                         order by (f.path ilike $2) desc, f.mtime desc nulls last limit $4`, [ids, like, k, limit])
-  return [...folders.map((f) => ({ type: 'folder', folder: f })), ...files.map((f) => ({ type: 'file', folder: { id: f.folder_id, slug: f.slug, name: f.folder_name }, file: { path: f.path, kind: f.kind, size: f.size, card: f.card }, by: f.by, snippet: f.snippet }))]
+  const likes = ws.map(likeOf)
+  const folders = await q(`select id, slug, name, description, kind from pro_folders where id = any($1) and (name ilike any($2) or description ilike any($2)) limit 10`, [ids, likes])
+  const files = await q(`select * from (
+      select f.folder_id, p.slug, p.name as folder_name, f.path, f.kind, f.size, f.card, f.mtime,
+             (select count(*) from unnest($2::text[]) w where f.path ilike w or p.name ilike w or (f.card->>'abstract') ilike w or (f.card->>'keywords') ilike w
+                or ((p.index_state->>'fulltext')::boolean and f.body ilike w))::int as score,
+             f.path ilike any($2) as name_hit,
+             case when f.path ilike any($2) then 'name' when (f.card->>'abstract') ilike any($2) or (f.card->>'keywords') ilike any($2) then 'card'
+                  when p.name ilike any($2) then 'folder' else 'text' end as by,
+             case when (p.index_state->>'fulltext')::boolean then (select substr(f.body, greatest(1, position(lower(x) in lower(f.body)) - 60), 180)
+                  from unnest($4::text[]) x where position(lower(x) in lower(coalesce(f.body, ''))) > 0 limit 1) end as snippet
+        from pro_folder_files f join pro_folders p on p.id=f.folder_id
+       where f.folder_id = any($1)) m
+     where score > 0 order by score desc, name_hit desc, mtime desc nulls last limit $3`, [ids, likes, limit, ws])
+  return [...folders.map((f) => ({ type: 'folder', folder: f })), ...files.map((f) => ({ type: 'file', folder: { id: f.folder_id, slug: f.slug, name: f.folder_name }, file: { path: f.path, kind: f.kind, size: f.size, card: f.card }, by: f.by, score: f.score, words: ws.length, snippet: f.snippet }))]
 }
 
-// the catalog an agent reads first: folders it may use, each with its files and their cards
+// the catalog an agent reads first: folders it may use, each with its files and their cards. With a
+// query: only what matched, best first (matched: how many of the query's words a file matched).
 export async function catalog(userId, query) {
   const ids = await readableFolderIds(userId)
   if (!ids.length) return []
@@ -209,13 +235,18 @@ export async function catalog(userId, query) {
   const out = []
   for (const f of folders) {
     let files = await q(`select path, kind, size, card from pro_folder_files where folder_id=$1 order by path limit 200`, [f.id])
+    let best = 0
     if (hits) {
-      const inFolder = new Set(hits.filter((h) => h.type === 'file' && h.folder.id === f.id).map((h) => h.file.path))
+      const score = new Map(hits.filter((h) => h.type === 'file' && h.folder.id === f.id).map((h) => [h.file.path, h.score]))
       const folderHit = hits.some((h) => h.type === 'folder' && h.folder.id === f.id)
-      if (!inFolder.size && !folderHit) continue
-      if (inFolder.size) files = files.filter((x) => inFolder.has(x.path))
+      if (!score.size && !folderHit) continue
+      if (score.size) files = files.filter((x) => score.has(x.path)).sort((a, b) => score.get(b.path) - score.get(a.path))
+      best = Math.max(0, ...score.values())
+      files = files.map((x) => ({ ...x, matched: score.get(x.path) || 0 }))
     }
-    out.push({ slug: f.slug, name: f.name, description: f.description, kind: f.kind, index: f.index_state?.state, files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [] })) })
+    out.push({ slug: f.slug, name: f.name, description: f.description, kind: f.kind, index: f.index_state?.state, best,
+      files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [], ...(hits ? { matched: x.matched } : {}) })) })
   }
-  return out
+  if (hits) out.sort((a, b) => b.best - a.best)
+  return out.map(({ best, ...f }) => f)
 }
