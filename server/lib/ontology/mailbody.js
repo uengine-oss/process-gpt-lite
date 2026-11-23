@@ -178,6 +178,8 @@ export function cronOfHint(h) {
   if (h.every === 'day') return `0 ${hour} * * ${h.weekdays === false ? '*' : '1-5'}`
   if (h.every === 'week' && Number.isInteger(h.dow) && h.dow >= 0 && h.dow <= 6) return `0 ${hour} * * ${h.dow}`
   if (h.every === 'month' && Number.isInteger(h.dom) && h.dom >= 1 && h.dom <= 28) return `0 ${hour} ${h.dom} * *`
+  // once a year, in its month (on the day it names, else the 1st)
+  if (h.every === 'year' && Number.isInteger(h.month) && h.month >= 1 && h.month <= 12) return `0 ${hour} ${Number.isInteger(h.dom) && h.dom >= 1 && h.dom <= 28 ? h.dom : 1} ${h.month} *`
   return null
 }
 

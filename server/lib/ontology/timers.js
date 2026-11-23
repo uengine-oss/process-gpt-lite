@@ -27,12 +27,13 @@ export function cronKo(cron) {
   if (f.length !== 5) return String(cron || '')
   const [mi, ho, dom, mon, dow] = f
   if (/^\*\/\d+$/.test(mi) && ho === '*') return `${mi.slice(2)}분마다`
-  if (!/^[\d,]+$/.test(mi) || mon !== '*') return cron
+  if (!/^[\d,]+$/.test(mi) || (mon !== '*' && !(/^\d+$/.test(mon) && /^\d+$/.test(dom) && dow === '*'))) return cron
   const at = ho === '*' ? `매시 ${mi}분` : /^[\d,]+$/.test(ho) ? ho.split(',').map((h) => `${Number(h)}시${Number(mi) ? ` ${Number(mi)}분` : ''}`).join(' · ') : null
   if (!at) return cron
   if (dom === '*' && dow === '*') return ho === '*' ? at : `매일 ${at}`
   if (dom === '*' && dow === '1-5') return `평일 ${at}`
   if (dom === '*' && /^[\d,]+$/.test(dow)) return `매주 ${dow.split(',').map((d) => DOW[Number(d) % 7]).join('·')} ${at}`
+  if (/^\d+$/.test(mon) && /^\d+$/.test(dom) && dow === '*') return `매년 ${Number(mon)}월 ${Number(dom)}일 ${at}`
   if (/^\d+$/.test(dom) && dow === '*') return `매월 ${Number(dom)}일 ${at}`
   return cron
 }

@@ -55,11 +55,21 @@ function matcher(expr) {
 }
 export const dueAt = (expr, minute) => matcher(expr)(minute)
 
-// Next fire time of a 5-field KST cron expression, as a Date.
+// Next fire time of a 5-field KST cron expression, as a Date — up to 400 days ahead (a yearly one, 「매년 10월 1일 9시」):
+// a day whose date · month · weekday do not match is skipped whole, the rest minute by minute.
 export function nextRun(expr, from = new Date()) {
   const match = matcher(expr)
+  const [, , dom, mon, dow] = expr.trim().split(/\s+/)
+  const days = [expand(dom, 31), expand(mon, 12), expand(dow, 6)]
+  const ok = (set, v) => !set || set.includes(v)
   const t = new Date(Math.ceil((from.getTime() + 1) / 60000) * 60000)
-  for (let i = 0; i < 60 * 24 * 32; i++) {
+  const end = t.getTime() + 400 * 86_400_000
+  while (t.getTime() < end) {
+    const k = new Date(t.getTime() + KST * 3600000)
+    if (!(ok(days[0], k.getUTCDate()) && ok(days[1], k.getUTCMonth() + 1) && ok(days[2], k.getUTCDay()))) {
+      t.setTime(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate() + 1) - KST * 3600000)
+      continue
+    }
     if (match(t)) return t
     t.setTime(t.getTime() + 60000)
   }

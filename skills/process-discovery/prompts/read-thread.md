@@ -9,7 +9,8 @@ JSON {"mails":[{"i":번호,"work":true|false,"task":"일 이름","act":"request|
 - act: 일을 맡기면 request, 해 둔 일·결과를 건네면 deliver, 승인이면 approve, 그 밖의 알림이면 notify.
 - 인사·감사·일정 잡기만 있는 메일도 그 업무 흐름의 한 단계면 그 단계의 이름으로 적고, 업무와 무관하면 work 를 false 로.
 - recur: 메일이 그 일을 정해진 때마다 한다고 말하면(「매주 월요일 오전에 보내 드리겠습니다」, 「매월 5일까지」, 「매일 아침 공유」, 「주간 보고」)
-  {"task":"정해진 때마다 하는 그 일의 이름","every":"day|week|month","dow":요일 0(일)~6(토)|null,"dom":날짜 1~28|null,"hour":0~23|null,"weekdays":평일만이면 true,"says":"그 구절 그대로(30자 이내)"}.
+  {"task":"정해진 때마다 하는 그 일의 이름","every":"day|week|month|year","dow":요일 0(일)~6(토)|null,"dom":날짜 1~28|null,"month":달 1~12|null,"hour":0~23|null,"weekdays":평일만이면 true,"says":"그 구절 그대로(30자 이내)"}.
+  해마다 하는 일(「27년 유지보수 견적」을 요청하며 지난해 「26년」 건을 참고로 넘기는 것처럼 해마다 같은 때 같은 일이 오가면)은 every "year", month 는 그 메일의 달.
   task 는 반복되는 그 일이다 — 고객이 「매주 공정 보고를 보내 달라」고 부탁하는 메일이면 이 메일의 일은 "요청 메일 접수"여도 recur.task 는
   "주간 공정 보고"다. 한 번만 하는 일이면 null. 첨부 files 의 fields 는 그 파일의 칸 이름이다.
 - from_role: 보낸 사람이 회사 사람(이름 뒤 괄호가 「동료」이거나 역할)인데 그 메일의 서명 · 내용으로 그 사람이 회사에서 맡은 역할(팀이나 직무)이 보이면
