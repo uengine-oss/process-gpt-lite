@@ -1,5 +1,5 @@
 // Client for the shared-folder API (server/routes/folders.js).
-import { api, auth, freshToken } from './api.js'
+import { api, auth, freshToken, htmlPage } from './api.js'
 import { BASE } from './base.js'
 
 async function call(path, opts) {
@@ -7,7 +7,7 @@ async function call(path, opts) {
   const text = await r.text()
   let j = null
   try { j = text ? JSON.parse(text) : null } catch { /* not json */ }
-  if (!r.ok) throw new Error(j?.error || text.slice(0, 200) || `오류 ${r.status}`)
+  if (!r.ok) throw new Error(j?.error || (htmlPage(r, text) ? `서버가 응답하지 못했어요 (${r.status}). 잠시 후 다시 시도해 주세요.` : text.slice(0, 200)) || `오류 ${r.status}`)
   return j
 }
 const enc = encodeURIComponent

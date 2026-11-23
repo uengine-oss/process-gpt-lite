@@ -10,7 +10,7 @@ import { L } from '../lib/lang.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[telegram]', e.message)
-  res.status(e.status || 500).json({ error: e.status ? e.message : L('텔레그램 연결을 처리하지 못했어요.', "Couldn't handle the Telegram connection."), ...(e.code && { code: e.code }) })
+  res.status(e.status || 500).json({ error: e.status ? e.message : L('텔레그램 연결을 처리하지 못했어요.', "Couldn't handle the Telegram connection."), ...(e.code && { code: e.code }), ...(e.detail && { detail: e.detail }) })
 })
 
 export function telegramRoutes(auth) {
