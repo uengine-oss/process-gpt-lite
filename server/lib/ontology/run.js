@@ -381,7 +381,14 @@ export async function prevOf(row) {
   if (!isMapInst(row.proc_inst_id)) return done
   const RM = await import('./runmode.js')
   const c = await RM.caseOfInstance(row.proc_inst_id)
-  return { ...(c?.request || {}), ...done }
+  return mapPrev(c?.request, done, c ? await RM.earlierOfCase(c).catch(() => []) : [])
+}
+// a map case's person steps all answer in one field (mapengine.js: `result`), so the flat merge keeps only the last one's:
+// what each step made goes first, step by step, and the flat `result` (whichever step wrote last) is left out
+export function mapPrev(request, done, earlier) {
+  const { result, ...rest } = done || {}
+  const steps = (earlier || []).filter((x) => String(x.text || '').trim()).slice(-6).map((x) => ({ step: x.task, text: String(x.text).slice(0, 800) }))
+  return { ...(steps.length ? { steps } : {}), ...(request || {}), ...rest }
 }
 export async function moveCase(me, id, { task, reason = '', state = 'moved', learn = true }) {
   const c = await getCase(id)
