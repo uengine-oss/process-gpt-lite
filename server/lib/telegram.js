@@ -141,7 +141,9 @@ async function call(token, method, params = {}) {
   if (status === 400 && /chat not found/i.test(desc)) throw notLinked()
   if (status === 409 && /webhook/i.test(desc)) throw tgError(L('이 봇은 웹훅을 쓰고 있어 확인할 수 없어요. 알림용 봇을 새로 만들어 연결해 주세요.', 'This bot uses a webhook, so it cannot be checked. Make a new bot for notifications and connect it.'), 409, 'telegram_webhook')
   if (status === 429) throw Object.assign(tgError(L('텔레그램이 잠시 쉬어 가래요. 조금 뒤 다시 해 주세요.', 'Telegram asks to slow down. Please try again shortly.'), 429, 'telegram_rate_limited'), { retryAfter: j.parameters?.retry_after })
-  throw tgError(L('텔레그램이 요청을 받지 않았어요.', 'Telegram did not accept the request.') + (desc ? ` (${desc.slice(0, 120)})` : ''), 503, 'telegram_error')
+  // an answer that is not Telegram's (a proxy's page, a 5xx): its status in the answer too, as for no answer
+  const detail = `HTTP ${res.status}${j.error_code ? ` ${j.error_code}` : ''} ${host()}`
+  throw Object.assign(tgError(L('텔레그램이 요청을 받지 않았어요.', 'Telegram did not accept the request.') + ` (${desc ? desc.slice(0, 120) : detail})`, 503, 'telegram_error'), { detail })
 }
 
 const linkOf = (sec) => `https://t.me/${sec.bot}?start=${sec.nonce}`

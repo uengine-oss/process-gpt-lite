@@ -315,3 +315,25 @@ test('a Bot API that does not answer in time says timeout, and Telegram refusing
   const leaky = T.netCause(Object.assign(new TypeError('fetch failed'), { cause: new Error(`odd https://x/bot${TOKEN}/getMe`) }), TOKEN)
   assert.ok(!leaky.includes(SECRET_PART), leaky)
 })
+
+test('Telegram (or something before it) answering with a page and a 5xx: 503 with the HTTP status as the reason', async () => {
+  const page = await new Promise((ok) => {
+    const s = net.createServer((c) => c.once('data', () => c.end('HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html\r\nContent-Length: 13\r\nConnection: close\r\n\r\n<html></html>')))
+    s.listen(0, '127.0.0.1', () => ok(s))
+  })
+  const was = process.env.PRO_TELEGRAM_API
+  process.env.PRO_TELEGRAM_API = `http://127.0.0.1:${page.address().port}`
+  try {
+    await assert.rejects(T.connectBot(USER, TOKEN), (e) => {
+      assert.equal(e.status, 503)
+      assert.equal(e.code, 'telegram_error')
+      assert.equal(e.detail, `HTTP 502 127.0.0.1:${page.address().port}`)
+      assert.ok(e.message.includes(e.detail) && !e.message.includes(SECRET_PART), e.message)
+      return true
+    })
+  } finally {
+    if (was === undefined) delete process.env.PRO_TELEGRAM_API
+    else process.env.PRO_TELEGRAM_API = was
+    await new Promise((ok) => page.close(ok))
+  }
+})
