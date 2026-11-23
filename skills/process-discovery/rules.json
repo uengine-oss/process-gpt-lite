@@ -10,7 +10,17 @@
     "enabled": true,
     "batch": 40,
     "gapDays": 45,
-    "timeoutMs": 180000
+    "timeoutMs": 180000,
+    "verify": {
+      "enabled": true,
+      "min": 0.7,
+      "maxGroups": 4,
+      "atOnce": 4,
+      "timeoutMs": 8000
+    }
+  },
+  "engagement": {
+    "enabled": true
   },
   "chat": {
     "days": 90,

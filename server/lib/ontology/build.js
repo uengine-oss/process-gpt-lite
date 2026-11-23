@@ -360,6 +360,13 @@ export function rebuild(opts = {}) {
 
 async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하기', job } = {}) {
   const say = sayer(job, 20)
+  // the mail rows as the rules stand now (no model): cases redrawn, mails no one answered off the map (history.js)
+  try {
+    const { refreshMailCases } = await import('./history.js')
+    const r = await refreshMailCases()
+    if (r.dropped) await say(`회사 쪽에서 답장 · 전달한 적이 없는 메일 ${r.dropped.toLocaleString('ko-KR')}통은 받기만 한 안내 · 홍보라서 지도에서 뺐어요.`)
+    if (r.moved) await say(`메일 ${r.moved.toLocaleString('ko-KR')}통의 건을 지금 규칙으로 다시 나눴어요.`)
+  } catch (e) { console.warn('[ontology] mail cases', e.message) }
   // cases cut apart (a mail thread, a chat subject) that are one piece of work are joined first (streams.js, design-v0.3 §22)
   try {
     const { linkCases } = await import('./streams.js')
@@ -386,8 +393,16 @@ async function doBuild({ actor = 'system', reason = '온톨로지 다시 셈하�
   const have = new Map((await cypher('MATCH (b:Process) RETURN b.key AS key, b.name AS name, b.summary AS summary')).map((r) => [r.key, r]))
   // names are given once a proc's key is settled (and kept when the graph already has one)
   const names = new Map()
+  // (a name is kept while the proc still holds every task it was named for: one that lost a task — a quote flow that used
+  // to carry a training notice — is named again, not left as 「교육 안내 · 견적」; one that only grew keeps its name)
+  const named = new Map((await cypher('MATCH (b:Process) RETURN b.key AS key, b.tasks AS tasks')).map((r) => [r.key, r.tasks || []]))
   const nameAll = async (st) => {
-    for (const b of st.processes) if (!names.has(b.key)) names.set(b.key, have.get(b.key)?.name && have.get(b.key).name !== b.entries[0] ? have.get(b.key) : await nameProcess(b.tasks, b.entries[0]))
+    for (const b of st.processes) {
+      if (names.has(b.key)) continue
+      const old = have.get(b.key)
+      const kept = (named.get(b.key) || []).every((t) => b.tasks.includes(t))
+      names.set(b.key, old?.name && old.name !== b.entries[0] && kept ? old : await nameProcess(b.tasks, b.entries[0]))
+    }
   }
   // a proc keeps its key from week to week: a cluster takes the key of the known proc it overlaps most (Jaccard ≥ 0.5)
   const known = new Map((await cypher('MATCH (b:Process) WHERE b.status <> \'gone\' RETURN b.key AS key, b.tasks AS tasks')).filter((r) => !isSaid(r.key)).map((r) => [r.key, r.tasks || []]))

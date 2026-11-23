@@ -21,6 +21,7 @@ import { googleAccessToken } from '../mail.js'
 import { partsOf, bodyOf, newPart, readFile, kindOf, formKey, b64u, gmailError, gmailBusy } from './mailbody.js'
 import { prompt, rules as skillRules, defaultRules, discoverySkill, readVersion } from './discovery.js'
 import { sayer } from './feed.js'
+import { engagementOf, engagedCase } from './engagement.js'
 import { emit } from '../bus.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -141,6 +142,7 @@ export function notWork(m, f = defaultRules().filters) {
 }
 
 // ---------- 3 threads ----------
+export const fileKey = (f) => (f?.name && Number(f.size) > 0 ? `${lower(f.name)}\u0000${Number(f.size)}` : null)
 export const baseSubject = (s) => String(s || '').replace(/^\s*((re|fw|fwd|회신|답장|전달)\s*[:：]\s*)+/i, '').replace(/\s+/g, ' ').trim().toLowerCase()
 export function threadsOf(mails) {
   const by = new Map()
@@ -148,15 +150,17 @@ export function threadsOf(mails) {
     if (!by.has(m.thread)) by.set(m.thread, [])
     by.get(m.thread).push(m)
   }
-  // a thread that starts with a forward joins an earlier thread with the same subject (or a shared attachment) within 21 days
+  // a thread that starts with a forward joins an earlier thread with the same subject (or the same file) within 21 days.
+  // The same file is the same name and the same size: a name alone is not enough — a picture pasted into a mail is
+  // image.png · image001.png in every mail, and a forwarded quote request joined a training notice by it (2026-11-24)
   const threads = [...by.entries()].map(([id, ms]) => ({ id, mails: ms, start: new Date(ms[0].date).getTime() }))
   const merged = new Map(threads.map((t) => [t.id, t.id]))
   for (const t of threads) {
     if (!/^\s*(fw|fwd|전달)\s*[:：]/i.test(t.mails[0].subject || '')) continue
     const subj = baseSubject(t.mails[0].subject)
-    const files = new Set(t.mails.flatMap((m) => (m.attachments || []).map((f) => lower(f.name))))
+    const files = new Set(t.mails.flatMap((m) => (m.attachments || []).map(fileKey).filter(Boolean)))
     const host = threads.filter((o) => o !== t && o.start <= t.start && t.start - o.start < 21 * 86_400_000)
-      .find((o) => baseSubject(o.mails[0].subject) === subj || o.mails.some((m) => (m.attachments || []).some((f) => files.has(lower(f.name)))))
+      .find((o) => baseSubject(o.mails[0].subject) === subj || o.mails.some((m) => (m.attachments || []).some((f) => files.has(fileKey(f)))))
     if (host) merged.set(t.id, merged.get(host.id))
   }
   const out = new Map()
@@ -289,16 +293,20 @@ export async function runMailHistory(me, jobId, days) {
   const colleagues = new Set(mails.flatMap((m) => [addrOf(m.from), ...(m.to || [])].map(addrOf)).filter((a) => inside.has(a) && a !== lower(me.email)))
   await say(`메일 ${mails.length.toLocaleString('ko-KR')}통을 가져왔어요${mails.some((m) => m.archived) ? ` (보관함에 있던 ${mails.filter((m) => m.archived).length.toLocaleString('ko-KR')}통은 다시 받지 않았어요)` : ''}.`)
   const kept = mails.filter((m) => !notWork(m, R.filters))
-  const threads = threadsOf(kept)
+  // a thread no one in the company answered or passed on is not the company's work (engagement.js): no model reads it
+  const { work: threads, quiet } = splitQuiet(threadsOf(kept), mails, inside, R)
   // a re-read under stricter rules: what an earlier read took for work and these rules now leave out is taken off the map
-  const out = mails.filter((m) => notWork(m, R.filters)).map((m) => String(m.id))
+  const out = [...mails.filter((m) => notWork(m, R.filters)), ...quiet.flatMap((t) => t.mails)].map((m) => String(m.id))
   const dropped = out.length ? await q(`delete from pro_mail_history where tenant_id=$1 and owner_id=$2 and mail_id = any($3) returning 1`, [T(), me.id, out]) : []
   if (dropped.length) await say(`지금 규칙으로는 업무가 아닌 메일 ${dropped.length.toLocaleString('ko-KR')}통의 지난 기록을 지도에서 뺐어요.`)
   if (inside.domains.size) await say(`${[...inside.domains].join(' · ')} 주소는 회사 사람으로 봐요 — 메일에 나온 동료 ${colleagues.size}명.`)
-  await say(`뉴스레터 · 자동 알림 · 일정 초대 ${(mails.length - kept.length).toLocaleString('ko-KR')}통은 규칙으로 걸렀어요. 남은 메일은 스레드 ${threads.length.toLocaleString('ko-KR')}개(건)로 묶었어요.`)
+  await say(`뉴스레터 · 자동 알림 · 일정 초대 ${(mails.length - kept.length).toLocaleString('ko-KR')}통은 규칙으로 걸렀어요.`)
+  const quietMails = quiet.reduce((n, t) => n + t.mails.length, 0)
+  if (quiet.length) await say(`회사 쪽에서 답장 · 전달한 적이 없는 메일 ${quietMails.toLocaleString('ko-KR')}통(스레드 ${quiet.length.toLocaleString('ko-KR')}개)은 받기만 한 안내 · 홍보로 보고 일로 읽지 않아요.`)
+  await say(`남은 메일은 스레드 ${threads.length.toLocaleString('ko-KR')}개(건)로 묶었어요.`)
   // the names the company already uses: the chat handovers are matched first, so the mail speaks the same words
   // (the filtered mails count as read at once; the screen says what is going on while the chat names are matched)
-  let done = mails.length - kept.length, work = 0
+  let done = mails.length - kept.length + quietMails, work = 0
   const chat = await q(`select coalesce(nullif(activity_label,''), nullif(next_activity_label,''), instruction) as raw from handover_events where tenant_id=$1`, [T()])
   await update(`done=$2, detail=coalesce(detail,'{}'::jsonb) || $3::jsonb`, [done, { stage: 'chat', chat: chat.length }])
   if (chat.length) await (await import('./names.js')).resolveLabels(chat.map((r) => ({ raw: r.raw }))).catch((e) => console.warn('[ontology] chat names', e.message))
@@ -366,6 +374,45 @@ export async function runMailHistory(me, jobId, days) {
   await say(`메일 ${work.toLocaleString('ko-KR')}통이 일로 읽혔고, 일 이름 ${found.size}개를 찾았어요. 이제 흐름을 셉니다.`)
   await update(`status='done', finished_at=now()`, [])
   return { total: mails.length, kept: work, found: found.size }
+}
+
+// threads → {work, quiet}: quiet = the threads no one in the company wrote in, from a sender the company never wrote to
+// (rules.engagement — off: every thread is work)
+export function splitQuiet(threads, mails, inside, R = defaultRules()) {
+  if (R.engagement?.enabled === false) return { work: threads, quiet: [] }
+  const eng = engagementOf(mails, (a) => inside.has(a), { publicDomains: R.company?.publicDomains || [] })
+  const work = [], quiet = []
+  for (const t of threads) (engagedCase([...new Set(t.mails.map((m) => m.thread))], eng.threads) ? work : quiet).push(t)
+  return { work, quiet }
+}
+
+// The mail rows of the map as the rules stand now, without the model (each 다시 셈하기 runs it first): every owner's
+// mail archive → the mails the rules keep → cases (threadsOf) → the ones the company answered. A mail read into a case
+// the rules now draw differently moves to its case (a forward that joined a training notice by a pasted image.png); a
+// mail the rules leave out, or of a case no one answered, leaves the map. Mails the archive does not have stay as they
+// are. → {moved, dropped}
+export async function refreshMailCases() {
+  const { mailOf } = await import('../mailArchive.js')
+  const R = (await discoverySkill()).rules
+  const owners = await q(`select distinct h.owner_id::text as id, lower(u.email) as email from pro_mail_history h join users u on u.id::text = h.owner_id::text
+                           where h.tenant_id=$1 and coalesce(h.attrs->>'source','') <> 'chat'`, [T()])
+  let moved = 0, dropped = 0
+  for (const o of owners) {
+    const rows = await q(`select mail_id, thread_id, occurred_at, from_addr, to_addrs, cc_addrs, subject, labels, attachments from pro_mail_archive where tenant_id=$1 and owner_id::text=$2`, [T(), o.id])
+    if (!rows.length) continue
+    const mails = rows.map(mailOf)
+    const inside = await insidePeople(o.email, R.company)
+    const { work, quiet } = splitQuiet(threadsOf(mails.filter((m) => !notWork(m, R.filters))), mails, inside, R)
+    const caseOf = work.flatMap((t) => t.mails.map((m) => ({ id: String(m.id), c: caseIdOf(t.id) })))
+    const off = [...mails.filter((m) => notWork(m, R.filters)), ...quiet.flatMap((t) => t.mails)].map((m) => String(m.id))
+    for (let i = 0; i < caseOf.length; i += 500) {
+      moved += (await q(`update pro_mail_history h set case_id = x->>'c' from jsonb_array_elements($3::jsonb) x
+                          where h.tenant_id=$1 and h.owner_id::text=$2 and h.mail_id = x->>'id' and h.case_id <> x->>'c' and coalesce(h.attrs->>'source','') <> 'chat' returning 1`,
+      [T(), o.id, JSON.stringify(caseOf.slice(i, i + 500))])).length
+    }
+    if (off.length) dropped += (await q(`delete from pro_mail_history where tenant_id=$1 and owner_id::text=$2 and mail_id = any($3) and coalesce(attrs->>'source','') <> 'chat' returning 1`, [T(), o.id, off])).length
+  }
+  return { moved, dropped }
 }
 
 export async function jobOf(id) {

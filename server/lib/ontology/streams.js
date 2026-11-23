@@ -4,10 +4,15 @@
 // 루틴은 묶지 않는다. 줄기 안에서 rules.streams.gapDays 일 넘게 끊기면 다음 덩어리.
 // 결과는 pro_case_links(sql/037)에 — 지도 셈(build.js loadEvents)이 건 id 를 덩어리 id 로 바꿔 센다. 다시 셀 때는 새 건(또는 다른 판으로
 // 읽은 건)만 모델이 본다.
+// 판정(2026-11-24 휴대폰 녹화 — 교육 안내 메일이 「고객사 유지보수」 줄기로 들어갔다): 제안은 40건을 제목으로 한 번에 보고
+// 정하므로 틀릴 수 있다. 다른 건과 이어지는 건은 모두 판정 모델이 건의 메일 내용까지 읽고 「같은 한 건의 일」인지 확률로 다시 본다
+// (prompts/same-work.md, rules.streams.verify). 한 줄기 안에서 시간 순으로, 가장 확실하게 같은 일인 무리에 들고(p ≥ min), 없으면
+// 새 무리 — 같은 고객의 다른 회차(매달 하는 보고)는 따로 남아 되풀이되는 흐름으로 셀 수 있다.
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { chatJson } from '../llm.js'
+import { oddsOf } from '../decide.js'
 import { maskPii } from '../policy/pii.js'
 import { prompt, rules as skillRules, discoverySkill } from './discovery.js'
 
@@ -27,14 +32,15 @@ export async function caseLinks() {
 // every case with what tells cases apart: its subjects, the outside domains, the roles, the work, the files, the time
 export async function caseCatalog({ companyDomains = [] } = {}) {
   const labels = new Map((await q(`select raw, task from pro_onto_labels where tenant_id=$1 and task <> ''`, [T()])).map((r) => [r.raw, r.task]))
-  const mh = await q(`select h.case_id, h.occurred_at, h.from_addr, h.to_addrs, h.from_role, h.to_role, h.activity_label, h.artifacts, h.attrs, a.subject
+  const mh = await q(`select h.case_id, h.occurred_at, h.from_addr, h.to_addrs, h.from_role, h.to_role, h.activity_label, h.artifacts, h.attrs, a.subject,
+                             left(coalesce(nullif(a.new_part,''), a.body, ''), 600) as text
                         from pro_mail_history h left join pro_mail_archive a on a.tenant_id=h.tenant_id and a.owner_id=h.owner_id and a.mail_id=h.mail_id
                        where h.tenant_id=$1 order by h.occurred_at`, [T()])
   const ho = await q(`select case_id, occurred_at, from_role, to_role, coalesce(nullif(activity_label,''), instruction) as raw, instruction from handover_events where tenant_id=$1 order by occurred_at`, [T()]).catch(() => [])
   const own = new Set(companyDomains.map((d) => d.toLowerCase()))
   const by = new Map()
-  const at = (id) => { if (!by.has(id)) by.set(id, { id, from: null, to: null, n: 0, tasks: [], subjects: new Set(), partners: new Set(), roles: new Set(), files: new Set(), sources: new Set() }); return by.get(id) }
-  const add = (c, when, task, roles, subject, partners = [], files = [], source) => {
+  const at = (id) => { if (!by.has(id)) by.set(id, { id, from: null, to: null, n: 0, tasks: [], subjects: new Set(), partners: new Set(), roles: new Set(), files: new Set(), sources: new Set(), texts: [] }); return by.get(id) }
+  const add = (c, when, task, roles, subject, partners = [], files = [], source, text = '') => {
     const t = new Date(when).getTime()
     c.from = c.from == null ? t : Math.min(c.from, t); c.to = c.to == null ? t : Math.max(c.to, t); c.n++
     if (task && c.tasks.at(-1) !== task) c.tasks.push(task)
@@ -43,13 +49,16 @@ export async function caseCatalog({ companyDomains = [] } = {}) {
     for (const p of partners) if (p && !own.has(p)) c.partners.add(p)
     for (const f of files) if (f) c.files.add(f)
     c.sources.add(source)
+    // what the case says (the first and the last words written), for the judge — masked, short
+    const said = maskPii(clean(text)).slice(0, 240)
+    if (said) { if (c.texts.length < 2) c.texts.push(said); else c.texts[1] = said }
   }
   for (const r of mh) {
     const chat = r.attrs?.source === 'chat'
     add(at(r.case_id), r.occurred_at, labels.get(r.activity_label) || r.activity_label, [r.from_role, r.to_role], chat ? r.attrs?.subject : r.subject,
-      chat ? [] : [domainOf(r.from_addr), ...(r.to_addrs || []).map(domainOf)], (r.artifacts || []).map((f) => f?.type || ''), chat ? 'chat' : 'mail')
+      chat ? [] : [domainOf(r.from_addr), ...(r.to_addrs || []).map(domainOf)], (r.artifacts || []).map((f) => f?.type || ''), chat ? 'chat' : 'mail', chat ? '' : r.text)
   }
-  for (const r of ho) add(at(r.case_id), r.occurred_at, labels.get(clean(r.raw)) || clean(r.raw).slice(0, 30), [r.from_role, r.to_role], r.instruction, [], [], 'handover')
+  for (const r of ho) add(at(r.case_id), r.occurred_at, labels.get(clean(r.raw)) || clean(r.raw).slice(0, 30), [r.from_role, r.to_role], r.instruction, [], [], 'handover', r.instruction)
   return [...by.values()].sort((a, b) => a.from - b.from)
 }
 
@@ -70,12 +79,49 @@ export function chunksOf(assigned, gapDays = 45) {
   return out
 }
 
+// how a case reads to the judge: when · with whom · which work · what it is about · what was written (masked)
+export const caseCard = (c) => [`${day(c.from)}${day(c.to) !== day(c.from) ? `~${day(c.to)}` : ''}`,
+  c.partners.size ? `상대 ${[...c.partners].slice(0, 3).join(', ')}` : '회사 안', c.roles.size ? `역할 ${[...c.roles].slice(0, 3).join(', ')}` : '',
+  `일 ${c.tasks.slice(0, 4).join(' → ')}`, c.subjects.size ? `제목 ${[...c.subjects].slice(0, 2).join(' / ')}` : '',
+  c.texts?.length ? `내용 "${c.texts.join(' … ')}"` : ''].filter(Boolean).join(' · ')
+
+// One proposed stream, checked: its cases in time order; each joins the group it is most surely the same work as —
+// judge(case, the group's members nearest in time) → p, or null when there is no reading — when p ≥ min, else it starts
+// its own group. groups: the groups already settled ({name, cases}). Pure but for the judge — test/ontology-streams.test.js.
+// → {groups: [{name?, settled?, cases}], ps: Map(case id → best p | null), joined: Set(case ids that joined a group),
+//    unread: Set(case ids the judge could not read at all — there were groups to try, and no answer)}
+export async function groupBySameWork(cases, judge, { groups = [], min = 0.7, maxGroups = 4, members = 2 } = {}) {
+  const out = groups.map((g) => ({ ...g, cases: [...g.cases], settled: true }))
+  const ps = new Map(), joined = new Set(), unread = new Set()
+  for (const c of [...cases].sort((a, b) => a.from - b.from)) {
+    const gap = (x) => Math.abs(x.from - c.from)
+    const near = (g) => Math.min(...g.cases.map(gap))
+    const tries = [...out].sort((a, b) => near(a) - near(b)).slice(0, maxGroups)
+    let best = null, bestP = null
+    for (const g of tries) {
+      const p = await judge(c, [...g.cases].sort((a, b) => gap(a) - gap(b)).slice(0, members))
+      if (p != null && (bestP == null || p > bestP)) { best = g; bestP = p }
+    }
+    ps.set(c.id, bestP)
+    if (tries.length && bestP == null) unread.add(c.id)
+    if (best && bestP >= min) { best.cases.push(c); joined.add(c.id) } else out.push({ cases: [c] })
+  }
+  return { groups: out, ps, joined, unread }
+}
+
+async function inTurns(items, n, fn) {
+  const queue = [...items]
+  await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => { while (queue.length) await fn(queue.shift()) }))
+}
+
 // link the cases not linked yet (by this version of the skill's prompt): returns {cases, read, chunks, joined, top}
 export async function linkCases({ say = async () => {}, companyDomains = [] } = {}) {
   const R = (await skillRules()).streams || {}
   if (R.enabled === false) return null
   const skill = await discoverySkill()
-  const version = sha(`${skill.prompts['link-cases'] || ''}|${R.gapDays}`, 10)
+  const V = R.verify || {}
+  const sameWork = V.enabled === false ? '' : (skill.prompts['same-work'] || await prompt('same-work'))
+  const version = sha(`${skill.prompts['link-cases'] || ''}|${R.gapDays}|${sameWork}|${V.min ?? 0.7}`, 10)
   const all = await caseCatalog({ companyDomains })
   const done = new Map((await q(`select case_id, stream, version from pro_case_links where tenant_id=$1`, [T()])).map((r) => [r.case_id, r]))
   const todo = all.filter((c) => done.get(c.id)?.version !== version)
@@ -85,7 +131,7 @@ export async function linkCases({ say = async () => {}, companyDomains = [] } = 
   const streams = new Map() // name → purpose (the vocabulary the later parts reuse)
   for (const r of done.values()) if (r.stream && r.version === version) streams.set(r.stream, '')
   const per = R.batch || 40
-  const answers = new Map(), whys = new Map()
+  const answers = new Map(), whys = new Map(), again = new Set()
   for (let i = 0; i < todo.length; i += per) {
     const part = todo.slice(i, i + per)
     const input = part.map((c, n) => ({ i: n, from: day(c.from), to: day(c.to), source: [...c.sources].join('+'), tasks: c.tasks.slice(0, 6), subjects: [...c.subjects].slice(0, 3),
@@ -105,6 +151,71 @@ export async function linkCases({ say = async () => {}, companyDomains = [] } = 
     }
     await say(`${Math.min(i + per, todo.length).toLocaleString('ko-KR')}/${todo.length.toLocaleString('ko-KR')}개 견줬어요 — 줄기 ${streams.size}개.`, 'link')
   }
+  // the proposal, checked by the judge (see the top): a case the proposal joins to others joins only the ones it is the
+  // same work as; a case it is not the same work as stands alone (stream null) — said in its why
+  if (sameWork) {
+    const judgeSame = async (c, shown) => {
+      const state = ['이미 묶인 건:', ...shown.map((x) => `- ${caseCard(x)}`), '', '새 건:', `- ${caseCard(c)}`].join('\n')
+      const r = await oddsOf(state, sameWork, [{ key: 'same', label: '같은 일' }, { key: 'diff', label: '다른 일' }], { timeoutMs: V.timeoutMs || 8000 })
+      if (r) return r.probabilities.same
+      // a model that gives no log-probabilities: its plain answer
+      try {
+        const j = await chatJson(`${sameWork}\nJSON {"same":true|false} 로만 답하세요.`, state, { timeoutMs: 30000, temperature: 0 })
+        return j?.same === true ? 1 : j?.same === false ? 0 : null
+      } catch { return null }
+    }
+    const byStream = new Map()
+    for (const c of todo) { const s = answers.get(c.id); if (s) { if (!byStream.has(s)) byStream.set(s, []); byStream.get(s).push(c) } }
+    // groups settled before under this version: stored as the proposal's name, or `name · date` for a later group of it
+    const settledOf = (name) => {
+      const g = new Map()
+      for (const c of all) {
+        const d = done.get(c.id)
+        if (answers.has(c.id) || d?.version !== version || !d.stream || !(d.stream === name || d.stream.startsWith(`${name} · `))) continue
+        if (!g.has(d.stream)) g.set(d.stream, { name: d.stream, cases: [] })
+        g.get(d.stream).cases.push(c)
+      }
+      return [...g.values()]
+    }
+    const taken = new Set([...done.values()].map((r) => r.stream).filter(Boolean))
+    let checked = 0, apart = 0
+    await inTurns([...byStream], V.atOnce || 4, async ([name, cs]) => {
+      const settled = settledOf(name)
+      if (cs.length + settled.reduce((n, g) => n + g.cases.length, 0) < 2) return // one case: nothing to check, it keeps its stream
+      const { groups, ps, joined, unread } = await groupBySameWork(cs, judgeSame, { groups: settled, min: V.min ?? 0.7, maxGroups: V.maxGroups || 4 })
+      checked += cs.length
+      let first = !settled.some((g) => g.name === name)
+      for (const g of groups) {
+        const mine = g.cases.filter((c) => answers.has(c.id))
+        if (!mine.length) continue
+        const pct = (c) => `같은 일 ${Math.round(ps.get(c.id) * 100)}%`
+        if (!g.settled && g.cases.length === 1) {
+          // joined to nothing, and nothing joined it: it stands alone
+          const [c] = mine
+          answers.set(c.id, null); apart++
+          if (unread.has(c.id)) {
+            // no reading at all (the model was down): asked again next time instead of kept apart for good
+            whys.set(c.id, `「${name}」인지 판정하지 못함`.slice(0, 60)); again.add(c.id)
+          } else whys.set(c.id, (ps.get(c.id) == null ? `「${name}」의 다른 건과 이어지지 않음` : `「${name}」과 다른 일(${pct(c)})`).slice(0, 60))
+          continue
+        }
+        let gname = g.name
+        if (!gname) {
+          if (first) { gname = name; first = false } else {
+            gname = `${name} · ${day(g.cases[0].from)}`
+            for (let k = 2; taken.has(gname); k++) gname = `${name} · ${day(g.cases[0].from)} ${k}`
+          }
+          taken.add(gname)
+        }
+        for (const c of mine) {
+          answers.set(c.id, gname)
+          // (the judge's p only for a case that joined: the one that opened the group was not the same as anything before it)
+          if (joined.has(c.id)) whys.set(c.id, `${whys.get(c.id) || ''} · ${pct(c)}`.replace(/^ · /, '').slice(0, 60))
+        }
+      }
+    })
+    if (checked) await say(`판정 모델이 이어 묶을 건 ${checked.toLocaleString('ko-KR')}개를 메일 내용으로 다시 봤어요 — ${apart.toLocaleString('ko-KR')}개는 같은 일이 아니라서 따로 뒀어요.`, 'link')
+  }
   // chunks over every case (the earlier ones too, so a new case can join an old chunk)
   const assigned = all.map((c) => ({ id: c.id, from: c.from, to: c.to, stream: answers.has(c.id) ? answers.get(c.id) : done.get(c.id)?.stream || null }))
   const chunk = chunksOf(assigned, R.gapDays ?? 45)
@@ -116,7 +227,7 @@ export async function linkCases({ say = async () => {}, companyDomains = [] } = 
              on conflict (tenant_id, case_id) do update set stream_id=excluded.stream_id, stream=excluded.stream,
                why=coalesce(excluded.why, pro_case_links.why), version=case when excluded.version = '' then pro_case_links.version else excluded.version end, made_at=now()`,
     [T(), JSON.stringify(part.map((a) => ({ id: a.id, chunk: chunk.get(a.id) || null, stream: a.stream, why: whys.get(a.id) ?? null,
-      version: answers.has(a.id) ? version : (done.get(a.id)?.version || '') })))])
+      version: answers.has(a.id) && !again.has(a.id) ? version : (done.get(a.id)?.version || '') })))])
   }
   // what joined: chunks of more than one case
   const size = new Map()
