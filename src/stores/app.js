@@ -333,6 +333,8 @@ export const useApp = defineStore('app', {
     },
     async dismissNotification(n) {
       this.notifications = this.notifications.filter((x) => x.id !== n.id)
+      // a work item's notice takes its Home card with it (the server remembers: lib/homeCards.js)
+      if (n.todoId) this.todos = this.todos.map((t) => (t.id === n.todoId ? { ...t, home_hidden: true } : t))
       await api(`/notifications/${n.id}/dismiss`, { method: 'POST' })
     },
     runAction(a) { return api(`/actions/${a.id}/run`, { method: 'POST' }) },
@@ -340,7 +342,17 @@ export const useApp = defineStore('app', {
     mailOfCard(id) { return api(`/actions/${id}/mail`) },
     draftReply(id) { return api(`/actions/${id}/reply-draft`, { method: 'POST' }) },
     sendReply(id, body) { return api(`/actions/${id}/reply`, { method: 'POST', body }) },
-    dismissAction(a) { return api(`/actions/${a.id}/dismiss`, { method: 'POST' }) },
+    dismissAction(a) {
+      this.actions = this.actions.filter((x) => x.id !== a.id)
+      return api(`/actions/${a.id}/dismiss`, { method: 'POST' })
+    },
+    // Home is notifications: a work item's card put away — the work item stays mine (루틴 lists it)
+    dismissTodo(t) {
+      this.todos = this.todos.map((x) => (x.id === t.id ? { ...x, home_hidden: true } : x))
+      return api(`/todos/${t.id}/dismiss`, { method: 'POST' })
+    },
+    // 팀 메시지 › 받은 편지함: the cards made from mail, a card put away from Home among them
+    mailCardList() { return api('/mail/cards') },
     async createPanel(description) {
       this.panelMode = false
       await this.send(`새 패널 만들기: ${description}`, this.mainThread.id)

@@ -1882,7 +1882,14 @@
   "기록했어요": "Recorded",
   "데모 메일함이라 실제로 보내지 않았어요.": "It's the demo mailbox, so nothing was sent.",
   "한 번 더 누르면 새로 써요": "Press again to rewrite",
-  "올리지 못한 파일은 빼고 보내거나 다시 올려 주세요.": "Take out the files that didn't upload, or upload them again."
+  "올리지 못한 파일은 빼고 보내거나 다시 올려 주세요.": "Take out the files that didn't upload, or upload them again.",
+  "팀원의 공유 · 멘션": "Teammates' shares · mentions",
+  "답장함": "Replied",
+  "홈에서 닫음": "Closed on Home",
+  "처리함": "Done",
+  "홈에 있음": "On Home",
+  "메일에서 만든 카드가 아직 없어요.": "No cards from mail yet.",
+  "홈에서 닫기 — 루틴에는 남아요": "Close on Home — it stays in Routines"
  },
  "patterns": [
   [

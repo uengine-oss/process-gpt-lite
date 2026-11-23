@@ -9,6 +9,7 @@ import { emit } from './bus.js'
 import { getTodo } from './processes.js'
 import { submitTodo } from './engine.js'
 import { mainThread, addMessage } from './store.js'
+import { hideTodo } from './homeCards.js'
 
 const T = () => config.tenantId
 const ids = (me) => [me.id, me.email].filter(Boolean)
@@ -140,6 +141,10 @@ export async function act(me, id, { choice } = {}) {
 export async function dismiss(me, id) {
   const n = await own(me, id)
   if (n) await check(n)
+  // a work item's notice put away: its Home card goes with it — it used to come back as a 「Submit」 card
+  // (the work item itself stays mine; 루틴 lists it)
+  const todo = n && /^\/todolist\/([\w-]+)$/.exec(String(n.url || ''))?.[1]
+  if (todo) await hideTodo(me.id, todo, n.title).catch((e) => console.warn('[notify] hide todo', e.message))
   return !!n
 }
 

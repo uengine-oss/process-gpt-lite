@@ -1,10 +1,12 @@
 // HTTP routes for answering a mail from its Home card (lib/mailReply.js). Nothing here runs an agent:
 // the reply leaves only through POST /actions/:id/reply, which the 보내기 button sends.
+//   GET  /mail/cards               [action]                                          받은 편지함's mail list
 //   GET  /actions/:id/mail         {provider, mode, mail, files, to, reply, sent}   the mail as it arrived
 //   POST /actions/:id/reply-draft  → {reply, files}                                  a draft to read and change
 //   POST /actions/:id/reply        {to, cc, subject, body, files} → {ok, sent}        sent (or put in Drafts)
 import express from 'express'
 import * as R from '../lib/mailReply.js'
+import { mailCards } from '../lib/homeCards.js'
 import { L } from '../lib/lang.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
@@ -14,6 +16,8 @@ const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
 
 export function mailReplyRoutes(auth) {
   const r = express.Router()
+  // 받은 편지함: the cards made from mail — a card put away from Home is still here (lib/homeCards.js)
+  r.get('/mail/cards', auth, (req, res) => send(res, mailCards(req.user.id)))
   r.get('/actions/:id/mail', auth, (req, res) => send(res, R.mailOfCard(req.user, req.params.id)))
   r.post('/actions/:id/reply-draft', auth, (req, res) => send(res, R.draftReply(req.user, req.params.id)))
   r.post('/actions/:id/reply', auth, (req, res) => send(res, R.sendReply(req.user, req.params.id, req.body || {})))

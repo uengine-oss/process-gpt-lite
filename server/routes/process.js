@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import { config } from '../config.js'
 import { q, admin } from '../lib/supa.js'
 import * as proc from '../lib/processes.js'
+import { hiddenTodos, hideTodo } from '../lib/homeCards.js'
 import * as engine from '../lib/engine.js'
 import { updateMessage } from '../lib/store.js'
 import { saveGenerated, installGeneratedSkills } from '../lib/generated.js'
@@ -41,7 +42,18 @@ export function processRoutes(auth) {
     res.json({ ...d, threadId: await engine.instanceThread(req.user.id, req.params.id, d.inst.proc_inst_name || d.def?.name) })
   })
 
-  r.get('/todos', auth, async (req, res) => res.json(await proc.myTodos(req.user)))
+  // (a work item put away from Home is marked, not left out: Home hides it, everything else still lists it)
+  r.get('/todos', auth, async (req, res) => {
+    const [list, hidden] = await Promise.all([proc.myTodos(req.user), hiddenTodos(req.user.id)])
+    res.json(list.map((t) => (hidden.has(String(t.id)) ? { ...t, home_hidden: true } : t)))
+  })
+  // Home is notifications: a work item's card can be put away; the work item stays mine (루틴 lists it)
+  r.post('/todos/:id/dismiss', auth, async (req, res) => {
+    const t = (await proc.myTodos(req.user)).find((x) => String(x.id) === String(req.params.id))
+    if (!t) return res.status(404).end()
+    await hideTodo(req.user.id, t.id, t.activity_name)
+    res.json({ ok: true })
+  })
   r.get('/todos/:id', auth, async (req, res) => {
     const d = await proc.getTodo(req.params.id)
     if (!d) return res.status(404).end()

@@ -1,13 +1,13 @@
 <script setup>
 import ActionCard from './ActionCard.vue'
-import MailReplySheet from './MailReplySheet.vue'
+import HomeTodoCard from './HomeTodoCard.vue'
 import NotificationCard from './NotificationCard.vue'
 import WeatherPanel from './WeatherPanel.vue'
 import PanelFrame from './PanelFrame.vue'
 import PanelAppCard from './panelApps/PanelAppCard.vue'
 import Icon from './Icon.vue'
 import RefreshBanner from './RefreshBanner.vue'
-import { computed, ref, onBeforeUnmount } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { useTeam } from '../stores/team.js'
@@ -27,9 +27,8 @@ const arrowTurn = computed(() => 180 + Math.min(1, pull.value / PULL_THRESHOLD) 
 // browser notifications for a background tab: offered until the person answers the browser's question
 const notify = ref(notifyPermission())
 async function enableNotify() { notify.value = await askNotify() }
-// a mail card's sheet lives with Home: leaving Home closes it (it does not pop up again on the way back)
-onBeforeUnmount(() => { app.mailCard = null })
-const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id) && !app.notifications.some((n) => n.todoId === t.id)).slice(0, 3))
+// (a work item put away from Home — its card or its notice — stays in 루틴, not here)
+const todos = computed(() => app.todos.filter((t) => !t.home_hidden && !app.handled.includes(t.id) && !app.notifications.some((n) => n.todoId === t.id)).slice(0, 3))
 // a to-do opens its instance page, where its form is (not a card in the chat)
 async function openTodo(t) {
   const instId = t.proc_inst_id || (await app.openTodo(t).catch(() => null))?.instId
@@ -59,11 +58,7 @@ async function openTodo(t) {
         <Icon name="bell" :size="18" /> 브라우저 알림 켜기 <small>다른 창을 보고 있을 때도 메시지·할 일을 알려 드려요</small>
       </button>
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
-      <button v-for="t in todos" :key="'t' + t.id" class="act glass press" @click="openTodo(t)">
-        <span class="verb">{{ /결정|승인|검토|심사|판단/.test(t.activity_name) ? 'Review' : 'Submit' }}</span>
-        <span class="txt">{{ t.activity_name }}</span>
-        <span class="due">{{ t.proc_inst_name || t.def_name }}</span>
-      </button>
+      <HomeTodoCard v-for="t in todos" :key="'t' + t.id" :todo="t" @open="openTodo" />
       <ActionCard v-for="a in app.actions.slice(0, 5)" :key="a.id" :action="a" />
       <WeatherPanel key="weather" />
       <PanelAppCard v-for="a in app.panelApps" :key="'pa' + a.id" :app="a" />
@@ -72,7 +67,6 @@ async function openTodo(t) {
         <Icon name="plus" :size="22" /> 새 패널 만들기
       </button>
     </TransitionGroup>
-    <MailReplySheet v-if="app.mailCard" :key="app.mailCard.id" :action="app.mailCard" @close="app.mailCard = null" />
   </aside>
 </template>
 
@@ -104,10 +98,6 @@ async function openTodo(t) {
   .stack:not(.live), .ptr, .ptr .arrow { transition: none; }
   .ptr .ring { animation-duration: 2.4s; }
 }
-.act { display: block; width: 100%; text-align: left; overflow-wrap: anywhere; border-radius: 24px; padding: 17px 16px 19px 22px; font-size: 16px; line-height: 34px; color: var(--text-primary); }
-.act .verb { display: inline-block; height: 34px; line-height: 34px; padding: 0 8px; border-radius: 8px; background: var(--color-attention); color: #fff; margin-right: 8px; font-weight: 450; vertical-align: top; }
-.act .txt { line-height: 1.75; }
-.act .due { display: block; color: var(--text-secondary); line-height: 1.6; }
 .notify { border-radius: 22px; padding: 14px 18px; text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 15px; color: var(--text-primary); }
 .notify small { flex-basis: 100%; color: var(--text-secondary); font-size: 12.5px; }
 .msgs { height: 56px; border-radius: 22px; display: flex; align-items: center; gap: 8px; padding: 0 20px; font-size: 16px; color: var(--text-primary); }
