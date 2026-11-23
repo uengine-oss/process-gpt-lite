@@ -1,0 +1,1 @@
+F-FO-01~04 PASS (4) FAIL (0) · folders.spec.js 10 함께 14/14 (2026-11-23)

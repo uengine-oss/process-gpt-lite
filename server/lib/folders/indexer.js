@@ -7,51 +7,100 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
+import JSZip from 'jszip'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { chat } from '../llm.js'
 import { L, isEn } from '../lang.js'
 import * as G from './git.js'
 import { readableFolderIds } from './service.js'
+import { withTenant, tenants } from '../tenant.js'
 
 const DOC = /\.(md|markdown|txt|csv|docx|xlsx|pptx|hwpx|pdf)$/i
 export const kindOf = (p) => (String(p).split('.').pop() || '').toLowerCase()
 const isDoc = (p) => DOC.test(p)
+const DOC_KINDS = ['md', 'markdown', 'txt', 'csv', 'docx', 'xlsx', 'pptx', 'hwpx', 'pdf']
 // full-text tier thresholds (approved 2026-10-24)
 export const FULLTEXT = { docs: 200, cardTokens: 12000, textBytes: 5 * 1024 * 1024 }
 const MEMENTO = process.env.PRO_MEMENTO_URL || 'http://127.0.0.1:8005'
+// Copies of full-text documents in memento (the knowledge base) only when asked for: Lite's own search
+// never reads them, and a new version or a removed file leaves the old copy there — duplicates and
+// stale versions in the knowledge base. Off until the knowledge base and shared folders are settled
+// (process-gpt docs/decisions/2026-11.md D-1123-06).
+const TO_MEMENTO = process.env.PRO_FOLDERS_TO_MEMENTO === '1'
 
 const run = (cmd, args, opts = {}) => new Promise((resolve) => execFile(cmd, args, { maxBuffer: 64 * 1024 * 1024, timeout: 60000, ...opts }, (e, out) => resolve(e ? '' : String(out))))
 const strip = (xml) => xml.replace(/<\/(w:p|a:p|hp:p|si|row)>/g, '\n').replace(/<[^>]+>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/[ \t]+/g, ' ').replace(/\n\s+/g, '\n').trim()
 
-// plain text of a document blob, with a page count where the format has one
+// plain text of a document blob, with a page count where the format has one. The Office and
+// Hangul formats are zip packages read with jszip (the server image has no unzip: before, every
+// docx/pptx/xlsx/hwpx came out empty in production — no card, no keywords, "바이너리"); PDF needs
+// poppler's pdftotext (in the image since 2026-11-23).
+const PARTS = {
+  docx: (n) => n === 'word/document.xml',
+  pptx: (n) => /^ppt\/slides\/slide\d+\.xml$/.test(n),
+  xlsx: (n) => n === 'xl/sharedStrings.xml',
+  hwpx: (n) => /^Contents\/section\d+\.xml$/.test(n),
+}
+const num = (n) => Number(/(\d+)\.xml$/.exec(n)?.[1] || 0)
+// a part is inflated only up to a limit (a small file can unpack to gigabytes): the stream stops being
+// read past it, which stops the inflating; the sizes the zip declares are checked first
+const PART_MAX = 32 * 1024 * 1024, TOTAL_MAX = 64 * 1024 * 1024
+const readCapped = (f, cap) => new Promise((resolve) => {
+  if (f.dir || cap <= 0 || f._data?.uncompressedSize > cap) return resolve(null)
+  const parts = []
+  let n = 0, done = false
+  const end = (v) => { if (!done) { done = true; resolve(v) } }
+  const st = f.nodeStream('nodebuffer')
+  st.on('data', (c) => {
+    if (done) return
+    n += c.length
+    if (n > cap) { st.pause(); st.removeAllListeners('data'); return end(null) }
+    parts.push(c)
+  })
+  st.on('end', () => end(Buffer.concat(parts).toString('utf8')))
+  st.on('error', () => end(null))
+})
 export async function extract(name, buf) {
   const ext = kindOf(name)
   if (['md', 'markdown', 'txt', 'csv'].includes(ext)) { const t = buf.toString('utf8'); return { text: t, pages: Math.max(1, Math.ceil(t.length / 1800)) } }
+  if (PARTS[ext]) {
+    const zip = await JSZip.loadAsync(buf).catch(() => null)
+    if (!zip) return { text: '', pages: 1 }
+    const names = Object.keys(zip.files).filter(PARTS[ext]).sort((a, b) => num(a) - num(b))
+    let text = '', used = 0
+    for (const n of names) {
+      const xml = await readCapped(zip.files[n], Math.min(PART_MAX, TOTAL_MAX - used))
+      if (xml == null) break
+      used += xml.length
+      text += strip(xml) + '\n\n'
+    }
+    text = text.trim()
+    const pages = ext === 'pptx' ? Math.max(1, names.length) : Math.max(1, Math.ceil(text.length / 1800))
+    return { text, pages }
+  }
+  if (ext !== 'pdf') return { text: '', pages: 1 }
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'pro-fold-'))
-  const f = path.join(tmp, `doc.${ext}`)
+  const f = path.join(tmp, 'doc.pdf')
   try {
     await fs.writeFile(f, buf)
-    if (ext === 'pdf') {
-      const text = await run('pdftotext', ['-layout', f, '-'])
-      const info = await run('pdfinfo', [f])
-      return { text, pages: Number(/Pages:\s+(\d+)/.exec(info)?.[1]) || 1 }
-    }
-    const list = await run('unzip', ['-Z1', f])
-    const parts = {
-      docx: list.split('\n').filter((x) => /^word\/document\.xml$/.test(x)),
-      pptx: list.split('\n').filter((x) => /^ppt\/slides\/slide\d+\.xml$/.test(x)).sort((a, b) => Number(a.match(/\d+/)) - Number(b.match(/\d+/))),
-      xlsx: list.split('\n').filter((x) => /^xl\/sharedStrings\.xml$/.test(x)),
-      hwpx: list.split('\n').filter((x) => /^Contents\/section\d+\.xml$/.test(x)),
-    }[ext] || []
-    let text = ''
-    for (const p of parts) text += strip(await run('unzip', ['-p', f, p])) + '\n\n'
-    const pages = ext === 'pptx' ? parts.length : Math.max(1, Math.ceil(text.length / 1800))
-    return { text: text.trim(), pages }
+    const text = await run('pdftotext', ['-layout', f, '-'])
+    const info = await run('pdfinfo', [f])
+    return { text, pages: Number(/Pages:\s+(\d+)/.exec(info)?.[1]) || 1 }
   } finally { fs.rm(tmp, { recursive: true, force: true }).catch(() => {}) }
 }
 
 // tier 0 for main, then the cards that are missing or stale (in the background)
+// a file being edited in place (IeumOffice autosave) changes every few seconds: its card is made once
+// the edits settle, not for every save
+const cardTimers = new Map()
+export function cardsSoon(folder, ms = 60_000) {
+  clearTimeout(cardTimers.get(folder.id))
+  const t = setTimeout(() => { cardTimers.delete(folder.id); cardQueue(folder) }, ms)
+  t.unref?.()
+  cardTimers.set(folder.id, t)
+}
+
 export async function reindex(folder, { cards = true } = {}) {
   const ref = folder.default_branch
   const files = (await G.lsTree(folder.repo_path, ref)).filter((f) => f.path !== '.gitattributes')
@@ -90,17 +139,45 @@ const queues = new Map()
 function cardQueue(folder, { only } = {}) {
   if (queues.get(folder.id)) { queues.get(folder.id).again = true; return }
   const job = { again: false }
+  const tried = new Set()
   queues.set(folder.id, job)
   ;(async () => {
     do {
       job.again = false
-      const rows = await q(`select path, sha from pro_folder_files where folder_id=$1 and (card_sha is distinct from sha) order by mtime desc nulls last limit 60`, [folder.id])
+      // documents only (other files never get a card: they would hold these 60 places for ever); a full
+      // batch goes round again, a row that could not even be read is not tried twice in one run
+      const rows = (await q(`select path, sha from pro_folder_files where folder_id=$1 and (card_sha is distinct from sha) and kind = any($2) order by mtime desc nulls last limit 60`, [folder.id, DOC_KINDS]))
+        .filter((r) => !tried.has(`${r.path}@${r.sha}`))
       const todo = rows.filter((r) => isDoc(r.path) && (!only || only(r.path)))
       if (todo.length) await updateState(folder, { state: 'indexing', pending: todo.length })
-      for (const r of todo) await makeCard(folder, r).catch((e) => console.warn('[folders] card', r.path, e.message))
+      for (const r of todo) { tried.add(`${r.path}@${r.sha}`); await makeCard(folder, r).catch((e) => console.warn('[folders] card', r.path, e.message)) }
+      if (rows.length === 60 && todo.length) job.again = true
       await updateState(folder)
     } while (job.again)
   })().catch((e) => console.warn('[folders] index', e.message)).finally(() => queues.delete(folder.id))
+}
+
+// Documents whose text could not be read (until 2026-11-23 the server image had no unzip, so every
+// docx/pptx/xlsx/hwpx came out empty): their cards are made again after a start. One still unreadable
+// (a scanned PDF) is only read again — nothing goes to the model without text.
+const UNREAD = ['본문을 읽지 못했어요', "Couldn't read the text"]
+// Only this server's folders: the companies it serves (behind the ProcessGPT gateway, any) and
+// repositories on this machine — another server on the same database keeps its own.
+export async function retryUnreadCards() {
+  const served = config.tenantFromHeader ? null : tenants()
+  const rows = await q(`select distinct f.id, f.tenant_id, f.repo_path from pro_folder_files x join pro_folders f on f.id=x.folder_id
+                         where x.card is null and x.card_error = any($1) and x.kind = any($2) and f.kind <> 'linked' and ($3::text[] is null or f.tenant_id = any($3))`,
+  [UNREAD, ['docx', 'xlsx', 'pptx', 'hwpx', 'pdf'], served])
+  let n = 0
+  for (const r of rows) {
+    if (!(await fs.stat(path.join(r.repo_path, '.git')).catch(() => fs.stat(path.join(r.repo_path, 'HEAD')).catch(() => null)))) continue
+    const [f] = await q('select * from pro_folders where id=$1', [r.id])
+    await q('update pro_folder_files set card_sha=null where folder_id=$1 and card is null and card_error = any($2)', [f.id, UNREAD])
+    // the folder's own company (a server may serve more than one)
+    withTenant(f.tenant_id, () => cardQueue(f))
+    n += 1
+  }
+  return n
 }
 
 const CARD_PROMPT = `다음은 어떤 문서의 앞부분과 마지막 부분이다. JSON 으로만 답하라:
@@ -133,7 +210,7 @@ async function makeCard(folder, row) {
     // a failed card leaves the file in the list (tier 0); it is tried again on its next change
     await q('update pro_folder_files set card_sha=$3, card_error=$4, body=$5 where folder_id=$1 and path=$2', [folder.id, row.path, row.sha, e.message.slice(0, 200), body])
   }
-  if (body) mementoUpload(folder, row.path, buf).catch(() => {})
+  if (body && TO_MEMENTO) mementoUpload(folder, row.path, buf).catch(() => {})
 }
 
 // tier 2 with memento (best effort: the folder search falls back to the text kept here)
@@ -181,41 +258,67 @@ function textDiff(a, b) {
   return [...A.filter((l) => l.trim() && !setB.has(l)).map((l) => `- ${l}`), ...B.filter((l) => l.trim() && !setA.has(l)).map((l) => `+ ${l}`)].join('\n')
 }
 
-// search: folder names, file paths, card abstracts and keywords; full text where it is on.
-// Only folders the user can read.
+// The words of a query, each looked for on its own: "장진영 이력서" is not in any one name, but
+// 장진영 is in 장진영_프로필.docx and 이력서 is its folder's name (2026-11-23: the agent found nothing
+// until the person attached the folder). Words of one letter only when nothing longer is given.
+export function words(text) {
+  const all = [...new Set(String(text || '').split(/[\s,;|/·]+/).map((w) => w.trim()).filter(Boolean))]
+  const long = all.filter((w) => [...w].length >= 2)
+  return (long.length ? long : all).slice(0, 8)
+}
+const likeOf = (w) => `%${w.replace(/[%_\\]/g, (c) => '\\' + c)}%`
+
+// search: folder names, file paths, card abstracts and keywords; full text where it is on. A file
+// matches when any word does — in its path, its card or its text — and ranks by how many words it
+// matched (then a name match, then the newest). A folder matches by its name or description (its files
+// are not hits for that: a folder of 120 files would crowd out every other hit). Only folders the user
+// can read.
 export async function search(userId, text, limit = 20) {
-  const k = String(text || '').trim()
-  if (!k) return []
+  const ws = words(text)
+  if (!ws.length) return []
   const ids = await readableFolderIds(userId)
   if (!ids.length) return []
-  const like = `%${k.replace(/[%_\\]/g, (c) => '\\' + c)}%`
-  const folders = await q(`select id, slug, name, description, kind from pro_folders where id = any($1) and (name ilike $2 or description ilike $2) limit 10`, [ids, like])
-  const files = await q(`select f.folder_id, p.slug, p.name as folder_name, f.path, f.kind, f.size, f.card,
-                           case when f.path ilike $2 then 'name' when (f.card->>'abstract') ilike $2 or (f.card->>'keywords') ilike $2 then 'card' else 'text' end as by,
-                           case when f.body ilike $2 then substr(f.body, greatest(1, position(lower($3) in lower(f.body)) - 60), 180) end as snippet
-                         from pro_folder_files f join pro_folders p on p.id=f.folder_id
-                         where f.folder_id = any($1) and (f.path ilike $2 or (f.card->>'abstract') ilike $2 or (f.card->>'keywords') ilike $2
-                           or ((p.index_state->>'fulltext')::boolean and f.body ilike $2))
-                         order by (f.path ilike $2) desc, f.mtime desc nulls last limit $4`, [ids, like, k, limit])
-  return [...folders.map((f) => ({ type: 'folder', folder: f })), ...files.map((f) => ({ type: 'file', folder: { id: f.folder_id, slug: f.slug, name: f.folder_name }, file: { path: f.path, kind: f.kind, size: f.size, card: f.card }, by: f.by, snippet: f.snippet }))]
+  const likes = ws.map(likeOf)
+  const folders = await q(`select id, slug, name, description, kind from pro_folders where id = any($1) and (name ilike any($2) or description ilike any($2)) limit 10`, [ids, likes])
+  const files = await q(`select * from (
+      select f.folder_id, p.slug, p.name as folder_name, f.path, f.kind, f.size, f.card, f.mtime,
+             (select count(*) from unnest($2::text[]) w where f.path ilike w or (f.card->>'abstract') ilike w or (f.card->>'keywords') ilike w
+                or ((p.index_state->>'fulltext')::boolean and f.body ilike w))::int as score,
+             f.path ilike any($2) as name_hit,
+             case when f.path ilike any($2) then 'name' when (f.card->>'abstract') ilike any($2) or (f.card->>'keywords') ilike any($2) then 'card' else 'text' end as by,
+             case when (p.index_state->>'fulltext')::boolean then (select substr(f.body, greatest(1, position(lower(x) in lower(f.body)) - 60), 180)
+                  from unnest($4::text[]) x where position(lower(x) in lower(coalesce(f.body, ''))) > 0 limit 1) end as snippet
+        from pro_folder_files f join pro_folders p on p.id=f.folder_id
+       where f.folder_id = any($1)) m
+     where score > 0 order by score desc, name_hit desc, mtime desc nulls last limit $3`, [ids, likes, limit, ws])
+  return [...folders.map((f) => ({ type: 'folder', folder: f })), ...files.map((f) => ({ type: 'file', folder: { id: f.folder_id, slug: f.slug, name: f.folder_name }, file: { path: f.path, kind: f.kind, size: f.size, card: f.card }, by: f.by, score: f.score, words: ws.length, snippet: f.snippet }))]
 }
 
-// the catalog an agent reads first: folders it may use, each with its files and their cards
+// the catalog an agent reads first: folders it may use, each with its files and their cards. With a
+// query: only what matched, best first. matched = how many of the query's words a file matched, its
+// folder's name counted in ("장진영 이력서": 장진영 in the file name + 이력서 the folder = 2). A folder
+// that matched by name keeps all its files, the ones that matched first.
 export async function catalog(userId, query) {
   const ids = await readableFolderIds(userId)
   if (!ids.length) return []
   const folders = await q('select id, slug, name, description, kind, index_state from pro_folders where id = any($1) order by updated_at desc', [ids])
   const hits = query ? await search(userId, query, 40) : null
+  const ws = query ? words(query).map((w) => w.toLowerCase()) : []
   const out = []
   for (const f of folders) {
     let files = await q(`select path, kind, size, card from pro_folder_files where folder_id=$1 order by path limit 200`, [f.id])
+    let best = 0
     if (hits) {
-      const inFolder = new Set(hits.filter((h) => h.type === 'file' && h.folder.id === f.id).map((h) => h.file.path))
-      const folderHit = hits.some((h) => h.type === 'folder' && h.folder.id === f.id)
-      if (!inFolder.size && !folderHit) continue
-      if (inFolder.size) files = files.filter((x) => inFolder.has(x.path))
+      const score = new Map(hits.filter((h) => h.type === 'file' && h.folder.id === f.id).map((h) => [h.file.path, h.score]))
+      const named = ws.filter((w) => `${f.name} ${f.description || ''}`.toLowerCase().includes(w)).length
+      if (!score.size && !named) continue
+      if (!named) files = files.filter((x) => score.has(x.path))
+      files = files.map((x) => ({ ...x, matched: (score.get(x.path) || 0) + named })).sort((a, b) => b.matched - a.matched)
+      best = files[0]?.matched || named
     }
-    out.push({ slug: f.slug, name: f.name, description: f.description, kind: f.kind, index: f.index_state?.state, files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [] })) })
+    out.push({ slug: f.slug, name: f.name, description: f.description, kind: f.kind, index: f.index_state?.state, best,
+      files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [], ...(hits ? { matched: x.matched } : {}) })) })
   }
-  return out
+  if (hits) out.sort((a, b) => b.best - a.best)
+  return out.map(({ best, ...f }) => f)
 }

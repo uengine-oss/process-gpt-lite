@@ -2,6 +2,7 @@
 // conversation's artifact stack (ArtifactStack.vue), so both open it the same way.
 import { officeEditorFor, craftMissing } from './officeEditor.js'
 import { api } from './api.js'
+import { officeDocOf } from './stores/app.js'
 
 export const kindOf = (n) => ({ hwp: 'hwp', hwpx: 'hwp', docx: 'doc', odt: 'doc', xlsx: 'xls', xlsm: 'xls', xls: 'xls', csv: 'xls', pptx: 'ppt', pdf: 'pdf', md: 'md', markdown: 'md', txt: 'txt', html: 'web', htm: 'web', xmind: 'map', dxf: 'cad', dwg: 'cad', svg: 'vec', vectorcraft: 'vec', psd: 'img', psb: 'img', pcraft: 'img', png: 'img', jpg: 'img', jpeg: 'img', webp: 'img', wav: 'snd', mp3: 'snd', flac: 'snd', ogg: 'snd', soundcraft: 'snd', scraftz: 'snd', mp4: 'vid', mov: 'vid', webm: 'vid', fcproj: 'vid' })[String(n || '').split('.').pop().toLowerCase()] || 'etc'
 export const kindLabel = { hwp: '한글', doc: 'DOC', xls: 'XLS', ppt: 'PPT', pdf: 'PDF', md: 'MD', txt: 'TXT', web: 'HTML', map: 'MAP', cad: 'CAD', vec: 'SVG', img: 'IMG', snd: 'AUD', vid: 'VID' }
@@ -25,7 +26,7 @@ export const inApp = (f) => { if (isDrive(f?.url)) return true; const ed = offic
 export async function openDrive(app, url, fallbackName) {
   try {
     const d = await api('/outputs/drive', { method: 'POST', body: { url } })
-    app.officeDoc = { url: d.url, name: d.name || fallbackName, readOnly: true }
+    app.setOfficeDoc({ url: d.url, name: d.name || fallbackName, readOnly: true })
     return true
   } catch (e) {
     // no company connection or no access: the link itself, as before (said first)
@@ -36,7 +37,7 @@ export async function openDrive(app, url, fallbackName) {
 export function openOutput(app, f) {
   if (!inApp(f)) return false
   if (isDrive(f.url)) { openDrive(app, f.url, f.name); return true }
-  app.officeDoc = { url: f.url, name: f.name || decodeURIComponent(f.url.split('?')[0].split('/').pop()), readOnly: true }
+  app.setOfficeDoc({ url: f.url, name: f.name || decodeURIComponent(f.url.split('?')[0].split('/').pop()), readOnly: true })
   return true
 }
 
@@ -48,7 +49,7 @@ export async function openArtifact(app, router, msg) {
   }
   const ed = officeEditorFor(c.name)
   if (isDrive(c.url)) return openDrive(app, c.url, c.name)
-  if (c.url && ed && !craftMissing(ed)) app.officeDoc = { msgId: msg.id, url: c.url, name: c.name }
+  if (c.url && ed && !craftMissing(ed)) app.setOfficeDoc(officeDocOf(msg.id, c))
   else if (c.url) window.open(c.url, '_blank', 'noopener')
   else if (room(c.path)) router.push({ path: `/workroom/chat/${room(c.path)[1]}`, query: { open: room(c.path)[2] } })
 }

@@ -8,7 +8,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import os from 'node:os'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, admin } from '../supa.js'
 import * as G from './git.js'
 import { PGPT_ROOT } from '../paths.js'
 import { L } from '../lang.js'
@@ -170,13 +170,25 @@ export async function removeMember(folder, { type = 'user', id }) {
 }
 
 // ---------- main ----------
+// One writer at a time in a folder's main (its working tree is shared): commits, IeumOffice saves and the
+// fast-forward that ends a merge go through here, so one does not sweep up what another is writing.
+const locks = new Map()
+export function serial(key, fn) {
+  const run = (locks.get(key) || Promise.resolve()).then(fn, fn)
+  const tail = run.catch(() => {})
+  locks.set(key, tail)
+  tail.then(() => { if (locks.get(key) === tail) locks.delete(key) })
+  return run
+}
+
 // a person's edit in main (upload, workroom, terminal) becomes a commit with its author
-export async function commitMain(folder, author, message) {
+export async function commitMainNow(folder, author, message) {
   if (folder.kind === 'linked') return null
   const sha = await G.commitAll(folder.repo_path, message || L('파일 고침', 'Edit files'), author)
   if (sha) await touch(folder)
   return sha
 }
+export const commitMain = (folder, author, message) => serial(folder.id, () => commitMainNow(folder, author, message))
 export const touch = (folder) => q('update pro_folders set updated_at=now() where id=$1', [folder.id])
 
 export function safeRel(rel) {
@@ -216,6 +228,92 @@ export async function readBlob(folder, ref, rel) {
   const p = safeRel(rel)
   const v = ref && ref !== 'main' ? await variation(folder, ref) : null
   return G.show(folder.repo_path, v ? v.branch : folder.default_branch, p).catch(() => { throw err(404, L('파일이 없어요.', "That file isn't there.")) })
+}
+// IeumOffice and the ArtCraft apps load documents only from storage: a copy of one version of a file
+// (content-addressed, so the same blob is uploaded once) — the folder screen's 열기 and an agent's
+// folder_open share it
+export const MIME = {
+  md: 'text/markdown; charset=utf-8', txt: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8', json: 'application/json', py: 'text/plain; charset=utf-8', js: 'text/plain; charset=utf-8',
+  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', wav: 'audio/wav', mp3: 'audio/mpeg',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', hwpx: 'application/hwp+zip', hwp: 'application/x-hwp', dxf: 'image/vnd.dxf', psd: 'image/vnd.adobe.photoshop',
+}
+export async function publishFile(folder, rel, ref) {
+  const p = safeRel(rel)
+  const v = ref && ref !== 'main' ? await variation(folder, ref) : null
+  const r = v ? v.branch : folder.default_branch
+  const sha = (await G.git(folder.repo_path, ['rev-parse', `${r}:${p}`], { check: false })).trim()
+  if (!sha) throw err(404, L('파일이 없어요.', "That file isn't there."))
+  const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
+  const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
+  const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })
+  if (!there?.length) {
+    const { error } = await admin.storage.from('files').upload(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), { contentType: MIME[ext] || 'application/octet-stream', upsert: true })
+    if (error) throw error
+  }
+  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: path.basename(p), sha }
+}
+
+// ---------- an edit made in IeumOffice ----------
+// The folder screen opens main's file in IeumOffice for an editor of the folder. The editor saves its copy
+// next to the published one (office-host: pgpt-pro/folders/<folder>/edited-<stem>_<time>.<ext>); that copy
+// becomes the file in main, with its author, like an upload. One editing session is one entry in 이력:
+// its later saves fold into its commit while that commit is still main's newest and nothing stands on it.
+// When main's file changed after the editor opened it (someone else saved), the edit is kept beside it as
+// "<name> (<who> 수정본)" — never over the other person's version (nor bringing back a file someone deleted).
+export const OFFICE_EDIT = new Set(['docx', 'xlsx', 'pptx', 'hwpx', 'hwp'])
+// the storage key of an editor's copy of this folder's file, or null (any other object is refused)
+export function editedObject(folder, url) {
+  let u
+  try { u = new URL(String(url)) } catch { return null }
+  const m = /\/storage\/v1\/object\/(?:public|authenticated|sign)\/files\/(.+)$/.exec(u.pathname)
+  if (!m) return null
+  let key
+  try { key = decodeURIComponent(m[1]) } catch { return null }
+  const dir = `pgpt-pro/folders/${folder.id}/`
+  const name = key.startsWith(dir) ? key.slice(dir.length) : ''
+  return /^edited-[A-Za-z0-9._-]+$/.test(name) ? key : null
+}
+async function copyPath(folder, rel, user) {
+  const ext = path.posix.extname(rel)
+  const stem = rel.slice(0, rel.length - ext.length)
+  const who = String(user.name || String(user.email || '').split('@')[0] || L('나', 'me')).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').trim().slice(0, 30) || L('나', 'me')
+  for (let n = 1; n < 50; n++) {
+    const p = `${stem} (${L(`${who} 수정본`, `${who}'s edit`)}${n > 1 ? ` ${n}` : ''})${ext}`
+    const there = (await G.git(folder.repo_path, ['rev-parse', '--verify', '-q', `${folder.default_branch}:${p}`], { check: false })).trim()
+    if (!there) return p
+  }
+  throw err(409, L('수정본 이름을 정하지 못했어요.', "Couldn't name the edited copy."))
+}
+export async function saveOfficeEdit(folder, user, { path: rel, base, url, session } = {}) {
+  if (folder.kind === 'linked') throw err(400, L('연결형 폴더의 파일은 여기서 고칠 수 없어요.', "Files of a linked folder can't be edited here."))
+  const p = safeRel(rel)
+  const ext = path.extname(p).slice(1).toLowerCase()
+  if (!OFFICE_EDIT.has(ext)) throw err(400, L('이음오피스로 고쳐 저장하는 형식이 아니에요.', "This format isn't saved from IeumOffice."))
+  const key = editedObject(folder, url)
+  if (!key || path.extname(key).slice(1).toLowerCase() !== ext) throw err(400, L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy."))
+  const { data, error } = await admin.storage.from('files').download(key)
+  if (error || !data) throw err(404, L('저장한 편집본을 받지 못했어요.', "I couldn't fetch the saved copy."))
+  const buf = Buffer.from(await data.arrayBuffer())
+  if (!buf.length) throw err(400, L('편집본이 비어 있어요.', 'The saved copy is empty.'))
+  const sid = String(session || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40)
+  const blobAt = async (x) => (await G.git(folder.repo_path, ['rev-parse', '--verify', '-q', `${folder.default_branch}:${x}`], { check: false })).trim()
+  return serial(folder.id, async () => {
+    const now = await blobAt(p)
+    // the version the editor opened is no longer main's (changed, or deleted): keep this edit beside it
+    const moved = base ? now !== String(base) : !!now
+    const target = moved ? await copyPath(folder, p, user) : p
+    const host = path.join(folder.repo_path, target)
+    await fs.mkdir(path.dirname(host), { recursive: true })
+    await fs.writeFile(host, buf)
+    const author = { name: user.name, email: user.email }
+    const message = `${L(`이음오피스에서 고침: ${target}`, `Edited in IeumOffice: ${target}`)}${sid ? `\n\nOffice-Session: ${sid}` : ''}`
+    const fold = !!sid && await G.canFold(folder.repo_path, folder.default_branch, { message, path: target, email: author.email || 'folders@pgpt-pro.local' })
+    const done = await G.commitPath(folder.repo_path, target, message, author, { amend: fold })
+    if (done) await touch(folder)
+    return { path: target, sha: await blobAt(target), commit: done?.commit || null, copied: target !== p, folded: !!done && fold, undone: !!done?.dropped }
+  })
 }
 export async function history(folder, limit = 40) {
   return G.log(folder.repo_path, folder.default_branch, limit)

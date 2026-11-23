@@ -9,6 +9,11 @@
 // (emit 'assistant'); while the document is open the page tells the server (src/liveLink.js, app
 // 'ieumoffice'), so a chat message is about this document and the agent edits it in front of the
 // person through office-host's office_live_* tools (server/mcp/office.js).
+// autoSave (a shared folder's file, opened by an editor of the folder): the editor writes its file only on
+// 저장 / Ctrl+S, which a phone has no way to reach — the frame presses the editor's own 저장 after a
+// pause in editing, when the page goes to the background, and on flush() (the sheet closing waits for it),
+// so an edit never stays only in the open tab (src/officeAutosave.js). A read-only preview says so the
+// moment someone types in it, also on a phone.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
@@ -17,6 +22,7 @@ import { freshToken } from '../api.js'
 import { BASE } from '../base.js'
 import { kindOf, kindLabel } from '../artifacts.js'
 import { openLiveLink } from '../liveLink.js'
+import { watchEdits, pressSave } from '../officeAutosave.js'
 
 const props = defineProps({
   fileUrl: { type: String, default: '' },
@@ -25,8 +31,9 @@ const props = defineProps({
   context: { type: Object, default: null },
   maximized: { type: Boolean, default: false },
   assistant: { type: Boolean, default: false },
+  autoSave: { type: Boolean, default: false },
 })
-const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention'])
+const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention', 'edited'])
 
 const root = ref(null)
 const frame = ref(null)
@@ -34,6 +41,21 @@ const frameSrc = ref('')
 const emptyText = ref('문서를 여는 중…')
 const notice = ref(null)
 const fullscreen = ref(false)
+// until the editor draws itself the frame is a blank white page — on a phone's first open that is
+// 6–10 s of running the editor's 5 MB bundle (measured 2026-11-24, 4G and a 4x slower CPU): say so.
+// (The page's 'ready' comes as soon as its socket opens, long before that: the frame watches for the
+// editor's own root to fill — every IeumOffice editor page renders into #root.)
+const opening = ref(false)
+const openingSlow = ref(false)
+let openingTimer = null
+let drawnTimer = null
+function opened() { opening.value = false; openingSlow.value = false; clearTimeout(openingTimer); clearInterval(drawnTimer) }
+function watchDrawn() {
+  clearInterval(drawnTimer)
+  drawnTimer = setInterval(() => {
+    try { if (frame.value?.contentDocument?.getElementById('root')?.childElementCount > 0) opened() } catch { /* another origin: the timeout ends it */ }
+  }, 250)
+}
 let ready = false
 let timer = null
 // live: the chat is joined to this document; busy: the agent's edits are landing
@@ -197,7 +219,78 @@ function ask(type, data = {}, timeoutMs = 60000) {
     post({ type, requestId, ...data })
   })
 }
+// ---- saving without 저장 (autoSave) ----
+const IDLE_MS = 6000
+const edited = ref(false)   // an edit not saved yet
+const saving = ref(false)
+let editSeq = 0
+let idleTimer = null
+let unwatch = null
+let hinted = false
+let settle = null           // the save in flight: answered by the editor's saved / save-failed
+let inFlight = null
+function onEdit() {
+  if (props.readOnly) {
+    if (!hinted) { hinted = true; show('info', '보기 전용으로 열었어요 — 여기서 고친 내용은 저장되지 않아요.', 6000) }
+    return
+  }
+  if (!props.autoSave) return
+  editSeq++
+  if (!edited.value) emit('edited', true)
+  edited.value = true
+  clearTimeout(idleTimer)
+  idleTimer = setTimeout(idleSave, IDLE_MS)
+}
+function idleSave() {
+  // a slide's text box still being typed in: wait for the person to leave it (or for flush)
+  const doc = frame.value?.contentDocument
+  if (editor() === 'slides' && doc?.activeElement?.isContentEditable) { idleTimer = setTimeout(idleSave, IDLE_MS); return }
+  saveNow()
+}
+// press 저장 and wait for the editor's answer: {saved, url?} | {saved:false, error|timeout}
+function saveNow(timeoutMs = 25000) {
+  if (!props.autoSave || props.readOnly || !frame.value) return Promise.resolve({ saved: false })
+  if (inFlight) return inFlight.then(() => (edited.value ? saveNow(timeoutMs) : { saved: true }))
+  clearTimeout(idleTimer)
+  const seq = editSeq
+  saving.value = true
+  inFlight = new Promise((resolve) => {
+    const t = setTimeout(() => done({ saved: false, timeout: true }), timeoutMs)
+    function done(r) {
+      clearTimeout(t); settle = null; inFlight = null; saving.value = false
+      if (r.saved && editSeq === seq) { edited.value = false; emit('edited', false) }
+      resolve(r)
+    }
+    settle = done
+    if (!pressSave(frame.value)) done({ saved: false, error: '편집기가 열려 있지 않아요' })
+  })
+  return inFlight
+}
+// before the sheet closes: save what is left; {clean:true} when there was nothing to save
+async function flush(timeoutMs) {
+  clearTimeout(idleTimer)
+  if (!edited.value && !inFlight) return { saved: false, clean: true }
+  return saveNow(timeoutMs)
+}
+const onHide = () => { if (document.visibilityState === 'hidden' && edited.value && !inFlight) saveNow() }
+const onLeave = (e) => { if (edited.value || inFlight) { e.preventDefault(); e.returnValue = '' } }
+function startWatching() {
+  unwatch?.()
+  unwatch = props.autoSave || props.readOnly ? watchEdits(frame.value, onEdit) : null
+  // the editor's own 자동 저장 switch (off on the web host) would contradict the bar's 자동 저장
+  const doc = frame.value?.contentDocument
+  if (props.autoSave && doc?.head && !doc.getElementById('pgpt-autosave')) {
+    const st = doc.createElement('style')
+    st.id = 'pgpt-autosave'
+    st.textContent = '.autosave-toggle { display: none !important; }'
+    doc.head.appendChild(st)
+  }
+}
+
 defineExpose({
+  flush,
+  edited,
+  saving,
   editor,
   reconnect,
   canPictures: (ed = editor()) => ed === 'hwp' || (ed === 'docs' && editor() === 'docs' && pagePictures.value),
@@ -207,23 +300,26 @@ defineExpose({
 
 async function load() {
   stopLive()
+  unwatch?.(); unwatch = null; clearTimeout(idleTimer); edited.value = false; hinted = false
   ready = false
   pagePictures.value = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
   // fall back to the editor's built-in default (Chinese)
   const token = await freshToken()
+  opened(); opening.value = true; watchDrawn()
+  openingTimer = setTimeout(() => { openingSlow.value = true; openingTimer = setTimeout(opened, 60000) }, 3000)
   frameSrc.value = officeEditorUrl({ fileUrl: props.fileUrl, name: props.name, readOnly: props.readOnly, assistant: props.assistant ? 'parent' : '', token })
-  if (!frameSrc.value) { emptyText.value = '이 문서는 편집기로 열 수 없어요.'; return }
+  if (!frameSrc.value) { opened(); emptyText.value = '이 문서는 편집기로 열 수 없어요.'; return }
   const key = RIBBON_KEYS[editor()]
   if (key) try { localStorage.setItem(key, '1') } catch { /* private mode: the editor opens unfolded */ }
   ribbonOpen.value = false
   stopDeck()
   thumbsOpen.value = false
 }
-function show(kind, text) {
+function show(kind, text, ms) {
   clearTimeout(timer)
   notice.value = { kind, text }
-  timer = setTimeout(() => (notice.value = null), kind === 'error' ? 8000 : kind === 'agent' ? 6000 : 2500)
+  timer = setTimeout(() => (notice.value = null), ms || (kind === 'error' ? 8000 : kind === 'agent' ? 6000 : 2500))
 }
 function sendContext() {
   const w = frame.value?.contentWindow
@@ -245,7 +341,7 @@ function onMessage(event) {
   if (!isOfficeEditorMessage(event, frame.value?.contentWindow)) return
   const m = event.data
   if (m.type === 'ready') {
-    ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly) hideAiDock(); startLive()
+    ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly || props.autoSave) hideAiDock(); startLive(); startWatching()
     dressEditor(); syncSoon()
     if (deck.value && !deckTimer) deckTimer = setInterval(readDeck, 600)
   }
@@ -261,7 +357,10 @@ function onMessage(event) {
   else if (m.type === 'saved') {
     if (m.url) savedUrls.add(m.url)
     if (m.name) link?.rename(m.name)
-    show('success', m.url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.')
+    if (!props.autoSave) show('success', m.url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.')
+    // saved by the editor's own 저장 too: everything up to now is in
+    if (settle) settle({ saved: true, url: m.url || '' })
+    else if (edited.value) { edited.value = false; emit('edited', false) }
     emit('saved', { url: m.url || '', name: m.name || props.name })
   } else if (m.type === 'agent') {
     const label = { write: '내용을 쓰는 중', replace: '내용을 바꾸는 중', ops: '서식·구조를 고치는 중', save: '저장했어요' }[m.action]
@@ -270,8 +369,8 @@ function onMessage(event) {
     clearTimeout(busyTimer)
     busyTimer = setTimeout(() => (busy.value = false), 4000)
     emit('agent', m)
-  } else if (m.type === 'save-failed') { show('error', `저장한 문서를 올리지 못했어요: ${m.error || ''}`); emit('error', m.error) }
-  else if (m.type === 'error') { show('error', `문서를 열지 못했어요: ${m.error || ''}`); emit('error', m.error) }
+  } else if (m.type === 'save-failed') { settle?.({ saved: false, error: m.error || '' }); show('error', `저장한 문서를 올리지 못했어요: ${m.error || ''}`); emit('error', m.error) }
+  else if (m.type === 'error') { opened(); show('error', `문서를 열지 못했어요: ${m.error || ''}`); emit('error', m.error) }
 }
 async function toggleFullscreen() {
   try { if (document.fullscreenElement) await document.exitFullscreen(); else await root.value.requestFullscreen() }
@@ -284,12 +383,14 @@ watch(() => props.readOnly, load)
 watch(() => props.context, sendContext, { deep: true })
 onMounted(() => {
   window.addEventListener('message', onMessage); document.addEventListener('fullscreenchange', onFs); load()
+  document.addEventListener('visibilitychange', onHide); window.addEventListener('beforeunload', onLeave)
   coarseMq?.addEventListener?.('change', onCoarse)
   boxObserver = new ResizeObserver(([e]) => { box.value = { w: e.contentRect.width, h: e.contentRect.height } })
   boxObserver.observe(root.value)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive()
+  document.removeEventListener('visibilitychange', onHide); window.removeEventListener('beforeunload', onLeave); unwatch?.(); clearTimeout(idleTimer); opened()
   coarseMq?.removeEventListener?.('change', onCoarse); boxObserver?.disconnect(); stopDeck()
 })
 </script>
@@ -299,7 +400,8 @@ onBeforeUnmount(() => {
     <div class="bar">
       <span class="fmt" :class="kindOf(name)">{{ kindLabel[kindOf(name)] || 'DOC' }}</span>
       <span class="name">{{ name || '문서' }}</span>
-      <span v-if="readOnly" class="badge">미리보기</span>
+      <span v-if="readOnly" class="badge ro">보기 전용</span>
+      <span v-else-if="autoSave" class="badge auto" :class="{ on: saving || edited }" :title="saving ? '저장하는 중' : edited ? '잠시 뒤 저장해요' : '고친 내용은 저절로 저장돼요'">{{ saving ? '저장하는 중…' : edited ? '고치는 중' : '자동 저장' }}</span>
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i /><span class="t">{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span></span>
       <button v-else-if="linkFail" class="badge off press" :title="`대화와 연결되지 않았어요 — ${linkFail} · 눌러서 다시 연결`" @click="reconnect"><i /><span class="t">연결 안 됨 · 다시 연결</span></button>
       <span class="sp" />
@@ -324,6 +426,10 @@ onBeforeUnmount(() => {
     <div v-if="busy" class="glow" />
     <iframe v-if="frameSrc" ref="frame" :src="frameSrc" :title="name || '문서 편집기'" class="frm" allow="clipboard-read; clipboard-write; fullscreen" @load="dressEditor" />
     <div v-else class="empty">{{ emptyText }}</div>
+    <div v-if="frameSrc && opening" class="opening" data-testid="oef-opening">
+      <span class="spin" /><b>문서를 여는 중…</b>
+      <small v-if="openingSlow">처음 열 때는 편집기를 받느라 10초쯤 걸릴 수 있어요.</small>
+    </div>
     <template v-if="slideNav">
       <button class="snav prev press" data-testid="oef-prev" title="이전 슬라이드" aria-label="이전 슬라이드" :style="slidePos.mid ? { top: `${slidePos.mid}px` } : null"
         :disabled="slidePos.cur <= 1" @click="goSlide(-1)"><Icon name="back" :size="22" /></button>
@@ -354,7 +460,7 @@ onBeforeUnmount(() => {
 @media (max-width: 700px) { .ieum { display: none; } }
 /* a phone-wide sheet: the close button must stay in sight — size buttons go (the sheet is already the whole width), labels fold to icons */
 /* (the live state stays, as its dot alone) */
-@container (max-width: 520px) { .bar .opt, .bar .lb, .bar .badge:not(.live):not(.off), .bar .badge .t { display: none; } .bar .badge.live, .bar .badge.off { padding: 0; width: 22px; height: 22px; justify-content: center; } .bar { gap: 2px; padding: 0 4px 0 10px; } .bar .tb { padding: 0 8px; } .bar .tb.ic { padding: 0; } }
+@container (max-width: 520px) { .bar .opt, .bar .lb, .bar .badge:not(.live):not(.off):not(.ro):not(.auto), .bar .badge .t { display: none; } .bar .badge.live, .bar .badge.off { padding: 0; width: 22px; height: 22px; justify-content: center; } .bar { gap: 2px; padding: 0 4px 0 10px; } .bar .tb { padding: 0 8px; } .bar .tb.ic { padding: 0; } }
 .badge { padding: 1px 8px; border-radius: 10px; background: rgba(42, 120, 214, .12); color: #2a78d6; font-size: 11px; white-space: nowrap; flex: 0 0 auto; }
 .badge.live { display: inline-flex; align-items: center; gap: 6px; background: rgba(40, 160, 90, .12); color: #1e8a4c; }
 .badge.live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -382,6 +488,15 @@ onBeforeUnmount(() => {
 .notice.success { background: #2e7d32; }
 .notice.agent { max-width: 60%; background: #3949ab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .notice.error { background: #c62828; }
+.notice.info { max-width: 80%; background: #455a64; }
+.opening { position: absolute; left: 0; right: 0; top: 44px; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #fff; color: #1d1d1f; font-size: 14px; text-align: center; padding: 0 24px; z-index: 2; }
+.opening small { color: #5f6368; font-size: 12.5px; line-height: 1.5; }
+.opening .spin { width: 26px; height: 26px; border-radius: 50%; border: 3px solid rgba(0, 0, 0, .1); border-top-color: #2a78d6; animation: oefspin .8s linear infinite; }
+@keyframes oefspin { to { transform: rotate(360deg); } }
+/* (the bar stays light in the dark theme too: fixed colours) */
+.badge.ro { background: #eceff1; color: #455a64; font-weight: 600; }
+.badge.auto { background: rgba(40, 160, 90, .1); color: #1e8a4c; }
+.badge.auto.on { background: rgba(230, 150, 20, .14); color: #a86400; }
 .fade-enter-active, .fade-leave-active { transition: opacity .2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

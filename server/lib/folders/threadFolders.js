@@ -157,11 +157,11 @@ const listing = (files, n = 40) => files.slice(0, n).map((f) => `- ${f.path}${f.
 export async function refHint(link) {
   if (link?.mode !== 'ref') return ''
   const files = (await q(`select path, card->>'abstract' as summary from pro_folder_files where folder_id=$1 order by path limit 200`, [link.folder_id]).catch(() => []))
-  return L(`\n\n(이 대화에는 공유 폴더 '${link.name}' 가 참고 자료로 붙어 있어요. 기준본(main)을 읽기만 해요: folder_files 도구(folder: '${link.slug}')로 파일 목록과 문서 요약을, folder_read 도구로 파일 내용을 볼 수 있어요.
+  return L(`\n\n(이 대화에는 공유 폴더 '${link.name}' 가 참고 자료로 붙어 있어요. 기준본(main)을 읽기만 해요: folder_files 도구(folder: '${link.slug}')로 파일 목록과 문서 요약을, folder_read 도구로 파일 내용을 볼 수 있어요. 사용자가 파일을 열어 달라고 하면 folder_open 도구로 화면에 열어 주세요.
 이 폴더의 파일:
 ${listing(files) || '(아직 파일 없음)'}
 이 폴더의 파일을 직접 고치거나 그 안에 저장하지 마세요. 바꿔야 하면 사용자가 바꿔 달라고 할 때 변형에서 바꾸고, 사람이 검토해 반영해요.)`,
-  `\n\n(The shared folder '${link.name}' is attached to this chat for reference. Read its main version only: the folder_files tool (folder: '${link.slug}') lists its files with document summaries, and folder_read shows a file's content.
+  `\n\n(The shared folder '${link.name}' is attached to this chat for reference. Read its main version only: the folder_files tool (folder: '${link.slug}') lists its files with document summaries, and folder_read shows a file's content. When the user asks to open a file, open it on their screen with the folder_open tool.
 Files in this folder:
 ${listing(files) || '(no files yet)'}
 Do not change files in this folder or save into it. A change is made on a variation when the user asks for one, and a person reviews and merges it.)`)

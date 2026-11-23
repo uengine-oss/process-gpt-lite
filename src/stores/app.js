@@ -8,6 +8,16 @@ import { announce } from '../browserNotify.js'
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
 
+// the open document's sheet answers here before the document is replaced or closed (setOfficeDoc)
+let officeLeave = null
+export function onOfficeLeave(fn) { officeLeave = fn }
+// a chat file card → the document to open: a shared folder's file (folder_open) carries its folder —
+// an editor of the folder edits it in place (saved into the folder), anyone else sees it read-only
+export function officeDocOf(msgId, c) {
+  const folder = c?.folder?.slug ? c.folder : null
+  return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}) }
+}
+
 export const useApp = defineStore('app', {
   state: () => ({
     me: null,
@@ -16,6 +26,7 @@ export const useApp = defineStore('app', {
     activeId: null,            // thread shown in the center column
     messages: {},              // threadId -> []
     drafts: {},                // threadId -> streaming text
+    askedAt: {},               // threadId -> when this screen last sent a message there (a file the agent opens on request opens here)
     status: {},                // threadId -> live status text
     actions: [],
     mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
@@ -93,6 +104,16 @@ export const useApp = defineStore('app', {
     },
   },
   actions: {
+    // Replacing or closing the open document: the sheet saves what is left in it first (OfficeSheet
+    // registers onOfficeLeave; it answers false to stay open — a save that did not finish, said on the sheet).
+    async setOfficeDoc(doc) {
+      if (this.officeDoc && officeLeave) {
+        const ok = await Promise.resolve(officeLeave()).catch(() => true)
+        if (!ok) return false
+      }
+      this.officeDoc = doc
+      return true
+    },
     async boot() {
       this.me = await api('/me')
       syncLang(this.me)
@@ -142,6 +163,13 @@ export const useApp = defineStore('app', {
         else {
           list.push(d)
           if (d.role === 'agent' && (d.kind === 'text' || d.kind === 'doc')) this.drafts[d.thread_id] = null
+          // a document the person asked to see (folder_open: "장진영 이력서 열어 줘") opens in the editor at
+          // once — on the screen that asked (not their other devices), in the conversation on screen, as the
+          // answer to that message (askedAt lasts until shortly after its answer ends), once
+          if (d.role === 'agent' && d.kind === 'file' && d.content?.open && d.content.url && d.thread_id === this.activeId && this.askedAt[d.thread_id]) {
+            const ed = officeEditorFor(d.content.name || d.content.url)
+            if (ed && !CRAFT_APPS.has(ed)) { this.setOfficeDoc(officeDocOf(d.id, d.content)); delete this.askedAt[d.thread_id] }
+          }
         }
       } else if (type === 'thread') {
         // (merged: a status-only event carries no folder, the thread keeps the one it has)
@@ -227,6 +255,7 @@ export const useApp = defineStore('app', {
       const d = this.officeDoc, ed = d && !d.readOnly ? officeEditorFor(d.name || d.url) : null
       const openDoc = ed && !CRAFT_APPS.has(ed) && d.name ? { app: 'ieumoffice', file: d.name, name: d.name, editor: ed } : undefined
       this.drafts[threadId] = ''
+      const asked = this.askedAt[threadId] = Date.now()
       let ended = false
       try {
         await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(opts.fresh ? { fresh: true } : {}) }, (ev, data) => {
@@ -237,6 +266,8 @@ export const useApp = defineStore('app', {
       // the connection dropped before the answer (a proxy cutting a long request, a server restart):
       // stop showing "생각하는 중"; the answer, if it comes, arrives as a live event
       if (!ended) { this.drafts[threadId] = null; this.load(threadId).catch(() => {}) }
+      // the answer's cards come as live events, a moment after it ends; a dropped connection waits longer
+      setTimeout(() => { if (this.askedAt[threadId] === asked) delete this.askedAt[threadId] }, ended ? 15_000 : 10 * 60_000)
       if (threadId === this.mainThread?.id) this.loadConversations()
     },
     // 멈추기: the answer being written in this thread (in a conversation view, only that conversation's)

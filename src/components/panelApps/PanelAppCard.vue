@@ -126,7 +126,7 @@ async function openSheet() {
   opening.value = true
   try {
     const s = await api(`/panel-apps/${props.app.id}/sheet`, { method: 'POST' })
-    store.officeDoc = { url: s.url, name: s.name, panelAppId: props.app.id, sha: s.sha, readOnly: s.readOnly, title: props.app.title }
+    store.setOfficeDoc({ url: s.url, name: s.name, panelAppId: props.app.id, sha: s.sha, readOnly: s.readOnly, title: props.app.title })
   } catch (e) { err.value = e.message } finally { opening.value = false }
 }
 async function ackPrivacy() {

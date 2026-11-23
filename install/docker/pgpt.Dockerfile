@@ -48,9 +48,10 @@ ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # git: shared folders are git repositories; zip: mission skill bundles; socat: loopback forward;
 # lsof: ArtCraft live editing checks which pid holds the bridge socket; fonts-nanum: the face
-# the agent is told to use in ArtCraft files (the headless CLIs render with system fonts)
+# the agent is told to use in ArtCraft files (the headless CLIs render with system fonts);
+# poppler-utils: pdftotext / pdfinfo for the text of a shared folder's PDFs (lib/folders/indexer.js)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git zip socat ca-certificates tini curl lsof fonts-nanum \
+      git zip socat ca-certificates tini curl lsof fonts-nanum poppler-utils \
  && rm -rf /var/lib/apt/lists/* \
  && git config --system user.name "Process GPT" \
  && git config --system user.email "noreply@pgpt-lite.local" \
