@@ -26,6 +26,11 @@ cd e2e && PGPT_URL=http://localhost:5192 API_URL=http://127.0.0.1:8792 npx playw
 | 열기 카드의 문서를 고친다 | F-FE-07 · `folderEditSave.test.js` 「folder_open 의 카드는 폴더와 연 버전을 갖고 다닌다」 |
 | 처음 여는 휴대폰 | F-FE-08(4G · CPU 4배 느림 · 캐시 없음) |
 | 남의 폴더 객체 | `folderEditSave.test.js`(다른 폴더 · 원래 사본 · 하위 경로 · 형식 거절) |
+| 고친 것을 모두 되돌리면 | `folderEditSave.test.js`(되돌리면 편집 커밋이 사라지고 스테이징이 남지 않음) |
+| 연 사이에 지워진 파일 | `folderEditSave.test.js`(「보고서 (… 수정본).docx」, 원래 이름은 없음) |
+| 보기 권한인 사람의 카드 | F-FE-09 · `folderEditSave.test.js` 「folder_open: 편집자에게는 고칠 수 있는 카드, 보기 권한에게는 보기 전용 카드」 |
+| 고치는 중에 다른 카드를 누른다 | F-FE-10 |
+| 함께 올리던 파일 | `folderEditSave.test.js`(그 편집의 커밋에는 고친 파일만, 다른 파일은 올린 사람의 커밋) |
 | (편집기의 저장 단추와 편집 키) | `folderEditSave.test.js` 「편집으로 치는 키」 · 「편집기의 저장 단추」 |
 
 **편집기에 저장시키는 방법**(운영 이미지 ecea940, 2026-11-24 측정):
@@ -47,7 +52,7 @@ cd e2e && PGPT_URL=http://localhost:5192 API_URL=http://127.0.0.1:8792 npx playw
 
 `results/`:
 - `server.txt`: 서버 시험 출력.
-- `e2e.txt`: 화면 시험 F-FE-01~08 결과.
+- `e2e.txt`: 화면 시험 F-FE-01~10 결과.
 - 화면 사진:
   - `f-fe-01.png`: 폴더에 저장한 뒤의 머리말과 편집기.
   - `f-fe-04.png`: 수정본으로 따로 저장한 화면.
