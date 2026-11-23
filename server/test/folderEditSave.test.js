@@ -1,5 +1,5 @@
 // An IeumOffice edit of a shared folder's file goes back into the folder (2026-11-24 휴대폰 녹화: 폴더의
-// 장진영_프로필.docx 를 고쳤는데 닫으니 「수정한 게 그냥 바로 사라지고 있습니다 … 저장이 되어야죠」).
+// 장진영_프로필.docx 를 고쳤는데 닫으니 「그냥 바로 사라지고 있습니다」 · 「저장이 되어야죠」).
 //   - only the editor's copy of this folder's file is taken (another storage object, another folder: refused)
 //   - the copy becomes main's file with its author; one editing session is one 이력 entry (later saves fold in)
 //   - main changed since the editor opened it: the edit is kept beside it as "… (이름 수정본)"
