@@ -1,13 +1,16 @@
 <script setup>
 // A document the agent made, open for editing over the chat (hark opens documents in place, not as
-// downloads). Saving in the editor makes the chat card point at the edited copy.
+// downloads). Saving in the editor makes the chat card point at the edited copy. The editor saves by
+// itself (a pause in editing, the page going to the background, closing — OfficeEditorFrame autoSave),
+// so an edit made on a phone is not lost; a shared folder's file opened from the chat (folder_open)
+// is saved back into the folder too (server: POST /api/messages/:id/file).
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import OfficeEditorFrame from './OfficeEditorFrame.vue'
 import CraftEditorFrame from './CraftEditorFrame.vue'
 import CraftLiveOverlay from './CraftLiveOverlay.vue'
 import { CRAFT_APPS, officeEditorFor, craftMissing } from '../officeEditor.js'
 import { api, uploadAttachment } from '../api.js'
-import { useApp } from '../stores/app.js'
+import { useApp, onOfficeLeave } from '../stores/app.js'
 import { isEnglish } from '../i18n/lang.js'
 
 const app = useApp()
@@ -19,6 +22,10 @@ const note = ref(null) // {kind, text} — what happened to a panel app's sheet 
 const craft = computed(() => !!app.officeDoc && CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url)))
 // a read-only preview stays a plain overlay (nothing to edit)
 const office = computed(() => !!app.officeDoc && !craft.value && !app.officeDoc.readOnly)
+// saving by itself: a shared folder's file this person may edit (folder_open's card). Not a panel app's
+// sheet (its every save is applied as rows) and not other chat documents (each save of a received share
+// is a commit on its branch) — those keep the editor's own 저장.
+const autoSave = computed(() => office.value && !app.officeDoc.panelAppId && app.officeDoc.folder?.editable === true)
 const craftTitle = computed(() => office.value ? '문서' : ({ cadcraft: 'CADCraft', vectorcraft: 'VectorCraft', photocraft: 'PhotoCraft', soundcraft: 'SoundCraft', filmcraft: 'FilmCraft' })[officeEditorFor(app.officeDoc?.name || app.officeDoc?.url || '')] || '')
 const live = ref(false)
 const linkFail = ref('') // the document's live link gave up (OfficeEditorFrame 'linkfail')
@@ -178,21 +185,66 @@ async function savedPanelSheet(url) {
   setTimeout(() => (note.value = null), 6000)
 }
 
-async function saved({ url, name }) {
+// one opening of a card is one editing session (its saves are one line in the folder's 이력)
+const newSession = () => globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+let session = newSession()
+let savedChain = Promise.resolve()
+let lastFail = null // a folder save that did not go through: tried again before the sheet closes
+let closeArmed = false
+watch(() => app.officeDoc?.msgId, () => { session = newSession(); lastFail = null; closeArmed = false })
+function saved({ url, name }) {
   if (url && app.officeDoc?.panelAppId) return savedPanelSheet(url)
   if (!url || !app.officeDoc?.msgId) return
-  await api(`/messages/${app.officeDoc.msgId}/file`, { method: 'POST', body: { url, name } }).catch(() => {})
-  app.officeDoc = { ...app.officeDoc, url, name: name || app.officeDoc.name }
+  const job = { id: app.officeDoc.msgId, url, name, sid: session }
+  savedChain = savedChain.then(() => postSave(job))
+  return savedChain
 }
+async function postSave(job) {
+  const m = await api(`/messages/${job.id}/file`, { method: 'POST', body: { url: job.url, name: job.name, session: job.sid } }).catch((e) => ({ error: e.message }))
+  const fs = m?.content?.folder_save
+  const failed = m?.error != null ? m.error : fs && !fs.ok ? fs.error || '' : null
+  const here = app.officeDoc?.msgId === job.id
+  lastFail = failed != null && (here ? app.officeDoc.folder : true) ? job : null
+  if (!here) return
+  if (m?.error == null) app.officeDoc = { ...app.officeDoc, url: job.url, name: job.name || app.officeDoc.name, ...(m?.content?.folder ? { folder: m.content.folder } : {}) }
+  // a shared folder's file: say where the save went
+  if (!app.officeDoc.folder) return
+  if (failed != null) flash('err', `폴더에 저장하지 못했어요: ${failed}`, 8000)
+  else if (fs?.copied) flash('warn', `다른 사람이 먼저 고쳐서, 내 수정은 「${String(fs.path).split('/').pop()}」로 따로 저장했어요.`, 9000)
+  else if (fs) flash('ok', `「${m.content.folder?.name || '공유'}」 폴더에 저장했어요 · 이력에 남았어요`, 3500)
+}
+// Before the document is closed or replaced (closing, another card, the meeting's back — app.setOfficeDoc):
+// what is left is saved and a folder save that failed is tried again. When that does not work the sheet
+// stays open once and says so; a second close leaves anyway.
+async function leave() {
+  if (closeArmed) return true
+  const f = officeFrame.value
+  let r = { clean: true }
+  if (autoSave.value && !pic.value && f?.flush && (f.edited || f.saving)) {
+    flash('info', '닫기 전에 저장하는 중…', 25000)
+    r = await f.flush(20000)
+  }
+  await savedChain
+  if (lastFail) { const job = lastFail; savedChain = savedChain.then(() => postSave(job)); await savedChain }
+  if (r.timeout || r.error || lastFail) {
+    closeArmed = true
+    flash('err', `${lastFail ? '폴더에 저장하지 못했어요' : '저장을 마치지 못했어요'}. 한 번 더 닫으면 저장하지 않고 닫아요.`, 8000)
+    return false
+  }
+  return true
+}
+async function closeDoc() { if (await leave()) app.officeDoc = null }
+onOfficeLeave(leave)
+onBeforeUnmount(() => onOfficeLeave(null))
 </script>
 
 <template>
-  <div class="veil" :class="{ max: maximized, side }" @click.self="!side && !maximized && (app.officeDoc = null)">
+  <div class="veil" :class="{ max: maximized, side }" @click.self="!side && !maximized && closeDoc()">
     <div class="sheet glass" :class="{ max: maximized }">
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        :assistant="office" v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" />
+        :assistant="office" :auto-save="autoSave" v-model:maximized="maximized" @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" />
       <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
       <Transition name="pic">
         <div v-if="pic" class="pic">
@@ -216,6 +268,9 @@ async function saved({ url, name }) {
 .sheet { position: relative; }
 .pnote { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 9px 16px; border-radius: 10px; font-size: 14px; color: #fff; background: #1d1d1f; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); white-space: nowrap; }
 .pnote.err { background: #c62828; }
+.pnote.ok { background: #2e7d32; }
+.pnote.warn { background: #a86400; white-space: normal; max-width: 86%; }
+.pnote.info { background: #455a64; }
 .pnote { z-index: 6; }
 /* PhotoCraft over the 한글/Word document: the document's left edge stays in sight, dimmed */
 .pic { position: absolute; inset: 44px 0 0 16%; z-index: 4; display: flex; border-radius: 16px 0 0 0; overflow: hidden; box-shadow: -18px 0 50px rgba(0, 0, 0, .35); }

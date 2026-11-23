@@ -1285,6 +1285,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const rooms = [roomOf(turn.conv), ...runDirs].filter(Boolean)
   const ctx = { rooms, written, since: started - 2000 }
   for (const t of toolDocs) {
+    // a shared folder's file the person asked to see (folder_open checked their membership): shown even
+    // when the turn also saw that folder's checkout, where the same name is not this turn's output
+    if (t.doc.open && /(^|[^a-z])folder_open$/.test(t.tool)) { if (!files.some((f) => f.url === t.doc.url)) files.push(t.doc); continue }
     const { keep, src } = await keepToolDoc({ name: t.raw, tool: t.tool, input: t.input }, seen, ctx)
     if (!keep) { console.log(`[delegate] not attached (not this turn's output): ${src || t.doc.name}`); continue }
     if ((src && evalRun(src)) || workspacePaths(t.input).some(evalRun)) { console.log(`[delegate] not attached (a skill's test run): ${src || t.doc.name}`); continue }

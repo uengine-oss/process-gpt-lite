@@ -1,6 +1,9 @@
 <script setup>
 // 파일을 누르면 그 자리에서 열리는 미리보기 시트. 본문은 작업실과 같은 FileView(같은 방식으로 보임),
 // 오른쪽은 색인의 문서 카드와 파일 정보. 이음오피스·ArtCraft 는 스토리지에 올린 사본으로 연다.
+// 폴더의 편집자가 main 의 문서(워드·엑셀·PPT·한글)를 열면 이음오피스가 편집으로 열리고, 고친 내용은 저절로 저장돼
+// 폴더 main 에 「이음오피스에서 고침」으로 남는다(같은 편집은 이력 한 줄). 닫을 때는 남은 수정을 저장한 뒤에 닫는다.
+// 연 뒤에 다른 사람이 먼저 고쳤으면 덮어쓰지 않고 「… (이름 수정본)」으로 옆에 둔다.
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '../Icon.vue'
@@ -17,7 +20,7 @@ const props = defineProps({
   ref_: { type: String, default: 'main' }, // 'main' or a variation id
   refLabel: String,
 })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'changed'])
 const router = useRouter()
 const app = useApp()
 const maximized = ref(false)
@@ -37,7 +40,62 @@ watch(() => [props.file?.path, props.ref_], async () => {
     try { text.value = await F.text(props.folder.slug, props.file.path, props.ref_) } catch (e) { err.value = e.message }
   }
 }, { immediate: true })
-const editorUrl = () => F.publish(props.folder.slug, props.file.path, props.ref_)
+// editing main's document in IeumOffice: {path, base (the version opened), session} while it is open
+const editing = ref(null)
+const fv = ref(null)
+const saveNote = ref(null)   // { kind: 'busy'|'ok'|'copy'|'err', text }
+let chain = Promise.resolve()
+let closing = false
+let changed = false
+const session = () => globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+async function editorUrl() {
+  const r = await F.publishInfo(props.folder.slug, props.file.path, props.ref_)
+  editing.value = r.editable ? { path: props.file.path, base: r.sha, session: session() } : null
+  return { url: r.url, editable: !!r.editable }
+}
+// each copy the editor saved becomes main's file (in order; a later save of the session folds into its entry)
+let lastFail = null // a copy that did not go into the folder: tried again before the sheet closes
+function officeSaved({ url }) {
+  if (!editing.value || !url) return
+  chain = chain.then(() => commitCopy(url))
+  return chain
+}
+async function commitCopy(url) {
+  const e = editing.value
+  saveNote.value = { kind: 'busy', text: '폴더에 저장하는 중…' }
+  try {
+    const r = await F.officeSave(props.folder.slug, { path: e.path, base: e.base, url, session: e.session, final: closing })
+    editing.value = { ...e, path: r.path, base: r.sha }
+    changed = true; lastFail = null
+    saveNote.value = r.copied
+      ? { kind: 'copy', text: `다른 사람이 먼저 고쳐서, 내 수정은 「${baseName(r.path)}」로 따로 저장했어요.` }
+      : { kind: 'ok', text: '폴더에 저장했어요 · 이력에 남았어요' }
+    emit('changed')
+  } catch (err) { lastFail = { url }; saveNote.value = { kind: 'err', text: `폴더에 저장하지 못했어요: ${err.message}` } }
+}
+function onEdited(v) { if (v && saveNote.value?.kind === 'ok') saveNote.value = null }
+// Leaving (closing, or another screen — FoldersView asks before the route changes): what is left is saved
+// first and a copy that did not go into the folder is tried again. When that does not work the sheet stays
+// once and says so; leaving again goes without saving.
+let triedClose = false
+async function leave() {
+  if (!editing.value || triedClose) return true
+  closing = true
+  saveNote.value = { kind: 'busy', text: '닫기 전에 저장하는 중…' }
+  const r = await (fv.value?.flush?.(20000) || Promise.resolve({ clean: true }))
+  await chain
+  if (lastFail) { const { url } = lastFail; chain = chain.then(() => commitCopy(url)); await chain }
+  if (r?.timeout || r?.error || lastFail) {
+    triedClose = true; closing = false
+    saveNote.value = { kind: 'err', text: `${lastFail ? '폴더에 저장하지 못했어요' : `저장을 마치지 못했어요${r.error ? `(${r.error})` : ''}`}. 한 번 더 닫으면 저장하지 않고 닫아요.` }
+    return false
+  }
+  // the card follows the last version once editing ends
+  if (changed && !r?.url) await F.officeSave(props.folder.slug, { path: editing.value.path, final: true }).catch(() => {})
+  return true
+}
+async function close() { if (await leave()) emit('close') }
+defineExpose({ leave })
 const where = computed(() => (props.ref_ === 'main' ? '기준본(main)' : `변형 ${props.refLabel || ''}`))
 // the chat composer gets the question started; the folder name makes the agent work in this folder
 function ask() {
@@ -48,7 +106,7 @@ function ask() {
 </script>
 
 <template>
-  <div class="veil" :class="{ max: maximized }" @click.self="emit('close')">
+  <div class="veil" :class="{ max: maximized }" @click.self="close">
     <div class="sheet glass" :class="{ max: maximized }">
       <section class="main">
         <header class="hd">
@@ -57,14 +115,15 @@ function ask() {
             <b>{{ baseName(file.path) }}</b>
             <small><FIcon :name="ref_ === 'main' ? 'folder' : 'branch'" :size="13" /> {{ folder.name }} · {{ ref_ === 'main' ? 'main' : refLabel }} · {{ file.path }}</small>
           </div>
-          <a class="tb press" :href="rawUrl(folder.slug, file.path, ref_, true)" target="_blank" rel="noopener">원본 받기</a>
+          <span v-if="saveNote" class="sv" :class="saveNote.kind" :title="saveNote.text">{{ saveNote.text }}</span>
+          <a class="tb press dl" :href="rawUrl(folder.slug, file.path, ref_, true)" target="_blank" rel="noopener">원본 받기</a>
           <button class="tb ic press" :title="maximized ? '원래 크기' : '크게 보기'" @click="maximized = !maximized"><Icon :name="maximized ? 'shrink' : 'expand'" :size="15" /></button>
-          <button class="tb ic press" title="닫기" @click="emit('close')"><Icon name="close" :size="16" /></button>
+          <button class="tb ic press" title="닫기" @click="close"><Icon name="close" :size="16" /></button>
         </header>
         <div class="body">
           <p v-if="err" class="none">{{ err }}</p>
           <p v-else-if="isText && text === null" class="none">여는 중…</p>
-          <FileView v-else :path="file.path" :text="text" :url="url" :editor-url="editorUrl" mode="preview" />
+          <FileView v-else ref="fv" :path="file.path" :text="text" :url="url" :editor-url="editorUrl" mode="preview" @office-saved="officeSaved" @office-edited="onEdited" />
         </div>
       </section>
 
@@ -128,4 +187,10 @@ function ask() {
 .acts { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .act { height: 40px; border-radius: 12px; background: var(--button-bg); display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 13.5px; font-weight: 500; }
 @media (max-width: 900px) { .side { display: none; } .sheet { width: 100%; } }
+.sv { flex: 0 1 auto; min-width: 0; max-width: 46%; font-size: 12.5px; padding: 4px 10px; border-radius: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--button-bg); color: var(--text-secondary); }
+.sv.ok { background: rgba(40, 160, 90, .12); color: #1e8a4c; }
+.sv.copy { background: rgba(230, 150, 20, .14); color: #a86400; white-space: normal; }
+.sv.err { background: rgba(200, 60, 50, .1); color: #b3261e; white-space: normal; }
+/* a phone: the status takes the title's row room, 원본 받기 folds away while it shows */
+@media (max-width: 520px) { .hd { flex-wrap: wrap; height: auto; min-height: 60px; padding-top: 8px; padding-bottom: 8px; } .sv { order: 10; max-width: 100%; flex-basis: 100%; } }
 </style>

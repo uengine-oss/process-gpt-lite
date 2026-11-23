@@ -3,7 +3,9 @@
 // (editable when the host allows it), markdown, CSV, images, video, audio, and office documents /
 // CAD / design / media in their editors (IeumOffice read-only, ArtCraft). The host supplies the
 // bytes: `text` for text files, `url` for media (same-origin is fine), and `editorUrl()` for the
-// editors, which load from storage (a published copy).
+// editors, which load from storage (a published copy). editorUrl() may answer {url, editable}: an
+// editable office document opens for editing and saves itself (OfficeEditorFrame autoSave) —
+// 'office-saved' hands the host each saved copy, flush() saves what is left before closing.
 import { ref, computed, watch } from 'vue'
 import { marked } from 'marked'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
@@ -19,7 +21,7 @@ const props = defineProps({
   mode: { type: String, default: 'preview' },   // 'preview' | 'edit' (text files)
   dark: { type: Boolean, default: false },
 })
-const emit = defineEmits(['save', 'dirty'])
+const emit = defineEmits(['save', 'dirty', 'office-saved', 'office-edited'])
 
 const view = computed(() => {
   const v = viewOf(props.path)
@@ -43,13 +45,19 @@ const lines = computed(() => Math.max(1, draft.value.split('\n').length))
 // office documents and ArtCraft files: ask the host for a storage URL once per file
 const frameUrl = ref('')
 const frameErr = ref('')
+const writable = ref(false)
+const oef = ref(null)
 watch(() => [props.path, view.value], async () => {
-  frameUrl.value = ''; frameErr.value = ''
+  frameUrl.value = ''; frameErr.value = ''; writable.value = false
   if (!['office', 'craft'].includes(view.value)) return
-  try { frameUrl.value = props.editorUrl ? await props.editorUrl() : props.url }
-  catch (e) { frameErr.value = `편집기로 열 파일을 준비하지 못했어요: ${e.message}` }
+  try {
+    const r = props.editorUrl ? await props.editorUrl() : props.url
+    writable.value = view.value === 'office' && !!r?.editable
+    frameUrl.value = typeof r === 'string' ? r : r?.url || ''
+  } catch (e) { frameErr.value = `편집기로 열 파일을 준비하지 못했어요: ${e.message}` }
 }, { immediate: true })
-defineExpose({ draft, dirty })
+const flush = (ms) => (oef.value?.flush ? oef.value.flush(ms) : Promise.resolve({ saved: false, clean: true }))
+defineExpose({ draft, dirty, flush, writable })
 </script>
 
 <template>
@@ -57,7 +65,8 @@ defineExpose({ draft, dirty })
     <template v-if="view === 'office' || view === 'craft'">
       <p v-if="frameErr" class="none">{{ frameErr }}</p>
       <p v-else-if="!frameUrl" class="none">여는 중…</p>
-      <OfficeEditorFrame v-else-if="view === 'office'" class="frame" :file-url="frameUrl" :name="baseName(path)" read-only />
+      <OfficeEditorFrame v-else-if="view === 'office'" ref="oef" class="frame" :file-url="frameUrl" :name="baseName(path)" :read-only="!writable" :auto-save="writable"
+        @saved="(e) => emit('office-saved', e)" @edited="(v) => emit('office-edited', v)" />
       <CraftEditorFrame v-else class="frame" :file-url="frameUrl" :name="baseName(path)" />
     </template>
     <div v-else-if="editing" class="ed">
