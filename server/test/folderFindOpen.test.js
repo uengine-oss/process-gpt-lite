@@ -46,6 +46,12 @@ test('문서 본문: docx · pptx · hwpx · xlsx 를 unzip 없이 읽는다', a
   assert.match((await extract('견적.xlsx', await x.generateAsync({ type: 'nodebuffer' }))).text, /품목\s+단가/)
   // a broken package is no text, not an error
   assert.equal((await extract('깨짐.docx', Buffer.from('not a zip'))).text, '')
+  // a small file that unpacks too far is not unpacked (its part is past the limit)
+  const bomb = new JSZip()
+  bomb.file('word/document.xml', '<w:p>' + ' '.repeat(33 * 1024 * 1024) + '</w:p>')
+  const small = await bomb.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+  assert.ok(small.length < 1024 * 1024, `${small.length}`)
+  assert.equal((await extract('큰.docx', small)).text, '')
 })
 
 test('folder_open 의 결과는 파일 카드가 되고 open 을 가진다 · 다른 도구의 결과는 그대로', () => {
@@ -114,6 +120,17 @@ test('붙이지 않아도 찾고, 읽고, 연다 (이력서 폴더의 장진영_
   assert.equal(doc.name, '장진영_프로필.docx')
   // the same version again: the same copy (content-addressed)
   assert.equal(out(await callTool(user, 'folder_open', { folder: cv.slug, path: '장진영_프로필.docx' })).file_url, open.file_url)
+
+  // a folder that matches by its name keeps all its files (the ones that matched first)
+  const byName = out(await callTool(user, 'folder_catalog', { query: `이력서 ${stamp}` })).find((f) => f.slug === cv.slug)
+  assert.deepEqual(byName.files.map((x) => x.path).sort(), ['김민수_프로필.docx', '장진영_프로필.docx'])
+
+  // a name two folders hold (not a slug, not a whole name): none is picked, both are shown
+  const cv2 = await S.createFolder(user, { name: `이력서 보관 ${stamp}` })
+  made.push(cv2)
+  const twice = JSON.parse((await callTool(user, 'folder_open', { folder: '이력서', path: '장진영_프로필.docx' })).content[0].text)
+  assert.match(twice.error, /여럿/)
+  assert.deepEqual(twice.folders.map((x) => x.slug).sort(), [cv.slug, cv2.slug].sort())
 
   // only folders the user is a member of
   const other = { id: (await q('select gen_random_uuid()::text as id'))[0].id, name: '다른 사람', email: `ffo2-${stamp}@pgpt.test` }

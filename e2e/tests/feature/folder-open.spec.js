@@ -80,6 +80,20 @@ test.describe('공유 폴더 파일을 채팅에서 바로 열기', () => {
     await expect(page.locator('.sheet.glass')).toHaveCount(0)
   })
 
+  test('F-FO-04 다른 대화의 열기 카드는 지금 보는 대화 위에 열지 않는다', async ({ pageAs, db }) => {
+    const { page, push, card, thread } = await setup(pageAs, db, 'fo-elsewhere')
+    await page.goto('/chat')
+    await page.locator('.composer textarea').first().fill('장진영 이력서를 열어줘')
+    await page.keyboard.press('Enter')
+    await expect.poll(thread).not.toBeNull()
+    // (the answer belongs to another conversation than the one on screen)
+    push(card(crypto.randomUUID(), { open: true }))
+    push(card(thread()))
+    await expect(page.locator('.file', { hasText: '장진영_프로필.docx' })).toBeVisible({ timeout: 15_000 })
+    await page.waitForTimeout(1500)
+    await expect(page.locator('.sheet.glass')).toHaveCount(0)
+  })
+
   test('F-FO-03 열어 달라는 표시(open)가 없는 문서 카드는 전처럼 눌러야 열린다', async ({ pageAs, db }) => {
     const { page, push, card, thread } = await setup(pageAs, db, 'fo-plain')
     await page.goto('/chat')

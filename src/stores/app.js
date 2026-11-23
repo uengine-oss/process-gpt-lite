@@ -144,10 +144,11 @@ export const useApp = defineStore('app', {
           list.push(d)
           if (d.role === 'agent' && (d.kind === 'text' || d.kind === 'doc')) this.drafts[d.thread_id] = null
           // a document the person asked to see (folder_open: "장진영 이력서 열어 줘") opens in the editor at
-          // once — on the screen that asked, not on their other devices
-          if (d.role === 'agent' && d.kind === 'file' && d.content?.open && d.content.url && Date.now() - (this.askedAt[d.thread_id] || 0) < 15 * 60_000) {
+          // once — on the screen that asked (not their other devices), in the conversation on screen, as the
+          // answer to that message (askedAt lasts until shortly after its answer ends), once
+          if (d.role === 'agent' && d.kind === 'file' && d.content?.open && d.content.url && d.thread_id === this.activeId && this.askedAt[d.thread_id]) {
             const ed = officeEditorFor(d.content.name || d.content.url)
-            if (ed && !CRAFT_APPS.has(ed)) this.officeDoc = { msgId: d.id, url: d.content.url, name: d.content.name }
+            if (ed && !CRAFT_APPS.has(ed)) { this.officeDoc = { msgId: d.id, url: d.content.url, name: d.content.name }; delete this.askedAt[d.thread_id] }
           }
         }
       } else if (type === 'thread') {
@@ -233,7 +234,7 @@ export const useApp = defineStore('app', {
       const d = this.officeDoc, ed = d && !d.readOnly ? officeEditorFor(d.name || d.url) : null
       const openDoc = ed && !CRAFT_APPS.has(ed) && d.name ? { app: 'ieumoffice', file: d.name, name: d.name, editor: ed } : undefined
       this.drafts[threadId] = ''
-      this.askedAt[threadId] = Date.now()
+      const asked = this.askedAt[threadId] = Date.now()
       let ended = false
       try {
         await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc }, (ev, data) => {
@@ -244,6 +245,8 @@ export const useApp = defineStore('app', {
       // the connection dropped before the answer (a proxy cutting a long request, a server restart):
       // stop showing "생각하는 중"; the answer, if it comes, arrives as a live event
       if (!ended) { this.drafts[threadId] = null; this.load(threadId).catch(() => {}) }
+      // the answer's cards come as live events, a moment after it ends; a dropped connection waits longer
+      setTimeout(() => { if (this.askedAt[threadId] === asked) delete this.askedAt[threadId] }, ended ? 15_000 : 10 * 60_000)
       if (threadId === this.mainThread?.id) this.loadConversations()
     },
     // 멈추기: the answer being written in this thread (in a conversation view, only that conversation's)

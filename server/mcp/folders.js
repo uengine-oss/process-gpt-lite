@@ -38,14 +38,22 @@ const DOC = /\.(docx|xlsx|pptx|hwpx|pdf)$/i
 
 const text = (o) => ({ content: [{ type: 'text', text: typeof o === 'string' ? o : JSON.stringify(o, null, 1) }] })
 
-// a folder by its slug or name (or a name that holds the given one, "이력서" for "이력서 모음") —
-// only folders this user is a member of
+// a folder by its slug or name, else the one folder whose name holds the given one or is held in it
+// ("이력서" for "이력서 모음") — several such folders: none, the agent is shown them to choose. Only
+// folders this user is a member of.
 async function findFolder(user, key) {
   const all = await catalog(user.id, '')
   const k = String(key || '').trim()
-  return all.find((x) => x.slug === k || x.name === k) || (k ? all.find((x) => x.name.includes(k) || k.includes(x.name)) : null) || null
+  const exact = all.find((x) => x.slug === k || x.name === k)
+  if (exact || !k) return { folder: exact || null, all }
+  const near = all.filter((x) => x.name.includes(k) || k.includes(x.name))
+  return { folder: near.length === 1 ? near[0] : null, near, all }
 }
-const noFolder = (key) => text(L(`'${key}' 폴더를 찾지 못했어요(구성원인 폴더만 보여요).`, `I couldn't find the folder '${key}' (only folders you are a member of are shown).`))
+const noFolder = (key, near = []) => near.length > 1
+  ? text({ error: L(`'${key}' 와(과) 맞는 폴더가 여럿이에요. 이름이나 slug 로 하나를 골라 다시 부르세요.`, `Several folders match '${key}'. Call again with one name or slug.`), folders: near.map((x) => ({ name: x.name, slug: x.slug })) })
+  : text(L(`'${key}' 폴더를 찾지 못했어요(구성원인 폴더만 보여요).`, `I couldn't find the folder '${key}' (only folders you are a member of are shown).`))
+// the fallback list (nothing matched) stays small: names and short summaries, a few hundred files at most
+const FALLBACK = { perFolder: 40, total: 300, summary: 160 }
 
 export async function callTool(user, name, args = {}) {
   if (name === 'folder_catalog') {
@@ -55,19 +63,27 @@ export async function callTool(user, name, args = {}) {
     const all = query ? await catalog(user.id, '') : []
     if (!all.length) return text(L('쓸 수 있는 공유 폴더가 없어요.', 'There are no shared folders you can use.'))
     // nothing named it: every folder the user may use, for the agent to judge by names and summaries
-    return text({ note: L(`'${query}' 의 낱말이 이름·요약에 없어서 쓸 수 있는 폴더 전체를 보여 줘요. 이름과 요약을 보고 맞는 파일을 고르세요.`, `No name or summary holds the words of '${query}', so here is every folder you can use. Pick the file by its name and summary.`),
-      folders: all.map((f) => ({ ...f, files: f.files.slice(0, 80), ...(f.files.length > 80 ? { more: f.files.length - 80 } : {}) })) })
+    let room = FALLBACK.total
+    const folders = all.map((f) => {
+      const files = f.files.slice(0, Math.max(0, Math.min(FALLBACK.perFolder, room)))
+      room -= files.length
+      return { name: f.name, slug: f.slug, description: f.description || undefined,
+        files: files.map((x) => ({ path: x.path, ...(x.summary ? { summary: String(x.summary).slice(0, FALLBACK.summary) } : {}) })),
+        ...(f.files.length > files.length ? { more: f.files.length - files.length } : {}) }
+    })
+    return text({ note: L(`'${query}' 의 낱말이 이름·요약에 없어서 쓸 수 있는 폴더 전체를 보여 줘요. 이름과 요약을 보고 맞는 파일을 고르세요(more 가 있는 폴더는 folder_files 로 나머지를 볼 수 있어요).`, `No name or summary holds the words of '${query}', so here is every folder you can use. Pick the file by its name and summary (a folder with "more" lists the rest with folder_files).`),
+      folders })
   }
   if (name === 'folder_files') {
-    const f = await findFolder(user, args.folder)
-    if (!f) return noFolder(args.folder)
+    const { folder: f, near } = await findFolder(user, args.folder)
+    if (!f) return noFolder(args.folder, near)
     const prefix = String(args.path || '').replace(/^\/+/, '')
     return text({ folder: f.name, slug: f.slug, files: f.files.filter((x) => !prefix || x.path.startsWith(prefix)) })
   }
   if (name === 'folder_read') {
     // only folders this user is a member of (S.access), only main
-    const f = await findFolder(user, args.folder)
-    if (!f) return noFolder(args.folder)
+    const { folder: f, near } = await findFolder(user, args.folder)
+    if (!f) return noFolder(args.folder, near)
     const { folder } = await S.access(f.slug, user)
     const p = S.safeRel(args.path)
     const buf = await S.readBlob(folder, 'main', p)
@@ -82,8 +98,8 @@ export async function callTool(user, name, args = {}) {
     return text({ folder: folder.name, path: p, text: s.slice(0, 30000), truncated: s.length > 30000 })
   }
   if (name === 'folder_open') {
-    const f = await findFolder(user, args.folder)
-    if (!f) return noFolder(args.folder)
+    const { folder: f, near } = await findFolder(user, args.folder)
+    if (!f) return noFolder(args.folder, near)
     const { folder } = await S.access(f.slug, user)
     const p = S.safeRel(args.path)
     const pub = await S.publishFile(folder, p)

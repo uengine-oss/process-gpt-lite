@@ -14,11 +14,12 @@ import { chat } from '../llm.js'
 import { L, isEn } from '../lang.js'
 import * as G from './git.js'
 import { readableFolderIds } from './service.js'
-import { withTenant } from '../tenant.js'
+import { withTenant, tenants } from '../tenant.js'
 
 const DOC = /\.(md|markdown|txt|csv|docx|xlsx|pptx|hwpx|pdf)$/i
 export const kindOf = (p) => (String(p).split('.').pop() || '').toLowerCase()
 const isDoc = (p) => DOC.test(p)
+const DOC_KINDS = ['md', 'markdown', 'txt', 'csv', 'docx', 'xlsx', 'pptx', 'hwpx', 'pdf']
 // full-text tier thresholds (approved 2026-10-24)
 export const FULLTEXT = { docs: 200, cardTokens: 12000, textBytes: 5 * 1024 * 1024 }
 const MEMENTO = process.env.PRO_MEMENTO_URL || 'http://127.0.0.1:8005'
@@ -42,6 +43,24 @@ const PARTS = {
   hwpx: (n) => /^Contents\/section\d+\.xml$/.test(n),
 }
 const num = (n) => Number(/(\d+)\.xml$/.exec(n)?.[1] || 0)
+// a part is inflated only up to a limit (a small file can unpack to gigabytes): the stream stops being
+// read past it, which stops the inflating; the sizes the zip declares are checked first
+const PART_MAX = 32 * 1024 * 1024, TOTAL_MAX = 64 * 1024 * 1024
+const readCapped = (f, cap) => new Promise((resolve) => {
+  if (f.dir || cap <= 0 || f._data?.uncompressedSize > cap) return resolve(null)
+  const parts = []
+  let n = 0, done = false
+  const end = (v) => { if (!done) { done = true; resolve(v) } }
+  const st = f.nodeStream('nodebuffer')
+  st.on('data', (c) => {
+    if (done) return
+    n += c.length
+    if (n > cap) { st.pause(); st.removeAllListeners('data'); return end(null) }
+    parts.push(c)
+  })
+  st.on('end', () => end(Buffer.concat(parts).toString('utf8')))
+  st.on('error', () => end(null))
+})
 export async function extract(name, buf) {
   const ext = kindOf(name)
   if (['md', 'markdown', 'txt', 'csv'].includes(ext)) { const t = buf.toString('utf8'); return { text: t, pages: Math.max(1, Math.ceil(t.length / 1800)) } }
@@ -49,8 +68,13 @@ export async function extract(name, buf) {
     const zip = await JSZip.loadAsync(buf).catch(() => null)
     if (!zip) return { text: '', pages: 1 }
     const names = Object.keys(zip.files).filter(PARTS[ext]).sort((a, b) => num(a) - num(b))
-    let text = ''
-    for (const n of names) text += strip(await zip.files[n].async('string')) + '\n\n'
+    let text = '', used = 0
+    for (const n of names) {
+      const xml = await readCapped(zip.files[n], Math.min(PART_MAX, TOTAL_MAX - used))
+      if (xml == null) break
+      used += xml.length
+      text += strip(xml) + '\n\n'
+    }
     text = text.trim()
     const pages = ext === 'pptx' ? Math.max(1, names.length) : Math.max(1, Math.ceil(text.length / 1800))
     return { text, pages }
@@ -105,14 +129,19 @@ const queues = new Map()
 function cardQueue(folder, { only } = {}) {
   if (queues.get(folder.id)) { queues.get(folder.id).again = true; return }
   const job = { again: false }
+  const tried = new Set()
   queues.set(folder.id, job)
   ;(async () => {
     do {
       job.again = false
-      const rows = await q(`select path, sha from pro_folder_files where folder_id=$1 and (card_sha is distinct from sha) order by mtime desc nulls last limit 60`, [folder.id])
+      // documents only (other files never get a card: they would hold these 60 places for ever); a full
+      // batch goes round again, a row that could not even be read is not tried twice in one run
+      const rows = (await q(`select path, sha from pro_folder_files where folder_id=$1 and (card_sha is distinct from sha) and kind = any($2) order by mtime desc nulls last limit 60`, [folder.id, DOC_KINDS]))
+        .filter((r) => !tried.has(`${r.path}@${r.sha}`))
       const todo = rows.filter((r) => isDoc(r.path) && (!only || only(r.path)))
       if (todo.length) await updateState(folder, { state: 'indexing', pending: todo.length })
-      for (const r of todo) await makeCard(folder, r).catch((e) => console.warn('[folders] card', r.path, e.message))
+      for (const r of todo) { tried.add(`${r.path}@${r.sha}`); await makeCard(folder, r).catch((e) => console.warn('[folders] card', r.path, e.message)) }
+      if (rows.length === 60 && todo.length) job.again = true
       await updateState(folder)
     } while (job.again)
   })().catch((e) => console.warn('[folders] index', e.message)).finally(() => queues.delete(folder.id))
@@ -122,16 +151,23 @@ function cardQueue(folder, { only } = {}) {
 // docx/pptx/xlsx/hwpx came out empty): their cards are made again after a start. One still unreadable
 // (a scanned PDF) is only read again — nothing goes to the model without text.
 const UNREAD = ['본문을 읽지 못했어요', "Couldn't read the text"]
+// Only this server's folders: the companies it serves (behind the ProcessGPT gateway, any) and
+// repositories on this machine — another server on the same database keeps its own.
 export async function retryUnreadCards() {
-  const rows = await q(`select distinct folder_id from pro_folder_files where card is null and card_error = any($1) and kind = any($2)`, [UNREAD, ['docx', 'xlsx', 'pptx', 'hwpx', 'pdf']])
-  for (const { folder_id } of rows) {
-    const [f] = await q('select * from pro_folders where id=$1', [folder_id])
-    if (!f || f.kind === 'linked') continue
+  const served = config.tenantFromHeader ? null : tenants()
+  const rows = await q(`select distinct f.id, f.tenant_id, f.repo_path from pro_folder_files x join pro_folders f on f.id=x.folder_id
+                         where x.card is null and x.card_error = any($1) and x.kind = any($2) and f.kind <> 'linked' and ($3::text[] is null or f.tenant_id = any($3))`,
+  [UNREAD, ['docx', 'xlsx', 'pptx', 'hwpx', 'pdf'], served])
+  let n = 0
+  for (const r of rows) {
+    if (!(await fs.stat(path.join(r.repo_path, '.git')).catch(() => fs.stat(path.join(r.repo_path, 'HEAD')).catch(() => null)))) continue
+    const [f] = await q('select * from pro_folders where id=$1', [r.id])
     await q('update pro_folder_files set card_sha=null where folder_id=$1 and card is null and card_error = any($2)', [f.id, UNREAD])
     // the folder's own company (a server may serve more than one)
     withTenant(f.tenant_id, () => cardQueue(f))
+    n += 1
   }
-  return rows.length
+  return n
 }
 
 const CARD_PROMPT = `다음은 어떤 문서의 앞부분과 마지막 부분이다. JSON 으로만 답하라:
@@ -223,8 +259,10 @@ export function words(text) {
 const likeOf = (w) => `%${w.replace(/[%_\\]/g, (c) => '\\' + c)}%`
 
 // search: folder names, file paths, card abstracts and keywords; full text where it is on. A file
-// matches when any word does — in its path, its card, its text or its folder's name — and ranks by how
-// many words it matched (then a name match, then the newest). Only folders the user can read.
+// matches when any word does — in its path, its card or its text — and ranks by how many words it
+// matched (then a name match, then the newest). A folder matches by its name or description (its files
+// are not hits for that: a folder of 120 files would crowd out every other hit). Only folders the user
+// can read.
 export async function search(userId, text, limit = 20) {
   const ws = words(text)
   if (!ws.length) return []
@@ -234,11 +272,10 @@ export async function search(userId, text, limit = 20) {
   const folders = await q(`select id, slug, name, description, kind from pro_folders where id = any($1) and (name ilike any($2) or description ilike any($2)) limit 10`, [ids, likes])
   const files = await q(`select * from (
       select f.folder_id, p.slug, p.name as folder_name, f.path, f.kind, f.size, f.card, f.mtime,
-             (select count(*) from unnest($2::text[]) w where f.path ilike w or p.name ilike w or (f.card->>'abstract') ilike w or (f.card->>'keywords') ilike w
+             (select count(*) from unnest($2::text[]) w where f.path ilike w or (f.card->>'abstract') ilike w or (f.card->>'keywords') ilike w
                 or ((p.index_state->>'fulltext')::boolean and f.body ilike w))::int as score,
              f.path ilike any($2) as name_hit,
-             case when f.path ilike any($2) then 'name' when (f.card->>'abstract') ilike any($2) or (f.card->>'keywords') ilike any($2) then 'card'
-                  when p.name ilike any($2) then 'folder' else 'text' end as by,
+             case when f.path ilike any($2) then 'name' when (f.card->>'abstract') ilike any($2) or (f.card->>'keywords') ilike any($2) then 'card' else 'text' end as by,
              case when (p.index_state->>'fulltext')::boolean then (select substr(f.body, greatest(1, position(lower(x) in lower(f.body)) - 60), 180)
                   from unnest($4::text[]) x where position(lower(x) in lower(coalesce(f.body, ''))) > 0 limit 1) end as snippet
         from pro_folder_files f join pro_folders p on p.id=f.folder_id
@@ -248,23 +285,26 @@ export async function search(userId, text, limit = 20) {
 }
 
 // the catalog an agent reads first: folders it may use, each with its files and their cards. With a
-// query: only what matched, best first (matched: how many of the query's words a file matched).
+// query: only what matched, best first. matched = how many of the query's words a file matched, its
+// folder's name counted in ("장진영 이력서": 장진영 in the file name + 이력서 the folder = 2). A folder
+// that matched by name keeps all its files, the ones that matched first.
 export async function catalog(userId, query) {
   const ids = await readableFolderIds(userId)
   if (!ids.length) return []
   const folders = await q('select id, slug, name, description, kind, index_state from pro_folders where id = any($1) order by updated_at desc', [ids])
   const hits = query ? await search(userId, query, 40) : null
+  const ws = query ? words(query).map((w) => w.toLowerCase()) : []
   const out = []
   for (const f of folders) {
     let files = await q(`select path, kind, size, card from pro_folder_files where folder_id=$1 order by path limit 200`, [f.id])
     let best = 0
     if (hits) {
       const score = new Map(hits.filter((h) => h.type === 'file' && h.folder.id === f.id).map((h) => [h.file.path, h.score]))
-      const folderHit = hits.some((h) => h.type === 'folder' && h.folder.id === f.id)
-      if (!score.size && !folderHit) continue
-      if (score.size) files = files.filter((x) => score.has(x.path)).sort((a, b) => score.get(b.path) - score.get(a.path))
-      best = Math.max(0, ...score.values())
-      files = files.map((x) => ({ ...x, matched: score.get(x.path) || 0 }))
+      const named = ws.filter((w) => `${f.name} ${f.description || ''}`.toLowerCase().includes(w)).length
+      if (!score.size && !named) continue
+      if (!named) files = files.filter((x) => score.has(x.path))
+      files = files.map((x) => ({ ...x, matched: (score.get(x.path) || 0) + named })).sort((a, b) => b.matched - a.matched)
+      best = files[0]?.matched || named
     }
     out.push({ slug: f.slug, name: f.name, description: f.description, kind: f.kind, index: f.index_state?.state, best,
       files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [], ...(hits ? { matched: x.matched } : {}) })) })

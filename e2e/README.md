@@ -444,8 +444,8 @@ openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 1
 | 폴더를 붙이지 않아도 구성원인 모든 폴더에서 낱말마다 따로 찾고, 많이 맞은 파일부터(「장진영 이력서」 → `이력서/장진영_프로필.docx`) | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
 | 맞는 이름이 없으면 쓸 수 있는 폴더 전체를 돌려 에이전트가 고름 | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
 | docx · pptx · xlsx · hwpx 본문을 unzip 없이 읽음, `folder_read` 가 본문을 돌려줌, 예전에 못 읽은 문서는 시작할 때 다시 | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
-| `folder_open` → 파일 카드(open), 같은 판은 같은 사본, 구성원이 아니면 못 엶 | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
-| 말을 보낸 화면은 카드가 오자마자 이음오피스를 엶 · 다른 기기는 카드만 · 만들어 준 문서는 눌러야 열림 | D-1123-05 | F-FO-01~03 | feature | ✅ |
+| `folder_open` → 파일 카드(open), 같은 판은 같은 사본, 구성원이 아니면 못 엶, 이름이 여러 폴더에 걸리면 고르게 함, 큰 압축 문서는 풀지 않음 | D-1123-05 | `server/test/folderFindOpen.test.js` | 단위 | ✅ |
+| 말을 보낸 화면은 카드가 오자마자 이음오피스를 엶 · 다른 기기 · 다른 대화의 카드는 열지 않음 · 만들어 준 문서는 눌러야 열림 | D-1123-05 | F-FO-01~04 | feature | ✅ |
 | 실제 에이전트가 「장진영 이력서를 열어줘」에 `folder_catalog` → `folder_open` 을 고름 | D-1123-05 | — (운영 확인) | — | ◐ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)
