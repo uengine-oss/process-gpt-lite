@@ -4748,6 +4748,10 @@
   [
    "새 메일 {0}통",
    "New mail: {0}"
+  ],
+  [
+   "서버가 응답하지 못했어요 ({0}). 잠시 후 다시 시도해 주세요.",
+   "The server didn't answer ({0}). Please try again shortly."
   ]
  ],
  "context": [
