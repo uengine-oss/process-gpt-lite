@@ -14,6 +14,7 @@ import { emit } from './bus.js'
 import { mainThread, addMessage } from './store.js'
 import { L, isEn, asUser, langInstruction } from './lang.js'
 import { clientFor, clientById } from './googleClient.js'
+import { withTenant } from './tenant.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -119,6 +120,11 @@ async function fetchDemo(userId) {
   // the fixture's sample mails only make cards; drafts are for mail that arrives
   return [...JSON.parse(fs.readFileSync(file, 'utf8')).map((m) => ({ ...m, fixture: true })),
     ...arrived.map((m) => ({ id: m.mail_id, from: m.sender, subject: m.subject, date: m.created_at.toISOString(), text: m.body }))]
+}
+
+// one mail of the demo mailbox by its id (a fixture sample, or one that arrived) — the card's original
+export async function demoMailById(userId, id) {
+  return (await fetchDemo(userId)).find((m) => m.id === id) || null
 }
 
 // 연습 메일 (Settings): fictional mails a demo mailbox can receive, so a tutorial reader gets one
@@ -238,11 +244,27 @@ export function iconDomain(provider, src, guess) {
   return !sender || sender === g || sender.endsWith(`.${g}`) || g.endsWith(`.${sender}`) ? g : sender
 }
 
+// The tenant a mailbox was connected in, kept with its credentials (Gmail since the company's own
+// clients; IMAP from now on) — or null (the demo mailbox, an older IMAP connection).
+export async function mailTenantOf(userId, provider) {
+  const sec = provider === 'gmail' ? await getSecret(userId, 'oauth', 'google') : provider === 'imap' ? await getSecret(userId, 'login', 'imap') : null
+  return sec?.tenant || null
+}
+
+// One mailbox's poll, in the tenant it was connected in when that is known: the drafts its mails ask
+// for are made by that tenant's agents. A person in several tenants otherwise polled in the default
+// one, and the agent refused the drafts (deepagents 403 "테넌트 'localhost' 에 대한 접근 권한이 없습니다",
+// 2026-11-23 — the card 「…초안 검토하고 회신하기」 came with no drafts). Then in the owner's language.
+export async function pollInTenant(userId, provider) {
+  const t = await mailTenantOf(userId, provider).catch(() => null)
+  const run = () => asUser(userId, () => pollUser(userId))
+  return t ? withTenant(t, run) : run()
+}
+
 export function startPoller() {
   setInterval(async () => {
-    // each mailbox in its owner's saved language (cards, brief, drafts)
-    for (const { user_id } of await q('select user_id from pro_mail_accounts')) {
-      await asUser(user_id, () => pollUser(user_id)).catch((e) => console.warn('[mail]', user_id, e.message))
+    for (const { user_id, provider } of await q('select user_id, provider from pro_mail_accounts')) {
+      await pollInTenant(user_id, provider).catch((e) => console.warn('[mail]', user_id, e.message))
     }
   }, config.mailPollSeconds * 1000)
 }

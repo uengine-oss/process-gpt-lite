@@ -33,6 +33,15 @@ const scroller = ref(null)
 const busy = ref('')
 const err = ref('')
 
+// 받은 편지함 › 메일: the cards made from mail — one put away from Home is still here, and opens the same
+// mail sheet (2026-11-23: Home is notifications; the mail is kept here)
+const inboxKind = ref('team')   // team | mail
+const mails = ref(null)
+async function loadMails() { try { mails.value = await app.mailCardList() } catch { mails.value = mails.value || [] } }
+watch(inboxKind, (k) => { if (k === 'mail') loadMails() })
+watch(() => app.mailCard, (a, was) => { if (!a && was && inboxKind.value === 'mail') loadMails() })
+const fromName = (f) => String(f || '').split('<')[0].replace(/"/g, '').trim() || String(f || '').replace(/[<>]/g, '')
+const mailState = (a) => (a.source?.sent ? '답장함' : a.status === 'dismissed' ? '홈에서 닫음' : a.status === 'done' ? '처리함' : a.status === 'running' ? '진행 중' : '홈에 있음')
 const thread = computed(() => team.threads.find((t) => t.id === team.active) || null)
 const list = computed(() => team.msgs[team.active] || [])
 const myFiles = computed(() => (app.messages[app.mainThread?.id] || []).filter(shareable).slice(-12).reverse())
@@ -134,6 +143,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
         </div>
 
         <div v-else-if="team.tab === 'inbox'" class="items scroll">
+          <div class="kinds">
+            <button class="press" :class="{ on: inboxKind === 'team' }" data-test="inbox-team" @click="inboxKind = 'team'">팀원의 공유 · 멘션</button>
+            <button class="press" :class="{ on: inboxKind === 'mail' }" data-test="inbox-mail" @click="inboxKind = 'mail'">메일</button>
+          </div>
+          <template v-if="inboxKind === 'mail'">
+            <button v-for="a in mails || []" :key="a.id" class="mailcard press" data-test="inbox-mail-card" @click="app.mailCard = a">
+              <span class="mh"><span class="vb">{{ a.verb }}</span><b>{{ fromName(a.source?.from) }}</b><small>{{ when(a.created_at) }}</small></span>
+              <span class="subj">{{ a.source?.subject }}</span>
+              <span class="txt">{{ a.text }}</span>
+              <span class="st" :class="{ sent: a.source?.sent }">{{ mailState(a) }}</span>
+            </button>
+            <p v-if="mails && !mails.length" class="empty">메일에서 만든 카드가 아직 없어요.</p>
+          </template>
+          <template v-else>
           <article v-for="m in team.inbox" :key="m.id" class="mail" :class="{ unread: m.unread }">
             <div class="mh"><span class="av">{{ initial(m.sender.name) }}</span>
               <span class="who"><span><b>{{ m.sender.name }}</b> · {{ kindWord[m.kind] }}</span><small>{{ when(m.at) }}</small></span></div>
@@ -152,6 +175,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             </div>
           </article>
           <p v-if="!team.inbox.length" class="empty">아직 받은 공유나 멘션이 없어요.</p>
+          </template>
         </div>
 
         <div v-else class="items scroll">
@@ -235,6 +259,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 </template>
 
 <style scoped>
+.kinds { display: flex; gap: 6px; padding: 2px 2px 8px; }
+.kinds button { height: 32px; padding: 0 12px; border-radius: 9999px; font-size: 13.5px; color: var(--text-secondary); background: var(--field-bg); }
+.kinds button.on { color: var(--text-primary); background: var(--chip-bg); font-weight: 500; }
+.mailcard { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; background: var(--field-bg); color: var(--text-primary); overflow-wrap: anywhere; }
+.mailcard .mh { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; }
+.mailcard .mh small { margin-left: auto; color: var(--text-tertiary); font-size: 12px; flex: none; }
+.mailcard .vb { flex: none; font-size: 12px; padding: 1px 7px; border-radius: 6px; background: var(--chip-bg); }
+.mailcard .subj { font-size: 13.5px; font-weight: 500; }
+.mailcard .txt { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+.mailcard .st { align-self: flex-start; font-size: 11.5px; color: var(--text-tertiary); }
+.mailcard .st.sent { color: #2a78d6; }
 .veil { position: fixed; inset: 0; z-index: 45; background: rgba(20, 24, 32, .16); display: flex; justify-content: flex-end; padding: 76px 16px 16px; }
 .ms { width: min(860px, 100%); display: flex; border-radius: 24px; overflow: hidden; box-shadow: 0 18px 60px rgba(0, 0, 0, .22); color: var(--text-primary); animation: pop-in .3s var(--spring); }
 .side { width: 330px; flex: none; display: flex; flex-direction: column; border-right: 1px solid rgba(127, 127, 127, .18); min-height: 0; }

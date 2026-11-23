@@ -98,7 +98,9 @@ test('A-MN-14 업무 흐름이 정하지 못한 분기는 관리자에게 묻고
       }
       const [action] = await db.q(`select id from pro_actions where user_id=$1 and verb='Review' and source->>'mail_id'=$2`, [u.id, mail.mail_id])
       expect(action, `${m.subject}: 회신 카드`).toBeTruthy()
-      expect((await u.post(`/actions/${action.id}/run`)).status).toBe(200)
+      // the reply leaves from its card (routes/mailReply.js): the drafts attached, sent on 보내기 — the case closes
+      const sent = await u.post(`/actions/${action.id}/reply`, { to: FROM, subject: `Re: ${m.subject}`, body: '요청하신 견적서를 보내 드립니다.', files: files.map((f) => ({ messageId: f.id })) })
+      expect(sent.status, sent.text).toBe(200)
       const caseId = await waitFor(async () => (await db.q(`select c.case_id from pro_mining_cases c where c.mail_id=$1 and c.category is not null
         and exists (select 1 from handover_events h where h.case_id=c.case_id and h.norm_activity_label='고객 회신')`, [mail.mail_id]))[0]?.case_id, { timeout: 15 * 60_000, every: 10_000 })
       expect(caseId, `${m.subject}: 사례가 닫힘`).toBeTruthy()
