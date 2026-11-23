@@ -51,6 +51,10 @@ export const folders = {
   verify: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/verify`, { method: 'POST' }),
   // IeumOffice / ArtCraft load from storage: a published copy of this version
   publish: async (slug, path, ref = 'main') => (await call(`/folders/${enc(slug)}/publish`, { method: 'POST', body: { path, ref } })).url,
+  // the same, with the version's blob sha and whether this person may edit it in place (main, editor role)
+  publishInfo: (slug, path, ref = 'main') => call(`/folders/${enc(slug)}/publish`, { method: 'POST', body: { path, ref } }),
+  // an IeumOffice save of main's file → a commit in the folder ({path, sha, commit, copied, folded})
+  officeSave: (slug, body) => call(`/folders/${enc(slug)}/office-save`, { method: 'POST', body }),
   async upload(slug, path, file) {
     const go = async () => fetch(`${BASE}/api/folders/${enc(slug)}/files?path=${enc(path)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${await freshToken()}` } })
     const r = await go()

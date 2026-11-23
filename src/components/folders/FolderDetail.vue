@@ -42,6 +42,7 @@ async function load() {
   } catch (e) { err.value = e.message }
 }
 onMounted(load)
+defineExpose({ load })
 watch(() => props.slug, () => { folder.value = null; cand.value = null; load() })
 // agents finish runs and cards get made in the background: keep the view fresh meanwhile
 const busy = computed(() => folder.value && (folder.value.variations.some((v) => v.status === 'open') || folder.value.index_state?.state === 'indexing'))

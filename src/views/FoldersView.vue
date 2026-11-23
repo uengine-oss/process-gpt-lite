@@ -19,6 +19,9 @@ const slug = computed(() => route.params.slug || '')
 const vid = computed(() => route.params.variation || '')
 const preview = ref(null)   // { folder, file, ref, refLabel }
 function open(p) { preview.value = { ref: 'main', ...p } }
+// a document edited in place was saved into the folder: the file list and 이력 follow
+const detail = ref(null)
+const refresh = () => detail.value?.load?.()
 
 onMounted(async () => {
   app.mode = 'folders'
@@ -31,10 +34,10 @@ onMounted(async () => {
     <TopBar />
     <div class="content" :class="{ scroll: !slug }">
       <VariationView v-if="vid" :key="vid" :slug="slug" :vid="vid" @preview="open" />
-      <FolderDetail v-else-if="slug" :key="slug" :slug="slug" @preview="open" />
+      <FolderDetail v-else-if="slug" ref="detail" :key="slug" :slug="slug" @preview="open" />
       <FolderList v-else @preview="open" />
     </div>
-    <FilePreview v-if="preview" :file="preview.file" :folder="preview.folder" :ref_="preview.ref" :ref-label="preview.refLabel" @close="preview = null" />
+    <FilePreview v-if="preview" :file="preview.file" :folder="preview.folder" :ref_="preview.ref" :ref-label="preview.refLabel" @close="preview = null" @changed="refresh" />
   </div>
 </template>
 
