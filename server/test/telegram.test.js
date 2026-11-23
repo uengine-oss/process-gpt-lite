@@ -11,6 +11,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import net from 'node:net'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgpt-telegram-test-'))
 const keyringFile = path.join(dir, 'keyring.json')
@@ -266,4 +267,51 @@ test('disconnect removes the bot; deliveries then skip Telegram quietly', needsD
   assert.deepEqual(await T.disconnect(USER), { ok: true, removed: 0 })
   const rows = await q(`select count(*)::int n from pro_vault_items where user_id=$1 and site='telegram'`, [USER])
   assert.equal(rows[0].n, 0)
+})
+
+// 2026-11-23 production: every 「연결」 failed in under a second and the card showed Cloudflare's HTML error
+// page. The server answered 502 (which Cloudflare replaces with its own page) and logged nothing. Now a Bot API
+// that cannot be reached is a 503 with the reason (error code + host, never the token) in the answer and the log.
+test('Telegram not reachable: 503 with the reason in plain JSON, the token nowhere', async () => {
+  const closed = await new Promise((ok) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)) }) }) // a port nobody listens on
+  const was = process.env.PRO_TELEGRAM_API
+  process.env.PRO_TELEGRAM_API = `http://127.0.0.1:${closed}`
+  const logged = []
+  const warn = console.warn
+  console.warn = (...a) => { logged.push(a.join(' ')); warn(...a) }
+  const app = express()
+  app.use(express.json())
+  app.use('/api', telegramRoutes((req, res, next) => { req.user = { id: USER }; next() }))
+  const server = await new Promise((ok) => { const s = app.listen(0, '127.0.0.1', () => ok(s)) })
+  try {
+    await assert.rejects(T.connectBot(USER, TOKEN), (e) => e.status === 503 && e.code === 'telegram_unreachable' && /ECONNREFUSED/.test(e.detail))
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/telegram/connect`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: TOKEN }),
+    })
+    const text = await res.text()
+    assert.equal(res.status, 503) // not 502: Cloudflare would put its HTML page there
+    assert.match(res.headers.get('content-type'), /json/)
+    const body = JSON.parse(text)
+    assert.equal(body.code, 'telegram_unreachable')
+    assert.match(body.detail, new RegExp(`ECONNREFUSED 127\\.0\\.0\\.1:${closed}`))
+    assert.ok(body.error.includes(body.detail), 'the message says why')
+    assert.ok(!text.includes(SECRET_PART) && !logged.join('\n').includes(SECRET_PART), 'the token is in neither the answer nor the log')
+    assert.ok(logged.some((l) => l.includes('[telegram] getMe unreachable: ECONNREFUSED')), logged.join('\n'))
+  } finally {
+    console.warn = warn
+    if (was === undefined) delete process.env.PRO_TELEGRAM_API
+    else process.env.PRO_TELEGRAM_API = was
+    await new Promise((ok) => server.close(ok))
+  }
+})
+
+test('a Bot API that does not answer in time says timeout, and Telegram refusing an unknown way is a 503 too', async () => {
+  assert.equal(T.netCause(Object.assign(new Error('t'), { name: 'TimeoutError' })).split(' ')[0], 'timeout')
+  const happyEyeballs = Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new AggregateError([{ code: 'ENETUNREACH' }, { code: 'ETIMEDOUT' }]), { code: 'ETIMEDOUT' }) })
+  assert.equal(T.netCause(happyEyeballs).split(' ')[0], 'ETIMEDOUT/ENETUNREACH')
+  assert.equal(T.netCause(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } })).split(' ')[0], 'ENOTFOUND')
+  // no code: the cause's words (fetch refuses some ports with 'bad port'), never the token even if they hold it
+  assert.match(T.netCause(Object.assign(new TypeError('fetch failed'), { cause: new Error('bad port') })), /^bad port /)
+  const leaky = T.netCause(Object.assign(new TypeError('fetch failed'), { cause: new Error(`odd https://x/bot${TOKEN}/getMe`) }), TOKEN)
+  assert.ok(!leaky.includes(SECRET_PART), leaky)
 })
