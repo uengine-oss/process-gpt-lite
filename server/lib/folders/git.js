@@ -83,6 +83,39 @@ export async function commitAll(cwd, message, author = {}) {
   return head(cwd)
 }
 
+// One file only (whatever else the working tree holds stays out). amend: fold into HEAD — an editing
+// session's later saves (see canFold); when the session's edits were all undone the fold would be empty
+// (git refuses it): the session's commit goes away instead. → {commit, dropped} | null (nothing changed)
+export async function commitPath(cwd, rel, message, author = {}, { amend = false } = {}) {
+  await git(cwd, ['add', '--', rel])
+  if (!(await git(cwd, ['diff', '--cached', '--name-only', '--', rel])).trim()) return null
+  try {
+    if (amend && !(await git(cwd, ['diff', '--cached', '--name-only', 'HEAD^', '--', rel])).trim()) {
+      await git(cwd, ['reset', '-q', '--soft', 'HEAD^'])
+      return { commit: await head(cwd), dropped: true }
+    }
+    await git(cwd, [...who(author.name, author.email), 'commit', '-q', ...(amend ? ['--amend', '--date=now'] : []), '-m', message, '--only', '--', rel])
+  } catch (e) {
+    await git(cwd, ['reset', '-q', '--', rel], { check: false })
+    throw e
+  }
+  return { commit: await head(cwd), dropped: false }
+}
+
+// May the next save of one editing session fold into `branch`'s newest commit? Only when that commit is
+// this session's own (same message, which carries the session id, and author), changed only `path`, is
+// recent, has a parent, and no other branch stands on it (a variation made since keeps its base).
+export async function canFold(cwd, branch, { message, path, email, withinMs = 15 * 60_000 }) {
+  const [sha, ae, ct, ...body] = (await git(cwd, ['log', '-1', '--format=%H%x00%ae%x00%ct%x00%B', branch], { check: false })).split('\0')
+  if (!sha || body.join('\0').trim() !== String(message).trim() || ae !== email) return false
+  if (Date.now() - Number(ct) * 1000 > withinMs) return false
+  if (!(await git(cwd, ['rev-parse', '--verify', '-q', `${sha}^`], { check: false })).trim()) return false
+  const files = (await git(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', sha], { check: false })).split('\0').filter(Boolean)
+  if (files.length !== 1 || files[0] !== path) return false
+  const on = (await git(cwd, ['branch', '--contains', sha, '--format=%(refname:short)'], { check: false })).split('\n').map((x) => x.trim()).filter(Boolean)
+  return on.length === 1 && on[0] === branch
+}
+
 // changes a branch made since it left `base` (three-dot): [{path, change, add, del, binary}]
 export async function changes(cwd, base, ref) {
   const range = `${base}...${ref}`

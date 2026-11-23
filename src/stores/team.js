@@ -207,7 +207,7 @@ export const useTeam = defineStore('team', {
       const f = await api(`/team/branches/file?room=${encodeURIComponent(room)}&path=${encodeURIComponent(path)}`)
       const app = useApp()
       this.open = false
-      app.officeDoc = { url: f.url, name: f.name, readOnly: f.readOnly }
+      app.setOfficeDoc({ url: f.url, name: f.name, readOnly: f.readOnly })
     },
 
     startShare(messages) {

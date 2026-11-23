@@ -8,6 +8,16 @@ import { announce } from '../browserNotify.js'
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
 
+// the open document's sheet answers here before the document is replaced or closed (setOfficeDoc)
+let officeLeave = null
+export function onOfficeLeave(fn) { officeLeave = fn }
+// a chat file card → the document to open: a shared folder's file (folder_open) carries its folder —
+// an editor of the folder edits it in place (saved into the folder), anyone else sees it read-only
+export function officeDocOf(msgId, c) {
+  const folder = c?.folder?.slug ? c.folder : null
+  return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}) }
+}
+
 export const useApp = defineStore('app', {
   state: () => ({
     me: null,
@@ -94,6 +104,16 @@ export const useApp = defineStore('app', {
     },
   },
   actions: {
+    // Replacing or closing the open document: the sheet saves what is left in it first (OfficeSheet
+    // registers onOfficeLeave; it answers false to stay open — a save that did not finish, said on the sheet).
+    async setOfficeDoc(doc) {
+      if (this.officeDoc && officeLeave) {
+        const ok = await Promise.resolve(officeLeave()).catch(() => true)
+        if (!ok) return false
+      }
+      this.officeDoc = doc
+      return true
+    },
     async boot() {
       this.me = await api('/me')
       syncLang(this.me)
@@ -148,7 +168,7 @@ export const useApp = defineStore('app', {
           // answer to that message (askedAt lasts until shortly after its answer ends), once
           if (d.role === 'agent' && d.kind === 'file' && d.content?.open && d.content.url && d.thread_id === this.activeId && this.askedAt[d.thread_id]) {
             const ed = officeEditorFor(d.content.name || d.content.url)
-            if (ed && !CRAFT_APPS.has(ed)) { this.officeDoc = { msgId: d.id, url: d.content.url, name: d.content.name }; delete this.askedAt[d.thread_id] }
+            if (ed && !CRAFT_APPS.has(ed)) { this.setOfficeDoc(officeDocOf(d.id, d.content)); delete this.askedAt[d.thread_id] }
           }
         }
       } else if (type === 'thread') {

@@ -59,7 +59,9 @@ export function documentFrom(output) {
   const o = parseToolOutput(output)
   const url = o?.file_url || o?.fileUrl
   const name = o?.file_name || o?.fileName || (url ? decodeURIComponent(url.split('?')[0].split('/').pop()) : '')
-  return url && editable(name) ? { name: name.replace(/^[0-9a-f-]{36}_/, ''), url, ext: extOf(name), ...(o.open === true ? { open: true } : {}) } : null
+  const ref = o?.folder_ref
+  const folder = ref && typeof ref.slug === 'string' && typeof ref.path === 'string' ? { slug: ref.slug, name: String(ref.name || ''), path: ref.path, sha: String(ref.sha || ''), editable: ref.editable === true } : null
+  return url && editable(name) ? { name: name.replace(/^[0-9a-f-]{36}_/, ''), url, ext: extOf(name), ...(o.open === true ? { open: true } : {}), ...(folder ? { folder } : {}) } : null
 }
 
 // A sandbox file → a public URL the editor can load. Where the sandbox is not on this machine (the

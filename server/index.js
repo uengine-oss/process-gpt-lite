@@ -59,7 +59,8 @@ import { openFileCard } from './lib/fileCards.js'
 import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
 import { startFolderSteps } from './lib/folders/work.js'
-import { retryUnreadCards } from './lib/folders/indexer.js'
+import { retryUnreadCards, reindex as reindexFolder, cardsSoon } from './lib/folders/indexer.js'
+import * as FS from './lib/folders/service.js'
 import * as skills from './lib/folders/skills.js'
 import { ensureResultLine, fireSchedule, runMission, listMissionRuns, createMission, listSkills, saveSkillDraft, workspaceHostPath } from './lib/missions.js'
 import { getSkill, deleteSkill } from './lib/skills.js'
@@ -758,12 +759,29 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
   if (!/^https?:\/\//.test(url)) return res.status(400).end()
   // an editor may save in another format of its own (photo.png → photo.pcraft): the card takes that name
   const name = req.body.name ? String(req.body.name).slice(0, 200) : null
-  const [m] = await q(`update pro_messages m set content = content || jsonb_build_object('url', $3::text, 'edited', true,
-                         'versions', coalesce(content->'versions','[]'::jsonb) || jsonb_build_array(content->>'url'),
+  // (the editor saves again and again into the same copy: the old url is a version once)
+  let [m] = await q(`update pro_messages m set content = content || jsonb_build_object('url', $3::text, 'edited', true,
+                         'versions', coalesce(content->'versions','[]'::jsonb) || case when content->>'url' = $3 then '[]'::jsonb else jsonb_build_array(content->>'url') end,
                          'name', coalesce($4::text, content->>'name'))
                        from pro_threads t where m.id=$1 and t.id=m.thread_id and t.user_id=$2 and m.kind='file' returning m.*`,
   [req.params.id, req.user.id, url, name])
   if (!m) return res.status(404).end()
+  // a shared folder's file opened from the chat (folder_open): the save is a commit in the folder's main,
+  // as on the folder screen — the card follows the version it now stands on
+  const ff = m.content.folder
+  if (ff?.slug && ff.editable === true) {
+    let saved
+    try {
+      const { folder } = await FS.access(ff.slug, req.user, 'editor')
+      // (one opening of the card is one editing session: the screen names it)
+      const r = await FS.saveOfficeEdit(folder, { name: req.user.name, email: req.user.email, id: req.user.id }, { path: ff.path, base: ff.sha, url, session: String(req.body.session || m.id) })
+      if (r.commit) { await reindexFolder(folder, { cards: false }); cardsSoon(folder) }
+      saved = { ok: true, path: r.path, copied: r.copied, at: new Date().toISOString() }
+      ;[m] = await q(`update pro_messages set content = content || jsonb_build_object('folder', $2::jsonb, 'folder_save', $3::jsonb) where id=$1 returning *`, [m.id, { ...ff, path: r.path, sha: r.sha }, saved])
+    } catch (e) {
+      ;[m] = await q(`update pro_messages set content = content || jsonb_build_object('folder_save', $2::jsonb) where id=$1 returning *`, [m.id, { ok: false, error: e.message, at: new Date().toISOString() }])
+    }
+  }
   // a file of a received share: the save is a commit on this conversation's branch (lib/team/worktree.js)
   if (m.content.branch) await commitEdit(req.user, m).catch((e) => console.warn('[worktree] edit', e.message))
   // the last 검수 of this document travels with its edited copy (lib/review.js)

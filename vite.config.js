@@ -60,7 +60,8 @@ export default defineConfig({
       // (PRO_API_TARGET: a second, development server on another port — PRO_BACKGROUND=0)
       '/api': { target: process.env.PRO_API_TARGET || 'http://127.0.0.1:8787', changeOrigin: false, ws: true },
       // IeumOffice editor (process-gpt office-host): page, __ipc socket and document bytes on this origin
-      '/office': { target: 'http://127.0.0.1:5390', ws: true, changeOrigin: true },
+      // (PRO_OFFICE_TARGET: another office host, e.g. a container of the production image on another port)
+      '/office': { target: process.env.PRO_OFFICE_TARGET || 'http://127.0.0.1:5390', ws: true, changeOrigin: true },
       // ArtCraft web apps (CADCraft …), served by the pgpt-pro server
       '/craft': { target: process.env.PRO_API_TARGET || 'http://127.0.0.1:8787', changeOrigin: true },
     },

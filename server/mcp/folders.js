@@ -100,14 +100,18 @@ export async function callTool(user, name, args = {}) {
   if (name === 'folder_open') {
     const { folder: f, near } = await findFolder(user, args.folder)
     if (!f) return noFolder(args.folder, near)
-    const { folder } = await S.access(f.slug, user)
+    const { folder, role } = await S.access(f.slug, user)
     const p = S.safeRel(args.path)
     const pub = await S.publishFile(folder, p)
     // a format no editor or player in the app takes: the link only, for the answer to give
     if (!editable(pub.name)) return text({ folder: folder.name, path: p, url: pub.url, note: L('이 형식은 앱 안에서 열 수 없어요. 링크를 알려 주세요.', "This format doesn't open inside the app. Give the link instead.") })
     // {file_url, file_name}: the shape lib/agent.js makes a file card of (documentFrom); open: the
     // person asked to see it, so their screen opens it as the card arrives
-    return text({ file_url: pub.url, file_name: pub.name, open: true, folder: folder.name, path: p })
+    // folder_ref: the folder and the version opened — the chat's editor saves back into the folder
+    // (POST /api/messages/:id/file), beside it when someone changed it in the meantime
+    // editable: an editor of the folder, a format IeumOffice saves (others open it read-only)
+    const canEdit = folder.kind !== 'linked' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(p.split('.').pop().toLowerCase())
+    return text({ file_url: pub.url, file_name: pub.name, open: true, folder: folder.name, path: p, folder_ref: { slug: folder.slug, name: folder.name, path: p, sha: pub.sha, editable: canEdit } })
   }
   return { isError: true, ...text(`unknown tool ${name}`) }
 }
