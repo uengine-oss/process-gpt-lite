@@ -86,12 +86,13 @@ export async function originalOf(userId, provider, mailId) {
   }
   if (provider === 'imap') {
     const client = await imapClient(userId)
-    const lock = await client.getMailboxLock('INBOX')
+    let lock = null
     try {
+      lock = await client.getMailboxLock('INBOX')
       const msg = await client.fetchOne(String(mailId), { source: true }, { uid: true })
       if (!msg?.source) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
       return { id: mailId, threadId: null, ...(await parsed(msg.source)) }
-    } finally { lock.release(); await client.logout().catch(() => {}) }
+    } finally { lock?.release(); await client.logout().catch(() => {}) }
   }
   const m = await demoMailById(userId, mailId)
   if (!m) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
@@ -191,12 +192,21 @@ export async function draftReply(user, actionId) {
 // (POST /attachments: their own storage folder). Both are read from this server's own storage by key:
 // a card's address only names the object (another service may write the same storage's host its own
 // way), and no other address is ever fetched.
-const storageKey = (url) => {
+// (a key is a path inside the files bucket: one with an empty, "." or ".." segment or a backslash
+// could reach another person's object or another bucket through the service key, and is refused)
+export const safeKey = (k) => {
+  const key = String(k || '')
+  return !!key && !key.includes('\\') && key.split('/').every((seg) => seg && seg !== '.' && seg !== '..')
+}
+export const storageKey = (url) => {
   try {
     const m = /^\/storage\/v1\/object\/(?:public\/|authenticated\/)?files\/(.+)$/.exec(new URL(url).pathname)
-    return m ? decodeURIComponent(m[1]) : null
+    const key = m ? decodeURIComponent(m[1]) : null
+    return key && safeKey(key) ? key : null
   } catch { return null }
 }
+// a file the person added in the sheet: POST /attachments named it pgpt-pro/<their id>/att/<uuid>.<ext>
+export const ownUpload = (userId, k) => safeKey(k) && new RegExp(`^pgpt-pro/${userId}/att/[0-9a-f-]{36}\\.[a-z0-9]+$`).test(String(k))
 async function download(key, name) {
   const { data, error } = await admin.storage.from('files').download(key)
   if (error) throw fail(502, L(`${name || '파일'}을 가져오지 못했어요.`, `Couldn't fetch ${name || 'the file'}.`))
@@ -206,7 +216,8 @@ async function attachmentsOf(user, mailId, files = []) {
   const made = await filesFor(user.id, mailId)
   const out = []
   let total = 0
-  for (const f of files.slice(0, 10)) {
+  if (files.length > 10) throw fail(400, L('파일은 10개까지 첨부할 수 있어요.', 'Up to 10 files can be attached.'))
+  for (const f of files) {
     let got, name
     if (f?.messageId) {
       const card = made.find((m) => m.messageId === f.messageId)
@@ -214,7 +225,7 @@ async function attachmentsOf(user, mailId, files = []) {
       if (!key) throw fail(400, L('이 메일의 초안 파일만 첨부할 수 있어요.', "Only this mail's draft files can be attached."))
       name = card.name; got = await download(key, name)
     } else if (f?.key) {
-      if (!String(f.key).startsWith(`pgpt-pro/${user.id}/att/`)) throw fail(400, L('첨부할 수 없는 파일이에요.', "That file can't be attached."))
+      if (!ownUpload(user.id, f.key)) throw fail(400, L('첨부할 수 없는 파일이에요.', "That file can't be attached."))
       name = String(f.name || 'file').slice(0, 200); got = await download(f.key, name)
     } else continue
     total += got.buf.length
@@ -266,11 +277,12 @@ export async function sendReply(user, actionId, input = {}) {
   const attachments = await attachmentsOf(user, a.source.mail_id, Array.isArray(input.files) ? input.files : [])
   const [p] = await q('select name from pro_profile where user_id=$1', [user.id])
   const raw = await buildReply({ from: { name: p?.name || user.name || '', address: acc.address || user.email }, to, cc, subject: subject || original.subject, body, original, attachments })
-  // one send per card, even when two presses arrive together: the card is claimed before anything leaves
-  // (a claim older than two minutes is a send that died half way, and may be tried again)
+  // one send per card, even when two presses arrive together: the card is claimed before anything leaves.
+  // The claim is lifted only when the send itself failed — a send that went out but could not be
+  // recorded (or a server that stopped half way) keeps it, so a second press never mails it twice.
   const [claimed] = await q(`update pro_actions set source = source || jsonb_build_object('sending', now()) where id=$1 and user_id=$2
-                             and not (source ? 'sent') and (not (source ? 'sending') or (source->>'sending')::timestamptz < now() - interval '2 minutes') returning id`, [a.id, user.id])
-  if (!claimed) throw fail(409, L('이 메일의 답장을 지금 보내고 있어요.', 'The reply to this mail is being sent.'))
+                             and not (source ? 'sent') and not (source ? 'sending') returning id`, [a.id, user.id])
+  if (!claimed) throw fail(409, L('이 메일의 답장은 이미 보내는 중이거나 보냈어요. 메일함의 보낸 편지함을 확인해 주세요.', 'The reply to this mail is already being sent or was sent. Check the Sent folder of your mailbox.'))
   try {
     if (mode === 'drafts') await imapDraft(user.id, raw)
     else if (acc.provider === 'gmail') await gmailSend(user.id, raw, original.threadId)
@@ -279,15 +291,26 @@ export async function sendReply(user, actionId, input = {}) {
     throw e
   }
   const sent = { to: to.map(formatAddress).join(', '), cc: cc.map(formatAddress).join(', '), subject: subject || original.subject, files: attachments.map((x) => x.filename), via: mode === 'drafts' ? 'drafts' : acc.provider, at: new Date().toISOString() }
-  const [row] = await q(`update pro_actions set status='done', source = (source - 'sending') || jsonb_build_object('sent', $2::jsonb, 'reply', $3::jsonb) where id=$1 returning *`,
-    [a.id, sent, { to: sent.to, cc: sent.cc, subject: sent.subject, body, at: sent.at }])
+  // (recorded with a few tries: the mail has left, and the card must say so)
+  let row
+  for (let i = 0; !row; i++) {
+    try {
+      ;[row] = await q(`update pro_actions set status='done', source = (source - 'sending') || jsonb_build_object('sent', $2::jsonb, 'reply', $3::jsonb) where id=$1 returning *`,
+        [a.id, sent, { to: sent.to, cc: sent.cc, subject: sent.subject, body, at: sent.at }])
+    } catch (e) {
+      if (i >= 2) { console.warn('[mail reply] sent but not recorded', a.id, e.message); throw fail(500, L('답장은 보냈지만 기록하지 못했어요. 다시 보내지 말고 메일함의 보낸 편지함을 확인해 주세요.', "The reply was sent but couldn't be recorded. Don't send it again — check the Sent folder of your mailbox.")) }
+      await new Promise((ok) => setTimeout(ok, 500 * (i + 1)))
+    }
+  }
   emit(user.id, 'action', row)
   const who = to.map((x) => x.name || x.address).join(', ')
   const t = await mainThread(user.id)
   await addMessage(user.id, t.id, 'agent', 'text', {
     text: mode === 'drafts'
       ? L(`${who}에게 보낼 답장 「${sent.subject}」을 메일함의 임시 보관함에 넣었어요. 메일 앱에서 보내 주세요.`, `I put the reply "${sent.subject}" to ${who} in your mailbox's Drafts. Send it from your mail app.`)
-      : L(`${who}에게 답장 「${sent.subject}」을 보냈어요.`, `I sent the reply "${sent.subject}" to ${who}.`),
+      : sent.via === 'demo'
+        ? L(`데모 메일함이라 ${who}에게 보낼 답장 「${sent.subject}」을 실제로 보내지 않고 기록만 했어요.`, `This is the demo mailbox, so the reply "${sent.subject}" to ${who} was recorded, not sent.`)
+        : L(`${who}에게 답장 「${sent.subject}」을 보냈어요.`, `I sent the reply "${sent.subject}" to ${who}.`),
     sent_mail: { to: sent.to, subject: sent.subject, via: sent.via, files: sent.files },
   })
   // replying to the customer closes the mail's case, if it has one (lib/mining)

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { uploadAttachment } from '../api.js'
@@ -35,14 +35,26 @@ const when = computed(() => {
 })
 const long = computed(() => String(mail.value?.text || '').length > 600)
 const uploading = computed(() => added.value.some((f) => f.state === 'up'))
-const canSend = computed(() => draft.value && info.value?.mode !== 'none' && draft.value.to.trim() && draft.value.body.trim() && !sending.value && !uploading.value)
+// a file that did not upload is not left out without a word: it is taken off, or uploaded again
+const failedUpload = computed(() => added.value.some((f) => f.state === 'err'))
+const canSend = computed(() => draft.value && info.value?.mode !== 'none' && draft.value.to.trim() && draft.value.body.trim() && !sending.value && !uploading.value && !failedUpload.value)
+// 다시 쓰기 over the person's own changes asks once more first (the way 연결 끊기 does)
+const written = ref('')         // the draft as the model last wrote it
+const edited = computed(() => !!draft.value && JSON.stringify(draft.value) !== written.value)
+const sure = ref(false)
+let sureTimer = null
+function rewrite() {
+  if (edited.value && !sure.value) { sure.value = true; sureTimer = setTimeout(() => { sure.value = false }, 4000); return }
+  sure.value = false; clearTimeout(sureTimer); write()
+}
+onBeforeUnmount(() => clearTimeout(sureTimer))
 
 onMounted(async () => {
   try {
     info.value = await app.mailOfCard(id)
     picked.value = info.value.files.map((f) => f.messageId)
     if (info.value.sent) sent.value = info.value.sent
-    else if (info.value.reply) draft.value = pick(info.value.reply)
+    else if (info.value.reply) { draft.value = pick(info.value.reply); written.value = JSON.stringify(draft.value) }
     else if (replyCard.value) write()
   } catch (e) { loadErr.value = e.message }
 })
@@ -50,7 +62,7 @@ const pick = (r) => ({ to: r.to || '', cc: r.cc || '', subject: r.subject || '',
 
 async function write() {
   drafting.value = true; draftErr.value = ''
-  try { draft.value = pick((await app.draftReply(id)).reply) } catch (e) { draftErr.value = e.message }
+  try { draft.value = pick((await app.draftReply(id)).reply); written.value = JSON.stringify(draft.value) } catch (e) { draftErr.value = e.message }
   drafting.value = false
 }
 
@@ -63,6 +75,7 @@ async function addFiles(e) {
   }
   e.target.value = ''
 }
+function drop(uid) { added.value = added.value.filter((f) => f.uid !== uid) }
 function toggle(messageId) {
   picked.value = picked.value.includes(messageId) ? picked.value.filter((x) => x !== messageId) : [...picked.value, messageId]
 }
@@ -113,9 +126,10 @@ function toAgent() { app.runAction(props.action); emit('close') }
           <section v-if="sent" class="done" data-test="mail-sent">
             <Icon name="check" :size="18" />
             <div>
-              <b>{{ sent.via === 'drafts' ? '임시 보관함에 넣었어요' : '답장을 보냈어요' }}</b>
+              <b>{{ sent.via === 'drafts' ? '임시 보관함에 넣었어요' : sent.via === 'demo' ? '기록했어요' : '답장을 보냈어요' }}</b>
               <small>{{ sent.to }} · {{ sent.subject }}</small>
               <small v-if="sent.via === 'drafts'">메일 앱의 임시 보관함에서 보내 주세요.</small>
+              <small v-if="sent.via === 'demo'">데모 메일함이라 실제로 보내지 않았어요.</small>
             </div>
           </section>
 
@@ -134,16 +148,18 @@ function toAgent() { app.runAction(props.action); emit('close') }
                   data-test="mail-file" :aria-pressed="picked.includes(f.messageId)" @click="toggle(f.messageId)">
                   <Icon :name="picked.includes(f.messageId) ? 'check' : 'clip'" :size="13" /> {{ f.name }}
                 </button>
-                <span v-for="f in added" :key="f.uid" class="chip on" :class="{ bad: f.state === 'err' }" :title="f.error">
+                <span v-for="f in added" :key="f.uid" class="chip on" :class="{ bad: f.state === 'err' }" :title="f.error" data-test="mail-added">
                   <Icon name="clip" :size="13" /> {{ f.name }}<i v-if="f.state === 'up'"> · 올리는 중</i><i v-if="f.state === 'err'"> · 올리지 못함</i>
+                  <button class="drop press" aria-label="빼기" data-test="mail-added-drop" @click="drop(f.uid)"><Icon name="close" :size="11" /></button>
                 </span>
                 <button class="chip add press" @click="fileInput.click()"><Icon name="plus" :size="13" /> 파일 첨부</button>
                 <input ref="fileInput" type="file" multiple hidden @change="addFiles" />
               </div>
               <p v-if="info.mode === 'none'" class="err">Gmail에서 메일 보내기를 허락받지 않았어요. 설정에서 메일을 다시 연결하면 여기서 보낼 수 있어요.</p>
+              <p v-if="failedUpload" class="err" data-test="mail-upload-failed">올리지 못한 파일은 빼고 보내거나 다시 올려 주세요.</p>
               <p v-if="sendErr" class="err" data-test="mail-send-error">{{ sendErr }}</p>
               <div class="row">
-                <button class="pill-btn sm" :disabled="drafting || sending" @click="write">다시 쓰기</button>
+                <button class="pill-btn sm" :class="{ warn: sure }" :disabled="drafting || sending" data-test="mail-rewrite" @click="rewrite">{{ sure ? '한 번 더 누르면 새로 써요' : '다시 쓰기' }}</button>
                 <button class="dark-btn sm" :disabled="!canSend" data-test="mail-send" @click="send">
                   {{ sending ? '보내는 중…' : info.mode === 'drafts' ? '임시 보관함에 넣기' : '보내기' }}
                 </button>
@@ -152,7 +168,7 @@ function toAgent() { app.runAction(props.action); emit('close') }
             </template>
           </section>
 
-          <button v-if="info && !replyCard && !sent && action.status === 'open'" class="agent press" data-test="mail-agent" @click="toAgent">
+          <button v-if="(info || loadErr) && !replyCard && !sent && action.status === 'open'" class="agent press" data-test="mail-agent" @click="toAgent">
             에이전트에게 맡기기 <small>{{ action.prompt }}</small>
           </button>
         </div>
@@ -186,6 +202,8 @@ section { display: flex; flex-direction: column; gap: 6px; }
 .chip.on { color: var(--text-primary); background: var(--chip-bg); }
 .chip.bad { color: #c2410c; }
 .chip i { font-style: normal; color: var(--text-tertiary); }
+.chip .drop { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; margin-left: 2px; color: var(--text-secondary); }
+.pill-btn.warn { color: #c2410c; }
 .field { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--hairline); padding: 4px 0; }
 .field span { flex: none; width: 64px; font-size: 13px; color: var(--text-secondary); }
 .field input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 14.5px; color: var(--text-primary); padding: 6px 0; outline: none; }

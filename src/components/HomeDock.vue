@@ -7,7 +7,7 @@ import PanelFrame from './PanelFrame.vue'
 import PanelAppCard from './panelApps/PanelAppCard.vue'
 import Icon from './Icon.vue'
 import RefreshBanner from './RefreshBanner.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { useTeam } from '../stores/team.js'
@@ -27,6 +27,8 @@ const arrowTurn = computed(() => 180 + Math.min(1, pull.value / PULL_THRESHOLD) 
 // browser notifications for a background tab: offered until the person answers the browser's question
 const notify = ref(notifyPermission())
 async function enableNotify() { notify.value = await askNotify() }
+// a mail card's sheet lives with Home: leaving Home closes it (it does not pop up again on the way back)
+onBeforeUnmount(() => { app.mailCard = null })
 const todos = computed(() => app.todos.filter((t) => !app.handled.includes(t.id) && !app.notifications.some((n) => n.todoId === t.id)).slice(0, 3))
 // a to-do opens its instance page, where its form is (not a card in the chat)
 async function openTodo(t) {

@@ -199,10 +199,18 @@ test('보내기 권한이 없는 Gmail 연결(읽기만)은 보내지 않고 다
   assert.equal(calls.slice(before).filter((c) => c.url.includes('/messages/send')).length, 0)
 })
 
-test('남의 파일이나 다른 메일의 파일은 첨부하지 않는다', async () => {
+test('남의 파일 · 다른 메일의 파일 · 폴더 밖으로 나가는 경로 · 열 개가 넘는 파일은 첨부하지 않는다(보내지 않는다)', async () => {
   const { user, action } = await gmailCard()
   await assert.rejects(R.sendReply(user, action.id, { to: 'haneul.kim@northwind.example', body: '본문', files: [{ key: `pgpt-pro/${crypto.randomUUID()}/att/x.pdf`, name: 'x.pdf' }] }), (e) => e.status === 400)
   await assert.rejects(R.sendReply(user, action.id, { to: 'haneul.kim@northwind.example', body: '본문', files: [{ messageId: crypto.randomUUID() }] }), (e) => e.status === 400)
+  // a path out of my own folder (another person's upload, another bucket) through the service key
+  const other = crypto.randomUUID(), up = crypto.randomUUID()
+  for (const key of [`pgpt-pro/${user.id}/att/../../${other}/att/${up}.pdf`, `pgpt-pro/${user.id}/att/${up}.pdf/../../../../x`, `pgpt-pro/${user.id}/att//${up}.pdf`]) {
+    await assert.rejects(R.sendReply(user, action.id, { to: 'haneul.kim@northwind.example', body: '본문', files: [{ key, name: 'x.pdf' }] }), (e) => e.status === 400, key)
+  }
+  assert.equal(R.storageKey(`https://h.example/storage/v1/object/public/files/a/%2e%2e/%2e%2e/other/x`), null)
+  // more than ten files: refused, not cut short
+  await assert.rejects(R.sendReply(user, action.id, { to: 'haneul.kim@northwind.example', body: '본문', files: Array.from({ length: 11 }, () => ({ key: `pgpt-pro/${user.id}/att/${crypto.randomUUID()}.pdf`, name: 'x.pdf' })) }), (e) => e.status === 400)
   const [row] = await q('select status from pro_actions where id=$1', [action.id])
   assert.equal(row.status, 'open')
 })

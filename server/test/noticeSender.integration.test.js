@@ -27,7 +27,8 @@ async function chat(content, { name = '', email = 'jiwoo.han@northwind.example' 
 async function notice(title, from = null) {
   const id = crypto.randomUUID()
   notices.push(id)
-  await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id) values ($1,$2,$3,'chat',$4,$5,$6,$7)`,
+  // (an hour old: the notification feed's own test, running alongside, watches for rows newer than its start)
+  await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id,time_stamp) values ($1,$2,$3,'chat',$4,$5,$6,$7, now() - interval '1 hour')`,
     [id, me.email, title, '한지우', `/chats?id=${room}`, from, T])
   return id
 }

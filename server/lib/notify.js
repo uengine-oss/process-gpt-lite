@@ -56,14 +56,19 @@ function choicesOf(form) {
 // name in from_user_id): that, a member's name for an address, or — when the notice names no one — the
 // writer of the room's newest message with that text. The Home card and the phone's notification said
 // only 「process-gpt 채팅」 / 「새 메시지」 (2026-11-23: 「직원에게서 메시지를 받았을때 누구한테서 온건지가 표시가 없음」).
+const writers = new Map() // room|text → writer (a message's writer does not change; kept for a while)
 export async function senderOf(n) {
   if (n.from_name || n.from_user_id) return n.from_name || n.from_user_id
   const room = /^\/chats\?id=([\w.:-]+)/.exec(String(n.url || ''))?.[1]
   if (!room) return null
+  const k = `${T()}|${room}|${n.title || ''}`
+  if (writers.has(k)) return writers.get(k)
   const [m] = await q(`select coalesce(nullif(c.messages->>'name',''), u.username, c.messages->>'email') as who from chats c
                        left join users u on u.email = c.messages->>'email' and u.tenant_id = $3
                        where c.id=$1 and c.messages->>'content' = $2 order by public.pro_chat_ts(c.messages) desc limit 1`, [room, String(n.title || ''), T()]).catch(() => [])
-  return m?.who || null
+  const who = m?.who || null
+  if (who) { writers.set(k, who); if (writers.size > 500) writers.delete(writers.keys().next().value) }
+  return who
 }
 
 export async function listFor(me) {

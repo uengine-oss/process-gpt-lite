@@ -1878,7 +1878,11 @@
   "다시 쓰기": "Rewrite",
   "임시 보관함에 넣기": "Put in Drafts",
   "보내기를 누르기 전에는 아무것도 보내지 않아요.": "Nothing is sent until you press Send.",
-  "에이전트에게 맡기기": "Hand it to the agent"
+  "에이전트에게 맡기기": "Hand it to the agent",
+  "기록했어요": "Recorded",
+  "데모 메일함이라 실제로 보내지 않았어요.": "It's the demo mailbox, so nothing was sent.",
+  "한 번 더 누르면 새로 써요": "Press again to rewrite",
+  "올리지 못한 파일은 빼고 보내거나 다시 올려 주세요.": "Take out the files that didn't upload, or upload them again."
  },
  "patterns": [
   [
