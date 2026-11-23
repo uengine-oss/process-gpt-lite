@@ -48,6 +48,11 @@
   "why": "agent instructions"
  },
  {
+  "file": "src/lib/bpmn-auto-layout/**",
+  "all": true,
+  "why": "Process GPT vue3's automatic BPMN layout (ported as is): console messages and internal labels, nothing reaches a screen"
+ },
+ {
   "file": "server/*",
   "text": "(JSON|json) ?(으로|으로만|하나만|만 답|로 답|\\{)|Return JSON|Reply JSON|reply JSON|해요체|습니다체|존댓말|^너는 |답하라|답해\\.|답하세요|\\/workspace|SKILL\\.md|MISSION_RESULT|read_file|bpmn-process-generation|스킬로 \\/|_inspect|_command|office_live|panel_app_|folder_catalog|improve_[a-z]+",
   "why": "LLM prompt / agent instruction"

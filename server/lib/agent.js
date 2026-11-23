@@ -23,7 +23,12 @@ import { listTeam, listAssignments, resolveMember } from './team.js'
 import { notifyMember } from './notify.js'
 import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, parseToolOutput, publish } from './office.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import * as llmKeys from './llmKeys.js'
 import * as turns from './turns.js'
+import { refer as referContext } from './context/refer.js'
+import { rebuildSoon } from './context/digest.js'
+import { findRepeat } from './context/repeat.js'
+import { afterTurn, followsResult, readAnswer, readRule, whenText } from './followups.js'
 import { ranRule, readRoom, roomGoal, ruleAction, ruleOf } from './roomRules.js'
 import { browserSkill, browserSkills } from './browserSkills.js'
 import { judge } from './judge.js'
@@ -39,6 +44,7 @@ import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
 import * as TF from './folders/threadFolders.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
+import { sendMail, demoFiles } from './scenarios/mail.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
 const attached = new Map() // threadId -> [{name, path, url, type, size}]
@@ -54,8 +60,9 @@ const ROUTER_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          intent: { type: 'string', enum: ['start', 'view', 'catalog', 'instances', 'my_todos', 'create'], description: 'catalog = list which processes exist; create = design a NEW process definition from a description' },
-          query: { type: 'string', description: 'process name or keywords (start/view), or the full requirement for a new process (create)' },
+          intent: { type: 'string', enum: ['start', 'view', 'catalog', 'instances', 'my_todos', 'create', 'edit_map'], description: 'catalog = list which processes exist; create = design a NEW process definition from a description; edit_map = change one of the company process map\'s processes by words, or say an improvement for it («○○ 프로세스에서 … 바꿔 줘», «… 뒤에 …를 넣어 줘», «…는 에이전트가 하게», «… 바꾸면 좋겠어요»)' },
+          query: { type: 'string', description: 'process name or keywords (start/view), the full requirement for a new process (create), or the change in the user\'s own words (edit_map)' },
+          process: { type: 'string', description: 'edit_map: the name of the process on the company process map the change is for, as the user said it (empty when unsure)' },
           prefill: { type: 'object', description: 'form values the user already gave, keyed by meaning (e.g. customer, qty)' },
           ack: { type: 'string', description: '해요체 한 문장' },
         },
@@ -153,6 +160,25 @@ const ROUTER_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'send_mail',
+      // the company's mail policies decide (lib/scenarios/mail.js → lib/policy): sent, recorded, held for approval or blocked
+      description: `Send an e-mail for the user now: "kim@globex-demo.com 에게 견적 메일 보내줘", "고객 명단 파일 첨부해서 메일로 보내", "민지님께 회의 자료 메일로 보내줘". Anything to go by 메일/이메일/e-mail is this tool, to a teammate too (notify_member is a Home notification, not a mail). Write the whole mail from the request. NOT for reading, searching or summarising mail, and not for a mail on a schedule (schedule_task).`,
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'array', items: { type: 'string' }, description: 'recipient e-mail addresses (a teammate may be named instead)' },
+          subject: { type: 'string', description: '메일 제목' },
+          body: { type: 'string', description: '보낼 본문 전체' },
+          attachment: { type: 'string', description: `REQUIRED whenever the request names a file, list or material to send (명단, 파일, 자료, 첨부): its exact file name from the user's demo folder (${demoFiles().join(', ')}) or from this chat's attachments — or the text to attach` },
+          ack: { type: 'string', description: '보내 보겠다는 해요체 한 문장(보냈다고 말하지 말 것 — 회사 정책이 결과를 정함)' },
+        },
+        required: ['to', 'subject', 'body', 'ack'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_action',
       description: 'Save a reminder / to-do as an action button on Home.',
       parameters: {
@@ -186,7 +212,7 @@ const PERSONA_EN = `You are the user's work assistant, like a personal operating
 first person ("I'll…"), no preamble. Write every tool argument a person will read (ack, name, title, message, text) in English. Current time: ${'{now}'}.`
 
 function toLlmHistory(rows) {
-  return rows.filter((r) => r.kind === 'text' || r.kind === 'doc').map((r) => ({
+  return rows.filter((r) => r.kind === 'text' || r.kind === 'doc' || r.kind === 'followup').map((r) => ({
     role: r.role === 'user' ? 'user' : 'assistant',
     content: r.content.text || '',
   }))
@@ -265,7 +291,7 @@ export async function replaceEarlier({ user, session, threadId, room, text, why 
 const hostOf = (u) => { try { return new URL(u).host } catch { return '' } }
 const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, openDoc }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
@@ -274,15 +300,48 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     ...(f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { key: undefined } : {}),
     ...(f.path && !ownPath(f.path) ? { path: undefined } : {}) })).slice(0, 10)
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
-  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}) })
+  // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
+  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}) })
   const store = turnCtx.getStore()
-  if (store) store.userMsgId = said.id
+  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null }
   // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it
   // as the open document even when the live link (lib/craftLive.js) is down
   const doc = openDocOf(openDoc)
   if (store && doc) store.openDoc = doc
+  // 후행 습관(lib/followups.js): an answer in words to the question just asked, or a habit told outright
+  if (!habitId) {
+    const ans = await readAnswer(user, threadId, said.id, text, files.length > 0).catch((e) => { console.warn('[followups] answer', e.message); return null })
+    if (ans?.decline) {
+      noAgentTurn()
+      const ok = L('알겠어요. 이번에는 하지 않을게요.', "Okay, I won't this time.")
+      onDelta?.(ok)
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok })
+    }
+    if (ans?.accept) {
+      // from here it is the turn the card's button runs; the person's own words stay in the chat
+      text = ans.accept.action
+      files = (ans.accept.files || []).filter((f) => f?.url).slice(0, 10)
+      if (ans.accept.conversation?.id) pinned.set(threadId, { conversationId: String(ans.accept.conversation.id), title: String(ans.accept.conversation.title || '') })
+      context = [context, L('(비서가 물은 일을 사용자가 수락했습니다)', '(The person accepted what the assistant asked)')].filter(Boolean).join('\n\n')
+      if (store) { store.fresh = true; store.said = text; store.habitId = ans.accept.habitId }
+    } else {
+      const told = await readRule(user, text).catch((e) => { console.warn('[followups] rule', e.message); return null })
+      if (told) {
+        noAgentTurn()
+        const ok = L(`기억할게요. ${whenText(told.event_cls)} 「${told.action}」를 먼저 물어볼게요. 설정 › 습관에서 끄거나 지울 수 있어요.`, `Got it. ${whenText(told.event_cls)}, I'll ask about "${told.action}" first. You can turn it off or remove it in Settings › Habits.`)
+        onDelta?.(ok)
+        return addMessage(userId, threadId, 'agent', 'text', { text: ok, habit: told.id })
+      }
+    }
+  }
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
   if (files.length) {
+    // 회사 프로세스 지도(lib/ontology/events.js): a file someone attaches is an event too — the processes it is the work of are offered
+    // (never started for them); it stands in for the chat request's offer of this turn
+    if (!habitId) {
+      if (store) store.fileEvent = true
+      import('./ontology/events.js').then((m) => m.onFile({ user, threadId, files, said: text })).catch((e) => console.warn('[ontology] file event', e.message))
+    }
     attached.set(threadId, files)
     // the router only needs to know there are files; a question about them is the agent's job
     context = [context, L(`(첨부: ${files.map((f) => f.name).join(', ')})`, `(attached: ${files.map((f) => f.name).join(', ')})`)].filter(Boolean).join('\n\n')
@@ -291,7 +350,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // it may set what this room does with the links and files put in it (set_rule), or be one of those (run_rule).
   // (recording 2026-11-21: the rule's first sentence went down a shortcut to the agent first and came back as
   // "PowerPoint 를 만든다") A reply to a process draft the room is waiting on is that draft's, not the room's.
-  const room = (await getThread(userId, threadId))?.kind === 'project'
+  const room = !habitId && (await getThread(userId, threadId))?.kind === 'project'
   if (room && !generationPending(threadId)) {
     const rule = await ruleOf(userId, threadId).catch(() => null)
     const read = await readRoom({ rule, text, files })
@@ -405,6 +464,14 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (!namedApp && siteUrl && SITE_ACTION.test(text) && !files.length && !RECURRING.test(text) && !generationPending(threadId)) {
     return startBrowserTurn({ user, session, threadId, goal: text, startUrl: siteUrl, onDelta, room, asked: { text, files }, ack: L('사이트에서 직접 처리할게요.', "I'll do it on the site.") })
   }
+  // a message about the result just made goes to the agent that made it (lib/followups.js)
+  const about = await followsResult(threadId, said.id, text).catch(() => null)
+  if (about) {
+    if (about.conv) pinned.set(threadId, { conversationId: about.conv, title: about.title })
+    // the same words about a new result are new work, not 「이미 한 요청」
+    if (store) store.fresh = true
+    return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
+  }
   const skillList = await listSkills(session.access_token)
   const skillHint = skillList.length ? `\n${L('사용 가능한 스킬(주기 작업에 쓸 수 있음)', 'Available skills (usable for recurring tasks)')}: ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
   // the browser skills, the same way: name and description only (lib/browserSkills.js — a body is read when a task uses it)
@@ -418,7 +485,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     model: config.llm.fastModel,
     temperature: 0,
     // with no apps to name, a small router model still reaches for panel_record ("'문서 작성' 패널을 찾지 못했어요")
-    tools: routerTools(appHint ? ROUTER_TOOLS : ROUTER_TOOLS.filter((t) => t.function.name !== 'panel_record')),
+    // (send_mail is the demo scenarios' — the demo outbox, config.scenarios; off, a mail request goes where it went before them)
+    tools: routerTools(ROUTER_TOOLS.filter((t) => (appHint || t.function.name !== 'panel_record') && (config.scenarios || t.function.name !== 'send_mail'))),
     messages: [
       { role: 'system', content: isEn()
         ? PERSONA_EN.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
@@ -434,6 +502,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const args = JSON.parse(call.function.arguments || '{}')
   // only designing a new process goes on to the agent; the other tools answer here
   if (!(call.function.name === 'process' && args.intent === 'create')) noAgentTurn()
+  // (a small router model sometimes leaves the acknowledgement out: never an empty bubble)
+  if (!String(args.ack || '').trim()) args.ack = L('네, 처리할게요.', 'On it.')
   const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack })
   onDelta?.(args.ack)
 
@@ -512,6 +582,15 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
         .slice(-3).map((r) => `${r.role === 'user' ? user.name || T('요청자', 'Requester') : T('비서', 'Assistant')}: ${r.content.text.replace(/\s+/g, ' ').slice(0, 220)}`))]
       await withLang(theirs, () => notifyMember(user, member, { title: args.title, text: [args.message.replace(/[^.。!?]*이 대화[^.。!?]*[.。!?]?/g, '').replace(/[^.!?]*\bthis (conversation|chat)\b[^.!?]*[.!?]?/gi, '').trim(), said.length ? `${T('— 대화 발췌 —', '— Conversation excerpt —')}\n${said.join('\n')}` : ''].filter(Boolean).join('\n\n') }))
       await addMessage(userId, threadId, 'agent', 'chip', { icon: 'bell', text: L(`${member.name}님께 알림 보냄${member.via === 'role' ? ` · ${member.role}` : ''} · ${args.title}`, `Notified ${member.name}${member.via === 'role' ? ` · ${member.role}` : ''} · ${args.title}`) })
+      break
+    }
+    case 'send_mail': {
+      // (never offered with the scenarios off; a call named anyway is not sent to the demo outbox)
+      if (!config.scenarios) break
+      // the policy card (and the demo outbox's note) follow in this chat; a recipient without an address is said here
+      // (request: the person's own words, so a file they named is attached even when the arguments left it out)
+      await sendMail(user, { ...args, request: text }, { threadId, files: attached.get(threadId) || [] })
+        .catch((e) => { if (!e.status) console.warn('[mail]', e.message); return addMessage(userId, threadId, 'agent', 'text', { text: e.status ? e.message : L('메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't send the mail. Please try again in a moment.") }) })
       break
     }
     case 'add_action': {
@@ -730,9 +809,12 @@ async function teamCatalogHint(userId) {
 }
 
 // Recent processes with their start-form fields, so a schedule can name one and fill its first step.
-let catalogCache = { at: 0, text: '', lang: 'ko' }
+// (per company and language: the definitions and the map's process names are the company's own)
+const catalogCache = new Map() // `${tenant}:${lang}` → {at, text}
 async function processCatalogHint() {
-  if (Date.now() - catalogCache.at < 60000 && catalogCache.lang === (isEn() ? 'en' : 'ko')) return catalogCache.text
+  const key = `${config.tenantId}:${isEn() ? 'en' : 'ko'}`
+  const hit = catalogCache.get(key)
+  if (hit && Date.now() - hit.at < 60000) return hit.text
   const defs = (await listDefinitions()).slice(0, 12)
   const lines = []
   for (const d of defs) {
@@ -740,8 +822,12 @@ async function processCatalogHint() {
     const keys = (def?.startForm?.fields || []).map((f) => f.key).join(', ')
     lines.push(`${d.id} — ${d.name}${keys ? L(` (첫 단계 입력: ${keys})`, ` (first-step inputs: ${keys})`) : ''}`)
   }
-  catalogCache = { at: Date.now(), lang: isEn() ? 'en' : 'ko', text: lines.length ? `\n${L('주기적으로 시작할 수 있는 프로세스', 'Processes that can be started on a schedule')}: ${lines.join(' / ')}` : '' }
-  return catalogCache.text
+  // the company process map's processes (lib/ontology/editmap.js chatEdit): what «○○ 프로세스에서 … 바꿔 줘» names
+  const mapped = await import('./ontology/store.js').then(async (S) => (S.ontologyEnabled() ? (await S.readGraph({})).processes.filter((p) => p.kind !== 'routine' && (p.tasks || []).length > 1).sort((a, b) => (b.cases || 0) - (a.cases || 0)).slice(0, 12).map((p) => p.name) : [])).catch(() => [])
+  const text = (lines.length ? `\n${L('주기적으로 시작할 수 있는 프로세스', 'Processes that can be started on a schedule')}: ${lines.join(' / ')}` : '')
+    + (mapped.length ? `\n${L('회사 프로세스 지도의 프로세스(바꾸거나 의견을 말하면 process edit_map)', 'Processes on the company process map (changes or improvement ideas → process edit_map)')}: ${mapped.join(' / ')}` : '')
+  catalogCache.set(key, { at: Date.now(), text })
+  return text
 }
 
 // The one-off connector shortcut. Someone who keeps records in panel apps ("할 일", "팀 일정") may
@@ -972,6 +1058,31 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const before = live ? await capture({ userId: user.id, jwt: session.access_token, open: live }) : null
   const usedTools = new Set()
   let partial = ''
+  // 같은 요청 알아보기(lib/context/repeat.js): 나나 팀원이 이미 같은 요청을 해 답이 있으면 에이전트를 부르지 않고 카드로 묻는다
+  // (그 답 보기 · 요청하기 · 그래도 새로 하기). 파일을 붙인 요청, 「새로 하기」로 다시 보낸 요청은 보지 않는다.
+  const freshAsked = !!turnCtx.getStore()?.fresh
+  if (thread?.kind === 'chat' && !silent && mode !== 'skill' && !divider && !pin?.folder && userMsgId && !freshAsked && !uploads.length) {
+    const [said] = await q(`select content->>'text' as text from pro_messages where id = $1`, [userMsgId])
+    const rep = said?.text ? await findRepeat(user, { threadId, message: said.text, userMsgId }).catch((e) => { console.warn('[delegate] repeat', e.message); return null }) : null
+    if (rep?.hits?.length) {
+      await setThreadStatus(user.id, threadId, null)
+      clearTimeout(idleTimer)
+      const h = rep.hits[0]
+      const who = h.mine ? L('같은 요청을', 'the same request') : L(`${h.owner_name}님이 같은 요청을`, `${h.owner_name} made the same request`)
+      return addMessage(user.id, threadId, 'agent', 'repeat', { text: L(`이미 한 요청이에요 — ${who} 했어요(「${h.title}」). 그 답을 볼까요, 새로 할까요?`, `Already asked — ${who} (“${h.title}”). See that answer, or do it again?`),
+        repeat_id: rep.repeat_id, request: said.text, hits: rep.hits, ms: rep.ms })
+    }
+  }
+  // 팀 맥락 공유(lib/context/refer.js): 메인 채팅의 턴마다 지금 일과 관계있는 다른 대화 맥락(내 것·팀이 공유한 것·허락받은 것)을
+  // 골라 인용 블록으로 붙인다. 고른 결과는 사람 메시지에 남아 칩이 된다. 2초 안에 못 고르면 참고 없이 간다.
+  const refer = thread?.kind === 'chat' && !silent && mode !== 'skill' && !divider && !pin?.folder
+    ? await referContext(user, { threadId, message: text, current: turn.conv || thread?.conversation_id || null, turnTitle: turn.title }).catch((e) => { console.warn('[delegate] refer', e.message); return null })
+    : null
+  if ((refer?.refer_id || refer?.off) && userMsgId) {
+    const keep = refer.off ? { off: true } : { refer_id: refer.refer_id, used: refer.used, requestable: refer.requestable, ...(refer.skipped ? { skipped: refer.skipped } : {}) }
+    const [m] = await q(`update pro_messages set content = content || jsonb_build_object('refer', $2::jsonb) where id=$1 returning *`, [userMsgId, JSON.stringify(keep)])
+    if (m) emit(user.id, 'message', m)
+  }
   // a project with a folder works on its own variation of it; a chat with one attached reads its main
   // (lib/folders/threadFolders.js) — not a shared folder's run room (folderTurn: its message says where)
   let projectWork = null, failed = false
@@ -1009,6 +1120,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
 
   async function streamTurn() {
+  // with usage limits on (lib/llmKeys.js): refused before the agent starts when a limit is spent, and the
+  // agent's own model calls go out with this person's key
+  const llmAuth = await llmKeys.admit()
   // attachments are indexed for the conversation they go to (lib/attachments.js), so a new
   // conversation gets its id here — the SDK keeps a conversation_id it is given. The router's
   // choice is not known yet, so routed turns send theirs by address only.
@@ -1020,10 +1134,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const res = await connect(() => fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
     signal: AbortSignal.any([idle.signal, turn.abort.signal]),
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
     body: JSON.stringify({
       // English mode: the language instruction goes last, after what the person said and the hints
-      message: text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+      message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       files: chatFiles(sent),
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
       conversation_id: conv, stream: true,
@@ -1197,10 +1311,14 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (why) { console.log(`[delegate] not attached (${why}): ${f.path}`); files.splice(files.indexOf(f), 1) }
   }
   if (!body && !files.length && !workDir) body = emptyText()
+  // conv: 이 턴이 실제로 간 맥락(라우터가 「그대로」라고 한 턴은 context 에 맥락 id 가 없다) — 맥락의 턴을 찾는 표지(lib/context/items.js)
+  const convNow = turn.conv || routing?.conversation_id || null
   const work = trail.list()
-  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}),
+  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
     ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
   if (preRouted) touchContext(user, routing, text, body)
+  if (convNow && userMsgId) await q(`update pro_messages set content = content || jsonb_build_object('conv', $2::text) where id=$1`, [userMsgId, convNow]).catch(() => {})
+  if (convNow && thread?.kind === 'chat') rebuildSoon(user.id, convNow)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
   for (const f of files) if (f.url && !f.path) f.name = displayName(f, body)
   for (const p of await documentsOfRun({ text: body, dirs: rooms, since: started - 2000 }).catch(() => [])) {
@@ -1229,6 +1347,14 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (contract) {
     generationDone(threadId)
     await addMessage(user.id, threadId, 'agent', 'process_draft', { contract, workDir, state: 'draft' })
+  }
+  // 후행 습관(lib/followups.js): what this turn made, whether it followed the last one, the usual next step. The answer is
+  // already out; this never holds it up, and a scheduled run or a stopped answer teaches nothing.
+  const tc = turnCtx.getStore()
+  if (tc?.said && !ended && !silent && !divider && mode !== 'skill' && !contract) {
+    afterTurn({ user, threadId, msg, conv: turn.conv || routing?.conversation_id || pin?.conversationId || thread?.conversation_id || null, title: context?.title, said: tc.said, files, attached: uploads, fromHabit: tc.habitId, session }).catch((e) => console.warn('[followups]', e.message))
+    // 회사 프로세스 지도(design-v0.3 §12): a new request that starts one of the company's processes is offered as that process
+    if (!tc.habitId && !tc.fileEvent) import('./ontology/run.js').then((m) => m.chatSuggest({ user, threadId, said: tc.said, conv: turn.conv || routing?.conversation_id || null })).catch((e) => console.warn('[ontology] chat suggest', e.message))
   }
   return msg
   }
@@ -1306,6 +1432,12 @@ export function generationPrompt(threadId, text) {
 }
 
 async function processTurn(userId, threadId, args) {
+  // 말로 프로세스 지도 고치기(lib/ontology/editmap.js): a card with the preview — 적용 (admin) or 의견으로 남기기
+  if (args.intent === 'edit_map') {
+    const [p] = await q('select email from pro_profile where user_id=$1', [userId])
+    await (await import('./ontology/editmap.js')).chatEdit({ user: { id: userId, email: p?.email || '' }, threadId, query: args.query || '', process: args.process || '' })
+    return
+  }
   if (args.intent === 'create') {
     generating.set(threadId, args.query || '')
     const guide = await systemGuide().catch(() => '')

@@ -17,6 +17,7 @@ import { q, admin } from './supa.js'
 import { decide, sure } from './decide.js'
 import { config } from '../config.js'
 import { L, isEn } from './lang.js'
+import * as mailCode from './mailCode.js'
 import { saveAttachment } from './attachments.js'
 import { nameByContent } from './fileSniff.js'
 import { workspaceHostPath } from './missions.js'
@@ -399,6 +400,9 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   if (ahead) await updateMessage(userId, card.id, { state: 'running', reason: '' })
   // another task's start page, opened while it planned, lands before this one drives the page
   if (s.early && s.early !== early) await s.early
+  // from here the browser is this task's: anything a site sends from now on answers what this task did
+  // (a code mailed for an earlier sign-in is not this one's — lib/mailCode.js watchForCode since)
+  task.drivingSince = Date.now()
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
@@ -1071,16 +1075,35 @@ async function doAct(s, task, name, a) {
     }
     case 'need_secret': {
       const site = normSite(host)
+      const label = a.label || L('인증 코드', 'verification code')
+      // a code the site e-mailed: the person's own mailbox is watched while the card asks them (lib/mailCode.js);
+      // whichever comes first — the mail or the person — goes into the field
+      const watch = await mailCode.enabledFor(task.userId).catch(() => false)
+      const names = watch ? mailCode.namesOf(await s.page.title().catch(() => '')) : []
       if (task.unattended) {
-        task.notes.push(L(`${site}: 일회용 값(${a.label || '인증 코드'})이 필요해 진행하지 못함`, `${site}: couldn't continue, a one-time value (${a.label || 'verification code'}) is needed`))
+        const found = watch && await mailCode.watchForCode(task.userId, { site: host, names, since: task.drivingSince, timeoutMs: 120000 })
+        if (found) {
+          task.secretSlot = { i: a.i, label }
+          await fillFromMail(s, task, found, null)
+          task.secretSlot = null
+          return `the ${label} from the user's e-mail (${found.from}) was entered into the field (you cannot see it); submit the form and continue`
+        }
+        task.notes.push(L(`${site}: 일회용 값(${label})이 필요해 진행하지 못함`, `${site}: couldn't continue, a one-time value (${label}) is needed`))
         return 'nobody is available to provide a one-time code; do not continue this login, record it in a note'
       }
-      task.secretSlot = { i: a.i, label: a.label || L('인증 코드', 'verification code') }
+      const ctl = new AbortController()
+      task.secretSlot = { i: a.i, label, stopWatch: () => ctl.abort() }
+      if (watch) {
+        mailCode.watchForCode(task.userId, { site: host, names, since: task.drivingSince, signal: ctl.signal })
+          .then((found) => found && task.secretSlot && task.waiting && fillFromMail(s, task, found, task.waiting))
+          .catch((e) => console.warn('[mail-code]', e.message))
+      }
       const answer = await waitForUser(s, task, {
         need: 'login', site,
-        reason: L(`${site} 로그인에 ${a.label || '인증 코드'}가 필요해요. 받은 값을 카드에 넣으면 이어서 해요.`, `${site} needs the ${a.label || 'verification code'} to sign in. Enter it on the card and I'll go on.`),
-        message: ['vault', { kind: 'secret', site, mode: 'request', label: a.label || L('인증 코드', 'verification code') }],
+        reason: L(`${site} 로그인에 ${label}가 필요해요. 받은 값을 카드에 넣으면 이어서 해요.`, `${site} needs the ${label} to sign in. Enter it on the card and I'll go on.`),
+        message: ['vault', { kind: 'secret', site, mode: 'request', label, ...(watch ? { mailWatch: true, mailName: names[0] || null } : {}) }],
       })
+      ctl.abort()
       task.secretSlot = null
       return answer
     }
@@ -1275,6 +1298,22 @@ async function pickItem(s, task, kind, site) {
   return chosen
 }
 
+// The code a site e-mailed, found in the person's own mailbox (lib/mailCode.js): straight into the waiting field, kept
+// nowhere; the card says where it came from (never the code) and the agent goes on as if the person had typed it.
+// resolve: the waiting task's (an unattended task has none and is told by its caller).
+async function fillFromMail(s, t, found, resolve) {
+  const slot = t.secretSlot
+  if (!slot || slot.done) return false
+  slot.done = true
+  await fillSecret(s.page.locator(`[data-pro-idx="${slot.i}"]`).first(), found.code, t)
+  await audit(t.userId, 'one_time', { kind: 'secret', site: normSite(s.page.url().split('/')[2]), actor: 'mail', taskId: t.id, detail: { label: slot.label, from: found.from } })
+  const [card] = await q(`select id from pro_messages where thread_id=$1 and kind='vault' and content->>'taskId'=$2 and content->>'kind'='secret'
+    and content->>'state'='pending' order by created_at desc limit 1`, [t.threadId, t.id])
+  if (card) await updateMessage(t.userId, card.id, { state: 'mail', mailFrom: found.from })
+  resolve?.(`the ${slot.label} from the user's e-mail (${found.from}) was entered into the field (you cannot see it); submit the form and continue`)
+  return true
+}
+
 // The user typed a one-time code into the vault card: it goes straight into the waiting field
 // and is never stored or shown to the model.
 export async function provideSecret(userId, value) {
@@ -1282,6 +1321,10 @@ export async function provideSecret(userId, value) {
   const t = s?.task
   if (!t?.secretSlot || !t.waiting) return false
   const slot = t.secretSlot
+  // the mail got there first
+  if (slot.done) return false
+  slot.done = true
+  slot.stopWatch?.()
   await fillSecret(s.page.locator(`[data-pro-idx="${slot.i}"]`).first(), value, t)
   await audit(userId, 'one_time', { kind: 'secret', site: normSite(s.page.url().split('/')[2]), actor: 'user', taskId: t.id, detail: { label: slot.label } })
   t.waiting(`the user entered the ${slot.label} into the field (you cannot see it); submit the form and continue`)

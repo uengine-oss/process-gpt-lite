@@ -80,6 +80,10 @@ after(async () => {
     await q('delete from pro_skill_visibility where tenant_id=$1 and skill_name=$2', [config.tenantId, skillName])
   }
   await pool.end()
+  // a turn reads the company process map (lib/ontology — the processes a «… 바꿔 줘» names, the one what was said fits):
+  // its Bolt connection would keep the test process alive after the last test
+  const { closeOntology } = await import('../lib/ontology/store.js')
+  await closeOntology()
 })
 
 test('같은 대화에 보낸 두 번째 메시지는 대기했다가, 첫 답이 끝난 뒤 자기 답을 받음', { skip: !up }, async () => {

@@ -22,6 +22,9 @@ const aheadJudged = [] // answers for "does it correct a request in progress" (o
 const judgeCalls = []
 const judgeServer = await new Promise((r) => {
   const s = http.createServer((req, res) => {
+    // only /judge: embeddings (lib/context/embed.js asks <judge>/embeddings) are not part of this test —
+    // a 404 as from a judge server without them, which embed.js takes as "no embeddings for now"
+    if (!req.url.startsWith('/judge')) { req.resume(); res.writeHead(404); return res.end() }
     let raw = ''
     req.on('data', (c) => { raw += c })
     req.on('end', () => {

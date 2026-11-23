@@ -1,67 +1,5 @@
 {
  "exact": {
-  "Client secret (바꿀 때만)": "Client secret (only to change it)",
-  "저장한 Client secret은 다시 보여 주지 않아요. 바꿀 때만 새 값을 넣어요.": "The saved Client secret is never shown again. Enter a new one only to change it.",
-  "서버 브라우저에서 Google에 로그인해 연결해요. NotebookLM 같은 Google 사이트도 함께 로그인돼요": "Sign in to Google in the server browser. Google sites such as NotebookLM get signed in too",
-  "회사 관리자가 설정 › 시스템 설정에서 Google 연결을 켜야 해요": "A company administrator has to turn on Google connections in Settings › System",
-  "휴대폰에서 연결": "Connect on phone",
-  "· 이 기기에서 Google에 로그인해 메일만 연결해요": "· sign in to Google on this device and connect the mail only",
-  "Gmail·캘린더·Drive·YouTube 권한으로 연결해요. 서버 브라우저에서 로그인하면 NotebookLM 같은 Google 사이트도 함께 로그인돼요. 캘린더 등록이 안 되면 다시 연결해 권한을 넓혀요.": "Connects with Gmail, Calendar, Drive and YouTube access. Signing in in the server browser signs Google sites such as NotebookLM in too. If adding calendar events fails, connect again to widen the permissions.",
-  "회사 관리자가 설정 › 시스템 설정 › 회사 Google 연결에 OAuth 클라이언트를 넣으면 연결할 수 있어요.": "You can connect once a company administrator adds the OAuth client in Settings › System › Company Google connection.",
-  "휴대폰에서 연결 · 메일만": "Connect on phone · mail only",
-  "Google을 연결했어요. 메일을 읽기 시작해요.": "Google is connected. I'm starting on your mail.",
-  "회사 Google 연결": "Company Google connection",
-  "OAuth 클라이언트": "OAuth client",
-  "이 회사 사람들이 메일·캘린더를 Google로 연결할 때 써요. Google Cloud 콘솔의 「API 및 서비스 › 사용자 인증 정보」에서 만든 웹 애플리케이션용 OAuth 클라이언트 값을 넣어요.": "Used when people in this company connect their mail and calendar with Google. Enter the web application OAuth client you made in the Google Cloud console under \"APIs & Services › Credentials\".",
-  "회사 값을 쓰고 있어요": "Using the company's own",
-  "설치 기본값(서버 설정)을 쓰고 있어요": "Using this install's default (server settings)",
-  "아직 없어요 · 사람들이 Google을 연결할 수 없어요": "None yet · people can't connect Google",
-  "등록해야 할 리디렉션 URI": "Redirect URI to register",
-  "그 OAuth 클라이언트의 「승인된 리디렉션 URI」에 이 주소를 그대로 추가해요.": "Add this address as it is to that OAuth client's \"Authorized redirect URIs\".",
-  "복사": "Copy",
-  "복사했어요": "Copied",
-  "회사 Google 연결 값을 지울까요? 지우면 설치 기본값이 없을 때 사람들이 Google을 새로 연결할 수 없어요.": "Remove the company Google connection values? Without an install default, people then can't connect Google anew.",
-  "Google 연결하기": "Connect Google",
-  "자료 띄우기": "Show material",
-  "내가 볼 수 있는 자료나 내 컴퓨터에 있는 파일을 골라 회의에 띄워요": "Pick something you can see, or a file on your computer, and show it in the meeting",
-  "내 컴퓨터에서 파일 고르기": "Choose a file on my computer",
-  "고른 파일을 바로 모두에게 띄워요 · 끌어다 놓아도 돼요": "Shown to everyone right away · you can drag it here too",
-  "나만 보기": "Just for me",
-  "띄우는 중…": "Showing…",
-  "새 버전이 나왔어요. 새로 고침하면 바로 적용돼요.": "A new version is out. Reload to use it.",
-  "새로 고침": "Reload",
-  "50MB보다 큰 파일은 올릴 수 없어요.": "Files over 50 MB can't be uploaded.",
-  "자료 찾기 · 파일 이름이나 내용 (예: ERP PDF)": "Find material · file name or content (e.g. ERP PDF)",
-  "찾기": "Find",
-  "내가 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 다른 검색어로 찾아보세요.": "Nothing found in the room's files, shared folders or work in progress you can see. Try other words.",
-  "회의 중에 \"지난번 견적서 다시 보자\"처럼 말하면 도우미가 자료를 찾아 여기에 띄워요. 말로 자료를 찾지 못하면 위 칸에서 직접 찾아 띄울 수 있어요.": "Say something like \"let's look at the last quote again\" and the helper finds the material and puts it here. If speech doesn't work, find it yourself in the box above.",
-  "도우미": "Helper",
-  "로그인이 만료되어 말을 보내지 못했어요. 페이지를 새로 고친 뒤 다시 참여해 주세요.": "Your sign-in ended, so your speech wasn't sent. Reload the page and join again.",
-  "폴더 고르기": "Choose a folder",
-  "· 없어도 돼요": "· optional",
-  "· 새 폴더": "· new folder",
-  "· 이 폴더에서 작업": "· work here",
-  "· 변형 작업 중": "· variation in progress",
-  "· 참고": "· for reference",
-  "폴더 빼기": "Remove folder",
-  "폴더 떼기": "Detach folder",
-  "변형 보기": "View variation",
-  "프로젝트 폴더 고르기": "Choose the project's folder",
-  "폴더 붙이기": "Attach a folder",
-  "이 프로젝트가 작업할 폴더": "Folder this project works in",
-  "프로젝트는 이 폴더의 변형에서 작업하고, 「반영」해야 원본에 들어가요.": "The project works on a variation of this folder; changes reach the original only when you merge them.",
-  "에이전트가 이 폴더를 읽어요. 바꿔 달라고 할 때만 변형을 만들어요.": "The agent reads this folder. It makes a variation only when you ask for a change.",
-  "작업할 수 있는 폴더가 없어요. 새 폴더를 만들어 보세요.": "No folder you can work in yet. Make a new one.",
-  "쓸 수 있는 폴더가 없어요.": "No folders you can use.",
-  "새 폴더 이름": "New folder name",
-  "같은 이름의 폴더가 이미 있어요.": "A folder with that name already exists.",
-  "파일 첨부 · 폴더 붙이기": "Attach a file · attach a folder",
-  "첫 작업 때 변형을 만들어요": "A variation is made on the first task",
-  "에이전트가 작업하는 중": "Agent is working",
-  "반영하다 부딪친 곳이 있어요": "The merge hit a conflict",
-  "아직 바뀐 것 없음": "No changes yet",
-  "검토하고 원본에 반영해요": "Review and merge into the original",
-  "반영할 변경이 아직 없어요": "Nothing to merge yet",
   "50MB 보다 큰 파일은 올릴 수 없어요.": "You can't upload files larger than 50MB.",
   "올리지 못했어요.": "I couldn't upload it.",
   "한글": "Hangul",
@@ -71,6 +9,20 @@
   "납부": "Pay",
   "답장": "Reply",
   "이 방의 규칙": "This room's rule",
+  "습관": "Habits",
+  "네, 해 주세요": "Yes, please",
+  "다시 묻지 않기": "Don't ask again",
+  "네, 하는 중이에요": "Yes, working on it",
+  "이번에는 하지 않았어요": "Skipped this time",
+  "다시 묻지 않을게요": "I won't ask again",
+  "직접 말씀하신 습관": "A habit you told me",
+  "습관 · 제안을 수락했어요": "Habit · you accepted the suggestion",
+  "묻지 않아요": "Not asking",
+  "한 번 더 보면 물어볼게요": "I'll ask after seeing it once more",
+  "직접 말씀하신 습관 · 다음부터 물어봐요": "A habit you told me · I'll ask from next time",
+  "다음부터 물어봐요": "I'll ask from next time",
+  "결과물을 받은 뒤 습관처럼 시키는 일을 기억해 두었다가, 다음에 먼저 묻습니다. 눌러야 실행하고, 다른 사람에게는 보이지 않습니다.": "What you usually ask for after a result is remembered and offered next time. Nothing runs until you say so, and no one else can see these.",
+  "아직 배운 습관이 없어요. 「앞으로 슬라이드 만들면 로고는 유엔진으로 바꿔 줘」처럼 직접 말해도 됩니다.": "No habits yet. You can also tell me directly: \"From now on, when you make slides, change the logo to uEngine.\"",
   "서명": "Sign",
   "알림": "Notification",
   "예약": "Book",
@@ -130,14 +82,6 @@
   "다시 연결(권한 넓히기)": "Reconnect (widen permissions)",
   "토큰 바꾸기": "Change token",
   "토큰 만들기": "Create token",
-  "API 키 없이도 채널 새 영상·자막은 볼 수 있어요. 인기 영상·검색은 YouTube API 키나 Google 계정 연결이 필요해요.": "Channel uploads and captions work without an API key. Popular videos and search need a YouTube API key or a connected Google account.",
-  "API 키로 인기 영상·검색까지 써요. 채널 새 영상·자막은 키 없이도 돼요.": "With your API key, popular videos and search work too. Channel uploads and captions work without a key.",
-  "서버에 둔 API 키로 인기 영상·검색까지 써요. 내 키를 넣으면 그 키를 먼저 써요.": "The server's API key covers popular videos and search. A key of your own is used first.",
-  "Google 계정으로 인기 영상·검색까지 써요. 채널 새 영상·자막은 키 없이도 돼요.": "With your Google account, popular videos and search work too. Channel uploads and captions work without a key.",
-  "Google Cloud 콘솔에서 YouTube Data API v3 를 켜고 「사용자 인증 정보 › API 키」를 만들어 붙여 넣으세요.": "In the Google Cloud console, enable the YouTube Data API v3, create a key under \"Credentials › API key\" and paste it here.",
-  "API 키 넣기": "Add API key",
-  "API 키 바꾸기": "Change API key",
-  "키 만들기": "Create key",
   "저장": "Save",
   "대화": "Conversation",
   "전체 대화": "All conversations",
@@ -289,11 +233,6 @@
   "리본 펴기 (Ctrl+F1)": "Expand ribbon (Ctrl+F1)",
   "리본 접기": "Collapse ribbon",
   "리본 펴기": "Expand ribbon",
-  "슬라이드 목록": "Slides",
-  "슬라이드 목록 열기": "Show the slide list",
-  "슬라이드 목록 닫기": "Hide the slide list",
-  "이전 슬라이드": "Previous slide",
-  "다음 슬라이드": "Next slide",
   "문서 편집기": "Document editor",
   "선이 사라져서 바탕색 기준으로 다시 칠했어요": "Lines disappeared, so I repainted based on the background color",
   "한글 문서에 넣기": "Put in Hangul document",
@@ -348,7 +287,6 @@
   "KEK로 직접 열 수 없음": "Can't be opened directly with the KEK",
   "실시간": "Live",
   "로그아웃": "Log out",
-  "Process GPT 데스크톱 화면으로": "Open the Process GPT desktop view",
   "뒤로": "Back",
   "API 키 추가": "Add API key",
   "로그인 수정": "Edit login",
@@ -453,14 +391,6 @@
   "확장": "Expand",
   "작업 취소": "Cancel task",
   "직접 제어": "Take control",
-  "직접 로그인": "Sign in yourself",
-  "화면의 칸을 누르고 여기에 입력해요": "Tap a field on the screen, then type here",
-  "직접 확인": "Check it yourself",
-  "같은 화면에서 멈춤": "Stuck on the same screen",
-  "고르러 가기": "Go choose",
-  "승인하러 가기": "Go approve",
-  "프로젝트를 만들지 못했어요 · 보낸 글은 입력창에 돌려놓았어요. 다시 보내 주세요.": "Couldn't create the project · your message is back in the box. Please send it again.",
-  "프로젝트를 만들지 못했어요 · 다시 보내 주세요.": "Couldn't create the project · please send it again.",
   "제어 돌려주기": "Give control back",
   "불러오는 중": "Loading",
   "확인 후 완료로 표시하세요.": "Check it, then mark it done.",
@@ -538,7 +468,6 @@
   "역할·프로세스 검색": "Search roles and processes",
   "관리자만 바꿀 수 있어요": "Only admins can change this",
   "시작한 사람": "Whoever started it",
-  "위 담당 따름": "Same as above",
   "여는 중…": "Opening…",
   "미리 볼 수 없는 형식이에요. '원본' 으로 받아 보세요.": "This format can't be previewed. Download the original instead.",
   "기준본(main)": "Baseline (main)",
@@ -900,6 +829,7 @@
   "ago:d=>{const s=(Date.now()-new Date(d))/1000;return s<60?'방금':s<3600?Math.floor(s/60)+'분 전':s<86400?Math.floor(s/3600)+'시간 전':Math.floor(s/86400)+'일 전'},": "ago:d=>{const s=(Date.now()-new Date(d))/1000;return s<60?'just now':s<3600?Math.floor(s/60)+' min ago':s<86400?Math.floor(s/3600)+' hr ago':Math.floor(s/86400)+' days ago'},",
   "도움": "Help",
   "내 계정·내 에이전트로 해요 · 결과는 이 대화에 올라와요": "Runs with my account and agent · results appear in this conversation",
+  "에이전트가 작업하는 중": "Agent is working",
   "받는 사람": "Recipient",
   "보내면 에이전트가 아니라 이분께 가요 · 이 대화 요지와 최근 산출물이 함께 가요": "This goes to them, not to an agent · a summary of this conversation and recent outputs go along",
   "판단 모델이 이 일과 관계된 팀원을 고르는 중…": "The routing model is picking teammates related to this…",
@@ -1508,6 +1438,7 @@
   "폴더를 찾지 못했어요.": "I couldn't find that folder.",
   "이 폴더의 구성원이 아니에요.": "You aren't a member of this folder.",
   "폴더 이름을 적어 주세요.": "Please enter a folder name.",
+  "같은 이름의 폴더가 이미 있어요.": "A folder with that name already exists.",
   "폴더 만들기": "Create folder",
   "git 저장소가 아니에요.": "That isn't a git repository.",
   "권한은 owner·editor·runner·viewer 중 하나예요.": "The role is one of owner, editor, runner, viewer.",
@@ -1769,7 +1700,603 @@
   "⌘M 로 내보내기": "Export with ⌘M",
   "회의": "Meeting",
   "나도 할 수 있어요": "You can too",
-  "필수": "Required",
+  "사용량·요금제": "Usage & plan",
+  "내 사용량": "My usage",
+  "현재 세션": "Current session",
+  "이번 주": "This week",
+  "이번 결제 기간": "This billing period",
+  "이번 달 (관리자 한도)": "This month (admin limit)",
+  "사용한 만큼": "Pay as you go",
+  "한도는 회사 관리자가 정해요.": "Your company's administrators set the limits.",
+  "회사 추가 사용량": "Company extra usage",
+  "예약 작업·브라우저 에이전트·마이닝 같은 백그라운드 작업도 같은 한도를 써요.": "Background work (scheduled tasks, the browser agent, mining) uses the same limits.",
+  "요금제": "Plans",
+  "출처": "source",
+  "지금 요금제": "Current plan",
+  "무료": "Free",
+  "사용량만큼": "usage-based",
+  "이 요금제로 변경": "Switch to this plan",
+  "요청했어요": "Requested",
+  "관리자에게 남길 말 (선택)": "Note for your administrators (optional)",
+  "추가 사용량 요청": "Request extra usage",
+  "추가 사용량을 요청했어요": "Extra usage requested",
+  "회사": "Company",
+  "회사 월 지출 한도": "Company monthly spend limit",
+  "추가 사용량 (월 풀)": "Extra usage (monthly pool)",
+  "0이면 한도 없음": "0 means no limit",
+  "0이면 꺼짐": "0 turns it off",
+  "거절": "Decline",
+  "추가 사용량": "Extra usage",
+  "이번 달 예상 청구": "Estimated bill this month",
+  "추가 사용량 (원가)": "Extra usage (at cost)",
+  "사용량 (원가)": "Usage (at cost)",
+  "결제 대행 연동 전이라 실제 청구는 하지 않아요. 좌석은 월간 단가예요.": "No payment is taken yet (no payment provider connected). Seats are at monthly prices.",
+  "결제 대행 연동 전이라 실제 청구는 하지 않아요. 좌석은 연간 단가예요.": "No payment is taken yet (no payment provider connected). Seats are at yearly prices.",
+  "아직 사용 전": "Not used yet",
+  "아직 사용 전 · 5시간마다": "Not used yet · every 5 hours",
+  "월 한도 $": "Limit $",
+  "이 서버는 사용량 한도를 쓰지 않아요 (PRO_LLM_KEYS=litellm 으로 켭니다).": "This server does not use usage limits (turn them on with PRO_LLM_KEYS=litellm).",
+  "AI 사용량 요청": "AI usage request",
+  "이번 달 내 사용": "My use this month",
+  "회사 포함 크레딧 (이번 달)": "Company's included credits (this month)",
+  "충전 크레딧": "Purchased credits",
+  "회사 포함 크레딧을 다 쓰면 이어서 써요": "Used once the included credits run out",
+  "1크레딧 = ₩10 · 부가세 별도": "1 credit = ₩10 · VAT excluded",
+  "협의": "By contract",
+  "충전 크레딧 (월)": "Purchased credits (monthly)",
+  "크레딧": "credits",
+  "월 한도": "Limit",
+  "부가세 (10%)": "VAT (10%)",
+  "요청이 너무 잦아요. 1분쯤 뒤에 다시 해 주세요. (요금제의 분당 호출 한도)": "Too many requests right now. Try again in a minute. (your plan's per-minute limit)",
+  "허용": "Allow",
+  "승인 필요": "Approval needed",
+  "차단": "Blocked",
+  "바로 실행해요": "Runs at once",
+  "실행하고 감사 기록에 남겨요 · 되돌리기 창": "Runs and is recorded for audit · undo window",
+  "승인자가 승인하면 실행해요": "Runs once the approver approves",
+  "실행하지 않아요": "Does not run",
+  "권한·결재": "Authority & sign-off",
+  "법무·계약": "Legal & contracts",
+  "기록·감사": "Records & audit",
+  "품질·운영": "Quality & operations",
+  "비용": "Cost",
+  "윤리": "Ethics",
+  "메일 보내기": "Send mail",
+  "결제 (브라우저 에이전트)": "Payment (browser agent)",
+  "구매 승인": "Purchase approval",
+  "발주": "Purchase order",
+  "배포": "Release",
+  "데이터 반출": "Data export",
+  "데이터 삭제": "Data deletion",
+  "주민등록번호": "Resident registration no.",
+  "휴대전화": "Mobile number",
+  "계좌번호": "Bank account no.",
+  "받는 도메인": "Recipient domains",
+  "외부 포함": "Includes outside",
+  "외부 수신자": "External recipients",
+  "개인정보 종류": "Personal data kinds",
+  "종류별": "By kind",
+  "분류": "Classification",
+  "첨부": "Attachments",
+  "금액": "Amount",
+  "판매처": "Merchant",
+  "처음 쓰는 판매처": "New merchant",
+  "신규 공급사": "New supplier",
+  "되돌릴 수 있는 준비": "Reversible preparation",
+  "공개 대상": "Audience",
+  "기능": "Features",
+  "열린 위험": "Open findings",
+  "보안 점검": "Security scan",
+  "요일": "Weekday",
+  "시": "Hour",
+  "행": "Rows",
+  "개인정보 행": "Rows with personal data",
+  "외부로": "To outside",
+  "건수": "Count",
+  "기밀": "Confidential",
+  "일반": "General",
+  "일반 공개": "Public",
+  "내부": "Internal",
+  "베타": "Beta",
+  "만료": "Expired",
+  "하루": "a day",
+  "정책": "Policies",
+  "시험해 보기": "Try it",
+  "결정 원장": "Decision ledger",
+  "에이전트가 결과가 남는 일(메일 보내기, 결제, 배포 …)을 하기 전에 아래 정책으로 판단해요. 여러 정책이 걸리면 가장 엄격한 결과를 따르고, 판단은 규칙으로만 해요 — AI 모델이 승인 여부를 정하지 않아요.": "Before an agent does something with consequences (sending mail, paying, releasing …), these policies decide. When several apply, the strictest wins, and only rules decide — no AI model decides whether something needs approval.",
+  "정책 켜기·끄기는 관리자만 할 수 있어요. 바꿀 일이 있으면 관리자에게 알려 주세요.": "Only administrators can turn policies on or off. Tell an administrator if one should change.",
+  "승인·예외": "Approves / exceptions",
+  "담당 없음 → 관리자": "No one assigned → administrators",
+  "조건 (JSONLogic)": "Rule (JSONLogic)",
+  "끄기": "Turn off",
+  "켜기": "Turn on",
+  "행위와 그 사실(facts)을 넣으면 정책 엔진이 어떻게 판단하는지 보여 줘요. 실행하지도, 결정 원장에 남기지도 않아요. 구간 규칙(하루 N건)은 내 실제 기록으로 세요.": "Enter an action and its facts to see how the policy engine decides. Nothing runs and nothing goes into the ledger. Window rules (N a day) count your real history.",
+  "행위": "Action",
+  "사내 메일": "Internal mail",
+  "외부 메일": "External mail",
+  "외부 + 개인정보 6건": "External + 6 personal data items",
+  "개인정보 120건": "120 personal data items",
+  "기밀 첨부 외부 발송": "Confidential file to outside",
+  "10만 5천 원 (허용 오차)": "₩105,000 (within tolerance)",
+  "승인 전 발주": "Order before approval",
+  "승인 전 견적·초안": "Quote or draft before approval",
+  "승인 후 발주": "Order after approval",
+  "금요일 오후 공개 + 개인정보 위험": "Friday-afternoon public + privacy finding",
+  "내부 사용자 먼저": "Internal users first",
+  "보안 점검 실패": "Security scan failed",
+  "개인정보 10행 외부로": "10 rows of personal data to outside",
+  "개인정보 3,000행 외부로": "3,000 rows of personal data to outside",
+  "30건 삭제": "Delete 30",
+  "500건 삭제": "Delete 500",
+  "판단해 보기": "Evaluate",
+  "바로 실행돼요": "Runs at once",
+  "실행되고 감사 기록에 남아요 · 되돌릴 수 있어요": "Runs, is recorded for audit and can be undone",
+  "실행되지 않아요": "Does not run",
+  "걸린 정책이 없어서 허용해요.": "No policy applies, so it is allowed.",
+  "승인 대기": "Waiting for approval",
+  "실행됨": "Executed",
+  "반려됨": "Rejected",
+  "되돌림": "Undone",
+  "사전 검증 포함": "Include dry runs",
+  "최적화가 대안을 고르기 전에 정책으로 미리 확인한 판단": "Checks the optimizer ran against the policies before choosing an alternative",
+  "알림의 결정이 목록에 없어요. 볼 수 있는 사람이 아니거나 이미 오래된 결정이에요.": "The decision from the notification is not in the list: you can't see it, or it is old.",
+  "승인 후 실행": "Ran after approval",
+  "실행 · 기록": "Ran · recorded",
+  "실행함": "Ran",
+  "사전 검증": "Dry run",
+  "판단만": "Decided only",
+  "회수함": "Recalled",
+  "시연용 보낸편지함 · 실제 메일은 나가지 않아요": "Demo outbox · no real e-mail goes out",
+  "회수하기": "Recall",
+  "되돌리기": "Undo",
+  "판단에 쓴 사실": "Facts used",
+  "걸린 정책": "Matched policies",
+  "걸린 정책이 없어서 허용했어요.": "No policy applied, so it was allowed.",
+  "예외 권한": "Exception authority",
+  "승인자": "Approver",
+  "승인한 사람": "Approved by",
+  "반려한 사람": "Rejected by",
+  "결과": "Result",
+  "승인·반려 메모 (선택)": "Note for approving or rejecting (optional)",
+  "아직 결정이 없어요.": "No decisions yet.",
+  "내용 확인 못 함": "Content not checked",
+  "반려": "Rejected",
+  "개인정보 책임자": "privacy officer",
+  "보안 담당자": "security officer",
+  "팀장": "team lead",
+  "재무 책임자": "finance lead",
+  "구매 담당": "purchasing",
+  "릴리스 책임자": "release manager",
+  "개인정보보호법 제17조(개인정보의 제공)": "PIPA Art. 17 (Provision of personal information)",
+  "개인정보보호법 제29조(안전조치의무)": "PIPA Art. 29 (Duty of safety measures)",
+  "EU AI Act 제14조(사람의 감독)": "EU AI Act Art. 14 (Human oversight)",
+  "NIST AI RMF — GOVERN·MANAGE": "NIST AI RMF — GOVERN·MANAGE",
+  "ISMS-P 2.10(시스템 및 서비스 보안관리)": "ISMS-P 2.10 (System and service security)",
+  "사내 규정(예시)": "In-house rule (example)",
+  "실행하지 않음": "Not run",
+  "정책·가드레일": "Policies & guardrails",
+  "경로 최적화": "Path optimizer",
+  "대안을 골라 주세요": "Choose an alternative",
+  "가장 나은 대안을 자동으로 실행했어요": "Ran the best alternative on its own",
+  "고른 대안을 진행하고 있어요": "The chosen alternative is under way",
+  "예외 권한자 판단을 기다려요": "Waiting for the exception holder",
+  "다시 계산해 새 대안으로 바뀌었어요": "Re-run: replaced by a new optimization",
+  "멈췄어요": "Stopped",
+  "QA 에이전트": "QA agent",
+  "베타 그룹": "Beta group",
+  "사내 사용자": "Internal users",
+  "품질": "Quality",
+  "높음": "High",
+  "보통": "Medium",
+  "낮음": "Low",
+  "지금": "Now",
+  "정책 사전 검증": "Policy dry run",
+  "시뮬레이션": "Simulation",
+  "전략 점수": "Strategic score",
+  "에이전트 제안": "agent proposal",
+  "제외": "Excluded",
+  "선택됨": "Chosen",
+  "자동 실행": "Ran on its own",
+  "모두 공개까지": "Until all public",
+  "2주 가치 전달": "Value in 2 weeks",
+  "잔여 위험": "Residual risk",
+  "위험 노출 없음": "No risk exposure",
+  "이 대안으로": "Go with this",
+  "승인하고 이 대안으로": "Approve and go with this",
+  "실행 중…": "Running…",
+  "전략맵에서 보기": "Open the strategy map",
+  "전략맵": "Strategy map",
+  "정책에 막힌 일을 에이전트가 대안으로 풀 때, 이 목표들의 우선순위와 위험 허용 수준이 대안을 고르는 기준이 돼요.": "When agents work round a blocked action, these objectives' priorities and risk appetites decide which alternative wins.",
+  "재무": "Financial",
+  "얻을 성과": "Results to gain",
+  "고객이 느끼는 것": "What customers feel",
+  "내부 프로세스": "Internal process",
+  "잘해야 할 일": "What we must do well",
+  "학습·성장": "Learning & growth",
+  "키울 역량": "Capabilities to grow",
+  "우선순위": "Priority",
+  "위험 허용": "Risk appetite",
+  "기본(보통)": "Default (medium)",
+  "필수": "Must",
+  "권장": "Should",
+  "보호": "Protects",
+  "QA 에이전트 검토": "QA agent review",
+  "베타 피드백 수집": "Beta feedback",
+  "목표가 없어요": "No objectives",
+  "최근 최적화": "Latest optimization",
+  "선택 대기": "Awaiting choice",
+  "멈춤": "Stopped",
+  "예외 판단 대기": "Awaiting exception",
+  "대안": "Alternative",
+  "점수": "Score",
+  "점수 (지금 기준)": "Score (today's graph)",
+  "지금 기준으로 다시 계산": "Re-score against today's graph",
+  "계산 중…": "Calculating…",
+  "이 순위로 다시 실행": "Re-run with this ranking",
+  "대화에서 보기": "Open in chat",
+  "점수 = Σ 목표 가중치 × 기여 − 위험 노출 × 위험 허용 − 지연. 미리 보기는 아무것도 기록하지 않아요.": "Score = Σ objective weight × contribution − risk exposure × appetite − delay. A preview records nothing.",
+  "아직 최적화한 일이 없어요. 아래에서 출시를 요청해 보세요.": "Nothing optimized yet. Request the release below.",
+  "이번 출시": "This release",
+  "보안 점검 통과": "Security scan passed",
+  "조치됨": "Fixed",
+  "금요일 16:00": "Friday 16:00",
+  "금요일 11:00": "Friday 11:00",
+  "수요일 10:00": "Wednesday 10:00",
+  "에이전트(모델)가 대안 만들기": "Agents (the model) propose alternatives",
+  "보안 점검 실패로 가정": "Assume the security scan failed",
+  "예외 권한자가 없다고 가정": "Assume no exception holder",
+  "출시 요청": "Request release",
+  "정책 확인·대안 계산 중…": "Checking policies, working out alternatives…",
+  "대안을 계산했어요": "Alternatives worked out",
+  "그대로 출시했어요(시연)": "Released as planned (demo)",
+  "승인을 기다려요": "Waiting for approval",
+  "배포 기록": "Deployment log",
+  "시연용 — 실제로 배포하지 않아요": "demo — nothing is deployed",
+  "배포됨(시연)": "Deployed (demo)",
+  "계획": "Planned",
+  "고객 신뢰": "Customer trust",
+  "출시 일정 준수": "On-time release",
+  "매출 성장": "Revenue growth",
+  "개발 생산성": "Engineering productivity",
+  "유료 전환율": "Paid conversion",
+  "고객 신뢰 지수(NPS)": "Customer trust (NPS)",
+  "계획 기능 적시 배포율": "Planned features shipped on time",
+  "출시 후 2주 사용 피드백 확보율": "Usage feedback within 2 weeks",
+  "공유 링크": "Share links",
+  "대용량 업로드": "Large uploads",
+  "폴더 동기화 개선": "Folder sync improvements",
+  "클라우드 드라이브 4.12 정기 출시": "Cloud Drive 4.12 release",
+  "파일·폴더를 링크로 공유 — 받는 사람의 이메일과 소유자 정보를 다룸": "Share files and folders by link — handles recipients' e-mail and owner details",
+  "최대 50GB 파일을 끊긴 곳부터 이어 올리기": "Resumable uploads of files up to 50 GB",
+  "동기화 충돌 해결과 속도 개선": "Sync conflict resolution and speed-ups",
+  "비민감 기능만 분리 출시": "Release only the non-sensitive features",
+  "내부 사용자 먼저 공개": "Internal users first",
+  "고친 뒤 출시": "Fix first, release later",
+  "공개 범위 제한 (카나리)": "Limited rollout (canary)",
+  "인계 꾸러미": "Hand-over package",
+  "결정 브리프": "Decision brief",
+  "AI가 쓴 문장 · 근거 숫자는 기록에서 계산": "Wording by AI · the numbers come from the records",
+  "규칙 기반 추천": "Rule-based recommendation",
+  "지금 끝나요": "Ends now",
+  "남은 리드타임": "Lead time left",
+  "추가 승인 없음": "No extra approval",
+  "승인 수량": "Approved quantity",
+  "결정 근거": "Reasons",
+  "앞 단계 결정 브리프의 추천": "What the earlier briefs recommended",
+  "발주됨": "Ordered",
+  "취소됨": "Cancelled",
+  "지금 발주하면 남은 리드타임": "Order now — lead time left",
+  "지금 발주하면 요청이 끝나요": "Ordering now completes the request",
+  "초안대로 발주": "Place the order as drafted",
+  "승인 전에 미리 해 둔 일": "Done before approval",
+  "승인 전에 미리 해 둔 일 (되돌릴 수 있는 준비)": "Done before approval (reversible preparation)",
+  "준비됨": "Ready",
+  "발주에 사용": "Used for the order",
+  "막힘": "Blocked",
+  "발주 메모 (선택)": "Order note (optional)",
+  "의견 (선택)": "Comment (optional)",
+  "결정됨": "Decided",
+  "승인했어요": "Approved",
+  "수량을 조정해 승인했어요": "Approved a smaller quantity",
+  "반려했어요": "Rejected",
+  "발주했어요": "Ordered",
+  "양식에서": "on the form",
+  "결정 브리프를 만드는 중": "Preparing the decision brief",
+  "주공정 위에 있는 승인부터 보여 줘요. 순서는 진행 중인 요청마다 남은 주공정(기록된 단계 시간으로 계산한 크리티컬 패스)과 목표 리드타임의 여유로 정해요 — 먼저 온 순서가 아니에요.": "Approvals on the critical path come first. The order comes from each running request's remaining critical path (computed from the recorded step times) and its slack against the lead-time target — not from who asked first.",
+  "내 승인": "My approvals",
+  "지금 결정할 일이 없어요": "Nothing to decide right now",
+  "새 승인이 오면 결정 브리프와 함께 여기와 채팅에 와요.": "New approvals arrive here and in the chat, with their decision brief.",
+  "내 구매 요청": "My purchase requests",
+  "재무 승인 대기": "Waiting for finance",
+  "발주 대기": "Waiting for the order",
+  "팀장 승인 대기": "Waiting for the team lead",
+  "+ 구매 요청 올리기": "+ Raise a purchase request",
+  "품목 (예: 27인치 모니터)": "Item (e.g. 27-inch monitor)",
+  "단가(원)": "Unit price (₩)",
+  "구매 사유": "Reason for buying",
+  "측정 닫기": "Close the measurements",
+  "승인 대기·리드타임 측정 보기": "Approval wait and lead time: before / after",
+  "기존 이력": "History",
+  "브리프·선행 실행 후": "With briefs and preparation",
+  "승인 대기 중앙값 (건당 합)": "Median approval wait (per request)",
+  "what-if 「사전 초안」 예측": "What-if “pre-draft” prediction",
+  "시드한 이력으로 만든 PoC 예요. 「후」는 스크립트·시연으로 돌린 건이라 사람이 몇 초 만에 결정해요 — 동작을 보여 줄 뿐, 실제 승인자가 얼마나 빨라질지는 아니에요.": "A PoC on seeded history. “After” comes from scripted or demo runs where people decide within seconds — it shows the mechanics, not how much faster real approvers would be.",
+  "구매 요청": "Purchase request",
+  "팀장 승인": "Team lead approval",
+  "재무 승인": "Finance approval",
+  "수량 조정 후 승인": "Approve a smaller quantity",
+  "전략맵 ›": "Strategy map ›",
+  "Agentic BPM 리포트 ›": "Agentic BPM report ›",
+  "회사 프로세스 지도": "Company process map",
+  "값 보기": "Values",
+  "이름 맞춘 기록": "Name matches",
+  "다시 셈하기": "Recount",
+  "셈하는 중…": "Counting…",
+  "굳은 길": "Paved path",
+  "열린 일": "Open work",
+  "지켜보기": "Watching",
+  "묶음마다": "Per bundle",
+  "굵을수록 자주": "Thicker = more often",
+  "은퇴 후보": "Retirement candidate",
+  "· 은퇴 후보": "· retirement candidate",
+  "은퇴함": "Retired",
+  "관찰 적음": "Few observations",
+  "자동으로 정한 값": "Values set automatically",
+  "입도 θ": "Granularity θ",
+  "θ보다 드문 길은 지도에서 빼고 봐요.": "Paths rarer than θ are left off the map.",
+  "반감기": "Half-life",
+  "이만큼 지난 기록은 무게가 반으로 줄어요.": "Records this old count half as much.",
+  "1위 맞히기": "Top-1 hits",
+  "3위 맞히기": "Top-3 hits",
+  "다음 일을 대개 맞혀요. 흐름 그림대로 돌려도 돼요.": "The next step is usually predictable. It can run as a flow.",
+  "다음 일이 자주 달라져요. 사람이 고르게 둬요.": "The next step often varies. Let people choose it.",
+  "아직 건이 적어 지켜보는 중이에요.": "Too few cases yet — watching.",
+  "떼어 둔 최근 건에서 다음 일을 1위로 맞힌 비율이 기준(50%) 이상이면 굳은 길이에요.": "A paved path predicts the next step as its first choice in at least 50% of the held-out recent cases.",
+  "떼어 둔 건이 5건이 안 되면 지켜봐요.": "With fewer than 5 held-out cases it stays on watch.",
+  "시작값": "Starting value",
+  "최근 4주 이동이 적어 아직 잴 수 없어 시작값을 써요.": "Too few moves in the last 4 weeks to measure, so the starting value is used.",
+  "요약 보기 θ": "Summary view θ",
+  "— 일이 12개 이하로 남는 가장 작은 값": "— the smallest value that leaves 12 tasks or fewer",
+  "은퇴한 길이에요. 지도에는 회색 점선으로 남아요.": "A retired path. It stays on the map as a grey dashed line.",
+  "여기서 끝날 확률": "Chance it ends here",
+  "다음 일로 갈 확률": "Chance of going here next",
+  "최근 기준": "Recent-weighted",
+  "오래된 기록일수록 가볍게 셌을 때": "counting older records less",
+  "평균 대기": "Average wait",
+  "처음 본 날": "First seen",
+  "마지막으로 본 날": "Last seen",
+  "관찰 적음 — 구간 폭이 30%p 를 넘어 확률이 아직 흔들릴 수 있어요.": "Few observations — the interval is wider than 30 points, so the chance may still move.",
+  "한 사람 기준 — 한 사람의 기록에서만 보인 길이에요.": "One person only — this path was seen in one person's records only.",
+  "출처별": "By source",
+  "위임": "Delegation",
+  "아직 후보인 일이에요. 이름을 확정하거나 다른 일과 합칠 수 있어요.": "A candidate task. Confirm its name or merge it with another task.",
+  "다른 이름": "Other names",
+  "시작 비율": "Start share",
+  "이 일로 시작한 건": "cases that started here",
+  "끝 비율": "End share",
+  "이 일에서 끝난 건": "cases that ended here",
+  "본 기간": "Seen",
+  "다음 일": "Next",
+  "앞 일": "Before",
+  "인계 글과 메일이 어떤 일로 맞춰졌는지예요. 같은 일을 다르게 쓴 글은 한 일로 셉니다.": "Which task each handover note and mail was matched to. The same work written differently counts as one task.",
+  "아직 맞춘 기록이 없어요.": "No matches yet.",
+  "맡김": "Assigned",
+  "건넴": "Handed over",
+  "· 같은 이름": "· same name",
+  "· 다른 이름으로 맞춤": "· matched by another name",
+  "· 새 이름": "· new name",
+  "· 후보": "· candidate",
+  "· 일 아님": "· not work",
+  "그날에는 아직 그린 지도가 없어요.": "There was no map yet on that day.",
+  "이 θ 로는 남는 일이 없어요.": "No tasks are left at this θ.",
+  "묶음을 하나 고르면 근거 그림이 함께 보여요.": "Pick a bundle to see the evidence charts.",
+  "읽은 기록에서 아직 일 흐름을 찾지 못했어요. 인계 기록이 더 쌓이면 다시 셈해 보세요.": "No work flow found in what was read yet. Recount once more handovers pile up.",
+  "메일을 읽지 못했어요.": "Couldn't read the mail.",
+  "지도를 그리지 못했어요.": "Couldn't draw the map.",
+  "아직 지도를 그릴 수 없어요": "The map can't be drawn yet",
+  "Ontological DB 가 연결되지 않았어요. 관리자에게 연결을 부탁해 주세요.": "Ontological DB isn't connected. Ask an admin to connect it.",
+  "지난 메일을 읽고 있어요": "Reading past mail",
+  "메일함을 여는 중…": "Opening the mailbox…",
+  "창을 닫아도 계속 읽어요. 다 읽으면 지도를 그려요.": "Reading continues if you close this window. The map is drawn when it's done.",
+  "지도 그리는 중…": "Drawing the map…",
+  "일 이름을 맞추고, 건마다 다음 일로 넘어간 횟수를 세요.": "Matching task names and counting, case by case, which task came next.",
+  "회사 프로세스 지도를 그려 볼까요?": "Draw the company process map?",
+  "지난 메일과 채팅 인계 기록에서 누가 누구에게 어떤 일을 넘겼는지 모아 회사의 일 흐름을 그려요.": "From past mail and chat handovers, it gathers who handed which work to whom and draws how work flows in the company.",
+  "읽는 것": "What's read",
+  "지난 90일 메일의 머리글 — 보낸 사람 · 받는 사람 · 제목 · 날짜 · 첨부 이름": "Headers of the last 90 days of mail — sender · recipients · subject · date · attachment names",
+  "거르는 것": "What's filtered",
+  "뉴스레터 · 자동 알림 · 일정 초대는 규칙으로 먼저 빼요": "Newsletters, automatic notices and calendar invites are dropped first by rules",
+  "남기는 것": "What's kept",
+  "누가 · 누구에게 · 어떤 일 · 언제뿐이에요. 메일 본문은 남기지 않아요": "Only who · to whom · which work · when. Mail bodies are not kept",
+  "지난 메일 읽기(90일)": "Read past mail (90 days)",
+  "프로세스 지도 →": "Process map →",
+  "한 주 전": "A week earlier",
+  "한 주 뒤": "A week later",
+  "시점 고르기": "Pick a date",
+  "작게": "Smaller",
+  "크게": "Larger",
+  "지도 전체를 한 화면에": "The whole map on one screen",
+  "이보다 드문 길은 지도에서 빼고 봐요(고정한 길은 남아요)": "Paths rarer than this are left off the map (pinned ones stay)",
+  "θ별 재생 적합도": "Replay fitness by θ",
+  "기준 50%": "Bar 50%",
+  "지난 시점의 지도라 그때 정한 값으로 셌어요.": "A past map, counted with the value set back then.",
+  "최근 4주 이동을 가장 잘 맞힌 값이에요(로그 우도가 클수록 잘 맞힘).": "The value that best predicted the moves of the last 4 weeks (higher log-likelihood fits better).",
+  "지도를 불러오지 못했어요": "Couldn't load the map",
+  "잠시 뒤 다시 불러와 보세요. 계속 안 되면 관리자에게 알려 주세요.": "Try loading it again in a moment. If it keeps failing, tell an admin.",
+  "다시 불러오기": "Reload",
+  "회사 전체 건 중 이 일로 시작한 건": "of all company cases, started here",
+  "사건": "Event",
+  "루틴": "Routine",
+  "결과물": "Result",
+  "함께": "together",
+  "하나만": "one only",
+  "확정": "Confirm",
+  "확정됨": "Confirmed",
+  "부하": "Load",
+  "바깥": "Outside",
+  "슬라이드": "Slides",
+  "한 횟수": "Times done",
+  "정의 · 역량": "Definition · competencies",
+  "맡은 일": "Tasks",
+  "방법 후보": "Ways of doing it",
+  "링크": "Link",
+  "정한 시각": "Set time",
+  "일이 끝남": "Task done",
+  "방 규칙": "Room rule",
+  "개인 습관": "Personal habit",
+  "직접 말함": "Said directly",
+  "메일 · 인계에서": "From mail · handovers",
+  "사건 보기": "Show events",
+  "‹ 역할 목록": "‹ Roles",
+  "하는 사람 · 에이전트": "People · agents",
+  "에이전트 몫": "Agent share",
+  "회사 바깥": "Outside the company",
+  "지정 안 됨": "Not assigned",
+  "한 사람에게만": "One person only",
+  "가장 빠른 방법": "Fastest way",
+  "이 방법을 스킬로": "Make this a skill",
+  "일의 방법 공유": "Share a way of working",
+  "나만 써요": "Kept to yourself",
+  "공유했어요": "Shared",
+  "정의": "Definition",
+  "역량": "Competencies",
+  "이름 없음": "No name",
+  "초안 만드는 중…": "Drafting…",
+  "역할 루틴의 일이에요. 같은 역할 사람들이 결과물 뒤에 혼자 이어서 해요(메일 · 인계 건이 아니라 습관에서 셈했어요).": "A role routine task: people in the role do it on their own after a result (counted from habits, not mail or handover cases).",
+  "이 사건이 여는 일": "Tasks this event opens",
+  "이 사건을 내는 일": "Tasks that raise this event",
+  "지도에 보이는 일 가운데 이 사건으로 열리는 일이 없어요.": "No task on the map opens from this event.",
+  "이 사건 뒤에는 여러 일이 함께 열려요.": "Several tasks open together after this event.",
+  "이 사건 뒤에는 건마다 하나만 열려요.": "Only one task opens after this event in each case.",
+  "이 사건 뒤에는 건마다 조건에 따라 하나만 열려요.": "Only one task opens after this event in each case, depending on a condition.",
+  "이 역할의 사람이 이런 결과물을 만들면 생기는 사건이에요.": "This event happens when someone in this role makes this kind of result.",
+  "한 사건 뒤 여러 일이 함께 열려요": "Several tasks open together after one event",
+  "루틴은 사건으로만 보여요": "A routine is shown with its events only",
+  "일 사이에 메일 · 결과물 같은 사건을 넣어 봐요": "Show events such as mail and results between tasks",
+  "역할마다 맡은 일 · 하는 사람 · 필요한 역량을 봐요. 메일과 인계 기록에서 셈했어요.": "See each role's tasks, people and needed competencies, counted from mail and handover records.",
+  "아직 셈한 역할이 없어요.": "No roles counted yet.",
+  "아직 정의가 없어요.": "No definition yet.",
+  "맡은 일과 결과물을 근거로 초안을 만들 수 있어요.": "You can draft one from its tasks and results.",
+  "정의 초안 만들기": "Draft a definition",
+  "＋ 역량 더하기": "＋ Add a competency",
+  "확정하는 중…": "Confirming…",
+  "확정했어요.": "Confirmed.",
+  "맡은 일 · 결과물 · 루틴을 근거로 초안을 썼어요. 고친 뒤 확정해야 반영돼요.": "Drafted from its tasks, results and routines. Edit it, then confirm to apply it.",
+  "이 역할이 회사에서 무엇을 책임지는지 한두 문장": "One or two sentences on what this role is responsible for",
+  "역량(예: 견적 원가 판단)": "Competency (e.g. judging quote costs)",
+  "근거(맡은 일 · 결과물 · 습관)": "Evidence (tasks · results · habits)",
+  "역량 빼기": "Remove competency",
+  "지정됨 · 아직 기록 없음": "Assigned · no records yet",
+  "이 역할에 지정되지 않았는데 이 역할의 일을 했어요": "Did this role's work without being assigned to it",
+  "결과물 뒤에 혼자 이어서 하는 일": "What people do on their own after a result",
+  "같은 일을 사람마다 다르게 해요 · 본인이 공유한 것만": "People do the same task differently · only what they chose to share",
+  "아직 실행 없음": "Not run yet",
+  "스킬 만드는 중…": "Making the skill…",
+  "SKILL.md 보기": "View SKILL.md",
+  "개인 습관을 지도에 보이기": "Show personal habits on the map",
+  "기준 이상만(같은 역할": "Only above the bar (same role,",
+  "명)": "people)",
+  "모두(이름 없이)": "All (no names)",
+  "셈에는 늘 모두 들어가요. 여기서는 지도 · 검토 안건 · 역할 화면에 보이는지만 정해요.": "Everything is always counted. This only sets what the map, the review agenda and the role screen show.",
+  "저장했어요. 지도를 다시 그려요.": "Saved. Redrawing the map.",
+  "같은 역할 사람 수": "People in the same role",
+  "공유는 「공유하기」를 누를 때만 해요. 나만 쓰면 어디에도 보이지 않아요.": "Nothing is shared unless you press “Share”. Kept to yourself, it isn't shown anywhere.",
+  "이 방법을 회사에 공유할까요? 같은 일을 하는 동료에게 방법 후보로 보이고(이름 · 걸린 시간 · 받아들인 비율과 함께), 회사가 고르면 그 일의 스킬이 돼요.": "Share this way of working with the company? Colleagues doing the same task see it as a candidate (with your name, the time it takes and how often it's taken up), and if the company picks it, it becomes that task's skill.",
+  "관찰": "Watch",
+  "타이머": "Timer",
+  "타이머 걸기": "Set timer",
+  "거는 중…": "Setting…",
+  "주기": "Schedule",
+  "시작할 일": "Start at",
+  "평일 9시": "Weekdays 9:00",
+  "매월 1일 9시": "1st of every month 9:00",
+  "매주 금 17시": "Fridays 17:00",
+  "정해 둔 시각이 되면 이 프로세스를 시작해요. 단계가 「자동」이면 바로 시작하고 사람 단계는 초안이 먼저 만들어져요. 「제안」이면 시작할지 물어요.": "When the time comes, this process starts. At “Automatic” it starts right away and person steps get a draft first; at “Suggest” you are asked.",
+  "이 요청은": "This request",
+  "아니요, 이번엔 그냥 할게요": "No, I'll handle it myself this time",
+  "이번 요청은 프로세스 없이 진행해요.": "This request goes ahead without the process.",
+  "이 프로세스는 아직 「제안」 단계라 물어봐요. 관리자가 「자동으로 승격」하면 같은 요청이 오면 바로 시작해요.": "This process is still at “Suggest”, so you are asked. Once an admin promotes it to “Automatic”, the same request starts it right away.",
+  "자동으로 승격": "Promoted to automatic",
+  "승격 낮춤": "Demoted",
+  "예약(타이머)": "Schedule (timer)",
+  "울렸어요": "rang",
+  "메일 · 정해진 때": "Mail · set times",
+  "예약 걸기": "Schedule it",
+  "메일에서 찾은 주기예요. 아직 시계는 걸려 있지 않아요.": "A rhythm found in the mail. No clock is set yet.",
+  "메일 날짜와 메일에 쓴 말에서 찾은 주기예요. 아직 시계는 걸려 있지 않아요.": "A rhythm found in the mail dates and wording. No clock is set yet.",
+  "이 일이 든 프로세스가 없어 회사 타이머로는 걸 수 없어요. 맡은 사람이 예약으로 걸 수 있어요.": "No process contains this work, so it can't take a company timer. The person who does it can schedule it.",
+  "예약하지 않았어요.": "Not scheduled.",
+  "타이머 멈추기": "Pause timer",
+  "타이머 다시 켜기": "Turn timer back on",
+  "바꾸는 중…": "Changing…",
+  "멈췄어요. 예약도 함께 멈춰요.": "Paused. The schedule pauses with it.",
+  "다시 켰어요.": "Turned back on.",
+  "타이머 켬": "Timer on",
+  "타이머 멈춤": "Timer paused",
+  "타이머 지움": "Timer removed",
+  "지도에는 누가 · 누구에게 · 어떤 일 · 언제뿐이에요. 읽은 메일은 내 메일 보관함에만 남아요": "The map keeps only who · to whom · which work · when. The mail you read stays in your own mail archive",
+  "지난 90일 동안 받은 · 보낸 메일의 본문과 첨부(회사가 보낸 양식은 칸까지), 채팅 인계 기록": "The body and attachments of mail received and sent over the last 90 days (the company's own forms down to their fields), and chat handover records",
+  "메일 다시 읽기": "Read mail again",
+  "새로 온 메일과, 스킬이 바뀐 뒤 아직 읽지 않은 스레드만 읽어요": "Reads only new mail and the threads not yet read since the skill changed",
+  "문서 올리기": "Upload a document",
+  "문서대로와 실제": "As documented and as done",
+  "규정 · 업무 정의서": "Regulations · procedure documents",
+  "문서에만": "Document only",
+  "실제로는": "In practice",
+  "아직 올린 문서가 없어요.": "No documents uploaded yet.",
+  "규정 · 업무 정의서를 올리면 거기 적힌 절차를 읽어, 메일 · 인계에서 찾은 실제 일과 나란히 보여 줘요. PDF · 한글 · 워드 · 파워포인트 · 엑셀 · 텍스트.": "Upload a regulation or procedure document: its procedures are read and shown next to the work the mail and handovers show. PDF · Hangul · Word · PowerPoint · Excel · text.",
+  "문서 · 대화 기록 올리기": "Upload a document or chat log",
+  "단체 대화방을 내보낸 파일(카카오톡 대화 내보내기 CSV · TXT)을 올리면 메일처럼 읽어 지도에 더해요.": "Upload a group chat export (KakaoTalk CSV · TXT): it is read like mail and added to the map.",
+  "대화 기록으로 지도 다시 그리는 중…": "Drawing the map again with the chat log…",
+  "대화 기록을 지도에 더했어요.": "The chat log is on the map.",
+  "자료 띄우기": "Show material",
+  "내가 볼 수 있는 자료나 내 컴퓨터에 있는 파일을 골라 회의에 띄워요": "Pick something you can see, or a file on your computer, and show it in the meeting",
+  "내 컴퓨터에서 파일 고르기": "Choose a file on my computer",
+  "고른 파일을 바로 모두에게 띄워요 · 끌어다 놓아도 돼요": "Shown to everyone right away · you can drag it here too",
+  "나만 보기": "Just for me",
+  "띄우는 중…": "Showing…",
+  "새 버전이 나왔어요. 새로 고침하면 바로 적용돼요.": "A new version is out. Reload to use it.",
+  "새로 고침": "Reload",
+  "50MB보다 큰 파일은 올릴 수 없어요.": "Files over 50 MB can't be uploaded.",
+  "자료 찾기 · 파일 이름이나 내용 (예: ERP PDF)": "Find material · file name or content (e.g. ERP PDF)",
+  "찾기": "Find",
+  "내가 볼 수 있는 대화방 파일·공유 폴더·진행 상황에서 찾지 못했어요. 다른 검색어로 찾아보세요.": "Nothing found in the room's files, shared folders or work in progress you can see. Try other words.",
+  "회의 중에 \"지난번 견적서 다시 보자\"처럼 말하면 도우미가 자료를 찾아 여기에 띄워요. 말로 자료를 찾지 못하면 위 칸에서 직접 찾아 띄울 수 있어요.": "Say something like \"let's look at the last quote again\" and the helper finds the material and puts it here. If speech doesn't work, find it yourself in the box above.",
+  "도우미": "Helper",
+  "로그인이 만료되어 말을 보내지 못했어요. 페이지를 새로 고친 뒤 다시 참여해 주세요.": "Your sign-in ended, so your speech wasn't sent. Reload the page and join again.",
+  "폴더 고르기": "Choose a folder",
+  "· 없어도 돼요": "· optional",
+  "· 새 폴더": "· new folder",
+  "· 이 폴더에서 작업": "· work here",
+  "· 변형 작업 중": "· variation in progress",
+  "· 참고": "· for reference",
+  "폴더 빼기": "Remove folder",
+  "폴더 떼기": "Detach folder",
+  "변형 보기": "View variation",
+  "프로젝트 폴더 고르기": "Choose the project's folder",
+  "폴더 붙이기": "Attach a folder",
+  "이 프로젝트가 작업할 폴더": "Folder this project works in",
+  "프로젝트는 이 폴더의 변형에서 작업하고, 「반영」해야 원본에 들어가요.": "The project works on a variation of this folder; changes reach the original only when you merge them.",
+  "에이전트가 이 폴더를 읽어요. 바꿔 달라고 할 때만 변형을 만들어요.": "The agent reads this folder. It makes a variation only when you ask for a change.",
+  "작업할 수 있는 폴더가 없어요. 새 폴더를 만들어 보세요.": "No folder you can work in yet. Make a new one.",
+  "쓸 수 있는 폴더가 없어요.": "No folders you can use.",
+  "새 폴더 이름": "New folder name",
+  "파일 첨부 · 폴더 붙이기": "Attach a file · attach a folder",
+  "첫 작업 때 변형을 만들어요": "A variation is made on the first task",
+  "반영하다 부딪친 곳이 있어요": "The merge hit a conflict",
+  "아직 바뀐 것 없음": "No changes yet",
+  "검토하고 원본에 반영해요": "Review and merge into the original",
+  "반영할 변경이 아직 없어요": "Nothing to merge yet",
+  "API 키 없이도 채널 새 영상·자막은 볼 수 있어요. 인기 영상·검색은 YouTube API 키나 Google 계정 연결이 필요해요.": "Channel uploads and captions work without an API key. Popular videos and search need a YouTube API key or a connected Google account.",
+  "API 키로 인기 영상·검색까지 써요. 채널 새 영상·자막은 키 없이도 돼요.": "With your API key, popular videos and search work too. Channel uploads and captions work without a key.",
+  "서버에 둔 API 키로 인기 영상·검색까지 써요. 내 키를 넣으면 그 키를 먼저 써요.": "The server's API key covers popular videos and search. A key of your own is used first.",
+  "Google 계정으로 인기 영상·검색까지 써요. 채널 새 영상·자막은 키 없이도 돼요.": "With your Google account, popular videos and search work too. Channel uploads and captions work without a key.",
+  "Google Cloud 콘솔에서 YouTube Data API v3 를 켜고 「사용자 인증 정보 › API 키」를 만들어 붙여 넣으세요.": "In the Google Cloud console, enable the YouTube Data API v3, create a key under \"Credentials › API key\" and paste it here.",
+  "API 키 넣기": "Add API key",
+  "API 키 바꾸기": "Change API key",
+  "키 만들기": "Create key",
+  "Process GPT 데스크톱 화면으로": "Open the Process GPT desktop view",
+  "위 담당 따름": "Same as above",
   "옵션": "Optional",
   "관리자 확정": "confirmed by an admin",
   "빈도 초안": "draft from counts",
@@ -1815,7 +2342,6 @@
   "문서와 연결하는 중…": "Linking to the document…",
   "서버가 연결에 응답하지 않아요 — 서버 앞단(게이트웨이)이 웹소켓을 넘겨 주는지 확인이 필요해요": "The server isn't answering the connection — check that the gateway in front passes websockets through",
   "서버가 연결을 받지 않았어요": "The server didn't accept the connection",
-  "루틴": "Routines",
   "루틴 목록": "Routine list",
   "아직 루틴이 없어요. 채팅에서 등록된 프로세스를 시작하면 여기에 모여요.": "No routines yet. Start a registered process from the chat and it shows up here.",
   "루틴은 정해진 절차를 따라 진행되는 일입니다.": "A routine is work that follows a set procedure.",
@@ -1834,6 +2360,73 @@
   "메일을 가져오지 못했어요": "Couldn't fetch mail",
   "메일은 뒤에서 계속 가져오고 있어요": "Still fetching mail in the background",
   "새로고침했어요": "Refreshed",
+  "클래식 개선 분석": "Classic improvement analysis",
+  "루틴 종류": "Routine kinds",
+  "모두": "All",
+  "클래식": "Classic",
+  "아직 루틴이 없어요. 채팅에서 등록된 프로세스를 시작하거나 프로세스 지도에서 건을 시작하면 여기에 모여요.": "No routines yet. Start a registered process from the chat, or a case on the process map, and it shows up here.",
+  "운영": "Manage",
+  "스냅샷 보기": "Snapshot",
+  "병목 보기": "Bottlenecks",
+  "다듬기": "Refine",
+  "의견 · 해소": "Opinions",
+  "검토 안건": "Review agenda",
+  "AI 후보": "AI candidates",
+  "이 프로세스 지우기": "Delete this process",
+  "지도가 스스로 정한 θ · 반감기 · 띠와 그 근거": "The θ, half-life and bands the map chose itself, and why",
+  "메일 · 인계 글이 어느 일 이름으로 맞춰졌는지": "Which task name each mail or handover note was matched to",
+  "규정 · 업무 정의서를 올려 실제 흐름과 나란히 봐요": "Upload rules or job definitions and see them next to the real flow",
+  "이 일부터 시작하면 엔진이 돌릴 프로세스 정의": "The process definition the engine would run from this task",
+  "지금 쌓인 할 일로 병목 · 회사의 제약 · 흔한 길 — 고쳐 보기 · 개선안도 여기서": "Bottleneck, company constraint and common path from today's open work — what-if and plans live here too",
+  "찾은 순서를 바로잡고 단계를 나눠요": "Correct the found order and split steps",
+  "이 프로세스에 남은 의견을 보고 정해요 — 엇갈린 것 먼저": "See and settle the opinions left on this process — conflicting ones first",
+  "프로세스를 하나 고르면 다듬기 · 의견도 여기 나와요.": "Pick a process to see Refine and Opinions here too.",
+  "말로 만든 프로세스를 지도에서 지워요": "Remove a process made by description from the map",
+  "은퇴 후보 · 굳어진 길처럼 사람이 정할 것": "What people decide, such as retire candidates and settled paths",
+  "역할마다 정의 · 역량 · 맡은 사람과 에이전트 · 지표": "Each role's definition, skills, people and agents, and metrics",
+  "AI 에게 맡길 만한 일과 사람이 해야 할 일": "Work AI can take, and work people must do",
+  "이 프로세스의 단계": "This process's stage",
+  "새 건부터 적용돼요": "Applies to new cases",
+  "관리자가 바꿔요": "An admin changes it",
+  "실행 방식의 엔진": "Execution engine",
+  "회사 전체": "Whole company",
+  "정해 둔 시각(평일 9시 · 매주 월 9시…)에 이 프로세스를 시작해요": "Start this process at a set time (weekdays 9:00, Mondays 9:00…)",
+  "읽어 둔 메일 · 기록으로 지도를 처음부터 다시 셈해요": "Recount the map from scratch with the mail and records already read",
+  "Client secret (바꿀 때만)": "Client secret (only to change it)",
+  "저장한 Client secret은 다시 보여 주지 않아요. 바꿀 때만 새 값을 넣어요.": "The saved Client secret is never shown again. Enter a new one only to change it.",
+  "서버 브라우저에서 Google에 로그인해 연결해요. NotebookLM 같은 Google 사이트도 함께 로그인돼요": "Sign in to Google in the server browser. Google sites such as NotebookLM get signed in too",
+  "회사 관리자가 설정 › 시스템 설정에서 Google 연결을 켜야 해요": "A company administrator has to turn on Google connections in Settings › System",
+  "휴대폰에서 연결": "Connect on phone",
+  "· 이 기기에서 Google에 로그인해 메일만 연결해요": "· sign in to Google on this device and connect the mail only",
+  "Gmail·캘린더·Drive·YouTube 권한으로 연결해요. 서버 브라우저에서 로그인하면 NotebookLM 같은 Google 사이트도 함께 로그인돼요. 캘린더 등록이 안 되면 다시 연결해 권한을 넓혀요.": "Connects with Gmail, Calendar, Drive and YouTube access. Signing in in the server browser signs Google sites such as NotebookLM in too. If adding calendar events fails, connect again to widen the permissions.",
+  "회사 관리자가 설정 › 시스템 설정 › 회사 Google 연결에 OAuth 클라이언트를 넣으면 연결할 수 있어요.": "You can connect once a company administrator adds the OAuth client in Settings › System › Company Google connection.",
+  "휴대폰에서 연결 · 메일만": "Connect on phone · mail only",
+  "Google을 연결했어요. 메일을 읽기 시작해요.": "Google is connected. I'm starting on your mail.",
+  "회사 Google 연결": "Company Google connection",
+  "OAuth 클라이언트": "OAuth client",
+  "이 회사 사람들이 메일·캘린더를 Google로 연결할 때 써요. Google Cloud 콘솔의 「API 및 서비스 › 사용자 인증 정보」에서 만든 웹 애플리케이션용 OAuth 클라이언트 값을 넣어요.": "Used when people in this company connect their mail and calendar with Google. Enter the web application OAuth client you made in the Google Cloud console under \"APIs & Services › Credentials\".",
+  "회사 값을 쓰고 있어요": "Using the company's own",
+  "설치 기본값(서버 설정)을 쓰고 있어요": "Using this install's default (server settings)",
+  "아직 없어요 · 사람들이 Google을 연결할 수 없어요": "None yet · people can't connect Google",
+  "등록해야 할 리디렉션 URI": "Redirect URI to register",
+  "그 OAuth 클라이언트의 「승인된 리디렉션 URI」에 이 주소를 그대로 추가해요.": "Add this address as it is to that OAuth client's \"Authorized redirect URIs\".",
+  "복사": "Copy",
+  "복사했어요": "Copied",
+  "회사 Google 연결 값을 지울까요? 지우면 설치 기본값이 없을 때 사람들이 Google을 새로 연결할 수 없어요.": "Remove the company Google connection values? Without an install default, people then can't connect Google anew.",
+  "Google 연결하기": "Connect Google",
+  "슬라이드 목록": "Slides",
+  "슬라이드 목록 열기": "Show the slide list",
+  "슬라이드 목록 닫기": "Hide the slide list",
+  "이전 슬라이드": "Previous slide",
+  "다음 슬라이드": "Next slide",
+  "직접 로그인": "Sign in yourself",
+  "화면의 칸을 누르고 여기에 입력해요": "Tap a field on the screen, then type here",
+  "직접 확인": "Check it yourself",
+  "같은 화면에서 멈춤": "Stuck on the same screen",
+  "고르러 가기": "Go choose",
+  "승인하러 가기": "Go approve",
+  "프로젝트를 만들지 못했어요 · 보낸 글은 입력창에 돌려놓았어요. 다시 보내 주세요.": "Couldn't create the project · your message is back in the box. Please send it again.",
+  "프로젝트를 만들지 못했어요 · 다시 보내 주세요.": "Couldn't create the project · please send it again.",
   "텔레그램으로도": "Also to Telegram",
   "텔레그램으로도 보내기": "Also send to Telegram",
   "텔레그램 못 보냄": "Telegram not sent",
@@ -1897,56 +2490,108 @@
    "Saved on {0}"
   ],
   [
-   "이 페이지의 주소({0})가 서버가 아는 주소({1})와 달라요 — 서버 앞단이 Host·X-Forwarded-Host 를 넘겨 주는지 확인이 필요해요",
-   "This page's address ({0}) is not one the server knows ({1}) — check that the proxy in front passes Host / X-Forwarded-Host"
+   "{0}님의 방법을 「{1}」 스킬로 만들어 「{2}」의 일 정의에 붙였어요. 스냅샷 실행과 에이전트가 이 스킬을 써요.",
+   "Made {0}'s way into the skill “{1}” and added it to the definition of “{2}”. Snapshot runs and agents use this skill."
   ],
   [
-   "대화와 연결되지 않았어요 — {0} · 눌러서 다시 연결",
-   "Not linked to the conversation — {0} · tap to reconnect"
+   "「{0}」 역할에서 결과물이 나오면 혼자 이어서 하는 일이에요. 같은 역할 여러 사람의 습관을 셈했어요.",
+   "What people in the “{0}” role do on their own after a result, counted from several people's habits."
   ],
   [
-   "이 서버에서 터미널을 쓰지 않아요 — {0}",
-   "This server doesn't run terminals — {0}"
+   "떼어 둔 최근 건 {0}건 · 이동 {1}개로 쟀어요. 적합도가 크게 꺾이기 직전 값이에요.",
+   "Measured on {0} held-out recent cases · {1} moves. It's the value just before fitness drops sharply."
   ],
   [
-   "터미널 연결 표를 받지 못했어요 ({0})",
-   "Couldn't get a terminal ticket ({0})"
+   "최근 4주 이동 {0}개를 가장 잘 맞힌 값이에요(로그 우도가 클수록 잘 맞힘).",
+   "The value that best predicted the {0} moves of the last 4 weeks (higher log-likelihood fits better)."
   ],
   [
-   "연결 표를 받지 못했어요 ({0})",
-   "Couldn't get a connection ticket ({0})"
+   "{0}에 「{1}」 예약을 걸었어요. 회사 지도에는 타이머 사건으로 남아요.",
+   "Scheduled “{1}”, {0}. It stays on the company map as a timer event."
   ],
   [
-   "@{0} 에서 시작을 누르면 끝나요",
-   "Press Start in @{0} to finish"
+   "떼어 둔 최근 건이 {0}건뿐이라 아직 잴 수 없어 시작값을 써요.",
+   "Only {0} held-out recent cases, too few to measure, so the starting value is used."
   ],
   [
-   "바뀐 것 {0}건 · 반영 전",
-   "{0} changes · not merged yet"
+   "예전 빈도로는 최근 {0}일 동안 {1}건쯤 나왔어야 하는데 0건이에요.",
+   "At its old rate about {1} should have appeared in the last {0} days, but there were none."
   ],
   [
-   "어떻게 했나요 · {0}단계{1}",
-   "How it was done · {0} steps{1}"
+   "{0} 업무로 진행할 수 있어요. 「{1}」부터 시작할까요?",
+   "{0} can go ahead as this process. Start at “{1}”?"
   ],
   [
-   "연결이 끊겼어요 ({0})",
-   "The connection dropped ({0})"
+   "기준에 못 미쳐 지도에 안 보이는 습관 {0}개",
+   "{0} habits hidden from the map below the bar"
   ],
   [
-   "@{0} 봇을 찾았어요.",
-   "Found the bot @{0}."
+   "그 일이 끝난 {0}번에 이 사건이 생겼어요",
+   "Happened in {0} of that task's completions"
   ],
   [
-   "· 조회한 곳 {0}",
-   "· looked at {0}"
+   "같은 역할 {0}명 · 회사가 고른 방법: {1}",
+   "{0} people in your role · the company's way: {1}"
   ],
   [
-   "{0} 폴더 열기",
-   "Open the {0} folder"
+   "기준에 못 미쳐 안 보이는 루틴 {0}개",
+   "{0} routines hidden below the bar"
   ],
   [
-   "같은 업무로 보이는 새 사례 {0}건 · 정하기 전에는 프로세스가 바뀌지 않아요",
-   "{0} new case(s) that look like the same work · the process stays as it is until you decide"
+   "꺼 두어 지도에 안 보이는 습관 {0}개",
+   "{0} habits hidden from the map (turned off)"
+  ],
+  [
+   "{0}마다 하는 일을 부탁하고 있어요.",
+   "asks for work done {0}."
+  ],
+  [
+   "일 {0}/{1} · 사건 {2} · 관계 {3}",
+   "Tasks {0}/{1} · events {2} · links {3}"
+  ],
+  [
+   "기준 이상만(같은 역할 {0}명)",
+   "Only above the bar ({0} people in the same role)"
+  ],
+  [
+   "이 주기로 「{0}」 타이머 걸기",
+   "Set a “{0}” timer on this rhythm"
+  ],
+  [
+   "「{0}」에 {1} 타이머를 걸었어요.",
+   "Set a timer on “{0}”: {1}."
+  ],
+  [
+   "물었을 때 받아들인 비율 {0}",
+   "taken up {0} when asked"
+  ],
+  [
+   "공유했어요 · 목표 「{0}」",
+   "Shared · goal “{0}”"
+  ],
+  [
+   "θ {0} · 재생 적합도 {1}",
+   "θ {0} · replay fitness {1}"
+  ],
+  [
+   "{0}건 · 그 사람 일의 {1}",
+   "{0} · {1} of their work"
+  ],
+  [
+   "{0}에 「{1}」부터 시작해요.",
+   "Starts at “{1}”, {0}."
+  ],
+  [
+   "사람마다 한 주에 {0}건",
+   "{0} per person a week"
+  ],
+  [
+   "일 {0}/{1} · 관계 {2}/{3}",
+   "Tasks {0}/{1} · links {2}/{3}"
+  ],
+  [
+   "지금까지 {0}번 하셨어요",
+   "You've done this {0} times"
   ],
   [
    "고친 그림을 워드 문서의 그림 {0} 자리에 넣었어요 · ⌘S 로 저장하세요",
@@ -1957,20 +2602,32 @@
    "Hall | {0}㎡\nBar & kitchen | {1}㎡\nStorage | {2}㎡\nRestroom | {3}㎡\nStaff room | {4}㎡"
   ],
   [
+   "회사 포함 크레딧을 다 쓰면 이어서 써요 · 나는 {0} 사용",
+   "Used once the included credits run out · you used {0}"
+  ],
+  [
+   "좌석마다 들어오는 크레딧을 회사가 함께 써요 · {0}",
+   "Every seat's credits, shared by the company · {0}"
+  ],
+  [
    "'{0}'에 반영할 새 기록이 없어요 · 거절 {1}건: {2}",
    "No new records to apply to '{0}' · {1} refused: {2}"
   ],
   [
-   "택일 — {0} 대신{1} · 사례 {2}/{3}건이 거침{4}",
-   "Choice — instead of {0}{1} · {2}/{3} cases went through it{4}"
+   "내 한도를 다 쓰면 이어서 써요 · 나는 {0} 사용",
+   "Used once your own limits run out · you used {0}"
+  ],
+  [
+   "금액 {0} · 1,000만 원 초과: 재무 승인까지",
+   "Amount {0} · over ₩10M: finance approves too"
   ],
   [
    "{0} amount {1} 미만이면 '{2}' 을(를) 건너뜀",
    "Skips '{2}' when {0} amount is under {1}"
   ],
   [
-   "{0} — {1} 건너뜀 · 사례 {2}/{3}건이 거침{4}",
-   "{0} — skipped {1} · {2}/{3} cases went through it{4}"
+   "남은 주공정: {0} · 목표 리드타임 {1} · {2}",
+   "Critical path left: {0} · lead-time target {1} · {2}"
   ],
   [
    "에이전트가 서식·구조를 고치는 중 · {0}",
@@ -1989,8 +2646,8 @@
    "{0} — skipped if {1} amount is below {2}"
   ],
   [
-   "언제 이 갈래로 가나요? ({0} 대신)",
-   "When is this branch taken? (instead of {0})"
+   "{0} — 팀장에게 결정 브리프가 갔어요.",
+   "{0} — a decision brief went to the team lead."
   ],
   [
    "에이전트가 내용을 바꾸는 중 · {0}",
@@ -2001,14 +2658,6 @@
    "routing model recheck→logprob {0}"
   ],
   [
-   "새 사례 {0}건이 제안으로 와 있어요",
-   "{0} new case(s) waiting as a proposal"
-  ],
-  [
-   "확인 필요 {0}개를 먼저 정해 주세요",
-   "Decide the {0} open branch(es) first"
-  ],
-  [
    "에이전트가 내용을 쓰는 중 · {0}",
    "Agent is writing · {0}"
   ],
@@ -2017,8 +2666,12 @@
    "{0} · Skip if {1} amount is below {2}"
   ],
   [
-   "필수 단계 {0} 를 거치지 않았어요",
-   "Skipped the required step {0}"
+   "· 이번 달 (관리자 한도) {0}%",
+   "· this month (admin limit) {0}%"
+  ],
+  [
+   "허용 오차: {0}의 {1}%까지는 기록만",
+   "Tolerance: up to {1}% over {0} is only recorded"
   ],
   [
    "{0} — {1} 금액 {2} 미만이면 건너뜀",
@@ -2029,12 +2682,24 @@
    "Applied to the '{0}' panel · {1} rows changed"
   ],
   [
+   "JSON 을 읽지 못했어요: {0}",
+   "Couldn't read the JSON: {0}"
+  ],
+  [
    "에이전트가 작업하는 중 · {0}",
    "Agent is working · {0}"
   ],
   [
    "{0}님께 보냈어요 · 산출물 {1}개",
    "Sent to {0} · {1} outputs"
+  ],
+  [
+   "구간 규칙: {0} {1}건을 넘으면 {2}",
+   "Window: past {1} in {0} → {2}"
+  ],
+  [
+   "{0}님이 고른 대안을 실행했어요",
+   "Ran the alternative {0} chose"
   ],
   [
    "에이전트가 저장했어요 · {0}",
@@ -2045,12 +2710,36 @@
    "routing model→logprob {0}"
   ],
   [
-   "정하지 않은 분기 {0}개 · {1}",
-   "{0} undecided branch(es) · {1}"
+   "{0}에 초기화 · 5시간마다",
+   "Resets {0} · every 5 hours"
+  ],
+  [
+   "{0} 상당 · 쓴 만큼 청구",
+   "Worth {0} · billed as used"
+  ],
+  [
+   "· 이번 달 내 사용 {0}%",
+   "· my month {0}%"
+  ],
+  [
+   "구간 안 {0}번째 ({1}건까지)",
+   "#{0} in the window (limit {1})"
+  ],
+  [
+   "에이전트가 만든 대안 {0}개",
+   "{0} alternatives the agents made"
   ],
   [
    "도우미가 찾았어요 · {0}",
    "Helper found it · {0}"
+  ],
+  [
+   "· 이번 결제 기간 {0}%",
+   "· this billing period {0}%"
+  ],
+  [
+   "허용 오차 안 ({0}까지)",
+   "Within tolerance (up to {0})"
   ],
   [
    "워드 문서 · 그림 {0}",
@@ -2065,12 +2754,12 @@
    "Shared {0} outputs · {1}"
   ],
   [
-   "택일: {0}갈래 중 하나",
-   "Choice: one of {0} branches"
+   "회사 전체 {0}크레딧/월",
+   "{0} credits/mo for the whole company"
   ],
   [
-   "이번 일에 {0} 필요하면",
-   "When this work needs {0}"
+   "요청 {0}개 → 승인 {1}개",
+   "Requested {0} → approved {1}"
   ],
   [
    "{0}님이 통역을 켰어요",
@@ -2085,8 +2774,76 @@
    "Own rows + {0}=me"
   ],
   [
+   "${0}/월 · 연간 ${1}",
+   "${0}/mo · ${1} yearly"
+  ],
+  [
+   "{0}석부터 · 최대 {1}석",
+   "From {0} seats · up to {1}"
+  ],
+  [
+   "₩{0}/월 · 연간 ₩{1}",
+   "₩{0}/mo · ₩{1} yearly"
+  ],
+  [
+   "{0} 승인 후 실행돼요",
+   "Runs after the {0} approves"
+  ],
+  [
+   "{0} — 보상으로 취소",
+   "{0} — cancelled as compensation"
+  ],
+  [
+   "{0}일 · 로그 우도 {1}",
+   "{0} days · log-likelihood {1}"
+  ],
+  [
+   "사람 {0}명 · 일 {1}개",
+   "{0} people · {1} tasks"
+  ],
+  [
+   "{0}건 · 이 역할이 {1}",
+   "{0} · {1} by this role"
+  ],
+  [
+   "같은 역할 {0}명 · {1}",
+   "{0} people in the role · {1}"
+  ],
+  [
    "{0}/{1} 카드 · 본문",
    "{0}/{1} cards · full text"
+  ],
+  [
+   "{0} 요금제 기준 ·",
+   "Based on {0}'s plans ·"
+  ],
+  [
+   "요금제 → {0} · {1}",
+   "Plan → {0} · {1}"
+  ],
+  [
+   "추가 사용량 · {0}",
+   "Extra usage · {0}"
+  ],
+  [
+   "이번 달 {0} · {1}회",
+   "This month {0} · {1} calls"
+  ],
+  [
+   "{0} 선택을 기다려요",
+   "Waiting for the {0} to choose"
+  ],
+  [
+   "채팅 핸드오버 {0}건",
+   "Chat handovers {0}"
+  ],
+  [
+   "에이전트 위임 {0}건",
+   "Agent delegations {0}"
+  ],
+  [
+   "받음 {0} · 넘김 {1}",
+   "In {0} · out {1}"
   ],
   [
    "대화에서 직접 {0}",
@@ -2097,12 +2854,80 @@
    "Shared {0} outputs"
   ],
   [
+   "${0}/월 (연간)",
+   "${0}/mo (yearly)"
+  ],
+  [
+   "· 이번 주 {0}%",
+   "· this week {0}%"
+  ],
+  [
+   "개인정보 위험 {0}",
+   "privacy risk {0}"
+  ],
+  [
+   "평소보다 {0} 빨리",
+   "{0} sooner than usual"
+  ],
+  [
+   "발주 완료 · {0}",
+   "Ordered · {0}"
+  ],
+  [
+   "95% 구간 {0}–{1}",
+   "95% interval {0}–{1}"
+  ],
+  [
    "새 주제 · {0}",
    "New topic · {0}"
   ],
   [
    "자기 행 + {0}",
    "Own rows + {0}"
+  ],
+  [
+   "충전 크레딧 {0}",
+   "Purchased credits {0}"
+  ],
+  [
+   "사용량 {0}크레딧",
+   "Usage {0} credits"
+  ],
+  [
+   "일반 공개 {0}%",
+   "Public {0}%"
+  ],
+  [
+   "조치 추정 {0}일",
+   "fix estimate {0} days"
+  ],
+  [
+   "메일 이력 {0}건",
+   "Mail history {0}"
+  ],
+  [
+   "실행 기록 {0}건",
+   "Run records {0}"
+  ],
+  [
+   "마지막 계산 {0}",
+   "Last counted {0}"
+  ],
+  [
+   "거친 횟수 {0}번",
+   "passed {0} times"
+  ],
+  [
+   "같은 역할 {0}명",
+   "{0} people in your role"
+  ],
+  [
+   "{0} 결과물 뒤에",
+   "After a {0} result"
+  ],
+  [
+   "「{0}」부터 진행",
+   "Go ahead from “{0}”"
   ],
   [
    "유휴 {0} ({1})",
@@ -2149,8 +2974,32 @@
    "{0} refused: {1}"
   ],
   [
-   "거절됨 ({0})",
-   "Refused ({0})"
+   "요금제 → {0}",
+   "Plan → {0}"
+  ],
+  [
+   "· 세션 {0}%",
+   "· session {0}%"
+  ],
+  [
+   "{0} 승인 대기",
+   "Waiting for the {0}"
+  ],
+  [
+   "보안 위험 {0}",
+   "security risk {0}"
+  ],
+  [
+   "품질 위험 {0}",
+   "quality risk {0}"
+  ],
+  [
+   "{0}월 {1}일 기준",
+   "as of {0}/{1}"
+  ],
+  [
+   "{0}번 생겼어요",
+   "Happened {0} times"
   ],
   [
    "표 {0} ({1})",
@@ -2163,6 +3012,26 @@
   [
    "가능 + {0}",
    "Allowed + {0}"
+  ],
+  [
+   "{0}에 초기화",
+   "Resets {0}"
+  ],
+  [
+   "좌석 → {0}",
+   "Seat → {0}"
+  ],
+  [
+   "{0}크레딧/월",
+   "{0} credits/mo"
+  ],
+  [
+   "고른 값 {0}",
+   "Chosen {0}"
+  ],
+  [
+   "조건 · {0}",
+   "Condition · {0}"
   ],
   [
    "{0}(소유)",
@@ -2197,8 +3066,60 @@
    "{0} login"
   ],
   [
-   "초안: {0}",
-   "Draft: {0}"
+   "{0}% 사용",
+   "{0}% used"
+  ],
+  [
+   "{0} × {1}석",
+   "{0} × {1} seats"
+  ],
+  [
+   "가중치 {0}",
+   "weight {0}"
+  ],
+  [
+   "KPI {0}",
+   "KPI {0}"
+  ],
+  [
+   "요청자 {0}",
+   "Requested by {0}"
+  ],
+  [
+   "{0}개 · {1}",
+   "qty {0} · {1}"
+  ],
+  [
+   "다음: {0}",
+   "Next: {0}"
+  ],
+  [
+   "시작값 {0}",
+   "Starting value {0}"
+  ],
+  [
+   "{0}번 실행",
+   "Ran {0} times"
+  ],
+  [
+   "「{0}」부터",
+   "From “{0}”"
+  ],
+  [
+   "{0} 타이머",
+   "{0} timers"
+  ],
+  [
+   "{0}번 울림",
+   "rang {0} times"
+  ],
+  [
+   "칸 · {0}",
+   "Fields · {0}"
+  ],
+  [
+   " 외 {0}개",
+   " and {0} more"
   ],
   [
    "나: {0}",
@@ -2207,6 +3128,42 @@
   [
    "외 {0}곳",
    "and {0} more"
+  ],
+  [
+   "${0}/월",
+   "${0}/mo"
+  ],
+  [
+   "{0}석부터",
+   "From {0} seats"
+  ],
+  [
+   "{0}크레딧",
+   "{0} credits"
+  ],
+  [
+   "{0} / {1}",
+   "{0} / {1}"
+  ],
+  [
+   "₩{0}/월",
+   "₩{0}/mo"
+  ],
+  [
+   "금액 {0}",
+   "Amount {0}"
+  ],
+  [
+   "건 {0}개",
+   "{0} cases"
+  ],
+  [
+   "시작 {0}",
+   "Start {0}"
+  ],
+  [
+   "{0} ~ {1}",
+   "{0} – {1}"
   ],
   [
    "시작{0}",
@@ -2620,7 +3577,10 @@
    "승인 필요 · {0}",
    "Approval needed · {0}"
   ],
-  ["로그인을 막음 · {0}", "Sign-in refused · {0}"],
+  [
+   "로그인을 막음 · {0}",
+   "Sign-in refused · {0}"
+  ],
   [
    "하지 못했어요 · {0}",
    "Couldn't do it · {0}"
@@ -2708,6 +3668,18 @@
   [
    "조건{0}",
    "Condition {0}"
+  ],
+  [
+   "{0}까지",
+   "until {0}"
+  ],
+  [
+   "+{0}일",
+   "+{0} days"
+  ],
+  [
+   "건 {0}",
+   "{0} cases"
   ],
   [
    "{0}월",
@@ -4730,6 +5702,114 @@
    "Please do what was asked in a team room: {0}\n\n— conversation (the last line is the request) —\n{1}\n\nKeep the result short and to the point so the people in the room can read it at once, and leave any table or document you make as a file.{2}"
   ],
   [
+   "{0}배",
+   "{0}x"
+  ],
+  [
+   "{0}위",
+   "#{0}"
+  ],
+  [
+   "{0}점",
+   "{0} pts"
+  ],
+  [
+   "이 페이지의 주소({0})가 서버가 아는 주소({1})와 달라요 — 서버 앞단이 Host·X-Forwarded-Host 를 넘겨 주는지 확인이 필요해요",
+   "This page's address ({0}) is not one the server knows ({1}) — check that the proxy in front passes Host / X-Forwarded-Host"
+  ],
+  [
+   "대화와 연결되지 않았어요 — {0} · 눌러서 다시 연결",
+   "Not linked to the conversation — {0} · tap to reconnect"
+  ],
+  [
+   "이 서버에서 터미널을 쓰지 않아요 — {0}",
+   "This server doesn't run terminals — {0}"
+  ],
+  [
+   "터미널 연결 표를 받지 못했어요 ({0})",
+   "Couldn't get a terminal ticket ({0})"
+  ],
+  [
+   "연결 표를 받지 못했어요 ({0})",
+   "Couldn't get a connection ticket ({0})"
+  ],
+  [
+   "@{0} 에서 시작을 누르면 끝나요",
+   "Press Start in @{0} to finish"
+  ],
+  [
+   "바뀐 것 {0}건 · 반영 전",
+   "{0} changes · not merged yet"
+  ],
+  [
+   "어떻게 했나요 · {0}단계{1}",
+   "How it was done · {0} steps{1}"
+  ],
+  [
+   "연결이 끊겼어요 ({0})",
+   "The connection dropped ({0})"
+  ],
+  [
+   "@{0} 봇을 찾았어요.",
+   "Found the bot @{0}."
+  ],
+  [
+   "· 조회한 곳 {0}",
+   "· looked at {0}"
+  ],
+  [
+   "{0} 폴더 열기",
+   "Open the {0} folder"
+  ],
+  [
+   "같은 업무로 보이는 새 사례 {0}건 · 정하기 전에는 프로세스가 바뀌지 않아요",
+   "{0} new case(s) that look like the same work · the process stays as it is until you decide"
+  ],
+  [
+   "택일 — {0} 대신{1} · 사례 {2}/{3}건이 거침{4}",
+   "Choice — instead of {0}{1} · {2}/{3} cases went through it{4}"
+  ],
+  [
+   "{0} — {1} 건너뜀 · 사례 {2}/{3}건이 거침{4}",
+   "{0} — skipped {1} · {2}/{3} cases went through it{4}"
+  ],
+  [
+   "언제 이 갈래로 가나요? ({0} 대신)",
+   "When is this branch taken? (instead of {0})"
+  ],
+  [
+   "새 사례 {0}건이 제안으로 와 있어요",
+   "{0} new case(s) waiting as a proposal"
+  ],
+  [
+   "확인 필요 {0}개를 먼저 정해 주세요",
+   "Decide the {0} open branch(es) first"
+  ],
+  [
+   "필수 단계 {0} 를 거치지 않았어요",
+   "Skipped the required step {0}"
+  ],
+  [
+   "정하지 않은 분기 {0}개 · {1}",
+   "{0} undecided branch(es) · {1}"
+  ],
+  [
+   "택일: {0}갈래 중 하나",
+   "Choice: one of {0} branches"
+  ],
+  [
+   "이번 일에 {0} 필요하면",
+   "When this work needs {0}"
+  ],
+  [
+   "거절됨 ({0})",
+   "Refused ({0})"
+  ],
+  [
+   "초안: {0}",
+   "Draft: {0}"
+  ],
+  [
    "완료된 루틴 {0}개 더 보기",
    "Show {0} more completed routines"
   ],
@@ -4748,6 +5828,18 @@
   [
    "새 메일 {0}통",
    "New mail: {0}"
+  ],
+  [
+   "진행 중인 루틴 {0}",
+   "Routines in progress {0}"
+  ],
+  [
+   "내 입력이 필요한 루틴 {0}개",
+   "{0} routines need your input"
+  ],
+  [
+   "· {0} 시작",
+   "· started by {0}"
   ],
   [
    "서버가 응답하지 못했어요 ({0}). 잠시 후 다시 시도해 주세요.",
@@ -4819,6 +5911,76 @@
    ".fl .search .clr",
    "지우기",
    "Clear"
+  ],
+  [
+   ".pcn .chip",
+   "기록",
+   "Record"
+  ],
+  [
+   ".pcn .acts",
+   "반려",
+   "Reject"
+  ],
+  [
+   ".lt",
+   "기능",
+   "Feature"
+  ],
+  [
+   ".lt",
+   "단계",
+   "Step"
+  ],
+  [
+   ".lt",
+   "보호",
+   "Protects"
+  ],
+  [
+   ".bc .act",
+   "반려",
+   "Reject"
+  ],
+  [
+   ".bc .ot",
+   "반려",
+   "Reject"
+  ],
+  [
+   ".bc .rh",
+   "반려",
+   "Reject"
+  ],
+  [
+   ".ontomap",
+   "일",
+   "Task"
+  ],
+  [
+   ".ontomap",
+   "관계",
+   "Link"
+  ],
+  [
+   ".ontomap",
+   "띠",
+   "Band"
+  ],
+  [
+   ".ontomap",
+   "기본",
+   "Default"
+  ],
+  [
+   ".ontomap",
+   "끝",
+   "End"
+  ],
+  [
+   ".ontomap",
+   "요약",
+   "Summary"
   ]
  ]
 }

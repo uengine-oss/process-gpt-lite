@@ -2,6 +2,7 @@
 import StepOutputs from './mining/StepOutputs.vue'
 import { ref, onMounted } from 'vue'
 import FormCard from './FormCard.vue'
+import BriefCard from './BriefCard.vue'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
 
@@ -12,11 +13,17 @@ const data = ref(null)
 const busy = ref(false)
 const err = ref('')
 const sent = ref(props.done)
+// a decision brief / hand-over prepared for this item (Agentic BPM, server lib/scenarios/purchase): shown above
+// the form, and what it prepared fills the form (nothing typed again)
+const brief = ref(null)
 
 onMounted(async () => {
-  data.value = await api(`/todos/${props.todoId}`)
+  const [d, b] = await Promise.all([api(`/todos/${props.todoId}`), api(`/purchase/briefs/${props.todoId}?open=1`).catch(() => null)])
+  if (b?.brief?.state === 'ready') { brief.value = b.brief; d.values = { ...(b.brief.prefill || {}), ...Object.fromEntries(Object.entries(d.values || {}).filter(([, v]) => v !== '' && v != null)) } }
+  data.value = d
   if (['DONE', 'SUBMITTED'].includes(data.value.todo.status)) sent.value = true
 })
+function decided() { sent.value = true; emit('submitted') }
 async function submit(values) {
   busy.value = true
   err.value = ''
@@ -33,6 +40,7 @@ async function submit(values) {
   <div v-else-if="sent" class="sent blur-in"><Icon name="check" :size="16" /> {{ data.todo.activity_name }} 제출됨</div>
   <div v-else class="todo">
     <StepOutputs :todo-id="data.todo.id" class="outs-top" />
+    <BriefCard v-if="brief" :brief="brief" compact class="brief-top" @decided="decided" />
     <FormCard v-if="data.form?.fields?.length" :title="data.todo.activity_name" :subtitle="data.instName" :fields="data.form.fields" :values="data.values" :busy="busy" @submit="submit" />
     <div v-else class="plain glass">
       <b class="serif">{{ data.todo.activity_name }}</b>
@@ -46,6 +54,7 @@ async function submit(values) {
 <style scoped>
 .todo { width: 424px; max-width: 100%; }
 .loading { font-size: 14px; padding: 6px; }
+.brief-top { margin-bottom: 10px; }
 .sent { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 9999px; background: var(--bubble-user-bg); font-size: 14px; }
 .plain { width: 424px; max-width: 100%; border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
 .plain b { font-size: 20px; font-weight: 400; }

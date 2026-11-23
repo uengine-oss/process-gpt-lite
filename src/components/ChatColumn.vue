@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
 import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
@@ -45,16 +45,45 @@ let noticeTimer
 watch(() => app.notice, (v) => { clearTimeout(noticeTimer); if (v) noticeTimer = setTimeout(() => { if (app.notice === v) app.notice = null }, 9000) })
 
 let stick = !props.keepTop
+// kept at the bottom until the person scrolls up: the list growing under it (it moves the bottom away, not the scroll) does not let go
+let lastTop = 0
 function onScroll() {
   const el = scroller.value
-  stick = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  // (a scroll can land after the column is gone — leaving the chat for another tab mid-scroll)
+  if (!el) return
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) stick = true
+  else if (el.scrollTop < lastTop - 2) stick = false
+  lastTop = el.scrollTop
 }
+// A draft bubble turning into its message shrinks and regrows the list in the middle of a smooth scroll, which then stops
+// short of the bottom: once it has run, finish it.
+let settle
+let smoothAt = 0
 async function toBottom(force) {
   await nextTick()
   const el = scroller.value
-  if (el && (stick || force)) el.scrollTo({ top: el.scrollHeight, behavior: force ? 'instant' : 'smooth' })
+  if (!el || !(stick || force)) return
+  if (force) stick = true
+  if (!force) smoothAt = Date.now()
+  el.scrollTo({ top: el.scrollHeight, behavior: force ? 'instant' : 'smooth' })
+  clearTimeout(settle)
+  settle = setTimeout(() => { if (stick && el.scrollHeight - el.scrollTop - el.clientHeight > 2) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }) }, 500)
 }
-watch(() => [list.value.length, draft.value], () => toBottom(false))
+// Cards that fill in after they are drawn (a start card, a case, a file) grow the list once the conversation is open: kept at the
+// bottom at once, not chased by a smooth scroll that shakes the screen and stops short — unless a new message is scrolling there now
+const inner = ref(null)
+let grown
+onMounted(() => {
+  grown = new ResizeObserver(() => {
+    const el = scroller.value
+    if (!el || !stick || Date.now() - smoothAt < 600) return
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) el.scrollTop = el.scrollHeight
+  })
+  if (inner.value) grown.observe(inner.value)
+})
+onBeforeUnmount(() => grown?.disconnect())
+// a conversation's messages arriving (none before) go straight to the bottom; a new message after that scrolls there
+watch(() => [list.value.length, draft.value], ([n], old) => toBottom(!props.keepTop && !old?.[0] && n > 0))
 // a task card that starts waiting or ends grows by its reason and the button that answers it: on a phone that part fell
 // under the composer while the card above it said 「로그인 필요」 (2026-11-21) — keep it in sight (again once the frame loads)
 const settled = computed(() => list.value.filter((m) => m.kind === 'task' && ['needs_input', 'failed', 'needs_review', 'done'].includes(m.content?.state))
@@ -77,7 +106,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
   <section class="col">
     <EdgeBlur side="top" />
     <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode }" @scroll="onScroll">
-      <div class="inner">
+      <div ref="inner" class="inner">
         <slot name="header" />
         <RoomRuleBar v-if="app.active?.kind === 'project' && app.activeId" :thread="app.activeId" />
         <p v-if="!list.length && emptyText" class="empty serif">{{ emptyText }}</p>
@@ -111,7 +140,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 .inner { width: 512px; max-width: calc(100% - 32px); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .empty { text-align: center; color: var(--text-secondary); font-size: 22px; margin-top: 30vh; line-height: 1.4; }
 .row { animation: blur-in .4s var(--spring) both; }
-.bubble { max-width: min(424px, 100%); min-width: 0; border-radius: 24px; padding: 13px 18px; line-height: 1.6; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
+.bubble { max-width: 424px; border-radius: 24px; padding: 13px 18px; line-height: 1.6; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
 .md :deep(p) { margin: 0 0 .6em; } .md :deep(p:last-child) { margin: 0; }
 .status { font-size: 15px; padding: 4px 6px; color: var(--text-tertiary); }
 .day { text-align: center; font-size: 12.5px; color: var(--text-tertiary); margin: 6px 0 -4px; }

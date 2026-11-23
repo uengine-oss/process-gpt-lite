@@ -16,25 +16,26 @@ import { numberOf } from '../improve/analyze.js'
 const CONSUMER = `pgpt-pro-skill-${process.pid}`
 let busy = false
 
-async function events(list) {
+export async function events(list) {
   const { error } = await admin.rpc('record_events_bulk', { p_events: list })
   if (error) console.warn('[skill-worker] events', error.message)
 }
 
-async function ownerOf(row) {
+export async function ownerOf(row) {
   const [t] = await q(`select user_id from todolist where proc_inst_id=$1 and coalesce(agent_orch,'') = '' order by start_date asc nulls last limit 1`, [row.proc_inst_id])
   return (t?.user_id || '').split(',')[0].trim() || null
 }
-async function instanceThread(userId, instId) {
+export async function instanceThread(userId, instId) {
   let [t] = await q('select id from pro_threads where user_id=$1 and ref=$2', [userId, instId])
   if (!t) {
+    // (a case run from the company's process map has its row too — lib/ontology/mapengine.js syncInst)
     const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [instId])
     ;[t] = await q(`insert into pro_threads(user_id,kind,title,ref) values ($1,'process',$2,$3) returning id`, [userId, i?.proc_inst_name, instId])
   }
   return t.id
 }
 // values of the steps done so far in this instance, flat ({customer, subject, body, floor_plan, rooms, …})
-async function earlier(instId) {
+export async function earlier(instId) {
   const rows = await q(`select output from todolist where proc_inst_id=$1 and status in ('DONE','SUBMITTED') order by end_date asc nulls last`, [instId])
   const out = {}
   for (const r of rows) for (const v of Object.values(r.output || {})) if (v && typeof v === 'object' && !Array.isArray(v)) Object.assign(out, v)
@@ -46,13 +47,51 @@ async function planPicture(dxfUrl) {
   return render(dxfUrl)
 }
 
-async function newFile(threadId, since, ext) {
+export async function newFile(threadId, since, ext) {
   const [m] = await q(`select content from pro_messages where thread_id=$1 and kind='file' and created_at >= $2 and lower(content->>'name') like $3 order by created_at desc limit 1`,
     [threadId, since, `%.${ext}`])
   return m ? { name: m.content.name, url: m.content.url } : null
 }
 
-const SKILLS = {
+// (also run by the process ontology's step worker, lib/ontology/run.js)
+export const SKILLS = {
+  // 회사 양식 채우기(design-v0.3 §22): the latest file of the form this work uses, kept from the company's own mail
+  // (lib/ontology/history.js), copied into the agent's workspace and filled for this case — the same sheets, labels,
+  // layout, formatting and formulas; this case's values. Any office kind (xlsx · docx · pptx · hwpx).
+  async 'form-fill'({ owner, threadId, prev, status, extra = '', template, step = '' }) {
+    if (!template?.path) throw new Error(L('이 일의 회사 양식 파일이 없어요', 'This work has no company form file'))
+    const kind = String(template.path).split('.').pop().toLowerCase()
+    // an Excel form is filled here, cell by cell, in the company's own file — its formatting, formulas and layout untouched
+    if (kind === 'xlsx') return fillXlsx({ owner, threadId, prev, status, extra, template, step })
+    const fsp = await import('node:fs/promises')
+    const { delegate } = await import('../agent.js')
+    const { saveAttachment } = await import('../attachments.js')
+    const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
+    const { user, session } = await sessionFor(p.email, p.name)
+    const src = await saveAttachment(user, `양식_${template.name}`, '', await fsp.readFile(template.path))
+    const who = String(prev.customer || '').replace(/[\\/:*?"<>|]/g, ' ').trim()
+    const out = `${who ? `${who} ` : ''}${template.name.replace(/\.[a-z0-9]+$/i, '')}.${kind}`
+    status(L(`회사 양식 「${template.name}」으로 만드는 중`, `Filling the company form ${template.name}`))
+    const since = new Date()
+    const msg = await delegate({ user, session, threadId, silent: true,
+      text: L(`프로세스의 '${step}' 단계예요. 회사가 메일로 주고받아 온 양식 「${template.name}」의 가장 최근 파일이 ${src.path} 에 있어요. ` +
+        `이 파일을 복사해 /workspace/${out} 를 만들고 이 건에 맞게 채우세요 — 시트 · 머리 칸 · 표의 열 이름 · 서식 · 수식 · 안내 문구는 그대로 두고, ` +
+        `지난 건의 고객 · 날짜 · 금액 · 품목 · 사람 같은 값만 이 건의 것으로 바꾸세요. 이 건에서 알 수 없는 값은 합리적인 가정값으로 채우고 무엇을 가정했는지 적으세요. ` +
+        `새로 그리지 말고 원본 파일을 고쳐 쓰세요(엑셀은 openpyxl 로 같은 칸에 값만, 워드 · 한글 · 파워포인트는 같은 문단 · 표 · 슬라이드에 글만).\n\n` +
+        `이 건: ${prev.subject || ''}\n${String(prev.body || '').slice(0, 2500)}\n\n${extra ? `${extra}\n\n` : ''}` +
+        `다 만들면 파일 이름과 바꾼 값 · 가정한 값을 서너 줄로 적으세요. 합계 금액이 있는 양식이면 맨 마지막 줄에 "TOTAL: 12400000" 처럼 원 단위 숫자를 한 줄로 쓰세요. 모두 한국어(해요체)로.`,
+        `This is the '${step}' step of a process. The latest file of the company's form ${template.name} (from its mail) is at ${src.path}. ` +
+        `Copy it to /workspace/${out} and fill it for this case — keep its sheets, labels, column names, formatting, formulas and notes; replace only the ` +
+        `previous case's values (customer, dates, amounts, items, people) with this case's. Unknown values: reasonable assumptions, and say which. ` +
+        `Edit the original file, do not draw a new one.\n\nThis case: ${prev.subject || ''}\n${String(prev.body || '').slice(0, 2500)}\n\n${extra ? `${extra}\n\n` : ''}` +
+        `When done, write the file name and the values you changed or assumed in three or four lines; if the form has a total, end with a line like "TOTAL: 12400000".`) })
+    const f = await newFile(threadId, since, kind)
+    if (!f) throw new Error(L('양식으로 만든 파일을 찾지 못했어요', "I couldn't find the filled form"))
+    const plain = String(msg?.content?.text || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    const { total, rest } = quoteTotal(plain)
+    const text = rest.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).slice(-3).join('\n\n').slice(0, 1500)
+    return { values: { document: f, form: template.name, ...(total != null ? { amount: String(total) } : {}), assumptions: text }, say: null }
+  },
   // CADCraft through its MCP (lib/floorPlan.js), the same drawing the mail drafts make
   async 'cadcraft-floor-plan'({ owner, threadId, prev, status }) {
     const { layoutFromMail, drawFloorPlan } = await import('../floorPlan.js')
@@ -105,7 +144,8 @@ const SKILLS = {
     return { values: { proposal: f }, say: L(`평면도를 넣은 워드 제안서(${f.name})를 썼어요.`, `I wrote the Word proposal (${f.name}) with the floor plan in it.`) }
   },
   // the agent's xlsx skill (deepagents), in the instance's conversation
-  async xlsx({ owner, threadId, prev, status }) {
+  // extra: what the process ontology's task definition adds (its form and checkpoints, lib/ontology/run.js)
+  async xlsx({ owner, threadId, prev, status, extra = '' }) {
     const { delegate } = await import('../agent.js')
     const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
     const { user, session } = await sessionFor(p.email, p.name)
@@ -113,7 +153,7 @@ const SKILLS = {
     const since = new Date()
     status(L('엑셀 견적서 만드는 중', 'Building the Excel quote'))
     const msg = await delegate({ user, session, threadId, silent: true,
-      text: quotePrompt(prev, name) })  // (delegate adds the language instruction)
+      text: quotePrompt(prev, name, extra) })  // (delegate adds the language instruction)
     const f = await newFile(threadId, since, 'xlsx')
     if (!f) throw new Error(L('견적서 파일을 찾지 못했어요', "I couldn't find the quote file"))
     // the agent's answer streams its progress first; the last paragraphs are the summary (file, assumed
@@ -127,11 +167,101 @@ const SKILLS = {
   },
 }
 
+// 회사 엑셀 양식 채우기: the cells of the company's latest file (labels, last case's values, formulas) and this case go to the
+// model (the skill's prompts/fill-form.md), which names the cells to change; only those cells are rewritten in the file's own
+// XML — every other part (styles, formulas, merged cells, comments, links) stays byte for byte as the company made it, and the
+// workbook is marked to recalculate its formulas when opened
+const xmlEsc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const xmlText = (t) => String(t).replace(/<[^>]+>/g, '').replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+const CELL = /<c r="([A-Z]{1,3}\d{1,7})"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
+export async function xlsxSheets(buf) {
+  const JSZip = (await import('jszip')).default
+  const zip = await JSZip.loadAsync(buf)
+  const read = async (p) => (zip.file(p) ? zip.file(p).async('string') : '')
+  const rels = await read('xl/_rels/workbook.xml.rels')
+  const target = (id) => { const t = rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`))?.[1] || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${id}"`))?.[1] || ''; return t.startsWith('/') ? t.slice(1) : `xl/${t}` }
+  const shared = [...(await read('xl/sharedStrings.xml')).matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => xmlText(m[1]))
+  const sheets = []
+  for (const m of (await read('xl/workbook.xml')).matchAll(/<sheet\b[^>]*?name="([^"]+)"[^>]*?r:id="([^"]+)"/g)) {
+    const file = target(m[2])
+    const xml = await read(file)
+    const cells = []
+    for (const c of xml.matchAll(CELL)) {
+      const [, ref, attrs, inner = ''] = c
+      const t = attrs.match(/\bt="([^"]+)"/)?.[1] || ''
+      const f = inner.match(/<f[^>]*>([\s\S]*?)<\/f>/)?.[1]
+      const v = inner.match(/<v>([\s\S]*?)<\/v>/)?.[1]
+      const value = f != null ? `=${xmlText(f)}` : t === 's' ? shared[Number(v)] ?? '' : t === 'inlineStr' ? xmlText(inner.match(/<is>([\s\S]*?)<\/is>/)?.[1] || '') : xmlText(v ?? '')
+      if (String(value).trim()) cells.push({ cell: ref, value: String(value).trim().slice(0, 200) })
+    }
+    sheets.push({ name: xmlText(m[1]), file, cells })
+  }
+  return { zip, sheets }
+}
+const excelDay = (iso) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 86_400_000)
+async function fillXlsx({ owner, threadId, prev, status, extra = '', template, step = '' }) {
+  const fsp = await import('node:fs/promises')
+  const path = await import('node:path')
+  const { chatJson } = await import('../llm.js')
+  const { prompt } = await import('../ontology/discovery.js')
+  const { workspaceHostPath } = await import('../missions.js')
+  const { publish } = await import('../office.js')
+  const { zip, sheets } = await xlsxSheets(await fsp.readFile(template.path))
+  const cells = sheets.flatMap((sh) => sh.cells.map((c) => ({ sheet: sh.name, ...c })))
+  status(L(`회사 양식 「${template.name}」의 칸 ${cells.length}개를 이 건으로 채우는 중`, `Filling ${cells.length} cells of the company form ${template.name}`))
+  const r = await chatJson(await prompt('fill-form'), JSON.stringify({ form: template.name, step, case: { subject: prev.subject || '', body: String(prev.body || '').slice(0, 3000), customer: prev.customer || '' },
+    definition: extra.slice(0, 3000), cells: cells.slice(0, 600) }), { timeoutMs: 180000, temperature: 0 })
+  const formula = new Set(cells.filter((c) => c.value.startsWith('=')).map((c) => `${c.sheet}!${c.cell}`))
+  let changed = 0
+  for (const sh of sheets) {
+    const want = new Map((r?.cells || []).filter((x) => (String(x.sheet || sheets[0].name) === sh.name) && /^[A-Z]{1,3}\d{1,7}$/.test(String(x.cell || '')) && !formula.has(`${sh.name}!${x.cell}`)).map((x) => [String(x.cell), x.value]))
+    if (!want.size) continue
+    let xml = await zip.file(sh.file).async('string')
+    xml = xml.replace(CELL, (all, ref, attrs) => {
+      if (!want.has(ref)) return all
+      const v = want.get(ref)
+      const style = attrs.match(/\bs="(\d+)"/)?.[0] || ''
+      let t = String(v ?? '').trim()
+      changed++
+      if (t === '') return `<c r="${ref}"${style ? ` ${style}` : ''}/>`
+      // a cell that held text keeps text (a date written 「2027/01/01」 keeps that shape); one that held a number keeps a number
+      const was = sh.cells.find((c) => c.cell === ref)?.value || ''
+      if (/\bt="(s|inlineStr|str)"/.test(attrs)) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(t) && /^\d{4}[./]\d{2}[./]\d{2}$/.test(was)) t = t.replace(/-/g, was[4])
+        return `<c r="${ref}"${style ? ` ${style}` : ''} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(t)}</t></is></c>`
+      }
+      if (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(t.replace(/,/g, ''))) return `<c r="${ref}"${style ? ` ${style}` : ''}><v>${Number(t.replace(/,/g, ''))}</v></c>`
+      if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return `<c r="${ref}"${style ? ` ${style}` : ''}><v>${excelDay(t)}</v></c>`
+      return `<c r="${ref}"${style ? ` ${style}` : ''} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(t)}</t></is></c>`
+    })
+    zip.file(sh.file, xml)
+  }
+  if (!changed) throw new Error(L('양식에서 바꿀 칸을 정하지 못했어요', "Couldn't decide which cells of the form to fill"))
+  // formulas keep their last results until recalculated: the file asks to be recalculated when it is opened
+  const wbXml = await zip.file('xl/workbook.xml').async('string')
+  zip.file('xl/workbook.xml', /<calcPr\b/.test(wbXml) ? wbXml.replace(/<calcPr\b(?![^>]*fullCalcOnLoad)/, '<calcPr fullCalcOnLoad="1"') : wbXml.replace('</workbook>', '<calcPr fullCalcOnLoad="1"/></workbook>'))
+  const who = String(prev.customer || '').replace(/[\\/:*?"<>|]/g, ' ').trim()
+  const name = `${who ? `${who} ` : ''}${template.name.replace(/\.[a-z0-9]+$/i, '')}.xlsx`
+  const rel = `/workspace/forms-out/${Date.now().toString(36)}/${name}`
+  const host = await workspaceHostPath('/workspace') + rel.slice('/workspace'.length)
+  await fsp.mkdir(path.dirname(host), { recursive: true })
+  const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+  await fsp.writeFile(host, buf)
+  const doc = await publish(owner, rel)
+  await addMessage(owner, threadId, 'agent', 'file', { ...doc, path: rel })
+  const assumed = (r.assumptions || []).map(String).slice(0, 8)
+  const total = Number(r.total) > 0 ? Number(r.total) : null
+  return { values: { document: { name: doc.name, url: doc.url }, form: template.name, cells: changed, ...(total ? { amount: String(total) } : {}),
+    assumptions: assumed.join('\n') }, say: null, buf }   // (buf: the filled file, for a caller that checks it — ontology/stepdoc.js; not stored)
+}
+
 // The quote step's request to the agent, from what this instance's earlier steps actually left: a floor
 // plan's room areas make it an interior quote (design fee, work per room …); without one it is a quote
 // for what the mail asks for (a 송년회 다과 비용표 is snacks and drinks, not 인테리어 공사). The documents
 // earlier steps already made are named so the agent does not make them again — none when there are none.
-export function quotePrompt(prev, name) {
+// extra: what the process ontology's task definition adds (its form and checkpoints, lib/ontology/run.js)
+export function quotePrompt(prev, name, extra = '') {
   const rooms = String(prev.rooms || '').split('\n').map((x) => x.trim()).filter(Boolean).join(' / ')
   const body = String(prev.body || '').slice(0, 2000)
   const made = [prev.floor_plan && L('평면도', 'the floor plan'), prev.proposal && L('제안서', 'the proposal')].filter(Boolean)
@@ -141,8 +271,9 @@ export function quotePrompt(prev, name) {
     rooms ? '설계비(평면·마감 설계, 1식), 실별 인테리어 공사(면적 ㎡ × ㎡당 단가, 실마다 한 줄), 가구·집기(좌석 수 기준), 전기·설비(1식)'
       : '메일이 요청한 품목을 한 줄씩(메일에 적힌 인원·수량·기간으로 수량을 정하고, 요청하지 않은 공사·설계 항목은 넣지 마세요)',
     ', 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 천 단위 쉼표, 머리글 색 구분. 단가는 합리적인 가정값.\n\n',
+    extra ? `${extra}\n\n` : '',
     made.length ? `(${made.join('와 ')}는 앞 단계에서 이미 만들었으니 만들지 마세요.) ` : '',
-    '다 만들면 파일 이름과 가정한 단가를 두세 줄로 적고, 맨 마지막 줄에 부가세 포함 합계를 원 단위 숫자로 "TOTAL: 51216000" 처럼 한 줄로 쓰세요. 모두 한국어(해요체)로 쓰세요.',
+    '같은 이름의 파일이 이미 있어도 이 건을 위해 처음부터 새로 만들어 덮어쓰세요 — 이전 파일을 그대로 쓰지 마세요. 다 만들면 파일 이름과 가정한 단가를 두세 줄로 적고, 맨 마지막 줄에 부가세 포함 합계를 원 단위 숫자로 "TOTAL: 51216000" 처럼 한 줄로 쓰세요. 모두 한국어(해요체)로 쓰세요.',
   ].join('')
   const en = [
     `This is the 'Prepare quote' step of a process. Build the quote that answers the customer mail (${prev.subject}).${rooms ? ` Room areas from the floor plan: ${rooms}` : ''}\nMail body: ${body}\n\n`,
@@ -150,8 +281,9 @@ export function quotePrompt(prev, name) {
     rooms ? 'the design fee (floor plan and finishing design, 1 lot), interior work per room (area in ㎡ × price per ㎡, one row per room), furniture and fixtures (by the number of seats), and electrical and equipment (1 lot)'
       : 'one row per item the mail asks for (quantities from the headcount, amounts and dates the mail gives; no construction or design items it did not ask for)',
     '; below it subtotal, VAT (10%) and total rows (all formulas), thousands separators, colored header row. Use reasonable assumed unit prices in KRW (₩).\n\n',
+    extra ? `${extra}\n\n` : '',
     made.length ? `(${made.join(' and ')} ${made.length > 1 ? 'were' : 'was'} made in earlier steps — do not make ${made.length > 1 ? 'them' : 'it'}.) ` : '',
-    'When it is done, give the file name and the unit prices you assumed in two or three lines, and on the very last line the total incl. VAT in won as a plain number, like "TOTAL: 51216000". Write everything in English.',
+    'Even if a file with that name already exists, build it anew for this case and overwrite it — do not reuse the earlier file. When it is done, give the file name and the unit prices you assumed in two or three lines, and on the very last line the total incl. VAT in won as a plain number, like "TOTAL: 51216000". Write everything in English.',
   ].join('')
   return L(ko, en)
 }

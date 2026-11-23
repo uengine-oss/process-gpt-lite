@@ -18,15 +18,19 @@ const close = () => (closeInstance ? closeInstance() : router.push('/routines'))
 
 // On a phone Home is a tab of its own (hark's 홈 / 채팅 / 프로젝트); on a wide screen it is the
 // dock beside the chat, toggled by the round button.
-// 루틴 (process instances, /routines) is a tab of its own, apart from 프로젝트; 개선 분석 is opened from it
-const tab = computed(() => (route.path.startsWith('/folders') ? 'folders'
-  : app.mode === 'routine' || route.path.startsWith('/routines') || route.path.startsWith('/improve') ? 'routine'
+// 루틴 (process instances, /routines) is a tab of its own, apart from 프로젝트. The company's process map (/process-map) and the
+// classic 개선 분석 (/improve) open from it, so they light 루틴 too
+const tab = computed(() => (route.path.startsWith('/team-activity') ? 'team' : route.path.startsWith('/folders') ? 'folders'
+  : app.mode === 'routine' || route.path.startsWith('/routines') || route.path.startsWith('/improve') || route.path.startsWith('/process-map') ? 'routine'
   : app.mode === 'project' ? 'project' : narrow.value && app.dockOpen ? 'home' : 'chat'))
-const tabs = computed(() => [...(narrow.value ? [{ id: 'home', label: '홈' }] : []), { id: 'chat', label: '채팅' }, { id: 'project', label: '프로젝트' }, { id: 'routine', label: '루틴' }, { id: 'folders', label: '폴더' }])
+const tabs = computed(() => [...(narrow.value ? [{ id: 'home', label: '홈' }] : []), { id: 'chat', label: '채팅' }, { id: 'project', label: '프로젝트' }, { id: 'routine', label: '루틴' }, { id: 'folders', label: '폴더' }, { id: 'team', label: '팀' }])
 function go(id) {
   if (id === 'project') return router.push('/projects')
-  if (id === 'routine') return router.push('/routines')
+  // 루틴 opens the company's process map (Lite's processes are seen and improved there); the routine list — Lite's cases and the
+  // classic ones (Process GPT 본판) — is a link on it. A company without the map (no Ontological DB) gets the list.
+  if (id === 'routine') return router.push(app.me?.ontology === false ? '/routines' : '/process-map')
   if (id === 'folders') return router.push('/folders')
+  if (id === 'team') return router.push('/team-activity')
   if (narrow.value) app.dockOpen = id === 'home'
   router.push('/chat')
 }

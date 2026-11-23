@@ -1,0 +1,79 @@
+{
+ "measured": "2026-11-01",
+ "how": "scripts/measure-plan-jobs.mjs",
+ "basis": "tokens from the company gateway model (frentis-ai-model) through LiteLLM, priced at gpt-4.1-mini rates ($0.40/M in, $1.60/M out); the OpenAI keys had expired",
+ "jobs": {
+  "draft": {
+   "usd": 0.04979,
+   "runs": 3,
+   "calls": 4,
+   "tokens": 118487,
+   "models": [
+    "gpt-4.1-mini"
+   ],
+   "spread": [
+    0.038754,
+    0.071518
+   ],
+   "answer": 824,
+   "kinds": [
+    "text",
+    "doc"
+   ]
+  },
+  "minutes": {
+   "usd": 0.047926,
+   "runs": 3,
+   "calls": 4,
+   "tokens": 108049,
+   "models": [
+    "gpt-4.1-mini"
+   ],
+   "spread": [
+    0.046277,
+    0.048858
+   ],
+   "answer": 1368,
+   "kinds": [
+    "doc"
+   ]
+  },
+  "process": {
+   "usd": 0.418588,
+   "runs": 3,
+   "calls": 24,
+   "tokens": 907172,
+   "models": [
+    "gpt-4.1-mini"
+   ],
+   "spread": [
+    0.378197,
+    0.497512
+   ],
+   "answer": 2083,
+   "kinds": [
+    "text",
+    "doc",
+    "process_draft"
+   ]
+  },
+  "apology": {
+   "usd": 0.115577,
+   "runs": 3,
+   "calls": 4,
+   "tokens": 278931,
+   "models": [
+    "gpt-4.1-mini"
+   ],
+   "spread": [
+    0.07179,
+    0.139288
+   ],
+   "answer": 950,
+   "kinds": [
+    "text",
+    "process_draft"
+   ]
+  }
+ }
+}

@@ -1,5 +1,6 @@
 // Read side of process-gpt BPM: definitions, forms, instances, work items, artifacts.
 import { q, ENGINE_TZ } from './supa.js'
+import { statusSql } from './enums.js'
 import { config } from '../config.js'
 import { failures } from './stepRetry.js'
 import { L } from './lang.js'
@@ -107,6 +108,8 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
   return q(
     `select i.proc_inst_id, i.proc_inst_name, i.proc_def_id, i.status, i.current_activity_ids, i.start_date, i.end_date, i.updated_at,
             d.name as def_name,
+            -- a case of the company's process map (lib/ontology): its case, its engine (map: 지도에서 바로 — no definition) and who started it
+            oc.id as case_id, oc.engine, oc.bundle as case_proc, (select coalesce(nullif(u.username,''), u.email) from users u where u.id = oc.started_by and u.tenant_id = i.tenant_id) as starter_name,
             exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id
                     and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))
                     and (t.user_id like '%'||$2||'%' or t.user_id like '%'||$3||'%')) as needs_me,
@@ -116,6 +119,7 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
             exists (select 1 from todolist t where t.proc_inst_id=i.proc_inst_id and t.agent_orch is not null
                     and t.status = 'IN_PROGRESS' and t.draft_status::text = 'FAILED') as agent_failed
      from bpm_proc_inst i left join proc_def d on d.id=i.proc_def_id and d.tenant_id=i.tenant_id
+     left join lateral (select c.id::text as id, c.engine, c.bundle, c.started_by from pro_po_cases c where c.tenant_id = i.tenant_id and i.proc_inst_id = any(c.instances) limit 1) oc on true
      where i.tenant_id=$1 and not coalesce(i.is_deleted,false) and ($4::text is null or i.status::text=$4)
        and ${INVOLVED}
      order by coalesce(i.updated_at, i.start_date at time zone '${ENGINE_TZ}') desc nulls last limit $5`,
@@ -126,11 +130,18 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
 export async function getInstance(instId, me) {
   const [inst] = await q('select * from bpm_proc_inst where proc_inst_id=$1 and tenant_id=$2', [instId, T()])
   if (!inst) return null
+  // a case run from the company's process map has no definition to draw: the screen opens its case view instead (lib/ontology/mapengine.js)
+  const M = await import('./ontology/mapengine.js')
+  if (M.isMapInst(instId)) {
+    const [c] = await q(`select id::text as id, bundle as proc from pro_po_cases where tenant_id=$1 and $2 = any(instances) limit 1`, [T(), instId])
+    return { inst, def: null, steps: [], todos: [], artifacts: [], mapCase: c || null }
+  }
   const def = await getDefinition(inst.proc_def_id)
   const todos = await q(
     // an agent's name as this tenant knows it: the same agent id can be in several tenants (the mining
     // agents are), and the engine wrote whichever row it found first (Korean names in English tenants)
-    `select id, activity_id, activity_name, status, user_id,
+    // (status: a work item a move cancelled on a database without CANCELLED is DONE with Lite's mark — read back as CANCELLED, lib/enums.js)
+    `select id, activity_id, activity_name, ${statusSql('t.')} as status, user_id,
             coalesce((select u.username from users u where u.is_agent and u.id::text = t.user_id and u.tenant_id = t.tenant_id), username) as username,
             start_date, end_date, updated_at, output, draft,
             output_url, agent_mode, agent_orch, log, description, draft_status::text as draft_status, consumer, lease_until
@@ -214,26 +225,34 @@ function flattenOutput(t) {
 }
 
 export async function myTodos(me) {
-  return q(
+  const rows = await q(
     `select t.id, t.proc_inst_id, t.proc_def_id, t.activity_id, t.activity_name, t.status, t.start_date, t.due_date, t.description,
             i.proc_inst_name, d.name as def_name
      from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id
      left join proc_def d on d.id=t.proc_def_id and d.tenant_id=t.tenant_id
      where t.tenant_id=$1
        and (t.status = 'IN_PROGRESS' or (t.status in ('TODO','NEW') and t.activity_id = any(i.current_activity_ids)))
-       and coalesce(t.agent_orch,'') = ''
+       -- an agent's step is not anyone's to do — except a draft step: the agent writes the draft, the person hands it in
+       and (coalesce(t.agent_orch,'') = '' or upper(coalesce(t.agent_mode::text,'')) = 'DRAFT')
        and (t.user_id like '%'||$2||'%' or t.user_id like '%'||$3||'%')
      order by t.start_date desc nulls last limit 20`, [T(), me.email, me.id])
+  // a map process's step still waiting for its owner's 「진행」(lib/ontology/runmode.js) is not on anyone's list yet
+  const held = await import('./ontology/runmode.js').then((m) => m.heldTodos(rows.map((t) => t.id))).catch(() => new Set())
+  return held.size ? rows.filter((t) => !held.has(String(t.id))) : rows
 }
 
 export async function getTodo(todoId) {
   const [t] = await q('select * from todolist where id=$1', [todoId])
   if (!t) return null
+  const [inst] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [t.proc_inst_id])
+  // a step of a case run from the company's process map (no process definition): its activity and form come from the map's task; its
+  // instance has a row like any other (the name below)
+  const M = await import('./ontology/mapengine.js')
+  if (!t.proc_def_id && M.isMapInst(t.proc_inst_id)) return { ...(await M.todoView(t)), ...(inst?.proc_inst_name ? { instName: inst.proc_inst_name } : {}) }
   const def = await getDefinition(t.proc_def_id)
   const step = def?.steps.find((s) => s.id === t.activity_id)
   const form = await getForm(step?.formId)
   const vals = t.draft || t.output || {}
-  const [inst] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [t.proc_inst_id])
   return { todo: t, step, form, instName: inst?.proc_inst_name || def?.name, values: form ? (vals[form.id] || vals) : {} }
 }
 

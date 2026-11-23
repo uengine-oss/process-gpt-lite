@@ -62,7 +62,7 @@ export async function googleExchange(code, verifier, { client, redirectUri }) {
 }
 
 export async function googleAccessToken(userId) {
-  const sec = await getSecret(userId, 'oauth', 'google')
+  const sec = await getSecret(userId, 'oauth', config.google.vaultSite)
   if (!sec) throw new Error('google not connected')
   if (sec.expires_at > Date.now() + 60000) return sec.access_token
   // refreshed with the client that issued it, in the tenant it was connected in
@@ -76,20 +76,28 @@ export async function googleAccessToken(userId) {
   const tok = await res.json().catch(() => ({}))
   if (!res.ok || !tok.access_token) throw new Error(L('Google 연결이 만료됐어요. 메일을 다시 연결해 주세요.', 'The Google connection has expired. Please connect your mail again.'))
   const { id, site, ...saved } = sec
-  await putItem(userId, 'oauth', 'google', { ...saved, access_token: tok.access_token, expires_at: Date.now() + tok.expires_in * 1000 }, { actor: 'mail' })
+  await putItem(userId, 'oauth', config.google.vaultSite, { ...saved, access_token: tok.access_token, expires_at: Date.now() + tok.expires_in * 1000 }, { actor: 'mail' })
   return tok.access_token
 }
 
 // ---------- fetchers: each returns [{id, from, subject, date, text}] ----------
+// the whole body (the part its sender wrote now — quoted earlier mails cut off) and the attachments' names, not Gmail's
+// short preview: what the mail asks, in what form and whether it repeats is in there (lib/ontology/mailbody.js)
 async function fetchGmail(userId) {
   const at = await googleAccessToken(userId)
-  const api = (p) => fetch(`${config.google.gmailUrl}/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
-  const list = await api('messages?maxResults=20&q=' + encodeURIComponent('newer_than:2d -category:promotions -category:social'))
+  const { gmailApi } = await import('./ontology/history.js')
+  const { partsOf, bodyOf, newPart, gmailError } = await import('./ontology/mailbody.js')
+  // a refusal (the Gmail API off in the Google project, an expired grant) is an error, not an empty inbox
+  const api = async (p) => { const r = await fetch(`${gmailApi()}/${p}`, { headers: { Authorization: `Bearer ${at}` } }); const j = await r.json().catch(() => ({})); if (!r.ok) throw gmailError(r.status, j); return j }
+  const list = await api('messages?maxResults=20&q=' + encodeURIComponent('newer_than:2d -category:promotions -category:social -in:sent'))
   const out = []
   for (const m of list.messages || []) {
     const full = await api(`messages/${m.id}?format=full`)
     const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name.toLowerCase(), x.value]))
-    out.push({ id: m.id, from: h.from, subject: h.subject, date: h.date, text: full.snippet || '' })
+    const parts = partsOf(full.payload)
+    const body = bodyOf(parts)
+    out.push({ id: m.id, thread: full.threadId, from: h.from, to: h.to, cc: h.cc, subject: h.subject, date: h.date, body, labels: full.labelIds || [], text: (newPart(body) || full.snippet || '').slice(0, 6000),
+      attachments: parts.attachments.map((f) => ({ name: f.name, size: f.size, attachmentId: f.attachmentId })) })
   }
   return out
 }
@@ -151,6 +159,67 @@ export async function demoArrive(userId, body) {
   return pollUser(userId)
 }
 
+// A local test site's mail to a demo mailbox (the test shop's e-mailed sign-in code): it lands in the demo
+// mailbox whose address it was sent to, as a fictional mail would. Development and test servers only (index.js).
+export async function demoInbound({ to, from, subject, text }) {
+  if (!String(to || '').includes('@') || !String(from || '').trim()) throw new Error('to and from are needed')
+  const rows = await q(`select user_id from pro_mail_accounts where provider='demo' and lower(address)=lower($1)`, [String(to).trim()])
+  for (const r of rows) {
+    await q('insert into pro_demo_mail(user_id, mail_id, sender, subject, body) values ($1,$2,$3,$4,$5)',
+      [r.user_id, `demo-${crypto.randomBytes(6).toString('hex')}`, String(from).slice(0, 200), String(subject || '').slice(0, 300), String(text || '').slice(0, 4000)])
+  }
+  return { delivered: rows.length }
+}
+
+// ---------- the newest mail, read only (lib/mailCode.js: the one-time code a site e-mailed) ----------
+// No triage and no model: the mail since a moment, newest first, as {id, from, subject, date, text}.
+// Gmail: the plain-text body (else the snippet); IMAP: since that day, then by the minute; demo: what arrived.
+const b64 = (s) => Buffer.from(String(s || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+function gmailText(part) {
+  if (!part) return ''
+  if (part.mimeType === 'text/plain' && part.body?.data) return b64(part.body.data)
+  for (const p of part.parts || []) { const t = gmailText(p); if (t) return t }
+  return ''
+}
+export async function recentMail(userId, sinceMs) {
+  const [acc] = await q('select provider from pro_mail_accounts where user_id=$1', [userId])
+  if (!acc) return []
+  const since = new Date(sinceMs)
+  if (acc.provider === 'gmail') {
+    const at = await googleAccessToken(userId)
+    const api = (p) => fetch(`${config.google.gmailUrl}/users/me/${p}`, { headers: { Authorization: `Bearer ${at}` } }).then((r) => r.json())
+    const list = await api(`messages?maxResults=10&q=${encodeURIComponent(`after:${Math.floor(sinceMs / 1000)}`)}`)
+    const out = []
+    for (const m of list.messages || []) {
+      const full = await api(`messages/${m.id}?format=full`)
+      const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name.toLowerCase(), x.value]))
+      out.push({ id: m.id, from: h.from, subject: h.subject, date: new Date(Number(full.internalDate) || h.date).toISOString(), text: (gmailText(full.payload) || full.snippet || '').slice(0, 4000) })
+    }
+    return out
+  }
+  if (acc.provider === 'imap') {
+    const sec = await getSecret(userId, 'login', 'imap')
+    if (!sec) return []
+    const client = new ImapFlow({ host: sec.host, port: 993, secure: true, auth: { user: sec.username, pass: sec.password }, logger: false })
+    await client.connect()
+    const out = []
+    const lock = await client.getMailboxLock('INBOX')
+    try {
+      // when the server received it (INTERNALDATE), not the sender's clock in its Date header
+      for await (const msg of client.fetch({ since }, { source: true, uid: true, internalDate: true })) {
+        const p = await simpleParser(msg.source)
+        const got = msg.internalDate ? new Date(msg.internalDate) : p.date
+        if (got && got < since) continue
+        out.push({ id: `imap-${msg.uid}`, from: p.from?.text, subject: p.subject, date: got?.toISOString(), text: (p.text || '').slice(0, 4000) })
+      }
+    } finally { lock.release(); await client.logout() }
+    return out.reverse().slice(0, 10)
+  }
+  const rows = await q(`select mail_id, sender, subject, body, created_at from pro_demo_mail where user_id=$1 and created_at >= $2
+    order by created_at desc limit 10`, [userId, since])
+  return rows.map((m) => ({ id: m.mail_id, from: m.sender, subject: m.subject, date: m.created_at.toISOString(), text: m.body }))
+}
+
 // ---------- triage ----------
 const TRIAGE = `You read a user's newest emails and decide what their assistant should do.
 Return JSON {"actions":[{"mail_id","verb","text","icon_domain","due","prompt"}],"brief":"..."}.
@@ -199,13 +268,26 @@ export async function claimFresh(userId, mails) {
 export async function pollUser(userId, { announce } = {}) {
   const [acc] = await q('select * from pro_mail_accounts where user_id=$1', [userId])
   if (!acc) return { skipped: 'no account' }
-  const mails = acc.provider === 'gmail' ? await fetchGmail(userId)
-    : acc.provider === 'imap' ? await fetchImap(userId, acc) : await fetchDemo(userId)
+  let mails
+  try {
+    mails = acc.provider === 'gmail' ? await fetchGmail(userId)
+      : acc.provider === 'imap' ? await fetchImap(userId, acc) : await fetchDemo(userId)
+  } catch (e) {
+    // said once a day in the owner's chat (the poll is not marked done, so it is tried again)
+    const t = await mainThread(userId)
+    const [said] = await q(`select 1 from pro_messages where thread_id=$1 and kind='text' and content->>'mailError'=$2 and created_at > now() - interval '1 day' limit 1`, [t.id, e.message])
+    if (!said) await addMessage(userId, t.id, 'agent', 'text', { text: L(`메일함을 읽지 못했어요 — ${e.message}`, `I couldn't read your mailbox — ${e.message}`), mailError: e.message })
+    throw e
+  }
   const fresh = await claimFresh(userId, mails)
+  // what was read is kept in the owner's mail archive (lib/mailArchive.js)
+  if (fresh.length) await import('./mailArchive.js').then((a) => a.archiveMails(userId, acc.provider, fresh, 'intake')).catch((e) => console.warn('[mail] archive', e.message))
   await q('update pro_mail_accounts set last_poll=now() where user_id=$1', [userId])
   if (!fresh.length) return { fresh: 0 }
 
-  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(fresh.map(({ id, from, subject, date, text }) => ({ id, from, subject, date, text: (text || '').slice(0, 800) }))))
+  // work that repeats (「앞으로 매주 월요일 오전에 …」): asked as a schedule — a timer event on the company map (lib/ontology/timers.js)
+  for (const m of fresh) if (!m.fixture) import('./ontology/timers.js').then((o) => o.recurFromMail(userId, m)).catch((e) => console.warn('[mail] recur', e.message))
+  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(fresh.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name) }))))
   for (const a of r.actions || []) {
     const src = fresh.find((m) => m.id === a.mail_id)
     const [row] = await q(
@@ -226,7 +308,10 @@ export async function pollUser(userId, { announce } = {}) {
   for (const d of r.drafts || []) {
     const src = fresh.find((m) => m.id === d.mail_id)
     // a process registered from mining takes the mail when it matches (lib/mining); else the ad-hoc drafts
-    if (src && !src.fixture && d.items?.length) import('./mining/service.js').then((m) => m.routeMail(userId, src, d)).catch((e) => { console.warn('[mail] route', e.message); return false })
+    // an adopted bundle of the company's process map takes the mail first (lib/ontology/run.js), else a flow process mining registered
+    if (src && !src.fixture && d.items?.length) import('./ontology/run.js').then((o) => o.routeMail(userId, src, d))
+      .then((done) => done || import('./mining/service.js').then((m) => m.routeMail(userId, src, d)))
+      .catch((e) => { console.warn('[mail] route', e.message); return false })
       .then((routed) => routed || draftFromMail(userId, src, d)).catch((e) => console.warn('[mail] drafts', e.message))
   }
   return { fresh: fresh.length, actions: (r.actions || []).length }

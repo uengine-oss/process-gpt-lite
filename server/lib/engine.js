@@ -40,7 +40,8 @@ async function complete(input) {
   try { return JSON.parse(text) } catch { return { raw: text } }
 }
 
-export async function startProcess({ me, defId, values, messageId }) {
+// roles: role name → user id chosen for this instance (a case of the company's process map — lib/ontology/bindings.js); wins over the team's
+export async function startProcess({ me, defId, values, messageId, roles: picked = null }) {
   const [row] = await q('select definition from proc_def where id=$1 and tenant_id=$2', [defId, config.tenantId])
   if (!row) throw new Error('process not found')
   const def = await getDefinition(defId)
@@ -60,7 +61,8 @@ export async function startProcess({ me, defId, values, messageId }) {
   for (const x of roles) {
     const eps = [].concat(x.endpoint || []).map(String).filter(Boolean)
     if (eps.length && eps.every((e) => agents.has(e))) continue // agents keep their own endpoint
-    const who = assigned[roleKey(x.name)] || me.id
+    const mine = picked ? Object.entries(picked).find(([k]) => roleKey(k) === roleKey(x.name))?.[1] : null
+    const who = mine || assigned[roleKey(x.name)] || me.id
     x.endpoint = [who]; x.default = [who]
   }
 
@@ -95,6 +97,15 @@ export async function submitTodo({ me, todoId, values, messageId }) {
   if (!d) throw new Error('work item not found')
   const t = d.todo
   const formId = d.form?.id || d.step?.formId || 'defaultform'
+  // a case of the company's process map run from the map itself (no process definition — lib/ontology/mapengine.js): the step is
+  // handed in there and the map says what comes next
+  const M = await import('./ontology/mapengine.js')
+  if (M.isMapInst(t.proc_inst_id)) {
+    await M.submitPerson({ me, todo: t, payload: { [formId]: values || {} } })
+    if (messageId) await updateMessage(me.id, messageId, { state: 'submitted' })
+    emit(me.id, 'process', { instId: t.proc_inst_id, type: 'submitted' })
+    return { ok: true }
+  }
   await complete({
     answer: '',
     form_values: { [formId]: values || {} },

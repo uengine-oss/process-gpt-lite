@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import { config } from '../config.js'
 import { isEn, ENGLISH_NOTE } from './lang.js'
+import * as llmKeys from './llmKeys.js'
 
 // A model call that never answers would hold its caller forever (the browser worker runs one job
 // at a time), so every non-streaming call gives up after a few minutes.
@@ -17,14 +18,17 @@ function trace(messages) {
 
 // Reasoning models refuse some chat/completions parameters (temperature other than 1, max_tokens,
 // tools while reasoning). What a model refused is learned from its 400 and left out from then on.
-const quirks = new Map() // model → { noTemperature, completionTokens, noReasoning, noEffort }
+const quirks = new Map() // model → { noTemperature, completionTokens, noReasoning, noEffort, noTemplateKwargs, topLogprobs, minTokens }
 function adapt(payload) {
   const q = quirks.get(payload.model) || {}
   const b = { ...payload }
   if (q.noTemperature) delete b.temperature
+  if (q.minTokens && b.max_tokens < q.minTokens) b.max_tokens = q.minTokens
   if (q.completionTokens && b.max_tokens) { b.max_completion_tokens = b.max_tokens; delete b.max_tokens }
   if (q.noReasoning && b.tools) b.reasoning_effort = 'none'
   if (q.noEffort) delete b.reasoning_effort
+  if (q.noTemplateKwargs) delete b.chat_template_kwargs
+  if (q.topLogprobs && b.top_logprobs > q.topLogprobs) b.top_logprobs = q.topLogprobs
   return b
 }
 function learn(model, status, text) {
@@ -36,20 +40,33 @@ function learn(model, status, text) {
   if (/reasoning_effort/.test(text) && /tools/i.test(text)) q.noReasoning = true
   // non-reasoning models (gpt-4.1) reject the argument itself
   if (/Unrecognized request argument supplied: reasoning_effort/.test(text)) q.noEffort = true
+  // a model that always reasons (gpt-6-astra) refuses 'none': then its own answer about log-probabilities decides
+  if (/reasoning_effort/.test(text) && /does not support 'none'/.test(text)) q.noEffort = true
+  // think: false asks a model served by vLLM/SGLang (the company gateway) to skip its thinking; others refuse the argument
+  if (/chat_template_kwargs/.test(text)) q.noTemplateKwargs = true
+  // some models refuse to stop mid-sentence at one token (gpt-6-luna needs 4): the first token is all that is read anyway
+  if (/Could not finish the message because max_tokens/.test(text)) q.minTokens = 8
+  // how many candidates a model gives differs (gpt-6-luna 5, gpt-4.1-mini 20): its refusal says
+  const top = /top_logprobs/.test(text) && /(?:less than or equal to|at most|between 0 and|maximum(?: of)?)\s*(\d+)/i.exec(text)
+  if (top) q.topLogprobs = Number(top[1])
   quirks.set(model, q)
   return JSON.stringify(q) !== before
 }
 async function post(payload, signal) {
   for (let tries = 0; ; tries++) {
-    const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
+    const asked = JSON.stringify(adapt(payload))
+    // with PRO_LLM_KEYS=litellm: the person's key in their company, the call's feature tag (lib/llmKeys.js)
+    const res = await llmKeys.send((auth) => fetch(`${config.llm.baseUrl}/chat/completions`, {
       method: 'POST',
-      signal,
-      headers: { Authorization: `Bearer ${config.llm.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(adapt(payload)),
-    })
+      // (a time limit per try: learning what a model refuses takes several tries the first time)
+      signal: typeof signal === 'function' ? signal() : signal,
+      headers: { Authorization: `Bearer ${auth.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...adapt(payload), ...llmKeys.bodyTags(auth) }),
+    }))
     if (res.ok) return res
     const text = await res.text()
-    if (tries < 3 && learn(payload.model, res.status, text)) continue
+    // (or a call running at the same time already learned it: the same refusal, nothing new, and it is worth one more try)
+    if (tries < 6 && (learn(payload.model, res.status, text) || JSON.stringify(adapt(payload)) !== asked)) continue
     throw new Error(`LLM ${res.status}: ${text.slice(0, 300)}`)
   }
 }
@@ -70,8 +87,9 @@ export function inLanguageMessages(messages) {
 }
 
 // timeoutMs: a shorter limit for a call that has a smaller fallback; maxTokens: caps a runaway answer;
-// effort: reasoning_effort for models that reason (dropped for those that don't)
-export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal, timeoutMs = CALL_TIMEOUT_MS, maxTokens, effort }) {
+// effort: reasoning_effort for models that reason (dropped for those that don't); think: false — no thinking at all, for
+// short judgements that must answer in a fraction of a second (dropped by models that refuse it)
+export async function chat({ messages, tools, toolChoice, model, json, temperature = 0.4, signal, timeoutMs = CALL_TIMEOUT_MS, maxTokens, effort, think }) {
   messages = inLanguageMessages(messages)
   trace(messages)
   const res = await post({
@@ -81,6 +99,7 @@ export async function chat({ messages, tools, toolChoice, model, json, temperatu
     ...(json ? { response_format: { type: 'json_object' } } : {}),
     ...(maxTokens ? { max_tokens: maxTokens } : {}),
     ...(effort ? { reasoning_effort: effort } : {}),
+    ...(think === false ? { chat_template_kwargs: { enable_thinking: false } } : {}),
   }, signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs))
   const data = await res.json()
   const msg = data.choices[0].message
@@ -88,6 +107,21 @@ export async function chat({ messages, tools, toolChoice, model, json, temperatu
   // it), for callers that parse it
   Object.defineProperty(msg, 'finish', { value: data.choices[0].finish_reason || null, enumerable: false })
   return msg
+}
+
+// One token, and how likely each candidate was: {model, top: [{token, logprob}]}, top null when the endpoint gives no
+// log-probabilities. Nothing is generated, so it is cheap enough to run on every action a policy looks at.
+export async function firstTokenTop({ prompt, model, timeoutMs = 4000 }) {
+  const m = model || config.llm.model
+  const messages = [{ role: 'user', content: prompt }]
+  trace(messages)
+  // (reasoning models give log-probabilities only with no reasoning: gpt-6-luna refuses them otherwise)
+  const res = await post({ model: m, messages, temperature: 0, max_tokens: 1, logprobs: true, top_logprobs: 20, reasoning_effort: 'none', chat_template_kwargs: { enable_thinking: false } }, () => AbortSignal.timeout(timeoutMs))
+  const data = await res.json()
+  const first = data.choices?.[0]?.logprobs?.content?.[0]
+  // only the token it picked, with no candidates: that says nothing about the others (55% would read as 100%).
+  // One candidate is different: a model that is sure lists only that one (gpt-6-luna).
+  return { model: m, top: first?.top_logprobs?.length ? first.top_logprobs : null }
 }
 
 export async function chatJson(system, user, opts = {}) {

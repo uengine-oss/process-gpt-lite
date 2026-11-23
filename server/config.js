@@ -83,6 +83,21 @@ export const config = {
     model: get('PRO_LLM_MODEL', 'gpt-6-luna'),
     fastModel: get('PRO_LLM_FAST_MODEL', 'gpt-4.1-mini'),
   },
+  // LiteLLM budgets as the quota (lib/llmKeys.js): PRO_LLM_KEYS=litellm sends each call with the person's key
+  // in their company (LiteLLM team pgpt-<tenant>), PRO_LLM_BASE_URL being that LiteLLM; off: PRO_LLM_API_KEY
+  llmKeys: {
+    mode: get('PRO_LLM_KEYS', 'off'),
+    adminUrl: get('PRO_LITELLM_URL', ''),
+    adminKey: get('PRO_LITELLM_ADMIN_KEY', ''),
+    secret: get('PRO_LLM_KEY_SECRET', ''),
+  },
+  // Settings › 사용량·요금제 is shown when the usage limits above are on, or with PRO_PLAN_SCREEN=1 (the plan screen
+  // without billing — a business decision still open, so off by default)
+  planScreen: get('PRO_PLAN_SCREEN', '0') === '1',
+  // the Agentic BPM PoC's demo scenarios: send_mail in the chat router (the demo outbox), the purchase and release
+  // scenarios with their sweep, the settings tabs 정책·가드레일 and 승인함, and the scenario policies seeded for a
+  // company. On unless PRO_SCENARIOS=off (development and recordings keep them; production turns them off)
+  scenarios: !/^(off|0|false|no)$/i.test(String(get('PRO_SCENARIOS', 'on')).trim()),
   llmTrace: get('PRO_LLM_TRACE', ''), // file to append model request text to (see lib/llm.js)
 
   // this install's own Google OAuth client: the default when a company has not saved its own in the
@@ -90,6 +105,9 @@ export const config = {
   google: {
     clientId: get('GOOGLE_CLIENT_ID'),
     clientSecret: get('GOOGLE_CLIENT_SECRET'),
+    // the vault site a person's Google token is kept under: a token belongs to the OAuth client that issued it, so a
+    // server on another client (a second app on the same database) keeps its own (PRO_GOOGLE_VAULT_SITE=google-lite)
+    vaultSite: get('PRO_GOOGLE_VAULT_SITE', 'google'),
     authUrl: get('PRO_GOOGLE_AUTH_URL', 'https://accounts.google.com/o/oauth2/v2/auth'),
     tokenUrl: get('PRO_GOOGLE_TOKEN_URL', 'https://oauth2.googleapis.com/token'),
     userinfoUrl: get('PRO_GOOGLE_USERINFO_URL', 'https://openidconnect.googleapis.com/v1/userinfo'),
