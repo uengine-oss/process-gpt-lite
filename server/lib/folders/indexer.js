@@ -22,6 +22,11 @@ const isDoc = (p) => DOC.test(p)
 // full-text tier thresholds (approved 2026-10-24)
 export const FULLTEXT = { docs: 200, cardTokens: 12000, textBytes: 5 * 1024 * 1024 }
 const MEMENTO = process.env.PRO_MEMENTO_URL || 'http://127.0.0.1:8005'
+// Copies of full-text documents in memento (the knowledge base) only when asked for: Lite's own search
+// never reads them, and a new version or a removed file leaves the old copy there — duplicates and
+// stale versions in the knowledge base. Off until the knowledge base and shared folders are settled
+// (process-gpt docs/decisions/2026-11.md D-1123-06).
+const TO_MEMENTO = process.env.PRO_FOLDERS_TO_MEMENTO === '1'
 
 const run = (cmd, args, opts = {}) => new Promise((resolve) => execFile(cmd, args, { maxBuffer: 64 * 1024 * 1024, timeout: 60000, ...opts }, (e, out) => resolve(e ? '' : String(out))))
 const strip = (xml) => xml.replace(/<\/(w:p|a:p|hp:p|si|row)>/g, '\n').replace(/<[^>]+>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/[ \t]+/g, ' ').replace(/\n\s+/g, '\n').trim()
@@ -159,7 +164,7 @@ async function makeCard(folder, row) {
     // a failed card leaves the file in the list (tier 0); it is tried again on its next change
     await q('update pro_folder_files set card_sha=$3, card_error=$4, body=$5 where folder_id=$1 and path=$2', [folder.id, row.path, row.sha, e.message.slice(0, 200), body])
   }
-  if (body) mementoUpload(folder, row.path, buf).catch(() => {})
+  if (body && TO_MEMENTO) mementoUpload(folder, row.path, buf).catch(() => {})
 }
 
 // tier 2 with memento (best effort: the folder search falls back to the text kept here)
