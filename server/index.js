@@ -46,6 +46,7 @@ import { openFileCard } from './lib/fileCards.js'
 import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
 import { startFolderSteps } from './lib/folders/work.js'
+import { retryUnreadCards } from './lib/folders/indexer.js'
 import * as skills from './lib/folders/skills.js'
 import { ensureResultLine, fireSchedule, runMission, listMissionRuns, createMission, listSkills, saveSkillDraft, workspaceHostPath } from './lib/missions.js'
 import { getSkill, deleteSkill } from './lib/skills.js'
@@ -1007,6 +1008,8 @@ const server = app.listen(config.port, async () => {
   notify.startNotificationFeed()
   startScheduleTicker(fire)
   startFolderSteps()
+  // shared folders' documents the old image could not read get their cards now (lib/folders/indexer.js)
+  setTimeout(() => retryUnreadCards().then((n) => n && console.log(`[folders] cards again in ${n} folder(s)`)).catch((e) => console.warn('[folders] cards again', e.message)), 30_000)
   startConstraintSweep()
   // agent steps stopped by a passing error are queued again (lib/stepRetry.js)
   startStepRetry()

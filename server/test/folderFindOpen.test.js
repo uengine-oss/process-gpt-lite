@@ -119,3 +119,26 @@ test('붙이지 않아도 찾고, 읽고, 연다 (이력서 폴더의 장진영_
   const other = { id: (await q('select gen_random_uuid()::text as id'))[0].id, name: '다른 사람', email: `ffo2-${stamp}@pgpt.test` }
   assert.match((await callTool(other, 'folder_open', { folder: cv.name, path: '장진영_프로필.docx' })).content[0].text, /찾지 못했어요/)
 })
+
+test('예전 이미지가 읽지 못한 문서는 시작할 때 카드를 다시 만든다', { skip: !db }, async () => {
+  const S = await import('../lib/folders/service.js')
+  const { reindex, retryUnreadCards } = await import('../lib/folders/indexer.js')
+  const stamp = Date.now()
+  const user = { id: (await q('select gen_random_uuid()::text as id'))[0].id, name: '카드 다시', email: `ffo3-${stamp}@pgpt.test` }
+  const f = await S.createFolder(user, { name: `카드 다시 ${stamp}` })
+  made.push(f)
+  await S.upload(f, user, '장진영_프로필.docx', await docx('장진영\n경력: 유엔진 솔루션즈 대표'))
+  await reindex(f, { cards: false })
+  // what production holds: tried once, "couldn't read", not tried again while the file is the same
+  await q(`update pro_folder_files set card=null, card_sha=sha, card_error='본문을 읽지 못했어요' where folder_id=$1`, [f.id])
+  assert.ok(await retryUnreadCards() >= 1)
+  // read again now (the card itself needs the model: made, or the model's own error — not "couldn't read")
+  let row
+  for (let i = 0; i < 60; i++) {
+    ;[row] = await q('select card, card_sha, sha, card_error from pro_folder_files where folder_id=$1', [f.id])
+    if (row.card_sha === row.sha) break
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  assert.equal(row.card_sha, row.sha)
+  assert.notEqual(row.card_error, '본문을 읽지 못했어요', JSON.stringify(row))
+})

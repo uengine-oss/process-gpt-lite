@@ -14,6 +14,7 @@ import { chat } from '../llm.js'
 import { L, isEn } from '../lang.js'
 import * as G from './git.js'
 import { readableFolderIds } from './service.js'
+import { withTenant } from '../tenant.js'
 
 const DOC = /\.(md|markdown|txt|csv|docx|xlsx|pptx|hwpx|pdf)$/i
 export const kindOf = (p) => (String(p).split('.').pop() || '').toLowerCase()
@@ -110,6 +111,22 @@ function cardQueue(folder, { only } = {}) {
       await updateState(folder)
     } while (job.again)
   })().catch((e) => console.warn('[folders] index', e.message)).finally(() => queues.delete(folder.id))
+}
+
+// Documents whose text could not be read (until 2026-11-23 the server image had no unzip, so every
+// docx/pptx/xlsx/hwpx came out empty): their cards are made again after a start. One still unreadable
+// (a scanned PDF) is only read again — nothing goes to the model without text.
+const UNREAD = ['본문을 읽지 못했어요', "Couldn't read the text"]
+export async function retryUnreadCards() {
+  const rows = await q(`select distinct folder_id from pro_folder_files where card is null and card_error = any($1) and kind = any($2)`, [UNREAD, ['docx', 'xlsx', 'pptx', 'hwpx', 'pdf']])
+  for (const { folder_id } of rows) {
+    const [f] = await q('select * from pro_folders where id=$1', [folder_id])
+    if (!f || f.kind === 'linked') continue
+    await q('update pro_folder_files set card_sha=null where folder_id=$1 and card is null and card_error = any($2)', [f.id, UNREAD])
+    // the folder's own company (a server may serve more than one)
+    withTenant(f.tenant_id, () => cardQueue(f))
+  }
+  return rows.length
 }
 
 const CARD_PROMPT = `다음은 어떤 문서의 앞부분과 마지막 부분이다. JSON 으로만 답하라:
