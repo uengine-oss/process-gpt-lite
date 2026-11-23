@@ -39,11 +39,21 @@ export function pressSave(frame) {
   return true
 }
 
-// listen for edits in the editor page and the same-origin pages inside it (the 한글 editor's studio);
+// listen for edits in the editor page and the same-origin pages inside it (the 한글 editor's studio, which a
+// slow phone builds well after the page says it is ready: frames added later are watched as they come);
 // returns a function that stops listening. A drag on a slide (moving a shape) counts as an edit too.
 export function watchEdits(frame, onEdit) {
   const offs = []
   const seen = new WeakSet()
+  const frames = new WeakSet()
+  const hook = (f) => {
+    if (frames.has(f)) return
+    frames.add(f)
+    const inner = () => { try { attach(f.contentDocument) } catch { /* another origin */ } }
+    f.addEventListener('load', inner)
+    offs.push(() => f.removeEventListener('load', inner))
+    inner()
+  }
   const attach = (doc) => {
     if (!doc || seen.has(doc)) return
     seen.add(doc)
@@ -57,19 +67,21 @@ export function watchEdits(frame, onEdit) {
       if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6 && doc.querySelector('.slide-list, .stage-wrap')) onEdit('drag')
       down = null
     })
-    for (const f of doc.querySelectorAll('iframe')) {
-      const inner = () => { try { attach(f.contentDocument) } catch { /* another origin */ } }
-      f.addEventListener('load', inner)
-      offs.push(() => f.removeEventListener('load', inner))
-      inner()
+    for (const f of doc.querySelectorAll('iframe')) hook(f)
+    const MO = doc.defaultView?.MutationObserver
+    if (MO) {
+      const mo = new MO(() => { for (const f of doc.querySelectorAll('iframe')) hook(f) })
+      mo.observe(doc.documentElement, { childList: true, subtree: true })
+      offs.push(() => mo.disconnect())
     }
   }
+  // the editor page itself may not be there yet, or may load again
+  const outer = () => { try { attach(frame?.contentDocument) } catch { /* not ready */ } }
+  frame?.addEventListener?.('load', outer)
+  offs.push(() => frame?.removeEventListener?.('load', outer))
   let tries = 0
-  const tick = setInterval(() => {
-    // the editor page builds its inner frames after load: look a few more times
-    try { const d = frame?.contentDocument; attach(d); for (const f of d?.querySelectorAll('iframe') || []) attach(f.contentDocument) } catch { /* not ready */ }
-    if (++tries > 20) clearInterval(tick)
-  }, 500)
+  const tick = setInterval(() => { outer(); if (++tries > 20) clearInterval(tick) }, 500)
   offs.push(() => clearInterval(tick))
+  outer()
   return () => { for (const off of offs.splice(0)) off() }
 }

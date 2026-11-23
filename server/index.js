@@ -769,11 +769,12 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
   // a shared folder's file opened from the chat (folder_open): the save is a commit in the folder's main,
   // as on the folder screen — the card follows the version it now stands on
   const ff = m.content.folder
-  if (ff?.slug) {
+  if (ff?.slug && ff.editable === true) {
     let saved
     try {
       const { folder } = await FS.access(ff.slug, req.user, 'editor')
-      const r = await FS.saveOfficeEdit(folder, { name: req.user.name, email: req.user.email, id: req.user.id }, { path: ff.path, base: ff.sha, url, session: m.id })
+      // (one opening of the card is one editing session: the screen names it)
+      const r = await FS.saveOfficeEdit(folder, { name: req.user.name, email: req.user.email, id: req.user.id }, { path: ff.path, base: ff.sha, url, session: String(req.body.session || m.id) })
       if (r.commit) { await reindexFolder(folder, { cards: false }); cardsSoon(folder) }
       saved = { ok: true, path: r.path, copied: r.copied, at: new Date().toISOString() }
       ;[m] = await q(`update pro_messages set content = content || jsonb_build_object('folder', $2::jsonb, 'folder_save', $3::jsonb) where id=$1 returning *`, [m.id, { ...ff, path: r.path, sha: r.sha }, saved])

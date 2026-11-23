@@ -156,8 +156,11 @@ export const pendingJwt = new Map()
 async function finish(folder, row, user) {
   const result = await G.head(row.worktree_path)
   // people may have edited main meanwhile: keep their edit, then try to move main forward
-  await S.commitMain(folder, { name: user.name, email: user.email }, L('반영 전 main 의 편집 저장', 'Save edits on main before merging'))
-  const ff = await G.git(folder.repo_path, ['merge', '--ff-only', '-q', result], { check: false })
+  // (one writer in main: an IeumOffice save does not land between the save and the fast-forward)
+  const ff = await S.serial(folder.id, async () => {
+    await S.commitMainNow(folder, { name: user.name, email: user.email }, L('반영 전 main 의 편집 저장', 'Save edits on main before merging'))
+    return G.git(folder.repo_path, ['merge', '--ff-only', '-q', result], { check: false })
+  })
   const now = await G.head(folder.repo_path, folder.default_branch)
   if (now !== result) {
     // main moved: merge the integration result into it (a plain merge; conflicts here go back to the screen)

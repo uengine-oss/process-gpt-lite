@@ -40,8 +40,9 @@ test('편집기의 저장 단추: 「저장 (⌘S)」 · 「Save」, 「다른 �
 })
 
 test('folder_open 의 카드는 폴더와 연 버전을 갖고 다닌다', () => {
-  const d = documentFrom({ file_url: 'http://x/a.docx', file_name: 'a.docx', open: true, folder_ref: { slug: 'cv', name: '이력서', path: 'a.docx', sha: 'abc' } })
-  assert.deepEqual(d.folder, { slug: 'cv', name: '이력서', path: 'a.docx', sha: 'abc' })
+  const d = documentFrom({ file_url: 'http://x/a.docx', file_name: 'a.docx', open: true, folder_ref: { slug: 'cv', name: '이력서', path: 'a.docx', sha: 'abc', editable: true } })
+  assert.deepEqual(d.folder, { slug: 'cv', name: '이력서', path: 'a.docx', sha: 'abc', editable: true })
+  assert.equal(documentFrom({ file_url: 'http://x/a.docx', file_name: 'a.docx', folder_ref: { slug: 'cv', path: 'a.docx', editable: 'yes' } }).folder.editable, false)
   assert.equal(documentFrom({ file_url: 'http://x/a.docx', file_name: 'a.docx', folder_ref: { slug: 1 } }).folder, undefined)
   assert.equal(documentFrom({ file_url: 'http://x/a.docx', file_name: 'a.docx' }).folder, undefined)
 })
@@ -125,4 +126,55 @@ test('편집본이 폴더 main 의 파일이 된다: 한 편집은 이력 한 �
   // the next copy of the same kind gets a number
   const r7 = await S.saveOfficeEdit(f, user, { path: '장진영_프로필.docx', base: r5.sha, url: await edited('장진영\n또 수정', 7), session: 's4' })
   assert.equal(r7.path, '장진영_프로필 (편집 시험 수정본 2).docx')
+
+  // someone deleted it after this editor opened it: not brought back under its name, kept beside
+  await S.upload(f, user, '보고서.docx', await docx('보고서 원본'))
+  const rep0 = await S.publishFile(f, '보고서.docx')
+  await S.removeFile(f, other, '보고서.docx')
+  const r8 = await S.saveOfficeEdit(f, user, { path: '보고서.docx', base: rep0.sha, url: (await edited('보고서 고침', 8)), session: 's5' })
+  assert.equal(r8.copied, true)
+  assert.equal(r8.path, '보고서 (편집 시험 수정본).docx')
+  assert.equal((await G.git(f.repo_path, ['rev-parse', '--verify', '-q', `${f.default_branch}:보고서.docx`], { check: false })).trim(), '')
+
+  // all of a session's edits undone: its commit goes away (git refuses an empty fold), no error
+  const orig = await docx('되돌리기 원본')
+  await S.upload(f, user, '되돌리기.docx', orig)
+  const o9 = await S.publishFile(f, '되돌리기.docx')
+  const before9 = (await S.history(f)).length
+  const r9 = await S.saveOfficeEdit(f, user, { path: '되돌리기.docx', base: o9.sha, url: await edited('되돌리기 원본\n잠깐 고침', 9), session: 's6' })
+  assert.equal((await S.history(f)).length, before9 + 1)
+  const r10 = await S.saveOfficeEdit(f, user, { path: '되돌리기.docx', base: r9.sha, url: await edited(orig, 10), session: 's6' })
+  assert.equal(r10.undone, true)
+  assert.equal(r10.sha, o9.sha)
+  assert.equal((await S.history(f)).length, before9)
+  assert.equal((await G.git(f.repo_path, ['diff', '--cached', '--name-only'])).trim(), '', '남은 스테이징 없음')
+
+  // only the edited file goes into its commit: a file being written beside it stays out (its own commit later)
+  await fs.writeFile(`${f.repo_path}/올리는중.md`, '아직 올리는 중')
+  const r11 = await S.saveOfficeEdit(f, user, { path: '되돌리기.docx', base: o9.sha, url: await edited('되돌리기 원본\n다시 고침', 11), session: 's7' })
+  const inCommit = (await G.git(f.repo_path, ['diff-tree', '--no-commit-id', '--name-only', '-r', r11.commit])).trim().split('\n')
+  assert.deepEqual(inCommit, ['되돌리기.docx'])
+  const up = await S.commitMain(f, { name: other.name, email: other.email }, '올리기: 올리는중.md')
+  assert.ok(up)
+  assert.equal((await S.history(f))[0].email, other.email)
+})
+
+test('folder_open: 편집자에게는 고칠 수 있는 카드, 보기 권한에게는 보기 전용 카드', { skip: !db }, async () => {
+  const S = await import('../lib/folders/service.js')
+  const { callTool } = await import('../mcp/folders.js')
+  const stamp = Date.now()
+  const owner = { id: (await q('select gen_random_uuid()::text as id'))[0].id, name: '소유자', email: `fes3-${stamp}@pgpt.test` }
+  const viewer = { id: (await q('select gen_random_uuid()::text as id'))[0].id, name: '보는 사람', email: `fes4-${stamp}@pgpt.test` }
+  const f = await S.createFolder(owner, { name: `이력서 카드 ${stamp}` })
+  made.push(f)
+  await S.upload(f, owner, '장진영_프로필.docx', await docx('장진영'))
+  await S.setMember(f, owner, { type: 'user', id: viewer.id, role: 'viewer' })
+  const open = async (u) => JSON.parse((await callTool(u, 'folder_open', { folder: f.slug, path: '장진영_프로필.docx' })).content[0].text)
+  const mine = await open(owner)
+  assert.equal(mine.folder_ref.editable, true)
+  assert.match(mine.folder_ref.sha, /^[0-9a-f]{40}$/)
+  assert.equal(documentFrom(mine).folder.editable, true)
+  const theirs = await open(viewer)
+  assert.equal(theirs.folder_ref.editable, false)
+  assert.equal(documentFrom(theirs).folder.editable, false)
 })

@@ -75,13 +75,31 @@ export async function show(cwd, ref, path) {
 }
 
 // stage everything and commit; returns the new head or null when nothing changed
-// amend: fold the change into HEAD instead (an editing session's later saves — see canFold)
-export async function commitAll(cwd, message, author = {}, { amend = false } = {}) {
+export async function commitAll(cwd, message, author = {}) {
   await git(cwd, ['add', '-A'])
   const staged = (await git(cwd, ['diff', '--cached', '--name-only'])).trim()
   if (!staged) return null
-  await git(cwd, [...who(author.name, author.email), 'commit', '-q', ...(amend ? ['--amend', '--date=now'] : []), '-m', message])
+  await git(cwd, [...who(author.name, author.email), 'commit', '-q', '-m', message])
   return head(cwd)
+}
+
+// One file only (whatever else the working tree holds stays out). amend: fold into HEAD — an editing
+// session's later saves (see canFold); when the session's edits were all undone the fold would be empty
+// (git refuses it): the session's commit goes away instead. → {commit, dropped} | null (nothing changed)
+export async function commitPath(cwd, rel, message, author = {}, { amend = false } = {}) {
+  await git(cwd, ['add', '--', rel])
+  if (!(await git(cwd, ['diff', '--cached', '--name-only', '--', rel])).trim()) return null
+  try {
+    if (amend && !(await git(cwd, ['diff', '--cached', '--name-only', 'HEAD^', '--', rel])).trim()) {
+      await git(cwd, ['reset', '-q', '--soft', 'HEAD^'])
+      return { commit: await head(cwd), dropped: true }
+    }
+    await git(cwd, [...who(author.name, author.email), 'commit', '-q', ...(amend ? ['--amend', '--date=now'] : []), '-m', message, '--only', '--', rel])
+  } catch (e) {
+    await git(cwd, ['reset', '-q', '--', rel], { check: false })
+    throw e
+  }
+  return { commit: await head(cwd), dropped: false }
 }
 
 // May the next save of one editing session fold into `branch`'s newest commit? Only when that commit is

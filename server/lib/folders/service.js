@@ -170,13 +170,25 @@ export async function removeMember(folder, { type = 'user', id }) {
 }
 
 // ---------- main ----------
+// One writer at a time in a folder's main (its working tree is shared): commits, IeumOffice saves and the
+// fast-forward that ends a merge go through here, so one does not sweep up what another is writing.
+const locks = new Map()
+export function serial(key, fn) {
+  const run = (locks.get(key) || Promise.resolve()).then(fn, fn)
+  const tail = run.catch(() => {})
+  locks.set(key, tail)
+  tail.then(() => { if (locks.get(key) === tail) locks.delete(key) })
+  return run
+}
+
 // a person's edit in main (upload, workroom, terminal) becomes a commit with its author
-export async function commitMain(folder, author, message) {
+export async function commitMainNow(folder, author, message) {
   if (folder.kind === 'linked') return null
   const sha = await G.commitAll(folder.repo_path, message || L('파일 고침', 'Edit files'), author)
   if (sha) await touch(folder)
   return sha
 }
+export const commitMain = (folder, author, message) => serial(folder.id, () => commitMainNow(folder, author, message))
 export const touch = (folder) => q('update pro_folders set updated_at=now() where id=$1', [folder.id])
 
 export function safeRel(rel) {
@@ -249,14 +261,8 @@ export async function publishFile(folder, rel, ref) {
 // becomes the file in main, with its author, like an upload. One editing session is one entry in 이력:
 // its later saves fold into its commit while that commit is still main's newest and nothing stands on it.
 // When main's file changed after the editor opened it (someone else saved), the edit is kept beside it as
-// "<name> (<who> 수정본)" — never over the other person's version.
+// "<name> (<who> 수정본)" — never over the other person's version (nor bringing back a file someone deleted).
 export const OFFICE_EDIT = new Set(['docx', 'xlsx', 'pptx', 'hwpx', 'hwp'])
-const locks = new Map()
-function serial(key, fn) {
-  const run = (locks.get(key) || Promise.resolve()).then(fn, fn)
-  locks.set(key, run.catch(() => {}))
-  return run
-}
 // the storage key of an editor's copy of this folder's file, or null (any other object is refused)
 export function editedObject(folder, url) {
   let u
@@ -295,17 +301,18 @@ export async function saveOfficeEdit(folder, user, { path: rel, base, url, sessi
   const blobAt = async (x) => (await G.git(folder.repo_path, ['rev-parse', '--verify', '-q', `${folder.default_branch}:${x}`], { check: false })).trim()
   return serial(folder.id, async () => {
     const now = await blobAt(p)
-    // the version the editor opened is no longer main's: keep this edit beside it
-    const target = now && now !== String(base || '') ? await copyPath(folder, p, user) : p
+    // the version the editor opened is no longer main's (changed, or deleted): keep this edit beside it
+    const moved = base ? now !== String(base) : !!now
+    const target = moved ? await copyPath(folder, p, user) : p
     const host = path.join(folder.repo_path, target)
     await fs.mkdir(path.dirname(host), { recursive: true })
     await fs.writeFile(host, buf)
     const author = { name: user.name, email: user.email }
     const message = `${L(`이음오피스에서 고침: ${target}`, `Edited in IeumOffice: ${target}`)}${sid ? `\n\nOffice-Session: ${sid}` : ''}`
     const fold = !!sid && await G.canFold(folder.repo_path, folder.default_branch, { message, path: target, email: author.email || 'folders@pgpt-pro.local' })
-    const commit = await G.commitAll(folder.repo_path, message, author, { amend: fold })
-    if (commit) await touch(folder)
-    return { path: target, sha: await blobAt(target), commit, copied: target !== p, folded: !!commit && fold }
+    const done = await G.commitPath(folder.repo_path, target, message, author, { amend: fold })
+    if (done) await touch(folder)
+    return { path: target, sha: await blobAt(target), commit: done?.commit || null, copied: target !== p, folded: !!done && fold, undone: !!done?.dropped }
   })
 }
 export async function history(folder, limit = 40) {

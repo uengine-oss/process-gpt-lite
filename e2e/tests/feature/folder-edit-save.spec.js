@@ -203,7 +203,7 @@ test.describe('공유 폴더 문서를 이음오피스에서 고치면 폴더에
     expect(pub.editable).toBe(true)
     const page = await pageAs('fe-owner')
     const th = await db.clearMain(page.user.id)
-    const [card] = await db.addMessages(th, [{ role: 'agent', kind: 'file', content: { name: FILE, url: pub.url, ext: 'docx', folder: { slug, name: '이력서', path: FILE, sha: pub.sha } } }])
+    const [card] = await db.addMessages(th, [{ role: 'agent', kind: 'file', content: { name: FILE, url: pub.url, ext: 'docx', folder: { slug, name: '이력서', path: FILE, sha: pub.sha, editable: true } } }])
     await page.goto('/chat')
     await page.locator('.file', { hasText: FILE }).first().click()
     const ed = page.frameLocator('.sheet.glass iframe.frm')
@@ -217,5 +217,52 @@ test.describe('공유 폴더 문서를 이음오피스에서 고치면 폴더에
     expect(m.content.folder.sha).not.toBe(pub.sha)
     expect(edits(await history(o, slug)).length).toBe(1)
     await page.screenshot({ path: test.info().outputPath('f-fe-07.png') })
+  })
+
+  test('F-FE-09 보기 권한인 사람이 채팅에서 연 폴더 문서는 보기 전용(저장 오류가 되풀이되지 않음)', async ({ as, pageAs, db, cleanup }) => {
+    const o = await as('fe-owner'), viewer = await as('fe-viewer')
+    const slug = await seed(o, db, cleanup)
+    expect((await o.post(`/folders/${slug}/members`, { type: 'user', id: viewer.id, role: 'viewer' })).status).toBe(200)
+    const pub = (await o.post(`/folders/${slug}/publish`, { path: FILE })).body
+    const page = await pageAs('fe-viewer')
+    const th = await db.clearMain(page.user.id)
+    await db.addMessages(th, [{ role: 'agent', kind: 'file', content: { name: FILE, url: pub.url, ext: 'docx', folder: { slug, name: '이력서', path: FILE, sha: pub.sha, editable: false } } }])
+    await page.goto('/chat')
+    await page.locator('.file', { hasText: FILE }).first().click()
+    const ed = page.frameLocator('.sheet.glass iframe.frm')
+    await expect(ed.locator('.ProseMirror')).toBeVisible({ timeout: 90_000 })
+    await expect(page.locator('.sheet.glass .badge.ro')).toBeVisible()
+    await page.waitForTimeout(2500)
+    await typeAtEnd(page, ed, ' 보는사람입력')
+    await expect(page.locator('.sheet.glass .notice.info')).toContainText('보기 전용', { timeout: 10_000 })
+    await page.waitForTimeout(9000)
+    await expect(page.locator('.pnote.err')).toHaveCount(0)
+    expect(edits(await history(o, slug)).length).toBe(0)
+  })
+
+  test('F-FE-10 고치는 중에 다른 카드를 열어도 먼저 폴더에 저장한다', async ({ as, pageAs, db, cleanup }) => {
+    const o = await as('fe-owner')
+    const slug = await seed(o, db, cleanup)
+    const pub = (await o.post(`/folders/${slug}/publish`, { path: FILE })).body
+    const page = await pageAs('fe-owner')
+    const th = await db.clearMain(page.user.id)
+    const other = await o.post(`/folders/${slug}/files?path=${encodeURIComponent('다른문서.docx')}`, DOCX(['다른 문서']), { headers: { 'Content-Type': DOCX_MIME } })
+    expect(other.status, other.text).toBe(200)
+    const pub2 = (await o.post(`/folders/${slug}/publish`, { path: '다른문서.docx' })).body
+    await db.addMessages(th, [
+      { role: 'agent', kind: 'file', content: { name: FILE, url: pub.url, ext: 'docx', folder: { slug, name: '이력서', path: FILE, sha: pub.sha, editable: true } } },
+      { role: 'agent', kind: 'file', content: { name: '다른문서.docx', url: pub2.url, ext: 'docx', folder: { slug, name: '이력서', path: '다른문서.docx', sha: pub2.sha, editable: true } } },
+    ])
+    await page.goto('/chat')
+    await page.locator('.file', { hasText: FILE }).first().click()
+    const ed = page.frameLocator('.sheet.glass iframe.frm')
+    await expect(ed.locator('.ProseMirror')).toBeVisible({ timeout: 90_000 })
+    await page.waitForTimeout(2500)
+    await typeAtEnd(page, ed, ' 바꾸기전저장')
+    // straight away (before the pause that saves by itself): the other card
+    await page.locator('.file', { hasText: '다른문서.docx' }).first().click()
+    await expect(page.locator('.sheet.glass')).toContainText('다른문서', { timeout: 60_000 })
+    expect(docxText(await raw(o, slug))).toContain('바꾸기전저장')
+    expect(page.errors).toEqual([])
   })
 })

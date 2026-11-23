@@ -79,7 +79,7 @@ async function saved(msg, { url, name }) {
   if (!url || !msg?.id) return
   await api(`/messages/${msg.id}/file`, { method: 'POST', body: { url, name } }).catch(() => {})
 }
-const back = () => { mt.mini = false; app.officeDoc = null }
+const back = () => { mt.mini = false; app.setOfficeDoc(null) }
 
 // ---- 자료 찾기 (자료 tab) and 자료 띄우기 (the bottom bar's sheet, like 화면 공유): MaterialPicker ----
 const finder = ref(null)

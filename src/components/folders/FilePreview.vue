@@ -54,41 +54,48 @@ async function editorUrl() {
   return { url: r.url, editable: !!r.editable }
 }
 // each copy the editor saved becomes main's file (in order; a later save of the session folds into its entry)
+let lastFail = null // a copy that did not go into the folder: tried again before the sheet closes
 function officeSaved({ url }) {
   if (!editing.value || !url) return
-  chain = chain.then(async () => {
-    const e = editing.value
-    saveNote.value = { kind: 'busy', text: '폴더에 저장하는 중…' }
-    try {
-      const r = await F.officeSave(props.folder.slug, { path: e.path, base: e.base, url, session: e.session, final: closing })
-      editing.value = { ...e, path: r.path, base: r.sha }
-      changed = true
-      saveNote.value = r.copied
-        ? { kind: 'copy', text: `다른 사람이 먼저 고쳐서, 내 수정은 「${baseName(r.path)}」로 따로 저장했어요.` }
-        : { kind: 'ok', text: '폴더에 저장했어요 · 이력에 남았어요' }
-      emit('changed')
-    } catch (err) { saveNote.value = { kind: 'err', text: `폴더에 저장하지 못했어요: ${err.message}` } }
-  })
+  chain = chain.then(() => commitCopy(url))
   return chain
 }
+async function commitCopy(url) {
+  const e = editing.value
+  saveNote.value = { kind: 'busy', text: '폴더에 저장하는 중…' }
+  try {
+    const r = await F.officeSave(props.folder.slug, { path: e.path, base: e.base, url, session: e.session, final: closing })
+    editing.value = { ...e, path: r.path, base: r.sha }
+    changed = true; lastFail = null
+    saveNote.value = r.copied
+      ? { kind: 'copy', text: `다른 사람이 먼저 고쳐서, 내 수정은 「${baseName(r.path)}」로 따로 저장했어요.` }
+      : { kind: 'ok', text: '폴더에 저장했어요 · 이력에 남았어요' }
+    emit('changed')
+  } catch (err) { lastFail = { url }; saveNote.value = { kind: 'err', text: `폴더에 저장하지 못했어요: ${err.message}` } }
+}
 function onEdited(v) { if (v && saveNote.value?.kind === 'ok') saveNote.value = null }
-// closing: what is left is saved first; when the editor never answers the sheet stays open once
+// Leaving (closing, or another screen — FoldersView asks before the route changes): what is left is saved
+// first and a copy that did not go into the folder is tried again. When that does not work the sheet stays
+// once and says so; leaving again goes without saving.
 let triedClose = false
-async function close() {
-  if (!editing.value || triedClose) return emit('close')
+async function leave() {
+  if (!editing.value || triedClose) return true
   closing = true
   saveNote.value = { kind: 'busy', text: '닫기 전에 저장하는 중…' }
   const r = await (fv.value?.flush?.(20000) || Promise.resolve({ clean: true }))
   await chain
-  if (r?.timeout || r?.error) {
+  if (lastFail) { const { url } = lastFail; chain = chain.then(() => commitCopy(url)); await chain }
+  if (r?.timeout || r?.error || lastFail) {
     triedClose = true; closing = false
-    saveNote.value = { kind: 'err', text: `저장을 마치지 못했어요${r.error ? `(${r.error})` : ''}. 한 번 더 닫으면 저장하지 않고 닫아요.` }
-    return
+    saveNote.value = { kind: 'err', text: `${lastFail ? '폴더에 저장하지 못했어요' : `저장을 마치지 못했어요${r.error ? `(${r.error})` : ''}`}. 한 번 더 닫으면 저장하지 않고 닫아요.` }
+    return false
   }
   // the card follows the last version once editing ends
   if (changed && !r?.url) await F.officeSave(props.folder.slug, { path: editing.value.path, final: true }).catch(() => {})
-  emit('close')
+  return true
 }
+async function close() { if (await leave()) emit('close') }
+defineExpose({ leave })
 const where = computed(() => (props.ref_ === 'main' ? '기준본(main)' : `변형 ${props.refLabel || ''}`))
 // the chat composer gets the question started; the folder name makes the agent work in this folder
 function ask() {

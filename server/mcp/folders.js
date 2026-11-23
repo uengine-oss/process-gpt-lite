@@ -100,7 +100,7 @@ export async function callTool(user, name, args = {}) {
   if (name === 'folder_open') {
     const { folder: f, near } = await findFolder(user, args.folder)
     if (!f) return noFolder(args.folder, near)
-    const { folder } = await S.access(f.slug, user)
+    const { folder, role } = await S.access(f.slug, user)
     const p = S.safeRel(args.path)
     const pub = await S.publishFile(folder, p)
     // a format no editor or player in the app takes: the link only, for the answer to give
@@ -109,7 +109,9 @@ export async function callTool(user, name, args = {}) {
     // person asked to see it, so their screen opens it as the card arrives
     // folder_ref: the folder and the version opened — the chat's editor saves back into the folder
     // (POST /api/messages/:id/file), beside it when someone changed it in the meantime
-    return text({ file_url: pub.url, file_name: pub.name, open: true, folder: folder.name, path: p, folder_ref: { slug: folder.slug, name: folder.name, path: p, sha: pub.sha } })
+    // editable: an editor of the folder, a format IeumOffice saves (others open it read-only)
+    const canEdit = folder.kind !== 'linked' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(p.split('.').pop().toLowerCase())
+    return text({ file_url: pub.url, file_name: pub.name, open: true, folder: folder.name, path: p, folder_ref: { slug: folder.slug, name: folder.name, path: p, sha: pub.sha, editable: canEdit } })
   }
   return { isError: true, ...text(`unknown tool ${name}`) }
 }
