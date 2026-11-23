@@ -443,7 +443,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       await panelRecord({ user: { ...user, jwt: session?.access_token }, threadId, args, text })
       break
     case 'process':
-      await processTurn(userId, threadId, args)
+      await processTurn(userId, threadId, args, text)
       break
     case 'notify_member': {
       const member = await resolveMember(args.member)
@@ -1087,8 +1087,9 @@ export async function draftContract(workDir, streamed, rebuild = generatedContra
 }
 
 // Find the definition the user means; the catalogue is small enough to let the model pick.
-async function pickDefinition(query) {
-  const defs = await listDefinitions()
+// skipSnapshots: leave out the company process map's snapshot definitions (lib/ontology/run.js contractOf — onto_<12 hex>)
+async function pickDefinition(query, { skipSnapshots = false } = {}) {
+  const defs = (await listDefinitions()).filter((d) => !(skipSnapshots && isMapSnapshot(d.id)))
   if (!defs.length) return null
   const m = await chat({
     model: config.llm.fastModel, temperature: 0, json: true,
@@ -1122,7 +1123,32 @@ export function generationPrompt(threadId, text) {
   return L(`${text}\n\n(프로세스 설계 중 — 요구사항: ${req})`, `${text}\n\n(designing a process — requirements: ${req})`)
 }
 
-async function processTurn(userId, threadId, args) {
+export const isMapSnapshot = (id) => /^onto_[0-9a-f]{12}$/.test(String(id || ''))
+
+// 회사 프로세스 지도를 「지도에서 바로」 실행하는 테넌트(mapengine.js engineOf): 채팅에서 프로세스를 시작해 달라는 요청은 지도의 시작 카드로
+// (events.js onChat — 어느 프로세스의 어느 일부터인지 읽어 묻는다, 진행하면 지도에서 바로 도는 건). 저장된 정의를 고르면 지난 스냅샷이
+// 「프로세스 정의로」 돌아 오늘의 지도 · 간선 설정을 따르지 않는다. → { map: 지도에서 바로 모드인지, offered: 카드를 띄웠는지 }
+export async function mapChatStart({ userId, threadId, said }, deps = {}) {
+  const enabled = deps.enabled || (async () => (await import('./ontology/store.js')).ontologyEnabled())
+  const engine = deps.engine || (async () => (await (await import('./ontology/mapengine.js')).engineOf()).engine)
+  const onChat = deps.onChat || (async (a) => (await import('./ontology/events.js')).onChat(a))
+  if (!(await enabled()) || (await engine()) !== 'map') return { map: false, offered: false }
+  if (!String(said || '').trim()) return { map: true, offered: false }
+  const email = deps.email ? await deps.email(userId) : (await q('select email from pro_profile where user_id=$1', [userId]))[0]?.email || ''
+  const r = await onChat({ user: { id: userId, email }, threadId, said, conv: '' })
+  return { map: true, offered: !!(r && (r.asked || r.started?.length)) }
+}
+
+async function processTurn(userId, threadId, args, said = '') {
+  // 「지도에서 바로」: 시작 요청은 지도의 시작 카드로, 지도에 맞는 프로세스가 없을 때만 저장된 정의(지도 스냅샷은 빼고)에서 고른다
+  // (a request whose process the chat model does not know comes as catalog — «목록부터 볼게요»: the map reads the user's words first
+  // and offers its start card only when one of its processes fits; a plain «어떤 프로세스 있어?» fits none and gets the list)
+  let mapMode = false
+  if (args.intent === 'start' || args.intent === 'catalog') {
+    const m = await mapChatStart({ userId, threadId, said: said || args.query || '' }).catch((e) => { console.warn('[ontology] chat start', e.message); return { map: false, offered: false } })
+    if (m.offered) return
+    mapMode = m.map
+  }
   // 말로 프로세스 지도 고치기(lib/ontology/editmap.js): a card with the preview — 적용 (admin) or 의견으로 남기기
   if (args.intent === 'edit_map') {
     const [p] = await q('select email from pro_profile where user_id=$1', [userId])
@@ -1142,13 +1168,13 @@ async function processTurn(userId, threadId, args) {
     return
   }
   if (args.intent === 'catalog' || ((args.intent === 'start' || args.intent === 'view') && !args.query)) {
-    await addMessage(userId, threadId, 'agent', 'catalog', { items: (await listDefinitions()).slice(0, 12) })
+    await addMessage(userId, threadId, 'agent', 'catalog', { items: (await listDefinitions()).filter((x) => !(mapMode && isMapSnapshot(x.id))).slice(0, 12) })
     return
   }
   if (args.intent === 'start' || args.intent === 'view') {
-    const d = await pickDefinition(args.query || '')
+    const d = await pickDefinition(args.query || '', { skipSnapshots: mapMode })
     if (!d) {
-      const defs = await listDefinitions()
+      const defs = (await listDefinitions()).filter((x) => !(mapMode && isMapSnapshot(x.id)))
       await addMessage(userId, threadId, 'agent', 'catalog', { items: defs.slice(0, 12) })
       return
     }
