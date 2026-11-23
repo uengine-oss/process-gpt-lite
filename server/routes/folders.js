@@ -7,7 +7,7 @@ import { q, admin } from '../lib/supa.js'
 import * as G from '../lib/folders/git.js'
 import * as S from '../lib/folders/service.js'
 import * as M from '../lib/folders/merge.js'
-import { reindex, search, changeCard } from '../lib/folders/indexer.js'
+import { reindex, search, changeCard, cardsSoon } from '../lib/folders/indexer.js'
 import { handover } from '../lib/folders/handover.js'
 import { listTeam } from '../lib/team.js'
 import * as SK from '../lib/folders/skills.js'
@@ -131,9 +131,22 @@ export function folderRoutes(auth) {
   }))
   // IeumOffice and the ArtCraft apps load documents only from storage: publish a copy of this
   // version (content-addressed, so the same blob is uploaded once) and hand back its URL
+  // editable: main's IeumOffice document, for an editor of the folder — the editor saves into the folder
   r.post('/folders/:slug/publish', auth, h(async (req) => {
-    const { folder } = await S.access(req.params.slug, req.user)
-    return S.publishFile(folder, req.body.path, req.body.ref)
+    const { folder, role } = await S.access(req.params.slug, req.user)
+    const out = await S.publishFile(folder, req.body.path, req.body.ref)
+    const ext = path.extname(String(req.body.path || '')).slice(1).toLowerCase()
+    const editable = (!req.body.ref || req.body.ref === 'main') && folder.kind !== 'linked' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(ext)
+    return { ...out, editable }
+  }))
+  // an IeumOffice save of main's file (body: path, base = the version opened, url = the editor's copy,
+  // session); final: the editor closed — the card is made now (meanwhile saves only refresh the list)
+  r.post('/folders/:slug/office-save', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user, 'editor')
+    const out = req.body?.url ? await S.saveOfficeEdit(folder, user(req), req.body) : { path: S.safeRel(req.body?.path), commit: null }
+    if (out.commit) await reindex(folder, { cards: false })
+    if (out.commit || req.body?.final) cardsSoon(folder, req.body?.final ? 0 : 60_000)
+    return out
   }))
   r.post('/folders/:slug/files', express.raw({ type: () => true, limit: '200mb' }), auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')

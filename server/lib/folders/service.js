@@ -240,7 +240,73 @@ export async function publishFile(folder, rel, ref) {
     const { error } = await admin.storage.from('files').upload(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), { contentType: MIME[ext] || 'application/octet-stream', upsert: true })
     if (error) throw error
   }
-  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: path.basename(p) }
+  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: path.basename(p), sha }
+}
+
+// ---------- an edit made in IeumOffice ----------
+// The folder screen opens main's file in IeumOffice for an editor of the folder. The editor saves its copy
+// next to the published one (office-host: pgpt-pro/folders/<folder>/edited-<stem>_<time>.<ext>); that copy
+// becomes the file in main, with its author, like an upload. One editing session is one entry in 이력:
+// its later saves fold into its commit while that commit is still main's newest and nothing stands on it.
+// When main's file changed after the editor opened it (someone else saved), the edit is kept beside it as
+// "<name> (<who> 수정본)" — never over the other person's version.
+export const OFFICE_EDIT = new Set(['docx', 'xlsx', 'pptx', 'hwpx', 'hwp'])
+const locks = new Map()
+function serial(key, fn) {
+  const run = (locks.get(key) || Promise.resolve()).then(fn, fn)
+  locks.set(key, run.catch(() => {}))
+  return run
+}
+// the storage key of an editor's copy of this folder's file, or null (any other object is refused)
+export function editedObject(folder, url) {
+  let u
+  try { u = new URL(String(url)) } catch { return null }
+  const m = /\/storage\/v1\/object\/(?:public|authenticated|sign)\/files\/(.+)$/.exec(u.pathname)
+  if (!m) return null
+  let key
+  try { key = decodeURIComponent(m[1]) } catch { return null }
+  const dir = `pgpt-pro/folders/${folder.id}/`
+  const name = key.startsWith(dir) ? key.slice(dir.length) : ''
+  return /^edited-[A-Za-z0-9._-]+$/.test(name) ? key : null
+}
+async function copyPath(folder, rel, user) {
+  const ext = path.posix.extname(rel)
+  const stem = rel.slice(0, rel.length - ext.length)
+  const who = String(user.name || String(user.email || '').split('@')[0] || L('나', 'me')).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').trim().slice(0, 30) || L('나', 'me')
+  for (let n = 1; n < 50; n++) {
+    const p = `${stem} (${L(`${who} 수정본`, `${who}'s edit`)}${n > 1 ? ` ${n}` : ''})${ext}`
+    const there = (await G.git(folder.repo_path, ['rev-parse', '--verify', '-q', `${folder.default_branch}:${p}`], { check: false })).trim()
+    if (!there) return p
+  }
+  throw err(409, L('수정본 이름을 정하지 못했어요.', "Couldn't name the edited copy."))
+}
+export async function saveOfficeEdit(folder, user, { path: rel, base, url, session } = {}) {
+  if (folder.kind === 'linked') throw err(400, L('연결형 폴더의 파일은 여기서 고칠 수 없어요.', "Files of a linked folder can't be edited here."))
+  const p = safeRel(rel)
+  const ext = path.extname(p).slice(1).toLowerCase()
+  if (!OFFICE_EDIT.has(ext)) throw err(400, L('이음오피스로 고쳐 저장하는 형식이 아니에요.', "This format isn't saved from IeumOffice."))
+  const key = editedObject(folder, url)
+  if (!key || path.extname(key).slice(1).toLowerCase() !== ext) throw err(400, L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy."))
+  const { data, error } = await admin.storage.from('files').download(key)
+  if (error || !data) throw err(404, L('저장한 편집본을 받지 못했어요.', "I couldn't fetch the saved copy."))
+  const buf = Buffer.from(await data.arrayBuffer())
+  if (!buf.length) throw err(400, L('편집본이 비어 있어요.', 'The saved copy is empty.'))
+  const sid = String(session || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40)
+  const blobAt = async (x) => (await G.git(folder.repo_path, ['rev-parse', '--verify', '-q', `${folder.default_branch}:${x}`], { check: false })).trim()
+  return serial(folder.id, async () => {
+    const now = await blobAt(p)
+    // the version the editor opened is no longer main's: keep this edit beside it
+    const target = now && now !== String(base || '') ? await copyPath(folder, p, user) : p
+    const host = path.join(folder.repo_path, target)
+    await fs.mkdir(path.dirname(host), { recursive: true })
+    await fs.writeFile(host, buf)
+    const author = { name: user.name, email: user.email }
+    const message = `${L(`이음오피스에서 고침: ${target}`, `Edited in IeumOffice: ${target}`)}${sid ? `\n\nOffice-Session: ${sid}` : ''}`
+    const fold = !!sid && await G.canFold(folder.repo_path, folder.default_branch, { message, path: target, email: author.email || 'folders@pgpt-pro.local' })
+    const commit = await G.commitAll(folder.repo_path, message, author, { amend: fold })
+    if (commit) await touch(folder)
+    return { path: target, sha: await blobAt(target), commit, copied: target !== p, folded: !!commit && fold }
+  })
 }
 export async function history(folder, limit = 40) {
   return G.log(folder.repo_path, folder.default_branch, limit)

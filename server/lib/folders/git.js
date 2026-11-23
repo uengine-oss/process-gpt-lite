@@ -75,12 +75,27 @@ export async function show(cwd, ref, path) {
 }
 
 // stage everything and commit; returns the new head or null when nothing changed
-export async function commitAll(cwd, message, author = {}) {
+// amend: fold the change into HEAD instead (an editing session's later saves — see canFold)
+export async function commitAll(cwd, message, author = {}, { amend = false } = {}) {
   await git(cwd, ['add', '-A'])
   const staged = (await git(cwd, ['diff', '--cached', '--name-only'])).trim()
   if (!staged) return null
-  await git(cwd, [...who(author.name, author.email), 'commit', '-q', '-m', message])
+  await git(cwd, [...who(author.name, author.email), 'commit', '-q', ...(amend ? ['--amend', '--date=now'] : []), '-m', message])
   return head(cwd)
+}
+
+// May the next save of one editing session fold into `branch`'s newest commit? Only when that commit is
+// this session's own (same message, which carries the session id, and author), changed only `path`, is
+// recent, has a parent, and no other branch stands on it (a variation made since keeps its base).
+export async function canFold(cwd, branch, { message, path, email, withinMs = 15 * 60_000 }) {
+  const [sha, ae, ct, ...body] = (await git(cwd, ['log', '-1', '--format=%H%x00%ae%x00%ct%x00%B', branch], { check: false })).split('\0')
+  if (!sha || body.join('\0').trim() !== String(message).trim() || ae !== email) return false
+  if (Date.now() - Number(ct) * 1000 > withinMs) return false
+  if (!(await git(cwd, ['rev-parse', '--verify', '-q', `${sha}^`], { check: false })).trim()) return false
+  const files = (await git(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', sha], { check: false })).split('\0').filter(Boolean)
+  if (files.length !== 1 || files[0] !== path) return false
+  const on = (await git(cwd, ['branch', '--contains', sha, '--format=%(refname:short)'], { check: false })).split('\n').map((x) => x.trim()).filter(Boolean)
+  return on.length === 1 && on[0] === branch
 }
 
 // changes a branch made since it left `base` (three-dot): [{path, change, add, del, binary}]

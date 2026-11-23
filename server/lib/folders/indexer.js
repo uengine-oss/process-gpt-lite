@@ -91,6 +91,16 @@ export async function extract(name, buf) {
 }
 
 // tier 0 for main, then the cards that are missing or stale (in the background)
+// a file being edited in place (IeumOffice autosave) changes every few seconds: its card is made once
+// the edits settle, not for every save
+const cardTimers = new Map()
+export function cardsSoon(folder, ms = 60_000) {
+  clearTimeout(cardTimers.get(folder.id))
+  const t = setTimeout(() => { cardTimers.delete(folder.id); cardQueue(folder) }, ms)
+  t.unref?.()
+  cardTimers.set(folder.id, t)
+}
+
 export async function reindex(folder, { cards = true } = {}) {
   const ref = folder.default_branch
   const files = (await G.lsTree(folder.repo_path, ref)).filter((f) => f.path !== '.gitattributes')
