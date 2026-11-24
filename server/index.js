@@ -11,6 +11,7 @@ import { runTurn, delegate, stopTurns } from './lib/agent.js'
 import { ruleOf, removeRule } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
+import * as browserRemote from './lib/browserRemote.js'
 import { listSchedules, deleteSchedule, ontoTimer, startScheduleTicker } from './lib/scheduler.js'
 import { generatePanel, revisePanel, savePanelData, proxyFetch } from './lib/panels.js'
 import { chat } from './lib/llm.js'
@@ -1139,7 +1140,19 @@ app.post('/api/browser/resume', auth, (req, res) => { browser.resume(req.user.id
 app.post('/api/browser/cancel', auth, (req, res) => { res.json({ ok: browser.cancel(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined) }) })
 // 다시 시도 on a card whose step stalled (content.stall): that step is left and the turn starts again from a fresh look
 app.post('/api/browser/retry', auth, (req, res) => { res.json({ ok: browser.retryStep(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined) }) })
-
+// a browser task on the person's PC whose PC went off (lib/browser.js whenOffline): 「서버에서 이어서」 (to: 'server') · 「PC가 다시 켜지면」 (to: 'wait')
+app.post('/api/browser/route', auth, async (req, res) => {
+  const to = req.body?.to === 'server' ? 'server' : req.body?.to === 'wait' ? 'wait' : null
+  if (!to) return res.status(400).json({ error: 'to: server | wait' })
+  res.json({ ok: await browser.routeTo(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined, to) })
+})
+// 「이 PC에서 보기」: the browser on the person's PC shows its window there (on: false hides it)
+app.post('/api/browser/show', auth, async (req, res) => {
+  try { res.json({ ok: await browser.showOnPc(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined, req.body?.on !== false) }) } catch (e) { res.status(409).json({ error: e.message }) }
+})
+// 「브라우저 작업은 내 PC에서」 (Settings › 계정 › 내 컴퓨터의 에이전트): where the person's browser tasks run (lib/browserRemote.js) — each PC's
+// own setting, kept by the desktop app and sent with its link; shown here, changed only on that PC
+app.get('/api/browser/where', auth, async (req, res) => res.json(await browserRemote.whereFor(req.user)))
 // ---------- search ----------
 app.get('/api/search', auth, async (req, res) => {
   const like = `%${req.query.q || ''}%`

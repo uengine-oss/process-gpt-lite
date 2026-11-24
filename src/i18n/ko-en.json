@@ -2843,7 +2843,24 @@
   "주제": "Topic",
   "새 주제": "New topic",
   "다시 연결하는 중…": "Reconnecting…",
-  "대화와의 연결이 잠깐 끊겨 다시 잇는 중이에요 — 저절로 이어져요 · 눌러서 지금 다시 연결": "The link to the conversation dropped for a moment and is reconnecting — it reconnects by itself · Click to reconnect now"
+  "대화와의 연결이 잠깐 끊겨 다시 잇는 중이에요 — 저절로 이어져요 · 눌러서 지금 다시 연결": "The link to the conversation dropped for a moment and is reconnecting — it reconnects by itself · Click to reconnect now",
+  "서버에서 이어서": "Continue on the server",
+  "PC가 다시 켜지면": "When the PC is back",
+  "이 PC에서 보기": "Show on this PC",
+  "서버 브라우저에서 이어서": "Continued in the server's browser",
+  "PC 앱에 닿지 않았어요. PC 앱이 켜져 있는지 확인해 주세요.": "Couldn't reach the desktop app. Check that it is running.",
+  "내가 시킨 브라우저 작업": "Browser tasks I ask for",
+  "단계 · 예약 브라우저 작업": "Browser tasks of steps and schedules",
+  "내가 시킨 작업만": "Only tasks I ask for",
+  "단계 · 예약 작업까지 모두": "Also steps and scheduled tasks",
+  "쓰지 않음": "Not used",
+  "브라우저 작업은 이 PC에서": "Browser tasks on this PC",
+  "이 PC 의 브라우저로 할 작업 — 사람이 없는 단계 · 예약 작업은 고를 때만, 그때도 이 PC 의 내부망 주소는 열지 않아요": "What this PC's browser does — steps and scheduled tasks nobody watches only when chosen, and even then never addresses on this PC's own network",
+  "서버 브라우저에서 해요 — PC 앱에서 「브라우저 작업은 이 PC에서」를 껐어요": "In the server's browser — \"Browser tasks on this PC\" is off in the desktop app",
+  "서버 브라우저에서 해요 — 사람이 없는 작업은 PC 앱에서 「단계 · 예약 작업까지 모두」를 고른 PC 에서만 해요": "In the server's browser — tasks nobody watches run only on a PC where the desktop app has \"Also steps and scheduled tasks\"",
+  "서버 브라우저에서 해요 — PC 앱이 켜져 있으면 그 PC 의 브라우저에서 해요(휴대폰만 쓸 때도 그대로 돼요)": "In the server's browser — while the desktop app is on they run in that PC's browser (it works with a phone alone too)",
+  "이 컴퓨터에서 단계 실행을 꺼서 쓰지 않음": "Not used — running steps on this computer is off",
+  "브라우저를 열지 못해 작업을 시작하지 못했어요. 잠시 후 같은 말로 다시 시켜 주세요.": "The browser didn't open, so the task didn't start. Ask again in a moment."
  },
  "patterns": [
   [
@@ -6528,7 +6545,17 @@
   ],
   [
    "{0} · 열기",
-   "{0} · open"
+   "{0} · open",
+   "PC 연결 끊김 · {0}",
+   "PC offline · {0}",
+   "내 PC · {0}",
+   "My PC · {0}",
+   "「{0}」의 브라우저에서 해요 — 그 PC 에서 한 로그인을 그대로 쓰고, 로그인은 그 PC 에 남아요",
+   "In the browser on \"{0}\" — it uses the sign-ins made on that PC, and they stay there",
+   "서버 브라우저에서 해요 — PC 앱을 {0} 이상으로 올리면 그 PC 의 브라우저에서 할 수 있어요",
+   "In the server's browser — update the desktop app to {0} or later to run them on that PC",
+   "{0} — 바꾸기는 그 PC 의 앱에서",
+   "{0} — changed in that PC's app"
   ]
  ],
  "context": [

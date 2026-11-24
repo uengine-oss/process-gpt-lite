@@ -70,10 +70,14 @@ export function capsOf(raw = {}) {
     clis[id] = { installed: !!c.installed, version: clean(c.version, 40) || null, loggedIn: typeof c.loggedIn === 'boolean' ? c.loggedIn : null,
       runnable: c.runnable !== false }
   }
-  // (chat: it runs chat messages for its person's CLI — desktop 0.2.2, the composer's agent picker)
-  return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true, conversation: raw?.conversation === true, chat: raw?.chat === true }
+  // (chat: it runs chat messages for its person's CLI — desktop 0.2.2, the composer's agent picker · browser: it has a browser the
+  // server's browser agent can drive — desktop 0.2.3, lib/browserRemote.js)
+  return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true, conversation: raw?.conversation === true, chat: raw?.chat === true,
+    browser: raw?.browser === true }
 }
-export const prefsOf = (raw = {}) => ({ enabled: raw?.enabled !== false, ask: raw?.ask === true })
+// browser: 「브라우저 작업은 내 PC에서」 — this PC's own setting (desktop 0.2.3): 'own' (the person's own tasks, the default) · 'all' (also tasks
+// nobody watches) · 'off' (lib/browserRemote.js routeOf)
+export const prefsOf = (raw = {}) => ({ enabled: raw?.enabled !== false, ask: raw?.ask === true, browser: ['off', 'own', 'all'].includes(raw?.browser) ? raw.browser : 'own' })
 
 export async function seen(id, { caps, prefs, name, appVersion } = {}) {
   await q(`update pro_local_devices set last_seen_at=now(), caps=coalesce($2, caps), prefs=coalesce($3, prefs), name=coalesce($4, name), app_version=coalesce($5, app_version) where id=$1`,

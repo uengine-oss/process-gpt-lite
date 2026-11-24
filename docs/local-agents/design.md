@@ -200,6 +200,10 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
   - 카드: 작업자에게만 선택 단추, 다른 사람에게는 「윤태호님의 답을 기다려요」. 누르면 `POST /api/local-agents/jobs/:id/answer {ask, answer}`(작업자만 — 그 밖 403, 이미 닫힌 물음 409) → 서버가 그 세션의 데스크톱에 `pty-answer {sid, ask, answer, byId}` → runner 가 그 물음이 아직 열려 있을 때만 키를 누른다(창이 닫힌 뒤 누른 키는 CLI 입력란에 글자로 들어가므로 — 실측). 물음은 결과가 오거나 턴이 끝나거나 멈추면 닫힌다(`ask-done`).
 - **터미널의 모양**(`src/localTermTheme.js`): xterm.js 의 색을 `src/styles/base.css` 의 토큰에서 — 어두운 바탕(카드의 rgb 29 29 31, 글 --text-primary, 커서 --color-info)과 밝은 바탕(rgb 251 251 253, 글 rgb 29 29 31, 커서 #005AD7). ANSI 16색은 뜻을 지키며(빨강은 빨강) 토큰에 맞춘 것으로, 모두 바탕과 4.5:1 이상(시험). CLI 가 24비트 색으로 칠한 것은 xterm 의 `minimumContrastRatio` 4.5 가 끌어올린다. `<html data-theme>` 이 바뀌면 그 자리에서 바뀐다. 글꼴은 고정폭(SF Mono · Menlo · Consolas) 다음에 한글이 두 칸 폭인 D2Coding · Nanum Gothic Coding, 그다음 시스템 한글. 카드 틀(모서리 14px, hairline).
 
+### 5.12 브라우저 작업도 내 PC 에서 (데스크톱 0.2.3, 2026-11-25)
+
+같은 링크로 서버의 브라우저 에이전트가 그 사람 PC 의 브라우저(데스크톱 앱 안의 숨은 창, `desktop/src/browser/`)를 움직인다. 에이전트 루프는 서버에 그대로 두고 페이지를 움직이는 드라이버만 바꾼다(`server/lib/browserServer.js` · `browserRemote.js`, 링크 쪽 `localAgents/browserLink.js`). 어디서 도는지 · Electron 을 고른 까닭 · 링크의 동작 · 보관함 값을 PC 로 보내는 결정과 위험 · PC 가 꺼졌을 때는 별도 문서 `docs/local-agents/browser.md` 에 있다.
+
 ## 6. 데스크톱 (`desktop/src/runner/`)
 
 | 파일 | 하는 일 |

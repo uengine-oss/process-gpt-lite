@@ -1,8 +1,11 @@
 // Bounded steps for a browser agent on a Playwright page (2026-11-24, 「브라우저가 먹통이 된」): every look, move and
 // wait has a limit; a page that never goes quiet is not waited on; the page read is capped and puts what is on screen
 // first; the live view sends a bounded number of frames; a watchdog notices when nothing has moved for a while.
-// Nothing here knows about tasks, cards or the database — the server's browser agent (lib/browser.js) uses it, and a
-// browser driven on the person's own PC can use the same pieces.
+// Nothing here knows about tasks, cards or the database — the server's browser agent (lib/browser.js) uses it through
+// either page driver (lib/browserServer.js, this server's Chromium; lib/browserRemote.js, a browser on the person's PC).
+// The scripts that run inside the page (SNAPSHOT_JS, DESCRIBE_JS, PAGE_WORDS_JS, IS_SECRET_JS) have a twin in the desktop
+// app (desktop/src/browser/pageScripts.js — the desktop runs its own copy, never code the server sends); a test keeps them
+// the same (test/browserDriver.test.js).
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -182,6 +185,41 @@ export const SNAPSHOT_JS = (opts) => {
   return { title: document.title, url: location.href, site: meta('og:site_name') || meta('application-name'), fields,
     text: parts.join('').trim().slice(0, maxText), els,
     ...(cut || visible > els.length ? { more: { visible, cut, scanned: n, ms: Math.round(performance.now() - t0) } } : {}) }
+}
+
+// Fields whose value must never reach the model, the live view or (a browser on the person's PC) the server.
+export const SECRET_SELECTOR = 'input[type=password], [data-pro-secret], input[autocomplete^="cc-"], input[autocomplete="one-time-code"]'
+
+// Whether element e is a secret field (the type gate: the model never types into one): run inside the page.
+export const IS_SECRET_JS = (e, sel) => e.matches(sel) || /card.?(no|num)|cardnumber|cvc|cvv|csc|otp/i.test(`${e.name} ${e.id}`)
+
+// The element an action is about, as the person would name it: a button by its text, a field by its
+// label or placeholder (never its value), a secret field only by its kind. `what` is for the purchase gate.
+export const DESCRIBE_JS = (e) => {
+  const tag = e.tagName.toLowerCase()
+  const field = tag === 'input' || tag === 'textarea' || tag === 'select' || e.isContentEditable
+  const auto = e.autocomplete || ''
+  const id = `${e.name || ''} ${e.id || ''}`
+  const secret = e.type === 'password' ? 'password' : /^cc-number/.test(auto) || /card.?(no|num)|cardnumber/i.test(id) ? 'card'
+    : /^cc-csc/.test(auto) || /cvc|cvv|csc/i.test(id) ? 'cvc' : /^cc-exp/.test(auto) ? 'exp' : /one-time-code/.test(auto) || /otp/i.test(id) ? 'otp'
+      : e.hasAttribute('data-pro-secret') || /^cc-/.test(auto) ? 'secret' : ''
+  const label = e.getAttribute('aria-label') || (e.labels && e.labels[0] && e.labels[0].innerText) || e.placeholder || e.getAttribute('title') || ''
+  const button = tag === 'input' && /^(submit|button|reset)$/.test(e.type) ? e.value : ''
+  const name = (field && !button ? label || e.name || '' : e.innerText || label || button || e.getAttribute('alt') || '').replace(/\s+/g, ' ').trim()
+  const what = field && !button ? '' : [e.innerText, e.value, e.getAttribute('aria-label'), e.getAttribute('title')].filter(Boolean).join(' ').trim().slice(0, 80)
+  return { name: name.length > 30 ? `${name.slice(0, 29)}…` : name, field: !!field && !button, secret, what }
+}
+
+// The words on the page a wait looks for: its text, and what fields hold or show (a value typed in, a placeholder) —
+// the model picks until_text from the snapshot, where a field shows itself by those (2026-11-24: waits for the
+// placeholder 「어디로 떠나시나요?」 and for 「계룡시」 typed into a field each ran their full minute). A secret field's value is
+// never among them (a browser on the person's PC sends these words to the server).
+export const PAGE_WORDS_JS = () => {
+  const b = document.body
+  if (!b) return ''
+  const fields = [...document.querySelectorAll('input:not([type=hidden]):not([type=password]):not([data-pro-secret]):not([autocomplete^="cc-"]):not([autocomplete="one-time-code"]),textarea:not([data-pro-secret]),select')].slice(0, 300)
+    .map((e) => [e.tagName === 'SELECT' ? e.options[e.selectedIndex]?.text : e.value, e.placeholder, e.getAttribute('aria-label')].filter(Boolean).join(' '))
+  return `${b.innerText}\n${fields.join('\n')}`
 }
 
 // The agent's view of a page and of the frames on its screen (a map's result list, a booking form, a sign-in box are

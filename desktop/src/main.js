@@ -25,6 +25,7 @@ const policy = require('./policy')
 const menu = require('./menu')
 const { createLocalRunner } = require('./runner')
 const CLIS = require('./runner/clis')
+const { createBrowserHost } = require('./browser/host')
 
 const MAC = process.platform === 'darwin'
 const DEV = !app.isPackaged || process.env.PGL_DESKTOP_DEV === '1'
@@ -157,7 +158,11 @@ function createWindow() {
   win.on('resize', remember)
   win.on('move', remember)
   win.on('close', saveWindow)
-  win.on('closed', () => { win = null })
+  win.on('closed', () => {
+    win = null
+    // (the browser on this PC keeps hidden windows of its own: they do not hold the app open — browser/host.js)
+    if (!MAC && BrowserWindow.getAllWindows().every((w) => w.pglBrowser)) app.quit()
+  })
 
   if (settings.get().server) loadServer()
   else showSetup()
@@ -274,8 +279,10 @@ function setupSession(ses) {
 }
 
 // a server behind a basic-auth gate (a tunnel): answered from the setup page's pair, once per request
-app.on('login', (e, _wc, details, info, cb) => {
-  if (info.isProxy || !serverUrl() || policy.originOf(details.url) !== policy.originOf(serverUrl())) return
+app.on('login', (e, wc, details, info, cb) => {
+  // (only the app's own window: the browser the server's agent drives here has a session of its own and never gets the pair)
+  const mainSession = !!wc && !wc.isDestroyed?.() && wc.session === session.defaultSession
+  if (!policy.answersGate({ mainSession, isProxy: info.isProxy, url: details.url, server: serverUrl() })) return
   const g = settings.gate()
   e.preventDefault()
   if (g && !(details.firstAuthAttempt === false)) cb(g.user, g.pass)
@@ -386,6 +393,14 @@ function paintOverlay() {
 // reads the page's cookies or storage), sees its state and sets the person's two switches (local runs on/off, ask before each run).
 let runner = null
 let cliCache = null
+// The browser on this PC that the server's browser agent drives when the person's browser tasks run here (browser/host.js — 0.2.3): made
+// once, kept across the runner's restarts (its windows are hidden until 「이 PC에서 보기」). PGL_DESKTOP_BROWSER=0: none (an older app's way).
+let browserHost = null
+const localBrowser = () => {
+  if (process.env.PGL_DESKTOP_BROWSER === '0') return null
+  browserHost ||= createBrowserHost({ electron: require('electron'), log: (...a) => runnerLog(a.join(' ')) })
+  return browserHost
+}
 const runnerLog = (s) => { if (DEV || process.env.PGL_RUNNER_LOG === '1') console.log(s) }
 // (PGL_RUNNER_DEVICE_NAME: a name of one's own — the tests' screenshots carry no machine name)
 const deviceName = () => (process.env.PGL_RUNNER_DEVICE_NAME || require('node:os').hostname().replace(/\.local$/i, '')).slice(0, 60) || 'Desktop'
@@ -398,7 +413,7 @@ function startRunner() {
   runner = createLocalRunner({
     server: s, token: p.token, dataDir: path.join(app.getPath('userData'), 'local-agents'),
     device: { name: deviceName(), platform: process.platform, appVersion: app.getVersion() },
-    prefs: () => settings.runnerPrefs(), ask: askRun, log: runnerLog,
+    prefs: () => settings.runnerPrefs(), ask: askRun, log: runnerLog, browser: localBrowser(),
     // tests: the fake CLIs' folder first (PGL_RUNNER_PATH)
     ...(process.env.PGL_RUNNER_PATH ? { searchPath: `${process.env.PGL_RUNNER_PATH}${path.delimiter}${CLIS.augmentedPath()}` } : {}),
   })
@@ -471,7 +486,7 @@ ipcMain.handle('pgl:runner:forget', (e, v) => {
 })
 ipcMain.handle('pgl:runner:prefs', (e, v) => {
   if (!fromServerPage(e)) return null
-  settings.set({ runnerPrefs: { enabled: v?.enabled !== false, ask: v?.ask === true, finishMinutes: settings.finishMinutesOf(v?.finishMinutes) } })
+  settings.set({ runnerPrefs: { enabled: v?.enabled !== false, ask: v?.ask === true, finishMinutes: settings.finishMinutesOf(v?.finishMinutes), browser: settings.browserPrefOf(v?.browser ?? settings.runnerPrefs().browser) } })
   runner?.prefsChanged()
   sendRunnerState()
   return settings.runnerPrefs()
@@ -483,4 +498,4 @@ ipcMain.handle('pgl:runner:detect', async (e) => {
   sendRunnerState()
   return runnerStatus()
 })
-app.on('before-quit', () => stopRunner())
+app.on('before-quit', () => { browserHost?.quit(); stopRunner() })

@@ -1122,6 +1122,46 @@ cd server && node --test test/agentTools.test.js
 | 허브가 묶는 목록 · 공통 목록 이름 · ArtCraft 앱 · 이음오피스 이름이 한 목록 | — | 서버 `test/agentTools.test.js` 「이름은 한 목록」 | 단위 | ✅ |
 | 에이전트가 실제로 열린 PhotoCraft · 이음오피스를 대화로 고친다(운영) | 사용자 11-25 | A-06 · A-11(로컬, 실제 모델), 운영은 D-AT 통과 뒤 사람 확인 | agent | ◐ |
 
+### 51. 브라우저 작업은 내 PC 의 브라우저에서 — 데스크톱이 켜져 있으면 그 PC, 휴대폰만이면 서버 (스펙 `browser-handoff` 「브라우저 작업은 내 PC 의 브라우저에서도 돈다」 · 「PC 마다 동의한 작업만 그 PC 로 간다」 · 「PC 의 브라우저는 작업이 쥔 동안만 일하고, 끝이 있다」 · 「PC 가 꺼지면 …」 · 「보관함 값은 그 사람의 PC 로 …」, `local-agents`)
+
+근거: 2026-11-24 「이 부분도 일렉트론 버전에서는 로컬 브라우저를 이용하는게 더 효율적이지 않을까?」 · 「그래도 순수 모바일에서는 이 작업이 가능해야하니」. 서버 쪽 시험은 진짜 데스크톱 코드(데스크톱 앱의 로컬 러너 + 브라우저, `desktop/test/helpers/browser-host.js` 를 Electron 으로)가 시험 서버의 링크에 기기 토큰으로 붙어서 한다 — `desktop/` 에서 `npm ci` 가 필요하고, Electron 이 없으면 원격 쪽 시험은 건너뛴다. 사이트는 지어낸 가게(`server/test/fixtures/drivers.mjs`, 다른 출처 iframe 포함), 모델 · 판정은 대본. 화면 시험(LB)은 진짜 앱을 Playwright `_electron` 으로 띄우고 같은 사람이 휴대폰 폭(390) 웹에서 본다 — BFF(8873) · Vite(5273) · 대본 모델 · 사이트를 시험이 띄운다. 실제 사이트 · 실제 모델 실측은 `server/scripts/measure-browser-where.mjs`(결과 `openspec/specs/browser-handoff/e2e/results/local-browser-1125.txt`).
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 두 드라이버(서버 Chromium · PC 브라우저)가 같은 동작을 같게: 열기 · 읽기(다른 출처 iframe 의 단추와 글) · 이름 · 비밀 칸 · 자리 · 입력 + Enter · iframe 안 누르기 · 날짜 칸 · 보관함 값(읽기 · 낱말 · 글에 없음, 그림은 칠함) · 키 하나씩 + Enter(대문자 · 기호) · 스크롤 · 파일 칸 · 파일 고르개 · 새 탭 · 스스로 닫히는 창 · 받은 파일 · 끝나지 않는 페이지 · 직접 제어 · 실시간 화면 | 설계 | `server/test/browserDriver.test.js` | 단위 · 통합 | ✅ |
+| 페이지 읽기 스크립트의 데스크톱 사본이 서버의 것과 같음, 어디서 도나(PC 마다의 설정 own · all · off, 단계 실행 끔, 남이 시킨 작업, 링크 · 0.2.2), 내부망 주소(서버 · 데스크톱 같은 판단), 링크가 끊기면 기다리던 호출이 바로 끝남 | 설계 · 검토 11-25 #8 | `browserDriver.test.js` | 단위 | ✅ |
+| 링크 조각: 바이트로 재어 1MB 아래(한글 40만 자 양쪽), 쓰지 않는 링크의 조각은 받지 않음(400개 → 0바이트 · RSS), 한 링크에 메시지 둘 · 조각 수 · 바이트 끝, 링크 객체마다(옛 링크가 늦게 닫혀도 새 링크의 조각은 남음) | 검토 11-25 #1 · #2 · #11 | `browserDriver.test.js` · `desktop/test/browser.test.js` | 단위 | ✅ |
+| 링크 조각(재검토): 작업이 쥐지 않은 링크(드라이버만 남은)의 조각은 받지 않음, 모든 링크를 합친 끝(두 PC 7MB + 7MB > 12MB → 나중 것 버림 · 그 나머지 조각도 안 받음), 버린다는 로그는 링크마다 1분에 한 번, 링크가 닫히면 합계가 돌아옴 · RemoteDriver 의 holding(begin → 참, idle → 거짓) | 재검토 11-25 N5 | `browserDriver.test.js` | 단위 | ✅ |
+| 내부망 판단(재검토): `[::ffff:127.0.0.1]` · `[::ffff:7f00:1]` · `localhost.` · `127.0.0.1.` · 한 단어 이름 · `.local` · `.lan` · `.internal` · `.intranet` · `.localdomain` · `.home.arpa` · 10진/16진 IPv4 — 서버 `privateAddress` 와 데스크톱 `privateHost` 가 같고, 공개 이름(`example.com.` · `local.example.com`) · 공개 IPv6 는 아님 | 재검토 11-25 N2 | `browserDriver.test.js` · `desktop/test/browser.test.js` | 단위 | ✅ |
+| 두 드라이버: 페이지의 confirm · alert 는 상자 없이 취소 · 넘김, 다음 읽기에 `[dialog] …` 한 번 · 한글 40만 자 페이지(링크 그대로, PC 낱말 20만 자까지) · 새 탭으로 받는 파일(빈 탭 닫힘, 일은 원래 페이지 — 탭이 되기 전에 끝난 다운로드도) · 하나뿐인 창이 스스로 닫혀도 다음 일은 새 탭에서 | 검토 11-25 #5 · #2 · #7 · #10 | `browserDriver.test.js` | 통합 | ✅ |
+| PC 만: 크기를 말하지 않는 큰 파일은 받는 도중 413 · 작업이 끝나면(idle) 페이지를 비우고 프레임 · 받은 파일을 보내지 않음, begin 부터 다시 · 사람이 없는 작업(begin noPrivate)은 127.0.0.1 을 열지 않음 · ⌘V · Ctrl+V 거절 · 창 열두 개 → 탭 8개까지 · 그리지 못하는 페이지의 모델 그림은 없음(가리기 전 그림 아님) | 검토 11-25 #6 · #7 · #8 · #12 | `browserDriver.test.js` | 통합 | ✅ |
+| 두 드라이버(재검토): 「떠날까요?」(beforeunload)를 건 페이지에서 다음 주소로 감 · 스크립트가 만든 빈 iframe 의 alert 와 `frames[]` 의 confirm 도 상자 없이(페이지가 이어서 움직이고 말은 다음 읽기에) | 재검토 11-25 N1 · N7 | `browserDriver.test.js` | 통합 | ✅ |
+| PC 만(재검토): beforeunload 페이지에 보관함 값을 넣고 idle → `about:blank` · noPrivate 가 쥔 동안 이미 열린 페이지의 fetch · 그림 · 새 창 · 폼 · `localtest.me` fetch 가 사이트에 하나도 닿지 않음, `localtest.me` · `127.0.0.1.nip.io`(이 PC 의 DNS 로 풀어서) · `[::ffff:127.0.0.1]` · `localhost.` 열지 않음, 놓으면 다시 감 · 작업 사이 보이는 창에서 사람이 받은 파일은 그 PC 의 다운로드 폴더로(「(2)」), 서버로는 안 감 · 보였다가 숨은 창은 새 숨은 탭으로 바뀌어 다음 동작이 됨 · 탭이 없을 때 곁의 동작 다섯이 한꺼번에 와도 새 탭 하나 | 재검토 11-25 N1 · N2 · N4 · N8 | `browserDriver.test.js` | 통합 | ✅ |
+| PC 에서 끝까지: 카드 「내 PC · 시험 PC」, 실시간 프레임이 그 카드로, 끝난 카드에 마지막 화면 | 사용자 11-24 | `server/test/browser-local.test.js` | 통합 | ✅ |
+| PC 에서 멈춤 → 「기다리는 중 · AI 모델의 답」 → 「다시 시도」는 그 걸음만 · 「그만두기」는 2초 안 | PR #46 | `browser-local.test.js` | 통합 | ✅ |
+| 보관함 로그인: 비밀번호는 그 사람의 PC 링크로 한 번(`fillSecret`)만, 다른 사람의 링크 · 서버 로그 · 이벤트 · 모델 요청 · 대화에 없음, 모델의 그림에서 칠해짐, PC 에서 친 로그인은 보관함으로 안 감 | 설계(비밀) | `browser-local.test.js` | 통합 | ✅ |
+| 로그인 벽에서 보관함 먼저(PR #48)가 PC 에서: 키 하나씩 · Enter · 사람에게 묻지 않음 | PR #48 · 조정 11-25 | `browser-local.test.js` · 서버 쪽 `browser-wall-vault.e2e.mjs` | 통합 | ✅ |
+| PC 꺼짐 → 「PC 연결 끊김」 카드, 2.5초 동안 저절로 옮기지 않음, 「PC가 다시 켜지면」 → 같은 PC 가 돌아오면 그 PC 에서 같은 페이지로 | 사용자 지시 | `browser-local.test.js` | 통합 | ✅ |
+| PC 꺼짐 → 「서버에서 이어서」 → 서버 브라우저가 같은 주소를 열어 끝냄, 모델에게 그 사실 | 사용자 지시 | `browser-local.test.js` | 통합 | ✅ |
+| PC 의 설정 「쓰지 않음」이면 PC 가 켜져 있어도 서버, 「내가 시킨 작업만」이면 PC — `GET /api/browser/where` 가 그대로 · 「이 컴퓨터에서 단계 실행」을 끈 PC 로는 「모두」여도 가지 않음 | 사용자 지시 · 검토 11-25 #8a · #9 | `browser-local.test.js` | 통합 | ✅ |
+| 사람이 없는 작업 · 남이 시킨 작업은 기본으로 서버(`not-own`), PC 가 「모두」면 PC — 시작 주소(127.0.0.1) · `goto`(192.168.0.1) 는 열지 않고 모델이 까닭을 들음, PC 에 그 주소가 가지 않고 `begin` 은 `noPrivate: true` | 검토 11-25 #8b · #8c | `browser-local.test.js` | 통합 | ✅ |
+| 서버 브라우저가 열리지 않으면 줄 선 두 작업의 카드가 「브라우저를 열지 못해 …」 실패로 끝나고 줄이 이어짐(10초 안) | 검토 11-25 #3 | `browser-local.test.js` | 통합 | ✅ |
+| 이어진 PC 의 브라우저가 거듭 열리지 않으면 다시 열기는 3번까지, 카드 「거듭 열리지 않아 …」, 그 뒤로 열지 않음 | 검토 11-25 #10 | `browser-local.test.js` | 통합 | ✅ |
+| 계획하는 동안 취소한 작업은 그동안 쥔 PC 의 브라우저를 놓음(begin 뒤에 idle) | 재검토 11-25 N3a | `browser-local.test.js` | 통합 | ✅ |
+| PC 에서 사람이 필요한 채로 끝난 작업: 이유는 「이 PC에서 보기」(「직접 제어」 아님), 카드 `pcKept: true`, idle `keep: true`, 끝난 뒤에도 「이 PC에서 보기」 · 숨기기, 다음 작업이 쥐면 앞 카드 `pcKept: false` · 보기 거절 | 재검토 11-25 N4 | `browser-local.test.js` | 통합 | ✅ |
+| 사람이 시키지 않은 작업(`own: false` — 회사 루틴 자동 실행)은 「모두」인 PC 에서도 begin `noPrivate: true` · 내부망 `goto` 거절 · `runTurn({ auto: true })` 가 시작한 브라우저 작업은 `own: false`, 사람이 보낸 말은 `own: true` | 재검토 11-25 N6 | `browser-local.test.js` · `browser-replaces-turn.test.js` | 통합 | ✅ |
+| 데스크톱: 링크가 끊기면 브라우저가 쥔 상태를 놓음(linkDown · 반쯤 온 조각 버림, 페이지는 둠) · 새 탭은 동작 안에서(시간 끝 안 · 실패하면 그 동작이 그 까닭으로 실패) | 재검토 11-25 N3b · N8 | `desktop/test/browser.test.js` | 단위 | ✅ |
+| 데스크톱 쪽: 이름 붙은 동작만(코드 · 모르는 동작 거절), 그 데스크톱에 로그인한 사람만, 조각(바이트 · 끝), 로그에 값 없음, 웹 주소만, begin · idle · 창이 닫힌 뒤 새 탭, 내부 주소, 기본 인증은 앱 창이 서버로 갈 때만, PC 의 설정(기본 own · 다시 켜도 남음), 닫으면 세션을 놓음 | 설계 · 검토 11-25 #2 · #8 · #9 · #12 | `desktop/test/browser.test.js` | 단위 | ✅ |
+| 진짜 앱: 로그인하면 `caps.browser` · 앱 0.2.3 · `prefs.browser: 'own'`, 앱 설정의 「브라우저 작업은 이 PC에서」를 「모두」 · 「쓰지 않음」으로 바꾸면 서버가 곧바로 따름, 다른 칸(실행 전에 묻기)을 바꿔도 남음 | 사용자 지시 · 검토 11-25 #9 | LB-01 | desktop | ✅ |
+| 진짜 앱 + 휴대폰 390: 휴대폰의 설정은 읽기만(PC 마다의 설정, 바꾸는 칸 없음), 웹에서 시킨 작업이 PC 에서 돎 — 휴대폰 · 앱 카드에 「내 PC · 테스트 맥」과 실시간 화면, 서버 Chromium 프로필 없음 | 사용자 11-24 · 검토 11-25 #9 | LB-02 | desktop | ✅ |
+| 진짜 앱 + 휴대폰 390: 사람이 필요한 순간 「직접 확인 · 이 PC에서 보기 · 멈추기」, 「이 PC에서 보기」 → PC 에 그 창(제목은 페이지 출처부터, 전체 화면 안 됨), 그 창에서 한 일 뒤 「제어 돌려주기」로 끝남 | 사용자 지시 · 검토 11-25 #12 | LB-03 | desktop | ✅ |
+| 휴대폰 390 고정 카드: 확장 화면의 단추줄은 「직접 제어」 · 「제어 돌려주기」 · 「서버에서 이어서」 가운데 하나만, 「이 PC에서 보기」 → `/api/browser/show {taskId}` | 검토 11-25 #4 | F-LB-01 `e2e/tests/feature/local-browser-card.spec.js` | feature | ✅ |
+| 휴대폰 390 고정 카드: PC 연결이 끊긴 카드의 「서버에서 이어서 · PC가 다시 켜지면 · 멈추기」와 `/api/browser/route {taskId, to}`, 확장 화면에는 「서버에서 이어서」만 | 검토 11-25 #4 | F-LB-02 | feature | ✅ |
+| 웹의 설정은 읽기만: 「내가 시킨 브라우저 작업」 · 「단계 · 예약 브라우저 작업」이 어디서 도는지와 PC 마다의 설정(꺼진 단계 실행 포함), 입력 · 고르개 없음 | 검토 11-25 #9 | F-LB-03 | feature | ✅ |
+| 휴대폰 390 고정 카드: PC 에서 사람이 필요한 채로 끝난 카드(`pcKept`)는 「다시 시도 · 이 PC에서 보기」 → `/api/browser/show {taskId}`, 다른 작업이 쓴 카드(`pcKept: false`)는 「다시 시도」만 | 재검토 11-25 N4 | F-LB-04 | feature | ✅ |
+| 실제 사이트(네이버 여행 숙소 · 연합뉴스)를 사내 모델로 PC 와 서버에서 | 사용자 지시 | `measure-browser-where.mjs` | 실측 | ✅ |
+| Windows 의 숨은 창 · 스크린캐스트 · 키 입력, 묶은(패키지) 앱으로 브라우저 작업, 사람의 진짜 로그인 | — | — (맥 arm64 · 개발 실행만, 진짜 계정 없음) | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

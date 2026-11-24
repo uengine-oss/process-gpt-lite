@@ -58,12 +58,31 @@ const label = computed(() => {
     case 'choice': return `선택 필요 · ${n}`
     case 'approve': return `승인 필요 · ${n}`
     case 'stuck': return '같은 화면에서 멈춤'
+    case 'offline': return `PC 연결 끊김 · ${n}`
     case 'other': return `확인 필요 · ${n}`
   }
   return needs.value ? '조치 필요' : failed.value ? `하지 못했어요 · ${c.value.title}` : `확인 필요 · ${c.value.title}`
 })
 // the whole reason, never cut: what stopped it and what lets it go on
 const why = computed(() => String(c.value.reason || (ended.value ? c.value.summary : '') || '').trim())
+// Where it runs (server lib/browser.js content.where): the person's own PC — 「내 PC · <기기>」 and 「이 PC에서 보기」, which shows that
+// browser's window on the PC for them to use directly — or this server's browser (said only when it moved there from the PC)
+const where = computed(() => c.value.where || null)
+const onPc = computed(() => where.value?.kind === 'local')
+// a task that ended needing the person: its page is kept on their PC for 「이 PC에서 보기」 (until another task takes that browser)
+const pcKept = computed(() => onPc.value && ended.value && c.value.pcKept === true)
+const whereText = computed(() => (onPc.value ? `내 PC · ${where.value.device || 'PC'}` : where.value?.from === 'local' ? '서버 브라우저에서 이어서' : ''))
+const pcErr = ref('')
+async function showOnPc() {
+  pcErr.value = ''
+  try {
+    const r = await api('/browser/show', { method: 'POST', body: { taskId: props.msg.id } })
+    if (!r?.ok) pcErr.value = 'PC 앱에 닿지 않았어요. PC 앱이 켜져 있는지 확인해 주세요.'
+  } catch (e) { pcErr.value = e.message }
+}
+// the PC went off (need 'offline'): 「서버에서 이어서」 — this server's browser takes it from the same page — or 「PC가 다시 켜지면」
+const offline = computed(() => (needs.value && need.value === 'offline' ? c.value.offline || {} : null))
+const routeTo = (to) => api('/browser/route', { method: 'POST', body: { taskId: props.msg.id, to } }).catch((e) => { pcErr.value = e.message })
 // the card that answers it (a login to save, a choice, an approval) when the agent posted one
 const answerCard = computed(() => (app.messages[props.msg.thread_id] || []).find((m) => ['vault', 'choice'].includes(m.kind) && m.content?.taskId === props.msg.id && m.content?.state === 'pending'))
 // a sign-in wall the vault has a login for: the agent is typing it in (server lib/browser.js vaultFirstOnWall → content.signingIn)
@@ -171,6 +190,16 @@ const acts = computed(() => {
   const stop = { key: 'stop', label: '멈추기', run: cancel }
   if (google.value && ended.value) return need.value === 'blocked' ? [phone, again] : [again, phone]
   if (needs.value) {
+    if (offline.value) {
+      const server = { key: 'server', label: '서버에서 이어서', icon: 'refresh', run: () => routeTo('server') }
+      return offline.value.waiting ? [server, stop] : [server, { key: 'wait', label: 'PC가 다시 켜지면', run: () => routeTo('wait') }, stop]
+    }
+    // on the person's PC: its window there is the other way to do it by hand
+    if (onPc.value && ['login', 'captcha', 'stuck', 'other', 'blocked'].includes(need.value)) {
+      const pc = { key: 'pc', label: '이 PC에서 보기', run: showOnPc }
+      if (need.value === 'login') return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, pc, stop]
+      if (need.value !== 'blocked') return [{ key: 'look', label: '직접 확인', icon: 'hand', run: takeOver }, pc, stop]
+    }
     if (need.value === 'login' && google.value) return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, phone, stop]
     if (need.value === 'login' && saveCard.value) return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, { key: 'save', label: '로그인 정보 저장', run: toAnswer }, stop]
     if (need.value === 'login') return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, stop]
@@ -178,7 +207,8 @@ const acts = computed(() => {
     if (answerCard.value && ['choice', 'approve'].includes(need.value)) return [{ key: 'answer', label: need.value === 'approve' ? '승인하러 가기' : '고르러 가기', icon: 'chevron', run: toAnswer }, stop]
     return [{ key: 'look', label: '직접 확인', icon: 'hand', run: takeOver }, stop]
   }
-  if (ended.value) return [{ key: 'retry', label: '다시 시도', icon: 'refresh', run: retry }]
+  // (ended needing the person on their PC: the page is kept there — server lib/browser.js keepsPage → content.pcKept)
+  if (ended.value) return [{ key: 'retry', label: '다시 시도', icon: 'refresh', run: retry }, ...(pcKept.value ? [{ key: 'pc', label: '이 PC에서 보기', run: showOnPc }] : [])]
   return []
 })
 
@@ -210,6 +240,7 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
       <img v-if="frame?.data" :src="`data:image/jpeg;base64,${frame.data}`" alt="" />
       <div v-else class="blank"><span v-if="!bare" :class="running || queued ? 'shimmer-text' : 'still'">{{ running ? '브라우저 여는 중' : queued ? (c.reason || '앞 작업이 끝나면 시작해요') : c.title }}</span></div>
       <div class="rings" aria-hidden="true"><i v-for="r in ripples" :key="r.id" class="ring" :class="r.kind" :style="{ left: r.left, top: r.top }" data-testid="click-ring" /></div>
+      <span v-if="whereText && !bare" class="where" :class="{ pc: onPc }" data-testid="task-where">{{ whereText }}</span>
       <Transition name="fade">
         <div v-if="showPlan" class="plan glass" @click.stop>
           <div class="ph">작업 진행 상황 <button aria-label="닫기" @click="showPlan = false"><Icon name="close" :size="18" /></button></div>
@@ -252,11 +283,15 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
         <button v-for="(a, i) in acts" :key="a.key" class="press" :class="i ? 'sub' : 'go'" :data-testid="`task-${a.key}`" @click="a.run"><Icon v-if="a.icon && !i" :name="a.icon" :size="18" />{{ a.label }}</button>
       </div>
       <p v-if="err" class="aerr" data-testid="task-error">{{ err }}</p>
+      <p v-if="pcErr" class="aerr" data-testid="task-pc-error">{{ pcErr }}</p>
     </div>
     <div v-if="full" class="bar">
       <button class="pill press" :aria-label="`계획, ${c.steps?.length}단계 중 ${done} 완료`" @click="showPlan = !showPlan"><Icon name="plan" :size="16" /> 계획 {{ done }}/{{ c.steps?.length }}</button>
-      <button v-if="!takeover" class="pill press" @click="takeover = true"><Icon name="hand" :size="16" /> 직접 제어</button>
-      <button v-else class="pill press on" @click="finishTakeover"><Icon name="check" :size="16" /> 제어 돌려주기</button>
+      <!-- one of three: the PC went off — 서버에서 이어서; else 직접 제어, or 제어 돌려주기 while taking over -->
+      <button v-if="offline" class="pill press on" data-testid="task-to-server" @click="routeTo('server')"><Icon name="refresh" :size="16" /> 서버에서 이어서</button>
+      <button v-else-if="!takeover" class="pill press" data-testid="task-take-control" @click="takeover = true"><Icon name="hand" :size="16" /> 직접 제어</button>
+      <button v-else class="pill press on" data-testid="task-give-back" @click="finishTakeover"><Icon name="check" :size="16" /> 제어 돌려주기</button>
+      <button v-if="onPc && (running || needs || pcKept)" class="pill press" data-testid="task-show-pc" @click="showOnPc"><Icon name="expand" :size="16" /> 이 PC에서 보기</button>
       <button v-if="running || needs || queued" class="pill press" @click="cancel">작업 취소</button>
     </div>
     <input v-if="full && takeover && touch" ref="kbd" class="kbd" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go"
@@ -273,6 +308,10 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
 .blank { position: absolute; inset: 0; display: grid; place-items: center; background: #f3f5fa; font-size: 15px; --text-tertiary: rgba(29 29 31 / .3); --text-primary: #1d1d1f; }
 .blank .still { color: rgba(29 29 31 / .45); }
 .screen.bare { aspect-ratio: auto; height: 64px; }
+/* where it runs: the person's own PC (or this server, when it moved there) — a small label at the screen's top left */
+.where { position: absolute; left: 12px; top: 12px; max-width: 60%; height: 28px; padding: 0 12px; border-radius: 9999px; display: inline-flex; align-items: center;
+  background: rgba(255 255 255 / .92); color: #1d1d1f; font-size: 13px; font-weight: 500; box-shadow: 0 2px 10px rgba(0 0 0 / .12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.where.pc::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #0F9D58; margin-right: 7px; flex: none; }
 /* where the agent clicks: a ring that swells and fades (0.8 s), a dot at its middle */
 .rings { position: absolute; inset: 0; pointer-events: none; }
 .ring { position: absolute; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; border: 3px solid rgba(26 115 232 / .95); background: rgba(26 115 232 / .16);

@@ -9,7 +9,7 @@
 //   lang         — 'ko' | 'en': the web app's language last seen (menu labels)
 //   runner       — { [server]: {token, enc, deviceId, userId, userName} }: this computer's device token for the local CLI agents of the
 //                  person signed in on that server (runner/, design docs/local-agents/design.md); the token encrypted like the gate's
-//   runnerPrefs  — {enabled, ask, finishMinutes}: local runs on or off, asking before each run, and how long a step waits after its CLI's
+//   runnerPrefs  — {enabled, ask, finishMinutes, browser}: local runs on or off, asking before each run, and how long a step waits after its CLI's
 //                  turn ended for the people on the instance before it ends by itself (runner/settle.js — default 5)
 //   runnerOptOut — { [server]: [userId…] }: people who disconnected this computer here (it is not paired again by itself)
 const fs = require('node:fs')
@@ -88,6 +88,11 @@ function forgetPairing(server, { optOut = false } = {}) {
 const optedOut = (server, userId) => ((data.runnerOptOut || {})[server] || []).includes(userId)
 const FINISH_MINUTES = [1, 3, 5, 10, 30, 60]
 const finishMinutesOf = (v) => (FINISH_MINUTES.includes(Number(v)) ? Number(v) : 5)
-const runnerPrefs = () => ({ enabled: data.runnerPrefs?.enabled !== false, ask: data.runnerPrefs?.ask === true, finishMinutes: finishMinutesOf(data.runnerPrefs?.finishMinutes) })
+// 「브라우저 작업은 내 PC에서」 — this PC's own consent (0.2.3; server lib/browserRemote.js routeOf): 'own' (the person's own tasks — the
+// default) · 'all' (also tasks nobody watches: process steps, scheduled and agents' runs) · 'off'
+const BROWSER_PREFS = ['own', 'all', 'off']
+const browserPrefOf = (v) => (BROWSER_PREFS.includes(v) ? v : 'own')
+const runnerPrefs = () => ({ enabled: data.runnerPrefs?.enabled !== false, ask: data.runnerPrefs?.ask === true, finishMinutes: finishMinutesOf(data.runnerPrefs?.finishMinutes),
+  browser: browserPrefOf(data.runnerPrefs?.browser) })
 
-module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES }
+module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES, browserPrefOf, BROWSER_PREFS }
