@@ -11,7 +11,9 @@ import BpmnView from '../BpmnView.vue'
 import OntoCaseRun from './OntoCaseRun.vue'
 import OntoCaseFlow from './OntoCaseFlow.vue'
 import OntoBindings from './OntoBindings.vue'
-import { TODO_KO, RO, EUL } from './ontoText.js'
+import OntoCasePin from './OntoCasePin.vue'
+import OntoCaseMove from './OntoCaseMove.vue'
+import { TODO_KO, RO } from './ontoText.js'
 
 const props = defineProps({ caseId: { type: String, required: true }, tasks: { type: Array, default: null }, bpmnHeight: { type: Number, default: 300 }, hideHeader: Boolean })
 const emit = defineEmits(['moved', 'open-task'])
@@ -25,16 +27,9 @@ async function load() {
   err.value = ''
   try { c.value = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}`); tick.value++ } catch (e) { err.value = e.message } finally { loading.value = false }
 }
-// 지도에서 바로 도는 건(server mapengine.js): 프로세스 정의 · 스냅샷 없이 인스턴스 하나 — 흐름도는 볼 때마다 지도에서 그리고, 관리자는 다음 단계를
-// 시작한 날의 지도로 정할지(고정) 바꿀 수 있다
+// 지도에서 바로 도는 건(server mapengine.js): 프로세스 정의 · 스냅샷 없이 인스턴스 하나 — 흐름도는 볼 때마다 지도에서 그리고(BPMN, 「크게 보기」), 관리자는
+// 다음 단계를 시작한 날의 지도로 정할지(고정) 바꿀 수 있다. 「인스턴스 열기」는 그 건의 인스턴스 화면(흐름도 · 목록 · 할 일 · 대화)으로.
 const isMap = computed(() => c.value?.engine === 'map')
-const admin = ref(false)
-watch(isMap, async (m) => { if (m && !admin.value) { try { admin.value = !!(await api('/ontology/engine')).admin } catch { admin.value = false } } })
-const pinBusy = ref(false)
-async function setPin(on) {
-  pinBusy.value = true; err.value = ''
-  try { await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/map-pin`, { method: 'PUT', body: { pin: on } }); await load() } catch (e) { err.value = e.message } finally { pinBusy.value = false }
-}
 
 const trig = computed(() => c.value?.trigger || {})
 const odds = computed(() => c.value?.entry_odds || null)
@@ -52,48 +47,12 @@ const startedHow = computed(() => ({ mail: '메일로 들어왔어요', manual: 
   file: trig.value.file ? `올린 파일 「${trig.value.file}」${RO(trig.value.file)} 시작했어요` : '올린 파일로 시작했어요' }[trig.value.kind] || ''))
 const statusKo = computed(() => ({ running: '진행 중', done: '끝남', COMPLETED: '끝남' }[c.value?.status] || c.value?.status || ''))
 const prevCount = computed(() => Math.max(0, (c.value?.instances || []).length - 1))
+const mapInst = computed(() => (isMap.value ? (c.value?.instances || [])[0] || null : null))
 
-// 옮기기
-const moveOpen = ref(false)
-const moveTo = ref('')
-const reason = ref('')
-const busy = ref(false)
-const moved = ref('')
-const procTasks = ref(null)
-const choices = computed(() => {
-  const cur = moves.value.at(-1)?.task || c.value?.entry_task
-  const list = props.tasks || procTasks.value || [...new Set([...(odds.value?.options || []).map((o) => o.task), ...history.value.map((h) => h.task), ...curTodos.value.map((t) => t.activity_name)])]
-  return list.filter((k) => k && k !== cur && k !== '요청 접수')
-})
-async function openMove() {
-  moveOpen.value = !moveOpen.value
-  moved.value = ''
-  if (!moveOpen.value || props.tasks || procTasks.value || !c.value?.proc) return
-  try {
-    const m = await api('/ontology/map')
-    const b = (m.processes || []).find((x) => x.key === c.value.proc)
-    const retired = new Set((m.tasks || []).filter((t) => t.status === 'retired').map((t) => t.key))
-    if (b) procTasks.value = b.tasks.filter((k) => !retired.has(k))
-  } catch { /* 아는 일들로 */ }
-}
-// 꼭 하는 단계를 지나치는 옮기기: 서버가 먼저 알리고({confirm, required}), 까닭을 적고 한 번 더 누르면 옮긴다(결정 기록에 남아요)
-const passing = ref(null)
-watch(moveTo, () => { passing.value = null })
-async function move() {
-  if (!moveTo.value) return
-  busy.value = true; err.value = ''
-  try {
-    const r = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/move`, { method: 'POST', body: { task: moveTo.value, reason: reason.value.trim(), ...(passing.value ? { confirm: true } : {}) } })
-    if (r?.confirm) { passing.value = r.required || []; return }
-    passing.value = null
-    moved.value = `「${moveTo.value}」${RO(moveTo.value)} 옮겼어요. ${isMap.value ? '같은 인스턴스에서 이어서 해요.' : '새 스냅샷에서 이어서 해요.'}`
-    moveOpen.value = false; moveTo.value = ''; reason.value = ''
-    emit('moved', r)
-    await load()
-  } catch (e) { err.value = e.message } finally { busy.value = false }
-}
+// 옮기기(OntoCaseMove): 옮긴 뒤 위에 알리고 건을 다시 읽는다
+async function onMoved(r) { emit('moved', r); await load() }
 const who = (t) => (t.agent_orch ? '에이전트' : String(t.user_id || '').includes('@') ? String(t.user_id).split(/[@,]/)[0] : t.user_id ? '담당자' : '')
-watch(() => props.caseId, () => { loading.value = true; c.value = null; moveOpen.value = false; load() }, { immediate: true })
+watch(() => props.caseId, () => { loading.value = true; c.value = null; load() }, { immediate: true })
 defineExpose({ reload: load })
 </script>
 
@@ -107,6 +66,17 @@ defineExpose({ reload: load })
         <h3>{{ trig.subject || trig.customer || '이름 없는 건' }}</h3></template>
         <small class="sub"><template v-if="trig.from">{{ trig.from }} · </template>{{ startedHow }}<template v-if="c.created_at"> · {{ dateTimeKo(c.created_at) }}</template></small>
       </header>
+
+      <!-- 지도에서 바로: 흐름도(그 건의 BPMN — 볼 때마다 지도에서, 「크게 보기」) 먼저 · 지도 고정 · 「인스턴스 열기」 -->
+      <div v-if="isMap" class="sec snap" data-testid="onto-case-map">
+        <div class="sh">
+          <h4>지도에서 바로 도는 건</h4>
+          <button v-if="mapInst" class="lnk press" data-testid="onto-case-open-inst" @click="router.push(`/routines/${encodeURIComponent(mapInst)}`)">인스턴스 열기</button>
+        </div>
+        <small class="one" data-testid="onto-case-instances">인스턴스 {{ (c.instances || []).length }}개(bpm_proc_inst 행 {{ (c.instancesInfo || []).length }}개) · 프로세스 정의 없음</small>
+        <OntoCaseFlow :case-id="caseId" :tick="tick" />
+        <OntoCasePin class="pinrow" :case-data="c" @changed="load" />
+      </div>
 
       <!-- 진행(실행 방식 · 단계마다 맡은 이 · 기다림 · 멈추기 · 되감기) -->
       <div class="sec">
@@ -148,21 +118,8 @@ defineExpose({ reload: load })
         </ol>
       </div>
 
-      <!-- 지도에서 바로: 흐름도(볼 때마다 지도에서) · 지도 고정 -->
-      <div v-if="isMap" class="sec snap" data-testid="onto-case-map">
-        <div class="sh">
-          <h4>지도에서 바로 도는 건</h4>
-          <small class="one" data-testid="onto-case-instances">인스턴스 {{ (c.instances || []).length }}개(bpm_proc_inst 행 {{ (c.instancesInfo || []).length }}개) · 프로세스 정의 없음</small>
-        </div>
-        <OntoCaseFlow :case-id="caseId" :tick="tick" />
-        <div class="pin" data-testid="onto-case-pin" :data-pinned="c.map_pin ? '1' : '0'">
-          <small>{{ c.map_pin ? `다음 단계를 건을 시작한 날(${dateTimeKo(c.map_pin)})의 지도로 정해요 — 그 뒤에 바뀐 지도는 이 건에 쓰지 않아요.` : '끝난 단계는 그대로, 다음 단계는 그때의 지도로 정해요.' }}</small>
-          <button v-if="admin && c.status === 'running'" class="lnk press" :disabled="pinBusy" data-testid="onto-case-pin-toggle" @click="setPin(!c.map_pin)">{{ c.map_pin ? '그때의 지도를 따라가기' : '시작한 날의 지도로 고정' }}</button>
-        </div>
-      </div>
-
       <!-- 지금 스냅샷 -->
-      <div v-else class="sec snap">
+      <div v-if="!isMap" class="sec snap">
         <div class="sh">
           <h4>지금 스냅샷</h4>
           <button v-if="curInst" class="lnk press" @click="router.push(`/projects/p/${encodeURIComponent(curInst)}`)">인스턴스 열기</button>
@@ -179,26 +136,8 @@ defineExpose({ reload: load })
       </div>
 
       <!-- 다른 일로 옮기기 -->
-      <div class="sec mv">
-        <button class="mvbtn press" :aria-expanded="moveOpen" data-testid="onto-case-move-open" @click="openMove">다른 일로 옮기기</button>
-        <div v-if="moveOpen" class="mvform">
-          <select v-model="moveTo" class="sel" aria-label="옮길 일" data-testid="onto-case-move-task">
-            <option value="" disabled>옮길 일을 고르세요</option>
-            <option v-for="k in choices" :key="k" :value="k">{{ k }}</option>
-          </select>
-          <input v-model="reason" class="in" placeholder="옮기는 이유(선택)" maxlength="200" />
-          <small class="hint">{{ isMap ? '열린 단계는 닫고, 같은 인스턴스에서 고른 일부터 이어요. 다음에 지도를 셈할 때 배워요.' : '지금 인스턴스는 닫고, 고른 일부터 새 스냅샷으로 이어요. 다음에 지도를 셈할 때 배워요.' }}</small>
-          <div v-if="passing" class="pass" data-testid="onto-case-move-pass">
-            <b>꼭 하는 단계 「{{ passing.map((x) => x.task).join('」 · 「') }}」{{ EUL(passing.at(-1)?.task || '') }} 지나쳐요.</b>
-            <small v-for="x in passing" :key="x.task">{{ x.task }} · {{ x.line }}</small>
-            <small>그래도 옮기려면 위에 옮기는 이유를 적고 「그래도 옮기기」를 눌러 주세요.</small>
-          </div>
-          <div class="btns">
-            <button class="ghost press" :disabled="busy" @click="moveOpen = false; passing = null">취소</button>
-            <button class="go press" :disabled="busy || !moveTo || (!!passing && !reason.trim())" data-testid="onto-case-move-apply" @click="move">{{ busy ? '옮기는 중…' : passing ? '그래도 옮기기' : '옮기기' }}</button>
-          </div>
-        </div>
-        <small v-if="moved" class="ok">{{ moved }}</small>
+      <div class="sec">
+        <OntoCaseMove :case-data="c" :tasks="tasks" @moved="onMoved" />
         <small v-if="err" class="err">{{ err }}</small>
       </div>
     </template>
@@ -215,7 +154,6 @@ h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text-secon
 .sec { padding: 12px; border-radius: 16px; background: var(--cell-bg); min-width: 0; }
 .muted { margin: 0; font-size: 13.5px; color: var(--text-secondary); }
 .err { display: block; margin: 6px 0 0; font-size: 13px; color: var(--color-error); }
-.ok { display: block; margin-top: 8px; font-size: 12.5px; color: var(--color-success); }
 .start { margin: 0 0 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14.5px; }
 .from { margin-left: -4px; }
 .task { padding: 3px 11px; border-radius: 9999px; background: var(--ink); color: var(--ink-inverse); font-weight: 600; font-size: 14px; }
@@ -244,21 +182,6 @@ h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text-secon
 .todos li.done .dot { background: var(--color-success); box-shadow: none; }
 .todos li.skipped { color: var(--text-tertiary); } .todos li.skipped .dot { background: var(--text-tertiary); box-shadow: none; }
 .prev { display: block; margin-top: 8px; font-size: 12px; color: var(--text-tertiary); }
-.one { font-size: 12px; color: var(--text-secondary); }
-.pin { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.pin small { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
-.pin .lnk { align-self: flex-start; }
-.mvbtn { height: 34px; padding: 0 14px; border-radius: 9999px; font-size: 13.5px; font-weight: 500; background: var(--field-bg); }
-.mvform { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.sel, .in { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border-radius: 12px; border: 0; outline: 0; background: var(--field-bg); font-size: 14px; }
-.sel option { color: #1d1d1f; }
-.in::placeholder { color: var(--text-tertiary); }
-.hint { font-size: 12px; color: var(--text-tertiary); line-height: 1.45; }
-.pass { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, #7a4fd0 10%, var(--field-bg)); }
-.pass b { font-size: 13px; font-weight: 600; line-height: 1.45; }
-.pass small { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
-.btns { display: flex; justify-content: flex-end; gap: 6px; }
-.ghost { height: 34px; padding: 0 14px; border-radius: 9999px; font-size: 13.5px; color: var(--text-secondary); }
-.go { height: 34px; padding: 0 16px; border-radius: 9999px; font-size: 13.5px; font-weight: 600; background: var(--ink); color: var(--ink-inverse); }
-.go:disabled, .ghost:disabled { opacity: .45; cursor: default; }
+.one { display: block; margin: -2px 0 8px; font-size: 12px; color: var(--text-secondary); }
+.pinrow { margin-top: 8px; }
 </style>

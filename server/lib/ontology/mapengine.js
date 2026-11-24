@@ -621,17 +621,77 @@ export async function todoView(t) {
   return { todo: t, step, form, instName: s?.trigger?.subject || t.activity_name, values: vals[formId] || vals, ...ui }
 }
 
+// ---------- one reading of a case's steps for every screen ----------
+// A case's work items as its screens show them — the flowchart (flowOf), the instance page's steps (instanceView) and the run view
+// (runmode.js runView): each with its row (pro_case_steps) and its state (runmode.js stepState) — one reading, so the diagram's colours,
+// the steps list, the progress bar and the 「내 입력이 필요해요」 cards never disagree.
+// (pure) the order: a map case's in the order its steps were made (its rows' created_at — a rewound step's new item comes after the
+// old one even when the engine's start_date says otherwise), a snapshot case's as read (start_date)
+export function madeOrder(engine, todos, gates) {
+  if (engine !== 'map') return [...todos]
+  const at = (t) => new Date(gates.get(String(t.id))?.created_at || 0).getTime()
+  return [...todos].sort((a, b) => at(a) - at(b))
+}
+// the case's work items and their rows (todolist · pro_case_steps), without the 요청 접수 step of a snapshot
+export async function caseItems(c) {
+  const gates = new Map((await q(`select * from pro_case_steps where case_id=$1 order by created_at`, [c.id])).map((g) => [String(g.todo_id), g]))
+  const todos = c.instances?.length ? await q(`select id::text as id, proc_inst_id, activity_id, activity_name, ${statusSql()} as status, user_id, username,
+      agent_orch::text as agent_orch, agent_mode::text as agent_mode, draft_status::text as draft_status, output, output_url, start_date, end_date, updated_at
+      from todolist where proc_inst_id = any($1) and activity_id <> 'intake' order by start_date nulls last`, [c.instances]) : []
+  return { todos, gates }
+}
+// → [{t, g, task, show, via}] oldest first
+export async function caseRowsOf(c, items = null) {
+  const { todos, gates } = items || await caseItems(c)
+  const { stepState } = await import('./runmode.js')
+  return madeOrder(c.engine, todos, gates).map((t) => {
+    const g = gates.get(String(t.id)) || null
+    return { t, g, task: t.activity_name, show: stepState(t, g), via: g?.via || null }
+  })
+}
+
+// (pure) the instance page's steps of a map case (processes.js getInstance → the progress bar, 「내 입력이 필요해요」, the chat's context,
+// meeting materials): one per work item made, in the vocabulary of a definition's steps (StepTimeline) with the flowchart's own state
+// beside it (caseState). Mine as the run view has it: a person's turn (stepState person) whose work item names me.
+export const TIMELINE_OF = { done: 'done', running: 'active', person: 'active', waiting: 'active', skipped: 'skipped', closed: 'cancelled', next: 'pending' }
+export function instanceSteps(rows, me) {
+  const meIds = [String(me?.id || ''), String(me?.email || '')].filter(Boolean)
+  return rows.map(({ t, g, show }) => {
+    const holders = String(t.user_id || '').split(',').map((x) => x.trim()).filter(Boolean)
+    const agent = String(t.agent_mode || '').toUpperCase() === 'COMPLETE'
+    return {
+      id: String(t.id), activityId: t.activity_id, name: t.activity_name, kind: agent ? 'agent' : 'human', role: g?.act?.role || '',
+      state: TIMELINE_OF[show] || 'pending', caseState: show, todoId: String(t.id), todoStatus: t.status,
+      mine: show === 'person' && holders.some((x) => meIds.includes(x)), assignee: t.username || null,
+      running: show === 'running', waiting: show === 'waiting',
+      failed: !!t.agent_orch && t.status === 'IN_PROGRESS' && t.draft_status === 'FAILED',
+    }
+  })
+}
+
+// GET /instances/:id of a case run from the map (processes.js getInstance): the instance's row, its steps (above), its work items and
+// the case it belongs to — the page draws the case's flowchart (GET /ontology/cases/:id/flow) in place of a definition's
+export async function instanceView(inst, me) {
+  const [c] = await q(`select *, bundle as proc from pro_po_cases where tenant_id=$1 and $2 = any(instances) limit 1`, [T(), inst.proc_inst_id])
+  if (!c) return { inst, def: null, steps: [], todos: [], mapCase: null }
+  const items = await caseItems(c)
+  const rows = await caseRowsOf(c, items)
+  return {
+    inst, def: null, steps: instanceSteps(rows, me), todos: rows.map((r) => r.t),
+    mapCase: { id: String(c.id), proc: c.proc, engine: c.engine || 'map', status: c.status, entry: c.entry_task, subject: c.trigger?.subject || '', pinned: !!c.map_pin },
+  }
+}
+
 // GET /ontology/cases/:id/flow — the case's flowchart, drawn from the map as of now (or its pin), each step's state from its work items
 export async function flowOf(caseId) {
   const c = await getCase(caseId)
   const validAt = mapTimeOf(c)
   const view = await procGraph(c.proc, { validAt })
-  const RM = await import('./runmode.js')
-  const gates = new Map((await q(`select * from pro_case_steps where case_id=$1 order by created_at`, [c.id])).map((g) => [String(g.todo_id), g]))
-  const todos = c.instances.length ? await q(`select id::text as id, activity_id, activity_name, ${statusSql()} as status, agent_orch::text as agent_orch, agent_mode::text as agent_mode,
-      draft_status::text as draft_status, start_date from todolist where proc_inst_id = any($1) and activity_id <> 'intake' order by start_date nulls last`, [c.instances]) : []
-  const made = c.engine === 'map' ? [...todos].sort((a, b) => new Date(gates.get(a.id)?.created_at || 0) - new Date(gates.get(b.id)?.created_at || 0)) : todos
-  const rows = made.map((t) => ({ task: t.activity_name, show: RM.stepState(t, gates.get(t.id)), via: gates.get(t.id)?.via || null }))
+  return flowFor(c, view, { validAt })
+}
+// the same for a case and the map it is drawn on (view — procGraph's; a test hands in its own map)
+export async function flowFor(c, view, { validAt = mapTimeOf(c) } = {}) {
+  const rows = (await caseRowsOf(c)).map(({ task, show, via }) => ({ task, show, via }))
   const before = (c.history || []).filter((h) => h.state === 'skipped' && !h.step).map((h) => h.task)
   const g = flowGraph(view, { entry: c.entry_task, theta: view.proc.theta ?? 0.05, rows, before })
   // a map case's flowchart as a BPMN diagram made now (casebpmn.js — nothing stored): lanes per role with the person the case bound to each

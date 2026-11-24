@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
 import { hidePaths } from '../paths.js'
 import StepTimeline from './StepTimeline.vue'
@@ -9,17 +9,50 @@ import TodoCard from './TodoCard.vue'
 import LocalRunCard from './LocalRunCard.vue'
 import BpmnView from './BpmnView.vue'
 import Icon from './Icon.vue'
+import OntoCaseFlow from './ontology/OntoCaseFlow.vue'
+import OntoCaseRun from './ontology/OntoCaseRun.vue'
+import OntoCaseManage from './ontology/OntoCaseManage.vue'
+import { instanceViewOf, mapCaseOf, wideCardWidth } from './ontology/caseView.js'
 import { BASE } from '../base.js'
 import { useApp } from '../stores/app.js'
 import { inApp, openOutput } from '../artifacts.js'
 
 // Top of an instance page: title, live flow, my pending inputs, and produced artifacts.
+// A case run straight from the company's process map (data.mapCase — server lib/ontology/mapengine.js) has no definition: its 진행 상황
+// draws the case's own BPMN (OntoCaseFlow — lanes, splits and joins as a snapshot's, each step's state coloured, a legend) and opens on
+// it; 목록 is the case's steps (OntoCaseRun steps — the same reading as the diagram's colours). Under it the case's controls (OntoCaseRun
+// controls — 방식 · 멈추기 · 기다리는 단계의 진행 · 다른 갈래 · 멈추기), 「내 입력이 필요해요」 as for any instance, then 「이 건 다루기」(맡는
+// 사람 · 지도 고정 · 다른 일로 옮기기). The company's map is a link (「회사 지도에서 이 건 보기」). On a wide page the diagram's card is wider
+// than the conversation's column so the flow runs left to right; on a phone it is the column's width and runs top to bottom.
 const props = defineProps({ data: Object })
 const emit = defineEmits(['refresh'])
 const app = useApp()
 const openDoc = ref(null)
-const view = ref('list')
+const how = computed(() => instanceViewOf(props.data))
+const mc = computed(() => mapCaseOf(props.data))
+const view = ref(how.value.view)
+watch(() => how.value.caseId || how.value.defId, () => { view.value = how.value.view })
 const detail = ref(null)
+// a change on the map case (a gate decided, a step handed in or moved, a role given to someone): the diagram, its controls and the
+// instance read again
+const tick = ref(0)
+const ctlRef = ref(null)
+const manageRef = ref(null)
+function caseChanged() { tick.value++; ctlRef.value?.reload?.(); emit('refresh') }
+function submitted() { if (mc.value) { caseChanged(); manageRef.value?.reload?.() } else emit('refresh') }
+// the room the conversation's scroller has (the diagram's card may be wider than the 512px column, centred over it)
+const root = ref(null)
+const room = ref(0)
+let ro = null
+onMounted(() => {
+  const scroller = root.value?.closest('.msgs') || root.value?.parentElement?.parentElement
+  if (!scroller) return
+  room.value = scroller.clientWidth
+  ro = new ResizeObserver(() => { room.value = scroller.clientWidth })
+  ro.observe(scroller)
+})
+onBeforeUnmount(() => ro?.disconnect())
+const cardW = computed(() => (mc.value ? wideCardWidth(room.value) : null))
 // a <video> cannot send the bearer header, so the agent-file URL carries the token
 const fileUrl = (a) => `${BASE}/api/agent-files/${encodeURIComponent(a.runId)}?path=${encodeURIComponent(a.path)}&token=${encodeURIComponent(auth.get()?.session?.access_token || '')}`
 const i = computed(() => props.data.inst)
@@ -43,13 +76,15 @@ const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', da
 </script>
 
 <template>
-  <div class="ih">
+  <div ref="root" class="ih" :data-test="mc ? 'instance-map-case' : 'instance-definition'">
     <div class="title">
       <span class="pill" :class="i.status">{{ status }}</span>
       <h2 class="serif">{{ i.proc_inst_name || data.def?.name }}</h2>
-      <p class="sub">{{ data.def?.name }} · {{ when(i.start_date) }} 시작 · {{ progress.done }}/{{ progress.all }} 단계</p>
+      <p class="sub">{{ mc ? '지도에서 바로 도는 건' : data.def?.name }} · {{ when(i.start_date) }} 시작 · {{ progress.done }}/{{ progress.all }} 단계</p>
       <div class="bar"><span :style="{ width: (progress.all ? progress.done / progress.all * 100 : 0) + '%' }" /></div>
-      <router-link class="imp" :to="`/improve/${encodeURIComponent(i.proc_def_id)}?tab=path`">이 프로세스의 병목·크리티컬 패스 보기 →</router-link>
+      <!-- a map case: its place on the company's map, for whoever wants the map's context (the flowchart here is the case's BPMN) -->
+      <router-link v-if="mc" class="imp" :to="how.mapLink" data-test="map-case-map-link">회사 지도에서 이 건 보기 →</router-link>
+      <router-link v-else class="imp" :to="`/improve/${encodeURIComponent(i.proc_def_id)}?tab=path`">이 프로세스의 병목·크리티컬 패스 보기 →</router-link>
     </div>
 
     <!-- the work's folder (server lib/mailWork.js): the mails of this work from the first one on, and what its steps made -->
@@ -71,19 +106,33 @@ const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', da
       <LocalRunCard v-for="r in data.localRuns.slice(0, 4)" :key="r.jobId" :run="r" />
     </div>
 
-    <div class="card">
+    <div class="card" :class="{ wide: !!cardW }" :style="cardW ? { width: `${cardW}px` } : null" :data-test="mc ? 'map-case-card' : 'instance-card'" :data-view="view">
       <div class="ch row">진행 상황
-        <span class="seg"><button :class="{ on: view === 'list' }" @click="view = 'list'">목록</button><button :class="{ on: view === 'bpmn' }" @click="view = 'bpmn'">다이어그램</button></span>
+        <span class="seg"><button :class="{ on: view === 'list' }" data-view="list" @click="view = 'list'">목록</button><button :class="{ on: view === 'bpmn' }" data-view="bpmn" @click="view = 'bpmn'">다이어그램</button></span>
       </div>
-      <StepTimeline v-if="view === 'list'" :steps="data.steps.filter((s) => s.kind !== 'event')" @detail="(s) => (detail = s)" @retry="retry" />
-      <p v-if="retryErr" class="rerr">{{ retryErr }}</p>
-      <BpmnView v-else class="diagram" :def-id="data.inst.proc_def_id" :steps="data.steps" :height="380" />
+      <!-- a map case: its own BPMN (made from the map as it ran — no definition) or its steps, both from one reading of its work items -->
+      <template v-if="mc">
+        <OntoCaseFlow v-if="view === 'bpmn'" class="flow" :case-id="mc.id" :tick="tick" />
+        <OntoCaseRun v-else class="steps" :case-id="mc.id" part="steps" :inline-todos="false" @changed="caseChanged" />
+      </template>
+      <template v-else>
+        <StepTimeline v-if="view === 'list'" :steps="data.steps.filter((s) => s.kind !== 'event')" @detail="(s) => (detail = s)" @retry="retry" />
+        <BpmnView v-else class="diagram" :def-id="data.inst.proc_def_id" :steps="data.steps" :height="380" />
+        <p v-if="retryErr" class="rerr">{{ retryErr }}</p>
+      </template>
+    </div>
+
+    <!-- a map case's controls: its mode, 멈추기 · 이어 가기, and a step waiting for a person (진행 · 다른 갈래 · 건너뛰기 · 멈추기) -->
+    <div v-if="mc" class="card ctl" data-test="map-case-controls">
+      <OntoCaseRun ref="ctlRef" :case-id="mc.id" part="controls" @changed="caseChanged" />
     </div>
 
     <div v-for="s in mine" :key="s.todoId" class="mine">
       <div class="ch attn"><Icon name="alert" :size="14" /> 내 입력이 필요해요</div>
-      <TodoCard :todo-id="s.todoId" @submitted="emit('refresh')" />
+      <TodoCard :todo-id="s.todoId" @submitted="submitted" />
     </div>
+
+    <OntoCaseManage v-if="mc" ref="manageRef" :case-id="mc.id" @changed="caseChanged" />
 
     <template v-if="data.artifacts.length">
       <div class="ch out">산출물 {{ data.artifacts.length }}</div>
@@ -132,6 +181,10 @@ h2 { font-size: 30px; font-weight: 300; line-height: 1.25; margin: 10px 0 6px; l
 .locals .ch small { color: var(--text-tertiary); }
 .rerr { color: var(--color-error); font-size: 13px; margin: 0 0 10px; }
 .card { border-radius: 24px; padding: 16px 18px 6px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
+/* a map case's diagram on a wide page: wider than the column, centred over it (the column is a flex column: it overflows evenly) */
+.card.wide { align-self: center; max-width: none; flex: none; }
+.card .flow, .card .steps { margin-bottom: 12px; }
+.card.ctl { padding: 14px 16px; }
 .ch { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px 2px; display: flex; align-items: center; gap: 6px; }
 .ch.row { justify-content: space-between; }
 .seg { display: inline-flex; padding: 2px; border-radius: 9999px; background: var(--field-bg); }

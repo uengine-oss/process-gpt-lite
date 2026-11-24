@@ -130,11 +130,14 @@ export async function listInstances({ userEmail, userId, status, limit = 30 }) {
 export async function getInstance(instId, me) {
   const [inst] = await q('select * from bpm_proc_inst where proc_inst_id=$1 and tenant_id=$2', [instId, T()])
   if (!inst) return null
-  // a case run from the company's process map has no definition to draw: the screen opens its case view instead (lib/ontology/mapengine.js)
+  // a case run from the company's process map has no definition: its steps are its work items as the case's flowchart reads them, and
+  // the page draws that flowchart (the case's BPMN) in place of a definition's — mapCase says which case (lib/ontology/mapengine.js)
   const M = await import('./ontology/mapengine.js')
   if (M.isMapInst(instId)) {
-    const [c] = await q(`select id::text as id, bundle as proc from pro_po_cases where tenant_id=$1 and $2 = any(instances) limit 1`, [T(), instId])
-    return { inst, def: null, steps: [], todos: [], artifacts: [], mapCase: c || null }
+    const v = await M.instanceView(inst, me)
+    const artifacts = []
+    for (const t of v.todos) if (t.output && ['DONE', 'SUBMITTED', 'PENDING'].includes(t.status)) artifacts.push(...flattenOutput(t))
+    return { ...v, artifacts }
   }
   const def = await getDefinition(inst.proc_def_id)
   const todos = await q(

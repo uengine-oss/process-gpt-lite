@@ -9,6 +9,7 @@ import { api } from '../../api.js'
 import BpmnView from '../BpmnView.vue'
 import { layoutGraph } from './layout.js'
 import { END, pct, dateTimeKo } from './fmt.js'
+import { flowDir } from './caseView.js'
 
 const props = defineProps({ caseId: { type: String, required: true }, tick: { type: Number, default: 0 } })
 const flow = ref(null)
@@ -26,7 +27,11 @@ const boxW = ref(0)
 let ro = null
 onMounted(() => { boxW.value = host.value?.clientWidth || 0; ro = new ResizeObserver(([e]) => { boxW.value = Math.round(e.contentRect.width) }); if (host.value) ro.observe(host.value) })
 onBeforeUnmount(() => { alive = false; clearTimeout(timer); ro?.disconnect() })
-const dir = computed(() => (boxW.value && boxW.value < 640 ? 'TB' : 'LR'))
+const dir = computed(() => flowDir(boxW.value))
+// 「크게 보기」 in the heading of a top-to-bottom drawing: the whole flowchart left to right over the page (BpmnView's own — its button
+// sits at the box's bottom, out of sight under a tall drawing in the map's side panel or on a phone)
+const bpmnRef = ref(null)
+const openBig = () => bpmnRef.value?.toggleBig()
 
 const STATE_KO = { done: '끝남', running: '하는 중', person: '사람 차례', waiting: '기다림', skipped: '건너뜀', next: '다음', closed: '닫힘' }
 const title = computed(() => (flow.value?.pinned ? '시작한 날의 지도로 그린 흐름' : '지금 지도로 그린 흐름'))
@@ -77,14 +82,16 @@ const label = (e) => (e.and ? '함께' : e.skipped || !e.p ? '' : pct(e.p))
 </script>
 
 <template>
-  <div ref="host" class="cf" data-testid="onto-case-flow" :data-pinned="flow?.pinned ? '1' : '0'" :data-nodes="flow?.nodes?.length || 0" :data-bpmn="showBpmn ? '1' : null">
+  <div ref="host" class="cf" data-testid="onto-case-flow" :data-pinned="flow?.pinned ? '1' : '0'" :data-nodes="flow?.nodes?.length || 0" :data-bpmn="showBpmn ? '1' : null" :data-dir="dir">
     <div class="hd">
       <b data-testid="onto-case-flow-title">{{ title }}</b>
       <small v-if="flow" class="when">{{ flow.pinned ? `${dateTimeKo(flow.mapAt)} 지도` : '볼 때마다 지도에서 다시 그려요' }}</small>
+      <!-- (top to bottom — the map's side panel, a phone — the drawing is tall and the box's own buttons sit far below; left to right it fits) -->
+      <button v-if="showBpmn && dir === 'TB'" class="bigbtn press" data-testid="onto-case-flow-big" @click="openBig">크게 보기</button>
     </div>
     <p v-if="!flow && !err" class="muted pulse">흐름을 그리는 중…</p>
     <div v-if="showBpmn" class="dg">
-      <BpmnView :xml="xml" :big-xml="bp.xmlWide || null" :markers="markers" :attrs="attrs" :height="bpmnHeight" :wheel="false" empty-text="흐름도를 그리지 못했어요." @failed="failed = xml" />
+      <BpmnView ref="bpmnRef" :xml="xml" :big-xml="bp.xmlWide || null" :markers="markers" :attrs="attrs" :height="bpmnHeight" :wheel="false" empty-text="흐름도를 그리지 못했어요." @failed="failed = xml" />
     </div>
     <div v-else-if="L" class="box scroll">
       <svg :width="L.width" :height="L.height" :data-dir="dir" :viewBox="`0 0 ${L.width} ${L.height}`" role="img" :aria-label="title">
@@ -121,6 +128,7 @@ const label = (e) => (e.and ? '함께' : e.skipped || !e.p ? '' : pct(e.p))
 .hd { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .hd b { font-size: 13.5px; font-weight: 600; }
 .when { font-size: 12px; color: var(--text-tertiary); }
+.bigbtn { margin-left: auto; height: 28px; padding: 0 12px; border-radius: 9999px; font-size: 12.5px; font-weight: 600; background: var(--ink); color: var(--ink-inverse); }
 .muted { margin: 0; font-size: 13px; color: var(--text-secondary); }
 .dg { margin: 0 -4px; }
 .box { overflow-x: auto; overflow-y: hidden; border-radius: 12px; background: var(--field-bg); padding: 2px; }

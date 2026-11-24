@@ -2639,7 +2639,11 @@
   "에이전트가 적은 기억 → 이 일의 방식": "What the agent noted → how this work is done",
   "실행 방식": "How steps run",
   "내 터미널 그대로 — 내 CLI 의 로그인 · 설정으로 돌고, 실행 카드에서 그 터미널을 봐요": "In my own terminal — my CLI's sign-in and settings; the run card shows that terminal",
-  "터미널 없이(헤드리스) — 이 앱에서 터미널 모듈을 불러오지 못했어요": "Without a terminal (headless) — this app could not load its terminal module"
+  "터미널 없이(헤드리스) — 이 앱에서 터미널 모듈을 불러오지 못했어요": "Without a terminal (headless) — this app could not load its terminal module",
+  "회사 지도에서 이 건 보기 →": "See this case on the company map →",
+  "이 건 다루기": "Manage this case",
+  "지도에서 바로 도는 건": "Case run straight from the map",
+  "인스턴스 열기": "Open the instance"
  },
  "patterns": [
   [
@@ -2661,6 +2665,10 @@
   [
    "{0} 안의 브라우저에서는 앱을 설치할 수 없어요.",
    "Apps can't be installed from {0}'s in-app browser."
+  ],
+  [
+   "지도에서 바로 도는 건 · {0} 시작 · {1}/{2} 단계",
+   "Case run straight from the map · started {0} · {1}/{2} steps"
   ],
   [
    "루틴 · {0}에 기록했어요.",

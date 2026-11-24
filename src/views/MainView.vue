@@ -17,6 +17,7 @@ import ProjectFolderBar from '../components/folders/ProjectFolderBar.vue'
 import ArtifactStack from '../components/ArtifactStack.vue'
 import Composer from '../components/Composer.vue'
 import { narrow, pageW } from '../viewport.js'
+import { instanceContext } from '../components/ontology/caseView.js'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
@@ -93,9 +94,8 @@ async function syncRoute() {
       if (seq === routeSeq) instLoading.value = false
     }
     if (seq !== routeSeq) return
-    // a case run from the company's process map (지도에서 바로) has no definition to draw here: its case view on the map instead
-    const mc = app.instance?.mapCase
-    if (mc?.id) { app.instance = null; return router.replace(`/process-map?proc=${encodeURIComponent(mc.proc)}&case=${encodeURIComponent(mc.id)}`) }
+    // (a case run from the company's process map — 지도에서 바로 — opens here too: its page draws the case's BPMN in place of a
+    // definition's, InstanceHeader; the map is a link from there — 2026-11-24, the map's own drawing does not read as a flowchart)
     // agents advance instances in the background; keep the timeline fresh while it runs
     poll = setInterval(() => app.instance?.inst.status === 'RUNNING' && app.refreshInstance(), 5000)
   } else if (route.params.id) await app.open(route.params.id)
@@ -153,9 +153,7 @@ async function onSend(text) {
   if (instMode.value && !app.instance) return
   if (instMode.value && app.instance) {
     // questions on an instance page carry its state so the agent can answer about it
-    const i = app.instance
-    const ctx = `[프로세스 인스턴스: ${i.inst.proc_inst_name} / ${i.def?.name} / 상태 ${i.inst.status}]\n단계: ${i.steps.map((s) => `${s.name}(${s.state})`).join(', ')}\n산출물: ${i.artifacts.map((a) => a.field || a.name).join(', ')}`
-    return app.send(text, app.activeId, ctx)
+    return app.send(text, app.activeId, instanceContext(app.instance))
   }
   app.send(text)
 }
