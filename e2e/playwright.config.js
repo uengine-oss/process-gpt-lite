@@ -41,5 +41,7 @@ export default defineConfig({
     { name: 'agent', testDir: './tests/agent', timeout: 30 * 60_000, retries: 1, use: { actionTimeout: 60_000 } },
     // Lite behind the ProcessGPT gateway (<tenant>.process-gpt.io/lite): signs in through ProcessGPT itself
     { name: 'deploy', testDir: './tests/deploy', timeout: 15 * 60_000, retries: 0, use: { actionTimeout: 30_000 } },
+    // the desktop app (desktop/, Electron) through _electron, against PGPT_URL — openspec/specs/desktop-app
+    { name: 'desktop', testDir: './tests/desktop', timeout: 180_000, retries: 0 },
   ],
 })

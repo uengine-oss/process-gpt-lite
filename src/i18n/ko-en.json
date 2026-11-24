@@ -2503,7 +2503,44 @@
   "링크 미리보기": "Link preview",
   "대화의 링크를 카드로": "Show links in conversations as cards",
   "채팅과 팀 메시지에 있는 링크의 제목 · 설명 · 그림을 카드로 보여 줘요. 서버가 그 페이지를 대신 읽고, 서명이나 토큰이 붙은 링크와 사내 주소는 열지 않아요. 끄면 회사의 모든 사람에게 카드가 보이지 않아요.": "Links in chats and team messages show their page's title, description and picture as a card. The server reads the page for you, and never opens links that carry a signature or token, or internal addresses. Turning this off hides the cards for everyone in the company.",
-  "바꾸지 못했어요.": "Couldn't change it."
+  "바꾸지 못했어요.": "Couldn't change it.",
+  "앱으로 설치하기": "Install as an app",
+  "홈 화면에 추가하기": "Add to Home Screen",
+  "브라우저에서 열어야 설치할 수 있어요": "Open it in your browser to install",
+  "이미 설치했어요": "Already installed",
+  "앱 안의 브라우저에서는 앱을 설치할 수 없어요.": "Apps can't be installed from an in-app browser.",
+  "홈 화면이나 앱 목록의 Process GPT 아이콘을 누르세요.": "Tap the Process GPT icon on your home screen or in your app list.",
+  "이 브라우저에서는 앱을 설치할 수 없어요.": "This browser can't install apps.",
+  "홈 화면에서 바로 열고, 알림도 받을 수 있어요.": "Open it right from your home screen, and get notifications too.",
+  "브라우저 탭 없이 별도 창으로 열려요.": "Opens in its own window, without a browser tab.",
+  "오른쪽 위나 아래의 ⋯ 메뉴에서 「Safari로 열기」나 「외부 브라우저로 열기」를 누르세요.": "In the ⋯ menu (top or bottom right), tap “Open in Safari” or “Open in external browser”.",
+  "주소를 복사해 Chrome이나 Edge에서 열어 주세요.": "Copy the address and open it in Chrome or Edge.",
+  "브라우저 메뉴(⋮)에서 「앱 설치」나 「홈 화면에 추가」를 누르세요.": "In the browser menu (⋮), tap “Install app” or “Add to Home screen”.",
+  "메뉴 막대의 「파일 › Dock에 추가」를 누르세요.": "In the menu bar, choose “File › Add to Dock”.",
+  "주소창 오른쪽의 설치 아이콘이나 브라우저 메뉴에서 「앱 설치」를 누르세요.": "Click the install icon at the right end of the address bar, or “Install app” in the browser menu.",
+  "Chrome이나 Edge에서 열면 설치할 수 있어요.": "Open it in Chrome or Edge to install.",
+  "공유 버튼을 누르세요.": "Tap the Share button.",
+  "보이지 않으면 ⋯ 버튼을 먼저 누르세요.": "Don't see it? Tap ⋯ first.",
+  "「홈 화면에 추가」를 누르세요.": "Tap “Add to Home Screen”.",
+  "「추가」를 누르면 끝이에요.": "Tap “Add” and you're done.",
+  "앱 설치": "Install app",
+  "Chrome에서 열기": "Open in Chrome",
+  "Safari에서 열기": "Open in Safari",
+  "주소 복사": "Copy address",
+  "나중에": "Later",
+  "다시 보지 않기": "Don't show again",
+  "카카오톡": "KakaoTalk",
+  "네이버 앱": "NAVER app",
+  "라인": "LINE",
+  "인스타그램": "Instagram",
+  "페이스북": "Facebook",
+  "스레드": "Threads",
+  "밴드": "BAND",
+  "다음 앱": "Daum app",
+  "에브리타임": "Everytime",
+  "Google 앱": "Google app",
+  "홈 화면에 추가": "Add to Home Screen",
+  "공유 버튼이 보이지 않으면 ⋯ 버튼을 먼저 누르세요.": "Don't see the Share button? Tap ⋯ first."
  },
  "patterns": [
   [
@@ -2517,6 +2554,10 @@
   [
    "진행 중인 ‘{0}’와 같은 일로 보여요 — 이을까요?",
    "This looks like the same work as the running ‘{0}’ — link it?"
+  ],
+  [
+   "{0} 안의 브라우저에서는 앱을 설치할 수 없어요.",
+   "Apps can't be installed from {0}'s in-app browser."
   ],
   [
    "루틴 · {0}에 기록했어요.",

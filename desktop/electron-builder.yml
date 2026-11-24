@@ -1,0 +1,52 @@
+# Process GPT Lite desktop — npm run dist → release/Process-GPT-Lite-<version>-mac-arm64.dmg (and .zip)
+# Nothing of Lite is bundled: the app is a window around the server the person chooses (src/main.js).
+appId: org.uengine.processgpt.lite
+productName: Process GPT Lite
+copyright: © 2026 uEngine
+directories:
+  output: release
+  buildResources: build
+files:
+  - src/**
+  - package.json
+asar: true
+publish: null
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.png          # npm run icon (from ../public/favicon.svg)
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
+  # no Developer ID: signed ad hoc after packing (scripts/adhoc-sign.js), not notarized
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  artifactName: Process-GPT-Lite-${version}-mac-${arch}.${ext}
+  extendInfo:
+    CFBundleDisplayName: Process GPT Lite
+    # voice input and meetings (getUserMedia): macOS asks the person once, with these words
+    NSMicrophoneUsageDescription: Process GPT Lite 가 음성 입력과 회의에 마이크를 씁니다. (Voice input and meetings use the microphone.)
+    NSCameraUsageDescription: Process GPT Lite 가 회의에 카메라를 씁니다. (Meetings use the camera.)
+afterPack: scripts/adhoc-sign.js
+dmg:
+  title: Process GPT Lite ${version}
+  window: { width: 540, height: 380 }
+  contents:
+    - { x: 140, y: 190, type: file }
+    - { x: 400, y: 190, type: link, path: /Applications }
+# not built or tested yet (README: 남은 일)
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: x64
+  artifactName: Process-GPT-Lite-${version}-win-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+linux:
+  icon: build/icon.png
+  category: Office
+  target: AppImage
