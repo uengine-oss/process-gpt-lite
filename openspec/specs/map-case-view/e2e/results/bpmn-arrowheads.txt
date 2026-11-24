@@ -1,0 +1,69 @@
+# 화살촉 시험 e2e/tests/feature/bpmn-arrowheads.spec.js (2026-11-25, fix/bpmn-arrowheads = origin/main c1d9f7b + 이 변경)
+# cd e2e && npx playwright test --project=feature tests/feature/bpmn-arrowheads.spec.js  (스택: lib/localStack.js 테넌트 bpmnarrow-ui)
+
+## 이 변경으로
+
+Running 4 tests using 1 worker
+
+  ✓  1 [feature] › tests/feature/bpmn-arrowheads.spec.js:260:1 › F-BA-01 정의가 있는 인스턴스의 다이어그램: 모든 순서 흐름이 화살촉으로 끝난다 — 밝은 테마와 밤 테마(테마를 바꾸면 바로) (8.9s)
+  ✓  2 [feature] › tests/feature/bpmn-arrowheads.spec.js:286:1 › F-BA-02 메시지 흐름 · 연관 · 데이터 연관 · 조건 흐름 · 기본 흐름도 끝 표시가 보인다 — 두 테마 (4.3s)
+  ✓  3 [feature] › tests/feature/bpmn-arrowheads.spec.js:359:1 › F-BA-03 지도에서 바로 도는 건의 흐름도: 건이 간 굵은 선 · 나머지 선 모두 같은 잉크의 화살촉, 「크게 보기」에서도 — 두 테마 (4.6s)
+  ✓  4 [feature] › tests/feature/bpmn-arrowheads.spec.js:395:1 › F-BA-04 프로세스 개선 화면의 BPMN(병목 열지도 · 크리티컬 패스): 모든 흐름에 화살촉, 크리티컬 패스의 주황 선은 주황 촉 — 두 테마 (5.4s)
+
+  4 passed (25.9s)
+
+## origin/main(c1d9f7b)의 src/components/BpmnView.vue · improve/HeatBpmn.vue 로 (시험마다 -g 로 따로 — serial 이라 첫 실패 뒤는 건너뜀; 오류마다 첫 두 줄만)
+
+  ✘  1 [feature] › tests/feature/bpmn-arrowheads.spec.js:260:1 › F-BA-01 정의가 있는 인스턴스의 다이어그램: 모든 순서 흐름이 화살촉으로 끝난다 — 밝은 테마와 밤 테마(테마를 바꾸면 바로) (9.1s)
+    Error: 정의의 BPMN (light) — 화살촉 없는 흐름
+    +   "SequenceFlow_start_a_req: 촉 rgb(34, 36, 42) ≠ 선 rgba(29, 29, 31, 0.3)",
+    +   "SequenceFlow_a_req_g_req: 촉 rgb(34, 36, 42) ≠ 선 rgba(29, 29, 31, 0.3)",
+    Error: 정의의 BPMN (dark) — 화살촉 없는 흐름
+    +   "SequenceFlow_start_a_req: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgba(245, 245, 247, 0.3)",
+    +   "SequenceFlow_a_req_g_req: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgba(245, 245, 247, 0.3)",
+    Error: 밤 테마로 연 정의의 BPMN (dark) — 화살촉 없는 흐름
+  ✘  1 [feature] › tests/feature/bpmn-arrowheads.spec.js:286:1 › F-BA-02 메시지 흐름 · 연관 · 데이터 연관 · 조건 흐름 · 기본 흐름도 끝 표시가 보인다 — 두 테마 (4.8s)
+    Error: 여러 흐름의 BPMN (dark) — 화살촉 없는 흐름
+    +   "SequenceFlow_1: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgba(245, 245, 247, 0.3)",
+    +   "SequenceFlow_2: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgba(245, 245, 247, 0.3)",
+    Error: 끝 표시가 보이지 않는 흐름 (dark)
+    +   "MessageFlow_send start: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘",
+    +   "MessageFlow_send end: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘",
+    Error: 여러 흐름의 BPMN (light) — 화살촉 없는 흐름
+    +   "SequenceFlow_1: 촉 rgb(34, 36, 42) ≠ 선 rgba(29, 29, 31, 0.3)",
+    +   "SequenceFlow_2: 촉 rgb(34, 36, 42) ≠ 선 rgba(29, 29, 31, 0.3)",
+  ✘  1 [feature] › tests/feature/bpmn-arrowheads.spec.js:359:1 › F-BA-03 지도에서 바로 도는 건의 흐름도: 건이 간 굵은 선 · 나머지 선 모두 같은 잉크의 화살촉, 「크게 보기」에서도 — 두 테마 (6.3s)
+    Error: 건의 흐름도 (light) — 화살촉 없는 흐름
+    +   "SequenceFlow_start_t_c7ed046201: 촉 rgb(34, 36, 42) ≠ 선 rgb(29, 29, 31)",
+    +   "SequenceFlow_t_c7ed046201_t_da8e8fae6e: 촉 rgb(34, 36, 42) ≠ 선 rgb(29, 29, 31)",
+    Error: 건이 간 길의 촉은 진한 잉크, 가지 않은 길의 촉은 흐린 잉크
+    Expected: > 1.3
+    Received:   1
+    Error: 건의 흐름도 (dark) — 화살촉 없는 흐름
+    +   "SequenceFlow_start_t_c7ed046201: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgb(245, 245, 247)",
+    +   "SequenceFlow_t_c7ed046201_t_da8e8fae6e: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgb(245, 245, 247)",
+    Error: 크게 보기의 흐름도 (dark) — 화살촉 없는 흐름
+  ✘  1 [feature] › tests/feature/bpmn-arrowheads.spec.js:395:1 › F-BA-04 프로세스 개선 화면의 BPMN(병목 열지도 · 크리티컬 패스): 모든 흐름에 화살촉, 크리티컬 패스의 주황 선은 주황 촉 — 두 테마 (7.0s)
+    Error: 병목 열지도의 BPMN (dark) — 화살촉 없는 흐름
+    +   "SequenceFlow_start_intake: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgba(245, 245, 247, 0.3)",
+    +   "SequenceFlow_intake_gw_split: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgba(245, 245, 247, 0.3)",
+    Error: 병목 열지도의 BPMN (light) — 화살촉 없는 흐름
+    +   "SequenceFlow_start_intake: 촉 rgb(34, 36, 42) ≠ 선 rgba(29, 29, 31, 0.3)",
+    +   "SequenceFlow_intake_gw_split: 촉 rgb(34, 36, 42) ≠ 선 rgba(29, 29, 31, 0.3)",
+    Error: 크리티컬 패스의 BPMN (light) — 화살촉 없는 흐름
+    +   "SequenceFlow_start_intake: 촉 rgb(34, 36, 42) ≠ 선 rgb(224, 97, 63)",
+    +   "SequenceFlow_intake_gw_split: 촉 rgb(34, 36, 42) ≠ 선 rgb(224, 97, 63)",
+    Error: SequenceFlow_start_intake 의 촉
+    Expected: "rgb(224, 97, 63)"
+    Received: "rgb(34, 36, 42)"
+    Error: SequenceFlow_intake_gw_split 의 촉
+    Error: SequenceFlow_gw_split_floor_plan 의 촉
+    Error: SequenceFlow_floor_plan_gw_join 의 촉
+    Error: SequenceFlow_gw_join_proposal 의 촉
+    Error: SequenceFlow_proposal_finance_review 의 촉
+    Error: SequenceFlow_finance_review_gw_review 의 촉
+    Error: SequenceFlow_gw_review_reply 의 촉
+    Error: SequenceFlow_reply_end 의 촉
+    Error: 크리티컬 패스의 BPMN (dark) — 화살촉 없는 흐름
+    +   "SequenceFlow_start_intake: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgb(224, 97, 63)",
+    +   "SequenceFlow_intake_gw_split: 촉의 잉크 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉의 칠 rgb(34, 36, 42) 가 dark 테마의 바탕에 묻힘 · 촉 rgb(34, 36, 42) ≠ 선 rgb(224, 97, 63)",
