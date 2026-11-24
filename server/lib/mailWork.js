@@ -56,7 +56,12 @@ export function safeName(s, max = 40, empty = '') {
 }
 // the folder's directories, in the language it was made in (kept on the folder: a later mail goes where the first one went)
 export const DIRS = () => ({ mail: L('메일', 'Mail'), attach: L('첨부', 'attachments'), outputs: L('산출물', 'Outputs'), result: L('결과.md', 'result.md'), notes: L('조사', 'Research') })
-export const dirsOf = (work) => ({ ...DIRS(), ...(work?.dirs || {}) })
+// (a folder made before 조사 existed has no notes directory: it takes the language its mail directory was made in — not this request's)
+export const dirsOf = (work) => {
+  const d = { ...DIRS(), ...(work?.dirs || {}) }
+  if (!work?.dirs?.notes && work?.dirs?.mail) d.notes = work.dirs.mail === 'Mail' ? 'Research' : '조사'
+  return d
+}
 // mail n's files: 01_2026-11-24_세미나 견적 부탁드립니다.eml · .md
 export const mailStem = (n, date, subject) => `${pad(n)}_${dayOf(date)}_${safeName(subject, 40, L('제목 없음', 'no subject'))}`
 // the next number of a directory whose entries are NN_…
@@ -274,6 +279,8 @@ export async function addNote(userId, inst, { title, text, mail = {} } = {}) {
   const entry = await S.serial(found.id, async () => {
     const f = await S.folderById(found.id)
     const dirs = dirsOf(f.settings?.work)
+    // the notes directory is kept on the folder the first time, as the others were when it was made (the steps read it there)
+    if (!f.settings?.work?.dirs?.notes) await q(`update pro_folders set settings = jsonb_set(settings, '{work,dirs}', coalesce(settings->'work'->'dirs', '{}'::jsonb) || jsonb_build_object('notes', $2::text)) where id=$1`, [f.id, dirs.notes])
     const n = nextNumber((await G.lsTree(f.repo_path, f.default_branch)).map((x) => x.path), dirs.notes)
     const name = safeName(title, 40, L('메모', 'note'))
     const body = [String(text || '').trim(), '', '---', '',

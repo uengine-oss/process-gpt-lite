@@ -30,7 +30,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const fail = (status, message, code) => Object.assign(new Error(message), { status, ...(code && { code }) })
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim()
 const round = (p) => (p == null ? null : Math.round(Number(p) * 1000) / 1000)
-export const FOLLOW_DEFAULTS = { max: 3, minP: 0.15, judgeChars: 800, mentionChars: 4000, knownMails: 8, knownFiles: 5, knownCases: 5, actions: [] }
+export const FOLLOW_DEFAULTS = { max: 3, minP: 0.15, judgeChars: 800, mentionChars: 4000, knownMails: 8, knownFiles: 5, knownCases: 5, personalDomains: [], actions: [] }
 // a run left 「running」 longer than this (a server that stopped half way) may be pressed again
 const STALE_MS = 20 * 60_000
 
@@ -131,6 +131,8 @@ export async function followOfCard(user, actionId, deps = {}) {
       const d = await decideFollow(a, mail, { skill: sk, judges: deps.judges }).catch((e) => { console.warn('[mail follow] judge', e.message); return null })
       // the model could not be read: the fixed actions only, asked again next time
       if (!d) return { picks: [], atts, read: { by: 'fallback' } }
+      // the mailbox could not be read this time (no body, no attachments): what was picked is shown, not kept — asked again next time
+      if (mail.failed) return { picks: d.picks, atts, read: { by: 'partial' } }
       const read = { by: d.by, model: d.model, skill: d.skill, at: new Date().toISOString() }
       const [row] = await q(`update pro_actions set source = jsonb_set(source, '{follow}', coalesce(source->'follow', '{}'::jsonb) || jsonb_build_object('suggest', $2::jsonb, 'read', $3::jsonb, 'atts', $4::jsonb))
                              where id=$1 and not (coalesce(source->'follow', '{}'::jsonb) ? 'suggest') returning *`, [a.id, JSON.stringify(d.picks), read, JSON.stringify(atts)])
@@ -140,7 +142,7 @@ export async function followOfCard(user, actionId, deps = {}) {
   }
   const got = await deciding.get(key)
   if (got.row) a = got.row
-  else if (got.read.by !== 'fallback') a = (await q('select * from pro_actions where id=$1', [a.id]))[0] || a
+  else if (!['fallback', 'partial'].includes(got.read.by)) a = (await q('select * from pro_actions where id=$1', [a.id]))[0] || a
   return { actions: rowOf(a, { catalog, picks: a.source.follow?.suggest || got.picks, atts: a.source.follow?.atts || got.atts }), read: a.source.follow?.read || got.read }
 }
 
@@ -149,10 +151,13 @@ const likeOf = (w) => `%${String(w).toLowerCase().replace(/[%_\\]/g, (c) => '\\'
 const day = (d) => { const t = d ? new Date(d) : null; return t && !Number.isNaN(t.getTime()) ? t.toLocaleDateString('sv-SE', { timeZone: process.env.PRO_TZ || 'Asia/Seoul' }) : '' }
 // Earlier mails with the sender's domain (this person's cards and mail archive), files of the shared folders they can read that name the
 // company or the sender, and the company process map's cases that came from that domain — only what this person may see.
+// A personal mailbox's domain (skill rules follow.personalDomains — gmail.com, naver.com …) says nothing about a company: only the sender's
+// own address is looked up then, and the folders are searched by their name only (PR #49 review).
 export async function knownAbout(user, card, who, F = FOLLOW_DEFAULTS) {
   const mails = [], files = [], cases = []
+  const personal = !!who.domain && (F.personalDomains || []).includes(who.domain)
   if (who.domain) {
-    const like = likeOf(`@${who.domain}`)
+    const like = likeOf(personal ? who.address : `@${who.domain}`)
     const cards = await q(`select created_at as at, source->>'subject' as subject, source->>'from' as "from", status, source->'inst'->>'name' as inst, source->>'mail_id' as mail_id
                            from pro_actions where user_id=$1 and id <> $2 and source ? 'mail_id' and lower(source->>'from') like $3 escape '\\'
                            order by created_at desc limit $4`, [user.id, card.id, like, F.knownMails]).catch(() => [])
@@ -174,7 +179,7 @@ export async function knownAbout(user, card, who, F = FOLLOW_DEFAULTS) {
     for (const c of proc) cases.push(`- ${[c.inst || c.proc, c.status, c.subject ? `「${clean(c.subject)}」` : '', day(c.at)].filter(Boolean).join(' · ')}`)
   }
   // (the words: the domain's first part and the sender's name — the folder index matches any of them)
-  const query = [who.domain ? who.domain.split('.')[0] : '', who.name && who.name !== who.address ? who.name : ''].filter((w) => w && w.length >= 2).join(' ')
+  const query = [who.domain && !personal ? who.domain.split('.')[0] : '', who.name && who.name !== who.address ? who.name : ''].filter((w) => w && w.length >= 2).join(' ')
   if (query) {
     const { search } = await import('./folders/indexer.js')
     for (const h of (await search(user.id, query, 20).catch(() => [])).filter((x) => x.type === 'file').slice(0, F.knownFiles)) {
@@ -186,15 +191,19 @@ export async function knownAbout(user, card, who, F = FOLLOW_DEFAULTS) {
   if (card.source.inst?.instId) cases.unshift(L(`- 이 메일은 루틴 「${card.source.inst.name || card.source.inst.instId}」에 이어져 있어요`, `- This mail is part of the routine "${card.source.inst.name || card.source.inst.instId}"`))
   const none = L('(아직 없음)', '(nothing yet)')
   return [L('[Lite 가 아는 것 — 이 사람의 메일함 · 공유 폴더 · 회사 프로세스 지도에서, 이 사람이 볼 수 있는 것만]', '[What Lite already knows — from this person\'s mailbox, shared folders and the company process map, only what they may see]'),
-    L(`그 도메인(${who.domain || '없음'})과 주고받은 이전 메일:`, `Earlier mails with that domain (${who.domain || 'none'}):`), ...(mails.length ? mails : [none]),
+    personal ? L(`보낸 사람(${who.address})과 주고받은 이전 메일 — 개인 메일 주소라 회사는 본문과 서명으로 알아봐야 해요:`, `Earlier mails with the sender (${who.address}) — a personal address: the company is in the body and signature:`)
+      : L(`그 도메인(${who.domain || '없음'})과 주고받은 이전 메일:`, `Earlier mails with that domain (${who.domain || 'none'}):`), ...(mails.length ? mails : [none]),
     L('공유 폴더의 관련 파일:', 'Related files in shared folders:'), ...(files.length ? files : [none]),
     L('회사 프로세스 지도:', 'The company process map:'), ...(cases.length ? cases : [none])].join('\n')
 }
 
 // ---------- running an agent action ----------
-async function setRun(userId, id, key, run) {
+// (only while the card still has this run — `at`: a run pressed again after STALE_MS is a new run, and the old one's late end must not
+// overwrite it — PR #49 review)
+export async function setRun(userId, id, key, run) {
   const [row] = await q(`update pro_actions set source = jsonb_set(jsonb_set(source, '{follow}', coalesce(source->'follow', '{}'::jsonb)), '{follow,runs}',
-                           coalesce(source->'follow'->'runs', '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb)) where id=$1 returning *`, [id, key, run])
+                           coalesce(source->'follow'->'runs', '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb))
+                         where id=$1 and coalesce(source->'follow'->'runs'->$2->>'at', '') = $4 returning *`, [id, key, run, String(run.at || '')])
   if (row) emit(userId, 'action', row)
   return row
 }
@@ -214,7 +223,9 @@ export async function runFollow(user, session, actionId, key, { again = false } 
   const mail = deps.mail || await MM.readMail(user.id, a)
   const who = MM.senderOf(mail.from || a.source.from)
   const subject = clean(mail.subject || a.source.subject) || L('(제목 없음)', '(no subject)')
-  const title = def.key === 'research' ? L(`${who.domain || who.name} 알아보기`, `About ${who.domain || who.name}`) : `${def.label} · ${subject.slice(0, 40)}`
+  const personal = !!who.domain && (F.personalDomains || []).includes(who.domain)
+  const about = (personal ? who.name : who.domain) || who.name || who.address
+  const title = def.key === 'research' ? L(`${about} 알아보기`, `About ${about}`) : `${def.label} · ${subject.slice(0, 40)}`
   const { instanceThread } = await import('./engine.js')
   const { mainThread } = await import('./store.js')
   const threadId = inst ? await instanceThread(user.id, inst.instId, inst.name || undefined) : (await mainThread(user.id)).id
@@ -243,7 +254,7 @@ export async function runFollow(user, session, actionId, key, { again = false } 
     if (conv) await A.fileConversation(user, { conversationId: conv, title }, said)
     let msg = null, why = ''
     try {
-      msg = await (deps.delegate || A.delegate)({ user, session, threadId, text: [prompt, context, known].filter(Boolean).join('\n\n'), ...(conv ? { pin: { conversationId: conv, title } } : {}) })
+      msg = await (deps.delegate || A.delegate)({ user, session, threadId, text: [prompt, context, known].filter(Boolean).join('\n\n'), background: true, ...(conv ? { pin: { conversationId: conv, title } } : {}) })
     } catch (e) { why = e.message; console.warn('[mail follow] turn', e.message) }
     const answer = String(msg?.content?.text || '')
     const ok = !!msg && !msg.content?.stopped && !msg.content?.failed && !!answer.trim() && ![A.EMPTY_TEXT, A.EMPTY_TEXT_EN].includes(answer)

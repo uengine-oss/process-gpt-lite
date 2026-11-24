@@ -12,6 +12,23 @@
     "knownMails": 8,
     "knownFiles": 5,
     "knownCases": 5,
+    "personalDomains": [
+      "gmail.com",
+      "googlemail.com",
+      "naver.com",
+      "daum.net",
+      "hanmail.net",
+      "kakao.com",
+      "nate.com",
+      "outlook.com",
+      "hotmail.com",
+      "live.com",
+      "yahoo.com",
+      "icloud.com",
+      "me.com",
+      "proton.me",
+      "protonmail.com"
+    ],
     "actions": [
       {
         "key": "research",

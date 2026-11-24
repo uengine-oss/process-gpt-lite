@@ -172,7 +172,7 @@ export function teamRoutes(auth) {
   r.post('/team/threads/:id/messages', auth, h(async (req) => {
     const body = text(req.body.text)
     const files = await S.myFiles(req.user, req.body.artifactIds || [])
-    const refs = await FR.forSend(req.user, req.body.refs).catch((e) => { throw new TeamError(e.status || 400, e.message) })
+    const refs = await FR.forSend(req.user, req.body.refs, { roomId: req.params.id }).catch((e) => { throw new TeamError(e.status || 400, e.message) })
     const ai = req.body.ai === true
     if (!body && !files.length && !refs.length) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
     rateLimit(req.user.id)

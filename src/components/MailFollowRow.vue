@@ -51,7 +51,9 @@ async function go(x, { again = false } = {}) {
     await app.mailToChat(item)
   } else if (x.do === 'share') {
     // the messenger, the mail waiting as a mention for the conversation picked there (Messenger.vue takes team.pendingMention)
+    // (the list first: a conversation left open is not taken as the one picked — PR #49 review)
     emit('close')
+    team.active = null
     team.pendingMention = [item]
     team.tab = 'threads'
     team.open = true

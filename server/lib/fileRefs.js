@@ -197,12 +197,12 @@ const view = (x) => ({ as: x.as, name: x.name, ...(x.ref ? { ref: publicRef(x.re
 export const publicRef = (r) => ({ slug: r.slug, folder: r.folder, path: r.path, name: r.name, commit: r.commit, blob: r.blob, variation: r.variation || null })
 
 // the refs a messenger message is sent with, checked again as the sender (a refusal stops the send)
-export async function forSend(user, refs) {
+export async function forSend(user, refs, { roomId = null } = {}) {
   const out = []
   for (const x of (Array.isArray(refs) ? refs : []).slice(0, MAX)) {
-    // a mail of mine (lib/mailMention.js): what the message keeps is its summary — and the body only when I share it
+    // a mail of mine (lib/mailMention.js): what the message keeps is its summary — and the body only when I share it (with this room)
     if (x?.type === 'mail') {
-      const r = await MM.forSend(user, x)
+      const r = await MM.forSend(user, x, { roomId })
       if (!out.some((y) => y.type === 'mail' && y.actionId === r.actionId)) out.push(r)
       continue
     }
@@ -238,9 +238,14 @@ async function stateOf(viewer, r, cache) {
 export async function decorate(viewer, m) {
   if (!m?.refs?.length) return m
   const cache = { folders: {}, roles: {} }
-  return { ...m, refs: await Promise.all(m.refs.map(async (r) => ({ ...r, state: r.type === 'mail'
-    ? await MM.stateOf(viewer, r, m).catch(() => ({ card: 'summary' }))
-    : await stateOf(viewer, r, cache).catch(() => ({ access: 'none', card: 'noaccess' })) }))) }
+  return { ...m, refs: await Promise.all(m.refs.map(async (r) => {
+    // a mail mention: shared or not is what the owner's card says for this room
+    if (r.type === 'mail') {
+      const st = await MM.stateOf(viewer, r, m).catch(() => ({ card: 'summary', share: null }))
+      return { ...r, share: st.share, state: { card: st.card } }
+    }
+    return { ...r, state: await stateOf(viewer, r, cache).catch(() => ({ access: 'none', card: 'noaccess' })) }
+  })) }
 }
 export const decorateAll = (viewer, list) => Promise.all((list || []).map((m) => decorate(viewer, m)))
 

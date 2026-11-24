@@ -11,6 +11,9 @@
 //   a folder                    refused (a mail is not a file — 폴더에 정리 files its attachments)
 // A mail belongs to its owner (the mailbox's person, pro_actions.user_id): only the owner's own card resolves, someone else's id is not
 // found (404 — nothing is said about it).
+// Which rooms may read the body is kept on the owner's card (pro_actions.source.mail_share = {<room id>: {at}}), not on the message: a
+// chats row is also written by process-gpt's own screen, so what a message says about sharing is only how it was sent — the card decides
+// (PR #49 review).
 import { config } from '../config.js'
 import { q } from './supa.js'
 import { emit } from './bus.js'
@@ -96,6 +99,20 @@ export const publicMailRef = (r) => ({ type: 'mail', actionId: r.actionId, owner
   from: r.from || '', domain: r.domain || '', subject: r.subject || '', date: r.date || null, attachments: (r.attachments || []).slice(0, 20), share: r.share === 'room' ? 'room' : null })
 
 // ---------- the owner's card and mail ----------
+// the rooms the owner shared this mail's body with (their card)
+export const sharedRooms = (card) => Object.keys(card?.source?.mail_share || {})
+export const sharedWith = (card, roomId) => !!roomId && sharedRooms(card).includes(String(roomId))
+// the owner shares the body with a room, or no longer (their own card only)
+export async function setShare(ownerId, actionId, roomId, on) {
+  const room = String(roomId || '')
+  if (!room) throw fail(400, L('대화방을 알 수 없어요.', "I don't know which room."))
+  const [row] = on
+    ? await q(`update pro_actions set source = jsonb_set(source, '{mail_share}', coalesce(source->'mail_share', '{}'::jsonb) || jsonb_build_object($3::text, jsonb_build_object('at', now())))
+               where id=$1 and user_id=$2 and status <> 'deleted' returning id`, [actionId, ownerId, room])
+    : await q(`update pro_actions set source = jsonb_set(source, '{mail_share}', coalesce(source->'mail_share', '{}'::jsonb) - $3::text)
+               where id=$1 and user_id=$2 and status <> 'deleted' returning id`, [actionId, ownerId, room])
+  if (!row) throw fail(404, L('메일을 찾지 못했어요.', "I couldn't find that mail."))
+}
 export async function cardOf(userId, id) {
   const [a] = UUID.test(String(id || '')) ? await q(`select * from pro_actions where id=$1 and user_id=$2 and source ? 'mail_id' and status <> 'deleted'`, [String(id), userId]) : []
   if (!a) throw fail(404, L('메일을 찾지 못했어요.', "I couldn't find that mail."))
@@ -116,8 +133,9 @@ export async function readMail(userId, card) {
         threadId: m.threadId || card.source.thread_id || null, provider: acc.provider, address: acc.address || '' }
     } catch (e) { console.warn('[mail mention] original', e.message) }
   }
+  // (failed: there is a mailbox, but it could not be read this time — a judge reading this must not keep what it picked)
   return { from: card.source.from || '', to: [], date: card.created_at, subject: card.source.subject || '', text: card.text || '', attachments: [],
-    threadId: card.source.thread_id || null, provider: acc?.provider || null, address: acc?.address || '', partial: true }
+    threadId: card.source.thread_id || null, provider: acc?.provider || null, address: acc?.address || '', partial: true, ...(acc ? { failed: true } : {}) }
 }
 
 // a dropped mail → what the chip shows (no mailbox read: the card knows enough)
@@ -143,9 +161,17 @@ export async function turnContext(user, id, { chars } = {}) {
 }
 
 // ---------- the messenger ----------
-// a mail mention to send, checked as the sender (the owner): {type: 'mail', actionId, body?} → what the message keeps
-export async function forSend(user, x) {
+// a mail mention to send, checked as the sender (the owner): {type: 'mail', actionId, body?} → what the message keeps; 「본문도 공유」 (body)
+// is recorded on the owner's card for that room (roomId)
+export async function forSend(user, x, { roomId = null } = {}) {
   const a = await cardOf(user.id, x.actionId)
+  if (x.body === true) {
+    // (a room the owner is in)
+    const { memberThread } = await import('./team/messenger.js')
+    const t = await memberThread(user, roomId)
+    if (!t) throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
+    await setShare(user.id, a.id, t.id, true)
+  }
   const m = await readMail(user.id, a)
   const who = senderOf(m.from || a.source.from)
   return { type: 'mail', actionId: a.id, owner: user.id, ownerName: user.name || '', name: m.subject || a.source.subject || '', from: who.name, domain: who.domain,
@@ -154,16 +180,20 @@ export async function forSend(user, x) {
 }
 
 const requestUrl = (roomId, messageId) => `/pro/team/${roomId}/${messageId}`
-// each viewer's state of a mail mention (lib/fileRefs.js decorate): m is the message as that viewer sees it
+// each viewer's state of a mail mention (lib/fileRefs.js decorate): m is the message as that viewer sees it → {card, share} — share is
+// what the owner's card says about this room (not what the message says)
 export async function stateOf(viewer, r, m) {
   const mine = String(r.owner || '') === String(viewer.id)
-  const [card] = UUID.test(String(r.actionId || '')) ? await q(`select id from pro_actions where id=$1 and user_id::text=$2 and status <> 'deleted'`, [r.actionId, String(r.owner || '')]).catch(() => []) : []
+  const [card] = UUID.test(String(r.actionId || '')) ? await q(`select id, source from pro_actions where id=$1 and user_id::text=$2 and status <> 'deleted'`, [r.actionId, String(r.owner || '')]).catch(() => []) : []
+  const share = card && sharedWith(card, m.threadId) ? 'room' : null
   let requested = false
-  if (!mine && card && r.share !== 'room') {
-    const [asked] = await q(`select 1 from notifications where tenant_id=$1 and type='mail_access' and from_user_id=$2 and url=$3 limit 1`, [T(), viewer.email || viewer.id, requestUrl(m.threadId, m.id)]).catch(() => [])
+  // (an open request only: one answered by sharing — and the sharing stopped since — may be asked again)
+  if (!mine && card && !share) {
+    const [asked] = await q(`select 1 from notifications where tenant_id=$1 and type='mail_access' and from_user_id=$2 and url=$3 and coalesce(is_checked, false) = false limit 1`,
+      [T(), viewer.email || viewer.id, requestUrl(m.threadId, m.id)]).catch(() => [])
     requested = !!asked
   }
-  return { card: mailRefState({ mine, share: r.share, requested, gone: !card }) }
+  return { card: mailRefState({ mine, share, requested, gone: !card }), share }
 }
 
 // 「본문 보기」: the owner — their own card (the page opens its sheet); someone the owner shared the body with (this room) — the mail read
@@ -173,9 +203,10 @@ export async function open(viewer, row, r) {
     await cardOf(viewer.id, r.actionId)
     return { type: 'mail', mine: true, actionId: r.actionId }
   }
-  if (r.share !== 'room') throw fail(403, L('메일 주인이 본문을 공유하지 않았어요. 「본문 보기 요청」을 보내 보세요.', "The mail's owner hasn't shared its body. Ask to see it."), 'mail_summary')
-  const [a] = await q(`select * from pro_actions where id=$1 and user_id::text=$2 and status <> 'deleted'`, [r.actionId, String(r.owner)])
+  const [a] = UUID.test(String(r.actionId || '')) ? await q(`select * from pro_actions where id=$1 and user_id::text=$2 and status <> 'deleted'`, [r.actionId, String(r.owner || '')]) : []
   if (!a) throw fail(404, L('메일을 찾을 수 없어요.', "The mail can't be found."))
+  // the owner's card decides, for this room (whatever the message says)
+  if (!sharedWith(a, row.id)) throw fail(403, L('메일 주인이 본문을 공유하지 않았어요. 「본문 보기 요청」을 보내 보세요.', "The mail's owner hasn't shared its body. Ask to see it."), 'mail_summary')
   const m = await readMail(a.user_id, a)
   return { type: 'mail', mine: false, mail: { from: senderOf(m.from).name, address: senderOf(m.from).address, date: m.date, subject: m.subject, text: clipBody(m.text, 20000).text,
     attachments: (m.attachments || []).map((f) => f.name || String(f)), owner: r.ownerName || '' } }
@@ -183,11 +214,14 @@ export async function open(viewer, row, r) {
 
 // 「본문 보기 요청」: the owner is told (a notice that opens the messenger at that message, where 「본문 공유」 is), once
 export async function request(viewer, row, r) {
-  if (String(r.owner) === String(viewer.id) || r.share === 'room') return { requested: false, open: true }
+  if (String(r.owner) === String(viewer.id)) return { requested: false, open: true }
+  const [card] = UUID.test(String(r.actionId || '')) ? await q(`select id, source from pro_actions where id=$1 and user_id::text=$2 and status <> 'deleted'`, [r.actionId, String(r.owner || '')]) : []
+  if (!card) throw fail(404, L('메일을 찾을 수 없어요.', "The mail can't be found."))
+  if (sharedWith(card, row.id)) return { requested: false, open: true }
   const url = requestUrl(row.id, row.uuid)
   const [u] = await q('select id::text as id, email from users where id::text=$1 and tenant_id=$2', [String(r.owner), T()])
   if (u) {
-    const [dup] = await q(`select 1 from notifications where tenant_id=$1 and user_id = any($2) and type='mail_access' and url=$3 and from_user_id=$4 limit 1`, [T(), [u.id, u.email], url, viewer.email || viewer.id])
+    const [dup] = await q(`select 1 from notifications where tenant_id=$1 and user_id = any($2) and type='mail_access' and url=$3 and from_user_id=$4 and coalesce(is_checked, false) = false limit 1`, [T(), [u.id, u.email], url, viewer.email || viewer.id])
     if (!dup) {
       await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id) values (gen_random_uuid(),$1,$2,'mail_access',$3,$4,$5,$6)`,
         [u.id, L(`${viewer.name}님이 메일 본문 보기를 요청했어요`, `${viewer.name} asked to see a mail's body`).slice(0, 200),
@@ -205,6 +239,8 @@ export async function share(owner, row, index, on) {
   if (!r || r.type !== 'mail') throw fail(404, L('멘션한 메일을 찾지 못했어요.', "I couldn't find the mentioned mail."))
   if (String(r.owner) !== String(owner.id)) throw fail(403, L('메일 주인만 본문을 공유할 수 있어요.', "Only the mail's owner can share its body."), 'not_owner')
   await cardOf(owner.id, r.actionId)
+  // the card decides (open · stateOf); the message keeps how it shows
+  await setShare(owner.id, r.actionId, row.id, on)
   const next = { ...r, share: on ? 'room' : null, ...(on ? { sharedAt: new Date().toISOString() } : { sharedAt: null }) }
   const [updated] = await q(`update chats set messages = jsonb_set(messages, $2::text[], $3::jsonb) where uuid=$1 and tenant_id=$4 returning uuid, id, messages`,
     [row.uuid, ['pgpt', 'refs', String(index)], JSON.stringify(next), T()])

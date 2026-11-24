@@ -181,3 +181,10 @@ test('영어 화면: 줄의 이름 · 할 일의 말은 스킬의 영어(labelEn
   assert.ok(!/[가-힣]{2,}/.test(row.map((x) => `${x.label} ${x.go}`).join(' ')), '단추에 한국어가 남지 않는다')
 })
 
+
+test('작업 폴더의 조사 폴더 이름: 만들 때의 언어(메일 폴더 이름)를 따른다 — 이번 요청의 언어가 아니다 (PR #49 검토)', async () => {
+  const { dirsOf } = await import('../lib/mailWork.js')
+  assert.equal(dirsOf({ dirs: { mail: 'Mail', attach: 'attachments', outputs: 'Outputs', result: 'result.md' } }).notes, 'Research')
+  assert.equal(dirsOf({ dirs: { mail: '메일', attach: '첨부', outputs: '산출물', result: '결과.md' } }).notes, '조사')
+  assert.equal(dirsOf({ dirs: { mail: '메일', notes: '조사' } }).notes, '조사')
+})

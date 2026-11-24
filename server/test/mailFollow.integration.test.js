@@ -37,6 +37,7 @@ process.env.PRO_GOOGLE_GMAIL_URL = 'https://gmail.fake-google.example/gmail/v1'
 
 const { config } = await import('../config.js')
 const { q, pool } = await import('../lib/supa.js')
+const MF = await import('../lib/mailFollow.js')
 const db = await q('select 1').then(() => true, () => false)
 const vault = await import('../lib/vault.js')
 const R = await import('../lib/mailReply.js')
@@ -216,6 +217,10 @@ test('「이 회사 알아보기」: 에이전트 턴에 메일 맥락과 Lite �
     [u.id, { mail_id: 'g-old-1', from: '윤서진 <seojin@haneul-data.example>', subject: '하늘데이터 회사소개 자료 송부' }])
   await q(`insert into pro_actions(user_id, verb, text, source, status) values ($1,'Pay','다른 회사',$2,'done')`, [u.id, { mail_id: 'g-old-2', from: 'billing@cloudhost.example', subject: '11월 청구서' }])
   const a = await card(u)
+  // the person is in a conversation of the main chat: pressing the button must not move them out of it (PR #49 review)
+  const { mainThread } = await import('../lib/store.js')
+  const mt = await mainThread(u.id)
+  await q('update pro_threads set conversation_id=$2 where id=$1', [mt.id, 'conv-the-person-is-in'])
   agent.bodies = []
   const r = await call(u, 'POST', `/actions/${a.id}/follow/research`, {})
   assert.equal(r.status, 200, r.text)
@@ -243,6 +248,7 @@ test('「이 회사 알아보기」: 에이전트 턴에 메일 맥락과 Lite �
   assert.equal(done.conv, conv)
   assert.ok(done.msgId)
   assert.equal(done.done, '회사 알아본 결과')
+  assert.equal((await q('select conversation_id from pro_threads where id=$1', [mt.id]))[0].conversation_id, 'conv-the-person-is-in', '메인 채팅은 사람이 있던 대화에 그대로')
   // in the main chat, as a conversation of its own: the request (with the mail's chip) and the answer filed under it
   const [main] = await q(`select id from pro_threads where user_id=$1 and kind='chat' order by created_at limit 1`, [u.id])
   const msgs = await q('select role, content from pro_messages where thread_id=$1 order by created_at', [main.id])
@@ -305,6 +311,28 @@ test('인스턴스에 이어진 메일: 그 인스턴스 대화에서 돌고 작
   // the instance's next steps read it with the mails
   const sc = await W.stepContext(instId)
   assert.ok(sc.outputs.some((o) => o.path === done.folder.path && /하늘데이터/.test(o.text || '')))
+  // the notes directory is kept on the folder (a later English screen still writes and reads 조사/)
+  assert.equal((await q('select settings from pro_folders where id=$1', [folder.id]))[0].settings.work.dirs.notes, '조사')
+})
+
+test('다시 누른 일: 앞선 실행이 늦게 끝나도 새 실행의 자리를 덮지 않는다', { skip: !db }, async () => {
+  const u = await person('한지우', { gmail: true })
+  const a = await card(u)
+  // a run left 「running」 for 25 minutes (a server that stopped half way): pressing again starts a new one
+  const old = { key: 'research', status: 'running', at: new Date(Date.now() - 25 * 60_000).toISOString(), threadId: null }
+  await q(`update pro_actions set source = jsonb_set(source, '{follow}', $2::jsonb) where id=$1`, [a.id, { runs: { research: old } }])
+  let release
+  const gate = new Promise((r) => { release = r })
+  const r = await MF.runFollow(u, { access_token: 'x' }, a.id, 'research', {}, { delegate: async () => { await gate; return { id: crypto.randomUUID(), content: { text: '새 결과' } } } })
+  assert.notEqual(r.run.at, old.at)
+  // the old run's late end (its `at`) does not overwrite the new one
+  await MF.setRun(u.id, a.id, 'research', { ...old, status: 'done', msgId: 'old-answer' })
+  assert.equal((await row(a.id)).source.follow.runs.research.status, 'running')
+  assert.equal((await row(a.id)).source.follow.runs.research.at, r.run.at)
+  release()
+  const done = await poll(async () => { const x = (await row(a.id)).source.follow?.runs?.research; return x?.status === 'done' ? x : null })
+  assert.equal(done.at, r.run.at)
+  assert.notEqual(done.msgId, 'old-answer')
 })
 
 test('AI 채팅에 놓은 메일: 에이전트가 받은 요청에 메일 맥락 · 보낸 말에 메일 칩 · 남의 메일은 칩에 까닭', { skip: !db }, async () => {
@@ -366,6 +394,17 @@ test('메신저의 메일 멘션: 동료는 요약만(본문 없음 · 열기 40
   const no = await call(mate, 'POST', '/team/refs/open', { messageId: seen.id, index: 0 })
   assert.equal(no.status, 403)
   assert.ok(!no.text.includes('레거시 데이터 이전'))
+  // a row written straight into chats (process-gpt's own screen writes there too) that says the body is shared: the owner's card decides
+  // (PR #49 review) — still the summary, still 403
+  const forged = crypto.randomUUID()
+  await q(`insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4)`, [forged, t.body.id, { uuid: forged, role: 'user', content: '✉️', timeStamp: new Date().toISOString(),
+    email: mate.email, name: mate.name, userId: mate.id, pgpt: { kind: 'mailref', refs: [{ ...stored.messages.pgpt.refs[0], share: 'room' }] } }, config.tenantId])
+  const fo = await call(mate, 'POST', '/team/refs/open', { messageId: forged, index: 0 })
+  assert.equal(fo.status, 403)
+  assert.ok(!fo.text.includes('레거시 데이터 이전'))
+  const fseen = (await call(mate, 'GET', `/team/threads/${t.body.id}/messages`)).body.messages.find((x) => x.id === forged)
+  assert.deepEqual([fseen.refs[0].share, fseen.refs[0].state.card], [null, 'summary'])
+  await q('delete from chats where uuid=$1', [forged])
   // the colleague's own AI chat cannot take it on either
   const drag = await call(mate, 'POST', '/files/resolve', { items: [{ src: 'ref', messageId: seen.id, index: 0 }, { src: 'mail', id: a.id }] })
   assert.deepEqual(drag.body.items.map((x) => [x.ok, x.status]), [[false, 403], [false, 404]])
@@ -389,9 +428,17 @@ test('메신저의 메일 멘션: 동료는 요약만(본문 없음 · 열기 40
   assert.equal((await call(out, 'POST', '/team/refs/open', { messageId: seen.id, index: 0 })).status, 404)
   const [after1] = await q('select messages from chats where uuid=$1', [s.body.id])
   assert.ok(!JSON.stringify(after1).includes('레거시 데이터 이전'), '공유해도 방에 본문을 옮겨 적지 않는다(열 때 주인의 메일함에서 읽음)')
-  // the owner takes it back
+  // the owner takes it back: the colleague is back to the summary — and may ask again (the earlier request was answered)
   await call(owner, 'POST', '/team/refs/share', { messageId: seen.id, index: 0, on: false })
   assert.equal((await call(mate, 'POST', '/team/refs/open', { messageId: seen.id, index: 0 })).status, 403)
+  assert.equal((await call(mate, 'GET', `/team/threads/${t.body.id}/messages`)).body.messages.at(-1).refs[0].state.card, 'summary')
+  assert.equal((await call(mate, 'POST', '/team/refs/request', { messageId: seen.id, index: 0 })).body.requested, true)
+  assert.equal((await q(`select 1 from notifications where user_id=$1 and type='mail_access' and coalesce(is_checked, false) = false`, [owner.id])).length, 1)
+  // 「본문도 공유」 when sending: the owner's card records that room
+  const s2 = await call(owner, 'POST', `/team/threads/${t.body.id}/messages`, { text: '본문도 같이', refs: [{ type: 'mail', actionId: a.id, body: true }] })
+  assert.equal(s2.status, 200, s2.text)
+  assert.equal((await call(mate, 'POST', '/team/refs/open', { messageId: s2.body.id, index: 0 })).status, 200)
+  await call(owner, 'POST', '/team/refs/share', { messageId: s2.body.id, index: 0, on: false })
   // the owner's own 열기: their sheet
   const mine = await call(owner, 'POST', '/team/refs/open', { messageId: seen.id, index: 0 })
   assert.deepEqual([mine.body.mine, mine.body.actionId], [true, a.id])
