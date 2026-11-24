@@ -279,16 +279,21 @@ export function liveHint(open) {
   if (open.app === 'ieumoffice') {
     const kind = OFFICE_KIND[open.editor] || '문서'
     const editable = open.editor === 'docs' || open.editor === 'sheets' || open.editor === 'hwp'
-    const mention = '사용자가 문서에서 가리킨 대상(@표 N, @이미지 N, @문단, @범위)이 메시지 끝에 붙어 오면 바로 그 대상만 고치세요(표 번호·행·열·범위가 적혀 있어요). '
+    const mention = '사용자가 문서에서 가리킨 대상(@표 N, @이미지 N, @문단, @범위)이 메시지 끝에 붙어 오면 바로 그 대상만 고치세요(표 번호·행·열·범위가 적혀 있어요). ' +
+      '사용자가 문서에서 골라 둔 부분(선택)이 붙어 오면 요청은 그 부분에 대한 것이에요: 골라 둔 글(text)과 그 자리(blockIndex, 표면 range)만 고치세요. '
+    const done = '도구 결과가 오류이거나 바뀐 곳이 없다고 하면 고쳤다고 말하지 말고, 다른 대상으로 다시 해 보거나 고치지 못했다고 그대로 알리세요. '
     return `\n\n(사용자가 지금 이음오피스 ${kind} 편집기에서 '${open.file || '문서'}' 을 열어 두었어요. 이 메시지는 그 열린 문서에 대한 것이에요. ` +
       (editable
         ? `office_live_documents 로 그 문서의 session_id 를 찾고 office_live_read 로 지금 내용을 읽은 뒤, 사람이 보는 화면에서 바로 고치세요: ` +
           // (the page said what is open, but the editor may not be reachable: no new file in its place)
           `office_live_documents 도구가 없거나 그 목록에 이 문서가 없으면 편집기와 연결되지 않은 것이에요 — 새 문서를 만들지 말고(파일·다운로드 링크도 금지), "편집기와 연결되지 않아 열린 문서를 바로 고치지 못했어요" 라고 먼저 알린 뒤 넣을 내용을 답 안에 글로만 보여 주세요. ` +
-          mention + (open.editor === 'hwp'
+          mention + done + (open.editor === 'hwp'
             ? `한글은 표를 office_live_hwp_table(action read·fill·add_rows·remove_rows, 표·행·열 번호는 1부터, add_rows 뒤에는 새 줄을 fill 로 채우기), 글은 office_live_hwp_text(replace·insert)로 고치세요. 합계·소계 칸이 있으면 숫자를 다시 계산해 함께 고치세요. 그림은 이 도구로 고치지 않아요(그림 편집은 포토크래프트가 맡아요). `
             : open.editor === 'docs'
-            ? `글 일부(표 칸 안의 글 포함)를 바꿀 때는 서식이 그대로 남는 office_live_apply_ops 의 findReplace 연산([{"op":"findReplace","find":"…","replace":"…"}])을 먼저 쓰세요. ` +
+            ? `골라 둔 부분이 표 칸이면(선택의 kind 가 table) 칸 서식은 office_live_apply_ops 의 setTableCellFormat 으로 그 칸만 고치세요: ` +
+              `[{"op":"setTableCellFormat","target":{"nodeType":"table","blockIndexes":[선택의 blockIndex]},"range":선택의 range(0부터 센 행·열 그대로),"vAlign":"center"}] — 세로 정렬은 vAlign(top·center·bottom), 칸 색은 fill, 테두리는 borders. ` +
+              `칸 안 글의 가로 정렬·글꼴은 setParagraphFormat·setFont 에 target {"blockIndexes":[blockIndex],"range":{"from":선택의 from,"to":선택의 to}} 를 주세요. ` +
+              `글 일부(표 칸 안의 글 포함)를 바꿀 때는 서식이 그대로 남는 office_live_apply_ops 의 findReplace 연산([{"op":"findReplace","find":"…","replace":"…"}])을 먼저 쓰세요. ` +
               `문단 하나를 통째로 바꿀 때만 office_live_replace 에 match_text(바꿀 블록에 든 글)를 주세요(블록 번호는 앞 변경에 밀려요, 표 블록은 통째로 바꾸지 마세요). ` +
               `새 문단은 office_live_write(after_block_index 로 위치 지정), 그 밖의 서식은 office_live_apply_ops(연산은 office_guide). `
             : `셀 값은 office_live_apply_ops 의 set_cell, 수식은 set_formula(수식을 type:"text" 로 쓰지 마세요), 행을 더할 때는 insert_rows 로 끼운 뒤(뒤 주소가 밀려요) 값·수식을 넣고 합계 범위를 넓히세요. 이미 있는 표 서식은 바꾸지 마세요(연산은 office_guide xlsx 참고). `)

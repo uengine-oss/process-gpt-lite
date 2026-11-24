@@ -24,7 +24,9 @@ export const freePort = (from, n = 30) => Array.from({ length: n }, (_, i) => fr
 export const waitFor = async (fn, ms = 40000, what = '') => { const t = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t > ms) throw new Error(`timed out: ${what}`); await new Promise((r) => setTimeout(r, 250)) } }
 
 // env: more for the BFF (e.g. PRO_LOCAL_TERM_KEEP_MS — how long an ended terminal stays in memory)
-export async function startStack({ tenant, apiFrom = 8831, webFrom = 5231, env: extra = {} } = {}) {
+// apiTarget: where Vite sends /api instead of the BFF itself (a test's own proxy in between — the server going away and coming back)
+// officeTarget: where Vite sends /office (a test's own IeumOffice host — lib/officeHost.js)
+export async function startStack({ tenant, apiFrom = 8831, webFrom = 5231, env: extra = {}, apiTarget = null, officeTarget = null } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `pgl-${tenant}-`))
   const apiPort = freePort(apiFrom)
   const webPort = freePort(webFrom)
@@ -34,7 +36,7 @@ export async function startStack({ tenant, apiFrom = 8831, webFrom = 5231, env: 
   const bff = spawn(process.execPath, ['index.js'], { cwd: SERVER, env, stdio: ['ignore', 'pipe', 'pipe'] })
   for (const s of [bff.stdout, bff.stderr]) s.on('data', (d) => logs.push(`[bff] ${d}`))
   const vite = spawn(process.execPath, [path.join(REPO, 'node_modules/vite/bin/vite.js'), '--port', String(webPort), '--strictPort', '--host', '127.0.0.1'],
-    { cwd: REPO, env: { ...process.env, PRO_API_TARGET: `http://127.0.0.1:${apiPort}` }, stdio: ['ignore', 'pipe', 'pipe'] })
+    { cwd: REPO, env: { ...process.env, PRO_API_TARGET: apiTarget || `http://127.0.0.1:${apiPort}`, ...(officeTarget ? { PRO_OFFICE_TARGET: officeTarget } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] })
   for (const s of [vite.stdout, vite.stderr]) s.on('data', (d) => logs.push(`[vite] ${d}`))
   const api = async (token, p, { method = 'GET', body } = {}) => {
     const r = await fetch(`http://127.0.0.1:${apiPort}/api${p}`, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined })

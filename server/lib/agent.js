@@ -37,6 +37,7 @@ import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
 import { liveOpen, liveHint, openDocOf } from './craftLive.js'
 import { capture, reviewTurn } from './review.js'
+import { editsSince, editVerdict, notAppliedAnswer } from './officeEdits.js'
 import { attachmentHint, indexForRoom, chatFiles } from './attachments.js'
 import { ensureHubBinding } from '../mcp/connectors.js'
 import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folders/work.js'
@@ -1110,6 +1111,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const alive = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => idle.abort(), STREAM_IDLE_MS) }
   // 검수 (lib/review.js): what is open now, as it is before the agent's edits
   const before = live ? await capture({ userId: user.id, jwt: session.access_token, open: live }) : null
+  // the live editor's edit calls from here on (mcp/office.js → lib/officeEdits.js): did any of them change the document?
+  const editsFrom = Date.now()
   const usedTools = new Set()
   let partial = ''
   // 같은 요청 알아보기(lib/context/repeat.js): 나나 팀원이 이미 같은 요청을 해 답이 있으면 에이전트를 부르지 않고 카드로 묻는다
@@ -1153,10 +1156,20 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   try {
     const msg = await streamTurn()
+    // the document's editor changed nothing although the agent edited (every edit call failed or changed nothing): the
+    // answer says so plainly instead of the agent's 「맞췄어요」 (lib/officeEdits.js — the editor's own report)
+    const edits = live?.app === 'ieumoffice' ? editsSince(user.id, editsFrom) : []
+    if (editVerdict(edits) === 'none' && !turn.stopped && msg?.id && (msg.kind === 'text' || msg.kind === 'doc')) {
+      const [m] = await q(`update pro_messages set kind='text', content = content || $2::jsonb where id=$1 returning *`,
+        [msg.id, JSON.stringify({ text: notAppliedAnswer(edits, live.file), notApplied: true, claimed: String(msg.content?.text || '').slice(0, 4000) })])
+      if (m) emit(user.id, 'message', m)
+      console.log(`[delegate] office edits not applied (${edits.length}) user=${user.id.slice(0, 8)} — answer replaced`)
+      return m || msg
+    }
     // an edit tool of the open app or document ran: check the result against the request
     const prefix = live?.app === 'ieumoffice' ? /^office_live_(write|replace|apply_ops|hwp_)/ : new RegExp(`^${live?.app}_`)
     if (before && !turn.stopped && [...usedTools].some((t) => prefix.test(t) && !/(inspect|read|list|render|preview|find|query|guide|documents)/.test(t))) {
-      await reviewTurn({ user, session, threadId, request: text.split('\n\n(')[0], open: live, before })
+      await reviewTurn({ user, session, threadId, request: text.split('\n\n(')[0], open: live, before, applied: edits.filter((e) => e.applied) })
     }
     return msg
   } catch (e) {

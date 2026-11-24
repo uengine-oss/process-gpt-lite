@@ -4,6 +4,8 @@
 // saving inside the editor uploads an `edited-…` copy next to the original and reports its URL.
 // in:  ready → saved{url,name} | agent{action,text} | save-failed{error} | error{error}
 //      | assistant{label, prompt, selection} — the editor's AI 도우미 buttons (with `assistant`)
+//      | selection{selection} — what is selected in the document as it changes (워드; null: nothing) → emit 'selection',
+//        the chat composer's chip (src/docSelection.js). The editor's own 「AI 수정 요청」 stays hidden: the chat carries it.
 // out: context{context} — the work around the document, which the editor's AI reads.
 // One assistant (`assistant` prop): the editor's AI dock stays hidden and its AI buttons come here
 // (emit 'assistant'); while the document is open the page tells the server (src/liveLink.js, app
@@ -33,7 +35,7 @@ const props = defineProps({
   assistant: { type: Boolean, default: false },
   autoSave: { type: Boolean, default: false },
 })
-const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention', 'edited'])
+const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention', 'edited', 'selection'])
 
 const root = ref(null)
 const frame = ref(null)
@@ -63,6 +65,8 @@ const live = ref(false)
 const busy = ref(false)
 // the live link gave up (src/liveLink.js onFail): why — the header and the overlay offer 다시 연결
 const linkFail = ref('')
+// the link dropped after it was joined (a server restart, the network): it joins again by itself — said, not a failure
+const relinking = ref(false)
 let link = null
 let busyTimer = null
 let alive = true
@@ -190,10 +194,11 @@ function stopDeck() { clearInterval(deckTimer); deckTimer = null; slidePos.value
 function startLive() {
   if (link || props.readOnly || !props.assistant) return
   link = openLiveLink({ app: 'ieumoffice', file: props.name, editor: editor(), alive: () => alive && !!frameSrc.value,
-    onState: (on) => { live.value = on; if (on) setFail(''); emit('live', on) }, onFail: setFail })
+    onState: (on) => { live.value = on; if (on) { setFail(''); relinking.value = false } emit('live', on) }, onFail: setFail,
+    onRetrying: (on) => { relinking.value = on } })
 }
 function setFail(why) { linkFail.value = why; emit('linkfail', why) }
-function stopLive() { link?.close(); link = null; live.value = false; busy.value = false; if (linkFail.value) setFail('') }
+function stopLive() { link?.close(); link = null; live.value = false; busy.value = false; relinking.value = false; if (linkFail.value) setFail(''); emit('selection', null) }
 function reconnect() { setFail(''); if (link) link.retry(); else startLive() }
 
 // Click to mention (office-host page-live.mjs): with "@ 가리키기" on (or ⌥ held), a click on a table,
@@ -347,6 +352,8 @@ function onMessage(event) {
   }
   else if (m.type === 'assistant') emit('assistant', { label: m.label || '', prompt: m.prompt || null, selection: m.selection || '' })
   else if (m.type === 'mention' && m.mention) emit('mention', { ...m.mention, file: props.name })
+  // (an editable document joined to the chat only: a read-only preview has nothing to ask about)
+  else if (m.type === 'selection') { if (props.assistant && !props.readOnly) emit('selection', m.selection || null) }
   else if (m.type === 'page-live') pagePictures.value = !!m.pictures
   else if (m.type === 'reply') {
     const w = waiting.get(m.requestId)
@@ -403,6 +410,7 @@ onBeforeUnmount(() => {
       <span v-if="readOnly" class="badge ro">보기 전용</span>
       <span v-else-if="autoSave" class="badge auto" :class="{ on: saving || edited }" :title="saving ? '저장하는 중' : edited ? '잠시 뒤 저장해요' : '고친 내용은 저절로 저장돼요'">{{ saving ? '저장하는 중…' : edited ? '고치는 중' : '자동 저장' }}</span>
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i /><span class="t">{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span></span>
+      <button v-else-if="relinking" class="badge relink press" data-testid="oef-relinking" title="대화와의 연결이 잠깐 끊겨 다시 잇는 중이에요 — 저절로 이어져요 · 눌러서 지금 다시 연결" @click="reconnect"><i /><span class="t">다시 연결하는 중…</span></button>
       <button v-else-if="linkFail" class="badge off press" :title="`대화와 연결되지 않았어요 — ${linkFail} · 눌러서 다시 연결`" @click="reconnect"><i /><span class="t">연결 안 됨 · 다시 연결</span></button>
       <span class="sp" />
       <!-- the editor is IeumOffice (Apache-2.0); its lockup marks whose editor this is -->
@@ -460,7 +468,7 @@ onBeforeUnmount(() => {
 @media (max-width: 700px) { .ieum { display: none; } }
 /* a phone-wide sheet: the close button must stay in sight — size buttons go (the sheet is already the whole width), labels fold to icons */
 /* (the live state stays, as its dot alone) */
-@container (max-width: 520px) { .bar .opt, .bar .lb, .bar .badge:not(.live):not(.off):not(.ro):not(.auto), .bar .badge .t { display: none; } .bar .badge.live, .bar .badge.off { padding: 0; width: 22px; height: 22px; justify-content: center; } .bar { gap: 2px; padding: 0 4px 0 10px; } .bar .tb { padding: 0 8px; } .bar .tb.ic { padding: 0; } }
+@container (max-width: 520px) { .bar .opt, .bar .lb, .bar .badge:not(.live):not(.off):not(.relink):not(.ro):not(.auto), .bar .badge .t { display: none; } .bar .badge.live, .bar .badge.off, .bar .badge.relink { padding: 0; width: 22px; height: 22px; justify-content: center; } .bar { gap: 2px; padding: 0 4px 0 10px; } .bar .tb { padding: 0 8px; } .bar .tb.ic { padding: 0; } }
 .badge { padding: 1px 8px; border-radius: 10px; background: rgba(42, 120, 214, .12); color: #2a78d6; font-size: 11px; white-space: nowrap; flex: 0 0 auto; }
 .badge.live { display: inline-flex; align-items: center; gap: 6px; background: rgba(40, 160, 90, .12); color: #1e8a4c; }
 .badge.live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -468,6 +476,9 @@ onBeforeUnmount(() => {
 .badge.live.busy i { animation: livepulse 1s ease-in-out infinite; }
 .badge.off { display: inline-flex; align-items: center; gap: 6px; background: rgba(200, 60, 50, .1); color: #b3261e; cursor: pointer; }
 .badge.off i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+/* joining again by itself after a drop (a server restart): amber, its dot breathing — not the red of a link that never joined */
+.badge.relink { display: inline-flex; align-items: center; gap: 6px; background: rgba(230, 150, 20, .14); color: #8a5300; cursor: pointer; }
+.badge.relink i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: livepulse 1.2s ease-in-out infinite; }
 @keyframes livepulse { 50% { opacity: .25; transform: scale(.7); } }
 /* while the agent's edits land: a soft rim around the document */
 .glow { position: absolute; inset: 44px 0 0; z-index: 2; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(120, 100, 240, .7), inset 0 0 26px rgba(120, 100, 240, .28); animation: glowin .3s ease both; }

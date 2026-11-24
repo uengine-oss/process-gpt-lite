@@ -2841,7 +2841,9 @@
   "이 주제에 이어서 묻기": "Continue this topic",
   "이 프로젝트의 주제": "Topics of this project",
   "주제": "Topic",
-  "새 주제": "New topic"
+  "새 주제": "New topic",
+  "다시 연결하는 중…": "Reconnecting…",
+  "대화와의 연결이 잠깐 끊겨 다시 잇는 중이에요 — 저절로 이어져요 · 눌러서 지금 다시 연결": "The link to the conversation dropped for a moment and is reconnecting — it reconnects by itself · Click to reconnect now"
  },
  "patterns": [
   [

@@ -2,13 +2,14 @@ import { defineStore } from 'pinia'
 import { runner as localRunner, startDesktopRunner, disconnectThis } from '../localRunner.js'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
 import { BASE } from '../base.js'
-import { syncLang } from '../i18n/lang.js'
+import { syncLang, isEnglish } from '../i18n/lang.js'
 import { officeEditorFor, CRAFT_APPS } from '../officeEditor.js'
 import { announce } from '../browserNotify.js'
 import { keyOf as chatKeyOf } from '../chatAgent.js'
 import { readListOpen, saveListOpen } from '../threadList.js'
 import { artifactScope, artifactItems, readFolded, saveFolded } from '../artifactScope.js'
 import { topicOf, topicList } from '../projectTopics.js'
+import { docSelectionOf, docSelectionKey, selectionMention, mentionContext, docConversation } from '../docSelection.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
@@ -81,6 +82,8 @@ export const useApp = defineStore('app', {
     prefill: '',
     focusTick: 0,              // bumps: the chat composer takes the focus (an open document's AI 도우미 button)
     mentions: [],              // objects pointed at in an open document (@표 2, @이미지 1, @B3:D6) for the next message
+    docSel: null,              // what is selected in the open document right now (OfficeEditorFrame 'selection', src/docSelection.js)
+    docSelOff: '',             // …a selection put away (its chip's ✕, or sent): no chip again until the selection changes
     beforeSend: null,          // (text, mentions) => true when it took the message (OfficeSheet: an image goes to PhotoCraft)
     instances: [],
     todos: [],
@@ -92,6 +95,8 @@ export const useApp = defineStore('app', {
     missionTick: 0,             // bumps on mission run events so open lists refresh            // detail of the instance page               // text pushed into the composer from elsewhere
   }),
   getters: {
+    // the open document's selection, as the composer's chip and the next message's mention (src/docSelection.js)
+    docSelChip(s) { return s.docSel && docSelectionKey(s.docSel) !== s.docSelOff ? selectionMention(s.docSel) : null },
     // the thread list on screen: the chat's page, not replaced by Home's dock. Beside a document open beside the page it follows the
     // left column's rule like the project and routine lists — beside the chat where the page holds all three, else folded to a rail
     // (src/leftColumn.js, views/MainView.vue)
@@ -381,6 +386,10 @@ export const useApp = defineStore('app', {
       this.mentions = [...this.mentions.filter((x) => !(x.label === m.label && x.file === m.file)), m].slice(-4)
     },
     removeMention(i) { this.mentions = this.mentions.filter((_, k) => k !== i) },
+    // the open document's selection as it changes (null: nothing selected, or the document closed — a chip put away may come back
+    // for the same words selected again)
+    setDocSel(sel, file) { this.docSel = docSelectionOf(sel, file); if (!this.docSel) this.docSelOff = '' },
+    dropDocSel() { if (this.docSel) this.docSelOff = docSelectionKey(this.docSel) },
     // attachments: the files this message carries when they were taken earlier (a message queued while 새 프로젝트's room is made)
     // opts.fresh: 「이미 한 요청」 카드의 「그래도 새로 하기」·허락 뒤 다시 답하기 — 서버가 같은 요청 알아보기를 건너뛴다
     // opts.agent: who answers — 'default' (the server's agent) or a CLI on my PC ('claude-code' · 'codex', server lib/localAgents/chat.js);
@@ -388,13 +397,16 @@ export const useApp = defineStore('app', {
     async send(text, threadId = this.activeId, context, attachments, opts = {}) {
       const picked = this.nextAgent
       this.nextAgent = null
-      // mentions: the chips read first in the message; where each one is goes to the agent
-      const mentions = this.mentions
+      // mentions: the chips read first in the message; where each one is goes to the agent — the open document's selection too
+      // (its chip goes with this message, then stays away until the selection changes)
+      const sel = this.docSelChip
+      if (sel) this.dropDocSel()
+      const mentions = [...this.mentions, ...(sel ? [sel] : [])]
       if (mentions.length) {
         this.mentions = []
         if (this.beforeSend && (await this.beforeSend(text, mentions, threadId))) return
         text = `${mentions.map((m) => `@${m.label}`).join(' ')} ${text}`
-        context = [context, `(사용자가 열린 문서에서 가리킨 대상: ${mentions.map((m) => `@${m.label} = ${JSON.stringify(m)}`).join(' ; ')})`].filter(Boolean).join('\n\n')
+        context = [context, mentionContext(mentions, isEnglish)].filter(Boolean).join('\n\n')
       }
       const pending = attachments || this.attachments
       if (!attachments) this.attachments = []
@@ -407,12 +419,15 @@ export const useApp = defineStore('app', {
       const conv = this.convFilter && threadId === this.mainThread?.id ? this.convList.find((c) => c.id === this.convFilter) : null
       const inTopic = this.topicFilter && this.mode === 'project' && threadId === this.activeId && this.projects.some((p) => p.id === threadId)
       const topic = inTopic ? this.topicList.find((c) => c.id === this.topicFilter) || { id: this.topicFilter } : null
-      const conversation = conv ? { id: conv.id, title: conv.title } : this.convFilter && threadId === this.mainThread?.id ? { id: this.convFilter }
-        : topic ? { id: topic.id, title: topic.title || '' } : undefined
+      const chosen = conv ? { id: conv.id, title: conv.title } : this.convFilter && threadId === this.mainThread?.id ? { id: this.convFilter }
+        : topic ? { id: topic.id, title: topic.title || '' } : null
       // an editable document open in the editor (OfficeSheet): the message is about it, even when its
       // live link (src/liveLink.js) is down — the server still edits it in place (lib/agent.js delegate)
       const d = this.officeDoc, ed = d && !d.readOnly ? officeEditorFor(d.name || d.url) : null
       const openDoc = ed && !CRAFT_APPS.has(ed) && d.name ? { app: 'ieumoffice', file: d.name, name: d.name, editor: ed } : undefined
+      // …and it stays in the conversation the document is in: the context router does not file it under a new topic (src/docSelection.js)
+      const docConv = openDoc ? docConversation({ doc: d, threadId, mainId: this.mainThread?.id, convOf: this.convOf, convList: this.convList, chosen }) : null
+      const conversation = chosen || docConv || undefined
       const key = chatKeyOf(threadId, conversation?.id)
       const agent = opts.agent || (picked && picked.key === key ? picked.agent : 'default')
       this.drafts[threadId] = ''
@@ -422,6 +437,9 @@ export const useApp = defineStore('app', {
         await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(refs.length ? { refs } : {}), ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
+          // a document whose card is in no conversation: the one its first message went to is the document's from now on
+          const went = ev === 'done' && data?.content?.context?.conversationId
+          if (went && openDoc && !docConv && !chosen && this.officeDoc === d && threadId === this.mainThread?.id) this.officeDoc = { ...d, conv: went }
         })
       } catch (e) { console.warn('[send]', e.message) }
       // the connection dropped before the answer (a proxy cutting a long request, a server restart):

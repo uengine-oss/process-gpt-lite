@@ -202,8 +202,10 @@ async function restore(live) {
   for (const command of ['select.all', 'edit.fillHistory', 'select.deselect']) await pageCall(live, 'engine.execute', { command, params: {} })
 }
 
-/** review one turn; posts the note and returns { ok, summary } */
-export async function reviewTurn({ user, session, threadId, request, open, before }) {
+/** review one turn; posts the note and returns { ok, summary }. applied: the live editor's edit calls of the turn that changed
+ *  the document by its own report (lib/officeEdits.js) — a change of form (a cell's vertical alignment, a colour) is not in the
+ *  text the content check compares, so with those the check's "not met" alone is not a failure: what the editor did is said */
+export async function reviewTurn({ user, session, threadId, request, open, before, applied = [] }) {
   if (!open || !before) return null
   const status = (t) => emit(user.id, 'status', { threadId, text: t })
   status(L('결과 검수하는 중', 'Reviewing the result'))
@@ -229,7 +231,9 @@ export async function reviewTurn({ user, session, threadId, request, open, befor
       if (missing().length) { await restore(live); fixed = L('원래 그림으로 되돌림', 'restored the original picture') }
     }
     const miss = missing()
-    const okNow = !miss.length && look?.met !== false
+    const confirmed = (applied || []).map((a) => a.summary).filter(Boolean)
+    const okNow = !miss.length && (look?.met !== false || confirmed.length > 0)
+    if (confirmed.length) ok.push(L(`편집기 확인: ${clip(confirmed.join(' · '))}`, `the editor confirmed: ${clip(confirmed.join(' · '))}`))
     const parts = okNow
       ? [...ok, look?.kept && L(`유지: ${clip(look.kept)}`, `kept: ${clip(look.kept)}`), look?.changes && L(`바뀜: ${clip(look.changes)}`, `changed: ${clip(look.changes)}`)].filter(Boolean)
       : [L(`빠진 것: ${miss.join(', ') || '요청이 반영되지 않음'}`, `missing: ${miss.join(', ') || 'the request was not applied'}`), fixed].filter(Boolean)
