@@ -15,11 +15,13 @@ const C = require('../src/runner/clis')
 const G = require('../src/runner/git')
 const { Runner } = require('../src/runner/runner')
 const { gitServer, makeRepo } = require('./helpers/gitServer')
-const { fakeBin } = require('./helpers/fakeBin')
+const { fakeBin, systemPath } = require('./helpers/fakeBin')
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-runner-'))
+// (Windows: a process just stopped may hold a file in it for a moment)
+const rmQuiet = (d) => { try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch (e) { console.warn(`left ${d}: ${e.code}`) } }
 const BIN = fakeBin(path.join(ROOT, 'bin'))
-const SEARCH = [BIN, '/usr/bin', '/bin'].join(path.delimiter)
+const SEARCH = [BIN, ...systemPath()].join(path.delimiter)
 process.env.FAKE_CLI_HOME = path.join(ROOT, 'fake-home')
 process.env.FAKE_CLI_LOG = path.join(ROOT, 'fake.log')
 const TOKEN = `pgf1.${crypto.randomBytes(12).toString('base64url')}.${crypto.randomBytes(16).toString('base64url')}`
@@ -39,7 +41,7 @@ test.before(async () => {
   origin.git('checkout', '-q', 'main')
   srv = await gitServer({ repo: origin.dir, token: TOKEN })
 })
-test.after(async () => { await srv?.close(); await skillSrv?.close(); fs.rmSync(ROOT, { recursive: true, force: true }) })
+test.after(async () => { await srv?.close(); await skillSrv?.close(); rmQuiet(ROOT) })
 
 const sent = []
 // the server's side of the link: what the runner sends is recorded; an accept is confirmed (the server's 'accepted') unless ack is off
@@ -160,7 +162,10 @@ test('Codex 조종: 멈추고 같은 세션을 이어서(resume) 실행한다', 
   assert.deepEqual(of(j.id, 'steered').map((m) => [m.steerId, m.how]), [['s2', 'resume']])
   const thread = of(j.id, 'session')[0].sessionId
   const runs = fs.readFileSync(process.env.FAKE_CLI_LOG, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((x) => x.kind === 'codex' && x.session === thread)
-  assert.ok(runs.some((x) => x.interrupted), '처음 실행은 멈췄다')
+  // (Windows has no SIGINT to send to another process: the runner stops the CLI's tree there (taskkill /T /F), so the fake never gets
+  // to log that it was interrupted — that the resume below ran is the proof there)
+  if (process.platform !== 'win32') assert.ok(runs.some((x) => x.interrupted), '처음 실행은 멈췄다')
+  else assert.ok(runs.filter((x) => x.args).length >= 2, '처음 실행을 멈추고 다시 실행했다')
   assert.ok(runs.some((x) => x.args?.[1] === 'resume' && x.args.includes(thread)), 'exec resume <thread>')
   assert.equal(show(j.git.branch, `${j.outDir}/바뀐방향.md`), '코덱스 새 방향\n')
 })

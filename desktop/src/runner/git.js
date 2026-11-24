@@ -11,12 +11,17 @@
 const { execFile } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
+const { which, augmentedPath } = require('./clis')
 
 const TIMEOUT = 120_000
 const NETWORK = 600_000
 
+// The folder is the server's byte for byte: no line-ending conversion here, whatever the person's git says (Git for Windows installs
+// core.autocrlf=true, which would turn every file CRLF on checkout and could show files the run never touched as changed); deep paths
+// under %APPDATA% work on Windows (core.longpaths)
 function authEnv(token) {
-  const pairs = [['credential.helper', ''], ['core.quotepath', 'false'], ['protocol.allow', 'never'], ['protocol.https.allow', 'always'], ['protocol.http.allow', 'always']]
+  const pairs = [['credential.helper', ''], ['core.quotepath', 'false'], ['core.autocrlf', 'false'], ['core.longpaths', 'true'],
+    ['protocol.allow', 'never'], ['protocol.https.allow', 'always'], ['protocol.http.allow', 'always']]
   if (token) pairs.push(['http.extraHeader', `Authorization: Bearer ${token}`])
   const env = { GIT_CONFIG_COUNT: String(pairs.length) }
   pairs.forEach(([k, v], i) => { env[`GIT_CONFIG_KEY_${i}`] = k; env[`GIT_CONFIG_VALUE_${i}`] = v })
@@ -25,13 +30,27 @@ function authEnv(token) {
 
 class GitError extends Error {}
 
+// which git: the one on PATH, else where it is usually installed (an app opened from Finder or the Start menu may not have it on PATH;
+// Git for Windows: C:\Program Files\Git\cmd)
+let gitBin = null
+function gitPath() {
+  if (gitBin) return gitBin
+  gitBin = which('git', augmentedPath()) || 'git'
+  return gitBin
+}
+const NO_GIT = process.platform === 'win32'
+  ? 'git is not installed on this computer — install Git for Windows (https://git-scm.com/download/win) and run the step again'
+  : 'git is not installed on this computer — install it (macOS: xcode-select --install) and run the step again'
+
 // git in `dir`; a token never shows up in what is thrown
 function git(dir, args, { token = '', timeout = TIMEOUT, check = true } = {}) {
   const env = {}
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_CONFIG_') && k !== 'GIT_DIR' && k !== 'GIT_WORK_TREE') env[k] = v
   Object.assign(env, { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C' }, authEnv(token))
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd: dir, env, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(gitPath(), args, { cwd: dir, env, timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+      if (err && err.code === 'ENOENT' && !fs.existsSync(dir)) return check ? reject(new GitError(`git ${args.slice(0, 2).join(' ')} failed: no folder ${dir}`)) : resolve('')
+      if (err && err.code === 'ENOENT') return check ? reject(new GitError(NO_GIT)) : resolve('')
       if (err && check) {
         let why = `${String(stderr || '').trim()} ${String(stdout || '').trim()}`.trim() || err.message
         if (token) why = why.split(token).join('***')
@@ -110,4 +129,4 @@ async function follow(dir, { token, base }) {
   return head(dir)
 }
 
-module.exports = { git, authEnv, checkUrl, checkRef, sync, branch, ahead, commit, changed, push, follow, head, GitError }
+module.exports = { git, gitPath, authEnv, checkUrl, checkRef, sync, branch, ahead, commit, changed, push, follow, head, GitError }

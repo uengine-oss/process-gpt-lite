@@ -433,7 +433,10 @@ class Runner extends EventEmitter {
     const tmp = path.join(st.dir, '.tmp')
     fs.mkdirSync(tmp, { recursive: true })
     return new Promise((resolve) => {
-      const child = spawn(bin, spec.args, { cwd: st.dir, env: C.cliEnv({ TMPDIR: tmp, TMP: tmp, TEMP: tmp }, this.searchPath), stdio: ['pipe', 'pipe', 'pipe'] })
+      // (Windows: claude.cmd · codex.cmd through cmd.exe — clis.startSpec)
+      const s = C.startSpec(bin, spec.args)
+      const child = spawn(s.file, s.args, { cwd: st.dir, env: C.cliEnv({ TMPDIR: tmp, TMP: tmp, TEMP: tmp }, this.searchPath), stdio: ['pipe', 'pipe', 'pipe'],
+        windowsVerbatimArguments: s.verbatim, windowsHide: true })
       st.child = child
       st.interrupted = false
       st.result = null
@@ -491,11 +494,17 @@ class Runner extends EventEmitter {
   // a path in the work folder as the folder's own (산출물/… rather than /Users/…/work/…)
   rel(st, text) {
     let t = String(text || '')
-    for (const d of [st.dir, st.realDir].filter(Boolean)) t = t.split(`${d}${path.sep}`).join('')
+    // (Windows: the CLI may spell the folder with either slash)
+    const dirs = [st.dir, st.realDir].filter(Boolean)
+    const prefixes = path.sep === '\\' ? dirs.flatMap((d) => [`${d}\\`, `${d.replace(/\\/g, '/')}/`]) : dirs.map((d) => `${d}/`)
+    for (const p of prefixes) t = t.split(p).join('')
     return t
   }
   endInput(st) { if (st.child && st.stdinOpen) { st.stdinOpen = false; try { st.child.stdin.end() } catch { /* gone */ } } }
+  // SIGINT first (Codex saves its session and stops); Windows has no signal to send, so there the CLI and its children stop at once
+  // (taskkill /T — a CLI started through cmd.exe would otherwise live on)
   kill(child) {
+    if (process.platform === 'win32') { C.killTree(child.pid); return }
     try { child.kill('SIGINT') } catch { /* gone */ }
     setTimeout(() => { if (child.exitCode == null && child.signalCode == null) try { child.kill('SIGTERM') } catch { /* gone */ } }, 8000).unref?.()
   }

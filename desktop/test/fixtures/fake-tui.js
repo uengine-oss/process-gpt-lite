@@ -6,6 +6,8 @@
 //   Claude Code (2.1.330, measured 2026-11-24 on this Mac): `--session-id <id>` | `--resume <id>`, `--settings <file>` whose hooks it runs
 //     (SessionStart when it can take input — after the folder-trust question, which it asks unless its config trusts the folder —,
 //     UserPromptSubmit, Stop with last_assistant_message, StopFailure); its transcript in $CLAUDE_CONFIG_DIR/projects/<folder>/<id>.jsonl.
+//     A hook with `args` is Claude Code's exec form (2.1.331: the program spawned directly, no shell); without, a shell command. Its
+//     config names a folder by its resolved path in NFC, with forward slashes on Windows (C:/Users/…).
 //     A message pasted while it works is taken into the running turn, after the directive at hand.
 //   Codex (0.162.1): `[resume <id>] -c projects."<dir>".trust_level="trusted" … -C <dir> [prompt]` — the prompt on the command line is
 //     submitted by itself; its rollout in $CODEX_HOME/sessions/Y/M/D/rollout-<time>-<id>.jsonl (session_meta, user_message, function
@@ -15,7 +17,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
-const { execSync } = require('node:child_process')
+const { execSync, spawnSync } = require('node:child_process')
 
 const kind = process.env.FAKE_CLI_KIND || (path.basename(process.argv[1]).includes('codex') ? 'codex' : 'claude')
 const args = process.argv.slice(2)
@@ -48,7 +50,13 @@ if (kind === 'claude') {
   fire = (name, extra = {}) => {
     const input = JSON.stringify({ session_id: session, transcript_path: txFile, cwd, hook_event_name: name, ...extra })
     for (const group of hooks[name] || []) for (const h of group.hooks || []) {
-      if (h.type === 'command') { try { execSync(h.command, { input, shell: '/bin/sh', stdio: ['pipe', 'ignore', 'ignore'] }) } catch (e) { log({ hookError: name, message: e.message }) } }
+      if (h.type !== 'command') continue
+      try {
+        if (Array.isArray(h.args)) {
+          const r = spawnSync(h.command, h.args, { input, stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true })
+          if (r.error || r.status !== 0) throw new Error(r.error?.message || `exit ${r.status}: ${String(r.stderr || '').slice(0, 300)}`)
+        } else execSync(h.command, { input, stdio: ['pipe', 'ignore', 'ignore'], ...(process.platform === 'win32' ? {} : { shell: '/bin/sh' }) })
+      } catch (e) { log({ hookError: name, message: e.message }) }
     }
   }
 } else {
@@ -209,7 +217,8 @@ async function main() {
   if (kind === 'claude') {
     let conf = {}
     try { conf = JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || '', '.claude.json'), 'utf8')) } catch { /* none */ }
-    trusted = conf.projects?.[cwd]?.hasTrustDialogAccepted === true
+    const key = process.platform === 'win32' ? cwd.normalize('NFC').replace(/\\/g, '/') : cwd.normalize('NFC')
+    trusted = conf.projects?.[key]?.hasTrustDialogAccepted === true
   } else trusted = args.some((a, i) => args[i - 1] === '-c' && a.includes(JSON.stringify(cwd)) && a.endsWith('trust_level="trusted"'))
   if (!trusted) {
     log({ session, trustAsked: true })

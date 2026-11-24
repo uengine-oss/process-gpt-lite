@@ -27,20 +27,29 @@ const CLIS = {
 const CLAUDE_TOOLS = 'Read,Write,Edit,MultiEdit,Glob,Grep,TodoWrite,Skill,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(wc:*),Bash(mkdir:*)'
 const CLAUDE_DENY = 'Bash(git:*),Bash(curl:*),Bash(wget:*),Bash(rm -rf:*),WebFetch'
 
-// An app opened from Finder gets PATH=/usr/bin:/bin:/usr/sbin:/sbin: the usual install places too (Ontological Studio's rule)
+const WIN = process.platform === 'win32'
+
+// An app opened from Finder gets PATH=/usr/bin:/bin:/usr/sbin:/sbin: the usual install places too (Ontological Studio's rule).
+// Windows: npm's global shims (claude.cmd · codex.cmd), the native Claude Code installer (claude.exe in ~\.local\bin), scoop · pnpm · bun,
+// and Git for Windows (the runner's git)
 function augmentedPath(base = process.env.PATH || '') {
   const home = os.homedir()
-  const extra = process.platform === 'win32'
-    ? [path.join(process.env.APPDATA || '', 'npm'), path.join(home, '.local', 'bin'), path.join(home, 'scoop', 'shims')]
+  const env = (k) => process.env[k] || ''
+  const extra = WIN
+    ? [env('APPDATA') && path.join(env('APPDATA'), 'npm'), path.join(home, '.local', 'bin'), path.join(home, 'scoop', 'shims'),
+        env('LOCALAPPDATA') && path.join(env('LOCALAPPDATA'), 'pnpm'), path.join(home, '.bun', 'bin'),
+        env('ProgramFiles') && path.join(env('ProgramFiles'), 'Git', 'cmd'), env('LOCALAPPDATA') && path.join(env('LOCALAPPDATA'), 'Programs', 'Git', 'cmd')]
     : ['/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.local', 'bin'), path.join(home, '.bun', 'bin'), path.join(home, '.volta', 'bin'),
         path.join(home, '.npm-global', 'bin'), path.join(home, '.claude', 'local')]
   const dirs = base.split(path.delimiter).filter(Boolean)
-  for (const d of extra) if (!dirs.includes(d)) dirs.push(d)
+  const seen = (d) => dirs.some((x) => (WIN ? x.toLowerCase() === d.toLowerCase() : x === d))
+  for (const d of extra) if (d && !seen(d)) dirs.push(d)
   return dirs.join(path.delimiter)
 }
 
+// Windows: the PATHEXT order (claude.exe before claude.cmd in one folder); never the extensionless sh script npm also writes there
 function which(name, searchPath = augmentedPath()) {
-  const exts = process.platform === 'win32' ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').filter(Boolean) : ['']
+  const exts = WIN ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter((e) => /^\.(com|exe|bat|cmd)$/i.test(e)) : ['']
   for (const dir of searchPath.split(path.delimiter).filter(Boolean)) {
     for (const ext of exts) {
       const p = path.join(dir, name + ext.toLowerCase())
@@ -50,13 +59,55 @@ function which(name, searchPath = augmentedPath()) {
   return null
 }
 
+// ---------- starting a CLI on Windows ----------
+// npm's claude.cmd · codex.cmd are batch files: Node refuses to start them without a shell (CVE-2024-27980) and ConPTY runs only
+// programs, so they go through cmd.exe — `cmd.exe /d /s /c "<command>"`, the whole command quoted once and every argument escaped the
+// way cross-spawn does it: quoted for the program (MSVCRT rules), then each cmd.exe metacharacter behind a caret — twice, because the
+// batch file's %* is parsed by cmd.exe once more (agent-share pty_session.py ConPtySession takes the same road). A .exe (the native
+// claude.exe) starts directly.
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g
+function quoteArg(arg) {
+  let out = '"'
+  let bs = 0
+  for (const ch of String(arg)) {
+    if (ch === '\\') { bs++; continue }
+    if (ch === '"') { out += `${'\\'.repeat(bs * 2 + 1)}"`; bs = 0; continue }
+    out += '\\'.repeat(bs) + ch
+    bs = 0
+  }
+  return `${out}${'\\'.repeat(bs * 2)}"`
+}
+const isBatch = (file) => /\.(cmd|bat)$/i.test(String(file || ''))
+const comspec = () => process.env.ComSpec || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe')
+// the command line cmd.exe runs for a batch file and its arguments (what goes inside /c "…")
+function batchLine(file, args = []) {
+  const cmd = String(file).replace(CMD_META, '^$1')
+  return [cmd, ...args.map((a) => quoteArg(a).replace(CMD_META, '^$1').replace(CMD_META, '^$1'))].join(' ')
+}
+// → {file, args, verbatim}: how to start `file args` on this computer (child_process: windowsVerbatimArguments = verbatim;
+// node-pty: args as one string when verbatim)
+function startSpec(file, args = [], platform = process.platform) {
+  if (platform !== 'win32' || !isBatch(file)) return { file, args, verbatim: false }
+  return { file: comspec(), args: ['/d', '/s', '/c', `"${batchLine(file, args)}"`], verbatim: true }
+}
+
+// a process and everything it started: Windows has no signals to send down a tree (a CLI under cmd.exe would live on), so taskkill /T /F
+function killTree(pid, signal = 'SIGTERM') {
+  if (!pid) return
+  if (WIN) {
+    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => {})
+    return
+  }
+  try { process.kill(pid, signal) } catch { /* gone */ }
+}
+
 // the environment a CLI runs in: the person's own (their CLI's sign-in, their keys), without what would confuse it or leak —
 // a parent Claude Code session's markers, git configuration given by environment (a folder token), Electron's own switch
 function cliEnv(extra = {}, searchPath = augmentedPath()) {
   const env = {}
   for (const [k, v] of Object.entries(process.env)) {
     // (a parent Claude Code's markers make a child think it is a sub-session; its own config folder is the person's sign-in)
-    if ((k.startsWith('CLAUDE') && k !== 'CLAUDE_CONFIG_DIR') || k.startsWith('GIT_CONFIG_') || k === 'ELECTRON_RUN_AS_NODE' || k.startsWith('PGL_')) continue
+    if ((k.startsWith('CLAUDE') && k !== 'CLAUDE_CONFIG_DIR') || k.startsWith('GIT_CONFIG_') || k.toUpperCase() === 'ELECTRON_RUN_AS_NODE' || k.startsWith('PGL_')) continue
     if (/^path$/i.test(k)) continue
     env[k] = v
   }
@@ -64,7 +115,9 @@ function cliEnv(extra = {}, searchPath = augmentedPath()) {
 }
 
 const run = (file, args, { timeout = 8000, env } = {}) => new Promise((resolve) => {
-  execFile(file, args, { timeout, env: env || cliEnv(), maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: String(stdout || ''), stderr: String(stderr || '') }))
+  const s = startSpec(file, args)
+  execFile(s.file, s.args, { timeout, env: env || cliEnv(), maxBuffer: 1024 * 1024, windowsVerbatimArguments: s.verbatim, windowsHide: true },
+    (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: String(stdout || ''), stderr: String(stderr || '') }))
 })
 const versionOf = (text) => (/(\d+\.\d+\.\d+(?:[-.][\w.]+)?)/.exec(text || '') || [])[1] || null
 
@@ -159,4 +212,4 @@ function parse(agent, line) {
   return []
 }
 
-module.exports = { CLIS, CLAUDE_TOOLS, augmentedPath, which, cliEnv, detect, command, userLine, parse, versionOf }
+module.exports = { CLIS, CLAUDE_TOOLS, augmentedPath, which, cliEnv, detect, command, userLine, parse, versionOf, startSpec, batchLine, quoteArg, isBatch, killTree }
