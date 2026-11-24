@@ -221,14 +221,18 @@ export async function recentMail(userId, sinceMs) {
 }
 
 // ---------- triage ----------
+const CARD_KINDS = ['calendar', 'reply', 'task']
 const TRIAGE = `You read a user's newest emails and decide what their assistant should do.
-Return JSON {"actions":[{"mail_id","verb","text","icon_domain","due","prompt"}],"brief":"..."}.
+Return JSON {"actions":[{"mail_id","verb","kind","text","icon_domain","due","prompt"}],"brief":"..."}.
 - verb: one English word that reads as a button: Reply, Pay, Release, Remind, Add, Review, Call, Book, Sign.
+- kind: what pressing the card does — "calendar" (puts an event with its date on the user's own calendar), "reply" (writes the
+  sender a reply mail), "task" (anything else).
 - text: Korean, one line, specific (who/what/amount/date). Continue naturally after the verb.
 - icon_domain: sender's company domain for a logo (e.g. lgcns.com), or "".
 - prompt: the full instruction the assistant will execute when the user taps the button.
 - Skip newsletters, ads and anything not needing action. 0-4 actions.
-- brief: 1-3 Korean 해요체 sentences on what matters most, or "" when nothing does.
+- brief: 1-3 Korean 해요체 sentences on what matters most, or "" when nothing does. Say what the mails ask, not that you will do
+  it: nothing is added, sent or paid until the user presses its card.
 Also return "drafts":[{"mail_id","customer","items":[{"kind","format","name"}],"summary"}] for mails that ask the user to
 send documents back (견적서·제안서·계획서·보고서·설계도 …): kind is the Korean document word, format one of xlsx|hwpx|docx|pptx|dxf
 (견적서·예산·단가표 → xlsx; 제안서·계획서·공문 → hwpx unless the mail names another format; 설계도·평면도·도면·배치도 → dxf,
@@ -238,13 +242,16 @@ also when a design proposal needs a drawing the mail does not name), name a file
 // English mode: the same contract, every text a person reads in English, and a proposal as a Word file
 // (Hangul hwpx is the Korean standard format; an English reader gets docx unless the mail names hwpx)
 const TRIAGE_EN = `You read a user's newest emails and decide what their assistant should do.
-Return JSON {"actions":[{"mail_id","verb","text","icon_domain","due","prompt"}],"brief":"..."}.
+Return JSON {"actions":[{"mail_id","verb","kind","text","icon_domain","due","prompt"}],"brief":"..."}.
 - verb: one English word that reads as a button: Reply, Pay, Release, Remind, Add, Review, Call, Book, Sign.
+- kind: what pressing the card does — "calendar" (puts an event with its date on the user's own calendar), "reply" (writes the
+  sender a reply mail), "task" (anything else).
 - text: English, one line, specific (who/what/amount/date). Continue naturally after the verb.
 - icon_domain: sender's company domain for a logo (e.g. lgcns.com), or "".
 - prompt: the full instruction the assistant will execute when the user taps the button, in English.
 - Skip newsletters, ads and anything not needing action. 0-4 actions.
-- brief: 1-3 friendly English sentences on what matters most, or "" when nothing does.
+- brief: 1-3 friendly English sentences on what matters most, or "" when nothing does. Say what the mails ask, not that you
+  will do it: nothing is added, sent or paid until the user presses its card.
 Also return "drafts":[{"mail_id","customer","items":[{"kind","format","name"}],"summary"}] for mails that ask the user to
 send documents back (quote, proposal, plan, report, drawing …): kind is the English document word in lower case
 (quote, proposal, floor plan …), format one of xlsx|docx|pptx|hwpx|dxf (quote, budget, price list → xlsx; proposal,
@@ -295,7 +302,9 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
     // (a Gmail mail keeps its thread: the next mail of the thread finds the work this one became — lib/mailFlow.js)
     const [row] = await q(
       `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
-      [userId, a.verb, a.text, iconDomain(acc.provider, src, a.icon_domain), a.due || null, a.prompt, src ? { mail_id: src.id, from: src.from, subject: src.subject, ...(src.thread ? { thread_id: src.thread } : {}) } : null])
+      [userId, a.verb, a.text, iconDomain(acc.provider, src, a.icon_domain), a.due || null, a.prompt, src ? { mail_id: src.id, from: src.from, subject: src.subject, ...(src.thread ? { thread_id: src.thread } : {}),
+        // what the card is for, as the triage read it (lib/mailCard.js — the sheet's main action follows it)
+        ...(CARD_KINDS.includes(a.kind) ? { kind: a.kind, kind_read: { by: 'triage', at: new Date().toISOString() } } : {}) } : null])
     emit(userId, 'action', row)
     if (row.source?.mail_id) cards.push(row)
   }

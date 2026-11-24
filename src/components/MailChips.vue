@@ -8,6 +8,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
+import { verbLabel } from '../mailKind.js'
 
 const props = defineProps({ refs: { type: Array, default: () => [] }, event: { type: String, default: '' } })
 const app = useApp()
@@ -21,10 +22,16 @@ const instOf = (r) => {
   const live = app.actions.find((a) => a.id === r.actionId)?.source?.inst
   return live?.instId ? { instId: live.instId, name: live.name || '' } : r.inst?.instId ? r.inst : null
 }
+// the chip's button word in the person's language, 「일정 추가」 for a calendar card — what the card is for as the card on Home knows
+// it now (decided when its sheet was first opened), else as the message was told (src/mailKind.js)
+const verbOf = (r) => {
+  const card = app.actions.find((a) => a.id === r.actionId)
+  return verbLabel(card || { verb: r.verb, source: { mail_id: r.mailId || r.actionId, ...(r.kind ? { kind: r.kind } : {}) } })
+}
 const chips = computed(() => props.refs.filter((r) => r && (r.actionId || r.mailId)).map((r) => {
   const inst = instOf(r)
   const label = inst ? `루틴 · ${inst.name || '진행 중인 일'}` : r.text || `메일 · ${r.subject || '(제목 없음)'}`
-  return { r, inst, label, verb: inst ? '' : r.text ? r.verb : '' }
+  return { r, inst, label, verb: inst ? '' : r.text ? verbOf(r) : '' }
 }))
 
 async function open(x) {
@@ -41,7 +48,7 @@ async function open(x) {
     <button v-for="x in chips" :key="x.r.actionId || x.r.mailId" class="mchip press" :class="{ inst: !!x.inst, busy: busy && busy === (x.r.actionId || x.r.mailId) }"
       :data-test="x.inst ? 'mail-chip-inst' : 'mail-chip'" :title="x.label" @click="open(x)">
       <Icon :name="x.inst ? 'refresh' : 'mail'" :size="15" />
-      <span v-if="x.verb" class="v">{{ x.verb }}</span>
+      <span v-if="x.verb" class="v" data-test="mail-chip-verb">{{ x.verb }}</span>
       <span class="t">{{ x.label }}</span>
       <Icon name="chevron" :size="13" />
     </button>

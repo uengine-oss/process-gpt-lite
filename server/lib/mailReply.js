@@ -127,9 +127,10 @@ export async function sourceOf(userId, provider, mailId, { to = '' } = {}) {
 }
 
 // ---------- the card's mail, the files made for it ----------
-// A card whose job is the reply: the triage's 「Reply」 verb, or the card that came with the documents
-// made for the mail (「… 초안 검토하고 회신하기」). Its reply is never handed to the agent (POST /run).
-export const isReplyCard = (a) => !!a?.source?.mail_id && (a.verb === 'Reply' || !!a.source.drafts?.length)
+// A card whose job is the reply: the triage's 「Reply」 verb, the card that came with the documents
+// made for the mail (「… 초안 검토하고 회신하기」), or one the triage or the judge read as a reply
+// (source.kind — lib/mailCard.js). Its reply is never handed to the agent (POST /run).
+export const isReplyCard = (a) => !!a?.source?.mail_id && (a.verb === 'Reply' || !!a.source.drafts?.length || a.source.kind === 'reply')
 
 async function cardOf(userId, actionId) {
   const [a] = await q('select * from pro_actions where id=$1 and user_id=$2', [actionId, userId])

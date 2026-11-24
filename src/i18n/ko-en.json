@@ -2639,7 +2639,31 @@
   "에이전트가 적은 기억 → 이 일의 방식": "What the agent noted → how this work is done",
   "실행 방식": "How steps run",
   "내 터미널 그대로 — 내 CLI 의 로그인 · 설정으로 돌고, 실행 카드에서 그 터미널을 봐요": "In my own terminal — my CLI's sign-in and settings; the run card shows that terminal",
-  "터미널 없이(헤드리스) — 이 앱에서 터미널 모듈을 불러오지 못했어요": "Without a terminal (headless) — this app could not load its terminal module"
+  "터미널 없이(헤드리스) — 이 앱에서 터미널 모듈을 불러오지 못했어요": "Without a terminal (headless) — this app could not load its terminal module",
+  "무슨 일인지 살펴보는 중…": "Working out what this card is for…",
+  "캘린더에 넣을 일정": "Event for your calendar",
+  "일정 정보를 읽는 중…": "Reading the event details…",
+  "이미 캘린더에 있어요": "Already on your calendar",
+  "캘린더에 추가했어요": "Added to your calendar",
+  "데모 메일함이라 실제 캘린더에는 넣지 않았어요.": "This is the demo mailbox, so it wasn't added to a real calendar.",
+  "캘린더에서 보기": "Open in Calendar",
+  "메일에서 일정 정보를 읽지 못했어요. 직접 넣어 주세요.": "I couldn't read the event from the mail. Please fill it in.",
+  "길이": "Length",
+  "종일": "All day",
+  "장소": "Place",
+  "날짜를 넣어 주세요": "Add the date",
+  "메일에 적힌 때": "Time in the mail",
+  "메일에 시각이 없어요. 시각을 넣거나 종일로 두세요.": "The mail gives no time. Add a start time, or make it all day.",
+  "이미 지난 때예요. 날짜와 시각을 확인해 주세요.": "That time has passed. Check the date and time.",
+  "Google 캘린더가 연결되어 있지 않아요. 설정에서 Google을 연결하면 여기서 일정을 넣을 수 있어요.": "Google Calendar isn't connected. Connect Google in Settings to add events here.",
+  "Google 캘린더에 일정을 넣을 권한이 없어요. 설정에서 Google을 다시 연결하면 여기서 넣을 수 있어요.": "Google hasn't allowed adding calendar events. Connect Google again in Settings to add them here.",
+  "넣는 중…": "Adding…",
+  "캘린더에 추가": "Add to calendar",
+  "캘린더에 추가를 누르기 전에는 아무것도 만들지 않아요.": "Nothing is created until you press Add to calendar.",
+  "답장도 쓰기": "Write a reply too",
+  "일정 추가": "Add to calendar",
+  "일정 기록함": "Event recorded",
+  "캘린더에 넣음": "On calendar"
  },
  "patterns": [
   [
@@ -6322,6 +6346,11 @@
    ".ontomap",
    "요약",
    "Summary"
+  ],
+  [
+   ".event .field",
+   "제목",
+   "Title"
   ]
  ]
 }
