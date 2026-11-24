@@ -11,6 +11,8 @@ import { load as loadDock, save as saveDock, reduce as reduceDock, effective as 
 import { openPlan, closesMessenger } from '../openPlan.js'
 import { craftMissing } from '../officeEditor.js'
 import { viewW } from '../viewport.js'
+// one copy per message id when what came live and what was asked for are put together
+import { merged } from '../messageMerge.js'
 
 const store = () => { try { return window.localStorage } catch { return null } }
 
@@ -58,7 +60,8 @@ export const useTeam = defineStore('team', {
       window.addEventListener('pgpt:event', (e) => this.onEvent(e.detail))
       await Promise.all([this.loadUnread(), this.loadThreads(), this.loadInbox()]).catch(() => {})
     },
-    async loadUnread() { this.unread = await api('/team/unread').catch(() => this.unread) },
+    // (asked again on every read, and a room in a meeting is read again and again as its cards change: only the newest answer counts)
+    async loadUnread() { const r = await this.latest('unread', '/team/unread'); if (r) this.unread = r },
     // Lists asked for again and again (on open, on every arriving message) answer out of order on a busy
     // server: only the newest request's answer is kept — an older one, asked before a share arrived,
     // must not put back the inbox without it (the share was missing on the first open)
@@ -121,14 +124,21 @@ export const useTeam = defineStore('team', {
         const m = data.message
         const list = this.msgs[data.threadId]
         // an agent's reply arrives twice: inserted, then updated with its shared files — replace in place
+        // (a meeting's card and 회의록 block too, as they change; the minutes come a while after the end)
         const at = list ? list.findIndex((x) => x.id === m.id) : -1
         if (list && at >= 0) list[at] = m
         else if (list) list.push(m)
+        this._live?.[data.threadId]?.set(m.id, m)
         if (this.needsTr(m, { live: true })) this.queueTr([m.id], String(m.kind).startsWith('meeting') ? 2500 : 150)
         const looking = this.open && this.active === data.threadId && document.visibilityState === 'visible'
+        // news once per message: an update of one already here (or already counted) is not another unread one
+        const seen = (this._seen ||= new Set())
+        const news = at < 0 && !seen.has(m.id)
+        seen.add(m.id)
+        if (seen.size > 2000) seen.delete(seen.values().next().value)
         if (!m.mine) {
           if (looking) this.markRead(data.threadId)
-          else {
+          else if (news) {
             this.unread = { total: this.unread.total + 1, byThread: { ...this.unread.byThread, [data.threadId]: (this.unread.byThread[data.threadId] || 0) + 1 } }
             if (!this.open) this.say(`${m.sender.name}님: ${m.kind === 'share' ? `${m.artifacts[0]?.name || '산출물'} 공유` : m.body.slice(0, 40)}`, { threadId: data.threadId, messageId: m.id })
           }
@@ -167,11 +177,29 @@ export const useTeam = defineStore('team', {
     async openThread(id, messageId) {
       this.active = id
       this.focus = messageId || null
-      const [r, a] = await Promise.all([api(`/team/threads/${id}/messages`), api(`/team/threads/${id}/suggestions`).catch(() => null)])
-      this.msgs[id] = r.messages
+      // what comes live while the page is asked for stays (it replaced the list it came into before)
+      const live = ((this._live ||= {})[id] = new Map())
+      let r, a
+      try {
+        ;[r, a] = await Promise.all([api(`/team/threads/${id}/messages`), api(`/team/threads/${id}/suggestions`).catch(() => null)])
+      } finally { if (this._live[id] === live) delete this._live[id] }
+      this.msgs[id] = merged(r.messages, [...live.values()])
       this.takeTr(r.messages)
       if (a) { this.suggestions[id] = a.suggestions; this.assistOn[id] = a.assist && a.enabled; this.sugTr(a.suggestions) }
       this.markRead(id)
+    },
+    // The open conversation once more from the server, merged by message id into what is shown — after something that
+    // changed the room while a live push may have been missed (a meeting started or ended, its minutes are in: they come
+    // a while after the end, 2026-11-24 「나갔다 들어와야 업데이트됨」). Nothing for a room that is not open.
+    async catchUp(id) {
+      if (!id || this.active !== id || !this.msgs[id]) return
+      const r = await api(`/team/threads/${id}/messages`).catch(() => null)
+      if (!r || this.active !== id) return
+      const fresh = r.messages.filter((m) => !(this.msgs[id] || []).some((x) => x.id === m.id && JSON.stringify(x) === JSON.stringify(m)))
+      if (!fresh.length) return
+      this.msgs[id] = merged(this.msgs[id] || [], r.messages)
+      this.takeTr(fresh)
+      this.loadThreads()
     },
     async markRead(id) {
       const n = this.unread.byThread[id] || 0
