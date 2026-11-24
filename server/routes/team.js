@@ -18,6 +18,7 @@ import * as RT from '../lib/team/roomTranslate.js'
 import { uploadCard } from '../lib/team/uploads.js'
 // file mentions (links to shared folders' files) and 「@AI …」 (lib/fileRefs.js · lib/team/aiHelp.js)
 import * as FR from '../lib/fileRefs.js'
+import * as MM from '../lib/mailMention.js'
 import * as AI from '../lib/team/aiHelp.js'
 
 // does the deepagents this server talks to unfold a room's branch and commit its turns? (/health worktree)
@@ -176,7 +177,9 @@ export function teamRoutes(auth) {
     if (!body && !files.length && !refs.length) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
     rateLimit(req.user.id)
     const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 8) : []
-    const m = await M.post(req.user, req.params.id, { kind: files.length ? 'share' : refs.length ? 'fileref' : 'text', body, refs, ai, mentions,
+    // (a mail mention — lib/mailMention.js — is 'mailref' when it is all the message carries)
+    const kind = files.length ? 'share' : refs.length ? (refs.every((x) => x.type === 'mail') ? 'mailref' : 'fileref') : 'text'
+    const m = await M.post(req.user, req.params.id, { kind, body, refs, ai, mentions,
       attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
     if (ai) AI.answer(req.user, req.params.id, m).catch((e) => console.warn('[ai-help]', e.message))
     return m
@@ -187,6 +190,15 @@ export function teamRoutes(auth) {
   // 권한 요청 on a mention of a folder I cannot read: the folder's owners (and who mentioned it) are told
   r.post('/team/refs/request', auth, h(async (req) => FR.requestAccess(req.user, String(req.body.messageId || ''), Number(req.body.index) || 0)
     .catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('요청하지 못했어요.', "I couldn't send the request.")) })))
+  // a mail mention's body, shared with the room or no longer (its owner only — lib/mailMention.js): every member's card changes at once
+  r.post('/team/refs/share', auth, h(async (req) => {
+    const messageId = String(req.body.messageId || ''), index = Number(req.body.index) || 0
+    const [row] = /^[\w.:-]{1,120}$/.test(messageId) ? await q('select uuid, id, messages from chats where uuid=$1 and tenant_id=$2', [messageId, config.tenantId]) : []
+    if (!row || !(await M.memberThread(req.user, row.id))) throw new TeamError(404, L('메시지를 찾지 못했어요.', "I couldn't find that message."))
+    const updated = await MM.share(req.user, row, index, req.body.on !== false).catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('바꾸지 못했어요.', "I couldn't change it.")) })
+    await M.deliver(updated.uuid)
+    return M.message(req.user, updated.uuid)
+  }))
   assistRoutes(r, auth, h)
   r.post('/team/threads/:id/read', auth, h((req) => M.markRead(req.user, req.params.id)))
   r.get('/team/unread', auth, h((req) => M.unread(req.user)))

@@ -238,7 +238,12 @@ test.describe('메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에�
     await expect(sheet.locator('[data-test="flow-question"]')).toBeVisible()
     await expect(sheet.locator('[data-test="flow-join"]')).toContainText('같은 일 90%')
     // the question, its buttons and the sheet fit the phone: nothing runs off to the side
-    const over = await sheet.evaluate((el) => [...el.querySelectorAll('*')].some((x) => x.getBoundingClientRect().right > window.innerWidth + 1))
+    // (a row that scrolls sideways — the sheet's follow-up actions, spec mail-card-actions — keeps what does not fit inside itself: only the row counts)
+    const over = await sheet.evaluate((el) => [...el.querySelectorAll('*')].some((x) => {
+      if (x.getBoundingClientRect().right <= window.innerWidth + 1) return false
+      for (let p = x.parentElement; p && p !== el; p = p.parentElement) if (['auto', 'scroll', 'hidden'].includes(getComputedStyle(p).overflowX)) return p.getBoundingClientRect().right > window.innerWidth + 1
+      return true
+    }))
     expect(over).toBe(false)
     await settled(sheet)
     await shot(page, 'f-mt-05a.png')

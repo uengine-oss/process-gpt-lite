@@ -1,0 +1,44 @@
+# 서버 시험 — 2026-11-25 00:13 KST, 브랜치 feat/mail-card-more-actions (기준 a0381f6)
+
+## node --test --test-concurrency=1 test/mailFollow.test.js
+✔ chooseSome: 첫 글자 확률이 문턱 이상인 것만, 큰 것부터, 최대 개수까지 (1.429625ms)
+✔ chooseSome: 확률을 주지 않는 모델은 JSON 으로 — 없는 글자 · 문턱 아래는 버리고, 읽지 못하면 null (0.274583ms)
+✔ 할 일 고르기(가짜 판정 모델): 보기는 카탈로그(고정 · 맞지 않는 것 빼고) + 「그 밖」, 「그 밖」은 고르지 않음, 판정은 메일 내용을 자료로 읽음 (0.648542ms)
+✔ 시트의 줄: 고정(이 회사 알아보기 · 채팅에서 이어서)이 먼저, 고른 것은 맞을 때만, 저마다 할 일을 말한다(어디에 남는지까지) (0.496208ms)
+✔ 끌기 내용(화면): 메일은 kind mail — 카드 id 하나, 제목 · 보낸 사람, 다른 모양은 버림, 놓는 곳의 말 (0.398167ms)
+✔ 메신저의 메일 멘션 권한: 주인 · 공유받음 · 요약만 · 요청함 · 없어짐 — 남기는 모양에는 본문이 없다 (0.119167ms)
+✔ 에이전트가 읽는 메일 맥락: 보낸 사람 · 받은 때 · 제목 · 첨부 이름 · 스레드 링크 · 이어진 일, 본문은 잘라서 자료로 (9.897667ms)
+✔ Home 카드의 한 줄: 하는 중인 것이 먼저, 아니면 가장 늦게 끝난 결과 — 어디로 여는지 (0.825ms)
+✔ 영어 화면: 줄의 이름 · 할 일의 말은 스킬의 영어(labelEn · saysEn), 결과가 남는 곳도 영어 (0.321875ms)
+ℹ tests 9
+ℹ pass 9
+ℹ fail 0
+
+## node --test --test-concurrency=1 test/mailFollow.integration.test.js
+✔ 시트의 할 일 줄: 고정 둘 + 판정 모델이 고른 것(카드에 남고 다시 묻지 않음) · 판정 모델이 꺼지면 고정만(남기지 않음) · 남의 카드 403 (189.401084ms)
+✔ 「이 회사 알아보기」: 에이전트 턴에 메일 맥락과 Lite 가 아는 것 → 답은 메일의 대화(메인 채팅의 새 대화) · 카드가 그 자리를 앎 · 두 번 눌러도 한 번 (272.720625ms)
+✔ 인스턴스에 이어진 메일: 그 인스턴스 대화에서 돌고 작업 폴더에 조사 파일 — 메인 채팅에는 없다 (475.603958ms)
+✔ AI 채팅에 놓은 메일: 에이전트가 받은 요청에 메일 맥락 · 보낸 말에 메일 칩 · 남의 메일은 칩에 까닭 (247.379833ms)
+✔ 메신저의 메일 멘션: 동료는 요약만(본문 없음 · 열기 403) → 본문 보기 요청(주인에게 알림) → 주인이 본문 공유 → 동료가 본문을 봄 (336.853125ms)
+ℹ tests 5
+ℹ pass 5
+ℹ fail 0
+
+## 회귀
+- mailCard.test.js: pass 8 fail 0 
+- fileMention.test.js: pass 11 fail 0 
+- messengerDock.test.js: pass 6 fail 0 
+- chatThreadList.test.js: pass 10 fail 0 
+- josa.test.js: pass 3 fail 0 
+- llm-logprob.test.js: pass 9 fail 0 
+- lang.test.js: pass 9 fail 0 
+- en-fix.test.js: pass 9 fail 0 
+- mailCard.integration.test.js: pass 11 fail 0 
+- mailReply.integration.test.js: pass 10 fail 0 
+- mailFlow.integration.test.js: pass 12 fail 0 
+- mailWork.integration.test.js: pass 10 fail 0 
+- fileMention.integration.test.js: pass 12 fail 0 
+- homeCards.integration.test.js: pass 3 fail 0 
+- filing.integration.test.js: pass 10 fail 0 
+- agentTurn.integration.test.js: pass 11 fail 0 
+- mailPollRace.integration.test.js: pass 2 fail 0 

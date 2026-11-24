@@ -306,7 +306,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     pointed = await import('./fileRefs.js').then((m) => m.turnRefs(user, refs)).catch((e) => { console.warn('[file-refs] turn', e.message); return { context: '', shown: [] } })
     if (pointed?.context) context = [context, pointed.context].filter(Boolean).join('\n\n')
   }
-  if (!text?.trim() && (files.length || pointed?.shown?.some((x) => !x.error))) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
+  // (only a mail pointed at — lib/mailMention.js: the words say so)
+  const onlyMail = !files.length && pointed?.shown?.length && pointed.shown.every((x) => x.as === 'mail' || x.error)
+  if (!text?.trim() && (files.length || pointed?.shown?.some((x) => !x.error))) text = onlyMail ? L('이 메일을 확인해 줘', 'Please look at this mail') : L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
   // only dragged files, and none of them usable: nothing goes to the agent (the route says so — not an empty turn)
   if (!text?.trim() && pointed) throw Object.assign(new Error(L('보낼 말이나 쓸 수 있는 파일이 없어요.', 'There is nothing usable to send.')), { status: 400, empty: true })
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
@@ -931,6 +933,9 @@ async function routeFirst({ user, thread, text, ahead = [] }) {
 }
 // the router records each answered turn of a conversation it routed (context_threads); a turn routed
 // ahead of time goes straight to the agent, so the same row is written here (router/store.py touch)
+// (a conversation started outside the composer — a mail's follow-up action, lib/mailFollow.js — is filed the same way: it is listed in
+// the chat's 대화 and the router can route later messages into it)
+export const fileConversation = (user, { conversationId, title, kind = 'conversation' }, text, answer = '') => touchContext(user, { conversation_id: conversationId, context: { title, kind } }, text, answer)
 async function touchContext(user, routing, text, answer) {
   const prev = routing.context || {}
   const title = prev.title || text.trim().split('\n')[0].slice(0, 60)
@@ -977,7 +982,9 @@ export async function stopTurns({ user, session, threadId, conversation }) {
   return { stopped: list.length, waiting: turns.waiting({ userId: user.id, threadId }).length }
 }
 
-export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag }) {
+// pin: the conversation this turn goes to, given by the caller ({conversationId, title} — a mail's follow-up action, lib/mailFollow.js):
+// taken before anything else could take the thread's pinned one (a pin set in the map could be picked up by another turn of the thread)
+export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag, pin: given = null }) {
   let thread = await getThread(user.id, threadId)
   // a main chat left standing in a shared folder's run room (as folder turns used to leave it) does
   // not answer the next message there
@@ -987,8 +994,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   const uploads = attached.get(threadId) || []
   attached.delete(threadId)
-  const pin = pinned.get(threadId)
-  pinned.delete(threadId)
+  const pin = given?.conversationId ? { conversationId: String(given.conversationId), title: String(given.title || '') } : pinned.get(threadId)
+  if (!given?.conversationId) pinned.delete(threadId)
   // In the main chat, several things run side by side (hark): the context-router decides which
   // conversation this message continues. Projects, instances, skill authoring and scheduled
   // runs already know their conversation and go straight to the agent.

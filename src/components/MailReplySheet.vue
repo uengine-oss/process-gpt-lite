@@ -7,12 +7,17 @@ import { uploadAttachment } from '../api.js'
 import FolderSuggest from './folders/FolderSuggest.vue'
 import { cardKind, verbLabel } from '../mailKind.js'
 import { isEnglish } from '../i18n/lang.js'
+// not only the reply: the row of follow-up actions (server lib/mailFollow.js), and the mail itself as a mention to drag (src/fileDrag.js)
+import MailFollowRow from './MailFollowRow.vue'
+import { startDrag, mailItem } from '../fileDrag.js'
 
 // A mail's Home card, opened: the mail as it arrived, and the card's own work as the main action — a reply the person reads,
 // changes and sends themselves (lib/mailReply.js), an event they check and add to their calendar (lib/mailCard.js), or the card's
 // task handed to the agent. Nothing leaves or is made before its button — a card no longer hands the agent "reply to …"
 // (2026-11-23: the agent's mail tool sent it at once, to the wrong address), and a calendar card no longer opens a reply
-// (2026-11-24: 「캘린더에 추가를 눌렀더니 왠 답장하기가 열리는...」).
+// (2026-11-24: 「캘린더에 추가를 눌렀더니 왠 답장하기가 열리는...」). Not only the reply (2026-11-24 「메일에 대해서 무조건 답장만 하지는 않는다 …
+// 채팅에 멘션해서 뭔가 후속 작업을 할 수 있어야」): every sheet has a row of follow-up actions above its own work (MailFollowRow — 이 회사
+// 알아보기 · 채팅에서 이어서 · the judge's picks), and its head's handle drags the mail into the AI chat or the messenger as a mention.
 const props = defineProps({ action: Object })
 const emit = defineEmits(['close'])
 const app = useApp()
@@ -63,7 +68,8 @@ const flow = ref(null)            // {linked} | {matches, joins, declined}
 const flowLoading = ref(true)
 const flowBusy = ref('')
 const flowErr = ref('')
-const live = computed(() => app.actions.find((a) => a.id === id) || props.action)
+// (a card no longer on Home — done — still changes: its newest row from the page's events)
+const live = computed(() => app.actions.find((a) => a.id === id) || app.cardRows[id] || props.action)
 
 // ---------- what this card is for (server lib/mailCard.js) ----------
 // reply: the triage's 「Reply」, a card with the documents made for the mail, or one read as a reply — its draft is the sheet;
@@ -248,14 +254,37 @@ async function send() {
 }
 
 function toAgent() { app.runAction(props.action); emit('close') }
+
+// ---------- the mail as a mention (src/fileDrag.js mailItem) ----------
+// the head's handle is dragged onto the AI chat's composer or a messenger conversation: while it is, the sheet steps aside (the veil lets the
+// pointer through, the sheet fades) so what is under it takes the drop
+const passing = ref(false)
+function dragMail(e) {
+  startDrag(e, [mailItem(live.value)])
+  // (after the drag has started: changing the source in dragstart itself can cancel the drag)
+  setTimeout(() => { passing.value = true }, 0)
+}
+function dragDone() { passing.value = false }
+onBeforeUnmount(dragDone)
+// 폴더에 정리: the attachments' folder suggestions come into view
+const origEl = ref(null)
+const filesLit = ref(false)
+function showFiles() {
+  origEl.value?.querySelector('.atts')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  filesLit.value = true
+  setTimeout(() => { filesLit.value = false }, 2200)
+}
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="veil" @click.self="emit('close')">
+    <div class="veil" :class="{ passing }" @click.self="emit('close')">
       <div class="sheet glass blur-in" role="dialog" :aria-label="action.text" data-test="mail-sheet">
         <header>
           <div>
+            <!-- the mail as a mention: dragged onto the AI chat or a messenger conversation -->
+            <span class="grip" draggable="true" role="button" tabindex="-1" aria-label="이 메일을 끌어서 AI 채팅이나 메신저에 놓기" title="끌어서 AI 채팅이나 메신저에 놓으면 멘션돼요"
+              data-test="mail-drag" @dragstart="dragMail" @dragend="dragDone"><Icon name="grip" :size="16" /></span>
             <span class="verb" data-test="mail-verb">{{ label }}</span>
             <h2>{{ action.text }}</h2>
           </div>
@@ -300,7 +329,7 @@ function toAgent() { app.runAction(props.action); emit('close') }
           <p v-if="loadErr" class="err" data-test="mail-load-error">{{ loadErr }}</p>
           <p v-else-if="!info" class="wait shimmer-text">메일을 불러오는 중…</p>
 
-          <section v-if="mail" class="orig" data-test="mail-original">
+          <section v-if="mail" ref="origEl" class="orig" :class="{ lit: filesLit }" data-test="mail-original">
             <p class="cap">받은 메일</p>
             <div class="meta">
               <b>{{ who(mail.from) }}</b>
@@ -317,6 +346,9 @@ function toAgent() { app.runAction(props.action); emit('close') }
               </div>
             </div>
           </section>
+
+          <!-- not only the reply: what else to do with this mail (each says what it does; nothing runs before its button) -->
+          <MailFollowRow v-if="info || loadErr" :action="live" @close="emit('close')" @flow="start" @files="showFiles" />
 
           <!-- the card's own work: what it is for decides the main action -->
           <p v-if="kindWait && !kind" class="wait shimmer-text" data-test="mail-kind-wait">무슨 일인지 살펴보는 중…</p>
@@ -506,5 +538,15 @@ section { display: flex; flex-direction: column; gap: 6px; }
   .sheet { max-height: 94vh; border-radius: 24px; padding: 16px 16px 12px; }
 }
 .atts { flex-direction: column; align-items: flex-start; }
+/* the head's handle: the mail dragged as a mention */
+.grip { display: inline-grid; place-items: center; width: 22px; height: 28px; margin-right: 4px; vertical-align: top; border-radius: 7px; color: var(--text-tertiary); cursor: grab; }
+.grip:hover { background: var(--chip-bg); color: var(--text-secondary); }
+.grip:active { cursor: grabbing; }
+/* while the mail is dragged: what is under the sheet takes the drop */
+.veil.passing { pointer-events: none; background: transparent; }
+.veil.passing .sheet { animation: none; opacity: .28; transition: opacity .15s; }
+/* 폴더에 정리: the attachments light up once */
+.orig.lit .atts { animation: atts-lit 2.2s ease-out both; border-radius: 12px; }
+@keyframes atts-lit { 0%, 60% { box-shadow: 0 0 0 3px rgba(60 110 240 / .7); } 100% { box-shadow: 0 0 0 3px rgba(60 110 240 / 0); } }
 .atts .att { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 100%; }
 </style>

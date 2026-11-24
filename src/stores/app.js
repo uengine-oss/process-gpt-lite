@@ -39,6 +39,9 @@ export const useApp = defineStore('app', {
     actions: [],
     mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
     mailCardFrom: null,        // where that sheet was opened: home | chat | instance | inbox (the sheet's 「Home 카드로」 is for the others)
+    // the newest row of every mail card this page heard of ('action' events) — a card no longer on Home (done) still updates its sheet
+    // (a follow-up action that finished: lib/mailFollow.js)
+    cardRows: {},
     flashCard: null,           // a Home card to bring into view and light up once (the mail sheet's 「Home 카드로」)
     panels: [],
     panelApps: [],             // data apps (lib/panelApps) of folders I belong to
@@ -252,6 +255,7 @@ export const useApp = defineStore('app', {
         else if (d.kind === 'project') this.projects.unshift(d)
         if (!d.status) this.status[d.id] = null
       } else if (type === 'action') {
+        if (d?.id && d.source?.mail_id) this.cardRows = { ...this.cardRows, [d.id]: d }
         const i = this.actions.findIndex((a) => a.id === d.id)
         if (d.status === 'done' || d.status === 'dismissed') { if (i >= 0) this.actions.splice(i, 1) }
         else if (i >= 0) this.actions[i] = d
@@ -326,7 +330,7 @@ export const useApp = defineStore('app', {
       const fresh = (items || []).filter((it) => !this.fileRefs.some((r) => JSON.stringify(r.item) === JSON.stringify(it))).slice(0, Math.max(0, 10 - this.fileRefs.length))
       if (!fresh.length) return
       const keys = fresh.map(() => crypto.randomUUID())
-      this.fileRefs = [...this.fileRefs, ...fresh.map((it, i) => ({ key: keys[i], item: it, name: it.name || '파일', folder: it.folder || '', as: it.as || 'link', wait: true, error: '' }))]
+      this.fileRefs = [...this.fileRefs, ...fresh.map((it, i) => ({ key: keys[i], item: it, name: it.name || '파일', folder: it.folder || '', as: it.as || 'link', ...(it.src === 'mail' ? { from: it.from || '' } : {}), wait: true, error: '' }))]
       let res = []
       try { res = (await api('/files/resolve', { method: 'POST', body: { items: fresh } })).items } catch (e) { res = fresh.map(() => ({ ok: false, error: e.message })) }
       this.fileRefs = this.fileRefs.map((r) => {
@@ -334,6 +338,8 @@ export const useApp = defineStore('app', {
         if (i < 0) return r
         const x = res[i]
         if (!x?.ok) return { ...r, wait: false, error: x?.error || '이 파일을 쓸 수 없어요' }
+        // a mail of mine (server lib/mailMention.js): its chip says who sent it and its subject
+        if (x.as === 'mail') return { ...r, wait: false, name: x.name || r.name, as: 'mail', from: x.mail?.from || r.item?.from || '', mail: x.mail || null }
         return { ...r, wait: false, name: x.name || r.name, as: x.as, folder: x.ref?.folder || '', variation: x.ref?.variation || null }
       })
     },
@@ -517,6 +523,14 @@ export const useApp = defineStore('app', {
     mailCardKind(id) { return api(`/actions/${id}/kind`) },
     mailEvent(id, tz) { return api(`/actions/${id}/event${tz ? `?tz=${encodeURIComponent(tz)}` : ''}`) },
     addMailEvent(id, body) { return api(`/actions/${id}/event`, { method: 'POST', body }) },
+    // not only a reply (server lib/mailFollow.js): the sheet's row of follow-up actions, and an agent action run when pressed
+    mailFollow(id) { return api(`/actions/${id}/follow`) },
+    runMailFollow(id, key, again = false) { return api(`/actions/${id}/follow/${encodeURIComponent(key)}`, { method: 'POST', body: { again } }) },
+    // 「채팅에서 이어서」: the mail as a chip in the chat composer (src/fileDrag.js mailItem — the agent turn reads it), the composer focused
+    async mailToChat(item) {
+      await this.addFileRefs([item])
+      this.focusTick = (this.focusTick || 0) + 1
+    },
     dismissAction(a) {
       this.actions = this.actions.filter((x) => x.id !== a.id)
       return api(`/actions/${a.id}/dismiss`, { method: 'POST' })

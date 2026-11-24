@@ -1,0 +1,25 @@
+# 화면 시험 — 2026-11-25 00:10 KST, 브랜치 feat/mail-card-more-actions (기준 a0381f6)
+
+서버 :8869 (가짜 모델 59981 · 가짜 deepagents 59982 · 가짜 Google 59983, PRO_BACKGROUND=0), Vite :5269
+
+## e2e/tests/feature/mail-follow-up.spec.js
+✓  1 [feature] › tests/feature/mail-follow-up.spec.js:147:3 F-MF-01 답장 시트: 답장 위에 할 일 줄(이 회사 알아보기 · 채팅에서 이어서 · 판정 모델이 고른 회의 잡기 · 제안서 초안) — 누르면 무엇을 할지 말하고, 답장은 그대로 보낸다 (2.9s)
+✓  2 [feature] › tests/feature/mail-follow-up.spec.js:187:3 F-MF-02 「이 회사 알아보기」 → 하는 중 → 「회사 알아본 결과 · 열기」(시트 · Home 카드) → 그 메일의 대화에 답, 에이전트는 메일 맥락을 받았다 (4.6s)
+✓  3 [feature] › tests/feature/mail-follow-up.spec.js:232:3 F-MF-03 「채팅에서 이어서」 → 채팅 입력창에 메일 칩(봉투 · 보낸 사람 · 제목) → 할 일을 적어 보내면 에이전트가 메일을 읽는다 (3.2s)
+✓  4 [feature] › tests/feature/mail-follow-up.spec.js:264:3 F-MF-04 Home 카드 · 시트 머리의 손잡이를 AI 채팅 입력창에 끌어 놓으면 「AI에게 이 메일로 묻기」 → 메일 칩(한 번만) (2.1s)
+✓  5 [feature] › tests/feature/mail-follow-up.spec.js:291:3 F-MF-05 붙여 둔 메신저에 메일을 끌어 놓으면 메일 멘션 → 동료는 요약만(본문 없음) → 본문 보기 요청 → 주인이 본문 공유 → 동료가 본문을 봄 (5.1s)
+✓  6 [feature] › tests/feature/mail-follow-up.spec.js:360:5 F-MF-06 휴대폰(390px · 밝은 테마): 답장 시트의 할 일 줄은 한 줄(옆으로 넘김), 화면이 옆으로 넘치지 않고 답장 · 보내기가 그대로 (2.4s)
+✓  7 [feature] › tests/feature/mail-follow-up.spec.js:360:5 F-MF-06 휴대폰(390px · 밤 테마): 답장 시트의 할 일 줄은 한 줄(옆으로 넘김), 화면이 옆으로 넘치지 않고 답장 · 보내기가 그대로 (1.9s)
+✓  8 [feature] › tests/feature/mail-follow-up.spec.js:394:3 F-MF-07 「동료에게 공유」: 메신저가 열리고 메일이 대화를 기다림 → 대화를 고르면 메일 칩 (2.7s)
+8 passed (25.9s)
+
+같은 묶음 두 번 되풀이(--repeat-each=2): 16 passed
+
+## 회귀 (같은 서버, 한 워커)
+- mail-card-calendar.spec.js: F-MC-01~05 · 07 · 08 통과. F-MC-06 실패 — 「에이전트에게 맡기기」 바탕색이 밤 테마 값(rgb(245, 245, 247))이라 밝은 테마 값을 기대한 검사가 틀림. 기준 커밋 a0381f6 에서도 똑같이 실패(화면 테마가 해를 따라 밤에 어두워짐 — 환경). F-MC-02 의 「판정 모델을 다시 부르지 않는다」 검사는 카드의 일을 묻는 질문만 세도록 고침(할 일 줄이 판정 모델에 한 번 따로 묻기 때문).
+- mail-reply.spec.js: 7/7
+- mail-thread-flow.spec.js: 7/7 — F-MT-05 의 「옆으로 넘치지 않음」 검사는 옆으로 넘기는 줄 안에 있는 알약은 그 줄의 오른쪽 끝으로 보도록 고침(할 일 줄은 휴대폰에서 옆으로 넘김).
+- messenger-file-mention.spec.js: 12/12
+- chat-thread-list.spec.js: 10/10
+- chat-artifacts.spec.js: 8/8
+- chat-agent-picker.spec.js: 7/7 (자기 스택)

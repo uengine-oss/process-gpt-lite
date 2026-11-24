@@ -15,10 +15,14 @@
 //   POST /actions/:id/flow/start   {proc, task?} → {instId}                          a new case of that process
 //   POST /actions/:id/flow/join    {instId} → {instId}                               the running instance
 //   POST /actions/:id/flow/decline {undo?}                                           이번엔 안 해요
+// Not only a reply (lib/mailFollow.js) — the sheet's row of follow-up actions; an agent action runs only when pressed:
+//   GET  /actions/:id/follow       {actions: [{key, do, label, go, says, p?, run?}], read}   이 회사 알아보기 · 채팅에서 이어서 · the judge's picks
+//   POST /actions/:id/follow/:key  {again?} → {run, already?}                        an agent action (research …) — its result's place stays on the card
 import express from 'express'
 import * as R from '../lib/mailReply.js'
 import * as MF from '../lib/mailFlow.js'
 import * as C from '../lib/mailCard.js'
+import * as F from '../lib/mailFollow.js'
 import { mailCards } from '../lib/homeCards.js'
 import { L } from '../lib/lang.js'
 
@@ -42,5 +46,7 @@ export function mailReplyRoutes(auth) {
   r.post('/actions/:id/flow/start', auth, (req, res) => send(res, MF.startFromCard(req.user, req.params.id, { proc: String(req.body?.proc || ''), task: req.body?.task ? String(req.body.task) : null })))
   r.post('/actions/:id/flow/join', auth, (req, res) => send(res, MF.joinFromCard(req.user, req.params.id, { instId: String(req.body?.instId || '') })))
   r.post('/actions/:id/flow/decline', auth, (req, res) => send(res, MF.declineFlow(req.user, req.params.id, { undo: req.body?.undo === true })))
+  r.get('/actions/:id/follow', auth, (req, res) => send(res, F.followOfCard(req.user, req.params.id)))
+  r.post('/actions/:id/follow/:key', auth, (req, res) => send(res, F.runFollow(req.user, req.session, req.params.id, String(req.params.key || ''), { again: req.body?.again === true })))
   return r
 }

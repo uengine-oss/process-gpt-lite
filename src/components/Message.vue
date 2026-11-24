@@ -45,6 +45,8 @@ const props = defineProps({ msg: Object })
 const emit = defineEmits(['connect'])
 const openFile = () => openArtifact(app, router, props.msg)
 const dragCard = (e) => startDrag(e, [cardItem(props.msg)])
+// a mail this message was about (a chip of the composer, a follow-up action of the mail sheet): its sheet
+const openMail = (r) => app.openMailCard({ actionId: r.actionId }, app.instance ? 'instance' : 'chat').catch(() => {})
 const expanded = ref(false)
 const router = useRouter()
 const app = useApp()
@@ -122,10 +124,16 @@ onMounted(async () => {
       <small v-if="c.agent?.label" class="to-agent" data-test="msg-agent-tag">→ {{ c.agent.label }} · {{ c.agent.where || '내 PC' }}</small>
       <!-- the files dragged in with this message (server lib/fileRefs.js turnRefs): what it is about -->
       <div v-if="c.refs?.length" class="urefs" data-test="sent-refs">
-        <span v-for="(r, i) in c.refs" :key="i + r.name" class="uref" :class="{ error: !!r.error }" data-test="sent-ref" :data-file="r.name" :title="r.error || (r.path ? `${r.folder} › ${r.path}` : '')">
-          <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b>
-          <small>{{ r.error ? '쓰지 못함' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일' }}</small>
-        </span>
+        <template v-for="(r, i) in c.refs" :key="i + r.name">
+          <!-- a mail (server lib/mailMention.js): opens its sheet again -->
+          <button v-if="r.as === 'mail' && !r.error" class="uref mail press" data-test="sent-ref" data-kind="mail" :data-file="r.name" :title="`${r.from} · ${r.name}`" @click="openMail(r)">
+            <span class="fx mail"><Icon name="mail" :size="13" /></span><b>{{ r.name }}</b><small>{{ r.from || '메일' }}</small>
+          </button>
+          <span v-else class="uref" :class="{ error: !!r.error }" data-test="sent-ref" :data-file="r.name" :title="r.error || (r.path ? `${r.folder} › ${r.path}` : '')">
+            <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b>
+            <small>{{ r.error ? '쓰지 못함' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일' }}</small>
+          </span>
+        </template>
       </div>
       <!-- 링크 미리보기: 글 속 처음 세 링크의 카드(server lib/linkPreview.js) -->
       <LinkPreviews :text="c.text" />
@@ -333,6 +341,8 @@ onMounted(async () => {
 .uref b { font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .uref small { color: var(--text-secondary); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .uref.error { border-color: rgba(198, 40, 40, .45); opacity: .75; }
+.uref .fx.mail { background: #7a5af5; }
+button.uref { text-align: left; }
 .filerow .file { min-width: 0; }
 .filecol { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; }
 .filecol.sound, .filecol.video { width: 424px; }

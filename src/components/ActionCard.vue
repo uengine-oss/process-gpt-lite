@@ -5,6 +5,11 @@ import { useApp } from '../stores/app.js'
 import { useSwipeAway } from '../swipeAway.js'
 import Icon from './Icon.vue'
 import { verbLabel } from '../mailKind.js'
+// a mail card is the mail as a mention too (dragged onto the AI chat or the messenger — src/fileDrag.js), and says where a follow-up action's
+// result is (「회사 알아본 결과 · 열기」 — src/mailFollow.js)
+import { startDrag, mailItem } from '../fileDrag.js'
+import { latestRun, runLine, openRun } from '../mailFollow.js'
+import { narrow } from '../viewport.js'
 
 const props = defineProps({ action: Object })
 const app = useApp()
@@ -45,6 +50,10 @@ const offer = computed(() => {
   if (inst.value || !f || f.declined) return null
   return (f.matches || []).find((m) => m.stage === 'adopted' || m.stage === 'suggested') || null
 })
+const isMail = computed(() => !!props.action.source?.mail_id)
+const dragMail = (e) => { if (isMail.value) startDrag(e, [mailItem(props.action)]); else e.preventDefault() }
+const run = computed(() => (isMail.value ? latestRun(props.action) : null))
+const openResult = () => { if (run.value?.status === 'done') openRun(app, router, run.value, { phone: narrow.value }) }
 function tap() {
   if (sw.swiped()) return
   if (inst.value) return router.push(`/routines/${encodeURIComponent(inst.value.instId)}`)
@@ -64,7 +73,7 @@ watch(() => app.flashCard, async (id) => {
 
 <template>
   <button ref="card" class="act glass press" :class="{ running: action.status === 'running', swiping: sw.swiping.value, flash }" :style="sw.style.value" data-test="action-card"
-    :data-action-id="action.id" @click="tap" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up">
+    :data-action-id="action.id" :draggable="isMail" @dragstart="dragMail" @click="tap" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up">
     <span class="verb" data-test="action-verb">{{ verb }}</span>
     <img v-if="icon && !iconFailed" :src="icon" class="ico" alt="" @error="iconFailed = true" />
     <span v-else-if="tile" class="ico letter">{{ letter }}</span>
@@ -72,6 +81,10 @@ watch(() => app.flashCard, async (id) => {
     <span v-if="due" class="due">{{ due }}</span>
     <span v-if="inst" class="link" data-test="action-inst"><Icon name="refresh" :size="14" /> <span>루틴 · {{ inst.name || '진행 중인 일' }}</span></span>
     <span v-else-if="offer" class="link offer" data-test="action-offer"><Icon name="refresh" :size="14" /> <span>‘{{ offer.name }}’의 시작으로 보여요</span></span>
+    <!-- a follow-up action of the mail's sheet (이 회사 알아보기 …): where its result is -->
+    <span v-if="run" class="link run" :class="run.status" role="button" data-test="action-follow" :data-status="run.status" @click.stop="run.status === 'done' ? openResult() : tap()">
+      <Icon :name="run.status === 'done' ? 'check' : run.status === 'running' ? 'clock' : 'alert'" :size="14" /> <span>{{ runLine(run) }}</span>
+    </span>
     <span class="x" role="button" aria-label="닫기" data-test="action-close" @click.stop="app.dismissAction(action)">×</span>
   </button>
 </template>
@@ -94,6 +107,8 @@ watch(() => app.flashCard, async (id) => {
 .link { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--text-secondary); font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .link > :deep(svg) { flex: none; }
 .link.offer { color: var(--text-tertiary); }
+.link.run { color: var(--text-primary); }
+.link.run.failed { color: #c2410c; }
 /* the mail sheet's 「Home 카드로」: a ring that holds, then fades */
 .act.flash { animation: card-flash 2.2s ease-out both; }
 @keyframes card-flash {

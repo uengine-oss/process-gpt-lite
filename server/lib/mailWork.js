@@ -3,6 +3,8 @@
 // 설계 docs/mail-work-folder/design.md, 스펙 openspec/specs/mail-work-folder.
 //   onLinked     — lib/mailFlow.js linkCards: a mail that started an instance, or joined one, goes into the instance's work folder (made the
 //                  first time: a shared folder owned by the person whose mail it is, named after the instance)
+//   addNote      — what an agent action of the mail's sheet found (lib/mailFollow.js — 이 회사 알아보기, 제안서 초안 …): 조사/NN_<날짜>_<이름>.md,
+//                  one commit by that person in main (and on the instance line); the steps read it with the mails (stepContext)
 //   addMail      — the mail as it arrived: 메일/NN_<날짜>_<제목>.eml (the message) · .md (its headers and body, to read) · 메일/NN_첨부/<file>,
 //                  one commit by that person in main; once the instance line is there it gets the mail too (folders/line.js syncLine)
 //   recordDone   — what the instance's finished steps made: 산출물/NN_<단계>/ (its files and 결과.md with its values), one commit per step on
@@ -53,7 +55,7 @@ export function safeName(s, max = 40, empty = '') {
   return t || empty
 }
 // the folder's directories, in the language it was made in (kept on the folder: a later mail goes where the first one went)
-export const DIRS = () => ({ mail: L('메일', 'Mail'), attach: L('첨부', 'attachments'), outputs: L('산출물', 'Outputs'), result: L('결과.md', 'result.md') })
+export const DIRS = () => ({ mail: L('메일', 'Mail'), attach: L('첨부', 'attachments'), outputs: L('산출물', 'Outputs'), result: L('결과.md', 'result.md'), notes: L('조사', 'Research') })
 export const dirsOf = (work) => ({ ...DIRS(), ...(work?.dirs || {}) })
 // mail n's files: 01_2026-11-24_세미나 견적 부탁드립니다.eml · .md
 export const mailStem = (n, date, subject) => `${pad(n)}_${dayOf(date)}_${safeName(subject, 40, L('제목 없음', 'no subject'))}`
@@ -262,6 +264,32 @@ export async function onLinked(userId, card, inst) {
   return { folder: ref, added, made }
 }
 
+// ---------- what the mail's sheet found ----------
+// An agent action's answer (lib/mailFollow.js) into the instance's work folder: 조사/NN_<날짜>_<제목>.md with where it came from, one commit by
+// the person in main, then onto the line the steps start from. → {slug, name, path} or null when the instance has no work folder
+export async function addNote(userId, inst, { title, text, mail = {} } = {}) {
+  const found = await workFolderOf(inst?.instId)
+  if (!found) return null
+  const me = await personOf(userId)
+  const entry = await S.serial(found.id, async () => {
+    const f = await S.folderById(found.id)
+    const dirs = dirsOf(f.settings?.work)
+    const n = nextNumber((await G.lsTree(f.repo_path, f.default_branch)).map((x) => x.path), dirs.notes)
+    const name = safeName(title, 40, L('메모', 'note'))
+    const body = [String(text || '').trim(), '', '---', '',
+      `- ${L('메일', 'Mail')}: 「${clean(mail.subject) || L('(제목 없음)', '(no subject)')}」${mail.from ? ` · ${mail.from}` : ''}`,
+      `- ${L('만든 때', 'Made')}: ${minuteOf(new Date())} · ${me.name} (${L('메일 시트에서 에이전트에게', "the agent, from the mail's sheet")})`, ''].join('\n')
+    const rel = await write(f.repo_path, `${dirs.notes}/${pad(n)}_${dayOf(new Date())}_${name}.md`, Buffer.from(body))
+    const commit = await S.commitMainNow(f, { name: me.name, email: me.email }, L(`조사 ${pad(n)} · ${clean(title)}`, `Research ${pad(n)} · ${clean(title)}`))
+    return { path: rel, commit }
+  })
+  const now = await S.folderById(found.id)
+  await syncLine(now, now.settings.work.line, { instId: now.settings.work.instId, name: now.settings.work.inst }).catch((e) => console.warn('[mail work] line', e.message))
+  import('./folders/indexer.js').then((x) => x.reindex(now)).catch((e) => console.warn('[mail work] index', e.message))
+  emit(userId, 'folders', { slug: now.slug })
+  return { slug: now.slug, name: now.name, path: entry.path }
+}
+
 // ---------- what the steps made ----------
 // a file a step made, from this server's own storage (a link elsewhere is only named in 결과.md)
 async function fileBytes(url, maxMB) {
@@ -345,12 +373,13 @@ export async function stepContext(instId) {
     used += text.length
     mails.push({ n: m.n, date: m.date ? dayOf(m.date) : '', from: m.from || '', subject: m.subject || '', attachments: m.attachments || [], text, cut: text.length < body.length, path: m.md })
   }
-  const files = (await G.lsTree(folder.repo_path, ref)).map((x) => x.path).filter((p) => p.startsWith(`${dirs.outputs}/`))
+  // (the outputs of the steps, and what the mail's sheet found — 조사, addNote)
+  const files = (await G.lsTree(folder.repo_path, ref)).map((x) => x.path).filter((p) => p.startsWith(`${dirs.outputs}/`) || p.startsWith(`${dirs.notes}/`))
   const outputs = []
   let out = 0
   for (const p of files) {
     const o = { path: p }
-    if (path.posix.basename(p) === dirs.result) {
+    if (path.posix.basename(p) === dirs.result || (p.startsWith(`${dirs.notes}/`) && p.endsWith('.md'))) {
       const t = (await G.show(folder.repo_path, ref, p).catch(() => null))?.toString('utf8') || ''
       o.text = t.slice(0, Math.max(0, Math.min(R.outputChars, R.outputTotal - out)))
       out += o.text.length

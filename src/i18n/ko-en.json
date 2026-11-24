@@ -2781,9 +2781,45 @@
   "이 파일을 쓸 수 없어요": "This file can't be used",
   "폴더 권한이 없어 열 수 없어요": "You can't open it without access to the folder",
   "편집 권한이 있어야 이 폴더에 넣을 수 있어요.": "You need edit rights to put files in this folder.",
-  "파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)": "Drop files here to upload them to main · who and when stay in the history · drag a file into a conversation or the chat to mention it as a link (⌘/Ctrl to pick several)"
+  "파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)": "Drop files here to upload them to main · who and when stay in the history · drag a file into a conversation or the chat to mention it as a link (⌘/Ctrl to pick several)",
+  "이 메일로": "With this mail",
+  "할 일을 고르는 중…": "Picking what to do…",
+  "이 메일로 할 일": "What to do with this mail",
+  "다시 하기": "Do it again",
+  "결과 열기": "Open the result",
+  "하는 중…": "Working…",
+  "하기": "Do it",
+  "채팅에서 이어서": "Continue in chat",
+  "채팅 열기": "Open chat",
+  "채팅 입력창에 이 메일을 멘션으로 붙여요. 할 일을 적어 보내면 에이전트가 메일을 읽고 해요.": "Puts this mail in the chat composer as a mention. Write what to do and send it — the agent reads the mail and does it.",
+  "이 메일을 끌어서 AI 채팅이나 메신저에 놓기": "Drag this mail onto the AI chat or the messenger",
+  "끌어서 AI 채팅이나 메신저에 놓으면 멘션돼요": "Drag onto the AI chat or the messenger to mention it",
+  "AI에게 이 메일로 묻기": "Ask the AI about this mail",
+  "여기에 놓으면 메일을 멘션해요": "Drop here to mention the mail",
+  "메일은 폴더에 넣지 않아요": "A mail doesn't go into a folder",
+  "본문도 공유": "Share the body too",
+  "이 대화방 사람들이 메일 본문을 볼 수 있어요": "People in this room can read the mail's body",
+  "다른 사람에게는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보여요": "Others see the sender, subject, date and attachment names only",
+  "메일 멘션": "Mail mention",
+  "이 대화방이 본문을 볼 수 있어요": "This room can read the body",
+  "다른 사람에게는 요약만 보여요": "Others see a summary only",
+  "공유 그만두기": "Stop sharing",
+  "본문 공유": "Share the body",
+  "본문 보기": "Show the body",
+  "본문을 공유받았어요": "The body was shared with you",
+  "요약만 보여요 · 본문은 메일 주인이 공유해야 볼 수 있어요": "Summary only · the mail's owner has to share the body for you to read it",
+  "본문 보기 요청": "Ask to see the body",
+  "본문 보기를 요청했어요 · 공유되면 볼 수 있어요": "Asked to see the body · you can read it once it's shared",
+  "이 메일은 이제 볼 수 없어요": "This mail can't be seen any more",
+  "하지 못했어요.": "Couldn't do it.",
+  "이 메일을 확인해 줘": "Please look at this mail",
+  "메일 본문 요청": "Mail body request"
  },
  "patterns": [
+  [
+   "요약만 보여요 · 본문은 {0}님이 공유해야 볼 수 있어요",
+   "Summary only · {0} has to share the body for you to read it"
+  ],
   [
    "이 설치에는 {0} 앱이 없어 앱 안에서 열 수 없어요.",
    "This install has no {0}, so it can't be opened in the app."
@@ -2803,6 +2839,10 @@
   [
    "{0} 안의 브라우저에서는 앱을 설치할 수 없어요.",
    "Apps can't be installed from {0}'s in-app browser."
+  ],
+  [
+   "대화를 고르면 「{0}」 메일이 멘션으로 붙어요",
+   "Pick a conversation and the mail \"{0}\" is mentioned there"
   ],
   [
    "「{0}」와 맞는 산출물이 없어요.",
@@ -2833,8 +2873,16 @@
    "Link to the running ‘{0}’"
   ],
   [
+   "{0}님이 본문을 공유했어요",
+   "{0} shared the body"
+  ],
+  [
    "채팅의 산출물 {0}개 {1}",
    "{0} outputs of the chat {1}"
+  ],
+  [
+   "{0} · 하지 못했어요",
+   "{0} · couldn't finish"
   ],
   [
    "채팅의 산출물 {0}개",
@@ -2843,6 +2891,10 @@
   [
    "루틴 · {0} 열기",
    "Open routine · {0}"
+  ],
+  [
+   "{0} · 하는 중…",
+   "{0} · working…"
   ],
   [
    "{0}에 저장했어요",
@@ -3411,6 +3463,10 @@
   [
    "메시지 {0}개",
    "{0} messages"
+  ],
+  [
+   "{0} · 열기",
+   "{0} · open"
   ],
   [
    "{0}(소유)",
