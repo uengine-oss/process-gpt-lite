@@ -5,9 +5,15 @@ import { BASE } from '../base.js'
 import { syncLang } from '../i18n/lang.js'
 import { officeEditorFor, CRAFT_APPS } from '../officeEditor.js'
 import { announce } from '../browserNotify.js'
+import { readListOpen, saveListOpen } from '../threadList.js'
+import { artifactScope, artifactItems, readFolded, saveFolded } from '../artifactScope.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
+
+// a routed turn that came as a live event (another device, an answer after a dropped connection): the list's titles and summaries
+// again, once things settle (the router writes its row as the turn ends)
+let convReload = null
 
 // the open document's sheet answers here before the document is replaced or closed (setOfficeDoc)
 let officeLeave = null
@@ -41,7 +47,13 @@ export const useApp = defineStore('app', {
     takeover: null,            // task id whose full view opens with 직접 제어 already on (직접 로그인)
     draftProject: null,        // 새 프로젝트 sent, its room still being made: {tmp, id} — the chat shows the message meanwhile
     notice: null,              // a short line over the composer: {text} (새 프로젝트 could not be made, the text is back in the box)
-    dockOpen: true,
+    // Home's dock (the left column on a wide screen, the 홈 tab on a phone) — closed at start when the chat's thread list was left open
+    dockOpen: !readListOpen(),
+    // the chat's thread list (components/ThreadList.vue): the left column in place of Home on a wide screen, a sheet on a phone; opened
+    // by double-clicking 「채팅」 (TopBar), remembered in this browser (src/threadList.js)
+    threadList: readListOpen(),
+    // the files list in the right column folded to its rail of icons (components/ArtifactList.vue), remembered in this browser
+    artifactsFolded: readFolded(),
     mode: 'chat',              // chat | project | routine (a process instance: /routines)
     panelMode: false,          // "새 패널 만들기" composer mode
     handoff: null,             // message id of a task shown full screen
@@ -66,6 +78,8 @@ export const useApp = defineStore('app', {
     missionTick: 0,             // bumps on mission run events so open lists refresh            // detail of the instance page               // text pushed into the composer from elsewhere
   }),
   getters: {
+    // the thread list on screen: the chat's page, not replaced by Home's dock, not under a document open beside the page
+    threadListShown(s) { return s.mode === 'chat' && s.threadList && !s.dockOpen && !s.docSide },
     active(s) { return s.activeId === s.mainThread?.id ? s.mainThread : s.projects.find((p) => p.id === s.activeId) },
     thread(s) {
       const all = s.messages[s.activeId] || []
@@ -90,6 +104,15 @@ export const useApp = defineStore('app', {
       }
       for (const p of pending) out[p.id] = cur
       return out
+    },
+    // The files the view on screen made (src/artifactScope.js): the whole chat, one conversation of it, or a project's room — newest
+    // first, each with the conversation it came from (the right column's list and the pile both show these)
+    artifacts(s) {
+      const scope = artifactScope({ mode: s.mode, activeId: s.activeId, mainId: s.mainThread?.id, convFilter: s.convFilter, projectIds: s.projects.map((p) => p.id) })
+      if (!scope) return { scope, items: [] }
+      const main = scope !== 'project'
+      const titles = main ? Object.fromEntries(this.convList.map((c) => [c.id, c.title])) : {}
+      return { scope, items: artifactItems({ scope, messages: s.messages[s.activeId] || [], convOf: main ? this.convOf : {}, convFilter: s.convFilter, titles }) }
     },
     // conversation list: the router's titles and summaries, with message counts from the chat
     convList(s) {
@@ -151,6 +174,20 @@ export const useApp = defineStore('app', {
     async loadPanels() { this.panels = await api('/panels') },
     async loadPanelApps() { this.panelApps = await api('/panel-apps').catch(() => this.panelApps) },
     async loadConversations() { this.conversations = await api('/conversations').catch(() => []) },
+    foldArtifacts(folded) {
+      this.artifactsFolded = !!folded
+      saveFolded(this.artifactsFolded)
+    },
+    // the chat's thread list open or closed (remembered in this browser); opening it puts Home's dock away — the two share the left
+    // column — and fetches the list again so it shows what the router recorded last
+    setThreadList(open) {
+      this.threadList = !!open
+      saveListOpen(this.threadList)
+      if (this.threadList) {
+        this.dockOpen = false
+        this.loadConversations()
+      }
+    },
     async loadNotifications() {
       this.notifications = await api('/notifications')
       // a background tab gets them as browser notifications (src/browserNotify.js); a click opens them (MainView)
@@ -187,6 +224,11 @@ export const useApp = defineStore('app', {
         else {
           list.push(d)
           if (d.role === 'agent' && (d.kind === 'text' || d.kind === 'doc')) this.drafts[d.thread_id] = null
+          // a turn of the main chat the router placed: the conversation list follows (its row is written as the turn ends)
+          if (d.role === 'agent' && d.thread_id === this.mainThread?.id && d.content?.context?.conversationId) {
+            clearTimeout(convReload)
+            convReload = setTimeout(() => this.loadConversations(), 2500)
+          }
           // a document the person asked to see (folder_open: "장진영 이력서 열어 줘") opens in the editor at
           // once — on the screen that asked (not their other devices), in the conversation on screen, as the
           // answer to that message (askedAt lasts until shortly after its answer ends), once

@@ -2694,7 +2694,26 @@
   "회사 지도에서 이 건 보기 →": "See this case on the company map →",
   "이 건 다루기": "Manage this case",
   "지도에서 바로 도는 건": "Case run straight from the map",
-  "인스턴스 열기": "Open the instance"
+  "인스턴스 열기": "Open the instance",
+  "대화 목록": "Conversation list",
+  "대화 목록 닫기": "Close the conversation list",
+  "판단 모델이 주제별로 나눈 대화예요. 고르면 채팅이 그 대화만 보여 줘요.": "Conversations the routing model split by topic. Pick one and the chat shows only that conversation.",
+  "대화 찾기": "Find a conversation",
+  "모든 메시지를 한 흐름으로": "Every message in one stream",
+  "제목 없는 대화": "Untitled conversation",
+  "아직 나뉜 대화가 없어요. 채팅에서 다른 주제를 물으면 판단 모델이 대화를 나눠 여기에 모아요.": "No conversations yet. Ask about another topic in the chat and the routing model gathers each conversation here.",
+  "두 번 누르면 대화 목록": "Press twice for the conversation list",
+  "대화 목록 펼치기": "Open the conversation list",
+  "· 채팅 탭을 두 번 눌러도 돼요": "· or press the Chat tab twice",
+  "채팅의 산출물": "Outputs of the chat",
+  "이 대화의 산출물": "Outputs of this conversation",
+  "이 프로젝트의 산출물": "Outputs of this project",
+  "산출물 목록 펼치기": "Expand the outputs list",
+  "산출물 목록 접기": "Fold the outputs list",
+  "산출물 찾기": "Find an output",
+  "채팅의 산출물 · 누르면 그 자리에서 열려요": "Outputs of the chat · click one to open it right here",
+  "이 대화의 산출물 · 누르면 그 자리에서 열려요": "Outputs of this conversation · click one to open it right here",
+  "이 프로젝트의 산출물 · 누르면 그 자리에서 열려요": "Outputs of this project · click one to open it right here"
  },
  "patterns": [
   [
@@ -2718,8 +2737,24 @@
    "Apps can't be installed from {0}'s in-app browser."
   ],
   [
+   "「{0}」와 맞는 산출물이 없어요.",
+   "No output matches “{0}”."
+  ],
+  [
+   "「{0}」와 맞는 대화가 없어요.",
+   "No conversation matches “{0}”."
+  ],
+  [
+   "이 프로젝트의 산출물 {0}개 {1}",
+   "{0} outputs of this project {1}"
+  ],
+  [
    "루틴 · {0}에 기록했어요.",
    "Recorded in routine · {0}."
+  ],
+  [
+   "이 프로젝트의 산출물 {0}개",
+   "{0} outputs of this project"
   ],
   [
    "‘{0}’의 시작으로 보여요",
@@ -2728,6 +2763,14 @@
   [
    "진행 중인 ‘{0}’에 잇기",
    "Link to the running ‘{0}’"
+  ],
+  [
+   "채팅의 산출물 {0}개 {1}",
+   "{0} outputs of the chat {1}"
+  ],
+  [
+   "채팅의 산출물 {0}개",
+   "{0} outputs of the chat"
   ],
   [
    "루틴 · {0} 열기",
@@ -3296,6 +3339,10 @@
   [
    "같은 일 {0}",
    "Same work {0}"
+  ],
+  [
+   "메시지 {0}개",
+   "{0} messages"
   ],
   [
    "{0}(소유)",

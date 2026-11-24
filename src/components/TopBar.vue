@@ -5,7 +5,8 @@ import Icon from './Icon.vue'
 import TeamLayer from './team/TeamLayer.vue'
 import { useTeam } from '../stores/team.js'
 import { useApp } from '../stores/app.js'
-import { narrow } from '../viewport.js'
+import { narrow, wideLayout } from '../viewport.js'
+import { chatTaps } from '../chatTabTaps.js'
 
 const app = useApp()
 const team = useTeam()
@@ -33,6 +34,28 @@ function go(id) {
   if (id === 'team') return router.push('/team-activity')
   if (narrow.value) app.dockOpen = id === 'home'
   router.push('/chat')
+}
+// 「채팅」 twice opens the chat's thread list (components/ThreadList.vue) and twice again closes it. One click stays what it was — at
+// once, never waiting for a second — and the second click of the two does not repeat it (src/threadList.js createTaps). On a phone
+// the list is a sheet over the chat, so 「채팅」 once shows the chat (puts the sheet away).
+const chatTab = {
+  single() {
+    const was = app.threadListShown
+    if (was && !wideLayout.value) app.setThreadList(false)
+    go('chat')
+    return was
+  },
+  double(was) {
+    // what was on screen before the first click (it may have put a sheet away already)
+    app.setThreadList(!(was ?? app.threadListShown))
+  },
+}
+function tabClick(t, e) {
+  if (t.id === 'chat') chatTaps.click(e, chatTab)
+  else go(t.id)
+}
+function tabDblclick(t, e) {
+  if (t.id === 'chat') chatTaps.dblclick(e, chatTab)
 }
 
 const seg = ref(null)
@@ -77,7 +100,8 @@ watch([tab, narrow], place)
 
     <nav ref="seg" class="seg glass-thin" :class="{ 'more-l': narrow && more.left, 'more-r': narrow && more.right }" @scroll.passive="edges">
       <span class="thumb" :style="thumb" />
-      <button v-for="t in tabs" :key="t.id" :data-tab="t.id" :class="{ on: tab === t.id }" @click="go(t.id)">{{ t.label }}<i v-if="t.id === 'home' && team.unread.total" class="tdot" /></button>
+      <button v-for="t in tabs" :key="t.id" :data-tab="t.id" :class="{ on: tab === t.id }" :title="t.id === 'chat' ? '두 번 누르면 대화 목록' : undefined"
+        :aria-expanded="t.id === 'chat' ? app.threadListShown : undefined" @click="tabClick(t, $event)" @dblclick="tabDblclick(t, $event)">{{ t.label }}<i v-if="t.id === 'home' && team.unread.total" class="tdot" /></button>
     </nav>
 
     <div class="right">

@@ -31,6 +31,9 @@ onMounted(() => { sky.init(); watchVersion() })
 const bg = useBackground()
 watch(() => app.me, (me) => { if (me && me.user?.id !== bg.owner) bg.init(me) }, { immediate: true })
 const photoHere = computed(() => !!app.me && !!route.matched.length && !route.meta.public)
+// Home's dock and the chat's thread list share the left column: Home opened from anywhere (its button, a notification, a mail's
+// sheet) puts the list away (and the list opened puts Home away: app.setThreadList)
+watch(() => app.dockOpen, (open) => { if (open && app.threadList) app.setThreadList(false) })
 const reload = () => location.reload()
 const later = () => { newVersion.value = false }
 </script>

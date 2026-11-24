@@ -82,6 +82,25 @@ onMounted(() => {
   if (inner.value) grown.observe(inner.value)
 })
 onBeforeUnmount(() => grown?.disconnect())
+// Where the composer is (the files' pile in the #aside slot keeps clear of it — src/artifactScope.js pilePlace): how far its top is
+// from the column's bottom (it grows with what is typed) and how much room is right of it
+const colEl = ref(null)
+const footEl = ref(null)
+const foot = ref({ top: 84, gutter: 0 })
+let footObs
+function measureFoot() {
+  const c = colEl.value?.getBoundingClientRect(), f = footEl.value?.getBoundingClientRect()
+  if (!c || !f || !c.width) return
+  const next = { top: Math.round(c.bottom - f.top), gutter: Math.round(c.right - f.right) }
+  if (next.top !== foot.value.top || next.gutter !== foot.value.gutter) foot.value = next
+}
+onMounted(() => {
+  footObs = new ResizeObserver(measureFoot)
+  if (footEl.value) footObs.observe(footEl.value)
+  if (colEl.value) footObs.observe(colEl.value)
+  measureFoot()
+})
+onBeforeUnmount(() => footObs?.disconnect())
 // a conversation's messages arriving (none before) go straight to the bottom; a new message after that scrolls there
 watch(() => [list.value.length, draft.value], ([n], old) => toBottom(!props.keepTop && !old?.[0] && n > 0))
 // a task card that starts waiting or ends grows by its reason and the button that answers it: on a phone that part fell
@@ -103,7 +122,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 </script>
 
 <template>
-  <section class="col">
+  <section ref="colEl" class="col">
     <EdgeBlur side="top" />
     <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode }" @scroll="onScroll">
       <div ref="inner" class="inner">
@@ -119,7 +138,9 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
       </div>
     </div>
     <EdgeBlur side="bottom" :height="120" />
-    <div class="foot">
+    <!-- beside the composer: the files this view made (MainView's ArtifactStack), placed by the composer's box -->
+    <slot name="aside" :foot="foot" />
+    <div ref="footEl" class="foot">
       <!-- what the agent is doing right now, above the composer (hark's "패널 만드는 중") -->
       <Transition name="pill">
         <div v-if="app.notice" key="notice" class="notice" role="alert" data-testid="chat-notice">{{ app.notice.text }}</div>
