@@ -85,6 +85,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 산출물 스택: 화면의 파일이 더미로(고른 대화 · 2026-11-24 부터 전체 채팅 · 프로젝트 방도), 누르면 부채꼴(≤fanMax), 많으면 격자, Esc 로 접기 | `ArtifactStack.vue`, 스펙 `chat-artifacts` | F-CV-03 · 37절 F-AS-06 · 07 | feature | ✅ |
 | 스택에서 누르면 카드와 같은 편집기(엑셀→이음오피스, SVG→VectorCraft) — 980px 화면(더미) | `artifacts.js` | F-CV-04 | feature | ✅ |
 | 넓은 화면은 오른쪽 칸의 산출물 목록(접으면 띠), 문서가 열리면 비킴 | 사용자 11-24, 스펙 `chat-artifacts` | 37절 F-AS-01~08 | feature | ✅ |
+| 문서가 페이지 옆에 열려도 왼쪽 칸(Home · 대화 · 프로젝트 · 루틴 목록) · 채팅 · 문서가 겹치지 않음(나란히, 아니면 목록 접힘) | 사용자 11-24, 스펙 `chat-artifacts` | 38절 F-DL-01~06 | feature | ✅ |
 | 판단 전략(judge→logprob→json) 측정 | context-router 명세 | — | — | ✗ (process-gpt 쪽 eval) |
 
 ### 3. 끊김에 강한 채팅
@@ -868,6 +869,25 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 휴대폰 390px 밝게 · 어둡게: 칩은 입력창 위, 목록은 화면 안, 옆으로 넘치지 않음 · 책상의 어두운 테마 | — | F-CA-07 · 08 | feature | ✅ |
 | 맥락으로 나눈 대화(`/chat/c/:id`) 안에서 보내기 · 그 대화의 산출물 스택 | 사용자 11-24 | `chatAgents.test.js`(대화 열쇠) · `chatAgents.e2e.mjs`(대화마다의 선택) — 화면은 모델 없이 그 대화를 만들 수 없음 | 단위 · 통합 | ◐ |
 | 실제 Claude Code · Codex 로 채팅 메시지 | — | — (가짜 대화형 CLI 로만) | — | ◐ |
+
+### 39. 문서 옆의 왼쪽 칸 — 목록 · 채팅 · 문서가 겹치지 않음 (스펙 `chat-artifacts`)
+
+운영 화면(11-24, 약 2000px 창)에서 사용자가 보고한 문제다. 「프로젝트에서 산출물을 열어보면 이렇게 목록과 대화내용이 겹쳐진다.」 문서 패널이 옆에 열리면 전역 CSS(`OfficeSheet.vue`의 `body.craft-side .main .center { left: 0 }`)가 채팅 칸을 창 왼쪽 끝부터 다시 놓았고, 그 위에 왼쪽 목록이 그대로 남아 있었다. 고친 뒤에는 `MainView.vue`가 문서 패널의 실제 폭을 잰다. 그리고 `src/leftColumn.js`의 규칙을 따른다. 왼쪽 칸(420px) · 채팅(512px + 양옆 40px) · 문서가 나란히 들어가면 셋을 나란히 둔다. 들어가지 않으면 목록을 접고 위쪽 막대 Home 옆의 「≡ 프로젝트 · 루틴 · 대화」 단추로 채팅 위에 펼친다. Home 은 열 때 채팅 위에 펼쳐진다. 시험마다 1280 · 1440 · 1600 · 2000px 에서 문서를 연다. 그리고 문서 패널 · 채팅 칸 · 입력창 · 왼쪽 칸 · 단추 · 탭 · 붙여 둔 메신저의 상자가 서로 겹치지 않는지 본다. 화면 사진은 `openspec/specs/chat-artifacts/e2e/results/f-dl-*.png`에 있다.
+
+```bash
+cd server && node --test test/docLayout.test.js
+cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKERS=1 npx playwright test tests/feature/doc-layout.spec.js --project=feature
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 자리 규칙: 문서 옆에 왼쪽 칸 + 채팅 + 문서가 들어가면(문서 960px 기준 1972px 이상, ArtCraft 앱 840px 기준 1852px) 나란히, 아니면 목록 접힘 · Home 은 채팅 위 | 사용자 11-24 | DL-U-01~05 | 단위 | ✅ |
+| 프로젝트: 채팅의 파일 카드로 연 문서 — 2000px 은 목록 · 채팅 · 문서 나란히, 1280 · 1440 · 1600px 은 목록 접힘 + 「≡ 프로젝트」, 닫으면 목록 | 사용자 11-24 | F-DL-01 | feature | ✅ |
+| 접힌 목록: 단추로 채팅 위에 펼침(문서 · 단추와 겹치지 않는 판), Esc · 바깥 · 단추로 접힘, 다른 프로젝트를 고르면 그 방으로 가고 접힘(문서는 그대로), 창을 넓히면 나란히 | — | F-DL-02 | feature | ✅ |
+| 루틴: 루틴 화면에 연 문서(메신저 · 카드가 여는 것과 같은 `app.setOfficeDoc`) — 같은 규칙, 「루틴 목록 펼치기」 | — | F-DL-03 | feature | ✅ |
+| 채팅 · Home: 문서를 열면 Home 은 비킴(예전대로), 다시 열면 2000px 은 나란히 · 좁으면 채팅 위(Esc · Home 단추로 닫힘) | — | F-DL-04 | feature | ✅ |
+| 채팅 · 대화 목록: 문서가 열려도 숨기지 않고 같은 규칙(「≡ 대화」), 펼쳐서 대화를 고르면 `/chat/c/:cid` · 접힘, 밤 테마 | — | F-DL-05 | feature | ✅ |
+| 붙여 둔 메신저(오른쪽 · 왼쪽 2000px, 문서 패널 안 2000px, 오른쪽 1440 · 2600px): 페이지 폭 · 패널 폭으로 정함, 메신저와도 겹치지 않음 | PR #32 | F-DL-06 · DL-U-03 | feature · 단위 | ✅ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 

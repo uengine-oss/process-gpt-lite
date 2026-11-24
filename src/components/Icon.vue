@@ -9,6 +9,7 @@ const P = {
   close: 'M6 6l12 12M18 6 6 18',
   back: 'M15 5l-7 7 7 7',
   chevron: 'M9 5l7 7-7 7',
+  list: 'M4 7h16M4 12h11M4 17h7',
   trash: 'M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13M10 11v6M14 11v6',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   search: 'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20',

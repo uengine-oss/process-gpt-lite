@@ -40,6 +40,37 @@ cd e2e && PGPT_URL=http://localhost:5285 API_URL=http://127.0.0.1:8885 RT_WORKER
 
 대화 맥락 시험(`e2e/tests/feature/conversations.spec.js`)의 F-CV-03 은 이제 전체 채팅에도 더미(13개)가 있는지 본다. F-CV-04 는 넓은 화면의 목록이 아니라 더미를 시험하도록 980px 화면에서 실행한다.
 
+## 문서 옆의 왼쪽 칸 (`e2e/tests/feature/doc-layout.spec.js`, `server/test/docLayout.test.js`)
+
+시나리오 「2000px 과 1600px 에서 프로젝트의 산출물을 연다」를 시험한다. 처음 보고된 화면은 운영 화면(약 2000px)으로, 프로젝트 목록 위에 채팅이 올라가 있었다. 고치기 전 코드로 F-DL-01 을 돌리면 2000px 에서 채팅(264–776px)과 목록(0–420px)이 겹쳐 실패한다. 순수 규칙(`src/leftColumn.js` — 나란히 · 접힘 · 채팅 위 · 없음, 경계 1972px · 1852px, 붙여 둔 메신저)은 `cd server && node --test test/docLayout.test.js` 로 시험한다(DL-U-01~05).
+
+```bash
+cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKERS=1 \
+  npx playwright test tests/feature/doc-layout.spec.js --project=feature
+```
+
+시험 계정은 `pro-rt-dl-project` · `pro-rt-dl-routine` · `pro-rt-dl-chat` · `pro-rt-dl-threads`(@uengine.org)이다. 프로젝트 방 둘(하나에 「분기 매출.xlsx」 카드)과 클래식 루틴 하나(「회귀 강의 개설 · 가온아카데미」)를 지어 넣고, 시험이 끝나면 지운다. 시험마다 1280 · 1440 · 1600 · 2000px 에서 문서를 연다. 그때 문서 패널, 채팅 칸(위쪽 막대 아래부터 바닥까지), 입력창, 왼쪽 칸, 접힌 목록의 단추와 Home 단추 · 탭, 붙여 둔 메신저의 상자가 서로 겹치지 않는지 본다.
+
+| 스펙 시나리오 · 요건 | 시험 |
+|---|---|
+| 프로젝트: 2000px 은 나란히, 1280 · 1440 · 1600px 은 접힘 + 「≡ 프로젝트」, 닫으면 목록 | F-DL-01 |
+| 접힌 목록을 채팅 위에 펼침 · Esc · 바깥 · 단추로 접힘 · 다른 프로젝트를 고르면 접히고 문서는 그대로 · 창을 넓히면 나란히 · 데스크톱 앱에서도 Home 오른쪽 | F-DL-02 |
+| 루틴 화면 | F-DL-03 |
+| Home(문서를 열면 비킴, 다시 열면 나란히 또는 채팅 위, Esc · Home 단추로 닫힘) | F-DL-04 |
+| 대화 목록(같은 규칙, 펼쳐서 대화를 고름, 밤 테마) | F-DL-05 |
+| 붙여 둔 메신저: 오른쪽 · 왼쪽 열(2000px), 문서 패널 안(2000px), 오른쪽 1440 · 2600px | F-DL-06 |
+
+화면: `results/f-dl-01-project-<폭>.png`, `f-dl-02a-list-over.png`(펼친 목록) · `f-dl-02b-picked.png`, `f-dl-03-routine-<폭>.png`, `f-dl-04-home-2000.png` · `f-dl-04-home-over-<폭>.png`, `f-dl-05-threads-<폭>.png`(밤 테마), `f-dl-06-messenger-<자리>-<폭>.png`. 결과 기록은 `results/doc-layout.txt`에 있다.
+
+결정:
+- 접힌 목록은 왼쪽 가장자리에 띠를 두지 않고 위쪽 막대의 Home 옆 단추로 다시 연다. 띠(64px)를 두면 1280px 에서 채팅이 352px 에서 288px 로 줄고, 오른쪽에 메신저를 붙인 1440px 창에서는 212px 까지 준다. 휴대폰 화면의 ≡(프로젝트 목록) 단추와 같은 모양이다.
+- Home 은 접어 둘 단추를 따로 두지 않는다. 둥근 Home 단추가 곧 Home 을 여닫는 단추다. 자리가 없을 때 열면 채팅 위에 펼쳐지고, Esc 를 누르거나 바깥을 누르면 닫힌다.
+- 문서 패널의 폭은 CSS(`--craft-side-w`: 창 · 붙여 둔 메신저의 열 · 패널 자리에 따라 바뀜)를 그대로 재서 쓴다. 숨긴 상자(`.doc-probe`)의 너비를 `ResizeObserver`로 잰다. 그래서 JS 에 같은 식을 두 벌 두지 않는다.
+
+시험하지 않은 것:
+- ArtCraft 앱을 옆에 연 경우(840px). 순수 규칙(1852px 경계)으로만 시험했다. 시험 스택에 ArtCraft 앱이 없다.
+- 실제 이음오피스 편집기 서버로 문서가 그려지는 모습(패널 틀만 확인했다).
+
 ## 결과
 
 - `results/unit.txt`: 순수 규칙 6/6
