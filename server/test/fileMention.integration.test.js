@@ -366,3 +366,88 @@ test('받은 파일을 끌면: 받은 사람은 자기 사본(목록에 없는 �
   const { c } = await setup()
   assert.equal((await call(c, 'POST', '/files/resolve', { items: [{ src: 'share', shareId: got }] })).body.items[0].status, 404)
 })
+
+// ---------- code review of PR #45 ----------
+test('리뷰 2: 내가 보낸 공유(내 메시지의 칩)를 폴더에 끌어 놓으면 내 원본이 들어간다 — 404 가 아니다', { skip: !db }, async () => {
+  const { a, room } = await setup()
+  const target = await folderOf(a, '보낸 자료', {})
+  const up = await sendFile(a, '채용_일정표.md', Buffer.from('# 채용 일정표\n'))
+  const sent = await call(a, 'POST', `/team/threads/${room}/messages`, { text: '일정표', artifactIds: [up.body.id] })
+  const mine = sent.body.artifacts[0].shareId
+  const r = await call(a, 'POST', `/folders/${target.slug}/drop`, { items: [{ src: 'share', shareId: mine, name: '채용_일정표.md' }] })
+  assert.equal(r.status, 200, r.text)
+  assert.deepEqual([r.body.items[0].ok, r.body.items[0].filed?.path], [true, '채용_일정표.md'], JSON.stringify(r.body))
+})
+
+test('리뷰 4: @AI 가 다른 사람이 공유한 파일을 다시 붙이면 — 원래 주인은 자기 원본, 받은 사람마다 자기 사본(부탁한 사람이 남의 공유를 갖지 않는다)', { skip: !db }, async () => {
+  const { a, b, c, room } = await setup()
+  const up = await sendFile(a, '평가표_양식.md', Buffer.from('# 평가표 양식\n'))
+  const orig = await call(a, 'POST', `/team/threads/${room}/messages`, { text: '평가표 양식이에요', artifactIds: [up.body.id] })
+  assert.equal(orig.status, 200, orig.text)
+  const ofB = (await last(b, room)).artifacts[0].shareId
+  const ofC = (await last(c, room)).artifacts[0].shareId
+  fake.want['가리키는 자료'] = '평가표_양식'
+  try {
+    await call(b, 'POST', `/team/threads/${room}/messages`, { text: '@AI 평가표 양식 첨부해', ai: true })
+    const aiB = await poll(async () => { const m = await last(b, room); return m?.sender?.ai && m.artifacts?.length ? m : null })
+    assert.ok(aiB, 'AI 가 공유를 다시 붙였다')
+    assert.deepEqual([aiB.artifacts[0].name, aiB.artifacts[0].shareId, aiB.artifacts[0].own], ['평가표_양식.md', ofB, false], '부탁한 서하린은 자기 사본')
+    const aiA = (await last(a, room)).artifacts[0]
+    assert.equal(aiA.own, true, '원래 주인 윤태호는 자기 원본')
+    assert.ok(aiA.shareId)
+    assert.equal((await last(c, room)).artifacts[0].shareId, ofC, '한도윤은 자기 사본')
+    // the owner opens it as their own card
+    const opened = await call(a, 'POST', `/team/shares/${aiA.shareId}/open`)
+    assert.equal(opened.body.message.id, up.body.id)
+  } finally { fake.want['가리키는 자료'] = '차은솔' }
+})
+
+test('리뷰 6: 페이지가 보낸 blob 은 그 경로의 판일 때만 — 다른 파일의 blob 으로 이름만 빌려 열 수 없다', { skip: !db }, async () => {
+  const { a, cv, room } = await setup()
+  const other = await S.blobAt(cv, 'main', '민도현_이력서.pptx')
+  const own = await S.blobAt(cv, 'main', '차은솔_이력서.docx')
+  assert.notEqual(other, own)
+  // resolve: the other file's blob under this path is not honoured
+  const r = (await call(a, 'POST', '/files/resolve', { items: [{ src: 'folder', slug: cv.slug, path: '차은솔_이력서.docx', blob: other }] })).body.items[0]
+  assert.equal(r.ok, true)
+  assert.equal(r.ref.blob, own, '경로의 지금 판')
+  // a send with a hand-made ref (no commit, another file's blob): the message keeps this path's own blob
+  const sent = await call(a, 'POST', `/team/threads/${room}/messages`, { text: '이력서', refs: [{ slug: cv.slug, path: '차은솔_이력서.docx', name: '차은솔_이력서.docx', blob: other }] })
+  assert.equal(sent.status, 200, sent.text)
+  const [row] = await q('select messages from chats where uuid=$1', [sent.body.id])
+  assert.equal(row.messages.pgpt.refs[0].blob, own)
+  // and opening it is this file's bytes, not the other's
+  const opened = await call(a, 'POST', '/team/refs/open', { messageId: sent.body.id, index: 0 })
+  assert.equal(opened.body.message.content.folder.sha, own)
+  // an earlier version of the same path is still a version of it (a folder_open card made before an edit)
+  const before = (await G.git(cv.repo_path, ['log', '--format=%H', '-n', '2', 'main', '--', '차은솔_이력서.docx'])).trim().split('\n')[1]
+  const old = await S.blobAt(cv, before, '차은솔_이력서.docx')
+  const ro = (await call(a, 'POST', '/files/resolve', { items: [{ src: 'folder', slug: cv.slug, path: '차은솔_이력서.docx', blob: old }] })).body.items[0]
+  assert.equal(ro.ref.blob, old)
+  assert.equal(await S.blobAt(cv, ro.ref.commit, '차은솔_이력서.docx'), old, '그 판이 있던 커밋')
+})
+
+test('리뷰 7: AI 채팅의 파일 하나가 실패해도 나머지는 간다 — 그 파일만 칩에 까닭', { skip: !db }, async () => {
+  const { a, cv } = await setup()
+  const up = await sendFile(a, '면접_메모.md', Buffer.from('# 면접 메모\n'))
+  const r = await FR.turnRefs(a, [{ src: 'folder', slug: cv.slug, path: '민도현_이력서.pptx', name: '민도현_이력서.pptx' }, { src: 'card', id: up.body.id, name: '면접_메모.md' }],
+    { copies: true, deps: { publishBlob: async () => { throw new Error('storage down') } } })
+  assert.equal(r.shown.length, 2)
+  assert.equal(r.shown[0].name, '민도현_이력서.pptx')
+  assert.ok(r.shown[0].error, '실패한 그 파일만 까닭')
+  assert.deepEqual([r.shown[1].as, r.shown[1].name, r.shown[1].error], ['file', '면접_메모.md', undefined])
+  assert.match(r.context, /면접_메모\.md/)
+  assert.doesNotMatch(r.context, /민도현_이력서/)
+})
+
+test('리뷰 8: 사람이 쓴 「@AI …」 메시지의 멘션에 권한을 요청하면 그 사람(멘션한 사람)에게도 알린다', { skip: !db }, async () => {
+  const { b, c, cv, room } = await setup()
+  const ref = (await call(b, 'POST', '/files/resolve', { items: [{ src: 'folder', slug: cv.slug, path: '민도현_이력서.pptx' }] })).body.items[0].ref
+  const sent = await call(b, 'POST', `/team/threads/${room}/messages`, { text: '@AI 이 파일 요약해 줘', ai: true, refs: [ref] })
+  assert.equal(sent.status, 200, sent.text)
+  await q(`delete from notifications where type='folder_access' and user_id = any($1)`, [[b.id, b.email]])
+  const asked = await call(c, 'POST', '/team/refs/request', { messageId: sent.body.id, index: 0 })
+  assert.equal(asked.status, 200, asked.text)
+  assert.ok(asked.body.to.includes('서하린'), JSON.stringify(asked.body))
+  assert.equal((await q(`select count(*)::int n from notifications where user_id=$1 and type='folder_access'`, [b.id]))[0].n, 1)
+})

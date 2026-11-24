@@ -1,7 +1,7 @@
-# 서버 시험 — 2026-11-24 22:40 · feat/messenger-file-mention-ai 를 origin/main 5fcfb02 에 합친 작업 트리(커밋 전)
+# 서버 시험 — 2026-11-24 22:59 · eca6a4d(PR #45) 위 리뷰 고침(커밋 전)
 
-test/fileMention.test.js: ℹ tests 10 ℹ pass 10 ℹ fail 0 
-test/fileMention.integration.test.js: ℹ tests 7 ℹ pass 7 ℹ fail 0 
+test/fileMention.test.js: ℹ tests 11 ℹ pass 11 ℹ fail 0 
+test/fileMention.integration.test.js: ℹ tests 12 ℹ pass 12 ℹ fail 0 
 test/chatAgents.test.js: ℹ tests 7 ℹ pass 7 ℹ fail 0 
 test/messageMerge.test.js: ℹ tests 3 ℹ pass 3 ℹ fail 0 
 test/meetingRecordLive.test.js: ℹ tests 4 ℹ pass 4 ℹ fail 0 

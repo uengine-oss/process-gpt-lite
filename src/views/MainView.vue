@@ -116,9 +116,9 @@ const mobileList = computed(() => narrow.value && listMode.value && !route.param
 // (gen: leaving that room for a fresh 새 프로젝트 gives a fresh chat)
 const gen = ref(0)
 const colKey = computed(() => (app.draftProject && [app.draftProject.tmp, app.draftProject.id].includes(app.activeId) ? `new-${gen.value}` : app.activeId || `new-${gen.value}`))
-function sendFromHome(text) {
+function sendFromHome(text, o) {
   if (!app.panelMode) app.dockOpen = false
-  onSend(text)
+  onSend(text, o)
 }
 const newProject = computed(() => app.mode === 'project' && !route.params.id)
 const instMode = computed(() => !!route.params.instId)
@@ -209,14 +209,16 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => { window.removeEventListener('pgl:open-notification', openNotification); clearInterval(poll) })
 
-async function onSend(text) {
+// o.refs: files dragged onto the composer for this message (Composer.vue submit — server lib/fileRefs.js)
+async function onSend(text, o = {}) {
   if (app.panelMode) return app.createPanel(text)
   app.notice = null
+  const refs = o?.refs || []
   // a second message while the room is still being made: shown now, to that room once it exists
-  if (drafting.value) return app.queueDraft(text)
+  if (drafting.value) return app.queueDraft(text, refs)
   if (newProject.value && !app.activeId) {
     // the message and "생각하는 중" are on screen at once; the address follows when the room exists
-    const id = await app.newProject(text)
+    const id = await app.newProject(text, refs)
     if (id && app.activeId === id && newProject.value) router.replace(`/projects/${id}`)
     return
   }
@@ -224,9 +226,9 @@ async function onSend(text) {
   if (instMode.value && !app.instance) return
   if (instMode.value && app.instance) {
     // questions on an instance page carry its state so the agent can answer about it
-    return app.send(text, app.activeId, instanceContext(app.instance))
+    return app.send(text, app.activeId, instanceContext(app.instance), undefined, { refs })
   }
-  app.send(text)
+  app.send(text, undefined, undefined, undefined, { refs })
 }
 function onConnect() {
   connecting.value = true

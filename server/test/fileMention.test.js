@@ -171,3 +171,11 @@ test('@AI 말머리: 화면이 붙인 「@AI 」만 떼어 낸다', async () => 
   assert.equal(requestOf('@ai   견적서 보여 줘'), '견적서 보여 줘')
   assert.equal(requestOf('이 @AI 는 가운데'), '이 @AI 는 가운데')
 })
+
+test('리뷰 10: 한마디에서 더 고른 자료도 분당 띄우는 한도 안에서만', async () => {
+  const I = await import('../lib/meetings/intent.js')
+  assert.equal(I.extraBudget(0), I.PER_MIN - 1, '첫 자료를 빼고 남은 만큼')
+  assert.equal(I.extraBudget(I.PER_MIN - 1), 0)
+  assert.equal(I.extraBudget(I.PER_MIN + 3), 0)
+  assert.equal(I.extraBudget(undefined), I.PER_MIN - 1)
+})

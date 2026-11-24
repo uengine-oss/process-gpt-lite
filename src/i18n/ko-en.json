@@ -2851,6 +2851,10 @@
    "{0} outputs of the chat"
   ],
   [
+   "「{0}」 · 반영 전",
+   "“{0}” · not merged"
+  ],
+  [
    "루틴 · {0} 열기",
    "Open routine · {0}"
   ],

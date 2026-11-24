@@ -294,6 +294,18 @@ test.describe('파일 멘션 · 메신저의 @AI (spec messenger-file-mention)',
     await pa.goto(`/folders/${folder.slug}?share=${c.id}`)
     await expect(pa.locator('.sel.grow')).toHaveValue(c.id)
     await shot(pa, 'f-fm-04c-owner-share-sheet')
+    // (PR #45 review) the request leaves the address once the sheet is open, and the sheet closes for good — the folder loading again
+    // (a drop on it reloads it) does not bring it back
+    await expect(pa).not.toHaveURL(/share=/)
+    await pa.locator('.veil .hd button[title="닫기"]').click()
+    await expect(pa.locator('.sel.grow')).toHaveCount(0)
+    const mid = (await a.get(`/team/threads/${room}/messages`)).body.messages.find((m) => m.refs?.length).id
+    const dt = await pa.evaluateHandle((it) => { const d = new DataTransfer(); d.setData('application/x-pgl-file', JSON.stringify({ v: 1, items: [it] })); return d },
+      { src: 'ref', messageId: mid, index: 0, name: '차은솔_이력서.docx' })
+    for (const t of ['dragenter', 'dragover', 'drop']) await pa.locator('[data-test="folder-detail"] .files').dispatchEvent(t, { dataTransfer: dt })
+    await expect(pa.locator('.toast').first()).toContainText('이미 이 폴더의 파일이에요')
+    await pa.waitForTimeout(600)
+    await expect(pa.locator('.sel.grow')).toHaveCount(0)
     // the file changes after the mention: 서하린 sees 「최신 열기」
     await put(a, folder.slug, '차은솔_이력서.docx', Buffer.concat([DOCX, Buffer.from(' ')]))
     const pb = await pageAs('fm-mate', { viewport: WIDE })
@@ -464,6 +476,67 @@ test.describe('파일 멘션 · 메신저의 @AI (spec messenger-file-mention)',
     await expect(page.locator('[data-testid="chat-notice"]')).toContainText(`‘${folder.name}’에 넣었어요 · 채용공고_초안.md`)
     await shot(page, 'f-fm-08b-bar-filed')
     expect((await a.get(`/folders/${folder.slug}/tree`)).body.map((x) => x.path)).toContain('채용공고_초안.md')
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-FM-11 확인 중인 칩은 기다렸다가 그 말과 함께 · 다른 보내기 길은 입력창의 칩을 가져가지 않음 · 빈 요청은 400 (PR #45 리뷰)', async ({ pageAs, as, db, cleanup }) => {
+    const { a, folder } = await cast(as, db, cleanup, { members: false })
+    await db.clearMain(a.id)
+    agent.bodies = []
+    const page = await pageAs('fm-owner', { viewport: WIDE })
+    await page.goto('/chat')
+    const comp = page.locator('[data-test="chat-composer"]').last()
+    await comp.locator('textarea').waitFor()
+    // the server answers the check slowly: the chip says 「확인하는 중…」 for a while
+    await page.route('**/api/files/resolve', async (route) => { await new Promise((ok) => setTimeout(ok, 1500)); await route.continue() })
+    const drop = async (path) => {
+      const dt = await page.evaluateHandle((it) => { const d = new DataTransfer(); d.setData('application/x-pgl-file', JSON.stringify({ v: 1, items: [it] })); return d },
+        { src: 'folder', slug: folder.slug, folder: folder.name, path, name: path })
+      for (const t of ['dragenter', 'dragover', 'drop']) await comp.locator('textarea').dispatchEvent(t, { dataTransfer: dt })
+    }
+    await drop('면접_질문.md')
+    await expect(comp.locator('[data-test="chat-ref-chip"]')).toHaveAttribute('data-state', 'wait')
+    // Enter at once: the message waits for the file, then goes with it (before: the file was dropped silently)
+    await comp.locator('textarea').fill('이 질문 정리해 줘')
+    await comp.locator('textarea').press('Enter')
+    await expect.poll(() => agent.bodies.length, { timeout: 30000 }).toBeGreaterThan(0)
+    expect(agent.bodies.at(-1).message).toContain(`folder_read 도구(folder: '${folder.slug}', path: '면접_질문.md')`)
+    await expect(page.locator('[data-test="sent-ref"][data-file="면접_질문.md"]')).toBeVisible()
+    await expect(comp.locator('[data-test="chat-ref-chip"]')).toHaveCount(0)
+    // a chip in the composer stays there when something else sends (a reply button, 「다시 시도해 줘」, an open document's request …)
+    await page.unroute('**/api/files/resolve')
+    await drop('지원자_목록.json')
+    await expect(comp.locator('[data-test="chat-ref-chip"]')).toHaveAttribute('data-state', 'ready')
+    const n = agent.bodies.length
+    await page.evaluate(() => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app').send('다른 길로 보낸 말'))
+    await expect.poll(() => agent.bodies.length, { timeout: 30000 }).toBeGreaterThan(n)
+    expect(agent.bodies.at(-1).message).toContain('다른 길로 보낸 말')
+    expect(agent.bodies.at(-1).message).not.toContain('지원자_목록.json')
+    await expect(comp.locator('[data-test="chat-ref-chip"][data-file="지원자_목록.json"]')).toBeVisible()
+    // nothing to send: refused, and nothing goes to the agent
+    const main = await db.mainThreadId(a.id)
+    const empty = await api.call(a.token(), 'POST', `/threads/${main}/messages`, { text: '  ' })
+    expect(empty.status).toBe(400)
+    // only dragged files, none usable (another person's card): no empty turn either
+    const m = agent.bodies.length
+    const r = await api.call(a.token(), 'POST', `/threads/${main}/messages`, { text: '', refs: [{ src: 'card', id: '00000000-0000-4000-8000-000000000000' }] }, { raw: true })
+    expect(await r.text()).toContain('event: error')
+    await page.waitForTimeout(800)
+    expect(agent.bodies.length).toBe(m)
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-FM-12 멘션한 변형의 파일은 「변형 「<이름>」 · 반영 전」으로 열린다 (PR #45 리뷰: 「변형 반영 전 변형」)', async ({ pageAs, as, db, cleanup }) => {
+    const { a, folder } = await cast(as, db, cleanup, { members: false })
+    const v = await a.post(`/folders/${folder.slug}/variations`, { title: '강의 준비' })
+    expect(v.status, v.text).toBe(200)
+    const page = await pageAs('fm-owner', { viewport: WIDE })
+    await page.goto(`/folders/${folder.slug}?file=${encodeURIComponent('지원자_목록.json')}&ref=${v.body.id}`)
+    const preview = page.locator('.veil .sheet').filter({ hasText: '지원자_목록.json' })
+    await expect(preview).toContainText('「강의 준비」 · 반영 전')
+    await expect(preview).not.toContainText('변형 반영 전 변형')
+    await calm(page)
+    await shot(page, 'f-fm-12-variation-file')
     expect(page.errors).toEqual([])
   })
 

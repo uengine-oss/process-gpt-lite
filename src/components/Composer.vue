@@ -127,16 +127,20 @@ onMounted(() => {
 onBeforeUnmount(() => { window.removeEventListener('dragstart', arm); window.removeEventListener('dragend', disarm); window.removeEventListener('drop', disarm) })
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
 
-function submit() {
+async function submit() {
   const v = text.value.trim() || (app.panelMode ? suggestions[si.value].t : '')
   if (!v && !app.attachments.length && !app.fileRefs.some((r) => !r.error)) return
   // sending ends dictation first: nothing heard afterwards comes back into the emptied box
   dictation?.cancel()
   if (tm.chips.value.length) { if (v) tm.send(v).then((ok) => { if (!ok) text.value = v }); text.value = v ? '' : text.value; return }
+  text.value = ''
+  // files dragged in go with this message only, once checked: a chip still 「확인하는 중…」 is waited for, never dropped (and a message
+  // with nothing left — only refused files — is not sent) — PR #45 review
+  const refs = app.fileRefs.length && !app.panelMode ? await app.takeFileRefs() : []
+  if (!v && !app.attachments.length && !refs.length) return
   // (the store's send takes the agent of the chat this was written in — stores/app.js send)
   app.nextAgent = agentKey.value ? { key: agentKey.value, agent: agentFor(agentKey.value) } : null
-  emit('send', v)
-  text.value = ''
+  emit('send', v, refs.length ? { refs } : undefined)
 }
 function onKey(e) {
   if (tm.onKey(e)) return

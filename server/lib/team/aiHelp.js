@@ -91,8 +91,9 @@ async function attach(asker, roomId, uuid, said, prev, deps) {
       if (lacking.length) warn.push(L(`${lacking.join(', ')}님은 「${r.folder}」 폴더 권한이 없어 「${r.name}」을(를) 바로 열 수 없어요. 카드의 「권한 요청」으로 요청할 수 있어요.`,
         `${lacking.join(', ')} can't open "${r.name}" yet — no access to the "${r.folder}" folder. The card's "Request access" asks for it.`))
     } else if (c.ref?.artifacts?.length) {
-      // already shared in this room: the same share again (its people already hold it)
-      artifacts.push(...c.ref.artifacts)
+      // already shared in this room: the same share again (its people already hold it) — still its sharer's (by): the row is
+      // written as the asker's, and without it the asker got the sharer's own share and the sharer none (PR #45 review)
+      artifacts.push(...c.ref.artifacts.map((x) => ({ ...x, by: x.by || c.ref.ownerId })))
     } else {
       // a file card of the asker: a folder's file is a link, anything else is shared the way any of their files is
       const x = await FR.resolveOne(asker, { src: 'card', id: c.ref.sourceId }).catch(() => null)

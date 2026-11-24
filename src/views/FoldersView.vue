@@ -39,7 +39,9 @@ watch(() => [slug.value, route.query.file, route.query.ref], async ([s, file, at
   const ref = /^[0-9a-f]{40}$/.test(String(at || '')) || /^[0-9a-f-]{36}$/i.test(String(at || '')) ? String(at) : 'main'
   const [folder, row] = await Promise.all([api(`/folders/${encodeURIComponent(s)}`).catch(() => null),
     ref === 'main' ? api(`/folders/${encodeURIComponent(s)}/file?path=${encodeURIComponent(file)}`).catch(() => null) : Promise.resolve({})])
-  if (folder && row && slug.value === s) open({ folder, file: { path: String(file), ...row }, ref, refLabel: ref === 'main' ? undefined : ref.length === 40 ? '멘션한 때의 판' : '반영 전 변형' })
+  // (a variation by its title — FilePreview puts 「변형」 before it; a commit as the version the mention named)
+  const v = ref.length === 36 ? (folder?.variations || []).find((x) => x.id === ref) : null
+  if (folder && row && slug.value === s) open({ folder, file: { path: String(file), ...row }, ref, refLabel: ref === 'main' ? undefined : ref.length === 40 ? '멘션한 때의 판' : `「${v?.title || '변형'}」 · 반영 전` })
 }, { immediate: true })
 </script>
 

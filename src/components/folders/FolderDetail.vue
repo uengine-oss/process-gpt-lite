@@ -135,8 +135,16 @@ async function onPglDrop(e) {
 }
 const openFiled = () => { const f = files.value.find((x) => x.path === filedNote.value?.path); if (f) preview(f); filedNote.value = null }
 // a 「권한 요청」 notice opens this folder with ?share=<who asked>: the 공유 sheet with that person picked
+// — once: the request leaves the address as the sheet opens, and the watch reads plain values (it re-ran whenever load() replaced the
+// folder, so the sheet could never be closed — PR #45 review)
 const pickShare = ref('')
-watch(() => [route.query.share, folder.value?.id], ([who]) => { if (who && folder.value && can('owner')) { pickShare.value = String(who); sharing.value = true } }, { immediate: true })
+watch(() => (route.query.share && folder.value?.id ? `${route.query.share}:${folder.value.id}` : ''), (k) => {
+  if (!k || !can('owner')) return
+  pickShare.value = String(route.query.share)
+  sharing.value = true
+  const { share: _asked, ...rest } = route.query
+  router.replace({ query: rest })
+}, { immediate: true })
 
 async function uploadFiles(list, dir = '') {
   if (!can('editor')) return say('올리려면 편집 권한이 필요해요.')

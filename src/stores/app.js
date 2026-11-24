@@ -308,7 +308,21 @@ export const useApp = defineStore('app', {
     },
     removeAttachment(id) { this.attachments = this.attachments.filter((a) => a.id !== id) },
     // dropped files of the app → chips at once, then what each one is (or why it cannot be used) from the server
-    async addFileRefs(items) {
+    addFileRefs(items) {
+      const job = this._addFileRefs(items)
+      this._refsJob = Promise.all([this._refsJob, job]).then(() => {})
+      return job
+    },
+    // the composer's message takes them (Composer.vue submit): it waits for any still being checked, takes the usable ones and clears
+    // what it took (and the refused ones, which said why). Only the composer's own send carries them — no other send of the store picks
+    // up chips lying in the composer, and a message queued for a room being made keeps its own (PR #45 review).
+    async takeFileRefs() {
+      await this._refsJob
+      const taken = this.fileRefs.filter((r) => !r.wait)
+      this.fileRefs = this.fileRefs.filter((r) => r.wait)
+      return taken.filter((r) => !r.error).map((r) => r.item)
+    },
+    async _addFileRefs(items) {
       const fresh = (items || []).filter((it) => !this.fileRefs.some((r) => JSON.stringify(r.item) === JSON.stringify(it))).slice(0, Math.max(0, 10 - this.fileRefs.length))
       if (!fresh.length) return
       const keys = fresh.map(() => crypto.randomUUID())
@@ -346,9 +360,8 @@ export const useApp = defineStore('app', {
       }
       const pending = attachments || this.attachments
       if (!attachments) this.attachments = []
-      // the files dragged in (refused ones are only shown, never sent)
-      const refs = this.fileRefs.filter((r) => !r.error && !r.wait).map((r) => r.item)
-      this.fileRefs = []
+      // files dragged onto the composer: only what the composer gave this message (opts.refs, takeFileRefs)
+      const refs = Array.isArray(opts.refs) ? opts.refs : []
       await Promise.all(pending.map((a) => a.job))
       const files = pending.filter((a) => a.result).map((a) => a.result)
       // asked from inside one conversation's view: it continues that conversation
@@ -386,7 +399,7 @@ export const useApp = defineStore('app', {
     // 새 프로젝트: the message and "생각하는 중" show at once, in a room that is not made yet — making it
     // (POST /threads, a title from the model) can take a while (recording 2026-11-21: 20 s of nothing).
     // → the new room's id, or null when it could not be made (the text goes back into the composer).
-    newProject(text) {
+    newProject(text, refs = []) {
       // the folder chosen on the 새 프로젝트 screen: the project works on its own variation of it
       const f = this.newProjectFolder
       // the files attached for this message go with it, not with whatever is sent next while the room is made
@@ -409,7 +422,11 @@ export const useApp = defineStore('app', {
           delete this.drafts[tmp]
           // still on that screen: the text goes back into the composer (elsewhere it would land in another chat)
           const here = this.activeId === tmp
-          if (here) { this.activeId = null; this.prefill = [text, ...more.map((m) => m.text)].join('\n'); this.attachments = [...att, ...more.flatMap((m) => m.att), ...this.attachments] }
+          if (here) {
+            this.activeId = null; this.prefill = [text, ...more.map((m) => m.text)].join('\n'); this.attachments = [...att, ...more.flatMap((m) => m.att), ...this.attachments]
+            const back = [...refs, ...more.flatMap((m) => m.refs || [])]
+            if (back.length) this.addFileRefs(back)
+          }
           this.draftProject = null
           // a refusal the server explains (the folder) is said as it is; anything else plainly
           const why = e.status && e.status < 500 && /[가-힣]/.test(e.message || '') ? e.message : '프로젝트를 만들지 못했어요'
@@ -425,19 +442,19 @@ export const useApp = defineStore('app', {
         if (!this.projects.some((p) => p.id === t.id)) this.projects.unshift(t)
         if (this.draftProject?.tmp === tmp) this.draftProject = { tmp, id: t.id, more }
         if (this.activeId === tmp) this.activeId = t.id
-        this.send(text, t.id, undefined, att)
+        this.send(text, t.id, undefined, att, { refs })
         // (a moment apart: the server keeps them in the order sent and answers them in turn — lib/turns.js)
-        more.forEach((m, i) => setTimeout(() => this.send(m.text, t.id, undefined, m.att), 400 * (i + 1)))
+        more.forEach((m, i) => setTimeout(() => this.send(m.text, t.id, undefined, m.att, { refs: m.refs || [] }), 400 * (i + 1)))
         return t.id
       })()
       return draftJob
     },
     // a second message sent while the room is still being made: on screen now, to the room once it exists
-    queueDraft(text) {
+    queueDraft(text, refs = []) {
       const d = this.draftProject
-      if (!d || d.id || !this.messages[d.tmp]) return this.send(text)
+      if (!d || d.id || !this.messages[d.tmp]) return this.send(text, undefined, undefined, undefined, { refs })
       // (its own files, taken now: a file attached for it must not leave with the first message)
-      d.more.push({ text, att: this.attachments })
+      d.more.push({ text, att: this.attachments, refs })
       this.attachments = []
       this.messages[d.tmp].push({ id: `${d.tmp}-${d.more.length + 1}`, thread_id: d.tmp, role: 'user', kind: 'text', content: { text, local: true }, created_at: new Date().toISOString() })
       return draftJob

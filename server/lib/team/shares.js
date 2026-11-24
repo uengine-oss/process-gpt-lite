@@ -210,11 +210,13 @@ export async function revoke(user, id) {
   return !!s
 }
 
-// the artifacts of a dm message as one viewer sees them: their own share id, never storage keys
+// the artifacts of a dm message as one viewer sees them: their own share id, never storage keys. An artifact can name its own owner
+// (by) — one the messenger's @AI attached again from an earlier share in the room is still its sharer's, not the asker's
 export function viewArtifacts(viewerId, senderId, artifacts) {
-  return (artifacts || []).map((a) => ({
-    name: a.name, kind: a.kind,
-    shareId: viewerId === senderId ? Object.values(a.shares || {})[0] || null : a.shares?.[viewerId] || null,
-    own: viewerId === senderId,
-  }))
+  return (artifacts || []).map((a) => {
+    const owner = a.by || senderId
+    return { name: a.name, kind: a.kind,
+      shareId: viewerId === owner ? Object.values(a.shares || {})[0] || null : a.shares?.[viewerId] || null,
+      own: viewerId === owner }
+  })
 }

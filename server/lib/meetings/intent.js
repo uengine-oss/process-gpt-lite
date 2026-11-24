@@ -14,7 +14,9 @@ import { judge as ask, judgeAvailable, judgeLlm } from '../judge.js'
 export const DEBOUNCE_MS = Number(process.env.PRO_MEETING_DEBOUNCE_MS || 1200)
 const MIN_REQ = 0.7
 const MIN_MAT = 0.6
-const PER_MIN = 6
+export const PER_MIN = 6
+// how many more of one line's picks may go up after the first, inside the per-minute budget (PR #45 review: one line showed four)
+export const extraBudget = (lastMinute) => Math.max(0, PER_MIN - (lastMinute || 0) - 1)
 
 export const stats = { segments: 0, prefiltered: {}, judged: 0, judgeErrors: 0, materials: 0, suggested: 0, repeats: 0, bigModelCalls: 0, judgeMs: [], detectMs: [] }
 const count = (why) => { stats.prefiltered[why] = (stats.prefiltered[why] || 0) + 1 }
@@ -173,7 +175,7 @@ export async function detect(seg, ctx) {
   if ((ctx.lastMinute || 0) >= PER_MIN) { count('rate'); return null }
   keep(stats.detectMs, Date.now() - t0)
   return { material: { ...pick, key, judge: { yes: round(yes), pick: found.judge?.p ?? null, strategy: found.judge?.strategy || null, ms, model: found.judge?.model || null } },
-    more: more.filter((x) => !ctx.shown?.has(`${x.kind}:${x.id}`)).map((x) => ({ ...x, key: `${x.kind}:${x.id}`, judge: { yes: round(yes), ms } })) }
+    more: more.filter((x) => !ctx.shown?.has(`${x.kind}:${x.id}`)).slice(0, extraBudget(ctx.lastMinute)).map((x) => ({ ...x, key: `${x.kind}:${x.id}`, judge: { yes: round(yes), ms } })) }
 }
 const round = (x) => Math.round((x || 0) * 100) / 100
 

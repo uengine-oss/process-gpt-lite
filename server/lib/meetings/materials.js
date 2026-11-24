@@ -91,7 +91,8 @@ async function fileCandidates(roomId, speaker) {
     const owner = g.by || r.messages.userId
     for (const a of g.artifacts || []) {
       if (!a?.sourceId || out.has(a.sourceId)) continue
-      out.set(a.sourceId, { kind: 'file', id: a.sourceId, title: a.name, ref: { sourceId: a.sourceId, ownerId: owner, artifacts: [a] } })
+      // (an artifact the messenger's @AI attached again names its own sharer — team/shares.js viewArtifacts)
+      out.set(a.sourceId, { kind: 'file', id: a.sourceId, title: a.name, ref: { sourceId: a.sourceId, ownerId: a.by || owner, artifacts: [a] } })
     }
   }
   // the speaker's own file cards (not copies of someone else's)

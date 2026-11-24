@@ -92,11 +92,27 @@ export async function folderRef(user, it) {
     if (blob) commit = it.commit
   }
   const head = await G.head(folder.repo_path, folder.default_branch)
-  // a card that named the version by its blob (folder_open): main's commit, the blob it named
-  if (!blob && it.blob && (await G.git(folder.repo_path, ['cat-file', '-t', it.blob], { check: false })).trim() === 'blob') { blob = it.blob; commit = head }
+  // a card that named the version by its blob (folder_open's sha): honoured only when that blob really was this path's content at some
+  // commit of the folder — the commit where it was is the one kept. Anything else is not this file (a blob of another file would show
+  // its contents under this name — PR #45 review): this path's current version instead.
+  if (!blob && it.blob) {
+    const at = await commitOfBlob(folder, p, it.blob)
+    if (at) { blob = it.blob; commit = at }
+  }
   if (!blob) { commit = head; blob = head ? await S.blobAt(folder, head, p) : '' }
   if (!blob) throw fail(404, L(`「${folder.name}」 폴더에 「${path.posix.basename(p)}」 파일이 없어요.`, `The "${folder.name}" folder has no file "${path.posix.basename(p)}".`))
   return { folderId: folder.id, slug: folder.slug, folder: folder.name, path: p, name: path.posix.basename(p), commit, blob, variation: v }
+}
+
+// the newest commit (main first, then any branch) whose version of `rel` is that blob, or null (git log --find-object)
+export async function commitOfBlob(folder, rel, sha) {
+  if (!COMMIT.test(String(sha || ''))) return null
+  for (const range of [[folder.default_branch], ['--all']]) {
+    // (the commits that put this blob at this path or took it away: the ones where it went in are its versions)
+    const list = (await G.git(folder.repo_path, ['log', ...range, '--format=%H', '-n', '50', `--find-object=${sha}`, '--', rel], { check: false })).split('\n').filter(Boolean)
+    for (const c of list) if ((await S.blobAt(folder, c, rel).catch(() => '')) === sha) return c
+  }
+  return null
 }
 
 async function myCard(user, id) {
@@ -251,7 +267,8 @@ export async function requestAccess(user, messageId, index) {
   if (!folder) throw fail(404, L('폴더를 찾지 못했어요.', "I couldn't find that folder."))
   if (await S.roleOf(folder, user)) return { requested: false, access: true }
   const owners = (await q(`select principal_id as id from pro_folder_members where folder_id=$1 and principal_type='user' and role='owner'`, [folder.id])).map((x) => x.id)
-  const sender = row.messages?.pgpt?.ai ? row.messages.pgpt.by : row.messages?.userId
+  // (the AI's own row names the person it answered in pgpt.by; a person's 「@AI …」 row is theirs — pgpt.ai there only marks it)
+  const sender = row.messages?.role === 'assistant' ? row.messages?.pgpt?.by : row.messages?.userId
   const to = [...new Set([...owners, ...(sender && !owners.includes(sender) ? [sender] : [])])].filter((id) => id && id !== user.id)
   const url = requestUrl(folder.slug, user.id)
   const sent = []
@@ -283,33 +300,37 @@ export async function requestAccess(user, messageId, index) {
 // published copy); an artifact of mine or a file shared with me through its own copy (the card's address or work-folder path).
 // copies: every file by an address — for a CLI on the person's own PC (lib/localAgents/chat.js), which has neither the folder tools
 // nor the server's workspace
-export async function turnRefs(user, list, { copies = false } = {}) {
+export async function turnRefs(user, list, { copies = false, deps = {} } = {}) {
+  const publishBlob = deps.publishBlob || S.publishBlob
   const lines = [], shown = []
+  // each file on its own: one that fails (its folder gone, the storage down) is a chip with why — the others still go (PR #45 review)
   for (const it of normItems(list)) {
-    let x
-    try { x = await resolveOne(user, it) } catch (e) {
-      shown.push({ name: it.name, error: e.status ? e.message : L('이 파일을 가져오지 못했어요.', "I couldn't take this file.") })
-      continue
-    }
-    if (x.as === 'link') {
-      const r = x.ref
-      const folder = await S.folderById(r.folderId)
-      const main = await S.blobAt(folder, folder.default_branch, r.path)
-      if (main === r.blob && !r.variation && !copies) {
-        lines.push(L(`- 공유 폴더 「${r.folder}」의 「${r.path}」 — folder_read 도구(folder: '${r.slug}', path: '${r.path}')로 읽으세요`,
-          `- "${r.path}" in the shared folder "${r.folder}" — read it with the folder_read tool (folder: '${r.slug}', path: '${r.path}')`))
+    try {
+      const x = await resolveOne(user, it)
+      if (x.as === 'link') {
+        const r = x.ref
+        const folder = await S.folderById(r.folderId)
+        const main = await S.blobAt(folder, folder.default_branch, r.path)
+        if (main === r.blob && !r.variation && !copies) {
+          lines.push(L(`- 공유 폴더 「${r.folder}」의 「${r.path}」 — folder_read 도구(folder: '${r.slug}', path: '${r.path}')로 읽으세요`,
+            `- "${r.path}" in the shared folder "${r.folder}" — read it with the folder_read tool (folder: '${r.slug}', path: '${r.path}')`))
+        } else {
+          const pub = await publishBlob(folder, r.path, r.blob)
+          const which = r.variation ? L(`반영 전 변형 「${r.variation.title}」의 판`, `the version in the unmerged variation "${r.variation.title}"`)
+            : main === r.blob ? L('지금의 판(main)', 'its current version (main)') : L(`멘션한 때의 판(${String(r.commit).slice(0, 7)})`, `the version at the mention (${String(r.commit).slice(0, 7)})`)
+          lines.push(L(`- 공유 폴더 「${r.folder}」의 「${r.path}」, ${which} — 이 사본을 읽으세요: ${pub.url}`, `- "${r.path}" in the shared folder "${r.folder}", ${which} — read this copy: ${pub.url}`))
+        }
+        shown.push({ as: 'link', name: r.name, folder: r.folder, slug: r.slug, path: r.path, commit: r.commit, variation: r.variation })
       } else {
-        const pub = await S.publishBlob(folder, r.path, r.blob)
-        const which = r.variation ? L(`반영 전 변형 「${r.variation.title}」의 판`, `the version in the unmerged variation "${r.variation.title}"`)
-          : main === r.blob ? L('지금의 판(main)', 'its current version (main)') : L(`멘션한 때의 판(${String(r.commit).slice(0, 7)})`, `the version at the mention (${String(r.commit).slice(0, 7)})`)
-        lines.push(L(`- 공유 폴더 「${r.folder}」의 「${r.path}」, ${which} — 이 사본을 읽으세요: ${pub.url}`, `- "${r.path}" in the shared folder "${r.folder}", ${which} — read this copy: ${pub.url}`))
+        const [m] = await q('select content from pro_messages where id=$1', [x.cardId])
+        const c = m?.content || {}
+        if (!c.url && !c.path) throw fail(404, L('파일을 찾지 못했어요.', "I couldn't find that file."))
+        lines.push(c.path && !(copies && c.url) ? `- ${c.path} (${x.name})` : `- ${x.name} — ${c.url}`)
+        shown.push({ as: 'file', name: x.name, cardId: x.cardId })
       }
-      shown.push({ as: 'link', name: r.name, folder: r.folder, slug: r.slug, path: r.path, commit: r.commit, variation: r.variation })
-    } else {
-      const [m] = await q('select content from pro_messages where id=$1', [x.cardId])
-      const c = m?.content || {}
-      lines.push(c.path && !(copies && c.url) ? `- ${c.path} (${x.name})` : `- ${x.name} — ${c.url}`)
-      shown.push({ as: 'file', name: x.name, cardId: x.cardId })
+    } catch (e) {
+      if (!e.status) console.warn('[file-refs] turn', it.name, e.message)
+      shown.push({ name: it.name, error: e.status ? e.message : L('이 파일을 가져오지 못했어요.', "I couldn't take this file.") })
     }
   }
   const context = lines.length ? L(`(사용자가 끌어다 놓아 가리킨 파일 — 이 요청은 이 파일들에 대한 것이에요:\n${lines.join('\n')})`, `(Files the person dragged in to point at — this request is about them:\n${lines.join('\n')})`) : ''
@@ -338,8 +359,10 @@ export async function dropInto(user, slug, list, { dir = '' } = {}) {
       } else {
         // a card or a share that is a folder's file (opened from a folder, a project's file) comes in from its folder, at its version
         const x = await resolveOne(user, it)
+        // (an artifact by the card resolve found — for a share, the sender's own original or the recipient's copy: filing reads a
+        // share only as its recipient, so my own sent file went 404 — PR #45 review)
         ref = x.as === 'link' ? { folderFile: { slug: x.ref.slug, path: x.ref.path, commit: x.ref.commit, blob: x.ref.blob, variation: x.ref.variation?.id || null } }
-          : it.src === 'card' ? { messageId: it.id } : { shareId: it.shareId }
+          : { messageId: x.cardId }
       }
       // a file of this folder itself (its own row, a project's variation of it — that one is merged with 「반영」, not copied in)
       if (ref.folderFile && ref.folderFile.slug === target.slug) throw fail(409, ref.folderFile.variation ? L('이 폴더의 변형에 있는 파일이에요. 변형은 「반영」으로 넣어요.', "This file is in a variation of this folder. A variation goes in with Merge.") : L('이미 이 폴더의 파일이에요.', 'This file is already in this folder.'))
