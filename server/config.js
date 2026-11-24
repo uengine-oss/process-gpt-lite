@@ -3,6 +3,7 @@
 import dotenv from 'dotenv'
 import path from 'node:path'
 import fs from 'node:fs'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { PGPT_ROOT, ARTCRAFT_ROOT } from './lib/paths.js'
 import { tenantStore } from './lib/tenantStore.js'
@@ -81,6 +82,9 @@ export const config = {
     soundcraft: get('PRO_SOUNDCRAFT_CLI', 'soundcraft-cli'),
     filmcraft: get('PRO_FILMCRAFT_CLI', 'filmcraft-cli'),
   },
+  // where those CLIs work when the agent's /workspace is not on this machine (deepagents in its own pods):
+  // a folder per person standing in for it (<root>/<tenant>/<person>, lib/craftWork.js)
+  craftWorkRoot: get('PRO_CRAFT_WORK_ROOT', path.join(os.tmpdir(), 'pgpt-craft-work')),
   // IeumOffice editor host (process-gpt office-host): its MCP (/office/mcp) edits the documents open in the page
   officeHostUrl: get('PRO_OFFICE_HOST_URL', 'http://127.0.0.1:5390'),
   completionUrl: get('PRO_COMPLETION_URL', 'http://127.0.0.1:8099'),

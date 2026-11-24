@@ -187,6 +187,8 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | CADCraft·SoundCraft 웹 페이지 API | F-CR-cadcraft, F-CR-soundcraft (열린 화면 읽기), F-ED-04 (다이얼) | feature | ◐ (대화로 고치기 ✗) |
 | PhotoCraft 웹 페이지 API | F-CR-photocraft, F-CR-10 | feature | ◐ (미리보기 요청 ✗) |
 | 앱이 저장하면 편집본이 올라가고 카드가 편집본을 가리킨다 | F-CR-11 | feature | ✅ |
+| ArtCraft 가 든 설치는 다섯 앱을 모두 낸다(spec `craft-apps`): `/api/config` 의 web·cli, `/craft/<앱>/` 페이지, wasm `application/wasm`+gzip, 브라우저에서 `window.<앱>`·캔버스 — 앱이 없으면 건너뛰지 않고 실패 | C-IN-<앱>, C-IN-<앱>-boot (`deploy/craft-install.spec.js`, 로그인 없음: `PGPT_ROOT_URL=https://<회사>.process-gpt.io` 또는 `PGPT_LITE_URL=…`), 서버 `test/craftInstall.test.js`(`PRO_CRAFT_WEB_ROOT` 를 준 설치 이미지 안에서) | deploy/단위 | ✅ |
+| 에이전트와 디스크를 나누지 않는 설치(운영)에서 앱 도구: 사람마다 대신 폴더, 쓸 수 있는 대화 폴더만 storage 사본으로 받기·올리기(다른 사람의 대화 폴더는 열지도 쓰지도 않음, 구성원인 공유 폴더 실행 방은 됨), 내 첨부 주소, 카드, 경로는 `/workspace` 안에서만, 하루 뒤 정리 | 서버 `test/craftWork.test.js` | 단위 | ✅ (운영 deepagents 를 거친 대화는 배포 뒤 확인) |
 
 ### 9. 에이전트 작업실 (spec `pgpt-pro_agent-workroom`, 영상 `ppLKYAAGf78` · `jDbjGIMrc5o`)
 
