@@ -331,8 +331,15 @@ export const useMeetings = defineStore('meetings', {
 
     // ---- live events ----
     onEvent(d) {
-      if (d.type === 'room') { this.rooms[d.roomId] = d.meeting; return }
-      if (d.type === 'minutes') { this.endedMinutes = { roomId: d.roomId, messageId: d.messageId }; return }
+      // a meeting started or ended in a room, its minutes are in: the room's conversation, if it is open, is brought up to
+      // date (its cards come as team messages; this is for one whose push was missed — stores/team.js catchUp)
+      if (d.type === 'room') {
+        const was = this.rooms[d.roomId]
+        this.rooms[d.roomId] = d.meeting
+        if (was !== undefined && !was !== !d.meeting) this.team().catchUp(d.roomId)
+        return
+      }
+      if (d.type === 'minutes') { this.endedMinutes = { roomId: d.roomId, messageId: d.messageId }; this.team().catchUp(d.roomId); return }
       const m = this.m
       if (!m || d.meetingId !== m.id) return
       if (d.type === 'signal') { this.mesh?.onSignal(d).catch((e) => console.warn('[meeting] signal', e.message)); return }

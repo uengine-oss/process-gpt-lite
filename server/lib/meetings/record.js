@@ -6,12 +6,15 @@
 //                       place as lines arrive (never a row per sentence)
 //   meeting-material    a material the assistant found (visible to everyone in the room) or someone presented
 //   meeting-minutes     the final minutes (lib/meetings/minutes.js)
-// Rows are inserted/updated here; the pro_chats_notify trigger fans them out live (messenger.startRoomFeed),
-// an UPDATE replacing the message with the same id on every client.
+// Rows are inserted/updated here and go at once to everyone in the room, the way a new team message does
+// (messenger.deliver), an UPDATE replacing the message with the same id on every client. (Until 2026-11-24 only the
+// pro_chats_notify trigger fanned them out — messenger.startRoomFeed, which behind the ProcessGPT gateway watched only
+// the default tenant: the card, 회의 자료 and the minutes showed in a company's room only after it was opened again.)
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { L, isEn } from '../lang.js'
+import { deliver } from '../team/messenger.js'
 
 const T = () => config.tenantId
 export const AGENT = { id: 'pgpt-meeting-assistant', name: '프로세스 GPT 라이트 도우미' }
@@ -41,10 +44,14 @@ async function insert(roomId, content, pgpt, { quiet = [] } = {}) {
     await q(`update notifications set is_checked=true where type='chat' and url=$1 and user_id = any($2) and coalesce(is_checked,false)=false and title=$3`,
       [`/chats?id=${roomId}`, quiet, msg.content]).catch(() => {})
   }
+  await deliver(msg.uuid)
   return msg.uuid
 }
 // update in place: content and pgpt replaced, timeStamp kept (the row stays where it was in the room)
-const patch = (uuid, content, pgpt) => q(`update chats set messages = messages || $2::jsonb where uuid=$1`, [uuid, JSON.stringify({ content, pgpt })])
+async function patch(uuid, content, pgpt) {
+  await q(`update chats set messages = messages || $2::jsonb where uuid=$1`, [uuid, JSON.stringify({ content, pgpt })])
+  await deliver(uuid)
+}
 
 const names = (ps) => ps.map((p) => p.name).filter(Boolean)
 const minutesOf = (a, b) => Math.max(1, Math.round((new Date(b) - new Date(a)) / 60000))

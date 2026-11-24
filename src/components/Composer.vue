@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import ComposerTeam from './team/ComposerTeam.vue'
@@ -9,6 +9,7 @@ import FolderAttach from './folders/FolderAttach.vue'
 import ComposerAgent from './ComposerAgent.vue'
 import { keyOf, agentFor } from '../chatAgent.js'
 import { narrow } from '../viewport.js'
+import { createDictation, recognizerOf, MESSAGES } from '../useDictation.js'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
 const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean })
@@ -16,8 +17,14 @@ const emit = defineEmits(['send', 'escape'])
 const app = useApp()
 const text = ref('')
 const ta = ref(null)
-const listening = ref(false)
-let rec
+// voice dictation (src/useDictation.js): on from a tap (or while the mic is held) until the person turns it off — pauses do not end
+// it, and it never sends. dict: { on, phase: off | starting | listening, error }
+const SR = recognizerOf(window)
+const dict = reactive({ on: false, phase: 'off', error: '' })
+const dictation = SR && createDictation({
+  Recognition: SR, read: () => text.value, write: (v) => { text.value = v }, onChange: (s) => Object.assign(dict, s),
+  desktop: () => document.documentElement.classList.contains('pgl-desktop'),
+})
 // "@" → teammates (team/useTeammateMention.js); a message with person chips goes to them, not the agent
 const tm = useTeammateMention(text, ta, !props.overlay)
 
@@ -31,9 +38,11 @@ const suggestions = [
 const si = ref(0)
 let rot
 onMounted(() => { rot = setInterval(() => { si.value = (si.value + 1) % suggestions.length }, 3200) })
-onBeforeUnmount(() => { clearInterval(rot); rec?.stop() })
+onBeforeUnmount(() => { clearInterval(rot); dictation?.cancel() })
 
-const ph = computed(() => (app.panelMode ? suggestions[si.value].t : props.placeholder))
+const ph = computed(() => (dict.on ? '듣는 중… 말하면 여기에 적혀요' : app.panelMode ? suggestions[si.value].t : props.placeholder))
+// something to send: the send button (beside the mic, never in its place — see the template)
+const sendable = computed(() => !!(text.value || app.panelMode || app.attachments.length))
 // who answers (ComposerAgent): the main chat, one of its conversations, a project — not 새 프로젝트 (no room yet), an instance's page or a
 // panel being made; the chat's key is what the choice is kept under (src/chatAgent.js)
 const agentKey = computed(() => {
@@ -94,6 +103,8 @@ const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1
 function submit() {
   const v = text.value.trim() || (app.panelMode ? suggestions[si.value].t : '')
   if (!v && !app.attachments.length) return
+  // sending ends dictation first: nothing heard afterwards comes back into the emptied box
+  dictation?.cancel()
   if (tm.chips.value.length) { if (v) tm.send(v).then((ok) => { if (!ok) text.value = v }); text.value = v ? '' : text.value; return }
   // (the store's send takes the agent of the chat this was written in — stores/app.js send)
   app.nextAgent = agentKey.value ? { key: agentKey.value, agent: agentFor(agentKey.value) } : null
@@ -106,18 +117,18 @@ function onKey(e) {
   if (e.key === 'Escape' && app.panelMode) app.panelMode = false
   if (e.key === 'Escape') emit('escape')
 }
-function dictate() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-  if (!SR) return alert('이 브라우저는 받아쓰기를 지원하지 않아요.')
-  if (listening.value) { rec.stop(); return }
-  rec = new SR()
-  rec.lang = 'ko-KR'
-  rec.interimResults = true
-  const base = text.value
-  rec.onresult = (e) => { text.value = base + [...e.results].map((r) => r[0].transcript).join('') }
-  rec.onend = () => { listening.value = false }
-  listening.value = true
-  rec.start()
+// the mic: a tap turns it on and off, holding it down (over HOLD_MS) listens until let go — pointer events, so mouse and touch alike.
+// Keyboard (Enter · Space) and assistive clicks come without a pointer press (a click's detail is 0): they toggle.
+function micDown(e) {
+  if (!dictation || e.button > 0) return
+  // (letting go off the button still counts as letting go)
+  try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch { /* a pointer the browser does not track */ }
+  dictation.press()
+}
+function micUp() { dictation?.release() }
+function micClick(e) {
+  if (!dictation) return alert(MESSAGES.unsupported)
+  if (e.detail === 0) dictation.toggle()
 }
 defineExpose({ focus: () => ta.value?.focus() })
 </script>
@@ -143,23 +154,35 @@ defineExpose({ focus: () => ta.value?.focus() })
       </span>
     </div>
     <FolderAttach v-if="!overlay && !app.panelMode" />
-    <!-- (a phone: who answers sits over the box, so the box keeps its width for the words) -->
-    <div v-if="agentKey && narrow" class="agentrow"><ComposerAgent :chat-key="agentKey" row /></div>
     <Teleport to="body">
       <Transition name="fade"><div v-if="dragging" class="dropzone"><div><Icon name="clip" :size="34" /><p>여기에 놓으면 첨부돼요</p></div></div></Transition>
     </Teleport>
+    <!-- over the box: dictation — listening (the mic again, or letting go of a held mic, stops it) or why it stopped — on the left;
+         a phone's who-answers on the right (the box keeps its width for the words). A long reason takes a line of its own. -->
+    <div v-if="dict.on || dict.error || (agentKey && narrow)" class="agentrow">
+      <span v-if="dict.on || dict.error" class="dictbar" role="status" aria-live="polite" data-testid="dictation-status">
+        <span v-if="dict.on" class="dpill glass-thin"><i class="dot" />{{ dict.phase === 'starting' ? '마이크 켜는 중…' : '듣는 중…' }}</span>
+        <span v-else class="dpill glass-thin err">{{ dict.error }}</span>
+      </span>
+      <ComposerAgent v-if="agentKey && narrow" :chat-key="agentKey" row />
+    </div>
     <div class="box glass-thin">
       <input ref="picker" type="file" multiple hidden @change="picked" />
       <span v-if="app.panelMode && !text" :key="si" class="icons blur-in"><i v-for="(ic, k) in suggestions[si].icons" :key="k">{{ ic }}</i></span>
       <textarea ref="ta" v-model="text" rows="1" :placeholder="ph" @keydown="onKey" @paste="onPaste" />
       <ComposerClip v-if="!app.panelMode" :folders="!overlay" @files="picker.click()" />
       <ComposerAgent v-if="agentKey && !narrow" :chat-key="agentKey" />
-      <button v-if="text || app.panelMode || app.attachments.length" class="send press" aria-label="보내기" @click="submit"><Icon name="up" :size="20" /></button>
-      <template v-else>
-        <!-- panels are made from 채팅 only, not from a project, 새 프로젝트 or an instance page -->
-        <button v-if="!overlay && app.mode === 'chat'" class="ic press" aria-label="새 패널 만들기" @click="app.panelMode = true"><Icon name="plus" :size="22" /></button>
-        <button class="ic press" :class="{ rec: listening }" aria-label="받아쓰기 시작" @click="dictate"><Icon name="mic" :size="20" /></button>
-      </template>
+      <button v-if="sendable" class="send press" aria-label="보내기" @click="submit"><Icon name="up" :size="20" /></button>
+      <!-- panels are made from 채팅 only, not from a project, 새 프로젝트 or an instance page -->
+      <button v-else-if="!overlay && app.mode === 'chat'" class="ic press" aria-label="새 패널 만들기" @click="app.panelMode = true"><Icon name="plus" :size="22" /></button>
+      <!-- the mic is always the last button: the send button comes in beside it, never under the finger that taps the mic again
+           (2026-11-24: the mic used to turn into ↑ with the first words, and the tap meant to keep talking sent). Without speech
+           recognition it is there only while the box is empty, and says so. -->
+      <button v-if="dictation || !sendable" class="ic mic press" :class="{ rec: dict.on }" :aria-pressed="dictation ? String(dict.on) : undefined"
+        :aria-label="dict.on ? '받아쓰기 멈추기' : '받아쓰기 시작'" :title="dict.on ? '받아쓰기 멈추기' : '받아쓰기 — 누르면 켜지고 다시 누르면 꺼져요. 길게 누르면 누르는 동안만 들어요.'"
+        data-testid="composer-mic" @pointerdown="micDown" @pointerup="micUp" @pointercancel="micUp" @click="micClick" @contextmenu.prevent>
+        <Icon name="mic" :size="20" />
+      </button>
     </div>
   </div>
 </template>
@@ -173,14 +196,24 @@ defineExpose({ focus: () => ta.value?.focus() })
 .mention .x { width: 20px; height: 20px; border-radius: 10px; color: inherit; opacity: .7; }
 .mention .x:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
 .composer { position: relative; width: 100%; }
-.agentrow { display: flex; justify-content: flex-end; margin: 0 6px 6px; }
+.agentrow { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin: 0 6px 6px; }
 .box { display: flex; align-items: flex-end; min-height: 48px; border-radius: 24px; padding-right: 6px; --thin-bg: var(--composer-bg); transition: background-color 1s, margin .4s var(--spring); }
 .panel .box { margin-left: 60px; }
 textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; height: 48px; padding: 14.5px 8px 14.5px 16px; font-size: 15px; line-height: 19px; color: var(--text-primary); }
 textarea::placeholder { color: var(--text-secondary); transition: opacity .3s; }
 .ic { width: 36px; height: 36px; margin: 6px 2px; border-radius: 9999px; display: grid; place-items: center; color: var(--text-secondary); }
 .ic:hover { color: var(--text-primary); }
-.ic.rec { color: var(--color-attention); animation: pulse 1.2s infinite; }
+/* the mic: held down on a phone without the page's long-press menu or text selection; on — a filled button with a ring */
+.mic { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.mic.rec { color: #fff; background: var(--color-attention); opacity: 1; animation: mic-ring 1.4s infinite; }
+@keyframes mic-ring { 0% { box-shadow: 0 0 0 0 rgba(255, 77, 0, .45); } 100% { box-shadow: 0 0 0 7px rgba(255, 77, 0, 0); } }
+@media (prefers-reduced-motion: reduce) { .mic.rec, .dpill .dot { animation: none; } }
+.dictbar { display: flex; min-width: 0; max-width: 100%; margin-right: auto; }
+.dpill { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 30px; padding: 5px 14px 5px 12px; border-radius: 15px;
+  font-size: 13px; line-height: 1.4; color: var(--text-primary); animation: pop-in .3s var(--spring); }
+.dpill .dot { flex: none; width: 8px; height: 8px; border-radius: 4px; background: var(--color-attention); animation: pulse 1.2s infinite; }
+.dpill.err { color: #c62828; }
+:root[data-theme="dark"] .dpill.err { color: #ff8a80; }
 .send { width: 36px; height: 36px; margin: 6px 0; border-radius: 9999px; display: grid; place-items: center; background: #1d1d1f; color: #fff; animation: pop-in .3s var(--spring); }
 :root[data-theme="dark"] .send { background: #f5f5f7; color: #1d1d1f; }
 .undo { position: absolute; left: 0; bottom: 0; width: 48px; height: 48px; border-radius: 9999px; display: grid; place-items: center; background: var(--composer-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }

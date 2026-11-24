@@ -111,6 +111,11 @@ async function gatewayTenants() {
   return liteTenants.ids
 }
 
+// The tenants whose rooms this server pushes live (the room feed, lib/team/messenger.js): the ones it serves.
+// Behind the gateway that is every tenant whose people use Lite — not tenants(), which there is only the default
+// tenant nobody signs in to (2026-11-24 운영: a meeting's minutes reached the open room only after leaving it).
+export const watchedTenants = async () => (gateway() ? gatewayTenants() : tenants())
+
 // A served tenant other than the default needs its process-gpt tenants row (users.tenant_id refers to
 // it) and the agents need its MCP list there: this server's own gateways (pgpt-*), copied from the
 // default tenant's list — never the other servers registered for the default tenant's demos.

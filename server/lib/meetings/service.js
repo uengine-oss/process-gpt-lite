@@ -241,7 +241,9 @@ async function ended(m, by) {
   await handovers(m, people).catch((e) => console.warn('[meetings] handover', e.message))
   try {
     const uuid = await finalize(m)
-    for (const p of people) emit(p.id, 'meeting', { meetingId: m.id, type: 'minutes', roomId: m.room_id, messageId: uuid })
+    // (the minutes row itself already went to the room as a message — record.js; this tells everyone in the room, not
+    // only those who were in the meeting, that it is there: an open conversation that missed it catches up)
+    for (const p of await M.membersOf(m.room_id)) emit(p.id, 'meeting', { meetingId: m.id, type: 'minutes', roomId: m.room_id, messageId: uuid })
     console.log(`[meetings] ${m.id} ended · minutes ${uuid}`)
   } catch (e) { console.warn('[meetings] minutes', e.message) }
 }
