@@ -288,18 +288,28 @@ export async function pollUser(userId, { announce } = {}) {
   // work that repeats (「앞으로 매주 월요일 오전에 …」): asked as a schedule — a timer event on the company map (lib/ontology/timers.js)
   for (const m of fresh) if (!m.fixture) import('./ontology/timers.js').then((o) => o.recurFromMail(userId, m)).catch((e) => console.warn('[mail] recur', e.message))
   const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(fresh.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name) }))))
+  const cards = []
   for (const a of r.actions || []) {
     const src = fresh.find((m) => m.id === a.mail_id)
+    // (a Gmail mail keeps its thread: the next mail of the thread finds the work this one became — lib/mailFlow.js)
     const [row] = await q(
       `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
-      [userId, a.verb, a.text, iconDomain(acc.provider, src, a.icon_domain), a.due || null, a.prompt, src ? { mail_id: src.id, from: src.from, subject: src.subject } : null])
+      [userId, a.verb, a.text, iconDomain(acc.provider, src, a.icon_domain), a.due || null, a.prompt, src ? { mail_id: src.id, from: src.from, subject: src.subject, ...(src.thread ? { thread_id: src.thread } : {}) } : null])
     emit(userId, 'action', row)
+    if (row.source?.mail_id) cards.push(row)
   }
+  // a mail of a thread that is already a running instance's goes to that instance, without a model (lib/mailFlow.js)
+  const MF = await import('./mailFlow.js')
+  const threaded = await MF.linkByThread(userId, cards).catch((e) => { console.warn('[mail] thread', e.message); return new Map() })
   if (r.brief) {
     const t = await mainThread(userId)
     const h = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hour12: false }))
     await addMessage(userId, t.id, 'system', 'divider', { text: h < 12 ? L('모닝 브리프', 'Morning brief') : h < 18 ? L('오후 브리프', 'Afternoon brief') : L('이브닝 브리프', 'Evening brief') })
-    await addMessage(userId, t.id, 'agent', 'text', { text: r.brief })
+    // the brief is about these mails: each one's chip opens its Home card's mail — or, once the mail is an instance's, that instance
+    // (2026-11-24: 「지금은 요약 메시지만 보임 … 좌측 홈 패널에서 작업하던 화면으로의 링크가 필요함」)
+    const now = cards.length ? await q('select * from pro_actions where id = any($1::uuid[])', [cards.map((c) => c.id)]) : []
+    const mails = cards.map((c) => now.find((x) => x.id === c.id) || c).map(MF.refOf)
+    await addMessage(userId, t.id, 'agent', 'text', { text: r.brief, ...(mails.length ? { mails } : {}) })
   } else if (announce) {
     const t = await mainThread(userId)
     await addMessage(userId, t.id, 'agent', 'text', { text: L('메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.', "I looked through your inbox and nothing is urgent right now. I'll check again when new mail comes in.") })
@@ -307,10 +317,20 @@ export async function pollUser(userId, { announce } = {}) {
   // documents the mail asks for: drafts are made right away, before anyone asks (the person reviews them)
   for (const d of r.drafts || []) {
     const src = fresh.find((m) => m.id === d.mail_id)
+    if (!(src && !src.fixture && d.items?.length)) continue
     // a process registered from mining takes the mail when it matches (lib/mining); else the ad-hoc drafts
-    // an adopted bundle of the company's process map takes the mail first (lib/ontology/run.js), else a flow process mining registered
-    if (src && !src.fixture && d.items?.length) import('./ontology/run.js').then((o) => o.routeMail(userId, src, d))
-      .then((done) => done || import('./mining/service.js').then((m) => m.routeMail(userId, src, d)))
+    // an adopted bundle of the company's process map takes the mail first (lib/ontology/run.js), else a flow process mining registered.
+    // A mail with Home cards is read on them (lib/mailFlow.js: 자동 starts and lives with its instance, 제안 is asked on the card); a mail
+    // of a thread already linked to a running instance is not started again
+    const mine = cards.filter((c) => c.source.mail_id === src.id)
+    const route = threaded.has(src.id) ? Promise.resolve(false)
+      : mine.length ? MF.routeMailCards(userId, src, mine) : import('./ontology/run.js').then((o) => o.routeMail(userId, src, d))
+    route
+      .then((done) => done || (threaded.has(src.id) ? false : import('./mining/service.js').then((m) => m.routeMail(userId, src, d)).then(async (x) => {
+        // (a registered flow put the mail in its instance's conversation itself: the cards only point there)
+        if (x?.instId && mine.length) await MF.linkCards(userId, mine[0], { instId: x.instId, via: 'auto' }, { quiet: true }).catch((e) => console.warn('[mail] link', e.message))
+        return x
+      })))
       .catch((e) => { console.warn('[mail] route', e.message); return false })
       .then((routed) => routed || draftFromMail(userId, src, d)).catch((e) => console.warn('[mail] drafts', e.message))
   }
@@ -542,13 +562,19 @@ async function draftFromMail(userId, mail, d) {
   items.sort((a, b) => (rank[a.format] ?? 3) - (rank[b.format] ?? 3))
   const what = items.map((i) => i.kind).join(L('·', ', '))
   const customer = d.customer || L('고객', 'Customer')
-  await addMessage(userId, t.id, 'system', 'divider', { text: L(`메일 · ${customer} ${what} 요청`, `Mail · ${customer} ${what} request`) })
-  await addMessage(userId, t.id, 'agent', 'text', { text: L(`${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. I'll make drafts for the reply first.`), mail: { from: mail.from, subject: mail.subject } })
-  if (noPlan) await addMessage(userId, t.id, 'agent', 'text', { text: L('이 설치에는 캐드크래프트가 없어서 평면도는 그리지 않았어요. 제안서·견적서 초안만 만들게요.', "This install has no CADCraft, so I didn't draw the floor plan. I'll make only the proposal and quote drafts.") })
+  // the Review card first: the chat line about the mail carries its chip (lib/mailFlow.js), and it keeps the mail's thread and instance
+  const [sib] = await q(`select source from pro_actions where user_id=$1 and source->>'mail_id'=$2 order by created_at limit 1`, [userId, String(mail.id)])
   const [row] = await q(
     `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,'Review',$2,null,null,$3,$4) returning *`,
-    [userId, L(`${customer} ${what} 초안 검토하고 회신하기`, `the ${what} drafts for ${customer} and reply`), L(`${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, `I've reviewed the ${what} drafts for ${customer}. Please write a draft reply mail.`), { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name) }])
+    [userId, L(`${customer} ${what} 초안 검토하고 회신하기`, `the ${what} drafts for ${customer} and reply`), L(`${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, `I've reviewed the ${what} drafts for ${customer}. Please write a draft reply mail.`),
+      { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name), ...(mail.thread ? { thread_id: mail.thread } : {}), ...(sib?.source?.inst ? { inst: sib.source.inst } : {}) }])
   emit(userId, 'action', row)
+  const { instRef } = await import('./mailFlow.js')
+  const inst = instRef(row.source?.inst)
+  await addMessage(userId, t.id, 'system', 'divider', { text: L(`메일 · ${customer} ${what} 요청`, `Mail · ${customer} ${what} request`) })
+  await addMessage(userId, t.id, 'agent', 'text', { text: L(`${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. I'll make drafts for the reply first.`),
+    mail: { from: mail.from, subject: mail.subject, actionId: row.id, mailId: mail.id, ...(inst ? { inst } : {}) } })
+  if (noPlan) await addMessage(userId, t.id, 'agent', 'text', { text: L('이 설치에는 캐드크래프트가 없어서 평면도는 그리지 않았어요. 제안서·견적서 초안만 만들게요.', "This install has no CADCraft, so I didn't draw the floor plan. I'll make only the proposal and quote drafts.") })
   // the mail is one case of ad-hoc work: its steps leave handover records process mining reads (lib/mining)
   const mining = await import('./mining/recorder.js')
   const caseId = await mining.openCase({ userId, mail, customer, files: items.map((i) => i.name) }).catch((e) => console.warn('[mining] case', e.message))

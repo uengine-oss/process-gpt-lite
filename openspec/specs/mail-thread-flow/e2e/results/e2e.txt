@@ -1,0 +1,12 @@
+
+Running 7 tests using 1 worker
+
+  ✓  1 [feature] › tests/feature/mail-thread-flow.spec.js:105:3 › 메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에서 메일 원문으로, 메일에서 일로 › F-MT-01 모닝 브리프 아래 메일 칩 → 원문 시트 → 「Home 카드로」 그 카드가 보이고 빛난다 (PC) (3.9s)
+  ✓  2 [feature] › tests/feature/mail-thread-flow.spec.js:132:3 › 메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에서 메일 원문으로, 메일에서 일로 › F-MT-02 휴대폰: 채팅 탭의 메일 칩 → 시트 → 「Home 카드로」 홈 탭으로 가서 그 카드 (3.9s)
+  ✓  3 [feature] › tests/feature/mail-thread-flow.spec.js:158:3 › 메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에서 메일 원문으로, 메일에서 일로 › F-MT-03 시트가 묻는다: 「이 메일은 ‘…’의 시작으로 보여요 — 진행할까요?」 새로 시작 · 진행 중인 일에 잇기(같은 일 90%) · 이번엔 안 해요 — Home 카드도 한 줄로 (2.1s)
+  ✓  4 [feature] › tests/feature/mail-thread-flow.spec.js:185:3 › 메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에서 메일 원문으로, 메일에서 일로 › F-MT-04 잇기 → 그 인스턴스 화면, 메일이 인스턴스 대화의 사건 · Home 카드와 브리프 칩은 인스턴스로 · 거기서 답장하면 인스턴스에 남는다 (5.4s)
+  ✓  5 [feature] › tests/feature/mail-thread-flow.spec.js:227:3 › 메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에서 메일 원문으로, 메일에서 일로 › F-MT-05 휴대폰: 시트의 물음 · 잇기 뒤 Home 카드는 인스턴스를 연다 (4.5s)
+  ✓  6 [feature] › tests/feature/mail-thread-flow.spec.js:259:3 › 메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에서 메일 원문으로, 메일에서 일로 › F-MT-06 새로 시작이 실패하면 이유가 시트에 보이고 카드는 묶이지 않는다 · 이번엔 안 해요 → 더 묻지 않고, 다시 묻기로 되돌린다 (4.1s)
+  ✓  7 [feature] › tests/feature/mail-thread-flow.spec.js:288:3 › 메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에서 메일 원문으로, 메일에서 일로 › F-MT-07 새로 시작의 화면 흐름: 시작 응답의 인스턴스 화면으로 간다 (지도 엔진 없는 이 계층에서는 시작 응답만 대역) (2.4s)
+
+  7 passed (27.2s)

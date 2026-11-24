@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { uploadAttachment } from '../api.js'
@@ -49,7 +50,71 @@ function rewrite() {
 }
 onBeforeUnmount(() => clearTimeout(sureTimer))
 
+// ---------- the mail's place in the work (server lib/mailFlow.js) ----------
+// The mail may belong to a process instance (started or joined here, started by itself in the 자동 stage, a new mail of its thread): the
+// sheet links to it. Otherwise it may be the start of a process of the company map (제안 · 자동 — 「진행할까요?」) or the same work as a
+// running instance (its Gmail thread, else the judge): 새로 시작 · 진행 중인 …에 잇기 · 이번엔 안 해요. Either answer opens the instance,
+// where the mail is the first thing (2026-11-18: an instance's work happens on its page).
+const router = useRouter()
+const route = useRoute()
+const flow = ref(null)            // {linked} | {matches, joins, declined}
+const flowLoading = ref(true)
+const flowBusy = ref('')
+const flowErr = ref('')
+const live = computed(() => app.actions.find((a) => a.id === id) || props.action)
+const linkedInst = computed(() => flow.value?.linked || (live.value.source?.inst?.instId ? live.value.source.inst : null))
+const matches = computed(() => flow.value?.matches || [])
+const joins = computed(() => flow.value?.joins || [])
+const top = computed(() => matches.value[0] || null)
+const others = computed(() => matches.value.slice(1))
+const asks = computed(() => !linkedInst.value && !flow.value?.declined && (!!top.value || joins.value.length > 0))
+const STAGE = { adopted: '자동 단계', suggested: '제안 단계' }
+const STAGE_HINT = { adopted: '시작하면 저절로 진행하고 사람은 지켜봐요', suggested: '시작하면 단계마다 사람이 정해요' }
+const pct = (p) => `${Math.round((p || 0) * 100)}%`
+// 받침 있는 말 뒤엔 과/이, 없으면 와/가 (the particle only)
+const jo = (w, pair) => {
+  const code = String(w || '').trim().slice(-1).charCodeAt(0) - 0xac00
+  const [a, b] = pair.split('/')
+  return code >= 0 && code <= 11171 && code % 28 !== 0 ? a : b
+}
+const ro = (w) => { const code = String(w || '').trim().slice(-1).charCodeAt(0) - 0xac00; return code >= 0 && code <= 11171 && code % 28 !== 0 && code % 28 !== 8 ? '으로' : '로' }
+// 「Home 카드로」: from a chat chip (or the instance page), back to the card on Home
+const homeCard = computed(() => app.mailCardFrom !== 'home' && app.actions.some((a) => a.id === id))
+// (on that instance's page already: nothing to open)
+const joinQ = computed(() => { const n = joins.value[0]?.name || ''; return `진행 중인 ‘${n}’${jo(n, '과/와')} 같은 일로 보여요 — 이을까요?` })
+const instLink = computed(() => (linkedInst.value && String(route.params.instId || '') !== linkedInst.value.instId ? linkedInst.value : null))
+
+async function loadFlow() {
+  flowLoading.value = true
+  // (the sheet works without it: a mail whose place cannot be read shows the mail and the reply as before)
+  try { flow.value = await app.mailFlow(id) } catch (e) { flow.value = null; console.warn('[mail flow]', e.message) }
+  flowLoading.value = false
+}
+function goInst(instId) { emit('close'); router.push(`/routines/${encodeURIComponent(instId)}`) }
+async function start(m) {
+  flowBusy.value = `start:${m.proc}`; flowErr.value = ''
+  try { goInst((await app.startMailFlow(id, { proc: m.proc, task: m.task })).instId) } catch (e) { flowErr.value = e.message }
+  flowBusy.value = ''
+}
+async function join(j) {
+  flowBusy.value = `join:${j.instId}`; flowErr.value = ''
+  try { goInst((await app.joinMailFlow(id, { instId: j.instId })).instId) } catch (e) { flowErr.value = e.message }
+  flowBusy.value = ''
+}
+async function decline(undo = false) {
+  flowBusy.value = 'decline'; flowErr.value = ''
+  try { await app.declineMailFlow(id, undo); if (undo) await loadFlow(); else flow.value = { ...(flow.value || {}), declined: true } } catch (e) { flowErr.value = e.message }
+  flowBusy.value = ''
+}
+function toHome() {
+  emit('close')
+  app.dockOpen = true
+  if (route.path !== '/chat') router.push('/chat')
+  app.flashCard = id
+}
+
 onMounted(async () => {
+  loadFlow()
   try {
     info.value = await app.mailOfCard(id)
     picked.value = info.value.files.map((f) => f.messageId)
@@ -104,8 +169,39 @@ function toAgent() { app.runAction(props.action); emit('close') }
           </div>
           <button class="x press" aria-label="닫기" @click="emit('close')"><Icon name="close" :size="18" /></button>
         </header>
+        <!-- where this mail's work is: its instance, the card on Home (from a chat chip) -->
+        <nav v-if="instLink || homeCard" class="links">
+          <button v-if="instLink" class="lk press" data-test="mail-inst" @click="goInst(instLink.instId)">
+            <Icon name="refresh" :size="14" /> <span>루틴 · {{ instLink.name || '진행 중인 일' }} 열기</span> <Icon name="chevron" :size="12" />
+          </button>
+          <button v-if="homeCard" class="lk press" data-test="mail-home" @click="toHome"><Icon name="home" :size="14" /> <span>Home 카드로</span></button>
+        </nav>
 
         <div class="body scroll">
+          <!-- what the mail may start or join (the company's process map, the running work) -->
+          <p v-if="!linkedInst && flowLoading" class="flowwait shimmer-text" data-test="mail-flow-wait">회사 프로세스 지도와 견주는 중…</p>
+          <section v-else-if="asks" class="flow" data-test="mail-flow">
+            <p v-if="top" class="q" data-test="flow-question">이 메일은 ‘{{ top.name }}’의 시작으로 보여요 — 진행할까요?</p>
+            <p v-else class="q" data-test="flow-question">{{ joinQ }}</p>
+            <small v-if="top" class="why"><span>「{{ top.task }}」부터</span> · <span>{{ STAGE[top.stage] }}</span> · <span>{{ STAGE_HINT[top.stage] }}</span><template v-if="top.p != null"> · <span>확신 {{ pct(top.p) }}</span></template></small>
+            <div class="acts">
+              <button v-if="top" class="dark-btn sm" data-test="flow-start" :disabled="!!flowBusy" @click="start(top)">{{ flowBusy === `start:${top.proc}` ? '시작하는 중…' : '새로 시작' }}</button>
+              <button v-for="j in joins" :key="j.instId" class="pill-btn sm join" data-test="flow-join" :disabled="!!flowBusy" @click="join(j)">
+                <span>{{ flowBusy === `join:${j.instId}` ? '잇는 중…' : `진행 중인 ‘${j.name}’에 잇기` }}</span>
+                <small>{{ j.by === 'thread' ? '같은 메일 스레드' : `같은 일 ${pct(j.p)}` }}</small>
+              </button>
+            </div>
+            <div v-if="others.length" class="others">
+              <span>다른 프로세스</span>
+              <button v-for="m in others" :key="m.proc" class="chip press" data-test="flow-other" :disabled="!!flowBusy" @click="start(m)">‘{{ m.name }}’{{ ro(m.name) }} 시작</button>
+            </div>
+            <button class="nope press" data-test="flow-decline" :disabled="!!flowBusy" @click="decline()">이번엔 안 해요</button>
+            <p v-if="flowErr" class="err" data-test="flow-error">{{ flowErr }}</p>
+          </section>
+          <p v-else-if="!linkedInst && flow?.declined" class="flowoff" data-test="flow-declined">
+            <span>이 메일로는 프로세스를 시작하지 않기로 했어요.</span> <button class="nope press" data-test="flow-undo" @click="decline(true)">다시 묻기</button>
+          </p>
+
           <p v-if="loadErr" class="err" data-test="mail-load-error">{{ loadErr }}</p>
           <p v-else-if="!info" class="wait shimmer-text">메일을 불러오는 중…</p>
 
@@ -130,6 +226,7 @@ function toAgent() { app.runAction(props.action); emit('close') }
               <small>{{ sent.to }} · {{ sent.subject }}</small>
               <small v-if="sent.via === 'drafts'">메일 앱의 임시 보관함에서 보내 주세요.</small>
               <small v-if="sent.via === 'demo'">데모 메일함이라 실제로 보내지 않았어요.</small>
+              <small v-if="linkedInst" data-test="mail-sent-inst">루틴 · {{ linkedInst.name || '진행 중인 일' }}에 기록했어요.</small>
             </div>
           </section>
 
@@ -220,6 +317,21 @@ section { display: flex; flex-direction: column; gap: 6px; }
 .done { flex-direction: row; align-items: flex-start; gap: 10px; border-radius: 18px; padding: 12px 14px; background: var(--chip-bg); }
 .done div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .done small { color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -2px; }
+.lk { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 32px; padding: 0 12px; border-radius: 9999px; background: var(--field-bg); font-size: 13px; color: var(--text-primary); overflow-wrap: anywhere; }
+.lk > :deep(svg) { flex: none; color: var(--text-secondary); }
+.flowwait { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.flow { border-radius: 18px; padding: 12px 14px; background: var(--chip-bg); gap: 8px; }
+.flow .q { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; word-break: keep-all; }
+.flow .why { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.flow .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.flow .join { display: inline-flex; flex-direction: column; align-items: flex-start; justify-content: center; height: auto; min-height: 42px; padding: 6px 14px; max-width: 100%; text-align: left; color: var(--text-primary);
+  background: var(--bubble-agent-bg); border: 1px solid var(--hairline); }
+.flow .join span { overflow-wrap: anywhere; }
+.flow .join small { font-size: 11.5px; color: var(--text-secondary); }
+.flow .others { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
+.nope { align-self: flex-start; font-size: 13px; color: var(--text-secondary); padding: 2px 0; text-decoration: underline; text-underline-offset: 3px; }
+.flowoff { margin: 0; font-size: 13px; color: var(--text-secondary); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .agent { text-align: left; border-radius: 18px; padding: 12px 14px; background: var(--field-bg); font-size: 15px; color: var(--text-primary); display: flex; flex-direction: column; gap: 4px; }
 .agent small { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
 @media (max-width: 520px) {

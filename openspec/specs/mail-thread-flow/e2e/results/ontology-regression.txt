@@ -1,0 +1,1 @@
+ontology-*.test.js (순서대로 하나씩): ℹ tests 224 ℹ pass 224 ℹ fail 0 

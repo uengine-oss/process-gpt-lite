@@ -362,6 +362,13 @@
     "pick": "이 {what}은 회사의 어느 업무 흐름(프로세스)의 일인가?",
     "none": "어느 업무 흐름의 일도 아니다(질문 · 잡담 · 알림 · 다른 일)"
   },
+  "mailFlow": {
+    "joinMin": 0.7,
+    "joinCandidates": 4,
+    "joinDays": 60,
+    "matchHours": 12,
+    "textChars": 1200
+  },
   "mapEngine": {
     "default": "bpm",
     "pinWhenRequired": true,
