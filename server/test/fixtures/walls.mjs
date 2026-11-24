@@ -77,7 +77,8 @@ export async function routeApp(ctx, state) {
 }
 
 // The judge model's stand-in (context-router's POST /judge shape): probabilities by the page title in the
-// state it is sent. verdicts[title] = {key: p} or 'down'; calls counts what was asked, by title.
+// state it is sent, kept to the options of the question asked (a title can answer the wall question and the
+// one after a vault sign-in differently). verdicts[title] = {key: p} or 'down'; calls counts what was asked, by title.
 export async function startJudge(verdicts) {
   const calls = {}
   const states = []
@@ -85,14 +86,17 @@ export async function startJudge(verdicts) {
     let raw = ''
     req.on('data', (c) => { raw += c })
     req.on('end', () => {
-      const { state } = JSON.parse(raw)
+      const { state, options = [] } = JSON.parse(raw)
       states.push(state)
       const title = /^Page title: (.*)$/m.exec(state)?.[1] || ''
       calls[title] = (calls[title] || 0) + 1
       const v = verdicts[title]
       if (v === 'down') { res.writeHead(500); return res.end('{}') }
+      const keys = options.map((o) => o.key)
+      const asked = (p) => (keys.length ? Object.fromEntries(Object.entries(p).filter(([k]) => keys.includes(k))) : p)
+      const own = v && asked(v)
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ probabilities: v || { login_needed: 0.05, refused: 0.02, human_check: 0.03, ok: 0.9 }, model: 'fake-judge', ms: 1 }))
+      res.end(JSON.stringify({ probabilities: own && Object.keys(own).length ? own : asked({ login_needed: 0.05, refused: 0.02, human_check: 0.03, ok: 0.9 }), model: 'fake-judge', ms: 1 }))
     })
   })
   await new Promise((r) => server.listen(0, '127.0.0.1', r))

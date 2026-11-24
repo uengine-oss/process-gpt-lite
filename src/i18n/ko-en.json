@@ -2781,7 +2781,10 @@
   "이 파일을 쓸 수 없어요": "This file can't be used",
   "폴더 권한이 없어 열 수 없어요": "You can't open it without access to the folder",
   "편집 권한이 있어야 이 폴더에 넣을 수 있어요.": "You need edit rights to put files in this folder.",
-  "파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)": "Drop files here to upload them to main · who and when stay in the history · drag a file into a conversation or the chat to mention it as a link (⌘/Ctrl to pick several)"
+  "파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)": "Drop files here to upload them to main · who and when stay in the history · drag a file into a conversation or the chat to mention it as a link (⌘/Ctrl to pick several)",
+  "로그인 정보 저장": "Save the login",
+  "보관함의 로그인으로 들어가는 중": "Signing in with the Vault login",
+  "저장된 로그인 정보를 서버에서 바로 입력해요. 비밀번호는 화면에도 AI에도 보이지 않아요.": "The saved login goes in straight from the server. The password never shows on the screen or to the AI."
  },
  "patterns": [
   [

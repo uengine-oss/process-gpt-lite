@@ -13,7 +13,7 @@ const vaultReq = computed(() => all.value.find((m) => m.kind === 'vault' && m.co
 </script>
 
 <template>
-  <div v-if="msg" class="handoff" @keydown.esc="app.handoff = null">
+  <div v-if="msg" class="handoff" :class="{ withVault: vaultReq }" @keydown.esc="app.handoff = null">
     <button class="x press" aria-label="닫기" @click="app.handoff = null"><Icon name="close" :size="20" /></button>
     <div class="wrap">
       <TaskCard :msg="msg" full />
@@ -29,4 +29,10 @@ const vaultReq = computed(() => all.value.find((m) => m.kind === 'vault' && m.co
 .x { position: absolute; top: 16px; left: 16px; width: 48px; height: 48px; border-radius: 9999px; display: grid; place-items: center; background: rgba(255 255 255 / .92); color: #1d1d1f; }
 .reason { text-align: center; color: rgba(245 245 247 / .7); font-size: 15px; line-height: 1.5; margin: 14px auto 0; padding: 0 16px; max-width: 640px; word-break: keep-all; }
 .vault { position: absolute; right: 32px; bottom: 32px; width: 360px; animation: pop-in .45s var(--spring) both; }
+/* a phone: the vault's card (save the login, fix a password, a code) goes under the screen and its reason, in the
+   same scroll — at 390 it stood over the reason, partly off the screen */
+@media (max-width: 760px) {
+  .handoff.withVault { place-items: start center; align-content: start; overflow-y: auto; padding: 72px 0 24px; }
+  .handoff.withVault .vault { position: static; width: calc(100vw - 32px); max-width: 360px; margin: 16px 0 0; justify-self: center; }
+}
 </style>

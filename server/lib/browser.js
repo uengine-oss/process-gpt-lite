@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { chat } from './llm.js'
 import { emit } from './bus.js'
-import { candidates, useItem, putItem, setStatus, audit, normSite } from './vault.js'
+import { candidates, useItem, putItem, setStatus, audit, normSite, ownerDomain } from './vault.js'
 import { addMessage, updateMessage, setThreadStatus } from './store.js'
 import { q, admin } from './supa.js'
 import { decide, sure } from './decide.js'
@@ -575,6 +575,8 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     if (w?.end) { result = w.end; ended = true; break }
     if (w?.waited) { turn--; task.prev = null; continue }
     if (w?.hint) hint += w.hint
+    // (the vault signed in part of the way and the page moved on: the model reads the page as it is now)
+    if (w?.snap) snap = w.snap
     // the same screen, action after action, with nothing changing: the person is asked before more turns go by
     const key = pageKey(snap)
     if (task.prev) task.stale = key !== task.prev.key || task.prev.progress ? 0 : task.stale + (task.prev.acted ? 1 : 0)
@@ -991,9 +993,17 @@ async function wallOn(task, snap) {
 // a screen to compare while waiting: the address and what is on it, without what is typed into fields
 const screenKey = (snap) => crypto.createHash('sha1').update(`${snap.url}\n${snap.title}\n${snap.text}\n${(snap.els || []).filter((e) => !['input', 'textarea', 'select'].includes(e.tag)).map((e) => `${e.tag}:${e.text}`).join('|')}`).digest('hex')
 
-// What the person reads on the card when the task stops at a wall, and what to do about it.
-function wallReason(wall, again) {
+// What the person reads on the card when the task stops at a wall, and what to do about it. offer: no login is saved
+// for the sign-in form on the page, and the vault's card beside it asks for one.
+function wallReason(wall, again, offer = false) {
   const name = wall.name || wall.site
+  if (wall.need === 'login' && offer) {
+    return again
+      ? L(`아직 ${name} 로그인이 끝나지 않았어요. 카드에 로그인 정보를 저장하거나 「직접 로그인」으로 로그인을 마치면 이어서 진행해요.`,
+        `The sign-in to ${name} is not done yet. Save the login on the card, or finish signing in with "Sign in yourself" — I'll go on from there.`)
+      : L(`이 브라우저에서 ${name}에 한 번 로그인해야 이어서 진행할 수 있어요. 카드에 로그인 정보를 저장하면 제가 입력해 로그인해요. 「직접 로그인」을 눌러 직접 해도 돼요. 직접 입력한 로그인 정보도 보관함에 저장할 수 있어요. 다음부터는 제가 입력해요.`,
+        `To use ${name}, this browser needs a sign-in. Save the login on the card and I'll put it in, or press "Sign in yourself" and sign in. A login you type yourself can be saved in the Vault too, so next time I put it in.`)
+  }
   if (wall.need === 'login') {
     return again
       ? L(`아직 ${name} 로그인이 끝나지 않았어요. 카드의 「직접 로그인」을 눌러 로그인을 마치면 이어서 진행해요.`, `The sign-in to ${name} is not done yet. Press "Sign in yourself" on the card and finish signing in — I'll go on from there.`)
@@ -1022,6 +1032,10 @@ async function atWall(s, task, wall, snap) {
   if (wall.need === 'blocked') return { end: blockedEnd(task, wall) }
   const site = normSite(wall.site)
   const key = `${wall.need}:${site}`
+  // a sign-in form the vault has a login for is signed in from here before anyone is asked (vaultFirstOnWall)
+  const vf = wall.need === 'login' && !task.vaultFirst ? await vaultFirstOnWall(s, task, wall, snap) : null
+  if (vf?.done) return { waited: true }
+  if (vf?.end || vf?.hint) return vf
   if (task.unattended) {
     if (task.walls[key]) return null
     task.walls[key] = 1
@@ -1029,11 +1043,13 @@ async function atWall(s, task, wall, snap) {
     task.notes.push(wall.need === 'captcha' ? L(`${site}: 로봇 확인 화면이 나와 진행하지 못함`, `${site}: stopped at a bot check`) : L(`${site}: 로그인이 필요해 진행하지 못함`, `${site}: needs a sign-in`))
     return { hint: `\n[page check: this page is a ${wall.need === 'captcha' ? 'bot check' : 'sign-in wall'} and nobody is available to get past it. Do not try; use the alternative source in the goal, or finish with what you have]` }
   }
-  // a site whose login the vault keeps is the model's: it fills the saved one — also when the site signs
-  // people in elsewhere and the vault keeps that one (its browser skill says where: NotebookLM → Google). A task
-  // that asks the vault first (Google connect) lets the model ask for the login on the card when none is saved
+  // a site whose login the vault keeps, on a page with no form to put it in (a front page with sign-in buttons), is
+  // the model's: it goes to the form — also when the site signs people in elsewhere and the vault keeps that one (its
+  // browser skill says where: NotebookLM → Google). A task that asks the vault first (Google connect) lets the model
+  // ask for the login on the card when none is saved. Once the vault was tried on this site, the person is asked.
   const saved = async (host) => !!host && (await candidates(task.userId, 'login', host).catch(() => [])).length > 0
-  if (wall.need === 'login' && (task.vaultFirst || await saved(site) || await saved(normSite(task.signIn || '')))) return null
+  const have = wall.need === 'login' && !vf && await saved(site)
+  if (wall.need === 'login' && !vf && !task.vaultTried?.[site] && (task.vaultFirst || have || await saved(normSite(task.signIn || '')))) return null
   const n = task.walls[key] = (task.walls[key] || 0) + 1
   const name = wall.name || site
   if (n > WALL_WAITS) {
@@ -1043,28 +1059,231 @@ async function atWall(s, task, wall, snap) {
     return { end: { state: 'failed', need: wall.need, reason, summary: reason, site: wall.site, siteName: name } }
   }
   task.stats.walls++
-  let seen = screenKey(snap), moved = null, verdict
+  // a sign-in form with no login saved for it: the vault's card asks for one beside 「직접 로그인」 (a login typed in
+  // takeover is offered to the vault as well — onCapture)
+  const offer = wall.need === 'login' && !vf && !have && !task.declined.has(site) && !!loginFields(snap)
+  const seen = {}
   const answer = await waitForUser(s, task, {
-    need: wall.need, reason: wallReason(wall, n > 1), site, siteName: name,
-    // the screen changed (an address, what is on it) and then stayed so for one look: judged once more
-    watch: async (snap) => {
-      const k = screenKey(snap)
-      if (k === seen) { moved = null; return null }
-      if (k !== moved) { moved = k; return null }
-      seen = k
-      moved = null
-      verdict = await judgeWall(snap, task)
-      if (!task.waiting) return null // given back meanwhile: the next turn judges it
-      task.judged = { url: snap.url, wall: verdict }
-      if (verdict?.need === 'blocked') return BLOCKED
-      return verdict?.need === wall.need ? null : CLEARED
-    },
+    need: wall.need, reason: vf?.why || wallReason(wall, n > 1, offer), site, siteName: name,
+    ...(offer ? { message: ['vault', { kind: 'login', site, mode: 'request' }] } : {}),
+    // after the vault's own try the page may show a check rather than the sign-in form: only the wall gone ends it
+    watch: wallWatch(task, vf?.snap || snap, vf ? ['login', 'captcha'] : [wall.need], seen),
   })
+  // the card closed without a login: not asked again in this task
+  if (offer && /^The user closed the request/.test(String(answer))) task.declined.add(site)
   // the refusal came while signing in for this site: the card still names the site the task is for
-  if (answer === BLOCKED) return { end: blockedEnd(task, { ...verdict, name }) }
+  if (answer === BLOCKED) return { end: blockedEnd(task, { ...seen.verdict, name }) }
   // given back by the person (not seen by the watch): the next turn judges the page again
   if (answer !== CLEARED) task.judged = null
   return { waited: true }
+}
+
+// While the person is asked at a wall: the screen changed (an address, what is on it) and then stayed so for one look —
+// judged once more (never on a timer). The site refusing this browser ends the wait (BLOCKED), and so does the wall
+// going (CLEARED: the page is no longer one of needs). seen.verdict: the last judgment.
+function wallWatch(task, snap, needs, seen = {}) {
+  let last = screenKey(snap), moved = null
+  return async (now) => {
+    const k = screenKey(now)
+    if (k === last) { moved = null; return null }
+    if (k !== moved) { moved = k; return null }
+    last = k
+    moved = null
+    const verdict = seen.verdict = await judgeWall(now, task)
+    if (!task.waiting) return null // given back meanwhile: the next turn judges it
+    task.judged = { url: now.url, wall: verdict }
+    if (verdict?.need === 'blocked') return BLOCKED
+    return needs.includes(verdict?.need) ? null : CLEARED
+  }
+}
+
+// ---- a sign-in wall the vault has a login for (2026-11-24, phone screenshot of NAVER's sign-in page with only
+// 「직접 로그인」: 「로그인이 왜 vault 를 이용하여 암호관리를 호출하지 않는것인가」) ----
+
+// The sign-in form on the page, read from the agent's look (its numbered elements, so any page driver that gives the
+// same look can fill it): the password field and the username field before it, or — on a first step that asks for the
+// username alone — the one sign-in field. null: nothing to fill on this page (a front page with sign-in buttons).
+export function loginFields(snap) {
+  const els = snap?.els || []
+  const plain = (e) => e.tag === 'input' && ['', 'text', 'email', 'tel'].includes(e.type || '') && !e.secret
+  const pass = els.find((e) => e.tag === 'input' && e.type === 'password')
+  if (pass) return { user: els.slice(0, els.indexOf(pass)).filter(plain).at(-1)?.i ?? null, pass: pass.i }
+  if (!snap?.fields?.signIn) return null
+  const fields = els.filter(plain)
+  const user = fields.find((e) => e.type === 'email') || (fields.length === 1 ? fields[0] : null)
+  return user ? { user: user.i, pass: null } : null
+}
+
+// A vault value typed into a field key by key, as a person types: some sign-in pages read the keys their fields get —
+// NAVER's id and password fields listen for keydown/keyup and its form carries behaviour data (bvsd), while fill()
+// sends no key at all (2026-11-24, nid.naver.com with made-up values and the network closed). The field is masked and
+// remembered before the first key: the live view never shows it, and the page guard does not take it back as typed by
+// the person. (A driver of its own does the same: masked first, then keys.)
+async function typeSecret(s, task, i, value) {
+  const v = String(value)
+  const field = elAt(s, task, i)
+  remember(task, v)
+  await field.evaluate((e, x) => { e.__proFilled = x; e.setAttribute('data-pro-secret', '') }, v, { timeout: 3000 })
+  await point(s, task, field, 'type')
+  await field.fill('', { timeout: 5000 })
+  for (const ch of v) {
+    await field.pressSequentially(ch, { timeout: 5000 })
+    await pause(40 + Math.floor(Math.random() * 60), task.signal)
+  }
+}
+
+// What the page shows after the vault's login was sent — judged (the same judge as walls), never read by wording.
+const AFTER_QUESTION = 'A browser agent typed a saved username and password into the sign-in form of this site and sent it. What does the page show now?'
+const AFTER_OPTIONS = [
+  { key: 'signed_in', label: 'Signed in: the site, or what the task needs, is shown with no sign-in form' },
+  { key: 'rejected', label: 'The site says the username or password is wrong, or that there is no such account' },
+  { key: 'code', label: 'The site asks for a one-time code sent by text message, e-mail or an authenticator app to finish signing in' },
+  { key: 'human_check', label: 'The site asks to prove the visitor is a human: a captcha, characters to type from a picture, a robot check' },
+  { key: 'confirm', label: 'The site asks for another step only the person can do: approve on a phone or another device, a new-device or security check, a password change' },
+  { key: 'refused', label: 'The site says it will not let this browser or app sign in' },
+  { key: 'pending', label: 'The sign-in form is still there with no message about it' },
+]
+async function afterSignIn(task, snap) {
+  let r = null
+  try { r = await judge({ state: hide(task, wallState(snap, task.goal)), question: AFTER_QUESTION, options: AFTER_OPTIONS }) } catch (e) { console.warn('[browser] sign-in check', e.message) }
+  const [key, p] = Object.entries(r?.probabilities || {}).sort((a, b) => b[1] - a[1])[0] || ['', 0]
+  task.stats.wall_checks.push({ host: hostOf(snap.url), key: `vault:${key}`, p: Math.round(p * 100) / 100, ms: r?.ms ?? 0, via: r?.via || 'none' })
+  return p >= WALL_BAR ? key : null
+}
+
+// The page as it reads — its address, title and text, not its fields or the buttons typing brings up (a field's clear
+// button): whether sending a form did anything.
+const readKey = (snap) => `${snap.url}\n${snap.title}\n${snap.text}`
+// The look after the form was sent, once the page changed (or after a few seconds: a page answering in place).
+async function lookAfterSend(s, task, before) {
+  let snap = await look(s)
+  for (let n = 0; n < 5 && readKey(snap) === before; n++) {
+    await pause(700, task.signal)
+    snap = await look(s)
+  }
+  return snap
+}
+
+const VAULT_TRIES = 2 // vault sign-ins on one site in one task (a site that asks again after one went through)
+
+// A login wall whose sign-in form the vault has a login for: the saved login is typed in from here (the model never sees
+// it, the screen shows it masked), the form is sent with Enter, and the page is judged again. Signed in → the task goes
+// on and nobody is asked. Several logins → the vault's choice card; one the site turned down before → fixed on the card
+// first (pickItem). A wrong password → the vault's card to fix it. A one-time code → the agent's code card (need_secret:
+// the person's mailbox first). A human check or a step only the person can do → the person, told that the saved login
+// was tried and what stops it. → null (nothing for the vault here), { done } (its part is over: on with the task),
+// { end }, { hint, snap } for the model (snap: the page as it is now), or { why, snap } for the person's wait (atWall).
+async function vaultFirstOnWall(s, task, wall, snap) {
+  const site = normSite(wall.site)
+  const tried = task.vaultTried ||= {}
+  if (tried[site] === 'failed' || (tried[site] || 0) >= VAULT_TRIES || task.declined.has(site)) return null
+  if (!(await candidates(task.userId, 'login', site).catch(() => [])).length) return null
+  const first = loginFields(snap)
+  if (!first) return null
+  const name = wall.name || site
+  const own = ownerDomain(site)
+  tried[site] = (tried[site] || 0) + 1
+  const item = await pickItem(s, task, 'login', site)
+  if (!item) {
+    tried[site] = 'failed'
+    return task.unattended ? null : { why: L(`보관함에 있는 ${name} 로그인 정보를 쓰지 않았어요. 「직접 로그인」을 눌러 로그인하면 이어서 진행해요.`, `I didn't use the ${name} login in the Vault. Press "Sign in yourself" and sign in — I'll go on from there.`) }
+  }
+  task.used[site] = item.id // (login_failed finds it, should the model see a rejection later)
+  const why = (what) => L(`보관함에 저장된 로그인 정보로 ${name}에 로그인하려 했는데, ${name}에서 ${what}. 「직접 로그인」을 눌러 로그인을 마치면 이어서 진행해요.`,
+    `I tried to sign in to ${name} with the login saved in the Vault, but ${name} ${what}. Press "Sign in yourself" and finish it — I'll go on from there.`)
+  const HUMAN = () => L('사람인지 확인하는 절차를 추가로 요구해요', 'asks for an extra check that you are human')
+  // the card says which way it is going in (TaskCard: 「보관함의 로그인으로 들어가는 중 · naver.com」)
+  const signing = (on) => updateMessage(task.userId, task.id, { signingIn: on ? { via: 'vault', site: own } : null }).catch(() => {})
+  const fill = async (i, field) => {
+    const sec = await useItem(task.userId, item.id, { taskId: task.id, field })
+    const v = field === 'username' ? sec.username || sec.email : sec.password
+    if (v) await typeSecret(s, task, i, v)
+    return !!v
+  }
+  let form = first, cur = snap
+  try {
+    for (let attempt = 0; ; attempt++) {
+      phase(task, 'act', L(`보관함의 로그인으로 들어가는 중 · ${own}`, `Signing in with the Vault login · ${own}`), L('보관함의 로그인으로 로그인', 'signing in with the Vault login'))
+      await signing(true)
+      task.lastSnap = cur // (the numbers below are this look's, in whichever frame holds them)
+      // a first step that asks for the username alone, then the password on the next screen: two steps at most
+      for (let step = 0; form && step < 2; step++) {
+        if (form.user != null) await fill(form.user, 'username')
+        if (form.pass != null && !await fill(form.pass, 'password')) return { hint: `\n[vault: the saved login for ${site} has no password; ask the person with need_login]` }
+        task.log.push({ kind: 'fill_secret', text: L(`보관함의 로그인 입력 · ${own}`, `Fill in the Vault login · ${own}`), ok: true })
+        const before = readKey(cur)
+        await elAt(s, task, form.pass ?? form.user).press('Enter', { timeout: 5000 })
+        await settle(s.page, task.signal)
+        cur = await lookAfterSend(s, task, before)
+        task.lastSnap = cur
+        // Enter did not send this form (its button does, by a script of its own): the agent presses it
+        if (readKey(cur) === before) {
+          task.judged = { url: cur.url, wall: null }
+          return { hint: `\n[vault: the saved login for ${site} is typed into the sign-in form (you cannot see it). Press the form's sign-in button now; do not fill the fields again]`, snap: cur }
+        }
+        const next = form.pass == null ? loginFields(cur) : null
+        form = next?.pass != null ? { user: null, pass: next.pass } : null
+      }
+      await pushFrame(task.userId, s)
+      const verdict = await afterSignIn(task, cur)
+      if (verdict === 'signed_in') { task.judged = { url: cur.url, wall: null }; return { done: true } }
+      if (verdict === 'refused') return { end: blockedEnd(task, { ...wall, name }) }
+      // the agent's code card; the person's mailbox is watched for the site's mail meanwhile (need_secret, lib/mailCode.js)
+      if (verdict === 'code') {
+        task.judged = { url: cur.url, wall: null }
+        return { hint: `\n[vault: the saved login for ${site} was sent and the site now asks for a one-time code. Call need_secret with the code field now; never type a code yourself]`, snap: cur }
+      }
+      if (verdict === 'human_check' || verdict === 'confirm') {
+        tried[site] = 'failed'
+        // a check on the sign-in form itself, with the password asked again beside it: the saved one goes back in
+        const again = verdict === 'human_check' ? loginFields(cur) : null
+        if (again?.pass != null && !cur.els.find((e) => e.i === again.pass)?.filled) await fill(again.pass, 'password')
+        return { why: why(verdict === 'human_check' ? HUMAN() : L('추가 확인(다른 기기에서 승인 등)을 요구해요', 'asks for an extra confirmation (approving on another device, for example)')), snap: cur }
+      }
+      if (verdict === 'rejected') {
+        await setStatus(task.userId, item.id, 'rejected', { taskId: task.id, detail: { reason: 'the site turned the saved login down (vault first at a sign-in wall)' } })
+        if (task.unattended) {
+          tried[site] = 'failed'
+          task.notes.push(L(`${site}: 저장된 로그인이 거부됨`, `${site}: the saved login was rejected`))
+          return null
+        }
+        // the vault's card to fix the password; signing in by hand ends the wait as well
+        const [row] = (await candidates(task.userId, 'login', site)).filter((r) => r.id === item.id)
+        const seen = {}
+        await signing(false)
+        const answer = await waitForUser(s, task, {
+          need: 'login', site, siteName: name,
+          reason: L(`보관함에 저장된 비밀번호로 ${name}에 로그인하지 못했어요. ${name}에서 비밀번호가 맞지 않는다고 해요. 카드에서 비밀번호를 고쳐 저장하면 다시 로그인해 이어서 진행해요. 「직접 로그인」으로 직접 로그인해도 돼요.`,
+            `${name} didn't accept the password saved in the Vault. Fix it on the card and save — I'll sign in again and go on. You can also sign in yourself with "Sign in yourself".`),
+          message: ['vault', { kind: 'login', site: row?.site || site, mode: 'update', itemId: item.id, label: row?.label || '', reason: '' }],
+          watch: wallWatch(task, cur, ['login', 'captcha'], seen),
+        })
+        if (answer === CLEARED) return { done: true }
+        if (answer === BLOCKED) return { end: blockedEnd(task, { ...seen.verdict, name }) }
+        const [now] = (await candidates(task.userId, 'login', site)).filter((r) => r.id === item.id)
+        cur = await look(s)
+        form = loginFields(cur)
+        if (now && now.status !== 'rejected' && form && attempt < 1) continue
+        // not fixed (or given back by the person): the page is judged again, and the person asked if it is still a wall
+        tried[site] = 'failed'
+        task.judged = null
+        return { done: true }
+      }
+      // not sure what the page says: the wall judgment decides (gone → on with the task)
+      const w = await judgeWall(cur, task)
+      task.judged = { url: cur.url, wall: w }
+      if (!w) return { done: true }
+      if (w.need === 'blocked') return { end: blockedEnd(task, { ...w, name }) }
+      tried[site] = 'failed'
+      return { why: why(w.need === 'captcha' ? HUMAN() : L('아직 로그인 화면이 그대로예요', 'still shows the sign-in page')), snap: cur }
+    }
+  } catch (e) {
+    if (isStop(e)) throw e
+    // a field that went away while typing, a page that stopped answering: the person, with what was tried
+    console.warn(`[browser] vault sign-in on ${site}: ${String(e.message).split('\n')[0]}`)
+    tried[site] = 'failed'
+    return { why: why(L('입력 중에 화면이 바뀌었어요', 'changed while I was typing')), snap: (await look(s).catch(() => null)) || cur }
+  } finally { await signing(false) }
 }
 
 // Several actions on the same screen and nothing changed: the person takes a look before more turns go by.

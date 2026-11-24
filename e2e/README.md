@@ -969,6 +969,28 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 | 회의 도우미의 자료 고르기 · 일 종류가 @AI 와 같은 함수(`assistHelp.js`) | 사용자 11-24 | `fileMention.test.js` · 회귀 `meetings.spec.js` · `meetingAnswers.test.js` | feature · 단위 | ◐ |
 | 실제 판정 모델로 「… 이력서 첨부해」의 정확도, 이음오피스 호스트에서 연 문서의 화면, 회의 자료 카드에서 끌기, 프로젝트 변형 파일을 화면에서 끌기 | — | — (가짜 모델 · 이음오피스 호스트 없음 · 회의는 WebRTC 가 필요) | — | ✗ |
 
+### 44. 로그인 벽에서 보관함 먼저 — 저장된 로그인이면 사람 없이 넣어 들어가고, 없으면 카드에 저장하거나 직접 로그인 (스펙 `browser-handoff` 「보관함의 로그인으로 로그인 벽을 넘는다」)
+
+근거: 2026-11-24 휴대폰 사진(네이버 예약 → nid.naver.com 로그인 화면, 「직접 로그인」만) · 「로그인이 왜 vault 를 이용하여 암호관리를 호출하지 않는것인가」. 서버 흐름은 진짜 Chromium · 실제 DB · 대본대로 움직이는 모델 · 가짜 판정 서버 · 지어낸 로그인 사이트(`server/test/fixtures/loginWall.mjs`, login.fixture.test — 브라우저 안에서 답하고 밖으로 나가지 않음)로 `server/test/browser-wall-vault.e2e.mjs` 가 확인합니다. 진짜 계정은 쓰지 않습니다. 화면은 카드 내용을 DB 에 두고 휴대폰(390)에서 봅니다(모델 없음). 휴대폰 사진은 `LV_SHOTS=<폴더>`. 네이버 공개 로그인 화면에서 `fill()` 과 키 입력을 지어낸 값으로 비교한 기록(네트워크를 막아 로그인 시도 없음)은 `openspec/specs/browser-handoff/e2e/results/login-wall-vault-1124.txt`.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 로그인 벽 + 저장된 로그인(상위 도메인 fixture.test) → 사람을 부르지 않고 넣어 보내고, 로그인한 화면에서 모델이 이어서 함(`needs_input` 없음, 보관함 · 고르기 카드 없음) | 사용자 11-24 | `browser-wall-vault.e2e.mjs` | 통합 | ✅ |
+| 아이디 · 비밀번호를 키로 하나씩(칸이 받은 keydown 수), 값이 든 칸이 화면에 가려지지 않은 순간 없음, 카드의 `signingIn` 을 두었다가 거둠, 상태 줄 「보관함의 로그인으로 들어가는 중 · fixture.test」, 감사 기록 fill 두 줄 | 사용자 11-24 · 네이버 칸 실측 | `browser-wall-vault.e2e.mjs` | 통합 | ✅ |
+| 같은 회사의 다른 하위 도메인(app.fixture.test 에 저장 → login.fixture.test), 상위 도메인이 먼저, 여럿이 쓰는 호스팅(github.io)의 이웃에는 안 줌, `ownerDomain`(naver.com · shop.co.kr · 주소 · localhost) | 사용자 지시 | `browser-wall-vault.e2e.mjs` | 통합 · 단위 | ✅ |
+| 저장된 로그인 없음 → `need: login` · 저장하거나 직접 로그인하라는 이유 · 보관함 요청 카드(login/request/login.fixture.test), 카드에 저장하면 바로 넣어 이어서 함(모델은 로그인 뒤에만) | 사용자 11-24 | `browser-wall-vault.e2e.mjs` | 통합 | ✅ |
+| 넣은 뒤 사람 확인 → 「보관함에 저장된 로그인 정보로 …에 로그인하려 했는데, …에서 사람인지 확인하는 절차를 추가로 요구해요 …」, 확인 화면의 비밀번호 칸에 보관함의 것을 다시 넣어 둠, 사람이 직접 제어로 확인하면 저절로 이어짐 | 사용자 지시 | `browser-wall-vault.e2e.mjs` | 통합 | ✅ |
+| 틀린 비밀번호 → 항목 거부됨 · 보관함의 고침 카드(update, itemId · 아이디 이름표) → 고치면 다시 넣어 이어서 함(감사: create · reject · update) | 사용자 지시 | `browser-wall-vault.e2e.mjs` | 통합 | ✅ |
+| 인증 코드 → 모델이 지금 화면(코드 화면)을 보고 코드 카드(`need_secret`) → 사람이 넣은 코드로 이어서 함 | 사용자 지시 | `browser-wall-vault.e2e.mjs` · 메일에서 찾기는 `browser-mail-otp.test.js` | 통합 | ✅ |
+| 비밀번호 · 틀린 비밀번호 · 코드가 이벤트 · 서버 로그 · 모델 요청 · 판정 요청에 없음, 아이디도 모델 · 판정 요청에 없음 | 사용자 지시 | `browser-wall-vault.e2e.mjs` | 통합 | ✅ |
+| 실시간 화면 프레임(OCR, tesseract 가 있을 때): 같은 글꼴의 대조 낱말은 읽히고, 입력 중 프레임의 아이디 칸은 가려진 점들, 아이디 · 비밀번호는 어느 프레임에도 없음 | 사용자 지시 | `browser-wall-vault.e2e.mjs` | 통합 | ✅ |
+| 로그인 단추만 있는 첫 화면 → 모델이 폼으로, 그곳(스킬 `sign_in` 의 호스트)의 폼에서는 보관함이 넣고 Enter 로 안 보내지는 폼은 모델이 단추만 누름, 지난번 거부된 비밀번호는 고친 뒤에 | 회귀 | `browser-walls.e2e.mjs` | 통합 | ✅ |
+| 휴대폰 390: 「보관함의 로그인으로 들어가는 중 · naver.com」 줄이 채팅 카드와 확장 화면에 | 사용자 지시 | F-LV-01 | feature | ✅ |
+| 휴대폰 390: 저장된 로그인 없음 — 이유 · 「직접 로그인」 · 「로그인 정보 저장」(보관함 카드로 스크롤) · 「멈추기」가 화면 안, 직접 제어 화면에서 보관함 카드가 이유 아래(겹치지 않음) | 사용자 지시 | F-LV-02 | feature | ✅ |
+| 휴대폰 390: 틀린 비밀번호의 이유와 고침 카드(새 비밀번호 · 다시 로그인), 저장 단추 없음 | 사용자 지시 | F-LV-03 | feature | ✅ |
+| 휴대폰 390: 넣은 뒤 추가 확인의 이유와 「직접 로그인」 | 사용자 지시 | F-LV-04 | feature | ✅ |
+| 실제 네이버에서 키 입력으로 로그인이 통과하는지(자동입력 방지 문자 없이) · 실제 판정 모델이 로그인 뒤 화면을 고르는 정확도 | — | — (진짜 계정으로 로그인하지 않음 · 가짜 판정) | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash
