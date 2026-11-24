@@ -15,12 +15,16 @@ export class GitError extends Error {
   }
 }
 
-// paths stay as UTF-8 (core.quotepath=false), no pager, no hooks or editors of the host's config
-const BASE = ['-c', 'core.quotepath=false', '-c', 'core.pager=cat', '-c', 'advice.detachedHead=false', '-c', 'core.hooksPath=/dev/null']
+// paths stay as UTF-8 (core.quotepath=false), no pager, no hooks or editors of the host's config.
+// gc.auto=0: git never starts an automatic gc in the middle of a save (a commit that triggers one would
+// repack a big folder while the person waits); folders are packed by the nightly pass instead (gc.js).
+const BASE = ['-c', 'core.quotepath=false', '-c', 'core.pager=cat', '-c', 'advice.detachedHead=false', '-c', 'core.hooksPath=/dev/null', '-c', 'gc.auto=0']
+// what the git HTTP backend (gitHttp.js) starts from: the same environment, nothing of the host's git overrides
+export const gitEnv = () => ({ ...ENV })
 
-export function git(cwd, args, { buffer = false, check = true, input } = {}) {
+export function git(cwd, args, { buffer = false, check = true, input, timeout = TIMEOUT } = {}) {
   return new Promise((resolve, reject) => {
-    const child = execFile('git', [...BASE, ...args], { cwd, env: ENV, timeout: TIMEOUT, maxBuffer: 256 * 1024 * 1024, encoding: buffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
+    const child = execFile('git', [...BASE, ...args], { cwd, env: ENV, timeout, maxBuffer: 256 * 1024 * 1024, encoding: buffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
       if (err && check) return reject(new GitError(args, err.code, stderr, stdout))
       resolve(buffer ? stdout : String(stdout))
     })

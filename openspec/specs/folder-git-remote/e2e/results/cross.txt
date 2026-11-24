@@ -1,0 +1,21 @@
+# folder-git-remote cross test — 2026-11-24T01:20:53.547Z
+# BFF :8790 (PRO_BACKGROUND=0, PRO_GIT_URL=http://127.0.0.1:8790), cli-agent cli-agent-gitremote with <cli-agent>/.venv/bin/python (process-gpt-agent-sdk 0.4.23)
+# git 2.50.1 (Apple Git-155), node v25.2.1
+ok 1 - Lite BFF 가 PRO_BACKGROUND=0 으로 뜬다
+  ready in 1.1s
+ok 2 - 시험 회사(gitremote-test)에 파일 하나 든 공유 폴더를 만든다
+  1795483254661 (7dc465d1-1271-4def-8c92-49a59154be4a) at folders/gitremote-test/1795483254661
+ok 3 - 단계가 받는 저장소: stepOne 이 쓰는 그대로(projectRepoFor) — 주소와 토큰
+  project_repo=http://127.0.0.1:8790/api/git/7dc465d1-1271-4def-8c92-49a59154be4a.git base_ref=main token=<200 chars, expires 2026-11-27T01:20:54.000Z>
+ok 4 - cli-agent 의 prepare()/commit(): 받아서 고치고, 커밋하고, pgpt-agent/… 를 올린다
+  branch=pgpt-agent/todo-757e74d commit=6c63519 (1 file changed, 1 insertion(+), 1 deletion(-)) pushed=true
+ok 5 - 그 가지가 Lite 폴더 저장소에 있다, main 은 그대로
+  pgpt-agent/todo-757e74d: M 안내문.md +1/-1; merge-base = main
+ok 6 - 같은 토큰으로 main 에 올리면 거절된다(remote rejected)
+  !	HEAD:refs/heads/main	[remote rejected] (only refs/heads/pgpt-agent/* may be pushed here)
+ok 7 - 기한이 지난 토큰은 401, cli-agent 의 clone 도 실패로 끝난다
+  HTTP 401 WWW-Authenticate: Basic realm="Process GPT Lite folders"; agent: could not clone http://127.0.0.1:8790/api/git/7dc465d1-1271-4def-8c92-49a59154be4a.git: the server refused the token (HTTP 401: no token, an expired one, or one for another repository)
+ok 8 - 서버 기록: 올린 가지와 거절한 가지
+  [folders git] 1795483254661 pushed pgpt-agent/todo-757e74d
+  [folders git] 1795483254661 push refused: refs/heads/main (only refs/heads/pgpt-agent/* may be pushed here)
+1..8

@@ -4,8 +4,10 @@
 //    run folder, the agent edits there, the server commits, and the chat gets a card that opens the
 //    variation for review and merge.
 // 2) Process steps: a step whose agent_config names a folder runs on a variation too —
-//    cli-agent gets the folder repository as its project_repo (its own worktree flow, unchanged),
-//    deepagents gets a checkout in the instance's run folder and its instruction is told where.
+//    cli-agent gets the folder repository as its project_repo: with PRO_GIT_URL the folder over git smart
+//    HTTP and a token for it (it runs in its own pod, with its own disk: it clones, and pushes its branch
+//    pgpt-agent/<run> back — gitHttp.js), without it the repository's path (local development, one disk:
+//    its own worktree flow). deepagents gets a checkout in the instance's run folder and its instruction is told where.
 //    Steps of one instance chain on the instance line (inst/<id>), which `@previous` follows.
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
@@ -20,6 +22,7 @@ import * as SK from './skills.js'
 import { L, asUser, withLang, langOf } from '../lang.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { projectStepFolders } from './threadFolders.js'
+import { projectRepoFor } from './gitHttp.js'
 
 const T = () => config.tenantId
 const EDIT = /고쳐|고치|수정|다듬|바꿔|바꾸|변경|추가|넣어|빼|삭제|작성|만들어|정리|업데이트|반영해|번역|채워|보완|손봐/
@@ -179,7 +182,8 @@ async function stepLang(row) {
   const [p] = await q('select user_id from pro_profile where email=$1', [who]).catch(() => [])
   return p ? langOf(p.user_id) : 'ko'
 }
-async function stepOne(row) {
+// (exported for the tests: test/folderGitRemote.test.js)
+export async function stepOne(row) {
   {
     try {
       const key = String(row.agent_config.folder)
@@ -188,12 +192,19 @@ async function stepOne(row) {
       const [v] = await q(`select * from pro_folder_variations where folder_id=$1 and source->>'todo_id'=$2`, [folder.id, row.id])
       const done = ['DONE', 'SUBMITTED', 'COMPLETED'].includes(row.status)
       if (row.agent_orch === 'cliagents') {
-        // cli-agent keeps its own worktree flow: give it the folder repository as its project
+        // cli-agent keeps its own branch flow: give it the folder repository as its project (a URL and a
+        // token for it, or the path — projectRepoFor)
         if (!row.agent_config.project_repo && !done) {
           const base = await baseOf(folder, row)
-          await q(`update todolist set agent_config = agent_config || $2 where id=$1`, [row.id, { project_repo: folder.repo_path, base_ref: base }])
+          await q(`update todolist set agent_config = agent_config || $2 where id=$1`, [row.id, { ...projectRepoFor(folder), base_ref: base }])
         }
         const wt = row.output?.worktree
+        // over HTTP the branch is here only once cli-agent pushed it: a run that changed nothing pushes nothing
+        if (done && wt?.branch && !v && !(await G.branchExists(folder.repo_path, wt.branch))) {
+          if (!handled.has(row.id)) console.log(`[folders] step ${row.id}: ${wt.branch} is not in '${folder.slug}' (nothing pushed), no variation`)
+          handled.set(row.id, 'no-branch')
+          return
+        }
         if (done && wt?.branch && !v) {
           const [nv] = await q(`insert into pro_folder_variations (folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source)
                                 values ($1,$2,$3,'run','ready',$4,$5,'agent','cliagents','Claude Code',$6) on conflict (folder_id, branch) do update set head_commit=$5 returning *`,

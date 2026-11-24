@@ -7,6 +7,17 @@
 
 ### 추가
 
+- **cli-agent가 공유 폴더를 git(HTTP)으로 받고 자기 가지를 올립니다 — 폴더 저장소와 디스크가 달라도** (운영의 cli-agent는 자기 볼륨을 가진 별도 파드여서, 단계에 넘기던 폴더 저장소 경로가 그쪽에 없었다. 사용자 결정 「Lite가 git을 네트워크로 내준다」. 스펙 `openspec/specs/folder-git-remote`):
+  - 새 경로 `/api/git/<폴더 id>.git/…`(`info/refs`, `git-upload-pack`, `git-receive-pack`)를 `git http-backend`로 내줍니다. 로그인 세션이나 회사 주소는 보지 않습니다. 폴더 하나에만 쓸 수 있는 72시간짜리 토큰(서버 비밀 키로 만든 HMAC)만 받습니다. 토큰은 `Authorization: Bearer` 또는 Basic 비밀번호로 보냅니다. 토큰이 없거나 기한이 지나면 401, 다른 폴더의 토큰이나 연결형 폴더는 403입니다.
+  - 올리기(push)는 `refs/heads/pgpt-agent/…`를 만들거나 옮기는 것만 받습니다. main, 다른 가지, 태그, 가지 지우기는 git에 넘기기 전에 거절합니다. 그러면 클라이언트에 「remote rejected (only refs/heads/pgpt-agent/* may be pushed here)」가 보입니다. gzip 요청도 풀어서 확인하고, 200MB를 넘으면 413으로 답합니다. 받아들인 push는 폴더의 직렬 잠금 안에서 처리합니다.
+  - `PRO_GIT_URL`을 설정하면 폴더 단계는 경로 대신 `<PRO_GIT_URL>/api/git/<폴더 id>.git`과 `project_repo_token`을 받습니다. 설정하지 않으면 지금처럼 경로를 받습니다(로컬 개발). 단계가 끝났는데 올라온 가지가 없으면(바꾼 것 없음) 변형을 만들지 않습니다.
+  - 웹 nginx는 공개 주소의 `/api/git/`을 404로 막습니다. 에이전트는 클러스터 안에서 서버 Service로 바로 들어옵니다. 운영 매니페스트에 넣을 한 줄은 `docs/folder-git-remote/k8s.patch`에 있습니다(`PRO_GIT_URL=http://process-gpt-lite-server.default.svc.cluster.local:8787`).
+  - cli-agent 쪽은 process-gpt-cli-agent `feat/remote-project-repo`입니다(URL이면 clone하고, 커밋 뒤 push). 시험은 `server/test/folderGitRemote.test.js`이고, 교차 시험은 `server/test/folder-git-remote.e2e.mjs`(실제 BFF와 cli-agent 코드)입니다.
+- **공유 폴더 저장소를 밤마다 정리합니다 — 저장할 때는 git이 정리하지 않습니다** (스펙 `openspec/specs/folder-git-remote`):
+  - 서버가 폴더에 실행하는 git 명령은 모두 `-c gc.auto=0`으로 돕니다. 저장이나 커밋 중에 자동 gc가 시작되지 않습니다.
+  - 매일 03:00(KST)에 모든 회사의 폴더를 하나씩, 폴더의 직렬 잠금 안에서 `git gc`합니다(`pack.threads=1`, `pack.windowMemory=256m`). 여러 번 접어 저장한 문서의 이전 버전은 7일이 지난 뒤에 지웁니다. `--aggressive`와 `--prune=now`는 쓰지 않습니다.
+  - 할 일이 적은 폴더는 건너뜁니다(느슨한 객체 300개·20MB 미만, 팩 하나, 팩이 1MB 미만이거나 최근 7일 안에 정리함). 연결형 폴더는 건드리지 않습니다. 결과는 `pro_folders.settings.gc`(`at`, `beforeKiB`, `afterKiB`)에 남기고, 새 SQL은 없습니다. 서버 기록에는 폴더마다 한 줄을 남깁니다. `PRO_BACKGROUND=0`이면 돌지 않고, 시각은 `PRO_FOLDER_GC_CRON`으로 바꿉니다(`off`면 끔). 시험은 `server/test/folderGc.test.js`입니다.
+
 - **메일에서 일로 — 채팅의 메일 칩, 메일로 인스턴스를 시작하거나 잇기** (2026-11-24 사용자 요청, 운영 `/lite/chat` 화면: 「모닝 브리프」가 요약뿐이고 메일과 Home 카드로 가는 길이 없었다. 「메일은 프로세스 지도의 업무 트리거」. 스펙 `openspec/specs/mail-thread-flow`, 설계 `docs/mail-thread-flow/design.md`):
   - 브리프 요약 아래에 그 수집에서 만든 메일 카드마다 칩을 답니다(예약 실행의 「… 관리」 칩과 같은 모양). 메일에서 찾은 요청이나 보낸 답장 줄에는 「메일 · <제목>」 칩을 답니다. 칩을 누르면 그 메일의 시트(원문과 답장)가 열리고, 시트의 「Home 카드로」를 누르면 Home의 그 카드로 가서 카드가 빛납니다.
   - 시트가 묻습니다: 「이 메일은 ‘<프로세스>’의 시작으로 보여요 — 진행할까요?」 단추는 새로 시작 · 진행 중인 ‘…’에 잇기 · 이번엔 안 해요입니다. 지도의 제안 · 자동 단계 프로세스만 권하고, 관찰 단계는 권하지 않습니다. 진행 중인 인스턴스와의 상관관계는 Gmail 스레드를 먼저 보고(모델 없음), 그다음 판정 모델(스킬 `prompts/same-work.md`, 문턱 `rules.json`의 `mailFlow`)이 정합니다.

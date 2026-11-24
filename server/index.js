@@ -59,6 +59,8 @@ import { openFileCard } from './lib/fileCards.js'
 import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
 import { startFolderSteps } from './lib/folders/work.js'
+import { gitRoutes } from './lib/folders/gitHttp.js'
+import { startFolderGc } from './lib/folders/gc.js'
 import { retryUnreadCards, reindex as reindexFolder, cardsSoon } from './lib/folders/indexer.js'
 import * as FS from './lib/folders/service.js'
 import * as skills from './lib/folders/skills.js'
@@ -100,6 +102,9 @@ app.use('/craft', express.static(config.craftWebRoot, {
     else if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache')
   },
 }))
+// shared folders over git smart HTTP for agents on another disk (lib/folders/gitHttp.js): ahead of the body
+// parser, the session and the tenant middleware — the folder token is the whole of the auth and names the tenant
+app.use('/api/git', gitRoutes())
 app.use(express.json({ limit: '2mb' }))
 // English mode (lib/lang.js): a request is in the language its X-PGL-Lang header names (the page sends
 // it on every /api call); auth() below adds the signed-in person's saved language when it is absent.
@@ -1117,6 +1122,8 @@ const server = app.listen(config.port, async () => {
   notify.startNotificationFeed()
   startScheduleTicker(fire)
   startFolderSteps()
+  // the folders' repositories packed at night, one at a time (lib/folders/gc.js)
+  startFolderGc()
   // shared folders' documents the old image could not read get their cards now (lib/folders/indexer.js)
   setTimeout(() => retryUnreadCards().then((n) => n && console.log(`[folders] cards again in ${n} folder(s)`)).catch((e) => console.warn('[folders] cards again', e.message)), 30_000)
   startConstraintSweep()
