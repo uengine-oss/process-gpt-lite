@@ -2745,6 +2745,8 @@
   "받아쓰기가 자꾸 끊겨요. 잠시 뒤 다시 눌러 주세요.": "Transcription keeps cutting out. Tap again in a moment.",
   "데스크톱 앱에서는 음성 인식 서비스에 닿지 못했어요. 브라우저에서 열거나 운영체제의 받아쓰기를 써 주세요.": "The desktop app couldn't reach the speech recognition service. Open Lite in a browser, or use your operating system's dictation.",
   "받아쓰기가 멈췄어요. 다시 눌러 주세요.": "Transcription stopped. Tap again.",
+  "진행이 멈춘 것 같으면 「다시 시도」로 이 단계를 다시 하거나, 「그만두기」로 작업을 멈춰요.": "If it looks stuck, \"Try again\" does this step again and \"Stop\" ends the task.",
+  "브라우저 작업 · 기다리는 중": "Browser task · waiting",
   "여기에 놓으면 링크로 멘션해요": "Drop here to mention it as a link",
   "여기에 놓으면 공유해요": "Drop here to share it",
   "여기에 놓으면 링크로 멘션하거나 공유해요": "Drop here to link or share them",
@@ -2783,10 +2785,6 @@
  },
  "patterns": [
   [
-   "「{0}」 변형의 파일 · 반영 전이라 폴더 구성원만 볼 수 있어요",
-   "A file of the variation “{0}” · not merged yet, so only the folder’s members can see it"
-  ],
-  [
    "이 설치에는 {0} 앱이 없어 앱 안에서 열 수 없어요.",
    "This install has no {0}, so it can't be opened in the app."
   ],
@@ -2805,10 +2803,6 @@
   [
    "{0} 안의 브라우저에서는 앱을 설치할 수 없어요.",
    "Apps can't be installed from {0}'s in-app browser."
-  ],
-  [
-   "‘{0}’ main 에 내 이름으로 들어가요",
-   "Goes into ‘{0}’ main under my name"
   ],
   [
    "「{0}」와 맞는 산출물이 없어요.",
@@ -2843,24 +2837,12 @@
    "{0} outputs of the chat {1}"
   ],
   [
-   "{0} · 반영 전 변형",
-   "{0} · unmerged variation"
-  ],
-  [
    "채팅의 산출물 {0}개",
    "{0} outputs of the chat"
   ],
   [
-   "「{0}」 · 반영 전",
-   "“{0}” · not merged"
-  ],
-  [
    "루틴 · {0} 열기",
    "Open routine · {0}"
-  ],
-  [
-   "‘{0}’에 넣었어요",
-   "Put in ‘{0}’"
   ],
   [
    "{0}에 저장했어요",
@@ -6393,6 +6375,34 @@
   [
    "프로젝트 폴더 「{0}」",
    "Project folder \"{0}\""
+  ],
+  [
+   "기다리는 중 · {0}",
+   "Waiting · {0}"
+  ],
+  [
+   "취소함 · {0}",
+   "Canceled · {0}"
+  ],
+  [
+   "「{0}」 변형의 파일 · 반영 전이라 폴더 구성원만 볼 수 있어요",
+   "A file of the variation “{0}” · not merged yet, so only the folder’s members can see it"
+  ],
+  [
+   "‘{0}’ main 에 내 이름으로 들어가요",
+   "Goes into ‘{0}’ main under my name"
+  ],
+  [
+   "{0} · 반영 전 변형",
+   "{0} · unmerged variation"
+  ],
+  [
+   "「{0}」 · 반영 전",
+   "“{0}” · not merged"
+  ],
+  [
+   "‘{0}’에 넣었어요",
+   "Put in ‘{0}’"
   ]
  ],
  "context": [

@@ -917,6 +917,31 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 | 오류: 마이크 권한 · 데스크톱 앱(음성 인식 서비스 없음)은 끄고 까닭을 보여 줌, `aborted` · `no-speech` 는 이어 들음, 지원하지 않는 브라우저는 예전 안내 | — | F-VD-07 · DV-U-09 | feature · 단위 | ✅ |
 | 실제 Chrome 음성 인식 · 실제 데스크톱 앱(Electron)에서의 받아쓰기 | — | — (가짜 인식기로만, 데스크톱은 `pgl-desktop` 를 붙여 흉내) | — | ◐ |
 
+### 43. 서버 브라우저가 멈춘 것처럼 보이지 않는다 — 걸음마다 한도 · 「기다리는 중 …」 · 다시 시도 · 그만두기 (스펙 `browser-handoff` 「걸음마다 한도가 있고, 멈춘 것처럼 보이지 않는다」)
+
+근거: 2026-11-24 사용자 보고 「이 작업을 시켰는데, 멈췄음... 브라우저가 먹통이 된」(계룡대 인근 숙소 검색) · 「순수 모바일에서는 이 작업이 가능해야」. 실제 사이트에서 다시 잰 전후 비교는 `openspec/specs/browser-handoff/e2e/results/server-browser-stall-1124.txt`. 시험 사이트는 `server/test/fixtures/heavy.mjs`(지어낸 숙소 · 카페, 인터넷 없음). F-BW-03·04 는 이 시험 프로세스 안에서 서버 모듈로 진짜 Chromium 작업을 돌리고(대본대로 답하지 않는 모델), 그 이벤트를 화면의 store 로, 카드의 단추 요청을 page.route 로 그 작업에 잇는다(모델 없음). 휴대폰 사진은 `BW_SHOTS=<폴더>`.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 걸음마다 한도(`bounded`) · 취소는 cancel, 다시 시도는 retry 로 그 자리에서 끝남 | 사용자 11-24 | `browserSteps.test.js` | 단위 | ✅ |
+| 끝나지 않는 페이지(load · networkidle 없음) · 문서가 끝까지 오지 않는 페이지 · 응답 없는 주소 · 실패한 이동 뒤 다음 이동 | 사용자 11-24 | `browserSteps.test.js` · `browser-stall.test.js` | 단위 · 통합 | ✅ |
+| 아주 큰 페이지(노드 6만+)를 한도 · 크기 안에, 입력 칸 먼저, 지난 번호 없음, 내리면 새 글 | 사용자 11-24 | `browserSteps.test.js` | 단위 | ✅ |
+| 화면 안의 iframe(다른 출처)을 읽고 그 안에서 누름, 1×1 추적 프레임은 건너뜀 | 실측 11-24(지도) | `browserSteps.test.js` · `browser-stall.test.js` | 단위 · 통합 | ✅ |
+| 감시: 20초 움직임 없음 → 카드 `stall`, 다음 걸음에서 거둠, 사람을 기다리는 동안은 아님 | 사용자 11-24 | `browserSteps.test.js` · `browser-stall.test.js` | 단위 · 통합 | ✅ |
+| 실시간 화면 초당 3장 · 느린 연결엔 쌓지 않음 · 긴 폴링 버퍼엔 마지막 프레임만 | 실측 11-24(초당 9.6장) | `browserSteps.test.js` · `browser-stall.test.js` | 단위 · 통합 | ✅ |
+| 이 서버의 멈춘 Chromium 이 쥔 프로필 잠금만 풀기(자기 자신 · 다른 프로그램은 그대로) | 사용자 11-24 | `browserSteps.test.js` | 단위 | ✅ |
+| 잠금 링크가 없는 프로필(headless shell): 세션의 브라우저 프로세스를 명령줄로 찾아 멈춤, 다른 프로세스는 그대로 | 사용자 11-24 | `browserSteps.test.js` | 단위 | ✅ |
+| 사람의 승인을 기다리는 동안은 동작 하나의 한도에 들지 않음(결제 단추 → 승인 카드 → 늦게 승인해도 누름) | 회귀 방지 | `browser-stall.test.js` | 통합 | ✅ |
+| 무거운 페이지에서 검색 → 정리가 25초 안 · 칸에 쓴 값을 기다리면 바로 · 일 없는 페이지에서는 기다리지 않음(판정) | 실측 11-24 | `browser-stall.test.js` | 통합 | ✅ |
+| 모델이 답하지 않음 → 「기다리는 중 · AI 모델의 답」 → 다시 시도로 그 걸음만 / 그만두기 2초 안 · 다음 작업이 같은 브라우저 | 사용자 11-24 | `browser-stall.test.js` · F-BW-03 · F-BW-04 | 통합 · feature | ✅ |
+| 렌더러가 답하지 않는 페이지 뒤의 작업은 새 탭(또는 새 브라우저)에서 | 사용자 11-24 | `browser-stall.test.js` | 통합 | ✅ |
+| 같은 화면 · 같은 동작이 세 번 되풀이되면 사람에게 넘김(되풀이 감지, 화면이 바뀌는 되풀이만) | 실측 11-24(동작 40번) | `browser-stall.test.js` · `browser-vault.test.js` | 통합 | ✅ |
+| 프레임 안의 목록은 그 안의 요소를 주고 내림(휠이 그 위에서) | 실측 11-24(지도) | `browser-stall.test.js` | 통합 | ✅ |
+| 취소된 작업의 알약은 「취소함 · <제목>」, 줄 · 독 · 상태 줄이 사라짐 | 사용자 11-24 | F-BW-03 | feature | ✅ |
+| 휴대폰(390): 멈춘 카드의 줄 · 흐르는 시간 · 두 단추가 화면 안, 단추가 그 카드의 작업으로 | 사용자 11-24 | F-BW-01 | feature | ✅ |
+| 넓은 화면: 독 호박색 테두리 · 가운데 카드 · 확장 화면에도 줄, 움직이면 사라짐 | 사용자 11-24 | F-BW-02 | feature | ✅ |
+| 실제 사이트(네이버 여행 · 숙소 검색 · 야놀자 · 네이버 지도 · 연합뉴스)를 사내 모델로 전후 비교 | 사용자 11-24 | `results/server-browser-stall-1124.txt` | 실측 | ✅ |
+
 ### 42. 파일 멘션 — 폴더 · 채팅 · 받은 파일을 끌어다 대화방에 링크로, AI 채팅에 질문으로, 폴더에 파일로 · 메신저의 @AI (스펙 `messenger-file-mention`)
 
 메신저를 왼쪽에 붙이고 폴더 탭에서 「이력서」 폴더를 연 넓은 화면(사용자 11-24 화면)에서, 앱의 모든 파일(폴더 줄 · 채팅 카드 · 산출물 더미와 목록 · 받은 멘션과 공유 칩 · 회의 자료)이 같은 끌기 내용(`application/x-pgl-file`)으로 끌리고 세 곳(메신저 대화 · AI 채팅 입력창 · 폴더)이 받는다. 끌기는 Playwright 의 DataTransfer 끌기 이벤트로 시험한다 — `dragstart` 를 끄는 것에(화면이 끌기 내용을 싣는다), `dragenter` · `dragover` · `drop` 을 놓는 곳에. 서버는 가짜 모델(`PRO_LLM_BASE_URL=http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59961>/v1`, `PRO_JUDGE_URL=`)과 가짜 deepagents(`PRO_DEEPAGENTS_URL=http://127.0.0.1:<RT_FAKE_AGENT_PORT, 기본 59962>`)로 띄우고, 둘 다 시험 파일이 띄운다. 띄우는 명령은 `openspec/specs/messenger-file-mention/e2e/README.md`. 사람 이름 · 파일은 지어낸 것이다(윤태호 · 서하린 · 한도윤, 「차은솔_이력서.docx」).
