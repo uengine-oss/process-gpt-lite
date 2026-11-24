@@ -1,0 +1,15 @@
+diff --git a/deployments/process-gpt-lite.yaml b/deployments/process-gpt-lite.yaml
+index f9f8645..778df96 100644
+--- a/deployments/process-gpt-lite.yaml
++++ b/deployments/process-gpt-lite.yaml
+@@ -202,6 +202,10 @@ spec:
+               value: server
+             - name: PRO_FOLDERS_ROOT
+               value: /data/folders
++            # cli-agent runs in its own pod with its own volume: a process step gets its shared folder over
++            # git smart HTTP at this address (/api/git/<folder id>.git, a token per step) and pushes its branch back
++            - name: PRO_GIT_URL
++              value: http://process-gpt-lite-server.default.svc.cluster.local:8787
+             - name: PRO_VAULT_KEYRING
+               value: /data/vault-keyring.json
+             - name: PRO_CLI_WORKSPACE_ROOT

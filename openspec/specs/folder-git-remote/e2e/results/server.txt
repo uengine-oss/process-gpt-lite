@@ -1,0 +1,85 @@
+# node --test --test-concurrency=1 (folder tests) — 2026-11-24T01:21:35Z, git 2.50.1 (Apple Git-155), node v25.2.1
+✔ process draft: which written files are the definition, its folder, a skill draft (1.557209ms)
+✔ process draft: an English request for a new process is not a document request (0.260042ms)
+✔ process draft: the card shows the definition in the folder, not the streamed one when it is another process (5.021583ms)
+✔ folders: only a request that points at the folder is a folder edit, in English and Korean (1.2945ms)
+✔ mining: a mined optional Finance review gets no threshold nobody gave — its flows wait for the work or the admin; the quote form keeps its amount (1.540458ms)
+✔ mining: the quote step reads its total off the agent's last line (0.363ms)
+✔ test shop: an order history page from the account menu, in English and Korean (27.861083ms)
+✔ panel apps: an English app name in any case names it; a one-word title or a part of the name does not (2.267458ms)
+✔ workroom: a terminal ticket remembers the tenant it was issued in (1.450041ms)
+✔ 편집으로 치는 키: 글자 · 지우기 · 줄바꿈 · 한글 입력(조합 중)은 편집, 이동 · 단축키는 아니다 (1.740917ms)
+✔ 편집기의 저장 단추: 「저장 (⌘S)」 · 「Save」, 「다른 이름으로 저장」 · 「Save As」는 아니다 (0.195791ms)
+✔ folder_open 의 카드는 폴더와 연 버전을 갖고 다닌다 (0.74625ms)
+✔ 편집본이 폴더 main 의 파일이 된다: 한 편집은 이력 한 줄, 먼저 고친 사람이 있으면 수정본으로 (3471.384667ms)
+✔ folder_open: 편집자에게는 고칠 수 있는 카드, 보기 권한에게는 보기 전용 카드 (389.75875ms)
+✔ 검색 낱말: 띄어 쓴 낱말마다 따로, 한 글자는 더 긴 낱말이 없을 때만 (2.575166ms)
+✔ 문서 본문: docx · pptx · hwpx · xlsx 를 unzip 없이 읽는다 (591.378917ms)
+✔ folder_open 의 결과는 파일 카드가 되고 open 을 가진다 · 다른 도구의 결과는 그대로 (0.44175ms)
+✔ 붙이지 않아도 찾고, 읽고, 연다 (이력서 폴더의 장진영_프로필.docx) (1039.318875ms)
+✔ 예전 이미지가 읽지 못한 문서는 시작할 때 카드를 다시 만든다 (2825.625292ms)
+✔ 폴더 git 은 자동 gc 를 하지 않는다(gc.auto=0) (59.723292ms)
+✔ 할 일이 적은 폴더는 건너뛴다 (0.212291ms)
+✔ index.js: 밤 정리는 PRO_BACKGROUND=0 이면 시작하지 않는다 (0.927208ms)
+[gc test] 8 folded saves of 1 MB: 8300 KiB, nightly defaults → 8198 KiB, expired → 1026 KiB; .git on disk 8227 → 1054 KiB
+✔ 여러 번 접어 저장한 큰 문서: 밤 기본값은 한 주를 남기고, 기한이 지나면 디스크가 준다 (1999.064916ms)
+✔ gc 는 폴더의 직렬 잠금 안에서: 진행 중인 main 쓰기를 기다린다 (666.682375ms)
+[folders gc] gitremote-test/gc-1795483306240: skipped, little to do (0 loose, 1 pack(s), 1026 KiB)
+[folders gc] gitremote-test/gc-1795483308239: skipped, little to do (0 loose, 1 pack(s), 1 KiB)
+[folders gc] gitremote-test/gc-1795483308906: skipped, little to do (3 loose, 0 pack(s), 12 KiB)
+[folders gc] gitremote-test/gc-1795483309005: 1224 KiB → 33 KiB in 0.1s
+✔ 할 일이 적으면 건너뛰고, 연결형 폴더는 건드리지 않는다, 회사의 폴더마다 한 줄 (651.168209ms)
+✔ 토큰: 만든 그대로 읽히고, 고치거나 기한이 지나면 읽히지 않는다 (2.292208ms)
+✔ 토큰은 Bearer 로도, Basic 의 비밀번호로도 받는다 (0.197917ms)
+✔ 밀어 넣기 요청의 명령을 읽는다(능력·shallow 줄 포함), 깨진 요청은 거절 (1.221375ms)
+✔ pgpt-agent/ 아래 가지를 만들거나 옮기는 것만 된다 (0.290583ms)
+✔ 거절은 receive-pack 의 상태 보고로: 사이드밴드 1 에 ng, 2 에 까닭 (0.678542ms)
+✔ PRO_GIT_URL 이 있으면 단계에 주소와 토큰을, 없으면 저장소 경로를 준다 (0.297292ms)
+[folders git] git-1795483309839 pushed pgpt-agent/run1
+✔ 토큰으로 내려받고 pgpt-agent/ 가지를 올린다, main 은 그대로 (707.17725ms)
+[folders git] git-1795483310541 push refused: refs/heads/main (only refs/heads/pgpt-agent/* may be pushed here)
+[folders git] git-1795483310541 push refused: refs/heads/inst/abc (only refs/heads/pgpt-agent/* may be pushed here)
+[folders git] git-1795483310541 push refused: refs/tags/v1 (only refs/heads/pgpt-agent/* may be pushed here)
+[folders git] git-1795483310541 push refused: refs/heads/main (only refs/heads/pgpt-agent/* may be pushed here)
+[folders git] git-1795483310541 pushed pgpt-agent/keep
+[folders git] git-1795483310541 push refused: refs/heads/pgpt-agent/keep (deleting refs is not allowed here)
+✔ main · 태그 · 다른 가지 · 지우기는 「remote rejected」, 저장소는 그대로 (906.091166ms)
+✔ 토큰이 없거나 맞지 않으면 401 · 403 · 404 (389.631459ms)
+[folders git] git-1795483311837 pushed pgpt-agent/locked
+✔ 밀어 넣기는 폴더의 직렬 잠금 안에서: 진행 중인 main 쓰기가 끝난 뒤에 들어간다 (1958.120125ms)
+[folders git] git-1795483313795 pushed pgpt-agent/gz
+[folders git] git-1795483313795 push refused: refs/heads/main (only refs/heads/pgpt-agent/* may be pushed here)
+✔ 한도를 넘는 밀어 넣기는 413, gzip 으로 보낸 요청도 읽는다 (496.55175ms)
+[folders] step d6de446d-b07e-4796-a341-6c743c42df52: pgpt-agent/nothing is not in 'git-1795483314727' (nothing pushed), no variation
+[folders git] git-1795483314727 pushed pgpt-agent/step1
+✔ 끝난 단계: 올라온 가지는 그 단계의 변형이 되고, 올라온 것이 없으면 변형을 만들지 않는다 (985.532625ms)
+✔ index.js: git 경로는 본문 파서·세션·회사 미들웨어보다 앞에 붙는다 (0.577542ms)
+✔ privacy floor: English labels get the same protection; Korean labels exactly as before (2.420583ms)
+✔ the Security & privacy defaults card: English in en, the Korean lines in ko (2.598333ms)
+✔ access rules and record permissions in words (0.933166ms)
+✔ a new app's defaults (sheet name, summary) and validation messages follow the language (1.015541ms)
+✔ English amounts and dates are read like Korean ones (4.125917ms)
+✔ an event app's workbook: English tab and envelope in en, read back in either language (36.967041ms)
+✔ panel-app design prompts: English examples in en, the Korean prompt untouched in ko (0.608417ms)
+✔ room assist: English requests pass the rules, chit-chat does not; Korean exactly as before (2.172583ms)
+✔ shared folders: status words and the agent rules follow the language (0.228458ms)
+﹣ 준비: 시험 계정 · 폴더 하나(안내문) (0.553333ms) # SKIP
+﹣ 새 프로젝트를 그 폴더로: 프로젝트 = 그 폴더의 변형 하나 (첫 턴에 만듦) (0.057333ms) # SKIP
+﹣ 프로젝트에서 파일을 고치는 한 턴: 프로젝트 변형에 담기고 main 은 그대로 (0.053ms) # SKIP
+﹣ 채팅에 참고로 붙이기 → 읽는 질문은 변형 없이 답 (0.040875ms) # SKIP
+﹣ 이름을 안 적은 변경 요청 → 붙인 폴더의 짧은 변형 · 반영 카드 · 칩은 변형 작업 중 · main 그대로 (0.046584ms) # SKIP
+✔ 바꿔 달라는 말만 변경으로 본다 (3.216875ms)
+✔ 붙인 폴더: 이름을 안 적은 변경 요청이 그 폴더로, 읽기는 아니고, 이름을 적은 폴더가 먼저 (0.947167ms)
+✔ 프로젝트의 폴더는 짧은 변형으로 가지 않는다(프로젝트 변형에서 바뀜), 다른 폴더는 그대로 (0.123041ms)
+✔ 칩: 참고 · 변형 작업 중 · 프로젝트 (0.0845ms)
+✔ 프로젝트 변형: 첫 턴에 만들고 대화 폴더에 꺼내고, 에이전트가 바꾼 것은 변형에만 · main 그대로 (1473.425084ms)
+✔ 붙인 폴더 참고 힌트: 폴더 이름·읽는 도구·파일 목록, 고치지 말라는 말 (42.174334ms)
+✔ 프로젝트에서 시작한 인스턴스: 에이전트 단계에 프로젝트 폴더와 기준을 넣음 (125.840416ms)
+ℹ tests 59
+ℹ suites 0
+ℹ pass 54
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 5
+ℹ todo 0
+ℹ duration_ms 26002.903667

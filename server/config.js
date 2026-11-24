@@ -60,6 +60,12 @@ export const config = {
   terminalKey: get('PRO_TERMINAL_KEY', ''),
   // shared folders: where folder repositories live (<root>/<tenant>/<slug>); unset = ~/pgpt-folders
   foldersRoot: get('PRO_FOLDERS_ROOT', ''),
+  // the address agents reach this server at for a folder over git (lib/folders/gitHttp.js): a cli-agent step
+  // gets <PRO_GIT_URL>/api/git/<folder id>.git and a token instead of the repository's path. Unset = the path
+  // (local development, where cli-agent shares this disk). In the cluster: the Service's address.
+  gitUrl: get('PRO_GIT_URL', ''),
+  // when the nightly pass packs the folders' repositories (lib/folders/gc.js): a KST cron expression, or 'off'
+  folderGcCron: get('PRO_FOLDER_GC_CRON', '0 3 * * *'),
   claudeBin: get('PRO_CLAUDE_BIN', 'claude'),
   // fast page-state / goal-done checks in the browser loop through the router's /decide
   browserGates: get('PRO_BROWSER_GATES', 'on') !== 'off',

@@ -1,0 +1,29 @@
+# process-gpt-cli-agent feat/remote-project-repo — pytest 2026-11-24T01:20:15Z
+# (a scratch venv from requirements.txt: process-gpt-agent-sdk 0.11.0; the shared venv has 0.4.23, which main's executor.py no longer imports)
+test_worktree.py::test_settings_read_the_token_under_either_spelling_and_keep_it_out_of_repr PASSED [  5%]
+test_worktree.py::test_only_urls_are_cloned PASSED                 [ 10%]
+test_worktree.py::test_a_url_is_cloned_into_the_workspace_and_the_branch_goes_back_on_commit PASSED [ 15%]
+test_worktree.py::test_the_base_may_be_named_with_or_without_origin[main] PASSED [ 20%]
+test_worktree.py::test_the_base_may_be_named_with_or_without_origin[origin/main] PASSED [ 25%]
+test_worktree.py::test_a_step_on_an_instance_line_starts_from_that_branch PASSED [ 30%]
+test_worktree.py::test_a_base_the_repository_does_not_have_is_an_error PASSED [ 35%]
+test_worktree.py::test_nothing_changed_means_nothing_pushed PASSED [ 40%]
+test_worktree.py::test_a_paused_run_resumes_into_its_own_clone_without_cloning_again PASSED [ 45%]
+test_worktree.py::test_a_branch_an_earlier_attempt_pushed_is_continued PASSED [ 50%]
+test_worktree.py::test_a_push_the_server_refuses_is_an_error_that_says_why PASSED [ 55%]
+test_worktree.py::test_an_unreachable_server_is_a_clone_error_and_leaves_nothing_behind PASSED [ 60%]
+test_worktree.py::test_a_password_in_the_url_is_used_as_the_token_and_not_kept_as_the_remote PASSED [ 65%]
+test_worktree.py::test_a_swept_workspace_takes_its_clone_with_it PASSED [ 70%]
+test_worktree.py::test_a_local_path_still_gets_a_worktree_and_nothing_is_pushed PASSED [ 75%]
+test_worktree.py::test_a_path_that_is_not_a_repository_is_refused PASSED [ 80%]
+test_worktree.py::test_a_work_item_on_a_url_runs_in_the_clone_and_stores_the_pushed_branch PASSED [ 85%]
+test_worktree.py::test_a_work_item_whose_repository_cannot_be_cloned_fails_and_does_not_run PASSED [ 90%]
+test_worktree.py::test_a_push_that_fails_fails_the_work_item PASSED [ 95%]
+test_worktree.py::test_a_refused_token_is_said_in_words_a_reviewer_understands PASSED [100%]
+============================== 20 passed in 8.34s ==============================
+
+# whole suite
+229 passed in 10.13s
+
+# core/worktree.py alone with the shared venv's Python (<cli-agent>/.venv, pytest from a scratch target dir; the executor tests need SDK 0.11.0)
+17 passed, 3 deselected in 5.74s
