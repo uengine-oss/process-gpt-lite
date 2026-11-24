@@ -5,15 +5,28 @@
 // so an edit made on a phone is not lost; a shared folder's file opened from the chat (folder_open)
 // is saved back into the folder too (server: POST /api/messages/:id/file).
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import OfficeEditorFrame from './OfficeEditorFrame.vue'
 import CraftEditorFrame from './CraftEditorFrame.vue'
 import CraftLiveOverlay from './CraftLiveOverlay.vue'
 import { CRAFT_APPS, officeEditorFor, craftMissing } from '../officeEditor.js'
 import { api, uploadAttachment } from '../api.js'
 import { useApp, onOfficeLeave } from '../stores/app.js'
+import { useTeam } from '../stores/team.js'
 import { isEnglish } from '../i18n/lang.js'
 
 const app = useApp()
+const team = useTeam()
+const route = useRoute()
+const router = useRouter()
+// Mounted for every page (App.vue), so a document opened from the messenger, a meeting or a card opens wherever one is (it
+// opened nothing on the process map before — 2026-11-24). The chat that talks to the open document is on the chat pages
+// (views/MainView.vue): elsewhere (the map, folders) the editor's AI buttons take the person to the chat, the document staying
+// open beside it and the request waiting in the box; the dial (maximized, phone) is the chat's.
+const chatHere = computed(() => !!route.meta.mode && !route.meta.settings)
+// a docked messenger (src/messengerDock.js): every document opens beside the page, a read-only one too, so the conversation
+// and the page stay usable
+const msgDocked = computed(() => team.open && team.dockNow !== 'float')
 const maximized = ref(false)
 const note = ref(null) // {kind, text} — what happened to a panel app's sheet after saving
 // An ArtCraft app — and an editable IeumOffice document — opens beside the chat, not over it: the
@@ -29,7 +42,7 @@ const autoSave = computed(() => office.value && !app.officeDoc.panelAppId && app
 const craftTitle = computed(() => office.value ? '문서' : ({ cadcraft: 'CADCraft', vectorcraft: 'VectorCraft', photocraft: 'PhotoCraft', soundcraft: 'SoundCraft', filmcraft: 'FilmCraft' })[officeEditorFor(app.officeDoc?.name || app.officeDoc?.url || '')] || '')
 const live = ref(false)
 const linkFail = ref('') // the document's live link gave up (OfficeEditorFrame 'linkfail')
-const side = computed(() => (craft.value || office.value) && !maximized.value)
+const side = computed(() => (craft.value || office.value || (msgDocked.value && !!app.officeDoc)) && !maximized.value)
 const overlay = ref(null)
 // a phone: the sheet is the whole screen with the chat behind it (and no 최대화), so the dial is
 // the way to talk to the open document, as when maximized
@@ -38,23 +51,28 @@ const phone = ref(!!phoneMq?.matches)
 const onPhone = (e) => (phone.value = e.matches)
 phoneMq?.addEventListener?.('change', onPhone)
 onBeforeUnmount(() => phoneMq?.removeEventListener?.('change', onPhone))
-const dial = computed(() => (craft.value || office.value) && (maximized.value || phone.value))
+const dial = computed(() => chatHere.value && (craft.value || office.value) && (maximized.value || phone.value))
 // The editor's own AI 도우미 (one assistant): its buttons come here. A preset (요약·다듬기…) is sent as
 // a chat message about the open document; the 도우미 entry opens the same input — the dial's band
 // when maximized, the chat composer beside it otherwise.
 function assistant({ prompt, selection }) {
   if (prompt) {
     const sel = selection && !/선택/.test(prompt) ? selection : ''
-    app.send(sel ? `${prompt}\n\n(선택한 부분: "${sel.slice(0, 600)}")` : prompt)
+    const text = sel ? `${prompt}\n\n(선택한 부분: "${sel.slice(0, 600)}")` : prompt
+    // no chat on this page: the request waits in the chat's box (the person sends it there)
+    if (!chatHere.value) { app.prefill = text; router.push('/chat'); return }
+    app.send(text)
     return
   }
   if (dial.value) return overlay.value?.expand()
   if (selection) app.prefill = `선택한 부분 "${selection.slice(0, 120)}"을 `
   else app.focusTick++
+  if (!chatHere.value) router.push('/chat')
 }
 // Click to mention: the editor tells what was pointed at; it waits in the input as a chip
 function mention(m) {
   app.addMention(m)
+  if (!chatHere.value) return router.push('/chat')
   if (dial.value) overlay.value?.expand()
   else app.focusTick++
 }
@@ -164,12 +182,14 @@ async function putBack() {
 onBeforeUnmount(() => { if (app.beforeSend) app.beforeSend = null })
 
 const dockWas = app.dockOpen
-watch([side, office], ([on, doc]) => {
+watch([side, craft], ([on, isCraft]) => {
   document.body.classList.toggle('craft-side', on)
-  document.body.classList.toggle('doc-side', on && doc)
+  document.body.classList.toggle('doc-side', on && !isCraft)
+  app.docSide = on && !phone.value
   if (on) app.dockOpen = false
 }, { immediate: true })
-onBeforeUnmount(() => { document.body.classList.remove('craft-side', 'doc-side'); if (craft.value || office.value) app.dockOpen = dockWas })
+watch(phone, (p) => { app.docSide = side.value && !p })
+onBeforeUnmount(() => { document.body.classList.remove('craft-side', 'doc-side'); app.docSide = false; if (craft.value || office.value) app.dockOpen = dockWas })
 
 // a panel app's spreadsheet (lib/panelApps): the saved copy becomes the folder's file
 async function savedPanelSheet(url) {
@@ -239,7 +259,7 @@ onBeforeUnmount(() => onOfficeLeave(null))
 </script>
 
 <template>
-  <div class="veil" :class="{ max: maximized, side }" @click.self="!side && !maximized && closeDoc()">
+  <div class="veil office-sheet" :class="{ max: maximized, side }" data-test="office-sheet" @click.self="!side && !maximized && closeDoc()">
     <div class="sheet glass" :class="{ max: maximized }">
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
@@ -294,4 +314,13 @@ body.doc-side { --craft-side-w: min(960px, 70vw); }
 body.craft-side .main .center { right: var(--craft-side-w); left: 0; transition: right .4s var(--spring), left .4s var(--spring); }
 body.craft-side .main .clock { display: none; }
 @media (max-width: 760px) { body.craft-side .main .center { right: 0; } }
+/* A docked team messenger (src/messengerDock.js) takes a column from the page (App.vue .page): the panel's width follows the
+   page, not the window. In the panel dock the messenger sits in this panel beside the document — the panel grows by its width
+   and the document leaves it the panel's right part. */
+html[data-msgdock] body { --craft-side-w: min(840px, 64cqw); }
+html[data-msgdock] body.doc-side { --craft-side-w: min(960px, 70cqw); }
+html[data-msgdock-panel] body.craft-side { --craft-side-w: min(calc(840px + var(--msgdock-w)), 72cqw); }
+html[data-msgdock-panel] body.doc-side { --craft-side-w: min(calc(960px + var(--msgdock-w)), 72cqw); }
+html[data-msgdock-panel] .office-sheet.side .sheet { padding-right: var(--msgdock-w); transition: padding .35s var(--spring), width .25s; }
+html[data-msgdock-panel] .office-sheet.side .pic { right: var(--msgdock-w); }
 </style>

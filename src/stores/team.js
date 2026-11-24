@@ -6,6 +6,13 @@ import { api } from '../api.js'
 import { useApp } from './app.js'
 import { openArtifact } from '../artifacts.js'
 import { maybeOther } from '../i18n/mainLangs.js'
+// where the messenger sits (float · right · left · panel), remembered per device: src/messengerDock.js
+import { load as loadDock, save as saveDock, reduce as reduceDock, effective as dockIn } from '../messengerDock.js'
+import { openPlan, closesMessenger } from '../openPlan.js'
+import { craftMissing } from '../officeEditor.js'
+import { viewW } from '../viewport.js'
+
+const store = () => { try { return window.localStorage } catch { return null } }
 
 // file cards that can be shared: the ones with a storage object behind them (not workroom-only files)
 // a stored file, or one the agent left in its work folder (shared through the branch commit)
@@ -32,8 +39,19 @@ export const useTeam = defineStore('team', {
     // {minutes: {summary, decisions, actions}} | {same: true}; original: message id -> showing the original
     tr: {},
     original: {},
+    dockState: loadDock(store()), // {dock, width} as chosen on this device (a narrow window floats it: dockNow)
   }),
+  getters: {
+    // the dock in effect on this window: float · right · left · panel
+    dockNow: (s) => dockIn(s.dockState, viewW.value),
+  },
   actions: {
+    setDock(to) { this.dockState = reduceDock(this.dockState, { type: 'dock', to }); saveDock(store(), this.dockState) },
+    // keep: false while the edge is being dragged (kept once, when it is let go)
+    setDockWidth(width, { keep = true } = {}) {
+      this.dockState = reduceDock(this.dockState, { type: 'resize', width, viewW: viewW.value })
+      if (keep) saveDock(store(), this.dockState)
+    },
     async boot() {
       if (this.booted) return
       this.booted = true
@@ -177,21 +195,23 @@ export const useTeam = defineStore('team', {
       return m
     },
 
-    // a shared artifact opens in the editor: my own copy (or, for the sender, the original card)
+    // A shared artifact opens in the office panel: my own copy (or, for the sender, the original card). The floating sheet
+    // goes away once it opened (it lies over the panel); a docked messenger stays beside it. Answers what happened
+    // ({how, opened, reason, url} — artifacts.js openArtifact): the messenger says why when it did not open.
     async openShared(shareId, router) {
       const app = useApp()
       const { message } = await api(`/team/shares/${shareId}/open`, { method: 'POST' })
       const list = (app.messages[message.thread_id] ||= [])
       if (!list.some((x) => x.id === message.id)) list.push(message)
-      this.open = false
-      openArtifact(app, router, message)
-      return message
+      const r = await openArtifact(app, router, message, { link: false })
+      if (r.opened && closesMessenger(r, this.dockNow)) this.open = false
+      return { message, ...r }
     },
     // a received share continues in its own work conversation; my own share gathers the branches first
     // (choices: conflict picks, {path: side}; a 409 carries the conflicts to pick from)
     async continueWork(messageId, router, choices) {
       const r = await api(`/team/messages/${messageId}/continue`, { method: 'POST', body: { choices } })
-      this.open = false
+      if (this.dockNow === 'float') this.open = false
       const app = useApp()
       app.dockOpen = false
       if (r.branch) { await app.loadProjects(); if (router) await router.push(`/projects/${r.threadId}`) }
@@ -202,12 +222,14 @@ export const useTeam = defineStore('team', {
     async branches(messageId) {
       return (await api(`/team/messages/${messageId}/branches`)).branches
     },
-    // a file of a branch, read-only unless the branch is mine
+    // a file of a branch, read-only unless the branch is mine — in the panel like any document (same answer as openShared)
     async openBranchFile(room, path) {
       const f = await api(`/team/branches/file?room=${encodeURIComponent(room)}&path=${encodeURIComponent(path)}`)
-      const app = useApp()
-      this.open = false
-      app.setOfficeDoc({ url: f.url, name: f.name, readOnly: f.readOnly })
+      const plan = openPlan({ url: f.url, name: f.name }, { craftMissing })
+      if (plan.how !== 'office') return { ...plan, opened: false, reason: plan.reason || '앱 안에서 열 수 없는 파일이에요.' }
+      const opened = (await useApp().setOfficeDoc({ url: f.url, name: f.name, readOnly: f.readOnly })) !== false
+      if (opened && closesMessenger(plan, this.dockNow)) this.open = false
+      return { ...plan, opened, reason: opened ? '' : '열린 문서를 아직 저장하지 못해 그대로 두었어요. 한 번 더 누르면 바꿔요.' }
     },
 
     startShare(messages) {

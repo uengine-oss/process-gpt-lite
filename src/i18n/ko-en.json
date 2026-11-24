@@ -2559,6 +2559,27 @@
   "Google 앱": "Google app",
   "홈 화면에 추가": "Add to Home Screen",
   "공유 버튼이 보이지 않으면 ⋯ 버튼을 먼저 누르세요.": "Don't see the Share button? Tap ⋯ first.",
+  "메시지 위치": "Messages position",
+  "메시지 위치 — 머리를 끌어 옮겨도 돼요": "Where Messages sits — you can also drag its header",
+  "떠 있게 두기": "Float over the page",
+  "페이지 위에 떠 있어요": "Floats over the page",
+  "오른쪽에 붙이기": "Dock right",
+  "왼쪽에 붙이기": "Dock left",
+  "페이지와 나란히 써요": "Side by side with the page",
+  "문서 패널에 넣기": "Dock in the document panel",
+  "연 문서 옆에서 대화해요": "Talk beside the open document",
+  "메시지 너비": "Messages width",
+  "메시지 · 떠 있게 두기": "Messages · Float over the page",
+  "메시지 · 오른쪽에 붙이기": "Messages · Dock right",
+  "메시지 · 왼쪽에 붙이기": "Messages · Dock left",
+  "메시지 · 문서 패널에 넣기": "Messages · Dock in the document panel",
+  "나에게 공유되지 않은 파일이라 열 수 없어요": "This file wasn't shared with you, so it can't be opened",
+  "새 창에서 열기": "Open in a new window",
+  "앱 안에서 열 수 없는 형식이에요.": "This format can't be opened in the app.",
+  "앱 안에서 열 수 없는 파일이에요.": "This file can't be opened in the app.",
+  "열 파일을 찾지 못했어요.": "I couldn't find the file to open.",
+  "열지 못했어요.": "Couldn't open it.",
+  "열린 문서를 아직 저장하지 못해 그대로 두었어요. 한 번 더 누르면 바꿔요.": "The open document isn't saved yet, so it stays. Click again to replace it.",
   "로컬 에이전트 실행 중": "Local agent running",
   "내 컴퓨터의 에이전트": "Agents on my computer",
   "연결한 데스크톱": "Linked desktops",
@@ -2614,12 +2635,8 @@
  },
  "patterns": [
   [
-   "{0}의 제안을 입력란에 넣었어요 — 고쳐서 보낼 수 있어요",
-   "{0}'s suggestion is in the input — you can edit it before sending"
-  ],
-  [
-   "입력은 {0}님만 해요 — 제안하면 {1}님의 입력란에 쌓여요",
-   "Only {0} puts words in — suggest it and it stacks at {1}'s input"
+   "이 설치에는 {0} 앱이 없어 앱 안에서 열 수 없어요.",
+   "This install has no {0}, so it can't be opened in the app."
   ],
   [
    "이 메일은 ‘{0}’의 시작으로 보여요 — 진행할까요?",
@@ -2638,14 +2655,6 @@
    "Apps can't be installed from {0}'s in-app browser."
   ],
   [
-   "로컬 에이전트 실행 중 · {0}",
-   "Local agent running · {0}"
-  ],
-  [
-   "기다리지 않고 {0}에게 맡기기",
-   "Hand it to the {0} now"
-  ],
-  [
    "루틴 · {0}에 기록했어요.",
    "Recorded in routine · {0}."
   ],
@@ -2658,32 +2667,8 @@
    "Link to the running ‘{0}’"
   ],
   [
-   "{0}님의 입력란에 올렸어요",
-   "Added to {0}'s input"
-  ],
-  [
-   "{0} 제안 · {1} 입력",
-   "Suggested by {0} · put in by {1}"
-  ],
-  [
-   "{0}가 고쳐서 입력함",
-   "{0} put it in, edited"
-  ],
-  [
-   "{0}이 고쳐서 입력함",
-   "{0} put it in, edited"
-  ],
-  [
-   "배운 것 {0}개 · {1}",
-   "Learned {0} · {1}"
-  ],
-  [
    "루틴 · {0} 열기",
    "Open routine · {0}"
-  ],
-  [
-   "스킬 「{0}」 고침",
-   "Skill \"{0}\" changed"
   ],
   [
    "{0}에 저장했어요",
@@ -3134,14 +3119,6 @@
    "Start as ‘{0}’"
   ],
   [
-   "{0}에게 보냈어요",
-   "Sent to {0}"
-  ],
-  [
-   "{0}에 입력했어요",
-   "Put into {0}"
-  ],
-  [
    "유휴 {0} ({1})",
    "Idle {0} ({1})"
   ],
@@ -3218,14 +3195,6 @@
    "Start as ‘{0}’"
   ],
   [
-   "기다린 지 {0}",
-   "Waiting for {0}"
-  ],
-  [
-   "{0} 결정 · {1}",
-   "{0} decided · {1}"
-  ],
-  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -3264,18 +3233,6 @@
   [
    "같은 일 {0}",
    "Same work {0}"
-  ],
-  [
-   "「{0}」 단계",
-   "Step \"{0}\""
-  ],
-  [
-   "{0}가 입력함",
-   "{0} put it in"
-  ],
-  [
-   "{0}이 입력함",
-   "{0} put it in"
   ],
   [
    "{0}(소유)",
@@ -6152,6 +6109,74 @@
   [
    "파일은 한 번에 {0}개까지 보낼 수 있어요.",
    "Up to {0} files can be sent at once."
+  ],
+  [
+   "{0}의 제안을 입력란에 넣었어요 — 고쳐서 보낼 수 있어요",
+   "{0}'s suggestion is in the input — you can edit it before sending"
+  ],
+  [
+   "입력은 {0}님만 해요 — 제안하면 {1}님의 입력란에 쌓여요",
+   "Only {0} puts words in — suggest it and it stacks at {1}'s input"
+  ],
+  [
+   "로컬 에이전트 실행 중 · {0}",
+   "Local agent running · {0}"
+  ],
+  [
+   "기다리지 않고 {0}에게 맡기기",
+   "Hand it to the {0} now"
+  ],
+  [
+   "{0}님의 입력란에 올렸어요",
+   "Added to {0}'s input"
+  ],
+  [
+   "{0} 제안 · {1} 입력",
+   "Suggested by {0} · put in by {1}"
+  ],
+  [
+   "{0}가 고쳐서 입력함",
+   "{0} put it in, edited"
+  ],
+  [
+   "{0}이 고쳐서 입력함",
+   "{0} put it in, edited"
+  ],
+  [
+   "배운 것 {0}개 · {1}",
+   "Learned {0} · {1}"
+  ],
+  [
+   "스킬 「{0}」 고침",
+   "Skill \"{0}\" changed"
+  ],
+  [
+   "{0}에게 보냈어요",
+   "Sent to {0}"
+  ],
+  [
+   "{0}에 입력했어요",
+   "Put into {0}"
+  ],
+  [
+   "기다린 지 {0}",
+   "Waiting for {0}"
+  ],
+  [
+   "{0} 결정 · {1}",
+   "{0} decided · {1}"
+  ],
+  [
+   "「{0}」 단계",
+   "Step \"{0}\""
+  ],
+  [
+   "{0}가 입력함",
+   "{0} put it in"
+  ],
+  [
+   "{0}이 입력함",
+   "{0} put it in"
   ]
  ],
  "context": [

@@ -66,7 +66,8 @@ async function openPicker() {
 }
 function openFolder() {
   const f = filed.value
-  team.open = false
+  // the floating messenger goes away; a docked one stays beside the folder (src/messengerDock.js)
+  if (team.dockNow === 'float') team.open = false
   app.mailCard = null
   router.push({ path: `/folders/${encodeURIComponent(f.slug)}`, query: { file: f.path } })
 }

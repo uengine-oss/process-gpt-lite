@@ -31,13 +31,14 @@ onMounted(() => { rot = setInterval(() => { si.value = (si.value + 1) % suggesti
 onBeforeUnmount(() => { clearInterval(rot); rec?.stop() })
 
 const ph = computed(() => (app.panelMode ? suggestions[si.value].t : props.placeholder))
+// (immediate: a request left before this composer was there — an open document's AI button on another page, OfficeSheet)
 watch(() => app.prefill, async (v) => {
   if (!v) return
   text.value = v
   app.prefill = ''
   await nextTick()
   ta.value?.focus()
-})
+}, { immediate: true })
 // an open document's own AI 도우미 button lands here (OfficeSheet): the chat composer, not the overlay's
 watch(() => app.focusTick, () => { if (!props.overlay) ta.value?.focus() })
 watch(text, async () => {

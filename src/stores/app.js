@@ -46,6 +46,7 @@ export const useApp = defineStore('app', {
     panelMode: false,          // "새 패널 만들기" composer mode
     handoff: null,             // message id of a task shown full screen
     officeDoc: null,           // {msgId, url, name} open in the IeumOffice editor
+    docSide: false,            // that document is open beside the page, not over it (OfficeSheet) — the messenger's panel dock joins it
     attachments: [],           // files waiting in the composer: {id, name, size, state, result, error}
     newProjectFolder: null,    // 새 프로젝트: the folder it will work in — {id, slug, name} or {newName}
     folderPicker: false,       // the composer's folder list is open (📎 폴더 붙이기, 새 프로젝트's chip)

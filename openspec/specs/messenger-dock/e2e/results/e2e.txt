@@ -1,0 +1,57 @@
+# 화면 시험 (Playwright feature · smoke, 2026-11-24, Playwright 의 Chromium)
+# 서버: BFF :8799 (PRO_BACKGROUND=0, 가짜 판정 모델 :59973, 공용 deepagents/라우터/메멘토 대신 닫힌 포트, 지도 엔진 끔, 폴더는 임시 폴더)
+#       Vite :5197 (이 브랜치) · 이음오피스 호스트 :5392 (운영 이미지 ecea940) · 비교용 Vite :5198 (origin/main 0640f50 의 화면, 같은 BFF)
+# PGPT_URL=http://localhost:5197 API_URL=http://127.0.0.1:8799 RT_FAKE_LLM_PORT=59973 RT_WORKERS=1 npx playwright test <파일> --project=feature
+
+## 새 시험
+messenger-dock.spec.js   8/8   (F-MO-01 지도 · 폴더에서 PDF · 워드, 보낸 사람 · 받은 사람 · 편집기에서 열기 · 02 끌어서 오른쪽, 페이지 사용, 문서는 옆에
+                                · 03 문서 패널 안 · 04 새로 고침 · 너비 · 좁은 창 · 05 390px · 06 붙인 채 놓아 보내기 · 07 볼 수 없는 형식 · 08 밤)
+  --repeat-each=3        23/24 ✖ 첫 바퀴의 F-MO-01 한 번: 대화의 메시지 요청이 403(「팀원끼리만 주고받을 수 있어요」).
+                               시험 계정의 팀 구성원 행(pro_team_members)이 그 사이 지워졌다. 같은 로컬 DB 를 쓰는 다른 Playwright 실행의
+                               전역 정리(lib/teardown.js)가 pro-rt-* 계정을 팀에서 뺀다. 나머지 두 바퀴와 앞뒤 단독 실행(3번)은 모두 통과.
+
+## 회귀 (같은 서버, 이 브랜치의 화면, 한 번에 · 75 통과 · 4 실패 · 13 건너뜀)
+conversations.spec.js           5/5   (산출물 스택에서 엑셀 → 이음오피스 · SVG → VectorCraft)
+editors-live.spec.js            7/7   (13 건너뜀: 이 설치에 ArtCraft 웹 앱 없음)
+folder-edit-save.spec.js        10/10 (실제 이음오피스 호스트에서 고쳐 저장)
+folder-open.spec.js             4/4
+home-dismiss.spec.js            3/3
+mail-reply.spec.js              7/7   (메일 시트를 App 으로 옮긴 뒤)
+mail-thread-flow.spec.js        7/7
+messenger-drop-folder.spec.js   5/5
+mobile-review-1121.spec.js      8/8
+office-mobile.spec.js           4/4
+workroom.spec.js                3/3
+meetings.spec.js                6/8   ✖ F-MT-04 「expect((await b.get(`/meetings/${id}`)).body.materials).toHaveLength(0) — Received has value: undefined」
+                                      ✖ F-MT-07 「expect.poll(... materials.length).toBeGreaterThan(0) — Received: 0 (Timeout 30000ms)」
+                                      둘 다 API 만 부르는 시험이고(화면 없음), origin/main 화면(:5198)에서도 똑같이 실패(아래). 회의 자료 판정에 실제 모델이 필요함.
+team-sharing.spec.js            6/8   ✖ F-TS-06 「Cannot read properties of undefined (reading 'participants')」 — 한 번에 돌릴 때 동시에 돌던 다른 실행의
+                                        전역 정리가 시험 계정을 팀에서 빼서 대화방 만들기가 403. 혼자 돌리면 이 브랜치 · origin/main 모두 통과(아래).
+                                      ✖ F-TS-08 「relation "artifact_branches" does not exist」 — 로컬 DB 에 워크트리 테이블이 없음(28절과 같음, 서버 · 화면 무관).
+
+## smoke (이 브랜치의 화면) 64 통과 · 4 실패 · 6 건너뜀
+✖ S-EN-02 /settings 「공유와 허락」, /settings/security 「메일로 온 인증 코드 자동 입력 …」 — 영어 사전에 없는 설정 문구(이번 일과 무관)
+✖ S-27 · S-29 「vault KEK … is not in the keyring」 — 이 개발 서버에 보관함 키링 파일이 없음(환경)
+
+## origin/main 화면(:5198, 같은 BFF)과 비교
+S-EN-02 /settings · /settings/security · S-27 · S-29   → origin/main 에서도 4 실패(같은 메시지)
+F-MT-04 · F-MT-07                                      → origin/main 에서도 2 실패
+F-TS-06                                                → 혼자 돌리면 origin/main 통과 · 이 브랜치 통과
+
+## 데스크톱 앱 실측 (Electron 45.3.2, macOS, 같은 개발 서버) — 스크립트로, 이 파일의 시험 수에는 넣지 않음
+right { desktop: true, os: 'pgl-os-darwin', dockRegion: 'no-drag', headRegion: 'no-drag', top: 12, headTop: 12, strip: '68px' }
+drag zone left · left { dock: 'left', top: 44, lightsEnd: '80px' }
+pdf in panel 데스크톱_제안서.pdf · messenger left
+note 앱 안에서 열 수 없는 형식이에요. 새 창에서 열기 → external [ http://127.0.0.1:54321/storage/v1/object/public/files/pgpt-pro/<id>/att/<id>.zip ] · windows 1
+errors []
+
+## 마지막 단독 실행 (list 출력)
+  ✓  1 [feature] › tests/feature/messenger-dock.spec.js:141:3 › F-MO-01 지도 · 폴더 화면에서도 PDF · 워드 칩을 누르면 문서 패널에 열린다 — 보낸 사람(원본) · 받은 사람(사본) · 받은 편지함의 「편집기에서 열기」 (15.5s)
+  ✓  2 [feature] › tests/feature/messenger-dock.spec.js:189:3 › F-MO-02 머리를 오른쪽 끝으로 끌어 붙이면 가림막 없이 페이지를 쓰고, 메신저에서 연 문서는 메신저 옆에 열린다 (9.1s)
+  ✓  3 [feature] › tests/feature/messenger-dock.spec.js:242:3 › F-MO-03 문서 패널에 넣으면 연 문서와 한 패널에 나란히 — 문서가 없으면 오른쪽 열, 닫으면 다시 열로 (5.9s)
+  ✓  4 [feature] › tests/feature/messenger-dock.spec.js:283:3 › F-MO-04 다시 열어도(새로 고침) 붙인 자리 · 너비가 그대로 — 기기에 남는다 (4.8s)
+  ✓  5 [feature] › tests/feature/messenger-dock.spec.js:323:3 › F-MO-05 휴대폰 폭(390px): 붙이기 단추 · 끄는 자리가 없고 예전 그대로 전체 화면, 문서도 열린다 (4.5s)
+  ✓  6 [feature] › tests/feature/messenger-dock.spec.js:350:3 › F-MO-06 붙여 둔 메신저에도 파일을 끌어다 놓으면 보낸다 — 옆 페이지(채팅)에 놓은 파일은 채팅으로 (3.6s)
+  ✓  7 [feature] › tests/feature/messenger-dock.spec.js:394:3 › F-MO-07 앱 안에서 볼 수 없는 파일은 이유와 링크가 그 파일 아래에 — 메신저는 그대로 (2.2s)
+  ✓  8 [feature] › tests/feature/messenger-dock.spec.js:413:3 › F-MO-08 밤 테마: 문서 패널에 넣은 메신저와 끄는 자리 (6.0s)
+  8 passed (52.2s)

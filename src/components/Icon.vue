@@ -34,6 +34,11 @@ const P = {
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   folder: 'M3.5 7.5A1.5 1.5 0 0 1 5 6h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5V17a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 17z',
+  // where the team messenger sits (components/team/DockMenu.vue): floating, a column at the right or left, in the document panel
+  float: 'M3.5 5h17v14h-17zM10 9h8v7h-8z',
+  dockr: 'M3.5 5h17v14h-17zM14.5 5v14',
+  dockl: 'M3.5 5h17v14h-17zM9.5 5v14',
+  dockp: 'M3.5 5h17v14h-17zM9 5v14M15 5v14M11.5 9h1.5M11.5 12h1.5',
 }
 </script>
 

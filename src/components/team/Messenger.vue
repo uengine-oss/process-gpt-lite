@@ -2,6 +2,9 @@
 // The team messenger sheet: 받은 편지함 (what teammates shared or mentioned me in, "like email") and
 // 대화 (1:1 and small group threads). Shares and mentions sit in the same thread with that teammate.
 // From an item: open the artifact in the editor (my copy), "이어서 작업" (my agent picks it up), or reply.
+// Where it sits (2026-11-24): floating over the page as it always was, or docked — a column at the right or left edge, or in
+// the document panel beside an open document — so the conversation goes on while the page is used (src/messengerDock.js,
+// ./useMessengerDock.js). The header is dragged onto a drop zone, or the dock button picks the place. A phone keeps the sheet.
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '../Icon.vue'
@@ -19,6 +22,9 @@ import FolderSuggest from '../folders/FolderSuggest.vue'
 import { uploadTeamFile } from '../../api.js'
 // link preview cards under a message with links (server lib/linkPreview.js)
 import LinkPreviews from '../LinkPreviews.vue'
+import { useMessengerDock } from './useMessengerDock.js'
+import DockMenu from './DockMenu.vue'
+import { narrow } from '../../viewport.js'
 
 const app = useApp()
 const team = useTeam()
@@ -36,6 +42,12 @@ const chosen = ref([])
 const scroller = ref(null)
 const busy = ref('')
 const err = ref('')
+const { lay, docked, dockable, box, drag, dropZones, dragStart, resizing, resizeStart, resizeKey } = useMessengerDock()
+// one column (the list, or one conversation with ‹): a phone, or a docked column too narrow for both
+const single = computed(() => narrow.value || lay.value.single)
+const close = () => { team.open = false }
+// what a drop zone does, said on it while the header is dragged
+const zoneWord = { left: '왼쪽에 붙이기', right: '오른쪽에 붙이기', panel: '문서 패널에 넣기', float: '떠 있게 두기' }
 
 // 받은 편지함 › 메일: the cards made from mail — one put away from Home is still here, and opens the same
 // mail sheet (2026-11-23: Home is notifications; the mail is kept here)
@@ -72,7 +84,17 @@ async function run(key, fn) {
   busy.value = key; err.value = ''
   try { await fn() } catch (e) { err.value = e.message || '처리하지 못했어요.' } finally { busy.value = '' }
 }
-const openFile = (a) => run(`f${a.shareId}`, () => team.openShared(a.shareId, router))
+// A file opens in the office panel (stores/team.js openShared). When it does not, the reason stays under the file — with the
+// link when it is a format the app has no viewer for (the person opens it: a window opened after the wait may be blocked).
+const notes = ref({}) // shareId | branch room+path → {reason, url}
+async function opening(key, job) {
+  busy.value = key; err.value = ''
+  let r
+  try { r = await job() } catch (e) { r = { opened: false, reason: e.message || '열지 못했어요.' } } finally { busy.value = '' }
+  notes.value = { ...notes.value, [key]: r?.opened ? null : { reason: r?.reason || '열지 못했어요.', url: r?.how === 'link' ? r.url : '' } }
+}
+const openFile = (a) => { if (a.shareId) opening(`f${a.shareId}`, () => team.openShared(a.shareId, router)) }
+const noteOf = (a) => notes.value[`f${a.shareId}`]
 // on my own share, "이어서 작업" gathers what came back; a conflict is picked here first
 const conflictOf = ref({}) // messageId → conflicts
 const cont = (m, choices) => run(`c${m.id}`, async () => {
@@ -96,7 +118,7 @@ const branchLine = (b) => {
   const parts = [b.modified.length && `${b.modified.length}개 고침`, b.added.length && `${b.added.length}개 추가`, b.removed.length && `${b.removed.length}개 지움`].filter(Boolean)
   return parts.length ? `${parts.join(' · ')} · ${when(b.at)}` : '아직 그대로'
 }
-const openBranch = (b, path) => run(`b${b.room}${path}`, () => team.openBranchFile(b.room, path))
+const openBranch = (b, path) => opening(`b${b.room}${path}`, () => team.openBranchFile(b.room, path))
 const reply = (m) => { team.tab = 'threads'; team.openThread(m.threadId, m.id) }
 async function send() {
   const text = draft.value.trim()
@@ -162,19 +184,27 @@ async function newThread() {
 const choose = (p) => { chosen.value = chosen.value.includes(p.id) ? chosen.value.filter((x) => x !== p.id) : [...chosen.value, p.id] }
 const start = () => run('start', async () => { await team.startThread(chosen.value); picking.value = false })
 
-const onEsc = (e) => { if (e.key === 'Escape') team.open = false }
+// Esc puts the floating sheet away; a docked column stays until its ✕ (Esc there is the page's — an open document's, a dialog's)
+const onEsc = (e) => { if (e.key === 'Escape' && !docked.value && !drag.value) team.open = false }
 onMounted(() => { window.addEventListener('keydown', onEsc); team.loadThreads(); team.loadInbox() })
 onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 </script>
 
 <template>
-  <div class="veil" data-own-drop @click.self="team.open = false" @dragenter.stop="dragEnter" @dragover.stop="dragOver" @dragleave.stop="dragLeave" @drop.stop="dropped">
-    <section class="ms glass" :class="{ inthread: !!team.active && team.tab === 'threads' }" role="dialog" aria-label="팀 메시지">
+  <!-- floating: the sheet over a veil (as always) · docked: a column beside the page, no veil (useMessengerDock.js) -->
+  <div :class="docked ? ['msdock', `d-${lay.dock}`, { inpanel: lay.inPanel, resizing, dragging: !!drag }] : ['veil', { dragging: !!drag }]" :style="box"
+    data-own-drop data-test="messenger" :data-dock="lay.dock" @click.self="!docked && close()"
+    @dragenter.stop="dragEnter" @dragover.stop="dragOver" @dragleave.stop="dragLeave" @drop.stop="dropped">
+    <section class="ms" :class="{ glass: !lay.inPanel, inthread: !!team.active && team.tab === 'threads', single, docked }" :role="docked ? 'complementary' : 'dialog'" aria-label="팀 메시지">
+      <!-- a docked column's inner edge: drag (or ←/→) to make it wider or narrower -->
+      <div v-if="docked" class="rsz" role="separator" aria-orientation="vertical" aria-label="메시지 너비" :aria-valuenow="lay.width" tabindex="0"
+        data-test="msg-resize" @pointerdown="resizeStart" @keydown="resizeKey" />
       <aside class="side">
-        <header class="hd">
+        <header class="hd" :class="{ grab: dockable }" data-test="msg-head" @pointerdown="dragStart">
           <b>메시지</b>
           <button class="tb press" title="새 대화" @click="newThread"><Icon name="plus" :size="16" /> 새 대화</button>
-          <button class="x press" aria-label="닫기" @click="team.open = false"><Icon name="close" :size="16" /></button>
+          <DockMenu v-if="dockable" :dock="lay.dock" @pick="team.setDock" />
+          <button class="x press" aria-label="닫기" data-test="msg-close" @click="close"><Icon name="close" :size="16" /></button>
         </header>
         <nav class="tabs">
           <button :class="{ on: team.tab === 'inbox' }" @click="team.tab = 'inbox'">받은 편지함<i v-if="inboxUnread">{{ inboxUnread }}</i></button>
@@ -213,10 +243,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <p v-if="m.body" class="body" :data-no-i18n="team.tr[m.id]?.body ? '' : null">{{ hidePaths(team.trBody(m) || m.body) }}</p>
             <p v-if="team.tr[m.id]?.body" class="trl"><span>AI 번역</span><button class="press" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
             <div v-if="m.artifacts.length" class="arts">
-              <button v-for="a in m.artifacts" :key="a.shareId" class="art press" :disabled="!a.shareId || busy === `f${a.shareId}`" @click="openFile(a)">
-                <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span>{{ a.name }}
+              <button v-for="a in m.artifacts" :key="a.shareId || a.name" class="art press" :class="{ off: !a.shareId }" :disabled="!a.shareId || busy === `f${a.shareId}`"
+                :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" @click="openFile(a)">
+                <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
               </button>
             </div>
+            <template v-for="a in m.artifacts" :key="'n' + (a.shareId || a.name)">
+              <p v-if="noteOf(a)" class="onote" role="status" data-test="open-note" :data-file="a.name">
+                <Icon name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
+              </p>
+            </template>
             <div class="acts">
               <button v-if="m.artifacts[0]?.shareId" class="b press" :disabled="!!busy" @click="openFile(m.artifacts[0])">편집기에서 열기</button>
               <button class="b main press" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
@@ -240,11 +276,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 
       <main class="pane">
         <template v-if="thread && team.tab === 'threads'">
-          <header class="thd">
+          <header class="thd" :class="{ grab: dockable }" data-test="msg-thread-head" @pointerdown="dragStart">
             <button class="back press" aria-label="목록" @click="team.active = null"><Icon name="back" :size="18" /></button>
             <b>{{ thread.title }}</b><small>{{ thread.members.map((m) => m.name).join(', ') }}</small>
             <button class="aitog press" :class="{ on: team.assistOn[thread.id] }" :title="team.assistOn[thread.id] ? '대화 중 에이전트가 도울 일을 찾으면 제안해요 (끄기)' : 'AI 제안이 꺼져 있어요 (켜기)'" @click="team.toggleAssist(thread.id)">AI 제안 {{ team.assistOn[thread.id] ? '켬' : '끔' }}</button>
             <button class="aitog meet press" :class="{ on: !!roomMeeting }" data-test="meeting-start" :disabled="mt.m?.roomId === thread.id" @click="mt.openLobby(thread.id, thread.title)">{{ roomMeeting ? `회의 참여 · ${roomMeeting.count}명` : '회의 시작' }}</button>
+            <!-- one column with the list hidden: its place and ✕ come along -->
+            <template v-if="single && docked">
+              <DockMenu :dock="lay.dock" @pick="team.setDock" />
+              <button class="x press" aria-label="닫기" @click="close"><Icon name="close" :size="16" /></button>
+            </template>
           </header>
           <div ref="scroller" class="msgs scroll">
             <template v-for="m in list" :key="m.id">
@@ -260,19 +301,29 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <p v-if="team.tr[m.id]?.body" class="trl" data-test="msg-tr"><span>AI 번역<template v-if="team.tr[m.id].from"> · <b data-no-i18n>{{ langLabel(team.tr[m.id].from) }}</b></template></span><button class="press" data-test="show-original" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
                 <details v-if="m.context?.excerpt?.length" class="ex"><summary>대화 발췌</summary><p v-for="(l, i) in m.context.excerpt" :key="i">{{ l }}</p></details>
                 <div v-if="m.artifacts.length" class="arts">
-                  <button v-for="a in m.artifacts" :key="a.name + a.shareId" class="art press" :disabled="!a.shareId" @click="openFile(a)">
-                    <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span>{{ a.name }}
+                  <button v-for="a in m.artifacts" :key="a.name + a.shareId" class="art press" :class="{ off: !a.shareId, busy: busy === `f${a.shareId}` }" :disabled="!a.shareId"
+                    :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" @click="openFile(a)">
+                    <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
                   </button>
                 </div>
+                <template v-for="a in m.artifacts" :key="'n' + a.name + a.shareId">
+                  <p v-if="noteOf(a)" class="onote" role="status" data-test="open-note" :data-file="a.name">
+                    <Icon name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
+                  </p>
+                </template>
                 <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
                 <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((x) => x.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
                 <div v-if="branchesOf[m.id]?.length" class="brs">
                   <div v-for="b in branchesOf[m.id]" :key="b.room" class="br" :data-room="b.room">
                     <span class="av xs" :title="b.by === 'agent' ? '에이전트가 고침' : ''">{{ initial(b.recipient.name) }}</span>
                     <span class="bl"><b>{{ b.recipient.name }}</b> {{ branchLine(b) }}</span>
-                    <button v-for="f in changedFiles(b)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" @click="openBranch(b, f)">
+                    <button v-for="f in changedFiles(b)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" data-test="branch-file" @click="openBranch(b, f)">
                       <Icon name="eye" :size="13" />{{ f.split('/').pop() }}
                     </button>
+                    <p v-for="f in changedFiles(b).filter((x) => notes[`b${b.room}${x}`])" :key="'n' + f" class="onote" role="status" data-test="open-note">
+                      <Icon name="alert" :size="14" /><span>{{ notes[`b${b.room}${f}`].reason }}</span>
+                      <a v-if="notes[`b${b.room}${f}`].url" :href="notes[`b${b.room}${f}`].url" target="_blank" rel="noopener" download>새 창에서 열기</a>
+                    </p>
                   </div>
                 </div>
                 <ConflictChoice v-if="conflictOf[m.id]" :conflicts="conflictOf[m.id]" :busy="busy === `c${m.id}`" @pick="(c) => cont(m, c)" @cancel="delete conflictOf[m.id]" />
@@ -314,9 +365,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <Icon name="team" :size="36" />
           <p>{{ team.tab === 'inbox' ? '받은 공유와 멘션에서 바로 열거나 이어서 작업할 수 있어요.' : '대화를 고르거나 새 대화를 시작해 주세요.' }}</p>
         </div>
-        <p v-if="err" class="err">{{ err }}</p>
       </main>
+      <!-- (in the section, not the conversation pane: seen in the inbox and on a phone too) -->
+      <p v-if="err" class="err" role="alert">{{ err }}</p>
     </section>
+    <!-- while the header is dragged: where it can go (src/messengerDock.js zones); anywhere else floats it -->
+    <div v-if="drag" class="dzs" data-test="dock-zones" aria-hidden="true">
+      <div v-for="z in dropZones" :key="z.id" class="dz" :class="{ on: drag.zone === z.id }" :data-zone="z.id" :style="{ left: `${z.x}px`, top: `${z.y}px`, width: `${z.w}px`, height: `${z.h}px` }">
+        <span>{{ zoneWord[z.id] }}</span>
+      </div>
+      <div class="dghost glass" :style="{ left: `${drag.x}px`, top: `${drag.y}px` }"><Icon name="team" :size="16" /> 메시지 · {{ zoneWord[drag.zone] || zoneWord.float }}</div>
+    </div>
   </div>
 </template>
 
@@ -333,7 +392,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .mailcard .st { align-self: flex-start; font-size: 11.5px; color: var(--text-tertiary); }
 .mailcard .st.sent { color: #2a78d6; }
 .veil { position: fixed; inset: 0; z-index: 45; background: rgba(20, 24, 32, .16); display: flex; justify-content: flex-end; padding: 76px 16px 16px; }
-.ms { width: min(860px, 100%); display: flex; border-radius: 24px; overflow: hidden; box-shadow: 0 18px 60px rgba(0, 0, 0, .22); color: var(--text-primary); animation: pop-in .3s var(--spring); }
+.ms { position: relative; width: min(860px, 100%); display: flex; border-radius: 24px; overflow: hidden; box-shadow: 0 18px 60px rgba(0, 0, 0, .22); color: var(--text-primary); animation: pop-in .3s var(--spring); }
 .side { width: 330px; flex: none; display: flex; flex-direction: column; border-right: 1px solid rgba(127, 127, 127, .18); min-height: 0; }
 .hd { display: flex; align-items: center; gap: 6px; padding: 14px 12px 6px 18px; }
 .hd b { flex: 1; font-size: 18px; font-weight: 600; }
@@ -356,6 +415,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .body { margin: 6px 0 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .arts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .art { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; height: 36px; padding: 0 12px 0 4px; border-radius: 12px; background: #1d1d1f; color: #f5f5f7; font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.art .an { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* a file that is not shared with me looks it (it was a dead button that looked like the others) */
+.art.off, .art:disabled { opacity: .5; cursor: not-allowed; }
+.art.busy { opacity: .7; cursor: progress; }
+/* why a file did not open, under it (with the link when the app has no viewer for it) */
+.onote { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px 6px; margin: 6px 0 0; padding: 6px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.45;
+  color: #b42318; background: rgba(198, 40, 40, .1); }
+.onote svg { flex: none; margin-top: 2px; }
+.onote span { flex: 1 1 160px; min-width: 0; }
+.onote a { color: #1a56c4; font-weight: 500; text-decoration: underline; }
+:root:not([data-theme="light"]) .onote { color: #ffb4ab; background: rgba(255, 100, 100, .14); }
+:root:not([data-theme="light"]) .onote a { color: #a1d0ff; }
 .fic { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: #fff; background: #6b6b66; }
 .fic.hwp { background: #1f6fd1; } .fic.doc { background: #2b579a; } .fic.xls { background: #217346; } .fic.ppt { background: #c43e1c; } .fic.pdf { background: #d93025; } .fic.cad { background: #0b6f88; } .fic.vec { background: #c2570c; } .fic.img { background: #7b3fbf; } .fic.snd { background: #0f8a5f; } .fic.vid { background: #b0223c; }
 .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -381,6 +452,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .thd { display: flex; align-items: baseline; gap: 8px; padding: 18px 18px 10px; border-bottom: 1px solid rgba(127, 127, 127, .14); }
 .thd b { font-size: 16px; font-weight: 600; } .thd small { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .back { display: none; }
+/* the headers are what the messenger is dragged by (useMessengerDock.js) */
+.hd.grab, .thd.grab { cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+.dragging .hd.grab, .dragging .thd.grab { cursor: grabbing; }
 .msgs { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 .msg { display: flex; align-items: flex-end; gap: 8px; max-width: 86%; }
 .msg.mine { align-self: flex-end; flex-direction: row-reverse; }
@@ -428,19 +502,55 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .mdrop p { margin: 6px 0 0; }
 .amenu { position: absolute; left: 12px; bottom: calc(100% + 4px); width: 300px; max-height: 300px; overflow: auto; border-radius: 16px; padding: 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, .2); }
 .blank { flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--text-tertiary); text-align: center; padding: 30px; font-size: 14px; }
-.err { position: absolute; left: 16px; right: 16px; bottom: 70px; margin: 0; padding: 8px 12px; border-radius: 10px; background: rgba(198, 40, 40, .12); color: #c62828; font-size: 13px; }
+.err { position: absolute; z-index: 7; left: 16px; right: 16px; bottom: 70px; margin: 0; padding: 8px 12px; border-radius: 10px; background: rgba(198, 40, 40, .12); color: #c62828; font-size: 13px; }
 @media (max-width: 760px) {
   .veil { padding: 70px 8px 8px; }
-  .side { width: 100%; border-right: 0; }
-  .pane { display: none; }
-  .ms.inthread .side { display: none; }
-  .ms.inthread .pane { display: flex; }
-  .back { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 15px; align-self: center; }
-  .blank { display: none; }
 }
+/* one column (a phone, or a narrow docked column): the list, or one conversation with ‹ */
+.ms.single .side { width: 100%; border-right: 0; }
+.ms.single .pane { display: none; }
+.ms.single.inthread .side { display: none; }
+.ms.single.inthread .pane { display: flex; }
+.ms.single .back { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 15px; align-self: center; flex: none; }
+.ms.single .blank { display: none; }
+.ms.single .thd { align-items: center; padding: 12px 10px 10px 12px; gap: 6px; }
+.ms.single .thd b { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms.single .thd small { flex: 1 1 0; min-width: 0; }
+
+/* ---- docked: a column beside the page (no veil; src/messengerDock.js) ---- */
+.msdock { position: fixed; z-index: 45; display: flex; transition: top .35s var(--spring), right .35s var(--spring), left .35s var(--spring), width .35s var(--spring), bottom .35s var(--spring); }
+.msdock.resizing { transition: none; }
+.msdock .ms { width: 100%; height: 100%; border-radius: 22px; box-shadow: 0 10px 40px rgba(0, 0, 0, .16); }
+.msdock .ms.docked:not(.single) .side { width: 260px; }
+/* in the document panel: the right part of the document's card (OfficeSheet leaves it free) — one card, a line between */
+.msdock.inpanel .ms { border-radius: 0 22px 22px 0; box-shadow: none; background: transparent; border-left: 1px solid var(--hairline); }
+.dragging .ms { opacity: .55; transition: opacity .15s; }
+/* the inner edge: drag (or ←/→ when focused) to resize */
+.rsz { position: absolute; z-index: 6; top: 0; bottom: 0; width: 12px; cursor: col-resize; touch-action: none; outline: none; }
+.d-right .rsz, .d-panel .rsz { left: 0; }
+.d-left .rsz { right: 0; }
+.rsz::after { content: ''; position: absolute; top: 50%; left: 4px; width: 4px; height: 44px; translate: 0 -50%; border-radius: 2px; background: var(--text-tertiary); opacity: 0; transition: opacity .15s; }
+.rsz:hover::after, .rsz:focus-visible::after, .resizing .rsz::after { opacity: 1; }
+.rsz:focus-visible::after { background: #2a78d6; }
+/* the drop zones while the header is dragged */
+.dzs { position: fixed; inset: 0; z-index: 70; cursor: grabbing; }
+.dz { position: absolute; display: grid; place-items: center; border-radius: 20px; border: 2px dashed rgba(42, 120, 214, .55); background: rgba(42, 120, 214, .06); transition: background .15s, border-color .15s; }
+.dz span { padding: 7px 14px; border-radius: 12px; font-size: 13.5px; font-weight: 600; color: #1a56c4; background: var(--regular-solid-bg); box-shadow: 0 4px 18px rgba(0, 0, 0, .12); }
+.dz.on { background: rgba(42, 120, 214, .2); border-color: #2a78d6; border-style: solid; }
+:root:not([data-theme="light"]) .dz span { color: #a1d0ff; }
+.dghost { position: absolute; translate: 14px 14px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; color: var(--text-primary); white-space: nowrap; pointer-events: none; box-shadow: 0 8px 26px rgba(0, 0, 0, .2); }
 .brs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .br { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; }
 .br .bl { color: var(--text-secondary); } .br .bl b { color: var(--text-primary); font-weight: 600; }
 .av.xs { width: 20px; height: 20px; border-radius: 10px; font-size: 11px; }
 .art.sm { height: 26px; padding: 0 9px; font-size: 12px; gap: 4px; }
+</style>
+
+<style>
+/* A docked messenger takes a column from the page (App.vue .page): the page — and what it opens over itself, the document panel
+   and its sheets (layout containment: the box of its fixed children) — fits the rest of the window. The page measures its own
+   width (cqw) instead of the window's. */
+html[data-msgdock] .stage > .page { inset: 0 var(--msgdock-r, 0px) 0 var(--msgdock-l, 0px); contain: layout; container-type: inline-size;
+  transition: left .35s var(--spring), right .35s var(--spring); }
+html.msgdock-resizing .stage > .page { transition: none; }
 </style>
