@@ -1,6 +1,6 @@
 <script setup>
 import StepOutputs from './mining/StepOutputs.vue'
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import FormCard from './FormCard.vue'
 import BriefCard from './BriefCard.vue'
 import Icon from './Icon.vue'
@@ -13,6 +13,8 @@ const data = ref(null)
 const busy = ref(false)
 const err = ref('')
 const sent = ref(props.done)
+// handed in elsewhere (the same step's other card, or a file given in chat — server stepfiles.js marks this card submitted)
+watch(() => props.done, (v) => { if (v) sent.value = true })
 // a decision brief / hand-over prepared for this item (Agentic BPM, server lib/scenarios/purchase): shown above
 // the form, and what it prepared fills the form (nothing typed again)
 const brief = ref(null)
@@ -38,7 +40,7 @@ async function submit(values) {
 <template>
   <div v-if="!data" class="loading shimmer-text">불러오는 중</div>
   <div v-else-if="sent" class="sent blur-in"><Icon name="check" :size="16" /> {{ data.todo.activity_name }} 제출됨</div>
-  <div v-else class="todo">
+  <div v-else class="todo" data-testid="todo-card" :data-todo="todoId" :data-task="data.todo.activity_name">
     <StepOutputs :todo-id="data.todo.id" class="outs-top" />
     <BriefCard v-if="brief" :brief="brief" compact class="brief-top" @decided="decided" />
     <FormCard v-if="data.form?.fields?.length" :title="data.todo.activity_name" :subtitle="data.instName" :fields="data.form.fields" :values="data.values" :busy="busy" @submit="submit" />

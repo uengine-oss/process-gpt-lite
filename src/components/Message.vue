@@ -22,6 +22,7 @@ import RepeatCard from './context/RepeatCard.vue'
 import FollowupCard from './FollowupCard.vue'
 import OntoSummaryCard from './ontology/OntoSummaryCard.vue'
 import OntoEntryCard from './ontology/OntoEntryCard.vue'
+import StepFileAsk from './ontology/StepFileAsk.vue'
 import OntoHabitCard from './ontology/OntoHabitCard.vue'
 import OntoStepCard from './ontology/OntoStepCard.vue'
 import OntoHabitShareCard from './ontology/OntoHabitShareCard.vue'
@@ -117,6 +118,8 @@ const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 
     <!-- 회사 프로세스 지도: 지도 요약 · 들어온 메일의 시작 일 · 열린 일의 다음 걸음 -->
     <OntoSummaryCard v-else-if="msg.kind === 'onto-summary'" :msg="msg" />
     <OntoEntryCard v-else-if="msg.kind === 'onto-entry'" :msg="msg" />
+    <!-- 채팅에 올린 파일을 어느 단계 결과로 낼지(lib/ontology/stepfiles.js) -->
+    <StepFileAsk v-else-if="msg.kind === 'step-file-ask'" :msg="msg" />
     <OntoHabitCard v-else-if="msg.kind === 'onto-habit'" :msg="msg" />
     <OntoStepCard v-else-if="msg.kind === 'onto-step'" :msg="msg" />
     <OntoHabitShareCard v-else-if="msg.kind === 'habit-share'" :msg="msg" />

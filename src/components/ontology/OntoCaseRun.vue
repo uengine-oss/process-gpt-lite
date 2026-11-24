@@ -11,6 +11,7 @@ import { RUNMODE_KO, STEP_KO, WAIT_KO, holderText, RO, EUL, EUN, IEYO } from './
 import OntoDocSheet from './OntoDocSheet.vue'
 import OntoChangeList from './OntoChangeList.vue'
 import TodoCard from '../TodoCard.vue'
+import Icon from '../Icon.vue'
 
 const props = defineProps({ caseId: { type: String, required: true } })
 const emit = defineEmits(['changed'])
@@ -204,6 +205,10 @@ function resay() {
             <small v-if="s.via && s.via.how !== 'entry'" class="via" data-testid="onto-case-via" :data-how="s.via.how">{{ viaText(s) }}</small>
             <small v-if="s.matched && s.reqLine" class="rq" data-testid="onto-case-matched">{{ s.reqLine }}</small>
             <small v-if="s.result && !s.skipped" class="res">{{ s.result }}</small>
+            <!-- 사람이 이 단계에 낸 파일(입력 폼의 파일 칸이나 채팅 — server stepfiles.js): 뒤 단계가 이 파일을 읽어요 -->
+            <div v-if="s.files?.length" class="upl" data-testid="onto-case-step-files" :data-count="s.files.length" :data-via="s.filesVia || ''">
+              <button v-for="f in s.files" :key="f.url" class="fchip press" data-testid="onto-case-step-file" :data-file="f.name" @click="doc = f"><Icon name="doc" :size="14" /> {{ f.name }}</button>
+            </div>
             <div v-if="fileOf(s)" class="made" data-testid="onto-case-file" :data-file="fileOf(s).file?.name || ''" :data-form="fileOf(s).form?.name || ''">
               <div v-if="fileOf(s).file" class="fl">
                 <b>{{ fileOf(s).file.name }}</b><small v-if="fileOf(s).draft"> · 초안</small>
@@ -316,6 +321,8 @@ function resay() {
 .tag.resp { background: color-mix(in srgb, var(--color-info) 16%, transparent); color: var(--text-primary); }
 .tag.wt { background: color-mix(in srgb, var(--color-warning, #b26a00) 18%, transparent); color: var(--text-primary); }
 .res { font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
+.upl { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.fchip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border-radius: 9999px; background: var(--field-bg); font-size: 12.5px; }
 .made { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; padding: 6px 9px; border-radius: 10px; background: var(--field-bg); }
 .made .fl { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 13px; }
 .made .fl b { font-weight: 600; overflow-wrap: anywhere; }

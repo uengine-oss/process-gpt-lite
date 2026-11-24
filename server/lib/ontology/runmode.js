@@ -33,6 +33,7 @@ import { END } from './stats.js'
 import { procGraph, getCase, moveCase, ORCH } from './run.js'
 import * as SR from './steprule.js'
 import { findBinding, bindingsView } from './bindings.js'
+import { filesOf } from './stepfiles.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -301,10 +302,13 @@ async function pausedOf(caseId) {
 // what the case's steps made so far, in order, across its instances (a rewound case's later steps read the earlier ones)
 export async function earlierOfCase(c) {
   const rows = c.instances?.length ? await q(`select activity_name, activity_id, output from todolist where proc_inst_id = any($1) and status::text in ('DONE','SUBMITTED') and activity_id <> 'intake' and output is not null order by end_date nulls last, updated_at`, [c.instances]) : []
-  return rows.map((r) => {
+  // a person's step's files (stepfiles.js — given in its form or in chat) with their text: what the later steps read of them
+  const SF = await import('./stepfiles.js')
+  return Promise.all(rows.map(async (r) => {
     const v = Object.values(r.output || {}).find((x) => x && typeof x === 'object') || {}
-    return { task: r.activity_name, text: v.result || v.summary || v.assumptions || '', title: v.title || '' }
-  })
+    const files = SF.filesOf(v)
+    return { task: r.activity_name, text: v.result || v.summary || v.assumptions || '', title: v.title || '', ...(files.length ? { files: await SF.withText(files) } : {}) }
+  }))
 }
 async function isAdmin(me) { return (await import('./service.js')).isAdmin(me) }
 async function mayControl(me, c) {
@@ -695,6 +699,8 @@ export async function runView(me, caseId) {
       failure: state === 'failed' ? clean(t?.log || '') || '에이전트가 이 단계를 하지 못했어요' : null,
       proposal: g?.proposal || null, preview: g?.state === 'waiting' ? g.preview || null : null, decision: g?.decision || null, sent: g?.sent ? { to: g.sent.to, subject: g.sent.subject, at: g.sent.at, stub: true } : null,
       result: clean(v.summary || v.title || v.result || d.summary || '').slice(0, 160) || null, hasDraft: !!Object.keys(d).length,
+      // the files the person handed in with the step (its form's file field or chat — stepfiles.js)
+      files: filesOf(v).map((x) => ({ name: x.name, url: x.url })), filesVia: filesOf(v).length ? (v.via === 'chat' ? 'chat' : 'form') : null,
       // a map case: how the map decided this step and which map it read (mapengine.js)
       ...(g?.via ? { via: { how: g.via.how, from: g.via.from || null, why: g.via.why || '', p: g.via.p ?? null }, mapAt: g.map_at || null } : {}),
     }

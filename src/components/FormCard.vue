@@ -2,7 +2,7 @@
 import { reactive, ref, computed } from 'vue'
 import { marked } from 'marked'
 import Icon from './Icon.vue'
-import { api } from '../api.js'
+import { api, uploadAttachment } from '../api.js'
 
 // Renders a process-gpt form (form_def.fields_json) as a glass card.
 // fields: [{key, text, type, items?: [{value: label}], readonly?}]
@@ -16,27 +16,41 @@ const props = defineProps({
   busy: Boolean,
 })
 const emit = defineEmits(['submit', 'cancel'])
-const model = reactive(Object.fromEntries(props.fields.map((f) => [f.key, props.values?.[f.key] ?? (f.type === 'multiselect' || f.type === 'checkbox' && f.items ? [] : '')])))
-const uploading = ref({})
 const kind = (t) => String(t || 'text').replace(/-field$/, '')
+// a file field with multiple: a list of files (several receipts for one step); upload 'attachment': kept where the agent reads them (as a chat attachment)
+const many = (f) => kind(f.type) === 'file' && !!f.multiple
+const model = reactive(Object.fromEntries(props.fields.map((f) => [f.key, many(f) ? (Array.isArray(props.values?.[f.key]) ? [...props.values[f.key]] : props.values?.[f.key] ? [props.values[f.key]] : [])
+  : props.values?.[f.key] ?? (f.type === 'multiselect' || f.type === 'checkbox' && f.items ? [] : '')])))
+const uploading = ref({})
 const opts = (f) => (f.items || []).map((o) => (typeof o === 'object' ? Object.entries(o)[0] : [o, o])).map(([v, l]) => ({ v, l }))
 const ro = (f) => props.readonly || f.readonly === 'true' || f.readonly === true || f.disabled === 'true'
 const md = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { breaks: true })
-const filled = computed(() => props.fields.some((f) => model[f.key] !== '' && model[f.key] != null))
+const filled = computed(() => props.fields.some((f) => model[f.key] !== '' && model[f.key] != null && !(Array.isArray(model[f.key]) && !model[f.key].length)))
 
 function toggleMulti(f, v) {
   const a = Array.isArray(model[f.key]) ? model[f.key] : []
   model[f.key] = a.includes(v) ? a.filter((x) => x !== v) : [...a, v]
 }
+const upErr = ref({})
 async function upload(f, e) {
-  const file = e.target.files?.[0]
-  if (!file) return
+  const picked = [...(e.target.files || [])]
+  e.target.value = ''
+  if (!picked.length) return
   uploading.value[f.key] = true
+  upErr.value[f.key] = ''
   try {
+    if (f.upload === 'attachment') {
+      const ups = []
+      for (const file of many(f) ? picked : picked.slice(0, 1)) ups.push(await uploadAttachment(file))
+      model[f.key] = many(f) ? [...model[f.key], ...ups] : ups[0]
+      return
+    }
+    const file = picked[0]
     const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file) })
     model[f.key] = await api('/files', { method: 'POST', body: { name: file.name, type: file.type, data } })
-  } finally { uploading.value[f.key] = false }
+  } catch (x) { upErr.value[f.key] = x.message } finally { uploading.value[f.key] = false }
 }
+const dropFile = (f, i) => { model[f.key] = model[f.key].filter((_, j) => j !== i) }
 </script>
 
 <template>
@@ -61,6 +75,14 @@ async function upload(f, e) {
       </div>
       <button v-else-if="kind(f.type) === 'boolean' || kind(f.type) === 'checkbox'" type="button" class="toggle" :class="{ on: model[f.key] === true || model[f.key] === 'true' }" :disabled="ro(f)"
         @click="model[f.key] = !(model[f.key] === true || model[f.key] === 'true')"><span /></button>
+      <div v-else-if="many(f)" class="file" data-testid="form-files" :data-key="f.key" :data-count="model[f.key].length">
+        <span v-for="(x, i) in model[f.key]" :key="x.path || x.url || i" class="chip" data-testid="form-file">
+          <a :href="x.url" target="_blank"><Icon name="doc" :size="16" /> {{ x.name }}</a>
+          <button v-if="!ro(f)" type="button" class="x press" :aria-label="`${x.name} 빼기`" @click="dropFile(f, i)"><Icon name="close" :size="14" /></button>
+        </span>
+        <label v-if="!ro(f)" class="pick press"><input type="file" multiple hidden data-testid="form-file-input" @change="upload(f, $event)" />{{ uploading[f.key] ? '올리는 중…' : model[f.key].length ? '더 올리기' : '파일 선택' }}</label>
+        <small v-if="upErr[f.key]" class="uperr">{{ upErr[f.key] }}</small>
+      </div>
       <div v-else-if="kind(f.type) === 'file'" class="file">
         <a v-if="model[f.key]?.url" :href="model[f.key].url" target="_blank" class="chip"><Icon name="doc" :size="16" /> {{ model[f.key].name }}</a>
         <label v-if="!ro(f)" class="pick press"><input type="file" hidden @change="upload(f, $event)" />{{ uploading[f.key] ? '올리는 중…' : model[f.key]?.url ? '바꾸기' : '파일 선택' }}</label>
@@ -96,6 +118,9 @@ label { font-size: 13px; color: var(--text-secondary); margin-left: 6px; }
 .toggle.on span { translate: 20px 0; }
 .file { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 9999px; background: #1d1d1f; color: #f5f5f7; font-size: 14px; text-decoration: none; }
+.chip a { display: inline-flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; }
+.chip .x { display: inline-flex; color: inherit; opacity: .7; margin-right: -6px; }
+.uperr { color: var(--color-error); font-size: 12px; }
 .pick { height: 36px; padding: 0 14px; border-radius: 9999px; background: var(--field-bg); font-size: 14px; display: inline-flex; align-items: center; cursor: pointer; color: var(--text-primary); margin: 0; }
 .report { background: var(--field-bg); border-radius: 16px; padding: 12px 14px; font-size: 14px; line-height: 1.55; max-height: 260px; overflow: auto; }
 .report textarea { width: 100%; border: 0; outline: 0; background: transparent; resize: vertical; font-size: 14px; line-height: 1.5; }

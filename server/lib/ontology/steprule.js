@@ -212,7 +212,9 @@ export async function caseState(c, chars = 1500) {
   const earlier = await (await import('./runmode.js')).earlierOfCase(c).catch(() => [])
   return [
     '회사에 들어온 요청', `제목: ${String(intake.subject || c.trigger?.subject || '').slice(0, 200)}`, `내용: ${String(intake.body || '').slice(0, chars)}`,
-    ...(earlier.length ? ['앞 단계에서 한 것:', ...earlier.slice(-4).map((x) => `- ${x.task}: ${clean(x.text).slice(0, 300)}`)] : []),
+    ...(earlier.length ? ['앞 단계에서 한 것:', ...earlier.slice(-4).flatMap((x) => [`- ${x.task}: ${clean(x.text).slice(0, 300)}`,
+      // the files a person handed in with the step, as their text reads (stepfiles.js)
+      ...(x.files || []).map((f) => `  · 낸 파일 「${f.name}」: ${clean(f.text).slice(0, 500) || '(글로 읽지 못한 파일)'}`)])] : []),
   ].join('\n')
 }
 // P(yes) by first-token odds; the model's plain answer when it gives none (marked: measured false), like run.js chooseEntry

@@ -122,6 +122,9 @@ export function ontologyRoutes(auth) {
     from users u where u.tenant_id=$1 and not coalesce(u.is_agent,false) order by 4 desc, 2 limit 200`, [config.tenantId])))
   r.put('/ontology/cases/:id/bindings', auth, h(async (req) => (await ME()).setBinding(req.user, req.params.id, { role: String(req.body?.role || ''), userId: String(req.body?.userId || '') })))
   r.put('/ontology/cases/:id/map-pin', auth, h(async (req) => { await admin(req); return (await ME()).setPin(req.user, req.params.id, req.body?.pin === true) }))
+  // 채팅에 올린 파일을 어느 단계 결과로 낼지 물은 카드(stepfiles.js 'step-file-ask')의 답: 고른 단계로 내거나, 「새 요청으로」(none) 파일 사건으로
+  r.post('/ontology/step-files', auth, h(async (req) => (await import('../lib/ontology/stepfiles.js')).answerAsk(req.user, String(req.body?.messageId || ''),
+    { todoId: String(req.body?.todoId || ''), none: req.body?.none === true })))
   // 채팅에 올린 파일도 사건이다(events.js onFile): 채팅 메시지와 함께 오면 서버가 보고(lib/agent.js), 여기로는 이미 올린 첨부(POST /api/attachments 의
   // path)를 다시 보낼 수 있다 — 자기 첨부만. 묻기만 하고 저절로 시작하지 않는다.
   r.post('/ontology/events/file', auth, h(async (req) => {

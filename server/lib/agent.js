@@ -224,6 +224,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   files = (files || []).filter((f) => f?.path && f?.url).slice(0, 10)
+  const typed = String(text || '').trim()
   if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
   const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}) })
@@ -256,6 +257,16 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     }
   }
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
+  // 회사 프로세스 지도(lib/ontology/stepfiles.js): a file for a step the person holds and waits on (a map case's step with a file field) —
+  // handed in to the step the words name, or asked about first; never a new case's offer. Anything else goes on below.
+  if (files.length && !habitId && (await import('./ontology/store.js')).ontologyEnabled()) {
+    const hand = await import('./ontology/stepfiles.js').then((m) => m.fromChat({ user, threadId, said: typed, files })).catch((e) => { console.warn('[step-files]', e.message); return null })
+    if (hand?.message) {
+      noAgentTurn()
+      onDelta?.(hand.message.content?.text || '')
+      return hand.message
+    }
+  }
   if (files.length) {
     // 회사 프로세스 지도(lib/ontology/events.js): a file someone attaches is an event too — the processes it is the work of are offered
     // (never started for them); it stands in for the chat request's offer of this turn

@@ -286,8 +286,10 @@ export async function createItem(c, task, { via = {}, par = null, mapAt = new Da
   const who = runner ? { userId: null, unbound: false } : await personOf(c, role, view, t.key)
   const person = who.userId
   const aid = actId(t.key), formId = `${MAP_PREFIX.replace(/\.$/, '')}_${aid}_form`
+  // a person's step whose definition hands over files (outputs in a file format) gets a file field per output (stepfiles.js)
+  const files = runner ? [] : (await import('./stepfiles.js')).fileOutputs(d.outputs)
   const act = { id: aid, name: t.key, role, tool: `formHandler:${formId}`, skills: d.skills, checkpoints: d.checkpoints, outputs: d.outputs, description: d.description || '',
-    instruction: d.instruction || '', runner: d.runner, ...(agent ? { agent, agentMode: runner ? 'complete' : 'draft', orchestration: ORCH } : { agentMode: 'none' }) }
+    instruction: d.instruction || '', runner: d.runner, ...(files.length ? { files } : {}), ...(agent ? { agent, agentMode: runner ? 'complete' : 'draft', orchestration: ORCH } : { agentMode: 'none' }) }
   const ids = (kind === 'agent' ? [agent] : kind === 'draft' ? [agent, person] : [person]).filter(Boolean)
   const names = new Map((await q(`select id::text as id, username from users where tenant_id=$1 and id::text = any($2)`, [T(), ids])).map((u) => [u.id, u.username]))
   const assignees = [{ name: role, endpoint: ids, default: [person || agent].filter(Boolean), origin: 'created', resolutionRule: `프로세스 지도: ${who.binding ? (await import('./bindings.js')).FROM_KO[who.binding.from] || '' : '에이전트가 해요'}` }]
@@ -616,7 +618,8 @@ export async function todoView(t) {
   const [s] = await q(`select s.act, c.trigger from pro_case_steps s left join pro_po_cases c on c.id = s.case_id where s.todo_id=$1`, [t.id])
   const act = s?.act || {}
   const formId = String(act.tool || '').startsWith('formHandler:') ? act.tool.slice(12) : `${t.activity_id}_form`
-  const form = { id: formId, fields: [{ key: 'result', text: `${t.activity_name} 결과`, type: 'textarea' }] }
+  // the step's result in words, and a file field per file its definition hands over (stepfiles.js) — given in this form or in chat
+  const form = { id: formId, fields: [{ key: 'result', text: `${t.activity_name} 결과`, type: 'textarea' }, ...(await import('./stepfiles.js')).fileFields(act.files)] }
   const step = { id: t.activity_id, name: t.activity_name, role: act.role || '', kind: act.agentMode === 'complete' ? 'agent' : 'human', description: act.description || '', formId,
     agentMode: act.agentMode || null, orchestration: act.orchestration || null, skills: act.skills || [] }
   const vals = t.draft || t.output || {}

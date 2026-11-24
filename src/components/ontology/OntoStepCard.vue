@@ -45,7 +45,7 @@ const result = computed(() => {
 </script>
 
 <template>
-  <div class="os" data-testid="onto-case-ask" :data-state="c.state" :data-task="c.task" :data-why="(c.why || []).join(',')">
+  <div class="os" data-testid="onto-case-ask" :data-case="c.caseId" :data-state="c.state" :data-task="c.task" :data-why="(c.why || []).join(',')">
     <div class="q">
       <span v-if="c.subject" class="sub">{{ c.subject }}<template v-if="c.from"> · {{ c.from }}</template></span>
       <template v-if="unbound">「{{ c.task }}」{{ EUL(c.task) }} 하려면 「{{ c.role }}」{{ EUL(c.role || '') }} 맡을 사람을 정해야 해요.</template>
