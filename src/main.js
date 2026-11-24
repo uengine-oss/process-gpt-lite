@@ -10,6 +10,7 @@ import { installCjkMarkdown } from './markdownCjk.js'
 import { watchUaTransitions } from './uaTransition.js'
 import { api, auth, adoptHostSession } from './api.js'
 import { registerWorker } from './browserNotify.js'
+import { watchInstall } from './install.js'
 import { useApp } from './stores/app.js'
 
 const routes = [
@@ -54,6 +55,8 @@ const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL
 adoptHostSession()
 installCjkMarkdown()
 watchUaTransitions()
+// 앱 설치 안내: the browser's install offer can come right after load (src/install.js)
+watchInstall()
 router.beforeEach((to) => {
   if (!to.meta.public && !auth.get()?.session) return '/login'
 })

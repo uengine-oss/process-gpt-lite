@@ -1,0 +1,16 @@
+
+Running 11 tests using 1 worker
+
+  ✓   1 [feature] › tests/feature/install-nudge.spec.js:89:3 › 앱 설치 안내 › F-IN-01 Android Chrome, 로그인 화면: 브라우저가 설치를 제안하면 「앱 설치」가 나오고, 누르면 브라우저의 설치 창(prompt)을 연다 (1.8s)
+  ✓   2 [feature] › tests/feature/install-nudge.spec.js:110:3 › 앱 설치 안내 › F-IN-02 Android Chrome, Home: 로그인 뒤 Home 카드 — 설치 창에서 취소하면 7일 동안 다시 나오지 않는다 (5.1s)
+  ✓   3 [feature] › tests/feature/install-nudge.spec.js:133:3 › 앱 설치 안내 › F-IN-03 iPhone Safari: 설치 API가 없으니 공유 › 「홈 화면에 추가」 › 「추가」 순서를 보여 준다 (1.8s)
+  ✓   4 [feature] › tests/feature/install-nudge.spec.js:155:3 › 앱 설치 안내 › F-IN-03b iPhone Safari, Home: 단계마다 한 줄 — 공유 › 「홈 화면에 추가」 › 「추가」 (1.7s)
+  ✓   5 [feature] › tests/feature/install-nudge.spec.js:168:3 › 앱 설치 안내 › F-IN-04 카카오톡 안의 브라우저: 설치할 수 없다고 알리고, 같은 주소(경로·쿼리 그대로)를 Chrome / Safari로 여는 링크를 준다 (2.7s)
+  ✓   6 [feature] › tests/feature/install-nudge.spec.js:207:3 › 앱 설치 안내 › F-IN-05 설치된 앱 안(standalone · iOS 홈 화면 · Android 래퍼 · 데스크톱 앱)에서는 아무것도 보이지 않는다 (10.4s)
+  ✓   7 [feature] › tests/feature/install-nudge.spec.js:235:3 › 앱 설치 안내 › F-IN-06 「나중에」는 7일, 「다시 보지 않기」는 계속 — 이 기기에 기억하고, 설정 › 앱 설치는 언제든 열린다 (9.8s)
+  ✓   8 [feature] › tests/feature/install-nudge.spec.js:279:3 › 앱 설치 안내 › F-IN-07 설정 › 앱 설치: 제안이 없으면 브라우저 메뉴(⋮)로 가는 길, 제안이 오면 「앱 설치」 — 컴퓨터는 로그인 화면에 띄우지 않는다 (6.0s)
+  ✓   9 [feature] › tests/feature/install-nudge.spec.js:325:3 › 앱 설치 안내 › F-IN-08 링크 미리보기: 페이지를 실행하지 않고 읽는 HTML에 og:/twitter: 태그 — 절대 주소, 1200×630 그림 (34ms)
+  ✓  10 [feature] › tests/feature/install-nudge.spec.js:345:3 › 앱 설치 안내 › F-IN-09 영어 화면: 카드 문구가 모두 번역된다 (6.9s)
+  ✓  11 [feature] › tests/feature/install-nudge.spec.js:368:3 › 앱 설치 안내 › F-IN-10 화면 사진 (휴대폰 390×844, 밝은 · 어두운 테마) (49.7s)
+
+  11 passed (1.6m)

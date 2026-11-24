@@ -16,6 +16,7 @@ import MailConnect from './MailConnect.vue'
 import TelegramConnect from './TelegramConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
 import GoogleClientAdmin from './GoogleClientAdmin.vue'
+import InstallNudge from './InstallNudge.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
 import { MAIN_LANGS, uiLangFor } from '../i18n/mainLangs.js'
 import { lang as uiLang, setLang } from '../i18n/lang.js'
@@ -23,6 +24,7 @@ import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
 import { BASE } from '../base.js'
+import { currentEnv } from '../install.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -168,6 +170,9 @@ const fromPortal = (() => {
   try { return BASE === '/lite' && localStorage.getItem('mobileView') === 'lite' } catch { return false }
 })()
 const toPortal = () => { location.assign('/definition-map?mobileView=desktop') }
+// 앱 설치: any time, not only when the card offers it — never inside the installed app, the Android wrapper or the desktop app
+const installRow = !currentEnv().appMode
+const installOpen = ref(false)
 const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.floor(sky.simHour)}:${String(Math.round((sky.simHour % 1) * 60)).padStart(2, '0')}`))
 </script>
 
@@ -184,7 +189,10 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
         <button v-for="(t, k) in titles" :key="k" @click="router.push(`/settings/${k}`)">{{ t }}<Icon name="chevron" :size="16" /></button>
       </div>
       <div v-if="fromPortal" class="list glass"><button data-test="to-portal" @click="toPortal">Process GPT 데스크톱 화면으로<Icon name="chevron" :size="16" /></button></div>
+      <div v-if="installRow" class="list glass"><button data-test="install-app" @click="installOpen = true">앱 설치<Icon name="chevron" :size="16" /></button></div>
       <div class="list glass"><button class="danger" @click="app.logout()">로그아웃</button></div>
+      <!-- (to the body: this list blurs in, and a filtered parent would pin the sheet inside it) -->
+      <Teleport to="body"><InstallNudge v-if="installOpen" place="sheet" @close="installOpen = false" /></Teleport>
     </div>
 
     <div v-else class="page blur-in" :key="page + (sub || '')">

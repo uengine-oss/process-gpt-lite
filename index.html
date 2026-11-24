@@ -6,9 +6,28 @@
     <!-- installable web app: name, icon, standalone window (public/manifest.webmanifest); push and badge: public/sw.js -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-title" content="Process GPT" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0f24" />
     <title>Process GPT Lite</title>
+    <!-- link previews (KakaoTalk, Slack, Facebook …): crawlers read this file without running the app and need
+         absolute addresses: the public origin + base path is written in at build (vite.config.js pageMeta), and the
+         web image's nginx puts in the request's own host when it knows it (install/docker/nginx.conf) -->
+    <meta name="description" content="메일 답장, 문서 작성, 반복 업무까지 말로 맡기면 AI가 대신 처리해요." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Process GPT" />
+    <meta property="og:title" content="Process GPT Lite — 대화로 일하는 AI 업무 비서" />
+    <meta property="og:description" content="메일 답장, 문서 작성, 반복 업무까지 말로 맡기면 AI가 대신 처리해요." />
+    <meta property="og:image" content="__PGL_PUBLIC_URL__/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Process GPT Lite — 무엇이든 process gpt에게 맡기세요" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Process GPT Lite — 대화로 일하는 AI 업무 비서" />
+    <meta name="twitter:description" content="메일 답장, 문서 작성, 반복 업무까지 말로 맡기면 AI가 대신 처리해요." />
+    <meta name="twitter:image" content="__PGL_PUBLIC_URL__/og-image.png" />
   </head>
   <body>
     <div id="app"></div>
