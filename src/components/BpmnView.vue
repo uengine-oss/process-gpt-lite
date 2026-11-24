@@ -5,6 +5,7 @@ import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-js.css'
 import { api } from '../api.js'
 import { laidOutBpmn } from '../lib/bpmnLayout.js'
+import { bpmnInk } from '../lib/bpmnInk.js'
 
 // Renders the process-gpt designer's stored BPMN, painting each node by its live state.
 // The stored layout is redone with Process GPT's automatic layout first (src/lib/bpmn-auto-layout): lanes per role,
@@ -120,7 +121,7 @@ async function load() {
 }
 
 onMounted(() => {
-  viewer = new NavigatedViewer({ container: host.value, zoomScroll: { enabled: props.wheel } })
+  viewer = new NavigatedViewer({ container: host.value, zoomScroll: { enabled: props.wheel }, bpmnRenderer: bpmnInk })
   load()
 })
 let gone = false
@@ -174,9 +175,13 @@ defineExpose({ fit, toggleBig, isBig: () => big.value })
 .tools button { height: 30px; padding: 0 12px; border-radius: 9999px; background: var(--regular-solid-bg); font-size: 12px; box-shadow: 0 2px 8px rgba(0 0 0 / .1); }
 /* diagram ink follows the theme; bpmn-js draws with inline styles, so override strokes/fills here */
 .host :deep(.bjs-powered-by) { display: none; }
-.host :deep(.djs-container) { --ink: var(--text-primary); }
+/* a flow's ends (arrowhead · a message flow's circle · a conditional flow's diamond …) are <marker>s inside the flow's own drawing that no rule
+   here reaches: bpmn-js paints them with --bpmn-ink / --bpmn-paper (lib/bpmnInk.js), taken from the flow they belong to. A flow's line is
+   --flow; its head the same ink, a step stronger on a faint line so a fitted diagram still shows which way each flow goes */
+.host :deep(.djs-container) { --ink: var(--text-primary); --bpmn-ink: var(--text-secondary); --bpmn-paper: var(--regular-solid-bg); }
+.host :deep(.djs-connection) { --flow: var(--text-tertiary); }
 .host :deep(.djs-visual > :is(rect, circle, polygon, path)) { stroke: var(--text-secondary) !important; fill: var(--regular-solid-bg) !important; }
-.host :deep(.djs-connection .djs-visual > path) { stroke: var(--text-tertiary) !important; fill: none !important; }
+.host :deep(.djs-connection .djs-visual > path) { stroke: var(--flow) !important; fill: none !important; }
 .host :deep(.djs-visual text) { fill: var(--text-primary) !important; font-family: var(--font-sans) !important; }
 .host :deep(.djs-element[data-element-id^="Participant"] .djs-visual > rect),
 .host :deep(.djs-element[data-element-id^="Lane"] .djs-visual > rect) { fill: transparent !important; stroke: var(--hairline) !important; }
@@ -193,8 +198,10 @@ defineExpose({ fit, toggleBig, isBig: () => big.value })
 .host :deep(.djs-shape.cs-skipped .djs-visual text) { fill: var(--text-secondary) !important; text-decoration: line-through; }
 .host :deep(.djs-shape.cs-next .djs-visual > :is(rect, circle, polygon)) { fill: transparent !important; stroke: var(--color-info) !important; stroke-width: 1.8px !important; stroke-dasharray: 4 3; }
 .host :deep(.djs-shape.cs-closed .djs-visual) { opacity: .5; }
-.host :deep(.djs-connection.cs-taken .djs-visual > path) { stroke: var(--text-primary) !important; stroke-width: 2.6px !important; }
-.host :deep(.djs-connection.cs-extra .djs-visual > path) { stroke: var(--text-primary) !important; stroke-width: 2.2px !important; stroke-dasharray: 5 3; }
-.host :deep(.djs-connection.cs-rewound .djs-visual > path) { stroke: var(--color-warning, #b26a00) !important; stroke-width: 2.2px !important; stroke-dasharray: 5 3; }
+.host :deep(.djs-connection:is(.cs-taken, .cs-extra)) { --flow: var(--text-primary); --bpmn-ink: var(--text-primary); }
+.host :deep(.djs-connection.cs-rewound) { --flow: var(--color-warning, #b26a00); --bpmn-ink: var(--color-warning, #b26a00); }
+.host :deep(.djs-connection.cs-taken .djs-visual > path) { stroke-width: 2.6px !important; }
+.host :deep(.djs-connection.cs-extra .djs-visual > path) { stroke-width: 2.2px !important; stroke-dasharray: 5 3; }
+.host :deep(.djs-connection.cs-rewound .djs-visual > path) { stroke-width: 2.2px !important; stroke-dasharray: 5 3; }
 .host :deep(.djs-connection.cs-skipped .djs-visual > path) { stroke-dasharray: 2 4; opacity: .45; }
 </style>

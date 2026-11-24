@@ -8,6 +8,7 @@ import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-js.css'
 import { api } from '../../api.js'
 import { laidOutBpmn } from '../../lib/bpmnLayout.js'
+import { bpmnInk } from '../../lib/bpmnInk.js'
 
 const props = defineProps({
   defId: String, version: { type: String, default: '' }, height: { type: Number, default: 340 },
@@ -83,7 +84,7 @@ async function load() {
   } catch (e) { console.warn('[bpmn]', e.message); empty.value = true }
 }
 const fit = () => { viewer?.get('canvas').resized(); viewer?.get('canvas').zoom('fit-viewport', 'auto') }
-onMounted(() => { viewer = new NavigatedViewer({ container: host.value }); load() })
+onMounted(() => { viewer = new NavigatedViewer({ container: host.value, bpmnRenderer: bpmnInk }); load() })
 let gone = false
 onBeforeUnmount(() => { gone = true; viewer?.destroy() })
 watch(() => [props.defId, props.version], load)
@@ -105,8 +106,11 @@ defineExpose({ fit })
 .none { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--text-secondary); font-size: 14px; }
 .fitb { position: absolute; right: 10px; bottom: 10px; height: 30px; padding: 0 12px; border-radius: 9999px; background: var(--regular-solid-bg); font-size: 12px; box-shadow: 0 2px 8px rgba(0 0 0 / .1); }
 .host :deep(.bjs-powered-by) { display: none; }
+/* a flow's line is --flow; its ends (arrowheads — <marker>s no rule here reaches) take --bpmn-ink / --bpmn-paper from it: lib/bpmnInk.js, as BpmnView */
+.host :deep(.djs-container) { --bpmn-ink: var(--text-secondary); --bpmn-paper: var(--regular-solid-bg); }
+.host :deep(.djs-connection) { --flow: var(--text-tertiary); }
 .host :deep(.djs-visual > :is(rect, circle, polygon, path)) { stroke: var(--text-secondary) !important; fill: var(--regular-solid-bg) !important; }
-.host :deep(.djs-connection .djs-visual > path) { stroke: var(--text-tertiary) !important; fill: none !important; }
+.host :deep(.djs-connection .djs-visual > path) { stroke: var(--flow) !important; fill: none !important; }
 .host :deep(.djs-visual text) { fill: var(--text-primary) !important; font-family: var(--font-sans) !important; }
 .host :deep(.djs-element[data-element-id^="Participant"] .djs-visual > rect),
 .host :deep(.djs-element[data-element-id^="Lane"] .djs-visual > rect) { fill: transparent !important; stroke: var(--hairline) !important; }
@@ -116,6 +120,7 @@ defineExpose({ fit })
 .host :deep(.imp-badge.hot) { background: #e0613f; color: #fff; }
 .host :deep(.imp-badge.slack) { background: var(--chip-bg); color: var(--text-secondary); font-weight: 500; }
 .host :deep(.crit .djs-visual > :is(rect, circle, polygon)) { stroke: #e0613f !important; stroke-width: 3px !important; fill: color-mix(in srgb, #e0613f 14%, var(--regular-solid-bg)) !important; }
-.host :deep(.crit-edge .djs-visual > path) { stroke: #e0613f !important; stroke-width: 3px !important; }
+.host :deep(.djs-connection.crit-edge) { --flow: #e0613f; --bpmn-ink: #e0613f; }
+.host :deep(.crit-edge .djs-visual > path) { stroke-width: 3px !important; }
 .host :deep(.dim .djs-visual) { opacity: .45; }
 </style>
