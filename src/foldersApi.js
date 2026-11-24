@@ -39,6 +39,8 @@ export const folders = {
   mergeChoose: (slug, iid, choices) => call(`/folders/${enc(slug)}/merge/${iid}/choose`, { method: 'POST', body: { choices } }),
   mergeAgent: (slug, iid) => call(`/folders/${enc(slug)}/merge/${iid}/agent`, { method: 'POST' }),
   mergeAbort: (slug, iid) => call(`/folders/${enc(slug)}/merge/${iid}/abort`, { method: 'POST' }),
+  // files dragged on the folder (src/fileDrag.js items — server lib/fileRefs.js dropInto): each becomes a file of it, in my name
+  drop: (slug, items, dir = '') => call(`/folders/${enc(slug)}/drop`, { method: 'POST', body: { items, dir } }),
   // skills as folders
   skills: () => call('/folders/skills'),
   openSkill: async (name) => (await call(`/folders/skills/${enc(name)}/open`, { method: 'POST' })).slug,

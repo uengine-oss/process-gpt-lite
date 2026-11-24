@@ -60,6 +60,9 @@ export const useApp = defineStore('app', {
     handoff: null,             // message id of a task shown full screen
     officeDoc: null,           // {msgId, url, name} open in the IeumOffice editor
     docSide: false,            // that document is open beside the page, not over it (OfficeSheet) — the messenger's panel dock joins it
+    // files of the app dragged onto the composer (src/fileDrag.js — a shared folder's file, an artifact, a file a teammate sent): the
+    // next message is about them, the agent reads each with my access (server lib/fileRefs.js turnRefs): {key, item, name, folder, as, wait, error}
+    fileRefs: [],
     attachments: [],           // files waiting in the composer: {id, name, size, state, result, error}
     newProjectFolder: null,    // 새 프로젝트: the folder it will work in — {id, slug, name} or {newName}
     folderPicker: false,       // the composer's folder list is open (📎 폴더 붙이기, 새 프로젝트's chip)
@@ -304,6 +307,37 @@ export const useApp = defineStore('app', {
       }
     },
     removeAttachment(id) { this.attachments = this.attachments.filter((a) => a.id !== id) },
+    // dropped files of the app → chips at once, then what each one is (or why it cannot be used) from the server
+    addFileRefs(items) {
+      const job = this._addFileRefs(items)
+      this._refsJob = Promise.all([this._refsJob, job]).then(() => {})
+      return job
+    },
+    // the composer's message takes them (Composer.vue submit): it waits for any still being checked, takes the usable ones and clears
+    // what it took (and the refused ones, which said why). Only the composer's own send carries them — no other send of the store picks
+    // up chips lying in the composer, and a message queued for a room being made keeps its own (PR #45 review).
+    async takeFileRefs() {
+      await this._refsJob
+      const taken = this.fileRefs.filter((r) => !r.wait)
+      this.fileRefs = this.fileRefs.filter((r) => r.wait)
+      return taken.filter((r) => !r.error).map((r) => r.item)
+    },
+    async _addFileRefs(items) {
+      const fresh = (items || []).filter((it) => !this.fileRefs.some((r) => JSON.stringify(r.item) === JSON.stringify(it))).slice(0, Math.max(0, 10 - this.fileRefs.length))
+      if (!fresh.length) return
+      const keys = fresh.map(() => crypto.randomUUID())
+      this.fileRefs = [...this.fileRefs, ...fresh.map((it, i) => ({ key: keys[i], item: it, name: it.name || '파일', folder: it.folder || '', as: it.as || 'link', wait: true, error: '' }))]
+      let res = []
+      try { res = (await api('/files/resolve', { method: 'POST', body: { items: fresh } })).items } catch (e) { res = fresh.map(() => ({ ok: false, error: e.message })) }
+      this.fileRefs = this.fileRefs.map((r) => {
+        const i = keys.indexOf(r.key)
+        if (i < 0) return r
+        const x = res[i]
+        if (!x?.ok) return { ...r, wait: false, error: x?.error || '이 파일을 쓸 수 없어요' }
+        return { ...r, wait: false, name: x.name || r.name, as: x.as, folder: x.ref?.folder || '', variation: x.ref?.variation || null }
+      })
+    },
+    removeFileRef(key) { this.fileRefs = this.fileRefs.filter((r) => r.key !== key) },
     addMention(m) {
       if (!m?.label) return
       this.mentions = [...this.mentions.filter((x) => !(x.label === m.label && x.file === m.file)), m].slice(-4)
@@ -326,6 +360,8 @@ export const useApp = defineStore('app', {
       }
       const pending = attachments || this.attachments
       if (!attachments) this.attachments = []
+      // files dragged onto the composer: only what the composer gave this message (opts.refs, takeFileRefs)
+      const refs = Array.isArray(opts.refs) ? opts.refs : []
       await Promise.all(pending.map((a) => a.job))
       const files = pending.filter((a) => a.result).map((a) => a.result)
       // asked from inside one conversation's view: it continues that conversation
@@ -341,7 +377,7 @@ export const useApp = defineStore('app', {
       const asked = this.askedAt[threadId] = Date.now()
       let ended = false
       try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
+        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(refs.length ? { refs } : {}), ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
         })
@@ -363,7 +399,7 @@ export const useApp = defineStore('app', {
     // 새 프로젝트: the message and "생각하는 중" show at once, in a room that is not made yet — making it
     // (POST /threads, a title from the model) can take a while (recording 2026-11-21: 20 s of nothing).
     // → the new room's id, or null when it could not be made (the text goes back into the composer).
-    newProject(text) {
+    newProject(text, refs = []) {
       // the folder chosen on the 새 프로젝트 screen: the project works on its own variation of it
       const f = this.newProjectFolder
       // the files attached for this message go with it, not with whatever is sent next while the room is made
@@ -386,7 +422,11 @@ export const useApp = defineStore('app', {
           delete this.drafts[tmp]
           // still on that screen: the text goes back into the composer (elsewhere it would land in another chat)
           const here = this.activeId === tmp
-          if (here) { this.activeId = null; this.prefill = [text, ...more.map((m) => m.text)].join('\n'); this.attachments = [...att, ...more.flatMap((m) => m.att), ...this.attachments] }
+          if (here) {
+            this.activeId = null; this.prefill = [text, ...more.map((m) => m.text)].join('\n'); this.attachments = [...att, ...more.flatMap((m) => m.att), ...this.attachments]
+            const back = [...refs, ...more.flatMap((m) => m.refs || [])]
+            if (back.length) this.addFileRefs(back)
+          }
           this.draftProject = null
           // a refusal the server explains (the folder) is said as it is; anything else plainly
           const why = e.status && e.status < 500 && /[가-힣]/.test(e.message || '') ? e.message : '프로젝트를 만들지 못했어요'
@@ -402,19 +442,19 @@ export const useApp = defineStore('app', {
         if (!this.projects.some((p) => p.id === t.id)) this.projects.unshift(t)
         if (this.draftProject?.tmp === tmp) this.draftProject = { tmp, id: t.id, more }
         if (this.activeId === tmp) this.activeId = t.id
-        this.send(text, t.id, undefined, att)
+        this.send(text, t.id, undefined, att, { refs })
         // (a moment apart: the server keeps them in the order sent and answers them in turn — lib/turns.js)
-        more.forEach((m, i) => setTimeout(() => this.send(m.text, t.id, undefined, m.att), 400 * (i + 1)))
+        more.forEach((m, i) => setTimeout(() => this.send(m.text, t.id, undefined, m.att, { refs: m.refs || [] }), 400 * (i + 1)))
         return t.id
       })()
       return draftJob
     },
     // a second message sent while the room is still being made: on screen now, to the room once it exists
-    queueDraft(text) {
+    queueDraft(text, refs = []) {
       const d = this.draftProject
-      if (!d || d.id || !this.messages[d.tmp]) return this.send(text)
+      if (!d || d.id || !this.messages[d.tmp]) return this.send(text, undefined, undefined, undefined, { refs })
       // (its own files, taken now: a file attached for it must not leave with the first message)
-      d.more.push({ text, att: this.attachments })
+      d.more.push({ text, att: this.attachments, refs })
       this.attachments = []
       this.messages[d.tmp].push({ id: `${d.tmp}-${d.more.length + 1}`, thread_id: d.tmp, role: 'user', kind: 'text', content: { text, local: true }, created_at: new Date().toISOString() })
       return draftJob

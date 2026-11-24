@@ -96,7 +96,8 @@ async function leave() {
 }
 async function close() { if (await leave()) emit('close') }
 defineExpose({ leave })
-const where = computed(() => (props.ref_ === 'main' ? '기준본(main)' : `변형 ${props.refLabel || ''}`))
+// (a commit: the version a file mention named — 멘션한 때의 판)
+const where = computed(() => (props.ref_ === 'main' ? '기준본(main)' : /^[0-9a-f]{40}$/.test(props.ref_ || '') ? props.refLabel || '이전 판' : `변형 ${props.refLabel || ''}`))
 // the chat composer gets the question started; the folder name makes the agent work in this folder
 function ask() {
   const draft = `${props.folder.name} 폴더의 ${props.file.path} `

@@ -224,10 +224,26 @@ export async function tree(folder, ref) {
   const touched = await G.lastTouch(folder.repo_path, r)
   return files.filter((f) => f.path !== '.gitattributes').map((f) => ({ ...f, author: touched.get(f.path)?.name, mtime: touched.get(f.path)?.at }))
 }
+// what a ref names in git: main (or nothing), a variation (its id), or a commit of the folder (its 40-hex id — a file mention
+// keeps the commit it was made at: lib/fileRefs.js)
+export const COMMIT = /^[0-9a-f]{40}$/
+export async function revOf(folder, ref) {
+  if (!ref || ref === 'main') return folder.default_branch
+  if (COMMIT.test(String(ref))) {
+    const ok = (await G.git(folder.repo_path, ['cat-file', '-t', String(ref)], { check: false })).trim() === 'commit'
+    if (!ok) throw err(404, L('그 판을 찾지 못했어요.', "I couldn't find that version."))
+    return String(ref)
+  }
+  return (await variation(folder, ref)).branch
+}
+// the blob a path has at a rev ('' when it is not there)
+export async function blobAt(folder, rev, rel) {
+  return (await G.git(folder.repo_path, ['rev-parse', '--verify', '-q', `${rev}:${safeRel(rel)}`], { check: false })).trim()
+}
 export async function readBlob(folder, ref, rel) {
   const p = safeRel(rel)
-  const v = ref && ref !== 'main' ? await variation(folder, ref) : null
-  return G.show(folder.repo_path, v ? v.branch : folder.default_branch, p).catch(() => { throw err(404, L('파일이 없어요.', "That file isn't there.")) })
+  const r = await revOf(folder, ref)
+  return G.show(folder.repo_path, r, p).catch(() => { throw err(404, L('파일이 없어요.', "That file isn't there.")) })
 }
 // IeumOffice and the ArtCraft apps load documents only from storage: a copy of one version of a file
 // (content-addressed, so the same blob is uploaded once) — the folder screen's 열기 and an agent's
@@ -241,10 +257,15 @@ export const MIME = {
 }
 export async function publishFile(folder, rel, ref) {
   const p = safeRel(rel)
-  const v = ref && ref !== 'main' ? await variation(folder, ref) : null
-  const r = v ? v.branch : folder.default_branch
+  const r = await revOf(folder, ref)
   const sha = (await G.git(folder.repo_path, ['rev-parse', `${r}:${p}`], { check: false })).trim()
   if (!sha) throw err(404, L('파일이 없어요.', "That file isn't there."))
+  return publishBlob(folder, p, sha)
+}
+// one version of a file by its blob id (a file mention opens the version it named, lib/fileRefs.js)
+export async function publishBlob(folder, rel, sha) {
+  const p = safeRel(rel)
+  if (!/^[0-9a-f]{40}$/.test(String(sha || '')) || (await G.git(folder.repo_path, ['cat-file', '-t', sha], { check: false })).trim() !== 'blob') throw err(404, L('파일이 없어요.', "That file isn't there."))
   const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
   const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
   const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })

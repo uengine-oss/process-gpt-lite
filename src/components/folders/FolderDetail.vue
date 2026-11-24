@@ -1,7 +1,10 @@
 <script setup>
 // 폴더 하나: 왼쪽은 기준본(main) 파일 트리·이력·색인, 오른쪽은 변형 목록과 일괄 반영.
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
+// a file row is dragged like any file of the app (src/fileDrag.js): into a messenger conversation (a link), the AI chat, another folder;
+// files of the app dropped here go into this folder (server lib/fileRefs.js dropInto)
+import { startDrag, folderItem, dragKind, dragging as draggedItems, itemsOf, zoneWords } from '../../fileDrag.js'
 import Icon from '../Icon.vue'
 import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
@@ -13,6 +16,7 @@ import { kindOf, kindLabel, baseName, fmtSize } from './fileKind.js'
 const props = defineProps({ slug: String })
 const emit = defineEmits(['preview'])
 const router = useRouter()
+const route = useRoute()
 const folder = ref(null)
 // the work folder of an instance started from a mail (server lib/mailWork.js — settings.work)
 const work = computed(() => folder.value?.settings?.work || null)
@@ -72,6 +76,75 @@ function pick(v) {
   picked.value = folder.value.variations.filter((x) => s.has(x.id)).map((x) => x.id)
 }
 function preview(f) { emit('preview', { folder: folder.value, file: f, ref: 'main' }) }
+// ⌘/Ctrl-click picks rows: dragging one of them drags them all (several files mentioned at once)
+const sel = ref(new Set())
+function clickRow(e, f) {
+  if (e.metaKey || e.ctrlKey) { const s = new Set(sel.value); s.has(f.path) ? s.delete(f.path) : s.add(f.path); sel.value = s; return }
+  sel.value = new Set()
+  preview(f)
+}
+function dragRow(e, f) {
+  const paths = sel.value.has(f.path) ? files.value.filter((x) => sel.value.has(x.path)) : [f]
+  const commit = folder.value.history?.[0]?.sha || null
+  startDrag(e, paths.map((x) => folderItem(folder.value, x, { commit })))
+}
+// files of the app dropped on this folder (a chat card, a received file, another folder's file): they go in, in my name
+const pgl = ref(null)        // {words, ok} while such a drag is over the folder
+const filedNote = ref(null)  // {text, file} — 「‘<폴더>’에 넣었어요 · 열기」
+let pglDepth = 0
+const fromHere = () => (draggedItems() || []).length > 0 && draggedItems().every((x) => x.src === 'folder' && x.slug === props.slug)
+function onEnter(e) {
+  const k = dragKind(e.dataTransfer?.types)
+  if (k === 'files') { e.preventDefault(); dragging.value = can('editor'); return }
+  if (k !== 'pgl' || fromHere()) return
+  e.preventDefault(); pglDepth++
+  const ok = can('editor') && folder.value?.kind === 'managed'
+  pgl.value = { ok, words: ok ? zoneWords('folder') : folder.value?.kind !== 'managed' ? '이 폴더에는 넣을 수 없어요' : '편집 권한이 있어야 이 폴더에 넣을 수 있어요' }
+}
+function onOver(e) {
+  const k = dragKind(e.dataTransfer?.types)
+  if (k === 'files') { e.preventDefault(); dragging.value = can('editor'); return }
+  if (k !== 'pgl' || fromHere()) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = pgl.value?.ok ? 'copy' : 'none'
+}
+function onLeave(e) {
+  const k = dragKind(e.dataTransfer?.types)
+  if (k === 'files') { if (e.target === e.currentTarget) dragging.value = false; return }
+  if (k === 'pgl' && --pglDepth <= 0) { pglDepth = 0; pgl.value = null }
+}
+async function onPglDrop(e) {
+  const ok = pgl.value?.ok
+  pglDepth = 0; pgl.value = null
+  if (!ok) return say('편집 권한이 있어야 이 폴더에 넣을 수 있어요.')
+  const items = itemsOf(e)
+  if (!items.length) return
+  uploading.value = items.length > 1 ? `${items.length}개 넣는 중` : items[0].name
+  try {
+    const r = await F.drop(props.slug, items)
+    const done = r.items.filter((x) => x.ok)
+    const bad = r.items.filter((x) => !x.ok)
+    await load()
+    if (done.length) {
+      const f = done[0].filed
+      filedNote.value = { text: done.every((x) => x.filed?.already) ? `이미 ‘${folder.value.name}’에 있어요` : `‘${folder.value.name}’에 넣었어요`, path: f?.path, count: done.length }
+      setTimeout(() => { if (filedNote.value?.path === f?.path) filedNote.value = null }, 9000)
+    }
+    if (bad.length) say(bad.map((x) => `${x.name || '파일'}: ${x.error}`).join(' · '))
+  } catch (err2) { say(err2.message) } finally { uploading.value = '' }
+}
+const openFiled = () => { const f = files.value.find((x) => x.path === filedNote.value?.path); if (f) preview(f); filedNote.value = null }
+// a 「권한 요청」 notice opens this folder with ?share=<who asked>: the 공유 sheet with that person picked
+// — once: the request leaves the address as the sheet opens, and the watch reads plain values (it re-ran whenever load() replaced the
+// folder, so the sheet could never be closed — PR #45 review)
+const pickShare = ref('')
+watch(() => (route.query.share && folder.value?.id ? `${route.query.share}:${folder.value.id}` : ''), (k) => {
+  if (!k || !can('owner')) return
+  pickShare.value = String(route.query.share)
+  sharing.value = true
+  const { share: _asked, ...rest } = route.query
+  router.replace({ query: rest })
+}, { immediate: true })
 
 async function uploadFiles(list, dir = '') {
   if (!can('editor')) return say('올리려면 편집 권한이 필요해요.')
@@ -84,7 +157,13 @@ async function uploadFiles(list, dir = '') {
   await load()
   say('올렸어요 — 문서 카드는 잠시 뒤 생겨요')
 }
-function onDrop(e) { dragging.value = false; if (e.dataTransfer?.files?.length) uploadFiles([...e.dataTransfer.files]) }
+function onDrop(e) {
+  const k = dragKind(e.dataTransfer?.types)
+  if (k === 'pgl') { if (pgl.value) { e.preventDefault(); onPglDrop(e) } return }
+  e.preventDefault()
+  dragging.value = false
+  if (e.dataTransfer?.files?.length) uploadFiles([...e.dataTransfer.files])
+}
 async function removeFile(f) {
   if (!confirm(`'${f.path}' 을(를) main 에서 지울까요? 이력에는 남아요.`)) return
   try { await F.removeFile(props.slug, f.path); await load() } catch (e) { say(e.message) }
@@ -119,7 +198,7 @@ const ix = computed(() => folder.value?.index_state || {})
 </script>
 
 <template>
-  <div class="fd" @dragover.prevent="dragging = can('editor')" @dragleave.self="dragging = false" @drop.prevent="onDrop">
+  <div class="fd" data-test="folder-detail" @dragenter="onEnter" @dragover="onOver" @dragleave="onLeave" @drop="onDrop">
     <p v-if="err" class="missing">{{ err }}</p>
     <template v-else-if="folder">
       <div class="head">
@@ -179,20 +258,20 @@ const ix = computed(() => folder.value?.index_state || {})
                 <span class="fn"><span class="tw">{{ closed.has(d) ? '▸' : '▾' }}</span><FIcon name="folder" :size="17" /> {{ d }}</span><span /><span class="sz">{{ list.length }}개</span>
               </button>
               <template v-if="!closed.has(d)">
-                <div v-for="f in list" :key="f.path" class="fr file">
-                  <button class="fn in press" @click="preview(f)"><span class="fic sm" :class="kindOf(f.path)">{{ kindLabel[kindOf(f.path)] }}</span><span class="nm">{{ baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
+                <div v-for="f in list" :key="f.path" class="fr file" :class="{ sel: sel.has(f.path) }" draggable="true" data-test="folder-file" :data-file="f.path" @dragstart="dragRow($event, f)">
+                  <button class="fn in press" @click="clickRow($event, f)"><span class="fic sm" :class="kindOf(f.path)">{{ kindLabel[kindOf(f.path)] }}</span><span class="nm">{{ baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
                   <span class="by"><Avatar v-if="f.author" :who="whoOf({ name: f.author, id: f.author })" :size="20" /> {{ f.author }} · {{ ago(f.mtime) }}</span>
                   <span class="sz">{{ fmtSize(Number(f.size)) }}<button v-if="can('editor') && folder.kind === 'managed'" class="del" title="지우기" @click="removeFile(f)"><Icon name="trash" :size="14" /></button></span>
                 </div>
               </template>
             </template>
-            <div v-for="f in tree.top" :key="f.path" class="fr file">
-              <button class="fn press" @click="preview(f)"><span class="fic sm" :class="kindOf(f.path)">{{ kindLabel[kindOf(f.path)] }}</span><span class="nm">{{ baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
+            <div v-for="f in tree.top" :key="f.path" class="fr file" :class="{ sel: sel.has(f.path) }" draggable="true" data-test="folder-file" :data-file="f.path" @dragstart="dragRow($event, f)">
+              <button class="fn press" @click="clickRow($event, f)"><span class="fic sm" :class="kindOf(f.path)">{{ kindLabel[kindOf(f.path)] }}</span><span class="nm">{{ baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
               <span class="by"><Avatar v-if="f.author" :who="whoOf({ name: f.author, id: f.author })" :size="20" /> {{ f.author }} · {{ ago(f.mtime) }}</span>
               <span class="sz">{{ fmtSize(Number(f.size)) }}<button v-if="can('editor') && folder.kind === 'managed'" class="del" title="지우기" @click="removeFile(f)"><Icon name="trash" :size="14" /></button></span>
             </div>
             <p v-if="!files.length" class="none">아직 파일이 없어요.</p>
-            <p v-if="can('editor') && folder.kind === 'managed'" class="drop">파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요</p>
+            <p v-if="can('editor') && folder.kind === 'managed'" class="drop">파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)</p>
           </div>
 
           <div v-else-if="tab === 'history'" class="hist scroll">
@@ -232,6 +311,9 @@ const ix = computed(() => folder.value?.index_state || {})
             <div class="sec">에이전트가 보는 목록</div>
             <pre class="cat">{{ indexLines }}</pre>
           </div>
+            <Transition name="fade">
+              <div v-if="pgl" class="pgldrop" :class="{ no: !pgl.ok }" data-test="folder-dropzone"><div><FIcon name="folder" :size="28" /><p>{{ pgl.words }}</p><small v-if="pgl.ok">‘{{ folder.name }}’ main 에 내 이름으로 들어가요</small></div></div>
+            </Transition>
         </section>
 
         <section class="vars glass">
@@ -286,9 +368,15 @@ const ix = computed(() => folder.value?.index_state || {})
       </div>
 
       <MergeSheet v-if="merging" :folder="folder" :ids="merging.ids" :integration="merging.integration" @close="merging = null; load()" @done="merged" />
-      <ShareSheet v-if="sharing" :folder="folder" @close="sharing = false; load()" />
+      <ShareSheet v-if="sharing" :folder="folder" :pick="pickShare" @close="sharing = false; pickShare = ''; load()" />
     </template>
     <Transition name="fade"><div v-if="toast" class="toast">{{ toast }}</div></Transition>
+    <Transition name="fade">
+      <div v-if="filedNote" class="toast filed" data-test="folder-filed" role="status">
+        <FIcon name="folder" :size="16" /><span>{{ filedNote.text }}{{ filedNote.count > 1 ? ` · ${filedNote.count}개` : '' }}</span>
+        <button v-if="filedNote.path" class="press" data-test="folder-filed-open" @click="openFiled">열기</button>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -334,6 +422,18 @@ dl.sk { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; margin: 8
 code { font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
 .tb { height: 32px; padding: 0 12px; border-radius: 16px; font-size: 13px; font-weight: 500; background: var(--button-bg); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .files, .hist, .idx { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px 14px; }
+.fr.file.sel { background: rgba(42, 120, 214, .12); }
+.fr.file[draggable="true"] { cursor: grab; }
+section.pane { position: relative; }
+.pgldrop { position: absolute; inset: 6px; z-index: 6; display: grid; place-items: center; border-radius: 18px; background: rgba(42, 120, 214, .1); border: 2.5px dashed rgba(42, 120, 214, .7); pointer-events: none; }
+/* (the same card as the messenger's 「여기에 놓으면 …」, in both themes) */
+.pgldrop div { text-align: center; color: #1a56c4; background: rgba(255, 255, 255, .94); padding: 16px 26px; border-radius: 18px; box-shadow: 0 8px 28px rgba(0, 0, 0, .14); }
+.pgldrop p { margin: 6px 0 2px; font-size: 16px; font-weight: 600; }
+.pgldrop small { font-size: 12px; color: #5b6472; }
+.pgldrop.no { background: rgba(127, 127, 127, .08); border-color: rgba(127, 127, 127, .5); }
+.pgldrop.no div { color: #4b5563; }
+.toast.filed { display: inline-flex; align-items: center; gap: 8px; }
+.toast.filed button { margin-left: 4px; padding: 3px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #fff; background: #2a78d6; }
 .files.drag { outline: 2px dashed var(--color-info); outline-offset: -8px; border-radius: 18px; }
 .fr { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 190px 92px; align-items: center; gap: 10px; min-height: 42px; padding: 4px 10px; border-radius: 12px; text-align: left; font-size: 14px; }
 .fr.th { min-height: 30px; font-size: 12px; color: var(--text-tertiary); }

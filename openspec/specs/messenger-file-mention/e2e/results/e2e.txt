@@ -1,0 +1,17 @@
+# Playwright — 2026-11-24, eca6a4d(PR #45, origin/main 5fcfb02 위) + 리뷰 고침(커밋 전) · 개발 스택 Vite :5279 → BFF :8879 (PRO_BACKGROUND=0,
+# 가짜 모델 :59961 · 가짜 deepagents :59962, PRO_JUDGE_URL=) · 5fcfb02 비교는 합칠 때 돌린 것(같은 설정, git archive, :5280 → :8880)
+
+## 이 스펙
+messenger-file-mention.spec.js  F-FM-01~12  12 통과 · 0 실패
+  - 리뷰로 더한 시험이 고치기 전 화면 코드(eca6a4d)에서는 실패함을 확인: F-FM-04(공유 요청이 주소에 남음 → 다시 열림), F-FM-11(확인 중이던 칩의 파일 없이
+    「이 질문 정리해 줘」만 에이전트에), F-FM-12(「반영 전 변형」).
+
+## 회귀                                  이 작업 트리        5fcfb02(합칠 때)
+messenger-dock.spec.js                  전부 통과           전부 통과
+messenger-drop-folder.spec.js           전부 통과           전부 통과
+doc-layout.spec.js (#42)                전부 통과           전부 통과
+meeting-minutes-live.spec.js (#43)      전부 통과           전부 통과
+voice-dictation.spec.js (#44)           전부 통과           전부 통과
+  (위 다섯 + 이 스펙: 40 통과 · 0 실패)
+chat-agent-picker.spec.js (#41)         7 통과 · 0 실패     7 통과 · 0 실패
+meetings.spec.js (대역 판정 모델)        8/8 · 8/8 · 8/8     8/8 · 8/8 · 7/8 (F-MT-07: 줄을 보냈더니 403 — 회의 참여가 끊기는 오래된 흔들림)

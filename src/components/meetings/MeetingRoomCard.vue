@@ -7,6 +7,8 @@ import { useRouter } from 'vue-router'
 import { useMeetings } from '../../stores/meetings.js'
 import { useTeam } from '../../stores/team.js'
 import { kindOf, kindLabel } from '../../artifacts.js'
+// a meeting's file can be dragged on like any file (src/fileDrag.js): a conversation, the AI chat, a folder
+import { startDrag, shareItem } from '../../fileDrag.js'
 import { useApp } from '../../stores/app.js'
 import { langLabel } from '../../i18n/mainLangs.js'
 
@@ -80,7 +82,7 @@ function goto(uuid) {
       <p class="mt"><b>{{ mm.material?.title }}</b></p>
       <p class="why">{{ mm.material?.presentedBy ? `${mm.material.presentedBy}님이 모두에게 띄웠어요` : '도우미가 찾아 띄웠어요' }}{{ mm.material?.reason ? ` — ${mm.material.reason}` : '' }}</p>
       <div v-if="m.artifacts?.length" class="arts">
-        <button v-for="a in m.artifacts" :key="a.name" class="art press" :disabled="!a.shareId" @click="openFile(a)">
+        <button v-for="a in m.artifacts" :key="a.name" class="art press" :disabled="!a.shareId" :draggable="!!a.shareId" data-test="meeting-material-file" @dragstart="a.shareId ? startDrag($event, [shareItem(a)]) : $event.preventDefault()" @click="openFile(a)">
           <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span>{{ a.name }}
         </button>
       </div>

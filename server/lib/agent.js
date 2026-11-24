@@ -291,7 +291,7 @@ export async function replaceEarlier({ user, session, threadId, room, text, why 
 const hostOf = (u) => { try { return new URL(u).host } catch { return '' } }
 const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
@@ -299,9 +299,18 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   files = (files || []).filter((f) => f?.url).map((f) => ({ ...f,
     ...(f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { key: undefined } : {}),
     ...(f.path && !ownPath(f.path) ? { path: undefined } : {}) })).slice(0, 10)
-  if (!text?.trim() && files.length) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
+  // files dragged onto the composer (src/fileDrag.js — a shared folder's file, an artifact, a file a teammate sent): read with this
+  // person's access and given to the agent as where to read each (lib/fileRefs.js turnRefs); the sent message keeps them as chips
+  let pointed = null
+  if (Array.isArray(refs) && refs.length) {
+    pointed = await import('./fileRefs.js').then((m) => m.turnRefs(user, refs)).catch((e) => { console.warn('[file-refs] turn', e.message); return { context: '', shown: [] } })
+    if (pointed?.context) context = [context, pointed.context].filter(Boolean).join('\n\n')
+  }
+  if (!text?.trim() && (files.length || pointed?.shown?.some((x) => !x.error))) text = L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
+  // only dragged files, and none of them usable: nothing goes to the agent (the route says so — not an empty turn)
+  if (!text?.trim() && pointed) throw Object.assign(new Error(L('보낼 말이나 쓸 수 있는 파일이 없어요.', 'There is nothing usable to send.')), { status: 400, empty: true })
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
-  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}) })
+  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}) })
   const store = turnCtx.getStore()
   if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null }
   // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it

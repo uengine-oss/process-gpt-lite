@@ -76,7 +76,24 @@ export async function docOf(user, ref = {}, deps = {}) {
     return cardDoc(user, m)
   }
   if (ref.actionId && ref.attachment) return mailDoc(user, String(ref.actionId), String(ref.attachment), deps)
+  if (ref.folderFile) return folderDoc(user, ref.folderFile)
   throw fail(400, L('정리할 문서를 알려 주세요.', 'Say which document to file.'))
+}
+
+// {folderFile: {slug, path, commit?, blob?, variation?}} — a shared folder's file dropped on another folder (lib/fileRefs.js dropInto):
+// its content at the version named, read with my own access to that folder; where it came from goes in the commit message
+async function folderDoc(user, it) {
+  const { folderRef } = await import('../fileRefs.js')
+  const r = await folderRef(user, it)
+  const src = await S.folderById(r.folderId)
+  return {
+    key: `folder:${r.folderId}:${r.blob}`, kind: 'folder', name: safeName(r.name), instIds: [], mailIds: [], filing: null,
+    bytes: async () => ({ buf: await G.git(src.repo_path, ['cat-file', 'blob', r.blob], { buffer: true }), type: '' }),
+    context: async () => L(`공유 폴더 「${r.folder}」의 ${r.path}`, `${r.path} in the shared folder "${r.folder}"`),
+    source: L(`출처: 공유 폴더 「${r.folder}」 ${r.path}${r.variation ? ` (변형 「${r.variation.title}」)` : ''} @ ${String(r.commit || '').slice(0, 12)}`,
+      `Source: shared folder "${r.folder}" ${r.path}${r.variation ? ` (variation "${r.variation.title}")` : ''} @ ${String(r.commit || '').slice(0, 12)}`),
+    save: async () => null,
+  }
 }
 
 async function cardOfShare(user, shareId) {
@@ -356,7 +373,7 @@ export async function file(user, ref, { slug, sub = '', newFolder = '', by = 'pe
     const host = path.join(folder.repo_path, p)
     await fs.mkdir(path.dirname(host), { recursive: true })
     await fs.writeFile(host, buf)
-    const commit = await S.commitMainNow(folder, author, L(`정리: ${p}`, `Filed: ${p}`))
+    const commit = await S.commitMainNow(folder, author, `${L(`정리: ${p}`, `Filed: ${p}`)}${doc.source ? `\n\n${doc.source}` : ''}`)
     return { path: p, already: false, commit }
   })
   if (!out.already || made) (await import('./indexer.js')).reindex(await S.folderById(folder.id)).catch((e) => console.warn('[filing] index', e.message))

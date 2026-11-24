@@ -206,6 +206,8 @@ export function watchRooms() {
   M.onChat(async (row, humans) => {
     const m = row.messages || {}
     if (m.role !== 'user' || m.pgpt?.kind === 'assist' || m.__hidden) return
+    // 「@AI …」 is answered by the AI itself (lib/team/aiHelp.js): no second card for it
+    if (m.pgpt?.ai) return count('to-ai')
     const author = humans.find((h) => h.id === m.userId || h.email === m.email)
     if (!author) return // a system or agent row
     stats.messages++
@@ -294,15 +296,25 @@ async function detectIn(row, humans0, author, { translate = false } = {}) {
   // (the request in its writer's own words)
   const reason = L(`${who}님의 요청 "${said.replace(/\s+/g, ' ').slice(0, 60)}${said.length > 60 ? '…' : ''}" · 판단 모델 ${Math.round(p * 100)}%`,
     `${who}'s request "${said.replace(/\s+/g, ' ').slice(0, 60)}${said.length > 60 ? '…' : ''}" · routing model ${Math.round(p * 100)}%`)
-  const [s] = await q(`insert into pro_room_suggestions(tenant_id,room_id,chat_uuid,work,title,reason,process_id,audience,judge)
-                       values ($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict (chat_uuid) do nothing returning *`,
-  [T(), roomId, row.uuid, work, title, reason, proc?.id || null, audience, { yes: Math.round(yes * 100) / 100, p: Math.round(p * 100) / 100, ms, model: j.model }])
+  const s = await offer({ roomId, chatUuid: row.uuid, work, title, reason, processId: proc?.id || null, audience, judge: { yes: Math.round(yes * 100) / 100, p: Math.round(p * 100) / 100, ms, model: j.model } })
   if (!s) return count('cached')
   list.push(now); recent.set(roomId, list)
   stats.suggested++; keep(stats.detectMs, Date.now() - t0)
-  for (const h of humans) emit(h.id, 'team', { type: 'assist', threadId: roomId, suggestion: view(h.id, s) })
   console.log(`[assist] suggested in ${Date.now() - t0}ms (judge ${ms}ms) · ${work} · ${title}`)
 }
+
+// A 시작/아니요 card under a room message, told to everyone in the room (each sees it as offered to them or not) — the room's own
+// detection above, and the messenger's 「@AI …」 handing work over (lib/team/aiHelp.js). Null when that message has one already.
+export async function offer({ roomId, chatUuid, work, title, reason, processId = null, audience, judge }) {
+  const [s] = await q(`insert into pro_room_suggestions(tenant_id,room_id,chat_uuid,work,title,reason,process_id,audience,judge)
+                       values ($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict (chat_uuid) do nothing returning *`,
+  [T(), roomId, chatUuid, work, title, reason, processId, audience, judge])
+  if (!s) return null
+  for (const h of await M.membersOf(roomId)) emit(h.id, 'team', { type: 'assist', threadId: roomId, suggestion: view(h.id, s) })
+  return s
+}
+// the card's title for a kind of work and the words of the request (exported for the messenger's @AI)
+export const titleOfWork = (work, body) => titleFor(work, body)
 
 // what one person sees: open suggestions only if offered to them and not dismissed; running and finished
 // ones (who started it, the result) to everyone in the room

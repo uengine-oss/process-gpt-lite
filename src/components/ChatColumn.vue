@@ -149,7 +149,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
       <button v-if="stoppable" class="stop press" :disabled="stopping" aria-label="답 멈추기" title="답 멈추기" @click="stop"><span class="sq" />{{ stopping ? '멈추는 중' : '멈추기' }}</button>
       <button v-if="needsInput && !browsing" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
       <BrowserDock @pending="toPending(true)" />
-      <Composer :placeholder="placeholder" @send="(t) => emit('send', t)" />
+      <Composer :placeholder="placeholder" @send="(t, o) => emit('send', t, o)" />
     </div>
   </section>
 </template>

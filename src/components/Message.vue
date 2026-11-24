@@ -38,10 +38,13 @@ import { useApp } from '../stores/app.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
 import { kindOf, kindLabel, openArtifact, openHint } from '../artifacts.js'
 import { parseReplies } from '../replies.js'
+// a file card is dragged like any file of the app (src/fileDrag.js): a messenger conversation (a link or a share), a folder, the composer
+import { startDrag, cardItem } from '../fileDrag.js'
 
 const props = defineProps({ msg: Object })
 const emit = defineEmits(['connect'])
 const openFile = () => openArtifact(app, router, props.msg)
+const dragCard = (e) => startDrag(e, [cardItem(props.msg)])
 const expanded = ref(false)
 const router = useRouter()
 const app = useApp()
@@ -117,6 +120,13 @@ onMounted(async () => {
       <div class="bubble user">{{ panelReq ?? c.text }}</div>
       <!-- sent to a CLI on the sender's own PC from the composer's picker (server lib/localAgents/chat.js) -->
       <small v-if="c.agent?.label" class="to-agent" data-test="msg-agent-tag">→ {{ c.agent.label }} · {{ c.agent.where || '내 PC' }}</small>
+      <!-- the files dragged in with this message (server lib/fileRefs.js turnRefs): what it is about -->
+      <div v-if="c.refs?.length" class="urefs" data-test="sent-refs">
+        <span v-for="(r, i) in c.refs" :key="i + r.name" class="uref" :class="{ error: !!r.error }" data-test="sent-ref" :data-file="r.name" :title="r.error || (r.path ? `${r.folder} › ${r.path}` : '')">
+          <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b>
+          <small>{{ r.error ? '쓰지 못함' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일' }}</small>
+        </span>
+      </div>
       <!-- 링크 미리보기: 글 속 처음 세 링크의 카드(server lib/linkPreview.js) -->
       <LinkPreviews :text="c.text" />
       <!-- sent while an answer of the same conversation was still coming: it waits its turn (lib/turns.js) -->
@@ -202,7 +212,7 @@ onMounted(async () => {
     </div>
 
     <div v-else-if="msg.kind === 'file'" class="filecol" :class="{ sound, video }">
-      <div class="filerow">
+      <div class="filerow" draggable="true" data-test="file-card" :data-file="c.name" @dragstart="dragCard">
         <button class="file press" @click="openFile">
           <span class="fic" :class="sound ? 'snd' : kindOf(c.name)">{{ sound ? kindLabel.snd : kindLabel[kindOf(c.name)] || 'FILE' }}</span>
           <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url && !craftMissing(officeEditorFor(c.name)) ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c) }}</small></span>
@@ -313,6 +323,16 @@ onMounted(async () => {
 .file { display: inline-flex; align-items: center; gap: 12px; height: 64px; padding: 0 22px; border-radius: 22px; background: #1d1d1f; color: #f5f5f7; font-size: 16px; font-weight: 500; }
 .file { text-align: left; }
 .filerow { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
+.filerow[draggable="true"] { cursor: grab; }
+/* files dragged in with a message (sent refs) */
+.urefs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 6px; max-width: 512px; }
+.uref { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 30px; padding: 0 10px 0 3px; border-radius: 15px; font-size: 12.5px; color: var(--text-primary);
+  background: var(--bubble-user-bg); border: 1px solid rgba(122, 90, 245, .4); }
+.uref .fx { flex: none; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 8.5px; font-weight: 700; color: #fff; background: #6b6b66; }
+.uref .fx.doc { background: #2b579a; } .uref .fx.xls { background: #217346; } .uref .fx.ppt { background: #c43e1c; } .uref .fx.pdf { background: #d93025; } .uref .fx.hwp { background: #1f6fd1; } .uref .fx.md { background: #3d4451; }
+.uref b { font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uref small { color: var(--text-secondary); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uref.error { border-color: rgba(198, 40, 40, .45); opacity: .75; }
 .filerow .file { min-width: 0; }
 .filecol { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; }
 .filecol.sound, .filecol.video { width: 424px; }

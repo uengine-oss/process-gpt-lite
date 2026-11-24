@@ -681,11 +681,14 @@ app.post('/api/threads/:id/note', auth, async (req, res) => {
 app.post('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
+  // nothing to send: no words, no file, no dragged file (a composer that once cleared a chip still being checked sent this — PR #45 review)
+  const has = (x) => Array.isArray(x) && x.length > 0
+  if (!String(req.body?.text ?? '').trim() && !has(req.body?.files) && !has(req.body?.refs)) return res.status(400).json({ error: L('보낼 말이나 파일이 없어요.', 'There is nothing to send.') })
   // the composer's picker named a CLI on the sender's own PC (lib/localAgents/chat.js): the message goes to their desktop — the server
   // agent is not called for it; a refusal (a project folder they may not edit, no desktop at all) is said in the chat under the message
   if (req.body?.agent && req.body.agent !== 'default') {
     const { send, end } = openStream(res)
-    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files })) }) } catch (e) {
+    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined })) }) } catch (e) {
       if (!e.status || e.status >= 500) console.warn('[local-agents] chat send', e.message)
       await addMessage(req.user.id, t.id, 'agent', 'text', { text: L(`내 PC 에이전트로 보내지 못했어요 — ${e.message}`, `Could not send this to the agent on your PC — ${e.message}`), failed: true, localRefused: true }).catch(() => {})
       send('error', { message: e.message, status: e.status || 500 })
@@ -698,9 +701,11 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, onDelta: (d) => send('delta', { d }) })
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, onDelta: (d) => send('delta', { d }) })
     send('done', final)
   } catch (e) {
+    // dragged files that all turned out unusable and no words: nothing was sent (handleTurn) — said, not a failed chat turn
+    if (e.empty) { send('error', { message: e.message, status: 400 }); return end() }
     console.error(e)
     // a message never goes unanswered: the failure is said in the chat, not only in this stream; a usage
     // limit (lib/llmKeys.js) says which one and when it opens again, with the way to Settings › Usage & plan

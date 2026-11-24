@@ -1,8 +1,8 @@
 // Team sharing and messenger (server/routes/team.js): the inbox, threads with teammates, the share
 // picker and the people "@" suggests. Live updates arrive as 'team' events, re-broadcast on the
-// window by api.js events(), so this store needs no stream of its own.
+// window by api.js events() — one stream per page, which this store opens too when the chat has not (boot).
 import { defineStore } from 'pinia'
-import { api } from '../api.js'
+import { api, events } from '../api.js'
 import { useApp } from './app.js'
 import { openArtifact } from '../artifacts.js'
 import { maybeOther } from '../i18n/mainLangs.js'
@@ -37,6 +37,7 @@ export const useTeam = defineStore('team', {
     suggestions: {},          // threadId -> [assist suggestion] (lib/team/assist.js)
     assistOn: {},             // threadId -> the thread's AI 제안 switch
     assistStatus: {},         // suggestion id -> live status text while it runs
+    aiStatus: {},             // threadId -> {messageId, text}: 「AI가 찾는 중…」 while 「@AI …」 is answered (lib/team/aiHelp.js)
     // auto-translation (server/lib/team/roomTranslate.js): message id -> {body, from} | {lines: {i: text}} |
     // {minutes: {summary, decisions, actions}} | {same: true}; original: message id -> showing the original
     tr: {},
@@ -58,6 +59,8 @@ export const useTeam = defineStore('team', {
       if (this.booted) return
       this.booted = true
       window.addEventListener('pgpt:event', (e) => this.onEvent(e.detail))
+      // the page's live events, also where the chat never booted (the folder screen with the messenger docked beside it)
+      events(() => {})
       await Promise.all([this.loadUnread(), this.loadThreads(), this.loadInbox()]).catch(() => {})
     },
     // (asked again on every read, and a room in a meeting is read again and again as its cards change: only the newest answer counts)
@@ -160,6 +163,10 @@ export const useTeam = defineStore('team', {
         else list.unshift(data.suggestion)
         if (!data.suggestion.hidden) this.sugTr([data.suggestion])
       } else if (data.type === 'assist-status') this.assistStatus[data.id] = data.text
+      else if (data.type === 'ai-status') {
+        if (data.text) this.aiStatus = { ...this.aiStatus, [data.threadId]: { messageId: data.messageId, text: data.text } }
+        else { const { [data.threadId]: _done, ...rest } = this.aiStatus; this.aiStatus = rest }
+      }
       else if (data.type === 'assist-toggle') this.assistOn[data.threadId] = data.on
     },
     say(text, go) {
@@ -216,8 +223,9 @@ export const useTeam = defineStore('team', {
       await this.openThread(t.id)
       return t
     },
-    async send(threadId, text, artifactIds = []) {
-      const m = await api(`/team/threads/${threadId}/messages`, { method: 'POST', body: { text, artifactIds } })
+    // extra: {refs (file mentions — links to shared folders' files), ai (addressed to the AI), mentions (people named with @)}
+    async send(threadId, text, artifactIds = [], extra = {}) {
+      const m = await api(`/team/threads/${threadId}/messages`, { method: 'POST', body: { text, artifactIds, ...extra } })
       const list = (this.msgs[threadId] ||= [])
       if (!list.some((x) => x.id === m.id)) list.push(m)
       return m
@@ -234,6 +242,32 @@ export const useTeam = defineStore('team', {
       const r = await openArtifact(app, router, message, { link: false })
       if (r.opened && closesMessenger(r, this.dockNow)) this.open = false
       return { message, ...r }
+    },
+    // ---- file mentions (server lib/fileRefs.js) ----
+    // dropped files → what each becomes here: {ok, as: 'link'|'share', name, ref | cardId} or {ok: false, error}
+    async resolveItems(items) { return (await api('/files/resolve', { method: 'POST', body: { items } })).items },
+    // A mention opens where the file is: a document in the office panel (an editor of the folder edits the newest version in place),
+    // anything else in its folder at that file. latest: the folder's newest version instead of the one mentioned.
+    async openRef(m, i, router, { latest = false } = {}) {
+      const r = await api('/team/refs/open', { method: 'POST', body: { messageId: m.id, index: i, latest } })
+      const app = useApp()
+      if (r.message) {
+        const res = await openArtifact(app, router, r.message, { link: false })
+        if (res.opened) { if (closesMessenger(res, this.dockNow)) this.open = false; return res }
+        if (res.how !== 'link') return res
+      }
+      if (router) await router.push({ path: `/folders/${encodeURIComponent(r.slug)}`, query: { file: r.path, ...(r.ref && r.ref !== 'main' ? { ref: r.ref } : {}) } })
+      if (this.dockNow === 'float') this.open = false
+      return { how: 'folder', opened: true }
+    },
+    // 권한 요청: the folder's owners are told; the card says it was asked
+    async requestRef(m, i) {
+      const r = await api('/team/refs/request', { method: 'POST', body: { messageId: m.id, index: i } })
+      for (const list of [this.msgs[m.threadId], this.inbox]) {
+        const x = (list || []).find((y) => y.id === m.id)
+        if (x?.refs?.[i] && r.requested) x.refs[i] = { ...x.refs[i], state: { ...(x.refs[i].state || {}), requested: true, card: 'requested' } }
+      }
+      return r
     },
     // a received share continues in its own work conversation; my own share gathers the branches first
     // (choices: conflict picks, {path: side}; a 409 carries the conflicts to pick from)

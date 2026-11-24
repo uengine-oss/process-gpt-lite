@@ -5,15 +5,18 @@
 //   material  "지난번 견적서 다시 보자" → which kind (file/process/panel/folder) → which candidate
 //   request   "견적서 5% 낮춰서 다시 만들어줘" → assist's request + work questions → a 시작/아니요 suggestion
 // The judge sees the last few lines (names and text, ≤160 characters a line) and candidate names only.
-import { prefilter as requestPrefilter, WORKS } from '../team/assist.js'
-import * as MAT from './materials.js'
+import { prefilter as requestPrefilter } from '../team/assist.js'
+// which material and which work: the same functions the messenger's 「@AI …」 calls (lib/assistHelp.js, skill assist-help)
+import * as H from '../assistHelp.js'
 import { isEn } from '../lang.js'
 import { judge as ask, judgeAvailable, judgeLlm } from '../judge.js'
 
 export const DEBOUNCE_MS = Number(process.env.PRO_MEETING_DEBOUNCE_MS || 1200)
 const MIN_REQ = 0.7
 const MIN_MAT = 0.6
-const PER_MIN = 6
+export const PER_MIN = 6
+// how many more of one line's picks may go up after the first, inside the per-minute budget (PR #45 review: one line showed four)
+export const extraBudget = (lastMinute) => Math.max(0, PER_MIN - (lastMinute || 0) - 1)
 
 export const stats = { segments: 0, prefiltered: {}, judged: 0, judgeErrors: 0, materials: 0, suggested: 0, repeats: 0, bigModelCalls: 0, judgeMs: [], detectMs: [] }
 const count = (why) => { stats.prefiltered[why] = (stats.prefiltered[why] || 0) + 1 }
@@ -63,7 +66,6 @@ async function judge(state, question, options) {
   stats.judged++; keep(stats.judgeMs, j.ms)
   return j
 }
-const top = (j) => Object.entries(j.probabilities || {}).sort((a, b) => b[1] - a[1])[0] || [null, 0]
 const line = (s) => `${s.speaker}: ${String(s.text).replace(/\s+/g, ' ').slice(0, 160)}`
 
 // the judge's questions and options in the meeting's language (keys never change): a small judge
@@ -135,9 +137,9 @@ export async function detect(seg, ctx) {
     ms += y.ms
     const yes = y.probabilities?.yes ?? 0
     if (yes >= MIN_REQ) {
-      const w = await judge(state, '방금 한 말이 AI 비서에게 부탁하는 일은 어떤 종류인가요?', Object.entries(WORKS).filter(([k]) => k !== 'StartProcessInstance' && k !== 'CreateProcessDefinition').map(([key, x]) => ({ key, label: x.label })))
+      const w = await H.workOf(state, { ask: judge })
       ms += w.ms
-      let [work, p] = top(w)
+      let { work, p } = w
       // a table named and no document (or the other way round) settles a table/document pick the model
       // wavered on ("견적서 금액 … 다시 만들어 주세요" came back CreateDocument now and then from an LLM judge)
       const said = String(seg.text || '')
@@ -158,33 +160,22 @@ export async function detect(seg, ctx) {
   ms += m.ms
   const yes = m.probabilities?.yes ?? 0
   if (yes < MIN_MAT) { count('judge-no'); return null }
-  // which kind, then which one (only candidates the speaker can see, named in what was said)
-  const ranked = await MAT.ranked(seg.text, ctx)
-  // asked for, and nothing of that name anywhere the speaker can look: said so (it used to end here in
-  // silence — "셉 ERP 관련 PDF 좀 열어볼래?" and the helper kept saying 듣고 있어요, 2026-11-19)
-  if (!ranked.length) { count('no-candidate'); return { notFound: { yes: round(yes), ms } } }
-  const k = await judge(line(seg), '방금 한 말이 보자는 자료는 어떤 종류인가요?', KINDS)
-  ms += k.ms
-  const [kind, pk] = top(k)
-  // a document in a shared folder is a file too ("PDF 열어볼래?" is judged 'file')
-  let pool = ranked.filter((x) => x.kind === kind || (kind === 'file' && x.folderFile))
-  if (!pool.length) pool = ranked
-  let pick = pool[0], pc = 1
-  const tied = pool.filter((x) => x.score === pool[0].score).slice(0, 6)
-  // the same words as something already on the panel: they mean that one
-  const onPanel = pool.find((x) => x.score >= pool[0].score - 0.5 && ctx.shown?.has(`${x.kind}:${x.id}`))
-  if (onPanel) { stats.repeats++; count('already-shown'); return { repeat: `${onPanel.kind}:${onPanel.id}` } }
-  if (tied.length > 1) {
-    const w = await judge(line(seg), '방금 한 말이 가리키는 자료는?', tied.map((x, i) => ({ key: `c${i}`, label: x.title.slice(0, 80) })))
-    ms += w.ms
-    const [key, p] = top(w)
-    pick = tied[Number(String(key).slice(1))] || tied[0]; pc = p
-  }
+  // which one: what the speaker may see, and the judge picks what the line means (lib/assistHelp.js — the messenger's @AI does the same)
+  // asked for, and nothing of that name anywhere the speaker can look: said so (it used to end here in silence — "셉 ERP 관련 PDF 좀
+  // 열어볼래?" and the helper kept saying 듣고 있어요, 2026-11-19)
+  const found = await H.findMaterials({ said: seg.text, prev, roomId: ctx.roomId, asker: ctx.speaker }, { judges: ctx.judges })
+  if (found.judge) stats.judged++
+  // (no judge answered: the caller says the model is not answering — detectOne)
+  if (found.failed) throw new Error('judge did not answer (pick)')
+  if (found.notFound) { count('no-candidate'); return { notFound: { yes: round(yes), ms } } }
+  const [pick, ...more] = found.picks
   const key = `${pick.kind}:${pick.id}`
+  // the same words as something already on the panel: they mean that one
   if (ctx.shown?.has(key)) { stats.repeats++; count('already-shown'); return { repeat: key } }
   if ((ctx.lastMinute || 0) >= PER_MIN) { count('rate'); return null }
   keep(stats.detectMs, Date.now() - t0)
-  return { material: { ...pick, key, judge: { yes: round(yes), kind, pk: round(pk), pick: round(pc), ms, model: k.model } } }
+  return { material: { ...pick, key, judge: { yes: round(yes), pick: found.judge?.p ?? null, strategy: found.judge?.strategy || null, ms, model: found.judge?.model || null } },
+    more: more.filter((x) => !ctx.shown?.has(`${x.kind}:${x.id}`)).slice(0, extraBudget(ctx.lastMinute)).map((x) => ({ ...x, key: `${x.kind}:${x.id}`, judge: { yes: round(yes), ms } })) }
 }
 const round = (x) => Math.round((x || 0) * 100) / 100
 

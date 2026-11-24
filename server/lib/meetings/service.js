@@ -516,6 +516,8 @@ async function detectOne(m0, seg, me) {
     return
   }
   if (r.material) await addMaterial(m, r.material, seg, me, { open: I.wantsOpen(seg.text) })
+  // several asked for at once ("두 사람 이력서 띄워 줘"): the others the judge picked too (lib/assistHelp.js — as the messenger's @AI)
+  for (const x of r.more || []) await addMaterial(m, x, seg, me)
   if (r.request) await addRequest(m, r.request, seg, me)
 }
 
