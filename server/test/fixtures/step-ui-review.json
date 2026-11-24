@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "createSurface": {
+    "surfaceId": "step_fixture",
+    "catalogId": "https://process-gpt.io/a2ui/catalogs/lite-step/v1/catalog.json",
+    "components": [
+      { "id": "root", "component": "Card", "child": "col" },
+      { "id": "col", "component": "Column", "children": ["intro", "decision", "amount", "due", "checked", "opinion", "buttons"] },
+      { "id": "intro", "component": "Text", "variant": "caption", "text": "한빛상사 2층 교육장 인테리어 견적 26,070,000원 — 금액과 납기를 확인해요." },
+      { "id": "decision", "component": "ChoicePicker", "label": "검토 결과", "variant": "mutuallyExclusive", "displayStyle": "chips",
+        "options": [{ "label": "그대로 진행", "value": "go" }, { "label": "금액 조정 후 진행", "value": "adjust" }],
+        "value": { "@path": "/form/decision" },
+        "@checks": [{ "condition": { "@call": "required", "args": { "value": { "@path": "/form/decision" } } }, "message": "검토 결과를 골라 주세요." }] },
+      { "id": "amount", "component": "TextField", "label": "확정 금액(원)", "variant": "number", "value": { "@path": "/form/amount" } },
+      { "id": "due", "component": "DateTimeInput", "label": "납기일", "enableDate": true, "value": { "@path": "/form/due" } },
+      { "id": "checked", "component": "CheckBox", "label": "단가표와 맞춰 봤어요", "value": { "@path": "/form/checked" } },
+      { "id": "opinion", "component": "TextField", "label": "검토 의견", "variant": "longText", "placeholder": "고객에게 전할 내용도 적어 주세요", "value": { "@path": "/form/opinion" },
+        "@checks": [{ "condition": { "@call": "required", "args": { "value": { "@path": "/form/opinion" } } }, "message": "검토 의견을 적어 주세요." }] },
+      { "id": "buttons", "component": "Row", "justify": "end", "children": ["reject", "send"] },
+      { "id": "reject_label", "component": "Text", "text": "반려" },
+      { "id": "reject", "component": "Button", "child": "reject_label", "action": { "event": { "name": "reject" } },
+        "@checks": [{ "condition": { "@call": "required", "args": { "value": { "@path": "/form/opinion" } } }, "message": "반려하는 까닭을 의견에 적어 주세요." }] },
+      { "id": "send_label", "component": "Text", "text": "검토 결과 보내기" },
+      { "id": "send", "component": "Button", "variant": "primary", "child": "send_label", "action": { "event": { "name": "submit" } },
+        "@checks": [{ "condition": { "@call": "and", "args": { "values": [
+          { "@call": "required", "args": { "value": { "@path": "/form/decision" } } },
+          { "@call": "required", "args": { "value": { "@path": "/form/opinion" } } } ] } }, "message": "검토 결과와 의견을 채워 주세요." }] }
+    ],
+    "dataModel": { "form": { "decision": [], "amount": "26070000", "due": "", "checked": false, "opinion": "" } }
+  }
+}

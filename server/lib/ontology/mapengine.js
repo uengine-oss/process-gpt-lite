@@ -25,6 +25,7 @@ import { ledger } from './review.js'
 import { END } from './stats.js'
 import { taskDefinition } from './taskdef.js'
 import { procGraph, unfold, parallelPair, skippedOf, triggerOf, agentId, actId, getCase, ORCH } from './run.js'
+import { ORCH as LOCAL_ORCH } from '../localAgents/agents.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -273,23 +274,29 @@ export async function createItem(c, task, { via = {}, par = null, mapAt = new Da
   const agent = runner || draft ? await agentId() : null
   const { roleOfTask } = await import('./bindings.js')
   const role = roleOfTask(t, d.runner)
-  const who = runner ? { userId: null, unbound: false } : await personOf(c, role, view, t.key)
+  // a CLI agent on the assignee's own desktop (lib/localAgents): the step has a person even when the agent finishes it — the one whose
+  // desktop runs it (the role's person; the case's owner when the role has nobody yet)
+  const local = runner || draft ? d.local : null
+  let who = runner && !local ? { userId: null, unbound: false } : await personOf(c, role, view, t.key)
+  if (local && runner && who.unbound) who = { ...who, userId: c.started_by ? String(c.started_by) : who.userId, unbound: false }
   const person = who.userId
   const aid = actId(t.key), formId = `${MAP_PREFIX.replace(/\.$/, '')}_${aid}_form`
   const act = { id: aid, name: t.key, role, tool: `formHandler:${formId}`, skills: d.skills, checkpoints: d.checkpoints, outputs: d.outputs, description: d.description || '',
-    instruction: d.instruction || '', runner: d.runner, ...(agent ? { agent, agentMode: runner ? 'complete' : 'draft', orchestration: ORCH } : { agentMode: 'none' }) }
-  const ids = (kind === 'agent' ? [agent] : kind === 'draft' ? [agent, person] : [person]).filter(Boolean)
+    instruction: d.instruction || '', runner: d.runner, ...(agent ? { agent, agentMode: runner ? 'complete' : 'draft', orchestration: local ? LOCAL_ORCH : ORCH } : { agentMode: 'none' }),
+    ...(local ? { localAgent: local } : {}) }
+  const ids = (kind === 'agent' ? [agent, ...(local ? [person] : [])] : kind === 'draft' ? [agent, person] : [person]).filter(Boolean)
   const names = new Map((await q(`select id::text as id, username from users where tenant_id=$1 and id::text = any($2)`, [T(), ids])).map((u) => [u.id, u.username]))
   const assignees = [{ name: role, endpoint: ids, default: [person || agent].filter(Boolean), origin: 'created', resolutionRule: `프로세스 지도: ${who.binding ? (await import('./bindings.js')).FROM_KO[who.binding.from] || '' : '에이전트가 해요'}` }]
   const inst = c.instances[0]
   // a person's step opens when its gate lets it; a draft waits as TODO while its role has nobody (the agent would draft for nobody)
   const status = kind === 'person' || who.unbound ? 'TODO' : 'IN_PROGRESS'
   const [row] = await q(`insert into todolist (id, tenant_id, user_id, username, proc_inst_id, root_proc_inst_id, execution_scope, proc_def_id, activity_id, activity_name,
-                           status, tool, description, start_date, due_date, duration, assignees, reference_ids, agent_mode, agent_orch, adhoc)
-                         values (gen_random_uuid(), $1, $2, $3, $4, $4, '', null, $5, $6, $7::todo_status, $8, $9, ${NOW_KST}, ${NOW_KST} + interval '1 day', 1, $10, $11, $12::agent_mode, $13, false)
+                           status, tool, description, start_date, due_date, duration, assignees, reference_ids, agent_mode, agent_orch, adhoc, agent_config)
+                         values (gen_random_uuid(), $1, $2, $3, $4, $4, '', null, $5, $6, $7::todo_status, $8, $9, ${NOW_KST}, ${NOW_KST} + interval '1 day', 1, $10, $11, $12::agent_mode, $13, false, $14)
                          returning *`,
   [T(), ids.join(','), ids.map((i) => names.get(i) || '').join(','), inst, aid, t.key, status, act.tool, act.description,
-    JSON.stringify(assignees), via.from ? [actId(via.from)] : [], kind === 'agent' ? 'COMPLETE' : kind === 'draft' ? 'DRAFT' : null, agent ? ORCH : null])
+    JSON.stringify(assignees), via.from ? [actId(via.from)] : [], kind === 'agent' ? 'COMPLETE' : kind === 'draft' ? 'DRAFT' : null, agent ? (local ? LOCAL_ORCH : ORCH) : null,
+    local ? { local } : null])
   // the case's mode is the one its process's stage gave it at the start (runmode.js caseMode — 제안: hitl, 자동: hotl)
   const { caseMode } = await import('./runmode.js')
   const { mode } = await caseMode(c, view)
@@ -331,6 +338,8 @@ async function openPerson(row) {
 export async function toPerson(todoId) {
   const [t] = await q(`update todolist set status='IN_PROGRESS' where id=$1 and status::text='TODO' returning id::text as id, user_id, activity_name, proc_inst_id`, [todoId])
   if (!t) return null
+  // its input screen is made now, while the person is told (lib/stepUi — the engine does not wait)
+  import('../stepUi/index.js').then((U) => U.soon(t.id)).catch(() => {})
   const [c] = await q(`select started_by from pro_po_cases where $1 = any(instances) limit 1`, [t.proc_inst_id])
   const ids = String(t.user_id || '').split(',').map((x) => x.trim()).filter(Boolean)
   for (const id of ids) emit(id, 'notifications', {})
@@ -607,7 +616,9 @@ export async function todoView(t) {
   const step = { id: t.activity_id, name: t.activity_name, role: act.role || '', kind: act.agentMode === 'complete' ? 'agent' : 'human', description: act.description || '', formId,
     agentMode: act.agentMode || null, orchestration: act.orchestration || null, skills: act.skills || [] }
   const vals = t.draft || t.output || {}
-  return { todo: t, step, form, instName: s?.trigger?.subject || t.activity_name, values: vals[formId] || vals }
+  // the step's input screen, made for this case and step (lib/stepUi — A2UI v1.0): ui next to form
+  const ui = await import('../stepUi/index.js').then((U) => U.viewFor(t, { formId })).catch((e) => { console.warn('[step-ui] view', e.message); return {} })
+  return { todo: t, step, form, instName: s?.trigger?.subject || t.activity_name, values: vals[formId] || vals, ...ui }
 }
 
 // GET /ontology/cases/:id/flow — the case's flowchart, drawn from the map as of now (or its pin), each step's state from its work items

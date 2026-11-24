@@ -41,7 +41,9 @@ export function processRoutes(auth) {
     // one conversation per instance and person, created on first view (or by a mail / schedule that started it);
     // its work folder when a mail started it and the person may open it (lib/mailWork.js — the page's 「작업 폴더」)
     const workFolder = await import('../lib/mailWork.js').then((W) => W.folderView(req.params.id, req.user)).catch((e) => { console.warn('[instances] work folder', e.message); return null })
-    res.json({ ...d, workFolder, threadId: await engine.instanceThread(req.user.id, req.params.id, d.inst.proc_inst_name || d.def?.name) })
+    // its steps run by a CLI agent on the assignee's desktop (lib/localAgents): waiting, running, done — the page's 「로컬 에이전트」
+    const localRuns = await import('../lib/localAgents/steps.js').then((L) => L.instanceView(req.params.id, req.user)).catch((e) => { console.warn('[instances] local runs', e.message); return [] })
+    res.json({ ...d, workFolder, localRuns, threadId: await engine.instanceThread(req.user.id, req.params.id, d.inst.proc_inst_name || d.def?.name) })
   })
 
   // (a work item put away from Home is marked, not left out: Home hides it, everything else still lists it)
@@ -98,8 +100,8 @@ export function processRoutes(auth) {
   })
 
   r.post('/todos/:id/submit', auth, async (req, res) => {
-    try { res.json(await engine.submitTodo({ me: req.user, session: req.session, todoId: req.params.id, values: req.body.values || {}, messageId: req.body.messageId })) }
-    catch (e) { console.warn('[submit]', e.message); res.status(500).json({ error: e.message }) }
+    try { res.json(await engine.submitTodo({ me: req.user, session: req.session, todoId: req.params.id, values: req.body.values || {}, messageId: req.body.messageId, a2ui: req.body.a2ui || null })) }
+    catch (e) { console.warn('[submit]', e.message); res.status(e.status || 500).json({ error: e.message }) }
   })
 
   // form file fields: data URL in, public storage URL out

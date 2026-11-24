@@ -32,6 +32,7 @@ import OntoTimerAskCard from './ontology/OntoTimerAskCard.vue'
 import OntoEditCard from './ontology/OntoEditCard.vue'
 import MailChips from './MailChips.vue'
 import LinkPreviews from './LinkPreviews.vue'
+import LocalRunCard from './LocalRunCard.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
@@ -61,7 +62,7 @@ const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text |
 // "- 네, 이대로 진행 (설명)" style options closing an agent question become tappable replies
 // (src/replies.js: only a real choice list — a report's bullet lines stay text)
 const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
-const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell', refresh: 'refresh', folder: 'folder' }
+const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell', refresh: 'refresh', folder: 'folder', send: 'up' }
 // the mails a message is about (모닝 브리프: its Home cards; a line about one mail): chips that open them (MailChips, server lib/mailFlow.js)
 const mailRefs = computed(() => (Array.isArray(c.value.mails) ? c.value.mails : c.value.mail && (c.value.mail.actionId || c.value.mail.mailId) ? [c.value.mail] : []))
 // what the answer did on the way (server lib/workTrail.js): folded to one line of the sites it read
@@ -173,6 +174,8 @@ onMounted(async () => {
     <!-- 「텔레그램으로 알려줘」 before a bot is connected: connect it right here (server lib/agent.js telegramTurn) -->
     <div v-else-if="msg.kind === 'telegram_connect'" class="tgc"><TelegramConnect :schedule-name="c.scheduleName || ''" /></div>
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
+    <!-- a step run by a CLI agent on its assignee's computer (server lib/localAgents): the card follows the run -->
+    <LocalRunCard v-else-if="msg.kind === 'local_run'" :run="c" compact />
     <ProcessCard v-else-if="msg.kind === 'process'" :msg="msg" />
     <ProcessDraftCard v-else-if="msg.kind === 'process_draft'" :msg="msg" />
     <SkillDraftCard v-else-if="msg.kind === 'skill_draft'" :msg="msg" />

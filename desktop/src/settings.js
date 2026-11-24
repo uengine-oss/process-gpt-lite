@@ -7,6 +7,10 @@
 //                  OS keychain (safeStorage) when it is available
 //   window       — { x, y, width, height, maximized }
 //   lang         — 'ko' | 'en': the web app's language last seen (menu labels)
+//   runner       — { [server]: {token, enc, deviceId, userId, userName} }: this computer's device token for the local CLI agents of the
+//                  person signed in on that server (runner/, design docs/local-agents/design.md); the token encrypted like the gate's
+//   runnerPrefs  — {enabled, ask}: local runs on or off, and asking before each run
+//   runnerOptOut — { [server]: [userId…] }: people who disconnected this computer here (it is not paired again by itself)
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -55,4 +59,32 @@ function gate() {
   } catch { return { user: g.user, pass: '' } }
 }
 
-module.exports = { init, get, set, useServer, setGate, gate }
+// ---------- the local runner's pairing (one per server) ----------
+const seal = (v) => (canEncrypt() ? { v: safe.encryptString(v).toString('base64'), enc: true } : { v: Buffer.from(v).toString('base64'), enc: false })
+const unseal = (x) => { try { const raw = Buffer.from(x.v || '', 'base64'); return x.enc ? safe.decryptString(raw) : raw.toString() } catch { return '' } }
+function setPairing(server, { token, deviceId, userId, userName = '' }) {
+  const all = { ...(data.runner || {}) }
+  all[server] = { token: seal(token), deviceId, userId, userName }
+  const out = { ...(data.runnerOptOut || {}) }
+  if (out[server]) out[server] = out[server].filter((u) => u !== userId)
+  return set({ runner: all, runnerOptOut: out })
+}
+function pairing(server) {
+  const p = (data.runner || {})[server]
+  if (!p?.token) return null
+  const token = unseal(p.token)
+  return token ? { token, deviceId: p.deviceId, userId: p.userId, userName: p.userName || '' } : null
+}
+// optOut: this person disconnected this computer on purpose — the page does not pair it again by itself
+function forgetPairing(server, { optOut = false } = {}) {
+  const all = { ...(data.runner || {}) }
+  const was = all[server]
+  delete all[server]
+  const out = { ...(data.runnerOptOut || {}) }
+  if (optOut && was?.userId) out[server] = [...new Set([...(out[server] || []), was.userId])]
+  return set({ runner: all, runnerOptOut: out })
+}
+const optedOut = (server, userId) => ((data.runnerOptOut || {})[server] || []).includes(userId)
+const runnerPrefs = () => ({ enabled: data.runnerPrefs?.enabled !== false, ask: data.runnerPrefs?.ask === true })
+
+module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs }

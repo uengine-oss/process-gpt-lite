@@ -18,7 +18,7 @@ npm start                   # 또는 npm run dev (개발자 도구 켬)
 - 터미널에 `ELECTRON_RUN_AS_NODE=1`이 설정되어 있으면(VS Code 터미널 등) Electron이 Node로 실행되다가 바로 종료됩니다. 이때는 `env -u ELECTRON_RUN_AS_NODE npm start`로 실행합니다.
 - 다른 프로필로 띄우려면 `PGL_DESKTOP_USER_DATA=<폴더> npm start`를 씁니다. 설정, 로그인, 창 위치, 중복 실행을 막는 잠금이 모두 해당 폴더를 사용합니다.
 - 로컬 Lite에 연결할 때는 개발 서버(`npm run dev`, 기본 `http://localhost:5180`) 또는 설치 번들(`http://localhost:18080`) 주소를 넣습니다.
-- 단위 시험: `npm test`(주소 정규화 · 서버 확인 · 주소를 열 위치).
+- 단위 시험: `npm test`(주소 정규화 · 서버 확인 · 주소를 열 위치 · 로컬 에이전트 runner).
 
 ## 묶기 (macOS)
 
@@ -43,12 +43,27 @@ npm run dist                # → release/Process-GPT-Lite-<버전>-mac-arm64.dm
 | `src/menu.js` | 한국어 · 영어 앱 메뉴 |
 | `src/preload.js` | 페이지 표시(`html.pgl-desktop`, `--pgl-tb-left/right`), 테마 알림, `window.pglDesktop`(읽기 전용), 로컬 화면에만 `window.pglLocal` |
 | `src/pages/` | 서버 고르기 · 연결 실패 화면 (웹 앱과 같은 하늘 배경) |
+| `src/runner/` | 로컬 에이전트: 이 컴퓨터의 Claude Code · Codex 로 그 사람의 프로세스 단계를 돌린다 — `link.js`(서버로 나가는 WebSocket), `session.js`(그 사람의 대화형 CLI 를 PTY 에서 — 훅 · 기록 · 지켜보는 파일), `pty.js`(node-pty), `clis.js`(CLI 찾기 · 헤드리스 고정 명령 · 출력 읽기), `git.js`(작업 폴더 맞추기 · 커밋 · 올리기), `runner.js`(일 하나 · 입력 · 보고함 · 중계되는 세션 · 다시 켜졌을 때 이어서), `index.js` |
 
 웹 앱 쪽에서 바뀐 곳은 세 군데입니다. 모두 `html.pgl-desktop` 아래에서만 동작해서 브라우저에서는 아무것도 바뀌지 않습니다.
 
 - `src/styles/desktop.css`: 창을 끌 수 있는 영역, 위 메뉴가 창 단추와 겹치지 않도록 하는 여백, 로그인 화면과 설정 ✕ 위치.
 - `src/main.js`: 위 CSS를 가져옵니다.
 - `src/browserNotify.js`: 데스크톱 앱에서는 푸시를 구독하지 않습니다. 알림도 서비스 워커가 아니라 `new Notification`으로 띄웁니다(Electron은 서비스 워커 알림을 보여 주지 않습니다).
+
+## 로컬 에이전트 (내 컴퓨터의 Claude Code · Codex)
+
+회사 프로세스 지도의 활동에 「Claude Code — 담당자의 컴퓨터」 같은 에이전트를 정하면, 그 단계가 담당자에게 올 때 담당자의 이 앱이 그 컴퓨터의 CLI 로 단계를 돌린다(설계 `docs/local-agents/design.md`, 스펙 `openspec/specs/local-agents`).
+
+- **잇기**: 앱 안에서 로그인하면 페이지가 서버에서 이 컴퓨터용 기기 토큰을 받아 preload 다리(`pglDesktop.localRunner.pair`)로 main 에 넘긴다. main 은 페이지의 쿠키 · 저장소를 읽지 않는다. 토큰은 OS 키체인으로 암호화해 `desktop-settings.json` 의 `runner` 에 둔다. main 은 서버로 나가는 WebSocket 하나(`<서버>/api/local-agents/link`)를 열고, 이 컴퓨터의 CLI(설치 · 버전 · 로그인 여부)를 알린다. 이 컴퓨터에는 포트를 열지 않는다.
+- **일**: `<userData>/local-agents/work/` 아래 인스턴스마다 작업 폴더(git clone)를 두고, 서버의 인스턴스 라인을 받아(실행 직전에 한 번 더) `pgpt-agent/local-…` 가지에서 CLI 를 돌린 뒤 커밋해 올린다. 폴더 토큰은 git 요청 머리글로만 쓴다. 끝난 보고는 서버가 받을 때까지 `<userData>/local-agents/outbox.json` 에 둔다.
+- **실행 — 그 사람의 터미널 그대로**: 단계는 그 사람의 대화형 `claude` · `codex` 를 node-pty 로 띄워 돈다(agent-share 방식 — 그 사람의 로그인 · 설정 · 슬래시 명령 그대로). Claude Code 에는 세션마다의 `--settings` 로 훅(`SessionStart` · `UserPromptSubmit` · `Stop` · `StopFailure` · `Notification`)만 넣어, 준비되면 프롬프트를 붙여 넣고 `Stop` 으로 턴의 끝을 안다. Codex 는 명령줄의 첫 메시지(프롬프트 파일을 가리킴)와 rollout 으로. 앱이 만든 작업 폴더만 Claude Code 에서 신뢰한 폴더로 둔다(`~/.claude.json` 의 `projects[<폴더>].hasTrustDialogAccepted`). 그 터미널의 바이트는 링크로 서버에 가서 인스턴스를 볼 수 있는 모든 사람의 실행 카드에 같은 화면으로 보인다(작업자 아닌 사람은 읽기 전용). 앱이 실행 중에 꺼졌다 켜지면 같은 세션을 `--resume` 으로 잇는다. node-pty 를 불러오지 못하면 헤드리스(`claude -p` · `codex exec`)로 돈다(`PGL_RUNNER_MODE=headless` 로 강제).
+- **node-pty**: 1.1.0(N-API 미리 빌드 — Node 와 Electron 에서 같은 바이너리, mac arm64/x64 · Windows x64/arm64 ConPTY). `npm install` 뒤 `scripts/pty-helper.js` 가 mac `spawn-helper` 에 실행 권한을 준다. electron-builder 는 `asarUnpack`, `npmRebuild: false`(`electron-builder.yml`).
+- **입력**: 작업자의 입력(실행 카드의 입력란 · 고른 제안 · 인스턴스 대화)은 터미널에 붙여 넣기 + Enter 로, 작업자가 터미널에 직접 친 글은 그대로 들어간다(Claude Code · Codex 모두 멈추지 않음). 다른 사람의 입력은 서버가 막고 runner 도 받지 않는다. 다른 사람의 제안이 오거나 CLI 가 사람을 기다리면(권한 확인) 시스템 알림.
+- **설정**(웹 화면 설정 › 계정 › 「내 컴퓨터의 에이전트」): 이 컴퓨터에서 단계 실행 켬 · 끔, 실행 전에 묻기(시스템 창), 연결 해제. 로그아웃하면 이 컴퓨터의 토큰을 끊는다.
+- 실행 중이면 화면 오른쪽 아래 「로컬 에이전트 실행 중 · Claude Code」, macOS Dock 배지 ●.
+- 개발용 환경변수: `PGL_RUNNER_PATH`(CLI 를 먼저 찾을 폴더 — 시험의 가짜 CLI), `PGL_RUNNER_LOG=1`(runner 기록을 콘솔에), `PGL_RUNNER_ASK=yes|no`(묻는 창 대신), `PGL_RUNNER_DEVICE_NAME`(기기 이름), `PGL_RUNNER_MODE=headless`, `PGL_RUNNER_SETTLE_MS`(턴이 끝나고 단계를 끝낼 때까지, 기본 3000).
+- 시험: `npm test`(runner — 터미널은 가짜 대화형 CLI `test/fixtures/fake-tui.js`, 헤드리스는 `fake-cli.js`), `cd e2e && npx playwright test --project=desktop tests/desktop/local-agents.spec.js`(Electron 두 개). 시험은 CLI 의 설정 폴더를 임시로 준다(`CLAUDE_CONFIG_DIR` · `CODEX_HOME`).
 
 ## 보안
 

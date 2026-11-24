@@ -237,6 +237,8 @@ export function ontologyRoutes(auth) {
     limit: Math.min(100, Math.max(5, Number(req.query.limit) || 40)), before: req.query.before || null })))
   r.post('/ontology/tasks/:key/draft', auth, h(async (req) => { await admin(req); return D.draftDefinition(req.params.key, { template: req.body?.template }) }))
   r.put('/ontology/tasks/:key/definition', auth, h(async (req) => { await admin(req); return D.saveDefinition(req.user, req.params.key, String(req.body?.definition || '')) }))
+  // 이 일을 할 에이전트(서버 에이전트 · 담당자 컴퓨터의 CLI 에이전트 — lib/localAgents): body {agent, whenOffline, serverAgent, waitMinutes, runner}
+  r.put('/ontology/tasks/:key/agent', auth, h(async (req) => { await admin(req); return D.setAgent(req.user, req.params.key, req.body || {}) }))
   // 일이 쓰는 양식 · 형식 규칙 · 스킬 보기 · 건의 단계가 만든 파일(routes/ontologyForms.js)
   formRoutes(r, { auth, h, hl, admin })
 

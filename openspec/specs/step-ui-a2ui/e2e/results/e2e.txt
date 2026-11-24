@@ -1,0 +1,24 @@
+# Playwright feature — step-ui-a2ui.spec.js · 2026-11-24 16:37 · 051cd68 + 작업 트리 · 가짜 모델 · 지도 저장소 없음
+
+## run 1
+  ✓  1 [feature] › tests/feature/step-ui-a2ui.spec.js:94:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-01 할 일 카드: 준비하고 있어요 → 단계에 맞는 화면, 필수 칸 전엔 보내기 꺼짐, 한국어로 채워 내면 읽기 전용 · 서버에 값과 결과 글 (7.4s)
+  ✓  2 [feature] › tests/feature/step-ui-a2ui.spec.js:147:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-02 빈 칸을 두고 보내기를 누르면 모든 칸의 안내가 보이고, 맡은 사람이 아니면 낼 수 없다(서버가 다시 본다) (2.6s)
+  ✓  3 [feature] › tests/feature/step-ui-a2ui.spec.js:179:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-03 화면을 못 만들면(모델이 엉뚱한 화면을 두 번) 지금의 글 한 칸으로 낸다 (2.7s)
+  ✓  4 [feature] › tests/feature/step-ui-a2ui.spec.js:200:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-04 휴대폰 390px: 화면이 카드 너비 안, 버튼 줄이 옆으로 넘치지 않는다 (1.7s)
+  ✓  5 [feature] › tests/feature/step-ui-a2ui.spec.js:229:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-05 낮 · 밤 테마: 화면의 글 · 칸 · 버튼 색이 앱의 테마를 따른다(페이지의 color-scheme 은 그대로) (2.4s)
+  5 passed (17.6s)
+
+## run 2
+  ✓  1 [feature] › tests/feature/step-ui-a2ui.spec.js:94:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-01 할 일 카드: 준비하고 있어요 → 단계에 맞는 화면, 필수 칸 전엔 보내기 꺼짐, 한국어로 채워 내면 읽기 전용 · 서버에 값과 결과 글 (6.5s)
+  ✓  2 [feature] › tests/feature/step-ui-a2ui.spec.js:147:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-02 빈 칸을 두고 보내기를 누르면 모든 칸의 안내가 보이고, 맡은 사람이 아니면 낼 수 없다(서버가 다시 본다) (2.2s)
+  ✓  3 [feature] › tests/feature/step-ui-a2ui.spec.js:179:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-03 화면을 못 만들면(모델이 엉뚱한 화면을 두 번) 지금의 글 한 칸으로 낸다 (1.4s)
+  ✓  4 [feature] › tests/feature/step-ui-a2ui.spec.js:200:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-04 휴대폰 390px: 화면이 카드 너비 안, 버튼 줄이 옆으로 넘치지 않는다 (1.8s)
+  ✓  5 [feature] › tests/feature/step-ui-a2ui.spec.js:229:3 › 단계 입력 화면 — 에이전트가 만든 A2UI 화면 (spec step-ui-a2ui) › F-SU-05 낮 · 밤 테마: 화면의 글 · 칸 · 버튼 색이 앱의 테마를 따른다(페이지의 color-scheme 은 그대로) (3.0s)
+  5 passed (15.7s)
+
+## 회귀: smoke 묶음(같은 서버 · 같은 가짜 모델, RT_WORKERS=2)
+63 통과 · 5 실패 · 6 건너뜀.
+실패 5개는 이 작업과 무관하다. origin/main(051cd68)의 화면을 같은 서버에 붙여 다시 돌려도 똑같이 실패했다.
+- S-EN-02 /settings · /settings/security 의 한국어 남음: 설정 화면의 문구이며 이 작업이 바꾸지 않았다.
+- S-27 · S-29 보관함: 이 작업 트리에는 보관함 열쇠 묶음(server/.vault-keyring.json)이 없다("vault KEK … is not in the keyring").
+- S-31 이음오피스 편집기 경로: office-host(:5390)가 떠 있지 않다.
