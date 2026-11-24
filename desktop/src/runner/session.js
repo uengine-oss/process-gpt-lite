@@ -356,7 +356,12 @@ class CliSession extends EventEmitter {
   rel(s) {
     let t = String(s ?? '')
     // (the longer spelling first: /private/var/… before /var/… on macOS)
-    for (const d of [this.cwd, this.realCwd].filter(Boolean).sort((a, b) => b.length - a.length)) { t = t.split(`${d}${path.sep}`).join(''); if (path.sep === '\\') t = t.split(`${d.replace(/\\/g, '/')}/`).join('') }
+    const whole = t
+    const dirs = [this.cwd, this.realCwd].filter(Boolean).sort((a, b) => b.length - a.length)
+    for (const d of dirs) { t = t.split(`${d}${path.sep}`).join(''); if (path.sep === '\\') t = t.split(`${d.replace(/\\/g, '/')}/`).join('') }
+    // Windows: a file of the work folder reads as it does on the other systems (산출물/…, not 산출물\…) — only when the whole
+    // value was that file's path; text that merely mentions one (a command) is left as written
+    if (path.sep === '\\' && dirs.some((d) => whole.startsWith(`${d}\\`) || whole.startsWith(`${d.replace(/\\/g, '/')}/`))) t = t.replace(/\\/g, '/')
     return t
   }
   emitTx(items) {
