@@ -331,6 +331,8 @@ async function openPerson(row) {
 export async function toPerson(todoId) {
   const [t] = await q(`update todolist set status='IN_PROGRESS' where id=$1 and status::text='TODO' returning id::text as id, user_id, activity_name, proc_inst_id`, [todoId])
   if (!t) return null
+  // its input screen is made now, while the person is told (lib/stepUi — the engine does not wait)
+  import('../stepUi/index.js').then((U) => U.soon(t.id)).catch(() => {})
   const [c] = await q(`select started_by from pro_po_cases where $1 = any(instances) limit 1`, [t.proc_inst_id])
   const ids = String(t.user_id || '').split(',').map((x) => x.trim()).filter(Boolean)
   for (const id of ids) emit(id, 'notifications', {})
@@ -607,7 +609,9 @@ export async function todoView(t) {
   const step = { id: t.activity_id, name: t.activity_name, role: act.role || '', kind: act.agentMode === 'complete' ? 'agent' : 'human', description: act.description || '', formId,
     agentMode: act.agentMode || null, orchestration: act.orchestration || null, skills: act.skills || [] }
   const vals = t.draft || t.output || {}
-  return { todo: t, step, form, instName: s?.trigger?.subject || t.activity_name, values: vals[formId] || vals }
+  // the step's input screen, made for this case and step (lib/stepUi — A2UI v1.0): ui next to form
+  const ui = await import('../stepUi/index.js').then((U) => U.viewFor(t, { formId })).catch((e) => { console.warn('[step-ui] view', e.message); return {} })
+  return { todo: t, step, form, instName: s?.trigger?.subject || t.activity_name, values: vals[formId] || vals, ...ui }
 }
 
 // GET /ontology/cases/:id/flow — the case's flowchart, drawn from the map as of now (or its pin), each step's state from its work items

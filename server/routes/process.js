@@ -98,8 +98,8 @@ export function processRoutes(auth) {
   })
 
   r.post('/todos/:id/submit', auth, async (req, res) => {
-    try { res.json(await engine.submitTodo({ me: req.user, session: req.session, todoId: req.params.id, values: req.body.values || {}, messageId: req.body.messageId })) }
-    catch (e) { console.warn('[submit]', e.message); res.status(500).json({ error: e.message }) }
+    try { res.json(await engine.submitTodo({ me: req.user, session: req.session, todoId: req.params.id, values: req.body.values || {}, messageId: req.body.messageId, a2ui: req.body.a2ui || null })) }
+    catch (e) { console.warn('[submit]', e.message); res.status(e.status || 500).json({ error: e.message }) }
   })
 
   // form file fields: data URL in, public storage URL out

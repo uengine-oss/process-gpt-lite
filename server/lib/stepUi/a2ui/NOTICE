@@ -1,0 +1,7 @@
+A2UI v1.0 JSON Schemas — common_types.json, agent_to_renderer.json, renderer_to_agent.json —
+copied unchanged from https://github.com/a2ui-project/a2ui (specification/v1_0/json, commit c26be2d,
+2026-11-24) under the Apache License 2.0 (LICENSE in this folder).
+
+../catalog.json is derived from that project's catalogs/basic/v1/catalog.json: a subset of its
+components and functions, TextField without the "obscured" variant, and its own id, title,
+description and instructions. server/scripts/a2ui-vendor.mjs refreshes both.
