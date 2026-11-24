@@ -106,6 +106,14 @@ export const config = {
   // scenarios with their sweep, the settings tabs 정책·가드레일 and 승인함, and the scenario policies seeded for a
   // company. On unless PRO_SCENARIOS=off (development and recordings keep them; production turns them off)
   scenarios: !/^(off|0|false|no)$/i.test(String(get('PRO_SCENARIOS', 'on')).trim()),
+  // link preview cards (lib/linkPreview.js): how many pages one person may have the server read in a minute (a page already
+  // read is free), and — tests only — hosts it may read although they are local ("127.0.0.1:59981,…"). Empty by default and
+  // ignored behind the ProcessGPT gateway (production).
+  linkPreviewPerMinute: Math.max(1, Number(get('PRO_LINK_PREVIEW_PER_MIN', '30')) || 30),
+  linkPreviewAllowHosts: get('PRO_LINK_PREVIEW_ALLOW_HOSTS', ''),
+  // more address ranges link cards must never read, on top of the private ones (a cluster whose Service or Pod range is not a
+  // private one — e.g. "34.118.224.0/20,2600:1900::/28")
+  linkPreviewDenyCidrs: get('PRO_LINK_PREVIEW_DENY_CIDRS', ''),
   llmTrace: get('PRO_LLM_TRACE', ''), // file to append model request text to (see lib/llm.js)
 
   // this install's own Google OAuth client: the default when a company has not saved its own in the

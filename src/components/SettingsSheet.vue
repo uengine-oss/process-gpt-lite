@@ -85,6 +85,17 @@ const auditText = (a) => {
   }[a.action] || a.action
 }
 const actorText = { user: '나', 'browser-agent': '브라우저 에이전트', mail: '메일', connector: '커넥터', admin: '관리자' }
+// 링크 미리보기 (server lib/linkPreview.js): the company's switch, administrators only; everyone's screen follows app.me.features.linkPreview
+const linkPreview = computed(() => app.me?.features?.linkPreview !== false)
+const lpBusy = ref(false)
+const lpErr = ref('')
+async function toggleLinkPreview() {
+  lpBusy.value = true; lpErr.value = ''
+  try {
+    const r = await api('/admin/link-preview', { method: 'PUT', body: { enabled: !linkPreview.value } })
+    if (app.me) app.me = { ...app.me, features: { ...(app.me.features || {}), linkPreview: r.enabled } }
+  } catch (e) { lpErr.value = e.message || '바꾸지 못했어요.' } finally { lpBusy.value = false }
+}
 // 메일로 온 인증 코드 자동 입력 (server lib/mailCode.js): on unless turned off
 const mailCodes = computed(() => app.me?.profile?.mail_codes !== false)
 async function toggleMailCodes() {
@@ -347,6 +358,15 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
             <DemoMailPractice />
           </div>
         </div>
+        <!-- administrators: link preview cards for the whole company (server lib/linkPreview.js) -->
+        <template v-if="app.me?.admin">
+          <p class="cap">링크 미리보기</p>
+          <div class="list glass">
+            <div class="li"><div class="main"><b>대화의 링크를 카드로</b><small>채팅과 팀 메시지에 있는 링크의 제목 · 설명 · 그림을 카드로 보여 줘요. 서버가 그 페이지를 대신 읽고, 서명이나 토큰이 붙은 링크와 사내 주소는 열지 않아요. 끄면 회사의 모든 사람에게 카드가 보이지 않아요.</small></div>
+              <button class="switch" :class="{ on: linkPreview }" role="switch" :aria-checked="linkPreview" aria-label="링크 미리보기" data-test="link-preview-switch" :disabled="lpBusy" @click="toggleLinkPreview"><i /></button></div>
+            <p v-if="lpErr" class="ferr lperr">{{ lpErr }}</p>
+          </div>
+        </template>
         <!-- administrators: the company's own Google OAuth client -->
         <GoogleClientAdmin v-if="app.me?.admin" />
       </template>
@@ -442,6 +462,7 @@ b.sm { font-size: 15px; }
 .brand { min-width: 64px; height: 40px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 600; color: #fff; background: #5b6170; }
 .brand.visa { background: #1a1f71; } .brand.mastercard { background: #eb001b; } .brand.amex { background: #2e77bc; } .brand.jcb { background: #0b7a3e; }
 .ferr { margin: 0; color: var(--color-error); font-size: 14px; }
+.lperr { padding: 0 0 14px; }
 .gback { margin: 0 0 16px; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.5; background: var(--cell-bg); }
 .gback.ok { color: #1f8a4c; }
 .gback.bad { color: var(--color-error); }

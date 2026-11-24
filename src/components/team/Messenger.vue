@@ -15,6 +15,8 @@ import { langLabel } from '../../i18n/mainLangs.js'
 // (an agent's reply in a room names sandbox paths too: they read as file names, as in the chat — src/paths.js)
 import { hidePaths } from '../../paths.js'
 import ConflictChoice from './ConflictChoice.vue'
+// link preview cards under a message with links (server lib/linkPreview.js)
+import LinkPreviews from '../LinkPreviews.vue'
 
 const app = useApp()
 const team = useTeam()
@@ -229,6 +231,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <small class="t">{{ when(m.at) }}</small>
               </div>
             </div>
+            <LinkPreviews v-if="m.body && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
             <AssistSuggestion v-for="sg in sugOf(m.id)" :key="sg.id" :s="sg" />
             </template>
           </div>
@@ -341,6 +344,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .ex { margin-top: 6px; font-size: 12.5px; color: var(--text-secondary); }
 .ex summary { cursor: pointer; } .ex p { margin: 4px 0 0; }
 .cont { margin-top: 8px; }
+/* link cards sit under the bubble, on its side (past the avatar for a teammate's) */
+.msgs .mlp { align-self: flex-start; width: min(360px, calc(86% - 36px)); margin: -4px 0 0 36px; }
+.msgs .mlp.mine { align-self: flex-end; margin-left: 0; }
 .t { display: block; margin-top: 4px; font-size: 11px; opacity: .6; }
 .cmp { position: relative; padding: 10px 12px 12px; border-top: 1px solid rgba(127, 127, 127, .14); }
 .box { display: flex; align-items: flex-end; gap: 6px; border-radius: 22px; background: rgba(127, 127, 127, .1); padding: 4px; }
