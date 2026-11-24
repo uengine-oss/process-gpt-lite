@@ -2,9 +2,13 @@
 // The composer's agent picker (src/chatAgent.js · server lib/localAgents/chat.js): a chip next to send naming who answers this message —
 // 「기본」 (the server's business agent) or a CLI on my own PC (「Claude Code · 내 PC」 · 「Codex · 내 PC」, only those my desktop app
 // reports). When no PC app is on, the local ones show off with why, and a link to the desktop app. The choice is kept per chat (key).
+// Inside the desktop app the page can tell more than the server (localRunner.js hereWhy): an app too old to link this computer, a pairing
+// that failed or was undone, a link on its way — said instead of 「install the desktop app」, with 「이 컴퓨터 연결」 or the newest app's link.
 // Keyboard: the chip opens with Enter · Space · ↑ · ↓; in the list ↑ ↓ Home End move, Enter · Space pick, Esc · Tab close.
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { chatAgents, refreshAgents, choiceOf, choose, isLocal, agentFor } from '../chatAgent.js'
+import { runner, hereWhy, desktopApp, olderVersion, pairThis } from '../localRunner.js'
+import { useApp } from '../stores/app.js'
 
 // row: on its own line over the composer's box (a phone)
 const props = defineProps({ chatKey: { type: String, required: true }, row: Boolean })
@@ -18,10 +22,31 @@ const uid = `ca-${Math.random().toString(36).slice(2, 8)}`
 const chosen = computed(() => choiceOf(props.chatKey))
 // what the message goes to now (a CLI no desktop reports any more: 기본)
 const effective = computed(() => agentFor(props.chatKey))
-const current = computed(() => chatAgents.agents.find((a) => a.id === effective.value) || chatAgents.agents[0])
+const app = useApp()
+// this computer, when the page runs in the desktop app and no desktop of the person is on (null otherwise)
+const here = computed(() => (chatAgents.desktop?.online ? null : hereWhy(app.me?.user?.id)))
+const HERE_WHY = {
+  old: 'PC 앱이 오래돼 이 컴퓨터를 연결할 수 없어요 — 업데이트하면 쓸 수 있어요',
+  error: '이 컴퓨터를 연결하지 못했어요 — 다시 연결해 주세요',
+  refused: '서버가 이 컴퓨터의 연결을 끊었어요 — 다시 연결해 주세요',
+  unpaired: '이 컴퓨터는 연결을 해제해 두었어요 — 다시 연결하면 쓸 수 있어요',
+  connecting: '이 컴퓨터가 서버에 연결 중이에요',
+}
+const items = computed(() => chatAgents.agents.map((a) => (here.value && a.id !== 'default' && !a.available ? { ...a, why: HERE_WHY[here.value.kind] } : a)))
+const current = computed(() => items.value.find((a) => a.id === effective.value) || items.value[0])
 const off = computed(() => isLocal(effective.value) && current.value && !current.value.available)
-const items = computed(() => chatAgents.agents)
 const noPc = computed(() => !chatAgents.desktop?.online)
+// the app this page runs in, and a newer one to offer (the server reads the newest release: desktop.latest)
+const appVersion = computed(() => desktopApp()?.version || '')
+const newer = computed(() => (desktopApp() && olderVersion(appVersion.value, chatAgents.desktop?.latest) ? chatAgents.desktop.latest : ''))
+const canPair = computed(() => ['error', 'refused', 'unpaired'].includes(here.value?.kind))
+const pairing = ref(false)
+async function pairHere() {
+  if (pairing.value) return
+  pairing.value = true
+  try { await pairThis(app.me) } catch (e) { runner.error = runner.error || e.message } finally { pairing.value = false }
+  refreshAgents(props.chatKey)
+}
 const title = (a) => (a.id === 'default' ? a.label : `${a.label} · ${a.where}`)
 
 watch(() => props.chatKey, (k) => { if (k) refreshAgents(k) }, { immediate: true })
@@ -73,8 +98,13 @@ function onListKey(e) {
   else if (e.key === 'End') { e.preventDefault(); at.value = n - 1; focusAt() }
   else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(items.value[at.value]) }
   else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close() }
-  else if (e.key === 'Tab') close(false)
+  else if (e.key === 'Tab') {
+    // (:scope — the chat page's own .foot holds this picker)
+    const foot = !e.shiftKey && root.value?.querySelector(':scope .menu .foot a, :scope .menu .foot button')
+    if (foot) { e.preventDefault(); foot.focus() } else close(false)
+  }
 }
+function onFootKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close() } }
 </script>
 
 <template>
@@ -101,11 +131,25 @@ function onListKey(e) {
             </span>
           </li>
         </ul>
-        <p v-if="noPc" class="foot" data-test="chat-agent-nopc">
+        <p v-if="here?.kind === 'old'" class="foot" data-test="chat-agent-old" @keydown="onFootKey">
+          <span v-if="appVersion">{{ newer ? `지금 쓰는 PC 앱은 ${appVersion} 버전, 최신은 ${newer} 버전이에요` : `지금 쓰는 PC 앱은 ${appVersion} 버전이에요` }}</span>
+          <a v-if="chatAgents.download" :href="chatAgents.download" target="_blank" rel="noopener" data-test="chat-agent-update">최신 버전 받기</a>
+        </p>
+        <p v-else-if="canPair" class="foot" data-test="chat-agent-pair" @keydown="onFootKey">
+          <span>연결하면 이 컴퓨터의 Claude Code · Codex로 보낼 수 있어요</span>
+          <button type="button" class="lnk" :disabled="pairing" data-test="chat-agent-pair-btn" @click="pairHere">이 컴퓨터 연결</button>
+        </p>
+        <p v-else-if="here?.kind === 'connecting'" class="foot" data-test="chat-agent-connecting"><span>연결되면 바로 고를 수 있어요</span></p>
+        <p v-else-if="noPc" class="foot" data-test="chat-agent-nopc">
           <span>{{ chatAgents.desktop?.linked ? 'PC 앱을 켜면 내 PC 의 Claude Code · Codex 로 보낼 수 있어요' : '내 PC 의 Claude Code · Codex 는 Process GPT Lite 데스크톱 앱으로 써요' }}</span>
           <a v-if="chatAgents.download" :href="chatAgents.download" target="_blank" rel="noopener" data-test="chat-agent-download">PC 앱 내려받기</a>
         </p>
         <p v-else-if="!items.some((a) => a.id !== 'default')" class="foot" data-test="chat-agent-nocli"><span>연결된 PC 에 Claude Code · Codex 가 없어요 — 설치한 뒤 PC 앱의 설정에서 「다시 찾기」를 눌러 주세요</span></p>
+        <!-- a newer desktop app (this page runs in an older one), or a linked PC too old for chat (the server's row says so) -->
+        <p v-if="here?.kind !== 'old' && chatAgents.download && (newer || items.some((a) => a.update))" class="foot" data-test="chat-agent-newer" @keydown="onFootKey">
+          <span v-if="newer">PC 앱 새 버전({{ newer }})이 나왔어요</span>
+          <a :href="chatAgents.download" target="_blank" rel="noopener">{{ newer ? '내려받기' : '최신 버전 받기' }}</a>
+        </p>
       </div>
     </Transition>
   </span>
@@ -139,6 +183,9 @@ ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: col
 .tx small { font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .tx small.why { color: var(--color-attention); }
 .foot { margin: 4px 8px 2px; padding-top: 8px; border-top: 1px solid var(--hairline); font-size: 12px; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
-.foot a { color: var(--color-info); font-weight: 600; text-decoration: underline; }
+.foot a, .foot .lnk { color: var(--color-info); font-weight: 600; text-decoration: underline; }
+.foot .lnk { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.foot .lnk:disabled { opacity: .6; cursor: default; }
+.foot a:focus-visible, .foot .lnk:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; border-radius: 4px; }
 .row .chip { margin: 0; max-width: 100%; background: var(--thin-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
 </style>

@@ -35,6 +35,7 @@ import * as D from './devices.js'
 import * as R from './relay.js'
 import * as ST from './steps.js'
 import { josa, eulReul } from '../josa.js'
+import { latestDesktop } from './desktopRelease.js'
 
 const T = () => config.tenantId
 export const KIND = 'chat'
@@ -78,12 +79,15 @@ export async function availability(user) {
       else out.push({ ...base, available: false, why: L(`이 PC 에서 ${eulReul(label)} 실행할 수 없어요`, `${label} cannot run on this computer`) })
       continue
     }
-    // none is on: what the linked desktops said last time (any CLI when none was ever linked)
-    if (devices.length && !devices.some((d) => d.caps?.clis?.[id]?.installed)) continue
+    // none is on: what the linked desktops said last time (any CLI when none was ever linked, or none has reported its CLIs yet —
+    // a desktop just paired, before its first link)
+    const reported = devices.filter((d) => Object.keys(d.caps?.clis || {}).length)
+    if (reported.length && !reported.some((d) => d.caps.clis[id]?.installed)) continue
     out.push({ ...base, devices: devices.filter((d) => d.caps?.clis?.[id]?.installed).map((d) => d.name), available: false,
       why: devices.length ? L('PC 앱이 꺼져 있어요', 'The desktop app is off') : L('PC 앱을 설치하고 로그인하면 쓸 수 있어요', 'Install the desktop app and sign in to use it') })
   }
-  return { agents: out, desktop: { linked: devices.length, online: links.length, names: links.map((l) => l.name) }, download: DOWNLOAD }
+  // latest: the newest desktop app — a page inside an older one offers it (desktopRelease.js)
+  return { agents: out, desktop: { linked: devices.length, online: links.length, names: links.map((l) => l.name), latest: latestDesktop() }, download: DOWNLOAD }
 }
 
 // the agent the person chose for a chat (one row per chat; none: 기본)

@@ -870,6 +870,21 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 맥락으로 나눈 대화(`/chat/c/:id`) 안에서 보내기 · 그 대화의 산출물 스택 | 사용자 11-24 | `chatAgents.test.js`(대화 열쇠) · `chatAgents.e2e.mjs`(대화마다의 선택) — 화면은 모델 없이 그 대화를 만들 수 없음 | 단위 · 통합 | ◐ |
 | 실제 Claude Code · Codex 로 채팅 메시지 | — | — (가짜 대화형 CLI 로만) | — | ◐ |
 
+**데스크톱 앱 안에서(11-25 보고).** 「일렉트론에서 실행했는데도... 에이전트 선택이 안됨」 — 그 앱은 0.1.0(로컬 에이전트 전 판, runner 다리 없음)이라 이 컴퓨터를 짝짓지 못했는데, 고르기는 앱 안에서 「PC 앱을 설치하고 로그인하면 쓸 수 있어요」라고 했다. `chat-agent-desktop.spec.js` 는 자기 스택(회사 `chatagent-desk`, 8930 · 5330 부터, `PRO_DESKTOP_LATEST=0.2.3`)에서 브라우저 페이지에 데스크톱 preload 의 `window.pglDesktop` 을 넣는다 — 옛 앱(다리 없음) 또는 가짜 runner 다리(짝짓기 한 번 실패 뒤 성공, 이어지지는 않음).
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 브라우저에서는 그대로(「PC 앱을 설치하고 로그인하면 …」 · 「PC 앱 내려받기」), 앱 버전 줄 없음 | 사용자 11-25 | F-CA-09 | feature | ✅ |
+| 0.1.0 앱 안: 「PC 앱이 오래돼 …」, 지금 · 최신 버전, 「최신 버전 받기」, Tab 으로 링크, 설정도 같은 말, 390px 어둡게 | 사용자 11-25 | F-CA-10 | feature | ✅ |
+| 연결을 해제해 둔 앱: 「이 컴퓨터 연결」 — 실패하면 까닭(그 토큰은 거둠), 다시 누르면 짝지어 「연결 중」, CLI 항목은 그대로 | 사용자 11-25 | F-CA-11 · `chatAgents.test.js`(알리지 않은 데스크톱) | feature · 단위 | ✅ |
+| 이어진 앱이 가장 새 릴리스보다 오래됨: 「PC 앱 새 버전(…)이 나왔어요」 · 「내려받기」, 설정도 | 사용자 11-25 | F-CA-12 · `server/test/desktopRelease.test.js`(릴리스 고르기 · 버전 순서 · 기다리지 않음 · 못 읽으면 없음) | feature · 단위 | ✅ |
+| 실제 Electron 0.1.0 · 0.2.x 앱 안에서 | — | — (preload 의 `window.pglDesktop` 모양을 그대로 흉내 냄) | — | ◐ |
+
+```bash
+cd server && node --test test/desktopRelease.test.js test/chatAgents.test.js
+cd e2e && npx playwright test --project=feature tests/feature/chat-agent-desktop.spec.js
+```
+
 ### 39. 문서 옆의 왼쪽 칸 — 목록 · 채팅 · 문서가 겹치지 않음 (스펙 `chat-artifacts`)
 
 운영 화면(11-24, 약 2000px 창)에서 사용자가 보고한 문제다. 「프로젝트에서 산출물을 열어보면 이렇게 목록과 대화내용이 겹쳐진다.」 문서 패널이 옆에 열리면 전역 CSS(`OfficeSheet.vue`의 `body.craft-side .main .center { left: 0 }`)가 채팅 칸을 창 왼쪽 끝부터 다시 놓았고, 그 위에 왼쪽 목록이 그대로 남아 있었다. 고친 뒤에는 `MainView.vue`가 문서 패널의 실제 폭을 잰다. 그리고 `src/leftColumn.js`의 규칙을 따른다. 왼쪽 칸(420px) · 채팅(512px + 양옆 40px) · 문서가 나란히 들어가면 셋을 나란히 둔다. 들어가지 않으면 목록을 접고 위쪽 막대 Home 옆의 「≡ 프로젝트 · 루틴 · 대화」 단추로 채팅 위에 펼친다. Home 은 열 때 채팅 위에 펼쳐진다. 시험마다 1280 · 1440 · 1600 · 2000px 에서 문서를 연다. 그리고 문서 패널 · 채팅 칸 · 입력창 · 왼쪽 칸 · 단추 · 탭 · 붙여 둔 메신저의 상자가 서로 겹치지 않는지 본다. 화면 사진은 `openspec/specs/chat-artifacts/e2e/results/f-dl-*.png`에 있다.
