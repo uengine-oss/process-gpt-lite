@@ -148,7 +148,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <button class="press" :class="{ on: inboxKind === 'mail' }" data-test="inbox-mail" @click="inboxKind = 'mail'">메일</button>
           </div>
           <template v-if="inboxKind === 'mail'">
-            <button v-for="a in mails || []" :key="a.id" class="mailcard press" data-test="inbox-mail-card" @click="app.mailCard = a">
+            <button v-for="a in mails || []" :key="a.id" class="mailcard press" data-test="inbox-mail-card" @click="app.mailCardFrom = 'inbox'; app.mailCard = a">
               <span class="mh"><span class="vb">{{ a.verb }}</span><b>{{ fromName(a.source?.from) }}</b><small>{{ when(a.created_at) }}</small></span>
               <span class="subj">{{ a.source?.subject }}</span>
               <span class="txt">{{ a.text }}</span>

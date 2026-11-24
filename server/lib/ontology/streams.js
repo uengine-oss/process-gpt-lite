@@ -109,6 +109,18 @@ export async function groupBySameWork(cases, judge, { groups = [], min = 0.7, ma
   return { groups: out, ps, joined, unread }
 }
 
+// The judge's reading of one 「같은 한 건의 일인가」 question (prompts/same-work.md): the first token's probability of 「같은 일」, or —
+// a model that gives no log-probabilities — its plain answer as 1 · 0; null when there is no reading at all. state: 「이미 묶인 건:」 · 「새 건:」
+// lines. Also how a new mail is read against the running work it may belong to (lib/mailFlow.js).
+export async function sameWorkP(state, sameWork, { timeoutMs = 8000 } = {}) {
+  const r = await oddsOf(state, sameWork, [{ key: 'same', label: '같은 일' }, { key: 'diff', label: '다른 일' }], { timeoutMs })
+  if (r) return r.probabilities.same
+  try {
+    const j = await chatJson(`${sameWork}\nJSON {"same":true|false} 로만 답하세요.`, state, { timeoutMs: 30000, temperature: 0 })
+    return j?.same === true ? 1 : j?.same === false ? 0 : null
+  } catch { return null }
+}
+
 async function inTurns(items, n, fn) {
   const queue = [...items]
   await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => { while (queue.length) await fn(queue.shift()) }))
@@ -154,16 +166,7 @@ export async function linkCases({ say = async () => {}, companyDomains = [] } = 
   // the proposal, checked by the judge (see the top): a case the proposal joins to others joins only the ones it is the
   // same work as; a case it is not the same work as stands alone (stream null) — said in its why
   if (sameWork) {
-    const judgeSame = async (c, shown) => {
-      const state = ['이미 묶인 건:', ...shown.map((x) => `- ${caseCard(x)}`), '', '새 건:', `- ${caseCard(c)}`].join('\n')
-      const r = await oddsOf(state, sameWork, [{ key: 'same', label: '같은 일' }, { key: 'diff', label: '다른 일' }], { timeoutMs: V.timeoutMs || 8000 })
-      if (r) return r.probabilities.same
-      // a model that gives no log-probabilities: its plain answer
-      try {
-        const j = await chatJson(`${sameWork}\nJSON {"same":true|false} 로만 답하세요.`, state, { timeoutMs: 30000, temperature: 0 })
-        return j?.same === true ? 1 : j?.same === false ? 0 : null
-      } catch { return null }
-    }
+    const judgeSame = async (c, shown) => sameWorkP(['이미 묶인 건:', ...shown.map((x) => `- ${caseCard(x)}`), '', '새 건:', `- ${caseCard(c)}`].join('\n'), sameWork, { timeoutMs: V.timeoutMs || 8000 })
     const byStream = new Map()
     for (const c of todo) { const s = answers.get(c.id); if (s) { if (!byStream.has(s)) byStream.set(s, []); byStream.get(s).push(c) } }
     // groups settled before under this version: stored as the proposal's name, or `name · date` for a later group of it

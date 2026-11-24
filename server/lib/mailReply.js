@@ -304,16 +304,22 @@ export async function sendReply(user, actionId, input = {}) {
   }
   emit(user.id, 'action', row)
   const who = to.map((x) => x.name || x.address).join(', ')
-  const t = await mainThread(user.id)
-  await addMessage(user.id, t.id, 'agent', 'text', {
+  // the reply is said where the mail's work is: the instance it belongs to (its conversation — lib/mailFlow.js, 2026-11-18: an instance's
+  // work stays on its page), else the main chat; either way with the mail's chip, which opens this card again
+  const inst = row.source?.inst?.instId ? row.source.inst : null
+  const { instanceThread } = await import('./engine.js')
+  const where = inst ? await instanceThread(user.id, inst.instId, inst.name) : (await mainThread(user.id)).id
+  await addMessage(user.id, where, 'agent', 'text', {
     text: mode === 'drafts'
       ? L(`${who}에게 보낼 답장 「${sent.subject}」을 메일함의 임시 보관함에 넣었어요. 메일 앱에서 보내 주세요.`, `I put the reply "${sent.subject}" to ${who} in your mailbox's Drafts. Send it from your mail app.`)
       : sent.via === 'demo'
         ? L(`데모 메일함이라 ${who}에게 보낼 답장 「${sent.subject}」을 실제로 보내지 않고 기록만 했어요.`, `This is the demo mailbox, so the reply "${sent.subject}" to ${who} was recorded, not sent.`)
         : L(`${who}에게 답장 「${sent.subject}」을 보냈어요.`, `I sent the reply "${sent.subject}" to ${who}.`),
     sent_mail: { to: sent.to, subject: sent.subject, via: sent.via, files: sent.files },
+    mail: { from: a.source.from || '', subject: a.source.subject || '', actionId: a.id, mailId: a.source.mail_id, ...(inst ? { inst: { instId: inst.instId, name: inst.name || '' } } : {}) },
+    ...(inst ? { mailEvent: 'reply' } : {}),
   })
   // replying to the customer closes the mail's case, if it has one (lib/mining)
   import('./mining/recorder.js').then((m) => m.recordReply(user, a)).catch((e) => console.warn('[mining] reply', e.message))
-  return { ok: true, sent, action: row }
+  return { ok: true, sent, action: row, ...(inst ? { inst: { instId: inst.instId, name: inst.name || '' } } : {}) }
 }

@@ -72,6 +72,8 @@ Process GPT Lite 의 「회사 프로세스 지도」가 지난 메일 · 인계
 
 들어온 메일 · 채팅에 쓴 요청 · 채팅에 올린 파일이 회사의 어느 프로세스(들)의 일인지(`rules.json` 의 `events`, 서버 `lib/ontology/events.js`). 자동 · 제안인 프로세스를 모두 견주고, 프로세스마다 따로 「이 일이 이 업무의 단계 중 하나인가」(`question`, 프로세스 이름과 단계 목록)를 첫 토큰 확률로 읽어 `yes` 이상이면 그 프로세스의 일이다 — 둘이 함께일 수 있고, 없음도 답이다. 자동인 프로세스(`maxAdopted` 개까지)는 늘 따로 읽고, 제안인 프로세스가 `prefilterAbove` 개보다 많으면 먼저 `chunk` 개씩 고르기 한 번(`pick`, 「없음」 포함)으로 `shortlist` 개(`shortlistMin` 이상)만 남겨 읽는다(`maxReads`). 자동인 프로세스는 메일이 오면 저절로 시작하고(`maxStarts` 개까지), 제안인 프로세스 · 채팅 요청 · 파일은 묻기만 한다. 파일은 이름 · 종류 · 글 앞부분(`fileChars`) · 함께 쓴 말이 사건이다.
 
+메일 카드에서는(`rules.json` 의 `mailFlow`, 서버 `lib/mailFlow.js`) 그 메일이 이미 진행 중인 일의 메일인지 먼저 본다. 같은 Gmail 스레드의 앞 메일이 진행 중인 인스턴스에 이어져 있으면 모델 없이 그 인스턴스의 메일이다. 아니면 내가 시작했거나 이 메일함의 메일이 이어진 진행 중인 인스턴스(`joinDays` 일 안, `joinCandidates` 개까지)마다 `prompts/same-work.md` 를 첫 토큰 확률로 읽어 `joinMin` 이상이면 「진행 중인 … 에 잇기」를 권한다. 프로세스 지도와 견준 결과는 카드에 `matchHours` 시간 동안 남겨 시트를 다시 열 때 다시 읽지 않는다. 모델에 보이는 메일 본문은 `textChars` 자까지다.
+
 ## 이 일이 쓰는 양식 · 형식 규칙
 
 단계가 문서를 만들 때 어디서 시작하는지와, 그 문서가 늘 지켜야 하는 형식(`rules.json` 의 `formats`, 서버 `lib/ontology/formats.js` · `stepdoc.js` · `docfill.js`).

@@ -29,6 +29,15 @@ const notify = ref(notifyPermission())
 async function enableNotify() { notify.value = await askNotify() }
 // (a work item put away from Home — its card or its notice — stays in 루틴, not here)
 const todos = computed(() => app.todos.filter((t) => !t.home_hidden && !app.handled.includes(t.id) && !app.notifications.some((n) => n.todoId === t.id)).slice(0, 3))
+// a mail's card whose instance already has its own Home card (a mail that started a process by itself, a new mail of its thread:
+// server lib/mailFlow.js) is not listed twice; the card the mail sheet's 「Home 카드로」 asks for is listed even past the first five
+const actions = computed(() => {
+  const noticed = (id) => app.notifications.some((n) => n.url === `/routines/${id}` || n.instId === id)
+  const list = app.actions.filter((a) => !(a.source?.inst?.instId && noticed(a.source.inst.instId)) || a.id === app.flashCard)
+  const top = list.slice(0, 5)
+  const asked = app.flashCard && list.find((a) => a.id === app.flashCard)
+  return asked && !top.includes(asked) ? [...top, asked] : top
+})
 // a to-do opens its instance page, where its form is (not a card in the chat)
 async function openTodo(t) {
   const instId = t.proc_inst_id || (await app.openTodo(t).catch(() => null))?.instId
@@ -59,7 +68,7 @@ async function openTodo(t) {
       </button>
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
       <HomeTodoCard v-for="t in todos" :key="'t' + t.id" :todo="t" @open="openTodo" />
-      <ActionCard v-for="a in app.actions.slice(0, 5)" :key="a.id" :action="a" />
+      <ActionCard v-for="a in actions" :key="a.id" :action="a" />
       <WeatherPanel key="weather" />
       <PanelAppCard v-for="a in app.panelApps" :key="'pa' + a.id" :app="a" />
       <PanelFrame v-for="p in app.panels" :key="p.id" :panel="p" />
