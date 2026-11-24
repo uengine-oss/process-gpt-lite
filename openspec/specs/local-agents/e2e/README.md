@@ -1,9 +1,9 @@
 # 시험과 증거
 
-모델은 부르지 않는다(실제 CLI 스모크만 빼고). 판정 모델이 필요한 곳(배운 것 후보)은 단위 시험에서 대역을 쓰고, 실제 BFF 시험에서는 모델 주소가 답하지 않아 「판정 못 함」 길을 탄다. 서버 시험은 로컬 DB 를 쓰고, 시험마다 자기 회사(`localagent-test` · `localagent-e2e` · `localagent-ui` · `localagent-mobile` · `localagent-collab` · `localagent-smoke`)에 행을 두었다가 끝나면 지운다. 폴더는 임시 디렉터리에 만든다. BFF · Vite 는 시험이 빈 포트(8811– · 8831– · 8851– · 8871– · 8891– / 5231– · 5271– · 5291–)에 스스로 띄우고 끝나면 내린다(`PRO_BACKGROUND=0`, `PRO_ONTOLOGY_WORKER=0`).
+모델은 부르지 않는다(실제 CLI 스모크만 빼고). 판정 모델이 필요한 곳(배운 것 후보)은 단위 시험에서 대역을 쓰고, 실제 BFF 시험에서는 모델 주소가 답하지 않아 「판정 못 함」 길을 탄다. 서버 시험은 로컬 DB 를 쓰고, 시험마다 자기 회사(`localagent-test` · `localagent-e2e` · `localagent-ui` · `localagent-mobile` · `localagent-collab` · `localagent-view` · `localagent-smoke`)에 행을 두었다가 끝나면 지운다. 폴더는 임시 디렉터리에 만든다. BFF · Vite 는 시험이 빈 포트(8811– · 8831– · 8851– · 8871– · 8889– · 8891– / 5231– · 5271– · 5289– · 5291–)에 스스로 띄우고 끝나면 내린다(`PRO_BACKGROUND=0`, `PRO_ONTOLOGY_WORKER=0`).
 
 CLI 는 가짜다.
-- 터미널(주 길): `desktop/test/fixtures/fake-tui.js` — PTY 에서 raw 모드로 읽고 친 글을 보여 주며, 붙여 넣기 + Enter 를 메시지로 받는다. Claude Code 2.1.330 처럼 `--session-id` · `--resume` · `--settings` 의 훅(`SessionStart` · `UserPromptSubmit` · `Stop` · `StopFailure`)을 돌리고, 세션 기록을 `$CLAUDE_CONFIG_DIR/projects/<폴더>/<세션>.jsonl` 에 쓰며, 설정이 폴더를 신뢰하지 않으면 신뢰 질문을 띄운다. Codex 0.162.1 처럼 명령줄의 첫 메시지를 스스로 넣고 rollout(`session_meta` · `user_message` · 함수 호출 · `agent_message` · `task_complete`)을 쓴다. 일하는 중에 붙여 넣은 메시지는 지금 할 일 다음에 같은 턴에서 받는다.
+- 터미널(주 길): `desktop/test/fixtures/fake-tui.js` — PTY 에서 raw 모드로 읽고 친 글을 보여 주며, 붙여 넣기 + Enter 를 메시지로 받는다. Claude Code 2.1.330 처럼 `--session-id` · `--resume` · `--settings` 의 훅(`SessionStart` · `UserPromptSubmit` · `Stop` · `StopFailure`)을 돌리고, 세션 기록을 `$CLAUDE_CONFIG_DIR/projects/<폴더>/<세션>.jsonl` 에 쓰며, 설정이 폴더를 신뢰하지 않으면 신뢰 질문을 띄운다. Codex 0.162.1 처럼 명령줄의 첫 메시지를 스스로 넣고 rollout(`session_meta` · `user_message` · 함수 호출 · `agent_message` · `task_complete`)을 쓴다. 일하는 중에 붙여 넣은 메시지는 지금 할 일 다음에 같은 턴에서 받는다. 「대화」 보기와 물음을 위해 실제 2.1.331 의 기록 모양대로 `THINK`(생각 블록) · `SAY`(말, markdown) · `EDIT <파일> :: <앞> => <뒤>`(Edit 과 `structuredPatch`) · `BASH <명령> :: <출력>` · `SKILL <이름>` · `ASK <명령>`(권한 확인 — `PermissionRequest` 훅, 실제와 같은 창, `1` · `2` 면 돌리고 `Esc` 면 거절하고 턴을 `Stop` 없이 멈춤) · `CHOOSE <물음> :: <가> | <나> [;; <물음2> :: …]`(AskUserQuestion — 물음마다 번호, 답은 `선택.md`)도 한다. 닫힐 때는 실제처럼 화면을 지우고 「Resume this session with …」를 남긴다.
 - 헤드리스(예비 길): `desktop/test/fixtures/fake-cli.js` — `claude -p` stream-json · `codex exec --json` 의 인자 · stdin · 출력 그대로.
 - 둘 다 프롬프트의 지시 줄 `WRITE` · `WRITE_OUT` · `READ` · `SLEEP` · `SKILLNOTE` · `MEMORY` · `FAIL` 만 하고, 처음에 자기 자리에서 본 스킬(`보이는 스킬: …`)을 말한다. `$FAKE_CLI_LOG` 에 받은 메시지(`received`)와 따로 친 글(`typed`)을 남긴다.
 - 시험의 runner 는 CLI 의 설정 폴더를 임시로 준다(`CLAUDE_CONFIG_DIR` · `CODEX_HOME`) — runner 가 폴더 신뢰를 쓰는 곳이 사람의 `~/.claude.json` 이 되지 않게.
@@ -13,13 +13,18 @@ CLI 는 가짜다.
 ```bash
 # 서버: 설정 · 기기 토큰 · 배정 · 기다림 · 입력 상태 · 링크 · 제안 → 입력(작업자만) · 제안의 종류 · 터미널 중계 · 스킬 고르기 · 배운 것(판정 대역)
 cd server && node --test test/localAgents.test.js
-# 데스크톱 runner: 터미널(가짜 대화형 CLI, node-pty) + 헤드리스(가짜 CLI) + git HTTP(토큰 필요), 스킬 놓기 · 배운 것 · 알림
+# 이름에 맞는 조사 · 터미널의 색(대비)
+cd server && node --test test/josa.test.js test/localTermTheme.test.js
+# 데스크톱 runner: 터미널(가짜 대화형 CLI, node-pty) + 헤드리스(가짜 CLI) + git HTTP(토큰 필요), 스킬 놓기 · 배운 것 · 알림,
+# 대화 항목(Claude jsonl · Codex rollout 고정 자료 test/fixtures/transcripts/) · 물음과 키 · 턴 뒤 기다리기(test/conversation.test.js)
 cd desktop && npm install && npm test
 # 실제 BFF + 두 사람의 runner(데스크톱 앱 코드, 터미널) + 참여자 · 바깥 사람 + 터미널 보는 사람(WebSocket)
 cd server && node test/localAgents.e2e.mjs
 # Playwright: Electron 앱 두 개 · 휴대폰 · 두 사람 협업(390px 휴대폰 + 1280px 데스크톱 브라우저)
 cd e2e && npx playwright test --project=desktop tests/desktop/local-agents.spec.js
 cd e2e && npx playwright test --project=feature tests/feature/local-agents-mobile.spec.js tests/feature/local-agents-collab.spec.js
+# Playwright: 「대화」 · 「터미널」 두 보기, CLI 의 물음, 턴 뒤 기다리기 · 끝내기, 끝난 실행, 밝은 · 어두운 테마, 휴대폰의 폴더 변경안
+cd e2e && npx playwright test --project=feature tests/feature/local-agents-view.spec.js
 # 실제 CLI(사람의 구독을 씀 — 필요할 때만)
 cd server && LA_SMOKE_GATEWAY=1 LA_SMOKE_ANTHROPIC_BASE_URL=… LA_SMOKE_ANTHROPIC_AUTH_TOKEN=… LA_SMOKE_ANTHROPIC_MODEL=… node test/localAgents.smoke.mjs tty   # 대화형 Claude Code 를 터미널로(게이트웨이 · 임시 설정 폴더)
 cd server && node test/localAgents.smoke.mjs both    # 헤드리스 claude · codex 입력 한 번씩
@@ -48,9 +53,21 @@ cd e2e && npx playwright test --project=feature tests/feature/local-agents-colla
 
 | 스펙 시나리오 | 시험 |
 |---|---|
+| **두 보기** 기본 보기와 고른 보기 | `local-agents-view.spec.js` F-LV-01 · 02 |
+| **두 보기** CLI 가 기록을 쓰는 대로 대화가 늘어난다 | F-LV-03 · 04 · `conversation.test.js` 「Claude Code 세션 jsonl → 대화 항목 …」 · 「Codex rollout → …」 · 「대화가 링크로 간다 …」 · `localAgents.test.js` 「대화 중계 …」 · 「터미널 · 대화를 보는 사람 …」 |
+| **두 보기** 누구의 입력인지 대화에 남는다 | F-LV-05 · `conversation.test.js` 「대화가 링크로 간다 …」(`steerId` · `from` · `by`) |
+| **두 보기** Lite 의 색으로 보는 터미널 | F-LV-09 · `server/test/localTermTheme.test.js` |
+| **물음** 권한 확인 | F-LV-06(서하린 403 · CLI 기록 `answered: '1'`) · `conversation.test.js` 「CLI 가 허락을 물으면 …」 · 「CLI 가 묻는 것과 답하는 키 …」 · `localAgents.test.js` 「대화 중계 …」(작업자만 · 열린 것만) · 실측 `results/smoke.md` 끝 |
+| **물음** 거절하면 턴이 멈추고 사람을 기다린다 | `conversation.test.js` 「CLI 가 허락을 물으면 …」(`Esc` · `turn interrupted` · 그 뒤 파일 없음) · 실측 `results/smoke.md` 끝 |
+| **물음** 고르기 | `conversation.test.js` 「고르기 물음(AskUserQuestion) …」(한 물음 · 두 물음 + Enter) · 실측(한 물음 · 두 물음) `results/smoke.md` 끝 |
+| **기다리기** 첫 초안 뒤에 기다린다 | F-LV-07 · `conversation.test.js` 「턴이 끝난 뒤 기다리기 …」(규칙) · 「턴이 끝나면 기다리고 …」 · `localAgents.test.js` 「턴 뒤 기다림(idle) …」 |
+| **기다리기** 제안이 기다림을 다시 시작한다 | F-LV-07(`idle_until` 이 뒤로) · `conversation.test.js` 「턴이 끝나면 기다리고 …」 |
+| **기다리기** 끝내기 | F-LV-07(서하린 403 · 윤태호 → 끝남) · `conversation.test.js` 「턴이 끝나면 기다리고 …」 |
+| **결과** 끝난 실행의 마지막 화면과 대화 | F-LV-08(일의 `screen` 에 마지막 답, 「Resume this session」 없음 · 메모리에서 빠진 뒤 대화) · `localAgents.test.js` 「터미널 · 대화를 보는 사람 …」(`term-keep`) |
+| **결과** 휴대폰에서 결과의 변경안을 본다 | F-LV-10 |
 | **협업** 휴대폰으로 같은 터미널을 본다 | `local-agents-collab.spec.js` C-01(두 화면의 터미널 글이 같음, 휴대폰은 `data-owner=no` · 키 없음) · `localAgents.e2e.mjs` 2(보는 사람과 작업자가 받은 바이트 = 작업자 데스크톱 터미널의 바이트) · `terminal.test.js` 「…보내는 바이트는 터미널의 바이트 그대로」 |
 | **협업** 제안이 입력란에 쌓인다 | C-01(칩 둘 · Home 알림 `local_suggestion`) · `localAgents.e2e.mjs` 2 · `runner.test.js` 「서버의 스킬 …」(제안 알림 `notice`) |
-| **협업** CLI 를 가진 사람이 골라 고쳐 입력한다 | C-01(버리기 · 넣기 · 고치기 · 가짜 CLI 기록에 고친 글 · 휴대폰 「고쳐서 입력함」 · `local_suggestion_used`) · `localAgents.e2e.mjs` 2 · `terminal.test.js` 「입력은 터미널 주인만 …」 |
+| **협업** CLI 를 가진 사람이 골라 고쳐 입력한다 | C-01(버리기 · 넣기 · 고치기 · 가짜 CLI 기록에 고친 글 · 휴대폰 「고쳐서 입력함」 · `local_suggestion_used`) · `localAgents.e2e.mjs` 2 · `terminal.test.js` 「입력은 터미널 주인만 …」 · `server/test/josa.test.js`(「윤태호가」) |
 | **협업** 다른 사람은 입력하지 못한다 | C-01(보내기 없음 · `POST …/steer` 403 · 바깥 사람 제안 403) · `localAgents.e2e.mjs` 2(보는 사람의 터미널 입력은 버려짐 · 바깥 사람 표 403) · `localAgents.test.js` 「터미널 중계 …」 |
 | **협업** 역할을 가진 사람의 결정도 제안으로 쌓인다 | `localAgents.test.js` 「제안의 종류 …」 |
 | **협업** 결과가 다음 담당자에게 이어진다 | C-02 · `localAgents.e2e.mjs` 1–2 · `local-agents.spec.js` L-03 |
@@ -87,6 +104,23 @@ cd e2e && npx playwright test --project=feature tests/feature/local-agents-colla
 | (검토 수정) 기기 설정을 바꿔도 실행 유지 · 다시 시도 · 관문 먼저 · 에이전트 되돌리기 · 활동 에이전트 제한 · 세션 지우기 · 보낸 스킬만 · 같은 폴더는 차례로 | `localAgents.test.js` 해당 시험들 · `runner.test.js` 「같은 폴더의 다음 일은 …」 |
 | 로컬 실행을 끈다 | L-04 · `localAgents.test.js` 「로컬 실행을 끈 데스크톱에는 보내지 않는다」 · `runner.test.js` 「거절: …」 |
 | 폴더 밖을 가리키는 일 | `runner.test.js` 「거절: … 폴더 밖 경로」 |
+
+## 결과 — 「대화」 · 「터미널」 두 보기, CLI 의 물음, 턴 뒤 기다리기 (2026-11-24 저녁, 이 맥, 가지 `fix/local-agents-polish`)
+
+| 시험 | 결과 |
+|---|---|
+| `server/test/localAgents.test.js` | 31/31 (더한 것: 「대화 중계 …」 · 「터미널 · 대화를 보는 사람 …」 · 「턴 뒤 기다림(idle) …」) |
+| `server/test/josa.test.js` · `server/test/localTermTheme.test.js` | 3/3 · 2/2 |
+| `desktop` `npm test` | 43 통과 · 4 건너뜀(Windows 전용 — origin/main 에서도 같음) / 47 (더한 것: `conversation.test.js` 9) |
+| `server/test/localAgents.e2e.mjs` | 9/9 |
+| `e2e/tests/feature/local-agents-view.spec.js` | 8/8 (F-LV-01–10) |
+| `e2e/tests/feature/local-agents-collab.spec.js` · `local-agents-mobile.spec.js` | 3/3 · 3/3 (휴대폰의 기본 보기가 「대화」가 되어, 터미널의 글을 보는 C-01 · M-01 · M-02 는 「터미널」을 누르게 고침) |
+| `e2e/tests/desktop/local-agents.spec.js` | 4/4 |
+| 실제 Claude Code 2.1.331 프로브(물음과 키) | `results/smoke.md` 끝 — 허락 `1` · 앞으로 묻지 않기 `2` · 거절 `Esc` · 한 물음 고르기의 번호 · 여러 물음의 번호들과 Enter. 화면의 「4. No」는 게이트웨이가 500 을 돌려 재지 못했다(쓰지 않음 — 거절은 `Esc`) |
+
+시험 중에 본 것: 한 번은 M-02 의 실행이 끝나는 순간 「단계가 닫혀 로컬 실행을 멈췄어요」가 되어 끝 보고가 거절됐다 — 결과로 단계를 닫는 사이에 sweep 이 그 단계를 손으로 닫힌 것으로 본 경합(origin/main 에도 있던 것). `jobs.sweep` 이 결과를 받아들이는 중인 실행을 건드리지 않게 고치고 「턴 뒤 기다림(idle) …」 시험에 넣었다. 고친 뒤 C · M 6/6.
+
+사진: `results/lv01-desk-term.png`(작업자의 책상 — 「터미널」, Lite 의 어두운 색) · `lv02-phone-chat.png`(서하린의 휴대폰 — 「대화」) · `lv04-phone-diff.png`(「고침 · 견적서.md」의 차이) · `lv05-desk-attribution.png`(「서하린 제안 · 윤태호 입력」) · `lv06-phone-ask-wait.png`(「윤태호님의 답을 기다려요」) · `lv06-desk-ask.png`(허락 · 앞으로 묻지 않기 · 거절) · `lv07-desk-idle.png`(「끝내기」 · 「2분 동안 새 입력이 없으면 저절로 끝나요」) · `lv07-phone-idle.png`(「윤태호님이 끝내기를 기다려요」) · `lv08-desk-ended-term.png`(끝난 실행의 마지막 턴 화면) · `lv08-phone-ended-chat.png`(끝난 실행의 대화) · `lv09-phone-light-term.png` · `lv09-phone-light-chat.png` · `lv09-phone-dark-term.png` · `lv09-phone-dark-chat.png` · `lv10-phone-variation.png` · `lv10-phone-variation-diff.png` · `lv10-phone-folder.png` · `lv10-phone-folders.png`(휴대폰의 폴더 화면)
 
 ## 결과 (2026-11-24, 이 맥)
 

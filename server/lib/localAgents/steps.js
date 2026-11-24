@@ -16,6 +16,7 @@ import { emit } from '../bus.js'
 import { addMessage, updateMessage } from '../store.js'
 import { L, langOf, withLang, langInstruction } from '../lang.js'
 import { withTenant, servesTenant, forEachTenant } from '../tenant.js'
+import { josa, ro, iga } from '../josa.js'
 import * as A from './agents.js'
 import * as J from './jobs.js'
 import * as H from './hub.js'
@@ -180,7 +181,7 @@ async function promptFor({ job, act, instName, person, ctx, out, skills = [] }) 
       `[Skills] The company skills for this work are in the work folder: ${skills.map((k) => `"${k.name}"`).join(' · ')}. Where one applies, do it its way (its SKILL.md).`)
     : ''
   const text = fill(tpl || '「{step}」 단계\n{definition}\n{work}\n결과는 {out}/ 에 두세요.', {
-    inst: instName, step: job.activity_name, person: person.name || L('담당자', 'the assignee'), agent: A.LABEL[job.agent] || job.agent,
+    inst: instName, step: job.activity_name, person: person.name || L('담당자', 'the assignee'), agent: A.LABEL[job.agent] || job.agent, ro: ro(A.LABEL[job.agent] || job.agent),
     definition, checkpoints: `${checkpoints}${io}`, work: ctx?.note?.trim() || L('(아직 앞 단계 결과가 없어요)', '(no earlier results yet)'), out, mode, skills: skillText,
   })
   return `${text.trim()}${langInstruction()}`
@@ -211,7 +212,7 @@ export async function complete(job, result) {
     import('../folders/indexer.js').then((x) => x.changeCard(folder, v)).catch(() => {})
   }
   const values = {
-    result: result.summary || L(`${label}가 「${job.activity_name}」를 끝냈어요.`, `${label} finished "${job.activity_name}".`),
+    result: result.summary || L(`${iga(label)} 「${job.activity_name}」${josa(job.activity_name, '을', '를')} 끝냈어요.`, `${label} finished "${job.activity_name}".`),
     agent: label,
     ...(v ? { branch: result.branch, files: result.files || [], folder_variation: { name: L(`작업 폴더의 변경안 · ${job.activity_name}`, `Work folder change · ${job.activity_name}`), folder: folder.slug, variation: v.id, branch: v.branch, url: `/folders/${folder.slug}/v/${v.id}` } } : {}),
   }
@@ -306,14 +307,14 @@ export function stateText(job, { device = '' } = {}) {
   const server = LABEL(job.server_agent)
   switch (job.state) {
     case 'queued':
-      if (job.why === 'busy') return L(`담당자의 PC 앱이 다른 일을 하는 중 — 차례가 오면 ${a}(으)로 시작해요`, `The assignee's desktop app is busy — ${a} starts this when its turn comes`)
+      if (job.why === 'busy') return L(`담당자의 PC 앱이 다른 일을 하는 중 — 차례가 오면 ${a}${ro(a)} 시작해요`, `The assignee's desktop app is busy — ${a} starts this when its turn comes`)
       return L(`PC 앱이 켜지면 시작 — 담당자의 데스크톱이 꺼져 있어 기다리는 중이에요${until ? `. ${hhmm(until)}까지 켜지지 않으면 ${server}에게 맡겨요` : ''}`,
         `Starts when the desktop app is on — waiting: the assignee's desktop is off${until ? `. Handed to the ${server} if it is not on by ${hhmm(until)}` : ''}`)
     case 'offered': return L(`담당자의 데스크톱${device ? `(${device})` : ''}에 보냈어요 — 시작을 기다려요`, `Sent to the assignee's desktop${device ? ` (${device})` : ''} — waiting for it to start`)
     case 'running': return job.why === 'link-lost'
-      ? L(`데스크톱 연결이 끊겼어요 — ${a}는 계속 실행 중일 수 있어요. 다시 연결되면 이어서 알려요`, `The desktop's link dropped — ${a} may still be running; it reports when it is back`)
+      ? L(`데스크톱 연결이 끊겼어요 — ${a}${josa(a, '은', '는')} 계속 실행 중일 수 있어요. 다시 연결되면 이어서 알려요`, `The desktop's link dropped — ${a} may still be running; it reports when it is back`)
       : L(`로컬 에이전트 실행 중 · ${a}${device ? ` (${device})` : ''}`, `Local agent running · ${a}${device ? ` (${device})` : ''}`)
-    case 'done': return L(`${a}가 끝냈어요 — 결과를 이 일의 작업 폴더에 넣었어요`, `${a} finished — the result is in this work's folder`)
+    case 'done': return L(`${iga(a)} 끝냈어요 — 결과를 이 일의 작업 폴더에 넣었어요`, `${a} finished — the result is in this work's folder`)
     case 'failed': return L(`로컬 실행이 멈췄어요: ${String(job.error || '').slice(0, 160)}`, `The local run stopped: ${String(job.error || '').slice(0, 160)}`)
     case 'cancelled': return L('단계가 닫혀 로컬 실행을 멈췄어요', 'The step was closed, so the local run stopped')
     case 'delegated': return ({
@@ -321,7 +322,7 @@ export function stateText(job, { device = '' } = {}) {
       timeout: L(`${job.wait_minutes}분을 기다려도 데스크톱이 켜지지 않아 ${server}에게 맡겼어요`, `The desktop was not on after ${job.wait_minutes} minutes, so it went to the ${server}`),
       declined: L(`담당자가 이번 로컬 실행을 하지 않기로 해 ${server}에게 맡겼어요`, `The assignee declined this local run, so it went to the ${server}`),
       disabled: L(`담당자의 데스크톱에서 로컬 실행이 꺼져 있어 ${server}에게 맡겼어요`, `Local runs are off on the assignee's desktop, so it went to the ${server}`),
-      unable: L(`담당자의 데스크톱에 ${a}가 없어 ${server}에게 맡겼어요`, `${a} is not on the assignee's desktop, so it went to the ${server}`),
+      unable: L(`담당자의 데스크톱에 ${iga(a)} 없어 ${server}에게 맡겼어요`, `${a} is not on the assignee's desktop, so it went to the ${server}`),
       manual: L(`기다리지 않고 ${server}에게 맡겼어요`, `Handed to the ${server} without waiting`),
     }[job.why] || L(`${server}에게 맡겼어요`, `Handed to the ${server}`))
     default: return ''
@@ -333,6 +334,9 @@ const STEER_WHY = () => ({ ended: L('실행이 먼저 끝나 반영하지 못했
 export const steerState = (s) => (s.applied ? 'applied' : s.failed ? 'failed' : s.received ? 'received' : s.sent ? 'sent' : 'pending')
 
 const deviceName = (job) => (job.device_id ? H.linkOf(T(), String(job.device_id))?.name : '') || job.device_name || ''
+// the desktop the run went to runs steps in a terminal (its link said so)
+const deskCan = (job, what) => !!(job.device_id && H.linkOf(T(), String(job.device_id))?.caps?.[what])
+const terminalDesk = (job) => deskCan(job, 'terminal')
 // the card (Message.vue local_run, the instance page, the Home card); who: the person looking (what they may do with it)
 export function cardOf(job, { canSteer = null, canDelegate = null, worker = false, decide = null } = {}) {
   const live = ['running', 'offered'].includes(job.state)
@@ -351,8 +355,15 @@ export function cardOf(job, { canSteer = null, canDelegate = null, worker = fals
     // the participants' suggested prompts (waiting · used · dismissed) — only the worker puts one in; what the run learned
     suggestions: (job.suggestions || []).slice(-30).map((c) => ({ id: c.id, name: c.name, text: c.text, at: c.at, state: c.state || 'waiting', usedBy: c.usedBy || null,
       usedAt: c.usedAt || null, edited: !!c.edited, usedText: c.usedText || null, kind: c.kind || 'opinion', option: c.option ?? null })),
-    // the run's terminal (the person's interactive CLI, relayed — relay.js): viewers open it with a ticket; only the worker types
-    terminal: !!job.terminal,
+    // the run's terminal (the person's interactive CLI, relayed — relay.js): viewers open it with a ticket; only the worker types.
+    // terminalSoon: sent to a desktop that runs steps in a terminal, not open yet (the card shows 「터미널에 연결하는 중…」 and attaches
+    // early). conversation: the 「대화」 view — the CLI's own records (live, or kept with the finished run)
+    terminal: !!job.terminal, terminalSoon: !job.terminal && live && terminalDesk(job),
+    // (a desktop before 0.2.1 relays no records: its runs show the terminal only)
+    conversation: (Array.isArray(job.transcript) && job.transcript.length > 0) || (live && deskCan(job, 'conversation')) || (R.stats(R.find(T(), 'step', job.id))?.items || 0) > 0,
+    // after its CLI's turn the run waits for the people on the instance until then (null: it works) — only the worker ends it now (「끝내기」)
+    idleUntil: job.state === 'running' && job.idle_until ? new Date(job.idle_until).toISOString() : null,
+    canFinish: !!worker && job.state === 'running' && !!job.terminal,
     canSuggest: true, worker: !!worker, owner: job.person_name || '',
     knowhow: (job.knowhow || []).map((k) => KH.view(k, { canDecide: !!decide?.[k.kind] })),
   }
@@ -419,6 +430,24 @@ export async function delegateNow(user, job) {
   return J.delegate(job, 'manual')
 }
 
+// 「끝내기」 on a run that waits after its CLI's turn: only its worker (the desktop ends it — runner settle.js)
+export async function finishNow(user, job) {
+  if (!isWorker(user, job)) throw Object.assign(new Error(L('끝내기는 그 CLI 를 가진 사람만 해요.', 'Only the person whose CLI it is can end the run.')), { status: 403 })
+  const sent = J.finish(job)
+  if (!sent) throw Object.assign(new Error(L('데스크톱이 연결돼 있지 않아요 — 이어지면 다시 눌러 주세요.', 'The desktop is not linked — try again once it is back.')), { status: 409 })
+  return job
+}
+// The worker's answer to what the CLI asks in the run's terminal (a permission, a choice — relay.js · the desktop's prompts.js): only
+// theirs, only while the CLI still asks it
+export async function answerAsk(user, job, askId, answer) {
+  if (!isWorker(user, job)) throw Object.assign(new Error(L('CLI 의 물음에 답하는 것은 그 CLI 를 가진 사람만 해요.', 'Only the person whose CLI it is can answer it.')), { status: 403 })
+  const S = R.find(T(), 'step', job.id)
+  const r = R.answer(S, user.id, askId, answer, { by: user.name || '' })
+  if (r === true) return { sent: true }
+  if (r === 'offline') throw Object.assign(new Error(L('데스크톱이 연결돼 있지 않아요.', 'The desktop is not linked.')), { status: 409 })
+  throw Object.assign(new Error(L('이미 답했거나 CLI 가 더는 묻지 않아요.', 'It was already answered, or the CLI no longer asks.')), { status: 409 })
+}
+
 // A suggested prompt for the run (anyone who sees the instance). The worker hears of it: a notification on their desktop (the runner) and a
 // Home card; it waits in the run's stack for them.
 export async function suggestOn(user, job, text, { kind = 'opinion', option = null } = {}) {
@@ -452,7 +481,7 @@ export async function steerAs(user, job, text, suggestionId = null) {
     const { notifyInstance } = await import('../engine.js')
     await withLang(await langOf(String(s.by)).catch(() => 'ko'), () => notifyInstance(String(s.by), job.proc_inst_id, {
       type: 'local_suggestion_used', title: L(`제안이 입력됐어요 · ${job.activity_name}`, `Your suggestion went in · ${job.activity_name}`),
-      text: L(`${user.name || '실행하는 사람'}이 ${t !== s.text ? '고쳐서 ' : ''}입력했어요: ${t.slice(0, 160)}`, `${user.name || 'The worker'} put it in${t !== s.text ? ' (edited)' : ''}: ${t.slice(0, 160)}`) })).catch(() => {})
+      text: L(`${iga(user.name || '실행하는 사람')} ${t !== s.text ? '고쳐서 ' : ''}입력했어요: ${t.slice(0, 160)}`, `${user.name || 'The worker'} put it in${t !== s.text ? ' (edited)' : ''}: ${t.slice(0, 160)}`) })).catch(() => {})
   }
   return { ...out, job: j }
 }
@@ -536,8 +565,19 @@ export function wire() {
     open: async (link, ref) => { const j = await J.byId(ref); return !!j && String(j.user_id) === link.userId && String(j.device_id) === link.id },
     view: async (user, ref) => { const j = await J.byId(ref); return !!j && canSee(user, j.proc_inst_id) },
     opened: async (S) => { const [j] = await q('update pro_local_jobs set terminal=true, updated_at=now() where id=$1 returning *', [S.ref]); if (j) await note(j, 'terminal') },
-    exit: async (S) => { await q('update pro_local_jobs set screen=$2, screen_size=$3 where id=$1', [S.ref, S.buf.slice(-64 * 1024), JSON.stringify({ cols: S.cols, rows: S.rows })]) },
-    stored: async (ref) => { const j = await J.byId(ref); return j?.screen ? { buf: j.screen, cols: j.screen_size?.cols, rows: j.screen_size?.rows, agent: j.agent } : null },
+    // (its last screen — the one kept at the last turn's end — and its conversation, for whoever opens it later)
+    // (the card follows: an ended run keeps its 「대화」)
+    exit: async (S) => {
+      const [j] = await q('update pro_local_jobs set screen=$2, screen_size=$3, transcript=$4 where id=$1 returning *', [S.ref, S.buf.slice(-64 * 1024), JSON.stringify({ cols: S.cols, rows: S.rows }), JSON.stringify(R.txToKeep(S))])
+      if (j && R.txOf(S).length) await note(j, 'transcript')
+    },
+    stored: async (ref) => {
+      const j = await J.byId(ref)
+      if (!j?.screen && !(Array.isArray(j?.transcript) && j.transcript.length)) return null
+      return { buf: j.screen || '', cols: j.screen_size?.cols, rows: j.screen_size?.rows, agent: j.agent, tx: j.transcript || [] }
+    },
+    // a run sent to a desktop that runs steps in a terminal, not open yet: a viewer may wait for it
+    pending: async (ref) => { const j = await J.byId(ref); return !!j && ['offered', 'running'].includes(j.state) && !j.terminal && terminalDesk(j) },
   })
 }
 

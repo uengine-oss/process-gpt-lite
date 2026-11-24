@@ -12,6 +12,10 @@
 //   POST   /local-agents/jobs/:id/suggestions — suggest a prompt (anyone who sees the instance); it waits at the run's input
 //   POST   /local-agents/jobs/:id/suggestions/:sid/dismiss — the worker drops a suggestion
 //   POST   /local-agents/jobs/:id/knowhow/:kid — apply or dismiss what the run learned (knowhow.js mayDecide)
+//   POST   /local-agents/jobs/:id/term     — a ticket for the run's terminal · conversation (WebSocket /api/local-agents/term)
+//   GET    /local-agents/jobs/:id/transcript — the run's conversation (the CLI's own records), live or kept with the finished run
+//   POST   /local-agents/jobs/:id/finish   — 「끝내기」: the worker ends a run that waits after its CLI's turn
+//   POST   /local-agents/jobs/:id/answer   — the worker answers what the CLI asks ({ask, answer} — the desktop presses the keys)
 import express from 'express'
 import { config } from '../config.js'
 import * as A from '../lib/localAgents/agents.js'
@@ -88,11 +92,26 @@ export function localAgentRoutes(auth) {
   // Home: the runs on now, of instances I see
   // the run's terminal (relay.js): a one-time ticket for /api/local-agents/term — whoever sees the instance watches it, only the worker
   // types (owner); and what is on its screen now
+  // (a run sent to a desktop that runs steps in a terminal gets a ticket before its terminal is open: the viewer waits for it there)
   r.post('/local-agents/jobs/:id/term', auth, h(async (req) => {
     const job = await jobFor(req)
     const S = R.find(config.tenantId, 'step', job.id)
-    if (!S && !job.screen) throw Object.assign(new Error(L('이 실행에는 터미널이 없어요.', 'This run has no terminal.')), { status: 404 })
-    return { ticket: R.issueTicket(req.user, { kind: 'step', ref: job.id, tenant: config.tenantId }), owner: ST.isWorker(req.user, job), live: !!S && !S.exited }
+    const card = ST.cardOf(job)
+    if (!S && !job.screen && !(Array.isArray(job.transcript) && job.transcript.length) && !card.terminalSoon) throw Object.assign(new Error(L('이 실행에는 터미널이 없어요.', 'This run has no terminal.')), { status: 404 })
+    return { ticket: R.issueTicket(req.user, { kind: 'step', ref: job.id, tenant: config.tenantId }), owner: ST.isWorker(req.user, job), live: !!S && !S.exited, waiting: !S && card.terminalSoon }
+  }))
+  // the conversation of the run, as the 「대화」 view shows it (the same people as its terminal)
+  r.get('/local-agents/jobs/:id/transcript', auth, h(async (req) => {
+    const job = await jobFor(req)
+    const S = R.find(config.tenantId, 'step', job.id)
+    return { live: !!S && !S.exited, items: S ? R.txOf(S) : (job.transcript || []), asks: S ? R.asksOf(S) : [] }
+  }))
+  r.post('/local-agents/jobs/:id/finish', auth, h(async (req) => ST.cardFor(req.user, await ST.finishNow(req.user, await jobFor(req)))))
+  r.post('/local-agents/jobs/:id/answer', auth, h(async (req) => {
+    const job = await jobFor(req)
+    const a = req.body?.answer
+    const answer = Array.isArray(a) ? a.slice(0, 8).map((n) => Number(n)) : typeof a === 'number' ? a : String(a || '').slice(0, 20)
+    return ST.answerAsk(req.user, job, String(req.body?.ask || ''), answer)
   }))
   r.get('/local-agents/jobs/:id/screen', auth, h(async (req) => {
     const job = await jobFor(req)

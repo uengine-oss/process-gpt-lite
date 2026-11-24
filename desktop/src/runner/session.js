@@ -16,6 +16,9 @@
 //   'turn-start' · 'turn-end' {summary} · 'turn-failed' {error}   (Claude Code: UserPromptSubmit · Stop · StopFailure hooks;
 //                 Codex: the rollout's user_message · task_complete)
 //   'attention' {message}   it waits for the person (a permission prompt, idle) — Claude Code's Notification hook
+//   'tx' [items]  the conversation, item by item (transcript.js — from its own records; turn · ask · ask-done from its hooks): what the
+//                 run card's 「대화」 view shows
+//   'turn-interrupted'  the turn stopped without its end (Esc, a refused tool use — its records say so; no Stop hook comes)
 //   'files' [{path, content, deleted}]   the watched paths changed (watch option — e.g. a repo's aidlc/ folder)
 //   'exit' {code}
 const crypto = require('node:crypto')
@@ -25,6 +28,8 @@ const path = require('node:path')
 const { EventEmitter } = require('node:events')
 const C = require('./clis')
 const P = require('./pty')
+const TX = require('./transcript')
+const ASK = require('./prompts')
 
 const SCROLLBACK = 400 * 1024
 const POLL_MS = 250
@@ -33,6 +38,11 @@ const WATCH_MAX = 256 * 1024
 // agent-share's _NO_ACCOUNT_SWITCH: the screen is shared, so no one switches the CLI's account from it
 const NO_ACCOUNT_SWITCH = { DISABLE_LOGOUT_COMMAND: '1', DISABLE_LOGIN_COMMAND: '1' }
 const HOOKS = ['SessionStart', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification']
+// PermissionRequest (the dialog it shows and what it asks — prompts.js) only where the CLI knows it: an event name an older Claude Code
+// does not know would make it refuse the session's settings (measured with 2.1.331; added in 2.0.45)
+const PERMISSION_HOOK_FROM = [2, 0, 45]
+const newer = (v, min) => { const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(v || '')); if (!m) return false; const a = m.slice(1).map(Number); for (let i = 0; i < 3; i++) if (a[i] !== min[i]) return a[i] > min[i]; return true }
+const KEY_GAP_MS = 500
 const short = (v, n = 160) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
 const WIN = process.platform === 'win32'
 
@@ -124,10 +134,15 @@ class CliSession extends EventEmitter {
   // resume: the CLI's session id to go on with · prompt: the first message (given once the CLI is ready, as a person would paste it)
   // stateDir: where its settings and hook file live (never inside cwd) · trustRoot: folders under it may be marked trusted
   // watch: paths under cwd whose changes are reported ('files') · env: extra environment (e.g. a model gateway) · cols/rows
+  // version: the CLI's version (which hook events it knows) · annotate(item): the owner's word on a conversation item before it goes out
   constructor({ id = crypto.randomUUID(), agent, cwd, resume = null, prompt = '', stateDir, trustRoot = null, searchPath = C.augmentedPath(), env = {},
-    watch = [], cols = 100, rows = 30, log = () => {}, pty = null } = {}) {
+    watch = [], cols = 100, rows = 30, log = () => {}, pty = null, version = null, annotate = null } = {}) {
     super()
-    Object.assign(this, { id, agent, cwd, resume, firstPrompt: prompt, stateDir, trustRoot, searchPath, extraEnv: env, watchPaths: watch, cols, rows, logFn: log })
+    Object.assign(this, { id, agent, cwd, resume, firstPrompt: prompt, stateDir, trustRoot, searchPath, extraEnv: env, watchPaths: watch, cols, rows, logFn: log, version })
+    this.annotate = annotate || ((it) => it)
+    this.prompt0 = String(prompt || '')
+    this.asks = new Map()     // the questions it shows now (prompts.js), oldest first
+    this.calls = new Map()    // tool calls without a result yet: call → {name, input}
     this.ptyMod = pty || P.load()
     this.buf = ''
     this.cli = resume || null
@@ -180,7 +195,8 @@ class CliSession extends EventEmitter {
     // exec form (command + args): spawned directly by Claude Code, no shell — the same on macOS and Windows (hook.js)
     const prog = hookProgram()
     const cmd = (name) => ({ hooks: [{ type: 'command', command: prog.command, args: [...prog.args, name, this.hookFile] }] })
-    const settings = { hooks: Object.fromEntries(HOOKS.map((h) => [h, [cmd(h)]])) }
+    const events = [...HOOKS, ...(newer(this.version, PERMISSION_HOOK_FROM) ? ['PermissionRequest'] : [])]
+    const settings = { hooks: Object.fromEntries(events.map((h) => [h, [cmd(h)]])) }
     this.settingsFile = path.join(this.stateDir, 'settings.json')
     fs.writeFileSync(this.settingsFile, JSON.stringify(settings, null, 2), { mode: 0o600 })
     if (this.trustRoot) { try { trustClaudeFolder(this.cwd, { root: this.trustRoot, env: this.env }) } catch (e) { this.log(`trust: ${e.message}`) } }
@@ -240,6 +256,21 @@ class CliSession extends EventEmitter {
     const timer = setTimeout(() => { if (!this.exited) this.p.write('\r'); this.draining = false; this.drain() }, PASTE_ENTER_MS)
     this.timers.push(timer)
   }
+  // The owner's answer to what the CLI asks (prompts.js): the keys a person would press, only while that ask is still open (a key sent
+  // after the dialog went away would land in the CLI's input as text) → true, or why not
+  answer(askId, answer, by = '') {
+    const ask = this.asks.get(String(askId || ''))
+    if (!ask || this.exited) return 'closed'
+    const keys = ASK.keysFor(ask, answer)
+    if (!keys.length) return 'invalid'
+    this.asks.delete(ask.id)
+    this.lastInputAt = Date.now()
+    keys.forEach((k, i) => { const t = setTimeout(() => { if (!this.exited) this.p.write(k) }, i * KEY_GAP_MS); this.timers.push(t) })
+    this.emitTx([{ id: `${ask.id}:done`, t: 'ask-done', at: new Date().toISOString(), ask: ask.id, answer: ASK.answerText(ask, answer), by: String(by || '').slice(0, 60) || undefined }])
+    return true
+  }
+  // the asks still open (a viewer that comes later sees them in the conversation)
+  openAsks() { return [...this.asks.values()] }
   resize(cols, rows) {
     const c = Math.max(20, Math.min(400, cols | 0)), r = Math.max(5, Math.min(200, rows | 0))
     if (this.exited || !this.p || (c === this.cols && r === this.rows)) return
@@ -306,17 +337,69 @@ class CliSession extends EventEmitter {
     this.emit('hook', { event, data: JSON.parse(JSON.stringify(brief)) })
     if (data.transcript_path && !this.transcriptPath) this.transcriptPath = data.transcript_path
     if (event === 'SessionStart') this.becomeReady()
-    else if (event === 'UserPromptSubmit') { this.busy = true; this.emit('turn-start', { prompt: String(data.prompt || '') }) }
+    else if (event === 'UserPromptSubmit') { this.busy = true; this.closeAsks(); this.turnItem('start'); this.emit('turn-start', { prompt: String(data.prompt || '') }) }
     else if (event === 'Stop') {
       this.pollTranscriptNow()
       this.busy = false
+      this.closeAsks()
+      this.turnItem('end')
       this.emit('turn-end', { summary: data.last_assistant_message || this.lastText || '' })
-    } else if (event === 'StopFailure') { this.busy = false; this.emit('turn-failed', { error: short(data.error || data.message || 'stopped on an error', 400) }) }
-    else if (event === 'Notification') this.emit('attention', { message: short(data.message, 300), type: data.notification_type || null })
+    } else if (event === 'StopFailure') { this.busy = false; this.closeAsks(); this.turnItem('failed', short(data.error || data.message || '', 300)); this.emit('turn-failed', { error: short(data.error || data.message || 'stopped on an error', 400) }) }
+    else if (event === 'PermissionRequest') { this.pollTranscriptNow(); this.openAsk(ASK.fromPermissionRequest(data, { rel: (s) => this.rel(s) })) }
+    else if (event === 'Notification') {
+      // (an older Claude Code: its permission prompt is known only from this — the call that waits is the last one without a result)
+      if (data.notification_type === 'permission_prompt' && !this.asks.size) { this.pollTranscriptNow(); this.openAsk(ASK.fromNotification(data, [...this.calls.values()].pop() || null, { rel: (s) => this.rel(s) })) }
+      this.emit('attention', { message: short(data.message, 300), type: data.notification_type || null })
+    }
+  }
+  // ---------- the conversation (transcript.js) and what it asks (prompts.js) ----------
+  rel(s) {
+    let t = String(s ?? '')
+    // (the longer spelling first: /private/var/… before /var/… on macOS)
+    for (const d of [this.cwd, this.realCwd].filter(Boolean).sort((a, b) => b.length - a.length)) { t = t.split(`${d}${path.sep}`).join(''); if (path.sep === '\\') t = t.split(`${d.replace(/\\/g, '/')}/`).join('') }
+    return t
+  }
+  emitTx(items) {
+    const out = items.map((it) => this.annotate(it) || it).filter(Boolean)
+    if (out.length) this.emit('tx', out)
+  }
+  turnItem(state, error = '') { this.emitTx([{ id: `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, t: 'turn', at: new Date().toISOString(), state, ...(error ? { error } : {}) }]) }
+  openAsk(ask) {
+    if (!ask) return
+    this.asks.set(ask.id, ask)
+    this.emitTx([{ id: ask.id, t: 'ask', at: new Date().toISOString(), ask }])
+  }
+  // asks the CLI no longer shows: answered in the terminal, the tool went on (its result), the turn ended or stopped
+  closeAsks(tool = null) {
+    for (const a of [...this.asks.values()]) {
+      if (tool && a.tool !== tool) continue
+      this.asks.delete(a.id)
+      this.emitTx([{ id: `${a.id}:done`, t: 'ask-done', at: new Date().toISOString(), ask: a.id }])
+      if (tool) break
+    }
+  }
+  // what the CLI's records said, as conversation items: its tool calls are followed (a result closes the ask about it), a stopped turn
+  // is the end of that turn
+  records(items) {
+    for (const it of items) {
+      if (it.t === 'tool') this.calls.set(it.call, { name: it.name, input: it.input })
+      else if (it.t === 'result') { const c = this.calls.get(it.call); this.calls.delete(it.call); if (c) this.closeAsks(c.name) }
+    }
+    // (the step's own first message — the prompt the runner pasted, or Codex's pointer to its prompt file)
+    if (this.prompt0 && !this.sawFirst) for (const it of items) if (it.t === 'user' && (sameStart(it.text, this.prompt0) || sameStart(it.text, PROMPT_POINTER))) { it.first = true; this.sawFirst = true; break }
+    this.emitTx(items)
+    if (items.some((it) => it.t === 'note' && it.kind === 'interrupted') && this.busy) {
+      this.busy = false
+      this.calls.clear()
+      this.closeAsks()
+      this.turnItem('interrupted')
+      this.emit('turn-interrupted', {})
+    }
   }
   pollTranscriptNow() { if (this.tx) for (const e of this.tx.read()) this.onClaudeEntry(e) }
   onClaudeEntry(e) {
     if (!e || e.isSidechain) return
+    this.records(TX.fromClaude(e, { rel: (s) => this.rel(s) }))
     const content = e.message?.content
     if (e.type === 'user' && !e.isMeta) {
       let text = null
@@ -330,7 +413,7 @@ class CliSession extends EventEmitter {
     } else if (e.type === 'assistant' && Array.isArray(content)) {
       for (const b of content) {
         if (b?.type === 'text' && b.text?.trim()) { this.lastText = b.text; this.emit('text', { text: b.text }) }
-        else if (b?.type === 'tool_use') this.emit('tool', { name: b.name, brief: briefOf(b.input) })
+        else if (b?.type === 'tool_use') this.emit('tool', { name: b.name, brief: briefOf(b.input, (x) => this.rel(x)) })
       }
     }
   }
@@ -360,16 +443,18 @@ class CliSession extends EventEmitter {
     const p = e?.payload
     if (!p) return
     if (e.type === 'session_meta' && p.id && !this.cli) { this.cli = p.id; this.emit('session', p.id); return }
+    if (e.type === 'event_msg' && p.type === 'user_message' && p.message && !this.busy) this.turnItem('start')
+    this.records(TX.fromCodex(e, { rel: (s) => this.rel(s) }))
     if (e.type === 'event_msg') {
       if (p.type === 'user_message' && p.message) { this.busy = true; this.becomeReady(); this.emit('turn-start', { prompt: p.message }); this.emit('prompt', { text: p.message }) }
       else if (p.type === 'agent_message' && p.message) { this.lastText = p.message; this.emit('text', { text: p.message }) }
-      else if (p.type === 'task_complete') { this.busy = false; this.emit('turn-end', { summary: p.last_agent_message || this.lastText || '' }) }
+      else if (p.type === 'task_complete') { this.busy = false; this.turnItem('end'); this.emit('turn-end', { summary: p.last_agent_message || this.lastText || '' }) }
       else if (p.type === 'error' || p.type === 'stream_error') this.emit('attention', { message: short(p.message, 300), type: 'error' })
       return
     }
     if (e.type === 'response_item' && ['function_call', 'custom_tool_call', 'local_shell_call'].includes(p.type)) {
       let brief = ''
-      try { const a = typeof p.arguments === 'string' ? JSON.parse(p.arguments) : p.arguments || p.input || {}; brief = briefOf({ command: Array.isArray(a.command) ? a.command.join(' ') : a.command, ...a }) } catch { brief = short(p.arguments || p.input, 120) }
+      try { const a = typeof p.arguments === 'string' ? JSON.parse(p.arguments) : p.arguments || p.input || {}; brief = briefOf({ ...a, command: Array.isArray(a.command) ? a.command.join(' ') : a.command }, (x) => this.rel(x)) } catch { brief = short(p.arguments || p.input, 120) }
       this.emit('tool', { name: p.name || (p.type === 'local_shell_call' ? 'shell' : 'tool'), brief })
     }
   }
@@ -403,6 +488,8 @@ class CliSession extends EventEmitter {
   }
 }
 
+// the step's first message as the CLI recorded it (its first words — a paste may come back with its line breaks changed)
+const sameStart = (a, b) => { const n = (x) => String(x || '').replace(/\s+/g, ' ').trim().slice(0, 60); return !!n(b) && n(a).startsWith(n(b)) }
 const PROMPT_POINTER = 'Read .pgl-run/prompt.md in this folder and do the work it describes. / 이 폴더의 .pgl-run/prompt.md 를 읽고 거기 적힌 일을 하세요.'
 const safeReal = (p) => { try { return fs.realpathSync(p) } catch { return p } }
 // one folder however it is spelled (Windows: \\?\ prefix, either slash, any case)
@@ -410,9 +497,10 @@ function samePath(a, b) {
   const n = (p) => { const r = safeReal(String(p || '').replace(/^\\\\\?\\/, '')); return WIN ? path.resolve(r).replace(/\//g, '\\').toLowerCase() : r }
   return n(a) === n(b)
 }
-function briefOf(input = {}) {
+// (the folder's own path first, then clipped: a work folder's absolute path is long — 산출물/… must survive the clip)
+function briefOf(input = {}, rel = (s) => s) {
   const i = input || {}
-  return short(i.file_path || i.path || i.command || i.pattern || i.description || i.url || '', 120)
+  return short(rel(String(i.file_path || i.path || i.command || i.pattern || i.description || i.url || '')), 120)
 }
 
 module.exports = { CliSession, Tail, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, samePath, hookProgram, PROMPT_POINTER }

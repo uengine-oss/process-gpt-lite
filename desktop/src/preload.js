@@ -56,7 +56,7 @@ const localRunner = local ? undefined : Object.freeze({
   mayPair: (userId) => ipcRenderer.invoke('pgl:runner:may-pair', String(userId || '')),
   pair: (v) => ipcRenderer.invoke('pgl:runner:pair', { token: String(v?.token || ''), deviceId: String(v?.deviceId || ''), userId: String(v?.userId || ''), userName: String(v?.userName || '') }),
   forget: (v) => ipcRenderer.invoke('pgl:runner:forget', { optOut: !!v?.optOut }),
-  setPrefs: (p) => ipcRenderer.invoke('pgl:runner:prefs', { enabled: p?.enabled !== false, ask: p?.ask === true }),
+  setPrefs: (p) => ipcRenderer.invoke('pgl:runner:prefs', { enabled: p?.enabled !== false, ask: p?.ask === true, finishMinutes: Number(p?.finishMinutes) || 5 }),
   detect: () => ipcRenderer.invoke('pgl:runner:detect'),
   onState: (cb) => {
     const h = (_e, st) => { try { cb(st) } catch { /* the page's own */ } }

@@ -279,6 +279,41 @@ test('조종의 상태: 보냄 → 받음 → 반영, 데스크톱이 못 받으
   await H.gone(a.link)
 })
 
+test('턴 뒤 기다림(idle): 실행 중에만 받고 카드에 「끝낼 때」, 끝내기는 그 데스크톱에 · 결과를 받아들이는 중인 실행은 sweep 이 닫지 않는다', { skip: !db }, async () => {
+  H.reset()
+  const ST = await import('../lib/localAgents/steps.js')
+  const a = await desktop(userA)
+  const j = await J.enqueue(spec(userA))
+  // not running yet: an idle report is not taken
+  await H.receive(a.link, { type: 'idle', jobId: j.id, until: new Date(Date.now() + 60_000).toISOString() })
+  assert.equal((await J.byId(j.id)).idle_until, null)
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  const until = new Date(Date.now() + 300_000)
+  await H.receive(a.link, { type: 'idle', jobId: j.id, until: until.toISOString() })
+  const card = ST.cardOf(await J.byId(j.id), { worker: true })
+  assert.equal(card.idleUntil, until.toISOString())
+  // 「끝내기」 goes to the desktop that runs it
+  const before = a.got.length
+  assert.equal(J.finish(await J.byId(j.id)), true)
+  assert.deepEqual(a.got.slice(before).map((m) => [m.type, m.jobId]), [['finish', j.id]])
+  await H.receive(a.link, { type: 'idle', jobId: j.id, until: null })
+  assert.equal((await J.byId(j.id)).idle_until, null)
+  // the step closes as its result is taken in: a sweep in that moment leaves the run alone (it was cancelled before — M-02)
+  J.setHooks({ cancelled: async () => true })
+  try {
+    await q(`update pro_local_jobs set result=$2 where id=$1`, [j.id, JSON.stringify({ branch: 'pgpt-agent/x', pushed: true })])
+    await J.sweep()
+    assert.equal((await J.byId(j.id)).state, 'running')
+    // a run without a result whose step was closed: it stops
+    await q(`update pro_local_jobs set result=null where id=$1`, [j.id])
+    await J.sweep()
+    assert.equal((await J.byId(j.id)).state, 'cancelled')
+    assert.equal((await J.byId(j.id)).idle_until, null)
+  } finally { J.setHooks({ cancelled: async () => false }) }
+  await assert.rejects(async () => J.finish(await J.byId(j.id)), (e) => e.status === 409)
+  await H.gone(a.link)
+})
+
 test('기다리는 실행의 카드: 「PC 앱이 켜지면 시작」, 맡길 권한이 있으면 바로 서버에 맡길 수 있다', { skip: !db }, async () => {
   H.reset()
   const ST = await import('../lib/localAgents/steps.js')
@@ -568,6 +603,121 @@ test('터미널 중계: 자기 일의 터미널만 열고, 보는 사람은 같�
   assert.equal(R.screenOf(R.get(T, sid)).lines[0], '다시 붙은 화면')
   R.reset()
 })
+
+test('대화 중계: 항목은 모양 · 크기를 보고 한도 안에서(오래된 것부터 버림), 다시 붙어도 겹치지 않고, CLI 의 물음은 작업자만 · 열린 것만 답한다', { skip: !db }, async () => {
+  H.reset()
+  const R = await import('../lib/localAgents/relay.js')
+  R.reset()
+  R.registerKind('step', { open: async (link, ref) => { const j = await J.byId(ref); return !!j && String(j.user_id) === link.userId && String(j.device_id) === link.id }, view: async () => true })
+  const a = await desktop(userA)
+  const j = await J.enqueue(spec(userA))
+  const sid = crypto.randomUUID()
+  await H.receive(a.link, { type: 'term-open', sid, kind: 'step', ref: j.id, agent: 'claude-code', cols: 40, rows: 6 })
+  const S = R.get(T, sid)
+  // shape and size: an unknown kind, an item without an id, one over 64 KB are not taken
+  await H.receive(a.link, { type: 'tx', sid, items: [
+    { id: 'u1', t: 'user', text: '「견적서 작성」 단계', first: true }, { id: 'x1', t: 'script', text: 'x' }, { t: 'text', text: 'no id' },
+    { id: 'big', t: 'text', text: 'ㄱ'.repeat(70_000) }, { id: 't1', t: 'tool', call: 'c1', name: 'Write', input: { path: '산출물/견적서.md' } }] })
+  assert.deepEqual(R.txOf(S).map((x) => x.id), ['u1', 't1'])
+  // another person's desktop cannot add to it
+  const b = await desktop(userB)
+  await H.receive(b.link, { type: 'tx', sid, items: [{ id: 'b1', t: 'text', text: '끼워 넣음' }] })
+  assert.equal(R.txOf(S).length, 2)
+  // the bounds: items, then bytes — the oldest go first
+  const was = R.setLimits({ txItems: 5 })
+  await H.receive(a.link, { type: 'tx', sid, items: Array.from({ length: 6 }, (_, i) => ({ id: `n${i}`, t: 'text', text: `말 ${i}` })) })
+  assert.deepEqual(R.txOf(S).map((x) => x.id), ['n1', 'n2', 'n3', 'n4', 'n5'])
+  R.setLimits({ txBytes: 400 })
+  await H.receive(a.link, { type: 'tx', sid, items: [{ id: 'm1', t: 'text', text: 'ㄴ'.repeat(60) }] })
+  assert.ok(R.stats(S).itemBytes <= 400, JSON.stringify(R.stats(S)))
+  assert.equal(R.txOf(S).at(-1).id, 'm1')
+  R.setLimits(was)
+  // a desktop that announces its session again sends all it has: only what is new is taken
+  const before = R.txOf(S).length
+  await H.receive(a.link, { type: 'tx', sid, replay: true, items: [...R.txOf(S), { id: 'r1', t: 'note', kind: 'interrupted', text: '멈춤' }] })
+  assert.equal(R.txOf(S).length, before + 1)
+  // what the CLI asks: open until its ask-done; only the worker answers (the desktop gets the press), only an open one
+  await H.receive(a.link, { type: 'tx', sid, items: [{ id: 'k1', t: 'ask', ask: { id: 'k1', kind: 'permission', tool: 'Bash', brief: 'python3 -c "print(42)"', choices: ['yes', 'always', 'no'] } }] })
+  assert.equal(R.asksOf(S).length, 1)
+  const sentBefore = a.got.length
+  assert.equal(R.answer(S, userB.id, 'k1', 'yes'), 'forbidden')
+  assert.equal(R.answer(S, userA.id, 'nope', 'yes'), 'closed')
+  assert.equal(R.answer(S, userA.id, 'k1', 'no', { by: userA.name }), true)
+  assert.deepEqual(a.got.slice(sentBefore).map((m) => [m.type, m.ask, m.answer, m.byId]), [['pty-answer', 'k1', 'no', userA.id]])
+  await H.receive(a.link, { type: 'tx', sid, items: [{ id: 'k1:done', t: 'ask-done', ask: 'k1', answer: 'no' }] })
+  assert.equal(R.asksOf(S).length, 0)
+  assert.equal(R.answer(S, userA.id, 'k1', 'yes'), 'closed')
+  assert.ok(R.stats(S).dropped >= 1, 'someone else\'s press counted as dropped')
+  R.reset()
+})
+
+test('터미널 · 대화를 보는 사람: 고른 흐름만 받고(대화 · 터미널), 실행이 보내졌지만 아직 터미널이 없으면 기다렸다 받는다 — 끝난 화면은 마지막 턴의 화면', { skip: !db }, async () => {
+  H.reset()
+  const R = await import('../lib/localAgents/relay.js')
+  R.reset()
+  const { WebSocket: WS } = await import('ws')
+  R.registerKind('step', { open: async () => true, view: async () => true, pending: async () => true })
+  const server = http.createServer()
+  R.attach(server)
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const port = server.address().port
+  const open = []
+  const viewer = (ref, user, streams) => new Promise((resolve) => {
+    const ws = new WS(`ws://127.0.0.1:${port}/api/local-agents/term?ticket=${R.issueTicket(user, { kind: 'step', ref, tenant: T })}&streams=${streams}`, { headers: { Origin: `http://127.0.0.1:${port}` } })
+    const got = []
+    open.push(ws)
+    ws.on('message', (d) => got.push(JSON.parse(String(d))))
+    ws.on('open', () => resolve({ ws, got }))
+  })
+  try {
+  const a = await desktop(userA)
+  const j = await J.enqueue(spec(userA))
+  // a viewer of the conversation comes before the terminal is open: it waits, then it is served
+  const early = await viewer(j.id, userB, 'tx')
+  await waitUntil(() => early.got.some((m) => m.type === 'waiting'))
+  const sid = crypto.randomUUID()
+  await H.receive(a.link, { type: 'term-open', sid, kind: 'step', ref: j.id, agent: 'claude-code', cols: 40, rows: 6 })
+  await waitUntil(() => early.got.some((m) => m.type === 'session'))
+  assert.equal(early.got.find((m) => m.type === 'session').owner, false)
+  // the conversation reaches it; the terminal's bytes do not (it follows 'tx' only) — until it subscribes
+  await H.receive(a.link, { type: 'pty', sid, data: '첫 화면 — 견적서를 만들었어요\r\n❯ ' })
+  await H.receive(a.link, { type: 'tx', sid, items: [{ id: 'x1', t: 'text', text: '견적서를 만들었어요' }] })
+  await waitUntil(() => early.got.some((m) => m.type === 'tx' && m.items?.[0]?.id === 'x1'))
+  assert.ok(!early.got.some((m) => m.type === 'output'))
+  early.ws.send(JSON.stringify({ type: 'subscribe', streams: ['term'] }))
+  await waitUntil(() => early.got.some((m) => m.type === 'output' && m.replay))
+  // a viewer that follows both: the conversation so far, from the start
+  const both = await viewer(j.id, userA, 'term,tx')
+  await waitUntil(() => both.got.some((m) => m.type === 'tx' && m.replay))
+  assert.deepEqual(both.got.find((m) => m.type === 'tx' && m.replay).items.map((x) => x.id), ['x1'])
+  assert.equal(both.got.find((m) => m.type === 'session').owner, true)
+  // the turn ended (the desktop marks the screen to keep), then the CLI clears its screen on its way out: what is kept is the turn's
+  await H.receive(a.link, { type: 'term-keep', sid })
+  await H.receive(a.link, { type: 'pty', sid, data: '\x1b[2J\x1b[HResume this session with: claude --resume x\r\n' })
+  await H.receive(a.link, { type: 'term-exit', sid, code: 0 })
+  const S = R.get(T, sid)
+  assert.match(S.buf, /첫 화면 — 견적서를 만들었어요/)
+  assert.doesNotMatch(S.buf, /Resume this session/)
+  await R.flushed(S)
+  assert.equal(R.screenOf(S).lines[0], '첫 화면 — 견적서를 만들었어요')
+  await waitUntil(() => both.got.filter((m) => m.type === 'output' && m.replay).length >= 2)
+  assert.match(both.got.filter((m) => m.type === 'output' && m.replay).at(-1).data, /첫 화면/)
+  // a run that is not on its way to a terminal: no waiting
+  R.registerKind('step', { open: async () => true, view: async () => true, pending: async () => false })
+  const j2 = await J.enqueue(spec(userB))
+  const closed = await new Promise((resolve) => {
+    const ws = new WS(`ws://127.0.0.1:${port}/api/local-agents/term?ticket=${R.issueTicket(userB, { kind: 'step', ref: j2.id, tenant: T })}`, { headers: { Origin: `http://127.0.0.1:${port}` } })
+    ws.on('close', (code) => resolve(code))
+    ws.on('error', () => {})
+  })
+  assert.equal(closed, 4404)
+  } finally {
+    for (const ws of open) try { ws.terminate() } catch { /* gone */ }
+    R.reset()
+    server.close()
+  }
+})
+const waitUntil = async (fn, ms = 5000) => { const t = Date.now(); while (!fn()) { if (Date.now() - t > ms) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 20)) } }
 
 test('제안의 종류: 의견 · 역할자의 결정(고른 항목) — 둘 다 작업자의 입력란에 쌓이고, 넣는 것은 작업자만', { skip: !db }, async () => {
   H.reset()

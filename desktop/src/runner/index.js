@@ -15,8 +15,9 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
   const runner = new Runner({ dataDir, server, prefs, ask, searchPath, maxJobs, log, runMs, caps, ...(mode ? { mode } : {}), ...(sessionEnv ? { sessionEnv } : {}), ...(settleMs ? { settleMs } : {}) })
   const hello = () => ({
     device: { name: device.name || os.hostname().replace(/\.local$/, ''), platform: device.platform || process.platform, appVersion: device.appVersion || '' },
-    // terminal: steps run in the person's interactive CLI (else headless — node-pty did not load here)
-    caps: { clis: Object.fromEntries(Object.entries(caps).map(([k, c]) => [k, { installed: c.installed, version: c.version, loggedIn: c.loggedIn, runnable: c.runnable }])), maxJobs, terminal: runner.interactive() },
+    // terminal: steps run in the person's interactive CLI (else headless — node-pty did not load here) · conversation: it relays the CLI's
+    // records as the run card's 「대화」 (0.2.1 — an older desktop shows only the terminal)
+    caps: { clis: Object.fromEntries(Object.entries(caps).map(([k, c]) => [k, { installed: c.installed, version: c.version, loggedIn: c.loggedIn, runnable: c.runnable }])), maxJobs, terminal: runner.interactive(), conversation: runner.interactive() },
     prefs: prefs(),
     active: runner.activeIds(),
   })

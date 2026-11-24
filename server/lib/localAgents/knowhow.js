@@ -12,6 +12,7 @@ import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { L, langOf, withLang } from '../lang.js'
 import * as A from './agents.js'
+import { ro } from '../josa.js'
 import * as J from './jobs.js'
 
 const T = () => config.tenantId
@@ -55,7 +56,7 @@ export async function learn(job, learned) {
   const fill = (s, v) => String(s || '').replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '')
   const out = []
   const read = async (kind, text, after) => {
-    const state = fill(tpl, { step: job.activity_name, person, agent: A.LABEL[job.agent] || job.agent, definition, kind, text, after: after || '(없음)' })
+    const state = fill(tpl, { step: job.activity_name, person, agent: A.LABEL[job.agent] || job.agent, ro: ro(A.LABEL[job.agent] || job.agent), definition, kind, text, after: after || '(없음)' })
     const r = await judge.fn(state, `「${job.activity_name}」 단계에서 이것은?`, [
       { key: 'rule', label: `앞으로 「${job.activity_name}」 단계를 할 때마다 지킬 일의 방식` },
       { key: 'once', label: '이번 건에만 해당하는 지시' },

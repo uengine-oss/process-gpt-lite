@@ -109,3 +109,24 @@ description: 회사 인사말 · 안내 문구를 쓸 때 지키는 규칙. 인�
 
 결과 `인사.md`: 「안녕하세요, 달빛상사입니다. 오늘도 좋은 하루 보내세요!」 / 「— 달빛상사 인사 규칙 v1」. 요약: 「회사 스킬 「인사말-규칙」을 읽고 그 규칙대로 인사말 파일을 만들었어요 …」.
 → `--setting-sources project` 에서도 작업 폴더의 `.claude/skills` 는 프로젝트 스킬로 읽히고, 허용 도구에 넣은 `Skill` 로 부른다.
+
+## CLI 가 묻는 것과 답하는 키 — 실제 Claude Code 2.1.331 프로브 (2026-11-24, 「대화」 보기의 물음 카드)
+
+이 맥의 `claude` 2.1.331 을 PTY(100×32)에서 띄웠다: 임시 `CLAUDE_CONFIG_DIR`(첫 설정을 끝낸 `.claude.json`, 그 폴더만 신뢰), 회사 모델 게이트웨이(Anthropic Messages API, 추론 low), `--session-id <uuid> --settings <훅만> --permission-mode acceptEdits`, 훅은 runner 의 `hook.js`(exec 형식)로 `SessionStart` · `UserPromptSubmit` · `Stop` · `StopFailure` · `Notification` · `PermissionRequest` · `PreToolUse` · `PostToolUse`. 화면은 @xterm/headless 로 읽었다. 사람의 `~/.claude.json` · 로그인은 건드리지 않았고 게이트웨이 주소 · 키는 기록에 넣지 않았다. 스크립트는 저장소에 넣지 않았다(시험이 아니라 한 번 재는 프로브).
+
+| 한 것 | CLI 가 보인 것 | 누른 키 | 일어난 것 |
+|---|---|---|---|
+| `python3 -c "print(41+1)"` 를 Bash 로 | 「Bash command … This command requires approval · Do you want to proceed? ❯ 1. Yes · 2. Yes, and don’t ask again for: python3 * · 3. Yes, and switch to auto mode · auto mode handles these prompts for you · 4. No · Esc to cancel · Tab to amend」, 훅 `PreToolUse` → **`PermissionRequest`** `{tool_name: "Bash", tool_input: {command, description}, permission_suggestions: [{type: "addRules", rules: [{toolName: "Bash", ruleContent: …}], behavior: "allow", destination: "localSettings"}]}` | `1` | 명령이 돌고(`⎿ 42`) 턴이 끝남(`Stop`) |
+| 다음 명령 | 같은 창 | `Esc` | 「⎿ Interrupted · What should Claude do instead?」, **`Stop` 훅 없음**, 기록에 `tool_result {is_error: true, "The user doesn't want to proceed with this tool use…"}`(`toolUseResult: "User rejected tool use"`) 다음 `user {rowSource: "harness", text: "[Request interrupted by user for tool use]"}` |
+| 다음 명령 | 같은 창 | `2` | 명령이 돌고 규칙이 더해짐, `Stop` |
+| `AskUserQuestion` 한 물음(「Markdown」 · 「Plain text」) | 「☐ File format · Which file format should the quote use? ❯ 1. Markdown · 2. Plain text · 3. Type something. · 4. Chat about this · Enter to select · ↑/↓ to navigate · Esc to cancel」, 훅 `PermissionRequest {tool_name: "AskUserQuestion", tool_input: {questions: [...]}}` | `2` | 바로 답이 됨: 「Answered Claude's questions: · … → Plain text」, 기록 `toolUseResult.answers` 에 그 답, 이어서 `choice.txt` 에 「Plain text」 |
+| `AskUserQuestion` 두 물음(「Which currency?」 KRW · USD, 「Include VAT?」 Yes · No — 다른 세션) | 「← ☐ Currency ☐ VAT ✔ Submit →」 탭과 첫 물음의 항목들 | `2` | 「☒ Currency」, 둘째 물음으로 넘어감 |
+| | 「← ☒ Currency ☐ VAT ✔ Submit →」 · 「Include VAT? ❯ 1. Yes · 2. No …」 | `1` | 「Review your answers ● Which currency? → USD ● Include VAT? → Yes ❯ 1. Submit answers · 2. Cancel」 — 여기서 멈춤(8초 동안 `Stop` 없음) |
+| | 그 확인 화면 | Enter | 「Answered Claude's questions: · Which currency? → USD · Include VAT? → Yes」, 이어서 `answers.txt` 에 「Currency: USD」 · 「VAT: Yes」 |
+| 회사 스킬 · Edit (같은 세션 다음 턴) | `tool_use Skill {"skill": "quote-rule"}`(세션 뒤에 만든 스킬이라 「Unknown skill」), `Edit {file_path, old_string, new_string, replace_all}` → `toolUseResult {filePath, oldString, newString, originalFile, structuredPatch: [{oldStart, oldLines, newStart, newLines, lines: [" …", "-…", "+…"]}]}` | — | 「대화」의 차이는 이 `structuredPatch` 그대로 |
+
+알게 된 것:
+- 물음의 키는 그 창이 떠 있을 때만 키다. 창이 없을 때 누른 `2` · `1` 은 입력란에 「21」로 들어가 줄 선 메시지가 됐다 — runner 는 물음이 아직 열려 있을 때만 키를 누른다.
+- 기록에는 대화 말고도 기록 관리 항목이 많다(`mode` · `permission-mode` · `atis-latch` · `file-history-snapshot` · `api-request` · `api-request-blob`(보낸 것의 사본 — 같은 말이 또 있음) · `attachment`(environment · skill_listing · prompt_snapshot …) · `system`(stop_hook_summary · turn_duration) · `last-prompt` · `ai-title` · `tools-used`). 「대화」는 `user` · `assistant` · `queued_command` 만 읽는다. assistant 한 메시지는 블록마다(`thinking` · `text` · `tool_use`) 한 줄씩 기록된다.
+- 여러 물음은 물음마다 번호를 누르면 다음 물음으로 넘어가고, 끝의 확인 화면에서 Enter 를 눌러야 낸다 → runner 의 키는 「번호들 + Enter」(가짜 CLI 의 `CHOOSE` 도 같게 했다).
+- 첫 프로브에서는 화면에 메뉴가 뜨기 전에(프롬프트의 글자에 「KRW」가 있어 뜬 줄 알았다) 번호를 눌러 입력란에 「21」이 들어갔다 — 물음은 화면이 아니라 훅(`PermissionRequest`)으로 알아야 하는 까닭이다.

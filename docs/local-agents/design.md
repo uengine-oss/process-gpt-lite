@@ -19,6 +19,7 @@
 - **스펙의 핵심(같은 날 추가)**: 스킬 · 프로세스 지도가 공유돼 있으니 로컬 실행도 서버의 스킬을 쓰고, 로컬의 입력 등에서 생긴 노하우는 서버로 모이고, 인스턴스의 참여자는 다른 사람의 CLI 실행을 보고 프롬프트를 제안한다 — 사람과 기기를 넘나드는 협업.
 - **입력은 CLI 를 가진 사람만(같은 날 사용자 규칙)**: 「타인이 의견을 넣을 수 있다(프롬프트). 해당 의견이 해당 ssh 터미널의 입력란에 추천으로 쌓인다. 그것을 입력버튼으로 실제 입력시키는 당사자는 해당 cli를 가진 사람만이 할 수 있다.」 — 앞서 만든 「조종 허용(나만 · 팀원 · 고칠 수 있는 사람)」과 「의견 → 조종」은 걷어 냈다.
 - **실행은 터미널로(같은 날 사용자 결정)**: 「cliagent 실행은 기존에 만들어뒀던 ssh 터미널 기능을 이용한다. agent share 의 것. 그래야 해당 cli client 와 동일한 결과를 낼 수 있으므로」 — 단계를 사람 자신의 대화형 `claude` · `codex` 로 PTY 안에서 돌리고, 그 터미널을 모든 보는 사람에게 그대로 보인다. 헤드리스(`-p` · `exec`)는 PTY 를 만들 수 없을 때만 쓰는 예비 길이다.
+- **보기 두 가지(같은 날 사용자 질문)**: 「ssh 터미널이지만, 보기 모드에 따라 원하는 경우는 우리 디자인에 맞춰서 스타일링이 가능할까?」 — 같은 세션을 실행 카드에서 「대화」(CLI 자신의 기록을 Lite 의 부품으로)와 「터미널」(Lite 의 색 · 글꼴 · 카드 틀로 입힌 그 화면)로 본다(5.11). 실행은 여전히 사람의 대화형 CLI 이고, 「대화」는 화면을 긁지 않고 CLI 의 세션 기록에서 만든다.
 
 ## 2. 참고한 구현
 
@@ -117,7 +118,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 - **받기는 서버가 확인한다**: 데스크톱은 `accept` 를 보내고 서버의 `accepted` 를 받아야 폴더 · CLI 를 건드린다. 서버는 그 일이 아직 그 기기에 보낸 상태일 때만 `running` 으로 바꾸고 `accepted` 를, 아니면(그 사이 거둠 — 서버에 맡김, 다른 곳으로 다시 보냄) `cancel` 을 보낸다. 보낸 일을 거둘 때(서버에 맡김, 답 없는 제안을 다시 큐로)는 그 기기에 `cancel` 을 먼저 보낸다. 데스크톱은 60초(`PGL_RUNNER_ACCEPT_MS`) 안에 답이 없으면 놓고, 링크가 다시 이어지면 기다리던 `accept` 를 다시 보낸다. 그래서 링크가 깜박인 사이 서버와 데스크톱이 같은 단계를 함께 돌지 않는다(검토 지적 11-24).
 - **「다시 시도」**: 일이 끝난 뒤(실패 · 취소 · 서버에 맡김 · 끝남) 그 단계가 다시 집히면 새 실행이다 — 지금의 활동 설정으로 다시 큐에 넣고 앞 실행의 세션 · 입력 · 줄은 잇지 않는다(검토 지적 11-24 — 서버에 맡겼던 단계를 다시 시도하면 아무것도 돌지 않고 단계가 잡힌 채 남던 것).
 - **관문 먼저**: 단계를 집으면 관문(`gateStep`)을 먼저 지난다 — 활동의 로컬 설정이 그 사이 없어져 업무 에이전트로 돌릴 때도(검토 지적 11-24 — 그때는 관문 없이 돌아 「초안 먼저」 · 사람 기다림을 건너뛰던 것).
-- 단계가 손으로 닫히거나 옮겨지면 일을 멈추라고 보낸다.
+- 단계가 손으로 닫히거나 옮겨지면 일을 멈추라고 보낸다. 다만 결과를 받아들이는 중인 실행(일에 결과가 적혔고 아직 실행 중 — 그 단계는 그 결과로 닫히는 중)은 건드리지 않는다(2026-11-24 — 그 사이 sweep 이 「단계가 닫혀 로컬 실행을 멈췄어요」로 바꾸고 데스크톱의 끝 보고를 거절한 적이 있다, M-02).
 
 ### 5.3 서버에 맡기기
 - `onto`(업무 에이전트): `run.runStep` 을 이 서버에서 돌린다(담당 사람을 넘김).
@@ -176,14 +177,27 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 
 ### 5.10 터미널 중계 (`relay.js`)
 - **세션**: 데스크톱이 연 CLI 세션 하나(runner 의 세션 id, CLI 자신의 세션 id, 종류 `kind` 와 대상 `ref`). 단계 실행은 종류 `step`(대상 = 그 일 id) 하나다. 종류마다 `registerKind(kind, {open(link, ref), view(user, ref), opened, exit, stored})` — 누가 그 세션을 열 수 있는지(데스크톱: `step` 은 그 일을 받은 바로 그 기기), 누가 볼 수 있는지(사람: `step` 은 그 인스턴스를 볼 수 있는 사람).
-- **링크로 오는 것**(데스크톱 → 서버, hub 가 받아 relay 에): `term-open {sid, kind, ref, agent, cli, cols, rows, replay?}` · `pty {sid, data}`(40ms 마다 모음) · `term-session {sid, cli}` · `hook {sid, event, data}` · `files {sid, files:[{path, content|deleted}]}` · `term-exit {sid, code}`. 다른 사람의 세션 · 다른 기기의 세션에 대한 것은 버린다.
-- **보는 사람**: `POST /api/local-agents/jobs/:id/term` → 1회용 표(60초, 볼 수 있는 사람만, `owner` = 작업자인지) → `wss://…/api/local-agents/term?ticket=…`(같은 출처만 — 작업실 터미널과 같은 문지기). 붙으면 `session {owner, live, cols, rows, agent, device}` 과 지금까지의 화면(`output replay`), 그 뒤로 `output` · `size` · `exit` · `detached` · `attached`. 서버에 이 세션이 없고(서버가 다시 켜짐) 일에 마지막 화면이 있으면 그것을 읽기 전용으로 보인다.
+- **링크로 오는 것**(데스크톱 → 서버, hub 가 받아 relay 에): `term-open {sid, kind, ref, agent, cli, cols, rows, replay?}` · `pty {sid, data}`(40ms 마다 모음) · `term-session {sid, cli}` · `hook {sid, event, data}` · `files {sid, files:[{path, content|deleted}]}` · `tx {sid, items, replay?}`(대화 — 5.11, 120ms 마다 모음) · `term-keep {sid}`(지금 화면을 남길 화면으로 — 턴이 끝날 때 · CLI 를 닫기 직전) · `answer-failed {sid, ask, reason}` · `term-exit {sid, code}`. 다른 사람의 세션 · 다른 기기의 세션에 대한 것은 버린다.
+- **보는 사람**: `POST /api/local-agents/jobs/:id/term` → 1회용 표(60초, 볼 수 있는 사람만, `owner` = 작업자인지) → `wss://…/api/local-agents/term?ticket=…&streams=term,tx`(같은 출처만 — 작업실 터미널과 같은 문지기). `streams` 는 받을 흐름(`term` 화면의 바이트 · `tx` 대화, 기본 `term`)이고, 붙은 뒤 `{type:'subscribe', streams, replay?}` 로 더 받는다(그 흐름을 처음부터 다시 보냄). 붙으면 `session {owner, live, cols, rows, agent, device}` 과 고른 흐름의 지금까지(`output replay` · `tx replay`), 그 뒤로 `output` · `tx` · `size` · `exit` · `detached` · `attached` · `answer-failed`. 서버에 이 세션이 없고(서버가 다시 켜짐 · 메모리에서 지움) 일에 마지막 화면 · 대화가 있으면 그것을 읽기 전용으로 보인다.
+- **일찍 붙기(2026-11-24 제품 영상 녹화에서 — 카드가 뜬 뒤 3–4초 뒤에야 터미널이 붙었다)**: 실행 카드는 일이 보내지자마자 나오는데, 터미널은 데스크톱이 폴더를 맞추고 스킬을 받은 뒤 열린다. 카드는 그 데스크톱이 터미널로 돌린다고 알렸으면(링크의 `caps.terminal` — 카드의 `terminalSoon`) 바로 터미널 틀과 「터미널에 연결하는 중…」을 보이고 표를 받아 붙는다. 서버는 아직 세션이 없으면 종류의 `pending(ref)`(일이 보냄 · 실행 중이고 그 기기가 터미널로 돈다)를 보고 보는 사람을 붙잡아 두었다가(`waiting`, 10분까지) 세션이 열리는 순간 `session` 과 화면을 보낸다.
 - **입력**: 보는 사람의 `input` · `resize` 는 작업자 것만 그 데스크톱 링크로(`pty-input {sid, data, byId}` · `pty-resize`). 다른 사람 것은 버리고 센다(`stats.dropped`). 화면 크기는 runner 가 정한 80×28 을 기본으로 둔다 — 보는 사람의 화면은 글자 크기를 줄여 맞추고, 넓으면 터미널 상자 안에서만 옆으로 움직인다(작업자의 크기 바꾸기는 프로토콜에 있으나 화면은 아직 보내지 않는다).
 - **화면 모델**: 세션마다 `@xterm/headless` 에 바이트를 그대로 먹인다. `screenOf(S)` = 보이는 줄 · 커서 · 크기(「지금 화면에 무엇이 있는지」 — 선택 창을 알아보는 watcher 가 쓸 것), `GET /api/local-agents/jobs/:id/screen`. 되감기용 바이트는 400KB 까지.
 - **훅 · 파일**: `events`(EventEmitter: `open` · `hook` · `files` · `exit`)로 서버 안의 듣는 쪽에 전한다. 훅 이벤트에는 사건 이름과 몇 가지 평문(`session_id` · `message` · `notification_type` · `source` · `error` · `last_assistant_message`)만 — 이 컴퓨터의 경로 · 도구 입력은 보내지 않는다. 지켜보는 파일은 세션을 열 때 정한 경로(예: `aidlc/`) 아래 256KB 이하 글만.
-- **남기는 것**: 세션이 끝나면 `step` 은 마지막 화면 64KB 와 크기를 일에(`screen` · `screen_size`), 터미널이 있었음을(`terminal`) 남긴다. 링크가 끊기면 세션은 `detached` 로 남고, 다시 붙으면 데스크톱이 열린 세션을 지금까지의 화면과 함께 다시 알린다(서버가 다시 켜졌을 때도).
+- **남기는 것**: 세션이 끝나면 `step` 은 마지막 화면 64KB 와 크기를 일에(`screen` · `screen_size`), 대화를 일에(`transcript` — 최근 것부터 512KB), 터미널이 있었음을(`terminal`) 남긴다. 링크가 끊기면 세션은 `detached` 로 남고, 다시 붙으면 데스크톱이 열린 세션을 지금까지의 화면 · 대화와 함께 다시 알린다(서버가 다시 켜졌을 때도 — 대화는 서버에 없는 항목만 받는다).
+- **마지막 화면은 마지막 턴의 화면(2026-11-24 제품 영상 녹화에서)**: 전에는 CLI 가 끝날 때(`term-exit`)의 바이트 끝부분을 남겼는데, Claude Code 는 닫히면서 화면을 지우고 「Resume this session with …」만 남겨 끝난 카드의 터미널이 거의 비어 보였다. 이제 데스크톱이 턴이 끝날 때마다와 CLI 를 닫기 직전에 `term-keep` 을 보내고, 서버는 그때 화면 모델(@xterm/headless)의 마지막 300줄을 색 · 굵기 그대로 다시 그릴 수 있는 바이트로 떠 둔다(`relay.snapshot`). `term-exit` 에서는 그것을 되감기 · 일의 `screen` 으로 쓰고, 보고 있던 사람에게도 그 화면을 다시 보낸다(CLI 의 작별 화면 대신). 끝난 실행의 「대화」는 일의 `transcript` 에서 온다.
 - **메모리에서 지우기**(검토 지적 11-24): CLI 가 끝난 세션은 `PRO_LOCAL_TERM_KEEP_MS`(기본 10분) 뒤, 데스크톱이 사라져 돌아오지 않는 세션은 `PRO_LOCAL_TERM_DETACH_MS`(기본 1시간) 뒤에 화면 모델을 닫고 지운다(보던 사람의 연결도 닫음). 그 뒤 보는 사람은 일에 남은 마지막 화면을 받는다.
 - 서버 한 대 기준(메모리) — hub 의 접속 상태와 같은 가정.
+
+### 5.11 「대화」와 「터미널」 — 같은 세션의 두 보기 (2026-11-24 사용자 질문)
+- **무엇을 보이나**: 실행 카드에 「대화」 · 「터미널」 단추. 「대화」(`LocalConversation.vue`)는 그 세션의 대화를 Lite 의 부품으로, 「터미널」(`LocalTerminal.vue`)은 그 CLI 의 화면을 Lite 의 색으로. 입력란과 제안 칩은 두 보기가 함께 쓴다(카드의 것). 기본은 작업자가 아닌 사람과 휴대폰(760px 이하)은 「대화」, 데스크톱의 작업자는 「터미널」. 보는 사람이 고른 것은 그 브라우저에 남는다(`localStorage pgl.localRun.view`, 못 쓰면 기본). 연결은 카드에 하나(`src/localRelay.js`)이고, 보기가 보일 때 그 흐름을 받는다(`subscribe`).
+- **어디서 오나 — 화면이 아니라 CLI 자신의 기록**: 데스크톱의 세션(`session.js`)이 이미 턴의 끝을 알려고 이어 읽던 기록을 항목으로 바꾼다(`transcript.js`). Claude Code 는 세션 jsonl(`<config>/projects/<폴더>/<세션>.jsonl`)의 `user` · `assistant`(글 · `thinking` · `tool_use`) · 도구 결과(`tool_result` + `toolUseResult` — 고친 곳의 `structuredPatch`, 명령의 `stdout`, 읽은 줄 수, 물음의 답) · 줄 서 있던 입력(`queued_command`) · 슬래시 명령. 기록 관리 항목(`mode` · `permission-mode` · `file-history-snapshot` · `api-request(-blob)` · 환경 · 스킬 목록 첨부 · `system`)과 하위 에이전트(`isSidechain`) · `isMeta` 는 뺀다. Codex 는 rollout 의 `event_msg`(`user_message` · `agent_message` · `agent_reasoning` · `turn_aborted`)와 `response_item`(`function_call` · `local_shell_call` · `custom_tool_call apply_patch` · 그 출력 — `exit_code`). `response_item` 의 `message` · `reasoning` 은 같은 말의 사본이라 뺀다. 턴의 시작 · 끝 · 멈춤과 물음은 훅에서(`turn` · `ask` · `ask-done`).
+- **항목**(`{id, t, at, …}`): `user {text, first?, cmd?, steerId?, from?, by?}` · `text` · `thinking` · `tool {call, name, input:{path, command, description, skill, pattern, old, new, content, todos, questions…}}` · `result {call, ok, out?, patch?, answers?, kind?}` · `note {kind: interrupted | error | command}` · `turn {state: start | end | failed | interrupted}` · `ask` · `ask-done`. 작업 폴더 안의 경로는 그 폴더의 것으로(`산출물/…`), 긴 글은 자른다(글 12,000자 · 출력 4,000자 · 고친 앞뒤 8,000자 · 차이 400줄). **가리는 것은 없다** — 터미널이 보이는 것과 같은 노출이고, 같은 사람(터미널을 볼 수 있는 사람)만 본다.
+- **누구의 말인지**: runner 가 터미널에 넣은 입력(작업자의 글, 고른 제안)이 CLI 의 기록에 나타나면 그 항목에 `steerId` · `from`(제안한 사람) · `by`(작업자)를 붙인다 → 「서하린 제안 · 윤태호 입력」. 단계의 첫 프롬프트는 `first`(「단계 프롬프트」, 접힘), 작업자가 터미널에 직접 친 것은 「윤태호 입력」.
+- **서버**: `relay.js` 가 세션마다 항목을 바이트처럼 둔다 — 모양(아는 종류 · id) · 크기(한 항목 64KB) 검사, 한도(`PRO_LOCAL_TX_ITEMS` 2000개 · `PRO_LOCAL_TX_BYTES` 1.5MB, 오래된 것부터 버림), 메모리에서 지우는 때도 바이트와 같다(`keepMs` · `detachMs`). 끝나면 일의 `transcript` 에. `GET /api/local-agents/jobs/:id/transcript`(같은 권한).
+- **보이는 모양**: 글은 markdown 을 안전하게(`src/safeMarkdown.js` — marked 뒤 허용한 요소 · 속성만, http(s) · mailto 링크만), 생각은 접힘, 도구는 한 줄씩 — 「파일 읽음 · 견적서.md」, 「만듦 · 견적서.md」, 「고침 · 견적서.md」(펼치면 차이 — CLI 의 `structuredPatch`, 없으면 고친 앞뒤), 「명령 실행」(펼치면 명령과 출력), 「스킬 사용 · 견적-규칙」, 「찾음 · …」, 「웹 읽음 · …」, 「할 일 정리」 … 결과가 오기 전에는 점이 깜박이고, 실패면 빨갛다. 턴이 도는 동안 「작업 중…」. 차이 · 출력은 그 상자 안에서만 옆으로 · 아래로 움직인다(휴대폰 390px 에서도 화면은 넘치지 않음).
+- **CLI 가 묻는 것**(`prompts.js`, 실측 2026-11-24 — 이 맥의 Claude Code 2.1.331 을 PTY 에서 임시 설정 폴더 · 회사 모델 게이트웨이로): 허락 창은 `PermissionRequest` 훅(`tool_name` · `tool_input` · `permission_suggestions`, 2.0.45 이후 — 그 전 판에는 넣지 않고 `Notification` 의 `permission_prompt` 와 기록의 결과 없는 마지막 도구 호출로), 고르기 창은 `AskUserQuestion` 도구의 입력. 화면은 「❯ 1. Yes / 2. Yes, and don't ask again for: python3 * / 3. Yes, and switch to auto mode / 4. No · Esc to cancel · Tab to amend」, 고르기는 「1. Markdown / 2. Plain text / 3. Type something. / 4. Chat about this」. 키: 허락 `1` · 앞으로 묻지 않기 `2`(제안 규칙이 있을 때만) · 거절 `Esc`(그 도구를 거절하고 턴이 멈춘다 — `Stop` 훅 없이 「Interrupted · What should Claude do instead?」, 기록에 `[Request interrupted by user for tool use]`) · 고르기는 그 항목의 번호(한 물음은 바로 답이 됨 — 실측). 여러 물음을 한 번에 묻으면 물음이 탭(「← ☐ Currency ☐ VAT ✔ Submit →」)으로 보이고, 번호마다 그 물음에 답하고 다음으로 넘어간 뒤 「Review your answers ❯ 1. Submit answers 2. Cancel」에서 Enter 로 낸다 — 그래서 물음마다 번호, 끝에 Enter(실측: `2` · `1` · Enter → 「USD」 · 「Yes」). 자동 모드(3)는 내놓지 않는다(사람의 모드를 세션 끝까지 바꾸므로). Codex 의 승인 창은 rollout 에도 훅에도 남지 않아 카드로 만들지 않는다(작업자가 터미널에서 답함).
+  - 카드: 작업자에게만 선택 단추, 다른 사람에게는 「윤태호님의 답을 기다려요」. 누르면 `POST /api/local-agents/jobs/:id/answer {ask, answer}`(작업자만 — 그 밖 403, 이미 닫힌 물음 409) → 서버가 그 세션의 데스크톱에 `pty-answer {sid, ask, answer, byId}` → runner 가 그 물음이 아직 열려 있을 때만 키를 누른다(창이 닫힌 뒤 누른 키는 CLI 입력란에 글자로 들어가므로 — 실측). 물음은 결과가 오거나 턴이 끝나거나 멈추면 닫힌다(`ask-done`).
+- **터미널의 모양**(`src/localTermTheme.js`): xterm.js 의 색을 `src/styles/base.css` 의 토큰에서 — 어두운 바탕(카드의 rgb 29 29 31, 글 --text-primary, 커서 --color-info)과 밝은 바탕(rgb 251 251 253, 글 rgb 29 29 31, 커서 #005AD7). ANSI 16색은 뜻을 지키며(빨강은 빨강) 토큰에 맞춘 것으로, 모두 바탕과 4.5:1 이상(시험). CLI 가 24비트 색으로 칠한 것은 xterm 의 `minimumContrastRatio` 4.5 가 끌어올린다. `<html data-theme>` 이 바뀌면 그 자리에서 바뀐다. 글꼴은 고정폭(SF Mono · Menlo · Consolas) 다음에 한글이 두 칸 폭인 D2Coding · Nanum Gothic Coding, 그다음 시스템 한글. 카드 틀(모서리 14px, hairline).
 
 ## 6. 데스크톱 (`desktop/src/runner/`)
 
@@ -191,8 +205,11 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 |---|---|
 | `clis.js` | CLI 찾기 · 버전 · 로그인, 고정 명령, 출력 읽기 |
 | `git.js` | 작업 폴더 맞추기 · 가지 · 커밋 · push · 라인 따라가기 |
-| `runner.js` | 일 하나를 처음부터 끝까지, 입력, 보고함(outbox), 중계되는 세션(`openSession`), 다시 켜졌을 때 이어서 |
-| `session.js` | 대화형 CLI 세션 하나(PTY): 세션 설정 · 훅 파일, 첫 프롬프트 붙여 넣기, 기록(jsonl · rollout) 읽기, 지켜보는 경로, 폴더 신뢰 |
+| `runner.js` | 일 하나를 처음부터 끝까지, 입력, 보고함(outbox), 중계되는 세션(`openSession` — 바이트 · 대화 · 남길 화면), 턴 뒤 기다리기 · 끝내기, CLI 의 물음에 답하기, 다시 켜졌을 때 이어서 |
+| `session.js` | 대화형 CLI 세션 하나(PTY): 세션 설정 · 훅 파일, 첫 프롬프트 붙여 넣기, 기록(jsonl · rollout) 읽기 → 대화 항목, CLI 의 물음(열림 · 닫힘 · 답의 키), 지켜보는 경로, 폴더 신뢰 |
+| `transcript.js` | CLI 의 기록 한 줄 → 대화 항목(Claude Code jsonl · Codex rollout, 순수 함수) |
+| `prompts.js` | CLI 가 묻는 것(허락 · 고르기)과 그 답의 키(실측 2.1.331) |
+| `settle.js` | 턴이 끝난 뒤 기다리기의 규칙(순수 함수) |
 | `pty.js` | node-pty 불러오기(못 불러오면 헤드리스) |
 | `link.js` | 서버 링크(다시 붙기 1초 → 30초) |
 | `skills.js` | 서버의 스킬을 CLI 자리에 두기 · 바뀐 스킬과 기억 찾기 |
@@ -213,10 +230,11 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
   - 폴더 신뢰: 앱이 만든 작업 폴더(데이터 폴더 아래)만 Claude Code 의 설정(`$CLAUDE_CONFIG_DIR/.claude.json`, 없으면 `~/.claude.json`)의 `projects[<폴더 실제 경로>].hasTrustDialogAccepted = true` 로 둔다(그 CLI 가 안내하는 방법, 원자적으로 바꿔 쓰기). 다른 Claude Code 가 그 사이에 덮어쓰면 신뢰 창이 터미널에 뜨고 작업자가 답한다.
   - 턴의 끝: `Stop` 훅(마지막 답 `last_assistant_message`), 실패는 `StopFailure`. 진행 줄(도구 · 글)과 입력이 들어간 것은 세션 기록 jsonl(`<config>/projects/<폴더>/<세션>.jsonl`, 세션 id 로 찾음)을 오프셋으로 이어 읽어 안다.
 - **Codex**: `codex [resume <thread>] -c projects."<폴더>".trust_level="trusted" -c check_for_update_on_startup=false -C <폴더> "<프롬프트 파일을 읽으라는 한 줄>"` — 신뢰와 업데이트 창 끄기는 그 세션의 명령줄 설정으로만(사람의 config.toml 은 쓰지 않음). 프롬프트는 작업 폴더의 `.pgl-run/prompt.md`(커밋하지 않음)에 두고 명령줄에는 그것을 가리키는 한 줄만(프로세스 목록에 프롬프트가 보이지 않게). Codex 가 그 첫 메시지를 스스로 넣는다. 세션 id · 진행 · 턴의 끝은 rollout(`session_meta` · `user_message` · 함수 호출 · `agent_message` · `task_complete`)으로.
-- **단계의 끝**: 턴이 끝나고 `PGL_RUNNER_SETTLE_MS`(기본 3초) 동안 새 턴 · 기록에 아직 안 들어간 입력(20초 한도) · 사람의 타자가 없으면 끝. 사람이 쳤지만 보내지 않은 줄은 `PGL_RUNNER_IDLE_FINISH_MS`(기본 2분)까지 기다린다. 끝나면 CLI 를 닫고(SIGTERM) 결과를 쓴다. 한 번에 60분까지.
+- **단계의 끝**(결정 2026-11-24, §10-6): 턴이 끝나면 실행은 **기다린다** — 인스턴스의 사람들이 첫 결과를 보고 제안하고, 작업자가 입력할 시간. 기다리는 동안 작업자의 카드에는 「끝내기」와 「5분 동안 새 입력이 없으면 저절로 끝나요」, 다른 사람의 카드에는 「윤태호님이 끝내기를 기다려요 — 지금 제안하면 이어서 입력할 수 있어요」. 새 제안(누구든) · 작업자의 입력(카드 · 인스턴스 대화) · 작업자의 타자 · CLI 의 물음에 답하기 · 새 턴이 기다림을 처음부터 다시 시작한다. 기다림 동안 아무것도 없으면 끝(기본 5분 — 데스크톱 설정 「턴이 끝난 뒤 기다리기」 1 · 3 · 5 · 10 · 30 · 60분, 또는 `PGL_RUNNER_SETTLE_MS`), 작업자가 「끝내기」를 누르면 바로(CLI 가 일하는 중이면 그 턴이 끝난 뒤). 터미널에 넣었지만 아직 기록에 없는 입력은 끝을 붙잡는다(20초 한도). CLI 가 턴을 멈추면(Esc · 거절한 도구 — `Stop` 훅이 오지 않는다) 그것도 턴의 끝으로 보고 기다린다. 규칙은 `settle.js`(순수 함수, 시험). 데스크톱은 저절로 끝날 때를 서버에 알린다(`idle {jobId, until}`, 일의 `idle_until`) — 카드가 그것을 보인다. 「끝내기」는 `POST /api/local-agents/jobs/:id/finish`(작업자만, 그 밖 403) → 데스크톱 링크로 `finish`. 끝나면 CLI 를 닫고 결과를 쓴다. 한 번에 60분까지. (`PGL_RUNNER_IDLE_FINISH_MS` 는 없앴다 — 친 글도 입력이라 기다림을 다시 시작한다.)
+  - 왜(사용자 요구, 2026-11-24): 「여러 사람이 참여하고 있는 인스턴스에 내가 하고 있는 cliclient 작업에 타인이 의견을 넣을 수 있다(프롬프트). 해당 의견이 해당 ssh 터미널의 입력란에 추천으로 쌓인다.」 — 턴이 끝나고 3초 뒤 끝내면 첫 초안을 본 참여자의 제안이 늘 늦었다(제품 영상 녹화에서 30초로 늘려야 했다).
 - **환경**: 사람 자신의 것에서 부모 Claude Code 의 표지(`CLAUDE*`, 단 `CLAUDE_CONFIG_DIR` 은 둠), `GIT_CONFIG_*`, `ELECTRON_RUN_AS_NODE`, `PGL_*` 를 빼고 `TERM=xterm-256color` · `COLORTERM=truecolor` · `DISABLE_LOGIN_COMMAND=1` · `DISABLE_LOGOUT_COMMAND=1`(agent-share 처럼 — 여럿이 보는 화면에서 계정을 바꾸지 않게).
 - **다시 켜졌을 때**: runner 는 세션 id 를 알면 `<userData>/local-agents/sessions/<일>.json`(0600: CLI 세션 · 폴더 · 시작 커밋 · 산출 폴더)에 적는다. 앱이 끝나면 CLI 를 멈추되 그 기록은 남긴다. 서버가 같은 일을 `resume` 과 함께 다시 보내면, 기록이 맞을 때 폴더를 되돌리지 않고 같은 세션을 이어(`--resume` · `codex resume`) 「이 앱이 다시 켜져서 같은 세션을 이어서 해요. 하던 일을 마저 끝내세요.」를 넣는다. 일이 끝나거나 취소되면 기록을 지운다.
-- **사람을 기다릴 때**: `Notification` 훅(권한 확인 등)이 오면 진행 줄에 남기고 main 이 「「<단계>」 — 터미널에서 답을 기다려요」 알림을 띄운다. 작업자는 자기 창(또는 휴대폰)의 터미널에서 답한다.
+- **사람을 기다릴 때**: `PermissionRequest` · `Notification` 훅(권한 확인 등)이 오면 진행 줄에 남기고 main 이 「「<단계>」 — 터미널에서 답을 기다려요」 알림을 띄운다. 작업자는 「대화」의 물음 카드(5.11)나 자기 창(또는 휴대폰)의 터미널에서 답한다.
 
 ### 6.2.1 헤드리스 (예비 길 — PTY 를 만들 수 없을 때, `mode: 'headless'` · `PGL_RUNNER_MODE=headless`)
 - **Claude Code**: `claude -p --input-format stream-json --output-format stream-json --verbose --replay-user-messages --session-id <uuid> --permission-mode acceptEdits --allowed-tools Read,Write,Edit,MultiEdit,Glob,Grep,TodoWrite,Skill,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(wc:*),Bash(mkdir:*) --disallowed-tools Bash(git:*),Bash(curl:*),Bash(wget:*),Bash(rm -rf:*),WebFetch --setting-sources project --strict-mcp-config`. 입력은 stdin 의 user 메시지, `--replay-user-messages` 로 받아들인 것을 안다(멈추지 않음, `live`). 끝난 뒤 온 입력은 `--resume`(`resume`).
@@ -242,6 +260,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 - 데스크톱 앱: 실행 중이면 화면 오른쪽 아래 알약 「로컬 에이전트 실행 중 · Claude Code」, macOS Dock 배지 ●.
 - 페이지 다리(`pglDesktop.localRunner`: status · mayPair · pair · forget · setPrefs · detect · onState). main 은 고른 서버의 페이지(main 창)에서 온 요청에만 답한다. 상태에 `terminal`(이 데스크톱이 터미널로 돌리는지).
 - 작업자 자신의 터미널: 데스크톱 앱의 창도 Lite 페이지이므로 같은 실행 카드의 터미널(`LocalTerminal.vue`)이 서버를 거쳐 그 PTY 에 붙는다(작업자 = 입력 가능, 커서 · 휴대폰 키 줄). Ctrl+C · Ctrl+D 를 3초 안에 다시 누르면 두 번째는 보내지 않고 알린다(agent-share). 휴대폰에서는 손가락 관성 스크롤, 작업자의 Claude Code 「/」 목록 항목 탭.
+- 설정 › 계정 › 「내 컴퓨터의 에이전트」의 「턴이 끝난 뒤 기다리기」(1 · 3 · 5 · 10 · 30 · 60분, 기본 5분 — `desktop-settings.json` 의 `runnerPrefs.finishMinutes`).
 
 ## 7. 시험
 
@@ -253,6 +272,9 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 | 실제 BFF + 두 사람의 runner(터미널): 공개 git 경로(`/api/local-git`)로 맞추기 · 올리기(토큰 없음 401 · 클러스터 토큰 403 · 끊은 기기 403), A → B 이어받기, 참여자의 제안 → 작업자만 입력(403), 터미널(보는 사람과 작업자가 작업자 데스크톱의 바이트 그대로 받음 · 보는 사람의 입력은 버림 · 작업자의 입력은 CLI 에 · 바깥 사람 403 · 지금 화면), 회사 스킬, 배운 것 반영(403 포함), 꺼져 있을 때 기다림 · 서버, Codex 입력(같은 세션), 기기 끊기 | `server/test/localAgents.e2e.mjs` | 9/9 |
 | Electron 앱 두 개(Playwright `_electron`): 저절로 연결 · 알약 · 앱 안의 node-pty 로 터미널 실행 · B 가 자기 창의 터미널을 보며 입력 · 로컬 실행 끔 → 기다림 | `e2e/tests/desktop/local-agents.spec.js` | 4/4 |
 | 휴대폰(390px) 브라우저에서 터미널 실시간 보기 · 입력 · 권한 · 「PC 앱이 켜지면 시작」 · 서버에 맡기기 · Home 카드 | `e2e/tests/feature/local-agents-mobile.spec.js` | 3/3 |
+| 대화 · 터미널 두 보기(5.11): 기본 보기 · 고른 것 남기기 · 기록이 쓰이는 대로 늘어남 · 차이 · 「서하린 제안 · 윤태호 입력」 · CLI 의 물음(작업자만, PTY 에 1) · 턴 뒤 기다림 · 끝내기 · 끝난 실행의 마지막 화면과 대화 · 밝은/어두운 테마 · 휴대폰의 폴더 변경안 | `e2e/tests/feature/local-agents-view.spec.js` (F-LV-01–10) | 스펙 e2e/README 의 결과 |
+| 대화 항목(Claude jsonl · Codex rollout 고정 자료) · CLI 의 물음과 키 · 기다리기 규칙 · runner 의 대화 중계 · 물음에 답 · 끝내기 | `desktop/test/conversation.test.js` | 스펙 e2e/README 의 결과 |
+| 대화 중계의 모양 · 크기 · 한도 · 다시 붙기 · 물음(작업자만 · 열린 것만) · 보는 사람의 흐름 · 일찍 붙기 · 남길 화면 · 이름에 맞는 조사 | `server/test/localAgents.test.js` · `server/test/josa.test.js` | 스펙 e2e/README 의 결과 |
 | 두 사람 협업: 휴대폰(390px) 서하린이 같은 터미널(읽기 전용)을 보며 제안 → 윤태호(1280px)가 고르고 고쳐 입력 → 그의 CLI 에 → 서하린의 화면 「고쳐서 입력함」 · 서하린의 입력 403 → 다음 담당자의 PC 가 이어받음 → 배운 것 반영 · 회사 스킬 | `e2e/tests/feature/local-agents-collab.spec.js` | 3/3 |
 | 실제 대화형 Claude Code 를 터미널로: 회사 스킬 · 실행 중 입력 · 훅으로 끝 | `server/test/localAgents.smoke.mjs tty`(회사 모델 게이트웨이) | 끝남 16.2초, 입력 반영 `live` |
 | 실제 `claude` · `codex` 헤드리스 한 번씩 + 입력 · 회사 스킬 | `server/test/localAgents.smoke.mjs both · skill` | 끝남, 입력 반영 |
@@ -268,7 +290,9 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
   - 운영 게이트웨이가 `/lite/**` 를 lite-web 으로 넘기고 있으면 더 할 일은 없다. 따로 둔 공개 주소를 쓰려면 `PRO_GIT_PUBLIC_URL`.
 - **WebSocket**: 웹 nginx 는 `location /api/` 에 `proxy_http_version 1.1` · `Upgrade` · `Connection $connection_upgrade` · 읽기 3600초를 두고 있어 `/api/local-agents/link`(데스크톱 — 25초마다 ping) · `/api/local-agents/term`(보는 사람)의 업그레이드를 그대로 넘긴다. 바꿀 것은 없다. 남은 것은 게이트웨이(Spring Cloud Gateway)가 `/lite/api/**` 업그레이드를 넘기는지다. 작업실 터미널(`/lite/api/workroom/term`)이 운영에서 쓰이고 있으니 같은 길이다 — 운영에서 한 번 확인한다(이 가지에서는 하지 않음). 데스크톱의 링크에는 Origin 이 없다(hub 는 Origin 을 보지 않고 첫 메시지의 기기 토큰으로 막는다). 보는 사람의 터미널은 같은 출처 검사(`companyAddress`)를 지난다.
 - **서버 한 대 기준**: 접속 상태가 메모리에 있다. Lite 서버를 여러 대로 늘리면 링크와 일이 다른 서버에 있을 수 있다(작업실 터미널과 같은 가정).
-- 환경변수(모두 선택): 서버 `PRO_GIT_PUBLIC_URL`, `PRO_LOCAL_AGENT_WORKER=0`(일꾼 끔), `PRO_LOCAL_AGENT_TICK_MS`(기본 3000), `PRO_LOCAL_KNOWHOW_MIN`(기본 0.5), `PRO_LOCAL_TERM_KEEP_MS`(기본 600000) · `PRO_LOCAL_TERM_DETACH_MS`(기본 3600000). 데스크톱 `PGL_RUNNER_MODE=headless`(터미널 대신 헤드리스), `PGL_RUNNER_SETTLE_MS`(기본 3000), `PGL_RUNNER_IDLE_FINISH_MS`(기본 120000), `PGL_RUNNER_ACCEPT_MS`(기본 60000).
+- 환경변수(모두 선택): 서버 `PRO_GIT_PUBLIC_URL`, `PRO_LOCAL_AGENT_WORKER=0`(일꾼 끔), `PRO_LOCAL_AGENT_TICK_MS`(기본 3000), `PRO_LOCAL_KNOWHOW_MIN`(기본 0.5), `PRO_LOCAL_TERM_KEEP_MS`(기본 600000) · `PRO_LOCAL_TERM_DETACH_MS`(기본 3600000), `PRO_LOCAL_TX_ITEMS`(기본 2000) · `PRO_LOCAL_TX_BYTES`(기본 1572864). 데스크톱 `PGL_RUNNER_MODE=headless`(터미널 대신 헤드리스), `PGL_RUNNER_SETTLE_MS`(턴 뒤 기다리기 — 없으면 데스크톱 설정, 기본 5분), `PGL_RUNNER_ACCEPT_MS`(기본 60000).
+- **SQL 다시 한 번**: `052_local_agents.sql` 에 열 두 개를 더했다(`transcript jsonb` — 끝난 실행의 대화, `idle_until timestamptz` — 턴 뒤 기다림). 여러 번 돌려도 되니 운영 Supabase 에 다시 돌린다.
+- **데스크톱 0.2.1**: runner 가 바뀌었다(대화 중계 · 물음 · 기다리기 · 남길 화면). 0.2.0 데스크톱도 서버와 계속 맞물린다(「대화」 · 물음 카드 · 「끝내기」가 없고, 단계는 예전처럼 3초 뒤 끝난다).
 - k8s: 위 nginx · 게이트웨이 경로 외에는 없다. 데스크톱 앱은 새 판을 다시 묶어 배포해야 한다(node-pty 가 들어감 — mac arm64 로 묶어 확인만, 배포는 하지 않음).
 
 ## 9. 남은 일 · 한계
@@ -288,7 +312,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 3. 터미널 실행은 사람의 설정을 그대로 쓴다(그 사람의 훅 · MCP · 권한 · 플러그인이 돈다 — 「그 사람의 터미널과 같은 결과」). 헤드리스에서 쓰던 「설정 소스는 project 만 · 허용 도구 목록」은 예비 길에만 남았다. 터미널에도 도구를 좁힐지(`--disallowed-tools` 등).
 4. 권한 모드 `acceptEdits`(작업 폴더의 파일 고치기는 묻지 않음, 셸 명령은 사람의 설정대로 묻거나 허용). 무인 단계에서 셸 명령을 물으면 작업자가 터미널에서 답해야 끝난다 — 더 열지(사람의 auto 모드) 닫을지.
 5. 폴더 신뢰를 앱이 사람의 `~/.claude.json` 에 쓴다(앱이 만든 작업 폴더만). 쓰지 않고 작업자가 처음 한 번 터미널에서 답하게 할지.
-6. 단계의 끝을 「턴이 끝나고 3초 동안 아무 일 없음」으로 본다. 끝까지 하는 단계에서 작업자가 더 대화하고 싶을 때 「끝내기」 단추를 두고 자동 끝을 끌지.
+6. ~~단계의 끝을 「턴이 끝나고 3초 동안 아무 일 없음」으로 본다. 끝까지 하는 단계에서 작업자가 더 대화하고 싶을 때 「끝내기」 단추를 두고 자동 끝을 끌지.~~ **정함(2026-11-24)**: 턴이 끝나면 기다리고(기본 5분, 데스크톱 설정 · `PGL_RUNNER_SETTLE_MS`), 새 제안 · 입력이 기다림을 다시 시작하며, 작업자는 「끝내기」로 바로 끝낸다(6.2). 까닭: 사용자의 협업 요구(「여러 사람이 참여하고 있는 인스턴스에 내가 하고 있는 cliclient 작업에 타인이 의견을 넣을 수 있다(프롬프트). 해당 의견이 해당 ssh 터미널의 입력란에 추천으로 쌓인다.」) — 3초로는 첫 초안을 본 참여자의 제안이 늘 늦었다(제품 영상 녹화에서 30초로 늘려야 했다).
 7. 작업자의 타자도 서버를 거쳐 PTY 로 간다(어느 기기에서나 같은 길). 데스크톱 앱 창에서는 링크 없이 바로 PTY 에 붙게 할지(지연 · 서버가 꺼졌을 때).
 8. 노하우의 「습관」 길: 실행 중 입력은 활동의 정의(「배운 것」)로만 보냈다. 사람마다의 습관(followups)으로도 보낼지.
 9. 활동의 노하우를 반영할 사람: 관리자 · 프로세스 담당자(`proc_def.owner`). 지도의 일은 관리자만 고치는 지금 규칙과 같게 둘지, 건의 주인에게도 열지.

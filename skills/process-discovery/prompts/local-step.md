@@ -1,4 +1,4 @@
-프로세스 「{inst}」의 「{step}」 단계를 맡았어요. 담당자 {person} 님의 컴퓨터에서 {agent}(으)로 실행해요.
+프로세스 「{inst}」의 「{step}」 단계를 맡았어요. 담당자 {person} 님의 컴퓨터에서 {agent}{ro} 실행해요.
 
 [일 정의]
 {definition}

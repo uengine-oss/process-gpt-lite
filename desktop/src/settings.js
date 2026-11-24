@@ -9,7 +9,8 @@
 //   lang         — 'ko' | 'en': the web app's language last seen (menu labels)
 //   runner       — { [server]: {token, enc, deviceId, userId, userName} }: this computer's device token for the local CLI agents of the
 //                  person signed in on that server (runner/, design docs/local-agents/design.md); the token encrypted like the gate's
-//   runnerPrefs  — {enabled, ask}: local runs on or off, and asking before each run
+//   runnerPrefs  — {enabled, ask, finishMinutes}: local runs on or off, asking before each run, and how long a step waits after its CLI's
+//                  turn ended for the people on the instance before it ends by itself (runner/settle.js — default 5)
 //   runnerOptOut — { [server]: [userId…] }: people who disconnected this computer here (it is not paired again by itself)
 const fs = require('node:fs')
 const path = require('node:path')
@@ -85,6 +86,8 @@ function forgetPairing(server, { optOut = false } = {}) {
   return set({ runner: all, runnerOptOut: out })
 }
 const optedOut = (server, userId) => ((data.runnerOptOut || {})[server] || []).includes(userId)
-const runnerPrefs = () => ({ enabled: data.runnerPrefs?.enabled !== false, ask: data.runnerPrefs?.ask === true })
+const FINISH_MINUTES = [1, 3, 5, 10, 30, 60]
+const finishMinutesOf = (v) => (FINISH_MINUTES.includes(Number(v)) ? Number(v) : 5)
+const runnerPrefs = () => ({ enabled: data.runnerPrefs?.enabled !== false, ask: data.runnerPrefs?.ask === true, finishMinutes: finishMinutesOf(data.runnerPrefs?.finishMinutes) })
 
-module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs }
+module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES }

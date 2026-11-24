@@ -8,58 +8,32 @@
 //   everyone else: read only — no cursor, no keyboard; their input would be dropped by the server anyway.
 // On a touch screen the terminal scrolls with inertia (agent-share's touch handling). The screen keeps the CLI's own width: on a narrow
 // screen the letters get smaller and the box scrolls sideways inside itself (never the page).
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+// Its look is Lite's (src/localTermTheme.js): the colours of the light or dark theme, switched live with <html data-theme>, a monospace
+// face with a Korean fallback, a card frame. The connection is the run card's (src/localRelay.js — shared with the 「대화」 view).
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { api } from '../api.js'
-import { BASE } from '../base.js'
+import { TERM_FONT, MIN_CONTRAST, themeFor, themeMode, watchTheme } from '../localTermTheme.js'
 
-const props = defineProps({ jobId: { type: String, required: true }, agent: String })
-const emit = defineEmits(['state'])
+const props = defineProps({ relay: { type: Object, required: true }, agent: String })
 const el = ref(null)
 const box = ref(null)
-const owner = ref(false)
-const state = ref('connecting') // connecting · live · detached · ended · failed
-const why = ref('')
+const owner = computed(() => !!props.relay.st.owner)
+const state = computed(() => props.relay.st.state) // connecting · live · detached · ended · failed
+const why = computed(() => props.relay.st.why)
+const mode = ref(themeMode())
 const notice = ref('')
-let term, ws, ro, timer, closed = false, retry = 0, size = { cols: 80, rows: 28 }
+let term, ro, stopTheme, size = { cols: 80, rows: 28 }
+const offs = []
 
-function setState(s, reason = '') { state.value = s; why.value = reason; emit('state', s, reason) }
-function send(m) { if (ws?.readyState === 1) ws.send(JSON.stringify(m)) }
-async function connect() {
-  clearTimeout(timer)
-  let t
-  try { t = await api(`/local-agents/jobs/${encodeURIComponent(props.jobId)}/term`, { method: 'POST' }) } catch (e) {
-    if (e.status === 403 || e.status === 404) return setState('failed', e.message)
-    return again()
-  }
-  if (closed) return
-  owner.value = !!t.owner
+const send = (m) => props.relay.send(m)
+// the theme's colours; the cursor only for the owner (nobody else types here)
+function paint() {
+  const t = themeFor(mode.value)
+  term.options.theme = { ...t, ...(owner.value ? {} : { cursor: 'rgba(0,0,0,0)', cursorAccent: 'rgba(0,0,0,0)' }) }
   term.options.disableStdin = !owner.value
   term.options.cursorInactiveStyle = owner.value ? 'outline' : 'none'
-  term.options.theme = { ...term.options.theme, cursor: owner.value ? '#f5a524' : 'rgba(0,0,0,0)', cursorAccent: owner.value ? '#16181d' : 'rgba(0,0,0,0)' }
-  const sock = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${BASE}/api/local-agents/term?ticket=${encodeURIComponent(t.ticket)}`)
-  ws = sock
-  let denied = ''
-  sock.onmessage = (e) => {
-    let m
-    try { m = JSON.parse(e.data) } catch { return }
-    if (m.type === 'session') { retry = 0; fitTo(m.cols, m.rows); setState(m.live === false ? 'ended' : m.detached ? 'detached' : 'live') }
-    else if (m.type === 'output') { if (m.replay) term.reset(); term.write(m.data) }
-    else if (m.type === 'size') fitTo(m.cols, m.rows)
-    else if (m.type === 'exit') setState('ended')
-    else if (m.type === 'detached') setState('detached')
-    else if (m.type === 'attached') { if (state.value === 'detached') setState('live') }
-    else if (m.type === 'denied') denied = m.reason || ''
-  }
-  sock.onclose = () => {
-    if (closed || ws !== sock) return
-    ws = null
-    if (denied) return setState('failed', denied)
-    if (state.value !== 'ended') again()
-  }
 }
-function again() { if (closed) return; setState('connecting'); timer = setTimeout(connect, Math.min(15000, 800 * 2 ** retry++)) }
 
 // the CLI's own size; the letters as large as the box allows (between 8 and 12.5 px)
 function fitTo(cols, rows) {
@@ -153,34 +127,46 @@ function pickFromSlashMenu(clientY) {
 defineExpose({ text: () => { const b = term.buffer.active; const out = []; for (let y = 0; y < b.length; y++) out.push(b.getLine(y)?.translateToString(true) ?? ''); return out.join('\n') } })
 
 onMounted(() => {
-  term = new Terminal({ fontFamily: '"SF Mono", Menlo, "D2Coding", monospace', fontSize: 11, cols: 80, rows: 28, scrollback: 4000, cursorBlink: false, disableStdin: true,
-    theme: { background: '#16181d', foreground: '#e6e6e6', cursor: 'rgba(0,0,0,0)', selectionBackground: '#3a3f4b' }, minimumContrastRatio: 4.5 })
+  term = new Terminal({ fontFamily: TERM_FONT, fontSize: 11, lineHeight: 1.12, cols: 80, rows: 28, scrollback: 4000, cursorBlink: false, disableStdin: true,
+    theme: themeFor(mode.value), minimumContrastRatio: MIN_CONTRAST, allowProposedApi: false })
   term.open(el.value)
+  paint()
   term.onData((d) => { if (owner.value && !guardExitKey(d)) send({ type: 'input', data: d }) })
   touch(el.value)
   ro = new ResizeObserver(() => fitTo())
   ro.observe(box.value)
-  connect()
+  stopTheme = watchTheme((m) => { mode.value = m; paint() })
+  const r = props.relay
+  offs.push(r.on('session', (m) => { fitTo(m.cols, m.rows); paint() }))
+  offs.push(r.on('output', (m) => { if (m.replay) term.reset(); term.write(m.data) }))
+  offs.push(r.on('size', (m) => fitTo(m.cols, m.rows)))
+  if (r.st.cols) fitTo(r.st.cols, r.st.rows)
+  // (the screen so far, from the start — this view may come after the card's connection did)
+  r.subscribe(['term'], { replay: true })
 })
-onBeforeUnmount(() => { closed = true; clearTimeout(timer); ro?.disconnect(); ws?.close(); term?.dispose() })
+onBeforeUnmount(() => { for (const off of offs) off(); ro?.disconnect(); stopTheme?.(); term?.dispose() })
 </script>
 
 <template>
-  <div class="lt" :class="state" data-test="local-run-terminal" :data-term-state="state" :data-owner="owner ? 'yes' : 'no'">
+  <div class="lt" :class="[state, mode]" data-test="local-run-terminal" :data-term-state="state" :data-owner="owner ? 'yes' : 'no'" :data-theme-mode="mode">
     <div ref="box" class="box"><div ref="el" class="xt" /></div>
     <div v-if="owner && state === 'live'" class="keys" data-test="local-run-keys">
       <button v-for="(v, k) in KEYS" :key="k" type="button" class="k press" @click="key(k)">{{ k }}</button>
     </div>
-    <small v-if="state !== 'live' || notice" class="note" data-test="local-run-term-note">{{ notice || { connecting: '터미널에 잇는 중…', detached: '데스크톱 연결이 끊겼어요 — 다시 이어지면 계속 보여요', ended: '끝난 화면이에요', failed: why || '터미널을 열지 못했어요' }[state] }}</small>
+    <small v-if="state !== 'live' || notice" class="note" data-test="local-run-term-note">{{ notice || { connecting: '터미널에 연결하는 중…', detached: '데스크톱 연결이 끊겼어요 — 다시 이어지면 계속 보여요', ended: '끝난 화면이에요 — 마지막 턴이 끝났을 때의 화면', failed: why || '터미널을 열지 못했어요' }[state] }}</small>
   </div>
 </template>
 
 <style scoped>
-.lt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.box { overflow-x: auto; overflow-y: hidden; border-radius: 10px; background: #16181d; padding: 6px 4px 4px 6px; min-width: 0; -webkit-overflow-scrolling: touch; }
+.lt { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* a Lite card around the terminal: the theme's terminal colour, the hairline, the card radius */
+.box { overflow-x: auto; overflow-y: hidden; border-radius: 14px; background: #1d1d1f; border: 1px solid var(--hairline); padding: 8px 6px 6px 10px; min-width: 0;
+  -webkit-overflow-scrolling: touch; box-shadow: inset 0 1px 0 rgba(255 255 255 / .04); }
+.light .box { background: #fbfbfd; box-shadow: inset 0 1px 0 rgba(0 0 0 / .02); }
 .xt { width: max-content; }
 .keys { display: none; gap: 6px; overflow-x: auto; }
-.k { flex: none; height: 28px; padding: 0 10px; border-radius: 8px; background: #2a2e37; color: #d6d6d6; font: 12px/28px "SF Mono", Menlo, monospace; }
-.note { color: #8b93a3; font-size: 11.5px; }
+.k { flex: none; height: 28px; padding: 0 10px; border-radius: 8px; background: var(--button-bg); color: var(--text-primary); font: 12px/28px "SF Mono", Menlo, monospace; }
+.note { color: var(--text-secondary); font-size: 11.5px; }
+.connecting .note::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; vertical-align: -1px; }
 @media (max-width: 760px), (pointer: coarse) { .keys { display: flex; } }
 </style>

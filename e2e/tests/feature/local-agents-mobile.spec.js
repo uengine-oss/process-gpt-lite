@@ -64,6 +64,8 @@ test('M-01 휴대폰(390px)에서 A 의 PC 가 돌리는 실행을 실시간으�
   await expect(card.locator('[data-test=local-run-who]')).toContainText('김견적 · 김견적의 맥')
   await expect(card).toContainText('「견적서 작성」 단계')
   await expect(card.locator('[data-test=local-run-elapsed]')).toContainText('째')
+  // (a phone opens the run on 「대화」 — local-agents-view.spec.js; here the terminal)
+  await card.locator('[data-test=local-run-view][data-view=term]').click()
   // pushed: the lines grow with no reload
   const navs = page.navs
   await expect(card.locator('[data-test=local-run-terminal] .xterm-rows')).toContainText('견적서.md', { timeout: 15000 })
@@ -99,6 +101,7 @@ test('M-02 인스턴스에 있지만 고칠 수 없는 사람은 실시간으로
   await page.goto(`/routines/${encodeURIComponent(inst.inst)}`)
   const card = page.locator('[data-test=local-runs] [data-test=local-run][data-state=running]').first()
   await expect(card).toContainText('김견적 · 김견적의 맥', { timeout: 20000 })
+  await card.locator('[data-test=local-run-view][data-view=term]').click()
   await expect(card.locator('[data-test=local-run-terminal] .xterm-rows')).toContainText('견적서2.md', { timeout: 15000 })
   await expect(card.locator('[data-test=local-run-steer]')).toHaveCount(0)
   await page.screenshot({ path: path.join(SHOTS, 'm02-phone-viewer.png') })
