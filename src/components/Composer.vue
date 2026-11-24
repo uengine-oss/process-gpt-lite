@@ -6,6 +6,9 @@ import ComposerTeam from './team/ComposerTeam.vue'
 import { useTeammateMention } from './team/useTeammateMention.js'
 import ComposerClip from './ComposerClip.vue'
 import FolderAttach from './folders/FolderAttach.vue'
+import ComposerAgent from './ComposerAgent.vue'
+import { keyOf, agentFor } from '../chatAgent.js'
+import { narrow } from '../viewport.js'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
 const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean })
@@ -31,6 +34,14 @@ onMounted(() => { rot = setInterval(() => { si.value = (si.value + 1) % suggesti
 onBeforeUnmount(() => { clearInterval(rot); rec?.stop() })
 
 const ph = computed(() => (app.panelMode ? suggestions[si.value].t : props.placeholder))
+// who answers (ComposerAgent): the main chat, one of its conversations, a project — not 새 프로젝트 (no room yet), an instance's page or a
+// panel being made; the chat's key is what the choice is kept under (src/chatAgent.js)
+const agentKey = computed(() => {
+  if (props.overlay || app.panelMode || !app.activeId) return null
+  if (app.mode === 'chat' && app.activeId === app.mainThread?.id) return keyOf(app.activeId, app.convFilter)
+  if (app.mode === 'project' && app.projects.some((p) => p.id === app.activeId)) return keyOf(app.activeId)
+  return null
+})
 // (immediate: a request left before this composer was there — an open document's AI button on another page, OfficeSheet)
 watch(() => app.prefill, async (v) => {
   if (!v) return
@@ -84,6 +95,8 @@ function submit() {
   const v = text.value.trim() || (app.panelMode ? suggestions[si.value].t : '')
   if (!v && !app.attachments.length) return
   if (tm.chips.value.length) { if (v) tm.send(v).then((ok) => { if (!ok) text.value = v }); text.value = v ? '' : text.value; return }
+  // (the store's send takes the agent of the chat this was written in — stores/app.js send)
+  app.nextAgent = agentKey.value ? { key: agentKey.value, agent: agentFor(agentKey.value) } : null
   emit('send', v)
   text.value = ''
 }
@@ -130,6 +143,8 @@ defineExpose({ focus: () => ta.value?.focus() })
       </span>
     </div>
     <FolderAttach v-if="!overlay && !app.panelMode" />
+    <!-- (a phone: who answers sits over the box, so the box keeps its width for the words) -->
+    <div v-if="agentKey && narrow" class="agentrow"><ComposerAgent :chat-key="agentKey" row /></div>
     <Teleport to="body">
       <Transition name="fade"><div v-if="dragging" class="dropzone"><div><Icon name="clip" :size="34" /><p>여기에 놓으면 첨부돼요</p></div></div></Transition>
     </Teleport>
@@ -138,6 +153,7 @@ defineExpose({ focus: () => ta.value?.focus() })
       <span v-if="app.panelMode && !text" :key="si" class="icons blur-in"><i v-for="(ic, k) in suggestions[si].icons" :key="k">{{ ic }}</i></span>
       <textarea ref="ta" v-model="text" rows="1" :placeholder="ph" @keydown="onKey" @paste="onPaste" />
       <ComposerClip v-if="!app.panelMode" :folders="!overlay" @files="picker.click()" />
+      <ComposerAgent v-if="agentKey && !narrow" :chat-key="agentKey" />
       <button v-if="text || app.panelMode || app.attachments.length" class="send press" aria-label="보내기" @click="submit"><Icon name="up" :size="20" /></button>
       <template v-else>
         <!-- panels are made from 채팅 only, not from a project, 새 프로젝트 or an instance page -->
@@ -157,6 +173,7 @@ defineExpose({ focus: () => ta.value?.focus() })
 .mention .x { width: 20px; height: 20px; border-radius: 10px; color: inherit; opacity: .7; }
 .mention .x:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
 .composer { position: relative; width: 100%; }
+.agentrow { display: flex; justify-content: flex-end; margin: 0 6px 6px; }
 .box { display: flex; align-items: flex-end; min-height: 48px; border-radius: 24px; padding-right: 6px; --thin-bg: var(--composer-bg); transition: background-color 1s, margin .4s var(--spring); }
 .panel .box { margin-left: 60px; }
 textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; height: 48px; padding: 14.5px 8px 14.5px 16px; font-size: 15px; line-height: 19px; color: var(--text-primary); }

@@ -1,6 +1,6 @@
 # 시험과 증거
 
-모델은 부르지 않는다(실제 CLI 스모크만 빼고). 판정 모델이 필요한 곳(배운 것 후보)은 단위 시험에서 대역을 쓰고, 실제 BFF 시험에서는 모델 주소가 답하지 않아 「판정 못 함」 길을 탄다. 서버 시험은 로컬 DB 를 쓰고, 시험마다 자기 회사(`localagent-test` · `localagent-e2e` · `localagent-ui` · `localagent-mobile` · `localagent-collab` · `localagent-view` · `localagent-smoke`)에 행을 두었다가 끝나면 지운다. 폴더는 임시 디렉터리에 만든다. BFF · Vite 는 시험이 빈 포트(8811– · 8831– · 8851– · 8871– · 8889– · 8891– / 5231– · 5271– · 5289– · 5291–)에 스스로 띄우고 끝나면 내린다(`PRO_BACKGROUND=0`, `PRO_ONTOLOGY_WORKER=0`).
+모델은 부르지 않는다(실제 CLI 스모크만 빼고). 판정 모델이 필요한 곳(배운 것 후보)은 단위 시험에서 대역을 쓰고, 실제 BFF 시험에서는 모델 주소가 답하지 않아 「판정 못 함」 길을 탄다. 서버 시험은 로컬 DB 를 쓰고, 시험마다 자기 회사(`localagent-test` · `localagent-e2e` · `localagent-ui` · `localagent-mobile` · `localagent-collab` · `localagent-view` · `localagent-smoke` · 채팅의 에이전트 `chatagent-test` · `chatagent-e2e` · `chatagent-ui`)에 행을 두었다가 끝나면 지운다. 폴더는 임시 디렉터리에 만든다. BFF · Vite 는 시험이 빈 포트(8811– · 8831– · 8851– · 8871– · 8889– · 8891– / 5231– · 5271– · 5289– · 5291–)에 스스로 띄우고 끝나면 내린다(`PRO_BACKGROUND=0`, `PRO_ONTOLOGY_WORKER=0`).
 
 CLI 는 가짜다.
 - 터미널(주 길): `desktop/test/fixtures/fake-tui.js` — PTY 에서 raw 모드로 읽고 친 글을 보여 주며, 붙여 넣기 + Enter 를 메시지로 받는다. Claude Code 2.1.330 처럼 `--session-id` · `--resume` · `--settings` 의 훅(`SessionStart` · `UserPromptSubmit` · `Stop` · `StopFailure`)을 돌리고, 세션 기록을 `$CLAUDE_CONFIG_DIR/projects/<폴더>/<세션>.jsonl` 에 쓰며, 설정이 폴더를 신뢰하지 않으면 신뢰 질문을 띄운다. Codex 0.162.1 처럼 명령줄의 첫 메시지를 스스로 넣고 rollout(`session_meta` · `user_message` · 함수 호출 · `agent_message` · `task_complete`)을 쓴다. 일하는 중에 붙여 넣은 메시지는 지금 할 일 다음에 같은 턴에서 받는다. 「대화」 보기와 물음을 위해 실제 2.1.331 의 기록 모양대로 `THINK`(생각 블록) · `SAY`(말, markdown) · `EDIT <파일> :: <앞> => <뒤>`(Edit 과 `structuredPatch`) · `BASH <명령> :: <출력>` · `SKILL <이름>` · `ASK <명령>`(권한 확인 — `PermissionRequest` 훅, 실제와 같은 창, `1` · `2` 면 돌리고 `Esc` 면 거절하고 턴을 `Stop` 없이 멈춤) · `CHOOSE <물음> :: <가> | <나> [;; <물음2> :: …]`(AskUserQuestion — 물음마다 번호, 답은 `선택.md`)도 한다. 닫힐 때는 실제처럼 화면을 지우고 「Resume this session with …」를 남긴다.
@@ -29,6 +29,15 @@ cd e2e && npx playwright test --project=feature tests/feature/local-agents-view.
 cd server && LA_SMOKE_GATEWAY=1 LA_SMOKE_ANTHROPIC_BASE_URL=… LA_SMOKE_ANTHROPIC_AUTH_TOKEN=… LA_SMOKE_ANTHROPIC_MODEL=… node test/localAgents.smoke.mjs tty   # 대화형 Claude Code 를 터미널로(게이트웨이 · 임시 설정 폴더)
 cd server && node test/localAgents.smoke.mjs both    # 헤드리스 claude · codex 입력 한 번씩
 cd server && node test/localAgents.smoke.mjs skill   # 헤드리스 Claude Code 가 서버의 회사 스킬을 씀
+# 채팅에서 고르는 에이전트(설계 §12): 고르기 · 대화마다의 선택 · chat 일 · 같은 세션 · 턴의 답 · 권한(가짜 링크, DB 에 sql/055)
+cd server && node --test test/chatAgents.test.js
+# 데스크톱 runner 의 chat 일: 대화의 폴더 · 턴마다 커밋 · push · reply · 같은 PTY · --resume · 기록이 없으면 새 세션
+cd desktop && node --test test/chat.test.js
+# 실제 BFF + runner(가짜 대화형 CLI): 보내기 → 답 + 파일 카드 · 이어서 · 끝내기 뒤 resume · 다른 사람 · 꺼짐 · 다시 보내기 · 프로젝트 변형
+# (서버의 에이전트 · completion · 맥락 라우터는 127.0.0.1:9 — 공용 서비스를 부르지 않음. @xterm/headless 가 server/node_modules 에 없으면 NODE_PATH 로)
+cd server && CA_PORT=8892 node test/chatAgents.e2e.mjs
+# Playwright: 입력창의 칩 · 꺼진 항목 · 키보드 · 태그 · 카드 · 답 · 파일 카드 · 이어서 · 대화마다 남음 · 다시 기본 · 꺼짐 · 390px · 어두운 테마
+cd e2e && npx playwright test --project=feature tests/feature/chat-agent-picker.spec.js
 ```
 
 ## 두 사람 영상 다시 만들기 (A 의 데스크톱 runner + B 의 휴대폰 브라우저)
@@ -104,6 +113,41 @@ cd e2e && npx playwright test --project=feature tests/feature/local-agents-colla
 | (검토 수정) 기기 설정을 바꿔도 실행 유지 · 다시 시도 · 관문 먼저 · 에이전트 되돌리기 · 활동 에이전트 제한 · 세션 지우기 · 보낸 스킬만 · 같은 폴더는 차례로 | `localAgents.test.js` 해당 시험들 · `runner.test.js` 「같은 폴더의 다음 일은 …」 |
 | 로컬 실행을 끈다 | L-04 · `localAgents.test.js` 「로컬 실행을 끈 데스크톱에는 보내지 않는다」 · `runner.test.js` 「거절: …」 |
 | 폴더 밖을 가리키는 일 | `runner.test.js` 「거절: … 폴더 밖 경로」 |
+
+## 채팅에서 고르는 에이전트 — 시나리오 ↔ 시험
+
+| 시나리오 | 시험 |
+|---|---|
+| PC 앱이 없으면 내 PC 항목은 꺼져 있다 | F-CA-01(까닭 · 내려받기 링크 · 꺼진 항목을 눌러도 「기본」) · `chatAgents.test.js` 「고르기에 보이는 것 …」 · `chatAgents.e2e.mjs` 2 |
+| PC 를 이으면 켜진다 | F-CA-01(목록을 연 채 `local_presence` 로 켜짐, 「윤태호의 맥」) · `chatAgents.test.js` 「고르기에 보이는 것 …」(그 데스크톱이 알린 CLI 만 · 실행 끔 · 0.2.2 전 판) |
+| 키보드로 고르고 보낸다 | F-CA-02(↓ · ↓ · Enter, 포커스는 칩, 태그 · 카드 · 답 · 파일 카드) · `chatAgents.e2e.mjs` 3(내 폴더 main 에 `회의록.md`, 서버 에이전트의 답 없음) · `chatAgents.test.js` 「메시지 → 보낸 사람 자신의 데스크톱에만 …」 · `desktop/test/chat.test.js` 「채팅 메시지 …」 |
+| 이어서 보내면 같은 세션 | F-CA-03(카드 하나, 답 둘, CLI 세션 하나) · `chatAgents.e2e.mjs` 4 · `chatAgents.test.js` 「같은 대화 · 같은 에이전트 …」 · `chat.test.js` 「채팅 메시지 …」(같은 PTY) |
+| 끝난 뒤의 메시지는 그 세션을 잇는다 | `chatAgents.e2e.mjs` 5(`claude --resume <같은 세션>`) · `chatAgents.test.js` 「같은 대화 · 같은 에이전트 …」(`resume`, 프롬프트의 요약, 닫히는 사이의 메시지는 다음 실행으로) · `chat.test.js` 「그 대화의 다음 실행 …」(기록이 있으면 잇고 없으면 새 세션) |
+| 고른 것은 대화마다 남는다 | F-CA-04(새로 고침 · 다른 브라우저 · 프로젝트는 「기본」) · `chatAgents.e2e.mjs` 2(메인 채팅 · 맥락 대화 · 다른 사람) · `chatAgents.test.js` 「고른 것은 대화마다 …」 |
+| 다시 기본 | F-CA-05(요청에 `agent` 없음, 실행 카드 없음, 서버 에이전트의 답 — 시험에서는 모델이 없어 그 실패 답) |
+| PC 가 꺼지면 기본으로 다시 보낸다 | F-CA-06(칩의 꺼짐 표시 · 「PC 앱 연결이 끊겼어요」 · 다시 보내기의 요청 글 · 「기본 에이전트로 다시 보냈어요」 · 새 메시지는 「PC 앱이 켜지면 시작」) · `chatAgents.e2e.mjs` 7 · `chatAgents.test.js` 「누가: …」(다시 보내기 → 취소 · 데스크톱에 `cancel`) |
+| 프로젝트 폴더 | `chatAgents.e2e.mjs` 8(변형 `var/p/…` 에 `설계.md`, main 에 없음, 파일 카드는 사본, 구성원 보기 200 · 입력 403, 실행자의 보내기 403 + 메시지 아래 까닭) · `chatAgents.test.js` 「누가: …」 |
+| 다른 사람 | `chatAgents.e2e.mjs` 6(보기 · 입력 · 끝내기 · 다시 보내기 · 터미널 표 403, 대화 404, 그녀의 메시지는 그녀의 PC 를 기다림) · `chatAgents.test.js` 「메시지 → …」(남의 데스크톱으로 가지 않음) · 「누가: …」 |
+| 휴대폰과 어두운 테마 | F-CA-07 · 08(390px 밝게 · 어둡게, 목록이 화면 안, 넘치지 않음 · 책상의 어두운 테마) |
+
+## 결과 — 채팅에서 고르는 에이전트 (2026-11-24 밤, 이 맥, 가지 `feat/chat-agent-picker`, SQL 055 를 돌린 로컬 DB)
+
+| 시험 | 결과 |
+|---|---|
+| `server/test/chatAgents.test.js` | 7/7 |
+| `desktop/test/chat.test.js` | 3/3 |
+| `server/test/chatAgents.e2e.mjs`(BFF 8892 · runner · 가짜 대화형 CLI) | 8/8 |
+| `e2e/tests/feature/chat-agent-picker.spec.js` (F-CA-01–08) | 7/7 (두 번 돌려 두 번 다 통과) |
+| 회귀 `server/test/localAgents.test.js` · `josa.test.js` · `localTermTheme.test.js` | 31/31 · 3/3 · 2/2 |
+| 회귀 `server/test/localAgents.e2e.mjs` | 9/9 |
+| 회귀 `desktop` `npm test` | 46 통과 · 4 건너뜀(Windows 전용) / 50 |
+| 회귀 Playwright C · M · F-LV (`local-agents-collab` · `-mobile` · `-view`) | 3/3 · 3/3 · 8/8 |
+| 회귀 Playwright L (`tests/desktop/local-agents.spec.js`, Electron — `env -u ELECTRON_RUN_AS_NODE`) | 4/4 |
+| 회귀 채팅 · 입력창(이 가지의 BFF 8893 + Vite 5293 에 대고 `PGPT_URL`): `conversations` · `resilience` · `folder-open` · `message-sender` · `followups`, smoke `screens` | 25/25 · 15/15 |
+
+시험 중에 고친 것: (1) 목록을 연 순간 서버에 다시 묻는 답이, 그 사이 고른 것을 「기본」으로 덮던 경합 — 고른 뒤에 온 답은 선택을 덮지 않게(`src/chatAgent.js`). (2) 목록 위에 머문 마우스가 Enter 로 고르는 항목을 바꾸던 것 — 포커스가 있는 항목을 고르게. (3) 휴대폰에서 칩이 입력창 안에 있어 글 칸이 좁아지고 목록이 화면 왼쪽 밖으로 나가던 것 — 칩을 입력창 위로, 목록은 화면 양옆 16px 안에.
+
+사진(`results/chat-agent/`): `ca01-no-desktop.png`(PC 앱이 없음 — 꺼진 항목 · 까닭 · 내려받기) · `ca01-desktop-linked.png`(PC 가 이어진 뒤 — 「윤태호의 맥」) · `ca02-sent-answer-file.png`(태그 · 실행 카드 「터미널」 · 답 · 파일 카드 · 칩 「Claude Code · 내 PC」) · `ca03-follow-up.png`(이어서 보낸 메시지 — 카드 하나, 답 둘) · `ca06-picker-off.png`(PC 가 꺼짐 — 칩의 꺼짐 표시, 연결이 끊긴 카드의 「기본으로 다시 보내기」) · `ca06-offline-card.png`(다시 보낸 메시지와 「PC 앱이 켜지면 시작」 카드) · `ca07-phone-light.png` · `ca07-phone-dark.png`(390px — 입력창 위의 칩과 화면 안의 목록) · `ca08-desk-dark-card.png` · `ca08-desk-dark-menu.png`(어두운 테마) · `desktop-app-composer.png`(데스크톱 앱(Electron) 창의 입력창에도 칩 — L-02 회귀에서 찍힘)
 
 ## 결과 — 「대화」 · 「터미널」 두 보기, CLI 의 물음, 턴 뒤 기다리기 (2026-11-24 저녁, 이 맥, 가지 `fix/local-agents-polish`)
 

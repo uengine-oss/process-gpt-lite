@@ -8,6 +8,10 @@
 // It only ever: runs jobs that came over its own link (the server sends only this person's), runs the fixed command of the named CLI
 // (clis.js — nothing the server sends is run as a command), works in its own folders under <data>/work, and never writes a token to
 // disk or to a log.
+// A job of kind 'chat' (0.2.2 — server lib/localAgents/chat.js) is a chat message for this person's CLI: the same run, with a folder per
+// chat (the person's own folder, or a project's), the chat's CLI session resumed when this computer still has it (a record per chat), its
+// first message the person's own words, and at each turn's end the turn's files committed and pushed and the CLI's last words sent back
+// ('reply') — no step note, no result file, no skills.
 const { spawn } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
@@ -38,6 +42,16 @@ const HOLD_MS = 10 * 60_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const safePart = (s, n = 24) => String(s || '').replace(/[^A-Za-z0-9._-]/g, '').slice(-n) || 'x'
 const T = (lang, ko, en) => (lang === 'en' ? en : ko)
+// a chat's own name on this computer (its folder, its session record): its key, hashed (a thread id and a conversation's)
+const chatHash = (job) => crypto.createHash('sha1').update(String(job.chat?.key || job.id)).digest('hex').slice(0, 16)
+// paths git leaves out of the folder's commits (.git/info/exclude), added once
+function excludeIn(dir, list) {
+  const f = path.join(dir, '.git', 'info', 'exclude')
+  let have = ''
+  try { have = fs.readFileSync(f, 'utf8') } catch { /* none yet */ }
+  const missing = list.filter((x) => !have.split('\n').includes(x))
+  if (missing.length) fs.appendFileSync(f, `\n${missing.join('\n')}\n`)
+}
 
 class Runner extends EventEmitter {
   // dataDir: the app's data folder (work folders and the outbox live under it) · server: the Lite base address (the folder's git path is
@@ -86,6 +100,8 @@ class Runner extends EventEmitter {
   welcome(info = {}) {
     this.user = info.user || null
     for (const m of this.outbox) this.send(m)
+    // (a chat's answers the server has not acknowledged: said again — it takes each turn once)
+    for (const st of this.jobs.values()) for (const m of st.replies?.values() || []) this.send(m)
     // (an accept the server may not have got: said again — its answer starts the run)
     for (const st of this.jobs.values()) if (st.awaiting) this.send({ type: 'accept', jobId: st.job.id })
     for (const [sid, x] of this.sessions) {
@@ -133,6 +149,8 @@ class Runner extends EventEmitter {
     // the owner pressed 「끝내기」: the run ends now (after the turn at hand, when the CLI is working)
     if (msg.type === 'finish') { const st = this.jobs.get(msg.jobId); if (st?.term && !st.ending) { st.finishNow = true; this.settle(st) } return }
     if (msg.type === 'finished') return this.finished(msg)
+    // the server took a chat's answer in (its turn): not said again
+    if (msg.type === 'replied') { this.jobs.get(msg.jobId)?.replies?.delete(Number(msg.turn)); return }
   }
 
   // ---------- a job arrives ----------
@@ -143,6 +161,7 @@ class Runner extends EventEmitter {
     if (!g.token || !g.base || !g.branch || !String(g.branch).startsWith('pgpt-agent/') || !UUID.test(String(g.folder?.id || ''))) return 'no folder'
     if (!g.url && !/^\/api\/(local-)?git\//.test(String(g.path || ''))) return 'no folder'
     if (typeof job.prompt !== 'string' || !job.prompt.trim()) return 'no prompt'
+    if (job.kind === 'chat') return typeof job.chat?.key === 'string' && job.chat.key ? null : 'no chat'
     if (!this.outPath(job)) return 'bad output folder'
     return null
   }
@@ -155,6 +174,8 @@ class Runner extends EventEmitter {
   }
   dirFor(job) {
     const key = crypto.createHash('sha1').update(this.server).digest('hex').slice(0, 10)
+    // (a chat: one folder per chat and folder — its CLI session lives on in it, so the next run resumes it there)
+    if (job.kind === 'chat') return path.join(this.dataDir, 'work', key, `chat-${chatHash(job)}-${String(job.git.folder.id).slice(0, 8)}`)
     return path.join(this.dataDir, 'work', key, `${safePart(job.instId)}-${String(job.git.folder.id).slice(0, 8)}`)
   }
 
@@ -175,12 +196,15 @@ class Runner extends EventEmitter {
     // the same run again after this app restarted (the server offers it with the CLI's session): it goes on in that session, in the
     // folder as it was left — when this computer still has both
     if (job.resume?.sessionId) {
-      const rec = this.record(job.id)
-      if (rec && rec.cli === String(job.resume.sessionId) && rec.agent === job.agent && fs.existsSync(path.join(rec.dir || '', '.git'))) st.resumeFrom = rec
+      // (a chat: this run's own record after a restart, else the chat's — its last run's session, in the same folder)
+      const rec = this.record(job.id) || (job.kind === 'chat' ? this.chatRecord(job) : null)
+      const here = job.kind !== 'chat' || (rec && path.resolve(rec.dir || '') === path.resolve(this.dirFor(job)))
+      if (rec && here && rec.cli === String(job.resume.sessionId) && rec.agent === job.agent && fs.existsSync(path.join(rec.dir || '', '.git'))) st.resumeFrom = rec
     }
     this.jobs.set(job.id, st)
     this.changed()
-    if (prefs.ask) {
+    // (a chat message is its person's own request, just sent from their chat: not asked about again)
+    if (prefs.ask && job.kind !== 'chat') {
       let ok = false
       try { ok = await this.askFn(job) } catch { ok = false }
       if (!ok || st.cancelled) { this.jobs.delete(job.id); this.changed(); this.send({ type: 'decline', jobId: job.id, reason: 'declined' }); return }
@@ -226,8 +250,10 @@ class Runner extends EventEmitter {
     const g = job.git
     const url = g.url || `${this.server}${g.path}`
     const auth = { url, token: g.token, base: g.base }
+    const chat = job.kind === 'chat'
     let start
-    if (st.resumeFrom) {
+    // (a chat resumes its CLI session, never its folder: each turn was committed and pushed, so the folder starts from the line again)
+    if (st.resumeFrom && !chat) {
       // (what the run had done is in the folder, uncommitted: nothing is reset)
       start = st.resumeFrom.start
       this.progress(st, 'status', T(lang, '앱이 다시 켜져 같은 세션을 이어서 해요', 'The app is back: going on in the same session'))
@@ -243,6 +269,17 @@ class Runner extends EventEmitter {
       }
     }
     if (st.cancelled) return this.dropped(st)
+    if (chat) {
+      // the CLI's own places (its settings, a trust or permission it keeps per folder) and the app's are never committed into the folder
+      excludeIn(dir, ['.claude/', '.codex/', '.pgl-run/', '.tmp/'])
+      st.dir = dir
+      try { st.realDir = fs.realpathSync(dir) } catch { st.realDir = null }
+      st.start = start
+      st.phase = 'running'
+      this.changed()
+      if (!this.interactive()) throw new Error(T(lang, '이 PC 에서는 터미널을 열 수 없어 채팅 에이전트를 실행하지 못해요', 'No terminal can be opened on this computer, so the chat agent cannot run'))
+      return this.finish(st, await this.runInteractive(st))
+    }
     // the company's skills for this work, current from their folders, where this CLI reads them (skills.js)
     for (const k of job.skills || []) if (k?.token) this.secrets.add(k.token)
     const key = crypto.createHash('sha1').update(this.server).digest('hex').slice(0, 10)
@@ -292,10 +329,11 @@ class Runner extends EventEmitter {
     const lang = job.lang
     const g = job.git
     const dir = st.dir
-    const out = this.outPath(job, dir)
     const start = st.start
     if (st.cancelled) return this.dropped(st)
     if (!r.ok) throw new Error(r.why || T(lang, `${job.label || job.agent} 가 끝내지 못했어요`, `${job.label || job.agent} did not finish`))
+    if (job.kind === 'chat') return this.finishChat(st)
+    const out = this.outPath(job, dir)
     const summary = (st.summary || '').trim()
     fs.writeFileSync(path.join(out, String(job.resultFile || (lang === 'en' ? 'result.md' : '결과.md')).replace(/[\\/]/g, '_')), this.resultMd(st, summary))
     fs.rmSync(path.join(dir, '.tmp'), { recursive: true, force: true })
@@ -310,22 +348,66 @@ class Runner extends EventEmitter {
     this.forget(job.id)
   }
 
+  // A chat's session ended (the wait after its turn ran out, 「끝내기」): the turns' own commits and pushes first, then what changed after
+  // the last one (the owner typed into the terminal), and the report — the chat's record stays: its next run resumes the session
+  async finishChat(st) {
+    const { job } = st
+    const g = job.git
+    await (st.gitChain || Promise.resolve()).catch(() => {})
+    if (st.cancelled) return this.dropped(st)
+    st.phase = 'pushing'
+    this.changed()
+    this.flush(st)
+    fs.rmSync(path.join(st.dir, '.tmp'), { recursive: true, force: true })
+    const before = await G.head(st.dir)
+    const commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email })
+    const files = commit ? await G.changed(st.dir, before) : []
+    const pushed = (await G.changed(st.dir, st.start)).length ? await G.push(st.dir, g.branch, { token: g.token }) : false
+    this.report(st, { type: 'done', jobId: job.id, branch: g.branch, commit: commit || before, pushed, files, summary: (st.summary || '').trim(), sessionId: st.session || null,
+      agentVersion: this.caps[job.agent]?.version || null, terminal: !!st.term })
+    this.forget(job.id)
+  }
+  // A chat's turn ended: what it changed is committed and pushed on the run's branch, then its last words go to the server with the files
+  // ('reply' — kept until the server says it has the turn: a link that drops does not lose an answer). One turn at a time, in order.
+  chatTurn(st, text) {
+    const { job } = st
+    const n = (st.turnNo = (st.turnNo || 0) + 1)
+    st.replies ||= new Map()
+    st.gitChain = (st.gitChain || Promise.resolve()).then(async () => {
+      let commit = null
+      let files = []
+      let pushed = false
+      try {
+        const before = await G.head(st.dir)
+        commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email })
+        if (commit) { files = await G.changed(st.dir, before); pushed = await G.push(st.dir, job.git.branch, { token: job.git.token }) }
+      } catch (e) { this.log(`[runner] ${job.activity}: turn ${n} — ${e.message}`); this.progress(st, 'error', e.message) }
+      const m = { type: 'reply', jobId: job.id, turn: n, text: String(text || '').slice(0, 16000), branch: job.git.branch, commit, pushed, files }
+      st.replies.set(n, m)
+      this.send(m)
+    }).catch((e) => this.log(`[runner] chat turn: ${e.message}`))
+    return st.gitChain
+  }
+
   // ---------- the interactive CLI (a terminal) ----------
   // One session of the person's CLI for the step, relayed as kind 'step'. The prompt goes in as a person would paste it once the CLI can
   // take input; the step is done when the CLI says its turn ended (its own hook or transcript) and nothing new comes for a moment.
   runInteractive(st) {
     const { job } = st
     const lang = job.lang
+    const chat = job.kind === 'chat'
     const resume = st.resumeFrom?.cli || null
-    const prompt = resume
-      ? T(lang, '이 앱이 다시 켜져서 같은 세션을 이어서 해요. 하던 일을 마저 끝내세요.', 'This app was restarted and this session goes on. Finish the work you were doing.')
-      : job.prompt
+    // (a chat: the person's own words — in the same session when it is resumed; with the chat's recap and the folder's note when it is new)
+    const prompt = chat ? (resume ? job.message || job.prompt : job.prompt)
+      : resume
+        ? T(lang, '이 앱이 다시 켜져서 같은 세션을 이어서 해요. 하던 일을 마저 끝내세요.', 'This app was restarted and this session goes on. Finish the work you were doing.')
+        : job.prompt
     return new Promise((resolve) => {
       let S
       const end = (r) => { if (st.ending) return; st.ending = true; clearTimeout(st.settle); clearTimeout(st.runTimer); resolve(r) }
       st.endRun = end
       try {
-        S = this.openSession({ kind: 'step', ref: job.id, agent: job.agent, cwd: st.dir, resume, prompt, lang,
+        S = this.openSession({ kind: chat ? 'chat' : 'step', ref: job.id, agent: job.agent, cwd: st.dir, resume, prompt, lang,
           stateDir: path.join(this.dataDir, 'sessions', safePart(job.id, 40)), start: false,
           // a message the CLI took that was a steer: whose words it was (the conversation shows 「<제안한 사람> 제안 · <작업자> 입력」)
           annotate: (it) => {
@@ -336,12 +418,14 @@ class Runner extends EventEmitter {
           } })
       } catch (e) { return resolve({ ok: false, why: e.message }) }
       st.term = S
-      st.runTimer = setTimeout(() => { st.timedOut = true; end({ ok: false, why: T(lang, `실행이 ${Math.round(this.runMs / 60000)}분을 넘어 멈췄어요`, `The run went over ${Math.round(this.runMs / 60000)} minutes and was stopped`) }) }, this.runMs)
+      // (a chat that went on that long closes as it would after its wait: its next message resumes the session)
+      st.runTimer = setTimeout(() => { st.timedOut = true; end(chat ? { ok: true } : { ok: false, why: T(lang, `실행이 ${Math.round(this.runMs / 60000)}분을 넘어 멈췄어요`, `The run went over ${Math.round(this.runMs / 60000)} minutes and was stopped`) }) }, this.runMs)
       S.on('session', (id) => {
         if (!id || id === st.session) return
         st.session = id
         this.send({ type: 'session', jobId: job.id, sessionId: id })
         this.remember(job.id, { cli: id, agent: job.agent, dir: st.dir, start: st.start, outDir: job.outDir })
+        if (chat) this.rememberChat(job, { cli: id, agent: job.agent, dir: st.dir, at: new Date().toISOString() })
       })
       S.on('ready', () => {
         this.progress(st, 'status', T(lang, `${job.label || job.agent} 시작`, `${job.label || job.agent} started`))
@@ -354,6 +438,8 @@ class Runner extends EventEmitter {
       S.on('turn-start', () => { clearTimeout(st.settle); st.turnEnded = 0; this.idle(st, null) })
       S.on('turn-end', ({ summary }) => {
         if (summary) st.summary = summary
+        // (a chat: the answer and the turn's files go back now — the session stays open for the next message)
+        if (chat) this.chatTurn(st, summary)
         st.turnEnded = Date.now()
         // (the screen as the turn left it: what a viewer sees of the run once it is over — before the CLI clears it on its way out)
         this.sessions.get(S.id)?.keep()
@@ -398,7 +484,7 @@ class Runner extends EventEmitter {
   }
   // the owner did something in a step's terminal (typed, answered): that run's wait starts again
   stirred(x) {
-    if (x.kind !== 'step') return
+    if (x.kind !== 'step' && x.kind !== 'chat') return
     const st = this.jobs.get(x.ref)
     if (st?.turnEnded && !st.ending) this.settle(st)
   }
@@ -466,6 +552,10 @@ class Runner extends EventEmitter {
   record(jobId) { try { return JSON.parse(fs.readFileSync(this.recordFile(jobId), 'utf8')) } catch { return null } }
   remember(jobId, rec) { try { fs.mkdirSync(path.dirname(this.recordFile(jobId)), { recursive: true }); fs.writeFileSync(this.recordFile(jobId), JSON.stringify(rec), { mode: 0o600 }) } catch (e) { this.log('[runner] record', e.message) } }
   forget(jobId) { try { fs.rmSync(this.recordFile(jobId), { force: true }) } catch { /* gone */ } }
+  // a chat's CLI session on this computer (one per chat and agent — the next run of the chat resumes it in the same folder)
+  chatRecordFile(job) { return path.join(this.dataDir, 'sessions', `chat-${chatHash(job)}-${safePart(job.agent, 16)}.json`) }
+  chatRecord(job) { try { return JSON.parse(fs.readFileSync(this.chatRecordFile(job), 'utf8')) } catch { return null } }
+  rememberChat(job, rec) { try { fs.mkdirSync(path.dirname(this.chatRecordFile(job)), { recursive: true }); fs.writeFileSync(this.chatRecordFile(job), JSON.stringify(rec), { mode: 0o600 }) } catch (e) { this.log('[runner] chat record', e.message) } }
 
   // what the run learned, for the server's know-how candidates: each steer (who, how it was taken, what the run did right after it), and
   // what the CLI changed in its skills or wrote into its own memory (skills.js changes)

@@ -115,6 +115,8 @@ onMounted(async () => {
     <template v-else-if="msg.kind === 'text' && msg.role === 'user'">
       <span v-if="panelReq" class="req">새 패널 만들기</span>
       <div class="bubble user">{{ panelReq ?? c.text }}</div>
+      <!-- sent to a CLI on the sender's own PC from the composer's picker (server lib/localAgents/chat.js) -->
+      <small v-if="c.agent?.label" class="to-agent" data-test="msg-agent-tag">→ {{ c.agent.label }} · {{ c.agent.where || '내 PC' }}</small>
       <!-- 링크 미리보기: 글 속 처음 세 링크의 카드(server lib/linkPreview.js) -->
       <LinkPreviews :text="c.text" />
       <!-- sent while an answer of the same conversation was still coming: it waits its turn (lib/turns.js) -->
@@ -126,6 +128,8 @@ onMounted(async () => {
       <ReferChips v-if="c.refer" part="used" :refer="c.refer" :thread="msg.thread_id" :key="c.refer.refer_id || 'off'" />
     </template>
     <template v-else-if="msg.kind === 'text'">
+      <!-- the answer of a CLI on my PC (its last words at the end of a turn) -->
+      <small v-if="c.localAgent?.label" class="via" data-test="msg-local-answer">{{ c.localAgent.label }} · {{ c.localAgent.where || '내 PC' }}</small>
       <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
       <LinkPreviews :text="replies ? replies.body : c.text" />
       <MailChips v-if="mailRefs.length" :refs="mailRefs" :event="c.mailEvent || ''" />
@@ -175,7 +179,8 @@ onMounted(async () => {
     <div v-else-if="msg.kind === 'telegram_connect'" class="tgc"><TelegramConnect :schedule-name="c.scheduleName || ''" /></div>
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
     <!-- a step run by a CLI agent on its assignee's computer (server lib/localAgents): the card follows the run -->
-    <LocalRunCard v-else-if="msg.kind === 'local_run'" :run="c" compact />
+    <!-- (a chat message's run — its 「대화 / 터미널」 in full; a step's card in its instance conversation is the compact one) -->
+    <LocalRunCard v-else-if="msg.kind === 'local_run'" :run="c" :compact="!c.chat" />
     <ProcessCard v-else-if="msg.kind === 'process'" :msg="msg" />
     <ProcessDraftCard v-else-if="msg.kind === 'process_draft'" :msg="msg" />
     <SkillDraftCard v-else-if="msg.kind === 'skill_draft'" :msg="msg" />
@@ -273,6 +278,8 @@ onMounted(async () => {
 .row:hover .ts { opacity: 1; }
 .req { font-size: 14px; color: var(--text-secondary); margin: 0 6px 6px 0; }
 .queue { display: block; text-align: right; font-size: 12.5px; color: var(--text-tertiary); margin: 4px 8px 0 0; }
+.to-agent { display: block; text-align: right; font-size: 12px; color: var(--text-secondary); margin: 4px 8px 0 0; }
+.via { display: block; font-size: 12px; color: var(--text-secondary); margin: 0 0 4px 6px; }
 .work { max-width: min(424px, 100%); margin-top: 4px; font-size: 12.5px; color: var(--text-secondary); }
 .work .wl { text-align: left; padding: 4px 8px; border-radius: 10px; color: var(--text-secondary); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .work .car { font-size: 10px; }

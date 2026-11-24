@@ -375,12 +375,17 @@ async function rights(user, job) {
   for (const kind of new Set((job.knowhow || []).filter((k) => k.state === 'proposed').map((k) => k.kind))) decide[kind] = await KH.mayDecide(user, job, { kind }).catch(() => false)
   return { canSteer: steer, canDelegate: await mayDelegate(user, job).catch(() => false), worker: isWorker(user, job), decide }
 }
-export async function cardFor(user, job) { return cardOf(job, await rights(user, job)) }
+export async function cardFor(user, job) {
+  // (a chat message's run — chat.js — has a card of its own)
+  if (job.kind === 'chat') return (await import('./chat.js')).cardFor(user, job)
+  return cardOf(job, await rights(user, job))
+}
 
 // The job's card, pushed live: one card in the instance's conversation of its person and of the case's owner (kept current), and the
 // card itself to everyone who can see the instance (the instance page and the Home card follow it — 'local_run', no reload)
 const STATE_CHANGES = new Set(['waiting', 'busy', 'offered', 'running', 'done', 'failed', 'delegated', 'cancelled', 'link-lost'])
 export async function note(job, what) {
+  if (job.kind === 'chat') return (await import('./chat.js')).note(job, what)
   const owner = await caseOwnerOf(job.proc_inst_id)
   const users = [...new Set([String(job.user_id), owner].filter(Boolean))]
   if (what === 'link-lost') job = { ...job, why: 'link-lost' }
@@ -426,6 +431,7 @@ export async function steerFromThread(user, thread, text) {
 }
 // 「서버에 맡기기」 on a waiting run: the activity's server agent takes it now
 export async function delegateNow(user, job) {
+  if (job.kind === 'chat') throw Object.assign(new Error(L('채팅의 실행은 「기본으로 다시 보내기」로 기본 에이전트에게 보내요.', 'A chat run goes to the default agent with "Send to Default instead".')), { status: 409 })
   if (job.state !== 'queued') throw Object.assign(new Error(L('기다리는 실행만 서버에 맡길 수 있어요.', 'Only a waiting run can be handed to the server.')), { status: 409 })
   return J.delegate(job, 'manual')
 }
@@ -441,7 +447,7 @@ export async function finishNow(user, job) {
 // theirs, only while the CLI still asks it
 export async function answerAsk(user, job, askId, answer) {
   if (!isWorker(user, job)) throw Object.assign(new Error(L('CLI 의 물음에 답하는 것은 그 CLI 를 가진 사람만 해요.', 'Only the person whose CLI it is can answer it.')), { status: 403 })
-  const S = R.find(T(), 'step', job.id)
+  const S = R.find(T(), job.kind || 'step', job.id)
   const r = R.answer(S, user.id, askId, answer, { by: user.name || '' })
   if (r === true) return { sent: true }
   if (r === 'offline') throw Object.assign(new Error(L('데스크톱이 연결돼 있지 않아요.', 'The desktop is not linked.')), { status: 409 })
@@ -455,6 +461,8 @@ export async function suggestOn(user, job, text, { kind = 'opinion', option = nu
   if (!isWorker(user, job)) {
     const link = job.device_id ? H.linkOf(T(), String(job.device_id)) : null
     if (link) link.send({ type: 'suggestion', jobId: job.id, by: user.name || '', text: r.suggestion.text, kind: r.suggestion.kind })
+    // (a chat's run has no instance to notify about: the desktop's notice is it)
+    if (job.kind === 'chat') return r
     const { notifyInstance } = await import('../engine.js')
     await withLang(await langOf(String(job.user_id)).catch(() => 'ko'), () => notifyInstance(String(job.user_id), job.proc_inst_id, {
       type: 'local_suggestion', title: L(`${user.name || '참여자'}의 제안 · ${job.activity_name}`, `Suggestion from ${user.name || 'a participant'} · ${job.activity_name}`),
@@ -512,7 +520,8 @@ export async function instanceView(instId, user) {
 }
 // Home: the runs that are on now (waiting, sent, running) of instances this person sees — one per instance, the newest
 export async function activeFor(user) {
-  const rows = await q(`select distinct on (j.proc_inst_id) j.* from pro_local_jobs j where j.tenant_id=$1 and j.state in ('queued','offered','running')
+  // (a chat message's run has no instance: it shows in its chat, not on Home)
+  const rows = await q(`select distinct on (j.proc_inst_id) j.* from pro_local_jobs j where j.tenant_id=$1 and j.state in ('queued','offered','running') and j.proc_inst_id is not null
                         order by j.proc_inst_id, j.created_at desc limit 100`, [T()])
   const out = []
   for (const j of rows) if (String(j.user_id) === String(user.id) || await canSee(user, j.proc_inst_id).catch(() => false)) out.push(await cardFor(user, j))
@@ -556,9 +565,11 @@ export async function sweepAll() {
   } catch (e) { console.warn('[local-agents] sweep', e.message) } finally { sweeping = false }
 }
 
+// the person's desktops came on, went off or said what they can run: their pages' agent pickers look again (chat.js availability)
+const presence = (fn) => async (link) => { try { return await fn(link) } finally { emit(link.userId, 'local_presence', { device: link.id }) } }
 export function wire() {
   J.setHooks({ prepare, complete, delegate, fail, note, cancelled, learned })
-  H.setHandlers({ online: J.onOnline, caps: J.onCaps, message: J.onMessage, offline: J.onOffline })
+  H.setHandlers({ online: presence(J.onOnline), caps: presence(J.onCaps), message: J.onMessage, offline: presence(J.onOffline) })
   // a step's run in the person's terminal (relay.js kind 'step', ref = the job): opened only by the desktop the job was given to;
   // watched by whoever sees the instance; its last screen kept on the job
   R.registerKind('step', {
@@ -584,6 +595,8 @@ export function wire() {
 let started = false
 export function startLocalAgents(server) {
   wire()
+  // a chat message for the sender's own CLI (chat.js): its own kind of job and terminal
+  import('./chat.js').then((m) => m.wireChat()).catch((e) => console.warn('[local-agents] chat', e.message))
   if (server) { H.attach(server); R.attach(server) }
   if (started || process.env.PRO_LOCAL_AGENT_WORKER === '0') return
   started = true

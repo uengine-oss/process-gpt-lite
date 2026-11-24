@@ -15,6 +15,9 @@
 // soon as the run is sent — 「터미널에 연결하는 중…」 until its terminal is open.
 // After the CLI's turn the run waits for its people (the desktop's settle.js): its owner sees 「끝내기」 and when it ends by itself; the
 // others see that it waits for the owner.
+// A chat message's run (run.chat — server lib/localAgents/chat.js cardOf): the same card under the message in the chat, full size; its
+// input is the chat's composer (what its owner writes next goes into the same session), so the card has none; when the run cannot answer
+// now (the PC app is off, its link dropped, the CLI failed) its owner gets 「기본으로 다시 보내기」.
 // run: server lib/localAgents/steps.js cardOf
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import Icon from './Icon.vue'
@@ -128,6 +131,15 @@ async function finish() {
   busy.value = 'finish'; said.value = ''
   try { show(await api(`/local-agents/jobs/${encodeURIComponent(r.value.jobId)}/finish`, { method: 'POST' })); said.value = '끝내는 중이에요 — 결과를 올려요' } catch (e) { said.value = e.message } finally { busy.value = '' }
 }
+// 「기본으로 다시 보내기」: the run stops; the words that got no answer go to the server's agent in the same chat
+async function fallback() {
+  busy.value = 'fallback'; said.value = ''
+  try {
+    const res = await api(`/local-agents/jobs/${encodeURIComponent(r.value.jobId)}/fallback`, { method: 'POST' })
+    if (res.text && res.threadId) app.send(res.text, res.threadId, undefined, undefined, { agent: 'default' })
+    said.value = '기본 에이전트에게 다시 보냈어요'
+  } catch (e) { said.value = e.message } finally { busy.value = '' }
+}
 async function delegate() {
   busy.value = 'delegate'; said.value = ''
   try { show(await api(`/local-agents/jobs/${encodeURIComponent(r.value.jobId)}/delegate`, { method: 'POST' })) } catch (e) { said.value = e.message } finally { busy.value = '' }
@@ -140,7 +152,8 @@ async function delegate() {
       <span class="ic"><Icon name="panel" :size="15" /></span>
       <div class="ttl">
         <b>{{ r.label }} <small data-test="local-run-who">· {{ who }}</small></b>
-        <small>「{{ r.activity }}」 단계<template v-if="r.mode === 'draft'"> · 초안</template><template v-if="elapsed"> · <span data-test="local-run-elapsed">{{ elapsed }}</span></template></small>
+        <small v-if="r.chat" data-test="local-run-where"><template v-if="r.folder">{{ r.folder.mode === 'project' ? '프로젝트 폴더' : '내 폴더' }} 「{{ r.folder.name }}」</template><template v-else>이 대화</template><template v-if="elapsed"> · <span data-test="local-run-elapsed">{{ elapsed }}</span></template></small>
+        <small v-else>「{{ r.activity }}」 단계<template v-if="r.mode === 'draft'"> · 초안</template><template v-if="elapsed"> · <span data-test="local-run-elapsed">{{ elapsed }}</span></template></small>
       </div>
       <span class="pill" data-test="local-run-state">{{ pill }}</span>
     </div>
@@ -160,7 +173,8 @@ async function delegate() {
       <ol v-else-if="lines.length" ref="out" class="lines" data-test="local-run-lines">
         <li v-for="(l, i) in lines" :key="i" :class="l.kind"><span class="mk">{{ mark[l.kind] ?? '' }}</span><span>{{ l.text }}</span></li>
       </ol>
-      <ul v-if="r.steers?.length" class="steers" data-test="local-run-steers">
+      <!-- (a chat's run: what its owner sent is in the chat itself) -->
+      <ul v-if="r.steers?.length && !r.chat" class="steers" data-test="local-run-steers">
         <li v-for="s in r.steers" :key="s.id" :class="s.state" :data-steer-state="s.state"><span class="mk">⏎</span><span class="tx"><b class="who">{{ steerWho(s) }}</b> {{ s.text }}</span> <small>{{ steerLabel(s) }}</small></li>
       </ul>
       <ul v-if="r.suggestions?.length" class="sugs" data-test="local-run-suggestions">
@@ -180,8 +194,10 @@ async function delegate() {
         </template>
         <small v-else data-test="local-run-idle-text">{{ r.person || '실행하는 사람' }}님이 끝내기를 기다려요 — 지금 제안하면 이어서 입력할 수 있어요 · {{ idleWords }} 뒤 저절로 끝나요</small>
       </div>
+      <!-- a chat's run: its input is the chat's composer -->
+      <small v-if="live && r.worker && r.chat" class="loaded" data-test="local-run-chat-hint">이어서 말하려면 아래 입력창에 쓰세요 — 같은 세션에 들어가요</small>
       <!-- the worker: the CLI's input -->
-      <form v-if="live && r.worker" class="input" @submit.prevent="send">
+      <form v-else-if="live && r.worker" class="input" @submit.prevent="send">
         <small v-if="picked" class="loaded" data-test="local-run-loaded">{{ picked.name }}의 제안을 입력란에 넣었어요 — 고쳐서 보낼 수 있어요 <button type="button" class="lnk" @click="unload">취소</button></small>
         <div class="row">
           <span class="prompt">❯</span>
@@ -211,6 +227,7 @@ async function delegate() {
         </span>
       </li>
     </ul>
+    <button v-if="r.chat && r.canFallback" class="handoff press" :disabled="!!busy" data-test="local-run-fallback" @click="fallback">기본으로 다시 보내기</button>
     <button v-if="r.state === 'queued' && r.canDelegate" class="handoff press" :disabled="!!busy" data-test="local-run-delegate" @click="delegate">
       기다리지 않고 {{ r.serverLabel || '서버 에이전트' }}에게 맡기기
     </button>
