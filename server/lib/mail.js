@@ -265,7 +265,8 @@ export async function claimFresh(userId, mails) {
   return fresh
 }
 
-export async function pollUser(userId, { announce } = {}) {
+// deps (tests): the map's reading, a case start and the judge, stood in for (lib/mailFlow.js routeMailCards)
+export async function pollUser(userId, { announce, deps = {} } = {}) {
   const [acc] = await q('select * from pro_mail_accounts where user_id=$1', [userId])
   if (!acc) return { skipped: 'no account' }
   let mails
@@ -314,17 +315,29 @@ export async function pollUser(userId, { announce } = {}) {
     const t = await mainThread(userId)
     await addMessage(userId, t.id, 'agent', 'text', { text: L('메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.', "I looked through your inbox and nothing is urgent right now. I'll check again when new mail comes in.") })
   }
+  // Every mail that made a Home card is read by the company map's router now, as it arrives (2026-11-24: the map's reading is not left to
+  // the first time the sheet is opened — a process set to 자동 starts, and does its first work, on the mail itself; its cost is accepted
+  // for a company that uses the map). lib/mailFlow.js routeMailCards: 자동 starts and lives with its instance (its work folder holds the
+  // mail — lib/mailWork.js), 제안 is asked on the card, 관찰 is never read; the reading stays on the card for the sheet. A mail of a thread
+  // already linked to a running instance joined it above and is not read again — it never starts a second one. (The demo mailbox's
+  // sample mails only make cards: the sheet reads them when opened.)
+  const docs = new Map((r.drafts || []).filter((d) => d.items?.length).map((d) => [d.mail_id, d]))
+  const routed = new Map()
+  for (const src of fresh) {
+    const mine = cards.filter((c) => c.source.mail_id === src.id)
+    if (src.fixture || !mine.length || threaded.has(src.id)) continue
+    routed.set(src.id, MF.routeMailCards(userId, src, mine, deps).catch((e) => { console.warn('[mail] route', e.message); return false }))
+  }
   // documents the mail asks for: drafts are made right away, before anyone asks (the person reviews them)
-  for (const d of r.drafts || []) {
+  for (const d of docs.values()) {
     const src = fresh.find((m) => m.id === d.mail_id)
-    if (!(src && !src.fixture && d.items?.length)) continue
-    // a process registered from mining takes the mail when it matches (lib/mining); else the ad-hoc drafts
-    // an adopted bundle of the company's process map takes the mail first (lib/ontology/run.js), else a flow process mining registered.
-    // A mail with Home cards is read on them (lib/mailFlow.js: 자동 starts and lives with its instance, 제안 is asked on the card); a mail
-    // of a thread already linked to a running instance is not started again
+    if (!(src && !src.fixture)) continue
+    // the company map takes the mail first (read above for a mail with cards — 자동 starts, 제안 is asked on the card; a mail without
+    // cards: lib/ontology/run.js), else a flow process mining registered (lib/mining), else the ad-hoc drafts. A mail of a thread already
+    // linked to a running instance is not started again
     const mine = cards.filter((c) => c.source.mail_id === src.id)
     const route = threaded.has(src.id) ? Promise.resolve(false)
-      : mine.length ? MF.routeMailCards(userId, src, mine) : import('./ontology/run.js').then((o) => o.routeMail(userId, src, d))
+      : routed.get(src.id) || (mine.length ? Promise.resolve(false) : import('./ontology/run.js').then((o) => o.routeMail(userId, src, d)))
     route
       .then((done) => done || (threaded.has(src.id) ? false : import('./mining/service.js').then((m) => m.routeMail(userId, src, d)).then(async (x) => {
         // (a registered flow put the mail in its instance's conversation itself: the cards only point there)

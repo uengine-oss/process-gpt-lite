@@ -10,6 +10,7 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
 import { test, expect } from '../../lib/fixtures.js'
+import { removeFolder } from '../../lib/seed.js'
 
 const PHONE = { width: 390, height: 844 }
 const PORT = Number(process.env.RT_FAKE_LLM_PORT || 59998)
@@ -82,6 +83,8 @@ async function running(db, u, { name = '견적 요청 · 견적서 작성 · 한
   return { instId, name }
 }
 async function cleanup(db, u) {
+  // (a mail joined to an instance goes into its work folder — server lib/mailWork.js, mail-work-folder.spec.js)
+  for (const f of await db.q(`select slug from pro_folders where created_by=$1 and settings ? 'work'`, [u.id])) await removeFolder(db, f.slug)
   await db.q('delete from pro_actions where user_id=$1', [u.id])
   await db.q('delete from pro_demo_mail where user_id=$1', [u.id])
   await db.q('delete from pro_mail_accounts where user_id=$1', [u.id])

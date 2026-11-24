@@ -1,0 +1,33 @@
+# 서버 시험 (2026-11-24, feat/mail-work-folder, node --test --test-concurrency=1, 로컬 DB · 로컬 Storage, 모델은 가짜 fetch, 지도 엔진 끔)
+
+## 새 시험
+test/mailWork.integration.test.js                 9/9
+  ✔ 이름: 메일은 「번호_날짜_제목」, 쓸 수 없는 글자는 빼고, 다음 번호는 폴더에 있는 것 다음 · 결과의 파일과 값
+  ✔ 새로 시작: 일의 작업 폴더가 생긴다(주인은 나, 이름은 인스턴스, 역할을 맡은 동료는 보기) — 첫 메일이 메일/01_… .eml · .md 로, 내가 넣은 것으로
+  ✔ 잇기: 다른 메일이 이 일에 이어지면 같은 폴더의 메일/02_…로(넣은 사람의 커밋), 같은 메일은 두 번 들어가지 않는다 — 폴더 없던 일은 이을 때 생긴다
+  ✔ 들어올 때(Gmail · 자동): 지도가 「자동」의 시작으로 읽은 메일은 저절로 시작하고 원문(.eml) · 첨부가 폴더로 — 같은 스레드의 다음 메일은 모델 없이 그 일로 이어진다(새 건 없음)
+  ✔ 들어올 때(데모 메일함): 카드가 생긴 메일은 바로 지도와 견준다 — 제안은 시작하지 않고 카드가 묻고(시트는 지도를 다시 읽지 않는다), 관찰(읽히지 않음)은 아무것도 하지 않는다
+  ✔ 자동이라도 진행 중인 같은 일의 다음 메일로 읽히면(판정 모델, 스레드 없음) 저절로 시작하지 않고 카드가 잇기를 묻는다 — 다른 일이면 시작한다
+  ✔ 단계 결과: 끝난 단계가 만든 파일과 값이 인스턴스 라인의 산출물/NN_<단계>/ 로 — 뒤에 온 메일도 라인에, 다음 단계는 메일과 결과를 읽는다
+  ✔ 다른 엔진(deepagents · cli-agent)의 에이전트 단계는 그 일의 작업 폴더에서 인스턴스 라인부터(@previous) — Lite 의 단계 일꾼(pgpt-pro-*)은 읽기만
+  ✔ deepagents 단계: 체크아웃이 Storage 의 방 폴더로 가고, 다른 파드의 에이전트가 거기 남긴 것(고침 · 새 파일 · 지움)이 커밋에 들어온다
+
+## 회귀
+test/mailFlow.integration.test.js                 12/12  (작업 폴더 칩이 인스턴스 대화의 마지막 줄이 되어 단언 4곳을 「마지막 글 줄」로, 새로 시작의 대화 종류에 chip 추가)
+test/mailReply.integration.test.js                10/10
+test/folderEditSave.test.js                        5/5
+test/folderFindOpen.test.js                        5/5
+test/folderGc.test.js                              6/6
+test/folderGitRemote.test.js                      13/13  (cli-agent 단계의 인스턴스 라인이 line.js advanceLine 으로)
+test/threadFolders.test.js                         7/7
+test/roomStore.integration.test.js                 6/6
+test/mailPollRace.integration.test.js              2/2
+test/homeCards.integration.test.js                 3/3
+test/instanceContext.test.js                       3/3
+test/lang-panels-folders-team.test.js              9/9
+test/ontology-*.test.js (28개, 하나씩)           224/224  (results/ontology-regression.txt)
+
+## 이번 일과 무관한 실패 (main ba711af 에서도 같음)
+test/scheduleTenant.integration.test.js            0/1  error: insert or update on table "users" violates foreign key constraint "users_tenant_id_fkey"
+test/process-run-fixes.test.js                     4/5  ✖ 에이전트 연결: 일시 실패는 다시 시도하고, 다른 응답은 그대로, 원인은 안내에 붙는다
+test/agentTurn.integration.test.js                 7/11 (모델 주소를 끈 채 — 4건은 handleTurn 의 라우팅 모델 호출이 fetch failed. main 도 같은 조건에서 7/11)

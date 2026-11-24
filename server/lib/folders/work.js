@@ -7,8 +7,11 @@
 //    cli-agent gets the folder repository as its project_repo: with PRO_GIT_URL the folder over git smart
 //    HTTP and a token for it (it runs in its own pod, with its own disk: it clones, and pushes its branch
 //    pgpt-agent/<run> back — gitHttp.js), without it the repository's path (local development, one disk:
-//    its own worktree flow). deepagents gets a checkout in the instance's run folder and its instruction is told where.
-//    Steps of one instance chain on the instance line (inst/<id>), which `@previous` follows.
+//    its own worktree flow). deepagents gets a checkout in the instance's run folder and its instruction is told where; the checkout
+//    is also put in storage under the room (seedStep), and what the agent's pod uploaded there comes back before the commit (pullStep).
+//    (deepagents restores a room from storage for a chat turn and a handed-over work item; for an engine's step it does so only once it
+//    reads the room of the step — see docs/mail-work-folder/design.md §4.)
+//    Steps of one instance chain on the instance line (inst/<id>, line.js), which `@previous` follows.
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
 import { q, eachTenant } from '../supa.js'
@@ -23,6 +26,7 @@ import { L, asUser, withLang, langOf } from '../lang.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { projectStepFolders } from './threadFolders.js'
 import { projectRepoFor } from './gitHttp.js'
+import { lineOf, advanceLine } from './line.js'
 
 const T = () => config.tenantId
 const EDIT = /고쳐|고치|수정|다듬|바꿔|바꾸|변경|추가|넣어|빼|삭제|작성|만들어|정리|업데이트|반영해|번역|채워|보완|손봐/
@@ -145,26 +149,43 @@ const baseOf = async (folder, row) => {
   if (want.startsWith('var:')) return want.slice(4)
   if (want === '@previous') {
     const inst = row.root_proc_inst_id || row.proc_inst_id
-    const line = inst ? `inst/${inst.replace(/[^A-Za-z0-9]/g, '').slice(-12)}` : null
+    const line = inst ? lineOf(inst) : null
     if (line && await G.branchExists(folder.repo_path, line)) return line
   }
   return folder.default_branch
 }
+// the instance line follows the step's result (line.js: a fast-forward, or a merge when a mail or another step moved it meanwhile)
 async function instanceLine(folder, row, head) {
   const inst = row.root_proc_inst_id || row.proc_inst_id
   if (!inst || !head) return
-  const line = `inst/${inst.replace(/[^A-Za-z0-9]/g, '').slice(-12)}`
-  await G.git(folder.repo_path, ['branch', '-f', line, head])
-  const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [inst])
-  await q(`insert into pro_folder_variations (folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source)
-           values ($1,$2,$3,'instance','ready',$4,$5,'user',null,$7,$6)
-           on conflict (folder_id, branch) do update set head_commit=$5, status='ready', updated_at=now()`,
-  [folder.id, line, L(`${i?.proc_inst_name || inst} — 인스턴스 라인`, `${i?.proc_inst_name || inst} — instance line`), await G.mergeBase(folder.repo_path, folder.default_branch, head), head, { label: i?.proc_inst_name || inst, proc_inst_id: inst }, L('프로세스', 'Process')])
+  await advanceLine(folder, lineOf(inst), head, { instId: inst })
+}
+
+// The checkout of a deepagents step is put in storage where deepagents restores a room it has not seen, and what the agent left there
+// is brought back before the commit (the chat's way — startChatWork · threadFolders.js): in production the agent runs in another pod and
+// sees nothing of this server's disk. What was pushed is kept on the variation (its hashes and stamps) until the step is done.
+const seededJson = (s) => ({ hashes: Object.fromEntries(s.hashes), stamps: Object.fromEntries(s.stamps) })
+const seededOf = (j) => (j?.hashes ? { hashes: new Map(Object.entries(j.hashes)), stamps: new Map(Object.entries(j.stamps || {})) } : null)
+export async function seedStep(folder, v, room, dir) {
+  const container = S.runCheckoutContainer(room, folder)
+  const seeded = await pushRoomDir(dir, container)
+  await q(`update pro_folder_variations set source = source || jsonb_build_object('room_store', $2::jsonb) where id=$1`, [v.id, JSON.stringify({ container, ...seededJson(seeded) })])
+  return seeded
+}
+// (a process step's room is uploaded before its work item is closed — no waiting for the upload, unlike a chat turn)
+export async function pullStep(v) {
+  const s = v.source?.room_store
+  const seeded = seededOf(s)
+  if (!seeded || !v.worktree_path) return []
+  return pullRoomChanges(s.container, seeded, v.worktree_path, { wait: false })
 }
 
 async function stepTick() {
   // agent steps of instances started in a project with a folder get that folder first (threadFolders.js)
   await projectStepFolders().catch((e) => console.warn('[folders] project steps', e.message))
+  // so do the agent steps of an instance that has a work folder (a mail started it — lib/mailWork.js), and its finished steps' outputs
+  // go into that folder
+  await import('../mailWork.js').then((W) => W.tick()).catch((e) => console.warn('[folders] work folders', e.message))
   const rows = await q(`select id, status::text as status, agent_orch, agent_config, output, proc_inst_id, root_proc_inst_id, activity_name, query, user_id
                         from todolist where tenant_id=$1 and agent_config ? 'folder' and not (agent_config ? 'variation')
                         and agent_orch is not null and agent_orch <> 'pgpt-pro-folders'
@@ -222,11 +243,13 @@ export async function stepOne(row) {
           holder: { type: 'agent', id: row.agent_orch || 'deepagents', name: row.activity_name || L('에이전트', 'Agent') },
           source: { label: row.activity_name, todo_id: row.id, proc_inst_id: row.proc_inst_id, room_id: room, engine: row.agent_orch || 'deepagents' } })
         await S.checkout(folder, nv, S.runCheckoutDir(room, folder))
+        await seedStep(folder, nv, room, S.runCheckoutDir(room, folder)).catch((e) => console.warn('[folders] step seed', row.id, e.message))
         const note = L(`\n\n[Folder] 공유 폴더 '${folder.name}' 의 변형 ${nv.branch} 에서 작업하세요. 작업 폴더: ${S.runCheckoutContainer(room, folder)}\n${RULES}`,
           `\n\n[Folder] Work on variation ${nv.branch} of the shared folder '${folder.name}'. Working folder: ${S.runCheckoutContainer(room, folder)}\n${rules()}\n[Instruction] Write your answer, and the text of any file you create or change, in English.`)
         if (!String(row.query || '').includes('[Folder]')) await q('update todolist set query = coalesce(query,\'\') || $2 where id=$1', [row.id, note])
         handled.set(row.id, 'prepared')
       } else if (v && done && v.status === 'open') {
+        await pullStep(v).catch((e) => console.warn('[folders] step pull', row.id, e.message))
         await S.commitVariation(folder, v, { name: v.holder_name || 'agent', email: 'agent@pgpt-pro.local' }, L(`${row.activity_name || '단계'} 결과`, `${row.activity_name || 'Step'} result`))
         const cur = await S.variationById(v.id)
         await S.release(folder, cur)

@@ -143,7 +143,7 @@ const idx = (f) => f.index_state || {}
       <button v-for="f in list" :key="f.slug" class="row glass press" @click="router.push(`/folders/${f.slug}`)">
         <span class="name">
           <span class="fic folder" :class="{ linked: f.kind === 'linked' }"><FIcon :name="f.kind === 'linked' ? 'link' : 'folder'" :size="20" /></span>
-          <span class="nm"><b>{{ f.name }}</b><small>{{ f.description }}</small></span>
+          <span class="nm"><b>{{ f.name }}<span v-if="f.settings?.work" class="wb" data-test="folder-work-badge">작업 폴더</span></b><small>{{ f.description }}</small></span>
         </span>
         <span class="mem">
           <span class="stack"><Avatar v-for="m in f.members.slice(0, 4)" :key="m.type + m.id" :who="whoOf(m)" :size="28" /></span>
@@ -213,6 +213,7 @@ button.row:hover { background: var(--regular-solid-bg); }
 .name { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .nm { display: flex; flex-direction: column; min-width: 0; }
 .nm b { font-weight: 500; font-size: 16.5px; }
+.wb { display: inline-flex; vertical-align: middle; height: 20px; align-items: center; margin-left: 8px; padding: 0 8px; border-radius: 10px; font-size: 11.5px; font-weight: 500; background: rgba(226 169 59 / .2); color: #c98a1a; }
 .nm small, .var small, .idx small { color: var(--text-secondary); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .act { font-size: 13.5px; color: var(--text-secondary); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .fic { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-size: 10.5px; font-weight: 700; color: #fff; background: #6b6b66; }

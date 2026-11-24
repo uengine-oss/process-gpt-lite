@@ -14,6 +14,8 @@ const props = defineProps({ slug: String })
 const emit = defineEmits(['preview'])
 const router = useRouter()
 const folder = ref(null)
+// the work folder of an instance started from a mail (server lib/mailWork.js — settings.work)
+const work = computed(() => folder.value?.settings?.work || null)
 const files = ref([])
 const err = ref('')
 const tab = ref('files')
@@ -124,9 +126,11 @@ const ix = computed(() => folder.value?.index_state || {})
         <button class="back press" title="폴더 목록" @click="router.push('/folders')"><Icon name="back" :size="18" /></button>
         <span class="fic folder" :class="{ linked: folder.kind === 'linked', skill: isSkill }"><FIcon :name="folder.kind === 'linked' ? 'link' : isSkill ? 'agent' : 'folder'" :size="22" /></span>
         <div class="ttl">
-          <h1><span class="hn">{{ folder.name }}</span> <span v-if="isSkill" class="kb" :class="skill?.visibility">{{ skill?.visibility === 'private' ? '내 스킬' : '전사 공유 스킬' }}</span></h1>
+          <h1><span class="hn">{{ folder.name }}</span> <span v-if="isSkill" class="kb" :class="skill?.visibility">{{ skill?.visibility === 'private' ? '내 스킬' : '전사 공유 스킬' }}</span><span v-else-if="work" class="kb work" data-test="folder-work-badge">작업 폴더</span></h1>
           <small v-if="isSkill">작성자 {{ skill?.author?.name || '—' }} · {{ canMerge ? '반영할 수 있어요' : '고칠 점은 변형으로 제안해요' }}</small>
           <small v-else>{{ folder.description }} · 내 권한 {{ roleLabel[folder.role] }}</small>
+          <!-- a work folder (server lib/mailWork.js): back to the instance it belongs to -->
+          <router-link v-if="work" class="wk" :to="`/routines/${encodeURIComponent(work.instId)}`" data-test="folder-work-inst"><Icon name="refresh" :size="13" /> 루틴 · {{ work.inst || folder.name }}</router-link>
         </div>
         <span class="sp" />
         <button class="mem press" :title="folder.members.map((m) => `${m.name}(${roleLabel[m.role]})`).join(', ')" @click="sharing = true">
@@ -310,6 +314,9 @@ h1 .kb { flex: none; align-items: center; line-height: 1; }
 .sm2 { height: 36px; padding: 0 16px; font-size: 13.5px; }
 .kb { display: inline-flex; vertical-align: middle; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 500; background: rgba(150 240 176 / .2); color: var(--color-success); letter-spacing: 0; }
 .kb.private { background: rgba(255 160 60 / .18); color: #e08a2c; }
+.kb.work { background: rgba(226 169 59 / .2); color: #c98a1a; }
+.wk { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 13px; color: var(--text-secondary); text-decoration: none; }
+.wk:hover { color: var(--text-primary); }
 .fic.folder.skill { background: #7b5cd6; }
 dl.sk { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; margin: 8px 6px; font-size: 13.5px; } dl.sk dt { color: var(--text-secondary); } dl.sk dd { margin: 0; }
 .ar { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-bottom: 1px solid var(--hairline); font-size: 14px; } .ar b { font-weight: 500; }

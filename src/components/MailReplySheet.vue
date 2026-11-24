@@ -83,6 +83,9 @@ const homeCard = computed(() => app.mailCardFrom !== 'home' && app.actions.some(
 // (on that instance's page already: nothing to open)
 const joinQ = computed(() => { const n = joins.value[0]?.name || ''; return `진행 중인 ‘${n}’${jo(n, '과/와')} 같은 일로 보여요 — 이을까요?` })
 const instLink = computed(() => (linkedInst.value && String(route.params.instId || '') !== linkedInst.value.instId ? linkedInst.value : null))
+// the work's folder (server lib/mailWork.js): this mail and the others of its work, and what the steps made
+const workFolder = computed(() => linkedInst.value?.folder || live.value.source?.inst?.folder || null)
+function goFolder(slug) { emit('close'); router.push(`/folders/${encodeURIComponent(slug)}`) }
 
 async function loadFlow() {
   flowLoading.value = true
@@ -170,9 +173,12 @@ function toAgent() { app.runAction(props.action); emit('close') }
           <button class="x press" aria-label="닫기" @click="emit('close')"><Icon name="close" :size="18" /></button>
         </header>
         <!-- where this mail's work is: its instance, the card on Home (from a chat chip) -->
-        <nav v-if="instLink || homeCard" class="links">
+        <nav v-if="instLink || homeCard || workFolder" class="links">
           <button v-if="instLink" class="lk press" data-test="mail-inst" @click="goInst(instLink.instId)">
             <Icon name="refresh" :size="14" /> <span>루틴 · {{ instLink.name || '진행 중인 일' }} 열기</span> <Icon name="chevron" :size="12" />
+          </button>
+          <button v-if="workFolder" class="lk press" data-test="mail-folder" @click="goFolder(workFolder.slug)">
+            <Icon name="folder" :size="14" /> <span>작업 폴더 · {{ workFolder.name }}</span> <Icon name="chevron" :size="12" />
           </button>
           <button v-if="homeCard" class="lk press" data-test="mail-home" @click="toHome"><Icon name="home" :size="14" /> <span>Home 카드로</span></button>
         </nav>

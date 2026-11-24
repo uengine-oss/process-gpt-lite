@@ -369,6 +369,15 @@
     "matchHours": 12,
     "textChars": 1200
   },
+  "mailWork": {
+    "mailChars": 1500,
+    "mailTotal": 5000,
+    "outputChars": 800,
+    "outputTotal": 2500,
+    "sweepSeconds": 20,
+    "fileMB": 25,
+    "shareWithRoles": false
+  },
   "mapEngine": {
     "default": "bpm",
     "pinWhenRequired": true,

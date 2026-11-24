@@ -79,10 +79,11 @@ async function imapClient(userId) {
   return client
 }
 
-export async function originalOf(userId, provider, mailId) {
+// the message as the mailbox keeps it (RFC 822 bytes): Gmail's raw, IMAP's source — or null (the demo mailbox keeps no message)
+async function rawOf(userId, provider, mailId) {
   if (provider === 'gmail') {
     const m = await gmail(userId, `messages/${encodeURIComponent(mailId)}?format=raw`)
-    return { id: mailId, threadId: m.threadId || null, ...(await parsed(Buffer.from(m.raw || '', 'base64url'))) }
+    return { raw: Buffer.from(m.raw || '', 'base64url'), threadId: m.threadId || null }
   }
   if (provider === 'imap') {
     const client = await imapClient(userId)
@@ -91,13 +92,38 @@ export async function originalOf(userId, provider, mailId) {
       lock = await client.getMailboxLock('INBOX')
       const msg = await client.fetchOne(String(mailId), { source: true }, { uid: true })
       if (!msg?.source) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
-      return { id: mailId, threadId: null, ...(await parsed(msg.source)) }
+      return { raw: msg.source, threadId: null }
     } finally { lock?.release(); await client.logout().catch(() => {}) }
   }
+  return null
+}
+
+export async function originalOf(userId, provider, mailId) {
+  const got = await rawOf(userId, provider, mailId)
+  if (got) return { id: mailId, threadId: got.threadId, ...(await parsed(got.raw)) }
   const m = await demoMailById(userId, mailId)
   if (!m) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
   return { id: mailId, threadId: null, from: addresses(m.from)[0] || null, to: [], cc: [], replyTo: [], subject: m.subject || '', date: m.date || null,
     text: String(m.text || '').slice(0, TEXT_MAX), messageId: null, references: [], attachments: [] }
+}
+
+// The whole message, to keep (lib/mailWork.js — the work's folder): its RFC 822 bytes and what they say, the attachments with their
+// content. A demo mailbox keeps no message: one is written from what it has (sender, to, subject, date, body), so the folder still
+// gets an .eml any mail program opens.
+export async function sourceOf(userId, provider, mailId, { to = '' } = {}) {
+  let raw = (await rawOf(userId, provider, mailId))?.raw || null
+  if (!raw) {
+    const m = await demoMailById(userId, mailId)
+    if (!m) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
+    raw = await new MailComposer({ from: m.from || '', ...(to ? { to } : {}), subject: m.subject || '', text: String(m.text || ''), date: m.date ? new Date(m.date) : new Date() }).compile().build()
+  }
+  const p = await simpleParser(raw)
+  return {
+    raw, from: addresses(p.from)[0] || null, to: addresses(p.to), cc: addresses(p.cc), subject: p.subject || '', date: p.date ? p.date.toISOString() : null,
+    text: String(p.text || ''),
+    // (the pictures inside the body stay in the .eml: the files are the ones sent along)
+    attachments: (p.attachments || []).filter((a) => a.contentDisposition !== 'inline').map((a) => ({ name: a.filename || 'file', type: a.contentType || '', content: a.content })),
+  }
 }
 
 // ---------- the card's mail, the files made for it ----------

@@ -503,7 +503,8 @@ async function definitionText(name, act) {
 // own model from the case's request, what the earlier steps made and the task's definition — no tools: nothing is sent,
 // booked or drafted in anyone's mailbox (prompts/draft-step.md)
 export const ONTO_SKILLS = {
-  async 'doc-draft'({ row, act, kind = 'document' }) {
+  // work: the instance's work folder (lib/mailWork.js stepContext) — every mail of the work so far and what the earlier steps left in it
+  async 'doc-draft'({ row, act, kind = 'document', work = null }) {
     const { prompt, rules: skillRules } = await import('./discovery.js')
     const R = (await skillRules()).runMode?.draft || {}
     const RM = await import('./runmode.js')
@@ -514,7 +515,9 @@ export const ONTO_SKILLS = {
     const input = { today: new Date().toLocaleDateString('sv-SE', { timeZone: process.env.PRO_TZ || 'Asia/Seoul' }), step: row.activity_name, role: act.role || '', kind,
       definition: { description: act.description || '', instruction: String(act.instruction || '').slice(0, 2000), checkpoints: act.checkpoints || [] },
       request: { subject: intake.subject || c?.trigger?.subject || '', body: String(intake.body || '').slice(0, chars), from: intake.sender || c?.trigger?.from || '' },
-      earlier: earlier.slice(-4).map((x) => ({ step: x.task, text: String(x.text || '').slice(0, 1200) })) }
+      earlier: earlier.slice(-4).map((x) => ({ step: x.task, text: String(x.text || '').slice(0, 1200) })),
+      ...(work ? { work: { folder: work.folder.name, mails: work.mails.map((m) => ({ n: m.n, date: m.date, from: m.from, subject: m.subject, attachments: m.attachments, text: m.text })),
+        outputs: work.outputs.map((o) => ({ path: o.path, ...(o.text ? { text: o.text } : {}) })) } } : {}) }
     const r = await chatJson(await prompt('draft-step'), JSON.stringify(input), { temperature: 0.2, timeoutMs: R.timeoutMs || 120000 })
     const text = String(r.text || '').slice(0, 6000)
     const values = { result: text, title: String(r.title || row.activity_name).slice(0, 120), summary: String(r.summary || '').slice(0, 200) }
@@ -556,6 +559,10 @@ async function runStep(row, gate = {}) {
   // waits for a person — runmode.js); a person's step's draft (a draft must not act: a draft made with tools could already have)
   const textOnly = (act.skills || []).includes('doc-draft') || (gate.draftFirst && !skill) || (isDraft && !skill)
   await W.events([{ ...base, event_type: 'task_started', data: { goal: `${row.activity_name} — 일 정의(스킬 ${(act.skills || []).join(', ') || '없음'} · 점검 ${(act.checkpoints || []).length}개)`, name: '업무 에이전트', role: row.activity_name } }])
+  // the work's folder (lib/mailWork.js, 2026-11-24): every mail of the work so far — the first one, and those that joined it — and what the
+  // earlier steps left there; every kind of step below reads it (its finished steps are recorded into it first)
+  const work = await (await import('../mailWork.js')).stepContext(row.proc_inst_id).catch((e) => { console.warn('[onto-worker] work folder', e.message); return null })
+  const withWork = (text) => `${text || ''}${work?.note || ''}`.trim()
   let r
   try {
     if (textOnly) {
@@ -563,14 +570,14 @@ async function runStep(row, gate = {}) {
       // a document step makes a file (stepdoc.js): from the work's form when it has a kept file, else the text as Word — no tools either
       const kind = gate.draftFirst ? 'message' : isDraft ? 'note' : 'document'
       r = await (await import('./stepdoc.js')).draftStep({ row, act, kind, owner, threadId, status, form: await formFileOf(row.activity_name, act).catch(() => null),
-        draftText: (k) => ONTO_SKILLS['doc-draft']({ row, act, kind: k }), extra: await definitionText(row.activity_name, act).catch(() => '') })
+        draftText: (k) => ONTO_SKILLS['doc-draft']({ row, act, kind: k, work }), extra: withWork(await definitionText(row.activity_name, act).catch(() => '')) })
     } else if (skill === 'form-fill') {
       // the company's form, filled here without tools (stepdoc.js): an Excel form cell by cell, a Word · PowerPoint · 한글 form paragraph by
       // paragraph — not handed to the agent, whose tools (mail · calendar · messenger) could act outside
       const form = await formFileOf(row.activity_name, act)
       if (!form) throw new Error('이 일의 회사 양식 파일이 없어요')
-      r = await (await import('./stepdoc.js')).formStep({ row, act, owner, threadId, status, form, extra: await definitionText(row.activity_name, act) })
-    } else if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await prevOf(row), status, extra: await definitionText(row.activity_name, act),
+      r = await (await import('./stepdoc.js')).formStep({ row, act, owner, threadId, status, form, extra: withWork(await definitionText(row.activity_name, act)) })
+    } else if (skill) r = await W.SKILLS[skill]({ owner, threadId, prev: await prevOf(row), status, extra: withWork(await definitionText(row.activity_name, act)),
       template: await formFileOf(row.activity_name, act), step: row.activity_name })
     else {
       const { delegate } = await import('../agent.js')
@@ -581,7 +588,7 @@ async function runStep(row, gate = {}) {
       const ask = isDraft
         ? `프로세스의 '${row.activity_name}' 단계를 맡은 사람(${act.role || '담당자'})이 받기 전에 초안을 만들어 두는 일이에요. ${act.description || ''} ${act.instruction || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ') || '없음'}\n담당자가 그대로 확인하고 낼 수 있게, 이 단계의 결과(판단 · 근거 · 다음에 할 일)를 다섯 줄 안으로 써 주세요. 파일은 만들지 마세요.`
         : `프로세스의 '${row.activity_name}' 단계예요. ${act.instruction || act.description || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ')}\n쓸 스킬: ${(act.skills || []).join(', ')}`
-      const msg = await delegate({ user, session, threadId, silent: true, text: ask })
+      const msg = await delegate({ user, session, threadId, silent: true, text: withWork(ask) })
       r = { values: { result: String(msg?.content?.text || '').slice(0, 3000) }, say: null }
     }
   } finally { status(null) }
