@@ -78,8 +78,10 @@ export const useApp = defineStore('app', {
     missionTick: 0,             // bumps on mission run events so open lists refresh            // detail of the instance page               // text pushed into the composer from elsewhere
   }),
   getters: {
-    // the thread list on screen: the chat's page, not replaced by Home's dock, not under a document open beside the page
-    threadListShown(s) { return s.mode === 'chat' && s.threadList && !s.dockOpen && !s.docSide },
+    // the thread list on screen: the chat's page, not replaced by Home's dock. Beside a document open beside the page it follows the
+    // left column's rule like the project and routine lists — beside the chat where the page holds all three, else folded to a rail
+    // (src/leftColumn.js, views/MainView.vue)
+    threadListShown(s) { return s.mode === 'chat' && s.threadList && !s.dockOpen },
     active(s) { return s.activeId === s.mainThread?.id ? s.mainThread : s.projects.find((p) => p.id === s.activeId) },
     thread(s) {
       const all = s.messages[s.activeId] || []

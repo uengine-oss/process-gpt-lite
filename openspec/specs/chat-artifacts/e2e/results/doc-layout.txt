@@ -1,0 +1,27 @@
+# cd server && node --test test/docLayout.test.js  (2026-11-24 21:41)
+✔ DL-U-01 문서가 없으면 왼쪽 칸은 늘 채팅 옆, 원하는 칸이 없으면 없음 (0.675541ms)
+✔ DL-U-02 문서 옆: 왼쪽 칸 + 채팅(512 + 40 × 2) + 문서가 들어가면 나란히, 아니면 목록은 접힘 — 1280 · 1440 · 1600 은 접힘, 2000 은 나란히 (0.105708ms)
+✔ DL-U-03 붙여 둔 메신저: 페이지가 메신저 열만큼 좁아지거나(오른쪽 · 왼쪽) 문서 패널이 메신저만큼 넓어짐(패널) — 그 폭으로 정함 (0.06125ms)
+✔ DL-U-04 접힌 목록의 단추를 누르면 채팅 위에 펼침 · Home 은 열면 채팅 위 — 자리가 있으면 그대로 나란히 (0.653292ms)
+✔ DL-U-05 단추의 이름 (0.058708ms)
+ℹ tests 5
+ℹ pass 5
+ℹ fail 0
+
+# 2026-11-24 21:41 · PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKERS=1 npx playwright test tests/feature/doc-layout.spec.js --project=feature (branch fix/project-doc-overlap, uncommitted)
+
+Running 6 tests using 1 worker
+
+  ✓  1 [feature] › tests/feature/doc-layout.spec.js:147:1 › F-DL-01 프로젝트: 산출물을 열면 2000px 은 목록 · 채팅 · 문서가 나란히, 그보다 좁으면 목록을 접고 위쪽 막대에 「≡ 프로젝트」 — 어느 폭에서도 겹치지 않음 (13.5s)
+  ✓  2 [feature] › tests/feature/doc-layout.spec.js:171:1 › F-DL-02 접힌 목록: 위쪽 막대의 「≡ 프로젝트」로 채팅 위에 펼치고(문서와 겹치지 않음) 다른 프로젝트를 고르거나 Esc · 바깥을 누르면 다시 접힘 (6.4s)
+  ✓  3 [feature] › tests/feature/doc-layout.spec.js:230:1 › F-DL-03 루틴: 루틴 화면에 문서를 열어도 루틴 목록 · 채팅 · 문서가 겹치지 않음 (11.6s)
+  ✓  4 [feature] › tests/feature/doc-layout.spec.js:253:1 › F-DL-04 채팅 · Home: 문서를 열면 Home 은 비켜 있고, 다시 Home 을 열면 자리가 있으면 나란히 · 없으면 채팅 위에(Esc · 바깥 · Home 단추로 닫힘) (17.8s)
+  ✓  5 [feature] › tests/feature/doc-layout.spec.js:295:1 › F-DL-05 채팅 · 대화 목록: 문서를 열어도 대화 목록은 같은 규칙(나란히 · 접고 「≡ 대화」) — 겹치지 않음, 닫으면 목록 그대로 (13.9s)
+  ✓  6 [feature] › tests/feature/doc-layout.spec.js:323:1 › F-DL-06 붙여 둔 메신저: 오른쪽 · 왼쪽 열, 문서 패널 안 — 왼쪽 칸 · 채팅 · 문서 · 메신저가 서로 겹치지 않음 (25.6s)
+
+  6 passed (1.5m)
+
+# 고치기 전(origin/main 41bafd1 의 화면, 같은 서버)에 같은 시험: 6개 모두 실패
+#   F-DL-01 · 03 · 04: 2000px: chat 와 left 가 겹침 — 채팅 x 264–776px, 왼쪽 칸 x 0–420px
+#   F-DL-02 · 06: 1600px · 메신저 2000px — 왼쪽 칸이 채팅 밑에 그대로(접히지 않음, 「≡ 프로젝트」 단추 없음)
+#   F-DL-05: 2000px — 대화 목록이 문서가 열리면 숨음(자리가 있어도), 좁은 폭에서 다시 열 길이 없음

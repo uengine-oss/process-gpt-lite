@@ -2713,7 +2713,15 @@
   "산출물 찾기": "Find an output",
   "채팅의 산출물 · 누르면 그 자리에서 열려요": "Outputs of the chat · click one to open it right here",
   "이 대화의 산출물 · 누르면 그 자리에서 열려요": "Outputs of this conversation · click one to open it right here",
-  "이 프로젝트의 산출물 · 누르면 그 자리에서 열려요": "Outputs of this project · click one to open it right here"
+  "이 프로젝트의 산출물 · 누르면 그 자리에서 열려요": "Outputs of this project · click one to open it right here",
+  "프로젝트 목록 펼치기": "Show the project list",
+  "프로젝트 목록 접기": "Hide the project list",
+  "루틴 목록 펼치기": "Show the routine list",
+  "루틴 목록 접기": "Hide the routine list",
+  "대화 목록 접기": "Hide the conversation list",
+  "프로젝트 목록 펼치기 · 문서를 보는 동안 접어 두었어요": "Show the project list · put away while a document is open",
+  "루틴 목록 펼치기 · 문서를 보는 동안 접어 두었어요": "Show the routine list · put away while a document is open",
+  "대화 목록 펼치기 · 문서를 보는 동안 접어 두었어요": "Show the conversation list · put away while a document is open"
  },
  "patterns": [
   [
