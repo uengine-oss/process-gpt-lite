@@ -7,9 +7,10 @@
 //   1. files   — node-pty unpacked for this system and arch (macOS: pty.node · spawn-helper executable and built for <arch>, as is the app;
 //                Windows: conpty.node · pty.node), no debug symbols (.pdb), no other system's prebuilds
 //   2. hook    — `<app> --pgl-hook Stop <file>` (a Claude Code hook of a local run, runner/hook.js): the event is appended, no app starts
-//   3. pty     — the app as Node (ELECTRON_RUN_AS_NODE) loads runner/pty.js from inside app.asar, node-pty comes from app.asar.unpacked,
-//                and a terminal runs a program (Windows: ConPTY, a batch file through cmd.exe with awkward arguments — clis.startSpec —
-//                then a long-running one stopped by kill)
+//   3. pty     — the app as Node (ELECTRON_RUN_AS_NODE) loads runner/pty.js from inside app.asar and node-pty with it (Windows: from
+//                app.asar.unpacked; macOS: through the asar, its spawn-helper from app.asar.unpacked), and a terminal runs a program
+//                (Windows: ConPTY, a batch file through cmd.exe with awkward arguments — clis.startSpec), then a long-running one is
+//                stopped by kill
 //   4. launch  — the app itself starts with a fresh profile, gets as far as its first window (desktop-settings.json written) and keeps
 //                running; then it is stopped
 const fs = require('node:fs')
@@ -72,7 +73,7 @@ async function main() {
     return `${Date.now() - t} ms`
   })
 
-  await check('pty (node-pty from app.asar.unpacked)', () => {
+  await check('pty (node-pty in the packed app)', () => {
     const script = path.join(tmp, 'pty-check.js')
     const echoJs = path.join(tmp, 'echo-args.js')
     const argsOut = path.join(tmp, 'args.json')
@@ -86,7 +87,7 @@ const R = ${JSON.stringify(path.join(resources, 'app.asar', 'src', 'runner'))}
 const P = require(path.join(R, 'pty.js')); const C = require(path.join(R, 'clis.js'))
 const pty = P.load()
 if (!pty) { console.error('node-pty did not load: ' + P.why()); process.exit(3) }
-if (!P.where().includes('app.asar.unpacked')) { console.error('node-pty not from app.asar.unpacked: ' + P.where()); process.exit(4) }
+if (process.platform === 'win32' && !P.where().includes('app.asar.unpacked')) { console.error('node-pty not from app.asar.unpacked: ' + P.where()); process.exit(4) }
 const WIN = process.platform === 'win32'
 const s = WIN ? C.startSpec(${JSON.stringify(shim)}, ${JSON.stringify(NASTY)}) : { file: '/bin/echo', args: ['pty says hi'], verbatim: false }
 const p = pty.spawn(s.file, s.verbatim ? s.args.join(' ') : s.args, { name: 'xterm-256color', cols: 120, rows: 30, cwd: ${JSON.stringify(tmp)}, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })

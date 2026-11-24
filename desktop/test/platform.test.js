@@ -109,6 +109,8 @@ test('Windows: 배치 파일을 ConPTY(node-pty)에서 — 인자가 그대로 �
   let out = ''
   p.onData((d) => { out += d })
   const code = await new Promise((resolve) => p.onExit(({ exitCode }) => resolve(exitCode)))
+  // (a pseudo console keeps its pipes and output thread until it is killed, even after its program ended — as CliSession.release does)
+  setTimeout(() => { try { p.kill() } catch { /* gone */ } }, 200)
   assert.equal(code, 0, out)
   assert.deepEqual(got(), NASTY)
 })

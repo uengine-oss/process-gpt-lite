@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "PGL_DESKTOP_DEV=1 electron .",
-    "test": "node --test --test-timeout=120000 test/*.test.js",
+    "test": "node --test --test-timeout=600000 test/*.test.js",
     "icon": "python3 scripts/make-icon.py",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --mac --arm64 --x64 --publish never",

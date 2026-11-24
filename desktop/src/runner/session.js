@@ -160,7 +160,11 @@ class CliSession extends EventEmitter {
       this.buf = (this.buf + d).slice(-SCROLLBACK)
       this.emit('data', d)
     })
-    this.p.onExit(({ exitCode }) => { this.exited = true; this.stopTimers(); this.poll(); this.emit('exit', { code: exitCode }) })
+    this.p.onExit(({ exitCode }) => {
+      this.exited = true; this.stopTimers(); this.poll(); this.emit('exit', { code: exitCode })
+      // (Windows: a pseudo console whose program ended keeps its pipes and output thread until it is killed — released here)
+      if (WIN) setTimeout(() => this.release(), 200)
+    })
     this.timers.push(setInterval(() => this.poll(), POLL_MS))
     if (this.watchPaths.length) this.startWatch()
     // (Codex took its first message from the command line: it can take more once its rollout shows that message — or at once, without one)
@@ -246,10 +250,15 @@ class CliSession extends EventEmitter {
     if (this.exited || !this.p) return
     // Windows: the CLI and what it started (cmd.exe → claude → its tools) as one tree, then the pseudo console itself
     if (WIN) {
-      const p = this.p
-      require('node:child_process').execFile('taskkill', ['/PID', String(p.pid), '/T', '/F'], { windowsHide: true }, () => { try { p.kill() } catch { /* gone */ } })
+      require('node:child_process').execFile('taskkill', ['/PID', String(this.p.pid), '/T', '/F'], { windowsHide: true }, () => this.release())
       return
     }
+    try { this.p.kill() } catch { /* gone */ }
+  }
+  // Windows: node-pty's kill closes the pseudo console, its pipes and its output thread (once — after the program ended or was stopped)
+  release() {
+    if (!WIN || this.released || !this.p) return
+    this.released = true
     try { this.p.kill() } catch { /* gone */ }
   }
   stopTimers() { for (const t of this.timers) { clearInterval(t); clearTimeout(t) } this.timers = []; this.watcher?.close(); this.watcher = null }
