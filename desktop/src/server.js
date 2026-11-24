@@ -10,7 +10,8 @@ const LOCAL_HOST = /^(?:localhost|(?:[a-z0-9-]+\.)*localhost|127\.\d+\.\d+\.\d+|
 
 /** "acme.process-gpt.io/lite/chat" → "https://acme.process-gpt.io/lite"; "localhost:18080" → "http://localhost:18080"; '' when not a web address. */
 function normalize(raw) {
-  let s = String(raw || '').trim()
+  // a scheme typed or pasted twice (the field once offered "https://" and the whole address went after it): the last one counts
+  let s = String(raw || '').trim().replace(/^(?:[a-z][a-z0-9+.-]*:\/\/\s*)+(?=[a-z][a-z0-9+.-]*:\/\/)/i, '')
   if (!s) return ''
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
     const host = s.split(/[/?#]/)[0].replace(/:\d+$/, '')
