@@ -1102,6 +1102,26 @@ cd ../server && node --test test/officeAsk.test.js test/live-links.test.js
 | 한글 · 엑셀의 고른 부분(지금은 워드만 알림) | — | — | — | ✗ |
 | 운영 `/lite/` 경로 · 실제 에이전트(모델)가 이 안내대로 setTableCellFormat 을 고르는지 | — | — (모델 · 운영) | — | ◐ |
 
+### 50. 설치된 도구는 에이전트에게도 이어져 있다 — 운영 점검이 확인한다 (스펙 `agent-tools`)
+
+사용자(11-25, 운영): 「photocraft 도 채팅과 연결이 안되네.. 전체적으로 도구들의 mcp 를 통한 제어가 기본 스펙인데 문제가 있군 회귀테스트를 돌려」. PhotoCraft 를 열어 둔 채 「배경색을 옅은 하늘색으로」 → 에이전트 「PhotoCraft 편집 도구가 현재 연결되지 않아 …」. 편집기와 CLI 는 운영 서버에 있었지만(C-IN-* 통과) 회사의 MCP 목록(`tenants.mcp.mcpServers`)에 ArtCraft 도구가 없었다. 로컬은 목록이 차 있어 F-ED-* · F-CR-* 가 모두 통과했다 — 이 절이 그 틈을 잡는다. 사용자 결정 「기본 툴들은 공통 mcp 이므로, 테넌트에 따로 등록 관계없이 등록될 수 있도록」에 따라 이제 기본 도구는 deepagents 의 공통 MCP 목록(`COMMON_MCP_SERVERS`)으로 모든 회사에 닿는다(스펙 `craft-apps`). 서버가 `/api/config` 에 `agentTools`(기본 도구 9개, 참 · 거짓)와 `agentToolsVia`(출처: `tenant` · `common`, 막는 것: 회사의 같은 이름 항목이 다른 곳을 가리키면 `tenant-overrides-common-with-other-url`, 허브가 답하는데 그 이름이 없으면 `hub-filtered`)를 낸다(`server/lib/agentTools.js`, 이름 목록 `server/mcp/toolServers.js` — 허브 묶음 · deepagents 공통 목록과 같은 이름). 주소 · 헤더 · 키는 내지 않는다(S-01 이 확인).
+
+```bash
+PGPT_ROOT_URL=https://uengine.process-gpt.io npx playwright test --project=deploy tests/deploy/agent-tools.spec.js   # 운영, 로그인 없이 읽기만
+PGPT_LITE_URL=http://localhost:5180 npx playwright test --project=deploy tests/deploy/agent-tools.spec.js            # 로컬 · Docker(…:18080)
+cd server && node --test test/agentTools.test.js
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 서버가 회사마다 기본 도구의 연결 상태를 알린다(참 · 거짓 · 출처 이름만), 알리지 않는 서버는 「too old to report agentTools」로 실패 | 사용자 11-25 | D-AT-00, S-01 | deploy · smoke | ✅ |
+| 웹 편집기와 CLI 가 설치된 ArtCraft 앱은 에이전트 도구로도 이어져 있다 — 없으면 앱 이름과 「missing tenant MCP registration」(낡은 같은 이름 항목이면 「stale tenant MCP registration」, 허브가 거르면 「mcp-hub … does not have」)으로 실패 | 사용자 11-25 | D-AT-cadcraft · vectorcraft · photocraft · soundcraft · filmcraft | deploy | ✅ (운영: 서버 배포 전 「too old」 10건 실패, 11-25) |
+| 이음오피스 편집기를 내는 설치(`/office/sheets/` 가 편집기 페이지)는 편집 도구(`pgpt-ieumoffice-live-editor`)가 이어져 있다 | 앞선 보고(「AI 수정 요청」 미반영) | D-AT-office | deploy | ✅ |
+| 공유 폴더 · 패널 앱 · 프로세스 개선은 늘 이어져 있다 | — | D-AT-folders · panelapps · improve | deploy | ✅ |
+| 판단 규칙: tenant(켜진 항목, 주소가 이 서버의 `/mcp/<경로>`, 사람의 토큰, 에이전트가 다른 곳이면 localhost 아님 — 키 이름은 보지 않음) · common(`/mcp/common` 의 이름, 회사의 같은 이름 항목이 url · command 를 가지면 그 항목이 이김, 없으면 얹힘 · `enabled:false` 는 끔). 허브는 출처가 아니고 거르기만(`hub-filtered`). 회사 목록을 못 읽으면 모두 false, 허브 · 공통 목록이 없거나 404 면 그것만 빠짐, 1분 기억(실패 10초) | deepagents `merge_common_mcp_servers` | 서버 `test/agentTools.test.js` (17) | 단위 | ✅ |
+| 허브가 묶는 목록 · 공통 목록 이름 · ArtCraft 앱 · 이음오피스 이름이 한 목록 | — | 서버 `test/agentTools.test.js` 「이름은 한 목록」 | 단위 | ✅ |
+| 에이전트가 실제로 열린 PhotoCraft · 이음오피스를 대화로 고친다(운영) | 사용자 11-25 | A-06 · A-11(로컬, 실제 모델), 운영은 D-AT 통과 뒤 사람 확인 | agent | ◐ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

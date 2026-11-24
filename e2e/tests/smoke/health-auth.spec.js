@@ -9,6 +9,9 @@ test.describe('기동과 인증', () => {
     expect(r.body).toHaveProperty('demoLogin')
     expect(r.body.vault).toMatchObject({ algorithm: expect.stringContaining('AES-256-GCM') })
     expect(r.text).not.toMatch(/"kek"\s*:\s*"[A-Za-z0-9+/=]{40,}"/)
+    // whether the agent gets each built-in tool (spec agent-tools): booleans and source labels, never the MCP addresses or headers
+    expect(r.body.agentTools).toMatchObject({ office: expect.any(Boolean), folders: expect.any(Boolean), craft: expect.any(Object) })
+    expect(r.text).not.toMatch(/\/mcp\/|user_jwt|Bearer/)
   })
 
   test('S-02 웹 앱(SPA)이 뜬다', async ({ request }) => {

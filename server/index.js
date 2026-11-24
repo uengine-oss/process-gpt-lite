@@ -21,6 +21,7 @@ import { startBrowserWorker } from './lib/browserWorker.js'
 import { mountConnectors, connectorStatus, ensureHubBinding, CONNECTORS } from './mcp/connectors.js'
 import { mountCraft, craftStatus } from './mcp/craft.js'
 import { mountOffice } from './mcp/office.js'
+import { agentTools, shape, none } from './lib/agentTools.js'
 import { commitEdit } from './lib/team/worktree.js'
 import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
@@ -171,11 +172,19 @@ async function finishLogin(email, name) {
 // google: whether this request's company can connect Google (its own OAuth client from the admin
 // settings, else this install's — lib/googleClient.js); googleLogin: whether 「Google로 계속하기」 signs in
 // with it — an installed Lite only. sso: behind the ProcessGPT gateway, Google sign-in through
-// ProcessGPT's own Supabase project when its Google provider is on (lib/sso.js)
+// ProcessGPT's own Supabase project when its Google provider is on (lib/sso.js). agentTools: whether this request's company's
+// agent gets each built-in tool server (lib/agentTools.js: booleans; agentToolsVia labels the sources — tenant · common — and
+// what stops one: tenant-overrides-common-with-other-url (a tenant row of the built-in name points elsewhere), hub-filtered)
 app.get('/api/config', async (req, res) => {
   // (the pod's probe too: a database that does not answer makes it "off" for this answer, not a failed probe)
-  const google = await Promise.race([mail.googleEnabled().catch(() => false), new Promise((r) => setTimeout(() => r(false), 1500).unref?.())])
-  res.json({ google, googleLogin: google && !config.tenantFromHeader, sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl })
+  const late = (v, ms) => new Promise((r) => setTimeout(() => r(v), ms).unref?.())
+  const [google, tools] = await Promise.all([
+    Promise.race([mail.googleEnabled().catch(() => false), late(false, 1500)]),
+    Promise.race([agentTools.forTenant(config.tenantId).catch(() => null), late(null, 2500)]),
+  ])
+  const at = tools || { tools: shape(none(), () => false), via: shape(none()) }
+  res.json({ google, googleLogin: google && !config.tenantFromHeader, sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl,
+    agentTools: at.tools, agentToolsVia: at.via })
 })
 
 // ---------- Google: the installed sign-in, and connecting a signed-in person's account (lib/googleConnect.js) ----------
