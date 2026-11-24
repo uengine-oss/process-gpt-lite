@@ -111,7 +111,8 @@ export async function callTool(user, name, args = {}) {
     // (POST /api/messages/:id/file), beside it when someone changed it in the meantime
     // editable: an editor of the folder, a format IeumOffice saves (others open it read-only)
     const canEdit = folder.kind !== 'linked' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(p.split('.').pop().toLowerCase())
-    return text({ file_url: pub.url, file_name: pub.name, open: true, folder: folder.name, path: p, folder_ref: { slug: folder.slug, name: folder.name, path: p, sha: pub.sha, editable: canEdit } })
+    // (one line of JSON: the agent's stream passes it on as text, which the card is read back from — lib/office.js parseToolOutput)
+    return { content: [{ type: 'text', text: JSON.stringify({ file_url: pub.url, file_name: pub.name, open: true, folder: folder.name, path: p, folder_ref: { slug: folder.slug, name: folder.name, path: p, sha: pub.sha, editable: canEdit } }) }] }
   }
   return { isError: true, ...text(`unknown tool ${name}`) }
 }
