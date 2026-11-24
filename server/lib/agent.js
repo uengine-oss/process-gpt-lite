@@ -1136,29 +1136,35 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // with usage limits on (lib/llmKeys.js): refused before the agent starts when a limit is spent, and the
   // agent's own model calls go out with this person's key
   const llmAuth = await llmKeys.admit()
-  // attachments are indexed for the conversation they go to (lib/attachments.js), so a new
-  // conversation gets its id here — the SDK keeps a conversation_id it is given. The router's
-  // choice is not known yet, so routed turns send theirs by address only.
-  let conv = turn.conv || pin?.conversationId || thread?.conversation_id || null
-  // (a scheduled run too: deepagents keeps the history of a chat sent without one under one shared key,
-  // so every such first turn would carry all the earlier ones — 270k tokens and other people's runs)
-  if (!conv && !routed && (uploads.length || divider)) conv = crypto.randomUUID().replace(/-/g, '')
-  const sent = conv && !routed ? await indexForRoom(uploads, conv) : uploads
-  const res = await connect(() => fetch(`${routed ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
-    signal: AbortSignal.any([idle.signal, turn.abort.signal]),
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
-    body: JSON.stringify({
-      // English mode: the language instruction goes last, after what the person said and the hints
-      message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
-      files: chatFiles(sent),
-      user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
-      conversation_id: conv, stream: true,
-      metadata: { client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
-        ...(isEn() ? { language: 'en' } : {}),
-        ...(routed ? { auto_route: true, route_text: text, agent: 'deepagents' } : {}) },
-    }),
-  }), () => idle.signal.aborted || turn.abort.signal.aborted)
+  // the request, through the context router (viaRouter) or straight to the agent
+  const request = async (viaRouter) => {
+    // attachments are indexed for the conversation they go to (lib/attachments.js), so a new
+    // conversation gets its id here — the SDK keeps a conversation_id it is given. The router's
+    // choice is not known yet, so routed turns send theirs by address only.
+    let conv = turn.conv || pin?.conversationId || thread?.conversation_id || null
+    // (a scheduled run too: deepagents keeps the history of a chat sent without one under one shared key,
+    // so every such first turn would carry all the earlier ones — 270k tokens and other people's runs)
+    if (!conv && !viaRouter && (uploads.length || divider)) conv = crypto.randomUUID().replace(/-/g, '')
+    const sent = conv && !viaRouter ? await indexForRoom(uploads, conv) : uploads
+    return () => fetch(`${viaRouter ? config.contextRouterUrl : config.deepagentsUrl}/chat/stream`, {
+      signal: AbortSignal.any([idle.signal, turn.abort.signal]),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
+      body: JSON.stringify({
+        // English mode: the language instruction goes last, after what the person said and the hints
+        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+        files: chatFiles(sent),
+        user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
+        conversation_id: conv, stream: true,
+        metadata: { client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
+          ...(isEn() ? { language: 'en' } : {}),
+          ...(viaRouter ? { auto_route: true, route_text: text, agent: 'deepagents' } : {}) },
+      }),
+    })
+  }
+  const opened = await openTurn({ routed, request, stopped: () => idle.signal.aborted || turn.abort.signal.aborted })
+  routed = opened.routed
+  const res = opened.res
   if (!res.ok) throw new Error(`deepagents ${res.status}${await refusal(res)}`)
   const reader = res.body.getReader()
   const dec = new TextDecoder()
@@ -1619,6 +1625,26 @@ export async function connect(open, stopped = () => false, waits = [3000, 8000])
 // of the runners says which of its failures it was ({"error":"agent runner unreachable"} — no runner
 // answered — or "could not start an agent runner for this conversation"), FastAPI says {"detail": …}.
 // ": <reason>", or '' when the body says nothing readable.
+// The main chat's turn goes through the context router, which picks the conversation it continues. When the
+// router cannot be reached, or fails (5xx) before the agent's answer starts, the turn goes straight to the agent
+// in the conversation the chat stands in: the chat never stops working because of the router. An agent's own
+// refusal (4xx, passed on by the router) is not sent again. request(viaRouter) → a function that opens the stream.
+export async function openTurn({ routed, request, stopped = () => false, waits }) {
+  if (routed) {
+    let res = null
+    try { res = await (await request(true))() } catch (e) {
+      if (stopped()) throw e
+      console.warn('[delegate] context router not reachable, straight to the agent:', e.cause?.code || e.message)
+    }
+    if (res && res.status >= 500) {
+      console.warn(`[delegate] context router ${res.status}${await refusal(res)}, straight to the agent`)
+      res = null
+    }
+    if (res) return { res, routed: true }
+  }
+  return { res: await connect(await request(false), stopped, waits), routed: false }
+}
+
 export async function refusal(res) {
   const t = await res.text().catch(() => '')
   let why = t
