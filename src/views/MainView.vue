@@ -3,13 +3,11 @@ import { computed, onMounted, ref, watch, onBeforeUnmount, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import HomeDock from '../components/HomeDock.vue'
-import MailReplySheet from '../components/MailReplySheet.vue'
 import ProjectList from '../components/ProjectList.vue'
 import RoutineList from '../components/RoutineList.vue'
 import ChatColumn from '../components/ChatColumn.vue'
 import SearchOverlay from '../components/SearchOverlay.vue'
 import HandoffView from '../components/HandoffView.vue'
-import OfficeSheet from '../components/OfficeSheet.vue'
 import MailConnect from '../components/MailConnect.vue'
 import SettingsSheet from '../components/SettingsSheet.vue'
 import Typewriter from '../components/Typewriter.vue'
@@ -18,7 +16,7 @@ import ConversationBar from '../components/ConversationBar.vue'
 import ProjectFolderBar from '../components/folders/ProjectFolderBar.vue'
 import ArtifactStack from '../components/ArtifactStack.vue'
 import Composer from '../components/Composer.vue'
-import { narrow } from '../viewport.js'
+import { narrow, pageW } from '../viewport.js'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
@@ -30,8 +28,8 @@ const route = useRoute()
 const router = useRouter()
 const ready = ref(false)
 const connecting = ref(false)
-const wide = ref(window.innerWidth > 1000)
-const onResize = () => { wide.value = window.innerWidth > 1000 }
+// the page's width: the window's, less a column a docked team messenger takes (src/viewport.js)
+const wide = computed(() => pageW.value > 1000)
 
 const settings = computed(() => !!route.meta.settings)
 // 프로젝트 and 루틴 (process instances, /routines) each keep their list in the left column
@@ -128,7 +126,6 @@ onMounted(async () => {
   if (route.query.notify) {
     try { const n = JSON.parse(String(route.query.notify)); router.replace({ query: {} }); setTimeout(() => openNotification({ detail: n }), 300) } catch { /* not ours */ }
   }
-  window.addEventListener('resize', onResize)
   await app.boot()
   ready.value = true
   await syncRoute()
@@ -139,7 +136,7 @@ onMounted(async () => {
   }
   if (app.me.profile?.place == null && sky.place) api('/profile', { method: 'POST', body: { lat: sky.place.lat, lon: sky.place.lon, place: sky.place.place } })
 })
-onBeforeUnmount(() => { window.removeEventListener('resize', onResize); window.removeEventListener('pgl:open-notification', openNotification); clearInterval(poll) })
+onBeforeUnmount(() => { window.removeEventListener('pgl:open-notification', openNotification); clearInterval(poll) })
 
 async function onSend(text) {
   if (app.panelMode) return app.createPanel(text)
@@ -168,7 +165,9 @@ function onConnect() {
 </script>
 
 <template>
-  <div class="main" :style="{ '--chat-center': leftOpen ? 'calc(420px + (100% - 420px) / 2)' : '50%' }">
+  <!-- the bar's tabs sit over the chat column — over the page's middle when the page is too narrow for that beside the bar's
+       buttons (a window under ~1360px, or a page beside a docked messenger: they overlapped) -->
+  <div class="main" :style="{ '--chat-center': leftOpen && pageW >= 1360 ? 'calc(420px + (100% - 420px) / 2)' : '50%' }">
     <Transition name="fade"><TopBar v-if="!settings" /></Transition>
 
     <div class="content" :class="{ away: settings }">
@@ -223,9 +222,7 @@ function onConnect() {
     <Transition name="fade"><SettingsSheet v-if="settings && ready" /></Transition>
     <Transition name="fade"><SearchOverlay v-if="app.searchOpen" /></Transition>
     <HandoffView v-if="app.handoff" />
-    <Transition name="fade"><OfficeSheet v-if="app.officeDoc" /></Transition>
-    <!-- a mail's card, from Home or 팀 메시지 › 받은 편지함: the mail and its reply (MailReplySheet) -->
-    <MailReplySheet v-if="app.mailCard" :key="app.mailCard.id" :action="app.mailCard" @close="app.mailCard = null" />
+    <!-- the open document (OfficeSheet) and a mail's sheet (MailReplySheet) are on every page: App.vue -->
     <MailConnect v-if="connecting" @close="connecting = false" />
   </div>
 </template>

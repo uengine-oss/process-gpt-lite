@@ -33,3 +33,12 @@ html.pgl-desktop .settings > .x { right: max(16px, calc(var(--pgl-tb-right, 0px)
    the caption buttons */
 html.pgl-desktop.pgl-os-darwin:not(.pgl-fullscreen) .login { padding-top: 52px; }
 html.pgl-desktop .login .lang { right: calc(4px + var(--pgl-tb-right, 0px)); }
+
+/* the team messenger (components/team/Messenger.vue): its header is dragged to dock it, so the window's strip never takes it —
+   docked at the top of the window it would move the window instead */
+html.pgl-desktop :is(.msdock, .veil > .ms) { -webkit-app-region: no-drag; app-region: no-drag; }
+/* a docked column starts below the window's own buttons on their side: macOS traffic lights (left), Windows · Linux caption
+   buttons (right) */
+html.pgl-desktop.pgl-os-darwin:not(.pgl-fullscreen) .msdock.d-left { top: 44px !important; }
+html.pgl-desktop:not(.pgl-os-darwin) .msdock:is(.d-right, .d-panel):not(.inpanel) { top: 44px !important; }
+
