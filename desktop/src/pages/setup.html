@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Process GPT Lite</title>
+<link rel="stylesheet" href="pages.css">
+<script src="common.js"></script>
+</head>
+<body>
+<main class="card" data-test="setup">
+  <div class="brand"><span id="logo"></span><b>Process GPT Lite</b></div>
+  <h1 id="title"></h1>
+  <p class="lead" id="lead"></p>
+  <div class="choices">
+    <button type="button" class="choice" id="pick-company" data-test="pick-company"><b id="company"></b><small id="company-hint"></small></button>
+    <button type="button" class="choice" id="pick-local" data-test="pick-local"><b id="local"></b><small id="local-hint"></small></button>
+  </div>
+  <form id="form" autocomplete="off">
+    <input class="field" id="url" data-test="server-url" type="text" inputmode="url" spellcheck="false" autocapitalize="off">
+    <div class="recent" id="recent"></div>
+    <details id="gate"><summary id="gate-label"></summary>
+      <div class="pair">
+        <input class="field" id="user" type="text" spellcheck="false" autocapitalize="off">
+        <input class="field" id="pass" type="password">
+      </div>
+    </details>
+    <p class="status" id="status" role="status" data-test="setup-status"></p>
+    <div class="row">
+      <button type="button" class="btn ghost" id="cancel" hidden data-test="setup-cancel"></button>
+      <button type="submit" class="btn" id="connect" data-test="setup-connect"></button>
+    </div>
+  </form>
+  <p class="foot" id="foot"></p>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

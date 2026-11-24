@@ -1,0 +1,62 @@
+# 시험과 증거
+
+## 단위 시험 (Electron 없이)
+
+```bash
+cd desktop && npm test      # test/policy.test.js · test/server.test.js
+```
+
+주소 정규화, `/api/config` 확인(가짜 fetch), 주소별로 창 안이나 창 밖에서 열지, 차단할지를 확인한다.
+
+## 앱 시험 (Playwright `_electron`, `e2e/tests/desktop/desktop.spec.js`)
+
+```bash
+# 서버: 백그라운드 일 없음, 지도 워커 없음, 공용 deepagents · completion 에 닿지 않게 막음
+cd server && PRO_PORT=8791 PRO_BACKGROUND=0 PRO_ONTOLOGY_WORKER=0 PRO_DEEPAGENTS_URL=http://127.0.0.1:9 \
+  PRO_CLI_AGENT_URL=http://127.0.0.1:9 PRO_COMPLETION_URL=http://127.0.0.1:9 PRO_PUBLIC_URL=http://localhost:5211 node index.js
+PRO_API_TARGET=http://127.0.0.1:8791 npx vite --port 5211 --strictPort
+cd desktop && npm install
+cd e2e && PGPT_URL=http://localhost:5211 API_URL=http://127.0.0.1:8791 npx playwright test --project=desktop
+# 묶은 앱으로 (npm run dist 뒤)
+PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacOS/Process GPT Lite" \
+  PGPT_URL=http://localhost:5211 API_URL=http://127.0.0.1:8791 npx playwright test --project=desktop
+```
+
+시험에서는 앱의 서버 주소로 TCP 중계 주소(`http://localhost:<중계 포트>`)를 지정한다. 중계를 닫으면 서버가 사라진 것과 같다(D-06, D-10). 앱은 임시 프로필(`PGL_DESKTOP_USER_DATA`)로 뜨고, 바깥으로 넘기는 주소는 브라우저를 여는 대신 기록한다(`PGL_DESKTOP_EXTERNAL=log`). 계정은 `pro-rt-desktop@uengine.org`(데모 코드 000000)이다. D-08은 Google 계정 화면을 실제로 연다(로그인 없이 페이지만 연다). Google에 연결할 수 없으면 건너뛴다.
+
+| 스펙 시나리오 | 시험 |
+|---|---|
+| 첫 실행 | D-01 |
+| 서버 바꾸기 | D-10 |
+| 이메일 코드 | D-02 |
+| Google | D-08 |
+| 넓은 폭 (밝음 · 어두움) | D-04 |
+| 좁은 폭 | D-04 |
+| 위 메뉴가 없는 화면 | D-04(설정) |
+| 브라우저 | D-11 |
+| 바깥 링크 · 같은 서버의 새 창 | D-05 |
+| 서버가 꺼졌다 켜진다 | D-06, D-10(밝음) |
+| 두 번 켠다 · 창 자리 | D-09 |
+| 알림과 숫자 · 메뉴 언어 | D-07 |
+| 서버 화면이 로컬 단추를 부른다 | D-07(`window.pglLocal` 없음, 메인 쪽 거절은 코드 검토만) |
+| 묶은 앱 | `PGL_DESKTOP_EXE`로 D-01~D-11 |
+| 채팅 · 루틴 · 폴더 화면 | D-03 |
+
+시험하지 않은 것: 전체 화면에서 신호등 자리 비우기(macOS 전체 화면은 새 Space로 옮겨 가서 이 PC의 화면에 영향을 준다), 마우스 오른쪽 단추 메뉴, 접근 암호(basic auth)가 걸린 서버, 401 응답일 때 자동으로 재시도하지 않는 동작, 화면 공유, Windows · Linux.
+
+## 사진 (`results/`)
+
+창 캡처(`capturePage`/Playwright)에는 웹 화면만 찍히고 OS의 신호등은 찍히지 않는다. 이 PC는 화면 기록 권한이 없어 `screencapture`도 쓰지 못한다. 그래서 `*-lights.png`에는 신호등 자리(x 20–80, y 27–41)를 그려 넣고, 그려 넣은 표시임을 사진 안에 적었다.
+
+| 사진 | 내용 |
+|---|---|
+| `d01-setup-dark.png` | 첫 실행 시 서버 선택 화면 (어두움) |
+| `d10-setup-light.png` | 메뉴 「서버 바꾸기…」 (밝음, 현재 서버 · 취소) |
+| `d02-login.png` | 로그인 화면: 그림이 신호등 아래에서 시작 |
+| `d04-chat-wide-light.png` · `-dark.png` | 채팅 1280×800, 낮 · 밤 하늘이 맨 위까지 |
+| `d04-chat-narrow-light.png` · `-dark.png` | 채팅 600×800 휴대폰용 배치 |
+| `d02-login-lights.png` · `d04-*-lights.png` | 로그인과 위 네 장에 신호등 자리 표시 |
+| `d04-settings.png` | 위 메뉴가 없는 화면(설정) |
+| `d06-offline-dark.png` · `d10-offline-light.png` | 연결 실패 화면 |
+
+시험 결과는 `e2e.txt`에 있다.
