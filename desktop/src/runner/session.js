@@ -33,13 +33,26 @@ const WATCH_MAX = 256 * 1024
 // agent-share's _NO_ACCOUNT_SWITCH: the screen is shared, so no one switches the CLI's account from it
 const NO_ACCOUNT_SWITCH = { DISABLE_LOGOUT_COMMAND: '1', DISABLE_LOGIN_COMMAND: '1' }
 const HOOKS = ['SessionStart', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification']
-const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 const short = (v, n = 160) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
+const WIN = process.platform === 'win32'
+
+// The program a hook runs (hook.js — it appends the event to the session's hook file): Claude Code's exec form, no shell on any system.
+// Plain Node runs the script; the desktop app runs its own binary (its node) with --pgl-hook, which main.js takes before the app starts
+// (in a development run the binary is Electron itself and the app folder comes first).
+function hookProgram() {
+  if (process.versions.electron && process.type === 'browser') {
+    const { app } = require('electron')
+    return { command: process.execPath, args: [...(app.isPackaged ? [] : [app.getAppPath()]), '--pgl-hook'] }
+  }
+  return { command: process.execPath, args: [path.join(__dirname, 'hook.js')] }
+}
 
 // Claude Code's global config (where a folder's trust is kept): $CLAUDE_CONFIG_DIR/.claude.json, else ~/.claude.json
 const claudeConfigFile = (env = process.env) => (env.CLAUDE_CONFIG_DIR ? path.join(env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(os.homedir(), '.claude.json'))
 const claudeHome = (env = process.env) => env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
 const codexHome = (env = process.env) => env.CODEX_HOME || path.join(os.homedir(), '.codex')
+// how Claude Code names a folder in its config: the resolved path in NFC, with forward slashes on Windows (C:/Users/…)
+const claudeKey = (p, platform = process.platform) => { const n = path.resolve(p).normalize('NFC'); return platform === 'win32' ? n.replace(/\\/g, '/') : n }
 
 // A folder the runner made for a job is trusted in Claude Code — what the person would do in the trust dialog, written the way Claude
 // Code itself tells to (projects[<folder>].hasTrustDialogAccepted in its config), only for folders under the runner's own data folder.
@@ -47,16 +60,23 @@ const codexHome = (env = process.env) => env.CODEX_HOME || path.join(os.homedir(
 function trustClaudeFolder(dir, { root, env = process.env } = {}) {
   const real = fs.realpathSync(dir)
   if (root) { const r = fs.realpathSync(root); if (real !== r && !real.startsWith(r + path.sep)) throw new Error('not a runner folder') }
+  const key = claudeKey(real)
   const file = claudeConfigFile(env)
   let conf = {}
   let mode = 0o600
   try { const st = fs.statSync(file); mode = st.mode & 0o777; conf = JSON.parse(fs.readFileSync(file, 'utf8')) || {} } catch (e) { if (e.code !== 'ENOENT') return false }
-  if (conf.projects?.[real]?.hasTrustDialogAccepted === true) return true
+  if (conf.projects?.[key]?.hasTrustDialogAccepted === true) return true
   conf.projects = conf.projects || {}
-  conf.projects[real] = { ...(conf.projects[real] || {}), hasTrustDialogAccepted: true }
+  conf.projects[key] = { ...(conf.projects[key] || {}), hasTrustDialogAccepted: true }
   const tmp = `${file}.pgl-${process.pid}-${Date.now()}`
   fs.writeFileSync(tmp, JSON.stringify(conf, null, 2), { mode })
-  fs.renameSync(tmp, file)
+  // (Windows: a rename over a file another process has open fails for a moment — tried again, then the dialog is the person's)
+  for (let i = 0; ; i++) {
+    try { fs.renameSync(tmp, file); break } catch (e) {
+      if (!WIN || i >= 5 || !['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) { try { fs.rmSync(tmp, { force: true }) } catch { /* gone */ } throw e }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+    }
+  }
   return true
 }
 
@@ -133,12 +153,18 @@ class CliSession extends EventEmitter {
     if (!bin) throw new Error(`${spec.bin} not found`)
     this.startedAt = Date.now()
     this.log(`${bin} ${spec.args.map((a) => (a.length > 80 ? `${a.slice(0, 77)}…` : a)).join(' ')}`)
-    this.p = this.ptyMod.spawn(bin, spec.args, { name: 'xterm-256color', cols: this.cols, rows: this.rows, cwd: this.cwd, env })
+    // (Windows: claude.cmd · codex.cmd through cmd.exe, the command line given to ConPTY as it is — clis.startSpec)
+    const s = C.startSpec(bin, spec.args)
+    this.p = this.ptyMod.spawn(s.file, s.verbatim ? s.args.join(' ') : s.args, { name: 'xterm-256color', cols: this.cols, rows: this.rows, cwd: this.cwd, env })
     this.p.onData((d) => {
       this.buf = (this.buf + d).slice(-SCROLLBACK)
       this.emit('data', d)
     })
-    this.p.onExit(({ exitCode }) => { this.exited = true; this.stopTimers(); this.poll(); this.emit('exit', { code: exitCode }) })
+    this.p.onExit(({ exitCode }) => {
+      this.exited = true; this.stopTimers(); this.poll(); this.emit('exit', { code: exitCode })
+      // (Windows: a pseudo console whose program ended keeps its pipes and output thread until it is killed — released here)
+      if (WIN) setTimeout(() => this.release(), 200)
+    })
     this.timers.push(setInterval(() => this.poll(), POLL_MS))
     if (this.watchPaths.length) this.startWatch()
     // (Codex took its first message from the command line: it can take more once its rollout shows that message — or at once, without one)
@@ -151,7 +177,9 @@ class CliSession extends EventEmitter {
     // the hooks write what they get to a file of this session; nothing in them talks to a network
     this.hookFile = path.join(this.stateDir, 'hooks.jsonl')
     fs.writeFileSync(this.hookFile, '')
-    const cmd = (name) => ({ hooks: [{ type: 'command', command: `printf '%s ' ${sq(name)} >> ${sq(this.hookFile)} && cat >> ${sq(this.hookFile)} && echo >> ${sq(this.hookFile)}` }] })
+    // exec form (command + args): spawned directly by Claude Code, no shell — the same on macOS and Windows (hook.js)
+    const prog = hookProgram()
+    const cmd = (name) => ({ hooks: [{ type: 'command', command: prog.command, args: [...prog.args, name, this.hookFile] }] })
     const settings = { hooks: Object.fromEntries(HOOKS.map((h) => [h, [cmd(h)]])) }
     this.settingsFile = path.join(this.stateDir, 'settings.json')
     fs.writeFileSync(this.settingsFile, JSON.stringify(settings, null, 2), { mode: 0o600 })
@@ -220,7 +248,18 @@ class CliSession extends EventEmitter {
   }
   kill() {
     if (this.exited || !this.p) return
+    // Windows: the CLI and what it started (cmd.exe → claude → its tools) as one tree, then the pseudo console itself
+    if (WIN) {
+      require('node:child_process').execFile('taskkill', ['/PID', String(this.p.pid), '/T', '/F'], { windowsHide: true }, () => this.release())
+      return
+    }
     try { this.p.kill() } catch { /* gone */ }
+  }
+  // Windows: the pseudo console, its pipes and its output thread closed (once — after the program ended or was stopped; pty.dispose)
+  release() {
+    if (!WIN || this.released || !this.p) return
+    this.released = true
+    P.dispose(this.p)
   }
   stopTimers() { for (const t of this.timers) { clearInterval(t); clearTimeout(t) } this.timers = []; this.watcher?.close(); this.watcher = null }
 
@@ -308,7 +347,7 @@ class CliSession extends EventEmitter {
         try { const st = fs.statSync(f); born = st.birthtimeMs || st.ctimeMs } catch { continue }
         if (born < this.startedAt - 5000) continue
         const meta = codexMeta(f)
-        if (meta?.cwd && safeReal(meta.cwd) === this.realCwd) { hit = f; break }
+        if (meta?.cwd && samePath(meta.cwd, this.realCwd)) { hit = f; break }
       }
       if (!hit) return
       this.tx = new Tail(hit)
@@ -366,9 +405,14 @@ class CliSession extends EventEmitter {
 
 const PROMPT_POINTER = 'Read .pgl-run/prompt.md in this folder and do the work it describes. / 이 폴더의 .pgl-run/prompt.md 를 읽고 거기 적힌 일을 하세요.'
 const safeReal = (p) => { try { return fs.realpathSync(p) } catch { return p } }
+// one folder however it is spelled (Windows: \\?\ prefix, either slash, any case)
+function samePath(a, b) {
+  const n = (p) => { const r = safeReal(String(p || '').replace(/^\\\\\?\\/, '')); return WIN ? path.resolve(r).replace(/\//g, '\\').toLowerCase() : r }
+  return n(a) === n(b)
+}
 function briefOf(input = {}) {
   const i = input || {}
   return short(i.file_path || i.path || i.command || i.pattern || i.description || i.url || '', 120)
 }
 
-module.exports = { CliSession, Tail, trustClaudeFolder, claudeConfigFile, codexRollouts, codexMeta, PROMPT_POINTER }
+module.exports = { CliSession, Tail, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, samePath, hookProgram, PROMPT_POINTER }

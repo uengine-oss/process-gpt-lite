@@ -1,0 +1,108 @@
+name: Desktop app
+# The desktop app (desktop/, Electron) for three downloads, each built and checked on its own system:
+#   macOS Apple Silicon · Intel  — macos-latest (arm64): unit tests, both packages, a smoke of each (the Intel one under Rosetta)
+#   Windows x64                  — windows-latest: unit tests (ConPTY, cmd.exe), the NSIS installer, a smoke of the app and of the
+#                                  installed copy (a silent per-user install)
+# The packages are kept as the run's artifacts; nothing is published here (a release is made by hand — desktop/README.md).
+on:
+  push:
+    branches: [feat/desktop-release]
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  pull_request:
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Package (arm64 · x64)
+        run: npx electron-builder --mac --arm64 --x64 --publish never
+      - name: Rosetta (to start the Intel package here)
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
+      - name: Smoke — Apple Silicon
+        run: node scripts/smoke-packaged.js "release/mac-arm64/Process GPT Lite.app" arm64
+      - name: Smoke — Intel
+        run: node scripts/smoke-packaged.js "release/mac/Process GPT Lite.app" x64
+      - name: Disk images are whole
+        run: for f in release/*.dmg; do hdiutil verify "$f"; done
+      - name: What was made
+        run: ls -l release/*.dmg release/*.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Process-GPT-Lite-mac-arm64
+          path: |
+            desktop/release/Process-GPT-Lite-*-mac-arm64.dmg
+            desktop/release/Process-GPT-Lite-*-mac-arm64.zip
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Process-GPT-Lite-mac-x64
+          path: |
+            desktop/release/Process-GPT-Lite-*-mac-x64.dmg
+            desktop/release/Process-GPT-Lite-*-mac-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Package (NSIS x64)
+        run: npx electron-builder --win --x64 --publish never
+      - name: Smoke — the packed app (ConPTY from app.asar.unpacked, hook, start)
+        run: node scripts/smoke-packaged.js release/win-unpacked x64
+      - name: Smoke — the installed app (silent per-user install)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem release\Process-GPT-Lite-*-win-x64-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw 'no setup.exe' }
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'Process GPT Lite.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw 'the installer did not put Process GPT Lite.exe under %LOCALAPPDATA%\Programs' }
+          Write-Host "installed: $($exe.FullName)"
+          node scripts/smoke-packaged.js $exe.DirectoryName x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: What was made
+        shell: pwsh
+        run: Get-ChildItem release\*.exe | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Process-GPT-Lite-win-x64
+          path: desktop/release/Process-GPT-Lite-*-win-x64-setup.exe
+          if-no-files-found: error
+          compression-level: 0

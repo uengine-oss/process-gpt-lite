@@ -52,7 +52,8 @@ export const instRef = (i) => (i?.instId ? { instId: i.instId, name: i.name || '
 // a chat message's chip for a mail card: {actionId, mailId, verb, text, inst?}
 export function refOf(a) {
   const inst = instRef(a?.source?.inst)
-  return { actionId: a.id, mailId: a.source?.mail_id || null, verb: a.verb, text: a.text, ...(inst ? { inst } : {}) }
+  // (kind: what the card is for, when known — the chip's label says 「일정 추가」 for a calendar card; lib/mailCard.js)
+  return { actionId: a.id, mailId: a.source?.mail_id || null, verb: a.verb, text: a.text, ...(a.source?.kind ? { kind: a.source.kind } : {}), ...(inst ? { inst } : {}) }
 }
 
 // the card a chip names: by its id, else the newest card of its mail (a put-away card too — it still opens its mail)

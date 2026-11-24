@@ -19,9 +19,18 @@ const MAIL = {
 let fake
 test.beforeAll(async () => {
   fake = http.createServer((req, res) => {
-    req.resume()
+    let raw = ''
+    req.on('data', (c) => { raw += c })
     req.on('end', () => {
+      let body = {}
+      try { body = JSON.parse(raw) } catch { /* not json */ }
       res.writeHead(200, { 'content-type': 'application/json' })
+      // what a mail card is for (the judge, server lib/mailCard.js — a Reply card is not asked): these Review cards are 그 밖의 일 (C).
+      // (a fake without log-probabilities would rest the server's first-token reading for ten minutes — lib/decide.js — and the
+      // specs run after this one on the same server would lose their judge)
+      if (body.max_tokens === 1 && body.logprobs) {
+        return res.end(JSON.stringify({ choices: [{ message: { content: 'C' }, logprobs: { content: [{ token: 'C', top_logprobs: [{ token: 'C', logprob: Math.log(0.9) }, { token: 'A', logprob: Math.log(0.1) }] }] } }] }))
+      }
       res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify(DRAFT) }, finish_reason: 'stop' }] }))
     })
   })
@@ -49,8 +58,10 @@ async function mailCard(pageAs, db, area, { verb = 'Reply', text = '김하늘 �
   await expect(card).toBeVisible()
   return { page, u, a, card, ran, mailId }
 }
-// the sheet's opening animation is over (a picture taken during it shows Home through the sheet)
-const settled = (loc) => loc.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+// the sheet's opening animation is over (a picture taken during it shows Home through the sheet). A loading line's shimmer never
+// ends and is cancelled when the line goes (the card's kind, the map's reading): only finite animations, a cancelled one is over
+// (as mail-thread-flow.spec.js does)
+const settled = (loc) => loc.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).filter((a) => a.effect?.getComputedTiming?.().iterations !== Infinity).map((a) => a.finished.catch(() => {}))))
 const cleanup = async (db, u) => {
   await db.q('delete from pro_actions where user_id=$1', [u.id])
   await db.q('delete from pro_demo_mail where user_id=$1', [u.id])
@@ -112,12 +123,12 @@ test.describe('메일 카드 — 원문을 보고, 초안을 고치고, 보내�
     await cleanup(db, u)
   })
 
-  test('F-ML-03 답장이 일이 아닌 메일 카드(Review)는 원문만 열고 초안을 쓰지 않는다 · 에이전트에게는 눌러야 맡긴다', async ({ pageAs, db }) => {
+  test('F-ML-03 답장이 일이 아닌 메일 카드(Review)는 원문만 열고 초안을 쓰지 않는다(「답장도 쓰기」 아래) · 에이전트에게는 눌러야 맡긴다', async ({ pageAs, db }) => {
     const { page, u, a, card, ran } = await mailCard(pageAs, db, 'mail-review', { verb: 'Review', text: '과정 진행자 확정 메일 확인' })
     await card.click()
     const sheet = page.locator('[data-test="mail-sheet"]')
     await expect(sheet.locator('[data-test="mail-text"]')).toContainText('이도윤 님이 확정되었습니다.')
-    await expect(sheet.locator('[data-test="mail-write"]')).toBeVisible()
+    await expect(sheet.locator('[data-test="mail-write"]')).toHaveText('답장도 쓰기')
     await expect(sheet.locator('[data-test="mail-body"]')).toHaveCount(0)
     await expect(sheet.locator('[data-test="mail-agent"]')).toBeVisible()
     await settled(sheet)

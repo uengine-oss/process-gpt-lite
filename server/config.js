@@ -130,6 +130,8 @@ export const config = {
     gmailUrl: get('PRO_GOOGLE_GMAIL_URL', 'https://gmail.googleapis.com/gmail/v1'),
     // sending a reply with its attachments (lib/mailReply.js): Gmail's upload endpoint for messages.send
     gmailUploadUrl: get('PRO_GOOGLE_GMAIL_UPLOAD_URL', 'https://gmail.googleapis.com/upload/gmail/v1'),
+    // a mail card's event (lib/mailCard.js) and the agent's calendar tools (lib/google.js)
+    calendarUrl: get('PRO_GOOGLE_CALENDAR_URL', 'https://www.googleapis.com/calendar/v3'),
   },
   // a shared YouTube Data API v3 key, used after the person's own (mcp/connectors/youtube.js)
   youtubeApiKey: get('PRO_YOUTUBE_API_KEY', ''),

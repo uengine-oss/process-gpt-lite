@@ -1,4 +1,6 @@
-# Process GPT Lite desktop — npm run dist → release/Process-GPT-Lite-<version>-mac-arm64.dmg (and .zip)
+# Process GPT Lite desktop — three downloads (CI: .github/workflows/desktop.yml):
+#   npm run dist      → release/Process-GPT-Lite-<version>-mac-arm64.dmg · -mac-x64.dmg (and .zip)   (on a Mac)
+#   npm run dist:win  → release/Process-GPT-Lite-<version>-win-x64-setup.exe                         (on Windows)
 # Nothing of Lite is bundled: the app is a window around the server the person chooses (src/main.js).
 appId: org.uengine.processgpt.lite
 productName: Process GPT Lite
@@ -10,11 +12,15 @@ files:
   - src/**
   - package.json
   # node-pty (the person's CLI in a terminal — src/runner/session.js): N-API prebuilds for mac arm64/x64 and Windows x64/arm64 (ConPTY),
-  # the same binary in Node and Electron, so nothing is rebuilt; its sources stay out
+  # the same binary in Node and Electron, so nothing is rebuilt; its sources and debug symbols stay out (each system leaves out the
+  # other's prebuilds below)
   - "!node_modules/node-pty/{deps,src,third_party,scripts,typings}/**"
   - "!node_modules/node-pty/binding.gyp"
+  - "!node_modules/node-pty/**/*.pdb"
+  - "!node_modules/node-pty/lib/*.test.js{,.map}"
 asar: true
-# the native module and its spawn-helper are run from disk, not from inside the asar
+# the native module, its spawn-helper (macOS) and its worker scripts (Windows) are run from disk, not from inside the asar
+# (src/runner/pty.js loads node-pty from app.asar.unpacked)
 asarUnpack:
   - node_modules/node-pty/**
 npmRebuild: false
@@ -22,11 +28,14 @@ publish: null
 mac:
   category: public.app-category.productivity
   icon: build/icon.png          # npm run icon (from ../public/favicon.svg)
+  # Apple Silicon and Intel, one package each (node-pty's darwin-arm64 · darwin-x64 prebuilds — both are in each, a few hundred KB)
   target:
     - target: dmg
-      arch: arm64
+      arch: [arm64, x64]
     - target: zip
-      arch: arm64
+      arch: [arm64, x64]
+  files:
+    - "!node_modules/node-pty/prebuilds/win32-*/**"
   # no Developer ID: signed ad hoc after packing (scripts/adhoc-sign.js), not notarized
   identity: null
   hardenedRuntime: false
@@ -44,16 +53,21 @@ dmg:
   contents:
     - { x: 140, y: 190, type: file }
     - { x: 400, y: 190, type: link, path: /Applications }
-# not built or tested yet (README: 남은 일)
+# Windows x64: an NSIS installer for the person (no administrator), not code-signed — SmartScreen asks once (README)
 win:
   icon: build/icon.png
   target:
     - target: nsis
       arch: x64
+  files:
+    - "!node_modules/node-pty/prebuilds/darwin-*/**"
   artifactName: Process-GPT-Lite-${version}-win-${arch}-setup.${ext}
 nsis:
   oneClick: false
   perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Process GPT Lite
 linux:
   icon: build/icon.png
   category: Office

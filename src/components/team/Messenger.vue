@@ -25,6 +25,7 @@ import LinkPreviews from '../LinkPreviews.vue'
 import { useMessengerDock } from './useMessengerDock.js'
 import DockMenu from './DockMenu.vue'
 import { narrow } from '../../viewport.js'
+import { verbLabel } from '../../mailKind.js'
 
 const app = useApp()
 const team = useTeam()
@@ -57,7 +58,7 @@ async function loadMails() { try { mails.value = await app.mailCardList() } catc
 watch(inboxKind, (k) => { if (k === 'mail') loadMails() })
 watch(() => app.mailCard, (a, was) => { if (!a && was && inboxKind.value === 'mail') loadMails() })
 const fromName = (f) => String(f || '').split('<')[0].replace(/"/g, '').trim() || String(f || '').replace(/[<>]/g, '')
-const mailState = (a) => (a.source?.sent ? '답장함' : a.status === 'dismissed' ? '홈에서 닫음' : a.status === 'done' ? '처리함' : a.status === 'running' ? '진행 중' : '홈에 있음')
+const mailState = (a) => (a.source?.sent ? '답장함' : a.source?.event ? (a.source.event.via === 'demo' ? '일정 기록함' : '캘린더에 넣음') : a.status === 'dismissed' ? '홈에서 닫음' : a.status === 'done' ? '처리함' : a.status === 'running' ? '진행 중' : '홈에 있음')
 const thread = computed(() => team.threads.find((t) => t.id === team.active) || null)
 const list = computed(() => team.msgs[team.active] || [])
 const myFiles = computed(() => (app.messages[app.mainThread?.id] || []).filter(shareable).slice(-12).reverse())
@@ -228,7 +229,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           </div>
           <template v-if="inboxKind === 'mail'">
             <button v-for="a in mails || []" :key="a.id" class="mailcard press" data-test="inbox-mail-card" @click="app.mailCardFrom = 'inbox'; app.mailCard = a">
-              <span class="mh"><span class="vb">{{ a.verb }}</span><b>{{ fromName(a.source?.from) }}</b><small>{{ when(a.created_at) }}</small></span>
+              <span class="mh"><span class="vb">{{ verbLabel(a) }}</span><b>{{ fromName(a.source?.from) }}</b><small>{{ when(a.created_at) }}</small></span>
               <span class="subj">{{ a.source?.subject }}</span>
               <span class="txt">{{ a.text }}</span>
               <span class="st" :class="{ sent: a.source?.sent }">{{ mailState(a) }}</span>

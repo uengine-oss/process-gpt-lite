@@ -10,6 +10,12 @@
 // settings titleBar: 'sky', on the colour the page shows there. The preload marks the page (html.pgl-desktop + the
 // room those buttons take) and the web app's src/styles/desktop.css makes its top bar the drag strip and steps around
 // the buttons.
+
+// A Claude Code hook of a local run (runner/session.js · runner/hook.js) runs this same binary as its node: `<app> --pgl-hook <Event> <file>`
+// appends the event and quits here — before anything of the app (no window, no single-instance lock, so the running app never hears of it)
+const HOOK_AT = process.argv.indexOf('--pgl-hook')
+if (HOOK_AT > 0) require('./runner/hook').run(process.argv.slice(HOOK_AT + 1))
+
 const { app, BrowserWindow, Menu, ipcMain, shell, session, net, screen, clipboard, desktopCapturer, safeStorage, dialog } = require('electron')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
@@ -46,7 +52,10 @@ let win = null
 let lastFailure = null // what the offline page shows
 
 // ---------- single instance ----------
-if (!app.requestSingleInstanceLock()) {
+// (a hook run — above — has left already; never ask for the lock from it: the running app would bring its window up)
+if (HOOK_AT > 0) {
+  app.exit(0)
+} else if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
