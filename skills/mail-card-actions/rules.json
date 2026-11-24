@@ -1,0 +1,7 @@
+{
+  "timezone": "Asia/Seoul",
+  "minConfidence": 0.6,
+  "timeoutMs": 8000,
+  "textChars": 6000,
+  "defaultDurationMin": 60
+}

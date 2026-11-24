@@ -1,14 +1,18 @@
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { uploadAttachment } from '../api.js'
 import FolderSuggest from './folders/FolderSuggest.vue'
+import { cardKind, verbLabel } from '../mailKind.js'
+import { isEnglish } from '../i18n/lang.js'
 
-// A mail's Home card, opened: the mail as it arrived, and a reply the person reads, changes and sends
-// themselves (lib/mailReply.js). Nothing leaves before 보내기 — a card no longer hands the agent
-// "reply to …" (2026-11-23: the agent's mail tool sent it at once, to the wrong address).
+// A mail's Home card, opened: the mail as it arrived, and the card's own work as the main action — a reply the person reads,
+// changes and sends themselves (lib/mailReply.js), an event they check and add to their calendar (lib/mailCard.js), or the card's
+// task handed to the agent. Nothing leaves or is made before its button — a card no longer hands the agent "reply to …"
+// (2026-11-23: the agent's mail tool sent it at once, to the wrong address), and a calendar card no longer opens a reply
+// (2026-11-24: 「캘린더에 추가를 눌렀더니 왠 답장하기가 열리는...」).
 const props = defineProps({ action: Object })
 const emit = defineEmits(['close'])
 const app = useApp()
@@ -26,9 +30,6 @@ const sent = ref(null)
 const whole = ref(false)        // the mail's whole text (a long one is folded)
 const fileInput = ref(null)
 
-// the reply is what this card is for: the triage's 「Reply」 verb, or the card that came with the
-// documents made for the mail (「… 초안 검토하고 회신하기」) — the server's isReplyCard (lib/mailReply.js)
-const replyCard = computed(() => props.action.verb === 'Reply' || !!props.action.source?.drafts?.length)
 const mail = computed(() => info.value?.mail)
 const who = (a) => (a ? (a.name ? `${a.name} <${a.address}>` : a.address) : '')
 const when = computed(() => {
@@ -63,6 +64,92 @@ const flowLoading = ref(true)
 const flowBusy = ref('')
 const flowErr = ref('')
 const live = computed(() => app.actions.find((a) => a.id === id) || props.action)
+
+// ---------- what this card is for (server lib/mailCard.js) ----------
+// reply: the triage's 「Reply」, a card with the documents made for the mail, or one read as a reply — its draft is the sheet;
+// calendar: the event form and 「캘린더에 추가」; task: 「에이전트에게 맡기기」. A card made before the triage said its kind is asked
+// once (the judge); meanwhile the mail is shown. The reply of a calendar · task card is under 「답장도 쓰기」.
+const decided = ref(null)
+const kindWait = ref(false)
+const kind = computed(() => cardKind(live.value) || decided.value)
+const replyCard = computed(() => kind.value === 'reply')
+const label = computed(() => verbLabel(live.value, kind.value))
+const replyOpen = ref(false)
+const showReply = computed(() => replyCard.value || replyOpen.value || !!draft.value)
+async function askKind() {
+  kindWait.value = true
+  try { decided.value = (await app.mailCardKind(id)).kind } catch (e) { decided.value = 'task'; console.warn('[mail kind]', e.message) }
+  kindWait.value = false
+}
+function openReply() { replyOpen.value = true; if (!draft.value && !drafting.value) write() }
+
+// ---------- the calendar card's event ----------
+// read once from the mail by the model (「일정 정보를 읽는 중…」), the person changes what they like, 「캘린더에 추가」 makes it —
+// in their Google Calendar, or recorded only for the demo mailbox; the same event already there is said, not made twice
+const ev = ref(null)            // {title, date, start, durationMin, allDay, location, link, description}
+const evTz = ref('')
+const evMode = ref(null)        // google | demo | none | scope
+const evRead = ref(null)        // 'model' | 'failed'
+const evFrom = ref(null)        // the time as the mail gave it, in another zone
+const evReading = ref(false)
+const evErr = ref('')
+const evDone = ref(null)
+const adding = ref(false)
+const hereTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || '' } catch { return '' } })()
+async function loadEvent() {
+  if (evReading.value || ev.value) return
+  evReading.value = true; evErr.value = ''
+  try {
+    const r = await app.mailEvent(id, hereTz)
+    const d = r.draft || {}
+    evMode.value = r.mode
+    if (r.event) evDone.value = r.event
+    evTz.value = d.tz || r.event?.tz || hereTz || 'Asia/Seoul'
+    evRead.value = d.read || null
+    evFrom.value = d.from || null
+    ev.value = { title: d.title || '', date: d.date || '', start: d.start || '', durationMin: d.durationMin || 60, allDay: !!d.allDay,
+      location: d.location || '', link: d.link || '', description: d.description || '' }
+  } catch (e) { evErr.value = e.message }
+  evReading.value = false
+}
+const DURATIONS = [15, 30, 45, 60, 90, 120, 180, 240, 480]
+const durations = computed(() => [...new Set([...DURATIONS, ev.value?.durationMin].filter(Boolean))].sort((a, b) => a - b))
+const durLabel = (m) => { const h = Math.floor(m / 60), r = m % 60; return isEnglish ? [h && `${h} hr`, r && `${r} min`].filter(Boolean).join(' ') : [h && `${h}시간`, r && `${r}분`].filter(Boolean).join(' ') }
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const hm = (t) => { const h = Number(t.slice(0, 2)), mm = t.slice(3, 5); return isEnglish ? `${h % 12 || 12}:${mm} ${h < 12 ? 'AM' : 'PM'}` : `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}:${mm}` }
+// 「11월 25일 (수) 오후 3:00 – 오후 4:00」, in the screen's language
+function whenOf(e) {
+  if (!e?.date || !/^\d{4}-\d{2}-\d{2}$/.test(e.date)) return ''
+  const [, m, d] = e.date.split('-').map(Number)
+  const wd = new Date(`${e.date}T00:00:00Z`).getUTCDay()
+  const day = isEnglish ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][wd]}, ${MONTHS[m - 1]} ${d}` : `${m}월 ${d}일 (${'일월화수목금토'[wd]})`
+  if (e.allDay || !e.start) return e.allDay ? (isEnglish ? `${day} (all day)` : `${day} 종일`) : day
+  const end = Number(e.start.slice(0, 2)) * 60 + Number(e.start.slice(3, 5)) + (Number(e.durationMin) || 60)
+  const endT = `${String(Math.floor(end / 60) % 24).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`
+  return `${day} ${hm(e.start)} – ${hm(endT)}${end >= 1440 ? (isEnglish ? ' (next day)' : ' (다음 날)') : ''}`
+}
+const needsTime = computed(() => !!ev.value?.date && !ev.value.start && !ev.value.allDay)
+const evPast = computed(() => {
+  const e = ev.value
+  if (!e?.date || (!e.start && !e.allDay) || (evTz.value && hereTz && evTz.value !== hereTz)) return false
+  return new Date(`${e.date}T${e.allDay ? '23:59' : e.start}:00`).getTime() < Date.now()
+})
+const canAdd = computed(() => !!ev.value && !!ev.value.title.trim() && !!ev.value.date && (!!ev.value.start || ev.value.allDay)
+  && (evMode.value === 'google' || evMode.value === 'demo') && !adding.value && !evDone.value)
+async function addEvent() {
+  if (!canAdd.value) return
+  adding.value = true; evErr.value = ''
+  try {
+    const e = ev.value
+    evDone.value = (await app.addMailEvent(id, { ...e, title: e.title.trim(), start: e.allDay ? null : e.start, tz: evTz.value })).event
+  } catch (err) { evErr.value = err.message }
+  adding.value = false
+}
+watch(kind, (k) => {
+  if (k === 'calendar') loadEvent()
+  // a card read as a reply once the mail is here: its draft, as a Reply card's
+  if (k === 'reply' && info.value && !info.value.sent && !draft.value && !drafting.value) write()
+}, { immediate: true })
 const linkedInst = computed(() => flow.value?.linked || (live.value.source?.inst?.instId ? live.value.source.inst : null))
 const matches = computed(() => flow.value?.matches || [])
 const joins = computed(() => flow.value?.joins || [])
@@ -119,6 +206,7 @@ function toHome() {
 
 onMounted(async () => {
   loadFlow()
+  if (!kind.value) askKind()
   try {
     info.value = await app.mailOfCard(id)
     picked.value = info.value.files.map((f) => f.messageId)
@@ -168,7 +256,7 @@ function toAgent() { app.runAction(props.action); emit('close') }
       <div class="sheet glass blur-in" role="dialog" :aria-label="action.text" data-test="mail-sheet">
         <header>
           <div>
-            <span class="verb">{{ action.verb }}</span>
+            <span class="verb" data-test="mail-verb">{{ label }}</span>
             <h2>{{ action.text }}</h2>
           </div>
           <button class="x press" aria-label="닫기" @click="emit('close')"><Icon name="close" :size="18" /></button>
@@ -230,6 +318,57 @@ function toAgent() { app.runAction(props.action); emit('close') }
             </div>
           </section>
 
+          <!-- the card's own work: what it is for decides the main action -->
+          <p v-if="kindWait && !kind" class="wait shimmer-text" data-test="mail-kind-wait">무슨 일인지 살펴보는 중…</p>
+
+          <section v-if="kind === 'calendar'" class="event" data-test="mail-event">
+            <p class="cap">캘린더에 넣을 일정</p>
+            <p v-if="evReading" class="wait shimmer-text" data-test="ev-reading">일정 정보를 읽는 중…</p>
+            <div v-if="evDone" class="done" data-test="ev-done">
+              <Icon name="check" :size="18" />
+              <div>
+                <p class="line"><b>{{ evDone.via === 'demo' ? '기록했어요' : evDone.existing ? '이미 캘린더에 있어요' : '캘린더에 추가했어요' }}</b> · <span data-test="ev-done-when">{{ whenOf(evDone) }}</span></p>
+                <small data-test="ev-done-title">{{ evDone.title }}</small>
+                <small v-if="evDone.via === 'demo'">데모 메일함이라 실제 캘린더에는 넣지 않았어요.</small>
+                <a v-if="evDone.htmlLink" class="calink" :href="evDone.htmlLink" target="_blank" rel="noopener noreferrer" data-test="ev-open">캘린더에서 보기 <Icon name="chevron" :size="12" /></a>
+              </div>
+            </div>
+            <template v-else-if="ev">
+              <p v-if="evRead === 'failed'" class="note" data-test="ev-unread">메일에서 일정 정보를 읽지 못했어요. 직접 넣어 주세요.</p>
+              <label class="field"><span>제목</span><input v-model="ev.title" data-test="ev-title" autocomplete="off" /></label>
+              <div class="whenrow">
+                <label class="field"><span>날짜</span><input v-model="ev.date" type="date" data-test="ev-date" /></label>
+                <label class="field"><span>시작</span><input v-model="ev.start" type="time" :disabled="ev.allDay" data-test="ev-start" /></label>
+                <label class="field"><span>길이</span>
+                  <select v-model.number="ev.durationMin" :disabled="ev.allDay" data-test="ev-duration">
+                    <option v-for="m in durations" :key="m" :value="m">{{ durLabel(m) }}</option>
+                  </select>
+                </label>
+                <label class="allday"><input v-model="ev.allDay" type="checkbox" data-test="ev-allday" /> <span>종일</span></label>
+              </div>
+              <label class="field"><span>장소</span><input v-model="ev.location" data-test="ev-location" autocomplete="off" /></label>
+              <label class="field"><span>링크</span><input v-model="ev.link" type="url" data-test="ev-link" autocomplete="off" /></label>
+              <textarea v-model="ev.description" class="text-in desc" rows="3" data-test="ev-desc" />
+              <p class="summary" data-test="ev-when"><Icon name="clock" :size="14" /> <span>{{ whenOf(ev) || '날짜를 넣어 주세요' }}</span> <small v-if="evTz">{{ evTz }}</small></p>
+              <small v-if="evFrom" class="note" data-test="ev-from">메일에 적힌 때 · {{ whenOf({ ...evFrom, durationMin: ev.durationMin }) }} ({{ evFrom.tz }})</small>
+              <p v-if="needsTime" class="note" data-test="ev-ask-time">메일에 시각이 없어요. 시각을 넣거나 종일로 두세요.</p>
+              <p v-if="evPast" class="note" data-test="ev-past">이미 지난 때예요. 날짜와 시각을 확인해 주세요.</p>
+              <p v-if="evMode === 'none'" class="err" data-test="ev-mode">Google 캘린더가 연결되어 있지 않아요. 설정에서 Google을 연결하면 여기서 일정을 넣을 수 있어요.</p>
+              <p v-if="evMode === 'scope'" class="err" data-test="ev-mode">Google 캘린더에 일정을 넣을 권한이 없어요. 설정에서 Google을 다시 연결하면 여기서 넣을 수 있어요.</p>
+              <div class="row">
+                <button class="dark-btn sm" :disabled="!canAdd" data-test="ev-add" @click="addEvent">{{ adding ? '넣는 중…' : '캘린더에 추가' }}</button>
+              </div>
+              <p class="hint">캘린더에 추가를 누르기 전에는 아무것도 만들지 않아요.</p>
+            </template>
+            <p v-if="evErr" class="err" data-test="ev-error">{{ evErr }}</p>
+          </section>
+
+          <button v-if="kind === 'task' && (info || loadErr) && !sent && live.status === 'open'" class="agent main press" data-test="mail-agent" @click="toAgent">
+            <span class="go"><Icon name="hand" :size="16" /> 에이전트에게 맡기기</span> <small>{{ action.prompt }}</small>
+          </button>
+
+          <button v-if="info && kind && !replyCard && !showReply && !sent" class="pill-btn sm write" data-test="mail-write" @click="openReply">답장도 쓰기</button>
+
           <section v-if="sent" class="done" data-test="mail-sent">
             <Icon name="check" :size="18" />
             <div>
@@ -241,7 +380,7 @@ function toAgent() { app.runAction(props.action); emit('close') }
             </div>
           </section>
 
-          <section v-else-if="info" class="reply" data-test="mail-reply">
+          <section v-else-if="info && showReply" class="reply" data-test="mail-reply">
             <p class="cap">답장</p>
             <p v-if="drafting" class="wait shimmer-text" data-test="mail-drafting">답장 초안을 쓰는 중…</p>
             <p v-if="draftErr" class="err">{{ draftErr }}</p>
@@ -276,9 +415,6 @@ function toAgent() { app.runAction(props.action); emit('close') }
             </template>
           </section>
 
-          <button v-if="(info || loadErr) && !replyCard && !sent && action.status === 'open'" class="agent press" data-test="mail-agent" @click="toAgent">
-            에이전트에게 맡기기 <small>{{ action.prompt }}</small>
-          </button>
         </div>
       </div>
     </div>
@@ -345,6 +481,26 @@ section { display: flex; flex-direction: column; gap: 6px; }
 .flowoff { margin: 0; font-size: 13px; color: var(--text-secondary); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .agent { text-align: left; border-radius: 18px; padding: 12px 14px; background: var(--field-bg); font-size: 15px; color: var(--text-primary); display: flex; flex-direction: column; gap: 4px; }
 .agent small { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+/* the card's task as the sheet's main action */
+.agent.main { background: #1d1d1f; color: #fff; }
+.agent.main small { color: rgba(255 255 255 / .72); }
+.agent .go { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+:root[data-theme="dark"] .agent.main { background: #f5f5f7; color: #1d1d1f; }
+:root[data-theme="dark"] .agent.main small { color: rgba(29 29 31 / .72); }
+.event { border-radius: 18px; padding: 12px 14px; background: var(--chip-bg); gap: 4px; }
+.event .done { display: flex; padding: 4px 0; background: transparent; }
+.event .done > :deep(svg) { flex: none; margin-top: 3px; }
+.event .line { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.event .field input, .event .field select { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 14.5px; color: var(--text-primary); padding: 6px 0; outline: none; }
+.event .field input:disabled, .event .field select:disabled { opacity: .45; }
+.whenrow { display: flex; flex-wrap: wrap; column-gap: 14px; }
+.whenrow .field { flex: 1 1 200px; min-width: 0; }
+.allday { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; padding: 6px 0; }
+.desc { min-height: 0; margin-top: 6px; }
+.summary { margin: 6px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.summary small { font-weight: 400; color: var(--text-tertiary); font-size: 12px; }
+.note { margin: 0; font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.calink { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 13.5px; color: var(--color-info, #2a78d6); text-decoration: none; }
 @media (max-width: 520px) {
   .veil { padding: 8px; align-items: end; }
   .sheet { max-height: 94vh; border-radius: 24px; padding: 16px 16px 12px; }

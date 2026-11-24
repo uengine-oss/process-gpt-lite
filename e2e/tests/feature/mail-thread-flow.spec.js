@@ -110,7 +110,7 @@ test.describe('메일 칩 · 시트 · 인스턴스 — 채팅의 메일 줄에�
     await page.goto('/chat')
     const chip = page.locator('[data-test="mail-chip"]').filter({ hasText: a.text })
     await expect(chip).toBeVisible()
-    await expect(chip).toContainText('Reply')
+    await expect(chip).toContainText('답장') // the card's verb in the person's language (src/mailKind.js — spec mail-card-actions)
     await shot(page, 'f-mt-01a.png')
     await chip.click()
     const sheet = sheetOf(page)
