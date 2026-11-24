@@ -64,6 +64,8 @@ export const config = {
   // gets <PRO_GIT_URL>/api/git/<folder id>.git and a token instead of the repository's path. Unset = the path
   // (local development, where cli-agent shares this disk). In the cluster: the Service's address.
   gitUrl: get('PRO_GIT_URL', ''),
+  // how long a step's folder token lasts (hours); 72 = cli-agent keeps a run's workspace that long
+  gitTokenHours: Math.max(1, Number(get('PRO_GIT_TOKEN_HOURS', '72')) || 72),
   // when the nightly pass packs the folders' repositories (lib/folders/gc.js): a KST cron expression, or 'off'
   folderGcCron: get('PRO_FOLDER_GC_CRON', '0 3 * * *'),
   claudeBin: get('PRO_CLAUDE_BIN', 'claude'),

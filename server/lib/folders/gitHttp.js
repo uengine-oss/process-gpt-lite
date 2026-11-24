@@ -20,7 +20,7 @@ import * as G from './git.js'
 import * as S from './service.js'
 
 export const PUSH_PREFIX = 'pgpt-agent/'
-export const TOKEN_HOURS = 72 // cli-agent keeps a run's workspace (and so its clone) 72 hours
+export const TOKEN_HOURS = () => config.gitTokenHours // PRO_GIT_TOKEN_HOURS (default 72): cli-agent keeps a run's workspace (and so its clone) 72 hours
 export const MAX_PUSH = 200 * 1024 * 1024 // the folder upload limit (routes/folders.js)
 const REALM = 'Process GPT Lite folders'
 const ZERO = /^0{40}$|^0{64}$/
@@ -34,7 +34,7 @@ const key = () => {
 }
 const sign = (body) => crypto.createHmac('sha256', key()).update(`pgf1.${body}`).digest('base64url')
 
-export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS, now = Date.now() } = {}) {
+export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now() } = {}) {
   if (!folderId) throw new Error('a folder git token names its folder')
   const body = Buffer.from(JSON.stringify({ tenant, folder: String(folderId), push, exp: Math.floor(now / 1000 + hours * 3600) })).toString('base64url')
   return `pgf1.${body}.${sign(body)}`
