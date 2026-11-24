@@ -30,6 +30,7 @@ import OntoHabitShareCard from './ontology/OntoHabitShareCard.vue'
 import OntoTimerAskCard from './ontology/OntoTimerAskCard.vue'
 import OntoEditCard from './ontology/OntoEditCard.vue'
 import MailChips from './MailChips.vue'
+import LinkPreviews from './LinkPreviews.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
@@ -112,6 +113,8 @@ onMounted(async () => {
     <template v-else-if="msg.kind === 'text' && msg.role === 'user'">
       <span v-if="panelReq" class="req">새 패널 만들기</span>
       <div class="bubble user">{{ panelReq ?? c.text }}</div>
+      <!-- 링크 미리보기: 글 속 처음 세 링크의 카드(server lib/linkPreview.js) -->
+      <LinkPreviews :text="c.text" />
       <!-- sent while an answer of the same conversation was still coming: it waits its turn (lib/turns.js) -->
       <small v-if="c.fresh" class="queue">새로 하기 · 이전 답 대신 새로 만들어요</small>
       <small v-if="c.fromHabit" class="queue" data-testid="from-habit">습관 · 제안을 수락했어요</small>
@@ -122,6 +125,7 @@ onMounted(async () => {
     </template>
     <template v-else-if="msg.kind === 'text'">
       <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <LinkPreviews :text="replies ? replies.body : c.text" />
       <MailChips v-if="mailRefs.length" :refs="mailRefs" :event="c.mailEvent || ''" />
       <!-- 회사 프로세스 지도의 업무 에이전트: 일 정의의 점검 항목마다 지켰는지(근거는 마우스를 올리면) -->
       <ul v-if="c.checks?.length" class="checks" data-testid="onto-checks">

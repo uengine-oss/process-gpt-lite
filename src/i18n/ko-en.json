@@ -2499,7 +2499,11 @@
   "진행 중인 일": "the running work",
   "메일을 열지 못했어요": "Couldn't open the mail",
   "작업 폴더": "Work folder",
-  "· 단계 결과 보기 →": "· See step results →"
+  "· 단계 결과 보기 →": "· See step results →",
+  "링크 미리보기": "Link preview",
+  "대화의 링크를 카드로": "Show links in conversations as cards",
+  "채팅과 팀 메시지에 있는 링크의 제목 · 설명 · 그림을 카드로 보여 줘요. 서버가 그 페이지를 대신 읽고, 서명이나 토큰이 붙은 링크와 사내 주소는 열지 않아요. 끄면 회사의 모든 사람에게 카드가 보이지 않아요.": "Links in chats and team messages show their page's title, description and picture as a card. The server reads the page for you, and never opens links that carry a signature or token, or internal addresses. Turning this off hides the cards for everyone in the company.",
+  "바꾸지 못했어요.": "Couldn't change it."
  },
  "patterns": [
   [
