@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws'
 import { withTenant, servesTenant } from '../tenant.js'
 import * as D from './devices.js'
 import * as R from './relay.js'
+import * as BL from './browserLink.js'
 
 const HELLO_MS = 10_000
 const PING_MS = 25_000
@@ -55,6 +56,8 @@ export async function open(transport, hello) {
   link.send({ type: 'welcome', device: { id: link.id, name: link.name }, user: { id: link.userId, name: u?.name || '' } })
   console.log(`[local-agents] ${link.name} (${link.userId.slice(0, 8)}) online · ${Object.entries(link.caps.clis).filter(([, c]) => c.installed).map(([k, c]) => `${k} ${c.version || ''}`.trim()).join(', ') || 'no CLI'}`)
   await withTenant(link.tenant, () => handlers.online(link)).catch((e) => console.warn('[local-agents] online', e.message))
+  // (a browser task paused because this PC went off goes on — browserLink.js waitForLink)
+  BL.linkOn(link)
   return link
 }
 
@@ -63,16 +66,20 @@ export async function receive(link, msg) {
   if (!msg || typeof msg !== 'object') return
   if (msg.type === 'pong') { link.lastPong = Date.now(); return }
   if (msg.type === 'caps') {
+    const had = !!link.caps?.browser
     if (msg.caps) link.caps = D.capsOf(msg.caps)
     if (msg.prefs) link.prefs = D.prefsOf(msg.prefs)
     // (what it runs now, when it says: the jobs it holds are its own)
     if (Array.isArray(msg.active)) link.active = new Set(msg.active.map(String).slice(0, 20))
     await withTenant(link.tenant, () => D.seen(link.id, { caps: link.caps, prefs: link.prefs })).catch(() => {})
     await withTenant(link.tenant, () => handlers.caps(link)).catch((e) => console.warn('[local-agents] caps', e.message))
+    if (!had && link.caps.browser) BL.linkOn(link)
     return
   }
   // a terminal's bytes, hook events and watched files (relay.js)
   if (R.handles(msg)) return withTenant(link.tenant, () => R.receive(link, msg)).catch((e) => console.warn('[local-agents] relay', msg.type, e.message))
+  // the browser on this PC: answers, live frames, downloads (browserLink.js — a browser task routed to this desktop)
+  if (BL.handles(msg)) return withTenant(link.tenant, () => BL.receive(link, msg)).catch((e) => console.warn('[local-agents] browser', msg.type, e.message))
   await withTenant(link.tenant, () => handlers.message(link, msg)).catch((e) => console.warn('[local-agents] message', msg.type, e.message))
 }
 
@@ -81,6 +88,7 @@ export async function gone(link) {
   if (m?.get(link.id) === link) m.delete(link.id)
   if (m && !m.size) links.delete(keyOf(link.tenant, link.userId))
   R.linkGone(link)
+  BL.linkGone(link)
   if (link.replaced) return
   console.log(`[local-agents] ${link.name} (${link.userId.slice(0, 8)}) offline`)
   await withTenant(link.tenant, () => handlers.offline(link)).catch((e) => console.warn('[local-agents] offline', e.message))

@@ -1,14 +1,15 @@
-// "Handoff" browser agent: one persistent Chromium profile per user, live view via
-// CDP screencast, an LLM loop that acts on numbered page elements, and credentials
-// filled server-side from the vault (the model only ever says "fill the password").
-// Secret fields are blanked in the page snapshot, masked on screen and in the model's
-// screenshots, and logins/cards the user types during takeover are captured into the vault.
-import { chromium } from 'playwright'
+// "Handoff" browser agent: the loop that drives a browser for a person — an LLM over numbered page elements, the judge
+// at walls, credentials filled from the vault (the model only ever says "fill the password"), browser skills, the task
+// card and its live view. The page itself is a driver's (2026-11-24, 「일렉트론 버전에서는 로컬 브라우저를 이용하는게 더
+// 효율적이지 않을까?」): this server's own Chromium (lib/browserServer.js — one persistent profile per person, a phone-only
+// person's tasks run there) or a browser on the person's own PC, over their desktop app's link (lib/browserRemote.js) —
+// chosen when a task gets the browser, never switched by itself afterwards. Secret fields are blanked in the page
+// snapshot and masked on screen and in the model's screenshots by either driver; logins typed during takeover in this
+// server's browser are captured into the vault.
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
 import crypto from 'node:crypto'
-import { fileURLToPath } from 'node:url'
 import { chat } from './llm.js'
 import { emit } from './bus.js'
 import { candidates, useItem, putItem, setStatus, audit, normSite, ownerDomain } from './vault.js'
@@ -23,24 +24,14 @@ import { nameByContent } from './fileSniff.js'
 import { workspaceHostPath } from './missions.js'
 import { browserSkill, browserSkills, readBrowserSkill, browserSkillCatalog } from './browserSkills.js'
 import { judge } from './judge.js'
-import { STEP, StepError, isStop, bounded, pause, navigate, settleAfter, lookAll, watchdog, throttledScreencast, releaseProfile, lockHolder, browserPidFor } from './browserSteps.js'
+import { STEP, StepError, isStop, bounded, pause, watchdog } from './browserSteps.js'
+import { ServerDriver, within, blankOf, lookAt } from './browserServer.js'
+import { RemoteDriver, routeFor, privateAddress } from './browserRemote.js'
+import * as BL from './localAgents/browserLink.js'
+import * as H from './localAgents/hub.js'
 
 export { STEP } from './browserSteps.js'
-
-const here = path.dirname(fileURLToPath(import.meta.url))
-
-// Where the profiles (and so the sign-ins people made in them) live: PRO_BROWSER_PROFILES, else the
-// data volume when there is one (production mounts an empty PVC at /data — a profile inside the
-// container is lost on every deploy), else next to the server.
-export function profilesDir(env = process.env, data = '/data') {
-  if (env.PRO_BROWSER_PROFILES) return path.resolve(env.PRO_BROWSER_PROFILES)
-  try {
-    if (fs.statSync(data).isDirectory()) { fs.accessSync(data, fs.constants.W_OK); return path.join(data, 'browser-profiles') }
-  } catch { /* no data volume here */ }
-  return path.join(here, '..', '.browser-profiles')
-}
-export const PROFILES = profilesDir()
-try { fs.mkdirSync(PROFILES, { recursive: true }) } catch (e) { console.warn('[browser] profiles', PROFILES, e.message) }
+export { PROFILES, profilesDir, LIVE } from './browserServer.js'
 
 // Chromium's lock links in a profile. A pod replaced by a new one (Recreate) leaves them on the volume,
 // naming a host that is gone, and Chromium may refuse a profile it thinks another machine holds. They
@@ -59,57 +50,10 @@ export function clearStaleLocks(dir) {
   return cleared
 }
 
-const sessions = new Map() // userId -> { ctx, page, cdp, frame, task, threadId }
+// One session per person: the task that holds the browser, the ones in line, and the page driver it runs on —
+// s.driver is the one in use (s.server: this server's Chromium, launched when first needed; s.local: their PC's).
+const sessions = new Map() // userId -> { driver, server, local, task, threadId, frame, captures, queue, planning }
 const launching = new Map() // userId -> the launch in progress (two tasks at once share it)
-
-// Fields whose value must never reach the model or the live view.
-const SECRET_SELECTOR = 'input[type=password], [data-pro-secret], input[autocomplete^="cc-"], input[autocomplete="one-time-code"]'
-
-// Runs in every page: masks secret fields on screen and reports logins/cards the user submits
-// (during takeover) so the server can seal them into the vault. Values the vault itself filled
-// are remembered on the element and not reported back.
-const PAGE_GUARD = () => {
-  const css = () => {
-    const root = document.head || document.documentElement
-    if (!root || document.getElementById('__pro_guard')) return // too early: DOMContentLoaded adds it
-    const st = document.createElement('style')
-    st.id = '__pro_guard'
-    st.textContent = '[data-pro-secret],input[autocomplete^="cc-"],input[autocomplete="one-time-code"]{-webkit-text-security:disc!important}'
-    root.appendChild(st)
-  }
-  document.addEventListener('DOMContentLoaded', css)
-  css()
-  const typed = (el) => el && el.value && el.value !== el.__proFilled
-  const field = (scope, test) => [...scope.querySelectorAll('input')].find(test)
-  let last = ''
-  const report = (scope) => {
-    if (typeof window.__proVaultCapture !== 'function') return
-    const pw = field(scope, (e) => e.type === 'password' && e.value)
-    const cc = field(scope, (e) => /cc-number/.test(e.autocomplete) || /card.?(no|num)|cardnumber/i.test(e.name || e.id))
-    let payload = null
-    if (pw && typed(pw)) {
-      const user = [...scope.querySelectorAll('input')].filter((e) => /^(text|email|tel)$/.test(e.type) && e.value && !/search/i.test(e.name || ''))
-        .find((e) => /user|email|login|id|account/i.test(`${e.name} ${e.id} ${e.autocomplete}`)) ||
-        [...scope.querySelectorAll('input')].find((e) => /^(text|email|tel)$/.test(e.type) && e.value)
-      payload = { kind: 'login', host: location.hostname, username: user ? user.value : '', password: pw.value }
-    } else if (cc && typed(cc)) {
-      const v = (test) => (field(scope, test) || {}).value || ''
-      payload = { kind: 'card', host: location.hostname, number: cc.value,
-        exp: v((e) => /cc-exp$/.test(e.autocomplete) || /exp/i.test(e.name || e.id)),
-        cvv: v((e) => /cc-csc/.test(e.autocomplete) || /cvc|cvv|csc/i.test(e.name || e.id)),
-        name: v((e) => /cc-name/.test(e.autocomplete) || /holder|cardname/i.test(e.name || e.id)) }
-    }
-    if (!payload) return
-    const key = JSON.stringify(payload)
-    if (key === last) return
-    last = key
-    window.__proVaultCapture(payload)
-  }
-  const scopeOf = (el) => (el && el.closest && el.closest('form')) || document
-  document.addEventListener('submit', (e) => report(e.target), true)
-  document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('button,[type=submit],[role=button]'); if (b) report(scopeOf(b)) }, true)
-  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') report(scopeOf(e.target)) }, true)
-}
 
 // The type a downloaded file is stored with, so its link plays (audio, video) or opens (PDF, images) in
 // the person's browser. Markup is left as a download: it is never rendered from the storage origin.
@@ -124,13 +68,15 @@ const MEDIA = {
 export const mediaType = (name) => MEDIA[String(name).split('.').pop().toLowerCase()] || ''
 
 // A file the page downloads during a task goes to the person as a file card. Its link is the storage
-// copy (lib/attachments.js), which opens from anywhere: the agent's pods and this server share no disk.
-async function keepDownload(userId, s, d) {
+// copy (lib/attachments.js), which opens from anywhere: the agent's pods and this server share no disk —
+// and a browser on the person's PC sends its downloads here over the link (lib/browserRemote.js).
+// file: { name, read() → its bytes } from the driver
+async function keepDownload(userId, s, file) {
   const task = s.task
-  if (!task) return d.cancel().catch(() => {})
-  let name = d.suggestedFilename()
+  if (!task) return
+  let name = file.name
   try {
-    const data = await fs.promises.readFile(await d.path())
+    const data = await file.read()
     // a site that names nothing ("download"): the type its bytes show, so the card plays or opens it in place
     name = await nameByContent(name, data, (ext) => !!MEDIA[ext])
     const type = mediaType(name)
@@ -147,137 +93,95 @@ async function keepDownload(userId, s, d) {
   }
 }
 
-const VIEW = { width: 1280, height: 800 }
-// the data volume is shared with other features: Chromium's cache stays small
-const LAUNCH_ARGS = ['--disk-cache-size=52428800']
-// The live view: at most this many frames a second (PRO_BROWSER_LIVE_FPS, default 3). An animated page made Chromium
-// encode up to 9 frames a second at 1280×800 for every viewer (≈ 0.9 MB/s; 2026-11-24 measurement) — on a phone's
-// connection, and on a pod with 2 CPUs shared with the page itself.
-export const LIVE = { minMs: Math.round(1000 / Math.max(0.5, Number(process.env.PRO_BROWSER_LIVE_FPS) || 3)), width: 1024, height: 640 }
+// A task nobody watches — unattended, or not the person's own (a company routine run without asking, a process step) — in a person's PC
+// browser does not open that PC's own network (localhost, 10/8, 192.168/16, intranet, *.local …): the desktop refuses it too, by name
+// and by what the name resolves to there (host.js begin noPrivate) — this says so to the agent before it tries.
+const offLimits = (guarded, d, url) => !!guarded && d?.kind === 'local' && privateAddress(url)
+// the person's hands are needed after the task (a page left stuck, a sign-in, a check): on their PC the page stays for 「이 PC에서 보기」
+const byHandOnPc = (task) => task?.where?.kind === 'local'
+// a task that ended asking the person to look at the page: on their PC that page is kept (idle keep) — not when the PC itself went off
+const keepsPage = (task, result) => byHandOnPc(task) && !task.cancelled && ['failed', 'needs_review'].includes(result?.state) && result?.need !== 'offline'
+// a page kept for an earlier task's card goes when another task takes that PC's browser (its 「이 PC에서 보기」 is off then)
+function releaseKept(userId, s) {
+  if (!s.kept) return
+  updateMessage(userId, s.kept.taskId, { pcKept: false }).catch(() => {})
+  s.kept = null
+}
 
-async function sessionOf(userId) {
-  const s = sessions.get(userId)
-  if (s && !s.ctx._closed) return s
-  // two tasks asked for at once share one launch (a second launch on the same profile would fail); a browser that
-  // closed (it crashed) opens again in the same session, so the tasks in line keep their place
-  if (!launching.has(userId)) launching.set(userId, (s ? relaunch(userId, s, 'the browser closed') : launch(userId)).finally(() => launching.delete(userId)))
+// a person's session (made when first needed; a browser opens only when a task needs one)
+function sessionRec(userId) {
+  let s = sessions.get(userId)
+  if (!s) {
+    s = { driver: null, server: null, local: null, task: null, threadId: null, frame: null, captures: new Map(), queue: [], planning: new Map() }
+    sessions.set(userId, s)
+  }
+  return s
+}
+
+// What a driver sees on its own, for the session that uses it: frames of the live view (only the driver in use, only while a
+// task holds the browser), downloads, logins typed during takeover, the work moving to a new tab, a PC that went off.
+function hooksFor(userId, s) {
+  return {
+    frame: (d, data, url) => {
+      if (s.driver !== d) return
+      s.frame = data
+      if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url })
+    },
+    wantsDownload: (d) => !!s.task && s.driver === d,
+    download: (d, file) => keepDownload(userId, s, file).catch((e) => console.warn('[browser] download', e.message)),
+    capture: (d, payload) => onCapture(userId, s, payload),
+    moved: (d, host) => { if (s.task && s.driver === d) say(s.task, L(`${host || '새 탭'}에서 이어서 하는 중`, `Going on in ${host || 'the new tab'}`)) },
+    // the PC went off: the step under way ends now, and the next turn pauses the task (whenOffline) — a wait on the
+    // screen (a sign-in, a check, takeover) ends too: nobody can do it on a PC that is off
+    lost: (d) => {
+      const t = s.task
+      if (!t || s.driver !== d) return
+      console.warn(`[browser] task ${t.id}: the browser on ${d.device?.name || 'the PC'} went off`)
+      if (t.waiting && t.waitScreen) t.waiting(OFFLINE)
+      else if (!t.waiting && t.retry) { t.lostTurn = true; t.retry.abort('retry') }
+    },
+  }
+}
+
+// this server's Chromium for the person (launched once; a browser that closed — it crashed — opens again in the same
+// session, so the tasks in line keep their place; two tasks asked for at once share one launch)
+async function serverDriver(userId, s) {
+  if (s.server && !s.server.closed) return s.server
+  if (!launching.has(userId)) {
+    launching.set(userId, (s.server ? s.server.relaunch('the browser closed') : ServerDriver.open(userId, hooksFor(userId, s)))
+      .then((d) => { s.server = d; return d }).finally(() => launching.delete(userId)))
+  }
   return launching.get(userId)
 }
-
-async function launch(userId) {
-  const s = { ctx: null, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [], planning: new Map(), pid: 0 }
-  await openBrowser(userId, s)
-  sessions.set(userId, s)
-  return s
+// the browser on the person's PC over that link (the one the session has when it is the same link and still there)
+async function localDriver(userId, s, link) {
+  if (s.local && s.local.link === link && !s.local.lost) return s.local
+  if (s.local && !s.local.lost) await s.local.close().catch(() => {})
+  s.local = await RemoteDriver.open(link, userId, hooksFor(userId, s))
+  return s.local
 }
-
-// Chromium on the person's profile, into session s. The profile is freed first: lock links a Chromium that is gone
-// left behind (another pod, a crash), and a Chromium of this server's own that stopped answering
-// (lib/browserSteps.js releaseProfile). A launch that fails is tried once more after freeing it again.
-async function openBrowser(userId, s) {
-  const dir = path.join(PROFILES, userId)
-  fs.mkdirSync(dir, { recursive: true })
-  const freed = await releaseProfile(dir, { pid: s.pid })
-  if (freed.stopped || freed.cleared.length) console.log('[browser] freed the profile', userId, freed.stopped ? `stopped ${freed.stopped}` : '', freed.cleared.join(','))
-  const options = { headless: true, viewport: VIEW, locale: 'ko-KR', args: LAUNCH_ARGS, timeout: STEP.launchMs }
-  let ctx
-  try { ctx = await chromium.launchPersistentContext(dir, options) } catch (e) {
-    console.warn('[browser] launch failed, once more:', String(e.message).split('\n')[0])
-    await releaseProfile(dir)
-    ctx = await chromium.launchPersistentContext(dir, options)
+// Where this task runs, decided when it gets the browser (lib/browserRemote.js routeFor): the person's PC when their desktop is on, has
+// a browser and its own setting lets this task there (own: the person's own task; one nobody watches only when that PC says 'all'),
+// else this server. A PC that does not open its browser in time leaves the task to this server (said on the card: where.why). The page
+// has to answer before it is used; a task nobody watches is kept off that PC's own network (begin noPrivate).
+async function takeBrowser(userId, s, { own = true, unattended = false } = {}) {
+  const r = await routeFor(userId, { own }).catch((e) => { console.warn('[browser] route', e.message); return { kind: 'server', why: 'error' } })
+  let why = r.why || null
+  if (r.kind === 'local') {
+    try {
+      s.driver = await localDriver(userId, s, r.link)
+      await s.driver.healthy()
+      releaseKept(userId, s)
+      await s.driver.begin({ noPrivate: !!unattended || !own })
+      return { kind: 'local', device: s.driver.device.name, deviceId: s.driver.device.id }
+    } catch (e) {
+      console.warn(`[browser] the browser on ${r.link.name} did not open (${e.message}) — this server's browser takes the task`)
+      why = 'local-failed'
+    }
   }
-  ctx.on('close', () => { ctx._closed = true })
-  s.ctx = ctx
-  // the Chromium this session runs (its lock link names it, else its command line): stopped by releaseProfile should it
-  // stop answering and not close
-  s.pid = lockHolder(dir)?.pid || browserPidFor(dir)
-  await ctx.addInitScript(PAGE_GUARD)
-  await ctx.exposeBinding('__proVaultCapture', (_src, payload) => onCapture(userId, s, payload).catch((e) => console.warn('[vault capture]', e.message)))
-  const watchDownloads = (page) => page.on('download', (d) => keepDownload(userId, s, d).catch((e) => console.warn('[browser] download', e.message)).finally(() => dropDownloadTabs(s, page)))
-  // a link that opens a new tab, a sign-in popup: the work (and the live view) moves there, and back when it closes
-  s.page = null
-  ctx.on('page', (p) => { watchDownloads(p); if (s.page && s.ctx === ctx) follow(userId, s, p).catch((e) => console.warn('[browser] new page', e.message)) })
-  s.page = ctx.pages()[0] || await ctx.newPage()
-  watchDownloads(s.page)
-  await within(s.page.evaluate(PAGE_GUARD), 3000, null)
-  await within(startScreencast(userId, s), 5000, null)
-  return s
-}
-
-// The same session on a new Chromium: the old one is closed (stopped, when closing hangs) and the profile freed.
-async function relaunch(userId, s, why) {
-  console.warn(`[browser] restarting the browser of ${userId}: ${why}`)
-  const old = s.ctx
-  s.cdp = null
-  if (old && !old._closed) { old._closed = true; await within(old.close(), 5000, null) }
-  await openBrowser(userId, s)
-  sessions.set(userId, s)
-  return s
-}
-
-// Before a task drives the browser: the page has to answer (a renderer stuck in a page's script does not, and every
-// look at it would run out its limit). Else a fresh tab; else a fresh browser on the same profile.
-async function healthy(userId, s) {
-  const answers = (p) => within(p.evaluate(() => 1).then(() => true), 3000, false)
-  if (s.ctx._closed) return relaunch(userId, s, 'the browser closed')
-  if (await answers(s.page)) return s
-  // the stuck renderer is ended first (CDP Page.crash runs on its IO thread, which a looping script does not hold):
-  // a new tab of the same site would otherwise be put in that same process and be stuck as well
-  const old = s.page // (before the new tab: following it, follow() makes it s.page as soon as it opens)
-  const cdp = s.cdp || await within(s.ctx.newCDPSession(old), 2000, null)
-  await within(cdp?.send('Page.crash'), 2000, null)
-  const p = await within(s.ctx.newPage(), 5000, null)
-  if (p && await answers(p)) {
-    if (s.page !== p) await usePage(userId, s, p)
-    old.close().catch(() => {}) // (a stuck page may never confirm it closed)
-    console.warn('[browser] the page stopped answering: going on in a fresh tab', userId)
-    return s
-  }
-  return relaunch(userId, s, 'the page stopped answering')
-}
-
-// After a task: tabs it left open (links that opened new tabs, popups) close, all but the one it ended on —
-// each one is a renderer holding memory in a pod with a memory limit.
-async function closeOtherTabs(s) {
-  if (s.ctx._closed) return
-  for (const p of s.ctx.pages()) if (p !== s.page && !p.isClosed()) await within(p.close(), 3000, null)
-}
-
-// A link that downloads into a new tab leaves that tab with no page of its own (the download is the opener's);
-// Chrome closes it. Kept open, the work and the live view stayed on a blank tab, and the finished card had no
-// last screen to show (2026-11-22, NotebookLM audio overview). Once the file is kept, the tabs this page opened
-// that never got a page close, and follow() goes back.
-async function dropDownloadTabs(s, from) {
-  for (const p of s.ctx._closed ? [] : s.ctx.pages()) {
-    if (p === from || p.isClosed() || (p.url() && p.url() !== 'about:blank')) continue
-    if ((await p.opener().catch(() => null)) === from) await p.close().catch(() => {})
-  }
-}
-
-async function follow(userId, s, p) {
-  if (p === s.page || p.isClosed()) return
-  const from = s.page
-  p.once('close', () => {
-    if (s.page !== p || s.ctx._closed) return
-    const back = !from.isClosed() ? from : s.ctx.pages().filter((x) => !x.isClosed()).at(-1)
-    if (back) usePage(userId, s, back).catch((e) => console.warn('[browser] back to page', e.message))
-  })
-  await usePage(userId, s, p)
-  await p.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {})
-}
-
-async function usePage(userId, s, p) {
-  s.page = p
-  await p.bringToFront().catch(() => {})
-  const old = s.cdp
-  s.cdp = null
-  await within(old?.send('Page.stopScreencast'), 2000, null)
-  await within(old?.detach(), 2000, null)
-  // (a tab that has only just opened may not take it yet: once more a moment later)
-  const live = () => startScreencast(userId, s).then(() => true)
-  const ok = await within(live().catch(() => false), 5000, false) || (s.page === p && await within(new Promise((r) => setTimeout(r, 300)).then(live).catch((e) => { console.warn('[browser] screencast', e.message); return false }), 5000, false))
-  if (!ok && s.page === p) console.warn('[browser] no live view for this tab')
-  if (s.task) say(s.task, L(`${hostOf(p.url()) || '새 탭'}에서 이어서 하는 중`, `Going on in ${hostOf(p.url()) || 'the new tab'}`))
+  s.driver = await serverDriver(userId, s)
+  await s.driver.healthy().catch((e) => console.warn('[browser] health check', e.message))
+  return { kind: 'server', ...(why ? { why } : {}) }
 }
 
 // A login or card the user typed (takeover) is sealed into the vault at once as 'captured';
@@ -298,41 +202,19 @@ async function onCapture(userId, s, p) {
   else s.captures.set(item.id, (await addMessage(userId, threadId, 'agent', 'vault', content)).id)
 }
 
-// The live view: CDP screencast frames, at most one per LIVE.minMs (lib/browserSteps.js throttledScreencast), to
-// whoever watches (lib/bus.js drops frames for a viewer whose connection has not taken the last ones yet).
-async function startScreencast(userId, s) {
-  const page = s.page
-  const cdp = await s.ctx.newCDPSession(page)
-  s.cdp = cdp
-  throttledScreencast(cdp, {
-    minMs: LIVE.minMs,
-    onFrame: (f) => {
-      if (s.page !== page || s.cdp !== cdp) return
-      s.frame = f.data
-      if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data: f.data, url: page.url() })
-    },
-  })
-  // 1024×640 at quality 50: half the bytes of 1280×800 at 60 (≈100 KB a frame on a map page, 2026-11-24), the same 16:10 —
-  // the card and the full view never show it wider than 1024, and takeover clicks are fractions of it
-  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 50, maxWidth: LIVE.width, maxHeight: LIVE.height, everyNthFrame: 1 })
-}
-
-// A page busy with its own scripts must not hold a task for minutes: every look at it has a limit.
-const within = (p, ms, fallback) => Promise.race([Promise.resolve(p), new Promise((r) => setTimeout(() => r(fallback), ms).unref?.())]).catch(() => fallback)
-
+// The live view's newest picture (when the page changes, frames come by themselves; this is one now)
 async function pushFrame(userId, s) {
-  const shot = await s.page.screenshot({ type: 'jpeg', quality: 55, timeout: STEP.shotMs }).catch(() => null)
-  if (!shot) return null
-  s.frame = shot.toString('base64')
-  if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data: s.frame, url: s.page.url() })
-  return s.frame
+  const data = await s.driver?.frameShot().catch(() => null)
+  if (!data) return null
+  s.frame = data
+  if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url: s.driver.url() })
+  return data
 }
 
 // Numbered interactive elements and the text on screen, the agent's view of the page: lib/browserSteps.js SNAPSHOT_JS
-// (capped and bounded inside the page: 120 elements, 3000 characters, 1.5 s of scanning). Before 2026-11-24 the text
-// was the first 2500 characters of the whole document — on a results page the menus, whatever the agent scrolled to —
-// and numbers of an earlier look stayed on elements, so a click could land on an element of an older look.
-const SNAP_OPTS = { maxEls: 120, maxText: 3000, budgetMs: 1500 }
+// (capped and bounded inside the page: 120 elements, 3000 characters, 1.5 s of scanning — SNAP_OPTS, either driver). Before
+// 2026-11-24 the text was the first 2500 characters of the whole document — on a results page the menus, whatever the agent
+// scrolled to — and numbers of an earlier look stayed on elements, so a click could land on an element of an older look.
 
 // Slow work on a page (a report, an audio file being made) is waited for here, without spending the model's turns.
 export const WAIT = { everyMs: 15000, maxMinutes: 30, taskMaxMinutes: 60, watchMs: 2000, settleMs: 500 }
@@ -409,23 +291,31 @@ export async function runBrowserTask(args) {
   started.set(k, (started.get(k) || 0) + 1)
   try { return await runBrowserTaskNow(args) } finally { const n = (started.get(k) || 1) - 1; if (n > 0) started.set(k, n); else started.delete(k) }
 }
-async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, unattended, gates = config.browserGates, files = [], skill }) {
+// own: the person's own task — asked for in their own chat (agent.js); a process step, a scheduled or an agent's run is not (it runs on
+// their PC only when that PC's setting says 'all' — lib/browserRemote.js routeOf)
+async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, unattended, own = !unattended, gates = config.browserGates, files = [], skill }) {
   const sk = skill ? browserSkill(skill) : null
   if (skill && !sk) console.warn('[browser] no browser skill named', skill)
   startUrl = startUrl || sk?.startUrl || ''
-  const s = await sessionOf(userId)
+  const s = sessionRec(userId)
   const t0 = Date.now()
   // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
   const card = await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '' })
   s.planning.set(card.id, false)
-  // an idle browser is checked (a page a task before left stuck: a fresh tab or browser — healthy()) and opens the
-  // start page while the plan is being made (the page is not anyone else's)
+  // an idle browser is taken now — where it runs is decided (the person's PC or this server: takeBrowser), its page checked
+  // (a page a task before left stuck: a fresh tab or browser — healthy) — and opens the start page while the plan is being
+  // made (the page is not anyone else's)
   const idle = !s.task && !s.queue.length && s.planning.size === 1
-  let earlyPage = null // the tab the start page was opened in
-  const ready = idle ? healthy(userId, s).catch((e) => console.warn('[browser] health check', e.message)) : null
+  let earlyTab = null // the tab the start page was opened in
+  let where = null
+  let notTaken = null
+  // (nobody watches it: unattended, or not the person's own — not their PC's own network)
+  const guarded = !!unattended || !own
+  const ready = idle ? takeBrowser(userId, s, { own, unattended }).then((w) => { where = w }, (e) => { notTaken = e; console.warn('[browser] take', e.message) }) : null
+  // (not this PC's own network for a task nobody watches: the start page waits for the check below)
   const early = startUrl && idle
     ? (emit(userId, 'status', { threadId, text: L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`) }),
-      ready.then(() => { earlyPage = s.page; return navigate(earlyPage, startUrl) }).then(() => true, () => true))
+      ready.then(() => { const d = s.driver; if (!where || offLimits(guarded, d, startUrl)) return; earlyTab = d.tab; return d.navigate(startUrl) }).then(() => true, () => true))
     : null
   if (early) { s.early = early; early.then(() => { if (s.early === early) s.early = null }) }
   const p = await plan(goal).catch((e) => { console.warn('[browser] plan', e.message); return { title: firstLine(goal), steps: [] } })
@@ -436,8 +326,8 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     title: p.title, steps: p.steps.map((t) => ({ text: t, done: false })), state: ahead ? 'queued' : 'running',
     ...(ahead ? { reason: L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`) } : {}),
   })
-  const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
-    gates, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: sk?.name || null, signIn: sk?.signIn || '',
+  const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, own, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
+    gates, guarded, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: sk?.name || null, signIn: sk?.signIn || '',
     // cancel ends whatever step is under way (abort), 다시 시도 only the current one (retry, per turn)
     abort: new AbortController(), retry: null, signal: null,
     stats: newStats({ llm: 1 }) }
@@ -450,28 +340,46 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   }
   if (task.cancelled) {
     await updateMessage(userId, card.id, { state: 'cancelled', reason: '', summary: L('시작하기 전에 취소했어요.', 'Canceled before it started.') })
+    // (the browser was taken for it while it planned — on the PC that said begin: it is let go again, unless another task holds it now)
+    if (ready) { await ready; if (early) await early; if (where && !s.task) await s.driver?.idle?.().catch(() => {}) }
     return { state: 'cancelled', summary: '', notes: [], stats: task.stats }
   }
   if (ahead) await updateMessage(userId, card.id, { state: 'running', reason: '' })
   // another task's start page, opened while it planned, lands before this one drives the page
   if (s.early && s.early !== early) await s.early
   // a page left stuck by the task before (a script that never returns) is not this task's problem: a fresh tab or browser
-  // (checked already when the browser was idle at the start; a task that waited in line checks now)
+  // (taken and checked already when the browser was idle at the start; a task that waited in line takes it now)
   if (ready) await ready
-  else await healthy(userId, s).catch((e) => console.warn('[browser] health check', e.message))
+  // the browser could not be had (this server's Chromium did not start): the card says so and the next task in line goes on — never a
+  // card left running and a queue held (2026-11-25 review)
+  if (!where) {
+    try { where = await takeBrowser(userId, s, { own, unattended }) } catch (e) { notTaken = e }
+  }
+  if (!where) {
+    console.warn(`[browser] task ${card.id}: no browser — ${notTaken?.message}`)
+    const reason = L('브라우저를 열지 못해 작업을 시작하지 못했어요. 잠시 후 같은 말로 다시 시켜 주세요.', "The browser didn't open, so the task didn't start. Ask again in a moment.")
+    await updateMessage(userId, card.id, { state: 'failed', need: 'other', reason, summary: reason }).catch(() => {})
+    await setThreadStatus(userId, threadId, null).catch(() => {})
+    s.queue.shift()?.go()
+    return { state: 'failed', need: 'other', reason, summary: reason, notes: [], stats: task.stats }
+  }
   // from here the browser is this task's: anything a site sends from now on answers what this task did
   // (a code mailed for an earlier sign-in is not this one's — lib/mailCode.js watchForCode since)
   task.drivingSince = Date.now()
+  task.where = where
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
+  // where it runs, on the card (「내 PC · <기기>」 and 「이 PC에서 보기」 — TaskCard.vue)
+  await updateMessage(userId, card.id, { where })
   // the start page opened while the plan was made counts when it is in the tab still in use; else it opens now
   if (early && !ahead) await early
-  if (startUrl && !(early && !ahead && s.page === earlyPage)) {
+  if (startUrl && offLimits(guarded, s.driver, startUrl)) task.notes.push(L(`${hostOf(startUrl)}: 사람이 없는 작업이라 PC 의 내부망 주소는 열지 않음`, `${hostOf(startUrl)}: not opened — a task nobody watches does not open addresses on the PC's own network`))
+  else if (startUrl && !(early && !ahead && s.driver.tab === earlyTab)) {
     say(task, L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`))
-    await navigate(s.page, startUrl, { signal: task.abort.signal }).catch(() => {})
+    await s.driver.navigate(startUrl, { signal: task.abort.signal }).catch(() => {})
   }
-  const startedAt = s.page.url()
+  const startedAt = s.driver.url()
   await pushFrame(userId, s)
 
   const messages = [{ role: 'system', content: agentPrompt({ goal, steps: p.steps, files }) }]
@@ -483,8 +391,11 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   let { result, ended } = await drive(s, task, { messages, onAction })
   if (task.cancelled) result = { state: 'cancelled', summary: L('작업을 취소했어요.', 'I canceled the task.') }
   else if (result.state === 'done' && !ended) {
-    const reason = L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래의 작업 내용을 보고, 카드의 「직접 제어」로 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
-      `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on with "Take control" on the card or ask again more specifically.`)
+    const reason = byHandOnPc(task)
+      ? L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래의 작업 내용을 보고, 카드의 「이 PC에서 보기」로 그 PC 에 열어 둔 페이지에서 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
+        `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on in the page left open on the PC ("Show on this PC" on the card) or ask again more specifically.`)
+      : L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래의 작업 내용을 보고, 카드의 「직접 제어」로 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
+        `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on with "Take control" on the card or ask again more specifically.`)
     result = { state: 'needs_review', need: 'stuck', reason, summary: reason }
   }
   // finished without saying the result: one closing call for it (the person reads the result first)
@@ -494,28 +405,35 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
   // the person to check, and what they read is what the action log shows
   try {
-    result = honest(result, task, { moved: s.page.url() !== startedAt })
+    result = honest(result, task, { moved: s.driver.url() !== startedAt || !!task.moves })
     // a page that cannot be photographed now keeps the last screen the live view showed
     const shot = (await pushFrame(userId, s)) || s.frame
     s.task = null
     // keep the last screen on the card so it survives reloads; a card that stopped says why and what to do
-    const host = hostOf(s.page.url())
+    const host = hostOf(s.driver.url())
     const why = result.state === 'failed' || result.state === 'needs_review'
       ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: result.site || host, siteName: result.siteName || nameOn(task, host) } : { need: null, reason: '' }
-    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url() || undefined, shot, stall: null, ...why })
+    task.keep = keepsPage(task, result)
+    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.driver.url() || undefined, shot, stall: null, ...why, ...(task.where ? { where: task.where } : {}),
+      ...(byHandOnPc(task) ? { pcKept: task.keep } : {}) })
     say(task, null)
     await setThreadStatus(userId, threadId, null)
-    result.url = s.page.url()
+    result.url = s.driver.url()
     result.notes = task.notes
     result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
-    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s · ${task.stats.turns} turns · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}${task.stats.stalls ? ` · ${task.stats.stalls} stalls` : ''}${task.stats.retries ? ` · ${task.stats.retries} retried` : ''}`)
-    result.pageText = task.cancelled ? '' : hide(task, await within(s.page.evaluate(() => document.body.innerText.slice(0, 6000)), STEP.snapMs, ''))
+    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s on ${task.where?.kind === 'local' ? `the PC (${task.where.device})` : 'this server'} · ${task.stats.turns} turns · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}${task.stats.stalls ? ` · ${task.stats.stalls} stalls` : ''}${task.stats.retries ? ` · ${task.stats.retries} retried` : ''}`)
+    result.where = task.where
+    result.pageText = task.cancelled ? '' : hide(task, await s.driver.text())
     return result
   } finally {
     if (s.task === task) s.task = null
     task.dog?.stop()
-    // the tabs this task opened go (memory); the next task in line gets the browser
-    await closeOtherTabs(s).catch(() => {})
+    // the tabs this task opened go (memory); on the PC the browser sends nothing more and its page is cleared (idle); the next task in
+    // line gets the browser
+    await s.driver?.closeOtherTabs().catch(() => {})
+    // (a task that ended needing the person keeps its page on their PC for 「이 PC에서 보기」 — until another task takes that browser)
+    if (task.keep && s.driver?.kind === 'local') s.kept = { taskId: task.id }
+    await s.driver?.idle?.({ keep: !!task.keep }).catch(() => {})
     s.queue.shift()?.go()
   }
 }
@@ -557,11 +475,20 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     const signal = task.signal = AbortSignal.any([task.abort.signal, task.retry.signal])
     const tm = { snap: 0, judge: 0, shot: 0, llm: 0, act: 0 }
     let pushed = 0, msg = null, call = null
+    // the PC this task runs on went off: paused until the person chooses (this server's browser) or the PC is back
+    if (s.driver.lost) {
+      const off = await whenOffline(s, task, messages)
+      if (off.end) { result = off.end; ended = true; break }
+      turn--
+      continue
+    }
     try {
     phase(task, 'read', L('페이지 읽는 중', 'Reading the page'), L('페이지 읽기', 'reading the page'))
     let t = Date.now()
     let snap = await bounded(look(s), STEP.snapMs + 2000, { signal, label: 'read' })
     tm.snap = Date.now() - t
+    if (s.driver.lost) { turn--; continue }
+    if (!snap.more?.unread) task.reopens = 0
     if (stop(snap)) { result = { state: 'stopped', summary: '' }; ended = true; break }
     task.page = { host: hostOf(snap.url), name: pageName(snap) }
     let hint = ''
@@ -598,14 +525,14 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     pushed = 1
     t = Date.now()
     phase(task, 'shot', undefined, L('화면 사진', 'the screenshot'))
-    const shot = await bounded(s.page.screenshot({ type: 'jpeg', quality: 50, mask: [s.page.locator(SECRET_SELECTOR)], maskColor: '#1d1d1f', timeout: STEP.shotMs }).catch(() => null), STEP.shotMs + 2000, { signal, label: 'screenshot' }).catch((e) => { if (isStop(e)) throw e; return null })
+    const shot = await bounded(s.driver.shot(), STEP.shotMs + 2000, { signal, label: 'screenshot' }).catch((e) => { if (isStop(e)) throw e; return null })
     tm.shot = Date.now() - t
     if (shot) {
       messages.push({ role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${shot.toString('base64')}` } }] })
       pushed = 2
       // the same picture is the live view's newest frame (no second screenshot after the action)
       s.frame = shot.toString('base64')
-      emit(task.userId, 'browser.frame', { taskId: task.id, data: s.frame, url: s.page.url() })
+      emit(task.userId, 'browser.frame', { taskId: task.id, data: s.frame, url: s.driver.url() })
     }
     t = Date.now()
     phase(task, 'model', L('다음 할 일 고르는 중', 'Deciding what to do next'), L('AI 모델의 답', "the AI model's answer"))
@@ -634,7 +561,8 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
       if (e instanceof StepError) task.stats.step_timeouts++
       out = e instanceof StepError
         ? `error: the action did not finish within ${Math.round(e.ms / 1000)} s and was left; look at the page again`
-        : 'error: ' + e.message.slice(0, 200)
+        : e.lost ? 'error: the browser on the person\'s PC went off before this finished; it may not have happened'
+          : 'error: ' + e.message.slice(0, 200)
     }
     tm.act = Date.now() - t
     timing(task, tm, name)
@@ -676,10 +604,12 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
         for (const extra of msg.tool_calls.slice(1)) messages.push({ role: 'tool', tool_call_id: extra.id, content: 'skipped: one action per turn' })
       }
       if (e.kind === 'cancel' || task.cancelled) break
-      // 다시 시도: the same turn again, from a fresh look (it does not count as one of the agent's turns)
-      task.stats.retries++
       task.prev = null
       turn--
+      // the PC went off part way (hooksFor lost): the next turn pauses the task
+      if (task.lostTurn) { task.lostTurn = false; continue }
+      // 다시 시도: the same turn again, from a fresh look (it does not count as one of the agent's turns)
+      task.stats.retries++
       say(task, L('다시 보는 중', 'Looking again'))
     }
   }
@@ -806,7 +736,7 @@ async function pageGate(s, task, snap) {
     if (sure(d, 'loading') && i < 2) {
       task.stats.waits++
       say(task, L('페이지 기다리는 중', 'Waiting for the page'))
-      await s.page.waitForTimeout(1500)
+      await pause(1500, task.signal)
       snap = await look(s)
       continue
     }
@@ -882,10 +812,12 @@ export function honest(result, task, { moved = false } = {}) {
   const facts = task.notes.length
   if (result.state === 'done' && !acted && !facts && !moved) {
     const planned = (task.steps || []).map((x, i) => `${i + 1}. ${x}`).join('\n')
+    const pc = byHandOnPc(task)
     return { ...result, state: 'needs_review', need: 'other',
-      reason: L('브라우저에서 아무 동작도 하지 못하고 끝났어요. 같은 말로 다시 시키거나, 카드의 「직접 제어」로 화면을 확인해 주세요.', 'The task ended without doing anything in the browser. Ask again, or check the screen with "Take control" on the card.'),
-      summary: L(`브라우저에서 아무 동작도 하지 못한 채 작업이 끝났어요. 계획한 단계는 하나도 진행되지 않았어요.${planned ? `\n\n계획했던 단계\n${planned}` : ''}\n\n다시 시키거나, 작업 카드에서 직접 제어로 확인해 주세요.`,
-        `The task ended without any action in the browser. None of the planned steps was done.${planned ? `\n\nPlanned steps\n${planned}` : ''}\n\nAsk again, or check it yourself with Take control on the task card.`) }
+      reason: pc ? L('브라우저에서 아무 동작도 하지 못하고 끝났어요. 같은 말로 다시 시키거나, 카드의 「이 PC에서 보기」로 그 PC 에 열어 둔 페이지를 확인해 주세요.', 'The task ended without doing anything in the browser. Ask again, or check the page left open on the PC with "Show on this PC" on the card.')
+        : L('브라우저에서 아무 동작도 하지 못하고 끝났어요. 같은 말로 다시 시키거나, 카드의 「직접 제어」로 화면을 확인해 주세요.', 'The task ended without doing anything in the browser. Ask again, or check the screen with "Take control" on the card.'),
+      summary: L(`브라우저에서 아무 동작도 하지 못한 채 작업이 끝났어요. 계획한 단계는 하나도 진행되지 않았어요.${planned ? `\n\n계획했던 단계\n${planned}` : ''}\n\n다시 시키거나, ${pc ? '작업 카드의 「이 PC에서 보기」로 그 PC 에서' : '작업 카드에서 직접 제어로'} 확인해 주세요.`,
+        `The task ended without any action in the browser. None of the planned steps was done.${planned ? `\n\nPlanned steps\n${planned}` : ''}\n\nAsk again, or check it yourself with ${pc ? 'Show on this PC on the task card' : 'Take control on the task card'}.`) }
   }
   if (result.state !== 'done' && result.state !== 'needs_review') return result
   const said = String(result.summary || '').trim()
@@ -898,13 +830,11 @@ export function honest(result, task, { moved = false } = {}) {
 
 // ---- the page as the agent reads it, and when the person has to step in ----
 
-// a page that does not answer in time (a script holding it) reads as empty, and says so
-const BLANK = (s) => ({ title: '', url: s.page.url(), text: '', els: [], more: { unread: true } })
-const look = (s) => within(lookAll(s.page, { ...SNAP_OPTS, timeoutMs: STEP.snapMs, view: VIEW }), STEP.snapMs + 1000, null).then((x) => x || BLANK(s))
-// the element numbered i in the look the model was shown, in whichever frame holds it
-const elAt = (s, task, i) => (task?.lastSnap?.frameOf?.get(Number(i)) || s.page).locator(`[data-pro-idx="${i}"]`).first()
+// the agent's view of the page (a page that does not answer in time — a script holding it — reads as empty, and says so;
+// the driver keeps which frame holds each number of this look, and acts on that element)
+const look = (s) => within(s.driver.look(), STEP.snapMs + 2000, null).then((x) => x || blankOf(s.driver.url()))
 // the agent's view of any Playwright page (the live wall check, test/browser-walls.live.mjs)
-export const snapshotOf = (page) => look({ page })
+export const snapshotOf = (page) => lookAt(page)
 // the same address and the same things on screen
 const pageKey = (snap) => crypto.createHash('sha1').update(`${snap.url}\n${snap.text}\n${(snap.els || []).map((e) => `${e.tag}:${e.text}:${e.filled ? 1 : 0}`).join('|')}`).digest('hex')
 // tools whose effect shows on the page; when it does not, turn after turn, the task is stuck
@@ -1053,9 +983,13 @@ async function atWall(s, task, wall, snap) {
   const n = task.walls[key] = (task.walls[key] || 0) + 1
   const name = wall.name || site
   if (n > WALL_WAITS) {
-    const reason = wall.need === 'captcha'
-      ? L(`${name}의 로봇 확인이 풀리지 않아 멈췄어요. 카드의 「직접 제어」로 확인을 마친 뒤 다시 시켜 주세요.`, `The bot check on ${name} wasn't passed, so I stopped. Finish it with "Take control" on the card, then ask again.`)
-      : L(`${name} 로그인이 끝나지 않아 멈췄어요. 카드의 「직접 로그인」으로 로그인한 뒤 다시 시켜 주세요.`, `The sign-in to ${name} wasn't finished, so I stopped. Sign in with "Sign in yourself" on the card, then ask again.`)
+    const reason = byHandOnPc(task)
+      ? (wall.need === 'captcha'
+        ? L(`${name}의 로봇 확인이 풀리지 않아 멈췄어요. 카드의 「이 PC에서 보기」로 그 PC 에 열어 둔 페이지에서 확인을 마친 뒤 다시 시켜 주세요.`, `The bot check on ${name} wasn't passed, so I stopped. Finish it in the page left open on the PC ("Show on this PC" on the card), then ask again.`)
+        : L(`${name} 로그인이 끝나지 않아 멈췄어요. 카드의 「이 PC에서 보기」로 그 PC 에 열어 둔 페이지에서 로그인한 뒤 다시 시켜 주세요.`, `The sign-in to ${name} wasn't finished, so I stopped. Sign in in the page left open on the PC ("Show on this PC" on the card), then ask again.`))
+      : wall.need === 'captcha'
+        ? L(`${name}의 로봇 확인이 풀리지 않아 멈췄어요. 카드의 「직접 제어」로 확인을 마친 뒤 다시 시켜 주세요.`, `The bot check on ${name} wasn't passed, so I stopped. Finish it with "Take control" on the card, then ask again.`)
+        : L(`${name} 로그인이 끝나지 않아 멈췄어요. 카드의 「직접 로그인」으로 로그인한 뒤 다시 시켜 주세요.`, `The sign-in to ${name} wasn't finished, so I stopped. Sign in with "Sign in yourself" on the card, then ask again.`)
     return { end: { state: 'failed', need: wall.need, reason, summary: reason, site: wall.site, siteName: name } }
   }
   task.stats.walls++
@@ -1064,7 +998,7 @@ async function atWall(s, task, wall, snap) {
   const offer = wall.need === 'login' && !vf && !have && !task.declined.has(site) && !!loginFields(snap)
   const seen = {}
   const answer = await waitForUser(s, task, {
-    need: wall.need, reason: vf?.why || wallReason(wall, n > 1, offer), site, siteName: name,
+    need: wall.need, reason: vf?.why || wallReason(wall, n > 1, offer), site, siteName: name, screen: true,
     ...(offer ? { message: ['vault', { kind: 'login', site, mode: 'request' }] } : {}),
     // after the vault's own try the page may show a check rather than the sign-in form: only the wall gone ends it
     watch: wallWatch(task, vf?.snap || snap, vf ? ['login', 'captcha'] : [wall.need], seen),
@@ -1118,18 +1052,13 @@ export function loginFields(snap) {
 // NAVER's id and password fields listen for keydown/keyup and its form carries behaviour data (bvsd), while fill()
 // sends no key at all (2026-11-24, nid.naver.com with made-up values and the network closed). The field is masked and
 // remembered before the first key: the live view never shows it, and the page guard does not take it back as typed by
-// the person. (A driver of its own does the same: masked first, then keys.)
+// the person. Either page driver does it (fillSecret with keys) — on the person's PC the value goes to their own desktop
+// for this one fill, typed there.
 async function typeSecret(s, task, i, value) {
   const v = String(value)
-  const field = elAt(s, task, i)
   remember(task, v)
-  await field.evaluate((e, x) => { e.__proFilled = x; e.setAttribute('data-pro-secret', '') }, v, { timeout: 3000 })
-  await point(s, task, field, 'type')
-  await field.fill('', { timeout: 5000 })
-  for (const ch of v) {
-    await field.pressSequentially(ch, { timeout: 5000 })
-    await pause(40 + Math.floor(Math.random() * 60), task.signal)
-  }
+  await point(s, task, i, 'type')
+  await s.driver.fillSecret(i, v, { keys: true, signal: task.signal })
 }
 
 // What the page shows after the vault's login was sent — judged (the same judge as walls), never read by wording.
@@ -1212,8 +1141,7 @@ async function vaultFirstOnWall(s, task, wall, snap) {
         if (form.pass != null && !await fill(form.pass, 'password')) return { hint: `\n[vault: the saved login for ${site} has no password; ask the person with need_login]` }
         task.log.push({ kind: 'fill_secret', text: L(`보관함의 로그인 입력 · ${own}`, `Fill in the Vault login · ${own}`), ok: true })
         const before = readKey(cur)
-        await elAt(s, task, form.pass ?? form.user).press('Enter', { timeout: 5000 })
-        await settle(s.page, task.signal)
+        await s.driver.press(form.pass ?? form.user, 'Enter', { signal: task.signal })
         cur = await lookAfterSend(s, task, before)
         task.lastSnap = cur
         // Enter did not send this form (its button does, by a script of its own): the agent presses it
@@ -1302,8 +1230,130 @@ async function whenStuck(s, task, snap) {
   task.stale = 0
   task.prev = null
   if (task.unattended || ++task.stuckWaits > 2) return { end: { state: 'failed', need: 'stuck', reason, summary: reason } }
-  await waitForUser(s, task, { need: 'stuck', reason, site })
+  await waitForUser(s, task, { need: 'stuck', reason, site, screen: true })
   return {}
+}
+
+// ---- a task on the person's PC whose PC went off (2026-11-24: 「순수 모바일에서는 이 작업이 가능해야」 — the task is not lost, and
+// never moves by itself: the person chooses) ----
+const OFFLINE = '__offline__'
+const TO_SERVER = '__to_server__'
+const PC_BACK = '__pc_back__'
+const GAVE_UP = '__offline_timeout__'
+// how long a paused task waits for its PC before it stops (tests shorten it)
+export const OFFLINE_WAIT = { ms: 30 * 60 * 1000 }
+// times a task reopens the browser of a PC that is still linked (its window gone, the app restarting it) before it pauses
+export const MAX_REOPENS = 3
+function brokenReason(device, host) {
+  const pc = device ? L(`「${device}」`, `"${device}"`) : L('PC', 'the PC')
+  return L(`${pc}의 브라우저가 거듭 열리지 않아 작업을 멈췄어요. 「서버에서 이어서」를 누르면 서버 브라우저가 지금 페이지${host ? `(${host})` : ''}부터 이어서 해요. PC 앱을 다시 켜면 그 PC 에서 이어서 해요.`,
+    `The browser on ${pc} kept failing to open, so I paused the task. "Continue on the server" goes on in the server's browser from this page${host ? ` (${host})` : ''}. Restart the desktop app to go on on that PC.`)
+}
+
+function offlineReason(device, host, waiting) {
+  const pc = device ? L(`「${device}」`, `"${device}"`) : L('PC', 'the PC')
+  if (waiting) {
+    return L(`${pc}의 PC 앱이 다시 연결되면 그 PC 에서 이어서 해요. 기다리지 않으려면 「서버에서 이어서」를 눌러 주세요.`,
+      `I'll go on on ${pc} when its desktop app is linked again. To go on without it, press "Continue on the server".`)
+  }
+  return L(`${pc}의 PC 앱 연결이 끊겨 브라우저 작업을 멈췄어요. 「서버에서 이어서」를 누르면 서버 브라우저가 지금 페이지${host ? `(${host})` : ''}부터 이어서 해요 — PC 에서 한 로그인은 서버 브라우저에 없어요. 「PC가 다시 켜지면」을 누르면 PC 앱이 다시 연결될 때 그 PC 에서 이어서 해요.`,
+    `The desktop app on ${pc} went offline, so I paused the browser task. "Continue on the server" goes on in the server's browser from this page${host ? ` (${host})` : ''} — sign-ins made on the PC are not there. "When the PC is back" goes on on that PC when its app is linked again.`)
+}
+
+// The PC a task runs on went off (hooksFor lost): the same PC back already — a link that blinked — goes on there at once; else the
+// task waits (its card: 「서버에서 이어서」 · 「PC가 다시 켜지면」 · 멈추기) until the person chooses this server's browser, the PC
+// comes back, or OFFLINE_WAIT runs out. A task nobody watches (unattended) stops, saying so. Never moved without the person.
+// → { end } to stop the task, or {} to go on (s.driver is a browser that answers)
+async function whenOffline(s, task, messages) {
+  const was = s.driver
+  const url = was.url()
+  const device = was.device || {}
+  const tenant = config.tenantId
+  const host = hostOf(url)
+  let link = H.linksOf(tenant, task.userId).find((l) => l.id === device.id && l.caps?.browser) || null
+  // the PC is still linked but its browser keeps failing to open: after MAX_REOPENS tries the task pauses as if it were off (the person
+  // chooses this server's browser, or waits for the app to come back) — never a loop of reopening (2026-11-25 review)
+  let broken = false
+  if (link && (task.reopens = (task.reopens || 0) + 1) > MAX_REOPENS) { broken = true; link = null; console.warn(`[browser] task ${task.id}: the browser on ${device.name} did not open ${MAX_REOPENS} times`) }
+  if (!link) {
+    if (task.unattended) {
+      const reason = L(`「${device.name || 'PC'}」의 PC 앱 연결이 끊겨 브라우저 작업을 멈췄어요. 같은 일을 다시 시키면 지금 쓸 수 있는 브라우저(PC 앱이 꺼져 있으면 서버 브라우저)에서 처음부터 해요.`,
+        `The desktop app on "${device.name || 'the PC'}" went offline, so I stopped the browser task. Ask again and it starts over in a browser that is there now (the server's, while the PC is off).`)
+      task.notes.push(reason)
+      return { end: { state: 'failed', need: 'offline', reason, summary: reason } }
+    }
+    console.warn(`[browser] task ${task.id}: paused — the browser on ${device.name} went off`)
+    task.stats.offline = (task.stats.offline || 0) + 1
+    task.offline = { device: device.name || '', since: new Date().toISOString(), waiting: false, url }
+    const ctl = new AbortController()
+    BL.waitForLink({ tenant, userId: task.userId, deviceId: device.id, signal: ctl.signal }).then((l) => { if (l) { link = l; task.waiting?.(PC_BACK) } })
+    const timer = setTimeout(() => task.waiting?.(GAVE_UP), OFFLINE_WAIT.ms)
+    timer.unref?.()
+    let answer
+    try {
+      answer = await waitForUser(s, task, { need: 'offline', reason: broken ? brokenReason(device.name, host) : offlineReason(device.name, host, false), site: host, siteName: task.page?.name || host,
+        extra: { offline: { device: device.name || '', since: task.offline.since, waiting: false } } })
+    } finally { ctl.abort(); clearTimeout(timer); task.offline = null }
+    if (task.cancelled || answer === 'cancelled') return { end: { state: 'cancelled', summary: '' } }
+    if (answer === GAVE_UP) {
+      const reason = L(`「${device.name || 'PC'}」의 PC 앱이 ${Math.round(OFFLINE_WAIT.ms / 60000)}분 안에 다시 연결되지 않아 작업을 멈췄어요. 다시 시키면 지금 쓸 수 있는 브라우저에서 처음부터 해요.`,
+        `The desktop app on "${device.name || 'the PC'}" was not back within ${Math.round(OFFLINE_WAIT.ms / 60000)} minutes, so I stopped. Ask again to start over in a browser that is there now.`)
+      return { end: { state: 'failed', need: 'offline', reason, summary: reason } }
+    }
+    if (answer === TO_SERVER) return toServer(s, task, messages, { url, device })
+    if (answer !== PC_BACK || !link) return {} // (given back some other way: the next turn looks again)
+    task.reopens = 0
+  }
+  // the PC is back: its browser again, on the page the task was on (still open there when the app stayed up)
+  try {
+    s.driver = await localDriver(task.userId, s, link)
+    await s.driver.healthy()
+    await s.driver.begin({ noPrivate: !!task.guarded })
+    if (url && !/^about:/.test(url) && s.driver.url() !== url && !offLimits(task.guarded, s.driver, url)) await s.driver.navigate(url, { signal: task.abort.signal })
+  } catch (e) {
+    if (isStop(e)) return {}
+    console.warn(`[browser] task ${task.id}: the PC came back but its browser did not answer (${e.message})`)
+    return {} // (still lost: the next turn pauses again)
+  }
+  say(task, L(`${device.name || 'PC'}에서 이어서 하는 중`, `Going on on ${device.name || 'the PC'}`))
+  messages.push({ role: 'user', content: '[The browser on the person\'s PC was offline for a while and is back. Look at the page again before you act.]' })
+  task.prev = null
+  task.judged = null
+  await pushFrame(task.userId, s)
+  return {}
+}
+
+// 「서버에서 이어서」: this server's browser takes the task from the page it was on (the card says so, and so does the agent)
+async function toServer(s, task, messages, { url, device }) {
+  s.driver = await serverDriver(task.userId, s)
+  await s.driver.healthy().catch((e) => console.warn('[browser] health check', e.message))
+  task.where = { kind: 'server', from: 'local', device: device.name || '' }
+  task.moves = (task.moves || 0) + 1
+  await updateMessage(task.userId, task.id, { where: task.where })
+  if (url && !/^about:/.test(url)) {
+    say(task, L(`서버 브라우저에서 ${hostOf(url)} 여는 중`, `Opening ${hostOf(url)} in the server's browser`))
+    await s.driver.navigate(url, { signal: task.abort.signal }).catch(() => {})
+  }
+  console.log(`[browser] task ${task.id}: goes on in this server's browser at ${url || '(no address)'} (the person chose it; ${device.name} is off)`)
+  messages.push({ role: 'user', content: `[The person's PC went offline. The task goes on in the server's browser, which opened ${url || 'a blank page'} again. Sign-ins made on the PC are not in this browser: a page that needs one may ask to sign in now.]` })
+  task.prev = null
+  task.judged = null
+  await pushFrame(task.userId, s)
+  return {}
+}
+
+// The person's choice on a paused task's card (POST /api/browser/route): 'server' — this server's browser takes it now;
+// 'wait' — it waits for the PC (the card says so). → false when that task is not paused for its PC.
+export async function routeTo(userId, taskId, to) {
+  const t = sessions.get(userId)?.task
+  if (!t?.offline || !t.waiting || (taskId && t.id !== taskId)) return false
+  if (to === 'server') { t.waiting(TO_SERVER); return true }
+  if (to === 'wait') {
+    t.offline.waiting = true
+    await updateMessage(userId, t.id, { offline: { device: t.offline.device, since: t.offline.since, waiting: true }, reason: offlineReason(t.offline.device, hostOf(t.offline.url), true) })
+    return true
+  }
+  return false
 }
 
 // An error that ended the task, in words the person can act on.
@@ -1315,17 +1365,9 @@ function failReason(e) {
     `The browser task stopped on an error (${m.replace(/\s+/g, ' ').slice(0, 80)}). Ask again in a moment; if it keeps failing, check the last screen with "Take control" on the card.`)
 }
 
-// The words on the page a wait looks for: its text, and what fields hold or show (a value typed in, a placeholder) —
-// the model picks until_text from the snapshot, where a field shows itself by those (2026-11-24: waits for the
-// placeholder 「어디로 떠나시나요?」 and for 「계룡시」 typed into a field each ran their full minute). null: unread.
-const PAGE_WORDS_JS = () => {
-  const b = document.body
-  if (!b) return ''
-  const fields = [...document.querySelectorAll('input:not([type=hidden]):not([type=password]),textarea,select')].slice(0, 300)
-    .map((e) => [e.tagName === 'SELECT' ? e.options[e.selectedIndex]?.text : e.value, e.placeholder, e.getAttribute('aria-label')].filter(Boolean).join(' '))
-  return `${b.innerText}\n${fields.join('\n')}`
-}
-const pageWords = (s) => within(s.page.evaluate(PAGE_WORDS_JS), 5000, null)
+// The words on the page a wait looks for (lib/browserSteps.js PAGE_WORDS_JS: its text, and what fields hold or show — never a
+// secret field's value). null: unread.
+const pageWords = (s) => s.driver.words()
 
 // Is the page doing slow work by itself, or will what the agent waits for only come after it acts? Judged (the same
 // judge as walls) once per wait, never by wording; only a sure "nothing is in progress" (WALL_BAR) turns the wait down.
@@ -1379,22 +1421,9 @@ async function waitForPage(s, task, a) {
   } finally { task.waitedMinutes = (task.waitedMinutes || 0) + passed() }
 }
 
-// The element an action is about, as the person would name it: a button by its text, a field by its
-// label or placeholder (never its value), a secret field only by its kind. `what` is for the purchase gate.
-const DESCRIBE_JS = (e) => {
-  const tag = e.tagName.toLowerCase()
-  const field = tag === 'input' || tag === 'textarea' || tag === 'select' || e.isContentEditable
-  const auto = e.autocomplete || ''
-  const id = `${e.name || ''} ${e.id || ''}`
-  const secret = e.type === 'password' ? 'password' : /^cc-number/.test(auto) || /card.?(no|num)|cardnumber/i.test(id) ? 'card'
-    : /^cc-csc/.test(auto) || /cvc|cvv|csc/i.test(id) ? 'cvc' : /^cc-exp/.test(auto) ? 'exp' : /one-time-code/.test(auto) || /otp/i.test(id) ? 'otp'
-      : e.hasAttribute('data-pro-secret') || /^cc-/.test(auto) ? 'secret' : ''
-  const label = e.getAttribute('aria-label') || (e.labels && e.labels[0] && e.labels[0].innerText) || e.placeholder || e.getAttribute('title') || ''
-  const button = tag === 'input' && /^(submit|button|reset)$/.test(e.type) ? e.value : ''
-  const name = (field && !button ? label || e.name || '' : e.innerText || label || button || e.getAttribute('alt') || '').replace(/\s+/g, ' ').trim()
-  const what = field && !button ? '' : [e.innerText, e.value, e.getAttribute('aria-label'), e.getAttribute('title')].filter(Boolean).join(' ').trim().slice(0, 80)
-  return { name: name.length > 30 ? `${name.slice(0, 29)}…` : name, field: !!field && !button, secret, what }
-}
+// The element an action is about, as the person would name it (lib/browserSteps.js DESCRIBE_JS, run by the driver): a button
+// by its text, a field by its label or placeholder (never its value), a secret field only by its kind. `what` is for the
+// purchase gate.
 const SECRET_KIND = { password: ['비밀번호 칸', 'the password field'], card: ['카드 번호 칸', 'the card number field'], cvc: ['CVC 칸', 'the CVC field'], exp: ['카드 만료일 칸', 'the card expiry field'], otp: ['인증 코드 칸', 'the code field'], secret: ['비밀 칸', 'a secret field'] }
 // The live line while acting: 「새 노트북」 누르는 중 · 「검색」 칸에 입력 중 · 비밀번호 칸에 입력 중
 export function actionLine(kind, target = {}, host = '') {
@@ -1407,19 +1436,13 @@ export function actionLine(kind, target = {}, host = '') {
 
 // Where the agent is about to press or type, in page pixels of the live view (1280×800), so the card
 // can draw a circle there. The element is scrolled into view first, as the click itself would.
-async function point(s, task, locator, kind) {
+async function point(s, task, i, kind) {
   try {
-    await locator.scrollIntoViewIfNeeded({ timeout: 2000 })
-    const b = await locator.boundingBox({ timeout: 2000 })
+    const b = await within(s.driver.box(i), 5000, null)
     if (!b) return
-    const { width: w, height: h } = s.page.viewportSize() || VIEW
-    emit(task.userId, 'browser.click', { taskId: task.id, x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), w, h, kind })
+    emit(task.userId, 'browser.click', { taskId: task.id, x: b.x, y: b.y, w: b.w, h: b.h, kind })
   } catch { /* the action itself reports what is wrong */ }
 }
-
-// After a press: a short pause for the page to react, and the new page's load when it navigated.
-// (lib/browserSteps.js settleAfter: bounded, and 작업 취소 · 다시 시도 end it)
-const settle = (page, signal) => settleAfter(page, { pauseMs: WAIT.settleMs, docMs: 5000, signal })
 
 async function act(s, task, name, a) {
   const out = await doAct(s, task, name, a)
@@ -1435,19 +1458,20 @@ async function markStep(task, n, note) {
 }
 
 async function doAct(s, task, name, a) {
-  const el = (i) => elAt(s, task, i)
-  const host = (() => { try { return new URL(name === 'goto' ? a.url : s.page.url()).hostname.replace(/^www\./, '') } catch { return '' } })()
+  const d = s.driver
+  const host = (() => { try { return new URL(name === 'goto' ? a.url : d.url()).hostname.replace(/^www\./, '') } catch { return '' } })()
   const live = (isEn() ? { goto: `Opening ${host}`, click: `Clicking on ${host}`, type: `Typing on ${host}`, fill_secret: `Typing on ${host}`, scroll: 'Looking at the page', note: 'Taking notes', step_done: 'On to the next step', read_skill: `Reading the ${a.name || ''} skill` }
     : { goto: `${host} 여는 중`, click: `${host}에서 누르는 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로', read_skill: `${a.name || ''} 스킬 읽는 중` })[name]
   // what is being pressed or typed into, by its name on the page (never the value in it)
   // (an element that is no longer there — the page drew itself again — is found out in a second or two, not ten)
-  task.target = ['click', 'type', 'fill_secret'].includes(name) ? { i: a.i, ...await within(el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 1500 }), 2500, {}) } : null
+  task.target = ['click', 'type', 'fill_secret'].includes(name) ? { i: a.i, ...await within(d.describe(a.i), 2500, {}) } : null
   const line = task.target ? actionLine(name === 'click' ? 'click' : 'type', task.target, host) : live
   if (line) { say(task, line); task.dog?.label(line) }
   switch (name) {
     case 'goto': {
+      if (offLimits(task.guarded, d, a.url)) return 'refused: this task runs with nobody watching on the person\'s PC, which does not open addresses on its own network (localhost, 10.x, 192.168.x …); use a public address'
       // the document, not the page going quiet: a page that keeps loading is read as it is (lib/browserSteps.js navigate)
-      const r = await navigate(s.page, a.url, { signal: task.signal })
+      const r = await d.navigate(a.url, { signal: task.signal })
       if (!r.ok) return `error: could not open ${a.url} (${r.error})`
       return r.partial ? `ok (the page was still loading after ${Math.round(r.ms / 1000)} s; it was stopped and is read as it is)` : 'ok'
     }
@@ -1456,7 +1480,7 @@ async function doAct(s, task, name, a) {
       // one that commits money only after the person approved (the approve card) — whatever the model says
       // (the description timed out: read it again before pressing — an unread control must not slip past the gate)
       if (!('what' in task.target)) {
-        const again = await el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 2000 }).catch(() => null)
+        const again = await d.describe(a.i, { strict: true, ms: 2000 }).catch(() => null)
         if (!again) return 'error: this element is no longer on the page (the page changed since your last look); look at the page again before pressing anything'
         task.target = { i: a.i, ...again }
       }
@@ -1468,28 +1492,23 @@ async function doAct(s, task, name, a) {
           if (!/approved: do it now/.test(String(ok))) return `not pressed: ${ok}`
         }
       }
-      await point(s, task, el(a.i), 'click')
-      await el(a.i).click({ timeout: 8000 })
-      await settle(s.page, task.signal)
+      await point(s, task, a.i, 'click')
+      await d.click(a.i, { signal: task.signal })
       return 'ok'
     }
     case 'type': {
       // the model never types into a secret field, even text it found on the page
-      if (task.target.secret || await el(a.i).evaluate((e, sel) => e.matches(sel) || /card.?(no|num)|cardnumber|cvc|cvv|csc|otp/i.test(`${e.name} ${e.id}`), SECRET_SELECTOR, { timeout: 3000 })) {
+      if (task.target.secret || await d.isSecret(a.i)) {
         return 'refused: this is a secret field; use fill_secret (saved login/card) or need_secret (one-time code)'
       }
-      await point(s, task, el(a.i), 'type')
-      await el(a.i).fill(a.text, { timeout: 8000 }); if (a.enter) { await el(a.i).press('Enter', { timeout: 8000 }); await settle(s.page, task.signal) }
+      await point(s, task, a.i, 'type')
+      await d.fill(a.i, a.text, { enter: !!a.enter, signal: task.signal })
       return 'ok'
     }
     case 'scroll': {
       // the wheel turns what is under the pointer: over the element given (its list, its frame), else the middle of the page
       // (2026-11-24: on a map whose results are a frame, five turns of the wheel at the corner moved nothing)
-      const box = a.i != null && a.i !== '' ? await within(el(a.i).boundingBox({ timeout: 1500 }), 2500, null) : null
-      const { width, height } = s.page.viewportSize() || VIEW
-      await s.page.mouse.move(box ? box.x + box.width / 2 : width / 2, box ? box.y + box.height / 2 : height / 2)
-      await s.page.mouse.wheel(0, a.dy || 600)
-      await pause(300, task.signal) // (the page scrolls a moment after the wheel: the next look sees where it went)
+      await d.scroll(a.i != null && a.i !== '' ? a.i : null, a.dy || 600, { signal: task.signal })
       return 'ok'
     }
     case 'wait_for_page': return waitForPage(s, task, a)
@@ -1500,15 +1519,13 @@ async function doAct(s, task, name, a) {
       if (!f) return list.length ? `error: no attached file is named '${a.name || ''}' — the files are: ${list.map((x) => x.name).join(', ')}` : 'error: no file was attached to this task'
       const { file, done } = await localCopy(f)
       try {
-        await point(s, task, el(a.i), 'click')
-        if (await el(a.i).evaluate((e) => e.tagName === 'INPUT' && e.type === 'file', undefined, { timeout: 3000 })) { await el(a.i).setInputFiles(file); return `attached ${f.name}` }
-        const [chooser] = await Promise.all([s.page.waitForEvent('filechooser', { timeout: 8000 }), el(a.i).click({ timeout: 8000 })])
-        await chooser.setFiles(file)
+        await point(s, task, a.i, 'click')
+        await d.attach(a.i, file, f.name)
         return `attached ${f.name}`
       } finally { await done() }
     }
     case 'fill_secret': {
-      const site = normSite(new URL(s.page.url()).hostname)
+      const site = normSite(new URL(d.url()).hostname)
       const kind = String(a.field).startsWith('card') ? 'card' : 'login'
       const item = await pickItem(s, task, kind, site)
       if (!item) return kind === 'card' ? 'no card saved: the user did not add one' : `no credential saved for ${site}`
@@ -1516,8 +1533,8 @@ async function doAct(s, task, name, a) {
       const val = { username: sec.username || sec.email, password: sec.password, card_number: sec.number, card_exp: sec.exp,
         card_cvv: sec.cvv, card_name: sec.name }[a.field]
       if (!val) return `the saved ${kind} has no ${a.field}`
-      await point(s, task, el(a.i), 'type')
-      await fillSecret(el(a.i), val, task)
+      await point(s, task, a.i, 'type')
+      await fillSecret(s, a.i, val, task)
       if (kind === 'login') task.used[site] = item.id
       return 'filled ' + a.field
     }
@@ -1547,7 +1564,7 @@ async function doAct(s, task, name, a) {
       // a code the site e-mailed: the person's own mailbox is watched while the card asks them (lib/mailCode.js);
       // whichever comes first — the mail or the person — goes into the field
       const watch = await mailCode.enabledFor(task.userId).catch(() => false)
-      const names = watch ? mailCode.namesOf(await s.page.title().catch(() => '')) : []
+      const names = watch ? mailCode.namesOf(await d.title().catch(() => '')) : []
       if (task.unattended) {
         const found = watch && await mailCode.watchForCode(task.userId, { site: host, names, since: task.drivingSince, timeoutMs: 120000 })
         if (found) {
@@ -1594,7 +1611,7 @@ async function doAct(s, task, name, a) {
     case 'step_done': await markStep(task, a.step, a.note); return 'ok'
     case 'need_login':
     case 'need_user': {
-      const site = a.site || new URL(s.page.url()).hostname
+      const site = a.site || new URL(d.url()).hostname
       // A process step runs with nobody watching: waiting for a login or an approval would hold
       // the step (and the one-at-a-time worker) forever, so the agent is told to go around it.
       if (task.unattended) {
@@ -1610,7 +1627,8 @@ async function doAct(s, task, name, a) {
         // a pick-one question is answered in place (hark's account chooser) rather than by takeover
         : choice ? ['choice', { site, question: a.reason || '', options: a.options.slice(0, 6) }] : null
       const need = name === 'need_login' ? 'login' : choice ? 'choice' : needOf(a.need, task)
-      return waitForUser(s, task, { need, reason: askReason(need, a.reason, normSite(site), name === 'need_login'), site, message })
+      const answer = await waitForUser(s, task, { need, reason: askReason(need, a.reason, normSite(site), name === 'need_login'), site, message, screen: !message })
+      return answer === OFFLINE ? 'stopped: the browser on the person\'s PC went offline before this was done; look at the page again' : answer
     }
     case 'note': task.notes.push(a.text); return 'noted'
     case 'read_skill': return readSkill(task, a.name)
@@ -1642,12 +1660,11 @@ async function localCopy(f) {
   return { file, done: () => fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}) }
 }
 
-// Fill a vault value into the page: the element remembers it (so the page guard does not
-// "capture" it back) and is masked on screen.
-async function fillSecret(locator, value, task) {
+// Fill a vault value into the page: the element remembers it (so the page guard does not "capture" it back) and is masked
+// on screen. On the person's PC the value goes to their own desktop for this one fill (lib/browserRemote.js).
+async function fillSecret(s, i, value, task) {
   remember(task, String(value))
-  await locator.fill(String(value))
-  await locator.evaluate((e, v) => { e.__proFilled = v; e.setAttribute('data-pro-secret', '') }, String(value))
+  await s.driver.fillSecret(i, String(value))
 }
 
 // Values filled during the task are blanked out of anything the model reads, should the page echo
@@ -1691,17 +1708,21 @@ function askReason(need, why, site, vault = false) {
 // stopped it and what to do) go on the task card, which draws its pill and button from them.
 // watch(snapshot) → a text ends the wait by itself (a sign-in finished in takeover), looked at every few seconds.
 // siteName: what the person calls the site, for the card's pill (the page's own name; the host when unknown).
-async function waitForUser(s, task, { reason, site, siteName, message, need = 'other', watch }) {
+// screen: the wait is for something done on the browser's screen (a sign-in, a check, takeover) — on a PC that goes off
+// meanwhile it ends at once (OFFLINE), as nobody can do it there. extra: more for the card while it waits (cleared after).
+async function waitForUser(s, task, { reason, site, siteName, message, need = 'other', watch, screen = false, extra = null }) {
+  if (screen && s.driver?.lost) return OFFLINE
   // listening before anything is posted: an answer that comes at once (the card answered the moment
   // it shows) is not lost
   let answered
   const answer$ = new Promise((resolve) => { answered = resolve })
   task.waiting = answered
+  task.waitScreen = screen
   // the card asks the person: not a stall the watchdog should report
   task.dog?.hold()
   // the card goes up first, so whoever sees "needs input" also finds what to answer
   const posted = message ? await addMessage(task.userId, task.threadId, 'agent', message[0], { ...message[1], taskId: task.id, state: 'pending' }) : null
-  await updateMessage(task.userId, task.id, { state: 'needs_input', need, reason: reason || '', site, siteName: siteName || nameOn(task, normSite(site)) })
+  await updateMessage(task.userId, task.id, { state: 'needs_input', need, reason: reason || '', site, siteName: siteName || nameOn(task, normSite(site)), ...(extra || {}) })
   say(task, null)
   await setThreadStatus(task.userId, task.threadId, 'needs_input')
   await pushFrame(task.userId, s)
@@ -1713,10 +1734,11 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   }, WAIT.watchMs)
   const answer = await answer$
   task.waiting = null
+  task.waitScreen = false
   if (timer) clearInterval(timer)
   // a card the user never answered (cancel, takeover) should not stay actionable
   if (posted) await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where id=$1 and content->>'state'='pending'`, [posted.id])
-  await updateMessage(task.userId, task.id, { state: 'running', need: null, reason: '' })
+  await updateMessage(task.userId, task.id, { state: 'running', need: null, reason: '', ...Object.fromEntries(Object.keys(extra || {}).map((k) => [k, null])) })
   await setThreadStatus(task.userId, task.threadId, 'working')
   task.dog?.go('read', L('페이지 읽기', 'reading the page'))
   return answer
@@ -1776,8 +1798,8 @@ async function fillFromMail(s, t, found, resolve) {
   const slot = t.secretSlot
   if (!slot || slot.done) return false
   slot.done = true
-  await fillSecret(elAt(s, t, slot.i), found.code, t)
-  await audit(t.userId, 'one_time', { kind: 'secret', site: normSite(s.page.url().split('/')[2]), actor: 'mail', taskId: t.id, detail: { label: slot.label, from: found.from } })
+  await fillSecret(s, slot.i, found.code, t)
+  await audit(t.userId, 'one_time', { kind: 'secret', site: normSite(s.driver.url().split('/')[2]), actor: 'mail', taskId: t.id, detail: { label: slot.label, from: found.from } })
   const [card] = await q(`select id from pro_messages where thread_id=$1 and kind='vault' and content->>'taskId'=$2 and content->>'kind'='secret'
     and content->>'state'='pending' order by created_at desc limit 1`, [t.threadId, t.id])
   if (card) await updateMessage(t.userId, card.id, { state: 'mail', mailFrom: found.from })
@@ -1796,8 +1818,8 @@ export async function provideSecret(userId, value) {
   if (slot.done) return false
   slot.done = true
   slot.stopWatch?.()
-  await fillSecret(elAt(s, t, slot.i), value, t)
-  await audit(userId, 'one_time', { kind: 'secret', site: normSite(s.page.url().split('/')[2]), actor: 'user', taskId: t.id, detail: { label: slot.label } })
+  await fillSecret(s, slot.i, value, t)
+  await audit(userId, 'one_time', { kind: 'secret', site: normSite(s.driver.url().split('/')[2]), actor: 'user', taskId: t.id, detail: { label: slot.label } })
   t.waiting(`the user entered the ${slot.label} into the field (you cannot see it); submit the form and continue`)
   return true
 }
@@ -1828,7 +1850,7 @@ export function cancel(userId, taskId) {
     t.cancelled = true
     t.abort?.abort('cancel')
     t.waiting?.('cancelled')
-    within(s.page.evaluate(() => window.stop()), 2000, null)
+    within(s.driver?.stop(), 2000, null)
     return true
   }
   return false
@@ -1862,7 +1884,7 @@ const connects = new Map() // userId -> { taskId, settle(outcome) }
 // what holds this person's browser now ('' when nothing does)
 export function browserBusy(userId) {
   const s = sessions.get(userId)
-  if (!s || s.ctx._closed) return ''
+  if (!s) return ''
   return s.task?.title || s.queue.at(-1)?.task?.title || (s.planning.size ? L('새 작업', 'a new task') : '')
 }
 
@@ -1883,7 +1905,7 @@ const PHONE_NEXT = () => L('「휴대폰에서 연결」을 누르면 지금 쓰
 // url: Google's consent address; cookie: the state cookie (lib/googleConnect.js cookieFor);
 // ours(url): whether an address is this app's own (the callback, the done page) — those are not judged
 export async function connectGoogle({ userId, threadId, url, cookie, ours = () => false }) {
-  const s = await sessionOf(userId)
+  const s = sessionRec(userId)
   const busy = browserBusy(userId)
   if (busy) {
     throw Object.assign(new Error(L(`서버 브라우저가 지금 다른 작업('${busy}')을 하고 있어요. 그 작업이 끝나거나 멈춘 뒤 다시 연결하거나, 「휴대폰에서 연결」로 연결해 주세요.`,
@@ -1908,6 +1930,8 @@ export async function connectGoogle({ userId, threadId, url, cookie, ours = () =
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
+  // (always this server's browser: signing it in to Google is what the connection leaves behind for later tasks here)
+  task.where = { kind: 'server' }
   runConnect(s, task, { url, cookie, ours }).catch((e) => console.warn('[browser] google connect', e.message))
   return { taskId: card.id }
 }
@@ -1931,11 +1955,12 @@ async function runConnect(s, task, { url, cookie, ours }) {
   const timer = setTimeout(() => settle({ state: 'timeout' }), CONNECT.ms)
   timer.unref?.()
   try {
-    await healthy(userId, s).catch((e) => console.warn('[browser] health check', e.message))
-    await s.ctx.addCookies([{ name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path, httpOnly: true, secure: cookie.secure,
+    s.driver = await serverDriver(userId, s)
+    await s.driver.healthy().catch((e) => console.warn('[browser] health check', e.message))
+    await s.driver.addCookies([{ name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path, httpOnly: true, secure: cookie.secure,
       sameSite: cookie.sameSite, expires: Math.floor((Date.now() + cookie.maxAgeMs) / 1000) }])
     say(task, L('Google 여는 중', 'Opening Google'))
-    await navigate(s.page, url, { signal: task.abort.signal }).catch(() => {})
+    await s.driver.navigate(url, { signal: task.abort.signal }).catch(() => {})
     const site = hostOf(url)
     // the agent first: the google-sign-in skill (read when used) knows Google's screens; a login is filled
     // from the vault or asked for on the card, a second step goes to the person (a code on the card, a
@@ -1998,7 +2023,7 @@ async function runConnect(s, task, { url, cookie, ours }) {
   try {
     const shot = await pushFrame(userId, s)
     if (s.task === task) s.task = null
-    await updateMessage(userId, task.id, { ...end, url: s.page.url(), shot, connect: 'google', site: hostOf(url), siteName: 'Google' })
+    await updateMessage(userId, task.id, { ...end, url: s.driver?.url() || url, shot, connect: 'google', site: hostOf(url), siteName: 'Google' })
     // the card of a finished task shows no text of its own: the result is said in the chat (a stopped one
     // says why on the card itself)
     if (end.state === 'done') await addMessage(userId, task.threadId, 'agent', 'text', { text: end.summary })
@@ -2012,34 +2037,46 @@ async function runConnect(s, task, { url, cookie, ours }) {
   return o
 }
 
-// Takeover: raw input forwarded from the live view (coords are 0..1 of the viewport).
+// Takeover: raw input forwarded from the live view (coords are 0..1 of the viewport) — to whichever browser the task runs
+// in (on the person's PC, they can also use its window there: 「이 PC에서 보기」).
 export async function input(userId, ev) {
   const s = sessions.get(userId)
-  if (!s?.page) return
-  const { width, height } = s.page.viewportSize() || VIEW
-  try {
-    if (ev.type === 'click') await s.page.mouse.click(ev.x * width, ev.y * height)
-    if (ev.type === 'key') await s.page.keyboard.press(ev.key)
-    if (ev.type === 'text') await s.page.keyboard.type(ev.text)
-    if (ev.type === 'scroll') await s.page.mouse.wheel(0, ev.dy)
-  } catch (e) { console.warn('[browser] input', ev.type, e.message) } // a key the driver does not know, a page going away: the next key still counts
+  if (!s?.driver) return
+  // a key the driver does not know, a page going away: the next key still counts
+  try { await s.driver.input(ev) } catch (e) { console.warn('[browser] input', ev.type, e.message) }
 }
 
-// Closes the user's browser (profile stays on disk).
+// 「이 PC에서 보기」: the browser on the person's PC shows its window there (on=false hides it again). → false when the task
+// does not run on their PC.
+export async function showOnPc(userId, taskId, on = true) {
+  const s = sessions.get(userId)
+  // (the task under way — or one that ended needing the person, whose page is kept on the PC: browser.js keepsPage)
+  const kept = !!taskId && s?.kept?.taskId === taskId && !s.task
+  const d = kept ? s.local : s?.driver
+  if (!d || d.kind !== 'local' || d.lost || (taskId && !kept && s.task?.id !== taskId)) return false
+  await d.show(on)
+  return true
+}
+
+// Closes the user's browsers (the profiles stay: this server's on disk, the PC's on the PC).
 export async function close(userId) {
   const s = sessions.get(userId)
   if (s?.task) cancel(userId)
   sessions.delete(userId)
   if (!s) return
-  // a Chromium that does not close (stuck) is stopped, so the profile opens again next time
-  const closed = await within(s.ctx.close().then(() => true), 5000, false)
-  if (!closed) await releaseProfile(path.join(PROFILES, userId), { pid: s.pid })
+  await s.local?.close().catch(() => {})
+  await s.server?.close().catch(() => {})
 }
 
 export function lastFrame(userId) {
   const s = sessions.get(userId)
-  return s ? { data: s.frame, url: s.page?.url() || '', running: !!s.task, taskId: s.task?.id || null } : null
+  return s ? { data: s.frame, url: s.driver?.url() || '', running: !!s.task, taskId: s.task?.id || null, where: s.task?.where || null } : null
 }
 
-// The person's browser (launched if it is not running): tests route made-up sites through it.
-export const contextFor = async (userId) => (await sessionOf(userId)).ctx
+// The person's browser on this server (launched if it is not running): tests route made-up sites through it.
+export const contextFor = async (userId) => {
+  const s = sessionRec(userId)
+  const d = await serverDriver(userId, s)
+  if (!s.task) s.driver = d
+  return d.ctx
+}

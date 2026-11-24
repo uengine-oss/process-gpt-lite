@@ -1,0 +1,57 @@
+# 브라우저 작업을 내 PC 의 브라우저에서 — 실제 사이트 · 실제 모델로 PC 와 서버를 잰 것 (2026-11-25)
+
+사용자: 「이 부분도 일렉트론 버전에서는 로컬 브라우저를 이용하는게 더 효율적이지 않을까?」 · 「그래도 순수 모바일에서는 이 작업이 가능해야하니」.
+서버 쪽 전후는 PR #46 의 results/server-browser-stall-1124.txt.
+
+## 어떻게 쟀나
+- 맥 한 대(Apple Silicon). 서버 모듈을 그대로(lib/browser.js runBrowserTask), 사내 모델 게이트웨이의 frentis-ai-model(PR #46 과 같은 모델),
+  PRO_BROWSER_GATES=off · 판정 서버 없음(판정은 모델), 실제 DB. 스크립트 server/scripts/measure-browser-where.mjs.
+- PC: 진짜 데스크톱 코드(로컬 러너 + desktop/src/browser, Electron 45)가 이 스크립트의 링크(hub.js)에 기기 토큰으로 붙는다. 서버: 같은 사람의
+  설정 「브라우저 작업은 내 PC에서」를 끄고(그때는 서버의 설정 — 검토 뒤로는 그 PC 의 설정 「쓰지 않음」을 링크로 알린다) 서버 Chromium(Playwright headless shell)에서. 같은 목표를 하나씩, 겹치지 않게.
+- 목표(계정 없음, 공개 페이지만): stay 「계룡대 인근 12월 18~20일 숙소를 검색해서 1박 가격이 싼 곳 3곳을 비교해 줘」(travel.naver.com 에서 시작,
+  5분에서 끊음) · news 「연합뉴스 첫 화면의 주요 뉴스 제목 다섯 개를 알려 줘」(www.yna.co.kr, 3분).
+- 이벤트 버스를 구독해 실시간 화면 장수 · 바이트, 이벤트 없는 최장 시간, 동작마다 걸린 시간(읽기 · 판정 · 사진 · 모델 · 동작의 평균)을 남김.
+- 1회차: PC → 서버 순서로 넷. 2회차: 1회차에서 찾은 결함(아래 1)을 고친 뒤 PC 둘만 다시. 3회차: 그 까닭까지 고친 뒤(탭을 연 탭은 남김) PC 둘만 다시.
+
+## 결과
+| 회차 · 어디 · 목표 | 결과 | 걸린 시간 · 턴 | 동작마다 평균(읽기 · 판정 · 사진 · 모델 · 동작) | 실시간 화면 | 이벤트 없는 최장 |
+|---|---|---|---|---|---|
+| 1 · PC · stay | 끝냄 — 3곳 가격 비교(야놀자로 옮겨 「계룡대」 검색, 낮은 가격 순: 36,000 · 40,000 · 46,000원/박) | 267s · 32턴 | 3ms · 790ms · 22ms · 6.3s · 1.0s | 185장 · 8.8MB · 0.7장/s | 20.6s(멈춤 표시 2번) |
+| 1 · 서버 · stay | 끝냄 — 「비교를 완료하지 못했습니다」(네이버 여행에서 결과에 닿지 못함 — PR #46 「후」와 같은 모습) | 261s · 19턴 | 11ms · 865ms · 34ms · 11.4s · 0.5s | 225장 · 15.1MB · 0.9장/s | 43.5s(멈춤 표시 4번) |
+| 1 · PC · news | **서버가 맡음**(`where.why: local-failed` — 아래 결함 1) · 끝냄 20s · 6턴 | — | — | — | — |
+| 1 · 서버 · news | 확인 필요 — 40턴 안에 끝내지 못함(같은 화면을 오감) | 110s · 40턴 | 9ms · 44ms · 24ms · 2.6s · 3ms | 83장 · 10.2MB | 7.9s |
+| 2 · PC · stay | 5분에서 끊음(27턴, 결과 없음) — 끊은 뒤 멈추기까지 **0.13s** | 300s · 27턴 | 7ms · 783ms · 24ms · 8.6s · 1.5s | 294장 · 17.3MB · 1.0장/s | 5.9s(멈춤 표시 3번) |
+| 2 · PC · news | 끝냄 — 제목 다섯 개 | 16s · 2턴 | 7ms · 934ms · 29ms · 5.1s · 0 | 11장 · 1.1MB | 6.8s |
+| 3 · PC · stay | 끝냄 — 「비교를 완료하지 못했습니다」(네이버 여행 검색창이 숙박으로 이어지지 않음, 까닭을 말함) | 80s · 16턴 | 5ms · 721ms · 23ms · 3.3s · 0.4s | 109장 · 6.9MB · 1.4장/s | 14.1s |
+| 3 · PC · news | 끝냄 — 제목 다섯 개(앞 작업 뒤 같은 PC 에서, 탭 결함 고친 뒤) | 14s · 2턴 | 7ms · 822ms · 32ms · 5.0s · 0 | 11장 · 1.1MB | 6.9s |
+
+PR #46 의 서버 「후」(11-24): stay 스스로 끝냄 200s · 16턴(결과에 닿지 못함) · news 완료 21s · 5턴 · 모델 한 번 가운데 5.5s · 읽기 최대 107ms.
+
+읽은 것
+- 페이지에 드는 시간은 PC 가 서버보다 짧다: 읽기 3~7ms(서버 9~11ms), 모델의 그림 22~29ms(서버 24~34ms). 둘 다 모델 한 번(2.6~11.4s)에 비하면 작다 —
+  걸린 시간은 모델과 사이트가 정한다. 「동작」은 PC 가 길다(1.0~1.5s, 서버 0.5s): PC 의 브라우저는 사이트를 사람의 회선으로 끝까지 받는다.
+- 숙소는 PC 에서 한 번 끝까지 갔고(1회차) 한 번은 5분 안에 못 갔고(2회차) 한 번은 80초에 못 한 까닭을 말하고 끝냈다(3회차). 서버는 PR #46 처럼
+  결과에 닿지 못했다고 말하고 끝냈다. 모델이 고르는 길이 매번 달라(1회차 PC 는 야놀자로 옮김) 이 수로 「PC 라서 더 잘 된다」고 말할 수는 없다.
+- 연합뉴스: PC 16s · 14s(2턴), 서버는 1회차에 20s(PC 결함으로 서버가 맡은 것) · 110s 40턴 끝내지 못함 — PR #46 「후」 21s. 같은 모델 · 같은 페이지에서도 턴 수가 흔들린다.
+- 실시간 화면은 초당 0.7~1.0장(한도 3장), PC 쪽이 같은 시간에 적거나 비슷한 바이트(8.8MB/267s vs 15.1MB/261s — 2회차는 17.3MB/300s).
+- 끊기(「그만두기」와 같은 cancel)는 PC 에서도 0.13s.
+
+1회차에서 찾아 고친 결함(2회차 · 시험에 반영)
+1. 첫 작업이 끝날 때 「작업이 연 탭 닫기」가 그 탭을 연 페이지(첫 탭)를 닫자, Electron 이 그 페이지가 연 창(일하던 탭)까지 닫았다 → 다음 작업에서
+   「the browser is not open on this PC」로 서버가 맡았다. 고침: 일하던 탭과 그것을 연 탭들은 남기고, 남은 탭이 없으면 다음 작업이 새 탭을 연다
+   (desktop/src/browser/host.js closeTabs · liveTab, 시험 browserDriver 「새 탭을 여는 링크 …」). 2회차는 liveTab 만 고친 빌드였다 — 첫 작업 끝에
+   탭이 닫혔다는 기록(「the last tab closed」)이 남았고 다음 작업은 새 탭을 열어 PC 에서 끝냈다. 그 기록으로 까닭(여는 페이지와 함께 닫힘)을 알고
+   closeTabs 를 고쳤다.
+2. (시험에서) 숨은 창을 찍으면(capturePage · Page.captureScreenshot) 그 뒤 창이 그리지 않아 스크롤이 1.2초씩 기다렸다 → 그림은 모두 스크린캐스트에서.
+   그림을 기다리는 동안 프레임을 바로 받았다고 알리지 않으면 다음 프레임이 오지 않아 6초를 다 기다렸다(가운데 0ms → 최대 89ms 로).
+3. (시험에서) 새 탭을 여는 누르기가 5.5초 — 새 탭의 문서 단계를 기다렸다 → 누른 탭에서만 기다림(0.5초).
+
+## 시험
+- server/test/browserDriver.test.js 26/26(두 드라이버) · server/test/browser-local.test.js 7/7 · desktop/test/browser.test.js 7/7
+- e2e/tests/desktop/local-browser.spec.js LB-01~03 3/3(사진 shots/lb01 · lb02 · lb03)
+- 회귀: 서버 브라우저 · 로컬 에이전트 시험 19개 파일 200/200(browserSteps · browser-stall · browser-tasks · browser-vault · browser-mail-otp · browserWalls ·
+  browserHonest · browser-long-work · browser-replaces-turn · browser-wall-vault.e2e · browser-walls.e2e · google-connect(.test · .e2e · -gateway.e2e) ·
+  takeover.e2e · localAgents · chatAgents · browserDriver · browser-local) · 데스크톱 npm test 53/53(윈도 전용 4 건너뜀) · Playwright desktop
+  D-01~11 · L-01~04 · LB-01~03 18/18 · feature(browser-stall · browser-dock · browser-vault-wall · mail-otp · notebooklm-review-chat · local-agents-view ·
+  vault-connectors) 29/32 — F-VA-01 · F-VA-02 · F-CN-01 은 「vault KEK … is not in the keyring」(이 작업 트리에 보관함 키링 파일이 없음 — 환경),
+  origin/main 727b1b4 의 BFF 로 돌려도 같은 셋이 같은 오류로 실패 · vite build 통과

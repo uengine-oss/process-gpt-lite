@@ -6,9 +6,12 @@ const { EventEmitter } = require('node:events')
 const { Link } = require('./link')
 const { Runner } = require('./runner')
 const C = require('./clis')
+const { BrowserService } = require('../browser/protocol')
 
 // mode: 'auto' (the CLI in a terminal when node-pty loads) | 'headless' · sessionEnv: extra environment for the CLIs (tests: their config folders)
-function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, log = () => {}, searchPath = C.augmentedPath(), WS, maxJobs = 2, runMs, mode, sessionEnv, settleMs } = {}) {
+// browser: this PC's browser the server's browser agent may drive (../browser/host.js — the app's main process makes it; none in a plain
+// Node runner) — it says so in its caps (browser: true, desktop 0.2.3) and takes the server's browser operations over this same link
+function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, log = () => {}, searchPath = C.augmentedPath(), WS, maxJobs = 2, runMs, mode, sessionEnv, settleMs, browser = null } = {}) {
   const ev = new EventEmitter()
   let caps = {}
   let state = { connected: false, refused: null, user: null, device: null }
@@ -18,17 +21,30 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
     // terminal: steps run in the person's interactive CLI (else headless — node-pty did not load here) · conversation: it relays the CLI's
     // records as the run card's 「대화」 (0.2.1 — an older desktop shows only the terminal) · chat: it runs chat messages for its person's
     // CLI (0.2.2 — the composer's agent picker; only in a terminal)
-    caps: { clis: Object.fromEntries(Object.entries(caps).map(([k, c]) => [k, { installed: c.installed, version: c.version, loggedIn: c.loggedIn, runnable: c.runnable }])), maxJobs, terminal: runner.interactive(), conversation: runner.interactive(), chat: runner.interactive() },
+    caps: { clis: Object.fromEntries(Object.entries(caps).map(([k, c]) => [k, { installed: c.installed, version: c.version, loggedIn: c.loggedIn, runnable: c.runnable }])), maxJobs, terminal: runner.interactive(), conversation: runner.interactive(), chat: runner.interactive(),
+      // (0.2.3: browser tasks may run in this PC's browser — the server's 「브라우저 작업은 내 PC에서」)
+      browser: !!browser },
     prefs: prefs(),
     active: runner.activeIds(),
   })
   const link = new Link({ server, token, hello, WS, log })
   runner.setLink(link)
+  // the browser on this PC, for the person this desktop is signed in as (the server's welcome names them)
+  const web = browser ? new BrowserService({ driver: browser, send: (m) => link.send(m), user: () => state.user, log }) : null
   const changed = () => ev.emit('state', status())
   link.on('welcome', (m) => { state = { ...state, connected: true, refused: null, user: m.user || null, device: m.device || null }; runner.welcome(m); changed() })
-  link.on('down', () => { state = { ...state, connected: false }; changed() })
+  link.on('down', () => {
+    state = { ...state, connected: false }
+    // (no task holds this PC's browser while the link is down: nothing more is sent or guarded for one — the page stays, for the same
+    // task to find when the link is back — 2026-11-25 re-review)
+    if (web) { web.parts.clear(); try { browser.linkDown?.() } catch (e) { log('[browser] link down', e.message) } }
+    changed()
+  })
   link.on('refused', (r) => { state = { ...state, connected: false, refused: r }; changed() })
-  link.on('message', (m) => { runner.handle(m).catch((e) => log('[runner]', e.message)) })
+  link.on('message', (m) => {
+    if (web?.handles(m)) { web.handle(m).catch((e) => log('[browser]', e.message)); return }
+    runner.handle(m).catch((e) => log('[runner]', e.message))
+  })
   runner.on('state', changed)
   runner.on('finished', (f) => ev.emit('finished', f))
   // someone suggested a prompt for a run of this computer (main shows a notification)
@@ -50,9 +66,9 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
     return caps
   }
   return {
-    ev, runner, link, status, detect,
+    ev, runner, link, status, detect, browser: web,
     async start() { await detect(); link.start(); changed(); return this },
-    stop() { runner.stop(); link.stop() },
+    stop() { runner.stop(); web?.stop(); link.stop() },
     // the person turned local runs on/off or asking first: the server knows at once (it stops sending, or sends again)
     prefsChanged() { link.send({ type: 'caps', caps: hello().caps, prefs: prefs(), active: runner.activeIds() }); changed() },
   }

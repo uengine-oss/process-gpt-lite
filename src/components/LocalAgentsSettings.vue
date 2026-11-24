@@ -1,8 +1,9 @@
 <script setup>
 // 설정 › 계정 › 내 컴퓨터의 에이전트 (server lib/localAgents, desktop/src/runner): in the desktop app, this computer — linked or not, its
 // CLI agents (Claude Code · Codex · OpenHands: installed, version, signed in) and the person's two switches (local runs on/off, ask before
-// each run); everywhere, the person's desktops with 「연결 해제」(the token is revoked, the link closes). Inside a desktop app too old to
-// link this computer (no runner bridge), or older than the newest release, the newest app's link.
+// each run, 「브라우저 작업은 이 PC에서」); everywhere, the person's desktops with 「연결 해제」(the token is revoked, the link closes) and where
+// their browser tasks run now (server lib/browserRemote.js — each PC's own setting, changed only on that PC: read-only elsewhere).
+// Inside a desktop app too old to link this computer (no runner bridge), or older than the newest release, the newest app's link.
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
@@ -16,7 +17,23 @@ const busy = ref('')
 const st = computed(() => runner.status)
 const here = computed(() => st.value?.deviceId || null)
 const clis = computed(() => Object.entries(st.value?.clis || {}))
-async function load() { devices.value = await api('/local-agents/devices').catch((e) => { err.value = e.message; return [] }) }
+const web = ref(null) // { own: {where, why, device}, unattended: {…}, devices: [{id, name, browser, pref, enabled}], min }
+async function load() {
+  devices.value = await api('/local-agents/devices').catch((e) => { err.value = e.message; return [] })
+  web.value = await api('/browser/where').catch(() => null)
+}
+// this PC's own 「브라우저 작업은 이 PC에서」: the person's own tasks (default) · also process steps and scheduled runs · none
+const PREFS = [['own', '내가 시킨 작업만'], ['all', '단계 · 예약 작업까지 모두'], ['off', '쓰지 않음']]
+const prefText = (p) => (PREFS.find(([k]) => k === p) || PREFS[0])[1]
+const setBrowserPref = (browser) => run('browser', () => setPrefs({ browser }))
+const whereLine = (w, nobody) => {
+  if (!w) return ''
+  if (w.where === 'local') return `「${w.device?.name || 'PC'}」의 브라우저에서 해요 — 그 PC 에서 한 로그인을 그대로 쓰고, 로그인은 그 PC 에 남아요`
+  if (w.why === 'old-desktop') return `서버 브라우저에서 해요 — PC 앱을 ${web.value?.min} 이상으로 올리면 그 PC 의 브라우저에서 할 수 있어요`
+  if (w.why === 'off') return '서버 브라우저에서 해요 — PC 앱에서 「브라우저 작업은 이 PC에서」를 껐어요'
+  if (w.why === 'not-own' || nobody) return '서버 브라우저에서 해요 — 사람이 없는 작업은 PC 앱에서 「단계 · 예약 작업까지 모두」를 고른 PC 에서만 해요'
+  return '서버 브라우저에서 해요 — PC 앱이 켜져 있으면 그 PC 의 브라우저에서 해요(휴대폰만 쓸 때도 그대로 돼요)'
+}
 onMounted(() => { load(); if (desktopApp()) refreshAgents() })
 // the app this page runs in: too old to link (no bridge), or older than the newest release (the server reads it: desktop.latest)
 const appVersion = computed(() => desktopApp()?.version || '')
@@ -73,6 +90,13 @@ const cliLine = (c) => (!c.installed ? '설치돼 있지 않아요' : [c.version
             <option v-for="m in [1, 3, 5, 10, 30, 60]" :key="m" :value="m">{{ m }}분</option>
           </select>
         </div>
+        <!-- this PC's consent for browser tasks (kept by the app, sent with its link — the server's routing reads it) -->
+        <div class="li">
+          <div class="main"><b>브라우저 작업은 이 PC에서</b><small>이 PC 의 브라우저로 할 작업 — 사람이 없는 단계 · 예약 작업은 고를 때만, 그때도 이 PC 의 내부망 주소는 열지 않아요</small></div>
+          <select class="sel" :value="st?.prefs?.browser || 'own'" :disabled="!!busy" data-test="local-browser-pref" @change="(e) => setBrowserPref(e.target.value)">
+            <option v-for="[k, t] in PREFS" :key="k" :value="k">{{ t }}</option>
+          </select>
+        </div>
         <div class="li"><div class="main"><small>CLI 를 새로 설치했으면 다시 찾아 주세요</small></div><button class="pill-btn sm" :disabled="!!busy" @click="run('detect', detectClis)">다시 찾기</button></div>
       </template>
       <div v-else-if="oldApp" class="li" data-test="local-old-app">
@@ -80,6 +104,17 @@ const cliLine = (c) => (!c.installed ? '설치돼 있지 않아요' : [c.version
         <a v-if="chatAgents.download" class="pill-btn sm" :href="chatAgents.download" target="_blank" rel="noopener" data-test="local-update">최신 버전 받기</a>
       </div>
       <div v-else class="li"><div class="main"><b>데스크톱 앱에서 연결해요</b><small>Process GPT Lite 데스크톱 앱으로 로그인하면 그 컴퓨터의 Claude Code · Codex 가 내 단계를 실행할 수 있어요</small></div></div>
+    </div>
+    <div v-if="web" class="list glass" data-test="browser-local">
+      <div class="li">
+        <div class="main"><b>내가 시킨 브라우저 작업</b><small data-test="browser-local-own">{{ whereLine(web.own) }}</small></div>
+      </div>
+      <div class="li">
+        <div class="main"><b>단계 · 예약 브라우저 작업</b><small data-test="browser-local-unattended">{{ whereLine(web.unattended, true) }}</small></div>
+      </div>
+      <div v-for="d in web.devices.filter((x) => x.browser)" :key="d.id" class="li cli" :data-browser-device="d.id">
+        <div class="main"><b>{{ d.name }}<template v-if="d.id === here"> · 이 컴퓨터</template></b><small>{{ d.enabled ? prefText(d.pref) : '이 컴퓨터에서 단계 실행을 꺼서 쓰지 않음' }} — 바꾸기는 그 PC 의 앱에서</small></div>
+      </div>
     </div>
     <template v-if="devices.length">
       <p class="cap">연결한 데스크톱</p>

@@ -34,4 +34,11 @@ function kind(url, { server, authOrigins = [] } = {}) {
 // what the system may be asked to open (shell.openExternal)
 const openable = (url) => /^(?:https?|mailto|tel):/i.test(String(url || ''))
 
-module.exports = { kind, openable, originOf, loopback }
+// The server's basic-auth gate (a tunnel's) is answered with the saved pair only for the app's own window — its default session — on the
+// chosen server's origin: never for the browser the server's agent drives on this PC (its own session partition), even when a page there
+// goes to that address (app.on('login') in main.js)
+function answersGate({ mainSession = false, isProxy = false, url = '', server = '' } = {}) {
+  return !!mainSession && !isProxy && !!server && !!originOf(url) && originOf(url) === originOf(server)
+}
+
+module.exports = { kind, openable, originOf, loopback, answersGate }

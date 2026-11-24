@@ -77,6 +77,7 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 | `src/menu.js` | 한국어 · 영어 앱 메뉴 |
 | `src/preload.js` | 페이지 표시(`html.pgl-desktop`, `--pgl-tb-left/right`), 테마 알림, `window.pglDesktop`(읽기 전용), 로컬 화면에만 `window.pglLocal` |
 | `src/pages/` | 서버 고르기 · 연결 실패 화면 (웹 앱과 같은 하늘 배경) |
+| `src/browser/` | 이 PC 의 브라우저(0.2.3): 서버의 브라우저 에이전트가 링크로 움직인다 — `host.js`(숨은 창 · 탭 · 스크린캐스트 · 동작), `cdp.js`(`webContents.debugger` 위의 프레임 · 페이지 문맥 · 다른 사이트 iframe), `protocol.js`(이름 붙은 동작 · 그 사람만 · 조각), `pageScripts.js`(페이지 안에서 도는 서버와 같은 읽기 스크립트 · 가리기) |
 | `src/runner/` | 로컬 에이전트: 이 컴퓨터의 Claude Code · Codex 로 그 사람의 프로세스 단계를 돌린다 — `link.js`(서버로 나가는 WebSocket), `session.js`(그 사람의 대화형 CLI 를 PTY 에서 — 훅 · 기록 · 지켜보는 파일), `pty.js`(node-pty), `clis.js`(CLI 찾기 · 헤드리스 고정 명령 · 출력 읽기), `git.js`(작업 폴더 맞추기 · 커밋 · 올리기), `runner.js`(일 하나 · 입력 · 보고함 · 중계되는 세션 · 다시 켜졌을 때 이어서), `index.js` |
 
 웹 앱 쪽에서 바뀐 곳은 세 군데입니다. 모두 `html.pgl-desktop` 아래에서만 동작해서 브라우저에서는 아무것도 바뀌지 않습니다.
@@ -100,6 +101,21 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 - 실행 중이면 화면 오른쪽 아래 「로컬 에이전트 실행 중 · Claude Code」, macOS Dock 배지 ●.
 - 개발용 환경변수: `PGL_RUNNER_PATH`(CLI 를 먼저 찾을 폴더 — 시험의 가짜 CLI), `PGL_RUNNER_LOG=1`(runner 기록을 콘솔에), `PGL_RUNNER_ASK=yes|no`(묻는 창 대신), `PGL_RUNNER_DEVICE_NAME`(기기 이름), `PGL_RUNNER_MODE=headless`, `PGL_RUNNER_SETTLE_MS`(턴이 끝나고 단계를 끝낼 때까지, 기본 3000).
 - 시험: `npm test`(runner — 터미널은 가짜 대화형 CLI `test/fixtures/fake-tui.js`, 헤드리스는 `fake-cli.js`), `cd e2e && npx playwright test --project=desktop tests/desktop/local-agents.spec.js`(Electron 두 개). 시험은 CLI 의 설정 폴더를 임시로 준다(`CLAUDE_CONFIG_DIR` · `CODEX_HOME`).
+
+## 이 PC 의 브라우저 (0.2.3 — 브라우저 작업은 내 PC에서)
+
+사람의 브라우저 작업(채팅에서 「…사이트에 들어가서 …」)이 이 앱이 켜져 있으면 이 PC 의 브라우저에서 돈다. 서버의 에이전트(모델 · 판정 · 보관함 · 카드)는 그대로, 페이지만 이 PC 에서(설계 `docs/local-agents/browser.md`, 스펙 `openspec/specs/browser-handoff`).
+
+- **브라우저**: Electron 의 숨은 창(탭마다 하나)을 `webContents.debugger`(CDP)로 움직인다. 포트를 열지 않고, 따로 설치할 브라우저가 없다. 세션은 사람마다 `persist:pgl-browser-<사람 id>` — 여기서 한 로그인은 이 PC 에 남아 다음에도 쓰이고 앱 창(Lite)과 섞이지 않는다.
+- **이 PC 의 설정**: 설정 › 계정 › 내 컴퓨터의 에이전트의 「브라우저 작업은 이 PC에서」 — 「내가 시킨 작업만」(기본) · 「단계 · 예약 작업까지 모두」 · 「쓰지 않음」. 실행 설정(`runnerPrefs.browser`)과 함께 이 PC 에 저장하고 링크의 `prefs.browser` 로 알린다(서버에는 저장하지 않는다, 웹 · 휴대폰은 읽기만). 「이 컴퓨터에서 단계 실행」을 끄면 브라우저 작업도 오지 않는다. 사람이 없는 작업(「모두」일 때만)은 이 PC 의 내부망(localhost · 10/8 · 192.168/16 · 한 단어 이름 · .local · .lan · IPv6 안의 IPv4 …, 이 PC 에서 그런 주소로 풀리는 이름)을 열지 않는다 — 그 작업이 쥔 동안 세션의 모든 요청을 먼저 본다(`session.webRequest`).
+- **링크**: 로컬 에이전트와 같은 WebSocket 하나로 이름 붙은 동작을 받는다(`src/browser/protocol.js` OPS). 서버가 보낸 코드는 돌리지 않는다. 그 앱에 로그인한 사람의 브라우저만 연다. hello 의 `caps.browser: true` 가 0.2.3 의 표시다. 900KB 넘는 메시지는 바이트로 재어 조각으로 보내고, 받는 조각에는 끝이 있다(한 번에 둘 · 72MB).
+- **보이기**: 창은 숨어 있다. 카드의 「이 PC에서 보기」를 누르면 그 탭의 창이 이 PC 에 보이고, 사람이 그 창에서 직접 할 수 있다. 닫으면 다시 숨는다(첫 탭). 숨은 창은 Windows · Linux 에서 앱을 붙잡지 않는다.
+- **그림**: 실시간 화면과 모델의 그림은 모두 스크린캐스트에서 얻는다 — 숨은 창을 `capturePage` · `captureScreenshot` 으로 찍으면 그 뒤 창이 그리지 않는다(스크롤이 1.2초씩 기다림, 실측). 서버가 움직이는 동안 앱을 재우지 않는다(macOS App Nap — `powerSaveBlocker`).
+- **비밀**: 보관함 값은 그 칸에 넣을 때 한 번 오고, 칸을 먼저 가린 뒤 넣는다. 저장 · 로그 없음(`PGL_BROWSER_TRACE=1` 도 동작 이름과 시간만). 읽기 · 낱말 · 실시간 화면 · 모델의 그림의 가리기는 이 PC 에서 한다. 이 PC 에서 친 로그인은 보관함으로 보내지 않는다.
+- **작업 사이**: 작업이 쥔 동안(`begin` ~ `idle`)만 실시간 화면 · 받은 파일을 서버로 보낸다. 작업이 끝나면 페이지를 `about:blank` 로 비운다 — 창을 보고 있거나 작업이 사람이 필요한 채로 끝나면(`idle keep`, 카드의 「이 PC에서 보기」) 그대로. 그 사이 보이는 창에서 사람이 받는 파일은 이 PC 의 다운로드 폴더로, 보이지 않을 때 받는 파일은 지운다. 링크가 끊기면 쥔 상태를 놓는다(페이지는 둔다). 보였다가 숨은 창은 같은 주소의 새 숨은 탭으로 바뀐다(Electron 에서 숨은 뒤 새 페이지를 그리지 않았다). 숨은 창은 소리를 내지 않고, 사람 동작 없이는 자동 재생하지 않는다.
+- **제한**: 웹 주소(http · https · about:blank)만 연다 — 이 PC 의 파일(`file:`)은 열지 않는다. 사이트에 카메라 · 마이크 · 화면 · 위치 · 알림 · 클립보드 읽기를 주지 않는다. 받은 파일은 임시 폴더에 받아 서버로 보내고 지운다(50MB 까지 — 크기를 말하지 않으면 받는 동안 센다). 페이지의 alert · confirm · prompt 는 상자 없이 넘기거나 취소하고 그 말을 다음 읽기에 붙인다. 이 PC 의 클립보드는 붙여 넣지 않는다(⌘V · Ctrl+V 거절). 보이는 창의 제목은 페이지의 출처부터, 전체 화면은 막는다. 한 작업에 새 창 10개 · 한 번에 탭 8개. 앱의 기본 인증 답(`app.on('login')`)은 이 브라우저의 세션에 답하지 않는다.
+- 개발용 환경변수: `PGL_DESKTOP_BROWSER=0`(브라우저 없이 — 0.2.2 처럼), `PGL_BROWSER_TRACE=1`(동작마다 걸린 시간), `PGL_BROWSER_MAX_DOWNLOAD`(받는 파일의 끝, 바이트 — 시험용), `PGL_TEST_BROWSER_PREF`(시험 호스트가 알리는 이 PC 의 설정).
+- 시험: `npm test`(`test/browser.test.js` — 동작 · 사람 · 조각(바이트 · 끝) · 로그 · begin/idle · 내부 주소 · 기본 인증 · 이 PC 의 설정 · 닫으면 세션을 놓음), 서버 쪽 `server/test/browserDriver.test.js` · `browser-local.test.js`(이 앱의 코드를 Electron 으로 띄워 붙인다 — `test/helpers/browser-host.js`), `cd e2e && npx playwright test --project=desktop tests/desktop/local-browser.spec.js`(진짜 앱).
 
 ## 보안
 

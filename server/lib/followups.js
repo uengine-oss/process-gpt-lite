@@ -206,7 +206,8 @@ async function autoRoutine({ user, session, threadId, classes, conv }) {
   started.set(h.id, { t0: Date.now(), way: r.way?.followupId || null })
   await addMessage(user.id, threadId, 'agent', 'chip', { icon: 'refresh', text: L(`회사가 정한 대로 「${r.task}」를 할게요 · ${r.role} 루틴(자동)${r.way?.name ? ` · ${r.way.name}님 방법` : ''}`, `Doing “${r.task}” as the company set · ${r.role} routine (automatic)`), auto: { task: r.task, role: r.role } })
   const { runTurn } = await import('./agent.js')
-  runTurn({ user, session, threadId, text: action, files: [], conversation: conv ? { id: conv } : undefined, fresh: true, habitId: h.id }).catch((e) => console.warn('[followups] auto routine', e.message))
+  // (auto: nobody asked for this run just now — a browser task it starts is not the person's own: lib/agent.js runTurn)
+  runTurn({ user, session, threadId, text: action, files: [], conversation: conv ? { id: conv } : undefined, fresh: true, habitId: h.id, auto: true }).catch((e) => console.warn('[followups] auto routine', e.message))
   return true
 }
 async function acceptRoutine(user, card) {

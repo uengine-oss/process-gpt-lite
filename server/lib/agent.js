@@ -223,9 +223,11 @@ function toLlmHistory(rows) {
 // A message's place in line, from the moment it comes in (lib/turns.js): the agent turn it leads to
 // (delegate) takes this place, so turns on the same conversation run in the order they were sent.
 const turnCtx = new AsyncLocalStorage()
+// auto: a turn nobody asked for just now (a company routine done without asking — lib/followups.js autoRoutine): a browser task it starts
+// is not the person's own (it runs on their PC only when that PC says so, and not on that PC's own network — lib/browser.js)
 export function runTurn(args) {
   const turn = turns.enqueue({ userId: args.user.id, threadId: args.threadId })
-  return turnCtx.run({ turn, userMsgId: null, adopted: false }, () => handleTurn(args)).finally(() => turn.finish())
+  return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto }, () => handleTurn(args)).finally(() => turn.finish())
 }
 
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
@@ -248,9 +250,10 @@ function runBrowser({ user, session, threadId, goal, startUrl, skill, files = []
   if (replaces) replaceEarlier({ user, session, threadId, room, text: asked?.text ?? goal, why: replacedText(startUrl) })
     .catch((e) => console.warn('[replace]', e.message))
   console.log(`[browser] start thread=${String(threadId).slice(0, 8)} skill=${skill || '-'} url=${startUrl || '-'} files=${files.length}`)
-  browserStarts.push({ threadId, goal, startUrl: startUrl || '', skill: skill || '', files: files.map((f) => f.name) })
+  const own = !turnCtx.getStore()?.auto
+  browserStarts.push({ threadId, goal, startUrl: startUrl || '', skill: skill || '', files: files.map((f) => f.name), own })
   if (browserStarts.length > 20) browserStarts.shift()
-  runBrowserTask({ userId, threadId, goal, startUrl, files, skill })
+  runBrowserTask({ userId, threadId, goal, startUrl, files, skill, own })
     .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
     .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment."), failed: true }) })
 }
