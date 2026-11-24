@@ -2663,7 +2663,11 @@
   "답장도 쓰기": "Write a reply too",
   "일정 추가": "Add to calendar",
   "일정 기록함": "Event recorded",
-  "캘린더에 넣음": "On calendar"
+  "캘린더에 넣음": "On calendar",
+  "회사 지도에서 이 건 보기 →": "See this case on the company map →",
+  "이 건 다루기": "Manage this case",
+  "지도에서 바로 도는 건": "Case run straight from the map",
+  "인스턴스 열기": "Open the instance"
  },
  "patterns": [
   [
@@ -6209,6 +6213,10 @@
   [
    "{0}이 입력함",
    "{0} put it in"
+  ],
+  [
+   "지도에서 바로 도는 건 · {0} 시작 · {1}/{2} 단계",
+   "Case run straight from the map · started {0} · {1}/{2} steps"
   ]
  ],
  "context": [

@@ -99,7 +99,7 @@ onBeforeUnmount(close)
   --a2ui-border: 1px solid var(--hairline);
   --a2ui-color-input: var(--field-bg);
   --a2ui-color-on-input: var(--text-primary);
-  --a2ui-font-family-title: var(--font-sans);
+  --a2ui-font-family-title: var(--font-serif);
   --a2ui-font-size: 15px;
   --a2ui-border-radius: 16px;
   --a2ui-label-font-size: 13px;

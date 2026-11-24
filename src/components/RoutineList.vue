@@ -3,11 +3,12 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
+import { routineTarget } from './ontology/caseView.js'
 
 // 루틴: the process instances I am part of (2026-11-18: "프로세스 인스턴스는 프로젝트가 아니다" — they left
 // ProjectList). Waiting on me first, then the ones underway, then the recently finished, folded.
-// Two kinds side by side (2026-11-19): Lite's — a case of the company's process map (run straight from the map, or as its
-// BPMN snapshot), seen in its case view on the map — and classic ones, from a process definition made in Process GPT 본판
+// Two kinds side by side (2026-11-19): Lite's — a case of the company's process map (run straight from the map — seen on its instance
+// page, its own BPMN, 2026-11-24 — or as its BPMN snapshot, seen in its case view on the map) — and classic ones, from a process definition made in Process GPT 본판
 // (people who came over from it), on their instance page. The classic 개선 분석 opens only from here (「클래식 개선 분석」);
 // Lite's processes are seen and improved on the map.
 const app = useApp()
@@ -32,10 +33,9 @@ const groups = computed(() => {
   ].filter((g) => g.items.length)
 })
 const hiddenDone = computed(() => Math.max(0, ended.value.length - FOLDED))
-// a Lite case opens its case view on the map (server lib/ontology/mapengine.js · run.js); a classic one its instance page
-const go = (i) => (isLite(i)
-  ? router.push(`/process-map?proc=${encodeURIComponent(i.case_proc || '')}&case=${encodeURIComponent(i.case_id)}`)
-  : router.push(`/routines/${encodeURIComponent(i.proc_inst_id)}`))
+// a case run straight from the map opens its instance page (its own BPMN, its steps and controls — a link there leads to the map); a
+// map snapshot's case its case view on the map (its gates and 「지금 스냅샷」); a classic one its instance page (ontology/caseView.js)
+const go = (i) => router.push(routineTarget(i))
 </script>
 
 <template>

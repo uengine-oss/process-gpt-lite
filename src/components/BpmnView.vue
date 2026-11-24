@@ -70,8 +70,11 @@ function decorate() {
 }
 
 let seq = 0
+// drawn and fitted to the box (data-ready on the box — a test or a recording waits for it)
+const fitted = ref(false)
 async function load() {
   const my = ++seq
+  fitted.value = false
   empty.value = false
   failed.value = ''
   let xml
@@ -107,7 +110,7 @@ async function load() {
     emit('ready')
     // the box animates to its new height; fit once it has settled
     await new Promise((r) => setTimeout(r, 420))
-    if (my === seq) fit()
+    if (my === seq) { fit(); fitted.value = true }
   } catch (e) {
     console.warn('[bpmn]', e.message)
     if (my !== seq) return
@@ -137,20 +140,21 @@ async function toggleBig() {
   if (props.xml != null && props.bigXml && props.bigXml !== props.xml) await load()
   else fit()
 }
-defineExpose({ fit })
+// (a caller's own 「크게 보기」 — a map case's flowchart puts one in its heading: the box's own button sits at its bottom)
+defineExpose({ fit, toggleBig, isBig: () => big.value })
 </script>
 
 <template>
   <div v-if="big" class="spacer" :style="{ height: h + 'px' }" />
   <Teleport to="body" :disabled="!big">
   <div v-if="big" class="scrim" @click="toggleBig" />
-  <div class="bpmn" :class="{ big }" :style="{ height: big ? null : h + 'px' }">
+  <div class="bpmn" :class="{ big }" :style="{ height: big ? null : h + 'px' }" :data-ready="fitted ? '1' : '0'">
     <div ref="host" class="host" />
     <p v-if="loading" class="none wait"><span class="shimmer-text">그리는 중</span></p>
     <p v-else-if="empty" class="none">{{ failed || emptyText || '이 프로세스에는 저장된 BPMN 다이어그램이 없어요.' }}</p>
     <div v-else class="tools">
       <button class="press" aria-label="화면에 맞추기" @click="fit">맞춤</button>
-      <button class="press" :aria-label="big ? '작게 보기' : '크게 보기'" @click="toggleBig">{{ big ? '닫기' : '크게 보기' }}</button>
+      <button class="press" :aria-label="big ? '작게 보기' : '크게 보기'" data-testid="bpmn-big" @click="toggleBig">{{ big ? '닫기' : '크게 보기' }}</button>
     </div>
   </div>
   </Teleport>

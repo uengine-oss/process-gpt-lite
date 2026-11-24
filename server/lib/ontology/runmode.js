@@ -705,7 +705,8 @@ export async function runView(me, caseId) {
     const moved = (c.history || []).filter((h) => ['moved', 'rewound'].includes(h.state)).at(-1)
     const since = moved ? new Date(moved.at).getTime() - 1000 : 0
     const inst = c.instances[0]
-    const made = todos.filter((t) => byTodo.has(t.id)).sort((a, b) => new Date(byTodo.get(a.id).created_at) - new Date(byTodo.get(b.id).created_at))
+    // (the same order as the flowchart and the instance page — mapengine.js madeOrder)
+    const made = (await import('./mapengine.js')).madeOrder('map', todos.filter((t) => byTodo.has(t.id)), byTodo)
     for (const t of made) {
       const g = byTodo.get(t.id)
       steps.push(stepOf({ ...(g.act || {}), name: t.activity_name, id: t.activity_id }, t, inst, new Date(g.created_at).getTime() >= since))

@@ -7,6 +7,7 @@
 // source file — 채팅에 올린 파일이 사건일 때: 파일 이름과 함께 묻기만 한다(사람이 올렸으므로 저절로 시작하지 않는다)
 // 서버는 이 카드 내용을 바꾸지 않으므로, 고른 결과 · 옮긴 결과는 이 기기에 남겨 다시 열어도 그대로 보인다.
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '../../api.js'
 import { pct } from './fmt.js'
 import OntoSheet from './OntoSheet.vue'
@@ -37,6 +38,8 @@ const err = ref('')
 const busy = ref('')
 const persist = (patch) => { saved.value = { ...(saved.value || {}), ...patch }; local.set(`entry:${props.msg.id}`, saved.value) }
 
+const router = useRouter()
+const openInst = (id) => router.push(`/routines/${encodeURIComponent(id)}`)
 // ask → 고르면 건을 시작한다(ch: 여러 프로세스 중 고른 프로세스의 choice — 하나뿐이면 그 choice)
 const kindOf = () => (chat.value ? 'chat' : timer.value ? 'timer' : fileEv.value ? 'file' : 'mail')
 async function start(o, ch = choice.value) {
@@ -48,7 +51,7 @@ async function start(o, ch = choice.value) {
       odds: { ...ch, task: o.task, p: o.p, picked: true }, kind: kindOf(), ...(v.value.file ? { file: v.value.file } : {}), messageId: props.msg.id,
       picks: picks.value[ch.proc] || [],
     } })
-    if (many.value) { persist({ starts: { ...(v.value.starts || {}), [ch.proc]: { caseId: r.caseId, task: o.task, engine: r.engine || 'bpm' } } }); return }
+    if (many.value) { persist({ starts: { ...(v.value.starts || {}), [ch.proc]: { caseId: r.caseId, instId: r.instId || null, task: o.task, engine: r.engine || 'bpm' } } }); return }
     persist({ state: 'started', picked: !ch.suggest || o.task !== ch.task, choice: { ...ch, task: o.task, p: o.p }, caseId: r.caseId, instId: r.instId,
       skipped: r.snapshot?.skipped || [], nodes: r.snapshot?.nodes || [o.task], procDefId: r.snapshot?.procDefId, bindings: r.bindings || null })
   } catch (e) { err.value = e.message } finally { busy.value = '' }
@@ -108,7 +111,7 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
       <div v-for="ch in v.choices" :key="ch.proc" class="pc" data-testid="onto-entry-proc" :data-proc="ch.proc" :data-started="startedOf(ch) ? '1' : '0'">
         <b class="pn">{{ ch.procName }}<small v-if="ch.procP != null"> · {{ pText(ch.procP, true) }}</small><small v-if="!ch.suggest" class="adopted"> · 자동</small></b>
         <template v-if="startedOf(ch)">
-          <small class="okline" data-testid="onto-entry-proc-started">「{{ startedOf(ch).task }}」부터 시작했어요 · <button class="link press" @click="caseOpen = startedOf(ch).caseId">건 보기</button></small>
+          <small class="okline" data-testid="onto-entry-proc-started">「{{ startedOf(ch).task }}」부터 시작했어요 · <button class="link press" @click="caseOpen = startedOf(ch).caseId">건 보기</button><template v-if="startedOf(ch).instId"> · <button class="link press" data-testid="onto-entry-open-inst" @click="openInst(startedOf(ch).instId)">인스턴스 열기</button></template></small>
         </template>
         <OntoBindings v-if="!startedOf(ch)" :proc="ch.proc" :entry="topOf(ch).task" compact @picks="(p) => (picks = { ...picks, [ch.proc]: p })" @ready="(r) => (ready = { ...ready, [ch.proc]: r })" />
         <div v-if="!startedOf(ch)" class="opts">
@@ -181,6 +184,8 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
       <OntoBindings v-if="v.caseId && v.bindings?.length" :bindings="v.bindings" :case-id="v.caseId" @changed="(b) => persist({ bindings: b })" />
       <div class="foot">
         <button v-if="v.caseId" class="link press" data-testid="onto-entry-case" @click="sheet = true">건 보기</button>
+        <!-- its instance page: the case's flowchart (BPMN), its steps, the step's form and its conversation -->
+        <button v-if="v.caseId && v.instId" class="link press" data-testid="onto-entry-open-inst" @click="openInst(v.instId)">인스턴스 열기</button>
         <button v-if="v.caseId && others.length" class="link sub press" :aria-expanded="menu" data-testid="onto-entry-move" @click="menu = !menu; target = ''">다른 일에서 시작</button>
       </div>
       <div v-if="menu" class="menu" data-testid="onto-entry-menu">

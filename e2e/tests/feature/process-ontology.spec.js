@@ -334,7 +334,7 @@ const reseedFlow = () => {
   const r = spawnSync(process.execPath, ['scripts/seed-flow-demo.mjs'], { cwd: SERVER_DIR, encoding: 'utf8' })
   if (r.status) console.warn('[seed-flow-demo]', String(r.stderr || '').slice(0, 200))
 }
-test('F-PO-18 화면 — 건 화면에서 내 단계 내기: 김민지가 루틴 탭(지도) › 진행 중인 루틴에서 건을 열면 자기 단계(평면도 작성)의 양식이 있고, 내면 지도 엔진이 다음 단계(제안서 작성)를 연다', async ({ browser, db, cleanup }) => {
+test('F-PO-18 화면 — 인스턴스 화면에서 내 단계 내기: 김민지가 루틴 탭(지도) › 진행 중인 루틴에서 건을 열면 그 건의 BPMN 과 자기 단계(평면도 작성)의 양식이 있고, 내면 지도 엔진이 다음 단계(제안서 작성)를 연다', async ({ browser, db, cleanup }) => {
   test.skip(TENANT !== 'ax-demo', '데모 테넌트(ax-demo)의 시드 자료로 돈다')
   const [{ n }] = await db.q(`select count(*)::int as n from pro_po_cases where tenant_id=$1 and request->>'seed'='flow-demo'`, [TENANT])
   test.skip(n < 20, '시드가 없다(node server/scripts/seed-flow-demo.mjs)')
@@ -351,7 +351,8 @@ test('F-PO-18 화면 — 건 화면에서 내 단계 내기: 김민지가 루틴
   test.skip(!T0, '김민지의 열린 단계가 없다')
 
   // 루틴 tab → the company's process map; its 「진행 중인 루틴」 → the routine list (Lite and classic side by side) → the case
-  // (Lite · 입력 필요) opens its case screen on the map. The classic 개선 분석 is only a link there.
+  // (Lite · 입력 필요) opens its instance page — the case's BPMN, not the map (2026-11-24, spec map-case-view). The classic 개선 분석 is only
+  // a link there.
   await page.goto('/chat')
   await page.locator('nav.seg button[data-tab=routine]').click()
   await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe('/process-map')
@@ -363,30 +364,35 @@ test('F-PO-18 화면 — 건 화면에서 내 단계 내기: 김민지가 루틴
   const item = page.locator(`[data-testid=instance-map-case][data-inst="${T0.proc_inst_id}"]`)
   await expect(item.getByTestId('instance-kind')).toHaveText('Lite')
   await item.click()
-  await expect.poll(() => new URL(page.url()).searchParams.get('case'), { timeout: 15000 }).toBe(T0.case_id)
-  expect(new URL(page.url()).pathname).toBe('/process-map')
+  const instPath = `/routines/${encodeURIComponent(T0.proc_inst_id)}`
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe(instPath)
+  await expect(page.locator('[data-test="instance-map-case"]')).toBeVisible({ timeout: 20000 })
+  // the case's BPMN first, her step painted as the person's turn; 목록 — the case's steps
+  await expect(page.locator(`[data-test="map-case-card"] [data-testid="onto-case-flow-node"][data-task="${T0.task}"]`)).toHaveAttribute('data-state', 'person', { timeout: 30000 })
+  await page.locator('[data-test="map-case-card"] .seg button[data-view="list"]').click()
   const mine = page.locator(`[data-testid=onto-case-step][data-todo="${T0.id}"]`)
   await expect(mine).toHaveAttribute('data-state', 'person', { timeout: 20000 })
   await expect(mine).toHaveAttribute('data-mine', '1')
-  // only her step carries the form
-  await expect(page.getByTestId('onto-case-todo')).toHaveCount(1)
-  const card = mine.getByTestId('onto-case-todo')
-  await expect(card).toHaveAttribute('data-todo', T0.id)
-  await card.locator('textarea').fill(`${T0.task} 했어요(F-PO-18, 건 화면에서)`)
+  // only her step carries the form — once, under 「내 입력이 필요해요」
+  await expect(page.locator('.ih .mine')).toHaveCount(1)
+  await expect(page.getByTestId('onto-case-todo')).toHaveCount(0)
+  const card = page.locator('.ih .mine')
+  await card.locator('textarea').fill(`${T0.task} 했어요(F-PO-18, 인스턴스 화면에서)`)
   await page.screenshot({ path: test.info().outputPath('f-po-18-form.png') })
   await card.getByRole('button', { name: '제출' }).click()
 
-  // handed in: the step is done, the map engine opened the map's next step (after 평면도 작성: 제안서 작성) and the case screen shows it
+  // handed in: the step is done, the map engine opened the map's next step (after 평면도 작성: 제안서 작성) and the page shows it
   await expect(mine).toHaveAttribute('data-state', 'done', { timeout: 20000 })
-  await expect(mine.getByTestId('onto-case-todo')).toHaveCount(0)
-  await expect(page.getByTestId('onto-case-note')).toContainText('냈어요')
+  await expect(page.locator('.ih .mine')).toHaveCount(0, { timeout: 20000 })
   const [next] = await db.q(`select t.id::text as id, t.activity_name from pro_case_steps s join todolist t on t.id = s.todo_id where s.case_id=$1 and s.via->>'fromTodo' = $2`, [T0.case_id, T0.id])
   expect(next, '지도 엔진이 다음 단계를 열었다').toBeTruthy()
   if (T0.task === '평면도 작성') expect(next.activity_name).toBe('제안서 작성')
   await expect(page.locator(`[data-testid=onto-case-step][data-todo="${next.id}"]`)).toHaveAttribute('data-task', next.activity_name, { timeout: 20000 })
   await page.screenshot({ path: test.info().outputPath('f-po-18-next.png') })
-  // the instance's address (/projects/p/<instId>) lands on the same case screen
+  // the instance's old address (/projects/p/<instId>) lands on the same page; the map's case view is a link from it
   await page.goto(`/projects/p/${encodeURIComponent(T0.proc_inst_id)}`)
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15000 }).toBe(instPath)
+  await page.locator('[data-test="map-case-map-link"]').click()
   await expect.poll(() => new URL(page.url()).searchParams.get('case'), { timeout: 15000 }).toBe(T0.case_id)
   expect(page.errors).toEqual([])
 })
@@ -427,7 +433,7 @@ test('F-PO-19 /improve 넘기기 — 목록은 지도의 병목 보기로, 지�
 })
 
 // 루틴 탭(2026-11-19 「루틴 메뉴를 누르면 프로세스 지도가 떠야」 · 「클래식에서 넘어온 손님도 있으니 둘의 인스턴스를 모두」 · 「클래식은 보고자 할 때만」):
-// 루틴 → 회사 프로세스 지도, 「진행 중인 루틴」 → 목록에 Lite 건(지도의 건 화면으로)과 클래식 인스턴스(인스턴스 화면으로)가 함께, 종류 칩으로 거르고,
+// 루틴 → 회사 프로세스 지도, 「진행 중인 루틴」 → 목록에 Lite 건(지도에서 바로 도는 건은 인스턴스 화면 · 스냅샷 건은 지도의 건 화면으로)과 클래식 인스턴스(인스턴스 화면으로)가 함께, 종류 칩으로 거르고,
 // 클래식 개선 분석은 목록의 링크(?classic=1)로만 — 그냥 /improve 는 지도의 병목 보기. 클래식 인스턴스는 시험이 만들고 지운다(정의 없는 행 하나).
 test('F-PO-22 루틴 탭 — 지도가 뜨고, 진행 중인 루틴에 Lite · 클래식 둘 다, 클래식 개선 분석은 물을 때만', async ({ browser, db, cleanup }) => {
   test.skip(TENANT !== 'ax-demo', '데모 테넌트(ax-demo)의 시드 자료로 돈다')

@@ -4,31 +4,36 @@
 // 「멈추기」 · 「이어 가기」 · 「이 단계로 되감기」는 건을 맡은 사람이나 관리자. 바꾸면 emit changed(위 패널이 스냅샷을 다시 그린다).
 // 「이 단계에 의견」은 누구나: 말을 지도의 고침으로 옮겨 보고(edit/plan, 그 단계 범위) 의견으로 남긴다(opinions, source step) — 건은 그대로.
 // 보는 사람이 맡은 사람 차례의 단계(runView mine)에는 채팅의 할 일 카드(TodoCard)를 그대로 두어 여기서 바로 낸다 — 내면 진행을 다시 읽는다.
-import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
+// part: all(지도의 건 패널 — 전부) · controls(방식 · 멈추기 · 기다리는 단계와 정할 것) · steps(단계 목록 · 되감기 · 의견 · 파일) — 지도에서 바로 도는 건의
+// 인스턴스 화면은 흐름도 아래에 controls, 「목록」에 steps 를 둔다(같은 읽기 — caseRun.js). inlineTodos false: 내 차례 단계의 할 일 카드는 화면의
+// 「내 입력이 필요해요」가 보이므로 여기에는 두지 않는다(한 단계에 카드 둘이 되지 않게).
+import { ref, computed, watch, nextTick, onBeforeUnmount, shallowRef } from 'vue'
 import { api } from '../../api.js'
 import { dateTimeKo, pct } from './fmt.js'
 import { RUNMODE_KO, STEP_KO, WAIT_KO, holderText, RO, EUL, EUN, IEYO } from './ontoText.js'
+import { acquire, release } from './caseRun.js'
 import OntoDocSheet from './OntoDocSheet.vue'
 import OntoChangeList from './OntoChangeList.vue'
 import TodoCard from '../TodoCard.vue'
 
-const props = defineProps({ caseId: { type: String, required: true } })
+const props = defineProps({ caseId: { type: String, required: true }, part: { type: String, default: 'all' }, inlineTodos: { type: Boolean, default: true } })
 const emit = defineEmits(['changed'])
-const run = ref(null)
 const err = ref('')
 const busy = ref('')
 const note = ref('')
 const ask = ref(null) // 되감기 확인: {task, lost, redo}
 const showOld = ref(false)
+const showControls = computed(() => props.part !== 'steps')
+const showSteps = computed(() => props.part !== 'controls')
 
-let timer = 0, alive = true
-async function load() {
-  try { run.value = await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/run`); err.value = '' } catch (e) { err.value = e.message }
-  clearTimeout(timer)
-  if (alive) timer = setTimeout(load, run.value?.status === 'running' ? 4000 : 15000)
-}
-watch(() => props.caseId, () => { run.value = null; ask.value = null; note.value = ''; load() }, { immediate: true })
-onBeforeUnmount(() => { alive = false; clearTimeout(timer) })
+// the case's run view, shared with the other parts on the page (one reading, one poll)
+const store = shallowRef(null)
+const run = computed({ get: () => store.value?.run.value || null, set: (v) => { if (store.value) store.value.run.value = v } })
+const loadErr = computed(() => store.value?.err.value || '')
+const load = () => store.value?.load()
+watch(() => props.caseId, (id) => { release(store.value); store.value = acquire(id); ask.value = null; note.value = '' }, { immediate: true })
+onBeforeUnmount(() => { release(store.value); store.value = null })
+defineExpose({ reload: load })
 
 const current = computed(() => (run.value?.steps || []).filter((s) => s.current))
 const older = computed(() => (run.value?.steps || []).filter((s) => !s.current))
@@ -86,7 +91,8 @@ const stateText = (s) => (s.state === 'person' ? `${(s.holder?.names || []).join
 // 단계가 만든 파일(server stepdoc.js stepFiles, 할 일마다): 파일 · 쓴 양식(정해 둔 · 자동) · 양식에서 바꾼 것 · 형식 규칙 점검 — 이음오피스로 열어 보기
 const files = ref({})
 const doc = ref(null)
-watch(run, async () => { try { files.value = (await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/files`)).steps || {} } catch { /* 파일 없이 글만 */ } })
+// (only where the steps are shown: the controls part has no files; a part shown after the case was read reads them at once)
+watch(run, async (r) => { if (!r || !showSteps.value) return; try { files.value = (await api(`/ontology/cases/${encodeURIComponent(props.caseId)}/files`)).steps || {} } catch { /* 파일 없이 글만 */ } }, { immediate: true })
 const fileOf = (s) => (s?.todoId ? files.value[s.todoId] || null : null)
 const failedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === false)
 const passedRules = (f) => (f?.formatRules || []).filter((x) => x.ok === true).length
@@ -127,9 +133,9 @@ function resay() {
 </script>
 
 <template>
-  <div ref="rootEl" class="cr" data-testid="onto-case-run" :data-mode="run?.mode" :data-paused="run?.paused ? '1' : '0'" :data-status="run?.status">
-    <p v-if="!run && !err" class="muted pulse">진행을 불러오는 중…</p>
-    <template v-if="run">
+  <div ref="rootEl" class="cr" data-testid="onto-case-run" :data-part="part" :data-mode="run?.mode" :data-paused="run?.paused ? '1' : '0'" :data-status="run?.status">
+    <p v-if="!run && !err && !loadErr" class="muted pulse">진행을 불러오는 중…</p>
+    <template v-if="run && showControls">
       <div class="top">
         <span class="mode" data-testid="onto-case-mode" :data-from="run.modeFrom" :title="modeTitle">{{ RUNMODE_KO[run.mode] || run.mode }}</span>
         <span v-if="run.paused" class="pz" data-testid="onto-case-paused">멈춤</span>
@@ -180,7 +186,9 @@ function resay() {
         </div>
         <small v-if="outward" class="stub">이 판에서는 실제 메일이 나가지 않아요 — 보낼 내용만 건에 남겨요.</small>
       </div>
+    </template>
 
+    <template v-if="run && showSteps">
       <!-- 단계 -->
       <ol class="steps">
         <li v-for="s in current" :key="`${s.inst}:${s.task}`" :class="s.state" data-testid="onto-case-step" :data-task="s.task" :data-state="s.state" :data-kind="s.kind" :data-todo="s.todoId || ''" :data-mine="s.mine ? '1' : '0'">
@@ -215,8 +223,9 @@ function resay() {
               </small>
             </div>
             <small v-if="s.sent" class="sent" data-testid="onto-case-sent">보낸 것으로 기록 · {{ s.sent.to || '받는 사람' }} · {{ s.sent.subject }} (실제로는 보내지 않았어요)</small>
-            <!-- 내 차례인 단계(runView mine): 채팅의 할 일 카드와 같은 양식을 여기서 바로 내요 -->
-            <div v-if="s.mine && s.todoId" class="mytodo" data-testid="onto-case-todo" :data-todo="s.todoId">
+            <!-- 내 차례인 단계(runView mine): 채팅의 할 일 카드와 같은 양식을 여기서 바로 내요(인스턴스 화면은 「내 입력이 필요해요」에) -->
+            <small v-if="s.mine && s.todoId && !inlineTodos" class="me" data-testid="onto-case-mine">내 입력이 필요해요</small>
+            <div v-if="s.mine && s.todoId && inlineTodos" class="mytodo" data-testid="onto-case-todo" :data-todo="s.todoId">
               <TodoCard :key="s.todoId" :todo-id="s.todoId" @submitted="submitted(s)" />
             </div>
             <!-- 이 단계에 의견: 말 → 지도로 옮겨 보기 → 의견으로 남기기 -->
@@ -269,9 +278,9 @@ function resay() {
           </li>
         </ol>
       </div>
-      <small v-if="note" class="ok" data-testid="onto-case-note">{{ note }}</small>
     </template>
-    <small v-if="err" class="err">{{ err }}</small>
+    <small v-if="run && note" class="ok" data-testid="onto-case-note">{{ note }}</small>
+    <small v-if="err || loadErr" class="err">{{ err || loadErr }}</small>
     <OntoDocSheet v-if="doc" :name="doc.name" :url="doc.url" note="건의 단계가 만든 파일이에요(읽기만)." @close="doc = null" />
   </div>
 </template>
@@ -324,6 +333,7 @@ function resay() {
 .made .fr.bad { color: var(--color-warning, #b26a00); }
 .sent { font-size: 12px; color: var(--text-tertiary); }
 .mytodo { margin-top: 6px; min-width: 0; max-width: 100%; }
+.me { align-self: flex-start; font-size: 12px; font-weight: 600; padding: 1px 9px; border-radius: 9999px; background: var(--color-attention); color: #fff; }
 .dot { flex: none; margin-top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); }
 li.done .dot { background: var(--color-success); }
 li.running .dot { background: var(--color-info); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-info) 22%, transparent); }

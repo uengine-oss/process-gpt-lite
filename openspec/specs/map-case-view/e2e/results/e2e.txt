@@ -1,0 +1,13 @@
+
+Running 8 tests using 1 worker
+
+  ✓  1 [feature] › tests/feature/map-case-view.spec.js:122:3 › 지도에서 바로 도는 건의 인스턴스 화면 — 건의 BPMN 으로 (spec map-case-view) › F-CV-01 메일 칩으로 연 지도 건: 회사 지도가 아니라 인스턴스 화면, 진행 상황은 건의 BPMN(왼쪽에서 오른쪽) · 상태 색 · 범례 · 레인 (5.9s)
+  ✓  2 [feature] › tests/feature/map-case-view.spec.js:175:3 › 지도에서 바로 도는 건의 인스턴스 화면 — 건의 BPMN 으로 (spec map-case-view) › F-CV-02 목록과 다이어그램은 같은 상태 — 서버의 단계 · 흐름도의 색 · 목록, 「내 입력이 필요해요」 카드 하나, 건의 방식 · 멈추기 · 이 건 다루기 (2.9s)
+  ✓  3 [feature] › tests/feature/map-case-view.spec.js:228:3 › 지도에서 바로 도는 건의 인스턴스 화면 — 건의 BPMN 으로 (spec map-case-view) › F-CV-03 「회사 지도에서 이 건 보기」 → 지도의 건 패널, 거기서 흐름도 「크게 보기」(왼쪽에서 오른쪽) · 「인스턴스 열기」로 돌아옴 (6.1s)
+  ✓  4 [feature] › tests/feature/map-case-view.spec.js:275:3 › 지도에서 바로 도는 건의 인스턴스 화면 — 건의 BPMN 으로 (spec map-case-view) › F-CV-04 루틴 목록 · Home 카드 · 알림에서 연 지도 건도 인스턴스 화면 (5.8s)
+  ✓  5 [feature] › tests/feature/map-case-view.spec.js:313:3 › 지도에서 바로 도는 건의 인스턴스 화면 — 건의 BPMN 으로 (spec map-case-view) › F-CV-08 채팅에서 시작한 건: 시작 카드의 「인스턴스 열기」 → 그 건의 인스턴스 화면(건 보기는 그대로) (2.0s)
+  ✓  6 [feature] › tests/feature/map-case-view.spec.js:335:3 › 지도에서 바로 도는 건의 인스턴스 화면 — 건의 BPMN 으로 (spec map-case-view) › F-CV-05 정의가 있는 인스턴스(클래식 · 스냅샷)는 그대로: 목록부터, 다이어그램은 정의의 BPMN, 병목 링크 · 회사 지도 링크 없음 (3.3s)
+  ✓  7 [feature] › tests/feature/map-case-view.spec.js:388:3 › 지도에서 바로 도는 건의 인스턴스 화면 — 건의 BPMN 으로 (spec map-case-view) › F-CV-06 휴대폰(390px): 흐름도는 위에서 아래로, 페이지는 옆으로 넘치지 않음 · ‹ 로 닫기 (2.5s)
+  ✓  8 [feature] › tests/feature/map-case-view.spec.js:423:3 › 지도에서 바로 도는 건의 인스턴스 화면 — 건의 BPMN 으로 (spec map-case-view) › F-CV-07 밤 테마: 흐름도 · 범례 · 칸이 어두운 화면의 색을 따른다 (4.4s)
+
+  8 passed (33.9s)
