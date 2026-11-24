@@ -22,6 +22,8 @@ html.pgl-desktop header.top {
   padding-left: max(16px, calc(var(--pgl-tb-left, 0px) + 12px));
   padding-right: max(16px, calc(var(--pgl-tb-right, 0px) + 12px));
 }
+/* a list put away beside a document (views/MainView.vue .lbtn): right of Home's round button, wherever the bar starts */
+html.pgl-desktop .main > .lbtn { left: calc(max(16px, calc(var(--pgl-tb-left, 0px) + 12px)) + 56px); }
 /* phone width: the pill between the two round buttons (48px + 8px gap each side) */
 html.pgl-desktop header.top.narrow .seg {
   left: calc(max(16px, calc(var(--pgl-tb-left, 0px) + 12px)) + 56px);

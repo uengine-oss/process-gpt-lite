@@ -18,7 +18,9 @@ import ProjectFolderBar from '../components/folders/ProjectFolderBar.vue'
 import ArtifactStack from '../components/ArtifactStack.vue'
 import ArtifactList from '../components/ArtifactList.vue'
 import Composer from '../components/Composer.vue'
+import Icon from '../components/Icon.vue'
 import { narrow, pageW, wideLayout } from '../viewport.js'
+import { leftColumnPlace, fitsBeside, leftEdge, overWidth, OVER_X, LEFT_LABEL, LEFT_SHORT } from '../leftColumn.js'
 import { instanceContext } from '../components/ontology/caseView.js'
 import { artifactLayout, sideWidth, pilePlace } from '../artifactScope.js'
 import { api } from '../api.js'
@@ -39,8 +41,52 @@ const settings = computed(() => !!route.meta.settings)
 // 프로젝트 and 루틴 (process instances, /routines) each keep their list in the left column
 const listMode = computed(() => app.mode === 'project' || app.mode === 'routine')
 // 채팅: Home's dock or the chat's thread list (double-click 「채팅」 — components/ThreadList.vue); the two share the column
-const leftOpen = computed(() => wide.value && (listMode.value || app.dockOpen || app.threadListShown))
-const dockShown = computed(() => app.mode === 'chat' && app.dockOpen && wide.value)
+const leftKind = computed(() => (!wide.value ? null : app.mode === 'project' ? 'projects' : app.mode === 'routine' ? 'routines'
+  : app.dockOpen ? 'home' : app.threadListShown ? 'threads' : null))
+// A document open beside the page (OfficeSheet: app.docSide) takes the page's right part, --craft-side-w wide — measured here off a
+// hidden box of that width, so the width is the one CSS draws (it follows the window, a docked messenger's column, the panel dock).
+// The left column stays beside the chat only where the page holds the column, the chat and the document; elsewhere the list is put
+// away (a button beside Home lays it over the chat until a row is picked) and Home, when opened, lies over the chat (src/leftColumn.js
+// — before, the chat recentred from the window's left edge, on top of the list: 2026-11-24 「프로젝트에서 산출물을 열어보면 이렇게
+// 목록과 대화내용이 겹쳐진다」)
+const probe = ref(null)
+const docW = ref(0)
+const sideDocW = computed(() => (app.docSide ? docW.value : 0))
+const peek = ref(false)
+const leftPlace = computed(() => leftColumnPlace({ kind: leftKind.value, pageW: pageW.value, docW: sideDocW.value, peek: peek.value }))
+const leftOpen = computed(() => leftPlace.value === 'column')
+const leftShown = computed(() => leftPlace.value === 'column' || leftPlace.value === 'over')
+const leftOver = computed(() => leftPlace.value === 'over')
+// the top bar's button for a folded list (Home has its own round button)
+const foldBtn = computed(() => (leftPlace.value === 'folded' || leftPlace.value === 'over') && leftKind.value !== 'home')
+const leftVars = computed(() => ({ '--left-edge': `${leftEdge(leftPlace.value)}px`, '--over-x': `${OVER_X}px`, '--over-w': `${overWidth({ pageW: pageW.value, docW: sideDocW.value })}px` }))
+const fits = computed(() => fitsBeside({ pageW: pageW.value, docW: sideDocW.value }))
+// the thread list asked for (double-click 「채팅」) while there is no room beside: shown at once, over the chat
+watch(() => app.threadList, (open) => { if (open && !fits.value) peek.value = true })
+// a row picked (the page changes), the document opened or closed, the room changed: folded again
+watch([() => route.fullPath, () => app.docSide, fits], () => { peek.value = false })
+// Esc or a click elsewhere puts the column over the chat away (Home: closed, as its round button would)
+function closeOver() {
+  if (leftKind.value === 'home') app.dockOpen = false
+  else peek.value = false
+}
+function peekKey(e) { if (e.key === 'Escape' && leftOver.value) closeOver() }
+function peekOutside(e) { if (leftOver.value && !e.target?.closest?.('.content > .over, .lbtn, .top .home')) closeOver() }
+let probeObs
+onMounted(() => {
+  const measure = () => { docW.value = Math.round(probe.value?.getBoundingClientRect().width || 0) }
+  probeObs = new ResizeObserver(measure)
+  if (probe.value) probeObs.observe(probe.value)
+  measure()
+  window.addEventListener('keydown', peekKey)
+  window.addEventListener('pointerdown', peekOutside, true)
+})
+onBeforeUnmount(() => {
+  probeObs?.disconnect()
+  window.removeEventListener('keydown', peekKey)
+  window.removeEventListener('pointerdown', peekOutside, true)
+})
+const dockShown = computed(() => app.mode === 'chat' && app.dockOpen && wide.value && leftShown.value)
 // the thread list: the column beside the chat, or narrower (a phone) a page of its own over the chat, like the project list
 const threadsShown = computed(() => ready.value && app.threadListShown)
 const threadSheet = computed(() => threadsShown.value && !wide.value)
@@ -190,25 +236,36 @@ function onConnect() {
 <template>
   <!-- the bar's tabs sit over the chat column — over the page's middle when the page is too narrow for that beside the bar's
        buttons (a window under ~1360px, or a page beside a docked messenger: they overlapped) -->
-  <div class="main" :style="{ '--chat-center': chatCenter, '--art-w': `${artW}px` }">
+  <div class="main" :style="{ '--chat-center': chatCenter, '--art-w': `${artW}px`, ...leftVars }">
+    <!-- the width of a document open beside the page (--craft-side-w, components/OfficeSheet.vue), measured for the left column -->
+    <div ref="probe" class="doc-probe" aria-hidden="true" />
     <Transition name="fade"><TopBar v-if="!settings" /></Transition>
+    <!-- a list put away beside a document (no room for it, the chat and the document side by side): in the top bar beside Home, the
+         button that lays it over the chat (the phone's ≡ is the same list) -->
+    <Transition name="fade">
+      <button v-if="ready && !settings && foldBtn" class="lbtn press" :class="{ on: leftOver }" :aria-label="`${LEFT_LABEL[leftKind]} ${leftOver ? '접기' : '펼치기'}`"
+        :aria-expanded="leftOver ? 'true' : 'false'" :title="leftOver ? `${LEFT_LABEL[leftKind]} 접기` : `${LEFT_LABEL[leftKind]} 펼치기 · 문서를 보는 동안 접어 두었어요`"
+        data-testid="left-fold" @click="peek = !peek">
+        <Icon name="list" :size="18" /><span>{{ LEFT_SHORT[leftKind] }}</span>
+      </button>
+    </Transition>
 
     <div class="content" :class="{ away: settings }">
+      <!-- the left column (.over: laid over the chat while a document leaves it no room beside — src/leftColumn.js) -->
       <Transition name="fade">
-        <HomeDock v-if="ready && (dockShown || mobileHome)" :class="{ mobile: narrow }" />
+        <HomeDock v-if="ready && (dockShown || mobileHome)" :class="{ mobile: narrow, over: leftOver && !narrow }" />
       </Transition>
       <Transition name="fade">
-        <ThreadList v-if="threadsShown" :sheet="threadSheet" />
+        <ThreadList v-if="threadsShown && (threadSheet || leftShown)" :sheet="threadSheet" :class="{ over: leftOver && !threadSheet }" />
       </Transition>
       <Transition name="fade">
-        <ProjectList v-if="ready && app.mode === 'project' && (wide || mobileList)" :class="{ mobile: narrow }" />
+        <ProjectList v-if="ready && app.mode === 'project' && ((wide && leftShown) || mobileList)" :class="{ mobile: narrow, over: leftOver && !narrow }" />
       </Transition>
       <Transition name="fade">
-        <RoutineList v-if="ready && app.mode === 'routine' && (wide || mobileList)" :class="{ mobile: narrow }" />
+        <RoutineList v-if="ready && app.mode === 'routine' && ((wide && leftShown) || mobileList)" :class="{ mobile: narrow, over: leftOver && !narrow }" />
       </Transition>
-
       <Transition name="fade">
-        <div v-if="app.mode === 'chat' && !app.dockOpen && !threadsShown && !narrow && clockFits" class="clock">
+        <div v-if="app.mode === 'chat' && !app.dockOpen && !threadsShown && !narrow && !app.docSide && clockFits" class="clock">
           <div>{{ clock.day }}</div><div>{{ clock.date }}</div><div>{{ clock.time }}</div>
         </div>
       </Transition>
@@ -217,7 +274,7 @@ function onConnect() {
         <ArtifactList v-if="artW" :rail="artLayout === 'rail'" />
       </Transition>
 
-      <div class="center" :class="{ shifted: leftOpen, rside: artW > 0 }">
+      <div class="center" :class="{ rside: artW > 0, doc: app.docSide }">
         <ChatColumn v-if="ready && !mobileHome && !threadSheet && (app.activeId || newProject)" :key="colKey"
           :placeholder="newProject && !app.activeId ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : 'process gpt에 메시지 보내기'"
           :empty-text="newProject ? '' : ''" :keep-top="instMode" @send="onSend" @connect="onConnect">
@@ -261,10 +318,23 @@ function onConnect() {
 .main { position: absolute; inset: 0; overflow: clip; }
 .content { position: absolute; inset: 0; transition: filter .5s, opacity .5s, transform .5s; }
 .content.away { filter: blur(20px); opacity: 0; transform: scale(.98); pointer-events: none; }
-.center { position: absolute; top: 0; bottom: 0; left: 0; right: 0; transition: left .6s var(--spring), right .4s var(--spring); }
-.center.shifted { left: 420px; }
+/* the chat between the left column (none while it is put away beside a document — --left-edge, src/leftColumn.js) and the right side */
+.center { position: absolute; top: 0; bottom: 0; left: var(--left-edge, 0px); right: 0; transition: left .6s var(--spring), right .4s var(--spring); }
 /* the files' column at the right (ArtifactList): the chat recentres in what is left */
 .center.rside { right: var(--art-w); }
+/* a document (or an ArtCraft app) open beside the page (OfficeSheet .side): the chat recentres left of it */
+.center.doc { right: var(--craft-side-w); }
+.doc-probe { position: absolute; left: 0; top: 0; height: 0; width: var(--craft-side-w); visibility: hidden; pointer-events: none; }
+/* a list put away beside a document: its button in the top bar, right of Home's round button (TopBar .home: 16px in, 48px, 10px down),
+   and the column laid over the chat from the left edge to the document's room, on a panel of its own */
+.lbtn { position: absolute; z-index: 21; top: 10px; left: 72px; height: 48px; padding: 0 16px 0 14px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 7px;
+  font-size: 15px; font-weight: 500; color: var(--text-primary); background: var(--button-bg); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  transition: background-color .25s, color .25s, scale .12s ease-out; }
+.lbtn.on { background: #1d1d1f; color: #f5f5f7; }
+:root[data-theme="dark"] .lbtn.on { background: #f5f5f7; color: #1d1d1f; }
+.content > .over { z-index: 8; top: 76px; bottom: 16px; left: var(--over-x); width: var(--over-w); padding: 18px 22px; border-radius: 24px; overflow-y: auto;
+  background: var(--thin-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); box-shadow: 0 18px 60px rgba(0, 0, 0, .22);
+  -webkit-mask-image: none; mask-image: none; }
 .clock { position: absolute; left: 32px; bottom: 40px; font-size: 44px; line-height: 1.12; letter-spacing: -0.03em; font-weight: 500; color: var(--text-primary); z-index: 7; pointer-events: none; }
 .mfoot { position: absolute; z-index: 6; left: 16px; right: 16px; bottom: 24px; }
 .iload { position: absolute; left: 50%; top: 42%; translate: -50% -50%; width: min(420px, calc(100% - 32px)); text-align: center; font-size: 17px; color: var(--text-secondary); }

@@ -307,13 +307,12 @@ onBeforeUnmount(() => onOfficeLeave(null))
 </style>
 
 <style>
-/* the chat column shares the window with an ArtCraft app open beside it (OfficeSheet .side) */
+/* the chat column shares the window with an ArtCraft app open beside it (OfficeSheet .side): the panel's width. The chat pages
+   (views/MainView.vue) put the chat left of it, and the left column beside the chat or folded to its rail (src/leftColumn.js) —
+   this rule used to set the chat's left edge to the window's, on top of a project · routine list (2026-11-24) */
 :root { --craft-side-w: min(840px, 64vw); }
 /* a page of a document wants a little more width than an app's canvas */
 body.doc-side { --craft-side-w: min(960px, 70vw); }
-body.craft-side .main .center { right: var(--craft-side-w); left: 0; transition: right .4s var(--spring), left .4s var(--spring); }
-body.craft-side .main .clock { display: none; }
-@media (max-width: 760px) { body.craft-side .main .center { right: 0; } }
 /* A docked team messenger (src/messengerDock.js) takes a column from the page (App.vue .page): the panel's width follows the
    page, not the window. In the panel dock the messenger sits in this panel beside the document — the panel grows by its width
    and the document leaves it the panel's right part. */

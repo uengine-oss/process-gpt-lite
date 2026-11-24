@@ -85,6 +85,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 산출물 스택: 화면의 파일이 더미로(고른 대화 · 2026-11-24 부터 전체 채팅 · 프로젝트 방도), 누르면 부채꼴(≤fanMax), 많으면 격자, Esc 로 접기 | `ArtifactStack.vue`, 스펙 `chat-artifacts` | F-CV-03 · 37절 F-AS-06 · 07 | feature | ✅ |
 | 스택에서 누르면 카드와 같은 편집기(엑셀→이음오피스, SVG→VectorCraft) — 980px 화면(더미) | `artifacts.js` | F-CV-04 | feature | ✅ |
 | 넓은 화면은 오른쪽 칸의 산출물 목록(접으면 띠), 문서가 열리면 비킴 | 사용자 11-24, 스펙 `chat-artifacts` | 37절 F-AS-01~08 | feature | ✅ |
+| 문서가 페이지 옆에 열려도 왼쪽 칸(Home · 대화 · 프로젝트 · 루틴 목록) · 채팅 · 문서가 겹치지 않음(나란히, 아니면 목록 접힘) | 사용자 11-24, 스펙 `chat-artifacts` | 38절 F-DL-01~06 | feature | ✅ |
 | 판단 전략(judge→logprob→json) 측정 | context-router 명세 | — | — | ✗ (process-gpt 쪽 eval) |
 
 ### 3. 끊김에 강한 채팅
@@ -849,7 +850,46 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 밝은 · 밤 테마 | — | F-AS-01 · 06 · 08 | feature | ✅ |
 | 왼쪽 · 문서 패널에 붙인 메신저 | — | — (같은 페이지 폭 규칙, 화면은 오른쪽만) | — | ◐ |
 
-### 38. 운영 화면 11-24 — 회의가 끝나면 회의록이 열린 대화에 바로 (회의 · 메신저)
+### 38. 채팅에서 메시지를 받을 에이전트를 고른다 — 「기본」 · 「Claude Code · 내 PC」 · 「Codex · 내 PC」 (스펙 `local-agents` 「채팅에서 고르는 에이전트」, 설계 `docs/local-agents/design.md` §12)
+
+`chat-agent-picker.spec.js` 는 30절의 파일들처럼 자기 스택(BFF `PRO_BACKGROUND=0` + Vite, 회사 `chatagent-ui`, 8892 · 5292 부터 빈 포트)을 띄우고 지운다. 서버의 에이전트 · completion · 맥락 라우터는 아무 데도 아닌 주소(`127.0.0.1:9`)로 둔다 — 공용 deepagents 를 부르지 않는다(F-CA-05 의 「기본」 답은 그래서 서버 에이전트의 실패 답이다). 윤태호의 PC 는 데스크톱 앱의 runner 그대로이고 CLI 는 가짜(`desktop/test/fixtures/fake-tui.js`). 모델은 부르지 않는다. 화면 사진은 `openspec/specs/local-agents/e2e/results/chat-agent/`. 명령은 `openspec/specs/local-agents/e2e/README.md`.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 입력창의 칩: 「기본」, PC 앱이 없으면 내 PC 항목은 꺼진 채 까닭 · 내려받기 링크, 꺼진 항목은 고를 수 없음 | 사용자 11-24 | F-CA-01 · `server/test/chatAgents.test.js` | feature · 단위 | ✅ |
+| PC 앱이 이어지면 새로 고침 없이 켜짐(그 데스크톱이 알린 CLI 만 · 기기 이름), 실행 끔 · 0.2.2 전 판은 까닭과 함께 꺼짐 | 사용자 11-24 | F-CA-01 · `chatAgents.test.js` | feature · 단위 | ✅ |
+| 키보드: ↓ 로 열기, ↓ · Enter 로 고르기, 포커스는 칩으로, Esc 로 닫기 | 접근성 | F-CA-02 | feature | ✅ |
+| 보내면: 메시지 아래 「→ Claude Code · 내 PC」, 실행 카드(「대화 / 터미널」, 「내 폴더 「내 PC 에이전트 작업 · 윤태호」」), CLI 의 마지막 말이 답 메시지로, 만든 파일이 파일 카드로(그 폴더의 원본에), 서버 에이전트는 부르지 않음 | 사용자 11-24 | F-CA-02 · `server/test/chatAgents.e2e.mjs` · `desktop/test/chat.test.js` | feature · 통합 · 단위 | ✅ |
+| 이어서 보낸 메시지는 같은 CLI 세션(실행 카드 하나, 답 하나 더) · 닫힌 뒤의 메시지는 새 실행이 그 세션을 이어(`--resume`) · 닫히는 사이의 메시지는 다음 실행이 받음 | 사용자 11-24 | F-CA-03 · `chatAgents.e2e.mjs` · `chatAgents.test.js` · `chat.test.js` | feature · 통합 · 단위 | ✅ |
+| 고른 것은 대화마다 · 사람마다 서버에(새로 고침 · 다른 브라우저 같음, 프로젝트는 따로) | 사용자 11-24 | F-CA-04 · `chatAgents.test.js` | feature · 단위 | ✅ |
+| 다시 「기본」: 요청에 `agent` 없음, 실행 카드 없음, 서버 에이전트가 답함 | 사용자 11-24 | F-CA-05 | feature | ✅ |
+| PC 가 꺼지면: 칩이 꺼짐 표시, 「PC 앱이 꺼져 있어요」, 실행 카드 「PC 앱 연결이 끊겼어요」 · 「기본으로 다시 보내기」(그 글이 기본으로) · 새 메시지는 「PC 앱이 켜지면 시작」 | 사용자 11-24 | F-CA-06 · `chatAgents.e2e.mjs` | feature · 통합 | ✅ |
+| 프로젝트: 그 폴더의 프로젝트 변형에 파일(원본 그대로), 편집자가 아니면 403(메시지 아래 까닭), 폴더 구성원은 보기만 | 사용자 11-24 | `chatAgents.e2e.mjs` · `chatAgents.test.js` | 통합 · 단위 | ✅ |
+| 다른 사람: 보기 · 입력 · 끝내기 · 다시 보내기 403, 그의 대화에 보내기 404, 그녀의 메시지는 그녀의 PC 를 기다림(남의 PC 로 가지 않음) | 사용자 11-24 | `chatAgents.e2e.mjs` · `chatAgents.test.js` | 통합 · 단위 | ✅ |
+| 휴대폰 390px 밝게 · 어둡게: 칩은 입력창 위, 목록은 화면 안, 옆으로 넘치지 않음 · 책상의 어두운 테마 | — | F-CA-07 · 08 | feature | ✅ |
+| 맥락으로 나눈 대화(`/chat/c/:id`) 안에서 보내기 · 그 대화의 산출물 스택 | 사용자 11-24 | `chatAgents.test.js`(대화 열쇠) · `chatAgents.e2e.mjs`(대화마다의 선택) — 화면은 모델 없이 그 대화를 만들 수 없음 | 단위 · 통합 | ◐ |
+| 실제 Claude Code · Codex 로 채팅 메시지 | — | — (가짜 대화형 CLI 로만) | — | ◐ |
+
+### 39. 문서 옆의 왼쪽 칸 — 목록 · 채팅 · 문서가 겹치지 않음 (스펙 `chat-artifacts`)
+
+운영 화면(11-24, 약 2000px 창)에서 사용자가 보고한 문제다. 「프로젝트에서 산출물을 열어보면 이렇게 목록과 대화내용이 겹쳐진다.」 문서 패널이 옆에 열리면 전역 CSS(`OfficeSheet.vue`의 `body.craft-side .main .center { left: 0 }`)가 채팅 칸을 창 왼쪽 끝부터 다시 놓았고, 그 위에 왼쪽 목록이 그대로 남아 있었다. 고친 뒤에는 `MainView.vue`가 문서 패널의 실제 폭을 잰다. 그리고 `src/leftColumn.js`의 규칙을 따른다. 왼쪽 칸(420px) · 채팅(512px + 양옆 40px) · 문서가 나란히 들어가면 셋을 나란히 둔다. 들어가지 않으면 목록을 접고 위쪽 막대 Home 옆의 「≡ 프로젝트 · 루틴 · 대화」 단추로 채팅 위에 펼친다. Home 은 열 때 채팅 위에 펼쳐진다. 시험마다 1280 · 1440 · 1600 · 2000px 에서 문서를 연다. 그리고 문서 패널 · 채팅 칸 · 입력창 · 왼쪽 칸 · 단추 · 탭 · 붙여 둔 메신저의 상자가 서로 겹치지 않는지 본다. 화면 사진은 `openspec/specs/chat-artifacts/e2e/results/f-dl-*.png`에 있다.
+
+```bash
+cd server && node --test test/docLayout.test.js
+cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKERS=1 npx playwright test tests/feature/doc-layout.spec.js --project=feature
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 자리 규칙: 문서 옆에 왼쪽 칸 + 채팅 + 문서가 들어가면(문서 960px 기준 1972px 이상, ArtCraft 앱 840px 기준 1852px) 나란히, 아니면 목록 접힘 · Home 은 채팅 위 | 사용자 11-24 | DL-U-01~05 | 단위 | ✅ |
+| 프로젝트: 채팅의 파일 카드로 연 문서 — 2000px 은 목록 · 채팅 · 문서 나란히, 1280 · 1440 · 1600px 은 목록 접힘 + 「≡ 프로젝트」, 닫으면 목록 | 사용자 11-24 | F-DL-01 | feature | ✅ |
+| 접힌 목록: 단추로 채팅 위에 펼침(문서 · 단추와 겹치지 않는 판), Esc · 바깥 · 단추로 접힘, 다른 프로젝트를 고르면 그 방으로 가고 접힘(문서는 그대로), 창을 넓히면 나란히 | — | F-DL-02 | feature | ✅ |
+| 루틴: 루틴 화면에 연 문서(메신저 · 카드가 여는 것과 같은 `app.setOfficeDoc`) — 같은 규칙, 「루틴 목록 펼치기」 | — | F-DL-03 | feature | ✅ |
+| 채팅 · Home: 문서를 열면 Home 은 비킴(예전대로), 다시 열면 2000px 은 나란히 · 좁으면 채팅 위(Esc · Home 단추로 닫힘) | — | F-DL-04 | feature | ✅ |
+| 채팅 · 대화 목록: 문서가 열려도 숨기지 않고 같은 규칙(「≡ 대화」), 펼쳐서 대화를 고르면 `/chat/c/:cid` · 접힘, 밤 테마 | — | F-DL-05 | feature | ✅ |
+| 붙여 둔 메신저(오른쪽 · 왼쪽 2000px, 문서 패널 안 2000px, 오른쪽 1440 · 2600px): 페이지 폭 · 패널 폭으로 정함, 메신저와도 겹치지 않음 | PR #32 | F-DL-06 · DL-U-03 | feature · 단위 | ✅ |
+
+### 40. 운영 화면 11-24 — 회의가 끝나면 회의록이 열린 대화에 바로 (회의 · 메신저)
 
 「회의가 끝나면 회의가 끝난 회의록을 부착해주는데, 이게 곧바로 반영안되고 나갔다 들어와야 업데이트됨」. 회의 카드 · 「회의 자료」 · 최종 회의록은 회의 도우미가 방에 쓰는 행이라 대화방 피드(chats 트리거 → LISTEN)로만 열린 화면에 닿았는데, 게이트웨이 뒤(운영)의 피드는 기본 테넌트의 방만 보았다. 회의는 API 로 시작 · 자료 띄우기 · 끝내기(카메라 없음), 두 사람은 그 대화를 브라우저에 열어 둔다. 받아쓴 말이 없으면 회의록은 규칙으로 정리된다(모델 없음). 서버는 `PRO_BACKGROUND=0`(피드 없음)으로 띄워도 통과해야 한다 — 기록 행은 피드 없이 바로 간다. 다른 실행의 정리(`lib/teardown.js`)가 시험 계정을 팀에서 빼므로 시험 중에는 1초마다 팀에 다시 넣는다.
 

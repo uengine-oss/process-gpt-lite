@@ -41,7 +41,7 @@ async function inLine(folder, line, fn, meta) {
     const head = await G.head(dir)
     if (!head || head === from) return null
     await G.git(folder.repo_path, ['update-ref', `refs/heads/${line}`, head, old || ZERO])
-    await lineVariation(folder, line, head, meta)
+    if (meta.record !== false) await lineVariation(folder, line, head, meta)
     return head
   } finally {
     await G.git(folder.repo_path, ['worktree', 'remove', '--force', dir], { check: false })
@@ -63,12 +63,14 @@ async function mergeIn(dir, ref, message, who = {}) {
 
 // The line moves to `head` (a step's result, work.js): a fast-forward when head grew from the line. When the line moved meanwhile (a mail
 // came in, another step finished) head is merged into it; a conflict leaves the line as it was (the step's own variation keeps its result).
+// meta.record false: a branch that has its own variation row (a project's variation that a chat's local CLI works on — localAgents/chat.js)
+// is moved without being recorded as an instance line. (A branch checked out in a worktree is not moved here: its worktree would not follow.)
 export function advanceLine(folder, line, head, meta = {}) {
   return S.serial(lockOf(folder), async () => {
     const old = await G.head(folder.repo_path, `refs/heads/${line}`)
     if (!old || await isAncestor(folder.repo_path, old, head)) {
       await G.git(folder.repo_path, ['update-ref', `refs/heads/${line}`, head, old || ZERO])
-      await lineVariation(folder, line, head, meta)
+      if (meta.record !== false) await lineVariation(folder, line, head, meta)
       return head
     }
     if (await isAncestor(folder.repo_path, head, old)) return old

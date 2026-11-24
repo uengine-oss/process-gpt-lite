@@ -122,7 +122,7 @@ watch(done, (d) => { if (answering.value && d.has(answering.value)) answering.va
       <template v-for="it in rows" :key="it.id">
         <!-- a message the CLI took: who put it in -->
         <div v-if="it.t === 'user'" class="msg user" :class="{ first: it.first, cmd: it.cmd }" data-test="local-run-conv-user" :data-steer="it.steerId || ''">
-          <small class="who" data-test="local-run-conv-who">{{ it.first ? '단계 프롬프트' : it.cmd ? `${person} · 명령` : whoOf(it) }}</small>
+          <small class="who" data-test="local-run-conv-who">{{ it.first ? (run.chat ? (run.resumed ? '이어서 보낸 메시지' : '첫 메시지 · 대화 요약과 폴더 안내 포함') : '단계 프롬프트') : it.cmd ? `${person} · 명령` : whoOf(it) }}</small>
           <div v-if="it.first" class="bubble fold">
             <pre class="plain">{{ open[it.id] ? it.text : firstLines(it.text) }}</pre>
             <button type="button" class="lnk" @click="toggle(it.id)">{{ open[it.id] ? '접기' : '펼치기' }}</button>

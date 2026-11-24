@@ -28,6 +28,7 @@ import { folderRoutes } from './routes/folders.js'
 import { filingRoutes } from './routes/filing.js'
 import { localAgentRoutes } from './routes/localAgents.js'
 import { startLocalAgents, steerFromThread } from './lib/localAgents/steps.js'
+import { send as chatToLocal } from './lib/localAgents/chat.js'
 import { gitAccess } from './lib/localAgents/devices.js'
 import { threadFolderRoutes } from './routes/threadFolders.js'
 import { ssoInfo, refreshSso } from './lib/sso.js'
@@ -680,6 +681,17 @@ app.post('/api/threads/:id/note', auth, async (req, res) => {
 app.post('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
+  // the composer's picker named a CLI on the sender's own PC (lib/localAgents/chat.js): the message goes to their desktop — the server
+  // agent is not called for it; a refusal (a project folder they may not edit, no desktop at all) is said in the chat under the message
+  if (req.body?.agent && req.body.agent !== 'default') {
+    const { send, end } = openStream(res)
+    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files })) }) } catch (e) {
+      if (!e.status || e.status >= 500) console.warn('[local-agents] chat send', e.message)
+      await addMessage(req.user.id, t.id, 'agent', 'text', { text: L(`내 PC 에이전트로 보내지 못했어요 — ${e.message}`, `Could not send this to the agent on your PC — ${e.message}`), failed: true, localRefused: true }).catch(() => {})
+      send('error', { message: e.message, status: e.status || 500 })
+    }
+    return end()
+  }
   // an instance's conversation while a local CLI agent runs one of its steps: what its person types steers that run (lib/localAgents)
   const steered = await steerFromThread(req.user, t, req.body?.text).catch((e) => { console.warn('[local-agents] steer', e.message); return null })
   if (steered) { const { send, end } = openStream(res); send('done', { steered: true, steer: steered.steer, delivered: steered.delivered }); return end() }
