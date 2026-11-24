@@ -73,7 +73,8 @@ export default defineConfig({
   // '/' for local and the Docker install; '/lite/' for the image behind the ProcessGPT gateway
   // (<tenant>.process-gpt.io/lite, which strips the prefix like its /wms route) — see src/base.js
   base: process.env.VITE_BASE_PATH || '/',
-  plugins: [vue(), publicGate(), pageMeta()],
+  // <a2ui-*>: the A2UI renderer's web components (a step's input screen — src/components/a2ui), not Vue components
+  plugins: [vue({ template: { compilerOptions: { isCustomElement: (t) => t.startsWith('a2ui-') } } }), publicGate(), pageMeta()],
   server: {
     port: 5180,
     strictPort: true,

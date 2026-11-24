@@ -407,5 +407,33 @@
     },
     "timeoutMs": 120000,
     "closedShown": 20
+  },
+  "stepUi": {
+    "enabled": true,
+    "timeoutMs": 45000,
+    "retries": 1,
+    "maxTokens": 6000,
+    "effort": "low",
+    "jsonMode": false,
+    "retryTemperature": 0.6,
+    "secretCheck": true,
+    "secretMax": 0.5,
+    "limits": {
+      "maxComponents": 40,
+      "maxInputs": 10,
+      "maxButtons": 3,
+      "maxDepth": 8,
+      "maxBytes": 24000,
+      "maxStringChars": 2000,
+      "maxOptions": 30
+    },
+    "maxValueChars": 8000,
+    "inputChars": {
+      "request": 1500,
+      "earlier": 600,
+      "earlierSteps": 5,
+      "draft": 3000
+    },
+    "waitSeconds": 60
   }
 }

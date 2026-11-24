@@ -92,7 +92,7 @@ export async function startProcess({ me, defId, values, messageId, roles: picked
   return { instId, instName }
 }
 
-export async function submitTodo({ me, todoId, values, messageId }) {
+export async function submitTodo({ me, todoId, values, messageId, a2ui = null }) {
   const d = await getTodo(todoId)
   if (!d) throw new Error('work item not found')
   const t = d.todo
@@ -101,7 +101,13 @@ export async function submitTodo({ me, todoId, values, messageId }) {
   // handed in there and the map says what comes next
   const M = await import('./ontology/mapengine.js')
   if (M.isMapInst(t.proc_inst_id)) {
-    await M.submitPerson({ me, todo: t, payload: { [formId]: values || {} } })
+    // through the step's input screen (lib/stepUi): read again against the stored screen — only its keys, checked, with the text the next
+    // steps read; without it the values go as they come (the classic field)
+    const UI = await import('./stepUi/index.js')
+    // a map step is handed in by the person it is for, with its screen or with the classic field
+    UI.assertAssignee(me, t)
+    const viaScreen = await UI.payloadFor({ me, todo: t, formId, values, a2ui })
+    await M.submitPerson({ me, todo: t, payload: viaScreen || { [formId]: values || {} } })
     if (messageId) await updateMessage(me.id, messageId, { state: 'submitted' })
     emit(me.id, 'process', { instId: t.proc_inst_id, type: 'submitted' })
     return { ok: true }

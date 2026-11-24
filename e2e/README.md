@@ -714,6 +714,23 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 검토 수정: 서버가 받기를 확인해야 시작 · 거둔 제안 취소 · 기기 설정을 바꿔도 실행 유지 · 다시 시도 · 관문 먼저 · 에이전트 되돌리기 · 같은 폴더는 차례로 · 폴더 자신의 AGENTS.md 그대로 · 세션 지우기 · 보낸 스킬만 | 검토 11-24 | `localAgents.test.js` · `runner.test.js` | 단위 | ✅ |
 | 운영 주소에서 git 경로 · 링크 · 터미널 WebSocket 에 닿기, OpenHands 실행, 실제 대화형 Codex, Windows(ConPTY) | — | — (운영 설정 · 실측 필요) | — | ◐ |
 
+### 31. 사람 단계의 입력 화면 — 에이전트가 만든 A2UI 화면 (스펙 `step-ui-a2ui`, 설계 `docs/a2ui-step-ui/design.md`)
+
+서버는 가짜 모델(`PRO_LLM_BASE_URL=http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59987>/v1`)로 띄우고 지도 저장소는 비워 둔다(`PRO_ONTOLOGY_BOLT_URL=`). 시험 파일이 그 포트에 가짜 모델을 띄운다. step-ui 프롬프트에는 `server/test/fixtures/step-ui-review.json` 화면을, 판정에는 「A」를 돌려준다. 건은 엔진이 쓰는 모양대로 DB 에 넣고, 할 일 카드는 시험 계정의 메인 채팅에 둔다. 한 워커로 돈다(`serial`). 띄우는 명령은 `openspec/specs/step-ui-a2ui/e2e/README.md`에 있다.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 사람 단계가 열리면 화면을 만들어 둠(엔진은 기다리지 않음) · `GET /todos/:id`에 `form` 옆 `ui` · 모델이 본 입력(일 정의 · 요청 · 앞 단계 · 언어) | 사용자 11-24 | `server/test/stepUi.integration.test.js` | 단위 | ✅ |
+| 할 일 카드: 「준비하고 있어요」 → 화면(보기 · 숫자 · 날짜 · 확인 · 긴 글 · 버튼 둘), 필수 칸 전엔 보내기 꺼짐, 한국어로 채워 내면 읽기 전용 · 「제출됨」 · 새로 고침 뒤에도 같음, DB 에 값 · result · a2ui | 사용자 11-24 | F-SU-01 | feature | ✅ |
+| 처음 연 화면은 빨갛지 않음 · 쓴 칸만 안내 · 꺼진 보내기를 누르면 모두, 맡은 사람이 아니면 403 · 화면에 없는 버튼 400 | — | F-SU-02 · `stepUi.integration` | feature · 단위 | ✅ |
+| 모델이 엉뚱한 화면을 두 번 → 글 칸 하나로 냄(물은 횟수 2 · 까닭 기록), 화면으로 내기는 409 | 사용자 11-24 | F-SU-03 · `stepUi.integration` | feature · 단위 | ✅ |
+| 휴대폰 390px: 페이지 · 카드 · 칸 · 버튼 줄이 넘치지 않음 | — | F-SU-04 | feature | ✅ |
+| 낮 · 밤 테마의 글 · 칸 · 보내기 색, 페이지 color-scheme 은 그대로 | — | F-SU-05 | feature | ✅ |
+| 받는 화면: 공식 v1.0 스키마 + 서버 검사(v0.9 바인딩 · theme · 모르는 부품 · 없는 id · 고리 · 크기 · javascript: 주소 · 경로 · 예약어 · 버튼 · 비밀번호 칸 · numeric), 낸 값 다시 보기(꼴 · 보기 · 길이 · 확인), result 글, 다시 묻기 · 글 칸 · 비밀 판정 | 보안 | `server/test/stepUi.test.js` | 단위 | ✅ |
+| 먼저 열면 그때 만듦 · 꺼 두면 없음 · 영어를 쓰는 사람은 영어로 · 초안 단계는 초안이 온 뒤 그것을 첫 값으로 · 비밀을 묻는 화면은 쓰지 않음 | 사용자 11-24 | `stepUi.integration` | 단위 | ✅ |
+| 실제 모델(`frentis-ai-model`, 추론 low)로 지어낸 일 여섯 개 | — | `server/scripts/eval-step-ui.mjs` | 수동 | ✅ |
+| 건 화면(지도 › 건 보기)의 같은 카드 | — | — (지도 저장소가 있어야 열림 — 같은 TodoCard) | — | ◐ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash
