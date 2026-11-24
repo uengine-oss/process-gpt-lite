@@ -18,8 +18,9 @@ import { useApp } from './stores/app.js'
 const routes = [
   { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
   { path: '/auth/done', component: () => import('./views/AuthDone.vue'), meta: { public: true } },
-  { path: '/welcome/age', component: () => import('./views/OnboardAge.vue') },
-  { path: '/welcome/intro', component: () => import('./views/OnboardIntro.vue') },
+  // (noTeam: a page without the top bar — the team messenger is not shown over it: App.vue)
+  { path: '/welcome/age', component: () => import('./views/OnboardAge.vue'), meta: { noTeam: true } },
+  { path: '/welcome/intro', component: () => import('./views/OnboardIntro.vue'), meta: { noTeam: true } },
   { path: '/chat', component: () => import('./views/MainView.vue'), meta: { mode: 'chat' } },
   // one conversation the context router told apart, inside the main chat
   { path: '/chat/c/:cid', component: () => import('./views/MainView.vue'), meta: { mode: 'chat' } },
@@ -30,7 +31,7 @@ const routes = [
   { path: '/projects/p/:instId', redirect: (to) => ({ name: 'routine', params: { instId: to.params.instId } }) },
   { path: '/projects/:id?', component: () => import('./views/MainView.vue'), meta: { mode: 'project' } },
   { path: '/settings/:page?/:sub?', component: () => import('./views/MainView.vue'), meta: { mode: 'chat', settings: true } },
-  { path: '/workroom/:kind/:id', component: () => import('./views/WorkroomView.vue') },
+  { path: '/workroom/:kind/:id', component: () => import('./views/WorkroomView.vue'), meta: { noTeam: true } },
   // 공유 폴더 (UI 프로토타입, 가짜 데이터)
   { path: '/folders', component: () => import('./views/FoldersView.vue') },
   { path: '/folders/:slug', component: () => import('./views/FoldersView.vue') },

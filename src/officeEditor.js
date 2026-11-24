@@ -4,33 +4,14 @@
 import { auth } from './api.js'
 import { BASE } from './base.js'
 
-const EDITOR_BY_EXT = {
-  docx: 'docs', odt: 'docs', xlsx: 'sheets', xlsm: 'sheets', xls: 'sheets', csv: 'sheets', pptx: 'slides',
-  pdf: 'pdf', md: 'markdown', markdown: 'markdown', txt: 'markdown', html: 'html', htm: 'html', xmind: 'mindmap', hwp: 'hwp', hwpx: 'hwp',
-  // ArtCraft web apps, not IeumOffice (CraftEditorFrame.vue)
-  dxf: 'cadcraft', dwg: 'cadcraft',
-  svg: 'vectorcraft', vectorcraft: 'vectorcraft',
-  psd: 'photocraft', psb: 'photocraft', pcraft: 'photocraft', photocraft: 'photocraft', png: 'photocraft', jpg: 'photocraft', jpeg: 'photocraft', webp: 'photocraft',
-  wav: 'soundcraft', mp3: 'soundcraft', flac: 'soundcraft', ogg: 'soundcraft', soundcraft: 'soundcraft', scraftz: 'soundcraft',
-  mp4: 'filmcraft', mov: 'filmcraft', webm: 'filmcraft', fcproj: 'filmcraft', filmcraft: 'filmcraft',
-}
-export const CRAFT_APPS = new Set(['cadcraft', 'vectorcraft', 'photocraft', 'soundcraft', 'filmcraft'])
+// which editor a file opens in: src/editorKinds.js (no browser state there, so it is tested without one)
+import { CRAFT_APPS, officeEditorFor } from './editorKinds.js'
+export { CRAFT_APPS, officeEditorFor }
 // which ArtCraft web apps this install serves (/api/config craft; the Docker lite profile has none):
 // a file whose app is missing opens as a plain link. Unknown yet = assume it is there.
 let craftHave = null
 if (typeof fetch === 'function') fetch(BASE + '/api/config').then((r) => (r.ok ? r.json() : null)).then((c) => { if (c?.craft) craftHave = c.craft }).catch(() => {})
 export const craftMissing = (editor) => !!craftHave && CRAFT_APPS.has(editor) && craftHave[editor]?.web === false
-
-function extOf(nameOrUrl) {
-  // a URL loses its query and fragment; a file name keeps "#" ("Moonlight Coffee Store #2 proposal.docx")
-  const s = String(nameOrUrl || '')
-  const clean = /^[a-z][a-z0-9+.-]*:|^\//i.test(s) ? s.split('?')[0].split('#')[0] : s
-  const dot = clean.lastIndexOf('.')
-  return dot >= 0 ? clean.slice(dot + 1).toLowerCase() : ''
-}
-
-/** the editor for this file name (or URL); null when it cannot be edited */
-export function officeEditorFor(nameOrUrl) { return EDITOR_BY_EXT[extOf(nameOrUrl)] || null }
 
 /** editor iframe address; the host checks the login token when the editor connects */
 // assistant: 'parent' — the editor's own AI dock stays hidden and its AI buttons ask this page (one

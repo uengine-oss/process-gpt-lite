@@ -2558,9 +2558,34 @@
   "에브리타임": "Everytime",
   "Google 앱": "Google app",
   "홈 화면에 추가": "Add to Home Screen",
-  "공유 버튼이 보이지 않으면 ⋯ 버튼을 먼저 누르세요.": "Don't see the Share button? Tap ⋯ first."
+  "공유 버튼이 보이지 않으면 ⋯ 버튼을 먼저 누르세요.": "Don't see the Share button? Tap ⋯ first.",
+  "메시지 위치": "Messages position",
+  "메시지 위치 — 머리를 끌어 옮겨도 돼요": "Where Messages sits — you can also drag its header",
+  "떠 있게 두기": "Float over the page",
+  "페이지 위에 떠 있어요": "Floats over the page",
+  "오른쪽에 붙이기": "Dock right",
+  "왼쪽에 붙이기": "Dock left",
+  "페이지와 나란히 써요": "Side by side with the page",
+  "문서 패널에 넣기": "Dock in the document panel",
+  "연 문서 옆에서 대화해요": "Talk beside the open document",
+  "메시지 너비": "Messages width",
+  "메시지 · 떠 있게 두기": "Messages · Float over the page",
+  "메시지 · 오른쪽에 붙이기": "Messages · Dock right",
+  "메시지 · 왼쪽에 붙이기": "Messages · Dock left",
+  "메시지 · 문서 패널에 넣기": "Messages · Dock in the document panel",
+  "나에게 공유되지 않은 파일이라 열 수 없어요": "This file wasn't shared with you, so it can't be opened",
+  "새 창에서 열기": "Open in a new window",
+  "앱 안에서 열 수 없는 형식이에요.": "This format can't be opened in the app.",
+  "앱 안에서 열 수 없는 파일이에요.": "This file can't be opened in the app.",
+  "열 파일을 찾지 못했어요.": "I couldn't find the file to open.",
+  "열지 못했어요.": "Couldn't open it.",
+  "열린 문서를 아직 저장하지 못해 그대로 두었어요. 한 번 더 누르면 바꿔요.": "The open document isn't saved yet, so it stays. Click again to replace it."
  },
  "patterns": [
+  [
+   "이 설치에는 {0} 앱이 없어 앱 안에서 열 수 없어요.",
+   "This install has no {0}, so it can't be opened in the app."
+  ],
   [
    "이 메일은 ‘{0}’의 시작으로 보여요 — 진행할까요?",
    "This mail looks like the start of ‘{0}’ — go ahead?"

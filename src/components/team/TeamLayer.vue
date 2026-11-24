@@ -1,9 +1,8 @@
 <script setup>
-// The team layer over every page: the "메시지" button with its unread badge (in the top bar), the
-// messenger sheet, the share picker and a short toast when something arrives.
+// The team layer over every page: the "메시지" button with its unread badge (in the top bar), the share picker and a short
+// toast when something arrives. The messenger itself is App.vue's (it stays put across pages when docked).
 import { onMounted } from 'vue'
 import Icon from '../Icon.vue'
-import Messenger from './Messenger.vue'
 import SharePicker from './SharePicker.vue'
 import { useTeam } from '../../stores/team.js'
 import MeetingView from '../meetings/MeetingView.vue'
@@ -27,7 +26,6 @@ function go() {
     <i v-if="team.unread.total" class="dot">{{ team.unread.total > 99 ? '99+' : team.unread.total }}</i>
   </button>
   <Teleport to="body">
-    <Transition name="fade"><Messenger v-if="team.open" /></Transition>
     <SharePicker v-if="team.sharing" />
     <!-- a meeting in a team room (components/meetings/MeetingView.vue) -->
     <MeetingView v-if="meetings.lobby || meetings.m" />
