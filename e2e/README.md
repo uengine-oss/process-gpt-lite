@@ -787,6 +787,31 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 여러 물음을 한 번에 묻는 고르기: 물음마다 번호, 끝에 Enter(실측 2.1.331) | 사용자 11-24 | `conversation.test.js` 「고르기 물음 …」 · 실측 `results/smoke.md` | 단위 · 손 | ✅ |
 | Codex 의 승인 창을 카드로 | — | — (Codex 의 기록 · 훅에 남지 않음 — 터미널에서 답함) | — | ◐ |
 
+### 35. 오늘의 배경 사진 — 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 (스펙 `daily-background`)
+
+서버는 가짜 Commons 에 묻도록 `PRO_BG_COMMONS_API=http://127.0.0.1:59971/w/api.php`로 띄운다(시험에서만 쓰고, 게이트웨이 뒤에서는 무시된다). 가짜 Commons(`127.0.0.1:59971`, `RT_BG_SITE_PORT`)는 시험 파일이 띄우고, 지어낸 SVG 풍경 열한 장을 답한다. 공용 인터넷에는 나가지 않는다. 사이트 포트가 이 파일의 것이고 F-BG-05 가 회사(`localhost`)의 스위치를 잠깐 끄므로 한 워커로 돈다(`serial`). F-BG-03 은 Playwright 의 가짜 시계로 다음 날 아침을 연다. 시험은 Playwright 자신의 Chromium 으로 돈다. 명령은 `openspec/specs/daily-background/e2e/README.md`에 있다.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 패널 머리에 오늘 날짜 · 24절기(한국 표준시, 황경 15°마다), 장소는 오른쪽 | 사용자 11-24 | F-BG-01 · 03 · `server/test/background.test.js` | feature · 단위 | ✅ |
+| 하늘이 첫 칸, 그날의 사진 6~10장(절기 둘 · 계절과 시간대 · 날씨 · 계절 · 오늘의 사진 · 멋진 풍경 한 장)과 주제 이름, 같은 날 같은 차례 | 사용자 11-24 | F-BG-01 · `background.test.js` | feature · 단위 | ✅ |
+| 무드 칩(차분 · 따뜻 · 시원 · 활기): 그 무드의 주제 둘이 앞, 다시 누르면 처음 차례 | 사용자 11-24 | F-BG-04 · `background.test.js` | feature · 단위 | ✅ |
+| 누르면 바로 배경(1.2초 겹쳐 바뀜), 서버에 그 사람의 선택으로, 새로 고침 · 다른 기기에서도 같음 | 사용자 11-24 | F-BG-02 · `background.integration.test.js` | feature · 단위 | ✅ |
+| 「오늘만」(기본)은 그 사람의 다음 날 하늘, 「계속 두기」는 남음 | 사용자 11-24 | F-BG-03 · `background.test.js` · integration | feature · 단위 | ✅ |
+| 하늘로 돌아가기(선택을 지움, 출처도 사라짐) | — | F-BG-04 · integration | feature · 단위 | ✅ |
+| 출처(제목 · 작가 · 라이선스 · 출처 사이트)를 패널과 넓은 화면의 구석에, 원본 · 작가 · 라이선스 페이지로 링크 | 라이선스 | F-BG-02 · 06 | feature | ✅ |
+| 다시 써도 되는 라이선스만(CC0 · PD · CC BY · CC BY-SA · FAL · KOGL 1), NC · ND · GFDL 만 · 제한 표시 · 세로 · 작은 원본은 뺌, 작가 칸의 안내 표 · 메일 주소는 이름만 | 라이선스 | `background.test.js`(기록한 Commons 답) | 단위 | ✅ |
+| 그림은 그 사이트의 CDN 에서 바로, referrer 없이, 창에 맞는 표준 너비(srcset), 휴대폰은 3840 없음, 데이터 절약이면 가장 작은 것 | — | F-BG-01 · 02 · 06 | feature | ✅ |
+| 밝은 · 어두운 사진, 낮 · 밤 테마에서 가림막으로 읽힘, 움직임 줄이기면 바로 바뀜 | — | F-BG-07 · 08 | feature | ✅ |
+| 그림을 못 불러오면 하늘 + 안내 한 줄, 다시 누르면 다시 받음 | — | F-BG-08 | feature | ✅ |
+| 회사 관리자 스위치(설정 › 시스템 설정, 기본 켬): 끄면 띠 없음 · 모두 하늘 · 사이트에 묻지 않음 · 저장 403, 관리자 아니면 403, 다시 켜면 선택이 돌아옴 | 사용자 11-24 | F-BG-05 · integration | feature · 단위 | ✅ |
+| Unsplash · Pexels 키(선택): 보관함에 암호화, 화면에는 「저장됨」만, 일부 주제를 그 사이트에서, Unsplash 는 utm 링크와 download 알림 | 각 사이트 지침 | integration(가짜 Unsplash) · `background.test.js` | 단위 | ✅ |
+| 서버: 고정 API 호스트만 · 넘겨주기 안 따름 · 6초 · 3MB, 회사 + 날짜마다 하루 기억, 보낸 사진을 다시 확인(다른 호스트 · 라이선스 · 「얼마나」 400), 로그인 401 | SSRF | F-BG-10 · `background.test.js` · integration | feature · 단위 | ✅ |
+| 휴대폰 390px: 띠만 옆으로, 페이지는 밀리지 않음 | 사용자 11-24 | F-BG-06 | feature | ✅ |
+| 데스크톱 앱: 사진이 끌기 띠를 가리지 않음(누름을 받지 않음), 구석 출처 링크는 `no-drag` | — | F-BG-09(브라우저에서 `html.pgl-desktop`) | feature | ◐ |
+| 실제 Wikimedia Commons 의 그날 후보 | — | — (시험은 공용 인터넷에 나가지 않음 · 스펙의 e2e/README.md 「실제 …로 한 번」) | — | ◐ |
+| 실제 Unsplash · Pexels 키 | — | — | — | ◐ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

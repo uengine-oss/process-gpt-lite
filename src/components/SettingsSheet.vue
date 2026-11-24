@@ -16,6 +16,7 @@ import MailConnect from './MailConnect.vue'
 import TelegramConnect from './TelegramConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
 import GoogleClientAdmin from './GoogleClientAdmin.vue'
+import BackgroundAdmin from './BackgroundAdmin.vue'
 import InstallNudge from './InstallNudge.vue'
 import LocalAgentsSettings from './LocalAgentsSettings.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
@@ -370,6 +371,8 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
             <p v-if="lpErr" class="ferr lperr">{{ lpErr }}</p>
           </div>
         </template>
+        <!-- administrators: the day's background photos on Home, and optional photo-site keys (server lib/background) -->
+        <BackgroundAdmin v-if="app.me?.admin" />
         <!-- administrators: the company's own Google OAuth client -->
         <GoogleClientAdmin v-if="app.me?.admin" />
       </template>

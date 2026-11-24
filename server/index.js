@@ -57,6 +57,8 @@ import { telegramRoutes } from './routes/telegram.js'
 import { mailReplyRoutes } from './routes/mailReply.js'
 import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
+import { backgroundRoutes } from './routes/background.js'
+import { enabledFor as backgroundOn } from './lib/background/service.js'
 import { isReplyCard } from './lib/mailReply.js'
 import { mountImprove } from './mcp/improve.js'
 import { startConstraintSweep } from './lib/improve/service.js'
@@ -372,10 +374,11 @@ app.get('/api/me', auth, async (req, res) => {
   const { ontologyEnabled } = await import('./lib/ontology/store.js')
   // features: what this server turns on that the screens follow — the demo scenarios' settings tabs (PRO_SCENARIOS) and
   // 사용량·요금제 (usage limits on — PRO_LLM_KEYS — or PRO_PLAN_SCREEN=1); linkPreview: the company shows link cards (sql/051)
+  // background: the company offers the day's background photos on Home (sql/054); the person's choice is profile.background
   const { enabled: billingOn } = await import('./lib/llmKeys.js')
   res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang,
     mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null, ontology: ontologyEnabled(),
-    features: { scenarios: config.scenarios, planScreen: billingOn() || config.planScreen, linkPreview: await linkPreviewOn().catch(() => true) } })
+    features: { scenarios: config.scenarios, planScreen: billingOn() || config.planScreen, linkPreview: await linkPreviewOn().catch(() => true), background: await backgroundOn().catch(() => true) } })
 })
 // my main language (Settings › Accounts › Main language, the meeting lobby): what meetings transcribe me
 // in and translate others into for me, and what messages read in; the screens follow it (ko → Korean,
@@ -544,6 +547,8 @@ app.use('/api', telegramRoutes(auth))
 app.use('/api', mailReplyRoutes(auth))
 // link preview cards under messages with links, and the company switch (lib/linkPreview.js)
 app.use('/api', linkPreviewRoutes(auth))
+// the day's background photos on Home: candidates, the person's choice, the company switch and photo-site keys (lib/background)
+app.use('/api', backgroundRoutes(auth))
 if (config.linkPreviewAllowHosts) console.warn(config.tenantFromHeader
   ? '[link-preview] PRO_LINK_PREVIEW_ALLOW_HOSTS is ignored behind the ProcessGPT gateway'
   : `[link-preview] TEST ONLY: local hosts may be read for link cards: ${config.linkPreviewAllowHosts}`)

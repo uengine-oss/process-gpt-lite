@@ -1,8 +1,10 @@
 <script setup>
-import { onMounted, computed, defineAsyncComponent } from 'vue'
+import { onMounted, computed, defineAsyncComponent, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import SkyCanvas from './sky/SkyCanvas.vue'
+import PhotoBackdrop from './sky/PhotoBackdrop.vue'
 import { useSky } from './stores/sky.js'
+import { useBackground } from './stores/background.js'
 import { useApp } from './stores/app.js'
 import { useTeam } from './stores/team.js'
 import { newVersion, watchVersion } from './appVersion.js'
@@ -25,6 +27,10 @@ const teamHere = computed(() => !!route.matched.length && !route.meta.public && 
 
 const sky = useSky()
 onMounted(() => { sky.init(); watchVersion() })
+// the day's background photo this person chose (Home's date · weather panel), from GET /api/me; never on the sign-in pages
+const bg = useBackground()
+watch(() => app.me, (me) => { if (me && me.user?.id !== bg.owner) bg.init(me) }, { immediate: true })
+const photoHere = computed(() => !!app.me && !!route.matched.length && !route.meta.public)
 const reload = () => location.reload()
 const later = () => { newVersion.value = false }
 </script>
@@ -32,6 +38,7 @@ const later = () => { newVersion.value = false }
 <template>
   <div class="stage">
     <SkyCanvas />
+    <PhotoBackdrop v-if="photoHere" />
     <!-- the page: a docked team messenger takes a column from it (components/team/Messenger.vue, src/messengerDock.js) -->
     <div class="page">
       <RouterView v-slot="{ Component }">

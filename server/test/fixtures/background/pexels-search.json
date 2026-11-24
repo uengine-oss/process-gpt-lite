@@ -1,0 +1,39 @@
+{
+ "_note": "The shape of GET https://api.pexels.com/v1/search (Pexels API documentation) with made-up photos and people — no key was used to record it.",
+ "page": 1,
+ "per_page": 3,
+ "total_results": 3,
+ "photos": [
+  {
+   "id": 1234567,
+   "width": 5616,
+   "height": 3744,
+   "url": "https://www.pexels.com/photo/misty-forest-morning-1234567/",
+   "photographer": "Bora Han",
+   "photographer_url": "https://www.pexels.com/@bora-han",
+   "photographer_id": 42,
+   "avg_color": "#7A8579",
+   "src": {
+    "original": "https://images.pexels.com/photos/1234567/pexels-photo-1234567.jpeg",
+    "large2x": "https://images.pexels.com/photos/1234567/pexels-photo-1234567.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "large": "https://images.pexels.com/photos/1234567/pexels-photo-1234567.jpeg?auto=compress&cs=tinysrgb&h=650&w=940",
+    "medium": "https://images.pexels.com/photos/1234567/pexels-photo-1234567.jpeg?auto=compress&cs=tinysrgb&h=350",
+    "landscape": "https://images.pexels.com/photos/1234567/pexels-photo-1234567.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+    "tiny": "https://images.pexels.com/photos/1234567/pexels-photo-1234567.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=280"
+   },
+   "liked": false,
+   "alt": "Misty forest in the morning"
+  },
+  {
+   "id": 7654321,
+   "width": 2000,
+   "height": 3000,
+   "url": "https://www.pexels.com/photo/portrait-7654321/",
+   "photographer": "Eunji Song",
+   "photographer_url": "https://www.pexels.com/@eunji-song",
+   "avg_color": "#333333",
+   "src": { "original": "https://images.pexels.com/photos/7654321/pexels-photo-7654321.jpeg" },
+   "alt": "a portrait photo (taller than wide)"
+  }
+ ]
+}
