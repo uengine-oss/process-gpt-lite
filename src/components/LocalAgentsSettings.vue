@@ -56,6 +56,13 @@ const cliLine = (c) => (!c.installed ? '설치돼 있지 않아요' : [c.version
           <div class="main"><b>실행 전에 묻기</b><small>단계가 오면 실행할지 창으로 물어요</small></div>
           <input type="checkbox" class="sw" :checked="st?.prefs?.ask === true" data-test="local-ask" @change="(e) => setPrefs({ ask: e.target.checked })" />
         </div>
+        <!-- after the CLI's turn: how long the step waits for the people on the instance (suggestions, input) before it ends by itself -->
+        <div class="li">
+          <div class="main"><b>턴이 끝난 뒤 기다리기</b><small>그동안 새 제안 · 입력이 없으면 단계가 저절로 끝나요(실행 카드의 「끝내기」로 바로 끝낼 수도 있어요)</small></div>
+          <select class="sel" :value="st?.prefs?.finishMinutes || 5" data-test="local-finish-minutes" @change="(e) => setPrefs({ finishMinutes: Number(e.target.value) })">
+            <option v-for="m in [1, 3, 5, 10, 30, 60]" :key="m" :value="m">{{ m }}분</option>
+          </select>
+        </div>
         <div class="li"><div class="main"><small>CLI 를 새로 설치했으면 다시 찾아 주세요</small></div><button class="pill-btn sm" :disabled="!!busy" @click="run('detect', detectClis)">다시 찾기</button></div>
       </template>
       <div v-else class="li"><div class="main"><b>데스크톱 앱에서 연결해요</b><small>Process GPT Lite 데스크톱 앱으로 로그인하면 그 컴퓨터의 Claude Code · Codex 가 내 단계를 실행할 수 있어요</small></div></div>
@@ -90,5 +97,6 @@ const cliLine = (c) => (!c.installed ? '설치돼 있지 않아요' : [c.version
 .pill-btn.sm { height: 34px; padding: 0 14px; font-size: 14px; flex: none; }
 .li.off { opacity: .5; }
 .sw { width: 20px; height: 20px; flex: none; accent-color: var(--ink); }
+.sel { flex: none; height: 34px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--hairline); background: var(--field-bg); color: var(--text-primary); font-size: 14px; }
 .err { color: var(--color-error); font-size: 13px; margin: 6px 4px; }
 </style>

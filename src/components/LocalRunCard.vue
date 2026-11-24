@@ -9,12 +9,21 @@
 //     refuses it too): 「그것을 입력버튼으로 실제 입력시키는 당사자는 해당 cli를 가진 사람만」(2026-11-24).
 // The same card everywhere: the instance page (InstanceHeader), the instance's conversation (Message.vue kind local_run, compact), any
 // screen — a phone too. It follows the run live (the server pushes the card — 'local_run' events, stores/app.js).
+// Two views of the same session, one toggle: 「대화」 (LocalConversation — the CLI's own records in Lite's components) and 「터미널」
+// (LocalTerminal — its screen, in Lite's colours). 「대화」 by default for everyone but the CLI's owner and on a phone; the owner's
+// desktop opens 「터미널」; each viewer's choice is remembered (this browser). One connection serves both (src/localRelay.js), opened as
+// soon as the run is sent — 「터미널에 연결하는 중…」 until its terminal is open.
+// After the CLI's turn the run waits for its people (the desktop's settle.js): its owner sees 「끝내기」 and when it ends by itself; the
+// others see that it waits for the owner.
 // run: server lib/localAgents/steps.js cardOf
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import Icon from './Icon.vue'
 import LocalTerminal from './LocalTerminal.vue'
+import LocalConversation from './LocalConversation.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
+import { openRelay } from '../localRelay.js'
+import { josa } from '../josa.js'
 
 const props = defineProps({ run: { type: Object, required: true }, compact: Boolean })
 const app = useApp()
@@ -29,11 +38,32 @@ const out = ref(null)
 const input = ref(null)
 let tick = null
 onMounted(() => { tick = setInterval(() => { now.value = Date.now() }, 1000) })
-onUnmounted(() => clearInterval(tick))
+onUnmounted(() => { clearInterval(tick); relay.value?.close() })
 
 const live = computed(() => ['offered', 'running'].includes(r.value.state))
+// ---------- the session's two views ----------
+const VIEW_KEY = 'pgl.localRun.view'
+const phone = () => { try { return window.matchMedia('(max-width: 760px)').matches } catch { return false } }
+const remembered = () => { try { const v = localStorage.getItem(VIEW_KEY); return v === 'chat' || v === 'term' ? v : null } catch { return null } }
+const chosen = ref(remembered() || (!r.value.worker || phone() ? 'chat' : 'term'))
+// (a run whose desktop relays no conversation — before 0.2.1 — has the terminal only)
+const views = computed(() => (r.value.conversation ? [['chat', '대화'], ['term', '터미널']] : [['term', '터미널']]))
+const view = computed(() => (views.value.some((v) => v[0] === chosen.value) ? chosen.value : 'term'))
+const shown = ref({ [view.value]: true })  // (a view once shown stays mounted: switching back is instant)
+watch(view, (v) => { shown.value = { ...shown.value, [v]: true } })
+function setView(v) { chosen.value = v; try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ } }
+// the session: a terminal open now, about to open (sent to a desktop that runs steps in a terminal), or a finished run's kept one
+const session = computed(() => !props.compact && !!(r.value.terminal || r.value.terminalSoon || r.value.conversation))
+const relay = ref(null)
+watch(() => [session.value, r.value.jobId], ([on, id], old) => {
+  if (old && old[1] !== id) { relay.value?.close(); relay.value = null }
+  if (on && !relay.value) relay.value = openRelay(id, { streams: [view.value === 'term' ? 'term' : 'tx'] })
+}, { immediate: true })
+// ---------- waiting for its people after the turn ----------
+const idleLeft = computed(() => (r.value.idleUntil && r.value.state === 'running' ? Math.max(0, new Date(r.value.idleUntil).getTime() - now.value) : null))
+const idleWords = computed(() => { const ms = idleLeft.value; if (ms == null) return ''; const m = Math.ceil(ms / 60000); return ms >= 60000 ? `${m}분` : `${Math.max(1, Math.ceil(ms / 1000))}초` })
 const tone = computed(() => ({ queued: 'wait', offered: 'wait', running: 'run', done: 'ok', failed: 'bad', delegated: 'info', cancelled: 'info' }[r.value.state] || 'info'))
-const pill = computed(() => (r.value.state === 'running' && r.value.steering ? '방향 전달 중'
+const pill = computed(() => (r.value.state === 'running' && r.value.steering ? '방향 전달 중' : r.value.state === 'running' && idleLeft.value != null ? '끝내기 기다림'
   : { queued: r.value.why === 'busy' ? '차례 기다림' : 'PC 앱이 켜지면 시작', offered: '보냄', running: '실행 중', done: '끝남', failed: '멈춤', delegated: '서버에 맡김', cancelled: '멈춤' }[r.value.state]))
 const who = computed(() => [r.value.person, r.value.device].filter(Boolean).join(' · ') || '담당자의 컴퓨터')
 const lines = computed(() => (r.value.lines || []).filter((l) => l.kind !== 'status' || !props.compact).slice(props.compact ? -4 : -14))
@@ -48,8 +78,8 @@ const elapsed = computed(() => {
   return ''
 })
 const ago = (d) => { const m = Math.max(0, Math.round((now.value - new Date(d).getTime()) / 60000)); return m < 1 ? '방금' : m < 60 ? `${m}분 전` : new Date(d).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' }) }
-// 이 · 가 by the name's last syllable
-const ga = (w) => { const c = String(w || '').trim().slice(-1).charCodeAt(0); return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 ? '이' : '가' }
+// 이 · 가 by the name's last syllable (src/josa.js)
+const ga = (w) => josa(w)
 const steerLabel = (s) => ({ pending: '보내는 중', sent: '데스크톱에 보냄', received: '데스크톱이 받음', failed: `못 함 — ${s.reason || ''}` }[s.state]
   || { live: '반영 — 실행을 멈추지 않고', resume: '반영 — 같은 세션을 이어서', restart: '반영 — 다시 시작하며', 'before-start': '반영 — 시작할 때' }[s.applied] || '반영')
 const steerWho = (s) => (s.from ? `${s.from} 제안 · ${s.name} 입력` : s.name)
@@ -93,6 +123,11 @@ async function decide(k, action) {
 }
 const kLabel = (k) => (k.kind === 'skill' ? `스킬 「${k.skill?.name}」 고침` : k.source === 'memory' ? '에이전트가 적은 기억 → 이 일의 방식' : '실행 중 조종 → 이 일의 방식')
 const kState = (k) => (k.state === 'applied' ? (k.kind === 'skill' ? '스킬에 반영 요청함' : '이 일의 정의에 반영함') : k.state === 'dismissed' ? '버림' : k.unjudged ? '판정 못 함 — 사람이 정해요' : `판정 ${Math.round((k.p || 0) * 100)}%`)
+// 「끝내기」: the owner ends the run now (it waits after the turn for the people on the instance)
+async function finish() {
+  busy.value = 'finish'; said.value = ''
+  try { show(await api(`/local-agents/jobs/${encodeURIComponent(r.value.jobId)}/finish`, { method: 'POST' })); said.value = '끝내는 중이에요 — 결과를 올려요' } catch (e) { said.value = e.message } finally { busy.value = '' }
+}
 async function delegate() {
   busy.value = 'delegate'; said.value = ''
   try { show(await api(`/local-agents/jobs/${encodeURIComponent(r.value.jobId)}/delegate`, { method: 'POST' })) } catch (e) { said.value = e.message } finally { busy.value = '' }
@@ -111,9 +146,17 @@ async function delegate() {
     </div>
     <p class="st" data-test="local-run-text">{{ r.text }}</p>
 
-    <!-- the CLI's session: its terminal (or its last lines), the steers that went in, the suggestions waiting at its input, the input -->
-    <div v-if="lines.length || r.steers?.length || live || (r.terminal && !compact)" class="term" data-test="local-run-term">
-      <LocalTerminal v-if="r.terminal && !compact" :key="r.jobId" :job-id="r.jobId" :agent="r.agent" />
+    <!-- the CLI's session: its conversation or its terminal (or its last lines), the steers that went in, the suggestions waiting at its
+         input, the input -->
+    <div v-if="lines.length || r.steers?.length || live || session" class="term" data-test="local-run-term">
+      <template v-if="session && relay">
+        <div class="views" role="tablist" data-test="local-run-views">
+          <button v-for="v in views" :key="v[0]" type="button" role="tab" class="vt press" :class="{ on: view === v[0] }" :aria-selected="view === v[0]"
+            :data-view="v[0]" data-test="local-run-view" @click="setView(v[0])">{{ v[1] }}</button>
+        </div>
+        <LocalConversation v-if="shown.chat" v-show="view === 'chat'" :key="`c-${r.jobId}`" :relay="relay" :run="r" />
+        <LocalTerminal v-if="shown.term" v-show="view === 'term'" :key="`t-${r.jobId}`" :relay="relay" :agent="r.agent" />
+      </template>
       <ol v-else-if="lines.length" ref="out" class="lines" data-test="local-run-lines">
         <li v-for="(l, i) in lines" :key="i" :class="l.kind"><span class="mk">{{ mark[l.kind] ?? '' }}</span><span>{{ l.text }}</span></li>
       </ol>
@@ -129,6 +172,14 @@ async function delegate() {
           <button v-if="r.worker && live && s.state === 'waiting'" class="x press" :disabled="!!busy" aria-label="제안 버리기" data-test="local-run-suggestion-dismiss" @click="dismiss(s)">×</button>
         </li>
       </ul>
+      <!-- after the CLI's turn: the run waits for its people — the owner ends it, or it ends by itself -->
+      <div v-if="idleLeft != null" class="idle" data-test="local-run-idle">
+        <template v-if="r.worker">
+          <small data-test="local-run-idle-text">{{ idleWords }} 동안 새 입력이 없으면 저절로 끝나요</small>
+          <button type="button" class="fin press" :disabled="!!busy" data-test="local-run-finish" @click="finish">끝내기</button>
+        </template>
+        <small v-else data-test="local-run-idle-text">{{ r.person || '실행하는 사람' }}님이 끝내기를 기다려요 — 지금 제안하면 이어서 입력할 수 있어요 · {{ idleWords }} 뒤 저절로 끝나요</small>
+      </div>
       <!-- the worker: the CLI's input -->
       <form v-if="live && r.worker" class="input" @submit.prevent="send">
         <small v-if="picked" class="loaded" data-test="local-run-loaded">{{ picked.name }}의 제안을 입력란에 넣었어요 — 고쳐서 보낼 수 있어요 <button type="button" class="lnk" @click="unload">취소</button></small>
@@ -182,46 +233,54 @@ async function delegate() {
 .bad .pill { background: var(--color-error); color: #fff; }
 .wait .pill { background: color-mix(in srgb, var(--color-attention) 26%, transparent); }
 .st { margin: 0; color: var(--text-primary); line-height: 1.45; overflow-wrap: anywhere; }
-/* the terminal */
-.term { border-radius: 14px; background: #15171c; color: #d7dae0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; padding: 8px 10px;
-  display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* the session: the two views, then what went in, the suggestions, the input — in Lite's tokens (light and dark) */
+.term { border-radius: 16px; background: var(--cell-bg); color: var(--text-primary); font-size: 13px; padding: 8px; border: 1px solid var(--hairline);
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .term ol, .term ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.lines { max-height: 220px; overflow-y: auto; }
+.views { display: inline-flex; align-self: flex-start; gap: 2px; padding: 2px; border-radius: 12px; background: var(--button-bg); }
+.vt { height: 28px; padding: 0 14px; border-radius: 10px; font-size: 13px; color: var(--text-secondary); }
+.vt.on { background: var(--regular-solid-bg); color: var(--text-primary); font-weight: 600; box-shadow: 0 1px 3px rgba(0 0 0 / .12); }
+.lines { max-height: 220px; overflow-y: auto; font-family: "SF Mono", Menlo, monospace; font-size: 12.5px; }
 .compact .lines { max-height: 90px; }
 .lines li { display: flex; gap: 6px; min-width: 0; }
 .lines li span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.lines li.tool { color: #9aa3b2; }
-.lines li.steer { color: #f2c94c; }
-.lines li.error { color: #ff7b72; }
-.lines li.status { color: #6b7280; }
-.mk { flex: none; width: 10px; color: #6b7280; }
-.steers { border-top: 1px dashed #343844; padding-top: 6px !important; }
-.steers li { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; color: #f2c94c; min-width: 0; }
+.lines li.tool { color: var(--text-secondary); }
+.lines li.steer { color: var(--color-info); }
+.lines li.error { color: var(--color-error); }
+.lines li.status { color: var(--text-tertiary); }
+.mk { flex: none; width: 10px; color: var(--text-tertiary); }
+.steers { border-top: 1px dashed var(--hairline); padding-top: 6px !important; }
+.steers li { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; min-width: 0; }
+.steers .mk { color: var(--color-info); }
 .steers .tx { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
-.steers small { color: #8b93a3; flex: none; }
-.steers li.applied small { color: #56d364; }
-.steers li.failed small { color: #ff7b72; flex: 1 1 100%; }
+.steers small { color: var(--text-secondary); flex: none; }
+.steers li.applied small { color: var(--color-success); }
+.steers li.failed small { color: var(--color-error); flex: 1 1 100%; }
 .who { font-weight: 600; margin-right: 4px; }
-.sugs { border-top: 1px dashed #343844; padding-top: 6px !important; gap: 4px !important; }
+.sugs { border-top: 1px dashed var(--hairline); padding-top: 6px !important; gap: 4px !important; }
 .sugs li { display: flex; align-items: flex-start; gap: 4px; min-width: 0; }
-.chip { flex: 1; min-width: 0; text-align: left; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; padding: 6px 8px; border-radius: 10px; background: #232733; color: #e6e8ee;
-  font: inherit; border: 1px solid transparent; }
-.chip.on { border-color: #f2c94c; }
+.chip { flex: 1; min-width: 0; text-align: left; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; padding: 7px 10px; border-radius: 12px; background: var(--chip-bg); color: var(--text-primary);
+  font: inherit; border: 1px solid var(--hairline); }
+.chip.on { border-color: var(--color-info); box-shadow: 0 0 0 1px var(--color-info); }
 .chip .tx { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
-.chip small { color: #8b93a3; flex: none; }
+.chip small { color: var(--text-secondary); flex: none; }
 .chip.static { opacity: .9; }
-.sugs li.used .chip small { color: #56d364; }
+.sugs li.used .chip small { color: var(--color-success); }
 .sugs li.dismissed .chip { opacity: .5; text-decoration: line-through; }
-.sugs li.decision .chip { border-color: #3d6fb6; }
-.x { width: 26px; height: 26px; border-radius: 13px; color: #8b93a3; font-size: 18px; flex: none; }
-.input { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid #343844; padding-top: 6px; min-width: 0; }
+.sugs li.decision .chip { border-color: color-mix(in srgb, var(--color-info) 60%, transparent); }
+.x { width: 26px; height: 26px; border-radius: 13px; color: var(--text-secondary); font-size: 18px; flex: none; }
+.idle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--color-info) 12%, transparent); min-width: 0; }
+.idle small { flex: 1 1 180px; min-width: 0; color: var(--text-primary); font-size: 12.5px; overflow-wrap: anywhere; }
+.fin { height: 32px; padding: 0 16px; border-radius: 16px; background: var(--ink); color: var(--ink-inverse); font-size: 13px; font-weight: 600; flex: none; }
+.fin:disabled { opacity: .4; }
+.input { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--hairline); padding-top: 8px; min-width: 0; }
 .input .row { display: flex; gap: 6px; align-items: center; min-width: 0; }
-.prompt { color: #56d364; flex: none; }
-.input input { flex: 1; min-width: 0; width: 100%; height: 34px; border-radius: 8px; padding: 0 10px; background: #0d0f13; border: 1px solid #343844; color: #e6e8ee; font: inherit; font-size: 16px; }
-.input .row button { width: 34px; height: 34px; border-radius: 17px; background: #e6e8ee; color: #15171c; display: grid; place-items: center; flex: none; }
+.prompt { color: var(--color-success); flex: none; font-family: "SF Mono", Menlo, monospace; }
+.input input { flex: 1; min-width: 0; width: 100%; height: 36px; border-radius: 12px; padding: 0 12px; background: var(--field-bg); border: 1px solid var(--hairline); color: var(--text-primary); font: inherit; font-size: 16px; }
+.input .row button { width: 36px; height: 36px; border-radius: 18px; background: var(--ink); color: var(--ink-inverse); display: grid; place-items: center; flex: none; }
 .input .row button:disabled { opacity: .35; }
-.loaded { color: #8b93a3; font-size: 11.5px; overflow-wrap: anywhere; }
-.lnk { color: #f2c94c; text-decoration: underline; background: none; padding: 0; font: inherit; }
+.loaded { color: var(--text-secondary); font-size: 11.5px; overflow-wrap: anywhere; }
+.lnk { color: var(--color-info); text-decoration: underline; background: none; padding: 0; font: inherit; }
 .files, .said { margin: 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .knowhow { list-style: none; margin: 0; padding: 8px 10px; border-radius: 12px; background: var(--field-bg); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .knowhow .tx { min-width: 0; overflow-wrap: anywhere; }

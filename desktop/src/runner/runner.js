@@ -19,15 +19,18 @@ const G = require('./git')
 const SKL = require('./skills')
 const P = require('./pty')
 const { CliSession } = require('./session')
+const { settleState, finishMsOf } = require('./settle')
 
 const RUN_MS = 60 * 60_000
 const FLUSH_MS = 800
 const ACK_GRACE_MS = 20_000
-// after the CLI says a turn ended: how long nothing new may happen before the step is taken as done (a message typed meanwhile, a
-// steer not yet in its transcript, the person typing — each starts the wait again), and the longest a typed-but-unsent line holds it
-const SETTLE_MS = Number(process.env.PGL_RUNNER_SETTLE_MS || 3000)
-const IDLE_FINISH_MS = Number(process.env.PGL_RUNNER_IDLE_FINISH_MS || 120_000)
+// after the CLI says a turn ended the run waits for the people on the instance (settle.js): finishMs without anything new — a
+// suggestion, an input, the owner typing, a new turn — and it ends (default 5 minutes: the desktop setting, or PGL_RUNNER_SETTLE_MS),
+// or at once when the owner presses 「끝내기」
 const OUT_FLUSH_MS = 40
+const TX_FLUSH_MS = 120
+// the conversation items a session keeps here (to announce again with its terminal when the link comes back — a restarted server)
+const TX_KEEP = 600
 // how long a job waits for the server to confirm it is still this desktop's (accept → accepted) before it is let go (the server offers it
 // again); how long a finished run keeps its folder for the server's 'finished' and the follow of the line, at most
 const ACCEPT_MS = Number(process.env.PGL_RUNNER_ACCEPT_MS || 60_000)
@@ -41,13 +44,13 @@ class Runner extends EventEmitter {
   // joined to it) · prefs(): {enabled, ask} · ask(job): the person's yes before a run (prefs.ask) · caps: from clis.detect
   // mode: 'auto' (a terminal when node-pty loads) | 'headless' · sessionEnv: extra environment for the CLI (e.g. its config folder)
   constructor({ dataDir, server, prefs = () => ({ enabled: true, ask: false }), ask = async () => true, searchPath = C.augmentedPath(), maxJobs = 2,
-    log = () => {}, runMs = RUN_MS, caps = {}, mode = process.env.PGL_RUNNER_MODE || 'auto', sessionEnv = {}, settleMs = SETTLE_MS, idleFinishMs = IDLE_FINISH_MS,
+    log = () => {}, runMs = RUN_MS, caps = {}, mode = process.env.PGL_RUNNER_MODE || 'auto', sessionEnv = {}, settleMs = null,
     cols = 80, rows = 28 } = {}) {
     super()
     this.mode = mode
     this.sessionEnv = sessionEnv
+    // (null: the person's desktop setting, read at each wait — prefs().finishMinutes)
     this.settleMs = settleMs
-    this.idleFinishMs = idleFinishMs
     this.size = { cols, rows }
     this.sessions = new Map() // sid → {S, kind, ref, out, timer}
     this.dataDir = dataDir
@@ -85,7 +88,11 @@ class Runner extends EventEmitter {
     for (const m of this.outbox) this.send(m)
     // (an accept the server may not have got: said again — its answer starts the run)
     for (const st of this.jobs.values()) if (st.awaiting) this.send({ type: 'accept', jobId: st.job.id })
-    for (const [sid, x] of this.sessions) this.send({ type: 'term-open', sid, kind: x.kind, ref: x.ref, agent: x.S.agent, cli: x.S.cli, cols: x.S.cols, rows: x.S.rows, replay: x.S.buf.slice(-200_000), exited: x.S.exited })
+    for (const [sid, x] of this.sessions) {
+      this.send({ type: 'term-open', sid, kind: x.kind, ref: x.ref, agent: x.S.agent, cli: x.S.cli, cols: x.S.cols, rows: x.S.rows, replay: x.S.buf.slice(-200_000), exited: x.S.exited })
+      if (x.tx.length) this.send({ type: 'tx', sid, items: x.tx, replay: true })
+    }
+    for (const st of this.jobs.values()) if (st.idleUntil) this.send({ type: 'idle', jobId: st.job.id, until: new Date(st.idleUntil).toISOString() })
   }
   // whether runs use a terminal here (else headless)
   interactive() { return this.mode !== 'headless' && !!P.load() }
@@ -104,11 +111,27 @@ class Runner extends EventEmitter {
     if (msg.type === 'accepted') { const st = this.jobs.get(msg.jobId); if (st?.awaiting) st.awaiting(true); return }
     // what the CLI's owner typed in a viewer of its terminal (the server sends only the owner's — anyone else's input is dropped there;
     // checked here again) and the size their view wants
-    if (msg.type === 'pty-input') { const x = this.sessions.get(String(msg.sid || '')); if (x && (!msg.byId || !this.user?.id || String(msg.byId) === String(this.user.id))) { x.S.write(String(msg.data || '')); x.typedAt = Date.now() } return }
+    if (msg.type === 'pty-input') { const x = this.sessions.get(String(msg.sid || '')); if (x && this.owns(msg.byId)) { x.S.write(String(msg.data || '')); x.typedAt = Date.now(); this.stirred(x) } return }
     if (msg.type === 'pty-resize') { const x = this.sessions.get(String(msg.sid || '')); if (x) x.S.resize(msg.cols, msg.rows); return }
+    // the owner's answer to what the CLI asks (a permission, a choice) — pressed on a card of the conversation: the keys go into the PTY
+    // while that ask is still open (session.answer)
+    if (msg.type === 'pty-answer') {
+      const x = this.sessions.get(String(msg.sid || ''))
+      if (!x || !this.owns(msg.byId)) return
+      const r = x.S.answer(msg.ask, msg.answer, String(msg.by || ''))
+      if (r !== true) this.send({ type: 'answer-failed', sid: x.S.id, ask: String(msg.ask || ''), reason: r })
+      else { x.typedAt = Date.now(); this.stirred(x) }
+      return
+    }
     // a participant suggested a prompt for a run of this computer: the person hears of it (main shows a notification); it waits in the run's
-    // stack on their screen — nothing goes into the CLI until they put it in
-    if (msg.type === 'suggestion') { const st = this.jobs.get(msg.jobId); if (st) this.emit('notice', { kind: 'suggestion', jobId: msg.jobId, activity: st.job.activity, by: String(msg.by || ''), text: String(msg.text || '').slice(0, 300) }); return }
+    // stack on their screen — nothing goes into the CLI until they put it in. The run waits on for it (settle.js).
+    if (msg.type === 'suggestion') {
+      const st = this.jobs.get(msg.jobId)
+      if (st) { st.lastInput = Date.now(); if (st.turnEnded) this.settle(st); this.emit('notice', { kind: 'suggestion', jobId: msg.jobId, activity: st.job.activity, by: String(msg.by || ''), text: String(msg.text || '').slice(0, 300) }) }
+      return
+    }
+    // the owner pressed 「끝내기」: the run ends now (after the turn at hand, when the CLI is working)
+    if (msg.type === 'finish') { const st = this.jobs.get(msg.jobId); if (st?.term && !st.ending) { st.finishNow = true; this.settle(st) } return }
     if (msg.type === 'finished') return this.finished(msg)
   }
 
@@ -303,7 +326,14 @@ class Runner extends EventEmitter {
       st.endRun = end
       try {
         S = this.openSession({ kind: 'step', ref: job.id, agent: job.agent, cwd: st.dir, resume, prompt, lang,
-          stateDir: path.join(this.dataDir, 'sessions', safePart(job.id, 40)), start: false })
+          stateDir: path.join(this.dataDir, 'sessions', safePart(job.id, 40)), start: false,
+          // a message the CLI took that was a steer: whose words it was (the conversation shows 「<제안한 사람> 제안 · <작업자> 입력」)
+          annotate: (it) => {
+            if (it.t !== 'user' || it.first) return it
+            const t = String(it.text || '')
+            const s = (st.live || []).find((x) => { const head = x.text.trim().slice(0, 80); return head && t.includes(head) })
+            return s ? { ...it, steerId: s.steerId, by: s.by || undefined, from: s.from || undefined } : { ...it, by: job.person?.name || undefined }
+          } })
       } catch (e) { return resolve({ ok: false, why: e.message }) }
       st.term = S
       st.runTimer = setTimeout(() => { st.timedOut = true; end({ ok: false, why: T(lang, `실행이 ${Math.round(this.runMs / 60000)}분을 넘어 멈췄어요`, `The run went over ${Math.round(this.runMs / 60000)} minutes and was stopped`) }) }, this.runMs)
@@ -321,37 +351,65 @@ class Runner extends EventEmitter {
       S.on('text', ({ text }) => { st.lastText = text; this.progress(st, 'text', text) })
       S.on('tool', ({ name, brief }) => this.progress(st, 'tool', `${name}${brief ? ` · ${this.rel(st, brief)}` : ''}`))
       S.on('prompt', ({ text }) => this.applied(st, text))
-      S.on('turn-start', () => { clearTimeout(st.settle); st.turnEnded = 0 })
+      S.on('turn-start', () => { clearTimeout(st.settle); st.turnEnded = 0; this.idle(st, null) })
       S.on('turn-end', ({ summary }) => {
         if (summary) st.summary = summary
         st.turnEnded = Date.now()
+        // (the screen as the turn left it: what a viewer sees of the run once it is over — before the CLI clears it on its way out)
+        this.sessions.get(S.id)?.keep()
         this.settle(st)
       })
+      // (stopped mid-turn — Esc, a refused tool use: it waits for its person as after a turn)
+      S.on('turn-interrupted', () => { st.turnEnded = Date.now(); this.settle(st) })
       S.on('turn-failed', ({ error }) => { this.progress(st, 'error', error); end({ ok: false, why: error }) })
       S.on('attention', ({ message }) => { if (message) { this.progress(st, 'status', message); this.emit('notice', { kind: 'attention', jobId: job.id, activity: job.activity, text: message }) } })
       S.on('exit', ({ code }) => { if (!st.ending) end(st.cancelled ? { ok: false, interrupted: true } : { ok: false, why: T(lang, `${job.label || job.agent} 가 끝났어요 (코드 ${code})`, `${job.label || job.agent} exited (code ${code})`) }) })
       try { S.start() } catch (e) { end({ ok: false, why: e.message }) }
-    }).then((r) => { if (st.term && !st.term.exited) st.term.kill(); return r })
+    }).then((r) => {
+      // (the last screen kept before the CLI is closed — it clears its screen on the way out)
+      if (st.term && !st.term.exited) { this.sessions.get(st.term.id)?.keep(); st.term.kill() }
+      this.idle(st, null)
+      return r
+    })
   }
-  // a turn ended: done when, for a moment, nothing new came — no new turn, every steer typed in is in its transcript, and the person
-  // is not typing (a line typed but not sent holds it up to IDLE_FINISH_MS)
+  // after a turn: the run waits for its people, and ends when nothing new came for finishMs, or when its owner says so (settle.js);
+  // the server hears when it would end by itself (the card: 「끝내기」 · 「N분 동안 새 입력이 없으면 저절로 끝나요」)
+  finishMs() { return finishMsOf({ explicit: this.settleMs, minutes: (this.prefs() || {}).finishMinutes }) }
   settle(st) {
     clearTimeout(st.settle)
-    st.settle = setTimeout(() => {
-      if (st.ending || !st.turnEnded) return
-      const x = this.sessions.get(st.term?.id)
-      const typed = Math.max(st.term?.lastInputAt || 0, x?.typedAt || 0)
-      const pending = (st.live || []).some((s) => !s.acked && Date.now() - s.typedAt < ACK_GRACE_MS)
-      if (st.term?.busy || pending || (typed > st.turnEnded && Date.now() - typed < this.idleFinishMs)) return this.settle(st)
-      st.endRun({ ok: true })
-    }, this.settleMs)
+    if (st.ending) return
+    const x = this.sessions.get(st.term?.id)
+    const now = Date.now()
+    const r = settleState({ now, turnEnded: st.turnEnded, busy: !!st.term?.busy, lastInput: st.lastInput || 0,
+      typedAt: Math.max(x?.typedAt || 0, st.term?.lastInputAt && st.term.lastInputAt > (st.turnEnded || 0) ? st.term.lastInputAt : 0),
+      pending: (st.live || []).some((s) => !s.acked && now - s.typedAt < ACK_GRACE_MS), finishNow: !!st.finishNow, finishMs: this.finishMs() })
+    if (r.done) { this.idle(st, null); return st.endRun({ ok: true }) }
+    this.idle(st, r.until)
+    if (r.check != null) st.settle = setTimeout(() => this.settle(st), Math.max(50, r.check))
   }
+  // what the server shows of the wait: until when the run waits by itself (null: it works, or it is over)
+  idle(st, until) {
+    const v = until ? Math.round(until) : null
+    if ((st.idleUntil || null) === v) return
+    // (the owner typing moves it with every key: the server hears of it when it moved by a second or more)
+    if (v && st.idleUntil && Math.abs(v - st.idleUntil) < 1000) return
+    st.idleUntil = v
+    this.send({ type: 'idle', jobId: st.job.id, until: v ? new Date(v).toISOString() : null })
+  }
+  // the owner did something in a step's terminal (typed, answered): that run's wait starts again
+  stirred(x) {
+    if (x.kind !== 'step') return
+    const st = this.jobs.get(x.ref)
+    if (st?.turnEnded && !st.ending) this.settle(st)
+  }
+  owns(byId) { return !byId || !this.user?.id || String(byId) === String(this.user.id) }
   // a steer typed into the terminal as a person would (bracketed paste, Enter); it counts as taken when its words are in the transcript
   typeSteer(st, s) {
     const S = st.term
     if (!S || S.exited) return false
     const text = s.text
     st.live.push({ ...s, typedAt: Date.now(), acked: false })
+    st.lastInput = Date.now()
     S.submit(text)
     return true
   }
@@ -372,18 +430,29 @@ class Runner extends EventEmitter {
   // The PTY's bytes, its hook events and the watched files go to the server over this app's own link (never from the CLI to the server
   // directly); the server relays the screen to every viewer and the owner's typing back here.
   // (start false: the caller listens first, then calls S.start())
-  openSession({ kind, ref, agent, cwd, resume = null, prompt = '', stateDir, watch = [], env = {}, start = true }) {
+  openSession({ kind, ref, agent, cwd, resume = null, prompt = '', stateDir, watch = [], env = {}, start = true, annotate = null }) {
     if (!this.interactive()) throw new Error(`no terminal here: ${P.why() || 'headless mode'}`)
     const S = new CliSession({ agent, cwd, resume, prompt, stateDir, trustRoot: this.dataDir, searchPath: this.searchPath, env: { ...this.sessionEnv, ...env },
-      watch, cols: this.size.cols, rows: this.size.rows, log: (m) => this.log(m) })
-    const x = { S, kind, ref, out: '', timer: null, typedAt: 0 }
+      watch, cols: this.size.cols, rows: this.size.rows, log: (m) => this.log(m), version: this.caps[agent]?.version || null, annotate })
+    const x = { S, kind, ref, out: '', timer: null, typedAt: 0, tx: [], txOut: [], txTimer: null }
     this.sessions.set(S.id, x)
     const flush = () => { x.timer = null; if (x.out) { this.send({ type: 'pty', sid: S.id, data: x.out }); x.out = '' } }
+    // the conversation (transcript.js), item by item, a little at a time — and kept here to be announced again with the terminal
+    const flushTx = () => { clearTimeout(x.txTimer); x.txTimer = null; if (x.txOut.length) this.send({ type: 'tx', sid: S.id, items: x.txOut.splice(0) }) }
+    S.on('tx', (items) => {
+      x.tx.push(...items)
+      if (x.tx.length > TX_KEEP) x.tx.splice(0, x.tx.length - TX_KEEP)
+      x.txOut.push(...items)
+      if (!x.txTimer) x.txTimer = setTimeout(flushTx, TX_FLUSH_MS)
+    })
+    // the screen as it is now is the one to keep (a turn ended, the run is about to close the CLI): what the terminal showed so far goes
+    // first, then the mark
+    x.keep = () => { flush(); flushTx(); this.send({ type: 'term-keep', sid: S.id }) }
     S.on('data', (d) => { x.out += d; if (!x.timer) x.timer = setTimeout(flush, OUT_FLUSH_MS) })
     S.on('hook', (h) => this.send({ type: 'hook', sid: S.id, event: h.event, data: h.data }))
     S.on('files', (files) => this.send({ type: 'files', sid: S.id, files }))
     S.on('session', (id) => this.send({ type: 'term-session', sid: S.id, cli: id }))
-    S.on('exit', ({ code }) => { flush(); this.send({ type: 'term-exit', sid: S.id, code }); setTimeout(() => this.sessions.delete(S.id), 1000).unref?.() })
+    S.on('exit', ({ code }) => { flush(); flushTx(); this.send({ type: 'term-exit', sid: S.id, code }); setTimeout(() => this.sessions.delete(S.id), 1000).unref?.() })
     const announce = () => this.send({ type: 'term-open', sid: S.id, kind, ref, agent, cli: S.cli || resume || null, cols: S.cols, rows: S.rows })
     // (announced when it starts: its CLI session id is known by then)
     const go = S.start.bind(S)
@@ -495,7 +564,8 @@ class Runner extends EventEmitter {
   rel(st, text) {
     let t = String(text || '')
     // (Windows: the CLI may spell the folder with either slash)
-    const dirs = [st.dir, st.realDir].filter(Boolean)
+    // (the longer spelling first: /private/var/… before /var/… on macOS)
+    const dirs = [st.dir, st.realDir].filter(Boolean).sort((a, b) => b.length - a.length)
     const prefixes = path.sep === '\\' ? dirs.flatMap((d) => [`${d}\\`, `${d.replace(/\\/g, '/')}/`]) : dirs.map((d) => `${d}/`)
     for (const p of prefixes) t = t.split(p).join('')
     return t
@@ -521,6 +591,7 @@ class Runner extends EventEmitter {
     if (byId && this.user?.id && String(byId) !== String(this.user.id)) this.emit('notice', { kind: 'steer', jobId, activity: st.job.activity, by: s.by, text: t.slice(0, 300) })
     this.log(`[runner] ${st.job.activity}: steer from ${s.by || 'someone'} — ${t.slice(0, 200)}`)
     this.progress(st, 'steer', t)
+    st.lastInput = Date.now()
     // the terminal: typed in as the person would (before the CLI can take input, it waits right behind the prompt)
     if (st.term || (this.interactive() && !st.child)) {
       if (st.term?.ready && !st.term.exited) this.typeSteer(st, s)

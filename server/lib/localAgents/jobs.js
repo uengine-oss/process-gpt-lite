@@ -69,6 +69,7 @@ export async function enqueue(spec) {
                          again('device_name', 'null'), again('session_id', 'null'), again('run_branch', 'null'), again('result', 'null'), again('offered_at', 'null'),
                          again('started_at', 'null'), again('finished_at', 'null'), again('steers', `'[]'::jsonb`), again('suggestions', `'[]'::jsonb`),
                          again('lines', `'[]'::jsonb`), again('terminal', 'false'), again('screen', 'null'), again('sent_skills', `'[]'::jsonb`),
+                         again('transcript', 'null'), again('idle_until', 'null'),
                          again('user_id', 'excluded.user_id'), again('agent', 'excluded.agent'), again('mode', 'excluded.mode'), again('offline', 'excluded.offline'),
                          again('server_agent', 'excluded.server_agent'), again('wait_minutes', 'excluded.wait_minutes'), again('gate', 'excluded.gate'),
                          again('person_name', 'excluded.person_name')].join(', ')},
@@ -172,6 +173,13 @@ export async function onMessage(link, msg) {
     }
     case 'session':
       return set(job, { session_id: String(msg.sessionId || '').slice(0, 100) || null })
+    // its CLI's turn ended and the run waits for the people on the instance until then (null: it works again, or it ends) — runner settle.js
+    case 'idle': {
+      if (job.state !== 'running') return
+      const until = msg.until && !Number.isNaN(Date.parse(msg.until)) ? new Date(msg.until) : null
+      if ((job.idle_until ? new Date(job.idle_until).getTime() : null) === (until ? until.getTime() : null)) return
+      return hooks.note(await set(job, { idle_until: until }), 'idle')
+    }
     case 'progress': {
       if (!['running', 'offered'].includes(job.state)) return
       const add = (Array.isArray(msg.lines) ? msg.lines : []).slice(-LINES).map((l) => ({ kind: String(l.kind || 'text').slice(0, 10), text: String(l.text || '').slice(0, 600), at: l.at || new Date().toISOString() }))
@@ -197,7 +205,7 @@ export async function onMessage(link, msg) {
       let j = await set(job, { result: kept, session_id: result.sessionId })
       try {
         const out = await hooks.complete(j, kept)
-        j = await endSteers(await set(j, { state: 'done', finished_at: new Date() }), 'ended')
+        j = await endSteers(await set(j, { state: 'done', finished_at: new Date(), idle_until: null }), 'ended')
         // (know-how is read after the step has its result: a slow judge does not hold the next step)
         if (learned) hooks.learned(j, learned).catch((e) => console.warn('[local-agents] know-how', e.message))
         link.send({ type: 'finished', jobId: j.id, state: 'done', line: j.line, head: out?.head || null })
@@ -211,7 +219,7 @@ export async function onMessage(link, msg) {
     }
     case 'failed': {
       if (!['running', 'offered'].includes(job.state)) return
-      const j = await endSteers(await set(job, { state: 'failed', error: String(msg.error || 'failed').slice(0, 800), finished_at: new Date() }), 'failed')
+      const j = await endSteers(await set(job, { state: 'failed', error: String(msg.error || 'failed').slice(0, 800), finished_at: new Date(), idle_until: null }), 'failed')
       await hooks.fail(j, j.error)
       link.send({ type: 'finished', jobId: j.id, state: 'failed' })
       return hooks.note(j, 'failed')
@@ -315,10 +323,17 @@ export async function setKnowhow(job, id, patch) {
   return j || job
 }
 
+// 「끝내기」: its worker ends a run that waits after its CLI's turn (or right after the turn at hand) — the desktop does it (settle.js)
+export function finish(job) {
+  if (job.state !== 'running') throw Object.assign(new Error('이 실행은 이미 끝났어요.'), { status: 409 })
+  const link = job.device_id ? H.linkOf(T(), String(job.device_id)) : null
+  return !!link?.send({ type: 'finish', jobId: job.id })
+}
+
 // the step was closed (moved, rewound, done by hand): the run stops
 export async function cancel(job, why = 'closed') {
   if (!OPEN.includes(job.state)) return job
-  const j = await endSteers(await set(job, { state: 'cancelled', why, finished_at: new Date() }), 'cancelled')
+  const j = await endSteers(await set(job, { state: 'cancelled', why, finished_at: new Date(), idle_until: null }), 'cancelled')
   const link = job.device_id ? H.linkOf(T(), String(job.device_id)) : null
   if (link) link.send({ type: 'cancel', jobId: j.id, reason: why })
   await hooks.note(j, 'cancelled')
@@ -331,6 +346,9 @@ export async function cancel(job, why = 'closed') {
 export async function sweep(now = Date.now()) {
   const open = await q(`select * from pro_local_jobs where tenant_id=$1 and state in ('queued','offered','running') order by created_at limit 200`, [T()])
   for (const j of open) {
+    // (a run whose result is being taken in: its step closes as part of that — it is not a step closed by hand. Before, a sweep in that
+    // moment marked the run 「단계가 닫혀 로컬 실행을 멈췄어요」 and its done was refused — seen once in M-02, 2026-11-24)
+    if (j.state === 'running' && j.result) continue
     if (await hooks.cancelled(j).catch(() => false)) { await cancel(j, 'closed'); continue }
     if (overdue(j, now)) { await delegate(j, 'timeout'); continue }
     if (j.state === 'offered' && now - new Date(j.offered_at).getTime() > OFFER_MS) {

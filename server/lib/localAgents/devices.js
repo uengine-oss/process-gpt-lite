@@ -70,7 +70,7 @@ export function capsOf(raw = {}) {
     clis[id] = { installed: !!c.installed, version: clean(c.version, 40) || null, loggedIn: typeof c.loggedIn === 'boolean' ? c.loggedIn : null,
       runnable: c.runnable !== false }
   }
-  return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true }
+  return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true, conversation: raw?.conversation === true }
 }
 export const prefsOf = (raw = {}) => ({ enabled: raw?.enabled !== false, ask: raw?.ask === true })
 

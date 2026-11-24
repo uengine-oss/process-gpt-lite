@@ -14,6 +14,16 @@
 //     calls, agent_message, task_complete).
 // The work is written in the message, one directive per line (as fake-cli.js): WRITE · WRITE_OUT · READ · SLEEP · SKILLNOTE · MEMORY ·
 // FAIL. Each message it takes is logged to $FAKE_CLI_LOG ({kind, session, received}) and each chunk typed outside a paste ({typed}).
+// For the 「대화」 view and what the CLI asks (measured with the real 2.1.331 — desktop/src/runner/prompts.js), Claude Code also:
+//   THINK :: <text>                 a thinking block          SAY :: <markdown>  its words (\n for a new line)
+//   EDIT <file> :: <old> => <new>    an Edit in the output folder, with its structured patch
+//   BASH <command> :: <output>       a Bash call and its output
+//   SKILL <name>                     the Skill tool
+//   ASK <command>                    a Bash call that needs the person's permission: PermissionRequest hook, the dialog
+//                                    (1. Yes · 2. Yes, and don't ask again · 3. … auto mode · 4. No · Esc to cancel); '1' / '2' run it,
+//                                    Esc refuses it — the tool use is rejected and the turn stops without its Stop hook ({answered})
+//   CHOOSE <q> :: <a> | <b> [;; <q2> :: <c> | <d>]   AskUserQuestion: the menu; a number picks the option of each question in turn
+//                                    (several: then their review, Enter submits) and the answers go into 선택.md in the output folder
 const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
@@ -76,18 +86,30 @@ if (kind === 'claude') {
 // (a resumed session finds where its step's output goes in what it was told before)
 if (fs.existsSync(txFile)) { const m = /「([^」\n]+?)\/」/.exec(fs.readFileSync(txFile, 'utf8')); if (m) outDir = m[1] }
 
-function tool(name, input) {
+function tool(name, input, { fields = null, result = 'ok', use = null, isError = false } = {}) {
   screen(`\x1b[36m⏺\x1b[0m ${name}(${input})\n`)
   if (kind === 'claude') {
     const id = `toolu_${crypto.randomBytes(4).toString('hex')}`
-    record({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input: { file_path: input } }] } })
-    record({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } })
-  } else record({ type: 'response_item', payload: { type: 'function_call', name, arguments: JSON.stringify({ command: `${name} ${input}` }) } })
+    record({ type: 'assistant', uuid: crypto.randomUUID(), message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input: fields || { file_path: path.resolve(cwd, input) } }] } })
+    record({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: result, ...(isError ? { is_error: true } : {}) }] }, ...(use ? { toolUseResult: use } : {}) })
+  } else {
+    const call = `call_${crypto.randomBytes(4).toString('hex')}`
+    record({ type: 'response_item', payload: { type: 'function_call', name, call_id: call, arguments: JSON.stringify({ command: `${name} ${input}` }) } })
+    record({ type: 'response_item', payload: { type: 'function_call_output', call_id: call, output: JSON.stringify({ output: String(result), metadata: { exit_code: 0 } }) } })
+  }
 }
+// a dialog of the CLI (a permission, a choice): the next keys are its own; → the key that closed it
+let dialog = null
+const ask = () => new Promise((resolve) => { dialog = resolve })
 function say(text) {
   screen(`\x1b[37m⏺\x1b[0m ${text}\n`)
-  if (kind === 'claude') record({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })
+  if (kind === 'claude') record({ type: 'assistant', uuid: crypto.randomUUID(), message: { role: 'assistant', content: [{ type: 'text', text }] } })
   else record({ type: 'event_msg', payload: { type: 'agent_message', message: text } })
+}
+function think(text) {
+  screen('\x1b[90m✻ Thinking…\x1b[0m\n')
+  if (kind === 'claude') record({ type: 'assistant', uuid: crypto.randomUUID(), message: { role: 'assistant', content: [{ type: 'thinking', thinking: text, signature: 'x' }] } })
+  else record({ type: 'event_msg', payload: { type: 'agent_reasoning', text } })
 }
 function took(text) {
   log({ session, received: text.slice(0, 600) })
@@ -132,7 +154,7 @@ async function work(text) {
       try { t = fs.readFileSync(inside(d[1]), 'utf8').trim() } catch { t = '(없음)' }
       summary.push(`${d[1]}: ${t}`)
     } else if ((d = /^SLEEP (\d+)$/.exec(line))) {
-      tool('Bash', `sleep ${Number(d[1]) / 1000}`)
+      tool('Bash', `sleep ${Number(d[1]) / 1000}`, { fields: { command: `sleep ${Number(d[1]) / 1000}` } })
       screen('\x1b[33m✻ Working…\x1b[0m\n')
       await sleep(Number(d[1]))
     } else if ((d = /^SKILLNOTE (.+?) :: (.*)$/.exec(line))) {
@@ -144,6 +166,76 @@ async function work(text) {
       const f = kind === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'
       tool('Write', f)
       fs.appendFileSync(inside(f), `\n- ${d[1]}\n`)
+    } else if ((d = /^THINK :: (.*)$/.exec(line))) {
+      think(d[1])
+    } else if ((d = /^SAY :: (.*)$/.exec(line))) {
+      say(d[1].replace(/\\n/g, '\n'))
+      summary.push(d[1].slice(0, 40))
+    } else if ((d = /^EDIT (.+?) :: (.*?) => (.*)$/.exec(line))) {
+      const rel = path.join(outDir || '.', d[1])
+      const before = fs.existsSync(inside(rel)) ? fs.readFileSync(inside(rel), 'utf8') : ''
+      const after = before.includes(d[2]) ? before.replace(d[2], d[3]) : `${before}${d[3]}\n`
+      fs.mkdirSync(path.dirname(inside(rel)), { recursive: true })
+      fs.writeFileSync(inside(rel), after)
+      // (its structured patch as Claude Code writes it: context, the old line, the new line)
+      const ls = before.split('\n')
+      const at = Math.max(0, ls.findIndex((l) => l.includes(d[2])))
+      const lines = [...(at > 0 ? [` ${ls[at - 1]}`] : []), `-${ls[at] ?? ''}`, `+${(ls[at] ?? '').replace(d[2], d[3])}`]
+      tool('Edit', rel, { fields: { file_path: inside(rel), old_string: d[2], new_string: d[3], replace_all: false },
+        result: `The file ${inside(rel)} has been updated successfully.`, use: { filePath: inside(rel), oldString: d[2], newString: d[3], originalFile: before,
+          structuredPatch: [{ oldStart: Math.max(1, at), oldLines: at > 0 ? 2 : 1, newStart: Math.max(1, at), newLines: at > 0 ? 2 : 1, lines }], userModified: false, replaceAll: false } })
+      summary.push(`${rel} 을 고쳤어요`)
+    } else if ((d = /^BASH (.+?) :: (.*)$/.exec(line))) {
+      tool('Bash', d[1], { fields: { command: d[1] }, result: d[2], use: { stdout: d[2], stderr: '', interrupted: false, isImage: false } })
+    } else if ((d = /^SKILL (.+)$/.exec(line))) {
+      tool('Skill', d[1], { fields: { skill: d[1] }, result: `Launching skill: ${d[1]}` })
+    } else if ((d = /^ASK (.+)$/.exec(line))) {
+      // a Bash call that needs permission (as 2.1.331 shows it)
+      const id = `toolu_${crypto.randomBytes(4).toString('hex')}`
+      const input = { command: d[1], description: '허락이 필요한 명령' }
+      screen(`\x1b[36m⏺\x1b[0m Bash(${d[1]})\n  ⎿  Waiting…\n`)
+      record({ type: 'assistant', uuid: crypto.randomUUID(), message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input }] } })
+      fire('PermissionRequest', { tool_name: 'Bash', tool_input: input, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: d[1] }], behavior: 'allow', destination: 'localSettings' }] })
+      screen(` Bash command\n ${d[1]}\n Do you want to proceed?\n ❯ 1. Yes\n   2. Yes, and don't ask again for: ${d[1].split(' ')[0]} *\n   3. Yes, and switch to auto mode\n   4. No\n Esc to cancel · Tab to amend\n`)
+      const key = await ask()
+      log({ session, answered: key === '\x1b' ? 'esc' : key })
+      if (key === '1' || key === '2') {
+        record({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: `(ran) ${d[1]}` }] }, toolUseResult: { stdout: `(ran) ${d[1]}`, stderr: '', interrupted: false, isImage: false } })
+        screen(`  ⎿  (ran) ${d[1]}\n`)
+        summary.push(`${d[1]} 실행함`)
+      } else {
+        record({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: "The user doesn't want to proceed with this tool use.", is_error: true }] }, toolUseResult: 'User rejected tool use' })
+        record({ type: 'user', uuid: crypto.randomUUID(), rowSource: 'harness', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] } })
+        screen('  ⎿  Interrupted · What should Claude do instead?\n')
+        throw Object.assign(new Error('interrupted'), { interrupted: true })
+      }
+    } else if ((d = /^CHOOSE (.+)$/.exec(line))) {
+      const qs = d[1].split(' ;; ').map((part) => { const [q, opts] = part.split(' :: '); return { question: q.trim(), header: '선택', options: String(opts || '').split('|').map((o) => ({ label: o.trim(), description: `${o.trim()} 쪽으로 해요` })), multiSelect: false } })
+      const id = `toolu_${crypto.randomBytes(4).toString('hex')}`
+      record({ type: 'assistant', uuid: crypto.randomUUID(), message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'AskUserQuestion', input: { questions: qs } }] } })
+      fire('PermissionRequest', { tool_name: 'AskUserQuestion', tool_input: { questions: qs } })
+      const answers = {}
+      for (const q of qs) {
+        screen(` ☐ ${q.header}\n${q.question}\n${q.options.map((o, i) => `${i ? '  ' : '❯ '}${i + 1}. ${o.label}`).join('\n')}\n  ${q.options.length + 1}. Type something.\nEnter to select · ↑/↓ to navigate · Esc to cancel\n`)
+        const key = await ask()
+        log({ session, answered: key === '\x1b' ? 'esc' : key })
+        const o = q.options[Number(key) - 1]
+        if (!o) throw Object.assign(new Error('interrupted'), { interrupted: true })
+        answers[q.question] = o.label
+      }
+      // (several questions: their review — Enter or 1 submits, as 2.1.331)
+      if (qs.length > 1) {
+        screen(`←  ${qs.map((q) => `☒ ${q.header}`).join('  ')}  ✔ Submit  →\nReview your answers\n${Object.entries(answers).map(([q, a]) => ` ● ${q}\n   → ${a}`).join('\n')}\n❯ 1. Submit answers\n  2. Cancel\n`)
+        const key = await ask()
+        log({ session, answered: key === '\r' ? 'enter' : key === '\x1b' ? 'esc' : key })
+        if (key !== '\r' && key !== '1') throw Object.assign(new Error('interrupted'), { interrupted: true })
+      }
+      record({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: `Your questions have been answered: ${Object.entries(answers).map(([q, a]) => `"${q}"="${a}"`).join(', ')}` }] }, toolUseResult: { questions: qs, answers } })
+      screen(`⏺ Answered Claude's questions:\n${Object.entries(answers).map(([q, a]) => `  ⎿  · ${q} → ${a}`).join('\n')}\n`)
+      const rel = path.join(outDir || '.', '선택.md')
+      fs.mkdirSync(path.dirname(inside(rel)), { recursive: true })
+      fs.writeFileSync(inside(rel), `${Object.values(answers).join('\n')}\n`)
+      summary.push(`고른 것: ${Object.values(answers).join(', ')}`)
     } else if ((d = /^FAIL (.*)$/.exec(line))) {
       throw Object.assign(new Error(d[1]), { fail: true })
     } else continue
@@ -165,9 +257,12 @@ async function turn(text) {
     if (kind === 'claude') fire('Stop', { stop_hook_active: false, last_assistant_message: said })
     else record({ type: 'event_msg', payload: { type: 'task_complete', last_agent_message: said } })
   } catch (e) {
-    screen(`\x1b[31m${e.message}\x1b[0m\n`)
-    if (kind === 'claude') fire('StopFailure', { error: e.message })
-    else record({ type: 'event_msg', payload: { type: 'error', message: e.message } })
+    // (refused at a dialog: the turn stops — no Stop hook, the CLI waits for its person)
+    if (e.interrupted) { waiting.length = 0 } else {
+      screen(`\x1b[31m${e.message}\x1b[0m\n`)
+      if (kind === 'claude') fire('StopFailure', { error: e.message })
+      else record({ type: 'event_msg', payload: { type: 'error', message: e.message } })
+    }
   }
   busy = false
   screen('\x1b[1m❯\x1b[0m ')
@@ -194,6 +289,8 @@ function feed(chunk) {
       paste += s.slice(0, end); line += paste; screen(paste.length > 80 ? `[붙여 넣은 글 ${paste.split('\n').length}줄]` : paste); paste = null; s = s.slice(end + 6); continue
     }
     if (s.startsWith('\x1b[200~')) { paste = ''; s = s.slice(6); continue }
+    // (a dialog takes the next key: a number, or Esc on its own)
+    if (dialog && (s[0] === '\x1b' ? !/^\x1b\[/.test(s) : /[0-9\r]/.test(s[0]))) { const f = dialog; dialog = null; f(s[0]); s = s.slice(1); continue }
     if (s[0] === '\x1b') { const m = /^\x1b\[[0-9;?]*[A-Za-z~]/.exec(s); s = s.slice(m ? m[0].length : 1); continue }
     const c = s[0]; s = s.slice(1)
     if (c === '\r' || c === '\n') {
@@ -232,6 +329,12 @@ async function main() {
     const pos = args.filter((a, i) => !a.startsWith('-') && !flags.has(args[i - 1]) && !(args[0] === 'resume' && i <= 1))
     if (pos.length) setTimeout(() => submit(pos[pos.length - 1]), 100)
   }
-  process.on('SIGHUP', () => process.exit(0))
+  // closed (the runner ends the step): as the real one, it clears its screen and leaves a line on how to go on in this session
+  const bye = () => {
+    screen(`\x1b[2J\x1b[H${kind === 'claude' ? `Resume this session with:\nclaude --resume ${session}` : `To continue this session, run codex resume ${session}`}\n`)
+    setTimeout(() => process.exit(0), 30)
+  }
+  process.on('SIGHUP', bye)
+  process.on('SIGTERM', bye)
 }
 main().catch((e) => { process.stderr.write(`${e.stack}\n`); process.exit(2) })

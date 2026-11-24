@@ -9,13 +9,13 @@ Lite 서버 하나를 창 하나로 여는 데스크톱 앱입니다. Lite 자�
 
 ## 설치
 
-내려받기는 세 가지입니다(버전 `0.2.0` 기준).
+내려받기는 세 가지입니다(버전 `0.2.1` 기준).
 
 | 컴퓨터 | 파일 |
 |---|---|
-| Mac (Apple Silicon: M1 이후) | `Process-GPT-Lite-0.2.0-mac-arm64.dmg` (또는 `.zip`) |
-| Mac (Intel) | `Process-GPT-Lite-0.2.0-mac-x64.dmg` (또는 `.zip`) |
-| Windows 10 · 11 (64비트) | `Process-GPT-Lite-0.2.0-win-x64-setup.exe` |
+| Mac (Apple Silicon: M1 이후) | `Process-GPT-Lite-0.2.1-mac-arm64.dmg` (또는 `.zip`) |
+| Mac (Intel) | `Process-GPT-Lite-0.2.1-mac-x64.dmg` (또는 `.zip`) |
+| Windows 10 · 11 (64비트) | `Process-GPT-Lite-0.2.1-win-x64-setup.exe` |
 
 Mac 이 어느 쪽인지는 화면 왼쪽 위 Apple(사과) 메뉴 › 이 Mac에 관하여의 「칩」(Apple M…이면 Apple Silicon) 또는 「프로세서」(Intel)에서 봅니다.
 

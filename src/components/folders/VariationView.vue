@@ -308,4 +308,32 @@ h1 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.02em; disp
 .empty { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--text-tertiary); font-size: 14px; }
 .dark-btn { background: var(--ink); color: var(--ink-inverse); }
 .toast { position: fixed; left: 50%; bottom: 28px; translate: -50% 0; padding: 12px 18px; border-radius: 14px; background: #1d1d1f; color: #f5f5f7; font-size: 14px; z-index: 50; max-width: 90vw; }
+/* phone (390px — 2026-11-24 녹화: the title stacked a letter per line and the file list was out of sight): the page scrolls as one
+   column — the title on its own lines, the actions under it, the changed files, then the difference, which scrolls inside itself */
+@media (max-width: 760px) {
+  .vv { display: block; overflow-y: auto; overflow-x: hidden; padding: 0 12px 20px; -webkit-overflow-scrolling: touch; }
+  .head { flex-wrap: wrap; gap: 8px; }
+  .back { width: 36px; height: 36px; margin-top: 2px; }
+  .ttl { flex: 1 1 calc(100% - 48px); }
+  h1 { font-size: 19px; flex-wrap: wrap; gap: 6px; }
+  .tt { white-space: normal; overflow-wrap: anywhere; word-break: keep-all; }
+  .meta { gap: 6px; }
+  .meta code { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .head > .sp { display: none; }
+  .hbtn { height: 36px; font-size: 13.5px; padding: 0 12px; margin-top: 0; }
+  .ib { width: 36px; height: 36px; margin-top: 0; }
+  .rh { gap: 6px 10px; }
+  .vr { grid-template-columns: 1fr; gap: 2px; }
+  .cols { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .side, .diff { border-radius: 18px; }
+  .cl { max-height: 42vh; }
+  .cm { max-height: 30vh; }
+  .diff { min-height: 320px; }
+  .dh { height: auto; min-height: 48px; flex-wrap: wrap; gap: 6px 8px; padding: 8px 10px 8px 12px; }
+  .dp { flex: 1 1 calc(100% - 40px); }
+  .dh > .sp { display: none; }
+  .ud { max-height: 60vh; }
+  .two { grid-template-columns: 1fr; }
+  .thumb { height: 180px; }
+}
 </style>

@@ -471,7 +471,7 @@ ipcMain.handle('pgl:runner:forget', (e, v) => {
 })
 ipcMain.handle('pgl:runner:prefs', (e, v) => {
   if (!fromServerPage(e)) return null
-  settings.set({ runnerPrefs: { enabled: v?.enabled !== false, ask: v?.ask === true } })
+  settings.set({ runnerPrefs: { enabled: v?.enabled !== false, ask: v?.ask === true, finishMinutes: settings.finishMinutesOf(v?.finishMinutes) } })
   runner?.prefsChanged()
   sendRunnerState()
   return settings.runnerPrefs()

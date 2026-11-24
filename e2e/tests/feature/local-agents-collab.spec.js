@@ -62,8 +62,10 @@ test('C-01 서하린이 휴대폰에서 제안 → 윤태호의 입력란에 쌓
   const onPhone = card(phone, job1.id)
   const onDesk = card(desk, job1.id)
   // 서하린 sees 윤태호's run live: who, where, the step — and his CLI's terminal itself (the company skill it got, its tool lines growing,
-  // no reload); hers is read only (no cursor, no keys), his takes his typing
+  // no reload); hers is read only (no cursor, no keys), his takes his typing. (Her phone opens the run on 「대화」 — local-agents-view.spec.js;
+  // here she turns to 「터미널」.)
   await expect(onPhone.locator('[data-test=local-run-who]')).toContainText('윤태호 · 윤태호의 맥', { timeout: 20000 })
+  await onPhone.locator('[data-test=local-run-view][data-view=term]').click()
   const termPhone = onPhone.locator('[data-test=local-run-terminal]')
   const termDesk = onDesk.locator('[data-test=local-run-terminal]')
   await expect(termPhone.locator('.xterm-rows')).toContainText('보이는 스킬: 견적-규칙', { timeout: 20000 })

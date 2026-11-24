@@ -767,6 +767,26 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 정의가 있는 인스턴스(클래식 · 스냅샷)는 그대로: 목록부터(목록만), 정의의 BPMN, 병목 링크, 건의 흐름도를 묻지 않음 | — | F-CV-05 | feature | ✅ |
 | 실제 지도 저장소로 그린 흐름도 · 낸 뒤 다음 단계 | — | F-PO-18(고쳐 둠 — ax-demo 시드 · 지도 저장소가 있어야 돎) | feature | ◐ |
 
+### 34. 로컬 에이전트 실행을 「대화」와 「터미널」 두 보기로 — Lite 의 모양으로 보는 같은 세션, CLI 가 묻는 것, 턴 뒤 기다리기 · 끝내기 (스펙 `local-agents`, 설계 `docs/local-agents/design.md` 5.11 · 6.2)
+
+`local-agents-view.spec.js` 는 30절의 파일들처럼 자기 스택(BFF `PRO_BACKGROUND=0` + Vite, 회사 `localagent-view`, 8889 · 5289 부터 빈 포트, 끝난 터미널을 4초 뒤 메모리에서 빼는 `PRO_LOCAL_TERM_KEEP_MS=4000`)을 띄우고 지운다. 윤태호의 PC 는 데스크톱 앱의 runner 그대로이고 CLI 는 가짜(`desktop/test/fixtures/fake-tui.js` — 실제 Claude Code 2.1.331 처럼 세션 jsonl 을 쓰고 `PermissionRequest` 훅을 부르며, `THINK` · `SAY` · `EDIT` · `BASH` · `SKILL` · `ASK` · `CHOOSE` 를 한다). 모델은 부르지 않는다. 물음의 키는 이 맥의 실제 Claude Code 로 따로 쟀다(`openspec/specs/local-agents/e2e/results/smoke.md` 끝). 명령은 `openspec/specs/local-agents/e2e/README.md`.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 실행 카드에 「대화」 · 「터미널」: 데스크톱의 작업자는 「터미널」, 휴대폰(390px) · 다른 사람은 「대화」로 열리고, 고른 보기는 그 브라우저에 남음 | 사용자 11-24 | F-LV-01 · 02 | feature | ✅ |
+| 「대화」는 CLI 의 기록(Claude jsonl · Codex rollout)에서: 단계 프롬프트(접힘) · 생각(접힘) · 「스킬 사용 · 견적-규칙」 · 「만듦 · 견적서.md」 · 「고침 · 견적서.md」 · 「명령 실행 · …」 · 「작업 중…」, 새로 고침 없이 늘어남 | 사용자 11-24 | F-LV-03 · `desktop/test/conversation.test.js` | feature · 단위 | ✅ |
+| 「고침」을 펼치면 차이가 그 상자 안에서(390px 화면은 넘치지 않음), 「명령 실행」은 명령과 출력 | 사용자 11-24 | F-LV-04 | feature | ✅ |
+| 입력에 누구의 말인지 — 「서하린 제안 · 윤태호 입력」(두 사람의 대화에) | 사용자 11-24 | F-LV-05 · `conversation.test.js` | feature · 단위 | ✅ |
+| CLI 의 물음(권한 · 고르기): 작업자만 누름 → PTY 에 `1` · `2` · `Esc` · 항목 번호, 다른 사람은 「윤태호님의 답을 기다려요」 · 답 403, 닫힌 물음 409 | 사용자 11-24 | F-LV-06 · `conversation.test.js` · `localAgents.test.js` · 실측 2.1.331(`results/smoke.md`) | feature · 단위 · 손 | ✅ |
+| 턴이 끝나면 기다림: 작업자에게 「끝내기」 · 「N분 동안 새 입력이 없으면 저절로 끝나요」, 다른 사람에게 「윤태호님이 끝내기를 기다려요」, 제안이 기다림을 다시 시작, 「끝내기」는 작업자만(403), 기본 5분 · 데스크톱 설정 | 사용자 11-24(협업) · 영상 녹화 | F-LV-07 · `conversation.test.js`(settle 규칙) | feature · 단위 | ✅ |
+| 끝난 실행: 터미널은 마지막 턴의 화면(CLI 가 닫히며 지운 화면이 아님), 대화는 일에 남은 기록에서(서버 메모리에서 빠진 뒤에도) | 영상 녹화 | F-LV-08 · `localAgents.test.js` | feature · 단위 | ✅ |
+| 터미널은 Lite 의 색: 밝은 rgb(251,251,253) · 어두운 rgb(29,29,31) 바탕, 16색 4.5:1 이상, 테마를 바꾸면 그 자리에서, 390px | 사용자 11-24 | F-LV-09 · `server/test/localTermTheme.test.js` | feature · 단위 | ✅ |
+| 휴대폰(390px)의 폴더 변경안: 제목이 한 줄, 단추 · 바뀐 파일 목록 · 차이가 차례로, 넘치지 않음 — 폴더 · 폴더 목록도 | 영상 녹화 | F-LV-10 | feature | ✅ |
+| 카드가 보이자마자 「터미널에 연결하는 중…」, 터미널이 열리면 곧바로(서버가 보는 사람을 붙잡아 둠) | 영상 녹화 | F-LV-01 · `localAgents.test.js`(일찍 붙기) | feature · 단위 | ✅ |
+| Home 알림 · 실행 카드의 이름 조사(「윤태호가 고쳐서 입력했어요」 · 「Claude Code가 「견적서 작성」을 끝냈어요」 · 「Claude Code로」) | 영상 녹화 | `server/test/josa.test.js` · F-LV-09(카드 글) | 단위 · feature | ✅ |
+| 여러 물음을 한 번에 묻는 고르기: 물음마다 번호, 끝에 Enter(실측 2.1.331) | 사용자 11-24 | `conversation.test.js` 「고르기 물음 …」 · 실측 `results/smoke.md` | 단위 · 손 | ✅ |
+| Codex 의 승인 창을 카드로 | — | — (Codex 의 기록 · 훅에 남지 않음 — 터미널에서 답함) | — | ◐ |
+
 ### 35. 오늘의 배경 사진 — 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 (스펙 `daily-background`)
 
 서버는 가짜 Commons 에 묻도록 `PRO_BG_COMMONS_API=http://127.0.0.1:59971/w/api.php`로 띄운다(시험에서만 쓰고, 게이트웨이 뒤에서는 무시된다). 가짜 Commons(`127.0.0.1:59971`, `RT_BG_SITE_PORT`)는 시험 파일이 띄우고, 지어낸 SVG 풍경 열한 장을 답한다. 공용 인터넷에는 나가지 않는다. 사이트 포트가 이 파일의 것이고 F-BG-05 가 회사(`localhost`)의 스위치를 잠깐 끄므로 한 워커로 돈다(`serial`). F-BG-03 은 Playwright 의 가짜 시계로 다음 날 아침을 연다. 시험은 Playwright 자신의 Chromium 으로 돈다. 명령은 `openspec/specs/daily-background/e2e/README.md`에 있다.

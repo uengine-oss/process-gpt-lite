@@ -23,13 +23,14 @@ const portFree = (p) => { try { execFileSync('lsof', ['-nP', `-iTCP:${p}`, '-sTC
 export const freePort = (from, n = 30) => Array.from({ length: n }, (_, i) => from + i).find((p) => !AVOID.has(p) && portFree(p))
 export const waitFor = async (fn, ms = 40000, what = '') => { const t = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t > ms) throw new Error(`timed out: ${what}`); await new Promise((r) => setTimeout(r, 250)) } }
 
-export async function startStack({ tenant, apiFrom = 8831, webFrom = 5231 } = {}) {
+// env: more for the BFF (e.g. PRO_LOCAL_TERM_KEEP_MS — how long an ended terminal stays in memory)
+export async function startStack({ tenant, apiFrom = 8831, webFrom = 5231, env: extra = {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `pgl-${tenant}-`))
   const apiPort = freePort(apiFrom)
   const webPort = freePort(webFrom)
   const logs = []
   const env = { ...process.env, PRO_PORT: String(apiPort), PRO_BACKGROUND: '0', PRO_ONTOLOGY_WORKER: '0', PRO_SCENARIOS: 'off', PRO_TENANT_ID: tenant, PRO_TENANT_HOSTS: '',
-    PRO_FOLDERS_ROOT: path.join(root, 'folders'), PRO_LOCAL_AGENT_TICK_MS: '500', PRO_LLM_BASE_URL: 'http://127.0.0.1:9/v1', PRO_PUBLIC_URL: `http://127.0.0.1:${webPort}` }
+    PRO_FOLDERS_ROOT: path.join(root, 'folders'), PRO_LOCAL_AGENT_TICK_MS: '500', PRO_LLM_BASE_URL: 'http://127.0.0.1:9/v1', PRO_PUBLIC_URL: `http://127.0.0.1:${webPort}`, ...extra }
   const bff = spawn(process.execPath, ['index.js'], { cwd: SERVER, env, stdio: ['ignore', 'pipe', 'pipe'] })
   for (const s of [bff.stdout, bff.stderr]) s.on('data', (d) => logs.push(`[bff] ${d}`))
   const vite = spawn(process.execPath, [path.join(REPO, 'node_modules/vite/bin/vite.js'), '--port', String(webPort), '--strictPort', '--host', '127.0.0.1'],
@@ -94,12 +95,13 @@ export async function startStack({ tenant, apiFrom = 8831, webFrom = 5231 } = {}
     jobOf: async (todo) => (await q('select * from pro_local_jobs where todo_id=$1', [todo]))[0],
     settled: (todo, ms = 60000) => waitFor(async () => { const j = (await q('select * from pro_local_jobs where todo_id=$1', [todo]))[0]; return j && ['done', 'failed', 'delegated'].includes(j.state) ? j : null }, ms, `job of ${todo}`),
     // a person's PC: the desktop app's own runner (the fake CLIs first on its path), paired with a device token of theirs
-    async pc(who, { name, log = [] } = {}) {
+    // settleMs: how long a run waits after its CLI's turn for the people on the instance (the app's default is 5 minutes)
+    async pc(who, { name, log = [], settleMs = 800 } = {}) {
       const dev = await api(who.token, '/local-agents/devices', { method: 'POST', body: { name, platform: 'darwin', appVersion: 'e2e' } })
       Object.assign(process.env, fakeEnv)
       const { createLocalRunner } = desktopRequire('./src/runner/index.js')
       const r = createLocalRunner({ server: `http://127.0.0.1:${apiPort}`, token: dev.token, dataDir: path.join(root, `pc-${who.id.slice(0, 8)}`), device: { name },
-        prefs: () => ({ enabled: true, ask: false }), searchPath: `${bin}${path.delimiter}/usr/bin${path.delimiter}/bin`, log: (s) => log.push(s), sessionEnv: cliEnv, settleMs: 800 })
+        prefs: () => ({ enabled: true, ask: false }), searchPath: `${bin}${path.delimiter}/usr/bin${path.delimiter}/bin`, log: (s) => log.push(s), sessionEnv: cliEnv, settleMs })
       await r.start()
       await waitFor(() => r.status().connected, 15000, `${name} linked`)
       r.log = log
