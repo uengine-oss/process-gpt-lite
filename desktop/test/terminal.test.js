@@ -20,12 +20,15 @@ const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { Runner } = require('../src/runner/runner')
 const P = require('../src/runner/pty')
+const { claudeKey } = require('../src/runner/session')
 const { gitServer, makeRepo } = require('./helpers/gitServer')
-const { fakeBin } = require('./helpers/fakeBin')
+const { fakeBin, systemPath } = require('./helpers/fakeBin')
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-term-'))
+// (Windows: a process just stopped may hold a file in it for a moment)
+const rmQuiet = (d) => { try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch (e) { console.warn(`left ${d}: ${e.code}`) } }
 const BIN = fakeBin(path.join(ROOT, 'bin'))
-const SEARCH = [BIN, '/usr/bin', '/bin'].join(path.delimiter)
+const SEARCH = [BIN, ...systemPath()].join(path.delimiter)
 process.env.FAKE_CLI_LOG = path.join(ROOT, 'fake.log')
 const ENV = { CLAUDE_CONFIG_DIR: path.join(ROOT, 'claude'), CODEX_HOME: path.join(ROOT, 'codex') }
 fs.mkdirSync(ENV.CLAUDE_CONFIG_DIR, { recursive: true })
@@ -41,7 +44,7 @@ test.before(async () => {
   origin.git('checkout', '-q', 'main')
   srv = await gitServer({ repo: origin.dir, token: TOKEN })
 })
-test.after(async () => { await srv?.close(); fs.rmSync(ROOT, { recursive: true, force: true }) })
+test.after(async () => { await srv?.close(); rmQuiet(ROOT) })
 
 const sent = []
 // the server's side of the link: recorded; an accept is confirmed (the server's 'accepted')
@@ -50,6 +53,8 @@ const waitFor = async (fn, ms = 20000) => { const t = Date.now(); for (;;) { con
 const of = (id, type) => sent.filter((m) => m.jobId === id && (!type || m.type === type))
 const sidOf = (jobId) => sent.find((m) => m.type === 'term-open' && m.ref === jobId)?.sid
 const bytesOf = (sid) => sent.filter((m) => m.type === 'pty' && m.sid === sid).map((m) => m.data).join('')
+// the text those bytes show (Windows' ConPTY redraws what the CLI wrote: a run of spaces can come as a cursor move)
+const screenOf = (bytes) => bytes.replace(/\x1b\[(\d*)C/g, (_, n) => ' '.repeat(Number(n || 1))).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
 const fakeLog = () => fs.readFileSync(process.env.FAKE_CLI_LOG, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
 const dataDir = path.join(ROOT, 'data')
 function runner(opts = {}) {
@@ -92,8 +97,8 @@ test('Claude Code 터미널: 준비되면 프롬프트를 붙여 넣고, Stop �
   assert.equal(open.kind, 'step')
   assert.equal(of(j.id, 'session')[0].sessionId, open.cli)
   const bytes = bytesOf(sid)
-  assert.match(bytes, /Claude Code \(fake\)/)
-  assert.match(bytes, /Write\(산출물\/01_견적서\/견적서\.md\)/)
+  assert.match(screenOf(bytes), /Claude Code \(fake\)/)
+  assert.match(screenOf(bytes), /Write\(산출물\/01_견적서\/견적서\.md\)/)
   assert.ok(bytes.includes('\x1b[?2004h'), 'the raw bytes, escapes and all')
   const hooks = sent.filter((m) => m.type === 'hook' && m.sid === sid).map((m) => m.event)
   assert.ok(hooks.includes('SessionStart') && hooks.includes('UserPromptSubmit') && hooks.includes('Stop'), hooks.join(','))
@@ -103,7 +108,14 @@ test('Claude Code 터미널: 준비되면 프롬프트를 붙여 넣고, Stop �
   assert.ok(log.find((x) => x.received)?.received.startsWith('「산출물/01_견적서/」'))
   assert.ok(!log.some((x) => x.trustAsked), 'no trust question: the runner marked its folder trusted')
   const conf = JSON.parse(fs.readFileSync(path.join(ENV.CLAUDE_CONFIG_DIR, '.claude.json'), 'utf8'))
-  assert.equal(conf.projects[fs.realpathSync(r.dirFor(j))].hasTrustDialogAccepted, true)
+  assert.equal(conf.projects[claudeKey(fs.realpathSync(r.dirFor(j)))].hasTrustDialogAccepted, true)
+  // the hooks: Claude Code's exec form — a program and its arguments, no shell command line (the same on macOS and Windows)
+  const settings = JSON.parse(fs.readFileSync(log[0].args[log[0].args.indexOf('--settings') + 1], 'utf8'))
+  for (const ev of ['SessionStart', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification']) {
+    const h = settings.hooks[ev][0].hooks[0]
+    assert.ok(path.isAbsolute(h.command) && Array.isArray(h.args) && h.args.includes(ev), JSON.stringify(h))
+  }
+  assert.ok(!fakeLog().some((x) => x.hookError), JSON.stringify(fakeLog().filter((x) => x.hookError)))
   // the person's settings stay (no --setting-sources), our hooks come in a session settings file, edits go without asking
   assert.ok(log[0].args.includes('--settings') && log[0].args.includes('--session-id') && !log[0].args.includes('--setting-sources') && !log[0].args.includes('-p'))
   // no token anywhere a CLI or a log sees
@@ -188,7 +200,7 @@ test('Codex 터미널: 첫 메시지는 명령줄로(프롬프트 파일을 가�
   assert.ok(first.args.some((a) => a.endsWith('trust_level="trusted"')))
   assert.ok(!first.args.some((a) => a.includes('WRITE_OUT')))
   assert.ok(!fakeLog().some((x) => x.session === thread && x.trustAsked))
-  assert.match(bytesOf(sid), /OpenAI Codex \(fake\)/)
+  assert.match(screenOf(bytesOf(sid)), /OpenAI Codex \(fake\)/)
   await r.handle({ type: 'finished', jobId: j.id, state: 'done' })
 })
 
