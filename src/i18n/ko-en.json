@@ -2834,7 +2834,14 @@
   "편집기를 열지 못했어요.": "Couldn't open the editor.",
   "열어 보기": "View",
   "편집본 · 눌러서 크게 보기": "Edited copy · click to view larger",
-  "편집본 · 눌러서 열기": "Edited copy · click to open"
+  "편집본 · 눌러서 열기": "Edited copy · click to open",
+  "다른 주제 ▾": "Other topics ▾",
+  "판단 모델이 이 프로젝트에서 나눈 주제": "Topics the routing model split this project into",
+  "이 주제의 산출물": "Outputs of this topic",
+  "이 주제에 이어서 묻기": "Continue this topic",
+  "이 프로젝트의 주제": "Topics of this project",
+  "주제": "Topic",
+  "새 주제": "New topic"
  },
  "patterns": [
   [
@@ -3680,6 +3687,14 @@
   [
    "대화 {0}개 · 맥락별로 보기",
    "{0} conversations · view by context"
+  ],
+  [
+   "주제 {0}개 · 주제별로 보기",
+   "{0} topics · view by topic"
+  ],
+  [
+   "이 주제의 메시지 {0}개 · 여기서 물으면 이 주제에 이어져요",
+   "{0} messages in this topic · ask here to continue it"
   ],
   [
    "{0} · {1}개",

@@ -36,6 +36,7 @@ import LocalRunCard from './LocalRunCard.vue'
 import MediaPreview from './MediaPreview.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
+import { topicPath } from '../projectTopics.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
 import { kindOf, kindLabel, cardKind, openArtifact, openHint, viewHint, mediaKindOf } from '../artifacts.js'
 import { parseReplies } from '../replies.js'
@@ -86,6 +87,12 @@ const ctx = computed(() => (c.value.context && c.value.context.action !== 'stay'
 const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinned: '대화에서 직접', trivial: '', none: '' }
 const ctxBy = computed(() => (ctx.value ? (ctx.value.rechecked ? '판단 모델 재확인→logprob' : ctx.value.escalated ? '판단 모델→logprob' : byName[ctx.value.strategy] ?? ctx.value.strategy) : ''))
 const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 대화로 시작' : '이 대화로 이어감'} · ${ctxBy.value} 확신도 ${ctx.value.confidence ?? '-'}` : ''))
+// the conversation the label names: one of the main chat's, or a sub-topic of the project the message is in (src/projectTopics.js)
+function openCtx() {
+  const id = ctx.value?.conversationId
+  if (!id) return
+  router.push(app.projects.some((p) => p.id === props.msg.thread_id) ? topicPath(props.msg.thread_id, id) : `/chat/c/${encodeURIComponent(id)}`)
+}
 
 // a picture, a sound or a video shows under its card (MediaPreview.vue): a thumbnail that opens the viewer, a player in place —
 // by the type it was stored with, else by its name (a site's download named only "download" is typed from its bytes: server
@@ -114,7 +121,7 @@ onMounted(async () => {
     <span v-if="msg.kind !== 'divider'" class="ts">{{ time }}</span>
 
     <!-- which context this answer belongs to, as the context-router decided (hark-style threads) -->
-    <div v-if="msg.role === 'agent' && ctx" role="link" tabindex="0" @click="ctx.conversationId && router.push(`/chat/c/${encodeURIComponent(ctx.conversationId)}`)" class="ctx" :class="ctx.action" :title="ctxWhy">
+    <div v-if="msg.role === 'agent' && ctx" role="link" tabindex="0" @click="openCtx" class="ctx" :class="ctx.action" :title="ctxWhy">
       <span class="arrow">↳</span><span class="tt">{{ ctx.action === 'new' ? '새 주제 · ' : '' }}{{ ctx.title }}</span>
       <small v-if="ctxBy" class="by" :class="ctx.escalated || ctx.rechecked ? 'escalated' : ctx.strategy">{{ ctxBy }} {{ ctx.confidence != null ? ctx.confidence.toFixed(2) : '' }}</small>
     </div>

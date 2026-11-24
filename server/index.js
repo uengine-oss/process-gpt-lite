@@ -34,6 +34,7 @@ import { threadFolderRoutes } from './routes/threadFolders.js'
 import { ssoInfo, refreshSso } from './lib/sso.js'
 import * as webpush from './lib/webpush.js'
 import * as TF from './lib/folders/threadFolders.js'
+import * as PT from './lib/projectTopics.js'
 import { panelAppRoutes } from './routes/panelApps.js'
 import { teamRoutes } from './routes/team.js'
 import { contextRoutes } from './routes/context.js'
@@ -601,6 +602,14 @@ app.get('/api/conversations', auth, async (req, res) => {
   const rows = await q(`select conversation_id as id, title, summary, gist, kind, turns, updated_at from context_threads
                     where tenant_id=$1 and user_id=$2 order by updated_at desc limit 200`, [config.tenantId, req.user.id]).catch(() => [])
   res.json(req.lang === 'en' ? rows.map((r) => ({ ...r, summary: enSummary(r.summary), title: r.title === '진행 중인 요청' ? 'Request in progress' : r.title })) : rows)
+})
+// A project's sub-topics (lib/projectTopics.js): the conversations the context router told apart inside it, newest first — kept apart
+// from the main chat's (above). routed: whether this server classifies a project's messages at all (no router: none ever appear).
+app.get('/api/threads/:id/topics', auth, async (req, res) => {
+  const t = await getThread(req.user.id, req.params.id)
+  if (!t || t.kind !== 'project') return res.status(404).end()
+  const rows = await PT.topicsOf(req.user.id, t.id).catch(() => [])
+  res.json({ routed: PT.enabled(), topics: req.lang === 'en' ? rows.map((r) => ({ ...r, summary: enSummary(r.summary) })) : rows })
 })
 
 // ---------- threads ----------

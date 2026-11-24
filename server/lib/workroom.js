@@ -15,6 +15,7 @@ import { workspaceHostPath } from './missions.js'
 import { folderRoom, folderRoomAccess } from './folders/rooms.js'
 import { L, isEn, withLang, ENGLISH_NOTE } from './lang.js'
 import { withTenant } from './tenant.js'
+import { scopePattern } from './projectTopics.js'
 
 // node-pty is a native module: a build without it still serves the workroom's files, and the page
 // says why there is no terminal (terminalStatus)
@@ -85,9 +86,10 @@ export async function takesPartInInstance(user, procInstId) {
 // a chat or run folder is the person's when it is one of their conversations
 // (context_threads.user_id is text, pro_threads.user_id uuid: one parameter for both needs the casts —
 // without them the union fails with "uuid = text" and the owner is refused)
+// (a sub-topic of one of their projects is kept under the project's key — lib/projectTopics.js)
 export async function ownsConversation(userId, id) {
-  const [hit] = await q(`select 1 from context_threads where user_id::text=$1 and conversation_id=$2
-                         union all select 1 from pro_threads where user_id::text=$1 and (id::text=$2 or conversation_id=$2) limit 1`, [String(userId), String(id)])
+  const [hit] = await q(`select 1 from context_threads where (user_id::text=$1 or user_id like $3) and conversation_id=$2
+                         union all select 1 from pro_threads where user_id::text=$1 and (id::text=$2 or conversation_id=$2) limit 1`, [String(userId), String(id), scopePattern(userId)])
   return !!hit
 }
 

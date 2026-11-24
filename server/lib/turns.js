@@ -51,13 +51,16 @@ export async function aheadInThread(t) {
 
 // Waits until no earlier turn is in flight on the same conversation. onQueued runs once, before the
 // first wait (the chat marks the message 대기). Returns whether the turn had to wait.
+// A serial turn (a project's — lib/agent.js delegate) also waits for every earlier agent turn of its thread, whatever its conversation:
+// a project's sub-topics are conversations of their own (lib/projectTopics.js), but its folder's variation is checked out where the
+// turn runs, one turn at a time — as when a project had one conversation
 export async function waitTurn(t, onQueued) {
   let waited = false
   for (;;) {
     const before = earlier(t)
     // an earlier turn of this thread that has not learned its conversation yet may be on this one
     const unsure = before.filter((x) => !x.conv && x.threadId === t.threadId)
-    const same = t.conv ? before.filter((x) => x.conv === t.conv) : []
+    const same = before.filter((x) => (t.conv && x.conv === t.conv) || (t.serial && x.threadId === t.threadId && x.conv && !x.conv.startsWith('none:')))
     if (!unsure.length && !same.length) { t.started = true; return waited }
     if (!waited) { waited = true; await onQueued?.() }
     if (t.abort.signal.aborted) { t.started = true; return waited }

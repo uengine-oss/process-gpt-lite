@@ -5,24 +5,26 @@
 // room beside the chat, its thin rail when folded, the Dock-style pile (components/ArtifactStack.vue) when it has not, nothing while a
 // document is open.
 
-// what the view is: the whole main chat, one conversation of it (/chat/c/:cid), a project's room — anything else has no files here
-export function artifactScope({ mode, activeId, mainId, convFilter, projectIds = [] }) {
+// what the view is: the whole main chat, one conversation of it (/chat/c/:cid), a project's room, one sub-topic of a project
+// (/projects/:id/t/:tid — src/projectTopics.js) — anything else has no files here
+export function artifactScope({ mode, activeId, mainId, convFilter, topicFilter = null, projectIds = [] }) {
   if (!activeId) return null
   if (mode === 'chat' && activeId === mainId) return convFilter ? 'conv' : 'chat'
-  if (mode === 'project' && projectIds.includes(activeId)) return 'project'
+  if (mode === 'project' && projectIds.includes(activeId)) return topicFilter ? 'topic' : 'project'
   return null
 }
 
 const at = (m) => { const t = new Date(m?.created_at).getTime(); return Number.isFinite(t) ? t : -Infinity }
 // The view's files, newest first: file messages with a name; in the main chat each knows its conversation (convOf: message id →
-// conversation id, titles: conversation id → title); one conversation's view keeps only its own.
+// conversation id, titles: conversation id → title); one conversation's view keeps only its own — and so does one sub-topic's view of
+// a project (convOf: message id → sub-topic, convFilter: the sub-topic)
 export function artifactItems({ scope, messages = [], convOf = {}, convFilter = null, titles = {} }) {
   if (!scope) return []
   const files = messages.map((m, i) => [m, i]).filter(([m]) => m?.kind === 'file' && m.content?.name)
   const out = []
   for (const [m, i] of files) {
     const conv = scope === 'project' ? null : convOf[m.id] || null
-    if (scope === 'conv' && conv !== convFilter) continue
+    if ((scope === 'conv' || scope === 'topic') && conv !== convFilter) continue
     out.push({ msg: m, conv, convTitle: conv ? titles[conv] || '' : '', i })
   }
   return out.sort((a, b) => at(b.msg) - at(a.msg) || b.i - a.i).map(({ i, ...x }) => x)
@@ -35,7 +37,7 @@ export function filterArtifacts(items, query) {
   return (items || []).filter((x) => { const h = `${x.msg?.content?.name || ''}\n${x.convTitle || ''}`.toLowerCase(); return words.every((w) => h.includes(w)) })
 }
 
-export const CAPTION = { chat: '채팅의 산출물', conv: '이 대화의 산출물', project: '이 프로젝트의 산출물' }
+export const CAPTION = { chat: '채팅의 산출물', conv: '이 대화의 산출물', project: '이 프로젝트의 산출물', topic: '이 주제의 산출물' }
 
 // The right column: 300px for the list, 64px folded to a rail. The chat column (512px) keeps 40px of air on each side — so beside
 // Home's column (420px) the list needs a page of 1312px, without it 892px (and the wide layout starts above 1000px). A page with
