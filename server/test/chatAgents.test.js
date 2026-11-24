@@ -13,6 +13,7 @@ import crypto from 'node:crypto'
 
 process.env.PRO_TENANT_ID = 'chatagent-test'
 process.env.PRO_LLM_BASE_URL = 'http://127.0.0.1:9/v1'
+process.env.PRO_DESKTOP_LATEST = '0.2.3'
 const os = await import('node:os')
 const fsp = await import('node:fs/promises')
 const FROOT = await fsp.mkdtemp((await import('node:path')).join(os.tmpdir(), 'pgl-ca-unit-'))
@@ -110,6 +111,18 @@ test('고르기에 보이는 것: 데스크톱이 알린 CLI 로 — 없음 · �
   r = await CH.availability(a)
   assert.match(r.agents.find((x) => x.id === 'codex').why, /0\.2\.2/)
   await H.gone(old.link)
+})
+
+test('막 짝지은 데스크톱(아직 CLI 를 알리지 않음): CLI 를 숨기지 않고 꺼진 채 보인다 · 가장 새 데스크톱 판', { skip: !db }, async () => {
+  const a = await person('한서윤')
+  // paired a moment ago (a device token issued), its first link not up yet: no CLIs reported
+  await D.issue(a, { name: '한서윤의 맥', platform: 'darwin', appVersion: '0.2.2' })
+  const r = await CH.availability(a)
+  assert.deepEqual(r.agents.map((x) => x.id), ['default', 'claude-code', 'codex'], 'both stay in the list')
+  assert.ok(r.agents.slice(1).every((x) => !x.available && x.why === 'PC 앱이 꺼져 있어요'))
+  assert.equal(r.desktop.linked, 1)
+  assert.equal(r.desktop.online, 0)
+  assert.equal(r.desktop.latest, '0.2.3', 'PRO_DESKTOP_LATEST')
 })
 
 test('고른 것은 대화마다 · 사람마다 남는다, 고를 수 없는 것은 400', { skip: !db }, async () => {

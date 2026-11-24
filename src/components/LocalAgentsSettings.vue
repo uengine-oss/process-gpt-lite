@@ -1,11 +1,13 @@
 <script setup>
 // 설정 › 계정 › 내 컴퓨터의 에이전트 (server lib/localAgents, desktop/src/runner): in the desktop app, this computer — linked or not, its
 // CLI agents (Claude Code · Codex · OpenHands: installed, version, signed in) and the person's two switches (local runs on/off, ask before
-// each run); everywhere, the person's desktops with 「연결 해제」(the token is revoked, the link closes).
+// each run); everywhere, the person's desktops with 「연결 해제」(the token is revoked, the link closes). Inside a desktop app too old to
+// link this computer (no runner bridge), or older than the newest release, the newest app's link.
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
-import { runner, pairThis, disconnectThis, setPrefs, detectClis } from '../localRunner.js'
+import { runner, pairThis, disconnectThis, setPrefs, detectClis, desktopApp, olderVersion } from '../localRunner.js'
+import { chatAgents, refreshAgents } from '../chatAgent.js'
 
 const app = useApp()
 const devices = ref([])
@@ -15,7 +17,11 @@ const st = computed(() => runner.status)
 const here = computed(() => st.value?.deviceId || null)
 const clis = computed(() => Object.entries(st.value?.clis || {}))
 async function load() { devices.value = await api('/local-agents/devices').catch((e) => { err.value = e.message; return [] }) }
-onMounted(load)
+onMounted(() => { load(); if (desktopApp()) refreshAgents() })
+// the app this page runs in: too old to link (no bridge), or older than the newest release (the server reads it: desktop.latest)
+const appVersion = computed(() => desktopApp()?.version || '')
+const oldApp = computed(() => !!desktopApp() && !runner.desktop && !desktopApp().localRunner)
+const newer = computed(() => (desktopApp() && olderVersion(appVersion.value, chatAgents.desktop?.latest) ? chatAgents.desktop.latest : ''))
 async function run(name, fn) {
   busy.value = name; err.value = ''
   try { await fn(); await load() } catch (e) { err.value = e.message } finally { busy.value = '' }
@@ -32,6 +38,10 @@ const cliLine = (c) => (!c.installed ? '설치돼 있지 않아요' : [c.version
   <div class="la" data-test="local-agents-settings">
     <p class="cap">내 컴퓨터의 에이전트</p>
     <div class="list glass">
+      <div v-if="newer && runner.desktop" class="li" data-test="local-newer">
+        <div class="main"><b>PC 앱 새 버전({{ newer }})이 나왔어요 — 지금은 {{ appVersion }} 버전이에요</b></div>
+        <a v-if="chatAgents.download" class="pill-btn sm" :href="chatAgents.download" target="_blank" rel="noopener">내려받기</a>
+      </div>
       <template v-if="runner.desktop">
         <div class="li">
           <div class="main">
@@ -65,6 +75,10 @@ const cliLine = (c) => (!c.installed ? '설치돼 있지 않아요' : [c.version
         </div>
         <div class="li"><div class="main"><small>CLI 를 새로 설치했으면 다시 찾아 주세요</small></div><button class="pill-btn sm" :disabled="!!busy" @click="run('detect', detectClis)">다시 찾기</button></div>
       </template>
+      <div v-else-if="oldApp" class="li" data-test="local-old-app">
+        <div class="main"><b>{{ appVersion ? `PC 앱이 이전 버전이에요 · ${appVersion}` : 'PC 앱이 이전 버전이에요' }}</b><small>새 버전을 받아 설치하면 이 컴퓨터의 Claude Code · Codex가 내 단계와 채팅 메시지를 맡아요</small></div>
+        <a v-if="chatAgents.download" class="pill-btn sm" :href="chatAgents.download" target="_blank" rel="noopener" data-test="local-update">최신 버전 받기</a>
+      </div>
       <div v-else class="li"><div class="main"><b>데스크톱 앱에서 연결해요</b><small>Process GPT Lite 데스크톱 앱으로 로그인하면 그 컴퓨터의 Claude Code · Codex 가 내 단계를 실행할 수 있어요</small></div></div>
     </div>
     <template v-if="devices.length">
@@ -95,6 +109,7 @@ const cliLine = (c) => (!c.installed ? '설치돼 있지 않아요' : [c.version
 .li.cli { padding: 10px 0 10px 14px; }
 .li.cli b { font-size: 15px; }
 .pill-btn.sm { height: 34px; padding: 0 14px; font-size: 14px; flex: none; }
+a.pill-btn.sm { display: inline-flex; align-items: center; text-decoration: none; }
 .li.off { opacity: .5; }
 .sw { width: 20px; height: 20px; flex: none; accent-color: var(--ink); }
 .sel { flex: none; height: 34px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--hairline); background: var(--field-bg); color: var(--text-primary); font-size: 14px; }

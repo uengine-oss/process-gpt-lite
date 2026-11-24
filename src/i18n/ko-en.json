@@ -2716,6 +2716,18 @@
   "이 프로젝트의 산출물 · 누르면 그 자리에서 열려요": "Outputs of this project · click one to open it right here",
   "이 대화에서 메시지를 받을 에이전트": "The agent this chat's messages go to",
   "PC 앱 내려받기": "Download the desktop app",
+  "PC 앱이 오래돼 이 컴퓨터를 연결할 수 없어요 — 업데이트하면 쓸 수 있어요": "The desktop app is too old to link this computer — update it to use this",
+  "이 컴퓨터를 연결하지 못했어요 — 다시 연결해 주세요": "Couldn't link this computer — link it again",
+  "서버가 이 컴퓨터의 연결을 끊었어요 — 다시 연결해 주세요": "The server closed this computer's link — link it again",
+  "이 컴퓨터는 연결을 해제해 두었어요 — 다시 연결하면 쓸 수 있어요": "This computer was disconnected — link it again to use this",
+  "이 컴퓨터가 서버에 연결 중이에요": "This computer is connecting to the server",
+  "연결하면 이 컴퓨터의 Claude Code · Codex로 보낼 수 있어요": "Link it to send to this computer's Claude Code and Codex",
+  "이 컴퓨터 연결": "Link this computer",
+  "연결되면 바로 고를 수 있어요": "You can pick it as soon as it's linked",
+  "최신 버전 받기": "Get the latest version",
+  "내려받기": "Download",
+  "PC 앱이 이전 버전이에요": "The desktop app is an older version",
+  "새 버전을 받아 설치하면 이 컴퓨터의 Claude Code · Codex가 내 단계와 채팅 메시지를 맡아요": "Install the new version and this computer's Claude Code and Codex take your steps and chat messages",
   "내 PC 의 Claude Code · Codex 는 Process GPT Lite 데스크톱 앱으로 써요": "Claude Code and Codex on your PC work through the Process GPT Lite desktop app",
   "PC 앱을 켜면 내 PC 의 Claude Code · Codex 로 보낼 수 있어요": "Turn on the desktop app to send to Claude Code or Codex on your PC",
   "연결된 PC 에 Claude Code · Codex 가 없어요 — 설치한 뒤 PC 앱의 설정에서 「다시 찾기」를 눌러 주세요": "The linked PC has no Claude Code or Codex — install one, then press \"Find again\" in the desktop app's settings",
@@ -2819,6 +2831,26 @@
   "메일 본문 요청": "Mail body request"
  },
  "patterns": [
+  [
+   "지금 쓰는 PC 앱은 {0} 버전이에요",
+   "This desktop app is version {0}"
+  ],
+  [
+   "지금 쓰는 PC 앱은 {0} 버전, 최신은 {1} 버전이에요",
+   "This desktop app is version {0}; the latest is {1}"
+  ],
+  [
+   "PC 앱 새 버전({0})이 나왔어요",
+   "A new desktop app ({0}) is out"
+  ],
+  [
+   "PC 앱 새 버전({0})이 나왔어요 — 지금은 {1} 버전이에요",
+   "A new desktop app ({0}) is out — this one is {1}"
+  ],
+  [
+   "PC 앱이 이전 버전이에요 · {0}",
+   "The desktop app is an older version · {0}"
+  ],
   [
    "이 설치에는 {0} 앱이 없어 앱 안에서 열 수 없어요.",
    "This install has no {0}, so it can't be opened in the app."
