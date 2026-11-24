@@ -5,6 +5,7 @@ import SkyCanvas from '../sky/SkyCanvas.vue'
 import Wordmark from '../components/Wordmark.vue'
 import Typewriter from '../components/Typewriter.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
+import InstallNudge from '../components/InstallNudge.vue'
 import { auth, api } from '../api.js'
 import { BASE } from '../base.js'
 
@@ -117,6 +118,8 @@ async function verify() {
           </div>
         </Transition>
         <p v-if="error" class="err blur-in">{{ error }}</p>
+        <!-- 앱 설치 안내 (phones): a link opened from a chat lands here first — an in-app browser is told to open the real one -->
+        <InstallNudge v-if="step === 'start'" place="login" />
       </div>
       <p class="legal">계속하면 서비스 약관에 동의하고, 개인정보처리방침에 따라 데이터가 처리됨을 확인하는 것으로 간주됩니다.</p>
     </section>
@@ -158,5 +161,10 @@ async function verify() {
 @media (max-width: 860px) {
   .login { grid-template-columns: 1fr; }
   .media { display: none; }
+  /* taller than the screen (a phone browser's bars, the app-install card under the buttons): it scrolls from
+     the top instead of being cut off at both ends; centred as before when it fits */
+  .form { justify-content: flex-start; overflow-y: auto; padding-top: 40px; }
+  .inner { flex: none; margin: auto 0; }
+  .legal { position: static; flex: none; margin-top: 20px; }
 }
 </style>

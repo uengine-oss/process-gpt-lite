@@ -319,6 +319,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 |---|---|---|---|---|
 | SNS 트렌드 데일리 대응(알림·worktree 구현·승인·재시작 재개) | spec `pgpt-pro_sns-trend-response`, 영상 `YkwYQHiRwFs` | — | — | ✗ (수십 분짜리 cli-agent·브라우저 실행) |
 | Android 앱(서버 주소 설정·다른 사이트 링크) | spec `pgpt-pro_android-app`, 영상 `TYg7S1WJ0YQ` | — | — | ✗ (에뮬레이터 필요) |
+| 데스크톱 앱(Electron): 서버 고르기·로그인·화면·제목 영역(신호등·끄는 띠·단추)·밝음/어두움·넓은/좁은 폭·바깥 링크·연결 실패·알림·메뉴·Google 로그인 창 안·하나만 실행·창 자리 기억·브라우저 무변화 | spec `openspec/specs/desktop-app`, `desktop/` | D-01…D-11 (`tests/desktop/desktop.spec.js`, `--project=desktop`, 묶은 앱은 `PGL_DESKTOP_EXE`) | desktop | ✅ (macOS 만) |
 | 설치 번들: 스크립트 문법·compose(lite/full/mining)·인계 기록 스키마·nginx 경로 | `install/` | S-50…S-53 | smoke | ✅ |
 | 영어 모드 다듬기: 워드 그림 ↔ 포토크래프트(영어·한국어), 앱 이름으로 Craft 도구, 영어 이름 지목, 패널 설계 토큰·금액(한·영), 브라우저 구매 차단·결과 문장, 테스트 상점 영어판, 설치 스크립트 언어 | `english-fixes.spec.js`, `server/test/en-fix.test.js`, `browser-tasks.test.js` | F-EN-01…04, S-53 | feature·smoke | ✅ (F-EN-04 는 모델 호출) |
 | 설치 스택에 대고 전체 스위트 | `PGPT_URL=http://localhost:18080` | (전체) | 모두 | ◐ |
@@ -631,7 +632,25 @@ openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 1
 | 실제 지도 엔진으로 들어온 메일을 읽고 자동 시작 · 첫 단계까지 | — | — (로컬 엔진이 꺼져 있었음) | — | ◐ |
 | 운영 deepagents 가 엔진 단계의 방을 Storage 에서 받기 | — | — (deepagents 쪽 변경 필요 — 설계 §6) | — | ✗ |
 
-### 27. 운영 화면 11-24 — 메신저에 컴퓨터의 파일 끌어다 놓기 · 들어온 문서를 폴더에 정리 (스펙 `messenger-drop-folder`)
+### 27. 링크 미리보기 — 메시지의 링크를 카드로 (스펙 `link-preview`)
+
+시험 파일이 로컬 가짜 사이트(`127.0.0.1:59981`, `RT_LP_SITE_PORT`)를 띄운다. 서버는 그 한 곳만 읽도록 `PRO_LINK_PREVIEW_ALLOW_HOSTS=127.0.0.1:59981`로 띄운다(시험에서만 쓰고, 게이트웨이 뒤에서는 무시된다). 공용 인터넷에는 나가지 않는다. 사이트 포트가 이 파일의 것이라 한 워커로 돈다(`mode: 'serial'`). F-LP-04 는 회사(`localhost`)의 스위치를 잠깐 껐다 켜고, 끝나면 행을 지운다. 띄우는 명령은 `openspec/specs/link-preview/e2e/README.md`에 있다.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 채팅의 내 말 · 에이전트 답의 링크 아래 카드(그림 · 제목 · 두 줄 설명 · 사이트 · 도메인), 넓은 그림은 위에, 누르면 새 탭(opener 없음), 낮 · 밤 테마 | 사용자 11-24 | F-LP-01 | feature | ✅ |
+| 동영상(og:type video · YouTube)은 썸네일과 재생 표시, YouTube 는 페이지를 못 읽어도 썸네일 | 사용자 11-24 | F-LP-01 · `server/test/linkPreview.test.js` | feature · 단위 | ✅ |
+| 코드 안 · 서명 링크는 카드 없음, 링크 없는 메시지는 그대로, 읽는 동안 뼈대 | 사용자 11-24 | F-LP-01 | feature | ✅ |
+| 카드를 다는 링크: 처음 세 개 · 같은 링크는 하나 · 코드 안 · 이 앱 · 파일은 빼고, 주소에 붙여 쓴 한국어는 떼기 | 사용자 11-24 | F-LP-05(브라우저 없이) | feature | ✅ |
+| 팀 메신저: 동료 메시지의 카드는 왼쪽, 내 메시지의 카드는 오른쪽 | 사용자 11-24 | F-LP-02 | feature | ✅ |
+| 휴대폰(390px): 카드는 세 개까지, 화면 너비 안(채팅 탭 · 팀 메시지), 작은 그림은 왼쪽, 그림 없는 카드 | 사용자 11-24 | F-LP-03 | feature | ✅ |
+| 서버: 서명 · 사설 · 클러스터 · 허락하지 않은 포트 · ftp 는 읽지 않음(사이트에 요청 없음), 로그인 필요(401), 주소 없음 400 | SSRF | F-LP-04 · `linkPreview.test.js` | feature · 단위 | ✅ |
+| 이름이 사설 IP 로 풀림 · 공개와 섞임 · 사설로 넘겨주기 · 넘겨주기 4번 · 512KB 넘는 본문 · gzip 폭탄 · HTML 아님 · 5초 · 확인한 IP 로만 연결 | SSRF | `linkPreview.test.js`(가짜 사이트 · DNS 대역) | 단위 | ✅ |
+| 하루 기억(실패는 30분) · 회사마다 따로 · 동시에 물어도 한 번 · 한 사람 1분 한도(429) | — | `linkPreview.test.js` | 단위 | ✅ |
+| 회사 관리자 스위치(설정 › 시스템 설정): 관리자 아니면 403, 끄면 카드 · 읽기 없음(기억한 카드도 지움), 다시 켜면 보임 | 사용자 11-24 | F-LP-04 · `server/test/linkPreview.integration.test.js` | feature · 단위 | ✅ |
+| 실제 공개 사이트(YouTube · 뉴스 등)의 카드 | — | — (시험은 공용 인터넷에 나가지 않음) | — | ◐ |
+
+### 28. 운영 화면 11-24 — 메신저에 컴퓨터의 파일 끌어다 놓기 · 들어온 문서를 폴더에 정리 (스펙 `messenger-drop-folder`)
 
 서버는 가짜 모델(`PRO_LLM_BASE_URL=http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59998>/v1`)로 띄운다. 시험 파일이 그 포트에 보기 글자의 확률을 돌려주는 가짜 판정 모델을 띄우며, 같은 포트를 쓰는 F-ML · F-MT · F-MW 와 동시에 돌리지 않는다. 띄우는 명령은 `openspec/specs/messenger-drop-folder/e2e/README.md`에 있다. 끌어다 놓기는 Playwright 의 DataTransfer 끌기 이벤트(`dragenter` · `dragover` · `drop`)로 시험한다.
 

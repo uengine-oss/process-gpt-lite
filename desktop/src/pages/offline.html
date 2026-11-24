@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Process GPT Lite</title>
+<link rel="stylesheet" href="pages.css">
+<script src="common.js"></script>
+</head>
+<body>
+<main class="card" data-test="offline">
+  <div class="icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.6a10 10 0 0 1 9.5-2.4M8.5 16.4a5 5 0 0 1 5.7-.9M12 20h.01M3 3l18 18"/></svg></div>
+  <h1 id="title"></h1>
+  <p class="where" id="where" data-test="offline-url"></p>
+  <p class="detail" id="detail" data-test="offline-detail"></p>
+  <div class="row">
+    <button type="button" class="btn ghost" id="change" data-test="offline-change"></button>
+    <button type="button" class="btn" id="retry" data-test="offline-retry"></button>
+  </div>
+  <p class="foot" id="auto"></p>
+</main>
+<script src="offline.js"></script>
+</body>
+</html>

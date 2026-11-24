@@ -7,12 +7,14 @@ import PanelFrame from './PanelFrame.vue'
 import PanelAppCard from './panelApps/PanelAppCard.vue'
 import Icon from './Icon.vue'
 import RefreshBanner from './RefreshBanner.vue'
+import InstallNudge from './InstallNudge.vue'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { useTeam } from '../stores/team.js'
 import { narrow } from '../viewport.js'
 import { permission as notifyPermission, ask as askNotify } from '../browserNotify.js'
+import { nudgeHere } from '../install.js'
 import { usePullRefresh, refreshHome, homeBanner, mailBusy, PULL_THRESHOLD } from '../pullRefresh.js'
 
 const app = useApp()
@@ -27,6 +29,8 @@ const arrowTurn = computed(() => 180 + Math.min(1, pull.value / PULL_THRESHOLD) 
 // browser notifications for a background tab: offered until the person answers the browser's question
 const notify = ref(notifyPermission())
 async function enableNotify() { notify.value = await askNotify() }
+// 앱 설치 안내 (src/install.js): until installed, 「나중에」 or 「다시 보지 않기」
+const installCard = computed(() => nudgeHere('home'))
 // (a work item put away from Home — its card or its notice — stays in 루틴, not here)
 const todos = computed(() => app.todos.filter((t) => !t.home_hidden && !app.handled.includes(t.id) && !app.notifications.some((n) => n.todoId === t.id)).slice(0, 3))
 // a mail's card whose instance already has its own Home card (a mail that started a process by itself, a new mail of its thread:
@@ -66,6 +70,7 @@ async function openTodo(t) {
       <button v-if="notify === 'default'" key="notify" class="notify glass press" @click="enableNotify">
         <Icon name="bell" :size="18" /> 브라우저 알림 켜기 <small>다른 창을 보고 있을 때도 메시지·할 일을 알려 드려요</small>
       </button>
+      <InstallNudge v-if="installCard" key="install" place="home" />
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
       <HomeTodoCard v-for="t in todos" :key="'t' + t.id" :todo="t" @open="openTodo" />
       <ActionCard v-for="a in actions" :key="a.id" :action="a" />

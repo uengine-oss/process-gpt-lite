@@ -2,6 +2,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
+import path from 'node:path'
 
 // Reached through a public tunnel (Cloudflare quick tunnels have no auth of their own), every
 // request that does not come from this machine needs the basic-auth pair in server/.public-access.
@@ -45,11 +46,34 @@ function publicGate() {
   }
 }
 
+// Link previews and the app's identity (2026-11-24). Crawlers (KakaoTalk, Slack, Facebook) read index.html without
+// running it and need absolute addresses: __PGL_PUBLIC_URL__ there becomes the public origin + the base path —
+// LITE_PUBLIC_ORIGIN, by default the main company's address (the picture and the words are the same for every
+// company); the web image's nginx puts in each request's own host when it knows it (install/docker/nginx.conf).
+// The manifest's id is resolved against the origin, so it carries the base path: written at build, the same
+// address Chrome used as the id before (start_url), so installed copies stay the same app.
+const PUBLIC_ORIGIN = (process.env.LITE_PUBLIC_ORIGIN || 'https://uengine.process-gpt.io').replace(/\/+$/, '')
+function pageMeta() {
+  let base = '/'
+  let outDir = ''
+  return {
+    name: 'pgl-page-meta',
+    configResolved(c) { base = c.base; outDir = c.command === 'build' ? path.resolve(c.root, c.build.outDir) : '' },
+    transformIndexHtml: { order: 'pre', handler: (html) => html.replaceAll('__PGL_PUBLIC_URL__', PUBLIC_ORIGIN + base.replace(/\/$/, '')) },
+    closeBundle() {
+      const f = path.join(outDir, 'manifest.webmanifest')
+      if (!outDir || !fs.existsSync(f)) return
+      const m = JSON.parse(fs.readFileSync(f, 'utf8'))
+      fs.writeFileSync(f, JSON.stringify({ id: `${base}chat`, ...m }, null, 2) + '\n')
+    },
+  }
+}
+
 export default defineConfig({
   // '/' for local and the Docker install; '/lite/' for the image behind the ProcessGPT gateway
   // (<tenant>.process-gpt.io/lite, which strips the prefix like its /wms route) — see src/base.js
   base: process.env.VITE_BASE_PATH || '/',
-  plugins: [vue(), publicGate()],
+  plugins: [vue(), publicGate(), pageMeta()],
   server: {
     port: 5180,
     strictPort: true,
