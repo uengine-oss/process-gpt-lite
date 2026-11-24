@@ -5,6 +5,7 @@ import { BASE } from '../base.js'
 import { syncLang } from '../i18n/lang.js'
 import { officeEditorFor, CRAFT_APPS } from '../officeEditor.js'
 import { announce } from '../browserNotify.js'
+import { keyOf as chatKeyOf } from '../chatAgent.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
@@ -63,6 +64,7 @@ export const useApp = defineStore('app', {
     handled: [],               // work items just decided from a card (the engine catches up a moment later)
     instance: null,
     localActive: {},           // instId → the card of its local CLI agent run that is on now (Home cards — server lib/localAgents)
+    nextAgent: null,           // the composer's agent for the message it is sending now: {key, agent} (ComposerAgent · src/chatAgent.js)
     missionTick: 0,             // bumps on mission run events so open lists refresh            // detail of the instance page               // text pushed into the composer from elsewhere
   }),
   getters: {
@@ -232,7 +234,11 @@ export const useApp = defineStore('app', {
         if (this.instance && d.instId === this.instance.inst.proc_inst_id) this.refreshInstance()
       } else if (type === 'local_run') {
         // a step runs on someone's desktop: its card follows wherever it is shown (LocalRunCard — the instance page, Home), no reload
-        if (d.card) this.patchLocalRun(d.card)
+        // (a chat message's run follows in its chat's message — not a Home card)
+        if (d.card && !d.card.chat) this.patchLocalRun(d.card)
+      } else if (type === 'local_presence') {
+        // my PC app came on, went off or found its CLIs: the composer's agent picker looks again (ComposerAgent)
+        window.dispatchEvent(new CustomEvent('pgl:local-presence', { detail: d }))
       } else if (type === 'status') {
         this.status[d.threadId] = d.text
       } else if (type === 'browser.frame') {
@@ -261,7 +267,11 @@ export const useApp = defineStore('app', {
     removeMention(i) { this.mentions = this.mentions.filter((_, k) => k !== i) },
     // attachments: the files this message carries when they were taken earlier (a message queued while 새 프로젝트's room is made)
     // opts.fresh: 「이미 한 요청」 카드의 「그래도 새로 하기」·허락 뒤 다시 답하기 — 서버가 같은 요청 알아보기를 건너뛴다
+    // opts.agent: who answers — 'default' (the server's agent) or a CLI on my PC ('claude-code' · 'codex', server lib/localAgents/chat.js);
+    // unless given, the composer's choice for this chat when it was the composer that sent it (nextAgent), else 'default'
     async send(text, threadId = this.activeId, context, attachments, opts = {}) {
+      const picked = this.nextAgent
+      this.nextAgent = null
       // mentions: the chips read first in the message; where each one is goes to the agent
       const mentions = this.mentions
       if (mentions.length) {
@@ -281,11 +291,13 @@ export const useApp = defineStore('app', {
       // live link (src/liveLink.js) is down — the server still edits it in place (lib/agent.js delegate)
       const d = this.officeDoc, ed = d && !d.readOnly ? officeEditorFor(d.name || d.url) : null
       const openDoc = ed && !CRAFT_APPS.has(ed) && d.name ? { app: 'ieumoffice', file: d.name, name: d.name, editor: ed } : undefined
+      const key = chatKeyOf(threadId, conversation?.id)
+      const agent = opts.agent || (picked && picked.key === key ? picked.agent : 'default')
       this.drafts[threadId] = ''
       const asked = this.askedAt[threadId] = Date.now()
       let ended = false
       try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(opts.fresh ? { fresh: true } : {}) }, (ev, data) => {
+        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
         })

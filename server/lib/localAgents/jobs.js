@@ -28,6 +28,12 @@ let hooks = {
   learned: async () => {},   // (job, learned) → know-how candidates from a finished run
 }
 export function setHooks(h) { hooks = { ...hooks, ...h } }
+// Another kind of local job (pro_local_jobs.kind — 'chat': a chat message for its sender's own CLI, chat.js) has hooks of its own: the
+// queue, the offer, the desktop's answers and the sweep are the same; what a job means is its kind's. A step ('step', the default) uses
+// the hooks above. reply: (job, msg, link) → the CLI's answer at the end of a turn (only kinds that answer in a conversation).
+const kindHooks = new Map()
+export function setKindHooks(kind, h) { kindHooks.set(kind, { ...hooks, reply: async () => {}, ...h }) }
+const hk = (job) => (job?.kind && job.kind !== 'step' && kindHooks.get(job.kind)) || hooks
 
 const OPEN = ['queued', 'offered', 'running']
 export async function byId(id) {
@@ -48,7 +54,8 @@ async function set(job, patch) {
 
 // the desktops of the job's person that can take it now (capable, local runs on, room for one more), the newest link first
 export async function freeLinks(job) {
-  const links = H.linksOf(T(), job.user_id).filter((l) => canRun(l, job.agent)).sort((a, b) => b.since - a.since)
+  // (a chat message goes only to a desktop that runs them — 0.2.2; an older one would take it for a step)
+  const links = H.linksOf(T(), job.user_id).filter((l) => canRun(l, job.agent) && (job.kind !== 'chat' || l.caps?.chat)).sort((a, b) => b.since - a.since)
   if (!links.length) return { capable: [], free: [] }
   const busy = new Map((await q(`select device_id::text as d, count(*)::int as n from pro_local_jobs where tenant_id=$1 and state in ('offered','running') and device_id = any($2) group by 1`,
     [T(), links.map((l) => l.id)])).map((r) => [r.d, r.n]))
@@ -87,9 +94,9 @@ export async function route(job) {
   if (job.state !== 'queued') return job
   const { capable, free } = await freeLinks(job)
   if (free.length) return offer(job, free[0])
-  if (capable.length) { if (job.why !== 'busy') { job = await set(job, { why: 'busy' }); await hooks.note(job, 'busy') } return job }
+  if (capable.length) { if (job.why !== 'busy') { job = await set(job, { why: 'busy' }); await hk(job).note(job, 'busy') } return job }
   if (job.offline === 'server') return delegate(job, H.linksOf(T(), job.user_id).length ? 'unable' : 'offline')
-  if (job.why !== 'waiting') { job = await set(job, { why: 'waiting' }); await hooks.note(job, 'waiting') }
+  if (job.why !== 'waiting') { job = await set(job, { why: 'waiting' }); await hk(job).note(job, 'waiting') }
   return job
 }
 
@@ -99,7 +106,7 @@ async function offer(job, link) {
                              where id=$1 and state='queued' returning *`, [job.id, link.id, link.name])
   if (!claimed) return job
   let payload
-  try { payload = await hooks.prepare(claimed, link) } catch (e) {
+  try { payload = await hk(claimed).prepare(claimed, link) } catch (e) {
     console.warn(`[local-agents] ${claimed.activity_name}: cannot run locally — ${e.message}`)
     await set(claimed, { state: 'queued', device_id: null })
     return delegate({ ...claimed, state: 'queued' }, 'unprepared', e.message)
@@ -110,7 +117,7 @@ async function offer(job, link) {
     sent_skills: sent })
   if (!link.send({ type: 'job', job: { id: j.id, ...payload } })) { await set(j, { state: 'queued', device_id: null }); return j }
   console.log(`[local-agents] ${j.activity_name} → ${link.name} (${j.agent})`)
-  await hooks.note(j, 'offered')
+  await hk(j).note(j, 'offered')
   return j
 }
 
@@ -136,8 +143,8 @@ export async function delegate(job, why, detail = '') {
   if (was?.state === 'offered') withdraw({ ...j0, device_id: was.device_id }, 'delegated')
   const j = await endSteers(j0, 'delegated')
   console.log(`[local-agents] ${j.activity_name}: → server agent ${j.server_agent} (${why})`)
-  await hooks.note(j, 'delegated')
-  await hooks.delegate(j, why).catch((e) => console.warn('[local-agents] delegate', e.message))
+  await hk(j).note(j, 'delegated')
+  await hk(j).delegate(j, why).catch((e) => console.warn('[local-agents] delegate', e.message))
   return j
 }
 
@@ -161,7 +168,7 @@ export async function onMessage(link, msg) {
       const [j] = await q(`update pro_local_jobs set state='running', started_at=now(), updated_at=now() where id=$1 and state='offered' and device_id=$2 returning *`, [job.id, link.id])
       if (!j) { link.send({ type: 'cancel', jobId: job.id, reason: 'withdrawn' }); return }
       link.send({ type: 'accepted', jobId: j.id })
-      await hooks.note(j, 'running')
+      await hk(j).note(j, 'running')
       return sendSteers(j, link)
     }
     case 'decline': {
@@ -178,21 +185,29 @@ export async function onMessage(link, msg) {
       if (job.state !== 'running') return
       const until = msg.until && !Number.isNaN(Date.parse(msg.until)) ? new Date(msg.until) : null
       if ((job.idle_until ? new Date(job.idle_until).getTime() : null) === (until ? until.getTime() : null)) return
-      return hooks.note(await set(job, { idle_until: until }), 'idle')
+      return hk(job).note(await set(job, { idle_until: until }), 'idle')
     }
     case 'progress': {
       if (!['running', 'offered'].includes(job.state)) return
       const add = (Array.isArray(msg.lines) ? msg.lines : []).slice(-LINES).map((l) => ({ kind: String(l.kind || 'text').slice(0, 10), text: String(l.text || '').slice(0, 600), at: l.at || new Date().toISOString() }))
       if (!add.length) return
       const j = await set(job, { lines: [...(job.lines || []), ...add].slice(-LINES) })
-      return hooks.note(j, 'progress')
+      return hk(j).note(j, 'progress')
     }
     case 'steer-received':
-      return hooks.note(await setSteer(job, msg.steerId, { received: true, receivedAt: new Date().toISOString() }), 'steer')
+      return hk(job).note(await setSteer(job, msg.steerId, { received: true, receivedAt: new Date().toISOString() }), 'steer')
     case 'steered':
-      return hooks.note(await setSteer(job, msg.steerId, { received: true, applied: msg.how || 'live', appliedAt: new Date().toISOString(), failed: false, reason: null }), 'steered')
+      return hk(job).note(await setSteer(job, msg.steerId, { received: true, applied: msg.how || 'live', appliedAt: new Date().toISOString(), failed: false, reason: null }), 'steered')
     case 'steer-failed':
-      return hooks.note(await setSteer(job, msg.steerId, { failed: true, reason: String(msg.reason || 'refused').slice(0, 40) }), 'steer')
+      return hk(job).note(await setSteer(job, msg.steerId, { failed: true, reason: String(msg.reason || 'refused').slice(0, 40) }), 'steer')
+    // the CLI's answer at a turn's end (a chat — chat.js): its words, and what the turn changed in the folder (pushed on the run's branch).
+    // Acknowledged by its turn number, so a desktop that says it again after a dropped link does not post it twice.
+    case 'reply': {
+      if (job.state !== 'running') { link.send({ type: 'replied', jobId: job.id, turn: msg.turn, state: job.state }); return }
+      await hk(job).reply(job, msg, link)
+      link.send({ type: 'replied', jobId: job.id, turn: msg.turn })
+      return
+    }
     case 'done': {
       if (!['running', 'offered'].includes(job.state)) { link.send({ type: 'finished', jobId: job.id, state: job.state }); return }
       const result = { branch: String(msg.branch || '').slice(0, 200), commit: String(msg.commit || '').slice(0, 64) || null, pushed: !!msg.pushed,
@@ -204,25 +219,25 @@ export async function onMessage(link, msg) {
       const { learned, ...kept } = result
       let j = await set(job, { result: kept, session_id: result.sessionId })
       try {
-        const out = await hooks.complete(j, kept)
+        const out = await hk(j).complete(j, kept)
         j = await endSteers(await set(j, { state: 'done', finished_at: new Date(), idle_until: null }), 'ended')
         // (know-how is read after the step has its result: a slow judge does not hold the next step)
-        if (learned) hooks.learned(j, learned).catch((e) => console.warn('[local-agents] know-how', e.message))
+        if (learned) hk(j).learned(j, learned).catch((e) => console.warn('[local-agents] know-how', e.message))
         link.send({ type: 'finished', jobId: j.id, state: 'done', line: j.line, head: out?.head || null })
       } catch (e) {
         console.warn(`[local-agents] ${j.activity_name}: result not taken — ${e.message}`)
         j = await set(j, { state: 'failed', error: e.message.slice(0, 500) })
-        await hooks.fail(j, e.message)
+        await hk(j).fail(j, e.message)
         link.send({ type: 'finished', jobId: j.id, state: 'failed', error: e.message.slice(0, 300) })
       }
-      return hooks.note(j, j.state)
+      return hk(j).note(j, j.state)
     }
     case 'failed': {
       if (!['running', 'offered'].includes(job.state)) return
       const j = await endSteers(await set(job, { state: 'failed', error: String(msg.error || 'failed').slice(0, 800), finished_at: new Date(), idle_until: null }), 'failed')
-      await hooks.fail(j, j.error)
+      await hk(j).fail(j, j.error)
       link.send({ type: 'finished', jobId: j.id, state: 'failed' })
-      return hooks.note(j, 'failed')
+      return hk(j).note(j, 'failed')
     }
     default:
   }
@@ -252,7 +267,7 @@ export async function onOffline(link) {
   const offered = await q(`update pro_local_jobs set state='queued', device_id=null, updated_at=now() where tenant_id=$1 and device_id=$2 and state='offered' returning *`, [T(), link.id])
   for (const j of offered) await route(j)
   const running = await q(`select * from pro_local_jobs where tenant_id=$1 and device_id=$2 and state='running'`, [T(), link.id])
-  for (const j of running) await hooks.note(j, 'link-lost')
+  for (const j of running) await hk(j).note(j, 'link-lost')
 }
 
 // ---------- steering ----------
@@ -268,7 +283,7 @@ export async function steer(job, user, text, { from = null } = {}) {
   let [j] = await q(`update pro_local_jobs set steers = coalesce(steers, '[]'::jsonb) || jsonb_build_array($2::jsonb), updated_at=now() where id=$1 returning *`, [job.id, JSON.stringify(s)])
   const link = j.device_id ? H.linkOf(T(), String(j.device_id)) : null
   if (link && j.state === 'running') j = await sendSteers(j, link)
-  await hooks.note(j, 'steer')
+  await hk(j).note(j, 'steer')
   return { job: j, steer: s, delivered: !!(j.steers || []).find((x) => x.id === s.id)?.sent }
 }
 async function sendSteers(job, link) {
@@ -308,7 +323,7 @@ export async function suggest(job, user, text, { kind = 'opinion', option = null
   const c = { id: `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, by: String(user.id), name: user.name || '', text: t, at: new Date().toISOString(), state: 'waiting',
     kind: kind === 'decision' ? 'decision' : 'opinion', ...(kind === 'decision' && option != null ? { option: String(option).slice(0, 200) } : {}) }
   const [j] = await q(`update pro_local_jobs set suggestions = coalesce(suggestions, '[]'::jsonb) || jsonb_build_array($2::jsonb), updated_at=now() where id=$1 returning *`, [job.id, JSON.stringify(c)])
-  await hooks.note(j, 'suggestion')
+  await hk(j).note(j, 'suggestion')
   return { job: j, suggestion: c }
 }
 export async function markSuggestion(job, id, patch) {
@@ -336,7 +351,7 @@ export async function cancel(job, why = 'closed') {
   const j = await endSteers(await set(job, { state: 'cancelled', why, finished_at: new Date(), idle_until: null }), 'cancelled')
   const link = job.device_id ? H.linkOf(T(), String(job.device_id)) : null
   if (link) link.send({ type: 'cancel', jobId: j.id, reason: why })
-  await hooks.note(j, 'cancelled')
+  await hk(j).note(j, 'cancelled')
   return j
 }
 
@@ -349,7 +364,7 @@ export async function sweep(now = Date.now()) {
     // (a run whose result is being taken in: its step closes as part of that — it is not a step closed by hand. Before, a sweep in that
     // moment marked the run 「단계가 닫혀 로컬 실행을 멈췄어요」 and its done was refused — seen once in M-02, 2026-11-24)
     if (j.state === 'running' && j.result) continue
-    if (await hooks.cancelled(j).catch(() => false)) { await cancel(j, 'closed'); continue }
+    if (await hk(j).cancelled(j).catch(() => false)) { await cancel(j, 'closed'); continue }
     if (overdue(j, now)) { await delegate(j, 'timeout'); continue }
     if (j.state === 'offered' && now - new Date(j.offered_at).getTime() > OFFER_MS) {
       withdraw(j, 'unanswered')

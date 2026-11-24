@@ -97,6 +97,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 | `steps.js` | 프로세스와 잇기: 단계 일꾼, 작업 폴더 · 프롬프트 준비, 결과 넣기, 서버에 맡기기, 카드 · 실시간 알림, 권한, 제안 · 입력 |
 | `relay.js` | 중계되는 터미널: 세션(종류 · 대상), 화면 모델(@xterm/headless), 보는 사람의 WebSocket(`/api/local-agents/term`), 입력은 주인 것만, 훅 · 지켜보는 파일을 듣는 쪽에 |
 | `knowhow.js` | 로컬 실행의 노하우 판정 · 후보 · 반영 |
+| `chat.js` | 채팅에서 고른 내 PC 의 CLI(일의 종류 `chat`, §12): 고르기 목록 · 대화마다의 선택, 메시지 → 일 · 같은 세션에 이어서, 작업 폴더(프로젝트 변형 · 내 PC 에이전트 폴더), 턴마다의 답 · 파일 카드, 기본으로 다시 보내기 |
 | `routes/localAgents.js` | 페이지용 HTTP |
 
 ### 5.1 기기 토큰과 링크
@@ -322,8 +323,69 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 
 ## 11. AI-DLC 를 데스크톱으로 옮길 때 (다음 단계, 이번에는 만들지 않음)
 Robo-DLC(`origin/feat/mcp-apps` 의 `server/lib/aidlc/*` — 서버 tmux 의 대화형 Claude Code, 화면 · 질문 파일 watcher, `--settings` 훅, 역할자 결정 화면, 헤드리스 intake, bolt worktree)를 개발 담당자의 데스크톱 runner 로 옮길 때 이번 구조에 꽂는 자리:
-- (a) **일반 세션**: `runner.openSession({kind, ref, agent, cwd, resume, prompt, stateDir, watch})` — 단계에 묶이지 않은 PTY CLI 세션(세션 id · 이어서 하기). 단계 실행은 `kind: 'step'` 하나. 다음 단계는 `kind: 'aidlc'`(ref = 저장소 · bolt)를 서버에 `registerKind` 하면 된다. 남은 일: 서버가 데스크톱에 「이 저장소에서 세션을 열어라」를 보내는 메시지(지금은 runner 가 단계 일로만 연다), 저장소 · worktree 를 데스크톱에서 고르는 화면.
+- (a) **일반 세션**: `runner.openSession({kind, ref, agent, cwd, resume, prompt, stateDir, watch})` — 단계에 묶이지 않은 PTY CLI 세션(세션 id · 이어서 하기). 단계 실행은 `kind: 'step'`, 채팅의 메시지는 `kind: 'chat'`(§12 — 서버가 데스크톱에 보내는 일의 종류도 처음으로 둘이 됐다). 다음 단계는 `kind: 'aidlc'`(ref = 저장소 · bolt)를 서버에 `registerKind` 하면 된다. 남은 일: 서버가 데스크톱에 「이 저장소에서 세션을 열어라」를 보내는 메시지(지금은 runner 가 단계 일로만 연다), 저장소 · worktree 를 데스크톱에서 고르는 화면.
 - (b) **훅 중계**: CLI 의 훅은 세션 설정 파일에서 로컬 파일로만 쓰고, runner 가 자기 링크로 `hook` 을 보낸다(CLI 가 서버 주소를 부르지 않음). `relay.events.on('hook')` 로 받는다. 지금 훅은 SessionStart · UserPromptSubmit · Stop · StopFailure · Notification(hooks.js 와 같은 묶음).
 - (c) **서버의 화면 모델**: `@xterm/headless` 에 중계 바이트를 먹이고 `relay.screenOf(S)`(+`flushed`)로 「지금 화면」 — tmux watcher 의 `capture-pane` 자리. 선택 창 알아보기(watch.js 의 판정)는 그 위에 다음 단계에서.
 - (d) **폴더 지켜보기 중계**: 세션을 열 때 `watch: ['aidlc']` 처럼 경로를 주면 runner 가 그 아래 바뀐 파일(256KB 이하 글, 지움 포함)을 300ms 모아 `files` 로 보내고, `relay.filesOf(S)` · `events.on('files')` 로 읽는다.
 - (e) **제안의 종류**: 제안에 `kind: 'opinion' | 'decision'` 과 `option`(고른 항목). 역할자의 결정은 작업자의 입력란에 「<이름> 결정 · <항목>」으로 쌓이고, 보내는 것은 작업자만. 남은 일: 역할자 판정(누가 결정할 수 있는지), 결정을 CLI 의 선택 창에 맞는 키(번호 · 화살표)로 바꾸는 것.
+
+## 12. 채팅에서 고르는 에이전트 (2026-11-24, 가지 `feat/chat-agent-picker`)
+
+사용자 요청: 「채팅 입력창 보낼때 기본, codex, claude code 등 cli 에이전트를 선택할 수 있는 옵션이 대화창에 있으면 좋겠음.」 — 11절이 남겨 둔 「일반 세션」을 단계가 아닌 종류로 처음 쓴다(`kind: 'chat'`).
+
+### 12.1 고르기 (`src/components/ComposerAgent.vue` · `src/chatAgent.js`)
+- 입력창의 보내기 옆 칩: 「기본」(서버의 업무 에이전트, `lib/agent.js` — 지금까지와 같음) · 「Claude Code · 내 PC」 · 「Codex · 내 PC」. 목록(`role=listbox`)은 칩에서 Enter · Space · ↑ · ↓ 로 열고, ↑ · ↓ · Home · End 로 움직여 Enter · Space 로 고르며, Esc · Tab 으로 닫는다. 고르는 것은 포커스가 있는 항목이다(목록 위에 머문 마우스가 Enter 의 대상을 바꾸지 않게).
+- 무엇이 보이나(`GET /api/local-agents/chat?key=` → `chat.availability`): 켜진 데스크톱이 있으면 그 데스크톱들이 알린 CLI 만(설치됨). 실행할 수 없음 · 로컬 실행 끔 · 0.2.2 전 판(채팅을 받지 못함 — `caps.chat` 없음)이면 꺼진 채 까닭과 함께. 켜진 데스크톱이 없으면 이은 데스크톱들이 마지막에 알린 CLI(이은 적이 없으면 둘 다)를 「PC 앱이 꺼져 있어요」(이은 적 없음: 「PC 앱을 설치하고 로그인하면 쓸 수 있어요」)로 끄고, 아래에 데스크톱 앱 내려받기 링크(`https://www.uengine.org/contents/processgptlite.html#desktop`). 데스크톱이 이어지거나 끊기거나 caps 를 다시 알리면 서버가 그 사람에게 `local_presence` 를 보내 목록을 다시 읽는다(새로 고침 없음).
+- 칩이 있는 곳: 메인 채팅, 그 안의 맥락 대화(`/chat/c/:cid`), 프로젝트. 새 프로젝트(아직 방 없음) · 루틴(인스턴스) · 새 패널 만들기 · 열린 앱 위의 입력창에는 없다. 휴대폰 폭(760px 이하)에서는 입력창 위 오른쪽 줄에 두고(입력창의 글 칸 폭을 지키려고), 목록은 화면 양옆 16px 안에 고정으로 편다.
+- 고른 것을 어디에: 대화 열쇠(`<thread>` 또는 `<thread>:<conversation>`)마다 사람마다 서버에(`pro_chat_agents`, `PUT /api/local-agents/chat/choice` — 「기본」은 행을 지움) 그리고 그 브라우저에(`localStorage pgl.chatAgent` — 서버 답이 오기 전에 바로 보이게). 서버의 것이 이긴다. 다만 서버에 묻는 사이에 이 화면에서 고른 것은 그 답이 덮지 않는다.
+- 보낼 때: 입력창이 보내기 직전에 그 대화의 에이전트를 스토어에 한 번 넘긴다(`app.nextAgent`) — `MainView.vue` 를 고치지 않으려고. 스토어의 `send` 가 그것을 받아 `POST /api/threads/:id/messages` 에 `agent` 를 싣는다. 칩이 꺼진 내 PC 를 가리켜도 그대로 보낸다(실행이 PC 앱을 기다리고 카드가 「기본으로 다시 보내기」를 내놓음). 목록에 아예 없는 CLI(켜진 데스크톱에 그 CLI 가 없음)면 「기본」으로. 입력창이 아닌 길(답 단추, 카탈로그, 패널 만들기)은 늘 「기본」이다.
+
+### 12.2 보내기 (`server/lib/localAgents/chat.js`)
+- `POST /api/threads/:id/messages {text, agent, conversation, files}` 에 `agent` 가 `claude-code` · `codex` 면 서버의 에이전트를 부르지 않고 `chat.send`: 메시지를 채팅에 먼저 남기고(`content.agent = {id, label, where: '내 PC'}`, 첨부는 사용자의 파일 메시지로), 그다음 —
+  - 같은 대화 · 같은 에이전트의 실행이 **보냄 · 실행 중**이면 그 실행의 입력(`J.steer` — 작업자의 입력과 같은 길, 터미널에 붙여 넣기 + Enter). 새 실행을 만들지 않는다.
+  - **기다림**(PC 앱이 꺼짐)이면 그 실행의 프롬프트 · 메시지 뒤에 붙는다.
+  - 없으면 새 실행: `pro_local_jobs` 의 행 하나(`kind='chat'`, `todo_id='chat:<uuid>'` — 단계와 겹치지 않게, `thread_id`, `chat` jsonb). `offline='wait'`(서버에 저절로 맡기지 않음), `wait_minutes` 없음. 그 대화의 이 에이전트의 앞 실행에 CLI 세션이 있었으면 `chat.resumeOf` 에 둔다. 실행 카드를 메시지 바로 아래에 둔다(`local_run`, `message_ids`). 그다음 큐(`J.route`) — 단계와 같은 배정이다: **그 사람의 링크에만**, 그 CLI 가 있고 로컬 실행이 켜져 있고 채팅을 받는(`caps.chat`) 데스크톱으로.
+  - 거절(프로젝트 폴더를 고칠 권한 없음 · 연결형 폴더 · sql/055 없음)은 메시지 아래 실패 답(「내 PC 에이전트로 보내지 못했어요 — …」, `localRefused`)과 스트림의 `error`.
+- 프롬프트(스킬 프롬프트 `skills/process-discovery/prompts/local-chat.md`): 대화의 최근 말(10개, 한 말 500자 — 사람 · 기본 에이전트 · 그 CLI 의 이름으로), 작업 폴더 안내(무엇이 맞춰져 있는지, 폴더 밖에 쓰지 말 것, git 을 쓰지 말 것, 답은 채팅에 그대로 올라감), 그 사람의 메시지. 데스크톱에는 프롬프트와 **메시지만**(`message`)을 함께 보낸다 — 세션을 이을 수 있으면 메시지만 넣는다.
+- `jobs.js` 는 종류마다 훅을 둔다(`setKindHooks('chat', …)` — prepare · complete · reply · note · cancelled, 맡기기 · 실패 · 배운 것은 하지 않음). 큐 · 배정 · 받기 확인 · 거두기 · sweep · 조종 · 제안은 단계와 같은 코드다. 데스크톱의 새 메시지 `reply` 는 `J.onMessage` 가 받아 종류의 `reply` 훅에 주고 `replied {turn}` 으로 답한다.
+
+### 12.3 작업 폴더 (결정)
+- **자기 폴더에서 일하는 프로젝트**(`pro_thread_folders.mode='project'`): 그 폴더의 **프로젝트 변형**(`threadFolders.ensureProjectVariation` — 서버 에이전트의 프로젝트 턴이 커밋하는 바로 그 가지 `var/p/<id>`)이 대화의 라인이다. 데스크톱은 그 가지에서 자기 실행 가지(`pgpt-agent/local-<일>-…`)를 만들고, 서버는 올라온 머리를 그 변형으로 가져온다(앞으로 감기, 아니면 merge — 그 변형이 서버 에이전트 턴 때문에 작업 트리에 열려 있으면 그 트리에서 merge, 그 밖에는 `line.advanceLine(…, {record: false})`). 원본(main)은 사람이 프로젝트 위의 「반영」으로 바꾼다. **편집자 이상**만 보낼 수 있다(실행자 · 보는 사람은 403). 연결형 폴더는 git 으로 내주지 않아 409.
+- **그 밖의 대화**(메인 채팅, 그 안의 맥락 대화, 자기 폴더가 없는 프로젝트 — 참고로 붙인 폴더는 건드리지 않는다): 그 사람만의 폴더 「내 PC 에이전트 작업 · <이름>」(관리형, slug `mypc-<사람 8자>`, `settings.local_chat.owner`, 구성원은 그 사람 owner 하나)을 처음 보낼 때 만든다. 그 폴더의 **main** 이 라인이다. 올라온 머리는 폴더의 main 작업 트리로 `merge --ff-only`, 안 되면 merge(충돌이면 main 은 그대로, 결과는 실행 가지에 남음) — 그 전에 main 에서 사람이 고친 것을 먼저 커밋한다(폴더 화면의 「반영」 끝과 같은 순서). 그 뒤 색인을 다시 만든다.
+- 왜: 결과가 서버의 폴더로 돌아와야(폴더 화면 · 파일 카드 · 산출물 스택 · 공유) 채팅이 서버 에이전트의 답과 같은 자리에 산출물을 둔다. 프로젝트는 이미 「프로젝트의 변형 + 반영」으로 일하므로 같은 길을 탄다. 메인 채팅에는 폴더가 없어서 사람마다 하나 만든다(남이 보지 않게 그 사람만). 대화마다 폴더를 따로 만들면 폴더 목록이 대화 수만큼 늘어 하나로 두었다 — 데스크톱의 작업 폴더(clone)는 대화마다 따로다(그 CLI 세션이 그 폴더에 산다).
+- git 토큰: 단계와 같다 — 그 기기 · 그 일의 토큰(24시간, push 는 그 일의 가지에만), 매 요청 `devices.gitAccess`.
+
+### 12.4 턴마다 (데스크톱 → 서버)
+- 데스크톱(runner, 0.2.2): `kind:'chat'` 이면 대화마다 폴더(`<data>/local-agents/work/<서버>/chat-<대화 열쇠 sha1 16자>-<폴더 8자>`), 중계 세션의 종류 `chat`(대상 = 그 일). `.claude/` · `.codex/` · `.pgl-run/` · `.tmp/` 는 `.git/info/exclude` — CLI 가 폴더마다 두는 설정(신뢰 · 「앞으로 묻지 않기」)은 서버 폴더에 올라가지 않는다. 스킬 · 결과.md · 배운 것은 없다.
+- CLI 의 턴이 끝나면(Claude Code `Stop` 훅 · Codex `task_complete`) 그 턴이 바꾼 것을 커밋 · push 하고 `reply {jobId, turn, text(마지막 말), branch, commit, pushed, files}` 를 보낸다. 서버가 `replied {turn}` 할 때까지 들고 있다가 다시 이어지면 또 보낸다(서버는 턴 번호로 한 번만 받는다). 턴들의 git 은 차례로 한다.
+- 서버(`chat.reply`): 그 일의 가지일 때만 라인으로 가져오고(12.3), 마지막 말을 **보통의 답 메시지**로(`kind 'text'`, `content.localAgent = {id, label, where, jobId}`, 맥락 대화에서는 `context {conversationId, action: 'continue', strategy: 'pinned'}` 와 `conv` — 서버 에이전트의 답처럼 그 대화의 갈래 · 산출물 스택에 들어가고, 그 대화의 요약(`context/digest.rebuildSoon`)도 다시 만든다), 그 턴의 파일을 **파일 카드**로(숨은 경로 · `CLAUDE.md` · `AGENTS.md` 는 빼고 8개까지, 그 커밋의 내용을 저장소에 올린 사본 — 내 폴더의 문서는 `folder` 를 붙여 편집기에서 열면 그 폴더에 저장, 프로젝트의 것은 사본). 같은 파일 · 같은 내용은 다시 카드로 만들지 않는다(`chat.carded`).
+
+### 12.5 세션 (같은 대화 · 같은 에이전트)
+- 실행 하나 = CLI 세션 하나(PTY 하나). 턴이 끝나면 단계처럼 기다린다(`settle.js` — 데스크톱 설정 「턴이 끝난 뒤 기다리기」, 기본 5분). 그 사이 오는 메시지는 같은 PTY 로(위). 기다림이 다 되거나 「끝내기」면 닫는다 — 마지막 커밋 · push 와 `done`(서버: 남은 머리를 가져오고 남은 파일을 카드로). 채팅은 결과를 기다리는 사람이 없어 저절로 닫혀도 잃는 것이 없다 — 다음 메시지가 세션을 잇는다.
+- 닫힌 뒤의 메시지: 새 실행이 `resume: {sessionId}`(앞 실행의 CLI 세션)를 받는다. 데스크톱은 그 대화의 세션 기록(`<data>/local-agents/sessions/chat-<열쇠>-<CLI>.json` — CLI 세션 · 폴더)이 맞고 같은 폴더면 `claude --resume` · `codex resume` 으로 잇고 메시지만 넣는다. 기록이 없으면(다른 컴퓨터, 지운 데이터) 새 세션에 프롬프트(대화 요약 + 폴더 안내 + 메시지)를 넣는다. 폴더는 매번 라인에서 다시 맞춘다(턴마다 올렸으므로 잃는 것이 없음).
+- 닫히는 사이에 보낸 메시지(데스크톱이 「결과를 올리는 중」이라 받지 못한 입력)는 `done` 뒤 서버가 그 말로 다음 실행을 바로 만든다(같은 세션을 이어).
+- 한 실행은 60분까지 — 채팅은 그때 실패가 아니라 닫힘(다음 메시지가 잇는다).
+- 앱이 실행 중에 다시 켜지면 단계와 같다: 서버가 같은 일을 그 일의 세션으로 다시 보내고 데스크톱이 잇는다.
+
+### 12.6 실패 · 꺼짐 · 「기본으로 다시 보내기」
+- 카드(`chat.cardOf` — 단계 카드의 모양에 `chat: true`, 폴더, 답 수): 기다림 「PC 앱이 꺼져 있어요 — 켜지면 …에게 보내요. 지금 답이 필요하면 기본으로 다시 보낼 수 있어요」, 바쁨, 보냄, 실행 중(「같은 세션을 이어서」), 연결 끊김(링크가 없으면 그때 알린 것이 아니어도 늘 그렇게 — hub 의 지금 상태로), 닫힘 「세션을 닫았어요 — 다음 메시지는 같은 세션을 이어요」, 멈춤(까닭), PC 에서 받지 않음(묻고 거절 · 로컬 실행 끔 · 실행할 수 없음).
+- 「기본으로 다시 보내기」(보낸 사람만, 기다림 · 연결 끊김 · 멈춤 · 받지 않음일 때): `POST /api/local-agents/jobs/:id/fallback` — 실행이 아직 열려 있으면 취소하고(데스크톱에 `cancel`), 마지막 답 뒤에 보낸 메시지들의 글을 돌려준다. 화면이 그 글을 「기본」으로 다시 보낸다(서버의 에이전트가 답하는 보통의 메시지 — 사용자 메시지가 한 번 더 보인다). 카드는 「기본 에이전트로 다시 보냈어요」.
+- 단계와 달리 서버에 저절로 맡기지 않는다: 채팅의 메시지를 누가 답할지는 사람이 고른 것이다.
+
+### 12.7 누가
+- 실행하는 것: 보낸 사람 자신의 데스크톱만(배정이 `user_id` 의 링크만 본다). 보는 것: 보낸 사람, 그리고 프로젝트 변형에서 도는 실행이면 그 폴더의 구성원(`chat.canSee` — 단계의 「인스턴스를 볼 수 있는 사람」에 맞춘 것. 대화 자체는 그 사람의 것이라 구성원이 그 카드를 여는 길은 지금 API 뿐이다). 입력 · 끝내기 · 물음에 답하기 · 다시 보내기: 보낸 사람만(그 밖 403). 다른 사람의 대화에 보내기는 404(대화가 그 사람의 것이 아님). 제안은 단계처럼 볼 수 있는 사람이 올릴 수 있다(데스크톱 알림만, Home 카드 없음).
+- 채팅의 실행은 Home 의 「지금 도는 실행」에 넣지 않는다(인스턴스가 없음 — `activeFor` 는 `proc_inst_id` 가 있는 것만).
+- 데스크톱의 「실행 전에 묻기」(시스템 창)는 채팅의 일에는 묻지 않는다 — 단계는 누가 배정해 오는 것이라 묻지만, 채팅의 메시지는 그 사람이 방금 자기 채팅에서 보낸 것이다. 「이 컴퓨터에서 단계 실행」을 끈 데스크톱에는 채팅의 일도 가지 않는다(칩에 「PC 앱에서 에이전트 실행이 꺼져 있어요」).
+
+### 12.8 운영에 필요한 것
+- **SQL `server/sql/055_chat_agents.sql`**(더하기만, 여러 번 돌려도 됨): `pro_local_jobs` 에 `kind`(기본 `'step'`) · `thread_id` · `chat` 열과 색인 하나, 새 테이블 `pro_chat_agents`(RLS 켬). 없으면 칩은 보이지만 내 PC 로 보내면 503 과 안내.
+- **데스크톱 0.2.2**: runner 가 바뀜(`kind 'chat'`, `reply`, 대화의 세션 기록, `caps.chat`). 0.2.1 데스크톱에는 채팅의 일을 보내지 않는다(칩이 「새 판으로 올리면 …」).
+- 새 환경변수는 없다.
+
+### 12.9 시험
+| 무엇 | 어디 | 결과(2026-11-24) |
+|---|---|---|
+| 고르기(데스크톱 caps: 없음 · 꺼짐 · 켜짐 · 실행 끔 · 0.2.2 전 · 없는 CLI), 대화 · 사람마다의 선택, chat 일 만들기(그 사람의 데스크톱에만), 같은 세션 이어 쓰기 · 닫힌 뒤 resume · 닫히는 사이의 메시지, 턴의 답 한 번, 권한(403 · 구성원은 보기만 · 편집자 아님 403) | `server/test/chatAgents.test.js` | 7/7 |
+| runner: 대화의 폴더 · `chat` 세션 · 턴마다 커밋 · push · reply, 같은 PTY 로 이어서, 결과.md 없음, 대화의 세션 기록으로 `--resume`, 기록이 없으면 새 세션(요약), reply 다시 보내기, 대화 없는 일 거절 | `desktop/test/chat.test.js` | 3/3 (데스크톱 전체 46 통과 · 4 건너뜀) |
+| 실제 BFF + runner(가짜 대화형 CLI): 고르기 · 보내기 → 답 + 파일 카드(내 폴더 main) · 이어서 · 끝내기 뒤 `--resume` · 다른 사람 403/404 · 꺼짐 → 기다림 · 다시 보내기 · 프로젝트 변형(원본 그대로) · 구성원 보기만 · 실행자 403 | `server/test/chatAgents.e2e.mjs` | 8/8 |
+| 화면: 칩 · 꺼진 항목과 까닭 · 내려받기 · PC 가 이어지면 켜짐 · 키보드로 고르기 · 태그 · 카드 · 답 · 파일 카드 · 이어서 · 대화마다 남음 · 다시 기본 · 꺼짐과 다시 보내기 · 390px 밝게/어둡게 · 어두운 테마 | `e2e/tests/feature/chat-agent-picker.spec.js` F-CA-01–08 | 7/7 |

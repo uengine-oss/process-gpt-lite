@@ -812,6 +812,26 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 실제 Wikimedia Commons 의 그날 후보 | — | — (시험은 공용 인터넷에 나가지 않음 · 스펙의 e2e/README.md 「실제 …로 한 번」) | — | ◐ |
 | 실제 Unsplash · Pexels 키 | — | — | — | ◐ |
 
+### 37. 채팅에서 메시지를 받을 에이전트를 고른다 — 「기본」 · 「Claude Code · 내 PC」 · 「Codex · 내 PC」 (스펙 `local-agents` 「채팅에서 고르는 에이전트」, 설계 `docs/local-agents/design.md` §12)
+
+`chat-agent-picker.spec.js` 는 30절의 파일들처럼 자기 스택(BFF `PRO_BACKGROUND=0` + Vite, 회사 `chatagent-ui`, 8892 · 5292 부터 빈 포트)을 띄우고 지운다. 서버의 에이전트 · completion · 맥락 라우터는 아무 데도 아닌 주소(`127.0.0.1:9`)로 둔다 — 공용 deepagents 를 부르지 않는다(F-CA-05 의 「기본」 답은 그래서 서버 에이전트의 실패 답이다). 윤태호의 PC 는 데스크톱 앱의 runner 그대로이고 CLI 는 가짜(`desktop/test/fixtures/fake-tui.js`). 모델은 부르지 않는다. 화면 사진은 `openspec/specs/local-agents/e2e/results/chat-agent/`. 명령은 `openspec/specs/local-agents/e2e/README.md`.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 입력창의 칩: 「기본」, PC 앱이 없으면 내 PC 항목은 꺼진 채 까닭 · 내려받기 링크, 꺼진 항목은 고를 수 없음 | 사용자 11-24 | F-CA-01 · `server/test/chatAgents.test.js` | feature · 단위 | ✅ |
+| PC 앱이 이어지면 새로 고침 없이 켜짐(그 데스크톱이 알린 CLI 만 · 기기 이름), 실행 끔 · 0.2.2 전 판은 까닭과 함께 꺼짐 | 사용자 11-24 | F-CA-01 · `chatAgents.test.js` | feature · 단위 | ✅ |
+| 키보드: ↓ 로 열기, ↓ · Enter 로 고르기, 포커스는 칩으로, Esc 로 닫기 | 접근성 | F-CA-02 | feature | ✅ |
+| 보내면: 메시지 아래 「→ Claude Code · 내 PC」, 실행 카드(「대화 / 터미널」, 「내 폴더 「내 PC 에이전트 작업 · 윤태호」」), CLI 의 마지막 말이 답 메시지로, 만든 파일이 파일 카드로(그 폴더의 원본에), 서버 에이전트는 부르지 않음 | 사용자 11-24 | F-CA-02 · `server/test/chatAgents.e2e.mjs` · `desktop/test/chat.test.js` | feature · 통합 · 단위 | ✅ |
+| 이어서 보낸 메시지는 같은 CLI 세션(실행 카드 하나, 답 하나 더) · 닫힌 뒤의 메시지는 새 실행이 그 세션을 이어(`--resume`) · 닫히는 사이의 메시지는 다음 실행이 받음 | 사용자 11-24 | F-CA-03 · `chatAgents.e2e.mjs` · `chatAgents.test.js` · `chat.test.js` | feature · 통합 · 단위 | ✅ |
+| 고른 것은 대화마다 · 사람마다 서버에(새로 고침 · 다른 브라우저 같음, 프로젝트는 따로) | 사용자 11-24 | F-CA-04 · `chatAgents.test.js` | feature · 단위 | ✅ |
+| 다시 「기본」: 요청에 `agent` 없음, 실행 카드 없음, 서버 에이전트가 답함 | 사용자 11-24 | F-CA-05 | feature | ✅ |
+| PC 가 꺼지면: 칩이 꺼짐 표시, 「PC 앱이 꺼져 있어요」, 실행 카드 「PC 앱 연결이 끊겼어요」 · 「기본으로 다시 보내기」(그 글이 기본으로) · 새 메시지는 「PC 앱이 켜지면 시작」 | 사용자 11-24 | F-CA-06 · `chatAgents.e2e.mjs` | feature · 통합 | ✅ |
+| 프로젝트: 그 폴더의 프로젝트 변형에 파일(원본 그대로), 편집자가 아니면 403(메시지 아래 까닭), 폴더 구성원은 보기만 | 사용자 11-24 | `chatAgents.e2e.mjs` · `chatAgents.test.js` | 통합 · 단위 | ✅ |
+| 다른 사람: 보기 · 입력 · 끝내기 · 다시 보내기 403, 그의 대화에 보내기 404, 그녀의 메시지는 그녀의 PC 를 기다림(남의 PC 로 가지 않음) | 사용자 11-24 | `chatAgents.e2e.mjs` · `chatAgents.test.js` | 통합 · 단위 | ✅ |
+| 휴대폰 390px 밝게 · 어둡게: 칩은 입력창 위, 목록은 화면 안, 옆으로 넘치지 않음 · 책상의 어두운 테마 | — | F-CA-07 · 08 | feature | ✅ |
+| 맥락으로 나눈 대화(`/chat/c/:id`) 안에서 보내기 · 그 대화의 산출물 스택 | 사용자 11-24 | `chatAgents.test.js`(대화 열쇠) · `chatAgents.e2e.mjs`(대화마다의 선택) — 화면은 모델 없이 그 대화를 만들 수 없음 | 단위 · 통합 | ◐ |
+| 실제 Claude Code · Codex 로 채팅 메시지 | — | — (가짜 대화형 CLI 로만) | — | ◐ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash
