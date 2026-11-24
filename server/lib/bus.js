@@ -13,10 +13,21 @@ export function subscribe(userId, res) {
   return () => subs.get(userId)?.delete(res)
 }
 
+// A live-view frame (browser.frame) is the one kind of event that may be left out: a viewer whose connection still holds
+// FRAME_BACKLOG bytes it has not sent (a phone on a slow line) gets no new frame until it has caught up — never a queue
+// growing in this server's memory — and the long-poll buffer keeps a task's newest frame only, so frames (several a
+// second) do not push messages and card changes out of it.
+export const FRAME_BACKLOG = 256 * 1024
+export const dropped = { frames: 0 }
 export function emit(userId, type, data) {
   const line = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`
-  for (const res of subs.get(userId) || []) res.write(line)
-  const list = recent.get(userId) || []
+  const frame = type === 'browser.frame'
+  for (const res of subs.get(userId) || []) {
+    if (frame && (res.writableLength || 0) > FRAME_BACKLOG) { dropped.frames++; continue }
+    res.write(line)
+  }
+  let list = recent.get(userId) || []
+  if (frame) list = list.filter((e) => !(e.type === type && e.data?.taskId === data?.taskId))
   list.push({ seq: ++seq, type, data })
   if (list.length > KEEP) list.splice(0, list.length - KEEP)
   recent.set(userId, list)

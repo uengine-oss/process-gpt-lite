@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
@@ -20,6 +20,8 @@ const queued = computed(() => c.value.state === 'queued')
 const review = computed(() => c.value.state === 'needs_review')
 const failed = computed(() => c.value.state === 'failed')
 const ended = computed(() => review.value || failed.value)
+// cancelled (그만두기 · 작업 취소): said on the pill, not a check mark that reads as done
+const cancelled = computed(() => c.value.state === 'cancelled')
 // finished with no picture of its last screen (an older card, a page that could not be photographed): a short
 // bar with its pill, not an empty screen whose shimmering title read as still loading (2026-11-22 phone
 // screenshot). The pill still opens the plan, at full size.
@@ -119,6 +121,34 @@ function finishTakeover() {
 }
 // this card's task, whether it holds the browser or waits in line
 const cancel = () => api('/browser/cancel', { method: 'POST', body: { taskId: props.msg.id } })
+
+// Nothing has moved for a while (server lib/browser.js guard → content.stall { what, since, after }): instead of a screen
+// that looks frozen, what it is waiting on, for how long, and 다시 시도 (that step again) · 그만두기 (stop the task).
+const stall = computed(() => (running.value && c.value.stall?.what ? c.value.stall : null))
+const now = ref(Date.now())
+let seenAt = 0, tick = null
+watch(() => stall.value?.since, (since) => {
+  clearInterval(tick)
+  tick = null
+  if (!since) return
+  seenAt = Date.now()
+  now.value = seenAt
+  tick = setInterval(() => { now.value = Date.now() }, 1000)
+}, { immediate: true })
+onBeforeUnmount(() => clearInterval(tick))
+// the server's clock when it is plausible, else counted on from when this card first saw the stall (a phone's clock may be off)
+const stallSecs = computed(() => {
+  if (!stall.value) return 0
+  const after = Number(stall.value.after) || 20
+  const d = now.value - Date.parse(stall.value.since)
+  return Math.floor(d >= (after - 5) * 1000 && d < 3600e3 ? d / 1000 : after + (now.value - seenAt) / 1000)
+})
+const stallTime = computed(() => (stallSecs.value >= 60 ? `${Math.floor(stallSecs.value / 60)}분 ${stallSecs.value % 60}초` : `${stallSecs.value}초`))
+const stepping = ref(false)
+async function retryStep() {
+  stepping.value = true
+  try { await api('/browser/retry', { method: 'POST', body: { taskId: props.msg.id } }) } catch { /* the card says what happens next */ } finally { setTimeout(() => { stepping.value = false }, 1500) }
+}
 const takeOver = () => { app.takeover = props.msg.id; app.handoff = props.msg.id }
 const toAnswer = () => document.querySelector(`.row[data-id="${answerCard.value?.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 const retry = () => app.send(isEnglish ? `Try again: ${c.value.title}` : `다시 시도해 줘: ${c.value.title}`, props.msg.thread_id)
@@ -189,11 +219,20 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
         <span v-else-if="queued" class="title wait" :title="c.reason"><Icon name="clock" :size="14" /><span class="tt">대기 · {{ c.title }}</span></span>
         <button v-else-if="ended" class="title review press" :title="why" @click.stop="showPlan = !showPlan"><Icon name="alert" :size="14" /><span class="tt">{{ label }}</span></button>
         <button v-else class="title press" :aria-label="`${c.title}, 계획 ${done}/${c.steps?.length}`" @click.stop="showPlan = !showPlan">
-          <span v-if="running" class="dots"><i /><i /><i /></span><Icon v-else name="check" :size="14" />
-          <Transition name="line"><span :key="live || c.title" class="tt">{{ live || c.title }}</span></Transition>
+          <span v-if="running" class="dots"><i /><i /><i /></span><Icon v-else :name="cancelled ? 'close' : 'check'" :size="14" />
+          <Transition name="line"><span :key="live || c.title" class="tt" data-testid="task-pill">{{ live || (cancelled ? `취소함 · ${c.title}` : c.title) }}</span></Transition>
         </button>
         <button class="round press" aria-label="확장" @click.stop="app.handoff = msg.id"><Icon name="expand" :size="16" /></button>
         <button v-if="running || needs || queued" class="round press" aria-label="작업 취소" @click.stop="cancel"><Icon name="close" :size="16" /></button>
+      </div>
+    </div>
+    <!-- nothing moved for a while: what it waits on, for how long, and the way on or out (also in the full view) -->
+    <div v-if="stall" class="ask stall" :class="{ inFull: full }" data-testid="task-stall" role="status">
+      <p class="why"><b data-testid="task-stall-what">기다리는 중 · {{ stall.what }}</b> <span class="secs" data-testid="task-stall-time">{{ stallTime }}</span></p>
+      <p class="hint">진행이 멈춘 것 같으면 「다시 시도」로 이 단계를 다시 하거나, 「그만두기」로 작업을 멈춰요.</p>
+      <div class="acts">
+        <button class="press go" data-testid="task-retry-step" :disabled="stepping" @click="retryStep"><Icon name="refresh" :size="18" />다시 시도</button>
+        <button class="press sub" data-testid="task-giveup" @click="cancel">그만두기</button>
       </div>
     </div>
     <!-- waiting or stopped: why, in full, and the one thing that gets it going again -->
@@ -255,6 +294,12 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
 .acts button { height: 48px; padding: 0 18px; border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 600; }
 .acts .go { flex: 1 1 180px; background: var(--color-attention); color: #fff; box-shadow: 0 4px 14px rgba(255 77 0 / .28); }
 .acts .sub { flex: 0 1 auto; background: rgba(127 127 127 / .13); color: var(--text-primary); font-weight: 500; }
+.ask.stall { box-shadow: inset 0 0 0 1.5px rgba(178 80 0 / .4), var(--shadow-card); }
+.ask.stall.inFull { width: min(92vw, 1024px, 112vh); margin: 12px auto 0; }
+.ask.stall .why b { font-weight: 600; }
+.ask.stall .secs { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ask.stall .hint { margin: -4px 0 12px; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); word-break: keep-all; overflow-wrap: anywhere; }
+.acts button:disabled { opacity: .55; }
 .aerr { margin: 10px 2px 0; font-size: 13.5px; line-height: 1.45; color: var(--color-error); }
 .meta { display: flex; justify-content: space-between; align-items: center; padding: 8px 6px 0; font-size: 14px; color: var(--text-secondary); }
 .steps { font-size: 13px; color: var(--text-tertiary); }

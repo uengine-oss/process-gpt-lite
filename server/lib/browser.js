@@ -23,6 +23,9 @@ import { nameByContent } from './fileSniff.js'
 import { workspaceHostPath } from './missions.js'
 import { browserSkill, browserSkills, readBrowserSkill, browserSkillCatalog } from './browserSkills.js'
 import { judge } from './judge.js'
+import { STEP, StepError, isStop, bounded, pause, navigate, settleAfter, lookAll, watchdog, throttledScreencast, releaseProfile, lockHolder, browserPidFor } from './browserSteps.js'
+
+export { STEP } from './browserSteps.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -147,34 +150,97 @@ async function keepDownload(userId, s, d) {
 const VIEW = { width: 1280, height: 800 }
 // the data volume is shared with other features: Chromium's cache stays small
 const LAUNCH_ARGS = ['--disk-cache-size=52428800']
+// The live view: at most this many frames a second (PRO_BROWSER_LIVE_FPS, default 3). An animated page made Chromium
+// encode up to 9 frames a second at 1280×800 for every viewer (≈ 0.9 MB/s; 2026-11-24 measurement) — on a phone's
+// connection, and on a pod with 2 CPUs shared with the page itself.
+export const LIVE = { minMs: Math.round(1000 / Math.max(0.5, Number(process.env.PRO_BROWSER_LIVE_FPS) || 3)), width: 1024, height: 640 }
 
 async function sessionOf(userId) {
   const s = sessions.get(userId)
   if (s && !s.ctx._closed) return s
-  // two tasks asked for at once share one launch (a second launch on the same profile would fail)
-  if (!launching.has(userId)) launching.set(userId, launch(userId).finally(() => launching.delete(userId)))
+  // two tasks asked for at once share one launch (a second launch on the same profile would fail); a browser that
+  // closed (it crashed) opens again in the same session, so the tasks in line keep their place
+  if (!launching.has(userId)) launching.set(userId, (s ? relaunch(userId, s, 'the browser closed') : launch(userId)).finally(() => launching.delete(userId)))
   return launching.get(userId)
 }
 
 async function launch(userId) {
+  const s = { ctx: null, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [], planning: new Map(), pid: 0 }
+  await openBrowser(userId, s)
+  sessions.set(userId, s)
+  return s
+}
+
+// Chromium on the person's profile, into session s. The profile is freed first: lock links a Chromium that is gone
+// left behind (another pod, a crash), and a Chromium of this server's own that stopped answering
+// (lib/browserSteps.js releaseProfile). A launch that fails is tried once more after freeing it again.
+async function openBrowser(userId, s) {
   const dir = path.join(PROFILES, userId)
   fs.mkdirSync(dir, { recursive: true })
-  const cleared = clearStaleLocks(dir) // no live session of this person here (sessionOf checked)
-  if (cleared.length) console.log('[browser] cleared stale profile locks', userId, cleared.join(','))
-  const ctx = await chromium.launchPersistentContext(dir, { headless: true, viewport: VIEW, locale: 'ko-KR', args: LAUNCH_ARGS })
+  const freed = await releaseProfile(dir, { pid: s.pid })
+  if (freed.stopped || freed.cleared.length) console.log('[browser] freed the profile', userId, freed.stopped ? `stopped ${freed.stopped}` : '', freed.cleared.join(','))
+  const options = { headless: true, viewport: VIEW, locale: 'ko-KR', args: LAUNCH_ARGS, timeout: STEP.launchMs }
+  let ctx
+  try { ctx = await chromium.launchPersistentContext(dir, options) } catch (e) {
+    console.warn('[browser] launch failed, once more:', String(e.message).split('\n')[0])
+    await releaseProfile(dir)
+    ctx = await chromium.launchPersistentContext(dir, options)
+  }
   ctx.on('close', () => { ctx._closed = true })
-  const s = { ctx, page: null, frame: null, task: null, threadId: null, captures: new Map(), queue: [], planning: new Map() }
+  s.ctx = ctx
+  // the Chromium this session runs (its lock link names it, else its command line): stopped by releaseProfile should it
+  // stop answering and not close
+  s.pid = lockHolder(dir)?.pid || browserPidFor(dir)
   await ctx.addInitScript(PAGE_GUARD)
   await ctx.exposeBinding('__proVaultCapture', (_src, payload) => onCapture(userId, s, payload).catch((e) => console.warn('[vault capture]', e.message)))
   const watchDownloads = (page) => page.on('download', (d) => keepDownload(userId, s, d).catch((e) => console.warn('[browser] download', e.message)).finally(() => dropDownloadTabs(s, page)))
   // a link that opens a new tab, a sign-in popup: the work (and the live view) moves there, and back when it closes
-  ctx.on('page', (p) => { watchDownloads(p); if (s.page) follow(userId, s, p).catch((e) => console.warn('[browser] new page', e.message)) })
+  s.page = null
+  ctx.on('page', (p) => { watchDownloads(p); if (s.page && s.ctx === ctx) follow(userId, s, p).catch((e) => console.warn('[browser] new page', e.message)) })
   s.page = ctx.pages()[0] || await ctx.newPage()
   watchDownloads(s.page)
-  await s.page.evaluate(PAGE_GUARD).catch(() => {})
-  sessions.set(userId, s)
-  await startScreencast(userId, s)
+  await within(s.page.evaluate(PAGE_GUARD), 3000, null)
+  await within(startScreencast(userId, s), 5000, null)
   return s
+}
+
+// The same session on a new Chromium: the old one is closed (stopped, when closing hangs) and the profile freed.
+async function relaunch(userId, s, why) {
+  console.warn(`[browser] restarting the browser of ${userId}: ${why}`)
+  const old = s.ctx
+  s.cdp = null
+  if (old && !old._closed) { old._closed = true; await within(old.close(), 5000, null) }
+  await openBrowser(userId, s)
+  sessions.set(userId, s)
+  return s
+}
+
+// Before a task drives the browser: the page has to answer (a renderer stuck in a page's script does not, and every
+// look at it would run out its limit). Else a fresh tab; else a fresh browser on the same profile.
+async function healthy(userId, s) {
+  const answers = (p) => within(p.evaluate(() => 1).then(() => true), 3000, false)
+  if (s.ctx._closed) return relaunch(userId, s, 'the browser closed')
+  if (await answers(s.page)) return s
+  // the stuck renderer is ended first (CDP Page.crash runs on its IO thread, which a looping script does not hold):
+  // a new tab of the same site would otherwise be put in that same process and be stuck as well
+  const old = s.page // (before the new tab: following it, follow() makes it s.page as soon as it opens)
+  const cdp = s.cdp || await within(s.ctx.newCDPSession(old), 2000, null)
+  await within(cdp?.send('Page.crash'), 2000, null)
+  const p = await within(s.ctx.newPage(), 5000, null)
+  if (p && await answers(p)) {
+    if (s.page !== p) await usePage(userId, s, p)
+    old.close().catch(() => {}) // (a stuck page may never confirm it closed)
+    console.warn('[browser] the page stopped answering: going on in a fresh tab', userId)
+    return s
+  }
+  return relaunch(userId, s, 'the page stopped answering')
+}
+
+// After a task: tabs it left open (links that opened new tabs, popups) close, all but the one it ended on —
+// each one is a renderer holding memory in a pod with a memory limit.
+async function closeOtherTabs(s) {
+  if (s.ctx._closed) return
+  for (const p of s.ctx.pages()) if (p !== s.page && !p.isClosed()) await within(p.close(), 3000, null)
 }
 
 // A link that downloads into a new tab leaves that tab with no page of its own (the download is the opener's);
@@ -205,9 +271,12 @@ async function usePage(userId, s, p) {
   await p.bringToFront().catch(() => {})
   const old = s.cdp
   s.cdp = null
-  await old?.send('Page.stopScreencast').catch(() => {})
-  await old?.detach().catch(() => {})
-  await startScreencast(userId, s).catch((e) => console.warn('[browser] screencast', e.message))
+  await within(old?.send('Page.stopScreencast'), 2000, null)
+  await within(old?.detach(), 2000, null)
+  // (a tab that has only just opened may not take it yet: once more a moment later)
+  const live = () => startScreencast(userId, s).then(() => true)
+  const ok = await within(live().catch(() => false), 5000, false) || (s.page === p && await within(new Promise((r) => setTimeout(r, 300)).then(live).catch((e) => { console.warn('[browser] screencast', e.message); return false }), 5000, false))
+  if (!ok && s.page === p) console.warn('[browser] no live view for this tab')
   if (s.task) say(s.task, L(`${hostOf(p.url()) || '새 탭'}에서 이어서 하는 중`, `Going on in ${hostOf(p.url()) || 'the new tab'}`))
 }
 
@@ -229,62 +298,41 @@ async function onCapture(userId, s, p) {
   else s.captures.set(item.id, (await addMessage(userId, threadId, 'agent', 'vault', content)).id)
 }
 
+// The live view: CDP screencast frames, at most one per LIVE.minMs (lib/browserSteps.js throttledScreencast), to
+// whoever watches (lib/bus.js drops frames for a viewer whose connection has not taken the last ones yet).
 async function startScreencast(userId, s) {
   const page = s.page
   const cdp = await s.ctx.newCDPSession(page)
   s.cdp = cdp
-  cdp.on('Page.screencastFrame', async (f) => {
-    if (s.page === page) {
+  throttledScreencast(cdp, {
+    minMs: LIVE.minMs,
+    onFrame: (f) => {
+      if (s.page !== page || s.cdp !== cdp) return
       s.frame = f.data
       if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data: f.data, url: page.url() })
-    }
-    await cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {})
+    },
   })
-  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: VIEW.width, maxHeight: VIEW.height, everyNthFrame: 2 })
+  // 1024×640 at quality 50: half the bytes of 1280×800 at 60 (≈100 KB a frame on a map page, 2026-11-24), the same 16:10 —
+  // the card and the full view never show it wider than 1024, and takeover clicks are fractions of it
+  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 50, maxWidth: LIVE.width, maxHeight: LIVE.height, everyNthFrame: 1 })
 }
 
 // A page busy with its own scripts must not hold a task for minutes: every look at it has a limit.
-const SHOT_MS = 6000
-const EVAL_MS = 8000
-const within = (p, ms, fallback) => Promise.race([p, new Promise((r) => setTimeout(() => r(fallback), ms).unref?.())]).catch(() => fallback)
+const within = (p, ms, fallback) => Promise.race([Promise.resolve(p), new Promise((r) => setTimeout(() => r(fallback), ms).unref?.())]).catch(() => fallback)
 
 async function pushFrame(userId, s) {
-  const shot = await s.page.screenshot({ type: 'jpeg', quality: 55, timeout: SHOT_MS }).catch(() => null)
+  const shot = await s.page.screenshot({ type: 'jpeg', quality: 55, timeout: STEP.shotMs }).catch(() => null)
   if (!shot) return null
   s.frame = shot.toString('base64')
   if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data: s.frame, url: s.page.url() })
   return s.frame
 }
 
-// Numbered interactive elements, the agent's view of the page. Also what the page calls itself (its
-// og:site_name / application-name meta) and, from the visible fields alone, whether it has a password or
-// a sign-in field: what the wall check reads besides the text.
-const SNAPSHOT_JS = () => {
-  const els = [...document.querySelectorAll('a,button,input,textarea,select,[role=button],[role=link],[contenteditable=true]')]
-  const out = []
-  const fields = { password: false, signIn: false }
-  const meta = (n) => (document.querySelector(`meta[property="${n}"], meta[name="${n}"]`)?.content || '').trim()
-  let i = 0
-  for (const el of els) {
-    const r = el.getBoundingClientRect()
-    if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > innerHeight) continue
-    const st = getComputedStyle(el)
-    if (st.visibility === 'hidden' || st.display === 'none') continue
-    el.setAttribute('data-pro-idx', String(i))
-    // a secret field shows what it is for and whether it is filled, never its value
-    const secret = el.type === 'password' || el.hasAttribute('data-pro-secret') || /^cc-|one-time-code/.test(el.autocomplete || '') ||
-      /card.?(no|num)|cardnumber|cvc|cvv|csc|otp/i.test(`${el.name || ''} ${el.id || ''}`)
-    const label = el.placeholder || el.getAttribute('aria-label') || ''
-    if (el.type === 'password') fields.password = true
-    if (el.tagName === 'INPUT' && (el.type === 'email' || String(el.autocomplete || '').split(/\s+/).some((t) => t === 'username' || t === 'email'))) fields.signIn = true
-    out.push({ i, tag: el.tagName.toLowerCase(), type: el.type || '', name: el.name || '',
-      text: (secret ? label : (el.innerText || el.value || label)).trim().slice(0, 60),
-      ...(secret ? { secret: true, filled: !!el.value } : {}) })
-    if (++i >= 120) break
-  }
-  return { title: document.title, url: location.href, site: meta('og:site_name') || meta('application-name'), fields,
-    text: document.body.innerText.slice(0, 2500), els: out }
-}
+// Numbered interactive elements and the text on screen, the agent's view of the page: lib/browserSteps.js SNAPSHOT_JS
+// (capped and bounded inside the page: 120 elements, 3000 characters, 1.5 s of scanning). Before 2026-11-24 the text
+// was the first 2500 characters of the whole document — on a results page the menus, whatever the agent scrolled to —
+// and numbers of an earlier look stayed on elements, so a click could land on an element of an older look.
+const SNAP_OPTS = { maxEls: 120, maxText: 3000, budgetMs: 1500 }
 
 // Slow work on a page (a report, an audio file being made) is waited for here, without spending the model's turns.
 export const WAIT = { everyMs: 15000, maxMinutes: 30, taskMaxMinutes: 60, watchMs: 2000, settleMs: 500 }
@@ -297,8 +345,8 @@ const TOOLS = [
   ['fill_secret', 'Fill a saved vault credential into element (field: username|password|card_number|card_exp|card_cvv|card_name). If none is saved the server asks the user; if several are saved it asks which one', { i: 'number', field: 'string' }],
   ['login_failed', 'The site rejected the login you filled (wrong password / error after submitting). The server marks it rejected and asks the user for a corrected password', { reason: 'string' }],
   ['need_secret', 'A one-time value only the user has (SMS/e-mail verification code, OTP, 2FA). The server asks the user and types it into element i; you never see the value', { i: 'number', label: 'string' }],
-  ['scroll', 'Scroll the page', { dy: 'number' }],
-  ['wait_for_page', 'Wait for slow work on this page (something being generated) without using up your actions. The page is checked every 15 seconds until until_text appears on it or gone_text is no longer on it, or the minutes run out. Files the page downloads meanwhile reach the person by themselves', { minutes: 'number', until_text: 'string', gone_text: 'string' }],
+  ['scroll', 'Scroll the page. To scroll a list or panel of its own (a map\'s result list, a frame), give i: an element inside it', { dy: 'number', i: 'number' }],
+  ['wait_for_page', 'Wait for slow work the page is doing by itself (something being generated, processed or uploaded) without using up your actions. Not for anything that comes only after you act (a list of suggestions after typing, results after pressing search): act instead. The page is checked every few seconds until until_text appears on it or gone_text is no longer on it, or the minutes run out. Files the page downloads meanwhile reach the person by themselves', { minutes: 'number', until_text: 'string', gone_text: 'string' }],
   ['tell_user', 'Tell the person in the chat how a long task is going, in one or two sentences. Work goes on', { text: 'string' }],
   ['attach_file', 'Give a file the person attached to this task to the page: i is the file input or the control that opens the file picker', { i: 'number', name: 'string' }],
   ['step_done', 'Mark a plan step complete', { step: 'number', note: 'string' }],
@@ -319,7 +367,7 @@ const TOOLS = [
         // a step finished by this very action is marked with it: no turn spent on step_done alone
         ...(STEP_TOOLS.has(name) ? { done: { type: 'number', description: 'Number of the plan step this action completes, if it does' } } : {}),
       },
-      required: Object.keys(props).filter((k) => !['enter', 'note', 'options', 'until_text', 'gone_text', 'need'].includes(k) && !(k === 'name' && name !== 'read_skill')),
+      required: Object.keys(props).filter((k) => !['enter', 'note', 'options', 'until_text', 'gone_text', 'need'].includes(k) && !(k === 'name' && name !== 'read_skill') && !(k === 'i' && name === 'scroll')),
     },
   },
 }))
@@ -337,9 +385,10 @@ export const isPurchaseControl = (text) => PURCHASE_CONTROL.test(String(text || 
 export const isPaymentControl = (text) => PAYMENT_CONTROL.test(String(text || ''))
 
 const firstLine = (goal) => String(goal).split('\n')[0].slice(0, 60)
+// (a plan that does not come within STEP.planMs is gone without: the task starts with no steps on its card)
 async function plan(goal) {
   const msg = await chat({
-    model: undefined, json: true,
+    model: undefined, json: true, timeoutMs: STEP.planMs,
     messages: [
       { role: 'system', content: (isEn() ? 'Break a web task into 3-6 short English steps. Reply JSON {"title": "short task name in English", "steps": ["..."]}' : 'Break a web task into 3-6 short Korean steps. Reply JSON {"title": "짧은 작업명", "steps": ["..."]}') + PLAN_SCOPE },
       { role: 'user', content: goal },
@@ -369,10 +418,14 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
   const card = await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '' })
   s.planning.set(card.id, false)
-  // an idle browser opens the start page while the plan is being made (the page is not anyone else's)
-  const early = startUrl && !s.task && !s.queue.length && s.planning.size === 1
+  // an idle browser is checked (a page a task before left stuck: a fresh tab or browser — healthy()) and opens the
+  // start page while the plan is being made (the page is not anyone else's)
+  const idle = !s.task && !s.queue.length && s.planning.size === 1
+  let earlyPage = null // the tab the start page was opened in
+  const ready = idle ? healthy(userId, s).catch((e) => console.warn('[browser] health check', e.message)) : null
+  const early = startUrl && idle
     ? (emit(userId, 'status', { threadId, text: L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`) }),
-      s.page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).then(() => true, () => true))
+      ready.then(() => { earlyPage = s.page; return navigate(earlyPage, startUrl) }).then(() => true, () => true))
     : null
   if (early) { s.early = early; early.then(() => { if (s.early === early) s.early = null }) }
   const p = await plan(goal).catch((e) => { console.warn('[browser] plan', e.message); return { title: firstLine(goal), steps: [] } })
@@ -385,7 +438,9 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   })
   const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     gates, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: sk?.name || null, signIn: sk?.signIn || '',
-    stats: { turns: 0, llm: 1, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, walls: 0, stuck: 0, early_finish: false, decisions: [], plan_ms: 0, turn_ms: [], wall_checks: [], skills_read: [] } }
+    // cancel ends whatever step is under way (abort), 다시 시도 only the current one (retry, per turn)
+    abort: new AbortController(), retry: null, signal: null,
+    stats: newStats({ llm: 1 }) }
   task.stats.plan_ms = Date.now() - t0
   task.cancelled = cancelledEarly
   if (ahead && !task.cancelled) {
@@ -400,16 +455,21 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   if (ahead) await updateMessage(userId, card.id, { state: 'running', reason: '' })
   // another task's start page, opened while it planned, lands before this one drives the page
   if (s.early && s.early !== early) await s.early
+  // a page left stuck by the task before (a script that never returns) is not this task's problem: a fresh tab or browser
+  // (checked already when the browser was idle at the start; a task that waited in line checks now)
+  if (ready) await ready
+  else await healthy(userId, s).catch((e) => console.warn('[browser] health check', e.message))
   // from here the browser is this task's: anything a site sends from now on answers what this task did
   // (a code mailed for an earlier sign-in is not this one's — lib/mailCode.js watchForCode since)
   task.drivingSince = Date.now()
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
+  // the start page opened while the plan was made counts when it is in the tab still in use; else it opens now
   if (early && !ahead) await early
-  else if (startUrl) {
+  if (startUrl && !(early && !ahead && s.page === earlyPage)) {
     say(task, L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`))
-    await s.page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    await navigate(s.page, startUrl, { signal: task.abort.signal }).catch(() => {})
   }
   const startedAt = s.page.url()
   await pushFrame(userId, s)
@@ -428,7 +488,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     result = { state: 'needs_review', need: 'stuck', reason, summary: reason }
   }
   // finished without saying the result: one closing call for it (the person reads the result first)
-  if (result.state === 'done' && !String(result.summary || '').trim() && task.log.some((e) => e.ok)) {
+  if (!task.cancelled && result.state === 'done' && !String(result.summary || '').trim() && task.log.some((e) => e.ok)) {
     result.summary = await closingSummary(messages, task).catch((e) => { console.warn('[browser] closing summary', e.message); return '' })
   }
   // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
@@ -442,20 +502,28 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     const host = hostOf(s.page.url())
     const why = result.state === 'failed' || result.state === 'needs_review'
       ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: result.site || host, siteName: result.siteName || nameOn(task, host) } : { need: null, reason: '' }
-    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url() || undefined, shot, ...why })
+    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.page.url() || undefined, shot, stall: null, ...why })
     say(task, null)
     await setThreadStatus(userId, threadId, null)
     result.url = s.page.url()
     result.notes = task.notes
     result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
-    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s · ${task.stats.turns} turns · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}`)
-    result.pageText = hide(task, await within(s.page.evaluate(() => document.body.innerText.slice(0, 6000)), EVAL_MS, ''))
+    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s · ${task.stats.turns} turns · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}${task.stats.stalls ? ` · ${task.stats.stalls} stalls` : ''}${task.stats.retries ? ` · ${task.stats.retries} retried` : ''}`)
+    result.pageText = task.cancelled ? '' : hide(task, await within(s.page.evaluate(() => document.body.innerText.slice(0, 6000)), STEP.snapMs, ''))
     return result
   } finally {
     if (s.task === task) s.task = null
-    // the next task in line gets the browser
+    task.dog?.stop()
+    // the tabs this task opened go (memory); the next task in line gets the browser
+    await closeOtherTabs(s).catch(() => {})
     s.queue.shift()?.go()
   }
+}
+
+// What a task counts, for its log line and the tests (stats.turn_ms: what each turn's steps took).
+function newStats(extra = {}) {
+  return { turns: 0, llm: 0, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, walls: 0, stuck: 0, early_finish: false, decisions: [], plan_ms: 0, turn_ms: [], wall_checks: [], skills_read: [],
+    stalls: 0, retries: 0, model_retries: 0, step_timeouts: 0, waits_refused: 0, ...extra }
 }
 
 // The agent's first message: the goal, its steps and the rules every browser task keeps.
@@ -480,12 +548,19 @@ const NUDGE = 'You have not performed any browser action yet (no goto/click/type
 async function drive(s, task, { messages, onAction, stop = () => false }) {
   let result = { state: 'done', summary: '' }
   let ended = false
+  task.abort ||= new AbortController()
+  const dog = guard(task)
   try {
   for (let turn = 0; turn < MAX_TURNS && !task.cancelled; turn++) {
-    say(task, L('페이지 읽는 중', 'Reading the page'))
+    // this turn's steps end at once on 작업 취소 (task.abort) or 다시 시도 (task.retry, this turn only)
+    task.retry = new AbortController()
+    const signal = task.signal = AbortSignal.any([task.abort.signal, task.retry.signal])
     const tm = { snap: 0, judge: 0, shot: 0, llm: 0, act: 0 }
+    let pushed = 0, msg = null, call = null
+    try {
+    phase(task, 'read', L('페이지 읽는 중', 'Reading the page'), L('페이지 읽기', 'reading the page'))
     let t = Date.now()
-    let snap = await look(s)
+    let snap = await bounded(look(s), STEP.snapMs + 2000, { signal, label: 'read' })
     tm.snap = Date.now() - t
     if (stop(snap)) { result = { state: 'stopped', summary: '' }; ended = true; break }
     task.page = { host: hostOf(snap.url), name: pageName(snap) }
@@ -493,7 +568,8 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     // a sign-in wall, a bot check, a site refusing this browser: the person's turn, not the model's.
     // Judged once per page (a new address, or after the person stepped in), not by any wording
     t = Date.now()
-    const wall = await wallOn(task, snap)
+    phase(task, 'judge', undefined, L('화면 확인', 'the page check'))
+    const wall = await bounded(wallOn(task, snap), Infinity, { signal, label: 'judge' })
     tm.judge = Date.now() - t
     const w = wall && await atWall(s, task, wall, snap)
     if (w?.end) { result = w.end; ended = true; break }
@@ -502,14 +578,14 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     // the same screen, action after action, with nothing changing: the person is asked before more turns go by
     const key = pageKey(snap)
     if (task.prev) task.stale = key !== task.prev.key || task.prev.progress ? 0 : task.stale + (task.prev.acted ? 1 : 0)
-    if (task.stale >= STUCK_TURNS) {
+    if (task.stale >= STUCK_TURNS || task.looped) {
       const st = await whenStuck(s, task, snap)
       if (st.end) { result = st.end; ended = true; break }
       turn--; continue
     }
     task.stats.turns++
     if (task.gates && snap.url !== task.gatedUrl && /^https?:/.test(snap.url)) {
-      const g = await pageGate(s, task, snap)
+      const g = await bounded(pageGate(s, task, snap), Infinity, { signal, label: 'page check' })
       snap = g.snap
       hint += g.hint
     }
@@ -517,22 +593,27 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     const got = (task.downloads || []).splice(0)
     if (got.length) hint += `\nDownloaded and shown to the person as file cards: ${got.join(', ')}`
     messages.push({ role: 'user', content: hide(task, JSON.stringify(snap)) + hint })
+    pushed = 1
     t = Date.now()
-    const shot = await s.page.screenshot({ type: 'jpeg', quality: 50, mask: [s.page.locator(SECRET_SELECTOR)], maskColor: '#1d1d1f', timeout: SHOT_MS }).catch(() => null)
+    phase(task, 'shot', undefined, L('화면 사진', 'the screenshot'))
+    const shot = await bounded(s.page.screenshot({ type: 'jpeg', quality: 50, mask: [s.page.locator(SECRET_SELECTOR)], maskColor: '#1d1d1f', timeout: STEP.shotMs }).catch(() => null), STEP.shotMs + 2000, { signal, label: 'screenshot' }).catch((e) => { if (isStop(e)) throw e; return null })
     tm.shot = Date.now() - t
     if (shot) {
       messages.push({ role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${shot.toString('base64')}` } }] })
+      pushed = 2
       // the same picture is the live view's newest frame (no second screenshot after the action)
       s.frame = shot.toString('base64')
       emit(task.userId, 'browser.frame', { taskId: task.id, data: s.frame, url: s.page.url() })
     }
     t = Date.now()
-    const msg = await chat({ messages, tools: TOOLS })
+    phase(task, 'model', L('다음 할 일 고르는 중', 'Deciding what to do next'), L('AI 모델의 답', "the AI model's answer"))
+    msg = await askModel(task, messages, signal)
     tm.llm = Date.now() - t
     task.stats.llm++
-    messages.splice(messages.length - (shot ? 2 : 1), shot ? 2 : 1, { role: 'user', content: `[page ${snap.url}] ${snap.title || ''}` })
+    messages.splice(messages.length - pushed, pushed, { role: 'user', content: `[page ${snap.url}] ${snap.title || ''}` })
+    pushed = 0
     messages.push(msg)
-    const call = msg.tool_calls?.[0]
+    call = msg.tool_calls?.[0]
     if (!call && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); timing(task, tm); continue }
     if (!call) { result = { state: 'done', summary: msg.content || '' }; ended = true; timing(task, tm); break }
     let args = {}
@@ -540,36 +621,139 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     task.lastSnap = snap
     let out = 'ok'
     t = Date.now()
+    const name = call.function.name
+    phase(task, 'act', undefined, L('동작', 'the action'))
     try {
-      out = await act(s, task, call.function.name, args)
-    } catch (e) { out = 'error: ' + e.message.slice(0, 200) }
+      // one action has a limit (a navigation it starts has its own on top); the ones that wait — on the page, on the
+      // person — have their own ends and stop on 다시 시도 or 작업 취소
+      out = await actWithin(task, act(s, task, name, args), LONG_TOOLS.has(name) ? Infinity : STEP.actMs + (name === 'goto' ? STEP.navMs + STEP.settleMs : 0), signal, name)
+    } catch (e) {
+      if (isStop(e)) throw e
+      if (e instanceof StepError) task.stats.step_timeouts++
+      out = e instanceof StepError
+        ? `error: the action did not finish within ${Math.round(e.ms / 1000)} s and was left; look at the page again`
+        : 'error: ' + e.message.slice(0, 200)
+    }
     tm.act = Date.now() - t
-    timing(task, tm, call.function.name)
-    task.prev = { key, acted: ACTING.has(call.function.name) || /^error/.test(String(out)), progress: ['note', 'step_done'].includes(call.function.name) }
+    timing(task, tm, name)
+    const lastKey = task.prev?.key
+    task.prev = { key, acted: ACTING.has(name) || /^error/.test(String(out)), progress: ['note', 'step_done'].includes(name) }
+    // the same action on the very same screen, a third time within the last LOOP_SPAN actions, with other screens in
+    // between: a loop (a date picker that opens again after 검색 — 2026-11-24, 40 actions of 18 · 20 · 검색). Tries on a
+    // screen that does not change at all are counted by task.stale above (five in a row)
+    if (ACTING.has(name) && lastKey && lastKey !== key) {
+      const sig = `${key}|${name}|${task.target?.name || ''}|${args.url || ''}|${args.text ?? ''}|${args.dy ?? ''}`
+      task.recentActs = [...(task.recentActs || []), sig].slice(-LOOP_SPAN)
+      if (task.recentActs.filter((x) => x === sig).length >= 3) task.looped = true
+    }
     messages.push({ role: 'tool', tool_call_id: call.id, content: hide(task, String(out)) })
-    await onAction?.(call.function.name, args, String(out))
+    await onAction?.(name, args, String(out))
     // one action per turn; any extra calls get an explicit skip so the transcript stays valid
     for (const extra of msg.tool_calls.slice(1)) messages.push({ role: 'tool', tool_call_id: extra.id, content: 'skipped: one action per turn' })
+    call = null
     if (out === '__finish__' && !task.log.length && !task.notes.length && !task.nudged) { task.nudged = true; messages.push({ role: 'user', content: NUDGE }); continue }
     if (out === '__finish__') { result = { state: 'done', summary: args.summary }; ended = true; break }
-    if (task.gates && call.function.name === 'note' && await goalMet(task)) {
+    if (task.gates && name === 'note' && await goalMet(task)) {
       // the notes already answer the goal: one closing call instead of more browsing turns
       task.stats.early_finish = true
-      say(task, L('정리하는 중', 'Wrapping up'))
-      const fin = await chat({ messages: [...messages, { role: 'user', content: `The recorded notes already answer the goal. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary containing all collected facts.` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } } })
+      phase(task, 'model', L('정리하는 중', 'Wrapping up'), L('AI 모델의 답', "the AI model's answer"))
+      const fin = await bounded(chat({ messages: [...messages, { role: 'user', content: `The recorded notes already answer the goal. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary containing all collected facts.` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } }, signal, timeoutMs: STEP.modelMs }), Infinity, { signal, label: 'model' })
       task.stats.llm++
       const fa = JSON.parse(fin.tool_calls?.[0]?.function?.arguments || '{}')
       result = { state: 'done', summary: fa.summary || fin.content || task.notes.join('\n') }
       ended = true
       break
     }
+    } catch (e) {
+      if (!isStop(e)) throw e
+      // the steps of this turn stopped part way: the transcript stays whole (a page look the model never answered goes,
+      // an action that was cut off says so)
+      if (pushed) messages.splice(messages.length - pushed, pushed)
+      if (call) {
+        messages.push({ role: 'tool', tool_call_id: call.id, content: 'stopped: the person asked to look at the page again before this finished; it may not have happened' })
+        for (const extra of msg.tool_calls.slice(1)) messages.push({ role: 'tool', tool_call_id: extra.id, content: 'skipped: one action per turn' })
+      }
+      if (e.kind === 'cancel' || task.cancelled) break
+      // 다시 시도: the same turn again, from a fresh look (it does not count as one of the agent's turns)
+      task.stats.retries++
+      task.prev = null
+      turn--
+      say(task, L('다시 보는 중', 'Looking again'))
+    }
   }
   } catch (e) {
     console.warn('[browser]', e.message)
     const reason = failReason(e)
     result = { state: 'failed', need: 'other', reason, summary: reason }
+  } finally {
+    dog.stop()
+    if (dog.state.stalled || task.stalled) updateMessage(task.userId, task.id, { stall: null }).catch(() => {})
+    task.retry = null
   }
   return { result, ended }
+}
+
+// An action within ms — counting only the time it is not waiting on the person (a press the purchase gate turns into an
+// approval card waits for them as long as it takes). 작업 취소 · 다시 시도 end it at once.
+function actWithin(task, work, ms, signal, label) {
+  if (!Number.isFinite(ms)) return bounded(work, Infinity, { signal, label })
+  return new Promise((resolve, reject) => {
+    let spent = 0, last = Date.now()
+    const tick = setInterval(() => {
+      const now = Date.now()
+      if (!task.waiting) spent += now - last
+      last = now
+      if (spent >= ms) { clearInterval(tick); reject(new StepError('timeout', label, ms)) }
+    }, 250)
+    tick.unref?.()
+    bounded(work, Infinity, { signal, label }).then((v) => { clearInterval(tick); resolve(v) }, (e) => { clearInterval(tick); reject(e) })
+  })
+}
+
+// Tools that wait — on the page (its own limits) or on the person (a card) — and so have no limit of a single action.
+const LONG_TOOLS = new Set(['wait_for_page', 'fill_secret', 'login_failed', 'need_secret', 'approve', 'need_login', 'need_user', 'tell_user'])
+
+// One model turn, within STEP.modelMs; asked once more when it runs out (a gateway that lost one request), then the
+// task stops saying the model did not answer.
+async function askModel(task, messages, signal) {
+  for (let tries = 0; ; tries++) {
+    try {
+      return await bounded(chat({ messages, tools: TOOLS, signal, timeoutMs: STEP.modelMs }), STEP.modelMs + 5000, { signal, label: 'model' })
+    } catch (e) {
+      if (isStop(e) || tries >= 1 || !timedOut(e)) throw e
+      task.stats.model_retries++
+      console.warn(`[browser] task ${task.id}: the model did not answer within ${Math.round(STEP.modelMs / 1000)} s — asking once more`)
+      phase(task, 'model', L('AI 모델이 늦어 다시 묻는 중', 'The AI model is slow — asking again'), L('AI 모델의 답', "the AI model's answer"))
+    }
+  }
+}
+const timedOut = (e) => (e instanceof StepError ? e.kind === 'timeout' : /timed? ?out|due to timeout|TimeoutError|aborted/i.test(`${e?.name || ''} ${e?.message || ''}`))
+
+// The watchdog of a task (lib/browserSteps.js): nothing moved for STEP.stallMs → the card says what it is waiting on
+// (content.stall { what, since }) and offers 다시 시도 · 그만두기; it goes when the next step starts. Waiting on the
+// person (a card that asks them) is not a stall.
+function guard(task) {
+  task.dog?.stop()
+  const dog = watchdog({
+    stallMs: STEP.stallMs,
+    onStall: ({ what, since }) => {
+      task.stats.stalls++
+      task.stalled = true
+      console.warn(`[browser] task ${task.id}: nothing moved for ${Math.round((Date.now() - since) / 1000)} s — waiting on ${what}`)
+      updateMessage(task.userId, task.id, { stall: { what, since: new Date(since).toISOString(), after: Math.round(STEP.stallMs / 1000) } }).catch(() => {})
+    },
+    onResume: () => {
+      task.stalled = false
+      updateMessage(task.userId, task.id, { stall: null }).catch(() => {})
+    },
+  })
+  task.dog = dog
+  return dog
+}
+// A step of the task starts: the live line (line; undefined keeps the one shown) and what the card names if it stalls.
+function phase(task, kind, line, what = line) {
+  if (line !== undefined) say(task, line)
+  task.dog?.beat(kind, what)
 }
 
 // What one turn took: reading the page, the model's picture, the model, the action.
@@ -648,7 +832,7 @@ async function goalMet(task) {
 
 const MAX_TURNS = 40
 async function closingSummary(messages, task) {
-  const fin = await chat({ messages: [...messages, { role: 'user', content: `You finished without saying the result. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for in one or two sentences and contains every fact you recorded. Say plainly what you could not do; do not claim anything you did not do with a tool.` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } } })
+  const fin = await chat({ messages: [...messages, { role: 'user', content: `You finished without saying the result. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for in one or two sentences and contains every fact you recorded. Say plainly what you could not do; do not claim anything you did not do with a tool.` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } }, timeoutMs: STEP.modelMs })
   task.stats.llm++
   const fa = JSON.parse(fin.tool_calls?.[0]?.function?.arguments || '{}')
   return String(fa.summary || fin.content || '').trim()
@@ -712,8 +896,11 @@ export function honest(result, task, { moved = false } = {}) {
 
 // ---- the page as the agent reads it, and when the person has to step in ----
 
-const BLANK = (s) => ({ title: '', url: s.page.url(), text: '', els: [] })
-const look = (s) => within(s.page.evaluate(SNAPSHOT_JS), EVAL_MS, BLANK(s)).then((x) => x || BLANK(s))
+// a page that does not answer in time (a script holding it) reads as empty, and says so
+const BLANK = (s) => ({ title: '', url: s.page.url(), text: '', els: [], more: { unread: true } })
+const look = (s) => within(lookAll(s.page, { ...SNAP_OPTS, timeoutMs: STEP.snapMs, view: VIEW }), STEP.snapMs + 1000, null).then((x) => x || BLANK(s))
+// the element numbered i in the look the model was shown, in whichever frame holds it
+const elAt = (s, task, i) => (task?.lastSnap?.frameOf?.get(Number(i)) || s.page).locator(`[data-pro-idx="${i}"]`).first()
 // the agent's view of any Playwright page (the live wall check, test/browser-walls.live.mjs)
 export const snapshotOf = (page) => look({ page })
 // the same address and the same things on screen
@@ -721,6 +908,7 @@ const pageKey = (snap) => crypto.createHash('sha1').update(`${snap.url}\n${snap.
 // tools whose effect shows on the page; when it does not, turn after turn, the task is stuck
 const ACTING = new Set(['goto', 'click', 'type', 'scroll', 'fill_secret', 'attach_file'])
 export const STUCK_TURNS = 5 // "4턴 넘게": the fifth action in a row that changes nothing hands over
+const LOOP_SPAN = 12 // the actions a loop is looked for in
 const WALL_WAITS = 3
 const BLOCKED = '__blocked__'
 const CLEARED = '__cleared__'
@@ -884,8 +1072,14 @@ async function whenStuck(s, task, snap) {
   task.stats.stuck++
   const site = hostOf(snap.url)
   const last = task.log.filter((e) => ACTING.has(e.kind)).at(-1)?.text
-  const reason = L(`${site}의 같은 화면에서 ${task.stale}번 해 봤지만 화면이 바뀌지 않아 멈췄어요${last ? `(마지막: ${last})` : ''}. 카드의 「직접 제어」로 다음 화면까지 넘긴 뒤 「제어 돌려주기」를 누르면 이어서 해요. 필요 없으면 작업을 취소해 주세요.`,
-    `I tried ${task.stale} times on the same ${site} screen and nothing changed${last ? ` (last: ${last})` : ''}, so I stopped. Get it to the next screen with "Take control" on the card and press "Give control back" — I'll go on. Cancel the task if it's not needed.`)
+  const reason = task.looped
+    ? L(`${site}에서 같은 화면으로 돌아와 같은 동작을 세 번 되풀이해 멈췄어요${last ? `(마지막: ${last})` : ''}. 카드의 「직접 제어」로 다음 화면까지 넘긴 뒤 「제어 돌려주기」를 누르면 이어서 해요. 필요 없으면 작업을 취소해 주세요.`,
+      `I came back to the same ${site} screen and repeated the same action three times${last ? ` (last: ${last})` : ''}, so I stopped. Get it to the next screen with "Take control" on the card and press "Give control back" — I'll go on. Cancel the task if it's not needed.`)
+    : L(`${site}의 같은 화면에서 ${task.stale}번 해 봤지만 화면이 바뀌지 않아 멈췄어요${last ? `(마지막: ${last})` : ''}. 카드의 「직접 제어」로 다음 화면까지 넘긴 뒤 「제어 돌려주기」를 누르면 이어서 해요. 필요 없으면 작업을 취소해 주세요.`,
+      `I tried ${task.stale} times on the same ${site} screen and nothing changed${last ? ` (last: ${last})` : ''}, so I stopped. Get it to the next screen with "Take control" on the card and press "Give control back" — I'll go on. Cancel the task if it's not needed.`)
+  if (task.looped) task.stats.loops = (task.stats.loops || 0) + 1
+  task.looped = false
+  task.recentActs = []
   task.stale = 0
   task.prev = null
   if (task.unattended || ++task.stuckWaits > 2) return { end: { state: 'failed', need: 'stuck', reason, summary: reason } }
@@ -896,30 +1090,72 @@ async function whenStuck(s, task, snap) {
 // An error that ended the task, in words the person can act on.
 function failReason(e) {
   const m = String(e?.message || '')
-  if (/^LLM |aborted|timed? ?out/i.test(m)) return L('AI 모델이 제때 답하지 않아 브라우저 작업을 멈췄어요. 잠시 후 같은 말로 다시 시켜 주세요.', "The AI model didn't answer in time, so I stopped the browser task. Ask again in a moment.")
+  if ((e instanceof StepError && e.label === 'model') || /^LLM |aborted|timed? ?out/i.test(m)) return L('AI 모델이 제때 답하지 않아 브라우저 작업을 멈췄어요. 잠시 후 같은 말로 다시 시켜 주세요.', "The AI model didn't answer in time, so I stopped the browser task. Ask again in a moment.")
   if (/has been closed|Target closed|browser has disconnected/i.test(m)) return L('브라우저가 닫혀 작업을 멈췄어요. 같은 말로 다시 시키면 브라우저를 새로 열어 시작해요.', 'The browser closed, so I stopped. Ask again and I\'ll start in a fresh browser.')
   return L(`브라우저 작업 중 오류가 나서 멈췄어요(${m.replace(/\s+/g, ' ').slice(0, 80)}). 잠시 후 같은 말로 다시 시켜 주세요. 계속 안 되면 카드의 「직접 제어」로 마지막 화면을 확인해 주세요.`,
     `The browser task stopped on an error (${m.replace(/\s+/g, ' ').slice(0, 80)}). Ask again in a moment; if it keeps failing, check the last screen with "Take control" on the card.`)
 }
 
+// The words on the page a wait looks for: its text, and what fields hold or show (a value typed in, a placeholder) —
+// the model picks until_text from the snapshot, where a field shows itself by those (2026-11-24: waits for the
+// placeholder 「어디로 떠나시나요?」 and for 「계룡시」 typed into a field each ran their full minute). null: unread.
+const PAGE_WORDS_JS = () => {
+  const b = document.body
+  if (!b) return ''
+  const fields = [...document.querySelectorAll('input:not([type=hidden]):not([type=password]),textarea,select')].slice(0, 300)
+    .map((e) => [e.tagName === 'SELECT' ? e.options[e.selectedIndex]?.text : e.value, e.placeholder, e.getAttribute('aria-label')].filter(Boolean).join(' '))
+  return `${b.innerText}\n${fields.join('\n')}`
+}
+const pageWords = (s) => within(s.page.evaluate(PAGE_WORDS_JS), 5000, null)
+
+// Is the page doing slow work by itself, or will what the agent waits for only come after it acts? Judged (the same
+// judge as walls) once per wait, never by wording; only a sure "nothing is in progress" (WALL_BAR) turns the wait down.
+const BUSY_QUESTION = 'A browser agent wants to wait, without acting, until the page changes as said above. Is the page doing slow work by itself that it should wait for?'
+const BUSY_OPTIONS = [
+  { key: 'busy', label: 'Yes: the page is working on something by itself right now (being generated, processed, uploaded or loaded — a progress bar, a spinner, a "generating" or "in progress" message), so waiting makes sense' },
+  { key: 'idle', label: 'No: nothing on the page is in progress; what the agent waits for would only come after it acts (types, picks a suggestion, presses a button, scrolls)' },
+]
+async function pageIsIdle(s, task, { until, gone }) {
+  const snap = await look(s)
+  if (snap.more?.unread) return false
+  const state = `${wallState(snap, task.goal)}\nThe agent waits until: ${until ? `"${until}" appears on the page` : gone ? `"${gone}" is no longer on the page` : 'the page changes'}`
+  let r = null
+  try { r = await judge({ state: hide(task, state), question: BUSY_QUESTION, options: BUSY_OPTIONS }) } catch (e) { console.warn('[browser] busy check', e.message) }
+  const p = r?.probabilities?.idle || 0
+  task.stats.wall_checks.push({ host: hostOf(snap.url), key: 'wait:idle', p: Math.round(p * 100) / 100, ms: r?.ms ?? 0, via: r?.via || 'none' })
+  return p >= WALL_BAR
+}
+
+// Waits for slow work on the page without the model's turns: checked every 2 s for the first half minute, then every
+// WAIT.everyMs. The live line says what it waits for and for how long; 다시 시도 and 작업 취소 end it at once.
 async function waitForPage(s, task, a) {
   const until = String(a.until_text || '').trim(), gone = String(a.gone_text || '').trim()
   const left = WAIT.taskMaxMinutes - (task.waitedMinutes || 0)
   if (left <= 0) return `error: this task has already waited ${WAIT.taskMaxMinutes} minutes; tell the person where it stands and finish`
   const minutes = Math.min(Math.max(Number(a.minutes) || 5, 0), WAIT.maxMinutes, left)
+  const signal = task.signal
   const t0 = Date.now()
   const passed = () => (Date.now() - t0) / 60000
+  const target = until ? L(`「${until}」 나오기`, `"${until}" to show`) : gone ? L(`「${gone}」 사라지기`, `"${gone}" to go`) : L('페이지가 바뀌기', 'the page to change')
+  const clock = () => { const sec = Math.floor((Date.now() - t0) / 1000); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` }
+  phase(task, 'wait', L(`${target}를 기다리는 중`, `Waiting for ${target}`), L(`${target} (${minutes < 1 ? `${Math.round(minutes * 60)}초` : `${Math.round(minutes)}분`}까지)`, `${target} (up to ${minutes < 1 ? `${Math.round(minutes * 60)} s` : `${Math.round(minutes)} min`})`))
   try {
-    for (;;) {
+    for (let n = 0; ; n++) {
       if (task.cancelled) return 'cancelled'
       if (task.over?.()) return 'done: this task is over'
-      const text = await s.page.locator('body').innerText({ timeout: 5000 }).catch(() => '')
-      if (until && text.includes(until)) return `done: "${until}" is on the page now`
-      if (gone && !text.includes(gone)) return `done: "${gone}" is no longer on the page`
+      const text = await pageWords(s)
+      if (text !== null && until && text.includes(until)) return `done: "${until}" is on the page now`
+      if (text !== null && gone && !text.includes(gone)) return `done: "${gone}" is no longer on the page`
+      // not there at once: a wait of more than a few seconds is first checked against the page itself
+      if (n === 0 && minutes >= 0.5 && await pageIsIdle(s, task, { until, gone })) {
+        task.stats.waits_refused++
+        return `refused: nothing on this page is working by itself (checked), so ${until ? `"${until}"` : 'the change'} will not come by waiting. Act on the page instead — pick from what is shown, type, press or scroll — or finish with what you have.`
+      }
       if (passed() >= minutes) return `still waiting after ${minutes} minutes: it has not finished. Wait again, or tell the person where it stands`
-      say(task, L(`기다리는 중 · ${Math.floor(passed())}분째`, `Waiting · ${Math.floor(passed())} min`))
+      say(task, L(`${target}를 기다리는 중 · ${clock()}`, `Waiting for ${target} · ${clock()}`))
       await pushFrame(task.userId, s)
-      await s.page.waitForTimeout(Math.min(WAIT.everyMs, Math.max(50, (minutes - passed()) * 60000)))
+      const every = Date.now() - t0 < 30000 ? Math.min(2000, WAIT.everyMs) : WAIT.everyMs
+      await pause(Math.min(every, Math.max(50, (minutes - passed()) * 60000)), signal)
     }
   } finally { task.waitedMinutes = (task.waitedMinutes || 0) + passed() }
 }
@@ -963,10 +1199,8 @@ async function point(s, task, locator, kind) {
 }
 
 // After a press: a short pause for the page to react, and the new page's load when it navigated.
-async function settle(page) {
-  await page.waitForTimeout(WAIT.settleMs)
-  await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {})
-}
+// (lib/browserSteps.js settleAfter: bounded, and 작업 취소 · 다시 시도 end it)
+const settle = (page, signal) => settleAfter(page, { pauseMs: WAIT.settleMs, docMs: 5000, signal })
 
 async function act(s, task, name, a) {
   const out = await doAct(s, task, name, a)
@@ -982,23 +1216,29 @@ async function markStep(task, n, note) {
 }
 
 async function doAct(s, task, name, a) {
-  const el = (i) => s.page.locator(`[data-pro-idx="${i}"]`).first()
+  const el = (i) => elAt(s, task, i)
   const host = (() => { try { return new URL(name === 'goto' ? a.url : s.page.url()).hostname.replace(/^www\./, '') } catch { return '' } })()
   const live = (isEn() ? { goto: `Opening ${host}`, click: `Clicking on ${host}`, type: `Typing on ${host}`, fill_secret: `Typing on ${host}`, scroll: 'Looking at the page', note: 'Taking notes', step_done: 'On to the next step', read_skill: `Reading the ${a.name || ''} skill` }
     : { goto: `${host} 여는 중`, click: `${host}에서 누르는 중`, type: `${host}에서 입력 중`, fill_secret: `${host}에서 입력 중`, scroll: '페이지 보는 중', note: '메모하는 중', step_done: '다음 단계로', read_skill: `${a.name || ''} 스킬 읽는 중` })[name]
   // what is being pressed or typed into, by its name on the page (never the value in it)
-  task.target = ['click', 'type', 'fill_secret'].includes(name) ? { i: a.i, ...await within(el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 3000 }), 4000, {}) } : null
+  // (an element that is no longer there — the page drew itself again — is found out in a second or two, not ten)
+  task.target = ['click', 'type', 'fill_secret'].includes(name) ? { i: a.i, ...await within(el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 1500 }), 2500, {}) } : null
   const line = task.target ? actionLine(name === 'click' ? 'click' : 'type', task.target, host) : live
-  if (line) say(task, line)
+  if (line) { say(task, line); task.dog?.label(line) }
   switch (name) {
-    case 'goto': await s.page.goto(a.url, { waitUntil: 'domcontentloaded', timeout: 30000 }); return 'ok'
+    case 'goto': {
+      // the document, not the page going quiet: a page that keeps loading is read as it is (lib/browserSteps.js navigate)
+      const r = await navigate(s.page, a.url, { signal: task.signal })
+      if (!r.ok) return `error: could not open ${a.url} (${r.error})`
+      return r.partial ? `ok (the page was still loading after ${Math.round(r.ms / 1000)} s; it was stopped and is read as it is)` : 'ok'
+    }
     case 'click': {
       // the purchase gate: a control that orders or pays is pressed only when the goal asks to buy, and
       // one that commits money only after the person approved (the approve card) — whatever the model says
       // (the description timed out: read it again before pressing — an unread control must not slip past the gate)
       if (!('what' in task.target)) {
-        const again = await el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 8000 }).catch(() => null)
-        if (!again) return 'error: could not read what this control is; look at the page again before pressing it'
+        const again = await el(a.i).evaluate(DESCRIBE_JS, undefined, { timeout: 2000 }).catch(() => null)
+        if (!again) return 'error: this element is no longer on the page (the page changed since your last look); look at the page again before pressing anything'
         task.target = { i: a.i, ...again }
       }
       const what = task.target.what || ''
@@ -1011,7 +1251,7 @@ async function doAct(s, task, name, a) {
       }
       await point(s, task, el(a.i), 'click')
       await el(a.i).click({ timeout: 8000 })
-      await settle(s.page)
+      await settle(s.page, task.signal)
       return 'ok'
     }
     case 'type': {
@@ -1020,10 +1260,19 @@ async function doAct(s, task, name, a) {
         return 'refused: this is a secret field; use fill_secret (saved login/card) or need_secret (one-time code)'
       }
       await point(s, task, el(a.i), 'type')
-      await el(a.i).fill(a.text, { timeout: 8000 }); if (a.enter) { await el(a.i).press('Enter', { timeout: 8000 }); await settle(s.page) }
+      await el(a.i).fill(a.text, { timeout: 8000 }); if (a.enter) { await el(a.i).press('Enter', { timeout: 8000 }); await settle(s.page, task.signal) }
       return 'ok'
     }
-    case 'scroll': await s.page.mouse.wheel(0, a.dy || 600); return 'ok'
+    case 'scroll': {
+      // the wheel turns what is under the pointer: over the element given (its list, its frame), else the middle of the page
+      // (2026-11-24: on a map whose results are a frame, five turns of the wheel at the corner moved nothing)
+      const box = a.i != null && a.i !== '' ? await within(el(a.i).boundingBox({ timeout: 1500 }), 2500, null) : null
+      const { width, height } = s.page.viewportSize() || VIEW
+      await s.page.mouse.move(box ? box.x + box.width / 2 : width / 2, box ? box.y + box.height / 2 : height / 2)
+      await s.page.mouse.wheel(0, a.dy || 600)
+      await pause(300, task.signal) // (the page scrolls a moment after the wheel: the next look sees where it went)
+      return 'ok'
+    }
     case 'wait_for_page': return waitForPage(s, task, a)
     case 'tell_user': await addMessage(task.userId, task.threadId, 'agent', 'text', { text: String(a.text || '').slice(0, 600) }); return 'told'
     case 'attach_file': {
@@ -1229,6 +1478,8 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   let answered
   const answer$ = new Promise((resolve) => { answered = resolve })
   task.waiting = answered
+  // the card asks the person: not a stall the watchdog should report
+  task.dog?.hold()
   // the card goes up first, so whoever sees "needs input" also finds what to answer
   const posted = message ? await addMessage(task.userId, task.threadId, 'agent', message[0], { ...message[1], taskId: task.id, state: 'pending' }) : null
   await updateMessage(task.userId, task.id, { state: 'needs_input', need, reason: reason || '', site, siteName: siteName || nameOn(task, normSite(site)) })
@@ -1248,6 +1499,7 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   if (posted) await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where id=$1 and content->>'state'='pending'`, [posted.id])
   await updateMessage(task.userId, task.id, { state: 'running', need: null, reason: '' })
   await setThreadStatus(task.userId, task.threadId, 'working')
+  task.dog?.go('read', L('페이지 읽기', 'reading the page'))
   return answer
 }
 
@@ -1305,7 +1557,7 @@ async function fillFromMail(s, t, found, resolve) {
   const slot = t.secretSlot
   if (!slot || slot.done) return false
   slot.done = true
-  await fillSecret(s.page.locator(`[data-pro-idx="${slot.i}"]`).first(), found.code, t)
+  await fillSecret(elAt(s, t, slot.i), found.code, t)
   await audit(t.userId, 'one_time', { kind: 'secret', site: normSite(s.page.url().split('/')[2]), actor: 'mail', taskId: t.id, detail: { label: slot.label, from: found.from } })
   const [card] = await q(`select id from pro_messages where thread_id=$1 and kind='vault' and content->>'taskId'=$2 and content->>'kind'='secret'
     and content->>'state'='pending' order by created_at desc limit 1`, [t.threadId, t.id])
@@ -1325,7 +1577,7 @@ export async function provideSecret(userId, value) {
   if (slot.done) return false
   slot.done = true
   slot.stopWatch?.()
-  await fillSecret(s.page.locator(`[data-pro-idx="${slot.i}"]`).first(), value, t)
+  await fillSecret(elAt(s, t, slot.i), value, t)
   await audit(userId, 'one_time', { kind: 'secret', site: normSite(s.page.url().split('/')[2]), actor: 'user', taskId: t.id, detail: { label: slot.label } })
   t.waiting(`the user entered the ${slot.label} into the field (you cannot see it); submit the form and continue`)
   return true
@@ -1340,7 +1592,9 @@ function say(task, text) {
 export function resume(userId, text = 'user resolved it, continue') {
   sessions.get(userId)?.task?.waiting?.(text)
 }
-// 작업 취소: the task holding the browser, or (by its card id) one waiting in line
+// 작업 취소 · 그만두기: the task holding the browser, or (by its card id) one waiting in line. The step under way ends
+// at once (task.abort: a model call, a navigation, a wait), a page still loading stops, and the browser goes to the
+// next task in line — also when the page is stuck (the next task finds that out first: healthy()).
 export function cancel(userId, taskId) {
   const s = sessions.get(userId)
   if (taskId && s?.planning.has(taskId)) { // its card is up, the plan is not back yet
@@ -1351,8 +1605,23 @@ export function cancel(userId, taskId) {
   const inLine = taskId && s?.queue.find((x) => x.task.id === taskId)
   if (inLine) { s.queue.splice(s.queue.indexOf(inLine), 1); inLine.task.cancelled = true; inLine.go(); return true }
   const t = s?.task
-  if (t && (!taskId || t.id === taskId)) { t.cancelled = true; t.waiting?.('cancelled'); return true }
+  if (t && (!taskId || t.id === taskId)) {
+    t.cancelled = true
+    t.abort?.abort('cancel')
+    t.waiting?.('cancelled')
+    within(s.page.evaluate(() => window.stop()), 2000, null)
+    return true
+  }
   return false
+}
+
+// 다시 시도 on a stalled card: the step under way (a model call, a navigation, a wait on the page) is left and the turn
+// starts again from a fresh look at the page. Not while the task waits on the person (their card answers that).
+export function retryStep(userId, taskId) {
+  const t = sessions.get(userId)?.task
+  if (!t || !t.retry || t.waiting || t.cancelled || (taskId && t.id !== taskId)) return false
+  t.retry.abort('retry')
+  return true
 }
 const started = new Map() // `${userId}:${threadId}` → tasks begun and not yet over (planning, in line or running)
 export const runningIn = (userId, threadId) => (started.get(`${userId}:${threadId}`) || 0) > 0 || sessions.get(userId)?.task?.threadId === threadId
@@ -1415,8 +1684,8 @@ export async function connectGoogle({ userId, threadId, url, cookie, ours = () =
     cancelled: false, waiting: null, notes: [], log: [], unattended: false, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     gates: null, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: GOOGLE_SKILL,
     // a site error page ends it like a refusal; a sign-in screen is the agent's (the vault is asked first)
-    wallNeeds: CONNECT_NEED, vaultFirst: true,
-    stats: { turns: 0, llm: 0, gate_calls: 0, gate_ms: 0, waits: 0, hints: 0, walls: 0, stuck: 0, early_finish: false, decisions: [], plan_ms: 0, turn_ms: [], wall_checks: [], skills_read: [] } }
+    wallNeeds: CONNECT_NEED, vaultFirst: true, abort: new AbortController(), retry: null, signal: null,
+    stats: newStats() }
   s.task = task
   s.threadId = threadId
   await setThreadStatus(userId, threadId, 'working')
@@ -1443,10 +1712,11 @@ async function runConnect(s, task, { url, cookie, ours }) {
   const timer = setTimeout(() => settle({ state: 'timeout' }), CONNECT.ms)
   timer.unref?.()
   try {
+    await healthy(userId, s).catch((e) => console.warn('[browser] health check', e.message))
     await s.ctx.addCookies([{ name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path, httpOnly: true, secure: cookie.secure,
       sameSite: cookie.sameSite, expires: Math.floor((Date.now() + cookie.maxAgeMs) / 1000) }])
     say(task, L('Google 여는 중', 'Opening Google'))
-    await s.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    await navigate(s.page, url, { signal: task.abort.signal }).catch(() => {})
     const site = hostOf(url)
     // the agent first: the google-sign-in skill (read when used) knows Google's screens; a login is filled
     // from the vault or asked for on the card, a second step goes to the person (a code on the card, a
@@ -1526,8 +1796,8 @@ async function runConnect(s, task, { url, cookie, ours }) {
 // Takeover: raw input forwarded from the live view (coords are 0..1 of the viewport).
 export async function input(userId, ev) {
   const s = sessions.get(userId)
-  if (!s) return
-  const { width, height } = s.page.viewportSize()
+  if (!s?.page) return
+  const { width, height } = s.page.viewportSize() || VIEW
   try {
     if (ev.type === 'click') await s.page.mouse.click(ev.x * width, ev.y * height)
     if (ev.type === 'key') await s.page.keyboard.press(ev.key)
@@ -1539,13 +1809,17 @@ export async function input(userId, ev) {
 // Closes the user's browser (profile stays on disk).
 export async function close(userId) {
   const s = sessions.get(userId)
+  if (s?.task) cancel(userId)
   sessions.delete(userId)
-  await s?.ctx.close().catch(() => {})
+  if (!s) return
+  // a Chromium that does not close (stuck) is stopped, so the profile opens again next time
+  const closed = await within(s.ctx.close().then(() => true), 5000, false)
+  if (!closed) await releaseProfile(path.join(PROFILES, userId), { pid: s.pid })
 }
 
 export function lastFrame(userId) {
   const s = sessions.get(userId)
-  return s ? { data: s.frame, url: s.page.url(), running: !!s.task, taskId: s.task?.id || null } : null
+  return s ? { data: s.frame, url: s.page?.url() || '', running: !!s.task, taskId: s.task?.id || null } : null
 }
 
 // The person's browser (launched if it is not running): tests route made-up sites through it.

@@ -1114,6 +1114,8 @@ app.post('/api/choices/:msgId', auth, async (req, res) => {
 app.post('/api/browser/resume', auth, (req, res) => { browser.resume(req.user.id, req.body.text); res.json({ ok: true }) })
 // the task holding the browser, or (taskId = its card) one waiting in line behind it
 app.post('/api/browser/cancel', auth, (req, res) => { res.json({ ok: browser.cancel(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined) }) })
+// 다시 시도 on a card whose step stalled (content.stall): that step is left and the turn starts again from a fresh look
+app.post('/api/browser/retry', auth, (req, res) => { res.json({ ok: browser.retryStep(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined) }) })
 
 // ---------- search ----------
 app.get('/api/search', auth, async (req, res) => {
