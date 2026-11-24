@@ -38,8 +38,10 @@ export function processRoutes(auth) {
     if (!(await proc.canSeeInstance(req.params.id, req.user))) return res.status(403).json({ error: '이 프로세스를 볼 권한이 없어요.' })
     const d = await proc.getInstance(req.params.id, req.user)
     if (!d) return res.status(404).end()
-    // one conversation per instance and person, created on first view (or by a mail / schedule that started it)
-    res.json({ ...d, threadId: await engine.instanceThread(req.user.id, req.params.id, d.inst.proc_inst_name || d.def?.name) })
+    // one conversation per instance and person, created on first view (or by a mail / schedule that started it);
+    // its work folder when a mail started it and the person may open it (lib/mailWork.js — the page's 「작업 폴더」)
+    const workFolder = await import('../lib/mailWork.js').then((W) => W.folderView(req.params.id, req.user)).catch((e) => { console.warn('[instances] work folder', e.message); return null })
+    res.json({ ...d, workFolder, threadId: await engine.instanceThread(req.user.id, req.params.id, d.inst.proc_inst_name || d.def?.name) })
   })
 
   // (a work item put away from Home is marked, not left out: Home hides it, everything else still lists it)

@@ -319,8 +319,10 @@ async function handleIn(row) {
   const status = (text) => emit(owner, 'status', { threadId, text })
   await events([{ ...base, event_type: 'task_started', data: { goal: L(`${row.activity_name} — 스킬 ${skill}`, `${row.activity_name} — skill ${skill}`), name: act.role || row.activity_name, role: row.activity_name } }])
   await events([{ ...base, event_type: 'tool_usage_started', data: { tool: skill, tool_name: skill, args: { step: row.activity_name } } }])
+  // the work's folder, when a mail started it (lib/mailWork.js): its mails so far and the earlier steps' results
+  const work = await import('../mailWork.js').then((M) => M.stepContext(row.proc_inst_id)).catch((e) => { console.warn('[skill-worker] work folder', e.message); return null })
   let r
-  try { r = await SKILLS[skill]({ owner, threadId, prev: await earlier(row.proc_inst_id), status }) } finally { status(null) }
+  try { r = await SKILLS[skill]({ owner, threadId, prev: await earlier(row.proc_inst_id), status, ...(work?.note ? { extra: work.note.trim() } : {}) }) } finally { status(null) }
   await events([{ ...base, event_type: 'tool_usage_finished', data: { tool: skill, tool_name: skill, result: JSON.stringify(r.values).slice(0, 500) } }])
   const formId = (act.tool || '').startsWith('formHandler:') ? act.tool.slice(12) : `${row.activity_id}_form`
   const payload = { [formId]: r.values }

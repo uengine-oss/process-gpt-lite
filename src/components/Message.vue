@@ -59,7 +59,7 @@ const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text |
 // "- 네, 이대로 진행 (설명)" style options closing an agent question become tappable replies
 // (src/replies.js: only a real choice list — a report's bullet lines stay text)
 const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
-const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell', refresh: 'refresh' }
+const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell', refresh: 'refresh', folder: 'folder' }
 // the mails a message is about (모닝 브리프: its Home cards; a line about one mail): chips that open them (MailChips, server lib/mailFlow.js)
 const mailRefs = computed(() => (Array.isArray(c.value.mails) ? c.value.mails : c.value.mail && (c.value.mail.actionId || c.value.mail.mailId) ? [c.value.mail] : []))
 // what the answer did on the way (server lib/workTrail.js): folded to one line of the sites it read
@@ -223,6 +223,10 @@ onMounted(async () => {
     </button>
 
     <!-- a chip about an instance (a step waiting for me, a finished run) opens its page (server lib/engine.js) -->
+    <!-- a chip about a folder (the work folder of an instance started from a mail — server lib/mailWork.js) opens it -->
+    <button v-else-if="msg.kind === 'chip' && c.folder" class="chip link press" data-test="folder-chip" @click="router.push(`/folders/${encodeURIComponent(c.folder)}`)">
+      <Icon :name="chipIcon[c.icon] || 'folder'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
+    </button>
     <button v-else-if="msg.kind === 'chip' && c.instId" class="chip link press" @click="router.push(`/routines/${encodeURIComponent(c.instId)}`)">
       <Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
     </button>

@@ -11,6 +11,7 @@ import * as S from './service.js'
 import { reindex } from './indexer.js'
 import { runAgent, RULES, rules } from './runner.js'
 import { L } from '../lang.js'
+import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { afterMerge } from './skills.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -131,6 +132,8 @@ export async function resolveWithAgent(folder, row, user, jwt) {
 Conflicting files: ${row.conflicts.map((c) => c.path).join(', ')}
 In each file both changes sit between the <<<<<<< / ======= / >>>>>>> markers. Combine them into one that keeps the intent of both, remove every conflict marker and save the file. ${rules()}
 When you are done, say in one or two sentences what you combined and how.`)
+  // the agent may run on another pod, with no disk in common: the files go to storage and come back from it (the chat's way)
+  const seeded = await pushRoomDir(dir, container).catch((e) => { console.warn('[folders] resolve seed', e.message); return null })
   let note = ''
   try {
     note = await runAgent({ jwt, user, conversationId: room, message: msg })
@@ -138,6 +141,7 @@ When you are done, say in one or two sentences what you combined and how.`)
     await q(`update pro_folder_integrations set status='conflicted', updated_at=now() where id=$1`, [row.id])
     throw e
   }
+  if (seeded) await pullRoomChanges(container, seeded, dir).catch((e) => console.warn('[folders] resolve pull', e.message))
   for (const c of row.conflicts) {
     const text = await fs.readFile(path.join(dir, c.path), 'utf8')
     if (/^(<<<<<<<|>>>>>>>)/m.test(text)) {

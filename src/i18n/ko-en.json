@@ -2497,7 +2497,9 @@
   "시작하면 저절로 진행하고 사람은 지켜봐요": "Once started it runs by itself while people watch",
   "시작하면 단계마다 사람이 정해요": "Once started a person decides each step",
   "진행 중인 일": "the running work",
-  "메일을 열지 못했어요": "Couldn't open the mail"
+  "메일을 열지 못했어요": "Couldn't open the mail",
+  "작업 폴더": "Work folder",
+  "· 단계 결과 보기 →": "· See step results →"
  },
  "patterns": [
   [
@@ -5907,6 +5909,46 @@
   [
    "서버가 응답하지 못했어요 ({0}). 잠시 후 다시 시도해 주세요.",
    "The server didn't answer ({0}). Please try again shortly."
+  ],
+  [
+   "메일 {0}통",
+   "{0} mails"
+  ],
+  [
+   "· 단계 결과 {0}개",
+   "· {0} step results"
+  ],
+  [
+   "작업 폴더 · {0}",
+   "Work folder · {0}"
+  ],
+  [
+   "작업 폴더 ‘{0}’을 만들고 메일 {1} 「{2}」을 넣었어요",
+   "Made the work folder ‘{0}’ and put mail {1} \"{2}\" in it"
+  ],
+  [
+   "작업 폴더 ‘{0}’를 만들고 메일 {1} 「{2}」를 넣었어요",
+   "Made the work folder ‘{0}’ and put mail {1} \"{2}\" in it"
+  ],
+  [
+   "작업 폴더 ‘{0}’을 만들고 메일 {1} 「{2}」를 넣었어요",
+   "Made the work folder ‘{0}’ and put mail {1} \"{2}\" in it"
+  ],
+  [
+   "작업 폴더 ‘{0}’를 만들고 메일 {1} 「{2}」을 넣었어요",
+   "Made the work folder ‘{0}’ and put mail {1} \"{2}\" in it"
+  ],
+  [
+   "작업 폴더 ‘{0}’에 메일 {1} 「{2}」을 넣었어요",
+   "Put mail {1} \"{2}\" in the work folder ‘{0}’"
+  ],
+  [
+   "작업 폴더 ‘{0}’에 메일 {1} 「{2}」를 넣었어요",
+   "Put mail {1} \"{2}\" in the work folder ‘{0}’"
+  ],
+  [
+   "「{0}」의 작업 폴더 — 메일과 단계 결과가 모여요",
+   "Work folder of \"{0}\" — its mails and step results gather here"
   ]
  ],
  "context": [

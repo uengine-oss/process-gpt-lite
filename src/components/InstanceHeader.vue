@@ -22,6 +22,7 @@ const detail = ref(null)
 // a <video> cannot send the bearer header, so the agent-file URL carries the token
 const fileUrl = (a) => `${BASE}/api/agent-files/${encodeURIComponent(a.runId)}?path=${encodeURIComponent(a.path)}&token=${encodeURIComponent(auth.get()?.session?.access_token || '')}`
 const i = computed(() => props.data.inst)
+const wf = computed(() => props.data.workFolder || null)
 const mine = computed(() => props.data.steps.filter((s) => s.mine && s.todoId))
 const status = computed(() => ({ RUNNING: '진행 중', COMPLETED: '완료', NEW: '시작 전' }[i.value.status] || i.value.status))
 const progress = computed(() => {
@@ -48,6 +49,19 @@ const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', da
       <p class="sub">{{ data.def?.name }} · {{ when(i.start_date) }} 시작 · {{ progress.done }}/{{ progress.all }} 단계</p>
       <div class="bar"><span :style="{ width: (progress.all ? progress.done / progress.all * 100 : 0) + '%' }" /></div>
       <router-link class="imp" :to="`/improve/${encodeURIComponent(i.proc_def_id)}?tab=path`">이 프로세스의 병목·크리티컬 패스 보기 →</router-link>
+    </div>
+
+    <!-- the work's folder (server lib/mailWork.js): the mails of this work from the first one on, and what its steps made -->
+    <div v-if="wf" class="wf" data-test="work-folder">
+      <router-link class="wfl press" :to="`/folders/${encodeURIComponent(wf.slug)}`" data-test="work-folder-link">
+        <span class="wfi"><Icon name="folder" :size="18" /></span>
+        <span class="wft"><b>작업 폴더</b><small>{{ wf.name }}</small></span>
+        <Icon name="chevron" :size="14" />
+      </router-link>
+      <p class="wfs" data-test="work-folder-sub">
+        <span>메일 {{ wf.mails }}통</span><span>· 단계 결과 {{ wf.outputs }}개</span>
+        <router-link v-if="wf.line" :to="`/folders/${encodeURIComponent(wf.slug)}/v/${wf.line.id}`" data-test="work-folder-line">· 단계 결과 보기 →</router-link>
+      </p>
     </div>
 
     <div class="card">
@@ -138,5 +152,15 @@ h2 { font-size: 30px; font-weight: 300; line-height: 1.25; margin: 10px 0 6px; l
 .video { border-radius: 20px; padding: 14px 16px; background: var(--bubble-agent-bg); box-shadow: var(--shadow-card); }
 .video video { width: 100%; margin-top: 8px; border-radius: 12px; background: #000; aspect-ratio: 16 / 9; }
 .imp { display: inline-block; margin-top: 8px; font-size: 13px; color: var(--text-secondary); }
+.wf { display: flex; flex-direction: column; gap: 6px; padding: 0 6px; }
+.wfl { display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 100%; align-self: flex-start; padding: 10px 16px 10px 10px; border-radius: 18px;
+  background: var(--bubble-agent-bg); box-shadow: var(--shadow-card); color: var(--text-primary); text-decoration: none; }
+.wfi { flex: none; width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; background: var(--field-bg); }
+.wft { display: flex; flex-direction: column; min-width: 0; }
+.wft b { font-size: 14px; font-weight: 600; }
+.wft small { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wfs { margin: 0 0 0 4px; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.wfs a { color: var(--text-secondary); }
+.wfs a:hover { color: var(--text-primary); }
 .imp:hover { color: var(--text-primary); }
 </style>

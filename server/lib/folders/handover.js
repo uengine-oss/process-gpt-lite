@@ -15,6 +15,7 @@ import * as S from './service.js'
 import { changeCard } from './indexer.js'
 import { runAgent, RULES, rules } from './runner.js'
 import { L, lang, langOf } from '../lang.js'
+import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -128,8 +129,13 @@ Working folder: ${S.runCheckoutContainer(toRoomId, folder)}
 ${done ? `Done so far: ${done}\n` : ''}To do: ${next}
 ${rules()}
 When you are done, say briefly what you changed.`)
-  let note = ''
-  try { note = await runAgent({ jwt, user: from, conversationId: toRoomId, message: msg }) } catch (e) { note = L(`실행 실패: ${e.message}`, `Run failed: ${e.message}`) }
+  // the agent may run on another pod, with no disk in common: it gets the files from storage, and what it left there comes back
+  // (the chat's way — threadFolders.js prepareProjectWork)
+  const container = S.runCheckoutContainer(toRoomId, folder)
+  const seeded = await pushRoomDir(dir, container).catch((e) => { console.warn('[folders] handover seed', e.message); return null })
+  let note = '', ran = false
+  try { note = await runAgent({ jwt, user: from, conversationId: toRoomId, message: msg }); ran = true } catch (e) { note = L(`실행 실패: ${e.message}`, `Run failed: ${e.message}`) }
+  if (seeded) await pullRoomChanges(container, seeded, dir, { wait: ran }).catch((e) => console.warn('[folders] handover pull', e.message))
   const cur = await S.variationById(v.id)
   await S.commitVariation(folder, cur, { name: to.name, email: `${String(to.id).slice(0, 8)}@agents.pgpt-pro.local` }, `${to.name}: ${next}`)
   await S.release(folder, cur)

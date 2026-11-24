@@ -10,8 +10,11 @@
 //                    way the mail becomes the instance's (its conversation, engine.instanceThread) and the card and its chips point there
 //                    (2026-11-18: work of an instance happens on its page, nothing is appended to the main chat)
 //   linkByThread   — at intake: a new mail of a thread already linked to a running instance goes to that instance (a Home notice, no model)
-//   routeMailCards — at intake, a mail the map's router reads (lib/mail.js — one asking for documents): an adopted (자동) process starts on it
-//                    and lives with its instance; a suggested (제안) one is asked on the mail's card, not in the main chat
+//   routeMailCards — at intake, every mail that made a Home card is read by the map's router (lib/mail.js; 2026-11-24: 「메일 카드가 생기는
+//                    모든 메일」, the model's cost accepted for a company that uses the map): an adopted (자동) process starts on it and lives
+//                    with its instance — unless the judge reads the mail as the next one of work already running; a suggested (제안) one is
+//                    asked on the mail's card, not in the main chat; an observed (관찰) one is never read
+//   (linkCards → lib/mailWork.js onLinked: the instance's work folder holds the mail — made when the mail starts the work)
 // The link is the card's own (pro_actions.source.inst · .flow · .thread_id): no table of its own.
 import { config } from '../config.js'
 import { q } from './supa.js'
@@ -316,7 +319,10 @@ export async function linkCards(userId, card, inst, { mail = null, task = null, 
   for (const r of rows) emit(userId, 'action', r)
   await repoint(userId, rows.map((r) => r.id), link)
   if (!quiet) await intoInstance(userId, { ...inst, name }, { mail: mail || { from: card.source?.from, subject: card.source?.subject }, task, card, notify })
-  return link
+  // the work's folder (lib/mailWork.js, 2026-11-24): made when a mail starts the work, the mail added when it joins — the steps read it.
+  // A folder that could not be made does not undo the link (said in the log; the next mail of the work tries again).
+  const work = await import('./mailWork.js').then((W) => W.onLinked(userId, card, { ...inst, name })).catch((e) => { console.warn('[mail flow] work folder', e.message); return null })
+  return work?.folder ? { ...link, folder: work.folder } : link
 }
 
 // ---------- at intake (lib/mail.js pollUser) ----------
@@ -334,9 +340,10 @@ export async function linkByThread(userId, cards = []) {
 }
 
 // A mail the map's router reads at intake, when it made Home cards: every process it is the work of is kept on the cards (the sheet asks about
-// a suggested one — 제안); an adopted process whose start is sure starts by itself (자동) and the cards belong to that instance. Nothing is
-// added to the main chat (ontology/events.js onMail still does for a mail without a card — the simulated mail of the map's tests).
-// → false when no process takes it (process mining's flows and the ad-hoc drafts then may), else {started, offered, instId}
+// a suggested one — 제안 — without reading the map again); an adopted process whose start is sure starts by itself (자동) and the cards belong
+// to that instance. Nothing is added to the main chat (ontology/events.js onMail still does for a mail without a card — the simulated mail
+// of the map's tests). deps (tests): route · start · judge stand-ins.
+// → false when no process takes it (process mining's flows and the ad-hoc drafts then may), else {started, offered, instId, held?}
 export async function routeMailCards(userId, mail, cards = [], deps = {}) {
   const route = deps.route || await mapRouter()
   if (!route || !cards.length) return false
@@ -350,15 +357,32 @@ export async function routeMailCards(userId, mail, cards = [], deps = {}) {
   if (r?.none || !matches.length) return false
   const E = await import('./ontology/events.js')
   const { start } = E.planStarts(r.matches, 'mail', deps.rules || await E.eventRules())
+  // A mail that reads as the start of an adopted process may still be the next mail of work already running (a customer who writes
+  // again without replying in the thread: no thread to go by). Before anything starts by itself, the running work it may belong to is
+  // read with the judge, as the sheet reads it (flowOfCard — the readings stay on the card): if it is the same work, nothing starts and
+  // the card asks (잇기 · 새로 시작), as for a suggested process.
+  if (start.length) {
+    const R = await flowRules()
+    const same = {}
+    for (const c of await runningOf(userId, { proc: start[0].proc, limit: R.joinCandidates, days: R.joinDays })) {
+      const pr = await (deps.judge || judge)(c, ev, R).catch(() => null)
+      if (pr != null) same[c.instId] = round(pr)
+    }
+    if (Object.keys(same).length) for (const a of cards) await saveFlow(userId, a.id, { ...(a.source?.flow || {}), at, matches, same })
+    if (Object.values(same).some((pr) => pr >= R.joinMin)) return { started: [], offered: matches, instId: null, held: 'same-work' }
+  }
   const startCase = deps.start || (await import('./ontology/run.js')).startCase
   const started = []
   for (const m of start) {
     const c = await startCase({ id: userId, email: p.email }, { procKey: m.proc, entry: m.choice.task, subject: ev.subject, body: ev.text, from: ev.from,
       customer: nameOf(ev.from) || L('고객', 'Customer'), odds: m.choice, kind: 'mail' })
     const inst = { instId: c.instId, caseId: c.caseId || null, name: c.instName || m.name, proc: m.proc, procName: m.name, via: 'auto' }
-    // the cards belong to the first; a second process the same mail started gets its own conversation and Home card
+    // the cards belong to the first; a second process the same mail started gets its own conversation, Home card and work folder
     if (!started.length) await linkCards(userId, cards[0], inst, { mail: ev, task: m.choice.task, notify: true })
-    else await intoInstance(userId, inst, { mail: ev, task: m.choice.task, card: cards[0], notify: true })
+    else {
+      await intoInstance(userId, inst, { mail: ev, task: m.choice.task, card: cards[0], notify: true })
+      await import('./mailWork.js').then((W) => W.onLinked(userId, cards[0], inst)).catch((e) => console.warn('[mail flow] work folder', e.message))
+    }
     started.push(inst)
   }
   return { started, offered: matches.filter((x) => !started.some((s) => s.proc === x.proc)), instId: started[0]?.instId || null }

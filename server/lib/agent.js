@@ -404,8 +404,11 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // (a folder attached in chat is the one a change request means when it names none; a project's own
   // folder is changed on the project's variation — delegate — not on a short one: lib/folders/threadFolders.js)
   const folderLink = await TF.linkOf(threadId).catch(() => null)
+  // (an instance's work folder is attached to its conversation to be read — lib/mailWork.js; what is asked there is not taken as an edit
+  // of that folder unless it names it)
+  const changeLink = folderLink && (await getThread(userId, threadId).catch(() => null))?.kind === 'process' ? null : folderLink
   const named = !folderBlocked ? await folderFor(user, text).catch(() => null) : null
-  const sharedFolder = await TF.chatFolderTarget({ user, link: folderLink, named, text, blocked: folderBlocked }).catch(() => named)
+  const sharedFolder = await TF.chatFolderTarget({ user, link: changeLink, named, text, blocked: folderBlocked }).catch(() => named)
   if (sharedFolder) return folderTurn({ user, session, threadId, text, onDelta, folder: sharedFolder })
   // the author's own private skill is not installed: their run is pointed at its copy, and after the
   // first good run the chat asks once more whether to share it
@@ -1086,7 +1089,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // a project with a folder works on its own variation of it; a chat with one attached reads its main
   // (lib/folders/threadFolders.js) — not a shared folder's run room (folderTurn: its message says where)
   let projectWork = null, failed = false
-  if (!pin?.folder && (thread?.kind === 'project' || thread?.kind === 'chat')) {
+  // (an instance's conversation has its work folder attached for reference — lib/mailWork.js: what is asked there reads its mails)
+  if (!pin?.folder && (thread?.kind === 'project' || thread?.kind === 'chat' || thread?.kind === 'process')) {
     projectWork = await TF.prepareProjectWork({ user, thread }).catch((e) => { console.warn('[folders] project work', e.message); return null })
     if (projectWork) { thread = { ...thread, conversation_id: projectWork.conv }; turn.setConv(projectWork.conv); text += projectWork.note }
     else {

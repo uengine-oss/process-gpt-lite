@@ -18,6 +18,9 @@ const kid = crypto.createHash('sha256').update(kek).digest('hex').slice(0, 12)
 fs.writeFileSync(path.join(dir, 'keyring.json'), JSON.stringify({ current: kid, keys: [{ id: kid, key: kek.toString('base64') }] }), { mode: 0o600 })
 process.env.PRO_VAULT_KEYRING = path.join(dir, 'keyring.json')
 delete process.env.PRO_VAULT_KEK
+// a mail that starts or joins an instance goes into the instance's work folder (lib/mailWork.js — test/mailWork.integration.test.js):
+// those folders go to this test's own directory and are removed with it
+process.env.PRO_FOLDERS_ROOT = path.join(dir, 'folders')
 
 const { config } = await import('../config.js')
 const { q, pool } = await import('../lib/supa.js')
@@ -45,6 +48,7 @@ after(async () => {
     await q('delete from pro_threads where user_id=$1', [u])
   }
   if (insts.length) await q('delete from bpm_proc_inst where proc_inst_id = any($1)', [insts])
+  if (users.length) await q('delete from pro_folders where created_by = any($1::uuid[])', [users]).catch(() => {})
   await pool.end()
   fs.rmSync(dir, { recursive: true, force: true })
 })
@@ -71,6 +75,8 @@ async function mailCard(user, { verb = 'Reply', text = '한빛상사 견적 요�
 const mainId = async (userId) => (await q(`select id from pro_threads where user_id=$1 and kind='chat' order by created_at limit 1`, [userId]))[0]?.id
 const instThread = async (userId, instId) => (await q(`select id from pro_threads where user_id=$1 and ref=$2`, [userId, instId]))[0]?.id
 const msgs = async (threadId) => (threadId ? q(`select role, kind, content from pro_messages where thread_id=$1 order by created_at`, [threadId]) : [])
+// the last text line (the work folder's chip — lib/mailWork.js — comes after the mail's line)
+const lastText = (im) => im.filter((x) => x.kind === 'text').at(-1)
 const card = async (id) => (await q('select * from pro_actions where id=$1', [id]))[0]
 
 // the company map's reading of a mail (ontology/events.js identify's shape): one suggested process, read sure
@@ -224,7 +230,9 @@ test('새로 시작: 그 프로세스의 건을 메일의 시작 일부터 열�
   assert.equal(b.content.mails[1].inst, undefined)
   // the mail is the instance's first event, in its conversation (not the main chat)
   const im = await msgs(await instThread(user.id, r.instId))
-  assert.deepEqual(im.map((x) => x.kind), ['divider', 'text'])
+  // (then the work folder the mail went into — lib/mailWork.js, test/mailWork.integration.test.js)
+  assert.deepEqual(im.map((x) => x.kind), ['divider', 'text', 'chip'])
+  assert.match(im[2].content.text, /^작업 폴더 ‘견적 요청 · 견적서 작성 · 한빛상사( \(\d+\))?’를 만들고 메일 01 「Re: 세미나 견적 부탁드립니다」를 넣었어요$/)
   assert.equal(im[0].content.text, '메일 · Re: 세미나 견적 부탁드립니다')
   assert.equal(im[1].content.text, '이수민님의 메일 「Re: 세미나 견적 부탁드립니다」로 ‘견적 요청 · 견적서 작성’을 시작했어요. 「견적서 작성」부터 해요.')
   assert.deepEqual([im[1].content.mail.actionId, im[1].content.mailEvent], [a.id, 'start'])
@@ -260,8 +268,8 @@ test('잇기: 진행 중인 인스턴스에 메일을 잇는다 — 판정으로
   const row = await card(a.id)
   assert.deepEqual([row.source.inst.instId, row.source.inst.via, row.source.inst.by, row.source.inst.p, row.source.inst.caseId], [run.instId, 'join', 'judge', 0.87, run.caseId])
   const im = await msgs(await instThread(user.id, r.instId))
-  assert.equal(im.at(-1).content.text, '이수민님의 메일 「Re: 세미나 견적 부탁드립니다」를 이 일에 이었어요.')
-  assert.equal(im.at(-1).content.mailEvent, 'join')
+  assert.equal(lastText(im).content.text, '이수민님의 메일 「Re: 세미나 견적 부탁드립니다」를 이 일에 이었어요.')
+  assert.equal(lastText(im).content.mailEvent, 'join')
   // an ended instance takes no mail
   const done = await runningCase(user, { status: 'COMPLETED' })
   const b = await mailCard(user)
@@ -328,7 +336,7 @@ test('들어올 때(자동): 지도가 「자동」 프로세스의 확실한 �
   assert.deepEqual([row.source.inst.instId, row.source.inst.via], [r.instId, 'auto'])
   assert.equal(row.source.flow.matches[0].stage, 'adopted')
   const im = await msgs(await instThread(user.id, r.instId))
-  assert.match(im.at(-1).content.text, /저절로 시작됐어요\(자동 단계\)/)
+  assert.match(lastText(im).content.text, /저절로 시작됐어요\(자동 단계\)/)
   const [n] = await q(`select title, url, type from notifications where user_id=$1`, [user.id])
   assert.deepEqual([n.url, n.type], [`/routines/${r.instId}`, 'process_started'])
   assert.equal(await mainId(user.id), undefined, '메인 채팅에는 아무것도 없다')
@@ -362,7 +370,7 @@ test('들어올 때(스레드): Gmail 스레드의 새 메일은 모델 없이 �
   const [next] = await q(`select * from pro_actions where user_id=$1 and source->>'mail_id'=$2`, [user.id, gmail.messages[1].id])
   assert.deepEqual([next.source.inst.instId, next.source.inst.via], [run.instId, 'thread'])
   const im = await msgs(await instThread(user.id, run.instId))
-  assert.equal(im.at(-1).content.text, '같은 메일 스레드로 이수민님의 새 메일 「Re: 세미나 견적 부탁드립니다」가 왔어요.')
+  assert.equal(lastText(im).content.text, '같은 메일 스레드로 이수민님의 새 메일 「Re: 세미나 견적 부탁드립니다」가 왔어요.')
   const [n] = await q(`select title, url, type from notifications where user_id=$1`, [user.id])
   assert.deepEqual([n.url, n.type], [`/routines/${run.instId}`, 'process_mail'])
   assert.match(n.title, /^메일이 이어졌어요 · /)
