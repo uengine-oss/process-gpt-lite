@@ -1,0 +1,796 @@
+{
+ "_note": "Recorded from commons.wikimedia.org (generator=search, Featured pictures of snow) on 2026-11-24; people's names, user pages and emails replaced with made-up ones.",
+ "batchcomplete": true,
+ "continue": {
+  "gsroffset": 12,
+  "continue": "gsroffset||"
+ },
+ "query": {
+  "pages": [
+   {
+    "pageid": 75255605,
+    "ns": 6,
+    "title": "File:Vihorlat (v zime) 046.jpg",
+    "index": 1,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "HaneulPark",
+      "size": 5914962,
+      "width": 5363,
+      "height": 3576,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bf/Vihorlat_%28v_zime%29_046.jpg/1920px-Vihorlat_%28v_zime%29_046.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1280,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bf/Vihorlat_%28v_zime%29_046.jpg/3840px-Vihorlat_%28v_zime%29_046.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bf/Vihorlat_%28v_zime%29_046.jpg/1920px-Vihorlat_%28v_zime%29_046.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1280,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bf/Vihorlat_%28v_zime%29_046.jpg/3840px-Vihorlat_%28v_zime%29_046.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/b/bf/Vihorlat_%28v_zime%29_046.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Vihorlat_(v_zime)_046.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/75255605",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Vihorlat (v zime) 046",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<a href=\"//commons.wikimedia.org/wiki/User:Haneul_Park\" title=\"User:Haneul_Park\">Haneul Park</a>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 70640045,
+    "ns": 6,
+    "title": "File:Forest road Slavne 2017 BW G9.jpg",
+    "index": 2,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "MinseoYoon",
+      "size": 5489939,
+      "width": 4500,
+      "height": 2850,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/Forest_road_Slavne_2017_BW_G9.jpg/1920px-Forest_road_Slavne_2017_BW_G9.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1216,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/Forest_road_Slavne_2017_BW_G9.jpg/3840px-Forest_road_Slavne_2017_BW_G9.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/Forest_road_Slavne_2017_BW_G9.jpg/1920px-Forest_road_Slavne_2017_BW_G9.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1216,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/Forest_road_Slavne_2017_BW_G9.jpg/3840px-Forest_road_Slavne_2017_BW_G9.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/c/cc/Forest_road_Slavne_2017_BW_G9.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Forest_road_Slavne_2017_BW_G9.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/70640045",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Forest road Slavne 2017 BW G9",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<a href=\"//commons.wikimedia.org/wiki/User:Minseo_Yoon\" title=\"User:Minseo_Yoon\">Minseo Yoon</a>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "Public domain",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Public domain",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "false",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 75963893,
+    "ns": 6,
+    "title": "File:Sninský kameň (v zime) 001.jpg",
+    "index": 3,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "HaneulPark",
+      "size": 7619984,
+      "width": 5472,
+      "height": 3648,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/14/Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg/1920px-Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1280,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/14/Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg/3840px-Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/14/Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg/1920px-Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1280,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/14/Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg/3840px-Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/14/Sninsk%C3%BD_kame%C5%88_%28v_zime%29_001.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Sninsk%C3%BD_kame%C5%88_(v_zime)_001.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/75963893",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Sninský kameň (v zime) 001",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<a href=\"//commons.wikimedia.org/wiki/User:Haneul_Park\" title=\"User:Haneul_Park\">Haneul Park</a>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 177842818,
+    "ns": 6,
+    "title": "File:Flowers in snow 2022 G4.jpg",
+    "index": 4,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "MinseoYoon",
+      "size": 6926983,
+      "width": 6000,
+      "height": 4000,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/99/Flowers_in_snow_2022_G4.jpg/1920px-Flowers_in_snow_2022_G4.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1280,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/99/Flowers_in_snow_2022_G4.jpg/3840px-Flowers_in_snow_2022_G4.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/99/Flowers_in_snow_2022_G4.jpg/1920px-Flowers_in_snow_2022_G4.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1280,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/99/Flowers_in_snow_2022_G4.jpg/3840px-Flowers_in_snow_2022_G4.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/9/99/Flowers_in_snow_2022_G4.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Flowers_in_snow_2022_G4.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/177842818",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Flowers in snow 2022 G4",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<a href=\"//commons.wikimedia.org/wiki/User:Minseo_Yoon\" title=\"User:Minseo_Yoon\">Minseo Yoon</a>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 81572478,
+    "ns": 6,
+    "title": "File:Angelus Hut in the winter, Nelson Lakes National Park, New Zealand.jpg",
+    "index": 5,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "JihoKang",
+      "size": 5377766,
+      "width": 7357,
+      "height": 3437,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg/1920px-Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 897,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg/3840px-Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg/1920px-Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 897,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg/3840px-Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Angelus_Hut_in_the_winter%2C_Nelson_Lakes_National_Park%2C_New_Zealand.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Angelus_Hut_in_the_winter,_Nelson_Lakes_National_Park,_New_Zealand.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/81572478",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Angelus Hut in the winter, Nelson Lakes National Park, New Zealand",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<a href=\"//commons.wikimedia.org/wiki/User:Jiho_Kang\" title=\"User:Jiho_Kang\">Seoyeon Lim</a>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 70385335,
+    "ns": 6,
+    "title": "File:Forest road Slavne 2017 G8.jpg",
+    "index": 6,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "MinseoYoon",
+      "size": 6200938,
+      "width": 4500,
+      "height": 3000,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/Forest_road_Slavne_2017_G8.jpg/1920px-Forest_road_Slavne_2017_G8.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1280,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/Forest_road_Slavne_2017_G8.jpg/3840px-Forest_road_Slavne_2017_G8.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/Forest_road_Slavne_2017_G8.jpg/1920px-Forest_road_Slavne_2017_G8.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1280,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/Forest_road_Slavne_2017_G8.jpg/3840px-Forest_road_Slavne_2017_G8.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/7/75/Forest_road_Slavne_2017_G8.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Forest_road_Slavne_2017_G8.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/70385335",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Forest road Slavne 2017 G8",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<a href=\"//commons.wikimedia.org/wiki/User:Minseo_Yoon\" title=\"User:Minseo_Yoon\">Minseo Yoon</a>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "Public domain",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Public domain",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "false",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 98983222,
+    "ns": 6,
+    "title": "File:Dülmen, Kirchspiel, Bauerschaft Börnste -- 2021 -- 4406 (bw).jpg",
+    "index": 7,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "DohyunCha",
+      "size": 16846935,
+      "width": 6720,
+      "height": 4480,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/43/D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg/1920px-D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1280,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/43/D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg/3840px-D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/43/D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg/1920px-D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1280,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/43/D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg/3840px-D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/4/43/D%C3%BClmen%2C_Kirchspiel%2C_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_%28bw%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:D%C3%BClmen,_Kirchspiel,_Bauerschaft_B%C3%B6rnste_--_2021_--_4406_(bw).jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/98983222",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Dülmen, Kirchspiel, Bauerschaft Börnste -- 2021 -- 4406 (bw)",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<bdi><a href=\"https://www.wikidata.org/wiki/Q4115189\" class=\"extiw\" title=\"d:Q4115189\"><span title=\"photographer\">Hyun Oh</span></a></bdi>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 182669908,
+    "ns": 6,
+    "title": "File:Dülmen, Sportzentrum Süd, Parkplatz -- 2026 -- 0223.jpg",
+    "index": 8,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "DohyunCha",
+      "size": 38224770,
+      "width": 8064,
+      "height": 6048,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e0/D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg/1920px-D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1440,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e0/D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg/3840px-D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e0/D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg/1920px-D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1440,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e0/D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg/3840px-D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/e/e0/D%C3%BClmen%2C_Sportzentrum_S%C3%BCd%2C_Parkplatz_--_2026_--_0223.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:D%C3%BClmen,_Sportzentrum_S%C3%BCd,_Parkplatz_--_2026_--_0223.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/182669908",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Dülmen, Sportzentrum Süd, Parkplatz -- 2026 -- 0223",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<bdi><a href=\"https://www.wikidata.org/wiki/Q4115189\" class=\"extiw\" title=\"d:Q4115189\"><span title=\"photographer\">Hyun Oh</span></a></bdi>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 116006997,
+    "ns": 6,
+    "title": "File:Sunset over the ice of Brofjorden 1.jpg",
+    "index": 9,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "YunaSeo",
+      "size": 4116117,
+      "width": 4884,
+      "height": 3239,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/Sunset_over_the_ice_of_Brofjorden_1.jpg/1920px-Sunset_over_the_ice_of_Brofjorden_1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1273,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/Sunset_over_the_ice_of_Brofjorden_1.jpg/3840px-Sunset_over_the_ice_of_Brofjorden_1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/Sunset_over_the_ice_of_Brofjorden_1.jpg/1920px-Sunset_over_the_ice_of_Brofjorden_1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1273,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/Sunset_over_the_ice_of_Brofjorden_1.jpg/3840px-Sunset_over_the_ice_of_Brofjorden_1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Sunset_over_the_ice_of_Brofjorden_1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Sunset_over_the_ice_of_Brofjorden_1.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/116006997",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Sunset over the ice of Brofjorden 1",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<a href=\"//commons.wikimedia.org/wiki/User:Yuna_Seo\" title=\"User:Yuna_Seo\">Yuna Seo</a>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 99848755,
+    "ns": 6,
+    "title": "File:Dülmen, Hausdülmen, Zaun einer Wiese -- 2021 -- 5073-7.jpg",
+    "index": 10,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "DohyunCha",
+      "size": 14207511,
+      "width": 6698,
+      "height": 4465,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ec/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg/1920px-D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1280,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ec/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg/3840px-D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ec/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg/1920px-D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1280,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ec/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg/3840px-D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/e/ec/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_Zaun_einer_Wiese_--_2021_--_5073-7.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:D%C3%BClmen,_Hausd%C3%BClmen,_Zaun_einer_Wiese_--_2021_--_5073-7.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/99848755",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Dülmen, Hausdülmen, Zaun einer Wiese -- 2021 -- 5073-7",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<bdi><a href=\"https://www.wikidata.org/wiki/Q4115189\" class=\"extiw\" title=\"d:Q4115189\"><span title=\"photographer\">Hyun Oh</span></a></bdi>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 23330256,
+    "ns": 6,
+    "title": "File:Kolomenskoe in white - Dec12 - 03 snow.jpg",
+    "index": 11,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "TaeyangMoon",
+      "size": 6807725,
+      "width": 2708,
+      "height": 3840,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/56/Kolomenskoe_in_white_-_Dec12_-_03_snow.jpg/1920px-Kolomenskoe_in_white_-_Dec12_-_03_snow.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 2723,
+      "responsiveUrls": {
+       "2": "https://upload.wikimedia.org/wikipedia/commons/5/56/Kolomenskoe_in_white_-_Dec12_-_03_snow.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/56/Kolomenskoe_in_white_-_Dec12_-_03_snow.jpg/1920px-Kolomenskoe_in_white_-_Dec12_-_03_snow.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 2723,
+       "srcset": "https://upload.wikimedia.org/wikipedia/commons/5/56/Kolomenskoe_in_white_-_Dec12_-_03_snow.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/5/56/Kolomenskoe_in_white_-_Dec12_-_03_snow.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Kolomenskoe_in_white_-_Dec12_-_03_snow.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/23330256",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Kolomenskoe in white - Dec12 - 03 snow",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<b><span class=\"plainlinks\"><a class=\"external text\" href=\"https://commons.wikimedia.org/wiki/User:Taeyang_Moon\">Taeyang Moon</a></span></b>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 3.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 3.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/3.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   },
+   {
+    "pageid": 99816775,
+    "ns": 6,
+    "title": "File:Dülmen, Hausdülmen, eisbedeckte Pflanze -- 2021 -- 5015.jpg",
+    "index": 12,
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "DohyunCha",
+      "size": 20837110,
+      "width": 6720,
+      "height": 4480,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/66/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg/1920px-D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1280,
+      "responsiveUrls": {
+       "2": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/66/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg/3840px-D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/66/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg/1920px-D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1280,
+       "srcset": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/66/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg/3840px-D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/6/66/D%C3%BClmen%2C_Hausd%C3%BClmen%2C_eisbedeckte_Pflanze_--_2021_--_5015.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:D%C3%BClmen,_Hausd%C3%BClmen,_eisbedeckte_Pflanze_--_2021_--_5015.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/99816775",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Dülmen, Hausdülmen, eisbedeckte Pflanze -- 2021 -- 5015",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<bdi><a href=\"https://www.wikidata.org/wiki/Q4115189\" class=\"extiw\" title=\"d:Q4115189\"><span title=\"photographer\">Hyun Oh</span></a></bdi>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   }
+  ]
+ }
+}

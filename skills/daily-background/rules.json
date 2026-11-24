@@ -1,0 +1,167 @@
+{
+  "counts": { "min": 6, "max": 10 },
+  "commons": {
+    "categoryPrefix": "Featured_pictures_of_",
+    "limit": 30,
+    "minWidth": 1600,
+    "ratio": [1.3, 2.6],
+    "potdRatio": [1.25, 3.6],
+    "potdLookback": 3,
+    "broadCats": ["landscapes", "forests", "mountains", "lakes"],
+    "randomPages": 12
+  },
+  "moodNames": {
+    "calm": { "ko": "차분", "en": "Calm" },
+    "warm": { "ko": "따뜻", "en": "Warm" },
+    "cool": { "ko": "시원", "en": "Cool" },
+    "lively": { "ko": "활기", "en": "Lively" }
+  },
+  "terms": {
+    "ipchun": [
+      { "label": "입춘 · 겨울 끝의 햇살", "label_en": "Start of Spring · late-winter sun", "q": "winter", "cats": ["sunrises", "landscapes"], "keywords": "late winter sunrise", "moods": ["warm", "calm"] },
+      { "label": "입춘 · 녹기 시작한 눈", "label_en": "Start of Spring · melting snow", "q": "", "cats": ["snow", "forests"], "keywords": "melting snow forest", "moods": ["calm"] }
+    ],
+    "usu": [
+      { "label": "우수 · 풀리는 강", "label_en": "Rain Water · thawing river", "q": "river", "cats": ["ice", "landscapes"], "keywords": "thawing river ice", "moods": ["cool", "calm"] },
+      { "label": "우수 · 비 내리는 들", "label_en": "Rain Water · rain over the fields", "q": "rain", "cats": ["landscapes", "clouds", "rain"], "keywords": "rain clouds field", "moods": ["calm"] }
+    ],
+    "gyeongchip": [
+      { "label": "경칩 · 깨어나는 숲", "label_en": "Awakening · the woods wake up", "q": "spring", "cats": ["forests", "trees"], "keywords": "spring forest", "moods": ["lively", "calm"] },
+      { "label": "경칩 · 봄을 기다리는 들", "label_en": "Awakening · fields before spring", "q": "spring", "cats": ["agriculture", "landscapes"], "keywords": "early spring field", "moods": ["calm"] }
+    ],
+    "chunbun": [
+      { "label": "춘분 · 꽃 피는 무렵", "label_en": "Spring Equinox · first blossoms", "q": "blossom", "cats": ["trees", "flowers", "gardens"], "keywords": "spring blossom", "moods": ["lively", "warm"] },
+      { "label": "춘분 · 낮과 밤이 같은 날", "label_en": "Spring Equinox · day and night in balance", "q": "spring", "cats": ["sunrises", "sunsets"], "keywords": "spring sunrise", "moods": ["warm", "calm"] }
+    ],
+    "cheongmyeong": [
+      { "label": "청명 · 맑고 밝은 봄 산", "label_en": "Pure Brightness · clear spring hills", "q": "spring", "cats": ["mountains", "landscapes"], "keywords": "spring mountains", "moods": ["cool", "lively"] },
+      { "label": "청명 · 벚꽃", "label_en": "Pure Brightness · cherry blossoms", "q": "cherry", "cats": ["trees", "flowers", "Japan", "parks"], "keywords": "cherry blossom", "moods": ["lively", "warm"] }
+    ],
+    "gogu": [
+      { "label": "곡우 · 봄비와 새싹", "label_en": "Grain Rain · spring rain and sprouts", "q": "spring", "cats": ["agriculture", "plants"], "keywords": "spring rain green field", "moods": ["calm"] },
+      { "label": "곡우 · 연둣빛 언덕", "label_en": "Grain Rain · fresh green hills", "q": "spring", "cats": ["landscapes", "agriculture"], "keywords": "green hills spring", "moods": ["lively", "cool"] }
+    ],
+    "ipha": [
+      { "label": "입하 · 짙어지는 신록", "label_en": "Start of Summer · deepening green", "q": "green", "cats": ["forests"], "keywords": "green forest summer", "moods": ["cool", "calm"] },
+      { "label": "입하 · 초여름 들판", "label_en": "Start of Summer · early-summer meadow", "q": "meadow", "cats": ["landscapes", "flowers", "agriculture"], "keywords": "summer meadow", "moods": ["lively", "warm"] }
+    ],
+    "soman": [
+      { "label": "소만 · 익어 가는 보리밭", "label_en": "Grain Buds · ripening fields", "q": "field", "cats": ["agriculture"], "keywords": "wheat field summer", "moods": ["warm"] },
+      { "label": "소만 · 꽃 핀 언덕", "label_en": "Grain Buds · flowering hillside", "q": "flowers", "cats": ["landscapes", "flowers"], "keywords": "flower hillside", "moods": ["lively"] }
+    ],
+    "mangjong": [
+      { "label": "망종 · 물 댄 논", "label_en": "Grain in Ear · flooded rice fields", "q": "rice", "cats": ["agriculture", "landscapes"], "keywords": "rice terraces", "moods": ["calm", "cool"] },
+      { "label": "망종 · 초록 골짜기", "label_en": "Grain in Ear · green valley", "q": "valley", "cats": ["mountains", "landscapes"], "keywords": "green valley", "moods": ["cool"] }
+    ],
+    "haji": [
+      { "label": "하지 · 가장 긴 낮", "label_en": "Summer Solstice · the longest day", "q": "summer", "cats": ["lakes", "coasts", "landscapes"], "keywords": "summer lake", "moods": ["cool", "lively"] },
+      { "label": "하지 · 늦게 지는 해", "label_en": "Summer Solstice · a late sunset", "q": "summer", "cats": ["sunsets"], "keywords": "summer sunset", "moods": ["warm"] }
+    ],
+    "soseo": [
+      { "label": "소서 · 장마 구름", "label_en": "Minor Heat · monsoon clouds", "q": "", "cats": ["clouds"], "keywords": "dramatic clouds", "moods": ["calm"] },
+      { "label": "소서 · 연꽃", "label_en": "Minor Heat · lotus", "q": "lotus", "cats": ["flowers", "plants", "gardens"], "keywords": "lotus pond", "moods": ["calm", "lively"] }
+    ],
+    "daeseo": [
+      { "label": "대서 · 시원한 폭포", "label_en": "Major Heat · a cool waterfall", "q": "", "cats": ["waterfalls"], "keywords": "waterfall forest", "moods": ["cool"] },
+      { "label": "대서 · 한여름 바다", "label_en": "Major Heat · midsummer sea", "q": "", "cats": ["beaches", "coasts"], "keywords": "summer beach sea", "moods": ["cool", "lively"] }
+    ],
+    "ipchu": [
+      { "label": "입추 · 높아지는 하늘", "label_en": "Start of Autumn · the sky grows higher", "q": "", "cats": ["clouds"], "keywords": "blue sky clouds", "moods": ["cool", "calm"] },
+      { "label": "입추 · 해바라기 밭", "label_en": "Start of Autumn · sunflower field", "q": "sunflower", "cats": ["agriculture", "flowers", "plants"], "keywords": "sunflower field", "moods": ["warm", "lively"] }
+    ],
+    "cheoseo": [
+      { "label": "처서 · 선선해진 호수", "label_en": "End of Heat · a cooler lake", "q": "", "cats": ["lakes"], "keywords": "calm lake", "moods": ["calm", "cool"] },
+      { "label": "처서 · 저녁 노을", "label_en": "End of Heat · evening glow", "q": "summer", "cats": ["sunsets"], "keywords": "late summer sunset", "moods": ["warm"] }
+    ],
+    "baengno": [
+      { "label": "백로 · 아침 이슬과 안개", "label_en": "White Dew · morning dew and mist", "q": "morning", "cats": ["fog"], "keywords": "morning mist field", "moods": ["calm"] },
+      { "label": "백로 · 맑은 가을 산", "label_en": "White Dew · clear autumn hills", "q": "autumn", "cats": ["mountains"], "keywords": "autumn mountains", "moods": ["cool"] }
+    ],
+    "chubun": [
+      { "label": "추분 · 황금 들판", "label_en": "Autumn Equinox · golden fields", "q": "autumn", "cats": ["agriculture", "landscapes"], "keywords": "golden field autumn", "moods": ["warm"] },
+      { "label": "추분 · 가을 하늘", "label_en": "Autumn Equinox · autumn sky", "q": "autumn", "cats": ["landscapes", "lakes"], "keywords": "autumn lake sky", "moods": ["cool", "calm"] }
+    ],
+    "hallo": [
+      { "label": "한로 · 물드는 단풍", "label_en": "Cold Dew · turning leaves", "q": "autumn", "cats": ["forests", "trees"], "keywords": "autumn leaves forest", "moods": ["warm", "lively"] },
+      { "label": "한로 · 찬 이슬 내린 아침", "label_en": "Cold Dew · a dewy cold morning", "q": "autumn", "cats": ["fog"], "keywords": "autumn morning mist", "moods": ["calm"] }
+    ],
+    "sanggang": [
+      { "label": "상강 · 서리 내린 아침", "label_en": "Frost's Descent · frosty morning", "q": "frost", "cats": ["landscapes", "trees", "plants", "fog"], "keywords": "frost morning", "moods": ["calm", "cool"] },
+      { "label": "상강 · 깊은 단풍 골짜기", "label_en": "Frost's Descent · valley in full color", "q": "autumn", "cats": ["mountains", "landscapes"], "keywords": "autumn valley colors", "moods": ["warm", "lively"] }
+    ],
+    "ipdong": [
+      { "label": "입동 · 낙엽 진 숲길", "label_en": "Start of Winter · leaf-strewn path", "q": "autumn", "cats": ["forests"], "keywords": "forest path fallen leaves", "moods": ["calm", "warm"] },
+      { "label": "입동 · 늦가을 안개", "label_en": "Start of Winter · late-autumn mist", "q": "autumn", "cats": ["fog"], "keywords": "november fog landscape", "moods": ["calm"] }
+    ],
+    "soseol": [
+      { "label": "소설 · 첫눈 무렵", "label_en": "Minor Snow · around the first snow", "q": "", "cats": ["snow"], "keywords": "first snow forest", "moods": ["calm", "cool"] },
+      { "label": "소설 · 서리 내린 들", "label_en": "Minor Snow · frosted fields", "q": "frost", "cats": ["landscapes", "trees", "plants", "fog"], "keywords": "frost field", "moods": ["calm", "cool"] }
+    ],
+    "daeseol": [
+      { "label": "대설 · 눈 덮인 산", "label_en": "Major Snow · snow-covered peaks", "q": "winter", "cats": ["mountains"], "keywords": "snowy mountains", "moods": ["cool"] },
+      { "label": "대설 · 눈 내린 숲", "label_en": "Major Snow · snowy woods", "q": "", "cats": ["snow", "forests"], "keywords": "snowy forest", "moods": ["calm"] }
+    ],
+    "dongji": [
+      { "label": "동지 · 가장 긴 밤", "label_en": "Winter Solstice · the longest night", "q": "", "cats": ["the_Milky_Way"], "keywords": "winter night stars", "moods": ["calm"] },
+      { "label": "동지 · 겨울 해넘이", "label_en": "Winter Solstice · winter sunset", "q": "winter", "cats": ["sunsets"], "keywords": "winter sunset", "moods": ["warm"] }
+    ],
+    "sohan": [
+      { "label": "소한 · 얼어붙은 호수", "label_en": "Minor Cold · frozen lake", "q": "", "cats": ["ice", "lakes"], "keywords": "frozen lake", "moods": ["cool", "calm"] },
+      { "label": "소한 · 눈 쌓인 마을", "label_en": "Minor Cold · snowed-in village", "q": "winter", "cats": ["landscapes", "snow"], "keywords": "snowy village", "moods": ["warm", "calm"] }
+    ],
+    "daehan": [
+      { "label": "대한 · 고요한 설원", "label_en": "Major Cold · silent snowfield", "q": "winter", "cats": ["snow", "landscapes"], "keywords": "snowfield winter", "moods": ["calm", "cool"] },
+      { "label": "대한 · 얼음의 결", "label_en": "Major Cold · patterns of ice", "q": "", "cats": ["ice"], "keywords": "ice texture winter", "moods": ["cool"] }
+    ]
+  },
+  "seasons": {
+    "early-spring": [{ "label": "이른 봄의 숲", "label_en": "Early-spring woods", "q": "spring", "cats": ["forests"], "keywords": "early spring forest", "moods": ["calm"] }],
+    "spring": [{ "label": "봄 꽃밭", "label_en": "Spring flowers", "q": "spring", "cats": ["flowers", "gardens", "parks"], "keywords": "spring flowers", "moods": ["lively", "warm"] }],
+    "late-spring": [{ "label": "늦봄의 산", "label_en": "Late-spring hills", "q": "spring", "cats": ["mountains", "landscapes"], "keywords": "spring hills", "moods": ["cool", "lively"] }],
+    "early-summer": [{ "label": "초여름 호수", "label_en": "Early-summer lake", "q": "summer", "cats": ["lakes"], "keywords": "summer lake", "moods": ["cool", "calm"] }],
+    "summer": [{ "label": "여름 바다", "label_en": "Summer sea", "q": "", "cats": ["coasts", "beaches", "islands"], "keywords": "summer sea coast", "moods": ["cool", "lively"] }],
+    "midsummer": [{ "label": "한여름 계곡", "label_en": "Midsummer stream", "q": "", "cats": ["waterfalls"], "keywords": "summer stream", "moods": ["cool"] }],
+    "early-autumn": [{ "label": "초가을 들녘", "label_en": "Early-autumn fields", "q": "autumn", "cats": ["agriculture", "landscapes"], "keywords": "early autumn field", "moods": ["warm", "calm"] }],
+    "autumn": [{ "label": "가을 산", "label_en": "Autumn hills", "q": "autumn", "cats": ["mountains", "landscapes"], "keywords": "autumn hills", "moods": ["warm", "cool"] }],
+    "late-autumn": [{ "label": "늦가을 숲", "label_en": "Late-autumn woods", "q": "autumn", "cats": ["forests", "trees"], "keywords": "late autumn forest", "moods": ["warm", "calm"] }],
+    "early-winter": [{ "label": "초겨울 숲", "label_en": "Early-winter woods", "q": "winter", "cats": ["forests", "trees"], "keywords": "early winter forest", "moods": ["calm"] }],
+    "winter": [{ "label": "겨울 산", "label_en": "Winter peaks", "q": "winter", "cats": ["mountains"], "keywords": "winter mountains", "moods": ["cool"] }],
+    "midwinter": [{ "label": "한겨울 설경", "label_en": "Midwinter snowscape", "q": "", "cats": ["snow"], "keywords": "winter snow landscape", "moods": ["calm", "cool"] }]
+  },
+  "parts": {
+    "dawn": { "label": "{season} 새벽 해돋이", "label_en": "{season} sunrise", "q": "{word}", "cats": ["sunrises"], "keywords": "{word} sunrise", "moods": ["warm", "calm"] },
+    "morning": { "label": "{season} 아침 안개", "label_en": "{season} morning mist", "q": "{word}", "cats": ["fog"], "keywords": "{word} morning mist", "moods": ["calm"] },
+    "day": { "label": "{season} 한낮의 풍경", "label_en": "{season} daylight", "q": "{word}", "cats": ["landscapes", "mountains", "lakes"], "keywords": "{word} landscape", "moods": ["cool", "lively"] },
+    "evening": { "label": "{season} 해 질 녘", "label_en": "{season} dusk", "q": "{word}", "cats": ["sunsets"], "keywords": "{word} sunset", "moods": ["warm"] },
+    "night": { "label": "{season} 밤하늘", "label_en": "{season} night sky", "q": "", "cats": ["the_Milky_Way"], "keywords": "{word} night sky stars", "moods": ["calm"] }
+  },
+  "weather": {
+    "clear": { "label": "맑은 날의 하늘", "label_en": "A clear day", "q": "{word}", "cats": ["landscapes", "mountains", "lakes"], "keywords": "clear blue sky landscape", "moods": ["cool", "lively"] },
+    "partly": { "label": "구름 흐르는 하늘", "label_en": "Drifting clouds", "q": "", "cats": ["clouds"], "keywords": "clouds sky", "moods": ["calm", "cool"] },
+    "cloudy": { "label": "흐린 날의 구름", "label_en": "An overcast day", "q": "", "cats": ["clouds", "fog"], "keywords": "overcast clouds landscape", "moods": ["calm"] },
+    "fog": { "label": "안개 낀 날", "label_en": "A foggy day", "q": "", "cats": ["fog"], "keywords": "fog landscape", "moods": ["calm"] },
+    "rain": { "label": "비 오는 날", "label_en": "A rainy day", "q": "rain", "cats": ["rain", "clouds", "cityscapes", "landscapes"], "keywords": "rain", "moods": ["calm", "cool"] },
+    "snow": { "label": "눈 오는 날", "label_en": "A snowy day", "q": "", "cats": ["snow"], "keywords": "snowfall", "moods": ["calm", "cool"] },
+    "storm": { "label": "번개 치는 하늘", "label_en": "A stormy sky", "q": "", "cats": ["lightning", "storms", "clouds"], "keywords": "storm clouds lightning", "moods": ["lively"] }
+  },
+  "moods": {
+    "calm": [
+      { "label": "고요한 호수", "label_en": "A still lake", "q": "{word}", "cats": ["lakes"], "keywords": "calm lake reflection", "moods": ["calm"] },
+      { "label": "안개 낀 숲", "label_en": "Misty woods", "q": "", "cats": ["fog", "forests"], "keywords": "misty forest", "moods": ["calm"] }
+    ],
+    "warm": [
+      { "label": "노을빛", "label_en": "Golden glow", "q": "{word}", "cats": ["sunsets", "sunrises"], "keywords": "golden hour", "moods": ["warm"] },
+      { "label": "햇살 드는 숲", "label_en": "Sunlit woods", "q": "sunlight", "cats": ["forests", "trees"], "keywords": "sunlight forest", "moods": ["warm"] }
+    ],
+    "cool": [
+      { "label": "푸른 바다", "label_en": "Blue sea", "q": "", "cats": ["coasts", "beaches", "islands"], "keywords": "blue sea", "moods": ["cool"] },
+      { "label": "시원한 폭포", "label_en": "A cool waterfall", "q": "", "cats": ["waterfalls"], "keywords": "waterfall", "moods": ["cool"] }
+    ],
+    "lively": [
+      { "label": "꽃 핀 정원", "label_en": "A garden in bloom", "q": "", "cats": ["gardens", "parks"], "keywords": "flower garden", "moods": ["lively"] },
+      { "label": "도시의 불빛", "label_en": "City lights", "q": "night", "cats": ["cityscapes", "skylines"], "keywords": "city lights night", "moods": ["lively"] }
+    ]
+  },
+  "potd": { "label": "오늘의 사진", "label_en": "Picture of the day", "olderLabel": "이번 주의 사진", "olderLabel_en": "Picture of the week" },
+  "landscape": { "label": "멋진 풍경 한 장", "label_en": "A striking landscape", "q": "", "cats": ["landscapes", "mountains", "coasts", "islands"], "keywords": "landscape", "moods": [] }
+}
