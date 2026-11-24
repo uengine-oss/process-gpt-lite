@@ -29,6 +29,7 @@ import OntoStepCard from './ontology/OntoStepCard.vue'
 import OntoHabitShareCard from './ontology/OntoHabitShareCard.vue'
 import OntoTimerAskCard from './ontology/OntoTimerAskCard.vue'
 import OntoEditCard from './ontology/OntoEditCard.vue'
+import MailChips from './MailChips.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
@@ -59,6 +60,8 @@ const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text |
 // (src/replies.js: only a real choice list — a report's bullet lines stay text)
 const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
 const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell', refresh: 'refresh' }
+// the mails a message is about (모닝 브리프: its Home cards; a line about one mail): chips that open them (MailChips, server lib/mailFlow.js)
+const mailRefs = computed(() => (Array.isArray(c.value.mails) ? c.value.mails : c.value.mail && (c.value.mail.actionId || c.value.mail.mailId) ? [c.value.mail] : []))
 // what the answer did on the way (server lib/workTrail.js): folded to one line of the sites it read
 const workOpen = ref(false)
 const work = computed(() => (Array.isArray(c.value.work) ? c.value.work : []))
@@ -119,6 +122,7 @@ onMounted(async () => {
     </template>
     <template v-else-if="msg.kind === 'text'">
       <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <MailChips v-if="mailRefs.length" :refs="mailRefs" :event="c.mailEvent || ''" />
       <!-- 회사 프로세스 지도의 업무 에이전트: 일 정의의 점검 항목마다 지켰는지(근거는 마우스를 올리면) -->
       <ul v-if="c.checks?.length" class="checks" data-testid="onto-checks">
         <li v-for="(x, i) in c.checks" :key="i" :class="x.ok === true ? 'ok' : x.ok === false ? 'no' : 'na'" :title="x.note"><b>{{ x.ok === true ? '✓' : x.ok === false ? '✗' : '?' }}</b><span>{{ x.checkpoint }}</span></li>

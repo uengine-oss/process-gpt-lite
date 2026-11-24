@@ -30,6 +30,8 @@ export const useApp = defineStore('app', {
     status: {},                // threadId -> live status text
     actions: [],
     mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
+    mailCardFrom: null,        // where that sheet was opened: home | chat | instance | inbox (the sheet's 「Home 카드로」 is for the others)
+    flashCard: null,           // a Home card to bring into view and light up once (the mail sheet's 「Home 카드로」)
     panels: [],
     panelApps: [],             // data apps (lib/panelApps) of folders I belong to
     panelAppTick: {},          // appId -> bumps when its rows change (another member, the sheet editor)
@@ -372,6 +374,21 @@ export const useApp = defineStore('app', {
     runAction(a) { return api(`/actions/${a.id}/run`, { method: 'POST' }) },
     // a mail's card: the mail, a reply draft, the send — only on 보내기 (routes/mailReply.js)
     mailOfCard(id) { return api(`/actions/${id}/mail`) },
+    // a chat chip of a mail (모닝 브리프 · 메일에서 찾은 요청 · 보낸 답장, server lib/mailFlow.js refOf): its card's mail sheet — the
+    // card on Home, else the server's (a card put away from Home still opens its mail)
+    async openMailCard(ref, from = 'chat') {
+      const id = ref?.actionId
+      let a = (id && this.actions.find((x) => x.id === id)) || (ref?.mailId && this.actions.find((x) => x.source?.mail_id === ref.mailId)) || null
+      if (!a) a = await api(`/mail/card?${new URLSearchParams(Object.entries({ action: id || '', mail: ref?.mailId || '' }).filter(([, v]) => v))}`)
+      this.mailCardFrom = from
+      this.mailCard = a
+      return a
+    },
+    // the mail's place in the work (lib/mailFlow.js): its instance, or what it may start or join — nothing starts until the person presses
+    mailFlow(id) { return api(`/actions/${id}/flow`) },
+    startMailFlow(id, body) { return api(`/actions/${id}/flow/start`, { method: 'POST', body }) },
+    joinMailFlow(id, body) { return api(`/actions/${id}/flow/join`, { method: 'POST', body }) },
+    declineMailFlow(id, undo = false) { return api(`/actions/${id}/flow/decline`, { method: 'POST', body: { undo } }) },
     draftReply(id) { return api(`/actions/${id}/reply-draft`, { method: 'POST' }) },
     sendReply(id, body) { return api(`/actions/${id}/reply`, { method: 'POST', body }) },
     dismissAction(a) {
