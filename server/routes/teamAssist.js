@@ -24,6 +24,7 @@ async function agentRow(me, roomId, content, pgpt, uuid = crypto.randomUUID()) {
   const msg = { uuid, id: 'process-gpt-agent', name: 'Process GPT Agent', role: 'assistant', email: 'agent:process-gpt-agent', agentId: 'process-gpt-agent',
     userName: 'Process GPT Agent', profile: '/images/chat-icon.png', content, timeStamp: new Date().toISOString(), pgpt }
   await q('insert into chats(uuid, id, messages, tenant_id, thread_id) values ($1,$2,$3,$4,$2)', [uuid, roomId, msg, T()])
+  await M.deliver(uuid)
   return uuid
 }
 
@@ -64,6 +65,7 @@ export function runAs(me, session) {
     const pgpt = { kind: 'agent', ...by, artifacts, context: { assist: s.id, title: s.title } }
     if (persisted) {
       await q(`update chats set messages = messages || $2::jsonb where uuid=$1`, [uuid, JSON.stringify({ content: answer.length > 3000 ? `${answer.slice(0, 3000)}…` : answer, pgpt })])
+      await M.deliver(uuid)
     } else {
       await agentRow(me, s.room_id, answer, pgpt, uuid)
     }

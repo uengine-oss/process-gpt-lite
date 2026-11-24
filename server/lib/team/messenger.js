@@ -6,12 +6,13 @@
 //   chats      {uuid, id: room id, messages:{uuid, role, content, timeStamp, email, name, userName, userId,
 //               mentionedUsers, pgpt:{kind, artifacts, context}}}
 // process-gpt's chat_insert_trigger notifies the other people (type 'chat'); pgpt-pro adds a richer
-// 'team' notification for shares and mentions. Live delivery: the pro_chats_notify trigger → LISTEN here.
+// 'team' notification for shares and mentions. Live delivery: a row written here goes at once (pushRow · deliver),
+// a row written anywhere else through the pro_chats_notify trigger → LISTEN here (feedRow).
 import crypto from 'node:crypto'
 import pg from 'pg'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
-import { tenants, withTenant } from '../tenant.js'
+import { watchedTenants, withTenant } from '../tenant.js'
 import { emit } from '../bus.js'
 import { TeamError, isMember, people } from './access.js'
 import { viewArtifacts } from './shares.js'
@@ -166,7 +167,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   await q(`update chat_rooms set message=$2 where id=$1`, [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
-  for (const m of members) emit(m.id, 'team', { type: 'message', threadId: t.id, message: withLang(await langOf(m.id), () => view(m.id, row, by)) })
+  await pushRow(row, members)
   if (kind === 'share' || kind === 'mention') await notifyMembers(me, t, row, kind, files, context, members.filter((m) => m.id !== me.id))
   return view(me.id, row, by)
 }
@@ -233,8 +234,48 @@ export async function message(me, uuid) {
 }
 
 // ---- live delivery for rows written anywhere (process-gpt's UI, an agent, this server) ----
+// One chats row to each of the room's people, in their own language — the one way a row reaches open conversations:
+// a message sent here (post), a meeting's record written here (lib/meetings/record.js: the card, 회의 자료, 회의록 —
+// deliver), and rows written anywhere else (the room feed below). A row goes once per content: the feed's copy of a
+// row this server already delivered is dropped, and the other way round (before, a sent message came twice).
+const sentRows = new Map() // chats uuid -> the content last delivered (its messages, hashed)
+const SENT_KEEP = 2000
+const contentOf = (row) => crypto.createHash('sha1').update(JSON.stringify(row.messages ?? null)).digest('base64')
+export async function pushRow(row, people) {
+  const c = contentOf(row)
+  if (sentRows.get(row.uuid) === c) return false
+  sentRows.delete(row.uuid)
+  sentRows.set(row.uuid, c)
+  if (sentRows.size > SENT_KEEP) sentRows.delete(sentRows.keys().next().value)
+  const by = Object.fromEntries(people.map((p) => [p.email, { id: p.id, name: nameOf(p) }]))
+  for (const p of people) emit(p.id, 'team', { type: 'message', threadId: row.id, message: withLang(await langOf(p.id), () => view(p.id, row, by)) })
+  return true
+}
+// a row this server just wrote into a room (inserted or updated), to the room's people at once — not left to the
+// room feed, which a development server (PRO_BACKGROUND=0) does not run and which can be reconnecting
+export async function deliver(uuid) {
+  try {
+    const [row] = await q('select c.uuid, c.id, c.messages, r.participants from chats c join chat_rooms r on r.id=c.id where c.uuid=$1', [uuid])
+    return row ? await pushRow(row, split(row.participants).humans) : false
+  } catch (e) { console.warn('[rooms] deliver', e.message); return false }
+}
+
 const listeners = new Set() // (row) => void   (lib/team/assist.js watches for requests)
 export const onChat = (fn) => listeners.add(fn)
+// a row the feed heard of: its room's people get it (unless this server already sent this content), the watchers see it.
+// Only rooms of the tenants this server serves — behind the ProcessGPT gateway every tenant that uses Lite; until
+// 2026-11-24 only the default one there, so in a company's room nothing written by the meeting assistant or an agent
+// came live (the minutes showed only after the conversation was opened again).
+export async function feedRow(uuid) {
+  const [row] = await q('select c.uuid, c.id, c.messages, r.participants, r.tenant_id from chats c join chat_rooms r on r.id=c.id where c.uuid=$1 and r.tenant_id = any($2)', [uuid, await watchedTenants()])
+  if (!row) return false
+  return withTenant(row.tenant_id, async () => {
+    const { humans } = split(row.participants)
+    const sent = await pushRow(row, humans)
+    for (const fn of listeners) fn(row, humans)
+    return sent
+  })
+}
 export function startRoomFeed() {
   let client, retry
   // a dropped connection (DB restart, recovery) is reopened; messages written meanwhile are still in
@@ -252,18 +293,7 @@ export function startRoomFeed() {
     await client.connect()
     await client.query('listen pro_chats')
     client.on('notification', async (n) => {
-      try {
-        const { uuid, id } = JSON.parse(n.payload)
-        const [row] = await q('select c.uuid, c.id, c.messages, r.participants, r.tenant_id from chats c join chat_rooms r on r.id=c.id where c.uuid=$1 and r.tenant_id = any($2)', [uuid, tenants()])
-        if (!row) return
-        await withTenant(row.tenant_id, async () => {
-          const { humans } = split(row.participants)
-          const by = Object.fromEntries(humans.map((p) => [p.email, { id: p.id, name: nameOf(p) }]))
-          // (each person's copy in their own language: an agent's row names its owner in it)
-          for (const p of humans) emit(p.id, 'team', { type: 'message', threadId: id, message: withLang(await langOf(p.id), () => view(p.id, row, by)) })
-          for (const fn of listeners) fn(row, humans)
-        })
-      } catch (e) { console.warn('[rooms feed]', e.message) }
+      try { await feedRow(JSON.parse(n.payload).uuid) } catch (e) { console.warn('[rooms feed]', e.message) }
     })
   }
   connect().catch((e) => again(e.message))
