@@ -3,7 +3,7 @@
 //   /folders                       폴더 목록·색인 검색
 //   /folders/:slug                 폴더: main 파일 트리 + 변형 + 일괄 반영
 //   /folders/:slug/v/:variation    변형: main 과의 차이, 인계, 반영
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import FolderList from '../components/folders/FolderList.vue'
@@ -32,6 +32,12 @@ onMounted(async () => {
   app.mode = 'folders'
   if (!app.me) app.me = await api('/me').catch(() => null)
 })
+// /folders/<slug>?file=<path>: the file opens in the preview (a document just filed there — 폴더에 정리 · 열기)
+watch(() => [slug.value, route.query.file], async ([s, file]) => {
+  if (!s || !file || vid.value) return
+  const [folder, row] = await Promise.all([api(`/folders/${encodeURIComponent(s)}`).catch(() => null), api(`/folders/${encodeURIComponent(s)}/file?path=${encodeURIComponent(file)}`).catch(() => null)])
+  if (folder && row && slug.value === s) open({ folder, file: { path: String(file), ...row } })
+}, { immediate: true })
 </script>
 
 <template>

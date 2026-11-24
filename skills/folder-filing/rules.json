@@ -1,0 +1,9 @@
+{
+  "maxFolders": 15,
+  "filesPerFolder": 6,
+  "textChars": 1200,
+  "contextLines": 6,
+  "timeoutMs": 8000,
+  "subfolders": { "max": 8, "min": 0.5 },
+  "autoFile": { "enabled": false, "min": 0.9 }
+}
