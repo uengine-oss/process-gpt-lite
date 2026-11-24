@@ -8,6 +8,7 @@ import { announce } from '../browserNotify.js'
 import { keyOf as chatKeyOf } from '../chatAgent.js'
 import { readListOpen, saveListOpen } from '../threadList.js'
 import { artifactScope, artifactItems, readFolded, saveFolded } from '../artifactScope.js'
+import { topicOf, topicList } from '../projectTopics.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
@@ -15,6 +16,8 @@ let draftJob = Promise.resolve(null)
 // a routed turn that came as a live event (another device, an answer after a dropped connection): the list's titles and summaries
 // again, once things settle (the router writes its row as the turn ends)
 let convReload = null
+// the same for a project's sub-topics (src/projectTopics.js): threadId → timer
+const topicReload = {}
 
 // the open document's sheet answers here before the document is replaced or closed (setOfficeDoc)
 let officeLeave = null
@@ -72,6 +75,8 @@ export const useApp = defineStore('app', {
     folderPicker: false,       // the composer's folder list is open (📎 폴더 붙이기, 새 프로젝트's chip)
     conversations: [],         // what the context router told apart in the main chat (context_threads)
     convFilter: null,          // conversation id the main chat is narrowed to (/chat/c/:cid)
+    topics: {},                // projectId -> its sub-topics as the server lists them (GET /threads/:id/topics — server lib/projectTopics.js)
+    topicFilter: null,         // the sub-topic a project's view is narrowed to (/projects/:id/t/:tid)
     searchOpen: false,
     prefill: '',
     focusTick: 0,              // bumps: the chat composer takes the focus (an open document's AI 도우미 button)
@@ -94,10 +99,20 @@ export const useApp = defineStore('app', {
     active(s) { return s.activeId === s.mainThread?.id ? s.mainThread : s.projects.find((p) => p.id === s.activeId) },
     thread(s) {
       const all = s.messages[s.activeId] || []
+      // one sub-topic of the project on screen (src/projectTopics.js)
+      if (s.topicFilter && s.mode === 'project' && this.projectOpen) {
+        const of = this.topicOf
+        return all.filter((m) => of[m.id] === s.topicFilter)
+      }
       if (!s.convFilter || s.activeId !== s.mainThread?.id) return all
       const of = this.convOf
       return all.filter((m) => of[m.id] === s.convFilter)
     },
+    // the view on screen is a project's (not a draft being made, not the main chat)
+    projectOpen(s) { return !!s.activeId && s.projects.some((p) => p.id === s.activeId) },
+    // which sub-topic each message of the project on screen belongs to, and its sub-topics with message counts (src/projectTopics.js)
+    topicOf(s) { return this.projectOpen ? topicOf(s.messages[s.activeId] || []) : {} },
+    topicList(s) { return this.projectOpen ? topicList(s.topics[s.activeId] || [], s.messages[s.activeId] || [], this.topicOf) : [] },
     // Which conversation each main-chat message belongs to. An answer carries the router's call
     // (context.conversationId, continue/new); the user's message and attachments just before it go
     // with it; a "stay" answer (or a chip, a card) stays in the conversation the chat was in.
@@ -119,8 +134,13 @@ export const useApp = defineStore('app', {
     // The files the view on screen made (src/artifactScope.js): the whole chat, one conversation of it, or a project's room — newest
     // first, each with the conversation it came from (the right column's list and the pile both show these)
     artifacts(s) {
-      const scope = artifactScope({ mode: s.mode, activeId: s.activeId, mainId: s.mainThread?.id, convFilter: s.convFilter, projectIds: s.projects.map((p) => p.id) })
+      const scope = artifactScope({ mode: s.mode, activeId: s.activeId, mainId: s.mainThread?.id, convFilter: s.convFilter, topicFilter: s.topicFilter, projectIds: s.projects.map((p) => p.id) })
       if (!scope) return { scope, items: [] }
+      // one sub-topic of a project: its files only
+      if (scope === 'topic') {
+        const titles = Object.fromEntries(this.topicList.map((c) => [c.id, c.title]))
+        return { scope, items: artifactItems({ scope, messages: s.messages[s.activeId] || [], convOf: this.topicOf, convFilter: s.topicFilter, titles }) }
+      }
       const main = scope !== 'project'
       const titles = main ? Object.fromEntries(this.convList.map((c) => [c.id, c.title])) : {}
       return { scope, items: artifactItems({ scope, messages: s.messages[s.activeId] || [], convOf: main ? this.convOf : {}, convFilter: s.convFilter, titles }) }
@@ -185,6 +205,12 @@ export const useApp = defineStore('app', {
     async loadPanels() { this.panels = await api('/panels') },
     async loadPanelApps() { this.panelApps = await api('/panel-apps').catch(() => this.panelApps) },
     async loadConversations() { this.conversations = await api('/conversations').catch(() => []) },
+    // a project's sub-topics (server lib/projectTopics.js) — kept as they were when the server does not answer
+    async loadTopics(id) {
+      if (!id) return
+      const r = await api(`/threads/${id}/topics`).catch(() => null)
+      if (r) this.topics = { ...this.topics, [id]: Array.isArray(r.topics) ? r.topics : [] }
+    },
     foldArtifacts(folded) {
       this.artifactsFolded = !!folded
       saveFolded(this.artifactsFolded)
@@ -239,6 +265,11 @@ export const useApp = defineStore('app', {
           if (d.role === 'agent' && d.thread_id === this.mainThread?.id && d.content?.context?.conversationId) {
             clearTimeout(convReload)
             convReload = setTimeout(() => this.loadConversations(), 2500)
+          }
+          // a project's turn answered in one of its sub-topics: the project's list follows the same way
+          if (d.role === 'agent' && d.content?.conv && this.projects.some((p) => p.id === d.thread_id)) {
+            clearTimeout(topicReload[d.thread_id])
+            topicReload[d.thread_id] = setTimeout(() => this.loadTopics(d.thread_id), 2500)
           }
           // a document the person asked to see (folder_open: "장진영 이력서 열어 줘") opens in the editor at
           // once — on the screen that asked (not their other devices), in the conversation on screen, as the
@@ -371,9 +402,13 @@ export const useApp = defineStore('app', {
       const refs = Array.isArray(opts.refs) ? opts.refs : []
       await Promise.all(pending.map((a) => a.job))
       const files = pending.filter((a) => a.result).map((a) => a.result)
-      // asked from inside one conversation's view: it continues that conversation
+      // asked from inside one conversation's view: it continues that conversation — and inside one sub-topic of a project, that
+      // sub-topic (server lib/projectTopics.js: the router is not asked)
       const conv = this.convFilter && threadId === this.mainThread?.id ? this.convList.find((c) => c.id === this.convFilter) : null
-      const conversation = conv ? { id: conv.id, title: conv.title } : this.convFilter && threadId === this.mainThread?.id ? { id: this.convFilter } : undefined
+      const inTopic = this.topicFilter && this.mode === 'project' && threadId === this.activeId && this.projects.some((p) => p.id === threadId)
+      const topic = inTopic ? this.topicList.find((c) => c.id === this.topicFilter) || { id: this.topicFilter } : null
+      const conversation = conv ? { id: conv.id, title: conv.title } : this.convFilter && threadId === this.mainThread?.id ? { id: this.convFilter }
+        : topic ? { id: topic.id, title: topic.title || '' } : undefined
       // an editable document open in the editor (OfficeSheet): the message is about it, even when its
       // live link (src/liveLink.js) is down — the server still edits it in place (lib/agent.js delegate)
       const d = this.officeDoc, ed = d && !d.readOnly ? officeEditorFor(d.name || d.url) : null
@@ -395,10 +430,12 @@ export const useApp = defineStore('app', {
       // the answer's cards come as live events, a moment after it ends; a dropped connection waits longer
       setTimeout(() => { if (this.askedAt[threadId] === asked) delete this.askedAt[threadId] }, ended ? 15_000 : 10 * 60_000)
       if (threadId === this.mainThread?.id) this.loadConversations()
+      else if (this.projects.some((p) => p.id === threadId)) this.loadTopics(threadId)
     },
     // 멈추기: the answer being written in this thread (in a conversation view, only that conversation's)
     async stopTurn(threadId = this.activeId) {
-      const conversation = this.convFilter && threadId === this.mainThread?.id ? this.convFilter : undefined
+      const conversation = this.convFilter && threadId === this.mainThread?.id ? this.convFilter
+        : this.topicFilter && this.mode === 'project' && threadId === this.activeId ? this.topicFilter : undefined
       const r = await api(`/threads/${threadId}/stop`, { method: 'POST', body: { conversation } }).catch(() => null)
       if (r && !r.waiting) { this.status[threadId] = null }
       return r
@@ -482,6 +519,8 @@ export const useApp = defineStore('app', {
     },
     async open(id) {
       this.activeId = id
+      // a project's sub-topics come beside its messages (not waited for: the chat shows at once)
+      if (this.projects.some((p) => p.id === id)) this.loadTopics(id)
       if (!this.messages[id]) await this.load(id)
     },
     // a card button: the step's choice is submitted right there (with no choice the answer names the instance to open)

@@ -1,0 +1,14 @@
+# cd e2e && npx playwright test --project=feature tests/feature/project-topics.spec.js  (2026-11-25 07:15)
+
+Running 8 tests using 1 worker
+
+  ✓  1 [feature] › tests/feature/project-topics.spec.js:196:1 › F-PS-01 프로젝트의 메시지는 그 프로젝트의 주제 가운데서만 나뉜다 — 새 주제는 새 대화, 이어지는 말은 그 주제로 (3.2s)
+  ✓  2 [feature] › tests/feature/project-topics.spec.js:245:1 › F-PS-02 주제 하나로 좁히면 그 주제의 메시지 · 산출물만, 거기서 보낸 말은 그 주제로 이어지고, 「전체」로 돌아간다 (2.1s)
+  ✓  3 [feature] › tests/feature/project-topics.spec.js:289:1 › F-PS-03 답 위의 「↳ 주제」 표시를 누르면 그 주제로 좁혀진다 (460ms)
+  ✓  4 [feature] › tests/feature/project-topics.spec.js:298:1 › F-PS-04 주제가 생기기 전부터 있던 프로젝트 — 원래 대화가 프로젝트 이름의 첫 주제가 되고, 새 주제와 나뉘며, 다시 이어진다 (2.5s)
+  ✓  5 [feature] › tests/feature/project-topics.spec.js:325:1 › F-PS-05 390px 휴대폰 — 막대 · 목록 창이 화면 안, 옆으로 밀리지 않음, 고르면 그 주제(밝은 · 밤) (6.3s)
+  ✓  6 [feature] › tests/feature/project-topics.spec.js:352:1 › F-PS-06 밤 테마의 넓은 화면 — 왼쪽 목록의 주제 행과 막대 (2.4s)
+  ✓  7 [feature] › tests/feature/project-topics.spec.js:363:1 › F-PS-07 폴더에서 일하는 프로젝트 — 주제마다 대화는 따로, 변형은 프로젝트에 하나, 작업 폴더는 그 턴의 주제 대화 안 (49.5s)
+  ✓  8 [feature] › tests/feature/project-topics.spec.js:389:1 › F-PS-08 라우터가 닿지 않으면 예전처럼 — 프로젝트의 대화로 답하고 오류 없음, 새 프로젝트에는 주제 막대가 없음 (4.0s)
+
+  8 passed (1.2m)

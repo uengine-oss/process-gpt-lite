@@ -44,7 +44,7 @@ function pick(m) { open.value = false; openArtifact(app, router, m) }
 const drag = (e, list) => startDrag(e, list.slice(0, MAX).map(cardItem))
 const onKey = (e) => { if (e.key === 'Escape') open.value = false }
 watch(open, (v) => (v ? window.addEventListener('keydown', onKey) : window.removeEventListener('keydown', onKey)))
-watch(() => [app.artifacts.scope, app.activeId, app.convFilter], () => { open.value = false })
+watch(() => [app.artifacts.scope, app.activeId, app.convFilter, app.topicFilter], () => { open.value = false })
 onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', fit) })
 </script>
 

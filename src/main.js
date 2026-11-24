@@ -29,6 +29,8 @@ const routes = [
   // chat cards, notifications already sent) land on the same page.
   { path: '/routines/:instId?', name: 'routine', component: () => import('./views/MainView.vue'), meta: { mode: 'routine' } },
   { path: '/projects/p/:instId', redirect: (to) => ({ name: 'routine', params: { instId: to.params.instId } }) },
+  // one sub-topic of a project (2026-11-25: 「하나의 프로젝트 내에서도 서브 레벨로 주제들이 자동 분류」 — src/projectTopics.js)
+  { path: '/projects/:id/t/:tid', component: () => import('./views/MainView.vue'), meta: { mode: 'project' } },
   { path: '/projects/:id?', component: () => import('./views/MainView.vue'), meta: { mode: 'project' } },
   { path: '/settings/:page?/:sub?', component: () => import('./views/MainView.vue'), meta: { mode: 'chat', settings: true } },
   { path: '/workroom/:kind/:id', component: () => import('./views/WorkroomView.vue'), meta: { noTeam: true } },

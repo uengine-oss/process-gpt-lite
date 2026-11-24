@@ -229,7 +229,8 @@ export async function finishProjectWork(work, { stopped = false } = {}) {
   const changed = before && after.head_commit && after.head_commit !== before ? await G.changes(folder.repo_path, before, after.branch).catch(() => []) : []
   if (changed.length) {
     changeCard(folder, after).catch(() => {})
-    await addMessage(user.id, thread.id, 'agent', 'chip', { icon: 'check', folderVariation: after.id,
+    // (conv: the turn's conversation — a project's sub-topic, lib/projectTopics.js — this chip belongs with)
+    await addMessage(user.id, thread.id, 'agent', 'chip', { icon: 'check', folderVariation: after.id, ...(work.conv ? { conv: work.conv } : {}),
       text: L(`'${folder.name}' 폴더의 프로젝트 변형에 담았어요 · ${changed.map((c) => c.path.split('/').pop()).slice(0, 4).join(', ')} · 반영 전까지 원본은 그대로예요`,
         `Put in the project's variation of '${folder.name}' · ${changed.map((c) => c.path.split('/').pop()).slice(0, 4).join(', ')} · the original stays as it is until it is merged`) })
     emit(user.id, 'folders', { slug: folder.slug, variation: after.id })

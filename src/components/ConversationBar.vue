@@ -3,50 +3,67 @@
 // of work in its own thread). Closed, a pill; open, the list; inside one, its title and the way
 // back. The view is /chat/c/:cid, so a conversation can be linked and reopened. The same conversations as a list in the left column
 // (or a sheet on a phone): 「대화 목록」 here, or 「채팅」 pressed twice (components/ThreadList.vue — spec chat-thread-list).
+// In a project (the project prop) the same bar is the project's sub-topics (/projects/:id/t/:tid — src/projectTopics.js, spec
+// project-room 「프로젝트 안의 주제」): shown once there are two or more, or one is open.
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import GradePicker from './context/GradePicker.vue'
 import { useApp } from '../stores/app.js'
 import { whenText, lastRequest } from '../threadList.js'
+import { topicPath, topicsShown } from '../projectTopics.js'
 
+const props = defineProps({ project: { type: Object, default: null } })
 const app = useApp()
 const router = useRouter()
 const open = ref(false)
-const list = computed(() => app.convList)
-const cur = computed(() => list.value.find((c) => c.id === app.convFilter) || (app.convFilter ? { id: app.convFilter, title: '대화', count: 0 } : null))
+const inProject = computed(() => !!props.project?.id)
+const list = computed(() => (inProject.value ? app.topicList : app.convList))
+const filter = computed(() => (inProject.value ? app.topicFilter : app.convFilter))
+// the words of each place (the main chat's are as they always were)
+const W = computed(() => (inProject.value
+  ? { back: '전체', unnamed: '주제', other: '다른 주제 ▾', cap: '판단 모델이 이 프로젝트에서 나눈 주제', all: '전체 보기',
+    pill: (n) => `주제 ${n}개 · 주제별로 보기`, inside: (n) => `이 주제의 메시지 ${n}개 · 여기서 물으면 이 주제에 이어져요` }
+  : { back: '전체 대화', unnamed: '대화', other: '다른 대화 ▾', cap: '판단 모델이 나눈 대화', all: '전체 대화 보기',
+    pill: (n) => `대화 ${n}개 · 맥락별로 보기`, inside: (n) => `이 대화의 메시지 ${n}개 · 여기서 물으면 이 대화에 이어져요` }))
+const cur = computed(() => list.value.find((c) => c.id === filter.value) || (filter.value ? { id: filter.value, title: W.value.unnamed, count: 0 } : null))
+const shown = computed(() => !inProject.value || topicsShown(list.value, filter.value))
 const when = (t) => whenText(t)
 const firstLine = lastRequest
-function go(c) { open.value = false; router.push(c ? `/chat/c/${encodeURIComponent(c.id)}` : '/chat') }
+function go(c) {
+  open.value = false
+  if (inProject.value) router.push(topicPath(props.project.id, c?.id))
+  else router.push(c ? `/chat/c/${encodeURIComponent(c.id)}` : '/chat')
+}
 // the list beside the chat (a sheet on a phone), kept open while one moves between conversations
 function openList() { open.value = false; app.setThreadList(true) }
 </script>
 
 <template>
-  <div class="cbar" :class="{ inside: !!cur }">
+  <div v-if="shown" class="cbar" :class="{ inside: !!cur }" :data-scope="inProject ? 'project' : 'chat'" data-testid="cbar">
     <template v-if="cur">
-      <button class="back press" @click="go(null)"><Icon name="back" :size="16" /> 전체 대화</button>
-      <div class="cur">
+      <button class="back press" data-testid="cbar-all" @click="go(null)"><Icon name="back" :size="16" /> {{ W.back }}</button>
+      <div class="cur" data-testid="cbar-current" :data-conv="cur.id">
         <b>{{ cur.title }}</b>
-        <small>이 대화의 메시지 {{ cur.count }}개 · 여기서 물으면 이 대화에 이어져요</small>
+        <small>{{ W.inside(cur.count) }}</small>
       </div>
-      <!-- 이 대화 맥락의 공개 등급(팀 맥락 공유) — 내 맥락이 아니거나 라우터가 아직 기록하지 않았으면 보이지 않는다 -->
-      <GradePicker :conv="cur.id" :title="cur.title" compact />
-      <button class="pill press" @click="open = !open">다른 대화 ▾</button>
+      <!-- 이 대화 맥락의 공개 등급(팀 맥락 공유) — 내 맥락이 아니거나 라우터가 아직 기록하지 않았으면 보이지 않는다 (메인 채팅만) -->
+      <GradePicker v-if="!inProject" :conv="cur.id" :title="cur.title" compact />
+      <button class="pill press" data-testid="cbar-other" @click="open = !open">{{ W.other }}</button>
     </template>
-    <button v-else-if="list.length" class="pill press" @click="open = !open">
-      <Icon name="plan" :size="15" /> 대화 {{ list.length }}개 · 맥락별로 보기
+    <button v-else-if="list.length" class="pill press" data-testid="cbar-pill" @click="open = !open">
+      <Icon name="plan" :size="15" /> {{ W.pill(list.length) }}
     </button>
 
     <Transition name="fade">
-      <div v-if="open" class="panel glass" @click.stop>
-        <p class="cap">판단 모델이 나눈 대화</p>
-        <button v-for="c in list" :key="c.id" class="row press" :class="{ on: c.id === app.convFilter }" @click="go(c)">
+      <div v-if="open" class="panel glass" data-testid="cbar-panel" @click.stop>
+        <p class="cap">{{ W.cap }}</p>
+        <button v-for="c in list" :key="c.id" class="row press" :class="{ on: c.id === filter }" data-testid="cbar-row" :data-conv="c.id" @click="go(c)">
           <div class="t"><b>{{ c.title }}</b><small>{{ when(c.updated_at) }} · {{ c.count }}개</small></div>
           <p v-if="c.gist || c.summary" class="s">{{ c.gist ? c.gist + ' · ' : '' }}{{ firstLine(c.summary) }}</p>
         </button>
-        <button v-if="app.convFilter" class="row all press" @click="go(null)">전체 대화 보기</button>
-        <button v-if="!app.threadListShown" class="row all list press" data-testid="cbar-open-list" @click="openList">
+        <button v-if="filter" class="row all press" data-testid="cbar-row-all" @click="go(null)">{{ W.all }}</button>
+        <button v-if="!inProject && !app.threadListShown" class="row all list press" data-testid="cbar-open-list" @click="openList">
           <Icon name="plan" :size="14" /> 대화 목록 펼치기 <small>· 채팅 탭을 두 번 눌러도 돼요</small>
         </button>
       </div>

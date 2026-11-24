@@ -42,6 +42,7 @@ import { ensureHubBinding } from '../mcp/connectors.js'
 import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folders/work.js'
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
 import * as TF from './folders/threadFolders.js'
+import * as PT from './projectTopics.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 import { sendMail, demoFiles } from './scenarios/mail.js'
@@ -311,8 +312,12 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (!text?.trim() && (files.length || pointed?.shown?.some((x) => !x.error))) text = onlyMail ? L('이 메일을 확인해 줘', 'Please look at this mail') : L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
   // only dragged files, and none of them usable: nothing goes to the agent (the route says so — not an empty turn)
   if (!text?.trim() && pointed) throw Object.assign(new Error(L('보낼 말이나 쓸 수 있는 파일이 없어요.', 'There is nothing usable to send.')), { status: 400, empty: true })
+  // asked from a project's view narrowed to one of its sub-topics (lib/projectTopics.js): the message is that sub-topic's from the start
+  // (the page shows it there while it is answered)
+  const th = conversation?.id ? await getThread(userId, threadId) : null
+  const topicConv = th?.kind === 'project' && await PT.isTopic(userId, th, conversation.id).catch(() => false) ? String(conversation.id) : null
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
-  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}) })
+  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}) })
   const store = turnCtx.getStore()
   if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null }
   // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it
@@ -997,20 +1002,33 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   const uploads = attached.get(threadId) || []
   attached.delete(threadId)
-  const pin = given?.conversationId ? { conversationId: String(given.conversationId), title: String(given.title || '') } : pinned.get(threadId)
+  let pin = given?.conversationId ? { conversationId: String(given.conversationId), title: String(given.title || '') } : pinned.get(threadId)
   if (!given?.conversationId) pinned.delete(threadId)
-  // In the main chat, several things run side by side (hark): the context-router decides which
-  // conversation this message continues. Projects, instances, skill authoring and scheduled
-  // runs already know their conversation and go straight to the agent.
-  let routed = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider
-  const conv0 = pin?.conversationId || (!routed ? thread?.conversation_id : null)
-  // the place in line runTurn took when the message came in (so turns keep the order they were
-  // sent in), or a new one for work started elsewhere (schedules, team assist, missions)
+  // a project's view narrowed to one of its sub-topics sends that one (lib/projectTopics.js); a conversation that is not this
+  // project's is not taken (the message is classified as any other)
+  if (pin && !pin.folder && thread?.kind === 'project' && !(await PT.isTopic(user.id, thread, pin.conversationId).catch(() => false))) pin = null
   const store = turnCtx.getStore()
   const adopted = store?.turn && !store.adopted && store.turn.threadId === threadId
+  // what the person said (the text may carry hints after it): what a project's message is classified on, and its sub-topic's summary
+  const asked = String((adopted && store?.said) || text || '')
+  // In the main chat, several things run side by side (hark): the context-router decides which
+  // conversation this message continues. A project's message is classified among the project's own
+  // sub-topics (topical — lib/projectTopics.js). Instances, skill authoring and scheduled runs
+  // already know their conversation and go straight to the agent.
+  let routed = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider
+  const topical = PT.routesProject({ kind: thread?.kind, routerOn: PT.enabled(), pinned: !!pin, silent, background, divider, mode, generating: !!generationPending(threadId) })
+  const conv0 = pin?.conversationId || (!routed && !topical ? thread?.conversation_id : null)
+  // the place in line runTurn took when the message came in (so turns keep the order they were
+  // sent in), or a new one for work started elsewhere (schedules, team assist, missions)
   if (adopted) store.adopted = true
   const turn = adopted ? store.turn : turns.enqueue({ userId: user.id, threadId, conv: conv0 })
   turn.setConv(conv0)
+  // a project's turns go one at a time, whichever sub-topic they are in (lib/turns.js waitTurn)
+  turn.serial = thread?.kind === 'project'
+  // what this turn leaves in a project — its cards, a stop or a failure — says which sub-topic it is (src/projectTopics.js): a card
+  // written after the answer can come after the person's next message, which may be another sub-topic's
+  const inProject = thread?.kind === 'project'
+  const convTag = () => (inProject && turn.conv && !String(turn.conv).startsWith('none:') ? { conv: turn.conv } : {})
   // an agent turn: a correction that goes to the browser may replace it (replaceEarlier) — only one answering a
   // person's message in this thread, never a schedule, a mission or a team run delegated here
   turn.agent = true
@@ -1024,6 +1042,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const idleStatus = () => (turn.reason && runningIn(user.id, threadId) ? 'working' : null)
   let routing = null
   let preRouted = false
+  // routed among a project's sub-topics (the turn's row is the project's: PT.fileTopic, not the main chat's touchContext)
+  let topicRouted = false
   try {
     let marked = false
     const queued = async () => {
@@ -1041,6 +1061,18 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       const r = await routeFirst({ user, thread, text, ahead })
       if (r) { routing = r; preRouted = true; routed = false; turn.setConv(r.conversation_id) }
     }
+    // a project's message: which of its sub-topics (decided before it waits its place, so a follow-up of a request still being
+    // answered joins that one); no decision — the router off or unreachable — and it goes where the project's turns always went
+    if (topical) {
+      const ahead = (await turns.aheadInThread(turn)).filter((x) => !x.folder)
+      thread = await getThread(user.id, threadId)
+      const r = await PT.routeProject({ user, thread, text: asked, ahead })
+      if (r) {
+        routing = r; preRouted = true; topicRouted = true
+        turn.setConv(r.conversation_id)
+        await PT.tagMessage(user.id, userMsgId, r.conversation_id).catch((e) => console.warn('[topics] tag', e.message))
+      } else turn.setConv(thread?.conversation_id)
+    }
     let waited = (await turns.waitTurn(turn, queued)) || marked
     // a thread that had no conversation yet may have one now (the turn that went first started it)
     if (waited && !routed && !turn.conv) {
@@ -1053,7 +1085,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       thread = await getThread(user.id, threadId)
     }
     // replaced while it waited (replaceEarlier): it never goes to the agent
-    if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason || `(${stoppedText()})`, stopped: true, ...(turn.reason ? { superseded: true, replaced: true } : {}), silent })
+    if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason || `(${stoppedText()})`, stopped: true, ...(turn.reason ? { superseded: true, replaced: true } : {}), silent, ...convTag() })
     return await runDelegated()
   } finally { turn.finish() }
 
@@ -1110,7 +1142,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   let projectWork = null, failed = false
   // (an instance's conversation has its work folder attached for reference — lib/mailWork.js: what is asked there reads its mails)
   if (!pin?.folder && (thread?.kind === 'project' || thread?.kind === 'chat' || thread?.kind === 'process')) {
-    projectWork = await TF.prepareProjectWork({ user, thread }).catch((e) => { console.warn('[folders] project work', e.message); return null })
+    // (in the conversation this turn goes to — a project's sub-topic, lib/projectTopics.js — not the one the project stood in before)
+    projectWork = await TF.prepareProjectWork({ user, thread: turn.conv ? { ...thread, conversation_id: turn.conv } : thread }).catch((e) => { console.warn('[folders] project work', e.message); return null })
     if (projectWork) { thread = { ...thread, conversation_id: projectWork.conv }; turn.setConv(projectWork.conv); text += projectWork.note }
     else {
       const ref = await TF.linkOf(threadId).catch(() => null)
@@ -1131,9 +1164,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (!idle.signal.aborted && !turn.abort.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
     console.warn('[delegate]', turn.reason ? 'replaced by a browser task' : turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
     await setThreadStatus(user.id, threadId, idleStatus())
-    if (turn.abort.signal.aborted && turn.reason) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason, stopped: true, superseded: true, replaced: true, partial: partial.trim().slice(0, 4000), silent })
-    if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent })
-    return addMessage(user.id, threadId, 'agent', 'text', { text: idle.signal.aborted
+    if (turn.abort.signal.aborted && turn.reason) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason, stopped: true, superseded: true, replaced: true, partial: partial.trim().slice(0, 4000), silent, ...convTag() })
+    if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent, ...convTag() })
+    return addMessage(user.id, threadId, 'agent', 'text', { ...convTag(), text: idle.signal.aborted
       ? L('에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.', "The agent didn't respond for a while, so I stopped waiting. Please send the same request again.")
       : L(`에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요. (${causeOf(e)})`, `I couldn't reach the agent. Please send it again in a moment. (${causeOf(e)})`) })
   } finally {
@@ -1280,7 +1313,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     const markdown = host ? await fs.readFile(`${host}/SKILL.md`, 'utf8').catch(() => '') : ''
     const files = host ? await listFolder(host) : []
     const summary = summarizeSkill(markdown)
-    const draft = await addMessage(user.id, threadId, 'agent', 'skill_draft', {
+    const draft = await addMessage(user.id, threadId, 'agent', 'skill_draft', { ...convTag(),
       ...skillDraft, ...summary, name: skillDraft.name, markdown, files, note: body.slice(0, 6000), state: 'draft',
     })
     return draft
@@ -1348,7 +1381,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const work = trail.list()
   const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
     ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
-  if (preRouted) touchContext(user, routing, text, body)
+  // the conversation's row: a project's sub-topic under the project (routed, or the view narrowed to it), else the main chat's
+  if (topicRouted || (pin && !pin.folder && thread?.kind === 'project')) {
+    await PT.fileTopic(user, { id: threadId }, topicRouted ? routing : { conversation_id: pin.conversationId, context: { title: pin.title } }, asked, body)
+      .catch((e) => console.warn('[topics] file', e.message))
+  } else if (preRouted) touchContext(user, routing, text, body)
   if (convNow && userMsgId) await q(`update pro_messages set content = content || jsonb_build_object('conv', $2::text) where id=$1`, [userMsgId, convNow]).catch(() => {})
   if (convNow && thread?.kind === 'chat') rebuildSoon(user.id, convNow)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
@@ -1369,7 +1406,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (!f.url && f.path && editable(f.name)) Object.assign(f, await publish(user.id, f.path, f.src).catch((e) => { console.warn('[office publish]', e.message); return {} }))
     delete f.src
     // fileTag: what the card belongs to, e.g. the mail whose draft it is (lib/mining/recorder.js)
-    await addMessage(user.id, threadId, 'agent', 'file', { ...f, ...(fileTag || {}) })
+    await addMessage(user.id, threadId, 'agent', 'file', { ...f, ...(fileTag || {}), ...convTag() })
   }
   // The draft card is the definition this turn wrote, read back from its folder the way saving reads
   // it (lib/generated.js) — not the first definition-shaped JSON in the stream: deepagents used to send
@@ -1378,7 +1415,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const contract = workDir && !ended ? await draftContract(workDir, processResult) : null
   if (contract) {
     generationDone(threadId)
-    await addMessage(user.id, threadId, 'agent', 'process_draft', { contract, workDir, state: 'draft' })
+    await addMessage(user.id, threadId, 'agent', 'process_draft', { contract, workDir, state: 'draft', ...convTag() })
   }
   // 후행 습관(lib/followups.js): what this turn made, whether it followed the last one, the usual next step. The answer is
   // already out; this never holds it up, and a scheduled run or a stopped answer teaches nothing.

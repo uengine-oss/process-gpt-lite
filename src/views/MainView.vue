@@ -151,6 +151,8 @@ async function syncRoute() {
   instError.value = ''
   instLoading.value = false
   app.convFilter = app.mode === 'chat' && route.params.cid ? decodeURIComponent(route.params.cid) : null
+  // one sub-topic of a project (/projects/:id/t/:tid — src/projectTopics.js)
+  app.topicFilter = app.mode === 'project' && route.params.id && route.params.tid ? decodeURIComponent(route.params.tid) : null
   if (app.draftProject && route.params.id !== app.draftProject.id) { app.draftProject = null; gen.value++ }
   if (app.mode === 'chat') app.activeId = app.mainThread.id
   else if (route.params.instId) {
@@ -278,11 +280,15 @@ function onConnect() {
 
       <div class="center" :class="{ rside: artW > 0, doc: app.docSide }">
         <ChatColumn v-if="ready && !mobileHome && !threadSheet && (app.activeId || newProject)" :key="colKey"
-          :placeholder="newProject && !app.activeId ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : 'process gpt에 메시지 보내기'"
+          :placeholder="newProject && !app.activeId ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : app.topicFilter ? '이 주제에 이어서 묻기' : 'process gpt에 메시지 보내기'"
           :empty-text="newProject ? '' : ''" :keep-top="instMode" @send="onSend" @connect="onConnect">
           <template v-if="instMode && app.instance" #header><InstanceHeader :data="app.instance" @refresh="app.refreshInstance()" /></template>
           <template v-else-if="app.mode === 'chat' && app.activeId === app.mainThread?.id" #header><ConversationBar /></template>
-          <template v-else-if="app.mode === 'project' && app.active?.folder?.mode === 'project'" #header><ProjectFolderBar :thread="app.active" /></template>
+          <!-- a project: its folder (when it works in one) and its sub-topics (the same bar as the main chat's conversations — src/projectTopics.js) -->
+          <template v-else-if="app.mode === 'project' && app.projectOpen" #header>
+            <ProjectFolderBar v-if="app.active?.folder?.mode === 'project'" :thread="app.active" />
+            <ConversationBar :project="app.active" />
+          </template>
           <!-- the files this view made, in a Dock-style pile beside (or above) the composer where there is no room for the list -->
           <template v-if="artLayout === 'pile'" #aside="{ foot }"><ArtifactStack :place="pileAt(foot)" /></template>
         </ChatColumn>

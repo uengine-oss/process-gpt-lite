@@ -23,7 +23,8 @@ test('AS-U-01 범위: 전체 채팅 · 고른 대화 · 프로젝트 방, 그 �
   assert.equal(artifactScope({ mode: 'project', activeId: 'draft-x', mainId: 'm', projectIds: ['p1'] }), null)
   assert.equal(artifactScope({ mode: 'project', activeId: null, mainId: 'm', projectIds: ['p1'] }), null)
   assert.equal(artifactScope({ mode: 'routine', activeId: 'inst-thread', mainId: 'm' }), null)
-  assert.deepEqual(Object.keys(CAPTION), ['chat', 'conv', 'project'])
+  // (one sub-topic of a project — spec project-room 「프로젝트 안의 주제」, test/projectTopics.test.js PT-U-11)
+  assert.deepEqual(Object.keys(CAPTION), ['chat', 'conv', 'project', 'topic'])
 })
 
 test('AS-U-02 파일: 최근 순, 이름 없는 파일은 뺌, 전체 채팅은 나온 대화를 붙이고 고른 대화는 그 대화 것만', () => {
