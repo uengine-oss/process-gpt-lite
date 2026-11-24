@@ -49,14 +49,19 @@ test('F-CV-03 산출물 스택: 3개는 부채꼴로 펼치고, 10개는 격자'
   await page.locator('.astack .pile').click({ force: true })
   await expect(page.locator('.astack .grid .cap')).toContainText('이 대화의 산출물 10개')
   await expect(page.locator('.astack .grid .cell')).toHaveCount(10)
-  // the whole chat (no conversation picked) shows no stack of its own
+  // the whole chat (no conversation picked) has its own: every file of the chat (2026-11-24 — spec chat-artifacts; before, only a
+  // picked conversation had one)
   await page.goto('/chat')
-  await expect(page.locator('.astack')).toHaveCount(0)
+  await expect(page.locator('.astack .count')).toHaveText('13', { timeout: 20_000 })
+  await page.locator('.astack .pile').click({ force: true })
+  await expect(page.locator('.astack .grid .cap')).toContainText('채팅의 산출물 13개')
   expect(page.errors).toEqual([])
 })
 
 test('F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG 는 VectorCraft 가 열린다', async ({ pageAs, db }) => {
-  const page = await pageAs('cv-user')
+  // a page narrower than the wide layout keeps the pile whether Home is open or not (wider, with room, the files are a list in the
+  // right column — chat-artifacts.spec.js; closing the document beside the page leaves Home closed)
+  const page = await pageAs('cv-user', { viewport: { width: 980, height: 720 } })
   await seedConversations(db, page.user)
   await page.goto('/chat/c/rt-conv-trip')
   await page.locator('.astack .pile').click({ force: true })

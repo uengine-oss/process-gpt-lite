@@ -5,6 +5,7 @@ import TopBar from '../components/TopBar.vue'
 import HomeDock from '../components/HomeDock.vue'
 import ProjectList from '../components/ProjectList.vue'
 import RoutineList from '../components/RoutineList.vue'
+import ThreadList from '../components/ThreadList.vue'
 import ChatColumn from '../components/ChatColumn.vue'
 import SearchOverlay from '../components/SearchOverlay.vue'
 import HandoffView from '../components/HandoffView.vue'
@@ -15,9 +16,11 @@ import InstanceHeader from '../components/InstanceHeader.vue'
 import ConversationBar from '../components/ConversationBar.vue'
 import ProjectFolderBar from '../components/folders/ProjectFolderBar.vue'
 import ArtifactStack from '../components/ArtifactStack.vue'
+import ArtifactList from '../components/ArtifactList.vue'
 import Composer from '../components/Composer.vue'
-import { narrow, pageW } from '../viewport.js'
+import { narrow, pageW, wideLayout } from '../viewport.js'
 import { instanceContext } from '../components/ontology/caseView.js'
+import { artifactLayout, sideWidth, pilePlace } from '../artifactScope.js'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
@@ -30,12 +33,34 @@ const router = useRouter()
 const ready = ref(false)
 const connecting = ref(false)
 // the page's width: the window's, less a column a docked team messenger takes (src/viewport.js)
-const wide = computed(() => pageW.value > 1000)
+const wide = wideLayout
 
 const settings = computed(() => !!route.meta.settings)
 // 프로젝트 and 루틴 (process instances, /routines) each keep their list in the left column
 const listMode = computed(() => app.mode === 'project' || app.mode === 'routine')
-const leftOpen = computed(() => wide.value && (listMode.value || app.dockOpen))
+// 채팅: Home's dock or the chat's thread list (double-click 「채팅」 — components/ThreadList.vue); the two share the column
+const leftOpen = computed(() => wide.value && (listMode.value || app.dockOpen || app.threadListShown))
+const dockShown = computed(() => app.mode === 'chat' && app.dockOpen && wide.value)
+// the thread list: the column beside the chat, or narrower (a phone) a page of its own over the chat, like the project list
+const threadsShown = computed(() => ready.value && app.threadListShown)
+const threadSheet = computed(() => threadsShown.value && !wide.value)
+// The files this view made (the whole chat, a conversation of it, a project's room — src/artifactScope.js): a list in the right column
+// where the page has room beside the chat (the chat moves over for it), its rail when folded, else the Dock-style pile by the composer;
+// nothing while a document is open (the document wins — the list is back when it closes)
+const artLayout = computed(() => (!ready.value || mobileHome.value || threadSheet.value || settings.value ? 'none'
+  : artifactLayout({ pageW: pageW.value, leftW: leftOpen.value ? 420 : 0, wide: wide.value, docOpen: !!app.officeDoc, folded: app.artifactsFolded, count: app.artifacts.items.length })))
+const artW = computed(() => sideWidth(artLayout.value))
+const pileAt = (foot) => pilePlace({ gutter: foot.gutter, footTop: foot.top, small: narrow.value })
+// the clock in the bottom-left corner (Home closed): only where the chat, moved over for the files' column, leaves it room
+const clockFits = computed(() => (pageW.value - artW.value - 512) / 2 >= 240)
+// the bar's tabs over the chat column: between the left column and the files' column when they leave the tabs room beside the bar's
+// buttons (a window under ~1360px with only the left column: they overlapped)
+const chatCenter = computed(() => {
+  const L = leftOpen.value ? 420 : 0
+  if (!artW.value) return L && pageW.value >= 1360 ? 'calc(420px + (100% - 420px) / 2)' : '50%'
+  const c = L + (pageW.value - L - artW.value) / 2
+  return c - 200 >= 72 && c + 200 <= pageW.value - 300 ? `${Math.round(c)}px` : '50%'
+})
 // Phone: Home is a full-width tab with the composer under it; Projects and Routines show their list first.
 const mobileHome = computed(() => narrow.value && app.mode === 'chat' && app.dockOpen)
 // 새 프로젝트 just sent: its room is being made, and the chat with the message shows meanwhile
@@ -165,12 +190,15 @@ function onConnect() {
 <template>
   <!-- the bar's tabs sit over the chat column — over the page's middle when the page is too narrow for that beside the bar's
        buttons (a window under ~1360px, or a page beside a docked messenger: they overlapped) -->
-  <div class="main" :style="{ '--chat-center': leftOpen && pageW >= 1360 ? 'calc(420px + (100% - 420px) / 2)' : '50%' }">
+  <div class="main" :style="{ '--chat-center': chatCenter, '--art-w': `${artW}px` }">
     <Transition name="fade"><TopBar v-if="!settings" /></Transition>
 
     <div class="content" :class="{ away: settings }">
       <Transition name="fade">
-        <HomeDock v-if="ready && app.mode === 'chat' && (leftOpen || mobileHome)" :class="{ mobile: narrow }" />
+        <HomeDock v-if="ready && (dockShown || mobileHome)" :class="{ mobile: narrow }" />
+      </Transition>
+      <Transition name="fade">
+        <ThreadList v-if="threadsShown" :sheet="threadSheet" />
       </Transition>
       <Transition name="fade">
         <ProjectList v-if="ready && app.mode === 'project' && (wide || mobileList)" :class="{ mobile: narrow }" />
@@ -180,21 +208,25 @@ function onConnect() {
       </Transition>
 
       <Transition name="fade">
-        <div v-if="app.mode === 'chat' && !app.dockOpen && !narrow" class="clock">
+        <div v-if="app.mode === 'chat' && !app.dockOpen && !threadsShown && !narrow && clockFits" class="clock">
           <div>{{ clock.day }}</div><div>{{ clock.date }}</div><div>{{ clock.time }}</div>
         </div>
       </Transition>
 
-      <div class="center" :class="{ shifted: leftOpen }">
-        <ChatColumn v-if="ready && !mobileHome && (app.activeId || newProject)" :key="colKey"
+      <Transition name="fade">
+        <ArtifactList v-if="artW" :rail="artLayout === 'rail'" />
+      </Transition>
+
+      <div class="center" :class="{ shifted: leftOpen, rside: artW > 0 }">
+        <ChatColumn v-if="ready && !mobileHome && !threadSheet && (app.activeId || newProject)" :key="colKey"
           :placeholder="newProject && !app.activeId ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : 'process gpt에 메시지 보내기'"
           :empty-text="newProject ? '' : ''" :keep-top="instMode" @send="onSend" @connect="onConnect">
           <template v-if="instMode && app.instance" #header><InstanceHeader :data="app.instance" @refresh="app.refreshInstance()" /></template>
           <template v-else-if="app.mode === 'chat' && app.activeId === app.mainThread?.id" #header><ConversationBar /></template>
           <template v-else-if="app.mode === 'project' && app.active?.folder?.mode === 'project'" #header><ProjectFolderBar :thread="app.active" /></template>
+          <!-- the files this view made, in a Dock-style pile beside (or above) the composer where there is no room for the list -->
+          <template v-if="artLayout === 'pile'" #aside="{ foot }"><ArtifactStack :place="pileAt(foot)" /></template>
         </ChatColumn>
-        <!-- inside one conversation, the files it produced float in a stack (Dock-style) -->
-        <ArtifactStack v-if="ready && app.mode === 'chat' && app.convFilter && !mobileHome && !app.officeDoc" />
         <div v-if="newProject && !app.activeId && !narrow" class="np serif">
           <Typewriter text="프로젝트는 장기적인 작업과 경험을 정리하기 위한 공간입니다." :cps="18" />
         </div>
@@ -229,8 +261,10 @@ function onConnect() {
 .main { position: absolute; inset: 0; overflow: clip; }
 .content { position: absolute; inset: 0; transition: filter .5s, opacity .5s, transform .5s; }
 .content.away { filter: blur(20px); opacity: 0; transform: scale(.98); pointer-events: none; }
-.center { position: absolute; top: 0; bottom: 0; left: 0; right: 0; transition: left .6s var(--spring); }
+.center { position: absolute; top: 0; bottom: 0; left: 0; right: 0; transition: left .6s var(--spring), right .4s var(--spring); }
 .center.shifted { left: 420px; }
+/* the files' column at the right (ArtifactList): the chat recentres in what is left */
+.center.rside { right: var(--art-w); }
 .clock { position: absolute; left: 32px; bottom: 40px; font-size: 44px; line-height: 1.12; letter-spacing: -0.03em; font-weight: 500; color: var(--text-primary); z-index: 7; pointer-events: none; }
 .mfoot { position: absolute; z-index: 6; left: 16px; right: 16px; bottom: 24px; }
 .iload { position: absolute; left: 50%; top: 42%; translate: -50% -50%; width: min(420px, calc(100% - 32px)); text-align: center; font-size: 17px; color: var(--text-secondary); }

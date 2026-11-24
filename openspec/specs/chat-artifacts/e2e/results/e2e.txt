@@ -1,0 +1,19 @@
+# 2026-11-24 20:48 · PGPT_URL=http://localhost:5285 API_URL=http://127.0.0.1:8885 RT_WORKERS=1 npx playwright test tests/feature/chat-artifacts.spec.js tests/feature/conversations.spec.js --project=feature (branch feat/chat-thread-list, uncommitted)
+
+Running 13 tests using 1 worker
+
+  ✓   1 [feature] › tests/feature/chat-artifacts.spec.js:51:1 › F-AS-01 전체 채팅: 넓은 화면이면 오른쪽에 채팅의 산출물 목록 — 최근 순, 종류 · 이름 · 시각 · 나온 대화, 찾기 (3.0s)
+  ✓   2 [feature] › tests/feature/chat-artifacts.spec.js:89:1 › F-AS-02 고른 대화는 그 대화의 파일만, 프로젝트 방은 그 방의 파일 — 범위가 화면을 따라감 (3.8s)
+  ✓   3 [feature] › tests/feature/chat-artifacts.spec.js:115:1 › F-AS-03 행을 누르면 채팅 카드처럼 이음오피스 패널에서 열리고, 문서가 열려 있는 동안 목록은 비켜 있다가 닫으면 돌아옴 (2.9s)
+  ✓   4 [feature] › tests/feature/chat-artifacts.spec.js:137:1 › F-AS-04 접기: 아이콘만 있는 얇은 띠, 이 브라우저에 기억, 띠의 아이콘도 열림, 펼치면 목록 (2.4s)
+  ✓   5 [feature] › tests/feature/chat-artifacts.spec.js:161:1 › F-AS-05 메신저를 오른쪽에 붙여 두면: 목록은 메신저 왼쪽에, 자리가 모자라면 더미로 — 서로 겹치지 않음 (3.9s)
+  ✓   6 [feature] › tests/feature/chat-artifacts.spec.js:191:1 › F-AS-06 중간 폭(1100px, Home 열림)은 입력창 옆 · 위의 더미 — 입력창 · 멈추기를 가리지 않고, 펼치면 열림 (2.5s)
+  ✓   7 [feature] › tests/feature/chat-artifacts.spec.js:234:1 › F-AS-07 휴대폰 390px: 작은 더미가 입력창 위에 — 가리지 않고, 옆으로 밀리지 않고, 펼치면 그 대화의 파일 (5.4s)
+  ✓   8 [feature] › tests/feature/chat-artifacts.spec.js:270:1 › F-AS-08 밤 테마의 넓은 목록 (1.6s)
+  ✓   9 [feature] › tests/feature/conversations.spec.js:9:1 › F-CV-01 /api/conversations: 내 대화만, 최근 순 (757ms)
+  ✓  10 [feature] › tests/feature/conversations.spec.js:18:1 › F-CV-02 ConversationBar: 대화 2개 → 하나를 고르면 /chat/c/:cid, 그 대화의 메시지만 (1.1s)
+  ✓  11 [feature] › tests/feature/conversations.spec.js:37:1 › F-CV-03 산출물 스택: 3개는 부채꼴로 펼치고, 10개는 격자 (3.3s)
+  ✓  12 [feature] › tests/feature/conversations.spec.js:61:1 › F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG 는 VectorCraft 가 열린다 (2.0s)
+  ✓  13 [feature] › tests/feature/conversations.spec.js:89:1 › F-CV-05 대화 안에서 보낸 메시지는 그 대화로 이어진다(요청에 conversation id) (1.1s)
+
+  13 passed (35.2s)
