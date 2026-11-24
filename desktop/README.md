@@ -17,7 +17,7 @@ Lite 서버 하나를 창 하나로 여는 데스크톱 앱입니다. Lite 자�
 | Mac (Intel) | `Process-GPT-Lite-0.2.0-mac-x64.dmg` (또는 `.zip`) |
 | Windows 10 · 11 (64비트) | `Process-GPT-Lite-0.2.0-win-x64-setup.exe` |
 
-Mac 이 어느 쪽인지는  메뉴 › 이 Mac에 관하여의 「칩」(Apple M…이면 Apple Silicon) 또는 「프로세서」(Intel)에서 봅니다.
+Mac 이 어느 쪽인지는 화면 왼쪽 위 Apple(사과) 메뉴 › 이 Mac에 관하여의 「칩」(Apple M…이면 Apple Silicon) 또는 「프로세서」(Intel)에서 봅니다.
 
 **macOS**
 
@@ -34,7 +34,7 @@ Mac 이 어느 쪽인지는  메뉴 › 이 Mac에 관하여의 「칩」(Apple 
 **로컬 에이전트(내 컴퓨터의 Claude Code · Codex)를 쓰려면** 그 컴퓨터에 다음이 있어야 합니다.
 
 - `git` — macOS 는 처음 쓸 때 설치를 묻습니다(`xcode-select --install`). Windows 는 [Git for Windows](https://git-scm.com/download/win).
-- `claude`(Claude Code) 또는 `codex` 가 설치되어 로그인된 상태. Windows 에서는 npm 으로 깐 `claude.cmd` · `codex.cmd` 와 Claude Code 설치 프로그램의 `claude.exe`(`%USERPROFILE%\.local\bin`) 모두 찾습니다. Claude Code 는 2.1.331 이상을 권합니다(훅을 셸 없이 프로그램과 인자로 넣는 exec form).
+- `claude`(Claude Code) 또는 `codex` 가 설치되어 로그인된 상태. Windows 에서는 npm 으로 깐 `claude.cmd` · `codex.cmd` 와 Claude Code 설치 프로그램의 `claude.exe`(`%USERPROFILE%\.local\bin`) 모두 찾습니다. Claude Code 는 2.1.331 이상을 권합니다(훅을 셸 없이 프로그램과 인자로 넣는 exec form — 이 판에서 확인).
 
 ## 개발 실행
 
