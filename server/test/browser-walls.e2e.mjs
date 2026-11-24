@@ -225,10 +225,12 @@ test('로그인을 다른 곳에서 받는 사이트(스킬 sign_in): 그 로그
   const vault = await import('../lib/vault.js')
   const item = await vault.putItem(user, 'login', 'id.example', { username: 'tester@id.example', password: 'pw-1' })
   const fills = async () => (await q(`select count(*)::int n from pro_vault_audit where user_id=$1 and item_id=$2 and action='fill'`, [user, item.id]))[0].n
+  // the front page has no form: the model goes to the sign-in page; there the vault types the username itself (vault
+  // first at a sign-in wall) and, as Enter does not send that page's form, the model is told to press its button
+  let told = ''
   const SIGN_IN_MOVES = [
     (b) => ['click', { i: pick(b, '로그인') }],
-    (b) => ['fill_secret', { i: lastSnap(b).els.find((e) => e.type === 'email').i, field: 'username' }],
-    (b) => ['click', { i: pick(b, '다음') }],
+    (b) => { told = b.messages.filter((m) => m.role === 'user' && typeof m.content === 'string').at(-1).content; return ['click', { i: pick(b, '다음') }] },
     ['note', { text: '최근 문서 목록이 보여요' }],
     ['finish', { summary: '보관함의 로그인으로 들어가 최근 문서를 확인했어요.' }],
   ]
@@ -239,6 +241,7 @@ test('로그인을 다른 곳에서 받는 사이트(스킬 sign_in): 그 로그
     assert.equal(r.stats.walls, 0, '첫 화면 · 로그인 화면 어디서도 사람을 기다리지 않았다')
     assert.ok(app.signedIn, '로그인됐다')
     assert.equal(await fills(), 1, '보관함에서 채웠다')
+    assert.match(told, /\[vault: the saved login for id\.example is typed into the sign-in form \(you cannot see it\)\. Press the form's sign-in button now/)
 
     // 지난번에 거부된 비밀번호는 그대로 다시 넣지 않는다: 카드에서 고친 뒤에 넣는다
     app.signedIn = false

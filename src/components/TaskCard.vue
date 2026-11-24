@@ -66,6 +66,10 @@ const label = computed(() => {
 const why = computed(() => String(c.value.reason || (ended.value ? c.value.summary : '') || '').trim())
 // the card that answers it (a login to save, a choice, an approval) when the agent posted one
 const answerCard = computed(() => (app.messages[props.msg.thread_id] || []).find((m) => ['vault', 'choice'].includes(m.kind) && m.content?.taskId === props.msg.id && m.content?.state === 'pending'))
+// a sign-in wall the vault has a login for: the agent is typing it in (server lib/browser.js vaultFirstOnWall → content.signingIn)
+const vaultIn = computed(() => (running.value && c.value.signingIn?.via === 'vault' ? c.value.signingIn : null))
+// a sign-in form with no login saved for it: the vault's card beside 「직접 로그인」 asks for one
+const saveCard = computed(() => (answerCard.value?.kind === 'vault' && answerCard.value.content.kind === 'login' && answerCard.value.content.mode === 'request' ? answerCard.value : null))
 
 // one at a time, in order: a password typed fast must not arrive shuffled
 let sending = Promise.resolve()
@@ -168,6 +172,7 @@ const acts = computed(() => {
   if (google.value && ended.value) return need.value === 'blocked' ? [phone, again] : [again, phone]
   if (needs.value) {
     if (need.value === 'login' && google.value) return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, phone, stop]
+    if (need.value === 'login' && saveCard.value) return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, { key: 'save', label: '로그인 정보 저장', run: toAnswer }, stop]
     if (need.value === 'login') return [{ key: 'login', label: '직접 로그인', icon: 'hand', run: takeOver }, stop]
     if (need.value === 'blocked') return [{ ...stop, icon: 'close' }, { key: 'look', label: '직접 확인', run: takeOver }]
     if (answerCard.value && ['choice', 'approve'].includes(need.value)) return [{ key: 'answer', label: need.value === 'approve' ? '승인하러 가기' : '고르러 가기', icon: 'chevron', run: toAnswer }, stop]
@@ -235,6 +240,11 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
         <button class="press sub" data-testid="task-giveup" @click="cancel">그만두기</button>
       </div>
     </div>
+    <!-- signing in with the vault's login: which way it is going in (also in the full view) -->
+    <div v-if="vaultIn && !stall" class="ask vaultin" :class="{ inFull: full }" data-testid="task-vault-signin" role="status">
+      <p class="why"><Icon name="key" :size="16" /><b>보관함의 로그인으로 들어가는 중</b><span class="vsite">· {{ vaultIn.site }}</span></p>
+      <p class="hint">저장된 로그인 정보를 서버에서 바로 입력해요. 비밀번호는 화면에도 AI에도 보이지 않아요.</p>
+    </div>
     <!-- waiting or stopped: why, in full, and the one thing that gets it going again -->
     <div v-if="!full && (needs || ended) && (why || acts.length)" class="ask" :class="{ urgent: needs }" data-testid="task-ask">
       <p v-if="why" class="why" data-testid="task-reason">{{ why }}</p>
@@ -300,6 +310,13 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
 .ask.stall .secs { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ask.stall .hint { margin: -4px 0 12px; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); word-break: keep-all; overflow-wrap: anywhere; }
 .acts button:disabled { opacity: .55; }
+.ask.vaultin { box-shadow: inset 0 0 0 1.5px rgba(15 157 88 / .45), var(--shadow-card); }
+.ask.vaultin.inFull { width: min(92vw, 1024px, 112vh); margin: 12px auto 0; }
+.ask.vaultin .why { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-bottom: 4px; }
+.ask.vaultin .why :deep(svg) { flex: none; color: #0F9D58; }
+.ask.vaultin .why b { font-weight: 600; }
+.ask.vaultin .vsite { color: var(--text-secondary); overflow-wrap: anywhere; }
+.ask.vaultin .hint { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); word-break: keep-all; overflow-wrap: anywhere; }
 .aerr { margin: 10px 2px 0; font-size: 13.5px; line-height: 1.45; color: var(--color-error); }
 .meta { display: flex; justify-content: space-between; align-items: center; padding: 8px 6px 0; font-size: 14px; color: var(--text-secondary); }
 .steps { font-size: 13px; color: var(--text-tertiary); }

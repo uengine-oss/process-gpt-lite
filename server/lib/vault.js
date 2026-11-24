@@ -240,14 +240,35 @@ export async function updateItem(userId, id, patch, { actor = 'user', taskId } =
   return item
 }
 
-// Saved items usable on a site: exact host first, then parent/child domains (accounts.google.com ↔ google.com).
+// The part of a host one owner holds: nid.naver.com → naver.com, mail.shop.co.kr → shop.co.kr. An address, a single
+// name, or a host under a suffix many owners share (alice.github.io and bob.github.io are two people) is itself — a
+// login saved for one of those is never offered to its neighbour. (No public suffix list here: the shared suffixes
+// below are the hosting services people meet most; any other is taken as one owner's.)
+const SECOND = new Set(['co', 'or', 'go', 'ac', 'ne', 're', 'pe', 'com', 'net', 'org', 'gov', 'edu', 'mil'])
+const SHARED = ['github.io', 'gitlab.io', 'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'web.app', 'firebaseapp.com', 'herokuapp.com',
+  'appspot.com', 'blogspot.com', 'azurewebsites.net', 'cloudfront.net', 'amazonaws.com', 'onrender.com', 'fly.dev', 'glitch.me', 'ngrok.io',
+  'ngrok-free.app', 'trycloudflare.com', 'repl.co', 'surge.sh', 'wixsite.com', 'myshopify.com', 'notion.site', 'tistory.com', 'blog.me']
+export function ownerDomain(host) {
+  const h = normSite(host).replace(/:\d+$/, '')
+  if (!h.includes('.') || /^[\d.]+$/.test(h) || SHARED.some((x) => h === x || h.endsWith('.' + x))) return h
+  const p = h.split('.')
+  return p.slice(SECOND.has(p.at(-2)) && p.at(-1).length === 2 ? -3 : -2).join('.')
+}
+
+// Saved items usable on a site: exact host first, then parent/child domains (accounts.google.com ↔ google.com), then —
+// for a login — another part of the same owner's site (a login saved for booking.naver.com on the sign-in page
+// nid.naver.com).
 export async function candidates(userId, kind, site) {
   site = kind === 'card' ? 'wallet' : normSite(site)
   const rows = await q(`select id, kind, site, label, status, meta, last_used_at from pro_vault_items
                         where user_id=$1 and kind=$2 and coalesce(status,'') <> 'captured'
                         order by last_used_at desc nulls last, updated_at desc`, [userId, kind])
   const exact = rows.filter((r) => r.site === site)
-  return exact.length ? exact : rows.filter((r) => site.endsWith('.' + r.site) || r.site.endsWith('.' + site))
+  if (exact.length) return exact
+  const near = rows.filter((r) => site.endsWith('.' + r.site) || r.site.endsWith('.' + site))
+  if (near.length || kind !== 'login') return near
+  const own = ownerDomain(site)
+  return own === site ? [] : rows.filter((r) => ownerDomain(r.site) === own)
 }
 
 // Server-side only: the browser agent fills these straight into the page.
