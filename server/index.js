@@ -26,6 +26,9 @@ import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { filingRoutes } from './routes/filing.js'
+import { localAgentRoutes } from './routes/localAgents.js'
+import { startLocalAgents, steerFromThread } from './lib/localAgents/steps.js'
+import { gitAccess } from './lib/localAgents/devices.js'
 import { threadFolderRoutes } from './routes/threadFolders.js'
 import { ssoInfo, refreshSso } from './lib/sso.js'
 import * as webpush from './lib/webpush.js'
@@ -108,6 +111,8 @@ app.use('/craft', express.static(config.craftWebRoot, {
 // shared folders over git smart HTTP for agents on another disk (lib/folders/gitHttp.js): ahead of the body
 // parser, the session and the tenant middleware — the folder token is the whole of the auth and names the tenant
 app.use('/api/git', gitRoutes())
+// the same for the desktop app's local agents, the one git path the public address serves: a token of one job on one linked desktop only
+app.use('/api/local-git', gitRoutes({ device: true, check: (claims, o) => withTenant(claims.tenant, () => gitAccess(claims, o)) }))
 app.use(express.json({ limit: '2mb' }))
 // English mode (lib/lang.js): a request is in the language its X-PGL-Lang header names (the page sends
 // it on every /api call); auth() below adds the signed-in person's saved language when it is absent.
@@ -525,6 +530,9 @@ app.use('/api', ontologyRoutes(auth))
 // the ontology's agent steps (orchestration pgpt-pro-onto) and habit questions run here even with PRO_BACKGROUND=0:
 // no other server polls that orchestration, so nothing races for them (PRO_ONTOLOGY_WORKER=0 turns it off)
 import('./lib/ontology/run.js').then((m) => m.startOntologyWorker()).catch((e) => console.warn('[onto-worker]', e.message))
+// the assignees' own CLI agents on their desktops (lib/localAgents, docs/local-agents/design.md): devices, a step's local runs, steering;
+// the desktops' links (WebSocket /api/local-agents/link) and the step worker (orchestration pgpt-pro-local) start with the server below
+app.use('/api', localAgentRoutes(auth))
 // the demo scenarios (demo outbox mail, purchase with its sweep, release): PRO_SCENARIOS=off leaves them out (config.scenarios)
 if (config.scenarios) {
   app.use('/api', scenarioMailRoutes(auth))
@@ -667,6 +675,9 @@ app.post('/api/threads/:id/note', auth, async (req, res) => {
 app.post('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
+  // an instance's conversation while a local CLI agent runs one of its steps: what its person types steers that run (lib/localAgents)
+  const steered = await steerFromThread(req.user, t, req.body?.text).catch((e) => { console.warn('[local-agents] steer', e.message); return null })
+  if (steered) { const { send, end } = openStream(res); send('done', { steered: true, steer: steered.steer, delivered: steered.delivered }); return end() }
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
@@ -1143,6 +1154,9 @@ const server = app.listen(config.port, async () => {
 
 // terminals in the agent workroom (websocket upgrade on /api/workroom/term)
 workroom.attachTerminal(server)
+// the desktops' links for local CLI agents (websocket upgrade on /api/local-agents/link) and their step worker — like the business
+// agent's, even with PRO_BACKGROUND=0 (PRO_LOCAL_AGENT_WORKER=0 turns the worker off)
+startLocalAgents(server)
 // an ArtCraft app open in the page, driven live by the agent (websocket upgrade on /api/craft/live)
 attachCraftLive(server)
 // the interpreter's voice in a meeting (websocket upgrade on /api/meetings/voice)

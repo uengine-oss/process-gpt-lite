@@ -9,7 +9,15 @@ directories:
 files:
   - src/**
   - package.json
+  # node-pty (the person's CLI in a terminal — src/runner/session.js): N-API prebuilds for mac arm64/x64 and Windows x64/arm64 (ConPTY),
+  # the same binary in Node and Electron, so nothing is rebuilt; its sources stay out
+  - "!node_modules/node-pty/{deps,src,third_party,scripts,typings}/**"
+  - "!node_modules/node-pty/binding.gyp"
 asar: true
+# the native module and its spawn-helper are run from disk, not from inside the asar
+asarUnpack:
+  - node_modules/node-pty/**
+npmRebuild: false
 publish: null
 mac:
   category: public.app-category.productivity

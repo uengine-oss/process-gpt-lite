@@ -10,13 +10,15 @@
 // settings titleBar: 'sky', on the colour the page shows there. The preload marks the page (html.pgl-desktop + the
 // room those buttons take) and the web app's src/styles/desktop.css makes its top bar the drag strip and steps around
 // the buttons.
-const { app, BrowserWindow, Menu, ipcMain, shell, session, net, screen, clipboard, desktopCapturer, safeStorage } = require('electron')
+const { app, BrowserWindow, Menu, ipcMain, shell, session, net, screen, clipboard, desktopCapturer, safeStorage, dialog } = require('electron')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const settings = require('./settings')
 const server = require('./server')
 const policy = require('./policy')
 const menu = require('./menu')
+const { createLocalRunner } = require('./runner')
+const CLIS = require('./runner/clis')
 
 const MAC = process.platform === 'darwin'
 const DEV = !app.isPackaged || process.env.PGL_DESKTOP_DEV === '1'
@@ -66,6 +68,7 @@ function start() {
   setupSession(session.defaultSession)
   buildMenu()
   createWindow()
+  startRunner()
   // the server's Supabase sign-in address may change (or was never read): ask again quietly
   const s = settings.get().server
   if (s) server.check(s, { fetch: net.fetch, ...(settings.gate() || {}) }).then((r) => { if (r.ok && r.server === s) settings.set({ authOrigins: r.authOrigins }) }).catch(() => {})
@@ -324,6 +327,8 @@ ipcMain.handle('pgl:connect', async (e, v) => {
   settings.setGate(user, pass)
   buildMenu()
   loadServer()
+  // the local runner follows the server (a pairing is per server)
+  startRunner()
   return r
 })
 
@@ -365,3 +370,108 @@ function paintOverlay() {
   if (!sampler) sampler = setInterval(paintOverlay, 60000)
 }
 
+
+// ---------- the local CLI agents (runner/, design docs/local-agents/design.md) ----------
+// This computer's Claude Code · Codex run the signed-in person's process steps when an activity names them. main keeps one outgoing link
+// to the server (runner/link.js); the page only pairs it (a device token it got from the server, through the bridge below — main never
+// reads the page's cookies or storage), sees its state and sets the person's two switches (local runs on/off, ask before each run).
+let runner = null
+let cliCache = null
+const runnerLog = (s) => { if (DEV || process.env.PGL_RUNNER_LOG === '1') console.log(s) }
+// (PGL_RUNNER_DEVICE_NAME: a name of one's own — the tests' screenshots carry no machine name)
+const deviceName = () => (process.env.PGL_RUNNER_DEVICE_NAME || require('node:os').hostname().replace(/\.local$/i, '')).slice(0, 60) || 'Desktop'
+function stopRunner() { if (runner) { try { runner.stop() } catch { /* gone */ } runner = null } }
+function startRunner() {
+  stopRunner()
+  const s = serverUrl()
+  const p = s && settings.pairing(s)
+  if (!p) return sendRunnerState()
+  runner = createLocalRunner({
+    server: s, token: p.token, dataDir: path.join(app.getPath('userData'), 'local-agents'),
+    device: { name: deviceName(), platform: process.platform, appVersion: app.getVersion() },
+    prefs: () => settings.runnerPrefs(), ask: askRun, log: runnerLog,
+    // tests: the fake CLIs' folder first (PGL_RUNNER_PATH)
+    ...(process.env.PGL_RUNNER_PATH ? { searchPath: `${process.env.PGL_RUNNER_PATH}${path.delimiter}${CLIS.augmentedPath()}` } : {}),
+  })
+  runner.ev.on('state', sendRunnerState)
+  // someone suggested a prompt for a run of this computer: a system notification (tests: global.__pglNotices)
+  runner.ev.on('notice', (n) => {
+    const ko = settings.get().lang !== 'en'
+    const who = n.by || (ko ? '다른 사람' : 'Someone')
+    const c = who.trim().slice(-1).charCodeAt(0)
+    const ga = c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 ? '이' : '가'
+    // (attention: the CLI in the step's terminal waits for its person — a permission prompt, idle — its own Notification hook)
+    const title = n.kind === 'steer' ? (ko ? `${who}${ga} 「${n.activity}」의 방향을 바꿨어요` : `${who} steered "${n.activity}"`)
+      : n.kind === 'attention' ? (ko ? `「${n.activity}」 — 터미널에서 답을 기다려요` : `"${n.activity}" waits for you in its terminal`)
+        : (ko ? `${who}의 제안 · 「${n.activity}」 — 입력란에서 골라 입력하세요` : `${who} suggested a prompt for "${n.activity}" — pick it at the input`)
+    ;(global.__pglNotices ||= []).push({ ...n, title })
+    try { const { Notification } = require('electron'); if (Notification.isSupported()) new Notification({ title, body: n.text || '' }).show() } catch { /* no notifications here */ }
+  })
+  runner.start().catch((e) => runnerLog(`[runner] ${e.message}`))
+}
+function runnerStatus() {
+  const s = serverUrl()
+  const p = s ? settings.pairing(s) : null
+  const base = { paired: !!p, deviceId: p?.deviceId || null, userId: p?.userId || null, deviceName: deviceName(), platform: process.platform, prefs: settings.runnerPrefs() }
+  if (runner) return { ...base, ...runner.status() }
+  return { ...base, connected: false, clis: cliCache || {}, running: [] }
+}
+function sendRunnerState() {
+  const wc = win?.webContents
+  if (wc && !wc.isDestroyed() && isServerPage(wc.getURL())) wc.send('pgl:runner:state', runnerStatus())
+  // the Dock shows that an agent works on this computer
+  if (MAC && app.dock) { const n = runner?.runner?.jobs?.size || 0; try { app.dock.setBadge(n ? '●' : '') } catch { /* no dock */ } }
+}
+// the person's yes before a run (their setting 「실행 전에 묻기」)
+async function askRun(job) {
+  const ko = settings.get().lang !== 'en'
+  if (process.env.PGL_RUNNER_ASK === 'yes') return true
+  if (process.env.PGL_RUNNER_ASK === 'no') return false
+  if (win) { if (win.isMinimized()) win.restore(); win.show() }
+  const r = await dialog.showMessageBox(win || undefined, {
+    type: 'question', buttons: ko ? ['이 컴퓨터에서 실행', '이번에는 하지 않기'] : ['Run on this computer', 'Not this time'], defaultId: 0, cancelId: 1,
+    message: ko ? `${job.label || job.agent}(으)로 「${job.activity}」 단계를 이 컴퓨터에서 실행할까요?` : `Run the step "${job.activity}" with ${job.label || job.agent} on this computer?`,
+    detail: `${job.instName || ''}\n${ko ? '작업 폴더' : 'Work folder'}: ${job.git?.folder?.name || ''}`,
+  })
+  return r.response === 0
+}
+// only the chosen server's own pages, in the main window
+const fromServerPage = (e) => !!win && e.sender === win.webContents && isServerPage(String(e.senderFrame?.url || ''))
+const TOKEN = /^pld1_[A-Za-z0-9_-]{43}$/
+const ID = /^[0-9a-f-]{36}$/i
+ipcMain.handle('pgl:runner:status', async (e) => {
+  if (!fromServerPage(e)) return null
+  if (!runner && !cliCache) cliCache = await CLIS.detect().catch(() => ({}))
+  return runnerStatus()
+})
+ipcMain.handle('pgl:runner:may-pair', (e, userId) => (fromServerPage(e) ? !settings.optedOut(serverUrl(), String(userId || '')) : false))
+ipcMain.handle('pgl:runner:pair', (e, v) => {
+  if (!fromServerPage(e)) return { ok: false, reason: 'denied' }
+  const token = String(v?.token || '')
+  if (!TOKEN.test(token) || !ID.test(String(v?.deviceId || '')) || !ID.test(String(v?.userId || ''))) return { ok: false, reason: 'invalid' }
+  settings.setPairing(serverUrl(), { token, deviceId: String(v.deviceId), userId: String(v.userId), userName: String(v?.userName || '').slice(0, 80) })
+  startRunner()
+  return { ok: true }
+})
+ipcMain.handle('pgl:runner:forget', (e, v) => {
+  if (!fromServerPage(e)) return { ok: false }
+  stopRunner()
+  settings.forgetPairing(serverUrl(), { optOut: !!v?.optOut })
+  sendRunnerState()
+  return { ok: true }
+})
+ipcMain.handle('pgl:runner:prefs', (e, v) => {
+  if (!fromServerPage(e)) return null
+  settings.set({ runnerPrefs: { enabled: v?.enabled !== false, ask: v?.ask === true } })
+  runner?.prefsChanged()
+  sendRunnerState()
+  return settings.runnerPrefs()
+})
+ipcMain.handle('pgl:runner:detect', async (e) => {
+  if (!fromServerPage(e)) return null
+  if (runner) await runner.detect()
+  else cliCache = await CLIS.detect().catch(() => ({}))
+  sendRunnerState()
+  return runnerStatus()
+})
+app.on('before-quit', () => stopRunner())

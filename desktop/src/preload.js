@@ -49,7 +49,22 @@ if (!ready()) {
 }
 ipcRenderer.on('pgl:fullscreen', (_e, on) => { full = !!on; mark() })
 
-contextBridge.exposeInMainWorld('pglDesktop', Object.freeze({ app: 'process-gpt-lite', version: arg('version'), platform: process.platform }))
+// the local CLI agents (main's runner/, design docs/local-agents/design.md): the signed-in page pairs this computer with a device token it got
+// from its server, sees the runner's state and sets the person's switches. main answers only the chosen server's own pages.
+const localRunner = local ? undefined : Object.freeze({
+  status: () => ipcRenderer.invoke('pgl:runner:status'),
+  mayPair: (userId) => ipcRenderer.invoke('pgl:runner:may-pair', String(userId || '')),
+  pair: (v) => ipcRenderer.invoke('pgl:runner:pair', { token: String(v?.token || ''), deviceId: String(v?.deviceId || ''), userId: String(v?.userId || ''), userName: String(v?.userName || '') }),
+  forget: (v) => ipcRenderer.invoke('pgl:runner:forget', { optOut: !!v?.optOut }),
+  setPrefs: (p) => ipcRenderer.invoke('pgl:runner:prefs', { enabled: p?.enabled !== false, ask: p?.ask === true }),
+  detect: () => ipcRenderer.invoke('pgl:runner:detect'),
+  onState: (cb) => {
+    const h = (_e, st) => { try { cb(st) } catch { /* the page's own */ } }
+    ipcRenderer.on('pgl:runner:state', h)
+    return () => ipcRenderer.removeListener('pgl:runner:state', h)
+  },
+})
+contextBridge.exposeInMainWorld('pglDesktop', Object.freeze({ app: 'process-gpt-lite', version: arg('version'), platform: process.platform, ...(localRunner ? { localRunner } : {}) }))
 
 if (local) {
   contextBridge.exposeInMainWorld('pglLocal', Object.freeze({

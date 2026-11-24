@@ -280,8 +280,8 @@ async function actorOf(row) {
   return { name: p?.name || p?.email || id || L('담당자', 'Assignee'), email: p?.email || 'folders@pgpt-pro.local' }
 }
 
-// The instance's finished steps (done or submitted, not cancelled, with an output; a step that already works in the folder — work.js —
-// leaves its result there itself) go onto the line, one commit per step. → the ids recorded now
+// The instance's finished steps (done or submitted, not cancelled, with an output; a step that already works in the folder — work.js, or a
+// local CLI agent on the assignee's desktop (lib/localAgents, agent_config.local) — leaves its result there itself) go onto the line, one commit per step. → the ids recorded now
 const recording = new Map()
 export function recordDone(folder) {
   if (!recording.has(folder.id)) recording.set(folder.id, recordIn(folder.id).finally(() => recording.delete(folder.id)))
@@ -294,7 +294,7 @@ async function recordIn(folderId) {
   const rows = await q(`select t.id::text as id, t.proc_inst_id, t.activity_id, t.activity_name, ${statusSql('t.')} as status, t.output, t.output_url, t.user_id,
                                t.agent_orch::text as agent_orch, t.agent_mode::text as agent_mode, to_char(t.end_date, 'YYYY-MM-DD HH24:MI') as end_at
                         from todolist t where t.proc_inst_id = any($1) and t.status::text in ('DONE','SUBMITTED') and ${notCancelledSql('t.')} and t.output is not null
-                          and not (t.id::text = any($2::text[])) and not (coalesce(t.agent_config, '{}'::jsonb) ? 'folder')
+                          and not (t.id::text = any($2::text[])) and not (coalesce(t.agent_config, '{}'::jsonb) ? 'folder') and not (coalesce(t.agent_config, '{}'::jsonb) ? 'local')
                         order by t.end_date nulls last, t.start_date nulls last`, [work.instances, (work.recorded || []).map(String)])
   if (!rows.length) return []
   const R = await workRules()
@@ -401,7 +401,7 @@ export async function sweep() {
   const rows = await q(`select f.id from pro_folders f where f.tenant_id=$1 and f.settings ? 'work' and exists (
                           select 1 from todolist t where t.proc_inst_id in (select jsonb_array_elements_text(f.settings->'work'->'instances'))
                             and t.status::text in ('DONE','SUBMITTED') and t.output is not null and not (coalesce(f.settings->'work'->'recorded', '[]'::jsonb) ? t.id::text)
-                            and not (coalesce(t.agent_config, '{}'::jsonb) ? 'folder') and t.updated_at > now() - interval '14 days')
+                            and not (coalesce(t.agent_config, '{}'::jsonb) ? 'folder') and not (coalesce(t.agent_config, '{}'::jsonb) ? 'local') and t.updated_at > now() - interval '14 days')
                         order by f.updated_at desc limit 20`, [T()])
   for (const r of rows) await recordDone({ id: r.id }).catch((e) => console.warn('[mail work] record', r.id, e.message))
   return rows.length
