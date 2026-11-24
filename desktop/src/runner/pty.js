@@ -22,4 +22,20 @@ function load() {
   try { mod = require(where()) } catch (e) { why = e.message.split('\n')[0] }
   return mod
 }
-module.exports = { load, where, why: () => why }
+// Windows: a pseudo console keeps its input pipe and output thread until it is killed, even after its program ended. Once the program and
+// its tree are gone (it ended, or taskkill /T stopped it) they are closed here directly: node-pty's own kill() first forks a helper to list
+// the console's processes — on a console with none it fails (AttachConsole failed) and node-pty kills the old pid 5 s later anyway.
+// (node-pty 1.1.0's WindowsPtyAgent; anything else falls back to kill())
+function dispose(p) {
+  if (!p) return
+  const a = p._agent
+  if (process.platform === 'win32' && a && a._useConpty && !a._useConptyDll && a._ptyNative && a._pty != null) {
+    try { a._inSocket?.destroy() } catch { /* gone */ }
+    try { a._ptyNative.kill(a._pty, false) } catch { /* closed already */ }
+    try { a._conoutSocketWorker?.dispose() } catch { /* gone */ }
+    return
+  }
+  try { p.kill() } catch { /* gone */ }
+}
+
+module.exports = { load, where, dispose, why: () => why }

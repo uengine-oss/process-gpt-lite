@@ -6,6 +6,7 @@
 // What it checks, each with the app's own binary:
 //   1. files   — node-pty unpacked for this system and arch (macOS: pty.node · spawn-helper executable and built for <arch>, as is the app;
 //                Windows: conpty.node · pty.node), no debug symbols (.pdb), no other system's prebuilds
+//      (then one untimed start: a binary's first start is slow once — the signature check, Rosetta for an Intel app on Apple Silicon)
 //   2. hook    — `<app> --pgl-hook Stop <file>` (a Claude Code hook of a local run, runner/hook.js): the event is appended, no app starts
 //   3. pty     — the app as Node (ELECTRON_RUN_AS_NODE) loads runner/pty.js from inside app.asar and node-pty with it (Windows: from
 //                app.asar.unpacked; macOS: through the asar, its spawn-helper from app.asar.unpacked), and a terminal runs a program
@@ -58,6 +59,15 @@ async function main() {
     }
     if (WIN) must(fs.existsSync(path.join(pre, 'conpty.node')), 'no conpty.node')
     return `${all.length} prebuild files`
+  })
+
+  // the first start of a binary is slow once (macOS checks its signature; on Apple Silicon, Rosetta translates an Intel app — over a
+  // minute on a CI runner): it is done here, untimed, so the checks below measure the app
+  await check('warm-up (first start)', () => {
+    const t = Date.now()
+    const r = spawnSync(exe, ['-e', '0'], { timeout: 600_000, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    must(!r.error && r.status === 0, `exit ${r.status} ${r.error || ''} ${String(r.stderr || '').slice(0, 300)}`)
+    return `${Date.now() - t} ms`
   })
 
   await check('hook (--pgl-hook)', () => {

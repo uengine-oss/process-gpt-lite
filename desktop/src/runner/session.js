@@ -255,11 +255,11 @@ class CliSession extends EventEmitter {
     }
     try { this.p.kill() } catch { /* gone */ }
   }
-  // Windows: node-pty's kill closes the pseudo console, its pipes and its output thread (once — after the program ended or was stopped)
+  // Windows: the pseudo console, its pipes and its output thread closed (once — after the program ended or was stopped; pty.dispose)
   release() {
     if (!WIN || this.released || !this.p) return
     this.released = true
-    try { this.p.kill() } catch { /* gone */ }
+    P.dispose(this.p)
   }
   stopTimers() { for (const t of this.timers) { clearInterval(t); clearTimeout(t) } this.timers = []; this.watcher?.close(); this.watcher = null }
 
