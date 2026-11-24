@@ -188,17 +188,24 @@ async function searchAll(text, ctx, limit) {
     const [files, docs] = await Promise.all([fileCandidates(ctx.roomId, ctx.speaker).catch(() => []), folderFileCandidates(ctx.speaker)])
     return [...files.slice(0, 6), ...docs.slice(0, limit - Math.min(6, files.length))].map(pickView)
   }
+  return (await pool(t, ctx, limit)).map(pickView)
+}
+// What the asker may see that what was said could mean, nearest first: names first, then the folder index (document cards and full
+// text) for words in no name — the candidates the judge picks among (lib/assistHelp.js findMaterials: the meeting's helper and the
+// messenger's @AI). Retrieval only: which one is meant is the judge's.
+export async function pool(text, ctx, limit = 24) {
+  const t = String(text || '').trim().slice(0, 200)
   const out = (await ranked(t, ctx)).slice(0, limit)
   if (out.length < limit) {
     const seen = new Set(out.map((c) => `${c.kind}:${c.id}`))
     const hits = await IX.search(ctx.speaker.id, t, 20).catch(() => [])
     for (const h of hits) {
       if (h.type !== 'file' || out.length >= limit) continue
-      const c = folderFile({ folder_id: h.folder.id, slug: h.folder.slug, folder_name: h.folder.name, path: h.file.path })
+      const c = folderFile({ folder_id: h.folder.id, slug: h.folder.slug, folder_name: h.folder.name, path: h.file.path, keywords: h.file.card?.keywords })
       if (!seen.has(`${c.kind}:${c.id}`)) { seen.add(`${c.kind}:${c.id}`); out.push({ ...c, score: 0.5 }) }
     }
   }
-  return out.map(pickView)
+  return oncePerName(out)
 }
 // 모두에게 띄우기 of a shared folder's document when someone in the room is not in that folder (2026-11-19
 // recording: the other person saw 「볼 권한이 없어요」): the presenter's own copy of it — a file card in their

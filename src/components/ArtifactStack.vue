@@ -11,6 +11,9 @@ import { kindOf, kindLabel, openArtifact } from '../artifacts.js'
 import { CAPTION } from '../artifactScope.js'
 import ShareButton from './team/ShareButton.vue'
 import { useTeam } from '../stores/team.js'
+// each file (and the closed pile, all of them) is dragged like any file of the app (src/fileDrag.js): a messenger conversation, a folder,
+// the composer
+import { startDrag, cardItem, MAX } from '../fileDrag.js'
 
 const props = defineProps({ place: { type: Object, default: () => ({ mode: 'beside', size: 64, right: 28, bottom: 112 }) } })
 const app = useApp()
@@ -38,6 +41,7 @@ const fanStyle = (i) => ({
 })
 
 function pick(m) { open.value = false; openArtifact(app, router, m) }
+const drag = (e, list) => startDrag(e, list.slice(0, MAX).map(cardItem))
 const onKey = (e) => { if (e.key === 'Escape') open.value = false }
 watch(open, (v) => (v ? window.addEventListener('keydown', onKey) : window.removeEventListener('keydown', onKey)))
 watch(() => [app.artifacts.scope, app.activeId, app.convFilter], () => { open.value = false })
@@ -51,7 +55,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 
     <!-- fan: the newest sits closest to the pile -->
     <TransitionGroup v-if="!grid" name="fan" tag="div" class="fan">
-      <div v-for="(m, i) in open ? items : []" :key="m.id" class="fitem" :style="fanStyle(i)">
+      <div v-for="(m, i) in open ? items : []" :key="m.id" class="fitem" :style="fanStyle(i)" draggable="true" data-test="pile-item" :data-file="m.content.name" @dragstart="drag($event, [m])">
         <ShareButton :msg="m" compact class="fshare" />
         <button class="fopen press" @click="pick(m)">
           <span class="label">{{ m.content.name }}<em v-if="m.content.edited">편집본</em></span>
@@ -64,7 +68,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
       <div v-if="open && grid" class="grid glass">
         <p class="cap">{{ caption }} {{ items.length }}개<button class="allshare press" @click="open = false; team.startShare(items)">모두 공유</button></p>
         <div class="cells">
-          <div v-for="m in items" :key="m.id" class="cellw">
+          <div v-for="m in items" :key="m.id" class="cellw" draggable="true" data-test="pile-item" :data-file="m.content.name" @dragstart="drag($event, [m])">
             <button class="cell press" @click="pick(m)">
               <span class="tile" :class="kindOf(m.content.name)">{{ kindLabel[kindOf(m.content.name)] || 'FILE' }}</span>
               <small>{{ m.content.name }}</small>
@@ -75,7 +79,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
       </div>
     </Transition>
 
-    <button class="pile press" :aria-label="`${caption} ${items.length}개 ${open ? '접기' : '펼치기'}`" :aria-expanded="open" @click="open = !open">
+    <button class="pile press" :aria-label="`${caption} ${items.length}개 ${open ? '접기' : '펼치기'}`" :aria-expanded="open" draggable="true" data-test="pile" @click="open = !open" @dragstart="drag($event, items)">
       <span v-for="(m, i) in pile" :key="m.id" class="tile layer" :class="kindOf(m.content.name)"
         :style="{ transform: `translate(${(pile.length - 1 - i) * -4}px, ${(pile.length - 1 - i) * -5}px) rotate(${(pile.length - 1 - i) * -6}deg)`, zIndex: i }">
         {{ kindLabel[kindOf(m.content.name)] || 'FILE' }}
@@ -108,6 +112,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 .fitem { position: absolute; right: -10px; bottom: 0; display: flex; align-items: center; gap: 10px; transition: transform .38s var(--spring), opacity .25s; }
 .fitem .tile { animation: bob 3.2s ease-in-out infinite alternate; animation-delay: inherit; }
 .fitem:hover .tile { transform: scale(1.12); }
+.fitem, .cellw { cursor: grab; }
 .fopen { display: flex; align-items: center; gap: 10px; }
 /* 공유 (components/team): beside each artifact in the fan and the grid */
 .fshare { flex: none; background: rgba(29, 29, 31, .7); color: #fff; }

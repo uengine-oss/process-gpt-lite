@@ -1,0 +1,28 @@
+# 서버 시험 — 2026-11-24 22:40 · feat/messenger-file-mention-ai 를 origin/main 5fcfb02 에 합친 작업 트리(커밋 전)
+
+test/fileMention.test.js: ℹ tests 10 ℹ pass 10 ℹ fail 0 
+test/fileMention.integration.test.js: ℹ tests 7 ℹ pass 7 ℹ fail 0 
+test/chatAgents.test.js: ℹ tests 7 ℹ pass 7 ℹ fail 0 
+test/messageMerge.test.js: ℹ tests 3 ℹ pass 3 ℹ fail 0 
+test/meetingRecordLive.test.js: ℹ tests 4 ℹ pass 4 ℹ fail 0 
+test/docLayout.test.js: ℹ tests 5 ℹ pass 5 ℹ fail 0 
+test/dictation.test.js: ℹ tests 10 ℹ pass 10 ℹ fail 0 
+test/filing.integration.test.js: ℹ tests 10 ℹ pass 10 ℹ fail 0 
+test/folderEditSave.test.js: ℹ tests 5 ℹ pass 5 ℹ fail 0 
+test/folderFindOpen.test.js: ℹ tests 6 ℹ pass 6 ℹ fail 0 
+test/folderGc.test.js: ℹ tests 6 ℹ pass 6 ℹ fail 0 
+test/folderGitRemote.test.js: ℹ tests 13 ℹ pass 13 ℹ fail 0 
+test/interp.test.js: ℹ tests 13 ℹ pass 13 ℹ fail 0 
+test/lang-meetings.test.js: ℹ tests 6 ℹ pass 6 ℹ fail 0 
+test/lang-panels-folders-team.test.js: ℹ tests 9 ℹ pass 9 ℹ fail 0 
+test/lang.test.js: ℹ tests 9 ℹ pass 9 ℹ fail 0 
+test/meetingAnswers.test.js: ℹ tests 5 ℹ pass 5 ℹ fail 0 
+test/meetingTeamFixes.test.js: ℹ tests 7 ℹ pass 7 ℹ fail 0 
+test/messengerDock.test.js: ℹ tests 6 ℹ pass 6 ℹ fail 0 
+test/openPlan.test.js: ℹ tests 5 ℹ pass 5 ℹ fail 0 
+test/team-activity.test.js: ℹ tests 16 ℹ pass 16 ℹ fail 0 
+test/threadFolders.test.js: ℹ tests 7 ℹ pass 7 ℹ fail 0 
+test/worktree.test.js: ℹ tests 9 ℹ pass 9 ℹ fail 0 
+test/agentTurn.integration.test.js: ℹ tests 11 ℹ pass 11 ℹ fail 0 
+test/chatArtifacts.test.js: ℹ tests 6 ℹ pass 6 ℹ fail 0 
+test/localAgents.test.js: ℹ tests 31 ℹ pass 31 ℹ fail 0 

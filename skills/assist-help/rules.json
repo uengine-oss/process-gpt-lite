@@ -1,0 +1,23 @@
+{
+  "maxCandidates": 12,
+  "minAction": 0.45,
+  "minPick": 0.4,
+  "alsoPick": 0.25,
+  "maxPicks": 4,
+  "contextLines": 4,
+  "timeoutMs": 8000,
+  "options": {
+    "ko": {
+      "material": "이미 있는 파일 · 문서 · 자료를 찾아서 이 대화에 붙이거나 보여 달라는 부탁",
+      "work": "문서 · 표를 새로 만들거나 고치기, 요약, 일정 잡기, 조사처럼 시간이 걸리는 일을 맡기는 부탁",
+      "answer": "짧게 답하면 되는 질문이나 인사 · 잡담",
+      "none": "어느 것도 아니다 — 맞는 자료가 없다"
+    },
+    "en": {
+      "material": "Asking to find an existing file, document or material and attach it to this conversation or show it",
+      "work": "Asking for work that takes time: make or revise a document or table, summarize, schedule, research",
+      "answer": "A question that a short reply answers, or a greeting or small talk",
+      "none": "None of them — no material fits"
+    }
+  }
+}

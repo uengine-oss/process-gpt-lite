@@ -6,8 +6,8 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useApp } from '../../stores/app.js'
 import { useTeam } from '../../stores/team.js'
 
-// where the caret is inside a textarea, in the textarea's own pixels (a mirror div with the same text)
-function caretXY(ta) {
+// where the caret is inside a textarea, in the textarea's own pixels (a mirror div with the same text) — the messenger's "@" too
+export function caretXY(ta) {
   const s = getComputedStyle(ta)
   const d = document.createElement('div')
   for (const p of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'paddingTop', 'paddingLeft', 'paddingRight', 'borderLeftWidth', 'boxSizing', 'whiteSpace', 'wordWrap']) d.style[p] = s[p]

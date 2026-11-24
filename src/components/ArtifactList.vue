@@ -13,6 +13,8 @@ import { useApp } from '../stores/app.js'
 import { kindOf, kindLabel, openArtifact } from '../artifacts.js'
 import { CAPTION, filterArtifacts } from '../artifactScope.js'
 import { whenText } from '../threadList.js'
+// a row is dragged like any file of the app (src/fileDrag.js): a messenger conversation (a link or a share), a folder, the composer
+import { startDrag, cardItem } from '../fileDrag.js'
 
 const props = defineProps({ rail: { type: Boolean, default: false } })
 const app = useApp()
@@ -45,7 +47,7 @@ const open = (m) => openArtifact(app, router, m)
       <input v-model="query" type="search" placeholder="산출물 찾기" aria-label="산출물 찾기" data-testid="artifact-search" @keydown.esc="query = ''" />
     </label>
     <div class="rows scroll">
-      <div v-for="x in shown" :key="x.msg.id" class="roww">
+      <div v-for="x in shown" :key="x.msg.id" class="roww" draggable="true" data-testid="artifact-drag" :data-file="x.msg.content.name" @dragstart="startDrag($event, [cardItem(x.msg)])">
         <button class="row press" :title="x.msg.content.name" data-testid="artifact-row" :data-file="x.msg.content.name" @click="open(x.msg)">
           <span class="tile" :class="kindOf(x.msg.content.name)">{{ label(x.msg) }}</span>
           <span v-if="!rail" class="meta">
@@ -82,6 +84,7 @@ const open = (m) => openArtifact(app, router, m)
 .rail .rows { margin-top: 8px; align-items: center; gap: 6px; }
 .roww { position: relative; display: flex; align-items: center; min-width: 0; border-radius: 14px; }
 .roww:hover { background: var(--field-bg); }
+.roww[draggable="true"] { cursor: grab; }
 .row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px; text-align: left; border-radius: 14px; color: var(--text-primary); }
 .rail .row { padding: 3px; flex: none; }
 .rail .roww:hover { background: none; }

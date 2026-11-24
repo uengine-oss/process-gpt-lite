@@ -7,6 +7,8 @@ import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
 import { folders as F, whoOf, indexLabel, ago } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, dirName } from './fileKind.js'
+// a file of the app (a chat card, a received file, another folder's file — src/fileDrag.js) dropped on a folder's row goes into it
+import { dragKind, dragging as draggedItems, itemsOf, zoneWords } from '../../fileDrag.js'
 
 const emit = defineEmits(['preview'])
 const router = useRouter()
@@ -66,6 +68,35 @@ async function submit() {
   } catch (e) { formErr.value = e.message } finally { busy.value = false }
 }
 const idx = (f) => f.index_state || {}
+// a folder row while files of the app are dragged over it: 「이 폴더에 넣기」 (a folder I edit), or why not
+const over = ref(null)       // {slug, ok, words}
+const dropNote = ref(null)   // {text, slug, path}
+const canPut = (f) => ['owner', 'editor'].includes(f.role) && f.kind === 'managed'
+const isPgl = (e) => dragKind(e.dataTransfer?.types) === 'pgl'
+const fromIt = (f) => (draggedItems() || []).length > 0 && draggedItems().every((x) => x.src === 'folder' && x.slug === f.slug)
+function rowOver(e, f) {
+  if (!isPgl(e) || fromIt(f)) return
+  e.preventDefault()
+  const ok = canPut(f)
+  if (e.dataTransfer) e.dataTransfer.dropEffect = ok ? 'copy' : 'none'
+  if (over.value?.slug !== f.slug) over.value = { slug: f.slug, ok, words: ok ? zoneWords('folder') : f.kind !== 'managed' ? '넣을 수 없는 폴더예요' : '편집 권한이 있어야 넣을 수 있어요' }
+}
+function rowLeave(e, f) { if (over.value?.slug === f.slug && !e.currentTarget.contains(e.relatedTarget)) over.value = null }
+async function rowDrop(e, f) {
+  if (!isPgl(e)) return
+  e.preventDefault()
+  over.value = null
+  if (!canPut(f)) { dropNote.value = { text: `‘${f.name}’에 넣으려면 편집 권한이 필요해요.` }; return }
+  try {
+    const r = await F.drop(f.slug, itemsOf(e))
+    const done = r.items.filter((x) => x.ok), bad = r.items.filter((x) => !x.ok)
+    dropNote.value = done.length
+      ? { text: `‘${f.name}’에 넣었어요${done.length > 1 ? ` · ${done.length}개` : ''}${bad.length ? ` · ${bad.length}개는 못 넣었어요(${bad[0].error})` : ''}`, slug: f.slug, path: done[0].filed?.path }
+      : { text: bad.map((x) => `${x.name || '파일'}: ${x.error}`).join(' · ') }
+  } catch (err2) { dropNote.value = { text: err2.message } }
+  setTimeout(() => { dropNote.value = null }, 9000)
+}
+const openDropped = () => { const n = dropNote.value; dropNote.value = null; if (n?.slug) router.push({ path: `/folders/${n.slug}`, query: n.path ? { file: n.path } : {} }) }
 </script>
 
 <template>
@@ -140,7 +171,9 @@ const idx = (f) => f.index_state || {}
       <div class="row th">
         <span>이름</span><span>구성원</span><span>최근 활동</span><span>변형</span><span>색인</span>
       </div>
-      <button v-for="f in list" :key="f.slug" class="row glass press" @click="router.push(`/folders/${f.slug}`)">
+      <button v-for="f in list" :key="f.slug" class="row glass press" :class="{ dropon: over?.slug === f.slug, dropno: over?.slug === f.slug && !over.ok }" data-test="folder-row" :data-slug="f.slug"
+        @click="router.push(`/folders/${f.slug}`)" @dragover="rowOver($event, f)" @dragleave="rowLeave($event, f)" @drop="rowDrop($event, f)">
+        <span v-if="over?.slug === f.slug" class="dropword" data-test="folder-row-drop">{{ over.words }}</span>
         <span class="name">
           <span class="fic folder" :class="{ linked: f.kind === 'linked' }"><FIcon :name="f.kind === 'linked' ? 'link' : 'folder'" :size="20" /></span>
           <span class="nm"><b>{{ f.name }}<span v-if="f.settings?.work" class="wb" data-test="folder-work-badge">작업 폴더</span></b><small>{{ f.description }}</small></span>
@@ -161,6 +194,12 @@ const idx = (f) => f.index_state || {}
         </span>
       </button>
     </div>
+
+    <Transition name="fade">
+      <div v-if="dropNote" class="dropnote" data-test="folder-filed" role="status">
+        <FIcon name="folder" :size="16" /><span>{{ dropNote.text }}</span><button v-if="dropNote.slug" class="press" data-test="folder-filed-open" @click="openDropped">열기</button>
+      </div>
+    </Transition>
 
     <div v-if="sheet" class="veil" @click.self="sheet = null">
       <form class="box glass" @submit.prevent="submit">
@@ -208,6 +247,12 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 .first b { color: var(--text-primary); font-size: 18px; font-weight: 500; }
 .grid { margin-top: 22px; display: flex; flex-direction: column; gap: 8px; }
 .row { display: grid; grid-template-columns: minmax(0, 2.3fr) 150px minmax(0, 1.6fr) 130px 130px; align-items: center; gap: 16px; padding: 12px 18px; border-radius: 20px; text-align: left; }
+.row.dropon { position: relative; outline: 2.5px dashed rgba(42, 120, 214, .75); outline-offset: -3px; background: rgba(42, 120, 214, .1); }
+.row.dropno { outline-color: rgba(127, 127, 127, .55); background: rgba(127, 127, 127, .08); }
+.dropword { position: absolute; right: 16px; top: 50%; translate: 0 -50%; z-index: 2; padding: 6px 14px; border-radius: 12px; font-size: 13.5px; font-weight: 600; color: #fff; background: #2a78d6; box-shadow: 0 6px 20px rgba(0, 0, 0, .16); pointer-events: none; }
+.row.dropno .dropword { background: #6b6b66; }
+.dropnote { position: fixed; left: 50%; bottom: 28px; translate: -50% 0; z-index: 50; display: inline-flex; align-items: center; gap: 8px; max-width: 90vw; padding: 12px 18px; border-radius: 14px; background: #1d1d1f; color: #f5f5f7; font-size: 14px; }
+.dropnote button { padding: 3px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #fff; background: #2a78d6; }
 .row.th { padding: 0 18px; font-size: 12.5px; color: var(--text-tertiary); }
 button.row:hover { background: var(--regular-solid-bg); }
 .name { display: flex; align-items: center; gap: 12px; min-width: 0; }

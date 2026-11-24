@@ -3,6 +3,8 @@
 // share or mail is "not found", a folder I do not edit is refused by the folder's own check (service.js access).
 import express from 'express'
 import * as F from '../lib/folders/filing.js'
+// a file dragged anywhere (lib/fileRefs.js): what it is, and putting it into a folder
+import * as FR from '../lib/fileRefs.js'
 
 const UUID = /^[0-9a-f-]{36}$/i
 // {messageId} | {shareId} | {actionId, attachment}
@@ -29,5 +31,11 @@ export function filingRoutes(auth) {
   r.post('/filing/file', auth, h((req) => F.file(req.user, refOf(req.body), {
     slug: req.body?.slug ? String(req.body.slug) : '', sub: req.body?.sub ? String(req.body.sub).slice(0, 200) : '', newFolder: req.body?.newFolder ? String(req.body.newFolder) : '',
   })))
+  // a dropped file (src/fileDrag.js items) → a link (a shared folder's file) or a share (an artifact of mine), or why it is refused —
+  // the messenger's and the AI chat's chips
+  r.post('/files/resolve', auth, h(async (req) => ({ items: await FR.resolve(req.user, req.body?.items) })))
+  // files dropped on a folder (its file list, or its row in the list): each becomes a file of that folder — editor of the folder,
+  // a commit in my name, the same content not twice (filing.js file). dir: a sub-folder of it
+  r.post('/folders/:slug/drop', auth, h(async (req) => ({ items: await FR.dropInto(req.user, String(req.params.slug), req.body?.items, { dir: req.body?.dir ? String(req.body.dir).slice(0, 200) : '' }) })))
   return r
 }

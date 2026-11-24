@@ -17,6 +17,8 @@ import { emit } from '../bus.js'
 import { TeamError, isMember, people } from './access.js'
 import { viewArtifacts } from './shares.js'
 import { L, langOf, withLang } from '../lang.js'
+// file mentions on a message: each person sees them with their own access (lib/fileRefs.js decorate)
+import { decorate, publicRef } from '../fileRefs.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
@@ -101,11 +103,18 @@ export function view(viewerId, row, byEmail = {}) {
   return {
     ...(g.meeting ? { meeting: g.meeting } : {}),
     id: row.uuid, threadId: row.id, kind, body: String(m.content || ''), at: m.timeStamp ? iso(typeof m.timeStamp === 'number' || /^\d+$/.test(m.timeStamp) ? Number(m.timeStamp) : m.timeStamp) : null,
-    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (agentLabel(g, byEmail) || g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (m.userName || m.name || byEmail[m.email]?.name || L('팀원', 'Teammate')), agent },
+    // the messenger's @AI answers as 「AI」 (lib/team/aiHelp.js), not as someone's agent
+    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.ai ? 'AI' : agentLabel(g, byEmail) || g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (m.userName || m.name || byEmail[m.email]?.name || L('팀원', 'Teammate')), agent, ...(g.ai && agent ? { ai: true } : {}) },
     mine: !agent && senderId === viewerId, byMe: agent && g.by === viewerId,
     artifacts: viewArtifacts(viewerId, agent ? g.by : senderId, g.artifacts), context: g.context || null,
+    // file mentions (links to shared folders' files): their state for this viewer comes with decorate()
+    ...(Array.isArray(g.refs) && g.refs.length ? { refs: g.refs.map((r) => ({ ...publicRef(r), folderId: r.folderId })) } : {}),
+    // a message addressed to the AI (「@AI …」) and the AI's own answer to it
+    ...(g.ai && !agent ? { toAi: true } : {}),
   }
 }
+// each viewer's copy of a row: their view, with the state of its file mentions
+export const viewFor = async (viewer, row, by) => decorate(viewer, view(viewer.id, row, by))
 const ORDER = 'coalesce(public.pro_chat_ts(messages), now())'
 
 // rooms I am in with at least one other person (process-gpt agent-only rooms are not the messenger's)
@@ -146,12 +155,14 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
   const members = await membersOf(t.id)
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
   return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, lastReadAt: m.last_read_at })) },
-    messages: rows.reverse().map((r) => view(me.id, r, by)) }
+    messages: await Promise.all(rows.reverse().map((r) => viewFor(me, r, by))) }
 }
 
 // Write a message into a room I am in, as process-gpt's frontend would. Every other person must still be
 // on the team. attach(recipients, chatUuid) makes the share grants once the row's id is known.
-export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null } = {}) {
+// refs: file mentions already checked as the sender (lib/fileRefs.js forSend); ai: addressed to the AI (「@AI …」, answered by
+// lib/team/aiHelp.js — the room's general AI 제안 leaves it alone); mentions: the people named with @ (process-gpt's mentionedUsers)
+export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [] } = {}) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const members = await membersOf(t.id)
@@ -159,27 +170,44 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   const uuid = crypto.randomUUID()
   const artifacts = attach ? await attach(members.filter((m) => m.id !== me.id), uuid, t.id) : []
   const files = artifacts.map((a) => a.name)
-  const content = String(body || '').slice(0, 8000) || (files.length ? `📎 ${files.join(', ')}` : '')
-  const pgptPart = kind === 'text' && !artifacts.length && !context ? undefined : { kind, artifacts, context, ...(agent || {}) }
-  const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id, mentionedUsers: [], ...(pgptPart ? { pgpt: pgptPart } : {}) }
+  const linked = (refs || []).map((r) => r.name)
+  const content = String(body || '').slice(0, 8000) || (files.length || linked.length ? `📎 ${[...files, ...linked].join(', ')}` : '')
+  const pgptPart = kind === 'text' && !artifacts.length && !context && !refs?.length && !ai ? undefined
+    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(agent || {}) }
+  const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
+  const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
+    mentionedUsers: members.filter((x) => named.includes(x.id)).map((x) => ({ id: x.id, email: x.email, username: x.name })), ...(pgptPart ? { pgpt: pgptPart } : {}) }
   const [row] = await q(`insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages`, [uuid, t.id, msg, T()])
   // the room list preview, the way process-gpt writes it
   await q(`update chat_rooms set message=$2 where id=$1`, [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
   await pushRow(row, members)
-  if (kind === 'share' || kind === 'mention') await notifyMembers(me, t, row, kind, files, context, members.filter((m) => m.id !== me.id))
-  return view(me.id, row, by)
+  if (kind === 'share' || kind === 'mention' || kind === 'fileref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id))
+  return viewFor(me, row, by)
+}
+
+// A row written as the AI (process-gpt's agent shape, like routes/teamAssist.js agentRow), to everyone in the room at once with
+// their own view (pushRow: a server without the room feed — PRO_BACKGROUND=0 — still delivers it, and the feed's copy is dropped)
+export async function postAgent(roomId, { content, pgpt, uuid = crypto.randomUUID() }) {
+  const msg = { uuid, id: 'process-gpt-agent', name: 'Process GPT Agent', role: 'assistant', email: 'agent:process-gpt-agent', agentId: 'process-gpt-agent',
+    userName: 'Process GPT Agent', profile: '/images/chat-icon.png', content: String(content || '').slice(0, 8000), timeStamp: iso(), pgpt }
+  const [row] = await q('insert into chats(uuid, id, messages, tenant_id, thread_id) values ($1,$2,$3,$4,$2) returning uuid, id, messages', [uuid, roomId, msg, T()])
+  await q(`update chat_rooms set message=$2 where id=$1`, [roomId, { msg: msg.content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
+  await pushRow(row, await membersOf(roomId))
+  return row
 }
 
 async function notifyMembers(me, t, row, kind, files, context, recipients) {
   const ctx = context?.title ? ` · ${context.title.slice(0, 30)}${context.title.length > 30 ? '…' : ''}` : ''
   // each notice in its recipient's saved language (lib/lang.js)
   const words = (en) => ({
-    title: kind === 'share'
+    title: kind === 'fileref'
+      ? (en ? `${me.name} linked ${files[0] || 'a file'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '파일'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 링크로 멘션했어요`)
+      : kind === 'share'
       ? (en ? `${me.name} shared ${files[0] || 'an output'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '산출물'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 공유했어요`)
       : (en ? `${me.name} mentioned you${ctx}` : `${me.name}님이 나를 언급했어요${ctx}`),
-    text: [row.messages.content, files.length && kind !== 'share' ? `${en ? 'Outputs' : '산출물'}: ${files.join(', ')}` : ''].filter(Boolean).join('\n').slice(0, 600),
+    text: [row.messages.content, files.length && kind !== 'share' ? `${kind === 'fileref' ? (en ? 'Linked files' : '링크한 파일') : en ? 'Outputs' : '산출물'}: ${files.join(', ')}` : ''].filter(Boolean).join('\n').slice(0, 600),
   })
   for (const r of recipients) {
     const { title, text } = words((await langOf(r.id)) === 'en')
@@ -219,18 +247,18 @@ export async function inbox(me) {
   const rows = await q(`select c.uuid, c.id, c.messages, coalesce(rd.last_read_at, 'epoch'::timestamptz) as last_read_at
                         from chats c join chat_rooms r on r.id=c.id and r.tenant_id=$1 and r.participants @> $3::jsonb
                         left join pro_chat_reads rd on rd.room_id=c.id and rd.user_id=$2
-                        where c.messages->'pgpt'->>'kind' in ('share','mention') and coalesce(c.messages->>'email','') <> $4
+                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref') and coalesce(c.messages->>'email','') <> $4
                         order by coalesce(public.pro_chat_ts(c.messages), now()) desc limit 50`, [T(), me.id, JSON.stringify([{ id: me.id }]), me.email])
   const senders = await people([...new Set(rows.map((r) => r.messages.userId).filter(Boolean))])
   const by = Object.fromEntries(senders.map((p) => [p.email, p]))
-  return rows.map((r) => { const v = view(me.id, r, by); return { ...v, unread: new Date(v.at) > new Date(r.last_read_at) } })
+  return Promise.all(rows.map(async (r) => { const v = await viewFor(me, r, by); return { ...v, unread: new Date(v.at) > new Date(r.last_read_at) } }))
 }
 
 export async function message(me, uuid) {
   if (!ROOM.test(String(uuid || ''))) return null
   const [r] = await q('select uuid, id, messages from chats where uuid=$1 and tenant_id=$2', [uuid, T()])
   if (!r || !(await memberThread(me, r.id))) return null
-  return view(me.id, r, await emailMap(r.id))
+  return viewFor(me, r, await emailMap(r.id))
 }
 
 // ---- live delivery for rows written anywhere (process-gpt's UI, an agent, this server) ----
@@ -248,7 +276,8 @@ export async function pushRow(row, people) {
   sentRows.set(row.uuid, c)
   if (sentRows.size > SENT_KEEP) sentRows.delete(sentRows.keys().next().value)
   const by = Object.fromEntries(people.map((p) => [p.email, { id: p.id, name: nameOf(p) }]))
-  for (const p of people) emit(p.id, 'team', { type: 'message', threadId: row.id, message: withLang(await langOf(p.id), () => view(p.id, row, by)) })
+  // (each person's copy: their language, and the file mentions in their own access — lib/fileRefs.js decorate)
+  for (const p of people) emit(p.id, 'team', { type: 'message', threadId: row.id, message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: nameOf(p) }, row, by)) })
   return true
 }
 // a row this server just wrote into a room (inserted or updated), to the room's people at once — not left to the

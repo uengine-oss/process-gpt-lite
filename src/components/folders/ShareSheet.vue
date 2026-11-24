@@ -6,12 +6,13 @@ import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
 import { folders as F, whoOf, roleLabel } from '../../foldersApi.js'
 
-const props = defineProps({ folder: Object, defaultRole: { type: String, default: 'runner' } })
+// pick: someone who asked for access (a 「권한 요청」 notice — server lib/fileRefs.js): chosen already, to be added as 보기
+const props = defineProps({ folder: Object, defaultRole: { type: String, default: 'runner' }, pick: { type: String, default: '' } })
 const emit = defineEmits(['close'])
 const members = ref(props.folder.members)
 const people = ref([])
-const add = ref('')
-const role = ref(props.defaultRole)
+const add = ref(props.pick || '')
+const role = ref(props.pick ? 'viewer' : props.defaultRole)
 const err = ref('')
 const owner = computed(() => props.folder.role === 'owner')
 onMounted(async () => { people.value = await F.people().catch(() => []) })

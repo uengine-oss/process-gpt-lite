@@ -60,6 +60,9 @@ export const useApp = defineStore('app', {
     handoff: null,             // message id of a task shown full screen
     officeDoc: null,           // {msgId, url, name} open in the IeumOffice editor
     docSide: false,            // that document is open beside the page, not over it (OfficeSheet) — the messenger's panel dock joins it
+    // files of the app dragged onto the composer (src/fileDrag.js — a shared folder's file, an artifact, a file a teammate sent): the
+    // next message is about them, the agent reads each with my access (server lib/fileRefs.js turnRefs): {key, item, name, folder, as, wait, error}
+    fileRefs: [],
     attachments: [],           // files waiting in the composer: {id, name, size, state, result, error}
     newProjectFolder: null,    // 새 프로젝트: the folder it will work in — {id, slug, name} or {newName}
     folderPicker: false,       // the composer's folder list is open (📎 폴더 붙이기, 새 프로젝트's chip)
@@ -304,6 +307,23 @@ export const useApp = defineStore('app', {
       }
     },
     removeAttachment(id) { this.attachments = this.attachments.filter((a) => a.id !== id) },
+    // dropped files of the app → chips at once, then what each one is (or why it cannot be used) from the server
+    async addFileRefs(items) {
+      const fresh = (items || []).filter((it) => !this.fileRefs.some((r) => JSON.stringify(r.item) === JSON.stringify(it))).slice(0, Math.max(0, 10 - this.fileRefs.length))
+      if (!fresh.length) return
+      const keys = fresh.map(() => crypto.randomUUID())
+      this.fileRefs = [...this.fileRefs, ...fresh.map((it, i) => ({ key: keys[i], item: it, name: it.name || '파일', folder: it.folder || '', as: it.as || 'link', wait: true, error: '' }))]
+      let res = []
+      try { res = (await api('/files/resolve', { method: 'POST', body: { items: fresh } })).items } catch (e) { res = fresh.map(() => ({ ok: false, error: e.message })) }
+      this.fileRefs = this.fileRefs.map((r) => {
+        const i = keys.indexOf(r.key)
+        if (i < 0) return r
+        const x = res[i]
+        if (!x?.ok) return { ...r, wait: false, error: x?.error || '이 파일을 쓸 수 없어요' }
+        return { ...r, wait: false, name: x.name || r.name, as: x.as, folder: x.ref?.folder || '', variation: x.ref?.variation || null }
+      })
+    },
+    removeFileRef(key) { this.fileRefs = this.fileRefs.filter((r) => r.key !== key) },
     addMention(m) {
       if (!m?.label) return
       this.mentions = [...this.mentions.filter((x) => !(x.label === m.label && x.file === m.file)), m].slice(-4)
@@ -326,6 +346,9 @@ export const useApp = defineStore('app', {
       }
       const pending = attachments || this.attachments
       if (!attachments) this.attachments = []
+      // the files dragged in (refused ones are only shown, never sent)
+      const refs = this.fileRefs.filter((r) => !r.error && !r.wait).map((r) => r.item)
+      this.fileRefs = []
       await Promise.all(pending.map((a) => a.job))
       const files = pending.filter((a) => a.result).map((a) => a.result)
       // asked from inside one conversation's view: it continues that conversation
@@ -341,7 +364,7 @@ export const useApp = defineStore('app', {
       const asked = this.askedAt[threadId] = Date.now()
       let ended = false
       try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
+        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(refs.length ? { refs } : {}), ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
         })

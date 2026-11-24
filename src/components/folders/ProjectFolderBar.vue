@@ -1,11 +1,15 @@
 <script setup>
 // A project's folder above its conversation: the folder, the project's variation (its turns and its
 // process steps work there) and 「반영」 — the variation's review screen in 폴더, where it is merged into main.
-import { computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from './FIcon.vue'
 import { api } from '../../api.js'
 import { useApp } from '../../stores/app.js'
+// a file of the app (a chat card, a received file, another folder's file — src/fileDrag.js) dropped on the bar goes into this folder's
+// main, in my name (server lib/fileRefs.js dropInto) — the project's own files go in with 「반영」 instead
+import { dragKind, itemsOf, zoneWords } from '../../fileDrag.js'
+import { folders as F } from '../../foldersApi.js'
 
 const props = defineProps({ thread: Object })
 const app = useApp()
@@ -28,11 +32,27 @@ async function refresh() {
   if (r) app.setThreadFolder(id, r.folder)
 }
 onMounted(refresh)
+const over = ref(false)
+let depth = 0
+const isPgl = (e) => dragKind(e.dataTransfer?.types) === 'pgl'
+function enter(e) { if (!isPgl(e)) return; e.preventDefault(); e.stopPropagation(); depth++; over.value = true }
+function move(e) { if (!isPgl(e)) return; e.preventDefault(); e.stopPropagation(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy' }
+function leave(e) { if (!isPgl(e)) return; if (--depth <= 0) { depth = 0; over.value = false } }
+async function drop(e) {
+  if (!isPgl(e)) return
+  e.preventDefault(); e.stopPropagation(); depth = 0; over.value = false
+  try {
+    const r = await F.drop(f.value.slug, itemsOf(e))
+    const done = r.items.filter((x) => x.ok), bad = r.items.filter((x) => !x.ok)
+    app.notice = { text: [done.length ? `‘${f.value.name}’에 넣었어요 · ${done.map((x) => x.filed?.path).join(', ')}` : '', bad.map((x) => `${x.name || '파일'}: ${x.error}`).join(' · ')].filter(Boolean).join(' · ') }
+  } catch (err) { app.notice = { text: err.message } }
+}
 watch(() => props.thread?.status, (s, was) => { if (was === 'working' && !s) refresh() })
 </script>
 
 <template>
-  <div v-if="f" class="pfb glass-thin" data-testid="project-folder-bar">
+  <div v-if="f" class="pfb glass-thin" :class="{ over }" data-testid="project-folder-bar" @dragenter="enter" @dragover="move" @dragleave="leave" @drop="drop">
+    <span v-if="over" class="dropword" data-test="project-folder-drop">{{ zoneWords('folder') }}</span>
     <button class="fold press" :title="`${f.name} 폴더 열기`" @click="router.push(`/folders/${f.slug}`)">
       <FIcon name="folder" :size="17" /><b data-no-i18n>{{ f.name }}</b>
     </button>
@@ -48,6 +68,8 @@ watch(() => props.thread?.status, (s, was) => { if (was === 'working' && !s) ref
 </template>
 
 <style scoped>
+.pfb.over { position: relative; outline: 2.5px dashed rgba(42, 120, 214, .75); outline-offset: -2px; background: rgba(42, 120, 214, .1); }
+.dropword { position: absolute; right: 12px; top: 50%; translate: 0 -50%; z-index: 2; padding: 5px 12px; border-radius: 11px; font-size: 13px; font-weight: 600; color: #fff; background: #2a78d6; pointer-events: none; }
 .pfb { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 8px 8px 8px 14px; border-radius: 20px; margin-bottom: 4px; font-size: 13.5px; }
 .fold { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; color: var(--text-primary); }
 .fold b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

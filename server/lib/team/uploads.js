@@ -14,13 +14,15 @@ export const UPLOADS_REF = 'messenger:uploads'
 // (a file a teammate sent the old way — a share without a branch, on a database without the worktree tables — gets its card of mine
 // here when 폴더에 정리 first reads it: lib/folders/filing.js. Opening it later reuses that card: shares.js openCopy.)
 export const RECEIVED_REF = 'messenger:received'
+// (a file mention opened from the messenger gets a card of mine here, for the office panel to open — lib/fileRefs.js open)
+export const LINKS_REF = 'messenger:links'
 export const MAX_FILES = 10
 
 // one such conversation per person and purpose, made once
 export async function filesThread(userId, ref = UPLOADS_REF) {
   const [t] = await q('select * from pro_threads where user_id=$1 and share_ref=$2', [userId, ref])
   if (t) return t
-  const title = ref === RECEIVED_REF ? L('메신저로 받은 파일', 'Files received in messages') : L('메신저로 보낸 파일', 'Files sent in messages')
+  const title = ref === RECEIVED_REF ? L('메신저로 받은 파일', 'Files received in messages') : ref === LINKS_REF ? L('메신저에서 연 파일 링크', 'File links opened from messages') : L('메신저로 보낸 파일', 'Files sent in messages')
   const [n] = await q(`insert into pro_threads(user_id,kind,title,share_ref) values ($1,'files',$2,$3)
                        on conflict (user_id, share_ref) where share_ref is not null do nothing returning *`, [userId, title, ref])
   return n || filesThread(userId, ref)

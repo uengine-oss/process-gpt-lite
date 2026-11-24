@@ -203,17 +203,22 @@ function wordsOf(text, files = []) {
 // The composer sent a message to a local agent: the message in the chat (tagged with its agent), then — into the chat's running CLI as
 // its owner's input, onto the run that waits for the desktop, or a new run (the same CLI session when there was one). The server agent is
 // not called. → {jobId, steered, queued, delivered}
-export async function send({ user, thread, text, agent, conversation = null, files = [] }) {
+export async function send({ user, thread, text, agent, conversation = null, files = [], refs = [] }) {
   if (!isAgent(agent)) throw err(400, L('고를 수 있는 에이전트가 아니에요.', 'That is not an agent you can pick.'))
   if (!['chat', 'project'].includes(thread.kind)) throw err(400, L('이 대화에서는 기본 에이전트만 쓸 수 있어요.', 'Only the default agent answers here.'))
-  const words = wordsOf(text, files)
+  // files dragged onto the composer (lib/fileRefs.js — read with the person's own access): by their addresses, since the CLI on the PC has
+  // neither the folder tools nor the server's workspace; the message keeps them as chips, as the server agent's does
+  const pointed = Array.isArray(refs) && refs.length ? await (await import('../fileRefs.js')).turnRefs(user, refs, { copies: true }).catch((e) => { console.warn('[file-refs] local', e.message); return null }) : null
+  let words = wordsOf(text, files)
+  if (pointed?.context) words = [words || L('첨부한 파일을 확인해 줘', 'Please look at the attached files'), pointed.context].join('\n\n')
   if (!words) throw err(400, 'empty')
   const conv = convOf(conversation)
   const convTitle = typeof conversation === 'object' && conversation?.title ? String(conversation.title).slice(0, 80) : null
   const key = keyOf(thread.id, conv)
   // (the message is in the chat first, whatever happens next: a refusal — a project folder the person may not edit — is said under it)
   const tag = { id: agent, label: LABEL(agent), where: HERE() }
-  const msg = await addMessage(user.id, thread.id, 'user', 'text', { text: String(text || '').trim().slice(0, 8000), agent: tag, ...(conv ? { conv } : {}) })
+  const msg = await addMessage(user.id, thread.id, 'user', 'text', { text: String(text || '').trim().slice(0, 8000) || (pointed?.shown?.length ? L('첨부한 파일을 확인해 줘', 'Please look at the attached files') : ''), agent: tag,
+    ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(conv ? { conv } : {}) })
   for (const f of (Array.isArray(files) ? files : []).slice(0, 10)) if (f?.url || f?.name) await addMessage(user.id, thread.id, 'user', 'file', { name: f.name, url: f.url, ...(conv ? { conv } : {}) })
   const open = await openJob(user, thread.id, key, agent)
   const where = open ? null : await folderFor(user, thread)

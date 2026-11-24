@@ -26,6 +26,11 @@ import { useMessengerDock } from './useMessengerDock.js'
 import DockMenu from './DockMenu.vue'
 import { narrow } from '../../viewport.js'
 import { verbLabel } from '../../mailKind.js'
+// file mentions (server lib/fileRefs.js): a folder's file, a chat artifact or a received file dragged in (src/fileDrag.js) — a link or a share
+import FileRefCard from './FileRefCard.vue'
+import { dragKind, dragging as draggedItems, itemsOf, zoneWords, startDrag, shareItem, same, MAX as MAX_ITEMS } from '../../fileDrag.js'
+// "@" near the caret, as in the chat composer (useTeammateMention.js)
+import { caretXY } from './useTeammateMention.js'
 
 const app = useApp()
 const team = useTeam()
@@ -68,7 +73,7 @@ const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과' }
+const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크' }
 // team assist: the suggestion cards under the message that prompted them (lib/team/assist.js)
 const sugOf = (id) => (team.suggestions[team.active] || []).filter((x) => x.messageId === id)
 
@@ -122,16 +127,105 @@ const branchLine = (b) => {
 const openBranch = (b, path) => opening(`b${b.room}${path}`, () => team.openBranchFile(b.room, path))
 const reply = (m) => { team.tab = 'threads'; team.openThread(m.threadId, m.id) }
 async function send() {
-  const text = draft.value.trim()
-  if ((!text && !attach.value.length && !ups.value.length) || !team.active) return
+  let text = draft.value.trim()
+  // 「@AI 」 typed out in full (not picked from the list) addresses the AI the same way as its chip
+  if (!aiOn.value && /^@AI\s/i.test(`${text} `)) { aiOn.value = true; text = text.replace(/^@AI\s*/i, '') }
+  if ((!text && !attach.value.length && !ups.value.length && !refs.value.length && !aiOn.value) || !team.active) return
   await run('send', async () => {
     // files still going up are waited for; one that could not go stops the send (its chip says why)
     await Promise.allSettled(ups.value.map((u) => u.job).filter(Boolean))
     if (ups.value.some((u) => u.state !== 'ready')) throw new Error('올리지 못한 파일이 있어요. 빼고 다시 보내 주세요.')
-    await team.send(team.active, text, [...attach.value.map((m) => m.id), ...ups.value.map((u) => u.card.id)])
-    draft.value = ''; attach.value = []; ups.value = []
+    if (refs.value.some((r) => r.wait)) throw new Error('끌어다 놓은 파일을 확인하고 있어요. 잠시 뒤에 보내 주세요.')
+    if (refs.value.some((r) => r.error)) throw new Error('보낼 수 없는 파일이 있어요. 빼고 다시 보내 주세요.')
+    const ai = aiOn.value
+    const named = mentioned.value.filter((p) => text.includes(`@${p.name}`)).map((p) => p.id)
+    await team.send(team.active, ai ? `@AI ${text}`.trim() : text, [...attach.value.map((m) => m.id), ...ups.value.map((u) => u.card.id)],
+      { refs: refs.value.map((r) => r.ref), ai, mentions: named })
+    draft.value = ''; attach.value = []; ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = []
   })
 }
+
+// ---- files of the app dragged in (src/fileDrag.js): a shared folder's file → a link chip, an artifact of mine → a share chip ----
+const refs = ref([])           // {key, name, folder, ref, variation, wait, error}: file mentions to send (links, not copies)
+async function addItems(items) {
+  const room = Math.max(0, MAX_ITEMS - refs.value.length - attach.value.length - ups.value.length)
+  const fresh = items.filter((it) => !refs.value.some((r) => r.item && same(r.item, it)) && !(it.src === 'card' && attach.value.some((m) => m.id === it.id)))
+  err.value = fresh.length > room ? `파일은 한 번에 ${MAX_ITEMS}개까지 보낼 수 있어요.` : ''
+  const list = fresh.slice(0, room)
+  if (!list.length) return
+  // (chips at once — what each one is comes back from the server, with my own access)
+  const temp = list.map((it) => reactive({ key: crypto.randomUUID(), item: it, name: it.name || '파일', folder: it.folder || '', wait: true, error: '' }))
+  refs.value.push(...temp)
+  let res = []
+  try { res = await team.resolveItems(list) } catch (e) { for (const t of temp) { t.wait = false; t.error = e.message || '확인하지 못했어요' } return }
+  temp.forEach((t, i) => {
+    const r = res[i]
+    if (!r?.ok) { t.wait = false; t.error = r?.error || '보낼 수 없는 파일이에요'; return }
+    if (r.as === 'share') {
+      refs.value = refs.value.filter((x) => x.key !== t.key)
+      if (!attach.value.some((m) => m.id === r.cardId)) attach.value = [...attach.value, { id: r.cardId, content: { name: r.name }, dropped: true }]
+      return
+    }
+    Object.assign(t, { wait: false, name: r.ref.name, folder: r.ref.folder, ref: r.ref, variation: r.ref.variation })
+  })
+  nextTick(() => taEl.value?.focus())
+}
+const dropRef = (r) => { refs.value = refs.value.filter((x) => x.key !== r.key) }
+
+// ---- "@": the people of this conversation and 「AI」 (lib/team/aiHelp.js answers a message addressed to it) ----
+const taEl = ref(null)
+const aiOn = ref(false)
+const mentioned = ref([])      // people named with @ in this draft: [{id, name}]
+const at = reactive({ open: false, query: '', pos: -1, x: 0, active: 0 })
+const atItems = computed(() => {
+  const qy = at.query.toLowerCase()
+  const ai = { key: 'ai', type: 'ai', name: 'AI', sub: '공유 폴더 · 이 대화의 파일에서 찾아 붙이거나 일을 맡아요' }
+  const people = (thread.value?.members || []).filter((p) => p.id !== app.me?.user?.id).map((p) => ({ key: p.id, type: 'person', id: p.id, name: p.name, sub: '이 대화의 사람' }))
+  return [...(aiOn.value ? [] : [ai]), ...people].filter((x) => !qy || x.name.toLowerCase().includes(qy))
+})
+function atUpdate() {
+  const el = taEl.value
+  if (!el) return
+  const before = draft.value.slice(0, el.selectionStart ?? draft.value.length)
+  const m = /(^|\s)@([^\s@]{0,20})$/.exec(before)
+  if (!m) { at.open = false; return }
+  if (!at.open) at.active = 0
+  at.query = m[2]; at.pos = before.length - m[2].length - 1
+  at.x = Math.max(0, Math.min(caretXY(el).x - 8, el.clientWidth - 260))
+  at.open = true
+}
+async function atPick(it) {
+  if (!it) return
+  const pos = at.pos, end = pos + 1 + at.query.length
+  const rest = draft.value.slice(end).replace(/^\s*/, '')
+  let caret = pos
+  if (it.type === 'ai') { aiOn.value = true; draft.value = draft.value.slice(0, pos) + rest }
+  else {
+    draft.value = `${draft.value.slice(0, pos)}@${it.name} ${rest}`
+    caret = pos + it.name.length + 2
+    if (!mentioned.value.some((p) => p.id === it.id)) mentioned.value.push({ id: it.id, name: it.name })
+  }
+  at.open = false
+  await nextTick()
+  taEl.value?.focus()
+  taEl.value?.setSelectionRange(caret, caret)
+}
+function atKey(e) {
+  if (!at.open) {
+    // Backspace on an empty box takes the AI chip back
+    if (e.key === 'Backspace' && !draft.value && aiOn.value) { aiOn.value = false; return true }
+    return false
+  }
+  const n = atItems.value.length
+  if (e.key === 'ArrowDown' && n) { at.active = (at.active + 1) % n; e.preventDefault(); return true }
+  if (e.key === 'ArrowUp' && n) { at.active = (at.active - 1 + n) % n; e.preventDefault(); return true }
+  if ((e.key === 'Enter' || e.key === 'Tab') && !e.isComposing && n) { e.preventDefault(); atPick(atItems.value[at.active]); return true }
+  if (e.key === 'Escape') { at.open = false; e.preventDefault(); return true }
+  return false
+}
+watch(draft, () => nextTick(atUpdate))
+const atBlur = () => setTimeout(() => { at.open = false }, 150)
+const aiWait = computed(() => team.aiStatus[team.active] || null)
 
 // files from the computer (2026-11-24 「끌어다놓기 첨부가 안되네」): dropped on the open conversation, pasted, or 「내 컴퓨터에서」 —
 // each goes up at once (a chip with how much has gone) and becomes a file card of mine (server lib/team/uploads.js); 보내기 shares
@@ -161,20 +255,37 @@ function onPaste(e) {
 }
 // The whole sheet is the messenger's (data-own-drop, and the events stop here): a file dragged over it never reaches the chat's
 // page-wide drop under it (Composer.vue). Over an open conversation it shows 「여기에 놓으면 보내요」; elsewhere nothing is taken.
+// Files of the app (a folder's file, a chat artifact, a received file — src/fileDrag.js) are told apart from the computer's by the drag's
+// type: they become a link (「여기에 놓으면 링크로 멘션해요」) or a share chip; files from the computer still go up as before.
 const dragging = ref(false)
+const dropWords = ref('여기에 놓으면 보내요')
 let depth = 0
-const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files')
+const kindIn = (e) => dragKind(e.dataTransfer?.types)
 const canDrop = () => !!thread.value && team.tab === 'threads'
-function dragEnter(e) { if (!hasFiles(e)) return; e.preventDefault(); depth++; dragging.value = canDrop() }
-function dragOver(e) { if (!hasFiles(e)) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = canDrop() ? 'copy' : 'none' }
-function dragLeave(e) { if (!hasFiles(e)) return; if (--depth <= 0) { depth = 0; dragging.value = false } }
-function dropped(e) {
-  if (!hasFiles(e)) return
-  e.preventDefault(); depth = 0; dragging.value = false
-  if (canDrop() && e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
+function dragEnter(e) {
+  const k = kindIn(e)
+  if (!k) return
+  e.preventDefault(); depth++
+  dropWords.value = k === 'pgl' ? zoneWords('messenger', draggedItems()) : '여기에 놓으면 보내요'
+  dragging.value = canDrop()
 }
-watch(() => team.active, () => { for (const u of ups.value) u.job?.abort?.(); ups.value = [] })
-function onKey(e) { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() } }
+function dragOver(e) { const k = kindIn(e); if (!k) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = !canDrop() ? 'none' : k === 'pgl' ? 'link' : 'copy' }
+function dragLeave(e) { if (!kindIn(e)) return; if (--depth <= 0) { depth = 0; dragging.value = false } }
+function dropped(e) {
+  const k = kindIn(e)
+  if (!k) return
+  e.preventDefault(); depth = 0; dragging.value = false
+  if (!canDrop()) return
+  if (k === 'pgl') addItems(itemsOf(e))
+  else if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
+}
+watch(() => team.active, () => { for (const u of ups.value) u.job?.abort?.(); ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = [] })
+function onKey(e) {
+  if (atKey(e)) return
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() }
+}
+// a file shared in a message can be dragged on too (into another conversation, the AI chat, a folder)
+const dragShare = (e, a) => { if (a.shareId) startDrag(e, [shareItem(a)]); else e.preventDefault() }
 const toggleAttach = (m) => { attach.value = attach.value.some((x) => x.id === m.id) ? attach.value.filter((x) => x.id !== m.id) : [...attach.value, m].slice(0, 5) }
 
 async function newThread() {
@@ -245,7 +356,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <p v-if="team.tr[m.id]?.body" class="trl"><span>AI 번역</span><button class="press" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
             <div v-if="m.artifacts.length" class="arts">
               <button v-for="a in m.artifacts" :key="a.shareId || a.name" class="art press" :class="{ off: !a.shareId }" :disabled="!a.shareId || busy === `f${a.shareId}`"
-                :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" @click="openFile(a)">
+                :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" :draggable="!!a.shareId" @dragstart="dragShare($event, a)" @click="openFile(a)">
                 <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
               </button>
             </div>
@@ -254,9 +365,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <Icon name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
               </p>
             </template>
+            <FileRefCard v-for="(r, i) in m.refs || []" :key="'r' + i + r.path" :m="m" :r="r" :i="i" />
             <div class="acts">
               <button v-if="m.artifacts[0]?.shareId" class="b press" :disabled="!!busy" @click="openFile(m.artifacts[0])">편집기에서 열기</button>
-              <button class="b main press" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
+              <button v-if="m.kind !== 'fileref'" class="b main press" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
               <button class="b ghost press" @click="reply(m)">답장</button>
             </div>
           </article>
@@ -303,7 +415,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <details v-if="m.context?.excerpt?.length" class="ex"><summary>대화 발췌</summary><p v-for="(l, i) in m.context.excerpt" :key="i">{{ l }}</p></details>
                 <div v-if="m.artifacts.length" class="arts">
                   <button v-for="a in m.artifacts" :key="a.name + a.shareId" class="art press" :class="{ off: !a.shareId, busy: busy === `f${a.shareId}` }" :disabled="!a.shareId"
-                    :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" @click="openFile(a)">
+                    :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" :draggable="!!a.shareId" @dragstart="dragShare($event, a)" @click="openFile(a)">
                     <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
                   </button>
                 </div>
@@ -312,6 +424,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                     <Icon name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
                   </p>
                 </template>
+                <!-- file mentions: links to shared folders' files, in my own state (server lib/fileRefs.js) -->
+                <FileRefCard v-for="(r, i) in m.refs || []" :key="'r' + i + r.path" :m="m" :r="r" :i="i" />
                 <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
                 <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((x) => x.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
                 <div v-if="branchesOf[m.id]?.length" class="brs">
@@ -335,11 +449,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <LinkPreviews v-if="m.body && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
             <AssistSuggestion v-for="sg in sugOf(m.id)" :key="sg.id" :s="sg" />
             </template>
+            <!-- 「@AI …」 being answered (lib/team/aiHelp.js) -->
+            <div v-if="aiWait" class="aiwait" data-test="ai-status" role="status"><span class="spark">✦</span><span class="shimmer-text">{{ aiWait.text }}</span></div>
           </div>
-          <Transition name="fade"><div v-if="dragging" class="mdrop" data-test="msg-dropzone"><div><Icon name="clip" :size="30" /><p>여기에 놓으면 보내요</p></div></div></Transition>
+          <Transition name="fade"><div v-if="dragging" class="mdrop" data-test="msg-dropzone"><div><Icon name="clip" :size="30" /><p>{{ dropWords }}</p></div></div></Transition>
           <footer class="cmp">
-            <div v-if="attach.length || ups.length" class="chips">
-              <span v-for="m in attach" :key="m.id" class="chip">{{ m.content.name }}<button @click="toggleAttach(m)">×</button></span>
+            <div v-if="attach.length || ups.length || refs.length" class="chips">
+              <!-- a shared folder's file: a link (링크); an artifact of mine: shared as a copy for each (공유) -->
+              <span v-for="r in refs" :key="r.key" class="chip ref" :class="{ error: !!r.error, wait: r.wait }" data-test="msg-ref-chip" :data-file="r.name" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'" :title="r.error || (r.ref ? `${r.folder} › ${r.ref.path}` : '')">
+                <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><span class="cn">{{ r.name }}</span>
+                <small>{{ r.error || (r.wait ? '확인하는 중…' : r.variation ? `${r.folder} · 반영 전 변형` : r.folder) }}</small>
+                <em v-if="!r.error" class="as">링크</em>
+                <button aria-label="빼기" @click="dropRef(r)">×</button>
+              </span>
+              <span v-for="m in attach" :key="m.id" class="chip" data-test="msg-share-chip" :data-file="m.content.name">{{ m.content.name }}<em class="as share">공유</em><button @click="toggleAttach(m)">×</button></span>
               <span v-for="u in ups" :key="u.id" class="chip up" :class="u.state" data-test="msg-upload-chip" :data-state="u.state">
                 <span class="cn">{{ u.name }}</span><small>{{ u.state === 'uploading' ? `${Math.round(u.progress * 100)}%` : u.state === 'error' ? u.error : kb(u.size) }}</small>
                 <i v-if="u.state === 'uploading'" class="bar" :style="{ width: `${Math.round(u.progress * 100)}%` }" />
@@ -355,10 +478,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
               </button>
               <p v-if="!myFiles.length" class="empty">첨부할 산출물이 없어요.</p>
             </div>
+            <!-- "@": 「AI」 and this conversation's people, near the caret -->
+            <Transition name="fade">
+              <div v-if="at.open && atItems.length" class="atlist glass" role="listbox" data-test="msg-at-list" :style="{ left: `${12 + at.x}px` }" @mousedown.prevent>
+                <button v-for="(it, k) in atItems" :key="it.key" class="row press" role="option" :class="{ on: k === at.active, ai: it.type === 'ai' }" :data-test="it.type === 'ai' ? 'msg-at-ai' : 'msg-at-person'"
+                  @click="atPick(it)" @mouseenter="at.active = k">
+                  <span class="av" :class="{ ai: it.type === 'ai' }">{{ it.type === 'ai' ? '✦' : initial(it.name) }}</span>
+                  <span class="nm"><b>{{ it.name }}</b><small>{{ it.sub }}</small></span>
+                </button>
+              </div>
+            </Transition>
             <div class="box">
               <button class="ic press" title="파일 첨부" aria-label="산출물 첨부" data-test="msg-clip" @click="attachOpen = !attachOpen"><Icon name="clip" :size="18" /></button>
-              <textarea v-model="draft" rows="1" placeholder="메시지 보내기" @keydown="onKey" @focus="attachOpen = false" @paste="onPaste" />
-              <button class="send press" aria-label="보내기" data-test="msg-send" :disabled="busy === 'send' || (!draft.trim() && !attach.length && !ups.length)" @click="send"><Icon name="up" :size="18" /></button>
+              <span v-if="aiOn" class="aichip" data-test="msg-ai-chip" title="AI 에게 보내요 — 대화방에서 AI 가 답해요">✦ AI<button aria-label="AI 빼기" @click="aiOn = false">×</button></span>
+              <textarea ref="taEl" v-model="draft" rows="1" :placeholder="aiOn ? 'AI 에게 부탁하기 — 예: 이력서 첨부해 · 견적서 찾아서 올려 줘' : '메시지 보내기 · @ 로 AI 부르기'" @keydown="onKey" @focus="attachOpen = false" @paste="onPaste"
+                @click="atUpdate" @blur="atBlur" />
+              <button class="send press" aria-label="보내기" data-test="msg-send" :disabled="busy === 'send' || (!draft.trim() && !attach.length && !ups.length && !refs.length && !aiOn)" @click="send"><Icon name="up" :size="18" /></button>
             </div>
           </footer>
         </template>
@@ -496,6 +631,29 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .chip.up small { color: var(--text-secondary); font-size: 11.5px; }
 .chip.up.error { background: rgba(198, 40, 40, .12); } .chip.up.error small { color: #c62828; }
 .chip.up .bar { position: absolute; left: 0; bottom: 0; height: 2px; background: #2a78d6; transition: width .2s; }
+.chip.ref, .chip[data-test="msg-share-chip"] { max-width: 100%; }
+.chip.ref { gap: 6px; padding-left: 3px; height: 30px; border-radius: 15px; background: rgba(42, 120, 214, .1); border: 1px solid rgba(42, 120, 214, .35); }
+.chip.ref .cn { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.chip.ref small { color: var(--text-secondary); font-size: 11.5px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.ref.wait { opacity: .7; }
+.chip.ref.error { background: rgba(198, 40, 40, .1); border-color: rgba(198, 40, 40, .4); } .chip.ref.error small { color: #c62828; max-width: 220px; }
+.chip .fx { flex: none; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 8.5px; font-weight: 700; color: #fff; background: #6b6b66; }
+.chip .fx.hwp { background: #1f6fd1; } .chip .fx.doc { background: #2b579a; } .chip .fx.xls { background: #217346; } .chip .fx.ppt { background: #c43e1c; } .chip .fx.pdf { background: #d93025; } .chip .fx.md { background: #3d4451; }
+.chip .as { flex: none; font-style: normal; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 7px; color: #2a78d6; background: rgba(42, 120, 214, .14); margin-left: 2px; }
+.chip .as.share { color: #0f8a5f; background: rgba(15, 138, 95, .14); }
+.aichip { flex: none; align-self: center; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 2px 0 10px; border-radius: 14px; font-size: 13px; font-weight: 600; color: #fff;
+  background: linear-gradient(135deg, #7a5af5, #2a78d6); animation: pop-in .3s var(--spring); }
+.aichip button { width: 22px; height: 22px; border-radius: 11px; color: rgba(255, 255, 255, .85); }
+.atlist { position: absolute; bottom: calc(100% - 4px); z-index: 8; width: min(280px, calc(100% - 24px)); max-height: 260px; overflow: auto; border-radius: 16px; padding: 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, .2); }
+.atlist .row.on { background: rgba(127, 127, 127, .14); }
+.atlist .av { width: 30px; height: 30px; font-size: 13px; }
+.atlist .av.ai { background: linear-gradient(135deg, #7a5af5, #2a78d6); }
+.atlist .nm small { white-space: normal; }
+.aiwait { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 16px; font-size: 13.5px; color: var(--text-secondary);
+  background: rgba(122, 90, 245, .1); border: 1px solid rgba(122, 90, 245, .3); }
+.aiwait .spark { color: #7a5af5; font-size: 15px; animation: spin 2.4s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.art[draggable="true"] { cursor: grab; }
 .amenu .row.mine { border-bottom: 1px solid rgba(127, 127, 127, .16); border-radius: 12px 12px 4px 4px; margin-bottom: 4px; }
 .amenu .row.mine small { font-size: 12px; color: var(--text-secondary); }
 .mdrop { position: absolute; inset: 8px; z-index: 5; display: grid; place-items: center; border-radius: 18px; background: rgba(42, 120, 214, .12); border: 2.5px dashed rgba(42, 120, 214, .7); pointer-events: none; }

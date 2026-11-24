@@ -16,6 +16,9 @@ import { watchRooms } from '../lib/team/assist.js'
 import { assistRoutes } from './teamAssist.js'
 import * as RT from '../lib/team/roomTranslate.js'
 import { uploadCard } from '../lib/team/uploads.js'
+// file mentions (links to shared folders' files) and 「@AI …」 (lib/fileRefs.js · lib/team/aiHelp.js)
+import * as FR from '../lib/fileRefs.js'
+import * as AI from '../lib/team/aiHelp.js'
 
 // does the deepagents this server talks to unfold a room's branch and commit its turns? (/health worktree)
 // (asked again after a minute: deepagents restarts and upgrades without this server)
@@ -163,14 +166,27 @@ export function teamRoutes(auth) {
     try { name = decodeURIComponent(String(req.headers['x-file-name'] || 'file')) } catch { /* the raw header */ }
     return uploadCard(req.user, name, type && type !== 'application/octet-stream' ? type : '', req.body)
   }))
+  // refs: shared folders' files mentioned by link (dropped from a folder, a chat card, a received mention — checked again as the sender:
+  // a folder they cannot read is refused); ai: addressed to the AI, which answers in the room (lib/team/aiHelp.js); mentions: people named
   r.post('/team/threads/:id/messages', auth, h(async (req) => {
     const body = text(req.body.text)
     const files = await S.myFiles(req.user, req.body.artifactIds || [])
-    if (!body && !files.length) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
+    const refs = await FR.forSend(req.user, req.body.refs).catch((e) => { throw new TeamError(e.status || 400, e.message) })
+    const ai = req.body.ai === true
+    if (!body && !files.length && !refs.length) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
     rateLimit(req.user.id)
-    const m = await M.post(req.user, req.params.id, { kind: files.length ? 'share' : 'text', body, attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
+    const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 8) : []
+    const m = await M.post(req.user, req.params.id, { kind: files.length ? 'share' : refs.length ? 'fileref' : 'text', body, refs, ai, mentions,
+      attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
+    if (ai) AI.answer(req.user, req.params.id, m).catch((e) => console.warn('[ai-help]', e.message))
     return m
   }))
+  // a file mention: open it (a card of mine for the office panel, or where it is in its folder) — the newest version with latest
+  r.post('/team/refs/open', auth, h(async (req) => FR.open(req.user, String(req.body.messageId || ''), Number(req.body.index) || 0, { latest: req.body.latest === true })
+    .catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('열지 못했어요.', "I couldn't open it.")) })))
+  // 권한 요청 on a mention of a folder I cannot read: the folder's owners (and who mentioned it) are told
+  r.post('/team/refs/request', auth, h(async (req) => FR.requestAccess(req.user, String(req.body.messageId || ''), Number(req.body.index) || 0)
+    .catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('요청하지 못했어요.', "I couldn't send the request.")) })))
   assistRoutes(r, auth, h)
   r.post('/team/threads/:id/read', auth, h((req) => M.markRead(req.user, req.params.id)))
   r.get('/team/unread', auth, h((req) => M.unread(req.user)))

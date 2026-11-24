@@ -175,10 +175,15 @@ export async function stream(path, body, onEvent) {
 const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'browser.click', 'process', 'mission', 'notifications', 'team', 'meeting', 'local_presence']
 // Live events over SSE; if the stream never says hello (a proxy in front holding it back, as
 // Cloudflare quick tunnels do), the same events come by long polling instead.
+// One stream per page, however many ask for it: the chat (app.js boot) and the team messenger (stores/team.js boot — a messenger
+// docked beside the folder screen, where the chat never booted, still gets its messages and the AI's answers live).
+let shared = null
 export function events(handler) {
+  if (shared) { shared.add(handler); return () => shared?.delete(handler) }
+  const handlers = (shared = new Set([handler]))
   // every event is also re-broadcast on the window, so a store that is not app.js (stores/team.js)
   // can listen without a second stream
-  const onEvent = (t, d) => { handler(t, d); try { window.dispatchEvent(new CustomEvent('pgpt:event', { detail: { type: t, data: d } })) } catch { /* old browser */ } }
+  const onEvent = (t, d) => { for (const h of handlers) h(t, d); try { window.dispatchEvent(new CustomEvent('pgpt:event', { detail: { type: t, data: d } })) } catch { /* old browser */ } }
   let es, stopped = false, polling = false
   const tok = () => encodeURIComponent(auth.get()?.session?.access_token || '')
   async function pollLoop(after) {
@@ -207,5 +212,5 @@ export function events(handler) {
     es.onerror = () => { if (polling) return; es.close(); setTimeout(async () => { await refreshToken(); if (!polling) open() }, 3000) }
   }
   open()
-  return () => { stopped = true; es?.close() }
+  return () => { handlers.delete(handler); if (!handlers.size) { stopped = true; es?.close(); shared = null } }
 }

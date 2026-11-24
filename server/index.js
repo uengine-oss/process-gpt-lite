@@ -685,7 +685,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // agent is not called for it; a refusal (a project folder they may not edit, no desktop at all) is said in the chat under the message
   if (req.body?.agent && req.body.agent !== 'default') {
     const { send, end } = openStream(res)
-    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files })) }) } catch (e) {
+    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined })) }) } catch (e) {
       if (!e.status || e.status >= 500) console.warn('[local-agents] chat send', e.message)
       await addMessage(req.user.id, t.id, 'agent', 'text', { text: L(`내 PC 에이전트로 보내지 못했어요 — ${e.message}`, `Could not send this to the agent on your PC — ${e.message}`), failed: true, localRefused: true }).catch(() => {})
       send('error', { message: e.message, status: e.status || 500 })
@@ -698,7 +698,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, onDelta: (d) => send('delta', { d }) })
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, onDelta: (d) => send('delta', { d }) })
     send('done', final)
   } catch (e) {
     console.error(e)

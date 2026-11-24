@@ -2744,9 +2744,48 @@
   "이 브라우저는 한국어 받아쓰기를 지원하지 않아요.": "This browser doesn't support Korean transcription.",
   "받아쓰기가 자꾸 끊겨요. 잠시 뒤 다시 눌러 주세요.": "Transcription keeps cutting out. Tap again in a moment.",
   "데스크톱 앱에서는 음성 인식 서비스에 닿지 못했어요. 브라우저에서 열거나 운영체제의 받아쓰기를 써 주세요.": "The desktop app couldn't reach the speech recognition service. Open Lite in a browser, or use your operating system's dictation.",
-  "받아쓰기가 멈췄어요. 다시 눌러 주세요.": "Transcription stopped. Tap again."
+  "받아쓰기가 멈췄어요. 다시 눌러 주세요.": "Transcription stopped. Tap again.",
+  "여기에 놓으면 링크로 멘션해요": "Drop here to mention it as a link",
+  "여기에 놓으면 공유해요": "Drop here to share it",
+  "여기에 놓으면 링크로 멘션하거나 공유해요": "Drop here to link or share them",
+  "AI에게 이 파일로 묻기": "Ask the AI about this file",
+  "이 폴더에 넣기": "Put it in this folder",
+  "편집 권한이 있어야 이 폴더에 넣을 수 있어요": "You need edit rights to put files in this folder",
+  "이 폴더에는 넣을 수 없어요": "Files can't be put in this folder",
+  "넣을 수 없는 폴더예요": "Files can't be put in this folder",
+  "편집 권한이 있어야 넣을 수 있어요": "You need edit rights to put files here",
+  "폴더 권한이 없어요": "No access to the folder",
+  "권한 요청": "Request access",
+  "요청하는 중…": "Requesting…",
+  "권한을 요청했어요 · 폴더에 추가되면 열 수 있어요": "Access requested · you can open it once you're added to the folder",
+  "멘션한 뒤에 바뀌었어요": "Changed since it was mentioned",
+  "최신 열기": "Open latest",
+  "지금은 폴더에 없어요": "No longer in the folder",
+  "반영 전 변형": "Unmerged variation",
+  "쓰지 못함": "Not used",
+  "파일 링크": "File link",
+  "멘션한 때의 판": "Version at the mention",
+  "이전 판": "Earlier version",
+  "폴더 권한 요청": "Folder access request",
+  "이 대화의 사람": "In this conversation",
+  "공유 폴더 · 이 대화의 파일에서 찾아 붙이거나 일을 맡아요": "Finds and attaches from shared folders and this conversation's files, or takes on work",
+  "메시지 보내기 · @ 로 AI 부르기": "Send a message · @ to call the AI",
+  "AI 에게 부탁하기 — 예: 이력서 첨부해 · 견적서 찾아서 올려 줘": "Ask the AI — e.g. attach the resume · find and post the quote",
+  "AI 에게 보내요 — 대화방에서 AI 가 답해요": "Goes to the AI — it answers in the room",
+  "AI가 찾는 중…": "AI is looking…",
+  "끌어다 놓은 파일을 확인하고 있어요. 잠시 뒤에 보내 주세요.": "Still checking the dropped files. Please send in a moment.",
+  "보낼 수 없는 파일이 있어요. 빼고 다시 보내 주세요.": "Some files can't be sent. Remove them and send again.",
+  "보낼 수 없는 파일이에요": "This file can't be sent",
+  "이 파일을 쓸 수 없어요": "This file can't be used",
+  "폴더 권한이 없어 열 수 없어요": "You can't open it without access to the folder",
+  "편집 권한이 있어야 이 폴더에 넣을 수 있어요.": "You need edit rights to put files in this folder.",
+  "파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)": "Drop files here to upload them to main · who and when stay in the history · drag a file into a conversation or the chat to mention it as a link (⌘/Ctrl to pick several)"
  },
  "patterns": [
+  [
+   "「{0}」 변형의 파일 · 반영 전이라 폴더 구성원만 볼 수 있어요",
+   "A file of the variation “{0}” · not merged yet, so only the folder’s members can see it"
+  ],
   [
    "이 설치에는 {0} 앱이 없어 앱 안에서 열 수 없어요.",
    "This install has no {0}, so it can't be opened in the app."
@@ -2766,6 +2805,10 @@
   [
    "{0} 안의 브라우저에서는 앱을 설치할 수 없어요.",
    "Apps can't be installed from {0}'s in-app browser."
+  ],
+  [
+   "‘{0}’ main 에 내 이름으로 들어가요",
+   "Goes into ‘{0}’ main under my name"
   ],
   [
    "「{0}」와 맞는 산출물이 없어요.",
@@ -2800,12 +2843,20 @@
    "{0} outputs of the chat {1}"
   ],
   [
+   "{0} · 반영 전 변형",
+   "{0} · unmerged variation"
+  ],
+  [
    "채팅의 산출물 {0}개",
    "{0} outputs of the chat"
   ],
   [
    "루틴 · {0} 열기",
    "Open routine · {0}"
+  ],
+  [
+   "‘{0}’에 넣었어요",
+   "Put in ‘{0}’"
   ],
   [
    "{0}에 저장했어요",

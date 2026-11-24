@@ -10,6 +10,9 @@ import ComposerAgent from './ComposerAgent.vue'
 import { keyOf, agentFor } from '../chatAgent.js'
 import { narrow } from '../viewport.js'
 import { createDictation, recognizerOf, MESSAGES } from '../useDictation.js'
+// a file of the app dragged onto the composer (src/fileDrag.js): a chip, and the turn reads that file (server lib/fileRefs.js turnRefs)
+import { dragKind, itemsOf, zoneWords } from '../fileDrag.js'
+import { kindOf, kindLabel } from '../artifacts.js'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
 const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean })
@@ -42,7 +45,7 @@ onBeforeUnmount(() => { clearInterval(rot); dictation?.cancel() })
 
 const ph = computed(() => (dict.on ? '듣는 중… 말하면 여기에 적혀요' : app.panelMode ? suggestions[si.value].t : props.placeholder))
 // something to send: the send button (beside the mic, never in its place — see the template)
-const sendable = computed(() => !!(text.value || app.panelMode || app.attachments.length))
+const sendable = computed(() => !!(text.value || app.panelMode || app.attachments.length || app.fileRefs.length))
 // who answers (ComposerAgent): the main chat, one of its conversations, a project — not 새 프로젝트 (no room yet), an instance's page or a
 // panel being made; the chat's key is what the choice is kept under (src/chatAgent.js)
 const agentKey = computed(() => {
@@ -98,11 +101,35 @@ function onPaste(e) {
   if (fs.length) { e.preventDefault(); app.addAttachments(fs) }
 }
 function picked(e) { if (e.target.files.length) app.addAttachments(e.target.files); e.target.value = '' }
+
+// Files of the app (a folder's file, a chat card, a file received in the messenger): dropped on the composer itself, they become chips the
+// next message is about — 「AI에게 이 파일로 묻기」 shows on the composer while one is dragged anywhere on the page, and lights up over it.
+const pglArmed = ref(false)   // a file of the app is being dragged somewhere on the page
+const pglOver = ref(false)    // …over this composer
+let pglDepth = 0
+const isPgl = (e) => dragKind(e.dataTransfer?.types) === 'pgl'
+const arm = (e) => { if (!props.overlay && isPgl(e)) pglArmed.value = true }
+const disarm = () => { pglArmed.value = false; pglOver.value = false; pglDepth = 0 }
+function pglEnter(e) { if (props.overlay || !isPgl(e)) return; e.preventDefault(); e.stopPropagation(); pglDepth++; pglOver.value = true; pglArmed.value = true }
+function pglMove(e) { if (props.overlay || !isPgl(e)) return; e.preventDefault(); e.stopPropagation(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'link' }
+function pglLeave(e) { if (props.overlay || !isPgl(e)) return; if (--pglDepth <= 0) { pglDepth = 0; pglOver.value = false } }
+async function pglDrop(e) {
+  if (props.overlay || !isPgl(e)) return
+  e.preventDefault(); e.stopPropagation()
+  disarm()
+  await app.addFileRefs(itemsOf(e))
+  ta.value?.focus()
+}
+onMounted(() => {
+  if (props.overlay) return
+  window.addEventListener('dragstart', arm); window.addEventListener('dragend', disarm); window.addEventListener('drop', disarm)
+})
+onBeforeUnmount(() => { window.removeEventListener('dragstart', arm); window.removeEventListener('dragend', disarm); window.removeEventListener('drop', disarm) })
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
 
 function submit() {
   const v = text.value.trim() || (app.panelMode ? suggestions[si.value].t : '')
-  if (!v && !app.attachments.length) return
+  if (!v && !app.attachments.length && !app.fileRefs.some((r) => !r.error)) return
   // sending ends dictation first: nothing heard afterwards comes back into the emptied box
   dictation?.cancel()
   if (tm.chips.value.length) { if (v) tm.send(v).then((ok) => { if (!ok) text.value = v }); text.value = v ? '' : text.value; return }
@@ -134,7 +161,11 @@ defineExpose({ focus: () => ta.value?.focus() })
 </script>
 
 <template>
-  <div class="composer" :class="{ panel: app.panelMode }">
+  <div class="composer" :class="{ panel: app.panelMode, pglarmed: pglArmed && !overlay, pglover: pglOver }" data-test="chat-composer"
+    @dragenter="pglEnter" @dragover="pglMove" @dragleave="pglLeave" @drop="pglDrop">
+    <Transition name="fade">
+      <div v-if="pglArmed && !overlay" class="pglhint" data-test="chat-dropzone" aria-hidden="true"><span>✦</span>{{ zoneWords('chat') }}</div>
+    </Transition>
     <Transition name="fade"><div v-if="app.panelMode" class="label">새 패널 만들기</div></Transition>
     <Transition name="fade">
       <button v-if="app.panelMode" class="undo press" aria-label="취소" @click="app.panelMode = false"><Icon name="undo" :size="20" /></button>
@@ -151,6 +182,14 @@ defineExpose({ focus: () => ta.value?.focus() })
         <Icon name="doc" :size="14" /> <b>{{ a.name }}</b>
         <small>{{ a.state === 'uploading' ? '올리는 중…' : a.state === 'error' ? a.error : kb(a.size) }}</small>
         <button class="x" aria-label="빼기" @click="app.removeAttachment(a.id)">×</button>
+      </span>
+    </div>
+    <!-- files dragged in: what the next message is about (refused ones say why) -->
+    <div v-if="!overlay && app.fileRefs.length" class="frefs">
+      <span v-for="r in app.fileRefs" :key="r.key" class="fref glass-thin" :class="{ error: !!r.error, wait: r.wait }" data-test="chat-ref-chip" :data-file="r.name" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'" :title="r.error || ''">
+        <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b>
+        <small>{{ r.error || (r.wait ? '확인하는 중…' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일') }}</small>
+        <button class="x" aria-label="빼기" @click="app.removeFileRef(r.key)">×</button>
       </span>
     </div>
     <FolderAttach v-if="!overlay && !app.panelMode" />
@@ -225,6 +264,22 @@ textarea::placeholder { color: var(--text-secondary); transition: opacity .3s; }
 .att small { color: var(--text-secondary); }
 .att.uploading small { color: #2a78d6; } .att.error small { color: #c62828; }
 .att .x { width: 22px; height: 22px; border-radius: 11px; color: var(--text-secondary); font-size: 16px; line-height: 20px; }
+.frefs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.fref { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; height: 34px; padding: 0 6px 0 4px; border-radius: 17px; font-size: 13px; color: var(--text-primary);
+  border: 1px solid rgba(122, 90, 245, .45); animation: pop-in .3s var(--spring); }
+.fref .fx { flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 9px; font-weight: 700; color: #fff; background: #6b6b66; }
+.fref .fx.hwp { background: #1f6fd1; } .fref .fx.doc { background: #2b579a; } .fref .fx.xls { background: #217346; } .fref .fx.ppt { background: #c43e1c; } .fref .fx.pdf { background: #d93025; } .fref .fx.md { background: #3d4451; } .fref .fx.img { background: #7b3fbf; }
+.fref b { font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fref small { color: var(--text-secondary); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fref.wait { opacity: .7; }
+.fref.error { border-color: rgba(198, 40, 40, .5); } .fref.error small { color: #c62828; max-width: 260px; }
+.fref .x { width: 22px; height: 22px; border-radius: 11px; color: var(--text-secondary); font-size: 16px; line-height: 20px; }
+/* a file of the app is being dragged: the composer offers itself, and lights up under the pointer */
+.pglarmed .box { box-shadow: 0 0 0 2px rgba(122, 90, 245, .35); }
+.pglover .box { box-shadow: 0 0 0 3px #7a5af5, 0 10px 34px rgba(122, 90, 245, .28); }
+.pglhint { position: absolute; left: 50%; bottom: calc(100% + 10px); translate: -50% 0; z-index: 5; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 7px 14px; border-radius: 14px; font-size: 13.5px; font-weight: 600; color: #fff; background: rgba(122, 90, 245, .82); box-shadow: 0 8px 24px rgba(0, 0, 0, .16); pointer-events: none; transition: background .15s, transform .2s var(--spring); }
+.pglover .pglhint { background: #7a5af5; transform: scale(1.06); }
 .dropzone { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(42, 120, 214, .14); border: 3px dashed rgba(42, 120, 214, .7); pointer-events: none; }
 .dropzone div { text-align: center; color: #1a56c4; font-size: 18px; font-weight: 600; background: rgba(255, 255, 255, .9); padding: 22px 34px; border-radius: 20px; }
 .icons i { font-style: normal; width: 24px; height: 24px; border-radius: 9999px; display: grid; place-items: center; background: var(--regular-solid-bg); font-size: 13px; margin-right: -6px; box-shadow: 0 0 0 2px var(--composer-bg); }
