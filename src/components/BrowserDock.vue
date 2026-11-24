@@ -13,6 +13,8 @@ const app = useApp()
 const task = computed(() => [...app.thread].reverse().find((m) => m.kind === 'task' && ['running', 'needs_input'].includes(m.content?.state)))
 const frame = computed(() => task.value && (app.frames[task.value.id]?.data || task.value.content.shot))
 const needs = computed(() => task.value?.content.state === 'needs_input')
+// nothing has moved for a while (content.stall): an amber ring — a tap opens the card, which says what it waits on
+const stalled = computed(() => !needs.value && !!task.value?.content.stall?.what)
 // the task shown stays shown while open, even once it has finished
 const openId = ref(null)
 const shown = computed(() => openId.value && app.thread.find((m) => m.id === openId.value))
@@ -68,7 +70,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
 <template>
   <Transition name="dock">
-    <button v-if="task" ref="thumb" class="dock press" :class="{ attn: needs, hide: openId }" :aria-label="needs ? '브라우저 작업 · 조치 필요' : '브라우저 작업 보기'" @click="show">
+    <button v-if="task" ref="thumb" class="dock press" :class="{ attn: needs, stall: stalled, hide: openId }" :aria-label="needs ? '브라우저 작업 · 조치 필요' : stalled ? '브라우저 작업 · 기다리는 중' : '브라우저 작업 보기'" @click="show">
       <span v-if="frame" ref="mini" class="mini"><img :src="`data:image/jpeg;base64,${frame}`" alt="" /><i v-for="r in rings" :key="r.id" class="rip" :style="{ left: r.left, top: r.top }" /></span>
       <span v-else class="dots"><i /><i /><i /></span>
     </button>
@@ -97,6 +99,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   animation: spin 1.2s linear infinite; pointer-events: none; }
 .dock.attn::after { display: none; }
 .dock.attn { box-shadow: 0 0 0 2.5px var(--color-attention), 0 4px 16px rgba(0 0 0 / .18); animation: ring 1.6s ease-in-out infinite; }
+.dock.stall { box-shadow: 0 0 0 2.5px rgba(178 80 0 / .75), 0 4px 16px rgba(0 0 0 / .18); }
 .dock.hide { opacity: 0; }
 @keyframes ring { 50% { box-shadow: 0 0 0 5px rgba(255 77 0 / .35), 0 4px 16px rgba(0 0 0 / .18); } }
 .dots { position: relative; display: block; width: 14px; height: 14px; margin: 16px auto; animation: spin 1.4s linear infinite; }
