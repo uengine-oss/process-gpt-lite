@@ -8,6 +8,9 @@ import { runTurn } from '../lib/agent.js'
 import { TeamError, requireMember, resolveRecipients, rateLimit, isMember } from '../lib/team/access.js'
 import * as S from '../lib/team/shares.js'
 import * as W from '../lib/team/worktree.js'
+// the messenger's signed media addresses (no sign-in token in an address — lib/team/mediaLink.js)
+import { verifyLink } from '../lib/team/mediaLink.js'
+import { asTenantOf } from '../lib/tenant.js'
 import { q } from '../lib/supa.js'
 import { config } from '../config.js'
 import * as M from '../lib/team/messenger.js'
@@ -84,16 +87,47 @@ export function teamRoutes(auth) {
     return { sent, batch: forked ? { id: forked.batchId, baseCommitId: forked.baseCommitId } : null }
   }))
   r.get('/team/shares/:id/raw', async (req, res, next) => {
-    // a link the browser opens directly may carry the token in the query
+    // the messenger's previews and its viewer: a signed address (GET …/link, the room's messages) names the person instead of a
+    // token. A valid signature only says who asks — the same access check as a signed-in call follows (S.stream → objectFor:
+    // not theirs, revoked → 404). Expired: 401 (the page asks for a new address); altered: 403.
+    if (!req.headers.authorization && req.query.sig) {
+      const u = String(req.query.u || '')
+      return asTenantOf(u, () => {
+        let v = 'bad'
+        try { v = verifyLink({ key: S.mediaKey(), tenant: config.tenantId, id: req.params.id, u, exp: req.query.exp, sig: req.query.sig, inline: req.query.inline === '1' }) } catch { /* no key: refused */ }
+        if (v !== 'ok') return res.status(v === 'expired' ? 401 : 403).json({ error: v === 'expired' ? L('주소가 만료됐어요. 다시 열어 주세요.', 'This address has expired. Please open it again.') : L('주소가 맞지 않아요.', "This address isn't valid.") })
+        req.user = { id: u.toLowerCase() }
+        next('route')
+      })
+    }
+    // a link the browser opens directly may carry the token in the query (older callers; the messenger now signs its own)
     if (!req.headers.authorization && req.query.token) req.headers.authorization = `Bearer ${req.query.token}`
     next()
-  }, auth, h(async (req, res) => {
-    const f = await S.bytes(req.user, req.params.id)
+  }, auth, (req, res, next) => next('route'))
+  r.get('/team/shares/:id/raw', h(async (req, res) => {
+    // streamed from storage, a part when the browser asks for one (Range): the messenger plays a sound or a video from here and
+    // shows a picture (src/components/MediaPreview.vue) — a seek, and Safari at all, need 206
+    const f = await S.stream(req.user, req.params.id, req.headers.range)
+    res.status(f.res.status)
+    for (const k of ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) if (f.res.headers.get(k)) res.setHeader(k, f.res.headers.get(k))
     res.setHeader('Content-Type', f.type)
     res.setHeader('X-Content-Type-Options', 'nosniff')
-    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'")
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`)
-    res.end(f.buf)
+    // nothing in it runs on this origin (an SVG opened by itself draws, its script does not)
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
+    // inline=1: a picture · sound · video shown in its own tab (the viewer's 「새 창에서 열기」); anything else is a download
+    const inline = !!req.query.inline && /^(image|audio|video)\//i.test(f.type)
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`)
+    res.setHeader('Cache-Control', 'private, max-age=60')
+    if (!f.res.body) return void res.end()
+    const { Readable } = await import('node:stream')
+    await new Promise((ok) => { const s = Readable.fromWeb(f.res.body); s.on('error', () => { res.destroy(); ok() }); res.on('close', () => { s.destroy(); ok() }); s.pipe(res) })
+  }))
+  // a fresh signed address of my share's file (the one in the room's messages is good for 15 minutes): the same check as reading it
+  r.get('/team/shares/:id/link', auth, h(async (req) => {
+    await S.objectFor(req.user, req.params.id)
+    const link = S.mediaLink(req.user.id, req.params.id)
+    if (!link) throw new TeamError(503, L('지금은 주소를 만들 수 없어요.', "I can't make the address right now."))
+    return { link }
   }))
   // the file card to open in the editor: my original (sender) or my own copy (recipient)
   r.post('/team/shares/:id/open', auth, h(async (req) => ({ message: await S.openCopy(req.user, req.params.id) })))

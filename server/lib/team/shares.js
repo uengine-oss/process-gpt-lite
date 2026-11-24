@@ -11,6 +11,7 @@ import { mainThread, addMessage, updateMessage } from '../store.js'
 import { saveAttachment } from '../attachments.js'
 import { TeamError } from './access.js'
 import * as W from './worktree.js'
+import { linkKey, signLink, linkPath } from './mediaLink.js'
 
 const T = () => config.tenantId
 const KIND = (n) => String(n || '').split('.').pop().toLowerCase().slice(0, 12)
@@ -29,6 +30,9 @@ export function objectOf(url) {
   } catch { return null }
 }
 
+// the type a card was stored with (a site's 「download」 typed from its bytes: lib/fileSniff.js) travels with its share, so the
+// messenger can show a picture or play a sound in place (src/mediaKind.js) — a plain MIME string, nothing else
+const typeOfCard = (c) => (/^[a-z]+\/[a-z0-9.+-]+$/i.test(String(c?.type || '')) ? String(c.type).toLowerCase() : '')
 // a workroom-only card (the agent wrote it, it has no storage URL) shares through its work folder
 const inWorkroom = (c) => /^\/workspace\//.test(String(c?.path || '')) && !String(c.path).split('/').includes('..')
 
@@ -45,7 +49,7 @@ export async function myFiles(me, ids, { lenient = false } = {}) {
     const o = objectOf(r.content.url)
     if (!o && !inWorkroom(r.content) && lenient) return []
     if (!o && !inWorkroom(r.content)) throw new TeamError(400, L(`'${r.content.name}' 은(는) 아직 공유할 수 없는 파일이에요.`, `'${r.content.name}' can't be shared yet.`))
-    return [{ sourceId: r.id, name: String(r.content.name || 'file').slice(0, 200), ...(o || {}), card: r }]
+    return [{ sourceId: r.id, name: String(r.content.name || 'file').slice(0, 200), type: typeOfCard(r.content), ...(o || {}), card: r }]
   })
 }
 
@@ -87,7 +91,7 @@ export async function grant(me, recipients, files, { note, dmMessageId, roomId, 
     return null
   })
   if (f0) return grantBranches(me, recipients, files, { note, dmMessageId, roomId, forked: f0 })
-  const artifacts = files.map((f) => ({ name: f.name, kind: KIND(f.name), sourceId: f.sourceId, shares: {} }))
+  const artifacts = files.map((f) => ({ name: f.name, kind: KIND(f.name), ...(f.type ? { type: f.type } : {}), sourceId: f.sourceId, shares: {} }))
   for (const r of recipients) {
     for (let i = 0; i < files.length; i++) {
       const f = files[i]
@@ -102,7 +106,7 @@ export async function grant(me, recipients, files, { note, dmMessageId, roomId, 
 
 // one branch per recipient from the fork, in their own work conversation with a card per file
 async function grantBranches(me, recipients, files, { note, dmMessageId, roomId, forked }) {
-  const artifacts = files.map((f) => ({ name: f.name, kind: KIND(f.name), sourceId: f.sourceId, shares: {} }))
+  const artifacts = files.map((f) => ({ name: f.name, kind: KIND(f.name), ...(f.type ? { type: f.type } : {}), sourceId: f.sourceId, shares: {} }))
   const names = files.map((f) => f.name)
   for (const r of recipients) {
     const { thread } = await workThread(r.id, `recv:${dmMessageId}:${r.id}`, `${me.name}님의 ${names[0]}${names.length > 1 ? ` 외 ${names.length - 1}` : ''}`)
@@ -134,14 +138,54 @@ async function shareFor(user, id) {
   return null
 }
 
-export async function bytes(user, id) {
+// Where a share's content is in storage, for its recipient or its sender only (anyone else: 404). A recipient reads their branch
+// as it is now. The key stays on the server.
+export async function objectFor(user, id) {
   const s = await shareFor(user, id)
   if (!s) throw new TeamError(404, L('공유를 찾지 못했어요.', "I couldn't find that share."))
-  // a recipient reads their branch as it is now
   const entry = s.branch_room_id && s.role === 'recipient' ? (await W.branchHead(s.branch_room_id))?.tree?.[s.path] : null
-  const { data, error } = await admin.storage.from(s.bucket).download(entry ? W.objectKey(entry.sha256) : s.object_key)
+  return { name: s.name, bucket: s.bucket, key: entry ? W.objectKey(entry.sha256) : s.object_key, share: s }
+}
+
+export async function bytes(user, id) {
+  const o = await objectFor(user, id)
+  const { data, error } = await admin.storage.from(o.bucket).download(o.key)
   if (error || !data) throw new TeamError(410, L('원본 파일이 더 이상 없어요.', 'The original file is no longer there.'))
-  return { name: s.name, type: data.type || 'application/octet-stream', buf: Buffer.from(await data.arrayBuffer()), share: s }
+  return { name: o.name, type: data.type || 'application/octet-stream', buf: Buffer.from(await data.arrayBuffer()), share: o.share }
+}
+
+// A share's bytes as storage serves them — part of the file when asked (Range: a player seeks, Safari plays only so), streamed,
+// never all of it in memory. The storage key stays here. → the storage response (its status: 200, 206, 416; else the file is gone)
+export async function stream(user, id, range) {
+  const o = await objectFor(user, id)
+  const key = String(o.key).split('/').map(encodeURIComponent).join('/')
+  const r = await fetch(`${config.supabaseUrl}/storage/v1/object/${encodeURIComponent(o.bucket)}/${key}`, {
+    headers: { Authorization: `Bearer ${config.serviceKey}`, apikey: config.serviceKey, ...(range ? { Range: String(range) } : {}) },
+  })
+  if (!r.ok && r.status !== 416) {
+    await r.body?.cancel().catch(() => {})
+    throw new TeamError(410, L('원본 파일이 더 이상 없어요.', 'The original file is no longer there.'))
+  }
+  return { name: o.name, res: r, type: rawType(o.name, r.headers.get('content-type')) }
+}
+// a picture · sound · video stored without its type (application/octet-stream) still shows and plays: the type its name says
+const MEDIA_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp',
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', flac: 'audio/flac', weba: 'audio/webm',
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', ogv: 'video/ogg' }
+export function rawType(name, stored) {
+  const t = String(stored || '').split(';')[0].trim().toLowerCase()
+  if (t && !['application/octet-stream', 'binary/octet-stream', 'application/unknown'].includes(t)) return String(stored)
+  return MEDIA_TYPES[String(name || '').split('.').pop().toLowerCase()] || 'application/octet-stream'
+}
+// a picture · sound · video the messenger shows in place (by its stored type, else its name)
+const isMedia = (a) => /^(image|audio|video)\//i.test(String(a?.type || '')) || !!MEDIA_TYPES[String(a?.name || '').split('.').pop().toLowerCase()]
+
+// The messenger's address of a share for this person, signed for 15 minutes (lib/team/mediaLink.js): no sign-in token in it.
+// Shown in place (inline) — the route still decides per file type. → the path under /api, or '' when it cannot be signed.
+let key = null
+export const mediaKey = () => (key ||= linkKey(config.serviceKey))
+export function mediaLink(userId, shareId, { now } = {}) {
+  try { return linkPath(shareId, signLink({ key: mediaKey(), tenant: config.tenantId, id: shareId, userId, inline: true, now })) } catch { return '' }
 }
 
 // The file card to open in the editor: the owner's own original, or the recipient's copy (made once).
@@ -215,8 +259,9 @@ export async function revoke(user, id) {
 export function viewArtifacts(viewerId, senderId, artifacts) {
   return (artifacts || []).map((a) => {
     const owner = a.by || senderId
-    return { name: a.name, kind: a.kind,
-      shareId: viewerId === owner ? Object.values(a.shares || {})[0] || null : a.shares?.[viewerId] || null,
-      own: viewerId === owner }
+    const shareId = viewerId === owner ? Object.values(a.shares || {})[0] || null : a.shares?.[viewerId] || null
+    // a picture · sound · video: its signed address for this viewer (the preview loads it; 15 minutes, then GET …/link again)
+    const link = shareId && isMedia(a) ? mediaLink(viewerId, shareId) : ''
+    return { name: a.name, kind: a.kind, ...(a.type ? { type: a.type } : {}), shareId, own: viewerId === owner, ...(link ? { link } : {}) }
   })
 }

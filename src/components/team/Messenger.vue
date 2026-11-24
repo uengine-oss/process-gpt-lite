@@ -10,7 +10,12 @@ import { useRouter } from 'vue-router'
 import Icon from '../Icon.vue'
 import { useApp } from '../../stores/app.js'
 import { useTeam, shareable } from '../../stores/team.js'
-import { kindOf, kindLabel } from '../../artifacts.js'
+import { kindOf, kindLabel, cardKind, viewMedia, mediaKindOf } from '../../artifacts.js'
+// a picture · sound · video sent in the room: shown or played in place, opened in the viewer (not an editor) — src/openPlan.js
+import MediaPreview from '../MediaPreview.vue'
+import { openPlan } from '../../openPlan.js'
+import { craftMissing } from '../../officeEditor.js'
+import { BASE } from '../../base.js'
 import AssistSuggestion from './AssistSuggestion.vue'
 import MeetingRoomCard from '../meetings/MeetingRoomCard.vue'
 import { useMeetings } from '../../stores/meetings.js'
@@ -19,7 +24,7 @@ import { langLabel } from '../../i18n/mainLangs.js'
 import { hidePaths } from '../../paths.js'
 import ConflictChoice from './ConflictChoice.vue'
 import FolderSuggest from '../folders/FolderSuggest.vue'
-import { uploadTeamFile } from '../../api.js'
+import { uploadTeamFile, api } from '../../api.js'
 // link preview cards under a message with links (server lib/linkPreview.js)
 import LinkPreviews from '../LinkPreviews.vue'
 import { useMessengerDock } from './useMessengerDock.js'
@@ -95,14 +100,53 @@ async function run(key, fn) {
 // A file opens in the office panel (stores/team.js openShared). When it does not, the reason stays under the file — with the
 // link when it is a format the app has no viewer for (the person opens it: a window opened after the wait may be blocked).
 const notes = ref({}) // shareId | branch room+path → {reason, url}
+// A format with no viewer here is no alarm: a calm line with its link (calm). A failure (the share taken back, the original gone,
+// the open document not saved yet) keeps the warning.
 async function opening(key, job) {
   busy.value = key; err.value = ''
   let r
   try { r = await job() } catch (e) { r = { opened: false, reason: e.message || '열지 못했어요.' } } finally { busy.value = '' }
-  notes.value = { ...notes.value, [key]: r?.opened ? null : { reason: r?.reason || '열지 못했어요.', url: r?.how === 'link' ? r.url : '' } }
+  notes.value = { ...notes.value, [key]: r?.opened ? null : { reason: r?.reason || '열지 못했어요.', url: r?.how === 'link' ? r.url : '', calm: r?.how === 'link' } }
 }
-const openFile = (a) => { if (a.shareId) opening(`f${a.shareId}`, () => team.openShared(a.shareId, router)) }
+const openFile = (a) => {
+  if (!a.shareId) return
+  if (mediaOf(a)) return viewShare(a)
+  opening(`f${a.shareId}`, () => team.openShared(a.shareId, router))
+}
 const noteOf = (a) => notes.value[`f${a.shareId}`]
+
+// A picture, a sound or a video sent in the room shows right here (MediaPreview.vue) from the share's own address: the server
+// answers it only to the people it was shared with and its sender, as it does for opening it (GET /team/shares/:id/raw). An <img>
+// or an <audio> sends no header, so the address is signed for this person for 15 minutes (a.link, from the room's messages;
+// server lib/team/mediaLink.js) — no sign-in token in it, so none in a proxy's log or the browser's history. One that has run out
+// (a room left open, a file that did not load) gets a new address (GET …/link). Pressed, it opens the viewer (MediaViewer.vue),
+// never an editor by itself; its ArtCraft app only from the viewer's 「… 로 편집」, where this install has it
+// (2026-11-25 「포토크래프트등의 편집기는 편집의 의도가 있을따만 시도하는 것이고」).
+const links = ref({}) // shareId → a newer signed path than the message's
+const mediaOf = (a) => (a?.shareId ? mediaKindOf(a) : '')
+const linkOf = (a) => links.value[a.shareId] || a.link || ''
+const shareSrc = (a) => (linkOf(a) ? `${BASE}/api${linkOf(a)}` : '')
+const expOf = (l) => Number(/[?&]exp=(\d+)/.exec(l || '')?.[1] || 0)
+const asked = {} // shareId → when a new address was last asked for (once in 30 s: a file that is really gone does not loop)
+async function relink(a) {
+  if (!a?.shareId || Date.now() - (asked[a.shareId] || 0) < 30_000) return ''
+  asked[a.shareId] = Date.now()
+  try {
+    const { link } = await api(`/team/shares/${encodeURIComponent(a.shareId)}/link`)
+    if (link) links.value = { ...links.value, [a.shareId]: link }
+    return link || ''
+  } catch { return '' }
+}
+async function viewShare(a) {
+  // (an address about to run out is renewed first: the viewer's 「새 창에서 열기」 uses it too)
+  if (!linkOf(a) || expOf(linkOf(a)) - Date.now() / 1000 < 120) await relink(a)
+  const url = shareSrc(a)
+  if (!url) return opening(`f${a.shareId}`, () => team.openShared(a.shareId, router))
+  const { editWith } = openPlan({ name: a.name, type: a.type, url }, { craftMissing })
+  viewMedia(app, { kind: mediaOf(a), url, name: a.name, editWith, edit: () => team.openShared(a.shareId, router, { edit: true }) })
+}
+// a picture that has just loaded makes the conversation taller: one being read at its end stays at its end
+function grown() { const el = scroller.value; if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 320) el.scrollTop = el.scrollHeight }
 // on my own share, "이어서 작업" gathers what came back; a conflict is picked here first
 const conflictOf = ref({}) // messageId → conflicts
 const cont = (m, choices) => run(`c${m.id}`, async () => {
@@ -369,12 +413,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <div v-if="m.artifacts.length" class="arts">
               <button v-for="a in m.artifacts" :key="a.shareId || a.name" class="art press" :class="{ off: !a.shareId }" :disabled="!a.shareId || busy === `f${a.shareId}`"
                 :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" :draggable="!!a.shareId" @dragstart="dragShare($event, a)" @click="openFile(a)">
-                <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
+                <span class="fic" :class="cardKind(a)">{{ kindLabel[cardKind(a)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
               </button>
             </div>
+            <div v-if="m.artifacts.some((a) => mediaOf(a))" class="media">
+              <MediaPreview v-for="a in m.artifacts.filter((x) => mediaOf(x))" :key="'mp' + a.shareId" :kind="mediaOf(a)" :src="shareSrc(a)" :name="a.name" compact @open="viewShare(a)" @failed="relink(a)" />
+            </div>
             <template v-for="a in m.artifacts" :key="'n' + (a.shareId || a.name)">
-              <p v-if="noteOf(a)" class="onote" role="status" data-test="open-note" :data-file="a.name">
-                <Icon name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
+              <p v-if="noteOf(a)" class="onote" :class="{ calm: noteOf(a).calm }" role="status" data-test="open-note" :data-file="a.name">
+                <Icon v-if="!noteOf(a).calm" name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
               </p>
             </template>
             <template v-for="(r, i) in m.refs || []" :key="'r' + i + (r.path || r.actionId)">
@@ -382,7 +429,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
               <FileRefCard v-else :m="m" :r="r" :i="i" />
             </template>
             <div class="acts">
-              <button v-if="m.artifacts[0]?.shareId" class="b press" :disabled="!!busy" @click="openFile(m.artifacts[0])">편집기에서 열기</button>
+              <button v-if="m.artifacts[0]?.shareId" class="b press" :disabled="!!busy" @click="openFile(m.artifacts[0])">{{ mediaOf(m.artifacts[0]) ? '열어 보기' : '편집기에서 열기' }}</button>
               <button v-if="m.kind !== 'fileref' && m.kind !== 'mailref'" class="b main press" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
               <button class="b ghost press" @click="reply(m)">답장</button>
             </div>
@@ -434,12 +481,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <div v-if="m.artifacts.length" class="arts">
                   <button v-for="a in m.artifacts" :key="a.name + a.shareId" class="art press" :class="{ off: !a.shareId, busy: busy === `f${a.shareId}` }" :disabled="!a.shareId"
                     :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" :draggable="!!a.shareId" @dragstart="dragShare($event, a)" @click="openFile(a)">
-                    <span class="fic" :class="kindOf(a.name)">{{ kindLabel[kindOf(a.name)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
+                    <span class="fic" :class="cardKind(a)">{{ kindLabel[cardKind(a)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
                   </button>
                 </div>
+                <!-- a picture to look at, a sound or a video that plays right here -->
+                <div v-if="m.artifacts.some((a) => mediaOf(a))" class="media">
+                  <MediaPreview v-for="a in m.artifacts.filter((x) => mediaOf(x))" :key="'mp' + a.name + a.shareId" :kind="mediaOf(a)" :src="shareSrc(a)" :name="a.name" compact
+                    @open="viewShare(a)" @failed="relink(a)" @loaded="grown" />
+                </div>
                 <template v-for="a in m.artifacts" :key="'n' + a.name + a.shareId">
-                  <p v-if="noteOf(a)" class="onote" role="status" data-test="open-note" :data-file="a.name">
-                    <Icon name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
+                  <p v-if="noteOf(a)" class="onote" :class="{ calm: noteOf(a).calm }" role="status" data-test="open-note" :data-file="a.name">
+                    <Icon v-if="!noteOf(a).calm" name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
                   </p>
                 </template>
                 <!-- file mentions: links to shared folders' files, in my own state (server lib/fileRefs.js) -->
@@ -456,8 +508,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                     <button v-for="f in changedFiles(b)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" data-test="branch-file" @click="openBranch(b, f)">
                       <Icon name="eye" :size="13" />{{ f.split('/').pop() }}
                     </button>
-                    <p v-for="f in changedFiles(b).filter((x) => notes[`b${b.room}${x}`])" :key="'n' + f" class="onote" role="status" data-test="open-note">
-                      <Icon name="alert" :size="14" /><span>{{ notes[`b${b.room}${f}`].reason }}</span>
+                    <p v-for="f in changedFiles(b).filter((x) => notes[`b${b.room}${x}`])" :key="'n' + f" class="onote" :class="{ calm: notes[`b${b.room}${f}`].calm }" role="status" data-test="open-note">
+                      <Icon v-if="!notes[`b${b.room}${f}`].calm" name="alert" :size="14" /><span>{{ notes[`b${b.room}${f}`].reason }}</span>
                       <a v-if="notes[`b${b.room}${f}`].url" :href="notes[`b${b.room}${f}`].url" target="_blank" rel="noopener" download>새 창에서 열기</a>
                     </p>
                   </div>
@@ -594,6 +646,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .onote a { color: #1a56c4; font-weight: 500; text-decoration: underline; }
 :root:not([data-theme="light"]) .onote { color: #ffb4ab; background: rgba(255, 100, 100, .14); }
 :root:not([data-theme="light"]) .onote a { color: #a1d0ff; }
+/* no viewer here for this format: said calmly, with its link — not a warning */
+.onote.calm { color: var(--text-secondary); background: rgba(127, 127, 127, .1); }
+.onote.calm a { color: inherit; }
+:root:not([data-theme="light"]) .onote.calm { color: var(--text-secondary); background: rgba(127, 127, 127, .14); }
+:root:not([data-theme="light"]) .onote.calm a { color: inherit; }
+/* pictures · sounds · videos of a message, under its file chips */
+.media { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; max-width: 100%; }
 .fic { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: #fff; background: #6b6b66; }
 .fic.hwp { background: #1f6fd1; } .fic.doc { background: #2b579a; } .fic.xls { background: #217346; } .fic.ppt { background: #c43e1c; } .fic.pdf { background: #d93025; } .fic.cad { background: #0b6f88; } .fic.vec { background: #c2570c; } .fic.img { background: #7b3fbf; } .fic.snd { background: #0f8a5f; } .fic.vid { background: #b0223c; }
 .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }

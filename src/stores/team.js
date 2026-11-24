@@ -4,7 +4,7 @@
 import { defineStore } from 'pinia'
 import { api, events } from '../api.js'
 import { useApp } from './app.js'
-import { openArtifact } from '../artifacts.js'
+import { openArtifact, viewMedia } from '../artifacts.js'
 import { maybeOther } from '../i18n/mainLangs.js'
 // where the messenger sits (float · right · left · panel), remembered per device: src/messengerDock.js
 import { load as loadDock, save as saveDock, reduce as reduceDock, effective as dockIn } from '../messengerDock.js'
@@ -236,12 +236,13 @@ export const useTeam = defineStore('team', {
     // A shared artifact opens in the office panel: my own copy (or, for the sender, the original card). The floating sheet
     // goes away once it opened (it lies over the panel); a docked messenger stays beside it. Answers what happened
     // ({how, opened, reason, url} — artifacts.js openArtifact): the messenger says why when it did not open.
-    async openShared(shareId, router) {
+    // edit: the person asked to edit it (the viewer's 「PhotoCraft 로 편집」): a picture · sound · video opens in its ArtCraft app
+    async openShared(shareId, router, { edit = false } = {}) {
       const app = useApp()
       const { message } = await api(`/team/shares/${shareId}/open`, { method: 'POST' })
       const list = (app.messages[message.thread_id] ||= [])
       if (!list.some((x) => x.id === message.id)) list.push(message)
-      const r = await openArtifact(app, router, message, { link: false })
+      const r = await openArtifact(app, router, message, { link: false, edit })
       if (r.opened && closesMessenger(r, this.dockNow)) this.open = false
       return { message, ...r }
     },
@@ -302,10 +303,12 @@ export const useTeam = defineStore('team', {
     async branches(messageId) {
       return (await api(`/team/messages/${messageId}/branches`)).branches
     },
-    // a file of a branch, read-only unless the branch is mine — in the panel like any document (same answer as openShared)
+    // a file of a branch, read-only unless the branch is mine — in the panel like any document (same answer as openShared);
+    // a picture · sound · video in the viewer (read-only there: no 「편집」)
     async openBranchFile(room, path) {
       const f = await api(`/team/branches/file?room=${encodeURIComponent(room)}&path=${encodeURIComponent(path)}`)
       const plan = openPlan({ url: f.url, name: f.name }, { craftMissing })
+      if (plan.how === 'view') return { ...plan, opened: viewMedia(useApp(), { kind: plan.media, url: f.url, name: f.name }) }
       if (plan.how !== 'office') return { ...plan, opened: false, reason: plan.reason || '앱 안에서 열 수 없는 파일이에요.' }
       const opened = (await useApp().setOfficeDoc({ url: f.url, name: f.name, readOnly: f.readOnly })) !== false
       if (opened && closesMessenger(plan, this.dockNow)) this.open = false

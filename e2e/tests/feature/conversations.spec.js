@@ -58,7 +58,7 @@ test('F-CV-03 산출물 스택: 3개는 부채꼴로 펼치고, 10개는 격자'
   expect(page.errors).toEqual([])
 })
 
-test('F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG 는 VectorCraft 가 열린다', async ({ pageAs, db }) => {
+test('F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG 는 보기 화면의 「VectorCraft 로 편집」으로 VectorCraft 가 열린다', async ({ pageAs, db }) => {
   // a page narrower than the wide layout keeps the pile whether Home is open or not (wider, with room, the files are a list in the
   // right column — chat-artifacts.spec.js; closing the document beside the page leaves Home closed)
   const page = await pageAs('cv-user', { viewport: { width: 980, height: 720 } })
@@ -82,6 +82,8 @@ test('F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG �
   if (!(await api.craftHas('vectorcraft'))) { test.info().annotations.push({ type: 'skip-part', description: api.craftSkip('vectorcraft') }); expect(page.errors).toEqual([]); return }
   await page.waitForTimeout(800)
   await page.locator('.astack .fitem', { hasText: '숙소 3.svg' }).click({ force: true })
+  // a picture opens the viewer; VectorCraft is its 「VectorCraft 로 편집」 (spec chat-media-preview)
+  await page.locator('[data-test="media-viewer"] [data-test="media-edit"]').click()
   await expect(page.locator('.cef iframe.frm')).toHaveAttribute('src', /\/craft\/vectorcraft\//, { timeout: 20_000 })
   expect(page.errors).toEqual([])
 })

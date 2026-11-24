@@ -1,0 +1,42 @@
+# cd e2e && npx playwright test --project=feature tests/feature/chat-media-preview.spec.js (2026-11-25, 서명 주소로 바꾼 뒤)
+Running 8 tests using 1 worker
+  ✓  1 [feature] › tests/feature/chat-media-preview.spec.js:189:1 › F-MP-01 메신저: 그림은 미리보기로, 소리 · 영상은 그 자리 플레이어로 — 칩은 IMG · AUD · VID, 경고 상자 없음, 구간 요청은 206 (2.5s)
+  ✓  2 [feature] › tests/feature/chat-media-preview.spec.js:236:1 › F-MP-02 미리보기 · 칩을 누르면 앱의 보기 화면(편집기가 아님) — Esc · 바깥을 누르면 닫히고 메신저는 그대로 (1.3s)
+  ✓  3 [feature] › tests/feature/chat-media-preview.spec.js:278:1 › F-MP-03 PhotoCraft 가 있는 설치: 보기 화면의 「PhotoCraft 로 편집」을 눌러야 문서 패널에 PhotoCraft — 받은 그림이 그 안으로 (4.4s)
+  ✓  4 [feature] › tests/feature/chat-media-preview.spec.js:296:1 › F-MP-04 PhotoCraft 가 없는 설치: 그림은 그대로 보이고 「편집」 단추 · 경고가 없다, 볼 수 없는 zip 은 차분한 안내와 링크 (3.4s)
+  ✓  5 [feature] › tests/feature/chat-media-preview.spec.js:331:1 › F-MP-05 AI 채팅의 파일 카드: 미리보기 · 플레이어 · 「눌러서 크게 보기」 → 보기 화면 → 「PhotoCraft 로 편집」을 눌러야 PhotoCraft (5.3s)
+  ✓  6 [feature] › tests/feature/chat-media-preview.spec.js:370:1 › F-MP-06 미디어 주소는 받은 사람 · 보낸 사람만, 화면의 주소는 토큰 없는 15분 서명 주소 — 200 · 206, 바꾸면 403, 만료 401, 남의 서명 404, 대화방 밖 404, zip 은 내려받기 (496ms)
+  ✓  7 [feature] › tests/feature/chat-media-preview.spec.js:437:1 › F-MP-07 휴대폰(390px) 밝은 · 밤 테마: 미리보기 · 플레이어가 메시지 안에, 옆으로 넘치지 않음, 보기 화면의 단추가 화면 안 (8.3s)
+  ✓  8 [feature] › tests/feature/chat-media-preview.spec.js:468:1 › F-MP-08 서명이 맞아도 권한은 다시 본다 — 팀에서 빠지면 403, 공유를 거두면 404, 화면의 미리보기는 차분히 「미리 볼 수 없어요」 (2.8s)
+  8 passed (33.2s)
+
+# 함께 돌린 기존 시험(서명 주소로 바꾸기 전 실행) — 이 작업 트리의 BFF :8901 + Vite :5301(기본 회사, 공용 서비스는 닫힌 포트, ArtCraft 웹 빌드는 두 번째 실행에서만)
+# F-TS-08: 로컬 DB 에 워크트리 테이블(artifact_branches)이 없어 실패 — 이 변경과 무관. F-ED-04 xlsx: 이 스택에 이음오피스 호스트가 없어 실패 — 이 변경과 무관
+Running 13 tests using 1 worker
+  ✓   1 [feature] › tests/feature/conversations.spec.js:61:1 › F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG 는 보기 화면의 「VectorCraft 로 편집」으로 VectorCraft 가 열린다 (3.7s)
+  ✓   2 [feature] › tests/feature/messenger-dock.spec.js:394:3 › 메신저의 문서 열기 · 메신저 붙이기 (spec messenger-dock) › F-MO-07 앱 안에서 볼 수 없는 파일은 이유와 링크가 그 파일 아래에 — 메신저는 그대로 (2.4s)
+  ✓   3 [feature] › tests/feature/messenger-drop-folder.spec.js:92:3 › 메신저에서 컴퓨터의 파일 보내기 · 들어온 문서를 폴더에 정리 (spec messenger-drop-folder) › F-MD-01 열린 대화에 파일을 끌어다 놓으면 「여기에 놓으면 보내요」 → 올리는 칩 → 보내면 받는 사람이 그 파일을 받는다 (3.7s)
+  ✓   4 [feature] › tests/feature/notebooklm-review-chat.spec.js:228:3 › 녹화 검토 11-21 · 채팅 화면 › F-NB-04 소리 파일은 카드 아래에서 바로 재생: 공개 주소 · 서명 주소 · 작업 공간 파일 (Range 206), 슬라이드는 그대로 (2.6s)
+  ✓   5 [feature] › tests/feature/notebooklm-review-chat.spec.js:385:3 › 녹화 검토 11-21 · 채팅 화면 › F-NB-07 이름 없이 받은 파일(NotebookLM 오디오 개요): 형식만으로 카드 아래 플레이어, 영상은 영상 플레이어, PDF · 슬라이드는 편집기로 (2.4s)
+  ✓   6 [feature] › tests/feature/team-sharing.spec.js:22:3 › 팀 공유 (spec pgpt-pro-team-sharing) › F-TS-01 산출물 공유 → 받은 편지함·알림, 받는 사람은 자기 작업 대화의 브랜치 카드로 열고, 원본 주소는 내려가지 않는다 (1.3s)
+  ✓   7 [feature] › tests/feature/team-sharing.spec.js:57:3 › 팀 공유 (spec pgpt-pro-team-sharing) › F-TS-02 팀원이 아니면 보내지도 받지도 못한다(403), 남의 카드는 공유할 수 없다(404), 자신에게는 400 (400ms)
+  ✓   8 [feature] › tests/feature/team-sharing.spec.js:70:3 › 팀 공유 (spec pgpt-pro-team-sharing) › F-TS-03 "@" 제안: 자주 주고받은 팀원이 먼저, 팀원이 아닌 사람·나는 없다 (판단 모델이 없어도 빈도 순) (445ms)
+  ✓   9 [feature] › tests/feature/team-sharing.spec.js:89:3 › 팀 공유 (spec pgpt-pro-team-sharing) › F-TS-04 메신저: 1:1 은 하나만, 그룹, 안 읽은 수와 읽음, 남의 대화는 404, 팀에서 빠진 사람에게는 403 (713ms)
+  ✓  10 [feature] › tests/feature/team-sharing.spec.js:113:3 › 팀 공유 (spec pgpt-pro-team-sharing) › F-TS-05 채팅에서 @팀원에게 요청: 받는 사람 받은 편지함에 대화 발췌와 함께, 내 대화엔 "보냈어요" 칩 (373ms)
+  ✓  11 [feature] › tests/feature/team-sharing.spec.js:130:3 › 팀 공유 (spec pgpt-pro-team-sharing) › F-TS-06 메신저 대화방은 process-gpt chat_rooms/chats 그 자체: 양쪽 화면이 같은 방, 같은 메시지 모양 (256ms)
+  ✓  12 [feature] › tests/feature/team-sharing.spec.js:157:3 › 팀 공유 (spec pgpt-pro-team-sharing) › F-TS-07 메신저를 닫은 채 받은 공유: 처음 열 때 받은 편지함에 바로 있고, 늦게 온 옛 응답이 지우지 않는다 (10.9s)
+  ✘  13 [feature] › tests/feature/team-sharing.spec.js:188:3 › 팀 공유 (spec pgpt-pro-team-sharing) › F-TS-08 Lite 대화 브랜치(pro:)에는 화면 키로 직접 쓸 수 없다 — 공유 당사자도 BFF 를 거쳐야 한다 (443ms)
+  1 failed
+  12 passed (30.8s)
+Running 7 tests using 1 worker
+  ✓  1 [feature] › tests/feature/conversations.spec.js:61:1 › F-CV-04 스택에서 엑셀을 누르면 이음오피스 편집기, SVG 는 보기 화면의 「VectorCraft 로 편집」으로 VectorCraft 가 열린다 (4.0s)
+  ✘  2 [feature] › tests/feature/editors-live.spec.js:120:5 › 최대화 다이얼 (spec office-editor · craft-apps: 최대화 다이얼) › F-ED-04 예산표.xlsx: 최대화하면 대화창은 다이얼로 접히고, 누르면 같은 입력창(보내면 이 문서로) (1.5m)
+  ✓  3 [feature] › tests/feature/editors-live.spec.js:120:5 › 최대화 다이얼 (spec office-editor · craft-apps: 최대화 다이얼) › F-ED-04 배너.svg: 최대화하면 대화창은 다이얼로 접히고, 누르면 같은 입력창(보내면 이 문서로) (6.5s)
+  ✓  4 [feature] › tests/feature/editors-live.spec.js:120:5 › 최대화 다이얼 (spec office-editor · craft-apps: 최대화 다이얼) › F-ED-04 썸네일.png: 최대화하면 대화창은 다이얼로 접히고, 누르면 같은 입력창(보내면 이 문서로) (9.5s)
+  ✓  5 [feature] › tests/feature/editors-live.spec.js:120:5 › 최대화 다이얼 (spec office-editor · craft-apps: 최대화 다이얼) › F-ED-04 평면도.dxf: 최대화하면 대화창은 다이얼로 접히고, 누르면 같은 입력창(보내면 이 문서로) (4.8s)
+  ✓  6 [feature] › tests/feature/editors-live.spec.js:120:5 › 최대화 다이얼 (spec office-editor · craft-apps: 최대화 다이얼) › F-ED-04 알림음.wav: 최대화하면 대화창은 다이얼로 접히고, 누르면 같은 입력창(보내면 이 문서로) (5.6s)
+  ✓  7 [feature] › tests/feature/editors-live.spec.js:120:5 › 최대화 다이얼 (spec office-editor · craft-apps: 최대화 다이얼) › F-ED-04 티저.mp4: 최대화하면 대화창은 다이얼로 접히고, 누르면 같은 입력창(보내면 이 문서로) (6.0s)
+    Error: expect(locator).toBeVisible() failed
+    reports/all/artifacts/editors-live-최대화-다이얼-spec--1305c-로-접히고-누르면-같은-입력창-보내면-이-문서로--feature/test-failed-1.png
+  1 failed
+  6 passed (2.2m)

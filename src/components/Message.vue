@@ -33,10 +33,11 @@ import OntoEditCard from './ontology/OntoEditCard.vue'
 import MailChips from './MailChips.vue'
 import LinkPreviews from './LinkPreviews.vue'
 import LocalRunCard from './LocalRunCard.vue'
+import MediaPreview from './MediaPreview.vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
-import { kindOf, kindLabel, openArtifact, openHint } from '../artifacts.js'
+import { kindOf, kindLabel, cardKind, openArtifact, openHint, viewHint, mediaKindOf } from '../artifacts.js'
 import { parseReplies } from '../replies.js'
 // a file card is dragged like any file of the app (src/fileDrag.js): a messenger conversation (a link or a share), a folder, the composer
 import { startDrag, cardItem } from '../fileDrag.js'
@@ -86,21 +87,25 @@ const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinne
 const ctxBy = computed(() => (ctx.value ? (ctx.value.rechecked ? '판단 모델 재확인→logprob' : ctx.value.escalated ? '판단 모델→logprob' : byName[ctx.value.strategy] ?? ctx.value.strategy) : ''))
 const ctxWhy = computed(() => (ctx.value ? `${ctx.value.action === 'new' ? '새 대화로 시작' : '이 대화로 이어감'} · ${ctxBy.value} 확신도 ${ctx.value.confidence ?? '-'}` : ''))
 
-// a sound or video file gets a player under its card, by its name or by the type it was stored with (a site's
-// download named only "download" is typed from its bytes: server lib/fileSniff.js). One the agent left in its
-// workspace has no address yet: it is published once (POST /messages/:id/open-file, as opening it does) so the
-// player is ready before it is pressed.
-const SOUND = /\.(mp3|m4a|wav|ogg|oga|opus|aac|flac)$/i
-const VIDEO = /\.(mp4|m4v|webm|mov)$/i
-const fileName = computed(() => String(c.value.name || c.value.url || '').split('?')[0])
-const sound = computed(() => props.msg.kind === 'file' && (SOUND.test(fileName.value) || String(c.value.type || '').startsWith('audio/')))
-const video = computed(() => props.msg.kind === 'file' && !sound.value && (VIDEO.test(fileName.value) || String(c.value.type || '').startsWith('video/')))
+// a picture, a sound or a video shows under its card (MediaPreview.vue): a thumbnail that opens the viewer, a player in place —
+// by the type it was stored with, else by its name (a site's download named only "download" is typed from its bytes: server
+// lib/fileSniff.js). Pressing the card opens the viewer too, never an ArtCraft editor (src/openPlan.js 'view'; the viewer's
+// 「… 로 편집」 does). One the agent left in its workspace has no address yet: it is published once (POST
+// /messages/:id/open-file, as opening it does) so the preview is ready before it is pressed.
+const media = computed(() => (props.msg.kind === 'file' ? mediaKindOf(c.value) : ''))
 const resolved = ref('')
-const soundErr = ref('')
-const soundUrl = computed(() => c.value.url || resolved.value)
+const mediaErr = ref('')
+const mediaUrl = computed(() => c.value.url || resolved.value)
+const fk = computed(() => cardKind(c.value))
+// what pressing the card does
+const hint = computed(() => {
+  if (media.value && mediaUrl.value) return viewHint(media.value, c.value)
+  const ed = officeEditorFor(c.value.name)
+  return ed && c.value.url && !craftMissing(ed) ? (c.value.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c.value)
+})
 onMounted(async () => {
-  if (!(sound.value || video.value) || c.value.url || !c.value.path) return
-  try { resolved.value = (await api(`/messages/${encodeURIComponent(props.msg.id)}/open-file`, { method: 'POST' }))?.url || '' } catch (e) { soundErr.value = `재생할 파일을 가져오지 못했어요 · ${e.message}` }
+  if (!media.value || c.value.url || !c.value.path) return
+  try { resolved.value = (await api(`/messages/${encodeURIComponent(props.msg.id)}/open-file`, { method: 'POST' }))?.url || '' } catch (e) { mediaErr.value = `${media.value === 'image' ? '미리 볼' : '재생할'} 파일을 가져오지 못했어요 · ${e.message}` }
 })
 </script>
 
@@ -219,19 +224,18 @@ onMounted(async () => {
       <p v-if="!c.items.length" class="empty">진행 중인 프로세스가 없어요.</p>
     </div>
 
-    <div v-else-if="msg.kind === 'file'" class="filecol" :class="{ sound, video }">
+    <div v-else-if="msg.kind === 'file'" class="filecol" :class="media ? `m-${media}` : ''">
       <div class="filerow" draggable="true" data-test="file-card" :data-file="c.name" @dragstart="dragCard">
         <button class="file press" @click="openFile">
-          <span class="fic" :class="sound ? 'snd' : kindOf(c.name)">{{ sound ? kindLabel.snd : kindLabel[kindOf(c.name)] || 'FILE' }}</span>
-          <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ officeEditorFor(c.name) && c.url && !craftMissing(officeEditorFor(c.name)) ? (c.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c) }}</small></span>
+          <span class="fic" :class="fk">{{ kindLabel[fk] || 'FILE' }}</span>
+          <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ hint }}</small></span>
         </button>
         <!-- 팀원에게 공유 (components/team) -->
         <ShareButton :msg="msg" compact />
       </div>
-      <!-- hark: a sound the work made plays right here, on the phone too (recording 2026-11-21) -->
-      <audio v-if="sound && soundUrl" class="player" controls preload="none" :src="soundUrl" data-testid="file-audio" />
-      <video v-else-if="video && soundUrl" class="vplayer" controls playsinline preload="metadata" :src="soundUrl" data-testid="file-video" />
-      <small v-else-if="(sound || video) && soundErr" class="playerr">{{ soundErr }}</small>
+      <!-- a picture to look at, a sound or a video that plays right here (on the phone too) -->
+      <MediaPreview v-if="media && mediaUrl" :kind="media" :src="mediaUrl" :name="c.name" @open="openFile" />
+      <small v-else-if="media && mediaErr" class="playerr">{{ mediaErr }}</small>
       <!-- 폴더에 정리: a document that came in (attached, or made by the agent, or sent by a teammate) — not one opened from a folder -->
       <FolderSuggest v-if="(c.url || c.path) && !c.folder" :message-id="msg.id" :filing="c.filing" />
     </div>
@@ -345,10 +349,7 @@ onMounted(async () => {
 button.uref { text-align: left; }
 .filerow .file { min-width: 0; }
 .filecol { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; }
-.filecol.sound, .filecol.video { width: 424px; }
-/* the browser's own controls (play, seek, volume, download) — big enough for a thumb */
-.player { display: block; width: 100%; height: 54px; border-radius: 27px; }
-.vplayer { display: block; width: 100%; max-height: 320px; border-radius: 16px; background: #000; }
+.filecol.m-audio, .filecol.m-video { width: 424px; }
 .playerr { font-size: 12.5px; color: var(--text-tertiary); margin-left: 6px; }
 .fvar { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 424px; max-width: 100%; padding: 14px 18px; border-radius: 22px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); text-align: left; }
 .fvh { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }

@@ -22,7 +22,13 @@ async function seedFiles(db, u) {
   for (const m of msgs) out[m.content.name].msg = m
   return { th, files: out }
 }
-const openCard = async (page, name) => { await page.locator('button.file', { hasText: name }).first().click() }
+// a picture · sound · video opens the app's viewer first; its ArtCraft app is the viewer's 「… 로 편집」 (src/openPlan.js, spec
+// chat-media-preview: opening is not editing)
+const MEDIA = /\.(png|jpe?g|gif|webp|svg|wav|mp3|m4a|flac|ogg|mp4|mov|webm)$/i
+const openCard = async (page, name) => {
+  await page.locator('button.file', { hasText: name }).first().click()
+  if (MEDIA.test(name)) await page.locator('[data-test="media-viewer"] [data-test="media-edit"]').click()
+}
 
 test.describe('이음오피스 편집기 (spec office-editor)', () => {
   test('F-ED-01 엑셀 카드 → 시트 편집기, 대화와 연결됨, 열린 동안만 office_live 도구', async ({ pageAs, db }) => {
