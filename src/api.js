@@ -74,6 +74,37 @@ export async function uploadAttachment(file) {
   return r.json()
 }
 
+// A file sent from the computer in the messenger (POST /api/team/uploads → my file card {id, name, size, type}), with how much has
+// gone (onProgress(0..1)): XHR, because fetch says nothing about an upload's progress. The body goes as octet-stream with the type in
+// X-File-Type (a .json file is not taken by the server's JSON parser). abort: the returned promise's .abort().
+export function uploadTeamFile(file, onProgress = () => {}) {
+  let xhr
+  const go = () => new Promise((resolve, reject) => {
+    xhr = new XMLHttpRequest()
+    xhr.open('POST', BASE + '/api/team/uploads')
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name))
+    xhr.setRequestHeader('X-File-Type', file.type || '')
+    xhr.setRequestHeader('Authorization', `Bearer ${auth.get()?.session?.access_token || ''}`)
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total) }
+    xhr.onload = () => resolve(xhr)
+    xhr.onerror = () => reject(new Error('보내지 못했어요. 연결을 확인해 주세요.'))
+    xhr.onabort = () => reject(Object.assign(new Error('취소했어요.'), { aborted: true }))
+    xhr.send(file)
+  })
+  const job = (async () => {
+    let r = await go()
+    if (r.status === 401 && await refreshToken()) r = await go()
+    let body = null
+    try { body = JSON.parse(r.responseText) } catch { /* not JSON */ }
+    if (r.status < 200 || r.status >= 300) throw new Error(r.status === 413 ? '50MB 보다 큰 파일은 보낼 수 없어요.' : body?.error || '올리지 못했어요.')
+    onProgress(1)
+    return body
+  })()
+  job.abort = () => xhr?.abort()
+  return job
+}
+
 // an HTML page where an API answer was expected (the media type, or a body that is a document)
 export const htmlPage = (r, text) => /\bhtml\b/i.test(r.headers?.get?.('content-type') || '') || /^\s*<(!doctype|html)\b/i.test(String(text || ''))
 

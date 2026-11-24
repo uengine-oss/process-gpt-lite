@@ -2499,7 +2499,25 @@
   "진행 중인 일": "the running work",
   "메일을 열지 못했어요": "Couldn't open the mail",
   "작업 폴더": "Work folder",
-  "· 단계 결과 보기 →": "· See step results →"
+  "· 단계 결과 보기 →": "· See step results →",
+  "정리": "File",
+  "다른 폴더 고르기": "Choose another folder",
+  "만들고 정리": "Create and file",
+  "정리하는 중…": "Filing…",
+  "폴더에 정리 · 알맞은 폴더를 찾는 중…": "File into a folder · finding the right one…",
+  "폴더에 정리": "File into a folder",
+  "정리할 수 있는 폴더가 없어요(편집 권한이 있는 폴더만).": "No folder to file into (only folders you can edit).",
+  "새 폴더에 정리": "File in a new folder",
+  "새 폴더 만들기:": "New folder:",
+  "여기에 놓으면 보내요": "Drop here to send",
+  "내 컴퓨터에서": "From my computer",
+  "끌어다 놓거나 붙여 넣어도 돼요": "You can also drag or paste files",
+  "50MB 초과": "Over 50 MB",
+  "올리지 못한 파일이 있어요. 빼고 다시 보내 주세요.": "Some files didn't upload. Remove them and send again.",
+  "보내지 못했어요. 연결을 확인해 주세요.": "Couldn't send it. Please check your connection.",
+  "50MB 보다 큰 파일은 보낼 수 없어요.": "Files over 50 MB can't be sent.",
+  "취소했어요.": "Cancelled.",
+  "빈 파일은 보낼 수 없어요.": "An empty file can't be sent."
  },
  "patterns": [
   [
@@ -5949,6 +5967,26 @@
   [
    "「{0}」의 작업 폴더 — 메일과 단계 결과가 모여요",
    "Work folder of \"{0}\" — its mails and step results gather here"
+  ],
+  [
+   "‘{0}’에 정리할까요?",
+   "File it in ‘{0}’?"
+  ],
+  [
+   "(확신 {0}%)",
+   "({0}% sure)"
+  ],
+  [
+   "‘{0}’에 정리했어요",
+   "Filed in ‘{0}’"
+  ],
+  [
+   "이미 ‘{0}’에 있어요",
+   "Already in ‘{0}’"
+  ],
+  [
+   "파일은 한 번에 {0}개까지 보낼 수 있어요.",
+   "Up to {0} files can be sent at once."
   ]
  ],
  "context": [

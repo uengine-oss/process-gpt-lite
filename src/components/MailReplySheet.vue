@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { uploadAttachment } from '../api.js'
+import FolderSuggest from './folders/FolderSuggest.vue'
 
 // A mail's Home card, opened: the mail as it arrived, and a reply the person reads, changes and sends
 // themselves (lib/mailReply.js). Nothing leaves before 보내기 — a card no longer hands the agent
@@ -220,8 +221,12 @@ function toAgent() { app.runAction(props.action); emit('close') }
             <p class="subj">{{ mail.subject }}</p>
             <div class="text" :class="{ folded: long && !whole }" data-test="mail-text">{{ mail.text }}</div>
             <button v-if="long" class="more press" @click="whole = !whole">{{ whole ? '접기' : '전체 보기' }}</button>
-            <div v-if="mail.attachments?.length" class="chips">
-              <span v-for="a in mail.attachments" :key="a.name" class="chip"><Icon name="clip" :size="13" /> {{ a.name }}</span>
+            <div v-if="mail.attachments?.length" class="chips atts">
+              <!-- 폴더에 정리: each attachment with the folder the judge suggests (lib/folders/filing.js) -->
+              <div v-for="a in mail.attachments" :key="a.name" class="att" data-test="mail-attachment">
+                <span class="chip"><Icon name="clip" :size="13" /> {{ a.name }}</span>
+                <FolderSuggest :action-id="id" :attachment="a.name" :filing="live?.source?.filing?.[a.name]" compact />
+              </div>
             </div>
           </section>
 
@@ -344,4 +349,6 @@ section { display: flex; flex-direction: column; gap: 6px; }
   .veil { padding: 8px; align-items: end; }
   .sheet { max-height: 94vh; border-radius: 24px; padding: 16px 16px 12px; }
 }
+.atts { flex-direction: column; align-items: flex-start; }
+.atts .att { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 100%; }
 </style>

@@ -52,11 +52,14 @@ const picker = ref(null)
 const dragging = ref(false)
 let depth = 0
 const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files')
-const onEnter = (e) => { if (hasFiles(e)) { depth++; dragging.value = true; e.preventDefault() } }
-const onOver = (e) => { if (hasFiles(e)) e.preventDefault() }
-const onLeave = (e) => { if (hasFiles(e) && --depth <= 0) { depth = 0; dragging.value = false } }
+// a sheet over the chat that takes files itself (the messenger: data-own-drop) keeps them — dropping a file on a conversation
+// there attached it to this composer too (2026-11-24). Such a sheet also stops the events; this is for one that does not.
+const own = (e) => !!e.target?.closest?.('[data-own-drop]')
+const onEnter = (e) => { if (hasFiles(e) && !own(e)) { depth++; dragging.value = true; e.preventDefault() } }
+const onOver = (e) => { if (hasFiles(e) && !own(e)) e.preventDefault() }
+const onLeave = (e) => { if (hasFiles(e) && !own(e) && --depth <= 0) { depth = 0; dragging.value = false } }
 const onDrop = (e) => {
-  if (!hasFiles(e)) return
+  if (!hasFiles(e) || own(e)) return
   e.preventDefault(); depth = 0; dragging.value = false
   if (e.dataTransfer.files.length) { app.addAttachments(e.dataTransfer.files); ta.value?.focus() }
 }

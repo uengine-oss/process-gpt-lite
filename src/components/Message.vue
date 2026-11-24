@@ -18,6 +18,7 @@ import ProcessDraftCard from './ProcessDraftCard.vue'
 import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
 import ShareButton from './team/ShareButton.vue'
+import FolderSuggest from './folders/FolderSuggest.vue'
 import ImproveCard from './improve/ImproveCard.vue'
 import ReferChips from './context/ReferChips.vue'
 import RepeatCard from './context/RepeatCard.vue'
@@ -201,6 +202,8 @@ onMounted(async () => {
       <audio v-if="sound && soundUrl" class="player" controls preload="none" :src="soundUrl" data-testid="file-audio" />
       <video v-else-if="video && soundUrl" class="vplayer" controls playsinline preload="metadata" :src="soundUrl" data-testid="file-video" />
       <small v-else-if="(sound || video) && soundErr" class="playerr">{{ soundErr }}</small>
+      <!-- 폴더에 정리: a document that came in (attached, or made by the agent, or sent by a teammate) — not one opened from a folder -->
+      <FolderSuggest v-if="(c.url || c.path) && !c.folder" :message-id="msg.id" :filing="c.filing" />
     </div>
 
     <!-- an agent's change in a shared folder: a variation to review and merge (lib/folders/work.js) -->

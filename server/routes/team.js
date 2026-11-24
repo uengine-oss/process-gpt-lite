@@ -15,6 +15,7 @@ import { suggest, workState } from '../lib/team/suggest.js'
 import { watchRooms } from '../lib/team/assist.js'
 import { assistRoutes } from './teamAssist.js'
 import * as RT from '../lib/team/roomTranslate.js'
+import { uploadCard } from '../lib/team/uploads.js'
 
 // does the deepagents this server talks to unfold a room's branch and commit its turns? (/health worktree)
 // (asked again after a minute: deepagents restarts and upgrades without this server)
@@ -153,6 +154,15 @@ export function teamRoutes(auth) {
   }))
   // messages in another language than my main one, translated for me (once per text and language)
   r.post('/team/translate', auth, h((req) => RT.translateFor(req.user, req.body?.ids, req.body?.suggestions)))
+  // a file from the computer (dropped, pasted or picked in the messenger): stored and made a card of mine, then sent like any card
+  // (lib/team/uploads.js). The body is the file itself; its name and type in X-File-Name / X-File-Type (the body goes as
+  // application/octet-stream, so the JSON parser in front never takes a .json file)
+  r.post('/team/uploads', express.raw({ type: () => true, limit: '50mb' }), auth, h(async (req) => {
+    const type = String(req.headers['x-file-type'] || '').slice(0, 120)
+    let name = 'file'
+    try { name = decodeURIComponent(String(req.headers['x-file-name'] || 'file')) } catch { /* the raw header */ }
+    return uploadCard(req.user, name, type && type !== 'application/octet-stream' ? type : '', req.body)
+  }))
   r.post('/team/threads/:id/messages', auth, h(async (req) => {
     const body = text(req.body.text)
     const files = await S.myFiles(req.user, req.body.artifactIds || [])

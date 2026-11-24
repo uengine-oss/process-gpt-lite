@@ -25,6 +25,7 @@ import { commitEdit } from './lib/team/worktree.js'
 import { craftLiveRoutes, attachCraftLive } from './lib/craftLive.js'
 import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
+import { filingRoutes } from './routes/filing.js'
 import { threadFolderRoutes } from './routes/threadFolders.js'
 import { ssoInfo, refreshSso } from './lib/sso.js'
 import * as webpush from './lib/webpush.js'
@@ -496,6 +497,8 @@ app.put('/api/me/mail-codes', auth, async (req, res) => {
 
 app.use('/api', processRoutes(auth))
 app.use('/api', folderRoutes(auth))
+// 폴더에 정리: a document that came in, suggested a folder by the judge and filed there (routes/filing.js)
+app.use('/api', filingRoutes(auth))
 app.use('/api', panelAppRoutes(auth))
 // team sharing and messenger (routes/team.js)
 app.use('/api', teamRoutes(auth))

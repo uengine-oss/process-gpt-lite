@@ -1,0 +1,23 @@
+# 서버 시험 (2026-11-24, feat/messenger-drop-folder-suggest, 로컬 Supabase :54322 · 공용 deepagents/라우터/메멘토 대신 닫힌 포트)
+# cd server && node --test --test-concurrency=1 test/<이름>.test.js
+== filing.integration: ℹ pass 10 ℹ fail 0 
+== worktree: ℹ pass 9 ℹ fail 0 
+== folderEditSave: ℹ pass 5 ℹ fail 0 
+== folderFindOpen: ℹ pass 6 ℹ fail 0 
+== folderGc: ℹ pass 6 ℹ fail 0 
+== folderGitRemote: ℹ pass 13 ℹ fail 0 
+== threadFolders: ℹ pass 7 ℹ fail 0 
+== threadFolders.e2e: ℹ pass 0 ℹ fail 0 
+== lang-panels-folders-team: ℹ pass 9 ℹ fail 0 
+== mailReply.integration: ℹ pass 10 ℹ fail 0 
+== mailWork.integration: ℹ pass 10 ℹ fail 0 
+== mailFlow.integration: ℹ pass 12 ℹ fail 0 
+== meetingTeamFixes: ℹ pass 7 ℹ fail 0 
+== capture-fixes-2: ℹ pass 7 ℹ fail 0 
+== en-fix: ℹ pass 9 ℹ fail 0 
+== ontology-streams: ℹ pass 6 ℹ fail 0 
+== llm-logprob: ℹ pass 9 ℹ fail 0 
+== fileSniff: ℹ pass 4 ℹ fail 0 
+== new-project-fast: ℹ pass 3 ℹ fail 0 
+
+# threadFolders.e2e 는 0/0 (이 스택에서 건너뜀 — main 과 같음)
