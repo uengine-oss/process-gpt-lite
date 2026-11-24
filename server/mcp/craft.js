@@ -3,7 +3,8 @@
 // per tool call, so a headless document would be gone between "draw" and "save"; here each user
 // keeps one CLI process per app (one open document) until it sits idle. Tools and schemas pass
 // through untouched; `/workspace/…` strings in the arguments map to the deepagents workspace on
-// this host (and back in the results), so a saved file shows up as a card in chat.
+// this host, or to this server's stand-in for it when the agent runs elsewhere (lib/craftWork.js),
+// and back in the results, so a saved file shows up as a card in chat.
 import fs from 'node:fs'
 import path from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -14,7 +15,7 @@ import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotoc
 import { config } from '../config.js'
 import { liveFor, liveEvents } from '../lib/craftLive.js'
 import { userFromJwt } from '../lib/supa.js'
-import { workspaceHostPath } from '../lib/missions.js'
+import { craftRoot, prepareArgs, pushChanged, roomsOf, roomsWorked, forgetRooms, roomGate } from '../lib/craftWork.js'
 
 const IDLE_MS = 20 * 60 * 1000
 // how each CLI runs headless; `roots` = it confines file access to --automation-*-root folders
@@ -45,14 +46,13 @@ export const craftAvailable = (app) => !!craftStatus()[app]?.cli
 const sessions = new Map() // `${app}:${userId}` → { client, timer }
 const catalogs = new Map()
 
-async function connect(app) {
+// (in the workspace root: a relative path the CLI resolves itself stays in it; without a person: the catalog)
+async function connect(app, userId = null) {
+  const { root } = await craftRoot({ userId })
   const args = ['mcp', ...CRAFT_APPS[app].args]
-  if (CRAFT_APPS[app].roots) {
-    const root = await workspaceHostPath('/workspace')
-    args.push('--automation-read-root', root, '--automation-write-root', root)
-  }
+  if (CRAFT_APPS[app].roots) args.push('--automation-read-root', root, '--automation-write-root', root)
   const client = new Client({ name: 'pgpt-pro', version: '1.0.0' })
-  await client.connect(new StdioClientTransport({ command: config.craftCli[app], args, stderr: 'ignore' }))
+  await client.connect(new StdioClientTransport({ command: config.craftCli[app], args, cwd: root, stderr: 'ignore' }))
   return client
 }
 
@@ -64,7 +64,8 @@ class TrackedTransport extends StdioClientTransport {
 }
 async function connectLive(app, live) {
   const client = new Client({ name: 'pgpt-pro', version: '1.0.0' })
-  const transport = new TrackedTransport({ command: config.craftCli[app], args: ['mcp', ...live.cliArgs()], env: { ...getDefaultEnvironment(), ...live.cliEnv() }, stderr: 'ignore' })
+  const { root } = await craftRoot({ userId: live.userId })
+  const transport = new TrackedTransport({ command: config.craftCli[app], args: ['mcp', ...live.cliArgs()], env: { ...getDefaultEnvironment(), ...live.cliEnv() }, cwd: root, stderr: 'ignore' })
   transport.onPid = (pid) => live.allowPid(pid)
   await client.connect(transport)
   return client
@@ -92,12 +93,12 @@ async function sessionFor(app, userId) {
   const key = `${app}:${userId}`
   let s = sessions.get(key)
   if (!s) {
-    s = { client: await connect(app) }
-    s.client.onclose = () => sessions.delete(key)
+    s = { client: await connect(app, userId) }
+    s.client.onclose = () => { sessions.delete(key); forgetRooms(key) }
     sessions.set(key, s)
   }
   clearTimeout(s.timer)
-  s.timer = setTimeout(() => { sessions.delete(key); s.client.close().catch(() => {}) }, IDLE_MS)
+  s.timer = setTimeout(() => { sessions.delete(key); forgetRooms(key); s.client.close().catch(() => {}) }, IDLE_MS)
   return s.client
 }
 
@@ -140,23 +141,27 @@ const switchTool = (app) => ({
   inputSchema: { type: 'object', properties: {} },
 })
 
-// the agent works in its sandbox's /workspace; the CLIs run on this host
-async function toHost(value, root) {
+// the agent works in its sandbox's /workspace; the CLIs run on this host. gate (the stand-in): a conversation
+// folder the person may not use is not made here for a save (lib/craftWork.js roomGate)
+export async function toHost(value, root, gate = null) {
   if (typeof value === 'string') {
-    // FilmCraft and CADCraft have no automation roots: any other absolute path would reach the host
+    // FilmCraft and CADCraft have no automation roots: any other absolute path would reach the host.
+    // Parent segments (..) are rejected too; the CLIs run in the workspace root
     if (/^(\/|~\/|[A-Za-z]:\\)/.test(value) && !value.startsWith('/workspace')) throw new Error(`only paths under /workspace are allowed: ${value}`)
+    if (/[\\/]/.test(value) && /(^|[\\/])\.\.([\\/]|$)/.test(value)) throw new Error(`paths may not go up a folder (..): ${value}`)
     if (!value.startsWith('/workspace')) return value
     const host = path.resolve(root, '.' + value.slice('/workspace'.length))
     if (host !== root && !host.startsWith(root + path.sep)) throw new Error(`path outside /workspace: ${value}`)
     // a file saved into a conversation's own folder (/workspace/.bpmn/<conversation>/…, where the
     // agent is told to keep its output) may be the first thing there: the folder is made for it
-    if (/^\/workspace\/\.bpmn\/[^/]+\/.+\.[A-Za-z0-9]{2,6}$/.test(value)) await fs.promises.mkdir(path.dirname(host), { recursive: true }).catch(() => {})
+    const room = /^\/workspace\/\.bpmn\/([^/]+)\/.+\.[A-Za-z0-9]{2,6}$/.exec(value)?.[1]
+    if (room && (!gate || await gate.ok(room))) await fs.promises.mkdir(path.dirname(host), { recursive: true }).catch(() => {})
     return host
   }
-  if (Array.isArray(value)) return Promise.all(value.map((v) => toHost(v, root)))
+  if (Array.isArray(value)) return Promise.all(value.map((v) => toHost(v, root, gate)))
   if (value && typeof value === 'object') {
     const out = {}
-    for (const [k, v] of Object.entries(value)) out[k] = await toHost(v, root)
+    for (const [k, v] of Object.entries(value)) out[k] = await toHost(v, root, gate)
     return out
   }
   return value
@@ -176,13 +181,35 @@ const forApp = (app, args) => (app === 'cadcraft' ? plainUnits(args) : args)
 // the same tools, called by this server for work it starts on its own (lib/mail.js draws a floor
 // plan a customer mail asks for): the user's own session, the same /workspace path rules
 export async function callCraft(userId, app, name, args = {}) {
-  const root = await workspaceHostPath('/workspace')
   name = name.startsWith(`${app}_`) ? name.slice(app.length + 1) : name
   console.log(`[mcp] ${app}.${name} user=${userId.slice(0, 8)} (server)`)
-  const out = await (await sessionFor(app, userId)).callTool({ name, arguments: forApp(app, await toHost(args, root)) })
+  const { out, root } = await runTool(app, { id: userId }, name, args)
   const text = (out.content || []).filter((c) => c.type === 'text').map((c) => c.text.split(root).join('/workspace')).join('\n')
   if (out.isError) throw new Error(`${app}.${name}: ${text.slice(0, 300)}`)
   return text
+}
+
+// one call on the person's session: the files its arguments name are put in place first (lib/craftWork.js),
+// and in the stand-in what it wrote in a conversation folder goes back to that folder's storage copy — only
+// for conversation folders the person may use (roomGate); the others are left out, said once per call
+async function runTool(app, user, name, args) {
+  const userId = user.id
+  const { root, standIn } = await craftRoot({ userId })
+  const gate = standIn ? roomGate(user) : null
+  const since = Date.now()
+  try {
+    const prepared = await prepareArgs(args, { root, standIn, userId, gate })
+    const hostArgs = forApp(app, await toHost(prepared, root, gate))
+    const out = await (await sessionFor(app, userId)).callTool({ name, arguments: hostArgs })
+    if (standIn && !liveFor(userId, app)) {
+      const rooms = roomsWorked(`${app}:${userId}`, await gate.filter(roomsOf(prepared)))
+      const pushed = await pushChanged({ root, rooms, since, gate }).catch((e) => { console.warn('[craft] push', e.message); return [] })
+      if (pushed.length) console.log(`[craft] ${app}.${name} wrote ${pushed.length} file(s) to the room copy`)
+    }
+    return { out, root }
+  } finally {
+    if (gate?.denied.size) console.warn(`[craft] ${app}.${name} user=${userId.slice(0, 8)}: left out ${gate.denied.size} conversation folder(s) this person may not use`)
+  }
 }
 
 function buildServer(app, user, { agentNoToken = false } = {}) {
@@ -198,11 +225,9 @@ function buildServer(app, user, { agentNoToken = false } = {}) {
       return { content: [{ type: 'text', text: `${title(app)} 도구를 켰어요. 사용자에게 같은 요청을 한 번 더 보내 달라고 하세요.` }] }
     }
     try {
-      const root = await workspaceHostPath('/workspace')
-      const args = forApp(app, await toHost(params.arguments || {}, root))
       const name = params.name.startsWith(`${app}_`) ? params.name.slice(app.length + 1) : params.name
       console.log(`[mcp] ${app}.${name} user=${user.id.slice(0, 8)}${liveFor(user.id, app) ? ' (live)' : ''}`)
-      const out = await (await sessionFor(app, user.id)).callTool({ name, arguments: args })
+      const { out, root } = await runTool(app, user, name, params.arguments || {})
       for (const c of out.content || []) if (c.type === 'text') c.text = c.text.split(root).join('/workspace')
       return out
     } catch (e) {

@@ -68,14 +68,26 @@ export async function canAccess(user, room) {
   if (me?.is_admin) return true
   if (room.kind === 'todo') {
     const [t] = await q(`select t.user_id, i.participants from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id where t.id::text=$1`, [room.id])
-    if (!t) return false
-    const assignees = String(t.user_id || '').split(',').map((x) => x.trim())
-    return assignees.includes(user.id) || assignees.includes(user.email) || (t.participants || []).includes(user.id)
+    return !!t && takesPart(user, t)
   }
-  // (context_threads.user_id is text, pro_threads.user_id uuid: one parameter for both needs the casts —
-  // without them the union fails with "uuid = text" and the owner is refused)
+  return ownsConversation(user.id, room.id)
+}
+// a step's assignee (a comma list of ids or emails) or a participant of its process instance
+const takesPart = (user, t) => {
+  const assignees = String(t.user_id || '').split(',').map((x) => x.trim())
+  return assignees.includes(user.id) || (!!user.email && assignees.includes(user.email)) || (t.participants || []).includes(user.id)
+}
+// the same for a process instance's own folder (/workspace/.bpmn/<instance>): any of its steps
+export async function takesPartInInstance(user, procInstId) {
+  const rows = await q(`select t.user_id, i.participants from bpm_proc_inst i left join todolist t on t.proc_inst_id=i.proc_inst_id where i.proc_inst_id::text=$1`, [String(procInstId)])
+  return rows.some((t) => takesPart(user, t))
+}
+// a chat or run folder is the person's when it is one of their conversations
+// (context_threads.user_id is text, pro_threads.user_id uuid: one parameter for both needs the casts —
+// without them the union fails with "uuid = text" and the owner is refused)
+export async function ownsConversation(userId, id) {
   const [hit] = await q(`select 1 from context_threads where user_id::text=$1 and conversation_id=$2
-                         union all select 1 from pro_threads where user_id::text=$1 and (id::text=$2 or conversation_id=$2) limit 1`, [user.id, String(room.id)])
+                         union all select 1 from pro_threads where user_id::text=$1 and (id::text=$2 or conversation_id=$2) limit 1`, [String(userId), String(id)])
   return !!hit
 }
 

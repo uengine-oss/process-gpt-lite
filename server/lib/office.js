@@ -10,6 +10,7 @@ import { config } from '../config.js'
 import { admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
 import { fetchRoomFile } from './roomStore.js'
+import { standInPath } from './craftWork.js'
 import { isEn } from './lang.js'
 
 // same table as process-gpt's src/utils/officeEditor.js EDITOR_BY_EXT
@@ -71,9 +72,10 @@ export function documentFrom(output) {
 }
 
 // A sandbox file → a public URL the editor can load. Where the sandbox is not on this machine (the
-// agent's pods), the copy deepagents stored for the turn (src, a signed url) or the room folder's.
-async function sandboxBytes(sandboxPath, src) {
-  const host = await workspaceHostPath(sandboxPath).catch(() => null)
+// agent's pods): a file an ArtCraft app wrote here for it (lib/craftWork.js — deepagents never had it,
+// or has an older copy), else the copy deepagents stored for the turn (src, a signed url) or the room folder's.
+async function sandboxBytes(sandboxPath, src, userId) {
+  const host = await workspaceHostPath(sandboxPath).catch(() => null) || await standInPath(sandboxPath, { userId })
   if (host) return fs.readFile(host)
   if (src) {
     const r = await fetch(src, { signal: AbortSignal.timeout(60_000) }).catch(() => null)
@@ -84,7 +86,7 @@ async function sandboxBytes(sandboxPath, src) {
   throw new Error(`workspace folder not found: ${sandboxPath}`)
 }
 export async function publish(userId, sandboxPath, src) {
-  const buf = await sandboxBytes(sandboxPath, src)
+  const buf = await sandboxBytes(sandboxPath, src, userId)
   const name = path.basename(sandboxPath)
   // storage keys must be ASCII; the name the user sees travels with the card
   const key = `pgpt-pro/${userId}/${crypto.randomUUID()}.${extOf(name)}`
@@ -107,7 +109,7 @@ const EXT = '(?:docx|odt|pptx|xlsx|xlsm|xls|csv|pdf|hwpx|hwp|markdown|md|txt|htm
 // a quoted path may hold spaces ("/workspace/11월 고객 세미나 예산표.xlsx"); a bare one may not
 const QUOTED_RE = new RegExp(`[\`*"'](\\/workspace\\/[^\`*"'\\n]+?\\.${EXT})[\`*"']`, 'g')
 const BARE_RE = new RegExp(`\\/workspace\\/[^\\s"'\`)\\]]+?\\.${EXT}\\b`, 'g')
-export async function documentsOfRun({ text, dirs, since }) {
+export async function documentsOfRun({ text, dirs, since, userId = null }) {
   const t = String(text || '')
   // a markdown link carries the path URL-encoded ("견적서%20초안.xlsx"); the file on disk is not
   const decode = (p) => { try { return decodeURIComponent(p) } catch { return p } }
@@ -115,8 +117,10 @@ export async function documentsOfRun({ text, dirs, since }) {
   // the top of the tenant workspace, where an agent sometimes saves without a run folder. Every
   // user's runs share it, so a new file there counts only when this answer names it (by file
   // name); otherwise another person's document saved meanwhile would turn up in this chat.
+  // (where the agent's workspace is not on this machine: what the ArtCraft apps wrote here for this person — lib/craftWork.js)
+  const onDisk = async (p) => await workspaceHostPath(p).catch(() => null) || await standInPath(p, { userId })
   for (const dir of ['/workspace', ...dirs]) {
-    const host = await workspaceHostPath(dir).catch(() => null)
+    const host = await onDisk(dir)
     if (!host) continue
     const walk = async (d, depth) => {
       for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
@@ -129,7 +133,7 @@ export async function documentsOfRun({ text, dirs, since }) {
   }
   // a path the answer only mentions is not a document unless it is on disk
   const real = []
-  for (const p of found) if (await workspaceHostPath(p).then((h) => fs.stat(h)).catch(() => null)) real.push(p)
+  for (const p of found) if (await onDisk(p).then((h) => h && fs.stat(h)).catch(() => null)) real.push(p)
   return real
 }
 

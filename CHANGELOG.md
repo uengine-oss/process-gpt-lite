@@ -11,6 +11,7 @@
 
 ### 추가
 
+- **ArtCraft 앱을 운영 서버에서도** (2026-11-25 사용자: 「서버에도 크래프트 시리즈 패포해줘」) — 운영(k8s)은 서버 파드에 ArtCraft 웹 편집기 · CLI 가 없어 「이 설치에는 … 앱이 없어」였습니다. CI 가 만든 `process-gpt-lite-craft` 이미지를 init 컨테이너로 `/data/craft` · `/data/craft-bin` 에 두고(내용이 바뀔 때만 복사, wasm · js 는 gzip 도 만들어 둠), 에이전트의 `/workspace` 가 이 서버에 없는 설치에서는 사람마다의 대신 폴더(`PRO_CRAFT_WORK_ROOT/<회사>/<사람>`, `server/lib/craftWork.js`)에서 CLI 를 돌립니다: 그 사람의 첨부 · 대화 폴더 파일을 storage 사본에서 가져오고, CLI 가 쓴 파일은 그 대화 폴더의 storage 사본으로 올려 채팅 카드가 됩니다. 대화 폴더는 그 사람이 쓸 수 있는 것만(자기 대화 · 실행 권한 이상의 공유 폴더 방 · 참여한 인스턴스 — 작업실과 같은 규칙), 경로는 `/workspace` 안에서만. PhotoCraft 웹 빌드에 문서용 한글 글꼴 목록. 시험 `craftWork.test.js` · `craftInstall.test.js`(설치에 앱이 다 있는지) · 배포 확인 C-IN-*, 스펙 `craft-apps`.
 - **데스크톱 앱 안의 에이전트 고르기가 이 컴퓨터의 까닭을 말한다 · 새 데스크톱 판 알림** (2026-11-25 사용자: 「일렉트론에서 실행했는데도... 에이전트 선택이 안됨」 — 그 앱은 로컬 에이전트 전 판 0.1.0 이라 이 컴퓨터를 짝짓지 못했는데, 고르기는 앱 안에서 「PC 앱을 설치하고 로그인하면 쓸 수 있어요」라고 했습니다)
   - 앱 안에서 그 사람의 데스크톱이 하나도 이어져 있지 않으면 「Claude Code · 내 PC」 · 「Codex · 내 PC」의 까닭이 이 컴퓨터의 것으로 바뀝니다: 옛 앱(「PC 앱이 오래돼 …」 + 지금 · 최신 버전 + 「최신 버전 받기」), 짝짓기 실패 · 서버가 끊음 · 연결 해제(「이 컴퓨터 연결」 단추), 연결 중. 설정 › 계정 › 내 컴퓨터의 에이전트도 같은 말을 합니다. 목록에서 Tab 으로 아래 링크 · 단추에 갑니다.
   - 서버가 가장 새 데스크톱 릴리스(`desktop-vX.Y.Z`)를 GitHub 에서 뒤에서 읽어 6시간 두고(`server/lib/localAgents/desktopRelease.js`, `PRO_DESKTOP_LATEST` 로 고정 · `PRO_DESKTOP_RELEASES_REPO=off` 로 끔) `GET /api/local-agents/chat` 의 `desktop.latest` 로 알립니다 — 앱 안의 화면은 앱이 그보다 오래됐으면 「PC 앱 새 버전(…)이 나왔어요」를 보입니다. 화면은 서버에서 오므로 0.1.0 앱에도 보입니다.

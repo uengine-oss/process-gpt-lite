@@ -78,9 +78,13 @@ export function folderMatch(text, folders) {
 
 // a shared folder's run room (startChatWork): one variation's work, never the main chat's conversation
 export async function isFolderRoom(conversationId) {
-  if (!conversationId) return false
-  const [r] = await q(`select 1 from pro_folder_variations where source->>'room_id' = $1 limit 1`, [String(conversationId)])
-  return !!r
+  return !!(await folderOfRoom(conversationId))
+}
+// the folder whose variation that run room works on (its id), or null
+export async function folderOfRoom(conversationId) {
+  if (!conversationId) return null
+  const [r] = await q(`select folder_id from pro_folder_variations where source->>'room_id' = $1 limit 1`, [String(conversationId)])
+  return r?.folder_id || null
 }
 
 // prepare the variation and the instruction; `finish` commits after the agent's turn

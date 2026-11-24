@@ -10,6 +10,9 @@ for p in /patches/"$app"-*.patch; do git -C "$src" apply "$p"; done
 cd "$src"
 # filmcraft's package.sh skips its interactive checks under CI
 [ "$app" = filmcraft ] && export CI=1
+# photocraft's web build serves document fonts from fonts/manifest.txt (README › Fonts): NanumGothic, the
+# face the agent writes text layers in, so a Korean text layer opened in the web editor keeps its face
+[ "$app" = photocraft ] && export PHOTOCRAFT_WEB_FONTS_DIR="$CRAFT_FONTS_DIR"
 # photocraft's package.sh names the JS glue after the wasm's hash, but Trunk hashes the wasm again
 # after wasm-opt: take the one glue file there is (the site copies it to a fixed name anyway)
 if [ "$app" = photocraft ]; then

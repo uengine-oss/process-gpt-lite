@@ -1353,7 +1353,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (convNow && thread?.kind === 'chat') rebuildSoon(user.id, convNow)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
   for (const f of files) if (f.url && !f.path) f.name = displayName(f, body)
-  for (const p of await documentsOfRun({ text: body, dirs: rooms, since: started - 2000 }).catch(() => [])) {
+  for (const p of await documentsOfRun({ text: body, dirs: rooms, since: started - 2000, userId: user.id }).catch(() => [])) {
     // office-mcp already published this one (store_and_render): one card per document
     const name = p.split('/').pop()
     if (files.some((f) => f.path === p || (f.url && f.name === name))) continue
