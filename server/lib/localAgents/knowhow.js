@@ -33,9 +33,16 @@ export function sanitize(learned = {}) {
   return { steers, memory, skills }
 }
 
+// the skill folders this job was given (recorded when it was offered — jobs.js offer): a skill edit is taken only for one of them, by
+// its folder id and name — never a folder the desktop names on its own (another skill, someone's private one)
+export const wasSent = (job, k) => (Array.isArray(job?.sent_skills) ? job.sent_skills : []).some((x) => x && String(x.folderId) === String(k?.folderId || '') && String(x.name) === String(k?.name || ''))
+
 // a finished run's lessons → candidates on the job (and who is told)
 export async function learn(job, learned) {
-  const { steers, memory, skills } = sanitize(learned)
+  const { steers, memory } = sanitize(learned)
+  const all = sanitize(learned).skills
+  const skills = all.filter((k) => wasSent(job, k))
+  if (skills.length < all.length) console.warn(`[local-agents] ${job.activity_name}: skill edits for folders not sent to this job dropped (${all.filter((k) => !wasSent(job, k)).map((k) => k.name).join(', ')})`)
   if (!steers.length && !memory.length && !skills.length) return []
   const row = (await q('select * from todolist where id::text=$1', [String(job.todo_id)]))[0]
   const { actOf } = await import('../ontology/run.js')
@@ -144,7 +151,9 @@ async function toSkill(user, job, c) {
   const G = await import('../folders/git.js')
   const fs = await import('node:fs/promises')
   const path = await import('node:path')
-  const folder = c.skill?.folderId ? await S.folderById(c.skill.folderId) : await SK.skillFolder(c.skill?.name)
+  // (only a skill folder this job was given — checked again here, whatever the candidate says)
+  if (!wasSent(job, c.skill)) throw err(403, L('이 실행에 보내지 않은 스킬이에요.', 'That skill was not given to this run.'))
+  const folder = await S.folderById(c.skill.folderId)
   if (!folder || folder.kind !== 'skill') throw err(404, L('그 스킬 폴더를 찾지 못했어요.', 'The skill folder was not found.'))
   const v = await S.createVariation(folder, { title: L(`${job.activity_name} 로컬 실행에서 고친 점`, `Changes from a local run of ${job.activity_name}`), kind: 'person',
     holder: { type: 'user', id: user.id, name: user.name }, createdBy: user.id, source: { label: provenance(c), local_job: job.id, todo_id: String(job.todo_id) } })

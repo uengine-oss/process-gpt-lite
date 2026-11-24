@@ -11,7 +11,9 @@ import * as R from './relay.js'
 const HELLO_MS = 10_000
 const PING_MS = 25_000
 const links = new Map() // `${tenant}:${userId}` → Map(deviceId → link)
-let handlers = { online: async () => {}, message: async () => {}, offline: async () => {} }
+// online: a link came on (what it was running is checked against what it says it runs) · caps: it reported new capabilities or settings
+// (only the queue is worked again — a run is never taken back for that) · message · offline
+let handlers = { online: async () => {}, caps: async () => {}, message: async () => {}, offline: async () => {} }
 export function setHandlers(h) { handlers = { ...handlers, ...h } }
 
 const keyOf = (tenant, userId) => `${tenant}:${userId}`
@@ -63,8 +65,10 @@ export async function receive(link, msg) {
   if (msg.type === 'caps') {
     if (msg.caps) link.caps = D.capsOf(msg.caps)
     if (msg.prefs) link.prefs = D.prefsOf(msg.prefs)
+    // (what it runs now, when it says: the jobs it holds are its own)
+    if (Array.isArray(msg.active)) link.active = new Set(msg.active.map(String).slice(0, 20))
     await withTenant(link.tenant, () => D.seen(link.id, { caps: link.caps, prefs: link.prefs })).catch(() => {})
-    await withTenant(link.tenant, () => handlers.online(link)).catch((e) => console.warn('[local-agents] caps', e.message))
+    await withTenant(link.tenant, () => handlers.caps(link)).catch((e) => console.warn('[local-agents] caps', e.message))
     return
   }
   // a terminal's bytes, hook events and watched files (relay.js)

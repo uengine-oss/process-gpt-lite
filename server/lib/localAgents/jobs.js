@@ -55,17 +55,23 @@ export async function freeLinks(job) {
   return { capable: links, free: links.filter((l) => (busy.get(l.id) || 0) < (l.caps.maxJobs || 2)) }
 }
 
-// A step for a local agent: its job (made once; a failed one is queued again — 「다시 시도」), then where it goes now.
+// A step for a local agent: its job (one per work item), then where it goes now. The work item claimed again after its job ended —
+// failed (「다시 시도」), cancelled, handed to the server (and the server agent failed, then 「다시 시도」), or done (the step was reopened)
+// — is a new run: queued again with the step's settings as they are now, nothing of the old run's session, steers or lines.
 // spec: {todoId, instId, activity, userId, agent, mode, offline, serverAgent, waitMinutes, gate}
+const REDO = `pro_local_jobs.state in ('failed','cancelled','delegated','done')`
+const again = (col, val, keep = `pro_local_jobs.${col}`) => `${col} = case when ${REDO} then ${val} else ${keep} end`
 export async function enqueue(spec) {
   const [j] = await q(`insert into pro_local_jobs (tenant_id, user_id, todo_id, proc_inst_id, activity_name, agent, mode, offline, server_agent, wait_minutes, gate, person_name)
                        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-                       on conflict (tenant_id, todo_id) do update set state = case when pro_local_jobs.state in ('failed','cancelled') then 'queued' else pro_local_jobs.state end,
-                         error = case when pro_local_jobs.state in ('failed','cancelled') then null else pro_local_jobs.error end,
-                         why = case when pro_local_jobs.state in ('failed','cancelled') then 'retry' else pro_local_jobs.why end,
-                         created_at = case when pro_local_jobs.state in ('failed','cancelled') then now() else pro_local_jobs.created_at end,
-                         device_id = case when pro_local_jobs.state in ('failed','cancelled') then null else pro_local_jobs.device_id end,
-                         session_id = case when pro_local_jobs.state in ('failed','cancelled') then null else pro_local_jobs.session_id end,
+                       on conflict (tenant_id, todo_id) do update set ${[
+                         again('state', `'queued'`), again('error', 'null'), again('why', `'retry'`), again('created_at', 'now()'), again('device_id', 'null'),
+                         again('device_name', 'null'), again('session_id', 'null'), again('run_branch', 'null'), again('result', 'null'), again('offered_at', 'null'),
+                         again('started_at', 'null'), again('finished_at', 'null'), again('steers', `'[]'::jsonb`), again('suggestions', `'[]'::jsonb`),
+                         again('lines', `'[]'::jsonb`), again('terminal', 'false'), again('screen', 'null'), again('sent_skills', `'[]'::jsonb`),
+                         again('user_id', 'excluded.user_id'), again('agent', 'excluded.agent'), again('mode', 'excluded.mode'), again('offline', 'excluded.offline'),
+                         again('server_agent', 'excluded.server_agent'), again('wait_minutes', 'excluded.wait_minutes'), again('gate', 'excluded.gate'),
+                         again('person_name', 'excluded.person_name')].join(', ')},
                          updated_at = now()
                        returning *`,
   [T(), spec.userId, String(spec.todoId), spec.instId || null, spec.activity || null, spec.agent, spec.mode === 'draft' ? 'draft' : 'complete',
@@ -97,7 +103,10 @@ async function offer(job, link) {
     await set(claimed, { state: 'queued', device_id: null })
     return delegate({ ...claimed, state: 'queued' }, 'unprepared', e.message)
   }
-  const j = await set(claimed, { folder_id: payload.git?.folder?.id || null, line: payload.git?.line || null, run_branch: payload.git?.branch || null, prompt: payload.prompt || null })
+  // (the skill folders it is given: a skill edit it sends back is taken only for these — knowhow.js)
+  const sent = (payload.skills || []).filter((k) => k?.folder?.id).map((k) => ({ name: String(k.name || ''), folderId: String(k.folder.id) }))
+  const j = await set(claimed, { folder_id: payload.git?.folder?.id || null, line: payload.git?.line || null, run_branch: payload.git?.branch || null, prompt: payload.prompt || null,
+    sent_skills: sent })
   if (!link.send({ type: 'job', job: { id: j.id, ...payload } })) { await set(j, { state: 'queued', device_id: null }); return j }
   console.log(`[local-agents] ${j.activity_name} → ${link.name} (${j.agent})`)
   await hooks.note(j, 'offered')
@@ -112,9 +121,18 @@ export async function dispatchFor(userId) {
   return out
 }
 
+// an offer taken back (handed to the server, offered again elsewhere): the desktop it was offered to drops it — it may be asking its
+// person, and it never starts a job the server has not confirmed (accept → accepted)
+function withdraw(job, reason) {
+  const link = job?.device_id ? H.linkOf(T(), String(job.device_id)) : null
+  if (link) link.send({ type: 'cancel', jobId: job.id, reason })
+}
+
 export async function delegate(job, why, detail = '') {
+  const [was] = await q('select state, device_id from pro_local_jobs where id=$1', [job.id])
   const [j0] = await q(`update pro_local_jobs set state='delegated', why=$2, error=$3, device_id=null, finished_at=now(), updated_at=now() where id=$1 and state in ('queued','offered') returning *`, [job.id, why, detail || null])
   if (!j0) return job
+  if (was?.state === 'offered') withdraw({ ...j0, device_id: was.device_id }, 'delegated')
   const j = await endSteers(j0, 'delegated')
   console.log(`[local-agents] ${j.activity_name}: → server agent ${j.server_agent} (${why})`)
   await hooks.note(j, 'delegated')
@@ -128,11 +146,20 @@ const mine = (job, link) => !!job && String(job.user_id) === link.userId && Stri
 
 export async function onMessage(link, msg) {
   const job = await byId(msg.jobId)
-  if (!mine(job, link)) { if (msg.jobId) console.warn(`[local-agents] ${link.name}: ${msg.type} for a job that is not its own (${String(msg.jobId).slice(0, 8)})`); return }
+  if (!mine(job, link)) {
+    // (its person's job, no longer offered to it — taken back meanwhile: it is told to drop it, never to run it)
+    if (msg.type === 'accept' && job && String(job.user_id) === link.userId) link.send({ type: 'cancel', jobId: job.id, reason: 'withdrawn' })
+    if (msg.jobId) console.warn(`[local-agents] ${link.name}: ${msg.type} for a job that is not its own (${String(msg.jobId).slice(0, 8)})`)
+    return
+  }
   switch (msg.type) {
     case 'accept': {
-      if (job.state !== 'offered') return
-      const j = await set(job, { state: 'running', started_at: new Date() })
+      // the desktop starts only on this answer: running (or still running — an accept said again after a dropped link)
+      if (job.state === 'running') { link.send({ type: 'accepted', jobId: job.id }); return }
+      if (job.state !== 'offered') { link.send({ type: 'cancel', jobId: job.id, reason: job.state }); return }
+      const [j] = await q(`update pro_local_jobs set state='running', started_at=now(), updated_at=now() where id=$1 and state='offered' and device_id=$2 returning *`, [job.id, link.id])
+      if (!j) { link.send({ type: 'cancel', jobId: job.id, reason: 'withdrawn' }); return }
+      link.send({ type: 'accepted', jobId: j.id })
       await hooks.note(j, 'running')
       return sendSteers(j, link)
     }
@@ -202,6 +229,12 @@ export async function onOnline(link) {
     // (an offer it never saw, or a run it no longer has — the app was restarted mid-run): offered again
     await set(j, { state: 'queued', device_id: null, why: 'lost' })
   }
+  return dispatchFor(link.userId)
+}
+
+// a desktop reported new capabilities or settings (its link stayed open): its person's queue is worked again — nothing it holds is
+// taken back (that is onOnline's, when a link comes on)
+export async function onCaps(link) {
   return dispatchFor(link.userId)
 }
 
@@ -301,6 +334,7 @@ export async function sweep(now = Date.now()) {
     if (await hooks.cancelled(j).catch(() => false)) { await cancel(j, 'closed'); continue }
     if (overdue(j, now)) { await delegate(j, 'timeout'); continue }
     if (j.state === 'offered' && now - new Date(j.offered_at).getTime() > OFFER_MS) {
+      withdraw(j, 'unanswered')
       const back = await set(j, { state: 'queued', device_id: null, why: 'unanswered' })
       await route(back)
       continue

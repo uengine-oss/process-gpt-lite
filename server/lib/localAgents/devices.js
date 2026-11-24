@@ -45,6 +45,22 @@ export async function revoke(user, id) {
   return d ? view(d) : null
 }
 
+// Whether a desktop's job token may use the public git path now (folders/gitHttp.js device): its device is linked (not revoked), the job
+// is that device's, of that folder — and for a push, still running there (offered · running). → null when it may, else why not.
+export async function gitAccess(claims, { push = false } = {}) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(claims?.device || '')) || !/^[0-9a-f-]{36}$/i.test(String(claims?.job || ''))) return 'not a desktop job token'
+  const [d] = await q('select revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
+  if (!d || d.revoked_at) return 'this desktop is not linked any more'
+  const [j] = await q('select state, device_id, folder_id, sent_skills from pro_local_jobs where id=$1 and tenant_id=$2', [claims.job, claims.tenant])
+  if (!j || String(j.device_id || '') !== claims.device) return 'this job is not this desktop\'s'
+  // (the job's work folder, or a skill folder it was given — read only)
+  const skill = (j.sent_skills || []).some((k) => String(k.folderId) === claims.folder)
+  if (String(j.folder_id || '') !== claims.folder && !skill) return 'this job does not use that folder'
+  if (push && !(['offered', 'running'].includes(j.state) && !skill)) return 'this job is not running on this desktop'
+  if (!['offered', 'running', 'done', 'failed'].includes(j.state)) return 'this job is over'
+  return null
+}
+
 // what the desktop reported (hello / caps): kept for the settings screen and for dispatching; only the known keys, short strings
 export function capsOf(raw = {}) {
   const clis = {}

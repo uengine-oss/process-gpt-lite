@@ -28,6 +28,10 @@ const ACK_GRACE_MS = 20_000
 const SETTLE_MS = Number(process.env.PGL_RUNNER_SETTLE_MS || 3000)
 const IDLE_FINISH_MS = Number(process.env.PGL_RUNNER_IDLE_FINISH_MS || 120_000)
 const OUT_FLUSH_MS = 40
+// how long a job waits for the server to confirm it is still this desktop's (accept → accepted) before it is let go (the server offers it
+// again); how long a finished run keeps its folder for the server's 'finished' and the follow of the line, at most
+const ACCEPT_MS = Number(process.env.PGL_RUNNER_ACCEPT_MS || 60_000)
+const HOLD_MS = 10 * 60_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const safePart = (s, n = 24) => String(s || '').replace(/[^A-Za-z0-9._-]/g, '').slice(-n) || 'x'
 const T = (lang, ko, en) => (lang === 'en' ? en : ko)
@@ -79,6 +83,8 @@ class Runner extends EventEmitter {
   welcome(info = {}) {
     this.user = info.user || null
     for (const m of this.outbox) this.send(m)
+    // (an accept the server may not have got: said again — its answer starts the run)
+    for (const st of this.jobs.values()) if (st.awaiting) this.send({ type: 'accept', jobId: st.job.id })
     for (const [sid, x] of this.sessions) this.send({ type: 'term-open', sid, kind: x.kind, ref: x.ref, agent: x.S.agent, cli: x.S.cli, cols: x.S.cols, rows: x.S.rows, replay: x.S.buf.slice(-200_000), exited: x.S.exited })
   }
   // whether runs use a terminal here (else headless)
@@ -94,6 +100,8 @@ class Runner extends EventEmitter {
       return
     }
     if (msg.type === 'cancel') return this.cancel(msg.jobId)
+    // the server confirms the job is this desktop's: now it runs
+    if (msg.type === 'accepted') { const st = this.jobs.get(msg.jobId); if (st?.awaiting) st.awaiting(true); return }
     // what the CLI's owner typed in a viewer of its terminal (the server sends only the owner's — anyone else's input is dropped there;
     // checked here again) and the size their view wants
     if (msg.type === 'pty-input') { const x = this.sessions.get(String(msg.sid || '')); if (x && (!msg.byId || !this.user?.id || String(msg.byId) === String(this.user.id))) { x.S.write(String(msg.data || '')); x.typedAt = Date.now() } return }
@@ -110,7 +118,7 @@ class Runner extends EventEmitter {
     if (!C.CLIS[job.agent]) return 'unknown agent'
     const g = job.git || {}
     if (!g.token || !g.base || !g.branch || !String(g.branch).startsWith('pgpt-agent/') || !UUID.test(String(g.folder?.id || ''))) return 'no folder'
-    if (!g.url && !String(g.path || '').startsWith('/api/git/')) return 'no folder'
+    if (!g.url && !/^\/api\/(local-)?git\//.test(String(g.path || ''))) return 'no folder'
     if (typeof job.prompt !== 'string' || !job.prompt.trim()) return 'no prompt'
     if (!this.outPath(job)) return 'bad output folder'
     return null
@@ -139,6 +147,8 @@ class Runner extends EventEmitter {
     if (this.jobs.size >= this.maxJobs) { this.send({ type: 'decline', jobId: job.id, reason: 'busy' }); return }
     this.secrets.add(job.git.token)
     const st = { job, phase: 'asking', since: new Date().toISOString(), lines: [], early: [], resume: [], live: [], sent: 0, acked: 0, cancelled: false }
+    // (released when the server took the result in and the folder followed the line — or the run was let go)
+    st.released = new Promise((res) => { st.release = res })
     // the same run again after this app restarted (the server offers it with the CLI's session): it goes on in that session, in the
     // folder as it was left — when this computer still has both
     if (job.resume?.sessionId) {
@@ -152,14 +162,23 @@ class Runner extends EventEmitter {
       try { ok = await this.askFn(job) } catch { ok = false }
       if (!ok || st.cancelled) { this.jobs.delete(job.id); this.changed(); this.send({ type: 'decline', jobId: job.id, reason: 'declined' }); return }
     }
+    // nothing is touched until the server says the job is still this desktop's (it may have been handed elsewhere meanwhile — a link
+    // that blinked, an offer that ran out): accept → accepted, or cancel
+    const ok = await new Promise((res) => {
+      const timer = setTimeout(() => res(false), ACCEPT_MS)
+      st.awaiting = (yes) => { clearTimeout(timer); st.awaiting = null; res(yes) }
+      this.send({ type: 'accept', jobId: job.id })
+    })
+    if (!ok || st.cancelled) { this.log(`[runner] ${job.activity}: not confirmed by the server — let go`); st.release(); this.jobs.delete(job.id); this.changed(); return }
     st.phase = 'syncing'
-    this.send({ type: 'accept', jobId: job.id })
     this.changed()
-    // one run at a time in one folder (two steps of an instance side by side): the second waits for the first
+    // one run at a time in one folder (two steps of an instance side by side): the second waits until the first is taken in and its
+    // folder followed the line (finished) — never while the first's follow checks the folder out
     const dir = this.dirFor(job)
     const prev = this.locks.get(dir) || Promise.resolve()
     const done = prev.then(() => this.execute(st, dir)).catch((e) => this.failed(st, e))
-    this.locks.set(dir, done.finally(() => { if (this.locks.get(dir) === done) this.locks.delete(dir) }))
+    const held = done.then(() => Promise.race([st.released, new Promise((res) => { const t = setTimeout(res, HOLD_MS); t.unref?.() })]))
+    this.locks.set(dir, held.finally(() => { if (this.locks.get(dir) === held) this.locks.delete(dir) }))
     return done
   }
 
@@ -206,6 +225,9 @@ class Runner extends EventEmitter {
     const key = crypto.createHash('sha1').update(this.server).digest('hex').slice(0, 10)
     st.skills = await SKL.place({ dir, agent: job.agent, skills: job.skills || [], server: this.server, cacheRoot: path.join(this.dataDir, 'skills', key), lang, log: (m) => this.log(m) })
     if (st.skills.names.length) this.progress(st, 'status', T(lang, `스킬 ${st.skills.names.length}개를 받았어요: ${st.skills.names.join(', ')}`, `Got ${st.skills.names.length} skill(s): ${st.skills.names.join(', ')}`))
+    for (const n of st.skills.skipped || []) this.progress(st, 'status', T(lang, `스킬 「${n}」은 작업 폴더에 같은 자리의 스킬이 있어 그것을 써요`, `Skill "${n}": the work folder has its own there — that one is used`))
+    // (Codex in a folder with its own AGENTS.md: the pointer to the skills goes with the prompt)
+    if (st.skills.pointer) job.prompt = `${job.prompt}\n\n${st.skills.pointer}`
     if (st.resumeFrom?.outDir) job.outDir = st.resumeFrom.outDir
     const out = this.outPath(job, dir)
     fs.mkdirSync(out, { recursive: true })
@@ -381,7 +403,7 @@ class Runner extends EventEmitter {
   learned(st) {
     const steers = (st.steered || []).map((s) => ({ steerId: s.steerId, text: s.text, by: s.by, ...(s.from ? { from: s.from } : {}), how: s.how || null,
       after: (st.history || []).slice(s.histAt || 0).filter((l) => l.kind === 'tool' || l.kind === 'text').slice(0, 6).map((l) => l.text) }))
-    const own = st.skills ? SKL.changes({ dir: st.dir, placed: st.skills.placed, agents: st.skills.agents }) : { skills: [], memory: [] }
+    const own = st.skills ? SKL.changes({ dir: st.dir, placed: st.skills.placed, agents: st.skills.agents, before: st.skills.before }) : { skills: [], memory: [] }
     return { steers, memory: own.memory, skills: own.skills }
   }
 
@@ -516,11 +538,12 @@ class Runner extends EventEmitter {
     const st = this.jobs.get(jobId)
     if (!st) return
     st.cancelled = true
+    if (st.awaiting) st.awaiting(false)
     if (st.child) { st.interrupted = true; this.kill(st.child) }
     if (st.term) st.term.kill()
     this.forget(jobId)
   }
-  dropped(st) { this.log(`[runner] ${st.job.activity}: cancelled`); this.jobs.delete(st.job.id); this.changed() }
+  dropped(st) { this.log(`[runner] ${st.job.activity}: cancelled`); this.jobs.delete(st.job.id); st.release?.(); this.changed() }
 
   failed(st, e) {
     if (st.cancelled) return this.dropped(st)
@@ -554,6 +577,7 @@ class Runner extends EventEmitter {
     if (msg.state === 'done' && st.dir && st.job.git.line) {
       await G.follow(st.dir, { token: st.job.git.token, base: st.job.git.line }).catch((e) => this.log('[runner] follow', e.message))
     }
+    st.release?.()
     this.emit('finished', { jobId: msg.jobId, state: msg.state })
   }
 

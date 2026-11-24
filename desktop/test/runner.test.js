@@ -42,14 +42,15 @@ test.before(async () => {
 test.after(async () => { await srv?.close(); await skillSrv?.close(); fs.rmSync(ROOT, { recursive: true, force: true }) })
 
 const sent = []
-const link = { send: (m) => { sent.push(JSON.parse(JSON.stringify(m))); return true } }
+// the server's side of the link: what the runner sends is recorded; an accept is confirmed (the server's 'accepted') unless ack is off
+const linkFor = (r, { ack = true } = {}) => ({ send: (m) => { sent.push(JSON.parse(JSON.stringify(m))); if (ack && m.type === 'accept') setImmediate(() => r.handle({ type: 'accepted', jobId: m.jobId })); return true } })
 const waitFor = async (fn, ms = 20000) => { const t = Date.now(); for (;;) { const v = fn(); if (v) return v; if (Date.now() - t > ms) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 50)) } }
 const of = (id, type) => sent.filter((m) => m.jobId === id && (!type || m.type === type))
 const logs = []
-function runner(opts = {}) {
+function runner(opts = {}, { ack = true } = {}) {
   const r = new Runner({ mode: 'headless', dataDir: path.join(ROOT, 'data'), server: srv.base, searchPath: SEARCH, caps: { 'claude-code': { installed: true, runnable: true, version: '9.9.9' }, codex: { installed: true, runnable: true, version: '9.9.9' } },
     log: (s) => logs.push(s), ...opts })
-  r.setLink(link)
+  r.setLink(linkFor(r, { ack }))
   r.welcome({ user: { id: USER, name: '김담당' } })
   return r
 }
@@ -285,4 +286,83 @@ test('Codex 에는 스킬을 .pgl-skills 에 두고 AGENTS.md 로 가리킨다',
   assert.match(done.summary, /- 견적-규칙: \.pgl-skills\/견적-규칙\/SKILL\.md/)
   assert.ok(!done.files.some((f) => f === 'AGENTS.md' || f.startsWith('.pgl-skills')))
   assert.deepEqual(done.knowhow.memory, [], '앱이 쓴 AGENTS.md 는 배운 것이 아니다')
+})
+
+test('서버가 받았다고(accepted) 할 때까지 폴더도 CLI 도 건드리지 않고, 거둔 제안(cancel)은 돌리지 않는다 · 끊겼다 이어지면 다시 묻는다', async () => {
+  const r = runner({}, { ack: false })
+  const j = job('claude-code', 'WRITE_OUT a.md :: x')
+  const run = r.handle({ type: 'job', job: j })
+  await waitFor(() => of(j.id, 'accept')[0])
+  await new Promise((res) => setTimeout(res, 800))
+  assert.equal(of(j.id, 'session').length + of(j.id, 'progress').length, 0, '확인 전에는 아무것도 하지 않는다')
+  await r.handle({ type: 'cancel', jobId: j.id, reason: 'withdrawn' })
+  await run
+  assert.equal(of(j.id, 'done').length + of(j.id, 'failed').length, 0)
+  assert.equal(r.jobs.has(j.id), false)
+  // confirmed: it runs
+  const k = job('claude-code', 'WRITE_OUT b.md :: y')
+  const run2 = r.handle({ type: 'job', job: k })
+  await waitFor(() => of(k.id, 'accept')[0])
+  await r.handle({ type: 'accepted', jobId: k.id })
+  await run2
+  assert.equal((await waitFor(() => of(k.id, 'done')[0] || of(k.id, 'failed')[0])).type, 'done')
+  // the link dropped before the answer: the accept is said again when it is back
+  const m = job('claude-code', 'WRITE_OUT c.md :: z')
+  const run3 = r.handle({ type: 'job', job: m })
+  await waitFor(() => of(m.id, 'accept')[0])
+  r.welcome({ user: { id: USER, name: '김담당' } })
+  assert.equal(of(m.id, 'accept').length, 2)
+  await r.handle({ type: 'accepted', jobId: m.id })
+  await run3
+  assert.equal((await waitFor(() => of(m.id, 'done')[0] || of(m.id, 'failed')[0])).type, 'done')
+})
+
+test('같은 폴더의 다음 일은 앞 일을 서버가 받아들이고(finished) 폴더가 라인을 따라간 뒤에 시작한다', async () => {
+  const r = runner()
+  const j1 = job('claude-code', 'WRITE_OUT 앞.md :: 앞')
+  const j2 = job('claude-code', 'WRITE_OUT 뒤.md :: 뒤', { instId: j1.instId })
+  await r.handle({ type: 'job', job: j1 })
+  assert.equal((await waitFor(() => of(j1.id, 'done')[0] || of(j1.id, 'failed')[0])).type, 'done')
+  const run2 = r.handle({ type: 'job', job: j2 })
+  await new Promise((res) => setTimeout(res, 800))
+  assert.equal(of(j2.id, 'progress').length, 0, '앞 일이 끝나기 전에는 폴더를 건드리지 않는다')
+  await r.handle({ type: 'finished', jobId: j1.id, state: 'done' })
+  await run2
+  assert.equal((await waitFor(() => of(j2.id, 'done')[0] || of(j2.id, 'failed')[0])).type, 'done')
+})
+
+test('작업 폴더가 지닌 AGENTS.md · CLAUDE.md · .claude/ 는 지우지도 덮어쓰지도 않는다 — 회사 스킬은 겹치지 않는 자리에', async () => {
+  const repo = makeRepo(path.join(ROOT, 'srv-tracked', 't'), { 'AGENTS.md': '# 우리 저장소 규칙\n', 'CLAUDE.md': '# 팀 메모\n', '.claude/settings.json': '{"permissions":{}}\n',
+    '.claude/skills/견적-규칙/SKILL.md': '---\nname: 견적-규칙\n---\n저장소의 판\n' })
+  const s2 = await gitServer({ repo: repo.dir, token: TOKEN })
+  const show2 = (ref, file) => execFileSync('git', ['show', `${ref}:${file}`], { cwd: repo.dir }).toString()
+  try {
+    for (const agent of ['codex', 'claude-code']) {
+      const r = runner()
+      const branch = `pgpt-agent/tracked-${agent}-${Date.now().toString(36)}`
+      const j = job(agent, `WRITE_OUT a.md :: x${agent === 'claude-code' ? '\nMEMORY :: 견적서 끝에 연락처' : ''}`, { skills: [skill()],
+        git: { url: `${s2.base}${s2.path}`, path: s2.path, token: TOKEN, line: 'main', base: 'main', branch, folder: { id: crypto.randomUUID(), slug: 't', name: 't' } } })
+      await r.handle({ type: 'job', job: j })
+      const done = await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0])
+      assert.equal(done.type, 'done', JSON.stringify(done))
+      assert.equal(show2(branch, 'AGENTS.md'), '# 우리 저장소 규칙\n', `${agent}: AGENTS.md 그대로`)
+      assert.equal(show2(branch, '.claude/settings.json'), '{"permissions":{}}\n', `${agent}: .claude/settings.json 그대로`)
+      assert.equal(show2(branch, '.claude/skills/견적-규칙/SKILL.md'), '---\nname: 견적-규칙\n---\n저장소의 판\n', `${agent}: 저장소의 스킬 그대로`)
+      assert.ok(!done.files.some((f) => f === 'AGENTS.md' || f.startsWith('.claude/') || f.startsWith('.pgl-skills')), `${agent}: ${done.files.join(',')}`)
+      if (agent === 'codex') {
+        // the company skill where Codex reads it, the pointer in its prompt (the folder's own AGENTS.md is left alone)
+        assert.match(done.summary, /스킬: 견적-규칙/)
+        const got = fs.readFileSync(process.env.FAKE_CLI_LOG, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((x) => x.kind === 'codex' && x.received)
+        assert.ok(got.some((x) => x.received.includes('.pgl-skills/견적-규칙/SKILL.md')), '스킬 안내는 프롬프트로')
+        assert.deepEqual(done.knowhow.memory, [])
+      } else {
+        // what it added to the folder's own CLAUDE.md is the memory it learned — not the folder's note before it
+        assert.equal(show2(branch, 'CLAUDE.md'), '# 팀 메모\n\n- 견적서 끝에 연락처\n')
+        const mem = done.knowhow.memory.find((m) => m.file === 'CLAUDE.md')
+        assert.ok(mem && /견적서 끝에 연락처/.test(mem.text) && !/팀 메모/.test(mem.text), JSON.stringify(done.knowhow.memory))
+        assert.ok(of(j.id, 'progress').flatMap((m) => m.lines).some((l) => /견적-규칙/.test(l.text) && /작업 폴더/.test(l.text)), '같은 이름의 저장소 스킬이 있음을 알린다')
+      }
+      await r.handle({ type: 'finished', jobId: j.id, state: 'done' })
+    }
+  } finally { await s2.close() }
 })

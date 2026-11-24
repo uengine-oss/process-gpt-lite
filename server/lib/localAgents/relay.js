@@ -23,6 +23,10 @@ const SCROLLBACK = 400 * 1024
 const HOOKS_KEPT = 100
 const FILE_MAX = 256 * 1024
 const TICKET_MS = 60_000
+// how long a session stays in memory once its CLI ended (viewers that are on keep its screen; later ones get the job's kept screen —
+// a kind's stored()), and once its desktop went away without coming back
+const limits = { keepMs: Number(process.env.PRO_LOCAL_TERM_KEEP_MS || 10 * 60_000), detachMs: Number(process.env.PRO_LOCAL_TERM_DETACH_MS || 60 * 60_000) }
+export function setLimits(next = {}) { const was = { ...limits }; Object.assign(limits, next); return was }
 const SID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const events = new EventEmitter() // 'open' · 'hook' · 'files' · 'exit' — ({tenant, sid, kind, ref, userId, …})
@@ -66,6 +70,7 @@ export async function receive(link, msg) {
     }
     S.link = link
     S.detached = false
+    clearTimeout(S.dropTimer)
     // (a restarted server, or a link that came back: the desktop sends its screen so far)
     if (typeof msg.replay === 'string' && msg.replay && !S.buf) feed(S, msg.replay, false)
     if (msg.exited) S.exited = true
@@ -83,6 +88,7 @@ export async function receive(link, msg) {
     broadcast(S, { type: 'exit', code: S.code })
     await kinds.get(S.kind)?.exit?.(S).catch((e) => console.warn('[local-agents] term exit', e.message))
     events.emit('exit', { ...view(S), code: S.code })
+    later(S, limits.keepMs)
     return
   }
   if (msg.type === 'hook') {
@@ -112,9 +118,25 @@ function feed(S, data, live) {
 const clamp = (v, lo, hi, d) => (Number.isFinite(Number(v)) ? Math.max(lo, Math.min(hi, Number(v) | 0)) : d)
 const view = (S) => ({ tenant: S.tenant, sid: S.sid, kind: S.kind, ref: S.ref, userId: S.userId, agent: S.agent, cli: S.cli })
 
-// a desktop went away: its terminals stay (the screen so far), marked detached until it is back
+// a desktop went away: its terminals stay (the screen so far), marked detached until it is back — or dropped when it is not back in a while
 export function linkGone(link) {
-  for (const S of sessions.values()) if (S.link === link && !S.exited) { S.detached = true; broadcast(S, { type: 'detached' }) }
+  for (const S of sessions.values()) if (S.link === link && !S.exited) { S.detached = true; broadcast(S, { type: 'detached' }); later(S, limits.detachMs) }
+}
+
+// a session out of memory: its screen model disposed, its viewers closed (a viewer that comes later opens the kept screen)
+function later(S, ms) {
+  clearTimeout(S.dropTimer)
+  S.dropTimer = setTimeout(() => drop(S), ms)
+  S.dropTimer.unref?.()
+}
+function drop(S) {
+  if (sessions.get(keyOf(S.tenant, S.sid)) !== S) return
+  sessions.delete(keyOf(S.tenant, S.sid))
+  for (const ws of S.viewers) try { ws.close(1000, 'ended') } catch { /* gone */ }
+  S.viewers.clear()
+  try { S.screen?.dispose() } catch { /* fine */ }
+  S.screen = null
+  S.buf = ''
 }
 
 // the screen model has parsed every byte so far (it parses asynchronously)
@@ -208,4 +230,4 @@ function serve(ws, t, S, stored) {
 }
 
 // (tests)
-export function reset() { for (const S of sessions.values()) for (const ws of S.viewers) try { ws.close() } catch { /* gone */ } sessions.clear(); tickets.clear() }
+export function reset() { for (const S of [...sessions.values()]) { clearTimeout(S.dropTimer); drop(S) } sessions.clear(); tickets.clear() }

@@ -382,11 +382,22 @@ await step('5. A 의 Codex 단계: 실행 중 조종은 같은 세션의 터미�
   return `session ${j.session_id.slice(0, 8)} · runs ${log.filter((x) => x.args).length}`
 })
 
-await step('6. 기기를 끊으면 그 링크가 닫히고 다시 붙지 못한다', async () => {
+await step('6. 기기를 끊으면 그 링크가 닫히고 다시 붙지 못한다 — 공개 git 경로(/api/local-git)도 그 기기의 일 토큰을 거절한다', async () => {
+  // the public git path: only a token minted for one job on one linked desktop
+  const GH = await import('../lib/folders/gitHttp.js')
+  const j1 = await jobOf(t1)
+  const refs = async (token) => (await fetch(`${BASE}/api/local-git/${j1.folder_id}.git/info/refs?service=git-upload-pack`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })).status
+  const devTok = GH.mintToken({ tenant: TENANT, folderId: j1.folder_id, push: `pgpt-agent/local-${j1.id.slice(0, 8)}-`, scope: 'device', device: devices.A.device.id, job: j1.id })
+  assert.equal(await refs(null), 401)
+  assert.equal(await refs(GH.mintToken({ tenant: TENANT, folderId: j1.folder_id })), 403, '클러스터의 폴더 토큰은 공개 경로에서 받지 않는다')
+  assert.equal(await refs(devTok), 200, '링크된 기기의 그 일 토큰은 읽기')
+  // (the runners cloned and pushed over it: the work folders' remotes are the public path)
+  assert.match(execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: ra.runner.dirFor({ instId: INST, git: { folder: { id: j1.folder_id } } }) }).toString(), /\/api\/local-git\//)
   await api(ta, `/local-agents/devices/${devices.A.device.id}`, { method: 'DELETE' })
   await waitFor(() => ra.status().refused?.code === 4401, 10000, 'A refused')
   const list = await api(ta, '/local-agents/devices')
   assert.ok(list.find((d) => d.id === devices.A.device.id).revoked)
+  assert.equal(await refs(devTok), 403, '끊은 기기의 토큰은 공개 git 경로에서도 거절')
   return `refused ${ra.status().refused.code}`
 })
 

@@ -4,7 +4,8 @@
 --   pro_local_jobs    — 단계 하나를 로컬에서 돌리는 일(대기 · 보냄 · 실행 · 끝 · 실패 · 서버에 맡김 · 취소). 단계(todolist 행) 하나에 하나.
 --                       그 실행의 조종(steers — 실행하는 사람만 입력) · 참여자가 올린 프롬프트 제안(suggestions — 대기 · 입력됨 · 버림) ·
 --                       배운 것 후보(knowhow)를 함께 지닌다. 실행이 사람의 대화형 CLI(터미널)로 돌았으면 terminal, 끝난 화면의 끝부분(screen —
---                       서버가 다시 켜진 뒤에도 보는 사람이 마지막 화면을 본다)과 그 크기(screen_size)도.
+--                       서버가 다시 켜진 뒤에도 보는 사람이 마지막 화면을 본다)과 그 크기(screen_size)도. 그 실행에 보낸 스킬 폴더(sent_skills —
+--                       데스크톱이 돌려준 스킬 수정은 이 폴더들에 대해서만 받는다).
 -- RLS 는 켜고 정책은 두지 않는다(다른 pro_* 처럼 서버만 읽고 쓴다).
 create table if not exists pro_local_devices (
   id            uuid primary key default gen_random_uuid(),
@@ -53,6 +54,7 @@ create table if not exists pro_local_jobs (
   knowhow        jsonb not null default '[]'::jsonb,
   lines          jsonb not null default '[]'::jsonb,
   message_ids    jsonb not null default '{}'::jsonb,
+  sent_skills    jsonb not null default '[]'::jsonb,
   terminal       boolean not null default false,
   screen         text,
   screen_size    jsonb,
@@ -68,6 +70,7 @@ alter table pro_local_jobs add column if not exists device_name text;
 alter table pro_local_jobs add column if not exists person_name text;
 alter table pro_local_jobs add column if not exists suggestions jsonb not null default '[]'::jsonb;
 alter table pro_local_jobs add column if not exists knowhow jsonb not null default '[]'::jsonb;
+alter table pro_local_jobs add column if not exists sent_skills jsonb not null default '[]'::jsonb;
 alter table pro_local_jobs add column if not exists terminal boolean not null default false;
 alter table pro_local_jobs add column if not exists screen text;
 alter table pro_local_jobs add column if not exists screen_size jsonb;

@@ -27,16 +27,18 @@ const ZERO = /^0{40}$|^0{64}$/
 const OID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/
 
 // ---------- token ----------
-// "pgf1.<payload>.<signature>", both base64url; payload {tenant, folder, push, exp (seconds)}
+// "pgf1.<payload>.<signature>", both base64url; payload {tenant, folder, push, exp (seconds)} — and for a desktop's local agent
+// (lib/localAgents) {scope: 'device', device, job}: the token of one job on one linked desktop, the only kind the public path takes
 const key = () => {
   if (!config.serviceKey) throw new Error('folder git tokens need SERVICE_ROLE_KEY')
   return crypto.createHmac('sha256', String(config.serviceKey)).update('folder-git:v1').digest()
 }
 const sign = (body) => crypto.createHmac('sha256', key()).update(`pgf1.${body}`).digest('base64url')
 
-export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now() } = {}) {
+export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now(), scope = null, device = null, job = null } = {}) {
   if (!folderId) throw new Error('a folder git token names its folder')
-  const body = Buffer.from(JSON.stringify({ tenant, folder: String(folderId), push, exp: Math.floor(now / 1000 + hours * 3600) })).toString('base64url')
+  const extra = scope ? { scope: String(scope), device: String(device || ''), job: String(job || '') } : {}
+  const body = Buffer.from(JSON.stringify({ tenant, folder: String(folderId), push, exp: Math.floor(now / 1000 + hours * 3600), ...extra })).toString('base64url')
   return `pgf1.${body}.${sign(body)}`
 }
 
@@ -232,7 +234,20 @@ function backend(req, res, folder, pathInfo, body) {
 // /api/git/<folder id>.git/{info/refs?service=…, git-upload-pack, git-receive-pack}
 // Mounted ahead of the session and tenant middleware (index.js): the token is the whole of the auth,
 // and the tenant is the token's.
-export function gitRoutes({ maxPush = MAX_PUSH } = {}) {
+// device: the public path for the desktop app's local agents (/api/local-git — the only git path the public address serves; /api/git
+// stays inside the cluster): only a token minted for one job on one linked desktop (scope 'device'), and only while that device is
+// linked (not revoked) and the job is its own — check(claims, {push}) says so (lib/localAgents/devices.js gitAccess) — at most
+// DEVICE_RATE requests a minute per device. Reads its folder; pushes only to the job's own branch prefix (the token's push).
+const DEVICE_RATE = 120
+const hits = new Map() // device → [times]
+function overRate(device, now = Date.now()) {
+  const list = (hits.get(device) || []).filter((t) => now - t < 60_000)
+  list.push(now)
+  hits.set(device, list)
+  if (hits.size > 5000) for (const [k, v] of hits) if (!v.some((t) => now - t < 60_000)) hits.delete(k)
+  return list.length > DEVICE_RATE
+}
+export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null } = {}) {
   return async (req, res) => {
     const m = /^\/([0-9a-f-]{36})\.git(\/info\/refs|\/git-upload-pack|\/git-receive-pack)$/.exec(req.path)
     if (!m) return deny(res, 404, 'not found')
@@ -244,8 +259,14 @@ export function gitRoutes({ maxPush = MAX_PUSH } = {}) {
     if (!claims) return deny(res, 401, 'a folder token is needed', { 'WWW-Authenticate': `Basic realm="${REALM}"` })
     if (claims.folder !== folderId) return deny(res, 403, 'this token is for another folder')
     if (!servesTenant(claims.tenant)) return deny(res, 403, 'this server does not serve the token\'s tenant')
+    if (device && (claims.scope !== 'device' || !claims.device || !claims.job)) return deny(res, 403, 'only a linked desktop\'s job token is served here')
+    if (device && overRate(claims.device)) return deny(res, 429, 'too many requests from this desktop — try again in a minute')
     return withTenant(claims.tenant, async () => {
       try {
+        if (device) {
+          const why = await (check || (async () => 'no device check'))(claims, { push: service === 'git-receive-pack' })
+          if (why) return deny(res, 403, why)
+        }
         const [folder] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [folderId, claims.tenant])
         if (!folder) return deny(res, 404, 'no such folder')
         if (folder.kind === 'linked') return deny(res, 403, 'a linked folder is not served over git')

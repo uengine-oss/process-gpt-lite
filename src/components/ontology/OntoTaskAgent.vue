@@ -14,11 +14,14 @@ const busy = ref(false)
 const err = ref('')
 const note = ref('')
 const f = ref({})
+// the activity's own agent: the business agent or a local CLI; deepagents · Claude Code (서버) only as the server agent a local step is
+// handed to when the desktop is off (server lib/localAgents/agents.js frontOf)
+const AGENT_KO = { onto: '업무 에이전트' }
 const SERVER_KO = { onto: '업무 에이전트', deepagents: 'deepagents', cliagents: 'Claude Code (서버)' }
 const cur = computed(() => {
   const p = props.parsed || {}
   if (p.local) return { agent: `local:${p.local.agent}`, whenOffline: p.local.offline, serverAgent: p.local.serverAgent, waitMinutes: p.local.waitMinutes || '', runner: p.runner === 'agent' ? 'agent' : 'draft' }
-  return { agent: p.agent && SERVER_KO[p.agent] ? p.agent : 'onto', whenOffline: 'server', serverAgent: 'onto', waitMinutes: '', runner: p.runner === 'agent' ? 'agent' : 'draft' }
+  return { agent: 'onto', whenOffline: 'server', serverAgent: 'onto', waitMinutes: '', runner: p.runner === 'agent' ? 'agent' : 'draft' }
 })
 const isLocal = (a) => String(a || '').startsWith('local:')
 const labelOf = (a) => (isLocal(a) ? `${cat.value.local.find((x) => x.id === a)?.label || a.slice(6)} · 담당자의 컴퓨터` : SERVER_KO[a] || a)
@@ -55,7 +58,7 @@ async function save() {
       <label class="fl">에이전트
         <select v-model="f.agent" data-testid="onto-agent-select">
           <optgroup label="서버">
-            <option v-for="(t, k) in SERVER_KO" :key="k" :value="k">{{ t }}</option>
+            <option v-for="(t, k) in AGENT_KO" :key="k" :value="k">{{ t }}</option>
           </optgroup>
           <optgroup label="담당자의 컴퓨터 (데스크톱 앱)">
             <option v-for="x in cat.local" :key="x.id" :value="x.id" :disabled="!avail(x)">{{ x.label }}{{ x.devices ? ` — 지금 ${x.devices}대 연결됨` : ' — 아직 알린 데스크톱이 없어요' }}</option>

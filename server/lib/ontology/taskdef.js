@@ -12,7 +12,7 @@ import { cypher, parseTask } from './store.js'
 import { formFields, readFile, formKey } from './mailbody.js'
 import { prompt, rules as skillRules } from './discovery.js'
 import { formsDirOf } from './history.js'
-import { settingsOf as localSettingsOf, frontOf as agentFrontOf, withFront } from '../localAgents/agents.js'
+import { settingsOf as localSettingsOf, agentPatch, withFront } from '../localAgents/agents.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURES = path.join(here, '..', '..', 'scripts', 'fixtures')
@@ -281,9 +281,8 @@ export async function saveDefinition(me, key, md) {
 export async function setAgent(me, key, body = {}) {
   const t = await getTask(key)
   const { front, body: text } = parseDefinition(t.definition || '')
-  const patch = agentFrontOf(body)
-  if (['agent', 'draft'].includes(body.runner)) patch.runner = body.runner
-  else if (patch.agent && String(patch.agent).startsWith('local:') && !['agent', 'draft'].includes(front.runner)) patch.runner = 'draft'
+  // (what the step was before a local agent made it an agent's is put back when the activity goes back — agents.js agentPatch)
+  const patch = agentPatch(front, body)
   const base = t.definition ? front : { name: key, kind: 'task', ...(t.task?.role ? { role: t.task.role } : {}) }
   const md = toDefinition(withFront(base, patch), text || (t.definition ? '' : `## 하는 일\n1. ${key}`))
   return saveDefinition(me, key, md)

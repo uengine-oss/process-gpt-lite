@@ -36,15 +36,42 @@ export function settingsOf(front = {}) {
   return normalize({ agent: f.agent, offline: f.when_offline, serverAgent: f.server_agent, waitMinutes: f.wait_minutes })
 }
 
-// a request from the settings screen → the front matter keys to set ({} clears them: back to the server agent)
+// a request from the settings screen → the front matter keys to set (back to the business agent: the local keys cleared).
+// The activity's own agent is the business agent (onto) or a local CLI: deepagents · cliagents as an activity's agent were never read by
+// the engines (contractOf · createItem run agent steps on the business agent), so they are refused here — they stay what a local step is
+// handed to when the desktop is off (server_agent), where the step's agent_orch is set to them (steps.js delegate).
 export function frontOf(body = {}) {
   const agent = String(body.agent || '').trim()
-  if (!agent || SERVER.includes(agent)) return { agent: agent && agent !== 'onto' ? agent : null, when_offline: null, server_agent: null, wait_minutes: null }
-  if (!localOf(agent)) throw Object.assign(new Error('agent 는 local:claude-code · local:codex · local:openhands 이거나 서버 에이전트(onto · deepagents · cliagents)예요.'), { status: 400 })
+  if (!agent || agent === 'onto') return { agent: null, when_offline: null, server_agent: null, wait_minutes: null }
+  if (SERVER.includes(agent)) throw Object.assign(new Error('활동의 에이전트로는 업무 에이전트나 담당자 컴퓨터의 CLI(local:claude-code · local:codex · local:openhands)를 골라요. deepagents · Claude Code(서버)는 데스크톱이 꺼져 있을 때 맡길 서버 에이전트로만 고를 수 있어요.'), { status: 400 })
+  if (!localOf(agent)) throw Object.assign(new Error('agent 는 local:claude-code · local:codex · local:openhands 이거나 업무 에이전트(onto)예요.'), { status: 400 })
   const offline = OFFLINE.includes(body.whenOffline) ? body.whenOffline : 'server'
   const serverAgent = SERVER.includes(body.serverAgent) ? body.serverAgent : 'onto'
   const wait = offline === 'wait' ? int(body.waitMinutes) : null
   return { agent, when_offline: offline, server_agent: serverAgent, wait_minutes: wait }
+}
+
+// The front matter keys a change of the activity's agent sets (front: the definition's front matter now; body: the settings screen's
+// request {agent, whenOffline, serverAgent, waitMinutes, runner}). A local CLI makes the step an agent's (draft only, unless said
+// otherwise): what the step was before — a person's step, a draft, an agent's — is kept (runner_before_local) and put back when the
+// activity goes back to the business agent, so choosing a local agent and back leaves the step as it was.
+export function agentPatch(front = {}, body = {}) {
+  const patch = frontOf(body)
+  const wasLocal = !!localOf(front.agent)
+  const runners = ['agent', 'draft']
+  if (localOf(patch.agent)) {
+    if (!wasLocal && !front.runner_before_local) patch.runner_before_local = runners.includes(front.runner) ? front.runner : 'person'
+    if (runners.includes(body.runner)) patch.runner = body.runner
+    else if (!runners.includes(front.runner)) patch.runner = 'draft'
+    return patch
+  }
+  if (front.runner_before_local) {
+    const before = front.runner_before_local
+    patch.runner = runners.includes(before) ? before : null
+    patch.runner_before_local = null
+  }
+  if (runners.includes(body.runner)) patch.runner = body.runner
+  return patch
 }
 
 // the front matter with these keys set (null removes one), keeping the order of the others

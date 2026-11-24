@@ -55,17 +55,21 @@ export async function assigneeFor(row) {
 // what of the gate a job keeps (finishStep · holdForSend read these)
 const slim = (g = {}) => ({ act: g.act || 'run', why: g.why || [], ...(g.draftFirst ? { draftFirst: true } : {}), ...(g.stepId ? { stepId: g.stepId } : {}), ...(g.caseId ? { caseId: g.caseId } : {}) })
 
+// (tests replace gate: the step's gate — runmode.gateStep: wait for a person · skip · run, draft first)
+export const deps = { gate: async (row) => (await import('../ontology/runmode.js')).gateStep(row) }
+
 // a claimed work item → its job (null: the gate holds it, or it is not a local step after all)
 export async function take(row, { gate: given = null } = {}) {
+  // the gate first, whoever runs it: it may hold the step for a person (hitl) or want a draft first
+  const gate = given || await deps.gate(row).catch((e) => { console.warn('[local-agents] gate', e.message); return { act: 'run' } })
+  if (gate.act === 'wait' || gate.act === 'skip') return null
   const s = await settingsFor(row)
   if (!s) {
-    // (an activity whose local setting was removed meanwhile): the business agent, as before
+    // (an activity whose local setting was removed meanwhile): the business agent, as before — with what the gate said
     console.warn(`[local-agents] ${row.activity_name}: no local agent set — the business agent runs it`)
-    await runOnServer.fn(row, slim(given || {}))
+    await runOnServer.fn(row, slim(gate))
     return null
   }
-  const gate = given || await (await import('../ontology/runmode.js')).gateStep(row).catch((e) => { console.warn('[local-agents] gate', e.message); return { act: 'run' } })
-  if (gate.act === 'wait' || gate.act === 'skip') return null
   const userId = await assigneeFor(row)
   if (!userId) {
     await failRow(row, 'no person to run this step for', L('이 단계를 맡은 사람을 찾지 못했어요', 'Nobody was found to run this step for'))
@@ -84,7 +88,8 @@ async function personOf(userId) {
 }
 const gitPublic = () => String(process.env.PRO_GIT_PUBLIC_URL || '').trim().replace(/\/+$/, '')
 
-export async function prepare(job) {
+// link: the desktop it goes to — its folder tokens are that device's for this job (the public git path takes only those)
+export async function prepare(job, link = null) {
   const row = await todoOf(job.todo_id)
   if (!row) throw new Error('the work item is gone')
   const { actOf } = await import('../ontology/run.js')
@@ -112,7 +117,7 @@ export async function prepare(job) {
   const person = await personOf(job.user_id)
   const lang = await langOf(job.user_id).catch(() => 'ko')
   // the skills the server agent would get for this activity, and the person's own private ones — each its skill folder, read only
-  const skills = await skillsFor(job, act).catch((e) => { console.warn('[local-agents] skills', e.message); return [] })
+  const skills = await skillsFor(job, act, link).catch((e) => { console.warn('[local-agents] skills', e.message); return [] })
   const prompt = await withLang(lang, () => promptFor({ job, act, instName, person, ctx, out, skills }))
   // the run was going when its desktop app went away (a restart): the same CLI session goes on, on the same run branch
   const resume = job.session_id && job.started_at && job.run_branch ? { sessionId: job.session_id } : null
@@ -120,8 +125,10 @@ export async function prepare(job) {
     todoId: String(job.todo_id), instId: inst, instName, activity: job.activity_name, agent: job.agent, label: A.LABEL[job.agent] || job.agent, mode: job.mode,
     prompt, outDir: out, resultFile: dirs.result, person, lang, skills,
     git: {
-      path: `/api/git/${folder.id}.git`, url: gitPublic() ? `${gitPublic()}/api/git/${folder.id}.git` : null,
-      token: mintToken({ tenant: T(), folderId: folder.id }), line, base, branch: resume ? job.run_branch : `pgpt-agent/local-${String(job.id).slice(0, 8)}-${Date.now().toString(36)}`,
+      path: `/api/local-git/${folder.id}.git`, url: gitPublic() ? `${gitPublic()}/api/local-git/${folder.id}.git` : null,
+      // (pushes only to this job's own branches; read and push only while this job is this device's — devices.js gitAccess)
+      token: mintToken({ tenant: T(), folderId: folder.id, push: `pgpt-agent/local-${String(job.id).slice(0, 8)}-`, ...deviceScope(job, link) }),
+      line, base, branch: resume ? job.run_branch : `pgpt-agent/local-${String(job.id).slice(0, 8)}-${Date.now().toString(36)}`,
       folder: { id: folder.id, slug: folder.slug, name: folder.name },
     },
     ...(resume ? { resume } : {}),
@@ -138,7 +145,10 @@ export async function skillNames(act = {}, userId) {
   const own = (await q(`select skill_name from pro_skill_visibility where tenant_id=$1 and visibility='private' and author_id::text=$2`, [T(), String(userId)]).catch(() => [])).map((r) => r.skill_name)
   return { shared: [...names], own }
 }
-export async function skillsFor(job, act) {
+// a desktop job's folder token: that device, that job (the public path /api/local-git takes only these), a day at most
+const deviceScope = (job, link) => (link?.id ? { scope: 'device', device: link.id, job: job.id, hours: Math.min(24, Number(config.gitTokenHours) || 24) } : {})
+
+export async function skillsFor(job, act, link = null) {
   const SK = await import('../folders/skills.js')
   const { mintToken } = await import('../folders/gitHttp.js')
   const { shared, own } = await skillNames(act, job.user_id)
@@ -148,8 +158,8 @@ export async function skillsFor(job, act) {
     if (vis?.visibility === 'private' && String(vis.author_id) !== String(job.user_id)) continue
     const folder = (await SK.skillFolder(name)) || (vis ? await SK.ensureSkillFolder(name).catch(() => null) : null)
     if (!folder) continue
-    out.push({ name, own: own.includes(name), folder: { id: folder.id, slug: folder.slug }, path: `/api/git/${folder.id}.git`,
-      url: gitPublic() ? `${gitPublic()}/api/git/${folder.id}.git` : null, token: mintToken({ tenant: T(), folderId: folder.id, push: '' }) })
+    out.push({ name, own: own.includes(name), folder: { id: folder.id, slug: folder.slug }, path: `/api/local-git/${folder.id}.git`,
+      url: gitPublic() ? `${gitPublic()}/api/local-git/${folder.id}.git` : null, token: mintToken({ tenant: T(), folderId: folder.id, push: '', ...deviceScope(job, link) }) })
   }
   return out
 }
@@ -190,7 +200,8 @@ export async function complete(job, result) {
   let v = null
   const folder = job.folder_id ? await S.folderById(job.folder_id) : null
   if (folder && result.branch && result.pushed) {
-    if (!result.branch.startsWith('pgpt-agent/') || !(await G.branchExists(folder.repo_path, result.branch))) throw new Error(`the branch ${result.branch} did not arrive`)
+    // (only this job's own branch — what its token could push; never another run's branch the desktop names)
+    if (!result.branch.startsWith(`pgpt-agent/local-${String(job.id).slice(0, 8)}-`) || !(await G.branchExists(folder.repo_path, result.branch))) throw new Error(`the branch ${result.branch} did not arrive`)
     const bhead = await G.head(folder.repo_path, `refs/heads/${result.branch}`)
     ;[v] = await q(`insert into pro_folder_variations (folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source)
                     values ($1,$2,$3,'run','ready',$4,$5,'agent',$6,$7,$8) on conflict (folder_id, branch) do update set head_commit=$5 returning *`,
@@ -501,15 +512,24 @@ async function claim() {
 }
 
 let sweeping = false
+// before sql/052 has been run on a database the sweep says so once and waits ten minutes, instead of a warning every 5 seconds
+let missingUntil = 0
 export async function sweepAll() {
-  if (sweeping) return
+  if (sweeping || Date.now() < missingUntil) return
   sweeping = true
-  try { await forEachTenant(() => J.sweep(), 'local-agents') } catch (e) { console.warn('[local-agents] sweep', e.message) } finally { sweeping = false }
+  const missing = (e) => e?.code === '42P01' || /relation "pro_local_[a-z_]+" does not exist/.test(String(e?.message))
+  try {
+    await forEachTenant(() => J.sweep().catch((e) => {
+      if (!missing(e)) throw e
+      if (!missingUntil || Date.now() >= missingUntil) console.warn('[local-agents] tables missing (run sql/052_local_agents.sql) — sweep paused 10 min')
+      missingUntil = Date.now() + 600_000
+    }), 'local-agents')
+  } catch (e) { console.warn('[local-agents] sweep', e.message) } finally { sweeping = false }
 }
 
 export function wire() {
   J.setHooks({ prepare, complete, delegate, fail, note, cancelled, learned })
-  H.setHandlers({ online: J.onOnline, message: J.onMessage, offline: J.onOffline })
+  H.setHandlers({ online: J.onOnline, caps: J.onCaps, message: J.onMessage, offline: J.onOffline })
   // a step's run in the person's terminal (relay.js kind 'step', ref = the job): opened only by the desktop the job was given to;
   // watched by whoever sees the instance; its last screen kept on the job
   R.registerKind('step', {

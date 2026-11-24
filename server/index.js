@@ -28,6 +28,7 @@ import { folderRoutes } from './routes/folders.js'
 import { filingRoutes } from './routes/filing.js'
 import { localAgentRoutes } from './routes/localAgents.js'
 import { startLocalAgents, steerFromThread } from './lib/localAgents/steps.js'
+import { gitAccess } from './lib/localAgents/devices.js'
 import { threadFolderRoutes } from './routes/threadFolders.js'
 import { ssoInfo, refreshSso } from './lib/sso.js'
 import * as webpush from './lib/webpush.js'
@@ -110,6 +111,8 @@ app.use('/craft', express.static(config.craftWebRoot, {
 // shared folders over git smart HTTP for agents on another disk (lib/folders/gitHttp.js): ahead of the body
 // parser, the session and the tenant middleware — the folder token is the whole of the auth and names the tenant
 app.use('/api/git', gitRoutes())
+// the same for the desktop app's local agents, the one git path the public address serves: a token of one job on one linked desktop only
+app.use('/api/local-git', gitRoutes({ device: true, check: (claims, o) => withTenant(claims.tenant, () => gitAccess(claims, o)) }))
 app.use(express.json({ limit: '2mb' }))
 // English mode (lib/lang.js): a request is in the language its X-PGL-Lang header names (the page sends
 // it on every /api call); auth() below adds the signed-in person's saved language when it is absent.

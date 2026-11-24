@@ -44,7 +44,8 @@ test.before(async () => {
 test.after(async () => { await srv?.close(); fs.rmSync(ROOT, { recursive: true, force: true }) })
 
 const sent = []
-const link = { send: (m) => { sent.push(JSON.parse(JSON.stringify(m))); return true } }
+// the server's side of the link: recorded; an accept is confirmed (the server's 'accepted')
+const linkFor = (r) => ({ send: (m) => { sent.push(JSON.parse(JSON.stringify(m))); if (m.type === 'accept') setImmediate(() => r.handle({ type: 'accepted', jobId: m.jobId })); return true } })
 const waitFor = async (fn, ms = 20000) => { const t = Date.now(); for (;;) { const v = fn(); if (v) return v; if (Date.now() - t > ms) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 50)) } }
 const of = (id, type) => sent.filter((m) => m.jobId === id && (!type || m.type === type))
 const sidOf = (jobId) => sent.find((m) => m.type === 'term-open' && m.ref === jobId)?.sid
@@ -54,7 +55,7 @@ const dataDir = path.join(ROOT, 'data')
 function runner(opts = {}) {
   const r = new Runner({ dataDir, server: srv.base, searchPath: SEARCH, sessionEnv: ENV, settleMs: 600,
     caps: { 'claude-code': { installed: true, runnable: true, version: '9.9.9' }, codex: { installed: true, runnable: true, version: '9.9.9' } }, ...opts })
-  r.setLink(link)
+  r.setLink(linkFor(r))
   r.welcome({ user: { id: USER, name: '김담당' } })
   return r
 }

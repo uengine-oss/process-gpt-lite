@@ -78,7 +78,7 @@ before(async () => {
   people()
   if (!db) return
   J.setHooks({ prepare: record('prepare'), complete: record('complete'), delegate: record('delegate'), fail: record('fail'), note: async () => {}, cancelled: async () => false })
-  H.setHandlers({ online: J.onOnline, message: J.onMessage, offline: J.onOffline })
+  H.setHandlers({ online: J.onOnline, caps: J.onCaps, message: J.onMessage, offline: J.onOffline })
 })
 after(async () => {
   if (db) {
@@ -434,10 +434,11 @@ test('배운 것: 판정이 「일의 방식」이라 한 조종 · 기억만 �
   const { job, def } = await instanceWith(worker, [worker, mate, owner], { owner: owner.id })
   const asked = []
   KH.judge.fn = async (state, question, options) => { asked.push(state); const rule = /부가세/.test(state) && !/이번만/.test(state); return { probabilities: { rule: rule ? 0.9 : 0.1, once: rule ? 0.1 : 0.9 } } }
-  const list = await KH.learn(job, {
+  const fid = crypto.randomUUID()
+  const list = await KH.learn({ ...job, sent_skills: [{ name: '견적-규칙', folderId: fid }] }, {
     steers: [{ steerId: 's1', text: '금액은 늘 부가세 포함으로', by: '윤태호', from: '서하린', how: 'live', after: ['Write · 견적서.md'] }, { steerId: 's2', text: '이번만 3월 5일로', by: '윤태호', how: 'live', after: [] }],
     memory: [{ file: 'CLAUDE.md', text: '부가세 포함 금액을 쓴다' }, { file: '../x', text: '무시' }],
-    skills: [{ name: '견적-규칙', folderId: crypto.randomUUID(), files: [{ path: 'SKILL.md', text: '새 규칙' }, { path: '../../etc/passwd', text: 'x' }] }],
+    skills: [{ name: '견적-규칙', folderId: fid, files: [{ path: 'SKILL.md', text: '새 규칙' }, { path: '../../etc/passwd', text: 'x' }] }],
   })
   assert.equal(asked.length, 3, '조종 둘 + 기억 하나를 판정에 물었다(이상한 파일 이름은 버림)')
   assert.match(asked[0], /견적서 작성/)
@@ -486,8 +487,16 @@ test('스킬 수정 후보 → 「스킬에 반영 요청」: 그 스킬 폴더�
   await q(`update pro_folders set kind='skill', settings = settings || $2 where id=$1`, [f.id, { skill_name: '견적-규칙' }])
   const { job } = await instanceWith(worker, [worker, mate])
   KH.judge.fn = async () => null
-  await KH.learn(job, { skills: [{ name: '견적-규칙', folderId: f.id, files: [{ path: 'SKILL.md', text: '---\nname: 견적-규칙\n---\n금액은 부가세 포함.\n할인은 따로 적는다.\n' }] }] })
+  // (the skills this job was given — recorded when the desktop got the job; a skill folder it was not given is never a candidate)
+  const other = await S.createFolder(mate, { name: `서하린의 비공개 스킬 ${Date.now()}` })
+  await q(`update pro_folders set kind='skill', settings = settings || $2 where id=$1`, [other.id, { skill_name: '비공개-규칙' }])
+  await q('update pro_local_jobs set sent_skills=$2 where id=$1', [job.id, JSON.stringify([{ name: '견적-규칙', folderId: f.id }])])
+  await KH.learn({ ...job, sent_skills: [{ name: '견적-규칙', folderId: f.id }] }, { skills: [
+    { name: '견적-규칙', folderId: f.id, files: [{ path: 'SKILL.md', text: '---\nname: 견적-규칙\n---\n금액은 부가세 포함.\n할인은 따로 적는다.\n' }] },
+    { name: '비공개-규칙', folderId: other.id, files: [{ path: 'SKILL.md', text: '남의 비공개 스킬을 고침\n' }] },
+    { name: '견적-규칙', folderId: other.id, files: [{ path: 'SKILL.md', text: '이름만 같은 다른 폴더\n' }] }] })
   const j = await J.byId(job.id)
+  assert.deepEqual(j.knowhow.filter((k) => k.kind === 'skill').map((k) => k.skill.folderId), [f.id], '보낸 스킬 폴더만 후보가 된다')
   const c = j.knowhow.find((k) => k.kind === 'skill')
   await assert.rejects(KH.decide(mate, j, c.id, 'apply'), (e) => e.status === 403, '담당자가 아닌 사람')
   const done = await KH.decide(worker, j, c.id, 'apply')
@@ -571,4 +580,178 @@ test('제안의 종류: 의견 · 역할자의 결정(고른 항목) — 둘 다
   const card = ST.cardOf(d.job, { worker: true })
   assert.deepEqual(card.suggestions.map((s) => [s.kind, s.option, s.state]), [['opinion', null, 'waiting'], ['decision', '2. 부가세 포함', 'waiting']])
   await assert.rejects(ST.steerAs(userB, d.job, '2', d.suggestion.id), (e) => e.status === 403)
+})
+
+
+// ---------- review fixes (2026-11-24) ----------
+const capsMsg = (prefs = { enabled: true, ask: true }, extra = {}) => ({ type: 'caps', caps: { clis: { 'claude-code': { installed: true, version: '2.1.330' } }, maxJobs: 2 }, prefs, ...extra })
+
+test('기기 설정을 바꿔도(caps) 실행 중인 일은 그 데스크톱의 것으로 남는다 — 다시 보내지도, 서버에 맡기지도 않는다', { skip: !db }, async () => {
+  H.reset()
+  const a = await desktop(userA)
+  const j = await J.enqueue(spec(userA))
+  assert.equal(j.state, 'offered')
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  assert.equal((await J.byId(j.id)).state, 'running')
+  // 「실행 전에 묻기」를 켬: the desktop says so mid-run (with what it runs now) …
+  await H.receive(a.link, capsMsg({ enabled: true, ask: true }, { active: [j.id] }))
+  // … and an older desktop that says nothing of what it runs
+  await H.receive(a.link, capsMsg({ enabled: true, ask: false }))
+  const after = await J.byId(j.id)
+  assert.equal(after.state, 'running')
+  assert.equal(String(after.device_id), a.link.id)
+  assert.equal(a.jobs().filter((id) => id === j.id).length, 1, '다시 보내지 않았다')
+})
+
+test('「다시 시도」: 서버에 맡겼던(또는 끝난) 단계를 다시 집으면 새로 배정한다', { skip: !db }, async () => {
+  H.reset()
+  calls.length = 0
+  const s = spec(userA, { offline: 'server' })
+  const j1 = await J.enqueue(s)
+  assert.equal(j1.state, 'delegated')
+  await q('update pro_local_jobs set session_id=$2, started_at=now() where id=$1', [j1.id, 'old-session'])
+  const a = await desktop(userA)
+  const j2 = await J.enqueue(s)
+  assert.equal(j2.id, j1.id)
+  assert.equal(j2.state, 'offered', '다시 큐에 들어가 켜진 데스크톱으로')
+  assert.equal(String(j2.device_id), a.link.id)
+  assert.equal(j2.session_id, null, '앞 실행의 세션은 잇지 않는다')
+  assert.equal(j2.why, null)
+  await H.receive(a.link, { type: 'accept', jobId: j2.id })
+  await H.receive(a.link, { type: 'done', jobId: j2.id, branch: 'pgpt-agent/x', files: [] })
+  assert.equal((await J.byId(j2.id)).state, 'done')
+  // a done step picked up again (it was reopened): a new run, not a silent no-op
+  const j3 = await J.enqueue(s)
+  assert.equal(j3.state, 'offered')
+})
+
+test('설정이 없어진 활동의 단계도 관문(gateStep)을 지나서 서버 에이전트로 간다', { skip: !db }, async () => {
+  const ST = await import('../lib/localAgents/steps.js')
+  const ran = []
+  const was = { run: ST.runOnServer.fn, gate: ST.deps.gate }
+  ST.runOnServer.fn = async (row, gate) => { ran.push(gate) }
+  try {
+    const row = { id: crypto.randomUUID(), activity_name: '관문 시험', agent_config: {}, user_id: userA.id }
+    ST.deps.gate = async () => ({ act: 'wait', why: ['hitl'] })
+    assert.equal(await ST.take(row), null)
+    assert.equal(ran.length, 0, '기다리라는 관문이면 서버 에이전트도 돌지 않는다')
+    ST.deps.gate = async () => ({ act: 'skip' })
+    await ST.take(row)
+    assert.equal(ran.length, 0)
+    ST.deps.gate = async () => ({ act: 'run', draftFirst: true, stepId: 's1', why: ['draft'] })
+    await ST.take(row)
+    assert.equal(ran.length, 1)
+    assert.equal(ran[0].draftFirst, true, '관문이 정한 초안 먼저가 서버 에이전트에 간다')
+  } finally { ST.runOnServer.fn = was.run; ST.deps.gate = was.gate }
+})
+
+test('에이전트 설정: 로컬로 바꿀 때 「초안만」을 저절로 넣었다면, 서버로 되돌리면 원래(사람의 일)로 돌아간다', () => {
+  let front = { name: '견적서 작성', kind: 'task' }
+  front = A.withFront(front, A.agentPatch(front, { agent: 'local:claude-code', whenOffline: 'wait', waitMinutes: 120 }))
+  assert.equal(front.runner, 'draft')
+  assert.equal(front.runner_before_local, 'person')
+  front = A.withFront(front, A.agentPatch(front, { agent: 'local:codex', runner: 'agent' }))
+  assert.equal(front.runner, 'agent')
+  assert.equal(front.runner_before_local, 'person', '로컬끼리 바꿔도 처음의 것을 기억한다')
+  front = A.withFront(front, A.agentPatch(front, { agent: 'onto' }))
+  assert.equal(front.runner, undefined, '사람의 일로 돌아간다')
+  assert.equal(front.runner_before_local, undefined)
+  assert.equal(front.agent, undefined)
+  // an agent's step stays an agent's step
+  let ag = { name: '보관', runner: 'agent' }
+  ag = A.withFront(ag, A.agentPatch(ag, { agent: 'local:claude-code', runner: 'draft' }))
+  ag = A.withFront(ag, A.agentPatch(ag, { agent: 'onto' }))
+  assert.equal(ag.runner, 'agent')
+  // a definition saved before this (runner: draft, no memory of what it was): left as it is
+  let old = { name: '검토', runner: 'draft', agent: 'local:claude-code' }
+  old = A.withFront(old, A.agentPatch(old, { agent: 'onto' }))
+  assert.equal(old.runner, 'draft')
+})
+
+test('활동의 에이전트로는 업무 에이전트나 담당자의 CLI 만 — deepagents · Claude Code(서버)는 맡길 서버 에이전트로만', () => {
+  assert.throws(() => A.frontOf({ agent: 'deepagents' }), (e) => e.status === 400)
+  assert.throws(() => A.frontOf({ agent: 'cliagents' }), (e) => e.status === 400)
+  assert.deepEqual(A.frontOf({ agent: 'onto' }), { agent: null, when_offline: null, server_agent: null, wait_minutes: null })
+  assert.equal(A.frontOf({ agent: 'local:claude-code', whenOffline: 'server', serverAgent: 'deepagents' }).server_agent, 'deepagents')
+})
+
+test('받겠다는 말(accept)에 서버가 답한다: 내 것이면 accepted, 더 이상 내 것이 아니면 cancel — 거둔 제안도 cancel', { skip: !db }, async () => {
+  H.reset()
+  const a = await desktop(userA)
+  const j = await J.enqueue(spec(userA))
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  assert.ok(a.got.some((m) => m.type === 'accepted' && m.jobId === j.id))
+  // an offer taken back while the desktop was asking (handed to the server): the desktop is told to drop it
+  const k = await J.enqueue(spec(userA, { activity: '보관' }))
+  assert.equal(k.state, 'offered')
+  await J.delegate(k, 'timeout')
+  assert.ok(a.got.some((m) => m.type === 'cancel' && m.jobId === k.id), '거둔 제안은 그 데스크톱에 cancel')
+  // its late accept: cancel again, and the job stays with the server
+  const before = a.got.filter((m) => m.type === 'cancel' && m.jobId === k.id).length
+  await H.receive(a.link, { type: 'accept', jobId: k.id })
+  assert.equal(a.got.filter((m) => m.type === 'cancel' && m.jobId === k.id).length, before + 1)
+  assert.ok(!a.got.some((m) => m.type === 'accepted' && m.jobId === k.id))
+  assert.equal((await J.byId(k.id)).state, 'delegated')
+  // an offer nobody answered goes back to the queue (and is offered again): the old offer is cancelled first
+  const o = await J.enqueue(spec(userA, { activity: '발송' }))
+  await J.sweep(Date.now() + J.OFFER_MS + 1000)
+  const msgs = a.got.filter((m) => (m.type === 'job' ? m.job.id : m.jobId) === o.id).map((m) => m.type)
+  assert.deepEqual(msgs.slice(0, 3), ['job', 'cancel', 'job'])
+})
+
+test('터미널 중계: 끝난 세션 · 돌아오지 않는 세션은 잠시 뒤 메모리에서 지운다(끝난 화면은 일에서)', { skip: !db }, async () => {
+  H.reset()
+  const R = await import('../lib/localAgents/relay.js')
+  R.reset()
+  const was = R.setLimits({ keepMs: 40, detachMs: 40 })
+  try {
+    R.registerKind('step', { open: async () => true, view: async () => true })
+    const a = await desktop(userA)
+    const j = await J.enqueue(spec(userA))
+    const s1 = crypto.randomUUID(), s2 = crypto.randomUUID()
+    await H.receive(a.link, { type: 'term-open', sid: s1, kind: 'step', ref: j.id, cols: 40, rows: 6 })
+    await H.receive(a.link, { type: 'term-exit', sid: s1, code: 0 })
+    assert.ok(R.get(T, s1), '끝난 직후에는 아직 있다')
+    await new Promise((r) => setTimeout(r, 120))
+    assert.equal(R.get(T, s1), null)
+    await H.receive(a.link, { type: 'term-open', sid: s2, kind: 'step', ref: j.id, cols: 40, rows: 6 })
+    await H.gone(a.link)
+    await new Promise((r) => setTimeout(r, 120))
+    assert.equal(R.get(T, s2), null, '링크가 돌아오지 않으면 지운다')
+  } finally { R.setLimits(was); R.reset() }
+})
+
+test('공개 git 경로(/api/local-git): 링크된 데스크톱의 그 일 토큰만 — 클러스터 토큰 · 끊은 기기 · 남의 일 · 끝난 일의 push 는 거절', { skip: !db }, async () => {
+  H.reset()
+  const GH = await import('../lib/folders/gitHttp.js')
+  const a = await desktop(userA)
+  const b = await desktop(userB)
+  const j = await J.enqueue(spec(userA))
+  const F = crypto.randomUUID(), SF = crypto.randomUUID()
+  await q('update pro_local_jobs set folder_id=$2, sent_skills=$3 where id=$1', [j.id, F, JSON.stringify([{ name: '견적-규칙', folderId: SF }])])
+  const claims = (folder, device = a.link.id, job = j.id) => ({ tenant: T, folder, device, job, scope: 'device' })
+  assert.equal(await D.gitAccess(claims(F)), null)
+  assert.equal(await D.gitAccess(claims(F), { push: true }), null, '보낸 일 · 실행 중: 그 일의 가지로 올리기')
+  assert.equal(await D.gitAccess(claims(SF)), null, '보낸 스킬 폴더는 읽기')
+  assert.match(await D.gitAccess(claims(SF), { push: true }), /not running/)
+  assert.match(await D.gitAccess(claims(crypto.randomUUID())), /does not use/)
+  assert.match(await D.gitAccess(claims(F, b.link.id)), /not this desktop/)
+  assert.match(await D.gitAccess(claims(F, a.link.id, crypto.randomUUID())), /not this desktop/)
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  await H.receive(a.link, { type: 'done', jobId: j.id, branch: 'pgpt-agent/x', files: [] })
+  assert.equal(await D.gitAccess(claims(F)), null, '끝난 뒤에도 라인을 따라가는 읽기는')
+  assert.match(await D.gitAccess(claims(F), { push: true }), /not running/)
+  await D.revoke(userA, a.link.id)
+  assert.match(await D.gitAccess(claims(F)), /not linked/)
+  // the route: no token 401, an in-cluster folder token (no device scope) 403 — before anything else is looked at
+  const handler = GH.gitRoutes({ device: true, check: (c, o) => D.gitAccess(c, o) })
+  const call = async (token) => {
+    const res = { headersSent: false, code: 0, status(c) { this.code = c; return this }, set() { return this }, end() { this.headersSent = true } }
+    await handler({ path: `/${F}.git/info/refs`, query: { service: 'git-upload-pack' }, method: 'GET', headers: token ? { authorization: `Bearer ${token}` } : {} }, res)
+    return res.code
+  }
+  assert.equal(await call(null), 401)
+  assert.equal(await call(GH.mintToken({ tenant: T, folderId: F })), 403, '클러스터 안의 폴더 토큰은 공개 경로에서 받지 않는다')
+  assert.equal(await call(GH.mintToken({ tenant: T, folderId: F, scope: 'device', device: a.link.id, job: j.id })), 403, '끊은 기기')
+  assert.equal(GH.verifyToken(GH.mintToken({ tenant: T, folderId: F, scope: 'device', device: a.link.id, job: j.id, push: 'pgpt-agent/local-ab-' })).push, 'pgpt-agent/local-ab-')
 })

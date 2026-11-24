@@ -81,6 +81,10 @@ cd e2e && npx playwright test --project=feature tests/feature/local-agents-colla
 | Home 카드 | M-03 · `localAgents.e2e.mjs` 2(`/local-agents/active`) · C-03(배운 것 알림) |
 | 단계가 아닌 개발 세션 | `terminal.test.js` 「단계가 아닌 세션(개발 저장소) …」 · `localAgents.test.js` 「터미널 중계 …」(훅 · 파일이 듣는 쪽에) |
 | 지금 화면 | `localAgents.e2e.mjs` 2(`GET …/screen` — 작업자가 친 글의 메아리, 입력 · 버린 입력 수) · `localAgents.test.js` 「터미널 중계 …」 |
+| 끊은 기기와 클러스터의 토큰은 공개 git 경로에서 막힌다 | `localAgents.e2e.mjs` 6(401 · 403 · 링크된 기기 200 · 끊은 뒤 403, runner 의 원격 주소가 `/api/local-git/`) · `localAgents.test.js` 「공개 git 경로 …」(gitAccess · 라우트) |
+| 작업 폴더 자신의 AGENTS.md 는 그대로 | `runner.test.js` 「작업 폴더가 지닌 AGENTS.md · CLAUDE.md · .claude/ …」 |
+| 거둔 일은 돌지 않는다 | `localAgents.test.js` 「받겠다는 말(accept)에 서버가 답한다 …」 · `runner.test.js` 「서버가 받았다고(accepted) 할 때까지 …」 |
+| (검토 수정) 기기 설정을 바꿔도 실행 유지 · 다시 시도 · 관문 먼저 · 에이전트 되돌리기 · 활동 에이전트 제한 · 세션 지우기 · 보낸 스킬만 · 같은 폴더는 차례로 | `localAgents.test.js` 해당 시험들 · `runner.test.js` 「같은 폴더의 다음 일은 …」 |
 | 로컬 실행을 끈다 | L-04 · `localAgents.test.js` 「로컬 실행을 끈 데스크톱에는 보내지 않는다」 · `runner.test.js` 「거절: …」 |
 | 폴더 밖을 가리키는 일 | `runner.test.js` 「거절: … 폴더 밖 경로」 |
 
@@ -88,8 +92,8 @@ cd e2e && npx playwright test --project=feature tests/feature/local-agents-colla
 
 | 시험 | 결과 |
 |---|---|
-| `server/test/localAgents.test.js` | 20/20 |
-| `desktop` `npm test` (터미널 6 + runner 헤드리스 11 + 기존 10) | 27/27 |
+| `server/test/localAgents.test.js` | 28/28 |
+| `desktop` `npm test` (터미널 6 + runner 헤드리스 14 + 기존 10) | 30/30 |
 | `server/test/localAgents.e2e.mjs` | 9/9 |
 | `e2e/tests/desktop/local-agents.spec.js` | 4/4 |
 | `e2e/tests/feature/local-agents-mobile.spec.js` | 3/3 |

@@ -43,7 +43,7 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
   async function detect() {
     caps = await C.detect({ searchPath }).catch(() => ({}))
     runner.caps = caps
-    link.send({ type: 'caps', caps: hello().caps, prefs: prefs() })
+    link.send({ type: 'caps', caps: hello().caps, prefs: prefs(), active: runner.activeIds() })
     changed()
     return caps
   }
@@ -52,7 +52,7 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
     async start() { await detect(); link.start(); changed(); return this },
     stop() { runner.stop(); link.stop() },
     // the person turned local runs on/off or asking first: the server knows at once (it stops sending, or sends again)
-    prefsChanged() { link.send({ type: 'caps', caps: hello().caps, prefs: prefs() }); changed() },
+    prefsChanged() { link.send({ type: 'caps', caps: hello().caps, prefs: prefs(), active: runner.activeIds() }); changed() },
   }
 }
 

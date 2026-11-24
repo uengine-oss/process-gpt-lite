@@ -73,7 +73,9 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 ---
 ```
 
-- 화면: 프로세스 지도 › 일 패널 › 「에이전트」(`OntoTaskAgent.vue`). 관리자가 바꾼다. `PUT /api/ontology/tasks/:key/agent`(`taskdef.setAgent`)가 front matter 를 고친다.
+- 화면: 프로세스 지도 › 일 패널 › 「에이전트」(`OntoTaskAgent.vue`). 관리자가 바꾼다. `PUT /api/ontology/tasks/:key/agent`(`taskdef.setAgent` → `agents.agentPatch`)가 front matter 를 고친다.
+- 활동의 에이전트로 고를 수 있는 것은 **업무 에이전트와 담당자 컴퓨터의 CLI** 다. deepagents · Claude Code(서버)는 활동의 에이전트로는 받지 않는다(400): 엔진(`contractOf` · `createItem`)은 활동의 `agent` 를 읽지 않고 에이전트 단계를 늘 업무 에이전트로 돌려 왔다(검토 지적 11-24). 그 둘은 데스크톱이 꺼져 있을 때 **맡길 서버 에이전트**로만 남겼다 — 그때는 단계의 `agent_orch` 를 그 값으로 바꿔 그 일꾼이 집게 한다(5.3). 이 맥에서는 그 일꾼들(공유 deepagents · cli-agent)을 띄울 수 없어 지도 엔진의 건이 그 일꾼으로 끝까지 가는지 확인하지 못했다.
+- 로컬 CLI 를 고르면 사람의 단계는 「초안만」이 된다. 그 전의 것(사람의 일 · 초안 · 에이전트의 일)을 `runner_before_local` 에 두었다가, 업무 에이전트로 되돌리면 그대로 돌려놓는다(검토 지적 11-24 — 전에는 「초안만」이 남아 사람의 단계가 업무 에이전트의 초안 단계로 굳었다).
 - 로컬 에이전트는 **어느 데스크톱이 그 CLI 가 있다고 알렸을 때만** 고를 수 있다(`GET /api/local-agents/catalog` 의 연결된 대수). 이미 골라 둔 것은 그대로 보인다.
 - 로컬 에이전트를 고르면서 하는 사람이 `person` 이면 `draft`(초안만)로 둔다.
 - 읽는 곳: `taskDefinition()` 이 `local: {agent, offline, serverAgent, waitMinutes}` 를 돌려준다(`lib/localAgents/agents.js settingsOf`). 이번에 front matter 의 `runner: draft` 도 읽게 했다(전에는 다듬기의 덮어쓰기에서만 읽었다).
@@ -111,7 +113,10 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 - 일은 **그 사람의 링크에만** 간다. CLI 가 있고, 로컬 실행이 켜져 있고, 자리가 있는(기본 동시 2개) 데스크톱 가운데 가장 최근에 붙은 것. 데스크톱이 보낸 메시지는 자기 사람 · 자기 기기에 준 일에 대해서만 받는다.
 - 켜진 데스크톱이 없으면 활동 설정대로: `server` → 바로 서버 에이전트, `wait` → 기다림(「PC 앱이 켜지면 시작」). `wait_minutes` 가 지나면 서버로. 앱이 켜지면 오래된 것부터, 동시 한도 안에서 보낸다.
 - 데스크톱이 「이번에는 하지 않기」를 누르거나 로컬 실행이 꺼져 있으면 서버로, 바쁘면 다시 큐로.
-- 받지 않은 채 링크가 끊기면 다시 큐로. 받은 일은 링크가 끊겨도 그 데스크톱의 것으로 둔다(CLI 는 계속 돌 수 있음). 다시 붙을 때 그 일을 갖고 있다고 하지 않으면(앱을 다시 켬) 다시 보낸다.
+- 받지 않은 채 링크가 끊기면 다시 큐로. 받은 일은 링크가 끊겨도 그 데스크톱의 것으로 둔다(CLI 는 계속 돌 수 있음). 다시 붙을 때(hello) 그 일을 갖고 있다고 하지 않으면(앱을 다시 켬) 다시 보낸다. 링크가 그대로인 채 기기의 설정 · CLI 가 바뀌었다는 말(`caps`)에는 큐만 다시 돌리고 갖고 있는 일은 건드리지 않는다(검토 지적 11-24 — 「실행 전에 묻기」를 실행 중에 켜면 돌던 일을 다시 큐에 넣던 것). `caps` 에도 지금 돌리는 일 id 를 싣는다.
+- **받기는 서버가 확인한다**: 데스크톱은 `accept` 를 보내고 서버의 `accepted` 를 받아야 폴더 · CLI 를 건드린다. 서버는 그 일이 아직 그 기기에 보낸 상태일 때만 `running` 으로 바꾸고 `accepted` 를, 아니면(그 사이 거둠 — 서버에 맡김, 다른 곳으로 다시 보냄) `cancel` 을 보낸다. 보낸 일을 거둘 때(서버에 맡김, 답 없는 제안을 다시 큐로)는 그 기기에 `cancel` 을 먼저 보낸다. 데스크톱은 60초(`PGL_RUNNER_ACCEPT_MS`) 안에 답이 없으면 놓고, 링크가 다시 이어지면 기다리던 `accept` 를 다시 보낸다. 그래서 링크가 깜박인 사이 서버와 데스크톱이 같은 단계를 함께 돌지 않는다(검토 지적 11-24).
+- **「다시 시도」**: 일이 끝난 뒤(실패 · 취소 · 서버에 맡김 · 끝남) 그 단계가 다시 집히면 새 실행이다 — 지금의 활동 설정으로 다시 큐에 넣고 앞 실행의 세션 · 입력 · 줄은 잇지 않는다(검토 지적 11-24 — 서버에 맡겼던 단계를 다시 시도하면 아무것도 돌지 않고 단계가 잡힌 채 남던 것).
+- **관문 먼저**: 단계를 집으면 관문(`gateStep`)을 먼저 지난다 — 활동의 로컬 설정이 그 사이 없어져 업무 에이전트로 돌릴 때도(검토 지적 11-24 — 그때는 관문 없이 돌아 「초안 먼저」 · 사람 기다림을 건너뛰던 것).
 - 단계가 손으로 닫히거나 옮겨지면 일을 멈추라고 보낸다.
 
 ### 5.3 서버에 맡기기
@@ -122,7 +127,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 ### 5.4 데스크톱이 받는 것
 ```
 { id, todoId, instId, instName, activity, agent, label, mode, lang, prompt, outDir, resultFile, person:{id,name,email},
-  git:{ path:'/api/git/<폴더>.git', url(PRO_GIT_PUBLIC_URL 이 있을 때), token(폴더 토큰, 72시간, pgpt-agent/* 만), line:'inst/<id>', base, branch:'pgpt-agent/local-<일>-<시각>', folder },
+  git:{ path:'/api/local-git/<폴더>.git', url(PRO_GIT_PUBLIC_URL 이 있을 때), token(그 기기 · 그 일의 폴더 토큰, 24시간, pgpt-agent/local-<일>-* 만), line:'inst/<id>', base, branch:'pgpt-agent/local-<일>-<시각>', folder },
   skills:[…], resume?:{ sessionId } }
 ```
 - `resume`: 이 일이 실행 중이었는데(세션 id · 시작 시각 · 실행 가지가 있음) 그 데스크톱이 사라졌다가 다시 붙어 다시 보내는 것 — 가지 이름은 그때의 것을 그대로 준다. 실패한 일을 「다시 시도」하면 세션을 비우고 처음부터.
@@ -131,7 +136,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 - 프롬프트: 스킬 프롬프트 `skills/process-discovery/prompts/local-step.md`(일 정의 · 점검 항목 · 작업 폴더의 메일과 앞 결과 · 결과를 둘 곳 · git 을 쓰지 말 것 · 초안이면 그 뜻). 영어 모드면 영어 지시를 붙인다.
 
 ### 5.5 결과
-- 데스크톱이 `done` 을 보내면 올라온 가지가 폴더에 있는지 보고, 그 가지를 폴더의 변형(`run`, 반영 대기)으로 만들고 인스턴스 라인에 넣는다(`line.advanceLine`: 앞으로 감기, 그 사이 라인이 움직였으면 merge).
+- 데스크톱이 `done` 을 보내면 올라온 가지가 **그 일의 가지**(`pgpt-agent/local-<일>-…`)인지, 폴더에 있는지 보고, 그 가지를 폴더의 변형(`run`, 반영 대기)으로 만들고 인스턴스 라인에 넣는다(`line.advanceLine`: 앞으로 감기, 그 사이 라인이 움직였으면 merge).
 - 단계 결과는 업무 에이전트와 같은 길로 넣는다(`run.finishStep`으로 뽑아 둠): 되돌릴 수 없는 단계면 초안으로 두고 사람을 기다림, 지도의 건이면 `finishItem`, 아니면 `save_task_result`. `mode=draft` 면 담당자의 초안으로 남는다.
 - 값: `{result: 요약, agent, branch, files, folder_variation}`.
 - 메일 작업 폴더의 「끝난 단계 기록」은 이 단계를 건너뛴다(데스크톱이 이미 `결과.md` 를 산출 폴더에 씀).
@@ -154,14 +159,16 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 
 ### 5.8 로컬 실행도 서버의 스킬 · 프로세스 지도를
 - 데스크톱이 받는 일에 `skills` 를 싣는다(`steps.skillsFor`): 활동의 일 정의가 지정한 스킬(`act.skills`) + 활동이 부르는 에이전트의 스킬(`agent_skills`) — 서버 에이전트가 그 활동에 받았을 것 — 과 담당자 자신의 비공개 스킬(`pro_skill_visibility`). 파일이 있는 스킬만(스킬 폴더, 없으면 설치본 · 비공개 사본에서 처음 만든다 — `folders/skills.js ensureSkillFolder`). 남의 비공개 스킬은 보내지 않는다.
-- 각 스킬은 그 스킬 폴더의 git 주소와 **읽기만 하는 토큰**(`mintToken({push: ''})` — `gitHttp.refusals` 가 push 를 모두 거절)으로 간다. 별도의 스킬 저장소를 만들지 않았다.
-- 데스크톱(`runner/skills.js`)은 실행마다 스킬 폴더 main 을 캐시 clone(`<data>/local-agents/skills/`)으로 받아 CLI 가 스스로 읽는 자리에 둔다: Claude Code `.claude/skills/<이름>/`(허용 도구에 `Skill`), Codex `.pgl-skills/<이름>/` + `AGENTS.md`(스킬 목록과 「해당하면 그 SKILL.md 의 방법대로」). `.claude/` · `.pgl-skills/` · `CLAUDE.md` · `AGENTS.md` 는 작업 폴더의 `.git/info/exclude` 에 있어 일의 결과로 올라가지 않는다. 실행 전마다 지우고 다시 둔다.
+- 각 스킬은 그 스킬 폴더의 git 주소와 **읽기만 하는 토큰**(`mintToken({push: ''})` — `gitHttp.refusals` 가 push 를 모두 거절, 그 기기 · 그 일의 것)으로 간다. 별도의 스킬 저장소를 만들지 않았다. 보낸 스킬 폴더는 일에 적어 둔다(`sent_skills`).
+- 데스크톱(`runner/skills.js`)은 실행마다 스킬 폴더 main 을 캐시 clone(`<data>/local-agents/skills/`)으로 받아 CLI 가 스스로 읽는 자리에 둔다: Claude Code `.claude/skills/<이름>/`(허용 도구에 `Skill`), Codex `.pgl-skills/<이름>/` + `AGENTS.md`(스킬 목록과 「해당하면 그 SKILL.md 의 방법대로」). `.claude/` · `.pgl-skills/` · `CLAUDE.md` · `AGENTS.md` 는 작업 폴더의 `.git/info/exclude` 에 있어 일의 결과로 올라가지 않는다. 실행 전마다 앞 실행이 남긴 것만(추적하지 않는 파일, `git clean -X`) 지우고 다시 둔다.
+- **작업 폴더 자신의 파일은 그대로**(검토 지적 11-24): 폴더가 추적하는 `AGENTS.md` · `CLAUDE.md` · `.claude/…`(예: `.claude/settings.json`, 폴더 자신의 스킬)는 지우지도 덮어쓰지도 않는다. 같은 자리에 폴더 자신의 스킬이 있으면 회사 스킬은 놓지 않고(진행 줄에 알림) 폴더의 것을 쓴다. Codex 인데 폴더가 `AGENTS.md` 를 지니면 스킬 안내는 그 파일 대신 프롬프트에 붙인다. CLI 가 폴더의 `CLAUDE.md` 에 더한 것은 일의 결과로 커밋되고, 배운 것(기억)으로는 더한 부분만 보낸다.
 - 프롬프트(`local-step.md`)에 일 정의 · 점검 항목 · 내놓는 것(`act.outputs`) · 작업 폴더의 메일과 앞 결과 · 받은 스킬 이름이 들어간다(서버 단계와 같은 재료).
 - 실측: 실제 Claude Code 2.1.330 이 `.claude/skills` 의 스킬을 불러 그 규칙대로 결과를 냈다 — 헤드리스(`--setting-sources project`, `Skill` 도구)와 터미널(대화형, 사람의 설정 그대로) 모두(`openspec/specs/local-agents/e2e/results/smoke.md`).
 
 ### 5.9 로컬 실행의 노하우 모으기 (`knowhow.js`)
 - 데스크톱은 `done` 에 `knowhow` 를 싣는다: 조종(누가 · 반영 방식 · 그 뒤 실행이 한 도구 · 글 6줄), 에이전트가 쓴 `CLAUDE.md` · `AGENTS.md`(앱이 쓴 부분 빼고), 받은 스킬을 고친 파일.
 - 서버는 조종 · 기억 하나하나를 판정(`decide.js oddsOf`, 스킬 프롬프트 `prompts/local-knowhow.md`, 보기 「앞으로 이 단계를 할 때마다 지킬 일의 방식」 · 「이번 건에만」)으로 읽어, `rule` 확률이 기준(`PRO_LOCAL_KNOWHOW_MIN`, 기본 0.5) 이상이면 후보로 둔다. 판정할 수 없으면(모델 없음) 「판정 못 함」으로 둔다. 정규식 · 낱말 규칙은 쓰지 않는다. 스킬 수정은 그대로 스킬 후보.
+- 스킬 수정 후보는 **그 일에 보낸 스킬 폴더**(`sent_skills` — 폴더 id 와 이름이 같아야)에 대해서만 만든다. 데스크톱이 다른 폴더(남의 비공개 스킬 등)를 말하면 버리고, 「스킬에 반영 요청」 때도 다시 본다(403)(검토 지적 11-24).
 - 후보는 일의 `knowhow` 에 둔다(새 테이블 없음). 실행 카드에 출처(「<사람>의 로컬 실행에서 배움 (<날짜>)」)와 함께 보이고, 건의 주인(없으면 작업자)과 프로세스 담당자(`proc_def.owner`)에게 Home 카드(`notifications` type `local_knowhow`, 인스턴스로 열림)가 간다.
 - 반영(`POST …/knowhow/:kid {action}`): 활동의 노하우는 관리자나 프로세스 담당자만 — 회사 프로세스 지도의 건이면 그 일의 정의(`taskdef.saveDefinition`), 아니면 프로세스 정의의 활동 지시(`proc_def.definition.activities[].instruction`)의 「## 배운 것」에 「- <글> — <출처>」. 다음 실행은 그 정의를 읽는다(로컬 · 서버 모두). 스킬 수정은 작업자나 관리자가 「스킬에 반영 요청」 — 그 스킬 폴더의 변형(파일을 그대로 커밋)과 `requestMerge`(작성자 · 상사에게 알림, 기존 흐름). 버리기는 같은 사람들.
 - 입력이 제안에서 왔으면 후보에 `suggestedBy`(제안한 사람)와 `by`(넣은 작업자)가 함께 남는다(「<제안한 사람> 제안 · <작업자> 입력」).
@@ -175,6 +182,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 - **화면 모델**: 세션마다 `@xterm/headless` 에 바이트를 그대로 먹인다. `screenOf(S)` = 보이는 줄 · 커서 · 크기(「지금 화면에 무엇이 있는지」 — 선택 창을 알아보는 watcher 가 쓸 것), `GET /api/local-agents/jobs/:id/screen`. 되감기용 바이트는 400KB 까지.
 - **훅 · 파일**: `events`(EventEmitter: `open` · `hook` · `files` · `exit`)로 서버 안의 듣는 쪽에 전한다. 훅 이벤트에는 사건 이름과 몇 가지 평문(`session_id` · `message` · `notification_type` · `source` · `error` · `last_assistant_message`)만 — 이 컴퓨터의 경로 · 도구 입력은 보내지 않는다. 지켜보는 파일은 세션을 열 때 정한 경로(예: `aidlc/`) 아래 256KB 이하 글만.
 - **남기는 것**: 세션이 끝나면 `step` 은 마지막 화면 64KB 와 크기를 일에(`screen` · `screen_size`), 터미널이 있었음을(`terminal`) 남긴다. 링크가 끊기면 세션은 `detached` 로 남고, 다시 붙으면 데스크톱이 열린 세션을 지금까지의 화면과 함께 다시 알린다(서버가 다시 켜졌을 때도).
+- **메모리에서 지우기**(검토 지적 11-24): CLI 가 끝난 세션은 `PRO_LOCAL_TERM_KEEP_MS`(기본 10분) 뒤, 데스크톱이 사라져 돌아오지 않는 세션은 `PRO_LOCAL_TERM_DETACH_MS`(기본 1시간) 뒤에 화면 모델을 닫고 지운다(보던 사람의 연결도 닫음). 그 뒤 보는 사람은 일에 남은 마지막 화면을 받는다.
 - 서버 한 대 기준(메모리) — hub 의 접속 상태와 같은 가정.
 
 ## 6. 데스크톱 (`desktop/src/runner/`)
@@ -196,7 +204,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 - 토큰은 `GIT_CONFIG_COUNT/KEY/VALUE` 의 `http.extraHeader = Authorization: Bearer …` 로만. `.git/config` · 명령줄 · 로그 · 보고함 파일에 남기지 않는다(시험으로 확인).
 - 순서: 받기(fetch 라인, 없으면 main) → 폴더를 깨끗이 하고 `pgpt-agent/local-…` 가지를 라인에서 만든다 → **CLI 를 띄우기 직전에 한 번 더 받는다**. 기다리는 동안(묻는 창, 큐, 다른 사람의 단계) 라인이 움직였으면 새 라인에서 다시 만든다.
 - 끝나면 `산출 폴더/결과.md`(한 일 · 끝난 때 · 실행 중에 바꾼 방향 · 요약)를 쓰고 커밋(작성자 = 담당자)하고 가지를 올린다. 서버가 받았다고 하면(`finished`) 폴더를 새 라인으로 옮겨 둔다(다음 단계가 이 컴퓨터에서 바로 시작).
-- 한 폴더에서는 한 번에 하나(같은 인스턴스의 나란한 두 단계는 차례로).
+- 한 폴더에서는 한 번에 하나(같은 인스턴스의 나란한 두 단계는 차례로). 다음 일은 앞 일을 서버가 받아들이고(`finished`) 폴더가 라인을 따라간(`follow`) 뒤에 시작한다 — 늦어도 10분(검토 지적 11-24 — 앞 일의 `checkout --detach` 와 다음 일의 맞추기가 겹치던 것).
 
 ### 6.2 CLI 실행 — 사람 자신의 대화형 CLI 를 터미널에서 (주 길)
 - **PTY**: node-pty 1.1.0(N-API 미리 빌드 — Node 와 Electron 에서 같은 바이너리, mac arm64/x64 · Windows x64/arm64(ConPTY)). `desktop/package.json` 의 의존성, 설치 뒤 `scripts/pty-helper.js` 가 mac 의 `spawn-helper` 에 실행 권한을 준다(1.1.0 이 빠뜨림 — 없으면 `posix_spawnp failed`). electron-builder 는 `asarUnpack: node_modules/node-pty/**`, `npmRebuild: false`(다시 빌드하지 않음). mac arm64 로 묶어 앱 안에서 뜨는 것을 확인했다.
@@ -222,7 +230,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 - 작업자가 터미널에 직접 치는 글은 서버의 `pty-input` 으로 와서 그대로 PTY 에(입력 기록은 CLI 자신의 기록).
 
 ### 6.4 안전
-- 자기 링크로 온 일만, 자기 사람의 일만(서버도 막고, runner 도 `person.id` 를 본다), 자기 폴더(데이터 폴더 아래)에서만. 산출 폴더가 작업 폴더 밖(`..`, 절대 경로, `.git`)이면 거절.
+- 자기 링크로 온 일만, 자기 사람의 일만(서버도 막고, runner 도 `person.id` 를 본다), 서버가 확인한 일만(`accepted`), 자기 폴더(데이터 폴더 아래)에서만. 산출 폴더가 작업 폴더 밖(`..`, 절대 경로, `.git`)이면 거절.
 - 설정 › 계정 › 「내 컴퓨터의 에이전트」: 「이 컴퓨터에서 단계 실행」(끄면 그 데스크톱으로 보내지 않음 — 활동 설정대로 서버 또는 기다림), 「실행 전에 묻기」(시스템 창: 이 컴퓨터에서 실행 / 이번에는 하지 않기).
 - 로그에 토큰 없음(runner 는 받은 폴더 토큰을 로그에서 가린다).
 - 끝난 보고(done/failed)는 서버가 받았다고 할 때까지 `<userData>/local-agents/outbox.json`(0600)에 두고 다시 붙을 때 다시 보낸다(토큰 없음).
@@ -239,10 +247,10 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 
 | 무엇 | 어디 | 결과(2026-11-24) |
 |---|---|---|
-| 활동 설정 · 기기 토큰 · 배정 · 기다림 · 시간 지남 · 남의 데스크톱 · 거절 · 입력 상태 · 손으로 맡기기 · 링크(WebSocket) · 제안 → 입력(작업자만, 403) · 제안의 종류(의견 · 결정) · 터미널 중계(자기 일만 열기, 같은 바이트, 주인 입력만, 화면 모델, 훅 · 파일, 다시 붙기) · 스킬 고르기 · 배운 것(판정 대역) | `server/test/localAgents.test.js` (가짜 링크) | 20/20 |
-| runner 헤드리스(예비 길): 맞추기 → 실행 → 입력 → 커밋 → 올리기, 토큰이 남지 않음, 거절, 실패 보고, 스킬 놓기, 배운 것 | `desktop/test/runner.test.js` (가짜 CLI · git HTTP) | 11/11 |
-| runner 터미널(주 길): node-pty, `SessionStart` 뒤 붙여 넣기 · `Stop` 으로 끝 · 커밋, 중계 바이트 = 터미널 바이트, 주인의 타자만 CLI 에, 고친 제안 붙여 넣기, 앱 다시 켜기 → `--resume`, Codex(명령줄 첫 메시지 · rollout), 단계 아닌 세션의 훅 · 지켜보는 파일, 폴더 신뢰 | `desktop/test/terminal.test.js` (가짜 대화형 CLI `fake-tui.js`) | 6/6 (데스크톱 전체 27/27) |
-| 실제 BFF + 두 사람의 runner(터미널): A → B 이어받기, 참여자의 제안 → 작업자만 입력(403), 터미널(보는 사람과 작업자가 작업자 데스크톱의 바이트 그대로 받음 · 보는 사람의 입력은 버림 · 작업자의 입력은 CLI 에 · 바깥 사람 403 · 지금 화면), 회사 스킬, 배운 것 반영(403 포함), 꺼져 있을 때 기다림 · 서버, Codex 입력(같은 세션), 기기 끊기 | `server/test/localAgents.e2e.mjs` | 9/9 |
+| 활동 설정 · 기기 토큰 · 배정 · 기다림 · 시간 지남 · 남의 데스크톱 · 거절 · 입력 상태 · 손으로 맡기기 · 링크(WebSocket) · 제안 → 입력(작업자만, 403) · 제안의 종류(의견 · 결정) · 터미널 중계(자기 일만 열기, 같은 바이트, 주인 입력만, 화면 모델, 훅 · 파일, 다시 붙기) · 스킬 고르기 · 배운 것(판정 대역) (검토 수정 11-24: 기기 설정 바꿔도 실행 유지 · 다시 시도 · 관문 먼저 · 에이전트 되돌리기 · 활동 에이전트 제한 · 받기 확인과 거두기 · 세션 지우기 · 보낸 스킬만 · 공개 git 경로) | `server/test/localAgents.test.js` (가짜 링크) | 28/28 |
+| runner 헤드리스(예비 길): 맞추기 → 실행 → 입력 → 커밋 → 올리기, 토큰이 남지 않음, 거절, 실패 보고, 스킬 놓기, 배운 것 · 서버 확인 전에는 아무것도 하지 않음 · 같은 폴더는 앞 일의 finished 뒤 · 폴더 자신의 AGENTS.md · CLAUDE.md · .claude/ 그대로 | `desktop/test/runner.test.js` (가짜 CLI · git HTTP) | 14/14 |
+| runner 터미널(주 길): node-pty, `SessionStart` 뒤 붙여 넣기 · `Stop` 으로 끝 · 커밋, 중계 바이트 = 터미널 바이트, 주인의 타자만 CLI 에, 고친 제안 붙여 넣기, 앱 다시 켜기 → `--resume`, Codex(명령줄 첫 메시지 · rollout), 단계 아닌 세션의 훅 · 지켜보는 파일, 폴더 신뢰 | `desktop/test/terminal.test.js` (가짜 대화형 CLI `fake-tui.js`) | 6/6 (데스크톱 전체 30/30) |
+| 실제 BFF + 두 사람의 runner(터미널): 공개 git 경로(`/api/local-git`)로 맞추기 · 올리기(토큰 없음 401 · 클러스터 토큰 403 · 끊은 기기 403), A → B 이어받기, 참여자의 제안 → 작업자만 입력(403), 터미널(보는 사람과 작업자가 작업자 데스크톱의 바이트 그대로 받음 · 보는 사람의 입력은 버림 · 작업자의 입력은 CLI 에 · 바깥 사람 403 · 지금 화면), 회사 스킬, 배운 것 반영(403 포함), 꺼져 있을 때 기다림 · 서버, Codex 입력(같은 세션), 기기 끊기 | `server/test/localAgents.e2e.mjs` | 9/9 |
 | Electron 앱 두 개(Playwright `_electron`): 저절로 연결 · 알약 · 앱 안의 node-pty 로 터미널 실행 · B 가 자기 창의 터미널을 보며 입력 · 로컬 실행 끔 → 기다림 | `e2e/tests/desktop/local-agents.spec.js` | 4/4 |
 | 휴대폰(390px) 브라우저에서 터미널 실시간 보기 · 입력 · 권한 · 「PC 앱이 켜지면 시작」 · 서버에 맡기기 · Home 카드 | `e2e/tests/feature/local-agents-mobile.spec.js` | 3/3 |
 | 두 사람 협업: 휴대폰(390px) 서하린이 같은 터미널(읽기 전용)을 보며 제안 → 윤태호(1280px)가 고르고 고쳐 입력 → 그의 CLI 에 → 서하린의 화면 「고쳐서 입력함」 · 서하린의 입력 403 → 다음 담당자의 PC 가 이어받음 → 배운 것 반영 · 회사 스킬 | `e2e/tests/feature/local-agents-collab.spec.js` | 3/3 |
@@ -250,14 +258,17 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 | 실제 `claude` · `codex` 헤드리스 한 번씩 + 입력 · 회사 스킬 | `server/test/localAgents.smoke.mjs both · skill` | 끝남, 입력 반영 |
 
 ## 8. 운영에 필요한 것
-- **SQL**: `server/sql/052_local_agents.sql`(새 테이블 두 개 `pro_local_devices` · `pro_local_jobs` — 제안 · 배운 것 · 터미널의 마지막 화면 열 포함, RLS 켬, 여러 번 돌려도 됨). 운영 Supabase 에 한 번 돌려야 한다.
+- **SQL**: `server/sql/052_local_agents.sql`(새 테이블 두 개 `pro_local_devices` · `pro_local_jobs` — 제안 · 배운 것 · 터미널의 마지막 화면 · 보낸 스킬 폴더 열 포함, RLS 켬, 여러 번 돌려도 됨). 운영 Supabase 에 한 번 돌려야 한다.
 - **서버 의존성**: `@xterm/headless@5.5.0`(server/package.json · lock, 순수 JS). 없으면 화면 모델 없이 되감기 바이트로만 답한다.
-- **git 주소를 데스크톱이 닿게**: 지금 운영 웹 nginx 는 `/lite/api/git/` 를 404 로 막는다(클러스터 안 Service 만, 결정 D-1124-04). 데스크톱은 클러스터 밖이므로 둘 중 하나가 필요하다.
-  1. 공개 주소의 `/lite/api/git/` 를 연다(폴더 토큰이 유일한 열쇠이고, push 는 `pgpt-agent/*` 만, 200MB 한도) — 노출 수준을 바꾸는 결정.
-  2. 다른 공개 주소를 두고 `PRO_GIT_PUBLIC_URL` 로 알린다.
-- **WebSocket**: 게이트웨이(Spring Cloud Gateway)가 `/lite/api/local-agents/link`(데스크톱)와 `/lite/api/local-agents/term`(보는 사람) 업그레이드를 Lite 로 넘겨야 한다(작업실 터미널 · 회의 음성과 같은 길 — 이미 되는지 운영에서 확인 필요). 터미널은 같은 출처 검사(`companyAddress`)를 지난다.
+- **git 주소를 데스크톱이 닿게 — 이 가지에 만든 가장 좁은 열림**: `/lite/api/git/` 는 그대로 막아 둔다(클러스터 안 Service 만, 결정 D-1124-04 · PR #23). 데스크톱 전용 경로 `/api/local-git/` 를 따로 연다.
+  - BFF(`gitHttp.gitRoutes({device: true})`)는 그 경로에서 **그 기기 · 그 일의 토큰**(`scope: 'device'`, 24시간)만 받는다. 클러스터 안 일꾼의 폴더 토큰은 403, 토큰이 없으면 401 — 무엇을 열어 보기 전에.
+  - 매 요청 `devices.gitAccess` 가 확인한다: 기기가 끊기지 않았고(끊으면 곧바로 403), 일이 그 기기의 것이며, 그 일의 작업 폴더(또는 그 일에 보낸 스킬 폴더 — 읽기만)인지.
+  - push 는 그 일이 보냄 · 실행 중일 때만, 그 일의 가지(`pgpt-agent/local-<일>-*`)로만 된다(지우기 · 태그 · 다른 가지는 git 이 보기 전에 거절). 기기마다 분당 120 요청까지(넘으면 429).
+  - 웹 nginx(`install/docker/nginx.conf` — 운영 lite-web 이미지도 같은 파일): `location /api/local-git/` 에 IP 마다 분당 60(+30) `limit_req`, 200MB, 요청 버퍼링 끔. `/api/git/` 404 는 그대로다. 문법은 `nginx:1.27-alpine` 의 `nginx -t` 로 확인했다.
+  - 운영 게이트웨이가 `/lite/**` 를 lite-web 으로 넘기고 있으면 더 할 일은 없다. 따로 둔 공개 주소를 쓰려면 `PRO_GIT_PUBLIC_URL`.
+- **WebSocket**: 웹 nginx 는 `location /api/` 에 `proxy_http_version 1.1` · `Upgrade` · `Connection $connection_upgrade` · 읽기 3600초를 두고 있어 `/api/local-agents/link`(데스크톱 — 25초마다 ping) · `/api/local-agents/term`(보는 사람)의 업그레이드를 그대로 넘긴다. 바꿀 것은 없다. 남은 것은 게이트웨이(Spring Cloud Gateway)가 `/lite/api/**` 업그레이드를 넘기는지다. 작업실 터미널(`/lite/api/workroom/term`)이 운영에서 쓰이고 있으니 같은 길이다 — 운영에서 한 번 확인한다(이 가지에서는 하지 않음). 데스크톱의 링크에는 Origin 이 없다(hub 는 Origin 을 보지 않고 첫 메시지의 기기 토큰으로 막는다). 보는 사람의 터미널은 같은 출처 검사(`companyAddress`)를 지난다.
 - **서버 한 대 기준**: 접속 상태가 메모리에 있다. Lite 서버를 여러 대로 늘리면 링크와 일이 다른 서버에 있을 수 있다(작업실 터미널과 같은 가정).
-- 환경변수(모두 선택): 서버 `PRO_GIT_PUBLIC_URL`, `PRO_LOCAL_AGENT_WORKER=0`(일꾼 끔), `PRO_LOCAL_AGENT_TICK_MS`(기본 3000), `PRO_LOCAL_KNOWHOW_MIN`(기본 0.5). 데스크톱 `PGL_RUNNER_MODE=headless`(터미널 대신 헤드리스), `PGL_RUNNER_SETTLE_MS`(기본 3000), `PGL_RUNNER_IDLE_FINISH_MS`(기본 120000).
+- 환경변수(모두 선택): 서버 `PRO_GIT_PUBLIC_URL`, `PRO_LOCAL_AGENT_WORKER=0`(일꾼 끔), `PRO_LOCAL_AGENT_TICK_MS`(기본 3000), `PRO_LOCAL_KNOWHOW_MIN`(기본 0.5), `PRO_LOCAL_TERM_KEEP_MS`(기본 600000) · `PRO_LOCAL_TERM_DETACH_MS`(기본 3600000). 데스크톱 `PGL_RUNNER_MODE=headless`(터미널 대신 헤드리스), `PGL_RUNNER_SETTLE_MS`(기본 3000), `PGL_RUNNER_IDLE_FINISH_MS`(기본 120000), `PGL_RUNNER_ACCEPT_MS`(기본 60000).
 - k8s: 위 nginx · 게이트웨이 경로 외에는 없다. 데스크톱 앱은 새 판을 다시 묶어 배포해야 한다(node-pty 가 들어감 — mac arm64 로 묶어 확인만, 배포는 하지 않음).
 
 ## 9. 남은 일 · 한계
@@ -272,7 +283,7 @@ wait_minutes: 120             # (wait 일 때) 이만큼 기다려도 안 켜지
 - Process GPT 의 todolist 알림 트리거가 「끝까지」 로컬 단계도 담당자에게 「입력」 카드로 알린다(Home 카드에 로컬 실행 상태 줄을 붙여 뜻을 보완했다).
 
 ## 10. 사용자 결정이 필요한 것
-1. git 공개 경로: `/lite/api/git/` 를 열지, 별도 주소(`PRO_GIT_PUBLIC_URL`)를 둘지.
+1. git 공개 경로: 데스크톱 전용 `/lite/api/local-git/`(그 기기 · 그 일의 토큰만, 위 §8)를 이 가지에서 열었다. 이대로 운영에 낼지 — 노출 수준을 바꾸는 결정이다.
 2. 작업 폴더가 담당자의 컴퓨터로 내려간다(메일 원문 포함). 메일 작업 폴더의 「메일 문장은 주인 몫」 원칙과 부딪힌다 — 로컬 단계에서는 허용할지, 메일 폴더는 빼고 내려보낼지.
 3. 터미널 실행은 사람의 설정을 그대로 쓴다(그 사람의 훅 · MCP · 권한 · 플러그인이 돈다 — 「그 사람의 터미널과 같은 결과」). 헤드리스에서 쓰던 「설정 소스는 project 만 · 허용 도구 목록」은 예비 길에만 남았다. 터미널에도 도구를 좁힐지(`--disallowed-tools` 등).
 4. 권한 모드 `acceptEdits`(작업 폴더의 파일 고치기는 묻지 않음, 셸 명령은 사람의 설정대로 묻거나 허용). 무인 단계에서 셸 명령을 물으면 작업자가 터미널에서 답해야 끝난다 — 더 열지(사람의 auto 모드) 닫을지.
