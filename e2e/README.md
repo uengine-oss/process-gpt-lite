@@ -83,7 +83,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | 「채팅」 두 번 누르기로 여는 왼쪽 대화 목록(같은 `/chat/c/:cid`) | 사용자 11-24 | 36절 F-CT-01~10 | feature | ✅ |
 | 대화 안에서 보낸 메시지는 그 대화로 이어짐(요청에 conversation id) | — | F-CV-05 | feature | ✅ |
 | 산출물 스택: 화면의 파일이 더미로(고른 대화 · 2026-11-24 부터 전체 채팅 · 프로젝트 방도), 누르면 부채꼴(≤fanMax), 많으면 격자, Esc 로 접기 | `ArtifactStack.vue`, 스펙 `chat-artifacts` | F-CV-03 · 37절 F-AS-06 · 07 | feature | ✅ |
-| 스택에서 누르면 카드와 같은 편집기(엑셀→이음오피스, SVG→VectorCraft) — 980px 화면(더미) | `artifacts.js` | F-CV-04 | feature | ✅ |
+| 스택에서 누르면 카드와 같은 곳(엑셀→이음오피스, SVG→보기 화면 → 「VectorCraft 로 편집」→VectorCraft) — 980px 화면(더미) | `artifacts.js`, 스펙 `chat-media-preview` | F-CV-04 | feature | ✅ |
 | 넓은 화면은 오른쪽 칸의 산출물 목록(접으면 띠), 문서가 열리면 비킴 | 사용자 11-24, 스펙 `chat-artifacts` | 37절 F-AS-01~08 | feature | ✅ |
 | 문서가 페이지 옆에 열려도 왼쪽 칸(Home · 대화 · 프로젝트 · 루틴 목록) · 채팅 · 문서가 겹치지 않음(나란히, 아니면 목록 접힘) | 사용자 11-24, 스펙 `chat-artifacts` | 38절 F-DL-01~06 | feature | ✅ |
 | 판단 전략(judge→logprob→json) 측정 | context-router 명세 | — | — | ✗ (process-gpt 쪽 eval) |
@@ -176,6 +176,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 |---|---|---|---|
 | 같은 출처의 웹 앱(5종, wasm/js gzip) | S-30, F-CR-<앱> | smoke/feature | ✅ |
 | 도면 카드는 CADCraft 로 연다 | F-CR-cadcraft, A-05 | feature/agent | ✅ |
+| 그림 · 소리 · 영상 카드는 먼저 보기 화면, PhotoCraft · VectorCraft · SoundCraft · FilmCraft 는 그 화면의 「… 로 편집」으로만(스펙 `chat-media-preview`) | F-CR-<앱> · F-ED-04 · A-06 · A-11 (보기 화면을 거쳐 연다), 46절 F-MP-03 · 05 | feature/agent | ✅ |
 | 에이전트는 CADCraft MCP 로 그린다 | A-05 | agent | ✅ |
 | 한글 표시 | — | — | ✗ (화면 비교 필요) |
 | 열린 앱을 에이전트와 함께 고친다(라이브) | F-CR-10 (도구로 레이어 추가), A-06 (대화로) | feature/agent | ✅ |
@@ -532,9 +533,9 @@ ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「�
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (30개) | 193 (프로세스 지도 F-PO-01…23, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…08, 팀 맥락 공유 F-TC-01…10, 포털에서 넘어온 휴대폰 F-PT-01…03) |
+| feature | `tests/feature/*.spec.js` (31개) | 201 (프로세스 지도 F-PO-01…23, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…08, 팀 맥락 공유 F-TC-01…10, 포털에서 넘어온 휴대폰 F-PT-01…03, 대화 속 그림 · 소리 · 영상 F-MP-01…08) |
 | agent | `tests/agent/*.spec.js` (14개) | 33 (회의 A-14, 후행 습관 A-FU-01) |
-| 합계 | | 300 (`npx playwright test --list` 로 센 수, main 병합 뒤 2026-11-20) |
+| 합계 | | 308 (`npx playwright test --list` 로 센 2026-11-20 의 300 + F-MP-01…08) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
@@ -676,7 +677,7 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 기능 요건 | 근거 | 시험 | 단계 | |
 |---|---|---|---|---|
 | 지도 · 폴더 화면에서 메신저의 PDF · 워드 칩 → 그 화면 그대로 문서 패널(이음오피스 `pdf` · `docs`), 보낸 사람은 원본 · 받은 사람은 사본, 받은 편지함 「편집기에서 열기」, 떠 있는 메신저는 비켜 줌 | 사용자 11-24 | F-MO-01 · `server/test/openPlan.test.js` | feature · 단위 | ✅ |
-| 볼 수 없는 형식은 파일 아래에 이유와 「새 창에서 열기」, 메신저는 그대로, 열린 문서를 못 바꾸면 그 까닭 | 사용자 11-24 | F-MO-07 · `openPlan.test.js` | feature · 단위 | ✅ |
+| 볼 수 없는 형식은 파일 아래에 이유와 「새 창에서 열기」(11-25 부터 경고가 아니라 차분한 안내), 메신저는 그대로, 열린 문서를 못 바꾸면 그 까닭 | 사용자 11-24 · 11-25 | F-MO-07 · 46절 F-MP-04 · `openPlan.test.js` | feature · 단위 | ✅ |
 | 머리를 끌면 왼쪽 · 문서 패널 · 오른쪽 자리, 가운데는 떠 있기 · 위치 단추 메뉴 | 사용자 11-24 | F-MO-02 · 03 · 08 · `server/test/messengerDock.test.js` | feature · 단위 | ✅ |
 | 붙여 두면 가림막 없음: 위쪽 막대로 채팅에 가도 그 자리, 채팅 입력, 메신저에서 연 문서는 옆에(메신저 안 닫힘), Esc 로 안 닫힘, 닫으면 페이지 전체 | 사용자 11-24 | F-MO-02 | feature | ✅ |
 | 문서 패널에 넣기: 문서 패널 안 문서 오른쪽(페이지는 문서만 열렸을 때와 같은 폭), 문서가 없거나 닫으면 오른쪽 열 | 사용자 11-24 | F-MO-03 · `messengerDock.test.js` | feature · 단위 | ✅ |
@@ -1037,6 +1038,24 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 | 프로세스 개선(HeatBpmn)의 병목 열지도 · 크리티컬 패스: 모든 흐름에 촉이 있고, 크리티컬 패스의 주황 선은 주황 촉이다 | — | F-BA-04 | feature | ✅ |
 | 운영 기준 경로 `/lite/` 빌드에서 촉이 같은 문서의 `<marker>` 를 가리킨다 | — | 손으로 한 번(`map-case-view/e2e/README.md`) | — | ◐ |
 | 지도의 건 패널 · 프로세스 정의 카드 · 마이닝 미리보기(같은 `BpmnView`) | — | — (같은 부품, 따로 시험 없음) | — | ◐ |
+
+### 47. 대화 속 그림 · 소리 · 영상 — 그 자리에서 보고 듣고, 편집기는 편집할 때만 (스펙 `chat-media-preview`)
+
+운영 메신저(11-25, 휴대폰 폭 · 밤 테마)에서 받은 `download.m4a` 는 회색 FILE 칩과 빨간 「⚠ 앱 안에서 열 수 없는 형식이에요」, 공유된 `image.png` 는 IMG 칩과 「⚠ 이 설치에는 PhotoCraft 앱이 없어…」뿐이었다. 사용자: 「대화창안에서 기본적인 음성 / 이미지가 미리보기 등의 출력이 안되다니.. 포토크래프트등의 편집기는 편집의 의도가 있을따만 시도하는 것이고.」 `chat-media-preview.spec.js` 는 38절처럼 자기 스택(BFF `PRO_BACKGROUND=0` + Vite, 회사 `chatmedia-ui`, 8900 · 5300 부터 빈 포트)을 띄우고 지운다. 모델 · 공용 서비스는 부르지 않는다. PhotoCraft 는 시험용 껍데기(`PRO_CRAFT_WEB_ROOT` 에 캔버스 하나 — 놓인 파일 이름을 적어 둠)이고, 「PhotoCraft 가 없는 설치」는 `/api/config` 의 `craft` 를 바꿔 본다. 그림 · m4a · mp4 는 ffmpeg 로 만든 진짜 파일이다(Chrome 채널: AAC · H.264 재생). 사람은 지어낸 이름(윤태호 · 한지민 · 서민재). 화면 사진은 `openspec/specs/chat-media-preview/e2e/results/`, 명령은 `openspec/specs/chat-media-preview/e2e/README.md`.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 그림 · 소리 · 영상인지: 저장된 형식(MIME) 먼저, 없거나 `octet-stream` 이면 확장자(이름 → 주소), 브라우저가 못 그리는 TIFF · PSD 는 아님, 칩은 IMG · AUD · VID | 사용자 11-25 | `server/test/openPlan.test.js` · F-MP-01 · 05 | 단위 · feature | ✅ |
+| 메신저: 그림 미리보기(불러와짐 · 240px 안 · 비율 · 테두리가 그림 크기 · lazy), m4a 재생 막대(길이), mp4 플레이어(playsinline · 길이), 경고 상자 없음 | 사용자 11-25 | F-MP-01 | feature | ✅ |
+| 미리보기 · 칩을 누르면 앱의 보기 화면(편집기 · 문서 패널 아님): 그림 누르면 원래 크기 · 다시 누르면 맞춤, Esc · 바깥 누르기 · ✕로 닫힘, 떠 있는 메신저는 그대로 | 사용자 11-25 | F-MP-02 · 07 | feature | ✅ |
+| 「PhotoCraft 로 편집」은 그 설치에 PhotoCraft 가 있을 때만 — 누르면 문서 패널에 PhotoCraft, 받은 사람의 사본이 앱으로 들어감 · m4a(편집기 없음) · mp4(이 설치에 FilmCraft 없음)에는 단추 없음 | 사용자 11-25 | F-MP-02 · 03 · 04 · `openPlan.test.js`(edit) | feature · 단위 | ✅ |
+| PhotoCraft 가 없는 설치: 그림은 그대로 보기 화면, 편집 단추 · 「PhotoCraft 앱이 없어」 없음 · 볼 수 없는 zip 은 차분한 안내(경고 색 · 표시 없음)와 「새 창에서 열기」 | 사용자 11-25 | F-MP-04 · `openPlan.test.js` | feature · 단위 | ✅ |
+| AI 채팅의 파일 카드: 미리보기 · 재생 막대(preload none) · 영상, 「눌러서 크게 보기」 · 「눌러서 열기」, 카드 → 보기 화면 → 「PhotoCraft 로 편집」 → PhotoCraft | 사용자 11-25 | F-MP-05 · F-NB-04 · 07 | feature | ✅ |
+| 미디어 주소: 받은 사람 · 보낸 사람만 200, 대화방 밖 404 · 로그인 없이 401, 대화방이 받는 메시지에 저장소 열쇠 없음, 구간 요청 206, 형식 없이 저장된 m4a 는 `audio/mp4`, `inline=1` 은 그림 · 소리 · 영상만(zip 은 내려받기), CSP sandbox · nosniff | 결정(권한 그대로) | F-MP-01 · 06 · team-sharing · F-MD-01 | feature | ✅ |
+| 화면이 쓰는 주소에 로그인 토큰 없음: 공유 · 사람에 묶인 15분 서명 주소(`u` · `exp` · `inline` · `sig`, 서버만의 HMAC 키), 메시지에 실려 옴 · 만료나 불러오기 실패면 `GET …/link` 로 새로, 바꾼 주소 403 · 만료 401 · 다른 사람으로 맞게 서명해도 404 · 다른 회사 403, 화면의 모든 그림 · 소리 · 영상 주소와 링크에 `token=` · `eyJ…` 없음 | 검토 11-25 | `server/test/mediaLink.test.js` · F-MP-01 · 02 · 06 · 07 · 08 | 단위 · feature | ✅ |
+| 서명이 맞아도 권한은 다시: 팀에서 빠지면 403(돌아오면 200), 공유를 거두면 받은 사람 · 보낸 사람의 주소 모두 404, 화면의 미리보기는 경고 없이 「미리 볼 수 없어요」 | 검토 11-25 | F-MP-08 | feature | ✅ |
+| 휴대폰 390px 밝은 · 밤: 미리보기 · 재생 막대 · 영상이 메시지 안, 옆으로 넘치지 않음, 보기 화면의 닫기 · 새 창 · 편집 단추가 화면 안 | 사용자 11-25 | F-MP-07 | feature | ✅ |
+| 운영 저장소(Supabase)의 실제 주소 · 큰 영상의 넘겨 보기 · iPhone Safari 재생 · 영어 화면 | — | — (로컬 저장소 · Chrome 으로만) | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 

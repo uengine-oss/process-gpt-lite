@@ -2828,7 +2828,13 @@
   "이 메일은 이제 볼 수 없어요": "This mail can't be seen any more",
   "하지 못했어요.": "Couldn't do it.",
   "이 메일을 확인해 줘": "Please look at this mail",
-  "메일 본문 요청": "Mail body request"
+  "메일 본문 요청": "Mail body request",
+  "눌러서 크게 보기": "Click to view larger",
+  "미리 볼 수 없어요": "Can't preview this",
+  "편집기를 열지 못했어요.": "Couldn't open the editor.",
+  "열어 보기": "View",
+  "편집본 · 눌러서 크게 보기": "Edited copy · click to view larger",
+  "편집본 · 눌러서 열기": "Edited copy · click to open"
  },
  "patterns": [
   [
@@ -2870,6 +2876,10 @@
   [
    "{0} 안의 브라우저에서는 앱을 설치할 수 없어요.",
    "Apps can't be installed from {0}'s in-app browser."
+  ],
+  [
+   "미리 볼 파일을 가져오지 못했어요 · {0}",
+   "Couldn't get the file to preview · {0}"
   ],
   [
    "「{0}」와 맞는 산출물이 없어요.",
@@ -3436,6 +3446,10 @@
    "Start as ‘{0}’"
   ],
   [
+   "{0} 크게 보기",
+   "View {0} larger"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -3478,6 +3492,10 @@
   [
    "메시지 {0}개",
    "{0} messages"
+  ],
+  [
+   "{0} 로 편집",
+   "Edit in {0}"
   ],
   [
    "{0}(소유)",

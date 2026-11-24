@@ -61,13 +61,14 @@ const onKey = (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefau
 const openMine = (x) => run(`o${x.id}`, () => mt.openMine(x))
 const present = (x) => run(`p${x.id}`, () => mt.present(x))
 const startTask = (s) => run(`s${s.id}`, () => mt.startTask(s))
-// the full editor over the page; the meeting shrinks to a corner meanwhile
-function bigEditor(msg) {
+// the full editor over the page; the meeting shrinks to a corner meanwhile (a picture · sound · video opens the viewer over
+// everything instead: the meeting stays as it is)
+async function bigEditor(msg) {
   if (!msg) return
   const list = (app.messages[msg.thread_id] ||= [])
   if (!list.some((x) => x.id === msg.id)) list.push(msg)
-  openArtifact(app, router, msg)
-  mt.mini = true
+  const r = await openArtifact(app, router, msg)
+  if (r?.how !== 'view') mt.mini = true
 }
 async function openShare(f) {
   await run(`f${f.shareId}`, async () => {

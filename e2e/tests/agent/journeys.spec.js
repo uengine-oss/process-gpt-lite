@@ -108,6 +108,8 @@ test('A-06 [flaky] 열린 PhotoCraft 를 대화로 고친다: 글자 레이어 �
   await db.addMessages(th, [{ kind: 'file', content: { name: '포스터.png', url: png.url } }])
   await page.goto('/chat')
   await page.locator('button.file', { hasText: '포스터.png' }).click()
+  // a picture opens the viewer; PhotoCraft is its 「PhotoCraft 로 편집」 (spec chat-media-preview)
+  await page.locator('[data-test="media-viewer"] [data-test="media-edit"]').click()
   await expect(page.locator('.cef .badge.live')).toBeVisible({ timeout: 90_000 })
   await api.mcp('/mcp/photocraft', 'tools/call', { name: 'photocraft_start', arguments: {} }, u.token())
   const layers = async () => { const x = await api.mcp('/mcp/photocraft', 'tools/call', { name: 'photocraft_doc_inspect', arguments: {} }, u.token()); return x.body.result.isError ? -1 : (JSON.parse(api.toolText(x)).layers || []).length }

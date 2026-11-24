@@ -40,6 +40,8 @@ test('A-11 [flaky] 도면 색을 바꾼 뒤 검수: 테이블 선이 남고(70% 
   await db.addMessages(th, [{ role: 'agent', kind: 'file', content: card }])
   await page.goto('/chat')
   await page.locator('button.file', { hasText: '매장 평면도' }).first().click()
+  // a picture opens the viewer; PhotoCraft is its 「PhotoCraft 로 편집」 (spec chat-media-preview)
+  await page.locator('[data-test="media-viewer"] [data-test="media-edit"]').click()
   await expect(page.locator('.cef .badge.live')).toContainText('대화와 연결됨', { timeout: 120_000 })
   const t0 = new Date()
   await page.locator('.foot .composer textarea').fill('이 도면 그림의 색을 남색 선·하늘색 바탕으로 맞춰줘')

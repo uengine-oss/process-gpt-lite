@@ -18,6 +18,8 @@ import { runner } from './localRunner.js'
 const OfficeSheet = defineAsyncComponent(() => import('./components/OfficeSheet.vue'))
 const MailReplySheet = defineAsyncComponent(() => import('./components/MailReplySheet.vue'))
 const Messenger = defineAsyncComponent(() => import('./components/team/Messenger.vue'))
+// a picture · sound · video opened from a conversation (artifacts.js viewMedia): over everything, the messenger included
+const MediaViewer = defineAsyncComponent(() => import('./components/MediaViewer.vue'))
 
 const app = useApp()
 const team = useTeam()
@@ -59,6 +61,7 @@ const later = () => { newVersion.value = false }
     <!-- a mail's card, from Home or 팀 메시지 › 받은 편지함: the mail and its reply -->
     <MailReplySheet v-if="app.mailCard" :key="app.mailCard.id" :action="app.mailCard" @close="app.mailCard = null" />
     <Teleport to="body"><Transition name="fade"><Messenger v-if="team.open && teamHere" /></Transition></Teleport>
+    <MediaViewer v-if="app.media" />
     <!-- a newer build was deployed while this page stayed open: reload to get it (appVersion.js) -->
     <div v-if="newVersion" class="newver" role="status" data-test="new-version">
       <span>새 버전이 나왔어요. 새로 고침하면 바로 적용돼요.</span>

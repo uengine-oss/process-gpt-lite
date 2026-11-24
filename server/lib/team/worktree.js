@@ -29,7 +29,11 @@ export const objectUrl = (entry) => (entry?.sha256 ? `${config.supabaseUrl}/stor
 const TYPES = { txt: 'text/plain', md: 'text/markdown', json: 'application/json', csv: 'text/csv', html: 'text/html', xml: 'application/xml',
   pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  hwpx: 'application/hwp+zip', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' }
+  hwpx: 'application/hwp+zip', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  // a picture · sound · video keeps its type, so a phone's browser shows and plays it from its card (not SVG: a public object
+  // must not be a page that runs script)
+  gif: 'image/gif', webp: 'image/webp', mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg',
+  flac: 'audio/flac', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm' }
 const typeOf = (path, fallback) => TYPES[String(path).split('.').pop().toLowerCase()] || fallback || 'application/octet-stream'
 export const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex')
 

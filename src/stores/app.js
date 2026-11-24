@@ -62,6 +62,7 @@ export const useApp = defineStore('app', {
     panelMode: false,          // "새 패널 만들기" composer mode
     handoff: null,             // message id of a task shown full screen
     officeDoc: null,           // {msgId, url, name} open in the IeumOffice editor
+    media: null,               // {kind, url, name, editWith, edit} a picture · sound · video in the viewer (MediaViewer.vue, artifacts.js viewMedia)
     docSide: false,            // that document is open beside the page, not over it (OfficeSheet) — the messenger's panel dock joins it
     // files of the app dragged onto the composer (src/fileDrag.js — a shared folder's file, an artifact, a file a teammate sent): the
     // next message is about them, the agent reads each with my access (server lib/fileRefs.js turnRefs): {key, item, name, folder, as, wait, error}
