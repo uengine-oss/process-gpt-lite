@@ -73,7 +73,9 @@ test('서버의 항목 확인: 페이지가 보낸 것을 그대로 믿지 않�
   assert.deepEqual(FR.normItem({ src: 'folder', slug: 'cv', path: 'a.docx', commit: 'zz', variation: { id: ID } }), { src: 'folder', slug: 'cv', path: 'a.docx', commit: null, blob: null, variation: ID, name: 'a.docx' })
   assert.equal(FR.normItem({ src: 'card', id: 'x' }), null)
   assert.equal(FR.normItem({ src: 'ref', messageId: ID, index: 10 }), null)
-  assert.equal(FR.normItem({ src: 'mail', id: ID }), null)
+  // (a mail is an item now — spec mail-card-actions, test/mailFollow.test.js; a kind the server does not know still is not)
+  assert.equal(FR.normItem({ src: 'calendar', id: ID }), null)
+  assert.equal(FR.normItem({ src: 'mail', id: 'not-a-card-id' }), null)
   assert.equal(FR.normItems(Array.from({ length: 30 }, () => ({ src: 'card', id: ID }))).length, FR.MAX)
 })
 

@@ -19,6 +19,9 @@ import { viewArtifacts } from './shares.js'
 import { L, langOf, withLang } from '../lang.js'
 // file mentions on a message: each person sees them with their own access (lib/fileRefs.js decorate)
 import { decorate, publicRef } from '../fileRefs.js'
+// a mail mention keeps its summary only — the body is the owner's until they share it (lib/mailMention.js)
+import { publicMailRef } from '../mailMention.js'
+import { josa } from '../josa.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
@@ -108,7 +111,7 @@ export function view(viewerId, row, byEmail = {}) {
     mine: !agent && senderId === viewerId, byMe: agent && g.by === viewerId,
     artifacts: viewArtifacts(viewerId, agent ? g.by : senderId, g.artifacts), context: g.context || null,
     // file mentions (links to shared folders' files): their state for this viewer comes with decorate()
-    ...(Array.isArray(g.refs) && g.refs.length ? { refs: g.refs.map((r) => ({ ...publicRef(r), folderId: r.folderId })) } : {}),
+    ...(Array.isArray(g.refs) && g.refs.length ? { refs: g.refs.map((r) => (r?.type === 'mail' ? publicMailRef(r) : { ...publicRef(r), folderId: r.folderId })) } : {}),
     // a message addressed to the AI (「@AI …」) and the AI's own answer to it
     ...(g.ai && !agent ? { toAi: true } : {}),
   }
@@ -171,7 +174,8 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   const artifacts = attach ? await attach(members.filter((m) => m.id !== me.id), uuid, t.id) : []
   const files = artifacts.map((a) => a.name)
   const linked = (refs || []).map((r) => r.name)
-  const content = String(body || '').slice(0, 8000) || (files.length || linked.length ? `📎 ${[...files, ...linked].join(', ')}` : '')
+  // (a mail mention says its subject — the summary everyone in the room sees anyway, never its body)
+  const content = String(body || '').slice(0, 8000) || (files.length || linked.length ? `${kind === 'mailref' ? '✉️' : '📎'} ${[...files, ...linked].join(', ')}` : '')
   const pgptPart = kind === 'text' && !artifacts.length && !context && !refs?.length && !ai ? undefined
     : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(agent || {}) }
   const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
@@ -183,7 +187,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
   await pushRow(row, members)
-  if (kind === 'share' || kind === 'mention' || kind === 'fileref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id))
+  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id))
   return viewFor(me, row, by)
 }
 
@@ -202,12 +206,14 @@ async function notifyMembers(me, t, row, kind, files, context, recipients) {
   const ctx = context?.title ? ` · ${context.title.slice(0, 30)}${context.title.length > 30 ? '…' : ''}` : ''
   // each notice in its recipient's saved language (lib/lang.js)
   const words = (en) => ({
-    title: kind === 'fileref'
+    title: kind === 'mailref'
+      ? (en ? `${me.name} mentioned the mail "${files[0] || ''}"${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 메일 「${files[0] || ''}」${files.length > 1 ? ` 외 ${files.length - 1}통${josa('통', '을', '를')}` : josa(`${files[0] || ''}」`, '을', '를')} 멘션했어요`)
+      : kind === 'fileref'
       ? (en ? `${me.name} linked ${files[0] || 'a file'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '파일'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 링크로 멘션했어요`)
       : kind === 'share'
       ? (en ? `${me.name} shared ${files[0] || 'an output'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '산출물'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 공유했어요`)
       : (en ? `${me.name} mentioned you${ctx}` : `${me.name}님이 나를 언급했어요${ctx}`),
-    text: [row.messages.content, files.length && kind !== 'share' ? `${kind === 'fileref' ? (en ? 'Linked files' : '링크한 파일') : en ? 'Outputs' : '산출물'}: ${files.join(', ')}` : ''].filter(Boolean).join('\n').slice(0, 600),
+    text: [row.messages.content, files.length && kind !== 'share' ? `${kind === 'mailref' ? (en ? 'Mail' : '메일') : kind === 'fileref' ? (en ? 'Linked files' : '링크한 파일') : en ? 'Outputs' : '산출물'}: ${files.join(', ')}` : ''].filter(Boolean).join('\n').slice(0, 600),
   })
   for (const r of recipients) {
     const { title, text } = words((await langOf(r.id)) === 'en')
@@ -247,7 +253,7 @@ export async function inbox(me) {
   const rows = await q(`select c.uuid, c.id, c.messages, coalesce(rd.last_read_at, 'epoch'::timestamptz) as last_read_at
                         from chats c join chat_rooms r on r.id=c.id and r.tenant_id=$1 and r.participants @> $3::jsonb
                         left join pro_chat_reads rd on rd.room_id=c.id and rd.user_id=$2
-                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref') and coalesce(c.messages->>'email','') <> $4
+                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref','mailref') and coalesce(c.messages->>'email','') <> $4
                         order by coalesce(public.pro_chat_ts(c.messages), now()) desc limit 50`, [T(), me.id, JSON.stringify([{ id: me.id }]), me.email])
   const senders = await people([...new Set(rows.map((r) => r.messages.userId).filter(Boolean))])
   const by = Object.fromEntries(senders.map((p) => [p.email, p]))

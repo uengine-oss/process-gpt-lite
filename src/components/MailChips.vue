@@ -9,6 +9,8 @@ import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { verbLabel } from '../mailKind.js'
+// a chip is the mail as a mention too: dragged onto the AI chat or the messenger (src/fileDrag.js, server lib/mailMention.js)
+import { startDrag, mailItem } from '../fileDrag.js'
 
 const props = defineProps({ refs: { type: Array, default: () => [] }, event: { type: String, default: '' } })
 const app = useApp()
@@ -34,6 +36,11 @@ const chips = computed(() => props.refs.filter((r) => r && (r.actionId || r.mail
   return { r, inst, label, verb: inst ? '' : r.text ? verbOf(r) : '' }
 }))
 
+function drag(e, x) {
+  const card = app.actions.find((a) => a.id === x.r.actionId)
+  const it = x.r.actionId ? mailItem(card || { actionId: x.r.actionId, subject: x.r.subject, text: x.r.text }) : null
+  if (it) startDrag(e, [it]); else e.preventDefault()
+}
 async function open(x) {
   err.value = ''
   if (x.inst) return router.push(`/routines/${encodeURIComponent(x.inst.instId)}`)
@@ -46,7 +53,7 @@ async function open(x) {
 <template>
   <div v-if="chips.length" class="mailchips" data-test="mail-chips">
     <button v-for="x in chips" :key="x.r.actionId || x.r.mailId" class="mchip press" :class="{ inst: !!x.inst, busy: busy && busy === (x.r.actionId || x.r.mailId) }"
-      :data-test="x.inst ? 'mail-chip-inst' : 'mail-chip'" :title="x.label" @click="open(x)">
+      :data-test="x.inst ? 'mail-chip-inst' : 'mail-chip'" :title="x.label" :draggable="!!x.r.actionId" @dragstart="drag($event, x)" @click="open(x)">
       <Icon :name="x.inst ? 'refresh' : 'mail'" :size="15" />
       <span v-if="x.verb" class="v" data-test="mail-chip-verb">{{ x.verb }}</span>
       <span class="t">{{ x.label }}</span>

@@ -98,3 +98,31 @@ export async function choose(state, question, options, { odds = oddsOf, json = c
     return { choice: options[i].key, probabilities: { [options[i].key]: confidence }, confidence, strategy: 'json', model: null }
   } catch { return null }
 }
+
+// A few choices among options: the ones the first token's probability puts at `min` or above, the likeliest first, at most `max` (the
+// options of one question are told apart by the same letters as choose). A model without log-probabilities answers in JSON — answerJson
+// says how ({"choices": [{"choice": "<letter>", "confidence": 0-1}]}). → {picks: [{key, p}], probabilities, strategy: 'logprob'|'json',
+// model} or null when nothing could be read. (a mail's follow-up actions — lib/mailFollow.js)
+export async function chooseSome(state, question, options, { odds = oddsOf, json = chatJson, answerJson, timeoutMs = 8000, max = 3, min = 0.15 } = {}) {
+  const r = await odds(state, question, options, { timeoutMs }).catch(() => null)
+  if (r?.probabilities) {
+    const picks = Object.entries(r.probabilities).filter(([, p]) => p >= min).sort((a, b) => b[1] - a[1]).slice(0, max).map(([key, p]) => ({ key, p }))
+    return { picks, probabilities: r.probabilities, strategy: 'logprob', model: r.model || null }
+  }
+  try {
+    const j = await json(`${question}\n${answerJson || 'JSON {"choices": [{"choice": "<letter>", "confidence": 0-1}]} only, the best first.'}`,
+      `${state}\n\n${options.map((o, i) => `${LETTERS[i]}) ${o.label}`).join('\n')}`, { timeoutMs: 30000, temperature: 0 })
+    const list = Array.isArray(j?.choices) ? j.choices : j?.choice ? [j] : null
+    if (!list) return null
+    const picks = []
+    for (const c of list) {
+      const i = LETTERS.indexOf(String(c?.choice || '').trim().toUpperCase().slice(0, 1))
+      if (i < 0 || i >= options.length || picks.some((x) => x.key === options[i].key)) continue
+      const p = Math.max(0, Math.min(1, Number(c.confidence)))
+      const conf = Number.isFinite(p) ? p : 0.5
+      if (conf >= min) picks.push({ key: options[i].key, p: conf })
+    }
+    picks.sort((a, b) => b.p - a.p)
+    return { picks: picks.slice(0, max), probabilities: Object.fromEntries(picks.map((x) => [x.key, x.p])), strategy: 'json', model: null }
+  } catch { return null }
+}

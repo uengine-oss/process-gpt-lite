@@ -28,6 +28,8 @@ import { narrow } from '../../viewport.js'
 import { verbLabel } from '../../mailKind.js'
 // file mentions (server lib/fileRefs.js): a folder's file, a chat artifact or a received file dragged in (src/fileDrag.js) — a link or a share
 import FileRefCard from './FileRefCard.vue'
+// a mail mentioned (server lib/mailMention.js): a summary for everyone but its owner, the body only when the owner shares it
+import MailRefCard from './MailRefCard.vue'
 import { dragKind, dragging as draggedItems, itemsOf, zoneWords, startDrag, shareItem, same, MAX as MAX_ITEMS } from '../../fileDrag.js'
 // "@" near the caret, as in the chat composer (useTeammateMention.js)
 import { caretXY } from './useTeammateMention.js'
@@ -73,7 +75,7 @@ const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크' }
+const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크', mailref: '메일 멘션' }
 // team assist: the suggestion cards under the message that prompted them (lib/team/assist.js)
 const sugOf = (id) => (team.suggestions[team.active] || []).filter((x) => x.messageId === id)
 
@@ -140,7 +142,7 @@ async function send() {
     const ai = aiOn.value
     const named = mentioned.value.filter((p) => text.includes(`@${p.name}`)).map((p) => p.id)
     await team.send(team.active, ai ? `@AI ${text}`.trim() : text, [...attach.value.map((m) => m.id), ...ups.value.map((u) => u.card.id)],
-      { refs: refs.value.map((r) => r.ref), ai, mentions: named })
+      { refs: refs.value.map((r) => (r.mail ? { type: 'mail', actionId: r.mail.actionId, body: !!r.body } : r.ref)), ai, mentions: named })
     draft.value = ''; attach.value = []; ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = []
   })
 }
@@ -161,6 +163,8 @@ async function addItems(items) {
   temp.forEach((t, i) => {
     const r = res[i]
     if (!r?.ok) { t.wait = false; t.error = r?.error || '보낼 수 없는 파일이에요'; return }
+    // a mail of mine: a mention — its summary for the others, the body only when 「본문도 공유」 is on (off unless I turn it on)
+    if (r.as === 'mail') { Object.assign(t, { wait: false, name: r.name, mail: r.mail, from: r.mail?.from || '', body: false }); return }
     if (r.as === 'share') {
       refs.value = refs.value.filter((x) => x.key !== t.key)
       if (!attach.value.some((m) => m.id === r.cardId)) attach.value = [...attach.value, { id: r.cardId, content: { name: r.name }, dropped: true }]
@@ -280,6 +284,14 @@ function dropped(e) {
   else if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
 }
 watch(() => team.active, () => { for (const u of ups.value) u.job?.abort?.(); ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = [] })
+// (after the watch above, which empties the composer when the conversation changes)
+// 「동료에게 공유」 on a mail's sheet (MailFollowRow): the mail waits until a conversation is open here, then becomes its chip
+watch(() => [team.pendingMention, team.active, team.tab], () => {
+  if (!team.pendingMention?.length || !team.active || team.tab !== 'threads') return
+  const items = team.pendingMention
+  team.pendingMention = null
+  addItems(items)
+}, { immediate: true })
 function onKey(e) {
   if (atKey(e)) return
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() }
@@ -365,10 +377,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <Icon name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
               </p>
             </template>
-            <FileRefCard v-for="(r, i) in m.refs || []" :key="'r' + i + r.path" :m="m" :r="r" :i="i" />
+            <template v-for="(r, i) in m.refs || []" :key="'r' + i + (r.path || r.actionId)">
+              <MailRefCard v-if="r.type === 'mail'" :m="m" :r="r" :i="i" />
+              <FileRefCard v-else :m="m" :r="r" :i="i" />
+            </template>
             <div class="acts">
               <button v-if="m.artifacts[0]?.shareId" class="b press" :disabled="!!busy" @click="openFile(m.artifacts[0])">편집기에서 열기</button>
-              <button v-if="m.kind !== 'fileref'" class="b main press" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
+              <button v-if="m.kind !== 'fileref' && m.kind !== 'mailref'" class="b main press" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
               <button class="b ghost press" @click="reply(m)">답장</button>
             </div>
           </article>
@@ -377,6 +392,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
         </div>
 
         <div v-else class="items scroll">
+          <!-- 「동료에게 공유」 from a mail's sheet: the mail waits for a conversation -->
+          <p v-if="team.pendingMention?.length" class="pending" data-test="msg-pending-mail"><Icon name="mail" :size="14" /><span>대화를 고르면 「{{ team.pendingMention[0].name }}」 메일이 멘션으로 붙어요</span>
+            <button class="press" aria-label="취소" @click="team.pendingMention = null">×</button></p>
           <button v-for="t in team.threads" :key="t.id" class="th press" :class="{ on: t.id === team.active }" @click="team.openThread(t.id)">
             <span class="av" :class="{ grp: t.kind === 'group' }">{{ t.kind === 'group' ? t.members.length : initial(t.title) }}</span>
             <span class="nm"><b>{{ t.title }}</b>
@@ -425,7 +443,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                   </p>
                 </template>
                 <!-- file mentions: links to shared folders' files, in my own state (server lib/fileRefs.js) -->
-                <FileRefCard v-for="(r, i) in m.refs || []" :key="'r' + i + r.path" :m="m" :r="r" :i="i" />
+                <template v-for="(r, i) in m.refs || []" :key="'r' + i + (r.path || r.actionId)">
+                  <MailRefCard v-if="r.type === 'mail'" :m="m" :r="r" :i="i" />
+                  <FileRefCard v-else :m="m" :r="r" :i="i" />
+                </template>
                 <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
                 <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((x) => x.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
                 <div v-if="branchesOf[m.id]?.length" class="brs">
@@ -456,12 +477,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <footer class="cmp">
             <div v-if="attach.length || ups.length || refs.length" class="chips">
               <!-- a shared folder's file: a link (링크); an artifact of mine: shared as a copy for each (공유) -->
-              <span v-for="r in refs" :key="r.key" class="chip ref" :class="{ error: !!r.error, wait: r.wait }" data-test="msg-ref-chip" :data-file="r.name" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'" :title="r.error || (r.ref ? `${r.folder} › ${r.ref.path}` : '')">
-                <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><span class="cn">{{ r.name }}</span>
-                <small>{{ r.error || (r.wait ? '확인하는 중…' : r.variation ? `${r.folder} · 반영 전 변형` : r.folder) }}</small>
-                <em v-if="!r.error" class="as">링크</em>
-                <button aria-label="빼기" @click="dropRef(r)">×</button>
-              </span>
+              <template v-for="r in refs" :key="r.key">
+                <!-- a mail of mine: a mention — 「본문도 공유」 (off) lets this room read its body -->
+                <span v-if="r.mail" class="chip ref mailchip" data-test="msg-ref-chip" data-kind="mail" :data-file="r.name" data-state="ready" :title="`${r.from} · ${r.name}`">
+                  <span class="fx env"><Icon name="mail" :size="12" /></span><span class="cn">{{ r.name }}</span><small>{{ r.from }}</small>
+                  <label class="sharebody" data-test="msg-mail-body" :title="r.body ? '이 대화방 사람들이 메일 본문을 볼 수 있어요' : '다른 사람에게는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보여요'">
+                    <input v-model="r.body" type="checkbox" /> 본문도 공유</label>
+                  <em class="as env">메일</em>
+                  <button aria-label="빼기" @click="dropRef(r)">×</button>
+                </span>
+                <span v-else class="chip ref" :class="{ error: !!r.error, wait: r.wait }" data-test="msg-ref-chip" :data-file="r.name" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'" :title="r.error || (r.ref ? `${r.folder} › ${r.ref.path}` : '')">
+                  <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><span class="cn">{{ r.name }}</span>
+                  <small>{{ r.error || (r.wait ? '확인하는 중…' : r.variation ? `${r.folder} · 반영 전 변형` : r.folder) }}</small>
+                  <em v-if="!r.error" class="as">링크</em>
+                  <button aria-label="빼기" @click="dropRef(r)">×</button>
+                </span>
+              </template>
               <span v-for="m in attach" :key="m.id" class="chip" data-test="msg-share-chip" :data-file="m.content.name">{{ m.content.name }}<em class="as share">공유</em><button @click="toggleAttach(m)">×</button></span>
               <span v-for="u in ups" :key="u.id" class="chip up" :class="u.state" data-test="msg-upload-chip" :data-state="u.state">
                 <span class="cn">{{ u.name }}</span><small>{{ u.state === 'uploading' ? `${Math.round(u.progress * 100)}%` : u.state === 'error' ? u.error : kb(u.size) }}</small>
@@ -641,6 +672,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .chip .fx.hwp { background: #1f6fd1; } .chip .fx.doc { background: #2b579a; } .chip .fx.xls { background: #217346; } .chip .fx.ppt { background: #c43e1c; } .chip .fx.pdf { background: #d93025; } .chip .fx.md { background: #3d4451; }
 .chip .as { flex: none; font-style: normal; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 7px; color: #2a78d6; background: rgba(42, 120, 214, .14); margin-left: 2px; }
 .chip .as.share { color: #0f8a5f; background: rgba(15, 138, 95, .14); }
+.pending { display: flex; align-items: center; gap: 6px; margin: 4px 6px 8px; padding: 8px 10px; border-radius: 12px; font-size: 13px; color: var(--text-primary);
+  background: rgba(122, 90, 245, .1); border: 1px solid rgba(122, 90, 245, .3); }
+.pending > :deep(svg) { flex: none; color: #7a5af5; }
+.pending span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pending button { flex: none; width: 22px; height: 22px; border-radius: 11px; color: var(--text-secondary); }
+/* (not 「.mail」: that is the inbox's mail row) */
+.chip.ref.mailchip { background: rgba(122, 90, 245, .1); border-color: rgba(122, 90, 245, .38); }
+/* one line: the subject gives way first, the sender next; the switch, the tag and × keep their size */
+.chip.ref.mailchip .cn { flex: 0 1 auto; min-width: 0; max-width: 150px; }
+.chip.ref.mailchip small { flex: 0 2 auto; min-width: 0; max-width: 80px; }
+.chip.ref.mailchip .fx, .chip.ref.mailchip .sharebody, .chip.ref.mailchip .as, .chip.ref.mailchip button { flex: none; }
+.chip .fx.env { background: #7a5af5; }
+.chip .as.env { color: #7a5af5; background: rgba(122, 90, 245, .14); }
+.chip .sharebody { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; cursor: pointer; }
+.chip .sharebody input { margin: 0; width: 13px; height: 13px; accent-color: #7a5af5; }
 .aichip { flex: none; align-self: center; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 2px 0 10px; border-radius: 14px; font-size: 13px; font-weight: 600; color: #fff;
   background: linear-gradient(135deg, #7a5af5, #2a78d6); animation: pop-in .3s var(--spring); }
 .aichip button { width: 22px; height: 22px; border-radius: 11px; color: rgba(255, 255, 255, .85); }

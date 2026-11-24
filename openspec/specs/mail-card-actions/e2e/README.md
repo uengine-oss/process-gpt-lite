@@ -66,3 +66,73 @@ cd e2e && PGPT_URL=http://localhost:5194 API_URL=http://127.0.0.1:8793 RT_WORKER
   - `06a` Pay 카드: 「에이전트에게 맡기기」가 큰 단추 · `06b` 「답장도 쓰기」를 누른 뒤
   - `07a` Home · 칩의 「일정 추가 · 납부 · 답장 · 검토」 · `07b` 받은 편지함 › 메일 · `07c` 영어 화면(Add to calendar · Pay · Reply · Review, 양식)
   - `08a`~`08d` 390px: 칩 · 양식 · 「기록했어요」 · 맡기기 카드
+
+---
+
+# 답장만이 아닌 할 일 줄 · 메일 멘션 (2026-11-24 「메일에 대해서 무조건 답장만 하지는 않는다 …」)
+
+## 서버 시험
+
+```bash
+cd server && node --test test/mailFollow.test.js                                   # 모델 · DB 없이
+cd server && node --test --test-concurrency=1 test/mailFollow.integration.test.js   # 실제 DB · git · Express 라우트, 가짜 모델 · deepagents · Gmail
+```
+
+- `mailFollow.test.js`(9): `chooseSome`(첫 글자 확률 문턱 · 개수 · JSON 대체 · 읽지 못함), 가짜 판정 모델로 다음 할 일 고르기(보기 = 카탈로그 − 고정 − 맞지 않는 것 + 「그 밖」, 판정이 읽은 메일 상태), 시트의 줄(고정이 먼저 · 할 일을 말함 · 결과가 남는 곳 · 지도가 읽은 프로세스 · 실행한 일), 끌기 내용(`mailItem` · `validItem` · 놓는 곳의 말 · 서버 `normItem`), 메일 멘션 권한 상태(주인 · 공유받음 · 요약 · 요청함 · 없어짐)와 메시지에 남는 모양(본문 없음), 에이전트가 읽는 메일 맥락(보낸 사람 · 받는 사람 · 받은 때 · 제목 · 첨부 · 스레드 링크 · 이어진 일 · 본문 자르기), Home 카드의 한 줄, 영어 화면의 줄(스킬의 labelEn · saysEn).
+- `mailFollow.integration.test.js`(5): 할 일 줄(판정 모델이 고른 것이 카드에 남고 다시 묻지 않음 · 판정 모델이 꺼지면 고정만 · 남의 카드 403) · 「이 회사 알아보기」(에이전트 요청의 메일 맥락 · Lite 가 아는 것 · 메인 채팅의 새 대화와 `context_threads` · 카드의 자리 · 두 번 눌러도 한 번) · 인스턴스에 이어진 메일(인스턴스 대화 · 작업 폴더의 `조사/01_…md` · 다음 단계가 읽음 · 메인 채팅은 그대로) · AI 채팅에 놓은 메일(`runTurn` → 에이전트 요청에 메일 맥락, 남의 메일은 칩에 까닭) · 메신저의 메일 멘션(요약만 → 본문 보기 요청 → 주인이 공유 → 본문, 방 밖 404, 공유를 그만두면 다시 403, 방에 남는 것에 본문 없음).
+
+## 화면 시험 (Playwright, `e2e/tests/feature/mail-follow-up.spec.js`)
+
+```bash
+# 서버: 가짜 모델(이 스펙이 59981 에 띄움) · 가짜 deepagents(59982) · 지도 엔진 없음 · 백그라운드 일 없음
+cd server && PRO_PORT=8869 PRO_BACKGROUND=0 PRO_LLM_BASE_URL=http://127.0.0.1:59981/v1 PRO_LLM_API_KEY=test PRO_LLM_MODEL=fake-judge PRO_LLM_FAST_MODEL=fake-judge \
+  PRO_ONTOLOGY_BOLT_URL= PRO_DEEPAGENTS_URL=http://127.0.0.1:59982 PRO_CONTEXT_ROUTER_URL= PRO_MEMENTO_URL=http://127.0.0.1:9 PRO_COMPLETION_URL=http://127.0.0.1:9 PRO_JUDGE_URL= \
+  PRO_GOOGLE_GMAIL_URL=http://127.0.0.1:59983/gmail/v1 PRO_GOOGLE_CALENDAR_URL=http://127.0.0.1:59983/calendar/v3 \
+  PRO_SCENARIOS=off PRO_FOLDERS_ROOT=/tmp/e2e-pgpt-folders node index.js
+PRO_API_TARGET=http://127.0.0.1:8869 npx vite --port 5269 --strictPort
+cd e2e && PGPT_URL=http://localhost:5269 API_URL=http://127.0.0.1:8869 RT_WORKERS=1 RT_FAKE_LLM_PORT=59981 RT_FAKE_AGENT_PORT=59982 RT_FAKE_GOOGLE_PORT=59983 \
+  npx playwright test tests/feature/mail-follow-up.spec.js --project=feature
+```
+
+- 같은 서버에 `mail-card-calendar` · `mail-reply` · `mail-thread-flow` · `messenger-file-mention` 을 이어 돌릴 때는 같은 `RT_FAKE_LLM_PORT` · `RT_FAKE_AGENT_PORT` · `RT_FAKE_GOOGLE_PORT` 를 준다(그 묶음들이 같은 포트에 자기 가짜를 띄운다).
+- 가짜 판정 모델은 「다음에 할 일은」 질문에 「회의 잡기」 0.5 · 「제안서 초안」 0.3 을 준다. 가짜 deepagents 는 「회사를 알아봐 주세요」 요청에 1.5초 뒤 「# haneul-data.example 알아보기 …」로 답한다(「하는 중…」을 보려고). 메일함은 데모 메일함이다(보내지 않음).
+- 끌기는 Playwright 의 DataTransfer 끌기 이벤트로 시험한다(`dragstart` 는 끄는 것에, `dragenter` · `dragover` · `drop` 은 놓는 곳에).
+- 사람 · 회사 · 메일은 지어낸 것이다(한지우 · 서민재, 하늘데이터 윤서진, `haneul-data.example`).
+
+| 스펙 시나리오 | 시험 |
+|---|---|
+| 답장 시트의 줄 | F-MF-01 · 서버 「시트의 할 일 줄 …」 |
+| 무엇을 할지 먼저 말한다 | F-MF-01 · F-MF-06 |
+| 협업 제안 메일 | F-MF-01 · 단위 「할 일 고르기(가짜 판정 모델)」 · 서버 「시트의 할 일 줄 …」 |
+| 판정 모델에 연결할 수 없다 | 서버 「… 판정 모델이 꺼지면 고정만(남기지 않음)」 · 단위 `decideFollow` null |
+| 지도가 읽은 프로세스 | 단위 「시트의 줄 …」(‘견적 요청’ 시작) — 화면은 `mail-thread-flow` 의 「새로 시작」과 같은 요청 |
+| 회사를 알아본다 | F-MF-02 · 서버 「「이 회사 알아보기」 …」 |
+| 인스턴스에 이어진 메일 | 서버 「인스턴스에 이어진 메일 …」 |
+| 두 번 누른다 | 서버 「「이 회사 알아보기」 …」(두 번째 요청) |
+| 채팅에서 이어 간다 | F-MF-03 · 서버 「AI 채팅에 놓은 메일 …」 |
+| Home 카드를 AI 채팅에 끈다 | F-MF-04(카드 · 시트 손잡이) |
+| 다른 사람의 메일 | 서버 「AI 채팅에 놓은 메일 …」(404 · 칩에 까닭) |
+| 동료는 요약만 본다 | F-MF-05 · 서버 「메신저의 메일 멘션 …」 · 단위 「메신저의 메일 멘션 권한 …」 |
+| 요청과 공유 | F-MF-05 · 서버 「메신저의 메일 멘션 …」 |
+| 동료에게 공유 | F-MF-07 |
+| 휴대폰의 답장 시트 | F-MF-06(밝은 · 밤) |
+
+시험하지 않은 것:
+- 실제 모델 · 실제 deepagents 로 회사를 알아보는 것(웹 검색 · 브라우저가 실제로 무엇을 찾는지). 시험은 가짜 deepagents 가 받은 요청의 모양(메일 맥락 · Lite 가 아는 것 · 대화 id)과 답이 남는 자리를 확인한다.
+- 에이전트가 프롬프트의 「메일을 보내거나 일정을 만들지 마세요」를 지키는지. 서버가 막는 것은 시트의 「보내기」 밖의 보내기 경로가 아니라 지시다 — 회사 메일 도구를 가진 에이전트가 이를 어기면 보낼 수 있다(2026-11-23 사고와 같은 위험, 「에이전트에게 맡기기」도 같음).
+- 실제 Gmail 의 스레드 링크를 누르는 것(링크 모양만 단위 시험).
+- 사람이 마우스로 하는 실제 끌기(시트가 흐려지고 아래가 놓기를 받는 것은 `.veil.passing` 으로만 확인). 휴대폰에는 끌기가 없다.
+- 영어 화면의 할 일 줄(서버는 `labelEn` · `saysEn` 을 주고 화면 낱말은 사전에 넣었지만, 영어 화면 스크린숏은 찍지 않았다).
+
+## 결과
+
+- `results/mail-follow-unit.txt`: 새 `mailFollow` 9/9 · `mailFollow.integration` 5/5, 회귀 17개 파일 모두 통과(`fileMention.test.js` 의 「모르는 종류」 예가 `mail` 이던 것을 다른 이름으로 바꿈).
+- `results/mail-follow-e2e.txt`: F-MF-01~07 8/8(두 번 되풀이 16/16). 회귀: mail-reply 7/7 · mail-thread-flow 7/7 · messenger-file-mention 12/12 · chat-thread-list 10/10 · chat-artifacts 8/8 · chat-agent-picker 7/7 · mail-card-calendar 7/8(F-MC-06 은 밤 테마 때문에 기준 커밋에서도 똑같이 실패).
+- 화면: `results/f-mf-*.png`
+  - `01a` 답장 시트 — 원문 아래 「이 메일로」 줄, 그 아래 답장 · `01b` 「이 회사 알아보기」가 할 일을 말함 · `01c` 답장을 보낸 뒤(줄은 그대로)
+  - `02a` 「이 회사 알아보기 · 하는 중…」 · `02b` 「회사 알아본 결과 · 열기」 · `02c` Home 카드의 같은 줄 · `02d` 그 메일의 대화(요청 · 메일 칩 · 답)
+  - `03a` 채팅 입력창의 메일 칩 · `03b` 에이전트의 답과 보낸 말의 메일 칩
+  - `04a` Home 카드를 끄는 동안 「AI에게 이 메일로 묻기」 · `04b` 시트 손잡이를 끄는 동안 흐려진 시트
+  - `05a` 메신저 위 「여기에 놓으면 메일을 멘션해요」 · `05b` 메일 칩(「본문도 공유」 꺼짐) · `05c` 동료의 요약 카드 · `05d` 공유된 뒤 본문
+  - `06a` · `06b` 390px 밝은 · 밤 테마 — 한 줄의 할 일(옆으로 넘김)과 할 일의 말
+  - `07a` 「동료에게 공유」 — 대화를 기다리는 메일 · `07b` 대화를 고른 뒤 메일 칩

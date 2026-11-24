@@ -37,6 +37,8 @@ export const useTeam = defineStore('team', {
     suggestions: {},          // threadId -> [assist suggestion] (lib/team/assist.js)
     assistOn: {},             // threadId -> the thread's AI 제안 switch
     assistStatus: {},         // suggestion id -> live status text while it runs
+    // a mail the mail sheet's 「동료에게 공유」 put here (src/fileDrag.js mailItem): the conversation picked next gets it as a chip (Messenger.vue)
+    pendingMention: null,
     aiStatus: {},             // threadId -> {messageId, text}: 「AI가 찾는 중…」 while 「@AI …」 is answered (lib/team/aiHelp.js)
     // auto-translation (server/lib/team/roomTranslate.js): message id -> {body, from} | {lines: {i: text}} |
     // {minutes: {summary, decisions, actions}} | {same: true}; original: message id -> showing the original
@@ -259,6 +261,22 @@ export const useTeam = defineStore('team', {
       if (router) await router.push({ path: `/folders/${encodeURIComponent(r.slug)}`, query: { file: r.path, ...(r.ref && r.ref !== 'main' ? { ref: r.ref } : {}) } })
       if (this.dockNow === 'float') this.open = false
       return { how: 'folder', opened: true }
+    },
+    // ---- mail mentions (server lib/mailMention.js) ----
+    // 「본문 보기」: my own mail → its sheet; one whose body its owner shared with the room → the mail, read only ({mail}); else 403
+    async openMailRef(m, i) {
+      const r = await api('/team/refs/open', { method: 'POST', body: { messageId: m.id, index: i } })
+      if (r.mine) { await useApp().openMailCard({ actionId: r.actionId }, 'chat'); if (this.dockNow === 'float') this.open = false }
+      return r
+    },
+    // 「본문 공유」 · 「공유 그만두기」 (the owner): every member's card changes (the message comes back as each one sees it)
+    async shareMailRef(m, i, on) {
+      const x = await api('/team/refs/share', { method: 'POST', body: { messageId: m.id, index: i, on } })
+      for (const list of [this.msgs[m.threadId], this.inbox]) {
+        const k = (list || []).findIndex((y) => y.id === m.id)
+        if (k >= 0 && x) list[k] = { ...list[k], refs: x.refs }
+      }
+      return x
     },
     // 권한 요청: the folder's owners are told; the card says it was asked
     async requestRef(m, i) {

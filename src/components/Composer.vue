@@ -11,7 +11,7 @@ import { keyOf, agentFor } from '../chatAgent.js'
 import { narrow } from '../viewport.js'
 import { createDictation, recognizerOf, MESSAGES } from '../useDictation.js'
 // a file of the app dragged onto the composer (src/fileDrag.js): a chip, and the turn reads that file (server lib/fileRefs.js turnRefs)
-import { dragKind, itemsOf, zoneWords } from '../fileDrag.js'
+import { dragKind, itemsOf, zoneWords, dragging as draggedItems } from '../fileDrag.js'
 import { kindOf, kindLabel } from '../artifacts.js'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
@@ -108,9 +108,11 @@ const pglArmed = ref(false)   // a file of the app is being dragged somewhere on
 const pglOver = ref(false)    // …over this composer
 let pglDepth = 0
 const isPgl = (e) => dragKind(e.dataTransfer?.types) === 'pgl'
-const arm = (e) => { if (!props.overlay && isPgl(e)) pglArmed.value = true }
+// (what the drop will be about: 「AI에게 이 파일로 묻기」, or 「… 이 메일로 묻기」 for a mail — src/fileDrag.js)
+const pglWords = ref(zoneWords('chat'))
+const arm = (e) => { if (!props.overlay && isPgl(e)) { pglWords.value = zoneWords('chat', draggedItems()); pglArmed.value = true } }
 const disarm = () => { pglArmed.value = false; pglOver.value = false; pglDepth = 0 }
-function pglEnter(e) { if (props.overlay || !isPgl(e)) return; e.preventDefault(); e.stopPropagation(); pglDepth++; pglOver.value = true; pglArmed.value = true }
+function pglEnter(e) { if (props.overlay || !isPgl(e)) return; e.preventDefault(); e.stopPropagation(); pglDepth++; pglOver.value = true; pglWords.value = zoneWords('chat', draggedItems()); pglArmed.value = true }
 function pglMove(e) { if (props.overlay || !isPgl(e)) return; e.preventDefault(); e.stopPropagation(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'link' }
 function pglLeave(e) { if (props.overlay || !isPgl(e)) return; if (--pglDepth <= 0) { pglDepth = 0; pglOver.value = false } }
 async function pglDrop(e) {
@@ -168,7 +170,7 @@ defineExpose({ focus: () => ta.value?.focus() })
   <div class="composer" :class="{ panel: app.panelMode, pglarmed: pglArmed && !overlay, pglover: pglOver }" data-test="chat-composer"
     @dragenter="pglEnter" @dragover="pglMove" @dragleave="pglLeave" @drop="pglDrop">
     <Transition name="fade">
-      <div v-if="pglArmed && !overlay" class="pglhint" data-test="chat-dropzone" aria-hidden="true"><span>✦</span>{{ zoneWords('chat') }}</div>
+      <div v-if="pglArmed && !overlay" class="pglhint" data-test="chat-dropzone" aria-hidden="true"><span>✦</span>{{ pglWords }}</div>
     </Transition>
     <Transition name="fade"><div v-if="app.panelMode" class="label">새 패널 만들기</div></Transition>
     <Transition name="fade">
@@ -190,9 +192,12 @@ defineExpose({ focus: () => ta.value?.focus() })
     </div>
     <!-- files dragged in: what the next message is about (refused ones say why) -->
     <div v-if="!overlay && app.fileRefs.length" class="frefs">
-      <span v-for="r in app.fileRefs" :key="r.key" class="fref glass-thin" :class="{ error: !!r.error, wait: r.wait }" data-test="chat-ref-chip" :data-file="r.name" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'" :title="r.error || ''">
-        <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b>
-        <small>{{ r.error || (r.wait ? '확인하는 중…' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일') }}</small>
+      <span v-for="r in app.fileRefs" :key="r.key" class="fref glass-thin" :class="{ error: !!r.error, wait: r.wait, mail: r.as === 'mail' }" data-test="chat-ref-chip" :data-file="r.name"
+        :data-kind="r.as === 'mail' ? 'mail' : 'file'" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'" :title="r.error || (r.as === 'mail' ? `${r.from} · ${r.name}` : '')">
+        <!-- a mail (server lib/mailMention.js): the envelope, its subject and who sent it -->
+        <span v-if="r.as === 'mail'" class="fx mail"><Icon name="mail" :size="14" /></span>
+        <span v-else class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b>
+        <small>{{ r.error || (r.wait ? '확인하는 중…' : r.as === 'mail' ? r.from || '메일' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일') }}</small>
         <button class="x" aria-label="빼기" @click="app.removeFileRef(r.key)">×</button>
       </span>
     </div>
@@ -276,6 +281,7 @@ textarea::placeholder { color: var(--text-secondary); transition: opacity .3s; }
 .fref b { font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fref small { color: var(--text-secondary); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fref.wait { opacity: .7; }
+.fref .fx.mail { background: #7a5af5; }
 .fref.error { border-color: rgba(198, 40, 40, .5); } .fref.error small { color: #c62828; max-width: 260px; }
 .fref .x { width: 22px; height: 22px; border-radius: 11px; color: var(--text-secondary); font-size: 16px; line-height: 20px; }
 /* a file of the app is being dragged: the composer offers itself, and lights up under the pointer */

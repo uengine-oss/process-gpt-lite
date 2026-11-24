@@ -29,6 +29,10 @@ const P = {
   card: 'M3 6h18v12H3zM3 10h18M7 15h4',
   key: 'M14.5 9.5a4 4 0 1 1-3.4 6.1L4 22.7V20h2v-2h2l2.1-2.1A4 4 0 0 1 14.5 9.5z',
   mail: 'M4 6.5h16v11H4zM4.5 7l7.5 6 7.5-6',
+  // a speech bubble (채팅에서 이어서 — the mail sheet's row)
+  chat: 'M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4.5 3.5V16H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z',
+  // a handle that is dragged (the mail sheet's head)
+  grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
   plan: 'M4 6h2M4 12h2M4 18h2M9 6h11M9 12h11M9 18h11',
   hand: 'M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11V4.5a1.5 1.5 0 0 1 3 0V12M14 11V6a1.5 1.5 0 0 1 3 0v8a7 7 0 0 1-12.4 4.4L3 15.5a1.5 1.5 0 0 1 2.2-2L8 16',
   more: 'M6 12h.01M12 12h.01M18 12h.01',

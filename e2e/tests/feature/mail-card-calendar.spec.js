@@ -191,7 +191,9 @@ test.describe('메일 카드의 일 — 일정 카드는 일정 양식, 답장�
     const chip = page.locator('[data-test="mail-chip"]').filter({ hasText: a.text })
     await expect(chip.locator('[data-test="mail-chip-verb"]')).toHaveText('일정 추가')
     await shot(page, 'f-mc-02a-chip.png')
-    const judged = llm.calls.filter((c) => c.judge).length
+    // (the kind's question only — the sheet's row of follow-up actions asks the judge its own question once: spec mail-card-actions)
+    const kindAsked = () => llm.calls.filter((c) => c.judge && c.sys.includes('무엇을 하는 카드')).length
+    const judged = kindAsked()
     await chip.click()
     const sheet = sheetOf(page)
     await expect(sheet.locator('[data-test="mail-event"]')).toBeVisible()
@@ -199,7 +201,7 @@ test.describe('메일 카드의 일 — 일정 카드는 일정 양식, 답장�
     await expect(sheet.locator('[data-test="mail-body"]')).toHaveCount(0)
     await expect(sheet.locator('[data-test="mail-home"]')).toBeVisible() // 「Home 카드로」 as from any chip
     await shot(page, 'f-mc-02b-sheet.png')
-    expect(llm.calls.filter((c) => c.judge).length, '메일 비서가 정한 카드는 다시 묻지 않는다').toBe(judged)
+    expect(kindAsked(), '메일 비서가 정한 카드는 다시 묻지 않는다').toBe(judged)
     expect(page.errors).toEqual([])
     await cleanup(db, u)
   })
