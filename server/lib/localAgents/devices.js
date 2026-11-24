@@ -1,0 +1,69 @@
+// A desktop's device token (lib/localAgents): the signed-in page asks for one (POST /api/local-agents/devices) and hands it to the
+// desktop app's main process through its preload bridge; main keeps it (encrypted with the OS keychain) and sends it as the first
+// message of its link (hub.js). One token = one person on one device; only its hash is kept here, so a token is shown once.
+// Revoked from the settings (DELETE …/devices/:id): its link is closed at once and the token is refused from then on.
+import crypto from 'node:crypto'
+import { config } from '../../config.js'
+import { q } from '../supa.js'
+
+const T = () => config.tenantId
+export const PREFIX = 'pld1_'
+export const MAX_DEVICES = 10
+const clean = (s, n) => String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n)
+
+export const hashOf = (token) => crypto.createHash('sha256').update(String(token || '')).digest('hex')
+export const looksLike = (token) => typeof token === 'string' && /^pld1_[A-Za-z0-9_-]{43}$/.test(token)
+export const newToken = () => `${PREFIX}${crypto.randomBytes(32).toString('base64url')}`
+
+// a new device for this person (the oldest active ones are let go past MAX_DEVICES) → { device, token }
+export async function issue(user, { name = '', platform = '', appVersion = '' } = {}) {
+  const token = newToken()
+  const [d] = await q(`insert into pro_local_devices (tenant_id, user_id, name, platform, app_version, token_hash)
+                       values ($1,$2,$3,$4,$5,$6) returning *`,
+  [T(), user.id, clean(name, 80) || 'Desktop', clean(platform, 20) || null, clean(appVersion, 30) || null, hashOf(token)])
+  const extra = await q(`select id from pro_local_devices where tenant_id=$1 and user_id=$2 and revoked_at is null order by created_at desc offset $3`, [T(), user.id, MAX_DEVICES])
+  if (extra.length) await q(`update pro_local_devices set revoked_at=now() where id = any($1)`, [extra.map((x) => x.id)])
+  return { device: view(d), token }
+}
+
+// the device a token stands for (any tenant: the link comes outside a request's tenant), or null (unknown, revoked, malformed)
+export async function byToken(token) {
+  if (!looksLike(token)) return null
+  const [d] = await q(`select * from pro_local_devices where token_hash=$1`, [hashOf(token)])
+  if (!d || d.revoked_at) return null
+  return d
+}
+
+export async function list(user) {
+  return (await q(`select * from pro_local_devices where tenant_id=$1 and user_id=$2 order by revoked_at nulls first, coalesce(last_seen_at, created_at) desc limit 30`, [T(), user.id])).map(view)
+}
+
+// only the person's own device; → the row revoked, or null
+export async function revoke(user, id) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(id || ''))) return null
+  const [d] = await q(`update pro_local_devices set revoked_at=coalesce(revoked_at, now()) where id=$1 and tenant_id=$2 and user_id=$3 returning *`, [id, T(), user.id])
+  return d ? view(d) : null
+}
+
+// what the desktop reported (hello / caps): kept for the settings screen and for dispatching; only the known keys, short strings
+export function capsOf(raw = {}) {
+  const clis = {}
+  for (const id of ['claude-code', 'codex', 'openhands']) {
+    const c = raw?.clis?.[id]
+    if (!c || typeof c !== 'object') continue
+    clis[id] = { installed: !!c.installed, version: clean(c.version, 40) || null, loggedIn: typeof c.loggedIn === 'boolean' ? c.loggedIn : null,
+      runnable: c.runnable !== false }
+  }
+  return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true }
+}
+export const prefsOf = (raw = {}) => ({ enabled: raw?.enabled !== false, ask: raw?.ask === true })
+
+export async function seen(id, { caps, prefs, name, appVersion } = {}) {
+  await q(`update pro_local_devices set last_seen_at=now(), caps=coalesce($2, caps), prefs=coalesce($3, prefs), name=coalesce($4, name), app_version=coalesce($5, app_version) where id=$1`,
+    [id, caps ? JSON.stringify(caps) : null, prefs ? JSON.stringify(prefs) : null, name ? clean(name, 80) : null, appVersion ? clean(appVersion, 30) : null])
+}
+
+export function view(d) {
+  return { id: d.id, name: d.name, platform: d.platform, appVersion: d.app_version, caps: d.caps || {}, prefs: d.prefs || {},
+    createdAt: d.created_at, lastSeenAt: d.last_seen_at, revoked: !!d.revoked_at }
+}

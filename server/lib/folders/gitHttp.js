@@ -100,6 +100,8 @@ export function parseCommands(buf) {
 
 // null when every ref update may go through, else the reason for each refused ref
 export function refusals(commands, prefix = PUSH_PREFIX) {
+  // a token with no push prefix only reads (the skills a desktop's local agent gets — lib/localAgents/steps.js)
+  if (!prefix) return (commands.length ? commands : [{ ref: '(none)' }]).map((c) => ({ ref: c.ref, why: 'this token may only read' }))
   const out = []
   const branch = new RegExp(`^refs/heads/${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[A-Za-z0-9._/-]+$`)
   for (const c of commands) {

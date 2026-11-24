@@ -12,6 +12,7 @@ import { cypher, parseTask } from './store.js'
 import { formFields, readFile, formKey } from './mailbody.js'
 import { prompt, rules as skillRules } from './discovery.js'
 import { formsDirOf } from './history.js'
+import { settingsOf as localSettingsOf, frontOf as agentFrontOf, withFront } from '../localAgents/agents.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURES = path.join(here, '..', '..', 'scripts', 'fixtures')
@@ -71,13 +72,17 @@ export async function taskDefinition(key, task) {
   const { front, body } = parseDefinition(task?.definition_md || '')
   return {
     // who does it: a process's own say (말로 고치기 set_runner — refine.js puts it on the step), else the definition
-    runner: ['agent', 'person', 'draft'].includes(task?.runner) ? task.runner : front.runner === 'agent' ? 'agent' : 'person',
+    runner: ['agent', 'person', 'draft'].includes(task?.runner) ? task.runner : front.runner === 'agent' ? 'agent' : front.runner === 'draft' ? 'draft' : 'person',
     skills: Array.isArray(front.skills) ? front.skills : [],
     checkpoints: Array.isArray(front.checkpoints) ? front.checkpoints.map(String) : [],
     outputs: Array.isArray(front.outputs) ? front.outputs : [],
     autonomy: front.autonomy || 'draft',
     description: front.description || '',
     instruction: String(body || '').trim().slice(0, 4000),
+    // which agent does it (lib/localAgents/agents.js): a CLI on the assignee's own desktop (local: {agent, offline, serverAgent,
+    // waitMinutes}), else a server agent named here (agent: deepagents · cliagents), else the business agent
+    agent: front.agent ? String(front.agent) : null,
+    local: localSettingsOf(front),
   }
 }
 
@@ -269,4 +274,17 @@ export async function saveDefinition(me, key, md) {
     { key, md, skills: d.skills, cp: JSON.stringify(d.checkpoints), outs: JSON.stringify(d.outputs), aut: d.autonomy },
     { actor: me.email || String(me.id), reason: '일 정의 저장' })
   return getTask(key)
+}
+
+// 이 일을 할 에이전트(활동의 에이전트 설정 — lib/localAgents): the definition's front matter keys agent · when_offline · server_agent ·
+// wait_minutes, and the runner when the request names one (agent: 끝까지 · draft: 초안만). A task with no definition yet gets one.
+export async function setAgent(me, key, body = {}) {
+  const t = await getTask(key)
+  const { front, body: text } = parseDefinition(t.definition || '')
+  const patch = agentFrontOf(body)
+  if (['agent', 'draft'].includes(body.runner)) patch.runner = body.runner
+  else if (patch.agent && String(patch.agent).startsWith('local:') && !['agent', 'draft'].includes(front.runner)) patch.runner = 'draft'
+  const base = t.definition ? front : { name: key, kind: 'task', ...(t.task?.role ? { role: t.task.role } : {}) }
+  const md = toDefinition(withFront(base, patch), text || (t.definition ? '' : `## 하는 일\n1. ${key}`))
+  return saveDefinition(me, key, md)
 }

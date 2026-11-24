@@ -17,6 +17,7 @@ import TelegramConnect from './TelegramConnect.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
 import GoogleClientAdmin from './GoogleClientAdmin.vue'
 import InstallNudge from './InstallNudge.vue'
+import LocalAgentsSettings from './LocalAgentsSettings.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
 import { MAIN_LANGS, uiLangFor } from '../i18n/mainLangs.js'
 import { lang as uiLang, setLang } from '../i18n/lang.js'
@@ -269,6 +270,8 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
           <TelegramConnect compact />
         </div>
         <ConnectorCards />
+        <!-- this computer's CLI agents (desktop app) and my desktops (server lib/localAgents) -->
+        <LocalAgentsSettings />
         <p class="cap">로그인 · API 키</p>
         <div class="list glass">
           <div v-for="v in shown" :key="v.id" class="li">

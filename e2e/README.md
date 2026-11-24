@@ -666,6 +666,33 @@ openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 1
 | 실제 메일함(Gmail · IMAP)의 첨부를 메일 시트에서 정리 | — | — (데모 메일함엔 첨부가 없음 · 서버 시험은 메일 원문을 대역으로) | — | ◐ |
 | 워크트리 테이블이 있는 DB(운영)에서 받은 사람의 브랜치 카드로 판정 · 정리 | — | — (로컬 DB 에 `artifact_branches` 없음 — 사본 길만 실측) | — | ◐ |
 
+### 29. 프로세스 단계를 담당자 컴퓨터의 Claude Code · Codex 로(그 사람의 대화형 CLI 를 터미널에서) — 사람과 기기를 넘나드는 협업(같은 터미널 보기 · 제안 · 입력은 CLI 를 가진 사람만), 서버의 스킬, 로컬 노하우 모으기 (스펙 `local-agents`, 설계 `docs/local-agents/design.md`)
+
+세 Playwright 파일은 자기 스택(BFF `PRO_BACKGROUND=0` + Vite, 빈 포트, 회사 `localagent-ui` · `localagent-mobile` · `localagent-collab`)을 스스로 띄우고 지운다(`e2e/lib/localStack.js`). 사람 이름은 지어낸 것이다. CLI 는 가짜 — 터미널(주 길)은 `desktop/test/fixtures/fake-tui.js`(raw 입력 · 붙여 넣기 · Claude Code 의 훅과 기록 · Codex rollout), 헤드리스(예비 길)는 `fake-cli.js`. 모델은 부르지 않는다. 실제 `claude` · `codex` 는 `server/test/localAgents.smoke.mjs` 로 따로(사람의 구독, 또는 회사 모델 게이트웨이). 명령은 `openspec/specs/local-agents/e2e/README.md`.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 데스크톱 앱에서 로그인하면 이 컴퓨터를 저절로 잇고(토큰은 페이지 저장소에 없음), 설정에 「이 컴퓨터 · 연결됨」 · CLI 버전 · 로그인 | 사용자 11-24 | L-01 | desktop | ✅ |
+| A 의 단계는 A 의 데스크톱에서(「로컬 에이전트 실행 중 · Claude Code」 알약), 다른 사람의 데스크톱으로는 가지 않음 | 사용자 11-24 | L-02 · `server/test/localAgents.test.js` | desktop · 단위 | ✅ |
+| B 의 다음 단계는 B 의 데스크톱이 A 의 결과(인스턴스 라인)를 먼저 받아 시작(앱 안의 node-pty 터미널, B 의 창에 B 의 터미널), 실행 중 인스턴스 화면에서 입력 → 같은 세션에 반영 | 사용자 11-24 | L-02 · L-03 · `localAgents.e2e.mjs` 1–2 | desktop · e2e | ✅ |
+| 로컬 실행을 끄면 다음 단계는 「PC 앱이 켜지면 시작」으로 기다리고, 켜면 돈다 | 사용자 11-24 | L-04 · `localAgents.e2e.mjs` 3 | desktop · e2e | ✅ |
+| 휴대폰(390px)에서 실행 카드(누가 · 어느 컴퓨터 · 단계 · 상태 · 걸린 시간 · 그 CLI 의 터미널)가 새로 고침 없이 바뀌고, 입력이 PC 의 runner · CLI 입력에 닿아 「반영」, 옆으로 넘치지 않음 | 사용자 11-24(추가) | M-01 | feature | ✅ |
+| 참여자(작업자 아님)는 같은 터미널을 실시간으로 보기만(입력 403), 바깥 사람은 실행 목록 · 입력 · 터미널 403 · 알림 없음 | 사용자 11-24(추가) | M-02 · `localAgents.e2e.mjs` 2 | feature · e2e | ✅ |
+| PC 가 꺼져 있으면 「PC 앱이 켜지면 시작」(Home 카드에도), 휴대폰에서 「기다리지 않고 업무 에이전트에게 맡기기」 | 사용자 11-24(추가) | M-03 · `localAgents.e2e.mjs` 4 | feature · e2e | ✅ |
+| 데스크톱이 꺼져 있고 「서버에 맡기기」면 바로 서버 에이전트, 기다릴 시간이 지나면 서버, 거절 · 바쁨 · 끊김 처리, 입력 상태(받음 · 반영 · 못 함) | — | `localAgents.test.js` · `localAgents.e2e.mjs` | 단위 · e2e | ✅ |
+| 실행은 사람의 대화형 CLI 를 터미널(node-pty)에서: `SessionStart` 뒤 붙여 넣기, `Stop` 훅 · rollout 으로 턴의 끝, 앱 다시 켜기 → 같은 세션(`--resume`), 폴더 신뢰, 주인의 타자만, 단계 아닌 세션의 훅 · 지켜보는 파일 | 사용자 11-24(결정) | `desktop/test/terminal.test.js` · `localAgents.test.js`(중계) | 단위 | ✅ |
+| 터미널 하나를 여럿이: 보는 사람과 작업자가 작업자 데스크톱 터미널의 바이트 그대로 받음, 보는 사람의 입력은 서버가 버림, 작업자의 입력은 CLI 에, 바깥 사람 표 403, 서버의 「지금 화면」 | 사용자 11-24(결정) | `localAgents.e2e.mjs` 2 · C-01 | e2e · feature | ✅ |
+| runner 헤드리스(예비 길): 폴더 토큰이 `.git/config` · 로그 · 보고함에 없음, 정해진 명령만, 폴더 밖 경로 거절, Codex 는 멈추고 resume | — | `desktop/test/runner.test.js` | 단위 | ✅ |
+| 실제 대화형 Claude Code 2.1.330 을 터미널로(회사 스킬 · 실행 중 입력 · 훅으로 끝), 헤드리스 Claude Code · Codex 0.162.1 한 번씩 + 입력 | 사용자 11-24 | `localAgents.smoke.mjs tty · both · skill` → `openspec/specs/local-agents/e2e/results/smoke.md` | 손 | ✅ |
+| 두 사람 협업: 윤태호의 PC 실행을 서하린이 휴대폰(390px)에서 같은 터미널(읽기 전용)로 보며 제안 두 개 → 윤태호의 입력란에 칩으로 쌓임(알림 · Home) → 윤태호가 하나 버리고 하나를 골라 고쳐 입력 → 그의 CLI 에(가짜 CLI 기록에 고친 글) → 서하린의 화면 「고쳐서 입력함」 · 서하린은 보내기 없음 · 직접 입력 403 · 바깥 사람 403 | 사용자 11-24(핵심) | C-01 · `localAgents.e2e.mjs` 2 · `localAgents.test.js` | feature · e2e · 단위 | ✅ |
+| 제안의 종류: 의견 · 역할자의 결정(고른 항목) — 둘 다 작업자의 입력란에, 넣는 것은 작업자만 | 조정 11-24 | `localAgents.test.js` | 단위 | ✅ |
+| 결과가 인스턴스 라인으로, 다음 담당자(서하린)의 PC 가 그 결과로 시작 | 사용자 11-24 | C-02 · `localAgents.e2e.mjs` 1–2 | feature · e2e | ✅ |
+| 서버의 회사 스킬이 로컬 실행의 CLI 자리에(Claude `.claude/skills`, Codex `.pgl-skills` + `AGENTS.md`), 실행마다 최신, 결과에 안 들어감, 읽기 전용 토큰, 남의 비공개 스킬 제외 | 사용자 11-24(핵심) | C-01 · `runner.test.js` · `localAgents.test.js` · 실제 `localAgents.smoke.mjs skill` | feature · 단위 · 손 | ✅ |
+| 로컬 실행에서 배운 것(입력 — 제안한 사람 · 넣은 사람, 기억, 스킬 수정) → 판정 → 후보(출처) → 프로세스 담당자가 「이 일에 반영」 → 활동 정의의 「배운 것」, 다른 사람은 403, Home 카드 | 사용자 11-24(핵심) | C-03 · `localAgents.e2e.mjs` 2 · `localAgents.test.js` | feature · e2e · 단위 | ✅ |
+| 스킬 수정 후보 → 「스킬에 반영 요청」(스킬 폴더 변형 · 반영 요청, 원본 그대로, 다른 사람 403) | 사용자 11-24 | `localAgents.test.js` | 단위 | ✅ |
+| 지도의 일 패널 「에이전트」 화면, 지도(Ontological)의 일 정의에 배운 것 반영 | — | — (Ontological 이 필요해 자동 시험 없음, front matter 읽기 · 쓰기와 프로세스 정의 쪽 반영은 시험) | — | ◐ |
+| 운영 주소에서 git 경로 · 링크 · 터미널 WebSocket 에 닿기, OpenHands 실행, 실제 대화형 Codex, Windows(ConPTY) | — | — (운영 설정 · 실측 필요) | — | ◐ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

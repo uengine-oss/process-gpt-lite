@@ -12,6 +12,9 @@ import { useSwipeAway } from '../swipeAway.js'
 
 const props = defineProps({ n: Object })
 const app = useApp()
+// a step of this card's instance runs on someone's desktop now (server lib/localAgents): its state, live (stores/app.js localActive)
+const instOf = (n) => n?.instId || (() => { const m = /^\/(?:routines|projects\/p)\/([^/?#]+)/.exec(String(n?.url || '')); return m ? decodeURIComponent(m[1]) : null })()
+const localRun = computed(() => { const id = instOf(props.n); return id ? app.localActive[id] || null : null })
 const router = useRouter()
 const team = useTeam()
 const busy = ref('')
@@ -81,6 +84,7 @@ async function act(choice) {
     <p v-else-if="n.type !== 'workitem'" class="who">{{ kinds[n.type] || 'process-gpt' }} · {{ when }}</p>
     <p v-else class="who">{{ n.process }}<template v-if="n.role"> · {{ n.role }}</template> · {{ when }}</p>
     <p v-if="ctxShown" class="ctx">{{ ctxShown }}</p>
+    <p v-if="localRun" class="lrun" :class="localRun.state" data-test="notice-local-run"><span class="dot" />{{ localRun.label }} · {{ localRun.state === 'queued' ? 'PC 앱이 켜지면 시작' : localRun.state === 'running' ? `실행 중${localRun.device ? ` (${localRun.device})` : ''}` : '보냄' }}<template v-if="localRun.lines?.length"> — {{ localRun.lines.at(-1).text }}</template></p>
     <!-- a step to decide: the earlier steps' outputs open right here (IeumOffice · ArtCraft) -->
     <StepOutputs v-if="n.type === 'workitem' && n.todoId" :todo-id="n.todoId" />
     <!-- 팀 맥락 공유: 팀원의 참고 요청은 이 카드에서 바로 허락·거절(깊이·기간·뺄 턴) -->
@@ -113,6 +117,9 @@ async function act(choice) {
 .who { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
 .ctx { margin: 8px 0 0; font-size: 14px; line-height: 1.55; color: var(--text-primary); overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.lrun { margin: 8px 0 0; font-size: 13px; color: var(--text-secondary); display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lrun .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--color-attention); flex: none; align-self: center; }
+.lrun.running .dot { background: #34c759; animation: pulse 1.6s ease-in-out infinite; }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .b { height: 36px; padding: 0 16px; border-radius: 18px; font-size: 15px; background: rgba(0, 0, 0, .06); color: var(--text-primary); }
 .b.main { background: var(--color-attention); color: #fff; }
