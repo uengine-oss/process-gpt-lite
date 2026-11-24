@@ -8,3 +8,6 @@ export const viewW = ref(window.innerWidth)
 export const pageInset = ref(0)
 export const pageW = computed(() => viewW.value - pageInset.value)
 window.addEventListener('resize', () => { narrow.value = check(); viewW.value = window.innerWidth })
+// a page wide enough for a left column beside the chat (Home's dock, the project · routine · thread lists); narrower, a list is a page
+// of its own over the chat
+export const wideLayout = computed(() => pageW.value > 1000)

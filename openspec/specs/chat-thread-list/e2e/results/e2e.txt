@@ -1,0 +1,16 @@
+# 2026-11-24 20:48 · PGPT_URL=http://localhost:5285 API_URL=http://127.0.0.1:8885 RT_WORKERS=1 npx playwright test tests/feature/chat-thread-list.spec.js --project=feature (branch feat/chat-thread-list, uncommitted)
+
+Running 10 tests using 1 worker
+
+  ✓   1 [feature] › tests/feature/chat-thread-list.spec.js:71:1 › F-CT-01 「채팅」을 두 번 누르면 Home 자리에 대화 목록: 최근 순, 제목 · 한 줄 · 시각 · 메시지 수, 맨 위 「전체 대화」 (2.4s)
+  ✓   2 [feature] › tests/feature/chat-thread-list.spec.js:106:1 › F-CT-02 행을 고르면 채팅이 그 대화만(/chat/c/:cid, 대화 막대와 같음), 목록은 열린 채로 옮겨 다니고, 「전체 대화」는 전체로 (2.0s)
+  ✓   3 [feature] › tests/feature/chat-thread-list.spec.js:145:1 › F-CT-03 찾기: 제목 · 요약에서 글자로, 낱말마다, 없으면 한 줄, 지우면 모두 (1.5s)
+  ✓   4 [feature] › tests/feature/chat-thread-list.spec.js:174:1 › F-CT-04 닫기: 「채팅」 두 번 · 머리의 ✕ · Home 단추(Home 이 같은 칸을 차지), 다시 두 번이면 목록이 Home 을 밀어냄 (4.7s)
+  ✓   5 [feature] › tests/feature/chat-thread-list.spec.js:218:1 › F-CT-05 한 번 누르기는 그대로: 바로 이동(기다리지 않음), 목록은 열지 않음 — 두 번 누르기는 한 번만 이동 (4.6s)
+  ✓   6 [feature] › tests/feature/chat-thread-list.spec.js:261:1 › F-CT-06 새로 고쳐도 열린 채 · 닫힌 채(이 브라우저에 기억) (3.5s)
+  ✓   7 [feature] › tests/feature/chat-thread-list.spec.js:295:1 › F-CT-07 휴대폰 390px: 「채팅」 두 번 탭이면 전체 화면 시트, 고르면 시트가 닫히고 그 대화, 옆으로 밀리지 않음 (9.1s)
+  ✓   8 [feature] › tests/feature/chat-thread-list.spec.js:364:1 › F-CT-08 밤 테마: 목록 · 고른 행 · 찾기 칸이 읽힘(넓은 화면 · 휴대폰) (3.1s)
+  ✓   9 [feature] › tests/feature/chat-thread-list.spec.js:390:1 › F-CT-09 새 턴이 오면(실시간 이벤트) 열린 목록이 따라온다 — 새 대화가 맨 위, 라우터가 쓴 요약은 곧이어 (3.5s)
+  ✓  10 [feature] › tests/feature/chat-thread-list.spec.js:412:1 › F-CT-10 대화가 없으면 목록은 안내 한 줄과 「전체 대화」만 (1.2s)
+
+  10 passed (36.5s)

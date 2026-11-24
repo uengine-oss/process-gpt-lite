@@ -1,25 +1,25 @@
 <script setup>
 // Top of the main chat: the conversations the context router told apart (hark keeps each piece
 // of work in its own thread). Closed, a pill; open, the list; inside one, its title and the way
-// back. The view is /chat/c/:cid, so a conversation can be linked and reopened.
+// back. The view is /chat/c/:cid, so a conversation can be linked and reopened. The same conversations as a list in the left column
+// (or a sheet on a phone): 「대화 목록」 here, or 「채팅」 pressed twice (components/ThreadList.vue — spec chat-thread-list).
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import GradePicker from './context/GradePicker.vue'
 import { useApp } from '../stores/app.js'
+import { whenText, lastRequest } from '../threadList.js'
 
 const app = useApp()
 const router = useRouter()
 const open = ref(false)
 const list = computed(() => app.convList)
 const cur = computed(() => list.value.find((c) => c.id === app.convFilter) || (app.convFilter ? { id: app.convFilter, title: '대화', count: 0 } : null))
-const when = (t) => {
-  const d = new Date(t)
-  const mins = Math.round((Date.now() - d) / 60000)
-  return mins < 60 ? `${Math.max(1, mins)}분 전` : mins < 1440 ? `${Math.round(mins / 60)}시간 전` : d.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })
-}
-const firstLine = (s) => String(s || '').replace(/^최근 요청:\s*/, '').split('\n')[0]
+const when = (t) => whenText(t)
+const firstLine = lastRequest
 function go(c) { open.value = false; router.push(c ? `/chat/c/${encodeURIComponent(c.id)}` : '/chat') }
+// the list beside the chat (a sheet on a phone), kept open while one moves between conversations
+function openList() { open.value = false; app.setThreadList(true) }
 </script>
 
 <template>
@@ -46,6 +46,9 @@ function go(c) { open.value = false; router.push(c ? `/chat/c/${encodeURICompone
           <p v-if="c.gist || c.summary" class="s">{{ c.gist ? c.gist + ' · ' : '' }}{{ firstLine(c.summary) }}</p>
         </button>
         <button v-if="app.convFilter" class="row all press" @click="go(null)">전체 대화 보기</button>
+        <button v-if="!app.threadListShown" class="row all list press" data-testid="cbar-open-list" @click="openList">
+          <Icon name="plan" :size="14" /> 대화 목록 펼치기 <small>· 채팅 탭을 두 번 눌러도 돼요</small>
+        </button>
       </div>
     </Transition>
   </div>
@@ -71,4 +74,6 @@ function go(c) { open.value = false; router.push(c ? `/chat/c/${encodeURICompone
 .row .t small { flex: none; color: var(--text-tertiary); font-size: 12px; }
 .row .s { margin: 4px 0 0; font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row.all { text-align: center; font-size: 13px; color: var(--text-secondary); }
+.row.list { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.row.list small { color: var(--text-tertiary); font-size: 12px; }
 </style>

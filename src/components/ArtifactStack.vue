@@ -1,14 +1,18 @@
 <script setup>
-// The files made in the conversation being viewed, piled like a macOS Dock stack: closed, the
-// newest few float in a little pile; open, they fan out upward (a grid when there are many) and
-// each opens where its chat card would (artifacts.js).
+// The files made in the view on screen — the whole chat, one conversation of it, a project's room (app.artifacts, src/artifactScope.js)
+// — piled like a macOS Dock stack: closed, the newest few float in a little pile; open, they fan out upward (a grid when there are
+// many) and each opens where its chat card would (artifacts.js). Where the page has room beside the chat the same files are a list
+// in the right column instead (ArtifactList.vue); the pile is for narrower pages and phones. It sits beside the composer, or above
+// it, never over it (place: src/artifactScope.js pilePlace, from the composer's box).
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { kindOf, kindLabel, openArtifact } from '../artifacts.js'
+import { CAPTION } from '../artifactScope.js'
 import ShareButton from './team/ShareButton.vue'
 import { useTeam } from '../stores/team.js'
 
+const props = defineProps({ place: { type: Object, default: () => ({ mode: 'beside', size: 64, right: 28, bottom: 112 }) } })
 const app = useApp()
 const team = useTeam()
 const router = useRouter()
@@ -20,12 +24,9 @@ const fit = () => { fanMax.value = Math.max(3, Math.min(8, Math.floor((window.in
 fit()
 window.addEventListener('resize', fit)
 
-const items = computed(() => {
-  const of = app.convOf
-  return (app.messages[app.mainThread?.id] || [])
-    .filter((m) => m.kind === 'file' && of[m.id] === app.convFilter)
-    .reverse()
-})
+const items = computed(() => app.artifacts.items.map((x) => x.msg))
+const caption = computed(() => CAPTION[app.artifacts.scope] || '산출물')
+const small = computed(() => props.place.size < 64)
 const pile = computed(() => items.value.slice(0, 3).reverse())
 const grid = computed(() => items.value.length > fanMax.value)
 
@@ -39,12 +40,13 @@ const fanStyle = (i) => ({
 function pick(m) { open.value = false; openArtifact(app, router, m) }
 const onKey = (e) => { if (e.key === 'Escape') open.value = false }
 watch(open, (v) => (v ? window.addEventListener('keydown', onKey) : window.removeEventListener('keydown', onKey)))
-watch(() => app.convFilter, () => { open.value = false })
+watch(() => [app.artifacts.scope, app.activeId, app.convFilter], () => { open.value = false })
 onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', fit) })
 </script>
 
 <template>
-  <div v-if="items.length" class="astack" :class="{ open }">
+  <div v-if="items.length" class="astack" :class="{ open, small, above: place.mode === 'above' }" :data-place="place.mode"
+    :style="{ right: `${place.right}px`, bottom: `${place.bottom}px` }">
     <div v-if="open" class="scrim" @click="open = false" />
 
     <!-- fan: the newest sits closest to the pile -->
@@ -60,7 +62,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 
     <Transition name="pop">
       <div v-if="open && grid" class="grid glass">
-        <p class="cap">이 대화의 산출물 {{ items.length }}개<button class="allshare press" @click="open = false; team.startShare(items)">모두 공유</button></p>
+        <p class="cap">{{ caption }} {{ items.length }}개<button class="allshare press" @click="open = false; team.startShare(items)">모두 공유</button></p>
         <div class="cells">
           <div v-for="m in items" :key="m.id" class="cellw">
             <button class="cell press" @click="pick(m)">
@@ -73,7 +75,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
       </div>
     </Transition>
 
-    <button class="pile press" :aria-label="`이 대화의 산출물 ${items.length}개 ${open ? '접기' : '펼치기'}`" :aria-expanded="open" @click="open = !open">
+    <button class="pile press" :aria-label="`${caption} ${items.length}개 ${open ? '접기' : '펼치기'}`" :aria-expanded="open" @click="open = !open">
       <span v-for="(m, i) in pile" :key="m.id" class="tile layer" :class="kindOf(m.content.name)"
         :style="{ transform: `translate(${(pile.length - 1 - i) * -4}px, ${(pile.length - 1 - i) * -5}px) rotate(${(pile.length - 1 - i) * -6}deg)`, zIndex: i }">
         {{ kindLabel[kindOf(m.content.name)] || 'FILE' }}
@@ -85,7 +87,11 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 </template>
 
 <style scoped>
-.astack { position: absolute; z-index: 8; right: 28px; bottom: 112px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.astack { position: absolute; z-index: 8; right: 28px; bottom: 112px; display: flex; flex-direction: column; align-items: center; gap: 6px; transition: bottom .2s, right .3s var(--spring); }
+/* a phone's: smaller */
+.astack.small .pile { width: 48px; height: 48px; border-radius: 14px; }
+.astack.small .tile.layer { width: 32px; height: 32px; border-radius: 9px; font-size: 9.5px; }
+.astack.small .name { font-size: 11px; }
 .scrim { position: fixed; inset: 0; z-index: -1; }
 .pile { position: relative; width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center;
   background: var(--composer-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); box-shadow: 0 8px 28px rgba(0, 0, 0, .16);
@@ -128,5 +134,5 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 
 @keyframes bob { from { translate: 0 0; } to { translate: 0 -4px; } }
 @media (prefers-reduced-motion: reduce) { .pile, .fitem .tile { animation: none; } }
-@media (max-width: 700px) { .astack { right: 16px; bottom: 96px; } .label { max-width: 52vw; } }
+@media (max-width: 700px) { .label { max-width: 52vw; } }
 </style>
