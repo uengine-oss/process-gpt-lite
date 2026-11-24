@@ -1,0 +1,67 @@
+<!doctype html>
+<!-- The link-preview picture (public/og-image.png, 1200×630): rendered by scripts/og-image.mjs.
+     The app's own look — the dusk sky of the sign-in screen, the icon, the wordmark, a sample request. -->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,300&display=block" />
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body { position: relative; font-family: 'Pretendard Variable', Pretendard, -apple-system, sans-serif; color: #f5f5f7; letter-spacing: -0.01em;
+    background:
+      radial-gradient(900px 420px at 88% 118%, rgba(255 160 122 / .55), transparent 70%),
+      radial-gradient(700px 360px at 20% 120%, rgba(122 90 245 / .35), transparent 70%),
+      linear-gradient(180deg, #0a0f24 0%, #121a3d 42%, #26326b 78%, #4a4f8e 100%); }
+  .stars i { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; opacity: .5; }
+  .left { position: absolute; left: 80px; top: 112px; width: 600px; }
+  .brand { display: flex; align-items: center; gap: 18px; }
+  .brand svg { width: 76px; height: 76px; border-radius: 18px; box-shadow: 0 10px 30px rgba(0 0 0 / .35); }
+  .wm { font-family: 'Newsreader', serif; font-weight: 500; font-size: 60px; letter-spacing: -0.02em; line-height: 1; }
+  .wm i { font-weight: 300; color: rgba(245 245 247 / .6); margin-left: .08em; }
+  .lite { margin-left: 4px; padding: 6px 14px; border-radius: 999px; font-size: 20px; font-weight: 600; letter-spacing: .02em;
+    background: rgba(255 255 255 / .14); border: 1px solid rgba(255 255 255 / .22); }
+  h1 { margin-top: 54px; font-size: 50px; line-height: 1.22; font-weight: 650; letter-spacing: -0.025em; word-break: keep-all; }
+  h1 em { font-style: normal; font-family: 'Newsreader', serif; font-weight: 500; }
+  .sub { margin-top: 22px; font-size: 25px; line-height: 1.5; color: rgba(245 245 247 / .72); word-break: keep-all; }
+  .chat { position: absolute; right: 80px; top: 178px; width: 410px; display: flex; flex-direction: column; gap: 14px; }
+  .bubble { padding: 18px 22px; border-radius: 26px; font-size: 21px; line-height: 1.45; word-break: keep-all;
+    -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); box-shadow: 0 16px 40px rgba(0 0 0 / .25); }
+  .me { align-self: flex-end; max-width: 360px; background: rgba(255 255 255 / .16); border: 1px solid rgba(255 255 255 / .18); border-bottom-right-radius: 8px; }
+  .agent { align-self: flex-start; max-width: 380px; background: rgba(12 16 36 / .72); border: 1px solid rgba(255 255 255 / .08); border-bottom-left-radius: 8px; }
+  .chip { margin-top: 14px; display: flex; width: fit-content; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 14px; font-size: 17px;
+    background: rgba(255 255 255 / .1); color: rgba(245 245 247 / .9); }
+  .chip b { font-weight: 600; }
+  .chip svg { width: 20px; height: 20px; }
+  .who { font-size: 14px; color: rgba(245 245 247 / .55); margin-bottom: 6px; letter-spacing: .01em; }
+</style>
+</head>
+<body>
+  <div class="stars">
+    <i style="left:140px;top:40px"></i><i style="left:420px;top:28px;opacity:.35"></i><i style="left:720px;top:62px"></i>
+    <i style="left:980px;top:34px;opacity:.4"></i><i style="left:1110px;top:96px;opacity:.3"></i><i style="left:600px;top:110px;opacity:.25"></i>
+    <i style="left:880px;top:120px;opacity:.3"></i><i style="left:300px;top:150px;opacity:.2"></i><i style="left:1040px;top:180px;opacity:.25"></i>
+  </div>
+  <div class="left">
+    <div class="brand">
+      <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1d1d1f" /><path d="M7 16 25 8 20 25 16 18z" fill="#f5f5f7" /></svg>
+      <div class="wm">process <i>gpt</i></div>
+      <span class="lite">Lite</span>
+    </div>
+    <h1>무엇이든 <em>process gpt</em>에게<br />맡기세요</h1>
+    <p class="sub">메일 답장, 문서 작성, 반복 업무까지 —<br />대화로 일하는 AI 업무 비서</p>
+  </div>
+  <div class="chat">
+    <div class="bubble me">노스윈드 견적 요청 메일에 작년 조건으로 회신 초안 써줘</div>
+    <div class="bubble agent">
+      <div class="who">process gpt</div>
+      회신 초안을 만들었어요.<br />확인하고 보내 주세요.
+      <div class="chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16v11H4zM4.5 7l7.5 6 7.5-6" /></svg>
+        <span><b>Re:</b> 노스윈드 견적 요청</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

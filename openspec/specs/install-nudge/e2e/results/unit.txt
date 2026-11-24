@@ -1,0 +1,13 @@
+✔ U-IN-01 browsers: phone and computer, the in-app browsers by name, an unknown app web view (2.103792ms)
+✔ U-IN-02 the installed app, the Android wrapper and the desktop app are "app mode" — never an in-app browser (0.19925ms)
+✔ U-IN-03 what to offer: the browser's dialog, the iPhone steps, the real browser first, the menu (0.097875ms)
+✔ U-IN-04 the card by itself: not after 「나중에」 for 7 days, never after 「다시 보지 않기」, not once installed, not at a computer's sign-in (0.126542ms)
+✔ U-IN-05 leaving an in-app browser keeps the address (path and query), drops the fragment (0.471375ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 91.176416

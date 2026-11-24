@@ -1,0 +1,51 @@
+# (2026-11-24 검토: og:url 은 이후 index.html 에서 뺐다 — 아래 og:url 열은 그 전에 잰 값, og:image 는 그대로)
+# 웹 이미지 nginx(install/docker/nginx.conf, nginx:1.27-alpine) — VITE_BASE_PATH=/lite/ 빌드, LITE_PUBLIC_ORIGIN=https://uengine.process-gpt.io
+# 2026-11-24 13:30 KST  요청 헤더 → index.html 의 og:url · og:image
+Host: process-gpt-lite-web (게이트웨이, 오늘)                     og:url=https://uengine.process-gpt.io/lite/ og:image=https://uengine.process-gpt.io/lite/og-image.png 
+Host: process-gpt-lite-web.default.svc.cluster.local       og:url=https://uengine.process-gpt.io/lite/ og:image=https://uengine.process-gpt.io/lite/og-image.png 
+X-Forwarded-Host: acme.process-gpt.io + Proto https        og:url=https://acme.process-gpt.io/lite/ og:image=https://acme.process-gpt.io/lite/og-image.png 
+Host: localhost:18080 (Compose 설치)                         og:url=http://localhost:18080/lite/ og:image=http://localhost:18080/lite/og-image.png 
+Host: lite.example.com (도메인, Proto 없음)                     og:url=http://lite.example.com/lite/ og:image=http://lite.example.com/lite/og-image.png 
+X-Forwarded-Host: a.example.com, b.example.com + https,http og:url=https://a.example.com/lite/ og:image=https://a.example.com/lite/og-image.png 
+X-Forwarded-Host: 따옴표·꺾쇠가 든 값 (무시)                         og:url=https://uengine.process-gpt.io/lite/ og:image=https://uengine.process-gpt.io/lite/og-image.png 
+X-Forwarded-Proto: javascript (무시 → $scheme)               og:url=http://acme.process-gpt.io/lite/ og:image=http://acme.process-gpt.io/lite/og-image.png 
+/routines/abc (SPA 경로도 index.html)                         twitter:image" content="https://acme.process-gpt.io/lite/og-image.png"
+/og-image.png                                              200 image/png 150013 bytes
+
+# /lite/ 빌드의 manifest.webmanifest
+{
+  "id": "/lite/chat",
+  "name": "Process GPT Lite",
+  "short_name": "Process GPT",
+  "description": "무엇이든 process gpt에게 맡기세요",
+  "start_url": "./chat",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0f24",
+  "theme_color": "#0a0f24",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "manifest.webmanifest"
+    }
+  ]
+}
