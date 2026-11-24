@@ -633,6 +633,8 @@ export async function finishStep({ row, act = {}, gate = {}, values: made = {}, 
   else {
     const { error } = await admin.rpc('save_task_result', { p_todo_id: row.id, p_payload: payload, p_final: true })
     if (error) throw new Error('save_task_result: ' + error.message)
+    // a map case's draft: the person's input screen is made again with it as the first values (lib/stepUi)
+    if (map && isDraft) import('../stepUi/index.js').then((U) => U.soon(row.id, { redo: true })).catch(() => {})
   }
   await W.events([
     { ...base, crew_type: 'result', event_type: 'task_completed', data: payload },

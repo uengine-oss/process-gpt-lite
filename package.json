@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@a2ui/lit": "0.16.0",
+    "@a2ui/web_core": "0.16.1",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "bpmn-js": "^18.31.1",

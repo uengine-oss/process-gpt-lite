@@ -416,6 +416,11 @@ export const useApp = defineStore('app', {
     declineMailFlow(id, undo = false) { return api(`/actions/${id}/flow/decline`, { method: 'POST', body: { undo } }) },
     draftReply(id) { return api(`/actions/${id}/reply-draft`, { method: 'POST' }) },
     sendReply(id, body) { return api(`/actions/${id}/reply`, { method: 'POST', body }) },
+    // what the card is for (calendar · reply · task, decided once — lib/mailCard.js), the calendar card's event read from the mail,
+    // and 「캘린더에 추가」 — made only when pressed
+    mailCardKind(id) { return api(`/actions/${id}/kind`) },
+    mailEvent(id, tz) { return api(`/actions/${id}/event${tz ? `?tz=${encodeURIComponent(tz)}` : ''}`) },
+    addMailEvent(id, body) { return api(`/actions/${id}/event`, { method: 'POST', body }) },
     dismissAction(a) {
       this.actions = this.actions.filter((x) => x.id !== a.id)
       return api(`/actions/${a.id}/dismiss`, { method: 'POST' })

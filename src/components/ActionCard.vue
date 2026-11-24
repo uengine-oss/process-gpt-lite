@@ -4,10 +4,12 @@ import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { useSwipeAway } from '../swipeAway.js'
 import Icon from './Icon.vue'
+import { verbLabel } from '../mailKind.js'
 
 const props = defineProps({ action: Object })
 const app = useApp()
-const verbs = { Reply: '답장', Pay: '납부', Release: '처리', Remind: '알림', Add: '추가', Review: '검토', Call: '전화', Book: '예약', Sign: '서명' }
+// the button word in the person's language — 「일정 추가」 for a card that puts an event on the calendar (src/mailKind.js)
+const verb = computed(() => verbLabel(props.action))
 // a sender's logo through the favicon service — never for a demo mailbox (its senders are fictional,
 // and a made-up domain can belong to a real company) nor a reserved example domain: a letter tile then
 const RESERVED = /(^|\.)(example|test|invalid|localhost)$|(^|\.)example\.(com|net|org)$/i
@@ -63,7 +65,7 @@ watch(() => app.flashCard, async (id) => {
 <template>
   <button ref="card" class="act glass press" :class="{ running: action.status === 'running', swiping: sw.swiping.value, flash }" :style="sw.style.value" data-test="action-card"
     :data-action-id="action.id" @click="tap" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up">
-    <span class="verb" :title="verbs[action.verb] || ''">{{ action.verb }}</span>
+    <span class="verb" data-test="action-verb">{{ verb }}</span>
     <img v-if="icon && !iconFailed" :src="icon" class="ico" alt="" @error="iconFailed = true" />
     <span v-else-if="tile" class="ico letter">{{ letter }}</span>
     <span class="txt" :class="{ 'shimmer-text': action.status === 'running' }">{{ action.text }}</span>

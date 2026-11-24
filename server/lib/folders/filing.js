@@ -17,7 +17,7 @@ import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { L } from '../lang.js'
-import { oddsOf } from '../decide.js'
+import { choose } from '../decide.js'
 import { chatJson } from '../llm.js'
 import { skillPack } from '../skillPack.js'
 import * as S from './service.js'
@@ -219,21 +219,8 @@ export const stateOf = (doc, folders) => [docLines(doc), '', L('공유 폴더:',
 
 // ---------- the judge ----------
 // one choice among options by the first token's probability; a model without log-probabilities answers in JSON
-// → {choice, probabilities, confidence, strategy} or null when nothing could be read
-export async function choose(state, question, options, { odds = oddsOf, json = chatJson, answerJson, timeoutMs = 8000 } = {}) {
-  const r = await odds(state, question, options, { timeoutMs }).catch(() => null)
-  if (r?.probabilities) return { choice: r.choice, probabilities: r.probabilities, confidence: r.confidence, strategy: 'logprob', model: r.model || null }
-  try {
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    const j = await json(`${question}\n${answerJson || 'JSON {"choice": "<letter>", "confidence": 0-1} only.'}`,
-      `${state}\n\n${options.map((o, i) => `${letters[i]}) ${o.label}`).join('\n')}`, { timeoutMs: 30000, temperature: 0 })
-    const i = letters.indexOf(String(j?.choice || '').trim().toUpperCase().slice(0, 1))
-    if (i < 0 || i >= options.length) return null
-    const p = Math.max(0, Math.min(1, Number(j.confidence)))
-    const confidence = Number.isFinite(p) ? p : 0.5
-    return { choice: options[i].key, probabilities: { [options[i].key]: confidence }, confidence, strategy: 'json', model: null }
-  } catch { return null }
-}
+// → {choice, probabilities, confidence, strategy} or null when nothing could be read (lib/decide.js — mail cards use it too)
+export { choose }
 
 const pct = (p) => Math.round((p || 0) * 100)
 

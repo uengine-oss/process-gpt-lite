@@ -1,0 +1,25 @@
+# 실제 모델 확인 — 2026-11-24, 회사 게이트웨이(server/.env 의 PRO_LLM_*, 모델 frentis-ai-model), 허구 메일 4통
+# 판정: lib/mailCard.js decideKind(첫 글자 확률), 일정 읽기: readEvent(JSON). 메일 받은 때 2026-11-24 (화) 16:20 Asia/Seoul, 오늘 16:30.
+# 원본 출력(JSON 한 줄씩): 판정 결과 · 확신 · 걸린 시간, 일정 읽기 결과 · 걸린 시간
+
+model frentis-ai-model
+{"case":"webinar invite","want":"calendar","kind":"calendar","p":0.997,"by":"logprob","unsure":null,"judge_ms":443,"event":{"read":"model","title":"에이전틱 자동화 웨비나","date":"2026-11-25","start":"15:00","durationMin":90,"allDay":false,"location":"","link":"https://webinar.robotics-webinar.example/join/8812","missing":[],"basis":"내일 오후 3시에 에이전틱 자동화 웨비나가 열립니다. 진행 시간은 약 90분입니다."},"read_ms":5043}
+{"case":"payment notice","want":"task","kind":"task","p":0.999,"by":"logprob","unsure":null,"judge_ms":126,"event":{"read":"model","title":"클라우드호스트 11월 서버 이용료 납부","date":"2026-11-30","start":null,"durationMin":60,"allDay":true,"location":"","link":"","missing":[],"basis":"11월 30일까지 납부해 주세요."},"read_ms":5212}
+{"case":"reply request","want":"reply","kind":"reply","p":0.967,"by":"logprob","unsure":null,"judge_ms":118,"event":{"read":"model","title":"12월 교육 참석 인원 회신","date":"2026-11-27","start":null,"durationMin":60,"allDay":true,"location":"","link":"","missing":[],"basis":"12월 교육 참석 인원을 이번 주 금요일까지 회신 부탁드립니다."},"read_ms":4523}
+{"case":"meeting proposal","want":"calendar","kind":"calendar","p":0.992,"by":"logprob","unsure":null,"judge_ms":127,"event":{"read":"model","title":"한빛상사 킥오프 미팅","date":"2026-12-01","start":"10:00","durationMin":60,"allDay":false,"location":"서울 중구 한빛빌딩 7층","link":"","missing":[],"basis":"프로젝트 킥오프 미팅을 다음 주 화요일 오전 10시에 저희 회의실(서울 중구 한빛빌딩 7층)에서 1시간 정도 하면 어떨까요?"},"read_ms":9921}
+reading {"state":"ok","model":"frentis-ai-model","at":"2026-11-24T07:52:01.108Z","reason":null}
+
+요약:
+- 판정 4/4 맞음: 웨비나 초대 → 일정(0.997), 납부 안내 → 그 밖의 일(0.999), 회신 요청 → 답장(0.967), 미팅 제안 → 일정(0.992). 모두 첫 글자 확률(logprob), 118–443 ms.
+- 일정 읽기: 웨비나 「내일 오후 3시 · 약 90분」 → 2026-11-25 15:00 · 90분 · 링크, 미팅 「다음 주 화요일 오전 10시 · 1시간」 → 2026-12-01 10:00 · 60분 · 장소. 4.5–9.9 s (시트가 「일정 정보를 읽는 중…」을 보여 주는 동안).
+- (납부 · 회신 카드는 일정 카드가 아니어서 실제로는 일정을 읽지 않는다. 읽혀 보면 마감일을 종일 일정으로 읽었다.)
+
+# 실제 모델 메일 비서(triage) — 같은 4통을 데모 메일함에 넣고 pollUser 한 번(시험 사용자는 바로 지움)
+{"verb":"Pay","text":"11월 서버 이용료 330,000원 (11월 30일 마감)","kind":"task","subject":"11월 서버 이용료 청구서"}
+{"verb":"Reply","text":"김하늘 님에게 12월 교육 참석 인원 회신 (11월 27일 마감)","kind":"reply","subject":"12월 교육 참석 인원 회신 부탁드립니다"}
+{"verb":"Reply","text":"이수민 님에게 킥오프 미팅 일정 회신 (12월 1일 10:00)","kind":"reply","subject":"킥오프 미팅 일정 제안"}
+brief: 클라우드호스트에서 11월 서버 이용료 330,000원을 11월 30일까지 납부해 달라고 했고, 김하늘 님은 12월 교육 참석 인원을 이번 주 금요일까지 회신해 달라고 했습니다. 이수민 님은 다음 주 화요일 오전 10시 킥오프 미팅 일정을 제안했습니다. (35591 ms)
+
+요약:
+- 카드마다 kind 를 답했다(task · reply · reply). 미팅 제안은 「Reply」(일정을 회신하는 카드)로 만들었고, 웨비나 초대는 카드를 만들지 않았다(안내 메일로 봄) — 어느 메일에 카드를 만들지는 이 변경 밖의 판단.
+- 브리프는 무엇을 요청받았는지만 말하고 「추가해 드릴게요」 같은 약속을 하지 않았다.

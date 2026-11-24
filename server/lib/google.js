@@ -1,4 +1,5 @@
 // Google Calendar / Gmail / Drive calls made with the user's own OAuth token from the vault.
+import { config } from '../config.js'
 import { googleAccessToken } from './mail.js'
 
 async function gapi(userId, url, { method = 'GET', body, raw } = {}) {
@@ -17,7 +18,7 @@ async function gapi(userId, url, { method = 'GET', body, raw } = {}) {
   return text ? JSON.parse(text) : {}
 }
 
-const CAL = 'https://www.googleapis.com/calendar/v3/calendars'
+const CAL = () => `${config.google.calendarUrl}/calendars`
 const slimEvent = (e) => ({
   id: e.id, summary: e.summary, start: e.start?.dateTime || e.start?.date, end: e.end?.dateTime || e.end?.date,
   location: e.location, description: e.description?.slice(0, 500), htmlLink: e.htmlLink,
@@ -28,30 +29,31 @@ export async function calendarList(userId, { timeMin, timeMax, q, calendarId = '
   if (timeMin) p.set('timeMin', new Date(timeMin).toISOString())
   if (timeMax) p.set('timeMax', new Date(timeMax).toISOString())
   if (q) p.set('q', q)
-  const r = await gapi(userId, `${CAL}/${encodeURIComponent(calendarId)}/events?${p}`)
+  const r = await gapi(userId, `${CAL()}/${encodeURIComponent(calendarId)}/events?${p}`)
   return (r.items || []).map(slimEvent)
 }
 
-// all-day when only a date is given; otherwise a timed event in Asia/Seoul
-function when(v, durationMin) {
+// all-day when only a date is given; otherwise a timed event in the given time zone (Asia/Seoul unless said)
+function when(v, durationMin, timeZone = 'Asia/Seoul') {
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return { start: { date: v }, end: { date: v } }
   const s = new Date(v)
   const e = new Date(s.getTime() + (durationMin || 60) * 60000)
-  return { start: { dateTime: s.toISOString(), timeZone: 'Asia/Seoul' }, end: { dateTime: e.toISOString(), timeZone: 'Asia/Seoul' } }
+  return { start: { dateTime: s.toISOString(), timeZone }, end: { dateTime: e.toISOString(), timeZone } }
 }
 
-export async function calendarCreate(userId, { summary, start, durationMin, description, location, calendarId = 'primary' }) {
-  const t = when(start, durationMin)
+export async function calendarCreate(userId, { summary, start, durationMin, description, location, timeZone, calendarId = 'primary' }) {
+  const t = when(start, durationMin, timeZone || undefined)
   if (t.end.date) {
-    const d = new Date(t.end.date); d.setDate(d.getDate() + 1)
+    // (the next day by the calendar date itself: a server west of UTC read the local date one day early)
+    const d = new Date(`${t.end.date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1)
     t.end.date = d.toISOString().slice(0, 10)
   }
-  return slimEvent(await gapi(userId, `${CAL}/${encodeURIComponent(calendarId)}/events`, { method: 'POST', body: { summary, description, location, ...t } }))
+  return slimEvent(await gapi(userId, `${CAL()}/${encodeURIComponent(calendarId)}/events`, { method: 'POST', body: { summary, description, location, ...t } }))
 }
 
 export async function calendarUpdate(userId, { eventId, summary, start, durationMin, description, location, calendarId = 'primary' }) {
   const patch = { ...(summary && { summary }), ...(description && { description }), ...(location && { location }), ...(start && when(start, durationMin)) }
-  return slimEvent(await gapi(userId, `${CAL}/${encodeURIComponent(calendarId)}/events/${eventId}`, { method: 'PATCH', body: patch }))
+  return slimEvent(await gapi(userId, `${CAL()}/${encodeURIComponent(calendarId)}/events/${eventId}`, { method: 'PATCH', body: patch }))
 }
 
 const GM = 'https://gmail.googleapis.com/gmail/v1/users/me'

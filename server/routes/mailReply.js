@@ -4,6 +4,11 @@
 //   GET  /actions/:id/mail         {provider, mode, mail, files, to, reply, sent}   the mail as it arrived
 //   POST /actions/:id/reply-draft  → {reply, files}                                  a draft to read and change
 //   POST /actions/:id/reply        {to, cc, subject, body, files} → {ok, sent}        sent (or put in Drafts)
+// What the card is for, and the calendar card's event (lib/mailCard.js) — nothing is made until the person presses 캘린더에 추가:
+//   GET  /actions/:id/kind         {kind: calendar|reply|task, by, p}               decided once (the judge) and kept on the card
+//   GET  /actions/:id/event?tz=    {mode: google|demo|none|scope, draft, event?}     the event read from the mail, to edit
+//   POST /actions/:id/event        {title, date, start, durationMin, allDay, location, link, description, tz} → {ok, event, already?}
+// (someone else's card: 403)
 // The mail's place in the work (lib/mailFlow.js) — nothing starts until the person presses 새로 시작 · 잇기:
 //   GET  /mail/card?action=&mail=  action                                            the card a chat chip names
 //   GET  /actions/:id/flow         {linked} | {matches, joins, declined}             its instance, or what it may start or join
@@ -13,6 +18,7 @@
 import express from 'express'
 import * as R from '../lib/mailReply.js'
 import * as MF from '../lib/mailFlow.js'
+import * as C from '../lib/mailCard.js'
 import { mailCards } from '../lib/homeCards.js'
 import { L } from '../lib/lang.js'
 
@@ -28,6 +34,9 @@ export function mailReplyRoutes(auth) {
   r.get('/actions/:id/mail', auth, (req, res) => send(res, R.mailOfCard(req.user, req.params.id)))
   r.post('/actions/:id/reply-draft', auth, (req, res) => send(res, R.draftReply(req.user, req.params.id)))
   r.post('/actions/:id/reply', auth, (req, res) => send(res, R.sendReply(req.user, req.params.id, req.body || {})))
+  r.get('/actions/:id/kind', auth, (req, res) => send(res, C.kindOfCard(req.user, req.params.id)))
+  r.get('/actions/:id/event', auth, (req, res) => send(res, C.eventOfCard(req.user, req.params.id, { tz: req.query.tz ? String(req.query.tz) : null })))
+  r.post('/actions/:id/event', auth, (req, res) => send(res, C.addEvent(req.user, req.params.id, req.body || {})))
   r.get('/mail/card', auth, (req, res) => send(res, MF.cardByRef(req.user.id, { action: req.query.action ? String(req.query.action) : null, mail: req.query.mail ? String(req.query.mail) : null })))
   r.get('/actions/:id/flow', auth, (req, res) => send(res, MF.flowOfCard(req.user, req.params.id)))
   r.post('/actions/:id/flow/start', auth, (req, res) => send(res, MF.startFromCard(req.user, req.params.id, { proc: String(req.body?.proc || ''), task: req.body?.task ? String(req.body.task) : null })))
