@@ -1,0 +1,21 @@
+# 화면 시험 — 2026-11-24, feat/daily-background-photos (2d26254 위 작업 트리)
+
+서버: PRO_PORT=8887 PRO_BACKGROUND=0 PRO_ONTOLOGY_WORKER=0 PRO_BG_COMMONS_API=http://127.0.0.1:59971/w/api.php · Vite :5287 · Playwright 의 Chromium
+
+## F-BG (e2e/tests/feature/daily-background.spec.js)
+✓   1 [feature] › tests/feature/daily-background.spec.js:121:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-01 날짜 · 절기와 그날의 후보: 하늘이 첫 칸, 사진 6~10장에 주제 이름(절기 · 시간대 · 오늘의 사진 …), 출처는 그 사이트의 CDN (2.4s)
+✓   2 [feature] › tests/feature/daily-background.spec.js:152:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-02 고르면 바로 배경이 바뀌고 출처(제목 · 작가 · 라이선스 · 출처)가 붙는다 · 새로 고쳐도 · 다른 기기(휴대폰)에서도 그대로 (6.1s)
+✓   3 [feature] › tests/feature/daily-background.spec.js:193:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-03 「오늘만」은 다음 날 하늘로(가짜 시계) · 「계속 두기」는 다음 날에도 남는다 (9.8s)
+✓   4 [feature] › tests/feature/daily-background.spec.js:226:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-04 하늘로 돌아가기: 하늘 칸을 누르면 사진이 사라지고(출처도), 저장된 선택도 없다 · 무드 칩은 그 무드의 사진을 앞에 (3.3s)
+✓   5 [feature] › tests/feature/daily-background.spec.js:255:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-05 회사 관리자 스위치(설정 › 시스템 설정): 끄면 띠가 사라지고 모두 하늘, 관리자가 아니면 403, 다시 켜면 돌아온다 (9.2s)
+✓   6 [feature] › tests/feature/daily-background.spec.js:310:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-06 휴대폰 390px: 띠는 패널 안에서 옆으로 넘기고 화면은 밀리지 않는다, 출처는 패널에(구석 출처 없음), 데이터 절약이면 가장 작은 그림만 (4.7s)
+✓   7 [feature] › tests/feature/daily-background.spec.js:342:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-07 읽기 쉬움: 밝은 사진 · 어두운 사진, 낮 · 밤 테마 모두 가림막(scrim)이 깔리고 패널과 글이 읽힌다 (12.9s)
+✓   8 [feature] › tests/feature/daily-background.spec.js:370:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-08 사진을 불러오지 못하면 하늘이 그대로(패널에 한 줄), 다시 되면 사진 · 움직임 줄이기에서는 바로 바뀐다 (3.0s)
+✓   9 [feature] › tests/feature/daily-background.spec.js:398:3 › 오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에서 그날의 사진을 골라 배경으로 › F-BG-09 데스크톱 앱: 사진은 창의 끌기 띠를 가리지 않는다(누름이 지나가고 app-region 이 없음), 구석 출처 링크는 눌린다 (1.3s)
+✓  10 [feature] › tests/feature/daily-background.spec.js:432:1 › F-BG-10 서버: 로그인해야 묻고(401), 이상한 날짜는 한국 날짜로, 다른 호스트의 사진 · 모르는 「얼마나」는 400 (286ms)
+10 passed (53.9s)
+
+## 같은 서버에서 돌린 화면 회귀 (smoke 전체 + home-dismiss · install-nudge · mobile-review-1121)
+20 통과 · 1 건너뜀 · 1 실패
+- F-HD-02(루틴 탭의 「내 입력이 필요해요」): origin/main 작업 트리의 서버(:8886) · Vite(:5286)에서도 같은 자리에서 실패한다.
+  이 개발 서버는 server/.env 의 PRO_ONTOLOGY_BOLT_URL 로 회사 지도가 켜져 있어, 루틴 탭이 목록 대신 지도를 연다(환경 — 이 작업과 무관).

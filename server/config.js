@@ -114,6 +114,13 @@ export const config = {
   // more address ranges link cards must never read, on top of the private ones (a cluster whose Service or Pod range is not a
   // private one — e.g. "34.118.224.0/20,2600:1900::/28")
   linkPreviewDenyCidrs: get('PRO_LINK_PREVIEW_DENY_CIDRS', ''),
+  // the day's background photos (lib/background): the photo sites' API addresses. Only tests change them (a fake site on
+  // 127.0.0.1) and the change is ignored behind the ProcessGPT gateway (production), where the fixed hosts are always used.
+  background: {
+    commonsApi: get('PRO_BG_COMMONS_API', ''),
+    unsplashApi: get('PRO_BG_UNSPLASH_API', ''),
+    pexelsApi: get('PRO_BG_PEXELS_API', ''),
+  },
   llmTrace: get('PRO_LLM_TRACE', ''), // file to append model request text to (see lib/llm.js)
 
   // this install's own Google OAuth client: the default when a company has not saved its own in the

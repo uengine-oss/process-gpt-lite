@@ -1,0 +1,73 @@
+{
+ "_note": "Recorded from commons.wikimedia.org (Template:Potd/2026-11-22) on 2026-11-24 — a bird close-up, 2804×1869; people's names replaced with made-up ones.",
+ "batchcomplete": true,
+ "query": {
+  "pages": [
+   {
+    "pageid": 175093298,
+    "ns": 6,
+    "title": "File:Red Avadavat in Baruipur September 2025 by Tisha Mukherjee 06.jpg",
+    "imagerepository": "local",
+    "imageinfo": [
+     {
+      "user": "SiwooBaek",
+      "size": 2633612,
+      "width": 2804,
+      "height": 1869,
+      "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fe/Red_Avadavat_in_Baruipur_September_2025_by_Tisha_Mukherjee_06.jpg/1920px-Red_Avadavat_in_Baruipur_September_2025_by_Tisha_Mukherjee_06.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "thumbwidth": 1920,
+      "thumbheight": 1280,
+      "responsiveUrls": {
+       "2": "https://upload.wikimedia.org/wikipedia/commons/f/fe/Red_Avadavat_in_Baruipur_September_2025_by_Tisha_Mukherjee_06.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled"
+      },
+      "thumbattribs": {
+       "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fe/Red_Avadavat_in_Baruipur_September_2025_by_Tisha_Mukherjee_06.jpg/1920px-Red_Avadavat_in_Baruipur_September_2025_by_Tisha_Mukherjee_06.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+       "decoding": "async",
+       "loading": "lazy",
+       "width": 1920,
+       "height": 1280,
+       "srcset": "https://upload.wikimedia.org/wikipedia/commons/f/fe/Red_Avadavat_in_Baruipur_September_2025_by_Tisha_Mukherjee_06.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled 2x"
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/f/fe/Red_Avadavat_in_Baruipur_September_2025_by_Tisha_Mukherjee_06.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "descriptionurl": "https://commons.wikimedia.org/wiki/File:Red_Avadavat_in_Baruipur_September_2025_by_Tisha_Mukherjee_06.jpg",
+      "descriptionshorturl": "https://commons.wikimedia.org/wiki/Special:Redirect/page/175093298",
+      "extmetadata": {
+       "ObjectName": {
+        "value": "Red Avadavat in Baruipur September 2025 by Tisha Mukherjee 06",
+        "source": "mediawiki-metadata"
+       },
+       "Artist": {
+        "value": "<a href=\"//commons.wikimedia.org/wiki/User:Siwoo_Baek\" title=\"User:Siwoo_Baek\">Siwoo Baek</a>",
+        "source": "commons-desc-page"
+       },
+       "LicenseShortName": {
+        "value": "CC BY-SA 4.0",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "UsageTerms": {
+        "value": "Creative Commons Attribution-Share Alike 4.0",
+        "source": "commons-desc-page"
+       },
+       "AttributionRequired": {
+        "value": "true",
+        "source": "commons-desc-page",
+        "hidden": ""
+       },
+       "LicenseUrl": {
+        "value": "https://creativecommons.org/licenses/by-sa/4.0",
+        "source": "commons-desc-page"
+       },
+       "Restrictions": {
+        "value": "",
+        "source": "commons-desc-page",
+        "hidden": ""
+       }
+      },
+      "mime": "image/jpeg"
+     }
+    ]
+   }
+  ]
+ }
+}
