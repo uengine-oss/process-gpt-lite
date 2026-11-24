@@ -107,7 +107,7 @@ function cliEnv(extra = {}, searchPath = augmentedPath()) {
   const env = {}
   for (const [k, v] of Object.entries(process.env)) {
     // (a parent Claude Code's markers make a child think it is a sub-session; its own config folder is the person's sign-in)
-    if ((k.startsWith('CLAUDE') && k !== 'CLAUDE_CONFIG_DIR') || k.startsWith('GIT_CONFIG_') || k === 'ELECTRON_RUN_AS_NODE' || k.startsWith('PGL_')) continue
+    if ((k.startsWith('CLAUDE') && k !== 'CLAUDE_CONFIG_DIR') || k.startsWith('GIT_CONFIG_') || k.toUpperCase() === 'ELECTRON_RUN_AS_NODE' || k.startsWith('PGL_')) continue
     if (/^path$/i.test(k)) continue
     env[k] = v
   }

@@ -75,7 +75,11 @@ async function main() {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     const input = JSON.stringify({ session_id: 's1', last_assistant_message: '요약\n둘째 줄' })
     const t = Date.now()
-    const r = spawnSync(exe, ['--pgl-hook', 'Stop', file], { input, timeout: 60_000, env: { ...process.env, ELECTRON_RUN_AS_NODE: '' } })
+    // (the variable removed, not emptied: on Windows an empty ELECTRON_RUN_AS_NODE still makes the app a plain Node — the runner's
+    // cliEnv removes it the same way)
+    const env = { ...process.env }
+    for (const k of Object.keys(env)) if (k.toUpperCase() === 'ELECTRON_RUN_AS_NODE') delete env[k]
+    const r = spawnSync(exe, ['--pgl-hook', 'Stop', file], { input, timeout: 60_000, env })
     must(!r.error, String(r.error))
     must(r.status === 0, `exit ${r.status} ${r.signal || ''}: ${String(r.stderr).slice(0, 400)}`)
     const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
@@ -124,7 +128,7 @@ p.onExit(({ exitCode }) => {
     const profile = path.join(tmp, 'profile')
     const settings = path.join(profile, 'desktop-settings.json')
     const env = { ...process.env, PGL_DESKTOP_USER_DATA: profile }
-    delete env.ELECTRON_RUN_AS_NODE
+    for (const k of Object.keys(env)) if (k.toUpperCase() === 'ELECTRON_RUN_AS_NODE') delete env[k]
     const child = spawn(exe, [], { env, stdio: ['ignore', 'pipe', 'pipe'] })
     let log = ''
     child.stdout.on('data', (d) => { log += d })
