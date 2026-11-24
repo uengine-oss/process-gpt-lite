@@ -15,7 +15,9 @@ function choose(which) {
 }
 $('#pick-company').addEventListener('click', () => {
   choose('company')
-  if (!/^https:\/\/.+\.process-gpt\.io/.test(url.value)) url.value = 'https://'
+  // the company address is suggested, not typed in for the person: a pasted whole address must not end up after a prefilled https://
+  if (!/^https:\/\/.+\.process-gpt\.io/.test(url.value)) url.value = ''
+  url.placeholder = STR.companyPh
   url.focus()
   url.setSelectionRange(url.value.length, url.value.length)
 })

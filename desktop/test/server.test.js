@@ -45,3 +45,10 @@ test('check: unreachable, a gate (401) with the basic-auth pair, not Lite', asyn
   assert.equal(auth, `Basic ${Buffer.from('u:p').toString('base64')}`)
   assert.equal((await check('example.com/lite', { fetch: async () => json(200, { hello: 1 }) })).reason, 'notLite')
 })
+
+test('주소에 https:// 가 두 번 들어가도(미리 채운 칸 뒤에 붙여 넣기) 하나로 읽는다', () => {
+  const { normalize } = require('../src/server.js')
+  assert.equal(normalize('https://https://acme.process-gpt.io/lite'), 'https://acme.process-gpt.io/lite')
+  assert.equal(normalize('https:// https://acme.process-gpt.io/lite/chat'), 'https://acme.process-gpt.io/lite')
+  assert.equal(normalize('http://localhost:18080'), 'http://localhost:18080')
+})
