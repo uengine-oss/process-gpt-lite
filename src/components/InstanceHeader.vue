@@ -6,6 +6,7 @@ import StepTimeline from './StepTimeline.vue'
 import AgentActivity from './AgentActivity.vue'
 import { auth, api } from '../api.js'
 import TodoCard from './TodoCard.vue'
+import LocalRunCard from './LocalRunCard.vue'
 import BpmnView from './BpmnView.vue'
 import Icon from './Icon.vue'
 import { BASE } from '../base.js'
@@ -62,6 +63,12 @@ const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', da
         <span>메일 {{ wf.mails }}통</span><span>· 단계 결과 {{ wf.outputs }}개</span>
         <router-link v-if="wf.line" :to="`/folders/${encodeURIComponent(wf.slug)}/v/${wf.line.id}`" data-test="work-folder-line">· 단계 결과 보기 →</router-link>
       </p>
+    </div>
+
+    <!-- steps run by a CLI agent on their assignee's own computer (server lib/localAgents): waiting, running, done — and steering -->
+    <div v-if="data.localRuns?.length" class="locals" data-test="local-runs">
+      <div class="ch">로컬 에이전트 · 담당자의 컴퓨터에서 실행 <small v-if="data.localRuns.some((r) => r.canSteer)">· 이 대화에 쓰면 실행 중인 에이전트에게 전해져요</small></div>
+      <LocalRunCard v-for="r in data.localRuns.slice(0, 4)" :key="r.jobId" :run="r" />
     </div>
 
     <div class="card">
@@ -121,6 +128,8 @@ h2 { font-size: 30px; font-weight: 300; line-height: 1.25; margin: 10px 0 6px; l
 .sub { margin: 0 0 12px; font-size: 14px; color: var(--text-secondary); }
 .bar { height: 4px; border-radius: 4px; background: var(--hairline); overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--text-primary); border-radius: 4px; transition: width .8s var(--spring); }
+.locals { display: flex; flex-direction: column; gap: 8px; }
+.locals .ch small { color: var(--text-tertiary); }
 .rerr { color: var(--color-error); font-size: 13px; margin: 0 0 10px; }
 .card { border-radius: 24px; padding: 16px 18px 6px; background: var(--bubble-agent-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
 .ch { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px 2px; display: flex; align-items: center; gap: 6px; }

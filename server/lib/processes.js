@@ -159,7 +159,9 @@ export async function getInstance(instId, me) {
     else if (current.has(s.id)) state = 'active'
     if (s.kind === 'start') state = 'done'
     if (s.kind === 'end') state = inst.status === 'COMPLETED' ? 'done' : 'pending'
-    const mine = t && reached && ['TODO', 'IN_PROGRESS', 'NEW'].includes(t.status) &&
+    // (an agent's step that finishes itself is not the person's to hand in, even when they are on it — a local CLI agent's step names its
+    // person: their desktop runs it, lib/localAgents)
+    const mine = t && reached && ['TODO', 'IN_PROGRESS', 'NEW'].includes(t.status) && !(t.agent_orch && String(t.agent_mode || '').toUpperCase() === 'COMPLETE') &&
       (String(t.user_id || '').includes(me.email) || String(t.user_id || '').includes(me.id))
     return { ...s, state, todoId: t?.id || null, todoStatus: t?.status || null, mine: !!mine, assignee: t?.username || t?.user_id || null,
       running: state === 'active' && agentRunning(t),

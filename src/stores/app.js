@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { runner as localRunner, startDesktopRunner, disconnectThis } from '../localRunner.js'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
 import { BASE } from '../base.js'
 import { syncLang } from '../i18n/lang.js'
@@ -61,6 +62,7 @@ export const useApp = defineStore('app', {
     notifications: [],         // process-gpt notifications addressed to me (Home "needs action")
     handled: [],               // work items just decided from a card (the engine catches up a moment later)
     instance: null,
+    localActive: {},           // instId → the card of its local CLI agent run that is on now (Home cards — server lib/localAgents)
     missionTick: 0,             // bumps on mission run events so open lists refresh            // detail of the instance page               // text pushed into the composer from elsewhere
   }),
   getters: {
@@ -120,12 +122,31 @@ export const useApp = defineStore('app', {
     async boot() {
       this.me = await api('/me')
       syncLang(this.me)
+      // in the desktop app: this computer's CLI agents run this person's local steps (src/localRunner.js)
+      startDesktopRunner(this.me).catch(() => {})
       ;[this.mainThread] = await api('/threads')
       this.activeId = this.mainThread.id
-      await Promise.all([this.load(this.mainThread.id), this.loadActions(), this.loadPanels(), this.loadPanelApps(), this.loadProjects(), this.loadProcesses(), this.loadNotifications(), this.loadConversations()])
+      await Promise.all([this.load(this.mainThread.id), this.loadActions(), this.loadPanels(), this.loadPanelApps(), this.loadProjects(), this.loadProcesses(), this.loadNotifications(), this.loadConversations(), this.loadLocalActive()])
       events((t, d) => this.onEvent(t, d))
     },
     async load(id) { this.messages[id] = await api(`/threads/${id}/messages`) },
+    // the local CLI agent runs on now (Home cards) and one run's newest card (a push, or what a steer answered)
+    async loadLocalActive() {
+      const rows = await api('/local-agents/active').catch(() => null)
+      if (rows) this.localActive = Object.fromEntries(rows.map((c) => [c.instId, c]))
+    },
+    patchLocalRun(card) {
+      const on = ['queued', 'offered', 'running'].includes(card.state)
+      if (on) this.localActive = { ...this.localActive, [card.instId]: card }
+      else if (this.localActive[card.instId]?.jobId === card.jobId) { const { [card.instId]: _gone, ...rest } = this.localActive; this.localActive = rest }
+      if (this.instance && card.instId === this.instance.inst.proc_inst_id) {
+        const runs = [...(this.instance.localRuns || [])]
+        const i = runs.findIndex((x) => x.jobId === card.jobId)
+        if (i >= 0) runs[i] = card
+        else runs.unshift(card)
+        this.instance = { ...this.instance, localRuns: runs }
+      }
+    },
     async loadActions() { this.actions = await api('/actions') },
     async loadPanels() { this.panels = await api('/panels') },
     async loadPanelApps() { this.panelApps = await api('/panel-apps').catch(() => this.panelApps) },
@@ -209,6 +230,9 @@ export const useApp = defineStore('app', {
       } else if (type === 'process') {
         this.loadProcesses()
         if (this.instance && d.instId === this.instance.inst.proc_inst_id) this.refreshInstance()
+      } else if (type === 'local_run') {
+        // a step runs on someone's desktop: its card follows wherever it is shown (LocalRunCard — the instance page, Home), no reload
+        if (d.card) this.patchLocalRun(d.card)
       } else if (type === 'status') {
         this.status[d.threadId] = d.text
       } else if (type === 'browser.frame') {
@@ -407,6 +431,10 @@ export const useApp = defineStore('app', {
       this.panelMode = false
       await this.send(`새 패널 만들기: ${description}`, this.mainThread.id)
     },
-    logout() { auth.clear(); location.href = BASE + '/login' },
+    // (in the desktop app this computer's local runner is let go first: it no longer runs this person's steps)
+    async logout() {
+      if (localRunner.desktop) await disconnectThis({ optOut: false }).catch(() => {})
+      auth.clear(); location.href = BASE + '/login'
+    },
   },
 })

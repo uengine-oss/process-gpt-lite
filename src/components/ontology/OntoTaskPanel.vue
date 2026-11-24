@@ -13,6 +13,7 @@ import OntoEvidence from './OntoEvidence.vue'
 import OntoTaskAi from './OntoTaskAi.vue'
 import OntoForms from './OntoForms.vue'
 import OntoSkillView from './OntoSkillView.vue'
+import OntoTaskAgent from './OntoTaskAgent.vue'
 import { ACT_KO, RUNNER_KO, AUTONOMY_KO, validFromOf, dayKo, EUL } from './ontoText.js'
 
 const props = defineProps({ taskKey: { type: String, required: true }, admin: Boolean, hideHeader: Boolean })
@@ -181,6 +182,8 @@ defineExpose({ reload: load })
             <p v-if="p.description" class="desc">{{ p.description }}</p>
             <dl class="kv">
               <dt>하는 사람</dt><dd>{{ RUNNER_KO[p.runner] || '사람' }}<template v-if="p.runner === 'agent'"> · {{ AUTONOMY_KO[p.autonomy] || p.autonomy }}</template></dd>
+              <!-- which agent does it: a server agent, or a CLI agent on the assignee's own computer (server lib/localAgents) -->
+              <template v-if="p.runner !== 'person' || p.local || admin"><dt>에이전트</dt><dd><OntoTaskAgent :task-key="taskKey" :parsed="p" :admin="admin" @saved="load(); emit('changed', { kind: 'definition', key: taskKey })" /></dd></template>
               <!-- a skill opens: what it does (Lite's step skills), its SKILL.md (the company's), and the form's format rules (OntoSkillView) -->
               <template v-if="p.skills?.length || usedForm"><dt>스킬</dt><dd class="chips">
                 <button v-for="s in p.skills" :key="s" class="sk press" data-testid="onto-skill-chip" :data-skill="s" title="스킬 열어 보기" @click="skillOpen = { name: s }">{{ s }}</button>

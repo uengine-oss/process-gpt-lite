@@ -17,6 +17,7 @@ import { cypher, readGraph, ontologyEnabled } from './store.js'
 import { taskDefinition } from './taskdef.js'
 import { END } from './stats.js'
 import { refinedView, baseOf } from './refine.js'
+import { ORCH as LOCAL_ORCH } from '../localAgents/agents.js'
 
 export const ORCH = 'pgpt-pro-onto'
 const T = () => config.tenantId
@@ -150,14 +151,18 @@ export async function contractOf(view, entry, theta, { starterRole = '담당자'
     const id = actId(k)
     const fid = `${pid}_${id}_form`
     const runner = d.runner === 'agent'
-    const r = runner ? '업무 에이전트' : (t?.role || '담당자')
-    role(r, runner ? agent : '')
+    // a CLI agent on the assignee's own desktop (lib/localAgents): the step stays in its person's lane — it runs on their desktop
+    const local = runner || draft || d.runner === 'draft' ? d.local : null
+    const r = runner && !local ? '업무 에이전트' : (t?.role || '담당자')
+    role(r, runner && !local ? agent : '')
     forms.push({ activity_id: id, form_id: fid, html: formHtml(fid, k, [{ key: 'result', text: `${k} 결과`, type: 'textarea' }]) })
     const base = { elementType: 'Activity', id, name: k, role: r, type: 'UserActivity', tool: `formHandler:${fid}`, duration: 1, inputData: [], outputData: [k],
       checkpoints: d.checkpoints, skills: d.skills, outputs: d.outputs, description: d.description || '', instruction: d.instruction || '' }
     // an agent's step completes itself; a person's step of a promoted process gets the agent's draft first (Process GPT's
     // draft mode: the agent is put beside the person on the work item, its result lands in the item's draft)
-    elements.push(runner ? { ...base, agent, agentMode: 'complete', orchestration: ORCH } : draft || d.runner === 'draft' ? { ...base, agent, agentMode: 'draft', orchestration: ORCH } : { ...base, agentMode: 'none' })
+    const orch = local ? LOCAL_ORCH : ORCH
+    const lx = local ? { localAgent: local } : {}
+    elements.push(runner ? { ...base, agent, agentMode: 'complete', orchestration: orch, ...lx } : draft || d.runner === 'draft' ? { ...base, agent, agentMode: 'draft', orchestration: orch, ...lx } : { ...base, agentMode: 'none' })
   }
   elements.push({ elementType: 'Event', id: 'end', name: '끝', role: starterRole, type: 'EndEvent' })
   const node = (k) => (k === END ? 'end' : actId(k))
@@ -242,7 +247,8 @@ export async function snapshot({ procKey, entry, theta, validAt, starterRole }) 
   const [row] = await q('select definition from proc_def where id=$1 and tenant_id=$2', [defId, T()])
   if (row?.definition?.activities) {
     const acts = row.definition.activities.map((a) => ({ ...a, skills: byId[a.id]?.skills || [], checkpoints: byId[a.id]?.checkpoints || a.checkpoints || [], instruction: byId[a.id]?.instruction || a.instruction || '',
-      ...(byId[a.id]?.agent ? { orchestration: ORCH, agentMode: byId[a.id].agentMode || 'complete', agent: byId[a.id].agent } : {}) }))
+      ...(byId[a.id]?.agent ? { orchestration: byId[a.id].orchestration || ORCH, agentMode: byId[a.id].agentMode || 'complete', agent: byId[a.id].agent,
+        ...(byId[a.id].localAgent ? { localAgent: byId[a.id].localAgent } : {}) } : {}) }))
     await q(`update proc_def set definition = jsonb_set(definition, '{activities}', $3::jsonb) where id=$1 and tenant_id=$2`, [defId, T(), JSON.stringify(acts)])
   }
   // (two statements: Ontological does not take MERGE … WITH … MERGE of a relationship in one)
@@ -538,7 +544,9 @@ export async function actOf(row) {
   return a?.act || {}
 }
 
-async function runStep(row, gate = {}) {
+// (exported: a local agent's step whose activity says so is handed to this business agent when the assignee's desktop is off —
+// lib/localAgents/steps.js)
+export async function runStep(row, gate = {}, { owner: given = null } = {}) {
   const W = await import('../mining/worker.js')
   const M = await import('./mapengine.js')
   const map = M.isMapInst(row.proc_inst_id)
@@ -550,7 +558,8 @@ async function runStep(row, gate = {}) {
   const isDraft = String(row.agent_mode || '').toUpperCase() === 'DRAFT'
   const assignee = isDraft ? String(row.user_id || '').split(',').map((x) => x.trim()).filter((x) => x && x !== act.agent)[0] : null
   // (a map case has no 요청 접수 step by its starter: the case's owner is who the agent acts for)
-  const owner = assignee || (map ? (await (await import('./runmode.js')).caseOfInstance(row.proc_inst_id))?.started_by : await W.ownerOf(row))
+  // (given: the person a local CLI agent's step was for, handed here because their desktop is off — lib/localAgents/steps.js)
+  const owner = given || assignee || (map ? (await (await import('./runmode.js')).caseOfInstance(row.proc_inst_id))?.started_by : await W.ownerOf(row))
   if (!owner) throw new Error('no human participant to act for')
   const threadId = await W.instanceThread(owner, row.proc_inst_id)
   const status = (text) => emit(owner, 'status', { threadId, text })
@@ -592,18 +601,31 @@ async function runStep(row, gate = {}) {
       r = { values: { result: String(msg?.content?.text || '').slice(0, 3000) }, say: null }
     }
   } finally { status(null) }
-  const checks = await checkOutputs(act.checkpoints || [], r.values.quote || r.values.proposal || r.values.document || null)
-  const values = { ...r.values, ...(checks.length ? { checkpoints: checks } : {}) }
+  return finishStep({ row, act, gate, values: r.values, owner, threadId, isDraft })
+}
+
+// A step's result into the engine (the business agent's own run above, or a run of a local CLI agent on the assignee's desktop —
+// lib/localAgents/steps.js): checked against the step's checkpoints, then kept as the draft of an outward step that waits for a person,
+// saved as the step's result (a map case: the map says what comes next), or as a draft for the person (draft mode); the owner's
+// instance conversation says so. who: whose work it was (업무 에이전트 · Claude Code …); checks: already made (skip the file check).
+export async function finishStep({ row, act = {}, gate = {}, values: made = {}, owner, threadId = null, isDraft = false, who = '업무 에이전트', checks: given = null }) {
+  const W = await import('../mining/worker.js')
+  const M = await import('./mapengine.js')
+  const map = M.isMapInst(row.proc_inst_id)
+  threadId ||= owner ? await W.instanceThread(owner, row.proc_inst_id) : null
+  const base = { job_id: crypto.randomUUID(), todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: ORCH }
+  const checks = given || await checkOutputs(act.checkpoints || [], made.quote || made.proposal || made.document || null)
+  const values = { ...made, ...(checks.length ? { checkpoints: checks } : {}) }
   const formId = (act.tool || '').startsWith('formHandler:') ? act.tool.slice(12) : `${row.activity_id}_form`
   const payload = { [formId]: values }
   // a map case moved or rewound while this step ran: its work item is closed, what it made is not used
-  if (map && !(await M.stillOpen(row.id))) { console.log(`[onto-worker] ${row.activity_name}: 옮기며 닫힌 단계 — 결과를 쓰지 않음`); return }
+  if (map && !(await M.stillOpen(row.id))) { console.log(`[onto-worker] ${row.activity_name}: 옮기며 닫힌 단계 — 결과를 쓰지 않음`); return { closed: true } }
   // 되돌릴 수 없는 단계: what would go out is kept as the step's draft and the step waits for a person (runmode.js decide)
   if (gate.draftFirst) {
     await (await import('./runmode.js')).holdForSend(row, payload, gate)
-    await addMessage(owner, threadId, 'agent', 'text', { text: `업무 에이전트 · ${row.activity_name}: 회사 밖으로 나갈 초안을 만들었어요. 되돌릴 수 없는 단계라 사람이 정할 때까지 기다려요.` })
-    emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
-    return
+    if (threadId) await addMessage(owner, threadId, 'agent', 'text', { text: `${who} · ${row.activity_name}: 회사 밖으로 나갈 초안을 만들었어요. 되돌릴 수 없는 단계라 사람이 정할 때까지 기다려요.` })
+    if (owner) emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
+    return { held: true, payload }
   }
   // the engine's save (an agent's step: SUBMITTED, the engine goes on; a draft: kept on the item) — a map case's agent step ends here and
   // the map says what comes next (mapengine.js finishItem; a draft stays the engine's way: it only fills the item)
@@ -620,10 +642,13 @@ async function runStep(row, gate = {}) {
   ])
   const passed = checks.filter((c) => c.ok === true).length
   const amount = values.amount ? ` 합계 ${fmtWon(Number(values.amount))}원.` : ''
-  await addMessage(owner, threadId, 'agent', 'text', { text: isDraft
-    ? `업무 에이전트 · ${row.activity_name}: 초안을 만들어 두었어요. 확인하고 고칠 곳만 고쳐 내 주세요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`
-    : `업무 에이전트 · ${row.activity_name}: 일 정의대로 만들었어요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`, checks, ...(isDraft ? { draftOf: row.id } : {}) })
-  emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
+  if (threadId) {
+    await addMessage(owner, threadId, 'agent', 'text', { text: isDraft
+      ? `${who} · ${row.activity_name}: 초안을 만들어 두었어요. 확인하고 고칠 곳만 고쳐 내 주세요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`
+      : `${who} · ${row.activity_name}: 일 정의대로 만들었어요.${amount}${checks.length ? ` 점검 항목 ${checks.length}개 중 ${passed}개 통과.` : ''}`, checks, ...(isDraft ? { draftOf: row.id } : {}) })
+  }
+  if (owner) emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
+  return { saved: true, payload }
 }
 
 export function startOntologyWorker() {
