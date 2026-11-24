@@ -159,3 +159,22 @@ test('예전 이미지가 읽지 못한 문서는 시작할 때 카드를 다시
   assert.equal(row.card_sha, row.sha)
   assert.notEqual(row.card_error, '본문을 읽지 못했어요', JSON.stringify(row))
 })
+
+// 2026-11-24 운영: 「장진영 이력서를 열어줘」에 folder_open 이 불렸는데 카드가 오지 않았다. deepagents 는 도구 결과를
+// 파이썬 str() 로 흘려보내(줄바꿈이 \n 글자로) 들여 쓴 JSON 을 읽지 못했다. deepagents 가 실제로 보내는 두 모양 그대로.
+test('deepagents 가 흘려보내는 도구 결과(파이썬 str, 줄바꿈이 \\n 글자)에서도 folder_open 카드를 읽는다', () => {
+  const o = { file_url: 'https://x.supabase.co/storage/v1/object/public/files/pgpt-pro/folders/f/abc.docx', file_name: '장진영_프로필.docx', open: true,
+    folder: '이력서', path: '장진영_프로필.docx', folder_ref: { slug: 'folder-x', name: '이력서', path: '장진영_프로필.docx', sha: 'abc', editable: true } }
+  const pretty = JSON.stringify(o, null, 1).replace(/\n/g, '\\n') // Python's repr of the line breaks
+  for (const s of [`content='${pretty}' name='folder_open' tool_call_id='call_1'`,
+    `content=[{'type': 'text', 'text': '${pretty}'}] name='folder_open' tool_call_id='call_1'`,
+    `content='${JSON.stringify(o)}' name='folder_open' tool_call_id='call_1'`]) {
+    const doc = documentFrom(s)
+    assert.ok(doc, s.slice(0, 60))
+    assert.deepEqual([doc.name, doc.open, doc.folder.slug, doc.folder.editable], ['장진영_프로필.docx', true, 'folder-x', true])
+  }
+  // a value that itself holds an escaped quote or line break survives the reading back
+  const tricky = { file_url: 'https://x/files/a.docx', file_name: 'a.docx', note: 'say "hi"\nthen' }
+  const repr = `content='${JSON.stringify(tricky, null, 1).replace(/\\/g, '\\\\').replace(/\n/g, '\\n')}'`
+  assert.equal(documentFrom(repr)?.url, 'https://x/files/a.docx')
+})

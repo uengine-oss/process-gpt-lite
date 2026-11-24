@@ -40,6 +40,11 @@ export const editable = (name) => !!EDITOR_BY_EXT[extOf(name)]
 
 // A tool result in any of the shapes deepagents streams it (object, JSON, `content='{…}'`,
 // `content=[{'type':'text','text':'{…}'}]`) → the object inside, like process-gpt's parseMcpToolOutput.
+// deepagents streams a tool's result as Python's str() of it (`content='{\n "file_url": …}' name=… tool_call_id=…`): a
+// JSON answer with line breaks arrives with them written as \n (and quotes as \' \"), which is not JSON until those
+// escapes of the Python string literal are read back. Measured 2026-11-24: 「장진영 이력서를 열어줘」 called folder_open
+// in production and no card came, because the indented JSON came back that way.
+export const unPython = (t) => String(t).replace(/\\(\\|n|t|r|'|")/g, (_, c) => ({ '\\': '\\', n: '\n', t: '\t', r: '\r', "'": "'", '"': '"' })[c])
 export function parseToolOutput(raw) {
   if (raw && typeof raw === 'object') return Array.isArray(raw) ? parseToolOutput(raw[0]?.text ?? raw[0]) : raw
   const s = String(raw || '')
@@ -48,6 +53,7 @@ export function parseToolOutput(raw) {
     if (!t) continue
     try { const v = JSON.parse(t); if (v && typeof v === 'object') return v } catch { /* next shape */ }
     try { const v = JSON.parse(t.replace(/'/g, '"')); if (v && typeof v === 'object') return v } catch { /* next shape */ }
+    try { const v = JSON.parse(unPython(t)); if (v && typeof v === 'object') return v } catch { /* next shape */ }
   }
   return null
 }
