@@ -19,7 +19,10 @@ let pushOn = false
 export const supported = () => typeof window !== 'undefined' && 'Notification' in window
 export const permission = () => (supported() ? Notification.permission : 'unsupported')
 const swOk = () => typeof navigator !== 'undefined' && 'serviceWorker' in navigator && window.isSecureContext
-const pushOk = () => swOk() && 'PushManager' in window
+// the desktop app (desktop/, Electron) has no push service and does not show a service worker's notifications:
+// there the page shows them itself (new Notification) while its window is in the background
+const desktopApp = () => typeof document !== 'undefined' && document.documentElement.classList.contains('pgl-desktop')
+const pushOk = () => swOk() && 'PushManager' in window && !desktopApp()
 
 // the service worker (scope: the app's own address, /lite/ behind the gateway); a click on a notification
 // it showed comes back here as a message (MainView opens it)
@@ -86,7 +89,7 @@ export function announce(list, open) {
   const shown = fresh.slice(0, 3)
   for (const n of shown) {
     const opts = { body: bodyOf(n), tag: `pgl-${n.id}`, icon: `${BASE}/icons/icon-192.png`, badge: `${BASE}/icons/badge-72.png`, data: { id: n.id, type: n.type, url: n.url || null, instId: n.instId || null } }
-    if (swOk()) {
+    if (swOk() && !desktopApp()) {
       navigator.serviceWorker.ready.then((reg) => reg.showNotification(titleOf(n), opts)).catch(() => {})
       continue
     }

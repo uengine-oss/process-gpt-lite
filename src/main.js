@@ -5,6 +5,8 @@ import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './styles/base.css'
+// the desktop app's title bar (desktop/): only under html.pgl-desktop, nothing in a browser
+import './styles/desktop.css'
 // **굵게** right before a Korean particle (src/markdownCjk.js): every marked.parse in the app
 import { installCjkMarkdown } from './markdownCjk.js'
 import { watchUaTransitions } from './uaTransition.js'

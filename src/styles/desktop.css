@@ -1,0 +1,35 @@
+/* The desktop app (desktop/, Electron). Everything here is under html.pgl-desktop, which only the desktop app's
+   preload puts on the page — in a browser this file does nothing.
+   The window has no title bar and no band of its own: the sky runs up to its top edge (2026-11-24 decision). The
+   window's own buttons sit over the top bar — macOS traffic lights on the left (--pgl-tb-left: where they end),
+   Windows · Linux caption buttons on the right (--pgl-tb-right: their width) — and the window is moved by the top strip. */
+
+/* the strip the window is moved by: the top bar's height where it is shown, the top edge elsewhere. A pseudo element
+   painted under everything (z-index -1) and first in the document, so every no-drag below cuts holes in it */
+html.pgl-desktop body::before {
+  content: ''; position: fixed; z-index: -1; top: 0; left: 0; right: 0; height: 40px;
+  -webkit-app-region: drag; app-region: drag; pointer-events: none;
+}
+html.pgl-desktop body:has(header.top:not([style*="display: none"]))::before { height: 68px; }
+/* what one clicks, types in or scrolls stays usable inside the strip */
+html.pgl-desktop :is(button, a[href], input, textarea, select, label, summary, nav, iframe, video, audio,
+  [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="slider"], [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"])) {
+  -webkit-app-region: no-drag; app-region: no-drag;
+}
+
+/* the top bar (components/TopBar.vue) steps around the window's buttons */
+html.pgl-desktop header.top {
+  padding-left: max(16px, calc(var(--pgl-tb-left, 0px) + 12px));
+  padding-right: max(16px, calc(var(--pgl-tb-right, 0px) + 12px));
+}
+/* phone width: the pill between the two round buttons (48px + 8px gap each side) */
+html.pgl-desktop header.top.narrow .seg {
+  left: calc(max(16px, calc(var(--pgl-tb-left, 0px) + 12px)) + 56px);
+  right: calc(max(16px, calc(var(--pgl-tb-right, 0px) + 12px)) + 56px);
+}
+/* settings' ✕ (components/SettingsSheet.vue): left of Windows' caption buttons */
+html.pgl-desktop .settings > .x { right: max(16px, calc(var(--pgl-tb-right, 0px) + 12px)); }
+/* the sign-in page (views/LoginView.vue): the picture starts below the traffic lights, the language switch left of
+   the caption buttons */
+html.pgl-desktop.pgl-os-darwin:not(.pgl-fullscreen) .login { padding-top: 52px; }
+html.pgl-desktop .login .lang { right: calc(4px + var(--pgl-tb-right, 0px)); }
