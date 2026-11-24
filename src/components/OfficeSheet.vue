@@ -69,6 +69,10 @@ function assistant({ prompt, selection }) {
   else app.focusTick++
   if (!chatHere.value) router.push('/chat')
 }
+// What is selected in the document, as it changes: a chip in the chat's composer that goes with the next message
+// (src/docSelection.js) — the editor's own 「AI 수정 요청」 is hidden in this page, the chat is where the request is made
+const selection = (s) => app.setDocSel(s, app.officeDoc?.name)
+onBeforeUnmount(() => app.setDocSel(null))
 // Click to mention: the editor tells what was pointed at; it waits in the input as a chip
 function mention(m) {
   app.addMention(m)
@@ -264,7 +268,7 @@ onBeforeUnmount(() => onOfficeLeave(null))
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        :assistant="office" :auto-save="autoSave" v-model:maximized="maximized" @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" />
+        :assistant="office" :auto-save="autoSave" v-model:maximized="maximized" @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" @selection="selection" />
       <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
       <Transition name="pic">
         <div v-if="pic" class="pic">

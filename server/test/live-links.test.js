@@ -99,4 +99,8 @@ test('openDoc: the document the page says is open stands in for a live link that
   assert.match(hint, /회의록\.docx/)
   assert.match(hint, /office_live_documents 도구가 없거나 그 목록에 이 문서가 없으면/)
   assert.match(hint, /새 문서를 만들지 말고/)
+  // a selection sent from the chat (2026-11-25): its place goes to the table op, and an edit that changed nothing is not 「done」
+  assert.match(hint, /골라 둔 부분\(선택\)이 붙어 오면/)
+  assert.match(hint, /"op":"setTableCellFormat","target":\{"nodeType":"table","blockIndexes":\[선택의 blockIndex\]\},"range":선택의 range/)
+  assert.match(hint, /바뀐 곳이 없다고 하면 고쳤다고 말하지 말고/)
 })

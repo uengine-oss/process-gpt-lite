@@ -177,7 +177,12 @@ defineExpose({ focus: () => ta.value?.focus() })
       <button v-if="app.panelMode" class="undo press" aria-label="취소" @click="app.panelMode = false"><Icon name="undo" :size="20" /></button>
     </Transition>
     <ComposerTeam v-if="!overlay" :tm="tm" />
-    <div v-if="app.mentions.length" class="mentions">
+    <div v-if="app.mentions.length || app.docSelChip" class="mentions">
+      <!-- what is selected in the open document right now (src/docSelection.js): it goes with the next message -->
+      <span v-if="app.docSelChip" class="mention sel" data-test="doc-selection-chip" :data-kind="app.docSelChip.where" :title="`${app.docSelChip.file} · ${app.docSelChip.text}`">
+        <i class="cur" aria-hidden="true" /><b>@{{ app.docSelChip.label }}</b>
+        <button class="x" aria-label="빼기" data-test="doc-selection-remove" @click="app.dropDocSel()">×</button>
+      </span>
       <span v-for="(m, i) in app.mentions" :key="i + m.label" class="mention" :title="m.file || ''">
         <b>@{{ m.label }}</b>
         <button class="x" aria-label="빼기" @click="app.removeMention(i)">×</button>
@@ -236,11 +241,15 @@ defineExpose({ focus: () => ta.value?.focus() })
 </template>
 
 <style scoped>
-/* objects pointed at in an open document (OfficeEditorFrame "@ 가리키기") */
+/* objects pointed at in an open document (OfficeEditorFrame "@ 가리키기"), and what is selected in it (the chip with the cursor bar).
+   Light: deep violet on a pale violet (the light lilac it had was nearly invisible on a light composer); dark: as before. */
 .mentions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
-.mention { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 0 10px; border-radius: 13px; font-size: 13px;
-  background: rgba(124, 104, 255, .2); color: #d9d2ff; border: 1px solid rgba(160, 140, 255, .45); animation: pop-in .3s var(--spring); }
-.mention b { font-weight: 600; }
+.mention { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; height: 26px; padding: 0 4px 0 10px; border-radius: 13px; font-size: 13px;
+  background: rgba(124, 104, 255, .12); color: #4a36c9; border: 1px solid rgba(124, 104, 255, .42); animation: pop-in .3s var(--spring); }
+:root[data-theme="dark"] .mention { background: rgba(124, 104, 255, .2); color: #d9d2ff; border-color: rgba(160, 140, 255, .45); }
+.mention b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention.sel { padding-left: 8px; }
+.mention .cur { flex: none; width: 3px; height: 14px; border-radius: 2px; background: currentColor; opacity: .75; }
 .mention .x { width: 20px; height: 20px; border-radius: 10px; color: inherit; opacity: .7; }
 .mention .x:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
 .composer { position: relative; width: 100%; }
