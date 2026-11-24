@@ -8,15 +8,35 @@ const APP_ROUTES = ['chat', 'login', 'auth', 'welcome', 'routines', 'projects', 
   'improve', 'process-map', 'strategy', 'agentic', 'backoffice', 'team-activity', 'context']
 const LOCAL_HOST = /^(?:localhost|(?:[a-z0-9-]+\.)*localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|[a-z0-9-]+\.local)$/i
 
-/** "acme.process-gpt.io/lite/chat" → "https://acme.process-gpt.io/lite"; "localhost:18080" → "http://localhost:18080"; '' when not a web address. */
+/** "acme.process-gpt.io/lite/chat" → "https://acme.process-gpt.io/lite"; "localhost:18080" → "http://localhost:18080"; '' when not a web address.
+ * Forgiving with what people type: spaces, a scheme typed twice or half ("https//", "https:/", "http;//"), a company name alone
+ * ("acme" → acme.process-gpt.io), ".process-gpt" without ".io". */
+const COMPANY_DOMAIN = 'process-gpt.io'
 function normalize(raw) {
-  // a scheme typed or pasted twice (the field once offered "https://" and the whole address went after it): the last one counts
-  let s = String(raw || '').trim().replace(/^(?:[a-z][a-z0-9+.-]*:\/\/\s*)+(?=[a-z][a-z0-9+.-]*:\/\/)/i, '')
-  if (!s) return ''
-  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
-    const host = s.split(/[/?#]/)[0].replace(/:\d+$/, '')
-    s = `${LOCAL_HOST.test(host) ? 'http' : 'https'}://${s}`
+  let s = String(raw || '').replace(/\s+/g, '')
+  // every scheme at the front, whole or half-typed: the last whole one counts (else inferred below)
+  let scheme = ''
+  for (;;) {
+    const m = /^(https?)(?::\/\/|:\/|\/\/|;\/\/|:)/i.exec(s)
+    if (!m) break
+    scheme = m[1].toLowerCase()
+    s = s.slice(m[0].length)
   }
+  s = s.replace(/^\/+/, '')
+  if (!s) return ''
+  // the host: a company name alone gets the company domain, a ".process-gpt" its ".io"
+  const cut = s.search(/[/?#]/)
+  let hostPort = cut < 0 ? s : s.slice(0, cut)
+  const rest = cut < 0 ? '' : s.slice(cut)
+  const [, hostRaw = '', port = ''] = /^([^:]*)(:\d+)?$/.exec(hostPort) || []
+  let host = hostRaw.toLowerCase().replace(/\.+$/, '')
+  if (!host) return ''
+  if (!LOCAL_HOST.test(host) && !host.includes('.') && !/^\[/.test(host)) host = `${host}.${COMPANY_DOMAIN}`
+  else if (/\.process-gpt$/.test(host)) host = `${host}.io`
+  hostPort = host + (port || '')
+  // the company addresses answer on https only
+  if (host.endsWith(`.${COMPANY_DOMAIN}`)) scheme = 'https'
+  s = `${scheme || (LOCAL_HOST.test(host) ? 'http' : 'https')}://${hostPort}${rest}`
   let u
   try { u = new URL(s) } catch { return '' }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''

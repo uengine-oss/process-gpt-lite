@@ -52,3 +52,18 @@ test('주소에 https:// 가 두 번 들어가도(미리 채운 칸 뒤에 붙�
   assert.equal(normalize('https:// https://acme.process-gpt.io/lite/chat'), 'https://acme.process-gpt.io/lite')
   assert.equal(normalize('http://localhost:18080'), 'http://localhost:18080')
 })
+
+test('잘못 넣기 쉬운 주소: 회사 이름만 · https 오타 · 빈칸 · .process-gpt 만 → 회사 주소로', () => {
+  const { normalize } = require('../src/server.js')
+  const cases = {
+    acme: 'https://acme.process-gpt.io', ACME: 'https://acme.process-gpt.io', 'acme/lite': 'https://acme.process-gpt.io/lite', 'acme.': 'https://acme.process-gpt.io',
+    'acme.process-gpt': 'https://acme.process-gpt.io', 'https//acme': 'https://acme.process-gpt.io', 'http;//acme': 'https://acme.process-gpt.io',
+    'https:/acme.process-gpt.io/lite/chat': 'https://acme.process-gpt.io/lite', '  https:// acme . process-gpt.io / lite ': 'https://acme.process-gpt.io/lite',
+    'http://acme.process-gpt.io/lite': 'https://acme.process-gpt.io/lite',
+    // what is not a company name stays as it is
+    'localhost:18080': 'http://localhost:18080', '192.168.0.5:8080': 'http://192.168.0.5:8080', 'myhost.local': 'http://myhost.local',
+    'https://lite.example.com/lite': 'https://lite.example.com/lite', 'http://10.0.0.3:5390': 'http://10.0.0.3:5390',
+  }
+  for (const [input, want] of Object.entries(cases)) assert.equal(normalize(input), want, input)
+  assert.equal(normalize(''), '')
+})
