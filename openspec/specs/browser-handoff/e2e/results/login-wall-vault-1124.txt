@@ -1,0 +1,36 @@
+# 로그인 벽에서 보관함 먼저 — 네이버 로그인 칸이 fill() 과 키 입력에 어떻게 답하나 (2026-11-24)
+
+사용자 질문: 「로그인이 왜 vault 를 이용하여 암호관리를 호출하지 않는것인가」(휴대폰 사진: 네이버 예약 → nid.naver.com 로그인 화면에서
+「이 브라우저에서 네이버 예약에 한 번 로그인해야 이어서 할 수 있어요. 카드의 「직접 로그인」을 눌러 …」만).
+
+## 어떻게 봤나
+- 공개 로그인 화면 https://nid.naver.com/nidlogin.login 을 Playwright(1.64, headless Chromium, 1280×800, ko-KR)로 열기만 함.
+- 화면이 뜬 뒤로는 GET 이 아닌 요청 · 새 문서 요청 · 지어낸 값이 든 요청을 모두 막음(route.abort) — 로그인 요청은 나가지 않음.
+- 아이디 · 비밀번호 칸에는 지어낸 값(fixtureuser… · Fixture-…)만. 진짜 계정은 쓰지 않음.
+- 같은 화면을 두 번: ① locator.fill() ② 칸을 누르고 글자마다 pressSequentially + 50~120ms 쉼.
+
+## 칸과 폼
+- 아이디 칸: input#id type=text name=id maxlength=41 (autocomplete 없음). 비밀번호 칸: input#pw type=password name=pw maxlength=16.
+- 폼 #frmNIDLogin action=https://nid.naver.com/nidlogin.login method=post, 숨은 칸: dynamicKey · sessionKey · show_pk · wtoken · svctype ·
+  bvsd · locale · url · eccpw · template_url · enctp · next_step · template_type · smart_LEVEL.
+- 로그인 단추는 type=submit 이 아니라 <button type="button" id="loginBtn_row" class="btn_done">로그인</button>. 비밀번호 칸 옆에 보기 단추
+  (btn_hide), 두 칸에 지우기 단추(btn_delete).
+- 두 칸이 듣는 이벤트(CDP DOMDebugger.getEventListeners): #id · #pw 모두 keydown · keyup · input · focus · blur · mousedown · touchstart.
+  document: keydown · keyup · click · mousemove · mousedown · mouseup · touch* · scroll 등.
+
+## 결과
+| 넣는 방법 | 칸이 받은 keydown / keyup / input | 걸린 시간 |
+|---|---|---|
+| fill() | 0 / 0 / 2 (칸마다 input 한 번) | 55ms |
+| 글자마다 키 | 31 / 31 / 31 (아이디 15 + 비밀번호 16) | 2.8초 |
+- 비밀번호 칸에서 Enter → 폼을 보냄(POST nidlogin.login 이 나가려다 막힘). 로그인 단추를 눌러도 같음.
+- 칸이 키를 듣고 폼에 행동 데이터(bvsd)를 싣는 사이트에서 fill() 은 키를 하나도 남기지 않음 → 보관함 먼저는 키를 하나씩 침
+  (server/lib/browser.js typeSecret). 칸은 첫 키 전에 가림(data-pro-secret → -webkit-text-security: disc).
+- 확인하지 못한 것: 진짜 계정으로 키 입력 로그인이 자동입력 방지 문자 없이 통과하는지(진짜 계정으로 로그인하지 않음). 이 서버 브라우저는
+  headless 이고 자동화 탐지를 피하는 설정을 쓰지 않으므로(스펙), 네이버가 추가 확인을 내면 카드가 「…에서 사람인지 확인하는 추가 확인을
+  요구해요」로 사람에게 넘기고 확인 화면의 비밀번호 칸에 보관함의 것을 다시 넣어 둠.
+
+## 지어낸 사이트로 본 흐름 (server/test/browser-wall-vault.e2e.mjs, 8/8)
+- 상위 도메인 · 같은 회사의 다른 하위 도메인에 저장한 로그인으로 사람 없이 들어감, 칸마다 글자 수만큼 keydown, 값이 든 칸이 가려지지 않은 순간 0.
+- 실시간 프레임 13장 OCR(tesseract): 같은 글꼴의 대조 낱말 CONTROL4K 는 읽힘, 입력 중의 아이디 칸은 「ceceeeee…」(가린 점), 아이디 ·
+  비밀번호는 어느 프레임에도 없음.

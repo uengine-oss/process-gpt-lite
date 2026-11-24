@@ -2782,6 +2782,9 @@
   "폴더 권한이 없어 열 수 없어요": "You can't open it without access to the folder",
   "편집 권한이 있어야 이 폴더에 넣을 수 있어요.": "You need edit rights to put files in this folder.",
   "파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)": "Drop files here to upload them to main · who and when stay in the history · drag a file into a conversation or the chat to mention it as a link (⌘/Ctrl to pick several)",
+  "로그인 정보 저장": "Save the login",
+  "보관함의 로그인으로 들어가는 중": "Signing in with the Vault login",
+  "저장된 로그인 정보를 서버에서 바로 입력해요. 비밀번호는 화면에도 AI에도 보이지 않아요.": "The saved login goes in straight from the server. The password never shows on the screen or to the AI.",
   "이 메일로": "With this mail",
   "할 일을 고르는 중…": "Picking what to do…",
   "이 메일로 할 일": "What to do with this mail",
@@ -2817,10 +2820,6 @@
  },
  "patterns": [
   [
-   "요약만 보여요 · 본문은 {0}님이 공유해야 볼 수 있어요",
-   "Summary only · {0} has to share the body for you to read it"
-  ],
-  [
    "이 설치에는 {0} 앱이 없어 앱 안에서 열 수 없어요.",
    "This install has no {0}, so it can't be opened in the app."
   ],
@@ -2839,10 +2838,6 @@
   [
    "{0} 안의 브라우저에서는 앱을 설치할 수 없어요.",
    "Apps can't be installed from {0}'s in-app browser."
-  ],
-  [
-   "대화를 고르면 「{0}」 메일이 멘션으로 붙어요",
-   "Pick a conversation and the mail \"{0}\" is mentioned there"
   ],
   [
    "「{0}」와 맞는 산출물이 없어요.",
@@ -2873,16 +2868,8 @@
    "Link to the running ‘{0}’"
   ],
   [
-   "{0}님이 본문을 공유했어요",
-   "{0} shared the body"
-  ],
-  [
    "채팅의 산출물 {0}개 {1}",
    "{0} outputs of the chat {1}"
-  ],
-  [
-   "{0} · 하지 못했어요",
-   "{0} · couldn't finish"
   ],
   [
    "채팅의 산출물 {0}개",
@@ -2891,10 +2878,6 @@
   [
    "루틴 · {0} 열기",
    "Open routine · {0}"
-  ],
-  [
-   "{0} · 하는 중…",
-   "{0} · working…"
   ],
   [
    "{0}에 저장했어요",
@@ -3463,10 +3446,6 @@
   [
    "메시지 {0}개",
    "{0} messages"
-  ],
-  [
-   "{0} · 열기",
-   "{0} · open"
   ],
   [
    "{0}(소유)",
@@ -6459,6 +6438,30 @@
   [
    "‘{0}’에 넣었어요",
    "Put in ‘{0}’"
+  ],
+  [
+   "요약만 보여요 · 본문은 {0}님이 공유해야 볼 수 있어요",
+   "Summary only · {0} has to share the body for you to read it"
+  ],
+  [
+   "대화를 고르면 「{0}」 메일이 멘션으로 붙어요",
+   "Pick a conversation and the mail \"{0}\" is mentioned there"
+  ],
+  [
+   "{0}님이 본문을 공유했어요",
+   "{0} shared the body"
+  ],
+  [
+   "{0} · 하지 못했어요",
+   "{0} · couldn't finish"
+  ],
+  [
+   "{0} · 하는 중…",
+   "{0} · working…"
+  ],
+  [
+   "{0} · 열기",
+   "{0} · open"
   ]
  ],
  "context": [
