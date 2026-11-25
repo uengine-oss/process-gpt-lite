@@ -542,10 +542,10 @@ test('F-PP-02 방 머리 · 대화 목록 · 새 대화 상대 · 팀·역할 ·
   await agentRoom()
   // the server's one answer: names with pictures
   const all = await (await api(SY, '/people')).json()
-  expect(all[HY.id]).toEqual({ name: '정하윤', picture: HY_PIC })
-  expect(all[SY.id]).toEqual({ name: '김서연', picture: DIRECT })
+  expect(all[HY.id]).toEqual({ name: '정하윤', picture: HY_PIC, email: HY.email })
+  expect(all[SY.id]).toEqual({ name: '김서연', picture: DIRECT, email: SY.email })
   // never opened Lite, the username only the local part: the name in the auth record
-  expect(all[DH.id]).toEqual({ name: '최도현', picture: null })
+  expect(all[DH.id]).toEqual({ name: '최도현', picture: null, email: DH.email })
   const threads = await S.api(SY.token, '/team/threads')
   const t = threads.find((x) => x.id === ROOM)
   expect(t.title).toBe('정하윤, 박도윤')

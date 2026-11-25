@@ -95,7 +95,7 @@ export async function invite(me, roomId, userIds) {
   if (!want.length) throw new TeamError(400, L('초대할 팀원을 골라 주세요.', 'Please choose the teammates to invite.'))
   const inRoom = new Set(split(t.participants).humans.map((p) => String(p.id)))
   const fresh = want.filter((id) => !inRoom.has(id))
-  if (!fresh.length) return { threadId: t.id, added: [], members: (await membersOf(t.id)).map(({ id, name }) => ({ id, name })) }
+  if (!fresh.length) return { threadId: t.id, added: [], members: (await membersOf(t.id)).map(({ id, name, email }) => ({ id, name, email })) }
   for (const id of fresh) if (!(await isMember(id))) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
   const rows = (await q(`select id::text as id, email, username as name, profile from users where tenant_id=$1 and id = any($2::uuid[]) and not coalesce(is_agent,false)
                          order by array_position($2::uuid[], id)`, [T(), fresh]))
@@ -113,7 +113,7 @@ export async function invite(me, roomId, userIds) {
     await c.query('commit')
   } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
   const members = await membersOf(t.id)
-  if (!added.length) return { threadId: t.id, added: [], members: members.map(({ id, name }) => ({ id, name })) }
+  if (!added.length) return { threadId: t.id, added: [], members: members.map(({ id, name, email }) => ({ id, name, email })) }
   const shown = (id) => members.find((m) => m.id === id)?.name || added.find((u) => u.id === id)?.name || ''
   const invited = added.map((u) => ({ id: u.id, name: shown(u.id) }))
   const uuid = crypto.randomUUID()
@@ -125,9 +125,9 @@ export async function invite(me, roomId, userIds) {
   await q('update chat_rooms set message=$2 where id=$1', [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   await pushRow(row, members)
-  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, members: members.map(({ id, name }) => ({ id, name })) })
+  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, members: members.map(({ id, name, email }) => ({ id, name, email })) })
   await notifyInvited(me, t, row, added.map((u) => members.find((m) => m.id === u.id) || { id: u.id, email: u.email, name: u.name }))
-  return { threadId: t.id, added: invited, members: members.map(({ id, name }) => ({ id, name })) }
+  return { threadId: t.id, added: invited, members: members.map(({ id, name, email }) => ({ id, name, email })) }
 }
 
 // the invited: their room notice (Process GPT's 'chat' one for the system line) becomes a 'team' one that opens the room in Lite,
@@ -235,7 +235,8 @@ export async function listThreads(me) {
     const lm = last?.messages
     const at = lm ? (view(me.id, last).at) : r.message?.createdAt ? iso(typeof r.message.createdAt === 'number' ? r.message.createdAt : r.message.createdAt) : null
     out.push({
-      id: r.id, kind: r.kind, title: r.name || others.map(nm).join(', ') || L('나', 'Me'), members: humans.map((p) => ({ id: p.id, name: nm(p) })),
+      // (members with their address: the screens tell same-named people apart by it — src/sameNames.js)
+      id: r.id, kind: r.kind, title: r.name || others.map(nm).join(', ') || L('나', 'Me'), members: humans.map((p) => ({ id: p.id, name: nm(p), email: p.email || null })),
       agents: split(r.participants).agents.map((a) => ({ id: a.id, name: a.username })), unread: n, updatedAt: at,
       last: lm ? { kind: lm.pgpt?.kind || (lm.role === 'assistant' ? 'agent' : 'text'), body: String(lm.content || '').slice(0, 80), mine: lm.email === me.email, at, files: (lm.pgpt?.artifacts || []).length } : null,
     })
@@ -255,7 +256,7 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
                         and ($2::timestamptz is null or ${ORDER} < $2) order by ${ORDER} desc limit $3`, [t.id, before || null, Math.min(Number(limit) || 80, 200)])
   const members = await membersOf(t.id)
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
-  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, lastReadAt: m.last_read_at })) },
+  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
     messages: await Promise.all(rows.reverse().map((r) => viewFor(me, r, by))) }
 }
 

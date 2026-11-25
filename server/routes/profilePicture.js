@@ -4,7 +4,7 @@
 //   PUT  /api/me/picture {picture}       one of Process GPT's presets, an upload of mine (my own storage folder), or null/'' to clear
 //   POST /api/me/picture/upload (bytes)  a picture the page made (a square JPEG · WebP · PNG) → my storage folder → saved as above
 //   GET  /api/people/pictures            {id: picture} of this company's people who have one (the initials elsewhere become faces)
-//   GET  /api/people                     {id: {name, picture}} of this company's people — the one name and face every screen shows
+//   GET  /api/people                     {id: {name, picture, email}} of this company's people — the one name and face every screen shows
 //                                        (lib/people.js: the same rule as the names in rooms, lists and notices)
 // PUT and the upload answer {picture, pictureDefault}: what the screens show (null = the initial) and the default (the Google picture
 // or null). Only the caller's own row is ever written; a Google address comes only from the auth server's record, never the page.
@@ -103,7 +103,8 @@ export function profilePictureRoutes(auth) {
   // everyone's name and picture (people only): the circles and the names that know only who (src/people.js)
   r.get('/people', auth, async (req, res) => {
     const out = {}
-    for (const p of await everyone()) out[p.id] = { name: p.name, picture: p.picture }
+    // (the address too: the lists tell same-named people apart by it — src/sameNames.js)
+    for (const p of await everyone()) out[p.id] = { name: p.name, picture: p.picture, email: p.email }
     res.json(out)
   })
   return r

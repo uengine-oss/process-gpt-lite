@@ -26,7 +26,7 @@ import ConflictChoice from './ConflictChoice.vue'
 import FolderSuggest from '../folders/FolderSuggest.vue'
 // a person's circle, the same everywhere (PersonAvatar.vue) — and the name the server gives every screen (src/people.js)
 import PersonAvatar from '../PersonAvatar.vue'
-import { nameOf } from '../../people.js'
+import { tagsFor, labelOf } from '../../people.js'
 // the one picker of teammates: a new conversation, inviting into a group room, a group made from a 1:1
 import PeoplePicker from './PeoplePicker.vue'
 import { uploadTeamFile, api } from '../../api.js'
@@ -89,6 +89,22 @@ const inboxUnread = computed(() => team.inbox.filter((x) => x.unread).length)
 const face = (s) => (s?.ai || (s?.agent && !s?.id) ? { kind: 'ai' }
   : { kind: 'person', id: s?.id || undefined, name: (s?.agent ? s?.owner?.name : s?.name) || s?.name || '', agent: !!s?.agent })
 const otherOf = (t) => (t.members || []).find((p) => p.id !== app.me?.user?.id) || null
+// Same-named people told apart (src/sameNames.js — 2026-11-25: one person's two accounts were two identical 「윤가람」 rows): the 1:1
+// rooms' other people across the list, and a room's people within that room. A room named by its people (no title of its own) says
+// them with their tags; a room with its own title keeps it.
+const othersOf = (t) => (t?.members || []).filter((p) => p.id !== app.me?.user?.id)
+const namedByPeople = (t) => !!t && t.title === othersOf(t).map((p) => p.name).join(', ')
+const listTags = computed(() => tagsFor(team.threads.filter((t) => t.kind !== 'group' && namedByPeople(t) && othersOf(t).length === 1).map(otherOf)))
+function titleOf(t) {
+  if (!namedByPeople(t)) return t?.title || ''
+  const others = othersOf(t)
+  if (t.kind !== 'group' && others.length === 1) return labelOf(listTags.value, others[0])
+  const tags = tagsFor(t.members)
+  return others.map((p) => labelOf(tags, p)).join(', ')
+}
+const roomTags = computed(() => tagsFor(thread.value?.members || []))
+const memberLabel = (m) => labelOf(roomTags.value, m)
+const senderLabel = (m) => (m.sender?.id && roomTags.value.get(String(m.sender.id)) ? labelOf(roomTags.value, m.sender, m.sender.name) : m.sender?.name)
 const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -244,7 +260,7 @@ const at = reactive({ open: false, query: '', pos: -1, x: 0, active: 0 })
 const atItems = computed(() => {
   const qy = at.query.toLowerCase()
   const ai = { key: 'ai', type: 'ai', name: 'AI', sub: '공유 폴더 · 이 대화의 파일에서 찾아 붙이거나 일을 맡아요' }
-  const people = (thread.value?.members || []).filter((p) => p.id !== app.me?.user?.id).map((p) => ({ key: p.id, type: 'person', id: p.id, name: p.name, sub: '이 대화의 사람' }))
+  const people = (thread.value?.members || []).filter((p) => p.id !== app.me?.user?.id).map((p) => ({ key: p.id, type: 'person', id: p.id, name: p.name, label: memberLabel(p), sub: '이 대화의 사람' }))
   return [...(aiOn.value ? [] : [ai]), ...people].filter((x) => !qy || x.name.toLowerCase().includes(qy))
 })
 function atUpdate() {
@@ -464,7 +480,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <button class="press" aria-label="취소" @click="team.pendingMention = null">×</button></p>
           <button v-for="t in team.threads" :key="t.id" class="th press" :class="{ on: t.id === team.active }" @click="team.openThread(t.id)">
             <PersonAvatar v-if="t.kind === 'group'" kind="group">{{ t.members.length }}</PersonAvatar><PersonAvatar v-else :id="otherOf(t)?.id" :name="otherOf(t)?.name || t.title" />
-            <span class="nm"><b>{{ t.title }}</b>
+            <span class="nm"><b>{{ titleOf(t) }}</b>
               <small>{{ t.last ? `${t.last.mine ? '나: ' : ''}${t.last.kind === 'share' ? `산출물 ${t.last.files}개 공유${t.last.body ? ' · ' + t.last.body : ''}` : t.last.body}` : '새 대화' }}</small></span>
             <i v-if="team.unread.byThread[t.id]" class="badge">{{ team.unread.byThread[t.id] }}</i>
           </button>
@@ -476,7 +492,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
         <template v-if="thread && team.tab === 'threads'">
           <header class="thd" :class="{ grab: dockable }" data-test="msg-thread-head" @pointerdown="dragStart">
             <button class="back press" aria-label="목록" @click="team.active = null"><Icon name="back" :size="18" /></button>
-            <b>{{ thread.title }}</b><small data-test="msg-thread-members">{{ thread.members.map((m) => nameOf(m.id, m.name)).join(', ') }}</small>
+            <b>{{ titleOf(thread) }}</b><small data-test="msg-thread-members">{{ thread.members.map(memberLabel).join(', ') }}</small>
             <button class="aitog press" :class="{ on: team.assistOn[thread.id] }" :title="team.assistOn[thread.id] ? '대화 중 에이전트가 도울 일을 찾으면 제안해요 (끄기)' : 'AI 제안이 꺼져 있어요 (켜기)'" @click="team.toggleAssist(thread.id)">AI 제안 {{ team.assistOn[thread.id] ? '켬' : '끔' }}</button>
             <button class="aitog meet press" :class="{ on: !!roomMeeting }" data-test="meeting-start" :disabled="mt.m?.roomId === thread.id" @click="mt.openLobby(thread.id, thread.title)">{{ roomMeeting ? `회의 참여 · ${roomMeeting.count}명` : '회의 시작' }}</button>
             <!-- a group: invite teammates in · a 1:1: a new group with the two of us and the ones picked (the 1:1 stays private) -->
@@ -503,9 +519,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <div v-else :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent' }">
               <PersonAvatar v-if="!m.mine" v-bind="face(m.sender)" size="sm" />
               <div class="bub">
-                <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ m.sender.name }}</p>
+                <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ senderLabel(m) }}</p>
                 <p v-if="m.kind === 'agent'" class="kind">✦ {{ m.sender.name }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
-                <p v-else-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : m.sender.name }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
+                <p v-else-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : senderLabel(m) }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
                 <p v-if="m.body" class="txt" :data-no-i18n="team.tr[m.id]?.body ? '' : null" data-test="msg-text">{{ hidePaths(team.trBody(m) || m.body) }}</p>
                 <!-- auto-translation (another language than mine): AI 번역 · 원문 보기 / Show original -->
                 <p v-if="team.tr[m.id]?.body" class="trl" data-test="msg-tr"><span>AI 번역<template v-if="team.tr[m.id].from"> · <b data-no-i18n>{{ langLabel(team.tr[m.id].from) }}</b></template></span><button class="press" data-test="show-original" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
@@ -608,7 +624,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <button v-for="(it, k) in atItems" :key="it.key" class="row press" role="option" :class="{ on: k === at.active, ai: it.type === 'ai' }" :data-test="it.type === 'ai' ? 'msg-at-ai' : 'msg-at-person'"
                   @click="atPick(it)" @mouseenter="at.active = k">
                   <PersonAvatar :kind="it.type === 'ai' ? 'ai' : 'person'" :id="it.id" :name="it.name" :size="30" />
-                  <span class="nm"><b>{{ it.name }}</b><small>{{ it.sub }}</small></span>
+                  <span class="nm"><b>{{ it.label || it.name }}</b><small>{{ it.sub }}</small></span>
                 </button>
               </div>
             </Transition>

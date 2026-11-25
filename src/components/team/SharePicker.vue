@@ -6,6 +6,8 @@ import { useTeam } from '../../stores/team.js'
 import ConflictChoice from './ConflictChoice.vue'
 // a teammate's face, the same circle as everywhere (PersonAvatar.vue); a role is its # in the same style
 import PersonAvatar from '../PersonAvatar.vue'
+// two of the same name in the list are told apart by their address (src/sameNames.js)
+import { tagsFor, labelOf } from '../../people.js'
 
 const team = useTeam()
 const data = ref(null)
@@ -28,6 +30,7 @@ const rows = computed(() => {
     { key: 'roles', label: '역할', items: d.roles },
   ].map((x) => ({ ...x, items: x.items.filter(hit) })).filter((x) => x.items.length)
 })
+const tags = computed(() => tagsFor(data.value ? [...(data.value.frequent || []), ...(data.value.rest || [])] : []))
 const keyOf = (it) => (it.type === 'role' ? `role:${it.role}` : it.id)
 const on = (it) => picked.value.some((p) => keyOf(p) === keyOf(it))
 const toggle = (it) => { picked.value = on(it) ? picked.value.filter((p) => keyOf(p) !== keyOf(it)) : [...picked.value, it] }
@@ -58,7 +61,7 @@ async function send(choices) {
           <p class="sec">{{ s.label }}</p>
           <button v-for="it in s.items" :key="s.key + keyOf(it)" class="row press" :class="{ on: on(it) }" @click="toggle(it)">
             <PersonAvatar :kind="it.type === 'role' ? 'role' : 'person'" :id="it.id" :name="it.name" :size="32" />
-            <span class="nm"><b>{{ it.type === 'role' ? it.role : it.name }}</b><small>{{ it.type === 'role' ? `담당 ${it.holder?.name}` : (it.roles || []).join(', ') || it.email }}</small></span>
+            <span class="nm"><b>{{ it.type === 'role' ? it.role : labelOf(tags, it) }}</b><small>{{ it.type === 'role' ? `담당 ${it.holder ? labelOf(tags, it.holder) : ''}` : (it.roles || []).join(', ') || it.email }}</small></span>
             <em v-if="it.why === 'frequent'" class="tag">{{ it.n }}번 전달</em>
             <span class="ck">{{ on(it) ? '✓' : '' }}</span>
           </button>

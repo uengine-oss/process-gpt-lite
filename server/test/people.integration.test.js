@@ -91,7 +91,9 @@ test('PP-I-01 메신저: 방의 참여자 · mentionedUsers 는 Process GPT 의 
   assert.deepEqual(ms.map((x) => x.name), ['정하윤', 'Yeoul Bong', CD.username])
   const view = await M.messages(me, g.id)
   assert.deepEqual(view.thread.members.map((x) => x.name), ['정하윤', 'Yeoul Bong', CD.username])
-  assert.equal(JSON.stringify(view.thread.members).includes(local(HY.email)), false)
+  assert.equal(view.thread.members.some((x) => x.name === local(HY.email)), false)
+  // (with their addresses: the screens tell same-named people apart by them — src/sameNames.js)
+  assert.deepEqual(view.thread.members.map((x) => x.email), [HY.email, YB.email, CD.email])
 })
 
 test('PP-I-02 변형 인계: Process GPT 의 행에는 받는 사람의 users.username — 화면이 보낸 이름은 쓰지 않는다', { skip: !db }, async () => {

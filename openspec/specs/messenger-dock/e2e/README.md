@@ -53,6 +53,7 @@ cd e2e && PGPT_URL=http://localhost:5197 API_URL=http://127.0.0.1:8799 RT_FAKE_L
 | 이미 있는 사람 | `roomInvite.integration.test.js` MS-I-02(또 초대 · 둘이 동시에) · MS-I-01(권한: 방 밖 404 · 다른 회사 · 팀원 아님 · 에이전트 403 · 1:1 400) |
 | 1:1 대화에서 단체방 만들기 | F-MS-04(「초대」 없음 · 두 사람은 목록에 없음 · 새 단체방 · 1:1 은 둘 그대로) |
 | 초대 · 휴대폰 390px 밝은 · 밤 | F-MS-05(머리의 「+」 · 고르는 창이 화면 안 · 시스템 줄 · 넘치지 않음) |
+| 같은 이름의 두 사람(스펙 `profile-picture`) | F-MS-06(대화 목록 · 방 제목 · 머리 · 새 대화 상대 · 팀 목록에서 「윤가람 · uengine.org」 · 「윤가람 · people-mail.test」, 혼자인 이름은 그대로) · `sameNames.test.js` |
 
 초대(F-MS-03~05)는 자기 스택을 띄우는 `e2e/tests/feature/room-invite.spec.js`(회사 `room-invite`)에 있다.
 

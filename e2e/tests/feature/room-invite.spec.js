@@ -4,6 +4,8 @@
 //           최도현의 메신저에는 그 방이 지난 메시지와 함께
 //   F-MS-04 1:1 대화에는 「초대」 대신 「단체방 만들기」 → 두 사람과 고른 사람의 새 단체방, 1:1 은 그대로 둘
 //   F-MS-05 휴대폰 390px 밝은 · 밤: 머리의 + · 고르는 창 · 시스템 줄이 화면 안, 옆으로 넘치지 않음
+//   F-MS-06 같은 이름의 두 사람(한 사람의 회사 계정과 다른 주소의 계정 — 운영 11-25): 대화 목록 · 새 대화 상대 · 방 머리에서 「윤가람 · uengine.org」 ·
+//           「윤가람 · people-mail.test」로 갈리고, 혼자인 이름은 그대로(src/sameNames.js)
 // 자기 스택(lib/localStack.js — 회사 room-invite, RT_API_FROM · RT_WEB_FROM 부터 빈 포트, 기본 8955 · 5355)을 띄우고 지운다. 모델은 부르지 않는다.
 //   cd e2e && npx playwright test --project=feature tests/feature/room-invite.spec.js
 import { test, expect } from '@playwright/test'
@@ -18,6 +20,8 @@ const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isM
 const NOWHERE = 'http://127.0.0.1:9'
 const TENANT = 'room-invite'
 let S, HY, SY, DY, DH
+// F-MS-06's two of the same name: on the team only during that test (F-MS-03 · 04 count who can be invited)
+const TWINS = [`pro-rt-${TENANT}-e@uengine.org`, `pro-rt-${TENANT}-f@people-mail.test`]
 
 test.beforeAll(async () => {
   test.setTimeout(240_000)
@@ -32,6 +36,7 @@ test.beforeAll(async () => {
   await cleanRooms()
 })
 async function cleanRooms() {
+  await S.q('delete from pro_team_members where tenant_id=$1 and user_id in (select id from users where tenant_id=$1 and email = any($2))', [TENANT, TWINS]).catch(() => {})
   for (const sql of ['delete from chats where tenant_id=$1', 'delete from pro_chat_reads where room_id in (select id from chat_rooms where tenant_id=$1)',
     `delete from notifications where tenant_id=$1 and type in ('team','chat')`, 'delete from chat_rooms where tenant_id=$1']) await S.q(sql, [TENANT]).catch(() => {})
 }
@@ -182,4 +187,43 @@ test('F-MS-05 휴대폰 390px 밝은 · 밤 — 머리의 + · 고르는 창 · 
     expect(p.errors).toEqual([])
     await p.context().close()
   }
+})
+
+test('F-MS-06 같은 이름의 두 사람은 주소로 갈린다 — 대화 목록 · 새 대화 상대 · 방 머리, 혼자인 이름은 그대로', async ({ browser }) => {
+  const [GA, GB] = [await S.person(TWINS[0], '윤가람'), await S.person(TWINS[1], '윤가람')]
+  for (const p of [GA, GB]) await S.join(p)
+  for (const p of [GA, GB]) {
+    const { id } = await S.api(HY.token, '/team/threads', { method: 'POST', body: { members: [p.id] } })
+    await say(HY, id, `${p.email} 에게 하는 말`)
+  }
+  const { id: g } = await S.api(HY.token, '/team/threads', { method: 'POST', body: { members: [GA.id, GB.id] } })
+  await say(HY, g, '두 분 모두 계신 방이에요.')
+  const p = await page(browser, HY, DESK)
+  await p.goto('/chat')
+  await p.locator('button.msg-btn').click()
+  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  const titles = p.locator('.ms .th .nm b')
+  // the 1:1 rows: one name, two people — told apart by their addresses' domains; a name alone stays as it is
+  await expect(titles.filter({ hasText: /^윤가람 · uengine\.org$/ })).toHaveCount(1)
+  await expect(titles.filter({ hasText: /^윤가람 · people-mail\.test$/ })).toHaveCount(1)
+  await expect(titles.filter({ hasText: /^김서연$/ })).toHaveCount(1)
+  // the room with both: its title and header
+  const both = '윤가람 · uengine.org, 윤가람 · people-mail.test'
+  await expect(titles.filter({ hasText: both })).toHaveCount(1)
+  await titles.filter({ hasText: both }).click()
+  await expect(members(p)).toHaveText(`정하윤, ${both}`)
+  await shot(p, 'f-ms-06a-same-names')
+  // a new conversation's people: the two are told apart, the others are not
+  await p.locator('.ms .hd .tb').click()
+  const rows = p.locator('.ms .pick [data-test="people-row"] .nm b')
+  await expect(rows.filter({ hasText: /^윤가람 · uengine\.org$/ })).toHaveCount(1)
+  await expect(rows.filter({ hasText: /^윤가람 · people-mail\.test$/ })).toHaveCount(1)
+  await expect(rows.filter({ hasText: /^김서연$/ })).toHaveCount(1)
+  await shot(p, 'f-ms-06b-same-names-picker')
+  // Settings › 팀·역할: the team list and the role holders' choices
+  await p.goto('/settings/team')
+  await expect(p.locator('.tr .li .main b').filter({ hasText: /^윤가람 · (uengine\.org|people-mail\.test)$/ })).toHaveCount(2)
+  await expect(p.locator('.tr .li .main b').filter({ hasText: /^김서연$/ })).toHaveCount(1)
+  expect(p.errors).toEqual([])
+  await p.context().close()
 })

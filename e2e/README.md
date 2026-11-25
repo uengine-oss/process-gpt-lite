@@ -1215,6 +1215,7 @@ cd e2e && RT_API_FROM=8975 RT_WEB_FROM=5375 RT_FAKE_PORT=8976 RT_WORKERS=1 npx p
 | 로그인 주소의 대소문자: 「Pro-RT-…@UEngine.org」 은 같은 계정, `users` · `pro_profile` 에는 소문자(새 계정의 이름도), 계정 찾기는 GoTrue 의 색인(`email = $1 and not is_sso_user`) | 검토 e98078b | PP-I-05 · F-PP-05 | 통합 · feature | ✅ |
 | 이름을 바꾸면 새로 고치지 않아도 설정 머리의 내 동그라미 · 팀 목록의 내 동그라미가 새 이름의 첫 글자 | 검토 e98078b | F-PP-04 | feature | ✅ |
 | 폴더 목록은 여러 폴더의 구성원 이름을 한 번에 찾는다(폴더마다 따로 찾지 않음) | 검토 e98078b | PP-I-06 | 통합 | ✅ |
+| 같은 이름의 사람은 한 목록 안에서 주소로 가른다(「윤가람 · gmail.com」 · 「윤가람 · uengine.org」, 도메인도 같으면 주소 전체, 혼자인 이름은 그대로): 메신저 대화 목록 · 방 제목 · 머리 · 보낸 사람, 고르는 창, @ 목록 · 칩, 공유 창, 팀 목록 · 역할 담당 | 운영 11-25(한 사람의 계정 둘) | `server/test/sameNames.test.js` SN-01~05 · F-MS-06(`room-invite.spec.js`) | 단위 · feature | ✅ |
 | 회의의 카메라 끈 칸 · 받은 편지함 · 공유 폴더 · 사용량 · 정책 결정 원장 · 팀 활동 카드 · 위 막대 · 설정의 동그라미도 같은 부품(`PersonAvatar.vue`)과 같은 이름 | 설계 | — (화면 시험은 위 막대 · 설정 · 팀 목록 · 메신저 · 고르는 창만) | — | ◐ |
 | 운영(`/lite`)에서 Process GPT 의 파일이 먼저 · 없을 때 Lite 의 사본으로 넘어가는 것을 실제 게이트웨이에서, Process GPT 화면에 Lite 가 올린 사진, 진짜 구글 로그인(GoTrue 의 구글 제공자 · Lite 자체 구글 로그인의 `app_metadata`) · 진짜 googleusercontent 사진, Safari · HEIC 사진 | — | — (개발 스택 · Chrome 으로만, 넘어가기는 단위 시험, 구글 로그인은 identity 행으로 흉내) | — | ✗ |
 

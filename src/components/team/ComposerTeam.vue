@@ -2,8 +2,13 @@
 // The composer's teammate part: person chips (who the next message goes to) and the "@" list that
 // rises from the caret. Document-object chips (@표 2) stay in Composer's own row; these are round,
 // with the person's face (PersonAvatar.vue, the same circle as everywhere), so the two read differently.
+import { computed } from 'vue'
 import PersonAvatar from '../PersonAvatar.vue'
-defineProps({ tm: Object })
+// two of the same name in the list (or among the chips) are told apart by their address (src/sameNames.js)
+import { tagsFor, labelOf } from '../../people.js'
+const props = defineProps({ tm: Object })
+const listTags = computed(() => tagsFor((props.tm?.sections?.value || []).flatMap((s) => s.items).filter((it) => it.type !== 'role')))
+const chipTags = computed(() => tagsFor((props.tm?.chips?.value || []).filter((c) => c.type !== 'role').map((c) => ({ id: c.id, name: c.label }))))
 </script>
 
 <template>
@@ -11,7 +16,7 @@ defineProps({ tm: Object })
     <div v-if="tm.chips.value.length" class="people">
       <span class="to">받는 사람</span>
       <span v-for="(c, i) in tm.chips.value" :key="i + c.label" class="person" :class="c.type" :title="c.type === 'role' ? `${c.role} 담당 ${c.holder || ''}` : ''">
-        <PersonAvatar :kind="c.type === 'role' ? 'role' : 'person'" :id="c.id" :name="c.label" :size="22" />{{ c.label }}<small v-if="c.type === 'role' && c.holder"> · {{ c.holder }}</small>
+        <PersonAvatar :kind="c.type === 'role' ? 'role' : 'person'" :id="c.id" :name="c.label" :size="22" />{{ c.type === 'role' ? c.label : labelOf(chipTags, { id: c.id }, c.label) }}<small v-if="c.type === 'role' && c.holder"> · {{ c.holder }}</small>
         <button class="x" aria-label="빼기" @click="tm.remove(i)">×</button>
       </span>
       <span class="hint">보내면 에이전트가 아니라 이분께 가요 · 이 대화 요지와 최근 산출물이 함께 가요</span>
@@ -25,8 +30,8 @@ defineProps({ tm: Object })
             :class="{ on: tm.flat.value[tm.active.value] === it }" @click="tm.pick(it)" @mouseenter="tm.active.value = tm.flat.value.indexOf(it)">
             <PersonAvatar :kind="it.type === 'role' ? 'role' : 'person'" :id="it.id" :name="it.name" :size="30" />
             <span class="nm">
-              <b>{{ it.type === 'role' ? it.role : it.name }}</b>
-              <small>{{ it.type === 'role' ? `담당 ${it.holder?.name || ''}` : [it.roles?.join(', '), it.email].filter(Boolean).join(' · ') }}</small>
+              <b>{{ it.type === 'role' ? it.role : labelOf(listTags, it) }}</b>
+              <small>{{ it.type === 'role' ? `담당 ${it.holder ? labelOf(listTags, it.holder) : ''}` : [it.roles?.join(', '), it.email].filter(Boolean).join(' · ') }}</small>
             </span>
             <em v-if="it.why === 'frequent'" class="tag f">{{ it.n }}번 전달</em>
             <em v-else-if="it.why === 'related'" class="tag r" :title="`판단 모델 확률 ${Math.round(it.p * 100)}%`">관련 {{ Math.round(it.p * 100) }}%</em>

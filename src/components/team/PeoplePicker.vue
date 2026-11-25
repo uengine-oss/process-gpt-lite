@@ -1,11 +1,12 @@
 <script setup>
 // Pick teammates — the messenger's one picker: a new conversation, inviting into a group room, a group made from a 1:1
 // (2026-11-25 「기존 단체 메신저 대화창에서 신규인원 초대가 가능해야.」). Each with their face (PersonAvatar.vue) and the name every
-// screen uses (src/people.js); found by name, address or role; several at once, then confirmed.
+// screen uses (src/people.js) — two of the same name told apart by their address (src/sameNames.js); found by name, address or role;
+// several at once, then confirmed.
 //   people: [{id, name, email, roles}] (null while loading) · exclude: ids not offered (already in the room) · title · confirm (label)
 import { ref, computed } from 'vue'
 import PersonAvatar from '../PersonAvatar.vue'
-import { nameOf } from '../../people.js'
+import { nameOf, tagsFor, labelOf } from '../../people.js'
 
 const props = defineProps({
   people: { type: Array, default: null },
@@ -20,6 +21,7 @@ const find = ref('')
 const picked = ref([])
 const nm = (p) => nameOf(p.id, p.name)
 const offered = computed(() => (props.people || []).filter((p) => !props.exclude.map(String).includes(String(p.id))))
+const tags = computed(() => tagsFor(offered.value))
 const shown = computed(() => {
   const s = find.value.trim().toLowerCase()
   return offered.value.filter((p) => !s || [nm(p), p.name, p.email, ...(p.roles || [])].some((v) => v && String(v).toLowerCase().includes(s)))
@@ -33,7 +35,7 @@ const toggle = (p) => { picked.value = picked.value.includes(p.id) ? picked.valu
     <input v-model="find" class="find" placeholder="이름·이메일·역할로 찾기" data-test="people-find" />
     <div class="rows">
       <button v-for="p in shown" :key="p.id" class="row press" :class="{ on: picked.includes(p.id) }" :data-person="p.id" data-test="people-row" @click="toggle(p)">
-        <PersonAvatar :id="p.id" :name="nm(p)" /><span class="nm"><b>{{ nm(p) }}</b><small>{{ (p.roles || []).join(', ') || p.email }}</small></span>
+        <PersonAvatar :id="p.id" :name="nm(p)" /><span class="nm"><b>{{ labelOf(tags, p) }}</b><small>{{ (p.roles || []).join(', ') || p.email }}</small></span>
         <span class="ck">{{ picked.includes(p.id) ? '✓' : '' }}</span>
       </button>
       <p v-if="!people" class="empty">불러오는 중…</p>

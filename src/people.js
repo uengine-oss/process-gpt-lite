@@ -4,9 +4,11 @@
 // with /api/me (app.me.user.picture) and is put here when I change it.
 import { reactive } from 'vue'
 import { api, auth } from './api.js'
+import { nameTags, tagged } from './sameNames.js'
 
 const pictures = reactive({})
 const names = reactive({})
+const emails = reactive({})
 let loading = null
 let loadedAt = 0
 
@@ -20,6 +22,7 @@ export function loadPeople({ force = false } = {}) {
       for (const [id, p] of Object.entries(r || {})) {
         if (p?.picture) pictures[id] = p.picture
         if (p?.name) names[id] = p.name
+        if (p?.email) emails[id] = p.email
       }
       loadedAt = Date.now()
     })
@@ -33,6 +36,13 @@ export const loadPictures = loadPeople
 export const pictureOf = (id) => (id ? pictures[id] || null : null)
 // the name the server gives this person, else the one the caller has (a row's own, before the list came)
 export const nameOf = (id, fallback = '') => (id && names[id]) || fallback || ''
+
+export const emailOf = (id) => (id && emails[id]) || ''
+
+// Same-named people in one list, told apart (src/sameNames.js): list [{id, name, email?}] → Map id → tag. The name every screen uses
+// and, where the row has none, the address from the list above. tagOf(tags, p): what to show — the name, then 「 · tag」 when needed.
+export const tagsFor = (list) => nameTags((list || []).filter(Boolean).map((p) => ({ id: p.id, name: nameOf(p.id, p.name), email: p.email || emailOf(p.id) })))
+export const labelOf = (tags, p, name) => tagged(name ?? nameOf(p?.id, p?.name), tags?.get(String(p?.id ?? '')) || '')
 
 export function setPicture(id, picture) {
   if (!id) return
