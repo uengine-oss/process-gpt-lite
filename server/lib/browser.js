@@ -587,7 +587,7 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
       // the notes already answer the goal: one closing call instead of more browsing turns
       task.stats.early_finish = true
       phase(task, 'model', L('정리하는 중', 'Wrapping up'), L('AI 모델의 답', "the AI model's answer"))
-      const fin = await bounded(chat({ messages: [...messages, { role: 'user', content: `The recorded notes already answer the goal. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary containing all collected facts.` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } }, signal, timeoutMs: STEP.modelMs }), Infinity, { signal, label: 'model' })
+      const fin = await bounded(chat({ messages: [...messages, { role: 'user', content: `The recorded notes already answer the goal. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary containing all collected facts.${closingNotes(task)}` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } }, signal, timeoutMs: STEP.modelMs }), Infinity, { signal, label: 'model' })
       task.stats.llm++
       const fa = JSON.parse(fin.tool_calls?.[0]?.function?.arguments || '{}')
       result = { state: 'done', summary: fa.summary || fin.content || task.notes.join('\n') }
@@ -763,8 +763,16 @@ async function goalMet(task) {
 }
 
 const MAX_TURNS = 40
+// The facts the agent recorded with note, for a closing call. The pages they came from are already folded to one line in
+// the history, so without them a model may doubt its own notes (Claude Opus 5.5 did, 11-25: "제가 지어낸 값"); with them it
+// reports what was read from the page at the time.
+export function closingNotes(task) {
+  const n = (task?.notes || []).map((x) => String(x || '').trim()).filter(Boolean)
+  return n.length ? `\n\nFacts you recorded from the pages with the note tool (read from the page at the time — report them as found):\n${n.map((x) => `- ${x}`).join('\n')}` : ''
+}
+
 async function closingSummary(messages, task) {
-  const fin = await chat({ messages: [...messages, { role: 'user', content: `You finished without saying the result. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for in one or two sentences and contains every fact you recorded. Say plainly what you could not do; do not claim anything you did not do with a tool.` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } }, timeoutMs: STEP.modelMs })
+  const fin = await chat({ messages: [...messages, { role: 'user', content: `You finished without saying the result. Call finish now with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for in one or two sentences and contains every fact you recorded. Say plainly what you could not do; do not claim anything you did not do with a tool.${closingNotes(task)}` }], tools: TOOLS, toolChoice: { type: 'function', function: { name: 'finish' } }, timeoutMs: STEP.modelMs })
   task.stats.llm++
   const fa = JSON.parse(fin.tool_calls?.[0]?.function?.arguments || '{}')
   return String(fa.summary || fin.content || '').trim()
