@@ -13,6 +13,7 @@ import { nameHabits } from './names.js'
 import { periodOf, cronOfHint } from './mailbody.js'
 import { prompt, rules as skillRules } from './discovery.js'
 import { chatJson } from '../llm.js'
+import { scheduleConversation, briefConversation, aside, listOwn } from '../ownConversations.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -207,17 +208,21 @@ export async function fireTimer(s) {
   await cypher('MATCH (e:Event {key:$key}) SET e.n = e.n + 1 RETURN e.key AS key', { key }, { actor: 'timer', reason: '타이머 울림' }).catch(() => [])
   const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
   const thread = await mainThread(s.user_id)
+  // (the timer's card goes into its task's own conversation in the main chat — lib/ownConversations.js)
+  const own = scheduleConversation(s)
   const subject = `${t.name} · ${e.name}`
   const choice = { proc: t.proc, task: t.entry, p: 1, measured: false, procName: t.name, options: [{ task: t.entry, p: 1 }] }
   if (t.status === 'adopted') {
     const { startCase } = await import('./run.js')
     const r = await startCase({ id: s.user_id, email: p?.email }, { procKey: t.proc, entry: t.entry, subject, body: `정해 둔 시각(${e.name})에 시작한 건`, from: '', customer: '', odds: choice, kind: 'timer' })
     await addMessage(s.user_id, thread.id, 'agent', 'onto-entry', { state: 'started', source: 'timer', when: e.name, mail: { from: '', subject }, customer: '', choice, caseId: r.caseId, instId: r.instId,
-      skipped: r.snapshot.skipped, nodes: r.snapshot.nodes, procDefId: r.snapshot.procDefId })
+      skipped: r.snapshot.skipped, nodes: r.snapshot.nodes, procDefId: r.snapshot.procDefId, ...aside(own, { named: true }) })
+    await listOwn(s.user_id, own, subject, `「${t.name}」을 「${t.entry}」부터 시작했어요.`).catch(() => {})
     return { ok: true, changed: true, summary: `「${t.name}」을 「${t.entry}」부터 시작했어요.`, caseId: r.caseId }
   }
   if (t.status === 'suggested') {
-    await addMessage(s.user_id, thread.id, 'agent', 'onto-entry', { state: 'ask', source: 'timer', when: e.name, suggest: true, mail: { from: '', subject, text: '' }, customer: '', choice: { ...choice, suggest: true, ask: true } })
+    await addMessage(s.user_id, thread.id, 'agent', 'onto-entry', { state: 'ask', source: 'timer', when: e.name, suggest: true, mail: { from: '', subject, text: '' }, customer: '', choice: { ...choice, suggest: true, ask: true }, ...aside(own, { named: true }) })
+    await listOwn(s.user_id, own, subject, `「${t.name}」을 시작할지 물었어요(제안 단계).`).catch(() => {})
     return { ok: true, changed: true, summary: `「${t.name}」을 시작할지 물었어요(제안 단계).` }
   }
   return { ok: true, changed: false, summary: `「${t.name}」은 관찰 단계라 시작하지 않았어요.` }
@@ -297,8 +302,9 @@ export async function recurFromMail(userId, mail) {
   const cron = r?.recurring ? cronOfHint(r) : null
   if (!cron || !String(r.task || '').trim()) return null
   const t = await mainThread(userId)
+  // (a line of the mailbox's: with the briefs, not in the conversation the person is in — lib/ownConversations.js)
   return addMessage(userId, t.id, 'agent', 'onto-timer', { state: 'ask', task: String(r.task).trim().slice(0, 30), cron, when: cronKo(cron), says: String(r.says || '').slice(0, 60),
-    mail: { from: mail.from, subject: mail.subject, id: mail.id } })
+    mail: { from: mail.from, subject: mail.subject, id: mail.id }, ...aside(briefConversation(userId)) })
 }
 export async function acceptMailTimer(me, messageId) {
   const [m] = await q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where m.id=$1 and t.user_id=$2 and m.kind='onto-timer'`, [messageId, me.id])

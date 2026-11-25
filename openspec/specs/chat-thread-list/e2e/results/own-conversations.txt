@@ -1,0 +1,60 @@
+# 2026-11-25 13:30 · 예약 작업과 브리프는 자기 대화에 · 후속 메시지는 방금 일하던 대화로 (branch fix/schedule-own-conversation, uncommitted)
+
+## cd server && node --test test/convOf.test.js test/routeContexts.test.js test/ownConversations.integration.test.js
+✔ CV-U-01 서버와 같은 id: 예약 작업 하나에 대화 하나, 사람마다 브리프 하나 (2.454417ms)
+✔ CV-U-02 예약 실행 · 브리프 · 메일 줄은 자기 대화로, 사람의 대화는 그대로 — 그 뒤의 칩 · 카드도 사람의 대화 (1.471667ms)
+✔ CV-U-03 사람의 메시지는 그 답의 대화로 — 사이에 끼어든 예약 실행 · 브리프가 데려가지 않는다 (0.297625ms)
+✔ CV-U-04 태그 이전에 저장된 메시지: 예약 실행의 구분선(scheduleId)과 바로 뒤 줄은 그 작업의 대화, 메일 칩을 단 브리프와 바로 앞 구분선은 브리프 (0.342458ms)
+✔ CV-U-05 대화 목록: 서버 행(종류 포함) · 아직 서버에 없는 대화는 그 이름표 · 옛 예약 실행 · 브리프, 메시지 수, 최근 순 (0.697084ms)
+✔ CV-U-06 메일 줄의 대화: 그 메일의 후속 작업 대화(가장 최근) → 초안 대화 → 브리프 (6.24075ms)
+✔ SO-I-01 예약 실행: 그 작업의 대화로 deepagents 에 가고(두 번 모두 같은 대화), 따로 놓이며 목록에 오르고, 사람의 대화는 그대로 (961.627583ms)
+✔ SO-I-02 실행 실패 줄과 「지금 실행」의 결과도 그 작업의 대화로 (363.988541ms)
+✔ SO-I-03 브리프: 그 사람의 「브리프」 대화로(구분선 · 글 · 메일 칩), 목록에 kind brief, 사람의 대화는 그대로 (82.457333ms)
+✔ SO-I-04 패널을 닫고 보낸 후속 메시지: 라우터가 받은 후보에 방금 있던 대화(진행 중) · 다룬 파일 · 마지막 턴 — 그 대화로 이어감 (312.437375ms)
+✔ SO-I-05 문서를 열어 둔 채 보낸 후속 메시지: 그 문서를 다룬 대화로 바로(라우터 없이), 답에 열린 문서가 남는다 (180.839292ms)
+✔ RC-U-01 대화마다 다룬 파일(만듦 · 첨부 · 편집)과 마지막 턴, 사람이 방금 있던 대화 — 따로 둔 예약 실행 · 브리프는 아님 (1.625416ms)
+✔ RC-U-02 라우터 후보: 저장된 제목 · gist · 종류는 그대로, 요약 앞에 사실 한 줄, 방금 있던 대화는 진행 중 (1.43075ms)
+✔ RC-U-03 열린 문서 → 그 문서를 마지막으로 다룬 대화 (이름으로, 대소문자 · 경로 무시), 없으면 없음 (0.156333ms)
+✔ RC-U-04 사실 한 줄의 말: 시간 · 파일 종류 (0.2635ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2875.738375
+
+## Playwright
+# 2026-11-25 13:29 · PGPT_URL=http://127.0.0.1:5385 API_URL=http://127.0.0.1:8985 RT_FAKE_AGENT_PORT=8986 RT_FAKE_LLM_PORT=8987 npx playwright test --project=feature tests/feature/chat-thread-list.spec.js tests/feature/mobile-review-1121.spec.js tests/feature/telegram-unreachable.spec.js (branch fix/schedule-own-conversation, uncommitted)
+  ✓   1 [feature] › tests/feature/telegram-unreachable.spec.js:35:3 › 텔레그램 연결 — 서버가 텔레그램에 닿지 못할 때 › F-TG-01 앞단(Cloudflare)이 HTML 오류 쪽을 돌려줘도 카드에는 HTML 이 아니라 읽을 수 있는 문장 (2.6s)
+  ✓   2 [feature] › tests/feature/mobile-review-1121.spec.js:38:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-01 날 JSON 이 든 알림: 카드가 화면 안에 맞고 ✕ 가 보이며, 홈이 옆으로 밀리지 않는다 (2.6s)
+  ✓   3 [feature] › tests/feature/chat-thread-list.spec.js:75:1 › F-CT-01 「채팅」을 두 번 누르면 Home 자리에 대화 목록: 최근 순, 제목 · 한 줄 · 시각 · 메시지 수, 맨 위 「전체 대화」 (3.6s)
+  ✓   4 [feature] › tests/feature/telegram-unreachable.spec.js:46:3 › 텔레그램 연결 — 서버가 텔레그램에 닿지 못할 때 › F-TG-02 서버가 텔레그램에 닿지 못하면 503 과 이유(오류 코드)를 받고, 카드가 그 이유를 보여 준다 · 토큰은 어디에도 없다 (2.1s)
+  ✓   5 [feature] › tests/feature/mobile-review-1121.spec.js:59:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-02 ✕ 로 닫으면 아래 카드가 제자리(왼쪽 여백 그대로)에서 위로 올라온다 (2.5s)
+  ✓   6 [feature] › tests/feature/chat-thread-list.spec.js:110:1 › F-CT-02 행을 고르면 채팅이 그 대화만(/chat/c/:cid, 대화 막대와 같음), 목록은 열린 채로 옮겨 다니고, 「전체 대화」는 전체로 (3.5s)
+  ✓   8 [feature] › tests/feature/chat-thread-list.spec.js:149:1 › F-CT-03 찾기: 제목 · 요약에서 글자로, 낱말마다, 없으면 한 줄, 지우면 모두 (1.4s)
+  ✓   7 [feature] › tests/feature/mobile-review-1121.spec.js:80:3 › 휴대폰 검토 11-21 — 홈 알림 카드 › F-MR-03 손가락으로 옆으로 밀면 카드가 닫힌다(위아래는 목록 스크롤) (3.4s)
+  ✓  10 [feature] › tests/feature/mobile-review-1121.spec.js:130:3 › 휴대폰 검토 11-21 — 루틴 열기 · 닫기 › F-MR-04 홈 카드로 루틴을 열면 앞 채팅이 비치지 않고 「루틴 여는 중」 → 루틴, ‹ 로 닫으면 홈 (1.4s)
+  ✓  11 [feature] › tests/feature/mobile-review-1121.spec.js:153:3 › 휴대폰 검토 11-21 — 루틴 열기 · 닫기 › F-MR-05 없는 루틴은 오류와 「닫기」, 주소로 바로 열었을 때 ‹ 는 루틴 목록으로 (924ms)
+  ✓  12 [feature] › tests/feature/mobile-review-1121.spec.js:165:3 › 휴대폰 검토 11-21 — 채팅 말풍선 › F-MR-08 넓은 표가 든 답도 말풍선이 휴대폰 폭을 넘지 않고, 표만 그 안에서 옆으로 스크롤된다 (1.2s)
+  ✓  13 [feature] › tests/feature/mobile-review-1121.spec.js:200:3 › 휴대폰 검토 11-21 — 예약 작업 › F-MR-06 「곧바로 하나 정도 한번 실행해 봐」는 새 예약이 아니라 그 작업을 지금 한 번 실행한다 (428ms)
+  ✓  14 [feature] › tests/feature/mobile-review-1121.spec.js:215:3 › 휴대폰 검토 11-21 — 예약 작업 › F-MR-07 「급등락이 감지되면 내 텔레그램 봇으로 알려줘」: 그 작업에 텔레그램 전달을 켜고, 봇이 없으면 연결 카드 (436ms)
+  ✓   9 [feature] › tests/feature/chat-thread-list.spec.js:178:1 › F-CT-04 닫기: 「채팅」 두 번 · 머리의 ✕ · Home 단추(Home 이 같은 칸을 차지), 다시 두 번이면 목록이 Home 을 밀어냄 (4.9s)
+  ✓  15 [feature] › tests/feature/chat-thread-list.spec.js:222:1 › F-CT-05 한 번 누르기는 그대로: 바로 이동(기다리지 않음), 목록은 열지 않음 — 두 번 누르기는 한 번만 이동 (4.1s)
+  ✓  16 [feature] › tests/feature/chat-thread-list.spec.js:265:1 › F-CT-06 새로 고쳐도 열린 채 · 닫힌 채(이 브라우저에 기억) (2.7s)
+  ✓  17 [feature] › tests/feature/chat-thread-list.spec.js:299:1 › F-CT-07 휴대폰 390px: 「채팅」 두 번 탭이면 전체 화면 시트, 고르면 시트가 닫히고 그 대화, 옆으로 밀리지 않음 (9.4s)
+  ✓  18 [feature] › tests/feature/chat-thread-list.spec.js:368:1 › F-CT-08 밤 테마: 목록 · 고른 행 · 찾기 칸이 읽힘(넓은 화면 · 휴대폰) (3.0s)
+  ✓  19 [feature] › tests/feature/chat-thread-list.spec.js:394:1 › F-CT-09 새 턴이 오면(실시간 이벤트) 열린 목록이 따라온다 — 새 대화가 맨 위, 라우터가 쓴 요약은 곧이어 (3.4s)
+  ✓  20 [feature] › tests/feature/chat-thread-list.spec.js:416:1 › F-CT-10 대화가 없으면 목록은 안내 한 줄과 「전체 대화」만 (1.0s)
+  ✓  21 [feature] › tests/feature/chat-thread-list.spec.js:502:3 › 예약 작업과 브리프는 자기 대화에 › F-CT-11 대화 A 를 보는 중 예약 실행과 브리프가 도착: A 에는 없고, 목록에 「⏰ 작업 이름」 · 「브리프」, 열면 그 메시지, 「전체 대화」는 시간 순 (3.7s)
+  ✓  22 [feature] › tests/feature/chat-thread-list.spec.js:559:3 › 예약 작업과 브리프는 자기 대화에 › F-CT-12 휴대폰 390px: 시트 목록에 시계 · 해 아이콘, 작업 대화를 고르면 그 결과만 (2.9s)
+  22 passed (44.8s)
+
+## 실제 context-router(pg-context-router d2de0ab, DECIDE_STRATEGIES=logprob,json, 회사 모델 frentis-ai-model) — 같은 후속 메시지, 라우터가 저장한 후보만(before) vs Lite 의 후보(after)
+try 1  before: stay conv-E (logprob 0.50 · letters covered only 0.00 of the first token; thinking disabled for a single-token answer)
+        after:  continue conv-E (logprob 0.93 · thinking disabled for a single-token answer)
+try 2  before: stay conv-E (logprob 0.51 · thinking disabled for a single-token answer)
+        after:  continue conv-E (logprob 0.92 · thinking disabled for a single-token answer)
+try 3  before: stay conv-E (logprob 0.51 · thinking disabled for a single-token answer)
+        after:  continue conv-E (logprob 0.90 · thinking disabled for a single-token answer)

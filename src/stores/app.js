@@ -11,6 +11,7 @@ import { artifactScope, artifactItems, readFolded, saveFolded } from '../artifac
 import { topicOf, topicList } from '../projectTopics.js'
 import { applyTurnEvent, fromSnapshot } from '../turnState.js'
 import { docSelectionOf, docSelectionKey, selectionMention, mentionContext, docConversation } from '../docSelection.js'
+import { convOf as convsOf, convRows } from '../convOf.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
@@ -136,24 +137,9 @@ export const useApp = defineStore('app', {
     // which sub-topic each message of the project on screen belongs to, and its sub-topics with message counts (src/projectTopics.js)
     topicOf(s) { return this.projectOpen ? topicOf(s.messages[s.activeId] || []) : {} },
     topicList(s) { return this.projectOpen ? topicList(s.topics[s.activeId] || [], s.messages[s.activeId] || [], this.topicOf) : [] },
-    // Which conversation each main-chat message belongs to. An answer carries the router's call
-    // (context.conversationId, continue/new); the user's message and attachments just before it go
-    // with it; a "stay" answer (or a chip, a card) stays in the conversation the chat was in.
-    convOf(s) {
-      const out = {}
-      let cur = null
-      let pending = []
-      for (const m of s.messages[s.mainThread?.id] || []) {
-        if (m.role === 'user') { pending.push(m); continue }
-        const c = m.content?.context
-        if (c?.conversationId && c.action !== 'stay') cur = c.conversationId
-        for (const p of pending) out[p.id] = cur
-        pending = []
-        out[m.id] = cur
-      }
-      for (const p of pending) out[p.id] = cur
-      return out
-    },
+    // Which conversation each main-chat message belongs to (src/convOf.js): the router's call on an answer, and what arrives without
+    // the person typing it — a scheduled run, a brief — in its own conversation, aside from the one the chat is in
+    convOf(s) { return convsOf(s.messages[s.mainThread?.id] || [], { userId: s.me?.user?.id }) },
     // The files the view on screen made (src/artifactScope.js): the whole chat, one conversation of it, or a project's room — newest
     // first, each with the conversation it came from (the right column's list and the pile both show these)
     artifacts(s) {
@@ -168,22 +154,8 @@ export const useApp = defineStore('app', {
       const titles = main ? Object.fromEntries(this.convList.map((c) => [c.id, c.title])) : {}
       return { scope, items: artifactItems({ scope, messages: s.messages[s.activeId] || [], convOf: main ? this.convOf : {}, convFilter: s.convFilter, titles }) }
     },
-    // conversation list: the router's titles and summaries, with message counts from the chat
-    convList(s) {
-      const counts = {}
-      for (const id of Object.values(this.convOf)) if (id) counts[id] = (counts[id] || 0) + 1
-      const known = new Set(s.conversations.map((c) => c.id))
-      const rows = s.conversations.filter((c) => counts[c.id]).map((c) => ({ ...c, count: counts[c.id] }))
-      // a conversation the chat knows about but the router has not recorded (yet)
-      for (const m of s.messages[s.mainThread?.id] || []) {
-        const c = m.content?.context
-        if (c?.conversationId && !known.has(c.conversationId) && counts[c.conversationId]) {
-          known.add(c.conversationId)
-          rows.push({ id: c.conversationId, title: c.title, summary: '', updated_at: m.created_at, count: counts[c.conversationId] })
-        }
-      }
-      return rows.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
-    },
+    // conversation list: the server's titles and summaries (and kinds — a scheduled task's, the briefs'), with message counts from the chat
+    convList(s) { return convRows(s.conversations, s.messages[s.mainThread?.id] || [], this.convOf) },
   },
   actions: {
     // Replacing or closing the open document: the sheet saves what is left in it first (OfficeSheet

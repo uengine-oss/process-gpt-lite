@@ -223,7 +223,10 @@ export async function addEvent(user, actionId, input = {}, deps = {}) {
   const inst = row.source?.inst?.instId ? row.source.inst : null
   const { instanceThread } = await import('./engine.js')
   const where = inst ? await instanceThread(user.id, inst.instId, inst.name) : (await mainThread(user.id)).id
+  // (in the main chat: the mail's own conversation — its follow-up's, its drafts', else the briefs' — lib/ownConversations.js)
+  const { mailConversation, aside } = await import('./ownConversations.js')
   await addMessage(user.id, where, 'agent', 'text', {
+    ...(inst ? {} : aside(mailConversation(row, user.id))),
     text: event.via === 'demo'
       ? L(`데모 메일함이라 「${event.title}」(${event.when})을 실제 캘린더에 넣지 않고 기록만 했어요.`, `This is the demo mailbox, so "${event.title}" (${event.when}) was recorded, not added to a real calendar.`)
       : event.existing

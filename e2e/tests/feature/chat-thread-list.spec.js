@@ -3,6 +3,10 @@
 // 최근 순으로 나오고, 고르면 채팅이 그 대화만(/chat/c/:cid — 대화 막대와 같은 길), 「전체 대화」로 돌아감, 찾기, 닫기(두 번 · ✕ · Home),
 // 한 번 누르기는 그대로, 새로 고침에도 열린 채, 휴대폰 390px 은 시트, 밤 테마, 새 턴이 오면 목록이 따라옴. 모델 없이 고정 데이터로.
 // 순수 규칙(순서 · 찾기 · 한 번/두 번 누르기)은 server/test/chatThreadList.test.js.
+// F-CT-11 · 12(2026-11-25 운영 화면 — 대화 안에 브리프와 예약 실행이 섞여 있었다): 예약 실행과 브리프가 실제로 도착하는 길(BFF → 가짜
+// deepagents · 가짜 모델)로 온다. 그래서 BFF 를 PRO_DEEPAGENTS_URL=http://127.0.0.1:<RT_FAKE_AGENT_PORT, 기본 8986> ·
+// PRO_LLM_BASE_URL=http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 8987>/v1 로 띄운다(두 가짜는 이 파일이 띄운다).
+import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '../../lib/fixtures.js'
@@ -421,4 +425,159 @@ test('F-CT-10 대화가 없으면 목록은 안내 한 줄과 「전체 대화�
   await expect(page.getByTestId('thread-empty')).toContainText('아직 나뉜 대화가 없어요.')
   await expect(page.getByTestId('thread-all').locator('.count')).toHaveText('2')
   expect(page.errors).toEqual([])
+})
+
+// ---- F-CT-11 · 12: a scheduled run and a brief arrive while the person is inside conversation A ----
+// The fake deepagents answers the run; the fake model reads the demo mailbox as one card and a brief. The run goes through the real
+// path (POST /missions/:id/run → lib/missions.js → delegate), the brief through POST /mail/poll (lib/mail.js pollUser).
+test.describe('예약 작업과 브리프는 자기 대화에', () => {
+  const AGENT_PORT = Number(process.env.RT_FAKE_AGENT_PORT || 8986)
+  const LLM_PORT = Number(process.env.RT_FAKE_LLM_PORT || 8987)
+  const RUN = 'KOSPI 5일 +1.2%, ASTS 5일 -6.1% — ASTS 가 5% 넘게 내렸어요 · 출처: 네이버 증권'
+  const BRIEF = '박용주님이 uengine.org Tailscale 팀에 가입하도록 초대했어요. 나머지는 안내 메일이에요.'
+  const TASK = '주식 5일 누적 5% 급등락 감시(회귀)'
+  const A = { said: '보고서 표 머리글 굵게 해 줘', answer: '머리글을 굵게 했어요.' }
+  const B = { said: '부산 숙소 세 곳 비교해 줘', answer: '숙소 세 곳을 표로 비교했어요.' }
+  const fake = { agent: [], llm: 0 }
+  const servers = []
+  const listen = (handler, port) => new Promise((ok, no) => { const srv = http.createServer(handler); srv.once('error', no).listen(port, '127.0.0.1', () => { servers.push(srv); ok() }) })
+  const read = (req) => new Promise((ok) => { let raw = ''; req.on('data', (c) => { raw += c }); req.on('end', () => { try { ok(JSON.parse(raw)) } catch { ok({}) } }) })
+  test.beforeAll(async () => {
+    await listen(async (req, res) => {
+      const body = await read(req)
+      if (!req.url.endsWith('/chat/stream')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('[]') }
+      fake.agent.push(body)
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      if (body.conversation_id) res.write(`event: metadata\ndata: ${JSON.stringify({ conversation_id: body.conversation_id })}\n\n`)
+      res.end(`data: ${JSON.stringify({ type: 'token', content: RUN })}\n\n`)
+    }, AGENT_PORT)
+    await listen(async (req, res) => {
+      const b = await read(req)
+      fake.llm += 1
+      const text = (b.messages || []).map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n')
+      // the mailbox's triage: one card for the seminar mail and the brief; anything else answers nothing
+      const content = b.response_format && text.includes('demo-004')
+        ? JSON.stringify({ actions: [{ mail_id: 'demo-004', verb: 'Review', kind: 'task', text: '박용주(uengine.org)의 Tailscale 팀 가입 초대 확인', icon_domain: '', due: null, prompt: '초대를 확인해 줘' }], brief: BRIEF, drafts: [] })
+        : '{}'
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }] }))
+    }, LLM_PORT)
+  })
+  test.afterAll(async () => { for (const s of servers) await new Promise((ok) => s.close(ok)) })
+
+  // conversation A (selected) and B, as the router left them; a prompt task of this person's; the demo mailbox, read afresh
+  async function seedOwn(db, u) {
+    const th = await db.clearMain(u.id)
+    await db.addMessages(th, [
+      { role: 'user', kind: 'text', content: { text: B.said } },
+      { role: 'agent', kind: 'text', content: { text: B.answer, context: conv('rt-ct-own-b', '부산 출장 숙소') } },
+      { role: 'user', kind: 'text', content: { text: A.said } },
+      { role: 'agent', kind: 'text', content: { text: A.answer, context: conv('rt-ct-own-a', '보고서 표 정리') } },
+    ])
+    await db.q(`update pro_threads set conversation_id='rt-ct-own-a' where id=$1`, [th])
+    for (const [id, title, min] of [['rt-ct-own-a', '보고서 표 정리', 3], ['rt-ct-own-b', '부산 출장 숙소', 60]]) {
+      await db.q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,turns,updated_at) values ($1,$2,$3,$4,'','',1, now() - make_interval(mins => $5))`, [db.tenant, u.id, id, title, min])
+    }
+    await db.q('delete from pro_schedules where user_id=$1', [u.id])
+    const [s] = await db.q(`insert into pro_schedules(user_id, name, cron, prompt, notify, tenant_id) values ($1,$2,'0 0 31 2 *','KOSPI와 ASTS 의 5일 누적 등락률이 5% 넘게 움직이면 알려 줘','always',$3) returning id`, [u.id, TASK, db.tenant])
+    await db.q(`update pro_profile set email=$2 where user_id=$1`, [u.id, u.email])
+    await db.q(`insert into pro_mail_accounts(user_id, provider, address) values ($1,'demo',$2) on conflict (user_id) do update set provider='demo'`, [u.id, u.email])
+    await db.q('delete from pro_mail_seen where user_id=$1', [u.id])
+    return { th, schedule: s.id, sched: `sched-${s.id.replace(/-/g, '')}`, brief: `brief-${u.id.replace(/-/g, '')}` }
+  }
+  const unseed = async (db, u) => {
+    await db.q('delete from pro_schedules where user_id=$1', [u.id])
+    for (const t of ['pro_mail_accounts', 'pro_mail_seen', 'pro_actions']) await db.q(`delete from ${t} where user_id=$1`, [u.id]).catch(() => {})
+  }
+  const bubble = (page, text) => page.locator('.row').filter({ hasText: text })
+  // the run and the brief, the way they arrive: through the server, live
+  async function arrive(page, s) {
+    const run = await page.user.post(`/missions/${s.schedule}/run`)
+    expect(run.status, JSON.stringify(run.body)).toBe(200)
+    await expect.poll(() => fake.agent.filter((b) => b.conversation_id === s.sched).length, { timeout: 30_000 }).toBeGreaterThan(0)
+    const poll = await page.user.post('/mail/poll')
+    expect(poll.status, JSON.stringify(poll.body)).toBe(200)
+  }
+
+  test('F-CT-11 대화 A 를 보는 중 예약 실행과 브리프가 도착: A 에는 없고, 목록에 「⏰ 작업 이름」 · 「브리프」, 열면 그 메시지, 「전체 대화」는 시간 순', async ({ pageAs, db, cleanup }) => {
+    const page = await pageAs('ct-own')
+    await page.context().addInitScript(() => { try { localStorage.setItem('pgpt-pro-theme', 'light') } catch { /* ignore */ } })
+    const s = await seedOwn(db, page.user)
+    cleanup(() => unseed(db, page.user))
+    await chat(page, '/chat?hour=13')
+    await chatTab(page).dblclick()
+    await expect(rows(page)).toHaveCount(2)
+    await rows(page).filter({ hasText: '보고서 표 정리' }).click()
+    await expect(rows(page).filter({ hasText: '보고서 표 정리' })).toHaveClass(/\bon\b/)
+    await arrive(page, s)
+    // the list follows: the brief (newest), then the task, then A and B — each of its own with its icon
+    await expect(rows(page)).toHaveCount(4, { timeout: 30_000 })
+    await expect(rows(page).locator('.name')).toHaveText(['브리프', TASK, '보고서 표 정리', '부산 출장 숙소'], { timeout: 15_000 })
+    await expect(rows(page).nth(0).getByTestId('thread-kind')).toHaveAttribute('data-kind', 'brief')
+    await expect(rows(page).nth(1).getByTestId('thread-kind')).toHaveAttribute('data-kind', 'schedule')
+    await expect(rows(page).nth(1).getByTestId('thread-kind')).toHaveAttribute('aria-label', '예약 작업')
+    await expect(rows(page).nth(2).getByTestId('thread-kind')).toHaveCount(0)
+    await expect(rows(page).nth(1).locator('.count')).toHaveText('2')
+    // conversation A still holds only its own two messages: neither the run nor the brief
+    await expect(page).toHaveURL(/\/chat\/c\/rt-ct-own-a/)
+    await expect(bubble(page, A.answer)).toBeVisible()
+    await expect(bubble(page, RUN)).toHaveCount(0)
+    await expect(bubble(page, BRIEF)).toHaveCount(0)
+    await expect(rows(page).filter({ hasText: '보고서 표 정리' }).locator('.count')).toHaveText('2')
+    await shot(page, 'f-ct-11-a-after-arrivals.png')
+    // the task's conversation: its divider (tappable to manage it) and its result
+    await rows(page).filter({ hasText: TASK }).click()
+    await expect(page).toHaveURL(new RegExp(`/chat/c/${s.sched}$`))
+    await expect(page.locator('.row button.sched')).toContainText(`${TASK} 관리`)
+    await expect(bubble(page, RUN)).toBeVisible()
+    await expect(bubble(page, A.answer)).toHaveCount(0)
+    await expect(bubble(page, BRIEF)).toHaveCount(0)
+    await shot(page, 'f-ct-11-schedule.png')
+    // the briefs: the brief and its mail's chip
+    await rows(page).filter({ hasText: '브리프' }).click()
+    await expect(page).toHaveURL(new RegExp(`/chat/c/${s.brief}$`))
+    await expect(bubble(page, BRIEF)).toBeVisible()
+    await expect(page.locator('[data-test="mail-chip"]')).toContainText('Tailscale 팀 가입 초대 확인')
+    await expect(bubble(page, RUN)).toHaveCount(0)
+    await expect(bubble(page, A.answer)).toHaveCount(0)
+    await shot(page, 'f-ct-11-brief.png')
+    // 「전체 대화」: everything, in the order it came
+    await page.getByTestId('thread-all').click()
+    await expect(page).toHaveURL(/\/chat$/)
+    await expect(bubble(page, BRIEF)).toBeVisible()
+    const texts = await page.locator('.row').allTextContents()
+    const at = (t) => texts.findIndex((x) => x.includes(t))
+    const order = [B.answer, A.said, A.answer, RUN, BRIEF].map(at)
+    expect(order.every((i) => i >= 0), JSON.stringify(order)).toBe(true)
+    expect([...order].sort((x, y) => x - y)).toEqual(order)
+    await shot(page, 'f-ct-11-all.png')
+    // the chat still stands in A on the server: the run and the brief never moved it
+    expect((await db.q('select conversation_id from pro_threads where id=$1', [s.th]))[0].conversation_id).toBe('rt-ct-own-a')
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-CT-12 휴대폰 390px: 시트 목록에 시계 · 해 아이콘, 작업 대화를 고르면 그 결과만', async ({ pageAs, db, cleanup }) => {
+    const page = await pageAs('ct-own', { viewport: PHONE, touch: true })
+    await page.context().addInitScript(() => { try { localStorage.setItem('pgpt-pro-theme', 'light') } catch { /* ignore */ } })
+    const s = await seedOwn(db, page.user)
+    cleanup(() => unseed(db, page.user))
+    await chat(page, '/chat/c/rt-ct-own-a?hour=13')
+    await arrive(page, s)
+    await expect.poll(async () => (await db.q(`select count(*)::int as n from pro_messages where thread_id=$1 and content->'context'->>'conversationId' = $2`, [s.th, s.brief]))[0].n, { timeout: 30_000 }).toBe(2)
+    await expect(bubble(page, RUN)).toHaveCount(0)
+    await expect(bubble(page, BRIEF)).toHaveCount(0)
+    await chatTab(page).dblclick()
+    await expect(list(page)).toHaveClass(/\bmobile\b/)
+    await expect(rows(page).locator('.name')).toHaveText(['브리프', TASK, '보고서 표 정리', '부산 출장 숙소'], { timeout: 15_000 })
+    await expect(rows(page).getByTestId('thread-kind')).toHaveCount(2)
+    // nothing runs off the side of the phone
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await shot(page, 'f-ct-12-phone-list.png')
+    await rows(page).filter({ hasText: TASK }).click()
+    await expect(list(page)).toHaveCount(0)
+    await expect(bubble(page, RUN)).toBeVisible()
+    await expect(bubble(page, A.answer)).toHaveCount(0)
+    await shot(page, 'f-ct-12-phone-schedule.png')
+    expect(page.errors).toEqual([])
+  })
 })

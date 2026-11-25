@@ -371,7 +371,10 @@ export async function sendReply(user, actionId, input = {}) {
   const inst = row.source?.inst?.instId ? row.source.inst : null
   const { instanceThread } = await import('./engine.js')
   const where = inst ? await instanceThread(user.id, inst.instId, inst.name) : (await mainThread(user.id)).id
+  // (in the main chat: the mail's own conversation — its follow-up's, its drafts', else the briefs' — lib/ownConversations.js)
+  const { mailConversation, aside } = await import('./ownConversations.js')
   await addMessage(user.id, where, 'agent', 'text', {
+    ...(inst ? {} : aside(mailConversation(row, user.id))),
     text: mode === 'drafts'
       ? L(`${who}에게 보낼 답장 「${sent.subject}」을 메일함의 임시 보관함에 넣었어요. 메일 앱에서 보내 주세요.`, `I put the reply "${sent.subject}" to ${who} in your mailbox's Drafts. Send it from your mail app.`)
       : sent.via === 'demo'

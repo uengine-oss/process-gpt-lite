@@ -47,6 +47,7 @@ import { folderFor, isFolderRoom, startChatWork, finishChatWork } from './folder
 import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
 import * as TF from './folders/threadFolders.js'
 import * as PT from './projectTopics.js'
+import * as RC from './routeContexts.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 import { sendMail, demoFiles } from './scenarios/mail.js'
@@ -943,13 +944,16 @@ async function scheduleCatalogHint(userId) {
   return L(`\n내 예약 작업(지금 한 번 실행은 run_schedule_now, 새 예약이 아님): ${items}`, `\nMy scheduled tasks (run one now with run_schedule_now, not a new schedule): ${items}`)
 }
 
-// A scheduled task, run once now (lib/missions.js runMission 'manual'): its result comes to this
-// conversation like a scheduled run's, under its divider — even when nothing crossed its condition.
+// A scheduled task, run once now (lib/missions.js runMission 'manual'): its result comes like a scheduled run's, under its divider —
+// even when nothing crossed its condition — in the main chat into the task's own conversation (lib/ownConversations.js)
 async function runScheduleNowTurn({ userId, threadId, s, onDelta, acked = false }) {
   let msg = null
   if (!acked) {
-    const said = L(`「${s.name}」 작업을 지금 바로 한 번 실행할게요. 새 예약은 만들지 않고, 결과는 곧 여기에 올라와요.`,
-      `I'll run "${s.name}" once, right now. No new schedule — the result will show up here shortly.`)
+    const own = (await getThread(userId, threadId).catch(() => null))?.kind === 'chat'
+    const said = own ? L(`「${s.name}」 작업을 지금 바로 한 번 실행할게요. 새 예약은 만들지 않고, 결과는 곧 이 작업의 대화 「${s.name}」에 올라와요.`,
+      `I'll run "${s.name}" once, right now. No new schedule — the result will show up shortly in the task's own conversation, "${s.name}".`)
+      : L(`「${s.name}」 작업을 지금 바로 한 번 실행할게요. 새 예약은 만들지 않고, 결과는 곧 여기에 올라와요.`,
+        `I'll run "${s.name}" once, right now. No new schedule — the result will show up here shortly.`)
     msg = await addMessage(userId, threadId, 'agent', 'text', { text: said })
     onDelta?.(said)
   }
@@ -1252,11 +1256,13 @@ const emptyText = () => L(EMPTY_TEXT, EMPTY_TEXT_EN)
 
 // The router's decision alone (context-router POST /route), for a message sent while another turn
 // of the same thread is still running: it tells whether this one has to wait for that one.
-async function routeFirst({ user, thread, text, ahead = [] }) {
+async function routeFirst({ user, thread, text, ahead = [], known = [] }) {
   try {
     // the requests still being answered are offered as conversations in progress (their context
     // rows are written only when they finish)
     const contexts = ahead.map((x) => ({ conversation_id: x.conv, title: x.title || L('진행 중인 요청', 'Request in progress'), summary: `${L('진행 중인 요청', 'Request in progress')}: ${x.title || ''}`, kind: 'conversation', active: true }))
+      // …then the person's conversations with what each worked on (lib/routeContexts.js — the router takes the first of an id)
+      .concat((known || []).filter((c) => !ahead.some((x) => x.conv === c.conversation_id)))
     const r = await fetch(`${config.contextRouterUrl}/route`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(120_000),
       body: JSON.stringify({ message: text, tenant_id: config.tenantId, user_uid: user.id, conversation_id: thread?.conversation_id || null, metadata: { contexts } }),
@@ -1348,7 +1354,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   const uploads = attached.get(threadId) || []
   attached.delete(threadId)
-  let pin = given?.conversationId ? { conversationId: String(given.conversationId), title: String(given.title || '') } : pinned.get(threadId)
+  // (kind: what a conversation of its own is — a scheduled task's, the briefs' — lib/ownConversations.js)
+  let pin = given?.conversationId ? { conversationId: String(given.conversationId), title: String(given.title || ''), ...(given.kind ? { kind: String(given.kind) } : {}) } : pinned.get(threadId)
   if (!given?.conversationId) pinned.delete(threadId)
   // a project's view narrowed to one of its sub-topics sends that one (lib/projectTopics.js); a conversation that is not this
   // project's is not taken (the message is classified as any other)
@@ -1362,6 +1369,15 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // conversation this message continues. A project's message is classified among the project's own
   // sub-topics (topical — lib/projectTopics.js). Instances, skill authoring and scheduled runs
   // already know their conversation and go straight to the agent.
+  // The router gets each conversation with what it worked on and when, and the one the person was just in; a message sent while a
+  // document is open that a conversation here worked on goes to that conversation without asking (lib/routeContexts.js)
+  const toRoute = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider && !background && !silent
+  const open = toRoute && adopted ? store.openDoc || liveOpen(user.id) : null
+  const facts = toRoute ? await RC.turnFacts({ user, threadId, except: adopted ? store.userMsgId : null, open }).catch((e) => { console.warn('[delegate] route facts', e.message); return null }) : null
+  if (facts?.docLink) {
+    pin = facts.docLink
+    console.log(`[delegate] open document '${open.file}' → its conversation ${String(pin.conversationId).slice(0, 12)} (no routing)`)
+  }
   let routed = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider
   const topical = PT.routesProject({ kind: thread?.kind, routerOn: PT.enabled(), pinned: !!pin, silent, background, divider, mode, generating: !!generationPending(threadId) })
   const conv0 = pin?.conversationId || (!routed && !topical ? thread?.conversation_id : null)
@@ -1379,7 +1395,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // what this turn leaves in a project — its cards, a stop or a failure — says which sub-topic it is (src/projectTopics.js): a card
   // written after the answer can come after the person's next message, which may be another sub-topic's
   const inProject = thread?.kind === 'project'
-  const convTag = () => (inProject && turn.conv && !String(turn.conv).startsWith('none:') ? { conv: turn.conv } : {})
+  // …and in the main chat, what a background turn pinned to a conversation of its own leaves (a scheduled run's file, its stop) is filed
+  // there, aside from the conversation the person is in (src/convOf.js, lib/ownConversations.js)
+  const asideTag = pin && background && !pin.folder && !inProject ? { context: { conversationId: pin.conversationId, action: 'aside', ...(pin.kind ? { kind: pin.kind } : {}) } } : {}
+  const convTag = () => (inProject && turn.conv && !String(turn.conv).startsWith('none:') ? { conv: turn.conv } : asideTag)
   // an agent turn: a correction that goes to the browser may replace it (replaceEarlier) — only one answering a
   // person's message in this thread, never a schedule, a mission or a team run delegated here
   turn.agent = true
@@ -1410,7 +1429,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       await queued()
       const ahead = (await turns.aheadInThread(turn)).filter((x) => !x.folder)
       thread = await getThread(user.id, threadId)
-      const r = await routeFirst({ user, thread, text, ahead })
+      const r = await routeFirst({ user, thread, text, ahead, known: facts?.contexts })
       if (r) { routing = r; preRouted = true; routed = false; turn.setConv(r.conversation_id) }
     }
     // a project's message: which of its sub-topics (decided before it waits its place, so a follow-up of a request still being
@@ -1569,7 +1588,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         metadata: { client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
           // (the language in every mode: a message that is only a link has none of its own — design turnplan §1.5)
           language: isEn() ? 'en' : 'ko',
-          ...(viaRouter ? { auto_route: true, route_text: text, agent: 'deepagents' } : {}) },
+          ...(viaRouter ? { auto_route: true, route_text: text, agent: 'deepagents', ...(facts?.contexts?.length ? { contexts: facts.contexts } : {}) } : {}) },
       }),
     })
   }
@@ -1731,7 +1750,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     kind = 'doc'
   }
   // which context answered (hark shows replies under their own thread): title, how sure, by whom
-  const context = pin && !routing ? { title: pin.title, action: 'continue', conversationId: pin.conversationId, strategy: 'pinned', confidence: 1 }
+  // (a background turn's — a scheduled run's — is filed aside: the conversation the person is in does not follow it)
+  const context = pin && !routing ? asideTag.context || { title: pin.title, action: 'continue', conversationId: pin.conversationId, strategy: 'pinned', confidence: 1 }
     : routing && routing.action !== 'stay' ? {
     title: routing.context?.title || text.trim().split('\n')[0].slice(0, 40),
     action: routing.action, conversationId: routing.conversation_id,
@@ -1777,8 +1797,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // conv: 이 턴이 실제로 간 맥락(라우터가 「그대로」라고 한 턴은 context 에 맥락 id 가 없다) — 맥락의 턴을 찾는 표지(lib/context/items.js)
   const convNow = turn.conv || routing?.conversation_id || null
   const work = trail.list()
+  // openDoc: the document that was open for this turn — the conversation worked on it (lib/routeContexts.js)
   const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
     ...TP.saved(turn, ended ? 'stopped' : 'done', body),
+    ...(live?.file ? { openDoc: { file: String(live.file).slice(0, 200), app: live.app } } : {}),
     ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
   // the conversation's row: a project's sub-topic under the project (routed, or the view narrowed to it), else the main chat's
   if (topicRouted || (pin && !pin.folder && thread?.kind === 'project')) {

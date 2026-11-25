@@ -20,6 +20,9 @@ const all = computed(() => sortThreads(app.convList))
 const shown = computed(() => filterThreads(all.value, query.value))
 const total = computed(() => (app.messages[app.mainThread?.id] || []).length)
 
+// a conversation of its own (server lib/ownConversations.js): a scheduled task's has the clock, the briefs' the sun, a mail's the envelope
+const KIND_ICON = { schedule: 'clock', brief: 'sun', mail: 'mail' }
+const KIND_LABEL = { schedule: '예약 작업', brief: '브리프', mail: '메일' }
 function pick(c) {
   router.push(c ? `/chat/c/${encodeURIComponent(c.id)}` : '/chat')
   if (props.sheet) app.setThreadList(false)
@@ -50,7 +53,10 @@ onMounted(() => nextTick(() => el.value?.querySelector('.item.on:not(.all)')?.sc
       </button>
       <button v-for="c in shown" :key="c.id" class="item" :class="{ on: c.id === app.convFilter }" :aria-current="c.id === app.convFilter ? 'true' : undefined"
         :data-conv="c.id" data-testid="thread-row" @click="pick(c)">
-        <span class="row1"><span class="name">{{ c.title || '제목 없는 대화' }}</span><small class="when">{{ whenText(c.updated_at) }}</small></span>
+        <span class="row1">
+          <span v-if="KIND_ICON[c.kind]" class="kind" :data-kind="c.kind" :title="KIND_LABEL[c.kind]" :aria-label="KIND_LABEL[c.kind]" data-testid="thread-kind"><Icon :name="KIND_ICON[c.kind]" :size="16" /></span>
+          <span class="name">{{ c.title || '제목 없는 대화' }}</span><small class="when">{{ whenText(c.updated_at) }}</small>
+        </span>
         <span class="row2"><span class="line">{{ threadLine(c) }}</span><span class="count" :aria-label="`메시지 ${c.count}개`">{{ c.count }}</span></span>
       </button>
     </div>
@@ -84,6 +90,9 @@ onMounted(() => nextTick(() => el.value?.querySelector('.item.on:not(.all)')?.sc
 .row1, .row2 { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .name { flex: 1; min-width: 0; font-size: 19px; line-height: 1.3; letter-spacing: -0.02em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: keep-all; overflow-wrap: anywhere; }
 .when { flex: none; font-size: 12.5px; color: var(--text-tertiary); }
+/* a scheduled task's, the briefs', a mail's conversation: its icon before the title, on the title's first line */
+.kind { flex: none; align-self: center; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 9999px; color: var(--text-secondary); background: var(--field-bg); }
+.item.on .kind { background: var(--button-bg); color: var(--text-primary); }
 .line { flex: 1; min-width: 0; font-size: 13px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .count { flex: none; min-width: 24px; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 12px; line-height: 20px; text-align: center; color: var(--text-secondary); background: var(--field-bg); }
 .item.on .count { background: var(--button-bg); color: var(--text-primary); }

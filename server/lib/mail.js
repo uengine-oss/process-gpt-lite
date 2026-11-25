@@ -15,6 +15,7 @@ import { mainThread, addMessage } from './store.js'
 import { L, isEn, asUser, langInstruction } from './lang.js'
 import { clientFor, clientById } from './googleClient.js'
 import { withTenant } from './tenant.js'
+import { briefConversation, mailConversationId, aside, pinOf, listOwn } from './ownConversations.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -284,7 +285,7 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
     // said once a day in the owner's chat (the poll is not marked done, so it is tried again)
     const t = await mainThread(userId)
     const [said] = await q(`select 1 from pro_messages where thread_id=$1 and kind='text' and content->>'mailError'=$2 and created_at > now() - interval '1 day' limit 1`, [t.id, e.message])
-    if (!said) await addMessage(userId, t.id, 'agent', 'text', { text: L(`메일함을 읽지 못했어요 — ${e.message}`, `I couldn't read your mailbox — ${e.message}`), mailError: e.message })
+    if (!said) await addMessage(userId, t.id, 'agent', 'text', { text: L(`메일함을 읽지 못했어요 — ${e.message}`, `I couldn't read your mailbox — ${e.message}`), mailError: e.message, ...aside(briefConversation(userId)) })
     throw e
   }
   const fresh = await claimFresh(userId, mails)
@@ -311,18 +312,23 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
   // a mail of a thread that is already a running instance's goes to that instance, without a model (lib/mailFlow.js)
   const MF = await import('./mailFlow.js')
   const threaded = await MF.linkByThread(userId, cards).catch((e) => { console.warn('[mail] thread', e.message); return new Map() })
+  // the brief and the mailbox's own lines go into the person's 브리프 conversation (lib/ownConversations.js), never into the conversation
+  // the person happens to be in
+  const bc = briefConversation(userId)
   if (r.brief) {
     const t = await mainThread(userId)
     const h = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hour12: false }))
-    await addMessage(userId, t.id, 'system', 'divider', { text: h < 12 ? L('모닝 브리프', 'Morning brief') : h < 18 ? L('오후 브리프', 'Afternoon brief') : L('이브닝 브리프', 'Evening brief') })
+    const label = h < 12 ? L('모닝 브리프', 'Morning brief') : h < 18 ? L('오후 브리프', 'Afternoon brief') : L('이브닝 브리프', 'Evening brief')
+    await addMessage(userId, t.id, 'system', 'divider', { text: label, ...aside(bc, { named: true }) })
     // the brief is about these mails: each one's chip opens its Home card's mail — or, once the mail is an instance's, that instance
     // (2026-11-24: 「지금은 요약 메시지만 보임 … 좌측 홈 패널에서 작업하던 화면으로의 링크가 필요함」)
     const now = cards.length ? await q('select * from pro_actions where id = any($1::uuid[])', [cards.map((c) => c.id)]) : []
     const mails = cards.map((c) => now.find((x) => x.id === c.id) || c).map(MF.refOf)
-    await addMessage(userId, t.id, 'agent', 'text', { text: r.brief, ...(mails.length ? { mails } : {}) })
+    await addMessage(userId, t.id, 'agent', 'text', { text: r.brief, ...(mails.length ? { mails } : {}), ...aside(bc) })
+    await listOwn(userId, bc, label, r.brief).catch((e) => console.warn('[mail] brief list', e.message))
   } else if (announce) {
     const t = await mainThread(userId)
-    await addMessage(userId, t.id, 'agent', 'text', { text: L('메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.', "I looked through your inbox and nothing is urgent right now. I'll check again when new mail comes in.") })
+    await addMessage(userId, t.id, 'agent', 'text', { text: L('메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.', "I looked through your inbox and nothing is urgent right now. I'll check again when new mail comes in."), ...aside(bc) })
   }
   // Every mail that made a Home card is read by the company map's router now, as it arrives (2026-11-24: the map's reading is not left to
   // the first time the sheet is opened — a process set to 자동 starts, and does its first work, on the mail itself; its cost is accepted
@@ -410,7 +416,8 @@ const SKILL_RULES = {
   docx: (name) => `워드(docx) 스킬로 /workspace/${name} 를 만드세요.`,
   pptx: (name) => `파워포인트(pptx) 스킬로 /workspace/${name} 를 만드세요.`,
 }
-export async function hwpxDraft(userId, threadId, mail, item, customer, { templateUrl, extra } = {}) {
+// tag: where its card is filed in the main chat (the mail's own conversation — lib/ownConversations.js)
+export async function hwpxDraft(userId, threadId, mail, item, customer, { templateUrl, extra, tag = {} } = {}) {
   const args = {
     template_url: templateUrl || config.proposalTemplateUrl || config.hwpxTemplateUrl,
     report_topic: item.name.replace(/\.hwpx$/i, ''),
@@ -420,17 +427,17 @@ export async function hwpxDraft(userId, threadId, mail, item, customer, { templa
     reference_text: L(`보낸 사람: ${mail.from}\n제목: ${mail.subject}\n${String(mail.text || '').slice(0, 2500)}`, `From: ${mail.from}\nSubject: ${mail.subject}\n${String(mail.text || '').slice(0, 2500)}`),
     image_generation_enabled: false, image_reference_enabled: false, tenant_id: config.tenantId,
   }
-  const [job] = await q('insert into pro_draft_jobs(user_id, thread_id, args) values ($1,$2,$3) returning id', [userId, threadId, { tool: args, name: item.name, mail_id: mail.id, ...(isEn() ? { lang: 'en' } : {}) }])
-  return runHwpxJob(job.id, userId, threadId, args, item.name, mail.id)
+  const [job] = await q('insert into pro_draft_jobs(user_id, thread_id, args) values ($1,$2,$3) returning id', [userId, threadId, { tool: args, name: item.name, mail_id: mail.id, ...(isEn() ? { lang: 'en' } : {}), ...(tag.context ? { tag } : {}) }])
+  return runHwpxJob(job.id, userId, threadId, args, item.name, mail.id, tag)
 }
 // mailId: the mail whose draft this is, kept on the card (lib/mining/recorder.js finds the case by it)
-async function runHwpxJob(id, userId, threadId, args, name, mailId) {
+async function runHwpxJob(id, userId, threadId, args, name, mailId, tag = {}) {
   const { callOfficeMcp } = await import('./officeMcp.js')
   try {
     const r = await callOfficeMcp('generate_hwpx', args)
     const url = r.file_url || r.url || r.download_url
     if (!url) throw new Error(`generate_hwpx gave no file: ${JSON.stringify(r).slice(0, 200)}`)
-    await addMessage(userId, threadId, 'agent', 'file', { ext: 'hwpx', url, name, draft: true, ...(mailId ? { mail_id: mailId } : {}) })
+    await addMessage(userId, threadId, 'agent', 'file', { ext: 'hwpx', url, name, draft: true, ...(mailId ? { mail_id: mailId } : {}), ...tag })
     await q(`update pro_draft_jobs set status='done' where id=$1`, [id])
   } catch (e) {
     await q(`update pro_draft_jobs set status='failed' where id=$1`, [id])
@@ -441,16 +448,17 @@ async function runHwpxJob(id, userId, threadId, args, name, mailId) {
 export async function resumeDrafts() {
   for (const j of await q(`update pro_draft_jobs set status='running' where status='running' and created_at > now() - interval '1 hour' returning *`)) {
     console.log(`[mail] resuming draft ${j.args.name}`)
-    asUser(j.user_id, () => runHwpxJob(j.id, j.user_id, j.thread_id, j.args.tool, j.args.name, j.args.mail_id).catch(async (e) => {
+    asUser(j.user_id, () => runHwpxJob(j.id, j.user_id, j.thread_id, j.args.tool, j.args.name, j.args.mail_id, j.args.tag || {}).catch(async (e) => {
       console.warn('[mail] resumed draft', e.message)
-      await addMessage(j.user_id, j.thread_id, 'agent', 'text', { text: L(`${j.args.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${j.args.name}: ${e.message}`) })
+      await addMessage(j.user_id, j.thread_id, 'agent', 'text', { text: L(`${j.args.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${j.args.name}: ${e.message}`), ...(j.args.tag || {}) })
     }))
   }
 }
 // A design request (a floor plan with the proposal): CADCraft draws it first (the agent, through
 // its MCP); the drawing, rendered to PNG, goes into the proposal template's picture before office-mcp
 // fills it, with the room schedule from the drawing; the quote is worked out from the same areas.
-async function designDrafts(userId, t, mail, d, items) {
+async function designDrafts(userId, t, mail, d, items, conv = null) {
+  const tag = aside(conv)
   const { sessionFor } = await import('./supa.js')
   const { delegate } = await import('./agent.js')
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
@@ -470,10 +478,10 @@ async function designDrafts(userId, t, mail, d, items) {
   } finally { status(null) }
   const doc = await publish(userId, drawn.path)
   const card = { content: { ...doc, path: drawn.path } }
-  await addMessage(userId, t.id, 'agent', 'file', { ...doc, path: drawn.path, draft: true, mail_id: mail.id })
+  await addMessage(userId, t.id, 'agent', 'file', { ...doc, path: drawn.path, draft: true, mail_id: mail.id, ...tag })
   const rooms = drawn.rooms.map((r) => `${r.name} | ${r.area}㎡ | ${r.use}`).join(' / ')
   await addMessage(userId, t.id, 'agent', 'text', { text: L(`캐드크래프트로 평면도(${drawn.width}m × ${drawn.depth}m)를 그렸어요. 실별 면적은 ${drawn.rooms.map((r) => `${r.name} ${r.area}㎡`).join(', ')}이에요. 이 도면으로 제안서와 견적서를 만들게요.`,
-    `I drew the floor plan (${drawn.width} m × ${drawn.depth} m) in CADCraft. Room areas: ${drawn.rooms.map((r) => `${r.name} ${r.area} ㎡`).join(', ')}. I'll make the proposal and the quote from this drawing.`) })
+    `I drew the floor plan (${drawn.width} m × ${drawn.depth} m) in CADCraft. Room areas: ${drawn.rooms.map((r) => `${r.name} ${r.area} ㎡`).join(', ')}. I'll make the proposal and the quote from this drawing.`), ...tag })
   let templateUrl = config.proposalTemplateUrl || config.hwpxTemplateUrl
   // (English mode makes a Word proposal instead, unless the mail named a Hangul one)
   if (card?.content?.url && (!isEn() || items.some((x) => x.format === 'hwpx'))) {
@@ -483,14 +491,14 @@ async function designDrafts(userId, t, mail, d, items) {
   for (const i of items.filter((x) => x.format === 'hwpx')) {
     jobs.push(hwpxDraft(userId, t.id, mail, i, customer, { templateUrl,
       extra: L(`평면도(${plan.name})를 2번 '설계 평면도' 그림으로 그대로 두고, '공간 구성' 표는 평면도의 실별 면적으로 채우세요: ${rooms}`,
-        `Keep the floor plan (${plan.name}) as picture 2 (the design floor plan) and fill the space plan table with the room areas from the floor plan: ${rooms}`) })
-      .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: L(`${i.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${i.name}: ${e.message}`) }) }))
+        `Keep the floor plan (${plan.name}) as picture 2 (the design floor plan) and fill the space plan table with the room areas from the floor plan: ${rooms}`), tag })
+      .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: L(`${i.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${i.name}: ${e.message}`), ...tag }) }))
   }
   const others = items.filter((x) => skillRule(x.format))
   if (others.length && isEn()) {
     // English: the proposal is a Word document the agent writes with the floor plan picture in it
     const picture = card?.content?.url && others.some((i) => i.format === 'docx') ? await planPicture(card.content.url).catch((e) => { console.warn('[mail] plan picture', e.message); return null }) : null
-    jobs.push(delegate({ user, session, threadId: t.id, silent: true, fileTag: { mail_id: mail.id },
+    jobs.push(delegate({ user, session, threadId: t.id, silent: true, fileTag: { mail_id: mail.id }, ...(conv ? { pin: pinOf(conv), background: true } : {}),
       text: `Make draft documents in advance to answer the same customer mail (${mail.subject}). Room areas from the floor plan just drawn: ${rooms}\nMail body: ${body}\n\n` +
         others.map((i, k) => `${k + 1}) ${i.kind} — file name "${i.name}". ${i.format === 'xlsx'
           ? `With the Excel (xlsx) skill, create /workspace/${i.name}: at the top the title, to, from, quote date and validity; an item table (category, item, quantity, unit, unit price, amount — amount as the formula =quantity*unit price) with the design fee (floor plan and finishing design, 1 lot), interior work per room (area in ㎡ × price per ㎡, one row per room), furniture and fixtures (by the number of seats), and electrical and equipment (1 lot); below it subtotal, VAT (10%) and total rows (all formulas), thousands separators, colored header row. Use reasonable assumed unit prices in KRW (₩).`
@@ -500,7 +508,7 @@ async function designDrafts(userId, t, mail, d, items) {
         `\n\n(The floor plan is already made — do not draw it again.) When they are done, give the file names and the unit prices you assumed in two or three lines. Write the progress notes, the answer and every text inside the files in English.` })
       .catch((e) => console.warn('[mail] drafts', e.message)))
   } else if (others.length) {
-    jobs.push(delegate({ user, session, threadId: t.id, silent: true, fileTag: { mail_id: mail.id },
+    jobs.push(delegate({ user, session, threadId: t.id, silent: true, fileTag: { mail_id: mail.id }, ...(conv ? { pin: pinOf(conv), background: true } : {}),
       text: `같은 고객 메일(${mail.subject})에 회신할 문서 초안을 미리 만드세요. 방금 그린 평면도의 실별 면적: ${rooms}\n메일 본문: ${body}\n\n` +
         others.map((i, k) => `${k + 1}) ${i.kind} — 파일 이름 "${i.name}". ${i.format === 'xlsx'
           ? `엑셀(xlsx) 스킬로 /workspace/${i.name} 를 만드세요: 위에 제목·수신·발신·견적일·유효기간, 품목 표(구분·품목·수량·단위·단가·금액, 금액은 =수량*단가 수식) — 설계비(평면·마감 설계, 1식), 실별 인테리어 공사(면적 ㎡ × ㎡당 단가, 실마다 한 줄), 가구·집기(좌석 수 기준), 전기·설비(1식), 그 아래 공급가액 소계·부가세(10%)·합계 행(모두 수식), 천 단위 쉼표, 머리글 색 구분. 단가는 합리적인 가정값.`
@@ -586,24 +594,30 @@ async function draftFromMail(userId, mail, d) {
   const customer = d.customer || L('고객', 'Customer')
   // the Review card first: the chat line about the mail carries its chip (lib/mailFlow.js), and it keeps the mail's thread and instance
   const [sib] = await q(`select source from pro_actions where user_id=$1 and source->>'mail_id'=$2 order by created_at limit 1`, [userId, String(mail.id)])
+  // the drafts are the mail's own work: a conversation of their own in the main chat (lib/ownConversations.js), kept on the card so its
+  // reply and its follow-ups know it
+  const conv = { conversationId: mailConversationId(userId, mail.id), title: L(`메일 · ${customer} ${what} 요청`, `Mail · ${customer} ${what} request`), kind: 'mail' }
   const [row] = await q(
     `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,'Review',$2,null,null,$3,$4) returning *`,
     [userId, L(`${customer} ${what} 초안 검토하고 회신하기`, `the ${what} drafts for ${customer} and reply`), L(`${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, `I've reviewed the ${what} drafts for ${customer}. Please write a draft reply mail.`),
-      { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name), ...(mail.thread ? { thread_id: mail.thread } : {}), ...(sib?.source?.inst ? { inst: sib.source.inst } : {}) }])
+      { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name), ...(mail.thread ? { thread_id: mail.thread } : {}), ...(sib?.source?.inst ? { inst: sib.source.inst } : {}),
+        conv: { id: conv.conversationId, title: conv.title } }])
   emit(userId, 'action', row)
   const { instRef } = await import('./mailFlow.js')
   const inst = instRef(row.source?.inst)
-  await addMessage(userId, t.id, 'system', 'divider', { text: L(`메일 · ${customer} ${what} 요청`, `Mail · ${customer} ${what} request`) })
-  await addMessage(userId, t.id, 'agent', 'text', { text: L(`${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. I'll make drafts for the reply first.`),
-    mail: { from: mail.from, subject: mail.subject, actionId: row.id, mailId: mail.id, ...(inst ? { inst } : {}) } })
-  if (noPlan) await addMessage(userId, t.id, 'agent', 'text', { text: L('이 설치에는 캐드크래프트가 없어서 평면도는 그리지 않았어요. 제안서·견적서 초안만 만들게요.', "This install has no CADCraft, so I didn't draw the floor plan. I'll make only the proposal and quote drafts.") })
+  await addMessage(userId, t.id, 'system', 'divider', { text: conv.title, ...aside(conv, { named: true }) })
+  const intro = L(`${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. I'll make drafts for the reply first.`)
+  await addMessage(userId, t.id, 'agent', 'text', { text: intro, mail: { from: mail.from, subject: mail.subject, actionId: row.id, mailId: mail.id, ...(inst ? { inst } : {}) }, ...aside(conv) })
+  await listOwn(userId, conv, mail.subject || conv.title, intro).catch((e) => console.warn('[mail] drafts list', e.message))
+  if (noPlan) await addMessage(userId, t.id, 'agent', 'text', { text: L('이 설치에는 캐드크래프트가 없어서 평면도는 그리지 않았어요. 제안서·견적서 초안만 만들게요.', "This install has no CADCraft, so I didn't draw the floor plan. I'll make only the proposal and quote drafts."), ...aside(conv) })
   // the mail is one case of ad-hoc work: its steps leave handover records process mining reads (lib/mining)
   const mining = await import('./mining/recorder.js')
   const caseId = await mining.openCase({ userId, mail, customer, files: items.map((i) => i.name) }).catch((e) => console.warn('[mining] case', e.message))
   if (caseId) await mining.recordStep(caseId, '요청 메일 접수', { to: { id: userId, name: p.name } }).catch((e) => console.warn('[mining] step', e.message)) // (the case's own language: lib/mining/recorder.js)
-  if (items.some((i) => i.format === 'dxf')) return designDrafts(userId, t, mail, d, items).finally(() => mining.recordDrafts(t.id, mail.id).catch((e) => console.warn('[mining] drafts', e.message)))
-  const jobs = items.filter((i) => i.format === 'hwpx').map((i) => hwpxDraft(userId, t.id, mail, i, customer)
-    .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: L(`${i.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${i.name}: ${e.message}`) }) }))
+  if (items.some((i) => i.format === 'dxf')) return designDrafts(userId, t, mail, d, items, conv).finally(() => mining.recordDrafts(t.id, mail.id).catch((e) => console.warn('[mining] drafts', e.message)))
+  const tag = aside(conv)
+  const jobs = items.filter((i) => i.format === 'hwpx').map((i) => hwpxDraft(userId, t.id, mail, i, customer, { tag })
+    .catch(async (e) => { console.warn('[mail] hwpx draft', e.message); await addMessage(userId, t.id, 'agent', 'text', { text: L(`${i.name} 초안을 만들지 못했어요: ${e.message}`, `I couldn't make the draft of ${i.name}: ${e.message}`), ...tag }) }))
   const others = items.filter((i) => skillRule(i.format))
   if (others.length) {
     const { sessionFor } = await import('./supa.js')
@@ -618,7 +632,7 @@ async function draftFromMail(userId, mail, d) {
       `메일 — 보낸 사람: ${mail.from}\n제목: ${mail.subject}\n본문: ${String(mail.text || '').slice(0, 2500)}\n\n` +
       others.map((i, k) => `${k + 1}) ${i.kind} — 파일 이름 "${i.name}". ${SKILL_RULES[i.format](i.name)}`).join('\n') +
       `\n\n(한글 문서는 따로 만들고 있으니 만들지 마세요.) 다 만들면 파일 이름만 짧게 알리고, 검토할 점(가정한 단가 등)을 두세 줄로 적으세요. 진행 설명과 답은 모두 한국어(해요체)로 쓰세요.`
-    jobs.push(delegate({ user, session, threadId: t.id, text, silent: true, fileTag: { mail_id: mail.id } }).catch((e) => console.warn('[mail] drafts', e.message)))
+    jobs.push(delegate({ user, session, threadId: t.id, text, silent: true, fileTag: { mail_id: mail.id }, pin: pinOf(conv), background: true }).catch((e) => console.warn('[mail] drafts', e.message)))
   }
   await Promise.all(jobs)
   await mining.recordDrafts(t.id, mail.id).catch((e) => console.warn('[mining] drafts', e.message))
