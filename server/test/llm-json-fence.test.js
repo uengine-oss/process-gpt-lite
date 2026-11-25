@@ -56,3 +56,15 @@ test('JF-U-05 울타리 안이 깨졌으면 지금처럼 「JSON 이 아니다�
   reply = '```json\n{"topic": \n```'
   await assert.rejects(llm.chatJson('s', 'u'), /not JSON/)
 })
+
+// 설치판(Docker Compose)에서도 확률 모델을 따로 둘 수 있다: .env 의 LLM_ODDS_MODEL → 서버의 PRO_LLM_ODDS_MODEL.
+test('JF-U-06 설치 번들: LLM_ODDS_MODEL 이 서버 환경의 PRO_LLM_ODDS_MODEL 로 가고(비면 빈 값 = 주 모델) .env 예시에 있다', async () => {
+  const fs = await import('node:fs/promises')
+  const root = new URL('../../install/', import.meta.url)
+  const compose = await fs.readFile(new URL('docker-compose.yml', root), 'utf8')
+  const lines = compose.split('\n').map((l) => l.trim())
+  assert.ok(lines.includes('PRO_LLM_ODDS_MODEL: ${LLM_ODDS_MODEL:-}'), 'server env maps LLM_ODDS_MODEL')
+  assert.equal(lines.filter((l) => l.startsWith('PRO_LLM_ODDS_MODEL:')).length, 1)
+  const env = await fs.readFile(new URL('.env.example', root), 'utf8')
+  assert.ok(env.split('\n').some((l) => l.trim() === 'LLM_ODDS_MODEL='), '.env.example lists LLM_ODDS_MODEL (empty)')
+})

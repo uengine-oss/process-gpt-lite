@@ -1217,6 +1217,7 @@ cd server && node --test test/llm-json-fence.test.js test/llm-logprob.test.js
 | 기능 요건 | 근거 | 시험 | 단계 | |
 |---|---|---|---|---|
 | 확률 읽기는 `PRO_LLM_ODDS_MODEL`(비우면 주 모델), 이름을 준 호출은 그대로 | 사용자 11-25 | `llm-logprob.test.js` | 단위 | ✅ |
+| 설치판: `.env` 의 `LLM_ODDS_MODEL` → 서버 `PRO_LLM_ODDS_MODEL`(비우면 빈 값 = 주 모델), `.env.example` 에 있음 | 설계 | JF-U-06 | 단위 | ✅ |
 | JSON 을 청한 답이 울타리 하나뿐이고 안이 JSON 이면 안쪽을 답으로(chatJson · `chat({json:true})` 직접 읽기 모두) | 운영 측정 11-25 | JF-U-01(사례표 `json-fence-cases.json`) · 02 · 03 | 단위 | ✅ |
 | 그 밖의 답(앞뒤 말 · 다른 언어 · 깨진 안 · 한 줄 울타리)과 JSON 을 청하지 않은 답은 손대지 않음, 깨진 안은 「not JSON」 으로 실패 | 설계 | JF-U-01 · 04 · 05 | 단위 | ✅ |
 | 운영 프록시가 json_object 울타리를 벗긴다(claude_compat 7) | 운영 측정 11-25 | `openspec/specs/llm-model-compat/e2e/README.md` 「실측」 | 실측 | ✅ |
