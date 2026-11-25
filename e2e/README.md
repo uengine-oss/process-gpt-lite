@@ -1083,9 +1083,12 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 
 시험은 자기 스택을 띄운다(`lib/localStack.js`, 테넌트 `office-ask`, 8950 · 5350 부터). 실제 이음오피스 편집기도 이 시험이 따로 띄운다(`lib/officeHost.js`, 5395 부터, `RT_OFFICE_HOST_DIR` = 빌드한 process-gpt-office-host). 가짜 deepagents 겸 가짜 맥락 라우터는 실제 Lite MCP 를 사용자 토큰으로 부른다. 라우터는 요청마다 「새 주제」를 고른다. 시험과 Vite 사이의 프록시는 서버가 사라졌다 돌아오는 상황을 흉내 낸다. 모델은 쓰지 않는다. 사람(한서윤)은 지어낸 이름이다. 화면 사진은 `openspec/specs/office-live-edit/e2e/results/`.
 
+두 번째 보고(2026-11-25 12:57, 스크린샷): 「@표 1 · 1~3행 1~4열 "회의명 일시 장소/방식 작성자 참석자"」를 골라 「글씨가 표 위에 붙어있다. 중앙정렬」이라고 보냈다. 편집기는 「setTableCellFormat: 10」을, 검수는 「편집기 확인 … ✓」를 보였지만 글씨는 칸 위에 그대로였다. 행 높이 없이 문단 아래 간격(문서 기본값 200 twips)만으로 높은 칸이라 가운데로 옮길 자리가 없었고, 에이전트가 함께 보낸 문단 간격 0 은 선택의 from·to(칸 하나)에만 갔다. 지금은 office-host 가 세로 정렬을 바꾼 칸의 문단 위아래 간격을 정렬대로 옮기고(칸 높이는 그대로), 편집 뒤 문서를 다시 읽어 결과에 `check`(칸의 vAlign · fill · borders 와 글이 놓인 자리, 문단의 값과 화면 정렬)를 싣는다. Lite 는 그것으로 요청한 서식이 문서에 있는지 보고(`server/lib/officeEdits.js`), 없으면 에이전트에 오류로, 답은 「반영되지 않았어요」로 바꾼다. 표 선택은 고른 칸을 행마다 덮는 `textRanges` 를 함께 넘긴다. 재현 문서는 `fixtures/meeting-minutes-labels.py`(python-docx 기본값, 운영 문서와 같은 꼴).
+
 ```bash
 RT_OFFICE_HOST_DIR=/path/to/process-gpt-office-host npx playwright test --project=feature tests/feature/office-ask.spec.js
-cd ../server && node --test test/officeAsk.test.js test/live-links.test.js
+# 포트를 정해 돌릴 때: RT_OA_PORTS=<BFF>,<Vite>,<office host>,<가짜 서버들>  (기본 8950,5350,5395,8955)
+cd ../server && node --test test/officeAsk.test.js test/officeEdits.test.js test/live-links.test.js
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1100,6 +1103,10 @@ cd ../server && node --test test/officeAsk.test.js test/live-links.test.js
 | 390px 휴대폰(밝은 · 밤): 다이얼에 같은 칩, 화면 밖으로 넘치지 않음 | — | F-OA-07 | feature | ✅ |
 | 이웃한 길 「@ 가리키기」: 표를 누르면 칩, 보내면 메시지 앞에 붙고 에이전트 맥락에 「가리킨 대상」. 밝은 테마에서도 읽히는 칩 색 | — | F-OA-08 | feature | ✅ |
 | 에이전트 안내: 고른 부분의 자리로 setTableCellFormat, 바뀐 곳이 없으면 했다고 하지 않기 | — | `live-links.test.js` | 단위 | ✅ |
+| 칸이 문단 아래 간격으로만 높은 표에서 1~3행 1~4열 「중앙정렬」(운영 에이전트가 보낸 연산 그대로): 다섯 라벨이 칸 가운데(글자 상자로 잼), 행 높이 그대로, 결과 「문서에서 확인함」, 검수 「편집기 확인 … (문서에서 확인함)」 ⚠ 없음, 저장한 파일의 열 칸 `w:vAlign` center, 다시 열어도 가운데 | 운영 11-25 12:57 | F-OA-09 · office-host `page-live.test.mjs` | feature · 단위 | ✅ |
+| 요청한 서식이 문서에 나타나지 않은 편집(칸 안 글 아래 빈 문단): 에이전트에는 「…문서에 나타나지 않았어요」 오류와 그 칸 · 글 위아래 자리, 답은 「요청한 수정이 … 반영되지 않았어요. 편집기는 받아들였지만 문서에서 확인되지 않았어요」 | 운영 11-25 12:57 | F-OA-10 · `officeEdits.test.js` OE-U-01·05 | feature · 단위 | ✅ |
+| 서식 확인은 세로 정렬만이 아니다: 칸 색(값과 화면) · 테두리 · 문단 가로 정렬(값과 화면) · 대상 없음. 확인 자료가 없는 이전 office-host 는 「편집기 보고 … (문서에서 확인하지 못함)」으로 ✓ 근거가 아님 | 운영 11-25 12:57 | `officeEdits.test.js` OE-U-02·03·04 | 단위 | ✅ |
+| 표 선택은 고른 칸 전체를 행마다 덮는 `textRanges` 를 넘기고, 안내는 칸 안 글의 문단 · 글꼴 연산을 그것으로 보내게 한다(선택의 from·to 는 첫 칸 하나) | 운영 11-25 12:57 | OA-U-07 · `live-links.test.js` · office-host `page-live.test.mjs` | 단위 | ✅ |
 | 한글 · 엑셀의 고른 부분(지금은 워드만 알림) | — | — | — | ✗ |
 | 운영 `/lite/` 경로 · 실제 에이전트(모델)가 이 안내대로 setTableCellFormat 을 고르는지 | — | — (모델 · 운영) | — | ◐ |
 

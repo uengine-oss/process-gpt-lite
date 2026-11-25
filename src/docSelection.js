@@ -1,6 +1,7 @@
 // The selection in the open IeumOffice document, as the chat carries it (no browser state here: tested in server/test/docSelection.test.js).
 // The editor page tells what is selected as it changes (office-host page-live.mjs {type:'selection'}: where it is — `label`, the
-// top-level `blockIndex`, in a table the cells' grid `range` as the table ops count it — and the selected `text`); the composer
+// top-level `blockIndex`, in a table the cells' grid `range` as the table ops count it and `textRanges`, the selected cells'
+// contents one position range per row for paragraph and font ops — and the selected `text`); the composer
 // shows it as a chip (Composer.vue) that goes with the next message, and the agent edits exactly that place through the live
 // editor tools (server lib/craftLive.js liveHint). Removing the chip (✕) or sending it puts that selection away until it changes.
 
@@ -19,7 +20,16 @@ export function docSelectionOf(sel, file) {
     ...(n(sel.blockIndex) != null ? { blockIndex: sel.blockIndex } : {}), ...(n(sel.blockEnd) != null ? { blockEnd: sel.blockEnd } : {}),
     ...(n(sel.table) != null ? { table: sel.table } : {}), ...(range && range.row != null ? { range } : {}), ...(n(sel.image) != null ? { image: sel.image } : {}),
     ...(n(sel.from) != null && n(sel.to) != null ? { from: sel.from, to: sel.to } : {}),
+    ...(textRangesOf(sel.textRanges) ? { textRanges: textRangesOf(sel.textRanges) } : {}),
   }
+}
+
+// a table selection's cells, one { from, to } per row (a cell selection's own from/to is its first cell only — production 11-25:
+// a paragraph op on the selection's from/to changed one cell of ten)
+function textRangesOf(v) {
+  if (!Array.isArray(v) || !v.length) return null
+  const out = v.slice(0, 60).filter((r) => r && Number.isInteger(r.from) && Number.isInteger(r.to) && r.from >= 0 && r.to > r.from).map((r) => ({ from: r.from, to: r.to }))
+  return out.length ? out : null
 }
 
 /** the same selection (a chip put away stays away until the selection changes) */

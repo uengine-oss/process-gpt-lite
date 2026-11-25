@@ -204,7 +204,10 @@ async function restore(live) {
 
 /** review one turn; posts the note and returns { ok, summary }. applied: the live editor's edit calls of the turn that changed
  *  the document by its own report (lib/officeEdits.js) — a change of form (a cell's vertical alignment, a colour) is not in the
- *  text the content check compares, so with those the check's "not met" alone is not a failure: what the editor did is said */
+ *  text the content check compares, so with those the check's "not met" alone is not a failure when the document itself
+ *  confirmed the format (`verified`: office-host read it back from the open document). An edit only the editor reported
+ *  (no read-back) is said as reported and does not make the turn ✓ on its own — production 11-25 12:57: 「편집기 확인:
+ *  setTableCellFormat: 10 … ✓」 while the labels had not moved */
 export async function reviewTurn({ user, session, threadId, request, open, before, applied = [] }) {
   if (!open || !before) return null
   const status = (t) => emit(user.id, 'status', { threadId, text: t })
@@ -231,9 +234,11 @@ export async function reviewTurn({ user, session, threadId, request, open, befor
       if (missing().length) { await restore(live); fixed = L('원래 그림으로 되돌림', 'restored the original picture') }
     }
     const miss = missing()
-    const confirmed = (applied || []).map((a) => a.summary).filter(Boolean)
+    const confirmed = (applied || []).filter((a) => a.verified).map((a) => a.summary).filter(Boolean)
+    const reported = (applied || []).filter((a) => !a.verified).map((a) => a.summary).filter(Boolean)
     const okNow = !miss.length && (look?.met !== false || confirmed.length > 0)
-    if (confirmed.length) ok.push(L(`편집기 확인: ${clip(confirmed.join(' · '))}`, `the editor confirmed: ${clip(confirmed.join(' · '))}`))
+    if (confirmed.length) ok.push(L(`편집기 확인: ${clip(confirmed.join(' · '))} (문서에서 확인함)`, `the editor confirmed: ${clip(confirmed.join(' · '))} (checked in the document)`))
+    if (reported.length) ok.push(L(`편집기 보고: ${clip(reported.join(' · '))} (문서에서 확인하지 못함)`, `the editor reported: ${clip(reported.join(' · '))} (not checked in the document)`))
     const parts = okNow
       ? [...ok, look?.kept && L(`유지: ${clip(look.kept)}`, `kept: ${clip(look.kept)}`), look?.changes && L(`바뀜: ${clip(look.changes)}`, `changed: ${clip(look.changes)}`)].filter(Boolean)
       : [L(`빠진 것: ${miss.join(', ') || '요청이 반영되지 않음'}`, `missing: ${miss.join(', ') || 'the request was not applied'}`), fixed].filter(Boolean)

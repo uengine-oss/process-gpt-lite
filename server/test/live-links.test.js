@@ -103,4 +103,10 @@ test('openDoc: the document the page says is open stands in for a live link that
   assert.match(hint, /골라 둔 부분\(선택\)이 붙어 오면/)
   assert.match(hint, /"op":"setTableCellFormat","target":\{"nodeType":"table","blockIndexes":\[선택의 blockIndex\]\},"range":선택의 range/)
   assert.match(hint, /바뀐 곳이 없다고 하면 고쳤다고 말하지 말고/)
+  // (2026-11-25 12:57) vertical alignment is the cell op alone — the editor moves the paragraph spacing — and paragraph or font ops
+  // in a table selection go once per textRanges entry: the selection's own from/to is its first cell only (one cell of ten changed)
+  assert.match(hint, /세로 정렬은 vAlign 하나면 돼요: 편집기가 칸 높이는 그대로 두고 칸 안 문단의 위아래 간격을 옮겨/)
+  assert.match(hint, /setParagraphFormat·setFont 를 선택의 textRanges 마다 하나씩/)
+  assert.match(hint, /선택의 from·to 는 첫 칸 하나만 가리켜요/)
+  assert.doesNotMatch(hint, /"from":선택의 from,"to":선택의 to/)
 })
