@@ -112,7 +112,7 @@ export async function chat({ messages, tools, toolChoice, model, json, temperatu
 // One token, and how likely each candidate was: {model, top: [{token, logprob}]}, top null when the endpoint gives no
 // log-probabilities. Nothing is generated, so it is cheap enough to run on every action a policy looks at.
 export async function firstTokenTop({ prompt, model, timeoutMs = 4000 }) {
-  const m = model || config.llm.model
+  const m = model || config.llm.oddsModel || config.llm.model
   const messages = [{ role: 'user', content: prompt }]
   trace(messages)
   // (reasoning models give log-probabilities only with no reasoning: gpt-6-luna refuses them otherwise)

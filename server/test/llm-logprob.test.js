@@ -107,3 +107,26 @@ test('언제나 추론하는 모델(gpt-6-astra): 장애가 아니라 확률을 
   const refused = seen.filter((b) => b.reasoning_effort === 'none').length
   assert.equal(refused, 1)
 })
+
+// PRO_LLM_ODDS_MODEL: the main model may give no log-probabilities (Claude); the readings then go to the odds model
+test('확률 읽기는 PRO_LLM_ODDS_MODEL 로(없으면 주 모델로)', async () => {
+  const { config } = await import('../config.js')
+  const keep = { odds: config.llm.oddsModel, main: config.llm.model }
+  try {
+    mode = 'none'
+    config.llm.model = 'main-without-logprobs'
+    config.llm.oddsModel = 'odds-gateway'
+    await llm.firstTokenTop({ prompt: 'q', timeoutMs: 2000 })
+    assert.equal(seen.at(-1).model, 'odds-gateway')
+    config.llm.oddsModel = ''
+    await llm.firstTokenTop({ prompt: 'q', timeoutMs: 2000 })
+    assert.equal(seen.at(-1).model, 'main-without-logprobs')
+    // a caller naming its model keeps it
+    config.llm.oddsModel = 'odds-gateway'
+    await llm.firstTokenTop({ prompt: 'q', model: 'named-1', timeoutMs: 2000 })
+    assert.equal(seen.at(-1).model, 'named-1')
+  } finally {
+    config.llm.oddsModel = keep.odds
+    config.llm.model = keep.main
+  }
+})
