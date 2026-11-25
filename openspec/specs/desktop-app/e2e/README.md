@@ -3,10 +3,11 @@
 ## 단위 시험 (Electron 없이)
 
 ```bash
-cd desktop && npm test      # test/policy.test.js · test/server.test.js
+cd desktop && npm test      # test/policy.test.js · test/server.test.js · test/badge.test.js …
+cd server && node --test test/appBadge.test.js   # 웹 앱 쪽 알림 수(src/appBadge.js)
 ```
 
-주소 정규화, `/api/config` 확인(가짜 fetch), 주소별로 창 안이나 창 밖에서 열지, 차단할지를 확인한다.
+주소 정규화, `/api/config` 확인(가짜 fetch), 주소별로 창 안이나 창 밖에서 열지, 차단할지를 확인한다. `test/badge.test.js` 는 알림 수 맞추기, 시스템별 글(메뉴 막대 숫자 · 툴팁 · 오버레이 설명 · 메뉴), 비트맵에 그린 배지(크기 · 빨강 · 0이면 그대로 · 10부터 9+), 가짜 `app` · `Tray` · `Menu` · `nativeImage` 로 macOS · Windows · Linux 의 `src/tray.js`, 트레이 PNG 와 묶기 설정을 본다.
 
 ## 앱 시험 (Playwright `_electron`, `e2e/tests/desktop/desktop.spec.js`)
 
@@ -41,8 +42,11 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 | 서버 화면이 로컬 단추를 부른다 | D-07(`window.pglLocal` 없음, 메인 쪽 거절은 코드 검토만) |
 | 묶은 앱 | `PGL_DESKTOP_EXE`로 D-01~D-11 |
 | 채팅 · 루틴 · 폴더 화면 | D-03 |
+| 페이지가 보낸 수 · 트레이 아이콘을 누른다 · 「알림 N개 — 열기」 · 로그아웃 | D-12 |
+| Home 카드 | D-13 |
+| Windows · Linux의 배지 그림 | `desktop/test/badge.test.js`(가짜 Electron), 그림 `d12-tray-badges.png` |
 
-시험하지 않은 것: 전체 화면에서 신호등 자리 비우기(macOS 전체 화면은 새 Space로 옮겨 가서 이 PC의 화면에 영향을 준다), 마우스 오른쪽 단추 메뉴, 접근 암호(basic auth)가 걸린 서버, 401 응답일 때 자동으로 재시도하지 않는 동작, 화면 공유, Windows · Linux.
+시험하지 않은 것: 실제 Windows · Linux 의 트레이 · 작업 표시줄 오버레이 · 런처 숫자(가짜 Electron 의 단위 시험만), 메뉴 막대에 보이는 모습(화면 기록 권한이 없어 찍지 못함 — `state()` 의 `tray.getTitle()` 로 확인), 전체 화면에서 신호등 자리 비우기(macOS 전체 화면은 새 Space로 옮겨 가서 이 PC의 화면에 영향을 준다), 마우스 오른쪽 단추 메뉴, 접근 암호(basic auth)가 걸린 서버, 401 응답일 때 자동으로 재시도하지 않는 동작, 화면 공유, Windows · Linux.
 
 ## 사진 (`results/`)
 
@@ -58,5 +62,8 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 | `d02-login-lights.png` · `d04-*-lights.png` | 로그인과 위 네 장에 신호등 자리 표시 |
 | `d04-settings.png` | 위 메뉴가 없는 화면(설정) |
 | `d06-offline-dark.png` · `d10-offline-light.png` | 연결 실패 화면 |
+| `d12-home-from-tray.png` | 트레이 메뉴 「알림 2개 — 열기」로 폴더에서 채팅의 Home 으로 |
+| `d13-home-cards.png` | Home 카드 세 장 — 숫자 3 |
+| `d12-tray-badges.png` | 앱이 그리는 그림(`src/badge.js` → Electron `nativeImage`, 크게 확대): Windows · Linux 트레이 0 · 3 · 12(9+), 16 · 32px, 밝은 막대 · 어두운 막대, Windows 작업 표시줄 오버레이, macOS 템플릿 그림과 숫자 |
 
 시험 결과는 `e2e.txt`에 있다.

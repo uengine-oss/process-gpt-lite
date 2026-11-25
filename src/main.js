@@ -1,6 +1,6 @@
 // first: picks the screen language and tags every /api call with it (X-PGL-Lang)
 import { isEnglish } from './i18n/lang.js'
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
@@ -11,7 +11,7 @@ import './styles/desktop.css'
 import { installCjkMarkdown } from './markdownCjk.js'
 import { watchUaTransitions } from './uaTransition.js'
 import { api, auth, adoptHostSession } from './api.js'
-import { registerWorker } from './browserNotify.js'
+import { registerWorker, setBadge } from './browserNotify.js'
 import { watchInstall } from './install.js'
 import { useApp } from './stores/app.js'
 
@@ -65,6 +65,9 @@ watchInstall()
 router.beforeEach((to) => {
   if (!to.meta.public && !auth.get()?.session) return '/login'
 })
+// signed out — logout, a session that ran out, a sign-in that failed: every way ends on a page with no session. The badge
+// (src/browserNotify.js setBadge: the installed app's icon, the desktop app's Dock · taskbar · tray) counted the last person's cards.
+router.afterEach(() => { if (!auth.get()?.session) setBadge(0) })
 // 개선 분석은 회사 프로세스 지도로 합쳤어요(pgpt-pro/docs/auto-ax-onboarding/design-improve-on-map.md §7, 결정 4): /improve(목록)는 지도의
 // 병목 보기로, 지도 프로세스의 스냅샷 정의(/improve/:defId)는 그 프로세스의 병목 보기로 넘기고(server routes/improve.js GET /improve/:defId/map),
 // 지도에 없는 정의(손으로 그린 · 생성한 프로세스)는 옛 개선 화면 그대로 — 알림의 /improve/… 주소, 인스턴스 머리글의 링크도 이 규칙을 따른다
@@ -85,6 +88,18 @@ router.beforeEach(async (to, from) => {
 
 // English: the dictionary and the runtime translator go in before the first render
 const ready = isEnglish ? import('./i18n/english.js').then((m) => m.installEnglish()).catch((e) => console.error('english mode', e)) : Promise.resolve()
-ready.then(() => createApp(App).use(createPinia()).use(router).mount('#app'))
+ready.then(() => {
+  const pinia = createPinia()
+  createApp(App).use(pinia).use(router).mount('#app')
+  const app = useApp(pinia)
+  // the badge follows the Home cards as they go too: a card put away here (✕, a swipe) gets no new list from the server
+  watch(() => app.notifications.length, (n) => setBadge(n))
+  // the desktop app's tray 「알림 N개 — 열기」 (desktop/src/tray.js): Home — the chat with its dock open
+  window.pglDesktop?.onOpenHome?.(() => {
+    const r = router.currentRoute.value
+    if (r.meta.mode !== 'chat' || r.meta.settings) router.push('/chat').catch(() => {})
+    app.dockOpen = true
+  })
+})
 // push notifications and the installed app's badge (public/sw.js)
 registerWorker()

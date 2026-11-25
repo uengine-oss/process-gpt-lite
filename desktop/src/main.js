@@ -26,6 +26,7 @@ const menu = require('./menu')
 const { createLocalRunner } = require('./runner')
 const CLIS = require('./runner/clis')
 const { createBrowserHost } = require('./browser/host')
+const { createTrayBadge } = require('./tray')
 
 const MAC = process.platform === 'darwin'
 const DEV = !app.isPackaged || process.env.PGL_DESKTOP_DEV === '1'
@@ -51,6 +52,7 @@ app.userAgentFallback = app.userAgentFallback
 
 let win = null
 let lastFailure = null // what the offline page shows
+let trayBadge = null // the tray icon and the count of Home cards waiting (tray.js) — made in start()
 
 // ---------- single instance ----------
 // (a hook run — above — has left already; never ask for the lock from it: the running app would bring its window up)
@@ -78,6 +80,7 @@ function start() {
   setupSession(session.defaultSession)
   buildMenu()
   createWindow()
+  startTray()
   startRunner()
   // the server's Supabase sign-in address may change (or was never read): ask again quietly
   const s = settings.get().server
@@ -133,6 +136,8 @@ function createWindow() {
   })
   if (saved?.maximized) win.maximize()
   win.once('ready-to-show', () => win.show())
+  // Windows: the taskbar button's count goes on once the button is there (a window made again on macOS: the same count)
+  win.on('show', () => trayBadge?.refresh())
   // (a page that never gets ready — a server that does not answer at all — still shows the window)
   setTimeout(() => { if (win && !win.isDestroyed() && !win.isVisible()) win.show() }, 4000)
 
@@ -308,6 +313,8 @@ function buildMenu() {
       openInBrowser: nav((wc) => openExternal(isServerPage(wc.getURL()) ? wc.getURL() : serverUrl())),
     },
   })))
+  // (the tray's words follow the same language)
+  trayBadge?.refresh()
 }
 
 // ---------- the local pages (setup, offline) ----------
@@ -341,6 +348,8 @@ ipcMain.handle('pgl:connect', async (e, v) => {
   if (!r.ok) return r
   settings.useServer(r.server, r.authOrigins)
   settings.setGate(user, pass)
+  // the count was the last server's (its page sends its own once it loads)
+  trayBadge?.set(0)
   buildMenu()
   loadServer()
   // the local runner follows the server (a pairing is per server)
@@ -443,9 +452,11 @@ function runnerStatus() {
 function sendRunnerState() {
   const wc = win?.webContents
   if (wc && !wc.isDestroyed() && isServerPage(wc.getURL())) wc.send('pgl:runner:state', runnerStatus())
-  // the Dock shows that an agent works on this computer
-  if (MAC && app.dock) { const n = runner?.runner?.jobs?.size || 0; try { app.dock.setBadge(n ? '●' : '') } catch { /* no dock */ } }
+  // the Dock shows that an agent works on this computer (● — a count of Home cards waiting comes first: tray.js)
+  if (trayBadge) trayBadge.dock()
+  else if (MAC && app.dock) { try { app.dock.setBadge(localRunning() ? '●' : '') } catch { /* no dock */ } }
 }
+const localRunning = () => (runner?.runner?.jobs?.size || 0) > 0
 // the person's yes before a run (their setting 「실행 전에 묻기」)
 async function askRun(job) {
   const ko = settings.get().lang !== 'en'
@@ -498,4 +509,46 @@ ipcMain.handle('pgl:runner:detect', async (e) => {
   sendRunnerState()
   return runnerStatus()
 })
-app.on('before-quit', () => { browserHost?.quit(); stopRunner() })
+
+// ---------- the tray icon and the count of Home cards waiting (tray.js · badge.js) ----------
+// The web app counts the cards (src/browserNotify.js setBadge) and sends the number over the preload's bridge (pglDesktop.setBadge):
+// the Dock (macOS) or the launcher (Linux, where it has one), the taskbar button's overlay (Windows), and the tray icon everywhere —
+// the number beside the menu bar icon on macOS, a red badge on the icon on Windows · Linux. Its click brings the window up; its menu:
+// 열기 · 알림 N개 — 열기 (Home) · 종료.
+// Closing the window is as before (not changed with the tray): Windows · Linux quit (the tray icon goes with the app), macOS keeps
+// running in the Dock and the menu bar — the tray's click or 열기 makes the window again.
+function startTray() {
+  try {
+    trayBadge = createTrayBadge({
+      electron: require('electron'), iconDir: path.join(__dirname, '..', 'resources', 'tray'),
+      lang: () => settings.get().lang, mainWindow: () => win, dockMark: () => (localRunning() ? '●' : ''),
+      show: showWindow, openHome, quit: () => app.quit(), log: runnerLog,
+    })
+  } catch (e) { console.warn(`[tray] ${e.message}`) }
+  // tests (e2e D-12): the tray's state and menu, from the main process
+  global.__pglTray = trayBadge
+}
+function showWindow() {
+  if (!win) createWindow()
+  else {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }
+  // (a click on the menu bar does not make the app the active one)
+  if (MAC) app.focus({ steal: true })
+}
+// 「알림 N개 — 열기」: Home — the chat with its dock open (the web app's src/main.js answers pglDesktop.onOpenHome)
+function openHome() {
+  const had = !!win
+  showWindow()
+  // (a window made just now opens the chat, Home with it)
+  if (!had || !win) return
+  const wc = win.webContents
+  if (isServerPage(wc.getURL())) wc.send('pgl:open-home')
+  else if (serverUrl()) loadServer('/chat')
+}
+// only the chosen server's own pages, in the main window, say the count
+ipcMain.on('pgl:badge', (e, n) => { if (fromServerPage(e)) trayBadge?.set(n) })
+
+app.on('before-quit', () => { browserHost?.quit(); stopRunner(); trayBadge?.destroy() })
