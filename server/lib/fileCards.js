@@ -35,6 +35,8 @@ export async function openFileCard(user, msgId) {
   if (!m) throw err(404, L('파일 카드를 찾지 못했어요.', "I couldn't find the file card."))
   const c = m.content || {}
   if (c.url) return c
+  // a private card (a mail's attachment, its edited copy — lib/mailAttachments.js): a signed address for this opening, never stored
+  if (c.private?.key) return (await import('./mailAttachments.js')).openPrivateCard(c)
   const p = String(c.path || '')
   if (!p.startsWith('/workspace/') || p.split('/').includes('..')) throw err(400, L('작업 공간의 파일만 열 수 있어요.', 'Only files in the workspace can be opened.'))
   const name = c.name || path.basename(p)

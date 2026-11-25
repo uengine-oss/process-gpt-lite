@@ -216,8 +216,27 @@ let savedChain = Promise.resolve()
 let lastFail = null // a folder save that did not go through: tried again before the sheet closes
 let closeArmed = false
 watch(() => app.officeDoc?.msgId, () => { session = newSession(); lastFail = null; closeArmed = false })
+// A mail's attachment opened from its own private copy (src/mailAttach.js — not a folder's: that one is the folder's file above): its first
+// save becomes my own private file card in my chat (server lib/mailAttachments.js saved), later saves keep that card on the newest copy.
+// No address is ever put on it — the sheet keeps the signed one it opened with.
+// (the editor's own 「저장했어요. 편집본이 원본 옆에」 is not said: this sheet says where it went)
+const quietSave = computed(() => !!app.officeDoc?.private && !app.officeDoc.folder)
+async function savedMailAtt(job) {
+  const d = app.officeDoc
+  const att = d?.mailAtt
+  try {
+    const r = await api(`/mail/attachments/${encodeURIComponent(att.actionId)}/${att.i}/saved`, { method: 'POST', body: { session: job.sid } })
+    if (app.officeDoc === d) app.officeDoc = { ...d, msgId: r.message.id }
+    flash('ok', '편집본을 내 채팅에 파일로 저장했어요 · 나만 볼 수 있어요', 6000)
+  } catch (e) { flash('err', `편집본을 저장하지 못했어요: ${e.message}`, 8000) }
+}
 function saved({ url, name }) {
   if (url && app.officeDoc?.panelAppId) return savedPanelSheet(url)
+  if (url && app.officeDoc?.mailAtt && !app.officeDoc.msgId) {
+    const job = { url, name, sid: session }
+    savedChain = savedChain.then(() => savedMailAtt(job))
+    return savedChain
+  }
   if (!url || !app.officeDoc?.msgId) return
   const job = { id: app.officeDoc.msgId, url, name, sid: session }
   savedChain = savedChain.then(() => postSave(job))
@@ -230,7 +249,14 @@ async function postSave(job) {
   const here = app.officeDoc?.msgId === job.id
   lastFail = failed != null && (here ? app.officeDoc.folder : true) ? job : null
   if (!here) return
-  if (m?.error == null) app.officeDoc = { ...app.officeDoc, url: job.url, name: job.name || app.officeDoc.name, ...(m?.content?.folder ? { folder: m.content.folder } : {}) }
+  // (a private card keeps the signed address it opened with: an editor's saved address is never one to load from — server lib/mailAttachments.js)
+  if (m?.error == null) app.officeDoc = { ...app.officeDoc, url: app.officeDoc.private ? app.officeDoc.url : job.url, name: job.name || app.officeDoc.name, ...(m?.content?.folder ? { folder: m.content.folder } : {}) }
+  // a mail's attachment edited outside a folder: where the save went
+  if (app.officeDoc.private && !app.officeDoc.folder) {
+    if (failed != null) flash('err', `편집본을 저장하지 못했어요: ${failed}`, 8000)
+    else flash('ok', '편집본을 내 채팅의 파일에 저장했어요 · 나만 볼 수 있어요', 3500)
+    return
+  }
   // a shared folder's file: say where the save went
   if (!app.officeDoc.folder) return
   if (failed != null) flash('err', `폴더에 저장하지 못했어요: ${failed}`, 8000)
@@ -268,7 +294,7 @@ onBeforeUnmount(() => onOfficeLeave(null))
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        :assistant="office" :auto-save="autoSave" v-model:maximized="maximized" @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" @selection="selection" />
+        :assistant="office" :auto-save="autoSave" :quiet-save="quietSave" v-model:maximized="maximized" @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" @selection="selection" />
       <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
       <Transition name="pic">
         <div v-if="pic" class="pic">

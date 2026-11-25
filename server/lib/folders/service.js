@@ -12,6 +12,7 @@ import { q, admin } from '../supa.js'
 import * as G from './git.js'
 import { PGPT_ROOT } from '../paths.js'
 import { L } from '../lang.js'
+import * as PS from '../privateStore.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -296,6 +297,15 @@ export function editedObject(folder, url) {
   const name = key.startsWith(dir) ? key.slice(dir.length) : ''
   return /^edited-[A-Za-z0-9._-]+$/.test(name) ? key : null
 }
+// …or of its private copy (a mail's attachment filed here, opened from the mail — lib/mailAttachments.js: never a public address):
+// {bucket, key} in the private bucket beside folders/<tenant>/<folder>/, or null
+export function editedPrivateObject(folder, url) {
+  const o = PS.objectOfUrl(url)
+  if (!o || o.bucket !== PS.BUCKET) return null
+  let dir
+  try { dir = PS.folderDir({ tenant: T(), folderId: folder.id }) } catch { return null }
+  return PS.editedIn(dir, o.key) ? o : null
+}
 async function copyPath(folder, rel, user) {
   const ext = path.posix.extname(rel)
   const stem = rel.slice(0, rel.length - ext.length)
@@ -312,9 +322,10 @@ export async function saveOfficeEdit(folder, user, { path: rel, base, url, sessi
   const p = safeRel(rel)
   const ext = path.extname(p).slice(1).toLowerCase()
   if (!OFFICE_EDIT.has(ext)) throw err(400, L('이음오피스로 고쳐 저장하는 형식이 아니에요.', "This format isn't saved from IeumOffice."))
-  const key = editedObject(folder, url)
+  const priv = editedObject(folder, url) ? null : editedPrivateObject(folder, url)
+  const key = priv ? priv.key : editedObject(folder, url)
   if (!key || path.extname(key).slice(1).toLowerCase() !== ext) throw err(400, L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy."))
-  const { data, error } = await admin.storage.from('files').download(key)
+  const { data, error } = await admin.storage.from(priv ? PS.BUCKET : 'files').download(key)
   if (error || !data) throw err(404, L('저장한 편집본을 받지 못했어요.', "I couldn't fetch the saved copy."))
   const buf = Buffer.from(await data.arrayBuffer())
   if (!buf.length) throw err(400, L('편집본이 비어 있어요.', 'The saved copy is empty.'))

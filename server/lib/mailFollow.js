@@ -51,7 +51,8 @@ export function flowTop(card) {
 // attachments; the agent actions, 동료에게 공유 always
 export function applicable(x, { card, atts = [] } = {}) {
   if (x.do === 'flow') return !!flowTop(card)
-  if (x.do === 'file') return atts.length > 0
+  // 폴더에 정리 · 이 첨부로 묻기 (lib/mailAttachments.js — the chat with the mail and its attachments as chips): only with attachments
+  if (x.do === 'file' || x.do === 'askatt') return atts.length > 0
   return ['agent', 'share', 'chat'].includes(x.do)
 }
 

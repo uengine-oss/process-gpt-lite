@@ -26,6 +26,7 @@ const base = (p) => String(p || '').split('/').pop()
 //   share   a file a teammate shared with me, or one I shared: {shareId}
 //   ref     a file mention in a messenger message: {messageId, index}
 //   mail    a mail of mine — its Home card: {id (the card's id), name (its subject), from (the sender's name)}
+//   mailatt attachment i of a mail of mine: {id (the card's id), i, name (the file's), subject (the mail's)} — src/mailAttach.js attItem
 export const folderItem = (folder, file, { commit = null, variation = null } = {}) => ({ src: 'folder', slug: folder.slug, folder: folder.name, path: file.path, name: base(file.path),
   ...(COMMIT.test(commit || '') ? { commit } : {}), ...(variation ? { variation } : {}), as: 'link' })
 // a file the agent wrote in a project's folder checkout (server threadFolders.js) — it lives in the project's variation
@@ -56,6 +57,9 @@ export function validItem(x) {
     return { src: 'ref', messageId: String(x.messageId), index: x.index, name, ...(s(x.folder) ? { folder: s(x.folder, 120) } : {}), as: 'link' }
   }
   if (x.src === 'mail' && UUID.test(String(x.id || ''))) return { src: 'mail', id: String(x.id), name, ...(s(x.from) ? { from: s(x.from, 120) } : {}), as: 'mail' }
+  if (x.src === 'mailatt' && UUID.test(String(x.id || '')) && Number.isInteger(x.i) && x.i >= 0 && x.i < 100 && name) {
+    return { src: 'mailatt', id: String(x.id), i: x.i, name, ...(s(x.subject) ? { subject: s(x.subject, 200) } : {}), as: 'mailatt' }
+  }
   return null
 }
 // the payload's text → its items ([] when it is not ours)
@@ -68,7 +72,7 @@ export function parsePayload(text) {
   return out
 }
 export const same = (a, b) => a.src === b.src && (a.src === 'folder' ? a.slug === b.slug && a.path === b.path && (a.variation || '') === (b.variation || '')
-  : a.src === 'card' || a.src === 'mail' ? a.id === b.id : a.src === 'share' ? a.shareId === b.shareId : a.messageId === b.messageId && a.index === b.index)
+  : a.src === 'card' || a.src === 'mail' ? a.id === b.id : a.src === 'mailatt' ? a.id === b.id && a.i === b.i : a.src === 'share' ? a.shareId === b.shareId : a.messageId === b.messageId && a.index === b.index)
 export const payload = (items) => JSON.stringify({ v: 1, items: items.slice(0, MAX) })
 
 // a link of this app to a folder's file (text/uri-list — a drag from another window of the app): /folders/<slug>?file=<path>[&ref=]
@@ -100,8 +104,11 @@ export function asOf(items) {
 // the words a drop zone shows while these items are over it
 export function zoneWords(target, items) {
   const mail = (items || []).length > 0 && items.every((x) => x.src === 'mail')
-  if (target === 'chat') return mail ? 'AI에게 이 메일로 묻기' : 'AI에게 이 파일로 묻기'
-  if (target === 'folder') return mail ? '메일은 폴더에 넣지 않아요' : '이 폴더에 넣기'
+  // a mail's attachment (src/mailAttach.js): asked about in the chat; in a conversation its name only, until its owner shares the file
+  const att = (items || []).length > 0 && items.every((x) => x.src === 'mailatt' || x.src === 'mail') && items.some((x) => x.src === 'mailatt')
+  if (target === 'chat') return att ? 'AI에게 이 첨부로 묻기' : mail ? 'AI에게 이 메일로 묻기' : 'AI에게 이 파일로 묻기'
+  if (target === 'folder') return att ? '메일 첨부는 메일 시트에서 정리해요' : mail ? '메일은 폴더에 넣지 않아요' : '이 폴더에 넣기'
+  if (att) return '여기에 놓으면 첨부를 멘션해요 · 동료에게는 이름만 보여요'
   if (mail) return '여기에 놓으면 메일을 멘션해요'
   const a = asOf(items)
   return a === 'share' ? '여기에 놓으면 공유해요' : a === 'mixed' ? '여기에 놓으면 링크로 멘션하거나 공유해요' : '여기에 놓으면 링크로 멘션해요'

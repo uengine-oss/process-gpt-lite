@@ -180,9 +180,10 @@ test('시트의 할 일 줄: 고정 둘 + 판정 모델이 고른 것(카드에 
   const before = llm.calls.filter((c) => c.judge).length
   const r = await call(u, 'GET', `/actions/${a.id}/follow`)
   assert.equal(r.status, 200, r.text)
-  assert.deepEqual(r.body.actions.map((x) => x.key), ['research', 'chat', 'meeting', 'proposal'])
+  // (the mail has an attachment: 「이 첨부로 묻기」 is fixed too — spec mail-attachments)
+  assert.deepEqual(r.body.actions.map((x) => x.key), ['research', 'chat', 'askatt', 'meeting', 'proposal'])
   assert.match(r.body.actions[0].says, /윤서진 · haneul-data\.example/)
-  assert.equal(r.body.actions[2].p, 0.611) // (0.55 of the options' 0.9: the odds are read over the options — lib/decide.js oddsFromTop)
+  assert.equal(r.body.actions[3].p, 0.611) // (0.55 of the options' 0.9: the odds are read over the options — lib/decide.js oddsFromTop)
   const asked = llm.calls.filter((c) => c.judge).slice(before)
   assert.equal(asked.length, 1)
   assert.match(asked[0].text, /첨부: 회사소개서\.pdf/, '판정 모델은 메일의 첨부도 읽는다')
@@ -190,7 +191,7 @@ test('시트의 할 일 줄: 고정 둘 + 판정 모델이 고른 것(카드에 
   assert.deepEqual(kept.suggest.map((x) => x.key), ['meeting', 'proposal'])
   assert.deepEqual(kept.atts, ['회사소개서.pdf'])
   assert.equal(kept.read.by, 'logprob')
-  assert.equal((await call(u, 'GET', `/actions/${a.id}/follow`)).body.actions.length, 4)
+  assert.equal((await call(u, 'GET', `/actions/${a.id}/follow`)).body.actions.length, 5)
   assert.equal(llm.calls.filter((c) => c.judge).length, before + 1, '두 번째는 묻지 않는다')
   // nothing ran: opening the row is not doing anything
   assert.equal(kept.runs, undefined)
@@ -200,7 +201,7 @@ test('시트의 할 일 줄: 고정 둘 + 판정 모델이 고른 것(카드에 
   llm.down = true
   try {
     const d = await call(u, 'GET', `/actions/${b.id}/follow`)
-    assert.deepEqual(d.body.actions.map((x) => x.key), ['research', 'chat'])
+    assert.deepEqual(d.body.actions.map((x) => x.key), ['research', 'chat', 'askatt'])
     assert.equal(d.body.read.by, 'fallback')
   } finally { llm.down = false }
   assert.equal((await row(b.id)).source.follow, undefined)

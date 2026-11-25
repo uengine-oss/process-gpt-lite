@@ -10,6 +10,12 @@ import { isEnglish } from '../i18n/lang.js'
 // not only the reply: the row of follow-up actions (server lib/mailFollow.js), and the mail itself as a mention to drag (src/fileDrag.js)
 import MailFollowRow from './MailFollowRow.vue'
 import { startDrag, mailItem } from '../fileDrag.js'
+// the attachments are things to act on (2026-11-25 「메일 첨부를 곧바로 이음오피스 등의 도구로 열어보거나 채팅으로 해당 메일에 대한 질의/액션을
+// 취할 수 있는 뭔가 흐름이 있어야」 — spec mail-attachments): a tap opens one where it belongs, its menu asks about it in the chat
+import { api } from '../api.js'
+import { officeDocOf } from '../stores/app.js'
+import { openMailAttachment, askInChat, attItem, attBadge, sizeText } from '../mailAttach.js'
+import { narrow } from '../viewport.js'
 
 // A mail's Home card, opened: the mail as it arrived, and the card's own work as the main action — a reply the person reads,
 // changes and sends themselves (lib/mailReply.js), an event they check and add to their calendar (lib/mailCard.js), or the card's
@@ -266,6 +272,65 @@ function dragMail(e) {
 }
 function dragDone() { passing.value = false }
 onBeforeUnmount(dragDone)
+// ---------- the attachments (src/mailAttach.js, server lib/mailAttachments.js) ----------
+// A tap opens one: a document in IeumOffice (the folder's copy when the mail was filed — its saves go into the folder — else the mail's
+// private copy), a picture · sound · video in the viewer (over this sheet), anything else a calm 「내려받기」 here. Its ⋯ menu: 열기 · 이 첨부로
+// 묻기 (the chat with the mail and this file as chips) · 내려받기. A chip is dragged like any file of the app (the AI chat, a conversation).
+const attBusy = ref(-1)
+const attMenu = ref(-1)
+const attDl = ref({})            // i → a 「내려받기」 address
+const attErr = ref({})           // i → why it did not open
+const edits = computed(() => live.value?.source?.att_edits || {})
+const attKind = (a) => attBadge(a.name)
+async function openAtt(a, i, { download = false } = {}) {
+  attMenu.value = -1; attBusy.value = i; attErr.value = { ...attErr.value, [i]: '' }
+  try {
+    const r = await openMailAttachment(app, { actionId: id, i, name: a.name }, { download })
+    if (r.how === 'download') attDl.value = { ...attDl.value, [i]: r.url }
+    // a document opens in the panel beside the page: the sheet steps away (the viewer lies over it — the sheet stays)
+    else if (r.how === 'office' && r.opened) emit('close')
+    else if (r.opened === false && r.reason) attErr.value = { ...attErr.value, [i]: r.reason }
+  } catch (e) { attErr.value = { ...attErr.value, [i]: e.message || '첨부를 열지 못했어요' } }
+  attBusy.value = -1
+}
+async function askAtt(list) {
+  attMenu.value = -1
+  emit('close')
+  if (narrow.value) app.dockOpen = false
+  if (route.path !== '/chat') await router.push('/chat')
+  await askInChat(app, live.value, list)
+}
+// the edited copy of an attachment (saved as my own private file card — server lib/mailAttachments.js saved): opened again
+async function openEdit(i) {
+  const e = edits.value[String(i)]
+  if (!e?.msgId) return
+  try {
+    const c = await api(`/messages/${encodeURIComponent(e.msgId)}/open-file`, { method: 'POST' })
+    if (await app.setOfficeDoc(officeDocOf(e.msgId, c))) emit('close')
+  } catch (err) { attErr.value = { ...attErr.value, [i]: err.message } }
+}
+// the rooms an attachment is shared with (server lib/mailAttachments.js sharesOf) and 「끄기」 — also a room the owner has left: the share
+// stays on the card until its owner takes it back here (review 11-25 #5)
+const shares = ref([])           // [{i, name, room, title, at}]
+const shareBusy = ref('')
+const sharedRooms = computed(() => JSON.stringify(live.value?.source?.att_share || {}))
+async function loadShares() {
+  const any = Object.values(live.value?.source?.att_share || {}).some((x) => x && Object.keys(x).length)
+  if (!any) { shares.value = []; return }
+  try { shares.value = (await api(`/mail/attachments/${encodeURIComponent(id)}/shares`)).shares || [] } catch (e) { console.warn('[mail att] shares', e.message) }
+}
+watch(sharedRooms, loadShares, { immediate: true })
+const sharesOfAtt = (i) => shares.value.filter((x) => x.i === i)
+async function unshare(x) {
+  shareBusy.value = `${x.i}:${x.room}`
+  try { shares.value = (await api(`/mail/attachments/${encodeURIComponent(id)}/${x.i}/unshare`, { method: 'POST', body: { room: x.room } })).shares || [] }
+  catch (e) { attErr.value = { ...attErr.value, [x.i]: e.message } }
+  shareBusy.value = ''
+}
+function dragAtt(e, a, i) {
+  startDrag(e, [attItem(live.value, a, i)])
+  setTimeout(() => { passing.value = true }, 0)
+}
 // 폴더에 정리: the attachments' folder suggestions come into view
 const origEl = ref(null)
 const filesLit = ref(false)
@@ -340,15 +405,43 @@ function showFiles() {
             <button v-if="long" class="more press" @click="whole = !whole">{{ whole ? '접기' : '전체 보기' }}</button>
             <div v-if="mail.attachments?.length" class="chips atts">
               <!-- 폴더에 정리: each attachment with the folder the judge suggests (lib/folders/filing.js) -->
-              <div v-for="a in mail.attachments" :key="a.name" class="att" data-test="mail-attachment">
-                <span class="chip"><Icon name="clip" :size="13" /> {{ a.name }}</span>
+              <div v-for="(a, i) in mail.attachments" :key="i + a.name" class="att" data-test="mail-attachment" :data-file="a.name">
+                <div class="arow">
+                  <!-- a tap opens it where it belongs; dragged, it is asked about in the chat or mentioned in a conversation -->
+                  <button class="chip achip press" draggable="true" data-test="mail-attachment-open" :data-file="a.name" :aria-busy="attBusy === i"
+                    :title="`${a.name} 열기 · 끌어서 AI 채팅이나 메신저에 놓을 수 있어요`" @click="openAtt(a, i)" @dragstart="dragAtt($event, a, i)" @dragend="dragDone">
+                    <span class="fx" :class="attKind(a)">{{ attKind(a) }}</span><span class="an">{{ a.name }}</span>
+                    <small v-if="attBusy === i" class="shimmer-text">여는 중…</small><small v-else-if="a.size">{{ sizeText(a.size) }}</small>
+                  </button>
+                  <button class="chip amore press" :aria-expanded="attMenu === i" aria-haspopup="menu" aria-label="이 첨부로 할 일" data-test="mail-attachment-more" @click="attMenu = attMenu === i ? -1 : i">
+                    <Icon name="more" :size="14" />
+                  </button>
+                </div>
+                <div v-if="attMenu === i" class="amenu" role="menu" data-test="mail-attachment-menu">
+                  <button role="menuitem" class="press" data-test="att-open" @click="openAtt(a, i)"><Icon name="eye" :size="14" /> 열기</button>
+                  <button role="menuitem" class="press" data-test="att-ask" @click="askAtt([{ a, i }])"><Icon name="chat" :size="14" /> 이 첨부로 묻기</button>
+                  <button role="menuitem" class="press" data-test="att-download" @click="openAtt(a, i, { download: true })"><Icon name="down" :size="14" /> 내려받기</button>
+                </div>
+                <p v-if="attDl[i]" class="adl" data-test="mail-attachment-download">
+                  <span>{{ attKind(a) === 'FILE' || attKind(a) === 'ZIP' ? '앱 안에서 열지 않는 형식이에요' : '이 파일을 내려받아요' }}</span>
+                  <a class="dl press" :href="attDl[i]" download><Icon name="down" :size="13" /> 내려받기</a>
+                </p>
+                <p v-if="attErr[i]" class="err" data-test="mail-attachment-error">{{ attErr[i] }}</p>
+                <!-- who can open it: the rooms it is shared with, each with 「끄기」 -->
+                <p v-for="x in sharesOfAtt(i)" :key="x.room" class="ashare" data-test="mail-attachment-share" :data-room="x.room">
+                  <Icon name="team" :size="13" /><span>공유 중 · {{ x.title || '대화방' }}</span>
+                  <button class="off press" data-test="mail-attachment-unshare" :disabled="shareBusy === `${x.i}:${x.room}`" @click="unshare(x)">{{ shareBusy === `${x.i}:${x.room}` ? '끄는 중…' : '끄기' }}</button>
+                </p>
+                <button v-if="edits[String(i)]" class="aedit press" data-test="mail-attachment-edited" @click="openEdit(i)">
+                  <Icon name="check" :size="13" /> <span>편집본 · 내 채팅의 파일 · 나만 볼 수 있어요</span> <Icon name="chevron" :size="12" />
+                </button>
                 <FolderSuggest :action-id="id" :attachment="a.name" :filing="live?.source?.filing?.[a.name]" compact />
               </div>
             </div>
           </section>
 
           <!-- not only the reply: what else to do with this mail (each says what it does; nothing runs before its button) -->
-          <MailFollowRow v-if="info || loadErr" :action="live" @close="emit('close')" @flow="start" @files="showFiles" />
+          <MailFollowRow v-if="info || loadErr" :action="live" :atts="mail?.attachments || []" @close="emit('close')" @flow="start" @files="showFiles" @ask="askAtt" />
 
           <!-- the card's own work: what it is for decides the main action -->
           <p v-if="kindWait && !kind" class="wait shimmer-text" data-test="mail-kind-wait">무슨 일인지 살펴보는 중…</p>
@@ -548,5 +641,26 @@ section { display: flex; flex-direction: column; gap: 6px; }
 /* 폴더에 정리: the attachments light up once */
 .orig.lit .atts { animation: atts-lit 2.2s ease-out both; border-radius: 12px; }
 @keyframes atts-lit { 0%, 60% { box-shadow: 0 0 0 3px rgba(60 110 240 / .7); } 100% { box-shadow: 0 0 0 3px rgba(60 110 240 / 0); } }
-.atts .att { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 100%; }
+.atts .att { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 100%; gap: 4px; }
+/* an attachment: a chip that opens it, its ⋯ menu */
+.arow { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.achip { min-width: 0; gap: 7px; padding: 3px 12px 3px 4px; color: var(--text-primary); background: var(--bubble-agent-bg); border: 1px solid var(--hairline); text-align: left; }
+.achip .fx { flex: none; width: 26px; height: 22px; border-radius: 7px; display: grid; place-items: center; font-size: 9px; font-weight: 700; color: #fff; background: #6b6b66; }
+.achip .fx.XLS { background: #217346; } .achip .fx.DOC { background: #2b579a; } .achip .fx.PPT { background: #c43e1c; } .achip .fx.PDF { background: #d93025; }
+.achip .fx.한글 { background: #1f6fd1; } .achip .fx.IMG { background: #7b3fbf; } .achip .fx.AUD { background: #0e7c86; } .achip .fx.VID { background: #b0306a; } .achip .fx.MD, .achip .fx.TXT { background: #3d4451; }
+.achip .an { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.achip small { flex: none; color: var(--text-tertiary); font-size: 11.5px; }
+.achip[aria-busy="true"] { opacity: .75; }
+.achip { cursor: pointer; }
+.amore { flex: none; width: 30px; height: 30px; padding: 0; justify-content: center; border: 1px solid var(--hairline); background: var(--bubble-agent-bg); color: var(--text-secondary); }
+.amenu { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-radius: 14px; background: var(--bubble-agent-bg); border: 1px solid var(--hairline); box-shadow: 0 6px 20px rgba(0 0 0 / .08); }
+.amenu button { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px; border-radius: 9999px; font-size: 13px; color: var(--text-primary); background: var(--field-bg); }
+.amenu button > :deep(svg) { color: var(--text-secondary); }
+.adl { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12.5px; color: var(--text-secondary); }
+.adl .dl { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 11px; border-radius: 9999px; font-size: 12.5px; color: var(--text-primary); background: var(--chip-bg); text-decoration: none; }
+.aedit { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 28px; padding: 0 11px; border-radius: 9999px; font-size: 12.5px; color: var(--text-primary); background: var(--chip-bg); text-align: left; }
+.aedit span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ashare { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; max-width: 100%; font-size: 12.5px; color: var(--text-secondary); }
+.ashare span { min-width: 0; overflow-wrap: anywhere; }
+.ashare .off { height: 26px; padding: 0 11px; border-radius: 9999px; font-size: 12px; color: var(--text-primary); background: var(--chip-bg); border: 1px solid var(--hairline); }
 </style>

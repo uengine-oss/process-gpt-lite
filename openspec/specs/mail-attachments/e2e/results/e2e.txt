@@ -1,0 +1,17 @@
+# 화면 시험 — 2026-11-25 10:47 KST · feat/mail-attachment-open (origin/main 01cc32d 위) · 이음오피스 호스트 ../ieumoffice-web(빌드, xlsx-sidecar 는 .toolchain)
+$ RT_WORKERS=1 npx playwright test --project=feature tests/feature/mail-attachments.spec.js
+PASS (9) FAIL (0)
+Time: 90430ms
+
+통과한 시험(9):
+  [feature] › feature/mail-attachments.spec.js:268:1 › F-MA-01 시트의 xlsx 칩을 누르면 이음오피스가 그 파일을 연다 — 셀 값 그대로, /object/public/ 주소 없음 · 저장하면 내 채팅의 비공개 파일 카드
+  [feature] › feature/mail-attachments.spec.js:314:1 › F-MA-02 그림 첨부 → 앱의 보기 화면(서명 주소, 토큰 없음) · zip → 차분한 「내려받기」 · 문서도 ⋯ 메뉴의 「내려받기」
+  [feature] › feature/mail-attachments.spec.js:355:1 › F-MA-03 칩의 ⋯ → 「이 첨부로 묻기」 → 입력창에 메일 칩과 첨부 칩 → 가짜 에이전트가 첨부를 읽어 합계를 확인
+  [feature] › feature/mail-attachments.spec.js:397:1 › F-MA-04 「이 메일로」 줄의 「이 첨부로 묻기」 → 첨부 셋 모두 칩 · 첨부 칩을 AI 입력창에 끌어 놓아도 같은 칩
+  [feature] › feature/mail-attachments.spec.js:424:1 › F-MA-05 정리된 메일: 「만들고 정리」 뒤 폴더에서 숫자를 고치면, 칩은 폴더의 사본(고친 값)을 연다 — 비공개 서명 주소
+  [feature] › feature/mail-attachments.spec.js:448:1 › F-MA-06 다른 사람: 열기 · 경로 · 끌기 모두 404 (그 메일이 있다는 말도 없이)
+  [feature] › feature/mail-attachments.spec.js:463:1 › F-MA-07 메신저에 끌어 놓기 → 동료는 이름 · 요약만 → 열기 요청 → 주인이 「파일 공유」 → 동료가 읽기 전용으로 → 공유 그만두기 → 다시 잠김
+  [feature] › feature/mail-attachments.spec.js:535:3 › F-MA-08 휴대폰 390px(밝은 테마): 첨부 칩 · ⋯ 메뉴 · 「내려받기」가 화면 안, 옆으로 넘치지 않음
+  [feature] › feature/mail-attachments.spec.js:535:3 › F-MA-08 휴대폰 390px(밤 테마): 첨부 칩 · ⋯ 메뉴 · 「내려받기」가 화면 안, 옆으로 넘치지 않음
+
+같은 날 함께 돌린 회귀: chat-media-preview F-MP-01~08 8/8 · mail-follow-up F-MF-01~07 8/8 · mail-reply 7/7 · messenger-file-mention 12/12(첫 회 F-FM-02 업로드 칩 5초 시간 초과 한 번, 다시 돌려 통과) · office-ask F-OA-01 실패 — origin/main 01cc32d 에서도 같은 실패(로컬 이음오피스 빌드에 고른 부분 알림이 없음).

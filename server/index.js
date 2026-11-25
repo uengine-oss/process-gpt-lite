@@ -61,6 +61,8 @@ import { startPlanSync } from './lib/plans/apply.js'
 import { startMeter } from './lib/plans/meter.js'
 import { telegramRoutes } from './routes/telegram.js'
 import { mailReplyRoutes } from './routes/mailReply.js'
+import { mailAttachmentRoutes } from './routes/mailAttachments.js'
+import { savePrivateCard, saveKindOf } from './lib/mailAttachments.js'
 import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
@@ -573,6 +575,9 @@ if (config.scenarios) {
 app.use('/api', telegramRoutes(auth))
 // a mail's Home card: the mail as it arrived, a reply draft, the send on 보내기 (routes/mailReply.js)
 app.use('/api', mailReplyRoutes(auth))
+// a mail's attachments: opened where they belong (IeumOffice · the viewer · a download) from a private copy, never a public address
+// (routes/mailAttachments.js)
+app.use('/api', mailAttachmentRoutes(auth))
 // link preview cards under messages with links, and the company switch (lib/linkPreview.js)
 app.use('/api', linkPreviewRoutes(auth))
 // the day's background photos on Home: candidates, the person's choice, the company switch and photo-site keys (lib/background)
@@ -842,6 +847,20 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
   if (!/^https?:\/\//.test(url)) return res.status(400).end()
   // an editor may save in another format of its own (photo.png → photo.pcraft): the card takes that name
   const name = req.body.name ? String(req.body.name).slice(0, 200) : null
+  // a private card (a mail's attachment — lib/mailAttachments.js): no address is ever stored on it; the save must be one of its own copies
+  const [own] = await q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where m.id=$1 and t.user_id=$2 and m.kind='file'`, [req.params.id, req.user.id])
+  if (!own) return res.status(404).end()
+  // (only a private card saved into the private bucket goes this way; a private card answered with any other address is refused — it never
+  // gets an address — and every other card goes on as before)
+  const way = saveKindOf(own, url)
+  if (way === 'refuse') return res.status(400).json({ error: L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy.") })
+  if (way === 'private') {
+    try {
+      const pm = await savePrivateCard(req.user, own, { url, session: req.body.session })
+      emit(req.user.id, 'message', pm)
+      return res.json(pm)
+    } catch (e) { return res.status(e.status || 500).json({ error: e.status ? e.message : L('저장하지 못했어요.', "Couldn't save it.") }) }
+  }
   // (the editor saves again and again into the same copy: the old url is a version once)
   let [m] = await q(`update pro_messages m set content = content || jsonb_build_object('url', $3::text, 'edited', true,
                          'versions', coalesce(content->'versions','[]'::jsonb) || case when content->>'url' = $3 then '[]'::jsonb else jsonb_build_array(content->>'url') end,

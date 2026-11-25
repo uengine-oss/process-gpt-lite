@@ -42,6 +42,8 @@ import { kindOf, kindLabel, cardKind, openArtifact, openHint, viewHint, mediaKin
 import { parseReplies } from '../replies.js'
 // a file card is dragged like any file of the app (src/fileDrag.js): a messenger conversation (a link or a share), a folder, the composer
 import { startDrag, cardItem } from '../fileDrag.js'
+// a mail's attachment this message was about: opened again where it belongs (src/mailAttach.js)
+import { openMailAttachment } from '../mailAttach.js'
 
 const props = defineProps({ msg: Object })
 const emit = defineEmits(['connect'])
@@ -49,6 +51,14 @@ const openFile = () => openArtifact(app, router, props.msg)
 const dragCard = (e) => startDrag(e, [cardItem(props.msg)])
 // a mail this message was about (a chip of the composer, a follow-up action of the mail sheet): its sheet
 const openMail = (r) => app.openMailCard({ actionId: r.actionId }, app.instance ? 'instance' : 'chat').catch(() => {})
+const attNote = ref('')
+async function openAtt(r) {
+  attNote.value = ''
+  try {
+    const x = await openMailAttachment(app, { actionId: r.actionId, i: r.i, name: r.name })
+    if (x.how === 'download' && x.url) attNote.value = x.url
+  } catch (e) { window.alert(e.message || '첨부를 열지 못했어요') }
+}
 const expanded = ref(false)
 const router = useRouter()
 const app = useApp()
@@ -141,11 +151,16 @@ onMounted(async () => {
           <button v-if="r.as === 'mail' && !r.error" class="uref mail press" data-test="sent-ref" data-kind="mail" :data-file="r.name" :title="`${r.from} · ${r.name}`" @click="openMail(r)">
             <span class="fx mail"><Icon name="mail" :size="13" /></span><b>{{ r.name }}</b><small>{{ r.from || '메일' }}</small>
           </button>
+          <!-- a mail's attachment (server lib/mailAttachments.js): opens it again, as from the mail sheet -->
+          <button v-else-if="r.as === 'mailatt' && !r.error" class="uref matt press" data-test="sent-ref" data-kind="mailatt" :data-file="r.name" :title="`메일 첨부 · ${r.subject || ''}`" @click="openAtt(r)">
+            <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b><small>메일 첨부</small>
+          </button>
           <span v-else class="uref" :class="{ error: !!r.error }" data-test="sent-ref" :data-file="r.name" :title="r.error || (r.path ? `${r.folder} › ${r.path}` : '')">
             <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b>
             <small>{{ r.error ? '쓰지 못함' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일' }}</small>
           </span>
         </template>
+        <a v-if="attNote" class="uref dl" :href="attNote" download data-test="sent-ref-download"><Icon name="down" :size="13" /><b>내려받기</b></a>
       </div>
       <!-- 링크 미리보기: 글 속 처음 세 링크의 카드(server lib/linkPreview.js) -->
       <LinkPreviews :text="c.text" />
@@ -237,8 +252,8 @@ onMounted(async () => {
           <span class="fic" :class="fk">{{ kindLabel[fk] || 'FILE' }}</span>
           <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ hint }}</small></span>
         </button>
-        <!-- 팀원에게 공유 (components/team) -->
-        <ShareButton :msg="msg" compact />
+        <!-- 팀원에게 공유 (components/team) — not a private card (a mail's attachment, its edit: mine only) -->
+        <ShareButton v-if="!c.private" :msg="msg" compact />
       </div>
       <!-- a picture to look at, a sound or a video that plays right here (on the phone too) -->
       <MediaPreview v-if="media && mediaUrl" :kind="media" :src="mediaUrl" :name="c.name" @open="openFile" />
@@ -353,6 +368,8 @@ onMounted(async () => {
 .uref small { color: var(--text-secondary); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .uref.error { border-color: rgba(198, 40, 40, .45); opacity: .75; }
 .uref .fx.mail { background: #7a5af5; }
+.uref.matt { border-color: rgba(122, 90, 245, .45); }
+.uref.dl { text-decoration: none; color: var(--text-primary); }
 button.uref { text-align: left; }
 .filerow .file { min-width: 0; }
 .filecol { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; }

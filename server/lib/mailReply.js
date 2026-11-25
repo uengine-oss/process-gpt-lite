@@ -57,13 +57,20 @@ async function parsed(raw) {
   }
 }
 
+// a mailbox that does not answer in time is said as such (504), never waited on for ever
+const tooSlow = () => fail(504, L('메일함이 제때 답하지 않았어요. 잠시 후 다시 시도해 주세요.', "The mailbox didn't answer in time. Please try again in a moment."), 'mail_timeout')
+const timedOut = (e) => e?.name === 'TimeoutError' || e?.name === 'AbortError'
 async function gmail(userId, path, init = {}) {
   const at = await googleAccessToken(userId)
-  const res = await fetch(`${init.upload ? config.google.gmailUploadUrl : config.google.gmailUrl}/users/me/${path}`, {
-    method: init.method || 'GET', body: init.body,
-    headers: { Authorization: `Bearer ${at}`, ...(init.type ? { 'Content-Type': init.type } : {}) },
-  })
-  const text = await res.text()
+  let res, text
+  try {
+    res = await fetch(`${init.upload ? config.google.gmailUploadUrl : config.google.gmailUrl}/users/me/${path}`, {
+      method: init.method || 'GET', body: init.body,
+      headers: { Authorization: `Bearer ${at}`, ...(init.type ? { 'Content-Type': init.type } : {}) },
+      signal: AbortSignal.timeout(init.timeoutMs ?? (init.upload ? 180_000 : 60_000)),
+    })
+    text = await res.text()
+  } catch (e) { throw timedOut(e) ? tooSlow() : e }
   if (!res.ok) {
     const why = (() => { try { return JSON.parse(text).error?.message } catch { return '' } })() || `HTTP ${res.status}`
     throw fail(res.status === 404 ? 404 : 502, L(`Gmail이 요청을 받지 않았어요 (${why}).`, `Gmail didn't accept the request (${why}).`), 'gmail_error')
@@ -74,26 +81,47 @@ async function gmail(userId, path, init = {}) {
 async function imapClient(userId) {
   const sec = await getSecret(userId, 'login', 'imap')
   if (!sec) throw fail(409, L('메일함 로그인 정보가 없어요. 설정에서 메일을 다시 연결해 주세요.', 'The mailbox sign-in is missing. Connect your mail again in Settings.'))
-  const client = new ImapFlow({ host: sec.host, port: 993, secure: true, auth: { user: sec.username, pass: sec.password }, logger: false })
+  const client = new ImapFlow({ host: sec.host, port: 993, secure: true, auth: { user: sec.username, pass: sec.password }, logger: false,
+    connectionTimeout: 20_000, greetingTimeout: 20_000, socketTimeout: 120_000 })
   await client.connect()
   return client
 }
+// (an IMAP call that does not finish in time closes its connection: the fetch under it ends too)
+async function imapWithin(client, ms, fn) {
+  let t
+  try {
+    return await Promise.race([fn(), new Promise((_, no) => { t = setTimeout(() => { client.close?.(); no(tooSlow()) }, ms) })])
+  } finally { clearTimeout(t) }
+}
+export const tooLarge = () => fail(413, L('메일이 너무 커서 받지 않았어요(첨부 50MB 초과).', 'The mail is too large to fetch (attachments over 50 MB).'), 'mail_too_large')
 
-// the message as the mailbox keeps it (RFC 822 bytes): Gmail's raw, IMAP's source — or null (the demo mailbox keeps no message)
-async function rawOf(userId, provider, mailId) {
+// the message as the mailbox keeps it (RFC 822 bytes): Gmail's raw, IMAP's source — or null (the demo mailbox keeps no message).
+// maxBytes: the mailbox says the message's size first (Gmail sizeEstimate, IMAP RFC822.SIZE) and a larger one is not fetched (413)
+async function rawOf(userId, provider, mailId, { maxBytes = 0, timeoutMs = 120_000 } = {}) {
   if (provider === 'gmail') {
-    const m = await gmail(userId, `messages/${encodeURIComponent(mailId)}?format=raw`)
+    if (maxBytes) {
+      const meta = await gmail(userId, `messages/${encodeURIComponent(mailId)}?format=minimal&fields=id,sizeEstimate`)
+      if (Number(meta.sizeEstimate) > maxBytes) throw tooLarge()
+    }
+    const m = await gmail(userId, `messages/${encodeURIComponent(mailId)}?format=raw`, { timeoutMs })
     return { raw: Buffer.from(m.raw || '', 'base64url'), threadId: m.threadId || null }
   }
   if (provider === 'imap') {
     const client = await imapClient(userId)
     let lock = null
     try {
-      lock = await client.getMailboxLock('INBOX')
-      const msg = await client.fetchOne(String(mailId), { source: true }, { uid: true })
-      if (!msg?.source) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
-      return { raw: msg.source, threadId: null }
-    } finally { lock?.release(); await client.logout().catch(() => {}) }
+      return await imapWithin(client, timeoutMs, async () => {
+        lock = await client.getMailboxLock('INBOX')
+        if (maxBytes) {
+          const head = await client.fetchOne(String(mailId), { size: true }, { uid: true })
+          if (!head) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
+          if (Number(head.size) > maxBytes) throw tooLarge()
+        }
+        const msg = await client.fetchOne(String(mailId), { source: true }, { uid: true })
+        if (!msg?.source) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
+        return { raw: msg.source, threadId: null }
+      })
+    } finally { try { lock?.release() } catch { /* closed */ } await client.logout().catch(() => {}) }
   }
   return null
 }
@@ -110,8 +138,9 @@ export async function originalOf(userId, provider, mailId) {
 // The whole message, to keep (lib/mailWork.js — the work's folder): its RFC 822 bytes and what they say, the attachments with their
 // content. A demo mailbox keeps no message: one is written from what it has (sender, to, subject, date, body), so the folder still
 // gets an .eml any mail program opens.
-export async function sourceOf(userId, provider, mailId, { to = '' } = {}) {
-  let raw = (await rawOf(userId, provider, mailId))?.raw || null
+// maxBytes: a message larger than this (the mailbox says its size first) is not fetched at all — 413 (lib/mailAttachments.js)
+export async function sourceOf(userId, provider, mailId, { to = '', maxBytes = 0 } = {}) {
+  let raw = (await rawOf(userId, provider, mailId, { maxBytes }))?.raw || null
   if (!raw) {
     const m = await demoMailById(userId, mailId)
     if (!m) throw fail(404, L('메일함에서 이 메일을 찾지 못했어요.', "This mail isn't in the mailbox any more."))
@@ -172,6 +201,12 @@ export async function mailOfCard(user, actionId) {
   const original = await originalOf(user.id, acc.provider, a.source.mail_id)
   const files = await filesFor(user.id, a.source.mail_id)
   const back = recipients(original, [acc.address, user.email])
+  // the attachments' names, sizes and types stay on the card (source.att_meta): a chip of one of them — the AI chat, a messenger mention —
+  // is checked against these, never by reading the mailbox again (lib/mailAttachments.js)
+  const meta = (original.attachments || []).map((x) => ({ name: String(x.name || ''), size: Number(x.size) || 0, type: String(x.type || '') }))
+  if (JSON.stringify(a.source.att_meta || []) !== JSON.stringify(meta)) {
+    await q(`update pro_actions set source = source || jsonb_build_object('att_meta', $2::jsonb) where id=$1 and user_id=$3`, [a.id, JSON.stringify(meta), user.id]).catch((e) => console.warn('[mail reply] att meta', e.code || e.name))
+  }
   return {
     provider: acc.provider, mode: await sendMode(user.id, acc.provider), files,
     mail: { from: original.from, to: original.to, cc: original.cc, date: original.date, subject: original.subject, text: original.text, attachments: original.attachments },

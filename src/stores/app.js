@@ -27,7 +27,9 @@ export function onOfficeLeave(fn) { officeLeave = fn }
 // an editor of the folder edits it in place (saved into the folder), anyone else sees it read-only
 export function officeDocOf(msgId, c) {
   const folder = c?.folder?.slug ? c.folder : null
-  return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}) }
+  // private: a card with no address of its own (a mail's attachment — server lib/mailAttachments.js): it was opened by a short-lived signed
+  // one, and an editor's save never puts an address on it
+  return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}), ...(c?.private ? { private: true } : {}) }
 }
 
 export const useApp = defineStore('app', {
@@ -367,7 +369,8 @@ export const useApp = defineStore('app', {
       const fresh = (items || []).filter((it) => !this.fileRefs.some((r) => JSON.stringify(r.item) === JSON.stringify(it))).slice(0, Math.max(0, 10 - this.fileRefs.length))
       if (!fresh.length) return
       const keys = fresh.map(() => crypto.randomUUID())
-      this.fileRefs = [...this.fileRefs, ...fresh.map((it, i) => ({ key: keys[i], item: it, name: it.name || '파일', folder: it.folder || '', as: it.as || 'link', ...(it.src === 'mail' ? { from: it.from || '' } : {}), wait: true, error: '' }))]
+      this.fileRefs = [...this.fileRefs, ...fresh.map((it, i) => ({ key: keys[i], item: it, name: it.name || '파일', folder: it.folder || '', as: it.as || 'link', ...(it.src === 'mail' ? { from: it.from || '' } : {}),
+        ...(it.src === 'mailatt' ? { subject: it.subject || '' } : {}), wait: true, error: '' }))]
       let res = []
       try { res = (await api('/files/resolve', { method: 'POST', body: { items: fresh } })).items } catch (e) { res = fresh.map(() => ({ ok: false, error: e.message })) }
       this.fileRefs = this.fileRefs.map((r) => {
@@ -377,6 +380,8 @@ export const useApp = defineStore('app', {
         if (!x?.ok) return { ...r, wait: false, error: x?.error || '이 파일을 쓸 수 없어요' }
         // a mail of mine (server lib/mailMention.js): its chip says who sent it and its subject
         if (x.as === 'mail') return { ...r, wait: false, name: x.name || r.name, as: 'mail', from: x.mail?.from || r.item?.from || '', mail: x.mail || null }
+        // an attachment of a mail of mine (server lib/mailAttachments.js): its chip names the file and the mail it came with
+        if (x.as === 'mailatt') return { ...r, wait: false, name: x.name || r.name, as: 'mailatt', att: x.att || null, subject: x.att?.subject || r.subject || '' }
         return { ...r, wait: false, name: x.name || r.name, as: x.as, folder: x.ref?.folder || '', variation: x.ref?.variation || null }
       })
     },

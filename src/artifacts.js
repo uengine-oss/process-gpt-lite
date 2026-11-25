@@ -15,7 +15,8 @@ export const cardKind = (c) => { const k = kindOf(c?.name); return k !== 'etc' ?
 export const kindLabel = { hwp: '한글', doc: 'DOC', xls: 'XLS', ppt: 'PPT', pdf: 'PDF', md: 'MD', txt: 'TXT', web: 'HTML', map: 'MAP', cad: 'CAD', vec: 'SVG', img: 'IMG', snd: 'AUD', vid: 'VID' }
 
 // what the card says it does
-export const openHint = (c) => (c.url ? '열기' : loose(c.path) ? '눌러서 열기' : '작업실에서 열기')
+// (a private card — a mail's attachment, its edit: server lib/mailAttachments.js — has no address: it is opened by a signed one)
+export const openHint = (c) => (c.url ? '열기' : c.private ? (c.edited ? '편집본 · 나만 볼 수 있어요' : '나만 볼 수 있어요') : loose(c.path) ? '눌러서 열기' : '작업실에서 열기')
 // a picture or a video is looked at, a sound listened to — not edited (src/openPlan.js 'view')
 export const viewHint = (media, c) => `${c?.edited ? '편집본 · ' : ''}${media === 'audio' ? '눌러서 열기' : '눌러서 크게 보기'}`
 

@@ -1224,6 +1224,38 @@ cd server && node --test test/llm-json-fence.test.js test/llm-logprob.test.js
 | 운영 프록시가 json_object 울타리를 벗긴다(claude_compat 7) | 운영 측정 11-25 | `openspec/specs/llm-model-compat/e2e/README.md` 「실측」 | 실측 | ✅ |
 | 실제 Claude 로 Lite 의 모든 JSON 판정 프롬프트를 돌려 보는 회귀 | — | — (모델 비용, 대표 프롬프트만 실측) | — | ◐ |
 
+### 55. 메일 첨부 — 그 자리에서 열고, 채팅으로 묻고, 동료와 나눈다 · 공개 주소 없이 (스펙 `mail-attachments`)
+
+사용자(11-25, 메일 시트 「… 2026년 11월 급여대장 확인 후 확정·발송」의 회색 첨부 칩을 보며): 「메일 첨부를 곧바로 이음오피스 등의 도구로 열어보거나 채팅으로 해당 메일에 대한 질의/액션을 취할 수 있는 뭔가 흐름이 있어야」. 이제 첨부 칩을 누르면 문서는 이음오피스, 그림 · 소리 · 영상은 보기 화면, 그 밖은 「내려받기」로 열린다. 칩의 ⋯ 와 「이 메일로」 줄에는 「이 첨부로 묻기」가 있다. 바이트는 메일을 정리한 폴더의 사본이 있으면 그것을, 없으면 그 사람의 메일함에서 받아 만든 비공개 사본(비공개 버킷 `lite-private`)을 쓴다. 편집기 · 에이전트 · 보기 화면에는 서명 주소만 가고, 공개 주소(`/object/public/`)는 생기지 않는다. 서버 `lib/mailAttachments.js` · `lib/privateStore.js` · `routes/mailAttachments.js`, 화면 `src/mailAttach.js`. 시험은 자기 스택을 띄운다(`lib/localStack.js` — 테넌트 `mailatt-ui`, 8930 · 5330 부터). 실제 이음오피스 편집기(`lib/officeHost.js`, 5395 부터 — 시트 엔진 `xlsx-sidecar` 를 체크아웃에서 찾도록 이번에 고침), 가짜 Google(Gmail 원문 · 첨부) · 가짜 deepagents(받은 첨부를 실제로 열어 합계를 셈) · 가짜 모델(채팅 라우터 DELEGATE)은 시험 파일이 띄운다. BFF 의 `PGPT_ROOT` 는 임시 폴더라 개발 PC 의 에이전트 작업 공간에 쓰지 않는다. 사람 · 회사는 지어낸 것이다(한지우 · 서민재, 세무법인 오가람, 하늘테크). 명령과 증거는 `openspec/specs/mail-attachments/e2e/README.md`.
+
+```bash
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/mail-attachments.spec.js
+cd server && node --test test/mailAttachments.test.js && node --test --test-concurrency=1 test/mailAttachments.integration.test.js
+```
+
+같은 날의 독립 검토(11-25)가 찾은 여섯 가지(#1~#6)를 고치고 시험을 더했다 — 표의 아래쪽 「검토 11-25」 줄.
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 첨부 칩은 동작이다: xlsx → 이음오피스(시트가 닫히고, 셀 값이 메일의 파일 그대로), 칩에 종류 · 크기 · ⋯(열기 · 이 첨부로 묻기 · 내려받기) | 사용자 11-25 | F-MA-01 · F-MA-02 | feature | ✅ |
+| 그림 → 보기 화면(시트 위, Esc 로 시트로), zip → 차분한 「앱 안에서 열지 않는 형식이에요 · 내려받기」, 문서도 「내려받기」, 남의 HTML 은 그리지 않음 | 사용자 11-25 | F-MA-02 · `mailAttachments.test.js` | feature · 단위 | ✅ |
+| 공개 주소 없음: 편집기는 저장소 서명 주소(10분), 보기 · 내려받기는 이 서버 경로의 서명 주소(15분, 토큰 없음), 네트워크(요청 · JSON 응답)에 `/object/public/` 없음, 같은 열쇠의 공개 주소는 열리지 않음, 버킷은 비공개, 열쇠는 ASCII(이름 없음) | 요청(급여대장) | F-MA-01 · 02 · 03 · 05 · 07 · 08 · `mailAttachments.integration`(문서) · `mailAttachments.test.js` | feature · 단위 | ✅ |
+| 비공개 사본은 한 번(카드가 기억, 두 번째는 메일함을 읽지 않음) | — | `mailAttachments.integration`(문서) | 단위 | ✅ |
+| 폴더에 없는 첨부를 고쳐 「저장」 → 내 채팅의 비공개 파일 카드(주소 없음 · 「편집본 · 나만 볼 수 있어요」 · 공유 단추 없음), 「편집본을 내 채팅에 파일로 저장했어요 · 나만 볼 수 있어요」, 카드로 다시 열면 편집본, 시트에 「편집본 · 내 채팅의 파일」 | 요청 | F-MA-01 · `mailAttachments.integration`(편집본) | feature · 단위 | ✅ |
+| 정리된 메일(「만들고 정리」 · 작업 폴더) → 폴더의 사본(폴더에서 고친 값), 저장은 폴더 main 의 커밋, 폴더 권한이 없어지면 메일의 사본 | 요청 · 스펙 `folder-edit-save` | F-MA-05 · `mailAttachments.integration`(정리된 메일) | feature · 단위 | ✅ |
+| 「이 첨부로 묻기」(칩의 ⋯) → 입력창에 메일 칩 + 첨부 칩 → 에이전트가 메일 맥락(한 번)과 첨부를 파일로 받음(작업 공간의 경로, 없으면 30분 서명 주소) → 가짜 에이전트가 급여대장을 읽어 합계 확인, 보낸 말의 첨부 칩이 다시 엶 | 요청 | F-MA-03 · `mailAttachments.integration`(에이전트) | feature · 단위 | ✅ |
+| 「이 메일로」 줄의 「이 첨부로 묻기」(첨부가 있을 때만 · 고정) → 첨부 모두 칩, 첨부 칩을 AI 입력창에 끌면 「AI에게 이 첨부로 묻기」 · 시트가 비킴 | 요청 | F-MA-04 · `mailFollow.test.js` · `mailFollow.integration` | feature · 단위 | ✅ |
+| 다른 사람: 열기 · 경로 · 끌기 404(이름 없이), 주인의 서명 주소에서 사람만 바꾸면 403, 지난 주소 401, 로그에 첨부 이름 · 바이트 없음 | 요청 | F-MA-06 · `mailAttachments.integration` · `mailAttachments.test.js` | feature · 단위 | ✅ |
+| 메신저에 끌어 놓기 → 「여기에 놓으면 첨부를 멘션해요 · 동료에게는 이름만 보여요」, 칩의 「파일도 공유」(꺼짐) → 동료는 이름 · 요약만(열기 403) → 열기 요청(주인에게 알림 한 번) → 주인이 「파일 공유」(그 파일만, 주인의 카드에 남음) → 동료가 「보기 전용」으로 엶 → 「공유 그만두기」 → 다시 잠김(경로 주소도 404), 방에 열쇠 · 주소 없음, 방 밖 404 | 요청 · PR #49 규칙 | F-MA-07 · `mailAttachments.integration`(메신저) | feature · 단위 | ✅ |
+| 휴대폰 390px 밝은 · 밤: 칩 · ⋯ 메뉴 · 「내려받기」가 화면 안, 옆으로 넘치지 않음, 문서 패널이 화면 전체 | 요청 | F-MA-08 | feature | ✅ |
+| **검토 11-25 #1** 에이전트에게 넘긴 첨부는 턴의 끝에 카드(공개 사본)가 되지 않음: `/workspace/uploads/` 아래는 늘, 이름 · 자리를 바꾼 사본 · 저장소에 올라간 사본도 내용(SHA-256)이 같으면 — 그 턴의 진짜 산출물은 그대로 카드, 「not attached」 로그에 첨부 이름 없음 | 검토 11-25 | MA-R1(`mailAttachments.test.js`) · `mailAttachments.integration` MA-R1(`runTurn` → 가짜 deepagents 가 사본을 남기고 답에 적음) | 단위 · 통합 | ✅ |
+| **#2** 같은 폴더 파일을 메일 시트와 메신저 링크로 열면 카드가 따로(비공개 카드에 주소 없음 · 링크 카드에 비공개 열쇠 없음), 어느 순서로 열어도 · 둘 다 폴더에 저장, 비공개 카드에 공개 주소의 저장은 거절(`saveKindOf`) | 검토 11-25 | MA-R2(단위) · `mailAttachments.integration` MA-R2 | 단위 · 통합 | ✅ |
+| **#3** 메일함은 크기부터(Gmail `sizeEstimate` · IMAP `size`) — 큰 메일은 원문을 받지 않고 413, 메일함 요청에 시간 한도(504), 한 첨부는 동시에 한 번만 받음, 413 · 504 는 5분 기억(404 는 아님), 칩 · 메신저 멘션은 카드가 아는 것(`source.att_meta`)만 — 메일함을 읽지 않음 | 검토 11-25 | MA-R3(단위: 동시 · 기억) · `mailAttachments.integration` MA-R3(크기 먼저 · 동시 · 멘션) | 단위 · 통합 | ✅ |
+| **#4** 첨부는 번호로, 이름은 양쪽을 같이 다듬어 견줌(NFC · 겹친 빈칸 · NBSP · 전각 빈칸 · 폭 없는 글자 · 앞뒤 빈칸, 200자로 잘린 긴 이름은 앞 100자 이상) — 열기 · 정리된 폴더 찾기 · 메신저 | 검토 11-25 | MA-R4(단위) · `mailAttachments.integration` MA-R4 | 단위 · 통합 | ✅ |
+| **#5** 메일 시트의 첨부 아래 「공유 중 · <대화방> · 끄기」, 방을 나간 주인도 끔(시트 · 메시지의 「공유 그만두기」), 끄면 방의 메시지 카드도 곧바로 잠김, 새로 공유는 방에 있어야 | 검토 11-25 | F-MA-07(시트의 「끄기」) · `mailAttachments.integration` MA-R5 | feature · 통합 | ✅ |
+| **#6** 작업 공간에 쓸 때 쓸 때마다 무작위 폴더, 거쳐 가는 폴더가 링크면 쓰지 않음, 파일은 `O_EXCL \| O_NOFOLLOW` · 0600 | 검토 11-25 | MA-R6(`mailAttachments.test.js`) · F-MA-03(경로 모양) | 단위 · feature | ✅ |
+| 실제 Gmail 의 원문 크기 한도 · 수십 MB 첨부의 실제 시간, IMAP 메일함(크기 · 시간 한도 포함), 운영 deepagents 가 서명 주소로 받는 것, 운영 저장소에 비공개 버킷이 처음 생기는 것, 실제 모델의 답, 영어 화면 | — | — (가짜 Gmail · 로컬 저장소 · 가짜 에이전트) | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

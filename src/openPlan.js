@@ -3,7 +3,8 @@
 // a picture, a sound or a video is looked at in the app's own viewer; what has no viewer here is a link the person
 // opens themselves; nothing ever happens without a word.
 //   drive    — a Google Drive / Docs link: the server fetches a copy with the company's connection, then the panel
-//   fetch    — a file the agent left loose in its workspace: the server publishes a copy first, then decide again
+//   fetch    — a file the agent left loose in its workspace (the server publishes a copy first), or a private card (a mail's
+//              attachment: the server signs a short-lived address) — then decide again
 //   view     — a picture, a sound or a video (src/mediaKind.js): the viewer (MediaViewer.vue) with `media`, `url`; `editWith`
 //              names the ArtCraft app this install has for it — opened only when the person asks to edit (`edit`)
 //   office   — the panel, with `editor`
@@ -26,7 +27,8 @@ export const loose = (p) => /^\/workspace\//.test(p || '') && !roomOf(p)
 export function openPlan(c, { craftMissing = () => false, edit = false } = {}) {
   const f = c || {}
   if (isDrive(f.url)) return { how: 'drive' }
-  if (!f.url && loose(f.path)) return { how: 'fetch' }
+  // (a private card — a mail's attachment, its edit — is opened by a short-lived signed address the server makes: fetch it first)
+  if (!f.url && (loose(f.path) || f.private?.key)) return { how: 'fetch' }
   const editor = officeEditorFor(f.name || f.url)
   const media = f.url && !edit ? mediaKindOf(f) : ''
   if (media) {
