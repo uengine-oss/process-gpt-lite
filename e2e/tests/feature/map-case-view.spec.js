@@ -332,6 +332,69 @@ test.describe('지도에서 바로 도는 건의 인스턴스 화면 — 건의 
     expect(page.errors).toEqual([])
   })
 
+  // 2026-11-25 사용자: 「프로세스 지도 이벤트가 인식되었을때 카드가 나타나는거 좋다. 그런데 해당 프로세스가 어떻게 돌아가는지 알아야 선택하므로,
+  // 해당 프로세스 정의 스냅샷을 열어볼 수 있도록 해줘야」 — the 「제안」 card asks before it starts; 「흐름 보기」 opens the snapshot the engine
+  // would run from the suggested start (the map's 스냅샷 보기 — GET /ontology/snapshot, answered here with a saved definition: locally there is
+  // no map store), in the card's sheet, before anything is chosen
+  test('F-CV-09 「제안」 카드의 「흐름 보기」 — 고르기 전에 그 프로세스가 도는 단계(스냅샷 BPMN)를 본다, 휴대폰에서도', async ({ pageAs, db, lib, cleanup }) => {
+    const CB = await lib('lib/ontology/casebpmn.js')
+    const { processDefinition: pd } = CB.caseContract(quoteView(), { entry: '요청 검토', horizontal: false })
+    const DEF = `rt_cv_snap_${RUN}`.toLowerCase()
+    pd.processDefinitionId = DEF
+    const els = (k) => pd.elements.filter((e) => e.elementType === k)
+    const definition = {
+      processDefinitionId: DEF, processDefinitionName: `회귀 견적 스냅샷 ${RUN}`, roles: pd.roles,
+      activities: els('Activity').map((e) => ({ id: e.id, name: e.name, type: 'userTask', role: e.role, agentMode: 'none' })),
+      gateways: els('Gateway').map((e) => ({ id: e.id, name: e.name, type: 'exclusiveGateway' })),
+      events: els('Event').map((e) => ({ id: e.id, name: e.name, type: e.type === 'StartEvent' ? 'startEvent' : 'endEvent' })),
+      sequences: els('Sequence').map((e) => ({ id: e.id, source: e.source, target: e.target })),
+    }
+    const page = await pageAs('cv-owner', { viewport: WIDE })
+    await db.q(`insert into proc_def (id, name, definition, bpmn, type, tenant_id, owner, isdeleted) values ($1,$2,$3,$4,'bpmn',$5,$6,false)`,
+      [DEF, `회귀 견적 스냅샷 ${RUN}`, definition, CB.createBpmnXml(pd, true), db.tenant, page.user.id])
+    cleanup(async () => { await db.q('delete from proc_def where id=$1', [DEF]) })
+    let asked = null
+    await page.route('**/api/ontology/snapshot?*', (route) => {
+      asked = new URL(route.request().url()).searchParams
+      return route.fulfill({ json: { procDefId: DEF, theta: 0.6, nodes: ['요청 검토', '단가 조회', '현장 실측', '견적서 작성', '고객 회신'], skipped: [], reused: true } })
+    })
+    await page.route('**/api/ontology/start-bindings?*', (route) => route.fulfill({ json: { bindings: [] } }))
+    const main = await db.clearMain(page.user.id)
+    await db.addMessages(main, [{ role: 'agent', kind: 'onto-entry', content: {
+      state: 'ask', source: 'chat', customer: REQUEST.customer, mail: { subject: REQUEST.subject, from: REQUEST.sender },
+      choice: { proc: PROC.key, procName: PROC.name, task: '요청 검토', p: 0.56, suggest: true, options: [{ task: '요청 검토', p: 0.56 }, { task: '단가 조회', p: 0.21 }] } } }])
+    await page.goto('/chat')
+    const card = page.getByTestId('onto-entry-card').filter({ hasText: REQUEST.subject })
+    await expect(card.getByTestId('onto-entry-suggest')).toBeVisible({ timeout: 20000 })
+    const open = async () => {
+      await card.getByTestId('onto-entry-flow').click()
+      await expect(page.locator('.djs-container').first()).toBeVisible({ timeout: 20000 })
+      await drawn(page)
+      await expect(page.getByText('요청 접수 → 요청 검토 → 단가 조회 → 현장 실측 → 견적서 작성 → 고객 회신')).toBeVisible()
+      await expect(page.locator(`.djs-element[data-element-id="${actId('견적서 작성')}"]`).first()).toBeAttached()
+    }
+    await open()
+    expect(asked?.get('proc')).toBe(PROC.key)
+    expect(asked?.get('entry'), '제안한 시작 일부터의 스냅샷').toBe('요청 검토')
+    await shot(page, 'f-cv-09-flow')
+    // nothing was chosen: closing the sheet leaves the card asking
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('onto-sheet')).toHaveCount(0)
+    await expect(card).toHaveAttribute('data-state', 'ask')
+    // a phone: the same, inside the screen
+    await page.setViewportSize(PHONE)
+    await page.goto('/chat')
+    await page.locator('.seg button').filter({ hasText: '채팅' }).first().click()
+    await expect(card.getByTestId('onto-entry-suggest')).toBeVisible({ timeout: 20000 })
+    await open()
+    const box = await page.getByTestId('onto-sheet').boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(PHONE.width + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+    await shot(page, 'f-cv-09-flow-phone')
+    expect(page.errors).toEqual([])
+  })
+
   test('F-CV-05 정의가 있는 인스턴스(클래식 · 스냅샷)는 그대로: 목록부터, 다이어그램은 정의의 BPMN, 병목 링크 · 회사 지도 링크 없음', async ({ pageAs, db, lib, cleanup }) => {
     const page = await pageAs('cv-owner', { viewport: WIDE })
     // a definition as Process GPT stores one (activities · gateways · events · sequences, and its BPMN — the contract and XML a snapshot
