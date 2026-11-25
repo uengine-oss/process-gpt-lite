@@ -43,16 +43,21 @@ export function trailEntry(tool, input, phase) {
 }
 
 // one trail per answer: entries in order, the same step looking at the same place counted once
+// add → the entry as it stands now ({…, key, n} — a repeat comes back with its count), or null when the tool is not shown
+// (lib/turnPlan.js sends it live as turn.step)
 export function createTrail(limit = 14) {
   const list = []
   return {
     add(tool, input, phase) {
-      if (!tool || /^(write_todos|ls|glob|think|todo)/i.test(tool)) return
+      if (!tool || /^(write_todos|ls|glob|think|todo)/i.test(tool)) return null
       const e = trailEntry(tool, input, phase)
       const key = `${e.phase}|${(e.hosts || []).join(',')}|${e.query || ''}|${e.file || ''}`
       const same = list.find((x) => x.key === key)
-      if (same) { same.n += 1; return }
-      if (list.length < limit) list.push({ ...e, key, n: 1 })
+      if (same) { same.n += 1; return { ...same } }
+      if (list.length >= limit) return null
+      const row = { ...e, key, n: 1 }
+      list.push(row)
+      return { ...row }
     },
     list: () => list.map(({ key, ...e }) => e),
     // every site this answer read, for the one-line 「조회한 곳」

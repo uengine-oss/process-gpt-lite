@@ -16,7 +16,7 @@ export function enqueue({ userId, threadId, conv = null, jwt = '' }) {
   let doneResolve, convResolve
   const t = {
     id: crypto.randomUUID(), seq: ++seq, userId, threadId, conv: conv || null, jwt, title: '',
-    started: false, finished: false, stopped: false, abort: new AbortController(),
+    started: false, finished: false, stopped: false, front: false, abort: new AbortController(),
     done: new Promise((r) => { doneResolve = r }),
     convReady: conv ? Promise.resolve(conv) : new Promise((r) => { convResolve = r }),
   }
@@ -69,11 +69,13 @@ export async function waitTurn(t, onQueued) {
   }
 }
 
-// The running turns a stop request reaches: this user's, in this thread, optionally one conversation.
+// The running turns a stop request reaches: this user's, in this thread, optionally one conversation — and a message still in its
+// front stage (t.front: read and routed before any handler starts — lib/agent.js runTurn): 멈추기 then stops it before a handler
+// starts (design turnplan §1.3; it used to go on and run).
 export function running({ userId, threadId, conv }) {
-  return [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && x.started && !x.finished && (!conv || x.conv === conv))
+  return [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && (x.started || x.front) && !x.finished && (!conv || x.conv === conv))
 }
-export const waiting = ({ userId, threadId }) => [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && !x.started && !x.finished)
+export const waiting = ({ userId, threadId }) => [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && !x.started && !x.front && !x.finished)
 
 // A browser task started by a correction ("do it on that site instead") replaces the agent turn of the
 // request it corrects: left running, that turn came back first with "완료했습니다" and files of its own

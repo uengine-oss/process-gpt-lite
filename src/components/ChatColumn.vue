@@ -5,9 +5,13 @@ import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
 import Composer from './Composer.vue'
 import EdgeBlur from './EdgeBlur.vue'
+import Icon from './Icon.vue'
 import RoomRuleBar from './RoomRuleBar.vue'
 import BrowserDock from './BrowserDock.vue'
+import TurnPlanCard from './TurnPlanCard.vue'
+import TurnProgress from './TurnProgress.vue'
 import { useApp } from '../stores/app.js'
+import { dur, elapsed } from '../turnView.js'
 
 const props = defineProps({ placeholder: String, emptyText: String, keepTop: Boolean })
 const emit = defineEmits(['send', 'connect'])
@@ -26,10 +30,30 @@ const seen = (m) => m.id === lastUser.value && !m.content?.local && (status.valu
 const needsInput = computed(() => app.active?.status === 'needs_input')
 // a browser task at work: its thumbnail takes the place left of the composer (BrowserDock), 조치 필요 included
 const browsing = computed(() => list.value.some((m) => m.kind === 'task' && ['running', 'needs_input'].includes(m.content?.state)))
-const working = computed(() => status.value || (draft.value === '' ? '생각하는 중' : null))
+// the turns running in this view (server lib/turnPlan.js): a plan card under each one's message, the pill and its panel for the newest
+const turnsHere = computed(() => app.viewTurns)
+const liveTurn = computed(() => turnsHere.value[turnsHere.value.length - 1] || null)
+const listed = computed(() => new Set(list.value.map((m) => m.id)))
+const cardsUnder = (id) => turnsHere.value.filter((t) => t.msgId === id)
+// (a turn whose message is not on screen yet — it is being saved — goes above the draft)
+const loose = computed(() => turnsHere.value.filter((t) => !t.msgId || !listed.value.has(t.msgId)))
+// one clock for the cards, the panel and the pill while something runs
+const now = ref(Date.now())
+let tick = null
+watch(() => !!liveTurn.value, (on) => {
+  clearInterval(tick)
+  if (on) { now.value = Date.now(); tick = setInterval(() => { now.value = Date.now() }, 1000) }
+}, { immediate: true })
+onBeforeUnmount(() => clearInterval(tick))
+const working = computed(() => (liveTurn.value?.stage?.text) || status.value || (draft.value === '' ? '생각하는 중' : null))
+const panelTurn = computed(() => turnsHere.value.find((t) => t.turnId === app.turnPanel) || null)
+function togglePanel() {
+  if (!liveTurn.value) return
+  app.turnPanel = app.turnPanel === liveTurn.value.turnId ? null : liveTurn.value.turnId
+}
 // 멈추기: an answer is being written (streaming here, or the thread is working) — not while it only waits for input
-// (nothing to stop yet while 새 프로젝트's room is still being made)
-const stoppable = computed(() => !needsInput.value && app.activeId !== app.draftProject?.tmp && (draft.value != null || app.active?.status === 'working'))
+// (nothing to stop yet while 새 프로젝트's room is still being made); a turn still reading its message can be stopped too
+const stoppable = computed(() => !needsInput.value && app.activeId !== app.draftProject?.tmp && (draft.value != null || app.active?.status === 'working' || !!liveTurn.value))
 const stopping = ref(false)
 async function stop() {
   stopping.value = true
@@ -133,7 +157,9 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
           <div v-if="newDay(i)" class="day">{{ dayOf(m) }}</div>
           <Message :msg="m" @connect="emit('connect')" />
           <div v-if="seen(m)" class="seen">··· 읽음</div>
+          <TurnPlanCard v-for="t in cardsUnder(m.id)" :key="t.turnId" :turn="t" :now="now" @details="app.turnPanel = $event" />
         </template>
+        <TurnPlanCard v-for="t in loose" :key="t.turnId" :turn="t" :now="now" @details="app.turnPanel = $event" />
         <div v-if="draft" class="row"><div class="bubble md" v-html="md(draft)" /></div>
       </div>
     </div>
@@ -144,8 +170,13 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
       <!-- what the agent is doing right now, above the composer (hark's "패널 만드는 중") -->
       <Transition name="pill">
         <div v-if="app.notice" key="notice" class="notice" role="alert" data-testid="chat-notice">{{ app.notice.text }}</div>
-        <div v-else-if="working" :key="working" class="working" data-testid="chat-working"><span class="shimmer-text">{{ working }}</span></div>
+        <!-- the pill opens the progress panel of the turn running here (TurnProgress) -->
+        <button v-else-if="working && liveTurn" :key="working" class="working press" data-testid="chat-working" :aria-expanded="!!panelTurn" aria-haspopup="dialog" @click="togglePanel">
+          <span class="shimmer-text wt" data-testid="turn-pill">{{ working }}</span><span class="el">{{ dur(elapsed(liveTurn, now)) }}</span><Icon name="chevron" :size="12" class="chev" :class="{ open: !!panelTurn }" />
+        </button>
+        <div v-else-if="working" :key="working" class="working" data-testid="chat-working"><span class="shimmer-text wt">{{ working }}</span></div>
       </Transition>
+      <TurnProgress v-if="panelTurn" :turn="panelTurn" :now="now" :stopping="stopping" @close="app.turnPanel = null" @stop="stop" />
       <button v-if="stoppable" class="stop press" :disabled="stopping" aria-label="답 멈추기" title="답 멈추기" @click="stop"><span class="sq" />{{ stopping ? '멈추는 중' : '멈추기' }}</button>
       <button v-if="needsInput && !browsing" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
       <BrowserDock @pending="toPending(true)" />
@@ -168,8 +199,16 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 .seen { align-self: flex-end; font-size: 12px; color: var(--text-tertiary); margin: -8px 6px 0; }
 .attn { position: absolute; right: calc(100% + 10px); bottom: 6px; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: var(--color-attention); color: #fff; box-shadow: 0 4px 16px rgba(0 0 0 / .18); animation: pop-in .4s var(--spring); }
 @media (max-width: 760px) { .foot:has(.attn), .foot:has(.dock) { padding-left: 56px; } .attn { right: auto; left: 0; } }
-.working { position: absolute; left: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 18px; border-radius: 19px; display: inline-flex; align-items: center;
-  border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: rgba(127, 127, 127, .06); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14.5px; color: var(--text-tertiary); white-space: nowrap; }
+.working { position: absolute; left: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 18px; border-radius: 19px; display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: rgba(127, 127, 127, .06); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14.5px; color: var(--text-tertiary); white-space: nowrap;
+  /* 멈추기 always fits beside it, at 390 px too (design turnplan §3.3) */
+  max-width: calc(100% - 96px); }
+/* (a button now: its words a step darker than the old line, which read faintly over a light sky in the dark theme) */
+button.working { padding: 0 12px 0 16px; cursor: pointer; color: var(--text-secondary); }
+.working .wt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.working .el { flex: none; font-size: 12.5px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.working .chev { flex: none; rotate: -90deg; transition: rotate .2s; }
+.working .chev.open { rotate: 90deg; }
 .notice { position: absolute; left: 4px; right: 4px; bottom: calc(100% + 12px); padding: 10px 16px; border-radius: 18px; font-size: 14px; line-height: 1.45; color: #fff;
   background: var(--color-attention); box-shadow: 0 4px 16px rgba(0 0 0 / .14); word-break: keep-all; overflow-wrap: anywhere; }
 .stop { position: absolute; right: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 16px 0 14px; border-radius: 19px; display: inline-flex; align-items: center; gap: 8px;

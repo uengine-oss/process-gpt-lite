@@ -26,7 +26,8 @@ test('outside any request the language is ko', () => {
   assert.equal(isEn(), false)
   assert.equal(L('한국어', 'English'), '한국어')
   assert.equal(locale(), 'ko-KR')
-  assert.equal(langInstruction(), '')
+  // (design turnplan §1.5: Korean mode names its language too — a link alone has none)
+  assert.match(langInstruction(), /^\n\n\[Instruction\] 언어: 한국어/)
   assert.equal(inLanguage('프롬프트'), '프롬프트')
 })
 

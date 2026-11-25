@@ -49,6 +49,7 @@ import * as PT from './projectTopics.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 import { sendMail, demoFiles } from './scenarios/mail.js'
+import * as TP from './turnPlan.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
 const attached = new Map() // threadId -> [{name, path, url, type, size}]
@@ -227,23 +228,52 @@ function toLlmHistory(rows) {
 const turnCtx = new AsyncLocalStorage()
 // auto: a turn nobody asked for just now (a company routine done without asking — lib/followups.js autoRoutine): a browser task it starts
 // is not the person's own (it runs on their PC only when that PC says so, and not on that PC's own network — lib/browser.js)
+// onRetract: the POST stream's `retract` — the draft answer turned out to be an interim text (lib/turnPlan.js createSegments)
+// From the message to the handler the turn is in its front stage (turn.front): 멈추기 reaches it there (lib/turns.js running), and no
+// handler starts once it is stopped (checkpoint) — the chat says 「멈췄어요」 instead (design turnplan §1.3).
 export function runTurn(args) {
   const turn = turns.enqueue({ userId: args.user.id, threadId: args.threadId })
-  return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto }, () => handleTurn(args)).finally(() => turn.finish())
+  turn.front = true
+  return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto, onRetract: args.onRetract || null }, async () => {
+    try {
+      const m = await handleTurn(args)
+      TP.end(turn, m?.content?.stopped ? 'stopped' : 'done')
+      return m
+    } catch (e) {
+      if (!e?.turnStopped) { TP.end(turn, 'failed'); throw e }
+      console.log(`[turn] stopped before a handler started thread=${String(args.threadId).slice(0, 8)}`)
+      const m = await addMessage(args.user.id, args.threadId, 'agent', 'text', { text: `(${stoppedText()})`, stopped: true, ...TP.saved(turn, 'stopped') })
+      TP.end(turn, 'stopped')
+      return m
+    }
+  }).finally(() => turn.finish())
+}
+// a turn stopped in its front stage starts no handler: runTurn answers it with 「멈췄어요」
+function checkpoint(t) {
+  if (t?.stopped) throw Object.assign(new Error('stopped before a handler started'), { turnStopped: true })
 }
 
 // This message is answered here, not by an agent turn: a message after it need not wait for it.
-const noAgentTurn = () => { const t = turnCtx.getStore()?.turn; if (t) t.setConv(`none:${t.id}`) }
+// h: what handles it, for the plan card's handler line (lib/turnPlan.js)
+const noAgentTurn = (h) => {
+  const t = turnCtx.getStore()?.turn
+  if (!t) return
+  checkpoint(t)
+  t.front = false
+  t.setConv(`none:${t.id}`)
+  TP.handler(t, h || { kind: 'action', label: L('바로 처리', 'Handled here') })
+}
 
 // A turn the browser agent answers: said now, its result posted when it ends. Nothing runs in the agent service.
 // asked: the message as the person sent it ({text, files}); skill: the browser skill (lib/browserSkills.js) the task uses
 async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill, files, onDelta, ack, room, asked, replaces = true }) {
-  noAgentTurn()
+  noAgentTurn(browserHandler(skill))
   const msg = await addMessage(user.id, threadId, 'agent', 'text', { text: ack })
   onDelta?.(ack)
   runBrowser({ user, session, threadId, goal, startUrl, skill, files, room, asked, replaces })
   return msg
 }
+const browserHandler = (skill) => ({ kind: 'browser', ...(skill ? { skill } : {}), label: `${L('브라우저', 'Browser')}${skill ? ` · ${skill}` : ''}` })
 // the browser tasks this server started, newest last (what the tests read: the skill is passed on as chosen)
 export const browserStarts = []
 // (the ack is already in the chat; the turn it replaces stops alongside — the card need not wait for that)
@@ -373,6 +403,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}) })
   const store = turnCtx.getStore()
   if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null }
+  // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
+  TP.begin({ turn: store?.turn, userId, threadId, msgId: said.id, text, files: [...files, ...(pointed?.shown || [])] })
   // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it
   // as the open document even when the live link (lib/craftLive.js) is down
   const doc = openDocOf(openDoc)
@@ -536,42 +568,24 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (!namedApp && siteUrl && SITE_ACTION.test(text) && !files.length && !RECURRING.test(text) && !generationPending(threadId)) {
     return startBrowserTurn({ user, session, threadId, goal: text, startUrl: siteUrl, onDelta, room, asked: { text, files }, ack: L('사이트에서 직접 처리할게요.', "I'll do it on the site.") })
   }
-  // a message about the result just made goes to the agent that made it (lib/followups.js)
-  const about = await followsResult(threadId, said.id, text).catch(() => null)
+  // a message about the result just made goes to the agent that made it (lib/followups.js) — read beside the router, not before it
+  // (design turnplan §5.1: it held the router up by up to its odds limit)
+  const aboutP = followsResult(threadId, said.id, text).catch(() => null)
+  TP.stage(store?.turn, 'routing')
+  const [about, routed] = await Promise.all([aboutP, TP.taskCards(threadId).then((tasks) => routeTurn({ user, session, hist, now, tasks, signal: store?.turn?.abort.signal }))])
+  checkpoint(store?.turn)
   if (about) {
     if (about.conv) pinned.set(threadId, { conversationId: about.conv, title: about.title })
     // the same words about a new result are new work, not 「이미 한 요청」
     if (store) store.fresh = true
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
-  const skillList = await listSkills(session.access_token)
-  const skillHint = skillList.length ? `\n${L('사용 가능한 스킬(주기 작업에 쓸 수 있음)', 'Available skills (usable for recurring tasks)')}: ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
-  // the browser skills, the same way: name and description only (lib/browserSkills.js — a body is read when a task uses it)
-  const browserList = browserSkills()
-  const browserHint = browserList.length ? `\n${L('브라우저 스킬(그 사이트에서 하는 일, browser_task 의 skill)', 'Browser skills (work done on that site; browser_task skill)')}: ${browserList.map((k) => `${k.name} — ${k.description.slice(0, 200)}`).join(' / ')}` : ''
-  const processHint = await processCatalogHint()
-  const teamHint = await teamCatalogHint(userId)
-  const appHint = await panelAppHint(user)
-  const schedHint = await scheduleCatalogHint(userId)
-  const route = await chat({
-    model: config.llm.fastModel,
-    temperature: 0,
-    // with no apps to name, a small router model still reaches for panel_record ("'문서 작성' 패널을 찾지 못했어요")
-    // (send_mail is the demo scenarios' — the demo outbox, config.scenarios; off, a mail request goes where it went before them)
-    tools: routerTools(ROUTER_TOOLS.filter((t) => (appHint || t.function.name !== 'panel_record') && (config.scenarios || t.function.name !== 'send_mail'))),
-    messages: [
-      { role: 'system', content: isEn()
-        ? PERSONA_EN.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
-        : PERSONA.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
-      ...hist.slice(-8),
-    ],
-  })
-  const call = route.tool_calls?.[0]
+  const call = routed?.call
   // a panel only when the words ask for one; the router otherwise turns "안내문 … 만들어줘" follow-ups into apps
   const strayPanel = call?.function.name === 'create_panel' && !PANEL_WORDS.test(text) && !PANEL_WORDS_EN.test(text)
   if (!call || strayPanel) return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
 
-  const args = JSON.parse(call.function.arguments || '{}')
+  const args = routed.args
   // only designing a new process goes on to the agent; the other tools answer here
   if (!(call.function.name === 'process' && args.intent === 'create')) noAgentTurn()
   // (a small router model sometimes leaves the acknowledgement out: never an empty bubble)
@@ -585,6 +599,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       // that site (the real router named the skill and also guessed the site's address, on another host: 2026-11-21)
       const skill = args.skill ? browserSkill(String(args.skill).trim()) : null
       if (args.skill && !skill) console.warn(`[router] browser skill '${args.skill}' is not installed`)
+      TP.handler(store?.turn, browserHandler(skill?.name))
       const startUrl = skill?.startUrl ? (sameHost(args.start_url, skill.startUrl) ? args.start_url : skill.startUrl) : args.start_url
       runBrowser({ user, session, threadId, goal: args.goal || text, startUrl: startUrl || undefined, skill: skill?.name, files, room, asked: { text, files } })
       break
@@ -673,6 +688,79 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     }
   }
   return ack
+}
+
+// ---------- the front router (design turnplan §5.1) ----------
+// It used to have no time limit (180 s), no try/catch and an unguarded JSON.parse: 17.5 s in production, and a failure ended the
+// turn with 「이 요청을 처리하지 못했어요」. Now: a token cap, 6 s, and any failure hands the turn to the agent (nothing is lost — DELEGATE
+// is what most messages get anyway). The model still thinks: with thinking off (think:false) frentis sent a link alone and 「소개 페이지와
+// 메모, 마인드맵을 만들어 줘」 to browser_task and 「주간 보고를 마크다운으로 써 줘」 to process, 3 of 3 times each; thinking, it
+// delegated them and still picked schedule_task · browser_task · notify_member where those fit, in 0.9–3.7 s (measured 2026-11-25).
+export const ROUTER_MS = Number(process.env.PRO_ROUTER_TIMEOUT_MS) || 6000
+// each hint source is waited for this long at most (a slow one is left out of this turn; its result still fills its cache)
+const HINT_MS = Number(process.env.PRO_ROUTER_HINT_MS) || 1500
+const capped = (p, ms, fallback) => Promise.race([Promise.resolve(p).catch(() => fallback), new Promise((r) => setTimeout(() => r(fallback), ms).unref?.())])
+// deepagents' skill list (an HTTP call per turn): kept a minute per person
+const skillCache = new Map() // `${tenant}:${userId}` → {at, list}
+function skillsOf(userId, jwt) {
+  const key = `${config.tenantId}:${userId}`
+  const hit = skillCache.get(key)
+  if (hit && Date.now() - hit.at < 60_000) return Promise.resolve(hit.list)
+  return listSkills(jwt).then((list) => { skillCache.set(key, { at: Date.now(), list }); return list })
+}
+// → {call, args} when a tool is called, {call: null} for DELEGATE, null when the router failed (the agent takes the turn too)
+// call: the model call (tests replace it)
+// tasks: the thread's recent task cards as lines (lib/turnPlan.js taskCards — a request that refers to one: 「아까 만들기로 한 노트북」)
+export async function routeTurn({ user, session, hist, now, tasks = [], signal, call = chat }) {
+  const userId = user.id
+  const t0 = Date.now()
+  const [skillList, processHint, teamHint, appHint, schedHint] = await Promise.all([
+    capped(skillsOf(userId, session.access_token), HINT_MS, []),
+    capped(processCatalogHint(), HINT_MS, ''),
+    capped(teamCatalogHint(userId), HINT_MS, ''),
+    capped(panelAppHint(user), HINT_MS, ''),
+    capped(scheduleCatalogHint(userId), HINT_MS, ''),
+  ])
+  const skillHint = skillList.length ? `\n${L('사용 가능한 스킬(주기 작업에 쓸 수 있음)', 'Available skills (usable for recurring tasks)')}: ${skillList.map((k) => `${k.name} — ${k.description.slice(0, 80)}`).join(' / ')}` : ''
+  // the browser skills, the same way: name and description only (lib/browserSkills.js — a body is read when a task uses it)
+  const browserList = browserSkills()
+  const browserHint = browserList.length ? `\n${L('브라우저 스킬(그 사이트에서 하는 일, browser_task 의 skill)', 'Browser skills (work done on that site; browser_task skill)')}: ${browserList.map((k) => `${k.name} — ${k.description.slice(0, 200)}`).join(' / ')}` : ''
+  const taskHint = tasks.length ? `\n${TP.taskBlock(tasks)}` : ''
+  const hintMs = Date.now() - t0
+  const model = config.llm.fastModel
+  let route
+  try {
+    route = await call({
+      model,
+      temperature: 0,
+      // (a cap: a routing answer is a tool call or one word — send_mail's body is the longest argument)
+      maxTokens: 1500, timeoutMs: ROUTER_MS, signal,
+      // with no apps to name, a small router model still reaches for panel_record ("'문서 작성' 패널을 찾지 못했어요")
+      // (send_mail is the demo scenarios' — the demo outbox, config.scenarios; off, a mail request goes where it went before them)
+      tools: routerTools(ROUTER_TOOLS.filter((t) => (appHint || t.function.name !== 'panel_record') && (config.scenarios || t.function.name !== 'send_mail'))),
+      messages: [
+        { role: 'system', content: isEn()
+          ? PERSONA_EN.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + taskHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
+          : PERSONA.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + taskHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
+        ...hist.slice(-8),
+      ],
+    })
+  } catch (e) {
+    // 멈추기 (the turn's own signal): no handler at all — the caller's checkpoint says so
+    if (signal?.aborted) return null
+    console.warn(`[router] model=${model} failed after ${Date.now() - t0} ms (hints ${hintMs} ms): ${String(e.message || e).slice(0, 160)} → delegate`)
+    return null
+  }
+  const tc = route?.tool_calls?.[0] || null
+  let args = {}
+  if (tc) {
+    try { args = JSON.parse(tc.function.arguments || '{}') || {} } catch (e) {
+      console.warn(`[router] model=${model} ${tc.function.name}: arguments are not JSON (${e.message}) → delegate`)
+      return null
+    }
+  }
+  console.log(`[router] model=${model} ${Date.now() - t0} ms (hints ${hintMs} ms) → ${tc ? tc.function.name : 'DELEGATE'}`)
+  return { call: tc, args }
 }
 
 // the person's scheduled tasks, for the router (run_schedule_now names one of these)
@@ -769,6 +857,8 @@ async function telegramTurn({ userId, threadId, text, kind, onDelta }) {
 
 // One run of the agent on a fresh variation of a shared folder, in its own conversation.
 async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
+  // (a variation is made before the agent is called: not for a turn stopped in its front stage)
+  checkpoint(turnCtx.getStore()?.turn)
   const work = await startChatWork({ user, folder, text, threadId })
   await TF.noteVariation(user, threadId, folder, work.v).catch(() => {})
   // (folder: the run's own room — the main chat does not move into it, so the next message is not
@@ -1048,6 +1138,9 @@ export async function stopTurns({ user, session, threadId, conversation }) {
 // privateFiles: what this turn handed the agent that must never come back as a file card (a mail's attachment — [{path, sha256}]); by
 // default what runTurn put on the turn (handleTurn)
 export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag, pin: given = null, background = false, privateFiles = null }) {
+  // the person's message stopped in its front stage (runTurn): the agent is not called
+  const st0 = turnCtx.getStore()
+  if (st0?.turn && !st0.adopted && st0.turn.threadId === threadId) checkpoint(st0.turn)
   let thread = await getThread(user.id, threadId)
   // a main chat left standing in a shared folder's run room (as folder turns used to leave it) does
   // not answer the next message there
@@ -1078,6 +1171,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // sent in), or a new one for work started elsewhere (schedules, team assist, missions)
   if (adopted) store.adopted = true
   const turn = adopted ? store.turn : turns.enqueue({ userId: user.id, threadId, conv: conv0 })
+  // (out of its front stage: a stop now reaches it once it runs, and a turn waiting its place in line goes on — lib/turns.js)
+  if (adopted) { turn.front = false; TP.handler(turn, { kind: 'agent', label: L('에이전트', 'Agent') }) }
+  // the POST stream's retract (an answer in progress turned out to be interim): only for the message that stream is for
+  const retract = adopted ? store.onRetract : null
   turn.setConv(conv0)
   // a project's turns go one at a time, whichever sub-topic they are in (lib/turns.js waitTurn)
   turn.serial = thread?.kind === 'project'
@@ -1105,6 +1202,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     const queued = async () => {
       if (!userMsgId || marked) return
       marked = true
+      TP.stage(turn, 'queued')
       const [m] = await q(`update pro_messages set content = content || '{"queued":true}'::jsonb where id=$1 returning *`, [userMsgId])
       if (m) emit(user.id, 'message', m)
     }
@@ -1152,6 +1250,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (pin && !pin.folder && !background) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, pin.conversationId])
   if (preRouted) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, routing.conversation_id])
   await setThreadStatus(user.id, threadId, 'working')
+  TP.stage(turn, 'preparing')
   // tools that need no account (CADCraft) are bound once per user per server start
   if (!hubBound.has(user.id)) { hubBound.add(user.id); await ensureHubBinding(user.id, config.tenantId).catch(() => {}) }
   // the ArtCraft apps this message asks for list their tools to the agent (mcp/craft.js)
@@ -1232,8 +1331,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (!idle.signal.aborted && !turn.abort.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
     console.warn('[delegate]', turn.reason ? 'replaced by a browser task' : turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
     await setThreadStatus(user.id, threadId, idleStatus())
-    if (turn.abort.signal.aborted && turn.reason) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason, stopped: true, superseded: true, replaced: true, partial: partial.trim().slice(0, 4000), silent, ...convTag() })
-    if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent, ...convTag() })
+    if (turn.abort.signal.aborted && turn.reason) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason, stopped: true, superseded: true, replaced: true, partial: partial.trim().slice(0, 4000), silent, ...convTag(), ...TP.saved(turn, 'stopped') })
+    if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent, ...convTag(), ...TP.saved(turn, 'stopped') })
     return addMessage(user.id, threadId, 'agent', 'text', { ...convTag(), text: idle.signal.aborted
       ? L('에이전트가 한동안 응답하지 않아 기다리기를 멈췄어요. 같은 요청을 다시 보내 주세요.', "The agent didn't respond for a while, so I stopped waiting. Please send the same request again.")
       : L(`에이전트에 연결하지 못했어요. 잠시 후 다시 보내 주세요. (${causeOf(e)})`, `I couldn't reach the agent. Please send it again in a moment. (${causeOf(e)})`) })
@@ -1247,6 +1346,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // with usage limits on (lib/llmKeys.js): refused before the agent starts when a limit is spent, and the
   // agent's own model calls go out with this person's key
   const llmAuth = await llmKeys.admit()
+  // the plan the person was shown (lib/turnPlan.js §1.4): the agent records it with write_todos and does only that work
+  const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn) : ''
   // the request, through the context router (viaRouter) or straight to the agent
   const request = async (viaRouter) => {
     // attachments are indexed for the conversation they go to (lib/attachments.js), so a new
@@ -1263,12 +1364,13 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
       body: JSON.stringify({
         // English mode: the language instruction goes last, after what the person said and the hints
-        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + planText + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
         files: chatFiles(sent),
         user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
         conversation_id: conv, stream: true,
         metadata: { client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
-          ...(isEn() ? { language: 'en' } : {}),
+          // (the language in every mode: a message that is only a link has none of its own — design turnplan §1.5)
+          language: isEn() ? 'en' : 'ko',
           ...(viaRouter ? { auto_route: true, route_text: text, agent: 'deepagents' } : {}) },
       }),
     })
@@ -1277,9 +1379,22 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   routed = opened.routed
   const res = opened.res
   if (!res.ok) throw new Error(`deepagents ${res.status}${await refusal(res)}`)
+  TP.stage(turn, 'preparing')
   const reader = res.body.getReader()
   const dec = new TextDecoder()
-  let buf = '', out = '', event = ''
+  let buf = '', event = ''
+  // the answer (design turnplan §3.4): deepagents' done.content when it sends one, else the last text segment — an interim text
+  // followed by a tool goes to the progress panel's 메모 instead. Errors are added after it; skill authoring keeps all its text.
+  let doneText = null, errors = '', all = ''
+  let openAt = 0
+  const segs = TP.createSegments({
+    stream: mode !== 'skill',
+    onDelta: (d) => onDelta?.(d),
+    onPromote: () => TP.stage(turn, 'writing'),
+    onRetract: () => { retract?.(); TP.stage(turn, 'working') },
+    onNote: (t) => { if (mode !== 'skill') TP.note(turn, t) },
+    onOpen: (t) => { if (mode !== 'skill' && Date.now() - openAt > 400) { openAt = Date.now(); TP.note(turn, t, { open: true }) } },
+  })
   const files = []
   const started = Date.now()
   const runDirs = new Set()
@@ -1295,7 +1410,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const toolDocs = []
   const inputs = new Map() // tool -> arguments of its last call
   // what this answer did on the way, shown under it (lib/workTrail.js: steps and the sites read, no commands)
-  const trail = createTrail()
+  // (30 entries: the progress panel's 한 일 and the folded trail under the answer — design turnplan §3.5)
+  const trail = createTrail(30)
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -1317,7 +1433,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         turn.setConv(j.conversation_id)
         if (!thread?.conversation_id && !pin?.folder && !background) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
       }
-      if (j.type === 'token' && j.content) { out += j.content; partial = out; if (mode !== 'skill') onDelta?.(j.content) }
+      if (j.type === 'token' && j.content) { all += j.content; segs.token(j.content); partial = segs.answer() }
+      // a tool is being called: the text before it was on the way, not the answer
+      if (j.type === 'tool_start' || j.type === 'plan_tools') segs.cut()
+      if (j.type === 'plan_todos') TP.todos(turn, j.todos)
+      if (j.type === 'done' && typeof j.content === 'string') doneText = j.content
       const art = j.type === 'file_artifact' ? generationArtifact(j.path) : {}
       if (art.skill) skillDraft = art.skill
       const room = j.type === 'file_artifact' && /^\/workspace\/\.bpmn\/[^/]+\//.exec(j.path || '')
@@ -1351,27 +1471,32 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         const doc = documentFrom(raw)
         const tool = j.tool || j.tool_name || ''
         if (doc && !toolDocs.some((d) => d.doc.url === doc.url)) toolDocs.push({ doc, tool, input: inputs.get(tool) ?? null, raw: parseToolOutput(raw)?.file_name || parseToolOutput(raw)?.fileName || doc.name })
+        // the next model call may write for a long while with nothing to stream: the live line counts from here
+        if (j.type === 'tool_end') TP.stage(turn, 'working', { text: TP.nextStepText(), detail: 'after_tool' })
       }
       if (j.type === 'process_result' && j.data?.processDefinition) processResult = j.data
       if (j.type === 'tool_start') {
         const tool = j.tool || j.tool_name || j.name || ''
         usedTools.add(tool)
         inputs.set(tool, j.input ?? null)
-        trail.add(tool, j.input, toolPhase(tool))
+        const entry = trail.add(tool, j.input, toolPhase(tool))
         for (const p of workspacePaths(j.input)) seen.add(p)
         steps += 1
-        emit(user.id, 'status', { threadId, text: mode === 'skill' ? skillStatus(tool, steps) : toolPhase(tool) })
+        const said = mode === 'skill' ? skillStatus(tool, steps) : toolPhase(tool)
+        emit(user.id, 'status', { threadId, text: said, turnId: turn.id, conversationId: turn.conv && !String(turn.conv).startsWith('none:') ? turn.conv : null })
+        TP.stage(turn, 'working', { text: said })
+        if (entry) TP.step(turn, entry)
       }
       if (j.type === 'error') {
         const why = String(j.message || j.error || '')
         // the SDK ended the turn: our own 멈추기, or another request on this conversation
         if (/turn cancelled/i.test(why)) cancelled = true
-        else out += L(`\n\n(오류: ${why})`, `\n\n(error: ${why})`)
+        else errors += L(`\n\n(오류: ${why})`, `\n\n(error: ${why})`)
       }
     }
   }
   await setThreadStatus(user.id, threadId, idleStatus())
-  let body = out.trim()
+  let body = `${mode === 'skill' ? all : (doneText?.trim() || segs.answer())}${errors}`.trim()
   const ended = cancelled || turn.stopped
   // a turn that wrote a process definition ends with its draft card, not a skill card for a skill
   // the generation picked up along the way
@@ -1448,6 +1573,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const convNow = turn.conv || routing?.conversation_id || null
   const work = trail.list()
   const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
+    ...TP.saved(turn, ended ? 'stopped' : 'done'),
     ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
   // the conversation's row: a project's sub-topic under the project (routed, or the view narrowed to it), else the main chat's
   if (topicRouted || (pin && !pin.folder && thread?.kind === 'project')) {

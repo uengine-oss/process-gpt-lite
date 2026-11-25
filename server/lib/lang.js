@@ -79,11 +79,20 @@ export const ENGLISH_NOTE = 'LANGUAGE: English. Write every reply and every text
   + 'English, even where these instructions are written in Korean or ask for Korean (한국어, 해요체, 존댓말, 습니다체). '
   + 'Keep JSON keys, enum values, ids, paths, code and quoted identifiers exactly as specified.'
 
+// What every agent is told in Korean mode: the same rule, in Korean. A message that is only a link carries no language of its own,
+// and a model left to guess answered one in Russian, Portuguese or Turkish (claude-haiku-5-5, design turnplan §1.5).
+export const KOREAN_NOTE = '언어: 한국어. 답과 사람이 읽는 모든 글(답, 질문, 계획, 진행 메모, 요약, 제목, 이름, 라벨, 카드 문구, 메시지, 문서 내용, 파일 이름)은 '
+  + '한국어 해요체로 쓰세요. 보낸 메시지가 링크나 파일뿐이어도, 읽은 자료가 다른 언어여도 한국어로 씁니다. '
+  + 'JSON 키, 열거값, id, 경로, 코드, 따옴표로 묶인 식별자는 정해진 그대로 둡니다.'
+
 // The same for an agent (deepagents, cli-agent, Claude Code): appended to the message it gets, after
 // what the person said (context-router names a conversation after the message's first line, and
-// deepagents reads an "[Instruction]" line as a directive). Empty in Korean mode.
+// deepagents reads an "[Instruction]" line as a directive). In Korean mode too (design turnplan §1.5).
 export function langInstruction() {
-  if (!isEn()) return ''
+  if (!isEn()) {
+    return `\n\n[Instruction] ${KOREAN_NOTE} 만드는 파일의 이름도 한국어로 짓고(예: "달빛커피 2호점 견적.xlsx"), `
+      + '파일 안의 글(제목, 표, 라벨, 시트와 슬라이드 제목)도 한국어로 씁니다.'
+  }
   return `\n\n[Instruction] ${ENGLISH_NOTE} Give files you create English names (e.g. "Moonlight Coffee Store 2 quote.xlsx"), `
     + 'and write the text inside them (headings, tables, labels, sheet and slide titles) in English.'
 }

@@ -172,7 +172,9 @@ export async function stream(path, body, onEvent) {
   }
 }
 
-const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'browser.click', 'process', 'mission', 'notifications', 'team', 'meeting', 'local_presence']
+const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'browser.click', 'process', 'mission', 'notifications', 'team', 'meeting', 'local_presence',
+  // a chat turn while it runs: its plan, stage, to-dos, steps and notes (server lib/turnPlan.js — the plan card and the progress panel)
+  'turn.start', 'turn.plan', 'turn.stage', 'turn.todos', 'turn.step', 'turn.note', 'turn.call', 'turn.end']
 // Live events over SSE; if the stream never says hello (a proxy in front holding it back, as
 // Cloudflare quick tunnels do), the same events come by long polling instead.
 // One stream per page, however many ask for it: the chat (app.js boot) and the team messenger (stores/team.js boot — a messenger

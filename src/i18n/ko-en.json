@@ -2904,7 +2904,14 @@
   "메일 「(제목 없음)」": "Mail \"(no subject)\"",
   "끄는 중…": "Turning off…",
   "대화방": "Room",
-  "공유 중 · 대화방": "Shared · room"
+  "공유 중 · 대화방": "Shared · room",
+  "요청을 읽는 중": "Reading your request",
+  "한 일": "Done so far",
+  "메모": "Notes",
+  "아직 없어요": "Nothing yet",
+  "진행 기록": "Progress",
+  "에이전트가 할 일을 정리하면 여기에 보여요": "The agent's to-dos show here once it writes them",
+  "다음 단계를 쓰는 중": "Writing the next step"
  },
  "patterns": [
   [
@@ -2982,6 +2989,10 @@
   [
    "채팅의 산출물 {0}개 {1}",
    "{0} outputs of the chat {1}"
+  ],
+  [
+   "마지막 소식 {0}초 전",
+   "last update {0} s ago"
   ],
   [
    "채팅의 산출물 {0}개",

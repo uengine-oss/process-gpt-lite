@@ -300,7 +300,8 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   const s = sessionRec(userId)
   const t0 = Date.now()
   // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
-  const card = await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '' })
+  // (skill: the browser skill it runs — the router reads the card as one line with it, lib/turnPlan.js taskLine)
+  const card = await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '', ...(sk ? { skill: sk.name } : {}) })
   s.planning.set(card.id, false)
   // an idle browser is taken now — where it runs is decided (the person's PC or this server: takeBrowser), its page checked
   // (a page a task before left stuck: a fresh tab or browser — healthy) — and opens the start page while the plan is being

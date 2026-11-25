@@ -1,0 +1,19 @@
+# cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/turn-plan.spec.js  (2026-11-25 13:24)
+Running 12 tests using 1 worker
+[F-TP-01] card with the plan 307 ms after Enter
+  ✓   1 [feature] › tests/feature/turn-plan.spec.js:230:1 › F-TP-01 링크만 보내면 4초 안에 메시지 아래 카드 — 이해한 한 문장(한국어) · 단계 2~4개, 에이전트 글보다 먼저 (2.5s)
+  ✓   2 [feature] › tests/feature/turn-plan.spec.js:259:1 › F-TP-04 plan_todos 가 오면 카드의 단계가 그 목록으로, 끝난 항목은 새로고침 없이 체크 (2.8s)
+  ✓   3 [feature] › tests/feature/turn-plan.spec.js:272:1 › F-TP-05 · F-TP-06 짧은 문장 뒤 도구 호출 → 메모에 · 알약을 누르면 지금 · 할 일 · 한 일 · 메모 패널 (683ms)
+  ✓   4 [feature] › tests/feature/turn-plan.spec.js:289:1 › F-TP-07 도구가 끝나고 5초 넘게 소식이 없으면 「다음 단계를 쓰는 중」과 늘어나는 초 (6.9s)
+  ✓   5 [feature] › tests/feature/turn-plan.spec.js:301:1 › F-TP-09 턴 도중 새로고침 → 카드와 패널이 같은 계획 · 단계로 돌아옴 (1.1s)
+  ✓   6 [feature] › tests/feature/turn-plan.spec.js:317:1 › F-TP-11 · F-TP-05 턴이 끝나면 답 위에 접힌 「계획 3/3 · 시간」, 펼치면 계획 · 저장된 답에는 중간 글이 없음 (7.7s)
+  ✓   7 [feature] › tests/feature/turn-plan.spec.js:340:1 › F-TP-12 한국어 화면에서 링크만 보낸 턴: 에이전트에게 가는 메시지에 한국어 언어 지시와 계획 (159ms)
+[F-TP-02] fallback sentence 4149 ms after Enter
+  ✓   8 [feature] › tests/feature/turn-plan.spec.js:353:1 › F-TP-02 앞단 계획이 4초 안에 오지 않으면 「요청을 받았어요. 바로 살펴볼게요.」, 턴은 이어감 (11.5s)
+[F-TP-03] router-500: agent reached 362 ms after Enter
+[F-TP-03] slow-router: agent reached 6082 ms after Enter
+  ✓   9 [feature] › tests/feature/turn-plan.spec.js:377:1 › F-TP-03 라우터가 오류를 내거나 6초를 넘기면 에이전트가 맡고, 「이 요청을 처리하지 못했어요」는 없음 (11.0s)
+  ✓  10 [feature] › tests/feature/turn-plan.spec.js:396:1 › F-TP-08 라우터가 답하기 전에 「멈추기」 → 아무 처리도 시작하지 않고 「멈췄어요」 (14.0s)
+  ✓  11 [feature] › tests/feature/turn-plan.spec.js:418:1 › F-TP-10 영어 화면: 카드 · 패널의 모든 글과 이해한 문장이 영어 (24.8s)
+  ✓  12 [feature] › tests/feature/turn-plan.spec.js:443:1 › F-TP-06 390px: 아래 시트 · 「멈추기」가 다 보임 · 화면 사진(1280 · 390, 밝은 · 밤 — 카드 · 패널 · 접힌 줄) (1.1m)
+  12 passed (2.6m)
