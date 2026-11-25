@@ -11,6 +11,7 @@ import { readingStatus } from '../lib/decide.js'
 import { answer, undo, canApprove } from '../lib/policy/pep.js'
 import { graphOf, saveObjective, saveLink, removeObjective } from '../lib/strategy/graph.js'
 import { report, suggestions, applySuggestion } from '../lib/policy/insights.js'
+import { named } from '../lib/people.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[agentic]', e.stack || e.message)
@@ -43,6 +44,7 @@ export function agenticRoutes(auth) {
       from pro_policy_decisions d left join users u on u.id=d.user_id and u.tenant_id=d.tenant_id left join pro_policy_actions a on a.decision_id=d.id
       where d.tenant_id=$1 and ($2 or d.user_id=$3 or d.status='pending') and ($4::text is null or d.status=$4) and ($5 or not d.dry_run)
       order by d.created_at desc limit 200`, [T(), admin, req.user.id, req.query.status || null, req.query.dry === '1'])
+      .then((r) => named(r, { id: 'user_id' }))
     const out = []
     for (const d of rows) {
       // 원장에서 승인하는 것은 승인 뒤 실행할 행위가 보관된 결정만(팀원 맥락 참고는 주인이 홈 카드에서 정한다)

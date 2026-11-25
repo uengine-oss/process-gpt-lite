@@ -11,6 +11,16 @@
 //   F-AV-07 휴대폰 390px 밝은 · 밤: 설정 머리 · 프로필 줄 · 사진 고르기 창이 화면 안, 옆으로 넘치지 않음
 //   F-AV-08 구글로 로그인한 사람: 구글 사진이 기본(users.profile 에도 채움, 리퍼러 없이 요청), 기본 사진을 고르면 그것이 이기고,
 //           「Google 사진으로」는 구글 사진으로 돌아감, 구글 계정이 사진을 바꾸면 따라감, 구글 사진이 깨지면 이름 첫 글자
+// 사람은 어디서나 같은 이름 · 같은 얼굴(2026-11-25 운영, 두 동료와의 방 — 내 에이전트의 결과 옆에 내 사진 대신 주소 첫 글자, 방 머리에
+// 내 주소 앞부분. 「일관성있는 컴포넌트 사용이 되어야」): 이름은 서버의 한 규칙(server/lib/people.js), 동그라미는 한 부품(PersonAvatar.vue).
+// 지어낸 사람 정하윤: Lite 에서 이름을 적었지만 Process GPT 의 users.username 은 주소 앞부분(운영의 그 상태). 최도현: Lite 를 연 적 없고
+// username 도 주소 앞부분, 이름은 인증 기록(구글 로그인의 full_name)에만.
+//   F-PP-01 정하윤의 에이전트가 결과를 올린 방 — 결과 옆에 정하윤의 사진과 에이전트 표시(✦), 「정하윤님의 에이전트」, @AI 의 답은 ✦ AI 동그라미
+//           (정하윤이 보든 김서연이 보든), 1280 · 390 밝은 · 밤
+//   F-PP-02 방 머리 · 대화 목록 · 새 대화 상대 · 팀·역할 · GET /api/people 은 「정하윤」(주소 앞부분이 아님), 최도현은 인증 기록의 이름
+//   F-PP-03 고르는 창의 얼굴 — 메신저의 @ · 채팅 입력창의 @ 팀원(목록과 받는 사람 칩) · 「팀원에게 공유」 창, 1280 밝은 · 390 밤
+//   F-PP-04 이름을 바꾸면 새로 고치지 않아도 내 동그라미 · 팀 목록의 내 동그라미가 새 이름의 첫 글자(검토 e98078b: 화면의 이름 목록이 옛 이름을 쥐고 있었다)
+//   F-PP-05 로그인 주소의 대소문자: 「Pro-RT-…@UEngine.org」 은 같은 계정, users · pro_profile 에는 소문자(새 계정도)
 // 구글 사진의 호스트는 시험만의 가짜 호스트(127.0.0.1 의 빈 포트, PRO_AVATAR_HOSTS 로 허용 — 기본은 https *.googleusercontent.com)이고,
 // 구글 로그인은 그 사람의 auth.identities 에 provider 'google' 행을 넣어 흉내 낸다(GoTrue 가 구글 로그인 때 쓰는 그 행).
 // 자기 스택(lib/localStack.js: 회사 avatar-ui 의 BFF + Vite, 8990 · 5391 부터 빈 포트 — 5390 은 이 PC 의 이음오피스 호스트 자리)을 띄우고
@@ -34,8 +44,10 @@ const TENANT = 'avatar-ui'
 const PRESET = '/assets/images/profile/user-3.jpg'
 const DIRECT = '/assets/images/profile/5.jpg'
 const NO_PICTURE = '/images/defaultUser.png'
+const HY_PIC = '/assets/images/profile/7.jpg'
+const AVATAR = '[data-test="person-avatar"]'
 
-let S, SY, DY, HJ, SB, G
+let S, SY, DY, HJ, HY, DH, SB, G
 const files = []
 
 // the stand-in for Google's picture host: /a/<name>.png from the pictures given to it (404 otherwise); what was asked, with its Referer
@@ -48,7 +60,8 @@ function pictureHost() {
     res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' })
     res.end(buf)
   })
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, pics, asked, base: `http://127.0.0.1:${server.address().port}` })))
+  // (RT_FAKE_PORT: a port of its own, else any free one)
+  return new Promise((ok) => server.listen(Number(process.env.RT_FAKE_PORT) || 0, '127.0.0.1', () => ok({ server, pics, asked, base: `http://127.0.0.1:${server.address().port}` })))
 }
 
 // a real picture (ffmpeg): a test card of the given size, as PNG or JPEG
@@ -104,11 +117,14 @@ test.beforeAll(async () => {
   fs.mkdirSync(SHOTS, { recursive: true })
   G = await pictureHost()
   for (const n of [1, 2]) G.pics.set(`/a/hajun-${n}.png`, fs.readFileSync(picture(160 + n * 20, 160 + n * 20, 'png')))
-  S = await startStack({ tenant: TENANT, apiFrom: 8990, webFrom: 5391, env: { PRO_DEEPAGENTS_URL: NOWHERE, PRO_COMPLETION_URL: NOWHERE, PRO_CONTEXT_ROUTER_URL: NOWHERE, PRO_AVATAR_HOSTS: G.base } })
+  // (RT_API_FROM · RT_WEB_FROM: where to look for free ports — another worktree's tests may be on the usual ones)
+  S = await startStack({ tenant: TENANT, apiFrom: Number(process.env.RT_API_FROM) || 8990, webFrom: Number(process.env.RT_WEB_FROM) || 5391, env: { PRO_DEEPAGENTS_URL: NOWHERE, PRO_COMPLETION_URL: NOWHERE, PRO_CONTEXT_ROUTER_URL: NOWHERE, PRO_AVATAR_HOSTS: G.base } })
   SY = await S.person(`pro-rt-${TENANT}-a@uengine.org`, '김서연')
   DY = await S.person(`pro-rt-${TENANT}-b@uengine.org`, '박도윤')
   HJ = await S.person(`pro-rt-${TENANT}-c@uengine.org`, '이하준')
-  for (const p of [SY, DY]) await S.join(p)
+  HY = await S.person(`pro-rt-${TENANT}-d@uengine.org`, '정하윤')
+  DH = await S.person(`pro-rt-${TENANT}-e@uengine.org`, '최도현')
+  for (const p of [SY, DY, HY, DH]) await S.join(p)
   const { config } = await import(path.join(SERVER, 'config.js'))
   SB = config.supabaseUrl.replace(/\/+$/, '')
   await cleanData()
@@ -118,12 +134,13 @@ test.beforeAll(async () => {
 async function cleanData() {
   const { admin } = await import(path.join(SERVER, 'lib/supa.js'))
   if (HJ) await S.q(`delete from auth.identities where user_id=$1 and provider='google'`, [HJ.id]).catch(() => {})
-  for (const p of [SY, DY, HJ].filter(Boolean)) {
+  for (const p of [SY, DY, HJ, HY, DH].filter(Boolean)) {
     const prefix = `pgpt-pro/${p.id}/avatar`
     const { data } = await admin.storage.from('files').list(prefix, { limit: 1000 }).catch(() => ({ data: [] }))
     if (data?.length) await admin.storage.from('files').remove(data.map((o) => `${prefix}/${o.name}`)).catch(() => {})
     await S.q('update users set profile=default where id=$1 and tenant_id=$2', [p.id, TENANT]).catch(() => {})
   }
+  for (const p of [HY, DH].filter(Boolean)) await S.q('delete from pro_messages where thread_id in (select id from pro_threads where user_id=$1)', [p.id]).catch(() => {})
   for (const sql of ['delete from chats where tenant_id=$1', 'delete from pro_chat_reads where room_id in (select id from chat_rooms where tenant_id=$1)', 'delete from chat_rooms where tenant_id=$1']) await S.q(sql, [TENANT]).catch(() => {})
 }
 test.afterAll(async () => {
@@ -248,16 +265,16 @@ test('F-AV-04 Process GPT 가 DB 에 쓴 사진을 Lite 가 보여 준다 — �
   const d = await page(browser, DY, DESK, { theme: 'light' })
   await d.goto('/settings/team')
   const row = d.locator('.tr .li').filter({ hasText: '김서연' })
-  await shows(d, `.tr .li:has-text("김서연") .av`, DIRECT)
+  await shows(d, `.tr .li:has-text("김서연") ${AVATAR}`, DIRECT)
   await expect(d.locator('.tr .li').filter({ hasText: '박도윤' }).locator('img')).toHaveCount(0)
-  await expect(row.locator('.av')).toBeVisible()
+  await expect(row.locator(AVATAR)).toBeVisible()
   await shot(d, 'f-av-04a-team-list')
   await d.goto('/chat')
   await d.locator('button.msg-btn').click()
   await d.locator('.ms').waitFor()
   await d.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
   const th = d.locator('.ms .th').filter({ hasText: '김서연' }).first()
-  await shows(d, `.ms .th:has-text("김서연") .av`, DIRECT)
+  await shows(d, `.ms .th:has-text("김서연") ${AVATAR}`, DIRECT)
   await expect(th).toBeVisible()
   await shot(d, 'f-av-04b-messenger')
   expect(d.errors).toEqual([])
@@ -436,4 +453,223 @@ test('F-AV-08 구글로 로그인한 사람은 구글 사진이 기본 — 고�
   expect(await stored(HJ)).toBe(gone)
   expect(p.errors).toEqual([])
   await p.context().close()
+})
+
+// ---- 사람은 어디서나 같은 이름 · 같은 얼굴 (F-PP) ----
+const HY_LOCAL = () => HY.email.split('@')[0]
+let ROOM
+// what Process GPT holds for these two (the production state): 정하윤's username is her address's local part, her picture a preset it
+// wrote; 최도현 never opened Lite (no profile), his username is the local part too, his name only in the auth record (a Google sign-in)
+async function processGptState() {
+  await S.q('update users set username=$1, profile=$2 where id=$3 and tenant_id=$4', [HY_LOCAL(), HY_PIC, HY.id, TENANT])
+  await S.q('update users set username=$1 where id=$2 and tenant_id=$3', [DH.email.split('@')[0], DH.id, TENANT])
+  await S.q('delete from pro_profile where user_id=$1', [DH.id])
+  await S.q(`update auth.users set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || '{"full_name":"최도현","name":"pro-rt-avatar-ui-e"}'::jsonb where id=$1`, [DH.id])
+}
+// 정하윤's room with 김서연 and 박도윤: 김서연 asks, 정하윤's agent posts its result (the row routes/teamAssist.js writes — its stored label
+// still names her by the local part), and an @AI answer
+async function agentRoom() {
+  if (ROOM) return ROOM
+  await processGptState()
+  await put(SY, DIRECT)
+  const { id } = await S.api(HY.token, '/team/threads', { method: 'POST', body: { members: [SY.id, DY.id] } })
+  await S.api(SY.token, `/team/threads/${id}/messages`, { method: 'POST', body: { text: '견적 세 곳 비교해서 정리해 줄 수 있어요?' } })
+  const at = (s) => new Date(Date.now() + s * 1000).toISOString()
+  const agentRow = (content, pgpt, s) => {
+    const uuid = crypto.randomUUID()
+    return S.q('insert into chats(uuid, id, messages, tenant_id, thread_id) values ($1,$2,$3,$4,$2)', [uuid, id, {
+      uuid, id: 'process-gpt-agent', name: 'Process GPT Agent', role: 'assistant', email: 'agent:process-gpt-agent', agentId: 'process-gpt-agent',
+      userName: 'Process GPT Agent', profile: '/images/chat-icon.png', content, timeStamp: at(s), pgpt }, TENANT])
+  }
+  await agentRow('견적 비교표를 정리했어요. 세 곳 가운데 B사가 가장 낮아요.', { kind: 'agent', by: HY.id, byName: `${HY_LOCAL()}님의 에이전트`, artifacts: [], context: { title: '견적 정리' } }, 1)
+  await agentRow('공유 폴더에서 「견적 기준표」를 찾아 붙였어요.', { kind: 'agent', ai: true, by: SY.id, byName: 'AI', artifacts: [], context: { ai: { action: 'attach' } } }, 2)
+  ROOM = id
+  return id
+}
+// the room as its title reads for who opens it (the others' names)
+async function openRoom(p, title, { phone = false } = {}) {
+  await p.goto('/chat')
+  if (phone) {
+    await p.locator('.seg button').filter({ hasText: '홈' }).click()
+    await p.locator('button.msgs').click()
+  } else await p.locator('button.msg-btn').click()
+  await p.locator('.ms').waitFor()
+  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('.ms .th').filter({ has: p.locator('.nm b', { hasText: new RegExp(`^${title}$`) }) }).click()
+  await p.locator('.ms .cmp textarea').waitFor()
+}
+const agentMsg = (p) => p.locator('.ms .msg.agent').filter({ hasText: '견적 비교표' })
+const aiMsg = (p) => p.locator('.ms .msg.agent').filter({ hasText: '견적 기준표' })
+
+test('F-PP-01 내 에이전트가 결과를 올린 방 — 결과 옆에 내 얼굴과 에이전트 표시, 「정하윤님의 에이전트」, @AI 의 답은 ✦ AI', async ({ browser }) => {
+  await agentRoom()
+  const views = [['a', DESK, 'light', false], ['b', DESK, 'dark', false], ['c', PHONE, 'light', true], ['d', PHONE, 'dark', true]]
+  for (const [k, opts, theme, phone] of views) {
+    const p = await page(browser, HY, opts, { theme })
+    await openRoom(p, '김서연, 박도윤', { phone })
+    // the owner's face — her picture, not a letter — with the agent's mark, and her name as everyone else calls her
+    const av = agentMsg(p).locator(AVATAR)
+    await expect(av).toHaveAttribute('data-person', HY.id)
+    await shows(p, `.ms .msg.agent:has-text("견적 비교표") ${AVATAR}`, HY_PIC)
+    await expect(av.locator('[data-test="agent-badge"]')).toBeVisible()
+    await expect(agentMsg(p).locator('.kind')).toHaveText('✦ 정하윤님의 에이전트 · 견적 정리')
+    await expect(agentMsg(p)).not.toContainText(HY_LOCAL())
+    // the room's AI keeps its own ✦ circle: no face, no agent mark
+    await expect(aiMsg(p).locator(AVATAR)).toHaveAttribute('data-kind', 'ai')
+    await expect(aiMsg(p).locator(`${AVATAR} img`)).toHaveCount(0)
+    await expect(aiMsg(p).locator('[data-test="agent-badge"]')).toHaveCount(0)
+    // a teammate's own message: her face, no mark
+    const asked = p.locator('.ms .msg').filter({ hasText: '견적 세 곳' })
+    await shows(p, `.ms .msg:has-text("견적 세 곳") ${AVATAR}`, DIRECT)
+    await expect(asked.locator('[data-test="agent-badge"]')).toHaveCount(0)
+    if (phone) expect(await noOverflow(p)).toBe(true)
+    await shot(p, `f-pp-01${k}-agent-${phone ? 'phone' : 'desk'}-${theme}`)
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  }
+  // 김서연 sees the same: 정하윤's face with the mark, 「정하윤님의 에이전트」
+  const y = await page(browser, SY, DESK, { theme: 'light' })
+  await openRoom(y, '정하윤, 박도윤')
+  await shows(y, `.ms .msg.agent:has-text("견적 비교표") ${AVATAR}`, HY_PIC)
+  await expect(agentMsg(y).locator('[data-test="agent-badge"]')).toBeVisible()
+  await expect(agentMsg(y).locator('.kind')).toHaveText('✦ 정하윤님의 에이전트 · 견적 정리')
+  await shot(y, 'f-pp-01e-agent-teammate')
+  expect(y.errors).toEqual([])
+  await y.context().close()
+})
+
+test('F-PP-02 방 머리 · 대화 목록 · 새 대화 상대 · 팀·역할 · /api/people 은 같은 이름 — 주소 앞부분이 아니다', async ({ browser }) => {
+  await agentRoom()
+  // the server's one answer: names with pictures
+  const all = await (await api(SY, '/people')).json()
+  expect(all[HY.id]).toEqual({ name: '정하윤', picture: HY_PIC, email: HY.email })
+  expect(all[SY.id]).toEqual({ name: '김서연', picture: DIRECT, email: SY.email })
+  // never opened Lite, the username only the local part: the name in the auth record
+  expect(all[DH.id]).toEqual({ name: '최도현', picture: null, email: DH.email })
+  const threads = await S.api(SY.token, '/team/threads')
+  const t = threads.find((x) => x.id === ROOM)
+  expect(t.title).toBe('정하윤, 박도윤')
+  expect(t.members.map((m) => m.name)).toEqual(['정하윤', '김서연', '박도윤'])
+  const msgs = await S.api(SY.token, `/team/threads/${ROOM}/messages`)
+  expect(msgs.thread.members.map((m) => m.name)).toEqual(['정하윤', '김서연', '박도윤'])
+  const agent = msgs.messages.find((m) => m.kind === 'agent' && !m.sender.ai)
+  expect(agent.sender).toMatchObject({ id: HY.id, name: '정하윤님의 에이전트', agent: true, owner: { id: HY.id, name: '정하윤' } })
+  // the screens: the list row, the header, the new-conversation people, Settings › 팀·역할
+  const p = await page(browser, SY, DESK, { theme: 'light' })
+  await openRoom(p, '정하윤, 박도윤')
+  await expect(p.locator('.ms .th.on .nm b')).toHaveText('정하윤, 박도윤')
+  await expect(p.locator('[data-test="msg-thread-members"]')).toHaveText('정하윤, 김서연, 박도윤')
+  await shot(p, 'f-pp-02a-room-header')
+  await p.locator('.ms .hd .tb').click()
+  const pick = p.locator('.ms .pick .row').filter({ hasText: '정하윤' })
+  await expect(pick.locator('.nm b')).toHaveText('정하윤')
+  await shows(p, `.ms .pick .row:has-text("정하윤") ${AVATAR}`, HY_PIC)
+  await expect(p.locator('.ms .pick')).not.toContainText(new RegExp(`${HY_LOCAL()}(?!@)`))
+  await shot(p, 'f-pp-02b-new-conversation')
+  await p.goto('/settings/team')
+  const row = p.locator('.tr .li').filter({ hasText: '정하윤' })
+  await expect(row.locator('.main b')).toHaveText('정하윤')
+  await shows(p, `.tr .li:has-text("정하윤") ${AVATAR}`, HY_PIC)
+  await expect(p.locator('.tr .li').filter({ hasText: '최도현' }).locator('.main b')).toHaveText('최도현')
+  await shot(p, 'f-pp-02c-team-list')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+  // a phone, dark: the same names in the team list
+  const m = await page(browser, SY, PHONE, { theme: 'dark' })
+  await m.goto('/settings/team')
+  await expect(m.locator('.tr .li').filter({ hasText: '정하윤' }).locator('.main b')).toHaveText('정하윤')
+  expect(await noOverflow(m)).toBe(true)
+  await shot(m, 'f-pp-02d-team-list-phone-dark')
+  await m.context().close()
+})
+
+// a file the agent made in 정하윤's chat (a card the chat's 「공유」 hands to the share picker)
+async function fileCard() {
+  const [t] = await S.q(`select id from pro_threads where user_id=$1 and kind='chat' order by created_at limit 1`, [HY.id])
+  const th = t?.id || (await S.q(`insert into pro_threads(user_id,kind,title) values ($1,'chat','채팅') returning id`, [HY.id]))[0].id
+  await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1,'agent','file',$2)`,
+    [th, { name: '견적 비교.xlsx', url: `${SB}/storage/v1/object/public/files/pgpt-pro/${HY.id}/rt-quote.xlsx` }])
+}
+
+test('F-PP-03 고르는 창의 얼굴 — 메신저의 @ · 채팅 입력창의 @ 팀원 · 「팀원에게 공유」', async ({ browser }) => {
+  await agentRoom()
+  await fileCard()
+  for (const [k, opts, theme, phone] of [['a', DESK, 'light', false], ['b', PHONE, 'dark', true]]) {
+    const p = await page(browser, HY, opts, { theme })
+    // the messenger's "@": the AI's ✦, then the room's people with their faces
+    await openRoom(p, '김서연, 박도윤', { phone })
+    await p.locator('.ms .cmp textarea').fill('@')
+    const at = p.locator('[data-test="msg-at-list"]')
+    await expect(at).toBeVisible()
+    await expect(at.locator(`[data-test="msg-at-ai"] ${AVATAR}`)).toHaveAttribute('data-kind', 'ai')
+    await shows(p, `[data-test="msg-at-list"] [data-test="msg-at-person"]:has-text("김서연") ${AVATAR}`, DIRECT)
+    await expect(at.locator('[data-test="msg-at-person"]').filter({ hasText: '박도윤' }).locator(AVATAR)).toHaveText('박')
+    await shot(p, `f-pp-03${k}1-messenger-at-${theme}`)
+    await p.locator('.ms .cmp textarea').fill('')
+    // the chat composer's "@": teammates with their faces, and the chip of the one picked
+    await p.goto('/chat')
+    // (a phone opened the room from Home: back to the chat)
+    if (phone) await p.locator('.seg button').filter({ hasText: '채팅' }).click()
+    const ta = p.locator('[data-test="chat-composer"] textarea').first()
+    await ta.click()
+    await ta.pressSequentially('@')
+    const sug = p.locator('.ct .sug')
+    await expect(sug).toBeVisible({ timeout: 15000 })
+    await shows(p, `.ct .sug .it:has-text("김서연") ${AVATAR}`, DIRECT)
+    await shot(p, `f-pp-03${k}2-composer-at-${theme}`)
+    await sug.locator('.it').filter({ hasText: '김서연' }).click()
+    await shows(p, `.ct .people .person:has-text("김서연") ${AVATAR}`, DIRECT)
+    // the share picker on the file card
+    await p.locator('button[aria-label="견적 비교.xlsx 공유"]').first().click()
+    const sp = p.locator('.sp[role="dialog"]')
+    await expect(sp).toBeVisible()
+    await shows(p, `.sp .row:has-text("김서연") ${AVATAR}`, DIRECT)
+    await expect(sp.locator('.row').filter({ hasText: '박도윤' }).locator(AVATAR)).toHaveText('박')
+    if (phone) expect(await noOverflow(p)).toBe(true)
+    await shot(p, `f-pp-03${k}3-share-picker-${theme}`)
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  }
+})
+
+test('F-PP-04 이름을 바꾸면 새로 고치지 않아도 내 동그라미 · 팀 목록의 내 동그라미가 새 이름의 첫 글자', async ({ browser }) => {
+  const p = await page(browser, DY, DESK, { theme: 'light' })
+  try {
+    // the team list first: the screens' list of names now holds 박도윤
+    await p.goto('/settings/team')
+    const mine = () => p.locator('.tr .li').filter({ hasText: '· 나' })
+    await expect(mine().locator(AVATAR)).toHaveText('박')
+    await p.locator('.ph .back').click()
+    await p.locator('.home .list button').filter({ hasText: '계정' }).click()
+    await p.locator('input[aria-label="이름"]').fill('도윤 박')
+    await p.locator('form .pill-btn').first().click()
+    await expect(p.locator('form .pill-btn').first()).toHaveText('저장했어요')
+    // no reload: my own circle and my row in the team list take the new name's initial
+    await p.locator('.ph .back').click()
+    await expect(p.locator('.home h2')).toHaveText('도윤 박')
+    await showsInitial(p, HEAD, '도')
+    await p.locator('.home .list button').filter({ hasText: '팀·역할' }).click()
+    await expect(mine().locator('.main b')).toContainText('도윤 박')
+    await expect(mine().locator(AVATAR)).toHaveText('도')
+    await shot(p, 'f-pp-04-renamed')
+    expect(p.errors).toEqual([])
+  } finally {
+    await S.api(DY.token, '/profile', { method: 'POST', body: { name: '박도윤' } })
+    await p.context().close()
+  }
+})
+
+test('F-PP-05 로그인 주소의 대소문자 — 같은 계정, users · pro_profile 에는 소문자', async () => {
+  // an account that is there, typed with capitals: the same person, nothing new written
+  const r = await S.api(null, '/auth/email/verify', { method: 'POST', body: { email: ` ${SY.email.replace(/^pro-rt-avatar-ui-a/, 'Pro-RT-Avatar-UI-A').replace('uengine.org', 'UEngine.org')} `, code: '000000' } })
+  expect(r.user.id).toBe(SY.id)
+  expect(r.user.email).toBe(SY.email)
+  expect((await S.q('select email from users where id=$1 and tenant_id=$2', [SY.id, TENANT]))[0].email).toBe(SY.email)
+  expect((await S.q('select email from pro_profile where user_id=$1', [SY.id]))[0].email).toBe(SY.email)
+  // a new one typed with capitals: made lower case, and so is the name made from it
+  const fresh = `pro-rt-${TENANT}-f@uengine.org`
+  const n = await S.api(null, '/auth/email/verify', { method: 'POST', body: { email: fresh.toUpperCase(), code: '000000' } })
+  expect(n.user.email).toBe(fresh)
+  expect((await S.q('select email, username from users where id=$1 and tenant_id=$2', [n.user.id, TENANT]))[0]).toEqual({ email: fresh, username: fresh.split('@')[0] })
+  expect((await S.q('select email, name from pro_profile where user_id=$1', [n.user.id]))[0]).toEqual({ email: fresh, name: fresh.split('@')[0] })
 })

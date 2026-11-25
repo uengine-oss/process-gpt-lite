@@ -12,6 +12,7 @@ import { saveAttachment } from '../attachments.js'
 import { TeamError } from './access.js'
 import * as W from './worktree.js'
 import { linkKey, signLink, linkPath } from './mediaLink.js'
+import { person } from '../people.js'
 
 const T = () => config.tenantId
 const KIND = (n) => String(n || '').split('.').pop().toLowerCase().slice(0, 12)
@@ -204,7 +205,7 @@ export async function openCopy(user, id) {
   }
   const { name, type, buf } = await bytes(user, id)
   const saved = await saveAttachment(user, name, type, buf)
-  const [owner] = await q('select username as name from users where id=$1 and tenant_id=$2', [s.owner_id, T()])
+  const owner = await person(s.owner_id)
   const t = await mainThread(user.id)
   const m = await addMessage(user.id, t.id, 'agent', 'file', { name: saved.name, url: saved.url, path: saved.path, shared: { by: owner?.name || L('팀원', 'Teammate'), shareId: s.id } })
   await q('update pro_shares set copy_message_id=$2, opened_at=coalesce(opened_at, now()) where id=$1', [s.id, m.id])

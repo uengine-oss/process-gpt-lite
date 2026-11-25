@@ -1,12 +1,13 @@
 <script setup>
-// A person's face inside the round avatar it is put in (the circle keeps its own size, colour and font): their picture, cover-fit
+// A person's face inside the round avatar it is put in (PersonAvatar.vue — the one circle every screen uses): their picture, cover-fit
 // to the circle's shape, or their initial — when they have none, or when it does not load. picture: given (mine: app.me.user.picture,
-// null = none); otherwise looked up by id (src/people.js). A Process GPT preset is tried at the site's root first, then Lite's copy.
+// null = none); otherwise looked up by id (src/people.js), and the initial is of the name the server gives them (the caller's
+// name until the list has come). A Process GPT preset is tried at the site's root first, then Lite's copy.
 // No referrer goes with it (a Google account's picture is served only without one; nothing else needs it).
 import { ref, computed, watch, onMounted } from 'vue'
 import { BASE } from '../base.js'
 import { faceSources, initialOf } from '../profilePictures.js'
-import { pictureOf, loadPictures } from '../people.js'
+import { pictureOf, nameOf, loadPeople } from '../people.js'
 
 const props = defineProps({ name: String, picture: { type: String, default: undefined }, id: String })
 const src = computed(() => (props.picture !== undefined ? props.picture : pictureOf(props.id)))
@@ -14,12 +15,14 @@ const tries = computed(() => faceSources(src.value, BASE))
 const at = ref(0)
 watch(() => tries.value.join('\n'), () => { at.value = 0 })
 const url = computed(() => tries.value[at.value] || '')
-onMounted(() => { if (props.picture === undefined && props.id) loadPictures() })
+// (a caller that gives the picture gives its own, fresh data — mine, from /api/me — so its name wins over the list's)
+const shownName = computed(() => (props.picture !== undefined ? props.name || nameOf(props.id) : nameOf(props.id, props.name)))
+onMounted(() => { if (props.id) loadPeople() })
 </script>
 
 <template>
   <img v-if="url" :key="url" class="face" :src="url" alt="" draggable="false" referrerpolicy="no-referrer" data-test="face" @error="at++" />
-  <template v-else>{{ initialOf(name) }}</template>
+  <template v-else>{{ initialOf(shownName) }}</template>
 </template>
 
 <style scoped>

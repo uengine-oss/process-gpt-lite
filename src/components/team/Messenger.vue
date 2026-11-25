@@ -24,7 +24,11 @@ import { langLabel } from '../../i18n/mainLangs.js'
 import { hidePaths } from '../../paths.js'
 import ConflictChoice from './ConflictChoice.vue'
 import FolderSuggest from '../folders/FolderSuggest.vue'
-import PersonFace from '../PersonFace.vue'
+// a person's circle, the same everywhere (PersonAvatar.vue) — and the name the server gives every screen (src/people.js)
+import PersonAvatar from '../PersonAvatar.vue'
+import { tagsFor, labelOf } from '../../people.js'
+// the one picker of teammates: a new conversation, inviting into a group room, a group made from a 1:1
+import PeoplePicker from './PeoplePicker.vue'
 import { uploadTeamFile, api } from '../../api.js'
 // link preview cards under a message with links (server lib/linkPreview.js)
 import LinkPreviews from '../LinkPreviews.vue'
@@ -54,7 +58,9 @@ const attach = ref([])         // my file cards to send along
 const attachOpen = ref(false)
 const picking = ref(false)     // new thread: choose teammates
 const people = ref(null)
-const chosen = ref([])
+// the open room's 「초대」 (a group: invite teammates in) · 「단체방 만들기」 (a 1:1: a new group with both and the ones picked —
+// the 1:1 stays private), 2026-11-25 「기존 단체 메신저 대화창에서 신규인원 초대가 가능해야.」
+const inviting = ref(false)
 const scroller = ref(null)
 const busy = ref('')
 const err = ref('')
@@ -78,9 +84,27 @@ const thread = computed(() => team.threads.find((t) => t.id === team.active) || 
 const list = computed(() => team.msgs[team.active] || [])
 const myFiles = computed(() => (app.messages[app.mainThread?.id] || []).filter(shareable).slice(-12).reverse())
 const inboxUnread = computed(() => team.inbox.filter((x) => x.unread).length)
-// a person's picture in their circle (src/people.js); an agent's message is not its owner's face
-const senderId = (s) => (s?.agent ? null : s?.id || null)
+// Whose face a message has: a person's own; an agent's — its owner's, with the agent's mark (2026-11-25: my own agent's result had a
+// 「j」 circle of its own); the room's AI (and an agent no one owns) — ✦
+const face = (s) => (s?.ai || (s?.agent && !s?.id) ? { kind: 'ai' }
+  : { kind: 'person', id: s?.id || undefined, name: (s?.agent ? s?.owner?.name : s?.name) || s?.name || '', agent: !!s?.agent })
 const otherOf = (t) => (t.members || []).find((p) => p.id !== app.me?.user?.id) || null
+// Same-named people told apart (src/sameNames.js — 2026-11-25: one person's two accounts were two identical 「윤가람」 rows): the 1:1
+// rooms' other people across the list, and a room's people within that room. A room named by its people (no title of its own) says
+// them with their tags; a room with its own title keeps it.
+const othersOf = (t) => (t?.members || []).filter((p) => p.id !== app.me?.user?.id)
+const namedByPeople = (t) => !!t && t.title === othersOf(t).map((p) => p.name).join(', ')
+const listTags = computed(() => tagsFor(team.threads.filter((t) => t.kind !== 'group' && namedByPeople(t) && othersOf(t).length === 1).map(otherOf)))
+function titleOf(t) {
+  if (!namedByPeople(t)) return t?.title || ''
+  const others = othersOf(t)
+  if (t.kind !== 'group' && others.length === 1) return labelOf(listTags.value, others[0])
+  const tags = tagsFor(t.members)
+  return others.map((p) => labelOf(tags, p)).join(', ')
+}
+const roomTags = computed(() => tagsFor(thread.value?.members || []))
+const memberLabel = (m) => labelOf(roomTags.value, m)
+const senderLabel = (m) => (m.sender?.id && roomTags.value.get(String(m.sender.id)) ? labelOf(roomTags.value, m.sender, m.sender.name) : m.sender?.name)
 const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -236,7 +260,7 @@ const at = reactive({ open: false, query: '', pos: -1, x: 0, active: 0 })
 const atItems = computed(() => {
   const qy = at.query.toLowerCase()
   const ai = { key: 'ai', type: 'ai', name: 'AI', sub: '공유 폴더 · 이 대화의 파일에서 찾아 붙이거나 일을 맡아요' }
-  const people = (thread.value?.members || []).filter((p) => p.id !== app.me?.user?.id).map((p) => ({ key: p.id, type: 'person', id: p.id, name: p.name, sub: '이 대화의 사람' }))
+  const people = (thread.value?.members || []).filter((p) => p.id !== app.me?.user?.id).map((p) => ({ key: p.id, type: 'person', id: p.id, name: p.name, label: memberLabel(p), sub: '이 대화의 사람' }))
   return [...(aiOn.value ? [] : [ai]), ...people].filter((x) => !qy || x.name.toLowerCase().includes(qy))
 })
 function atUpdate() {
@@ -352,13 +376,23 @@ function onKey(e) {
 const dragShare = (e, a) => { if (a.shareId) startDrag(e, [shareItem(a)]); else e.preventDefault() }
 const toggleAttach = (m) => { attach.value = attach.value.some((x) => x.id === m.id) ? attach.value.filter((x) => x.id !== m.id) : [...attach.value, m].slice(0, 5) }
 
-async function newThread() {
-  picking.value = true; chosen.value = []
+async function loadPeople() {
+  people.value = null
   const d = await team.suggest('fast').catch(() => null)
   people.value = d ? [...d.frequent, ...d.rest] : []
 }
-const choose = (p) => { chosen.value = chosen.value.includes(p.id) ? chosen.value.filter((x) => x !== p.id) : [...chosen.value, p.id] }
-const start = () => run('start', async () => { await team.startThread(chosen.value); picking.value = false })
+function newThread() { inviting.value = false; picking.value = true; loadPeople() }
+const start = (ids) => run('start', async () => { await team.startThread(ids); picking.value = false })
+function openInvite() { picking.value = false; inviting.value = true; loadPeople() }
+const isGroup = computed(() => thread.value?.kind === 'group')
+const doInvite = (ids) => run('invite', async () => {
+  const t = thread.value
+  if (!t) return
+  if (t.kind === 'group') await team.invite(t.id, ids)
+  else await team.startThread([...t.members.map((m) => m.id).filter((id) => id !== app.me?.user?.id), ...ids])
+  inviting.value = false
+})
+watch(() => team.active, () => { inviting.value = false })
 
 // Esc puts the floating sheet away; a docked column stays until its ✕ (Esc there is the page's — an open document's, a dialog's)
 const onEsc = (e) => { if (e.key === 'Escape' && !docked.value && !drag.value) team.open = false }
@@ -387,15 +421,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <button :class="{ on: team.tab === 'threads' }" @click="team.tab = 'threads'">대화<i v-if="team.unread.total">{{ team.unread.total }}</i></button>
         </nav>
 
-        <div v-if="picking" class="pick">
-          <p class="cap">대화할 팀원 (여럿 고르면 그룹 대화)</p>
-          <button v-for="p in people || []" :key="p.id" class="row press" :class="{ on: chosen.includes(p.id) }" @click="choose(p)">
-            <span class="av"><PersonFace :id="p.id" :name="p.name" /></span><span class="nm"><b>{{ p.name }}</b><small>{{ (p.roles || []).join(', ') || p.email }}</small></span>
-            <span class="ck">{{ chosen.includes(p.id) ? '✓' : '' }}</span>
-          </button>
-          <p v-if="people && !people.length" class="empty">대화할 팀원이 없어요.</p>
-          <div class="pickbtns"><button class="ghost press" @click="picking = false">취소</button><button class="main press" :disabled="!chosen.length || busy === 'start'" @click="start">대화 시작</button></div>
-        </div>
+        <PeoplePicker v-if="picking" class="pick" :people="people" title="대화할 팀원 (여럿 고르면 그룹 대화)" confirm="대화 시작" empty="대화할 팀원이 없어요."
+          :busy="busy === 'start'" @confirm="start" @cancel="picking = false" />
 
         <div v-else-if="team.tab === 'inbox'" class="items scroll">
           <div class="kinds">
@@ -413,7 +440,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           </template>
           <template v-else>
           <article v-for="m in team.inbox" :key="m.id" class="mail" :class="{ unread: m.unread }">
-            <div class="mh"><span class="av"><PersonFace :id="senderId(m.sender)" :name="m.sender.name" /></span>
+            <div class="mh"><PersonAvatar v-bind="face(m.sender)" />
               <span class="who"><span><b>{{ m.sender.name }}</b> · {{ kindWord[m.kind] }}</span><small>{{ when(m.at) }}</small></span></div>
             <p v-if="m.context?.title" class="ctitle">{{ m.context.title }}</p>
             <p v-if="m.body" class="body" :data-no-i18n="team.tr[m.id]?.body ? '' : null">{{ hidePaths(team.trBody(m) || m.body) }}</p>
@@ -452,8 +479,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <p v-if="team.pendingMention?.length" class="pending" data-test="msg-pending-mail"><Icon name="mail" :size="14" /><span>대화를 고르면 「{{ team.pendingMention[0].name }}」 메일이 멘션으로 붙어요</span>
             <button class="press" aria-label="취소" @click="team.pendingMention = null">×</button></p>
           <button v-for="t in team.threads" :key="t.id" class="th press" :class="{ on: t.id === team.active }" @click="team.openThread(t.id)">
-            <span class="av" :class="{ grp: t.kind === 'group' }"><template v-if="t.kind === 'group'">{{ t.members.length }}</template><PersonFace v-else :id="otherOf(t)?.id" :name="t.title" /></span>
-            <span class="nm"><b>{{ t.title }}</b>
+            <PersonAvatar v-if="t.kind === 'group'" kind="group">{{ t.members.length }}</PersonAvatar><PersonAvatar v-else :id="otherOf(t)?.id" :name="otherOf(t)?.name || t.title" />
+            <span class="nm"><b>{{ titleOf(t) }}</b>
               <small>{{ t.last ? `${t.last.mine ? '나: ' : ''}${t.last.kind === 'share' ? `산출물 ${t.last.files}개 공유${t.last.body ? ' · ' + t.last.body : ''}` : t.last.body}` : '새 대화' }}</small></span>
             <i v-if="team.unread.byThread[t.id]" class="badge">{{ team.unread.byThread[t.id] }}</i>
           </button>
@@ -465,24 +492,36 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
         <template v-if="thread && team.tab === 'threads'">
           <header class="thd" :class="{ grab: dockable }" data-test="msg-thread-head" @pointerdown="dragStart">
             <button class="back press" aria-label="목록" @click="team.active = null"><Icon name="back" :size="18" /></button>
-            <b>{{ thread.title }}</b><small>{{ thread.members.map((m) => m.name).join(', ') }}</small>
+            <b>{{ titleOf(thread) }}</b><small data-test="msg-thread-members">{{ thread.members.map(memberLabel).join(', ') }}</small>
             <button class="aitog press" :class="{ on: team.assistOn[thread.id] }" :title="team.assistOn[thread.id] ? '대화 중 에이전트가 도울 일을 찾으면 제안해요 (끄기)' : 'AI 제안이 꺼져 있어요 (켜기)'" @click="team.toggleAssist(thread.id)">AI 제안 {{ team.assistOn[thread.id] ? '켬' : '끔' }}</button>
             <button class="aitog meet press" :class="{ on: !!roomMeeting }" data-test="meeting-start" :disabled="mt.m?.roomId === thread.id" @click="mt.openLobby(thread.id, thread.title)">{{ roomMeeting ? `회의 참여 · ${roomMeeting.count}명` : '회의 시작' }}</button>
+            <!-- a group: invite teammates in · a 1:1: a new group with the two of us and the ones picked (the 1:1 stays private) -->
+            <button class="aitog grp press" :class="{ on: inviting }" :data-test="isGroup ? 'room-invite' : 'room-make-group'"
+              :title="isGroup ? '이 대화방에 팀원 초대' : '이 두 사람과 다른 팀원으로 새 단체방 만들기'" :aria-label="isGroup ? '초대' : '단체방 만들기'" @click="inviting ? (inviting = false) : openInvite()">
+              <Icon name="plus" :size="13" /><span class="lbl">{{ isGroup ? '초대' : '단체방 만들기' }}</span></button>
             <!-- one column with the list hidden: its place and ✕ come along -->
             <template v-if="single && docked">
               <DockMenu :dock="lay.dock" @pick="team.setDock" />
               <button class="x press" aria-label="닫기" @click="close"><Icon name="close" :size="16" /></button>
             </template>
           </header>
+          <!-- 「초대」 · 「단체방 만들기」: the people picker over the conversation -->
+          <div v-if="inviting" class="invite" data-test="room-invite-sheet">
+            <PeoplePicker :people="people" :exclude="thread.members.map((m) => m.id)" :busy="busy === 'invite'"
+              :title="isGroup ? '초대할 팀원 (여럿 고를 수 있어요)' : '단체방에 함께할 팀원 (이 대화의 두 사람에 더해요)'" :confirm="isGroup ? '초대하기' : '단체방 만들기'"
+              :empty="isGroup ? '초대할 수 있는 팀원이 없어요.' : '대화할 팀원이 없어요.'" @confirm="doInvite" @cancel="inviting = false" />
+          </div>
           <div ref="scroller" class="msgs scroll">
             <template v-for="m in list" :key="m.id">
-            <MeetingRoomCard v-if="String(m.kind).startsWith('meeting')" :m="m" :title="thread.title" />
+            <!-- someone was invited (server lib/team/messenger.js invite): a line of the room's own -->
+            <p v-if="m.kind === 'invite'" class="sysline" data-test="msg-invite" :data-id="m.id">{{ m.body }}</p>
+            <MeetingRoomCard v-else-if="String(m.kind).startsWith('meeting')" :m="m" :title="thread.title" />
             <div v-else :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent' }">
-              <span v-if="!m.mine" class="av sm"><PersonFace :id="senderId(m.sender)" :name="m.sender.name" /></span>
+              <PersonAvatar v-if="!m.mine" v-bind="face(m.sender)" size="sm" />
               <div class="bub">
-                <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ m.sender.name }}</p>
+                <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ senderLabel(m) }}</p>
                 <p v-if="m.kind === 'agent'" class="kind">✦ {{ m.sender.name }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
-                <p v-else-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : m.sender.name }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
+                <p v-else-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : senderLabel(m) }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
                 <p v-if="m.body" class="txt" :data-no-i18n="team.tr[m.id]?.body ? '' : null" data-test="msg-text">{{ hidePaths(team.trBody(m) || m.body) }}</p>
                 <!-- auto-translation (another language than mine): AI 번역 · 원문 보기 / Show original -->
                 <p v-if="team.tr[m.id]?.body" class="trl" data-test="msg-tr"><span>AI 번역<template v-if="team.tr[m.id].from"> · <b data-no-i18n>{{ langLabel(team.tr[m.id].from) }}</b></template></span><button class="press" data-test="show-original" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
@@ -513,7 +552,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((x) => x.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
                 <div v-if="branchesOf[m.id]?.length" class="brs">
                   <div v-for="b in branchesOf[m.id]" :key="b.room" class="br" :data-room="b.room">
-                    <span class="av xs" :title="b.by === 'agent' ? '에이전트가 고침' : ''"><PersonFace :id="b.recipient.id" :name="b.recipient.name" /></span>
+                    <PersonAvatar :id="b.recipient.id" :name="b.recipient.name" size="xs" :agent="b.by === 'agent'" :title="b.by === 'agent' ? '에이전트가 고침' : ''" />
                     <span class="bl"><b>{{ b.recipient.name }}</b> {{ branchLine(b) }}</span>
                     <button v-for="f in changedFiles(b)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" data-test="branch-file" @click="openBranch(b, f)">
                       <Icon name="eye" :size="13" />{{ f.split('/').pop() }}
@@ -529,7 +568,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <small class="t">{{ when(m.at) }}</small>
               </div>
             </div>
-            <LinkPreviews v-if="m.body && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
+            <LinkPreviews v-if="m.body && m.kind !== 'invite' && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
             <AssistSuggestion v-for="sg in sugOf(m.id)" :key="sg.id" :s="sg" />
             </template>
             <!-- 「@AI …」 being answered (lib/team/aiHelp.js) -->
@@ -584,8 +623,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
               <div v-if="at.open && atItems.length" class="atlist glass" role="listbox" data-test="msg-at-list" :style="{ left: `${12 + at.x}px` }" @mousedown.prevent>
                 <button v-for="(it, k) in atItems" :key="it.key" class="row press" role="option" :class="{ on: k === at.active, ai: it.type === 'ai' }" :data-test="it.type === 'ai' ? 'msg-at-ai' : 'msg-at-person'"
                   @click="atPick(it)" @mouseenter="at.active = k">
-                  <span class="av" :class="{ ai: it.type === 'ai' }"><template v-if="it.type === 'ai'">✦</template><PersonFace v-else :id="it.id" :name="it.name" /></span>
-                  <span class="nm"><b>{{ it.name }}</b><small>{{ it.sub }}</small></span>
+                  <PersonAvatar :kind="it.type === 'ai' ? 'ai' : 'person'" :id="it.id" :name="it.name" :size="30" />
+                  <span class="nm"><b>{{ it.label || it.name }}</b><small>{{ it.sub }}</small></span>
                 </button>
               </div>
             </Transition>
@@ -641,8 +680,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .tabs i, .badge { font-style: normal; display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; text-align: center; }
 .items { flex: 1; overflow: auto; padding: 0 10px 12px; }
 .empty { font-size: 13px; color: var(--text-secondary); text-align: center; margin: 24px 8px; }
-.av { flex: none; width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; overflow: hidden; font-weight: 600; font-size: 14px; color: #fff; background: linear-gradient(135deg, #8aa6d8, #4a5f9a); }
-.av.grp { background: #0f8a5f; } .av.sm { width: 28px; height: 28px; font-size: 12px; }
 .mail { padding: 12px; border-radius: 16px; margin-bottom: 8px; background: rgba(127, 127, 127, .07); }
 .mail.unread { background: rgba(42, 120, 214, .1); box-shadow: inset 3px 0 0 #2a78d6; }
 .mh { display: flex; align-items: center; gap: 10px; }
@@ -683,18 +720,26 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .nm b { font-size: 14.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nm small { font-size: 12.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pick { flex: 1; overflow: auto; padding: 0 10px 12px; }
+.pick { flex: 1; min-height: 0; padding: 0 10px 12px; }
+/* 「초대」 · 「단체방 만들기」: over the conversation, under its header */
+.invite { position: absolute; z-index: 6; left: 10px; right: 10px; top: 58px; max-height: min(460px, calc(100% - 140px)); display: flex; flex-direction: column;
+  padding: 10px; border-radius: 18px; box-shadow: 0 14px 44px rgba(0, 0, 0, .22); color: var(--text-primary);
+  /* (opaque: the conversation under it does not show through) */
+  background: linear-gradient(var(--regular-solid-bg), var(--regular-solid-bg)), var(--surface-secondary);
+  border: 1px solid rgba(127, 127, 127, .18); }
+.invite > .pp { min-height: 0; }
+.aitog.grp { margin-left: 6px; display: inline-flex; align-items: center; gap: 3px; }
+.aitog.grp.on { color: #2a78d6; background: rgba(42, 120, 214, .14); }
+/* a line of the room's own: who invited whom */
+.sysline { align-self: center; max-width: 90%; margin: 2px 0; padding: 4px 12px; border-radius: 12px; font-size: 12.5px; color: var(--text-secondary);
+  background: rgba(127, 127, 127, .1); text-align: center; overflow-wrap: anywhere; }
 .cap { margin: 6px 6px 6px; font-size: 12px; color: var(--text-secondary); }
 .row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; text-align: left; color: var(--text-primary); }
 .row.on { background: rgba(42, 120, 214, .14); }
-.ck { width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; font-size: 13px; color: #fff; background: rgba(127, 127, 127, .2); }
-.row.on .ck { background: #2a78d6; }
-.pickbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
-.pickbtns button { height: 34px; padding: 0 14px; border-radius: 17px; font-size: 14px; }
-.pickbtns .main { background: #1d1d1f; color: #fff; } .pickbtns .main:disabled { opacity: .45; }
 .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
 .thd { display: flex; align-items: baseline; gap: 8px; padding: 18px 18px 10px; border-bottom: 1px solid rgba(127, 127, 127, .14); }
-.thd b { font-size: 16px; font-weight: 600; } .thd small { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thd b { font-size: 16px; font-weight: 600; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thd small { flex: 1 1 0; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .back { display: none; }
 /* the headers are what the messenger is dragged by (useMessengerDock.js) */
 .hd.grab, .thd.grab { cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
@@ -769,8 +814,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .aichip button { width: 22px; height: 22px; border-radius: 11px; color: rgba(255, 255, 255, .85); }
 .atlist { position: absolute; bottom: calc(100% - 4px); z-index: 8; width: min(280px, calc(100% - 24px)); max-height: 260px; overflow: auto; border-radius: 16px; padding: 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, .2); }
 .atlist .row.on { background: rgba(127, 127, 127, .14); }
-.atlist .av { width: 30px; height: 30px; font-size: 13px; }
-.atlist .av.ai { background: linear-gradient(135deg, #7a5af5, #2a78d6); }
 .atlist .nm small { white-space: normal; }
 .aiwait { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 16px; font-size: 13.5px; color: var(--text-secondary);
   background: rgba(122, 90, 245, .1); border: 1px solid rgba(122, 90, 245, .3); }
@@ -798,6 +841,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .ms.single .thd { align-items: center; padding: 12px 10px 10px 12px; gap: 6px; }
 .ms.single .thd b { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms.single .thd small { flex: 1 1 0; min-width: 0; }
+/* (a phone's header: the invite button is its + alone) */
+.ms.single .aitog.grp .lbl { display: none; }
+.ms.single .aitog.grp { width: 26px; padding: 0; justify-content: center; }
 
 /* ---- docked: a column beside the page (no veil; src/messengerDock.js) ---- */
 .msdock { position: fixed; z-index: 45; display: flex; transition: top .35s var(--spring), right .35s var(--spring), left .35s var(--spring), width .35s var(--spring), bottom .35s var(--spring); }
@@ -824,7 +870,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .brs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .br { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; }
 .br .bl { color: var(--text-secondary); } .br .bl b { color: var(--text-primary); font-weight: 600; }
-.av.xs { width: 20px; height: 20px; border-radius: 10px; font-size: 11px; }
 .art.sm { height: 26px; padding: 0 9px; font-size: 12px; gap: 4px; }
 </style>
 

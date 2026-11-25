@@ -4,7 +4,7 @@ import nodePath from 'node:path'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from './config.js'
-import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail } from './lib/supa.js'
+import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail, normEmail } from './lib/supa.js'
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
@@ -68,6 +68,7 @@ import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
 import { profilePictureRoutes, myPicture, rememberGooglePicture } from './routes/profilePicture.js'
+import { signedIn, forget as forgetPerson } from './lib/people.js'
 import { enabledFor as backgroundOn } from './lib/background/service.js'
 import { isReplyCard } from './lib/mailReply.js'
 import { mountImprove } from './mcp/improve.js'
@@ -153,13 +154,14 @@ async function auth(req, res, next) {
   // tenants by host name the person's own tenant is the request's (lib/tenant.js)
   if (config.tenantFromHeader && !(await isMember(u.id, config.tenantId))) return res.status(403).json({ error: 'not a member of this tenant' })
   if (multiTenant()) req.tenantId = tenantOfAuthUser(u)
-  // to_jsonb(p)->>'lang': still answers on a database the lang migration (sql/019) has not reached
-  const [p] = await q(`select name, to_jsonb(p)->>'lang' as lang from pro_profile p where user_id=$1`, [u.id])
-  req.user = { id: u.id, email: u.email, name: p?.name || u.user_metadata?.name || u.email.split('@')[0] }
+  // the person's name by the one rule every screen uses (lib/people.js: Lite's profile → Process GPT's username → the sign-in's own
+  // name → the address), with their saved language — one query
+  const p = await signedIn(u, req.tenantId || config.tenantId)
+  req.user = { id: u.id, email: u.email, name: p.name }
   // the auth server's own record of the person (identities, app_metadata): their Google picture (routes/profilePicture.js)
   req.authUser = u
   req.session = { access_token: jwt }
-  if (p) rememberLang(u.id, p.lang)
+  if (p.hasProfile) rememberLang(u.id, p.lang)
   // header > saved > ko; everything this request starts (agent turns, drafts, timers) keeps it
   req.lang = resolveLang({ header: langAsked(req), saved: p?.lang })
   // entered again: a body parser in the route's own chain runs outside the request's async context
@@ -168,7 +170,9 @@ async function auth(req, res, next) {
     () => (req.tenantId ? withTenant(req.tenantId, next) : next())))
 }
 
-async function finishLogin(email, name) {
+// (the address as GoTrue keeps it: 「Kim@Corp.com」 signs in as kim@corp.com, and pro_profile says so)
+async function finishLogin(email0, name) {
+  const email = normEmail(email0)
   const { user, session } = await sessionFor(email, name)
   await q(`insert into pro_profile(user_id,name,email) values ($1,$2,$3) on conflict (user_id) do nothing`, [user.id, name, email])
   // no administrator yet (an install without install.sh's ADMIN_EMAIL): the first one in becomes it
@@ -367,7 +371,9 @@ app.post('/api/auth/email/start', async (req, res) => {
   res.status(r.ok ? 200 : 400).json(r.ok ? { sent: true, demo: demoLogin } : { error: (await r.text()).slice(0, 200), demo: demoLogin })
 })
 app.post('/api/auth/email/verify', async (req, res) => {
-  const { email, code } = req.body
+  const { code } = req.body
+  // (lower case from here on: the name made from it, the account and its rows — lib/supa.js normEmail)
+  const email = normEmail(req.body.email)
   if (!(await tenantEmail(email))) return res.status(400).json({ error: '코드가 맞지 않아요' })
   // (an account of another tenant: 403 with where to sign in — lib/tenant.js)
   const done = (p) => p.then((login) => res.json(login), (e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }) })
@@ -432,6 +438,8 @@ app.post('/api/profile', auth, async (req, res) => {
   [req.user.id, name, birth, lat, lon, place, !!onboarded])
   // the name teammates (and process-gpt's own screens) see
   if (name) await q('update users set username=$1 where id=$2 and tenant_id=$3', [name, req.user.id, config.tenantId])
+  // every screen's next answer has the new name (lib/people.js keeps names for a while)
+  forgetPerson(req.user.id)
   res.json({ ok: true })
 })
 

@@ -10,6 +10,7 @@ import { getTodo } from './processes.js'
 import { submitTodo } from './engine.js'
 import { mainThread, addMessage } from './store.js'
 import { hideTodo } from './homeCards.js'
+import { namesOf } from './people.js'
 
 const T = () => config.tenantId
 const ids = (me) => [me.id, me.email].filter(Boolean)
@@ -76,13 +77,20 @@ export async function senderOf(n) {
   return who
 }
 
+// who a notice is from, by the name every screen shows (lib/people.js) — not Process GPT's username alone
+async function fromNames(rows) {
+  const names = await namesOf(rows.map((n) => n.from_id).filter(Boolean))
+  for (const n of rows) if (n.from_id && names[n.from_id]) n.from_name = names[n.from_id]
+}
+
 export async function listFor(me) {
-  const rows = await q(`select n.*, t.id as todo_id, t.status as todo_status, t.proc_inst_id, fu.username as from_name
+  const rows = await q(`select n.*, t.id as todo_id, t.status as todo_status, t.proc_inst_id, fu.id::text as from_id, fu.username as from_name
                         from notifications n
                         left join todolist t on n.url = '/todolist/' || t.id::text
                         left join users fu on fu.email = n.from_user_id and fu.tenant_id = n.tenant_id
                         where n.tenant_id=$1 and coalesce(n.is_checked,false)=false and ${MINE}
                         order by n.time_stamp desc limit 30`, [T(), ids(me)])
+  await fromNames(rows)
   const out = []
   // a step of the company's process map that waits for its owner's 「진행」(단계마다 사람이 정함, lib/ontology/runmode.js) is not theirs yet —
   // left out, not checked off: it shows once the owner says go
@@ -180,7 +188,7 @@ export async function notifyUser(userId, { type, title, text, url }) {
 const lastByTenant = new Map() // tenant -> newest time_stamp seen (timestamptz text)
 export async function feedOnce() {
   const last = lastByTenant.get(T()) || new Date().toISOString()
-  const rows = await q(`select u.id as uid, n.id, n.title, n.description, n.url, n.type, n.from_user_id, fu.username as from_name, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
+  const rows = await q(`select u.id as uid, n.id, n.title, n.description, n.url, n.type, n.from_user_id, fu.id::text as from_id, fu.username as from_name, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
                         left join users u on (u.id::text = any(string_to_array(replace(n.user_id, ' ', ''), ',')) or u.email = n.user_id) and u.tenant_id = n.tenant_id
                         left join users fu on fu.email = n.from_user_id and fu.tenant_id = n.tenant_id
                         left join todolist tl on n.url = '/todolist/' || tl.id::text
@@ -200,6 +208,7 @@ async function pushRows(rows) {
   for (const r of rows) if (r.uid) (byUser.get(r.uid) || byUser.set(r.uid, []).get(r.uid)).push(r)
   if (!byUser.size) return
   const { pushTo } = await import('./webpush.js')
+  await fromNames(rows)
   for (const r of rows) if (r.type === 'chat') r.from = await senderOf(r)
   for (const [uid, list] of byUser) {
     // rows name a person by id or by email

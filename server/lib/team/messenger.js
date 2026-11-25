@@ -11,7 +11,7 @@
 import crypto from 'node:crypto'
 import pg from 'pg'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, pool } from '../supa.js'
 import { watchedTenants, withTenant } from '../tenant.js'
 import { emit } from '../bus.js'
 import { TeamError, isMember, people } from './access.js'
@@ -23,6 +23,11 @@ import { decorate, publicRef } from '../fileRefs.js'
 import { publicMailRef } from '../mailMention.js'
 import { publicAttRef } from '../mailAttachments.js'
 import { josa } from '../josa.js'
+// who a person is on every screen: one name, one picture (lib/people.js) — not users.username, which Process GPT may hold as the
+// address's local part (2026-11-25: a room's header listed the user by their address's local part where everything else used their name).
+// Only for what the screens show: what is stored in Process GPT's rows (a room's participants, a message's mentionedUsers — its
+// resolveMentions matches typed mentions against them) keeps Process GPT's own users.username.
+import { people as resolvePeople } from '../people.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
@@ -37,11 +42,20 @@ export function split(participants) {
   const agents = all.filter((p) => p && p.is_agent)
   return { humans, agents }
 }
-const participant = (u) => ({ id: u.id, email: u.email, username: u.name, profile: '/images/defaultUser.png', agent_type: null, is_agent: false })
+// a person in chat_rooms.participants, in Process GPT's shape (its normalizeParticipant): its own username and picture field
+const participant = (u) => ({ id: u.id, email: u.email, username: u.name, profile: u.profile || '/images/defaultUser.png', agent_type: null, is_agent: false })
 
+// (Process GPT's own names: the participants written into a new room — in the order they were chosen, the one who starts it first,
+// so the room's title and header read the same each time)
 async function users(ids) {
   if (!ids.length) return []
-  return q('select id::text as id, email, username as name from users where tenant_id=$1 and id = any($2::uuid[])', [T(), ids])
+  return q('select id::text as id, email, username as name, profile from users where tenant_id=$1 and id = any($2::uuid[]) order by array_position($2::uuid[], id)', [T(), ids])
+}
+// a room's people with the names every screen shows (name), and the one the room itself holds (username: Process GPT's, for what
+// is written back into its rows)
+async function resolved(humans) {
+  const by = await resolvePeople(humans.map((p) => p.id))
+  return humans.map((p) => { const r = by.get(String(p.id)); return { ...p, name: r?.name || nameOf(p), username: nameOf(p), email: p.email || r?.email || null } })
 }
 
 export async function directThread(me, otherId) {
@@ -65,6 +79,72 @@ export async function groupThread(me, ids, title) {
   return roomRow(r)
 }
 
+// Invite teammates into a group room I am in (2026-11-25 「기존 단체 메신저 대화창에서 신규인원 초대가 가능해야」). A 1:1 room stays
+// private: the screens offer 「단체방 만들기」 there (a new group with both and the ones picked — groupThread). The invited are this
+// company's teammates (isMember: pro_team_members of this tenant, or behind the gateway its people), never agents; someone already in
+// the room is left as is (inviting again does nothing). They are added to chat_rooms.participants in Process GPT's own shape — its
+// users.username, as its participants dialog writes them — and see the room's whole history, as Process GPT shows a room (its
+// getMessages reads chats by the room id alone). A system line says who invited whom (Process GPT shows role 'system' rows as notices);
+// Process GPT's chat trigger notifies the room's people of it as of any message, and the invited get the richer 'team' notice instead.
+// Every open messenger of the room (the invited too) hears of it at once ('room').
+export async function invite(me, roomId, userIds) {
+  const t = await memberThread(me, roomId)
+  if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
+  if (t.kind !== 'group') throw new TeamError(400, L('1:1 대화에는 초대할 수 없어요. 단체방을 만들어 초대해 주세요.', "You can't invite people into a one-to-one conversation. Make a group conversation for that."))
+  const want = [...new Set((Array.isArray(userIds) ? userIds : []).map(String))].filter((id) => /^[0-9a-f-]{36}$/i.test(id) && id !== me.id).slice(0, MAX_GROUP)
+  if (!want.length) throw new TeamError(400, L('초대할 팀원을 골라 주세요.', 'Please choose the teammates to invite.'))
+  const inRoom = new Set(split(t.participants).humans.map((p) => String(p.id)))
+  const fresh = want.filter((id) => !inRoom.has(id))
+  if (!fresh.length) return { threadId: t.id, added: [], members: (await membersOf(t.id)).map(({ id, name, email }) => ({ id, name, email })) }
+  for (const id of fresh) if (!(await isMember(id))) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
+  const rows = (await q(`select id::text as id, email, username as name, profile from users where tenant_id=$1 and id = any($2::uuid[]) and not coalesce(is_agent,false)
+                         order by array_position($2::uuid[], id)`, [T(), fresh]))
+  if (rows.length !== fresh.length) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
+  // appended under the row's lock: two invites at once add each person once, and only who this call added is announced
+  let added = []
+  const c = await pool.connect()
+  try {
+    await c.query('begin')
+    const { rows: [cur] } = await c.query('select participants from chat_rooms where id=$1 and tenant_id=$2 for update', [t.id, T()])
+    const have = new Set(split(cur?.participants).humans.map((p) => String(p.id)))
+    added = rows.filter((u) => !have.has(u.id))
+    if (have.size + added.length > MAX_GROUP) throw new TeamError(400, L(`그룹 대화는 ${MAX_GROUP}명까지예요.`, `A group conversation has at most ${MAX_GROUP} people.`))
+    if (added.length) await c.query('update chat_rooms set participants = coalesce(participants, \'[]\'::jsonb) || $2::jsonb where id=$1', [t.id, JSON.stringify(added.map(participant))])
+    await c.query('commit')
+  } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
+  const members = await membersOf(t.id)
+  if (!added.length) return { threadId: t.id, added: [], members: members.map(({ id, name, email }) => ({ id, name, email })) }
+  const shown = (id) => members.find((m) => m.id === id)?.name || added.find((u) => u.id === id)?.name || ''
+  const invited = added.map((u) => ({ id: u.id, name: shown(u.id) }))
+  const uuid = crypto.randomUUID()
+  const names = invited.map((p) => p.name)
+  const content = L(`${me.name}님이 ${names.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${me.name} invited ${names.join(', ')}`)
+  const msg = { uuid, clientUuid: uuid, role: 'system', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
+    pgpt: { kind: 'invite', by: me.id, byName: me.name, invited } }
+  const [row] = await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages', [uuid, t.id, msg, T()])
+  await q('update chat_rooms set message=$2 where id=$1', [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
+  await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
+  await pushRow(row, members)
+  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, members: members.map(({ id, name, email }) => ({ id, name, email })) })
+  await notifyInvited(me, t, row, added.map((u) => members.find((m) => m.id === u.id) || { id: u.id, email: u.email, name: u.name }))
+  return { threadId: t.id, added: invited, members: members.map(({ id, name, email }) => ({ id, name, email })) }
+}
+
+// the invited: their room notice (Process GPT's 'chat' one for the system line) becomes a 'team' one that opens the room in Lite,
+// in each one's saved language
+async function notifyInvited(me, t, row, invited) {
+  const room = t.name || ''
+  for (const r of invited) {
+    const en = (await langOf(r.id)) === 'en'
+    const title = en ? `${me.name} invited you to a conversation${room ? ` · ${room}` : ''}` : `${me.name}님이 대화방에 초대했어요${room ? ` · ${room}` : ''}`
+    await q(`update notifications set is_checked=true where tenant_id=$1 and type='chat' and url=$2 and user_id = any($3) and title=$4 and coalesce(is_checked,false)=false`,
+      [T(), `/chats?id=${t.id}`, [r.email, r.id].filter(Boolean), row.messages.content]).catch(() => {})
+    await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id) values (gen_random_uuid(),$1,$2,'team',$3,$4,$5,$6)`,
+      [r.id, title.slice(0, 200), row.messages.content, `/pro/team/${t.id}/${row.uuid}`, me.email, T()])
+    emit(r.id, 'notifications', {})
+  }
+}
+
 function roomRow(r) {
   const { humans } = split(r.participants)
   const kind = r.context?.pgpt?.kind || (humans.length > 2 ? 'group' : 'direct')
@@ -83,16 +163,18 @@ export async function membersOf(roomId) {
   const { humans } = split(r?.participants)
   const reads = await q('select user_id::text as id, last_read_at from pro_chat_reads where room_id=$1', [roomId])
   const by = Object.fromEntries(reads.map((x) => [x.id, x.last_read_at]))
-  return humans.map((p) => ({ id: p.id, name: nameOf(p), email: p.email, last_read_at: by[p.id] || null }))
+  return (await resolved(humans)).map((p) => ({ id: p.id, name: p.name, username: p.username, email: p.email, last_read_at: by[p.id] || null }))
 }
 
 // An agent's row is named after the person it works for, in the viewer's language (L: the request's, or
 // the reader's for a live push) — not in the words stored with the row, which are its starter's
 // ("사토 유키's agent" on a Korean screen). The person's name: the room's member, else the stored label.
 const OWNER_LABEL = /^(.*?)(?:님의 에이전트|'s agent)$/
+const memberOf = (byEmail, id) => (id ? Object.values(byEmail).find((p) => p && String(p.id) === String(id)) : null) || null
+// whose agent it is: the room's member (the resolved name), else the name in the stored label
+const ownerName = (g, byEmail) => memberOf(byEmail, g?.by)?.name || OWNER_LABEL.exec(String(g?.byName || '').trim())?.[1] || null
 export function agentLabel(g, byEmail = {}) {
-  const member = g?.by && Object.values(byEmail).find((p) => p && String(p.id) === String(g.by))
-  const owner = member?.name || OWNER_LABEL.exec(String(g?.byName || '').trim())?.[1]
+  const owner = ownerName(g, byEmail)
   return owner ? L(`${owner}님의 에이전트`, `${owner}'s agent`) : null
 }
 
@@ -102,13 +184,25 @@ export function view(viewerId, row, byEmail = {}) {
   const g = m.pgpt || {}
   const agent = m.role === 'assistant' || String(m.email || '').startsWith('agent:')
   const senderId = m.userId || byEmail[m.email]?.id || null
+  // a person's message: the name the room's member goes by now, not the one stored with the row
+  const member = memberOf(byEmail, senderId) || byEmail[m.email] || null
+  // someone invited people into the room (invite below): said in the viewer's language, with the names every screen uses
+  if (g.kind === 'invite' && Array.isArray(g.invited)) {
+    const by = memberOf(byEmail, g.by)?.name || g.byName || L('팀원', 'Teammate')
+    const who = g.invited.map((p) => memberOf(byEmail, p.id)?.name || p.name).filter(Boolean)
+    return { id: row.uuid, threadId: row.id, kind: 'invite', at: m.timeStamp ? iso(m.timeStamp) : null, mine: g.by === viewerId,
+      sender: { id: g.by || null, name: by, agent: false }, invited: g.invited.map((p) => ({ id: p.id, name: memberOf(byEmail, p.id)?.name || p.name })),
+      body: L(`${by}님이 ${who.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${by} invited ${who.join(', ')}`), artifacts: [], context: null }
+  }
   // a meeting's record in the room (lib/meetings/record.js) is written by the meeting assistant
   const kind = agent ? (String(g.kind || '').startsWith('meeting') ? g.kind : 'agent') : g.kind && g.kind !== 'assist' ? g.kind : 'text'
   return {
     ...(g.meeting ? { meeting: g.meeting } : {}),
     id: row.uuid, threadId: row.id, kind, body: String(m.content || ''), at: m.timeStamp ? iso(typeof m.timeStamp === 'number' || /^\d+$/.test(m.timeStamp) ? Number(m.timeStamp) : m.timeStamp) : null,
     // the messenger's @AI answers as 「AI」 (lib/team/aiHelp.js), not as someone's agent
-    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.ai ? 'AI' : agentLabel(g, byEmail) || g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (m.userName || m.name || byEmail[m.email]?.name || L('팀원', 'Teammate')), agent, ...(g.ai && agent ? { ai: true } : {}) },
+    // an agent's row: its owner (g.by) — the screens show the owner's face with the agent's mark; the messenger's @AI is 「AI」
+    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.ai ? 'AI' : agentLabel(g, byEmail) || g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (member?.name || m.userName || m.name || L('팀원', 'Teammate')), agent,
+      ...(g.ai && agent ? { ai: true } : {}), ...(agent && !g.ai && g.by ? { owner: { id: String(g.by), name: ownerName(g, byEmail) } } : {}) },
     mine: !agent && senderId === viewerId, byMe: agent && g.by === viewerId,
     artifacts: viewArtifacts(viewerId, agent ? g.by : senderId, g.artifacts), context: g.context || null,
     // file mentions (links to shared folders' files): their state for this viewer comes with decorate()
@@ -130,6 +224,8 @@ export async function listThreads(me) {
         and (select count(*) from jsonb_array_elements(r.participants) p where coalesce((p->>'is_agent')::boolean,false)=false and p->>'id' ~ '^[0-9a-f-]{36}$') >= 2
       limit 200`, [T(), me.id, JSON.stringify([{ id: me.id }])])
   const out = []
+  const names = await resolvePeople(rows.flatMap((r) => split(r.participants).humans.map((p) => p.id)))
+  const nm = (p) => names.get(String(p.id))?.name || nameOf(p)
   for (const r0 of rows) {
     const r = roomRow(r0)
     const [last] = await q(`select uuid, messages from chats where id=$1 order by ${ORDER} desc limit 1`, [r.id])
@@ -139,7 +235,8 @@ export async function listThreads(me) {
     const lm = last?.messages
     const at = lm ? (view(me.id, last).at) : r.message?.createdAt ? iso(typeof r.message.createdAt === 'number' ? r.message.createdAt : r.message.createdAt) : null
     out.push({
-      id: r.id, kind: r.kind, title: r.name || others.map(nameOf).join(', ') || L('나', 'Me'), members: humans.map((p) => ({ id: p.id, name: nameOf(p) })),
+      // (members with their address: the screens tell same-named people apart by it — src/sameNames.js)
+      id: r.id, kind: r.kind, title: r.name || others.map(nm).join(', ') || L('나', 'Me'), members: humans.map((p) => ({ id: p.id, name: nm(p), email: p.email || null })),
       agents: split(r.participants).agents.map((a) => ({ id: a.id, name: a.username })), unread: n, updatedAt: at,
       last: lm ? { kind: lm.pgpt?.kind || (lm.role === 'assistant' ? 'agent' : 'text'), body: String(lm.content || '').slice(0, 80), mine: lm.email === me.email, at, files: (lm.pgpt?.artifacts || []).length } : null,
     })
@@ -159,7 +256,7 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
                         and ($2::timestamptz is null or ${ORDER} < $2) order by ${ORDER} desc limit $3`, [t.id, before || null, Math.min(Number(limit) || 80, 200)])
   const members = await membersOf(t.id)
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
-  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, lastReadAt: m.last_read_at })) },
+  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
     messages: await Promise.all(rows.reverse().map((r) => viewFor(me, r, by))) }
 }
 
@@ -182,7 +279,8 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
     : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(agent || {}) }
   const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
   const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
-    mentionedUsers: members.filter((x) => named.includes(x.id)).map((x) => ({ id: x.id, email: x.email, username: x.name })), ...(pgptPart ? { pgpt: pgptPart } : {}) }
+    // (Process GPT's own name: its resolveMentions matches typed mentions against it)
+    mentionedUsers: members.filter((x) => named.includes(x.id)).map((x) => ({ id: x.id, email: x.email, username: x.username })), ...(pgptPart ? { pgpt: pgptPart } : {}) }
   const [row] = await q(`insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages`, [uuid, t.id, msg, T()])
   // the room list preview, the way process-gpt writes it
   await q(`update chat_rooms set message=$2 where id=$1`, [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
@@ -287,9 +385,10 @@ export async function pushRow(row, people) {
   sentRows.delete(row.uuid)
   sentRows.set(row.uuid, c)
   if (sentRows.size > SENT_KEEP) sentRows.delete(sentRows.keys().next().value)
-  const by = Object.fromEntries(people.map((p) => [p.email, { id: p.id, name: nameOf(p) }]))
+  const ps = await resolved(people)
+  const by = Object.fromEntries(ps.map((p) => [p.email, { id: p.id, name: p.name }]))
   // (each person's copy: their language, and the file mentions in their own access — lib/fileRefs.js decorate)
-  for (const p of people) emit(p.id, 'team', { type: 'message', threadId: row.id, message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: nameOf(p) }, row, by)) })
+  for (const p of ps) emit(p.id, 'team', { type: 'message', threadId: row.id, message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: p.name }, row, by)) })
   return true
 }
 // a row this server just wrote into a room (inserted or updated), to the room's people at once — not left to the

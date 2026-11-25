@@ -3,18 +3,18 @@
 // 지금 하는 일을 누르면 그 맥락의 시간순 보기(open), 깊이가 모자란 칸은 「제목만」「요약까지」로 표시한다.
 import { computed } from 'vue'
 import { DEPTH, kindColor, ago, stamp, credits } from './fmt.js'
+import PersonAvatar from '../../PersonAvatar.vue'
 
 const props = defineProps({ card: Object, interactive: { type: Boolean, default: true } })
 const emit = defineEmits(['open'])
 const total = computed(() => props.card.kinds.reduce((n, k) => n + k.count, 0) || 1)
-const initial = computed(() => (props.card.name || '?').slice(0, 1))
 const open = (x) => { if (props.interactive && x.conversationId) emit('open', { user: props.card.user, conversationId: x.conversationId, title: x.title || x.context }) }
 </script>
 
 <template>
   <article class="pc glass">
     <header>
-      <span class="av">{{ initial }}</span>
+      <PersonAvatar :id="card.user" :name="card.name" />
       <div class="who">
         <b>{{ card.name }}</b>
         <small>{{ card.team || '조직도 밖' }} · <span class="rel" :class="{ me: card.relation === '본인' }">{{ card.relation }}</span></small>
@@ -81,7 +81,6 @@ const open = (x) => { if (props.interactive && x.conversationId) emit('open', { 
 <style scoped>
 .pc { border-radius: 22px; padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 header { display: flex; align-items: center; gap: 10px; }
-.av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--ink-inverse); font-weight: 600; font-size: 15px; flex: none; }
 .who { display: flex; flex-direction: column; min-width: 0; }
 .who b { font-size: 16px; font-weight: 600; }
 .who small { color: var(--text-secondary); font-size: 12.5px; }

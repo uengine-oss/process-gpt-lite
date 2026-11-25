@@ -10,7 +10,7 @@ import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
 import MergeSheet from './MergeSheet.vue'
 import ShareSheet from './ShareSheet.vue'
-import { folders as F, whoOf, roleLabel, statusLabel, sourceLabel, indexLabel, ago, prLabel } from '../../foldersApi.js'
+import { folders as F, whoOf, holderName, roleLabel, statusLabel, sourceLabel, indexLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, fmtSize } from './fileKind.js'
 
 const props = defineProps({ slug: String })
@@ -331,7 +331,7 @@ const ix = computed(() => folder.value?.index_state || {})
                 <span class="vt"><b>{{ v.title }}</b><span class="st" :class="v.status"><span v-if="v.status === 'open' && v.worktree_path" class="spin" />{{ statusLabel[v.status] }}</span></span>
                 <code class="br">{{ v.branch }}</code>
                 <span class="vmeta">
-                  <Avatar :who="whoOf({ id: v.holder_id, name: v.holder_name, type: v.holder_type })" :size="20" /> {{ v.holder_name }}
+                  <Avatar :who="whoOf({ id: v.holder_id, name: holderName(v), type: v.holder_type })" :size="20" /> {{ holderName(v) }}
                   <span class="src" :class="v.kind">{{ sourceLabel[v.kind] }}</span>
                   <span class="ab" title="main 보다 앞선 커밋 / 뒤처진 커밋">↑{{ v.ahead }} ↓{{ v.behind }}</span>
                   <span class="when">{{ ago(v.updated_at) }}</span>

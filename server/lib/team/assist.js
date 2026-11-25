@@ -20,6 +20,7 @@ import { L, isEn, withLang, langOf } from '../lang.js'
 import * as TR from '../translate.js'
 import { mainLangOf, normMain } from '../mainLang.js'
 import { judge as askJudge, judgeAvailable } from '../judge.js'
+import { people as resolvePeople } from '../people.js'
 
 const T = () => config.tenantId
 const ON = () => process.env.PRO_TEAM_ASSIST !== '0'
@@ -288,11 +289,13 @@ async function detectIn(row, humans0, author, { translate = false } = {}) {
     if (best && best[0] !== 'none' && best[1] >= 0.6) { proc = cands.find((d) => d.id === best[0]); work = 'StartProcessInstance' }
   }
   if (work === 'StartProcessInstance' && !proc) work = 'CompanyQuery'
-  const humans = humans0.map((h) => ({ id: h.id, name: h.username || h.name, email: h.email }))
+  // (the names every screen shows — lib/people.js — so 「김서연님」 in a message names the one the room shows as 김서연)
+  const names = await resolvePeople(humans0.map((h) => h.id))
+  const humans = humans0.map((h) => ({ id: h.id, name: names.get(String(h.id))?.name || h.username || h.name, email: h.email }))
   const audience = audienceOf(humans, author.id, body)
   if (!audience.length) return count('no-audience')
   const title = proc ? L(`${proc.name} 시작하기`, `Start ${proc.name}`) : titleFor(work, body)
-  const who = author.username || author.name || L('팀원', 'Teammate')
+  const who = names.get(String(author.id))?.name || author.username || author.name || L('팀원', 'Teammate')
   // (the request in its writer's own words)
   const reason = L(`${who}님의 요청 "${said.replace(/\s+/g, ' ').slice(0, 60)}${said.length > 60 ? '…' : ''}" · 판단 모델 ${Math.round(p * 100)}%`,
     `${who}'s request "${said.replace(/\s+/g, ' ').slice(0, 60)}${said.length > 60 ? '…' : ''}" · routing model ${Math.round(p * 100)}%`)

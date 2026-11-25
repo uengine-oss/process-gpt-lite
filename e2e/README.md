@@ -691,6 +691,10 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 데스크톱 앱: 붙인 열 · 머리가 창 이동 띠가 아님(`no-drag`), 왼쪽 열은 신호등 아래(44px), 메신저의 PDF 는 패널 · zip 링크는 시스템 브라우저 | 사용자 11-24 | — (Electron 으로 따로 실측, 스펙 e2e README) | — | ◐ |
 | 받은 사람별 고친 파일 줄 · 폴더 「열기」 · 「이어서 작업」 뒤에도 붙인 메신저가 남음 | — | — (로컬 DB 에 워크트리 테이블 없음 · 코드 검토만) | — | ◐ |
 | Windows · Linux 데스크톱 앱의 오른쪽 창 단추 피하기 | — | — (macOS 에서만 실측) | — | ✗ |
+| 단체방에 팀원 초대: 머리의 「초대」 → 방에 없는 이 회사 팀원만(얼굴 · 화면 이름 · 찾기 · 여럿) → 시스템 줄 「정하윤님이 최도현님을 초대했어요」(보는 사람의 언어), 방 머리의 사람 목록 · 제목이 열어 둔 화면마다 바로(`room`), 초대받은 사람은 지난 메시지까지(Process GPT 도 방 id 로만 읽음) · 그 방을 여는 'team' 알림, 참여자는 Process GPT 의 모양(`users.username`) | 사용자 11-25 「기존 단체 메신저 대화창에서 신규인원 초대가 가능해야.」 | F-MS-03 · `server/test/roomInvite.integration.test.js` MS-I-03 · 04 | feature · 통합 | ✅ |
+| 초대 권한 · 한 번만: 방 밖의 사람 404, 다른 회사 · 팀원 아님 · 에이전트 403, 1:1 방 400, 또 초대하면 그대로, 둘이 동시에 초대해도 한 번 | 사용자 11-25 | MS-I-01 · 02 | 통합 | ✅ |
+| 1:1 대화에는 「초대」 대신 「단체방 만들기」(두 사람 + 고른 사람의 새 단체방, 1:1 은 그대로) · 휴대폰 390px 밝은 · 밤(머리의 「+」, 고르는 창이 화면 안) | 사용자 11-25 | F-MS-04 · 05 | feature | ✅ |
+| 나가기 · 내보내기 | — | — (이번 요구 밖, 지금 없음) | — | ✗ |
 
 ### 30. 프로세스 단계를 담당자 컴퓨터의 Claude Code · Codex 로(그 사람의 대화형 CLI 를 터미널에서) — 사람과 기기를 넘나드는 협업(같은 터미널 보기 · 제안 · 입력은 CLI 를 가진 사람만), 서버의 스킬, 로컬 노하우 모으기 (스펙 `local-agents`, 설계 `docs/local-agents/design.md`)
 
@@ -1181,6 +1185,13 @@ cd server && node --test test/agentTools.test.js
 
 근거: 2026-11-25 사용자 「내 프로필 사진 어떻게 바꾸냐? Process GPT 버전과 일관성고려하여」 — Lite 의 설정 머리와 위 막대는 이름 첫 글자뿐이었다. 같은 날 덧붙임 「프로필 사진은 기본적으로 social login 인 경우는 구글에 설정된 이미지가 나오는게」. `profile-picture.spec.js` 는 자기 스택(BFF `PRO_BACKGROUND=0` + Vite, 회사 `avatar-ui`, 8990 · 5391 부터 빈 포트 — 5390 은 이 PC 의 이음오피스 호스트 자리)을 띄우고 지운다. 모델 · 공용 서비스는 부르지 않는다. 올리는 사진은 ffmpeg 로 만든 진짜 그림(640×400 PNG · 300×500 JPEG). 사람은 지어낸 이름(김서연 · 박도윤 · 이하준 — 구글로 로그인한 사람: 그 사람의 `auth.identities` 에 provider `google` 행을 넣어 흉내, 사진은 127.0.0.1 의 가짜 그림 호스트를 `PRO_AVATAR_HOSTS` 로 허용). 기본 사진 18장은 Process GPT(process-gpt-vue3) 의 `public/assets/images/profile/` 과 같은 바이트를 Lite 의 `public/assets/images/profile/` 에 둔다(출처 · MIT 고지 `NOTICE.txt`). 화면 사진은 `openspec/specs/profile-picture/e2e/results/`, 명령은 `openspec/specs/profile-picture/e2e/README.md`.
 
+같은 날 운영 보고(두 동료와의 방에서 내 에이전트의 결과 옆에 내 사진 대신 주소 첫 글자, 방 머리에 내 주소 앞부분 — 「일관성있는 컴포넌트 사용이 되어야」)로 F-PP-* 를 더했다. 지어낸 사람 정하윤(Lite 에서 이름을 적었지만 Process GPT 의 `users.username` 은 주소 앞부분 — 운영의 그 상태를 SQL 로)과 최도현(Lite 프로필 없음, 이름은 인증 기록의 `full_name` 에만). 다른 작업 트리가 8990 · 5391 을 쓰고 있으면 `RT_API_FROM` · `RT_WEB_FROM` · `RT_FAKE_PORT` 로 자리를 옮긴다.
+
+```bash
+cd server && node --test test/people.test.js test/profilePicture.test.js && node --test --test-concurrency=1 test/people.integration.test.js
+cd e2e && RT_API_FROM=8975 RT_WEB_FROM=5375 RT_FAKE_PORT=8976 RT_WORKERS=1 npx playwright test --project=feature tests/feature/profile-picture.spec.js
+```
+
 | 기능 요건 | 근거 | 시험 | 단계 | |
 |---|---|---|---|---|
 | 저장할 수 있는 값: 기본 사진 18장(글자 그대로) · 이 설치 저장소 `files/pgpt-pro/<나>/avatar/<이름>.jpg·jpeg·webp·png` · 빈 값 — 다른 사이트 · `//` · `data:` · `javascript:` · 남의 폴더 · 내 다른 폴더 · 다른 버킷 · 서명 주소 · `?` · `#` · `..` · `%2e` · 하위 폴더 · 18장에 없는 경로 · `/images/defaultUser.png` · 문자열 아닌 값은 400 | 사용자 지시(검사) | `server/test/profilePicture.test.js` · F-AV-06 | 단위 · feature | ✅ |
@@ -1195,7 +1206,17 @@ cd server && node --test test/agentTools.test.js
 | 휴대폰 390px 밝은 · 밤: 위 막대 · 설정 머리 · 사진 고르기 창(모든 단추가 화면 안) · 프로필 줄, 옆으로 넘치지 않음 | 사용자 지시 | F-AV-07 | feature | ✅ |
 | 구글 사진: 인증 서버의 기록(구글 identity `picture` → `avatar_url`, Lite 자체 구글 로그인의 `app_metadata.google_picture`)에서만 — `user_metadata` 는 읽지 않음, 허용 호스트(`PRO_AVATAR_HOSTS`, 기본 https `*.googleusercontent.com`, http 는 이 PC 만; 닮은 호스트 · `@` · 따옴표 거절), 보여 주는 순서 고른 것 → 구글 → 첫 글자, 채우기는 빈 칸만 · 구글 주소가 든 동안은 계정을 따름, 되돌리기는 구글 사진(없으면 열의 기본값) | 사용자 11-25 덧붙임 | `profilePicture.test.js` | 단위 | ✅ |
 | 구글로 로그인한 사람: 처음 열면 구글 사진(`user.picture` = `pictureDefault`), `users.profile` 에 채움, 리퍼러 없이 요청(`referrerpolicy=no-referrer`), 「프로필」 줄 「Google 계정의 사진이에요」 · 창에 되돌릴 단추 없음 → 기본 사진을 고르면 그것이 이기고 다시 열어도 그대로 · 화면이 보낸 구글 주소는 400 → 「Google 사진으로」는 구글 사진(DB 도) · 팀원에게도 → 구글 계정이 사진을 바꾸면 따라감 → 열리지 않는 구글 사진은 첫 글자 | 사용자 11-25 덧붙임 | F-AV-08 | feature | ✅ |
-| 회의의 카메라 끈 칸 · 메신저의 받은 편지함 · 보낸 사람 · @ 고르기 · 공유 폴더의 사람 동그라미에도 사진(같은 부품) | 설계 | — (화면 시험은 팀 목록 · 메신저 대화 목록만) | — | ◐ |
+| 같은 사람은 어디서나 같은 이름 — 서버의 한 규칙(`server/lib/people.js`): Lite 프로필 이름 → Process GPT `users.username` → 인증 기록의 `name` · `full_name` → 주소 앞부분, 주소 앞부분(대소문자 무관)이나 주소 꼴은 이름이 아님 · 프로필 없는 사람 · 여러 사람을 한 번에 · 잠깐(30초) 기억하고 바꾸면 곧바로 · 회사마다 따로 · 인증 스키마를 못 읽는 DB 에서도 | 사용자 11-25 「일관성있는 컴포넌트 사용이 되어야」 | `server/test/people.test.js` | 단위 | ✅ |
+| 내 에이전트가 결과를 올린 방: 결과 옆에 주인의 사진과 에이전트 표시(✦), 「정하윤님의 에이전트」(행에 저장된 이름이 아니라 지금의 이름), 팀원의 메시지는 그 사람의 얼굴, @AI 의 답은 ✦ AI 동그라미 — 주인이 보든 팀원이 보든, 1280 · 390 밝은 · 밤 | 사용자 11-25 「왜 대화창에는 "j"라는 아이콘으로 내 포트레잇 아이콘이 뜨는가?」 | F-PP-01 | feature | ✅ |
+| 방 머리 · 대화 목록 · 새 대화 상대 · 팀·역할(390 밤도) · `GET /api/people`(`{id: {name, picture}}`) · `GET /team/threads` · 방의 메시지(`sender.owner`)가 같은 이름 — Process GPT 의 username 이 주소 앞부분이어도, Lite 를 연 적 없는 사람은 인증 기록의 이름 | 사용자 11-25 | F-PP-02 | feature | ✅ |
+| 고르는 창의 얼굴: 메신저의 @(AI 는 ✦) · 채팅 입력창의 @ 팀원 목록과 받는 사람 칩 · 「팀원에게 공유」 창 — 사진이 없으면 이름 첫 글자, 1280 밝은 · 390 밤 | 사용자 11-25 | F-PP-03 | feature | ✅ |
+| 화면 이름은 화면에만 — Process GPT 의 행에는 `users.username`: 방의 참여자 · 메시지의 `mentionedUsers`(PP-I-01), 폴더 변형 인계의 `todolist.username` · `handover_events.to_user_name` · 받는 방의 참여자 · `holder_name`(받는 사람은 서버가 `users` 행에서 — 화면이 보낸 이름 · 에이전트 여부는 쓰지 않음, 없는 사람 404, PP-I-02), 공유 기록의 받는 사람(PP-I-03) | 검토 e98078b(중간) | `server/test/people.integration.test.js` PP-I-01~03 | 통합 | ✅ |
+| 이름 일부로 팀원 찾기(「○○님께 알려줘」)는 화면 이름과 Process GPT 의 username 둘 다에서 | 검토 e98078b | PP-I-04 | 통합 | ✅ |
+| 로그인 주소의 대소문자: 「Pro-RT-…@UEngine.org」 은 같은 계정, `users` · `pro_profile` 에는 소문자(새 계정의 이름도), 계정 찾기는 GoTrue 의 색인(`email = $1 and not is_sso_user`) | 검토 e98078b | PP-I-05 · F-PP-05 | 통합 · feature | ✅ |
+| 이름을 바꾸면 새로 고치지 않아도 설정 머리의 내 동그라미 · 팀 목록의 내 동그라미가 새 이름의 첫 글자 | 검토 e98078b | F-PP-04 | feature | ✅ |
+| 폴더 목록은 여러 폴더의 구성원 이름을 한 번에 찾는다(폴더마다 따로 찾지 않음) | 검토 e98078b | PP-I-06 | 통합 | ✅ |
+| 같은 이름의 사람은 한 목록 안에서 주소로 가른다(「윤가람 · gmail.com」 · 「윤가람 · uengine.org」, 도메인도 같으면 주소 전체, 혼자인 이름은 그대로): 메신저 대화 목록 · 방 제목 · 머리 · 보낸 사람, 고르는 창, @ 목록 · 칩, 공유 창, 팀 목록 · 역할 담당 | 운영 11-25(한 사람의 계정 둘) | `server/test/sameNames.test.js` SN-01~05 · F-MS-06(`room-invite.spec.js`) | 단위 · feature | ✅ |
+| 회의의 카메라 끈 칸 · 받은 편지함 · 공유 폴더 · 사용량 · 정책 결정 원장 · 팀 활동 카드 · 위 막대 · 설정의 동그라미도 같은 부품(`PersonAvatar.vue`)과 같은 이름 | 설계 | — (화면 시험은 위 막대 · 설정 · 팀 목록 · 메신저 · 고르는 창만) | — | ◐ |
 | 운영(`/lite`)에서 Process GPT 의 파일이 먼저 · 없을 때 Lite 의 사본으로 넘어가는 것을 실제 게이트웨이에서, Process GPT 화면에 Lite 가 올린 사진, 진짜 구글 로그인(GoTrue 의 구글 제공자 · Lite 자체 구글 로그인의 `app_metadata`) · 진짜 googleusercontent 사진, Safari · HEIC 사진 | — | — (개발 스택 · Chrome 으로만, 넘어가기는 단위 시험, 구글 로그인은 identity 행으로 흉내) | — | ✗ |
 
 ### 53. 받아쓰기 — 서버의 자가 시험 · 데스크톱 앱 · Android 앱의 입력창 받아쓰기 (스펙 `speech-to-text`)

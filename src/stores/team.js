@@ -171,6 +171,12 @@ export const useTeam = defineStore('team', {
         else { const { [data.threadId]: _done, ...rest } = this.aiStatus; this.aiStatus = rest }
       }
       else if (data.type === 'assist-toggle') this.assistOn[data.threadId] = data.on
+      // someone was invited into a room (server lib/team/messenger.js invite): its people and title, at once
+      else if (data.type === 'room') {
+        const t = this.threads.find((x) => x.id === data.threadId)
+        if (t && Array.isArray(data.members)) t.members = data.members
+        this.loadThreads()
+      }
     },
     say(text, go) {
       clearTimeout(this._t)
@@ -218,6 +224,14 @@ export const useTeam = defineStore('team', {
       for (const x of this.inbox) if (x.threadId === id) x.unread = false
       const t = this.threads.find((x) => x.id === id)
       if (t) t.unread = 0
+    },
+    // teammates into a group room I am in (POST /team/rooms/:id/invite): someone already there is left as is
+    async invite(threadId, userIds) {
+      const r = await api(`/team/rooms/${encodeURIComponent(threadId)}/invite`, { method: 'POST', body: { userIds } })
+      const t = this.threads.find((x) => x.id === threadId)
+      if (t && Array.isArray(r.members)) t.members = r.members
+      await this.loadThreads()
+      return r
     },
     async startThread(members, title) {
       const t = await api('/team/threads', { method: 'POST', body: { members, title } })

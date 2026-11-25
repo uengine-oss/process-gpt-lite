@@ -9,6 +9,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
+import PersonAvatar from './PersonAvatar.vue'
 import { isEnglish } from '../i18n/lang.js'
 import { useApp } from '../stores/app.js'
 
@@ -351,7 +352,7 @@ onUnmounted(() => clearInterval(timer))
       <div v-if="decisions.length" class="list glass ledger">
         <div v-for="d in decisions" :id="`d-${d.id}`" :key="d.id" class="entry" :class="{ hl: d.id === highlight }" :data-decision="d.id">
           <div class="li dec" @click="open = open === d.id ? '' : d.id">
-            <div class="av">{{ (d.name || '?').slice(0, 1) }}</div>
+            <PersonAvatar :id="d.user_id || undefined" :name="d.name || '?'" :size="32" />
             <div class="main">
               <b class="subj" data-no-i18n>{{ d.subject || kindName(d.action_kind) }}</b>
               <small><span data-no-i18n>{{ d.name || '—' }}</span> · {{ kindName(d.action_kind) }} · {{ at(d.created_at) }}</small>
@@ -500,7 +501,6 @@ select { max-width: 64%; height: 34px; border-radius: 10px; padding: 0 8px; back
 .entry:last-child { border-bottom: 0; }
 .entry .li { border-bottom: 0; cursor: pointer; }
 .entry.hl { background: rgba(230 126 34 / .1); box-shadow: inset 3px 0 0 #d9822b; }
-.av { width: 32px; height: 32px; border-radius: 16px; background: var(--ink); color: var(--ink-inverse); display: grid; place-items: center; font-size: 14px; flex: none; }
 .subj { font-weight: 500; font-size: 14px; line-height: 1.35; word-break: break-all; }
 .dec small { color: var(--text-secondary); font-size: 12px; }
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }

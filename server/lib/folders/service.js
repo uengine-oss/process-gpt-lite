@@ -13,6 +13,7 @@ import * as G from './git.js'
 import { PGPT_ROOT } from '../paths.js'
 import { L } from '../lang.js'
 import * as PS from '../privateStore.js'
+import { people } from '../people.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -128,8 +129,10 @@ export async function listFolders(user) {
       (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='ready')::int as ready
     from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
     where f.tenant_id=$1 and f.kind <> 'skill' order by f.updated_at desc`, [T(), String(user.id)])
+  // (everyone's members at once: one lookup of names for the whole list, not one per folder)
+  const all = await membersOfFolders(rows.map((f) => f.id))
   for (const f of rows) {
-    f.members = await members(f.id)
+    f.members = all.get(String(f.id)) || []
     f.activity = await lastActivity(f)
   }
   return rows.map(publicFolder)
@@ -139,12 +142,23 @@ export function publicFolder(f) {
   return { ...rest, repo: f.kind === 'linked' ? repo_path : undefined }
 }
 export async function members(folderId) {
-  return q(`select m.principal_type as type, m.principal_id as id, m.role,
+  return (await membersOfFolders([folderId])).get(String(folderId)) || []
+}
+// folder id → its members, for many folders in one query and one lookup of names: a person by the name every screen shows
+// (lib/people.js), an agent by its own. resolve: the lookup (tests count its calls)
+export async function membersOfFolders(folderIds, { resolve = people } = {}) {
+  const ids = [...new Set((folderIds || []).map(String))]
+  const out = new Map(ids.map((id) => [id, []]))
+  if (!ids.length) return out
+  const rows = await q(`select m.folder_id::text as folder_id, m.principal_type as type, m.principal_id as id, m.role,
               coalesce(p.name, u.username, m.principal_id) as name, u.email, coalesce(u.is_agent, m.principal_type='agent') as is_agent, u.agent_type
             from pro_folder_members m
             left join users u on u.id::text = m.principal_id and u.tenant_id=$2
             left join pro_profile p on p.user_id::text = m.principal_id
-            where m.folder_id=$1 order by array_position(array['owner','editor','runner','viewer'], m.role), m.created_at`, [folderId, T()])
+            where m.folder_id = any($1::uuid[]) order by array_position(array['owner','editor','runner','viewer'], m.role), m.created_at`, [ids, T()])
+  const by = await resolve([...new Set(rows.filter((r) => r.type === 'user').map((r) => r.id))])
+  for (const { folder_id: f, ...r } of rows) out.get(f)?.push(r.type === 'user' && by.get(String(r.id)) ? { ...r, name: by.get(String(r.id)).name } : r)
+  return out
 }
 async function lastActivity(f) {
   const [v] = await q(`select title, holder_name, status, updated_at from pro_folder_variations where folder_id=$1 order by updated_at desc limit 1`, [f.id])

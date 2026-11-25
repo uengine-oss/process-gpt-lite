@@ -5,7 +5,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
-import PersonFace from './PersonFace.vue'
+import PersonAvatar from './PersonAvatar.vue'
+// two of the same name on the team (one person's two accounts, or two people) are told apart by their address (src/sameNames.js)
+import { tagsFor, labelOf } from '../people.js'
 
 const app = useApp()
 // the team and the tenant-wide role holders are changed by administrators (server: 403 otherwise)
@@ -17,6 +19,7 @@ const held = ref({})
 // the tenant-wide holder above, so it is shown under the role and changed there — otherwise picking
 // someone above would look done while that process kept sending the step to the old holder
 const own = ref([])
+const tags = computed(() => tagsFor(team.value))
 const add = ref({ name: '', email: '' })
 const err = ref('')
 const find = ref('')
@@ -71,8 +74,8 @@ async function setRole(role, userId) {
     <p class="cap">팀원</p>
     <div class="list glass">
       <div v-for="m in team" :key="m.id" class="li">
-        <div class="av"><PersonFace :id="m.id" :name="m.name || m.email" /></div>
-        <div class="main"><b>{{ m.name }}<span v-if="m.id === app.me?.user?.id" class="me"> · 나</span></b><small>{{ m.email }}</small></div>
+        <PersonAvatar :id="m.id" :name="m.name || m.email" />
+        <div class="main"><b>{{ labelOf(tags, m) }}<span v-if="m.id === app.me?.user?.id" class="me"> · 나</span></b><small>{{ m.email }}</small></div>
         <button v-if="admin && m.id !== app.me?.user?.id" class="rm" @click="remove(m)">빼기</button>
       </div>
     </div>
@@ -93,14 +96,14 @@ async function setRole(role, userId) {
           <div class="main"><b>{{ r.role }}</b><small>{{ r.processes.join(' · ') }}</small></div>
           <select :value="held[r.role] || ''" :disabled="!admin" :title="admin ? '' : '관리자만 바꿀 수 있어요'" @change="setRole(r.role, $event.target.value)">
             <option value="">시작한 사람</option>
-            <option v-for="m in team" :key="m.id" :value="m.id">{{ m.name }}</option>
+            <option v-for="m in team" :key="m.id" :value="m.id">{{ labelOf(tags, m) }}</option>
           </select>
         </div>
         <div v-for="x in ownOf(r)" :key="r.role + x.proc_def_id" class="li sub">
           <div class="main"><small>↳ {{ x.defName }}</small></div>
           <select :value="x.user_id" :disabled="!admin" :aria-label="`${x.defName} ${r.role}`" @change="setOwn(x, $event.target.value)">
             <option value="">위 담당 따름</option>
-            <option v-for="m in team" :key="m.id" :value="m.id">{{ m.name }}</option>
+            <option v-for="m in team" :key="m.id" :value="m.id">{{ labelOf(tags, m) }}</option>
           </select>
         </div>
       </template>
@@ -115,7 +118,6 @@ async function setRole(role, userId) {
 .li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid rgba(0, 0, 0, .06); }
 .li:last-child { border-bottom: 0; }
 .li.sub { padding: 8px 14px 10px 28px; }
-.av { flex: none; width: 34px; height: 34px; border-radius: 17px; background: var(--ink); color: var(--ink-inverse); display: grid; place-items: center; overflow: hidden; font-size: 15px; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; }
 .main b { font-weight: 500; font-size: 15px; }
 .main small { color: var(--text-secondary); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

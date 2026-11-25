@@ -2,14 +2,20 @@
 // role; process-gpt's todolist trigger then notifies exactly that person.
 import { config } from '../config.js'
 import { q, ensureUser } from './supa.js'
+// the name every screen shows (lib/people.js), not users.username alone
+import { named, forget } from './people.js'
 
 const T = () => config.tenantId
 
-export async function listTeam() {
-  return q(`select u.id, u.email, u.username as name from pro_team_members m
+// the team with the names every screen shows; withUsername: Process GPT's username too (resolveMember matches what people type
+// against either)
+async function teamRows({ withUsername = false } = {}) {
+  const rows = await q(`select u.id, u.email, u.username as name from pro_team_members m
             join users u on u.id = m.user_id and u.tenant_id = m.tenant_id
             where m.tenant_id=$1 order by m.created_at`, [T()])
+  return (await named(rows)).map((p, i) => (withUsername ? { ...p, username: rows[i].name } : p))
 }
+export const listTeam = () => teamRows()
 
 // Who may change the team and the tenant-wide role holders: process-gpt's tenant administrators —
 // users.is_admin, or the tenant's owner (tenants.owner, process-gpt checkTenantOwner).
@@ -49,6 +55,7 @@ export async function claimFirstAdmin(userId) {
 export async function addMember(me, email, name) {
   const u = await ensureUser(String(email).trim().toLowerCase(), name)
   if (name) await q('update users set username=$1 where id=$2 and tenant_id=$3', [name, u.id, T()])
+  if (name) forget(u.id)
   await q('delete from pro_team_removed where tenant_id=$1 and user_id=$2', [T(), u.id])
   await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ($1,$2,$3) on conflict do nothing`, [T(), u.id, me.id])
   return { id: u.id, email: u.email, name: name || u.email.split('@')[0] }
@@ -71,10 +78,10 @@ export async function ensureMember(me) {
 }
 
 export async function listAssignments(defId) {
-  return q(`select a.proc_def_id, a.role, a.user_id, u.username as name, u.email from pro_role_assignments a
+  return named(await q(`select a.proc_def_id, a.role, a.user_id, u.username as name, u.email from pro_role_assignments a
             join users u on u.id = a.user_id and u.tenant_id = a.tenant_id
             where a.tenant_id=$1 and ($2::text is null or a.proc_def_id in ($2, '*'))
-            order by a.proc_def_id <> '*', a.role`, [T(), defId ? defId.toLowerCase() : null])
+            order by a.proc_def_id <> '*', a.role`, [T(), defId ? defId.toLowerCase() : null]), { id: 'user_id' })
 }
 
 export async function assign(me, { defId, role, userId }) {
@@ -107,14 +114,17 @@ export async function roleMap(defId) {
 export async function resolveMember(text) {
   const s = String(text || '').replace(/(님|씨|에게|한테|께)$/u, '').trim()
   if (!s) return null
-  const team = await listTeam()
-  const hit = team.find((m) => m.email === s.toLowerCase()) || team.find((m) => m.name === s) ||
-    team.find((m) => m.name?.length >= 2 && (m.name.includes(s) || s.includes(m.name)))
-  if (hit) return { ...hit, via: 'name' }
+  const team = await teamRows({ withUsername: true })
+  // (the name every screen uses, and Process GPT's username: 「서연님」 finds the one whose username is 김서연 while Lite calls her
+  // Seoyeon Kim)
+  const part = (n) => !!n && n.length >= 2 && (n.includes(s) || s.includes(n))
+  const hit = team.find((m) => m.email === s.toLowerCase()) || team.find((m) => m.name === s || m.username === s) ||
+    team.find((m) => part(m.name) || part(m.username))
+  if (hit) { const { username, ...p } = hit; return { ...p, via: 'name' } }
   const [a] = await q(`select a.role, u.id, u.email, u.username as name from pro_role_assignments a
                        join users u on u.id=a.user_id and u.tenant_id=a.tenant_id
                        where a.tenant_id=$1 and a.proc_def_id='*' and (lower(a.role)=lower($2) or lower($2) like '%'||lower(a.role)||'%') limit 1`, [T(), s])
-  return a ? { id: a.id, email: a.email, name: a.name, via: 'role', role: a.role } : null
+  return a ? { ...(await named([{ id: a.id, email: a.email, name: a.name }]))[0], via: 'role', role: a.role } : null
 }
 
 // Human roles the tenant's processes use (agents' roles excluded), with the processes they appear in.

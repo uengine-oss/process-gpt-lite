@@ -13,6 +13,7 @@ import { subscriptionOf, planOf, applyPlan, applyMember } from '../lib/plans/app
 import { recordChange } from '../lib/plans/history.js'
 import { windowsOf, companyOf, catalogView } from '../lib/plans/usage.js'
 import { isOperator } from './backoffice.js'
+import { named } from '../lib/people.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[billing]', e.stack || e.message)
@@ -41,8 +42,9 @@ export function billingRoutes(auth) {
     const out = { enabled: true, admin, operator: isOperator(req.user), catalog: catalogView(sub.catalog, L), subscription: sub, me: await windowsOf(T(), req.user.id, sub) }
     if (admin) {
       out.company = await companyOf(T())
-      out.requests = await q(`select r.id, r.kind, r.wanted, r.note, r.created_at, u.username as name, u.email from pro_billing_requests r
-        left join users u on u.id=r.user_id and u.tenant_id=r.tenant_id where r.tenant_id=$1 and r.status='open' order by r.created_at`, [T()])
+      out.requests = (await named(await q(`select r.id, r.kind, r.wanted, r.note, r.created_at, r.user_id, u.username as name, u.email from pro_billing_requests r
+        left join users u on u.id=r.user_id and u.tenant_id=r.tenant_id where r.tenant_id=$1 and r.status='open' order by r.created_at`, [T()]), { id: 'user_id' }))
+        .map(({ user_id, ...r }) => r)
     } else {
       out.myRequests = await q(`select id, kind, wanted, status, created_at from pro_billing_requests where tenant_id=$1 and user_id=$2 order by created_at desc limit 5`, [T(), req.user.id])
     }

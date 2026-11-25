@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { L } from '../lang.js'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
+import { named, namesOf } from '../people.js'
 
 const T = () => config.tenantId
 // unset: the local judge; set but empty (an install without one): no judge call, frequency order only
@@ -17,7 +18,9 @@ async function team(me) {
                         join users u on u.id=m.user_id and u.tenant_id=m.tenant_id
                         where m.tenant_id=$1 and m.user_id <> $2 order by u.username`, [T(), me.id])
   const roles = await q(`select a.role, a.user_id from pro_role_assignments a where a.tenant_id=$1 and a.proc_def_id='*'`, [T()])
-  return rows.map((p) => ({ type: 'user', id: p.id, name: p.name || p.email.split('@')[0], email: p.email, roles: roles.filter((r) => r.user_id === p.id).map((r) => r.role) }))
+  // (the name every screen shows — lib/people.js; ordered by it)
+  return (await named(rows)).map((p) => ({ type: 'user', id: p.id, name: p.name, email: p.email, roles: roles.filter((r) => r.user_id === p.id).map((r) => r.role) }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ko'))
 }
 
 // handoffs in the last 90 days: my messenger messages (a group message counts 1/(n-1) per member)
@@ -101,11 +104,12 @@ export async function suggest(me, { mode = 'fast', messageIds, title } = {}) {
     related = judge.related.filter((r) => !taken.has(r.id)).map((r) => ({ ...people.find((p) => p.id === r.id), why: 'related', p: r.p })).filter((p) => p.id)
     for (const r of related) taken.add(r.id)
   }
-  const roles = (await q(`select a.role, u.id, u.username as name from pro_role_assignments a
+  const roles0 = (await q(`select a.role, u.id, u.username as name from pro_role_assignments a
                           join users u on u.id=a.user_id and u.tenant_id=a.tenant_id
                           join pro_team_members m on m.user_id=a.user_id and m.tenant_id=a.tenant_id
                           where a.tenant_id=$1 and a.proc_def_id='*' and a.user_id <> $2 order by a.role`, [T(), me.id]))
-    .map((r) => ({ type: 'role', role: r.role, holder: { id: r.id, name: r.name } }))
+  const holders = await namesOf(roles0.map((r) => r.id))
+  const roles = roles0.map((r) => ({ type: 'role', role: r.role, holder: { id: r.id, name: holders[String(r.id)] || r.name } }))
   const rest = people.filter((p) => !taken.has(p.id)).map((p) => ({ ...p, why: 'team' }))
   return { frequent, related, roles, rest, judge: judge && { judged: judge.judged, model: judge.model, ms: judge.ms, error: judge.error } }
 }
