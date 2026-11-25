@@ -1,0 +1,15 @@
+[
+ {"why": "Claude 5.5 운영 답 그대로", "text": "```json\n{\"topic\": \"견적서 요청\", \"urgent\": true}\n```", "json": "{\"topic\": \"견적서 요청\", \"urgent\": true}"},
+ {"why": "언어 표시 없는 울타리", "text": "```\n{\"a\":1}\n```", "json": "{\"a\":1}"},
+ {"why": "대문자 JSON · 앞뒤 빈칸 · 배열", "text": "  ```JSON\n[1,2]\n```  ", "json": "[1,2]"},
+ {"why": "울타리 안 여러 줄", "text": "```json\n{\n  \"use\": true\n}\n```", "json": "{\n  \"use\": true\n}"},
+ {"why": "울타리 없는 JSON 은 손대지 않음(그대로 읽힘)", "text": "{\"a\":1}", "json": null},
+ {"why": "안이 깨진 JSON", "text": "```json\n{\"a\": \n```", "json": null},
+ {"why": "울타리 앞에 말이 있음", "text": "Here:\n```json\n{\"a\":1}\n```", "json": null},
+ {"why": "울타리 뒤에 말이 있음", "text": "```json\n{\"a\":1}\n```\nthanks", "json": null},
+ {"why": "다른 언어 울타리", "text": "```python\nprint(1)\n```", "json": null},
+ {"why": "한 줄 울타리(줄바꿈 없음)", "text": "```json {\"a\":1}```", "json": null},
+ {"why": "빈 답", "text": "", "json": null},
+ {"why": "울타리 표시만", "text": "```", "json": null},
+ {"why": "문자열이 아님", "text": null, "json": null}
+]

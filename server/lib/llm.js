@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { config } from '../config.js'
 import { isEn, ENGLISH_NOTE } from './lang.js'
 import * as llmKeys from './llmKeys.js'
+import { unfenceJson } from './jsonReply.js'
 
 // A model call that never answers would hold its caller forever (the browser worker runs one job
 // at a time), so every non-streaming call gives up after a few minutes.
@@ -103,6 +104,8 @@ export async function chat({ messages, tools, toolChoice, model, json, temperatu
   }, signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs))
   const data = await res.json()
   const msg = data.choices[0].message
+  // a JSON answer fenced as ```json … ``` (Claude, with no schema) is handed on as the JSON itself
+  if (json) { const inner = unfenceJson(msg.content); if (inner !== null) msg.content = inner }
   // why the answer ended ("length" = cut off at max_tokens — a reasoning model counts its thinking in
   // it), for callers that parse it
   Object.defineProperty(msg, 'finish', { value: data.choices[0].finish_reason || null, enumerable: false })

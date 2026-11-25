@@ -7,6 +7,8 @@
 
 ### 고침
 
+- **JSON 을 청한 답이 `` ```json `` 울타리에 싸여 와도 읽는다** (스펙 `llm-model-compat`) — 주 모델을 Claude로 바꾸면 Claude는 스키마 없는 `json_object`에 대응하는 기능이 없어 프롬프트에 따라 JSON을 울타리로 감싸 답합니다(운영 측정 11-25, "Answer as JSON {…}" 5/5). 이 답을 그대로 JSON.parse로 처리하던 판정(chatJson, 폴더 색인, 브라우저 계획 등)이 모두 「not JSON」으로 떨어졌습니다. 이제 `chat({ json: true })`의 답이 울타리 하나로만 감싸져 있고 그 안의 내용이 JSON이면, 안쪽 내용을 답으로 사용합니다(`server/lib/jsonReply.js`). 그 밖의 답은 손대지 않습니다. 운영 litellm-proxy의 훅(`claude_compat` 7)도 같은 처리를 하지만, 해당 훅이 없는 프록시(설치판)에 Claude를 연결해도 동작하도록 Lite에도 이 처리를 둡니다. 시험은 `llm-json-fence.test.js`에서 수행합니다(JF-U-01~05, 사례표 `json-fence-cases.json`).
+
 - **브라우저 작업의 마무리 요청에 기록한 사실을 함께** — 마무리할 때는 앞 페이지 내용이 대화에서 한 줄로 접혀 있어, 모델이 자기 기록을 확인할 수 없다며 부정하는 일이 있었습니다(Claude Opus 5.5 시험, 11-25). 이제 note 로 기록한 사실을 마무리 요청에 그대로 넣습니다. 시험 `browserClosingNotes.test.js`.
 
 ### 추가
