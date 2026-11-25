@@ -17,6 +17,7 @@ import { cypher, readGraph, ontologyEnabled } from './store.js'
 import { taskDefinition } from './taskdef.js'
 import { END } from './stats.js'
 import { refinedView, baseOf } from './refine.js'
+import { forNextStep, filesNote } from './fileread.js'
 
 export const ORCH = 'pgpt-pro-onto'
 const T = () => config.tenantId
@@ -399,7 +400,7 @@ export function mapPrev(request, done, earlier) {
   const { result, ...rest } = done || {}
   for (const k of Object.keys(rest)) if (/^files(_\d+)?$/.test(k) || k === 'via') delete rest[k]
   const steps = (earlier || []).filter((x) => String(x.text || '').trim() || x.files?.length).slice(-6).map((x) => ({ step: x.task, text: String(x.text || '').slice(0, 800),
-    ...(x.files?.length ? { files: x.files.map((f) => ({ name: f.name, ...(f.path ? { path: f.path } : {}), text: String(f.text || '').slice(0, 1500) || '(글로 읽지 못한 파일 — path 로 열어 보세요)' })) } : {}) }))
+    ...(x.files?.length ? { files: x.files.map((f) => forNextStep(f, 1500)) } : {}) }))
   return { ...(steps.length ? { steps } : {}), ...(request || {}), ...rest }
 }
 export async function moveCase(me, id, { task, reason = '', state = 'moved', learn = true }) {
@@ -539,7 +540,7 @@ export const ONTO_SKILLS = {
       definition: { description: act.description || '', instruction: String(act.instruction || '').slice(0, 2000), checkpoints: act.checkpoints || [] },
       request: { subject: intake.subject || c?.trigger?.subject || '', body: String(intake.body || '').slice(0, chars), from: intake.sender || c?.trigger?.from || '' },
       earlier: earlier.slice(-4).map((x) => ({ step: x.task, text: String(x.text || '').slice(0, 1200),
-        ...(x.files?.length ? { files: x.files.map((f) => ({ name: f.name, text: String(f.text || '').slice(0, 1500) })) } : {}) })) }
+        ...(x.files?.length ? { files: x.files.map((f) => forNextStep(f, 1500)) } : {}) })) }
     const r = await chatJson(await prompt('draft-step'), JSON.stringify(input), { temperature: 0.2, timeoutMs: R.timeoutMs || 120000 })
     const text = String(r.text || '').slice(0, 6000)
     const values = { result: text, title: String(r.title || row.activity_name).slice(0, 120), summary: String(r.summary || '').slice(0, 200) }
@@ -603,9 +604,11 @@ async function runStep(row, gate = {}) {
       const [p] = await q('select email, name from pro_profile where user_id=$1', [owner])
       const { user, session } = await sessionFor(p.email, p.name)
       const prev = await prevOf(row)
+      // a person's scanned · photographed receipt read by the model, or a file not read: how to treat it (nothing for files read as text)
+      const fileNote = filesNote(prev)
       const ask = isDraft
-        ? `프로세스의 '${row.activity_name}' 단계를 맡은 사람(${act.role || '담당자'})이 받기 전에 초안을 만들어 두는 일이에요. ${act.description || ''} ${act.instruction || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, map ? 8000 : 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ') || '없음'}\n담당자가 그대로 확인하고 낼 수 있게, 이 단계의 결과(판단 · 근거 · 다음에 할 일)를 다섯 줄 안으로 써 주세요. 파일은 만들지 마세요.`
-        : `프로세스의 '${row.activity_name}' 단계예요. ${act.instruction || act.description || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, map ? 8000 : 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ')}\n쓸 스킬: ${(act.skills || []).join(', ')}`
+        ? `프로세스의 '${row.activity_name}' 단계를 맡은 사람(${act.role || '담당자'})이 받기 전에 초안을 만들어 두는 일이에요. ${act.description || ''} ${act.instruction || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, map ? 8000 : 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ') || '없음'}${fileNote}\n담당자가 그대로 확인하고 낼 수 있게, 이 단계의 결과(판단 · 근거 · 다음에 할 일)를 다섯 줄 안으로 써 주세요. 파일은 만들지 마세요.`
+        : `프로세스의 '${row.activity_name}' 단계예요. ${act.instruction || act.description || ''}\n앞 단계 값: ${JSON.stringify(prev).slice(0, map ? 8000 : 2000)}\n점검 항목: ${(act.checkpoints || []).join(' / ')}${fileNote}\n쓸 스킬: ${(act.skills || []).join(', ')}`
       const msg = await delegate({ user, session, threadId, silent: true, text: ask })
       // the agent did not do the step (unreachable · no answer · stopped): the step fails and waits — its notice is not the step's result
       const why = agentFailure(msg)

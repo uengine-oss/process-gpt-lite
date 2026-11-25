@@ -84,6 +84,8 @@ export const config = {
     // the model of the readings that take next-token probabilities (llm.js firstTokenTop — decide.js oddsOf: which process an event is,
     // a step's yes/no): one that gives log-probabilities (empty: the agent model)
     readModel: get('PRO_LLM_READ_MODEL', ''),
+    // the model that reads a person's scanned PDF pages and photos (ontology/fileread.js): one that takes images (empty: the agent model)
+    visionModel: get('PRO_LLM_VISION_MODEL', ''),
   },
   // LiteLLM budgets as the quota (lib/llmKeys.js): PRO_LLM_KEYS=litellm sends each call with the person's key
   // in their company (LiteLLM team pgpt-<tenant>), PRO_LLM_BASE_URL being that LiteLLM; off: PRO_LLM_API_KEY

@@ -42,21 +42,55 @@ export function filesOf(values) {
 }
 
 // ---------- 파일의 글 ----------
-// what a later step reads of a file: its text (events.js readUpload — xlsx · docx · pptx · hwpx · csv · txt · md · json), kept for a while
-// by path (an upload never changes). A file whose text cannot be read is passed by name and path (the agent can open it in its workspace).
-const texts = new Map()
-export async function fileText(f, chars = 3000) {
-  const k = f.path || f.url
-  if (!k) return ''
-  if (!texts.has(k)) {
+// what a later step reads of a file → { text, read, why? }:
+//   xlsx · docx · pptx · hwpx · csv · txt · md · json — its text (events.js readUpload), read 'text'
+//   PDF · 사진(jpg · png · webp · gif) — fileread.js: a PDF's own words, its scanned pages and photos read by the model (read 'image')
+//   anything not read — read 'none' and why; the later step gets that mark and the original's link
+// Kept by path (an upload never changes): in memory, and for PDF · pictures (a model call each) next to the upload as a hidden
+// .<name>.read.json, so a restart or the next step does not read it again.
+const reads = new Map()
+async function readOnce(f) {
+  const { readsHere, readPdfOrImage } = await import('./fileread.js')
+  if (!readsHere(f.name)) {
     const { readUpload } = await import('./events.js')
-    texts.set(k, String(await readUpload(f).catch(() => '') || '').replace(/\s+\n/g, '\n').trim())
-    if (texts.size > 200) texts.delete(texts.keys().next().value)
+    const text = String(await readUpload(f).catch(() => '') || '').replace(/\s+\n/g, '\n').trim()
+    return text ? { text, read: 'text' } : { text: '', read: 'none', why: '글로 읽지 못한 파일이에요' }
   }
-  return texts.get(k).slice(0, chars)
+  const rel = String(f.path || '')
+  if (!rel.startsWith('/workspace/')) return { text: '', read: 'none', why: '작업 공간에 없는 파일이에요' }
+  const fs = await import('node:fs/promises')
+  const path = await import('node:path')
+  const { workspaceHostPath } = await import('../missions.js')
+  const host = await workspaceHostPath(rel).catch(() => null)
+  if (!host) return { text: '', read: 'none', why: '올린 파일을 찾지 못했어요' }
+  const memo = path.join(path.dirname(host), `.${path.basename(host)}.read.json`)
+  const kept = await fs.readFile(memo, 'utf8').then(JSON.parse, () => null)
+  if (kept?.read) return kept
+  const r = await readPdfOrImage(await fs.readFile(host), f.name)
+  if (!r.retry) await fs.writeFile(memo, JSON.stringify({ text: r.text, read: r.read, ...(r.why ? { why: r.why } : {}), at: new Date().toISOString() })).catch(() => {})
+  console.log(`[step-files] 「${f.name}」 ${r.read === 'image' ? '그림을 모델로 읽음' : r.read === 'text' ? '글을 뽑음' : `읽지 못함 — ${r.why}`}`)
+  return r
 }
-export async function withText(files, chars) {
-  return Promise.all((files || []).map(async (f) => ({ name: f.name, path: f.path || '', text: await fileText(f, chars) })))
+export async function fileRead(f) {
+  const k = f.path || f.url
+  if (!k) return { text: '', read: 'none', why: '올린 파일을 찾지 못했어요' }
+  if (!reads.has(k)) {
+    const p = readOnce(f).catch((e) => ({ text: '', read: 'none', why: `읽지 못했어요(${String(e?.message || e).slice(0, 80)})`, retry: true }))
+    reads.set(k, p)
+    // a reading that may work next time (the model did not answer) is not kept
+    p.then((r) => { if (r.retry) setTimeout(() => reads.get(k) === p && reads.delete(k), 5 * 60_000) })
+    if (reads.size > 200) reads.delete(reads.keys().next().value)
+  }
+  return reads.get(k)
+}
+export async function fileText(f, chars = 3000) {
+  return String((await fileRead(f)).text || '').slice(0, chars)
+}
+export async function withText(files, chars = 3000) {
+  return Promise.all((files || []).map(async (f) => {
+    const r = await fileRead(f)
+    return { name: f.name, path: f.path || '', url: f.url || '', text: String(r.text || '').slice(0, chars), read: r.read, ...(r.why ? { why: r.why } : {}) }
+  }))
 }
 
 // ---------- 채팅에서 낸 파일 ----------
