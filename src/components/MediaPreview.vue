@@ -5,24 +5,37 @@
 // (src/openPlan.js 'view'). (2026-11-25 「대화창안에서 기본적인 음성 / 이미지가 미리보기 등의 출력이 안되다니..」)
 // A sound waits to be pressed before it loads (preload none: a long conversation does not fetch every file); a video shows its
 // first frame. One that does not load says so calmly, with its link — no alarm.
-import { ref, watch } from 'vue'
+// A TIFF (a fax) is a picture too: the app draws its first page small (TiffView.vue, loaded only when one is shown), with 「N쪽」 on it;
+// one it cannot draw says 「이 TIFF 는 열 수 없어요 · 내려받기」 (2026-11-25 「tif 파일을 웹에서 못 열어보나?」).
+import { ref, computed, watch, defineAsyncComponent } from 'vue'
+import { isTiff } from '../mediaKind.js'
+const TiffView = defineAsyncComponent(() => import('./TiffView.vue'))
 
 const props = defineProps({
   kind: { type: String, required: true },     // image | audio | video (src/mediaKind.js)
   src: { type: String, default: '' },
   name: { type: String, default: '' },
   compact: { type: Boolean, default: false },  // a messenger bubble: smaller
+  type: { type: String, default: '' },         // the stored type, when the name says nothing (a TIFF named 「download」)
 })
 const emit = defineEmits(['open', 'failed', 'loaded'])
 const failed = ref(false)
+const tiff = computed(() => props.kind === 'image' && isTiff({ name: props.name, url: props.src, type: props.type }))
+const tiffBad = ref(false)
 // a new address (a fresh sign-in token, the file published) tries again
-watch(() => props.src, () => { failed.value = false })
+watch(() => props.src, () => { failed.value = false; tiffBad.value = false })
 function onError() { failed.value = true; emit('failed') }
+// a TIFF whose address did not answer is as any picture's (the messenger asks for a new address); one that is not a TIFF it can draw says so
+function onTiffFail(e) { if (e?.fetch) onError(); else tiffBad.value = true }
 </script>
 
 <template>
   <div v-if="src" class="mp" :class="[kind, { compact }]" data-test="media-preview" :data-kind="kind" :data-file="name">
     <p v-if="failed" class="calm" data-test="media-fallback">미리 볼 수 없어요 · <a :href="src" target="_blank" rel="noopener">새 창에서 열기</a></p>
+    <p v-else-if="tiff && tiffBad" class="calm" data-test="tiff-error">이 TIFF 는 열 수 없어요 · <a :href="src" download target="_blank" rel="noopener">내려받기</a></p>
+    <button v-else-if="tiff" type="button" class="thumb press" :title="name" :aria-label="`${name} 크게 보기`" data-test="media-thumb" @click="emit('open')">
+      <TiffView mode="thumb" :src="src" :name="name" @loaded="emit('loaded')" @failed="onTiffFail" />
+    </button>
     <button v-else-if="kind === 'image'" type="button" class="thumb press" :title="name" :aria-label="`${name} 크게 보기`" data-test="media-thumb" @click="emit('open')">
       <img :src="src" :alt="name" loading="lazy" decoding="async" data-testid="file-image" @error="onError" @load="emit('loaded')" />
     </button>
@@ -43,6 +56,9 @@ function onError() { failed.value = true; emit('failed') }
 .thumb img { display: block; max-width: 100%; max-height: 260px; width: auto; height: auto; min-width: 48px; min-height: 48px; object-fit: contain; }
 .compact .thumb { border-radius: 12px; max-width: min(240px, 100%); }
 .compact .thumb img { max-height: 200px; }
+/* a TIFF's first page (TiffView.vue): the same bounds as a picture */
+.thumb :deep(canvas) { max-height: 260px; }
+.compact .thumb :deep(canvas) { max-height: 200px; }
 /* the browser's own controls (play, seek, volume, download) — big enough for a thumb */
 .player { display: block; width: 100%; height: 54px; border-radius: 27px; }
 .compact .player { height: 44px; }

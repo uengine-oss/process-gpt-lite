@@ -48,8 +48,8 @@ test('그림 · 소리 · 영상인지: 저장된 형식(MIME)이 있으면 그�
   assert.equal(mediaKindOf({ name: 'image', type: 'image/png' }), 'image')
   assert.equal(mediaKindOf({ name: 'clip', type: 'video/quicktime; codecs=avc1' }), 'video')
   assert.equal(mediaKindOf({ name: '사진.png', type: 'application/pdf' }), '', 'a type that says otherwise is believed')
-  // a picture type a browser does not draw is not a picture to show
-  assert.equal(mediaKindOf({ name: 'scan.tif', type: 'image/tiff' }), '')
+  // a picture type a browser does not draw is not a picture to show — except TIFF, which the app draws itself (src/tiff.js, 11-25 팩스)
+  assert.equal(mediaKindOf({ name: 'scan.tif', type: 'image/tiff' }), 'image')
   assert.equal(mediaKindOf({ name: 'p.psd', type: 'image/vnd.adobe.photoshop' }), '')
   // a type that says nothing: the name (or the address, when the name has no extension)
   assert.equal(mediaKindOf({ name: 'download.m4a', type: 'application/octet-stream' }), 'audio')

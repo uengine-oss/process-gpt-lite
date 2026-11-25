@@ -5,13 +5,19 @@
 // when the person asks to edit (2026-11-25 「포토크래프트등의 편집기는 편집의 의도가 있을따만 시도하는 것이고」).
 // It closes with ✕, Esc or a press outside the file, back to where it was opened (a floating messenger stays open under it).
 // A picture pressed switches between fitting the screen and its own size (then it scrolls); a phone pinches it as any page.
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+// A TIFF (a fax: several pages, black and white) is drawn by the app (TiffView.vue — loaded only when one opens): ‹ 1 / 3 ›, fitted to the
+// width, a press zooms in; one it cannot draw says 「이 TIFF 는 열 수 없어요 · 내려받기」. A browser would only download a TIFF opened in a
+// new window, so its footer offers 「내려받기」 instead (2026-11-25 「tif 파일을 웹에서 못 열어보나?」).
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { CRAFT_NAMES } from '../editorKinds.js'
+import { isTiff } from '../mediaKind.js'
+const TiffView = defineAsyncComponent(() => import('./TiffView.vue'))
 
 const app = useApp()
 const v = computed(() => app.media)
+const tiff = computed(() => v.value?.kind === 'image' && isTiff({ name: v.value.name, url: v.value.url, type: v.value.type }))
 const zoom = ref(false)
 const busy = ref(false)
 const note = ref('')
@@ -42,14 +48,16 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey, true); if (
         <b class="nm" :title="v.name">{{ v.name }}</b>
         <button ref="closeBtn" type="button" class="x press" aria-label="닫기" data-test="media-close" @click="close"><Icon name="close" :size="18" /></button>
       </header>
-      <div class="stage" :class="{ zoom }" @click.self="close">
+      <TiffView v-if="tiff" :key="v.url" mode="viewer" :src="v.url" :name="v.name" @dismiss="close" />
+      <div v-else class="stage" :class="{ zoom }" @click.self="close">
         <img v-if="v.kind === 'image'" :src="v.url" :alt="v.name" class="full" data-test="media-full" @click="zoom = !zoom" />
         <video v-else-if="v.kind === 'video'" :src="v.url" class="full" controls playsinline preload="metadata" data-test="media-full" />
         <audio v-else :src="v.url" class="aud" controls preload="metadata" data-test="media-full" />
       </div>
       <footer class="mvf" @click.self="close">
         <p v-if="note" class="note" role="status" data-test="media-note">{{ note }}</p>
-        <a class="act press" :href="v.url" target="_blank" rel="noopener" data-test="media-open">새 창에서 열기</a>
+        <a v-if="tiff" class="act press" :href="v.url" download target="_blank" rel="noopener" data-test="media-download"><Icon name="down" :size="15" />&nbsp;내려받기</a>
+        <a v-else class="act press" :href="v.url" target="_blank" rel="noopener" data-test="media-open">새 창에서 열기</a>
         <button v-if="v.editWith && v.edit" type="button" class="act main press" :disabled="busy" data-test="media-edit" :data-editor="v.editWith" @click="edit">{{ CRAFT_NAMES[v.editWith] || v.editWith }} 로 편집</button>
       </footer>
     </div>

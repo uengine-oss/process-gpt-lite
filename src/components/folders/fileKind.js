@@ -4,7 +4,7 @@ export const baseName = (p) => String(p || '').split('/').pop()
 export const dirName = (p) => (String(p).includes('/') ? String(p).slice(0, String(p).lastIndexOf('/')) : '')
 
 // 채팅 파일 카드(Message.vue)와 같은 색 구분
-const KIND = { hwp: 'hwp', hwpx: 'hwp', docx: 'doc', odt: 'doc', xlsx: 'xls', xls: 'xls', csv: 'xls', pptx: 'ppt', pdf: 'pdf', dxf: 'cad', dwg: 'cad', svg: 'vec', psd: 'img', png: 'img', jpg: 'img', jpeg: 'img', webp: 'img', gif: 'img', wav: 'snd', mp3: 'snd', flac: 'snd', mp4: 'vid', mov: 'vid', webm: 'vid', md: 'md', markdown: 'md', py: 'code', js: 'code', ts: 'code', vue: 'code', json: 'code', sh: 'code', yaml: 'code', yml: 'code', txt: 'txt' }
+const KIND = { hwp: 'hwp', hwpx: 'hwp', docx: 'doc', odt: 'doc', xlsx: 'xls', xls: 'xls', csv: 'xls', pptx: 'ppt', pdf: 'pdf', dxf: 'cad', dwg: 'cad', svg: 'vec', psd: 'img', png: 'img', jpg: 'img', jpeg: 'img', webp: 'img', gif: 'img', tif: 'img', tiff: 'img', wav: 'snd', mp3: 'snd', flac: 'snd', mp4: 'vid', mov: 'vid', webm: 'vid', md: 'md', markdown: 'md', py: 'code', js: 'code', ts: 'code', vue: 'code', json: 'code', sh: 'code', yaml: 'code', yml: 'code', txt: 'txt' }
 export const kindOf = (p) => KIND[ext(p)] || 'etc'
 export const kindLabel = { hwp: '한글', doc: 'DOC', xls: 'XLS', ppt: 'PPT', pdf: 'PDF', cad: 'CAD', vec: 'SVG', img: 'IMG', snd: 'AUD', vid: 'VID', md: 'MD', code: '</>', txt: 'TXT', etc: 'FILE' }
 
@@ -15,7 +15,8 @@ export function viewOf(p) {
   if (e === 'csv') return 'csv'
   if (['py', 'js', 'ts', 'vue', 'json', 'sh', 'yaml', 'yml'].includes(e)) return 'code'
   if (e === 'txt') return 'text'
-  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(e)) return 'image'
+  // (a TIFF — a fax — is drawn by the app itself: FileView → TiffView)
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'tif', 'tiff'].includes(e)) return 'image'
   if (['mp4', 'mov', 'webm'].includes(e)) return 'video'
   if (['wav', 'mp3', 'flac', 'ogg'].includes(e)) return 'audio'
   // PDF 도 이음오피스 PDF 편집기(읽기 전용)로 연다 — 브라우저 내장 뷰어보다 화면이 한결같다

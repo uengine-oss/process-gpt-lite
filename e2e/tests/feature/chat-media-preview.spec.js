@@ -12,6 +12,13 @@
 //           화면이 쓰는 주소는 15분짜리 서명 주소(로그인 토큰 없음) — 200 · 206, 바꾼 주소 403, 만료 401, 남의 사람으로 서명해도 404
 //   F-MP-07 휴대폰 390px 밝은 · 밤: 메시지 안에 들어가고 옆으로 넘치지 않음, 보기 화면의 단추가 화면 안
 //   F-MP-08 서명이 맞아도 권한은 다시: 팀에서 빠지면 403, 공유를 거두면 404 — 화면의 미리보기는 차분한 「미리 볼 수 없어요」
+//   F-MP-09 팩스(TIFF — 2026-11-25 「tif 파일을 웹에서 못 열어보나?」): 메신저 미리보기는 첫 쪽 · 「2쪽」, 보기 화면 ‹ 1 / 2 › → 2쪽, 캔버스가 빈
+//           그림이 아님(검은 점), 누르면 확대, ← 로 앞쪽 · 손상된 · 거대한 TIFF 는 차분한 「이 TIFF 는 열 수 없어요 · 내려받기」 · 해독기는 TIFF 가
+//           화면에 나올 때만 받는다
+//   F-MP-10 AI 채팅에 붙인 팩스: 파일 카드 IMG · 「눌러서 크게 보기」 · 첫 쪽 미리보기 → 보기 화면 2쪽까지 · 서버는 쪽마다 PNG 를 비공개로(서명 주소 ·
+//           작업 공간의 같은 폴더) — 에이전트가 읽을 그림
+//   F-MP-11 휴대폰 390px 밝은 · 밤: 팩스 미리보기 · 보기 화면(한 쪽이 화면 폭에 맞아 통째로 보임) · 쪽 넘기기 단추가 화면 안, 옆으로 넘치지 않음
+// TIFF 시험 파일은 e2e/fixtures/tiff (server/fixtures/tiff 와 같은 파일 — 만든 방법은 server/fixtures/tiff/make.py).
 // 모든 화면 단계에서 그림 · 소리 · 영상의 주소와 「새 창에서 열기」에 로그인 토큰(token= · eyJ…)이 없는지 본다.
 // 자기 스택(lib/localStack.js: 회사 chatmedia-ui 의 BFF + Vite, 8900 · 5300 부터 빈 포트)을 띄우고 지운다. 모델 · 공용 서비스는 부르지 않는다
 // (deepagents · completion · 맥락 라우터는 아무 데도 아닌 주소). PhotoCraft 는 시험용 껍데기(PRO_CRAFT_WEB_ROOT: 캔버스 하나, 놓인 파일 이름을
@@ -43,6 +50,11 @@ function media(kind) {
   execFileSync('ffmpeg', ['-v', 'error', '-y', ...args])
   const b = fs.readFileSync(out); fs.rmSync(out, { force: true }); return b
 }
+// the fax of the report (KT 스마트메시지 Plus, 2026-11-25): two CCITT G4 pages at 204 × 98 dpi; a damaged TIFF; one that claims 50000 × 50000
+const tif = (n) => fs.readFileSync(path.join(REPO, 'e2e/fixtures/tiff', n))
+const FAX = { name: 'arrive_xroshotplus_uengine1_20261125095030049_121017596357694.tif', type: 'image/tiff', buf: tif('fax-2p-g4.tif') }
+const BAD = { name: '팩스_손상.tif', type: 'image/tiff', buf: tif('broken.tif') }
+const BIG = { name: '거대한_스캔.tif', type: '', buf: tif('giant.tif') }
 // what the recording showed: image.png (typed), download.m4a (stored without a type — the name decides), a video; and a zip
 const IMG = { name: 'image.png', type: 'image/png' }
 const M4A = { name: 'download.m4a', type: '' }
@@ -133,7 +145,8 @@ test.beforeAll(async () => {
   craftRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-craftweb-'))
   fs.mkdirSync(path.join(craftRoot, 'photocraft'))
   fs.writeFileSync(path.join(craftRoot, 'photocraft', 'index.html'), CRAFT_STUB)
-  S = await startStack({ tenant: TENANT, apiFrom: 8900, webFrom: 5300, env: { PRO_DEEPAGENTS_URL: NOWHERE, PRO_COMPLETION_URL: NOWHERE, PRO_CONTEXT_ROUTER_URL: NOWHERE, PRO_CRAFT_WEB_ROOT: craftRoot } })
+  // (RT_API_FROM · RT_WEB_FROM: where to look for free ports when other stacks run on this machine)
+  S = await startStack({ tenant: TENANT, apiFrom: Number(process.env.RT_API_FROM) || 8900, webFrom: Number(process.env.RT_WEB_FROM) || 5300, env: { PRO_DEEPAGENTS_URL: NOWHERE, PRO_COMPLETION_URL: NOWHERE, PRO_CONTEXT_ROUTER_URL: NOWHERE, PRO_CRAFT_WEB_ROOT: craftRoot } })
   TH = await S.person(`pro-rt-${TENANT}-a@uengine.org`, '윤태호')
   JM = await S.person(`pro-rt-${TENANT}-b@uengine.org`, '한지민')
   MJ = await S.person(`pro-rt-${TENANT}-c@uengine.org`, '서민재')
@@ -162,6 +175,9 @@ async function cleanData() {
   for (const { url } of urls) { const k = /\/object\/public\/files\/(.+)$/.exec(url || '')?.[1]; if (k) keys.push(decodeURIComponent(k)) }
   if (keys.length) await admin.storage.from('files').remove([...new Set(keys)]).catch(() => {})
   keys.length = 0
+  // a chat-attached TIFF's page pictures (private: chat/<tenant>/…)
+  const priv = (await S.q(`select name from storage.objects where bucket_id='lite-private' and starts_with(name, $1)`, [`chat/${TENANT}/`]).catch(() => [])).map((x) => x.name)
+  if (priv.length) await admin.storage.from('lite-private').remove(priv).catch(() => {})
   const objs = await admin.storage.from('files').list(`artifacts/${TENANT}/objects`, { limit: 1000 }).catch(() => ({ data: [] }))
   if (objs.data?.length) await admin.storage.from('files').remove(objs.data.map((o) => `artifacts/${TENANT}/objects/${o.name}`)).catch(() => {})
   for (const sql of [
@@ -494,4 +510,187 @@ test('F-MP-08 서명이 맞아도 권한은 다시 본다 — 팀에서 빠지�
   await shot(p, 'mp08-revoked-fallback')
   expect(p.errors).toEqual([])
   await p.context().close()
+})
+
+// ---------- TIFF (a fax) ----------
+// what a canvas holds, read in the page: its size, how much of it is ink (dark pixels — 0 is a blank page) and a fingerprint of its pixels
+const ink = (canvas) => canvas.evaluate((c) => {
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+  let n = 0, h = 0
+  for (let i = 0; i < d.length; i += 4) { if (d[i] < 100) n++; if (i % 64 === 0) h = (h * 31 + d[i]) % 1000000007 }
+  return { w: c.width, h: c.height, share: n / (c.width * c.height), hash: h }
+})
+const tiffOf = (loc) => loc.locator('[data-test="tiff-view"]')
+let faxCard = null
+
+test('F-MP-09 팩스(TIFF): 메신저 미리보기는 첫 쪽 · 「2쪽」, 보기 화면 ‹ 1 / 2 › → 2쪽, 그림이 그려짐, 누르면 확대 · 손상된 · 거대한 TIFF 는 차분한 안내 · 해독기는 TIFF 가 나올 때만', async ({ browser }) => {
+  // 윤태호 forwards the fax that came from KT, with a damaged one and one too large
+  const up = async (f) => (await rawPost(TH.token, '/team/uploads', f.buf, { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(f.name), 'X-File-Type': f.type })).id
+  await S.api(TH.token, `/team/threads/${room}/messages`, { method: 'POST', body: { text: 'KT 에서 온 팩스예요', artifactIds: [await up(FAX), await up(BAD), await up(BIG)] } })
+  const p = await page(browser, JM, DESK)
+  const asked = []
+  p.on('request', (r) => asked.push(r.url()))
+  await p.goto('/chat')
+  await expect(p.locator('[data-test="file-card"]').first()).toBeVisible({ timeout: 20000 })
+  await p.waitForTimeout(1000)
+  expect(asked.filter((u) => /tiff/i.test(u)), '화면에 TIFF 가 없으면 해독기를 받지 않는다').toEqual([])
+  await openThread(p, '윤태호')
+  await expect(chip(p, FAX).locator('.fic')).toHaveText('IMG')
+  // the thumbnail: the first page, small, tall like the page, with 「2쪽」 on it
+  const th = tiffOf(preview(p, FAX))
+  await th.scrollIntoViewIfNeeded()
+  await expect(th).toHaveAttribute('data-state', 'ok', { timeout: 20000 })
+  await expect(th.locator('[data-test="tiff-count"]')).toHaveText('2쪽')
+  const tk = await ink(th.locator('canvas'))
+  expect(tk.w).toBe(480)
+  expect(tk.share).toBeGreaterThan(0.01)
+  const tb = await th.locator('canvas').boundingBox()
+  expect(Math.abs(tb.height / tb.width - 2290 / 1728)).toBeLessThan(0.03)
+  expect(tb.height).toBeLessThanOrEqual(200.5)
+  expect(asked.some((u) => /tiffWorker/.test(u)), '해독기는 이제 받았다').toBe(true)
+  // a damaged one and a giant one: a calm line with 「내려받기」 — no warning box, nothing decoded
+  for (const f of [BAD, BIG]) {
+    const e = preview(p, f).locator('[data-test="tiff-error"]')
+    await expect(e).toContainText('이 TIFF 는 열 수 없어요 · 내려받기', { timeout: 20000 })
+    await expect(e.locator('a')).toHaveAttribute('download', '')
+  }
+  await expect(p.locator('.ms').getByText('앱 안에서 열 수 없')).toHaveCount(0)
+  await expect(p.locator('.ms [data-test="open-note"]')).toHaveCount(0)
+  await top(chip(p, FAX))
+  await shot(p, 'mp09-1-messenger-fax')
+  // the viewer: page 1 of 2, fitted to a page's reading width
+  await preview(p, FAX).locator('button').click()
+  await expect(viewer(p)).toHaveAttribute('data-kind', 'image')
+  const v = tiffOf(viewer(p))
+  await expect(v).toHaveAttribute('data-state', 'ok', { timeout: 20000 })
+  await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('1 / 2')
+  const pg = v.locator('[data-test="tiff-page"]')
+  const c1 = await ink(pg)
+  expect([c1.w, c1.h], '204 × 98 dpi 는 두 배 높이로').toEqual([1728, 2290])
+  expect(c1.share).toBeGreaterThan(0.03)
+  const b1 = await pg.boundingBox()
+  expect(b1.width).toBeGreaterThan(700)
+  expect(b1.width).toBeLessThanOrEqual(860.5)
+  await expect(viewer(p).locator('[data-test="media-download"]')).toHaveAttribute('download', '')
+  await expect(viewer(p).locator('[data-test="media-open"]')).toHaveCount(0)
+  await expect(viewer(p).locator('[data-test="tiff-prev"]')).toBeDisabled()
+  await noToken(p)
+  await shot(p, 'mp09-2-viewer-page1')
+  // page 2 — another picture
+  await v.locator('[data-test="tiff-next"]').click()
+  await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('2 / 2')
+  await expect(v).toHaveAttribute('data-page', '2')
+  await expect(v.locator('[data-test="tiff-next"]')).toBeDisabled()
+  const c2 = await ink(pg)
+  expect(c2.share).toBeGreaterThan(0.03)
+  expect(c2.hash).not.toBe(c1.hash)
+  await shot(p, 'mp09-3-viewer-page2')
+  // ← goes back; a press zooms in where it was pressed (scrolls), pressed again fits
+  await p.keyboard.press('ArrowLeft')
+  await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('1 / 2')
+  await pg.click({ position: { x: 150, y: 120 } })
+  await expect(v).toHaveClass(/zoom/)
+  expect((await pg.boundingBox()).width).toBeGreaterThan(b1.width * 1.9)
+  await shot(p, 'mp09-4-viewer-zoomed')
+  await pg.click({ position: { x: 300, y: 300 } })
+  await expect(v).not.toHaveClass(/zoom/)
+  await p.keyboard.press('Escape')
+  await expect(viewer(p)).toHaveCount(0)
+  await expect(p.locator('.ms')).toBeVisible()
+  // the damaged one opened from its chip: the viewer says so calmly; the giant one says why
+  await chip(p, BAD).click()
+  await expect(tiffOf(viewer(p)).locator('[data-test="tiff-error"]')).toContainText('이 TIFF 는 열 수 없어요')
+  await expect(tiffOf(viewer(p)).locator('[data-test="tiff-download"]')).toHaveAttribute('download', '')
+  await shot(p, 'mp09-5-viewer-damaged')
+  await p.keyboard.press('Escape')
+  await chip(p, BIG).click()
+  await expect(tiffOf(viewer(p)).locator('[data-test="tiff-error"]')).toContainText('너무 큰 TIFF 예요')
+  await p.keyboard.press('Escape')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-MP-10 AI 채팅에 붙인 팩스: 파일 카드 IMG · 첫 쪽 미리보기 → 보기 화면 2쪽까지 · 서버는 쪽마다 PNG 를 비공개로(서명 주소 · 작업 공간의 같은 폴더)', async ({ browser }) => {
+  // attached in the chat (POST /attachments, as the composer does): the pages for the agent come back private
+  const a = await rawPost(JM.token, '/attachments', FAX.buf, { 'Content-Type': FAX.type, 'X-File-Name': encodeURIComponent(FAX.name) })
+  expect(a.pages.length).toBe(2)
+  expect(a.pageTotal).toBe(2)
+  for (const [n, pgx] of a.pages.entries()) {
+    expect(pgx.url).toMatch(new RegExp(`/storage/v1/object/sign/lite-private/chat/${TENANT}/${JM.id}/[0-9a-f-]{36}/page-${n + 1}\\.png\\?token=`))
+    expect(pgx.url).not.toMatch(/object\/public/)
+    const r = await fetch(pgx.url)
+    expect(r.status).toBe(200)
+    const b = Buffer.from(await r.arrayBuffer())
+    expect(b.subarray(1, 4).toString()).toBe('PNG')
+    expect([b.readUInt32BE(16), b.readUInt32BE(20)]).toEqual([1728, 2290])
+    if (a.path) expect(pgx.path).toBe(`${path.posix.dirname(a.path)}/arrive_xroshotplus_uengine1_20261125095030049_121017596357694-page${n + 1}.png`)
+  }
+  // a damaged one: the upload still goes, with why there are no pictures
+  const bad = await rawPost(JM.token, '/attachments', BAD.buf, { 'Content-Type': BAD.type, 'X-File-Name': encodeURIComponent(BAD.name) })
+  expect([bad.pages, bad.pagesError]).toEqual([undefined, 'broken'])
+  // the file card in her chat (what the attachment leaves there)
+  const [main] = await S.api(JM.token, '/threads')
+  await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'user', 'file', $2)`, [main.id, { name: a.name, url: a.url, attached: true }])
+  const p = await page(browser, JM, DESK)
+  await p.goto('/chat')
+  faxCard = p.locator('.row.k-file').filter({ has: p.locator(`[data-test="file-card"][data-file="${FAX.name}"]`) }).last()
+  await expect(faxCard).toBeVisible({ timeout: 20000 })
+  await expect(faxCard.locator('.fic')).toHaveText('IMG')
+  await expect(faxCard.locator('.file')).toContainText('눌러서 크게 보기')
+  const th = tiffOf(faxCard)
+  await th.scrollIntoViewIfNeeded()
+  await expect(th).toHaveAttribute('data-state', 'ok', { timeout: 20000 })
+  expect((await ink(th.locator('canvas'))).share).toBeGreaterThan(0.01)
+  await top(faxCard, 'center')
+  await shot(p, 'mp10-1-chat-fax-card')
+  await faxCard.locator('.file').click()
+  const v = tiffOf(viewer(p))
+  await expect(v).toHaveAttribute('data-state', 'ok', { timeout: 20000 })
+  await v.locator('[data-test="tiff-next"]').click()
+  await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('2 / 2')
+  expect((await ink(v.locator('[data-test="tiff-page"]'))).share).toBeGreaterThan(0.03)
+  await shot(p, 'mp10-2-chat-fax-viewer-page2')
+  // no editor for a TIFF: looking only
+  await expect(viewer(p).locator('[data-test="media-edit"]')).toHaveCount(0)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-MP-11 휴대폰(390px) 밝은 · 밤: 팩스 미리보기 · 보기 화면(한 쪽이 화면 폭에 맞아 통째로) · 쪽 넘기기가 화면 안, 옆으로 넘치지 않음', async ({ browser }) => {
+  for (const theme of ['light', 'dark']) {
+    const p = await page(browser, JM, PHONE, { theme })
+    await p.goto('/chat')
+    await expect.poll(() => p.evaluate(() => document.documentElement.dataset.theme)).toBe(theme)
+    await openThread(p, '윤태호', { phone: true })
+    const th = tiffOf(preview(p, FAX))
+    await th.scrollIntoViewIfNeeded()
+    await expect(th).toHaveAttribute('data-state', 'ok', { timeout: 20000 })
+    for (const f of [FAX, BAD]) await inScreen(preview(p, f), 390)
+    expect(await noOverflow(p)).toBe(true)
+    expect(await p.locator('.ms .msgs').evaluate((m) => m.scrollWidth - m.clientWidth)).toBeLessThanOrEqual(0)
+    await top(chip(p, FAX))
+    await shot(p, `mp11-phone-${theme}-thread`)
+    await preview(p, FAX).locator('button').tap()
+    const v = tiffOf(viewer(p))
+    await expect(v).toHaveAttribute('data-state', 'ok', { timeout: 20000 })
+    const pg = v.locator('[data-test="tiff-page"]')
+    const b = await pg.boundingBox()
+    expect(b.width).toBeGreaterThan(330)
+    expect(b.width).toBeLessThanOrEqual(390 - 31)
+    // the whole page shows above the page buttons (no scrolling to see a fax page on a phone)
+    const nav = await v.locator('[data-test="tiff-next"]').boundingBox()
+    expect(b.y + b.height).toBeLessThanOrEqual(nav.y + 1)
+    for (const t of ['media-close', 'media-download']) await inScreen(viewer(p).locator(`[data-test="${t}"]`), 390)
+    for (const t of ['tiff-prev', 'tiff-next', 'tiff-pos']) await inScreen(v.locator(`[data-test="${t}"]`), 390)
+    expect(await noOverflow(p)).toBe(true)
+    await shot(p, `mp11-phone-${theme}-viewer`)
+    await v.locator('[data-test="tiff-next"]').tap()
+    await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('2 / 2')
+    expect((await ink(pg)).share).toBeGreaterThan(0.03)
+    await shot(p, `mp11-phone-${theme}-viewer-page2`)
+    await viewer(p).locator('[data-test="media-close"]').tap()
+    await expect(viewer(p)).toHaveCount(0)
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  }
 })

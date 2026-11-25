@@ -695,7 +695,7 @@ app.get('/api/threads/:id/messages', auth, async (req, res) => {
 // in storage for the card and the editor.
 app.post('/api/attachments', express.raw({ type: () => true, limit: '50mb' }), auth, async (req, res) => {
   try {
-    res.json(await saveAttachment(req.user, decodeURIComponent(req.headers['x-file-name'] || 'file'), req.headers['content-type'], req.body))
+    res.json(await saveAttachment(req.user, decodeURIComponent(req.headers['x-file-name'] || 'file'), req.headers['content-type'], req.body, { pages: true }))
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 

@@ -8,6 +8,7 @@
 //   - 에이전트: 작업 공간이 이 기계에 있으면 경로, 없으면 30분 서명 주소(받으면 첨부 그대로) · 메일 맥락은 한 번
 //   - 정리된 메일: 폴더의 사본을 열고, 저장은 폴더에 커밋
 //   - 메신저: 동료는 이름 · 요약만(열기 403) → 열기 요청 → 주인이 그 파일만 공유 → 동료가 읽기 전용으로 엶 · 경로 200, 방 밖 404, 공유를 거두면 403 · 경로 404
+//   - 팩스(TIFF): 보기 화면(image · image/tiff 로 그대로), 에이전트에는 쪽마다 PNG — 작업 공간이면 옆에, 아니면 비공개 서명 주소, 손상된 TIFF 는 까닭
 //   - 로그에 첨부 이름 · 바이트가 없음
 // Run: node --test --test-concurrency=1 test/mailAttachments.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
@@ -82,7 +83,16 @@ const RAW2 = await R.buildReply({
   subject: '이름이 어려운 첨부', body: '첨부를 확인해 주세요.',
   attachments: ODD.map((n, k) => ({ filename: n, content: Buffer.from(`odd-${k}`), contentType: 'application/octet-stream' })),
 })
-const MAILS = { 'g-att-1': RAW, 'g-att-odd': RAW2 }
+// a fax as KT 스마트메시지 Plus sends one (2026-11-25): a two-page CCITT G4 TIFF (server/fixtures/tiff), and a damaged one
+const FAX = fs.readFileSync(new URL('../fixtures/tiff/fax-2p-g4.tif', import.meta.url))
+const FAX_NAMES = ['arrive_xroshotplus_uengine1_20261125095030049_121017596357694.tif', 'arrive_broken.tif']
+const RAW3 = await R.buildReply({
+  from: { name: 'KT 스마트메시지 Plus', address: 'noreply@fax.kt.example' }, to: [{ name: '한지우', address: 'jiwoo@lite.example' }],
+  subject: '[KT 스마트메시지 Plus] 팩스 메시지 도착알림', body: '팩스가 도착했습니다.',
+  attachments: [{ filename: FAX_NAMES[0], content: FAX, contentType: 'image/tiff' },
+    { filename: FAX_NAMES[1], content: fs.readFileSync(new URL('../fixtures/tiff/broken.tif', import.meta.url)), contentType: 'image/tiff' }],
+})
+const MAILS = { 'g-att-1': RAW, 'g-att-odd': RAW2, 'g-att-fax': RAW3 }
 // the fake Gmail: format=minimal answers the size first (g-att-big says 200 MB and has no raw at all); format=raw the message
 const gmail = { calls: 0, raw: 0, minimal: 0, delay: 0 }
 const real = globalThis.fetch
@@ -682,6 +692,55 @@ test('MA-R5 방을 나간 주인도 그 방의 공유를 끈다 — 메일 시�
   // someone else (not the owner) who is not in the room cannot stop it either
   const out = await person('오태윤')
   assert.equal((await call(out, 'POST', '/team/refs/share', { messageId: s.body.id, index: 0, on: false })).status, 404)
+})
+
+test('팩스(TIFF): 보기 화면(image/tiff 그대로) · 에이전트에는 쪽마다 PNG — 작업 공간이면 옆에, 아니면 비공개 서명 주소 · 손상된 TIFF 는 까닭', { skip: !db }, async () => {
+  const u = await person('한지우', { gmail: true })
+  const a = await card(u, { mailId: 'g-att-fax', subject: '[KT 스마트메시지 Plus] 팩스 메시지 도착알림' })
+  await sheet(u, a)
+  // the sheet's chip opens the viewer (not 「앱 안에서 열지 않는 형식」): this server's signed route, the fax as it came
+  const r = await call(u, 'POST', `/mail/attachments/${a.id}/0/open`, { name: FAX_NAMES[0] })
+  assert.equal(r.status, 200, r.text)
+  assert.deepEqual([r.body.how, r.body.media], ['view', 'image'])
+  assert.match(r.body.url, /&inline=1&sig=/)
+  const img = await get(`${base}${r.body.url}`)
+  assert.equal(img.status, 200)
+  assert.ok(img.buf.equals(FAX))
+  assert.equal(img.headers.get('content-type'), 'image/tiff')
+  // the agent's pods (no workspace here): the fax and each page as a PNG, by private signed addresses only
+  const f = await MA.agentFile(u, a.id, 0, FAX_NAMES[0], {}, { workspace: async () => null })
+  assert.match(f.line, /팩스·TIFF 라서 쪽마다 그림\(PNG\)으로 바꿔 두었어요/)
+  const pages = [...f.line.matchAll(/(\d)쪽 (https?:\/\/\S+?)(?:,|$)/gm)].map((m) => m[2])
+  assert.equal(pages.length, 2, f.line)
+  for (const [n, url] of pages.entries()) {
+    assert.ok(P.isSignedUrl(url), url)
+    assert.match(url, new RegExp(`/sign/${P.BUCKET}/mail/localhost/${u.id}/${a.id}/0-[0-9a-f]{16}/page-${n + 1}\\.png\\?token=`))
+    const png = await get(url)
+    assert.equal(png.status, 200)
+    assert.ok(png.buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'PNG')
+    assert.equal(png.buf.readUInt32BE(16), 1728); assert.equal(png.buf.readUInt32BE(20), 2290)
+  }
+  assert.doesNotMatch(f.line, /object\/public/)
+  assert.equal(f.pages.length, 2)
+  assert.ok(f.pages.every((x) => /^[0-9a-f]{64}$/.test(x.sha256)))
+  // a workspace on this machine: the pictures beside the fax, no address at all
+  const ws = fs.mkdtempSync(path.join(tmp, 'ws-fax-'))
+  const g = await MA.agentFile(u, a.id, 0, FAX_NAMES[0], {}, { workspace: async () => ws })
+  assert.doesNotMatch(g.line, /https?:/)
+  const rels = g.pages.map((x) => x.path)
+  assert.equal(rels.length, 2)
+  for (const rel of rels) {
+    assert.match(rel, new RegExp(`^/workspace/uploads/${u.id}/mail/[0-9a-f-]{36}/arrive_xroshotplus_uengine1_20261125095030049_121017596357694-page[12]\\.png$`))
+    assert.ok(g.line.includes(rel))
+    assert.ok(fs.readFileSync(path.join(ws, rel.slice('/workspace'.length))).subarray(1, 4).equals(Buffer.from('PNG')))
+  }
+  // the chat turn: the pictures are handed over too (the turn's end never makes a public card of them)
+  const t = await FR.turnRefs(u, [{ src: 'mailatt', id: a.id, i: 0, name: FAX_NAMES[0] }], { deps: { agentFile: (...x) => MA.agentFile(x[0], x[1], x[2], x[3], x[4], { workspace: async () => ws }) } })
+  assert.equal(t.handed.length, 3, '팩스 + 쪽 그림 둘')
+  // a damaged TIFF: the file still goes, with why there are no pictures
+  const b = await MA.agentFile(u, a.id, 1, FAX_NAMES[1], {}, { workspace: async () => null })
+  assert.match(b.line, /이 TIFF 는 파일이 손상되어 쪽 그림으로 바꾸지 못했어요/)
+  assert.deepEqual(b.pages, [])
 })
 
 test('로그에 첨부 이름 · 바이트가 없다', { skip: !db }, () => {

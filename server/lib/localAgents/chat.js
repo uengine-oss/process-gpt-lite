@@ -36,6 +36,7 @@ import * as R from './relay.js'
 import * as ST from './steps.js'
 import { josa, eulReul } from '../josa.js'
 import { latestDesktop } from './desktopRelease.js'
+import { pageRefs } from '../attachments.js'
 
 const T = () => config.tenantId
 export const KIND = 'chat'
@@ -201,7 +202,9 @@ function wordsOf(text, files = []) {
   const t = String(text || '').trim().slice(0, 8000)
   const fs_ = (Array.isArray(files) ? files : []).filter((f) => f && (f.url || f.name)).slice(0, 10)
   if (!fs_.length) return t
-  return `${t}\n\n${L('[첨부한 파일]', '[Attached files]')}\n${fs_.map((f) => `- ${f.name || 'file'}${f.url ? ` — ${f.url}` : ''}`).join('\n')}`
+  // (a TIFF's page pictures by their signed addresses — lib/attachments.js pageRefs: the PC has no server workspace)
+  const pages = (f) => pageRefs({ ...f, path: null }).map((u, n) => `\n  ${L(`${n + 1}쪽 그림(PNG)`, `page ${n + 1} (PNG)`)} — ${u}`).join('')
+  return `${t}\n\n${L('[첨부한 파일]', '[Attached files]')}\n${fs_.map((f) => `- ${f.name || 'file'}${f.url ? ` — ${f.url}` : ''}${pages(f)}`).join('\n')}`
 }
 
 // The composer sent a message to a local agent: the message in the chat (tagged with its agent), then — into the chat's running CLI as

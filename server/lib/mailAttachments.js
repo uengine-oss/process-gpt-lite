@@ -30,6 +30,7 @@ import { L } from './lang.js'
 import * as MM from './mailMention.js'
 import * as P from './privateStore.js'
 import { LINK_TTL_S } from './team/mediaLink.js'
+import { isTiffName, isTiffBytes, tiffToPngs, pageName, reasonOf } from './tiff.js'
 
 const T = () => config.tenantId
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -45,12 +46,15 @@ export const MAX_INDEX = 99
 // documents IeumOffice opens (not HTML: a mail's HTML is someone else's page — it is downloaded, never rendered on this origin)
 const OFFICE = { docx: 'docs', odt: 'docs', xlsx: 'sheets', xlsm: 'sheets', xls: 'sheets', csv: 'sheets', pptx: 'slides', pdf: 'pdf', hwp: 'hwp', hwpx: 'hwp',
   md: 'markdown', markdown: 'markdown', txt: 'markdown', xmind: 'mindmap' }
-const IMAGE = new Set(['png', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico', 'apng'])
+// (a TIFF — a fax — is a picture too: the page draws it itself, src/tiff.js; the agent gets its pages as PNG, agentFile)
+const IMAGE = new Set(['png', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico', 'apng', 'tif', 'tiff'])
 const AUDIO = new Set(['mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'opus', 'flac', 'weba'])
 const VIDEO = new Set(['mp4', 'm4v', 'mov', 'webm', 'ogv'])
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/pjpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/apng'])
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/pjpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/apng',
+  'image/tiff', 'image/tiff-fx', 'image/x-tiff'])
 const GENERIC = new Set(['', 'application/octet-stream', 'binary/octet-stream', 'application/unknown'])
 export const MEDIA_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', jfif: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp',
+  tif: 'image/tiff', tiff: 'image/tiff',
   mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', flac: 'audio/flac', weba: 'audio/webm',
   mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', ogv: 'video/ogg' }
 const ext = (name) => { const e = P.extOf(name); return e === 'bin' ? '' : e }
@@ -405,8 +409,11 @@ export async function openPrivateCard(c) {
 // ---------- the AI chat: the attachment as a file the agent reads ----------
 // The private copy, handed over the way chat attachments are (lib/attachments.js): into the agent's workspace when that is on this
 // machine (a path, no address at all), else a signed storage address for AGENT_TTL_S. copies: an address always (a CLI on the person's PC).
-// deps.workspace(): the workspace's host folder or null (tests) → {line, shown, handed: {path, sha256}} — handed: what this turn gave the
-// agent, so the turn's end never makes a file card (a public copy) of it again (lib/agent.js delegate — review 11-25 #1)
+// deps.workspace(): the workspace's host folder or null (tests) → {line, shown, handed: {path, sha256}, pages: [{path, sha256}]} — handed:
+// what this turn gave the agent, so the turn's end never makes a file card (a public copy) of it again (lib/agent.js delegate — review
+// 11-25 #1); pages: the same for a TIFF's page pictures.
+// A TIFF (a fax — 2026-11-25 「tif 파일을 웹에서 못 열어보나?」) also goes as its pages, each a PNG (lib/tiff.js), so a model that reads
+// pictures reads the fax: beside it in the workspace, else private objects beside the copy (<copy's folder>/page-<n>.png) by signed address.
 export async function agentFile(user, actionId, iRaw, name, { copies = false } = {}, deps = {}) {
   const i = attIndex(iRaw)
   if (i == null) throw fail(404, L('첨부를 찾지 못했어요.', "I couldn't find that attachment."))
@@ -419,14 +426,46 @@ export async function agentFile(user, actionId, iRaw, name, { copies = false } =
   const subject = clean(card.source?.subject) || L('(제목 없음)', '(no subject)')
   const shown = { as: 'mailatt', name: copy.name, actionId: card.id, i, subject }
   const of = L(`메일 「${subject}」의 첨부`, `an attachment of the mail "${subject}"`)
+  // a TIFF: its pages as pictures (a damaged or giant one: the agent is told why there are none — it still has the file)
+  let pics = null
+  if (isTiffName(copy.name, copy.type) || (buf && isTiffBytes(buf))) {
+    buf ||= (await P.bytes(copy.key)).buf
+    pics = isTiffBytes(buf) ? await (deps.tiffToPngs || tiffToPngs)(buf).catch((e) => ({ error: e })) : { error: { code: 'broken' } }
+    if (pics.error && !pics.error.code) console.warn('[mail-att] tiff', pics.error.name || 'error')
+  }
+  const extra = (pics?.pages || []).map((p, n) => ({ name: pageName(copy.name, n + 1), buf: p.png, sha256: crypto.createHash('sha256').update(p.png).digest('hex') }))
   if (!copies) {
     // (the error's code only: a file system message names the file)
-    const rel = await toWorkspace(user, { ...copy, buf }, deps).catch((e) => { console.warn('[mail-att] workspace', e.code || e.name || 'error'); return null })
-    if (rel) return { line: L(`- ${rel} (${copy.name} · ${of})`, `- ${rel} (${copy.name} · ${of})`), shown, handed: { path: rel, sha256 } }
+    const rel = await toWorkspace(user, { ...copy, buf }, deps, extra).catch((e) => { console.warn('[mail-att] workspace', e.code || e.name || 'error'); return null })
+    if (rel) {
+      const pages = extra.map((x) => ({ path: path.posix.join(path.posix.dirname(rel), fileName(x.name)), sha256: x.sha256 }))
+      return { line: L(`- ${rel} (${copy.name} · ${of})`, `- ${rel} (${copy.name} · ${of})`) + pagesLine(pics, pages.map((x) => x.path)), shown, handed: { path: rel, sha256 }, pages }
+    }
   }
   const url = await P.signedUrl(copy.key, AGENT_TTL_S)
-  return { line: L(`- ${copy.name} (${of}) — 비공개 주소예요. ${AGENT_TTL_S / 60}분 안에 받아 읽으세요: ${url}`, `- ${copy.name} (${of}) — a private address, open for ${AGENT_TTL_S / 60} minutes; download it and read it: ${url}`),
-    shown, handed: { path: null, sha256 } }
+  const urls = []
+  for (const [n, x] of extra.entries()) {
+    const k = `${P.dirOf(copy.key)}/page-${n + 1}.png`
+    await P.put(k, x.buf, 'image/png')
+    urls.push(await P.signedUrl(k, AGENT_TTL_S))
+  }
+  return { line: L(`- ${copy.name} (${of}) — 비공개 주소예요. ${AGENT_TTL_S / 60}분 안에 받아 읽으세요: ${url}`, `- ${copy.name} (${of}) — a private address, open for ${AGENT_TTL_S / 60} minutes; download it and read it: ${url}`)
+    + pagesLine(pics, urls, true), shown, handed: { path: null, sha256 }, pages: extra.map((x) => ({ path: null, sha256: x.sha256 })) }
+}
+// the words that hand a TIFF's page pictures over (paths in the workspace, or signed addresses), or why there are none
+export function pagesLine(pics, where, signed = false) {
+  if (!pics) return ''
+  if (pics.error || !where.length) {
+    const [ko, en] = reasonOf(pics.error)
+    return L(`\n  (이 TIFF 는 ${ko} 쪽 그림으로 바꾸지 못했어요.)`, `\n  (This TIFF could not be turned into page pictures: ${en}.)`)
+  }
+  const list = where.map((w, n) => `${n + 1}쪽 ${w}`).join(', ')
+  const listEn = where.map((w, n) => `page ${n + 1} ${w}`).join(', ')
+  const more = pics.total > where.length ? L(` (전체 ${pics.total}쪽 가운데 앞 ${where.length}쪽)`, ` (the first ${where.length} of ${pics.total} pages)`) : ''
+  return signed
+    ? L(`\n  팩스·TIFF 라서 쪽마다 그림(PNG)으로 바꿔 두었어요 — 그림을 보고 읽으세요(비공개 주소, ${AGENT_TTL_S / 60}분)${more}: ${list}`,
+      `\n  A fax/TIFF: each page is also a PNG picture — look at the pictures to read it (private addresses, ${AGENT_TTL_S / 60} minutes)${more}: ${listEn}`)
+    : L(`\n  팩스·TIFF 라서 쪽마다 그림(PNG)으로도 두었어요 — 그림을 열어 보고 읽으세요${more}: ${list}`, `\n  A fax/TIFF: each page is also a PNG picture beside it — open the pictures to read it${more}: ${listEn}`)
 }
 const fileName = (raw) => {
   const n = path.basename(String(raw || 'file')).replace(/[\u0000-\u001f\\/:*?"<>|]/g, '_').trim()
@@ -435,7 +474,8 @@ const fileName = (raw) => {
 // Into the agent's workspace, where anything in the sandbox can also write (local · Docker): a folder of its own, named at random for this
 // one write (as lib/attachments.js — nobody can lay a link there beforehand), every folder on the way checked to be a plain folder and
 // not a link, and the file created new without following a link (O_EXCL | O_NOFOLLOW) — review 11-25 #6. → the sandbox path, or null
-export async function toWorkspace(user, copy, deps = {}) {
+// extra: more files for the same folder ([{name, buf}] — a TIFF's page pictures), written the same way
+export async function toWorkspace(user, copy, deps = {}, extra = []) {
   const { workspaceHostPath } = await import('./missions.js')
   const { PGPT_ROOT } = await import('./paths.js')
   // (the tenant's own workspace folder first: deepagents keeps one per tenant — lib/attachments.js)
@@ -456,8 +496,12 @@ export async function toWorkspace(user, copy, deps = {}) {
   }
   if ((await fs.realpath(dir)) !== dir) throw Object.assign(new Error('the folder moved'), { code: 'ENOTDIR' })
   const name = fileName(copy.name)
-  const fh = await fs.open(path.join(dir, name), fsConst.O_WRONLY | fsConst.O_CREAT | fsConst.O_EXCL | (fsConst.O_NOFOLLOW || 0), 0o600)
-  try { await fh.writeFile(copy.buf || (await P.bytes(copy.key)).buf) } finally { await fh.close() }
+  const write = async (n, buf) => {
+    const fh = await fs.open(path.join(dir, n), fsConst.O_WRONLY | fsConst.O_CREAT | fsConst.O_EXCL | (fsConst.O_NOFOLLOW || 0), 0o600)
+    try { await fh.writeFile(buf) } finally { await fh.close() }
+  }
+  await write(name, copy.buf || (await P.bytes(copy.key)).buf)
+  for (const x of extra) await write(fileName(x.name), x.buf)
   return `/workspace/${parts.join('/')}/${name}`
 }
 

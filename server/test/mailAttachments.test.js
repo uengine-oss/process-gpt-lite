@@ -75,7 +75,7 @@ test('주소: 공개 주소는 만들지 않고, 편집기가 돌려준 주소(�
   assert.ok(P.isPublicUrl(`${base}/storage/v1/object/public/files/x`))
 })
 
-test('무엇으로 여나: 문서는 이음오피스, 그림 · 소리 · 영상은 보기 화면, 그 밖(HTML · zip · TIFF)은 내려받기', () => {
+test('무엇으로 여나: 문서는 이음오피스, 그림 · 소리 · 영상(팩스 TIFF 포함)은 보기 화면, 그 밖(HTML · zip)은 내려받기', () => {
   assert.deepEqual(MA.kindOf({ name: '2026년 11월 정규직 급여대장.xlsx' }), { kind: 'office', editor: 'sheets' })
   assert.deepEqual(MA.kindOf({ name: '계약서.docx' }), { kind: 'office', editor: 'docs' })
   assert.deepEqual(MA.kindOf({ name: '제안.hwp' }), { kind: 'office', editor: 'hwp' })
@@ -86,7 +86,8 @@ test('무엇으로 여나: 문서는 이음오피스, 그림 · 소리 · 영상
   assert.deepEqual(MA.kindOf({ name: 'scan.png', type: 'application/octet-stream' }), { kind: 'media', media: 'image' })
   assert.deepEqual(MA.kindOf({ name: '녹음', type: 'audio/mp4' }), { kind: 'media', media: 'audio' })
   assert.deepEqual(MA.kindOf({ name: 'clip.mp4' }), { kind: 'media', media: 'video' })
-  assert.deepEqual(MA.kindOf({ name: '도면.tif', type: 'image/tiff' }), { kind: 'file' })
+  // (a TIFF — a fax — is drawn by the app itself since 11-25: src/tiff.js)
+  assert.deepEqual(MA.kindOf({ name: '도면.tif', type: 'image/tiff' }), { kind: 'media', media: 'image' })
   assert.deepEqual(MA.kindOf({ name: '자료.zip', type: 'application/zip' }), { kind: 'file' })
   assert.equal(MA.rawType('a.m4a', 'application/octet-stream'), 'audio/mp4')
   assert.equal(MA.rawType('a.xlsx', ''), 'application/octet-stream')
