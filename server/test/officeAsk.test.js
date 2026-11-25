@@ -105,3 +105,16 @@ test('OA-U-06 한 턴의 편집: 하나라도 바뀌면 applied, 모두 실패·
   assert.equal(editVerdict(editsSince(`${u}-other`, t0)), null)
   assert.equal(editVerdict(editsSince(u, Date.now() + 1000)), null)
 })
+
+test('OA-U-07 표 선택의 textRanges(고른 칸을 행마다 덮는 위치)가 칩과 에이전트 맥락에 간다 — 이상한 값은 버림', () => {
+  // production 11-25 12:57: 「1~3행 1~4열」 selected, the agent's paragraph op on the selection's from/to changed one cell of ten
+  const all = { ...CELL, label: '표 1 · 1~3행 1~4열', text: '회의명 일시 장소/방식 작성자 참석자', range: { row: 0, col: 0, rowEnd: 2, colEnd: 3 }, from: 64, to: 66, cells: 10,
+    textRanges: [{ from: 5, to: 40 }, { from: 41, to: 80 }, { from: 81, to: 100 }] }
+  const s = docSelectionOf(all, '회의록_템플릿.docx')
+  assert.deepEqual(s.textRanges, [{ from: 5, to: 40 }, { from: 41, to: 80 }, { from: 81, to: 100 }])
+  const json = JSON.parse(mentionContext([selectionMention(s)]).split(' = ').slice(1).join(' = ').slice(0, -1))
+  assert.deepEqual(json.textRanges, s.textRanges)
+  assert.equal(docSelectionOf({ ...all, textRanges: [{ from: 9, to: 3 }, { from: 'a', to: 4 }, null] }, 'a.docx').textRanges, undefined)
+  assert.equal(docSelectionOf({ ...all, textRanges: 'x' }, 'a.docx').textRanges, undefined)
+})
+

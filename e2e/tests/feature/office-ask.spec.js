@@ -11,16 +11,23 @@
 //   F-OA-06 턴 도중 서버가 잠깐 사라져도(배포의 파드 교체) 「연결 안 됨」이 아니라 「다시 연결하는 중…」, 돌아오면 저절로 「대화와 연결됨」, 편집은 그대로 적용
 //   F-OA-07 390px 휴대폰(밝은 · 밤): 문서 위 다이얼을 열면 같은 칩, 화면 밖으로 넘치지 않음
 //   F-OA-08 이웃한 길 「@ 가리키기」: 켜고 표를 누르면 「@표 1 …」 칩, 보내면 메시지 앞에 붙고 에이전트 맥락에 「가리킨 대상」(밝은 테마에서도 읽히는 색)
+//   F-OA-09 (운영 11-25 12:57 「명령이 mcp 를 통하여 잘 전달되는거 같으나, 실제로 세로 중앙정렬의 처리는 되지 않았다」) 칸이 문단 아래 간격으로만
+//           높은 회의록 표에서 1~3행 1~4열을 골라 「중앙정렬」 → 운영 에이전트가 보낸 그대로의 연산 → 칸 높이는 그대로, 글씨는 칸 가운데(글자 상자로 잼),
+//           결과는 「문서에서 확인함」, 저장한 파일의 w:vAlign · 다시 열어도 가운데
+//   F-OA-10 칸 안 글 아래에 빈 문단이 있어 세로 가운데가 문서에 나타나지 않는 편집: 에이전트에는 오류, 답은 「반영되지 않았어요」(문서가 보여 준 이유)
 // 실제 이음오피스 편집기(office-host 를 이 시험이 따로 띄움 — RT_OFFICE_HOST_DIR, lib/officeHost.js), 자기 스택(lib/localStack.js: 테넌트 office-ask,
 // 8950~ · 5350~), 가짜 deepagents 겸 가짜 맥락 라우터(이 파일, 실제 Lite 의 /mcp/ieumoffice-live-editor 를 사용자 토큰으로 부름). 모델 없음.
 // 사람 이름은 지어낸 것이다(한서윤).
 //   RT_OFFICE_HOST_DIR=/path/to/process-gpt-office-host  cd e2e && npx playwright test --project=feature tests/feature/office-ask.spec.js
+//   RT_OA_PORTS=<BFF>,<Vite>,<office host>,<fakes> — where this run's servers start (default 8950,5350,5395,8955)
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
 import net from 'node:net'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
+import os from 'node:os'
 import { startStack, freePort, waitFor, REPO } from '../../lib/localStack.js'
 import { startOfficeHost, officeHostDir } from '../../lib/officeHost.js'
 
@@ -29,6 +36,12 @@ test.describe.configure({ mode: 'serial' })
 const here = path.dirname(fileURLToPath(import.meta.url))
 const SHOTS = path.join(REPO, 'openspec/specs/office-live-edit/e2e/results')
 const DOCX = fs.readFileSync(path.resolve(here, '../../fixtures/meeting-minutes-template.docx'))
+// the production report's template (python-docx defaults: rows as tall as a line plus the default space after) — fixtures/meeting-minutes-labels.py
+const LABELS_DOCX = fs.readFileSync(path.resolve(here, '../../fixtures/meeting-minutes-labels.docx'))
+const LABELS_GAP_DOCX = fs.readFileSync(path.resolve(here, '../../fixtures/meeting-minutes-labels-gap.docx'))
+const LABELS = ['회의명', '일시', '장소/방식', '작성자', '참석자']
+const ASK_CENTRE = '글씨가 표 위에 붙어있다. 중앙정렬'
+const [API_FROM, WEB_FROM, HOST_FROM, FAKE_FROM] = (process.env.RT_OA_PORTS || '8950,5350,5395,8955').split(',').map(Number)
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const FILE = '회의록_템플릿.docx'
 const CELL_TEXT = '대표, 개발팀, 운영팀, 영업팀'
@@ -96,6 +109,9 @@ async function agentTurn(body, res) {
     sse(res, { type: 'tool_end', tool: 'office_live_read' })
     const target = agent.mode === 'miss' ? { nodeType: 'table', blockIndexes: [0] } : { nodeType: 'table', blockIndexes: [sel.blockIndex] }
     const ops = [{ op: 'setTableCellFormat', target, range: sel.range, vAlign: 'center' }]
+    // what production's agent sent (11-25 12:57): the cells' vertical alignment, and the paragraph spacing to 0 on the selection's
+    // from/to — one cell of the selection (the hint of that day)
+    if (agent.mode === 'prod') ops.push({ op: 'setParagraphFormat', target: { blockIndexes: [sel.blockIndex], range: { from: sel.from, to: sel.to } }, spaceBefore: 0, spaceAfter: 0 })
     sse(res, { type: 'tool_start', tool: 'office_live_apply_ops', input: { session_id: doc.session_id, ops } })
     await mcp(jwt, 'office_live_apply_ops', { session_id: doc.session_id, ops })
     sse(res, { type: 'tool_end', tool: 'office_live_apply_ops' })
@@ -180,11 +196,11 @@ async function selectCell(p, text = CELL_TEXT, frameSel = '.oef iframe.frm') {
 }
 const vAlignOf = (p, text = CELL_TEXT) => cell(p, text).evaluate((td) => getComputedStyle(td).verticalAlign)
 // the person's main chat: a request, an answer the router put in 「회의록 템플릿」, the document's card (in that conversation)
-async function seed(who, { conv = 'conv-minutes' } = {}) {
+async function seed(who, { conv = 'conv-minutes', docx = DOCX } = {}) {
   const main = (await S.api(who.token, '/threads'))[0]
   await S.q('delete from pro_messages where thread_id=$1', [main.id])
   await S.q('update pro_threads set conversation_id=null, status=null where id=$1', [main.id])
-  const r = await fetch(`http://127.0.0.1:${S.apiPort}/api/attachments`, { method: 'POST', headers: { Authorization: `Bearer ${who.token}`, 'Content-Type': DOCX_MIME, 'X-File-Name': encodeURIComponent(FILE) }, body: DOCX })
+  const r = await fetch(`http://127.0.0.1:${S.apiPort}/api/attachments`, { method: 'POST', headers: { Authorization: `Bearer ${who.token}`, 'Content-Type': DOCX_MIME, 'X-File-Name': encodeURIComponent(FILE) }, body: docx })
   expect(r.status).toBe(200)
   const up = await r.json()
   let t = Date.now() - 10_000
@@ -196,25 +212,62 @@ async function seed(who, { conv = 'conv-minutes' } = {}) {
   const [card] = await add('agent', 'file', { name: FILE, url: up.url })
   return { main, card: card.id, url: up.url }
 }
-async function openDoc(p) {
+async function openDoc(p, text = CELL_TEXT) {
   await p.goto('/chat')
   await p.locator('button.file', { hasText: FILE }).first().click()
   await expect(p.locator('.oef iframe.frm')).toHaveAttribute('src', /\/office\/docs\/\?src=.*assistant=parent/)
   await expect(badge(p).filter({ hasText: '대화와 연결됨' })).toBeVisible({ timeout: 60_000 })
-  await expect(cell(p)).toBeVisible({ timeout: 60_000 })
+  await expect(cell(p, text)).toBeVisible({ timeout: 60_000 })
+}
+
+// where each label's words sit in their cell, as a person sees them: the words' own box (a range over their text) against the
+// cell inside its borders and padding → { label: { above, below, text (the words' height), cell (the cell's height) } }
+const labelBoxes = (root) => root.locator('.ProseMirror').first().evaluate((pm, labels) => {
+  const out = {}
+  for (const td of pm.querySelectorAll('td, th')) {
+    const label = td.textContent.trim()
+    if (!labels.includes(label) || out[label]) continue
+    const w = document.createTreeWalker(td, NodeFilter.SHOW_TEXT)
+    let first = null, last = null
+    for (let n = w.nextNode(); n; n = w.nextNode()) if (n.data.trim()) { first ||= n; last = n }
+    const rg = document.createRange()
+    rg.setStart(first, 0); rg.setEnd(last, last.data.length)
+    const t = rg.getBoundingClientRect(), c = td.getBoundingClientRect(), cs = getComputedStyle(td)
+    const top = c.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop), bottom = c.bottom - parseFloat(cs.borderBottomWidth) - parseFloat(cs.paddingBottom)
+    out[label] = { above: t.top - top, below: bottom - t.bottom, text: t.height, cell: c.height }
+  }
+  return out
+}, LABELS)
+// in the middle of its cell: the words' centre within a few pixels (a fifth of their height) of the cell's centre
+const centred = (b) => Math.abs(b.above - b.below) / 2 <= Math.max(3, 0.2 * b.text)
+const offCentre = (boxes) => Object.entries(boxes).filter(([, b]) => !centred(b)).map(([k, b]) => `${k} ${b.above.toFixed(1)}/${b.below.toFixed(1)}`)
+// a cell selection, the way a person drags it: from the first label's cell to the last row's value cell
+async function selectLabels(p) {
+  const ed = editor(p)
+  const a = await ed.locator('.ProseMirror td', { hasText: '회의명' }).first().boundingBox()
+  const z = await ed.locator('.ProseMirror table').first().locator('tr').nth(2).locator('td').nth(1).boundingBox()
+  await p.mouse.move(a.x + 8, a.y + 6)
+  await p.mouse.down()
+  await p.mouse.move(z.x + z.width / 2, z.y + z.height / 2, { steps: 10 })
+  await p.mouse.up()
+}
+const xmlOf = (bytes) => {
+  const f = path.join(os.tmpdir(), `oa-${Date.now()}.docx`)
+  fs.writeFileSync(f, bytes)
+  try { return execFileSync('unzip', ['-p', f, 'word/document.xml']).toString() } finally { fs.rmSync(f, { force: true }) }
 }
 
 test.beforeAll(async () => {
   test.setTimeout(240_000)
   test.skip(!officeHostDir(), '빌드된 office-host 가 없음 (RT_OFFICE_HOST_DIR — 그 저장소 README §9)')
   fs.mkdirSync(SHOTS, { recursive: true })
-  host = await startOfficeHost({ from: 5395 })
+  host = await startOfficeHost({ from: HOST_FROM })
   P = cutProxy()
-  const pp = freePort(8955, 3)
+  const pp = freePort(FAKE_FROM, 3)
   await new Promise((ok) => P.srv.listen(pp, '127.0.0.1', ok))
-  const fp = freePort(8958, 2)
+  const fp = freePort(FAKE_FROM + 3, 2)
   fake = await startFake(fp)
-  S = await startStack({ tenant: 'office-ask', apiFrom: 8950, webFrom: 5350, apiTarget: `http://127.0.0.1:${pp}`, officeTarget: host.url,
+  S = await startStack({ tenant: 'office-ask', apiFrom: API_FROM, webFrom: WEB_FROM, apiTarget: `http://127.0.0.1:${pp}`, officeTarget: host.url,
     env: { PRO_OFFICE_HOST_URL: host.url, PRO_DEEPAGENTS_URL: `http://127.0.0.1:${fp}`, PRO_CONTEXT_ROUTER_URL: `http://127.0.0.1:${fp}`, PRO_COMPLETION_URL: 'http://127.0.0.1:9', PRO_STREAM_IDLE_MS: '120000' } })
   P.set(S.apiPort)
   SY = await S.person('pro-rt-office-ask-sy@uengine.org', '한서윤')
@@ -464,6 +517,99 @@ test('F-OA-08 이웃한 길 「@ 가리키기」: 표를 누르면 칩, 보내�
   expect(agent.bodies[0].message).toContain('(사용자가 열린 문서에서 가리킨 대상: @표 1')
   expect(agent.bodies[0].conversation_id).toBe('conv-minutes')
   await expect(p.locator('.row.r-agent .bubble.agent', { hasText: '가리키신 표를 확인했어요' })).toBeVisible({ timeout: 30_000 })
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-OA-09 칸이 문단 아래 간격으로만 높은 회의록 표: 1~3행 1~4열 「중앙정렬」 → 칸 높이는 그대로 글씨가 가운데로, 문서에서 확인 · 저장하고 다시 열어도', async ({ browser }) => {
+  test.setTimeout(240_000)
+  // the agent sends what production's agent sent that day (vAlign center on the ten cells + spacing 0 on the selection's from/to)
+  agent.mode = 'prod'; agent.bodies.length = 0; agent.routed.length = 0; agent.calls.length = 0
+  await seed(SY, { docx: LABELS_DOCX })
+  const p = await page(browser, SY)
+  await openDoc(p, '회의명')
+  // before: every label sits at the top of its cell (the rows are a line plus the paragraph's default space after)
+  const before = await labelBoxes(editor(p))
+  expect(Object.keys(before).sort()).toEqual([...LABELS].sort())
+  for (const [label, b] of Object.entries(before)) {
+    expect(b.above, label).toBeLessThan(3)
+    expect(b.below, label).toBeGreaterThan(10)
+  }
+  await shot(p, 'oa09-1-labels-at-top')
+
+  await selectLabels(p)
+  await expect(chip(p)).toContainText('@표 1 · 1~3행 1~4열 "회의명 일시 장소/방식 작성자 참석자"', { timeout: 10_000 })
+  await box(p).fill(ASK_CENTRE)
+  await box(p).press('Enter')
+  await expect.poll(() => agent.calls.find((c) => c.name === 'office_live_apply_ops')?.result, { timeout: 30_000 }).toBeTruthy()
+  const applied = agent.calls.find((c) => c.name === 'office_live_apply_ops')
+  const sel = selectionIn(agent.bodies[0].message)
+  expect(sel.range).toEqual({ row: 0, col: 0, rowEnd: 2, colEnd: 3 })
+  expect(sel.textRanges).toHaveLength(3)
+  expect(applied.args.ops[0]).toMatchObject({ op: 'setTableCellFormat', target: { blockIndexes: [1] }, range: { row: 0, col: 0, rowEnd: 2, colEnd: 3 }, vAlign: 'center' })
+  // the editor took it, and the document itself confirmed it (office-host read the cells back: vAlign, where the words sit)
+  expect(applied.result.isError, textOf(applied.result)).toBeFalsy()
+  const said = JSON.parse(textOf(applied.result))
+  expect(said.verified).toMatch(/^문서에서 확인함/)
+  expect(said.check).toBeUndefined()
+  // on screen: every label in the middle of its cell, and the rows as tall as before
+  await expect.poll(async () => offCentre(await labelBoxes(editor(p))), { timeout: 15_000 }).toEqual([])
+  const after = await labelBoxes(editor(p))
+  for (const label of LABELS) expect(Math.abs(after[label].cell - before[label].cell), label).toBeLessThanOrEqual(1)
+  const review = p.locator('.row.r-agent .bubble.agent', { hasText: '검수' }).last()
+  await expect(review).toContainText('편집기 확인', { timeout: 30_000 })
+  await expect(review).toContainText('문서에서 확인함')
+  await expect(review).not.toContainText('⚠')
+  // (a click on the title lets go of the cell selection, so the cells show as they are)
+  await editor(p).locator('.ProseMirror p', { hasText: '회의록' }).first().click()
+  await shot(p, 'oa09-2-labels-centred')
+
+  // saved: the ten cells carry w:vAlign center; each cell's line has half its space after above it — but the one cell the
+  // agent's own paragraph op set to 0 (the selection's from/to: one cell), which stays 0
+  let doc = null
+  await waitFor(async () => { doc = JSON.parse(textOf(await mcp(SY.token, 'office_live_documents')) || '{}').documents?.find((d) => d.file_name === FILE && d.ready); return !!doc }, 30_000, 'open document')
+  const saved = JSON.parse(textOf(await mcp(SY.token, 'office_live_save', { session_id: doc.session_id })))
+  expect(saved.file_url).toMatch(/edited-/)
+  const bytes = Buffer.from(await (await fetch(saved.file_url)).arrayBuffer())
+  const xml = xmlOf(bytes)
+  const table1 = xml.slice(xml.indexOf('<w:tbl>'), xml.indexOf('</w:tbl>'))
+  expect(table1.match(/<w:vAlign w:val="center"\/>/g)).toHaveLength(10)
+  const spacing = (table1.match(/<w:spacing [^>]*\/>/g) || []).map((x) => `${/w:before="(\d+)"/.exec(x)?.[1] ?? 0}/${/w:after="(\d+)"/.exec(x)?.[1] ?? 0}`).sort()
+  expect(spacing).toEqual(['0/0', ...Array(9).fill('100/100')])
+  // opened again (the saved file, the editor on its own): still in the middle
+  const again = await p.context().newPage()
+  await again.goto(`${host.url}/office/docs/?src=${encodeURIComponent(saved.file_url)}&name=${encodeURIComponent('회의록_다시열기.docx')}&token=${encodeURIComponent(SY.token)}`)
+  await expect(again.locator('.ProseMirror td', { hasText: '참석자' }).first()).toBeVisible({ timeout: 60_000 })
+  await again.waitForTimeout(800)
+  expect(offCentre(await labelBoxes(again))).toEqual([])
+  await again.locator('.ProseMirror td', { hasText: '참석자' }).first().scrollIntoViewIfNeeded()
+  await again.screenshot({ path: path.join(SHOTS, 'oa09-3-reopened-centred.png') })
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-OA-10 세로 가운데가 문서에 나타나지 않는 편집(칸 안 글 아래 빈 문단): 에이전트에는 오류, 답은 「반영되지 않았어요」와 문서가 보여 준 이유', async ({ browser }) => {
+  agent.mode = 'edit'; agent.bodies.length = 0; agent.routed.length = 0; agent.calls.length = 0
+  await seed(SY, { docx: LABELS_GAP_DOCX })
+  const p = await page(browser, SY)
+  await openDoc(p, '회의명')
+  await selectLabels(p)
+  await expect(chip(p)).toContainText('@표 1 · 1~3행 1~4열', { timeout: 10_000 })
+  await box(p).fill(ASK_CENTRE)
+  await box(p).press('Enter')
+  await expect.poll(() => agent.calls.find((c) => c.name === 'office_live_apply_ops')?.result, { timeout: 30_000 }).toBeTruthy()
+  const r = agent.calls.find((c) => c.name === 'office_live_apply_ops').result
+  // the editor accepted it (vAlign is on the cells), but the words did not land in the middle: the agent is told so, with where
+  expect(r.isError).toBe(true)
+  expect(textOf(r)).toContain('편집기는 이 편집을 받아들였지만 요청한 서식이 문서에 나타나지 않았어요')
+  expect(textOf(r)).toMatch(/표 1 · 1행 1열 「회의명」 등 5칸: 세로 가운데 정렬이 문서에 보이지 않아요/)
+  // …and the chat says so plainly instead of the agent's 「맞췄어요」
+  const answer = p.locator('.row.r-agent .bubble.agent').last()
+  await expect(answer).toContainText(`요청한 수정이 '${FILE}' 문서에 반영되지 않았어요. 편집기는 받아들였지만 문서에서 확인되지 않았어요`, { timeout: 30_000 })
+  await expect(p.locator('.row.r-agent .bubble.agent', { hasText: '맞췄어요' })).toHaveCount(0)
+  expect(offCentre(await labelBoxes(editor(p)))).toHaveLength(5)
+  await shot(p, 'oa10-1-not-shown-said-plainly')
+  agent.mode = 'edit'
   expect(p.errors).toEqual([])
   await p.context().close()
 })

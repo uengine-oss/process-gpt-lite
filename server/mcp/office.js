@@ -2,8 +2,9 @@
 // Its office_live_* tools edit a document the person has open in the page (OfficeEditorFrame),
 // in front of them; office-host checks the user's token and finds that person's open editors.
 // Here the calls pass through with the caller's JWT; tools and schemas are office-host's own. An edit call's result is
-// read on the way back (lib/officeEdits.js): one that changed nothing goes to the agent as an error that says so, and the
-// turn knows whether its edits were applied.
+// read on the way back (lib/officeEdits.js): one that changed nothing, or whose format the document does not show (the
+// result's `check` — what office-host reads back from the open document), goes to the agent as an error that says so, and
+// the turn knows whether its edits were applied.
 //
 // Like the ArtCraft apps (mcp/craft.js), the tools count against the agent's tool limit, so a user
 // sees them only while a document is open in the editor (lib/craftLive.js, app 'ieumoffice') or
@@ -16,7 +17,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { config } from '../config.js'
 import { liveFor } from '../lib/craftLive.js'
 import { userFromJwt } from '../lib/supa.js'
-import { editOutcome, notAppliedResult, recordEdit } from '../lib/officeEdits.js'
+import { editOutcome, notAppliedResult, recordEdit, forAgent } from '../lib/officeEdits.js'
 
 // The registered name (mcp-hub server `pgpt-<name>`, tenant MCP key) is long on purpose: deepagents
 // trims tools over its limit (110) from the front of the tenant's MCP list, which jsonb keeps
@@ -68,10 +69,10 @@ function buildServer(user, jwt) {
     const done = editOutcome(params.name, params.arguments, result)
     if (done) {
       recordEdit(user.id, params.name, done)
-      if (!done.applied) console.log(`[mcp] office.${params.name} not applied: ${String(done.why || '').slice(0, 120)}`)
-      if (done.nothing) return notAppliedResult(done)
+      if (!done.applied) console.log(`[mcp] office.${params.name} not applied: ${String(done.why || '').slice(0, 160)}`)
+      if (done.nothing || done.unmet) return notAppliedResult(done)
     }
-    return result
+    return forAgent(result, done)
   })
   return server
 }

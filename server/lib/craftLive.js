@@ -292,7 +292,10 @@ export function liveHint(open) {
             : open.editor === 'docs'
             ? `골라 둔 부분이 표 칸이면(선택의 kind 가 table) 칸 서식은 office_live_apply_ops 의 setTableCellFormat 으로 그 칸만 고치세요: ` +
               `[{"op":"setTableCellFormat","target":{"nodeType":"table","blockIndexes":[선택의 blockIndex]},"range":선택의 range(0부터 센 행·열 그대로),"vAlign":"center"}] — 세로 정렬은 vAlign(top·center·bottom), 칸 색은 fill, 테두리는 borders. ` +
-              `칸 안 글의 가로 정렬·글꼴은 setParagraphFormat·setFont 에 target {"blockIndexes":[blockIndex],"range":{"from":선택의 from,"to":선택의 to}} 를 주세요. ` +
+              // (production 11-25: the agent also zeroed the paragraph spacing on the selection's from/to — one cell of ten)
+              `세로 정렬은 vAlign 하나면 돼요: 편집기가 칸 높이는 그대로 두고 칸 안 문단의 위아래 간격을 옮겨 글을 그 자리에 놓아요(문단 간격을 따로 바꾸지 마세요). ` +
+              `칸 안 글의 가로 정렬·글꼴은 setParagraphFormat·setFont 를 선택의 textRanges 마다 하나씩, target {"blockIndexes":[blockIndex],"range":{"from":textRanges 의 from,"to":textRanges 의 to}} 로 보내세요 — textRanges 는 골라 둔 칸을 행마다 덮고, 선택의 from·to 는 첫 칸 하나만 가리켜요. 표가 아닌 선택은 선택의 from·to 를 그대로 쓰세요. ` +
+              `결과에 verified 가 오면 문서에서 확인된 것이고, 서식이 문서에 나타나지 않았다는 오류가 오면 그 이유(칸·문단)를 office_live_read 로 보고 고치세요. ` +
               `글 일부(표 칸 안의 글 포함)를 바꿀 때는 서식이 그대로 남는 office_live_apply_ops 의 findReplace 연산([{"op":"findReplace","find":"…","replace":"…"}])을 먼저 쓰세요. ` +
               `문단 하나를 통째로 바꿀 때만 office_live_replace 에 match_text(바꿀 블록에 든 글)를 주세요(블록 번호는 앞 변경에 밀려요, 표 블록은 통째로 바꾸지 마세요). ` +
               `새 문단은 office_live_write(after_block_index 로 위치 지정), 그 밖의 서식은 office_live_apply_ops(연산은 office_guide). `
