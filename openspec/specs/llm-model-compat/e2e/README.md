@@ -11,6 +11,7 @@ cd server && node --test test/llm-json-fence.test.js test/llm-logprob.test.js   
 | 분류 판정에 Claude 가 울타리로 답한다 | JF-U-02 |
 | 답을 직접 읽는 호출(폴더 색인 · 브라우저 계획) | JF-U-03 |
 | 코드 블록을 보여 달라는 대화 | JF-U-04 |
+| 프록시를 거친 Claude가 temperature를 거절한다 | JF-U-07 |
 | 울타리 안이 깨졌다 | JF-U-05, 사례표 `server/test/json-fence-cases.json`(JF-U-01) |
 
 ## 실측(2026-11-25)

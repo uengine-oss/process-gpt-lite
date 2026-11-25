@@ -12,7 +12,13 @@ const server = http.createServer((req, res) => {
   let body = ''
   req.on('data', (d) => { body += d })
   req.on('end', () => {
-    seen.push(JSON.parse(body))
+    const b = JSON.parse(body)
+    seen.push(b)
+    // Claude 5.5 through a proxy that does not drop it (LiteLLM without additional_drop_params): the answer as observed 2026-11-25
+    if (b.model === 'claude-like' && b.temperature !== undefined) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({ error: { message: 'litellm.BadRequestError: AnthropicException - {"type":"error","error":{"type":"invalid_request_error","message":"`temperature` is deprecated for this model."}}', type: 'invalid_request_error' } }))
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: reply }, finish_reason: 'stop' }] }))
   })
@@ -67,4 +73,18 @@ test('JF-U-06 설치 번들: LLM_ODDS_MODEL 이 서버 환경의 PRO_LLM_ODDS_MO
   assert.equal(lines.filter((l) => l.startsWith('PRO_LLM_ODDS_MODEL:')).length, 1)
   const env = await fs.readFile(new URL('.env.example', root), 'utf8')
   assert.ok(env.split('\n').some((l) => l.trim() === 'LLM_ODDS_MODEL='), '.env.example lists LLM_ODDS_MODEL (empty)')
+})
+
+test('JF-U-07 Claude 처럼 temperature 를 「deprecated」 로 거절하면 빼고 다시 보내고, 다음부터는 처음부터 뺀다', async () => {
+  reply = '{"ok": true}'
+  seen.length = 0
+  const r = await llm.chatJson('s', 'u', { model: 'claude-like', temperature: 0 })
+  assert.deepEqual(r, { ok: true })
+  assert.equal(seen.length, 2)
+  assert.equal(seen[0].temperature, 0)
+  assert.equal(seen[1].temperature, undefined)
+  seen.length = 0
+  await llm.chatJson('s', 'u', { model: 'claude-like', temperature: 0 })
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].temperature, undefined)
 })
