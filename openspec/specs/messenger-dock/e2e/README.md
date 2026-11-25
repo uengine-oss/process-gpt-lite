@@ -49,6 +49,17 @@ cd e2e && PGPT_URL=http://localhost:5197 API_URL=http://127.0.0.1:8799 RT_FAKE_L
 | 붙여 둔 메신저에 놓는다 | F-MO-06 |
 | 밤 | F-MO-08 |
 | macOS에서 왼쪽에 붙인다 | 데스크톱 앱 실측(아래) |
+| 단체방에 초대 | F-MS-03(방에 없는 팀원만 · 찾기 · 시스템 줄 · 머리의 사람 목록 · 열어 둔 김서연의 화면에 바로 · 최도현에게 지난 메시지 · Process GPT 모양의 참여자 · 'team' 알림) · `roomInvite.integration.test.js` MS-I-03 · MS-I-04 |
+| 이미 있는 사람 | `roomInvite.integration.test.js` MS-I-02(또 초대 · 둘이 동시에) · MS-I-01(권한: 방 밖 404 · 다른 회사 · 팀원 아님 · 에이전트 403 · 1:1 400) |
+| 1:1 대화에서 단체방 만들기 | F-MS-04(「초대」 없음 · 두 사람은 목록에 없음 · 새 단체방 · 1:1 은 둘 그대로) |
+| 초대 · 휴대폰 390px 밝은 · 밤 | F-MS-05(머리의 「+」 · 고르는 창이 화면 안 · 시스템 줄 · 넘치지 않음) |
+
+초대(F-MS-03~05)는 자기 스택을 띄우는 `e2e/tests/feature/room-invite.spec.js`(회사 `room-invite`)에 있다.
+
+```bash
+cd server && node --test --test-concurrency=1 test/roomInvite.integration.test.js
+cd e2e && RT_API_FROM=8975 RT_WEB_FROM=5375 RT_WORKERS=1 npx playwright test --project=feature tests/feature/room-invite.spec.js
+```
 
 ### 데스크톱 앱 실측 (Electron 45.3.2, macOS, 같은 개발 서버)
 

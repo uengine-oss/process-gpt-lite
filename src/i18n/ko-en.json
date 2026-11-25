@@ -2911,7 +2911,14 @@
   "아직 없어요": "Nothing yet",
   "진행 기록": "Progress",
   "에이전트가 할 일을 정리하면 여기에 보여요": "The agent's to-dos show here once it writes them",
-  "다음 단계를 쓰는 중": "Writing the next step"
+  "다음 단계를 쓰는 중": "Writing the next step",
+  "단체방 만들기": "Make a group",
+  "초대할 팀원 (여럿 고를 수 있어요)": "Teammates to invite (pick several)",
+  "단체방에 함께할 팀원 (이 대화의 두 사람에 더해요)": "Teammates for the group (added to the two of you)",
+  "초대할 수 있는 팀원이 없어요.": "There are no teammates left to invite.",
+  "맞는 팀원이 없어요.": "No teammate matches.",
+  "이 대화방에 팀원 초대": "Invite teammates to this conversation",
+  "이 두 사람과 다른 팀원으로 새 단체방 만들기": "Make a new group with the two of you and others"
  },
  "patterns": [
   [

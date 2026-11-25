@@ -115,13 +115,16 @@ export async function resolveMember(text) {
   const s = String(text || '').replace(/(님|씨|에게|한테|께)$/u, '').trim()
   if (!s) return null
   const team = await teamRows({ withUsername: true })
+  // (the name every screen uses, and Process GPT's username: 「서연님」 finds the one whose username is 김서연 while Lite calls her
+  // Seoyeon Kim)
+  const part = (n) => !!n && n.length >= 2 && (n.includes(s) || s.includes(n))
   const hit = team.find((m) => m.email === s.toLowerCase()) || team.find((m) => m.name === s || m.username === s) ||
-    team.find((m) => m.name?.length >= 2 && (m.name.includes(s) || s.includes(m.name)))
+    team.find((m) => part(m.name) || part(m.username))
   if (hit) { const { username, ...p } = hit; return { ...p, via: 'name' } }
   const [a] = await q(`select a.role, u.id, u.email, u.username as name from pro_role_assignments a
                        join users u on u.id=a.user_id and u.tenant_id=a.tenant_id
                        where a.tenant_id=$1 and a.proc_def_id='*' and (lower(a.role)=lower($2) or lower($2) like '%'||lower(a.role)||'%') limit 1`, [T(), s])
-  return a ? { id: a.id, email: a.email, name: a.name, via: 'role', role: a.role } : null
+  return a ? { ...(await named([{ id: a.id, email: a.email, name: a.name }]))[0], via: 'role', role: a.role } : null
 }
 
 // Human roles the tenant's processes use (agents' roles excluded), with the processes they appear in.

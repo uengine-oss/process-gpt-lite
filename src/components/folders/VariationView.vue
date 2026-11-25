@@ -8,7 +8,7 @@ import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
 import HandoverSheet from './HandoverSheet.vue'
 import MergeSheet from './MergeSheet.vue'
-import { folders as F, rawUrl, whoOf, statusLabel, sourceLabel, ago, prLabel } from '../../foldersApi.js'
+import { folders as F, rawUrl, whoOf, holderName, statusLabel, sourceLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, dirName, lineDiff, highlight, viewOf } from './fileKind.js'
 
 const props = defineProps({ slug: String, vid: String })
@@ -117,7 +117,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
           <h1><span class="tt">{{ v.title }}</span> <span class="st" :class="v.status"><span v-if="running" class="spin" />{{ statusLabel[v.status] }}</span></h1>
           <span class="meta">
             <code><FIcon name="branch" :size="13" /> {{ v.branch }}</code>
-            <span class="who"><Avatar :who="whoOf({ id: v.holder_id, name: v.holder_name, type: v.holder_type })" :size="20" /> 보유자 {{ v.holder_name }}</span>
+            <span class="who"><Avatar :who="whoOf({ id: v.holder_id, name: holderName(v), type: v.holder_type })" :size="20" /> 보유자 {{ holderName(v) }}</span>
             <span class="src" :class="v.kind">{{ sourceLabel[v.kind] }}</span><span class="lbl">{{ v.source?.label }}</span>
             <span class="ab">↑{{ v.ahead }} ↓{{ v.behind }}</span>
           </span>
@@ -166,7 +166,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
               <span v-else class="pm">문서</span>
             </button>
             <div v-if="!v.changes.length" class="wait">
-              <template v-if="running"><span class="spin" /> {{ v.holder_name }}{{ v.holder_type === 'agent' ? '(에이전트)가' : ' 님이' }} 이 변형에서 일하는 중이에요. 끝나면 바뀐 파일이 여기 나타나요.</template>
+              <template v-if="running"><span class="spin" /> {{ holderName(v) }}{{ v.holder_type === 'agent' ? '(에이전트)가' : ' 님이' }} 이 변형에서 일하는 중이에요. 끝나면 바뀐 파일이 여기 나타나요.</template>
               <template v-else>main 과 다른 파일이 없어요.</template>
             </div>
           </div>

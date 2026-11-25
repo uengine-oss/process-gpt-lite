@@ -39,12 +39,14 @@ export async function requireMember(user) {
   if (!(await isMember(user.id))) throw new TeamError(403, L('팀원끼리만 주고받을 수 있어요. 설정 → 팀·역할에서 팀에 추가해 달라고 해 주세요.', 'Only teammates can send to each other. Ask to be added to the team in Settings → Team & roles.'))
 }
 
-// teammates by id, with the name every screen shows (lib/people.js)
+// teammates by id: name — the one every screen shows (lib/people.js); username — Process GPT's own (users.username, else the address's
+// local part), for what is written into its rows (a share's handover_events — lib/mining/recorder.js)
 export async function people(ids) {
   if (!ids.length) return []
-  return named(await q(`select u.id, u.email, u.username as name from pro_team_members m
+  const rows = await q(`select u.id, u.email, u.username as name from pro_team_members m
             join users u on u.id=m.user_id and u.tenant_id=m.tenant_id
-            where m.tenant_id=$1 and m.user_id = any($2::uuid[])`, [T(), ids]))
+            where m.tenant_id=$1 and m.user_id = any($2::uuid[])`, [T(), ids])
+  return (await named(rows)).map((p, i) => ({ ...p, username: rows[i].name || String(rows[i].email || '').split('@')[0] }))
 }
 
 // [{type:'user', id} | {type:'role', role}] → distinct teammates (not me). Anyone not on the team is a 403.

@@ -25,6 +25,7 @@ import LangSwitch from '../i18n/LangSwitch.vue'
 import { MAIN_LANGS, uiLangFor } from '../i18n/mainLangs.js'
 import { lang as uiLang, setLang } from '../i18n/lang.js'
 import { api } from '../api.js'
+import { setName } from '../people.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
 import { BASE } from '../base.js'
@@ -165,6 +166,8 @@ async function saveName() {
   if (!name) return
   await api('/profile', { method: 'POST', body: { name } })
   app.me = await api('/me')
+  // every circle of mine (the messenger, the team list) takes the new name at once, not after the next /api/people
+  setName(app.me?.user?.id, app.me?.user?.name || name)
   nameSaved.value = '저장했어요'
   setTimeout(() => { nameSaved.value = '' }, 2000)
 }

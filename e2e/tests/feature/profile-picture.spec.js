@@ -19,6 +19,8 @@
 //           (정하윤이 보든 김서연이 보든), 1280 · 390 밝은 · 밤
 //   F-PP-02 방 머리 · 대화 목록 · 새 대화 상대 · 팀·역할 · GET /api/people 은 「정하윤」(주소 앞부분이 아님), 최도현은 인증 기록의 이름
 //   F-PP-03 고르는 창의 얼굴 — 메신저의 @ · 채팅 입력창의 @ 팀원(목록과 받는 사람 칩) · 「팀원에게 공유」 창, 1280 밝은 · 390 밤
+//   F-PP-04 이름을 바꾸면 새로 고치지 않아도 내 동그라미 · 팀 목록의 내 동그라미가 새 이름의 첫 글자(검토 e98078b: 화면의 이름 목록이 옛 이름을 쥐고 있었다)
+//   F-PP-05 로그인 주소의 대소문자: 「Pro-RT-…@UEngine.org」 은 같은 계정, users · pro_profile 에는 소문자(새 계정도)
 // 구글 사진의 호스트는 시험만의 가짜 호스트(127.0.0.1 의 빈 포트, PRO_AVATAR_HOSTS 로 허용 — 기본은 https *.googleusercontent.com)이고,
 // 구글 로그인은 그 사람의 auth.identities 에 provider 'google' 행을 넣어 흉내 낸다(GoTrue 가 구글 로그인 때 쓰는 그 행).
 // 자기 스택(lib/localStack.js: 회사 avatar-ui 의 BFF + Vite, 8990 · 5391 부터 빈 포트 — 5390 은 이 PC 의 이음오피스 호스트 자리)을 띄우고
@@ -628,4 +630,46 @@ test('F-PP-03 고르는 창의 얼굴 — 메신저의 @ · 채팅 입력창의 
     expect(p.errors).toEqual([])
     await p.context().close()
   }
+})
+
+test('F-PP-04 이름을 바꾸면 새로 고치지 않아도 내 동그라미 · 팀 목록의 내 동그라미가 새 이름의 첫 글자', async ({ browser }) => {
+  const p = await page(browser, DY, DESK, { theme: 'light' })
+  try {
+    // the team list first: the screens' list of names now holds 박도윤
+    await p.goto('/settings/team')
+    const mine = () => p.locator('.tr .li').filter({ hasText: '· 나' })
+    await expect(mine().locator(AVATAR)).toHaveText('박')
+    await p.locator('.ph .back').click()
+    await p.locator('.home .list button').filter({ hasText: '계정' }).click()
+    await p.locator('input[aria-label="이름"]').fill('도윤 박')
+    await p.locator('form .pill-btn').first().click()
+    await expect(p.locator('form .pill-btn').first()).toHaveText('저장했어요')
+    // no reload: my own circle and my row in the team list take the new name's initial
+    await p.locator('.ph .back').click()
+    await expect(p.locator('.home h2')).toHaveText('도윤 박')
+    await showsInitial(p, HEAD, '도')
+    await p.locator('.home .list button').filter({ hasText: '팀·역할' }).click()
+    await expect(mine().locator('.main b')).toContainText('도윤 박')
+    await expect(mine().locator(AVATAR)).toHaveText('도')
+    await shot(p, 'f-pp-04-renamed')
+    expect(p.errors).toEqual([])
+  } finally {
+    await S.api(DY.token, '/profile', { method: 'POST', body: { name: '박도윤' } })
+    await p.context().close()
+  }
+})
+
+test('F-PP-05 로그인 주소의 대소문자 — 같은 계정, users · pro_profile 에는 소문자', async () => {
+  // an account that is there, typed with capitals: the same person, nothing new written
+  const r = await S.api(null, '/auth/email/verify', { method: 'POST', body: { email: ` ${SY.email.replace(/^pro-rt-avatar-ui-a/, 'Pro-RT-Avatar-UI-A').replace('uengine.org', 'UEngine.org')} `, code: '000000' } })
+  expect(r.user.id).toBe(SY.id)
+  expect(r.user.email).toBe(SY.email)
+  expect((await S.q('select email from users where id=$1 and tenant_id=$2', [SY.id, TENANT]))[0].email).toBe(SY.email)
+  expect((await S.q('select email from pro_profile where user_id=$1', [SY.id]))[0].email).toBe(SY.email)
+  // a new one typed with capitals: made lower case, and so is the name made from it
+  const fresh = `pro-rt-${TENANT}-f@uengine.org`
+  const n = await S.api(null, '/auth/email/verify', { method: 'POST', body: { email: fresh.toUpperCase(), code: '000000' } })
+  expect(n.user.email).toBe(fresh)
+  expect((await S.q('select email, username from users where id=$1 and tenant_id=$2', [n.user.id, TENANT]))[0]).toEqual({ email: fresh, username: fresh.split('@')[0] })
+  expect((await S.q('select email, name from pro_profile where user_id=$1', [n.user.id]))[0]).toEqual({ email: fresh, name: fresh.split('@')[0] })
 })

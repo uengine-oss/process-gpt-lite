@@ -15,7 +15,8 @@ const tries = computed(() => faceSources(src.value, BASE))
 const at = ref(0)
 watch(() => tries.value.join('\n'), () => { at.value = 0 })
 const url = computed(() => tries.value[at.value] || '')
-const shownName = computed(() => nameOf(props.id, props.name))
+// (a caller that gives the picture gives its own, fresh data — mine, from /api/me — so its name wins over the list's)
+const shownName = computed(() => (props.picture !== undefined ? props.name || nameOf(props.id) : nameOf(props.id, props.name)))
 onMounted(() => { if (props.id) loadPeople() })
 </script>
 

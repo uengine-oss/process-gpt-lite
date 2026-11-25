@@ -29,11 +29,13 @@ export const q = (text, params) => pool.query(text, params).then((r) => r.rows)
 // With more than one tenant on this server (lib/tenant.js), an account belongs to the tenant it was
 // made on (app_metadata.tenant_id, written here for every tenant but the default one, so accounts of
 // the default tenant are made exactly as before) and is not let into another one.
-// An auth user by address: the database first — listUsers answers one page (1,000), so past that a known account looked new and
-// createUser refused it, 「A user with this email address has already been registered」 (the dev stack, 1,090 accounts, 2026-11-25);
-// the page as before where the auth schema cannot be read.
+// An auth user by address (already lower-case: GoTrue keeps addresses so): the database first — listUsers answers one page (1,000), so
+// past that a known account looked new and createUser refused it, 「A user with this email address has already been registered」 (the
+// dev stack, 1,090 accounts, 2026-11-25); the page as before where the auth schema cannot be read. (email = …, not lower(email):
+// GoTrue's unique index on email for accounts that are not SSO ones answers it.)
+export const normEmail = (email) => String(email || '').trim().toLowerCase()
 async function authUserByEmail(email) {
-  const [r] = await q('select id from auth.users where lower(email) = lower($1) order by created_at limit 1', [email]).catch(() => [])
+  const [r] = await q('select id from auth.users where email = $1 and not is_sso_user limit 1', [email]).catch(() => [])
   if (r) {
     const { data } = await admin.auth.admin.getUserById(r.id)
     if (data?.user) return data.user
@@ -42,7 +44,9 @@ async function authUserByEmail(email) {
   return list?.users?.find((u) => u.email === email) || null
 }
 
-export async function ensureUser(email, name) {
+// (the address as GoTrue keeps it — lower case, no spaces — so 「Kim@Corp.com」 is the account kim@corp.com and its rows say so)
+export async function ensureUser(email0, name) {
+  const email = normEmail(email0)
   let user = await authUserByEmail(email)
   const { multiTenant, DEFAULT_TENANT, tenantOfAuthUser, TenantMismatch, forgetTenant, ensureTenantRow } = await import('./tenant.js')
   await ensureTenantRow(config.tenantId)
@@ -85,7 +89,8 @@ export async function sessionFor(email, name) {
   minting.set(key, mine)
   try { return await mine } finally { if (minting.get(key) === mine) minting.delete(key) }
 }
-async function mintSession(email, name, retried = false) {
+async function mintSession(email0, name, retried = false) {
+  const email = normEmail(email0)
   const user = await ensureUser(email, name)
   const { data: link, error: linkErr } = await admin.auth.admin.generateLink({ type: 'magiclink', email })
   if (linkErr) throw linkErr

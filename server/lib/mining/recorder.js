@@ -166,7 +166,8 @@ export async function recordShare(me, files, recipients, note, fork = null) {
   const cl = await caseLang(open.case_id, me.id)
   for (const p of recipients) {
     const { label, role } = await shareStep(p, note, cl, names)
-    await recordStep(open.case_id, label, { to: { id: p.id, name: p.name }, role, artifacts: names.map((name) => ({ name })), note: note || '',
+    // (Process GPT's own name for the person — what its handover_events hold; the screens' name is lib/people.js's)
+    await recordStep(open.case_id, label, { to: { id: p.id, name: p.username ?? p.name }, role, artifacts: names.map((name) => ({ name })), note: note || '',
       groupId: fork?.batchId, baseCommitId: fork?.baseCommitId })
   }
 }

@@ -179,6 +179,8 @@ export function teamRoutes(auth) {
 
   // ---- messenger ----
   r.get('/team/threads', auth, h((req) => M.listThreads(req.user)))
+  // invite teammates into a group room I am in (lib/team/messenger.js invite): {userIds} → {threadId, added, members}
+  r.post('/team/rooms/:id/invite', auth, h((req) => M.invite(req.user, String(req.params.id), req.body?.userIds)))
   r.post('/team/threads', auth, h(async (req) => {
     const ids = [...new Set((req.body.members || []).map(String))].filter((id) => id !== req.user.id)
     if (!ids.length) throw new TeamError(400, L('대화할 팀원을 골라 주세요.', 'Please choose the teammates to talk with.'))

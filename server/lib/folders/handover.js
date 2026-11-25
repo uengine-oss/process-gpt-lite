@@ -16,6 +16,7 @@ import { changeCard } from './indexer.js'
 import { runAgent, RULES, rules } from './runner.js'
 import { L, lang, langOf } from '../lang.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
+import { localPart, person } from '../people.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -35,16 +36,29 @@ async function latency(caseId) {
   return r ? Math.max(0, Math.round((Date.now() - new Date(r.occurred_at).getTime()) / 1000)) : null
 }
 
-// to: {id, name, email, isAgent, description}
-export async function handover(folder, v, from, { to, mode = 'continue', done = '', next, grant = false, jwt }) {
-  if (!to?.id) throw err(400, L('받을 사람을 골라 주세요.', 'Please choose who receives it.'))
+// The receiver as Process GPT has them: their users row in this tenant — users.username is what its todolist, handover events and
+// rooms (and the variation's holder) carry, an agent's own name for an agent. Only the id comes from the page: the name it sends is
+// the screens' (lib/people.js, 2026-11-25) and could be any text, so it is never written.
+export async function receiverOf(id) {
+  const [u] = await q(`select id::text as id, username, email, coalesce(is_agent, false) as is_agent, description from users where id::text=$1 and tenant_id=$2`,
+    [String(id || ''), T()])
+  return u ? { id: u.id, name: u.username || localPart(u.email), email: u.email || '', isAgent: !!u.is_agent, description: u.description || '' } : null
+}
+
+// asked: {id, …} — who the page picked (lib/folders routes); only its id is used
+export async function handover(folder, v, from, { to: asked, mode = 'continue', done = '', next, grant = false, jwt }) {
+  if (!asked?.id) throw err(400, L('받을 사람을 골라 주세요.', 'Please choose who receives it.'))
+  const to = await receiverOf(asked.id)
+  if (!to) throw err(404, L('받을 사람을 찾지 못했어요.', "I couldn't find who receives it."))
+  // (what only the screens show — a refusal, the fork's title — says the name every screen uses)
+  const shown = to.isAgent ? to.name : (await person(to.id))?.name || to.name
   if (!String(next || '').trim()) throw err(400, L('다음에 할 일을 적어 주세요.', 'Please write what to do next.'))
   if (['merged', 'discarded'].includes(v.status)) throw err(409, L('이미 반영했거나 버린 변형이에요.', 'This variation was already merged or discarded.'))
   if (v.status === 'open' && v.worktree_path && v.kind !== 'person') throw err(409, L('아직 실행 중인 변형이에요. 끝난 뒤 넘겨 주세요.', 'This variation is still running. Hand it over when it is done.'))
   const principalType = to.isAgent ? 'agent' : 'user'
   const [member] = await q('select role from pro_folder_members where folder_id=$1 and principal_type=$2 and principal_id=$3', [folder.id, principalType, String(to.id)])
   if (!member) {
-    if (!grant) throw err(403, L(`${to.name} 님은 이 폴더 구성원이 아니에요. 실행 권한을 함께 주어야 넘길 수 있어요.`, `${to.name} is not a member of this folder. Give them the runner role as well to hand it over.`))
+    if (!grant) throw err(403, L(`${shown} 님은 이 폴더 구성원이 아니에요. 실행 권한을 함께 주어야 넘길 수 있어요.`, `${shown} is not a member of this folder. Give them the runner role as well to hand it over.`))
     await S.setMember(folder, from, { type: principalType, id: to.id, role: 'runner' })
   }
 
@@ -55,7 +69,7 @@ export async function handover(folder, v, from, { to, mode = 'continue', done = 
   const R = (ko, en) => (rl === 'en' ? en : ko)
   let target = v
   if (mode === 'fork') {
-    target = await S.createVariation(folder, { title: `${v.title} — ${to.name}`, kind: 'handover', base: v.id, holder, source: { label: L(`${from.name} 님이 넘긴 갈래`, `Fork handed over by ${from.name}`), from_variation: v.id, room_id: null }, createdBy: from.id })
+    target = await S.createVariation(folder, { title: `${v.title} — ${shown}`, kind: 'handover', base: v.id, holder, source: { label: L(`${from.name} 님이 넘긴 갈래`, `Fork handed over by ${from.name}`), from_variation: v.id, room_id: null }, createdBy: from.id })
     await S.setStatus(target, 'ready')
   } else if (v.worktree_path) await S.release(folder, v)
 

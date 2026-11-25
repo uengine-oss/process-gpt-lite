@@ -4,7 +4,7 @@ import nodePath from 'node:path'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from './config.js'
-import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail } from './lib/supa.js'
+import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail, normEmail } from './lib/supa.js'
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
@@ -170,7 +170,9 @@ async function auth(req, res, next) {
     () => (req.tenantId ? withTenant(req.tenantId, next) : next())))
 }
 
-async function finishLogin(email, name) {
+// (the address as GoTrue keeps it: 「Kim@Corp.com」 signs in as kim@corp.com, and pro_profile says so)
+async function finishLogin(email0, name) {
+  const email = normEmail(email0)
   const { user, session } = await sessionFor(email, name)
   await q(`insert into pro_profile(user_id,name,email) values ($1,$2,$3) on conflict (user_id) do nothing`, [user.id, name, email])
   // no administrator yet (an install without install.sh's ADMIN_EMAIL): the first one in becomes it
@@ -369,7 +371,9 @@ app.post('/api/auth/email/start', async (req, res) => {
   res.status(r.ok ? 200 : 400).json(r.ok ? { sent: true, demo: demoLogin } : { error: (await r.text()).slice(0, 200), demo: demoLogin })
 })
 app.post('/api/auth/email/verify', async (req, res) => {
-  const { email, code } = req.body
+  const { code } = req.body
+  // (lower case from here on: the name made from it, the account and its rows — lib/supa.js normEmail)
+  const email = normEmail(req.body.email)
   if (!(await tenantEmail(email))) return res.status(400).json({ error: '코드가 맞지 않아요' })
   // (an account of another tenant: 403 with where to sign in — lib/tenant.js)
   const done = (p) => p.then((login) => res.json(login), (e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }) })

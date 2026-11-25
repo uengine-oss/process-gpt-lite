@@ -11,7 +11,7 @@
 import crypto from 'node:crypto'
 import pg from 'pg'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, pool } from '../supa.js'
 import { watchedTenants, withTenant } from '../tenant.js'
 import { emit } from '../bus.js'
 import { TeamError, isMember, people } from './access.js'
@@ -24,8 +24,10 @@ import { publicMailRef } from '../mailMention.js'
 import { publicAttRef } from '../mailAttachments.js'
 import { josa } from '../josa.js'
 // who a person is on every screen: one name, one picture (lib/people.js) — not users.username, which Process GPT may hold as the
-// address's local part (2026-11-25: a room's header listed the user by their address's local part where everything else used their name)
-import { people as resolvePeople, named } from '../people.js'
+// address's local part (2026-11-25: a room's header listed the user by their address's local part where everything else used their name).
+// Only for what the screens show: what is stored in Process GPT's rows (a room's participants, a message's mentionedUsers — its
+// resolveMentions matches typed mentions against them) keeps Process GPT's own users.username.
+import { people as resolvePeople } from '../people.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
@@ -40,16 +42,20 @@ export function split(participants) {
   const agents = all.filter((p) => p && p.is_agent)
   return { humans, agents }
 }
-const participant = (u) => ({ id: u.id, email: u.email, username: u.name, profile: '/images/defaultUser.png', agent_type: null, is_agent: false })
+// a person in chat_rooms.participants, in Process GPT's shape (its normalizeParticipant): its own username and picture field
+const participant = (u) => ({ id: u.id, email: u.email, username: u.name, profile: u.profile || '/images/defaultUser.png', agent_type: null, is_agent: false })
 
+// (Process GPT's own names: the participants written into a new room — in the order they were chosen, the one who starts it first,
+// so the room's title and header read the same each time)
 async function users(ids) {
   if (!ids.length) return []
-  return named(await q('select id::text as id, email, username as name from users where tenant_id=$1 and id = any($2::uuid[])', [T(), ids]))
+  return q('select id::text as id, email, username as name, profile from users where tenant_id=$1 and id = any($2::uuid[]) order by array_position($2::uuid[], id)', [T(), ids])
 }
-// a room's people with the names every screen shows (the participants' stored username is whatever wrote the room)
+// a room's people with the names every screen shows (name), and the one the room itself holds (username: Process GPT's, for what
+// is written back into its rows)
 async function resolved(humans) {
   const by = await resolvePeople(humans.map((p) => p.id))
-  return humans.map((p) => { const r = by.get(String(p.id)); return { ...p, name: r?.name || nameOf(p), email: p.email || r?.email || null } })
+  return humans.map((p) => { const r = by.get(String(p.id)); return { ...p, name: r?.name || nameOf(p), username: nameOf(p), email: p.email || r?.email || null } })
 }
 
 export async function directThread(me, otherId) {
@@ -73,6 +79,72 @@ export async function groupThread(me, ids, title) {
   return roomRow(r)
 }
 
+// Invite teammates into a group room I am in (2026-11-25 「기존 단체 메신저 대화창에서 신규인원 초대가 가능해야」). A 1:1 room stays
+// private: the screens offer 「단체방 만들기」 there (a new group with both and the ones picked — groupThread). The invited are this
+// company's teammates (isMember: pro_team_members of this tenant, or behind the gateway its people), never agents; someone already in
+// the room is left as is (inviting again does nothing). They are added to chat_rooms.participants in Process GPT's own shape — its
+// users.username, as its participants dialog writes them — and see the room's whole history, as Process GPT shows a room (its
+// getMessages reads chats by the room id alone). A system line says who invited whom (Process GPT shows role 'system' rows as notices);
+// Process GPT's chat trigger notifies the room's people of it as of any message, and the invited get the richer 'team' notice instead.
+// Every open messenger of the room (the invited too) hears of it at once ('room').
+export async function invite(me, roomId, userIds) {
+  const t = await memberThread(me, roomId)
+  if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
+  if (t.kind !== 'group') throw new TeamError(400, L('1:1 대화에는 초대할 수 없어요. 단체방을 만들어 초대해 주세요.', "You can't invite people into a one-to-one conversation. Make a group conversation for that."))
+  const want = [...new Set((Array.isArray(userIds) ? userIds : []).map(String))].filter((id) => /^[0-9a-f-]{36}$/i.test(id) && id !== me.id).slice(0, MAX_GROUP)
+  if (!want.length) throw new TeamError(400, L('초대할 팀원을 골라 주세요.', 'Please choose the teammates to invite.'))
+  const inRoom = new Set(split(t.participants).humans.map((p) => String(p.id)))
+  const fresh = want.filter((id) => !inRoom.has(id))
+  if (!fresh.length) return { threadId: t.id, added: [], members: (await membersOf(t.id)).map(({ id, name }) => ({ id, name })) }
+  for (const id of fresh) if (!(await isMember(id))) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
+  const rows = (await q(`select id::text as id, email, username as name, profile from users where tenant_id=$1 and id = any($2::uuid[]) and not coalesce(is_agent,false)
+                         order by array_position($2::uuid[], id)`, [T(), fresh]))
+  if (rows.length !== fresh.length) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
+  // appended under the row's lock: two invites at once add each person once, and only who this call added is announced
+  let added = []
+  const c = await pool.connect()
+  try {
+    await c.query('begin')
+    const { rows: [cur] } = await c.query('select participants from chat_rooms where id=$1 and tenant_id=$2 for update', [t.id, T()])
+    const have = new Set(split(cur?.participants).humans.map((p) => String(p.id)))
+    added = rows.filter((u) => !have.has(u.id))
+    if (have.size + added.length > MAX_GROUP) throw new TeamError(400, L(`그룹 대화는 ${MAX_GROUP}명까지예요.`, `A group conversation has at most ${MAX_GROUP} people.`))
+    if (added.length) await c.query('update chat_rooms set participants = coalesce(participants, \'[]\'::jsonb) || $2::jsonb where id=$1', [t.id, JSON.stringify(added.map(participant))])
+    await c.query('commit')
+  } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
+  const members = await membersOf(t.id)
+  if (!added.length) return { threadId: t.id, added: [], members: members.map(({ id, name }) => ({ id, name })) }
+  const shown = (id) => members.find((m) => m.id === id)?.name || added.find((u) => u.id === id)?.name || ''
+  const invited = added.map((u) => ({ id: u.id, name: shown(u.id) }))
+  const uuid = crypto.randomUUID()
+  const names = invited.map((p) => p.name)
+  const content = L(`${me.name}님이 ${names.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${me.name} invited ${names.join(', ')}`)
+  const msg = { uuid, clientUuid: uuid, role: 'system', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
+    pgpt: { kind: 'invite', by: me.id, byName: me.name, invited } }
+  const [row] = await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages', [uuid, t.id, msg, T()])
+  await q('update chat_rooms set message=$2 where id=$1', [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
+  await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
+  await pushRow(row, members)
+  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, members: members.map(({ id, name }) => ({ id, name })) })
+  await notifyInvited(me, t, row, added.map((u) => members.find((m) => m.id === u.id) || { id: u.id, email: u.email, name: u.name }))
+  return { threadId: t.id, added: invited, members: members.map(({ id, name }) => ({ id, name })) }
+}
+
+// the invited: their room notice (Process GPT's 'chat' one for the system line) becomes a 'team' one that opens the room in Lite,
+// in each one's saved language
+async function notifyInvited(me, t, row, invited) {
+  const room = t.name || ''
+  for (const r of invited) {
+    const en = (await langOf(r.id)) === 'en'
+    const title = en ? `${me.name} invited you to a conversation${room ? ` · ${room}` : ''}` : `${me.name}님이 대화방에 초대했어요${room ? ` · ${room}` : ''}`
+    await q(`update notifications set is_checked=true where tenant_id=$1 and type='chat' and url=$2 and user_id = any($3) and title=$4 and coalesce(is_checked,false)=false`,
+      [T(), `/chats?id=${t.id}`, [r.email, r.id].filter(Boolean), row.messages.content]).catch(() => {})
+    await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id) values (gen_random_uuid(),$1,$2,'team',$3,$4,$5,$6)`,
+      [r.id, title.slice(0, 200), row.messages.content, `/pro/team/${t.id}/${row.uuid}`, me.email, T()])
+    emit(r.id, 'notifications', {})
+  }
+}
+
 function roomRow(r) {
   const { humans } = split(r.participants)
   const kind = r.context?.pgpt?.kind || (humans.length > 2 ? 'group' : 'direct')
@@ -91,7 +163,7 @@ export async function membersOf(roomId) {
   const { humans } = split(r?.participants)
   const reads = await q('select user_id::text as id, last_read_at from pro_chat_reads where room_id=$1', [roomId])
   const by = Object.fromEntries(reads.map((x) => [x.id, x.last_read_at]))
-  return (await resolved(humans)).map((p) => ({ id: p.id, name: p.name, email: p.email, last_read_at: by[p.id] || null }))
+  return (await resolved(humans)).map((p) => ({ id: p.id, name: p.name, username: p.username, email: p.email, last_read_at: by[p.id] || null }))
 }
 
 // An agent's row is named after the person it works for, in the viewer's language (L: the request's, or
@@ -114,6 +186,14 @@ export function view(viewerId, row, byEmail = {}) {
   const senderId = m.userId || byEmail[m.email]?.id || null
   // a person's message: the name the room's member goes by now, not the one stored with the row
   const member = memberOf(byEmail, senderId) || byEmail[m.email] || null
+  // someone invited people into the room (invite below): said in the viewer's language, with the names every screen uses
+  if (g.kind === 'invite' && Array.isArray(g.invited)) {
+    const by = memberOf(byEmail, g.by)?.name || g.byName || L('팀원', 'Teammate')
+    const who = g.invited.map((p) => memberOf(byEmail, p.id)?.name || p.name).filter(Boolean)
+    return { id: row.uuid, threadId: row.id, kind: 'invite', at: m.timeStamp ? iso(m.timeStamp) : null, mine: g.by === viewerId,
+      sender: { id: g.by || null, name: by, agent: false }, invited: g.invited.map((p) => ({ id: p.id, name: memberOf(byEmail, p.id)?.name || p.name })),
+      body: L(`${by}님이 ${who.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${by} invited ${who.join(', ')}`), artifacts: [], context: null }
+  }
   // a meeting's record in the room (lib/meetings/record.js) is written by the meeting assistant
   const kind = agent ? (String(g.kind || '').startsWith('meeting') ? g.kind : 'agent') : g.kind && g.kind !== 'assist' ? g.kind : 'text'
   return {
@@ -198,7 +278,8 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
     : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(agent || {}) }
   const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
   const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
-    mentionedUsers: members.filter((x) => named.includes(x.id)).map((x) => ({ id: x.id, email: x.email, username: x.name })), ...(pgptPart ? { pgpt: pgptPart } : {}) }
+    // (Process GPT's own name: its resolveMentions matches typed mentions against it)
+    mentionedUsers: members.filter((x) => named.includes(x.id)).map((x) => ({ id: x.id, email: x.email, username: x.username })), ...(pgptPart ? { pgpt: pgptPart } : {}) }
   const [row] = await q(`insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages`, [uuid, t.id, msg, T()])
   // the room list preview, the way process-gpt writes it
   await q(`update chat_rooms set message=$2 where id=$1`, [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])

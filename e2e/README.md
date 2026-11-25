@@ -691,6 +691,10 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 데스크톱 앱: 붙인 열 · 머리가 창 이동 띠가 아님(`no-drag`), 왼쪽 열은 신호등 아래(44px), 메신저의 PDF 는 패널 · zip 링크는 시스템 브라우저 | 사용자 11-24 | — (Electron 으로 따로 실측, 스펙 e2e README) | — | ◐ |
 | 받은 사람별 고친 파일 줄 · 폴더 「열기」 · 「이어서 작업」 뒤에도 붙인 메신저가 남음 | — | — (로컬 DB 에 워크트리 테이블 없음 · 코드 검토만) | — | ◐ |
 | Windows · Linux 데스크톱 앱의 오른쪽 창 단추 피하기 | — | — (macOS 에서만 실측) | — | ✗ |
+| 단체방에 팀원 초대: 머리의 「초대」 → 방에 없는 이 회사 팀원만(얼굴 · 화면 이름 · 찾기 · 여럿) → 시스템 줄 「정하윤님이 최도현님을 초대했어요」(보는 사람의 언어), 방 머리의 사람 목록 · 제목이 열어 둔 화면마다 바로(`room`), 초대받은 사람은 지난 메시지까지(Process GPT 도 방 id 로만 읽음) · 그 방을 여는 'team' 알림, 참여자는 Process GPT 의 모양(`users.username`) | 사용자 11-25 「기존 단체 메신저 대화창에서 신규인원 초대가 가능해야.」 | F-MS-03 · `server/test/roomInvite.integration.test.js` MS-I-03 · 04 | feature · 통합 | ✅ |
+| 초대 권한 · 한 번만: 방 밖의 사람 404, 다른 회사 · 팀원 아님 · 에이전트 403, 1:1 방 400, 또 초대하면 그대로, 둘이 동시에 초대해도 한 번 | 사용자 11-25 | MS-I-01 · 02 | 통합 | ✅ |
+| 1:1 대화에는 「초대」 대신 「단체방 만들기」(두 사람 + 고른 사람의 새 단체방, 1:1 은 그대로) · 휴대폰 390px 밝은 · 밤(머리의 「+」, 고르는 창이 화면 안) | 사용자 11-25 | F-MS-04 · 05 | feature | ✅ |
+| 나가기 · 내보내기 | — | — (이번 요구 밖, 지금 없음) | — | ✗ |
 
 ### 30. 프로세스 단계를 담당자 컴퓨터의 Claude Code · Codex 로(그 사람의 대화형 CLI 를 터미널에서) — 사람과 기기를 넘나드는 협업(같은 터미널 보기 · 제안 · 입력은 CLI 를 가진 사람만), 서버의 스킬, 로컬 노하우 모으기 (스펙 `local-agents`, 설계 `docs/local-agents/design.md`)
 
@@ -1184,7 +1188,7 @@ cd server && node --test test/agentTools.test.js
 같은 날 운영 보고(두 동료와의 방에서 내 에이전트의 결과 옆에 내 사진 대신 주소 첫 글자, 방 머리에 내 주소 앞부분 — 「일관성있는 컴포넌트 사용이 되어야」)로 F-PP-* 를 더했다. 지어낸 사람 정하윤(Lite 에서 이름을 적었지만 Process GPT 의 `users.username` 은 주소 앞부분 — 운영의 그 상태를 SQL 로)과 최도현(Lite 프로필 없음, 이름은 인증 기록의 `full_name` 에만). 다른 작업 트리가 8990 · 5391 을 쓰고 있으면 `RT_API_FROM` · `RT_WEB_FROM` · `RT_FAKE_PORT` 로 자리를 옮긴다.
 
 ```bash
-cd server && node --test test/people.test.js test/profilePicture.test.js
+cd server && node --test test/people.test.js test/profilePicture.test.js && node --test --test-concurrency=1 test/people.integration.test.js
 cd e2e && RT_API_FROM=8975 RT_WEB_FROM=5375 RT_FAKE_PORT=8976 RT_WORKERS=1 npx playwright test --project=feature tests/feature/profile-picture.spec.js
 ```
 
@@ -1206,6 +1210,11 @@ cd e2e && RT_API_FROM=8975 RT_WEB_FROM=5375 RT_FAKE_PORT=8976 RT_WORKERS=1 npx p
 | 내 에이전트가 결과를 올린 방: 결과 옆에 주인의 사진과 에이전트 표시(✦), 「정하윤님의 에이전트」(행에 저장된 이름이 아니라 지금의 이름), 팀원의 메시지는 그 사람의 얼굴, @AI 의 답은 ✦ AI 동그라미 — 주인이 보든 팀원이 보든, 1280 · 390 밝은 · 밤 | 사용자 11-25 「왜 대화창에는 "j"라는 아이콘으로 내 포트레잇 아이콘이 뜨는가?」 | F-PP-01 | feature | ✅ |
 | 방 머리 · 대화 목록 · 새 대화 상대 · 팀·역할(390 밤도) · `GET /api/people`(`{id: {name, picture}}`) · `GET /team/threads` · 방의 메시지(`sender.owner`)가 같은 이름 — Process GPT 의 username 이 주소 앞부분이어도, Lite 를 연 적 없는 사람은 인증 기록의 이름 | 사용자 11-25 | F-PP-02 | feature | ✅ |
 | 고르는 창의 얼굴: 메신저의 @(AI 는 ✦) · 채팅 입력창의 @ 팀원 목록과 받는 사람 칩 · 「팀원에게 공유」 창 — 사진이 없으면 이름 첫 글자, 1280 밝은 · 390 밤 | 사용자 11-25 | F-PP-03 | feature | ✅ |
+| 화면 이름은 화면에만 — Process GPT 의 행에는 `users.username`: 방의 참여자 · 메시지의 `mentionedUsers`(PP-I-01), 폴더 변형 인계의 `todolist.username` · `handover_events.to_user_name` · 받는 방의 참여자 · `holder_name`(받는 사람은 서버가 `users` 행에서 — 화면이 보낸 이름 · 에이전트 여부는 쓰지 않음, 없는 사람 404, PP-I-02), 공유 기록의 받는 사람(PP-I-03) | 검토 e98078b(중간) | `server/test/people.integration.test.js` PP-I-01~03 | 통합 | ✅ |
+| 이름 일부로 팀원 찾기(「○○님께 알려줘」)는 화면 이름과 Process GPT 의 username 둘 다에서 | 검토 e98078b | PP-I-04 | 통합 | ✅ |
+| 로그인 주소의 대소문자: 「Pro-RT-…@UEngine.org」 은 같은 계정, `users` · `pro_profile` 에는 소문자(새 계정의 이름도), 계정 찾기는 GoTrue 의 색인(`email = $1 and not is_sso_user`) | 검토 e98078b | PP-I-05 · F-PP-05 | 통합 · feature | ✅ |
+| 이름을 바꾸면 새로 고치지 않아도 설정 머리의 내 동그라미 · 팀 목록의 내 동그라미가 새 이름의 첫 글자 | 검토 e98078b | F-PP-04 | feature | ✅ |
+| 폴더 목록은 여러 폴더의 구성원 이름을 한 번에 찾는다(폴더마다 따로 찾지 않음) | 검토 e98078b | PP-I-06 | 통합 | ✅ |
 | 회의의 카메라 끈 칸 · 받은 편지함 · 공유 폴더 · 사용량 · 정책 결정 원장 · 팀 활동 카드 · 위 막대 · 설정의 동그라미도 같은 부품(`PersonAvatar.vue`)과 같은 이름 | 설계 | — (화면 시험은 위 막대 · 설정 · 팀 목록 · 메신저 · 고르는 창만) | — | ◐ |
 | 운영(`/lite`)에서 Process GPT 의 파일이 먼저 · 없을 때 Lite 의 사본으로 넘어가는 것을 실제 게이트웨이에서, Process GPT 화면에 Lite 가 올린 사진, 진짜 구글 로그인(GoTrue 의 구글 제공자 · Lite 자체 구글 로그인의 `app_metadata`) · 진짜 googleusercontent 사진, Safari · HEIC 사진 | — | — (개발 스택 · Chrome 으로만, 넘어가기는 단위 시험, 구글 로그인은 identity 행으로 흉내) | — | ✗ |
 

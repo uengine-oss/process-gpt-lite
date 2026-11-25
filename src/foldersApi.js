@@ -1,6 +1,7 @@
 // Client for the shared-folder API (server/routes/folders.js).
 import { api, auth, freshToken, htmlPage } from './api.js'
 import { BASE } from './base.js'
+import { nameOf } from './people.js'
 
 async function call(path, opts) {
   const r = await api(path, { ...opts, raw: true })
@@ -77,6 +78,9 @@ export const rawUrl = (slug, path, ref = 'main', download = false) =>
 const COLORS = ['#4a5f9a', '#b0567a', '#3f8a6b', '#7b5cd6', '#d97757', '#c2570c', '#0b6f88', '#8a6d3b']
 export const colorOf = (id) => COLORS[[...String(id || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length]
 export const whoOf = (o) => (o ? { id: o.id, name: o.name || o.holder_name || '?', type: o.is_agent || o.isAgent || o.type === 'agent' ? 'agent' : 'person', engine: o.agent_type || o.engine || '에이전트', color: colorOf(o.id || o.name) } : null)
+// a variation's holder as the screens call them: a person by the name every screen uses (src/people.js — the stored holder_name is
+// Process GPT's own), an agent by its own
+export const holderName = (v) => (v?.holder_type === 'agent' ? v?.holder_name : nameOf(v?.holder_id, v?.holder_name)) || ''
 export const roleLabel = { owner: '소유', editor: '편집', runner: '실행', viewer: '보기' }
 export const statusLabel = { open: '작업 중', ready: '반영 대기', conflicted: '충돌', merged: '반영됨', discarded: '버림' }
 export const sourceLabel = { run: '실행', instance: '인스턴스', person: '사람', chat: '채팅', handover: '인계', imported: '가져옴' }
