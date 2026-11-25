@@ -10,15 +10,31 @@
 // title): the chat files it there (src/convOf.js) and the conversation the person is in stays where it was — on the server too (a
 // pinned background turn never moves pro_threads.conversation_id: lib/agent.js delegate). The conversation is listed in the chat's
 // 대화 like any other (context_threads through fileConversation), with its kind for the list's icon (components/ThreadList.vue).
-// The ids are derived, not stored (no new column): the screen derives the same ones for messages stored before this (src/convOf.js).
+// The ids are derived, not stored (no new column), and not guessable (review 11-25 #1): deepagents keeps a history and a workspace by the
+// conversation id alone, so an id made of a person's or a task's id would let a teammate who knows it run on that history. Each is an
+// HMAC under a key only the server holds (its service key with a label of its own), the same for the same task or person every time —
+// a key that changes moves these conversations to new ids (the old rows stay, with their messages). A conversation id a page sends is
+// taken only when it is the sender's own (ownsConversation).
 import crypto from 'node:crypto'
+import { config } from '../config.js'
+import { q } from './supa.js'
 import { L } from './lang.js'
 
-const hex = (id) => String(id || '').replace(/-/g, '').toLowerCase()
-export const scheduleConversationId = (scheduleId) => `sched-${hex(scheduleId)}`
-export const briefConversationId = (userId) => `brief-${hex(userId)}`
+const LABEL = 'pgpt-lite/own-conversation-id/v1'
+function idKey() {
+  if (!config.serviceKey) throw new Error('no server key to name own conversations with')
+  return crypto.createHmac('sha256', String(config.serviceKey)).update(LABEL).digest()
+}
+const tag = (s) => crypto.createHmac('sha256', idKey()).update(s).digest('hex').slice(0, 24)
+export const scheduleConversationId = (scheduleId) => `sched-${tag(`schedule:${String(scheduleId).toLowerCase()}`)}`
+export const briefConversationId = (userId, tenant = config.tenantId) => `brief-${tag(`brief:${tenant}:${String(userId).toLowerCase()}`)}`
 // a mail's drafts: one conversation per mail of a person (a mail id is not a uuid — Gmail's, IMAP's, the demo box's)
-export const mailConversationId = (userId, mailId) => `mail-${crypto.createHash('sha1').update(`${userId}:${mailId}`).digest('hex').slice(0, 24)}`
+export const mailConversationId = (userId, mailId) => `mail-${tag(`mail:${String(userId).toLowerCase()}:${mailId}`)}`
+// a scheduled task's runs: the agent's history starts afresh every RUNS runs (review 11-25 #2 — an hourly watcher's one history grew
+// by a run an hour, to about 170k input tokens a run), while the chat keeps the task's one conversation; the run is told the result it
+// shared last (lib/missions.js), so 「변동 없음」 does not need the long history
+export const scheduleRuns = () => Math.max(1, Number(process.env.PRO_SCHEDULE_HISTORY_RUNS) || 12)
+export const scheduleAgentConversation = (listed, runNo) => `${listed}-r${Math.floor(Math.max(0, Number(runNo) - 1) / scheduleRuns())}`
 
 export const scheduleConversation = (s) => ({ conversationId: scheduleConversationId(s.id), title: String(s.name || '').slice(0, 120), kind: 'schedule' })
 export const briefConversation = (userId) => ({ conversationId: briefConversationId(userId), title: L('브리프', 'Briefs'), kind: 'brief' })
@@ -43,6 +59,39 @@ export function aside(c, { named = false } = {}) {
 }
 // the pin a background agent turn takes (lib/agent.js delegate({pin, background: true}))
 export const pinOf = (c) => ({ conversationId: c.conversationId, title: c.title, ...(c.kind ? { kind: c.kind } : {}) })
+
+// A conversation id the page sent (a view narrowed to it, 멈추기 in it) is taken only when it is this person's: a row of theirs in
+// context_threads, a message in one of their own threads that went to it, or one of their threads standing in it. → {kind} | null
+// (kind: what the row says — 'schedule' · 'brief' · 'mail' for a conversation of its own)
+export async function ownsConversation(userId, conv) {
+  const id = String(conv || '')
+  if (!userId || !id || id.length > 200) return null
+  const [row] = await q('select kind from context_threads where tenant_id=$1 and user_id=$2 and conversation_id=$3', [config.tenantId, String(userId), id])
+  if (row) return { kind: row.kind || 'conversation' }
+  const [hit] = await q(`select 1 from pro_threads t where t.user_id::text=$1 and t.conversation_id=$2
+                         union all
+                         select 1 from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id::text=$1
+                           and (m.content->>'conv'=$2 or m.content->'conv'->>'id'=$2 or m.content->'context'->>'conversationId'=$2) limit 1`, [String(userId), id])
+  return hit ? { kind: 'conversation' } : null
+}
+
+// What a conversation of its own holds that the agent never saw (review 11-25 #8): its brief, a skill run's result, a timer card, a
+// failure line exist only here — a turn the person sends into it gets the last few of them before what they said (as the teammate
+// suggestion's work state does — lib/team/suggest.js workState). '' when there is nothing.
+export async function ownExcerpt(userId, threadId, conv, { lines = 6 } = {}) {
+  const rows = await q(`select m.role, m.kind, m.content from pro_messages m join pro_threads t on t.id=m.thread_id
+                        where m.thread_id=$1 and t.user_id::text=$2 and m.content->'context'->>'action'='aside' and m.content->'context'->>'conversationId'=$3
+                        order by m.created_at desc limit $4`, [threadId, String(userId), String(conv), lines * 2])
+  const said = rows.reverse().map((r) => {
+    const c = r.content || {}
+    if (r.kind === 'divider') return c.text ? `— ${String(c.text).slice(0, 80)} —` : ''
+    if (r.kind === 'file') return c.name ? L(`파일: ${c.name}`, `File: ${c.name}`) : ''
+    const t = String(c.text || c.title || c.summary || c.mail?.subject || '').replace(/\s+/g, ' ').trim()
+    return t ? t.slice(0, 220) : ''
+  }).filter(Boolean).slice(-lines)
+  return said.length ? L(`(이 대화에 앞서 올라온 내용 — 예약 실행 · 브리프 등, 에이전트 기록에는 없는 것:\n${said.join('\n')})`,
+    `(What came into this conversation before — scheduled runs, briefs and the like, not in the agent's own history:\n${said.join('\n')})`) : ''
+}
 
 // listed in the chat's 대화 (context_threads): said — what the row's line shows as its request, answer — its latest answer
 export async function listOwn(userId, c, said, answer = '') {

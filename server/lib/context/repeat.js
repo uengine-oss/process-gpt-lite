@@ -82,7 +82,7 @@ export async function judge(message, cands, now = new Date()) {
 }
 
 // 주인별 메인 채팅 턴(요청 → 답)을 맥락별로 한 번에(items.turnsOf 와 같은 짝짓기, 대화 id 와 함께)
-async function turnsByOwner(owners) {
+export async function turnsByOwner(owners) {
   const out = new Map()
   if (!owners.length) return out
   const rows = await q(`select m.id, m.role, m.content, m.created_at, m.thread_id, t.user_id from pro_messages m join pro_threads t on t.id = m.thread_id
@@ -90,10 +90,13 @@ async function turnsByOwner(owners) {
   const ask = new Map()
   for (const m of rows) {
     const c = m.content || {}
-    if (m.role === 'user') { ask.set(m.thread_id, m); continue }
-    const a = ask.get(m.thread_id)
-    ask.delete(m.thread_id)
-    const id = c.conv || c.context?.conversationId
+    // (what came in aside — a scheduled run, a brief, a mail's follow-up — is no answer to the person's request: review 11-25 #7; a
+    // request filed aside pairs with its own answer)
+    const aside = c.context?.action === 'aside' ? `aside:${m.thread_id}:${c.context.conversationId}` : null
+    if (m.role === 'user') { ask.set(aside || m.thread_id, m); continue }
+    const a = ask.get(aside || m.thread_id)
+    ask.delete(aside || m.thread_id)
+    const id = (aside && c.context.conversationId) || c.conv || c.context?.conversationId
     if (!id || !(c.text || '').trim() || !a) continue
     const k = `${m.user_id}:${id}`
     if (!out.has(k)) out.set(k, [])

@@ -483,7 +483,7 @@ test.describe('예약 작업과 브리프는 자기 대화에', () => {
     await db.q(`update pro_profile set email=$2 where user_id=$1`, [u.id, u.email])
     await db.q(`insert into pro_mail_accounts(user_id, provider, address) values ($1,'demo',$2) on conflict (user_id) do update set provider='demo'`, [u.id, u.email])
     await db.q('delete from pro_mail_seen where user_id=$1', [u.id])
-    return { th, schedule: s.id, sched: `sched-${s.id.replace(/-/g, '')}`, brief: `brief-${u.id.replace(/-/g, '')}` }
+    return { th, schedule: s.id }
   }
   const unseed = async (db, u) => {
     await db.q('delete from pro_schedules where user_id=$1', [u.id])
@@ -491,12 +491,21 @@ test.describe('예약 작업과 브리프는 자기 대화에', () => {
   }
   const bubble = (page, text) => page.locator('.row').filter({ hasText: text })
   // the run and the brief, the way they arrive: through the server, live
-  async function arrive(page, s) {
+  // the conversation a tagged message of the chat went to (the server's ids are keyed — lib/ownConversations.js — so they are read back)
+  const convOfStored = async (db, th, where, params = []) => (await db.q(`select content->'context'->>'conversationId' as id from pro_messages where thread_id=$1 and ${where} order by created_at limit 1`, [th, ...params]))[0]?.id
+  async function arrive(page, s, db) {
+    const n0 = fake.agent.length
     const run = await page.user.post(`/missions/${s.schedule}/run`)
     expect(run.status, JSON.stringify(run.body)).toBe(200)
-    await expect.poll(() => fake.agent.filter((b) => b.conversation_id === s.sched).length, { timeout: 30_000 }).toBeGreaterThan(0)
+    await expect.poll(() => fake.agent.slice(n0).filter((b) => String(b.conversation_id || '').startsWith('sched-')).length, { timeout: 30_000 }).toBeGreaterThan(0)
+    await expect.poll(() => convOfStored(db, s.th, `content->>'scheduleId' = $2`, [s.schedule]), { timeout: 30_000 }).toBeTruthy()
+    s.sched = await convOfStored(db, s.th, `content->>'scheduleId' = $2`, [s.schedule])
     const poll = await page.user.post('/mail/poll')
     expect(poll.status, JSON.stringify(poll.body)).toBe(200)
+    s.brief = await convOfStored(db, s.th, `content->'context'->>'kind' = 'brief'`)
+    // the ids are the server's own, keyed: neither the task's nor the person's id is in them (review 11-25 #1)
+    expect(s.sched).toMatch(/^sched-[0-9a-f]{24}$/)
+    expect(s.brief).toMatch(/^brief-[0-9a-f]{24}$/)
   }
 
   test('F-CT-11 대화 A 를 보는 중 예약 실행과 브리프가 도착: A 에는 없고, 목록에 「⏰ 작업 이름」 · 「브리프」, 열면 그 메시지, 「전체 대화」는 시간 순', async ({ pageAs, db, cleanup }) => {
@@ -509,7 +518,7 @@ test.describe('예약 작업과 브리프는 자기 대화에', () => {
     await expect(rows(page)).toHaveCount(2)
     await rows(page).filter({ hasText: '보고서 표 정리' }).click()
     await expect(rows(page).filter({ hasText: '보고서 표 정리' })).toHaveClass(/\bon\b/)
-    await arrive(page, s)
+    await arrive(page, s, db)
     // the list follows: the brief (newest), then the task, then A and B — each of its own with its icon
     await expect(rows(page)).toHaveCount(4, { timeout: 30_000 })
     await expect(rows(page).locator('.name')).toHaveText(['브리프', TASK, '보고서 표 정리', '부산 출장 숙소'], { timeout: 15_000 })
@@ -562,7 +571,7 @@ test.describe('예약 작업과 브리프는 자기 대화에', () => {
     const s = await seedOwn(db, page.user)
     cleanup(() => unseed(db, page.user))
     await chat(page, '/chat/c/rt-ct-own-a?hour=13')
-    await arrive(page, s)
+    await arrive(page, s, db)
     await expect.poll(async () => (await db.q(`select count(*)::int as n from pro_messages where thread_id=$1 and content->'context'->>'conversationId' = $2`, [s.th, s.brief]))[0].n, { timeout: 30_000 }).toBe(2)
     await expect(bubble(page, RUN)).toHaveCount(0)
     await expect(bubble(page, BRIEF)).toHaveCount(0)
@@ -578,6 +587,27 @@ test.describe('예약 작업과 브리프는 자기 대화에', () => {
     await expect(bubble(page, RUN)).toBeVisible()
     await expect(bubble(page, A.answer)).toHaveCount(0)
     await shot(page, 'f-ct-12-phone-schedule.png')
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-CT-13 답을 쓰는 중에 예약 실행 결과가 도착해도 쓰던 답(초안)은 지워지지 않는다 — 사람의 답이 오면 그때 (검토 11-25 #6)', async ({ pageAs, db, cleanup }) => {
+    const page = await pageAs('ct-own')
+    const s = await seedOwn(db, page.user)
+    cleanup(() => unseed(db, page.user))
+    await chat(page, '/chat')
+    // the person's answer is being written (what the stream fills — app.drafts)
+    await page.evaluate((th) => { document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app').drafts[th] = '머리글을 굵게 바꾸는 중' }, s.th)
+    await arrive(page, s, db)
+    // the run's result (filed aside) and the brief arrived live …
+    await expect.poll(() => page.evaluate((th) => (document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app').messages[th] || []).filter((m) => m.content?.context?.action === 'aside' && m.kind === 'text').length, s.th), { timeout: 30_000 }).toBe(2)
+    // … and the draft is still there
+    expect(await page.evaluate((th) => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app').drafts[th], s.th)).toBe('머리글을 굵게 바꾸는 중')
+    // the person's own answer ends it
+    await page.evaluate((th) => {
+      const app = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app')
+      app.onEvent('message', { id: crypto.randomUUID(), thread_id: th, role: 'agent', kind: 'text', content: { text: '머리글을 굵게 했어요.', context: { conversationId: 'rt-ct-own-a', title: '보고서 표 정리', action: 'continue' } }, created_at: new Date().toISOString() })
+    }, s.th)
+    expect(await page.evaluate((th) => document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app').drafts[th], s.th)).toBeNull()
     expect(page.errors).toEqual([])
   })
 })

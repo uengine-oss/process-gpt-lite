@@ -23,7 +23,7 @@ import { L, isEn, locale, asUser, langInstruction } from './lang.js'
 import { withTenant } from './tenant.js'
 import { sendsToTelegram } from './scheduleIntent.js'
 import { marketHint } from './marketHint.js'
-import { scheduleConversation, aside, pinOf, listOwn } from './ownConversations.js'
+import { scheduleConversation, scheduleAgentConversation, aside, pinOf, listOwn } from './ownConversations.js'
 
 const PGPT = PGPT_ROOT
 
@@ -206,6 +206,8 @@ async function runTimerSchedule(s, run) {
   return done
 }
 
+// a notification of a run opens the task's own conversation (components/NotificationCard.vue — review 11-25 #9)
+export const chatUrl = (own) => `/chat/c/${encodeURIComponent(own.conversationId)}`
 // Where a task's results go: the chat it reports to, and — when that is the main chat — the task's own conversation there (one per task,
 // lib/ownConversations.js): its runs never land in the conversation the person happens to be in. A project's or an instance's thread
 // keeps its results as before (its own conversation).
@@ -215,24 +217,43 @@ async function reportTo(s, asked = null) {
   return { threadId, own: threadId === main ? scheduleConversation(s) : null }
 }
 
+// What this task shared last, for a run told to say 「변동 없음」 when nothing differs (review 11-25 #2: the run's agent history starts
+// afresh every few runs, so the comparison is given, not left to a long history): the newest result in its own conversation, else the
+// summary of its last run that posted something. '' when it never posted.
+export async function lastShared(s, threadId, own) {
+  if (own) {
+    const [m] = await q(`select content->>'text' as text from pro_messages where thread_id=$1 and role='agent' and kind in ('text','doc')
+                          and content->'context'->>'conversationId'=$2 order by created_at desc limit 1`, [threadId, own.conversationId])
+    if (m?.text) return m.text.trim().slice(0, 1500)
+  }
+  const [r] = await q(`select summary from pro_mission_runs where schedule_id=$1 and status='done' and (result->>'posted')::boolean is true
+                       order by started_at desc limit 1`, [s.id])
+  return String(r?.summary || '').trim().slice(0, 1500)
+}
+// the run's number among this task's runs (this one included): which of its agent histories it continues
+const runNumber = async (s) => (await q('select count(*)::int as n from pro_mission_runs where schedule_id=$1', [s.id]))[0]?.n || 1
+
 async function runPromptSchedule(s, run, { threadId: asked, manual = false } = {}) {
   const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
   const { user, session } = await sessionFor(p.email, p.name)
   const { threadId, own } = await reportTo(s, asked)
   // a reminder is meant to arrive every time; "no change" only suits a schedule that watches something
   const reminder = s.notify === 'always'
+  const last = !reminder && !manual ? await lastShared(s, threadId, own).catch(() => '') : ''
+  const before = last ? L(`\n직전 실행에서 공유한 결과:\n«${last}»`, `\nWhat the previous run shared:\n«${last}»`) : ''
   // run now, to try it: the person wants to see what it found, even when nothing crossed the line
   const text = manual ? L(`${s.prompt}\n\n(지금 바로 한 번 시험으로 실행합니다. 조건에 해당하는 게 없어도 확인한 값과 판단을 짧게 보여 주세요. 과정 설명은 빼고 결과만 쓰세요.)`,
     `${s.prompt}\n\n(This is a test run, right now. Even if nothing meets the condition, briefly show the values you checked and your conclusion. Write only the result, without describing the process.)`) : reminder ? L(`${s.prompt}\n\n(예약 실행입니다. 사용자에게 알릴 내용을 과정 설명 없이 답하세요.)`,
-    `${s.prompt}\n\n(This is a scheduled run. Answer with what the user should be told, without describing the process.)`) : L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`,
-    `${s.prompt}\n\n(This is a scheduled run. If nothing differs from what you shared in the previous run, answer exactly "No change" and nothing else. When you share, write only the result, without describing the process.)`)
+    `${s.prompt}\n\n(This is a scheduled run. Answer with what the user should be told, without describing the process.)`) : L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)${before}`,
+    `${s.prompt}\n\n(This is a scheduled run. If nothing differs from what you shared in the previous run, answer exactly "No change" and nothing else. When you share, write only the result, without describing the process.)${before}`)
   const { delegate } = await import('./agent.js')
-  // (in its own conversation: the agent's history of this task runs on from its last run — 「변동 없음」 compares with what it said then)
+  // (in its own conversation; the agent's history of it starts afresh every few runs — ownConversations.scheduleAgentConversation)
+  const agentConv = own ? scheduleAgentConversation(own.conversationId, await runNumber(s)) : null
   const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id, ...aside(own, { named: true }) }, quietIfUnchanged: !reminder && !manual,
-    ...(own ? { pin: pinOf(own), background: true } : {}) })
+    ...(own ? { pin: { ...pinOf(own), agent: agentConv }, background: true } : {}) })
   // listed in the chat's 대화 once it has something to show (a run that found nothing new posts nothing and does not move it up)
   if (own && msg) await listOwn(s.user_id, own, s.prompt, msg.content?.text).catch((e) => console.warn('[mission] list', e.message))
-  if (reminder && msg && !manual) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: String(msg.content?.text || '').slice(0, 300), url: `/pro/threads/${threadId}` })
+  if (reminder && msg && !manual) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: String(msg.content?.text || '').slice(0, 300), url: own ? chatUrl(own) : `/pro/threads/${threadId}` })
   const body = String(msg?.content?.text || '')
   const out = msg ? outcomeOf(body) : { ok: true, summary: L('변동 없음', 'No change') }
   // the answer is already in the chat: a failure is announced by the caller, not repeated here
@@ -377,7 +398,7 @@ async function runMissionAs(s, trigger, opts = {}) {
       await addMessage(s.user_id, t, 'agent', 'text', { text: said, ...(out.tools?.length ? { work: [...new Set(out.tools)].slice(0, 12).map((tool) => ({ tool })) } : {}), ...aside(own) })
       if (own) await listOwn(s.user_id, own, s.prompt, said).catch((e) => console.warn('[mission] list', e.message))
       // a skill run is the owner's own job: only the person who set it up hears about it
-      if (!(trigger === 'manual' && opts.test)) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: summary, url: `/pro/threads/${t}` })
+      if (!(trigger === 'manual' && opts.test)) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: summary, url: own ? chatUrl(own) : `/pro/threads/${t}` })
       const telegram = await deliverTelegram(s, said, t, aside(own))
       if (telegram) await q(`update pro_mission_runs set result = coalesce(result,'{}'::jsonb) || $2::jsonb where id=$1`, [run.id, JSON.stringify({ telegram })])
     }

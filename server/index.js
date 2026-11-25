@@ -790,6 +790,8 @@ app.post('/api/threads/:id/stop', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
   const r = await stopTurns({ user: req.user, session: req.session, threadId: t.id, conversation: req.body?.conversation ? String(req.body.conversation) : null })
+  // (a conversation that is not this person's — review 11-25 #1)
+  if (r.refused) return res.status(404).json({ error: L('없는 대화예요.', 'No such conversation.') })
   if (!r.stopped && browser.runningIn(req.user.id, t.id)) { browser.cancel(req.user.id); r.stopped = 1; r.browser = true }
   res.json(r)
 })

@@ -11,7 +11,7 @@ import { artifactScope, artifactItems, readFolded, saveFolded } from '../artifac
 import { topicOf, topicList } from '../projectTopics.js'
 import { applyTurnEvent, fromSnapshot } from '../turnState.js'
 import { docSelectionOf, docSelectionKey, selectionMention, mentionContext, docConversation } from '../docSelection.js'
-import { convOf as convsOf, convRows } from '../convOf.js'
+import { convOf as convsOf, convRows, asideOf } from '../convOf.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
@@ -139,7 +139,7 @@ export const useApp = defineStore('app', {
     topicList(s) { return this.projectOpen ? topicList(s.topics[s.activeId] || [], s.messages[s.activeId] || [], this.topicOf) : [] },
     // Which conversation each main-chat message belongs to (src/convOf.js): the router's call on an answer, and what arrives without
     // the person typing it — a scheduled run, a brief — in its own conversation, aside from the one the chat is in
-    convOf(s) { return convsOf(s.messages[s.mainThread?.id] || [], { userId: s.me?.user?.id }) },
+    convOf(s) { return convsOf(s.messages[s.mainThread?.id] || [], { briefId: s.conversations.find((c) => c.kind === 'brief')?.id }) },
     // The files the view on screen made (src/artifactScope.js): the whole chat, one conversation of it, or a project's room — newest
     // first, each with the conversation it came from (the right column's list and the pile both show these)
     artifacts(s) {
@@ -274,7 +274,7 @@ export const useApp = defineStore('app', {
         else if (mine >= 0) list[mine] = d
         else {
           list.push(d)
-          if (d.role === 'agent' && (d.kind === 'text' || d.kind === 'doc')) this.drafts[d.thread_id] = null
+          if (d.role === 'agent' && (d.kind === 'text' || d.kind === 'doc') && !asideOf(d) && !d.content?.silent) this.drafts[d.thread_id] = null
           // a turn of the main chat the router placed: the conversation list follows (its row is written as the turn ends)
           if (d.role === 'agent' && d.thread_id === this.mainThread?.id && d.content?.context?.conversationId) {
             clearTimeout(convReload)
@@ -441,7 +441,7 @@ export const useApp = defineStore('app', {
       // an editable document open in the editor (OfficeSheet): the message is about it, even when its
       // live link (src/liveLink.js) is down — the server still edits it in place (lib/agent.js delegate)
       const d = this.officeDoc, ed = d && !d.readOnly ? officeEditorFor(d.name || d.url) : null
-      const openDoc = ed && !CRAFT_APPS.has(ed) && d.name ? { app: 'ieumoffice', file: d.name, name: d.name, editor: ed } : undefined
+      const openDoc = ed && !CRAFT_APPS.has(ed) && d.name ? { app: 'ieumoffice', file: d.name, name: d.name, editor: ed, ...(d.msgId ? { msgId: d.msgId } : {}), ...(d.url ? { url: d.url } : {}) } : undefined
       // …and it stays in the conversation the document is in: the context router does not file it under a new topic (src/docSelection.js)
       const docConv = openDoc ? docConversation({ doc: d, threadId, mainId: this.mainThread?.id, convOf: this.convOf, convList: this.convList, chosen }) : null
       const conversation = chosen || docConv || undefined

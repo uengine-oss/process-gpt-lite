@@ -5,6 +5,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useApp } from '../../stores/app.js'
 import { useTeam } from '../../stores/team.js'
+import { currentConversation, asideOf } from '../../convOf.js'
 
 // where the caret is inside a textarea, in the textarea's own pixels (a mirror div with the same text) — the messenger's "@" too
 export function caretXY(ta) {
@@ -41,10 +42,10 @@ export function useTeammateMention(text, ta, enabled = true) {
     const list = app.thread || []
     // the conversation the latest message belongs to (context-router), or the one being viewed
     const of = app.mainThread && app.activeId === app.mainThread.id ? app.convOf : {}
-    const last = [...list].reverse().find((m) => of[m.id])
-    const cid = app.convFilter || (last && of[last.id]) || null
+    // (never a brief's or a scheduled run's — filed aside, they are not the work the person is on: review 11-25 #3)
+    const cid = app.convFilter || currentConversation(list, of)
     const conv = cid ? app.convList.find((c) => c.id === cid) : null
-    const recent = (cid ? list.filter((m) => of[m.id] === cid || !of[m.id]) : list).slice(-14)
+    const recent = list.filter((m) => (cid ? of[m.id] === cid || !of[m.id] : !asideOf(m))).slice(-14)
     return {
       title: conv?.title || (app.active?.kind === 'project' ? app.active.title : '') || '',
       conversation: cid ? { id: cid, title: conv?.title || '' } : null,

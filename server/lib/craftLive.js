@@ -57,7 +57,11 @@ export function liveOpen(userId) {
 export function openDocOf(x) {
   if (!x || x.app !== 'ieumoffice') return null
   const file = String(x.file || x.name || '').slice(0, 200)
-  return file ? { app: 'ieumoffice', title: LIVE_APPS.ieumoffice.title, file, editor: OFFICE_KIND[x.editor] ? x.editor : null, fromPage: true } : null
+  // (which card it was opened from and its address without the query — a signed one's signature is never kept: what tells this document
+  // apart from another of the same name — lib/routeContexts.js docLinkOf)
+  const msgId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(x.msgId || '')) ? String(x.msgId) : null
+  const url = /^https?:\/\//.test(String(x.url || '')) ? String(x.url).split(/[?#]/)[0].slice(0, 500) : null
+  return file ? { app: 'ieumoffice', title: LIVE_APPS.ieumoffice.title, file, editor: OFFICE_KIND[x.editor] ? x.editor : null, fromPage: true, ...(msgId ? { msgId } : {}), ...(url ? { url } : {}) } : null
 }
 
 // ---- tickets (spent on use, a minute to live) ----

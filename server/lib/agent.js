@@ -48,6 +48,7 @@ import { privateSkillFor, askShareAfterUse } from './folders/skills.js'
 import * as TF from './folders/threadFolders.js'
 import * as PT from './projectTopics.js'
 import * as RC from './routeContexts.js'
+import { ownsConversation, ownExcerpt } from './ownConversations.js'
 import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 import { sendMail, demoFiles } from './scenarios/mail.js'
@@ -440,7 +441,10 @@ const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
 // as an answer, as words for a browser task or as the room's rule
 async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs, again = false }) {
   const userId = user.id
-  if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
+  // (only a conversation of this person's — an id from the page is never taken on its word: review 11-25 #1)
+  const mine = conversation?.id ? await ownsConversation(userId, conversation.id).catch(() => null) : null
+  if (conversation?.id && !mine) console.warn(`[turn] conversation from the page is not this person's — not taken user=${userId.slice(0, 8)}`)
+  if (mine) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || ''), ...(mine.kind ? { kind: mine.kind } : {}) })
   // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
   const ownPath = (p) => typeof p === 'string' && p.startsWith(`/workspace/uploads/${user.id}/`) && !p.split('/').includes('..')
   files = (files || []).filter((f) => f?.url).map((f) => ({ ...f,
@@ -949,7 +953,8 @@ async function scheduleCatalogHint(userId) {
 async function runScheduleNowTurn({ userId, threadId, s, onDelta, acked = false }) {
   let msg = null
   if (!acked) {
-    const own = (await getThread(userId, threadId).catch(() => null))?.kind === 'chat'
+    // (a process task's run lives with its instance, not in a conversation of the task's: lib/missions.js runProcessSchedule — review #9)
+    const own = !s.process_id && (await getThread(userId, threadId).catch(() => null))?.kind === 'chat'
     const said = own ? L(`「${s.name}」 작업을 지금 바로 한 번 실행할게요. 새 예약은 만들지 않고, 결과는 곧 이 작업의 대화 「${s.name}」에 올라와요.`,
       `I'll run "${s.name}" once, right now. No new schedule — the result will show up shortly in the task's own conversation, "${s.name}".`)
       : L(`「${s.name}」 작업을 지금 바로 한 번 실행할게요. 새 예약은 만들지 않고, 결과는 곧 여기에 올라와요.`,
@@ -1309,7 +1314,10 @@ async function stopTurn(t, session, why) {
   if (!ok) t.abort.abort()
   else setTimeout(() => { if (!t.finished) t.abort.abort() }, 8000).unref?.()
 }
+// (a conversation named by the page is stopped only when it is this person's — deepagents stops a conversation by its id alone: review
+// 11-25 #1; refused: the route answers 404)
 export async function stopTurns({ user, session, threadId, conversation }) {
+  if (conversation && !(await ownsConversation(user.id, conversation).catch(() => null))) return { stopped: 0, refused: true, waiting: turns.waiting({ userId: user.id, threadId }).length }
   const list = turns.toStop(turns.running({ userId: user.id, threadId, conv: conversation || null }))
   for (const t of list) await stopTurn(t, session)
   if (!list.length) {
@@ -1355,7 +1363,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const uploads = attached.get(threadId) || []
   attached.delete(threadId)
   // (kind: what a conversation of its own is — a scheduled task's, the briefs' — lib/ownConversations.js)
-  let pin = given?.conversationId ? { conversationId: String(given.conversationId), title: String(given.title || ''), ...(given.kind ? { kind: String(given.kind) } : {}) } : pinned.get(threadId)
+  // (agent: the deepagents conversation when it is not the listed one — a scheduled task's runs, whose history starts afresh every few runs)
+  let pin = given?.conversationId ? { conversationId: String(given.conversationId), title: String(given.title || ''), ...(given.kind ? { kind: String(given.kind) } : {}), ...(given.agent ? { agent: String(given.agent) } : {}) } : pinned.get(threadId)
   if (!given?.conversationId) pinned.delete(threadId)
   // a project's view narrowed to one of its sub-topics sends that one (lib/projectTopics.js); a conversation that is not this
   // project's is not taken (the message is classified as any other)
@@ -1372,7 +1381,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // The router gets each conversation with what it worked on and when, and the one the person was just in; a message sent while a
   // document is open that a conversation here worked on goes to that conversation without asking (lib/routeContexts.js)
   const toRoute = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider && !background && !silent
-  const open = toRoute && adopted ? store.openDoc || liveOpen(user.id) : null
+  // (the document the page that sent this message has open — not whatever this person has open on another device: review 11-25 #4)
+  const open = toRoute && adopted ? store.openDoc || null : null
   const facts = toRoute ? await RC.turnFacts({ user, threadId, except: adopted ? store.userMsgId : null, open }).catch((e) => { console.warn('[delegate] route facts', e.message); return null }) : null
   if (facts?.docLink) {
     pin = facts.docLink
@@ -1380,7 +1390,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   let routed = !pin && !!config.contextRouterUrl && thread?.kind === 'chat' && mode !== 'skill' && !divider
   const topical = PT.routesProject({ kind: thread?.kind, routerOn: PT.enabled(), pinned: !!pin, silent, background, divider, mode, generating: !!generationPending(threadId) })
-  const conv0 = pin?.conversationId || (!routed && !topical ? thread?.conversation_id : null)
+  const conv0 = pin?.agent || pin?.conversationId || (!routed && !topical ? thread?.conversation_id : null)
   // the place in line runTurn took when the message came in (so turns keep the order they were
   // sent in), or a new one for work started elsewhere (schedules, team assist, missions)
   if (adopted) store.adopted = true
@@ -1524,6 +1534,12 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       const hint = ref ? await TF.refHint(ref).catch(() => '') : ''
       if (hint) { text += hint; console.log(`[folders] reference hint: '${ref.slug}' thread=${String(threadId).slice(0, 8)}`) }
     }
+  }
+  // the person asking inside a conversation of its own (a scheduled task's, the briefs', a mail's): what came into it that the agent never
+  // saw goes before what they said (lib/ownConversations.js ownExcerpt — review 11-25 #8)
+  if (pin && !background && !pin.folder && ['schedule', 'brief', 'mail'].includes(pin.kind)) {
+    const seen = await ownExcerpt(user.id, threadId, pin.conversationId).catch(() => '')
+    if (seen) text = `${seen}\n\n${text}`
   }
   try {
     const msg = await streamTurn()
@@ -1795,12 +1811,17 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   if (!body && !files.length && !workDir) body = emptyText()
   // conv: 이 턴이 실제로 간 맥락(라우터가 「그대로」라고 한 턴은 context 에 맥락 id 가 없다) — 맥락의 턴을 찾는 표지(lib/context/items.js)
-  const convNow = turn.conv || routing?.conversation_id || null
+  // (a scheduled run: the task's listed conversation, not the agent's history of the moment — pin.agent)
+  const convNow = pin?.agent ? pin.conversationId : turn.conv || routing?.conversation_id || null
   const work = trail.list()
-  // openDoc: the document that was open for this turn — the conversation worked on it (lib/routeContexts.js)
+  // openDoc: the document this turn edited — the conversation worked on it (lib/routeContexts.js); only when an edit of it went through
+  // (review 11-25 #4), with the page's card and address of it when the page sent them
+  const page = adopted && store?.openDoc?.file && store.openDoc.file === live?.file ? store.openDoc : null
+  const editedDoc = !!live?.file && (live.app === 'ieumoffice' ? editsSince(user.id, editsFrom).some((e) => e.applied)
+    : [...usedTools].some((t) => t.startsWith(`${live.app}_`) && !/(inspect|read|list|render|preview|find|query|guide|documents)/.test(t)))
   const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
     ...TP.saved(turn, ended ? 'stopped' : 'done', body),
-    ...(live?.file ? { openDoc: { file: String(live.file).slice(0, 200), app: live.app } } : {}),
+    ...(editedDoc ? { openDoc: { file: String(live.file).slice(0, 200), app: live.app, ...(page?.msgId ? { msgId: page.msgId } : {}), ...(page?.url ? { url: page.url } : {}) } } : {}),
     ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
   // the conversation's row: a project's sub-topic under the project (routed, or the view narrowed to it), else the main chat's
   if (topicRouted || (pin && !pin.folder && thread?.kind === 'project')) {

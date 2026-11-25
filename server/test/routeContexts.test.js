@@ -6,7 +6,7 @@
 //   cd server && node --test test/routeContexts.test.js
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
-import { factsOf, contextsFor, docLinkOf, factLine, fileKind } from '../lib/routeContexts.js'
+import { factsOf, contextsFor, docLinksOf, factLine, fileKind } from '../lib/routeContexts.js'
 import { pool } from '../lib/supa.js'
 
 after(() => pool.end().catch(() => {}))
@@ -20,16 +20,16 @@ const CHAT = [
   msg('u0', 'user', 'text', { text: '부산 숙소 세 곳 비교해 줘', conv: 'trip' }, 300),
   msg('a0', 'agent', 'text', { text: '표로 비교했어요.', context: { conversationId: 'trip', title: '부산 출장 숙소', action: 'new' }, conv: 'trip' }, 299),
   msg('f0', 'agent', 'file', { name: '숙소 비교.xlsx' }, 299),
-  msg('u1', 'user', 'file', { name: '보고서.docx', attached: true }, 12),
+  msg('u1', 'user', 'file', { name: '보고서.docx', attached: true, url: 'http://127.0.0.1:54321/storage/v1/object/public/files/u/att/r1.docx' }, 12),
   msg('u2', 'user', 'text', { text: '이 보고서 표 머리글 굵게 해 줘', conv: 'E' }, 12),
   msg('a2', 'agent', 'text', { text: '머리글을 굵게 했어요.', context: { conversationId: 'E', title: '보고서 표 정리', action: 'new' }, conv: 'E' }, 11),
-  msg('f2', 'agent', 'file', { name: '보고서.docx', edited: true }, 11),
+  msg('f2', 'agent', 'file', { name: '보고서.docx', edited: true, url: 'http://127.0.0.1:54321/storage/v1/object/public/files/u/out/r2.docx' }, 11),
   msg('d1', 'system', 'divider', { text: '주식 감시', scheduleId: 's1', context: { conversationId: 'sched-s1', action: 'aside', kind: 'schedule', title: '주식 감시' } }, 6),
   msg('s1', 'agent', 'text', { text: 'ASTS -7%', context: { conversationId: 'sched-s1', action: 'aside', kind: 'schedule' }, conv: 'sched-s1' }, 6),
   msg('b1', 'agent', 'text', { text: '모닝 브리프', context: { conversationId: 'brief-x', action: 'aside', kind: 'brief' } }, 4),
   // the live edit a minute ago: the router stayed (no id in its call), the turn's own conversation is on `conv`, the open document on `openDoc`
   msg('u3', 'user', 'text', { text: '표 안 글씨 세로 가운데로', conv: 'E' }, 2),
-  msg('a3', 'agent', 'text', { text: '세로 가운데로 맞췄어요.', context: { title: '보고서 표 정리', action: 'stay' }, conv: 'E', openDoc: { file: '보고서.docx', app: 'ieumoffice' } }, 1),
+  msg('a3', 'agent', 'text', { text: '세로 가운데로 맞췄어요.', context: { title: '보고서 표 정리', action: 'stay' }, conv: 'E', openDoc: { file: '보고서.docx', app: 'ieumoffice', msgId: 'f2' } }, 1),
   // the message being answered now
   msg('u4', 'user', 'text', { text: '글씨가 표의 윗부분에 붙어있다. 중앙정렬' }, 0),
 ]
@@ -76,16 +76,21 @@ test('RC-U-02 라우터 후보: 저장된 제목 · gist · 종류는 그대로,
   assert.ok(contextsFor(many, factsOf(CHAT, { except: 'u4' }), { now: NOW }).some((x) => x.conversation_id === 'E' && x.active))
 })
 
-test('RC-U-03 열린 문서 → 그 문서를 마지막으로 다룬 대화 (이름으로, 대소문자 · 경로 무시), 없으면 없음', () => {
+test('RC-U-03 열린 문서 → 그 문서를 마지막으로 다룬 대화: 그 카드(메시지 id)나 주소로만 — 이름만으로는 잇지 않는다(검토 11-25 #4)', () => {
   const f = factsOf(CHAT, { except: 'u4' })
-  assert.equal(docLinkOf(f, '보고서.docx'), 'E')
-  assert.equal(docLinkOf(f, '/workspace/uploads/보고서.DOCX'), 'E')
-  assert.equal(docLinkOf(f, '숙소 비교.xlsx'), 'trip')
-  assert.equal(docLinkOf(f, '다른 문서.docx'), null)
-  assert.equal(docLinkOf(f, ''), null)
-  // the same document worked on later in another conversation: the later one
-  const later = factsOf([...CHAT.slice(0, -1), msg('u5', 'user', 'text', { text: '숙소 표에 보고서 붙여', conv: 'trip' }, 0.5), msg('a5', 'agent', 'text', { text: '붙였어요', conv: 'trip', openDoc: { file: '보고서.docx' } }, 0.2)])
-  assert.equal(docLinkOf(later, '보고서.docx'), 'trip')
+  // opened from its card (the edited copy), or by its address (a signed one's query does not matter)
+  assert.deepEqual(docLinksOf(f, { file: '보고서.docx', msgId: 'f2' }), ['E'])
+  assert.deepEqual(docLinksOf(f, { file: '보고서.docx', url: 'http://127.0.0.1:54321/storage/v1/object/public/files/u/out/r2.docx?token=abc' }), ['E'])
+  assert.deepEqual(docLinksOf(f, { file: '보고서.docx', msgId: 'u1' }), ['E'])
+  assert.deepEqual(docLinksOf(f, { file: '숙소 비교.xlsx', msgId: 'f0' }), ['trip'])
+  // a document of the same name opened from somewhere else, or a name alone: no link (the router decides)
+  assert.deepEqual(docLinksOf(f, { file: '보고서.docx' }), [])
+  assert.deepEqual(docLinksOf(f, { file: '보고서.docx', msgId: '00000000-0000-4000-8000-000000000000' }), [])
+  assert.deepEqual(docLinksOf(f, null), [])
+  // the same card worked on later in another conversation: the later one first, the earlier after it (a folder run room is skipped by
+  // the caller — turnFacts)
+  const later = factsOf([...CHAT.slice(0, -1), msg('u5', 'user', 'text', { text: '숙소 표에 보고서 붙여', conv: 'trip' }, 0.5), msg('a5', 'agent', 'text', { text: '붙였어요', conv: 'trip', openDoc: { file: '보고서.docx', msgId: 'f2' } }, 0.2)])
+  assert.deepEqual(docLinksOf(later, { msgId: 'f2' }), ['trip', 'E'])
 })
 
 test('RC-U-04 사실 한 줄의 말: 시간 · 파일 종류', () => {

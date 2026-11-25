@@ -191,6 +191,8 @@ function openNotification({ detail: n }) {
   if (room) return team.openMessenger(room[1])
   if (n?.type === 'workitem' && n.instId) return router.push(`/routines/${encodeURIComponent(n.instId)}`)
   if (/^\/(projects|routines|settings)\//.test(String(n?.url || ''))) return router.push(n.url)
+  // a scheduled run's result: the task's own conversation (server lib/missions.js chatUrl)
+  if (/^\/chat\/c\/[^/?#]+$/.test(String(n?.url || ''))) return router.push(n.url)
   app.dockOpen = true
 }
 onMounted(async () => {

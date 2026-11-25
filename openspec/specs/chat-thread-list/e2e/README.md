@@ -50,7 +50,7 @@ cd server && PRO_PORT=8985 PRO_BACKGROUND=0 PRO_DEEPAGENTS_URL=http://127.0.0.1:
   PRO_CONTEXT_ROUTER_URL= PRO_ONTOLOGY_BOLT_URL= PRO_ONTOLOGY_WORKER=0 PRO_SCENARIOS=off PRO_CRON_MODE=server PRO_PUBLIC_URL=http://127.0.0.1:5385 node index.js
 PRO_API_TARGET=http://127.0.0.1:8985 npx vite --port 5385 --strictPort --host 127.0.0.1
 cd e2e && PGPT_URL=http://127.0.0.1:5385 API_URL=http://127.0.0.1:8985 RT_FAKE_AGENT_PORT=8986 RT_FAKE_LLM_PORT=8987 \
-  npx playwright test tests/feature/chat-thread-list.spec.js --project=feature -g "F-CT-1[12]"
+  npx playwright test tests/feature/chat-thread-list.spec.js --project=feature -g "F-CT-1[123]"
 ```
 
 `src/convOf.js`(어느 메시지가 어느 대화인지 · 대화 목록의 행)는 `server/test/convOf.test.js`, 판단 모델이 받는 후보(`server/lib/routeContexts.js`)는 `server/test/routeContexts.test.js`가 본다. 통합 시험은 예약 실행이 실제로 지나는 길(`runMission` → `delegate`)과 메일함 읽기(`pollUser`)를 그대로 돌리고, 시험 계정 `pro-rt-schedconv@uengine.org`(로컬 Supabase 인증)를 쓴다. 화면 시험의 실행과 브리프는 서버를 거쳐 실시간으로 도착한다(`POST /missions/:id/run`, `POST /mail/poll`). 계정은 `pro-rt-ct-own`이다.
@@ -58,13 +58,19 @@ cd e2e && PGPT_URL=http://127.0.0.1:5385 API_URL=http://127.0.0.1:8985 RT_FAKE_A
 | 스펙 시나리오 | 시험 |
 |---|---|
 | 대화 A 를 보는 중 예약 실행과 브리프가 도착 | F-CT-11 · CV-U-02 · CV-U-03 · SO-I-01 · SO-I-03 |
-| 같은 작업을 두 번 실행(「변동 없음」은 아무것도 남기지 않음) | SO-I-01 |
+| 같은 작업을 두 번 실행(「변동 없음」은 아무것도 남기지 않음, 직전 결과를 지시에) | SO-I-01 · SO-I-09(에이전트 기록은 몇 번마다 새로) |
 | (실패 줄 · 「지금 실행」 결과도 그 작업의 대화) | SO-I-02 |
-| 예전에 저장된 실행 | CV-U-04 · CV-U-05 |
+| 예전에 저장된 실행 | CV-U-04 · CV-U-05 · CV-U-07(그 실행의 줄만 — 검토 11-25 #5) |
 | 휴대폰 390px | F-CT-12 |
 | (메일 줄의 대화: 후속 작업 → 초안 → 브리프) | CV-U-06 |
-| 문서를 열어 둔 채 이어 묻기 | SO-I-05 · RC-U-03 |
+| 문서를 열어 둔 채 이어 묻기 | SO-I-05 · SO-I-06(이름만 · 다른 기기 · 폴더 실행 방은 잇지 않음) · RC-U-03 |
 | 패널을 닫고 이어 묻기 | SO-I-04 · RC-U-01 · RC-U-02 · RC-U-04 · 실제 라우터 A/B(`results/own-conversations.txt`) |
+| 팀원의 브리프 id 로 보내기(대화 id 는 그 사람의 것만, 멈추기도 · id 는 짐작할 수 없게) | SO-I-07 · CV-U-01 · F-CT-11(서버가 준 id 를 다시 읽음) |
+| 브리프 대화 안에서 묻기 | SO-I-08 |
+| 답을 쓰는 중에 도착 | F-CT-13 |
+| (팀원 멘션의 맥락은 사람이 있는 대화 — 검토 #3) | CV-U-08 |
+| (맥락의 턴 짝짓기 — 검토 #7) | SO-I-11 |
+| (「지금 실행」의 말 · 알림은 그 작업의 대화 — 검토 #9) | SO-I-10 · SO-I-01 |
 
 ## 결과
 
@@ -80,7 +86,7 @@ cd e2e && PGPT_URL=http://127.0.0.1:5385 API_URL=http://127.0.0.1:8985 RT_FAKE_A
   - `f-ct-11-a-after-arrivals.png`: 대화 A 를 보는 중 실행과 브리프가 도착한 뒤 — A 는 두 메시지 그대로, 목록에 해 · 시계 아이콘 행
   - `f-ct-11-schedule.png` · `f-ct-11-brief.png` · `f-ct-11-all.png`: 작업 대화, 브리프 대화(메일 칩), 「전체 대화」(시간 순)
   - `f-ct-12-phone-list.png` · `f-ct-12-phone-schedule.png`: 390px 휴대폰의 시트와 고른 작업 대화
-- `results/own-conversations.txt`: 단위 · 통합 15/15, Playwright 22/22(chat-thread-list 12 · mobile-review-1121 8 · telegram-unreachable 2), 실제 라우터 A/B
+- `results/own-conversations.txt`: 단위 · 통합 23/23(CV-U 8 · RC-U 4 · SO-I 11), Playwright 23/23(chat-thread-list 13 · mobile-review-1121 8 · telegram-unreachable 2), 실제 라우터 A/B — 검토 11-25 반영 뒤
 
 시험하지 않은 것:
 - iOS Safari 의 실제 두 번 탭. 브라우저가 dblclick 을 보내지 않아도 0.4초 간격으로 알아보도록 만들었고(CT-U-08), Chromium 의 터치 화면에서만 확인했다.

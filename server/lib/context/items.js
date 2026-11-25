@@ -64,12 +64,18 @@ export async function turnsOf(owner, conv, { since = null, limit = 60 } = {}) {
     since ? [owner, since] : [owner])
   const out = []
   let ask = null
+  // what came in aside (a scheduled run, a brief, a mail's follow-up — lib/ownConversations.js) pairs only with a request filed in the same
+  // conversation, never with the person's own last message (review 11-25 #7)
+  const asideAsk = {}
   for (const m of rows) {
     const c = m.content || {}
-    if (m.role === 'user') { ask = m; continue }
-    const id = c.conv || c.context?.conversationId
-    if (id === conv && (c.text || '').trim()) out.push({ id: String(m.id), prompt: String(ask?.content?.text || '').trim(), answer: String(c.text).trim(), at: m.created_at, refer_id: ask?.content?.refer?.refer_id || null })
-    ask = null
+    const aside = c.context?.action === 'aside' ? String(c.context.conversationId || '') : null
+    if (m.role === 'user') { if (aside) asideAsk[aside] = m; else ask = m; continue }
+    const id = aside || c.conv || c.context?.conversationId
+    const a = aside ? asideAsk[aside] : ask
+    if (id === conv && (c.text || '').trim()) out.push({ id: String(m.id), prompt: String(a?.content?.text || '').trim(), answer: String(c.text).trim(), at: m.created_at, refer_id: a?.content?.refer?.refer_id || null })
+    if (aside) delete asideAsk[aside]
+    else ask = null
   }
   return out.slice(-limit)
 }

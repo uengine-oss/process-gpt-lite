@@ -9,11 +9,13 @@
 //     the person was just in goes as live work (`active` — always among the router's candidates, labelled as in progress);
 //   · a message sent while a document is open goes to the conversation that last worked on that document, without asking the router —
 //     the link the screen makes for a document opened from its card (src/docSelection.js docConversation), here from what the server
-//     saw, so it holds when the screen lost the link (a document opened another way, a save that replaced the open document's record).
+//     saw, so it holds when the screen lost the link. The document is the one the sending page has open (its card's id, its address —
+//     never a name alone, and never what is open on another device: review 11-25 #4), and a shared folder's run room is never the link.
 // Structure only — what each conversation did and when; never the words of the message (no phrase rules).
 import { config } from '../config.js'
 import { q } from './supa.js'
 import { L } from './lang.js'
+import { isFolderRoom } from './folders/work.js'
 
 // what kind of file a name is, said to the model (a lookup by extension, as the screens' file cards do)
 const KINDS = [
@@ -31,6 +33,8 @@ const ms = (t) => { const v = new Date(t).getTime(); return Number.isFinite(v) ?
 const base = (name) => String(name || '').split('/').pop().trim().toLowerCase()
 // a message's conversation tag: an id, or {id, title} (a card about a conversation)
 const idOf = (v) => { const x = v && typeof v === 'object' ? v.id : v; return x ? String(x) : null }
+// an address as it names a document: without its query (a signed address changes, its object does not)
+const addr = (u) => (/^https?:\/\//.test(String(u || '')) ? String(u).split(/[?#]/)[0] : null)
 
 /**
  * What each conversation of the main chat did, from its messages (oldest first): the files it made, was given or edited, and its last
@@ -51,6 +55,9 @@ export function factsOf(messages = [], { except = null } = {}) {
     if (i >= 0) { docs[i] = { name: docs[i].name, how: rank[how] > rank[docs[i].how] ? how : docs[i].how, at: Math.max(docs[i].at, at) }; return }
     docs.push({ name: String(name), how, at })
   }
+  // which conversation each document — by its card and its address — was worked on in, and when (docLinkOf)
+  const marks = []
+  const mark = (conv, at, msgId, url) => { if (conv && (msgId || url)) marks.push({ conv, at, ...(msgId ? { msgId: String(msgId) } : {}), ...(url ? { url } : {}) }) }
   let cur = null
   let waiting = null // the person's latest message whose conversation is not known yet (its answer tells)
   let attached = []  // files the person attached, waiting for the answer that took them
@@ -61,7 +68,7 @@ export function factsOf(messages = [], { except = null } = {}) {
     const at = ms(m.created_at)
     if (c.context?.action === 'aside') continue
     if (m.role === 'user') {
-      if (m.kind === 'file') { if (c.name) attached.push({ name: c.name, at }); continue }
+      if (m.kind === 'file') { if (c.name) attached.push({ name: c.name, at, msgId: m.id, url: addr(c.url) }); continue }
       // (a request a button started — a mail's follow-up, lib/mailFollow.js — is not what the person typed)
       if (m.kind !== 'text' || c.follow) continue
       const conv = idOf(c.conv)
@@ -75,15 +82,15 @@ export function factsOf(messages = [], { except = null } = {}) {
       cur = conv
       touch(conv, at)
       if (waiting) { justIn = { conv, at: waiting.at }; waiting = null }
-      for (const f of attached) addDoc(conv, f.name, 'attached', f.at)
+      for (const f of attached) { addDoc(conv, f.name, 'attached', f.at); mark(conv, f.at, f.msgId, f.url) }
       attached = []
-      // the document that was open for this turn (lib/agent.js delegate): the turn worked on it
-      if (c.openDoc?.file) addDoc(conv, c.openDoc.file, 'edited', at)
+      // the document this turn edited (lib/agent.js delegate): the turn worked on it
+      if (c.openDoc?.file) { addDoc(conv, c.openDoc.file, 'edited', at); mark(conv, at, c.openDoc.msgId, addr(c.openDoc.url)) }
       continue
     }
-    if (m.kind === 'file' && c.name) addDoc(cur, c.name, c.edited ? 'edited' : 'made', at)
+    if (m.kind === 'file' && c.name) { addDoc(cur, c.name, c.edited ? 'edited' : 'made', at); mark(cur, at, m.id, addr(c.url)) }
   }
-  return { convs, justIn }
+  return { convs, justIn, marks }
 }
 
 // how long ago, in the words the model reads
@@ -128,31 +135,35 @@ export function contextsFor(rows = [], facts = { convs: {}, justIn: null }, { no
   })
 }
 
-/** the conversation that last worked on the document named `file` (its card, an attachment, or a turn it was open for) — or null */
-export function docLinkOf(facts, file) {
-  const want = base(file)
-  if (!want) return null
-  let best = null
-  for (const [conv, f] of Object.entries(facts?.convs || {})) {
-    for (const d of f.docs) if (base(d.name) === want && (!best || d.at > best.at)) best = { conv, at: d.at }
-  }
-  return best?.conv || null
+/**
+ * The conversations that worked on the open document — its card (the message it was opened from), an attachment, or a turn that edited
+ * it — newest first, by the card's id or the document's address; never by a name alone (two documents may share one). → [conv]
+ */
+export function docLinksOf(facts, open) {
+  const msgId = open?.msgId ? String(open.msgId) : null
+  const url = addr(open?.url)
+  if (!msgId && !url) return []
+  const hits = (facts?.marks || []).filter((k) => (msgId && k.msgId === msgId) || (url && k.url === url)).sort((a, b) => b.at - a.at)
+  return [...new Set(hits.map((k) => k.conv))]
 }
 
 /**
- * For a main-chat message about to be routed: the router's candidates, and the conversation to go to without asking when a document
- * is open (open: {file}) that a conversation of this chat worked on. except: the message being answered (handleTurn's).
+ * For a main-chat message about to be routed: the router's candidates, and the conversation to go to without asking when the sending
+ * page has a document open (open: {file, msgId, url}) that a conversation of this chat worked on — not a shared folder's run room
+ * (deps.isRoom: tests). except: the message being answered (handleTurn's).
  */
-export async function turnFacts({ user, threadId, except = null, open = null }) {
+export async function turnFacts({ user, threadId, except = null, open = null }, deps = {}) {
+  const isRoom = deps.isRoom || isFolderRoom
   const [msgs, rows] = await Promise.all([
     q(`select id, role, kind, created_at, jsonb_build_object('context', content->'context', 'conv', content->'conv', 'name', content->'name',
-          'openDoc', content->'openDoc', 'edited', content->'edited', 'follow', content->'follow') as content
+          'url', content->'url', 'openDoc', content->'openDoc', 'edited', content->'edited', 'follow', content->'follow') as content
         from (select * from pro_messages where thread_id=$1 order by created_at desc limit 400) m order by created_at`, [threadId]),
     q(`select conversation_id, title, summary, gist, kind, updated_at from context_threads where tenant_id=$1 and user_id=$2
         and updated_at > now() - interval '30 days' order by updated_at desc limit 40`, [config.tenantId, user.id]),
   ])
   const facts = factsOf(msgs, { except })
   const contexts = contextsFor(rows, facts)
-  const conv = open?.file ? docLinkOf(facts, open.file) : null
+  let conv = null
+  for (const c of docLinksOf(facts, open)) if (!(await isRoom(c).catch(() => true))) { conv = c; break }
   return { facts, contexts, docLink: conv ? { conversationId: conv, title: rows.find((r) => r.conversation_id === conv)?.title || '' } : null }
 }
