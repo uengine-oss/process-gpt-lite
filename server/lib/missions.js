@@ -23,6 +23,7 @@ import { L, isEn, locale, asUser, langInstruction } from './lang.js'
 import { withTenant } from './tenant.js'
 import { sendsToTelegram } from './scheduleIntent.js'
 import { marketHint } from './marketHint.js'
+import { scheduleConversation, scheduleAgentConversation, aside, pinOf, listOwn } from './ownConversations.js'
 
 const PGPT = PGPT_ROOT
 
@@ -205,25 +206,59 @@ async function runTimerSchedule(s, run) {
   return done
 }
 
+// a notification of a run opens the task's own conversation (components/NotificationCard.vue — review 11-25 #9)
+export const chatUrl = (own) => `/chat/c/${encodeURIComponent(own.conversationId)}`
+// Where a task's results go: the chat it reports to, and — when that is the main chat — the task's own conversation there (one per task,
+// lib/ownConversations.js): its runs never land in the conversation the person happens to be in. A project's or an instance's thread
+// keeps its results as before (its own conversation).
+async function reportTo(s, asked = null) {
+  const main = (await mainThread(s.user_id)).id
+  const threadId = asked || s.thread_id || main
+  return { threadId, own: threadId === main ? scheduleConversation(s) : null }
+}
+
+// What this task shared last, for a run told to say 「변동 없음」 when nothing differs (review 11-25 #2: the run's agent history starts
+// afresh every few runs, so the comparison is given, not left to a long history): the newest result in its own conversation, else the
+// summary of its last run that posted something. '' when it never posted.
+export async function lastShared(s, threadId, own) {
+  if (own) {
+    const [m] = await q(`select content->>'text' as text from pro_messages where thread_id=$1 and role='agent' and kind in ('text','doc')
+                          and content->'context'->>'conversationId'=$2 order by created_at desc limit 1`, [threadId, own.conversationId])
+    if (m?.text) return m.text.trim().slice(0, 1500)
+  }
+  const [r] = await q(`select summary from pro_mission_runs where schedule_id=$1 and status='done' and (result->>'posted')::boolean is true
+                       order by started_at desc limit 1`, [s.id])
+  return String(r?.summary || '').trim().slice(0, 1500)
+}
+// the run's number among this task's runs (this one included): which of its agent histories it continues
+const runNumber = async (s) => (await q('select count(*)::int as n from pro_mission_runs where schedule_id=$1', [s.id]))[0]?.n || 1
+
 async function runPromptSchedule(s, run, { threadId: asked, manual = false } = {}) {
   const [p] = await q('select email, name from pro_profile where user_id=$1', [s.user_id])
   const { user, session } = await sessionFor(p.email, p.name)
-  const threadId = asked || s.thread_id || (await mainThread(s.user_id)).id
+  const { threadId, own } = await reportTo(s, asked)
   // a reminder is meant to arrive every time; "no change" only suits a schedule that watches something
   const reminder = s.notify === 'always'
+  const last = !reminder && !manual ? await lastShared(s, threadId, own).catch(() => '') : ''
+  const before = last ? L(`\n직전 실행에서 공유한 결과:\n«${last}»`, `\nWhat the previous run shared:\n«${last}»`) : ''
   // run now, to try it: the person wants to see what it found, even when nothing crossed the line
   const text = manual ? L(`${s.prompt}\n\n(지금 바로 한 번 시험으로 실행합니다. 조건에 해당하는 게 없어도 확인한 값과 판단을 짧게 보여 주세요. 과정 설명은 빼고 결과만 쓰세요.)`,
     `${s.prompt}\n\n(This is a test run, right now. Even if nothing meets the condition, briefly show the values you checked and your conclusion. Write only the result, without describing the process.)`) : reminder ? L(`${s.prompt}\n\n(예약 실행입니다. 사용자에게 알릴 내용을 과정 설명 없이 답하세요.)`,
-    `${s.prompt}\n\n(This is a scheduled run. Answer with what the user should be told, without describing the process.)`) : L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)`,
-    `${s.prompt}\n\n(This is a scheduled run. If nothing differs from what you shared in the previous run, answer exactly "No change" and nothing else. When you share, write only the result, without describing the process.)`)
+    `${s.prompt}\n\n(This is a scheduled run. Answer with what the user should be told, without describing the process.)`) : L(`${s.prompt}\n\n(예약 실행입니다. 직전 실행에서 공유한 것과 달라진 게 없으면 다른 말 없이 정확히 "변동 없음"만 답하세요. 공유할 때는 과정 설명 없이 결과만 쓰세요.)${before}`,
+    `${s.prompt}\n\n(This is a scheduled run. If nothing differs from what you shared in the previous run, answer exactly "No change" and nothing else. When you share, write only the result, without describing the process.)${before}`)
   const { delegate } = await import('./agent.js')
-  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id }, quietIfUnchanged: !reminder && !manual })
-  if (reminder && msg && !manual) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: String(msg.content?.text || '').slice(0, 300), url: `/pro/threads/${threadId}` })
+  // (in its own conversation; the agent's history of it starts afresh every few runs — ownConversations.scheduleAgentConversation)
+  const agentConv = own ? scheduleAgentConversation(own.conversationId, await runNumber(s)) : null
+  const msg = await delegate({ user, session, threadId, text, divider: { text: s.name, scheduleId: s.id, ...aside(own, { named: true }) }, quietIfUnchanged: !reminder && !manual,
+    ...(own ? { pin: { ...pinOf(own), agent: agentConv }, background: true } : {}) })
+  // listed in the chat's 대화 once it has something to show (a run that found nothing new posts nothing and does not move it up)
+  if (own && msg) await listOwn(s.user_id, own, s.prompt, msg.content?.text).catch((e) => console.warn('[mission] list', e.message))
+  if (reminder && msg && !manual) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: String(msg.content?.text || '').slice(0, 300), url: own ? chatUrl(own) : `/pro/threads/${threadId}` })
   const body = String(msg?.content?.text || '')
   const out = msg ? outcomeOf(body) : { ok: true, summary: L('변동 없음', 'No change') }
   // the answer is already in the chat: a failure is announced by the caller, not repeated here
   // the same answer to Telegram when the task is marked for it (only a run that had something to say)
-  const telegram = msg && out.ok ? await deliverTelegram(s, body, threadId) : null
+  const telegram = msg && out.ok ? await deliverTelegram(s, body, threadId, aside(own)) : null
   const [done] = await q(`update pro_mission_runs set finished_at=now(), status=$2, changed=$3, summary=$4, result=$5 where id=$1 returning *`,
     [run.id, out.ok ? 'done' : 'failed', out.ok ? !!msg : null, out.summary, { agent: 'deepagents', posted: !!msg, ...(telegram ? { telegram } : {}) }])
   emit(s.user_id, 'mission', { scheduleId: s.id, run: done })
@@ -236,10 +271,12 @@ async function announceFailure(s, run, { posted = false } = {}) {
   if (s.notify === 'never') return
   const reason = String(run?.summary || L('원인을 알 수 없어요.', 'The cause is unknown.')).slice(0, 200)
   if (!posted) {
-    const t = s.thread_id || (await mainThread(s.user_id)).id
-    await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id })
-    await addMessage(s.user_id, t, 'agent', 'text', { text: L(`예약 실행이 실패했어요: ${reason}\n다음 예약 시각에 다시 실행해요. 「${s.name} 관리」에서 실행 기록을 보거나 지금 다시 실행할 수 있어요.`,
-      `The scheduled run failed: ${reason}\nIt will run again at the next scheduled time. In "Manage ${s.name}" you can see the run history or run it again now.`) })
+    const { threadId: t, own } = await reportTo(s)
+    const said = L(`예약 실행이 실패했어요: ${reason}\n다음 예약 시각에 다시 실행해요. 「${s.name} 관리」에서 실행 기록을 보거나 지금 다시 실행할 수 있어요.`,
+      `The scheduled run failed: ${reason}\nIt will run again at the next scheduled time. In "Manage ${s.name}" you can see the run history or run it again now.`)
+    await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id, ...aside(own, { named: true }) })
+    await addMessage(s.user_id, t, 'agent', 'text', { text: said, ...aside(own) })
+    if (own) await listOwn(s.user_id, own, s.prompt, said).catch((e) => console.warn('[mission] list', e.message))
   }
   await notifyUser(s.user_id, { type: 'mission_failed', title: L(`예약 실행 실패: ${s.name}`, `Scheduled run failed: ${s.name}`), text: reason, url: `/settings/schedules?open=${s.id}` })
 }
@@ -275,7 +312,8 @@ export async function runMission(scheduleId, trigger = 'cron', opts = {}) {
 // A task marked to send its results to Telegram too (state.channels, lib/agent.js telegramTurn): what
 // the chat got goes to the person's bot. Not connected (yet): a line under the result says where to
 // connect it, once per run. The outcome is kept in the run's result.
-async function deliverTelegram(s, text, threadId) {
+// tag: where the line about it is filed (the task's own conversation in the main chat)
+async function deliverTelegram(s, text, threadId, tag = {}) {
   if (!sendsToTelegram(s) || !String(text || '').trim()) return null
   const flag = (on) => q(`update pro_schedules set state = coalesce(state,'{}'::jsonb) || $2::jsonb where id=$1`, [s.id, JSON.stringify({ telegram_warned: on })]).catch(() => {})
   try {
@@ -291,7 +329,7 @@ async function deliverTelegram(s, text, threadId) {
     if (notSetUp && s.state?.telegram_warned) return code
     if (notSetUp) await flag(true)
     if (threadId) {
-      await addMessage(s.user_id, threadId, 'agent', 'chip', { icon: 'bell', scheduleId: s.id, text: code === 'telegram_not_connected' || code === 'telegram_not_linked'
+      await addMessage(s.user_id, threadId, 'agent', 'chip', { icon: 'bell', scheduleId: s.id, ...tag, text: code === 'telegram_not_connected' || code === 'telegram_not_linked'
         ? L('텔레그램이 연결되지 않아 보내지 못했어요 · 설정 › 연결에서 텔레그램 봇을 연결해 주세요', "Couldn't send to Telegram: no bot connected · connect it in Settings › Connections")
         : L(`텔레그램으로 보내지 못했어요 · ${e.message}`.slice(0, 120), `Couldn't send to Telegram · ${e.message}`.slice(0, 120)) }).catch(() => {})
     }
@@ -353,14 +391,15 @@ async function runMissionAs(s, trigger, opts = {}) {
     // hark-style: stay quiet only when the run says nothing changed (unknown → the person hears about it);
     // a run asked for now (manual) always answers, in the conversation that asked
     if ((trigger === 'manual' && opts.test) || s.notify === 'always' || (s.notify !== 'never' && changed !== false)) {
-      const t = opts.threadId || s.thread_id || (await mainThread(s.user_id)).id
-      await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id })
+      const { threadId: t, own } = await reportTo(s, opts.threadId)
+      await addMessage(s.user_id, t, 'system', 'divider', { text: s.name, scheduleId: s.id, ...aside(own, { named: true }) })
       const created = (result?.created || []).map((c) => `- ${c.date} ${c.summary}`).join('\n')
       const said = `${summary}${created ? `\n\n${created}` : ''}`
-      await addMessage(s.user_id, t, 'agent', 'text', { text: said, ...(out.tools?.length ? { work: [...new Set(out.tools)].slice(0, 12).map((tool) => ({ tool })) } : {}) })
+      await addMessage(s.user_id, t, 'agent', 'text', { text: said, ...(out.tools?.length ? { work: [...new Set(out.tools)].slice(0, 12).map((tool) => ({ tool })) } : {}), ...aside(own) })
+      if (own) await listOwn(s.user_id, own, s.prompt, said).catch((e) => console.warn('[mission] list', e.message))
       // a skill run is the owner's own job: only the person who set it up hears about it
-      if (!(trigger === 'manual' && opts.test)) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: summary, url: `/pro/threads/${t}` })
-      const telegram = await deliverTelegram(s, said, t)
+      if (!(trigger === 'manual' && opts.test)) await notifyUser(s.user_id, { type: 'mission', title: s.name, text: summary, url: own ? chatUrl(own) : `/pro/threads/${t}` })
+      const telegram = await deliverTelegram(s, said, t, aside(own))
       if (telegram) await q(`update pro_mission_runs set result = coalesce(result,'{}'::jsonb) || $2::jsonb where id=$1`, [run.id, JSON.stringify({ telegram })])
     }
     return done

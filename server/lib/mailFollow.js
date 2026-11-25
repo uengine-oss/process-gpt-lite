@@ -251,7 +251,10 @@ export async function runFollow(user, session, actionId, key, { again = false } 
     const context = MM.mailContextText(mail, { chars: F.mentionChars, link: MM.threadLinkOf(mail), inst })
     const said = `${def.label} — ${companyOf(who)}`
     // the person's request as it is shown (with the mail's chip), then the agent in that conversation
-    await addMessage(user.id, threadId, 'user', 'text', { text: said, refs: [{ as: 'mail', name: subject, from: who.name, actionId: a.id }], follow: { actionId: a.id, key: def.key } })
+    // (filed in that conversation, aside: the chat's own conversation stays where the person is — src/convOf.js)
+    const { aside } = await import('./ownConversations.js')
+    await addMessage(user.id, threadId, 'user', 'text', { text: said, refs: [{ as: 'mail', name: subject, from: who.name, actionId: a.id }], follow: { actionId: a.id, key: def.key },
+      ...(conv ? aside({ conversationId: conv, title, kind: 'conversation' }, { named: true }) : {}) })
     if (conv) await A.fileConversation(user, { conversationId: conv, title }, said)
     let msg = null, why = ''
     try {

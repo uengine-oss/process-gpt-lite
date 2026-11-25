@@ -2931,7 +2931,9 @@
   "요청하지 않은 구매라 누르지 않은 것": "Not pressed — a purchase you didn't ask for",
   "이번 작업에만 적용": "Only for this task",
   "규칙을 바꿨어요": "Rule changed",
-  "이번 작업에만 적용했어요": "Applied to this task only"
+  "이번 작업에만 적용했어요": "Applied to this task only",
+  "예약 작업": "Scheduled task",
+  "브리프": "Briefs"
  },
  "patterns": [
   [
