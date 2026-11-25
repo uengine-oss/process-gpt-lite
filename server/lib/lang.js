@@ -79,11 +79,26 @@ export const ENGLISH_NOTE = 'LANGUAGE: English. Write every reply and every text
   + 'English, even where these instructions are written in Korean or ask for Korean (한국어, 해요체, 존댓말, 습니다체). '
   + 'Keep JSON keys, enum values, ids, paths, code and quoted identifiers exactly as specified.'
 
+// What an agent is told in Korean mode — only for a message with no words of its own (only a link, only a file): it carries no
+// language, and a model left to guess answered one in Russian, Portuguese or Turkish (claude-haiku-5-5, design turnplan §1.5).
+// A message with words keeps its own language (deepagents reads it from the text), and so does a request for another language
+// (「영문 메일 써 줘」) — the note says so (review 11-25 #6).
+export const KOREAN_NOTE = '언어: 한국어. 보낸 메시지에 말이 없어(링크나 파일뿐) 언어를 알 수 없으니, 답과 사람이 읽는 글(답, 질문, 진행 메모, 요약, 제목, 파일 이름, 문서 내용)은 '
+  + '한국어 해요체로 쓰세요. 읽은 자료가 다른 언어여도 한국어로 씁니다. 다만 사람이 다른 언어를 요청했거나 앞선 대화를 다른 언어로 썼으면 그 언어로 쓰세요. '
+  + 'JSON 키, 열거값, id, 경로, 코드, 따옴표로 묶인 식별자는 정해진 그대로 둡니다.'
+// no words of its own: nothing but links, whitespace and marks once the addresses are taken out (format, not meaning)
+export const wordless = (text) => !/[\p{L}\p{N}]/u.test(String(text ?? '').replace(/https?:\/\/\S+/gi, ''))
+
 // The same for an agent (deepagents, cli-agent, Claude Code): appended to the message it gets, after
 // what the person said (context-router names a conversation after the message's first line, and
-// deepagents reads an "[Instruction]" line as a directive). Empty in Korean mode.
-export function langInstruction() {
-  if (!isEn()) return ''
+// deepagents reads an "[Instruction]" line as a directive).
+// English mode: always. Korean mode: only when `said` — the person's own message — has no words (a link alone); never for a caller
+// that does not say what was said (local CLI agents, missions, mail drafts: as before, nothing in Korean mode).
+export function langInstruction({ said } = {}) {
+  if (!isEn()) {
+    if (said == null || !wordless(said)) return ''
+    return `\n\n[Instruction] ${KOREAN_NOTE}`
+  }
   return `\n\n[Instruction] ${ENGLISH_NOTE} Give files you create English names (e.g. "Moonlight Coffee Store 2 quote.xlsx"), `
     + 'and write the text inside them (headings, tables, labels, sheet and slide titles) in English.'
 }

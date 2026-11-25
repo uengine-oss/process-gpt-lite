@@ -172,7 +172,9 @@ export async function stream(path, body, onEvent) {
   }
 }
 
-const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'browser.click', 'process', 'mission', 'notifications', 'team', 'meeting', 'local_presence']
+const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'browser.click', 'process', 'mission', 'notifications', 'team', 'meeting', 'local_presence',
+  // a chat turn while it runs: its plan, stage, to-dos, steps and notes (server lib/turnPlan.js — the plan card and the progress panel)
+  'turn.start', 'turn.plan', 'turn.stage', 'turn.todos', 'turn.step', 'turn.note', 'turn.call', 'turn.end']
 // Live events over SSE; if the stream never says hello (a proxy in front holding it back, as
 // Cloudflare quick tunnels do), the same events come by long polling instead.
 // One stream per page, however many ask for it: the chat (app.js boot) and the team messenger (stores/team.js boot — a messenger
@@ -185,6 +187,9 @@ export function events(handler) {
   // can listen without a second stream
   const onEvent = (t, d) => { for (const h of handlers) h(t, d); try { window.dispatchEvent(new CustomEvent('pgpt:event', { detail: { type: t, data: d } })) } catch { /* old browser */ } }
   let es, stopped = false, polling = false
+  // a connection after the first one (a reconnect, or long polling after a stream): events sent meanwhile were not seen — the
+  // handlers are told ('reconnect'), so what they keep live (the running turns' cards) is read again
+  let connected = 0
   const tok = () => encodeURIComponent(auth.get()?.session?.access_token || '')
   async function pollLoop(after) {
     polling = true
@@ -205,9 +210,10 @@ export function events(handler) {
     const fallback = setTimeout(() => {
       if (hello || stopped) return
       es.close()
+      if (connected++ > 0) onEvent('reconnect', {})
       pollLoop(null)
     }, 5000)
-    es.addEventListener('hello', () => { hello = true; clearTimeout(fallback) })
+    es.addEventListener('hello', () => { hello = true; clearTimeout(fallback); if (connected++ > 0) onEvent('reconnect', {}) })
     for (const t of EVENT_TYPES) es.addEventListener(t, (e) => onEvent(t, JSON.parse(e.data)))
     es.onerror = () => { if (polling) return; es.close(); setTimeout(async () => { await refreshToken(); if (!polling) open() }, 3000) }
   }

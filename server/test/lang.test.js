@@ -26,6 +26,7 @@ test('outside any request the language is ko', () => {
   assert.equal(isEn(), false)
   assert.equal(L('한국어', 'English'), '한국어')
   assert.equal(locale(), 'ko-KR')
+  // (Korean mode: nothing for a caller that does not say what was said — local CLI agents, missions; review 11-25 #6)
   assert.equal(langInstruction(), '')
   assert.equal(inLanguage('프롬프트'), '프롬프트')
 })

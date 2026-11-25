@@ -7,7 +7,7 @@ import { config } from '../config.js'
 import { q } from './supa.js'
 import { L, isEn } from './lang.js'
 import { chat, chatJson } from './llm.js'
-import { oddsOf } from './decide.js'
+import { oddsOf, TURN_ODDS_MS } from './decide.js'
 import { addMessage, updateMessage } from './store.js'
 
 // Bars, set on test/followup-eval (dev half). What is learned gets run again, so learning and merging want to be sure.
@@ -127,7 +127,9 @@ export async function recordPair(user, cls, text, attached = []) {
 const within = (at) => Date.now() - new Date(at).getTime() < HABIT.windowDays * 864e5
 const isFollowup = async (prev, text) => {
   if (cap(text).length < 2) return false
-  const r = await oddsOf(followupState(prev, text), FOLLOWUP_QUESTION(), FOLLOWUP_OPTIONS())
+  // (read beside the router — followsResult — and after the turn — learn: the shorter limit, design turnplan §5.1; the router waits
+  // for it, so a slow reading would hold the turn)
+  const r = await oddsOf(followupState(prev, text), FOLLOWUP_QUESTION(), FOLLOWUP_OPTIONS(), { timeoutMs: TURN_ODDS_MS })
   // the model cannot read: nothing is decided from words alone
   return !!r && r.choice === 'followup' && r.confidence >= HABIT.learnBar
 }
@@ -287,6 +289,7 @@ export async function readAnswer(user, threadId, saidId, text, hasFiles) {
   const card = await pendingCard(threadId, saidId)
   if (!card) return null
   if (hasFiles || cap(text, 999).length > HABIT.answerMaxChars) { await close(user.id, card, 'passed'); return null }
+  // (the full limit: 「네」 to the card just asked must not fall through because one reading in thirty is slow — review 11-25 #9)
   const r = await oddsOf(answerState(card.content.text, text), ANSWER_QUESTION(), ANSWER_OPTIONS())
   if (r?.choice === 'accept' && r.confidence >= HABIT.bar) {
     const h = card.content.routine ? await acceptRoutine(user, card) : await accepted(user, card)

@@ -97,6 +97,10 @@ export const config = {
     apiKey: get('PRO_LLM_API_KEY', get('OPENAI_API_KEY')),
     model: get('PRO_LLM_MODEL', 'gpt-6-luna'),
     fastModel: get('PRO_LLM_FAST_MODEL', 'gpt-4.1-mini'),
+    // the front step (lib/turnPlan.js frontPlan — what was understood and the steps, shown before any work): its model,
+    // the fast model when unset; the fast model is also its fallback. PRO_FRONT_PLAN=off leaves the call out.
+    get frontModel() { return get('PRO_LLM_FRONT_MODEL', '') || this.fastModel },
+    frontPlan: !/^(off|0|false|no)$/i.test(String(get('PRO_FRONT_PLAN', 'on')).trim()),
     // the model that answers with log-probabilities (lib/llm.js firstTokenTop — decide.js odds, judges): when the main
     // model gives none (Claude), the readings stay on one that does. Unset: the main model, as before.
     oddsModel: get('PRO_LLM_ODDS_MODEL', ''),

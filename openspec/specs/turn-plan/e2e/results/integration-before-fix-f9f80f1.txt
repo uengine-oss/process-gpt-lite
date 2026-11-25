@@ -1,0 +1,221 @@
+TAP version 13
+# ◇ injected env (16) from .env
+# [local-agents] no screen model: @xterm/headless did not load — Cannot find module '@xterm/headless'
+# [workroom] no terminals: node-pty did not load: Cannot find module 'node-pty'
+# Require stack:
+# - /private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/lib/workroom.js
+# [turn-plan] model=frentis-ai-model ms=3 tier=light certainty=sure steps=2 thread=7a19e0b3
+# [router] model=frentis-ai-model 1274 ms (hints 1274 ms) → DELEGATE
+# [turn-plan] handler=agent plan(front)="요청을 살펴볼게요." thread=7a19e0b3
+# Subtest: TP-I-01 (\#1) 에이전트가 사람에게 물으면 저장되는 답은 JSON 이 아니라 질문 · 맥락 · 고를 것
+not ok 1 - TP-I-01 (\#1) 에이전트가 사람에게 물으면 저장되는 답은 JSON 이 아니라 질문 · 맥락 · 고를 것
+  ---
+  duration_ms: 2293.0615
+  type: 'test'
+  location: '/private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:109:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + '{"type":"human_input_required","question":"어떤 형식으로 정리할까요?","context":"링크의 글이 길어요.","options":["세 줄 요약","표로 정리"],"multi_select":false,"run_state":{"pending_field":"human_response","tool_name":"request_human_input","last_question":"어떤 형식으로 정리할까요?"}}'
+    - '링크의 글이 길어요.\n\n어떤 형식으로 정리할까요?\n- 세 줄 요약\n- 표로 정리'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: |-
+    링크의 글이 길어요.
+    
+    어떤 형식으로 정리할까요?
+    - 세 줄 요약
+    - 표로 정리
+  actual: '{"type":"human_input_required","question":"어떤 형식으로 정리할까요?","context":"링크의 글이 길어요.","options":["세 줄 요약","표로 정리"],"multi_select":false,"run_state":{"pending_field":"human_response","tool_name":"request_human_input","last_question":"어떤 형식으로 정리할까요?"}}'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:121:10)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3)
+  ...
+# [turn-plan] model=frentis-ai-model ms=1 tier=light certainty=sure steps=2 thread=032b9b2b
+# [router] model=frentis-ai-model 103 ms (hints 103 ms) → DELEGATE
+# [turn-plan] handler=agent plan(front)="요청을 살펴볼게요." thread=032b9b2b
+# Subtest: TP-I-02 (\#2) 긴 요약 → write_todos → 짧은 마무리: 요약이 답에 남는다
+not ok 2 - TP-I-02 (\#2) 긴 요약 → write_todos → 짧은 마무리: 요약이 답에 남는다
+  ---
+  duration_ms: 626.099792
+  type: 'test'
+  location: '/private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:126:1'
+  failureType: 'testCodeFailure'
+  error: '모든 단계를 마쳤어요.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:145:10)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# [turn-plan] model=frentis-ai-model ms=0 tier=light certainty=sure steps=2 thread=6e3e1c3d
+# Subtest: TP-I-03 (\#3) 대화 보기에서 누른 멈추기가 라우터를 기다리는 메시지에 닿는다
+not ok 3 - TP-I-03 (\#3) 대화 보기에서 누른 멈추기가 라우터를 기다리는 메시지에 닿는다
+  ---
+  duration_ms: 1199.556916
+  type: 'test'
+  location: '/private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:153:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:160:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# [turn-plan] model=frentis-ai-model ms=0 tier=light certainty=sure steps=2 thread=f9eec0bc
+# [router] model=frentis-ai-model 17 ms (hints 16 ms) → DELEGATE
+# [turn-plan] handler=agent plan(front)="요청을 살펴볼게요." thread=f9eec0bc
+# [turn-plan] model=frentis-ai-model ms=0 tier=light certainty=sure steps=2 thread=f9eec0bc
+# [delegate] stopped by the user
+# [turn] stopped before a handler started thread=f9eec0bc
+# Subtest: TP-I-04 (\#4) 답을 쓰는 중에 보낸 메시지는, 그 답을 멈춰도 이어서 처리된다
+not ok 4 - TP-I-04 (\#4) 답을 쓰는 중에 보낸 메시지는, 그 답을 멈춰도 이어서 처리된다
+  ---
+  duration_ms: 190.168
+  type: 'test'
+  location: '/private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:167:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    only the answer being written
+    
+    2 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 2
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:177:10)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# [turn-plan] model=frentis-ai-model ms=0 tier=light certainty=sure steps=2 thread=597c0dce
+# [turn] stopped before a handler started thread=597c0dce
+# [turn-plan] model=frentis-ai-model ms=1 tier=light certainty=sure steps=2 thread=597c0dce
+# [router] model=frentis-ai-model 14 ms (hints 14 ms) → DELEGATE
+# [turn-plan] handler=agent plan(front)="요청을 살펴볼게요." thread=597c0dce
+# Subtest: TP-I-05 (\#5) 앞 단계에서 멈춘 메시지의 첨부는 다음 메시지의 에이전트에게 따라가지 않는다
+not ok 5 - TP-I-05 (\#5) 앞 단계에서 멈춘 메시지의 첨부는 다음 메시지의 에이전트에게 따라가지 않는다
+  ---
+  duration_ms: 342.085792
+  type: 'test'
+  location: '/private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:189:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + [
+    +   {
+    +     fileName: '계약서.pdf',
+    +     fileSize: 10,
+    +     fileType: 'application/pdf',
+    +     fileUrl: 'http://127.0.0.1:9/att/계약서.pdf'
+    +   }
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0:
+      fileName: '계약서.pdf'
+      fileUrl: 'http://127.0.0.1:9/att/계약서.pdf'
+      fileType: 'application/pdf'
+      fileSize: 10
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:199:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# [turn-plan] model=frentis-ai-model ms=0 tier=light certainty=sure steps=2 thread=677024e9
+# [router] model=frentis-ai-model 64 ms (hints 64 ms) → DELEGATE
+# [turn-plan] handler=agent plan(front)="요청을 살펴볼게요." thread=677024e9
+# Subtest: TP-I-06 (\#6) 말이 있는 한국어 메시지에는 언어 지시가 없고, 링크만 보낸 메시지에는 있다
+not ok 6 - TP-I-06 (\#6) 말이 있는 한국어 메시지에는 언어 지시가 없고, 링크만 보낸 메시지에는 있다
+  ---
+  duration_ms: 151.663458
+  type: 'test'
+  location: '/private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:205:1'
+  failureType: 'testCodeFailure'
+  error: 'an English message from a Korean-mode person keeps its language'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:211:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# [turn-plan] model=frentis-ai-model ms=0 tier=light certainty=sure steps=2 thread=24817b8f
+# [turn] stopped before a handler started thread=24817b8f
+# Subtest: TP-I-07 (\#7) 「멈췄어요」를 쓸 수 없어도 턴의 끝이 나가고 진행 상태가 남지 않는다
+not ok 7 - TP-I-07 (\#7) 「멈췄어요」를 쓸 수 없어도 턴의 끝이 나가고 진행 상태가 남지 않는다
+  ---
+  duration_ms: 169.034917
+  type: 'test'
+  location: '/private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:222:1'
+  failureType: 'testCodeFailure'
+  error: '["turn.start","turn.stage","turn.plan","turn.stage"]'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:237:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# [decide] reading over 3000 ms, skipped
+# Subtest: TP-I-09 (\#9) 질문 카드에 대한 「아니요」 읽기가 4.2초 걸려도 읽힌다
+not ok 8 - TP-I-09 (\#9) 질문 카드에 대한 「아니요」 읽기가 4.2초 걸려도 읽힌다
+  ---
+  duration_ms: 3038.174666
+  type: 'test'
+  location: '/private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:241:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The expression evaluated to a falsy value:
+    
+      assert.ok(Date.now() - t0 >= 4100)
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-uengine-uengine-platform/622778a6-e0b6-458b-81ca-dafd6737a9b3/scratchpad/tp-base/server/test/turnPlan.integration.test.js:251:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1113:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+  ...
+# [router] model=frentis-ai-model failed after 6023 ms (hints 22 ms): The operation was aborted due to timeout → delegate

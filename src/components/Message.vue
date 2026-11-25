@@ -44,6 +44,7 @@ import { parseReplies } from '../replies.js'
 import { startDrag, cardItem } from '../fileDrag.js'
 // a mail's attachment this message was about: opened again where it belongs (src/mailAttach.js)
 import { openMailAttachment } from '../mailAttach.js'
+import { dur } from '../turnView.js'
 
 const props = defineProps({ msg: Object })
 const emit = defineEmits(['connect'])
@@ -93,6 +94,18 @@ const workLine = computed(() => {
   return `어떻게 했나요 · ${steps}단계${where}`
 })
 const workWhere = (w) => [w.hosts?.join(', '), w.query && `「${w.query}」`, w.file].filter(Boolean).join(' · ')
+// the plan this answer worked to (server lib/turnPlan.js saved): folded to 「계획 3/3 · 2분 14초」, open to what was understood, the steps
+// and the interim notes (design turnplan §3.5)
+const planOpen = ref(false)
+const plan = computed(() => (c.value.plan && typeof c.value.plan === 'object' && c.value.plan.understood ? c.value.plan : null))
+const planSteps = computed(() => (Array.isArray(plan.value?.steps) ? plan.value.steps : []))
+const planNotes = computed(() => (Array.isArray(c.value.notes) ? c.value.notes : []))
+const planLine = computed(() => {
+  if (!plan.value || (!planSteps.value.length && !planNotes.value.length && plan.value.source !== 'front')) return ''
+  const done = planSteps.value.filter((s) => s.state === 'done').length
+  const head = planSteps.value.length ? `계획 ${done}/${planSteps.value.length}` : '진행 기록'
+  return [head, dur(plan.value.ms), plan.value.state === 'stopped' ? '멈췄어요' : ''].filter(Boolean).join(' · ')
+})
 const ctx = computed(() => (c.value.context && c.value.context.action !== 'stay' && c.value.context.title ? c.value.context : null))
 const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinned: '대화에서 직접', trivial: '', none: '' }
 const ctxBy = computed(() => (ctx.value ? (ctx.value.rechecked ? '판단 모델 재확인→logprob' : ctx.value.escalated ? '판단 모델→logprob' : byName[ctx.value.strategy] ?? ctx.value.strategy) : ''))
@@ -182,6 +195,14 @@ onMounted(async () => {
       <ul v-if="c.checks?.length" class="checks" data-testid="onto-checks">
         <li v-for="(x, i) in c.checks" :key="i" :class="x.ok === true ? 'ok' : x.ok === false ? 'no' : 'na'" :title="x.note"><b>{{ x.ok === true ? '✓' : x.ok === false ? '✗' : '?' }}</b><span>{{ x.checkpoint }}</span></li>
       </ul>
+      <div v-if="planLine" class="work plan" :class="{ open: planOpen }" data-test="plan-fold">
+        <button class="wl press" :aria-expanded="planOpen" data-testid="plan-fold" @click="planOpen = !planOpen">{{ planLine }} <span class="car">{{ planOpen ? '▴' : '▾' }}</span></button>
+        <div v-if="planOpen" class="pbody" data-testid="plan-body">
+          <p class="pu" data-no-i18n>{{ plan.understood }}</p>
+          <ol v-if="planSteps.length"><li v-for="(s, i) in planSteps" :key="s.id || i" :class="s.state"><span class="pm">{{ s.state === 'done' ? '✓' : i + 1 }}</span><span data-no-i18n>{{ s.text }}</span></li></ol>
+          <template v-if="planNotes.length"><small class="pn">메모</small><ul><li v-for="(n, i) in planNotes" :key="i" data-no-i18n>{{ n }}</li></ul></template>
+        </div>
+      </div>
       <div v-if="workLine" class="work" :class="{ open: workOpen }" data-test="work-trail">
         <button class="wl press" :aria-expanded="workOpen" @click="workOpen = !workOpen">{{ workLine }} <span class="car">{{ workOpen ? '▴' : '▾' }}</span></button>
         <ol v-if="workOpen">
@@ -292,7 +313,17 @@ onMounted(async () => {
     <div v-else-if="msg.kind === 'chip'" class="chip"><Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> {{ c.text }}</div>
     <!-- 팀 맥락 공유: 관계있지만 아직 볼 수 없는 팀원의 맥락(답 아래 요청 후보) -->
     <ReferChips v-if="msg.role === 'agent' && c.refer_id" part="requestable" :refer-id="c.refer_id" :thread="msg.thread_id" />
-    <!-- a document answer's trail too (its card is above; the text answer has it under its bubble) -->
+    <!-- a document answer's plan and trail too (its card is above; the text answer has them under its bubble) -->
+    <template v-if="msg.kind === 'doc'">
+    <div v-if="planLine" class="work plan" :class="{ open: planOpen }" data-test="plan-fold">
+      <button class="wl press" :aria-expanded="planOpen" data-testid="plan-fold" @click="planOpen = !planOpen">{{ planLine }} <span class="car">{{ planOpen ? '▴' : '▾' }}</span></button>
+      <div v-if="planOpen" class="pbody" data-testid="plan-body">
+        <p class="pu" data-no-i18n>{{ plan.understood }}</p>
+        <ol v-if="planSteps.length"><li v-for="(s, i) in planSteps" :key="s.id || i" :class="s.state"><span class="pm">{{ s.state === 'done' ? '✓' : i + 1 }}</span><span data-no-i18n>{{ s.text }}</span></li></ol>
+        <template v-if="planNotes.length"><small class="pn">메모</small><ul><li v-for="(n, i) in planNotes" :key="i" data-no-i18n>{{ n }}</li></ul></template>
+      </div>
+    </div>
+    </template>
     <div v-if="workLine && msg.kind === 'doc'" class="work" :class="{ open: workOpen }" data-test="work-trail">
       <button class="wl press" :aria-expanded="workOpen" @click="workOpen = !workOpen">{{ workLine }} <span class="car">{{ workOpen ? '▴' : '▾' }}</span></button>
       <ol v-if="workOpen">
@@ -331,6 +362,14 @@ onMounted(async () => {
 .work li { margin: 2px 0; line-height: 1.45; overflow-wrap: anywhere; }
 .work li b { font-weight: 500; color: var(--text-primary); }
 .work li small { display: block; color: var(--text-tertiary); }
+.plan .pbody { margin: 4px 0 0; padding: 10px 12px; border-radius: 14px; background: var(--bubble-agent-bg); }
+.plan .pu { margin: 0 0 6px; color: var(--text-primary); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.plan .pbody ol, .plan .pbody ul { margin: 0; padding: 0; list-style: none; background: none; border-radius: 0; }
+.plan .pbody li { display: grid; grid-template-columns: 18px 1fr; gap: 6px; margin: 3px 0; }
+.plan .pbody ul li { display: block; color: var(--text-tertiary); }
+.plan .pm { color: var(--text-tertiary); }
+.plan li.done .pm { color: var(--color-success); }
+.plan .pn { display: block; margin: 8px 0 2px; color: var(--text-tertiary); }
 .tgc { width: min(424px, 100%); }
 /* never wider than the column: a phone's column is narrower than 424px, and a wide table inside used to push
    the bubble past the screen's right edge (2026-11-21 recording) */

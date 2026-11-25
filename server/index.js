@@ -8,6 +8,7 @@ import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail } from './
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns } from './lib/agent.js'
+import { turnRoutes } from './lib/turnPlan.js'
 import { ruleOf, removeRule } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
@@ -685,6 +686,8 @@ function projectDraftTitle(text) {
 app.use('/api', threadFolderRoutes(auth))
 // 방 규칙(lib/roomRules.js): 이 방에 걸린 약속을 보고 끈다
 app.get('/api/threads/:id/rule', auth, async (req, res) => res.json({ rule: await ruleOf(req.user.id, req.params.id).catch(() => null) }))
+// a turn in progress, as the plan card and the progress panel show it (lib/turnPlan.js): the page opened or reloaded mid-turn
+app.use('/api', turnRoutes(auth))
 app.delete('/api/threads/:id/rule', auth, async (req, res) => res.json(await removeRule(req.user.id, req.params.id)))
 app.get('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
@@ -741,7 +744,9 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, onDelta: (d) => send('delta', { d }) })
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, onDelta: (d) => send('delta', { d }),
+      // the draft answer turned out to be an interim text (a tool call followed it): the page clears the draft (lib/turnPlan.js)
+      onRetract: () => send('retract', {}) })
     send('done', final)
   } catch (e) {
     // dragged files that all turned out unusable and no words: nothing was sent (handleTurn) — said, not a failed chat turn

@@ -9,10 +9,14 @@ import { keyOf as chatKeyOf } from '../chatAgent.js'
 import { readListOpen, saveListOpen } from '../threadList.js'
 import { artifactScope, artifactItems, readFolded, saveFolded } from '../artifactScope.js'
 import { topicOf, topicList } from '../projectTopics.js'
+import { applyTurnEvent, fromSnapshot } from '../turnState.js'
 import { docSelectionOf, docSelectionKey, selectionMention, mentionContext, docConversation } from '../docSelection.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
+
+// turns this page saw end (turnId → when): a snapshot or a late event does not bring their cards back (src/turnState.js)
+const endedTurns = new Map()
 
 // a routed turn that came as a live event (another device, an answer after a dropped connection): the list's titles and summaries
 // again, once things settle (the router writes its row as the turn ends)
@@ -42,6 +46,9 @@ export const useApp = defineStore('app', {
     drafts: {},                // threadId -> streaming text
     askedAt: {},               // threadId -> when this screen last sent a message there (a file the agent opens on request opens here)
     status: {},                // threadId -> live status text
+    // threadId -> {turnId -> the turn as it runs}: plan, stage, to-dos, steps, notes (server lib/turnPlan.js; TurnPlanCard · TurnProgress)
+    turns: {},
+    turnPanel: null,           // the turn whose progress panel is open (its id), or null
     actions: [],
     mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
     mailCardFrom: null,        // where that sheet was opened: home | chat | instance | inbox (the sheet's 「Home 카드로」 is for the others)
@@ -117,6 +124,15 @@ export const useApp = defineStore('app', {
     },
     // the view on screen is a project's (not a draft being made, not the main chat)
     projectOpen(s) { return !!s.activeId && s.projects.some((p) => p.id === s.activeId) },
+    // the turns running in the view on screen, oldest first (server lib/turnPlan.js): in one conversation's (or sub-topic's) view only
+    // that one's — by the message it answers, or the conversation it went to (design turnplan §3.3)
+    viewTurns(s) {
+      const all = Object.values(s.turns[s.activeId] || {})
+      if (!all.length) return []
+      const narrowed = s.convFilter || (s.topicFilter && s.mode === 'project' ? s.topicFilter : null)
+      const shown = narrowed ? new Set(this.thread.map((m) => m.id)) : null
+      return all.filter((t) => !narrowed || shown.has(t.msgId) || t.conversationId === narrowed).sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0))
+    },
     // which sub-topic each message of the project on screen belongs to, and its sub-topics with message counts (src/projectTopics.js)
     topicOf(s) { return this.projectOpen ? topicOf(s.messages[s.activeId] || []) : {} },
     topicList(s) { return this.projectOpen ? topicList(s.topics[s.activeId] || [], s.messages[s.activeId] || [], this.topicOf) : [] },
@@ -190,7 +206,26 @@ export const useApp = defineStore('app', {
       await Promise.all([this.load(this.mainThread.id), this.loadActions(), this.loadPanels(), this.loadPanelApps(), this.loadProjects(), this.loadProcesses(), this.loadNotifications(), this.loadConversations(), this.loadLocalActive()])
       events((t, d) => this.onEvent(t, d))
     },
-    async load(id) { this.messages[id] = await api(`/threads/${id}/messages`) },
+    async load(id) {
+      this.messages[id] = await api(`/threads/${id}/messages`)
+      // a turn still running (the page opened or reloaded mid-turn): its card and panel come back as they are
+      this.loadTurns(id)
+    },
+    async loadTurns(id) {
+      const r = await api(`/threads/${id}/turn`).catch(() => null)
+      if (!r || !Array.isArray(r.turns)) return
+      // (a turn that ended while the snapshot was on the way stays ended: src/turnState.js)
+      this.turns = { ...this.turns, [id]: fromSnapshot(r, endedTurns) }
+      if (this.turnPanel && !Object.values(this.turns[id]).some((t) => t.turnId === this.turnPanel) && endedTurns.has(this.turnPanel)) this.turnPanel = null
+    },
+    // the turn.* events (server lib/turnPlan.js) → this.turns
+    onTurn(type, d) {
+      if (!d?.threadId || !d.turnId) return
+      const all = this.turns[d.threadId] || {}
+      const next = applyTurnEvent(all, type, d, endedTurns)
+      if (next !== all) this.turns = { ...this.turns, [d.threadId]: next }
+      if (type === 'turn.end' && this.turnPanel === d.turnId) this.turnPanel = null
+    },
     // the local CLI agent runs on now (Home cards) and one run's newest card (a push, or what a steer answered)
     async loadLocalActive() {
       const rows = await api('/local-agents/active').catch(() => null)
@@ -329,6 +364,11 @@ export const useApp = defineStore('app', {
       } else if (type === 'local_presence') {
         // my PC app came on, went off or found its CLIs: the composer's agent picker looks again (ComposerAgent)
         window.dispatchEvent(new CustomEvent('pgl:local-presence', { detail: d }))
+      } else if (type.startsWith('turn.')) {
+        this.onTurn(type, d)
+      } else if (type === 'reconnect') {
+        // the live events were cut and came back (src/api.js): what ran meanwhile — a turn that ended unseen — is read again
+        for (const id of new Set([...Object.keys(this.turns), this.activeId].filter(Boolean))) this.loadTurns(id)
       } else if (type === 'status') {
         this.status[d.threadId] = d.text
       } else if (type === 'browser.frame') {
@@ -441,6 +481,8 @@ export const useApp = defineStore('app', {
       try {
         await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(refs.length ? { refs } : {}), ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
           if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
+          // the draft was an interim text after all (a tool call followed it — server lib/turnPlan.js): back to 「생각하는 중」
+          if (ev === 'retract' && this.drafts[threadId] != null) this.drafts[threadId] = ''
           if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
           // a document whose card is in no conversation: the one its first message went to is the document's from now on
           const went = ev === 'done' && data?.content?.context?.conversationId

@@ -58,7 +58,11 @@ export function oddsFromTop(top, options) {
 // options: [{key, label}] → {choice, probabilities, confidence, strategy: 'logprob', model, latency_ms}, or null when it
 // cannot be measured (the model is down, or gives no log-probabilities): the caller then uses its fallback rule, marked as such
 // (8 s: gpt-6-luna's median is 0.8 s, but about 3 in 100 reads take over 4 s and a timeout counts as an outage for 30 s)
-export async function oddsOf(state, question, options, { timeoutMs = 8000 } = {}) {
+// A reading on a chat turn's path (before its handler starts) waits TURN_ODDS_MS at most — design turnplan §5.1. Running out of a
+// limit shorter than the default is that caller's impatience, not an outage: the others keep reading.
+export const ODDS_MS = 8000
+export const TURN_ODDS_MS = Number(process.env.PRO_TURN_ODDS_MS) || 3000
+export async function oddsOf(state, question, options, { timeoutMs = ODDS_MS } = {}) {
   if (Date.now() < unusableUntil) return null
   const t = Date.now()
   try {
@@ -75,6 +79,8 @@ export async function oddsOf(state, question, options, { timeoutMs = 8000 } = {}
   } catch (e) {
     // a refusal of the argument will not change soon; anything else (timeout, gateway down) may
     const refused = /logprob/i.test(e.message) && /LLM 4\d\d/.test(e.message)
+    const impatient = timeoutMs < ODDS_MS && /TimeoutError|aborted|timeout/i.test(`${e.name} ${e.message}`)
+    if (impatient) { console.warn(`[decide] reading over ${timeoutMs} ms, skipped`); return null }
     unusableUntil = Date.now() + (refused ? RETRY_NO_ODDS_MS : RETRY_DOWN_MS)
     mark(refused ? 'no_odds' : 'down', status.model, e.message.slice(0, 160))
     console.warn('[decide] reading', e.message.slice(0, 160))
