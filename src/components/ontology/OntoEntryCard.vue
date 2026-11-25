@@ -13,6 +13,7 @@ import { pct } from './fmt.js'
 import OntoSheet from './OntoSheet.vue'
 import OntoCasePanel from './OntoCasePanel.vue'
 import OntoBindings from './OntoBindings.vue'
+import OntoSnapshotPanel from './OntoSnapshotPanel.vue'
 import { local, RO, EUN, entryManyText } from './ontoText.js'
 
 const props = defineProps({ msg: Object })
@@ -36,6 +37,10 @@ const skipped = computed(() => v.value.skipped || [])
 const after = computed(() => (v.value.nodes || []).filter((k) => k !== task.value))
 const err = ref('')
 const busy = ref('')
+// 「흐름 보기」 (2026-11-25 사용자: 「해당 프로세스가 어떻게 돌아가는지 알아야 선택하므로, 해당 프로세스 정의 스냅샷을 열어볼 수 있도록」):
+// the snapshot the engine would run from the suggested start — the map's 스냅샷 보기 (OntoSnapshotPanel), in this card's sheet
+const flow = ref(null)
+const openFlow = (key, name, tasks) => { const t = tasks.filter(Boolean); flow.value = { key, name, entries: t.slice(0, 1), tasks: t } }
 const persist = (patch) => { saved.value = { ...(saved.value || {}), ...patch }; local.set(`entry:${props.msg.id}`, saved.value) }
 
 const router = useRouter()
@@ -109,7 +114,8 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
       <p v-if="v.mail?.text && !timer" class="ex">{{ v.mail.text }}</p>
       <small v-for="x in v.startedAlso || []" :key="x.proc" class="okline" data-testid="onto-entry-started-also">「{{ x.procName }}」{{ EUN(x.procName) }} 자동이라 「{{ x.task }}」부터 이미 시작했어요.</small>
       <div v-for="ch in v.choices" :key="ch.proc" class="pc" data-testid="onto-entry-proc" :data-proc="ch.proc" :data-started="startedOf(ch) ? '1' : '0'">
-        <b class="pn">{{ ch.procName }}<small v-if="ch.procP != null"> · {{ pText(ch.procP, true) }}</small><small v-if="!ch.suggest" class="adopted"> · 자동</small></b>
+        <b class="pn">{{ ch.procName }}<small v-if="ch.procP != null"> · {{ pText(ch.procP, true) }}</small><small v-if="!ch.suggest" class="adopted"> · 자동</small>
+          <button class="link press flowlink" data-testid="onto-entry-flow" :data-proc="ch.proc" @click="openFlow(ch.proc, ch.procName, (ch.options?.length ? ch.options : [topOf(ch)]).map((o) => o.task))">흐름 보기</button></b>
         <template v-if="startedOf(ch)">
           <small class="okline" data-testid="onto-entry-proc-started">「{{ startedOf(ch).task }}」부터 시작했어요 · <button class="link press" @click="caseOpen = startedOf(ch).caseId">건 보기</button><template v-if="startedOf(ch).instId"> · <button class="link press" data-testid="onto-entry-open-inst" @click="openInst(startedOf(ch).instId)">인스턴스 열기</button></template></small>
         </template>
@@ -131,6 +137,7 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
     <!-- 아직 「제안」 단계인 프로세스: 진행할지 묻는다 -->
     <template v-else-if="v.state === 'ask' && choice.suggest">
       <p class="q" data-testid="onto-entry-suggest">{{ who }} 「{{ choice.procName }}」 업무로 진행할 수 있어요. 「{{ top.task }}」부터 시작할까요?</p>
+      <button class="link press flowlink" data-testid="onto-entry-flow" :data-proc="choice.proc" @click="openFlow(choice.proc, choice.procName, (options.length ? options : [top]).map((o) => o.task))">「{{ choice.procName }}」 흐름 보기 — 어떤 단계로 도는지</button>
       <small v-for="x in v.startedAlso || []" :key="x.proc" class="okline" data-testid="onto-entry-started-also">「{{ x.procName }}」{{ EUN(x.procName) }} 자동이라 「{{ x.task }}」부터 이미 시작했어요.</small>
       <p v-if="v.mail?.text && !chat && !timer" class="ex">{{ v.mail.text }}</p>
       <small v-if="fileEv" class="why" data-testid="onto-entry-file">올린 파일 · {{ v.file?.name || v.mail?.subject }}</small>
@@ -162,7 +169,7 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
           <span class="on">{{ busy === `${choice.proc}:${o.task}` ? '시작하는 중…' : o.task }}</span><b>{{ pText(o.p) }}</b>
         </button>
       </div>
-      <small v-if="choice.procName" class="why">「{{ choice.procName }}」 흐름의 일 중에서 골랐어요.</small>
+      <small v-if="choice.procName" class="why">「{{ choice.procName }}」 흐름의 일 중에서 골랐어요. <button class="link press flowlink" data-testid="onto-entry-flow" :data-proc="choice.proc" @click="openFlow(choice.proc, choice.procName, options.map((o) => o.task))">흐름 보기</button></small>
     </template>
 
     <!-- 시작함 -->
@@ -205,6 +212,9 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
     </template>
     <small v-if="err" class="err">{{ err }}</small>
 
+    <OntoSheet v-if="flow" :title="`「${flow.name}」 흐름`" @close="flow = null">
+      <OntoSnapshotPanel :proc="flow" />
+    </OntoSheet>
     <OntoSheet v-if="caseOpen" title="건" @close="caseOpen = ''">
       <OntoCasePanel :case-id="caseOpen" />
     </OntoSheet>
@@ -253,6 +263,8 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
 .foot { display: flex; gap: 14px; align-items: center; }
 .link { font-size: 13.5px; font-weight: 500; color: var(--color-info); }
 .link.sub { color: var(--text-secondary); font-weight: 400; text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 3px; }
+.flowlink { display: block; margin: 2px 0 8px; text-align: left; }
+.pn .flowlink, .why .flowlink { display: inline; margin: 0 0 0 6px; font-size: 12.5px; }
 .menu { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 16px; background: var(--cell-bg); }
 .ml { display: flex; flex-direction: column; gap: 2px; max-height: 196px; overflow-y: auto; }
 .mi { flex: none; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; font-size: 14px; text-align: left; }
