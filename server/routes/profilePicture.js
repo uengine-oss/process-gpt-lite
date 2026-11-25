@@ -4,6 +4,8 @@
 //   PUT  /api/me/picture {picture}       one of Process GPT's presets, an upload of mine (my own storage folder), or null/'' to clear
 //   POST /api/me/picture/upload (bytes)  a picture the page made (a square JPEG · WebP · PNG) → my storage folder → saved as above
 //   GET  /api/people/pictures            {id: picture} of this company's people who have one (the initials elsewhere become faces)
+//   GET  /api/people                     {id: {name, picture}} of this company's people — the one name and face every screen shows
+//                                        (lib/people.js: the same rule as the names in rooms, lists and notices)
 // PUT and the upload answer {picture, pictureDefault}: what the screens show (null = the initial) and the default (the Google picture
 // or null). Only the caller's own row is ever written; a Google address comes only from the auth server's record, never the page.
 import crypto from 'node:crypto'
@@ -12,15 +14,10 @@ import { config } from '../config.js'
 import { q, admin } from '../lib/supa.js'
 import { L } from '../lib/lang.js'
 import {
-  checkPicture, shownPicture, ownUploadKey, sniffImage, uploadPrefix, uploadUrl, MAX_UPLOAD, UPLOAD_TYPES,
-  parseAvatarHosts, googlePictureOf, seedValue, defaultValue, resolvePicture, onAvatarHost,
+  checkPicture, ownUploadKey, sniffImage, uploadPrefix, uploadUrl, MAX_UPLOAD, UPLOAD_TYPES,
+  googlePictureOf, seedValue, defaultValue, resolvePicture, onAvatarHost,
 } from '../lib/profilePicture.js'
-
-let hosts = null
-const opts = () => {
-  if (!hosts || hosts.spec !== config.avatarHosts) hosts = { spec: config.avatarHosts, list: parseAvatarHosts(config.avatarHosts) }
-  return { supabaseUrl: config.supabaseUrl, avatarHosts: hosts.list }
-}
+import { pictureOpts as opts, everyone, forget } from '../lib/people.js'
 const googleOf = (authUser) => googlePictureOf(authUser, opts())
 
 // my picture for GET /api/me — {picture, pictureDefault}. On the way, the Google picture fills an empty users.profile (or follows the
@@ -34,7 +31,7 @@ export async function myPicture(userId, authUser) {
     // (only if nothing changed it meanwhile: another tab's choice wins)
     const [w] = await q('update users set profile=$3 where id=$1 and tenant_id=$2 and profile is not distinct from $4 returning profile',
       [userId, config.tenantId, seed, stored]).catch((e) => { console.warn('[picture] seed', e.message); return [] })
-    if (w) stored = w.profile
+    if (w) { stored = w.profile; forget(userId) }
   }
   return { picture: resolvePicture(stored, google, opts()), pictureDefault: google }
 }
@@ -65,6 +62,7 @@ async function savePicture(req, value) {
     const [used] = await q('select 1 from users where profile=$1 limit 1', [before.profile]).catch(() => [{}])
     if (!used) admin.storage.from('files').remove([old]).then(({ error }) => error && console.warn('[picture] remove', error.message), () => {})
   }
+  forget(req.user.id)
   return { picture: resolvePicture(after?.profile, google, opts()), pictureDefault: google }
 }
 
@@ -96,12 +94,16 @@ export function profilePictureRoutes(auth) {
       res.status(e.status || 500).json({ error: e.message })
     }
   })
-  // people only (not the company's agents), and only who has a picture Lite would show
+  // people only (not the company's agents), and only who has a picture Lite would show (their choice, else their Google picture)
   r.get('/people/pictures', auth, async (req, res) => {
-    const rows = await q(`select id::text as id, profile from users where tenant_id=$1 and not coalesce(is_agent,false)
-                            and profile is not null and profile <> '' and profile <> '/images/defaultUser.png' limit 2000`, [config.tenantId])
     const out = {}
-    for (const u of rows) { const p = shownPicture(u.profile, opts()); if (p) out[u.id] = p }
+    for (const p of await everyone()) if (p.picture) out[p.id] = p.picture
+    res.json(out)
+  })
+  // everyone's name and picture (people only): the circles and the names that know only who (src/people.js)
+  r.get('/people', auth, async (req, res) => {
+    const out = {}
+    for (const p of await everyone()) out[p.id] = { name: p.name, picture: p.picture }
     res.json(out)
   })
   return r

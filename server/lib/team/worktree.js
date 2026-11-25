@@ -13,6 +13,7 @@ import { workspaceHostPath } from '../missions.js'
 import { fetchRoomFile } from '../roomStore.js'
 import { TeamError } from './access.js'
 import { objectOf } from './shares.js'
+import { named } from '../people.js'
 
 const BUCKET = 'files'
 const RETRY_LIMIT = 5
@@ -212,7 +213,7 @@ export async function pendingBranches(room) {
                           left join users u on u.id=s.recipient_id and u.tenant_id=s.tenant_id
                          where s.tenant_id=$1 and s.source_room_id=$2 and s.branch_room_id is not null and s.revoked_at is null
                          order by s.branch_room_id, s.created_at`, [T(), room])
-  return rows.filter((r) => r.head_commit_id !== (r.merged_commit_id || r.start_commit_id))
+  return (await named(rows, { id: 'recipient_id' })).filter((r) => r.head_commit_id !== (r.merged_commit_id || r.start_commit_id))
 }
 
 // Merge the returned branches into the room (one merge commit). Conflicts without a choice throw 409

@@ -3,6 +3,7 @@
 import { config } from '../../config.js'
 import { L } from '../lang.js'
 import { q } from '../supa.js'
+import { named } from '../people.js'
 
 const T = () => config.tenantId
 
@@ -38,11 +39,12 @@ export async function requireMember(user) {
   if (!(await isMember(user.id))) throw new TeamError(403, L('팀원끼리만 주고받을 수 있어요. 설정 → 팀·역할에서 팀에 추가해 달라고 해 주세요.', 'Only teammates can send to each other. Ask to be added to the team in Settings → Team & roles.'))
 }
 
+// teammates by id, with the name every screen shows (lib/people.js)
 export async function people(ids) {
   if (!ids.length) return []
-  return q(`select u.id, u.email, u.username as name from pro_team_members m
+  return named(await q(`select u.id, u.email, u.username as name from pro_team_members m
             join users u on u.id=m.user_id and u.tenant_id=m.tenant_id
-            where m.tenant_id=$1 and m.user_id = any($2::uuid[])`, [T(), ids])
+            where m.tenant_id=$1 and m.user_id = any($2::uuid[])`, [T(), ids]))
 }
 
 // [{type:'user', id} | {type:'role', role}] → distinct teammates (not me). Anyone not on the team is a 403.
@@ -63,7 +65,7 @@ export async function resolveRecipients(me, to) {
   }
   if (!out.size) throw new TeamError(400, L('본인에게는 보낼 수 없어요.', "You can't send it to yourself."))
   const rows = await people([...out.keys()])
-  return rows.map((p) => ({ ...p, name: p.name || p.email.split('@')[0], via: out.get(p.id) }))
+  return rows.map((p) => ({ ...p, via: out.get(p.id) }))
 }
 
 // at most LIMIT sends per user in any minute (shares, mentions and messages together)

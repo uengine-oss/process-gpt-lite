@@ -29,9 +29,21 @@ export const q = (text, params) => pool.query(text, params).then((r) => r.rows)
 // With more than one tenant on this server (lib/tenant.js), an account belongs to the tenant it was
 // made on (app_metadata.tenant_id, written here for every tenant but the default one, so accounts of
 // the default tenant are made exactly as before) and is not let into another one.
-export async function ensureUser(email, name) {
+// An auth user by address: the database first — listUsers answers one page (1,000), so past that a known account looked new and
+// createUser refused it, 「A user with this email address has already been registered」 (the dev stack, 1,090 accounts, 2026-11-25);
+// the page as before where the auth schema cannot be read.
+async function authUserByEmail(email) {
+  const [r] = await q('select id from auth.users where lower(email) = lower($1) order by created_at limit 1', [email]).catch(() => [])
+  if (r) {
+    const { data } = await admin.auth.admin.getUserById(r.id)
+    if (data?.user) return data.user
+  }
   const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
-  let user = list?.users?.find((u) => u.email === email)
+  return list?.users?.find((u) => u.email === email) || null
+}
+
+export async function ensureUser(email, name) {
+  let user = await authUserByEmail(email)
   const { multiTenant, DEFAULT_TENANT, tenantOfAuthUser, TenantMismatch, forgetTenant, ensureTenantRow } = await import('./tenant.js')
   await ensureTenantRow(config.tenantId)
   if (!user) {

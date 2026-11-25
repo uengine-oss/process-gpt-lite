@@ -13,6 +13,7 @@ import * as G from './git.js'
 import { PGPT_ROOT } from '../paths.js'
 import { L } from '../lang.js'
 import * as PS from '../privateStore.js'
+import { people } from '../people.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -139,12 +140,15 @@ export function publicFolder(f) {
   return { ...rest, repo: f.kind === 'linked' ? repo_path : undefined }
 }
 export async function members(folderId) {
-  return q(`select m.principal_type as type, m.principal_id as id, m.role,
+  const rows = await q(`select m.principal_type as type, m.principal_id as id, m.role,
               coalesce(p.name, u.username, m.principal_id) as name, u.email, coalesce(u.is_agent, m.principal_type='agent') as is_agent, u.agent_type
             from pro_folder_members m
             left join users u on u.id::text = m.principal_id and u.tenant_id=$2
             left join pro_profile p on p.user_id::text = m.principal_id
             where m.folder_id=$1 order by array_position(array['owner','editor','runner','viewer'], m.role), m.created_at`, [folderId, T()])
+  // a person by the name every screen shows (lib/people.js); an agent keeps its own
+  const by = await people(rows.filter((r) => r.type === 'user').map((r) => r.id))
+  return rows.map((r) => (r.type === 'user' && by.get(String(r.id)) ? { ...r, name: by.get(String(r.id)).name } : r))
 }
 async function lastActivity(f) {
   const [v] = await q(`select title, holder_name, status, updated_at from pro_folder_variations where folder_id=$1 order by updated_at desc limit 1`, [f.id])

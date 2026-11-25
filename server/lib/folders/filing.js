@@ -22,6 +22,7 @@ import { chatJson } from '../llm.js'
 import { skillPack } from '../skillPack.js'
 import * as S from './service.js'
 import * as G from './git.js'
+import { person } from '../people.js'
 
 export const SKILL = 'folder-filing'
 const T = () => config.tenantId
@@ -112,7 +113,7 @@ async function cardOfShare(user, shareId) {
   const { filesThread, RECEIVED_REF } = await import('../team/uploads.js')
   const got = await bytes(user, shareId)
   const saved = await saveAttachment(user, got.name, got.type, got.buf)
-  const [owner] = await q('select username as name from users where id=$1 and tenant_id=$2', [s.owner_id, T()])
+  const owner = await person(s.owner_id)
   const t = await filesThread(user.id, RECEIVED_REF)
   const [m] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','file',$2) returning id`,
     [t.id, { name: saved.name, url: saved.url, ...(saved.path ? { path: saved.path } : {}), shared: { by: owner?.name || L('팀원', 'Teammate'), shareId } }])
@@ -150,8 +151,8 @@ async function cardContext(user, m, R = DEFAULTS) {
   const c = m.content || {}
   const lines = []
   if (c.shared?.shareId || c.shared?.by) {
-    const [s] = c.shared?.shareId ? await q(`select s.note, u.username as owner from pro_shares s left join users u on u.id=s.owner_id and u.tenant_id=s.tenant_id
-                                              where s.id=$1 and s.recipient_id=$2`, [c.shared.shareId, user.id]).catch(() => []) : []
+    const [s0] = c.shared?.shareId ? await q(`select s.note, s.owner_id from pro_shares s where s.id=$1 and s.recipient_id=$2`, [c.shared.shareId, user.id]).catch(() => []) : []
+    const s = s0 && { ...s0, owner: (await person(s0.owner_id))?.name || null }
     lines.push(L(`팀원 ${s?.owner || c.shared.by || ''}님이 메신저로 보낸 파일${s?.note ? `: "${clean(s.note).slice(0, 300)}"` : ''}`, `A file teammate ${s?.owner || c.shared.by || ''} sent in a message${s?.note ? `: "${clean(s.note).slice(0, 300)}"` : ''}`))
   } else if (m.role === 'user') lines.push(L('사람이 대화에 붙인 파일', 'A file the person attached in the conversation'))
   else lines.push(L('에이전트가 대화에서 만든 파일', 'A file the agent made in the conversation'))

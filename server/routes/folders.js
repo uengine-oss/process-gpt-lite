@@ -11,6 +11,7 @@ import { reindex, search, changeCard, cardsSoon } from '../lib/folders/indexer.j
 import { handover } from '../lib/folders/handover.js'
 import { listTeam } from '../lib/team.js'
 import * as SK from '../lib/folders/skills.js'
+import { named } from '../lib/people.js'
 
 const MIME = S.MIME
 
@@ -70,7 +71,7 @@ export function folderRoutes(auth) {
     if (folder.kind !== 'skill') return null
     const name = folder.settings.skill_name
     const [vis, agents, contribs, merge, provider] = await Promise.all([SK.visibility(name), SK.agentsUsing(name), SK.contributions(name), SK.canMerge(folder, req.user), SK.providerConfigured()])
-    const [author] = vis?.author_id ? await q('select id::text, username as name from users where id=$1 and tenant_id=$2', [vis.author_id, config.tenantId]) : []
+    const [author] = vis?.author_id ? await named(await q('select id::text, username as name from users where id=$1 and tenant_id=$2', [vis.author_id, config.tenantId])) : []
     return { name, visibility: vis?.visibility || 'tenant', author: author || null, mine: String(vis?.author_id) === String(req.user.id), askShare: vis?.visibility === 'private' && !vis.asked_at, agents, contributions: contribs, canMerge: merge, mode: provider ? 'provider' : 'local' }
   }))
   r.post('/folders/:slug/share', auth, h(async (req) => {

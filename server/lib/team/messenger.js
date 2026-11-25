@@ -23,6 +23,9 @@ import { decorate, publicRef } from '../fileRefs.js'
 import { publicMailRef } from '../mailMention.js'
 import { publicAttRef } from '../mailAttachments.js'
 import { josa } from '../josa.js'
+// who a person is on every screen: one name, one picture (lib/people.js) — not users.username, which Process GPT may hold as the
+// address's local part (2026-11-25: a room's header listed the user by their address's local part where everything else used their name)
+import { people as resolvePeople, named } from '../people.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
@@ -41,7 +44,12 @@ const participant = (u) => ({ id: u.id, email: u.email, username: u.name, profil
 
 async function users(ids) {
   if (!ids.length) return []
-  return q('select id::text as id, email, username as name from users where tenant_id=$1 and id = any($2::uuid[])', [T(), ids])
+  return named(await q('select id::text as id, email, username as name from users where tenant_id=$1 and id = any($2::uuid[])', [T(), ids]))
+}
+// a room's people with the names every screen shows (the participants' stored username is whatever wrote the room)
+async function resolved(humans) {
+  const by = await resolvePeople(humans.map((p) => p.id))
+  return humans.map((p) => { const r = by.get(String(p.id)); return { ...p, name: r?.name || nameOf(p), email: p.email || r?.email || null } })
 }
 
 export async function directThread(me, otherId) {
@@ -83,16 +91,18 @@ export async function membersOf(roomId) {
   const { humans } = split(r?.participants)
   const reads = await q('select user_id::text as id, last_read_at from pro_chat_reads where room_id=$1', [roomId])
   const by = Object.fromEntries(reads.map((x) => [x.id, x.last_read_at]))
-  return humans.map((p) => ({ id: p.id, name: nameOf(p), email: p.email, last_read_at: by[p.id] || null }))
+  return (await resolved(humans)).map((p) => ({ id: p.id, name: p.name, email: p.email, last_read_at: by[p.id] || null }))
 }
 
 // An agent's row is named after the person it works for, in the viewer's language (L: the request's, or
 // the reader's for a live push) — not in the words stored with the row, which are its starter's
 // ("사토 유키's agent" on a Korean screen). The person's name: the room's member, else the stored label.
 const OWNER_LABEL = /^(.*?)(?:님의 에이전트|'s agent)$/
+const memberOf = (byEmail, id) => (id ? Object.values(byEmail).find((p) => p && String(p.id) === String(id)) : null) || null
+// whose agent it is: the room's member (the resolved name), else the name in the stored label
+const ownerName = (g, byEmail) => memberOf(byEmail, g?.by)?.name || OWNER_LABEL.exec(String(g?.byName || '').trim())?.[1] || null
 export function agentLabel(g, byEmail = {}) {
-  const member = g?.by && Object.values(byEmail).find((p) => p && String(p.id) === String(g.by))
-  const owner = member?.name || OWNER_LABEL.exec(String(g?.byName || '').trim())?.[1]
+  const owner = ownerName(g, byEmail)
   return owner ? L(`${owner}님의 에이전트`, `${owner}'s agent`) : null
 }
 
@@ -102,13 +112,17 @@ export function view(viewerId, row, byEmail = {}) {
   const g = m.pgpt || {}
   const agent = m.role === 'assistant' || String(m.email || '').startsWith('agent:')
   const senderId = m.userId || byEmail[m.email]?.id || null
+  // a person's message: the name the room's member goes by now, not the one stored with the row
+  const member = memberOf(byEmail, senderId) || byEmail[m.email] || null
   // a meeting's record in the room (lib/meetings/record.js) is written by the meeting assistant
   const kind = agent ? (String(g.kind || '').startsWith('meeting') ? g.kind : 'agent') : g.kind && g.kind !== 'assist' ? g.kind : 'text'
   return {
     ...(g.meeting ? { meeting: g.meeting } : {}),
     id: row.uuid, threadId: row.id, kind, body: String(m.content || ''), at: m.timeStamp ? iso(typeof m.timeStamp === 'number' || /^\d+$/.test(m.timeStamp) ? Number(m.timeStamp) : m.timeStamp) : null,
     // the messenger's @AI answers as 「AI」 (lib/team/aiHelp.js), not as someone's agent
-    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.ai ? 'AI' : agentLabel(g, byEmail) || g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (m.userName || m.name || byEmail[m.email]?.name || L('팀원', 'Teammate')), agent, ...(g.ai && agent ? { ai: true } : {}) },
+    // an agent's row: its owner (g.by) — the screens show the owner's face with the agent's mark; the messenger's @AI is 「AI」
+    sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.ai ? 'AI' : agentLabel(g, byEmail) || g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (member?.name || m.userName || m.name || L('팀원', 'Teammate')), agent,
+      ...(g.ai && agent ? { ai: true } : {}), ...(agent && !g.ai && g.by ? { owner: { id: String(g.by), name: ownerName(g, byEmail) } } : {}) },
     mine: !agent && senderId === viewerId, byMe: agent && g.by === viewerId,
     artifacts: viewArtifacts(viewerId, agent ? g.by : senderId, g.artifacts), context: g.context || null,
     // file mentions (links to shared folders' files): their state for this viewer comes with decorate()
@@ -130,6 +144,8 @@ export async function listThreads(me) {
         and (select count(*) from jsonb_array_elements(r.participants) p where coalesce((p->>'is_agent')::boolean,false)=false and p->>'id' ~ '^[0-9a-f-]{36}$') >= 2
       limit 200`, [T(), me.id, JSON.stringify([{ id: me.id }])])
   const out = []
+  const names = await resolvePeople(rows.flatMap((r) => split(r.participants).humans.map((p) => p.id)))
+  const nm = (p) => names.get(String(p.id))?.name || nameOf(p)
   for (const r0 of rows) {
     const r = roomRow(r0)
     const [last] = await q(`select uuid, messages from chats where id=$1 order by ${ORDER} desc limit 1`, [r.id])
@@ -139,7 +155,7 @@ export async function listThreads(me) {
     const lm = last?.messages
     const at = lm ? (view(me.id, last).at) : r.message?.createdAt ? iso(typeof r.message.createdAt === 'number' ? r.message.createdAt : r.message.createdAt) : null
     out.push({
-      id: r.id, kind: r.kind, title: r.name || others.map(nameOf).join(', ') || L('나', 'Me'), members: humans.map((p) => ({ id: p.id, name: nameOf(p) })),
+      id: r.id, kind: r.kind, title: r.name || others.map(nm).join(', ') || L('나', 'Me'), members: humans.map((p) => ({ id: p.id, name: nm(p) })),
       agents: split(r.participants).agents.map((a) => ({ id: a.id, name: a.username })), unread: n, updatedAt: at,
       last: lm ? { kind: lm.pgpt?.kind || (lm.role === 'assistant' ? 'agent' : 'text'), body: String(lm.content || '').slice(0, 80), mine: lm.email === me.email, at, files: (lm.pgpt?.artifacts || []).length } : null,
     })
@@ -287,9 +303,10 @@ export async function pushRow(row, people) {
   sentRows.delete(row.uuid)
   sentRows.set(row.uuid, c)
   if (sentRows.size > SENT_KEEP) sentRows.delete(sentRows.keys().next().value)
-  const by = Object.fromEntries(people.map((p) => [p.email, { id: p.id, name: nameOf(p) }]))
+  const ps = await resolved(people)
+  const by = Object.fromEntries(ps.map((p) => [p.email, { id: p.id, name: p.name }]))
   // (each person's copy: their language, and the file mentions in their own access — lib/fileRefs.js decorate)
-  for (const p of people) emit(p.id, 'team', { type: 'message', threadId: row.id, message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: nameOf(p) }, row, by)) })
+  for (const p of ps) emit(p.id, 'team', { type: 'message', threadId: row.id, message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: p.name }, row, by)) })
   return true
 }
 // a row this server just wrote into a room (inserted or updated), to the room's people at once — not left to the

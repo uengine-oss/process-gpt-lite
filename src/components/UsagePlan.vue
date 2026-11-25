@@ -6,6 +6,7 @@
 // Changing a plan applies it to LiteLLM at once; anyone else asks and the administrators are notified.
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api.js'
+import PersonAvatar from './PersonAvatar.vue'
 import { isEnglish } from '../i18n/lang.js'
 
 const b = ref(null)
@@ -251,7 +252,7 @@ async function decide(r, ok) {
 
         <div class="list glass people">
           <div v-for="p in b.company.people" :key="p.id" class="li">
-            <div class="av">{{ (p.name || p.email).slice(0, 1) }}</div>
+            <PersonAvatar :id="p.id" :name="p.name || p.email" />
             <div class="main">
               <b>{{ p.name }}</b>
               <small>이번 달 {{ usd(p.month.spend) }} · {{ p.month.calls }}회<template v-if="p.session"> · 세션 {{ pct(p.session) }}%</template><template v-if="p.period"> · {{ periodName(p.period) }} {{ pct(p.period) }}%</template></small>
@@ -328,7 +329,6 @@ async function decide(r, ok) {
 .list { border-radius: 20px; overflow: hidden; margin-top: 10px; }
 .li { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid rgba(0, 0, 0, .06); }
 .li:last-child { border-bottom: 0; }
-.av { width: 34px; height: 34px; border-radius: 17px; background: var(--ink); color: var(--ink-inverse); display: grid; place-items: center; font-size: 15px; flex: none; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; }
 .main b { font-weight: 500; font-size: 15px; }
 .main small { color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

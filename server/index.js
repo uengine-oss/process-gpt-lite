@@ -68,6 +68,7 @@ import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
 import { profilePictureRoutes, myPicture, rememberGooglePicture } from './routes/profilePicture.js'
+import { signedIn, forget as forgetPerson } from './lib/people.js'
 import { enabledFor as backgroundOn } from './lib/background/service.js'
 import { isReplyCard } from './lib/mailReply.js'
 import { mountImprove } from './mcp/improve.js'
@@ -153,13 +154,14 @@ async function auth(req, res, next) {
   // tenants by host name the person's own tenant is the request's (lib/tenant.js)
   if (config.tenantFromHeader && !(await isMember(u.id, config.tenantId))) return res.status(403).json({ error: 'not a member of this tenant' })
   if (multiTenant()) req.tenantId = tenantOfAuthUser(u)
-  // to_jsonb(p)->>'lang': still answers on a database the lang migration (sql/019) has not reached
-  const [p] = await q(`select name, to_jsonb(p)->>'lang' as lang from pro_profile p where user_id=$1`, [u.id])
-  req.user = { id: u.id, email: u.email, name: p?.name || u.user_metadata?.name || u.email.split('@')[0] }
+  // the person's name by the one rule every screen uses (lib/people.js: Lite's profile → Process GPT's username → the sign-in's own
+  // name → the address), with their saved language — one query
+  const p = await signedIn(u, req.tenantId || config.tenantId)
+  req.user = { id: u.id, email: u.email, name: p.name }
   // the auth server's own record of the person (identities, app_metadata): their Google picture (routes/profilePicture.js)
   req.authUser = u
   req.session = { access_token: jwt }
-  if (p) rememberLang(u.id, p.lang)
+  if (p.hasProfile) rememberLang(u.id, p.lang)
   // header > saved > ko; everything this request starts (agent turns, drafts, timers) keeps it
   req.lang = resolveLang({ header: langAsked(req), saved: p?.lang })
   // entered again: a body parser in the route's own chain runs outside the request's async context
@@ -432,6 +434,8 @@ app.post('/api/profile', auth, async (req, res) => {
   [req.user.id, name, birth, lat, lon, place, !!onboarded])
   // the name teammates (and process-gpt's own screens) see
   if (name) await q('update users set username=$1 where id=$2 and tenant_id=$3', [name, req.user.id, config.tenantId])
+  // every screen's next answer has the new name (lib/people.js keeps names for a while)
+  forgetPerson(req.user.id)
   res.json({ ok: true })
 })
 

@@ -6,6 +6,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { userFromJwt, q } from '../lib/supa.js'
+import { signedIn } from '../lib/people.js'
 import { config } from '../config.js'
 import * as S from '../lib/improve/service.js'
 import { dur } from '../lib/improve/focus.js'
@@ -104,8 +105,8 @@ export function mountImprove(app) {
     if (jwt && !u) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
     let user = null
     if (u) {
-      const [p] = await q('select name from pro_profile where user_id=$1', [u.id])
-      user = { id: u.id, email: u.email, name: p?.name || u.user_metadata?.name || u.email.split('@')[0] }
+      // (the name every screen shows — lib/people.js)
+      user = { id: u.id, email: u.email, name: (await signedIn(u)).name }
     }
     // an agent calls this without the page's X-PGL-Lang: the caller's saved language decides
     await withLang(isEn() ? 'en' : user ? await langOf(user.id) : 'ko', async () => {

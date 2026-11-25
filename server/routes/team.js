@@ -24,6 +24,7 @@ import * as FR from '../lib/fileRefs.js'
 import * as MM from '../lib/mailMention.js'
 import * as MA from '../lib/mailAttachments.js'
 import * as AI from '../lib/team/aiHelp.js'
+import { named } from '../lib/people.js'
 
 // does the deepagents this server talks to unfold a room's branch and commit its turns? (/health worktree)
 // (asked again after a minute: deepagents restarts and upgrades without this server)
@@ -313,10 +314,10 @@ export function teamRoutes(auth) {
     const rows = await q(`select s.*, u.username as name from pro_shares s left join users u on u.id=s.recipient_id and u.tenant_id=s.tenant_id
                           where s.tenant_id=$1 and s.branch_room_id is not null and s.revoked_at is null and ${chat ? 's.chat_uuid=$2' : 's.branch_room_id=$2'}`, [config.tenantId, chat || room])
     if (!rows.length) throw new TeamError(404, '갈래를 찾지 못했어요.')
-    if (rows.some((x) => x.owner_id === me.id || x.recipient_id === me.id)) return rows
+    if (rows.some((x) => x.owner_id === me.id || x.recipient_id === me.id)) return named(rows, { id: 'recipient_id' })
     const [peer] = await q('select 1 from pro_shares where batch_id = any($1::uuid[]) and recipient_id=$2 and revoked_at is null limit 1', [[...new Set(rows.map((x) => x.batch_id))], me.id])
     if (!peer) throw new TeamError(403, '이 공유에 참여하지 않았어요.')
-    return rows
+    return named(rows, { id: 'recipient_id' })
   }
   const dedupe = (rows) => rows.filter((x, i) => rows.findIndex((y) => y.branch_room_id === x.branch_room_id) === i)
   return r

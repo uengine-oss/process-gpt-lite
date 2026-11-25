@@ -4,6 +4,8 @@
 // same Postgres (they trail the calls by LiteLLM's ~10-second write interval). And, for administrators,
 // everyone's, with the month's bill estimated from the seats and the usage beyond them.
 import { q } from '../supa.js'
+import { config } from '../../config.js'
+import { named } from '../people.js'
 import * as K from '../llmKeys.js'
 import { catalog, limitsOf, monthlyBill, usdPerCredit } from './catalog.js'
 import { subscriptionOf, planOf, seatOf } from './apply.js'
@@ -51,8 +53,10 @@ export async function windowsOf(tenant, userId, sub = null) {
 
 export async function companyOf(tenant) {
   const sub = await subscriptionOf(tenant)
-  const team = await q(`select u.id, u.email, u.username as name from pro_team_members t join users u on u.id=t.user_id and u.tenant_id=t.tenant_id
+  const team0 = await q(`select u.id, u.email, u.username as name from pro_team_members t join users u on u.id=t.user_id and u.tenant_id=t.tenant_id
     where t.tenant_id=$1 order by t.created_at`, [tenant])
+  // (the name every screen shows — lib/people.js reads the request's own tenant)
+  const team = tenant === config.tenantId ? await named(team0) : team0
   const month = await q(`select k.user_id, sum(d.spend)::float8 spend, sum(d.successful_requests)::int calls
     from litellm."LiteLLM_DailyTeamSpend" d join litellm."LiteLLM_VerificationToken" k on k.token=d.api_key
     where d.team_id = any($1) and d.${MONTH} group by k.user_id`, [[K.teamOf(tenant), K.extraTeamOf(tenant)]])

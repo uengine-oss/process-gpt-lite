@@ -1181,6 +1181,13 @@ cd server && node --test test/agentTools.test.js
 
 근거: 2026-11-25 사용자 「내 프로필 사진 어떻게 바꾸냐? Process GPT 버전과 일관성고려하여」 — Lite 의 설정 머리와 위 막대는 이름 첫 글자뿐이었다. 같은 날 덧붙임 「프로필 사진은 기본적으로 social login 인 경우는 구글에 설정된 이미지가 나오는게」. `profile-picture.spec.js` 는 자기 스택(BFF `PRO_BACKGROUND=0` + Vite, 회사 `avatar-ui`, 8990 · 5391 부터 빈 포트 — 5390 은 이 PC 의 이음오피스 호스트 자리)을 띄우고 지운다. 모델 · 공용 서비스는 부르지 않는다. 올리는 사진은 ffmpeg 로 만든 진짜 그림(640×400 PNG · 300×500 JPEG). 사람은 지어낸 이름(김서연 · 박도윤 · 이하준 — 구글로 로그인한 사람: 그 사람의 `auth.identities` 에 provider `google` 행을 넣어 흉내, 사진은 127.0.0.1 의 가짜 그림 호스트를 `PRO_AVATAR_HOSTS` 로 허용). 기본 사진 18장은 Process GPT(process-gpt-vue3) 의 `public/assets/images/profile/` 과 같은 바이트를 Lite 의 `public/assets/images/profile/` 에 둔다(출처 · MIT 고지 `NOTICE.txt`). 화면 사진은 `openspec/specs/profile-picture/e2e/results/`, 명령은 `openspec/specs/profile-picture/e2e/README.md`.
 
+같은 날 운영 보고(두 동료와의 방에서 내 에이전트의 결과 옆에 내 사진 대신 주소 첫 글자, 방 머리에 내 주소 앞부분 — 「일관성있는 컴포넌트 사용이 되어야」)로 F-PP-* 를 더했다. 지어낸 사람 정하윤(Lite 에서 이름을 적었지만 Process GPT 의 `users.username` 은 주소 앞부분 — 운영의 그 상태를 SQL 로)과 최도현(Lite 프로필 없음, 이름은 인증 기록의 `full_name` 에만). 다른 작업 트리가 8990 · 5391 을 쓰고 있으면 `RT_API_FROM` · `RT_WEB_FROM` · `RT_FAKE_PORT` 로 자리를 옮긴다.
+
+```bash
+cd server && node --test test/people.test.js test/profilePicture.test.js
+cd e2e && RT_API_FROM=8975 RT_WEB_FROM=5375 RT_FAKE_PORT=8976 RT_WORKERS=1 npx playwright test --project=feature tests/feature/profile-picture.spec.js
+```
+
 | 기능 요건 | 근거 | 시험 | 단계 | |
 |---|---|---|---|---|
 | 저장할 수 있는 값: 기본 사진 18장(글자 그대로) · 이 설치 저장소 `files/pgpt-pro/<나>/avatar/<이름>.jpg·jpeg·webp·png` · 빈 값 — 다른 사이트 · `//` · `data:` · `javascript:` · 남의 폴더 · 내 다른 폴더 · 다른 버킷 · 서명 주소 · `?` · `#` · `..` · `%2e` · 하위 폴더 · 18장에 없는 경로 · `/images/defaultUser.png` · 문자열 아닌 값은 400 | 사용자 지시(검사) | `server/test/profilePicture.test.js` · F-AV-06 | 단위 · feature | ✅ |
@@ -1195,7 +1202,11 @@ cd server && node --test test/agentTools.test.js
 | 휴대폰 390px 밝은 · 밤: 위 막대 · 설정 머리 · 사진 고르기 창(모든 단추가 화면 안) · 프로필 줄, 옆으로 넘치지 않음 | 사용자 지시 | F-AV-07 | feature | ✅ |
 | 구글 사진: 인증 서버의 기록(구글 identity `picture` → `avatar_url`, Lite 자체 구글 로그인의 `app_metadata.google_picture`)에서만 — `user_metadata` 는 읽지 않음, 허용 호스트(`PRO_AVATAR_HOSTS`, 기본 https `*.googleusercontent.com`, http 는 이 PC 만; 닮은 호스트 · `@` · 따옴표 거절), 보여 주는 순서 고른 것 → 구글 → 첫 글자, 채우기는 빈 칸만 · 구글 주소가 든 동안은 계정을 따름, 되돌리기는 구글 사진(없으면 열의 기본값) | 사용자 11-25 덧붙임 | `profilePicture.test.js` | 단위 | ✅ |
 | 구글로 로그인한 사람: 처음 열면 구글 사진(`user.picture` = `pictureDefault`), `users.profile` 에 채움, 리퍼러 없이 요청(`referrerpolicy=no-referrer`), 「프로필」 줄 「Google 계정의 사진이에요」 · 창에 되돌릴 단추 없음 → 기본 사진을 고르면 그것이 이기고 다시 열어도 그대로 · 화면이 보낸 구글 주소는 400 → 「Google 사진으로」는 구글 사진(DB 도) · 팀원에게도 → 구글 계정이 사진을 바꾸면 따라감 → 열리지 않는 구글 사진은 첫 글자 | 사용자 11-25 덧붙임 | F-AV-08 | feature | ✅ |
-| 회의의 카메라 끈 칸 · 메신저의 받은 편지함 · 보낸 사람 · @ 고르기 · 공유 폴더의 사람 동그라미에도 사진(같은 부품) | 설계 | — (화면 시험은 팀 목록 · 메신저 대화 목록만) | — | ◐ |
+| 같은 사람은 어디서나 같은 이름 — 서버의 한 규칙(`server/lib/people.js`): Lite 프로필 이름 → Process GPT `users.username` → 인증 기록의 `name` · `full_name` → 주소 앞부분, 주소 앞부분(대소문자 무관)이나 주소 꼴은 이름이 아님 · 프로필 없는 사람 · 여러 사람을 한 번에 · 잠깐(30초) 기억하고 바꾸면 곧바로 · 회사마다 따로 · 인증 스키마를 못 읽는 DB 에서도 | 사용자 11-25 「일관성있는 컴포넌트 사용이 되어야」 | `server/test/people.test.js` | 단위 | ✅ |
+| 내 에이전트가 결과를 올린 방: 결과 옆에 주인의 사진과 에이전트 표시(✦), 「정하윤님의 에이전트」(행에 저장된 이름이 아니라 지금의 이름), 팀원의 메시지는 그 사람의 얼굴, @AI 의 답은 ✦ AI 동그라미 — 주인이 보든 팀원이 보든, 1280 · 390 밝은 · 밤 | 사용자 11-25 「왜 대화창에는 "j"라는 아이콘으로 내 포트레잇 아이콘이 뜨는가?」 | F-PP-01 | feature | ✅ |
+| 방 머리 · 대화 목록 · 새 대화 상대 · 팀·역할(390 밤도) · `GET /api/people`(`{id: {name, picture}}`) · `GET /team/threads` · 방의 메시지(`sender.owner`)가 같은 이름 — Process GPT 의 username 이 주소 앞부분이어도, Lite 를 연 적 없는 사람은 인증 기록의 이름 | 사용자 11-25 | F-PP-02 | feature | ✅ |
+| 고르는 창의 얼굴: 메신저의 @(AI 는 ✦) · 채팅 입력창의 @ 팀원 목록과 받는 사람 칩 · 「팀원에게 공유」 창 — 사진이 없으면 이름 첫 글자, 1280 밝은 · 390 밤 | 사용자 11-25 | F-PP-03 | feature | ✅ |
+| 회의의 카메라 끈 칸 · 받은 편지함 · 공유 폴더 · 사용량 · 정책 결정 원장 · 팀 활동 카드 · 위 막대 · 설정의 동그라미도 같은 부품(`PersonAvatar.vue`)과 같은 이름 | 설계 | — (화면 시험은 위 막대 · 설정 · 팀 목록 · 메신저 · 고르는 창만) | — | ◐ |
 | 운영(`/lite`)에서 Process GPT 의 파일이 먼저 · 없을 때 Lite 의 사본으로 넘어가는 것을 실제 게이트웨이에서, Process GPT 화면에 Lite 가 올린 사진, 진짜 구글 로그인(GoTrue 의 구글 제공자 · Lite 자체 구글 로그인의 `app_metadata`) · 진짜 googleusercontent 사진, Safari · HEIC 사진 | — | — (개발 스택 · Chrome 으로만, 넘어가기는 단위 시험, 구글 로그인은 identity 행으로 흉내) | — | ✗ |
 
 ### 53. 받아쓰기 — 서버의 자가 시험 · 데스크톱 앱 · Android 앱의 입력창 받아쓰기 (스펙 `speech-to-text`)
