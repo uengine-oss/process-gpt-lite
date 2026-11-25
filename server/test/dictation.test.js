@@ -6,6 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createDictation, joinSpeech, pressOutcome, recognizerOf, MESSAGES, HOLD_MS, DESKTOP_START_MS, ERROR_SHOW_MS, STOP_GRACE_MS } from '../../src/useDictation.js'
+import { serverRecognition, canRecord, postPiece, SERVER_GRACE_MS } from '../../src/serverDictation.js'
 
 // timers that move only when told to
 function fakeClock() {
@@ -325,4 +326,123 @@ test('DV-U-10 받아쓰기는 보내지 않는다: 켜기 · 말 · 끊김 · �
   assert.equal(box.v, '메모: 내일 회의 열 시에 시작 장소는 3층')
   assert.deepEqual(sent, [])
   assert.deepEqual([...used].sort(), ['onChange', 'read', 'write'])
+})
+
+// ---- the server's transcription as the recognizer (src/serverDictation.js — the desktop app, Firefox; 2026-11-25 사용자:
+// 「위스퍼 모델이 있어야 바다쓰기 이런게 되는데」): a fake microphone, a fake capture that is told when a piece was spoken,
+// and a fake server whose answers the test hands out in any order
+const tick = () => new Promise((ok) => setImmediate(ok))
+async function settle() { for (let i = 0; i < 8; i++) await tick() }
+function serverSetup({ text = '', mediaError = null } = {}) {
+  const clock = fakeClock()
+  const box = { v: text }
+  const states = []
+  const tracks = []
+  const caps = []
+  const asked = []
+  const Rec = serverRecognition({
+    media: async () => {
+      if (mediaError) throw Object.assign(new Error(mediaError), { name: mediaError })
+      const t = { stopped: false, stop() { this.stopped = true } }
+      tracks.push(t)
+      return { getTracks: () => [t] }
+    },
+    // (like capture.js: stop({flush: true}) hands over the piece being spoken before it returns)
+    capture: (stream, { onPiece }) => {
+      const c = { onPiece, stops: [], speaking: null }
+      caps.push(c)
+      return (o) => { c.stops.push(o || {}); if (o?.flush && c.speaking) { onPiece(c.speaking); c.speaking = null } }
+    },
+    post: (blob) => new Promise((resolve, reject) => asked.push({ blob, resolve, reject })),
+  })
+  const sent = []
+  const d = createDictation({ Recognition: Rec, read: () => box.v, write: (v) => { box.v = v }, onChange: (s) => states.push(s), send: (v) => sent.push(v), timers: clock, now: clock.now })
+  return { d, clock, box, states, tracks, caps, asked, sent }
+}
+
+test('DV-U-11 서버 받아쓰기: 마이크가 열리면 「듣는 중」, 말한 조각마다 서버로, 늦게 온 답도 말한 차례대로 붙는다', async () => {
+  const { d, box, states, caps, asked, sent } = serverSetup({ text: '메모:' })
+  d.start()
+  assert.deepEqual(states.at(-1), { on: true, phase: 'starting', error: '' })
+  await settle()
+  assert.deepEqual(states.at(-1), { on: true, phase: 'listening', error: '' })
+  assert.equal(caps.length, 1)
+  caps[0].onPiece('wav-1'); caps[0].onPiece('wav-2'); caps[0].onPiece('wav-3')
+  await settle()
+  assert.deepEqual(asked.map((a) => a.blob), ['wav-1', 'wav-2', 'wav-3'], 'each piece goes at once')
+  asked[1].resolve({ text: '정리해서' })
+  await settle()
+  assert.equal(box.v, '메모:', 'a later piece waits for the earlier one')
+  asked[0].resolve({ text: '회의록을' })
+  // silence (or what Whisper makes up from it, which the server empties) adds nothing
+  asked[2].resolve({ text: '' })
+  await settle()
+  assert.equal(box.v, '메모: 회의록을 정리해서')
+  assert.equal(d.on, true)
+  assert.deepEqual(sent, [])
+})
+
+test('DV-U-12 서버 받아쓰기: 끄면 말하던 조각까지 보내고(flush), 그 답이 3초 넘게 걸려도 붙은 뒤에 꺼진다 · 마이크도 꺼짐', async () => {
+  const { d, clock, box, states, caps, asked, tracks } = serverSetup()
+  d.start(); await settle()
+  caps[0].onPiece('wav-1'); await settle()
+  caps[0].speaking = 'wav-flushed'
+  d.stop()
+  assert.deepEqual(caps[0].stops[0], { flush: true })
+  await settle()
+  assert.deepEqual(asked.map((a) => a.blob), ['wav-1', 'wav-flushed'])
+  assert.equal(asked.length, 2)
+  assert.equal(tracks[0].stopped, true, 'the microphone is off at once')
+  assert.equal(states.at(-1).on, false)
+  clock.advance(STOP_GRACE_MS + 2000)
+  asked[0].resolve({ text: '내일 오전' }); asked[1].resolve({ text: '고객사 미팅' })
+  await settle()
+  assert.equal(box.v, '내일 오전 고객사 미팅')
+  assert.deepEqual(states.at(-1), { on: false, phase: 'off', error: '' })
+  assert.ok(SERVER_GRACE_MS > STOP_GRACE_MS)
+})
+
+test('DV-U-13 서버 받아쓰기: 보내기(cancel)면 오던 말은 버림 · 서버가 못 받아 적으면 그 까닭으로 멈춤 · 마이크 권한 · 마이크 없음', async () => {
+  {
+    const { d, box, caps, asked, tracks } = serverSetup({ text: '안녕' })
+    d.start(); await settle()
+    caps[0].onPiece('wav-1'); await settle()
+    d.cancel()
+    asked[0].resolve({ text: '늦게 온 말' }); await settle()
+    assert.equal(box.v, '안녕')
+    assert.equal(tracks[0].stopped, true)
+  }
+  {
+    const { d, states, caps, asked, tracks } = serverSetup()
+    d.start(); await settle()
+    caps[0].onPiece('wav-1'); await settle()
+    asked[0].reject(new Error('받아쓰기 서버가 응답하지 않아요. 잠시 뒤 다시 말씀하시거나, 말 대신 적어 주세요.')); await settle()
+    assert.deepEqual(states.at(-1), { on: false, phase: 'off', error: '받아쓰기 서버가 응답하지 않아요. 잠시 뒤 다시 말씀하시거나, 말 대신 적어 주세요.' })
+    assert.equal(tracks[0].stopped, true)
+  }
+  {
+    const { d, states } = serverSetup({ mediaError: 'NotAllowedError' })
+    d.start(); await settle()
+    assert.deepEqual(states.at(-1), { on: false, phase: 'off', error: MESSAGES.permission })
+  }
+  {
+    const { d, states } = serverSetup({ mediaError: 'NotFoundError' })
+    d.start(); await settle()
+    assert.deepEqual(states.at(-1), { on: false, phase: 'off', error: MESSAGES.noMic })
+  }
+})
+
+test('DV-U-14 서버 받아쓰기의 요청: POST /api/dictation · 토큰 · WAV, 401 이면 새 토큰으로 한 번 더, 거절은 서버의 까닭 · 녹음할 수 있는 페이지', async () => {
+  const calls = []
+  let tok = 'old'
+  const replies = [{ status: 401, body: {} }, { status: 200, body: { text: '보고서' } }]
+  const fetchImpl = async (url, o) => { calls.push({ url, auth: o.headers.Authorization, type: o.headers['Content-Type'], body: o.body }); const r = replies.shift(); return { ok: r.status < 300, status: r.status, json: async () => r.body } }
+  const j = await postPiece('wav', { base: '/lite', token: async () => tok, refresh: async () => { tok = 'new'; return true }, fetchImpl })
+  assert.equal(j.text, '보고서')
+  assert.deepEqual(calls.map((c) => [c.url, c.auth, c.type, c.body]), [['/lite/api/dictation', 'Bearer old', 'audio/wav', 'wav'], ['/lite/api/dictation', 'Bearer new', 'audio/wav', 'wav']])
+  replies.push({ status: 503, body: { error: '받아쓰기 키가 설정되지 않았어요.' } })
+  await assert.rejects(postPiece('wav', { token: async () => tok, refresh: async () => true, fetchImpl }), (e) => e.status === 503 && e.message === '받아쓰기 키가 설정되지 않았어요.')
+  assert.equal(canRecord({ navigator: { mediaDevices: { getUserMedia() {} } }, AudioContext: function () {} }), true)
+  assert.equal(canRecord({ navigator: {}, AudioContext: function () {} }), false)
+  assert.equal(canRecord(null), false)
 })

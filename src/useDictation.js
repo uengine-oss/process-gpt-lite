@@ -10,6 +10,8 @@
 //   - Text: what was in the box when it started, then each final phrase appended (a space between them), then the phrase still being
 //     heard. What the person types meanwhile is kept, and the next phrase goes after it.
 //   - It never sends. Sending is the send button or Enter, and that cancels dictation first (nothing heard later comes back).
+// Where the browser has no speech service (the desktop app, Firefox) the recognizer is the server's transcription
+// (src/serverDictation.js, 2026-11-25): same events, final results only, and a longer wait after stop (its graceMs).
 // No Vue here: server/test/dictation.test.js runs it in node with a fake recognizer and fake timers; Composer.vue keeps `state` in a
 // reactive object through onChange.
 
@@ -35,6 +37,7 @@ export const MESSAGES = {
   service: '이 브라우저의 음성 인식 서비스를 쓸 수 없어요.',
   language: '이 브라우저는 한국어 받아쓰기를 지원하지 않아요.',
   stuck: '받아쓰기가 자꾸 끊겨요. 잠시 뒤 다시 눌러 주세요.',
+  server: '받아쓰기 서버가 응답하지 않아요. 잠시 뒤 다시 눌러 주세요.',
   desktop: '데스크톱 앱에서는 음성 인식 서비스에 닿지 못했어요. 브라우저에서 열거나 운영체제의 받아쓰기를 써 주세요.',
   other: '받아쓰기가 멈췄어요. 다시 눌러 주세요.',
 }
@@ -143,6 +146,8 @@ export function createDictation({ Recognition, read, write, onChange = () => {},
       case 'service-not-allowed': return fail(isDesktop() ? MESSAGES.desktop : MESSAGES.service)
       case 'audio-capture': return fail(MESSAGES.noMic)
       case 'language-not-supported': return fail(MESSAGES.language)
+      // the server's transcription (serverDictation.js) could not write a piece down: its reason
+      case 'server': return fail(e.message || MESSAGES.server)
       default: return fail(MESSAGES.other)
     }
   }
@@ -192,7 +197,8 @@ export function createDictation({ Recognition, read, write, onChange = () => {},
     const r = rec
     if (!r) { emit({ phase: 'off' }); return }
     try { r.stop() } catch { drop(true); emit({ phase: 'off' }); return }
-    timer.grace = timers.setTimeout(() => { if (rec === r) { drop(true); emit({ phase: 'off' }) } }, STOP_GRACE_MS)
+    // (the server's recognizer sends the last piece only now: it waits longer — its graceMs)
+    timer.grace = timers.setTimeout(() => { if (rec === r) { drop(true); emit({ phase: 'off' }) } }, r.graceMs || STOP_GRACE_MS)
   }
 
   // sending (or leaving the page): off at once, and nothing heard later is written

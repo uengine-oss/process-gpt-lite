@@ -1,0 +1,37 @@
+1. /api/config transcribe = {"ok":true,"model":"gpt-4o-mini-transcribe","ms":1337,"at":"2026-11-25T01:10:28.241Z","error":null,"fallback":false}
+2. POST /api/dictation (the composer's server dictation)
+   dictation-00-yuna.wav (6.1s) → 200 in 1922 ms: {"text":"내일 오전에 고객사 미팅 일정을 잡고, 참석자들에게 초대 메일도 보내줘.","ms":1906}
+   dictation-00-low-noise.wav (6.97s) → 200 in 2215 ms: {"text":"내일 오전에 고객사 미팅 일정을 잡고, 참석자들에게 초대 메일도 보내줘요.","ms":2198}
+   dictation-01-yuna.wav (4.73s) → 200 in 2268 ms: {"text":"지난주에 받은 견적서를 찾아서 김 과장에게 보내줘.","ms":2248}
+   dictation-01-low-noise.wav (5.38s) → 200 in 2111 ms: {"text":"지난주에 받은 견적서를 찾아서 김과장에게 보내줘","ms":2093}
+   dictation-02-yuna.wav (4.55s) → 200 in 2511 ms: {"text":"이번 탈 매출 보고서를 요약해서 팀장님께 공유해줄래?","ms":2492}
+   dictation-02-low-noise.wav (5.18s) → 200 in 1942 ms: {"text":"이번 탈 매출 보고서를 요약해서 팀장님께 공유해줄래?","ms":1925}
+   without sign-in → 401
+3. a meeting: pieces → lines → minutes
+   start → 200, meeting ff6f05ee-1ac6-4c3e-947f-0139babe91d0, agent true
+   audio meeting-00-yuna.wav (14.13s) → 200 in 3385 ms: {"id":"1186","text":"이번 분기 목표는 신규 고객 확보입니다. 영업팀은 기존 고객 유지에 집중하고, 마케팅팀은 온라인 광고를 늘려서 문의를 더 받아보겠습니다. 진행 상황은 매주 월요일에 점검하겠습니다.","ms":3275,"lang":"ko"}
+   audio meeting-00-low-noise.wav (16.32s) → 200 in 4247 ms: {"id":"1187","text":"이번 분기 목표는 신규 고객 확보입니다. 영업팀은 기존 고객 유지에 집중하고, 마케팅팀은 온라인 광고를 늘려서 문의를 더 받아보겠습니다. 진행상황은 매주 월요일에 점검하겠습니다.","ms":4194,"lang":"ko"}
+   audio meeting-01-yuna.wav (13.54s) → 200 in 4375 ms: {"id":"1188","text":"지난번 회의에서 나온 배포 일정 문제는 개발팀이 검토했습니다. 테스트 기간을 일주일 더 잡고 다음 탈초에 운영에 반영하는 것으로 정리했습니다. 고객사에도 미리 안내하겠습니다.","ms":4304,"lang":"ko"}
+   meeting lines: 3 — 이번 분기 목표는 신규 고객 확보입니다. 영업팀은 기존 고객 유지에 집중하고, 마케팅팀은 온라인 광고를 늘려서 문의를 더 받아보겠습니다. 진행 상황은 매주 월요일에 점검하겠습니다. / 이번 분기 목표는 신규 고객 확보입니다. 영업팀은 기존 고객 유지에 집중하고, 마케팅팀은 온라인 광고를 늘려서 문의를 더 받아보겠습니다. 진행상황은 매주 월요일에 점검하겠습니다. / 지난번 회의에서 나온 배포 일정 문제는 개발팀이 검토했습니다. 테스트 기간을 일주일 더 잡고 다음 탈초에 운영에 반영하는 것으로 정리했습니다. 고객사에도 미리 안내하겠습니
+   /meetings/stats transcription: {"uploads":3,"rejected":{},"lines":3,"empty":0,"failed":0,"latency":{"n":3,"p50":4194,"p90":4304},"configured":true,"lastError":{"at":null,"model":null,"message":null,"first":null},"selfTest":{"ok":true,"model":"gpt-4o-mini-transcribe","ms":1337,"at":"2026-11-25T01:10:28.241Z","error":null,"fallback":false}}
+   end → 200
+   room blocks: meeting-transcript, meeting-minutes
+   회의록 block lines: ["이번 분기 목표는 신규 고객 확보입니다. 영업팀은 기존 고객 유지에 집중하고, 마케팅팀은 온라인 광고를 늘려서 문의를 더 받아보겠습니다. 진행 상황은 매주 월요일에 점검하겠습니다. 이번 분기 목표는 신규 고객 확보입니다. 영업팀은 기존 고객 유지에 집중하고, 마케팅팀은 온라인 광고를 늘려서 문의를 더 받아보겠습니다. 진행상황은 매주 월요일에 점검하겠습니다. 지난번 회의에서 나온 배포 일정 문제는 개발팀이 검토했습니다. 테스트 기간을 일주일 더 잡고 다음 탈초에 운영에 반영하는 것으로 정리했습니다. 고객사에도 미리 안내하겠습니다."]
+   minutes: 📝 회의록 · 10:10–10:10 (1분)
+
+참여: pro-rt-stt-a
+
+요약: 신규 고객 확보를 분기 목표로 하고, 진행 상황 점검과 배포 일정을 정리했어요.
+
+결정
+- 영업팀은 기존 고객 유지에 집중하기로 했어요.
+- 마케팅팀은 온라인 광고를 늘려서 문의를 더 받기로 했어요.
+- 진행 상황을 매주 월요일에 점검하기로 했어요.
+- 테스트 기간을 일주일 더 잡고 다음 탈초에 운영에 반영하기로 했어요.
+- 고객사에도 미리 안내하기로 했어요.
+
+할 일
+- 기존 고객 유지에 집중하기 (영업팀)
+- 온라인 광고를 늘려서 문의를 더 받기 (마케팅팀)
+- 진행 상황을 매주 월요일에 점검하기 (pro-rt-stt-a)
+- 고객사에도 미리 안내하기 (pro-rt-stt-a)

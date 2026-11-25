@@ -12,6 +12,9 @@ test.describe('기동과 인증', () => {
     // whether the agent gets each built-in tool (spec agent-tools): booleans and source labels, never the MCP addresses or headers
     expect(r.body.agentTools).toMatchObject({ office: expect.any(Boolean), folders: expect.any(Boolean), craft: expect.any(Object) })
     expect(r.text).not.toMatch(/\/mcp\/|user_jwt|Bearer/)
+    // whether speech-to-text answers (spec speech-to-text): ok · model · ms · at · error code · fallback, never its address or key
+    expect(Object.keys(r.body.transcribe || {}).sort()).toEqual(['at', 'error', 'fallback', 'model', 'ms', 'ok'])
+    expect(JSON.stringify(r.body.transcribe)).not.toMatch(/https?:|Bearer|sk-/)
   })
 
   test('S-02 웹 앱(SPA)이 뜬다', async ({ request }) => {

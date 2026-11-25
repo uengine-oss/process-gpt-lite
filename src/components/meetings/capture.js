@@ -27,7 +27,9 @@ function downsample(chunks, rate) {
   return out.subarray(0, oi)
 }
 
-// onPiece(blob, ms), onLevel(0..1), onStart() (a voice began: the interpreter gets ready) — returns stop()
+// onPiece(blob, ms), onLevel(0..1), onStart() (a voice began: the interpreter gets ready) — returns stop({ flush }):
+// flush — the piece being spoken when it stops is sent too (the composer's dictation turned off mid-sentence,
+// src/serverDictation.js); a meeting's stop drops it, as before
 export function startCapture(stream, { onPiece, onLevel = () => {}, onStart = () => {} }) {
   const track = stream.getAudioTracks()[0]
   if (!track) return () => {}
@@ -64,5 +66,12 @@ export function startCapture(stream, { onPiece, onLevel = () => {}, onStart = ()
       if (voiced >= MIN_MS) onPiece(wav(downsample(chunks, ctx.sampleRate)), Math.round(len))
     }
   }
-  return () => { try { node.disconnect(); src.disconnect(); mute.disconnect(); ctx.close() } catch { /* closed */ } }
+  return ({ flush = false } = {}) => {
+    if (flush && speaking && piece.length) {
+      const len = piece.length * bufMs
+      if (len - silent >= MIN_MS) onPiece(wav(downsample(piece, ctx.sampleRate)), Math.round(len))
+      speaking = false; piece = []
+    }
+    try { node.disconnect(); src.disconnect(); mute.disconnect(); ctx.close() } catch { /* closed */ }
+  }
 }
