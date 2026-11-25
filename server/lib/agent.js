@@ -1314,12 +1314,15 @@ async function stopTurn(t, session, why) {
   if (!ok) t.abort.abort()
   else setTimeout(() => { if (!t.finished) t.abort.abort() }, 8000).unref?.()
 }
-// (a conversation named by the page is stopped only when it is this person's — deepagents stops a conversation by its id alone: review
-// 11-25 #1; refused: the route answers 404)
+// (what is stopped is only ever this person's own turns — turns.running; a conversation named by the page is asked of deepagents — which
+// stops a conversation by its id alone — only when it is this person's: review 11-25 #1. With none of their turns to stop and a
+// conversation that is not theirs: refused, the route answers 404. A message of theirs still in its front stage — sent from that view,
+// its conversation not taken — is stopped all the same: design turnplan, TP-I-03)
 export async function stopTurns({ user, session, threadId, conversation }) {
-  if (conversation && !(await ownsConversation(user.id, conversation).catch(() => null))) return { stopped: 0, refused: true, waiting: turns.waiting({ userId: user.id, threadId }).length }
+  const theirs = !conversation || !!(await ownsConversation(user.id, conversation).catch(() => null))
   const list = turns.toStop(turns.running({ userId: user.id, threadId, conv: conversation || null }))
   for (const t of list) await stopTurn(t, session)
+  if (!list.length && !theirs) return { stopped: 0, refused: true, waiting: turns.waiting({ userId: user.id, threadId }).length }
   if (!list.length) {
     const thread = await getThread(user.id, threadId)
     const conv = conversation || thread?.conversation_id
