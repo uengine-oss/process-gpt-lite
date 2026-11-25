@@ -12,14 +12,13 @@ const { spread } = await import('../lib/judge.js')
 const { cue } = await import('../lib/meetings/intent.js')
 const { promptEcho } = await import('../lib/meetings/transcribe.js')
 
-test('판정: LLM 이 고른 답을 판정 서버와 같은 확률 모양으로', () => {
+test('판정: LLM 이 고른 답을 판정 서버와 같은 확률 모양으로 — 고른 것만 확신도를, 남는 몫은 나누지 않는다(2026-11-25 검토)', () => {
   const opts = [{ key: 'no' }, { key: 'yes' }]
-  assert.deepEqual(spread(opts, 'yes', 0.9), { no: 0.09999999999999998, yes: 0.9 })
+  assert.deepEqual(spread(opts, 'yes', 0.9), { no: 0, yes: 0.9 })
   const three = spread([{ key: 'a' }, { key: 'b' }, { key: 'c' }], 'b', 0.8)
-  assert.equal(three.b, 0.8)
-  assert.ok(Math.abs(three.a - 0.1) < 1e-9 && Math.abs(three.c - 0.1) < 1e-9)
-  // a key that is not an option is no pick at all
-  assert.deepEqual(spread(opts, 'maybe', 0.99), { no: 0.5, yes: 0.5 })
+  assert.deepEqual(three, { a: 0, b: 0.8, c: 0 })
+  // a key that is not an option is no pick at all: nothing wins (never the first option by a tie)
+  assert.deepEqual(spread(opts, 'maybe', 0.99), { no: 0, yes: 0 })
   assert.equal(spread(opts, 'yes', 7).yes, 1)
 })
 

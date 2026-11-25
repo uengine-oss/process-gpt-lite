@@ -16,7 +16,8 @@ async function send(value = pick.value) {
 </script>
 
 <template>
-  <div v-if="c.state === 'answered'" class="done blur-in"><Icon name="check" :size="16" /> {{ c.value }}</div>
+  <!-- answered — on the card, or in the chat instead (typed: server lib/browser.js answerWaiting) -->
+  <div v-if="c.state === 'answered'" class="done blur-in" data-testid="choice-answered"><Icon name="check" :size="16" /> <span data-no-i18n>{{ c.value }}</span><small v-if="c.typed" class="typed" data-testid="choice-typed">채팅으로 답함</small></div>
   <div v-else class="choice glass">
     <div class="h">
       <img v-if="site" :src="`https://www.google.com/s2/favicons?domain=${site}&sz=64`" alt="" />
@@ -51,6 +52,7 @@ p { margin: 0; font-size: 15px; line-height: 1.5; white-space: pre-line; }
 .opt.on .radio { box-shadow: inset 0 0 0 5px var(--text-primary); }
 .foot { display: flex; justify-content: flex-end; }
 .by { text-align: center; font-size: 13px; color: var(--text-secondary); border-top: 1px solid var(--hairline); padding-top: 10px; }
-.done { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 9999px; background: var(--bubble-user-bg); font-size: 14px; }
+.done { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; border-radius: 9999px; background: var(--bubble-user-bg); font-size: 14px; max-width: 100%; overflow-wrap: anywhere; }
+.done .typed { color: var(--text-secondary); font-size: 12.5px; white-space: nowrap; }
 :root[data-theme="dark"] .dark-btn { background: #f5f5f7; color: #1d1d1f; }
 </style>

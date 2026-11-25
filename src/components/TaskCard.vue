@@ -58,6 +58,8 @@ const label = computed(() => {
     case 'choice': return `선택 필요 · ${n}`
     case 'approve': return `승인 필요 · ${n}`
     case 'stuck': return '같은 화면에서 멈춤'
+    // the budget of actions ran out — never 「같은 화면에서 멈춤」 for work that kept going (server lib/browserProgress.js)
+    case 'limit': return c.value.progress?.count ? `${c.value.progress.count}개 처리 · 동작 한도` : '동작 한도에서 멈춤'
     case 'offline': return `PC 연결 끊김 · ${n}`
     case 'other': return `확인 필요 · ${n}`
   }
@@ -144,6 +146,40 @@ function finishTakeover() {
 }
 // this card's task, whether it holds the browser or waits in line
 const cancel = () => api('/browser/cancel', { method: 'POST', body: { taskId: props.msg.id } })
+
+// In line (server lib/browser.js queueAction, 2026-11-25 recording 「계속 블러킹이 되는」): what it waits on — the task ahead, and when that
+// one waits for the person, what it asked (content.blocked) — and, for a task the person just asked for behind it, three ways, the
+// likeliest first (content.offer.default): its words as the answer · stop the one ahead and do this first · stay in line. Any card in
+// line can go first or be cancelled.
+const blocked = computed(() => (queued.value ? c.value.blocked || null : null))
+const offer = computed(() => (queued.value && blocked.value && c.value.offer ? c.value.offer : null))
+const qErr = ref('')
+const qBusy = ref(false)
+async function queueDo(action) {
+  qErr.value = ''
+  qBusy.value = true
+  try { await api('/browser/queue', { method: 'POST', body: { taskId: props.msg.id, action } }) } catch (e) { qErr.value = e.message } finally { qBusy.value = false }
+}
+const queueActs = computed(() => {
+  if (!queued.value) return []
+  const all = {
+    answer: { key: 'q-answer', label: '이 말을 앞 작업의 답으로', run: () => queueDo('answer') },
+    first: { key: 'q-first', label: '앞 작업 멈추고 이것부터', run: () => queueDo('first') },
+    after: { key: 'q-after', label: '앞 작업 뒤에 줄 세우기', run: () => queueDo('after') },
+  }
+  const drop = { key: 'q-cancel', label: '취소', run: cancel }
+  if (offer.value) {
+    // (a task ahead that waits for an approval or a sign-in takes no answer from here: offer.answer false)
+    const keys = ['answer', 'first', 'after'].filter((k) => k !== 'answer' || offer.value.answer !== false)
+    const d = keys.includes(offer.value.default) ? offer.value.default : 'after'
+    return [{ ...all[d], big: true }, ...keys.filter((k) => k !== d).map((k) => all[k]), drop]
+  }
+  return [all.first, drop]
+})
+// repetitive work that keeps changing the page (deleting one item after another): how many rounds so far, not a stop
+const progressN = computed(() => (running.value || needs.value ? c.value.progress?.count || 0 : 0))
+// what the person said to it in the chat — an answer to its question, or how to go on — shown as received
+const heard = computed(() => (running.value || needs.value ? (c.value.steered?.text ? { kind: '받은 지시', text: c.value.steered.text } : c.value.answered?.text ? { kind: '채팅으로 답함', text: c.value.answered.text } : null) : null))
 
 // Nothing has moved for a while (server lib/browser.js guard → content.stall { what, since, after }): instead of a screen
 // that looks frozen, what it is waiting on, for how long, and 다시 시도 (that step again) · 그만두기 (stop the task).
@@ -238,7 +274,8 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
   <div class="task" :class="{ full }">
     <div ref="screen" class="screen" :class="{ live: running, takeover, bare }" tabindex="0" @click="onClick" @keydown="onKey" @paste="onPaste">
       <img v-if="frame?.data" :src="`data:image/jpeg;base64,${frame.data}`" alt="" />
-      <div v-else class="blank"><span v-if="!bare" :class="running || queued ? 'shimmer-text' : 'still'">{{ running ? '브라우저 여는 중' : queued ? (c.reason || '앞 작업이 끝나면 시작해요') : c.title }}</span></div>
+      <div v-else class="blank"><span v-if="!bare" :class="running || queued ? 'shimmer-text' : 'still'">{{ running ? '브라우저 여는 중' : queued ? (c.order ? '② 대기 중' : '대기 중') : c.title }}</span></div>
+      <span v-if="progressN" class="prog" data-testid="task-progress">진행 중 · {{ progressN }}개 처리</span>
       <div class="rings" aria-hidden="true"><i v-for="r in ripples" :key="r.id" class="ring" :class="r.kind" :style="{ left: r.left, top: r.top }" data-testid="click-ring" /></div>
       <span v-if="whereText && !bare" class="where" :class="{ pc: onPc }" data-testid="task-where">{{ whereText }}</span>
       <Transition name="fade">
@@ -271,6 +308,17 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
         <button class="press sub" data-testid="task-giveup" @click="cancel">그만두기</button>
       </div>
     </div>
+    <!-- in line: what it waits on (the question the task ahead asked, when it waits for the person) and what to do with this one -->
+    <div v-if="!full && queued" class="ask queue" :class="{ urgent: !!blocked }" data-testid="task-queue">
+      <p class="why" data-testid="task-queue-why">{{ c.reason || '앞 작업이 끝나면 시작해요' }}</p>
+      <p v-if="blocked?.question" class="asked" data-testid="task-queue-question"><small>앞 작업이 물은 것</small><span data-no-i18n>{{ blocked.question }}</span></p>
+      <div class="acts">
+        <button v-for="(a, i) in queueActs" :key="a.key" class="press" :class="a.big ? 'go' : 'sub'" :disabled="qBusy" :data-testid="`task-${a.key}`" :data-default="a.big ? 'yes' : null" @click="a.run">{{ a.label }}</button>
+      </div>
+      <p v-if="qErr" class="aerr" data-testid="task-queue-error">{{ qErr }}</p>
+    </div>
+    <!-- what the person said to it in the chat, as received -->
+    <p v-if="heard && !full" class="heard" data-testid="task-heard"><b>{{ heard.kind }}</b><span data-no-i18n>{{ heard.text }}</span></p>
     <!-- signing in with the vault's login: which way it is going in (also in the full view) -->
     <div v-if="vaultIn && !stall" class="ask vaultin" :class="{ inFull: full }" data-testid="task-vault-signin" role="status">
       <p class="why"><Icon name="key" :size="16" /><b>보관함의 로그인으로 들어가는 중</b><span class="vsite">· {{ vaultIn.site }}</span></p>
@@ -349,6 +397,12 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
 .ask.stall .secs { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ask.stall .hint { margin: -4px 0 12px; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); word-break: keep-all; overflow-wrap: anywhere; }
 .acts button:disabled { opacity: .55; }
+.ask.queue .asked { margin: -4px 0 12px; padding: 10px 12px; border-radius: 14px; background: rgba(127 127 127 / .1); font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; word-break: keep-all; }
+.ask.queue .asked small { display: block; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 2px; }
+.ask.queue .acts .go { flex: 1 1 100%; }
+.prog { position: absolute; right: 12px; top: 12px; height: 28px; padding: 0 12px; border-radius: 9999px; display: inline-flex; align-items: center; background: rgba(15 157 88 / .92); color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 2px 10px rgba(0 0 0 / .12); pointer-events: none; }
+.heard { margin: 8px 4px 0; display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; line-height: 1.45; color: var(--text-secondary); overflow-wrap: anywhere; }
+.heard b { flex: none; font-weight: 600; color: #0F9D58; }
 .ask.vaultin { box-shadow: inset 0 0 0 1.5px rgba(15 157 88 / .45), var(--shadow-card); }
 .ask.vaultin.inFull { width: min(92vw, 1024px, 112vh); margin: 12px auto 0; }
 .ask.vaultin .why { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-bottom: 4px; }

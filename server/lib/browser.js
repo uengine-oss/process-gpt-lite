@@ -29,6 +29,9 @@ import { ServerDriver, within, blankOf, lookAt } from './browserServer.js'
 import { RemoteDriver, routeFor, privateAddress } from './browserRemote.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
+import { BLOCK, HARD, turnOf, progressOf, budgetAfter } from './browserProgress.js'
+import * as BF from './browserFiles.js'
+import * as P from './privateStore.js'
 
 export { STEP } from './browserSteps.js'
 export { PROFILES, profilesDir, LIVE } from './browserServer.js'
@@ -52,7 +55,7 @@ export function clearStaleLocks(dir) {
 
 // One session per person: the task that holds the browser, the ones in line, and the page driver it runs on —
 // s.driver is the one in use (s.server: this server's Chromium, launched when first needed; s.local: their PC's).
-const sessions = new Map() // userId -> { driver, server, local, task, threadId, frame, captures, queue, planning }
+const sessions = new Map() // userId -> { driver, server, local, task, threadId, frame, captures, queue, planning, joining }
 const launching = new Map() // userId -> the launch in progress (two tasks at once share it)
 
 // The type a downloaded file is stored with, so its link plays (audio, video) or opens (PDF, images) in
@@ -112,7 +115,9 @@ function releaseKept(userId, s) {
 function sessionRec(userId) {
   let s = sessions.get(userId)
   if (!s) {
-    s = { driver: null, server: null, local: null, task: null, threadId: null, frame: null, captures: new Map(), queue: [], planning: new Map() }
+    // joining: a task to go on with (resume) → settles once it holds the browser, stands in line or is over — a task asked to come
+    // after it (「① … 마저 끝내고 → ② …」) waits for that before it takes its own place
+    s = { driver: null, server: null, local: null, task: null, threadId: null, frame: null, captures: new Map(), queue: [], planning: new Map(), joining: new Map() }
     sessions.set(userId, s)
   }
   return s
@@ -219,7 +224,7 @@ async function pushFrame(userId, s) {
 // Slow work on a page (a report, an audio file being made) is waited for here, without spending the model's turns.
 export const WAIT = { everyMs: 15000, maxMinutes: 30, taskMaxMinutes: 60, watchMs: 2000, settleMs: 500 }
 
-const STEP_TOOLS = new Set(['goto', 'click', 'type', 'fill_secret', 'scroll', 'wait_for_page', 'attach_file', 'note'])
+const STEP_TOOLS = new Set(['goto', 'click', 'type', 'fill_secret', 'scroll', 'wait_for_page', 'attach_file', 'save_pdf', 'pick_file', 'note'])
 const TOOLS = [
   ['goto', 'Open a URL', { url: 'string' }],
   ['click', 'Click element by index', { i: 'number' }],
@@ -230,7 +235,9 @@ const TOOLS = [
   ['scroll', 'Scroll the page. To scroll a list or panel of its own (a map\'s result list, a frame), give i: an element inside it', { dy: 'number', i: 'number' }],
   ['wait_for_page', 'Wait for slow work the page is doing by itself (something being generated, processed or uploaded) without using up your actions. Not for anything that comes only after you act (a list of suggestions after typing, results after pressing search): act instead. The page is checked every few seconds until until_text appears on it or gone_text is no longer on it, or the minutes run out. Files the page downloads meanwhile reach the person by themselves', { minutes: 'number', until_text: 'string', gone_text: 'string' }],
   ['tell_user', 'Tell the person in the chat how a long task is going, in one or two sentences. Work goes on', { text: 'string' }],
-  ['attach_file', 'Give a file the person attached to this task to the page: i is the file input or the control that opens the file picker', { i: 'number', name: 'string' }],
+  ['attach_file', 'Give one of this task\'s files (the person attached it, or you saved it with save_pdf) to the page: i is the file input or the control that opens the file picker', { i: 'number', name: 'string' }],
+  ['pick_file', 'Find a file of this conversation to give to a site: what the AI made in this room, files posted in its chat, its linked folder, files teammates shared with the person. Say in want which file the work needs (kind and what it is about); the server picks the one that fits (asking the person on a card when several do) and makes it one of this task\'s files for attach_file. Use it before telling the person a file is missing — never ask them to attach a file to this task', { want: 'string' }],
+  ['save_pdf', 'Save the page now on screen as a PDF file, as the site prints it (in this browser, signed in as the person — sign in first where the site needs it). The file reaches the person as a file card and becomes one of this task\'s files, so attach_file can give it to another site', { name: 'string' }],
   ['step_done', 'Mark a plan step complete', { step: 'number', note: 'string' }],
   ['note', 'Record facts you found (names, prices, URLs) so they survive leaving this page', { text: 'string' }],
   ['need_login', 'No saved credential for this site; ask the user to save one', { site: 'string' }],
@@ -280,33 +287,113 @@ async function plan(goal) {
 }
 
 // The browser is one per person, so its tasks run one at a time: a task asked for while another one
-// is still running (or waiting for the person) waits in line — its card says so, and the person can
-// still answer or cancel the one in front (cards and 작업 취소 reach the task that holds the page).
+// is still running (or waiting for the person) waits in line — its card says what it waits on, and the person can
+// still answer or cancel the one in front (cards and 작업 취소 reach the task that holds the page). Behind a task that waits
+// for the person, a task the person just asked for is never left there silently: its card offers 「이 말을 앞 작업의 답으로」 ·
+// 「앞 작업 멈추고 이것부터」 · 「앞 작업 뒤에 줄 세우기」, the likeliest first (queue.default, lib/browserQueue.js), and every queued
+// card can go first or be cancelled (queueAction).
 // Runs a browser task; posts a task card into the thread and keeps it updated.
 // skill: the browser skill (skills/<name>/SKILL.md, lib/browserSkills.js) the work was routed to, if any —
 // the agent is told its name and description and reads the body itself (read_skill); its start_url is
 // where the task opens when no startUrl is given.
+// resume: a card id — that task again on its own card, from where it stopped, with what it did and noted, and a fresh budget of
+// actions. from + instruction: a new task that carries on from that one's goal, inputs and page, with the person's new instruction.
+// after: a task id this one comes after (「① … 마저 끝내고 → ② …」). queue: { asked, default } — the person's words that started it and
+// the first action its card offers if it has to wait behind a task that is waiting for them.
 export async function runBrowserTask(args) {
   const k = `${args.userId}:${args.threadId}`
   started.set(k, (started.get(k) || 0) + 1)
-  try { return await runBrowserTaskNow(args) } finally { const n = (started.get(k) || 1) - 1; if (n > 0) started.set(k, n); else started.delete(k) }
+  const s = sessionRec(args.userId)
+  let joined
+  const settle = new Promise((r) => { joined = r })
+  if (args.resume) s.joining.set(args.resume, settle)
+  try { return await runBrowserTaskNow({ ...args, joined }) } finally {
+    joined()
+    if (args.resume && s.joining.get(args.resume) === settle) s.joining.delete(args.resume)
+    const n = (started.get(k) || 1) - 1; if (n > 0) started.set(k, n); else started.delete(k)
+  }
 }
+// The task an earlier card stood for, to go on with: its goal, inputs, page, what it did and noted. Only the person's own, and only
+// one that is over (a task still running, waiting or in line is answered or cancelled on its card).
+async function earlierTask(userId, id) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(id || ''))) return null
+  const s = sessions.get(userId)
+  if (s && (s.task?.id === id || s.queue.some((x) => x.task.id === id) || s.planning.has(id))) return null
+  const [m] = await q(`select m.id, m.thread_id, m.content from pro_messages m join pro_threads t on t.id=m.thread_id where m.id=$1 and t.user_id=$2 and m.kind='task'`, [id, userId])
+  return m && ['needs_review', 'failed', 'cancelled', 'done'].includes(m.content?.state) && m.content.goal ? m : null
+}
+// What the agent is told about the work before (a resumed task, or one that carries on from it)
+function earlierNote(e, { instruction = '' } = {}) {
+  const did = (e.did || []).map((d) => `- ${d.text}`).join('\n')
+  const notes = (e.notes || []).map((n) => `- ${n}`).join('\n')
+  const why = String(e.reason || e.summary || '').split('\n')[0].slice(0, 300)
+  return [instruction
+    ? `This continues an earlier browser task ("${e.title}"). The person's new instruction for it: ${instruction}\nFollow the instruction; reuse what the earlier task already made (its page, its notebook or document) instead of starting over.`
+    : `This task was stopped before it was finished${why ? ` (${why})` : ''}. It is resumed now with a fresh budget of actions. Go on from where it stopped; do not redo what is already done.`,
+  did ? `What was already done (oldest first):\n${did}` : '',
+  notes ? `Facts recorded so far:\n${notes}` : '',
+  e.url ? `The page it was on last: ${e.url}` : ''].filter(Boolean).join('\n\n')
+}
+// what the queued card says it waits on: the task holding the browser waits for the person (its question), the task it was asked to
+// come after, or just the task ahead
+function queueReason(ahead, blocker, after) {
+  if (blocker) return L(`앞 작업 '${blocker.title}'이(가) 입력을 기다리고 있어요. 그 카드에 답하거나, 이 작업을 어떻게 할지 아래에서 골라 주세요.`,
+    `The task ahead, '${blocker.title}', is waiting for your input. Answer its card, or choose below what to do with this one.`)
+  if (after) return L(`① '${after}'을(를) 마저 끝내면 이어서 시작해요.`, `Starts once ① '${after}' is finished.`)
+  return L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`)
+}
+const blockedOf = (t) => (t?.waiting ? { taskId: t.id, title: t.title, question: String(t.asking?.question || t.asking?.reason || '').slice(0, 400) } : null)
+// The cards of the tasks in line, again: what they wait on changes when the task holding the browser starts or stops waiting
+function refreshQueue(userId, s) {
+  const blocker = s.task?.waiting ? s.task : null
+  let ahead = s.task
+  for (const { task } of s.queue) {
+    updateMessage(userId, task.id, { reason: queueReason(ahead || task, blocker, task.afterTitle), blocked: blockedOf(blocker) }).catch(() => {})
+    ahead = task
+  }
+}
+// The files a task was given, as kept on its card (to give to a task that goes on with it): never bytes, only where they are
+// (a folder's file and a share keep where they are — read again as the person when used: lib/browserFiles.js bytesOf; how a file came to the
+// task keeps its upload rule — attached, picked, made)
+export const keptFiles = (files) => (files || []).filter((f) => f?.name && (f.url || f.key || f.path || f.folder?.slug || f.share || f.private?.key)).slice(0, 10).map((f) => ({ name: f.name,
+  ...(f.url ? { url: f.url } : {}), ...(f.key ? { key: f.key } : {}), ...(f.path ? { path: f.path } : {}), ...(f.type ? { type: f.type } : {}), ...(f.from ? { from: f.from } : {}),
+  ...(f.folder?.slug ? { folder: { slug: f.folder.slug, path: f.folder.path } } : {}), ...(f.share ? { share: f.share } : {}), ...(f.private?.key ? { private: { key: f.private.key } } : {}),
+  ...(f.origin ? { origin: f.origin } : {}), ...(f.cid ? { cid: f.cid } : {}) }))
+
 // own: the person's own task — asked for in their own chat (agent.js); a process step, a scheduled or an agent's run is not (it runs on
 // their PC only when that PC's setting says 'all' — lib/browserRemote.js routeOf)
-async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, unattended, own = !unattended, gates = config.browserGates, files = [], skill }) {
+async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, unattended, own = !unattended, gates = config.browserGates, files = [], skill, resume = null, from = null, instruction = '', after = null, queue = null, joined = () => {} }) {
+  const s = sessionRec(userId)
+  const t0 = Date.now()
+  // the task to go on with: the same card (resume) or a new one that carries on from it (from)
+  const earlier = resume || from ? await earlierTask(userId, resume || from) : null
+  if ((resume || from) && !earlier) {
+    const reason = L('이어서 할 작업을 찾지 못했어요. 같은 말로 다시 시켜 주세요.', "I couldn't find the task to go on with. Ask again in the same words.")
+    return { state: 'failed', need: 'other', reason, summary: reason, brief: reason, notes: [], stats: newStats() }
+  }
+  const e = earlier?.content || null
+  if (earlier) {
+    threadId = earlier.thread_id
+    goal = resume ? e.goal : `${e.goal}\n\n${L('이어서 할 일', 'Go on with')}: ${String(instruction || '').trim()}`
+    skill = skill || e.skill || null
+    files = files.length ? files : (e.files || [])
+    startUrl = startUrl || e.url || e.startUrl || ''
+  }
   const sk = skill ? browserSkill(skill) : null
   if (skill && !sk) console.warn('[browser] no browser skill named', skill)
   startUrl = startUrl || sk?.startUrl || ''
-  const s = sessionRec(userId)
-  const t0 = Date.now()
+  // files given with the request are the person's own for this task (they go wherever it goes); one it finds or makes itself asks first
+  files = (files || []).map((f) => ({ ...f, origin: f.origin || 'attached' }))
   // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
-  // (skill: the browser skill it runs — the router reads the card as one line with it, lib/turnPlan.js taskLine)
-  const card = await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '', ...(sk ? { skill: sk.name } : {}) })
+  // (skill: the browser skill it runs — the router reads the card as one line with it, lib/turnPlan.js taskLine; a resumed task keeps its
+  // own card: it says it runs again)
+  const card = resume ? { id: resume } : await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '', ...(sk ? { skill: sk.name } : {}), ...(from ? { from } : {}) })
+  if (resume) await updateMessage(userId, card.id, { state: 'running', need: null, reason: '', summary: '', stall: null, progress: null, blocked: null, offer: null, order: null, answered: null, steered: null })
   s.planning.set(card.id, false)
   // an idle browser is taken now — where it runs is decided (the person's PC or this server: takeBrowser), its page checked
   // (a page a task before left stuck: a fresh tab or browser — healthy) — and opens the start page while the plan is being
   // made (the page is not anyone else's)
-  const idle = !s.task && !s.queue.length && s.planning.size === 1
+  const idle = !s.task && !s.queue.length && s.planning.size === 1 && !after
   let earlyTab = null // the tab the start page was opened in
   let where = null
   let notTaken = null
@@ -319,33 +406,64 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
       ready.then(() => { const d = s.driver; if (!where || offLimits(guarded, d, startUrl)) return; earlyTab = d.tab; return d.navigate(startUrl) }).then(() => true, () => true))
     : null
   if (early) { s.early = early; early.then(() => { if (s.early === early) s.early = null }) }
-  const p = await plan(goal).catch((e) => { console.warn('[browser] plan', e.message); return { title: firstLine(goal), steps: [] } })
+  // (a resumed task has its plan already: the steps on its card, done or not)
+  const p = e && resume ? { title: e.title || firstLine(goal), steps: (e.steps || []).map((x) => x.text) }
+    : await plan(goal).catch((err) => { console.warn('[browser] plan', err.message); return { title: firstLine(goal), steps: [] } })
+  // the file the words mean, among this conversation's (lib/browserFiles.js — 2026-11-25: 「AI 로 만든 문서나 대화창에 올려진 파일 내용을
+  // 브라우저 쪽으로 업로드를 못시키네」): one the judge is sure of goes with the task from the start; several, or none sure, are left to
+  // pick_file, which asks on a card when it has to
+  if (!files.length && own && !unattended && threadId && !earlier) {
+    const list = await BF.fileCandidates({ id: userId }, threadId).catch(() => [])
+    const r = list.length ? await BF.readFile(list, goal) : null
+    if (r) console.log(`[browser] files for '${firstLine(goal)}': ${r.pick ? `'${r.pick.name}' (${r.pick.from})` : `none sure of ${list.length}`} via ${r.via || '-'} ${r.ms} ms`)
+    if (r?.pick) files = [{ ...BF.asTaskFile(r.pick), origin: 'picked' }]
+  }
+  // asked to come after a task that is still starting: it takes its place first (it holds the browser or stands in line)
+  const before = after ? s.joining.get(after) : null
+  if (before) await Promise.race([before, pause(15000).catch(() => {})])
   const cancelledEarly = s.planning.get(card.id)
   s.planning.delete(card.id)
   const ahead = s.task || s.queue.length ? (s.queue.at(-1)?.task || s.task) : null
+  // the task holding the browser waits for the person: this one's card says so and what it asked
+  const blocker = ahead && s.task?.waiting ? s.task : null
+  const afterTitle = after && ahead ? (s.task?.id === after ? s.task.title : s.queue.find((x) => x.task.id === after)?.task.title || '') : ''
+  // a task the person just asked for, behind one that waits for them: three ways on its card, the likeliest first
+  // (a task ahead that waits for an approval, a sign-in or a code is answered on its own card only: no 「답으로」 then)
+  const answerable = !blocker?.asking?.locked
+  const offer = blocker && own && !unattended && !afterTitle && String(queue?.asked || '').trim()
+    ? { default: !answerable && queue.default === 'answer' ? 'after' : queue.default || 'after', ...(answerable ? {} : { answer: false }) } : null
   await updateMessage(userId, card.id, {
-    title: p.title, steps: p.steps.map((t) => ({ text: t, done: false })), state: ahead ? 'queued' : 'running',
-    ...(ahead ? { reason: L(`앞 작업 '${ahead.title}'이(가) 끝나면 시작해요`, `Starts when the task ahead, '${ahead.title}', is done`) } : {}),
+    title: p.title, ...(resume ? {} : { steps: p.steps.map((t) => ({ text: t, done: false })) }), state: ahead ? 'queued' : 'running',
+    ...(ahead ? { reason: queueReason(ahead, blocker, afterTitle), blocked: blockedOf(blocker), offer, order: afterTitle ? { n: 2, after: afterTitle } : null } : {}),
+    ...(sk ? { skill: sk.name } : {}), startUrl, files: keptFiles(files),
   })
-  const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [], log: [], unattended, own, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
+  const task = { id: card.id, userId, threadId, goal, files, title: p.title, steps: p.steps, cancelled: false, waiting: null, notes: [...(resume ? e.notes || [] : [])],
+    // a resumed task's log goes on from what it did (its summary lists both); one that carries on starts its own
+    log: resume ? (e.did || []).map((d) => ({ kind: d.kind || 'earlier', text: d.text, ok: true })) : [], unattended, own, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
     gates, guarded, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: sk?.name || null, signIn: sk?.signIn || '',
     // cancel ends whatever step is under way (abort), 다시 시도 only the current one (retry, per turn)
     abort: new AbortController(), retry: null, signal: null,
-    stats: newStats({ llm: 1 }) }
+    // the person's words: the message that asked for it (its card can give them to the task ahead as its answer), what they said to it
+    // in the chat while it ran (told: read on its next look); the budget of actions and the actions' trail (lib/browserProgress.js)
+    asked: String(queue?.asked || ''), told: resume && String(instruction || '').trim() ? [String(instruction).trim()] : [], afterTitle,
+    // what the person said to it in the chat, all of it (an upload of a file they did not attach is allowed by their own words: uploadAllowed),
+    // and the files they allowed onto a site (name and host); asks: how many times it asked them (an answer is for one question only)
+    heard: [String(instruction || '').trim()].filter(Boolean), uploadOk: new Set(), asks: 0, budget: BLOCK, trail: [], progressCount: 0,
+    stats: newStats({ llm: resume ? 0 : 1 }) }
   task.stats.plan_ms = Date.now() - t0
   task.cancelled = cancelledEarly
   if (ahead && !task.cancelled) {
-    await addMessage(userId, threadId, 'agent', 'text', { text: L(`브라우저는 한 번에 한 작업만 해요. 앞 작업 '${ahead.title}'이(가) 끝나거나 취소되면 '${p.title}' 작업을 이어서 시작할게요.${s.task?.waiting ? ' 앞 작업은 지금 입력을 기다리고 있어요 — 그 카드에 답하거나 작업을 취소해 주세요.' : ''}`,
-      `The browser does one task at a time. When the task ahead, '${ahead.title}', is done or canceled, I'll start '${p.title}'.${s.task?.waiting ? ' The task ahead is waiting for your input right now — answer its card or cancel the task.' : ''}`) })
-    await new Promise((go) => s.queue.push({ task, go }))
+    console.log(`[browser] task ${card.id} waits in line behind '${ahead.title}'${blocker ? ' (it waits for the person)' : ''}${offer ? ` · offer ${offer.default}` : ''}`)
+    await new Promise((go) => { s.queue.push({ task, go }); joined() })
   }
   if (task.cancelled) {
-    await updateMessage(userId, card.id, { state: 'cancelled', reason: '', summary: L('시작하기 전에 취소했어요.', 'Canceled before it started.') })
+    const why = task.cancelWhy || L('시작하기 전에 취소했어요.', 'Canceled before it started.')
+    await updateMessage(userId, card.id, { state: 'cancelled', reason: '', blocked: null, offer: null, order: null, summary: why })
     // (the browser was taken for it while it planned — on the PC that said begin: it is let go again, unless another task holds it now)
     if (ready) { await ready; if (early) await early; if (where && !s.task) await s.driver?.idle?.().catch(() => {}) }
-    return { state: 'cancelled', summary: '', notes: [], stats: task.stats }
+    return { state: 'cancelled', summary: '', notes: [], stats: task.stats, taskId: task.id }
   }
-  if (ahead) await updateMessage(userId, card.id, { state: 'running', reason: '' })
+  if (ahead) await updateMessage(userId, card.id, { state: 'running', reason: '', blocked: null, offer: null, order: null })
   // another task's start page, opened while it planned, lands before this one drives the page
   if (s.early && s.early !== early) await s.early
   // a page left stuck by the task before (a script that never returns) is not this task's problem: a fresh tab or browser
@@ -354,7 +472,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // the browser could not be had (this server's Chromium did not start): the card says so and the next task in line goes on — never a
   // card left running and a queue held (2026-11-25 review)
   if (!where) {
-    try { where = await takeBrowser(userId, s, { own, unattended }) } catch (e) { notTaken = e }
+    try { where = await takeBrowser(userId, s, { own, unattended }) } catch (err) { notTaken = err }
   }
   if (!where) {
     console.warn(`[browser] task ${card.id}: no browser — ${notTaken?.message}`)
@@ -362,7 +480,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     await updateMessage(userId, card.id, { state: 'failed', need: 'other', reason, summary: reason }).catch(() => {})
     await setThreadStatus(userId, threadId, null).catch(() => {})
     s.queue.shift()?.go()
-    return { state: 'failed', need: 'other', reason, summary: reason, notes: [], stats: task.stats }
+    return { state: 'failed', need: 'other', reason, summary: reason, brief: reason, notes: [], stats: task.stats, taskId: task.id }
   }
   // from here the browser is this task's: anything a site sends from now on answers what this task did
   // (a code mailed for an earlier sign-in is not this one's — lib/mailCode.js watchForCode since)
@@ -370,13 +488,15 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   task.where = where
   s.task = task
   s.threadId = threadId
+  joined()
+  refreshQueue(userId, s)
   await setThreadStatus(userId, threadId, 'working')
   // where it runs, on the card (「내 PC · <기기>」 and 「이 PC에서 보기」 — TaskCard.vue)
   await updateMessage(userId, card.id, { where })
   // the start page opened while the plan was made counts when it is in the tab still in use; else it opens now
   if (early && !ahead) await early
   if (startUrl && offLimits(guarded, s.driver, startUrl)) task.notes.push(L(`${hostOf(startUrl)}: 사람이 없는 작업이라 PC 의 내부망 주소는 열지 않음`, `${hostOf(startUrl)}: not opened — a task nobody watches does not open addresses on the PC's own network`))
-  else if (startUrl && !(early && !ahead && s.driver.tab === earlyTab)) {
+  else if (startUrl && !(early && !ahead && s.driver.tab === earlyTab) && !(earlier && s.driver.url() === startUrl)) {
     say(task, L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`))
     await s.driver.navigate(startUrl, { signal: task.abort.signal }).catch(() => {})
   }
@@ -384,29 +504,42 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   await pushFrame(userId, s)
 
   const messages = [{ role: 'system', content: agentPrompt({ goal, steps: p.steps, files }) }]
+  // a task that goes on from an earlier one hears what that one did, noted and where it stopped
+  if (e) messages.push({ role: 'user', content: hide(task, earlierNote(e, { instruction: resume ? '' : instruction })) })
   // what the agent may know about a site comes from browser skills, by name and description only: the
   // body is read when the task uses it (read_skill), never written into the prompt
   const skills = skillNote(sk)
   if (skills) messages.push({ role: 'user', content: skills })
 
   let { result, ended } = await drive(s, task, { messages, onAction })
-  if (task.cancelled) result = { state: 'cancelled', summary: L('작업을 취소했어요.', 'I canceled the task.') }
+  // its turns are over: words said from now on are not for it (they go the way of an ended task — lib/agent.js readResume)
+  task.over = true
+  if (task.cancelled) result = { state: 'cancelled', summary: task.cancelWhy || L('작업을 취소했어요.', 'I canceled the task.') }
   else if (result.state === 'done' && !ended) {
-    const reason = byHandOnPc(task)
-      ? L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래의 작업 내용을 보고, 카드의 「이 PC에서 보기」로 그 PC 에 열어 둔 페이지에서 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
-        `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on in the page left open on the PC ("Show on this PC" on the card) or ask again more specifically.`)
-      : L(`동작 ${MAX_TURNS}번 안에 작업을 끝내지 못해 멈췄어요. 마지막 화면과 아래의 작업 내용을 보고, 카드의 「직접 제어」로 이어서 하거나 더 구체적으로 다시 시켜 주세요.`,
-        `I stopped: the task wasn't finished within ${MAX_TURNS} actions. Check the last screen and what I did below, then go on with "Take control" on the card or ask again more specifically.`)
-    result = { state: 'needs_review', need: 'stuck', reason, summary: reason }
+    // the budget ran out (lib/browserProgress.js: more blocks only while the rounds made progress): never 「같은 화면에서 멈춤」 —
+    // how much it did, and that 다시 시도 goes on from here
+    const n = task.stats.turns, count = task.progressCount || 0
+    const done = count ? L(`동작 ${n}번 동안 ${count}개를 처리했지만 다 끝내지 못해 멈췄어요.`, `I handled ${count} in ${n} actions but couldn't finish, so I stopped.`)
+      : L(`동작 ${n}번 안에 작업을 끝내지 못해 멈췄어요.`, `I stopped: the task wasn't finished within ${n} actions.`)
+    const next = byHandOnPc(task)
+      ? L('「다시 시도」를 누르면 멈춘 자리부터 이어서 해요. 직접 하려면 카드의 「이 PC에서 보기」로 그 PC 에 열어 둔 페이지에서 해 주세요.', 'Press "Try again" to go on from where I stopped, or go on yourself in the page left open on the PC ("Show on this PC" on the card).')
+      : L('「다시 시도」를 누르면 멈춘 자리부터 이어서 해요. 직접 하려면 카드의 「직접 제어」를 눌러 주세요.', 'Press "Try again" to go on from where I stopped, or "Take control" on the card to do it yourself.')
+    const reason = `${done} ${next}`
+    result = { state: 'needs_review', need: 'limit', reason, summary: reason }
   }
   // finished without saying the result: one closing call for it (the person reads the result first)
-  if (!task.cancelled && result.state === 'done' && !String(result.summary || '').trim() && task.log.some((e) => e.ok)) {
-    result.summary = await closingSummary(messages, task).catch((e) => { console.warn('[browser] closing summary', e.message); return '' })
+  if (!task.cancelled && result.state === 'done' && !String(result.summary || '').trim() && task.log.some((x) => x.ok)) {
+    result.summary = await closingSummary(messages, task).catch((err) => { console.warn('[browser] closing summary', err.message); return '' })
   }
   // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
   // the person to check, and what they read is what the action log shows
   try {
     result = honest(result, task, { moved: s.driver.url() !== startedAt || !!task.moves })
+    // (a task cancelled or failed keeps its words as they are: they fold the same way)
+    if (result.brief == null) {
+      const head = String(result.reason || result.summary || '').trim(), brief = briefOf(head)
+      Object.assign(result, { brief, detail: head !== brief ? head : '', did: task.log.filter((x) => x.ok).slice(-HARD).map((x) => ({ kind: x.kind, text: x.text })), refused: [] })
+    }
     // a page that cannot be photographed now keeps the last screen the live view showed
     const shot = (await pushFrame(userId, s)) || s.frame
     s.task = null
@@ -415,14 +548,19 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     const why = result.state === 'failed' || result.state === 'needs_review'
       ? { need: result.need || 'other', reason: result.reason || firstPara(result.summary), site: result.site || host, siteName: result.siteName || nameOn(task, host) } : { need: null, reason: '' }
     task.keep = keepsPage(task, result)
-    await updateMessage(userId, card.id, { state: result.state, summary: result.summary, url: s.driver.url() || undefined, shot, stall: null, ...why, ...(task.where ? { where: task.where } : {}),
-      ...(byHandOnPc(task) ? { pcKept: task.keep } : {}) })
+    // the card keeps the result short and the rest folded (2026-11-25: 「불필요하게 뭐 아주 길게 … 이런거 필요없고 보고싶으면 볼 수 있겠으나」):
+    // brief on the card, what it did step by step (did) and the whole account (detail) for 「자세히」 — and what a task that goes on
+    // from it needs (its notes, its skill, where it started, its files)
+    await updateMessage(userId, card.id, { state: result.state, summary: result.brief, detail: result.detail || '', did: result.did || [], refused: result.refused || [], url: s.driver.url() || undefined, shot, stall: null, ...why,
+      ...(task.where ? { where: task.where } : {}), ...(byHandOnPc(task) ? { pcKept: task.keep } : {}),
+      notes: task.notes.slice(-20).map((x) => String(x).slice(0, 400)), files: keptFiles(task.files), ...(task.progressCount ? { progress: { count: task.progressCount } } : {}), answered: null, steered: null })
     say(task, null)
     await setThreadStatus(userId, threadId, null)
     result.url = s.driver.url()
     result.notes = task.notes
+    result.taskId = task.id
     result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
-    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s on ${task.where?.kind === 'local' ? `the PC (${task.where.device})` : 'this server'} · ${task.stats.turns} turns · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}${task.stats.stalls ? ` · ${task.stats.stalls} stalls` : ''}${task.stats.retries ? ` · ${task.stats.retries} retried` : ''}`)
+    console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s on ${task.where?.kind === 'local' ? `the PC (${task.where.device})` : 'this server'} · ${task.stats.turns} turns${task.stats.extended ? ` (budget extended ${task.stats.extended}× — ${task.progressCount} rounds of progress)` : ''} · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}${task.stats.stalls ? ` · ${task.stats.stalls} stalls` : ''}${task.stats.retries ? ` · ${task.stats.retries} retried` : ''}`)
     result.where = task.where
     result.pageText = task.cancelled ? '' : hide(task, await s.driver.text())
     return result
@@ -456,7 +594,7 @@ Before submitting a payment, sending a message or deleting anything, call approv
 Do only what the goal asks. ${asksToBuy(goal) ? 'Buy or order only what the goal names, and only after approve.' : 'The goal does not ask to buy anything: never click reorder, buy, add-to-cart, checkout, pay, subscribe or booking controls — the server refuses them.'}
 When an action completes a plan step, give that step's number as done on the action itself; use step_done only for a step that needs no action of its own. Use note to record every fact you will need in the final answer before navigating away. Finish with a${isEn() ? 'n English' : ' Korean'} summary that starts with the result the goal asks for (one or two sentences) and contains all collected facts.
 Never claim a step you did not do with a tool: the summary the user sees lists only the actions you actually performed.
-${files.length ? `The person attached these files for this task: ${files.map((f) => f.name).join(', ')}.\n` : ''}`.trimEnd()
+${files.length ? `Files of this task (give them to a site with attach_file): ${files.map((f) => f.name).join(', ')}.\n` : ''}Other files of this conversation (what the AI made in this room, files posted in its chat, its linked folder, files teammates shared) are found with pick_file. Never ask the person to attach a file to this task.`.trimEnd()
 }
 // the first answer without a single browser action is sent back once: do the steps first
 const NUDGE = 'You have not performed any browser action yet (no goto/click/type/fill_secret/note). Do the plan steps with the tools now. Call finish only after you have actually done them; if the page already shows what the goal asks, record it with note first.'
@@ -469,8 +607,19 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
   let ended = false
   task.abort ||= new AbortController()
   const dog = guard(task)
+  task.budget ||= BLOCK
+  task.trail ||= []
+  task.told ||= []
   try {
-  for (let turn = 0; turn < MAX_TURNS && !task.cancelled; turn++) {
+  for (let turn = 0; !task.cancelled; turn++) {
+    // the budget: BLOCK actions, one more block at a time while the last one made progress (lib/browserProgress.js), never past HARD
+    if (turn >= task.budget) {
+      const b = budgetAfter(task.trail, turn, task.budget)
+      if (!b.extended) break
+      task.budget = b.budget
+      task.stats.extended = (task.stats.extended || 0) + 1
+      console.log(`[browser] task ${task.id}: ${turn} actions, ${b.progress.count} rounds of progress (${b.progress.how}) — budget now ${task.budget}`)
+    }
     // this turn's steps end at once on 작업 취소 (task.abort) or 다시 시도 (task.retry, this turn only)
     task.retry = new AbortController()
     const signal = task.signal = AbortSignal.any([task.abort.signal, task.retry.signal])
@@ -522,6 +671,9 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     // a file the page downloaded since the last look
     const got = (task.downloads || []).splice(0)
     if (got.length) hint += `\nDownloaded and shown to the person as file cards: ${got.join(', ')}`
+    // what the person said in the chat since the last look (steering, an answer to a wait on the screen): it goes before the plan
+    const told = task.told.splice(0)
+    if (told.length) hint += `\n[The person said in the chat while you were working — follow it; where it differs from the plan or the goal, it wins: ${told.map((x) => `"${x}"`).join(' ')}]`
     messages.push({ role: 'user', content: hide(task, JSON.stringify(snap)) + hint })
     pushed = 1
     t = Date.now()
@@ -569,6 +721,17 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     timing(task, tm, name)
     const lastKey = task.prev?.key
     task.prev = { key, acted: ACTING.has(name) || /^error/.test(String(out)), progress: ['note', 'step_done'].includes(name) }
+    // the trail of actions and the pages they were taken on: repetitive work that keeps changing the page is progress (the budget
+    // grows while it lasts) — the card counts the rounds (「진행 중 · N개 처리」)
+    if (ACTING.has(name) && !/^(error|refused|not pressed)/.test(String(out))) {
+      task.trail.push(turnOf(name, args, task.target?.name || '', snap))
+      if (task.trail.length > HARD) task.trail.shift()
+      const pr = progressOf(task.trail)
+      if (pr.progress && pr.count >= 2 && pr.count !== task.progressCount) {
+        task.progressCount = pr.count
+        updateMessage(task.userId, task.id, { progress: { count: pr.count } }).catch(() => {})
+      }
+    }
     // the same action on the very same screen, a third time within the last LOOP_SPAN actions, with other screens in
     // between: a loop (a date picker that opens again after 검색 — 2026-11-24, 40 actions of 18 · 20 · 검색). Tries on a
     // screen that does not change at all are counted by task.stale above (five in a row)
@@ -609,9 +772,10 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
       turn--
       // the PC went off part way (hooksFor lost): the next turn pauses the task
       if (task.lostTurn) { task.lostTurn = false; continue }
-      // 다시 시도: the same turn again, from a fresh look (it does not count as one of the agent's turns)
+      // 다시 시도 (or words from the person in the chat — steer): the same turn again, from a fresh look (it does not count as one of
+      // the agent's turns)
       task.stats.retries++
-      say(task, L('다시 보는 중', 'Looking again'))
+      say(task, task.told.length ? L('받은 말대로 다시 보는 중', 'Looking again with what you said') : L('다시 보는 중', 'Looking again'))
     }
   }
   } catch (e) {
@@ -644,7 +808,9 @@ function actWithin(task, work, ms, signal, label) {
 }
 
 // Tools that wait — on the page (its own limits) or on the person (a card) — and so have no limit of a single action.
-const LONG_TOOLS = new Set(['wait_for_page', 'fill_secret', 'login_failed', 'need_secret', 'approve', 'need_login', 'need_user', 'tell_user'])
+// (pick_file · attach_file may ask the person on a card, save_pdf prints and stores: each bounds its own steps instead — an outer limit that
+// fired while they went on let a late card take another wait's place: 2026-11-25 review)
+export const LONG_TOOLS = new Set(['wait_for_page', 'fill_secret', 'login_failed', 'need_secret', 'approve', 'need_login', 'need_user', 'tell_user', 'pick_file', 'attach_file', 'save_pdf'])
 
 // One model turn, within STEP.modelMs; asked once more when it runs out (a gateway that lost one request), then the
 // task stops saying the model did not answer.
@@ -763,7 +929,7 @@ async function goalMet(task) {
   return sure(d, 'done', 0.9)
 }
 
-const MAX_TURNS = 40
+const MAX_TURNS = BLOCK // (the turns whose timing the log line averages)
 // The facts the agent recorded with note, for a closing call. The pages they came from are already folded to one line in
 // the history, so without them a model may doubt its own notes (Claude Opus 5.5 did, 11-25: "제가 지어낸 값"); with them it
 // reports what was read from the page at the time.
@@ -799,6 +965,8 @@ function logAction(task, name, a, out) {
     scroll: () => L('화면 내리기', 'Scroll down'),
     wait_for_page: () => L(`화면이 바뀌기를 기다리기(${Math.round(Number(a.minutes) || 0)}분까지)`, `Wait for the page to change (up to ${Math.round(Number(a.minutes) || 0)} min)`),
     attach_file: () => L(`${a.name || '첨부 파일'} 올리기`, `Upload ${a.name || 'the attached file'}`),
+    pick_file: () => (/^picked /.test(String(out)) ? L(`파일 고르기: ${String(out).match(/^picked "(.+?)"/)?.[1] || ''}`, `Pick a file: ${String(out).match(/^picked "(.+?)"/)?.[1] || ''}`) : null),
+    save_pdf: () => L(`${String(out).match(/^saved (.+?) \(/)?.[1] || 'PDF'} 저장`, `Save ${String(out).match(/^saved (.+?) \(/)?.[1] || 'a PDF'}`),
     tell_user: () => null,
     need_login: () => L(`${a.site || ''} 로그인 정보 요청`, `Ask for the ${a.site || ''} login`),
     need_user: () => L(`확인 요청: ${String(a.reason || '').slice(0, 60)}`, `Ask to check: ${String(a.reason || '').slice(0, 60)}`),
@@ -809,32 +977,52 @@ function logAction(task, name, a, out) {
   if (line) task.log.push({ kind: name, text: line, ok, ...(String(out).startsWith(REFUSED_PURCHASE) ? { refusedPurchase: true } : {}) })
 }
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, '') } catch { return String(u || '').slice(0, 60) } }
-const ACTIONS = new Set(['goto', 'click', 'type', 'fill_secret', 'need_secret', 'approve', 'scroll', 'wait_for_page', 'attach_file'])
+const ACTIONS = new Set(['goto', 'click', 'type', 'fill_secret', 'need_secret', 'approve', 'scroll', 'wait_for_page', 'attach_file', 'save_pdf'])
 const REFUSED_PURCHASE = 'refused: purchase gate —'
+
+// The result in a line or two (2026-11-25 recording: 「작업을 이렇게 쭉 완료를 했는데 불필요하게 뭐 아주 길게 뭔가 설명하는데 이런거
+// 필요없고 보고싶으면 볼 수 있겠으나」): the first paragraph's first sentence (what came of it) and, on a second line when both fit in
+// max characters, its last one (where it leaves things — what is next). Cut by punctuation and lines only. The rest goes to
+// 「자세히」 (detail) — folded, never lost.
+export function briefOf(text, { max = 140 } = {}) {
+  const para = String(text || '').trim().split(/\n\s*\n/)[0] || ''
+  const sents = para.split('\n').flatMap((line) => line.trim().split(/(?<=[.!?。])\s+/)).map((x) => x.trim()).filter(Boolean)
+  if (!sents.length) return ''
+  const first = sents[0].length > max ? `${sents[0].slice(0, max - 1)}…` : sents[0]
+  const last = sents.length > 1 ? sents.at(-1) : ''
+  return last && first.length + last.length + 1 <= max ? `${first}\n${last}` : first
+}
 
 // The summary the person reads: the model's account only when the task actually did something, and
 // always the list of actions taken. Nothing done (no browser action, no fact noted, page unmoved) →
-// 확인 필요, saying so plainly.
+// 확인 필요, saying so plainly. Besides the whole summary (what a process step's result and the tests read): brief — the result in
+// a line or two, for the card and the chat message —, did (the actions taken, for 「자세히 · N단계」), refused, and detail (the whole
+// account when it is longer than brief).
 export function honest(result, task, { moved = false } = {}) {
   const acted = task.log.some((e) => ACTIONS.has(e.kind) && e.ok)
-  const done = task.log.filter((e) => e.ok).map((e) => `• ${e.text}`)
+  const lines = task.log.filter((e) => e.ok)
+  const done = lines.map((e) => `• ${e.text}`)
+  const did = lines.slice(-HARD).map((e) => ({ kind: e.kind, text: e.text }))
   const facts = task.notes.length
+  const folded = (r, head) => { const brief = briefOf(head); const whole = String(head || '').trim(); return { ...r, brief, did, detail: whole !== brief ? whole : '' } }
   if (result.state === 'done' && !acted && !facts && !moved) {
     const planned = (task.steps || []).map((x, i) => `${i + 1}. ${x}`).join('\n')
     const pc = byHandOnPc(task)
-    return { ...result, state: 'needs_review', need: 'other',
+    const r = { ...result, state: 'needs_review', need: 'other',
       reason: pc ? L('브라우저에서 아무 동작도 하지 못하고 끝났어요. 같은 말로 다시 시키거나, 카드의 「이 PC에서 보기」로 그 PC 에 열어 둔 페이지를 확인해 주세요.', 'The task ended without doing anything in the browser. Ask again, or check the page left open on the PC with "Show on this PC" on the card.')
         : L('브라우저에서 아무 동작도 하지 못하고 끝났어요. 같은 말로 다시 시키거나, 카드의 「직접 제어」로 화면을 확인해 주세요.', 'The task ended without doing anything in the browser. Ask again, or check the screen with "Take control" on the card.'),
       summary: L(`브라우저에서 아무 동작도 하지 못한 채 작업이 끝났어요. 계획한 단계는 하나도 진행되지 않았어요.${planned ? `\n\n계획했던 단계\n${planned}` : ''}\n\n다시 시키거나, ${pc ? '작업 카드의 「이 PC에서 보기」로 그 PC 에서' : '작업 카드에서 직접 제어로'} 확인해 주세요.`,
         `The task ended without any action in the browser. None of the planned steps was done.${planned ? `\n\nPlanned steps\n${planned}` : ''}\n\nAsk again, or check it yourself with ${pc ? 'Show on this PC on the task card' : 'Take control on the task card'}.`) }
+    return { ...folded(r, r.summary), refused: [] }
   }
   if (result.state !== 'done' && result.state !== 'needs_review') return result
   const said = String(result.summary || '').trim()
   // the result comes first, always: the model's account, else the facts noted, else a plain sentence
   const head = said || (facts ? task.notes.join('\n') : L('작업을 마쳤지만 결과를 따로 알려 드릴 내용은 기록하지 못했어요. 마지막 화면과 아래 한 일을 확인해 주세요.', "I finished, but I didn't record a result to report. Check the last screen and what I did below."))
   const refused = task.log.filter((e) => e.kind === 'click' && e.refusedPurchase).map((e) => `• ${e.text}`)
-  return { ...result, summary: [head, done.length ? `${L('실제로 한 일', 'What I actually did')}\n${done.slice(-12).join('\n')}` : '',
-    refused.length ? `${L('요청하지 않은 구매라 누르지 않은 것', "Not pressed — a purchase you didn't ask for")}\n${refused.slice(-4).join('\n')}` : ''].filter(Boolean).join('\n\n') }
+  return { ...folded(result, head), refused: refused.slice(-4).map((x) => x.slice(2)),
+    summary: [head, done.length ? `${L('실제로 한 일', 'What I actually did')}\n${done.slice(-12).join('\n')}` : '',
+      refused.length ? `${L('요청하지 않은 구매라 누르지 않은 것', "Not pressed — a purchase you didn't ask for")}\n${refused.slice(-4).join('\n')}` : ''].filter(Boolean).join('\n\n') }
 }
 
 // ---- the page as the agent reads it, and when the person has to step in ----
@@ -1463,6 +1651,7 @@ async function act(s, task, name, a) {
 // The plan on the card: steps up to n are done.
 async function markStep(task, n, note) {
   if (!task.steps[n - 1]) return
+  task.stepsDone = Math.max(task.stepsDone || 0, n)
   await updateMessage(task.userId, task.id, { steps: task.steps.map((t, i) => ({ text: t, done: i < n, note: i === n - 1 ? note : undefined })) })
 }
 
@@ -1522,14 +1711,22 @@ async function doAct(s, task, name, a) {
     }
     case 'wait_for_page': return waitForPage(s, task, a)
     case 'tell_user': await addMessage(task.userId, task.threadId, 'agent', 'text', { text: String(a.text || '').slice(0, 600) }); return 'told'
+    case 'save_pdf': return pagePdf(d, task, a.name)
+    case 'pick_file': return pickFile(s, task, a.want)
     case 'attach_file': {
+      // only this task's own files — what the person attached to it, or one pick_file or save_pdf gave it (never a file by name from
+      // elsewhere: 2026-11-25 review, a page could have made the agent upload any of the person's files)
       const list = task.files || []
       const f = list.find((x) => x.name === a.name) || (!a.name && list.length === 1 ? list[0] : null)
-      if (!f) return list.length ? `error: no attached file is named '${a.name || ''}' — the files are: ${list.map((x) => x.name).join(', ')}` : 'error: no file was attached to this task'
-      const { file, done } = await localCopy(f)
+      if (!f) return `error: ${list.length ? `no file named '${a.name || ''}' among this task's files (${list.map((x) => x.name).join(', ')})` : 'this task has no file yet'} — call pick_file with what file the work needs; never ask the person to attach a file to this task`
+      const signal = task.signal
+      // a file the person did not attach to this task goes to a site only where they said so — in their own words, or on a card
+      const ok = await uploadAllowed(s, task, f, signal)
+      if (!ok.yes) return `not uploaded: ${ok.why}`
+      const { file, done } = await bounded(localCopy(f, task.userId), 60000, { signal, label: 'file copy' })
       try {
         await point(s, task, a.i, 'click')
-        await d.attach(a.i, file, f.name)
+        await bounded(d.attach(a.i, file, f.name), 30000, { signal, label: 'upload' })
         return `attached ${f.name}`
       } finally { await done() }
     }
@@ -1636,7 +1833,7 @@ async function doAct(s, task, name, a) {
         // a pick-one question is answered in place (hark's account chooser) rather than by takeover
         : choice ? ['choice', { site, question: a.reason || '', options: a.options.slice(0, 6) }] : null
       const need = name === 'need_login' ? 'login' : choice ? 'choice' : needOf(a.need, task)
-      const answer = await waitForUser(s, task, { need, reason: askReason(need, a.reason, normSite(site), name === 'need_login'), site, message, screen: !message })
+      const answer = await waitForUser(s, task, { need, reason: askReason(need, a.reason, normSite(site), name === 'need_login'), site, message, screen: !message, ask: a.reason || '' })
       return answer === OFFLINE ? 'stopped: the browser on the person\'s PC went offline before this was done; look at the page again' : answer
     }
     case 'note': task.notes.push(a.text); return 'noted'
@@ -1646,17 +1843,131 @@ async function doAct(s, task, name, a) {
   return 'unknown tool'
 }
 
+// pick_file: a file of this conversation for the work (lib/browserFiles.js) — the one the judge is sure of becomes one of the task's
+// files at once; when several may be it, the person picks on a small card (「파일 고르기」); when none is there, the agent hears where
+// it looked, to say so (never "attach it to this task").
+async function pickFile(s, task, want = '') {
+  if (task.unattended || !task.threadId) return 'error: nobody is here to pick a file of the conversation for this task'
+  const signal = task.signal
+  // (a file the task holds already is told apart by where it is, not by its name: two files may share a name)
+  const have = new Set((task.files || []).map((f) => f.cid).filter(Boolean))
+  const list = ((await bounded(BF.fileCandidates({ id: task.userId }, task.threadId), 15000, { signal, label: 'files' }).catch((e) => { if (isStop(e)) throw e; return [] })) || []).filter((c) => !have.has(c.id))
+  const where = 'the files posted in this chat, what the AI made in this room, the room\'s linked folder and files teammates shared'
+  if (!list.length) return `none: no file of this conversation fits (looked in ${where}${task.files?.length ? `; this task already has ${task.files.map((f) => f.name).join(', ')}` : ''}). Tell the person with need_user which file the work needs and that you looked there; do not ask them to attach a file to this task`
+  const r = await bounded(BF.readFile(list, task.goal, { want }), 15000, { signal, label: 'judge' }).catch((e) => { if (isStop(e)) throw e; return { pick: null, maybe: [] } })
+  console.log(`[browser] task ${task.id}: pick_file ${r.pick ? `'${r.pick.name}'` : `${r.maybe.length} maybe`} ${JSON.stringify(r.probabilities || {})} via ${r.via || '-'}`)
+  let chosen = r.pick
+  let confirmed = false
+  if (!chosen) {
+    // (a step that was stopped meanwhile — 작업 취소, 다시 시도 — posts no card)
+    if (signal?.aborted || task.cancelled) return 'stopped: look at the page again'
+    const offer = (r.maybe.length ? r.maybe : list).slice(0, 6)
+    const host = hostOf(s.driver?.url?.() || '')
+    // the card names where the file goes: picking one is also saying it may go there
+    const answer = await waitForUser(s, task, { need: 'choice', site: host,
+      reason: L(`${host}에 올릴 파일을 골라 주세요. 이 대화의 파일(채팅 · 이 방의 산출물 · 연결된 폴더 · 받은 공유)에서 찾았어요.`, `Pick the file to upload to ${host}. These are the files of this conversation (the chat, this room's outputs, the linked folder, shares).`),
+      message: ['choice', { site: host, files: true, question: L(`${host}에 올릴 파일 고르기${want ? ` · ${String(want).slice(0, 80)}` : ''}`, `Pick a file to upload to ${host}${want ? ` · ${String(want).slice(0, 80)}` : ''}`), options: offer.map((c) => c.name) }] })
+    chosen = offer.find((c) => String(answer).includes(`chose: ${c.name}.`)) || null
+    if (!chosen) return `none: the person did not pick a file (${String(answer).slice(0, 200)})`
+    confirmed = !!host
+    if (confirmed) task.uploadOk.add(uploadKey(chosen.name, host))
+  }
+  task.files = [...(task.files || []), { ...BF.asTaskFile(chosen), origin: 'picked' }]
+  return `picked "${chosen.name}" (${chosen.kind || 'file'}${chosen.size ? `, ${Math.max(1, Math.round(chosen.size / 1024))} KB` : ''}, ${BF.fromText(chosen.from)}) — one of this task's files now: give it with attach_file name "${chosen.name}"`
+}
+
+// ---- uploads of files the person did not attach (2026-11-25 review: a page could make the agent upload the conversation's,
+// a folder's or a share's files, or a printed signed-in page, anywhere) ----
+const uploadKey = (name, host) => `${name}\n${host}`
+const UPLOAD_QUESTION = () => L('사용자의 말은 이 파일을 이 사이트에 올리라는 뜻을 담고 있나?', "Do the person's words ask for this file to be put on this site?")
+const UPLOAD_OPTIONS = () => [
+  { key: 'named', label: L('예. 사용자가 이 파일(또는 이런 파일)과 이 사이트(서비스)를 모두 말했다', 'Yes: the person named both this file (or a file like it) and this site (service)') },
+  { key: 'not', label: L('아니오. 파일이나 사이트 가운데 하나라도 사용자가 말하지 않았다', 'No: the person did not name the file or the site') },
+]
+// → { yes, why }. The task's own attachments go anywhere the task goes (the person gave them for it). Any other file goes to a site
+// only when the person's own words (the message that asked for the task, what they said to it since) named both the file and that site
+// — read by the judge, never by matching words — or when they approve it on a card that names both. Once per file and site.
+async function uploadAllowed(s, task, f, signal) {
+  if (!f.origin || f.origin === 'attached') return { yes: true }
+  const host = hostOf(s.driver?.url?.() || '')
+  const key = uploadKey(f.name, host)
+  if (task.uploadOk.has(key)) return { yes: true }
+  if (task.unattended || !host) return { yes: false, why: 'this file was not attached to this task and nobody is here to allow uploading it; do not upload it' }
+  const said = [task.asked, ...(task.heard || [])].map((x) => String(x || '').trim()).filter(Boolean)
+  if (said.length) {
+    const r = await bounded(judge({ timeoutMs: 6000, question: UPLOAD_QUESTION(), options: UPLOAD_OPTIONS(),
+      state: [L(`사용자가 한 말: ${said.map((x) => `「${x.slice(0, 400)}」`).join(' ')}`, `What the person said: ${said.map((x) => `"${x.slice(0, 400)}"`).join(' ')}`),
+        L(`올릴 파일: ${f.name}${f.from ? ` (${BF.fromText(f.from)})` : ''}`, `File to upload: ${f.name}${f.from ? ` (${BF.fromText(f.from)})` : ''}`),
+        L(`올릴 곳: ${host} (${nameOn(task, host)})`, `Where to: ${host} (${nameOn(task, host)})`)].join('\n') }), 8000, { signal, label: 'judge' }).catch((e) => { if (isStop(e)) throw e; return null })
+    console.log(`[browser] task ${task.id}: upload '${f.name}' → ${host}: ${JSON.stringify(r?.probabilities || {})} via ${r?.via || '-'}`)
+    if ((r?.probabilities?.named || 0) >= 0.7) { task.uploadOk.add(key); return { yes: true } }
+  }
+  if (signal?.aborted || task.cancelled) return { yes: false, why: 'stopped' }
+  const answer = await waitForUser(s, task, { need: 'approve', site: host,
+    reason: L(`「${f.name}」은(는) 이 작업에 첨부한 파일이 아니라서, ${host}에 올리기 전에 물어봐요. 카드에서 「승인」을 누르면 올리고, 「취소」를 누르면 올리지 않아요.`,
+      `"${f.name}" was not attached to this task, so I ask before uploading it to ${host}. Press "Approve" on the card to upload it, or "Cancel" not to.`),
+    message: ['choice', { site: host, approval: true, upload: true, question: L(`「${f.name}」을(를) ${nameOn(task, host)}(${host})에 올릴까요?`, `Upload "${f.name}" to ${nameOn(task, host)} (${host})?`), options: L(['승인', '취소'], ['Approve', 'Cancel']) }] })
+  if (/chose: (승인|Approve)\./.test(String(answer))) { task.uploadOk.add(key); return { yes: true } }
+  return { yes: false, why: `the person did not allow uploading "${f.name}" to ${host}; do not upload it, say so when you finish` }
+}
+
+// The page on screen as a PDF (save_pdf — 2026-11-25: a Medium article NotebookLM could not read as a website source goes in as a PDF
+// printed in this browser, signed in as the person): kept like a download (a file card, the person's storage copy) and added to the
+// task's files, so attach_file gives it to the next site. The browser on the person's PC does not print yet: said so, the agent
+// goes another way. keep · post: where it is stored and posted (tests).
+// It is kept private (2026-11-25 review): in the private bucket (lib/privateStore.js), its card has no address — opening it signs one
+// for a moment (lib/fileCards.js openFileCard) — and it goes to another site only as uploadAllowed says.
+export const pdfKey = (userId, id = crypto.randomUUID()) => `browser/${P.seg(config.tenantId)}/${String(userId).toLowerCase()}/${id}/page.pdf`
+export async function pagePdf(d, task, name, { keep = (key, buf) => P.put(key, buf, 'application/pdf'), post = addMessage } = {}) {
+  if (typeof d?.pdf !== 'function') return "error: this browser (the one on the person's PC) cannot save a page as PDF; use another way, or ask the person"
+  const data = await d.pdf()
+  if (!data?.length) return 'error: the page could not be printed as PDF within the time; look at the page again'
+  const title = String(name || (await d.title?.().catch(() => '')) || 'page').replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'page'
+  const fileName = `${title}.pdf`
+  const key = pdfKey(task.userId)
+  const buf = Buffer.from(data)
+  await bounded(keep(key, buf), 30000, { label: 'store' })
+  await post(task.userId, task.threadId, 'agent', 'file', { name: fileName, private: { key }, ext: 'pdf', size: buf.length, type: 'application/pdf', taskId: task.id })
+  task.files = [...(task.files || []).filter((f) => f.name !== fileName), { name: fileName, private: { key }, size: buf.length, type: 'application/pdf', origin: 'made', cid: `made:${key}` }]
+  return `saved ${fileName} (${Math.max(1, Math.round(buf.length / 1024))} KB) — one of this task's files now: give it to a site with attach_file name "${fileName}" (the person is asked first unless they said where it goes)`
+}
+
 // A file the person attached, as a path on this machine for the page's file input: the workspace copy
 // where this server has the workspace (local, Docker bundle), else the person's storage copy fetched into
 // a temporary folder (production: the agent's pods and this server share no disk).
 // a file the page names by path is used only when it is under the workspace's uploads (lib/attachments.js) and
 // resolves inside it — anything else (a server file, "../") goes by its stored copy or not at all
 const ownUploadPath = (p) => typeof p === 'string' && p.startsWith('/workspace/uploads/') && !p.split('/').includes('..')
-async function localCopy(f) {
-  const root = ownUploadPath(f.path) && await workspaceHostPath('/workspace').catch(() => null)
+// a path in the workspace as it really is (links followed), when it stays inside the workspace's real folder and is a plain file there
+export async function insideWorkspace(there, root) {
+  const [real, top] = await Promise.all([fs.promises.realpath(there).catch(() => null), fs.promises.realpath(root).catch(() => null)])
+  if (!real || !top || !real.startsWith(top + path.sep)) return null
+  const st = await fs.promises.lstat(real).catch(() => null)
+  return st?.isFile() ? real : null
+}
+async function localCopy(f, userId = null) {
+  // (a file of this conversation the AI made: its place in the agent's workspace — inside it, never outside, not through a link)
+  const inWorkspace = ownUploadPath(f.path) || (['artifact', 'chat'].includes(f.from) && typeof f.path === 'string' && f.path.startsWith('/workspace/') && !f.path.split('/').includes('..'))
+  const root = inWorkspace && await workspaceHostPath('/workspace').catch(() => null)
   const there = root && await workspaceHostPath(f.path).catch(() => null)
-  if (there && path.resolve(there).startsWith(path.resolve(root) + path.sep)) return { file: there, done: async () => {} }
+  const real = there && await insideWorkspace(there, root)
+  if (real) return { file: real, done: async () => {} }
   let buf
+  // a private copy (a page this task printed, a mail's attachment): from the private bucket, never an address
+  if (f.private?.key) {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pro-attach-'))
+    const file = path.join(dir, path.basename(String(f.name || 'file')) || 'file')
+    await fs.promises.writeFile(file, (await P.bytes(f.private.key)).buf, { mode: 0o600 })
+    return { file, done: () => fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}) }
+  }
+  // a folder's file or a teammate's share: read as the person, into a private temporary folder
+  const own = userId && (f.folder || f.share) ? await BF.bytesOf({ id: userId }, f) : null
+  if (own) {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pro-attach-'))
+    const file = path.join(dir, path.basename(String(f.name || 'file')) || 'file')
+    await fs.promises.writeFile(file, own, { mode: 0o600 })
+    return { file, done: () => fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}) }
+  }
   const pub = `${config.supabaseUrl}/storage/v1/object/public/files/`
   const key = f.key || (String(f.url || '').startsWith(pub) ? decodeURIComponent(f.url.slice(pub.length)) : '')
   if (!key) throw new Error('the attached file has no stored copy to give the page')
@@ -1665,7 +1976,7 @@ async function localCopy(f) {
   buf = Buffer.from(await data.arrayBuffer())
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pro-attach-'))
   const file = path.join(dir, path.basename(String(f.name || 'file')) || 'file')
-  await fs.promises.writeFile(file, buf)
+  await fs.promises.writeFile(file, buf, { mode: 0o600 })
   return { file, done: () => fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}) }
 }
 
@@ -1719,7 +2030,8 @@ function askReason(need, why, site, vault = false) {
 // siteName: what the person calls the site, for the card's pill (the page's own name; the host when unknown).
 // screen: the wait is for something done on the browser's screen (a sign-in, a check, takeover) — on a PC that goes off
 // meanwhile it ends at once (OFFLINE), as nobody can do it there. extra: more for the card while it waits (cleared after).
-async function waitForUser(s, task, { reason, site, siteName, message, need = 'other', watch, screen = false, extra = null }) {
+// ask: the question in the agent's own words, when no card carries it (need_user without options)
+async function waitForUser(s, task, { reason, site, siteName, message, need = 'other', watch, screen = false, extra = null, ask = '' }) {
   if (screen && s.driver?.lost) return OFFLINE
   // listening before anything is posted: an answer that comes at once (the card answered the moment
   // it shows) is not lost
@@ -1727,11 +2039,22 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   const answer$ = new Promise((resolve) => { answered = resolve })
   task.waiting = answered
   task.waitScreen = screen
+  // what it asks, for an answer typed in the chat (lib/browserQueue.js readWaiting · answerWaiting) and the cards in line behind it
+  // seq: which of its questions this is (an answer typed for one question never lands on the next one); vault: a login, card or code
+  // (the account chooser too); locked: a wait only the card or the screen answers — an approval, a vault value, a sign-in, a bot check
+  // (2026-11-25 review: a typed message could approve a payment)
+  const vaultish = message?.[0] === 'vault' || !!message?.[1]?.vault
+  const approval = !!message?.[1]?.approval
+  task.asking = { seq: ++task.asks, need, reason: reason || '', question: String(message?.[1]?.question || ask || '').trim(), options: message?.[0] === 'choice' ? (message[1].options || []) : [],
+    kind: message?.[0] || null, vault: vaultish, approval, locked: vaultish || approval || ['login', 'captcha', 'approve'].includes(need), card: null }
   // the card asks the person: not a stall the watchdog should report
   task.dog?.hold()
   // the card goes up first, so whoever sees "needs input" also finds what to answer
   const posted = message ? await addMessage(task.userId, task.threadId, 'agent', message[0], { ...message[1], taskId: task.id, state: 'pending' }) : null
-  await updateMessage(task.userId, task.id, { state: 'needs_input', need, reason: reason || '', site, siteName: siteName || nameOn(task, normSite(site)), ...(extra || {}) })
+  if (posted && task.asking) task.asking.card = posted.id
+  await updateMessage(task.userId, task.id, { state: 'needs_input', need, reason: reason || '', site, siteName: siteName || nameOn(task, normSite(site)), answered: null, ...(extra || {}) })
+  const s0 = sessions.get(task.userId)
+  if (s0?.queue.length) refreshQueue(task.userId, s0)
   say(task, null)
   await setThreadStatus(task.userId, task.threadId, 'needs_input')
   await pushFrame(task.userId, s)
@@ -1744,9 +2067,14 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   const answer = await answer$
   task.waiting = null
   task.waitScreen = false
+  task.asking = null
+  if (s0?.queue.length) refreshQueue(task.userId, s0)
   if (timer) clearInterval(timer)
   // a card the user never answered (cancel, takeover) should not stay actionable
   if (posted) await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where id=$1 and content->>'state'='pending'`, [posted.id])
+  // cancelled while it waited: the task's end writes its card (「취소함」) — this wait must not put 「진행 중」 back after it (the replay harness,
+  // 2026-11-25: four runs left the card running)
+  if (task.cancelled || task.over) return answer
   await updateMessage(task.userId, task.id, { state: 'running', need: null, reason: '', ...Object.fromEntries(Object.keys(extra || {}).map((k) => [k, null])) })
   await setThreadStatus(task.userId, task.threadId, 'working')
   task.dog?.go('read', L('페이지 읽기', 'reading the page'))
@@ -1835,6 +2163,7 @@ export async function provideSecret(userId, value) {
 
 // The live line under the task card: what the agent is doing right now ("example.com에서 클릭 중").
 function say(task, text) {
+  if (task && text) task.doing = text
   if (task?.threadId) emit(task.userId, 'status', { threadId: task.threadId, text })
 }
 
@@ -1845,18 +2174,20 @@ export function resume(userId, text = 'user resolved it, continue') {
 // 작업 취소 · 그만두기: the task holding the browser, or (by its card id) one waiting in line. The step under way ends
 // at once (task.abort: a model call, a navigation, a wait), a page still loading stops, and the browser goes to the
 // next task in line — also when the page is stuck (the next task finds that out first: healthy()).
-export function cancel(userId, taskId) {
+// why: what its card says instead of 「작업을 취소했어요」 (another task went first, its words went to the task ahead)
+export function cancel(userId, taskId, { why = '' } = {}) {
   const s = sessions.get(userId)
   if (taskId && s?.planning.has(taskId)) { // its card is up, the plan is not back yet
     s.planning.set(taskId, true)
-    updateMessage(userId, taskId, { state: 'cancelled', reason: '', summary: L('시작하기 전에 취소했어요.', 'Canceled before it started.') }).catch(() => {})
+    updateMessage(userId, taskId, { state: 'cancelled', reason: '', summary: why || L('시작하기 전에 취소했어요.', 'Canceled before it started.') }).catch(() => {})
     return true
   }
   const inLine = taskId && s?.queue.find((x) => x.task.id === taskId)
-  if (inLine) { s.queue.splice(s.queue.indexOf(inLine), 1); inLine.task.cancelled = true; inLine.go(); return true }
+  if (inLine) { s.queue.splice(s.queue.indexOf(inLine), 1); inLine.task.cancelled = true; if (why) inLine.task.cancelWhy = why; inLine.go(); return true }
   const t = s?.task
   if (t && (!taskId || t.id === taskId)) {
     t.cancelled = true
+    if (why) t.cancelWhy = why
     t.abort?.abort('cancel')
     t.waiting?.('cancelled')
     within(s.driver?.stop(), 2000, null)
@@ -1872,6 +2203,106 @@ export function retryStep(userId, taskId) {
   if (!t || !t.retry || t.waiting || t.cancelled || (taskId && t.id !== taskId)) return false
   t.retry.abort('retry')
   return true
+}
+// ---- what the person types while a task of theirs runs or waits (lib/browserQueue.js reads what it means) ----
+
+// The task in this thread that holds the browser and waits for the person: what it asked, its options, its card — null when none.
+// vault: a login, card or one-time code is asked (never answered from the chat).
+export function waitingIn(userId, threadId) {
+  const t = sessions.get(userId)?.task
+  if (!t?.waiting || t.cancelled || t.over || (threadId && t.threadId !== threadId)) return null
+  const a = t.asking || {}
+  return { taskId: t.id, threadId: t.threadId, title: t.title, seq: a.seq || 0, need: a.need || '', question: a.question || a.reason || '', options: a.options || [], card: a.card || null, kind: a.kind || null,
+    vault: !!a.vault, approval: !!a.approval, locked: !!a.locked }
+}
+// The task in this thread that holds the browser, running or waiting: what it is doing now (its live line), its plan step — null when none
+// (a task whose turns are over — it is writing its end — is no longer under way: what is said now goes the way of an ended task)
+export function activeIn(userId, threadId) {
+  const t = sessions.get(userId)?.task
+  if (!t || t.cancelled || t.over || (threadId && t.threadId !== threadId)) return null
+  const step = (t.steps || [])[Math.max(0, (t.stepsDone || 0))] || ''
+  return { taskId: t.id, title: t.title, waiting: !!t.waiting, seq: t.waiting ? t.asking?.seq || 0 : 0, step, doing: t.doing || '', question: t.waiting ? String(t.asking?.question || t.asking?.reason || '') : '',
+    vault: !!t.asking?.vault, locked: !!(t.waiting && t.asking?.locked) }
+}
+// a pick-one card the person answered in the chat instead: it shows what they wrote (typed), and is no longer actionable
+async function settleTyped(userId, cardId, value) {
+  const [m] = await q(`update pro_messages set content = content || $2::jsonb where id=$1 and content->>'state'='pending' returning *`, [cardId, JSON.stringify({ state: 'answered', value, typed: true })])
+  if (m) emit(userId, 'message', m)
+}
+// An answer typed in the chat, given to the waiting task as if its card had been answered: an option of its card by its index, else the
+// words themselves. A card that asks for a login, a card or a one-time code is not answered this way. → true when it was delivered
+// seq: the question it answers (waitingIn) — a later question is not answered by words meant for an earlier one. A locked wait (an approval,
+// a login, a card, a code, a check on the screen) is answered only on its card or screen.
+export async function answerWaiting(userId, taskId, { text = '', option = null, seq = null } = {}) {
+  const t = sessions.get(userId)?.task
+  if (!t?.waiting || t.cancelled || t.over || (taskId && t.id !== taskId)) return false
+  const a = t.asking || {}
+  if (a.vault || a.locked) return false
+  if (seq != null && seq !== a.seq) return false
+  const label = option != null && a.options?.[option] != null ? String(a.options[option]) : null
+  const value = label ?? String(text || '').trim()
+  if (!value) return false
+  t.heard.push(value)
+  if (a.card) await settleTyped(userId, a.card, value)
+  else {
+    // a wait on the screen (a page that would not change): the model hears it on its next look
+    t.told.push(value)
+    await updateMessage(userId, t.id, { answered: { text: value.slice(0, 300) } })
+  }
+  console.log(`[browser] task ${t.id}: answered from the chat (${label != null ? `option ${option}` : 'in words'})`)
+  t.waiting?.(label != null ? `The user chose: ${label}. Continue with that choice.` : `The user answered in the chat instead of on the card: "${value}". Continue with that answer.`)
+  return true
+}
+// Steering: words for the task holding the browser, said in the chat while it runs or waits (2026-11-25 recording: 「미디엄은 접근 권한
+// 문제가 있으니, 내 계정으로 접근해서 인쇄시킨 후, pdf 등으로 만든후에 노트북엘엠에 넣어야 해」 — while it waited two minutes on a source
+// that would never come). The card shows it was received; a wait on the person ends with it, and a step under way (a wait on the
+// page, a model call) is left at once so the next look hears it. → true when the task took it
+export async function steer(userId, taskId, text) {
+  const t = sessions.get(userId)?.task
+  const said = String(text || '').trim()
+  if (!t || t.cancelled || t.over || !said || (taskId && t.id !== taskId)) return false
+  t.told.push(said)
+  t.heard.push(said)
+  await updateMessage(userId, t.id, { steered: { text: said.slice(0, 300), at: new Date().toISOString() } })
+  console.log(`[browser] task ${t.id}: steered from the chat${t.waiting ? ' (it was waiting)' : ''}`)
+  // (a locked wait — an approval, a sign-in — is not ended by words: the task reads them once the card or the screen is done)
+  if (t.waiting && !t.asking?.vault && !t.asking?.locked) {
+    if (t.asking?.card) await settleTyped(userId, t.asking.card, said)
+    t.told.pop()
+    t.waiting(`The person said in the chat: "${said}". Follow that and go on.`)
+  } else if (!t.waiting && t.retry && !t.retry.signal.aborted) {
+    t.stats.steered = (t.stats.steered || 0) + 1
+    t.retry.abort('retry')
+  }
+  return true
+}
+// A card in line, from its buttons: answer — its words go to the task ahead (which waits for the person) as its answer, and this one is
+// not started; first — the task holding the browser stops and this one goes first; after — it stays in line (the card stops offering).
+// → { ok, error? }
+export async function queueAction(userId, taskId, action) {
+  const s = sessions.get(userId)
+  const entry = s?.queue.find((x) => x.task.id === taskId)
+  if (!entry) return { ok: false, error: 'not in line' }
+  const front = s.task
+  if (action === 'answer') {
+    if (!front?.waiting || !entry.task.asked) return { ok: false, error: 'nothing ahead waits for an answer' }
+    const ok = await answerWaiting(userId, front.id, { text: entry.task.asked })
+    if (!ok) return { ok: false, error: 'the task ahead does not take an answer from the chat' }
+    cancel(userId, taskId, { why: L(`이 말은 앞 작업 '${front.title}'의 답으로 보냈어요.`, `These words went to the task ahead, '${front.title}', as its answer.`) })
+    return { ok: true }
+  }
+  if (action === 'first') {
+    s.queue.splice(s.queue.indexOf(entry), 1)
+    s.queue.unshift(entry)
+    if (front) cancel(userId, front.id, { why: L(`'${entry.task.title}'부터 하려고 멈췄어요. 「다시 시도」를 누르면 멈춘 자리부터 이어서 해요.`, `Stopped to do '${entry.task.title}' first. Press "Try again" to go on from where it stopped.`) })
+    await updateMessage(userId, taskId, { offer: null, order: null, reason: L('곧 시작해요', 'Starting now') })
+    return { ok: true }
+  }
+  if (action === 'after') {
+    await updateMessage(userId, taskId, { offer: null })
+    return { ok: true }
+  }
+  return { ok: false, error: 'action: answer | first | after' }
 }
 const started = new Map() // `${userId}:${threadId}` → tasks begun and not yet over (planning, in line or running)
 export const runningIn = (userId, threadId) => (started.get(`${userId}:${threadId}`) || 0) > 0 || sessions.get(userId)?.task?.threadId === threadId
@@ -1932,7 +2363,7 @@ export async function connectGoogle({ userId, threadId, url, cookie, ours = () =
     goal: L('Google 계정 연결: Google 계정으로 로그인하고, 이 연결이 요청한 권한을 허용해 메일을 연결한다. 이 브라우저도 Google에 로그인된 채로 남는다',
       'Connect the Google account: sign in to Google and allow the access this connection asks for, so the mail is connected. This browser stays signed in to Google'),
     cancelled: false, waiting: null, notes: [], log: [], unattended: false, picked: {}, used: {}, secrets: new Set(), declined: new Set(),
-    gates: null, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: GOOGLE_SKILL,
+    gates: null, gatedUrl: null, walls: {}, stale: 0, prev: null, stuckWaits: 0, judged: null, skill: GOOGLE_SKILL, told: [], trail: [], heard: [], uploadOk: new Set(), asks: 0,
     // a site error page ends it like a refusal; a sign-in screen is the agent's (the vault is asked first)
     wallNeeds: CONNECT_NEED, vaultFirst: true, abort: new AbortController(), retry: null, signal: null,
     stats: newStats() }

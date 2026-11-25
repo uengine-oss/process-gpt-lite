@@ -84,7 +84,10 @@ Use only facts present in the findings. For report/textarea fields write a${isEn
     { ...base, crew_type: 'result', event_type: 'task_completed', data: payload },
     { job_id: 'CREW_FINISHED', todo_id: row.id, proc_inst_id: row.proc_inst_id, crew_type: 'crew', event_type: 'crew_completed', data: 'Task completed successfully' },
   ])
-  if (owner && threadId) await addMessage(owner, threadId, 'agent', 'text', { text: L(`브라우저 에이전트가 '${row.activity_name}'을 마쳤어요. ${result.summary}`, `The browser agent finished '${row.activity_name}'. ${result.summary}`) })
+  // (the chat keeps the result short; the steps and the whole account fold under 「자세히」 — the step's own result above keeps it all)
+  const brief = result.brief || result.summary
+  if (owner && threadId) await addMessage(owner, threadId, 'agent', 'text', { text: L(`브라우저 에이전트가 '${row.activity_name}'을 마쳤어요. ${brief}`, `The browser agent finished '${row.activity_name}'. ${brief}`),
+    ...(result.taskId ? { taskId: result.taskId } : {}), ...(result.did?.length ? { did: result.did } : {}), ...(result.detail ? { detail: result.detail } : {}) })
   if (owner) emit(owner, 'process', { instId: row.proc_inst_id, type: 'changed' })
 }
 

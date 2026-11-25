@@ -188,9 +188,11 @@ test('사람이 올린 파일을 사이트의 파일 칸에 넣는다', async ()
   assert.equal(r.state, 'done', JSON.stringify(r))
   assert.ok(bodies.flatMap((b) => b.messages || []).some((m) => m.role === 'tool' && /done: "소스 1개: 회의록\.pdf"/.test(m.content)), '파일이 사이트에 들어가지 않았다')
 })
-test('올린 파일이 없으면 넣지 못한다고 답한다', async () => {
+// (2026-11-25: never "attach it to this task" — the agent is pointed at pick_file, the conversation's own files: lib/browserFiles.js)
+test('올린 파일이 없으면 넣지 못한다고 답하고, 이 대화의 파일을 찾는 길(pick_file)을 알려 준다', async () => {
   await task('없는 파일', [(b) => ['attach_file', { i: pick(b, '파일 고르기') }], ['finish', { summary: '없어요.' }]])
-  assert.ok(bodies.flatMap((b) => b.messages || []).some((m) => m.role === 'tool' && /no file was attached/.test(m.content)))
+  const said = bodies.flatMap((b) => b.messages || []).filter((m) => m.role === 'tool').map((m) => m.content)
+  assert.ok(said.some((t) => /^error: this task has no file yet — call pick_file with what file the work needs; never ask the person to attach a file to this task$/.test(t)), said.join(' | '))
 })
 test('스킬로 맡긴 일(skills/notebooklm): 모델은 이름·설명만 먼저 보고, 본문은 read_skill 로 읽는다 — 시스템 프롬프트에는 없다', async () => {
   const { browserSkill, readBrowserSkill } = await import('../lib/browserSkills.js')

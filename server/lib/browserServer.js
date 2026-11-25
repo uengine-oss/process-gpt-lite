@@ -340,6 +340,9 @@ export class ServerDriver {
   words() { return within(this.page.evaluate(PAGE_WORDS_JS), 5000, null) }
   text() { return within(this.page.evaluate(() => document.body.innerText.slice(0, 6000)), STEP.snapMs, '') }
   stop() { return within(this.page.evaluate(() => window.stop()), 2000, null) }
+  // the page on screen as a PDF, as the site prints it (this browser is headless Chromium, which prints; the page is the person's
+  // signed-in one) — bounded like an action
+  pdf() { return within(this.page.pdf({ format: 'A4', printBackground: true }), STEP.actMs, null) }
   // a file (a path on this machine) into a file field, or through the file picker the control opens
   async attach(i, file) {
     if (await this.el(i).evaluate((e) => e.tagName === 'INPUT' && e.type === 'file', undefined, { timeout: 3000 })) { await this.el(i).setInputFiles(file); return }

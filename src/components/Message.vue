@@ -106,6 +106,19 @@ const planLine = computed(() => {
   const head = planSteps.value.length ? `계획 ${done}/${planSteps.value.length}` : '진행 기록'
   return [head, dur(plan.value.ms), plan.value.state === 'stopped' ? '멈췄어요' : ''].filter(Boolean).join(' · ')
 })
+// a browser task's result (server lib/agent.js postBrowserResult): the message is the result in a line or two; what it did step by step
+// and its whole account fold under 「자세히 · N단계」 (2026-11-25: 「불필요하게 뭐 아주 길게 … 보고싶으면 볼 수 있겠으나」)
+const didOpen = ref(false)
+const did = computed(() => (Array.isArray(c.value.did) ? c.value.did : []))
+const hasDetail = computed(() => props.msg.kind === 'text' && props.msg.role === 'agent' && (did.value.length > 0 || !!c.value.detail))
+// 「규칙을 바꿀까요?」 (server lib/roomRules.js settleRuleConfirm): 「바꾸기」 · 「이번 작업에만 적용」 while it waits for the person
+const ruleBusy = ref(false)
+const ruleErr = ref('')
+async function ruleChoose(choice) {
+  ruleBusy.value = true
+  ruleErr.value = ''
+  try { await api(`/threads/${props.msg.thread_id}/rule/confirm`, { method: 'POST', body: { messageId: props.msg.id, choice } }) } catch (e) { ruleErr.value = e.message } finally { ruleBusy.value = false }
+}
 const ctx = computed(() => (c.value.context && c.value.context.action !== 'stay' && c.value.context.title ? c.value.context : null))
 const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinned: '대화에서 직접', trivial: '', none: '' }
 const ctxBy = computed(() => (ctx.value ? (ctx.value.rechecked ? '판단 모델 재확인→logprob' : ctx.value.escalated ? '판단 모델→logprob' : byName[ctx.value.strategy] ?? ctx.value.strategy) : ''))
@@ -208,6 +221,23 @@ onMounted(async () => {
         <ol v-if="workOpen">
           <li v-for="(w, i) in work" :key="i"><b>{{ w.phase || w.tool }}</b><template v-if="w.n > 1"> ×{{ w.n }}</template><small v-if="workWhere(w)">{{ workWhere(w) }}</small></li>
         </ol>
+      </div>
+      <div v-if="hasDetail" class="work taskdetail" :class="{ open: didOpen }" data-testid="task-detail">
+        <button class="wl press" :aria-expanded="didOpen" data-testid="task-detail-toggle" @click="didOpen = !didOpen">자세히 · {{ did.length }}단계 <span class="car">{{ didOpen ? '▴' : '▾' }}</span></button>
+        <div v-if="didOpen" class="tdbody" data-testid="task-detail-body">
+          <p v-if="c.detail" class="tdtext" data-no-i18n>{{ c.detail }}</p>
+          <b v-if="did.length" class="tdh">실제로 한 일</b>
+          <ol v-if="did.length"><li v-for="(d, i) in did" :key="i" data-no-i18n>{{ d.text }}</li></ol>
+          <template v-if="c.refused?.length"><b class="tdh">요청하지 않은 구매라 누르지 않은 것</b><ol><li v-for="(d, i) in c.refused" :key="i" data-no-i18n>{{ d }}</li></ol></template>
+        </div>
+      </div>
+      <div v-if="c.ruleConfirm" class="ruleask" data-testid="rule-confirm">
+        <template v-if="c.ruleConfirm.state === 'pending'">
+          <button class="press go" :disabled="ruleBusy" data-testid="rule-confirm-replace" @click="ruleChoose('replace')">바꾸기</button>
+          <button class="press sub" :disabled="ruleBusy" data-testid="rule-confirm-once" @click="ruleChoose('once')">이번 작업에만 적용</button>
+        </template>
+        <small v-else data-testid="rule-confirm-done">{{ c.ruleConfirm.state === 'replaced' ? '규칙을 바꿨어요' : '이번 작업에만 적용했어요' }}</small>
+        <p v-if="ruleErr" class="aerr">{{ ruleErr }}</p>
       </div>
       <div v-if="replies" class="replies">
         <button v-for="o in replies.options" :key="o.label" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id)">{{ o.label }}</button>
@@ -370,6 +400,16 @@ onMounted(async () => {
 .plan .pm { color: var(--text-tertiary); }
 .plan li.done .pm { color: var(--color-success); }
 .plan .pn { display: block; margin: 8px 0 2px; color: var(--text-tertiary); }
+.taskdetail .tdbody { margin-top: 4px; padding: 10px 14px; border-radius: 14px; background: var(--bubble-agent-bg); color: var(--text-primary); }
+.taskdetail .tdtext { margin: 0 0 8px; white-space: pre-line; line-height: 1.5; font-size: 13px; overflow-wrap: anywhere; word-break: keep-all; }
+.taskdetail .tdh { display: block; margin: 6px 0 2px; font-weight: 600; font-size: 12.5px; color: var(--text-secondary); }
+.taskdetail ol { margin: 0; padding: 0 0 0 18px; background: none; }
+.ruleask { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; max-width: min(424px, 100%); }
+.ruleask button { height: 40px; padding: 0 16px; border-radius: 9999px; font-size: 14.5px; font-weight: 600; }
+.ruleask .go { background: var(--color-attention); color: #fff; }
+.ruleask .sub { background: rgba(127 127 127 / .13); color: var(--text-primary); font-weight: 500; }
+.ruleask small { font-size: 13px; color: var(--text-secondary); }
+.ruleask .aerr { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--color-error); }
 .tgc { width: min(424px, 100%); }
 /* never wider than the column: a phone's column is narrower than 424px, and a wide table inside used to push
    the bubble past the screen's right edge (2026-11-21 recording) */
