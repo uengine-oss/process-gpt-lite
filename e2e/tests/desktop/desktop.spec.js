@@ -371,3 +371,122 @@ test('D-11 브라우저에서는 아무것도 바뀌지 않는다 (desktop.css �
   }))
   expect(got).toEqual({ desktop: false, pad: '16px', strip: 'none', region: 'none' })
 })
+
+// ---- the count of Home cards on the Dock · taskbar · tray (desktop/src/tray.js · badge.js, 0.2.4) ----
+// What main shows, read back there: the tray's state (global.__pglTray — the menu bar's number on macOS is the real tray.getTitle()),
+// and the Dock's number (app.getBadgeCount — macOS; Windows shows an overlay instead, Linux a number only under Unity).
+const trayState = () => app.evaluate(() => global.__pglTray?.state() ?? null)
+async function expectCount(n) {
+  await expect.poll(async () => (await trayState())?.count).toBe(n)
+  if (MAC) expect(await app.evaluate(({ app: a }) => a.getBadgeCount())).toBe(n)
+}
+const homeOpen = () => page.locator('aside.dock').isVisible()
+// the chat's own load of the Home cards (MainView boot → announce) sets the count too: wait for it before setting one
+const notificationsLoaded = () => page.waitForResponse((r) => /\/api\/notifications(\?|$)/.test(r.url()), { timeout: 30_000 }).then(() => page.waitForTimeout(300))
+async function openChat() {
+  const loaded = notificationsLoaded()
+  await page.goto(`${serverOf()}/chat`)
+  await loaded
+  // (the chat is ready — Home's dock and the composer show once the page's boot is done)
+  await expect(page.locator('.composer textarea').first()).toBeVisible({ timeout: 30_000 })
+}
+
+test('D-12 알림 수: 페이지가 보낸 수가 Dock · 트레이(메뉴 막대 숫자 · 툴팁 · 메뉴)에, 트레이를 누르면 창, 「알림 N개 — 열기」는 Home, 로그아웃하면 0', async () => {
+  await openChat()
+  // the bridge: the count, and the tray's way to Home (still frozen)
+  expect(await page.evaluate(() => [typeof window.pglDesktop.setBadge, typeof window.pglDesktop.onOpenHome, Object.isFrozen(window.pglDesktop)])).toEqual(['function', 'function', true])
+  // the tray icon is there from the start
+  expect(await trayState()).toMatchObject({ menu: ['열기', expect.any(String), '-', '종료'] })
+
+  await page.evaluate(() => window.pglDesktop.setBadge(3))
+  await expectCount(3)
+  let st = await trayState()
+  expect(st.tooltip).toBe('Process GPT Lite — 알림 3개')
+  expect(st.menu).toEqual(['열기', '알림 3개 — 열기', '-', '종료'])
+  if (MAC) expect(st.title).toBe(' 3')
+  if (process.platform === 'win32') expect(st.overlay).toBe('알림 3개')
+  // the web app's own setBadge (src/browserNotify.js, the dev server's module) goes over the same bridge
+  const viaApp = await page.evaluate(async () => { try { (await import('/src/browserNotify.js')).setBadge(5); return true } catch { return false } })
+  if (viaApp) await expectCount(5)
+  else test.info().annotations.push({ type: 'skip-part', description: 'browserNotify: 개발 서버가 아니라 건너뜀' })
+  // a fraction comes down to a whole number; anything else is 0
+  await page.evaluate(() => window.pglDesktop.setBadge(12.7))
+  await expectCount(12)
+  if (MAC) expect((await trayState()).title).toBe(' 12')
+  await page.evaluate(() => window.pglDesktop.setBadge('many'))
+  await expectCount(0)
+  st = await trayState()
+  expect(st).toMatchObject({ count: 0, tooltip: 'Process GPT Lite', menu: ['열기', '알림 없음', '-', '종료'] })
+  if (MAC) expect(st.title).toBe('')
+
+  // the tray's click: the window, shown and in front
+  await mainWin((w) => w.hide())
+  expect(await mainWin((w) => w.isVisible())).toBe(false)
+  await app.evaluate(() => global.__pglTray.tray().emit('click'))
+  await expect.poll(() => mainWin((w) => w.isVisible())).toBe(true)
+
+  // 「알림 N개 — 열기」 from another screen (폴더): the chat with Home open
+  if (await homeOpen()) await page.locator('header.top button.home').click()
+  await expect(page.locator('aside.dock')).toHaveCount(0)
+  await page.locator('header.top .seg button[data-tab="folders"]').click()
+  await page.waitForURL(/\/folders/)
+  await page.evaluate(() => window.pglDesktop.setBadge(2))
+  await expectCount(2)
+  const back = notificationsLoaded()
+  await app.evaluate(() => global.__pglTray.menu().items[1].click())
+  await page.waitForURL(/\/chat/)
+  await back
+  await expect(page.locator('aside.dock')).toBeVisible()
+  await page.waitForTimeout(800)
+  await shot('d12-home-from-tray')
+
+  // signed out (설정 › 로그아웃): the count was that person's — gone
+  await page.evaluate(() => window.pglDesktop.setBadge(4))
+  await expectCount(4)
+  await page.locator('header.top button.avatar').click()
+  await page.waitForURL(/\/settings/)
+  await page.locator('.settings .list button.danger', { hasText: '로그아웃' }).click()
+  await page.waitForURL(`${serverOf()}/login`)
+  await expectCount(0)
+  // signed in again for what follows
+  await page.fill('input[type=email]', ACCOUNT)
+  await page.getByRole('button', { name: '계속', exact: true }).click()
+  await page.locator('.code input').first().fill('000000')
+  await page.waitForURL(`${serverOf()}/chat`)
+})
+
+test('D-13 Home 카드 수: 불러온 카드 수가 숫자가 되고, 카드를 닫으면 줄고, 다 닫으면 지워진다', async ({ as, db, cleanup }) => {
+  const u = await as('desktop')
+  const tag = `desktop-badge-${Date.now().toString(36)}`
+  // only this test's cards on the account's Home (a test account — pro-rt-desktop)
+  await db.q(`update notifications set is_checked = true where tenant_id = $1 and user_id = any($2) and coalesce(is_checked, false) = false`, [db.tenant, [u.id, u.email]])
+  cleanup(() => db.q('delete from notifications where tenant_id = $1 and title like $2', [db.tenant, `${tag}%`]))
+  for (let i = 1; i <= 3; i++) {
+    await db.q(`insert into notifications(id, user_id, title, type, description, url, tenant_id) values (gen_random_uuid(), $1, $2, 'mention', $3, $4, $5)`,
+      [u.id, `${tag} ${i}`, '회귀: 데스크톱 알림 수', `/pro/mention/${tag}-${i}`, db.tenant])
+  }
+  await openChat()
+  if (!(await homeOpen())) await page.locator('header.top button.home').click()
+  // (a card on its way out — the dock's leave transition — is not counted)
+  const cards = page.locator('aside.dock [data-test=notice-card]:not(.arc-leave-active)').filter({ hasText: tag })
+  await expect(cards).toHaveCount(3)
+  await expectCount(3)
+  await page.waitForTimeout(600)
+  await shot('d13-home-cards')
+  // a card put away (✕): the server sends no new list for it — the count follows the cards
+  await cards.first().hover()
+  await cards.first().locator('[data-test=notice-close]').click()
+  await expect(cards).toHaveCount(2)
+  await expectCount(2)
+  if (MAC) expect((await trayState()).title).toBe(' 2')
+  for (const left of [1, 0]) {
+    await cards.first().hover()
+    await cards.first().locator('[data-test=notice-close]').click()
+    await expect(cards).toHaveCount(left)
+    await expectCount(left)
+  }
+  expect((await trayState()).menu[1]).toBe('알림 없음')
+  // and stays so after the next load from the server (the cards were put away there too)
+  await openChat()
+  await expectCount(0)
+})

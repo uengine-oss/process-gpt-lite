@@ -1,7 +1,7 @@
 {
   "name": "process-gpt-lite-desktop",
   "productName": "Process GPT Lite",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Process GPT Lite desktop app: a window around a Lite server (company address or a local install)",
   "author": "uEngine",
@@ -11,7 +11,7 @@
     "start": "electron .",
     "dev": "PGL_DESKTOP_DEV=1 electron .",
     "test": "node --test --test-timeout=600000 test/*.test.js",
-    "icon": "python3 scripts/make-icon.py",
+    "icon": "python3 scripts/make-icon.py && python3 scripts/make-tray.py",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --mac --arm64 --x64 --publish never",
     "dist:win": "electron-builder --win --x64 --publish never",

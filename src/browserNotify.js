@@ -8,9 +8,10 @@
 //     ask for the permission only then); later visits renew the subscription quietly.
 //   - without push (no service worker, push refused): the open tab shows them while it is in the background,
 //     through the service worker when there is one (Android allows no other way), else new Notification().
-// The app badge (installed app, where the browser has it) is the number of Home cards waiting.
+// The app badge (installed app, where the browser has it; the desktop app's Dock, taskbar and tray) is the number of Home cards waiting.
 import { BASE } from './base.js'
 import { api } from './api.js'
+import { showBadge } from './appBadge.js'
 
 const seen = new Set()
 let primed = false
@@ -72,9 +73,10 @@ export function bodyOf(n) {
   return String(n.text || n.process || '').slice(0, 160)
 }
 
-// the installed app's badge: how many Home cards wait
+// the installed app's badge: how many Home cards wait — the desktop app's Dock, taskbar and tray (over its bridge), or an installed
+// web app's icon (src/appBadge.js)
 export function setBadge(n) {
-  try { if (!('setAppBadge' in navigator)) return; n ? navigator.setAppBadge(n) : navigator.clearAppBadge() } catch { /* not here */ }
+  showBadge(n)
 }
 
 // list: the Home's notifications as just loaded; open(n): what clicking does (MainView routes it)

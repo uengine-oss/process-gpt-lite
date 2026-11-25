@@ -11,6 +11,8 @@ directories:
 files:
   - src/**
   - package.json
+  # the tray (menu bar) icons — src/tray.js (npm run icon: scripts/make-tray.py)
+  - resources/**
   # node-pty (the person's CLI in a terminal — src/runner/session.js): N-API prebuilds for mac arm64/x64 and Windows x64/arm64 (ConPTY),
   # the same binary in Node and Electron, so nothing is rebuilt; its sources and debug symbols stay out (each system leaves out the
   # other's prebuilds below)

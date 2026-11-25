@@ -4,7 +4,7 @@
 //     buttons take at its top (--pgl-tb-left: macOS traffic lights, --pgl-tb-right: Windows · Linux caption buttons).
 //     The web app's src/styles/desktop.css only acts under html.pgl-desktop; in a browser nothing changes.
 //   - tells the main process the web app's theme (light / dark) — the window background and caption buttons follow it
-//   - window.pglDesktop: what the page may know about the app (read only)
+//   - window.pglDesktop: what the page may know about the app (read only), and the count of Home cards for the Dock · tray
 //   - window.pglLocal: only on the app's own local pages (setup, offline)
 const { contextBridge, ipcRenderer } = require('electron')
 
@@ -64,7 +64,17 @@ const localRunner = local ? undefined : Object.freeze({
     return () => ipcRenderer.removeListener('pgl:runner:state', h)
   },
 })
-contextBridge.exposeInMainWorld('pglDesktop', Object.freeze({ app: 'process-gpt-lite', version: arg('version'), platform: process.platform, ...(localRunner ? { localRunner } : {}) }))
+// the count of Home cards waiting (the web app's src/browserNotify.js setBadge): main's Dock · taskbar · tray (src/tray.js), a whole
+// number 0…9999 — main checks it again. onOpenHome: the tray's 「알림 N개 — 열기」 asks the page for its Home.
+const badge = local ? {} : {
+  setBadge: (n) => { const v = Math.floor(Number(n)); ipcRenderer.send('pgl:badge', v > 0 ? Math.min(v, 9999) : 0) },
+  onOpenHome: (cb) => {
+    const h = () => { try { cb() } catch { /* the page's own */ } }
+    ipcRenderer.on('pgl:open-home', h)
+    return () => ipcRenderer.removeListener('pgl:open-home', h)
+  },
+}
+contextBridge.exposeInMainWorld('pglDesktop', Object.freeze({ app: 'process-gpt-lite', version: arg('version'), platform: process.platform, ...badge, ...(localRunner ? { localRunner } : {}) }))
 
 if (local) {
   contextBridge.exposeInMainWorld('pglLocal', Object.freeze({

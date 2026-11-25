@@ -326,6 +326,7 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 | SNS 트렌드 데일리 대응(알림·worktree 구현·승인·재시작 재개) | spec `pgpt-pro_sns-trend-response`, 영상 `YkwYQHiRwFs` | — | — | ✗ (수십 분짜리 cli-agent·브라우저 실행) |
 | Android 앱(서버 주소 설정·다른 사이트 링크) | spec `pgpt-pro_android-app`, 영상 `TYg7S1WJ0YQ` | — | — | ✗ (에뮬레이터 필요) |
 | 데스크톱 앱(Electron): 서버 고르기·로그인·화면·제목 영역(신호등·끄는 띠·단추)·밝음/어두움·넓은/좁은 폭·바깥 링크·연결 실패·알림·메뉴·Google 로그인 창 안·하나만 실행·창 자리 기억·브라우저 무변화 | spec `openspec/specs/desktop-app`, `desktop/` | D-01…D-11 (`tests/desktop/desktop.spec.js`, `--project=desktop`, 묶은 앱은 `PGL_DESKTOP_EXE`) | desktop | ✅ (macOS 만) |
+| 데스크톱 앱 트레이 아이콘과 알림 수: 페이지가 센 Home 카드 수가 Dock(macOS) · 작업 표시줄 빨간 오버레이(Windows) · 트레이(메뉴 막대 숫자 · 빨간 배지 1~9·9+ · 툴팁 · 메뉴)에, 카드를 ✕ 로 닫으면 줄고 다 닫거나 로그아웃하면 0, 트레이를 누르면 창, 「알림 N개 — 열기」는 채팅의 Home, 0.2.4 | 사용자 11-25 「일렉트론 버전의 시스템 트레이에 알람 개수 뱃지 설치」, spec `desktop-app` 「트레이 아이콘과 알림 수」 | D-12 · D-13 (`tests/desktop/desktop.spec.js`), `desktop/test/badge.test.js`(가짜 Electron 으로 macOS · Windows · Linux), `server/test/appBadge.test.js` AB-U-01…04 | desktop · 단위 | ✅ (macOS 실행 — Windows · Linux 는 단위 시험만, 실기기 미확인) |
 | 설치 번들: 스크립트 문법·compose(lite/full/mining)·인계 기록 스키마·nginx 경로 | `install/` | S-50…S-53 | smoke | ✅ |
 | 영어 모드 다듬기: 워드 그림 ↔ 포토크래프트(영어·한국어), 앱 이름으로 Craft 도구, 영어 이름 지목, 패널 설계 토큰·금액(한·영), 브라우저 구매 차단·결과 문장, 테스트 상점 영어판, 설치 스크립트 언어 | `english-fixes.spec.js`, `server/test/en-fix.test.js`, `browser-tasks.test.js` | F-EN-01…04, S-53 | feature·smoke | ✅ (F-EN-04 는 모델 호출) |
 | 설치 스택에 대고 전체 스위트 | `PGPT_URL=http://localhost:18080` | (전체) | 모두 | ◐ |
