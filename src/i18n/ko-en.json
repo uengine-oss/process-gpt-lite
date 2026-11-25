@@ -6545,15 +6545,25 @@
   ],
   [
    "{0} · 열기",
-   "{0} · open",
+   "{0} · open"
+  ],
+  [
    "PC 연결 끊김 · {0}",
-   "PC offline · {0}",
+   "PC offline · {0}"
+  ],
+  [
    "내 PC · {0}",
-   "My PC · {0}",
+   "My PC · {0}"
+  ],
+  [
    "「{0}」의 브라우저에서 해요 — 그 PC 에서 한 로그인을 그대로 쓰고, 로그인은 그 PC 에 남아요",
-   "In the browser on \"{0}\" — it uses the sign-ins made on that PC, and they stay there",
+   "In the browser on \"{0}\" — it uses the sign-ins made on that PC, and they stay there"
+  ],
+  [
    "서버 브라우저에서 해요 — PC 앱을 {0} 이상으로 올리면 그 PC 의 브라우저에서 할 수 있어요",
-   "In the server's browser — update the desktop app to {0} or later to run them on that PC",
+   "In the server's browser — update the desktop app to {0} or later to run them on that PC"
+  ],
+  [
    "{0} — 바꾸기는 그 PC 의 앱에서",
    "{0} — changed in that PC's app"
   ]
