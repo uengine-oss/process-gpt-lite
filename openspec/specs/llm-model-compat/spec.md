@@ -23,6 +23,11 @@
 - **WHEN** `PRO_LLM_ODDS_MODEL`이 비어 있다
 - **THEN** 요청의 모델은 주 모델이다(변경 전과 같다)
 
+#### Scenario: 설치판에서 확률 모델을 별도로 설정한다
+- **WHEN** 설치 번들의 `.env`에 `LLM_ODDS_MODEL=frentis-ai-model`을 입력하고 다시 실행한다
+- **THEN** 서버의 `PRO_LLM_ODDS_MODEL`은 `frentis-ai-model`로 설정된다
+- **AND** 비워 두면 빈 값으로 유지되어 주 모델을 사용한다
+
 ### Requirement: JSON을 요청한 응답이 울타리 하나로 감싸져 오면 그 안쪽을 응답으로 사용한다
 시스템은 `response_format: json_object`로 요청한 응답이 정확히 하나의 울타리 블록(언어 표시는 없거나 `json`, 대소문자 무관)으로만 이루어져 있고 그 안의 내용을 JSON으로 읽을 수 있을 때, 그 안쪽을 응답 내용으로 사용해야 한다(SHALL). 그 밖의 응답(울타리 앞뒤에 설명이 있음, 다른 언어 표시, 내부의 잘못된 JSON, 한 줄 울타리)은 변경해서는 안 된다(MUST NOT). JSON을 요청하지 않은 응답의 울타리는 그대로 둔다.
 

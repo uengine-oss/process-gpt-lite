@@ -7,6 +7,7 @@ cd server && node --test test/llm-json-fence.test.js test/llm-logprob.test.js   
 | 스펙 시나리오 | 시험 |
 |---|---|
 | 주 모델이 Claude 이고 확률 모델이 따로 있다 · 확률 모델을 비워 두었다 | `llm-logprob.test.js` 「확률 읽기는 PRO_LLM_ODDS_MODEL 로(없으면 주 모델로)」 |
+| 설치판에서 확률 모델을 별도로 설정한다 | JF-U-06 |
 | 분류 판정에 Claude 가 울타리로 답한다 | JF-U-02 |
 | 답을 직접 읽는 호출(폴더 색인 · 브라우저 계획) | JF-U-03 |
 | 코드 블록을 보여 달라는 대화 | JF-U-04 |
