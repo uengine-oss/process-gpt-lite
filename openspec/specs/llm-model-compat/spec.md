@@ -47,3 +47,11 @@
 #### Scenario: 울타리 안의 JSON이 잘못되었다
 - **WHEN** chatJson의 응답이 울타리로 감싸져 있고 그 안의 내용을 JSON으로 읽을 수 없다
 - **THEN** 기존과 같이 「the model's answer is not JSON」 오류로 실패한다
+
+### Requirement: 모델이 거절한 temperature는 빼고 다시 보내며 이를 기억한다
+시스템은 모델이 400 응답으로 temperature를 거절하면(「unsupported」 · 「not support」 · Claude 5.5의 「`temperature` is deprecated for this model.」) 해당 요청을 temperature 없이 다시 보내고, 그 모델에 보내는 다음 요청부터는 처음부터 temperature를 빼야 한다(SHALL). 프록시가 매개변수를 걸러 주지 않는 설치 환경(LiteLLM에 `additional_drop_params`를 넣지 않음)에서도 Claude가 응답하도록 하기 위한 것이다.
+
+#### Scenario: 프록시를 거친 Claude가 temperature를 거절한다
+- **WHEN** chatJson이 temperature를 0으로 설정해 Claude에 요청하고 프록시가 400 응답과 함께 「`temperature` is deprecated for this model.」을 반환한다
+- **THEN** 같은 요청을 temperature 없이 한 번 더 보내 응답을 받는다
+- **AND** 그 모델에 보내는 다음 요청에는 처음부터 temperature가 포함되지 않는다

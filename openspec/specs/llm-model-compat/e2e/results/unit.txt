@@ -5,6 +5,7 @@
 ✔ JF-U-04 JSON 을 청하지 않은 답의 울타리는 그대로 둔다(코드를 보여 달라는 대화)
 ✔ JF-U-05 울타리 안이 깨졌으면 지금처럼 「JSON 이 아니다」로 실패한다
 ✔ JF-U-06 설치 번들: LLM_ODDS_MODEL 이 서버 환경의 PRO_LLM_ODDS_MODEL 로 가고(비면 빈 값 = 주 모델) .env 예시에 있다
+✔ JF-U-07 Claude 처럼 temperature 를 「deprecated」 로 거절하면 빼고 다시 보내고, 다음부터는 처음부터 뺀다
 ◇ injected env (0) from .env
 ✔ gpt-6-luna 처럼 거절이 여럿이면 하나씩 배워 끝내 받는다
 ✔ 한 번 배운 뒤에는 한 번에 간다
@@ -16,11 +17,11 @@
 ✔ 확률을 주지 않으면 null
 ✔ 언제나 추론하는 모델(gpt-6-astra): 장애가 아니라 확률을 주지 않는 모델로 분류한다
 ✔ 확률 읽기는 PRO_LLM_ODDS_MODEL 로(없으면 주 모델로)
-ℹ tests 16
+ℹ tests 17
 ℹ suites 0
-ℹ pass 16
+ℹ pass 17
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 612.0045
+ℹ duration_ms 553.716209

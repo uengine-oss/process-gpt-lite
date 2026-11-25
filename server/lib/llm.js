@@ -36,7 +36,8 @@ function learn(model, status, text) {
   if (status !== 400) return false
   const q = { ...(quirks.get(model) || {}) }
   const before = JSON.stringify(q)
-  if (/temperature/.test(text) && /unsupported|not support/i.test(text)) q.noTemperature = true
+  // Claude 5.5 says "`temperature` is deprecated for this model."
+  if (/temperature/.test(text) && /unsupported|not support|deprecated/i.test(text)) q.noTemperature = true
   if (/max_tokens/.test(text) && /max_completion_tokens/.test(text)) q.completionTokens = true
   if (/reasoning_effort/.test(text) && /tools/i.test(text)) q.noReasoning = true
   // non-reasoning models (gpt-4.1) reject the argument itself
