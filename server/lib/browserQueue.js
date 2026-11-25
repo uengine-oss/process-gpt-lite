@@ -19,6 +19,8 @@ import { L } from './lang.js'
 import { judge } from './judge.js'
 
 export const ANSWER_BAR = 0.7
+// these are asked on messages in a room with a task, before anything else answers: a short wait (the message goes its usual way without)
+export const JUDGE_MS = Number(process.env.PRO_QUEUE_JUDGE_MS || 4000)
 export const RESUME_BAR = 0.7
 const cap = (t, n = 300) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n)
 
@@ -28,7 +30,9 @@ export const WAIT_QUESTION = () => L('사용자가 입력창에 쓴 말은 지�
 // task waits on a question; a login, card or one-time code is never answered from the composer (it would sit in the chat, and the
 // judge would read it).
 export function waitOptions(w, { files = 0 } = {}) {
-  const asks = w.waiting && !w.vault && !files
+  // (a wait the person answers only by pressing its card — an approval, a login, a card, a code, a check on the screen — gets no answer
+  // from the composer: w.locked, lib/browser.js waitingIn)
+  const asks = w.waiting && !w.vault && !w.locked && !files
   const answers = asks ? [
     ...(w.options || []).map((o, i) => ({ key: `o${i}`, label: L(`작업이 물은 질문의 보기 「${cap(o, 80)}」를 고른 답이다`, `It picks the option "${cap(o, 80)}" of the task's question`) })),
     { key: 'answer', label: L('작업이 물은 질문에 대한 답이다(보기에 없는 답을 자기 말로 하거나, 보기 대신 다른 방법을 고르는 답 포함)', "It answers the task's question in its own words (an answer not among the options, or another way instead of them)") },
@@ -51,15 +55,17 @@ export function waitState(w, text, { files = 0 } = {}) {
   ].join('\n')
 }
 // probabilities → { pick: 'answer' | 'steer' | 'other', option: index | null, p: { answer, steer, replace, other } }
-// (the answer's share is every option's and the own-words one together; answer or steer is taken at bar, else nothing is delivered)
+// The answer's share is every option's and the own-words one together, taken at bar — but an option is given as the person's pick only
+// when that one option alone is at bar; anything less goes in the person's own words, never as an option they did not pick. A wait that
+// is locked (an approval, a login …) never takes an answer from here. (2026-11-25 review: a confused judge's o0 at 0.5 approved a payment.)
 export function waitPick(probabilities, w, { bar = ANSWER_BAR } = {}) {
   const pr = probabilities || {}
-  const opts = (w.options || []).map((_, i) => pr[`o${i}`] || 0)
-  const answer = opts.reduce((x, y) => x + y, 0) + (pr.answer || 0)
-  const p = { answer, steer: pr.steer || 0, replace: pr.replace || 0, other: pr.other || 0 }
+  const opts = (w.options || []).map((_, i) => Number(pr[`o${i}`]) || 0)
+  const answer = opts.reduce((x, y) => x + y, 0) + (Number(pr.answer) || 0)
+  const p = { answer, steer: Number(pr.steer) || 0, replace: Number(pr.replace) || 0, other: Number(pr.other) || 0 }
   const best = opts.length ? opts.indexOf(Math.max(...opts)) : -1
-  const option = best >= 0 && opts[best] > 0 && opts[best] >= (pr.answer || 0) ? best : null
-  if (answer >= bar && answer >= p.steer) return { pick: 'answer', option, p }
+  const option = best >= 0 && opts[best] >= bar ? best : null
+  if (!w.locked && !w.vault && answer >= bar && answer >= p.steer) return { pick: 'answer', option, p }
   if (p.steer >= bar) return { pick: 'steer', option: null, p }
   return { pick: 'other', option: null, p }
 }
@@ -67,7 +73,7 @@ export function waitPick(probabilities, w, { bar = ANSWER_BAR } = {}) {
 export async function readWaiting(w, text, { files = 0 } = {}) {
   const t0 = Date.now()
   try {
-    const r = await judge({ state: waitState(w, text, { files }), question: WAIT_QUESTION(), options: waitOptions(w, { files }) })
+    const r = await judge({ state: waitState(w, text, { files }), question: WAIT_QUESTION(), options: waitOptions(w, { files }), timeoutMs: JUDGE_MS })
     return { ...waitPick(r?.probabilities, w), probabilities: r?.probabilities || {}, via: r?.via || '', ms: Date.now() - t0 }
   } catch (e) {
     return { pick: 'other', option: null, p: { answer: 0, steer: 0, replace: 0, other: 1 }, probabilities: {}, via: 'none', ms: Date.now() - t0, error: e.message }
@@ -140,7 +146,7 @@ export async function readResume(list, text) {
   const t0 = Date.now()
   if (!list.length) return { pick: null, task: null, ms: 0 }
   try {
-    const r = await judge({ state: resumeState(list, text), question: RESUME_QUESTION(), options: resumeOptions(list) })
+    const r = await judge({ state: resumeState(list, text), question: RESUME_QUESTION(), options: resumeOptions(list), timeoutMs: JUDGE_MS })
     return { ...resumePick(r?.probabilities, list), probabilities: r?.probabilities || {}, via: r?.via || '', ms: Date.now() - t0 }
   } catch (e) {
     return { pick: null, task: null, probabilities: {}, via: 'none', ms: Date.now() - t0, error: e.message }

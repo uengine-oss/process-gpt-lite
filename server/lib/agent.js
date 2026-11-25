@@ -218,10 +218,13 @@ const PERSONA = `너는 사용자의 개인 운영체제 같은 업무 비서야
 const PERSONA_EN = `You are the user's work assistant, like a personal operating system. Answer in English, short and warm,
 first person ("I'll…"), no preamble. Write every tool argument a person will read (ack, name, title, message, text) in English. Current time: ${'{now}'}.`
 
+// (a browser task's result keeps its message short — the whole account is content.detail: the turns after it read that, not the short
+// line; never its click log, content.did — 2026-11-25 review)
+export const historyText = (r) => (r.role !== 'user' && r.content?.detail ? String(r.content.detail) : r.content?.text || '')
 function toLlmHistory(rows) {
   return rows.filter((r) => r.kind === 'text' || r.kind === 'doc' || r.kind === 'followup').map((r) => ({
     role: r.role === 'user' ? 'user' : 'assistant',
-    content: r.content.text || '',
+    content: historyText(r),
   }))
 }
 
@@ -501,13 +504,16 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // 넣어야 해」) — 뜻은 판정 모델이 읽는다. 그 밖의 말은 평소 길로 가고, 그 말로 시작한 브라우저 작업이 기다리는 작업 뒤에 서면 그 카드가
   // 세 갈래(답으로 · 이것부터 · 뒤에 줄 서기)를 판정이 가장 높게 본 것부터 보여 준다(waitRead.default).
   const active = !habitId && !again && !files.length ? activeIn(userId, threadId) : null
-  let activeRead = null
-  if (active) {
-    const w = active.waiting ? { ...active, ...waitingIn(userId, threadId) } : active
-    activeRead = await BQ.readWaiting(w, text)
+  // (the tasks that ended: only asked about when this room has one that stopped with work done, or one that just finished — structure;
+  // asked alongside the judgment on the task under way, both with a short wait: lib/browserQueue.js JUDGE_MS)
+  const ended = !habitId && !again && !files.length ? await BQ.recentEnded(userId, threadId).catch(() => []) : []
+  const w = active ? (active.waiting ? { ...active, ...waitingIn(userId, threadId) } : active) : null
+  const [activeRead, endedRead] = await Promise.all([w ? BQ.readWaiting(w, text) : null, ended.length ? BQ.readResume(ended, text) : null])
+  if (active && activeRead) {
     console.log(`[browser-queue] ${activeRead.pick}${activeRead.option != null ? ` o${activeRead.option}` : ''} ${JSON.stringify(activeRead.probabilities)} via ${activeRead.via} ${activeRead.ms} ms thread=${String(threadId).slice(0, 8)}${activeRead.error ? ` (${activeRead.error})` : ''}`)
     if (store) store.waitRead = { taskId: active.taskId, default: BQ.queueDefault(activeRead.p) }
-    if (activeRead.pick === 'answer' && await answerWaiting(userId, active.taskId, { text, option: activeRead.option })) {
+    // (the question it was asked about: words for one question never answer the next one — seq)
+    if (activeRead.pick === 'answer' && await answerWaiting(userId, active.taskId, { text, option: activeRead.option, seq: w.seq ?? null })) {
       noAgentTurn()
       const ok = BQ.answeredText(active.title)
       onDelta?.(ok)
@@ -523,9 +529,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // 끝냈거나 멈춘 브라우저 작업(같은 판정): 그 작업을 먼저 마저 끝내고 그다음 일(「작업을 마치고 아까 노트북 엘엠 만들던거 진행해」 —
   // ① 그 작업을 멈춘 자리부터 새 동작 한도로, ② 이 말이 시키는 일은 그 뒤에), 그 작업만 이어서(「다시 시도해 줘: …」), 또는 그 작업을
   // 이렇게 이어서 하라는 말(멈춘 작업은 그 말과 함께 이어서, 끝난 작업은 그 말을 더한 새 작업으로)
-  const ended = !habitId && !again && !files.length ? await BQ.recentEnded(userId, threadId).catch(() => []) : []
-  if (ended.length) {
-    const r = await BQ.readResume(ended, text)
+  if (endedRead) {
+    const r = endedRead
     console.log(`[browser-queue] resume ${r.pick || 'none'}${r.task ? ` '${r.task.title}'` : ''} ${JSON.stringify(r.probabilities || {})} via ${r.via || '-'} ${r.ms ?? '-'} ms thread=${String(threadId).slice(0, 8)}${r.error ? ` (${r.error})` : ''}`)
     const queue = { asked: text, default: store?.waitRead?.default || 'after' }
     if (r.pick === 'then') {
@@ -557,7 +562,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // (recording 2026-11-21: the rule's first sentence went down a shortcut to the agent first and came back as
   // "PowerPoint 를 만든다") A reply to a process draft the room is waiting on is that draft's, not the room's.
   const room = !habitId && (await getThread(userId, threadId))?.kind === 'project'
-  if (room && !again && !generationPending(threadId)) {
+  // (「① … 마저 끝내고 → ② …」 decided above: the rest of this message is ②, not the room's rule or words for a task — 2026-11-25 review)
+  if (room && !again && !store?.after && !generationPending(threadId)) {
     const rule = await ruleOf(userId, threadId).catch(() => null)
     // the person's browser tasks here (under way, just ended) are read with it: words for a task are not the room's rule
     const tasks = BQ.taskContext(active, ended)
@@ -1006,7 +1012,7 @@ async function telegramTurn({ userId, threadId, text, kind, onDelta }) {
     return m
   }
   try {
-    await tg.sendTelegram(userId, last.content.text)
+    await tg.sendTelegram(userId, historyText(last))
     const m = await say(L(`텔레그램(@${status.bot})으로 보냈어요.`, `Sent to Telegram (@${status.bot}).`))
     return m
   } catch (e) {

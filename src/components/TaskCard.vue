@@ -169,8 +169,10 @@ const queueActs = computed(() => {
   }
   const drop = { key: 'q-cancel', label: '취소', run: cancel }
   if (offer.value) {
-    const d = all[offer.value.default] ? offer.value.default : 'after'
-    return [{ ...all[d], big: true }, ...['answer', 'first', 'after'].filter((k) => k !== d).map((k) => all[k]), drop]
+    // (a task ahead that waits for an approval or a sign-in takes no answer from here: offer.answer false)
+    const keys = ['answer', 'first', 'after'].filter((k) => k !== 'answer' || offer.value.answer !== false)
+    const d = keys.includes(offer.value.default) ? offer.value.default : 'after'
+    return [{ ...all[d], big: true }, ...keys.filter((k) => k !== d).map((k) => all[k]), drop]
   }
   return [all.first, drop]
 })

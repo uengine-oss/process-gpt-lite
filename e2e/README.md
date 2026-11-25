@@ -1354,7 +1354,7 @@ miner 가 없으면 F-MN-02.
 
 ```bash
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/browser-queue-answers.spec.js
-cd server && node --test test/browser-progress.test.js test/browser-pdf-upload.test.js test/browser-files.test.js && node --test test/browser-queue-answers.test.js
+cd server && node --test test/browser-progress.test.js test/browser-pdf-upload.test.js test/browser-files.test.js test/browser-queue-review.test.js && node --test test/browser-queue-answers.test.js
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1370,6 +1370,18 @@ cd server && node --test test/browser-progress.test.js test/browser-pdf-upload.t
 | 방 판정이 그 사람의 작업을 읽고 `steer` 보기, 작업이 있을 때 규칙은 0.85, 규칙이 있는 방은 「규칙을 바꿀까요?」 — 「이번 작업에만 적용」은 작업으로, 「바꾸기」는 새 규칙, 두 번 고르지 못함 | 녹화 11-25(3) | F-BQ-07 · BQ-I-09 | feature · 통합 | ✅ |
 | `save_pdf`(A4 · 배경, 파일 카드 + 작업의 파일) · `attach_file`(파일 칸 · 파일 선택 창), NotebookLM 스킬의 「소스 0개」 → PDF 길 · Medium 은 바로 PDF | 녹화 11-25(3) | F-BQ-06 · BQ-I-10 · BQ-T-01~04 | feature · 통합 · 단위 | ✅ |
 | 이 대화의 파일(산출물 · 채팅 · 연결된 폴더(구성원만) · 받은 공유)이 후보, 남의 방은 없음, 확실한 하나는 묻지 않고, 여럿이면 「파일 고르기」, 없으면 어디서 찾았는지(「이 작업에 첨부」라고 하지 않음), 공개 주소 없이 비공개 임시 폴더로 | 운영 11-25(4) | F-BQ-08 · BQ-I-11 · BQ-I-12 · BQ-F-01~03 | feature · 통합 · 단위 | ✅ |
+| **검토 11-25 #1** 입력창의 말은 결제를 승인하지 못한다: 승인 · 로그인 · 카드 · 코드 · 사람 확인을 기다리는 작업은 입력창의 말을 받지 않음(판정 보기에도 답 없음), 보기는 그 하나가 0.7 일 때만, 판정 LLM 의 남는 몫은 나누지 않고 모르는 키는 아무것도 아님(`spread`) | 검토 11-25 | BQ-R-01 · BQ-R-01i | 단위 · 통합 | ✅ |
+| **#2** 사람이 붙이지 않은 파일(찾은 파일 · 작업이 저장한 PDF)은 그 사람의 말이 파일과 사이트를 함께 말했을 때(판정 0.7) 또는 「「…」을(를) …에 올릴까요?」 카드의 「승인」으로만 올라감, 이름으로 다른 파일을 가져오지 않음, 「파일 고르기」는 올릴 곳을 말함, PDF 는 비공개 버킷(주소 없는 카드) | 검토 11-25 | BQ-R-02i · BQ-I-10 · BQ-I-11 · BQ-I-12 · BQ-T-01 · F-BQ-06 · F-BQ-08 | 단위 · 통합 · feature | ✅ |
+| **#3** 후보 하나 + 약한 「없음」(0.3)은 확실하지 않음 | 검토 11-25 | BQ-R-03 | 단위 | ✅ |
+| **#4** 짧아진 결과: 뒤의 턴 · 텔레그램은 전문(`detail`)을, 클릭 기록(`did`)은 읽지 않음 | 검토 11-25 | BQ-R-04 | 단위 | ✅ |
+| **#5** 「A 마치고 B」가 정해지면 방 판정을 묻지 않음 | 검토 11-25 | BQ-R-05i | 통합 | ✅ |
+| **#6** 다시 돌리는 작업이 폴더 · 공유 · 비공개 파일과 얻은 방법(`origin`)을 잃지 않음, `pick_file` 은 이름이 아니라 후보 id 로 거름 | 검토 11-25 | BQ-R-06 | 단위 | ✅ |
+| **#7** 「규칙을 바꿀까요?」는 한 번만(동시에 눌러도), 그 방에서만, 「바꾸기」는 방의 다른 규칙을 끔 | 검토 11-25 | BQ-R-07i | 통합 | ✅ |
+| **#8** 답은 판정한 그 질문(번호)에만, 턴이 끝나 마무리하는 작업에는 지시가 가지 않음 | 검토 11-25 | BQ-R-08i | 통합 | ✅ |
+| **#9** `pick_file` · `attach_file` · `save_pdf` 는 동작 하나의 한도 밖(스스로 걸음마다 한도), 멈춘 걸음은 카드를 띄우지 않음 | 검토 11-25 | BQ-R-09 | 단위 | ✅ |
+| **#10** 작업 공간의 파일은 실제 경로가 그 안의 보통 파일일 때만(링크 거부) | 검토 11-25 | BQ-R-10 | 단위 | ✅ |
+| **#11** 진행 중인 작업 판정과 끝난 작업 판정을 함께(4초 한도) | 검토 11-25 | BQ-R-11i | 통합 | ✅ |
+| 보기 카드를 기다리는 동안 취소하면 작업 카드는 「취소함」에 머묾(재현 하네스) | 재현 11-25 | BQ-R-12i | 통합 | ✅ |
 | 사람 PC 의 브라우저에서 `save_pdf`, 실제 NotebookLM · Medium, 실제 판정 모델의 확률, 영어 화면 | — | — (가짜 사이트 · 가짜 판정) | — | ✗ |
 
 ## 남은 공백(다음에 채울 것)

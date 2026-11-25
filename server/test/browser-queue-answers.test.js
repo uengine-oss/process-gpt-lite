@@ -24,10 +24,12 @@ import http from 'node:http'
 import { startNotebooks } from './fixtures/notebooks.mjs'
 
 // ---- the judge: scripted answers by what is asked (its option keys) ----
-const judged = { active: [], resume: [], room: [], file: [] }
+const judged = { active: [], resume: [], room: [], file: [], upload: [] }
+const judgeDelay = {} // kind → ms the judge takes (BQ-R-11i)
 const judgeCalls = []
 const kindOf = (keys) => keys.includes('set_rule') ? 'room' : keys.includes('steer') && keys.includes('replace') ? 'active'
   : keys.includes('none') && keys.some((k) => /^(then|only|more)\d+$/.test(k)) ? 'resume' : keys.includes('none') && keys.some((k) => /^f\d+$/.test(k)) ? 'file'
+    : keys.includes('named') && keys.includes('not') ? 'upload'
     : keys.includes('login_needed') ? 'wall' : keys.includes('idle') ? 'busy' : 'other'
 const judgeServer = await new Promise((r) => {
   const s = http.createServer((req, res) => {
@@ -37,10 +39,12 @@ const judgeServer = await new Promise((r) => {
     req.on('end', () => {
       const b = JSON.parse(raw)
       const kind = kindOf(b.options.map((o) => o.key))
-      judgeCalls.push({ ...b, kind })
-      const p = kind === 'wall' ? { ok: 1 } : kind === 'busy' ? { busy: 1 } : (judged[kind] || []).shift() || (kind === 'room' ? { other: 1 } : ['resume', 'file'].includes(kind) ? { none: 1 } : kind === 'active' ? { other: 1 } : { new: 1 })
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ probabilities: p, model: 'scripted' }))
+      judgeCalls.push({ ...b, kind, at: Date.now() })
+      const p = kind === 'wall' ? { ok: 1 } : kind === 'busy' ? { busy: 1 } : (judged[kind] || []).shift() || (kind === 'room' ? { other: 1 } : ['resume', 'file'].includes(kind) ? { none: 1 } : kind === 'active' ? { other: 1 } : kind === 'upload' ? { not: 1 } : { new: 1 })
+      setTimeout(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ probabilities: p, model: 'scripted' }))
+      }, judgeDelay[kind] || 0)
     })
   })
   s.listen(0, '127.0.0.1', () => r(s))
@@ -88,7 +92,7 @@ globalThis.fetch = async (url, opts = {}) => {
       const g = goalOf(body)
       const s = scripts[g]
       if (!s) return call('finish', { summary: '끝.' })
-      if (body.tool_choice?.function?.name === 'finish') return call('finish', { summary: s.closing || '끝났어요.' })
+      if (body.tool_choice?.function?.name === 'finish') return (s.closingDelay ? sleep(s.closingDelay) : Promise.resolve()).then(() => call('finish', { summary: s.closing || '끝났어요.' }))
       const move = s.moves[Math.min(s.i++, s.moves.length - 1)]
       if (move === 'hang') return new Promise(() => {})
       const [name, args] = typeof move === 'function' ? move(body) : move
@@ -456,12 +460,24 @@ test('BQ-I-10 웹사이트 소스가 「소스 0개」에 머무는 사이트: �
     (b) => ['note', { text: lastPage(b).text.split('\n').find((l) => l.startsWith('소스')) }],
     ['finish', { summary: 'Medium 글을 PDF 로 저장해 소스로 넣었어요.' }],
   ] }
-  const r = await browser.runBrowserTask({ userId: user.id, threadId: tid, goal, startUrl: `${site.url}/nb`, own: true })
+  const run = browser.runBrowserTask({ userId: user.id, threadId: tid, goal, startUrl: `${site.url}/nb`, own: true })
+  // the PDF this task made is not a file the person attached: before it goes to a site, the person approves on a card naming both
+  const ask = await until(async () => (await msgs(tid)).find((m) => m.kind === 'choice' && m.content.upload && m.content.state === 'pending'), 60000)
+  assert.ok(ask, '올리기 전에 묻는 카드')
+  assert.match(ask.content.question, /^「Agentic AI in practice\.pdf」을\(를\) .+\(127\.0\.0\.1\)에 올릴까요\?$/)
+  assert.equal(ask.content.approval, true)
+  browser.resume(user.id, 'The user chose: 승인. Continue with that choice.')
+  const r = await run
   assert.equal(r.state, 'done', r.summary)
   assert.ok(bodies.some((b) => goalOf(b) === goal && /still waiting after/.test(lastTool(b))), '웹사이트 소스는 들어가지 않았다')
   assert.equal(r.notes.at(-1), '소스 1개: Agentic AI in practice.pdf')
   const file = (await msgs(tid)).find((m) => m.kind === 'file' && m.content.type === 'application/pdf')
   assert.equal(file.content.name, 'Agentic AI in practice.pdf')
+  // kept private: no address on the card, the bytes in the private bucket only
+  assert.equal(file.content.url, undefined)
+  assert.match(file.content.private.key, /^browser\//)
+  const { bytes } = await import('../lib/privateStore.js')
+  assert.ok((await bytes(file.content.private.key)).buf.subarray(0, 5).equals(Buffer.from('%PDF-')))
   const card = await cardOf(tid, goal)
   assert.ok(card.content.files.some((f) => f.name === 'Agentic AI in practice.pdf'), '카드가 이 작업의 파일로 기억한다')
   assert.deepEqual(card.content.did.map((d) => d.text).filter((t) => /PDF|저장|올리기/.test(t)), ['Agentic AI in practice.pdf 저장', 'Agentic AI in practice.pdf 올리기'])
@@ -493,9 +509,15 @@ test('BQ-I-11 이 방에서 AI 가 만든 PDF 하나 → 「이 PDF로 NotebookL
   scripts[goal] = uploader(goal, name)
   routes.push({ goal, start_url: `${site.url}/nb`, ack: '네, NotebookLM 브라우저를 열어 PDF를 소스로 넣고 팟캐스트를 만들게요.' })
   judged.file.push({ f0: 0.93, none: 0.07 })
+  judged.upload.push({ named: 0.91, not: 0.09 })
   const j0 = judgeCalls.length
   await runTurn({ user, session, threadId: tid, text: '이 PDF로 NotebookLM 팟캐스트 만들어 줘' })
   const c = await done(tid, 'NotebookLM 팟캐스트')
+  // the upload of a file the person did not attach: allowed by their own words, which named the file and the site (judged)
+  const uc = judgeCalls.slice(j0).find((x) => x.kind === 'upload')
+  assert.match(uc.state, /사용자가 한 말: 「이 PDF로 NotebookLM 팟캐스트 만들어 줘」/)
+  assert.match(uc.state, new RegExp(`올릴 파일: ${name.replace(/[.()]/g, '\\$&')}`))
+  assert.match(uc.state, /올릴 곳: 127\.0\.0\.1/)
   const fc = judgeCalls.slice(j0).find((x) => x.kind === 'file')
   assert.match(fc.options[0].label, /통신망 장애 온톨로지·광선로 단선 진단 보고서\.pdf · pdf · 1 KB · 이 방에서 AI 가 만든 파일/)
   assert.deepEqual(c.content.files.map((f) => f.name), [name])
@@ -515,7 +537,7 @@ test('BQ-I-12 그럴듯한 PDF 가 둘이면 작업 안의 「파일 고르기�
   judged.file.push({ f0: 0.46, f1: 0.44, none: 0.1 }) // pick_file: still two — the person picks
   const run = browser.runBrowserTask({ userId: user.id, threadId: tid, goal, startUrl: `${site.url}/nb`, own: true })
   const choice = await until(async () => (await msgs(tid)).find((m) => m.kind === 'choice' && m.content.state === 'pending'))
-  assert.equal(choice.content.question, '파일 고르기 · 온톨로지 보고서 PDF')
+  assert.equal(choice.content.question, '127.0.0.1에 올릴 파일 고르기 · 온톨로지 보고서 PDF', '고르는 카드가 올릴 곳을 말한다 — 고르면 그곳에 올려도 된다는 뜻')
   assert.deepEqual([...choice.content.options].sort(), ['온톨로지 보고서 1부.pdf', '온톨로지 보고서 2부.pdf'])
   browser.resume(user.id, 'The user chose: 온톨로지 보고서 1부.pdf. Continue with that choice.')
   assert.equal((await run).state, 'done')
@@ -532,4 +554,156 @@ test('BQ-I-12 그럴듯한 PDF 가 둘이면 작업 안의 「파일 고르기�
   assert.match(heard, /^none: no file of this conversation fits \(looked in the files posted in this chat, what the AI made in this room, the room's linked folder and files teammates shared\)/)
   assert.match(heard, /this task has no file yet — call pick_file with what file the work needs; never ask the person to attach a file to this task/)
   assert.doesNotMatch(heard, /no file was attached to this task/)
+})
+
+// ---- the independent review (2026-11-25): regressions that need the browser and the database (the rest: browser-queue-review.test.js) ----
+test('BQ-R-01i 승인 카드를 기다리는 작업에 입력창으로 「응 결제해」 — 판정이 헷갈려도 답으로 넘기지 않고, 카드는 그대로, 승인은 카드를 눌러야', { skip: !up }, async () => {
+  const tid = await thread()
+  const goal = '가상 상품 결제 승인 받기'
+  titles[goal] = goal
+  scripts[goal] = { i: 0, moves: [['approve', { summary: '39,000원을 결제할까요?' }], (b) => ['note', { text: lastTool(b) }], ['finish', { summary: '끝.' }]] }
+  const run = browser.runBrowserTask({ userId: user.id, threadId: tid, goal, startUrl: `${site.url}/ask`, own: true })
+  const card = await until(async () => (await msgs(tid)).find((m) => m.kind === 'choice' && m.content.approval && m.content.state === 'pending'))
+  assert.ok(card)
+  const w = browser.waitingIn(user.id, tid)
+  assert.equal(w.locked, true)
+  // a confused judge: it even names an option it was not offered
+  judged.active.push({ o0: 0.95, answer: 0.9, steer: 0.02, other: 0.03 })
+  const j0 = judgeCalls.length
+  await runTurn({ user, session, threadId: tid, text: '응 결제해' })
+  assert.deepEqual(judgeCalls.slice(j0).find((c) => c.kind === 'active').options.map((o) => o.key), ['steer', 'replace', 'other'], '판정 보기에 답이 없다')
+  assert.equal(await browser.answerWaiting(user.id, w.taskId, { text: '승인', option: 0 }), false, '직접 넘겨도 받지 않는다')
+  assert.equal((await msgs(tid)).find((m) => m.id === card.id).content.state, 'pending', '카드는 그대로')
+  assert.equal((await cardOf(tid, goal)).content.state, 'needs_input')
+  // the card press approves
+  browser.resume(user.id, 'The user chose: 승인. Continue with that choice.')
+  const r = await run
+  assert.equal(r.notes[0], 'the user approved: do it now')
+})
+
+test('BQ-R-02i 사람이 붙이지 않은 파일은 그 사람의 말이 파일과 사이트를 함께 말했거나 카드에서 승인했을 때만 올라간다 — 이름으로 다른 파일을 가져오지 않는다', { skip: !up }, async () => {
+  const tid = await thread()
+  const name = '내부 보고서.pdf'
+  await madePdf(tid, name, 'r02')
+  await madePdf(tid, '다른 방의 것 같은 파일.pdf', 'r02b')
+  const goal = '노트북에 보고서 넣기'
+  titles[goal] = goal
+  let said = []
+  scripts[goal] = { i: 0, moves: [
+    // by a name it was never given: not one of this task's files
+    (b) => ['click', { i: pick(b, '파일 업로드') }],
+    (b) => ['attach_file', { i: byType(b, 'file'), name: '다른 방의 것 같은 파일.pdf' }],
+    (b) => { said.push(lastTool(b)); return ['attach_file', { i: byType(b, 'file'), name }] },
+    (b) => { said.push(lastTool(b)); return ['finish', { summary: '끝.' }] }] }
+  judged.file.push({ f0: 0.05, f1: 0.9, none: 0.05 }) // at the start: the report (picked — not attached by the person)
+  const run = browser.runBrowserTask({ userId: user.id, threadId: tid, goal, startUrl: `${site.url}/nb`, own: true })
+  // nobody said where it goes (no words of the person): asked on a card, and 「취소」 keeps it here
+  const ask = await until(async () => (await msgs(tid)).find((m) => m.kind === 'choice' && m.content.upload && m.content.state === 'pending'), 60000)
+  assert.match(ask.content.question, /^「내부 보고서\.pdf」을\(를\) .+에 올릴까요\?$/)
+  browser.resume(user.id, 'The user chose: 취소. Continue with that choice.')
+  const r = await run
+  assert.equal(r.state, 'done')
+  assert.match(said[0], /^error: no file named '다른 방의 것 같은 파일\.pdf' among this task's files \(내부 보고서\.pdf\)/)
+  assert.match(said[1], /^not uploaded: the person did not allow uploading "내부 보고서\.pdf" to 127\.0\.0\.1/)
+  assert.ok(!judgeCalls.some((c) => c.kind === 'upload' && c.state.includes(name)), '사람의 말이 없으면 판정에 묻지 않고 카드로')
+  assert.match(r.pageText, /소스 0개/, '올라가지 않았다')
+})
+
+test('BQ-R-05i 프로젝트 방의 「A 마치고 B」: 순서가 정해지면 방 판정은 묻지 않는다(규칙 · 지시로 새지 않음)', { skip: !up }, async () => {
+  const tid = await thread()
+  const del = '목록 지우기 R05'
+  titles[del] = del
+  scripts[del] = { i: 0, moves: [deleter, deleter, deleter, 'hang'] }
+  const first = browser.runBrowserTask({ userId: user.id, threadId: tid, goal: del, startUrl: `${site.url}/notebooks?n=3`, own: true })
+  const c = await until(async () => { const x = await cardOf(tid, del); return x && scripts[del].i >= 4 && x })
+  browser.cancel(user.id, c.id)
+  await first
+  scripts[del] = { i: 0, moves: [deleter] }
+  const nb = '다음 일 R05'
+  titles[nb] = nb
+  scripts[nb] = { i: 0, moves: [['note', { text: 'b' }], ['finish', { summary: '했어요.' }]] }
+  judged.resume.push({ then0: 0.92, none: 0.08 })
+  judged.room.push({ set_rule: 0.97, other: 0.03 }) // would have made it the room's rule
+  routes.push({ goal: nb, start_url: `${site.url}/ask`, ack: '할게요.' })
+  const j0 = judgeCalls.length
+  const ack = await runTurn({ user, session, threadId: tid, text: '그거 마치고 앞으로 이 방 링크는 다 노트로 해 줘' })
+  assert.equal(ack.content.text, `① '${del}' 마저 끝내고 → ② '${nb}' 시작할게요.`)
+  assert.ok(!judgeCalls.slice(j0).some((x) => x.kind === 'room'), '방 판정에 묻지 않았다')
+  judged.room.splice(0)
+  await done(tid, nb)
+  assert.equal(await R.ruleOf(user.id, tid), null)
+})
+
+test('BQ-R-07i 「규칙을 바꿀까요?」는 한 번만 — 동시에 눌러도 하나만, 다른 방에서는 안 되고, 오래된 카드의 「바꾸기」도 그 카드가 규칙이 된다', { skip: !up }, async () => {
+  const tid = await thread(), other = await thread()
+  const card = async (next) => (await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2) returning id`,
+    [tid, { text: '규칙을 바꿀까요?', ruleConfirm: { said: next, now: '옛 규칙', next, skill: '', state: 'pending' } }]))[0].id
+  const a = await card('카드 A 의 규칙'), b = await card('카드 B 의 규칙')
+  // twice at once: one wins
+  const both = await Promise.all([R.settleRuleConfirm(user.id, a, 'once', { threadId: tid }), R.settleRuleConfirm(user.id, a, 'replace', { threadId: tid })])
+  assert.equal(both.filter((x) => !x.already).length, 1, JSON.stringify(both.map((x) => x.already)))
+  // from another room: nothing
+  assert.equal(await R.settleRuleConfirm(user.id, b, 'replace', { threadId: other }), null)
+  // B replaces; then a newer rule comes; the older card C pressed later still becomes the rule
+  await R.settleRuleConfirm(user.id, b, 'replace', { threadId: tid })
+  const c = await card('카드 C 의 규칙')
+  await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2)`, [tid, { text: '새 규칙', roomRule: { said: 'x', action: '더 새 규칙', skill: '', runs: 0 } }])
+  assert.equal((await R.ruleOf(user.id, tid)).action, '더 새 규칙')
+  await R.settleRuleConfirm(user.id, c, 'replace', { threadId: tid })
+  assert.equal((await R.ruleOf(user.id, tid)).action, '카드 C 의 규칙')
+})
+
+test('BQ-R-08i 답은 그 질문에만(질문 번호) — 그리고 턴이 끝나 마무리하는 작업에는 지시가 가지 않는다', { skip: !up }, async () => {
+  const tid = await thread()
+  const { card } = await startAsker(tid, '질문 번호 작업', '질문 번호')
+  const w = browser.waitingIn(user.id, tid)
+  assert.ok(w.seq >= 1)
+  assert.equal(await browser.answerWaiting(user.id, card.id, { text: '늦게 온 말', seq: w.seq + 1 }), false, '다른 질문의 번호로는 답하지 않는다')
+  assert.equal(await browser.answerWaiting(user.id, card.id, { text: '새로 만들어', seq: w.seq }), true)
+  await done(tid, '질문 번호')
+  // the closing call (its turns are over): nothing under way any more for the chat
+  const goal = '마무리 중인 작업'
+  titles[goal] = goal
+  scripts[goal] = { i: 0, closingDelay: 1500, closing: '마쳤어요.', moves: [(b) => ['click', { i: pick(b, '새 노트북') }], ['finish', { summary: '' }]] }
+  const run = browser.runBrowserTask({ userId: user.id, threadId: tid, goal, startUrl: `${site.url}/ask`, own: true })
+  await until(() => scripts[goal].i >= 2)
+  await sleep(300)
+  assert.equal(browser.activeIn(user.id, tid), null, '마무리하는 작업은 진행 중이 아니다')
+  const t = (await cardOf(tid, goal)).id
+  assert.equal(await browser.steer(user.id, t, '이것도 해 줘'), false)
+  assert.equal((await run).state, 'done')
+})
+
+test('BQ-R-11i 진행 중인 작업과 멈춘 작업이 있는 방: 두 판정은 함께 묻는다(차례로 기다리지 않음)', { skip: !up }, async () => {
+  const tid = await thread()
+  const stop = '멈출 작업 R11'
+  titles[stop] = stop
+  scripts[stop] = { i: 0, moves: [(b) => ['click', { i: pick(b, '새 노트북') }], 'hang'] }
+  const first = browser.runBrowserTask({ userId: user.id, threadId: tid, goal: stop, startUrl: `${site.url}/ask`, own: true })
+  const c = await until(async () => { const x = await cardOf(tid, stop); return x && scripts[stop].i >= 2 && x })
+  browser.cancel(user.id, c.id)
+  await first
+  await startAsker(tid, '기다리는 작업 R11', '기다리는 작업')
+  judgeDelay.active = 600
+  judgeDelay.resume = 600
+  const j0 = judgeCalls.length
+  const t0 = Date.now()
+  await runTurn({ user, session, threadId: tid, text: '날씨는 어때' })
+  const ms = Date.now() - t0
+  delete judgeDelay.active; delete judgeDelay.resume
+  const a = judgeCalls.slice(j0).find((x) => x.kind === 'active'), r = judgeCalls.slice(j0).find((x) => x.kind === 'resume')
+  assert.ok(a && r)
+  assert.ok(Math.abs(a.at - r.at) < 300, `두 판정이 ${Math.abs(a.at - r.at)}ms 차이로 왔다`)
+  assert.ok(ms < 1150, `${ms}ms — 600ms 판정 둘을 차례로 기다리지 않았다`)
+  browser.cancel(user.id, (await cardOf(tid, '기다리는 작업')).id)
+})
+
+test('BQ-R-12i 보기 카드를 기다리는 동안 취소하면 작업 카드는 「취소함」에 머문다(「진행 중」으로 돌아가지 않음)', { skip: !up }, async () => {
+  const tid = await thread()
+  const { card } = await startAsker(tid, '취소될 작업 R12', '취소될 작업')
+  assert.ok(browser.cancel(user.id, card.id))
+  await done(tid, '취소될 작업', 'cancelled')
+  await sleep(1000)
+  const c = await cardOf(tid, '취소될 작업')
+  assert.equal(c.content.state, 'cancelled', JSON.stringify({ state: c.content.state }))
 })

@@ -702,8 +702,8 @@ app.delete('/api/threads/:id/rule', auth, async (req, res) => res.json(await rem
 app.post('/api/threads/:id/rule/confirm', auth, async (req, res) => {
   const choice = req.body?.choice === 'replace' ? 'replace' : req.body?.choice === 'once' ? 'once' : null
   if (!choice || !req.body?.messageId) return res.status(400).json({ error: 'messageId, choice: replace | once' })
-  const r = await settleRuleConfirm(req.user.id, String(req.body.messageId), choice).catch(() => null)
-  if (!r || r.message.thread_id !== req.params.id) return res.status(404).end()
+  const r = await settleRuleConfirm(req.user.id, String(req.body.messageId), choice, { threadId: req.params.id }).catch(() => null)
+  if (!r) return res.status(404).end()
   emit(req.user.id, 'message', r.message)
   if (r.already) return res.status(409).json({ error: L('이미 고른 카드예요.', 'This card was already answered.') })
   if (choice === 'once') onceTurn({ user: req.user, session: req.session, threadId: req.params.id, text: r.said }).catch((e) => console.warn('[room rule] once', e.message))

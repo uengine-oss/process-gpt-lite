@@ -117,16 +117,26 @@ export async function readRoomRule(user, threadId, text, files = []) {
 // 규칙을 바꿀까요? (2026-11-25 녹화: 이미 규칙이 있는 방에서 작업에 준 지시가 규칙을 말없이 덮어썼다) — 규칙이 있는 방에서 새 규칙을 정하는
 // 말은 확인 카드(content.ruleConfirm {said, now, next, skill, state})로 묻는다. 「바꾸기」는 그 카드가 새 규칙을 갖고(ruleOf 는 가장 새
 // 규칙을 읽는다), 「이번 작업에만 적용」은 규칙을 그대로 두고 그 말을 작업에 준다(lib/agent.js onceTurn). → { message, said } 또는 null
-export async function settleRuleConfirm(userId, messageId, choice) {
+// threadId: the room the card is asked about from (a card of another room is not settled from here). The card is settled once — whoever
+// presses first (the update itself checks it is still pending); 「바꾸기」 turns the room's other rules off, so the card pressed is the rule
+// even when a newer rule came meanwhile (2026-11-25 review).
+export async function settleRuleConfirm(userId, messageId, choice, { threadId = null } = {}) {
   const [m] = await q(`select m.* from pro_messages m join pro_threads t on t.id = m.thread_id
-    where m.id=$1 and t.user_id=$2 and jsonb_typeof(m.content->'ruleConfirm') = 'object'`, [messageId, userId])
+    where m.id=$1 and t.user_id=$2 and jsonb_typeof(m.content->'ruleConfirm') = 'object' and ($3::uuid is null or m.thread_id = $3::uuid)`, [messageId, userId, threadId])
   if (!m) return null
   const rc = m.content.ruleConfirm
-  if (rc.state !== 'pending') return { message: m, said: rc.said, already: true }
   const patch = choice === 'replace'
     ? { ruleConfirm: { ...rc, state: 'replaced' }, roomRule: { said: rc.said, action: rc.next, skill: rc.skill || '', runs: 0 } }
     : { ruleConfirm: { ...rc, state: 'once' } }
-  const [u] = await q(`update pro_messages set content = content || $2::jsonb where id=$1 returning *`, [m.id, JSON.stringify(patch)])
+  const [u] = await q(`update pro_messages set content = content || $2::jsonb where id=$1 and content->'ruleConfirm'->>'state' = 'pending' returning *`, [m.id, JSON.stringify(patch)])
+  if (!u) {
+    const [now] = await q('select * from pro_messages where id=$1', [m.id])
+    return { message: now || m, said: rc.said, already: true }
+  }
+  if (choice === 'replace') {
+    await q(`update pro_messages set content = jsonb_set(content, '{roomRule,off}', 'true'::jsonb) where thread_id=$1 and id <> $2
+      and jsonb_typeof(content->'roomRule') = 'object' and coalesce(content->'roomRule'->>'off', '') = ''`, [m.thread_id, m.id])
+  }
   return { message: u, said: rc.said }
 }
 export const ranRule = (id) => q(`update pro_messages set content = jsonb_set(content, '{roomRule,runs}', to_jsonb(coalesce((content->'roomRule'->>'runs')::int, 0) + 1)) where id=$1`, [id])

@@ -15,29 +15,31 @@ const { pagePdf } = await import('../lib/browser.js')
 const { ServerDriver } = await import('../lib/browserServer.js')
 const PDF = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n')
 
-test('BQ-T-01 save_pdf: 지금 화면을 인쇄한 PDF 가 파일 카드가 되고 이 작업의 파일이 된다', async () => {
+test('BQ-T-01 save_pdf: 지금 화면을 인쇄한 PDF 가 비공개 저장소(주소 없음)의 파일 카드가 되고, 「만든 파일」로 이 작업의 파일이 된다', async () => {
   const kept = [], posted = []
   const d = { pdf: async () => PDF, title: async () => 'Agentic AI in practice | Medium' }
-  const task = { userId: 'u1', threadId: 't1', id: 'task1', files: [{ name: '메모.pdf', url: 'https://files.example/m.pdf' }] }
-  const out = await pagePdf(d, task, '', {
-    keep: async (user, name, type, buf) => { kept.push({ user, name, type, buf }); return { name, size: buf.length, url: `https://files.example/${encodeURIComponent(name)}`, key: `pgpt-pro/u1/att/x.pdf` } },
-    post: async (...a) => { posted.push(a) },
-  })
+  const task = { userId: 'u1', threadId: 't1', id: 'task1', files: [{ name: '메모.pdf', url: 'https://files.example/m.pdf', origin: 'attached' }] }
+  const out = await pagePdf(d, task, '', { keep: async (key, buf) => { kept.push({ key, buf }) }, post: async (...a) => { posted.push(a) } })
   assert.equal(kept.length, 1)
-  assert.equal(kept[0].name, 'Agentic AI in practice Medium.pdf', '이름은 페이지 제목에서(파일 이름에 못 쓰는 글자는 뺀다)')
-  assert.equal(kept[0].type, 'application/pdf')
+  // private: the person's own key in the private bucket's browser/ folder, never the public 'files' bucket (2026-11-25 review)
+  assert.match(kept[0].key, /^browser\/[A-Za-z0-9._-]+\/u1\/[0-9a-f-]{36}\/page\.pdf$/)
   assert.ok(kept[0].buf.subarray(0, 5).equals(Buffer.from('%PDF-')))
-  assert.deepEqual(kept[0].user, { id: 'u1' })
+  const card = posted[0][4]
   assert.deepEqual(posted[0].slice(0, 4), ['u1', 't1', 'agent', 'file'])
-  assert.equal(posted[0][4].taskId, 'task1')
-  assert.equal(posted[0][4].type, 'application/pdf')
+  assert.equal(card.name, 'Agentic AI in practice Medium.pdf', '이름은 페이지 제목에서(파일 이름에 못 쓰는 글자는 뺀다)')
+  assert.deepEqual(card.private, { key: kept[0].key })
+  assert.equal(card.url, undefined, '카드에 주소가 없다(열 때마다 잠깐 서명한 주소)')
+  assert.equal(card.taskId, 'task1')
+  const made = task.files.at(-1)
   assert.deepEqual(task.files.map((f) => f.name), ['메모.pdf', 'Agentic AI in practice Medium.pdf'], '이 작업의 파일 — attach_file 이 이 이름으로 쓴다')
-  assert.match(out, /^saved Agentic AI in practice Medium\.pdf \(1 KB\) — one of this task's files now: give it to a site with attach_file name "Agentic AI in practice Medium\.pdf"$/)
+  assert.equal(made.origin, 'made', '사람이 붙인 파일이 아니다: 다른 사이트에 올리기 전에 묻는다')
+  assert.deepEqual(made.private, { key: kept[0].key })
+  assert.equal(made.url, undefined)
+  assert.match(out, /^saved Agentic AI in practice Medium\.pdf \(1 KB\) — one of this task's files now: give it to a site with attach_file name "Agentic AI in practice Medium\.pdf" \(the person is asked first unless they said where it goes\)$/)
   // a name given by the agent wins; the same name again replaces, not doubles
-  await pagePdf(d, task, 'medium-article.pdf', { keep: async (u, name, type, buf) => ({ name, size: buf.length, url: 'u' }), post: async () => {} })
-  await pagePdf(d, task, 'medium-article', { keep: async (u, name, type, buf) => ({ name, size: buf.length, url: 'u2' }), post: async () => {} })
+  await pagePdf(d, task, 'medium-article.pdf', { keep: async () => {}, post: async () => {} })
+  await pagePdf(d, task, 'medium-article', { keep: async () => {}, post: async () => {} })
   assert.deepEqual(task.files.map((f) => f.name), ['메모.pdf', 'Agentic AI in practice Medium.pdf', 'medium-article.pdf'])
-  assert.equal(task.files.at(-1).url, 'u2')
 })
 
 test('BQ-T-02 인쇄하지 못하는 브라우저 · 시간 안에 못 찍은 페이지는 그렇다고 돌려주고, 아무것도 남기지 않는다', async () => {

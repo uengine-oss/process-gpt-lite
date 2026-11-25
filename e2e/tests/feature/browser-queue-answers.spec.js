@@ -52,6 +52,7 @@ const lastTool = (b) => String([...b.messages].reverse().find((m) => m.role === 
 const pick = (b, text) => lastPage(b).els.find((e) => e.text === text)?.i
 const kindOf = (keys) => keys.includes('set_rule') ? 'room' : keys.includes('steer') && keys.includes('replace') ? 'active'
   : keys.includes('none') && keys.some((k) => /^(then|only|more)\d+$/.test(k)) ? 'resume' : keys.includes('none') && keys.some((k) => /^f\d+$/.test(k)) ? 'file'
+    : keys.includes('named') && keys.includes('not') ? 'upload'
     : keys.includes('login_needed') ? 'wall' : keys.includes('idle') ? 'busy' : 'other'
 const fakes = http.createServer(async (req, res) => {
   const b = await bodyOf(req)
@@ -60,7 +61,7 @@ const fakes = http.createServer(async (req, res) => {
     calls.judge.push({ kind, state: b.state, keys: b.options.map((o) => o.key) })
     const v = verdicts.find((x) => x.kind === kind && String(b.state).includes(x.said))
     if (v) verdicts.splice(verdicts.indexOf(v), 1)
-    const p = kind === 'wall' ? { ok: 1 } : kind === 'busy' ? { busy: 1 } : v?.p || (kind === 'room' ? { other: 1 } : ['resume', 'file'].includes(kind) ? { none: 1 } : kind === 'active' ? { other: 1 } : { new: 1 })
+    const p = kind === 'wall' ? { ok: 1 } : kind === 'busy' ? { busy: 1 } : v?.p || (kind === 'room' ? { other: 1 } : ['resume', 'file'].includes(kind) ? { none: 1 } : kind === 'active' ? { other: 1 } : kind === 'upload' ? { not: 1 } : { new: 1 })
     res.writeHead(200, { 'content-type': 'application/json' })
     return res.end(JSON.stringify({ probabilities: p, model: 'fake' }))
   }
@@ -342,6 +343,8 @@ test('F-BQ-06 「소스 0개」를 기다리는 동안 준 지시 → 「받은 
   await p.waitForTimeout(1500)
   const steer = '미디엄은 접근 권한 문제가 있으니, 내 계정으로 접근해서 인쇄시킨 후, pdf 등으로 만든후에 노트북엘엠에 넣어야 해.'
   verdicts.push({ kind: 'active', said: '미디엄은 접근 권한', p: { steer: 0.86, replace: 0.04, other: 0.1 } })
+  // (the PDF it prints is not a file the person attached: it goes to NotebookLM because their own words named both — judged)
+  verdicts.push({ kind: 'upload', said: '미디엄은 접근 권한', p: { named: 0.9, not: 0.1 } })
   const t0 = Date.now()
   await say(p, steer)
   await expect(p.locator('.row.r-agent.k-text').filter({ hasText: `'${goal}' 작업에 그대로 전했어요.` })).toBeVisible({ timeout: 20000 })
@@ -355,6 +358,8 @@ test('F-BQ-06 「소스 0개」를 기다리는 동안 준 지시 → 「받은 
   await expect(p.locator('.row.k-file').filter({ hasText: 'Agentic AI in practice.pdf' })).toBeVisible({ timeout: 20000 })
   const row = await taskRow(tid, goal)
   expect(row.content.files.map((f) => f.name)).toContain('Agentic AI in practice.pdf')
+  expect(calls.judge.filter((c) => c.kind === 'upload').at(-1).state).toContain('올릴 파일: Agentic AI in practice.pdf')
+  await expect(p.locator('.row.k-choice')).toHaveCount(0)
   await p.locator('.row.k-file').filter({ hasText: 'Agentic AI in practice.pdf' }).scrollIntoViewIfNeeded()
   await shot(p, 'bq06-pdf-uploaded-1280')
   expect(p.errors).toEqual([])
@@ -416,6 +421,7 @@ test('F-BQ-08 휴대폰: 이 방에서 AI 가 만든 PDF 카드 + 「이 PDF로 
       ['wait_for_page', { minutes: 0.2, until_text: '소스 1개' }], (b) => ['note', { text: lastPage(b).text.split('\n').find((l) => l.startsWith('소스')) }], ['finish', { summary: 'PDF 를 소스로 넣었어요.' }]] }
     routes['이 PDF로 NotebookLM 팟캐스트'] = { goal, start_url: `${site.url}/nb`, ack: '네, NotebookLM 브라우저를 열어 PDF를 소스로 넣고 팟캐스트를 만들게요.' }
     verdicts.push({ kind: 'file', said: goal, p: { f0: 0.93, none: 0.07 } })
+    verdicts.push({ kind: 'upload', said: '이 PDF로 NotebookLM 팟캐스트', p: { named: 0.92, not: 0.08 } })
     await say(p, '이 PDF로 NotebookLM 팟캐스트 만들어 줘')
     await waitTask(tid, 'NotebookLM 팟캐스트', (c) => c.state === 'done')
     const row = await taskRow(tid, 'NotebookLM 팟캐스트')

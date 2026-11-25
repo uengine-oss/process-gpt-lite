@@ -60,8 +60,8 @@ test('BQ-F-01 후보: 이 방의 파일 카드(AI 가 만든 것 · 채팅에 �
   // someone else asking about this room gets none of its cards, and no folder they are not a member of
   assert.deepEqual((await BF.fileCandidates(other, tid, { deps: { folders, link: { slug: 'team-docs' }, shares: [] } })).map((c) => c.name), [])
   // as a task's file: where its bytes are, never a page's address for a folder file or a share
-  assert.deepEqual(BF.asTaskFile(list[2]), { name: '표준 조사.pdf', size: 3000, from: 'folder', path: 'docs/표준 조사.pdf', folder: { slug: 'team-docs', path: 'docs/표준 조사.pdf' } })
-  assert.deepEqual(BF.asTaskFile(list[3]), { name: '동료가 준 표.xlsx', from: 'share', share: 's1' })
+  assert.deepEqual(BF.asTaskFile(list[2]), { name: '표준 조사.pdf', cid: 'folder:team-docs:docs/표준 조사.pdf', size: 3000, from: 'folder', path: 'docs/표준 조사.pdf', folder: { slug: 'team-docs', path: 'docs/표준 조사.pdf' } })
+  assert.deepEqual(BF.asTaskFile(list[3]), { name: '동료가 준 표.xlsx', cid: 'share:s1', from: 'share', share: 's1' })
 })
 
 test('BQ-F-02 고르기: 확실한 하나(0.6)는 그대로, 여럿이 그럴듯하면 카드에 올릴 것들, 없으면 없음 — 판정은 이름 · 형식 · 크기 · 어디서 온 것과 할 일을 읽는다', { skip: !up }, async () => {

@@ -35,7 +35,8 @@ export async function fileCandidates(user, threadId, { deps = {} } = {}) {
     const c = m.content || {}
     const name = String(c.name || path.posix.basename(String(c.path || c.url || ''))).trim()
     if (!name) continue
-    add({ id: `card:${m.id}`, name, size: Number(c.size) || 0, from: m.role === 'user' ? 'chat' : 'artifact', src: { card: m.id, path: c.path || '', url: c.url || '', key: c.key || '' } })
+    // (a private card — a mail's attachment, a page a task printed — by its private key: read from the private bucket, never an address)
+    add({ id: `card:${m.id}`, name, size: Number(c.size) || 0, from: m.role === 'user' ? 'chat' : 'artifact', src: { card: m.id, path: c.path || '', url: c.url || '', key: c.key || '', ...(c.private?.key ? { private: c.private.key } : {}) } })
   }
   // the folder the room works in (its main), as a member
   const folders = deps.folders || await import('./folders/service.js')
@@ -64,7 +65,9 @@ export function filePick(probabilities, list, { bar = FILE_BAR, maybe = FILE_MAY
   const pr = probabilities || {}
   const ranked = list.map((c, i) => [c, pr[`f${i}`] || 0]).sort((a, b) => b[1] - a[1])
   const [best, second] = ranked
-  if (best && best[1] >= bar && !(second && second[1] >= maybe)) return { pick: best[0], maybe: [] }
+  // sure: one at the bar, no other close, and "none of these" not close either (2026-11-25 review: one file and a weak "none" attached it)
+  const none = Number(pr.none) || 0
+  if (best && best[1] >= bar && !(second && second[1] >= maybe) && none < maybe) return { pick: best[0], maybe: [] }
   return { pick: null, maybe: ranked.filter(([, p]) => p >= maybe).map(([c]) => c) }
 }
 // → { pick, maybe, probabilities, via, ms } — nothing to choose from, or a judge that cannot answer: no file
@@ -72,7 +75,7 @@ export async function readFile(list, goal, { want = '' } = {}) {
   const t0 = Date.now()
   if (!list.length) return { pick: null, maybe: [], probabilities: {}, ms: 0 }
   try {
-    const r = await judge({ state: fileState(goal, { want }), question: FILE_QUESTION(), options: fileOptions(list) })
+    const r = await judge({ state: fileState(goal, { want }), question: FILE_QUESTION(), options: fileOptions(list), timeoutMs: 6000 })
     return { ...filePick(r?.probabilities, list), probabilities: r?.probabilities || {}, via: r?.via || '', ms: Date.now() - t0 }
   } catch (e) {
     return { pick: null, maybe: [], probabilities: {}, via: 'none', ms: Date.now() - t0, error: e.message }
@@ -81,7 +84,7 @@ export async function readFile(list, goal, { want = '' } = {}) {
 
 // A candidate as one of the task's files (what attach_file uses): where its bytes are, never a public address for a page
 export function asTaskFile(c) {
-  return { name: c.name, ...(c.size ? { size: c.size } : {}), from: c.from, ...(c.src?.path ? { path: c.src.path } : {}), ...(c.src?.key ? { key: c.src.key } : {}), ...(c.src?.url ? { url: c.src.url } : {}),
+  return { name: c.name, cid: c.id, ...(c.size ? { size: c.size } : {}), from: c.from, ...(c.src?.private ? { private: { key: c.src.private } } : {}), ...(c.src?.path ? { path: c.src.path } : {}), ...(c.src?.key ? { key: c.src.key } : {}), ...(c.src?.url ? { url: c.src.url } : {}),
     ...(c.src?.slug ? { folder: { slug: c.src.slug, path: c.src.path } } : {}), ...(c.src?.share ? { share: c.src.share } : {}) }
 }
 // The bytes of a folder file or a share, read as the person (the room's own cards go by their workspace path or storage key —
