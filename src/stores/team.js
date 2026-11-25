@@ -5,6 +5,7 @@ import { defineStore } from 'pinia'
 import { api, events } from '../api.js'
 import { useApp } from './app.js'
 import { openArtifact, viewMedia } from '../artifacts.js'
+import { openMailAttachment, carryOut } from '../mailAttach.js'
 import { maybeOther } from '../i18n/mainLangs.js'
 // where the messenger sits (float · right · left · panel), remembered per device: src/messengerDock.js
 import { load as loadDock, save as saveDock, reduce as reduceDock, effective as dockIn } from '../messengerDock.js'
@@ -269,6 +270,15 @@ export const useTeam = defineStore('team', {
       const r = await api('/team/refs/open', { method: 'POST', body: { messageId: m.id, index: i } })
       if (r.mine) { await useApp().openMailCard({ actionId: r.actionId }, 'chat'); if (this.dockNow === 'float') this.open = false }
       return r
+    },
+    // 「열기」 on a mail's attachment mentioned here (server lib/mailAttachments.js): my own — opened as from the mail sheet; one its owner
+    // shared with this room — read only (the editor, the viewer, or a 「내려받기」 address); else 403 with why → {how, opened, url?}
+    async openMailAttRef(m, i) {
+      const app = useApp()
+      const r = await api('/team/refs/open', { method: 'POST', body: { messageId: m.id, index: i } })
+      const res = r.mine ? await openMailAttachment(app, { actionId: r.actionId, i: r.i, name: r.name }) : await carryOut(app, r.plan)
+      if (res.opened && res.how === 'office' && this.dockNow === 'float') this.open = false
+      return res
     },
     // 「본문 공유」 · 「공유 그만두기」 (the owner): every member's card changes (the message comes back as each one sees it)
     async shareMailRef(m, i, on) {

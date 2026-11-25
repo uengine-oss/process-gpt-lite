@@ -79,14 +79,18 @@ test('할 일 고르기(가짜 판정 모델): 보기는 카탈로그(고정 · 
 test('시트의 줄: 고정(이 회사 알아보기 · 채팅에서 이어서)이 먼저, 고른 것은 맞을 때만, 저마다 할 일을 말한다(어디에 남는지까지)', () => {
   const catalog = F.followRules(SKILL).actions.map((x) => F.inLang(x, false))
   const row = F.rowOf(CARD, { catalog, picks: [{ key: 'meeting', p: 0.46 }, { key: 'flow', p: 0.3 }, { key: 'file', p: 0.2 }], atts: ['회사소개서.pdf'] })
-  assert.deepEqual(row.map((x) => x.key), ['research', 'chat', 'meeting', 'file'], '지도가 읽은 프로세스가 없으면 「프로세스 시작」은 빠진다')
+  // (a mail with attachments: 「이 첨부로 묻기」 is fixed too — lib/mailAttachments.js, spec mail-attachments)
+  assert.deepEqual(row.map((x) => x.key), ['research', 'chat', 'askatt', 'meeting', 'file'], '지도가 읽은 프로세스가 없으면 「프로세스 시작」은 빠진다')
   const research = row[0]
   assert.equal(research.label, '이 회사 알아보기')
   assert.match(research.says, /윤서진 · haneul-data\.example/)
   assert.match(research.says, /채팅의 새 대화에 남아요/)
   assert.match(research.says, /메일을 보내거나 일정을 만들지는 않아요/)
   assert.match(row[1].says, /채팅 입력창에 이 메일을 멘션으로/)
-  assert.match(row[3].says, /첨부 1개\(회사소개서\.pdf\)/)
+  assert.match(row[2].says, /채팅 입력창에 이 메일과 첨부 1개\(회사소개서\.pdf\)를 칩으로/)
+  assert.match(row[4].says, /첨부 1개\(회사소개서\.pdf\)/)
+  // no attachments: no 「이 첨부로 묻기」
+  assert.ok(!F.rowOf(CARD, { catalog, picks: [], atts: [] }).some((x) => x.key === 'askatt'))
   // a mail of an instance: the result stays in its conversation and work folder; a run kept on the card goes with its action
   const inst = { ...CARD, source: { ...CARD.source, inst: { instId: 'inst-1', name: '데이터 이전 협업 검토' }, follow: { runs: { research: { status: 'done', conv: null, inst: { instId: 'inst-1' } } } } } }
   const r2 = F.rowOf(inst, { catalog, picks: [] })

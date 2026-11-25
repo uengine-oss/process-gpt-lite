@@ -1,0 +1,24 @@
+# 서버 전체 묶음 — 2026-11-25 · feat/mail-attachment-open
+# cd server && PRO_DEEPAGENTS_URL=http://127.0.0.1:9 PRO_COMPLETION_URL=http://127.0.0.1:9 PRO_MCP_HUB_URL=http://127.0.0.1:9 PRO_CONTEXT_ROUTER_URL= PRO_MEMENTO_URL=http://127.0.0.1:9 PRO_LLM_BASE_URL=http://127.0.0.1:9/v1 PRO_ONTOLOGY_BOLT_URL= PRO_BACKGROUND=0 node --test --test-concurrency=1 test/*.test.js
+# (공용 deepagents · completion · 허브 · 실제 모델을 부르지 않도록 닫힌 포트로 — 그 탓에 실제 서비스를 기대하는 시험 몇은 이 환경에서 실패)
+ℹ tests 1369
+ℹ pass 1296
+ℹ fail 14
+ℹ cancelled 0
+ℹ skipped 59
+
+실패 14 — 같은 환경으로 origin/main 01cc32d 에서도 모두 같은 실패(이 변경과 무관):
+  test at test/agentTurn.integration.test.js:234:1
+  test at test/agentTurn.integration.test.js:276:1
+  test at test/agentTurn.integration.test.js:309:1
+  test at test/agentTurn.integration.test.js:336:1
+  test at test/browser-replaces-turn.test.js:157:1
+  test at test/browser-replaces-turn.test.js:209:1
+  test at test/browser-replaces-turn.test.js:249:1
+  test at test/browser-replaces-turn.test.js:284:1
+  test at test/browser-replaces-turn.test.js:307:1
+  test at test/browser-replaces-turn.test.js:366:1
+  test at test/browser-replaces-turn.test.js:376:1
+  test at test/process-run-fixes.test.js:81:1
+  test at test/review.test.js:1:1
+  test at test/scheduleTenant.integration.test.js:1:1

@@ -34,6 +34,8 @@ const props = defineProps({
   maximized: { type: Boolean, default: false },
   assistant: { type: Boolean, default: false },
   autoSave: { type: Boolean, default: false },
+  // a save said by the page that opened it instead (a mail's attachment: where its edited copy went — OfficeSheet), not 「편집본이 원본 옆에」
+  quietSave: { type: Boolean, default: false },
 })
 const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention', 'edited', 'selection'])
 
@@ -364,7 +366,7 @@ function onMessage(event) {
   else if (m.type === 'saved') {
     if (m.url) savedUrls.add(m.url)
     if (m.name) link?.rename(m.name)
-    if (!props.autoSave) show('success', m.url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.')
+    if (!props.autoSave && !props.quietSave) show('success', m.url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.')
     // saved by the editor's own 저장 too: everything up to now is in
     if (settle) settle({ saved: true, url: m.url || '' })
     else if (edited.value) { edited.value = false; emit('edited', false) }

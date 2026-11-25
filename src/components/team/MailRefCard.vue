@@ -11,6 +11,9 @@ import { computed, ref } from 'vue'
 import Icon from '../Icon.vue'
 import { useTeam } from '../../stores/team.js'
 import { startDrag, mailItem } from '../../fileDrag.js'
+import { useApp } from '../../stores/app.js'
+// the owner's attachments open from here too, as from their mail sheet (src/mailAttach.js); the others see the names only
+import { openMailAttachment, attItem } from '../../mailAttach.js'
 
 const props = defineProps({ m: Object, r: Object, i: Number })
 const team = useTeam()
@@ -34,6 +37,15 @@ const open = () => act('open', async () => {
 const request = () => act('req', () => team.requestRef(props.m, props.i))
 const share = (on) => act('share', () => team.shareMailRef(props.m, props.i, on))
 const drag = (e) => { if (st.value === 'mine') startDrag(e, [mailItem({ actionId: props.r.actionId, subject: props.r.subject, from: props.r.from })]); else e.preventDefault() }
+const app = useApp()
+const dl = ref('')
+const openAtt = (name, i) => act(`att${i}`, async () => {
+  dl.value = ''
+  const x = await openMailAttachment(app, { actionId: props.r.actionId, i, name })
+  if (x.how === 'download' && x.url) dl.value = x.url
+  else if (x.opened && x.how === 'office' && team.dockNow === 'float') team.open = false
+})
+const dragAtt = (e, name, i) => { e.stopPropagation(); startDrag(e, [attItem({ actionId: props.r.actionId, subject: props.r.subject }, { name }, i)]) }
 </script>
 
 <template>
@@ -46,7 +58,12 @@ const drag = (e) => { if (st.value === 'mine') startDrag(e, [mailItem({ actionId
       </span>
       <span class="tag">메일</span>
     </div>
-    <p v-if="atts.length" class="line atts" data-test="mail-ref-atts"><Icon name="clip" :size="12" /><span>{{ atts.join(', ') }}</span></p>
+    <!-- the owner: each attachment opens; everyone else: the names -->
+    <p v-if="atts.length && st === 'mine'" class="line atts mine" data-test="mail-ref-atts"><Icon name="clip" :size="12" />
+      <button v-for="(a, k) in atts" :key="k + a" class="att press" draggable="true" data-test="mail-ref-att" :data-file="a" :disabled="busy === `att${k}`" @click="openAtt(a, k)" @dragstart="dragAtt($event, a, k)">{{ a }}</button>
+    </p>
+    <p v-else-if="atts.length" class="line atts" data-test="mail-ref-atts"><Icon name="clip" :size="12" /><span>{{ atts.join(', ') }}</span></p>
+    <p v-if="dl" class="line" data-test="mail-ref-att-download"><span>앱 안에서 열지 않는 형식이에요</span><a class="act ghost" :href="dl" download>내려받기</a></p>
 
     <!-- the owner -->
     <div v-if="st === 'mine'" class="line acts">
@@ -92,6 +109,9 @@ const drag = (e) => { if (st.value === 'mine') startDrag(e, [mailItem({ actionId
 .line > :deep(svg) { flex: none; }
 .lock span, .wait span { flex: 1 1 180px; }
 .atts span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atts.mine { flex-wrap: wrap; }
+.atts .att { max-width: 100%; height: 24px; padding: 0 9px; border-radius: 12px; font-size: 12px; color: var(--text-primary); background: var(--field-bg); border: 1px solid var(--hairline);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acts .who { flex: 1; }
 .lock { color: var(--text-secondary); }
 .wait { color: #7a5af5; }

@@ -21,6 +21,7 @@ import { L, langOf, withLang } from '../lang.js'
 import { decorate, publicRef } from '../fileRefs.js'
 // a mail mention keeps its summary only — the body is the owner's until they share it (lib/mailMention.js)
 import { publicMailRef } from '../mailMention.js'
+import { publicAttRef } from '../mailAttachments.js'
 import { josa } from '../josa.js'
 
 const T = () => config.tenantId
@@ -111,7 +112,8 @@ export function view(viewerId, row, byEmail = {}) {
     mine: !agent && senderId === viewerId, byMe: agent && g.by === viewerId,
     artifacts: viewArtifacts(viewerId, agent ? g.by : senderId, g.artifacts), context: g.context || null,
     // file mentions (links to shared folders' files): their state for this viewer comes with decorate()
-    ...(Array.isArray(g.refs) && g.refs.length ? { refs: g.refs.map((r) => (r?.type === 'mail' ? publicMailRef(r) : { ...publicRef(r), folderId: r.folderId })) } : {}),
+    // (a mail · a mail's attachment: what every viewer gets — never a body, a key or an address)
+    ...(Array.isArray(g.refs) && g.refs.length ? { refs: g.refs.map((r) => (r?.type === 'mail' ? publicMailRef(r) : r?.type === 'mailatt' ? publicAttRef(r) : { ...publicRef(r), folderId: r.folderId })) } : {}),
     // a message addressed to the AI (「@AI …」) and the AI's own answer to it
     ...(g.ai && !agent ? { toAi: true } : {}),
   }
@@ -187,7 +189,9 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
   await pushRow(row, members)
-  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id))
+  // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees)
+  const attachment = !!refs?.length && refs.every((r) => r.type === 'mailatt')
+  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id), { attachment })
   return viewFor(me, row, by)
 }
 
@@ -202,11 +206,13 @@ export async function postAgent(roomId, { content, pgpt, uuid = crypto.randomUUI
   return row
 }
 
-async function notifyMembers(me, t, row, kind, files, context, recipients) {
+async function notifyMembers(me, t, row, kind, files, context, recipients, { attachment = false } = {}) {
   const ctx = context?.title ? ` · ${context.title.slice(0, 30)}${context.title.length > 30 ? '…' : ''}` : ''
   // each notice in its recipient's saved language (lib/lang.js)
   const words = (en) => ({
-    title: kind === 'mailref'
+    title: kind === 'mailref' && attachment
+      ? (en ? `${me.name} mentioned the mail attachment "${files[0] || ''}"${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 메일 첨부 「${files[0] || ''}」${files.length > 1 ? ` 외 ${files.length - 1}개${josa('개', '을', '를')}` : josa(`${files[0] || ''}」`, '을', '를')} 멘션했어요`)
+      : kind === 'mailref'
       ? (en ? `${me.name} mentioned the mail "${files[0] || ''}"${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 메일 「${files[0] || ''}」${files.length > 1 ? ` 외 ${files.length - 1}통${josa('통', '을', '를')}` : josa(`${files[0] || ''}」`, '을', '를')} 멘션했어요`)
       : kind === 'fileref'
       ? (en ? `${me.name} linked ${files[0] || 'a file'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '파일'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 링크로 멘션했어요`)

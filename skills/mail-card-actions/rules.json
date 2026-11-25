@@ -152,6 +152,18 @@
         "goEn": "Open chat",
         "says": "채팅 입력창에 이 메일을 멘션으로 붙여요. 할 일을 적어 보내면 에이전트가 메일을 읽고 해요. 예: 「이 제안 검토해서 장단점 정리해 줘」 · 「견적서 초안 만들어」",
         "saysEn": "Puts this mail in the chat composer as a mention. Write what to do and send it — the agent reads the mail and does it. E.g. \"Review this proposal and list the pros and cons\"."
+      },
+      {
+        "key": "askatt",
+        "do": "askatt",
+        "fixed": true,
+        "icon": "clip",
+        "label": "이 첨부로 묻기",
+        "labelEn": "Ask about the attachment",
+        "go": "채팅 열기",
+        "goEn": "Open chat",
+        "says": "채팅 입력창에 이 메일과 첨부 {count}개({names})를 칩으로 붙여요. 묻거나 시킬 일을 적어 보내면 에이전트가 첨부 파일을 비공개 사본으로 읽고 답해요. 예: 「이 급여대장 총액 맞는지 봐줘」",
+        "saysEn": "Puts this mail and its {count} attachments ({names}) in the chat composer as chips. Write what to ask or do and send it — the agent reads the files from their private copies and answers. E.g. \"Check that the total on this payroll adds up\"."
       }
     ]
   }

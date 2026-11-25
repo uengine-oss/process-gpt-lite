@@ -14,8 +14,9 @@ import { mailItem } from '../fileDrag.js'
 import { narrow } from '../viewport.js'
 import { runLine, openRun } from '../mailFollow.js'
 
-const props = defineProps({ action: Object })
-const emit = defineEmits(['close', 'flow', 'files'])
+// atts: the mail's attachments as the sheet has them ({name, size, type}) — 「이 첨부로 묻기」 puts them in the chat (src/mailAttach.js)
+const props = defineProps({ action: Object, atts: { type: Array, default: () => [] } })
+const emit = defineEmits(['close', 'flow', 'files', 'ask'])
 const app = useApp()
 const team = useTeam()
 const router = useRouter()
@@ -57,6 +58,12 @@ async function go(x, { again = false } = {}) {
     team.pendingMention = [item]
     team.tab = 'threads'
     team.open = true
+  } else if (x.do === 'askatt') {
+    // the AI chat with the mail and its attachments as chips (the sheet carries it out: it knows the files and their numbers); the names the
+    // card kept stand in when the mail itself could not be read this time
+    const list = props.atts.length ? props.atts : (props.action?.source?.follow?.atts || []).map((name) => ({ name }))
+    picked.value = ''
+    emit('ask', list.slice(0, 8).map((a, i) => ({ a, i })))
   } else if (x.do === 'flow') emit('flow', { proc: x.proc, task: x.task })
   else if (x.do === 'file') { picked.value = ''; emit('files') }
 }

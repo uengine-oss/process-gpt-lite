@@ -13,6 +13,8 @@ import { marketHint, stripInventedCodes } from './marketHint.js'
 import { summarizeSkill, listFolder } from './skills.js'
 import { generatedContract } from './generated.js'
 import fs from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { standInPath } from './craftWork.js'
 import { generatePanel } from './panels.js'
 import * as PanelApps from './panelApps/service.js'
 import { valuesFromText } from './panelApps/sheet.js'
@@ -293,6 +295,50 @@ export async function replaceEarlier({ user, session, threadId, room, text, why 
   return list
 }
 
+// ---------- what must never become a file card (review 11-25 #1) ----------
+// /workspace/uploads/<person>/…: what a person attached or was handed (chat attachments, a mail's attachments) — never a turn's output
+export const uploadsPath = (p) => /^\/workspace\/uploads\//.test(String(p || ''))
+// the turn's handed-over files → {paths: Set, hashes: Set}
+export function privatePaths(list) {
+  const out = { paths: new Set(), hashes: new Set() }
+  for (const x of Array.isArray(list) ? list : []) {
+    if (x?.path) out.paths.add(String(x.path))
+    if (/^[0-9a-f]{64}$/.test(String(x?.sha256 || ''))) out.hashes.add(String(x.sha256))
+  }
+  return out
+}
+// a path for the log: an upload's (or a handed-over file's) own name is not written there
+export const logPath = (p, handed) => (!p ? '' : uploadsPath(p) || handed?.paths?.has(p) ? '/workspace/uploads/…' : p)
+export const logName = (n, handed) => (handed?.hashes?.size ? '(a document)' : n)
+const sha256Of = (buf) => createHash('sha256').update(buf).digest('hex')
+// the bytes of a candidate card (its sandbox file here, else the copy deepagents stored, else its address) — only to compare with what was
+// handed over; a file too large to be one of those is not read
+async function candidateBytes(f, userId) {
+  const MAX = 80 * 1024 * 1024
+  if (f.path) {
+    const host = await workspaceHostPath(f.path).catch(() => null) || await standInPath(f.path, { userId }).catch(() => null)
+    if (host) {
+      const st = await fs.stat(host).catch(() => null)
+      if (st?.isFile()) return st.size <= MAX ? fs.readFile(host) : null
+    }
+  }
+  for (const u of [f.src, f.url]) {
+    if (!u || !/^https?:\/\//.test(String(u))) continue
+    const r = await fetch(u, { signal: AbortSignal.timeout(60_000) }).catch(() => null)
+    if (!r?.ok) continue
+    if (Number(r.headers.get('content-length')) > MAX) { await r.body?.cancel().catch(() => {}); return null }
+    return Buffer.from(await r.arrayBuffer())
+  }
+  return null
+}
+// why a candidate must not become a card, or null
+export async function privateCandidate(f, handed, userId, { bytes = candidateBytes } = {}) {
+  if (uploadsPath(f.path) || (f.path && handed?.paths?.has(f.path))) return 'an upload'
+  if (!handed?.hashes?.size) return null
+  const buf = await bytes(f, userId).catch(() => null)
+  return buf && handed.hashes.has(sha256Of(buf)) ? 'a mail attachment handed over this turn' : null
+}
+
 const hostOf = (u) => { try { return new URL(u).host } catch { return '' } }
 const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
 
@@ -310,6 +356,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (Array.isArray(refs) && refs.length) {
     pointed = await import('./fileRefs.js').then((m) => m.turnRefs(user, refs)).catch((e) => { console.warn('[file-refs] turn', e.message); return { context: '', shown: [] } })
     if (pointed?.context) context = [context, pointed.context].filter(Boolean).join('\n\n')
+    // a mail's attachment handed to the agent (lib/mailAttachments.js agentFile): the turn's end never makes a card — a public copy — of it
+    const st = turnCtx.getStore()
+    if (st && pointed?.handed?.length) st.mailAtts = { threadId, handed: pointed.handed }
   }
   // (only a mail pointed at — lib/mailMention.js: the words say so)
   const onlyMail = !files.length && pointed?.shown?.length && pointed.shown.every((x) => x.as === 'mail' || x.error)
@@ -996,7 +1045,9 @@ export async function stopTurns({ user, session, threadId, conversation }) {
 // background: a turn started by a button, not by what the person typed in this chat (a mail's follow-up action) — the chat stays in the
 // conversation the person is in, and the turn does not take what is open on the screen (the document, its editing tools) nor other
 // conversations' context (PR #49 review)
-export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag, pin: given = null, background = false }) {
+// privateFiles: what this turn handed the agent that must never come back as a file card (a mail's attachment — [{path, sha256}]); by
+// default what runTurn put on the turn (handleTurn)
+export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag, pin: given = null, background = false, privateFiles = null }) {
   let thread = await getThread(user.id, threadId)
   // a main chat left standing in a shared folder's run room (as folder turns used to leave it) does
   // not answer the next message there
@@ -1013,6 +1064,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (pin && !pin.folder && thread?.kind === 'project' && !(await PT.isTopic(user.id, thread, pin.conversationId).catch(() => false))) pin = null
   const store = turnCtx.getStore()
   const adopted = store?.turn && !store.adopted && store.turn.threadId === threadId
+  const handedOver = privatePaths(privateFiles || (store?.mailAtts?.threadId === threadId ? store.mailAtts.handed : []))
   // what the person said (the text may carry hints after it): what a project's message is classified on, and its sub-topic's summary
   const asked = String((adopted && store?.said) || text || '')
   // In the main chat, several things run side by side (hark): the context-router decides which
@@ -1367,8 +1419,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     // when the turn also saw that folder's checkout, where the same name is not this turn's output
     if (t.doc.open && /(^|[^a-z])folder_open$/.test(t.tool)) { if (!files.some((f) => f.url === t.doc.url)) files.push(t.doc); continue }
     const { keep, src } = await keepToolDoc({ name: t.raw, tool: t.tool, input: t.input }, seen, ctx)
-    if (!keep) { console.log(`[delegate] not attached (not this turn's output): ${src || t.doc.name}`); continue }
-    if ((src && evalRun(src)) || workspacePaths(t.input).some(evalRun)) { console.log(`[delegate] not attached (a skill's test run): ${src || t.doc.name}`); continue }
+    if (!keep) { console.log(`[delegate] not attached (not this turn's output): ${logPath(src, handedOver) || logName(t.doc.name, handedOver)}`); continue }
+    if ((src && evalRun(src)) || workspacePaths(t.input).some(evalRun)) { console.log(`[delegate] not attached (a skill's test run): ${logPath(src, handedOver) || logName(t.doc.name, handedOver)}`); continue }
     if (files.some((f) => f.url === t.doc.url)) continue
     // a republished copy keeps the name of the file it came from
     files.push(src ? { ...t.doc, name: src.split('/').pop(), path: src } : t.doc)
@@ -1389,7 +1441,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (!f.collected) continue
     delete f.collected
     const why = written.has(f.path) ? null : await notOutput(f.path)
-    if (why) { console.log(`[delegate] not attached (${why}): ${f.path}`); files.splice(files.indexOf(f), 1) }
+    if (why) { console.log(`[delegate] not attached (${why}): ${logPath(f.path, handedOver)}`); files.splice(files.indexOf(f), 1) }
   }
   if (!body && !files.length && !workDir) body = emptyText()
   // conv: 이 턴이 실제로 간 맥락(라우터가 「그대로」라고 한 턴은 context 에 맥락 id 가 없다) — 맥락의 턴을 찾는 표지(lib/context/items.js)
@@ -1410,9 +1462,17 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     // office-mcp already published this one (store_and_render): one card per document
     const name = p.split('/').pop()
     if (files.some((f) => f.path === p || (f.url && f.name === name))) continue
+    // (what the person attached or was handed — /workspace/uploads/ — is never this turn's output)
+    if (uploadsPath(p)) { console.log(`[delegate] not attached (an upload): ${logPath(p, handedOver)}`); continue }
     const why = await notOutput(p)
-    if (why) { console.log(`[delegate] not attached (${why}): ${p}`); continue }
+    if (why) { console.log(`[delegate] not attached (${why}): ${logPath(p, handedOver)}`); continue }
     files.push({ name, path: p })
+  }
+  // never a card — a public copy — of an upload or of a mail's attachment handed over this turn, however the agent saved or named it
+  // (its own folder, a new name, a copy deepagents stored): by its place, and by its content (review 11-25 #1)
+  for (const f of [...files]) {
+    const why = await privateCandidate(f, handedOver, user.id)
+    if (why) { console.log(`[delegate] not attached (${why})`); files.splice(files.indexOf(f), 1) }
   }
   // the script that built a document is scaffolding; the document is what the user asked for (and
   // a turn that was stopped leaves no half-run scripts behind as results)

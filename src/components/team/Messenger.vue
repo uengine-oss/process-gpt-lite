@@ -36,6 +36,8 @@ import { verbLabel } from '../../mailKind.js'
 import FileRefCard from './FileRefCard.vue'
 // a mail mentioned (server lib/mailMention.js): a summary for everyone but its owner, the body only when the owner shares it
 import MailRefCard from './MailRefCard.vue'
+// an attachment of a mail mentioned in the room (server lib/mailAttachments.js)
+import MailAttRefCard from './MailAttRefCard.vue'
 import { dragKind, dragging as draggedItems, itemsOf, zoneWords, startDrag, shareItem, same, MAX as MAX_ITEMS } from '../../fileDrag.js'
 // "@" near the caret, as in the chat composer (useTeammateMention.js)
 import { caretXY } from './useTeammateMention.js'
@@ -189,7 +191,8 @@ async function send() {
     const ai = aiOn.value
     const named = mentioned.value.filter((p) => text.includes(`@${p.name}`)).map((p) => p.id)
     await team.send(team.active, ai ? `@AI ${text}`.trim() : text, [...attach.value.map((m) => m.id), ...ups.value.map((u) => u.card.id)],
-      { refs: refs.value.map((r) => (r.mail ? { type: 'mail', actionId: r.mail.actionId, body: !!r.body } : r.ref)), ai, mentions: named })
+      { refs: refs.value.map((r) => (r.mail ? { type: 'mail', actionId: r.mail.actionId, body: !!r.body }
+        : r.att ? { type: 'mailatt', actionId: r.att.actionId, i: r.att.i, name: r.att.name, share: !!r.share } : r.ref)), ai, mentions: named })
     draft.value = ''; attach.value = []; ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = []
   })
 }
@@ -212,6 +215,8 @@ async function addItems(items) {
     if (!r?.ok) { t.wait = false; t.error = r?.error || '보낼 수 없는 파일이에요'; return }
     // a mail of mine: a mention — its summary for the others, the body only when 「본문도 공유」 is on (off unless I turn it on)
     if (r.as === 'mail') { Object.assign(t, { wait: false, name: r.name, mail: r.mail, from: r.mail?.from || '', body: false }); return }
+    // an attachment of my mail (server lib/mailAttachments.js): its name and the mail's summary — the file only when 「파일도 공유」 is on
+    if (r.as === 'mailatt') { Object.assign(t, { wait: false, name: r.name, att: r.att, share: false }); return }
     if (r.as === 'share') {
       refs.value = refs.value.filter((x) => x.key !== t.key)
       if (!attach.value.some((m) => m.id === r.cardId)) attach.value = [...attach.value, { id: r.cardId, content: { name: r.name }, dropped: true }]
@@ -429,6 +434,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             </template>
             <template v-for="(r, i) in m.refs || []" :key="'r' + i + (r.path || r.actionId)">
               <MailRefCard v-if="r.type === 'mail'" :m="m" :r="r" :i="i" />
+              <MailAttRefCard v-else-if="r.type === 'mailatt'" :m="m" :r="r" :i="i" />
               <FileRefCard v-else :m="m" :r="r" :i="i" />
             </template>
             <div class="acts">
@@ -500,6 +506,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <!-- file mentions: links to shared folders' files, in my own state (server lib/fileRefs.js) -->
                 <template v-for="(r, i) in m.refs || []" :key="'r' + i + (r.path || r.actionId)">
                   <MailRefCard v-if="r.type === 'mail'" :m="m" :r="r" :i="i" />
+                  <MailAttRefCard v-else-if="r.type === 'mailatt'" :m="m" :r="r" :i="i" />
                   <FileRefCard v-else :m="m" :r="r" :i="i" />
                 </template>
                 <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
@@ -539,6 +546,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                   <label class="sharebody" data-test="msg-mail-body" :title="r.body ? '이 대화방 사람들이 메일 본문을 볼 수 있어요' : '다른 사람에게는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보여요'">
                     <input v-model="r.body" type="checkbox" /> 본문도 공유</label>
                   <em class="as env">메일</em>
+                  <button aria-label="빼기" @click="dropRef(r)">×</button>
+                </span>
+                <!-- an attachment of my mail: its name for the room — 「파일도 공유」 (off) lets this room open the file -->
+                <span v-else-if="r.att" class="chip ref mailchip" data-test="msg-ref-chip" data-kind="mailatt" :data-file="r.name" data-state="ready" :title="`메일 첨부 · ${r.att.subject || ''}`">
+                  <span class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><span class="cn">{{ r.name }}</span><small>{{ r.att.subject }}</small>
+                  <label class="sharebody" data-test="msg-att-share" :title="r.share ? '이 대화방 사람들이 이 파일을 열 수 있어요' : '다른 사람에게는 파일 이름과 메일 요약만 보여요'">
+                    <input v-model="r.share" type="checkbox" /> 파일도 공유</label>
+                  <em class="as env">메일 첨부</em>
                   <button aria-label="빼기" @click="dropRef(r)">×</button>
                 </span>
                 <span v-else class="chip ref" :class="{ error: !!r.error, wait: r.wait }" data-test="msg-ref-chip" :data-file="r.name" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'" :title="r.error || (r.ref ? `${r.folder} › ${r.ref.path}` : '')">

@@ -211,12 +211,14 @@ defineExpose({ focus: () => ta.value?.focus() })
     </div>
     <!-- files dragged in: what the next message is about (refused ones say why) -->
     <div v-if="!overlay && app.fileRefs.length" class="frefs">
-      <span v-for="r in app.fileRefs" :key="r.key" class="fref glass-thin" :class="{ error: !!r.error, wait: r.wait, mail: r.as === 'mail' }" data-test="chat-ref-chip" :data-file="r.name"
-        :data-kind="r.as === 'mail' ? 'mail' : 'file'" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'" :title="r.error || (r.as === 'mail' ? `${r.from} · ${r.name}` : '')">
+      <span v-for="r in app.fileRefs" :key="r.key" class="fref glass-thin" :class="{ error: !!r.error, wait: r.wait, mail: r.as === 'mail', matt: r.as === 'mailatt' }" data-test="chat-ref-chip" :data-file="r.name"
+        :data-kind="r.as === 'mail' ? 'mail' : r.as === 'mailatt' ? 'mailatt' : 'file'" :data-state="r.error ? 'error' : r.wait ? 'wait' : 'ready'"
+        :title="r.error || (r.as === 'mail' ? `${r.from} · ${r.name}` : r.as === 'mailatt' ? `메일 첨부 · ${r.subject || ''}` : '')">
         <!-- a mail (server lib/mailMention.js): the envelope, its subject and who sent it -->
         <span v-if="r.as === 'mail'" class="fx mail"><Icon name="mail" :size="14" /></span>
         <span v-else class="fx" :class="kindOf(r.name)">{{ kindLabel[kindOf(r.name)] || 'FILE' }}</span><b>{{ r.name }}</b>
-        <small>{{ r.error || (r.wait ? '확인하는 중…' : r.as === 'mail' ? r.from || '메일' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일') }}</small>
+        <!-- a mail's attachment (server lib/mailAttachments.js): the agent reads it from its private copy -->
+        <small>{{ r.error || (r.wait ? '확인하는 중…' : r.as === 'mail' ? r.from || '메일' : r.as === 'mailatt' ? '메일 첨부' : r.folder ? `${r.folder}${r.variation ? ' · 반영 전 변형' : ''}` : '내 파일') }}</small>
         <button class="x" aria-label="빼기" @click="app.removeFileRef(r.key)">×</button>
       </span>
     </div>
@@ -305,6 +307,8 @@ textarea::placeholder { color: var(--text-secondary); transition: opacity .3s; }
 .fref small { color: var(--text-secondary); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fref.wait { opacity: .7; }
 .fref .fx.mail { background: #7a5af5; }
+/* a mail's attachment: the mail's colour on its edge */
+.fref.matt { box-shadow: inset 0 0 0 1px rgba(122, 90, 245, .45); }
 .fref.error { border-color: rgba(198, 40, 40, .5); } .fref.error small { color: #c62828; max-width: 260px; }
 .fref .x { width: 22px; height: 22px; border-radius: 11px; color: var(--text-secondary); font-size: 16px; line-height: 20px; }
 /* a file of the app is being dragged: the composer offers itself, and lights up under the pointer */

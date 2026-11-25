@@ -22,6 +22,7 @@ import { uploadCard } from '../lib/team/uploads.js'
 // file mentions (links to shared folders' files) and 「@AI …」 (lib/fileRefs.js · lib/team/aiHelp.js)
 import * as FR from '../lib/fileRefs.js'
 import * as MM from '../lib/mailMention.js'
+import * as MA from '../lib/mailAttachments.js'
 import * as AI from '../lib/team/aiHelp.js'
 
 // does the deepagents this server talks to unfold a room's branch and commit its turns? (/health worktree)
@@ -212,7 +213,7 @@ export function teamRoutes(auth) {
     rateLimit(req.user.id)
     const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 8) : []
     // (a mail mention — lib/mailMention.js — is 'mailref' when it is all the message carries)
-    const kind = files.length ? 'share' : refs.length ? (refs.every((x) => x.type === 'mail') ? 'mailref' : 'fileref') : 'text'
+    const kind = files.length ? 'share' : refs.length ? (refs.every((x) => x.type === 'mail' || x.type === 'mailatt') ? 'mailref' : 'fileref') : 'text'
     const m = await M.post(req.user, req.params.id, { kind, body, refs, ai, mentions,
       attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
     if (ai) AI.answer(req.user, req.params.id, m).catch((e) => console.warn('[ai-help]', e.message))
@@ -228,10 +229,16 @@ export function teamRoutes(auth) {
   r.post('/team/refs/share', auth, h(async (req) => {
     const messageId = String(req.body.messageId || ''), index = Number(req.body.index) || 0
     const [row] = /^[\w.:-]{1,120}$/.test(messageId) ? await q('select uuid, id, messages from chats where uuid=$1 and tenant_id=$2', [messageId, config.tenantId]) : []
-    if (!row || !(await M.memberThread(req.user, row.id))) throw new TeamError(404, L('메시지를 찾지 못했어요.', "I couldn't find that message."))
-    const updated = await MM.share(req.user, row, index, req.body.on !== false).catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('바꾸지 못했어요.', "I couldn't change it.")) })
+    const ref = (row?.messages?.pgpt?.refs || [])[index]
+    const member = !!row && !!(await M.memberThread(req.user, row.id))
+    // the mail's owner may always stop sharing it with a room — also one they have left (the room keeps the share otherwise, and whoever
+    // joins it later gets it — review 11-25 #5); sharing anew needs the room
+    const ownerOff = !!row && req.body.on === false && ['mail', 'mailatt'].includes(ref?.type) && String(ref.owner) === String(req.user.id)
+    if (!row || (!member && !ownerOff)) throw new TeamError(404, L('메시지를 찾지 못했어요.', "I couldn't find that message."))
+    // (an attachment of a mail — lib/mailAttachments.js — is shared the same way, that file only)
+    const updated = await (ref?.type === 'mailatt' ? MA.share : MM.share)(req.user, row, index, req.body.on !== false).catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('바꾸지 못했어요.', "I couldn't change it.")) })
     await M.deliver(updated.uuid)
-    return M.message(req.user, updated.uuid)
+    return member ? M.message(req.user, updated.uuid) : { id: updated.uuid, refs: [], left: true }
   }))
   assistRoutes(r, auth, h)
   r.post('/team/threads/:id/read', auth, h((req) => M.markRead(req.user, req.params.id)))

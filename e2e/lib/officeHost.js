@@ -33,10 +33,13 @@ export async function startOfficeHost({ from = 5395, env: extra = {} } = {}) {
   if (!port) throw new Error(`no free port from ${from}`)
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-office-host-'))
   const logs = []
+  // the spreadsheet editor's native engine: where the checkout built it (its build script's own target folder, or the toolchain's) — without
+  // it a sheet opens empty with 「xlsx-sidecar ENOENT」
+  const sidecar = [process.env.XLSX_SIDECAR_PATH, path.join(dir, 'native/xlsx-engine/target/release/xlsx-sidecar'), path.join(dir, '.toolchain/xlsx-target/release/xlsx-sidecar')].find((f) => f && fs.existsSync(f))
   const child = spawn(process.execPath, ['host/dist/office-host.mjs'], {
     cwd: dir,
     env: { ...process.env, ...supabaseEnv(), IEUM_HOST_PORT: String(port), IEUM_HOST_DATA: data, IEUM_LANG: 'ko', IEUM_PUBLIC_URL: `http://127.0.0.1:${port}`,
-      CUSTOM_LLM_BASE_URL: '', LLM_PROXY_URL: '', CUSTOM_LLM_API_KEY: '', LLM_PROXY_API_KEY: '', ...extra },
+      CUSTOM_LLM_BASE_URL: '', LLM_PROXY_URL: '', CUSTOM_LLM_API_KEY: '', LLM_PROXY_API_KEY: '', ...(sidecar ? { XLSX_SIDECAR_PATH: sidecar } : {}), ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   for (const s of [child.stdout, child.stderr]) s.on('data', (d) => logs.push(String(d)))

@@ -2875,7 +2875,36 @@
   "사진이 너무 커요. 다른 사진을 골라 주세요.": "The photo is too large. Please choose another one.",
   "사진을 올리지 못했어요.": "I couldn't upload the photo.",
   "Google 사진으로": "Back to Google photo",
-  "Google 계정의 사진이에요": "Your Google account's photo"
+  "Google 계정의 사진이에요": "Your Google account's photo",
+  "이 첨부로 할 일": "What to do with this attachment",
+  "이 첨부로 묻기": "Ask about the attachment",
+  "앱 안에서 열지 않는 형식이에요": "This kind of file isn't opened in the app",
+  "이 파일을 내려받아요": "Download this file",
+  "편집본 · 내 채팅의 파일 · 나만 볼 수 있어요": "Edited copy · a file in your chat · only you can see it",
+  "첨부를 열지 못했어요": "Couldn't open the attachment",
+  "편집본을 내 채팅에 파일로 저장했어요 · 나만 볼 수 있어요": "Saved the edited copy as a file in your chat · only you can see it",
+  "편집본을 내 채팅의 파일에 저장했어요 · 나만 볼 수 있어요": "Saved the edited copy to the file in your chat · only you can see it",
+  "메일 첨부": "Mail attachment",
+  "편집본 · 나만 볼 수 있어요": "Edited copy · only you can see it",
+  "나만 볼 수 있어요": "Only you can see it",
+  "AI에게 이 첨부로 묻기": "Ask the AI about this attachment",
+  "메일 첨부는 메일 시트에서 정리해요": "A mail's attachment is filed from the mail sheet",
+  "여기에 놓으면 첨부를 멘션해요 · 동료에게는 이름만 보여요": "Drop here to mention the attachment · colleagues see its name only",
+  "파일도 공유": "Share the file too",
+  "이 대화방 사람들이 이 파일을 열 수 있어요": "People in this room can open this file",
+  "다른 사람에게는 파일 이름과 메일 요약만 보여요": "Others see the file's name and the mail's summary only",
+  "이 대화방이 이 파일을 열 수 있어요": "This room can open this file",
+  "다른 사람에게는 이름만 보여요": "Others see its name only",
+  "파일 공유": "Share the file",
+  "이 파일을 공유받았어요 · 읽기 전용": "This file was shared with you · read only",
+  "열기 요청": "Ask to open",
+  "열기를 요청했어요 · 공유되면 열 수 있어요": "You asked to open it · you can once it's shared",
+  "이 첨부는 이제 볼 수 없어요": "This attachment can't be seen any more",
+  "이름만 보여요 · 파일은 메일 주인이 공유해야 열 수 있어요": "Name only · the mail's owner has to share the file for you to open it",
+  "메일 「(제목 없음)」": "Mail \"(no subject)\"",
+  "끄는 중…": "Turning off…",
+  "대화방": "Room",
+  "공유 중 · 대화방": "Shared · room"
  },
  "patterns": [
   [
@@ -6585,6 +6614,34 @@
   [
    "기본 사진 {0}",
    "Preset {0}"
+  ],
+  [
+   "편집본을 저장하지 못했어요: {0}",
+   "Couldn't save the edited copy: {0}"
+  ],
+  [
+   "메일 첨부 · {0}",
+   "Mail attachment · {0}"
+  ],
+  [
+   "메일 「{0}」",
+   "Mail \"{0}\""
+  ],
+  [
+   "{0}님이 이 파일을 공유했어요 · 읽기 전용",
+   "{0} shared this file · read only"
+  ],
+  [
+   "이름만 보여요 · 파일은 {0}님이 공유해야 열 수 있어요",
+   "Name only · {0} has to share the file for you to open it"
+  ],
+  [
+   "{0} 열기 · 끌어서 AI 채팅이나 메신저에 놓을 수 있어요",
+   "Open {0} · you can drag it onto the AI chat or the messenger"
+  ],
+  [
+   "공유 중 · {0}",
+   "Shared · {0}"
   ]
  ],
  "context": [
