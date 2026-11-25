@@ -1206,6 +1206,22 @@ cd server && node --test test/transcribeSelfTest.test.js test/dictation.test.js
 | 화면에서: 데스크톱 앱(`pgl-desktop`) · 음성 인식 없는 브라우저에서 가짜 마이크(소리 굽이) → `POST /api/dictation`(WAV · 토큰) 조각마다, 늦게 온 첫 답도 차례대로, 끄면 말하던 조각까지 · 마이크 꺼짐, 서버 503 이면 그 까닭 · 꺼짐, 보낸 요청 0 | 사용자 11-25 | F-VD-08 (· F-VD-07 데스크톱 마이크 권한) | feature | ✅ |
 | 로컬에서 끝까지: Lite BFF → litellm v1.82.3 → OpenAI 형식 받아쓰기 서버, `/api/dictation` · 회의 조각 → 회의록 · 자가 시험 · 실제 브라우저(데스크톱 표시)의 마이크 → 입력창 | 사용자 11-25 | `openspec/specs/speech-to-text/e2e/README.md` 「로컬 끝까지」 | 실측 | ✅ |
 | 진짜 데스크톱 앱(Electron) · Android 앱에서 말하는 화면 시험, 운영 키로 받아쓰기 | — | — (가짜 마이크 · 로컬 서버로만, 운영은 배포 뒤 D-STT-01~03) | — | ◐ |
+### 54. 모델 호환 — 주 모델을 Claude 로 바꿔도 판정 · JSON 답이 돈다 (스펙 `llm-model-compat`)
+
+사용자(11-25): 「이 앤트로픽 키로 서비스하는 기본 모델을 바꾸자.」 Claude는 로그 확률을 제공하지 않고, 스키마 없는 `json_object`에 대응하는 기능이 없어 프롬프트에 따라 JSON을 `` ```json `` 울타리로 감싸 답한다(운영 측정 5/5). 확률은 `PRO_LLM_ODDS_MODEL`로 읽고, JSON을 요청한 답이 울타리 하나로 감싸져 있으면 이를 벗겨 읽는다(`server/lib/jsonReply.js`). 운영 litellm-proxy 훅(`claude_compat` 7)도 같은 처리를 한다.
+
+```bash
+cd server && node --test test/llm-json-fence.test.js test/llm-logprob.test.js
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 확률 읽기는 `PRO_LLM_ODDS_MODEL`(비우면 주 모델), 이름을 준 호출은 그대로 | 사용자 11-25 | `llm-logprob.test.js` | 단위 | ✅ |
+| JSON 을 청한 답이 울타리 하나뿐이고 안이 JSON 이면 안쪽을 답으로(chatJson · `chat({json:true})` 직접 읽기 모두) | 운영 측정 11-25 | JF-U-01(사례표 `json-fence-cases.json`) · 02 · 03 | 단위 | ✅ |
+| 그 밖의 답(앞뒤 말 · 다른 언어 · 깨진 안 · 한 줄 울타리)과 JSON 을 청하지 않은 답은 손대지 않음, 깨진 안은 「not JSON」 으로 실패 | 설계 | JF-U-01 · 04 · 05 | 단위 | ✅ |
+| 운영 프록시가 json_object 울타리를 벗긴다(claude_compat 7) | 운영 측정 11-25 | `openspec/specs/llm-model-compat/e2e/README.md` 「실측」 | 실측 | ✅ |
+| 실제 Claude 로 Lite 의 모든 JSON 판정 프롬프트를 돌려 보는 회귀 | — | — (모델 비용, 대표 프롬프트만 실측) | — | ◐ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash
