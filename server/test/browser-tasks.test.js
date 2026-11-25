@@ -93,7 +93,13 @@ test('앞 작업이 사람을 기다리는 동안 새 작업은 대기 — 대�
   const pc = browser.runBrowserTask({ userId: user, threadId, goal: C, gates: false })
   const queued = await until(async () => { const l = (await tasks()).filter((t) => [B, C].includes(t.content.goal) && t.content.state === 'queued'); return l.length === 2 && l })
   assert.ok(queued, 'B·C 카드는 대기')
-  assert.ok((await texts()).some((t) => /한 번에 한 작업만/.test(t) && /입력을 기다리고/.test(t)), '사용자에게 알림')
+  // the person is told on each card (2026-11-25: no separate chat line any more) — what the task ahead waits for, and what it asked
+  for (const t of queued) {
+    assert.match(t.content.reason, /앞 작업 '.*'이\(가\) 입력을 기다리고 있어요/, '사용자에게 알림')
+    assert.equal(t.content.blocked?.question, '캡차를 풀어 주세요')
+    assert.equal(t.content.offer, null, '사람의 말로 시작하지 않은 작업은 「답으로」를 권하지 않는다')
+  }
+  assert.ok(!(await texts()).some((t) => /한 번에 한 작업만/.test(t)), '따로 채팅 줄을 남기지 않는다')
   assert.equal(scripts[B].i, 0)
   // B cancelled by its own card; A is untouched
   const bCard = queued.find((t) => t.content.goal === B)

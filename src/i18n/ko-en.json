@@ -2918,7 +2918,20 @@
   "초대할 수 있는 팀원이 없어요.": "There are no teammates left to invite.",
   "맞는 팀원이 없어요.": "No teammate matches.",
   "이 대화방에 팀원 초대": "Invite teammates to this conversation",
-  "이 두 사람과 다른 팀원으로 새 단체방 만들기": "Make a new group with the two of you and others"
+  "이 두 사람과 다른 팀원으로 새 단체방 만들기": "Make a new group with the two of you and others",
+  "이 말을 앞 작업의 답으로": "Use these words as the answer ahead",
+  "앞 작업 멈추고 이것부터": "Stop the task ahead, do this first",
+  "앞 작업 뒤에 줄 세우기": "Wait behind the task ahead",
+  "대기 중": "Waiting",
+  "② 대기 중": "② Waiting",
+  "동작 한도에서 멈춤": "Stopped at the action limit",
+  "앞 작업이 물은 것": "What the task ahead asked",
+  "받은 지시": "Instruction received",
+  "채팅으로 답함": "Answered in the chat",
+  "요청하지 않은 구매라 누르지 않은 것": "Not pressed — a purchase you didn't ask for",
+  "이번 작업에만 적용": "Only for this task",
+  "규칙을 바꿨어요": "Rule changed",
+  "이번 작업에만 적용했어요": "Applied to this task only"
  },
  "patterns": [
   [
@@ -6660,6 +6673,18 @@
   [
    "공유 중 · {0}",
    "Shared · {0}"
+  ],
+  [
+   "진행 중 · {0}개 처리",
+   "In progress · {0} done"
+  ],
+  [
+   "{0}개 처리 · 동작 한도",
+   "{0} done · action limit"
+  ],
+  [
+   "자세히 · {0}단계",
+   "Details · {0} steps"
   ]
  ],
  "context": [

@@ -5,7 +5,9 @@
 //   · 방 판정(readRoom): 프로젝트 방의 메시지는 다른 지름길보다 먼저 lib/judge.js 에 한 번 묻는다 —
 //     규칙을 정하는 말(set_rule)인가, 규칙의 대상으로 준 것(run_rule, 규칙이 있을 때만)인가, 그 밖(other)인가. 0.7 이상만 따른다.
 //   · 받아 적기(ruleAction): 할 일 한 문장과, 그 일을 하는 브라우저 스킬(lib/browserSkills.js 목록의 이름·설명만 보고 고른 것).
-// 쓰는 구조적 신호는 이 방의 규칙이 있는가, 첨부 파일이 있는가뿐이다.
+// 쓰는 구조적 신호는 이 방의 규칙이 있는가, 첨부 파일이 있는가, 이 사람의 브라우저 작업이 이 방에서 돌거나 방금 끝났는가다.
+// 작업이 있으면 판정은 그 작업(제목 · 하는 단계 · 기다리는 것, 끝난 모양 · 끝맺은 말)도 읽고, 「그 작업에게 어떻게 하라는 말」(steer)을
+// 고를 수 있다. 그런 때 규칙을 정하는 말은 더 높은 기준(0.85)에서만 따른다(2026-11-25 녹화: 작업에 준 지시가 방의 규칙을 덮어썼다).
 //
 // 규칙은 따로 테이블을 두지 않고, 규칙을 받아 적은 그 방의 안내 메시지(content.roomRule {said, action, skill, runs})에 둔다.
 // 운영 DB 에 SQL 을 따로 돌리지 않아도 되고, 방을 지우면 규칙도 함께 사라진다. 방마다 마지막 규칙 하나만 쓴다.
@@ -17,38 +19,46 @@ import { judge } from './judge.js'
 import { browserSkill, browserSkillCatalog } from './browserSkills.js'
 
 export const RULE_BAR = 0.7
+// a rule set while a browser task of this person runs here or just ended: that sure only
+export const RULE_BAR_BUSY = 0.85
 const cap = (t, n = 400) => String(t || '').trim().slice(0, n)
 const names = (files) => files.map((f) => f?.name).filter(Boolean).join(', ')
 
 // ---- 방 판정 ----
 export const ROOM_QUESTION = () => L('이 프로젝트 방에서, 사용자가 이번에 보낸 메시지는 무엇인가?', 'In this project room, what is the message the person just sent?')
-// run_rule is offered only when the room has a rule
-export const roomOptions = (rule) => [
+// run_rule is offered only when the room has a rule, steer only when a browser task of the person runs here or just ended
+export const roomOptions = (rule, { tasks = false } = {}) => [
   { key: 'set_rule', label: L('앞으로 이 방에 줄(올릴) 링크나 파일로 무엇을 할지 정하는 말이다', 'It sets what to do from now on with the links or files the person will put in this room') },
   ...(rule ? [{ key: 'run_rule', label: L('이 방의 규칙대로 처리하라고 건넨 것이다(규칙의 대상인 링크나 파일)', 'It hands over something for this room\'s rule to work on (a link or file the rule is for)') }] : []),
+  ...(tasks ? [{ key: 'steer', label: L('지금 하고 있거나 방금 끝난 브라우저 작업에게 어떻게 진행하라고 알려 주는 말이다(그 작업에서만 쓸 방법, 막힌 곳을 넘는 길, 그 작업이 제안한 다음 일)', 'It tells the browser task under way or just ended how to go on (a way for that task only, how to get past where it is stuck, the next thing it offered)') }] : []),
   { key: 'other', label: L('그 밖의 말이다: 지금 한 번 시키는 일, 질문, 답하는 말투·취향, 정해진 시각의 예약, 앞의 일을 바로잡는 말', 'Anything else: one piece of work for now, a question, a style preference, a schedule at set times, or a correction of earlier work') },
 ]
-export function roomState({ rule, text, files = [] }) {
+// tasks: the person's browser tasks in this room, as lines (lib/browserQueue.js taskContext) — '' when none
+export function roomState({ rule, text, files = [], tasks = '' }) {
   return [
     rule ? L(`이 방의 규칙(링크나 파일을 받으면 할 일): ${cap(rule.action)}`, `This room's rule (what to do with a link or file put here): ${cap(rule.action)}`)
       : L('이 방에는 아직 규칙이 없다.', 'This room has no rule yet.'),
+    ...(tasks ? [tasks] : []),
     L(`사용자가 이번에 보낸 메시지: ${cap(text, 800)}`, `The message the person just sent: ${cap(text, 800)}`),
     files.length ? L(`이 메시지에 첨부한 파일: ${files.length}개 (${names(files)})`, `Files attached to this message: ${files.length} (${names(files)})`)
       : L('이 메시지에 첨부한 파일: 없음', 'Files attached to this message: none'),
   ].join('\n')
 }
-// the judge's probabilities → 'set_rule' | 'run_rule' | 'other' (only an option it was offered, only at the bar)
-export function roomPick(probabilities, { rule = null, bar = RULE_BAR } = {}) {
+// the judge's probabilities → 'set_rule' | 'run_rule' | 'steer' | 'other' (only an option it was offered, only at the bar — set_rule
+// at the higher one while a task is busy here)
+export function roomPick(probabilities, { rule = null, bar = RULE_BAR, tasks = false } = {}) {
   const p = probabilities || {}
-  const best = roomOptions(rule).map((o) => o.key).filter((k) => k !== 'other').sort((a, b) => (p[b] ?? 0) - (p[a] ?? 0))[0]
-  return best && (p[best] ?? 0) >= bar ? best : 'other'
+  const best = roomOptions(rule, { tasks }).map((o) => o.key).filter((k) => k !== 'other').sort((a, b) => (p[b] ?? 0) - (p[a] ?? 0))[0]
+  const need = best === 'set_rule' && tasks ? Math.max(bar, RULE_BAR_BUSY) : bar
+  return best && (p[best] ?? 0) >= need ? best : 'other'
 }
 // → { pick, probabilities, via, ms } — a judge that cannot answer leaves the message to the usual paths
-export async function readRoom({ rule = null, text, files = [] }) {
+export async function readRoom({ rule = null, text, files = [], tasks = '' }) {
   const t0 = Date.now()
+  const busy = !!tasks
   try {
-    const r = await judge({ state: roomState({ rule, text, files }), question: ROOM_QUESTION(), options: roomOptions(rule) })
-    return { pick: roomPick(r?.probabilities, { rule }), probabilities: r?.probabilities || {}, via: r?.via || '', ms: Date.now() - t0 }
+    const r = await judge({ state: roomState({ rule, text, files, tasks }), question: ROOM_QUESTION(), options: roomOptions(rule, { tasks: busy }) })
+    return { pick: roomPick(r?.probabilities, { rule, tasks: busy }), probabilities: r?.probabilities || {}, via: r?.via || '', ms: Date.now() - t0 }
   } catch (e) {
     return { pick: 'other', probabilities: {}, via: 'none', ms: Date.now() - t0, error: e.message }
   }
@@ -103,6 +113,21 @@ export async function readRoomRule(user, threadId, text, files = []) {
   const rule = await ruleOf(user.id, threadId).catch(() => null)
   if ((await readRoom({ rule, text, files })).pick !== 'set_rule') return null
   return { said: cap(text), ...(await ruleAction(text)) }
+}
+// 규칙을 바꿀까요? (2026-11-25 녹화: 이미 규칙이 있는 방에서 작업에 준 지시가 규칙을 말없이 덮어썼다) — 규칙이 있는 방에서 새 규칙을 정하는
+// 말은 확인 카드(content.ruleConfirm {said, now, next, skill, state})로 묻는다. 「바꾸기」는 그 카드가 새 규칙을 갖고(ruleOf 는 가장 새
+// 규칙을 읽는다), 「이번 작업에만 적용」은 규칙을 그대로 두고 그 말을 작업에 준다(lib/agent.js onceTurn). → { message, said } 또는 null
+export async function settleRuleConfirm(userId, messageId, choice) {
+  const [m] = await q(`select m.* from pro_messages m join pro_threads t on t.id = m.thread_id
+    where m.id=$1 and t.user_id=$2 and jsonb_typeof(m.content->'ruleConfirm') = 'object'`, [messageId, userId])
+  if (!m) return null
+  const rc = m.content.ruleConfirm
+  if (rc.state !== 'pending') return { message: m, said: rc.said, already: true }
+  const patch = choice === 'replace'
+    ? { ruleConfirm: { ...rc, state: 'replaced' }, roomRule: { said: rc.said, action: rc.next, skill: rc.skill || '', runs: 0 } }
+    : { ruleConfirm: { ...rc, state: 'once' } }
+  const [u] = await q(`update pro_messages set content = content || $2::jsonb where id=$1 returning *`, [m.id, JSON.stringify(patch)])
+  return { message: u, said: rc.said }
 }
 export const ranRule = (id) => q(`update pro_messages set content = jsonb_set(content, '{roomRule,runs}', to_jsonb(coalesce((content->'roomRule'->>'runs')::int, 0) + 1)) where id=$1`, [id])
 export async function removeRule(userId, threadId) {

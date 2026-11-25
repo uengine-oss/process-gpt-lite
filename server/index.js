@@ -7,9 +7,9 @@ import { config } from './config.js'
 import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail, normEmail } from './lib/supa.js'
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
-import { runTurn, delegate, stopTurns } from './lib/agent.js'
+import { runTurn, delegate, stopTurns, onceTurn } from './lib/agent.js'
 import { turnRoutes } from './lib/turnPlan.js'
-import { ruleOf, removeRule } from './lib/roomRules.js'
+import { ruleOf, removeRule, settleRuleConfirm } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
 import * as browserRemote from './lib/browserRemote.js'
@@ -697,6 +697,18 @@ app.get('/api/threads/:id/rule', auth, async (req, res) => res.json({ rule: awai
 // a turn in progress, as the plan card and the progress panel show it (lib/turnPlan.js): the page opened or reloaded mid-turn
 app.use('/api', turnRoutes(auth))
 app.delete('/api/threads/:id/rule', auth, async (req, res) => res.json(await removeRule(req.user.id, req.params.id)))
+// 「규칙을 바꿀까요?」 card (a room that has a rule, words judged to set a new one): 「바꾸기」 (choice replace) makes that card hold the new
+// rule; 「이번 작업에만 적용」 (once) keeps the rule and gives the words to the browser task here (lib/agent.js onceTurn)
+app.post('/api/threads/:id/rule/confirm', auth, async (req, res) => {
+  const choice = req.body?.choice === 'replace' ? 'replace' : req.body?.choice === 'once' ? 'once' : null
+  if (!choice || !req.body?.messageId) return res.status(400).json({ error: 'messageId, choice: replace | once' })
+  const r = await settleRuleConfirm(req.user.id, String(req.body.messageId), choice).catch(() => null)
+  if (!r || r.message.thread_id !== req.params.id) return res.status(404).end()
+  emit(req.user.id, 'message', r.message)
+  if (r.already) return res.status(409).json({ error: L('이미 고른 카드예요.', 'This card was already answered.') })
+  if (choice === 'once') onceTurn({ user: req.user, session: req.session, threadId: req.params.id, text: r.said }).catch((e) => console.warn('[room rule] once', e.message))
+  res.json({ ok: true, choice })
+})
 app.get('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
@@ -1186,6 +1198,13 @@ app.post('/api/choices/:msgId', auth, async (req, res) => {
 app.post('/api/browser/resume', auth, (req, res) => { browser.resume(req.user.id, req.body.text); res.json({ ok: true }) })
 // the task holding the browser, or (taskId = its card) one waiting in line behind it
 app.post('/api/browser/cancel', auth, (req, res) => { res.json({ ok: browser.cancel(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined) }) })
+// a card in line (lib/browser.js queueAction): 「이 말을 앞 작업의 답으로」 (answer) · 「앞 작업 멈추고 이것부터」 (first) · 「앞 작업 뒤에 줄 세우기」 (after)
+app.post('/api/browser/queue', auth, async (req, res) => {
+  const action = ['answer', 'first', 'after'].includes(req.body?.action) ? req.body.action : null
+  if (!action || !req.body?.taskId) return res.status(400).json({ error: 'taskId, action: answer | first | after' })
+  const r = await browser.queueAction(req.user.id, String(req.body.taskId), action)
+  res.status(r.ok ? 200 : 409).json(r)
+})
 // 다시 시도 on a card whose step stalled (content.stall): that step is left and the turn starts again from a fresh look
 app.post('/api/browser/retry', auth, (req, res) => { res.json({ ok: browser.retryStep(req.user.id, req.body?.taskId ? String(req.body.taskId) : undefined) }) })
 // a browser task on the person's PC whose PC went off (lib/browser.js whenOffline): 「서버에서 이어서」 (to: 'server') · 「PC가 다시 켜지면」 (to: 'wait')

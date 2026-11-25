@@ -4,7 +4,8 @@ import { config } from '../config.js'
 import { chat } from './llm.js'
 import { q } from './supa.js'
 import { addMessage, history, getThread, setThreadStatus } from './store.js'
-import { runBrowserTask, runningIn } from './browser.js'
+import { runBrowserTask, runningIn, waitingIn, activeIn, answerWaiting, steer as steerBrowser } from './browser.js'
+import * as BQ from './browserQueue.js'
 import { createSchedule, nextRun, cronAfter, dueAt, listSchedules } from './scheduler.js'
 import { createMission, createProcessSchedule, listSkills, workspaceHostPath, runMission } from './missions.js'
 import { wantsRunNow, telegramIntent, pickSchedule, recentScheduleIds, channelsOf } from './scheduleIntent.js'
@@ -275,6 +276,9 @@ const noAgentTurn = (h) => {
 // asked: the message as the person sent it ({text, files}); skill: the browser skill (lib/browserSkills.js) the task uses
 async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill, files, onDelta, ack, room, asked, replaces = true }) {
   noAgentTurn(browserHandler(skill))
+  // asked to come after a task it finishes first: the reply says the order
+  const after = turnCtx.getStore()?.after
+  if (after) ack = BQ.orderText(after.title, goal)
   const msg = await addMessage(user.id, threadId, 'agent', 'text', { text: ack })
   onDelta?.(ack)
   runBrowser({ user, session, threadId, goal, startUrl, skill, files, room, asked, replaces })
@@ -292,9 +296,56 @@ function runBrowser({ user, session, threadId, goal, startUrl, skill, files = []
   const own = !turnCtx.getStore()?.auto
   browserStarts.push({ threadId, goal, startUrl: startUrl || '', skill: skill || '', files: files.map((f) => f.name), own })
   if (browserStarts.length > 20) browserStarts.shift()
-  runBrowserTask({ userId, threadId, goal, startUrl, files, skill, own })
-    .then((r) => r.summary && addMessage(userId, threadId, 'agent', 'text', { text: r.summary }))
+  // the person's words go along (behind a task that waits for them, its card offers them as that task's answer — the first choice
+  // is what the judge found likeliest: lib/browserQueue.js queueDefault); a task this turn finishes first comes before it
+  const st = turnCtx.getStore()
+  const queue = { asked: String(asked?.text ?? '').trim() || goal, default: st?.waitRead?.default || 'after' }
+  runBrowserTask({ userId, threadId, goal, startUrl, files, skill, own, queue, ...(st?.after ? { after: st.after.taskId } : {}) })
+    .then((r) => postBrowserResult(userId, threadId, r))
     .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment."), failed: true }) })
+}
+// A browser task's result in the chat: a line or two (brief), with what it did step by step and the whole account folded under
+// 「자세히」 (did · detail — the screen's Message.vue). The text the agents read back later stays short (2026-11-25 recording).
+export function postBrowserResult(userId, threadId, r) {
+  const text = String(r?.brief || r?.summary || '').trim()
+  if (!text) return null
+  return addMessage(userId, threadId, 'agent', 'text', { text, ...(r.taskId ? { taskId: r.taskId } : {}), ...(r.did?.length ? { did: r.did } : {}),
+    ...(r.detail ? { detail: r.detail } : {}), ...(r.refused?.length ? { refused: r.refused } : {}) })
+}
+// A browser task that ended, again: resume — the same task from where it stopped, with a fresh budget (and the person's instruction,
+// when they gave one); otherwise a new task that carries on from it with the instruction (its goal, inputs and page). → the run
+function goOn({ user, threadId, id, resume = true, instruction = '', queue = null }) {
+  const userId = user.id
+  const own = !turnCtx.getStore()?.auto
+  console.log(`[browser] ${resume ? 'resume' : 'carry on from'} ${String(id).slice(0, 8)} thread=${String(threadId).slice(0, 8)}${instruction ? ' (with an instruction)' : ''}`)
+  const run = runBrowserTask({ userId, threadId, ...(resume ? { resume: id } : { from: id }), instruction, own, ...(queue ? { queue } : {}) })
+  run.then((r) => postBrowserResult(userId, threadId, r)).catch((e) => console.warn('[browser] go on', e.message))
+  return run
+}
+// Words for a browser task of this person in this room: the one under way takes them as steering; else the one that just ended goes
+// on with them (a stopped one is resumed with them, a finished one carries on as a new task). → the reply posted, or null when there
+// is no such task. (the room judge's steer, and 「이번 작업에만 적용」 on a rule's confirm card)
+async function steerOrContinue({ user, threadId, text, onDelta, ended = null }) {
+  const userId = user.id
+  const active = activeIn(userId, threadId)
+  if (active && await steerBrowser(userId, active.taskId, text)) {
+    const ok = BQ.steeredText(active.title)
+    onDelta?.(ok)
+    return addMessage(userId, threadId, 'agent', 'text', { text: ok, steered: active.taskId })
+  }
+  const t = (ended || await BQ.recentEnded(userId, threadId).catch(() => []))[0]
+  if (!t) return null
+  goOn({ user, threadId, id: t.id, resume: !t.done, instruction: text })
+  const ok = BQ.continueText(t.title)
+  onDelta?.(ok)
+  return addMessage(userId, threadId, 'agent', 'text', { text: ok, continued: t.id })
+}
+// 「이번 작업에만 적용」 on a rule's confirm card (lib/roomRules.js settleRuleConfirm): the words go to the task, never into the rule; with
+// no task to take them, they run once as a request of their own (the room's judge is not asked again)
+export async function onceTurn({ user, session, threadId, text }) {
+  const r = await steerOrContinue({ user, threadId, text })
+  if (r) return r
+  return runTurn({ user, session, threadId, text, again: true })
 }
 
 // 바로잡는 말 ("그 사이트에 들어가서 생성해야"): a browser task that starts while an agent turn of the same
@@ -379,7 +430,9 @@ export async function privateCandidate(f, handed, userId, { bytes = candidateByt
 const hostOf = (u) => { try { return new URL(u).host } catch { return '' } }
 const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
 
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs }) {
+// again: the words of a message already in the chat, run once more as a request of its own (onceTurn) — not posted again, and not read
+// as an answer, as words for a browser task or as the room's rule
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs, again = false }) {
   const userId = user.id
   if (conversation?.id) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || '') })
   // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
@@ -407,7 +460,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const th = conversation?.id ? await getThread(userId, threadId) : null
   const topicConv = th?.kind === 'project' && await PT.isTopic(userId, th, conversation.id).catch(() => false) ? String(conversation.id) : null
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
-  const said = await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}) })
+  const said = again ? ((await q(`select id from pro_messages where thread_id=$1 and role='user' and content->>'text'=$2 order by created_at desc limit 1`, [threadId, text]))[0] || { id: null })
+    : await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}) })
   const store = turnCtx.getStore()
   if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
@@ -417,7 +471,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const doc = openDocOf(openDoc)
   if (store && doc) store.openDoc = doc
   // 후행 습관(lib/followups.js): an answer in words to the question just asked, or a habit told outright
-  if (!habitId) {
+  if (!habitId && !again) {
     const ans = await readAnswer(user, threadId, said.id, text, files.length > 0).catch((e) => { console.warn('[followups] answer', e.message); return null })
     if (ans?.decline) {
       noAgentTurn()
@@ -442,6 +496,50 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       }
     }
   }
+  // 이 방에서 돌거나 사람을 기다리는 이 사람의 브라우저 작업(lib/browserQueue.js, 2026-11-25 녹화): 입력창의 말이 그 작업이 물은 것의
+  // 답이면 그 카드의 답으로(「새로 만들어」), 그 작업에게 어떻게 하라는 말이면 그 작업으로(「미디엄은 … pdf 로 만든 후에 노트북엘엠에
+  // 넣어야 해」) — 뜻은 판정 모델이 읽는다. 그 밖의 말은 평소 길로 가고, 그 말로 시작한 브라우저 작업이 기다리는 작업 뒤에 서면 그 카드가
+  // 세 갈래(답으로 · 이것부터 · 뒤에 줄 서기)를 판정이 가장 높게 본 것부터 보여 준다(waitRead.default).
+  const active = !habitId && !again && !files.length ? activeIn(userId, threadId) : null
+  let activeRead = null
+  if (active) {
+    const w = active.waiting ? { ...active, ...waitingIn(userId, threadId) } : active
+    activeRead = await BQ.readWaiting(w, text)
+    console.log(`[browser-queue] ${activeRead.pick}${activeRead.option != null ? ` o${activeRead.option}` : ''} ${JSON.stringify(activeRead.probabilities)} via ${activeRead.via} ${activeRead.ms} ms thread=${String(threadId).slice(0, 8)}${activeRead.error ? ` (${activeRead.error})` : ''}`)
+    if (store) store.waitRead = { taskId: active.taskId, default: BQ.queueDefault(activeRead.p) }
+    if (activeRead.pick === 'answer' && await answerWaiting(userId, active.taskId, { text, option: activeRead.option })) {
+      noAgentTurn()
+      const ok = BQ.answeredText(active.title)
+      onDelta?.(ok)
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok, answered: active.taskId })
+    }
+    if (activeRead.pick === 'steer' && await steerBrowser(userId, active.taskId, text)) {
+      noAgentTurn()
+      const ok = BQ.steeredText(active.title)
+      onDelta?.(ok)
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok, steered: active.taskId })
+    }
+  }
+  // 끝냈거나 멈춘 브라우저 작업(같은 판정): 그 작업을 먼저 마저 끝내고 그다음 일(「작업을 마치고 아까 노트북 엘엠 만들던거 진행해」 —
+  // ① 그 작업을 멈춘 자리부터 새 동작 한도로, ② 이 말이 시키는 일은 그 뒤에), 그 작업만 이어서(「다시 시도해 줘: …」), 또는 그 작업을
+  // 이렇게 이어서 하라는 말(멈춘 작업은 그 말과 함께 이어서, 끝난 작업은 그 말을 더한 새 작업으로)
+  const ended = !habitId && !again && !files.length ? await BQ.recentEnded(userId, threadId).catch(() => []) : []
+  if (ended.length) {
+    const r = await BQ.readResume(ended, text)
+    console.log(`[browser-queue] resume ${r.pick || 'none'}${r.task ? ` '${r.task.title}'` : ''} ${JSON.stringify(r.probabilities || {})} via ${r.via || '-'} ${r.ms ?? '-'} ms thread=${String(threadId).slice(0, 8)}${r.error ? ` (${r.error})` : ''}`)
+    const queue = { asked: text, default: store?.waitRead?.default || 'after' }
+    if (r.pick === 'then') {
+      // ① first: it takes the browser (or its place in line) before anything this message starts
+      const done = goOn({ user, threadId, id: r.task.id, queue })
+      if (store) store.after = { taskId: r.task.id, title: r.task.title, done }
+    } else if (r.pick) {
+      noAgentTurn()
+      goOn({ user, threadId, id: r.task.id, resume: !r.task.done, instruction: r.pick === 'more' ? text : '', queue })
+      const ok = r.pick === 'more' ? BQ.continueText(r.task.title) : BQ.resumeText(r.task.title)
+      onDelta?.(ok)
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok, continued: r.task.id })
+    }
+  }
   for (const f of files) await addMessage(userId, threadId, 'user', 'file', { name: f.name, url: f.url, path: f.path, attached: true })
   if (files.length) {
     // 회사 프로세스 지도(lib/ontology/events.js): a file someone attaches is an event too — the processes it is the work of are offered
@@ -459,13 +557,26 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // (recording 2026-11-21: the rule's first sentence went down a shortcut to the agent first and came back as
   // "PowerPoint 를 만든다") A reply to a process draft the room is waiting on is that draft's, not the room's.
   const room = !habitId && (await getThread(userId, threadId))?.kind === 'project'
-  if (room && !generationPending(threadId)) {
+  if (room && !again && !generationPending(threadId)) {
     const rule = await ruleOf(userId, threadId).catch(() => null)
-    const read = await readRoom({ rule, text, files })
+    // the person's browser tasks here (under way, just ended) are read with it: words for a task are not the room's rule
+    const tasks = BQ.taskContext(active, ended)
+    const read = await readRoom({ rule, text, files, tasks })
     console.log(`[room] ${read.pick} ${JSON.stringify(read.probabilities)} via ${read.via} ${read.ms} ms thread=${String(threadId).slice(0, 8)}${read.error ? ` (${read.error})` : ''}`)
+    if (read.pick === 'steer') {
+      const r = await steerOrContinue({ user, threadId, text, onDelta, ended })
+      if (r) { noAgentTurn(); return r }
+    }
     if (read.pick === 'set_rule') {
       noAgentTurn()
       const set = await ruleAction(text)
+      // a room that has a rule: never replaced silently — 「규칙을 바꿀까요?」 with 「바꾸기」 · 「이번 작업에만 적용」 (lib/roomRules.js
+      // settleRuleConfirm, POST /api/threads/:id/rule/confirm)
+      if (rule) {
+        const ask = L(`규칙을 바꿀까요?\n지금: ${rule.action}\n새: ${set.action}`, `Change this room's rule?\nNow: ${rule.action}\nNew: ${set.action}`)
+        onDelta?.(ask)
+        return addMessage(userId, threadId, 'agent', 'text', { text: ask, ruleConfirm: { said: String(text).trim().slice(0, 400), now: rule.action, next: set.action, skill: set.skill, state: 'pending' } })
+      }
       // (the action on a line of its own: the model's sentence may end without a stop)
       const ok = [L('알겠습니다. 이 방에 올리시는 링크와 파일은 앞으로 바로 처리할게요.', 'Got it. Links and files you put in this room will be handled right away.'), set.action,
         set.skill ? L('서버의 내장 브라우저에서 진행해요.', "I'll do it in the server's built-in browser.") : ''].filter(Boolean).join('\n')
@@ -600,6 +711,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (!(call.function.name === 'process' && args.intent === 'create')) noAgentTurn()
   // (a small router model sometimes leaves the acknowledgement out: never an empty bubble)
   if (!String(args.ack || '').trim()) args.ack = L('네, 처리할게요.', 'On it.')
+  // a task this message finishes first (「① … 마저 끝내고 → ② …」): the reply says the order
+  if (call.function.name === 'browser_task' && store?.after) args.ack = BQ.orderText(store.after.title, args.goal || text)
   const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack })
   onDelta?.(args.ack)
 
@@ -1201,6 +1314,18 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // the person's message stopped in its front stage (runTurn): the agent is not called
   const st0 = turnCtx.getStore()
   if (st0?.turn && !st0.adopted && st0.turn.threadId === threadId) checkpoint(st0.turn)
+  // asked to come after a browser task this message finishes first (「① … 마저 끝내고 → ② …」): the agent's work waits for it — the order
+  // is said now, and the same words run once more as a request of their own when that task is over (the chat is not held meanwhile)
+  const st = turnCtx.getStore()
+  if (st?.after?.done && !st.after.deferred) {
+    st.after.deferred = true
+    const said = st.said || text
+    const order = BQ.orderTextAgent(st.after.title)
+    onDelta?.(order)
+    st.after.done.catch(() => {}).then(() => runTurn({ user, session, threadId, text: said, again: true })).catch((e) => console.warn('[browser-queue] after', e.message))
+    noAgentTurn({ kind: 'action', label: L('순서대로', 'In order') })
+    return addMessage(user.id, threadId, 'agent', 'text', { text: order })
+  }
   let thread = await getThread(user.id, threadId)
   // a main chat left standing in a shared folder's run room (as folder turns used to leave it) does
   // not answer the next message there
