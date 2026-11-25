@@ -129,6 +129,7 @@ cd e2e && npx playwright test --project=feature tests/feature/local-agents-colla
 | 프로젝트 폴더 | `chatAgents.e2e.mjs` 8(변형 `var/p/…` 에 `설계.md`, main 에 없음, 파일 카드는 사본, 구성원 보기 200 · 입력 403, 실행자의 보내기 403 + 메시지 아래 까닭) · `chatAgents.test.js` 「누가: …」 |
 | 다른 사람 | `chatAgents.e2e.mjs` 6(보기 · 입력 · 끝내기 · 다시 보내기 · 터미널 표 403, 대화 404, 그녀의 메시지는 그녀의 PC 를 기다림) · `chatAgents.test.js` 「메시지 → …」(남의 데스크톱으로 가지 않음) · 「누가: …」 |
 | 휴대폰과 어두운 테마 | F-CA-07 · 08(390px 밝게 · 어둡게, 목록이 화면 안, 넘치지 않음 · 책상의 어두운 테마) |
+| 넓은 창에서 입력창만 좁을 때 | F-CA-09(입력창 420px → 칩은 위 줄, 안내 글 한 줄 · 640px → 다시 안) |
 
 ## 결과 — 채팅에서 고르는 에이전트 (2026-11-24 밤, 이 맥, 가지 `feat/chat-agent-picker`, SQL 055 를 돌린 로컬 DB)
 

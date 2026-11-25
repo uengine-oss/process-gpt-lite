@@ -7,6 +7,8 @@
 
 ### 고침
 
+- **입력창이 좁으면 에이전트 고르기는 입력창 위로** (2026-11-25 사용자: 「좁아질때 에이전트 설정 등 너무 많이 차지하는」, 스펙 `local-agents`) — 창이 넓어도 메신저를 옆에 붙이거나 옆 패널을 열면 입력창이 좁아지는데, 에이전트 선택 기능은 창 폭(760px)만 기준으로 삼아 입력창 안에 남으면서 「● 기본」 · 📎 · ＋ · 🎤 옆의 안내 문구가 세 줄로 나뉘었습니다. 이제 입력창 자체의 폭이 460px 미만이면 휴대폰에서처럼 입력창 위 줄로 옮깁니다. 테스트 F-CA-09.
+
 - **Claude 가 temperature 를 거절하면 빼고 다시 보낸다** (스펙 `llm-model-compat`) — Claude 5.5는 「`temperature` is deprecated for this model.」이라는 문구로 temperature를 거절합니다. 이 문구를 인식하지 못해 프록시가 매개변수를 걸러 주지 않는 설치 환경에서 Lite의 요청이 그대로 실패했습니다. 이제 이 거절 문구도 인식해 temperature를 빼고 다시 보내며, 그 모델에 보내는 다음 요청부터는 처음부터 temperature를 뺍니다. 시험 `llm-json-fence.test.js` JF-U-07.
 
 - **설치판에서도 확률 모델을 별도로 설정할 수 있다(`LLM_ODDS_MODEL`)** (스펙 `llm-model-compat`) — 설치 번들의 `.env`에 `LLM_ODDS_MODEL`을 입력하면 서버의 `PRO_LLM_ODDS_MODEL`에 반영됩니다. 주 모델을 로그 확률을 제공하지 않는 모델(Claude)로 바꿀 때 판정용 모델을 지정합니다. 비워 두면 지금처럼 주 모델을 사용합니다. 테스트 `llm-json-fence.test.js` JF-U-06.

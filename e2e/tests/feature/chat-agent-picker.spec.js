@@ -10,6 +10,7 @@
 //         (「PC 앱이 꺼져 있어요」) with the same offer
 // F-CA-07 390px phone: the picker in the composer, its list inside the screen, no sideways scroll — light and dark
 // F-CA-08 dark theme: the list and the chat's run card on a desk
+// F-CA-09 a wide window, the composer itself narrow (docked messenger · side panel): the picker over the box, the words on one line
 // It starts its own stack (lib/localStack.js: a BFF in tenant chatagent-ui and Vite, on free ports from 8892 · 5292). No model, no shared
 // service (deepagents · completion · the context router point nowhere).
 //   cd e2e && npx playwright test --project=feature tests/feature/chat-agent-picker.spec.js
@@ -238,4 +239,38 @@ test('F-CA-07 · 08 휴대폰(390px) 밝게 · 어둡게: 입력창의 고르기
   await shot(dark, 'ca08-desk-dark-menu')
   expect(dark.errors).toEqual([])
   await dark.context().close()
+})
+
+// F-CA-09 (2026-11-25 사용자: 「좁아질때 에이전트 설정 등 너무 많이 차지하는」 — a wide window, the composer narrowed by a docked
+// messenger or a side panel: 「● 기본」 · 📎 · ＋ · 🎤 left the words three lines). The box's own width decides: below 560px the
+// picker goes to the row over the box (below 460px; beside the home dock at 1280 the box is about 510), as on a phone, and the placeholder keeps one line.
+test('F-CA-09 넓은 창에서 입력창만 좁아져도 고르기는 입력창 위 줄로 — 글은 한 줄에 들어간다, 넓어지면 다시 입력창 안으로', async ({ browser }) => {
+  const p = await page(browser, TH, DESK)
+  await p.goto('/chat')
+  const composer = p.locator('[data-test=chat-composer]').first()
+  await expect(chip(p)).toBeVisible({ timeout: 20000 })
+  // (the widths are set here, not taken from the page around it: the window stays 1280 wide throughout)
+  const roomy = await p.addStyleTag({ content: '[data-test=chat-composer]{ width: 640px !important; }' })
+  await expect(composer).toHaveAttribute('data-tight', 'no')
+  await expect(p.locator('.composer .box [data-test=chat-agent]')).toHaveCount(1)
+  // squeezed the way a docked messenger or a side panel squeezes it
+  const squeeze = await p.addStyleTag({ content: '[data-test=chat-composer]{ width: 420px !important; }' })
+  await expect(composer).toHaveAttribute('data-tight', 'yes')
+  await expect(p.locator('.composer .agentrow [data-test=chat-agent]')).toBeVisible()
+  await expect(p.locator('.composer .box [data-test=chat-agent]')).toHaveCount(0)
+  const fits = await box(p).evaluate((t) => {
+    const cs = getComputedStyle(t)
+    const c = document.createElement('canvas').getContext('2d')
+    c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+    return c.measureText(t.placeholder).width <= t.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+  })
+  expect(fits).toBe(true)
+  await shot(p, 'ca09-desk-tight')
+  // wide again: back inside the box
+  await squeeze.evaluate((el) => el.remove())
+  await expect(roomy).toBeTruthy()
+  await expect(composer).toHaveAttribute('data-tight', 'no')
+  await expect(p.locator('.composer .box [data-test=chat-agent]')).toHaveCount(1)
+  expect(p.errors).toEqual([])
+  await p.context().close()
 })

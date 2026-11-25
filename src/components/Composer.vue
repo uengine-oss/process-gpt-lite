@@ -57,6 +57,21 @@ let rot
 onMounted(() => { rot = setInterval(() => { si.value = (si.value + 1) % suggestions.length }, 3200) })
 onBeforeUnmount(() => { clearInterval(rot); dictation?.cancel() })
 
+// The box's own width decides where the agent picker goes, not the window's (2026-11-25: a wide window with the messenger docked
+// or a side panel open left the composer narrow — 「좁아질때 에이전트 설정 등 너무 많이 차지하는」 — and the words wrapped onto three
+// lines beside 「● 기본」, 📎, ＋ and 🎤). Below TIGHT_PX (the box beside the home dock at 1280 is about 510) the picker moves to the row over the box, as on a phone.
+const TIGHT_PX = 460
+const root = ref(null)
+const boxW = ref(Infinity)
+let sizer = null
+onMounted(() => {
+  if (typeof ResizeObserver === 'undefined' || !root.value) return
+  sizer = new ResizeObserver(([e]) => { boxW.value = e.contentRect.width })
+  sizer.observe(root.value)
+})
+onBeforeUnmount(() => sizer?.disconnect())
+const tight = computed(() => narrow.value || boxW.value < TIGHT_PX)
+
 const ph = computed(() => (dict.on ? '듣는 중… 말하면 여기에 적혀요' : app.panelMode ? suggestions[si.value].t : props.placeholder))
 // something to send: the send button (beside the mic, never in its place — see the template)
 const sendable = computed(() => !!(text.value || app.panelMode || app.attachments.length || app.fileRefs.length))
@@ -181,7 +196,7 @@ defineExpose({ focus: () => ta.value?.focus() })
 </script>
 
 <template>
-  <div class="composer" :class="{ panel: app.panelMode, pglarmed: pglArmed && !overlay, pglover: pglOver }" data-test="chat-composer"
+  <div ref="root" class="composer" :class="{ panel: app.panelMode, pglarmed: pglArmed && !overlay, pglover: pglOver, tight }" :data-tight="tight ? 'yes' : 'no'" data-test="chat-composer"
     @dragenter="pglEnter" @dragover="pglMove" @dragleave="pglLeave" @drop="pglDrop">
     <Transition name="fade">
       <div v-if="pglArmed && !overlay" class="pglhint" data-test="chat-dropzone" aria-hidden="true"><span>✦</span>{{ pglWords }}</div>
@@ -228,19 +243,19 @@ defineExpose({ focus: () => ta.value?.focus() })
     </Teleport>
     <!-- over the box: dictation — listening (the mic again, or letting go of a held mic, stops it) or why it stopped — on the left;
          a phone's who-answers on the right (the box keeps its width for the words). A long reason takes a line of its own. -->
-    <div v-if="dict.on || dict.error || (agentKey && narrow)" class="agentrow">
+    <div v-if="dict.on || dict.error || (agentKey && tight)" class="agentrow">
       <span v-if="dict.on || dict.error" class="dictbar" role="status" aria-live="polite" data-testid="dictation-status">
         <span v-if="dict.on" class="dpill glass-thin"><i class="dot" />{{ dict.phase === 'starting' ? '마이크 켜는 중…' : '듣는 중…' }}</span>
         <span v-else class="dpill glass-thin err">{{ dict.error }}</span>
       </span>
-      <ComposerAgent v-if="agentKey && narrow" :chat-key="agentKey" row />
+      <ComposerAgent v-if="agentKey && tight" :chat-key="agentKey" row />
     </div>
     <div class="box glass-thin">
       <input ref="picker" type="file" multiple hidden @change="picked" />
       <span v-if="app.panelMode && !text" :key="si" class="icons blur-in"><i v-for="(ic, k) in suggestions[si].icons" :key="k">{{ ic }}</i></span>
       <textarea ref="ta" v-model="text" rows="1" :placeholder="ph" @keydown="onKey" @paste="onPaste" />
       <ComposerClip v-if="!app.panelMode" :folders="!overlay" @files="picker.click()" />
-      <ComposerAgent v-if="agentKey && !narrow" :chat-key="agentKey" />
+      <ComposerAgent v-if="agentKey && !tight" :chat-key="agentKey" />
       <button v-if="sendable" class="send press" aria-label="보내기" @click="submit"><Icon name="up" :size="20" /></button>
       <!-- panels are made from 채팅 only, not from a project, 새 프로젝트 or an instance page -->
       <button v-else-if="!overlay && app.mode === 'chat'" class="ic press" aria-label="새 패널 만들기" @click="app.panelMode = true"><Icon name="plus" :size="22" /></button>
