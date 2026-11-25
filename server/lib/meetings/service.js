@@ -23,7 +23,7 @@ import * as A from '../team/assist.js'
 import * as R from './record.js'
 import * as I from './intent.js'
 import * as MAT from './materials.js'
-import { transcribe, wavMs, transcribeConfigured, lastError as transcribeLastError } from './transcribe.js'
+import { transcribe, wavMs, transcribeConfigured, lastError as transcribeLastError, transcribeHealth } from './transcribe.js'
 import { finalize } from './minutes.js'
 import { L, isEn, lang, withLang, langOf } from '../lang.js'
 import { mainLangOf, mainLangsOf, nativeName } from '../mainLang.js'
@@ -724,7 +724,7 @@ export async function unpresent(me, id) {
 export function report() {
   const s = [...tstats.ms].sort((a, b) => a - b)
   const pct = (p) => (s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : null)
-  return { detection: I.report(), transcription: { ...tstats, ms: undefined, latency: { n: s.length, p50: pct(0.5), p90: pct(0.9) }, configured: transcribeConfigured(), lastError: { ...transcribeLastError } }, enabled: enabled(), agent: agentEnabled(),
+  return { detection: I.report(), transcription: { ...tstats, ms: undefined, latency: { n: s.length, p50: pct(0.5), p90: pct(0.9) }, configured: transcribeConfigured(), lastError: { ...transcribeLastError }, selfTest: transcribeHealth() }, enabled: enabled(), agent: agentEnabled(),
     interpretation: IP.report(), translation: TR.report() }
 }
 

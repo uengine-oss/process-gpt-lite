@@ -3,6 +3,8 @@
 // 늘 맨 끝 자리 그대로이고 보내기는 그 옆에 온다. 켜면 사람이 끌 때까지(쉼 뒤에도) 듣고, 짧게 누르면 켜고 끄기 · 길게 누르면 누르는
 // 동안만, 보내기 단추나 Enter 전에는 아무것도 보내지 않는다. 브라우저의 음성 인식은 addInitScript 의 가짜(중간 · 확정 결과, 쉼, 오류)로
 // 바꾸고, 보내기는 가로채서 센다. 모델 · 마이크 없음. 순수 규칙(합치기 · 다시 시작 · 누르기 · 오류)은 server/test/dictation.test.js.
+// 브라우저에 음성 인식이 없으면(데스크톱 앱 · Firefox — 2026-11-25 「위스퍼 모델이 있어야 바다쓰기 이런게 되는데」) 서버 받아쓰기
+// (src/serverDictation.js → POST /api/dictation): F-VD-08 은 가짜 마이크(소리 굽이를 내는 오디오 노드)와 가로챈 /api/dictation 으로 본다.
 // 화면 사진: e2e/reports/voice-dictation/ (RT_SHOTS 로 바꿈)
 import path from 'node:path'
 import fs from 'node:fs'
@@ -19,9 +21,11 @@ test.use({ channel: 'chromium' })
 // the browser's speech recognition, replaced: __sr.say(text, final) — a result to the session listening now (a phrase still being
 // heard is replaced, like Chrome's list); __sr.pause() — Chrome after a silence (no-speech, then end); __sr.fail(code) — an error, then
 // end. stop() ends the session a moment later, abort() at once. Counts: made · starts · stops · aborts.
+// mode 'none': no speech recognition (Firefox — the server's dictation takes over); 'nothing': nor a microphone API either
 function fakeSpeech(mode) {
   if (window.top !== window) return
-  if (mode === 'none') { window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; return }
+  if (mode === 'nothing') { try { Object.defineProperty(navigator, 'mediaDevices', { value: undefined, configurable: true }) } catch { /* read-only */ } }
+  if (mode === 'none' || mode === 'nothing') { window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; return }
   const ctl = { made: [], starts: 0, stops: 0, aborts: 0 }
   class FakeRecognition {
     constructor() { this.lang = ''; this.continuous = false; this.interimResults = false; this.results = []; this.running = false; ctl.made.push(this) }
@@ -53,9 +57,32 @@ function fakeSpeech(mode) {
   window.webkitSpeechRecognition = FakeRecognition
 }
 
+// a microphone without one: getUserMedia gives a Web Audio stream that is quiet until __mic.speak(ms) sounds a tone for that long —
+// loud enough for the capture to call it speech (components/meetings/capture.js: RMS over the noise floor). __mic.deny: refuse.
+function fakeMic() {
+  if (window.top !== window || !navigator.mediaDevices) return
+  const mic = { opened: 0, stopped: 0, deny: false, speak: () => false }
+  window.__mic = mic
+  navigator.mediaDevices.getUserMedia = async () => {
+    if (mic.deny) throw new DOMException('Permission denied', 'NotAllowedError')
+    mic.opened++
+    const ctx = new AudioContext()
+    await ctx.resume().catch(() => {})
+    const osc = ctx.createOscillator(), gain = ctx.createGain(), dest = ctx.createMediaStreamDestination()
+    osc.frequency.value = 220; gain.gain.value = 0
+    osc.connect(gain); gain.connect(dest); osc.start()
+    mic.speak = (ms) => { const t = ctx.currentTime; gain.gain.setValueAtTime(0.4, t); gain.gain.setValueAtTime(0, t + ms / 1000); return true }
+    const track = dest.stream.getAudioTracks()[0]
+    const end = track.stop.bind(track)
+    track.stop = () => { mic.stopped++; end(); ctx.close().catch(() => {}) }
+    return dest.stream
+  }
+}
+
 // the chat, its composer, and every message send counted (answered with an empty stream — no agent)
-async function open(page, { mode = 'fake', theme, phone = false } = {}) {
+async function open(page, { mode = 'fake', theme, phone = false, desktop = false } = {}) {
   await page.context().addInitScript(fakeSpeech, mode)
+  await page.context().addInitScript(fakeMic)
   if (theme) await page.context().addInitScript((t) => { try { localStorage.setItem('pgpt-pro-theme', t) } catch { /* ignore */ } }, theme)
   const sent = []
   await page.route('**/api/threads/*/messages', async (route) => {
@@ -69,6 +96,8 @@ async function open(page, { mode = 'fake', theme, phone = false } = {}) {
   if (phone) await page.locator('.seg button[data-tab="chat"]').tap()
   const c = page.locator('.col .foot .composer').first()
   await expect(c.locator('textarea')).toBeVisible({ timeout: 30_000 })
+  // the desktop app's mark (its preload adds it; the composer looks at it when a dictation session starts)
+  if (desktop) await page.evaluate(() => document.documentElement.classList.add('pgl-desktop'))
   return {
     sent, c,
     ta: c.locator('textarea'),
@@ -339,7 +368,7 @@ test.describe('채팅 입력창 받아쓰기 — 누른 상태면 계속 듣고,
     }
   })
 
-  test('F-VD-07 오류: 마이크 권한 · 데스크톱 앱의 음성 인식 서비스 없음 — 꺼지고 까닭을 보여 줌, 지원하지 않는 브라우저는 예전 안내', async ({ pageAs }) => {
+  test('F-VD-07 오류: 마이크 권한 · 데스크톱 앱에서 브라우저 인식기가 들어도 서버로 — 꺼지고 까닭을 보여 줌, 마이크도 인식도 없는 브라우저는 예전 안내', async ({ pageAs }) => {
     const page = await pageAs('vd-user')
     const { sent, mic, status } = await open(page)
     await mic.click()
@@ -357,19 +386,21 @@ test.describe('채팅 입력창 받아쓰기 — 누른 상태면 계속 듣고,
     await expect.poll(() => page.evaluate(() => window.__sr.starts)).toBe(3)
     await expect(mic).toHaveAttribute('aria-pressed', 'true')
     await mic.click()
-    // the desktop app (html.pgl-desktop): its Chromium's speech service does not answer — say so, not look stuck
-    await page.evaluate(() => document.documentElement.classList.add('pgl-desktop'))
+    // the desktop app (html.pgl-desktop): its Chromium's speech service does not answer, so the next session is the server's
+    // dictation (F-VD-08) — not the browser's recognizer — and a refused microphone says so
+    await page.evaluate(() => { document.documentElement.classList.add('pgl-desktop'); window.__mic.deny = true })
+    const made = await page.evaluate(() => window.__sr.made.length)
     await mic.click()
-    await page.evaluate(() => window.__sr.fail('network'))
     await expect(mic).toHaveAttribute('aria-pressed', 'false')
-    await expect(status).toHaveText('데스크톱 앱에서는 음성 인식 서비스에 닿지 못했어요. 브라우저에서 열거나 운영체제의 받아쓰기를 써 주세요.')
+    await expect(status).toHaveText('마이크를 쓸 수 없어요. 브라우저에서 이 사이트의 마이크 사용을 허용한 뒤 다시 눌러 주세요.')
+    expect(await page.evaluate(() => window.__sr.made.length), 'no browser recognizer in the desktop app').toBe(made)
     await shot(page, 'vd07-desktop.png')
     expect(sent).toEqual([])
     expect(page.errors).toEqual([])
 
-    // a browser without speech recognition: today's message, and with text the send button takes the place as before
+    // a browser with neither speech recognition nor a microphone API: today's message, and with text the send button takes the place
     const p2 = await pageAs('vd-user')
-    const u = await open(p2, { mode: 'none' })
+    const u = await open(p2, { mode: 'nothing' })
     await expect(u.mic).toBeVisible()
     await expect(u.mic).not.toHaveAttribute('aria-pressed', /.*/)
     const said = new Promise((resolve) => p2.once('dialog', async (d) => { resolve(d.message()); await d.dismiss() }))
@@ -380,5 +411,54 @@ test.describe('채팅 입력창 받아쓰기 — 누른 상태면 계속 듣고,
     await expect(u.mic).toHaveCount(0)
     expect(u.sent).toEqual([])
     expect(p2.errors).toEqual([])
+  })
+  test('F-VD-08 서버 받아쓰기(데스크톱 앱 · 음성 인식 없는 브라우저): 말한 조각마다 /api/dictation, 말한 차례대로 붙고, 끄면 말하던 조각까지, 서버 실패는 까닭 — 보내지 않음', async ({ pageAs }) => {
+    for (const how of [{ desktop: true }, { mode: 'none' }]) {
+      const page = await pageAs('vd-user')
+      const { sent, ta, mic, status } = await open(page, how)
+      // the server's dictation, answered here: each piece's WAV is kept, its words given in order (the first one late)
+      const pieces = []
+      let fail = false
+      await page.route('**/api/dictation', async (route) => {
+        const r = route.request()
+        const body = r.postDataBuffer()
+        const n = pieces.push({ type: r.headers()['content-type'], riff: body?.subarray(0, 4).toString('ascii'), bytes: body?.length || 0, auth: !!r.headers().authorization })
+        if (fail) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '받아쓰기 서버가 응답하지 않아요. 잠시 뒤 다시 말씀하시거나, 말 대신 적어 주세요.' }) })
+        if (n === 1) await new Promise((ok) => setTimeout(ok, 1200))
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ text: ['내일 오전에', '고객사 미팅 잡아 줘', '마지막 말'][n - 1] || '', ms: 400 }) })
+      })
+      await ta.fill('메모:')
+      await mic.click()
+      await expect(status).toHaveText('듣는 중…')
+      await expect(mic).toHaveAttribute('aria-pressed', 'true')
+      expect(await page.evaluate(() => window.__mic.opened)).toBe(1)
+      // two spoken pieces, each ended by a pause (0.8 s of quiet)
+      await page.evaluate(() => window.__mic.speak(1200))
+      await page.waitForTimeout(2600)
+      await page.evaluate(() => window.__mic.speak(1000))
+      await expect(ta).toHaveValue('메모: 내일 오전에 고객사 미팅 잡아 줘', { timeout: 15_000 })
+      await expect(mic).toHaveAttribute('aria-pressed', 'true')
+      await shot(page, `vd08-server-${how.desktop ? 'desktop' : 'nosr'}.png`)
+      // turned off mid-sentence: what was said so far goes too, then off — the microphone at once
+      await page.evaluate(() => window.__mic.speak(3000))
+      await page.waitForTimeout(900)
+      await mic.click()
+      await expect(ta).toHaveValue('메모: 내일 오전에 고객사 미팅 잡아 줘 마지막 말', { timeout: 15_000 })
+      await expect(status).toHaveCount(0)
+      expect(await page.evaluate(() => window.__mic.stopped)).toBe(1)
+      expect(pieces).toHaveLength(3)
+      for (const p of pieces) expect(p).toMatchObject({ type: 'audio/wav', riff: 'RIFF', auth: true })
+      // the server cannot write a piece down: its reason, off, the box as it was
+      fail = true
+      await mic.click()
+      await expect(status).toHaveText('듣는 중…')
+      await page.evaluate(() => window.__mic.speak(1000))
+      await expect(status).toHaveText('받아쓰기 서버가 응답하지 않아요. 잠시 뒤 다시 말씀하시거나, 말 대신 적어 주세요.', { timeout: 15_000 })
+      await expect(mic).toHaveAttribute('aria-pressed', 'false')
+      await expect(ta).toHaveValue('메모: 내일 오전에 고객사 미팅 잡아 줘 마지막 말')
+      await page.waitForTimeout(500)
+      expect(sent).toEqual([])
+      expect(page.errors).toEqual([])
+    }
   })
 })

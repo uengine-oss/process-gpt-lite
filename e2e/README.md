@@ -932,7 +932,7 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 | 길게 누르면(0.35초 넘게) 누르는 동안만, 떼면 멈춤 · 짧게 누르면 켜진 채 · 키보드 Enter · Space 로 켜고 끄기 · 손가락으로 길게 누르기 | 사용자 11-24 | F-VD-05 · 06 · DV-U-01 · 08 | feature · 단위 | ✅ |
 | 휴대폰 390px 밝게 · 어둡게: 클립 · 보내기 · 마이크 · 「듣는 중…」 · 에이전트 칩이 겹치지 않고 화면 안, 긴 오류 문구는 따로 한 줄 | — | F-VD-06 | feature | ✅ |
 | 받아쓰기는 보내지 않음(켜기 · 쉼 · 끄기 · 길게 누르기 · 오류를 거쳐도 보낸 요청 0) | 사용자 11-24 | F-VD-01~07 · DV-U-10 | feature · 단위 | ✅ |
-| 오류: 마이크 권한 · 데스크톱 앱(음성 인식 서비스 없음)은 끄고 까닭을 보여 줌, `aborted` · `no-speech` 는 이어 들음, 지원하지 않는 브라우저는 예전 안내 | — | F-VD-07 · DV-U-09 | feature · 단위 | ✅ |
+| 오류: 마이크 권한은 끄고 까닭을 보여 줌, `aborted` · `no-speech` 는 이어 들음, 데스크톱 앱은 브라우저 인식기 대신 서버 받아쓰기(53절), 음성 인식도 마이크 API 도 없는 브라우저는 예전 안내 | — · 사용자 11-25 | F-VD-07 · DV-U-09 | feature · 단위 | ✅ |
 | 실제 Chrome 음성 인식 · 실제 데스크톱 앱(Electron)에서의 받아쓰기 | — | — (가짜 인식기로만, 데스크톱은 `pgl-desktop` 를 붙여 흉내) | — | ◐ |
 
 ### 43. 서버 브라우저가 멈춘 것처럼 보이지 않는다 — 걸음마다 한도 · 「기다리는 중 …」 · 다시 시도 · 그만두기 (스펙 `browser-handoff` 「걸음마다 한도가 있고, 멈춘 것처럼 보이지 않는다」)
@@ -1183,6 +1183,29 @@ cd server && node --test test/agentTools.test.js
 | 회의의 카메라 끈 칸 · 메신저의 받은 편지함 · 보낸 사람 · @ 고르기 · 공유 폴더의 사람 동그라미에도 사진(같은 부품) | 설계 | — (화면 시험은 팀 목록 · 메신저 대화 목록만) | — | ◐ |
 | 운영(`/lite`)에서 Process GPT 의 파일이 먼저 · 없을 때 Lite 의 사본으로 넘어가는 것을 실제 게이트웨이에서, Process GPT 화면에 Lite 가 올린 사진, 진짜 구글 로그인(GoTrue 의 구글 제공자 · Lite 자체 구글 로그인의 `app_metadata`) · 진짜 googleusercontent 사진, Safari · HEIC 사진 | — | — (개발 스택 · Chrome 으로만, 넘어가기는 단위 시험, 구글 로그인은 identity 행으로 흉내) | — | ✗ |
 
+### 53. 받아쓰기 — 서버의 자가 시험 · 데스크톱 앱 · Android 앱의 입력창 받아쓰기 (스펙 `speech-to-text`)
+
+사용자(11-25): 「지금 서버에 위스퍼모델이 없는 것 같아 위스퍼 모델이 있어야 바다쓰기 이런게 되는데 그것도 반영을 좀 해줘」. 입력창의 마이크는 브라우저의 음성 인식만 써서 데스크톱 앱 · Android 앱 · Firefox 에서는 받아쓰지 못했고, 운영의 받아쓰기(litellm-proxy 의 `gpt-4o-mini-transcribe`, 대체 `whisper-1` — 서비스 키에는 `whisper-1` 이 없음)가 되는지는 회의에서 말해 보기 전에는 알 수 없었다. 이제 서버가 묶어 둔 1.3초 소리(`server/fixtures/stt/selftest-ko.wav`)를 회의와 같은 주소 · 키 · 모델로 받아써 보고 `/api/config` 의 `transcribe`(`ok` · `model` · `ms` · `at` · `error` 코드 · `fallback`)로 알린다. 로컬 끝까지 확인은 `openspec/specs/speech-to-text/e2e/README.md`.
+
+```bash
+PGPT_ROOT_URL=https://uengine.process-gpt.io npx playwright test --project=deploy tests/deploy/stt.spec.js   # 운영, 로그인 없이 읽기만
+PGPT_LITE_URL=http://localhost:8787 npx playwright test --project=deploy tests/deploy/stt.spec.js            # 로컬 · Docker(…:18080)
+cd server && node --test test/transcribeSelfTest.test.js test/dictation.test.js
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 서버가 받아쓰기를 스스로 시험해 알린다: 통과면 ok · 모델 · ms, 대체 모델만 답하면 fallback, 실패는 코드(`no-key` · `timeout` · `unreachable` · `http-<상태>` · `bad-answer` · `empty` · `mismatch`), 알리지 않는 서버는 「too old to report transcribe」 | 사용자 11-25 | D-STT-01, STT-U-02~05 | deploy · 단위 | ✅ |
+| 답에 주소 · 키 · 상위 서버 원문이 없다 | 설계 | D-STT-02, S-01, STT-U-02 · 04 | deploy · smoke · 단위 | ✅ |
+| 시험 소리(1.3초)가 5초 안에 받아 적힌다(`STT_FAST_MS`) | 설계(입력창 받아쓰기의 기다림) | D-STT-03 | deploy | ✅ |
+| 키가 둘째 모델(`whisper-1`)을 거절하는 운영: 첫 모델이 되면 둘째에는 묻지 않음, 둘 다 안 되면 `lastError` 에 첫 모델의 까닭(`first`), 첫 모델도 거절이면 `http-401` | 운영 11-25 | STT-U-11 | 단위 | ✅ |
+| 켜질 때 한 번 · 10분마다(실패 뒤 1분), 같이 불러도 한 번, `PRO_TRANSCRIBE_SELFTEST_MIN=0` 이면 하지 않음, `/api/config` 는 기다리지 않음 | 설계 | STT-U-06 · 07 | 단위 | ✅ |
+| 받아쓰기 실패는 사람의 말로(503 「받아쓰기 서버가 응답하지 않아요」), 원문은 `lastError` 에만 | 설계 | STT-U-08, 서버 `meetingTeamFixes.test.js` 「받아쓰기: 첫 모델이 …」 | 단위 | ✅ |
+| `POST /api/dictation`: 로그인한 사람의 조각 → 글(주 언어), 짧은 소리 400 · 로그인 없이 401 · 지어낸 말은 빈 글 · 서버가 없으면 503 · 한 사람 동시 3개(넘으면 429) | 사용자 11-25 | STT-U-09 · 10 | 단위 | ✅ |
+| 브라우저에 음성 인식이 없으면(데스크톱 앱 · Android 앱 · Firefox) 입력창 받아쓰기는 서버로: 「듣는 중」, 조각마다 바로 보냄, 말한 차례대로 붙음, 끄면 말하던 조각까지(답이 3초 넘어도), 보내기면 오던 글 버림, 서버 실패 · 마이크 권한 · 마이크 없음은 까닭을 말하고 멈춤, 보내지 않음 | 사용자 11-25 | DV-U-11~14 | 단위 | ✅ |
+| 화면에서: 데스크톱 앱(`pgl-desktop`) · 음성 인식 없는 브라우저에서 가짜 마이크(소리 굽이) → `POST /api/dictation`(WAV · 토큰) 조각마다, 늦게 온 첫 답도 차례대로, 끄면 말하던 조각까지 · 마이크 꺼짐, 서버 503 이면 그 까닭 · 꺼짐, 보낸 요청 0 | 사용자 11-25 | F-VD-08 (· F-VD-07 데스크톱 마이크 권한) | feature | ✅ |
+| 로컬에서 끝까지: Lite BFF → litellm v1.82.3 → OpenAI 형식 받아쓰기 서버, `/api/dictation` · 회의 조각 → 회의록 · 자가 시험 · 실제 브라우저(데스크톱 표시)의 마이크 → 입력창 | 사용자 11-25 | `openspec/specs/speech-to-text/e2e/README.md` 「로컬 끝까지」 | 실측 | ✅ |
+| 진짜 데스크톱 앱(Electron) · Android 앱에서 말하는 화면 시험, 운영 키로 받아쓰기 | — | — (가짜 마이크 · 로컬 서버로만, 운영은 배포 뒤 D-STT-01~03) | — | ◐ |
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

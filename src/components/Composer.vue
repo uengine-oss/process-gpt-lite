@@ -10,6 +10,10 @@ import ComposerAgent from './ComposerAgent.vue'
 import { keyOf, agentFor } from '../chatAgent.js'
 import { narrow } from '../viewport.js'
 import { createDictation, recognizerOf, MESSAGES } from '../useDictation.js'
+import { serverRecognition, canRecord, postPiece } from '../serverDictation.js'
+import { startCapture } from './meetings/capture.js'
+import { freshToken, refreshToken } from '../api.js'
+import { BASE } from '../base.js'
 // a file of the app dragged onto the composer (src/fileDrag.js): a chip, and the turn reads that file (server lib/fileRefs.js turnRefs)
 import { dragKind, itemsOf, zoneWords, dragging as draggedItems } from '../fileDrag.js'
 import { kindOf, kindLabel } from '../artifacts.js'
@@ -22,11 +26,21 @@ const text = ref('')
 const ta = ref(null)
 // voice dictation (src/useDictation.js): on from a tap (or while the mic is held) until the person turns it off — pauses do not end
 // it, and it never sends. dict: { on, phase: off | starting | listening, error }
-const SR = recognizerOf(window)
+// Each session's recognizer: the browser's own speech service where it has one, else the server's transcription
+// (src/serverDictation.js → POST /api/dictation, the meetings' model — gpt-4o-mini-transcribe through litellm-proxy in production) —
+// the desktop app's Chromium has no speech service, the Android app's WebView and Firefox none at all. Decided per session (new Recognition()), so the desktop app's mark on <html> is there by then.
+const desktopApp = () => document.documentElement.classList.contains('pgl-desktop')
+const browserSR = recognizerOf(window)
+const ServerSR = canRecord(window) ? serverRecognition({
+  media: () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
+  capture: startCapture,
+  post: (blob) => postPiece(blob, { base: BASE, token: freshToken, refresh: refreshToken }),
+}) : null
+const SR = (browserSR || ServerSR) && function Recognition() { return new ((desktopApp() || !browserSR) && ServerSR ? ServerSR : browserSR)() }
 const dict = reactive({ on: false, phase: 'off', error: '' })
 const dictation = SR && createDictation({
   Recognition: SR, read: () => text.value, write: (v) => { text.value = v }, onChange: (s) => Object.assign(dict, s),
-  desktop: () => document.documentElement.classList.contains('pgl-desktop'),
+  desktop: desktopApp,
 })
 // "@" → teammates (team/useTeammateMention.js); a message with person chips goes to them, not the agent
 const tm = useTeammateMention(text, ta, !props.overlay)

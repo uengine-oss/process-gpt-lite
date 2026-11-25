@@ -43,6 +43,8 @@ import { contextRoutes } from './routes/context.js'
 import { teamActivityRoutes } from './routes/teamActivity.js'
 import { contextGradeRoutes } from './routes/contextGrade.js'
 import { meetingRoutes } from './routes/meetings.js'
+import { dictationRoutes } from './routes/dictation.js'
+import { transcribeHealth, startSelfTest } from './lib/meetings/transcribe.js'
 import { attachVoice } from './lib/meetings/voice.js'
 import { resolveMain, saveMainLang, forgetMain, uiLangFor } from './lib/mainLang.js'
 import { miningRoutes, startMiningScan } from './routes/mining.js'
@@ -179,6 +181,8 @@ async function finishLogin(email, name) {
 // ProcessGPT's own Supabase project when its Google provider is on (lib/sso.js). agentTools: whether this request's company's
 // agent gets each built-in tool server (lib/agentTools.js: booleans; agentToolsVia labels the sources — tenant · common — and
 // what stops one: tenant-overrides-common-with-other-url (a tenant row of the built-in name points elsewhere), hub-filtered)
+// transcribe: whether speech-to-text answers (lib/meetings/transcribe.js self-test: ok · model · ms · at · error code · fallback —
+// no address, no key) for meetings and the composer's dictation
 app.get('/api/config', async (req, res) => {
   // (the pod's probe too: a database that does not answer makes it "off" for this answer, not a failed probe)
   const late = (v, ms) => new Promise((r) => setTimeout(() => r(v), ms).unref?.())
@@ -188,7 +192,7 @@ app.get('/api/config', async (req, res) => {
   ])
   const at = tools || { tools: shape(none(), () => false), via: shape(none()) }
   res.json({ google, googleLogin: google && !config.tenantFromHeader, sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl,
-    agentTools: at.tools, agentToolsVia: at.via })
+    agentTools: at.tools, agentToolsVia: at.via, transcribe: transcribeHealth() })
 })
 
 // ---------- Google: the installed sign-in, and connecting a signed-in person's account (lib/googleConnect.js) ----------
@@ -539,6 +543,8 @@ app.use('/api', teamActivityRoutes(auth))
 app.use('/api', contextGradeRoutes(auth))
 // meetings in a team room: mesh WebRTC signalling, transcription, materials, minutes (routes/meetings.js)
 app.use('/api', meetingRoutes(auth))
+// the chat composer's dictation where the browser has no speech service (the desktop app, the Android app, Firefox): the same transcription
+app.use('/api', dictationRoutes(auth))
 // process mining over ad-hoc work → recommended processes (routes/mining.js)
 app.use('/api', miningRoutes(auth))
 // 프로세스 개선: 병목·가치 흐름·제약·크리티컬 패스·what-if·개선 적용 (lib/improve)
@@ -1184,6 +1190,8 @@ const server = app.listen(config.port, async () => {
   // the usage event consumer (lib/plans/meter.js): one server reads at a time (advisory lock), so a development
   // server may run it too (PRO_BILLING_METER=1)
   if (background || process.env.PRO_BILLING_METER === '1') startMeter()
+  // is there a transcription model behind PRO_TRANSCRIBE_*? (/api/config transcribe) — a development server checks once
+  startSelfTest({ repeat: background })
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb
