@@ -33,7 +33,9 @@ const server = http.createServer((req, res) => {
     if (closed) return
     if (r.status && r.status !== 200) { res.writeHead(r.status, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: { message: r.error || 'boom' } })) }
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: r.content ?? null, ...(r.tool_calls ? { tool_calls: r.tool_calls } : {}) }, finish_reason: 'stop' }] }))
+    // (an odds reading: the first token's candidates — the letter r.content with 0.9, the next letter with 0.05)
+    const lp = r.logprobs ? { logprobs: { content: [{ token: r.content, logprob: Math.log(0.9), top_logprobs: [{ token: r.content, logprob: Math.log(0.9) }, { token: r.content === 'A' ? 'B' : 'A', logprob: Math.log(0.05) }] }] } } : {}
+    res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: r.content ?? null, ...(r.tool_calls ? { tool_calls: r.tool_calls } : {}) }, finish_reason: 'stop', ...lp }] }))
   })
 })
 const planJson = (o = {}) => JSON.stringify({ understood: '링크의 글을 읽고 요약해 드릴게요.', steps: ['글 열기', '핵심 정리', '요약 전달'], tier: 'light', certainty: 'sure', ...o })
@@ -172,9 +174,10 @@ test('TP-U-04 언어: 앞단 호출은 사람의 언어를(말이 없으면 화�
   sys = calls.at(-1).body.messages[0].content
   assert.match(sys, /Write "understood" and "steps" in English/)
   assert.match(sys, /LANGUAGE: English/)
-  // the agent's message: a Korean instruction in Korean mode too (a link alone has no language of its own)
-  assert.match(lang.langInstruction(), /\[Instruction\] 언어: 한국어/)
-  assert.match(lang.langInstruction(), /링크나 파일뿐이어도/)
+  // the agent's message: a Korean instruction in Korean mode too when the message is a link alone (no language of its own);
+  // a message with words keeps its own (review 11-25 #6 — TP-R-06)
+  assert.match(lang.langInstruction({ said: 'https://medium.com/@a/b' }), /\[Instruction\] 언어: 한국어/)
+  assert.match(lang.langInstruction({ said: 'https://medium.com/@a/b' }), /말이 없어\(링크나 파일뿐\)/)
   assert.match(lang.withLang('en', () => lang.langInstruction()), /LANGUAGE: English/)
   // the plan block (§1.4) after the message, in the person's language
   const userId = `u-pb-${Date.now()}`
@@ -199,10 +202,11 @@ const hist = [{ role: 'user', content: 'https://example.com/a' }]
 
 test('TP-U-05 라우터: 6초 넘으면 · 오류면 · 인자가 JSON 이 아니면 null(→ 에이전트), DELEGATE · 도구는 그대로', async () => {
   assert.equal(A.ROUTER_MS, 6000)
-  // passes 6 s
+  // passes 6 s (the judge reads no tool in it: not asked again — TP-R-08 has the other cases)
   respond = () => ({ delay: 9000, content: 'DELEGATE' })
+  const noTool = async () => ({ probabilities: { tool: 0.05, agent: 0.95 }, choice: 'agent' })
   let t0 = Date.now()
-  let r = await A.routeTurn({ user, session, hist, now: 'now' })
+  let r = await A.routeTurn({ user, session, hist, now: 'now', judge: noTool })
   const ms = Date.now() - t0
   assert.equal(r, null)
   assert.ok(ms >= 6000 && ms < 7300, `gave up at about 6 s (${ms} ms)`)
@@ -372,4 +376,238 @@ test('TP-U-10 멈추기: 앞 단계(라우터 전)의 턴은 running 에 들고,
   // (the message still being read has no conversation yet: the turn in line waits for it too, as for any earlier turn of the thread)
   a.finish(); front.finish(); await w
   queued.finish()
+})
+
+// ---------- 검토 11-25 (review of f9f80f1): one regression test per item ----------
+const HITL = (o = {}) => JSON.stringify({ type: 'human_input_required', question: '어떤 형식으로 정리할까요?', context: '링크의 글이 길어요.', options: ['세 줄 요약', { label: '표로 정리' }], multi_select: false, run_state: { pending_field: 'human_response', tool_name: 'request_human_input' }, ...o })
+
+test('TP-R-01 (#1) 에이전트가 사람에게 물으면(done.content 가 human_input_required JSON) 답은 질문 · 맥락 · 고를 것이고, JSON 은 답이 되지 않는다', () => {
+  const segs = TP.createSegments({})
+  segs.token('어떤 형식이 좋을지 여쭤볼게요.'); segs.cut() // (request_human_input: plan_tools cuts the streamed question to a note)
+  const a = TP.finalAnswer(HITL(), segs)
+  assert.equal(a.asks, true)
+  assert.equal(a.text, '링크의 글이 길어요.\n\n어떤 형식으로 정리할까요?\n- 세 줄 요약\n- 표로 정리')
+  assert.ok(!a.text.includes('run_state') && !a.text.startsWith('{'))
+  assert.equal(TP.finalAnswer(HITL({ context: '' }), segs).text, '어떤 형식으로 정리할까요?\n- 세 줄 요약\n- 표로 정리')
+  // any other JSON is never the answer: the stream's own text is
+  const s2 = TP.createSegments({}); s2.token('정리했어요.')
+  assert.equal(TP.finalAnswer('{"type":"something_else","x":1}', s2).text, '정리했어요.')
+  assert.equal(TP.finalAnswer('[1,2]', s2).text, '정리했어요.')
+  assert.equal(TP.finalAnswer('{"type":"human_input_required"}', s2).text, '정리했어요.', 'no question: not taken')
+  // plain done.content is still the answer
+  assert.equal(TP.finalAnswer('마지막 답이에요.', s2).text, '마지막 답이에요.')
+  assert.equal(TP.humanInput('그냥 글'), null)
+})
+
+test('TP-R-02 (#2) 정리 도구(write_todos · think)는 글을 자르지 않는다 — 긴 요약 → write_todos → 「모든 단계를 마쳤어요.」 는 하나의 답', () => {
+  for (const t of ['write_todos', 'think', 'todo_write', 'THINK']) assert.equal(TP.bookkeeping(t), true, t)
+  for (const t of ['fetch_url', 'execute', 'request_human_input', 'ls', 'read_file', '']) assert.equal(TP.bookkeeping(t), false, t)
+  const out = { delta: [], retract: 0, notes: [] }
+  const segs = TP.createSegments({ onDelta: (d) => out.delta.push(d), onRetract: () => out.retract++, onNote: (t) => out.notes.push(t) })
+  const summary = `요약\n${'가나다라마바사 '.repeat(190)}`.trim()
+  segs.token(summary)
+  segs.mark() // plan_tools [write_todos]
+  segs.mark() // tool_start write_todos
+  segs.token('모든 단계를 마쳤어요.')
+  assert.equal(out.retract, 0)
+  assert.deepEqual(out.notes, [])
+  assert.equal(segs.answer(), `${summary}\n\n모든 단계를 마쳤어요.`)
+  // done.content is only the last message: the segment it ends is the answer
+  const a = TP.finalAnswer('모든 단계를 마쳤어요.', segs)
+  assert.equal(a.text, `${summary}\n\n모든 단계를 마쳤어요.`)
+  assert.ok(a.text.length > 1400)
+  // the streamed draft got the paragraph break too (it was promoted past 200 characters)
+  assert.ok(out.delta.join('').endsWith('\n\n모든 단계를 마쳤어요.'))
+  // a real tool still cuts
+  const s2 = TP.createSegments({ onNote: (t) => out.notes.push(t) })
+  s2.token('먼저 볼게요.'); s2.cut(); s2.token('끝.')
+  assert.equal(TP.finalAnswer('끝.', s2).text, '끝.')
+})
+
+test('TP-R-03 (#3) 대화 · 주제 보기에서 누른 멈추기도 앞 단계(대화가 아직 없는) 메시지에 닿는다', () => {
+  const userId = 'u-r03', threadId = 't-r03'
+  const front = T.enqueue({ userId, threadId }); front.front = true
+  const other = T.enqueue({ userId, threadId, conv: 'c-other' }); other.started = true
+  assert.deepEqual(T.running({ userId, threadId, conv: 'c-mine' }).map((x) => x.id), [front.id])
+  assert.deepEqual(T.running({ userId, threadId, conv: 'c-other' }).map((x) => x.id).sort(), [front.id, other.id].sort())
+  // once it has a conversation, only that view's stop reaches it
+  front.setConv('c-x')
+  assert.deepEqual(T.running({ userId, threadId, conv: 'c-mine' }).map((x) => x.id), [])
+  front.finish(); other.finish()
+})
+
+test('TP-R-04 (#4) 멈추기는 쓰는 중인 답을 멈추고, 그동안 방금 보낸 메시지(앞 단계)는 두며, 시작한 것이 없을 때만 앞 단계를 멈춘다', () => {
+  const userId = 'u-r04', threadId = 't-r04'
+  const a = T.enqueue({ userId, threadId, conv: 'c1' }); a.started = true
+  const b = T.enqueue({ userId, threadId }); b.front = true
+  assert.deepEqual(T.toStop(T.running({ userId, threadId })).map((x) => x.id), [a.id])
+  a.finish()
+  assert.deepEqual(T.toStop(T.running({ userId, threadId })).map((x) => x.id), [b.id])
+  b.finish()
+})
+
+test('TP-R-05 (#5) 앞 단계에서 멈춘 턴은 새 프로세스 초안을 남기지 않는다(generationPending)', async () => {
+  const userId = '00000000-0000-0000-0000-0000000000a5', threadId = '00000000-0000-0000-0000-0000000005a5'
+  const turn = T.enqueue({ userId, threadId }); turn.front = true; turn.stopped = true
+  await assert.rejects(A._test.inTurn(turn, () => A._test.processTurn(userId, threadId, { intent: 'create', query: '휴가 신청 프로세스' })), (e) => e.turnStopped === true)
+  assert.equal(A.generationPending(threadId), undefined)
+  turn.finish()
+})
+
+test('TP-R-06 (#6) 한국어 화면의 언어 지시는 말이 없는 메시지(링크 · 파일뿐)에만, 다른 언어 요청은 그 언어로, 내 PC 에이전트 · 미션에는 없음', () => {
+  assert.equal(lang.wordless('https://medium.com/@a/b'), true)
+  assert.equal(lang.wordless('  https://a.com  https://b.com '), true)
+  assert.equal(lang.wordless('영문 메일 써 줘 https://a.com'), false)
+  assert.equal(lang.wordless('Summarize https://a.com'), false)
+  const link = lang.langInstruction({ said: 'https://medium.com/@a/b' })
+  assert.match(link, /^\n\n\[Instruction\] 언어: 한국어/)
+  assert.match(link, /다른 언어를 요청했거나 앞선 대화를 다른 언어로 썼으면 그 언어로/)
+  assert.equal(lang.langInstruction({ said: '영어로 번역해 줘' }), '')
+  assert.equal(lang.langInstruction({ said: 'Write the reply in English' }), '')
+  // callers that do not say what was said (local CLI agents — lib/localAgents/chat.js · steps.js, missions, mail drafts)
+  assert.equal(lang.langInstruction(), '')
+  assert.match(lang.withLang('en', () => lang.langInstruction()), /LANGUAGE: English/)
+})
+
+test('TP-R-07 (#7) 끝난 턴은 스냅샷 · 늦은 사건으로 되살아나지 않고, 서버는 끝내기를 늘 보낸다', async () => {
+  const S = await import('../../src/turnState.js')
+  const ended = new Map()
+  let all = {}
+  const ev = (type, d) => { all = S.applyTurnEvent(all, type, { threadId: 'th', turnId: 'x1', at: Date.now(), ...d }, ended) }
+  ev('turn.start', { msgId: 'm1', startedAt: Date.now() })
+  ev('turn.plan', { understood: '요약', steps: [] })
+  assert.ok(all.x1)
+  ev('turn.end', { state: 'done' })
+  assert.equal(all.x1, undefined)
+  // a snapshot taken before the end (it was on the way) still lists it: not brought back
+  const snap = S.fromSnapshot({ now: Date.now(), turns: [{ turnId: 'x1', threadId: 'th', msgId: 'm1', startedAt: Date.now() - 5000, lastAt: Date.now() - 1000 }, { turnId: 'x2', threadId: 'th', msgId: 'm2', startedAt: Date.now() }] }, ended)
+  assert.deepEqual(Object.keys(snap), ['x2'])
+  // an event after the end does not either
+  ev('turn.stage', { stage: 'working', text: '작업하는 중' })
+  assert.equal(all.x1, undefined)
+  // (the server's side — the view ends even when the 「멈췄어요」 message cannot be written — is TP-I-07 in turnPlan.integration.test.js)
+})
+
+test('TP-R-08 (#8) 라우터가 6초 안에 답하지 않으면: 도구가 필요한 말이면 한 번 더(더 길게) 묻고, 아니면 에이전트 — 몇 번째 대신인지 센다', async () => {
+  const before = { ...A.routerStats }
+  const slowThen = (tool) => { let n = 0; return () => (n++ === 0 ? { delay: 2000, content: 'DELEGATE' } : { delay: 100, tool_calls: [{ id: 'c', type: 'function', function: { name: tool, arguments: '{"name":"주간 보고","cron":"0 9 * * 1","prompt":"주간 보고","ack":"네"}' } }] }) }
+  const sched = [{ role: 'user', content: '매주 월요일 9시에 주간 보고 써 줘' }]
+  // (a) the judge says a tool is needed: asked again, and the schedule tool comes back
+  respond = slowThen('schedule_task')
+  let judged = 0
+  const toolJudge = async () => { judged++; return { probabilities: { tool: 0.91, agent: 0.09 }, choice: 'tool' } }
+  let r = await A.routeTurn({ user, session, hist: sched, now: 'now', judge: toolJudge, limitMs: 500, retryMs: 5000 })
+  assert.equal(judged, 1)
+  assert.equal(r.call.function.name, 'schedule_task')
+  assert.equal(A.routerStats.retried, before.retried + 1)
+  assert.equal(A.routerStats.answeredOnRetry, before.answeredOnRetry + 1)
+  // (b) the judge says it is the agent's work: not asked again, delegated, counted
+  respond = slowThen('schedule_task')
+  const agentJudge = async () => ({ probabilities: { tool: 0.08, agent: 0.92 }, choice: 'agent' })
+  const n0 = calls.length
+  r = await A.routeTurn({ user, session, hist: [{ role: 'user', content: 'https://medium.com/@a/b' }], now: 'now', judge: agentJudge, limitMs: 500, retryMs: 5000 })
+  assert.equal(r, null)
+  assert.equal(calls.length - n0, 1, 'one router call only')
+  // (c) no reading at all: the structural signs decide — an address, an attached file
+  respond = slowThen('browser_task')
+  const noJudge = async () => null
+  r = await A.routeTurn({ user, session, hist: [{ role: 'user', content: '로그인해서 주문 내역 https://shop.example.com' }], now: 'now', judge: noJudge, limitMs: 500, retryMs: 5000 })
+  assert.equal(r.call.function.name, 'browser_task')
+  respond = slowThen('browser_task')
+  r = await A.routeTurn({ user, session, hist: [{ role: 'user', content: '이 파일 정리' }], now: 'now', judge: noJudge, attachments: 1, limitMs: 500, retryMs: 5000 })
+  assert.equal(r.call.function.name, 'browser_task')
+  respond = slowThen('browser_task')
+  assert.equal(await A.routeTurn({ user, session, hist: [{ role: 'user', content: '오늘 할 일 정리' }], now: 'now', judge: noJudge, limitMs: 500, retryMs: 5000 }), null)
+  // (d) slow again: delegated after the second limit
+  respond = () => ({ delay: 3000, content: 'DELEGATE' })
+  assert.equal(await A.routeTurn({ user, session, hist: sched, now: 'now', judge: toolJudge, limitMs: 300, retryMs: 600 }), null)
+  assert.equal(A.routerStats.timeouts, before.timeouts + 6)
+  assert.equal(A.routerStats.fallbacks, before.fallbacks + 3)
+  assert.ok(A.routerStats.calls >= before.calls + 6)
+  // the judge's question (the real one: the odds reading on the fake server) — a model call, not words matched
+  const w = await A.toolWanted({ text: '매주 월요일 9시에 주간 보고 써 줘', judge: async (state, q, opts) => { assert.match(state, /매주 월요일 9시/); assert.deepEqual(opts.map((o) => o.key), ['tool', 'agent']); return null } })
+  assert.deepEqual(w, { want: false, via: 'structure' })
+})
+
+test('TP-R-09 (#9) 질문 카드에 대한 답과 습관 설정 읽기는 기본 한도(8초)를 쓴다 — 3초는 라우터 옆의 결과물 후속 판단만', async () => {
+  const D = await import('../lib/decide.js')
+  assert.equal(D.ODDS_MS, 8000)
+  assert.equal(D.TURN_ODDS_MS, 3000)
+  const src = (await import('node:fs')).readFileSync(new URL('../lib/followups.js', import.meta.url), 'utf8')
+  const call = (name) => new RegExp(`oddsOf\\(${name}`).exec(src) && src.slice(src.indexOf(`oddsOf(${name}`), src.indexOf('\n', src.indexOf(`oddsOf(${name}`)))
+  assert.ok(!/TURN_ODDS_MS/.test(call('answerState')), call('answerState'))
+  assert.ok(!/TURN_ODDS_MS/.test(call('ruleState')), call('ruleState'))
+  assert.ok(/TURN_ODDS_MS/.test(call('followupState')), call('followupState'))
+  // a 4.2 s reading on the default limit is read (and a short limit's timeout does not mark the reader down)
+  respond = (b) => (b.logprobs ? { delay: 4200, content: 'A', logprobs: true } : { content: '{}' })
+  const opts = [{ key: 'accept', label: 'yes' }, { key: 'decline', label: 'no' }]
+  assert.equal(await D.oddsOf('state', 'q?', opts, { timeoutMs: 1000 }), null)
+  const r = await D.oddsOf('state', 'q?', opts)
+  assert.equal(r?.choice, 'accept')
+})
+
+test('TP-R-10 (#10) PRO_FRONT_PLAN=off: 「요청을 읽는 중」 머리 없이, 단계 · 현재 상태 줄만', async () => {
+  const seen = []
+  const userId = `u-r10-${Date.now()}`
+  const off = bus.subscribe(userId, { write: (line) => seen.push(line) })
+  const n0 = calls.length
+  const turn = T.enqueue({ userId, threadId: '00000000-0000-0000-0000-00000000010a' })
+  const v = TP.begin({ turn, userId, threadId: turn.threadId, msgId: 'm', text: 'x', plan: false })
+  assert.equal(await v.ready, null)
+  off()
+  const start = JSON.parse(/^data: (.*)$/m.exec(seen.find((l) => l.startsWith('event: turn.start')))[1])
+  assert.equal(start.planState, 'off')
+  assert.equal(calls.length, n0, 'no front call')
+  assert.equal(TP.snapshot(userId, turn.threadId)[0].planState, 'off')
+  TP.end(turn, 'done'); turn.finish()
+  const V = await import('../../src/turnView.js')
+  const at = Date.now()
+  const base = { turnId: 'o', startedAt: at - 2000, skew: 0, seenAt: at, planState: 'off', plan: null, steps: [], todos: [], stage: { stage: 'reading', text: '요청을 읽는 중' } }
+  let cv = V.cardView(base, at)
+  assert.equal(cv.reading, false)
+  assert.equal(cv.off, true)
+  cv = V.cardView({ ...base, stage: { stage: 'working', text: '찾아보는 중' }, todos: [{ id: 't1', text: '글 읽기', state: 'active' }] }, at)
+  assert.equal(cv.shown, true)
+  assert.deepEqual(cv.steps.map((s) => s.text), ['글 읽기'])
+  // with the plan on: the reading head
+  assert.equal(V.cardView({ ...base, planState: 'reading' }, at).reading, true)
+})
+
+test('TP-R-11 (#11) 방금 만든 결과물에 대한 말이면 라우터 호출을 멈춘다', async () => {
+  let aborted = false
+  const t0 = Date.now()
+  const r = await TP.aboutOrRoute({
+    about: () => new Promise((ok) => setTimeout(() => ok({ conv: 'c1', title: '보고서' }), 50)),
+    route: (signal) => new Promise((ok) => { signal.addEventListener('abort', () => { aborted = true; ok(null) }); setTimeout(() => ok({ call: null, args: {} }), 5000) }),
+  })
+  assert.ok(Date.now() - t0 < 1000)
+  assert.equal(aborted, true)
+  assert.deepEqual(r, { about: { conv: 'c1', title: '보고서' }, routed: null })
+  // not about the result: the router's answer
+  const r2 = await TP.aboutOrRoute({ about: async () => null, route: async () => ({ call: null, args: {} }) })
+  assert.deepEqual(r2, { about: null, routed: { call: null, args: {} } })
+  // the turn's own stop reaches the router too
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 30)
+  const r3 = await TP.aboutOrRoute({ about: async () => null, route: (signal) => new Promise((ok) => signal.addEventListener('abort', () => ok('stopped'))), signal: ac.signal })
+  assert.equal(r3.routed, 'stopped')
+})
+
+test('TP-R-12 (#12) 로그에는 사람이 한 말 · 계획 문장이 없다(출처 · tier · 길이만)', async () => {
+  respond = () => ({ content: planJson({ understood: '김민지 과장의 연봉 계약서를 요약해 드릴게요.' }) })
+  const lines = []
+  const orig = console.log
+  console.log = (...a) => { lines.push(a.join(' ')); orig(...a) }
+  try {
+    const userId = `u-r12-${Date.now()}`
+    const turn = T.enqueue({ userId, threadId: '00000000-0000-0000-0000-00000000012a' })
+    const v = TP.begin({ turn, userId, threadId: turn.threadId, msgId: 'm', text: '김민지 과장 연봉 계약서 https://drive.example.com/x' })
+    await v.ready
+    TP.handler(turn, { kind: 'agent', label: '에이전트' })
+    TP.end(turn, 'done'); turn.finish()
+  } finally { console.log = orig }
+  const ours = lines.filter((l) => l.startsWith('[turn-plan]'))
+  assert.ok(ours.length >= 2, ours.join('\n'))
+  for (const l of ours) { assert.ok(!/김민지|연봉|계약서|drive\.example/.test(l), l) }
+  assert.ok(ours.some((l) => /plan=front tier=light understood=\d+ch steps=3/.test(l)), ours.join('\n'))
 })

@@ -187,6 +187,9 @@ export function events(handler) {
   // can listen without a second stream
   const onEvent = (t, d) => { for (const h of handlers) h(t, d); try { window.dispatchEvent(new CustomEvent('pgpt:event', { detail: { type: t, data: d } })) } catch { /* old browser */ } }
   let es, stopped = false, polling = false
+  // a connection after the first one (a reconnect, or long polling after a stream): events sent meanwhile were not seen — the
+  // handlers are told ('reconnect'), so what they keep live (the running turns' cards) is read again
+  let connected = 0
   const tok = () => encodeURIComponent(auth.get()?.session?.access_token || '')
   async function pollLoop(after) {
     polling = true
@@ -207,9 +210,10 @@ export function events(handler) {
     const fallback = setTimeout(() => {
       if (hello || stopped) return
       es.close()
+      if (connected++ > 0) onEvent('reconnect', {})
       pollLoop(null)
     }, 5000)
-    es.addEventListener('hello', () => { hello = true; clearTimeout(fallback) })
+    es.addEventListener('hello', () => { hello = true; clearTimeout(fallback); if (connected++ > 0) onEvent('reconnect', {}) })
     for (const t of EVENT_TYPES) es.addEventListener(t, (e) => onEvent(t, JSON.parse(e.data)))
     es.onerror = () => { if (polling) return; es.close(); setTimeout(async () => { await refreshToken(); if (!polling) open() }, 3000) }
   }

@@ -4,24 +4,25 @@
 // the progress panel (TurnProgress.vue). When the turn ends the card goes; the answer keeps the plan folded (Message.vue).
 import { computed } from 'vue'
 import Icon from './Icon.vue'
-import { dur, elapsed, stepsOf, doneOf, liveLine } from '../turnView.js'
+import { dur, elapsed, doneOf, cardView } from '../turnView.js'
 
 const props = defineProps({ turn: Object, now: Number })
 const emit = defineEmits(['details'])
 const t = computed(() => props.turn)
-const reading = computed(() => !t.value.plan)
-// (a message answered at once — a panel, a schedule — ends before its plan comes: no card flashes for it)
-const shown = computed(() => !reading.value || elapsed(t.value, props.now) >= 600)
-const steps = computed(() => stepsOf(t.value))
+// (src/turnView.js cardView: the reading head, the front call switched off, no flash for a message answered at once)
+const view = computed(() => cardView(t.value, props.now))
+const reading = computed(() => view.value.reading)
+const shown = computed(() => view.value.shown)
+const steps = computed(() => view.value.steps)
 const done = computed(() => doneOf(steps.value))
-const live = computed(() => liveLine(t.value, props.now))
+const live = computed(() => view.value.live)
 const fallback = computed(() => t.value.plan?.source === 'fallback')
 </script>
 
 <template>
-  <div v-if="shown" class="turn-card" :class="{ reading, fallback }" data-testid="turn-card" :data-turn="t.turnId" :data-state="reading ? 'reading' : 'planned'">
+  <div v-if="shown" class="turn-card" :class="{ reading, fallback }" data-testid="turn-card" :data-turn="t.turnId" :data-state="reading ? 'reading' : view.off ? 'off' : 'planned'">
     <p v-if="reading" class="head"><span class="shimmer-text">요청을 읽는 중</span></p>
-    <p v-else class="head" data-testid="turn-understood" data-no-i18n>{{ t.plan.understood }}</p>
+    <p v-else-if="t.plan" class="head" data-testid="turn-understood" data-no-i18n>{{ t.plan.understood }}</p>
     <small v-if="t.handler?.label" class="handler" data-testid="turn-handler">{{ t.handler.label }}</small>
     <ol v-if="steps.length" class="steps" data-testid="turn-steps">
       <li v-for="(s, i) in steps" :key="s.id || i" :class="s.state" data-testid="turn-step" :data-state="s.state">

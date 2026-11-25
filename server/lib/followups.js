@@ -127,7 +127,8 @@ export async function recordPair(user, cls, text, attached = []) {
 const within = (at) => Date.now() - new Date(at).getTime() < HABIT.windowDays * 864e5
 const isFollowup = async (prev, text) => {
   if (cap(text).length < 2) return false
-  // (on the turn's path — followsResult — and after it — learn: the shorter limit either way, design turnplan §5.1)
+  // (read beside the router — followsResult — and after the turn — learn: the shorter limit, design turnplan §5.1; the router waits
+  // for it, so a slow reading would hold the turn)
   const r = await oddsOf(followupState(prev, text), FOLLOWUP_QUESTION(), FOLLOWUP_OPTIONS(), { timeoutMs: TURN_ODDS_MS })
   // the model cannot read: nothing is decided from words alone
   return !!r && r.choice === 'followup' && r.confidence >= HABIT.learnBar
@@ -288,7 +289,8 @@ export async function readAnswer(user, threadId, saidId, text, hasFiles) {
   const card = await pendingCard(threadId, saidId)
   if (!card) return null
   if (hasFiles || cap(text, 999).length > HABIT.answerMaxChars) { await close(user.id, card, 'passed'); return null }
-  const r = await oddsOf(answerState(card.content.text, text), ANSWER_QUESTION(), ANSWER_OPTIONS(), { timeoutMs: TURN_ODDS_MS })
+  // (the full limit: 「네」 to the card just asked must not fall through because one reading in thirty is slow — review 11-25 #9)
+  const r = await oddsOf(answerState(card.content.text, text), ANSWER_QUESTION(), ANSWER_OPTIONS())
   if (r?.choice === 'accept' && r.confidence >= HABIT.bar) {
     const h = card.content.routine ? await acceptRoutine(user, card) : await accepted(user, card)
     return h ? { accept: { action: h.action, files: h.files || [], conversation: card.content.conv, habitId: h.id } } : null
@@ -301,7 +303,7 @@ export async function readAnswer(user, threadId, saidId, text, hasFiles) {
 // "앞으로 슬라이드 만들면 로고는 유엔진으로 바꿔 줘": remembered at once, asked from the next result on.
 export async function readRule(user, text) {
   if (!maybeRule(text)) return null
-  const r = await oddsOf(ruleState(text), RULE_QUESTION(), RULE_OPTIONS(), { timeoutMs: TURN_ODDS_MS })
+  const r = await oddsOf(ruleState(text), RULE_QUESTION(), RULE_OPTIONS())
   if (!r || r.choice !== 'rule' || r.confidence < HABIT.bar) return null
   const parts = await ruleParts(text)
   if (!parts) return null

@@ -46,3 +46,17 @@ export function liveLine(t, now = Date.now()) {
   const base = last ? stepText(last) : st.text || ''
   return { text: quiet >= 5 && ['preparing', 'working', 'queued', 'routing', 'reading'].includes(st.stage) ? `${base} · ${quiet}초` : base }
 }
+
+// What the plan card shows (components/TurnPlanCard.vue): `reading` — the 「요청을 읽는 중」 head until the plan comes; `off` — the
+// front call is switched off (PRO_FRONT_PLAN=off): no head at all, only the steps and the live line, once there are any (review
+// 11-25 #10: 「요청을 읽는 중」 stood there for the whole turn). Nothing for the first 0.6 s without a plan: a message answered at once
+// (a panel, a schedule) ends before its card would flash.
+export function cardView(t, now = Date.now()) {
+  const off = t?.planState === 'off' && !t?.plan
+  const reading = !t?.plan && !off
+  const steps = stepsOf(t)
+  const live = liveLine(t, now)
+  const late = elapsed(t || {}, now) >= 600
+  const shown = !!t && (off ? late && (steps.length > 0 || !!live.text) : (!reading || late))
+  return { shown, off, reading, steps, live }
+}

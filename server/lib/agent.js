@@ -50,6 +50,7 @@ import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 import { sendMail, demoFiles } from './scenarios/mail.js'
 import * as TP from './turnPlan.js'
+import { oddsOf, TURN_ODDS_MS } from './decide.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
 const attached = new Map() // threadId -> [{name, path, url, type, size}]
@@ -235,19 +236,25 @@ export function runTurn(args) {
   const turn = turns.enqueue({ userId: args.user.id, threadId: args.threadId })
   turn.front = true
   return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto, onRetract: args.onRetract || null }, async () => {
+    // (the view ends however the turn does — a failure to write the 「멈췄어요」 message must not leave a card running for good)
+    let state = 'failed'
     try {
       const m = await handleTurn(args)
-      TP.end(turn, m?.content?.stopped ? 'stopped' : 'done')
+      state = m?.content?.stopped ? 'stopped' : 'done'
       return m
     } catch (e) {
-      if (!e?.turnStopped) { TP.end(turn, 'failed'); throw e }
+      if (!e?.turnStopped) throw e
+      state = 'stopped'
+      // what this message left for its agent turn is not picked up by the next message (review 11-25 #5)
+      attached.delete(args.threadId)
+      pinned.delete(args.threadId)
       console.log(`[turn] stopped before a handler started thread=${String(args.threadId).slice(0, 8)}`)
-      const m = await addMessage(args.user.id, args.threadId, 'agent', 'text', { text: `(${stoppedText()})`, stopped: true, ...TP.saved(turn, 'stopped') })
-      TP.end(turn, 'stopped')
-      return m
-    }
+      return await addMessage(args.user.id, args.threadId, 'agent', 'text', { text: `(${stoppedText()})`, stopped: true, ...TP.saved(turn, 'stopped') })
+    } finally { TP.end(turn, state) }
   }).finally(() => turn.finish())
 }
+// tests: a handler run inside a given turn (server/test/turnPlan.test.js)
+export const _test = { inTurn: (turn, fn) => turnCtx.run({ turn, userMsgId: null, adopted: false, auto: false }, fn), processTurn: (...a) => processTurn(...a) }
 // a turn stopped in its front stage starts no handler: runTurn answers it with 「멈췄어요」
 function checkpoint(t) {
   if (t?.stopped) throw Object.assign(new Error('stopped before a handler started'), { turnStopped: true })
@@ -569,10 +576,13 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     return startBrowserTurn({ user, session, threadId, goal: text, startUrl: siteUrl, onDelta, room, asked: { text, files }, ack: L('사이트에서 직접 처리할게요.', "I'll do it on the site.") })
   }
   // a message about the result just made goes to the agent that made it (lib/followups.js) — read beside the router, not before it
-  // (design turnplan §5.1: it held the router up by up to its odds limit)
-  const aboutP = followsResult(threadId, said.id, text).catch(() => null)
+  // (design turnplan §5.1: it held the router up by up to its odds limit); once it is found, the router's call is aborted
   TP.stage(store?.turn, 'routing')
-  const [about, routed] = await Promise.all([aboutP, TP.taskCards(threadId).then((tasks) => routeTurn({ user, session, hist, now, tasks, signal: store?.turn?.abort.signal }))])
+  const { about, routed } = await TP.aboutOrRoute({
+    about: () => followsResult(threadId, said.id, text),
+    route: (signal) => TP.taskCards(threadId).then((tasks) => routeTurn({ user, session, hist, now, tasks, signal, attachments: files.length })),
+    signal: store?.turn?.abort.signal,
+  })
   checkpoint(store?.turn)
   if (about) {
     if (about.conv) pinned.set(threadId, { conversationId: about.conv, title: about.title })
@@ -708,10 +718,33 @@ function skillsOf(userId, jwt) {
   if (hit && Date.now() - hit.at < 60_000) return Promise.resolve(hit.list)
   return listSkills(jwt).then((list) => { skillCache.set(key, { at: Date.now(), list }); return list })
 }
+// A router that gives up after 6 s drops tool routing silently when the gateway is slow (production once took 17.5 s): 「매주 월요일 9시에
+// 주간 보고 써 줘」 would go to the agent and no schedule would be made (review 11-25 #8). Every fallback is counted and logged with the
+// counts; on a timeout, the router is asked once more, for up to ROUTER_RETRY_MS, when the message needs one of its tools. Whether it
+// does is read by the odds judge (meaning is the model's call, never words matched here); only when no reading can be had, the
+// structural signs those tools take — an address, an attached file — decide. (A link alone is the commonest message and usually
+// a summary: the judge, not the address, says whether to wait.)
+export const ROUTER_RETRY_MS = Number(process.env.PRO_ROUTER_RETRY_MS) || 20_000
+export const routerStats = { calls: 0, fallbacks: 0, timeouts: 0, errors: 0, badArgs: 0, retried: 0, answeredOnRetry: 0 }
+const routerCounts = () => `fallbacks ${routerStats.fallbacks} of ${routerStats.calls} (timeouts ${routerStats.timeouts}, errors ${routerStats.errors}, bad arguments ${routerStats.badArgs}; asked again ${routerStats.retried}, answered then ${routerStats.answeredOnRetry})`
+const isTimeout = (e) => /TimeoutError/.test(e?.name || '') || /timeout|timed out/i.test(String(e?.message || ''))
+export const TOOL_OPTIONS = () => [
+  { key: 'tool', label: L('지금 도구가 할 일이다: 예약 · 알림 · 팀원에게 알리기 · 사이트에서 하는 일(로그인 · 주문 · 신청) · 패널 기록 · 프로세스 시작 · 메일 보내기',
+    'A tool must do it now: a schedule or reminder, notifying a teammate, work on a website (signing in, ordering, applying), a panel record, starting a process, sending a mail') },
+  { key: 'agent', label: L('에이전트가 할 일이다: 답 · 조사 · 요약 · 문서나 파일 작성', 'Work for the agent: an answer, research, a summary, writing a document or file') },
+]
+// does this message need one of the router's tools? → {want, via: 'odds'|'structure', p?}
+export async function toolWanted({ text, attachments = 0, judge = oddsOf }) {
+  const r = await judge(L(`사용자가 한 말: ${String(text || '').slice(0, 400)}`, `The person said: ${String(text || '').slice(0, 400)}`),
+    L('이 말을 처리하려면 무엇이 필요한가?', 'What does handling this message take?'), TOOL_OPTIONS(), { timeoutMs: TURN_ODDS_MS }).catch(() => null)
+  if (r?.probabilities) return { want: (r.probabilities.tool ?? 0) >= 0.5, via: 'odds', p: r.probabilities.tool ?? 0 }
+  return { want: /https?:\/\/\S/i.test(String(text || '')) || attachments > 0, via: 'structure' }
+}
 // → {call, args} when a tool is called, {call: null} for DELEGATE, null when the router failed (the agent takes the turn too)
-// call: the model call (tests replace it)
+// call: the model call; judge: the odds reading (tests replace both); limitMs / retryMs: the two time limits
 // tasks: the thread's recent task cards as lines (lib/turnPlan.js taskCards — a request that refers to one: 「아까 만들기로 한 노트북」)
-export async function routeTurn({ user, session, hist, now, tasks = [], signal, call = chat }) {
+// attachments: how many files the message carries
+export async function routeTurn({ user, session, hist, now, tasks = [], signal, attachments = 0, call = chat, judge = oddsOf, limitMs = ROUTER_MS, retryMs = ROUTER_RETRY_MS }) {
   const userId = user.id
   const t0 = Date.now()
   const [skillList, processHint, teamHint, appHint, schedHint] = await Promise.all([
@@ -728,13 +761,13 @@ export async function routeTurn({ user, session, hist, now, tasks = [], signal, 
   const taskHint = tasks.length ? `\n${TP.taskBlock(tasks)}` : ''
   const hintMs = Date.now() - t0
   const model = config.llm.fastModel
-  let route
-  try {
-    route = await call({
+  routerStats.calls++
+  const fallback = (why) => { routerStats.fallbacks++; console.warn(`[router] model=${model} ${why} after ${Date.now() - t0} ms (hints ${hintMs} ms) → delegate · ${routerCounts()}`); return null }
+  const ask = (ms) => call({
       model,
       temperature: 0,
       // (a cap: a routing answer is a tool call or one word — send_mail's body is the longest argument)
-      maxTokens: 1500, timeoutMs: ROUTER_MS, signal,
+      maxTokens: 1500, timeoutMs: ms, signal,
       // with no apps to name, a small router model still reaches for panel_record ("'문서 작성' 패널을 찾지 못했어요")
       // (send_mail is the demo scenarios' — the demo outbox, config.scenarios; off, a mail request goes where it went before them)
       tools: routerTools(ROUTER_TOOLS.filter((t) => (appHint || t.function.name !== 'panel_record') && (config.scenarios || t.function.name !== 'send_mail'))),
@@ -745,18 +778,31 @@ export async function routeTurn({ user, session, hist, now, tasks = [], signal, 
         ...hist.slice(-8),
       ],
     })
-  } catch (e) {
-    // 멈추기 (the turn's own signal): no handler at all — the caller's checkpoint says so
+  let route
+  try { route = await ask(limitMs) } catch (e) {
+    // 멈추기 (the turn's own signal), or the message turned out to be about the last result: no fallback — the caller decides
     if (signal?.aborted) return null
-    console.warn(`[router] model=${model} failed after ${Date.now() - t0} ms (hints ${hintMs} ms): ${String(e.message || e).slice(0, 160)} → delegate`)
-    return null
+    if (!isTimeout(e)) { routerStats.errors++; return fallback(`failed (${String(e.message || e).slice(0, 120)})`) }
+    routerStats.timeouts++
+    const said = hist[hist.length - 1]?.content
+    const w = await toolWanted({ text: typeof said === 'string' ? said : '', attachments, judge })
+    if (signal?.aborted) return null
+    if (!w.want) return fallback(`gave no answer in ${limitMs} ms (no tool needed: ${w.via}${w.p != null ? ` ${w.p.toFixed(2)}` : ''})`)
+    routerStats.retried++
+    console.warn(`[router] model=${model} gave no answer in ${limitMs} ms; the message needs a tool (${w.via}${w.p != null ? ` ${w.p.toFixed(2)}` : ''}) — asking again for up to ${retryMs} ms`)
+    try { route = await ask(retryMs); routerStats.answeredOnRetry++ } catch (e2) {
+      if (signal?.aborted) return null
+      if (isTimeout(e2)) return fallback(`gave no answer again in ${retryMs} ms`)
+      routerStats.errors++
+      return fallback(`failed on the second try (${String(e2.message || e2).slice(0, 120)})`)
+    }
   }
   const tc = route?.tool_calls?.[0] || null
   let args = {}
   if (tc) {
     try { args = JSON.parse(tc.function.arguments || '{}') || {} } catch (e) {
-      console.warn(`[router] model=${model} ${tc.function.name}: arguments are not JSON (${e.message}) → delegate`)
-      return null
+      routerStats.badArgs++
+      return fallback(`${tc.function.name}: arguments are not JSON (${e.message})`)
     }
   }
   console.log(`[router] model=${model} ${Date.now() - t0} ms (hints ${hintMs} ms) → ${tc ? tc.function.name : 'DELEGATE'}`)
@@ -860,11 +906,25 @@ async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
   // (a variation is made before the agent is called: not for a turn stopped in its front stage)
   checkpoint(turnCtx.getStore()?.turn)
   const work = await startChatWork({ user, folder, text, threadId })
+  // stopped while the variation was being made (review 11-25 #5): it is closed as a stopped run, and the chat is not pointed at it
+  const stoppedNow = turnCtx.getStore()?.turn?.stopped
+  if (stoppedNow) {
+    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
+    checkpoint(turnCtx.getStore()?.turn)
+  }
   await TF.noteVariation(user, threadId, folder, work.v).catch(() => {})
   // (folder: the run's own room — the main chat does not move into it, so the next message is not
   // answered there: lib/agent.js delegate)
   pinned.set(threadId, { conversationId: work.room, title: folder.kind === 'skill' ? L(`${folder.name} 스킬 고치기`, `Fix the ${folder.name} skill`) : L(`${folder.name} 폴더 작업`, `${folder.name} folder work`), folder: true })
-  const msg = await delegate({ user, session, threadId, text: work.message, onDelta })
+  let msg
+  try { msg = await delegate({ user, session, threadId, text: work.message, onDelta }) } catch (e) {
+    if (!e?.turnStopped) throw e
+    // stopped before the agent was called (review 11-25 #5): the variation made for it is closed as a stopped run, and the chat
+    // does not stay pointed at its room
+    pinned.delete(threadId)
+    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
+    throw e
+  }
   await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: !!msg?.content?.stopped }).catch((e) => console.warn('[folders] chat work', e.message))
   await TF.announce(user.id, threadId).catch(() => {})
   return msg
@@ -1118,7 +1178,7 @@ async function stopTurn(t, session, why) {
   else setTimeout(() => { if (!t.finished) t.abort.abort() }, 8000).unref?.()
 }
 export async function stopTurns({ user, session, threadId, conversation }) {
-  const list = turns.running({ userId: user.id, threadId, conv: conversation || null })
+  const list = turns.toStop(turns.running({ userId: user.id, threadId, conv: conversation || null }))
   for (const t of list) await stopTurn(t, session)
   if (!list.length) {
     const thread = await getThread(user.id, threadId)
@@ -1364,7 +1424,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
       body: JSON.stringify({
         // English mode: the language instruction goes last, after what the person said and the hints
-        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + planText + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + planText + langInstruction({ said: asked }), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
         files: chatFiles(sent),
         user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
         conversation_id: conv, stream: true,
@@ -1385,7 +1445,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   let buf = '', event = ''
   // the answer (design turnplan §3.4): deepagents' done.content when it sends one, else the last text segment — an interim text
   // followed by a tool goes to the progress panel's 메모 instead. Errors are added after it; skill authoring keeps all its text.
-  let doneText = null, errors = '', all = ''
+  let doneText = null, hitl = null, errors = '', all = ''
   let openAt = 0
   const segs = TP.createSegments({
     stream: mode !== 'skill',
@@ -1434,10 +1494,17 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         if (!thread?.conversation_id && !pin?.folder && !background) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
       }
       if (j.type === 'token' && j.content) { all += j.content; segs.token(j.content); partial = segs.answer() }
-      // a tool is being called: the text before it was on the way, not the answer
-      if (j.type === 'tool_start' || j.type === 'plan_tools') segs.cut()
+      // a tool is being called: the text before it was on the way, not the answer — unless the call is bookkeeping (the to-do
+      // list, a think step): then the text goes on (review 11-25 #2)
+      if (j.type === 'tool_start') { if (TP.bookkeeping(j.tool || j.tool_name || j.name)) segs.mark(); else segs.cut() }
+      if (j.type === 'plan_tools') {
+        const called = (Array.isArray(j.tools) ? j.tools : []).map((t) => t?.tool || t?.name || '')
+        if (called.length && called.every(TP.bookkeeping)) segs.mark(); else segs.cut()
+      }
       if (j.type === 'plan_todos') TP.todos(turn, j.todos)
-      if (j.type === 'done' && typeof j.content === 'string') doneText = j.content
+      // (the agent stopped to ask the person: its done.content is the question as JSON — kept apart, a later plain done does not
+      // replace it)
+      if (j.type === 'done' && typeof j.content === 'string') { if (TP.humanInput(j.content)) hitl = j.content; else doneText = j.content }
       const art = j.type === 'file_artifact' ? generationArtifact(j.path) : {}
       if (art.skill) skillDraft = art.skill
       const room = j.type === 'file_artifact' && /^\/workspace\/\.bpmn\/[^/]+\//.exec(j.path || '')
@@ -1496,7 +1563,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     }
   }
   await setThreadStatus(user.id, threadId, idleStatus())
-  let body = `${mode === 'skill' ? all : (doneText?.trim() || segs.answer())}${errors}`.trim()
+  let body = `${mode === 'skill' ? all : TP.finalAnswer(hitl || doneText, segs).text}${errors}`.trim()
   const ended = cancelled || turn.stopped
   // a turn that wrote a process definition ends with its draft card, not a skill card for a skill
   // the generation picked up along the way
@@ -1573,7 +1640,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const convNow = turn.conv || routing?.conversation_id || null
   const work = trail.list()
   const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
-    ...TP.saved(turn, ended ? 'stopped' : 'done'),
+    ...TP.saved(turn, ended ? 'stopped' : 'done', body),
     ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
   // the conversation's row: a project's sub-topic under the project (routed, or the view narrowed to it), else the main chat's
   if (topicRouted || (pin && !pin.folder && thread?.kind === 'project')) {
@@ -1710,15 +1777,19 @@ async function processTurn(userId, threadId, args) {
     return
   }
   if (args.intent === 'create') {
-    generating.set(threadId, args.query || '')
+    // stopped before the agent was called (review 11-25 #5): no draft is left pending in this chat — the draft is marked only right
+    // before the agent is asked (delegate checks the stop first thing), and taken back if that check stops it
+    checkpoint(turnCtx.getStore()?.turn)
     const guide = await systemGuide().catch(() => '')
     const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
     const { sessionFor } = await import('./supa.js')
     const { user, session } = await sessionFor(p.email, p.name)
+    generating.set(threadId, args.query || '')
     await delegate({ user, session, threadId,
       text: isEn()
         ? `Use bpmn-process-generation-skill to design a new process definition. First propose a draft of the flow and get it confirmed.\nRequirements: ${args.query}\nWrite the draft and, later, every name in the definition (process, roles/lanes, activities, events, gateways, conditions, forms and their fields, agents and their instructions) in English.${guide ? `\n\n### External systems guide (systems registry)\n${guide}\nMake a step that connects to an external system a serviceTask and set its tool to "mcp:<tool name>".` : ''}`
         : `bpmn-process-generation-skill 을 사용해서 새 프로세스 정의를 설계해 주세요. 먼저 흐름 초안을 제안하고 확인을 받아 주세요.\n요구사항: ${args.query}${guide ? `\n\n### 외부 시스템 가이드 (systems 레지스트리)\n${guide}\n외부 시스템과 연결되는 단계는 serviceTask 로 두고 tool 을 "mcp:<도구명>" 으로 지정한다.` : ''}` })
+      .catch((e) => { if (e?.turnStopped) generationDone(threadId); throw e })
     return
   }
   if (args.intent === 'catalog' || ((args.intent === 'start' || args.intent === 'view') && !args.query)) {

@@ -9,10 +9,14 @@ import { keyOf as chatKeyOf } from '../chatAgent.js'
 import { readListOpen, saveListOpen } from '../threadList.js'
 import { artifactScope, artifactItems, readFolded, saveFolded } from '../artifactScope.js'
 import { topicOf, topicList } from '../projectTopics.js'
+import { applyTurnEvent, fromSnapshot } from '../turnState.js'
 import { docSelectionOf, docSelectionKey, selectionMention, mentionContext, docConversation } from '../docSelection.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
+
+// turns this page saw end (turnId → when): a snapshot or a late event does not bring their cards back (src/turnState.js)
+const endedTurns = new Map()
 
 // a routed turn that came as a live event (another device, an answer after a dropped connection): the list's titles and summaries
 // again, once things settle (the router writes its row as the turn ends)
@@ -210,37 +214,17 @@ export const useApp = defineStore('app', {
     async loadTurns(id) {
       const r = await api(`/threads/${id}/turn`).catch(() => null)
       if (!r || !Array.isArray(r.turns)) return
-      const live = {}
-      // (the server's clock against this one: elapsed times count from the server's `at`)
-      const skew = r.now ? Date.now() - r.now : 0
-      for (const t of r.turns) live[t.turnId] = { ...t, skew, seenAt: Date.now() - Math.max(0, (r.now || Date.now()) - (t.lastAt || t.startedAt)), open: t.open || null, notes: t.notes || [], steps: t.steps || [], todos: t.todos || [] }
-      this.turns = { ...this.turns, [id]: live }
+      // (a turn that ended while the snapshot was on the way stays ended: src/turnState.js)
+      this.turns = { ...this.turns, [id]: fromSnapshot(r, endedTurns) }
+      if (this.turnPanel && !Object.values(this.turns[id]).some((t) => t.turnId === this.turnPanel) && endedTurns.has(this.turnPanel)) this.turnPanel = null
     },
     // the turn.* events (server lib/turnPlan.js) → this.turns
     onTurn(type, d) {
       if (!d?.threadId || !d.turnId) return
       const all = this.turns[d.threadId] || {}
-      if (type === 'turn.end') {
-        if (all[d.turnId]) { const { [d.turnId]: _gone, ...rest } = all; this.turns = { ...this.turns, [d.threadId]: rest } }
-        if (this.turnPanel === d.turnId) this.turnPanel = null
-        return
-      }
-      const t = all[d.turnId] || { turnId: d.turnId, threadId: d.threadId, msgId: null, startedAt: d.at, planState: 'reading', plan: null, handler: null, stage: null, todos: [], steps: [], notes: [], open: null }
-      // seenAt: when the last event came (the live line's 「· 12초」 counts from it); skew: this clock against the server's
-      const next = { ...t, lastAt: d.at || Date.now(), seenAt: Date.now(), skew: d.at ? Date.now() - d.at : (t.skew || 0), ...(d.conversationId ? { conversationId: d.conversationId } : {}) }
-      if (type === 'turn.start') Object.assign(next, { msgId: d.msgId || null, startedAt: d.startedAt || d.at })
-      else if (type === 'turn.plan') Object.assign(next, { planState: 'planned', handler: d.handler || null,
-        plan: { understood: d.understood, steps: d.steps || [], tier: d.tier, certainty: d.certainty, source: d.source, alternatives: d.alternatives || [] } })
-      else if (type === 'turn.stage') next.stage = { stage: d.stage, text: d.text, ...(d.detail ? { detail: d.detail } : {}), at: d.at }
-      else if (type === 'turn.todos') next.todos = d.todos || []
-      else if (type === 'turn.step') {
-        const i = next.steps.findIndex((x) => (d.key && x.key === d.key) || x.seq === d.seq)
-        next.steps = i >= 0 ? next.steps.map((x, k) => (k === i ? d : x)) : [...next.steps, d].slice(-30)
-      } else if (type === 'turn.note') {
-        if (d.open) next.open = { seq: d.seq, text: d.text }
-        else { next.open = null; next.notes = [...next.notes, { seq: d.seq, text: d.text }].slice(-10) }
-      } else if (type === 'turn.call') next.call = d.state === 'end' ? null : d
-      this.turns = { ...this.turns, [d.threadId]: { ...all, [d.turnId]: next } }
+      const next = applyTurnEvent(all, type, d, endedTurns)
+      if (next !== all) this.turns = { ...this.turns, [d.threadId]: next }
+      if (type === 'turn.end' && this.turnPanel === d.turnId) this.turnPanel = null
     },
     // the local CLI agent runs on now (Home cards) and one run's newest card (a push, or what a steer answered)
     async loadLocalActive() {
@@ -382,6 +366,9 @@ export const useApp = defineStore('app', {
         window.dispatchEvent(new CustomEvent('pgl:local-presence', { detail: d }))
       } else if (type.startsWith('turn.')) {
         this.onTurn(type, d)
+      } else if (type === 'reconnect') {
+        // the live events were cut and came back (src/api.js): what ran meanwhile — a turn that ended unseen — is read again
+        for (const id of new Set([...Object.keys(this.turns), this.activeId].filter(Boolean))) this.loadTurns(id)
       } else if (type === 'status') {
         this.status[d.threadId] = d.text
       } else if (type === 'browser.frame') {

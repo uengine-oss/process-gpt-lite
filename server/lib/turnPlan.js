@@ -180,11 +180,12 @@ export function begin({ turn, userId, threadId, msgId, text, files = [], plan = 
     turn, turnId: turn.id, userId, threadId, msgId, startedAt: Date.now(), lastAt: Date.now(), plan: null, planState: 'reading',
     handler: null, stage: null, stages: [], todos: [], steps: [], notes: [], open: null, seq: 0, ended: null, abort: new AbortController(),
   }
+  // (the front call switched off — PRO_FRONT_PLAN=off: the page shows no 「요청을 읽는 중」 head, only what the turn does)
+  if (!plan) v.planState = 'off'
   views.set(turn.id, v)
-  send(v, 'turn.start', { msgId, startedAt: v.startedAt })
+  send(v, 'turn.start', { msgId, startedAt: v.startedAt, planState: v.planState })
   stage(turn, 'reading')
   v.ready = plan ? runFront(v, text, files) : Promise.resolve(null)
-  if (!plan) v.planState = 'off'
   return v
 }
 
@@ -215,9 +216,10 @@ function sendPlan(v) {
     alternatives: [], source: v.plan.source })
 }
 // the plan and the router can read a message differently (the plan says summarise, the router starts a browser task):
-// the handler line always comes from the router, and both readings are logged
+// the handler line always comes from the router, and both readings are logged — their shape only, never what the person
+// asked or what the plan says (review 11-25 #12)
 function logReadings(v) {
-  console.log(`[turn-plan] handler=${v.handler.kind}${v.handler.skill ? `:${v.handler.skill}` : ''} plan(${v.plan?.source || '-'})="${String(v.plan?.understood || '').slice(0, 80)}" thread=${String(v.threadId).slice(0, 8)}`)
+  console.log(`[turn-plan] handler=${v.handler.kind}${v.handler.skill ? `:${v.handler.skill}` : ''} plan=${v.plan?.source || '-'} tier=${v.plan?.tier || '-'} understood=${String(v.plan?.understood || '').length}ch steps=${v.plan?.steps?.length ?? 0} thread=${String(v.threadId).slice(0, 8)}`)
 }
 
 // what the existing path decided: {kind: 'agent'|'browser'|'action'|'process', skill?, label}
@@ -302,15 +304,17 @@ export function end(turn, state = 'done') {
 }
 
 // what the answer (or the 「멈췄어요」 message) keeps: content.plan and content.notes
-export function saved(turn, state) {
+// body: the answer saved with it — a note that is part of it (an agent's question streamed before it asked) is not kept twice
+export function saved(turn, state, body = '') {
   const v = viewOf(turn)
   if (!v?.plan) return {}
+  const notes = v.notes.map((n) => n.text).filter((t) => !(body && String(body).includes(t)))
   const steps = v.todos.length ? v.todos.map((t) => ({ ...t, state: state === 'done' ? 'done' : t.state }))
     : v.plan.steps.map((s) => ({ ...s, state: state === 'done' ? 'done' : 'pending' }))
   return {
     plan: { understood: v.plan.understood, steps, handler: v.handler, tier: v.plan.tier, model: v.plan.model || null, source: v.plan.source,
       state, ms: Date.now() - v.startedAt, stages: v.stages.slice(0, 20), fromTodos: !!v.todos.length },
-    ...(v.notes.length ? { notes: v.notes.map((n) => n.text) } : {}),
+    ...(notes.length ? { notes } : {}),
   }
 }
 
@@ -347,6 +351,10 @@ export function turnRoutes(auth, { thread = getThread } = {}) {
 }
 
 // ---------- interim text (§3.4) ----------
+// Bookkeeping calls (the to-do list, a think step — the ones the work trail leaves out too, lib/workTrail.js) are not work: text
+// before them is not "interim". A 1,500-character summary, then write_todos, then 「모든 단계를 마쳤어요.」 is one answer
+// (review 11-25 #2: only the last line was saved).
+export const bookkeeping = (tool) => /^(write_todos|think|todo)/i.test(String(tool || ''))
 // Tokens are collected per segment; a segment ends at a tool event (tool_start, plan_tools) or the end of the stream. Under
 // PROMOTE_CHARS it shows only on the card's live line (onOpen); past it, with no tool event, it becomes the draft answer (onDelta,
 // streamed from then on); a tool event after that takes it back (onRetract) and it becomes a note (onNote), as a short one does.
@@ -359,6 +367,10 @@ export function createSegments({ promoteAt = PROMOTE_CHARS, onDelta, onRetract, 
       if (promoted) return onDelta?.(t)
       if (stream && seg.trim().length > promoteAt) { promoted = true; onPromote?.(); onDelta?.(seg); return }
       onOpen?.(seg)
+    },
+    // a bookkeeping call between two runs of text: the segment goes on, with a paragraph break between the two messages
+    mark() {
+      if (seg.trim() && !/\n\s*$/.test(seg)) { seg += '\n\n'; if (promoted) onDelta?.('\n\n') }
     },
     cut() {
       const s = seg.trim()
@@ -373,6 +385,46 @@ export function createSegments({ promoteAt = PROMOTE_CHARS, onDelta, onRetract, 
     // the answer at the end of the stream: the open segment, else the last closed one
     current: () => seg.trim(),
     answer: () => seg.trim() || lastClosed,
+    lastClosed: () => lastClosed,
     promoted: () => promoted,
   }
+}
+
+// ---------- the answer saved for a turn (§3.4) ----------
+// deepagents' done.content is the last assistant message — or, when the agent stopped to ask the person (request_human_input), the
+// interrupt as JSON: {"type":"human_input_required","question","context","options","run_state"} (deepagents executor.py). That JSON
+// was saved as the answer (review 11-25 #1). The question becomes the answer; any other JSON is never taken as answer text.
+export function humanInput(text) {
+  const t = String(text ?? '').trim()
+  if (!t.startsWith('{')) return null
+  let j
+  try { j = JSON.parse(t) } catch { return null }
+  if (!j || j.type !== 'human_input_required' || !String(j.question || '').trim()) return null
+  const opts = (Array.isArray(j.options) ? j.options : []).map((o) => String(o && typeof o === 'object' ? o.label ?? o.text ?? o.value ?? '' : o ?? '').trim()).filter(Boolean).slice(0, 6)
+  const context = String(j.context || '').trim()
+  const question = String(j.question).trim()
+  // (the options as a list right under the question: the chat's quick replies read them — src/replies.js)
+  return [context, [question, ...opts.map((o) => `- ${o}`)].join('\n')].filter(Boolean).join('\n\n')
+}
+const isJson = (t) => { const x = String(t ?? '').trim(); if (!/^[[{]/.test(x)) return false; try { JSON.parse(x); return true } catch { return false } }
+// done: done.content (or null); segs: the stream's segments (createSegments) → {text, asks}
+export function finalAnswer(done, segs) {
+  const asked = humanInput(done)
+  if (asked) return { text: asked, asks: true }
+  const d = typeof done === 'string' && !isJson(done) ? done.trim() : ''
+  const seg = segs?.answer?.() || ''
+  // the last message only (done.content), unless the segment it ends is longer — the text before it was followed by bookkeeping
+  // only (a summary, then write_todos, then a closing line): then the whole segment is the answer
+  if (d && seg.length > d.length && seg.endsWith(d)) return { text: seg }
+  return { text: d || seg }
+}
+
+// The person's own message and the front router (lib/agent.js): a message about the result just made goes to the agent that
+// made it, so the router's call is not wanted once that is found — it is aborted (review 11-25 #11). → {about, routed}
+export async function aboutOrRoute({ about, route, signal }) {
+  const ac = new AbortController()
+  const sig = signal ? AbortSignal.any([signal, ac.signal]) : ac.signal
+  const a = Promise.resolve().then(about).catch(() => null).then((x) => { if (x) ac.abort(); return x })
+  const [found, routed] = await Promise.all([a, Promise.resolve().then(() => route(sig)).catch(() => null)])
+  return { about: found, routed: found ? null : routed }
 }

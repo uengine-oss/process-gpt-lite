@@ -71,9 +71,17 @@ export async function waitTurn(t, onQueued) {
 
 // The running turns a stop request reaches: this user's, in this thread, optionally one conversation — and a message still in its
 // front stage (t.front: read and routed before any handler starts — lib/agent.js runTurn): 멈추기 then stops it before a handler
-// starts (design turnplan §1.3; it used to go on and run).
+// starts (design turnplan §1.3; it used to go on and run). A message in its front stage has no conversation yet: in one
+// conversation's (or sub-topic's) view it is still that view's (review 11-25 #3).
 export function running({ userId, threadId, conv }) {
-  return [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && (x.started || x.front) && !x.finished && (!conv || x.conv === conv))
+  return [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && (x.started || x.front) && !x.finished
+    && (!conv || x.conv === conv || (x.front && !x.started && !x.conv)))
+}
+// What 멈추기 stops: the answers being written if there are any — a message just sent while one is written (still in its front stage)
+// goes on (review 11-25 #4); a message in its front stage only when nothing has started.
+export function toStop(list) {
+  const started = list.filter((x) => x.started)
+  return started.length ? started : list
 }
 export const waiting = ({ userId, threadId }) => [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && !x.started && !x.front && !x.finished)
 
