@@ -1,0 +1,16 @@
+
+Running 8 tests using 1 worker
+
+◇ injected env (16) from ../server/.env
+  ✓  1 [feature] › tests/feature/profile-picture.spec.js:135:1 › F-AV-01 기본 사진을 고르면 위 막대 · 설정 머리에 그 사진 — users.profile 은 Process GPT 와 같은 경로 (15.1s)
+
+  ✓  2 [feature] › tests/feature/profile-picture.spec.js:181:1 › F-AV-02 내 사진 올리기 — 가운데 정사각형 256px, 내 폴더의 주소, 다시 올리면 앞의 것은 지움 (6.1s)
+  ✓  3 [feature] › tests/feature/profile-picture.spec.js:217:1 › F-AV-03 사진 지우기 — 이름 첫 글자로, DB 는 열의 기본값, 올린 사진은 저장소에서 지움 (6.2s)
+  ✓  4 [feature] › tests/feature/profile-picture.spec.js:239:1 › F-AV-04 Process GPT 가 DB 에 쓴 사진을 Lite 가 보여 준다 — 나의 위 막대, 팀원의 팀 목록 · 메신저 (5.2s)
+  ✓  5 [feature] › tests/feature/profile-picture.spec.js:267:1 › F-AV-05 깨진 사진은 이름 첫 글자 — 다른 사이트 주소는 부르지도 않는다 (6.7s)
+  ✓  6 [feature] › tests/feature/profile-picture.spec.js:294:1 › F-AV-06 서버 검사 — 기본 사진 · 내 폴더의 사진 · 빈 값만, 내 행만 (415ms)
+  ✓  7 [feature] › tests/feature/profile-picture.spec.js:333:1 › F-AV-07 휴대폰 390px 밝은 · 밤 — 설정 머리 · 프로필 줄 · 사진 고르기 창이 화면 안 (25.1s)
+  ✓  8 [feature] › tests/feature/profile-picture.spec.js:377:1 › F-AV-08 구글로 로그인한 사람은 구글 사진이 기본 — 고른 사진이 이기고, 「Google 사진으로」는 구글 사진으로 (34.5s)
+
+  8 passed (1.8m)
+exit 0

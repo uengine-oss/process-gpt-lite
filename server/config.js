@@ -31,6 +31,9 @@ export const config = {
   enDemoTenant: get('PRO_EN_DEMO_TENANT', 'en-demo'),
 
   supabaseUrl: get('PRO_SUPABASE_URL', 'http://127.0.0.1:54321'),
+  // where a Google account's picture may come from (the default picture of someone signed in with Google, lib/profilePicture.js):
+  // `*.googleusercontent.com` (https); tests point it at a stand-in host on this machine (http://127.0.0.1:<port>)
+  avatarHosts: get('PRO_AVATAR_HOSTS', '*.googleusercontent.com'),
   anonKey: get('ANON_KEY'),
   serviceKey: get('SERVICE_ROLE_KEY'),
   db: {

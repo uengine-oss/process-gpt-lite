@@ -4,8 +4,10 @@
 // so the meeting can lower this person's own voice while their interpretation plays (duck.js).
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { langLabel } from '../../i18n/mainLangs.js'
+import PersonFace from '../PersonFace.vue'
 
-const props = defineProps({ stream: Object, name: String, me: Boolean, muted: Boolean, camOff: Boolean, consent: Boolean, state: String, level: Number, screen: Boolean, lang: String, showLang: Boolean, interpreting: Boolean })
+// personId: whose tile (their picture shows while the camera is off — src/people.js)
+const props = defineProps({ stream: Object, name: String, personId: String, me: Boolean, muted: Boolean, camOff: Boolean, consent: Boolean, state: String, level: Number, screen: Boolean, lang: String, showLang: Boolean, interpreting: Boolean })
 const emit = defineEmits(['el'])
 const v = ref(null)
 const attach = () => { if (v.value && v.value.srcObject !== (props.stream || null)) v.value.srcObject = props.stream || null }
@@ -17,7 +19,7 @@ watch(() => props.stream, attach)
 <template>
   <div class="tile" :class="{ me, off: camOff || !stream, talking: (level || 0) > 0.12, interp: interpreting }" :data-test="interpreting ? 'tile-interpreting' : null">
     <video v-show="stream && !camOff" ref="v" autoplay playsinline :muted="me" />
-    <div v-if="camOff || !stream" class="av">{{ String(name || '?').slice(0, 1) }}</div>
+    <div v-if="camOff || !stream" class="av"><span class="face"><PersonFace :id="personId" :name="name" /></span></div>
     <div class="nm">
       <span>{{ name }}{{ me ? ' (나)' : '' }}</span>
       <i v-if="muted" class="tag" title="마이크 꺼짐">음소거</i>
@@ -35,6 +37,7 @@ watch(() => props.stream, attach)
 .tile.talking { box-shadow: 0 0 0 3px #3ccf91; }
 video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .av { position: absolute; inset: 0; display: grid; place-items: center; font-size: 42px; font-weight: 600; color: #fff; background: linear-gradient(135deg, #5c6f9e, #2f3c62); }
+.av .face { width: min(42%, 120px); aspect-ratio: 1; border-radius: 9999px; display: grid; place-items: center; overflow: hidden; }
 .nm { position: absolute; left: 10px; bottom: 8px; right: 10px; display: flex; align-items: center; gap: 6px; color: #fff; font-size: 14px; font-weight: 500; text-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
 .tag { font-style: normal; font-size: 11px; padding: 2px 7px; border-radius: 8px; background: rgba(0, 0, 0, .5); text-shadow: none; }
 .tag.nc { background: rgba(229, 72, 77, .85); }

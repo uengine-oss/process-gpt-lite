@@ -17,6 +17,14 @@
 
 ### 추가
 
+- **프로필 사진 — Process GPT 와 같은 사진, 같은 칸** (2026-11-25 사용자: 「내 프로필 사진 어떻게 바꾸냐? Process GPT 버전과 일관성고려하여」 — 설정 머리와 위 막대에는 이름 첫 글자뿐이었습니다. 스펙 `profile-picture`):
+  - 사진은 Process GPT 의 계정 설정이 쓰는 칸(그 회사의 `users.profile`) 하나에 둡니다. 어느 앱에서 바꾸든 두 앱에 같은 사진이 보입니다. `GET /api/me` 의 `user.picture`.
+  - 설정 머리의 동그라미(카메라 표시)나 설정 › 프로필 「바꾸기」 → 「프로필 사진」 창: Process GPT 의 기본 사진 18장(같은 경로 `/assets/images/profile/…` 로 저장), 「내 사진 올리기」(브라우저에서 가운데 정사각형 256px WebP 로 줄여 이 설치 저장소의 내 폴더 `files/pgpt-pro/<나>/avatar/` 에), 「사진 지우기」(열의 기본값 — Process GPT 의 「사진 없음」 — 으로). 바꾸거나 지우면 전에 올린 사진은 저장소에서도 지웁니다.
+  - 기본 사진은 사이트 뿌리(운영에서는 Process GPT 의 파일)에서 먼저 불러오고, 없으면 Lite 가 함께 가진 같은 18장의 사본(`public/assets/images/profile/`, 출처 · MIT 고지 `NOTICE.txt`)을 씁니다. 불러오지 못한 사진은 이름 첫 글자로 돌아갑니다(밝은 · 밤 테마).
+  - 팀·역할의 팀원, 메신저(대화 목록 · 받은 편지함 · 보낸 사람 · @ 고르기 · 새 대화 상대), 회의에서 카메라를 끈 칸, 공유 폴더의 사람 동그라미에도 그 사람의 사진(`GET /api/people/pictures`). 에이전트의 메시지에는 쓰지 않습니다.
+  - 구글로 로그인한 사람은 구글 계정의 사진이 기본입니다(같은 날 덧붙임 「프로필 사진은 기본적으로 social login 인 경우는 구글에 설정된 이미지가 나오는게」). 보이는 순서는 고른 사진 → 구글 사진 → 이름 첫 글자. 구글 사진은 인증 서버의 기록(구글 identity, Lite 자체 구글 로그인 때 서버가 `app_metadata.google_picture` 에 저장)에서만, https `*.googleusercontent.com`(`PRO_AVATAR_HOSTS`)에 있을 때만 씁니다. 비어 있는 `users.profile` 은 들어올 때 구글 사진으로 한 번 채워(Process GPT 에도 같은 사진), 그 칸이 구글 주소인 동안은 구글 계정의 지금 사진을 따릅니다. 고른 사진은 덮지 않고, 「Google 사진으로」를 누르면 구글 사진으로 돌아갑니다. 리퍼러 없이 요청하고, 열리지 않으면 이름 첫 글자입니다. `GET /api/me` 의 `user.pictureDefault`.
+  - 서버 검사(`PUT /api/me/picture` · `POST /api/me/picture/upload`): 기본 사진 18장 · 내 폴더에 올린 jpg · webp · png · 빈 값만 받고 나머지는 400(다른 사이트 주소 · 남의 사진 · `data:` · 다른 버킷 …). 업로드는 앞 바이트가 JPEG · WebP · PNG 일 때만, 1MB 까지. 내 행만 바꿉니다. 화면에 보내는 사진도 이 사이트 · 이 설치 저장소의 그림만이라, 다른 앱이 다른 사이트 주소를 써 두어도 브라우저가 부르지 않습니다. SQL 없음. 시험 `server/test/profilePicture.test.js` · F-AV-01~08.
+
 - **브라우저 작업은 내 PC 의 브라우저에서 — 데스크톱 앱이 켜져 있으면 그 PC 에서, 휴대폰만 쓸 때는 지금처럼 서버에서** (2026-11-24 사용자: 「이 부분도 일렉트론 버전에서는 로컬 브라우저를 이용하는게 더 효율적이지 않을까?」 · 「그래도 순수 모바일에서는 이 작업이 가능해야하니」 — 서버 쪽은 PR #46. 스펙 `browser-handoff` 「브라우저 작업은 내 PC 의 브라우저에서도 돈다」 외 두 요구사항, `local-agents`, 설계 `docs/local-agents/browser.md`):
   - 에이전트 루프(`server/lib/browser.js` — 계획 · 모델 · 판정 · 보관함 · 스킬 · 카드 · 감시 · 걸음마다 한도)는 하나로 두고, 페이지를 움직이는 드라이버만 바꿉니다: 서버 Chromium(`server/lib/browserServer.js`, 그동안 `browser.js` 안에 있던 Playwright 코드를 옮김) 또는 그 사람 데스크톱의 링크 너머 브라우저(`server/lib/browserRemote.js`, 링크 쪽 `server/lib/localAgents/browserLink.js`). 같은 시험(`server/test/browserDriver.test.js`)을 두 드라이버에 그대로 돌립니다.
   - 어디서: 작업이 브라우저를 받을 때 그 사람의 데스크톱(0.2.3, `caps.browser`)이 켜져 있고 그 PC 의 설정이 이 작업을 받으면 PC, 아니면 서버. 설정은 PC 마다 그 PC 의 앱에서(설정 › 계정 › 내 컴퓨터의 에이전트 「브라우저 작업은 이 PC에서」: 「내가 시킨 작업만」 기본 · 「단계 · 예약 작업까지 모두」 · 「쓰지 않음」) — 앱이 실행 설정과 함께 저장하고 링크의 `prefs.browser` 로 알립니다. 서버에는 저장하지 않습니다(SQL 없음). 웹 · 휴대폰의 설정은 PC 마다의 설정과 지금 어디서 도는지를 읽기만 합니다. 「이 컴퓨터에서 단계 실행」을 끈 PC 로는 가지 않고, 사람이 없는 작업(단계 · 예약 · MCP · 남이 시킨 것)은 그 PC 가 「모두」일 때만 가며 그때도 PC 의 내부망 주소는 열지 않습니다. 카드에 「내 PC · <기기>」, 확장 화면과 사람을 기다릴 때 「이 PC에서 보기」(그 PC 에 브라우저 창이 보이고 사람이 그 창에서 직접 함).

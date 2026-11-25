@@ -24,6 +24,7 @@ import { langLabel } from '../../i18n/mainLangs.js'
 import { hidePaths } from '../../paths.js'
 import ConflictChoice from './ConflictChoice.vue'
 import FolderSuggest from '../folders/FolderSuggest.vue'
+import PersonFace from '../PersonFace.vue'
 import { uploadTeamFile, api } from '../../api.js'
 // link preview cards under a message with links (server lib/linkPreview.js)
 import LinkPreviews from '../LinkPreviews.vue'
@@ -75,7 +76,9 @@ const thread = computed(() => team.threads.find((t) => t.id === team.active) || 
 const list = computed(() => team.msgs[team.active] || [])
 const myFiles = computed(() => (app.messages[app.mainThread?.id] || []).filter(shareable).slice(-12).reverse())
 const inboxUnread = computed(() => team.inbox.filter((x) => x.unread).length)
-const initial = (s) => String(s || '?').slice(0, 1)
+// a person's picture in their circle (src/people.js); an agent's message is not its owner's face
+const senderId = (s) => (s?.agent ? null : s?.id || null)
+const otherOf = (t) => (t.members || []).find((p) => p.id !== app.me?.user?.id) || null
 const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -382,7 +385,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
         <div v-if="picking" class="pick">
           <p class="cap">대화할 팀원 (여럿 고르면 그룹 대화)</p>
           <button v-for="p in people || []" :key="p.id" class="row press" :class="{ on: chosen.includes(p.id) }" @click="choose(p)">
-            <span class="av">{{ initial(p.name) }}</span><span class="nm"><b>{{ p.name }}</b><small>{{ (p.roles || []).join(', ') || p.email }}</small></span>
+            <span class="av"><PersonFace :id="p.id" :name="p.name" /></span><span class="nm"><b>{{ p.name }}</b><small>{{ (p.roles || []).join(', ') || p.email }}</small></span>
             <span class="ck">{{ chosen.includes(p.id) ? '✓' : '' }}</span>
           </button>
           <p v-if="people && !people.length" class="empty">대화할 팀원이 없어요.</p>
@@ -405,7 +408,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           </template>
           <template v-else>
           <article v-for="m in team.inbox" :key="m.id" class="mail" :class="{ unread: m.unread }">
-            <div class="mh"><span class="av">{{ initial(m.sender.name) }}</span>
+            <div class="mh"><span class="av"><PersonFace :id="senderId(m.sender)" :name="m.sender.name" /></span>
               <span class="who"><span><b>{{ m.sender.name }}</b> · {{ kindWord[m.kind] }}</span><small>{{ when(m.at) }}</small></span></div>
             <p v-if="m.context?.title" class="ctitle">{{ m.context.title }}</p>
             <p v-if="m.body" class="body" :data-no-i18n="team.tr[m.id]?.body ? '' : null">{{ hidePaths(team.trBody(m) || m.body) }}</p>
@@ -443,7 +446,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <p v-if="team.pendingMention?.length" class="pending" data-test="msg-pending-mail"><Icon name="mail" :size="14" /><span>대화를 고르면 「{{ team.pendingMention[0].name }}」 메일이 멘션으로 붙어요</span>
             <button class="press" aria-label="취소" @click="team.pendingMention = null">×</button></p>
           <button v-for="t in team.threads" :key="t.id" class="th press" :class="{ on: t.id === team.active }" @click="team.openThread(t.id)">
-            <span class="av" :class="{ grp: t.kind === 'group' }">{{ t.kind === 'group' ? t.members.length : initial(t.title) }}</span>
+            <span class="av" :class="{ grp: t.kind === 'group' }"><template v-if="t.kind === 'group'">{{ t.members.length }}</template><PersonFace v-else :id="otherOf(t)?.id" :name="t.title" /></span>
             <span class="nm"><b>{{ t.title }}</b>
               <small>{{ t.last ? `${t.last.mine ? '나: ' : ''}${t.last.kind === 'share' ? `산출물 ${t.last.files}개 공유${t.last.body ? ' · ' + t.last.body : ''}` : t.last.body}` : '새 대화' }}</small></span>
             <i v-if="team.unread.byThread[t.id]" class="badge">{{ team.unread.byThread[t.id] }}</i>
@@ -469,7 +472,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <template v-for="m in list" :key="m.id">
             <MeetingRoomCard v-if="String(m.kind).startsWith('meeting')" :m="m" :title="thread.title" />
             <div v-else :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent' }">
-              <span v-if="!m.mine" class="av sm">{{ initial(m.sender.name) }}</span>
+              <span v-if="!m.mine" class="av sm"><PersonFace :id="senderId(m.sender)" :name="m.sender.name" /></span>
               <div class="bub">
                 <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ m.sender.name }}</p>
                 <p v-if="m.kind === 'agent'" class="kind">✦ {{ m.sender.name }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
@@ -503,7 +506,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((x) => x.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
                 <div v-if="branchesOf[m.id]?.length" class="brs">
                   <div v-for="b in branchesOf[m.id]" :key="b.room" class="br" :data-room="b.room">
-                    <span class="av xs" :title="b.by === 'agent' ? '에이전트가 고침' : ''">{{ initial(b.recipient.name) }}</span>
+                    <span class="av xs" :title="b.by === 'agent' ? '에이전트가 고침' : ''"><PersonFace :id="b.recipient.id" :name="b.recipient.name" /></span>
                     <span class="bl"><b>{{ b.recipient.name }}</b> {{ branchLine(b) }}</span>
                     <button v-for="f in changedFiles(b)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" data-test="branch-file" @click="openBranch(b, f)">
                       <Icon name="eye" :size="13" />{{ f.split('/').pop() }}
@@ -566,7 +569,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
               <div v-if="at.open && atItems.length" class="atlist glass" role="listbox" data-test="msg-at-list" :style="{ left: `${12 + at.x}px` }" @mousedown.prevent>
                 <button v-for="(it, k) in atItems" :key="it.key" class="row press" role="option" :class="{ on: k === at.active, ai: it.type === 'ai' }" :data-test="it.type === 'ai' ? 'msg-at-ai' : 'msg-at-person'"
                   @click="atPick(it)" @mouseenter="at.active = k">
-                  <span class="av" :class="{ ai: it.type === 'ai' }">{{ it.type === 'ai' ? '✦' : initial(it.name) }}</span>
+                  <span class="av" :class="{ ai: it.type === 'ai' }"><template v-if="it.type === 'ai'">✦</template><PersonFace v-else :id="it.id" :name="it.name" /></span>
                   <span class="nm"><b>{{ it.name }}</b><small>{{ it.sub }}</small></span>
                 </button>
               </div>
@@ -623,7 +626,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .tabs i, .badge { font-style: normal; display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; text-align: center; }
 .items { flex: 1; overflow: auto; padding: 0 10px 12px; }
 .empty { font-size: 13px; color: var(--text-secondary); text-align: center; margin: 24px 8px; }
-.av { flex: none; width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; font-weight: 600; font-size: 14px; color: #fff; background: linear-gradient(135deg, #8aa6d8, #4a5f9a); }
+.av { flex: none; width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; overflow: hidden; font-weight: 600; font-size: 14px; color: #fff; background: linear-gradient(135deg, #8aa6d8, #4a5f9a); }
 .av.grp { background: #0f8a5f; } .av.sm { width: 28px; height: 28px; font-size: 12px; }
 .mail { padding: 12px; border-radius: 16px; margin-bottom: 8px; background: rgba(127, 127, 127, .07); }
 .mail.unread { background: rgba(42, 120, 214, .1); box-shadow: inset 3px 0 0 #2a78d6; }
