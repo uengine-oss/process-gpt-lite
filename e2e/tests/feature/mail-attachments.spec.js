@@ -11,6 +11,10 @@
 //   F-MA-07 메신저에 끌어 놓기 → 동료는 이름 · 요약만 → 열기 요청 → 주인이 「파일 공유」 → 동료가 읽기 전용으로 엶 → 공유 그만두기 → 다시 잠김,
 //           다시 공유한 것을 메일 시트의 공유 목록 「공유 중 · 서민재 · 끄기」로 끔(검토 11-25 #5)
 //   F-MA-08 390px 휴대폰(밝은 · 밤): 칩 · ⋯ 메뉴 · 「내려받기」가 화면 안, 옆으로 넘치지 않음
+//   F-MA-09 팩스(TIFF — 운영 11-25 「[KT 스마트메시지 Plus] 팩스 메시지 도착알림」의 arrive_….tif 가 FILE · 「앱 안에서 열지 않는 형식이에요」뿐이던 것):
+//           칩은 IMG → 앱의 보기 화면 ‹ 1 / 2 › → 2쪽(그려진 그림), 손상된 TIFF 는 차분한 안내, 「이 첨부로 묻기」 → 가짜 에이전트가 쪽마다 PNG 를 읽음
+//   F-MA-10 팩스 · 390px 휴대폰(밝은 · 밤): 칩 · 보기 화면 · 쪽 넘기기가 화면 안, 한 쪽이 통째로 보임
+// TIFF 시험 파일은 e2e/fixtures/tiff (만든 방법은 server/fixtures/tiff/make.py).
 // 자기 스택(lib/localStack.js — 테넌트 mailatt-ui, BFF 8930~ · Vite 5330~), 실제 이음오피스 편집기(lib/officeHost.js, 5395~), 이 파일이 띄우는
 // 가짜 Google(Gmail 원문 · 첨부, 8937~), 가짜 deepagents(8938~ — 받은 첨부를 실제로 읽어 합계를 셈), 가짜 모델(8936~ — 채팅 라우터는 늘
 // DELEGATE). 실제 모델 · 공용 deepagents · completion · 허브는 부르지 않는다. BFF 의 에이전트 작업 공간은 임시 폴더(PGPT_ROOT 를 그 옆으로)라 개발 PC 의 작업 공간에 쓰지 않는다.
@@ -40,24 +44,31 @@ const CARD_TEXT = '세무법인 오가람 2026년 11월 급여대장 확인 후 
 const ROWS = [['이름', '기본급', '공제', '실지급'], ['한지우', 3200000, 320000, 2880000], ['서민재', 2900000, 290000, 2610000], ['합계', 6100000, 610000, 5490000]]
 const ASK = '이 급여대장 총액 맞는지 봐줘'
 const MAIL_ID = 'g-ma-payroll-1'
+// the fax of the report (KT 스마트메시지 Plus, 2026-11-25): a two-page CCITT G4 TIFF, and a damaged one beside it
+const FAX_ID = 'g-ma-fax-1'
+const FAX_SUBJECT = '[KT 스마트메시지 Plus] 팩스 메시지 도착알림'
+const FAX_NAMES = ['arrive_xroshotplus_uengine1_20261125095030049_121017596357694.tif', '팩스_손상.tif']
+const tif = (n) => fs.readFileSync(path.join(REPO, 'e2e/fixtures/tiff', n))
+const FAX_ASK = '이 팩스 무슨 내용이야?'
 let S, host, OW, MATE, keyring, pgptRoot, tmpRoot, google, agent, SHEET, PIC
 const req = createRequire(path.join(SERVER, 'package.json'))
 
 // ---------- the fake Google: the mail as Gmail keeps it (RFC 822, with its attachments) ----------
-const gmail = { raw: null, calls: 0 }
+const gmail = { raw: null, calls: 0, mails: {} }
 function startGoogle(port) {
   const srv = http.createServer((rq, res) => {
     const u = new URL(rq.url, 'http://x')
     const m = /^\/gmail\/v1\/users\/me\/messages\/([^/?]+)$/.exec(u.pathname)
     // (the size first — the server does not fetch a message larger than it takes)
-    if (m && m[1] === MAIL_ID && u.searchParams.get('format') === 'minimal') {
+    const raw = m && (m[1] === MAIL_ID ? gmail.raw : gmail.mails[m[1]])
+    if (raw && u.searchParams.get('format') === 'minimal') {
       res.writeHead(200, { 'content-type': 'application/json' })
-      return res.end(JSON.stringify({ id: MAIL_ID, sizeEstimate: gmail.raw.length }))
+      return res.end(JSON.stringify({ id: m[1], sizeEstimate: raw.length }))
     }
-    if (m && m[1] === MAIL_ID && u.searchParams.get('format') === 'raw') {
+    if (raw && u.searchParams.get('format') === 'raw') {
       gmail.calls++
       res.writeHead(200, { 'content-type': 'application/json' })
-      return res.end(JSON.stringify({ id: MAIL_ID, threadId: 'thr-ma-1', raw: gmail.raw.toString('base64url') }))
+      return res.end(JSON.stringify({ id: m[1], threadId: m[1] === MAIL_ID ? 'thr-ma-1' : `thr-${m[1]}`, raw: raw.toString('base64url') }))
     }
     res.writeHead(404, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'not found' } }))
   })
@@ -89,6 +100,17 @@ function startAgent(port) {
       sse(res, { conversation_id: body.conversation_id || `conv-${Date.now()}` }, 'metadata')
       try {
         const msg = String(body.message || '')
+        // a fax (lib/tiff.js): each page handed over as a PNG picture beside it — the stand-in model "reads" the pictures (opens each, checks
+        // it is a PNG of a fax page); a real model that reads pictures would read the words on them
+        const pics = [...msg.matchAll(/\d+쪽 (\/workspace\/uploads\/\S+?-page\d+\.png)/g)].map((x) => x[1])
+        if (pics.length) {
+          agent.pics = pics.map((pth) => {
+            const b = fs.readFileSync(path.join(workspaceOf(), pth.slice('/workspace'.length)))
+            return { png: b.subarray(1, 4).toString() === 'PNG', w: b.readUInt32BE(16), h: b.readUInt32BE(20) }
+          })
+          sse(res, { type: 'token', content: `팩스 ${pics.length}쪽을 그림으로 받아 읽었어요(${agent.pics.map((x) => `${x.w}×${x.h}`).join(', ')}).` })
+          return res.end()
+        }
         // the file line of lib/fileRefs.js turnRefs: a path in the agent's workspace, or a signed private address
         const p = /^- (\/workspace\/uploads\/.+?\.xlsx) \(/m.exec(msg)?.[1]
         const u = /(https?:\/\/\S+\/storage\/v1\/object\/sign\/\S+)/.exec(msg)?.[1]
@@ -187,21 +209,21 @@ async function loaded(p) {
 }
 
 // ---------- the mail card ----------
-async function freshCard(who = OW) {
+async function freshCard(who = OW, { mailId = MAIL_ID, subject = SUBJECT, text = CARD_TEXT } = {}) {
   await S.q('delete from pro_actions where user_id=$1', [who.id])
   const main = (await S.api(who.token, '/threads'))[0]
   await S.q('delete from pro_messages where thread_id in (select id from pro_threads where user_id=$1)', [who.id])
   await S.q('update pro_threads set conversation_id=null, status=null where id=$1', [main.id])
   const [a] = await S.q(`insert into pro_actions(user_id, verb, text, prompt, source) values ($1,'Review',$2,$3,$4) returning *`,
-    [who.id, CARD_TEXT, '급여대장을 확인하고 확정해 주세요.', { mail_id: MAIL_ID, thread_id: 'thr-ma-1', from: SENDER, subject: SUBJECT, kind: 'task' }])
+    [who.id, text, mailId === MAIL_ID ? '급여대장을 확인하고 확정해 주세요.' : '팩스를 확인해 주세요.', { mail_id: mailId, thread_id: mailId === MAIL_ID ? 'thr-ma-1' : `thr-${mailId}`, from: mailId === MAIL_ID ? SENDER : 'KT 스마트메시지 Plus <noreply@fax.kt.example>', subject, kind: 'task' }])
   return a
 }
 async function openSheet(p, a, { phone = false } = {}) {
   await p.goto('/chat')
   if (phone) await p.locator('.seg button').filter({ hasText: '홈' }).click()
   await p.locator(`[data-test="action-card"][data-action-id="${a.id}"]`).click()
-  await expect(sheetOf(p).locator('[data-test="mail-original"]')).toContainText('tax@ogaram-tax.example', { timeout: 30_000 })
-  await expect(sheetOf(p).locator('[data-test="mail-attachment-open"]')).toHaveCount(3)
+  await expect(sheetOf(p).locator('[data-test="mail-original"]')).toContainText(a.source.mail_id === MAIL_ID ? 'tax@ogaram-tax.example' : 'noreply@fax.kt.example', { timeout: 30_000 })
+  await expect(sheetOf(p).locator('[data-test="mail-attachment-open"]')).toHaveCount(a.source.mail_id === MAIL_ID ? 3 : FAX_NAMES.length)
 }
 
 test.beforeAll(async () => {
@@ -227,15 +249,20 @@ test.beforeAll(async () => {
   gmail.raw = await new MailComposer({ from: SENDER, to: '한지우 <jiwoo@lite.example>', subject: SUBJECT, text: '안녕하세요, 세무법인 오가람입니다.\n11월 급여대장을 보내 드립니다. 확인 후 확정해 주세요.\n\n오가람 드림',
     attachments: [{ filename: NAMES[0], content: SHEET, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
       { filename: NAMES[1], content: PIC, contentType: 'image/png' }, { filename: NAMES[2], content: Buffer.from('504b0506000000000000000000000000000000000000', 'hex'), contentType: 'application/zip' }] }).compile().build()
+  gmail.mails[FAX_ID] = await new MailComposer({ from: 'KT 스마트메시지 Plus <noreply@fax.kt.example>', to: '한지우 <jiwoo@lite.example>', subject: FAX_SUBJECT,
+    text: '고객님께 팩스 메시지가 도착했습니다. 첨부 파일을 확인해 주세요.',
+    attachments: [{ filename: FAX_NAMES[0], content: tif('fax-2p-g4.tif'), contentType: 'image/tiff' }, { filename: FAX_NAMES[1], content: tif('broken.tif'), contentType: 'image/tiff' }] }).compile().build()
   host = await startOfficeHost({ from: 5395 })
-  const gp = freePort(8937, 1) || freePort(59991, 5)
+  const F = Number(process.env.RT_FAKE_FROM) || 0
+  const gp = F ? freePort(F, 6) : freePort(8937, 1) || freePort(59991, 5)
   google = await startGoogle(gp)
-  const ap = freePort(8938, 2)
+  const ap = F ? freePort(gp + 1, 6) : freePort(8938, 2)
   const fakeAgent = await startAgent(ap)
   google.agent = fakeAgent
-  const lp = freePort(8936, 1) || freePort(59995, 5)
+  const lp = F ? freePort(ap + 1, 6) : freePort(8936, 1) || freePort(59995, 5)
   google.model = await startModel(lp)
-  S = await startStack({ tenant: TENANT, apiFrom: 8930, webFrom: 5330, officeTarget: host.url,
+  // (RT_API_FROM · RT_WEB_FROM · RT_FAKE_FROM: where to look for free ports when other stacks run on this machine)
+  S = await startStack({ tenant: TENANT, apiFrom: Number(process.env.RT_API_FROM) || 8930, webFrom: Number(process.env.RT_WEB_FROM) || 5330, officeTarget: host.url,
     env: { PGPT_ROOT: pgptRoot, PRO_VAULT_KEYRING: keyring, PRO_OFFICE_HOST_URL: host.url, PRO_GOOGLE_GMAIL_URL: `http://127.0.0.1:${gp}/gmail/v1`,
       PRO_DEEPAGENTS_URL: `http://127.0.0.1:${ap}`, PRO_CONTEXT_ROUTER_URL: '', PRO_LLM_BASE_URL: `http://127.0.0.1:${lp}/v1`, PRO_LLM_API_KEY: 'test',
       PRO_LLM_MODEL: 'fake', PRO_LLM_FAST_MODEL: 'fake', PRO_COMPLETION_URL: 'http://127.0.0.1:9', PRO_MEMENTO_URL: 'http://127.0.0.1:9',
@@ -578,6 +605,107 @@ for (const theme of ['light', 'dark']) {
     await loaded(p)
     expect(await noOverflow(p)).toBe(true)
     await shot(p, `ma08-phone-${theme}-office`)
+    noPublic(p)
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  })
+}
+
+// ---------- a fax (TIFF) ----------
+// what a canvas holds, read in the page: its size, how much of it is ink (dark pixels — 0 is a blank page) and a fingerprint
+const ink = (canvas) => canvas.evaluate((c) => {
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+  let n = 0, h = 0
+  for (let i = 0; i < d.length; i += 4) { if (d[i] < 100) n++; if (i % 64 === 0) h = (h * 31 + d[i]) % 1000000007 }
+  return { w: c.width, h: c.height, share: n / (c.width * c.height), hash: h }
+})
+const faxCard = () => freshCard(OW, { mailId: FAX_ID, subject: FAX_SUBJECT, text: 'KT 스마트메시지 Plus 팩스 도착 — 내용 확인' })
+const tiffView = (p) => p.locator('[data-test="media-viewer"] [data-test="tiff-view"]')
+
+test('F-MA-09 팩스(TIFF) 첨부: 칩은 IMG → 보기 화면 ‹ 1 / 2 › → 2쪽까지 그려짐 · 손상된 TIFF 는 차분한 안내 · 「이 첨부로 묻기」 → 에이전트가 쪽마다 PNG 를 읽음', async ({ browser }) => {
+  const a = await faxCard()
+  const p = await page(browser, OW)
+  await openSheet(p, a)
+  // the chip of the report: a picture now, not FILE
+  await expect(chipOf(p, 0).locator('.fx')).toHaveText('IMG')
+  await expect(chipOf(p, 0).locator('[data-test="mail-attachment-open"]')).toContainText(FAX_NAMES[0])
+  await shot(p, 'ma09-1-sheet-fax-chip')
+  await chipOf(p, 0).locator('[data-test="mail-attachment-open"]').click()
+  const v = tiffView(p)
+  await expect(v).toHaveAttribute('data-state', 'ok', { timeout: 30_000 })
+  await expect(p.locator('[data-test="media-viewer"]')).toHaveAttribute('data-kind', 'image')
+  await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('1 / 2')
+  const pg = v.locator('[data-test="tiff-page"]')
+  const c1 = await ink(pg)
+  expect([c1.w, c1.h]).toEqual([1728, 2290])
+  expect(c1.share).toBeGreaterThan(0.03)
+  await expect(chipOf(p, 0).locator('[data-test="mail-attachment-download"]')).toHaveCount(0)
+  await expect(p.getByText('앱 안에서 열지 않는 형식이에요')).toHaveCount(0)
+  // read through this server's signed route (no sign-in token in it)
+  const dl = await p.locator('[data-test="media-download"]').getAttribute('href')
+  expect(dl).toMatch(new RegExp(`/api/mail/attachments/${a.id}/0/raw\\?u=${OW.id}&exp=\\d+&inline=1&sig=`))
+  expect(dl).not.toMatch(/token=|eyJ/)
+  await shot(p, 'ma09-2-fax-viewer-page1')
+  await v.locator('[data-test="tiff-next"]').click()
+  await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('2 / 2')
+  const c2 = await ink(pg)
+  expect(c2.share).toBeGreaterThan(0.03)
+  expect(c2.hash).not.toBe(c1.hash)
+  await shot(p, 'ma09-3-fax-viewer-page2')
+  await p.keyboard.press('Escape')
+  await expect(p.locator('[data-test="media-viewer"]')).toHaveCount(0)
+  // the damaged one: the viewer says so calmly, with 「내려받기」
+  await chipOf(p, 1).locator('[data-test="mail-attachment-open"]').click()
+  await expect(tiffView(p).locator('[data-test="tiff-error"]')).toContainText('이 TIFF 는 열 수 없어요', { timeout: 30_000 })
+  await expect(tiffView(p).locator('[data-test="tiff-download"]')).toHaveAttribute('download', '')
+  await shot(p, 'ma09-4-damaged-tiff')
+  await p.keyboard.press('Escape')
+  // 「이 첨부로 묻기」: the agent gets the fax and each page as a PNG picture beside it
+  await chipOf(p, 0).locator('[data-test="mail-attachment-more"]').click()
+  await chipOf(p, 0).locator('[data-test="att-ask"]').click()
+  const chips = p.locator('[data-test="chat-ref-chip"]')
+  await expect(chips.nth(1)).toHaveAttribute('data-state', 'ready', { timeout: 15_000 })
+  agent.bodies.length = 0; agent.pics = null
+  await box(p).fill(FAX_ASK)
+  await box(p).press('Enter')
+  await expect.poll(() => agent.bodies.length, { timeout: 30_000 }).toBe(1)
+  const msg = agent.bodies[0].message
+  expect(msg).toContain('팩스·TIFF 라서 쪽마다 그림(PNG)으로도 두었어요')
+  expect(msg).toMatch(new RegExp(`1쪽 /workspace/uploads/${OW.id}/mail/[0-9a-f-]{36}/arrive_xroshotplus_uengine1_20261125095030049_121017596357694-page1\\.png, 2쪽 /workspace/uploads/`))
+  expect(msg).not.toMatch(/object\/public/)
+  await expect.poll(() => agent.pics, { timeout: 15_000 }).toEqual([{ png: true, w: 1728, h: 2290 }, { png: true, w: 1728, h: 2290 }])
+  await expect(p.locator('.row.r-agent .bubble.agent').filter({ hasText: '팩스 2쪽을 그림으로 받아 읽었어요' })).toBeVisible({ timeout: 30_000 })
+  await shot(p, 'ma09-5-agent-read-fax')
+  noPublic(p)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+for (const theme of ['light', 'dark']) {
+  test(`F-MA-10 팩스 · 휴대폰 390px(${theme === 'light' ? '밝은' : '밤'} 테마): 칩 · 보기 화면 · 쪽 넘기기가 화면 안, 한 쪽이 통째로 보임`, async ({ browser }) => {
+    const a = await faxCard()
+    const p = await page(browser, OW, PHONE, { theme })
+    await openSheet(p, a, { phone: true })
+    const b0 = await chipOf(p, 0).locator('[data-test="mail-attachment-more"]').boundingBox()
+    expect(b0.x + b0.width).toBeLessThanOrEqual(390)
+    await chipOf(p, 0).locator('[data-test="mail-attachment-open"]').click()
+    const v = tiffView(p)
+    await expect(v).toHaveAttribute('data-state', 'ok', { timeout: 30_000 })
+    const b = await v.locator('[data-test="tiff-page"]').boundingBox()
+    expect(b.width).toBeGreaterThan(330)
+    expect(b.width).toBeLessThanOrEqual(390 - 31)
+    expect(b.y + b.height).toBeLessThanOrEqual((await v.locator('[data-test="tiff-next"]').boundingBox()).y + 1)
+    for (const t of ['tiff-prev', 'tiff-next', 'tiff-pos']) {
+      const x = await v.locator(`[data-test="${t}"]`).boundingBox()
+      expect(x.x).toBeGreaterThanOrEqual(0)
+      expect(x.x + x.width).toBeLessThanOrEqual(390)
+    }
+    expect(await noOverflow(p)).toBe(true)
+    await shot(p, `ma10-phone-${theme}-fax-viewer`)
+    await v.locator('[data-test="tiff-next"]').click()
+    await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('2 / 2')
+    expect((await ink(v.locator('[data-test="tiff-page"]'))).share).toBeGreaterThan(0.03)
+    await shot(p, `ma10-phone-${theme}-fax-page2`)
     noPublic(p)
     expect(p.errors).toEqual([])
     await p.context().close()

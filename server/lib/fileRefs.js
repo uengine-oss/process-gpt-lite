@@ -381,6 +381,8 @@ export async function turnRefs(user, list, { copies = false, deps = {} } = {}) {
         lines.push(f.line)
         shown.push(f.shown)
         if (f.handed) handed.push(f.handed)
+        // (a TIFF's page pictures too — lib/tiff.js)
+        for (const pg of f.pages || []) handed.push(pg)
         attOf.push(x.att.actionId)
         continue
       }

@@ -48,6 +48,14 @@
 
 ### 추가
 
+- **TIFF · 팩스를 앱 안에서 본다 — 에이전트에는 쪽마다 PNG 로** (2026-11-25 운영: 메일 「[KT 스마트메시지 Plus] 팩스 메시지 도착알림」의 `arrive_xroshotplus_….tif`(23KB, 팩스) 칩이 FILE 과 「앱 안에서 열지 않는 형식이에요 · 내려받기」뿐이었습니다. 사용자: 「tif 파일을 웹에서 못 열어보나?」 — 스펙 `chat-media-preview` 「TIFF · 팩스 파일도 그림을 보여 주는 모든 곳에서 앱 안에서 열고, 에이전트에는 쪽마다 그림으로 넘긴다」):
+  - TIFF 는 이제 그림입니다(`src/mediaKind.js` — `tif` · `tiff` · `image/tiff`). 메일 시트의 첨부 칩(IMG), 메신저 대화방의 파일 · 메일 첨부 멘션, AI 채팅의 파일 카드, 공유 폴더 · 작업실의 미리보기가 모두 같은 보기 화면으로 엽니다. 브라우저(Safari 밖)가 그리지 못하니 앱이 직접 해독합니다: UTIF.js 3.1.0(MIT, 해독기 58KB + inflate 용 pako 1.0.11, MIT) — CCITT G3 · G4, LZW, PackBits, Deflate, 무압축, 여러 쪽. 해독기는 TIFF 가 화면에 처음 나올 때에만 받고(`src/tiffWorker.js` 작업자, 빌드에서 따로 92KB 덩어리), 첫 화면 묶음은 거의 그대로입니다.
+  - 보기 화면(`TiffView.vue`): 한 쪽씩 「‹ 1 / 3 ›」(← · → 키), 화면 폭에 맞추되 읽는 폭 860px · 원래 크기까지만, 누르면 누른 곳을 중심으로 확대 · 다시 누르면 맞춤, ⌘/Ctrl + 휠 · 트랙패드 핀치. 표준 해상도 팩스(204 × 98 dpi)는 해상도를 맞춰 눌려 보이지 않게. 「새 창에서 열기」 대신 「내려받기」. 대화의 미리보기는 첫 쪽을 작게(넓이 평균으로 줄여 가는 글씨도 보이게) 「N쪽」과 함께.
+  - 손상된 파일 · 한 쪽이 4096 × 4096 픽셀을 넘는 파일 · 200쪽 넘는 파일 · BigTIFF 는 해독하기 전에 거절하고(`src/tiffCore.js` 의 디렉터리 걷기 — 고리 · 값이 너무 많은 태그도), 해독이 15초를 넘으면 작업자를 멈춥니다(손상된 LZW 는 해독기를 끝없이 돌게 함). 화면에는 차분한 「이 TIFF 는 열 수 없어요 · 내려받기」(이유를 알면 「너무 큰 TIFF 예요」 등). `eval` 없음, 앱의 CSP 그대로.
+  - 에이전트: 「이 첨부로 묻기」와 채팅 첨부의 TIFF 는 서버가 쪽마다 PNG 로 바꿔 함께 넘깁니다(`server/lib/tiff.js` — 같은 해독기 + node:zlib 로 쓰는 PNG, 시간 20초 · 메모리 한도가 있는 별도 스레드, 서버 이미지에 libtiff · ImageMagick · sharp 없음, 앞 20쪽). 작업 공간이 이 서버에 있으면 TIFF 옆에(`<이름>-page1.png` …), 없으면 비공개 버킷(`lite-private` — 메일 첨부는 그 사본 옆 `page-<n>.png`, 채팅 첨부는 `chat/<회사>/<사람>/<업로드>/page-<n>.png`)에 두고 서명 주소로. 공개 주소는 만들지 않습니다. 바꾸지 못하면 이유를 함께 알리고 파일은 그대로 넘깁니다. 내 PC 의 CLI 에이전트에도 쪽 그림의 서명 주소가 갑니다.
+  - 이름 없이 받은 TIFF(「download」)는 서버가 바이트로 알아봅니다(`fileSniff.js` → `.tif`). 메신저 공유의 서명 주소도 TIFF 를 그림으로 다룹니다(`team/shares.js` 한 줄).
+  - 시험: `server/test/tiff.test.js`(9) · `mailAttachments.integration.test.js` 팩스 1건 · Playwright F-MP-09 … 11 · F-MA-09 · 10. 시험 파일은 `server/fixtures/tiff`(만든 방법 `make.py`)와 `e2e/fixtures/tiff`. SQL 없음.
+
 - **프로필 사진 — Process GPT 와 같은 사진, 같은 칸** (2026-11-25 사용자: 「내 프로필 사진 어떻게 바꾸냐? Process GPT 버전과 일관성고려하여」 — 설정 머리와 위 막대에는 이름 첫 글자뿐이었습니다. 스펙 `profile-picture`):
   - 사진은 Process GPT 의 계정 설정이 쓰는 칸(그 회사의 `users.profile`) 하나에 둡니다. 어느 앱에서 바꾸든 두 앱에 같은 사진이 보입니다. `GET /api/me` 의 `user.picture`.
   - 설정 머리의 동그라미(카메라 표시)나 설정 › 프로필 「바꾸기」 → 「프로필 사진」 창: Process GPT 의 기본 사진 18장(같은 경로 `/assets/images/profile/…` 로 저장), 「내 사진 올리기」(브라우저에서 가운데 정사각형 256px WebP 로 줄여 이 설치 저장소의 내 폴더 `files/pgpt-pro/<나>/avatar/` 에), 「사진 지우기」(열의 기본값 — Process GPT 의 「사진 없음」 — 으로). 바꾸거나 지우면 전에 올린 사진은 저장소에서도 지웁니다.

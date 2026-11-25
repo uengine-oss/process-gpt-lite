@@ -28,6 +28,8 @@ export async function sniffExt(buf) {
   if (at(b, 0, [0x89, 0x50, 0x4e, 0x47])) return 'png'
   if (at(b, 0, [0xff, 0xd8, 0xff])) return 'jpg'
   if (at(b, 0, bytes('GIF8'))) return 'gif'
+  // TIFF (a fax a site hands over as 「download」): Intel or Motorola byte order — the app draws it itself (src/tiff.js)
+  if (at(b, 0, [0x49, 0x49, 0x2a, 0x00]) || at(b, 0, [0x4d, 0x4d, 0x00, 0x2a])) return 'tif'
   // MPEG audio: an ID3 tag, or a Layer III frame header; AAC in ADTS frames
   if (at(b, 0, bytes('ID3')) || (b[0] === 0xff && (b[1] & 0xe6) === 0xe2)) return 'mp3'
   if (b[0] === 0xff && (b[1] & 0xf6) === 0xf0) return 'aac'

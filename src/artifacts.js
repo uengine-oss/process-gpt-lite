@@ -8,7 +8,7 @@ import { openPlan, isDrive, loose } from './openPlan.js'
 import { mediaKindOf } from './mediaKind.js'
 export { isDrive, mediaKindOf }
 
-export const kindOf = (n) => ({ hwp: 'hwp', hwpx: 'hwp', docx: 'doc', odt: 'doc', xlsx: 'xls', xlsm: 'xls', xls: 'xls', csv: 'xls', pptx: 'ppt', pdf: 'pdf', md: 'md', markdown: 'md', txt: 'txt', html: 'web', htm: 'web', xmind: 'map', dxf: 'cad', dwg: 'cad', svg: 'vec', vectorcraft: 'vec', psd: 'img', psb: 'img', pcraft: 'img', png: 'img', jpg: 'img', jpeg: 'img', webp: 'img', gif: 'img', avif: 'img', bmp: 'img', wav: 'snd', mp3: 'snd', m4a: 'snd', aac: 'snd', opus: 'snd', oga: 'snd', flac: 'snd', ogg: 'snd', weba: 'snd', soundcraft: 'snd', scraftz: 'snd', mp4: 'vid', m4v: 'vid', mov: 'vid', webm: 'vid', fcproj: 'vid' })[String(n || '').split('.').pop().toLowerCase()] || 'etc'
+export const kindOf = (n) => ({ hwp: 'hwp', hwpx: 'hwp', docx: 'doc', odt: 'doc', xlsx: 'xls', xlsm: 'xls', xls: 'xls', csv: 'xls', pptx: 'ppt', pdf: 'pdf', md: 'md', markdown: 'md', txt: 'txt', html: 'web', htm: 'web', xmind: 'map', dxf: 'cad', dwg: 'cad', svg: 'vec', vectorcraft: 'vec', psd: 'img', psb: 'img', pcraft: 'img', png: 'img', jpg: 'img', jpeg: 'img', webp: 'img', gif: 'img', avif: 'img', bmp: 'img', tif: 'img', tiff: 'img', wav: 'snd', mp3: 'snd', m4a: 'snd', aac: 'snd', opus: 'snd', oga: 'snd', flac: 'snd', ogg: 'snd', weba: 'snd', soundcraft: 'snd', scraftz: 'snd', mp4: 'vid', m4v: 'vid', mov: 'vid', webm: 'vid', fcproj: 'vid' })[String(n || '').split('.').pop().toLowerCase()] || 'etc'
 // the badge of a file card {name, type}: by its name, else (a site's 「download」 stored as audio/mp4) by what it plays as
 const MEDIA_KIND = { image: 'img', audio: 'snd', video: 'vid' }
 export const cardKind = (c) => { const k = kindOf(c?.name); return k !== 'etc' ? k : MEDIA_KIND[mediaKindOf(c)] || 'etc' }
@@ -20,10 +20,11 @@ export const openHint = (c) => (c.url ? '열기' : c.private ? (c.edited ? '편�
 // a picture or a video is looked at, a sound listened to — not edited (src/openPlan.js 'view')
 export const viewHint = (media, c) => `${c?.edited ? '편집본 · ' : ''}${media === 'audio' ? '눌러서 열기' : '눌러서 크게 보기'}`
 
-// The viewer of a picture · sound · video (MediaViewer.vue, App.vue): {kind, url, name, editWith, edit}. edit — the person's
-// 「… 로 편집」, given only where this install has the ArtCraft app for it (editWith).
-export function viewMedia(app, { kind, url, name, editWith = '', edit = null }) {
-  app.media = { kind, url, name: name || decodeURIComponent(String(url || '').split('?')[0].split('/').pop() || ''), editWith: edit ? editWith : '', edit: editWith ? edit : null }
+// The viewer of a picture · sound · video (MediaViewer.vue, App.vue): {kind, url, name, type, editWith, edit}. edit — the person's
+// 「… 로 편집」, given only where this install has the ArtCraft app for it (editWith). type: the stored type, when there is one (a TIFF the
+// app draws itself is known by it or by its name — src/mediaKind.js isTiff).
+export function viewMedia(app, { kind, url, name, type = '', editWith = '', edit = null }) {
+  app.media = { kind, url, name: name || decodeURIComponent(String(url || '').split('?')[0].split('/').pop() || ''), type: type || '', editWith: edit ? editWith : '', edit: editWith ? edit : null }
   return true
 }
 

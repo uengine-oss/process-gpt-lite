@@ -75,6 +75,9 @@ export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/',
   // <a2ui-*>: the A2UI renderer's web components (a step's input screen — src/components/a2ui), not Vue components
   plugins: [vue({ template: { compilerOptions: { isCustomElement: (t) => t.startsWith('a2ui-') } } }), publicGate(), pageMeta()],
+  // the TIFF decoder (src/tiffWorker.js — loaded only when a TIFF is shown): bundled up front in development too, so the first TIFF on a page
+  // does not make the dev server discover it and reload the page
+  optimizeDeps: { include: ['utif', 'pako'] },
   server: {
     port: 5180,
     strictPort: true,

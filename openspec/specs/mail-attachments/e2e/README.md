@@ -50,6 +50,9 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/mail-
 | 사본을 남긴 에이전트 | 서버 MA-R1 · 단위 MA-R1 |
 | 미리 놓인 링크 | 단위 MA-R6 |
 | 휴대폰의 급여대장 | F-MA-08(밝은 · 밤) |
+| (스펙 `chat-media-preview`) 메일 시트의 팩스 첨부 | F-MA-09(칩 IMG · 보기 화면 1 / 2 → 2쪽 · 캔버스 픽셀 · 서명 주소, 손상된 TIFF 의 차분한 안내) · 서버 「팩스(TIFF) …」 |
+| (스펙 `chat-media-preview`) 에이전트가 팩스를 읽는다 | F-MA-09(가짜 에이전트가 작업 공간의 `-page1.png` · `-page2.png` 를 열어 PNG 1728 × 2290 확인) · 서버 「팩스(TIFF) …」(서명 주소 · 작업 공간 · 손상된 TIFF 의 이유) |
+| (스펙 `chat-media-preview`) 휴대폰에서 팩스 보기 | F-MA-10(밝은 · 밤) |
 
 시험하지 않은 것:
 - 실제 Gmail 메일함. 가짜 Gmail 의 `format=minimal`(크기) · `format=raw`(원문)를 읽는다. 메일함의 시간 한도(Gmail 60 · 120초, IMAP 연결을 닫음)는 실제로 기다려 보지 않았다(단위 시험은 504 를 흉내 내 기억만 확인). 실제 Gmail 의 원문 크기 한도, 아주 큰 첨부(수십 MB)를 원문 하나로 받는 시간은 재지 않았다(서버는 50MB 를 넘는 첨부를 거절한다). IMAP 메일함도 같은 길(`sourceOf`)이지만 이 시험에는 없다.

@@ -6,11 +6,13 @@
 // editors, which load from storage (a published copy). editorUrl() may answer {url, editable}: an
 // editable office document opens for editing and saves itself (OfficeEditorFrame autoSave) —
 // 'office-saved' hands the host each saved copy, flush() saves what is left before closing.
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { marked } from 'marked'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
 import CraftEditorFrame from '../CraftEditorFrame.vue'
 import { viewOf, baseName, highlight, parseCsv } from '../folders/fileKind.js'
+// a TIFF (a fax): drawn by the app, page by page (loaded only when one is shown)
+const TiffView = defineAsyncComponent(() => import('../TiffView.vue'))
 
 const props = defineProps({
   path: { type: String, required: true },
@@ -27,6 +29,7 @@ const view = computed(() => {
   const v = viewOf(props.path)
   // SVG and PSD open in VectorCraft / PhotoCraft; a light <img> is enough for the others
   if (v === 'image' && /\.(svg|psd)$/i.test(props.path)) return 'craft'
+  if (v === 'image' && /\.tiff?$/i.test(props.path)) return 'tiff'
   return v === 'none' && props.text != null ? 'text' : v
 })
 const isText = computed(() => ['markdown', 'code', 'text', 'csv'].includes(view.value))
@@ -82,6 +85,7 @@ defineExpose({ draft, dirty, flush, writable })
         <tbody><tr v-for="(r, i) in csv.slice(1)" :key="i"><td v-for="(c, j) in r" :key="j">{{ c }}</td></tr></tbody></table>
     </div>
     <div v-else-if="view === 'image'" class="media checker"><img :src="url" :alt="baseName(path)" /></div>
+    <TiffView v-else-if="view === 'tiff'" :key="url" class="tiffv" mode="inline" :src="url" :name="baseName(path)" />
     <div v-else-if="view === 'video'" class="media blk"><video :src="url" controls /></div>
     <div v-else-if="view === 'audio'" class="media"><audio :src="url" controls /></div>
     <p v-else class="none">미리 볼 수 없는 형식이에요. '원본' 으로 받아 보세요.</p>
@@ -113,6 +117,7 @@ th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(127,
 th { font-weight: 600; opacity: .7; font-size: 12.5px; }
 .media { flex: 1; min-height: 0; display: grid; place-items: center; padding: 20px; }
 .media img, .media video { max-width: 100%; max-height: 100%; border-radius: 8px; }
+.tiffv { flex: 1; min-height: 0; padding-top: 12px; background: #eef0f3; }
 .checker { background: repeating-conic-gradient(rgba(127 127 127 / .12) 0 25%, transparent 0 50%) 0 0 / 20px 20px; }
 .blk { background: #111; }
 .none { margin: auto; padding: 24px; opacity: .65; font-size: 14px; }

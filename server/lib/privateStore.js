@@ -9,6 +9,9 @@
 //   mail/<tenant>/<person>/<card>/<n>-<sha16>/edited-…              the editor's saved copies beside it (office-host editedObjectPath)
 //   folders/<tenant>/<folder>/<blob sha>.<ext>                     a shared folder's file opened from a mail (one version, by its blob)
 //   folders/<tenant>/<folder>/edited-…                             the editor's saved copies of those
+//   chat/<tenant>/<person>/<upload>/page-<n>.png                   page n of a TIFF (a fax) attached in the chat, as a picture for the
+//                                                                  agent (lib/attachments.js, lib/tiff.js); a mail's TIFF keeps its pages
+//                                                                  beside its copy: mail/…/<n>-<sha16>/page-<n>.png
 // Pure helpers first (server/test/mailAttachments.test.js), then storage.
 import { config } from '../config.js'
 import { admin, q } from './supa.js'
@@ -34,6 +37,13 @@ export function mailDir({ tenant, userId, actionId, i, sha }) {
   return `mail/${seg(tenant)}/${String(userId).toLowerCase()}/${String(actionId).toLowerCase()}/${i}-${String(sha).slice(0, 16)}`
 }
 export const mailKey = (x, name) => `${mailDir(x)}/attachment.${extOf(name)}`
+// page n of a TIFF attached in the chat (upload: the attachment's id — lib/attachments.js)
+export function chatPageKey({ tenant, userId, upload, n }) {
+  if (!UUID.test(String(userId)) || !UUID.test(String(upload))) throw new Error('a person and an upload (ids) are needed')
+  if (!Number.isInteger(n) || n < 1 || n > 999) throw new Error('a page number is needed')
+  return `${chatPagePrefix({ tenant, userId, upload })}${n}.png`
+}
+export const chatPagePrefix = ({ tenant, userId, upload }) => `chat/${seg(tenant)}/${String(userId).toLowerCase()}/${String(upload).toLowerCase()}/page-`
 // the prefix of every copy of one card's attachment n (any content): mail/<t>/<person>/<card>/<n>-
 export const mailPrefix = ({ tenant, userId, actionId, i }) => `mail/${seg(tenant)}/${String(userId).toLowerCase()}/${String(actionId).toLowerCase()}/${i}-`
 export function folderDir({ tenant, folderId }) {

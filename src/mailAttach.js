@@ -21,7 +21,7 @@ export const attItem = (card, a, i) => {
 export const pageUrl = (u) => (String(u || '').startsWith('/') ? `${BASE}/api${u}` : String(u || ''))
 // the chip's badge
 const KIND = { hwp: '한글', hwpx: '한글', docx: 'DOC', doc: 'DOC', odt: 'DOC', xlsx: 'XLS', xlsm: 'XLS', xls: 'XLS', csv: 'XLS', pptx: 'PPT', ppt: 'PPT', pdf: 'PDF', md: 'MD', txt: 'TXT',
-  png: 'IMG', jpg: 'IMG', jpeg: 'IMG', gif: 'IMG', webp: 'IMG', svg: 'IMG', mp3: 'AUD', m4a: 'AUD', wav: 'AUD', mp4: 'VID', mov: 'VID', webm: 'VID', zip: 'ZIP' }
+  png: 'IMG', jpg: 'IMG', jpeg: 'IMG', gif: 'IMG', webp: 'IMG', svg: 'IMG', tif: 'IMG', tiff: 'IMG', mp3: 'AUD', m4a: 'AUD', wav: 'AUD', mp4: 'VID', mov: 'VID', webm: 'VID', zip: 'ZIP' }
 export const attBadge = (name) => KIND[String(name || '').split('.').pop().toLowerCase()] || 'FILE'
 export const sizeText = (n) => (!n ? '' : n < 1024 ? `${n}B` : n < 1024 * 1024 ? `${Math.round(n / 1024)}KB` : `${(n / 1024 / 1024).toFixed(1)}MB`)
 
