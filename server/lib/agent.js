@@ -288,6 +288,8 @@ async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill
   return msg
 }
 const browserHandler = (skill) => ({ kind: 'browser', ...(skill ? { skill } : {}), label: `${L('브라우저', 'Browser')}${skill ? ` · ${skill}` : ''}` })
+// the plan card's handler line for words that go to a browser task already there (lib/browserQueue.js): an answer, steering, going on
+const taskHandler = (what) => ({ kind: 'browser', label: `${L('브라우저', 'Browser')} · ${what}` })
 // the browser tasks this server started, newest last (what the tests read: the skill is passed on as chosen)
 export const browserStarts = []
 // (the ack is already in the chat; the turn it replaces stops alongside — the card need not wait for that)
@@ -513,14 +515,17 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     console.log(`[browser-queue] ${activeRead.pick}${activeRead.option != null ? ` o${activeRead.option}` : ''} ${JSON.stringify(activeRead.probabilities)} via ${activeRead.via} ${activeRead.ms} ms thread=${String(threadId).slice(0, 8)}${activeRead.error ? ` (${activeRead.error})` : ''}`)
     if (store) store.waitRead = { taskId: active.taskId, default: BQ.queueDefault(activeRead.p) }
     // (the question it was asked about: words for one question never answer the next one — seq)
+    // (a turn stopped in its front stage delivers nothing: checked before the words reach the task — lib/turnPlan.js checkpoint)
+    if (activeRead.pick === 'answer') checkpoint(store?.turn)
     if (activeRead.pick === 'answer' && await answerWaiting(userId, active.taskId, { text, option: activeRead.option, seq: w.seq ?? null })) {
-      noAgentTurn()
+      noAgentTurn(taskHandler(L('기다리는 작업에 답', 'answer to the waiting task')))
       const ok = BQ.answeredText(active.title)
       onDelta?.(ok)
       return addMessage(userId, threadId, 'agent', 'text', { text: ok, answered: active.taskId })
     }
+    if (activeRead.pick === 'steer') checkpoint(store?.turn)
     if (activeRead.pick === 'steer' && await steerBrowser(userId, active.taskId, text)) {
-      noAgentTurn()
+      noAgentTurn(taskHandler(L('작업에 지시', 'words for the task')))
       const ok = BQ.steeredText(active.title)
       onDelta?.(ok)
       return addMessage(userId, threadId, 'agent', 'text', { text: ok, steered: active.taskId })
@@ -538,7 +543,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       const done = goOn({ user, threadId, id: r.task.id, queue })
       if (store) store.after = { taskId: r.task.id, title: r.task.title, done }
     } else if (r.pick) {
-      noAgentTurn()
+      noAgentTurn(taskHandler(r.pick === 'more' ? L('말한 대로 이어서', 'go on as told') : L('멈춘 자리부터 이어서', 'go on from where it stopped')))
       goOn({ user, threadId, id: r.task.id, resume: !r.task.done, instruction: r.pick === 'more' ? text : '', queue })
       const ok = r.pick === 'more' ? BQ.continueText(r.task.title) : BQ.resumeText(r.task.title)
       onDelta?.(ok)
@@ -569,9 +574,11 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     const tasks = BQ.taskContext(active, ended)
     const read = await readRoom({ rule, text, files, tasks })
     console.log(`[room] ${read.pick} ${JSON.stringify(read.probabilities)} via ${read.via} ${read.ms} ms thread=${String(threadId).slice(0, 8)}${read.error ? ` (${read.error})` : ''}`)
-    if (read.pick === 'steer') {
+    // (only when there is a task to take the words: the turn is marked handled here before they go to it)
+    if (read.pick === 'steer' && (activeIn(userId, threadId) || ended.length)) {
+      noAgentTurn(taskHandler(L('작업에 지시', 'words for the task')))
       const r = await steerOrContinue({ user, threadId, text, onDelta, ended })
-      if (r) { noAgentTurn(); return r }
+      if (r) return r
     }
     if (read.pick === 'set_rule') {
       noAgentTurn()

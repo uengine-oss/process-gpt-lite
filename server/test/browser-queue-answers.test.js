@@ -707,3 +707,36 @@ test('BQ-R-12i 보기 카드를 기다리는 동안 취소하면 작업 카드�
   const c = await cardOf(tid, '취소될 작업')
   assert.equal(c.content.state, 'cancelled', JSON.stringify({ state: c.content.state }))
 })
+
+test('BQ-R-13i 앞단 계획(turn plan) 안에서: 기다리는 카드에 답한 말 · 「다시 시도」로 이어 가는 말은 그 자리에서 턴을 끝낸다(계획 카드가 「진행 중」에 남지 않음)', { skip: !up }, async () => {
+  const { subscribe } = await import('../lib/bus.js')
+  const seen = []
+  const off = subscribe(user.id, { writableLength: 0, write: (line) => { const t = /^event: (.*)$/m.exec(line)?.[1]; const d = /^data: (.*)$/m.exec(line)?.[1]; if (t?.startsWith('turn.')) seen.push({ t, d: JSON.parse(d) }); return true } })
+  try {
+    const tid = await thread()
+    const { card } = await startAsker(tid, '계획 안의 답 작업', '계획 안의 답')
+    judged.active.push({ o0: 0.01, o1: 0.01, answer: 0.9, steer: 0.03, replace: 0.02, other: 0.03 })
+    const n0 = seen.length
+    const ack = await runTurn({ user, session, threadId: tid, text: '새로 만들어' })
+    assert.equal(ack.content.answered, card.id)
+    const ends = () => seen.slice(n0).filter((e) => e.t === 'turn.end' && e.d.threadId === tid)
+    assert.equal((await until(() => ends().length && ends()))[0].d.state, 'done', '답한 턴이 끝났다')
+    await done(tid, '계획 안의 답')
+    // a stopped task, gone on with from the chat (「다시 시도해 줘: …」): that turn ends here too
+    const del = '목록 지우기 R13'
+    titles[del] = del
+    scripts[del] = { i: 0, moves: [deleter, deleter, deleter, 'hang'] }
+    const first = browser.runBrowserTask({ userId: user.id, threadId: tid, goal: del, startUrl: `${site.url}/notebooks?n=3`, own: true })
+    const c = await until(async () => { const x = await cardOf(tid, del); return x && scripts[del].i >= 4 && x })
+    browser.cancel(user.id, c.id)
+    await first
+    scripts[del] = { i: 0, moves: [deleter] }
+    judged.resume.push({ only0: 0.9, none: 0.1 })
+    const n1 = seen.length
+    const again = await runTurn({ user, session, threadId: tid, text: `다시 시도해 줘: ${del}` })
+    assert.equal(again.content.continued, c.id)
+    const ends2 = () => seen.slice(n1).filter((e) => e.t === 'turn.end' && e.d.threadId === tid)
+    assert.equal((await until(() => ends2().length && ends2()))[0].d.state, 'done')
+    await done(tid, del)
+  } finally { off() }
+})
