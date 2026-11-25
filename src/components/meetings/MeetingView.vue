@@ -138,8 +138,8 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
   <div v-else-if="m" class="veil meet" :class="{ mini: mt.mini }" data-test="meeting-view">
     <template v-if="mt.mini">
       <div class="minibox glass">
-        <VideoTile v-if="others[0]" :stream="others[0].stream" :name="others[0].name" :consent="others[0].consent" />
-        <VideoTile v-else :stream="mt.local" :name="m.me.name" me :cam-off="!mt.cam" :consent="m.me.consent" />
+        <VideoTile v-if="others[0]" :stream="others[0].stream" :name="others[0].name" :person-id="others[0].id" :consent="others[0].consent" />
+        <VideoTile v-else :stream="mt.local" :name="m.me.name" :person-id="m.me.id" me :cam-off="!mt.cam" :consent="m.me.consent" />
         <div class="minibar"><span>회의 중 · {{ m.peers.length }}명 · {{ elapsed }}</span><button class="main press" @click="back">회의로 돌아가기</button></div>
       </div>
     </template>
@@ -184,8 +184,8 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
           </section>
 
           <div class="tiles" :class="[`n${Math.min(others.length + 2, 6)}`, { strip: !!shown }]">
-            <VideoTile :stream="mt.screen ? mt.screenStream : mt.local" :name="m.me.name" me :muted="!mt.mic" :cam-off="!mt.cam && !mt.screen" :consent="m.me.consent || !m.agent" :level="mt.level" :screen="mt.screen" :lang="myLang" :show-lang="!!interp?.mixed" />
-            <VideoTile v-for="p in others" :key="p.id" :stream="p.stream" :name="p.name" :consent="p.consent || !m.agent" :state="p.state" :muted="p.media && !p.media.mic" :cam-off="p.media && !p.media.cam && !p.media.screen" :screen="p.media?.screen"
+            <VideoTile :stream="mt.screen ? mt.screenStream : mt.local" :name="m.me.name" :person-id="m.me.id" me :muted="!mt.mic" :cam-off="!mt.cam && !mt.screen" :consent="m.me.consent || !m.agent" :level="mt.level" :screen="mt.screen" :lang="myLang" :show-lang="!!interp?.mixed" />
+            <VideoTile v-for="p in others" :key="p.id" :stream="p.stream" :name="p.name" :person-id="p.id" :consent="p.consent || !m.agent" :state="p.state" :muted="p.media && !p.media.mic" :cam-off="p.media && !p.media.cam && !p.media.screen" :screen="p.media?.screen"
               :lang="p.lang || m.peers.find((x) => x.id === p.id)?.lang" :show-lang="!!interp?.mixed" :interpreting="!!mt.onAir[p.id] && mt.listen === 'interp'" @el="(el) => mt.registerEl(p.id, el)" />
             <div v-if="m.agent" class="tile agent" data-test="agent-tile">
               <div class="orb"><span /><span /><span /></div>

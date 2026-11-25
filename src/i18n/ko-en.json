@@ -2860,7 +2860,22 @@
   "서버 브라우저에서 해요 — 사람이 없는 작업은 PC 앱에서 「단계 · 예약 작업까지 모두」를 고른 PC 에서만 해요": "In the server's browser — tasks nobody watches run only on a PC where the desktop app has \"Also steps and scheduled tasks\"",
   "서버 브라우저에서 해요 — PC 앱이 켜져 있으면 그 PC 의 브라우저에서 해요(휴대폰만 쓸 때도 그대로 돼요)": "In the server's browser — while the desktop app is on they run in that PC's browser (it works with a phone alone too)",
   "이 컴퓨터에서 단계 실행을 꺼서 쓰지 않음": "Not used — running steps on this computer is off",
-  "브라우저를 열지 못해 작업을 시작하지 못했어요. 잠시 후 같은 말로 다시 시켜 주세요.": "The browser didn't open, so the task didn't start. Ask again in a moment."
+  "브라우저를 열지 못해 작업을 시작하지 못했어요. 잠시 후 같은 말로 다시 시켜 주세요.": "The browser didn't open, so the task didn't start. Ask again in a moment.",
+  "프로필 사진": "Profile picture",
+  "프로필 사진 바꾸기": "Change profile picture",
+  "기본 사진": "Presets",
+  "내 사진 올리기": "Upload my photo",
+  "사진 지우기": "Remove photo",
+  "Process GPT에도 같은 사진이 보여요.": "Process GPT shows the same picture.",
+  "Process GPT에도 같은 사진이 보여요": "Process GPT shows the same picture",
+  "지금은 이름 첫 글자가 보여요": "Your initial shows for now",
+  "사진 파일을 골라 주세요.": "Please choose a photo file.",
+  "30MB 보다 큰 사진은 올릴 수 없어요.": "Photos larger than 30MB can't be uploaded.",
+  "이 사진은 열 수 없어요. JPG · PNG · WebP 사진을 골라 주세요.": "I can't open this photo. Please choose a JPG, PNG or WebP photo.",
+  "사진이 너무 커요. 다른 사진을 골라 주세요.": "The photo is too large. Please choose another one.",
+  "사진을 올리지 못했어요.": "I couldn't upload the photo.",
+  "Google 사진으로": "Back to Google photo",
+  "Google 계정의 사진이에요": "Your Google account's photo"
  },
  "patterns": [
   [
@@ -6566,6 +6581,10 @@
   [
    "{0} — 바꾸기는 그 PC 의 앱에서",
    "{0} — changed in that PC's app"
+  ],
+  [
+   "기본 사진 {0}",
+   "Preset {0}"
   ]
  ],
  "context": [

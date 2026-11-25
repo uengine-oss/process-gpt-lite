@@ -5,6 +5,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
+import PersonFace from './PersonFace.vue'
 
 const app = useApp()
 // the team and the tenant-wide role holders are changed by administrators (server: 403 otherwise)
@@ -70,7 +71,7 @@ async function setRole(role, userId) {
     <p class="cap">팀원</p>
     <div class="list glass">
       <div v-for="m in team" :key="m.id" class="li">
-        <div class="av">{{ (m.name || m.email).slice(0, 1) }}</div>
+        <div class="av"><PersonFace :id="m.id" :name="m.name || m.email" /></div>
         <div class="main"><b>{{ m.name }}<span v-if="m.id === app.me?.user?.id" class="me"> · 나</span></b><small>{{ m.email }}</small></div>
         <button v-if="admin && m.id !== app.me?.user?.id" class="rm" @click="remove(m)">빼기</button>
       </div>
@@ -114,7 +115,7 @@ async function setRole(role, userId) {
 .li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid rgba(0, 0, 0, .06); }
 .li:last-child { border-bottom: 0; }
 .li.sub { padding: 8px 14px 10px 28px; }
-.av { width: 34px; height: 34px; border-radius: 17px; background: var(--ink); color: var(--ink-inverse); display: grid; place-items: center; font-size: 15px; }
+.av { flex: none; width: 34px; height: 34px; border-radius: 17px; background: var(--ink); color: var(--ink-inverse); display: grid; place-items: center; overflow: hidden; font-size: 15px; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; }
 .main b { font-weight: 500; font-size: 15px; }
 .main small { color: var(--text-secondary); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

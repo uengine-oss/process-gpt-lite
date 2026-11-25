@@ -19,6 +19,8 @@ import GoogleClientAdmin from './GoogleClientAdmin.vue'
 import BackgroundAdmin from './BackgroundAdmin.vue'
 import InstallNudge from './InstallNudge.vue'
 import LocalAgentsSettings from './LocalAgentsSettings.vue'
+import PersonFace from './PersonFace.vue'
+import ProfilePictureSheet from './ProfilePictureSheet.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
 import { MAIN_LANGS, uiLangFor } from '../i18n/mainLangs.js'
 import { lang as uiLang, setLang } from '../i18n/lang.js'
@@ -186,6 +188,9 @@ const toPortal = () => { location.assign('/definition-map?mobileView=desktop') }
 // 앱 설치: any time, not only when the card offers it — never inside the installed app, the Android wrapper or the desktop app
 const installRow = !currentEnv().appMode
 const installOpen = ref(false)
+// 프로필 사진: the avatar at the top and Settings › 프로필 open the same sheet (users.profile, shared with Process GPT)
+const pictureOpen = ref(false)
+const myPicture = computed(() => app.me?.user?.picture ?? null)
 const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.floor(sky.simHour)}:${String(Math.round((sky.simHour % 1) * 60)).padStart(2, '0')}`))
 </script>
 
@@ -194,7 +199,9 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
     <button class="x press" aria-label="닫기" @click="router.push('/chat')"><Icon name="close" :size="20" /></button>
 
     <div v-if="!page" class="home blur-in">
-      <div class="avatar">{{ (app.me?.user?.name || '?').slice(0, 1) }}</div>
+      <button class="avatar press" data-test="settings-avatar" aria-label="프로필 사진 바꾸기" @click="pictureOpen = true">
+        <PersonFace :name="app.me?.user?.name" :picture="myPicture" /><span class="cam"><Icon name="camera" :size="15" /></span>
+      </button>
       <h2>{{ app.me?.user?.name }}</h2>
       <p class="mail">{{ app.me?.user?.email }}</p>
       <div class="plan"><Wordmark :size="18" /></div>
@@ -422,12 +429,19 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
 
       <template v-if="page === 'profile'">
         <div class="list glass">
+          <div class="li pic">
+            <button class="avatar sm press" aria-label="프로필 사진 바꾸기" data-test="profile-avatar" @click="pictureOpen = true"><PersonFace :name="app.me?.user?.name" :picture="myPicture" /></button>
+            <div class="main"><b>프로필 사진</b><small>{{ !myPicture ? '지금은 이름 첫 글자가 보여요' : myPicture === app.me?.user?.pictureDefault ? 'Google 계정의 사진이에요' : 'Process GPT에도 같은 사진이 보여요' }}</small></div>
+            <button class="pill-btn sm" data-test="profile-picture-change" @click="pictureOpen = true">바꾸기</button>
+          </div>
           <div class="li"><div class="main"><b>이름</b><small>{{ app.me?.user?.name }}</small></div><button class="pill-btn sm" @click="router.push('/settings/accounts')">바꾸기</button></div>
           <div class="li"><div class="main"><b>이메일</b><small>{{ app.me?.user?.email }}</small></div></div>
           <div class="li"><div class="main"><b>생년월일</b><small>{{ app.me?.profile?.birth?.slice(0, 10) || '—' }}</small></div></div>
         </div>
       </template>
     </div>
+    <!-- 프로필 사진 (the avatar above, Settings › 프로필) -->
+    <Teleport to="body"><ProfilePictureSheet v-if="pictureOpen" @close="pictureOpen = false" /></Teleport>
   </div>
 </template>
 
@@ -436,7 +450,10 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
 .x { position: fixed; top: 14px; right: 16px; width: 48px; height: 48px; border-radius: 9999px; display: grid; place-items: center; background: var(--thin-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); z-index: 2; }
 .home, .page { width: min(528px, 100%); margin: 0 auto; }
 .home { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.avatar { width: 88px; height: 88px; border-radius: 9999px; background: linear-gradient(135deg, #8aa6d8, #4a5f9a); color: #fff; display: grid; place-items: center; font-size: 36px; font-weight: 600; }
+.avatar { position: relative; flex: none; width: 88px; height: 88px; border-radius: 9999px; background: linear-gradient(135deg, #8aa6d8, #4a5f9a); color: #fff; display: grid; place-items: center; font-size: 36px; font-weight: 600; }
+.avatar .cam { position: absolute; right: -2px; bottom: -2px; width: 30px; height: 30px; border-radius: 9999px; display: grid; place-items: center; color: var(--text-primary);
+  background: var(--regular-solid-bg); box-shadow: 0 1px 4px rgba(0 0 0 / .18); }
+.avatar.sm { width: 44px; height: 44px; font-size: 18px; }
 h2 { margin: 14px 0 0; font-size: 24px; font-weight: 600; }
 .mail { margin: 0; color: var(--text-secondary); }
 .plan { margin: 14px 0 22px; padding: 8px 16px; border-radius: 9999px; background: var(--cell-bg); }

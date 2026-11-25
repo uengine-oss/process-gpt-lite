@@ -44,6 +44,8 @@ const P = {
   dockr: 'M3.5 5h17v14h-17zM14.5 5v14',
   dockl: 'M3.5 5h17v14h-17zM9.5 5v14',
   dockp: 'M3.5 5h17v14h-17zM9 5v14M15 5v14M11.5 9h1.5M11.5 12h1.5',
+  // a camera (the profile picture's change badge, Settings)
+  camera: 'M4 8.5A1.5 1.5 0 0 1 5.5 7h2.3l1.5-2h5.4l1.5 2h2.3A1.5 1.5 0 0 1 20 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18zM12 16.2a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8z',
 }
 </script>
 

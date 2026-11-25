@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, inject } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 import TeamLayer from './team/TeamLayer.vue'
+import PersonFace from './PersonFace.vue'
 import { useTeam } from '../stores/team.js'
 import { useApp } from '../stores/app.js'
 import { narrow, wideLayout } from '../viewport.js'
@@ -12,7 +13,6 @@ const app = useApp()
 const team = useTeam()
 const router = useRouter()
 const route = useRoute()
-const initial = () => (app.me?.user?.name || '?').slice(0, 1)
 // MainView's: back where the instance was opened from (history), else the routine list
 const closeInstance = inject('closeInstance', null)
 const close = () => (closeInstance ? closeInstance() : router.push('/routines'))
@@ -108,7 +108,8 @@ watch([tab, narrow], place)
       <!-- team messenger: unread badge, inbox, shares (components/team) -->
       <TeamLayer :narrow="narrow" :button="!narrow" />
       <button v-if="!narrow" class="pill-btn" aria-label="페이지와 메일 검색" @click="app.searchOpen = true">검색</button>
-      <button class="avatar press" aria-label="설정" @click="router.push(route.path.startsWith('/settings') ? '/chat' : '/settings')">{{ initial() }}</button>
+      <!-- my picture (users.profile, the one Process GPT shows too), else my initial -->
+      <button class="avatar press" aria-label="설정" data-test="topbar-avatar" @click="router.push(route.path.startsWith('/settings') ? '/chat' : '/settings')"><PersonFace :name="app.me?.user?.name" :picture="app.me?.user?.picture ?? null" /></button>
     </div>
   </header>
 </template>
@@ -137,5 +138,5 @@ watch([tab, narrow], place)
 .tdot { position: absolute; top: 8px; right: 7px; width: 8px; height: 8px; border-radius: 4px; background: #e5484d; }
 .thumb { position: absolute; top: 2px; bottom: 2px; border-radius: 9999px; background: var(--ink); transition: left .45s var(--spring), width .45s var(--spring); }
 .right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
-.avatar { width: 48px; height: 48px; border-radius: 9999px; background: linear-gradient(135deg, #8aa6d8, #4a5f9a); color: #fff; font-weight: 600; font-size: 18px; }
+.avatar { width: 48px; height: 48px; border-radius: 9999px; background: linear-gradient(135deg, #8aa6d8, #4a5f9a); color: #fff; font-weight: 600; font-size: 18px; display: grid; place-items: center; overflow: hidden; }
 </style>

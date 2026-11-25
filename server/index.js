@@ -62,6 +62,7 @@ import { mailReplyRoutes } from './routes/mailReply.js'
 import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
+import { profilePictureRoutes, myPicture, rememberGooglePicture } from './routes/profilePicture.js'
 import { enabledFor as backgroundOn } from './lib/background/service.js'
 import { isReplyCard } from './lib/mailReply.js'
 import { mountImprove } from './mcp/improve.js'
@@ -150,6 +151,8 @@ async function auth(req, res, next) {
   // to_jsonb(p)->>'lang': still answers on a database the lang migration (sql/019) has not reached
   const [p] = await q(`select name, to_jsonb(p)->>'lang' as lang from pro_profile p where user_id=$1`, [u.id])
   req.user = { id: u.id, email: u.email, name: p?.name || u.user_metadata?.name || u.email.split('@')[0] }
+  // the auth server's own record of the person (identities, app_metadata): their Google picture (routes/profilePicture.js)
+  req.authUser = u
   req.session = { access_token: jwt }
   if (p) rememberLang(u.id, p.lang)
   // header > saved > ko; everything this request starts (agent turns, drafts, timers) keeps it
@@ -290,6 +293,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
       const { tok, me } = await mail.googleExchange(req.query.code, st.verifier, { client, redirectUri: st.redirectUri })
       if (st.mode === 'login') {
         const login = await finishLogin(me.email, me.name)
+        // the Google account's picture: the default picture of who signs in with Google (routes/profilePicture.js)
+        await rememberGooglePicture(login.user.id, me.picture).catch((e) => console.warn('[picture] google', e.message))
         return res.redirect(`${st.base}/auth/done#${encodeURIComponent(JSON.stringify(login))}`)
       }
       const granted = new Set((tok.scope || '').split(' '))
@@ -388,7 +393,9 @@ app.get('/api/me', auth, async (req, res) => {
   // 사용량·요금제 (usage limits on — PRO_LLM_KEYS — or PRO_PLAN_SCREEN=1); linkPreview: the company shows link cards (sql/051)
   // background: the company offers the day's background photos on Home (sql/054); the person's choice is profile.background
   const { enabled: billingOn } = await import('./lib/llmKeys.js')
-  res.json({ user: req.user, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang,
+  // user.picture: the picture the screens show (users.profile, shared with Process GPT; else the Google picture — routes/profilePicture.js),
+  // null = the initial; user.pictureDefault: what clearing a choice goes back to (the Google picture, or null)
+  res.json({ user: { ...req.user, ...await myPicture(req.user.id, req.authUser) }, profile: p, mail: m || null, admin: await team.isAdmin(req.user), lang: p?.lang || null, reqLang: req.lang,
     mainLang: resolveMain({ main: p?.main_lang, ui: p?.lang || req.lang }), mainLangSet: p?.main_lang || null, ontology: ontologyEnabled(),
     features: { scenarios: config.scenarios, planScreen: billingOn() || config.planScreen, linkPreview: await linkPreviewOn().catch(() => true), background: await backgroundOn().catch(() => true) } })
 })
@@ -420,6 +427,9 @@ app.post('/api/profile', auth, async (req, res) => {
   if (name) await q('update users set username=$1 where id=$2 and tenant_id=$3', [name, req.user.id, config.tenantId])
   res.json({ ok: true })
 })
+
+// my picture (Settings › 프로필, the avatar in the settings header): users.profile, the field Process GPT's account settings write
+app.use('/api', profilePictureRoutes(auth))
 
 // Onboarding conversation, staged so the client can pace the reveal.
 app.post('/api/onboard/intro', auth, async (req, res) => {
