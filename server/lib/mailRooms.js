@@ -44,7 +44,8 @@ export const BY = ['thread', 'sender', 'domain']
 export const isPersonal = (domain, list = []) => !domain || list.map(lower).includes(lower(domain))
 // the owner's own company (their sign-in's and mailbox's domains, and below them): 「같은 회사」 would be every colleague's mail — HR, payroll
 // (PR #100 review) — so it is neither a rule nor a reason
-export const isOwn = (domain, own = []) => !!domain && own.map(lower).filter(Boolean).some((d) => lower(domain) === d || lower(domain).endsWith(`.${d}`))
+// (and above them: for me@kr.company.com a rule on company.com would take kr.company.com too — a company domain rule takes its subdomains)
+export const isOwn = (domain, own = []) => !!domain && own.map(lower).filter(Boolean).some((d) => lower(domain) === d || lower(domain).endsWith(`.${d}`) || d.endsWith(`.${lower(domain)}`))
 const companyOf = (domain, { personalDomains = [], ownDomains = [] } = {}) => (domain && !isPersonal(domain, personalDomains) && !isOwn(domain, ownDomains) ? lower(domain) : '')
 
 // A rule's words, made when they are shown (in the reader's language — a rule keeps {by, key, name}, not words):
@@ -306,8 +307,13 @@ export async function stopRoom(user, actionId, roomId, what) {
   if (!ROOM.test(room)) throw fail(400, L('대화방을 알 수 없어요.', "I don't know which room."))
   if (what === 'body') {
     await MM.setShare(user.id, card.id, room, false)
-    // (this card's rule for the room no longer shares the bodies of the mails it brings either — PR #100 review)
+    // (the rule for the room — this card's, or the one that brought this mail — no longer shares the bodies of the mails it brings either)
     if (card.source?.room_follow?.[room]?.body) await setIn(card.id, user.id, ['room_follow', room, 'body'], false)
+    const from = card.source?.room_posts?.[room]?.auto?.card
+    if (from && UUID.test(String(from)) && from !== card.id) {
+      const [rc] = await q(`select id from pro_actions where id=$1 and user_id=$2 and source->'room_follow'->$3->>'body' = 'true'`, [from, user.id, room])
+      if (rc) { const r2 = await setIn(rc.id, user.id, ['room_follow', room, 'body'], false); if (r2) emit(user.id, 'action', r2) }
+    }
     const rows = await q(`select uuid, id, messages from chats where id=$1 and tenant_id=$2 and messages->'pgpt'->'refs' @> $3::jsonb`, [room, T(), JSON.stringify([{ type: 'mail', actionId: card.id }])]).catch(() => [])
     const { deliver } = await import('./team/messenger.js')
     for (const row of rows) {

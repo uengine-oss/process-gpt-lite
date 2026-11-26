@@ -290,6 +290,9 @@ test('끄기: 저절로 온 메일의 시트에서 약속 끄기 → 다음 메�
   const hers = (await messagesOf(c, dmRoom)).find((m) => m.kind === 'mailref')
   assert.equal(hers.refs[0].state.card, 'summary')
   assert.equal((await card(c1.id)).source.mail_share?.[dmRoom], undefined)
+  // a removed teammate still sees where their mail is shared (and can switch it off)
+  await q(`delete from pro_team_members where user_id=$1`, [me.id])
+  try { assert.equal((await call(me, 'GET', `/actions/${c1.id}/rooms?only=shared`)).status, 200) } finally { await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ('localhost',$1,$1) on conflict do nothing`, [me.id]) }
   // a rule for a room I left: put away at the next mail, nothing posted
   const r = await call(me, 'POST', `/actions/${c1.id}/rooms`, { room: weekly, follow: 'sender' })
   assert.equal(r.status, 200, r.text)
@@ -336,6 +339,11 @@ test('본문까지 정한 약속: 새 메일의 본문도 그 방에서만, 첨�
   try { await pollUser(me.id) } finally { llm.triage = { actions: [], brief: '' } }
   const auto2 = (await messagesOf(c, room.body.id)).find((m) => m.auto && m.refs?.[0]?.subject === '시제품 사진')
   assert.equal(auto2.refs[0].state.card, 'summary')
+  // 「본문 끄기」 on a mail the rule brought: the rule's body goes off too
+  await q(`update pro_actions set source = jsonb_set(source, array['room_follow', $2::text, 'body'], 'true') where id=$1`, [c0.id, room.body.id])
+  const [a1] = await q(`select id from pro_actions where user_id=$1 and source->>'mail_id'=$2`, [me.id, m1])
+  assert.equal((await call(me, 'POST', `/actions/${a1.id}/rooms/${room.body.id}/stop`, { what: 'body' })).status, 200)
+  assert.equal((await card(c0.id)).source.room_follow[room.body.id].body, false, '그 메일을 데려온 약속의 본문도 꺼진다')
   // a rule set in another tenant is neither used nor put away by a poll in this one
   await q(`update pro_actions set source = jsonb_set(source, array['room_follow', $2::text, 'tenant'], '"other-tenant"') where id=$1`, [c0.id, room.body.id])
   const n0 = (await messagesOf(c, room.body.id)).length

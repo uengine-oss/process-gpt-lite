@@ -55,7 +55,9 @@ export function mailReplyRoutes(auth) {
   r.get('/actions/:id/follow', auth, (req, res) => send(res, F.followOfCard(req.user, req.params.id)))
   r.post('/actions/:id/follow/:key', auth, (req, res) => send(res, F.runFollow(req.user, req.session, req.params.id, String(req.params.key || ''), { again: req.body?.again === true })))
   // (the rooms are the team's: someone signed in but not on the team gets none — routes/team.js does the same)
-  r.get('/actions/:id/rooms', auth, (req, res) => send(res, requireMember(req.user).then(() => MR.roomsOfCard(req.user, req.params.id, { only: req.query.only === 'shared' ? 'shared' : null }))))
+  // (where it is shared stays the owner's to see — and to switch off — after they left the team)
+  r.get('/actions/:id/rooms', auth, (req, res) => send(res, (req.query.only === 'shared' ? Promise.resolve() : requireMember(req.user))
+    .then(() => MR.roomsOfCard(req.user, req.params.id, { only: req.query.only === 'shared' ? 'shared' : null }))))
   r.post('/actions/:id/rooms', auth, (req, res) => send(res, requireMember(req.user).then(() => {
     rateLimit(req.user.id)
     const b = req.body || {}

@@ -52,6 +52,9 @@ test('내 회사 도메인은 「같은 회사」가 아니다 — 약속에도 
   const out = R.rankRooms([{ id: 'a', members: [] }, { id: 'b', members: [] }], { me, mail: { from: 'colleague@uengine.org' }, posts: [{ room: 'b', address: 'other@uengine.org', domain: 'uengine.org' }], ownDomains: own })
   assert.deepEqual(out.map((r) => r.suggested), [false, false])
   assert.ok(R.isOwn('x.uengine.org', own) && !R.isOwn('notuengine.org', own) && !R.isOwn('', own))
+  // above my own domain too: a rule on it would take my subdomain's colleagues
+  assert.ok(R.isOwn('company.example', ['kr.company.example']))
+  assert.deepEqual(R.ruleChoices({ from: 'hr@company.example' }, { ownDomains: ['kr.company.example'] }).map((x) => x.by), ['sender'])
 })
 
 test('약속의 말: 주인의 시트에는 주소까지, 방에 가는 말에는 이름이나 도메인만(주소 없음) · 보여 줄 때 그 말로', async () => {
