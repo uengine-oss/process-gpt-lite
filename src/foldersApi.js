@@ -17,6 +17,7 @@ export const folders = {
   list: () => call('/folders'),
   create: (body) => call('/folders', { method: 'POST', body }),
   link: (body) => call('/folders/link', { method: 'POST', body }),
+  caps: () => call('/folders/caps'),
   search: (q) => call(`/folders/search?q=${enc(q)}`),
   people: () => call('/folders/people'),
   get: (slug) => call(`/folders/${enc(slug)}`),

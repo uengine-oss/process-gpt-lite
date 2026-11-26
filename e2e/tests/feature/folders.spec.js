@@ -41,10 +41,43 @@ test.describe('공유 폴더', () => {
     expect(await mainText(o, slug)).toContain('현장 접수')
   })
 
-  test('F-FO-02 git 저장소가 아닌 경로 등록은 거절', async ({ as }) => {
+  // 「저장소 연결」(이 서버의 디스크에 있는 저장소를 폴더로 등록)은 한 회사만 쓰는 설치형에서 그 회사 관리자만.
+  // 여러 회사를 받는 서버(게이트웨이 뒤 · PRO_TENANT_HOSTS)에서는 꺼짐 — 그때는 403 만 본다.
+  test('F-FO-02 저장소 연결: 관리자가 아니면 403 · 단추 없음, git 저장소가 아닌 경로와 폴더 보관 위치는 거절', async ({ as, db, cleanup }) => {
     const o = await as('fo-owner')
-    const r = await o.post('/folders/link', { path: '/tmp', name: uniq('회귀 링크') })
-    expect(r.status).toBe(400)
+    expect((await o.get('/folders/caps')).body).toEqual({ link: false })
+    expect((await o.post('/folders/link', { path: '/tmp', name: uniq('회귀 링크') })).status).toBe(403)
+    const a = await as('fo-link-admin')
+    await db.q('update users set is_admin=true where id=$1 and tenant_id=$2', [a.id, db.tenant])
+    cleanup(() => db.q('update users set is_admin=false where id=$1 and tenant_id=$2', [a.id, db.tenant]))
+    const on = (await a.get('/folders/caps')).body.link
+    if (!on) { // a server for several companies: off even for an administrator
+      expect((await a.post('/folders/link', { path: '/tmp', name: uniq('회귀 링크') })).status).toBe(403)
+      return
+    }
+    expect((await a.post('/folders/link', { path: '/tmp', name: uniq('회귀 링크') })).status).toBe(400)
+    // a folder this server already keeps (its own members) cannot be registered again as another folder
+    const slug = await seedFolder(o, db, cleanup, '회귀 연결 금지')
+    const [row] = await db.q('select repo_path from pro_folders where slug=$1 and tenant_id=$2', [slug, db.tenant])
+    const r = await a.post('/folders/link', { path: row.repo_path, name: uniq('회귀 링크') })
+    expect(r.status, r.text).toBe(400)
+    expect(r.body.error).toContain('이미 폴더로 관리되는')
+    expect((await a.get(`/folders/${slug}`)).status).toBe(403)
+  })
+
+  test('F-FO-11 폴더 화면의 「저장소 연결」 단추는 연결할 수 있는 사람에게만', async ({ as, pageAs, db, cleanup }) => {
+    const p = await pageAs('fo-owner')
+    await p.goto('/folders')
+    await expect(p.locator('.head').getByRole('button', { name: '새 폴더' })).toBeVisible()
+    await expect(p.getByTestId('folder-link')).toHaveCount(0)
+    const a = await as('fo-link-admin')
+    await db.q('update users set is_admin=true where id=$1 and tenant_id=$2', [a.id, db.tenant])
+    cleanup(() => db.q('update users set is_admin=false where id=$1 and tenant_id=$2', [a.id, db.tenant]))
+    const on = (await a.get('/folders/caps')).body.link
+    const pa = await pageAs('fo-link-admin')
+    await pa.goto('/folders')
+    await expect(pa.locator('.head').getByRole('button', { name: '새 폴더' })).toBeVisible()
+    await expect(pa.getByTestId('folder-link')).toHaveCount(on ? 1 : 0)
   })
 
   test('F-FO-03 구성원이 아니면 403, 보기 권한으로 올리기는 403', async ({ as, db, cleanup }) => {

@@ -38,6 +38,8 @@ export function folderRoutes(auth) {
     reindex(f).catch((e) => console.warn('[folders] link index', e.message))
     return S.publicFolder(f)
   }))
+  // whether 「저장소 연결」 is offered to this person here (S.mayLink)
+  r.get('/folders/caps', auth, h(async (req) => ({ link: await S.mayLink(req.user) })))
   r.get('/folders/search', auth, h((req) => search(req.user.id, req.query.q)))
   // people and agents a folder can be shared with / a variation handed to
   r.get('/folders/people', auth, h(async () => {

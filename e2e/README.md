@@ -101,7 +101,8 @@ PGPT_URL=http://localhost:18080 MAILPIT_URL=http://localhost:18025 npm run test:
 
 | 요구사항 | 시나리오 | 시험 | 단계 | |
 |---|---|---|---|---|
-| 공유 폴더를 만들고 등록한다 | 관리형 폴더 만들기 · git 저장소가 아닌 경로 등록 | F-FO-01, F-FO-02 | feature | ✅ |
+| 공유 폴더를 만들고 등록한다 | 관리형 폴더 만들기 · 저장소 연결은 설치형의 관리자만(아니면 403) · git 저장소가 아닌 경로와 폴더 보관 위치는 400 (spec `folder-link`) | F-FO-01, F-FO-02, `folderLink.test.js` | feature · 단위 | ✅ |
+| 「저장소 연결」 단추는 연결할 수 있는 사람에게만 (spec `folder-link`) | 관리자가 아닌 사람 · 관리자 | F-FO-11 | feature | ✅ |
 | 구성원과 권한으로 공유한다 | 구성원이 아닌 사용자 · 보기 권한으로 편집 시도 | F-FO-03 | feature | ✅ |
 | 드라이브처럼 파일을 다룬다 | 파일 올리기 | F-FO-01, S-32 | feature/smoke | ✅ |
 | 변형을 만든다 | 같은 일을 세 갈래로 | F-FO-06 | feature | ✅ |

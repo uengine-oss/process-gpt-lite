@@ -14,6 +14,7 @@ import { PGPT_ROOT } from '../paths.js'
 import { L } from '../lang.js'
 import * as PS from '../privateStore.js'
 import { people } from '../people.js'
+import { isAdmin } from '../team.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -105,10 +106,27 @@ export async function createFolder(user, { name, description = '', slug }) {
   return f
 }
 
+// Registering a repository that is on this server's own disk is for an install that serves one
+// company (on its own PC or server): never on a server that serves several companies (behind the
+// ProcessGPT gateway, or more tenants by host name), only that company's administrators, and never
+// a place this server already keeps folders in (those have their own members). PRO_FOLDERS_LINK=0
+// turns it off on an install too.
+export const linkingOn = () => !config.tenantFromHeader && !config.tenantHosts && process.env.PRO_FOLDERS_LINK !== '0'
+export async function mayLink(user) { return linkingOn() && !!user?.id && (await isAdmin(user)) }
+async function insideFoldersBase(dir) {
+  const real = async (p) => fs.realpath(p).catch(() => path.resolve(p))
+  const base = await real(config.foldersRoot || path.join(os.homedir(), 'pgpt-folders'))
+  const d = await real(dir)
+  return d === base || d.startsWith(base + path.sep)
+}
+
 // An existing repository registered as it is: nothing in it is changed (its branches and
 // worktrees are only listed), its current branch stands for main.
 export async function linkRepo(user, { repoPath, name, description = '' }) {
+  if (!linkingOn()) throw err(403, L('이 서버에서는 저장소를 연결할 수 없어요. 새 폴더를 만들어 파일을 올려 주세요.', "Repositories can't be linked on this server. Create a folder and upload the files instead."))
+  if (!(await isAdmin(user))) throw err(403, L('저장소 연결은 관리자만 할 수 있어요.', 'Only an administrator can link a repository.'))
   const dir = path.resolve(String(repoPath || ''))
+  if (await insideFoldersBase(dir)) throw err(400, L('이미 폴더로 관리되는 곳이에요. 그 폴더의 구성원으로 초대받아 주세요.', 'That place is already kept as a folder. Ask to be invited to it.'))
   if (!(await G.isRepo(dir))) throw err(400, L('git 저장소가 아니에요.', "That isn't a git repository."))
   const existing = (await q('select * from pro_folders where tenant_id=$1 and repo_path=$2', [T(), dir]))[0]
   if (existing) return existing

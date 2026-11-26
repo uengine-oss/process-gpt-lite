@@ -37,6 +37,10 @@ async function load() {
   try { list.value = await F.list() } catch (e) { err.value = e.message }
 }
 onMounted(load)
+// 「저장소 연결」 (a repository on this server's own disk): only where the server offers it to this person —
+// an install for one company, its administrators (server: folders/service.js mayLink)
+const canLink = ref(false)
+onMounted(async () => { try { canLink.value = !!(await F.caps())?.link } catch { canLink.value = false } })
 
 let t
 watch(q, (v) => {
@@ -105,7 +109,7 @@ const openDropped = () => { const n = dropNote.value; dropNote.value = null; if 
       <h1>폴더</h1>
       <span class="sub">여럿이 함께 쓰고, 에이전트가 변형을 만들어 일하는 파일 공간이에요</span>
       <span class="sp" />
-      <button class="pill-btn hbtn" @click="open('link')"><FIcon name="link" :size="16" /> 저장소 연결</button>
+      <button v-if="canLink" class="pill-btn hbtn" data-testid="folder-link" @click="open('link')"><FIcon name="link" :size="16" /> 저장소 연결</button>
       <button class="dark-btn hbtn" @click="open('new')">새 폴더</button>
     </div>
 
