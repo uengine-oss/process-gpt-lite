@@ -156,9 +156,13 @@ async function notifyInvited(me, t, row, invited) {
 // ('room' + the line). Quiet: Process GPT's chat trigger makes a 'chat' notice of the line for the others — checked in the same
 // transaction, so no Home card, bell or push comes of a rename; the line does not count as unread either.
 export const NAME_MAX = 50
-// what a typed name becomes: control characters and line breaks are spaces, runs of spaces one, trimmed; '' → null. Too long → throws.
+// what a typed name becomes: control and format characters (line breaks, direction marks and overrides, zero-width ones — a name
+// must not turn the line around it backwards or look blank) are spaces, except a zero-width joiner inside an emoji sequence; runs of
+// spaces one, trimmed; '' → null. Not text, or too long → throws.
+const JOINED = /(\p{Extended_Pictographic}\uFE0F?)\u200D(?=\p{Extended_Pictographic})/gu
 export function cleanName(v) {
-  const s = String(v ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (v !== null && v !== undefined && typeof v !== 'string') throw new TeamError(400, L('대화방 이름은 글자로 보내 주세요.', "A conversation's name must be text."))
+  const s = String(v ?? '').replace(JOINED, '$1\u0001').replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (c) => (c === '\u0001' ? c : ' ')).replace(/\u0001/g, '\u200D').replace(/\s+/g, ' ').trim()
   if ([...s].length > NAME_MAX) throw new TeamError(400, L(`대화방 이름은 ${NAME_MAX}자까지예요.`, `A conversation's name has at most ${NAME_MAX} characters.`))
   return s || null
 }

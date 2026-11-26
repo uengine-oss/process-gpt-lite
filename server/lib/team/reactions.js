@@ -101,7 +101,12 @@ export async function react(me, messageId, key, on, { memberThread, membersOf })
     if (!want && has) await c.query('delete from pro_chat_reactions where chat_uuid=$1 and user_id=$2 and reaction=$3', [row.uuid, me.id, key])
     ;({ rows } = await c.query('select user_id::text as user_id, reaction, created_at from pro_chat_reactions where chat_uuid=$1', [row.uuid]))
     await c.query('commit')
-  } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
+  } catch (e) {
+    await c.query('rollback').catch(() => {})
+    // a database without 062 yet: say so plainly (the screen puts the chip back)
+    if (e.code === '42P01') throw new TeamError(503, L('반응은 곧 쓸 수 있어요.', 'Reactions will be available soon.'))
+    throw e
+  } finally { c.release() }
   const members = await membersOf(row.id)
   const nameOf = await namesFor([...rows.map((r) => r.user_id), ...members.map((m) => m.id)])
   // the room's live channel — the same 'team' stream the messages come on; nothing else (no notice, no push, no unread)

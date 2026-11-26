@@ -105,3 +105,19 @@ test('RX-U-06 메시지 합치기 — 실시간 사본은 반응을 지우지 �
   const fresh = merged(live, [{ id: 'm1', at: at(1), body: '파일 붙음', reactions: [] }])
   assert.deepEqual(fresh[0].reactions, [])
 })
+
+// a room's name never turns the line around it backwards or looks blank (direction overrides, zero-width characters), keeps
+// emoji sequences whole, and is text (2026-11-26 review)
+test('cleanName: control and format characters become spaces, emoji sequences stay, only text is taken', async () => {
+  const { cleanName } = await import('../lib/team/messenger.js')
+  assert.equal(cleanName('‮abc'), 'abc')
+  assert.equal(cleanName('⁦영업⁩ 팀'), '영업 팀')
+  assert.equal(cleanName('​'), null)
+  assert.equal(cleanName('a​b'), 'a b')
+  assert.equal(cleanName('\u0085z'), 'z')
+  assert.equal(cleanName('👨‍👩‍👧 팀'), '👨‍👩‍👧 팀')
+  assert.equal(cleanName(''), null)
+  assert.equal(cleanName(null), null)
+  assert.throws(() => cleanName({}), (e) => e.status === 400)
+  assert.throws(() => cleanName(42), (e) => e.status === 400)
+})

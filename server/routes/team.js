@@ -182,7 +182,11 @@ export function teamRoutes(auth) {
   // invite teammates into a group room I am in (lib/team/messenger.js invite): {userIds} → {threadId, added, members}
   r.post('/team/rooms/:id/invite', auth, h((req) => M.invite(req.user, String(req.params.id), req.body?.userIds)))
   // a group room's name, set by any of its people (Process GPT's chat_rooms.name; '' → called by its people again): {name} → {threadId, name, changed}
-  r.put('/team/rooms/:id/name', auth, h((req) => M.rename(req.user, String(req.params.id), req.body?.name)))
+  r.put('/team/rooms/:id/name', auth, h((req) => {
+    // the name is sent on purpose: '' (or null) gives the room back its people's names; a body without it changes nothing
+    if (!req.body || !('name' in req.body)) throw new TeamError(400, L('바꿀 이름을 보내 주세요.', 'Send the name to set.'))
+    return M.rename(req.user, String(req.params.id), req.body.name)
+  }))
   // one of my reactions on someone else's message (lib/team/reactions.js): {key, on?} — on omitted turns it over → {messageId, threadId, reactions}
   r.post('/team/messages/:id/reactions', auth, h((req) => M.react(req.user, String(req.params.id), req.body?.key, typeof req.body?.on === 'boolean' ? req.body.on : undefined)))
   r.post('/team/threads', auth, h(async (req) => {
