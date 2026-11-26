@@ -352,9 +352,10 @@ export const useApp = defineStore('app', {
     },
 
     // composer attachments: upload starts at once, so sending only waits for what is still going
-    addAttachments(list) {
+    // extra: marks on each (share: the id of a share from another app — components/ShareArrival.vue takes those back for 「다른 곳에」)
+    addAttachments(list, extra = {}) {
       for (const file of [...list].slice(0, 10)) {
-        const a = { id: crypto.randomUUID(), name: file.name, size: file.size, state: 'uploading', result: null, error: '' }
+        const a = { id: crypto.randomUUID(), name: file.name, size: file.size, state: 'uploading', result: null, error: '', ...extra }
         this.attachments.push(a)
         a.job = uploadAttachment(file)
           .then((r) => { const x = this.attachments.find((y) => y.id === a.id); if (x) { x.state = 'ready'; x.result = r } })

@@ -52,6 +52,8 @@ import ReactionBar from './ReactionBar.vue'
 import ReactionChips from './ReactionChips.vue'
 import { hold } from '../holdMenu.js'
 import { canReact } from '../../roomReactions.js'
+// what another app shared to Process GPT, meant for a room (components/ShareArrival.vue · src/shareInbox.js)
+import { inbox } from '../../shareInbox.js'
 
 const app = useApp()
 const team = useTeam()
@@ -311,6 +313,8 @@ function atKey(e) {
   return false
 }
 watch(draft, () => nextTick(atUpdate))
+// the box grows with what is in it, up to its max-height (several lines put in at once — a share from another app — show, not only the first)
+watch(draft, () => nextTick(() => { const el = taEl.value; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 120)}px` }))
 const atBlur = () => setTimeout(() => { at.open = false }, 150)
 const aiWait = computed(() => team.aiStatus[team.active] || null)
 
@@ -321,12 +325,13 @@ const MAX_FILES = 10, MAX_BYTES = 50 * 1024 * 1024
 const ups = ref([])            // {id, name, size, progress, state: uploading|ready|error, card, error, job}
 const filePick = ref(null)
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
-function addFiles(list) {
+// (share: the id of a share from another app — its chips go again if the person puts it somewhere else)
+function addFiles(list, share = null) {
   const files = [...list]
   const room = Math.max(0, MAX_FILES - attach.value.length - ups.value.length)
   err.value = files.length > room ? `파일은 한 번에 ${MAX_FILES}개까지 보낼 수 있어요.` : ''
   for (const f of files.slice(0, room)) {
-    const u = reactive({ id: crypto.randomUUID(), name: f.name, size: f.size, progress: 0, state: 'uploading', card: null, error: '', job: null })
+    const u = reactive({ id: crypto.randomUUID(), name: f.name, size: f.size, progress: 0, state: 'uploading', card: null, error: '', job: null, share })
     ups.value.push(u)
     if (f.size > MAX_BYTES) { u.state = 'error'; u.error = '50MB 초과'; continue }
     u.job = uploadTeamFile(f, (p) => { u.progress = p })
@@ -375,6 +380,21 @@ watch(() => [team.pendingMention, team.active, team.tab], () => {
   team.pendingMention = null
   addItems(items)
 }, { immediate: true })
+// 다른 앱의 「공유」로 온 파일 · 글 (2026-11-26 「지금 현재 대화창이 열려 있다고 치면 팀 메시지에 여기에 곧바로 첨부를 할 수 있을 거야.」): once the
+// room it was meant for is open here, the files go up as chips (as if picked with 「내 컴퓨터에서」) and the words go in the box — nothing
+// is sent until the person presses 보내기. 「다른 곳에」 (ShareArrival) takes them back out.
+watch(() => [inbox.forRoom, team.active, team.tab], () => {
+  const s = inbox.forRoom
+  if (!s || team.active !== s.room || team.tab !== 'threads') return
+  inbox.forRoom = null
+  if (s.files?.length) addFiles(s.files, s.key)
+  if (s.text) draft.value = draft.value.trim() ? `${draft.value.trimEnd()}\n${s.text}` : s.text
+}, { immediate: true })
+watch(() => inbox.takeBack, (t) => {
+  if (!t) return
+  for (const u of ups.value.filter((x) => x.share === t.key)) dropUp(u)
+  if (t.text && draft.value.includes(t.text)) draft.value = draft.value.replace(t.text, '').trim()
+})
 function onKey(e) {
   if (atKey(e)) return
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() }
@@ -676,7 +696,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 </span>
               </template>
               <span v-for="m in attach" :key="m.id" class="chip" data-test="msg-share-chip" :data-file="m.content.name">{{ m.content.name }}<em class="as share">공유</em><button @click="toggleAttach(m)">×</button></span>
-              <span v-for="u in ups" :key="u.id" class="chip up" :class="u.state" data-test="msg-upload-chip" :data-state="u.state">
+              <span v-for="u in ups" :key="u.id" class="chip up" :class="u.state" data-test="msg-upload-chip" :data-state="u.state" :data-file="u.name">
                 <span class="cn">{{ u.name }}</span><small>{{ u.state === 'uploading' ? `${Math.round(u.progress * 100)}%` : u.state === 'error' ? u.error : kb(u.size) }}</small>
                 <i v-if="u.state === 'uploading'" class="bar" :style="{ width: `${Math.round(u.progress * 100)}%` }" />
                 <button aria-label="빼기" @click="dropUp(u)">×</button>

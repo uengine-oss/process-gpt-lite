@@ -1,0 +1,13 @@
+# cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/share-target.spec.js   (2026-11-26 16:48 KST, Chrome · 자체 스택 share-target-ui)
+
+Running 7 tests using 1 worker
+
+  ✓  1 [feature] › tests/feature/share-target.spec.js:108:1 › F-ST-01 휴대폰: 단체방을 열어 둔 채 PDF 를 공유하면 그 방 입력창에 칩으로 — 보내기를 눌러야 김서연이 받는다 (7.3s)
+  ✓  2 [feature] › tests/feature/share-target.spec.js:153:1 › F-ST-02 열린 곳이 없으면 「어디에 넣을까요?」 — 대화 · 내 채팅 · 폴더, 내 채팅을 고르면 채팅 입력창에 칩과 글 (4.9s)
+  ✓  3 [feature] › tests/feature/share-target.spec.js:193:1 › F-ST-03 글 · 주소만 공유(fetch 로 POST → 303) — 열린 단체방의 입력창에 제목 · 글 · 주소, 주소는 자르지 않는다 (2.6s)
+  ✓  4 [feature] › tests/feature/share-target.spec.js:220:1 › F-ST-04 50MB 넘는 파일 — 같이 온 작은 파일만 칩, 넘는 것은 이름 · 크기 · 까닭 / 넘는 것만이면 알림만 (4.4s)
+  ✓  5 [feature] › tests/feature/share-target.spec.js:248:1 › F-ST-05 폴더를 열어 둠 → 「이 폴더에 넣기」 → main 에 그 파일 / 방에 넣은 것을 「다른 곳에」 → 칩이 빠지고 고르기 → 내 채팅 (6.5s)
+  ✓  6 [feature] › tests/feature/share-target.spec.js:284:1 › F-ST-06 받지 못한 공유는 그렇다고 알린다 · 설정 › 앱 설치에는 Android 에만 「공유」 안내 (8.2s)
+  ✓  7 [feature] › tests/feature/share-target.spec.js:314:1 › F-ST-07 영어 화면 — 고르기 · 넣은 뒤의 막대 · 넘친 파일 알림 · 설치 안내가 영어로 (4.4s)
+
+  7 passed (41.4s)

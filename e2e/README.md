@@ -1510,6 +1510,33 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/local
 | 내 PC 의 CLI 대화 보기(`LocalConversation`, html allow) 회귀 | 스펙 요구 2 | F-LV-01~10 | feature | ✅ |
 | 운영(게이트웨이 뒤)의 저장소 응답 헤더 · `script-src` 제한 | — | — (이 저장소 밖 · 패널 앱 구조) | — | ✗ |
 
+### 65. 다른 앱의 「공유」로 Process GPT에 넣기 — 지금 열어 둔 곳의 입력창으로, 보내기는 직접 (스펙 `share-target`)
+
+사용자(11-26 휴대폰 녹화): 「우리가 파일을 공유할 때 여기 앱으로 process GPT가 들어가면 좋겠어.」 「그러면은 내가 이렇게 따로 올리지 않아도 이 내용을 곧바로 공유할 수 있겠지」 「현재 열려있는 공간의 첨부를 바로 할 수 있겠지.」 「예를 들면 지금 현재 대화창이 열려 있다고 치면 팀 메시지에 여기에 곧바로 첨부를 할 수 있을 거야.」 이제 홈 화면에 추가한 Lite는 매니페스트의 `share_target`으로 Android 공유 목록에 나타난다. 공유한 파일과 글은 서비스 워커(`public/sw.js` 끝의 독립 블록)가 이 기기의 Cache Storage에 잠시 보관했다가 `…/chat?share=<id>`로 넘긴다. 앱(`src/shareInbox.js` · `src/shareTarget.js` · `src/components/ShareArrival.vue`)은 이 기기에서 마지막으로 열어 둔 곳(대화방 · 채팅 · 프로젝트 · 루틴 · 폴더, 종류와 id만 저장)의 입력창에 칩과 글로 넣고, 보내지는 않는다. 열린 곳이 없으면 「어디에 넣을까요?」라고 묻는다. 시험에서는 Chromium에서 실제 서비스 워커를 실행하고, Android와 같은 방식으로 multipart `POST`를 내비게이션(폼 제출)과 `fetch`(303 따라가기)로 보낸다. 자체 스택(회사 `share-target-ui`, BFF 8974 · Vite 5374부터)을 띄우고, 모델은 호출하지 않는다. 증거는 `openspec/specs/share-target/e2e/README.md`에 있다.
+
+```bash
+cd server && node --test test/shareTarget.test.js                                     # U-ST-01~11
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/share-target.spec.js   # F-ST-01~07
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 매니페스트 `share_target`: `./share-target`(범위 안, `/lite/` 빌드에서 `/lite/share-target`), `POST` · `multipart/form-data`, `title` · `text` · `url` · `files`(`*/*`), 설치 조건 유지 | 사용자 11-26 | U-ST-08 · `results/nginx.txt` | 단위 | ✅ |
+| 서비스 워커: 공유 `POST`만 받아 Cache Storage에 보관하고 303 → `chat?share=<id>`, 그 밖의 요청(같은 주소의 GET, 다른 POST, 다른 출처)은 네트워크로 전달, 알림 처리기는 그대로 유지 | 사용자 11-26 | U-ST-09 · 11 · F-ST-01 | 단위 · feature | ✅ |
+| 한도: 파일 10개 · 한 파일 50MB · 합계 200MB, 빈 파일 제외, 넣지 못한 파일의 이름 · 크기 · 까닭 안내, 하루 지난 공유 정리, 읽지 못하면 `?share=failed`, 앱과 서비스 워커의 수치 일치 | — | U-ST-03 · 10 · 11 | 단위 | ✅ |
+| 휴대폰 390px(밝은 테마 · 밤 테마): 단체방 「시니어그룹」을 열어 둔 채 PDF 공유 → 그 방 입력창에 칩(올라감) · 「공유한 파일 1개를 ‘시니어그룹’ 입력창에 넣었어요.」 · 보내지 않음 → 한마디 쓰고 보내기 → 김서연이 같은 바이트를 받음, 주소에서 `?share=` 사라짐, 공유 저장소 비움 | 사용자 11-26 | F-ST-01 | feature | ✅ |
+| 열린 곳이 없음(프로세스 지도) → 「어디에 넣을까요?」(대화 · 「Process GPT 채팅」 · 폴더, 화면 안에 표시) → 내 채팅 → 채팅 입력창에 첨부와 글, 에이전트에게 보내지 않음, 이후 채팅을 열린 곳으로 기억 | 사용자 11-26 | F-ST-02 · U-ST-06 · 07 | feature · 단위 | ✅ |
+| 글 · 주소만(`fetch`로 POST → 303): 열린 대화방 입력칸에 제목 · 글 · 주소 세 줄, 주소는 자르지 않음, 중복된 제목 · 주소는 한 번만 | 사용자 11-26 | F-ST-03 · U-ST-01 | feature · 단위 | ✅ |
+| 51MB 영상 + 메모: 메모만 칩으로 표시, 「‘현장 영상.mp4’(51MB)는 50MB가 넘어서 넣지 못했어요.」 / 영상만: 해당 알림만 표시, 선택 화면 · 칩 없음 | — | F-ST-04 | feature | ✅ |
+| 폴더를 열어 둠: 「‘영업 자료’ 폴더에 넣을까요?」 → 「이 폴더에 넣기」를 누를 때만 main에 넣음, 함께 온 글은 넣지 않음, 글만 있거나 편집 권한 없음 → 선택 화면 | 사용자 11-26 | F-ST-05 · U-ST-06 | feature · 단위 | ✅ |
+| 「다른 곳에」: 먼저 넣은 방의 칩과 글을 빼고 선택 화면 표시 → 고른 곳에 넣음 | — | F-ST-05 | feature | ✅ |
+| 열린 곳: 메신저의 대화가 페이지보다 우선, 설정 · 로그인 · 처음 안내는 그 전에 열어 둔 곳 유지, 저장이 차단된 브라우저에서도 멈추지 않음 | 사용자 11-26 | U-ST-04 · 05 | 단위 | ✅ |
+| 받지 못한 공유(`?share=failed` · 없는 id) 알림, 폴더의 `?share=`(권한 요청)는 공유로 보지 않음, 서비스 워커 없이 웹 서버에 도달한 공유는 `chat?share=failed`로 전달(상대 주소, `/lite` 유지) | — | F-ST-06 · `results/nginx.txt` | feature | ✅ |
+| 설치 안내: Android 설정 › 앱 설치(밝은 테마 · 밤 테마)에 「휴대폰 홈 화면에 추가하면 다른 앱의 「공유」에 Process GPT 가 나타나요.」 표시, iPhone에는 표시하지 않음 | 사용자 11-26 | F-ST-06 · F-IN-01~09 | feature | ✅ |
+| 영어 화면: 「어디에 넣을까요?」 · 넣은 뒤의 막대 · 50MB 알림 · 설치 안내에 한글이 남지 않음(사람이 지은 이름 · 파일 이름은 그대로) | — | F-ST-07 | feature | ✅ |
+| 실제 Android 휴대폰의 공유 목록(WebAPK를 새로 받은 뒤), PDF · 사진 · 동영상 · 링크의 앱별 표시 여부, 이미 설치한 앱의 매니페스트 갱신 시점 | — | — (배포 뒤 휴대폰에서) | — | ◐ |
+| iOS Safari(Web Share Target 없음 — 지원하는 것처럼 표시하지 않음), 데스크톱 앱(변경 사항 없음) | — | — | — | — |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

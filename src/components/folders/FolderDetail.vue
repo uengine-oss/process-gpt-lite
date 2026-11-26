@@ -15,6 +15,8 @@ import KitTab from './KitTab.vue'
 import { bridge as pcBridge, pcFolders, refreshPcFolders, pcFolderOf, stateText, stopped, whyText, reasonText } from '../../desktopFolders.js'
 import { folders as F, whoOf, holderName, roleLabel, statusLabel, sourceLabel, indexLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, fmtSize } from './fileKind.js'
+// files another app shared (Android's share sheet), put in this folder after 「이 폴더에 넣기」 (components/ShareArrival.vue)
+import { inbox } from '../../shareInbox.js'
 
 const props = defineProps({ slug: String })
 const emit = defineEmits(['preview'])
@@ -157,6 +159,12 @@ watch(() => (route.query.share && folder.value?.id ? `${route.query.share}:${fol
   router.replace({ query: rest })
 }, { immediate: true })
 
+// files another app shared, after 「이 폴더에 넣기」 (components/ShareArrival.vue): this folder's own upload — the editor's right, the progress, 「올렸어요」
+watch(() => (inbox.forFolder?.slug === props.slug && folder.value ? inbox.forFolder : null), (s) => {
+  if (!s) return
+  inbox.forFolder = null
+  uploadFiles(s.files)
+}, { immediate: true })
 async function uploadFiles(list, dir = '') {
   if (!can('editor')) return say('올리려면 편집 권한이 필요해요.')
   for (const file of list) {
