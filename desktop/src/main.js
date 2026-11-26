@@ -628,7 +628,12 @@ function seatNotice(n) {
   const t = n.title || ''
   let title = ''
   let body = ''
-  if (n.kind === 'recall' && n.inUse) {
+  const names = Array.isArray(n.unsureFiles) ? n.unsureFiles.slice(0, 5).join(', ') : ''
+  if (n.kind === 'recall' && n.unsure) {
+    // (「여기로 가져오기」 from elsewhere while a pair this PC shows as one file is changed: only its person can say which name was meant)
+    title = ko ? `「${t}」 작업본을 다른 곳에서 가져가려고 해요` : `"${t}" is being taken elsewhere`
+    body = ko ? `확인이 필요한 파일(${names})이 있어 돌려놓지 않았어요. 파일을 확인한 뒤 작업실에서 「돌려놓기」를 눌러 주세요.` : `Files to check (${names}) are here, so it was not given back. Check them, then press "Give back" in the workroom.`
+  } else if (n.kind === 'recall' && n.inUse) {
     // (「여기로 가져오기」 from elsewhere, while a terminal or a program is in the working copy: nothing moved — the person closes it first)
     title = ko ? `「${t}」 작업본을 다른 곳에서 가져가려고 해요` : `"${t}" is being taken elsewhere`
     body = ko ? '작업본 폴더에 열린 터미널 · 프로그램을 닫은 뒤 다시 가져와 주세요.' : 'Close the terminal or program open in the working copy\'s folder, then take it again.'
@@ -648,8 +653,10 @@ function seatNotice(n) {
     // (moved without anything else to say — what only this PC had of a copy whose seat went, a folder left behind: never silently)
     title = ko ? `「${t || '작업본'}」 — 이 PC 에만 있던 파일 ${n.kept}개를 앱 휴지통으로 옮겼어요` : `"${t || 'Working copy'}" — ${n.kept} files only this PC had were moved to the app's trash`
     body = ko ? '30일 동안 남아 있어요. 작업실의 「휴지통 열기」로 볼 수 있어요.' : 'They stay for 30 days. Open them with "Open trash" in the workroom.'
+    if (names) body = `${body} ${ko ? `확인이 필요한 파일(${names})은 앱 휴지통에 30일 동안 남아 있어요.` : `The files to check (${names}) stay in the app's trash for 30 days.`}`
   } else if (n.kind === 'released' && n.kept) {
     title = ko ? `「${t}」을 돌려놓았어요 — 이 PC 에만 있던 파일 ${n.kept}개는 앱의 휴지통에 30일 동안 둬요` : `"${t}" was given back — ${n.kept} files only this PC had are kept in the app's trash for 30 days`
+    if (names) body = ko ? `확인이 필요한 파일(${names})은 앱 휴지통에 30일 동안 남아 있어요.` : `The files to check (${names}) stay in the app's trash for 30 days.`
   } else return
   ;(global.__pglNotices ||= []).push({ kind: `seat-${n.kind}`, title, body })
   try { const { Notification } = require('electron'); if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* no notifications here */ }

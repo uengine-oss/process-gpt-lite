@@ -1113,6 +1113,103 @@ test('3차 검토 6 — 「여기로 가져오기」(seat:recall auto)를 터미
   assert.equal((await w.release(v)).ok, true)
 })
 
+// ---------- the fourth review (11-26) ----------
+test('4차 검토 1 — 돌려놓기를 기다리는 동안 터미널에서 커밋하면: 서버가 받은 머리가 아니니 휴지통에서 지우지 않고, 그 커밋은 앱 저장소에 남는다', async () => {
+  const w = wc
+  const v = variation('기다리는 동안 커밋')
+  const e = await prepared(w, v)
+  put(e.dir, 'docs/올라갈 글.md', '올라감\n')
+  const real = plays.release
+  let local = null
+  plays.release = (m) => {
+    if (m.variation === v && !local) {
+      put(e.dir, 'new-work.txt', '터미널에서 커밋\n')
+      git(e.dir, 'add', 'new-work.txt')
+      git(e.dir, 'commit', '-qm', 'my own commit')
+      local = git(e.dir, 'rev-parse', 'HEAD').trim()
+    }
+    return real(m)
+  }
+  let g
+  try { g = await w.release(v) } finally { plays.release = real }
+  assert.equal(g.ok, true, JSON.stringify(g))
+  const [bin] = binsOf(w, v)
+  assert.ok(fs.existsSync(path.join(bin, 'new-work.txt')), '서버가 받지 않은 커밋의 파일은 휴지통에 남는다')
+  const repo = path.join(w.folderDir(FOLDER), 'repo')
+  const kept = execFileSync('git', ['for-each-ref', '--format=%(objectname)', 'refs/kept/'], { cwd: repo }).toString().trim().split('\n')
+  assert.ok(kept.includes(local), '그 커밋은 앱 저장소에 남는다(refs/kept/)')
+  // (kept as long as the trash: past 30 days the ref goes)
+  const stale = `refs/kept/${v}-${dayAgo(31)}-120000`
+  git(repo, 'update-ref', stale, local)
+  await w.cleanTrash(Date.now(), { say: false })
+  const after = execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/kept/'], { cwd: repo }).toString().trim().split('\n')
+  assert.ok(!after.includes(stale) && after.length >= 1, '30일이 지난 것만 지운다')
+  // the usual give-back (nothing committed meanwhile) still keeps only what the server lacks
+  const v2 = variation('보통의 돌려놓기')
+  const e2 = await prepared(w, v2)
+  put(e2.dir, 'docs/올라갈 글.md', '올라감\n')
+  assert.equal((await w.release(v2)).ok, true)
+  assert.deepEqual(filesIn(binsOf(w, v2)[0]), [], '서버가 받은 것은 남기지 않는다')
+})
+
+test('4차 검토 2 — 확인이 필요한 파일이 있으면 「여기로 가져오기」(자동)는 돌려놓지 않고 그렇다고 답하며, 직접 돌려놓으면 그 이름을 알린다', { skip: !caseless && 'a disk that tells case apart' }, async () => {
+  const w = wc
+  const v = variationRaw('쌍이 있는 돌려놓기', { 'Plan.md': 'upper\n', 'plan.md': 'lower\n' })
+  const e = await prepared(w, v)
+  assert.deepEqual((await w.commitAsIs(w.get(v), '저장 지점')).unsureFiles, [], '받은 그대로의 쌍은 확인할 것이 없다')
+  const [name] = fs.readdirSync(e.dir).filter((n) => n.toLowerCase() === 'plan.md')
+  fs.writeFileSync(path.join(e.dir, name), '고친 계획\n')
+  const asked = []
+  const on1 = (n) => asked.push(n)
+  w.on('recall', on1)
+  try {
+    w.handle({ type: 'seat:recall', variation: v, epoch: vars.get(v).epoch, auto: true })
+    await waitFor(() => sentOf('seat:refused', v).length, 8000, 'refused said')
+  } finally { w.off('recall', on1) }
+  const m = sentOf('seat:refused', v)[0]
+  assert.deepEqual([m.re, m.why], ['seat:recall', 'unsure'])
+  assert.ok(fs.existsSync(e.dir), '그대로 둔다')
+  assert.ok(asked.some((n) => n.variationId === v && n.unsure), '이 PC 에도 알린다')
+  await w.sendStatus(v)
+  assert.deepEqual(w.list().find((x) => x.variationId === v).unsureFiles, ['Plan.md · plan.md'], '앱 화면은 그 이름을 안다')
+  assert.ok(!JSON.stringify(sentOf('seat:status', v)).includes('Plan.md'), '서버에는 이름을 보내지 않는다')
+  const notes = []
+  const on2 = (n) => notes.push(n)
+  w.on('released', on2)
+  let g
+  try { g = await w.release(v) } finally { w.off('released', on2) }
+  assert.equal(g.ok, true, JSON.stringify(g))
+  assert.deepEqual(g.unsureFiles, ['Plan.md · plan.md'])
+  assert.deepEqual(notes.at(-1)?.unsureFiles, ['Plan.md · plan.md'], '알림에도 그 이름')
+})
+
+test('4차 검토 3 — 터미널 때문에 남은 변경을 옮기지 못하면 때마다 다시 하고, 그동안 다시 받으려 하면 까닭을 그대로 말한다', { skip: process.platform === 'win32' && 'lsof' }, async () => {
+  const w = wc
+  const { spawn } = require('node:child_process')
+  const was = w.leftRetryMs
+  w.leftRetryMs = 300
+  const v = variation('때마다 다시')
+  const e = await prepared(w, v)
+  put(e.dir, 'docs/남을 것.md', '터미널이 열려 있음\n')
+  const sh = spawn('sleep', ['30'], { cwd: e.dir, stdio: 'ignore' })
+  try {
+    await sleep(200)
+    w.handle({ type: 'seat:list', seats: heldNow(w, v) })
+    await waitFor(() => w.get(v)?.why === 'in_use', 8000, 'in use')
+    // asked to have it again meanwhile: the reason is the open terminal, not 「남은 변경」
+    vars.get(v).epoch++
+    vars.get(v).state = 'moving'
+    const waiting = w.open(v, 8000)
+    w.handle(prepareMsg(v))
+    assert.equal((await waiting).why, 'in_use')
+    await waitFor(() => sentOf('seat:failed', v).length, 8000, 'failed said')
+    assert.equal(sentOf('seat:failed', v).at(-1).why, 'in_use')
+  } finally { sh.kill() }
+  // no new seat:list: the app tries again by itself
+  try { await waitFor(() => !w.get(v), 8000, 'moved by the retry') } finally { w.leftRetryMs = was }
+  assert.equal(sentOf('seat:left', v).length, 1)
+})
+
 test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이지는 open 으로 기다린다', async () => {
   wc.stop()
   const { createLocalRunner } = require('../src/runner')

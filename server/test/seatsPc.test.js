@@ -497,6 +497,9 @@ test('WL-P-12 「여기로 가져오기」를 PC 가 지금 못 하면(작업본
   await SL.receive(L, { type: 'seat:refused', re: 'seat:save', variation: v.id, epoch, why: 'in_use' })
   await SL.receive(L, { type: 'seat:refused', re: 'seat:recall', variation: v.id, epoch, why: '<b>x</b>' })
   assert.equal(SL.pcSays(v.id, seat), null)
+  // files to check on that PC (a pair it shows as one file, changed — 4th review #2): said too, without their names
+  await SL.receive(L, { type: 'seat:refused', re: 'seat:recall', variation: v.id, epoch, why: 'unsure', files: ['Plan.md'] })
+  assert.deepEqual(SL.pcSays(v.id, seat), { why: 'unsure', device: '터미널 연 PC', at: SL.pcSays(v.id, seat).at })
   // said, then the seat moved on: gone
   await SL.receive(L, { type: 'seat:refused', re: 'seat:recall', variation: v.id, epoch, why: 'in_use' })
   assert.equal(SL.pcSays(v.id, { ...seat, epoch: epoch + 1 }), null)

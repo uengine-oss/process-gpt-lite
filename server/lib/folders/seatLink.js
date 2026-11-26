@@ -354,9 +354,10 @@ async function status(link, vid, msg) {
   if (f) await told(f, vid, link.userId)
 }
 // The computer cannot do now what the server asked of it — 「여기로 가져오기」 (seat:recall auto) while a terminal or a program is open in the
-// working copy, or another branch is checked out there: the page that waits says so (the seat's view, pcSays) for a few minutes, until the
+// working copy, files there need its person's check (unsure), or another branch is checked out there: the page that waits says so (the seat's view, pcSays) for a few minutes, until the
 // seat moves on or the person tries again. Kept in memory: the link and the page's poll are this server's.
-const PC_SAYS = new Set(['in_use', 'branch', 'remove', 'failed', 'offline'])
+// (unsure: a pair the PC shows as one file is changed there — only its person can say which name was meant; the names never come here)
+const PC_SAYS = new Set(['in_use', 'unsure', 'branch', 'remove', 'failed', 'offline'])
 const PC_SAYS_MS = 10 * 60_000
 const pcSaid = new Map() // variation → {why, at, epoch, device}
 async function pcRefused(link, vid, msg) {

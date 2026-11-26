@@ -47,7 +47,9 @@ const warn = computed(() => {
 async function act(what) {
   const b = bridge()
   if (!b || busy.value) return
-  if (what === 'release' && !confirm('이 PC 의 작업본을 있는 그대로 올리고 이 PC 에서 치울까요? git 이 싣지 않는 파일(.env · 빌드 산출물 같은 것)은 앱 휴지통에 30일 남겨요.')) return
+  // (a pair this PC shows as one file, changed: named before it goes — it stays in the trash, never pushed)
+  const unsure = (pc.value?.unsureFiles || []).join(', ')
+  if (what === 'release' && !confirm(unsure ? `이 PC 의 작업본을 그대로 올리고 이 PC 에서 치울까요? 확인이 필요한 파일(${unsure})은 어느 쪽을 수정했는지 알 수 없어 올리지 않고, 앱 휴지통에 30일 동안 보관해요.` : '이 PC 의 작업본을 있는 그대로 올리고 이 PC 에서 치울까요? git 이 싣지 않는 파일(.env · 빌드 산출물 같은 것)은 앱 휴지통에 30일 남겨요.')) return
   busy.value = what; note.value = []
   emit('busy', what)
   try {
@@ -61,7 +63,8 @@ async function act(what) {
       const r = await b.release(props.vid)
       if (!r?.ok) { say(seatWhy(r?.why)); return }
       say('작업본을 돌려놓았어요 — 이 변형은 이제 보관 중이에요.', r.kept ? `이 PC 에만 있던 파일 ${r.kept}개는 앱 휴지통에 30일 남겨 둬요.` : '',
-        r.left?.title ? `이어 붙일 수 없던 변경은 「${r.left.title}」 변형으로 올렸어요.` : '')
+        r.left?.title ? `이어 붙일 수 없던 변경은 「${r.left.title}」 변형으로 올렸어요.` : '',
+        r.unsureFiles?.length ? `확인이 필요한 파일(${r.unsureFiles.join(', ')})은 앱 휴지통에 30일 동안 남아 있어요.` : '')
       emit('released', r)
     }
   } catch (e) { say(e.message) } finally { busy.value = ''; emit('busy', ''); refreshPcSeats() }
