@@ -42,8 +42,8 @@ function setup() {
     return ev
   }
   for (const el of [grid, other]) el.dispatchEvent = (ev) => fire(ev, el)
-  const finger = (type, x, y, { id = 7, at = grid } = {}) => {
-    const ev = new FakeEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y })
+  const finger = (type, x, y, { id = 7, at = grid, primary = id === 7 } = {}) => {
+    const ev = new FakeEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: primary, clientX: x, clientY: y })
     ev.isTrusted = true
     return fire(ev, at)
   }
@@ -99,26 +99,33 @@ test('tap: the editor gets a mouse click on that cell, nothing scrolls', () => {
   assert.equal(t.got('dblclick').length, 0)
 })
 
-test('double tap: the editor gets a double click (edits the cell); the browser\'s own one after it is dropped', () => {
+test('double tap: the second tap reaches the editor where the first did (its double click opens the cell)', () => {
+  // the editor counts two clicks within 2 px and 500 ms as a double click; two finger taps land further apart
   const t = setup()
   const tap = (x, y) => { t.finger('pointerdown', x, y); t.pass(60); t.finger('pointerup', x, y) }
   tap(200, 450)
   t.pass(120)
   tap(204, 452)
-  const [dbl] = t.got('dblclick')
-  assert.ok(dbl, 'double click sent')
-  assert.deepEqual([dbl.detail, dbl.clientX, dbl.clientY], [2, 204, 452])
-  assert.equal(t.got('pointerdown').length, 2)
-  const native = new FakeEvent('dblclick', { clientX: 204, clientY: 452 })
-  native.isTrusted = true
-  t.grid.dispatchEvent(native)
-  assert.equal(t.got('dblclick').length, 1, 'not twice')
-  // two taps too far apart in time are two taps
+  const downs = t.got('pointerdown'), ups = t.got('pointerup')
+  assert.equal(downs.length, 2)
+  assert.deepEqual(downs.map((e) => [e.clientX, e.clientY]), [[200, 450], [200, 450]])
+  assert.deepEqual(ups.map((e) => [e.clientX, e.clientY]), [[200, 450], [200, 450]])
+  assert.equal(t.got('dblclick').length, 0, 'the editor reads clicks, not the dblclick event')
+  // a third tap right after starts over (not a triple click at the same place)
+  t.pass(100)
+  tap(206, 455)
+  assert.equal(t.got('pointerdown').at(-1).clientX, 206)
+  // two taps too far apart in time, or on the next row, are two taps
   const s = setup()
   s.finger('pointerdown', 200, 450); s.pass(60); s.finger('pointerup', 200, 450)
   s.pass(600)
-  s.finger('pointerdown', 200, 450); s.pass(60); s.finger('pointerup', 200, 450)
-  assert.equal(s.got('dblclick').length, 0)
+  s.finger('pointerdown', 202, 451); s.pass(60); s.finger('pointerup', 202, 451)
+  assert.equal(s.got('pointerdown').at(-1).clientX, 202)
+  const r = setup()
+  r.finger('pointerdown', 200, 450); r.pass(60); r.finger('pointerup', 200, 450)
+  r.pass(100)
+  r.finger('pointerdown', 200, 472); r.pass(60); r.finger('pointerup', 200, 472)
+  assert.equal(r.got('pointerdown').at(-1).clientY, 472, 'the next row is its own cell')
 })
 
 test('hold, then drag: a range selection (the editor sees a mouse drag from where the finger rested)', () => {
@@ -160,6 +167,22 @@ test('flick: the sheet keeps going and slows down; a touch stops it without sele
   assert.equal(s.frame(), 0)
   assert.equal(s.got('wheel').length, before)
   assert.equal(s.got('pointerdown').length, 0, '… and does not pick a cell')
+  // a mouse press or a key also stops it
+  for (const how of ['mouse', 'key']) {
+    const m = setup()
+    drag(m, 200, 700, 200, 400, 4, 16)
+    m.frame()
+    if (how === 'mouse') { const ev = new FakeEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', clientX: 5, clientY: 5 }); ev.isTrusted = true; m.other.dispatchEvent(ev) } else {
+      const ev = new FakeEvent('keydown', { key: 'ArrowDown' }); ev.isTrusted = true; m.grid.dispatchEvent(ev)
+    }
+    assert.equal(m.frame(), 0, `stopped by the ${how}`)
+  }
+  // a finger on another part of the editor stops it as well
+  const o = setup()
+  drag(o, 200, 700, 200, 400, 4, 16)
+  o.frame()
+  o.finger('pointerdown', 5, 5, { at: o.other }); o.finger('pointerup', 5, 5, { at: o.other })
+  assert.equal(o.frame(), 0, 'stopped by a finger outside the grid')
   // a finger that rests before it lifts does not flick: the next tap picks a cell
   const q = setup()
   q.finger('pointerdown', 200, 700)
@@ -185,6 +208,15 @@ test('a second finger ends the gesture; nothing of either finger reaches the gri
   // and the next single finger works again
   drag(t, 200, 600, 200, 500)
   assert.ok(t.got('wheel').length > wheels)
+})
+
+test('a lost lift does not leave touch off: the next first finger starts afresh', () => {
+  const t = setup()
+  t.finger('pointerdown', 200, 600) // its pointerup never arrives
+  t.finger('pointerdown', 200, 600, { id: 9, primary: true })
+  t.pass(60)
+  t.finger('pointerup', 200, 600, { id: 9 })
+  assert.equal(t.got('pointerdown').length, 1, 'the tap reached the editor')
 })
 
 test('a mouse, a pen, and a finger on other parts of the editor are left alone', () => {

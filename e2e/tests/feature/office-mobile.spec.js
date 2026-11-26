@@ -294,9 +294,10 @@ test.describe('휴대폰 문서 보기 (녹화 회차 2026-11-21)', () => {
     // a double tap opens the cell for editing (the cell editor comes on screen)
     const cellEditor = ed.locator('[id="__editor___INTERNAL_EDITOR__DOCS_NORMAL"]')
     expect((await cellEditor.boundingBox())?.x ?? -1).toBeLessThan(0)
+    // a finger's second tap never lands on the same pixel: a few pixels off, as on a phone
     await tap(x, top + 120)
     await page.waitForTimeout(120)
-    await tap(x, top + 120)
+    await tap(x + 5, top + 123)
     await expect.poll(async () => (await cellEditor.boundingBox())?.x ?? -1).toBeGreaterThan(0)
     await shot(page, testInfo, 'om-sheet-5-double-tap-edit')
     expect(page.errors).toEqual([])
