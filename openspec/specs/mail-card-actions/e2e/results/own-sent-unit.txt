@@ -1,17 +1,23 @@
-# 내가 보낸 메일 — 서버 시험 (2026-11-26, 브랜치 fix/mail-own-sent, 기준 origin/main 97d77b1)
-# cd server && node --test --test-concurrency=1 --test-reporter=spec test/mailSelf.test.js <메일 관련 서버 시험 16개 파일>
-# (mailSelf · mailFlow.integration · mailWork.integration · mailCard(.integration) · mailPollRace.integration · mailReply.integration · mailFollow(.integration) · mailAttachments(.integration) · google-connect · google · ontology-gmail · ontology-mailbody · mail-code · browser-mail-otp)
+# 내가 보낸 메일 — 서버 시험 (2026-11-26, PR #80 검토 반영 후)
+# cd server && node --test --test-concurrency=1 --test-reporter=spec test/mailSelf.test.js test/mailSelf.integration.test.js <메일 관련 서버 시험 16개 파일>
+# (mailFlow.integration · mailWork.integration · mailCard(.integration) · mailPollRace.integration · mailReply.integration · mailFollow(.integration) · mailAttachments(.integration) · google-connect · google · ontology-gmail · ontology-mailbody · mail-code · browser-mail-otp)
 
-## mailSelf.test.js
-✔ 보낸 사람 주소: 표시 이름 · 꺾쇠 · 대소문자를 걷어 낸 주소, 주소가 아니면 빈 값 (0.814083ms)
-✔ 내 메일: SENT 라벨(Gmail 에서 나를 참조로 보낸 것 포함) · 회사 주소의 사본 · send-as 별칭, 같은 이름의 다른 주소는 남의 메일 (0.146459ms)
-✔ send-as 주소: 연결한 계정 · 확인된 별칭은 내 주소, 확인 메일을 기다리는 주소는 아님 · 한 시간 기억 · Gmail 이 거절하면 빈 목록 (2.53125ms)
-✔ 스레드: 내 답장(SENT · 별칭)이 더 나중이면 답한 메일, 내 초안 · 상대의 더 나중 답장 · 읽지 못한 스레드는 아님 (1.229666ms)
-✔ 답장 카드: 메일 비서가 「reply」로 정했거나 「Reply」 단추면 답장, 그 밖의 카드는 아님 (0.068583ms)
+## mailSelf.test.js · mailSelf.integration.test.js
+✔ 이미 답한 메일이 견적서를 요청한다: 답장 카드는 없고, 지도 · 프로세스 마이닝이 그 메일을 읽으며, 초안은 「이미 답함」으로 — 답하지 않은 메일은 지금처럼 (723.809583ms)
+✔ 보낸 사람 주소 · 받는 사람 목록: 표시 이름 · 꺾쇠 · 대소문자를 걷어 낸 주소, 이름 안의 쉼표로는 나누지 않는다 (1.794166ms)
+✔ 내 메일: SENT 라벨 · 회사 주소에서 고객에게 보낸 사본 · 별칭으로 보낸 것, 같은 이름의 다른 주소는 남의 메일 (0.373708ms)
+✔ 나에게만 간 메일은 읽을 메일: 나에게 쓴 메모 · From 을 내 회사 주소로 바꿔 전달하는 규칙 — SENT 라벨이 있으면 내 메일 (0.14ms)
+✔ 별칭으로만 맞으면: 그룹 주소로 다시 쓴 고객 글(「… via 다온 영업」, Reply-To · X-Original-Sender 가 고객) · 공용 주소로 보낸 동료 메일은 남의 메일 (0.17225ms)
+✔ send-as 주소: 기본 주소는 내 주소, 별칭으로 다루는 확인된 주소만 별칭(그룹 · 대신 보내기 · 확인 대기는 아님) · 사람과 메일함마다 한 시간 기억 · 거절하면 빈 목록 (2.056875ms)
+✔ 스레드: 원래 보낸 사람에게 간 내 나중 메일이면 이미 답함 — 동료에게 전달 · 초안 · 예약 발송 · 스팸 · 휴지통 · 상대의 더 나중 메일 · 읽지 못한 스레드는 아님 (2.2485ms)
+✔ 답장 카드: 메일 비서가 「reply」로 정했거나 「Reply」 단추면 답장, 그 밖의 카드는 아님 (0.102375ms)
 
 ## 모두
-ℹ tests 143
-ℹ pass 143
+ℹ tests 146
+ℹ pass 146
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
+
+## 검토 전 코드(c151932 의 lib/mail.js · lib/mailSelf.js)에서 mailSelf.integration.test.js
+#   not ok — answered 2 (동료에게 전달한 메일도 「이미 답함」), actions 1 (기대 answered 1 · actions 2)

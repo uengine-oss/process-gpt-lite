@@ -24,7 +24,8 @@ export async function startFakeGoogle({ clients = {} } = {}) {
   const tokens = new Map() // access token -> email
   const log = { auth: [], token: [], userinfo: 0, approve: [] }
   const state = { refuse: false, error: false, scope: null, deny: false }
-  // messages: [{ id, threadId, from, to, cc, subject, text, labels, at (ms) }] · sendAs: [{ sendAsEmail, verificationStatus? }] · sendAsStatus: an
+  // messages: [{ id, threadId, from, to, cc, replyTo, xOriginalSender, subject, text, labels, at (ms) }] · sendAs: [{ sendAsEmail, treatAsAlias?,
+  // verificationStatus? }] (after the account's own, isPrimary) · sendAsStatus: an
   // HTTP status to refuse settings/sendAs with (an older grant)
   const mailbox = { messages: [], sendAs: [], sendAsStatus: 0, log: [] }
   const page = (title, body) => `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="margin:0;font-family:sans-serif;background:#fff;height:800px;overflow:hidden">${body}</body>`
@@ -93,7 +94,7 @@ ${['client_id', 'redirect_uri', 'state', 'code_challenge', 'scope'].map((k) => `
       mailbox.log.push(`${u.pathname.slice('/gmail/v1/users/me'.length)}${u.search}`)
       if (!who) return json(res, 401, { error: { code: 401, message: 'Request had invalid authentication credentials.' } })
       const rest = u.pathname.slice('/gmail/v1/users/me/'.length).split('/').map(decodeURIComponent)
-      const headers = (m, only) => [['From', m.from], ['To', m.to], ['Cc', m.cc], ['Subject', m.subject], ['Date', new Date(m.at || Date.now()).toUTCString()]]
+      const headers = (m, only) => [['From', m.from], ['To', m.to], ['Cc', m.cc], ['Reply-To', m.replyTo], ['X-Original-Sender', m.xOriginalSender], ['Subject', m.subject], ['Date', new Date(m.at || Date.now()).toUTCString()]]
         .filter(([n, v]) => v && (!only || only.includes(n))).map(([name, value]) => ({ name, value }))
       const shape = (m, metadata, only) => ({ id: m.id, threadId: m.threadId || `t-${m.id}`, labelIds: m.labels || ['INBOX'], internalDate: String(m.at || 0), snippet: String(m.text || '').slice(0, 100),
         payload: metadata ? { headers: headers(m, only) } : { mimeType: 'text/plain', headers: headers(m), body: { data: Buffer.from(String(m.text || '')).toString('base64url') } } })
