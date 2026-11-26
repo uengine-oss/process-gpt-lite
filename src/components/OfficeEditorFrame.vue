@@ -25,6 +25,7 @@ import { BASE } from '../base.js'
 import { kindOf, kindLabel } from '../artifacts.js'
 import { openLiveLink } from '../liveLink.js'
 import { watchEdits, pressSave } from '../officeAutosave.js'
+import { installSheetTouchPan } from '../officeTouchPan.js'
 
 const props = defineProps({
   fileUrl: { type: String, default: '' },
@@ -149,6 +150,9 @@ function dressEditor() {
   }
   doc.documentElement.classList.toggle('pgpt-compact', compact.value)
   doc.documentElement.classList.toggle('pgpt-no-thumbs', compact.value && deck.value && !thumbsOpen.value)
+  // a finger scrolls a spreadsheet (tap selects, double tap edits, hold-then-drag selects a range);
+  // the editor's grid would read every drag as a selection (src/officeTouchPan.js)
+  if (editor() === 'sheets') installSheetTouchPan(frame.value.contentWindow)
 }
 watch([compact, thumbsOpen], () => { dressEditor(); syncSoon() })
 // where the deck is ("슬라이드 3/9" in its status bar) and the middle of its stage, for the buttons
