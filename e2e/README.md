@@ -1505,6 +1505,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/local
 | 인스턴스 화면의 산출물(단계의 긴 텍스트 결과): 같은 규칙으로 표시한다 | 스펙 요구 1 | F-SH-05 | feature | ✅ |
 | 페이지 meta 정책(`<object>` · `<base>` 를 허용하지 않으며, 브라우저가 정책에 따른 차단을 알림), nginx 설정 내용, 실제 nginx 의 헤더: 앱 페이지 `frame-ancestors 'self'; object-src 'none'; base-uri 'self'`, 저장소의 HTML · SVG · XML 에만 `sandbox` 적용(그림 · PDF · JSON · REST · 로그인 응답은 그대로 유지) | 스펙 요구 4 | F-SH-06 | feature | ✅ |
 | 작업실의 파일 원본: 그림 · 소리 · 영상 · PDF · 일반 텍스트(txt · md · csv · json)만 sandbox 없이 전송하고, 나머지(`.html` · `.xhtml` · `.xht` · `.shtml` · `.svg` · `.xml` · `.xsl` · `.rdf` · 확장자 없음 …)는 `sandbox`를 적용해 전송한다 | 스펙 요구 4 | F-SH-07 | feature | ✅ |
+| `/api` 아래 모든 응답에 nosniff, PDF · 경로 자신의 정책 밖에는 스크립트 없는 sandbox 정책 · 에이전트 파일은 그 회사 단계 결과에 이름이 있는 실행의 동영상 · 그림만(형식은 이름으로) | 스펙 「API 응답은 이 주소에서 실행되는 페이지가 되지 않는다」 | `apiHeaders.test.js` · 폴더 · 미리 보기 · 내려받기 34/34 | 단위 · feature | ✅ |
 | 파일 카드의 새 탭 열기 · 팀 활동 산출물 링크 · 패널 앱 「열기」의 웹 주소 확인 | 스펙 요구 3 | — (코드만, 서버 쪽 `documentFrom` 은 folderFindOpen · folderEditSave 단위 시험이 그대로 통과) | — | ◐ |
 | 내 PC 의 CLI 대화 보기(`LocalConversation`, html allow) 회귀 | 스펙 요구 2 | F-LV-01~10 | feature | ✅ |
 | 운영(게이트웨이 뒤)의 저장소 응답 헤더 · `script-src` 제한 | — | — (이 저장소 밖 · 패널 앱 구조) | — | ✗ |
