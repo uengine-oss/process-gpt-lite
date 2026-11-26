@@ -731,3 +731,22 @@ test('RF-U-36 보관 자리는 30일이 지나면 비운다(커밋할 때) · �
     assert.ok(n.description.includes('30일'))
   } finally { await fs.rm(kept, { recursive: true, force: true }) }
 })
+
+// 11-27 (found recording the feature video): the access notice's particle follows the label's last sound — 「보안 규정」으로, 「폴더2」로
+test('RF-U-37 접근 요청 알림의 조사는 자리 이름의 끝소리대로 — 받침이 있으면 「으로」', { skip: !db && 'no database' }, async () => {
+  const { rules, comp } = await world()
+  const s = await R.add(comp, 'owner', owner, { source: rules.slug, path: '보안', slot: '보안 자료', label: '보안 규정' })
+  // the source's owner as a person of this company (the notice goes to the users row; this file's world has none)
+  const { ensureTenantRow } = await import('../lib/tenant.js')
+  await ensureTenantRow(TENANT).catch(() => {})
+  await q('insert into users (id, email, username, tenant_id) values ($1,$2,$3,$4) on conflict do nothing', [owner.id, owner.email, owner.name, TENANT])
+  try {
+    assert.deepEqual(await R.requestAccess(comp, mate, s.id), { requested: true })
+    const [n] = await q(`select description from notifications where type='folder_access' and user_id = any($1) and coalesce(is_checked,false)=false and description like '%보안 규정%' limit 1`, [[String(owner.id), owner.email]])
+    assert.ok(n?.description?.includes('참조 「보안 규정」으로 이 폴더의 자료를'), n?.description)
+  } finally {
+    await R.remove(comp, 'owner', owner, s.id)
+    await q(`delete from notifications where type='folder_access' and user_id = any($1)`, [[String(owner.id), owner.email]]).catch(() => {})
+    await q('delete from users where id=$1 and tenant_id=$2', [owner.id, TENANT]).catch(() => {})
+  }
+})

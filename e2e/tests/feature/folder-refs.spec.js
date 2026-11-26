@@ -8,7 +8,8 @@
 //                 구성원에서 빠진 직후 · 접근 요청
 //   F-RF-01 참조 더하기 시트로 폴더 전체 · 하위 폴더를 더하면 「참조」 자리가 보인다
 //   F-RF-02 파일 하나를 더한다
-//   F-RF-03 자리의 파일을 열면 「참조된 자료 · 원본 열기」, 편집할 수 없다 · 원본 열기는 원본 폴더의 그 파일로
+//   F-RF-03 자리의 파일을 열면 「참조된 자료 · 원본 열기」, 편집할 수 없다 · 원본 열기는 원본 폴더의 그 파일로 · 원본을 고치면 다시 열 때 바로
+//           새 내용(움직이는 ref 는 no-cache + ETag, 11-27)
 //   F-RF-04 원본의 구성원이 아닌 동료에게는 잠긴 자리(이름표만)와 「접근 요청」 — 밝은 · 어두운 테마
 //   F-RF-05 자리에 올리기는 거절된다
 //   F-RF-06 채팅에 붙이면 에이전트가 참조된 파일의 내용으로 답한다 · 못 보는 동료의 에이전트는 그 자리를 읽지 못한다
@@ -407,6 +408,30 @@ test('F-RF-03 자리의 파일을 열면 「참조된 자료 · 원본 열기」
   await expect(band).toContainText('원본: 영업 자료/가격 정책.md')
   await expect(p.locator('.sheet.glass')).toContainText('대량 구매는 10% 할인해요')
   await shot(p, 'f-rf-03-preview-light')
+  // (11-27, found recording the feature video) the original changes a moment after the slot's file was opened: reopening it shows the
+  // new text at once. A moving ref (main, a slot) is revalidated — no-cache with the file's git blob id as ETag, 304 while it is the same.
+  const rawAt = `http://127.0.0.1:${S.apiPort}/api/folders/${COMP.slug}/raw?ref=main&path=${enc('폴더1/가격 정책.md')}`
+  const first = await fetch(rawAt, { headers: { Authorization: `Bearer ${A.token}` } })
+  expect(first.headers.get('cache-control')).toBe('private, no-cache')
+  const tag = first.headers.get('etag')
+  expect(tag).toMatch(/^"[0-9a-f]{40}"$/)
+  expect((await fetch(rawAt, { headers: { Authorization: `Bearer ${A.token}`, 'If-None-Match': tag } })).status).toBe(304)
+  await p.locator('.sheet.glass button[title="닫기"]').click()
+  await upload(A, SALES.slug, '가격 정책.md', MD.price.replace('10%', '15%'))
+  try {
+    await p.locator('[data-test="folder-file"][data-file="폴더1/가격 정책.md"] .fn').click()
+    await expect(p.locator('.sheet.glass')).toContainText('대량 구매는 15% 할인해요', { timeout: 10_000 })
+    const changed = await fetch(rawAt, { headers: { Authorization: `Bearer ${A.token}`, 'If-None-Match': tag } })
+    expect(changed.status).toBe(200)
+    expect(changed.headers.get('etag')).not.toBe(tag)
+    // a commit's file never changes: still kept a minute
+    const sha = (await call(A, 'GET', `/folders/${SALES.slug}`)).body.history[0].sha
+    expect(sha).toMatch(/^[0-9a-f]{40}$/)
+    expect((await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${SALES.slug}/raw?ref=${sha}&path=${enc('가격 정책.md')}`, { headers: { Authorization: `Bearer ${A.token}` } })).headers.get('cache-control')).toBe('private, max-age=60')
+  } finally { await upload(A, SALES.slug, '가격 정책.md', MD.price) }
+  await p.locator('.sheet.glass button[title="닫기"]').click()
+  await p.locator('[data-test="folder-file"][data-file="폴더1/가격 정책.md"] .fn').click()
+  await expect(p.locator('.sheet.glass')).toContainText('대량 구매는 10% 할인해요', { timeout: 10_000 })
   await p.locator('[data-test="ref-open-source"]').click()
   await expect(p).toHaveURL(new RegExp(`/folders/${SALES.slug}\\?file=`))
   await expect(p.locator('.sheet.glass .ttl small')).toContainText('영업 자료')
@@ -443,9 +468,11 @@ test('F-RF-04 원본의 구성원이 아닌 동료: 잠긴 자리(이름표만)�
     expect(p.errors).toEqual([])
   }
   // the original's owner was told (the folder access notice — it opens the original's 공유 sheet with that person picked)
-  const [n] = await S.q(`select title, url from notifications where tenant_id=$1 and user_id=$2 and type='folder_access'`, [TENANT, A.id])
+  const [n] = await S.q(`select title, url, description from notifications where tenant_id=$1 and user_id=$2 and type='folder_access'`, [TENANT, A.id])
   expect(n.url).toBe(`/folders/${RULES.slug}?share=${B.id}`)
   expect(n.title).toContain('오지후')
+  // the particle follows the label's last sound (「폴더2」로 here; a label ending in a consonant takes 으로 — server RF-U-37; 11-27)
+  expect(n.description).toContain('참조 「폴더2」로 이 폴더의 자료를')
   // and nobody told the person who asked anything about the original
   expect((await S.q(`select 1 from notifications where tenant_id=$1 and user_id=$2 and type='folder_access'`, [TENANT, B.id])).length).toBe(0)
   // the owner's screen: the original's share sheet with 오지후 picked
