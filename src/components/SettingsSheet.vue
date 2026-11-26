@@ -14,6 +14,7 @@ import FollowupList from './FollowupList.vue'
 import SharingCenter from './context/SharingCenter.vue'
 import MailConnect from './MailConnect.vue'
 import TelegramConnect from './TelegramConnect.vue'
+import NotifyCard from './NotifyCard.vue'
 import DemoMailPractice from './DemoMailPractice.vue'
 import GoogleClientAdmin from './GoogleClientAdmin.vue'
 import BackgroundAdmin from './BackgroundAdmin.vue'
@@ -279,6 +280,8 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
             <DemoMailPractice />
           </div>
           <TelegramConnect compact />
+          <!-- this device's notifications: on or not, and 「시험 알림 보내기」 (components/NotifyCard.vue) -->
+          <NotifyCard place="settings" />
         </div>
         <ConnectorCards />
         <!-- this computer's CLI agents (desktop app) and my desktops (server lib/localAgents) -->

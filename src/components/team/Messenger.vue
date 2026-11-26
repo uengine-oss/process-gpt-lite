@@ -270,6 +270,14 @@ const dropRef = (r) => { refs.value = refs.value.filter((x) => x.key !== r.key) 
 
 // ---- "@": the people of this conversation and 「AI」 (lib/team/aiHelp.js answers a message addressed to it) ----
 const taEl = ref(null)
+// 「답장」 on a room's phone notification opened this room (stores/team.js openMessenger reply): the composer is ready to type in — also
+// when this sheet (loaded on demand) comes up after the room was asked for
+watch(() => team.replyAt, async (at) => {
+  if (!at || Date.now() - at > 5000) return
+  for (let i = 0; i < 40 && !taEl.value; i++) await new Promise((ok) => setTimeout(ok, 50))
+  await nextTick()
+  taEl.value?.focus()
+}, { immediate: true })
 const aiOn = ref(false)
 const mentioned = ref([])      // people named with @ in this draft: [{id, name}]
 const at = reactive({ open: false, query: '', pos: -1, x: 0, active: 0 })

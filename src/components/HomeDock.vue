@@ -13,7 +13,8 @@ import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { useTeam } from '../stores/team.js'
 import { narrow } from '../viewport.js'
-import { permission as notifyPermission, ask as askNotify } from '../browserNotify.js'
+import NotifyCard from './NotifyCard.vue'
+import { permission as notifyPermission, iosNeedsHomeScreen } from '../browserNotify.js'
 import { nudgeHere } from '../install.js'
 import { usePullRefresh, refreshHome, homeBanner, mailBusy, PULL_THRESHOLD } from '../pullRefresh.js'
 
@@ -26,9 +27,22 @@ const { pull, state: pullState, dragging } = usePullRefresh(dockEl, () => refres
 // the arrow points down and turns up as the pull reaches the point where letting go refreshes
 const arrowTurn = computed(() => 180 + Math.min(1, pull.value / PULL_THRESHOLD) * 180)
 // a work item that already has a notification card is not listed twice
-// browser notifications for a background tab: offered until the person answers the browser's question
+// notifications on this device (components/NotifyCard.vue): offered until the person answers the browser's question; right after they
+// turn it on, 「시험 알림 보내기」 until the card is closed; on an iPhone outside a Home Screen web app, how it works there (until closed)
 const notify = ref(notifyPermission())
-async function enableNotify() { notify.value = await askNotify() }
+const justOn = ref(false)
+const IOS_SEEN = 'pgl-notify-ios-seen'
+const iosSeen = ref((() => { try { return localStorage.getItem(IOS_SEEN) === '1' } catch { return false } })())
+const notifyMode = computed(() => {
+  if (iosNeedsHomeScreen() && notify.value !== 'granted') return iosSeen.value ? '' : 'ios'
+  if (notify.value === 'default') return 'ask'
+  return notify.value === 'granted' && justOn.value ? 'on' : ''
+})
+function notifyChanged(p) { notify.value = p; justOn.value = p === 'granted' }
+function notifyClose() {
+  if (notifyMode.value === 'ios') { iosSeen.value = true; try { localStorage.setItem(IOS_SEEN, '1') } catch { /* asked again next visit */ } }
+  justOn.value = false
+}
 // 앱 설치 안내 (src/install.js): until installed, 「나중에」 or 「다시 보지 않기」
 const installCard = computed(() => nudgeHere('home'))
 // (a work item put away from Home — its card or its notice — stays in 루틴, not here)
@@ -67,9 +81,7 @@ async function openTodo(t) {
       <button v-if="narrow" key="team" class="msgs glass press" @click="team.openMessenger()">
         <Icon name="team" :size="20" /> 팀 메시지<i v-if="team.unread.total">{{ team.unread.total }}</i>
       </button>
-      <button v-if="notify === 'default'" key="notify" class="notify glass press" @click="enableNotify">
-        <Icon name="bell" :size="18" /> 브라우저 알림 켜기 <small>다른 창을 보고 있을 때도 메시지·할 일을 알려 드려요</small>
-      </button>
+      <NotifyCard v-if="notifyMode" key="notify" place="home" :mode="notifyMode" @changed="notifyChanged" @close="notifyClose" />
       <InstallNudge v-if="installCard" key="install" place="home" />
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
       <HomeTodoCard v-for="t in todos" :key="'t' + t.id" :todo="t" @open="openTodo" />
@@ -112,8 +124,6 @@ async function openTodo(t) {
   .stack:not(.live), .ptr, .ptr .arrow { transition: none; }
   .ptr .ring { animation-duration: 2.4s; }
 }
-.notify { border-radius: 22px; padding: 14px 18px; text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 15px; color: var(--text-primary); }
-.notify small { flex-basis: 100%; color: var(--text-secondary); font-size: 12.5px; }
 .msgs { height: 56px; border-radius: 22px; display: flex; align-items: center; gap: 8px; padding: 0 20px; font-size: 16px; color: var(--text-primary); }
 .msgs i { margin-left: auto; font-style: normal; min-width: 22px; height: 22px; line-height: 22px; padding: 0 6px; border-radius: 11px; background: #e5484d; color: #fff; font-size: 12px; text-align: center; }
 .new { height: 64px; border-radius: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 17px; color: var(--text-primary); }
