@@ -600,7 +600,8 @@ async function keepPath(from, to) {
   try {
     await fs.cp(from, to, { recursive: true, dereference: false, verbatimSymlinks: true, errorOnExist: true, force: false,
       filter: async (src) => { const st = await fs.lstat(src); return st.isDirectory() || st.isFile() } })
-    if (!sameSnapshot(before, await snapshot(from)) || !(await holdsSnapshot(to, before))) throw new Error('the original changed while it was copied, or the copy is not whole')
+    // (the copy checked first, the original last: the gap between that last look and its removal is as short as it can be)
+    if (!(await holdsSnapshot(to, before)) || !sameSnapshot(before, await snapshot(from))) throw new Error('the original changed while it was copied, or the copy is not whole')
   } catch {
     await fs.rm(to, { recursive: true, force: true }).catch(() => {})
     return false
@@ -727,7 +728,7 @@ function ranStopped(who, age, olderThan, going) {
 // A note, failure mark or claim whose copy is gone is removed once it is old. → how many were kept
 const staged = new Set() // staging copies this process's retires (or sweeps) are working on now (keyOf)
 const claiming = new Set() // copies a sweep of this process is claiming or moving now (keyOf)
-async function claimCopy(staging) {
+export async function claimCopy(staging) {
   const file = `${staging}.claim`
   const me = JSON.stringify({ host: os.hostname(), pid: process.pid, boot: BOOT, ns: PID_NS })
   for (let i = 0; i < 2; i++) {
@@ -736,11 +737,23 @@ async function claimCopy(staging) {
       try { await h.writeFile(me) } finally { await h.close() }
       return file
     } catch (e) { if (e.code !== 'EEXIST') return null }
-    let who = null
-    try { who = JSON.parse(await fs.readFile(file, 'utf8')) } catch { /* being written, or gone */ }
+    let who = null, raw = null
+    try { raw = await fs.readFile(file, 'utf8'); who = JSON.parse(raw) } catch { /* being written, or gone */ }
     const st = await fs.stat(file).catch(() => null)
     if (st && !ranStopped(who, Date.now() - st.mtimeMs, STALE_RETIRE_MS, false)) return null
-    await fs.rm(file, { force: true }).catch(() => {})
+    // a stopped claim is taken over by moving it aside under a name of its own: only one rename of it succeeds, so two sweeps that both
+    // judged it stopped do not both go on (removing it and making a new one let the second remove the first one's fresh claim)
+    const aside = `${file}.stale-${BOOT}-${crypto.randomBytes(3).toString('hex')}`
+    try { await fs.rename(file, aside) } catch { return null }
+    // (what was moved aside is the claim judged stopped — not one another sweep made in its place meanwhile: that one goes back, by a link
+    // that fails if a claim is there again, and this sweep leaves the copy alone)
+    const got = await fs.readFile(aside, 'utf8').catch(() => null)
+    if (raw === null || got !== raw) {
+      await fs.link(aside, file).catch(() => {})
+      await fs.rm(aside, { force: true }).catch(() => {})
+      return null
+    }
+    await fs.rm(aside, { force: true }).catch(() => {})
   }
   return null
 }

@@ -120,3 +120,29 @@ test('Y-03 다른 파일시스템으로 옮기는 사본에 FIFO 가 있어도 �
   const [k] = await SE.keptOf(await theFolder(), await S.variationById(v.id), { me: owner, role: 'owner' })
   assert.equal(k.bytes, Buffer.byteLength('keep me'))
 })
+
+// review of 617ae91: a stopped claim was taken over by removing it and making a new one — a second sweep that had judged it stopped too
+// could then remove the first one's fresh claim and go on as well. Now it is moved aside under a name of its own (one rename wins), and
+// what was moved is checked to be the claim judged stopped (a fresh one put there meanwhile goes back).
+test('Y-04 멈춘 claim 을 두 청소가 동시에 넘겨받으려 하면 하나만 가져간다, 그 사이 새로 생긴 claim 은 지우지 않는다', async () => {
+  const dir = path.join(ROOT, 'claims')
+  await fsp.mkdir(dir, { recursive: true })
+  const staging = path.join(dir, 'copy-1')
+  await fsp.mkdir(staging)
+  const stale = JSON.stringify({ host: 'gone-host', pid: 424242, boot: 'old-boot', ns: 'other' })
+  const stamp = new Date(Date.now() - 2 * 3600_000)
+  for (let round = 0; round < 20; round++) {
+    await fsp.rm(`${staging}.claim`, { force: true })
+    await fsp.writeFile(`${staging}.claim`, stale)
+    await fsp.utimes(`${staging}.claim`, stamp, stamp)
+    const got = await Promise.all([S.claimCopy(staging), S.claimCopy(staging), S.claimCopy(staging)])
+    assert.equal(got.filter(Boolean).length, 1, `round ${round}: exactly one sweep takes the stopped claim (${JSON.stringify(got)})`)
+    const now = JSON.parse(await fsp.readFile(`${staging}.claim`, 'utf8'))
+    assert.equal(now.pid, process.pid, 'the claim there now is the winner\'s')
+  }
+  // a fresh claim of another live server is not taken
+  await fsp.writeFile(`${staging}.claim`, JSON.stringify({ host: 'other-host', pid: 1, boot: 'other-boot', ns: 'other' }))
+  assert.equal(await S.claimCopy(staging), null)
+  const left = (await fsp.readdir(dir)).filter((n) => n.includes('.stale-'))
+  assert.deepEqual(left, [], 'nothing moved aside is left behind')
+})
